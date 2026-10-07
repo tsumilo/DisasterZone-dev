@@ -97,9 +97,31 @@ local function MyChar(create)
     return c
 end
 
+-- My pulls, oldest first (another character's with charKey). While demo mode is on: the demo pulls
+-- (Core/MyLogDemo.lua) instead; recording still goes to the real log.
 function MyLog:GetPulls(charKey)
+    if not charKey and ns.MyLogDemo and ns.MyLogDemo:IsActive() then return ns.MyLogDemo:GetPulls() end
     local c = (Store().chars)[charKey or CharKey() or ""]
     return c and c.pulls or {}
+end
+
+function MyLog:IsDemo() return ns.MyLogDemo and ns.MyLogDemo:IsActive() or false end
+
+-- Boss abilities a player can stay out of (spell ids). Hand-picked from the strategy board's ability data; damage
+-- taken from these is "avoidable". Not yet checked against real logs: fix a wrong one here.
+MyLog.AVOIDABLE = {
+    [29946] = true,   -- Flame Wreath (Shade of Aran): moving while it is up
+    [30129] = true,   -- Charred Earth (Nightbane)
+    [30859] = true,   -- Hellfire (Prince Malchezaar's infernals)
+    [37433] = true,   -- Spout (The Lurker Below)
+    [37640] = true,   -- Whirlwind (Leotheras the Blind)
+    [38575] = true,   -- Toxic Spores (Lady Vashj)
+    [35383] = true,   -- Flame Patch (Al'ar)
+}
+
+function MyLog:IsAvoidable(key)
+    local id = tonumber(key)
+    return id and self.AVOIDABLE[id] or false
 end
 
 function MyLog:GetPull(id, charKey)
@@ -762,13 +784,30 @@ function MyLog:Summarize(p)
     end
     local h, oh, sh = Sum(p.heal, "a"), Sum(p.heal, "oh"), Sum(p.shield, "a")
     local t = 0
-    for _, s in pairs(p.taken) do
-        t = t + s.a - (s.o or 0) + (s.ab or 0)
-        if s.m and s.m.ABSORB and s.mab then t = t + s.mab end   -- hits a shield took whole (MISSED ABSORB)
+    local av = 0
+    for key, s in pairs(p.taken) do
+        local one = s.a - (s.o or 0) + (s.ab or 0)
+        if s.m and s.m.ABSORB and s.mab then one = one + s.mab end   -- hits a shield took whole (MISSED ABSORB)
+        t = t + one
+        if MyLog:IsAvoidable(key) then av = av + one end
     end
     local dur = p.dur or 0
     local alive = max(dur - (p.deadFor or 0) - (p.dead and (dur - p.dead) or 0), 0.001)
+    local casts = 0
+    for _, n in pairs(p.casts or {}) do casts = casts + n end
+    -- melee swings at me and how many I dodged, parried or that missed (blocks still hit)
+    local swings, avoided = 0, 0
+    for key, st in pairs(p.taken) do
+        if strsub(key, 1, 1) == "m" then
+            swings = swings + st.n
+            for kind, n in pairs(st.m or {}) do
+                swings = swings + n
+                if kind == "DODGE" or kind == "PARRY" or kind == "MISS" then avoided = avoided + n end
+            end
+        end
+    end
     p.s = {
+        cpm = dur > 0 and Round(casts / dur * 60, 1) or 0, sw = swings, avd = avoided, av = Round(av),
         d = Round(d), h = Round(h), oh = Round(oh), sh = Round(sh), t = Round(t),
         act = p.actSec and Round(min(p.actSec / alive, 1), 4) or nil, dc = #p.deaths,
         dps = dur > 0 and Round(d / dur, 1) or 0, hps = dur > 0 and Round((h + sh) / dur, 1) or 0,
@@ -841,6 +880,175 @@ function MyLog:Trim(c)
             end
         end
     end
+end
+
+---------------------------------------------------------------------------
+-- Queries for the My Log page: instances, runs (raid nights), boss rows, headline numbers
+---------------------------------------------------------------------------
+
+local RUN_BREAK = 6 * 3600        -- pulls of one instance further apart than this are different runs
+
+-- The view a role leads with: "damage" | "healing" | "tanking".
+local VIEW_OF_ROLE = { healer = "healing", tank = "tanking" }
+function MyLog:ViewForRole(role) return VIEW_OF_ROLE[role or ""] or "damage" end
+
+local function InstanceKey(p) return p.iid or p.zone or "?" end
+
+-- Instances I have pulls in, newest first: { { key, name, at (last pull), heroic } }
+function MyLog:GetInstances(charKey)
+    local byKey, out = {}, {}
+    for _, p in ipairs(self:GetPulls(charKey)) do
+        local k = InstanceKey(p)
+        local e = byKey[k]
+        if not e then
+            e = { key = k, name = p.zone or "?", at = 0, heroic = p.heroic }
+            byKey[k] = e
+            out[#out + 1] = e
+        end
+        if (p.at or 0) >= e.at then e.at = p.at or 0 end
+    end
+    table.sort(out, function(a, b) return a.at > b.at end)
+    return out
+end
+
+-- Runs of one instance, newest first: { { at (first pull), last, pulls = { pull, ... } (in order), kills, wipes } }
+function MyLog:GetRuns(instKey, charKey)
+    local runs, cur = {}, nil
+    for _, p in ipairs(self:GetPulls(charKey)) do
+        if InstanceKey(p) == instKey then
+            if not cur or (p.at or 0) - cur.last > RUN_BREAK then
+                cur = { at = p.at or 0, last = p.at or 0, pulls = {}, kills = 0, wipes = 0 }
+                runs[#runs + 1] = cur
+            end
+            cur.pulls[#cur.pulls + 1] = p
+            cur.last = p.at or cur.last
+            if p.kill then cur.kills = cur.kills + 1 elseif not p.cut then cur.wipes = cur.wipes + 1 end
+        end
+    end
+    local out = {}
+    for i = #runs, 1, -1 do out[#out + 1] = runs[i] end
+    return out
+end
+
+-- The headline value of a pull for a view: damage = DPS, healing = HPS (heals + shields), tanking = damage taken
+-- per second.
+local METRIC = { damage = "dps", healing = "hps", tanking = "dtps" }
+function MyLog:Metric(p, view)
+    local s = p and p.s
+    return s and s[METRIC[view] or "dps"] or nil
+end
+
+local function BossKey(p) return p.enc or p.boss or "?" end
+
+-- Kills of p's boss before p (oldest first): those of p's spec when there are any (sameSpec = true), else all.
+local function EarlierKills(pulls, p)
+    local same, any = {}, {}
+    for _, q in ipairs(pulls) do
+        if q == p then break end
+        if q.kill and not q.cut and BossKey(q) == BossKey(p) then
+            any[#any + 1] = q
+            if q.spec == p.spec then same[#same + 1] = q end
+        end
+    end
+    if #same > 0 then return same, true end
+    return any, #any == 0
+end
+
+local function Change(now, before)
+    if not now or not before or before == 0 then return nil end
+    return (now - before) / before * 100
+end
+
+-- One row per boss of a run (in first-pull order): { boss, enc, pulls (count), deaths, kill (the run's last kill |
+-- nil), value, prev (the kill compared with), change (%), sameSpec, active (0..1), cpm, spark = { values of up to
+-- 8 kills, this one last }, best (lowest boss % of the wipes, when there was no kill) }
+function MyLog:BossRows(run, view, charKey)
+    local all = self:GetPulls(charKey)
+    local rows, byBoss = {}, {}
+    for _, p in ipairs(run.pulls) do
+        local k = BossKey(p)
+        local r = byBoss[k]
+        if not r then
+            r = { boss = p.boss or "?", enc = p.enc, pulls = 0, deaths = 0 }
+            byBoss[k] = r
+            rows[#rows + 1] = r
+        end
+        r.pulls = r.pulls + 1
+        r.deaths = r.deaths + ((p.s and p.s.dc) or 0)
+        if p.kill and not p.cut then
+            r.kill = p
+        elseif not p.cut and p.pct and (not r.best or p.pct < r.best) then
+            r.best = p.pct
+        end
+    end
+    for _, r in ipairs(rows) do
+        local p = r.kill
+        if p then
+            r.value = self:Metric(p, view)
+            r.active = p.s and p.s.act
+            r.cpm = p.s and p.s.cpm
+            local earlier, sameSpec = EarlierKills(all, p)
+            r.sameSpec = sameSpec
+            r.prev = earlier[#earlier]
+            r.change = r.prev and Change(r.value, self:Metric(r.prev, view)) or nil
+            local spark = {}
+            for i = max(1, #earlier - 6), #earlier do spark[#spark + 1] = self:Metric(earlier[i], view) end
+            spark[#spark + 1] = r.value
+            r.spark = spark
+        end
+    end
+    return rows
+end
+
+local function AverageOf(pulls, fn)
+    local total, n = 0, 0
+    for _, p in ipairs(pulls) do
+        local v = fn(p)
+        if v then total = total + v; n = n + 1 end
+    end
+    return n > 0 and total / n or nil
+end
+
+-- A run's numbers: { value (average over its kills), active, taken (DTPS), overheal (0..1), avoid (0..1), deaths,
+-- avoidable (damage from AVOIDABLE abilities, every pull), ilvl, kills }
+function MyLog:RunNumbers(run, view)
+    local kills = {}
+    local deaths, swings, avoided, h, oh, av = 0, 0, 0, 0, 0, 0
+    for _, p in ipairs(run.pulls) do
+        if not p.cut and p.s then
+            if p.kill then
+                kills[#kills + 1] = p
+                h = h + (p.s.h or 0) + (p.s.sh or 0)
+                oh = oh + (p.s.oh or 0)
+            end
+            deaths = deaths + (p.s.dc or 0)
+            av = av + (p.s.av or 0)
+            swings = swings + (p.s.sw or 0)
+            avoided = avoided + (p.s.avd or 0)
+        end
+    end
+    return {
+        value = AverageOf(kills, function(p) return self:Metric(p, view) end),
+        active = AverageOf(kills, function(p) return p.s.act end),
+        taken = AverageOf(kills, function(p) return p.s.dtps end),
+        overheal = (h + oh) > 0 and oh / (h + oh) or nil,
+        avoid = swings > 0 and avoided / swings or nil,
+        deaths = deaths,
+        avoidable = av,
+        ilvl = AverageOf(run.pulls, function(p) return p.ilvl end),
+        kills = #kills,
+    }
+end
+
+-- The spec I played most in a run, and its role.
+function MyLog:RunSpec(run)
+    local count, best, bestN = {}, nil, 0
+    for _, p in ipairs(run.pulls) do
+        local k = p.spec or ""
+        count[k] = (count[k] or 0) + 1
+        if count[k] > bestN then best, bestN = p, count[k] end
+    end
+    return best and best.spec, best and best.role
 end
 
 ---------------------------------------------------------------------------

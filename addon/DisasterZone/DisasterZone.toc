@@ -62,6 +62,7 @@ Core\Patch.lua
 Core\Ledger.lua
 Core\RaidLog.lua
 Core\MyLog.lua
+Core\MyLogDemo.lua
 Core\RaidPlan.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
@@ -255,6 +256,8 @@ UI\RollFrame.lua
 UI\Tooltip.lua
 UI\Settings.lua
 UI\Changelog.lua
+UI\MyLogUI.lua
+UI\MyLogDetail.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

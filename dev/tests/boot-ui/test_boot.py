@@ -7,6 +7,7 @@ import copy
 from _common import case, run_all, toc_version, solo, no_errors, World, Client, printed_since
 
 EXPECTED_SETTINGS = {
+    "mylog": {"enabled": False, "heroics": False, "keepWeeks": 12},
     "minimap": {"hide": False},
     "openOn": "home",
     "alerts": {"councilPanel": True, "personalToast": True, "sound": True, "glow": True, "chat": True,

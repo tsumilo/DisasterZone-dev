@@ -1,0 +1,300 @@
+"""My Log page (UI/MyLogUI.lua) and its queries (MyLog:GetInstances / GetRuns / BossRows / RunNumbers).
+
+Covers: the page under Raids; off -> the explainer and its Turn on button; on without pulls -> "No boss pulls yet";
+pulls grouped into runs (raid nights) per instance, newest first; a boss row's number from the run's kill and its
+change from my previous kill of that boss in the same spec (another spec only when there is none, marked *); wipes
+showing the lowest boss health; the sparkline holding up to 8 kills; the view following the role played in the run
+(healer -> Healing) until I pick one; tiles with the change from the run before; the run picker; a recorded pull
+appearing while the page is open.
+
+Run: luaenv\\Scripts\\python.exe tests\\mylog\\test_mylog_ui.py [-k name]
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
+
+from _common import case, run_all, solo, install_helpers  # noqa: E402
+
+WEEK = 7 * 86400
+
+SEED = r"""
+local now = GetServerTime()
+local WEEK = 7 * 86400
+local chars = DisasterZoneLogDB.chars
+local key = ns.Util.PlayerKey()
+local c = { n = 0, pulls = {} }
+chars[key] = c
+local function pull(at, enc, boss, kill, dps, opts)
+  opts = opts or {}
+  c.n = c.n + 1
+  local p = { id = c.n, at = at, enc = enc, boss = boss, zone = opts.zone or "Serpentshrine Cavern",
+    iid = opts.iid or 548, kill = kill, dur = 240, spec = opts.spec or "Destruction", role = opts.role or "caster",
+    cls = "WARLOCK", ilvl = opts.ilvl or 120, pct = (not kill) and opts.pct or nil, deaths = {},
+    s = { d = dps * 240, dps = dps, hps = opts.hps or 0, h = (opts.hps or 0) * 240, oh = opts.oh or 0, sh = 0,
+          t = 0, dtps = opts.dtps or 100, act = opts.act or 0.9, dc = opts.dc or 0, cpm = 38, sw = 0, avd = 0 } }
+  c.pulls[#c.pulls + 1] = p
+  return p
+end
+-- three weekly SSC runs, Hydross improving; Vashj wipes in the last one; one TK run in between
+for w = 3, 1, -1 do
+  local t = now - w * WEEK
+  pull(t, 623, "Hydross the Unstable", true, 1000 + (3 - w) * 100, { ilvl = 118 + (3 - w) })
+  pull(t + 1800, 624, "The Lurker Below", true, 1300 - (3 - w) * 50, { act = 0.85 + (3 - w) * 0.02 })
+end
+pull(now - 2 * WEEK + 3600 * 24, 730, "Al'ar", true, 900, { zone = "Tempest Keep", iid = 550 })
+local t = now - 3600
+pull(t, 623, "Hydross the Unstable", true, 1400, { ilvl = 124, dc = 1 })
+pull(t + 900, 624, "The Lurker Below", true, 1250)
+pull(t + 2400, 628, "Lady Vashj", false, 1100, { pct = 42.5, dc = 1 })
+pull(t + 3000, 628, "Lady Vashj", false, 1150, { pct = 18.3 })
+ns:Fire("MYLOG_CHANGED")
+"""
+
+
+def client(enabled=True, seed=True):
+    w, c = solo("Lux", class_file="WARLOCK", tick=3)
+    install_helpers(c)
+    if enabled:
+        c.eval("ns.DB:SetSetting('mylog.enabled', true)")
+    if seed:
+        c.eval(SEED)
+    return w, c
+
+
+def open_page(w, c):
+    c.eval("ns.MainFrame:Open('mylog')")
+    w.tick(0.5)
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "mylog"
+
+
+def rows(c):
+    return c.eval_py("""
+      local out = {}
+      for _, d in ipairs(ns.MainFrame:GetPanel('mylog').list:GetData()) do
+        local r = d.row
+        out[#out + 1] = { boss = r.boss, pulls = r.pulls, value = r.value, change = r.change, best = r.best,
+                          spark = r.spark, same = r.sameSpec }
+      end
+      return out""") or []
+
+
+@case
+def queries_group_runs_and_compare_kills():
+    w, c = client()
+    inst = c.eval_py("return ns.MyLog:GetInstances()")
+    assert [i["name"] for i in inst] == ["Serpentshrine Cavern", "Tempest Keep"], inst
+    runs = c.eval_py("local r = ns.MyLog:GetRuns(548); local o = {}; for i, x in ipairs(r) do o[i] = "
+                     "{ n = #x.pulls, k = x.kills, w = x.wipes } end; return o")
+    assert runs == [{"n": 4, "k": 2, "w": 2}, {"n": 2, "k": 2, "w": 0}, {"n": 2, "k": 2, "w": 0},
+                    {"n": 2, "k": 2, "w": 0}], runs
+    r = c.eval_py("""local run = ns.MyLog:GetRuns(548)[1]
+      local out = {}
+      for _, x in ipairs(ns.MyLog:BossRows(run, 'damage')) do
+        out[#out + 1] = { boss = x.boss, value = x.value, change = x.change, best = x.best, spark = x.spark }
+      end
+      return out""")
+    assert [x["boss"] for x in r] == ["Hydross the Unstable", "The Lurker Below", "Lady Vashj"]
+    hyd = r[0]
+    assert hyd["value"] == 1400 and abs(hyd["change"] - (1400 - 1200) / 1200 * 100) < 0.01
+    assert hyd["spark"] == [1000, 1100, 1200, 1400]
+    assert abs(r[1]["change"] - (1250 - 1200) / 1200 * 100) < 0.01
+    assert r[2].get("value") is None and r[2]["best"] == 18.3
+    nums = c.eval_py("local r = ns.MyLog:GetRuns(548); return ns.MyLog:RunNumbers(r[1], 'damage')")
+    assert nums["value"] == (1400 + 1250) / 2 and nums["deaths"] == 2 and nums["kills"] == 2
+
+
+@case
+def other_spec_kills_count_only_when_there_is_no_same_spec_kill():
+    w, c = client()
+    c.eval("""local p = ns.MyLog:GetPulls()
+      for _, x in ipairs(p) do if x.enc == 624 and x.at > GetServerTime() - 7200 then x.spec = 'Affliction' end end""")
+    r = c.eval_py("""local x = ns.MyLog:BossRows(ns.MyLog:GetRuns(548)[1], 'damage')[2]
+      return { same = x.sameSpec, change = x.change, spark = x.spark }""")
+    assert r["same"] is False and r["spark"][-1] == 1250 and len(r["spark"]) == 4
+    c.eval("""for _, x in ipairs(ns.MyLog:GetPulls()) do if x.enc == 623 then x.spec = 'Affliction' end end""")
+    r = c.eval_py("""local x = ns.MyLog:BossRows(ns.MyLog:GetRuns(548)[1], 'damage')[1]
+      return { same = x.sameSpec, spark = x.spark }""")
+    assert r["same"] is True and r["spark"] == [1000, 1100, 1200, 1400], r
+
+
+@case
+def off_shows_the_explainer_and_turns_on():
+    w, c = client(enabled=False, seed=False)
+    open_page(w, c)
+    p = "ns.MainFrame:GetPanel('mylog')"
+    assert c.eval("return %s.empty:IsShown()" % p) is True
+    assert c.eval("return %s.empty.title:GetText()" % p) == "My Log is off"
+    c.click(c.eval("return %s.empty.btn" % p))
+    assert c.eval("return ns.MyLog:IsEnabled()") is True
+    assert c.eval("return %s.empty.title:GetText()" % p) == "No boss pulls yet"
+    assert c.eval("return %s.empty.btn:IsShown()" % p) is False
+
+
+@case
+def page_shows_the_newest_run_against_the_one_before():
+    w, c = client()
+    open_page(w, c)
+    p = "ns.MainFrame:GetPanel('mylog')"
+    assert c.eval("return %s.body:IsShown()" % p) is True
+    rs = rows(c)
+    assert [r["boss"] for r in rs] == ["Hydross the Unstable", "The Lurker Below", "Lady Vashj"]
+    tiles = c.eval_py("local t = {}; for i, x in ipairs(%s.tiles) do t[i] = { x.label:GetText(), x.value:GetText(), "
+                      "x.delta:GetText() } end; return t" % p)
+    assert tiles[0][0] == "AVG DPS (KILLS)" and tiles[0][1] == "1,325", tiles
+    assert "+10.4%" in tiles[0][2], tiles          # 1325 vs 1200
+    assert tiles[3][1] == "2"
+    sub = c.eval("return %s.sub:GetText()" % p)
+    assert "Destruction" in sub and "item level 121.0 (+1.0)" in sub and "compared with" in sub, sub
+    # instance tabs
+    tabs = c.eval_py("local o = {}; for _, t in ipairs(%s.instTabs) do if t:IsShown() then o[#o + 1] = t:GetText() end end; return o" % p)
+    assert tabs == ["Serpentshrine Cavern", "Tempest Keep"], tabs
+
+
+@case
+def views_follow_the_role_until_picked():
+    w, c = client()
+    c.eval("for _, x in ipairs(ns.MyLog:GetPulls()) do x.role = 'healer'; x.spec = 'Holy' end")
+    open_page(w, c)
+    p = "ns.MainFrame:GetPanel('mylog')"
+    assert c.eval("return %s.valueHead:GetText()" % p) == "HPS"
+    assert c.eval("return %s.tiles[2].label:GetText()" % p) == "OVERHEALING"
+    c.eval("ns.MyLogUI:SetView('damage')")
+    assert c.eval("return %s.valueHead:GetText()" % p) == "DPS"
+    c.eval("ns.MyLogUI:SetView('tanking')")
+    assert c.eval("return %s.tiles[1].label:GetText()" % p) == "DAMAGE TAKEN/S"
+
+
+@case
+def run_picker_and_instances():
+    w, c = client()
+    open_page(w, c)
+    p = "ns.MainFrame:GetPanel('mylog')"
+    c.eval("ns.MyLogUI:SelectRun(2)")
+    rs = rows(c)
+    assert [r["boss"] for r in rs] == ["Hydross the Unstable", "The Lurker Below"] and rs[0]["value"] == 1200
+    c.eval("ns.MyLogUI:SelectInstance(550)")
+    rs = rows(c)
+    assert [r["boss"] for r in rs] == ["Al'ar"] and rs[0].get("change") is None
+    assert "first run here" in c.eval("return %s.tiles[1].delta:GetText()" % p)
+
+
+@case
+def a_new_pull_shows_up_while_open():
+    w, c = client(seed=False)
+    open_page(w, c)
+    w.enter_instance("Serpentshrine Cavern", 548, "raid", 25, difficulty_id=4)
+    w.tick(1)
+    c.fire("ENCOUNTER_START", 623, "Hydross the Unstable", 4, 25)
+    w.tick(5)
+    c.fire("ENCOUNTER_END", 623, "Hydross the Unstable", 4, 25, 1)
+    w.tick(0.5)
+    assert [r["boss"] for r in rows(c)] == ["Hydross the Unstable"]
+    assert c.eval("return ns.MainFrame:GetPanel('mylog').body:IsShown()") is True
+
+
+def demo_client():
+    w, c = client(enabled=False, seed=False)
+    c.eval("ns.Demo:SetEnabled(true)")
+    w.tick(0.5)
+    open_page(w, c)
+    return w, c
+
+
+P = "ns.MainFrame:GetPanel('mylog')"
+
+
+@case
+def demo_mode_shows_demo_pulls_and_leaves_my_log_alone():
+    w, c = demo_client()
+    assert c.eval("return %s.body:IsShown()" % P) is True
+    assert c.eval("return %s.demoTag:IsShown()" % P) is True
+    tabs = c.eval_py("local o = {}; for _, t in ipairs(%s.instTabs) do if t:IsShown() then o[#o + 1] = t:GetText() end end; return o" % P)
+    assert tabs == ["Serpentshrine Cavern", "Tempest Keep"], tabs
+    names = [r["boss"] for r in rows(c)]
+    assert names[0] == "Hydross the Unstable" and names[-1] == "Lady Vashj" and len(names) == 6, names
+    assert all(r["value"] for r in rows(c)[:5])
+    # the stored log is untouched, and the demo goes away with demo mode
+    assert c.eval("local n = 0; for _, ch in pairs(DisasterZoneLogDB.chars) do n = n + #ch.pulls end; return n") == 0
+    c.eval("ns.Demo:SetEnabled(false)")
+    w.tick(0.5)
+    assert c.eval("return %s.empty:IsShown()" % P) is True
+
+
+@case
+def demo_runs_improve_week_by_week():
+    w, c = demo_client()
+    vals = c.eval_py("""local out = {}
+      for i, run in ipairs(ns.MyLog:GetRuns(548)) do out[i] = ns.MyLog:RunNumbers(run, 'damage').value end
+      return out""")
+    assert len(vals) == 7 and vals[0] > vals[-1], vals
+    assert c.eval_py("return ns.MyLog:RunNumbers(ns.MyLog:GetRuns(548)[1], 'damage').avoidable") > 0
+
+
+@case
+def boss_detail_compares_two_kills():
+    w, c = demo_client()
+    c.eval("ns.MyLogDetail:ShowBoss(%s.list:GetData()[3].row)" % P)        # Leotheras
+    assert c.eval("return ns.MyLogUI:GetState().mode") == "boss"
+    pull = c.eval_py("local p, q = ns.MyLogDetail:GetCurrent(); return { p.boss, p.kill, q and q.kill, q and q.at < p.at, p.spec == q.spec }")
+    assert pull == ["Leotheras the Blind", True, True, True, True], pull
+    assert c.eval("return %s.runsView:IsShown()" % P) is False
+    rows_ = c.eval_py("""local out = {}
+      local p = ns.MyLogDetail:GetCurrent()
+      local t = 0
+      for _, r in ipairs(ns.MyLogDetail:AbilityRows(p, 'damage')) do t = t + r.share; out[#out + 1] = r.name end
+      return { names = out, total = t }""")
+    assert rows_["names"][0] == "Shadow Bolt" and "Firebolt (Imp)" in rows_["names"], rows_
+    assert abs(rows_["total"] - 1) < 1e-6
+    # tanking lists what hit me, the avoidable whirlwind marked
+    tk = c.eval_py("""local p = ns.MyLogDetail:GetCurrent(); local out = {}
+      for _, r in ipairs(ns.MyLogDetail:AbilityRows(p, 'tanking')) do out[r.name] = r.avoidable and true or false end
+      return out""")
+    assert tk == {"Whirlwind": True, "Chaos Blast": False}, tk
+    c.eval("ns.MyLogUI:SetView('tanking')")
+    assert c.eval("return ns.MyLogUI:GetState().mode") == "boss"
+    # back
+    c.eval("ns.MyLogUI:SetMode('runs')")
+    assert c.eval("return %s.runsView:IsShown()" % P) is True
+
+
+@case
+def a_wipe_only_boss_opens_its_best_pull():
+    w, c = demo_client()
+    c.eval("ns.MyLogDetail:ShowBoss(%s.list:GetData()[6].row)" % P)        # Lady Vashj, wipes only
+    pct = c.eval_py("local p, q = ns.MyLogDetail:GetCurrent(); return { p.kill, p.pct, q ~= nil }")
+    assert pct == [False, 17.9, True], pct
+
+
+@case
+def deaths_grouped_by_cause_with_recaps():
+    w, c = demo_client()
+    c.eval("ns.MyLogUI:SetMode('deaths')")
+    groups = c.eval_py("""local out = {}
+      for _, g in ipairs(ns.MyLogDetail:DeathGroups(548)) do out[#out + 1] = { g.name, g.count } end
+      return out""")
+    assert groups == [["Toxic Spores", 1], ["Whirlwind", 1]], groups
+    sel = c.eval_py("local e = ns.MyLogDetail:GetSelectedDeath(); return { e.pull.boss, #e.death.ring }")
+    assert sel == ["Lady Vashj", 9], sel
+
+
+@case
+def recorder_counts_avoidable_damage():
+    w, c = client(seed=False)
+    w.enter_instance("Serpentshrine Cavern", 548, "raid", 25, difficulty_id=4)
+    w.tick(1)
+    me = c.eval("return UnitGUID('player')")
+    c.fire("ENCOUNTER_START", 628, "Lady Vashj", 4, 25)
+    for spell, amount in ((38575, 3000), (38253, 1200)):
+        c.combat_log(0, "SPELL_DAMAGE", False, "Creature-0-1-2-3-21212-1", "Lady Vashj", 0xA48, 0, me, "Lux", 0x511, 0,
+                     spell, "x", 8, amount, -1, 8, None, None, None, False, False, False, False)
+    w.tick(3)
+    c.fire("ENCOUNTER_END", 628, "Lady Vashj", 4, 25, 0)
+    s = c.eval_py("local p = ns.MyLog:GetPulls(); return p[#p].s")
+    assert s["av"] == 3000 and s["t"] == 4200, s
+
+
+if __name__ == "__main__":
+    run_all()

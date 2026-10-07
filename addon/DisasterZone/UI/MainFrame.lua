@@ -27,7 +27,7 @@ local NAV_HIDDEN = {}
 -- sits at its own order among the pages'; resting the mouse on it opens the menu, clicking it shows the page used
 -- last in it (settings.navLast). Groups follow shared data: raid nights and their loot, items, the guild's people and pastimes.
 local NAV_GROUPS = {
-    { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council" } },
+    { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council", "mylog" } },
     { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "atlas" } },
     { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "events", "games" } },
 }
@@ -35,6 +35,7 @@ local NAV_GROUPS = {
 local NAV_PAGE_TIPS = {
     raids   = "Raid nights, teams, strategies, guests and the raid log.",
     council = "Loot decisions: the roster, items, the loot log and the council.",
+    mylog   = "Your own boss pulls, run against run. Only you can see it.",
     mybis   = "Your BiS lists and what you still need.",
     atlas   = "Every raid and dungeon's drops, sets and costs.",
     members = "The guild's members, professions and recipes.",

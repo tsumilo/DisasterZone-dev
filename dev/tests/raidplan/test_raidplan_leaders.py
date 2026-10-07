@@ -186,7 +186,7 @@ def the_raid_leaders_window_is_for_officers_to_edit():
 def a_raid_leader_gets_no_loot_council_data():
     w, c = world()
     rhea, cora = c["Rhea"], c["Cora"]
-    assert tabs(rhea) == ["home", "mybis", "atlas", "raids", "dungeons", "events", "members", "games", "changelog", "settings"], tabs(rhea)
+    assert tabs(rhea) == ["home", "mybis", "atlas", "raids", "mylog", "dungeons", "events", "members", "games", "changelog", "settings"], tabs(rhea)
     ct = tabs(cora)
     assert "council" in ct, ct
     cora.eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'test')", K("Rita"))
@@ -341,7 +341,7 @@ def raid_leaders_manage_raids_and_their_groups_the_council_teams_and_groups():
         cl.slash("/dz raids")
         w.tick(0.3)
         assert cl.eval("return ns.RaidsUI:GetPanel().newRaidBtn:IsShown()") is raid_btn
-        cl.eval("ns.RaidsUI:SetView('teams')")
+        cl.eval("ns.RaidsUI:SetView('teams'); if ns.RaidPlanUI:IsTeamBoard() then ns.RaidPlanUI:SelectTeam(ns.RaidPlanUI:GetSelectedTeam()) end")
         w.tick(0.3)
         assert cl.eval("return ns.RaidsUI:GetPanel().newTeamBtn:IsShown()") is team_btn
         assert cl.eval("return ns.RaidsUI:GetPanel().teams.picker.frame:IsShown()") is team_btn

@@ -6,14 +6,30 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.3", date = "", title = "My Log",
+    { version = "1.3.3", date = "8 October 2026", title = "My Log",
       sections = {
           { heading = "My Log (opt-in)", lines = {
-              "New in Settings > My Log: record your own play in every raid boss pull. Off until you turn it on.",
-              "Saved on your PC only. Nothing is sent; nobody else, the loot council included, can see it.",
+              "New in Settings > My Log: record your own play in every raid boss pull. Off by default.",
+              "Saved on your PC only and never sent: nobody else can see it, the loot council included.",
               "It records damage, healing, shields, damage taken, avoidance, casts, buffs and deaths.",
-              "Death recaps keep the last 10 seconds: every hit, heal and cast, with your health after each.",
+              "Death recaps keep your last 10 seconds: every hit, heal and cast, with your health.",
               "Heroic dungeon bosses too if you switch that on. /dz mylog last prints your latest pull.",
+              "Raids > My Log: each raid night against the one before, with four headline numbers.",
+              "A row per boss: your number, the change since your last kill, active time, last 8 kills.",
+              "It opens on your role's numbers; Damage, Healing and Tanking are there for everyone.",
+              "Click a boss: the fight second by second against another kill, with your idle gaps in red.",
+              "Under it, every ability (or what hit you) with its change, avoidable hits marked.",
+              "Deaths: what killed you most, and the last 10 seconds of each death with your health.",
+              "Demo mode fills My Log with made-up raid nights, so you can look around first.",
+          } },
+          { heading = "Teams, redesigned", lines = {
+              "Raids > Teams opens on a board: every team as a banner, yours first, with its next raid.",
+              "Each team has a theme: pick the raid whose painting is its banner (... > Theme).",
+              "A team's lineups are tabs on its banner, each with how full it is.",
+              "Groups and Comp are one switch; the actions for each sit on the same row.",
+              "Calmer groups: no frames, click a group's title to swap it, hover it for its buffs.",
+              "One bench under the groups; the waitlist shows only while someone is on it.",
+              "Comp: open slots are grey with a ring in the class colour; 25-man fits without scrolling.",
           } },
       } },
     { version = "1.3.2", date = "7 October 2026", title = "Events, the Group Finder, gems and enchants",

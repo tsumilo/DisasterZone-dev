@@ -201,6 +201,41 @@ GEMS_SEED = ("ns.MyBiS:SetPhase(1, true); ns.Gems:FillPhase(1, nil, true); "
              "local b = ns.BiS:GetSlot(1, 4); if b then ns.BiS:SetGemSetup(b, 0, {}) end; ns.MyBiS:Refresh(); ")
 
 
+# My Log: three weekly SSC runs, a TK run, tonight's run with Vashj wipes (tests/mylog/test_mylog_ui.py SEED)
+MYLOG_SEED = "ns.DB:SetSetting('mylog.enabled', true) " + r"""
+local now = GetServerTime()
+local WEEK = 7 * 86400
+local chars = DisasterZoneLogDB.chars
+local key = ns.Util.PlayerKey()
+local c = { n = 0, pulls = {} }
+chars[key] = c
+local function pull(at, enc, boss, kill, dps, opts)
+  opts = opts or {}
+  c.n = c.n + 1
+  local p = { id = c.n, at = at, enc = enc, boss = boss, zone = opts.zone or "Serpentshrine Cavern",
+    iid = opts.iid or 548, kill = kill, dur = 240, spec = opts.spec or "Destruction", role = opts.role or "caster",
+    cls = "WARLOCK", ilvl = opts.ilvl or 120, pct = (not kill) and opts.pct or nil, deaths = {},
+    s = { d = dps * 240, dps = dps, hps = opts.hps or 0, h = (opts.hps or 0) * 240, oh = opts.oh or 0, sh = 0,
+          t = 0, dtps = opts.dtps or 100, act = opts.act or 0.9, dc = opts.dc or 0, cpm = 38, sw = 0, avd = 0 } }
+  c.pulls[#c.pulls + 1] = p
+  return p
+end
+-- three weekly SSC runs, Hydross improving; Vashj wipes in the last one; one TK run in between
+for w = 3, 1, -1 do
+  local t = now - w * WEEK
+  pull(t, 623, "Hydross the Unstable", true, 1000 + (3 - w) * 100, { ilvl = 118 + (3 - w) })
+  pull(t + 1800, 624, "The Lurker Below", true, 1300 - (3 - w) * 50, { act = 0.85 + (3 - w) * 0.02 })
+end
+pull(now - 2 * WEEK + 3600 * 24, 730, "Al'ar", true, 900, { zone = "Tempest Keep", iid = 550 })
+local t = now - 3600
+pull(t, 623, "Hydross the Unstable", true, 1400, { ilvl = 124, dc = 1 })
+pull(t + 900, 624, "The Lurker Below", true, 1250)
+pull(t + 2400, 628, "Lady Vashj", false, 1100, { pct = 42.5, dc = 1 })
+pull(t + 3000, 628, "Lady Vashj", false, 1150, { pct = 18.3 })
+ns:Fire("MYLOG_CHANGED")
+"""
+
+
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -928,6 +963,13 @@ STATES = [
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
     ("Changelog", opened("changelog")),
+    ("My Log: off", opened("mylog")),
+    ("My Log: runs", opened("mylog", MYLOG_SEED)),
+    ("My Log: healing", opened("mylog", MYLOG_SEED + " ns.MyLogUI:SetView('healing')")),
+    ("My Log: demo runs", opened("mylog", "ns.Demo:SetEnabled(true)")),
+    ("My Log: boss detail", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:Refresh(); ns.MyLogDetail:ShowBoss(ns.MainFrame:GetPanel('mylog').list:GetData()[3].row)")),
+    ("My Log: boss tanking", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:Refresh(); ns.MyLogDetail:ShowBoss(ns.MainFrame:GetPanel('mylog').list:GetData()[6].row); ns.MyLogUI:SetView('tanking')")),
+    ("My Log: deaths", opened("mylog", "ns.Demo:SetEnabled(true); ns.MyLogUI:SetMode('deaths')")),
     ("Demo - Council - roster", demo("ns.CouncilUI:SetView('roster')", "council")),
     ("Demo - Council - items", demo("ns.CouncilUI:ShowBoss('Karazhan:Prince')", "council")),
     ("Demo - Council - member", demo("ns.CouncilUI:ShowMember('Aldrin-Thunderstrike')", "council")),
@@ -1170,6 +1212,8 @@ def teams_raid(tab_key, comp=True):
 # (before "Home - calendar busy": it stays last)
 _HOME = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
 STATES[_HOME:_HOME] = [
+    ("Raids - Teams - board", teams_view(lua="ns.RaidPlanUI:ShowTeamBoard()")),
+    ("Raids - Teams - board (member)", teams_view("Lightbringer", comp=True, lua="ns.RaidPlanUI:ShowTeamBoard()")),
     ("Raids - Teams (member)", teams_view("Lightbringer")),
     ("Raids - Teams - organizer", teams_view()),
     # Faelar into group 4, Quillon out of group 3: changed, not saved
