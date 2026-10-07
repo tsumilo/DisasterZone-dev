@@ -1332,7 +1332,7 @@ end
 -- size: "nav" (the main window's navigation), nil (a page's views: Upcoming / Teams / ...), "small" (views inside a
 -- view: Sign-ups / Groups / Assignments). b:SetActive(on); b:SetLabel(text) also refits the width.
 local TAB_SIZES = {
-    nav   = { font = "GameFontHighlightMedium", fallback = "GameFontHighlight", height = 26, pad = 18 },
+    nav   = { font = "GameFontHighlightMedium", fallback = "GameFontHighlight", height = 26, pad = 16 },
     page  = { font = "GameFontHighlight", height = 22, pad = 16 },
     small = { font = "GameFontHighlightSmall", height = 18, pad = 12 },
 }
@@ -1341,7 +1341,7 @@ local TAB_SIZES = {
 -- A tab's look: line width (0..1 of the tab), line rgba, label rgb (b.cdlTab(b, r, g, b) colours its text or icon).
 local tabLook = {}
 local function ApplyTab(b, v)
-    local w = ((b:GetWidth() or 0) - 8) * v[1]
+    local w = ((b:GetWidth() or 0) - 8 - (b.cdlExtraW or 0)) * v[1]   -- (the line stays under the label, not a badge)
     if w < 1 or v[5] < 0.02 then
         b.line:Hide()
     else
@@ -1386,7 +1386,7 @@ function UI:CreateUnderlineTab(parent, text, onClick, size)
     function b:cdlTab(r, g, bl) fs:SetTextColor(r, g, bl) end
     function b:SetLabel(t)
         self:SetText(t or "")
-        self:SetWidth((fs:GetStringWidth() or 40) + s.pad)
+        self:SetWidth((fs:GetStringWidth() or 40) + s.pad + (self.cdlExtraW or 0))   -- (cdlExtraW: a nav badge)
         if self.cdlLook.painted then ApplyTab(self, self.cdlLook.cur) end   -- (the line fits the new width)
     end
     function b:SetActive(on)
@@ -2989,11 +2989,53 @@ end
 ---------------------------------------------------------------------------
 -- The main window's navigation: a flat strip of text tabs on the left and icon tabs on the right (Games,
 -- Settings), with a hairline under it. defs = { { key =, label =, icon = UI.ICON_ATLAS index, tip = { title,
--- text } } } in order; a def with icon becomes an icon tab. Pages can be selected without a tab (obj:Select(key)
--- works for any key). parent.Tabs lists the tab buttons (b.cdlKey).
+-- text } } } in order; a def with icon becomes an icon tab. A text tab's badge = { text =, color = { r, g, b },
+-- tip = { title, text } } puts a small raised pill after its label ("BETA") and the tip on the tab. Pages can be
+-- selected without a tab (obj:Select(key) works for any key). parent.Tabs lists the tab buttons (b.cdlKey).
 ---------------------------------------------------------------------------
 
 local NAV_ICON = 16
+local BADGE_H, BADGE_FONT, BADGE_GAP = 11, 7.5, 2
+local BADGE_HANG = 4      -- px of the tab's right padding the pill takes (the strip is nearly full)
+
+-- The pill sits after the label with its middle near the letters' tops, like a superscript; the tab grows by its
+-- width (less what it hangs into the padding) and the label moves left by half of that, so the two stay centred.
+local function AddNavBadge(tab, badge)
+    local c = badge.color or { 0.72, 0.72, 0.72 }
+    local base = { 0.10, 0.10, 0.12 }
+    local p = CreateFrame("Frame", nil, tab)
+    p:SetHeight(BADGE_H)
+    UI:AddPillShape(p, BADGE_H)
+    p:SetPillColors({ base[1] + (c[1] - base[1]) * 0.16, base[2] + (c[2] - base[2]) * 0.16,
+        base[3] + (c[3] - base[3]) * 0.16, 1 }, { c[1], c[2], c[3], 0.5 })
+    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local path, _, flags = p.fs:GetFont()
+    p.fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", BADGE_FONT, flags or "")
+    p.fs:SetPoint("CENTER", 0.5, 0)
+    p.fs:SetText(badge.text or "")
+    p.fs:SetTextColor(c[1], c[2], c[3])
+    local w = floor((p.fs:GetStringWidth() or 18) + 8 + 0.5)
+    p:SetWidth(w)
+    local label = tab:GetFontString()
+    p:SetPoint("BOTTOMLEFT", label, "RIGHT", BADGE_GAP, -1)
+    tab.cdlExtraW = w + BADGE_GAP - BADGE_HANG
+    label:ClearAllPoints()
+    label:SetPoint("CENTER", -tab.cdlExtraW / 2, 1)
+    tab:SetWidth(tab:GetWidth() + tab.cdlExtraW)
+    tab.line:SetPoint("BOTTOM", -tab.cdlExtraW / 2, 0)
+    tab.badge = p
+    local tip = badge.tip
+    if tip then
+        tab:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine(tip[1] or "")
+            if tip[2] then GameTooltip:AddLine(tip[2], 1, 1, 1, true) end
+            GameTooltip:Show()
+        end)
+        tab:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+    return p
+end
 
 local function CreateNavIcon(parent, def, onClick)
     local b = CreateFrame("Button", nil, parent)
@@ -3056,6 +3098,7 @@ function UI:CreateNavStrip(parent, defs, onSelect)
             tab.cdlIcon = true
         else
             tab = UI:CreateUnderlineTab(strip, def.label or def.key, click, "nav")
+            if def.badge then AddNavBadge(tab, def.badge) end
         end
         tab.cdlKey = def.key
         tab.cdlShown = true

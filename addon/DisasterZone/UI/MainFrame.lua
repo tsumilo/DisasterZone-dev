@@ -16,6 +16,12 @@ local NAV_ICONS = {
     changelog = { icon = 25, tip = { "What's new", "The changes of every DisasterZone release." } },
     settings  = { icon = 13, tip = { "Settings" } },
 }
+-- Text tabs with a small pill after their label (UI:CreateNavStrip's badge): pages still being tried out.
+local NAV_BADGES = {
+    events = { text = "BETA", color = { 0.73, 0.55, 1 },
+               tip = { "Events (beta)", "New and still being tested: pages and pieces may change from one version "
+                   .. "to the next, and a few things may not work yet." } },
+}
 local NAV_HIDDEN = {}
 
 -- Pages that became a view of another tab: their old key opens that view (a saved "tab used last", callers that
@@ -69,7 +75,8 @@ local function BuildTabs()
     for _, def in ipairs(tabList) do
         if not NAV_HIDDEN[def.key] then
             local icon = NAV_ICONS[def.key]
-            defs[#defs + 1] = { key = def.key, label = def.label, icon = icon and icon.icon, tip = icon and icon.tip }
+            defs[#defs + 1] = { key = def.key, label = def.label, icon = icon and icon.icon, tip = icon and icon.tip,
+                badge = NAV_BADGES[def.key] }
         end
     end
     tabs = ns.UI:CreateNavStrip(frame, defs, function(key) ShowPanel(key) end)
