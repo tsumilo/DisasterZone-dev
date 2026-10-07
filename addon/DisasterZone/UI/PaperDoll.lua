@@ -357,8 +357,8 @@ local function GemTooltip(doll, tile, tt)
         end
     end
     if bonus then
-        local c = st.bonus and SOFT or DIMMED
-        tt:AddDoubleLine("Socket bonus", bonus, DIMMED[1], DIMMED[2], DIMMED[3], c[1], c[2], c[3])
+        local c = st.bonus and SOFT or DIMMED          -- (the whole line: green while it is on, grey while it isn't)
+        tt:AddDoubleLine("Socket bonus", bonus, c[1], c[2], c[3], c[1], c[2], c[3])
     end
     if st.enchantable then
         local e = G:Enchant(st.enchant)
