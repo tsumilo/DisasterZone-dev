@@ -263,6 +263,19 @@ local function ValidPreRaid(pr, px)
     return true
 end
 
+-- Gem / enchant setups (ge, off spec oge; DisasterZone 1.3.2): { [itemID] = "enchant:gem1:gem2:gem3" }. Released
+-- clients' validators ignore these keys (and store, relay and restore them untouched: the hash covers them).
+local function ValidGems(ge)
+    if ge == nil then return true end
+    if type(ge) ~= "table" then return false, "bad gems" end
+    for id, s in pairs(ge) do
+        if not IsInt(id, 1, MAX_ITEM_ID) or type(s) ~= "string" or #s > 40 or not s:match("^%d+[%d:]*$") then
+            return false, "bad gems"
+        end
+    end
+    return true
+end
+
 function Store:ValidateData(data)
     if type(data) ~= "table" then return false, "data is not a table" end
     if not CheckShape(data, 1, { n = 0 }) then return false, "data too large or malformed" end
@@ -285,6 +298,11 @@ function Store:ValidateData(data)
     if not ok then return false, "pre-raid: " .. err end
     ok, err = ValidPreRaid(data.opr, data.opx)
     if not ok then return false, "off spec pre-raid: " .. err end
+
+    ok, err = ValidGems(data.ge)
+    if not ok then return false, err end
+    ok, err = ValidGems(data.oge)
+    if not ok then return false, "off spec: " .. err end
 
     local ob = data.ob
     if ob ~= nil then

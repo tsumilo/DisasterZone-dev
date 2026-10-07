@@ -13,6 +13,7 @@ ns.CHANGELOG = {
               "Raids holds Raids and Council; Gear holds My BiS and Atlas; Guild holds Members, Events and Games.",
               "Rest the mouse on Raids, Gear or Guild to see its pages; click it to go to the one you used last.",
               "Every page is the same as before, only where you find it changed.",
+              "Tooltips get the flat look of the dropdowns and fade in the same way.",
               "Smoother page switching: pages load in the background and fade in; Raids, Members and Home open faster.",
           } },
           { heading = "Minimap button", lines = {
@@ -148,6 +149,18 @@ ns.CHANGELOG = {
               "Badges and marks in your bank count too; the bar reminds you to take them out first.",
               "Arena and honor sets show what the set costs, or what is left once you own pieces.",
               "Prices are your realm's own: every vendor you open teaches the addon its prices.",
+          } },
+          { heading = "My BiS: gems and enchants", lines = {
+              "Every pick shows its sockets and enchant as small icons next to where it drops.",
+              "Click them to choose: each socket in its colour, the socket bonus, and the enchant.",
+              "Your spec's guide suggests the best gem for each socket and the enchant.",
+              "A green line under the gems: the socket bonus is on. A meta gem says what it needs.",
+              "Suggest > Fill empty sockets and enchants does the whole phase; what you chose stays.",
+              "Search in the gem list finds any other gem.",
+              "The middle counts gems and enchants; click it to put the crafts on your shopping list.",
+              "Hover a pick: its tooltip shows the item with your gems and enchant.",
+              "Imports from Sixty Upgrades, WoWSims and Wowhead keep gems and enchants; exports too.",
+              "The council sees your gems and enchants on your list too.",
           } },
           { heading = "Fixes", lines = {
               "Item names no longer get stuck on \"Loading...\" until you switch views.",

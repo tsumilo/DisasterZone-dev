@@ -5,7 +5,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyBiS.lua", ...) then return en
 -- ADDENDUM F: slots can be disabled per phase from the tile menu (§36; left out of the progress), crafted /
 -- reputation / badge / PvP items count under their own source (§37), and while the group's raid leader locks the BiS
 -- lists the top bar says so and only what still works is offered (§38).
--- ADDENDUM H: [Main spec] / [Off spec] switch the whole tab (doll, spec, tools, centre) between the two lists.
+-- ADDENDUM H: the spec tabs switch the whole tab (doll, spec, tools, centre) between the two lists.
+-- Gems and enchants: every pick's strip on its tile (UI/PaperDoll.lua) opens the editor (UI/GemEditor.lua); the
+-- centre says how many gems and enchants the phase has under the obtained count; Suggest also fills them.
 -- The first phase tab is the Pre-raid list (phase 0: dungeons, reputation, crafting, badges; only its owner sees it).
 -- My BiS reopens there when it was the last phase picked, else on the guild's phase.
 -- One spacing grid (the Raids and Dungeons tabs' too): PAD at the page's sides, GAP between blocks, every tile 48 high.
@@ -17,19 +19,16 @@ ns.MyBiS = MyBiS
 local floor, min, max = math.floor, math.min, math.max
 
 local NUM_SLOTS = 17
-local AUTO_SPEC = "__auto"
-local REMOVE_OS = "__removeos"
 
 local PAD, GAP = 10, 8
 local TOP_Y, BAR_H = -8, 24              -- the top bar
 local DOLL_Y = TOP_Y - BAR_H - GAP       -- the doll: 770 x 496 from here (UI/PaperDoll.lua "page" layout)
 local SEG_W, SEG_STAR_W = 34, 46         -- a phase button (with the guild phase's star)
-local LIST_W = 80                        -- Main spec / + Off spec
-local SPEC_W = 140
 local SUGGEST_W = 84
 local ROW_H, MAX_ROWS = 18, 4             -- the centre's still-to-get rows
 local LIST_COL_W = 172                    -- their width
 local BAR_W = 140
+local PLATFORM_W, PLATFORM_Y = 180, 14    -- the pedestal under the model (texture centre above the model place's bottom)
 
 local GOLD = { 1, 0.82, 0 }
 local RED = { 0.92, 0.38, 0.32 }
@@ -72,7 +71,7 @@ local KIND_GROUP = {
 
 local panel, bar, doll, card
 local phaseButtons = {}
-local specDD, suggestBtn, moreBtn, msBtn, osBtn, lockChip
+local suggestBtn, moreBtn, lockChip
 local selectedPhase, userPickedPhase
 local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
@@ -499,7 +498,9 @@ local function SlotSourceText(itemID, _, fs, width)
     local full = Soft(d.text)
     if d.short and fs and width and fs.GetStringWidth then
         fs:SetText(full)
-        if (tonumber(fs:GetStringWidth()) or 0) > width then return Soft(d.short) end
+        -- (unbounded: GetStringWidth stops at the width the line already has)
+        local tw = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+        if (tonumber(tw) or 0) > width then return Soft(d.short) end
     end
     return full
 end
@@ -561,6 +562,17 @@ local function EnsurePopups()
         OnAccept = function(_, data)
             if data then MyBiS:ApplySuggestion(data.phase, true, data.list) end
         end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    StaticPopupDialogs["DISASTERZONE_RELABEL_LIST"] = {
+        text = "Your %s picks become your %s list (they stay as they are: Suggest can fill it from that spec's "
+            .. "guide).",
+        button1 = OKAY or "Okay",
+        button2 = CANCEL or "Cancel",
+        OnAccept = function(_, data) if data and data.fn then data.fn() end end,
         timeout = 0,
         whileDead = true,
         hideOnEscape = true,
@@ -678,6 +690,9 @@ local function ShowSlotMenu(sid, tile)
             if main or alt then
                 root:CreateButton("Swap main / alt", function() BiS:SwapMainAlt(phase, sid, list) end)
             end
+            if main and tile.strip and tile.strip:IsShown() and ns.GemEditor then
+                root:CreateButton("Gems and enchant...", function() ns.GemEditor:Open(tile, main, phase, list) end)
+            end
         end
         if main then
             -- Manual "obtained" marks still work while the lists are locked (§38).
@@ -766,24 +781,6 @@ end
 -- Menus & dropdown content
 ---------------------------------------------------------------------------
 
-local function SpecOptions()
-    local opts = {}
-    local specs = ns.SPECS and ns.SPECS[MyClass()] or {}
-    for _, s in ipairs(specs) do
-        if s.label then opts[#opts + 1] = { value = s.label, text = s.label } end
-    end
-    if IsOffSpecView() then
-        -- The off spec is always chosen by hand; it can be removed from here.
-        if HasOffSpec() then
-            opts[#opts + 1] = { value = REMOVE_OS, text = "Remove off-spec list...",
-                tooltip = "Deletes the off-spec list and its picks (asks first)." }
-        end
-        return opts
-    end
-    opts[#opts + 1] = { value = AUTO_SPEC, text = "Auto-detect", tooltip = "Use the talent tree with the most points." }
-    return opts
-end
-
 local function SelectedSpec()
     return ns.BiS and ns.BiS.GetSpec and ns.BiS:GetSpec(ListArg()) or nil
 end
@@ -798,77 +795,239 @@ local function SpecIcon(label)
     return nil
 end
 
-local function OnSpecSelected(value)
-    local BiS = ns.BiS
-    if not BiS then return end
-    if value == REMOVE_OS then
-        MyBiS:ConfirmRemoveOffSpec()
-    elseif IsOffSpecView() then
-        BiS:SetSpec(value, "os")
-    elseif value == AUTO_SPEC then
-        local spec = BiS:DetectSpec()
-        if spec and spec ~= "" then
-            -- (SetSpec refuses and says why while the lists are locked, §38)
-            if BiS:SetSpec(spec) then ns:Print("Spec detected: %s", spec) end
-        else
-            ns:Print("Couldn't detect a spec (no talent points spent yet).")
+-- The spec tabs: every spec of the class in a row after the phases, in the phase tabs' look. The spec whose list is
+-- shown carries its name and the underline (gold = main spec, silver = off spec); the others are icons only, a spec
+-- that is neither list dimmed. Click a spec with a list to show it; right-click (or click an unused spec) for its
+-- menu: make it the main spec (the off spec trades places with it, picks and all), make it the off spec, remove.
+local SPEC_ICON, SPEC_TAB_GAP, SPEC_NAME_GAP = 18, 8, 6
+local MS_COLOR = { 1, 0.82, 0 }
+local OS_COLOR = { 0.74, 0.77, 0.82 }
+
+local specRow, specTabs = nil, {}
+
+local function Ease(t) return 1 - (1 - t) ^ 3 end
+local function MainLabel() return ns.BiS and ns.BiS:GetSpec() or "" end
+local function OffLabel() return HasOffSpec() and ns.BiS:GetSpec("os") or nil end
+
+-- Any pick in the list ("os" = the off spec), any phase.
+local function ListHasPicks(list)
+    local data = ns.BiS and ns.BiS:GetData()
+    for p = PRE_RAID, MaxPhase() do
+        local t = ns.ListPhase(data, p, list)
+        for _, v in pairs(t or {}) do
+            if type(v) == "table" and ((tonumber(v[1]) or 0) ~= 0 or (tonumber(v[2]) or 0) ~= 0) then return true end
         end
+    end
+    return false
+end
+
+-- A list's picks and its spec belong together: giving a list with picks a spec that is neither list's relabels
+-- those picks, so it asks first.
+local function Relabel(list, from, to, fn)
+    if from ~= "" and ListHasPicks(list) then
+        EnsurePopups()
+        StaticPopup_Show("DISASTERZONE_RELABEL_LIST", from, to, { fn = fn })
     else
-        BiS:SetSpec(value)
+        fn()
     end
-    if specDD then specDD:Refresh() end
-    MyBiS:Refresh()
 end
 
--- The spec dropdown (the flat dropdown with the spec's icon in front); while the lists are locked its menu only says
--- why it can't change.
-local function SpecMenuOptions()
-    if ListLocked() then
-        return { { isTitle = true, text = LockLine() },
-                 { isTitle = true, text = "Your spec can't change until the lists are unlocked." } }
+-- the main spec becomes `label`: the off spec trades places with it (picks and all) when that is the off spec
+local function MakeMain(label)
+    local BiS = ns.BiS
+    if label == OffLabel() then
+        if BiS:SwapLists() then selectedList = "ms" end
+        MyBiS:Refresh()
+        return
     end
-    return SpecOptions()
+    Relabel(nil, MainLabel(), label, function()
+        if BiS:SetSpec(label) then selectedList = "ms" end
+        MyBiS:Refresh()
+    end)
 end
 
-local function CreateSpecDropdown(p)
-    local UI = ns.UI
-    local b = UI:CreateSleekDropdown(p, SPEC_W, SpecMenuOptions, SelectedSpec, OnSpecSelected)
-    b:SetHeight(BAR_H)
-    b.lead = b:CreateTexture(nil, "ARTWORK")
-    b.lead:SetSize(16, 16)
-    b.lead:SetPoint("LEFT", 5, 0)
-    b.lead:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    b.defaultText = "Choose spec"
-    local fs = b:GetFontString()
-    fs:SetFontObject("GameFontHighlight")
-    function b:SetDefaultText(t)
-        self.defaultText = t or "-"
-        self:Refresh()
+local function MakeOff(label)
+    local BiS = ns.BiS
+    if label == MainLabel() then
+        if HasOffSpec() and BiS:SwapLists() then selectedList = "os" end
+        MyBiS:Refresh()
+        return
     end
-    function b:Refresh()
-        local spec = SelectedSpec()
-        local known = false
-        for _, opt in ipairs(SpecOptions()) do
-            if opt.value == spec then known = true end
+    Relabel("os", OffLabel() or "", label, function()
+        if BiS:SetSpec(label, "os") then selectedList = "os" end
+        MyBiS:Refresh()
+    end)
+end
+
+local function BuildSpecMenu(label)
+    return function(root)
+        root:CreateTitle(label)
+        if ListLocked() then
+            root:CreateTitle(LockLine())
+            return
         end
-        local icon = known and SpecIcon(spec) or nil
-        self:SetText(known and spec or self.defaultText)
-        self.lead:SetShown(icon ~= nil)
-        if icon then self.lead:SetTexture(icon) end
-        fs:ClearAllPoints()
-        fs:SetPoint("LEFT", icon and 27 or 8, 0)
-        fs:SetPoint("RIGHT", -20, 0)
+        local main, off = MainLabel(), OffLabel()
+        if label ~= main then
+            root:CreateButton(label == off and "Make main spec (swap the lists)" or "Make main spec",
+                function() MakeMain(label) end)
+        end
+        if label ~= off and (label ~= main or off) then
+            root:CreateButton(label == main and "Make off spec (swap the lists)" or "Make off spec",
+                function() MakeOff(label) end)
+        end
+        if label == off then
+            root:CreateButton("Remove off-spec list...", function() MyBiS:ConfirmRemoveOffSpec() end)
+        end
+        root:CreateDivider()
+        root:CreateButton("Detect main spec from talents", function()
+            local spec = ns.BiS and ns.BiS:DetectSpec()
+            if spec and spec ~= "" then
+                if spec ~= MainLabel() then MakeMain(spec) end
+            else
+                ns:Print("Couldn't detect a spec (no talent points spent yet).")
+            end
+        end)
     end
-    b:HookScript("OnEnter", function(self)
+end
+
+-- a tab's width: icon, and while shown its name and tag
+local function SpecTabWidth(t, open)
+    if not open then return SPEC_ICON + 4 end
+    return floor(SPEC_ICON + SPEC_NAME_GAP + (tonumber(t.name:GetStringWidth()) or 60) + 5
+        + (tonumber(t.tag:GetStringWidth()) or 24) + 4 + 0.5)
+end
+
+local function CreateSpecTab(parent)
+    local t = CreateFrame("Button", nil, parent)
+    t:SetHeight(BAR_H)
+    t:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    t:SetClipsChildren(true)
+    t.icon = t:CreateTexture(nil, "ARTWORK")
+    t.icon:SetSize(SPEC_ICON, SPEC_ICON)
+    t.icon:SetPoint("LEFT", 2, 1)
+    t.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    t.name = Text(t, "GameFontHighlight")
+    t.name:SetPoint("LEFT", t.icon, "RIGHT", SPEC_NAME_GAP, 0)
+    t.tag = Text(t, "GameFontNormalSmall", 10)
+    t.tag:SetPoint("LEFT", t.name, "RIGHT", 5, 0)
+    t.line = t:CreateTexture(nil, "OVERLAY")
+    t.line:SetHeight(2)
+    t.line:SetPoint("BOTTOMLEFT", 0, 0)
+    t.line:SetPoint("BOTTOMRIGHT", 0, 0)
+    t.hl = t:CreateTexture(nil, "HIGHLIGHT")
+    t.hl:SetPoint("TOPLEFT", t.icon)
+    t.hl:SetPoint("BOTTOMRIGHT", t.icon)
+    t.hl:SetColorTexture(1, 1, 1, 0.15)
+    t:SetScript("OnClick", function(self, button)
+        local main, off = MainLabel(), OffLabel()
+        if button == "LeftButton" and (self.spec == main or self.spec == off) then
+            MyBiS:SetList(self.spec == main and "ms" or "os")
+        else
+            GameTooltip:Hide()
+            ns.UI:ContextMenu(self, BuildSpecMenu(self.spec))
+        end
+    end)
+    t:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine(IsOffSpecView() and "Off-spec spec" or "Your spec", 1, 0.82, 0)
-        GameTooltip:AddLine("Suggest fills the list from this spec's guide; the council sees it next to your name.",
-            1, 1, 1, true)
+        local main, off = MainLabel(), OffLabel()
+        local isM, isO = self.spec == main, self.spec == off
+        GameTooltip:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), 1, 0.82, 0)
+        if isM then
+            GameTooltip:AddLine("The council ranks these picks first.", 1, 1, 1, true)
+        elseif isO then
+            GameTooltip:AddLine("Seen after everyone's main-spec wants; such an award counts as Offspec.", 1, 1, 1, true)
+        else
+            GameTooltip:AddLine("Not one of your lists.", 0.7, 0.7, 0.7)
+        end
+        GameTooltip:AddLine((isM or isO) and "Click: show the list  ·  Right-click: options" or "Click: options",
+            0.55, 0.55, 0.55)
         GameTooltip:Show()
     end)
-    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    b:Refresh()
-    return b
+    t:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- the width eases to its target (the shown spec opens, the one before closes)
+    function t:Grow(target)
+        self.target = target
+        local from = self:GetWidth() or target
+        if not self:IsVisible() or from == 0 or from == target then
+            self:SetWidth(target)
+            self:SetScript("OnUpdate", nil)
+            return
+        end
+        self.from, self.el = from, 0
+        self:SetScript("OnUpdate", function(f, e)
+            f.el = f.el + e
+            local k = Ease(min(1, f.el / 0.22))
+            f:SetWidth(floor(f.from + (f.target - f.from) * k + 0.5))
+            if k >= 1 then f:SetScript("OnUpdate", nil) end
+        end)
+    end
+    return t
+end
+
+local function RefreshSpecTabs()
+    if not specRow then return end
+    local specs = ns.SPECS and ns.SPECS[MyClass()] or {}
+    local main, off = MainLabel(), OffLabel()
+    local shown = SelectedSpec() or ""
+    local os = IsOffSpecView()
+    local prev
+    for i, s in ipairs(specs) do
+        local t = specTabs[i]
+        if not t then
+            t = CreateSpecTab(specRow)
+            specTabs[i] = t
+        end
+        t.spec = s.label
+        local isM, isO = s.label == main, s.label == off
+        local open = s.label == shown and (os and isO or (not os and isM))
+        t.icon:SetTexture(SpecIcon(s.label) or 134400)
+        t.icon:SetDesaturated(not (isM or isO))
+        t.icon:SetAlpha((isM or isO) and 1 or 0.4)
+        t.name:SetText(s.label)
+        t.name:SetShown(open)
+        t.tag:SetText(isM and "Main" or isO and "Off" or "")
+        t.tag:SetShown(open)
+        local c = isM and MS_COLOR or OS_COLOR
+        t.tag:SetTextColor(c[1], c[2], c[3])
+        t.line:SetColorTexture(c[1], c[2], c[3], 1)
+        t.line:SetShown(open)
+        t:ClearAllPoints()
+        if prev then t:SetPoint("LEFT", prev, "RIGHT", SPEC_TAB_GAP, 0) else t:SetPoint("LEFT", specRow, "LEFT", 0, 0) end
+        t:Grow(SpecTabWidth(t, open))
+        t:Show()
+        prev = t
+    end
+    for i = #specs + 1, #specTabs do specTabs[i]:Hide() end
+end
+
+local function CreateSpecRow(p)
+    specRow = CreateFrame("Frame", nil, p)
+    specRow:SetSize(260, BAR_H)
+    specRow.sep = specRow:CreateTexture(nil, "ARTWORK")
+    specRow.sep:SetSize(1, 14)
+    specRow.sep:SetPoint("RIGHT", specRow, "LEFT", -10, 0)
+    specRow.sep:SetColorTexture(1, 1, 1, 0.14)
+    RefreshSpecTabs()
+    return specRow
+end
+
+-- The spec tabs (tests, the UI audit): { { btn, spec, main, off, open } } in order.
+function MyBiS:GetSpecTabs()
+    local out = {}
+    for _, t in ipairs(specTabs) do
+        if t:IsShown() then
+            out[#out + 1] = { btn = t, spec = t.spec, main = t.spec == MainLabel(), off = t.spec == OffLabel(),
+                              open = t.name:IsShown() }
+        end
+    end
+    return out
+end
+
+-- Opens a spec tab's menu (tests, the UI audit).
+function MyBiS:OpenSpecMenu(label)
+    for _, t in ipairs(specTabs) do
+        if t.spec == label and t:IsShown() then ns.UI:ContextMenu(t, BuildSpecMenu(label)) return end
+    end
 end
 
 -- The phases another phase can copy from: the raid phases, and the Pre-raid list into P1 (it comes first there: your
@@ -936,6 +1095,25 @@ local function BuildSuggestMenu(root)
         StaticPopup_Show("DISASTERZONE_REPLACE_TEMPLATE", PL(phase) .. (ListArg() and " (off spec)" or ""), spec,
             { phase = phase, list = ListArg() })
     end)
+    -- gems and enchants of the phase's picks, from the same guide
+    if ns.Gems and ns.Gems:GuideFor(ns.BiS:GetListView(ListArg())) then
+        if root.CreateDivider then root:CreateDivider() end
+        root:CreateTitle("Gems and enchants")
+        local b = root:CreateButton(("Fill empty sockets and enchants (%s)"):format(PL(phase)), function()
+            local n = ns.Gems:FillPhase(phase, ListArg(), false)
+            if n == 0 then ns:Print("Every socket and enchant of %s is already chosen.", PL(phase)) end
+        end)
+        if b and b.SetTooltip then
+            b:SetTooltip(function(tt)
+                tt:AddLine("Gems and enchants", 1, 0.82, 0)
+                tt:AddLine(("Puts the %s guide's gems and enchants on every pick of %s that has an empty socket or "
+                    .. "no enchant. What you chose stays."):format(spec, PL(phase)), 1, 1, 1, true)
+            end)
+        end
+        root:CreateButton("Replace all gems and enchants", function()
+            ns.Gems:FillPhase(phase, ListArg(), true)
+        end)
+    end
 end
 
 -- More (...): lists from other sites in, my gear / BiS list out to WoWSims and Wowhead (UI/ImportExport.lua), copy
@@ -1045,6 +1223,75 @@ end
 ---------------------------------------------------------------------------
 -- The centre: phase and progress, the model wearing the picks, what is still to get
 ---------------------------------------------------------------------------
+
+-- The art behind the model: the phase's raids' loading screens (dungeon zones for Pre-raid), crossfading every
+-- ART_HOLD seconds inside a soft circle that fades into the window's backdrop.
+-- (by FileDataID: the client doesn't resolve these loading screens by path)
+local LS = {
+    HellfireCitadel = 131844, CoilFang = 131832, Auchindoun = 131821, TempestKeep = 131875, Karazhan = 131849,
+    GruulsLair = 131842, HellfireCitadelRaid = 131846, Hyjal = 131847, BlackTemple = 131826, ZulAman = 131884,
+    Sunwell = 131873,
+}
+local PHASE_ART = {
+    [0] = { "HellfireCitadel", "CoilFang", "Auchindoun", "TempestKeep" },
+    [1] = { "Karazhan", "GruulsLair", "HellfireCitadelRaid" },
+    [2] = { "CoilFang", "TempestKeep" },
+    [3] = { "Hyjal", "BlackTemple" },
+    [4] = { "ZulAman" },
+    [5] = { "Sunwell" },
+}
+local ART_SIZE, ART_ALPHA, ART_HOLD, ART_FADE = 620, 0.55, 8, 1.5
+local RADIAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\MyBiS\\Radial"
+
+local function CreateArt(c, anchor)
+    local f = CreateFrame("Frame", nil, c)
+    f:SetSize(ART_SIZE, ART_SIZE)
+    f:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+    f:SetFrameLevel(c:GetFrameLevel())
+    local mask = f.CreateMaskTexture and f:CreateMaskTexture()
+    f.mask = mask
+    if mask then
+        mask:SetTexture(RADIAL, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        mask:SetAllPoints()
+    end
+    f.tex = {}
+    for i = 1, 2 do
+        local t = f:CreateTexture(nil, "BACKGROUND", nil, -7)
+        t:SetAllPoints()
+        t:SetTexCoord(0.25, 0.75, 0.3, 0.97)   -- (a 4:3 screen stored square: a square below the logo)
+        t:SetVertexColor(0.85, 0.85, 0.85)
+        t:SetAlpha(0)
+        if mask and t.AddMaskTexture then t:AddMaskTexture(mask) end
+        f.tex[i] = t
+    end
+    f.cur, f.idx, f.clock = 1, 1, 0
+    function f:SetPhase(phase)
+        local list = PHASE_ART[phase] or PHASE_ART[1]
+        if self.list == list then return end
+        self.list, self.idx, self.clock = list, 1, 0
+        self.tex[self.cur]:SetTexture(LS[list[1]])
+        self.tex[self.cur]:SetAlpha(ART_ALPHA)
+        self.tex[3 - self.cur]:SetAlpha(0)
+        self.fading = nil
+    end
+    f:SetScript("OnUpdate", function(self, elapsed)
+        local list = self.list
+        if not list or #list < 2 then return end
+        self.clock = self.clock + elapsed
+        if self.fading then
+            local t = min(1, self.clock / ART_FADE)
+            self.tex[self.cur]:SetAlpha(ART_ALPHA * t)
+            self.tex[3 - self.cur]:SetAlpha(ART_ALPHA * (1 - t))
+            if t >= 1 then self.fading, self.clock = nil, 0 end
+        elseif self.clock >= ART_HOLD then
+            self.idx = self.idx % #list + 1
+            self.cur = 3 - self.cur
+            self.tex[self.cur]:SetTexture(LS[list[self.idx]])
+            self.fading, self.clock = true, 0
+        end
+    end)
+    return f
+end
 
 local function RowTooltip(row)
     local g = row.group
@@ -1159,34 +1406,73 @@ local function CreateCard(parent, w, h)
     if c.note2.SetMaxLines then c.note2:SetMaxLines(2) end
     c.note2:SetPoint("TOP", c.note1, "BOTTOM", 0, -4)
 
+    -- The model draws in a frame larger than its place (and above the slot tiles) so a long weapon reaches over the
+    -- columns; the camera backs off by the same ratio so the character keeps its size. It takes no mouse: the drag
+    -- lives on `hit`, the model's own place.
+    local EX, EY = 130, 60
+    local placeH = c.listTop - 36
     local m = UI:CreateBiSModel(c)
-    m:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -30)
-    m:SetPoint("BOTTOMRIGHT", c, "TOPRIGHT", 0, -(c.listTop - 6))
-    m:SetScript("OnShow", function() if c.phase then c:Dress(c.phase) end end)
-    m:HookScript("OnEnter", function(self)
-        if self.dragX then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("You in these picks", 1, 0.82, 0)
-        GameTooltip:AddLine("Drag to turn. Slots without a pick show what you wear.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    m:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    m:HookScript("OnMouseDown", function() GameTooltip:Hide() end)
+    m.camScale = (placeH + 2 * EY) / placeH
+    m:SetPoint("TOPLEFT", c, "TOPLEFT", -EX, -30 + EY)
+    m:SetPoint("BOTTOMRIGHT", c, "TOPRIGHT", EX, -(c.listTop - 6) - EY)
+    m:SetFrameLevel(c:GetFrameLevel() + 40)
+    m:EnableMouse(false)
+    m:SetScript("OnShow", function() c.dressKey = nil; if c.phase then c:Dress(c.phase) end end)
+    local hit = CreateFrame("Frame", nil, c)
+    hit:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -30)
+    hit:SetPoint("BOTTOMRIGHT", c, "TOPRIGHT", 0, -(c.listTop - 6))
+    hit:EnableMouse(true)
+    hit:SetScript("OnMouseDown", function() m.dragX = GetCursorPosition() end)
+    hit:SetScript("OnMouseUp", function() m.dragX = nil end)
+    -- the character stands on a stone pedestal with a soft shadow (under the model, over the art)
+    hit.platform = hit:CreateTexture(nil, "ARTWORK")
+    hit.platform:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\MyBiS\\platform")
+    hit.platform:SetSize(PLATFORM_W, PLATFORM_W / 2)
+    hit.platform:SetPoint("CENTER", hit, "BOTTOM", 0, PLATFORM_Y)
+    c.hit = hit
+    c.art = CreateArt(c, hit)
+    MyBiS.art = c.art                       -- (debugging: DisasterZone.MyBiS.art)
     c.model = m
+
+    -- gems and enchants of the phase (under the obtained count, above the model)
+    local fin = CreateFrame("Frame", nil, c)
+    fin:SetFrameLevel(m:GetFrameLevel() + 2)
+    fin:SetSize(w, 14)
+    fin:SetPoint("TOP", c.track, "BOTTOM", 0, -6)
+    fin:EnableMouse(true)
+    fin.text = Text(fin, "GameFontHighlightSmall", 10)
+    fin.text:SetJustifyH("CENTER")
+    fin.text:SetPoint("CENTER", fin, "CENTER", 0, 0)
+    fin:SetScript("OnEnter", function(self) MyBiS:FinishTooltip(self) end)
+    fin:SetScript("OnMouseUp", function(self) MyBiS:OpenFinishMenu(self) end)
+    fin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    c.finish = fin
 
     -- The model wears the phase's picks. A slot that is empty, disabled or holds something that can't be worn (a tier
     -- token) keeps the currently equipped item.
     function c:Dress(phase)
         self.phase = phase
+        self.art:SetPhase(phase)
         if not self.model:IsVisible() then return end
         local BiS = ns.BiS
         local data = BiS and (BiS.GetListView and BiS:GetListView(ListArg()) or BiS:GetData())
         local ph = PhaseSlots(data, phase)
-        self.model:DressBiS("player", function(sid)
+        local function pick(sid)
             local e = type(ph) == "table" and ph[sid]
             local itemID = type(e) == "table" and tonumber(e[1]) or nil
             if itemID and itemID > 0 and not SlotDisabled(phase, sid) then return itemID end
-        end)
+        end
+        -- Re-dressing reloads the model (it blinks), and the tab refreshes on every bag scan, item info or guild
+        -- sync: only dress again when the outfit (the picks, and what is worn under empty slots) changed.
+        local key = {}
+        for sid = 1, NUM_SLOTS do
+            local slot = ns.SLOTS and ns.SLOTS[sid]
+            local worn = slot and slot.invSlot and GetInventoryItemID("player", slot.invSlot) or 0
+            key[sid] = tostring(pick(sid) or 0) .. ":" .. tostring(worn or 0)
+        end
+        key = table.concat(key, ",")
+        if key == self.dressKey then return end
+        if self.model:DressBiS("player", pick) then self.dressKey = key end
     end
 
     return c
@@ -1246,6 +1532,7 @@ local function UpdateCard(phase)
     card.fill:SetWidth(max(1, floor(BAR_W * share + 0.5)))
     card.fill:SetShown(share > 0)
     card.progress.info, card.progress.phase = info, phase
+    MyBiS:UpdateFinish(phase, info.filled > 0)
 
     local groups = info.groups
     local locked = ListLocked()
@@ -1339,17 +1626,6 @@ local function UpdatePhaseButtons()
     end
 end
 
--- Two or more sleek buttons as one segmented control: each next one overlaps the edge of the one before.
-local function Segment(buttons, first, anchor, x)
-    for i, b in ipairs(buttons) do
-        if i == 1 then
-            b:SetPoint("LEFT", anchor, first, x, 0)
-        else
-            b:SetPoint("LEFT", buttons[i - 1], "RIGHT", -1, 0)
-        end
-    end
-end
-
 local function CreateLockChip(p)
     local UI = ns.UI
     local chip = CreateFrame("Frame", nil, p)
@@ -1406,29 +1682,8 @@ local function CreateTopBar(p)
         phaseButtons[i] = b
     end
 
-    -- Addendum H: which list the tab shows. The spec dropdown next to them belongs to that list.
-    msBtn = UI:CreateButton(bar, "Main spec", LIST_W, BAR_H, function() MyBiS:SetList("ms") end)
-    osBtn = UI:CreateButton(bar, "+ Off spec", LIST_W, BAR_H, function() MyBiS:SetList("os") end)
-    Segment({ msBtn, osBtn }, "RIGHT", phaseButtons[#phaseButtons], 16)
-    for _, b in ipairs({ msBtn, osBtn }) do
-        b:HookScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-            if self == msBtn then
-                GameTooltip:AddLine("Main-spec list", 1, 0.82, 0)
-                GameTooltip:AddLine("Your best-in-slot list. The council ranks these picks first.", 1, 1, 1, true)
-            else
-                GameTooltip:AddLine("Off-spec list", ns.UI:Color("offspec"))
-                GameTooltip:AddLine("A second list for your other spec. The council sees these picks after "
-                    .. "everyone's main-spec wants, and such an award counts as Offspec (not as loot won).", 1, 1, 1, true)
-                if not HasOffSpec() then GameTooltip:AddLine("Click to start one.", 0.7, 0.7, 0.7) end
-            end
-            GameTooltip:Show()
-        end)
-        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    end
-
-    specDD = CreateSpecDropdown(bar)
-    specDD:SetPoint("LEFT", osBtn, "RIGHT", 10, 0)
+    -- Addendum H: the spec tabs (which list the tab shows, both specs, a menu to change them)
+    CreateSpecRow(bar):SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 22, 0)
 
     moreBtn = UI:CreateTipIconButton(bar, BAR_H, UI.ICON.more, "More", "Import a BiS list from another site, export "
         .. "yours to WoWSims or Wowhead, copy another phase or list, or clear this phase's picks.", function(self)
@@ -1474,6 +1729,9 @@ function MyBiS:CreatePanel(parent)
         layout = "page",
         onSlotClick = OnSlotClick,
         onSlotReceiveItem = OnSlotReceiveItem,
+        onGemsClick = function(sid, tile)
+            if tile.mainID and ns.GemEditor then ns.GemEditor:Open(tile, tile.mainID, CurrentPhase(), ListArg()) end
+        end,
     })
     card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
     card.lockBanner = lockChip
@@ -1504,18 +1762,7 @@ function MyBiS:Refresh()
 
     local phase = CurrentPhase()
     UpdatePhaseButtons()
-    -- Addendum H: the list buttons (the shown one chosen; "+ Off spec" until there is one).
-    if msBtn and osBtn then
-        local os = IsOffSpecView()
-        msBtn:SetKind(os and "secondary" or "chosen")
-        osBtn:SetKind(os and "chosen" or "secondary")
-        msBtn:SetFrameLevel(bar:GetFrameLevel() + (os and 1 or 3))
-        osBtn:SetFrameLevel(bar:GetFrameLevel() + (os and 3 or 1))
-        osBtn:SetText(HasOffSpec() and "Off spec" or "+ Off spec")
-    end
-    if specDD and specDD.SetDefaultText then
-        specDD:SetDefaultText("Choose spec")
-    end
+    RefreshSpecTabs()   -- Addendum H: the spec tabs show the shown list and both specs
 
     -- §38: while the lists are locked the chip says so in Suggest's place, and the menus offer what still works.
     local locked, info = ListLocked()
@@ -1538,8 +1785,102 @@ function MyBiS:Refresh()
         isDisabled = function(sid) return SlotDisabled(phase, sid) end,
         source = SlotSourceText,
         sourceTip = SlotSourceTip,
+        gems = true,
     })
+    -- the gem editor follows the shown phase and list (else it closes)
+    local GE = ns.GemEditor
+    if GE and GE:IsShown() then
+        local _, st = GE:GetFrame()
+        if st.phase ~= phase or st.list ~= ListArg() or locked then GE:Close() end
+    end
     UpdateCard(phase)
+end
+
+-- The centre's gems and enchants line: "Gems 6 of 9  ·  Enchants 6 of 9" (green when complete); hidden while the phase
+-- has no pick that takes either.
+function MyBiS:UpdateFinish(phase, anyPick)
+    local fin = card and card.finish
+    local G, BiS = ns.Gems, ns.BiS
+    if not (fin and G and BiS) then return end
+    local view = BiS:GetListView(ListArg())
+    local gems, sockets, enchants, enchantable = G:Progress(view, phase, function(sid) return SlotDisabled(phase, sid) end)
+    fin.phase = phase
+    local parts = {}
+    local function part(word, have, of)
+        if of == 0 then return end
+        local done = have >= of
+        parts[#parts + 1] = done and Green(("%s %d of %d"):format(word, have, of))
+            or ("|cff9e9e9e%s|r |cffffffff%d|r |cff9e9e9eof %d|r"):format(word, have, of)
+    end
+    part("Gems", gems, sockets)
+    part("Enchants", enchants, enchantable)
+    fin.text:SetText(table.concat(parts, "|cff9e9e9e  ·  |r"))
+    fin:SetShown(anyPick and #parts > 0)
+end
+
+-- (tests) the centre's gems and enchants line: shown, text without colour codes.
+function MyBiS:GetFinish()
+    local fin = card and card.finish
+    if not fin then return nil end
+    local text = (fin.text:GetText() or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    return fin:IsShown(), text
+end
+
+-- The gems line's menu: fill the empty ones from the guide, put what they take on the shopping list.
+function MyBiS:OpenFinishMenu(owner)
+    local G = ns.Gems
+    local phase = owner.phase or CurrentPhase()
+    local list = ListArg()
+    GameTooltip:Hide()
+    ns.UI:ContextMenu(owner, function(root)
+        root:CreateTitle("Gems and enchants - " .. PL(phase))
+        if not ListLocked() and G:GuideFor(ns.BiS:GetListView(list)) then
+            root:CreateButton("Fill empty from the guide", function() G:FillPhase(phase, list, false) end)
+        end
+        local needs = G:ShoppingNeeds(phase, list)
+        local count = 0
+        for _, n in pairs(needs) do count = count + n end
+        local b = root:CreateButton(count > 0 and ("Add to shopping list (%d)"):format(count) or "Add to shopping list",
+            function()
+                local n, other = G:AddToShoppingList(phase, list)
+                ns:Print("Added %d gems and enchants to your shopping list (Atlas).%s", n,
+                    other > 0 and (" %d more come from drops, vendors or reputation."):format(other) or "")
+            end)
+        if count == 0 and b and b.SetEnabled then b:SetEnabled(false) end
+    end)
+end
+
+-- What the phase's picks still lack (the line's tooltip).
+function MyBiS:FinishTooltip(owner)
+    local G, BiS = ns.Gems, ns.BiS
+    local phase = owner.phase or CurrentPhase()
+    local view = BiS:GetListView(ListArg())
+    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Gems and enchants - " .. PL(phase), 1, 0.82, 0)
+    local any = false
+    local picks = G:CountedPicks(view, phase, function(sid) return SlotDisabled(phase, sid) end)
+    for sid = 1, NUM_SLOTS do
+        local itemID = picks[sid]
+        if itemID then
+            local st = G:State(view, itemID)
+            local missing = {}
+            if st.filled < st.sockets then
+                local n = st.sockets - st.filled
+                missing[#missing + 1] = n == 1 and "1 gem" or (n .. " gems")
+            end
+            if st.enchantable and not st.enchanted then missing[#missing + 1] = "enchant" end
+            if #missing > 0 then
+                any = true
+                local name = ns.UI:ItemText(itemID)
+                GameTooltip:AddDoubleLine(name, table.concat(missing, ", "), 1, 1, 1, 0.65, 0.65, 0.68)
+            end
+        end
+    end
+    if not any then
+        GameTooltip:AddLine("Every pick has its gems and enchant.", 0.3, 0.9, 0.3)
+    end
+    GameTooltip:AddLine("Click: fill from the guide, or put them on the shopping list", 0.5, 0.5, 0.5, true)
+    GameTooltip:Show()
 end
 
 -- DisasterZone extension (§36): the progress numbers of a phase as the centre shows them (for tests / tooltips).

@@ -448,7 +448,8 @@ def context_menu_swap_mark_clear_link():
     # full menu
     c.click(tile_btn(c, 5), "RightButton")
     texts = [e[2] for e in menu_texts(c.last_menu())]
-    assert texts == ["Chest  ·  P1", "Choose main...", "Choose alt...", "Swap main / alt", "Mark obtained",
+    assert texts == ["Chest  ·  P1", "Choose main...", "Choose alt...", "Swap main / alt", "Gems and enchant...",
+                     "Mark obtained",
                      "Clear slot", "Link main in chat", None, "Disable slot (P1)", "Disable in all phases"], texts
     c.menu_select("Swap main / alt")
     w.tick(0.2)

@@ -352,6 +352,7 @@ function ns.ListView(data, list)
         v = data.v, cl = data.cl, sp = type(data.os) == "string" and data.os or "",
         ph = type(data.op) == "table" and data.op or {}, dx = type(data.ox) == "table" and data.ox or nil,
         pr = type(data.opr) == "table" and data.opr or nil, px = type(data.opx) == "table" and data.opx or nil,
+        ge = type(data.oge) == "table" and data.oge or nil,
         ob = data.ob, eq = data.eq, offSpec = true,
     }
 end

@@ -2362,6 +2362,9 @@ local function refreshMember(phase)
                 return hasAward(key, itemID)
             end,
             showEquipped = true,
+            -- the member's gems and enchants (read-only; ring enchants count when they have Enchanting)
+            gems = true,
+            gemProfs = ns.Gems and ns.Gems:ProfessionSet(key) or nil,
         }
         v.doll:Update(shownRecord, phase, ctx)
     end

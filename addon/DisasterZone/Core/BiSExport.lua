@@ -3,11 +3,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BiSExport.lua", ...) then ret
 --   Exp:WoWSims(specs)    the JSON the WowSimsExporter addon makes (wowsims.com/tbc: Import > Addon): class, race,
 --                         level, talents, professions and the 17 slots with enchants and gems
 --   Exp:Bulk(phase, list) a phase's main and alt picks as a WoWSims Bulk list ({"items":[...]}, Bulk tab > Import)
---   Exp:WowheadLink(specs) a Wowhead TBC gear planner link (Wowhead wants an enchant's spell, the item link only has
---                         the enchant itself, so enchants are left out; gems stay)
+--   Exp:WowheadLink(specs) a Wowhead TBC gear planner link (Wowhead wants an enchant's spell: a planned enchant the
+--                         Atlas knows the craft of goes in, a worn one (only its enchant number) is left out; gems stay)
 -- specs come from Exp:EquippedSpecs() (what I wear, read from the item links) or Exp:PhaseSpecs(phase, list) (the
--- phase's main picks; a slot that is empty or disabled keeps what I wear, like the My BiS model, and a pick I wear
--- keeps its enchant and gems).
+-- phase's main picks; a slot that is empty or disabled keeps what I wear, like the My BiS model; a pick with gems /
+-- an enchant chosen in My BiS has those, else a pick I wear keeps its own).
 local addonName, ns = ...
 
 local Exp = ns:NewModule("BiSExport")
@@ -79,8 +79,28 @@ function Exp:EquippedSpecs()
     return out
 end
 
--- The spec to export for a BiS pick: what I wear when it is the same item (this slot or its pair), else the item.
-local function PickSpec(itemID, sid, worn)
+-- The spec to export for a BiS pick: its gems / enchant chosen in My BiS; else what I wear when it is the same item
+-- (this slot or its pair); else the item.
+local function PickSpec(itemID, sid, worn, list)
+    local bis = BiS()
+    if bis and bis.GetGemSetup then
+        local enchant, gems = bis:GetGemSetup(itemID, list)
+        if enchant ~= 0 or next(gems) ~= nil then
+            local spec = { id = itemID }
+            if enchant ~= 0 then
+                spec.enchant = enchant
+                local e = ns.Gems and ns.Gems:Enchant(enchant)
+                spec.enchantSpell = e and e.craft or nil
+            end
+            local last = 0
+            for g = 1, 4 do if (gems[g] or 0) > 0 then last = g end end
+            if last > 0 then
+                spec.gems = {}
+                for g = 1, last do spec.gems[g] = gems[g] or 0 end
+            end
+            return spec
+        end
+    end
     local w = worn[sid]
     if w and w.id == itemID then return w end
     local pair = PAIR[sid]
@@ -103,7 +123,7 @@ function Exp:PhaseSpecs(phase, list)
     for sid = 1, NUM_SLOTS do
         local main = bis:GetSlot(phase, sid, list)
         if main and not bis:IsSlotDisabled(phase, sid, list) then
-            out[sid] = PickSpec(main, sid, worn)
+            out[sid] = PickSpec(main, sid, worn, list)
             picked[sid] = true
         elseif worn[sid] then
             out[sid] = worn[sid]
@@ -224,7 +244,7 @@ function Exp:Bulk(phase, list)
             for _, id in ipairs({ main or 0, alt or 0 }) do
                 if id > 0 and not seen[id] then
                     seen[id] = true
-                    items[#items + 1] = SimItem(PickSpec(id, sid, worn))
+                    items[#items + 1] = SimItem(PickSpec(id, sid, worn, list))
                 end
             end
         end
@@ -259,6 +279,7 @@ function Exp:WowheadLink(specs)
         local spec = specs[sid]
         local bits = ns.SLOTS[sid].invSlot
         if spec.suffix then bits = bits + 64 end
+        if spec.enchantSpell then bits = bits + 128 end
         bytes[#bytes + 1] = bits
         local gems = {}
         for idx, g in ipairs(spec.gems or {}) do
@@ -268,6 +289,10 @@ function Exp:WowheadLink(specs)
         bytes[#bytes + 1] = ((#gems % 8) * 32 + floor(id / 65536)) % 256
         bytes[#bytes + 1] = floor(id / 256) % 256
         bytes[#bytes + 1] = id % 256
+        if spec.enchantSpell then
+            bytes[#bytes + 1] = floor(spec.enchantSpell / 256) % 256
+            bytes[#bytes + 1] = spec.enchantSpell % 256
+        end
         if spec.suffix then
             local v = spec.suffix % 65536
             bytes[#bytes + 1] = floor(v / 256)

@@ -37,6 +37,7 @@ Data\Dungeons.lua
 Data\Sources.lua
 Data\ItemClasses.lua
 Data\BiSLists.lua
+Data\Gems.lua
 Data\Atlas.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
@@ -50,6 +51,7 @@ Core\ItemDB.lua
 Core\DB.lua
 Core\Guild.lua
 Core\BiS.lua
+Core\Gems.lua
 Core\Store.lua
 Core\Comm.lua
 Core\Sync.lua
@@ -181,6 +183,7 @@ Render3D\Standins\Karazhan_Nightbane.lua
 Render3D\Standins\Karazhan_OperaOz.lua
 Render3D\Standins\Karazhan_Prince.lua
 Render3D\Standins\MagtheridonsLair_Magtheridon.lua
+Render3D\Standins\Modes.lua
 Render3D\Standins\SerpentshrineCavern_Hydross.lua
 Render3D\Standins\SerpentshrineCavern_Karathress.lua
 Render3D\Standins\SerpentshrineCavern_Leotheras.lua
@@ -207,6 +210,7 @@ Render3D\Standins\ZulAman_Zuljin.lua
 # UI
 UI\Widgets.lua
 UI\Menu.lua
+UI\TooltipSkin.lua
 UI\Share.lua
 UI\ShareWindow.lua
 UI\Tour.lua
@@ -216,6 +220,7 @@ UI\MainFrame.lua
 UI\MinimapArc.lua
 UI\Dashboard.lua
 UI\PaperDoll.lua
+UI\GemEditor.lua
 UI\MyBiS.lua
 UI\ImportExport.lua
 UI\Picker.lua

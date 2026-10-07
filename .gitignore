@@ -24,3 +24,6 @@ dev/releases/undone/
 dev/art/wmo/
 dev/art/casc/
 dev/art/rooms/
+
+# WoWSims TBC item database downloaded by dev/generators/gen_gems.py
+dev/generators/data/wowsims_tbc_db.json

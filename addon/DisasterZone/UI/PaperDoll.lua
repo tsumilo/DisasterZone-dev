@@ -7,6 +7,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PaperDoll.lua", ...) then retur
 -- picked), the main pick's icon with the alt pick as a small icon on its corner ("+" while hovered, to add one) and
 -- what is worn in that slot now on the other corner; the item's name (two lines when long), then one line: obtained,
 -- or where the item comes from (ctx.source, else the item database's text).
+-- Gems and enchants (ctx.gems): at the inner end of that line a strip of small chips, one per socket (the gem in a
+-- socket-coloured edge, or the empty socket) with a green line under them while the socket bonus is on, then the
+-- enchant (green edge; a quiet "+" when it can take one and has none). Clicking the strip calls opts.onGemsClick.
 local addonName, ns = ...
 
 local PaperDoll = {}
@@ -25,11 +28,11 @@ local LAYOUTS = {
     default = { width = nil, tileW = 260, tileH = 42, gap = 4, colX = 8, top = -4, bottom = "center", bottomW = 246,
                 bottomGapX = 10, bottomGap = 8, centerGap = 10, centerBottom = 8, icon = 32, alt = 15, wear = 13,
                 pad = 7, textGap = 8, nameFont = "GameFontHighlightSmall", srcFont = "GameFontDisableSmall",
-                wrap = false, lineGap = 2 },
+                wrap = false, lineGap = 2, chip = 11 },
     page    = { width = 770, tileW = 262, tileH = 56, gap = 6, colX = 0, top = 0, bottom = "centre", bottomGap = 0,
                 centerGap = 8, centerBottom = 8, icon = 40, alt = 17, wear = 15, pad = 8, textGap = 10,
                 nameFont = "GameFontHighlight", srcFont = "GameFontHighlightSmall", wrap = true, lineGap = 4,
-                quiet = true, left = { 1, 2, 3, 4, 5, 6, 15, 16 }, right = { 7, 8, 9, 10, 11, 12, 13, 14 },
+                quiet = true, chip = 13, left = { 1, 2, 3, 4, 5, 6, 15, 16 }, right = { 7, 8, 9, 10, 11, 12, 13, 14 },
                 bottomSlots = { 17 } },
 }
 
@@ -284,6 +287,181 @@ local function CornerIcon(tile, size, edge)
     return b
 end
 
+-- Gems and enchants strip
+
+local CHIP_GAP, ENCHANT_GAP = 3, 6
+local ENCHANT_EDGE = { 0.25, 0.85, 0.3, 0.95 }
+local EMPTY_EDGE = { 0.42, 0.42, 0.46, 0.9 }
+
+local function GemColor(letter)
+    local c = ns.Gems and ns.Gems.COLORS[letter]
+    return c or { 0.6, 0.6, 0.6 }
+end
+
+local function CreateChip(strip, size)
+    local c = CreateFrame("Frame", nil, strip)
+    c:SetSize(size, size)
+    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg:SetAllPoints()
+    c.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
+    c.icon = c:CreateTexture(nil, "ARTWORK")
+    c.icon:SetPoint("TOPLEFT", 1, -1)
+    c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+    c.plus = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    c.plus:SetPoint("CENTER", 0, 0)
+    c.plus:SetText("+")
+    c.plus:SetTextColor(0.6, 0.6, 0.64)
+    ns.UI:AddEdges(c, "OVERLAY")
+    return c
+end
+
+local function SetChip(c, icon, edge, crop)
+    c.icon:SetTexture(icon)
+    c.icon:SetShown(icon ~= nil)
+    if crop then c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) else c.icon:SetTexCoord(0, 1, 0, 1) end
+    c.plus:Hide()
+    ns.UI:SetEdgeColor(c, edge[1], edge[2], edge[3], edge[4] or 1)
+    c:Show()
+end
+
+-- The strip's tooltip: each socket's gem (or that it is empty), the socket bonus, the enchant.
+local function GemTooltip(doll, tile, tt)
+    local G = ns.Gems
+    local st = tile.gemState
+    if not (G and st) then return end
+    tt:AddLine(st.sockets > 0 and (st.enchantable and "Gems and enchant" or "Gems") or "Enchant", 1, 0.82, 0)
+    local sockets, bonus = G:Sockets(tile.mainID)
+    for i, s in ipairs(sockets) do
+        local g = G:Gem(st.gems[i])
+        local c = GemColor(s)
+        if g then
+            tt:AddDoubleLine(g.name, g.text or "", c[1], c[2], c[3], 0.3, 0.9, 0.3)
+            if not G:Fits(g.id, s) then tt:AddLine("  in a " .. G.SOCKET_NAMES[s]:lower() .. " socket", 0.6, 0.6, 0.6) end
+            if g.color == "M" then
+                local active, words = G:MetaState(g.id, doll.metaCounts)
+                if words then
+                    if active then
+                        tt:AddLine("  Active: " .. words, 0.3, 0.9, 0.3, true)
+                    else
+                        tt:AddLine("  Inactive: needs " .. words, 0.9, 0.45, 0.35, true)
+                    end
+                end
+            end
+        else
+            tt:AddLine(G.SOCKET_NAMES[s] .. " socket - empty", 0.55, 0.55, 0.58)
+        end
+    end
+    if bonus then
+        if st.bonus then
+            tt:AddLine("Socket bonus: " .. bonus, 0.3, 0.9, 0.3)
+        else
+            tt:AddLine("Socket bonus: " .. bonus .. " (not active)", 0.55, 0.55, 0.58)
+        end
+    end
+    if st.enchantable then
+        local e = G:Enchant(st.enchant)
+        if e then
+            tt:AddDoubleLine(e.short, e.text or "", 0.3, 0.9, 0.3, 0.3, 0.9, 0.3)
+        else
+            tt:AddLine("No enchant", 0.55, 0.55, 0.58)
+        end
+    end
+    if not doll.readOnly and not doll.locked and doll.opts.onGemsClick then
+        tt:AddLine("Click to choose gems and enchant", 0.5, 0.5, 0.5)
+    end
+end
+
+local function CreateStrip(doll, tile)
+    local strip = CreateFrame("Button", nil, tile)
+    strip:SetFrameLevel(tile:GetFrameLevel() + 3)
+    strip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    strip.chips = {}
+    strip.bonus = strip:CreateTexture(nil, "OVERLAY")
+    strip.bonus:SetHeight(1)
+    strip.bonus:SetColorTexture(0.3, 0.9, 0.3, 0.95)
+    strip:SetScript("OnClick", function(_, mouseButton)
+        if doll.readOnly or doll.locked then return end
+        local cb = doll.opts.onGemsClick
+        if cb then cb(tile.sid, tile, mouseButton) end
+    end)
+    strip:SetScript("OnEnter", function(self)
+        SetHovered(tile, true)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GemTooltip(doll, tile, GameTooltip)
+        GameTooltip:Show()
+    end)
+    strip:SetScript("OnLeave", function()
+        SetHovered(tile, false)
+        GameTooltip:Hide()
+    end)
+    strip:Hide()
+    return strip
+end
+
+-- Paints the strip for the tile's main pick; returns its width (0 when hidden).
+local function PaintStrip(doll, tile, data, ctx)
+    local G = ns.Gems
+    local strip = tile.strip
+    tile.gemState = nil
+    if not (G and ctx.gems and tile.mainID and data) then
+        strip:Hide()
+        return 0
+    end
+    local st = G:State(data, tile.mainID, ctx.gemProfs)
+    if st.sockets == 0 and not st.enchantable then
+        strip:Hide()
+        return 0
+    end
+    tile.gemState = st
+    local sockets = G:Sockets(tile.mainID)
+    local editable = not doll.readOnly and not doll.locked
+    local size = tile.L.chip or 12
+    local n, x = 0, 0
+    local function chip()
+        n = n + 1
+        local c = strip.chips[n]
+        if not c then
+            c = CreateChip(strip, size)
+            strip.chips[n] = c
+        end
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", strip, "TOPLEFT", x, 0)
+        x = x + size + CHIP_GAP
+        return c
+    end
+    for i, s in ipairs(sockets) do
+        local c = chip()
+        local g = G:Gem(st.gems[i])
+        local col = GemColor(s)
+        if g then
+            SetChip(c, g.icon, { col[1], col[2], col[3], 1 }, true)
+        else
+            SetChip(c, G.EMPTY_SOCKET[s], { col[1] * 0.75, col[2] * 0.75, col[3] * 0.75, 0.9 }, false)
+        end
+    end
+    local socketsW = x > 0 and (x - CHIP_GAP) or 0
+    if st.enchantable then
+        if n > 0 then x = x + ENCHANT_GAP - CHIP_GAP end
+        local c = chip()
+        local e = G:Enchant(st.enchant)
+        if e then
+            SetChip(c, e.icon, ENCHANT_EDGE, true)
+        else
+            SetChip(c, nil, EMPTY_EDGE)
+            c.plus:SetShown(editable)
+        end
+    end
+    for i = n + 1, #strip.chips do strip.chips[i]:Hide() end
+    strip.bonus:ClearAllPoints()
+    strip.bonus:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -(size + 2))
+    strip.bonus:SetWidth(math.max(1, socketsW))
+    strip.bonus:SetShown(st.bonus and socketsW > 0)
+    local w = x - CHIP_GAP
+    strip:SetSize(w, size + 3)
+    strip:Show()
+    return w
+end
+
 local function CreateTile(doll, sid, side, width)
     local UI = ns.UI
     local L = doll.L
@@ -348,6 +526,7 @@ local function CreateTile(doll, sid, side, width)
     tile.line2:SetJustifyH(justify)
     tile.line1:SetJustifyV("TOP")
     tile.line2:SetPoint("TOP" .. justify, tile.line1, "BOTTOM" .. justify, 0, -L.lineGap)
+    tile.strip = CreateStrip(doll, tile)
 
     tile.main.onClick = function(_, mouseButton) HandleClick(doll, tile, "main", mouseButton) end
     tile.alt.onClick = function(_, mouseButton) HandleClick(doll, tile, "alt", mouseButton) end
@@ -373,7 +552,7 @@ local function CreateTile(doll, sid, side, width)
     end)
     tile:SetScript("OnEnter", function(self)
         SetHovered(self, true)
-        UI:SetItemTooltip(self, self.mainID, function(tt) MainTooltip(doll, self, tt) end)
+        UI:SetItemTooltip(self, self.mainLink or self.mainID, function(tt) MainTooltip(doll, self, tt) end)
     end)
     tile:SetScript("OnLeave", function(self)
         SetHovered(self, false)
@@ -404,6 +583,17 @@ local function PlaceText(tile)
         tile.line1:SetPoint("TOPRIGHT", tile, "TOPRIGHT", -x, -top)
     else
         tile.line1:SetPoint("TOPLEFT", tile, "TOPLEFT", x, -top)
+    end
+    -- the gem strip: at the inner end of the second line (its row: the first line's height and the gap below it)
+    local strip = tile.strip
+    if strip and strip:IsShown() then
+        local y = -(top + h1 + L.lineGap) + floor(((L.chip or 12) - 12) / 2 + 0.5)
+        strip:ClearAllPoints()
+        if tile.side == "R" then
+            strip:SetPoint("TOPLEFT", tile, "TOPLEFT", L.pad, y)
+        else
+            strip:SetPoint("TOPRIGHT", tile, "TOPRIGHT", -L.pad, y)
+        end
     end
 end
 
@@ -467,7 +657,7 @@ local function PaintDisabledTile(doll, tile, main, alt)
 end
 
 -- Returns true when some item name is still loading.
-local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disabled)
+local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disabled, data)
     local UI = ns.UI
     local sid = tile.sid
     local label = SlotLabel(sid)
@@ -476,9 +666,23 @@ local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disab
     local pending = false
 
     tile.disabled = disabled and true or nil
-    if disabled then return PaintDisabledTile(doll, tile, main, alt) end
+    tile.mainLink, tile.main.itemLink = nil, nil
+    if disabled then
+        tile.strip:Hide()
+        tile.line2:SetWidth(tile.textW)
+        return PaintDisabledTile(doll, tile, main, alt)
+    end
     tile.mainID, tile.altID = main, alt
     tile.twoHandBlocked = twoHandBlocked or nil
+    -- gems and enchant: the strip first (the line beside it gets what is left of the width)
+    local stripW = 0
+    if main and not twoHandBlocked then stripW = PaintStrip(doll, tile, data, ctx) else tile.strip:Hide() end
+    local lineW = stripW > 0 and (tile.textW - stripW - 8) or tile.textW
+    tile.line2:SetWidth(lineW)
+    if main and ns.Gems and ctx.gems then
+        tile.mainLink = ns.Gems:LinkFor(data, main)
+        tile.main.itemLink = tile.mainLink
+    end
     tile.mainState, tile.mainAwarded, tile.altState, tile.altAwarded = nil, nil, nil, nil
     tile.filled = main and not twoHandBlocked or nil
 
@@ -499,7 +703,7 @@ local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disab
         elseif awarded then
             tile.line2:SetText(ColorKey("obtained", "Awarded"))
         else
-            local src = ctx.source and ctx.source(main, sid, tile.line2, tile.textW)
+            local src = ctx.source and ctx.source(main, sid, tile.line2, lineW)
             tile.line2:SetText(src or Soft(SourceText(main) or "Other source"))
         end
     else
@@ -589,13 +793,14 @@ function Doll:Update(record, phase, ctx)
     local twoHander = mhMain and EquipLoc(mhMain) == "INVTYPE_2HWEAPON"
         and not SlotDisabled(record, phase, SID_MAINHAND)
 
+    self.metaCounts = (ctx.gems and data and ns.Gems) and ns.Gems:ColorCounts(data, phase) or nil
     local pending = false
     for sid, tile in pairs(self.tiles) do
         local main, alt = SlotEntry(ph, sid)
         local eqID = eq and ValidID(eq[sid]) or nil
         local disabled
         if ctx.isDisabled then disabled = ctx.isDisabled(sid) else disabled = SlotDisabled(record, phase, sid) end
-        if PaintTile(self, tile, main, alt, ctx, eqID, sid == SID_OFFHAND and twoHander, disabled) then
+        if PaintTile(self, tile, main, alt, ctx, eqID, sid == SID_OFFHAND and twoHander, disabled, data) then
             pending = true
         end
     end

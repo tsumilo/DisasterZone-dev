@@ -326,10 +326,15 @@ end
 -- Tooltips & glow
 ---------------------------------------------------------------------------
 
+-- itemID: an item id, or an item string / link (a BiS pick with its gems and enchant: ns.Gems:Link).
 function UI:SetItemTooltip(owner, itemID, extraFn)
     if not owner then return end
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    if itemID then GameTooltip:SetItemByID(itemID) end
+    if type(itemID) == "string" then
+        GameTooltip:SetHyperlink(itemID)
+    elseif itemID then
+        GameTooltip:SetItemByID(itemID)
+    end
     if extraFn then extraFn(GameTooltip) end
     if GameTooltip:NumLines() > 0 then
         GameTooltip:Show()
@@ -1970,7 +1975,7 @@ end
 local function ItemButton_OnEnter(self)
     if not self.itemID and not self.onTooltip then return end
     local owner = self
-    UI:SetItemTooltip(owner, self.itemID, self.onTooltip and function(tt) self.onTooltip(self, tt) end)
+    UI:SetItemTooltip(owner, self.itemLink or self.itemID, self.onTooltip and function(tt) self.onTooltip(self, tt) end)
 end
 
 local function ItemButton_OnLeave()
@@ -3527,7 +3532,7 @@ end
 -- otherwise and draws outside its box).
 local function FitModelCamera(m)
     pcall(m.SetPortraitZoom, m, 0)
-    pcall(m.SetCamDistanceScale, m, 1)
+    pcall(m.SetCamDistanceScale, m, m.camScale or 1)
     pcall(m.SetPosition, m, 0, 0, 0)
     pcall(m.SetFacing, m, m.facing or 0)
 end

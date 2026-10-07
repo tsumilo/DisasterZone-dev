@@ -8,7 +8,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BiSImport.lua", ...) then ret
 -- Imp:Plan(parsed, opts) fits the items into the 17 slots: in the source's order each item takes the main of its
 -- slot, then the alt (rings, trinkets and one-handers fill both slots' mains first); a slot the source names is
 -- tried first. Imp:Preview shows what changes; Imp:Apply writes it with BiS:ApplyTemplate, so tokens, disabled
--- slots and the raid lock behave as everywhere else. Gems and enchants are dropped (BiS lists have none).
+-- slots and the raid lock behave as everywhere else. Gems and enchants (Sixty Upgrades, WoWSims, Wowhead) come along:
+-- plan.setups[list][itemID] = { enchant, gems }, written with BiS:SetGemSetups (Replace: over what the item had; Fill:
+-- only items without any).
 local addonName, ns = ...
 
 local Imp = ns:NewModule("BiSImport")
@@ -193,6 +195,37 @@ local function EntryID(e)
     return nil
 end
 
+-- An entry's enchant: a number (WoWSims: the enchant id) or a table (Sixty Upgrades: id / spellId / itemId), as the
+-- enchant number item links carry; nil when there is none or DisasterZone doesn't know it.
+local function EntryEnchant(e)
+    local G = ns.Gems
+    local v = V(e.enchant)
+    if not G or v == nil then return nil end
+    if type(v) == "table" then
+        return G:EnchantFromAny(V(v.effectId)) or G:EnchantFromAny(V(v.id)) or G:EnchantFromAny(V(v.spellId))
+            or G:EnchantFromAny(V(v.itemId))
+    end
+    return G:EnchantFromAny(v)
+end
+
+-- An entry's gems in socket order (numbers or tables with an id; 0 / null = an empty socket), nil when none.
+local function EntryGems(e)
+    local list = V(e.gems)
+    if type(list) ~= "table" then return nil end
+    local out, any = {}, false
+    for i = 1, 4 do
+        local g = V(list[i])
+        if type(g) == "table" then g = V(g.id) or V(g.itemId) end
+        g = tonumber(g) or 0
+        if g > 0 and ns.Gems and ns.Gems:Gem(g) then
+            out[i], any = g, true
+        else
+            out[i] = 0
+        end
+    end
+    return any and out or nil
+end
+
 -- positional: index i is slot i (the WoWSims gear layout is the same 17 slots in the same order as ours).
 local function ItemsFrom(list, positional)
     local out = {}
@@ -201,8 +234,13 @@ local function ItemsFrom(list, positional)
         local id = EntryID(e)
         if id and #out < MAX_ITEMS then
             local sid = (positional and i <= NUM_SLOTS) and i or nil
-            if type(e) == "table" and e ~= Codec().NULL then sid = SlotFromName(V(e.slot)) or sid end
-            out[#out + 1] = { id = id, sid = sid }
+            local item = { id = id }
+            if type(e) == "table" and e ~= Codec().NULL then
+                sid = SlotFromName(V(e.slot)) or sid
+                item.enchant, item.gems = EntryEnchant(e), EntryGems(e)
+            end
+            item.sid = sid
+            out[#out + 1] = item
         end
     end
     return out
@@ -314,10 +352,26 @@ local function ParseWowhead(text)
         local hasEnchant = floor(slot / 128) % 2 == 1
         local hasRandom = floor(slot / 64) % 2 == 1
         slot = slot % 64
-        if hasEnchant then i = i + 2 end
+        local enchant
+        if hasEnchant then
+            local spell = B() * 256
+            spell = spell + B()
+            enchant = ns.Gems and ns.Gems:EnchantFromAny(spell) or nil
+        end
         if hasRandom then i = i + 2 end
-        i = i + gems * 3
-        if ItemID(id) then items[#items + 1] = { id = id, sid = SidByInvSlot(slot) } end
+        local gemList
+        for _ = 1, gems do
+            local a = B()
+            local g = (a % 32) * 65536
+            g = g + B() * 256
+            g = g + B()
+            local idx = floor(a / 32) % 8 + 1
+            if idx <= 4 and ns.Gems and ns.Gems:Gem(g) then
+                gemList = gemList or { 0, 0, 0, 0 }
+                gemList[idx] = g
+            end
+        end
+        if ItemID(id) then items[#items + 1] = { id = id, sid = SidByInvSlot(slot), enchant = enchant, gems = gemList } end
     end
     return { format = "wowhead", class = WOWHEAD_CLASSES[strlower(cls)], items = items }
 end
@@ -576,6 +630,18 @@ function Imp:Plan(parsed, opts)
         local ok, why, sid = Place(slots, e.id, e.sid, class, specs[list])
         if ok then
             plan.count = plan.count + 1
+            -- the gems / enchant go with the item that took the place (a token's piece)
+            if e.enchant or e.gems then
+                local placed = e.id
+                for _, t in pairs(slots) do
+                    if t.from and t.from[1] == e.id then placed = t[1] end
+                    if t.from and t.from[2] == e.id then placed = t[2] end
+                end
+                plan.setups = plan.setups or {}
+                plan.setups[list] = plan.setups[list] or {}
+                plan.setups[list][placed] = { enchant = e.enchant or 0, gems = e.gems or {} }
+                plan.gemCount = (plan.gemCount or 0) + 1
+            end
         else
             plan.unplaced[#plan.unplaced + 1] = { id = e.id, list = list, why = why, sid = sid }
         end
@@ -658,9 +724,21 @@ function Imp:Apply(plan, phase, replace, markReceived)
     for _, list in ipairs({ "ms", "os" }) do
         local slots = plan.lists[list]
         if slots then
-            local n = bis:ApplyTemplate(phase, slots, replace and true or false, list == "os" and "os" or nil)
+            local L = list == "os" and "os" or nil
+            local n = bis:ApplyTemplate(phase, slots, replace and true or false, L)
             if n == false then return false end
             changed = changed + (tonumber(n) or 0)
+            -- gems and enchants: over the item's own with Replace, else only items that have none
+            local setups = plan.setups and plan.setups[list]
+            if setups then
+                local view = bis:GetListView(L)
+                local write = {}
+                for id, s in pairs(setups) do
+                    local has = type(view.ge) == "table" and view.ge[id] ~= nil
+                    if replace or not has then write[id] = s end
+                end
+                if next(write) then bis:SetGemSetups(write, L) end
+            end
         end
     end
     if markReceived then

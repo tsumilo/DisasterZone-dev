@@ -195,6 +195,12 @@ def demo_off(w, c):
         w.tick(1)
 
 
+GEMS_SEED = ("ns.MyBiS:SetPhase(1, true); ns.Gems:FillPhase(1, nil, true); "
+             "local g = ns.BiS:GetSlot(1, 7); local e, gems = ns.BiS:GetGemSetup(g); "
+             "ns.BiS:SetGemSetup(g, 0, { gems[1], 0 }); "
+             "local b = ns.BiS:GetSlot(1, 4); if b then ns.BiS:SetGemSetup(b, 0, {}) end; ns.MyBiS:Refresh(); ")
+
+
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -607,7 +613,19 @@ STATES = [
                                            "for _, c in ipairs(ns.Dashboard:GetPanel().calCard.cells) do "
                                            "if c.key == key then c:GetScript('OnClick')(c) end end")),
     ("My BiS", opened("mybis")),
+    ("My BiS - spec menu", opened("mybis", "local o; for _, s in ipairs(ns.SPECS[ns.BiS:GetData().cl]) do "
+        "if s.label ~= ns.BiS:GetSpec() then o = s.label end end; ns.BiS:SetSpec(o, 'os'); ns.MyBiS:Refresh(); "
+        "ns.MyBiS:OpenSpecMenu(o)")),
+    ("My BiS - off spec shown", opened("mybis", "local o; for _, s in ipairs(ns.SPECS[ns.BiS:GetData().cl]) do "
+        "if s.label ~= ns.BiS:GetSpec() then o = s.label end end; ns.BiS:SetSpec(o, 'os'); ns.MyBiS:SetList('os')")),
     ("My BiS - item picker", opened("mybis", "ns.Picker:Open(1, 1, 'main')")),
+    # gems and enchants: the guide's on every P1 pick, then the gloves' blue socket and the cloak's enchant emptied
+    # (an empty socket, a "+"), and the editor open on the gloves
+    ("My BiS - gems", opened("mybis", GEMS_SEED)),
+    ("My BiS - gem editor", opened("mybis", GEMS_SEED + "local function find(f) if f.strip and f.sid == 7 then "
+                                   "return f end for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) "
+                                   "if r then return r end end end local t = find(UIParent); "
+                                   "ns.GemEditor:Open(t, t.mainID, 1)")),
     # the addon's own menu (UI/Menu.lua): More under its button, the Copy submenu open (real geometry: the menu is
     # placed from where its button really is; close_all turns it off again)
     ("My BiS - More menu", opened("mybis", "__MOCK.real_geometry = true; "
@@ -920,6 +938,13 @@ STATES = [
         "if r.cdlData and r.cdlData.type == 'fold' then r:GetScript('OnClick')(r, 'LeftButton') break end end",
         "council")),
     ("Council - member with awards", opened("council", "ns.CouncilUI:ShowMember('Shadowmelder-Thunderstrike')")),
+    # the member's gems and enchants on the read-only doll (a setup on every pick, from their guide)
+    ("Council - member gems", opened("council", "local key, r; for _, k in ipairs(ns.Store:GetAllKeys()) do "
+        "local x = ns.Store:Get(k) if not r and x and x.data and next(x.data.ph or {}) then key, r = k, x end end; "
+        "r.data.ge = {}; local guide = ns.Gems:GuideFor(r.data); for p = 1, 5 do "
+        "for sid, s in pairs(ns.ListPhase(r.data, p) or {}) do local e, g = ns.Gems:Suggest(s[1], sid, guide, p, {}); "
+        "r.data.ge[s[1]] = e .. ':' .. table.concat(g, ':') end end; "
+        "ns.CouncilUI:ShowMember(key)")),
     ("Council - Loot council - unsaved", opened("council", "ns.CouncilUI:ShowCouncil(); "
                                                            "ns.CouncilUI:ToggleCouncilDraft('guild', 'Victhar-Thunderstrike')")),
     ("Council - Loot council - raid leader", st_council_raid_leader),

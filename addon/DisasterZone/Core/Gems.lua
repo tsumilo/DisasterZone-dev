@@ -1,0 +1,563 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Gems.lua", ...) then return end -- DisasterZone: Core/Gems.lua
+-- ns.Gems: gems and enchants on BiS picks. The data (Data/Gems.lua, generated): every TBC item's sockets and socket
+-- bonus, every gem (colour, effect, phase, Jewelcrafter only, unique, a meta gem's rule) and enchant (item types, the
+-- Enchanting craft or the item that applies it), and per class guide and phase the suggested gems and enchants.
+-- The picks live with the list (BiS:GetGemSetup / SetGemSetups, data.ge / data.oge): per item, shared by the phases.
+-- Rules the game has: a socket bonus needs every socket filled with a gem of its colour (orange counts as red and
+-- yellow, purple red and blue, green yellow and blue, prismatic as all; a meta socket takes only a meta gem), a meta
+-- gem is active while the gems worn meet its rule (counted over the phase's main picks), and ring enchants need the
+-- wearer's Enchanting (any enchant that names a profession needs it).
+local addonName, ns = ...
+
+local Gems = ns:NewModule("Gems")
+
+local floor, max = math.floor, math.max
+local tsort, tconcat = table.sort, table.concat
+
+local ICON_PATH = "Interface\\Icons\\"
+local NUM_SLOTS = 17
+local SID_MAINHAND, SID_OFFHAND = 15, 16
+local LINK_LEVEL = 70
+
+-- Which socket colours a gem colour counts as.
+local COUNTS_AS = {
+    R = { R = true }, Y = { Y = true }, B = { B = true },
+    O = { R = true, Y = true }, P = { R = true, B = true }, G = { Y = true, B = true },
+    X = { R = true, Y = true, B = true },
+    M = { M = true },
+}
+Gems.SOCKET_NAMES = { M = "Meta", R = "Red", Y = "Yellow", B = "Blue" }
+Gems.COLORS = {
+    M = { 0.78, 0.78, 0.82 }, R = { 0.92, 0.26, 0.22 }, Y = { 0.95, 0.78, 0.18 }, B = { 0.3, 0.55, 0.98 },
+    O = { 0.98, 0.55, 0.15 }, P = { 0.68, 0.36, 0.92 }, G = { 0.35, 0.8, 0.3 }, X = { 0.9, 0.9, 0.9 },
+}
+Gems.EMPTY_SOCKET = {
+    M = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Meta", R = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Red",
+    Y = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Yellow", B = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Blue",
+}
+
+-- Item type numbers of Data/Gems.lua's enchants per equip location.
+local ITEM_TYPE = {
+    INVTYPE_HEAD = 1, INVTYPE_NECK = 2, INVTYPE_SHOULDER = 3, INVTYPE_CLOAK = 4, INVTYPE_CHEST = 5, INVTYPE_ROBE = 5,
+    INVTYPE_WRIST = 6, INVTYPE_HAND = 7, INVTYPE_WAIST = 8, INVTYPE_LEGS = 9, INVTYPE_FEET = 10, INVTYPE_FINGER = 11,
+    INVTYPE_TRINKET = 12, INVTYPE_WEAPON = 13, INVTYPE_2HWEAPON = 13, INVTYPE_WEAPONMAINHAND = 13,
+    INVTYPE_WEAPONOFFHAND = 13, INVTYPE_SHIELD = 13, INVTYPE_HOLDABLE = 13, INVTYPE_RANGED = 14,
+    INVTYPE_RANGEDRIGHT = 14,
+}
+local WEAPON_CLASS = 2
+local STAFF, BOW, GUN, CROSSBOW = 10, 2, 3, 18
+local ENCHANTING = 333
+local PROFESSION_IDS = { Enchanting = 333, Engineering = 202, Jewelcrafting = 755, Leatherworking = 165,
+                         Tailoring = 197 }
+
+local function Data() return ns.Data or {} end
+
+---------------------------------------------------------------------------
+-- Data access
+---------------------------------------------------------------------------
+
+local gemCache, enchantCache, socketCache = {}, {}, {}
+
+-- { id, color, quality, phase, text, name, icon, jc, unique, req } of a gem, or nil.
+function Gems:Gem(id)
+    id = tonumber(id)
+    if not id or id == 0 then return nil end
+    local g = gemCache[id]
+    if g == nil then
+        local r = Data().Gems and Data().Gems[id]
+        g = false
+        if type(r) == "table" then
+            g = { id = id, color = r[1], quality = r[2], phase = r[3], text = r[4], name = r[5],
+                  icon = r[6] ~= "" and (ICON_PATH .. r[6]) or nil, jc = r.jc, unique = r.u, req = r.req }
+        end
+        gemCache[id] = g
+    end
+    return g or nil
+end
+
+-- The short name of an enchant ("Major Healing" for "Enchant Gloves - Major Healing").
+local function ShortName(name)
+    return name:match("^Enchant [^-]- %- (.+)$") or name
+end
+
+-- { id, types = { [itemType] = true }, name, short, text, icon, craft (spell), item, et, prof } of an enchant, or nil.
+function Gems:Enchant(id)
+    id = tonumber(id)
+    if not id or id == 0 then return nil end
+    local e = enchantCache[id]
+    if e == nil then
+        local r = Data().Enchants and Data().Enchants[id]
+        e = false
+        if type(r) == "table" then
+            local types = { [r[1]] = true }
+            for t in tostring(r.x or ""):gmatch("%d+") do types[tonumber(t)] = true end
+            e = { id = id, types = types, name = r[2], short = ShortName(r[2]), text = r[3],
+                  icon = r[4] ~= "" and (ICON_PATH .. r[4]) or nil, craft = r[5] ~= 0 and r[5] or nil,
+                  item = r[6] ~= 0 and r[6] or nil, et = r.et, prof = r.prof }
+        end
+        enchantCache[id] = e
+    end
+    return e or nil
+end
+
+-- The item's sockets { "R", "Y", ... } in order and its socket bonus text (nil when it has none). Empty for an item
+-- without sockets.
+function Gems:Sockets(itemID)
+    itemID = tonumber(itemID)
+    if not itemID then return {}, nil end
+    local c = socketCache[itemID]
+    if c == nil then
+        local s = Data().Sockets and Data().Sockets[itemID]
+        c = false
+        if type(s) == "string" then
+            local letters, bonus = s:match("^(%u*)|(.*)$")
+            local list = {}
+            for l in (letters or ""):gmatch("%u") do list[#list + 1] = l end
+            c = { list = list, bonus = (bonus and bonus ~= "") and bonus or nil }
+        end
+        socketCache[itemID] = c
+    end
+    if not c then return {}, nil end
+    return c.list, c.bonus
+end
+
+function Gems:HasSockets(itemID)
+    return #(self:Sockets(itemID)) > 0
+end
+
+-- Forgets the cached data (tests swap ns.Data).
+function Gems:ClearCache()
+    gemCache, enchantCache, socketCache = {}, {}, {}
+end
+
+-- Every gem id (sorted by quality, best first, then name).
+function Gems:AllGems()
+    local out = {}
+    for id in pairs(Data().Gems or {}) do out[#out + 1] = id end
+    tsort(out, function(a, b)
+        local ga, gb = self:Gem(a), self:Gem(b)
+        if ga.quality ~= gb.quality then return ga.quality > gb.quality end
+        return ga.name < gb.name
+    end)
+    return out
+end
+
+---------------------------------------------------------------------------
+-- Rules
+---------------------------------------------------------------------------
+
+-- The gem counts for a socket of that colour (letter).
+function Gems:Fits(gemID, socket)
+    local g = self:Gem(gemID)
+    local as = g and COUNTS_AS[g.color]
+    return (as and as[socket]) and true or false
+end
+
+-- Every socket holds a gem of its colour.
+function Gems:BonusActive(itemID, gems)
+    local sockets = self:Sockets(itemID)
+    if #sockets == 0 then return false end
+    for i, s in ipairs(sockets) do
+        local g = gems and gems[i]
+        if not g or g == 0 or not self:Fits(g, s) then return false end
+    end
+    return true
+end
+
+-- Adds a gem to colour counts { R, Y, B }.
+local function CountGem(counts, g)
+    local as = g and COUNTS_AS[g.color]
+    if not as or g.color == "M" then return end
+    for c in pairs(as) do counts[c] = (counts[c] or 0) + 1 end
+end
+
+-- The colour counts { R = n, Y = n, B = n } of the gems on the phase's main picks of a list view.
+function Gems:ColorCounts(view, phase)
+    local counts = { R = 0, Y = 0, B = 0 }
+    local slots = ns.ListPhase and ns.ListPhase(view, phase) or nil
+    for _, s in pairs(slots or {}) do
+        local main = type(s) == "table" and tonumber(s[1]) or 0
+        if main ~= 0 then
+            local _, gems = self:GetSetup(view, main)
+            for _, id in pairs(gems) do CountGem(counts, self:Gem(id)) end
+        end
+    end
+    return counts
+end
+
+local COLOR_WORD = { R = "Red", Y = "Yellow", B = "Blue" }
+
+-- A meta gem's rule against colour counts: active (true / false; true without a rule), and the rule in words
+-- ("at least 2 Red, 2 Yellow and 2 Blue gems", "more Blue than Yellow gems"), nil without a rule.
+function Gems:MetaState(gemID, counts)
+    local g = self:Gem(gemID)
+    if not g or not g.req or g.req == "" then return true, nil end
+    counts = counts or {}
+    local ok, least, more = true, {}, nil
+    for rule in g.req:gmatch("[^,]+") do
+        local n, c = rule:match("^(%d+)(%u)$")
+        if n then
+            n = tonumber(n)
+            least[#least + 1] = n .. " " .. (COLOR_WORD[c] or c)
+            if (counts[c] or 0) < n then ok = false end
+        else
+            local a, b = rule:match("^(%u)>(%u)$")
+            if a then
+                more = "more " .. (COLOR_WORD[a] or a) .. " than " .. (COLOR_WORD[b] or b) .. " gems"
+                if (counts[a] or 0) <= (counts[b] or 0) then ok = false end
+            end
+        end
+    end
+    local words
+    if #least > 0 then
+        local last = table.remove(least)
+        words = "at least " .. (#least > 0 and (tconcat(least, ", ") .. " and ") or "") .. last .. " gems"
+    end
+    if more then words = words and (words .. ", " .. more) or more end
+    return ok, words
+end
+
+-- Item info for the enchant rules: equip location, classID, subclassID.
+local function EquipInfo(itemID)
+    local api = C_Item and C_Item.GetItemInfoInstant
+    if not api then return nil end
+    local id, _, _, loc, _, classID, subclassID = api(itemID)
+    if not id then return nil end
+    return loc, tonumber(classID), tonumber(subclassID)
+end
+
+-- The professions of a character as a set of names (my own when key is nil or mine).
+local function ProfessionSet(key)
+    local P = ns.Professions
+    local Util = ns.Util
+    key = key or (Util and Util.PlayerKey and Util.PlayerKey())
+    local set = {}
+    local list = P and P.GetMember and key and P:GetMember(key)
+    for _, p in ipairs(list or {}) do
+        for name, id in pairs(PROFESSION_IDS) do
+            if p.id == id then set[name] = true end
+        end
+    end
+    return set
+end
+Gems.ProfessionSet = function(_, key) return ProfessionSet(key) end
+
+-- The enchant fits the item (its type, two-hand / shield / staff / ranged rules), ignoring professions.
+function Gems:EnchantFitsItem(enchantID, itemID)
+    local e = self:Enchant(enchantID)
+    if not e then return false end
+    local loc, classID, subclassID = EquipInfo(itemID)
+    local itemType = loc and ITEM_TYPE[loc]
+    if not itemType or not e.types[itemType] then return false end
+    if itemType == 13 then
+        local shield, holdable = loc == "INVTYPE_SHIELD", loc == "INVTYPE_HOLDABLE"
+        if holdable then return false end
+        if e.et == 2 then return shield end
+        if shield then return false end
+        if e.et == 1 then return loc == "INVTYPE_2HWEAPON" end
+        if e.et == 4 then return classID == WEAPON_CLASS and subclassID == STAFF end
+        if e.et == 5 then return loc == "INVTYPE_WEAPONOFFHAND" end
+    elseif itemType == 14 then
+        return classID == WEAPON_CLASS and (subclassID == BOW or subclassID == GUN or subclassID == CROSSBOW)
+    end
+    return true
+end
+
+-- The enchants for an item, for the wearer with these professions (a set of names; nil = my own): suggested first
+-- (`first`, an enchant id), then by name. Rings: only with Enchanting.
+function Gems:EnchantsFor(itemID, profs, first)
+    profs = profs or ProfessionSet()
+    local out = {}
+    for id in pairs(Data().Enchants or {}) do
+        local e = self:Enchant(id)
+        if e and (not e.prof or profs[e.prof]) and self:EnchantFitsItem(id, itemID) then out[#out + 1] = id end
+    end
+    tsort(out, function(a, b)
+        if a == first then return true end
+        if b == first then return false end
+        local ea, eb = self:Enchant(a), self:Enchant(b)
+        if ea.short ~= eb.short then return ea.short < eb.short end
+        return a < b
+    end)
+    return out
+end
+
+-- The item can take an enchant (for the wearer with these professions; nil = my own).
+function Gems:CanEnchant(itemID, profs)
+    profs = profs or ProfessionSet()
+    for id in pairs(Data().Enchants or {}) do
+        local e = self:Enchant(id)
+        if e and (not e.prof or profs[e.prof]) and self:EnchantFitsItem(id, itemID) then return true end
+    end
+    return false
+end
+
+---------------------------------------------------------------------------
+-- Setups of a list view (data, or ns.ListView(data, "os"))
+---------------------------------------------------------------------------
+
+-- enchant (0 = none) and gems { [socket] = id } of an item in a list view (ListData or a ListView; read-only).
+function Gems:GetSetup(view, itemID)
+    local s = type(view) == "table" and type(view.ge) == "table" and view.ge[tonumber(itemID) or 0] or nil
+    local enchant, gems = 0, {}
+    if type(s) == "string" then
+        local i = 0
+        for n in (s .. ":"):gmatch("([^:]*):") do
+            if i == 0 then enchant = tonumber(n) or 0 else gems[i] = tonumber(n) or 0 end
+            i = i + 1
+        end
+    end
+    return enchant, gems
+end
+
+-- The item string with the setup applied (for tooltips): "item:id:enchant:gem1:gem2:gem3:gem4:...".
+function Gems:Link(itemID, enchant, gems)
+    gems = gems or {}
+    local function n(v) v = tonumber(v) or 0; return v ~= 0 and tostring(v) or "" end
+    return ("item:%d:%s:%s:%s:%s:%s:::%d"):format(tonumber(itemID) or 0, n(enchant), n(gems[1]), n(gems[2]),
+        n(gems[3]), n(gems[4]), LINK_LEVEL)
+end
+
+-- The item string of a pick in a list view with its setup, or nil when it has none.
+function Gems:LinkFor(view, itemID)
+    local enchant, gems = self:GetSetup(view, itemID)
+    if enchant == 0 and next(gems) == nil then return nil end
+    return self:Link(itemID, enchant, gems)
+end
+
+-- What a pick still lacks and has: { sockets = n, filled = n, bonus = bool, enchantable = bool, enchanted = bool }.
+function Gems:State(view, itemID, profs)
+    local sockets = self:Sockets(itemID)
+    local enchant, gems = self:GetSetup(view, itemID)
+    local filled = 0
+    for i = 1, #sockets do
+        if (gems[i] or 0) ~= 0 then filled = filled + 1 end
+    end
+    return {
+        sockets = #sockets, filled = filled, bonus = self:BonusActive(itemID, gems),
+        enchantable = self:CanEnchant(itemID, profs), enchanted = enchant ~= 0 and self:Enchant(enchant) ~= nil,
+        enchant = enchant, gems = gems,
+    }
+end
+
+-- The phase's main picks that count (not disabled; the off hand not behind a two-hander): { [sid] = itemID }.
+-- isDisabled(sid) optional.
+local function CountedPicks(view, phase, isDisabled)
+    local slots = ns.ListPhase and ns.ListPhase(view, phase) or nil
+    local out = {}
+    for sid = 1, NUM_SLOTS do
+        local s = slots and slots[sid]
+        local main = type(s) == "table" and tonumber(s[1]) or 0
+        if main ~= 0 and not (isDisabled and isDisabled(sid)) then out[sid] = main end
+    end
+    local mh = out[SID_MAINHAND]
+    if mh and out[SID_OFFHAND] and ns.ItemDB and ns.ItemDB.GetEquipLoc
+        and ns.ItemDB:GetEquipLoc(mh) == "INVTYPE_2HWEAPON" then
+        out[SID_OFFHAND] = nil
+    end
+    return out
+end
+Gems.CountedPicks = function(_, view, phase, isDisabled) return CountedPicks(view, phase, isDisabled) end
+
+-- How far the phase is gemmed and enchanted: gems placed, sockets, enchants placed, enchantable picks.
+function Gems:Progress(view, phase, isDisabled, profs)
+    profs = profs or ProfessionSet()
+    local placed, sockets, enchanted, enchantable = 0, 0, 0, 0
+    for _, itemID in pairs(CountedPicks(view, phase, isDisabled)) do
+        local st = self:State(view, itemID, profs)
+        placed, sockets = placed + st.filled, sockets + st.sockets
+        if st.enchantable then
+            enchantable = enchantable + 1
+            if st.enchanted then enchanted = enchanted + 1 end
+        end
+    end
+    return placed, sockets, enchanted, enchantable
+end
+
+---------------------------------------------------------------------------
+-- Suggestions (the class guides)
+---------------------------------------------------------------------------
+
+-- The guide of a list view (its class and spec label), or nil.
+function Gems:GuideFor(view)
+    local Loon = ns.Loon
+    if type(view) ~= "table" or not (Loon and Loon.GetGuide) then return nil end
+    return Loon:GetGuide(view.cl, view.sp)
+end
+
+-- The guide's suggested gems (ids, newest phase first) and enchants { [sid] = id } for a phase (0..5).
+function Gems:GuidePicks(guide, phase)
+    local g = guide and Data().GemGuides and Data().GemGuides[guide]
+    local p
+    for q = tonumber(phase) or 1, 0, -1 do   -- (a phase without lines of its own has the phases' before it)
+        p = g and g[q]
+        if p then break end
+    end
+    local gems, enchants = {}, {}
+    if type(p) ~= "table" then return gems, enchants end
+    for id in tostring(p.gems or ""):gmatch("%d+") do
+        if self:Gem(tonumber(id)) then gems[#gems + 1] = tonumber(id) end
+    end
+    for sid, id in tostring(p.enchants or ""):gmatch("(%d+):(%d+)") do
+        if self:Enchant(tonumber(id)) then enchants[tonumber(sid)] = tonumber(id) end
+    end
+    return gems, enchants
+end
+
+-- For one socket: the guide's best gem (fits the socket; else the guide's top gem, which skips the bonus) and the
+-- choices to offer { { id, fits = bool, best = bool } } (the guide's gems that fit, then its top one when it does
+-- not).
+function Gems:SocketChoices(guidePicks, socket)
+    local best, top
+    local out = {}
+    for _, id in ipairs(guidePicks or {}) do
+        local g = self:Gem(id)
+        local meta = g.color == "M"
+        if (socket == "M") == meta then
+            if not top then top = id end
+            if self:Fits(id, socket) then
+                out[#out + 1] = { id = id, fits = true }
+                if not best then best = id end
+            end
+        end
+    end
+    if top and not self:Fits(top, socket) then out[#out + 1] = { id = top, fits = false } end
+    best = best or top
+    for _, c in ipairs(out) do c.best = (c.id == best) or nil end
+    return best, out
+end
+
+-- The suggested setup of an item in a slot: enchant (0 = none fits) and gems { [socket] = id }.
+function Gems:Suggest(itemID, sid, guide, phase, profs)
+    profs = profs or ProfessionSet()
+    local guideGems, guideEnchants = self:GuidePicks(guide, phase)
+    local gems = {}
+    for i, s in ipairs(self:Sockets(itemID)) do
+        gems[i] = (self:SocketChoices(guideGems, s)) or 0
+    end
+    local enchant = guideEnchants[sid] or 0
+    if enchant ~= 0 then
+        local e = self:Enchant(enchant)
+        if not self:EnchantFitsItem(enchant, itemID) or (e.prof and not profs[e.prof]) then enchant = 0 end
+    end
+    if enchant == 0 and (sid == SID_OFFHAND or sid == SID_MAINHAND) then
+        -- the guide's other hand / weapon line (a two-hander's enchant is under Main Hand)
+        local other = guideEnchants[sid == SID_OFFHAND and SID_MAINHAND or SID_OFFHAND]
+        if other and self:EnchantFitsItem(other, itemID) then enchant = other end
+    end
+    return enchant, gems
+end
+
+-- Fills the gems and enchants of a phase's picks of my own list from the guide: only sockets and enchants that are
+-- still empty (overwrite: every pick's whole setup). Returns the number of items changed, false while locked, or
+-- nil when the list has no guide.
+function Gems:FillPhase(phase, list, overwrite)
+    local BiS = ns.BiS
+    if not BiS then return nil end
+    local view = BiS:GetListView(list)
+    local guide = self:GuideFor(view)
+    if not guide then return nil end
+    local profs = ProfessionSet()
+    local isDisabled = function(sid) return BiS:IsSlotDisabled(phase, sid, list) end
+    local setups = {}
+    for sid, itemID in pairs(CountedPicks(view, phase, isDisabled)) do
+        local sEnchant, sGems = self:Suggest(itemID, sid, guide, phase, profs)
+        local enchant, gems = self:GetSetup(view, itemID)
+        local new = { enchant = enchant, gems = {} }
+        for i = 1, #self:Sockets(itemID) do new.gems[i] = gems[i] or 0 end
+        if overwrite or enchant == 0 then new.enchant = sEnchant ~= 0 and sEnchant or enchant end
+        for i, g in pairs(sGems) do
+            if overwrite or (new.gems[i] or 0) == 0 then new.gems[i] = g end
+        end
+        if not setups[itemID] then setups[itemID] = new end
+    end
+    return BiS:SetGemSetups(setups, list)
+end
+
+---------------------------------------------------------------------------
+-- Sources (what the shopping list and the editor say)
+---------------------------------------------------------------------------
+
+-- The enchant number item links carry for a number another site uses: an enchant id itself, the Enchanting craft's
+-- spell, or the item that applies it (a glyph, an inscription, a spellthread, an armor kit). nil when unknown.
+local bySpell, byItem
+function Gems:EnchantFromAny(n)
+    n = tonumber(n)
+    if not n or n <= 0 then return nil end
+    local data = Data().Enchants or {}
+    if data[n] then return n end
+    if not bySpell then
+        bySpell, byItem = {}, {}
+        for id, r in pairs(data) do
+            if r[5] ~= 0 then bySpell[r[5]] = id end
+            if r[6] ~= 0 then byItem[r[6]] = id end
+        end
+    end
+    return bySpell[n] or byItem[n]
+end
+
+-- What to make / buy for an enchant: the Atlas craft (-spell) or the item that applies it; nil when neither.
+function Gems:EnchantShopID(enchantID)
+    local e = self:Enchant(enchantID)
+    if not e then return nil end
+    if e.craft then return -e.craft end
+    return e.item
+end
+
+-- What the phase's chosen gems and enchants still take, for the shopping list: { [id] = count } of crafts the
+-- shopping list can hold (a gem's Jewelcrafting craft, -spell of an Enchanting craft, a crafted spellthread / kit),
+-- leaving out what the item I wear already has (the same gem in that socket, the same enchant). Second result: how
+-- many chosen ones no craft makes (drops, reputation glyphs).
+function Gems:ShoppingNeeds(phase, list)
+    local BiS, Shop, Exp = ns.BiS, ns.Shop, ns.BiSExport
+    local out, other = {}, 0
+    if not (BiS and Shop) then return out, 0 end
+    local view = BiS:GetListView(list)
+    local worn = Exp and Exp.EquippedSpecs and Exp:EquippedSpecs() or {}
+    local wornById = {}
+    for _, s in pairs(worn) do if s and s.id then wornById[s.id] = s end end
+    local function need(id)
+        if id and Shop:CanAdd(id) then
+            out[id] = (out[id] or 0) + 1
+        else
+            other = other + 1
+        end
+    end
+    local isDisabled = function(sid) return BiS:IsSlotDisabled(phase, sid, list) end
+    for _, itemID in pairs(CountedPicks(view, phase, isDisabled)) do
+        local enchant, gems = self:GetSetup(view, itemID)
+        local w = wornById[itemID]
+        for i, g in pairs(gems) do
+            if g ~= 0 and not (w and w.gems and w.gems[i] == g) then need(g) end
+        end
+        if enchant ~= 0 and not (w and w.enchant == enchant) then need(self:EnchantShopID(enchant)) end
+    end
+    return out, other
+end
+
+-- Puts ShoppingNeeds on my shopping list. Returns how many were added (crafts x count) and how many no craft makes.
+function Gems:AddToShoppingList(phase, list)
+    local needs, other = self:ShoppingNeeds(phase, list)
+    local n = 0
+    for id, count in pairs(needs) do
+        if ns.Shop:Add(id, count) then n = n + count end
+    end
+    return n, other
+end
+
+-- Short words for where a gem or enchant comes from ("Jewelcrafting", "Enchanting", "Glyph", ...).
+function Gems:SourceWords(kind, id)
+    if kind == "gem" then
+        local g = self:Gem(id)
+        if not g then return nil end
+        local Atlas = ns.Atlas
+        if Atlas and Atlas.GetCraft and Atlas:GetCraft(id) then return "Jewelcrafting" end
+        if g.color == "M" then return "Meta gem" end
+        return nil
+    end
+    local e = self:Enchant(id)
+    if not e then return nil end
+    if e.craft then return "Enchanting" end
+    if e.prof then return e.prof .. " only" end
+    return nil
+end

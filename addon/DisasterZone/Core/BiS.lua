@@ -13,6 +13,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/BiS.lua", ...) then return en
 -- data.pr = { [sid] = { main, alt } } (like one phase of ph), data.px = { [sid] = true } (like one phase of dx), and
 -- data.opr / data.opx for the off spec; omitted when empty. The obtained list (ob) and the council's view stay on
 -- the raid phases; drop matching includes Pre-raid only when asked (MatchItem opts.preRaid, my own tooltip).
+-- Gems and enchants (DisasterZone 1.3.2): per item of a list, shared by its phases, flat for the same reason:
+-- data.ge = { [itemID] = "enchant:gem1:gem2:gem3" } (numbers, 0 = none, trailing zeros dropped; gems in the item's
+-- socket order), data.oge for the off spec; omitted when empty. Core/Gems.lua knows sockets, gems and enchants.
 local addonName, ns = ...
 
 local BiS = ns:NewModule("BiS")
@@ -176,13 +179,18 @@ local function ListTable(data, list)
     return {
         ph = type(data.op) == "table" and data.op or {}, dx = type(data.ox) == "table" and data.ox or nil,
         pr = type(data.opr) == "table" and data.opr or nil, px = type(data.opx) == "table" and data.opx or nil,
+        ge = type(data.oge) == "table" and data.oge or nil,
     }
 end
 
 local function StoreList(data, list, L)
-    if list ~= "os" then return end
+    if list ~= "os" then
+        data.ge = NonEmpty(data.ge)
+        return
+    end
     data.op, data.ox = NonEmpty(L.ph), NonEmpty(L.dx)
     data.opr, data.opx = NonEmpty(L.pr), NonEmpty(L.px)
+    data.oge = NonEmpty(L.ge)
     -- picks imply the off spec exists
     if data.os == nil and (data.op or data.ox or data.opr or data.opx) then data.os = "" end
 end
@@ -338,6 +346,33 @@ local function SanitizeDisabled(dx)
     return NonEmpty(dx)
 end
 
+-- One gem / enchant setup "enchant:gem1:gem2:gem3" (numbers, 0 = none): the canonical string (trailing zeros dropped),
+-- or nil when it is empty or malformed.
+local MAX_GEMS = 4
+local function CanonGems(s)
+    if type(s) ~= "string" or #s > 40 or not s:match("^%d+[%d:]*$") then return nil end
+    local parts = {}
+    for n in (s .. ":"):gmatch("([^:]*):") do
+        local v = tonumber(n)
+        if not v or v ~= floor(v) or v < 0 or v > MAX_ITEM_ID then return nil end
+        parts[#parts + 1] = v
+    end
+    if #parts > MAX_GEMS + 1 then return nil end
+    while #parts > 0 and parts[#parts] == 0 do parts[#parts] = nil end
+    if #parts == 0 then return nil end
+    return table.concat(parts, ":")
+end
+
+-- Gem / enchant setups { [itemID] = "enchant:gem..." }: repaired in place; nil when empty.
+local function SanitizeGems(t)
+    if type(t) ~= "table" then return nil end
+    for id, s in pairs(t) do
+        local c = IsValidItemID(id) and CanonGems(s) or nil
+        if c ~= s then t[id] = c end
+    end
+    return NonEmpty(t)
+end
+
 -- Repair anything malformed in a saved record (SavedVariables are user-editable).
 local function SanitizeData(d)
     if type(d.v) ~= "number" then d.v = LIST_VERSION end
@@ -364,6 +399,7 @@ local function SanitizeData(d)
     -- Pre-raid: flat picks / disabled slots of both specs; omitted when empty.
     d.pr, d.px = SanitizeSlots(d.pr), SanitizeDisabledSlots(d.px)
     d.opr, d.opx = SanitizeSlots(d.opr), SanitizeDisabledSlots(d.opx)
+    d.ge, d.oge = SanitizeGems(d.ge), SanitizeGems(d.oge)
     if d.os == nil and (d.op ~= nil or d.ox ~= nil or d.opr ~= nil or d.opx ~= nil) then d.os = "" end
 end
 
@@ -457,7 +493,32 @@ end
 ---------------------------------------------------------------------------
 
 -- list (Addendum H): which list changed ("os"; nil = the main spec or both); third MYLIST_CHANGED argument.
+-- Drops the gem / enchant setups of items no longer picked anywhere on their list (keeps the synced list small).
+local function PruneGems(data)
+    for _, k in ipairs({ { "ge", "ph", "pr" }, { "oge", "op", "opr" } }) do
+        local ge = data[k[1]]
+        if type(ge) == "table" then
+            local picked = {}
+            local function add(slots)
+                for _, s in pairs(type(slots) == "table" and slots or {}) do
+                    if type(s) == "table" then
+                        if (s[1] or 0) ~= 0 then picked[s[1]] = true end
+                        if (s[2] or 0) ~= 0 then picked[s[2]] = true end
+                    end
+                end
+            end
+            for _, slots in pairs(type(data[k[2]]) == "table" and data[k[2]] or {}) do add(slots) end
+            add(data[k[3]])
+            for id in pairs(ge) do
+                if not picked[id] then ge[id] = nil end
+            end
+            data[k[1]] = NonEmpty(ge)
+        end
+    end
+end
+
 local function AfterEdit(phase, sid, list)
+    PruneGems(BiS:GetData())
     BiS:RebuildDerived()
     ns:Fire("MYLIST_CHANGED", phase, sid, list)
     BiS:MarkDirty()
@@ -499,8 +560,25 @@ function BiS:RemoveOffSpec()
     if RefuseLocked() then return false end
     local data = self:GetData()
     if not ns.HasOffSpec(data) then return true end
-    data.os, data.op, data.ox, data.opr, data.opx = nil, nil, nil, nil, nil
+    data.os, data.op, data.ox, data.opr, data.opx, data.oge = nil, nil, nil, nil, nil, nil
     AfterEdit(nil, nil, "os")
+    return true
+end
+
+-- Makes the off spec the main spec and the main spec the off spec: spec labels, picks and disabled slots of every
+-- phase trade places (obtained / equipped stay shared). false while locked or without an off spec.
+function BiS:SwapLists()
+    if RefuseLocked() then return false end
+    local data = self:GetData()
+    if not ns.HasOffSpec(data) then return false end
+    data.sp, data.os = data.os or "", data.sp or ""
+    data.ph, data.op = type(data.op) == "table" and data.op or {}, NonEmpty(data.ph)
+    data.dx, data.ox = data.ox, NonEmpty(data.dx)
+    data.pr, data.opr = data.opr, NonEmpty(data.pr)
+    data.px, data.opx = data.opx, NonEmpty(data.px)
+    data.ge, data.oge = NonEmpty(data.oge), NonEmpty(data.ge)
+    AfterEdit(nil, nil, "ms")
+    ns:Fire("MYLIST_CHANGED", nil, nil, "os")
     return true
 end
 
@@ -678,6 +756,68 @@ function BiS:ApplyTemplate(phase, slots, overwrite, list)
     StoreList(rdata, list, data)
     if changed > 0 then AfterEdit(phase, nil, list) end
     return changed
+end
+
+---------------------------------------------------------------------------
+-- Gems and enchants (per item of a list; Core/Gems.lua is the logic)
+---------------------------------------------------------------------------
+
+-- enchant (number, 0 = none), gems { [socket] = gemID or 0 } of an item on `list`.
+function BiS:GetGemSetup(itemID, list)
+    local L = ListTable(self:GetData(), list)
+    local s = type(L.ge) == "table" and L.ge[itemID] or nil
+    local gems, enchant = {}, 0
+    if type(s) == "string" then
+        local i = 0
+        for n in (s .. ":"):gmatch("([^:]*):") do
+            if i == 0 then enchant = tonumber(n) or 0 else gems[i] = tonumber(n) or 0 end
+            i = i + 1
+        end
+    end
+    return enchant, gems
+end
+
+-- The stored string of a setup (nil = none): enchant number, gems { [socket] = id }.
+local function EncodeGems(enchant, gems)
+    local parts = { tostring(tonumber(enchant) or 0) }
+    local n = 0
+    for k in pairs(type(gems) == "table" and gems or {}) do
+        if type(k) == "number" and k > n then n = k end
+    end
+    for i = 1, math.min(n, MAX_GEMS) do parts[#parts + 1] = tostring(tonumber(gems[i]) or 0) end
+    return CanonGems(table.concat(parts, ":"))
+end
+
+-- Several setups at once: setups = { [itemID] = { enchant = n, gems = { ... } } or false (= clear) }. One change
+-- event. false while locked; else the number of items changed.
+function BiS:SetGemSetups(setups, list)
+    if type(setups) ~= "table" then return 0 end
+    if RefuseLocked() then return false end
+    local data = self:GetData()
+    local L = ListTable(data, list)
+    local ge = type(L.ge) == "table" and L.ge or {}
+    local changed = 0
+    for itemID, s in pairs(setups) do
+        if IsValidItemID(itemID) then
+            local v = s and EncodeGems(s.enchant, s.gems) or nil
+            if ge[itemID] ~= v then
+                ge[itemID] = v
+                changed = changed + 1
+            end
+        end
+    end
+    if changed == 0 then return 0 end
+    L.ge = NonEmpty(ge)
+    if list ~= "os" then data.ge = L.ge end
+    StoreList(data, list, L)
+    AfterEdit(nil, nil, list)
+    return changed
+end
+
+-- One item's setup (enchant number or 0, gems { [socket] = id }); enchant and gems nil clear it. true when stored.
+function BiS:SetGemSetup(itemID, enchant, gems, list)
+    local n = self:SetGemSetups({ [itemID] = (enchant or gems) and { enchant = enchant, gems = gems } or false }, list)
+    return n ~= false
 end
 
 ---------------------------------------------------------------------------

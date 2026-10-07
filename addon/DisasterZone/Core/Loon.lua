@@ -60,6 +60,12 @@ function Loon:GetSpecFunctions(classFile)
     return out
 end
 
+-- The guide (key of ns.Data.BiSLists / ns.Data.GemGuides) of a class's spec label, or nil.
+function Loon:GetGuide(classFile, specLabel)
+    local map = GUIDES[classFile]
+    return map and map[specLabel] or nil
+end
+
 -- Forgets the built templates (tests change ns.Data.BiSLists).
 function Loon:ClearCache()
     templateCache = {}
