@@ -124,6 +124,8 @@ def open_teams(w, cl, tid=None):
     cl.eval("ns.RaidsUI:SetView('teams')")
     if tid:
         cl.eval("ns.RaidPlanUI:SelectTeam(...)", tid)
+    elif cl.eval("return ns.RaidPlanUI:IsTeamBoard()"):
+        cl.eval("ns.RaidPlanUI:SelectTeam(ns.RaidPlanUI:GetSelectedTeam())")
     w.tick(0.3)
 
 
@@ -132,8 +134,8 @@ def shown(cl, expr):
 
 
 def lineup_chips(cl):
-    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lchips) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.entry.name, c.kind == 'chosen' } end end; return out" % D) or []
+    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lcards) do if c:IsShown() then out[#out + 1] = "
+                      "{ c.name:GetText(), c.chosen } end end; return out" % D) or []
     return [tuple(r) for r in lst(rows)]
 
 
@@ -469,8 +471,9 @@ def the_teams_page_lineups_and_waitlist():
     wchips = bob.eval_py("local out = {}; for _, ch in ipairs(%s.wait.chips) do if ch:IsShown() then "
                          "out[#out + 1] = ch.key end end; return out" % grid)
     assert lst(wchips) == [K("Rita")], wchips
-    assert strip_codes(bob.eval("return %s.wait.label:GetText()" % grid)) == "Waitlist (1)"
-    assert strip_codes(bob.eval("return %s.pool.label:GetText()" % grid)) == "Unassigned (1)"   # Lee (in SSC)
+    assert strip_codes(bob.eval("return %s.wait.label:GetText()" % grid)) == "WAITLIST"
+    assert strip_codes(bob.eval("return %s.pool.label:GetText()" % grid)) == "BENCH" and bob.eval(
+        "local n = 0; for _, c in ipairs(%s.pool.chips) do if c:IsShown() then n = n + 1 end end; return n" % grid) == 1   # Lee (in SSC)
     bob.eval("%s:Drop(..., 2)" % grid, K("Rita"))
     w.tick(0.3)
     dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
@@ -490,7 +493,7 @@ def the_teams_page_lineups_and_waitlist():
     assert waitlist(rita, tid, ka) == []
     assert bob.eval("return ns.RaidPlanUI:GetLineupIndex()") == 3            # (the new one stays open)
     # the lineup menu: a click on the open chip
-    chip = bob.eval("for _, c in ipairs(%s.lchips) do if c:IsShown() and c.entry.name == 'Kara B' then return c end end"
+    chip = bob.eval("for _, c in ipairs(%s.lcards) do if c:IsShown() and c.name:GetText() == 'Kara B' then return c end end"
                     % D)
     bob.click(chip)
     entries = [strip_codes(e.get("text") or "").strip() for e in bob.last_menu()["children"] if e.get("text")]

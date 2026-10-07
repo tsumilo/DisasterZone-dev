@@ -283,7 +283,7 @@ def teams_grid_moves_swaps_buffs_and_saves():
     assert t["specs"] == {K("Ena"): 2, K("Moon"): 1, K("Tank"): 3}, t["specs"]
     assert t["groups"][K("Rita")] == 1 and K("Sam") not in t["groups"], t["groups"]
     # members see the same grid, read-only
-    rita.eval("ns.RaidsUI:SetView('teams')")
+    rita.eval("ns.RaidsUI:SetView('teams'); if ns.RaidPlanUI:IsTeamBoard() then ns.RaidPlanUI:SelectTeam(ns.RaidPlanUI:GetSelectedTeam()) end")
     w.tick(0.3)
     st = grid_state(rita)
     assert short(st["groups"][1]) == ["Ena", "Holly", "Lee", "Rita", "Tank"], st
@@ -372,7 +372,7 @@ def members_keep_the_seat_they_are_dropped_on():
     w.tick(2)
     t = rita.eval_py("return ns.RaidPlan:GetTeams()[1]")
     assert t["seats"] == {K("Ena"): 1, K("Rita"): 2, K("Lee"): 4, K("Holly"): 5}, t["seats"]
-    rita.eval("ns.RaidsUI:SetView('teams')")
+    rita.eval("ns.RaidsUI:SetView('teams'); if ns.RaidPlanUI:IsTeamBoard() then ns.RaidPlanUI:SelectTeam(ns.RaidPlanUI:GetSelectedTeam()) end")
     w.tick(0.3)
     assert seat_order(rita) == ["Ena", "Rita", None, "Lee", "Holly"], seat_order(rita)
     # a raid layout keeps its seats too (bad seats are dropped, not the layout)

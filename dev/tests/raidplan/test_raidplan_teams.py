@@ -24,11 +24,15 @@ TV = P + ".teams"
 D = TV + ".detail"
 
 
-def open_teams(w, cl):
+def open_teams(w, cl, board=False):
+    """Raids > Teams: the board, then (unless board) the team it would open first (mine, else the first)."""
     cl.slash("/dz raids")
     w.tick(0.5)
     cl.eval("ns.RaidsUI:SetView('teams')")
     w.tick(0.5)
+    if not board and cl.eval("return ns.RaidPlanUI:IsTeamBoard()"):
+        cl.eval("ns.RaidPlanUI:SelectTeam(ns.RaidPlanUI:GetSelectedTeam())")
+        w.tick(0.3)
 
 
 def shown(cl, expr):
@@ -53,17 +57,22 @@ def menu_pick(cl, word):
     cl.menu_select(hit[0])
 
 
-def chips(cl):
-    """The team chips shown: [(name, chosen, mine)]."""
-    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.chips) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.entry.name, c.kind == 'chosen', c.dot:IsShown() } end end; return out" % TV) or []
+def board(cl):
+    """The board's team banners shown, in order: [(name, mine)]."""
+    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.board.cards) do if c:IsShown() then out[#out + 1] = "
+                      "{ c.t1:GetText(), c.dot:IsShown() } end end; return out" % TV) or []
     return [tuple(r) for r in (rows.values() if isinstance(rows, dict) else rows)]
 
 
+def board_card(cl, name):
+    return cl.eval("local n = ...; for _, c in ipairs(%s.board.cards) do if c:IsShown() and c.t1:GetText() == n "
+                   "then return c end end" % TV, name)
+
+
 def lineup_chips(cl):
-    """The lineup chips shown: [(name, chosen, mine)]."""
-    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lchips) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.entry.name, c.kind == 'chosen', c.dot:IsShown() } end end; return out" % D) or []
+    """The lineup cards shown: [(name, chosen, mine)]."""
+    rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lcards) do if c:IsShown() then out[#out + 1] = "
+                      "{ c.name:GetText(), c.chosen, c.dot:IsShown() } end end; return out" % D) or []
     return [tuple(r) for r in (rows.values() if isinstance(rows, dict) else rows)]
 
 
@@ -85,23 +94,30 @@ def chips_card_and_my_team_first():
     signup(rita, occ, "A", 2)
     signup(c["Lee"], occ, "A", 3)
     w.tick(2)
-    # a member: their own team first and open, read-only
-    open_teams(w, rita)
-    assert rita.eval("return ns.RaidPlanUI:GetSelectedTeam()") == m
-    assert chips(rita) == [("Main team", True, True), ("Alt team", False, False)], chips(rita)
-    assert text_of(rita, TV + ".card.title") == "Main team" and text_of(rita, TV + ".card.count") == "4 on the roster"
-    # its one lineup: a chip saying its size, chosen, my gold dot (I'm in its groups); no "+ Lineup" for members
+    # a member: the board first, their own team on top; a click opens it, read-only
+    open_teams(w, rita, board=True)
+    assert rita.eval("return ns.RaidPlanUI:IsTeamBoard()") is True and not shown(rita, D)
+    assert board(rita) == [("Main team", True), ("Alt team", False)], board(rita)
+    assert text_of(rita, TV + ".board.heads[1]") == "YOUR TEAMS" and text_of(rita, TV + ".board.cards[1].kick") == "YOUR TEAM"
+    main = board_card(rita, "Main team")
+    assert rita.eval("return %s.board.cards[1].th" % TV) == "ssc"                    # (no theme: its next raid's)
+    assert text_of(rita, TV + ".board.cards[1].r2").endswith("Serpentshrine Cavern")
+    assert text_of(rita, TV + ".board.cards[1].r3") == "2/2", text_of(rita, TV + ".board.cards[1].r3")
+    assert text_of(rita, TV + ".board.cards[1].t2") == "4 players   ·   25-man"
+    rita.click(main)
+    w.tick(0.3)
+    assert rita.eval("return ns.RaidPlanUI:GetSelectedTeam()") == m and not rita.eval("return ns.RaidPlanUI:IsTeamBoard()")
+    assert text_of(rita, TV + ".card.title") == "Main team" and text_of(rita, TV + ".card.count") == "4 players"
+    # its one lineup: a card saying its size, chosen, my gold dot (I'm in its groups); no "+ Lineup" for members
     assert lineup_chips(rita) == [("25-man", True, True)], lineup_chips(rita)
-    assert not shown(rita, D + ".ladd")
+    assert not shown(rita, D + ".lcAdd")
     assert text_of(rita, TV + ".card.you.fs") == "You: Group 5 · Holy"
     assert "changed by Bob" in text_of(rita, TV + ".card.changed")
     assert not shown(rita, D + ".tool") and not shown(rita, TV + ".nameBox") and not shown(rita, D + ".moreBtn")
-    # the raids that invite it: my answer, the next one to answer
-    rows = rita.eval_py("local out = {}; for _, r in ipairs(%s.card.right.rows) do if r:IsShown() then"
-                        " out[#out + 1] = { r.name:GetText(), r.status:GetText(), r.lock:IsShown() } end end;"
-                        " return out" % TV)
-    rows = [(n, strip_codes(s), lk) for n, s, lk in (rows.values() if isinstance(rows, dict) else rows)]
-    assert rows == [("Serpentshrine Cavern", "Accepted", True), ("Magtheridon's Lair", "Answer", False)], rows
+    # the next raid that invites it, with my answer; "+1 more" for the other
+    assert text_of(rita, TV + ".card.next.line").endswith("Serpentshrine Cavern")
+    assert text_of(rita, TV + ".card.next.sub") == "Accepted" and shown(rita, TV + ".card.next.lock")
+    assert text_of(rita, TV + ".card.next.extra.fs") == "·  +1 more"
     # my chip is lit in the read-only grid
     lit = rita.eval_py("local out = {}; local g = ns.RaidPlanUI:GetTeamGrid(); for _, b in ipairs(g.boxes) do"
                        " for _, ch in ipairs(b.chips) do if ch.me:IsShown() then out[#out + 1] = ch.key end end end;"
@@ -111,12 +127,24 @@ def chips_card_and_my_team_first():
     open_teams(w, bob)
     bob.eval("ns.RaidPlanUI:SelectTeam(...)", m)
     w.tick(0.3)
-    assert shown(bob, TV + ".nameBox") and shown(bob, D + ".ladd") and shown(bob, D + ".moreBtn")
-    assert lineup_chips(bob) == [("25-man", True, False)], lineup_chips(bob)
-    st = [strip_codes(bob.eval("return %s.card.right.rows[%d].status:GetText()" % (TV, i))) for i in (1, 2)]
-    assert st == ["2 of 2 accepted", "0 of 2 accepted"], st         # (the players in its groups: Rita, Lee)
+    assert shown(bob, TV + ".nameBox") and shown(bob, D + ".lcAdd") and shown(bob, D + ".moreBtn")
+    assert text_of(bob, TV + ".card.next.sub") == "2 of 2 accepted"  # (the players in its groups: Rita, Lee)
     assert dirty_buttons(bob) == (False, False, False)              # nothing changed: no Undo / Save
+    assert lineup_chips(bob) == [("25-man", True, False)], lineup_chips(bob)
     assert shown(bob, D + ".autoBtn")
+    # Theme: a draft change; saved with the team, its banner on the board for everyone
+    bob.click(bob.eval("return %s.moreBtn" % D))
+    menu_pick(bob, "Theme")
+    w.tick(0.1)
+    menu_pick(bob, "Black Temple")
+    w.tick(0.3)
+    assert dirty_buttons(bob) == (True, True, True)
+    bob.click(bob.eval("return %s.saveBtn" % D))
+    w.tick(2)
+    assert rita.eval_py("return ns.RaidPlan:GetTeam(...)", m)["theme"] == "bt"
+    rita.eval("ns.RaidPlanUI:ShowTeamBoard()")
+    w.tick(0.3)
+    assert rita.eval("return %s.board.cards[1].th" % TV) == "bt"
     w.assert_no_errors()
 
 
@@ -135,7 +163,7 @@ def unsaved_changes_ask_before_they_are_lost():
     assert dirty_buttons(bob) == (True, True, True)
     assert text_of(bob, D + ".status") == "Changed, not saved" and text_of(bob, D + ".revertBtn") == "Undo"
     # another team: asks; Cancel stays with the changes
-    bob.click(bob.eval("for _, c in ipairs(%s.chips) do if c:IsShown() and c.entry.name == 'Beta' then return c end end" % TV))
+    bob.click(bob.eval("return %s.back" % D))
     assert bob.popups() == ["DISASTERZONE_TEAM_UNSAVED"]
     assert "Alpha" in bob.eval("local _, f = StaticPopup_Visible('DISASTERZONE_TEAM_UNSAVED'); return f.text:GetText()")
     popup_click(bob, "DISASTERZONE_TEAM_UNSAVED", 3)
@@ -185,9 +213,11 @@ def new_team_cancel_copy_and_clear_groups():
     # New team: a chip joins, the name is ready to type, Cancel drops it (an untouched draft doesn't ask)
     bob.click(bob.eval("return %s.newTeamBtn" % P))
     w.tick(0.3)
-    assert chips(bob)[-1] == ("New team", True, False), chips(bob)
+    assert shown(bob, TV + ".nameBox") and not bob.eval("return ns.RaidPlanUI:IsTeamBoard()")
     assert text_of(bob, D + ".status") == "New team, not saved" and text_of(bob, D + ".revertBtn") == "Cancel"
-    assert not shown(bob, D + ".moreBtn") and not shown(bob, D + ".autoBtn")
+    assert not shown(bob, D + ".autoBtn")
+    bob.eval("ns.RaidPlanUI:SetTeamTab('groups')")
+    w.tick(0.3)
     assert bob.find_text("Add members with the search above", True, True)
     bob.eval("ns.RaidPlanUI:SelectTeam(...)", a)
     assert bob.popups() == []
@@ -196,11 +226,11 @@ def new_team_cancel_copy_and_clear_groups():
     w.tick(0.3)
     bob.click(bob.eval("return %s.revertBtn" % D))
     w.tick(0.3)
-    assert bob.eval("return ns.RaidPlanUI:GetSelectedTeam()") == a and len(chips(bob)) == 0   # one team: no chips
+    assert bob.eval("return ns.RaidPlanUI:GetSelectedTeam()") == a
     # ... > Copy: a new draft with the members, specs and groups, saved as "Kara A 2"
     bob.click(bob.eval("return %s.moreBtn" % D))
     menu = [strip_codes(e.get("text") or "").strip() for e in bob.last_menu()["children"] if e.get("text")]
-    assert menu == ["Copy", "Clear groups", "Delete"], menu
+    assert menu == ["Theme", "Copy", "Clear groups", "Delete"], menu
     menu_pick(bob, "Copy")
     w.tick(0.3)
     dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
@@ -259,6 +289,8 @@ def add_several_and_the_spec_from_the_role_icon():
     w.make_party([bob, c["Sam"]])
     w.tick(1)
     open_teams(w, bob)
+    bob.eval("ns.RaidPlanUI:SetTeamTab('groups')")
+    w.tick(0.3)
     sd = TV + ".picker"
     bob.eval("%s:Open()" % sd)
     # its list hangs on UIParent (drawn over the page) but keeps a strata above the window (HIGH): a new parent hands

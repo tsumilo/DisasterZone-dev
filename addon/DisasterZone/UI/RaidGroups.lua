@@ -24,6 +24,11 @@ local ROW_COLS, ROW_GAP = 5, 8
 local FOOTER_H = 24
 local ROW_BOX_H = HEADER_H + SLOTS * CHIP_H + FOOTER_H + 4
 local BUFF_ROW = 18                      -- a party buff icon and its gap
+-- the quiet look (opts.quiet, the Teams page): no frames, no swap link, no party buffs footer (they're in the group
+-- title's tooltip), empty seats a faint line, and one bench strip of chips under the groups
+local QUIET_BG = { 0.105, 0.105, 0.12, 0.9 }
+local QUIET_BOX_H = HEADER_H + SLOTS * CHIP_H + 6
+local BENCH_ROW = 22
 
 local ghost          -- the frame following the cursor while dragging
 
@@ -134,6 +139,13 @@ local function createChip(parent, grid)
     chip.seat:SetPoint("BOTTOMRIGHT", 0, 1)
     chip.seat:SetColorTexture(1, 1, 1, 0.035)
     chip.seat:Hide()
+    if grid.opts.quiet then
+        chip.seat:ClearAllPoints()
+        chip.seat:SetPoint("LEFT", 3, 0)
+        chip.seat:SetPoint("RIGHT", -3, 0)
+        chip.seat:SetHeight(1)
+        chip.seat:SetColorTexture(1, 1, 1, 0.08)
+    end
     -- my own chip in a read-only grid (opts.isMe): a gold wash and a 2px gold bar in the box's margin
     chip.me = chip:CreateTexture(nil, "BACKGROUND")
     chip.me:SetAllPoints()
@@ -192,7 +204,7 @@ local function setChip(chip, m)
     chip.key = m and m.key or nil
     local opts = chip.grid.opts
     local editable = opts.isEditable()
-    chip.seat:SetShown(m == nil and chip.slot ~= nil and editable)
+    chip.seat:SetShown(m == nil and chip.slot ~= nil and (editable or opts.quiet ~= nil))
     local mine = m ~= nil and not editable and opts.isMe ~= nil and opts.isMe(m.key) and true or false
     chip.me:SetShown(mine)
     chip.meBar:SetShown(mine)
@@ -352,6 +364,15 @@ function GroupsUI:CreateGrid(parent, opts)
         box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         box.title:SetPoint("TOPLEFT", 8, -7)
         box.title:SetText("Group " .. g)
+        if opts.quiet then
+            box.bg:SetColorTexture(QUIET_BG[1], QUIET_BG[2], QUIET_BG[3], QUIET_BG[4])
+            UI():SetEdgeColor(box, 0, 0, 0, 0)
+            box.title:SetFontObject("GameFontNormalSmall")
+            box.title:SetTextColor(0.69, 0.69, 0.69)
+            box.title:SetText("GROUP " .. g)
+            box.title:ClearAllPoints()
+            box.title:SetPoint("TOPLEFT", 9, -9)
+        end
         box.countFs = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         box.countFs:SetPoint("TOPRIGHT", -8, -8)
         box.rule = box:CreateTexture(nil, "BORDER")
@@ -359,9 +380,18 @@ function GroupsUI:CreateGrid(parent, opts)
         box.rule:SetHeight(1)
         box.rule:SetPoint("TOPLEFT", 6, -HEADER_H + 2)
         box.rule:SetPoint("TOPRIGHT", -6, -HEADER_H + 2)
+        if opts.quiet then box.rule:Hide() end
         local swap = CreateFrame("Button", nil, box)
         swap:SetSize(36, 14)
         swap:SetPoint("LEFT", box.title, "RIGHT", 8, 0)
+        if opts.quiet then
+            -- (the group's header is the swap button; its tooltip lists the party buffs)
+            swap:ClearAllPoints()
+            swap:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
+            swap:SetPoint("BOTTOMRIGHT", box, "TOPRIGHT", -4, -HEADER_H + 4)
+            box.title:SetParent(swap)
+            box.countFs:SetParent(swap)
+        end
         swap.fs = swap:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         swap.fs:SetPoint("CENTER")
         local shl = swap:CreateTexture(nil, "HIGHLIGHT")
@@ -369,6 +399,21 @@ function GroupsUI:CreateGrid(parent, opts)
         shl:SetColorTexture(1, 1, 1, 0)
         swap:SetScript("OnClick", function() grid:OnSwapClick(g) end)
         swap:SetScript("OnEnter", function(self)
+            if opts.quiet then
+                box.title:SetTextColor(1, 0.82, 0)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:AddLine("Group " .. g)
+                for _, e in ipairs(box.present or {}) do
+                    GameTooltip:AddLine(iconText(Comp():BuffIcon(e.buff), 14) .. " " .. e.buff.name, 0.85, 0.85, 0.85)
+                end
+                if grid.opts.isEditable() and grid.opts.onSwapGroups then
+                    GameTooltip:AddLine(grid.swapFrom == g and "Click again to cancel the swap."
+                        or grid.swapFrom and ("Click to swap group " .. grid.swapFrom .. " with this one.")
+                        or "Click, then another group's title: all their players trade places.", 0.6, 0.6, 0.6, true)
+                end
+                GameTooltip:Show()
+                return
+            end
             if not grid.swapFrom then self.fs:SetText("|cffffd100swap|r") end
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             if grid.swapFrom == g then
@@ -382,10 +427,20 @@ function GroupsUI:CreateGrid(parent, opts)
             GameTooltip:Show()
         end)
         swap:SetScript("OnLeave", function(self)
+            if opts.quiet then
+                box.title:SetTextColor(0.69, 0.69, 0.69)
+                hideTooltip()
+                return
+            end
             if not grid.swapFrom then self.fs:SetText("|cff8c8c8cswap|r") end
             hideTooltip()
         end)
         box.swap = swap
+        if opts.quiet then
+            swap:SetScript("OnClick", function()
+                if grid.opts.isEditable() and grid.opts.onSwapGroups then grid:OnSwapClick(g) end
+            end)
+        end
         box.chips = {}
         for s = 1, SLOTS do
             local chip = createChip(box, grid)
@@ -408,9 +463,13 @@ function GroupsUI:CreateGrid(parent, opts)
             end
             b.missingText = "Not in this group."
             b:Hide()
+            if opts.quiet then
+                b:SetAlpha(0)
+                b:EnableMouse(false)
+            end
             box.buffs[i] = b
         end
-        if opts.layout == "row" then
+        if opts.layout == "row" and not opts.quiet then
             box.footRule = box:CreateTexture(nil, "BORDER")
             box.footRule:SetColorTexture(1, 1, 1, 0.05)
             box.footRule:SetHeight(1)
@@ -434,6 +493,10 @@ function GroupsUI:CreateGrid(parent, opts)
     local pool = CreateFrame("Button", nil, f)
     grid.pool = pool
     flatPanel(pool, 0.6)
+    if opts.quiet then
+        pool.bg:SetColorTexture(QUIET_BG[1], QUIET_BG[2], QUIET_BG[3], QUIET_BG[4])
+        UI():SetEdgeColor(pool, 0, 0, 0, 0)
+    end
     pool:RegisterForClicks("LeftButtonUp")
     pool:SetScript("OnClick", function() grid:OnPoolClick() end)
     pool.label = pool:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -469,6 +532,10 @@ function GroupsUI:CreateGrid(parent, opts)
         local w = CreateFrame("Frame", nil, f)
         grid.wait = w
         flatPanel(w, 0.6)
+        if opts.quiet then
+            w.bg:SetColorTexture(QUIET_BG[1], QUIET_BG[2], QUIET_BG[3], QUIET_BG[4])
+            UI():SetEdgeColor(w, 0, 0, 0, 0)
+        end
         w:EnableMouse(true)
         w.label = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         w.label:SetTextColor(0.62, 0.62, 0.62)
@@ -576,6 +643,7 @@ function Grid:Refresh()
 
     local row_ = self.opts.layout == "row"
     local cols, gap, boxH = row_ and ROW_COLS or COLS, row_ and ROW_GAP or GAP, row_ and ROW_BOX_H or BOX_H
+    if self.opts.quiet then boxH = QUIET_BOX_H end
     local fw = self.frame:GetWidth() or 0
     local bw = floor((fw - (cols - 1) * gap) / cols)
     if fw < 100 then bw = BOX_W end
@@ -610,8 +678,11 @@ function Grid:Refresh()
             box.countFs:SetText(#list .. "/" .. SLOTS)
             -- (a group without players has nothing to swap; while a swap is picked every group takes it)
             local canSwap = self.opts.isEditable() and self.opts.onSwapGroups ~= nil
-            box.swap:SetShown(canSwap and (#list > 0 or self.swapFrom ~= nil))
-            if self.swapFrom == g then
+            box.swap:SetShown(self.opts.quiet ~= nil or (canSwap and (#list > 0 or self.swapFrom ~= nil)))
+            if self.opts.quiet then
+                box.swap.fs:SetText("")
+                box.countFs:SetText((self.swapFrom == g and "|cff33ff33swapping|r  " or "") .. #list .. "/" .. SLOTS)
+            elseif self.swapFrom == g then
                 box.swap.fs:SetText("|cff33ff33cancel|r")
             elseif self.swapFrom then
                 box.swap.fs:SetText("|cffffd100here|r")
@@ -623,6 +694,7 @@ function Grid:Refresh()
             for _, e in ipairs(Comp():Coverage(list, "party")) do
                 if #e.providers > 0 then present[#present + 1] = e end
             end
+            box.present = present
             -- (the footer holds as many as its width does; the tooltip of each names who brings it)
             local room = row_ and floor((bw - 16 + 2) / BUFF_ROW) or #box.buffs
             for i, b in ipairs(box.buffs) do
@@ -630,12 +702,17 @@ function Grid:Refresh()
             end
             if self.swapFrom == g then UI():SetEdgeColor(box, 0.2, 1, 0.2, 0.9)
             elseif self.picked or self.swapFrom then UI():SetEdgeColor(box, 1, 0.82, 0, 0.75)
+            elseif self.opts.quiet then UI():SetEdgeColor(box, 0, 0, 0, 0)
             else UI():SetEdgeColor(box, 0.34, 0.34, 0.38, 0.5) end
         end
     end
 
     tsort(pool, memberLess)
     self.pool.label:SetText((self.opts.poolLabel or "Not in a group") .. " (" .. #pool .. ")")
+    if self.opts.quiet then
+        self:LayoutBench(pool, waiting, n, boxH)
+        return
+    end
     if row_ then
         self:LayoutPoolRow(pool, n, bw, boxH)
         return self:LayoutWaitRow(waiting)
@@ -733,6 +810,100 @@ function Grid:LayoutWaitRow(list)
     w.empty:SetText(empty or "")
     w.empty:SetShown(#list == 0)
     self.height = top + h
+    self.frame:SetHeight(self.height)
+end
+
+-- The quiet look's bench: under the groups, one strip with a chip per player outside them (as wide as each name),
+-- wrapping to more rows; the waitlist a second strip under it while anyone is on it (or opts.waitlist.empty() says
+-- something). Each strip: a small caps label, then the chips; an empty bench says what it's for.
+local function flowChips(self, host, list, x0, width)
+    local x, y = x0, -6
+    for i, m in ipairs(list) do
+        local chip = host.chips[i]
+        if not chip then
+            chip = createChip(host, self)
+            host.chips[i] = chip
+        end
+        chip:ClearAllPoints()
+        chip:SetSize(240, CHIP_H)
+        setChip(chip, m)
+        local fs = chip.fs
+        local tw = (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 60
+        local w = floor(2 + 16 + 6 + tw + 6 + 13 + 5 + 0.5)
+        if x + w > width - 8 and x > x0 then x, y = x0, y - BENCH_ROW end
+        chip:SetSize(w, CHIP_H)
+        chip:SetPoint("TOPLEFT", host, "TOPLEFT", x, y - 1)
+        chip:Show()
+        x = x + w + 12
+    end
+    for i = #list + 1, #host.chips do
+        host.chips[i]:Hide()
+        host.chips[i].member, host.chips[i].key = nil, nil
+    end
+    return -y + BENCH_ROW + 4
+end
+
+function Grid:LayoutBench(pool, waiting, n, boxH)
+    local fw = self.frame:GetWidth() or 0
+    if fw < 100 then fw = ROW_COLS * (BOX_W + ROW_GAP) - ROW_GAP end
+    local top = self.top + ceil(n / ROW_COLS) * (boxH + ROW_GAP) + 4
+    local editable = self.opts.isEditable()
+    local x0 = 12 + 66
+    local p = self.pool
+    p.label:SetFontObject("GameFontNormalSmall")
+    p.label:SetTextColor(0.62, 0.62, 0.62)
+    p.label:SetText("BENCH")
+    p.label:ClearAllPoints()
+    p.label:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -12)
+    local show = #pool > 0 or editable
+    p:SetShown(show)
+    local h = 0
+    if show then
+        h = max(34, flowChips(self, p, pool, x0, fw - (editable and 130 or 0)))
+        p:ClearAllPoints()
+        p:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -top)
+        p:SetSize(fw, h)
+        p.empty:ClearAllPoints()
+        p.empty:SetPoint("RIGHT", p, "TOPRIGHT", -12, -17)
+        p.empty:SetJustifyH("RIGHT")
+        if #pool == 0 then
+            p.empty:SetText(self.opts.poolEmpty and self.opts.poolEmpty() or "Drop a player here to take them out of the groups.")
+        else
+            p.empty:SetText(editable and "Drag into a group" or "")
+        end
+        p.empty:SetShown(editable or #pool == 0)
+    end
+    self.height = top + h
+    local w = self.wait
+    if w then
+        local wo = self.opts.waitlist
+        local empty = wo.empty and wo.empty() or nil
+        local wshow = #waiting > 0 or empty ~= nil
+        w:SetShown(wshow)
+        if not wshow then
+            for _, chip in ipairs(w.chips) do
+                chip:Hide()
+                chip.member, chip.key = nil, nil
+            end
+        end
+        if wshow then
+            w.label:SetFontObject("GameFontNormalSmall")
+            w.label:SetTextColor(0.62, 0.62, 0.62)
+            w.label:SetText("WAITLIST")
+            w.label:ClearAllPoints()
+            w.label:SetPoint("TOPLEFT", w, "TOPLEFT", 12, -12)
+            local wh = max(34, flowChips(self, w, waiting, x0, fw))
+            w:ClearAllPoints()
+            w:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, -(self.height + 6))
+            w:SetSize(fw, wh)
+            w.empty:ClearAllPoints()
+            w.empty:SetPoint("LEFT", w, "TOPLEFT", x0, -17)
+            w.empty:SetPoint("RIGHT", w, "RIGHT", -150, 0)
+            w.empty:SetText(empty or "")
+            w.empty:SetShown(#waiting == 0)
+            self.height = self.height + 6 + wh
+        end
+    end
     self.frame:SetHeight(self.height)
 end
 

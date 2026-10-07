@@ -710,6 +710,8 @@ local function CleanTeam(r, now)
         if L == false then return nil end
         out.L = L
     end
+    -- 1.3.3: the team's theme, a raid key whose loading screen is its banner (unknown keys: none, never refused)
+    if type(r.th) == "string" and INSTANCE_BY_KEY[r.th] then out.th = r.th end
     return out
 end
 
@@ -1608,7 +1610,7 @@ function RaidPlan:GetTeam(id)
                        seats = CopyMap(l.gs) or {}, comp = ns.RaidComp:CopyComp(l.cp) }
     end
     local first = lineups[1]
-    return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, lineups = lineups,
+    return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, lineups = lineups, theme = t.th,
              size = first.size, specs = CopyMap(first.specs), groups = CopyMap(first.groups),
              seats = CopyMap(first.seats), comp = ns.RaidComp:CopyComp(first.comp) }
 end
@@ -2901,6 +2903,7 @@ end
 --               (1.3.2; at most 10, at least one)
 --   or, for one lineup (ln = its id, default the first; a new team gets one): size = 10|25, specs, groups, seats,
 --   comp (Core/RaidComp.lua; false clears it): nil keeps the lineup's current ones.
+--   theme = a raid key (its loading screen is the team's banner; false clears it, nil keeps it) (1.3.3)
 -- A comp with more slots than its lineup's size is refused. Roster members who were on a waitlist of the team are
 -- taken off it. Returns ok, idOrErr.
 function RaidPlan:SaveTeam(id, name, members, opts)
@@ -2975,7 +2978,11 @@ function RaidPlan:SaveTeam(id, name, members, opts)
     end
     -- the first lineup is mirrored on the fields a client before 1.3.2 reads
     local first = lineups[1]
-    local rec = { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list, L = lineups,
+    -- (the theme: opts.theme, false clears it, nil keeps the saved one)
+    local th = opts.theme
+    if th == nil then th = cur and cur.th or nil elseif th == false then th = nil end
+    if th ~= nil and not INSTANCE_BY_KEY[th] then return false, "unknown theme" end
+    local rec = { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list, L = lineups, th = th,
                   sz = first.sz, s = first.s, grp = first.grp, gs = first.gs, cp = first.cp }
     local ok, e = Commit(root, "T", rec)
     if not ok then return false, e end

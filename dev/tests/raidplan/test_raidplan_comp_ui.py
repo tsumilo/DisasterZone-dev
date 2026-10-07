@@ -105,9 +105,11 @@ def organizers_draft_the_comp_and_save_it_with_the_team():
     assert bob.eval("return ns.RaidComp:GetCount(ns.RaidPlanUI:GetDraft().cp, 'DRUID', 4)") == 1
     assert text_of(bob, steps + ".foot") == "5 of 10 slots"
     assert col_rows(bob, 2) == [("Rita", False), ("Restoration Druid", True)], col_rows(bob, 2)
-    # the lineup row follows the draft: a meter and Needs
-    assert shown(bob, D + ".lmeter") and not shown(bob, D + ".lroles")
-    assert text_of(bob, D + ".lneeds.btns[1].fs") == "Restoration Druid"
+    # the lineup's tab follows the draft: its count, the open slots in its tooltip
+    assert text_of(bob, D + ".lcards[1].count") == "4/5"
+    tip = [strip_codes(t[0]) for t in (lambda r: r.values() if isinstance(r, dict) else r)(
+        bob.eval_py("return %s.lcards[1].tip" % D))]
+    assert any(t.endswith("Restoration Druid") for t in tip), tip
     # Save: the comp goes with the team
     bob.click(bob.eval("return %s.saveBtn" % D))
     w.tick(1)
@@ -160,35 +162,35 @@ def members_see_the_meter_needs_and_a_read_only_comp():
     tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
                     groups={"Rita": 1, "Lee": 1})
     w.tick(2)
-    open_teams(w, rita, tid)
-    # the lineup row: a square per slot, Needs with the open specs (comp order); the tabs show
-    assert shown(rita, D + ".views") and shown(rita, D + ".lmeter") and shown(rita, D + ".lneeds")
-    n = rita.eval("local n = 0; for _, s in ipairs(%s.lmeter.sq) do if s.o:IsShown() then n = n + 1 end end; "
-                  "return n" % D)
-    assert n == 25, n
-    needs = [text_of(rita, "%s.lneeds.btns[%d].fs" % (D, i)) for i in (1, 2)]
-    assert needs == ["Protection Paladin", "Feral Druid (Bear)"], needs      # (Lee fills Protection Warrior)
-    # hover: the slot, open, then who could fill it (nobody here plays Protection Paladin)
-    install_helpers(rita)
-    btn = rita.eval("return %s.lneeds.btns[1]" % D)
-    rita.hover(btn)
-    tip = [strip_codes(l).strip() for l, _ in tt_lines(rita)]
-    rita.leave(btn)
-    assert tip[0] == "Protection Paladin" and tip[1].startswith("Open"), tip
-    assert "Nobody in the guild plays it yet." in tip, tip
-    # the Comp view: read-only, my row lit, no tool row, no +
+    open_teams(w, rita, tid, "groups")
+    # the Comp tab shows; the lineup's tab lists the open slots (comp order) in its tooltip
+    assert shown(rita, D + ".tabComp") and text_of(rita, D + ".lcards[1].count") == "2/25"
+    tip = [strip_codes(t[0]).strip() for t in (lambda r: r.values() if isinstance(r, dict) else r)(
+        rita.eval_py("return %s.lcards[1].tip" % D))]
+    opened = tip[tip.index("Still open:") + 1:]
+    assert opened[0].endswith("Protection Paladin") and opened[1].endswith("Feral Druid (Bear)"), opened
+    # the Comp view: read-only, my row lit, the raid buffs in the toolbar, no Start from, no +
     rita.eval("ns.RaidPlanUI:SetTeamTab('comp')")
     w.tick(0.3)
-    assert not shown(rita, D + ".tool") and shown(rita, D + ".compBar") and shown(rita, D + ".compScroll")
+    assert not shown(rita, D + ".startBtn") and shown(rita, D + ".compStrip") and shown(rita, D + ".compScroll")
+    # hover an open slot: who could fill it (nobody here plays Protection Paladin)
+    install_helpers(rita)
+    row = rita.eval("for _, r in ipairs(%s.cols[1].rows) do if r:IsShown() and not r.slot.member then return r end end" % D)
+    rita.hover(row)
+    tip = [strip_codes(l).strip() for l, _ in tt_lines(rita)]
+    rita.leave(row)
+    assert "Protection Paladin" in tip[0], tip
+    assert "Nobody in the guild plays it yet." in tip, tip
     assert all(not shown(rita, "%s.cols[%d].add" % (D, i)) for i in range(1, 5))
     lit = rita.eval_py("local out = {}; for _, col in ipairs(%s.cols) do for _, r in ipairs(col.rows) do "
                        "if r:IsShown() and r.me:IsShown() then out[#out + 1] = r.slot.member.key end end end; "
                        "return out" % D)
     assert list(lit.values() if isinstance(lit, dict) else lit) == [K("Rita")], lit
-    # a team without a comp: no tabs, the Groups as before
+    # a team without a comp: no Comp tab for members, back on Groups
     rita.eval("ns.RaidPlanUI:SelectTeam(...)", plain)
     w.tick(0.3)
-    assert not shown(rita, D + ".views") and shown(rita, D + ".scroll") and rita.eval("return ns.RaidPlanUI:GetTeamTab()") == "groups"
+    assert not shown(rita, D + ".tabComp") and shown(rita, D + ".scroll")
+    assert rita.eval("return ns.RaidPlanUI:GetTeamTab()") == "groups"
     w.assert_no_errors()
 
 
@@ -198,14 +200,14 @@ def a_comp_saved_elsewhere_shows_at_once():
     bob, rita = c["Bob"], c["Rita"]
     tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, groups={"Lee": 1, "Rita": 1, "Sam": 2})
     w.tick(2)
-    open_teams(w, rita, tid)
-    assert not shown(rita, D + ".views") and not shown(rita, D + ".lmeter")
+    open_teams(w, rita, tid, "groups")
+    assert not shown(rita, D + ".tabComp")
     # the GM / council saves a comp: the member's view (nothing edited there) takes the new version
     res = bob.eval_py("local ok, r = ns.RaidPlan:SetTeamComp(..., ns.RaidComp:GetPreset('std25').cp); "
                       "return { ok = ok, r = r }", tid)
     assert res["ok"] is True, res
     w.tick(3)
-    assert shown(rita, D + ".views") and shown(rita, D + ".lmeter")
+    assert shown(rita, D + ".tabComp")
     assert text_of(rita, D + ".tabComp") == "Comp  3/25"                # (Bob is unassigned: he doesn't count)
     w.assert_no_errors()
 
