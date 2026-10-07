@@ -167,6 +167,7 @@ local function Acquire(kind, parent)
     f.pooled = nil
     f.kids = {}
     f.piece, f.slot, f.t = nil, nil, nil
+    f.headW, f.headH, f.midY = nil, nil, nil     -- (a C piece's, from its last life: a value drawn on it has none)
     f.problem = nil
     f:EnableMouse(false)
     f:SetScript("OnMouseDown", nil)
@@ -598,7 +599,9 @@ local function BuildBlank(ctx, parent, piece, slot, a, v)
     local pd = Bk.PIECES[piece.k]
     local hot = ctx.opts.hot and ctx.opts.hot.piece == piece and ctx.opts.hot.slot == slot
     local empty = gone or v == nil or v == ""
-    local required = empty and NEED_T[t] and not a.opt
+    -- (an empty blank is a problem only in an event's script: the palette's pieces and a dragged one show plain wells)
+    local needs = empty and NEED_T[t] and not a.opt
+    local required = needs and ctx.opts.problems ~= nil
     local look = required and NEED or WELL
     local hex = t == "bool"
     local box = BOX[t]
@@ -638,7 +641,7 @@ local function BuildBlank(ctx, parent, piece, slot, a, v)
             fs:SetPoint("LEFT", f, "LEFT", x, 0)
             local c = look.text
             -- (an empty blank's word is dimmer: it says what goes there)
-            fs:SetTextColor(c[1], c[2], c[3], text ~= "" and 1 or (required and 0.8 or 0.5))
+            fs:SetTextColor(c[1], c[2], c[3], text ~= "" and 1 or (needs and 0.8 or 0.5))
             x = x + SW(fs)
         else
             x = x + (hex and 18 or 12)
@@ -656,8 +659,8 @@ local function BuildBlank(ctx, parent, piece, slot, a, v)
         x = x + (hex and 13 or 8)
     end
     w = max(hex and 36 or 22, x)
-    if box and t == "text" then
-        -- quotes around typed text
+    if box and t == "text" and not empty then
+        -- quotes around typed text (an empty one just says "text")
         local q1 = k.font()
         q1:SetText("\226\128\156")
         q1:SetTextColor(1, 1, 1, 0.45)
@@ -1076,6 +1079,8 @@ local function BuildBlock(ctx, parent, p, pd)
     local headW = max(hat and 90 or 50, x0 + widest + EP.PAD) + lockW
     local w, h = headW, top + headH
     local nt = 1
+    -- (a C piece's header and else bar, for what it covers on the canvas: f.headW / headH / midY; nil for the rest)
+    f.headW, f.headH, f.midY = nil, nil, nil
     if shape == "c" or shape == "c2" then
         -- header, arm(s) with the pieces inside, (else bar, arm), foot
         local y = top + headH
@@ -1100,6 +1105,7 @@ local function BuildBlock(ctx, parent, p, pd)
         local footY = y
         h = footY + EP.FOOT
         w = max(headW, innerW)
+        f.headW, f.headH, f.midY = headW, top + headH, midY
         -- header body (its bottom-left joins the arm)
         nt = Body(k, f, nt, 0, top, headW, headH, c.f2, c.f, c.e, { noBottom = true })
         local hb = k.tex(nt, "BORDER", 1)       -- the header's bottom edge, right of the arm

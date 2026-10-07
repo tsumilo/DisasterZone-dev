@@ -97,6 +97,19 @@ function H.Fit(fs, text, width, size, minSize)
     return false
 end
 
+-- A header's words in its room: smaller first (size down to minSize), else on two lines there (never cut).
+function H.Fit2(fs, text, width, size, minSize)
+    fs:SetWordWrap(false)
+    if H.Fit(fs, text, width, size, minSize) then
+        fs:SetWidth(max(1, floor(H.Width(fs) + 4.5)))
+        return true
+    end
+    fs:SetWordWrap(true)
+    fs:SetWidth(max(1, floor(width)))
+    fs:SetText(text or "")
+    return false
+end
+
 -- The first of the texts that fits at the size; else the last one, smaller. shrink: each text may go down to
 -- minSize before the next one is tried (a slot's names before its label).
 function H.FitAny(fs, list, width, size, minSize, shrink)
@@ -1150,9 +1163,15 @@ function Board:DrawTree(bk, st, height)
             if m and m.bronze then bronze = m elseif m then main[r][#main[r] + 1] = m end
         end
     end
-    local n1 = max(1, #main[1])
     local top = 20
     local hh = height - top - 6
+    -- the first round drawn: the earliest whose matches fit as cards (two rows of 11 at least). A bracket of 33 to 64
+    -- starts later: who comes out of the rounds before shows in the slots they lead to ("Round 1 · 5"), the matches
+    -- being played in the rail.
+    local r0 = 1
+    while r0 < R and #main[r0] > 1 and hh / #main[r0] < 2 * 11 + 1 + 2 do r0 = r0 + 1 end
+    local Rn = R - r0 + 1
+    local n1 = max(1, #main[r0])
     local slot = hh / n1
     -- a small bracket stays together in the middle (not spread over the whole height)
     local y0 = top
@@ -1164,23 +1183,23 @@ function Board:DrawTree(bk, st, height)
     if slot < 2 * ROW_H + 9 then rh = max(11, floor((slot - 3) / 2)) end
     local chh = 2 * rh + 1
     -- small brackets get wider cards (long names keep their size), 32 players narrower ones
-    local cw, pitch = (R <= 3) and 150 or CARD_W, 0
-    if R > 1 then
-        pitch = (BR_W - cw) / (R - 1)
+    local cw, pitch = (Rn <= 3) and 150 or CARD_W, 0
+    if Rn > 1 then
+        pitch = (BR_W - cw) / (Rn - 1)
         if pitch < cw + COL_GAP_MIN then
-            cw = floor((BR_W - COL_GAP_MIN * (R - 1)) / R)
-            pitch = (BR_W - cw) / (R - 1)
+            cw = floor((BR_W - COL_GAP_MIN * (Rn - 1)) / Rn)
+            pitch = (BR_W - cw) / (Rn - 1)
         end
         pitch = min(pitch, 196)
     end
-    local seedW = (R >= 5) and 0 or 13
+    local seedW = (Rn >= 5) and 0 or 13
     local fsize = rh >= 17 and 11 or (rh >= 14 and 10 or 9)
     local circ = min(13, rh - 4)
-    local function X(r) return floor((r - 1) * pitch + 0.5) end
+    local function X(r) return floor((r - r0) * pitch + 0.5) end
     -- the centres of the cards, round by round
-    local cy = { {} }
-    for i = 1, #main[1] do cy[1][i] = y0 + (i - 0.5) * slot end
-    for r = 2, R do
+    local cy = { [r0] = {} }
+    for i = 1, #main[r0] do cy[r0][i] = y0 + (i - 0.5) * slot end
+    for r = r0 + 1, R do
         cy[r] = {}
         for i = 1, #main[r] do
             local a, b = cy[r - 1][2 * i - 1], cy[r - 1][2 * i]
@@ -1190,7 +1209,7 @@ function Board:DrawTree(bk, st, height)
     local myNext = H.MyNext(bk, me)
     -- the round headers (the current one gold)
     local nh = 0
-    for r = 1, R do
+    for r = r0, R do
         nh = nh + 1
         local fs = Head(nh)
         fs:ClearAllPoints()
@@ -1212,7 +1231,7 @@ function Board:DrawTree(bk, st, height)
         FillCard(c, bk, m, look)
         return c
     end
-    for r = 1, R do
+    for r = r0, R do
         for i, m in ipairs(main[r]) do place(m, X(r), cy[r][i] - chh / 2) end
     end
     -- the lines between the rounds: bright where the match before is decided
@@ -1226,7 +1245,7 @@ function Board:DrawTree(bk, st, height)
         t:SetColorTexture(1, 1, 1, on and 0.34 or 0.12)
         t:Show()
     end
-    for r = 2, R do
+    for r = r0 + 1, R do
         for i = 1, #main[r] do
             local x1, y1 = X(r), cy[r][i]
             local x0 = X(r - 1) + cw
@@ -1336,9 +1355,31 @@ local function RobinRow(i)
         r.d = H.Text(r, "GameFontHighlight", 11)
         r.d:SetJustifyH("RIGHT")
         r.d:SetPoint("RIGHT", r, "RIGHT", -8, 0)
+        -- ("+12 more": who they are)
+        r:EnableMouse(true)
+        r:SetScript("OnEnter", function(self)
+            if not self.rest then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            for _, k in ipairs(self.rest) do GameTooltip:AddLine(H.Name(k)) end
+            GameTooltip:Show()
+        end)
+        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
         br.rows[i] = r
     end
+    r.rest = nil
     return r
+end
+
+-- A row of the standings or the players' grid as "+12 more" (rest: their keys, for the tooltip).
+local function MoreRow(r, rest)
+    r.rest = rest
+    r.rank:SetText("")
+    r.cls:Hide()
+    r.name:SetText("+" .. #rest .. " more")
+    r.name:SetTextColor(GREY[1], GREY[2], GREY[3])
+    H.Sized(r.name, 11)
+    r.w:SetText("")
+    r.d:SetText("")
 end
 
 function Board:DrawRobin(bk, st, height)
@@ -1365,15 +1406,34 @@ function Board:DrawRobin(bk, st, height)
     head("STANDINGS", 2, 0)
     head("WON", 272 - 64, 0, false, 40, true)
     head("GAMES", 272 - 8, 0, false, 50, true)
-    local rowH = min(22, floor((height - 22) / max(1, #rows)))
-    for i, row in ipairs(rows) do
+    -- (rows of 18 at least: more players than fit show the top ones, me among them, and "+12 more")
+    local fit = max(2, floor((height - 22) / 18))
+    local list = {}
+    for i, row in ipairs(rows) do list[i] = { row = row, rank = i } end
+    local rest
+    if #list > fit then
+        local mine
+        for i, e in ipairs(list) do if e.row.k == me then mine = i end end
+        local keep = {}
+        for i = 1, fit - 1 do keep[i] = list[i] end
+        if mine and mine > fit - 1 then keep[fit - 1] = list[mine] end
+        local kept = {}
+        for _, e in ipairs(keep) do kept[e.row.k] = true end
+        rest = {}
+        for _, e in ipairs(list) do if not kept[e.row.k] then rest[#rest + 1] = e.row.k end end
+        list = keep
+    end
+    local nrows = #list + (rest and 1 or 0)
+    local rowH = min(22, floor((height - 22) / max(1, nrows)))
+    for i, e in ipairs(list) do
+        local row = e.row
         local r = RobinRow(i)
-        r:SetHeight(rowH)
+        r:SetSize(272, rowH)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", br, "TOPLEFT", 0, -(20 + (i - 1) * rowH))
         r.band:SetColorTexture(1, 1, 1, (i % 2 == 0) and 0.025 or 0)
-        r.rank:SetText(tostring(i))
-        if i == 1 and row.w > 0 then r.rank:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else r.rank:SetTextColor(GREY[1], GREY[2], GREY[3]) end
+        r.rank:SetText(tostring(e.rank))
+        if e.rank == 1 and row.w > 0 then r.rank:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else r.rank:SetTextColor(GREY[1], GREY[2], GREY[3]) end
         H.SetClass(r.cls, row.k)
         H.Fit(r.name, H.Name(row.k), 272 - 46 - 100, 11, 9)
         r.name:SetWidth(272 - 46 - 100)
@@ -1381,9 +1441,18 @@ function Board:DrawRobin(bk, st, height)
         r.d:SetText((row.d > 0 and "+" or "") .. row.d)
         if row.d > 0 then r.d:SetTextColor(0.62, 0.94, 0.69) elseif row.d < 0 then r.d:SetTextColor(GREY[1], GREY[2], GREY[3])
         else r.d:SetTextColor(0.8, 0.8, 0.8) end
-        r:SetShown(20 + i * rowH <= height)
+        r:Show()
     end
-    HideFrom(br.rows, #rows + 1)
+    if rest then
+        local r = RobinRow(#list + 1)
+        r:SetSize(272, rowH)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", br, "TOPLEFT", 0, -(20 + #list * rowH))
+        r.band:SetColorTexture(0, 0, 0, 0)
+        MoreRow(r, rest)
+        r:Show()
+    end
+    HideFrom(br.rows, nrows + 1)
     -- this round's matches (the next round's when there is room)
     local x, w = 296, BR_W - 296
     local y = 0
@@ -1439,22 +1508,44 @@ function Board:DrawPlayers(st, def, height, note)
     fs:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     fs:Show()
     local cols, colW, rowH = 4, 140, 22
+    -- (more than the room holds: the first ones, me among them, and "+12 more" in the last place)
+    local room = cols * max(1, floor((height - 30 - 20) / rowH))
+    local rest
+    if #list > room then
+        local me = Me()
+        local mine = H.Contains(list, me)
+        local keep = {}
+        for i = 1, room - 1 do keep[i] = list[i] end
+        if mine and mine > room - 1 then keep[room - 1] = me end
+        rest = {}
+        for _, k in ipairs(list) do if not H.Contains(keep, k) then rest[#rest + 1] = k end end
+        list = keep
+    end
     local n = 0
-    for i, k in ipairs(list) do
+    local function cell(i)
         local col, row = (i - 1) % cols, floor((i - 1) / cols)
-        if 20 + (row + 1) * rowH > height - 30 then break end
-        n = n + 1
-        local r = RobinRow(n)
+        local r = RobinRow(i)
         r:SetSize(colW - 6, rowH)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", br, "TOPLEFT", col * colW - 20, -(20 + row * rowH))
         r.band:SetColorTexture(0, 0, 0, 0)
+        return r
+    end
+    for i, k in ipairs(list) do
+        n = n + 1
+        local r = cell(n)
         r.rank:SetText("")
         H.SetClass(r.cls, k)
         H.Fit(r.name, H.Name(k), colW - 50, 11, 9)
         r.name:SetWidth(colW - 50)
         r.w:SetText("")
         r.d:SetText("")
+        r:Show()
+    end
+    if rest then
+        n = n + 1
+        local r = cell(n)
+        MoreRow(r, rest)
         r:Show()
     end
     HideFrom(br.rows, n + 1)
@@ -1960,7 +2051,12 @@ local function PrizeHow(def)
             elseif e.n == 1 then
                 local high = not (sc and sc.high == false)
                 local time = sc and sc.fmt == "time"
-                e.how = (high and (time and "longest " or "most ") or (time and "fastest " or "fewest ")) .. name
+                local word = high and (time and "longest" or "most") or (time and "fastest" or "fewest")
+                -- (a score named "Most mushrooms" is already said so: not "most Most mushrooms")
+                local first = (tostring(name):match("^(%a+)") or ""):lower()
+                local said = { most = true, longest = true, fastest = true, fewest = true, least = true, highest = true,
+                    lowest = true, best = true }
+                e.how = said[first] and name or (word .. " " .. name)
             else
                 e.how = (ORD[e.n] or (e.n .. "th")) .. " by " .. name
             end
@@ -2177,7 +2273,7 @@ local function MapOfPlaces(list)
     return best
 end
 
-local function DrawPlacesMap(def, st, v, x, y, w, h)
+local function DrawPlacesMap(occ, def, st, v, x, y, w, h)
     local kv = win.kv
     local m = kv.map
     m:ClearAllPoints()
@@ -2190,8 +2286,15 @@ local function DrawPlacesMap(def, st, v, x, y, w, h)
         if tonumber(p.map) == map then pts[#pts + 1] = { tonumber(p.x), tonumber(p.y), tonumber(p.r) or 30, p } end
     end
     m:Fit(pts, 0.3)
-    for i, q in ipairs(pts) do m:Place(i, q[1], q[2], q[3], q[4].n) end
+    for i, q in ipairs(pts) do
+        m:Place(i, q[1], q[2], q[3], q[4].n)
+        -- (its card on hover: zone, coordinates, how far; a click shows me the way there)
+        local pid = q[4].id
+        m:PlaceInfo(i, { place = q[4], click = function() EUI():ShowTheWay(occ, pid, def) end })
+    end
     m:Done(#pts)
+    m:ShowZone(true)
+    m:ShowMe(true)
     for _, l in ipairs(kv.route.lines) do l:Hide() end
     for _, c in ipairs(kv.route.cps) do c:Hide() end
     for _, d in ipairs(kv.route.dots) do d:Hide() end
@@ -2249,12 +2352,22 @@ local function Checkpoint(i)
         c:EnableMouse(true)
         c:SetScript("OnEnter", function(self)
             if not self.name then return end
+            if self.place then
+                -- (the place's card: zone, coordinates, how far from me, a click shows the way; then what it is here)
+                EUI():PlaceTip(self, self.place, self.click ~= nil)
+                if self.sub then GameTooltip:AddLine(self.sub, 0.85, 0.85, 0.85) end
+                GameTooltip:Show()
+                return
+            end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(self.name)
             if self.sub then GameTooltip:AddLine(self.sub, 0.85, 0.85, 0.85) end
             GameTooltip:Show()
         end)
         c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        c:SetScript("OnMouseUp", function(self, button)
+            if button == "LeftButton" and self.click then self.click() end
+        end)
         r.cps[i] = c
     end
     return c
@@ -2371,6 +2484,12 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         for _, k in ipairs(st.entrants or {}) do if not set[k] then rest[#rest + 1] = k end end
         cols[2] = { title = "Everyone else", keys = rest }
     end
+    -- (more than four tags: three columns and a fourth for the others, a row each: its colour, name and how many)
+    if #cols > 4 then
+        local others = {}
+        for i = 4, #cols do others[#others + 1] = cols[i] end
+        cols = { cols[1], cols[2], cols[3], { title = "Other tags", tags = others, keys = {} } }
+    end
     local n = min(4, #cols)
     local gap = EUI().GAP
     local cw = floor((w - gap * (n - 1)) / n)
@@ -2395,9 +2514,59 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             c.title:ClearAllPoints()
             c.title:SetPoint("LEFT", c, "TOPLEFT", 2, -12)
         end
-        local sc = ColumnScore(st, col.keys, v.scores)
+        local sc = not col.tags and ColumnScore(st, col.keys, v.scores) or nil
+        -- (the tag's name and the score's share the header: each gets smaller before the score's name goes)
+        local room = width - 18 - 2
         c.right:SetText(sc and sc.n or "")
-        H.Fit(c.title, col.title, width - 18 - (sc and (H.Width(c.right) + 8) or 0), 12, 10)
+        H.Sized(c.right, 10.5)
+        H.Sized(c.title, 12)
+        c.title:SetText(col.title)
+        if sc and H.Width(c.title) + 8 + H.Width(c.right) > room then
+            H.Fit(c.right, sc.n, max(40, floor(room * 0.45)), 10.5, 9)
+            if H.Width(c.right) > floor(room * 0.45) + 1 then c.right:SetText("") end
+        end
+        local rw = (c.right:GetText() or "") ~= "" and (H.Width(c.right) + 8) or 0
+        c.title:SetWordWrap(false)
+        if not H.Fit(c.title, col.title, room - rw, 12, 10) then
+            -- (the tag's name first: the score's goes, its values stay next to the names; then smaller, then two lines)
+            c.right:SetText("")
+            H.Fit2(c.title, col.title, room, 12, 9)
+        end
+        if col.tags then
+            -- the other tags: a row each
+            local ry = 28
+            for j, t in ipairs(col.tags) do
+                local r = ColRow(c, j)
+                r:ClearAllPoints()
+                r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -ry)
+                r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
+                r.key, r.tip = nil, nil
+                r.rest, r.restTitle = t.keys, t.title
+                YouBand(r, false)
+                r.cls:SetTexture(EUI().MASK)
+                r.cls:SetTexCoord(0, 1, 0, 1)
+                r.cls:SetDesaturated(false)
+                local c3 = t.rgb or { 0.8, 0.8, 0.8 }
+                r.cls:SetVertexColor(c3[1], c3[2], c3[3], 1)
+                r.cls:SetSize(10, 10)
+                r.cls:Show()
+                r.val:SetText(tostring(#t.keys))
+                r.val:SetTextColor(0.91, 0.91, 0.91)
+                -- (the name starts after the dot: 6 + 10 + 8; the count at the right)
+                H.Fit2(r.name, t.title, width - 6 - 10 - 8 - 6 - (H.Width(r.val) + 8), 12, 10)
+                r.name:SetTextColor(1, 1, 1)
+                r.name:Show()
+                r.more:Hide()
+                r:Show()
+                ry = ry + COL_ROW
+                if 28 + j * COL_ROW + COL_ROW > h then
+                    for x2 = j + 1, #c.rows do c.rows[x2]:Hide() end
+                    break
+                end
+            end
+            for j = #col.tags + 1, #c.rows do c.rows[j]:Hide() end
+            c:Show()
+        else
         -- best first by its score; else me first
         local rows = sc and (type(st.scores) == "table" and st.scores[sc.id]) or {}
         local order = {}
@@ -2427,6 +2596,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
             r.key, r.rest, r.tip = k, nil, nil
             YouBand(r, ns.Util.IsMe(k))
+            r.cls:SetSize(18, 18)
             H.SetClass(r.cls, k)
             r.cls:Show()
             local val = sc and rows[k]
@@ -2439,7 +2609,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             local dim = val == nil or tonumber(val) == 0
             if dim then r.val:SetTextColor(0.44, 0.44, 0.46) else r.val:SetTextColor(0.91, 0.91, 0.91) end
             local vw = text ~= "" and (H.Width(r.val) + 8) or 0
-            H.Fit(r.name, H.Name(k), width - 6 - 18 - 8 - 6 - vw, 12, 10)
+            H.Fit2(r.name, H.Name(k), width - 6 - 18 - 8 - 6 - vw, 12, 10)
             r.name:Show()
             r.more:Hide()
             r:Show()
@@ -2464,6 +2634,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         end
         for j = used + 1, #c.rows do c.rows[j]:Hide() end
         c:Show()
+        end
     end
     for i = n + 1, #win.kv.cols do win.kv.cols[i]:Hide() end
 end
@@ -2551,6 +2722,19 @@ local function Tab(i)
     local t = kv.tabs[i]
     if not t then
         t = UI():CreateUnderlineTab(kv, "", function(self)
+            -- ("More": the scores the strip has no room for, in a menu)
+            if self.rest then
+                local rest = self.rest
+                UI():ContextMenu(self, function(root)
+                    for _, s in ipairs(rest) do
+                        root:CreateButton(s.n or "Score", function()
+                            state.tab = s.id
+                            Board:Refresh()
+                        end)
+                    end
+                end)
+                return
+            end
             state.tab = self.sid
             Board:Refresh()
         end, "small")
@@ -2569,17 +2753,53 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
         for i, s in ipairs(v.scores) do
             if s.id == state.tab then sc = s end
         end
-        for i, s in ipairs(v.scores) do
-            local t = Tab(i)
-            t.sid = s.id
+        -- (as many as the width holds, the shown score among them; the rest in a "More" tab's menu)
+        local order = {}
+        for _, s in ipairs(v.scores) do if s.id == sc.id then order[#order + 1] = s end end
+        for _, s in ipairs(v.scores) do if s.id ~= sc.id then order[#order + 1] = s end end
+        local n, rest = 0, {}
+        local MORE_W = 64
+        for i, s in ipairs(order) do
+            local t = Tab(n + 1)
+            t.rest = nil
             t:SetLabel(s.n)
+            local tw = t:GetWidth()
+            local need = (i < #order) and MORE_W or 0
+            if n > 0 and tx + tw + need > x + w then
+                for j = i, #order do rest[#rest + 1] = order[j] end
+                break
+            end
+            n = n + 1
+            t.sid = s.id
             t:ClearAllPoints()
             t:SetPoint("TOPLEFT", win.root, "TOPLEFT", tx, -y)
             t:SetActive(s.id == sc.id)
             t:Show()
+            tx = tx + tw + 4
+        end
+        -- (the strip keeps the scores' own order: the shown one where it belongs among those that fit)
+        local shownTabs = {}
+        for i = 1, n do shownTabs[i] = kv.tabs[i] end
+        local pos = {}
+        for i, s in ipairs(v.scores) do pos[s.id] = i end
+        table.sort(shownTabs, function(a, b2) return pos[a.sid] < pos[b2.sid] end)
+        tx = x
+        for _, t in ipairs(shownTabs) do
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", win.root, "TOPLEFT", tx, -y)
             tx = tx + t:GetWidth() + 4
         end
-        for i = #v.scores + 1, #kv.tabs do kv.tabs[i]:Hide() end
+        if #rest > 0 then
+            n = n + 1
+            local t = Tab(n)
+            t.sid, t.rest = nil, rest
+            t:SetLabel("+" .. #rest .. " more")
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", win.root, "TOPLEFT", tx, -y)
+            t:SetActive(false)
+            t:Show()
+        end
+        for i = n + 1, #kv.tabs do kv.tabs[i]:Hide() end
         y, h = y + 24, h - 24
     else
         for _, t in ipairs(kv.tabs) do t:Hide() end
@@ -2595,7 +2815,9 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
     f[1]:ClearAllPoints(); f[1]:SetPoint("CENTER", hd, "LEFT", 8 + 12, 0); f[1]:SetText("#")
     f[2]:ClearAllPoints(); f[2]:SetPoint("LEFT", hd, "LEFT", nameX, 0); f[2]:SetText(PlayersWord(def, v))
     f[3]:ClearAllPoints(); f[3]:SetPoint("RIGHT", hd, "LEFT", scoreR, 0); f[3]:SetJustifyH("RIGHT")
-    f[3]:SetText(sc and sc.n or "")
+    -- (a long score name: smaller, clear of the players' word)
+    H.Sized(f[2], 10.5)
+    H.Fit2(f[3], sc and sc.n or "", max(40, scoreR - nameX - H.Width(f[2]) - 10), 10.5, 9)
     f[4]:ClearAllPoints(); f[4]:SetPoint("LEFT", hd, "LEFT", scoreR + 10, 0)
     f[4]:SetText(lastKind and lastWord or "")
     for i = 1, 4 do f[i]:Show() end
@@ -2727,6 +2949,10 @@ local function OutTags(def)
         local n = (t.n or ""):lower()
         if n == "out" or n == "dnf" or n:find("^eliminated") or n:find("^disqualified") then out[t.id] = true end
     end
+    -- (a tag the event no longer has: its pieces may still name it, the state may still hold it)
+    for tid in pairs(out) do
+        if not B():Definition(def, "tags", tid) then out[tid] = nil end
+    end
     return out
 end
 
@@ -2856,8 +3082,11 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
     local f = hd.fs
     f[1]:ClearAllPoints(); f[1]:SetPoint("LEFT", hd, "LEFT", 8, 0); f[1]:SetText("#")
     f[2]:ClearAllPoints(); f[2]:SetPoint("LEFT", hd, "LEFT", 34, 0); f[2]:SetText(PlayersWord(def, v))
-    f[3]:ClearAllPoints(); f[3]:SetPoint("LEFT", hd, "LEFT", routeX, 0); f[3]:SetText(v.list and v.list.n or "")
-    f[4]:ClearAllPoints(); f[4]:SetPoint("RIGHT", hd, "LEFT", timeR, 0); f[4]:SetJustifyH("RIGHT"); f[4]:SetText(sc and sc.n or "")
+    f[3]:ClearAllPoints(); f[3]:SetPoint("LEFT", hd, "LEFT", routeX, 0)
+    f[4]:ClearAllPoints(); f[4]:SetPoint("RIGHT", hd, "LEFT", timeR, 0); f[4]:SetJustifyH("RIGHT")
+    -- (the list's and the score's names share the room over the route and the time: smaller before they'd touch)
+    H.Fit2(f[3], v.list and v.list.n or "", 120, 10.5, 9)
+    H.Fit2(f[4], sc and sc.n or "", max(40, timeR - routeX - f[3]:GetWidth() - 10), 10.5, 9)
     f[5]:ClearAllPoints(); f[5]:SetPoint("RIGHT", hd, "LEFT", gapR, 0); f[5]:SetJustifyH("RIGHT"); f[5]:SetText("Gap")
     for i = 1, 5 do f[i]:Show() end
     hd:Show()
@@ -2871,9 +3100,12 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
     local room = h - 24 - spH
     if #racers * rowH > room then rowH = max(26, floor(room / max(1, #racers))) end
     local fit = max(1, floor(room / rowH))
+    -- (more racers than rows: the first ones, me among them, and "+24 more" in the last row)
+    local more = #racers > fit
+    local shown = more and max(1, fit - 1) or #racers
     local pick = {}
-    for i = 1, min(fit, #racers) do pick[#pick + 1] = i end
-    if mineAt and mineAt > fit then pick[#pick] = mineAt end
+    for i = 1, shown do pick[#pick + 1] = i end
+    if mineAt and mineAt > shown then pick[#pick] = mineAt end
     -- the leader: the first finished, else the furthest on
     local leader = racers[1]
     local ry = y + 24
@@ -2885,6 +3117,9 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
         r:SetWidth(w)
         r.key = e.key
+        r:SetScript("OnEnter", NameTip)
+        r.cls:Show()
+        r.name:SetTextColor(1, 1, 1)
         r.tip = { e.fin and ("Finished" .. (e.score and (" in " .. ScoreText(def, sc and sc.id, e.score)) or ""))
             or (e.out and ((e.outName or "Out") .. " of the race") or (e.done .. " of " .. n .. " done")) }
         local isMe = ns.Util.IsMe(e.key)
@@ -2996,7 +3231,42 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         end
     end
     if not (showSplits and mine) then kv.splits:Hide() end
-    for i = #pick + 1, #kv.raceRows do kv.raceRows[i]:Hide() end
+    local used = #pick
+    if more then
+        -- the rest: how many, and who on hover
+        local inPick, rest = {}, {}
+        for _, idx in ipairs(pick) do inPick[idx] = true end
+        for i, e in ipairs(racers) do if not inPick[i] then rest[#rest + 1] = e.key end end
+        used = used + 1
+        local r = RaceRow(used)
+        r:SetHeight(rowH)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
+        r:SetWidth(w)
+        YouBand(r, false)
+        r.key, r.tip = nil, nil
+        r.rank:SetText("")
+        r.cls:Hide()
+        r.name:SetText("+" .. #rest .. " more")
+        r.name:SetTextColor(GREY[1], GREY[2], GREY[3])
+        H.Sized(r.name, 11)
+        r.segs:Set(0, 0, false)
+        r.segs:SetAlpha(0)
+        r.flag:Hide()
+        r.time:SetText("")
+        r.gap:SetText("")
+        r.outfs:SetText("")
+        r:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            for i, k in ipairs(rest) do
+                if i > 30 then GameTooltip:AddLine("and " .. (#rest - 30) .. " more", 0.62, 0.62, 0.62) break end
+                GameTooltip:AddLine(H.Name(k))
+            end
+            GameTooltip:Show()
+        end)
+        r:Show()
+    end
+    for i = used + 1, #kv.raceRows do kv.raceRows[i]:Hide() end
     return racers, lead
 end
 
@@ -3027,6 +3297,8 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
     end
     m:Fit(fitPts, 0.25)
     m:Done(0)
+    m:ShowZone(true)
+    m:ShowMe(true)
     kv.secret:Hide()
     local function at(q)
         if not (q and q.p and tonumber(q.p.map) == map) then return nil end
@@ -3070,9 +3342,19 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
     -- the start's flag (a loop ends there too: no second mark); without a known start, the finish is the flag
     local nc = 0
     local loop = start ~= nil and items[#items] == start
+    -- (a route that comes back to a place: one mark there, its card says each time it's on the route)
+    local seen = {}
     for _, q in ipairs(pts) do
         local px, py = at(q)
         local dup = loop and q.item == #items and pts[1].start
+        local again = seen[q.pid]
+        if px and again and not dup then
+            again.visits = again.visits or {}
+            again.visits[#again.visits + 1] = q.item
+            again.sub = (again.base or "") .. (#again.visits > 0 and ("; again " .. table.concat(again.visits, ", ")) or "")
+            if q.item == myNext then again.glow:Show() end
+            dup = true
+        end
         if px and not dup then
             nc = nc + 1
             local c = Checkpoint(nc)
@@ -3096,9 +3378,15 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
                 c.flag:Hide()
             end
             c.glow:SetShown(q.item ~= nil and q.item == myNext)
+            c.visits = nil
+            seen[q.pid] = c
             c.name = q.p and q.p.n
+            c.place = q.p
+            local pid = q.pid
+            c.click = q.p and function() EUI():ShowTheWay(occ, pid, def) end or nil
             c.sub = (isStart and (loop and "The start and the finish" or "The start")) or (isFinish and "The finish")
                 or (q.item and (v.list.n .. " " .. q.item .. " of " .. #items))
+            c.base = c.sub
             c:Show()
         end
     end
@@ -3537,9 +3825,13 @@ function Board:DrawKinds(occ, st, def, v, top, height)
         elseif v.layout == "scores" then
             mh = MAP_MIN
         elseif v.layout == "players" then
-            mh = MAP_H
+            -- (smaller when the names need the room)
+            local n = #H.SignedUp(st)
+            if n == 0 then n = #(st.entrants or {}) end
+            local need = 20 + ceil(n / 4) * 22 + 30
+            mh = max(MAP_MIN, min(MAP_H, height - EUI().GAP - need))
         end
-        DrawPlacesMap(def, st, v, x, top, MAIN_W, mh)
+        DrawPlacesMap(occ, def, st, v, x, top, MAIN_W, mh)
         y, h = top + mh + EUI().GAP, height - mh - EUI().GAP
     end
     if v.layout == "columns" then

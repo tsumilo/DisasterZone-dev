@@ -21,12 +21,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/EventLive.lua", ...) then ret
 --         in a state that goes out).
 --   EVM { o, to, k, text, off, at } from the host: k = "show" (a banner), "tell" (a tracker line), "sound", "plates"
 --         (off: hide friendly nameplates / show them again). GUILD with to = "all" (every entrant) or to = keys (4 or
---         more), else WHISPER to each (at most 4 a second). Taken only from the host I know.
+--         more), else WHISPER to each; 8 at once, then 1 a second (the prefix's own pace), and the same line waiting
+--         for several players goes as one GUILD message naming them. Taken only from the host I know.
 -- A run's "post in guild chat" is the host's: once every 10 s at most and 20 an event, never in demo mode or practice.
 -- The host gone (no EVS / EVH for 50 s and offline, or 90 s whatever): the entrants still online take over in name
--- order, each waiting its turn; the first one sends the state with itself as host and goes on from there (scripts that
--- were waiting are lost, everything else carries on: timers, matches, stats). The host's own /reload: its runs are
--- kept at logout and go on after it (db.eventHosting, read and cleared at login).
+-- order, each waiting its turn; the first one sends the state with itself as host and goes on from there (everything
+-- carries on: timers, matches, stats, open asks, the scripts that were waiting; a secret ask's answers so far are
+-- known as given only). The host's own /reload: its runs are kept at logout and go on after it (db.eventHosting,
+-- read and cleared at login). Either way the entrants send again their answers the new state doesn't show.
 local addonName, ns = ...
 
 local Live = ns:NewModule("EventLive")
@@ -53,8 +55,9 @@ local FACT_BATCH = 8          -- facts in one message at most
 local FACT_QUEUE = 24         -- facts waiting (past that the oldest position goes, else the oldest)
 local FACT_PER_SEC = 4        -- facts the host takes from one entrant a second ...
 local FACT_HOST_BURST = 16    -- ... after a burst of this many (a pull of a dozen kills)
-local EVM_PER_SEC = 4         -- the host's messages to players a second (the rest wait)
-local EVM_QUEUE = 80
+local EVM_BURST = 8           -- the host's messages to players at once, then EVM_RATE a second (the event message
+local EVM_RATE = 1            -- prefix carries about 10 at once, then 1 a second); the rest wait, and the same line
+local EVM_QUEUE = 80          -- waiting for several players goes to them together (one GUILD message naming them)
 local EVM_STALE = 20          -- a banner or a sound older than this is dropped (a tell line still goes in the feed)
 local FEED_MAX = 20           -- "tell" lines kept for the tracker
 local GUILD_GAP = 10          -- a run's guild posts: one every 10 s at most ...
@@ -72,9 +75,13 @@ local invitedAt = {}          -- [key] = GetTime() their invite went out
 local factQueue = {}          -- { {occId, msg} } my facts over the rate
 local factTokens, factAt, factFlushing = FACT_SEND_BURST, 0, false
 local pendingEvm = {}         -- [occId] = { {sender, msg, dist, at} } messages that came before the state they need
-local evmQueue, evmSent, evmFlushing = {}, {}, false   -- the host's EVM over the rate; GetTime() of the last second's
+local evmQueue, evmFlushing = {}, false   -- the host's EVM over the rate
+local evmTokens, evmAt = EVM_BURST, 0
 local feeds = {}              -- [occId] = { {at, text} } "tell" lines to me, newest first
 local myAnswers = {}          -- [occId] = { [aid .. "@" .. at] = value } my answers to asks (a secret one's too)
+local answerSent = {}         -- [occId .. "/" .. aid .. "@" .. at] = GetTime() my answer last went out
+local myPoint = {}            -- [occId] = pid: the place I asked to be shown the way to (PointMe; never sent)
+local ANSWER_AGAIN = 5        -- an answer the host's state doesn't show is sent again after this long (once a state)
 
 local function Now() return (GetServerTime and GetServerTime()) or time() end
 local function Me() return Util.PlayerKey() end
@@ -303,12 +310,36 @@ local function Receive(occId, k, text, off)
     end
 end
 
-local function FlushEvm()
+local function EvmToken()
     local now = GetTime()
-    while evmSent[1] and now - evmSent[1] >= 1 do tremove(evmSent, 1) end
-    while evmQueue[1] and #evmSent < EVM_PER_SEC do
+    evmTokens = min(EVM_BURST, evmTokens + (now - evmAt) * EVM_RATE)
+    evmAt = now
+    if evmTokens < 1 then return false end
+    evmTokens = evmTokens - 1
+    return true
+end
+
+local function FlushEvm()
+    while evmQueue[1] and EvmToken() do
         local e = tremove(evmQueue, 1)
-        evmSent[#evmSent + 1] = now
+        if e.dist == "WHISPER" then
+            -- (the same line waiting for other players: one message names them all; "Right!" to a quiz's fast ones)
+            local to, m = { e.target }, e.msg
+            local i = 1
+            while evmQueue[i] and #to < 40 do
+                local x = evmQueue[i]
+                local xm = x.msg
+                if x.dist == "WHISPER" and xm.o == m.o and xm.k == m.k and xm.text == m.text and xm.off == m.off then
+                    to[#to + 1] = x.target
+                    tremove(evmQueue, i)
+                else
+                    i = i + 1
+                end
+            end
+            if #to > 1 then
+                e = { msg = { t = "EVM", o = m.o, to = to, k = m.k, text = m.text, off = m.off, at = m.at }, dist = "GUILD" }
+            end
+        end
         if not DemoOn() then Send(e.msg, e.dist, e.target, "eventmsg") end
     end
     if evmQueue[1] and not evmFlushing then
@@ -529,6 +560,8 @@ local function Resume(occId, st, chain)
     local run = E():Restore(o.def, st, { out = HostOut(occId), rankOf = function(k) return Events():RankOf(k) end,
         nameOf = DisplayName, worldPos = WorldPos })
     run.st.host = Me()
+    -- (a new start of the run: the entrants' games tell it again where they are, as they do a new host)
+    run.st.boot = (tonumber(run.st.boot) or 0) + 1
     local hosts = {}
     for _, h in ipairs(chain or {}) do hosts[#hosts + 1] = h end
     if hosts[#hosts] ~= Me() then hosts[#hosts + 1] = Me() end
@@ -538,6 +571,8 @@ local function Resume(occId, st, chain)
     run:Changed()
     Live:SendState(occId, true)
     ns:Print("you're hosting %s now.", o.def.name or "the event")
+    -- (my own answers that went to the host who was gone)
+    Live:AnswerAgain(occId, run.st)
     Fire(occId)
     return true
 end
@@ -712,11 +747,17 @@ local SAME_DUEL = 3   -- two reports whose server times are this close are of on
 
 local function ApplyDuel(h, key, p, agree)
     h.pending[key] = nil
-    h.recent[key] = p.at
+    h.recent[key] = { at = p.at, t = p.t }
     h.run:Duel(p.w, p.l, agree)
 end
 
--- at: the server time the reporter saw the duel end (the same second on both clients).
+-- Two reports of one duel: the same second on the reporters' clocks, or here a moment apart (two clients' server
+-- times can be a few seconds apart; two duels of one pair never end within SAME_DUEL s of each other).
+local function OneDuel(x, at)
+    return x ~= nil and (math.abs(at - x.at) <= SAME_DUEL or GetTime() - x.t <= SAME_DUEL)
+end
+
+-- at: the server time the reporter saw the duel end (the same second on both clients, give or take their clocks).
 local function OnDuelReport(h, sender, w, l, at)
     if sender ~= w and sender ~= l then return end
     local run = h.run
@@ -724,9 +765,10 @@ local function OnDuelReport(h, sender, w, l, at)
     local key = PairKey(w, l)
     at = tonumber(at) or Now()
     -- the other duelist's report of a duel already counted
-    if h.recent[key] and math.abs(at - h.recent[key]) <= SAME_DUEL then return end
+    local rec = h.recent[key]
+    if type(rec) == "table" and OneDuel(rec, at) then return end
     local p = h.pending[key]
-    if p and math.abs(at - p.at) > SAME_DUEL then
+    if p and not OneDuel(p, at) then
         -- a newer duel while the last one waited for its second report: that one stays "not agreed"
         ApplyDuel(h, key, p, false)
         p = nil
@@ -794,7 +836,11 @@ end
 -- practice panel's): a position (map, x, y; cont, wx, wy), zone / subzone, flags, item counts, gold gained.
 local function CleanPos(msg, s)
     local pos, any = {}, false
-    if not s or s.pos then
+    -- (in an instance: no position; the one from before it is forgotten)
+    if (not s or s.pos) and msg.inst == true then
+        pos.inst = true
+        any = true
+    elseif not s or s.pos then
         local map, x, y = tonumber(msg.map), Finite(msg.x, 2), Finite(msg.y, 2)
         if map and x and y and map == floor(map) and map > 0 and map < 1e6 and x >= -1 and y >= -1 then
             pos.map, pos.x, pos.y = map, x, y
@@ -830,7 +876,8 @@ end
 
 local function OnNewFact(h, sender, msg)
     local run, k = h.run, msg.k
-    if not Contains(run.st.entrants, sender) then return end
+    -- (from entrants; the host's own answers and buttons too: an ask or a button may be put to a host who isn't one)
+    if not Contains(run.st.entrants, sender) and not ((k == "ans" or k == "press") and sender == run.st.host) then return end
     local s = SensesOf(run.def)
     if not s or not FactAllowed(h, sender) then return end
     if k == "h" then
@@ -956,7 +1003,10 @@ end
 function Live:SendFact(occId, fact)
     if DemoOn() or type(fact) ~= "table" or not NEW_FACTS[fact.k] or occId == "practice" then return false end
     local st = (hosting[occId] and hosting[occId].run.st) or (seen[occId] and seen[occId].st)
-    if not st or st.phase ~= "live" or not Contains(st.entrants, Me()) then return false end
+    if not st or st.phase ~= "live" then return false end
+    -- (an entrant's; the host's own answers and buttons too, an entrant or not)
+    local mine = Contains(st.entrants, Me()) or ((fact.k == "ans" or fact.k == "press") and st.host == Me())
+    if not mine then return false end
     local msg = {}
     for k, v in pairs(fact) do msg[k] = v end
     msg.at = Now()
@@ -964,6 +1014,12 @@ function Live:SendFact(occId, fact)
         -- a newer position joins the one waiting (its parts win; the waiting one's other parts stay)
         for _, f in ipairs(factQueue) do
             if f[1] == occId and f[2].k == "pos" then
+                -- (in an instance and out again: the newer of the two stands)
+                if msg.inst then
+                    for _, k in ipairs({ "map", "x", "y", "cont", "wx", "wy" }) do f[2][k] = nil end
+                elseif msg.map then
+                    f[2].inst = nil
+                end
                 for k, v in pairs(msg) do f[2][k] = v end
                 return true
             end
@@ -1100,6 +1156,7 @@ local function OnState(sender, msg, dist)
     EnsureTicker()
     Fire(occId)
     ReplayEvm(occId)
+    Live:AnswerAgain(occId, st)
 end
 
 local function OnBeat(sender, msg, dist)
@@ -1649,20 +1706,74 @@ function Live:MyScores(occId)
     return out
 end
 
--- The place the run points me to: pid, yards, bearing (radians from where I face, counterclockwise: 0 ahead, pi/2
--- to my left); yards / bearing nil where positions are unknown (instances).
+-- The way from me to one of a def's places: yards, bearing (radians from where I face, counterclockwise: 0 ahead,
+-- pi/2 to my left), the place; yards / bearing nil where it isn't known (an instance, another continent).
+local function WayTo(def, pid)
+    local place = type(def) == "table" and type(def.places) == "table" and def.places[pid]
+    if type(place) ~= "table" then return nil, nil, nil end
+    local S = Sensors()
+    local me = S and S:MyPos()
+    if not me then return nil, nil, place end
+    local yards = S.Yards(me, place)
+    local to, facing = S.Bearing(me, place), S.Facing()
+    return yards, (yards and to and facing) and ((to - facing) % (2 * math.pi)) or nil, place
+end
+
+-- The place the run points me to: pid, yards, bearing; yards / bearing nil where positions are unknown (instances).
+-- When the host points me nowhere: the place I asked to be shown the way to (PointMe), until I'm there; the host's
+-- point replaces it.
 function Live:MyPoint(occId)
     local st, def = self:GetState(occId), self:GetDef(occId)
     local pid = type(st) == "table" and type(st.point) == "table" and st.point[Me()] or nil
+    if pid ~= nil then
+        myPoint[occId] = nil
+        local yards, bearing = WayTo(def, pid)
+        return pid, yards, bearing
+    end
+    pid = myPoint[occId]
     if pid == nil then return nil end
-    local place = type(def) == "table" and type(def.places) == "table" and def.places[pid]
-    local S = Sensors()
-    if type(place) ~= "table" or not S then return pid end
-    local me = S:MyPos()
-    if not me then return pid end
-    local yards = S.Yards(me, place)
-    local to, facing = S.Bearing(me, place), S.Facing()
-    return pid, yards, (to and facing) and ((to - facing) % (2 * math.pi)) or nil
+    local yards, bearing, place = WayTo(def, pid)
+    if not place or (yards and yards <= (tonumber(place.r) or 30)) then
+        myPoint[occId] = nil   -- (a place the event doesn't have, or I'm there)
+        return nil
+    end
+    return pid, yards, bearing
+end
+
+-- Shows me the way to one of the event's places (pid; nil: stop): my own point, kept on my client and never sent,
+-- for a planned event too (MyPoint). False for a place the event doesn't have.
+function Live:PointMe(occId, pid)
+    if type(occId) ~= "string" then return false end
+    if pid == nil then
+        myPoint[occId] = nil
+        Fire(occId)
+        return true
+    end
+    local def = self:GetDef(occId)
+    if not (type(pid) == "string" and type(def) == "table" and type(def.places) == "table" and type(def.places[pid]) == "table") then
+        return false
+    end
+    myPoint[occId] = pid
+    Fire(occId)
+    return true
+end
+
+-- Where the event's entrants meet (a planned event too): pid, yards, bearing (as MyPoint), or nil (nowhere set).
+function Live:MyMeet(occId)
+    local def, pid
+    if occId == "practice" then
+        def = practice and practice.run and practice.run.def
+        pid = def and def.meet
+    else
+        local o = Events():GetOcc(occId)
+        def = o and o.def
+        pid = o and Events():MeetOf(o)
+    end
+    if not (type(pid) == "string" and type(def) == "table" and type(def.places) == "table" and type(def.places[pid]) == "table") then
+        return nil
+    end
+    local yards, bearing = WayTo(def, pid)
+    return pid, yards, bearing
 end
 
 -- The run's "tell" lines to me, newest first: { {at, text} }.
@@ -1680,6 +1791,8 @@ end
 
 -- My answer to an ask (one each): a key (or up to `votes` keys), a choice's text, text, true / false or a number.
 function Live:AnswerAsk2(occId, aid, value)
+    -- (more picks than any ask takes: refused, not cut down to the first three)
+    if type(value) == "table" and #value > 3 then return false end
     local v = AnswerValue(value)
     local st, def = self:GetState(occId), self:GetDef(occId)
     local q = type(st) == "table" and type(st.qa) == "table" and st.qa[aid]
@@ -1699,9 +1812,30 @@ function Live:AnswerAsk2(occId, aid, value)
     local ok = self:SendFact(occId, { k = "ans", aid = aid, v = v })
     if ok then
         mine[key] = v
+        answerSent[occId .. "/" .. key] = GetTime()
         Fire(occId)
     end
     return ok
+end
+
+-- My answers the host's state doesn't show while the ask is still open (they went out while the host reloaded, or
+-- to a host who was gone before someone took over): sent again, at most every ANSWER_AGAIN s (the run takes one
+-- answer each, so a copy that crosses the first one does nothing).
+function Live:AnswerAgain(occId, st)
+    local mine = myAnswers[occId]
+    if not mine or type(st) ~= "table" or type(st.qa) ~= "table" or st.phase ~= "live" then return end
+    local me = Me()
+    for aid, q in pairs(st.qa) do
+        if type(q) == "table" and q.open and Has(q.who, me) and not (type(q.ans) == "table" and q.ans[me] ~= nil) then
+            local key = AnswerKey(aid, q)
+            local v = mine[key]
+            local sent = occId .. "/" .. key
+            if v ~= nil and GetTime() - (answerSent[sent] or 0) >= ANSWER_AGAIN then
+                answerSent[sent] = GetTime()
+                self:SendFact(occId, { k = "ans", aid = aid, v = v })
+            end
+        end
+    end
 end
 
 ---------------------------------------------------------------------------

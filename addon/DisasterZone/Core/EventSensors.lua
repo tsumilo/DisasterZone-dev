@@ -507,8 +507,15 @@ local function UpdateState(occId, a, me, instance)
         a.pos, a.itemsAt = nil, nil
         a.sentHost = a.host
     end
-    -- the position (not in instances)
-    if s.pos and me and not instance then
+    -- the position (not in instances: there, once, that it isn't known; out again, at once)
+    if s.pos and instance then
+        if not sent.inst then
+            fact.inst, sent.inst = true, true
+            a.pos = nil
+            any = true
+        end
+    elseif s.pos and me then
+        sent.inst = nil
         local cont, wx, wy = S.World(me.map, me.x, me.y)
         if cont then
             local last = a.pos
@@ -759,7 +766,10 @@ function S:Refresh()
         if senses then
             -- (one record a live event: its def's table may be a new copy of the same event after a sync)
             local a = active[occId] or { inside = {}, sent = {}, state = {} }
-            a.def, a.st, a.senses, a.host = def, st, senses, st.host
+            -- (host: who runs it, and how often its run was started again: a host's /reload is a new host to tell
+            -- the places I'm in and where I am)
+            a.def, a.st, a.senses = def, st, senses
+            a.host = tostring(st.host) .. "#" .. tostring(tonumber(st.boot) or 0)
             local h = senses.happen
             a.wantsState = (senses.pos or senses.zone or senses.flags or senses.gold or next(senses.items) or h.mount
                 or h.dismount or h.move or h.stop or h.die) and true or false

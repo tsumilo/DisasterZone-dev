@@ -658,10 +658,30 @@ def _draw_text(img, r, lk, rc, clip_px, lay, A, box):
         m = re.search(r"\|c[0-9a-fA-F]{2}([0-9a-fA-F]{6})", text)
         col = (int(m.group(1)[0:2], 16) / 255, int(m.group(1)[2:4], 16) / 255, int(m.group(1)[4:6], 16) / 255) \
             if m else base
+        # each character's colour (the game colours wrapped lines run by run, as it does one line): found again in
+        # the plain text line by line; without that (inline icons), the first colour for all of it
+        cols, starts = None, []
+        if "\x01" not in plain:
+            cc = []
+            for kind, val, c in runs(text, base):
+                if kind == "t":
+                    cc.extend([c] * len(val))
+            if len(cc) == len(plain):
+                at = 0
+                for ln in lines:
+                    i = plain.find(ln, at)
+                    if i < 0:
+                        starts = None
+                        break
+                    starts.append(i)
+                    at = i + len(ln)
+                cols = cc if starts is not None else None
         room = max(1, int(round((y1 - y0) / lh))) if lay.height_constrained(r) else len(lines)
         for i, ln in enumerate(lines[:room]):
+            cut = False
             if constrained and A.text_width(ln, size, narrow) * k > rc[2] + 1:
                 ln = A.fit_prefix(ln, size, rc[2] / k, narrow) + "..."
+                cut = True
             w = fnt.getlength(ln)
             if r["jh"] == "RIGHT":
                 x = x1 - w
@@ -669,7 +689,19 @@ def _draw_text(img, r, lk, rc, clip_px, lay, A, box):
                 x = x0
             else:
                 x = (x0 + x1) / 2 - w / 2
-            put(x, y0 + (i + 0.5) * lh, ln, col)
+            y = y0 + (i + 0.5) * lh
+            if cols and not cut:
+                s0, j = starts[i], 0
+                while j < len(ln):
+                    c0 = cols[s0 + j]
+                    e = j
+                    while e < len(ln) and cols[s0 + e] == c0:
+                        e += 1
+                    put(x, y, ln[j:e], c0)
+                    x += fnt.getlength(ln[j:e])
+                    j = e
+            else:
+                put(x, y, ln, cols[starts[i]] if (cols and ln and starts[i] < len(cols)) else col)
     if clip_px:
         mask = Image.new("L", img.size, 0)
         ImageDraw.Draw(mask).rectangle((clip_px[0], clip_px[1], clip_px[2] - 1, clip_px[3] - 1), fill=255)

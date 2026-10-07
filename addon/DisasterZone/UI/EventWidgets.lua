@@ -438,7 +438,7 @@ EUI.TEAL_DONE = { 0.247, 0.714, 0.812 }     -- a list item done (#3fb6cf)
 local cos, sin, pi, sqrt, ceil = math.cos, math.sin, math.pi, math.sqrt, math.ceil
 
 -- The numbers' narrow font (Arial Narrow, no outline: the mockups' clocks, scores and ranks).
-EUI.NARROW_FONT = "Fonts\ARIALN.TTF"
+EUI.NARROW_FONT = "Fonts\\ARIALN.TTF"
 function EUI:Narrow(fs, size)
     fs:SetFont(EUI.NARROW_FONT, size or 13, "")
     return fs
@@ -774,9 +774,250 @@ function EUI:CreateZoneMap(parent, w, h)
         return c
     end
     function m:Done(n)
-        for i = n + 1, #self.rings do self.rings[i]:Hide() end
+        for i = n + 1, #self.rings do
+            self.rings[i]:Hide()
+            if self.rings[i].hit then self.rings[i].hit:Hide() end
+        end
+        -- (names that would lie on one another: the first one stays, the others are on their place's card)
+        local kept = {}
+        for i = 1, n do
+            local c = self.rings[i]
+            local fs = c and c.label
+            if fs and fs:IsShown() and c.px then
+                local tw = EUI:TextWidth(fs)
+                local x1, y1 = c.px - tw / 2 - 2, c.py + (c.r or 6) + 10 - 7
+                local x2, y2 = x1 + tw + 4, y1 + 14
+                -- (a name the map's edge would cut: its card on hover says it)
+                local clash = x1 < 0 or y1 < 0 or x2 > self.w or y2 > self.h
+                for _, k in ipairs(kept) do
+                    if x1 < k[3] and k[1] < x2 and y1 < k[4] and k[2] < y2 then clash = true break end
+                end
+                if clash then fs:Hide() else kept[#kept + 1] = { x1, y1, x2, y2 } end
+            end
+        end
+    end
+    -- place i's card on hover (info = { place = the def's place, click = fn }): its zone, coordinates and how far it
+    -- is from me; with a click (the board, the event page) "Show the way". nil: no card.
+    function m:PlaceInfo(i, info)
+        local c = self.rings[i]
+        if not c then return end
+        local hit = c.hit
+        if not info then
+            if hit then hit:Hide() end
+            return
+        end
+        if not hit then
+            hit = CreateFrame("Button", nil, self.top)
+            hit:SetFrameLevel(self.top:GetFrameLevel() + 2)
+            hit:RegisterForClicks("LeftButtonUp")
+            hit:SetScript("OnEnter", function(b) EUI:PlaceTip(b, b.info.place, b.info.click ~= nil) end)
+            hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            hit:SetScript("OnClick", function(b) if b.info and b.info.click then b.info.click() end end)
+            c.hit = hit
+        end
+        hit.info = info
+        -- (the middle of the ring: a big ring would take the whole map)
+        local s = max(22, min(2 * (c.r or 6), 44))
+        hit:SetSize(s, s)
+        hit:ClearAllPoints()
+        hit:SetPoint("CENTER", self.canvas, "TOPLEFT", c.px or 0, -(c.py or 0))
+        hit:Show()
+    end
+    -- the zone's name, in a small pill at the top right (on: shown where the game names the map)
+    function m:ShowZone(on)
+        local z = self.zone
+        if not z then
+            z = CreateFrame("Frame", nil, self.top)
+            z:SetSize(60, 22)
+            z:SetFrameLevel(self.top:GetFrameLevel() + 1)
+            UI():AddPillShape(z, 22)
+            z:SetPillColors({ 0.055, 0.055, 0.066, 0.78 }, { 0.43, 0.43, 0.47, 0.6 })
+            z.fs = z:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local path, _, flags = z.fs:GetFont()
+            if path then z.fs:SetFont(path, 11, flags) end
+            z.fs:SetTextColor(0.91, 0.91, 0.91)
+            z.fs:SetPoint("CENTER", 0, 0)
+            self.zone = z
+        end
+        local name = on and EUI:MapName(self.map)
+        if not name then z:Hide() return end
+        z.fs:SetText(name)
+        z:SetWidth(floor(EUI:TextWidth(z.fs) + 20 + 0.5))
+        z:ClearAllPoints()
+        z:SetPoint("TOPRIGHT", self, "TOPRIGHT", -10, -9)
+        z:Show()
+    end
+    -- my own arrow (mine only: where I stand, the way I face), while I'm on this map in the open world
+    function m:ShowMe(on)
+        self.meOn = on and true or nil
+        if not self.me then
+            local me = CreateFrame("Frame", nil, self.canvas)
+            me:SetSize(26, 26)
+            me:SetFrameLevel(self.canvas:GetFrameLevel() + 5)
+            me.glow = Disc(me, "ARTWORK", 0)
+            me.glow:SetSize(24, 24)
+            me.glow:SetPoint("CENTER")
+            me.glow:SetVertexColor(EUI.YOU[1], EUI.YOU[2], EUI.YOU[3], 0.22)
+            me.ring = me:CreateTexture(nil, "ARTWORK", nil, 1)
+            me.ring:SetTexture(EUI.RING)
+            me.ring:SetSize(25, 25)
+            me.ring:SetPoint("CENTER")
+            me.ring:SetVertexColor(EUI.YOU[1], EUI.YOU[2], EUI.YOU[3], 0.95)
+            me.arrow = me:CreateTexture(nil, "ARTWORK", nil, 2)
+            me.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
+            me.arrow:SetSize(20, 20)
+            me.arrow:SetPoint("CENTER")
+            me.fs = me:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            local path, _, flags = me.fs:GetFont()
+            if path then me.fs:SetFont(path, 10.5, flags) end
+            me.fs:SetShadowOffset(1, -1)
+            me.fs:SetShadowColor(0, 0, 0, 1)
+            me.fs:SetTextColor(EUI.YOU[1], EUI.YOU[2], EUI.YOU[3])
+            me.fs:SetText("You")
+            me.fs:SetPoint("LEFT", me, "CENTER", 15, 1)
+            self.me = me
+            -- (it follows me a few times a second while the map shows)
+            local tick = CreateFrame("Frame", nil, self)
+            tick.t = 0
+            tick:SetScript("OnUpdate", function(f, dt)
+                f.t = f.t + (dt or 0)
+                if f.t < 0.25 then return end
+                f.t = 0
+                if self.meOn then self:PlaceMe() end
+            end)
+            self.meTick = tick
+        end
+        self:PlaceMe()
+    end
+    function m:PlaceMe()
+        local me = self.me
+        if not me then return end
+        local x, y = EUI:MyMapPos(self.map)
+        if not (self.meOn and x and self.x0 and self.s) then me:Hide() return end
+        local px, py = self:P(x, y)
+        if px < -6 or py < -6 or px > self.w + 6 or py > self.h + 6 then me:Hide() return end
+        me:ClearAllPoints()
+        me:SetPoint("CENTER", self.canvas, "TOPLEFT", px, -py)
+        local face = ns.EventSensors and ns.EventSensors.Facing and ns.EventSensors.Facing()
+        if me.arrow.SetRotation then me.arrow:SetRotation(face or 0) end
+        -- ("You" on the side with room, off the places' names; with room on neither side the arrow says it alone)
+        local tw = EUI:TextWidth(me.fs)
+        local function clear(x1)
+            if x1 < 0 or x1 + tw > self.w then return false end
+            for _, c in ipairs(self.rings) do
+                local fs = c:IsShown() and c.label
+                if fs and fs:IsShown() and c.px then
+                    local lw = EUI:TextWidth(fs)
+                    local lx, ly = c.px - lw / 2, c.py + (c.r or 6) + 10
+                    if x1 < lx + lw and lx < x1 + tw and py - 7 < ly + 7 and ly - 7 < py + 7 then return false end
+                end
+            end
+            return true
+        end
+        me.fs:ClearAllPoints()
+        local rightFirst = px <= self.w - 50
+        local a, b2 = px + 15, px - 15 - tw
+        if clear(rightFirst and a or b2) then
+            if rightFirst then me.fs:SetPoint("LEFT", me, "CENTER", 15, 1) else me.fs:SetPoint("RIGHT", me, "CENTER", -15, 1) end
+            me.fs:Show()
+        elseif clear(rightFirst and b2 or a) then
+            if rightFirst then me.fs:SetPoint("RIGHT", me, "CENTER", -15, 1) else me.fs:SetPoint("LEFT", me, "CENTER", 15, 1) end
+            me.fs:Show()
+        else
+            me.fs:Hide()
+        end
+        me:Show()
     end
     return m
+end
+
+---------------------------------------------------------------------------
+-- Where a place is (the event's places): its zone, coordinates, the way from me
+---------------------------------------------------------------------------
+
+-- A text's width (unbounded: what it needs on one line).
+function EUI:TextWidth(fs)
+    return (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 0
+end
+
+function EUI:MapName(map)
+    map = tonumber(map)
+    if not (map and C_Map and C_Map.GetMapInfo) then return nil end
+    local ok, info = pcall(C_Map.GetMapInfo, map)
+    local n = ok and type(info) == "table" and info.name or nil
+    return (n and n ~= "") and n or nil
+end
+
+-- A place's zone: the one it was set in (standing there), else its map's name.
+function EUI:PlaceZone(p)
+    if type(p) ~= "table" then return nil end
+    if type(p.z) == "string" and p.z ~= "" then return p.z end
+    return self:MapName(p.map)
+end
+
+-- Its map coordinates as the game's maps say them: "41.2, 52.8" (digits 1), "41, 52" (digits 0); nil without any.
+function EUI:Coords(p, digits)
+    local x, y = type(p) == "table" and tonumber(p.x), type(p) == "table" and tonumber(p.y)
+    if not (x and y) then return nil end
+    if (digits or 1) == 0 then return floor(x * 100) .. ", " .. floor(y * 100) end
+    return string.format("%.1f, %.1f", floor(x * 1000) / 10, floor(y * 1000) / 10)
+end
+
+-- Where I am on a map (0..1), or nil (not on it, in an instance, the game doesn't say).
+function EUI:MyMapPos(map)
+    map = tonumber(map)
+    if not (map and C_Map and C_Map.GetPlayerMapPosition) then return nil end
+    if IsInInstance and IsInInstance() then return nil end
+    local ok, pos = pcall(C_Map.GetPlayerMapPosition, map, "player")
+    if not ok or type(pos) ~= "table" or not pos.GetXY then return nil end
+    local x, y = pos:GetXY()
+    if not (x and y) or x < 0 or x > 1 or y < 0 or y > 1 or (x == 0 and y == 0) then return nil end
+    return x, y
+end
+
+-- How far a place is from me: yards, or nil and why ("instance": I'm in one; "far": another continent, unknown).
+function EUI:YardsTo(p)
+    local S = ns.EventSensors
+    if type(p) ~= "table" or not (S and S.MyPos and S.Yards) then return nil, "far" end
+    if IsInInstance and IsInInstance() then return nil, "instance" end
+    local ok, me = pcall(S.MyPos, S)
+    if not (ok and me) then return nil, "far" end
+    local yd = S.Yards(me, p)
+    if not yd then return nil, "far" end
+    return yd, nil, me
+end
+
+-- A place's card in the tooltip: its name, zone and coordinates, how far from me, and "Click: show the way".
+function EUI:PlaceTip(owner, p, click)
+    if type(p) ~= "table" then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(p.n or "A place")
+    local zone, xy = self:PlaceZone(p), self:Coords(p, 1)
+    local where = (zone and xy) and (zone .. " · " .. xy) or zone or xy
+    if where then GameTooltip:AddLine(where, 0.85, 0.85, 0.85) end
+    local yd, why = self:YardsTo(p)
+    if yd then
+        GameTooltip:AddLine(floor(yd + 0.5) .. " yd from you", EUI.TEAL_LT[1], EUI.TEAL_LT[2], EUI.TEAL_LT[3])
+    else
+        GameTooltip:AddLine(why == "instance" and "You're in an instance: places are in the open world"
+            or "Too far from here to measure", 0.62, 0.62, 0.62, true)
+    end
+    if click then GameTooltip:AddLine("Click: show the way", 0.45, 0.9, 0.55) end
+    GameTooltip:Show()
+end
+
+-- "Show the way" to one of an event's places: the tracker's arrow and the place's ring on the minimap (my own,
+-- never sent; the host's pointing replaces it). Says what happened in the chat frame.
+function EUI:ShowTheWay(occ, pid, def)
+    local L = ns.EventLive
+    local p = type(def) == "table" and type(def.places) == "table" and def.places[pid] or nil
+    local ok = occ and L and L.PointMe and L:PointMe(occ, pid)
+    if ok then
+        ns:Print("%s", "showing the way to " .. ((p and p.n) or "the place") .. ": follow the arrow under your minimap.")
+    else
+        ns:Print("%s", "there's no way to show here: this board is made up (demo mode) or the place is gone.")
+    end
+    return ok and true or false
 end
 
 -- A tag as a chip: a dot in its colour and its name. chip:Set(text, rgb [, kind]): kind "track" (the tracker's,

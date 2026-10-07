@@ -428,6 +428,8 @@ function Events:CleanDef(d)
         end
     end
     CleanDefinitions(d, out)
+    -- where the entrants meet: one of its places (only when set: older records hash as they did)
+    if IsId(d.meet) and out.places and out.places[d.meet] then out.meet = d.meet end
     if type(d.review) == "table" and Int(d.review.rev, 0) then
         out.review = { rev = Int(d.review.rev, 0), at = Int(d.review.at, 0) or 0, note = Str(d.review.note) }
     end
@@ -457,7 +459,8 @@ local function CleanRecord(kind, r)
         if not d then return nil end
         return { id = r.id, by = by, h = WireKey(r.h) or by, rev = rev, def = d, dk = IsId(r.dk) and r.dk or nil, dr = Int(r.dr, 0),
             at = Int(r.at, 0) or 0, where = Str(r.where, 48), note = Str(r.note), ranked = r.ranked and true or nil,
-            cancel = r.cancel and (Str(r.cancel, 80) or "Cancelled") or nil }
+            cancel = r.cancel and (Str(r.cancel, 80) or "Cancelled") or nil,
+            meet = (IsId(r.meet) and d.places and d.places[r.meet]) and r.meet or nil }
     elseif kind == "J" then
         local occ, who = r.id:match("^(.+)/([^/]+)$")
         if not occ or who ~= by then return nil end
@@ -865,13 +868,28 @@ end
 -- The calendar (O) and sign-ups (J)
 ---------------------------------------------------------------------------
 
--- Puts one of the library's events on the calendar (I host it): a copy of the event as it is now.
+-- A place of the event's to meet at (pid) or nil: one of its places.
+local function MeetPlace(def, pid)
+    return (IsId(pid) and type(def) == "table" and type(def.places) == "table" and type(def.places[pid]) == "table") and pid
+        or nil
+end
+
+-- Where the entrants of a calendar event meet: its own choice (o.meet), else its event's (def.meet); nil: nowhere
+-- (an event without places). A pid of o.def.places.
+function Events:MeetOf(o)
+    if type(o) ~= "table" then return nil end
+    return MeetPlace(o.def, o.meet) or MeetPlace(o.def, type(o.def) == "table" and o.def.meet)
+end
+
+-- Puts one of the library's events on the calendar (I host it): a copy of the event as it is now. opts: where, note,
+-- meet (one of its places to meet at, instead of the event's own), noJoin (the host isn't in it).
 function Events:Schedule(defId, at, opts)
     local d = self:GetDef(defId)
     if not d then return nil end
     local id = NewId("o")
     local ok = Commit("O", { id = id, by = Me(), h = Me(), def = Copy(d), dk = d.id, dr = d.rev, at = floor(tonumber(at) or Now()),
-        where = opts and opts.where, note = opts and opts.note, ranked = self:IsRanked(d) or nil })
+        where = opts and opts.where, note = opts and opts.note, ranked = self:IsRanked(d) or nil,
+        meet = opts and MeetPlace(d, opts.meet) or nil })
     if ok then
         -- the host is in it unless they say otherwise
         if not (opts and opts.noJoin) then self:SignUp(id, true) end
@@ -931,8 +949,9 @@ function Events:DeleteOcc(id)
     return Commit("O", { id = id, by = Me(), h = self:HostOf(o), del = true })
 end
 
--- The host moves their event (a new time / place / note); not while it runs, nor once it ran.
-function Events:EditOcc(id, at, where, note)
+-- The host moves their event (a new time / place / note); not while it runs, nor once it ran. meet: a place of its
+-- to meet at (nil: as it was; false: the event's own).
+function Events:EditOcc(id, at, where, note, meet)
     local o = self:GetOcc(id)
     if not o or self:HostOf(o) ~= Me() then return false end
     local state = self:OccState(o)
@@ -942,6 +961,7 @@ function Events:EditOcc(id, at, where, note)
     rec.at = floor(tonumber(at) or o.at)
     rec.where = where
     rec.note = note
+    if meet == false then rec.meet = nil elseif meet ~= nil then rec.meet = MeetPlace(o.def, meet) end
     return Commit("O", rec)
 end
 
@@ -972,6 +992,26 @@ function Events:SignUp(occId, on)
             local first = B():BlocksOf(o.def, "signup")[1]
             local spots = first and B():SmartSetting(o.def.blocks[first], "spots")
             if spots and #self:GetSignups(occId) >= spots then return false, "It's full." end
+        end
+        -- while it runs: as its run says (a Sign-up that's open and has room), else joining would do nothing
+        local L = ns.EventLive
+        local run = state == "live" and L and L.GetState and L:GetState(occId)
+        local inIt = false
+        for _, k in ipairs(type(run) == "table" and type(run.entrants) == "table" and run.entrants or {}) do
+            if k == Me() then inIt = true end
+        end
+        if type(run) == "table" and not inIt then
+            local open, room = false, false
+            for _, bid in ipairs(B():BlocksOf(o.def, "signup")) do
+                local b = type(run.blocks) == "table" and run.blocks[bid]
+                if type(b) == "table" and b.open then
+                    open = true
+                    local spots = B():SmartSetting(o.def.blocks[bid], "spots") or 40
+                    if type(b.list) ~= "table" or #b.list < spots then room = true end
+                end
+            end
+            if not open then return false, "Sign-up is closed." end
+            if not room then return false, "It's full." end
         end
     end
     local me = Me()

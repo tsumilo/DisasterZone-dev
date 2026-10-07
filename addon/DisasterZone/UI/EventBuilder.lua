@@ -961,8 +961,12 @@ CreatePalette = function(body)
         b.dot:SetTexture(EUI().MASK)
         b.dot:SetSize(16, 16)
         b.dot:SetPoint("TOP", b, "TOP", 0, -8)
-        EUI():Gradient(b.dot, "VERTICAL", c.f[1], c.f[2], c.f[3], 1, 1)
-        b.dot:SetVertexColor(c.f2[1], c.f2[2], c.f2[3])
+        -- (its colour from the category's light top to its dark foot, as the pieces)
+        if b.dot.SetGradient and CreateColor then
+            b.dot:SetGradient("VERTICAL", CreateColor(c.f[1], c.f[2], c.f[3], 1), CreateColor(c.f2[1], c.f2[2], c.f2[3], 1))
+        else
+            b.dot:SetVertexColor(c.f2[1], c.f2[2], c.f2[3])
+        end
         b.ring = b:CreateTexture(nil, "ARTWORK", nil, 2)
         b.ring:SetTexture(EUI().RING)
         b.ring:SetSize(17, 17)
@@ -1074,6 +1078,26 @@ local function PaletteGroups()
     end
     local main = {}
     for _, k in ipairs(B().PALETTE[cat] or {}) do main[#main + 1] = { key = k } end
+    if kind then
+        -- (right under the definitions, the pieces about them, their "when" pieces first: the mockups' Players lists
+        -- "when no one has tag", the touch, "has tag", "players with tag", tag, untag before the host and the rest)
+        local t = ({ tags = "tag", scores = "score", places = "place", lists = "list", asks = "ask" })[kind]
+        local function about(k)
+            local pd = B().PIECES[k]
+            for _, a in ipairs(pd and pd.args or {}) do
+                if a.t == t or (t == "place" and a.t == "where") then return true end
+            end
+            return false
+        end
+        -- (Players: its "when" pieces lead, the touch and target ones too: their players blanks take the tags)
+        local rank = {}
+        for i, it in ipairs(main) do
+            local pd = B().PIECES[it.key]
+            local hat = pd and pd.shape == "hat"
+            rank[it] = ((cat == "pl" and hat) and 1 or (about(it.key) and 2) or 3) * 1000 + i
+        end
+        tsort(main, function(a, b) return rank[a] < rank[b] end)
+    end
     if cat == "lo" then
         local vars = {}
         for _, v in ipairs(d.vars or {}) do vars[#vars + 1] = { piece = { k = "var", a = { v.n } } } end
@@ -1225,6 +1249,8 @@ function Builder:RenderPalette()
             it:Show()
             it:ClearAllPoints()
             it.entry = entry
+            -- (a pooled row keeps nothing of what it showed last: a piece, a definition)
+            it.piece, it.defId, it.kind, it.builtin = nil, nil, nil, nil
             it.fs:Hide()
             it.desc:Hide()
             it.ic:Hide()
@@ -1674,6 +1700,7 @@ local function ReleaseCanvas()
 end
 
 local OnPiece, OnBlank, OnHover   -- (below)
+local OpenFitted                  -- (below) a view seen for the first time: at 100%, or zoomed out to show it all
 local PlacePicker        -- (below) the picker under its blank, drawn again
 
 local function ScriptKey(s) return (S.inside and (S.inside .. "/") or "") .. s.id end
@@ -1769,6 +1796,7 @@ function Builder:RenderCanvas()
     local blankEvent = #d.scripts == 0 and next(d.blocks) == nil and not S.inside
     local startFrom = empty and blankEvent and CanEdit()
     self:RenderStartFrom(startFrom)
+    S.startFrom = startFrom
     if empty and not startFrom then
         local stName = B():StageName(d, S.stage)
         em.t:SetText("Nothing runs in " .. stName .. " yet")
@@ -1787,6 +1815,7 @@ function Builder:RenderCanvas()
     end
     self:RenderOverview()
     self:RenderStatus()
+    OpenFitted(View())
     if ui.picker and ui.picker:IsShown() and S.pick then PlacePicker() end
 end
 
@@ -1854,7 +1883,13 @@ end
 function Builder:RenderStatus()
     local st = ui.status
     local probs = B():Problems(Def())
-    if S.practice then st:Hide() return end
+    -- (nothing to say yet: an event with no pieces at all, its examples on the canvas)
+    if S.practice or (#(Def().scripts or {}) == 0 and next(Def().blocks or {}) == nil) then
+        st:Hide()
+        if ui.overview then ui.overview:SetShown(not S.startFrom) end
+        return
+    end
+    if ui.overview then ui.overview:Show() end
     st:Show()
     if #probs > 0 then
         local word = #probs == 1 and "1 piece needs a fix" or (#probs .. " pieces need a fix")
@@ -1871,8 +1906,14 @@ function Builder:RenderStatus()
         EUI():Glyph(st.icon, UI().ICON.lock or 52, 0.91, 0.77, 0.35)
         UI():SetEdgeColor(st, 0.34, 0.34, 0.38, 0.9)
     else
-        local state = Ev():GetDef(Def().id) and Ev():ReviewState(Ev():GetDef(Def().id)) or "draft"
-        st.fs:SetText(state == "ranked" and not S.dirty and "Ranked · ready to host" or "Every piece is set")
+        -- every piece is set: practise it first (a practice run to its end of exactly this event), then host it
+        local d = Def()
+        local state = Ev():GetDef(d.id) and Ev():ReviewState(Ev():GetDef(d.id)) or "draft"
+        local h = ContentHash(d)
+        local p = ns.db and ns.db.eventPracticed and d.id and ns.db.eventPracticed[d.id]
+        local practiced = S.practicedHash == h or (p ~= nil and p.h == h)
+        st.fs:SetText((state == "ranked" and not S.dirty and "Ranked · ready to host")
+            or (practiced and "Ready to host") or "Ready to practice")
         st.fs:SetTextColor(0.72, 0.94, 0.78)
         st.icon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
         st.icon:SetTexCoord(0, 1, 0, 1)
@@ -2832,6 +2873,22 @@ PlacePicker = function()
         local over = l * bs + dx * ps + pw - sw
         if over > 0 then dx = dx - over / ps end
         if l * bs + dx * ps < 0 then dx = -l * bs / ps end
+        -- room neither under nor over it (a tall picker by a blank half way down): beside it, left of it when there's
+        -- room there, held inside the window from top to bottom
+        if below < ph and above < ph then
+            local wl, wr = win and win:GetLeft(), win and win:GetRight()
+            local left = l * bs - (wl and wl * ws or 0)
+            local right = (wr and wr * ws or sw) - (bf:GetRight() or l) * bs
+            local topY = min(ceilY - 8 * ps, max(floorY + ph + 8 * ps, t * bs + 12 * ps))
+            local yoff = (topY - t * bs) / ps
+            p:ClearAllPoints()
+            if left >= pw + 8 * ps or left >= right then
+                p:SetPoint("TOPRIGHT", bf, "TOPLEFT", -8, yoff)
+            else
+                p:SetPoint("TOPLEFT", bf, "TOPRIGHT", 8, yoff)
+            end
+            return
+        end
     end
     p:ClearAllPoints()
     if up then
@@ -3544,6 +3601,87 @@ function Builder:ZoomToFit()
     MoveView(side + (aw - bw * z) / 2 - minX * z, top + (ah - bh * z) / 2 - minY * z, z)
 end
 
+-- What the drawn scripts, cards and notes cover ({ x, y, w, h } in content units), piece by piece: a C piece is its
+-- header, its arm, its else bar and its foot, so a script's narrow foot may sit beside the overview.
+local function DrawnRects()
+    local out = {}
+    local Ep = EP()
+    for s, f in pairs(ui.scripts) do
+        for _, pf in pairs(f.at or {}) do
+            if pf.kind == "piece" and pf:IsShown() then
+                local px, py = Ep:Abs(pf)
+                local x, y = s.x + px, s.y + py
+                local w, h = pf:GetWidth() or 0, pf:GetHeight() or 0
+                if pf.headW then
+                    out[#out + 1] = { x, y, pf.headW, pf.headH }
+                    out[#out + 1] = { x, y + pf.headH, Ep.ARM, h - pf.headH }
+                    if pf.midY then out[#out + 1] = { x, y + pf.midY, Ep.FOOT_W, Ep.MID } end
+                    out[#out + 1] = { x, y + h - Ep.FOOT, Ep.FOOT_W, Ep.FOOT }
+                else
+                    out[#out + 1] = { x, y, w, h }
+                end
+            end
+        end
+    end
+    local d = Def()
+    for bid, card in pairs(ui.cards) do
+        local b = d.blocks[bid]
+        if card:IsShown() and b then out[#out + 1] = { b.x, b.y, 318, card:GetHeight() or 240 } end
+    end
+    for _, n in ipairs(ui.notes) do
+        local nd = n:IsShown() and n.index and d.notes and d.notes[n.index]
+        if nd then out[#out + 1] = { nd.x, nd.y, 170, 70 } end
+    end
+    return out
+end
+
+-- The parts of the canvas its own controls cover (canvas units): the overview, the zoom bar with the status pill
+-- left of it, the ribbon inside a smart block.
+local function ControlRects()
+    local cw, ch = CanvasSize()
+    local st = ui.status:IsShown() and ((ui.status:GetWidth() or 140) + 10) or 0
+    local out = {
+        { cw - 10 - 132, ch - 10 - 24 - 6 - 82, 132, 82 },
+        { cw - 10 - 130 - st, ch - 10 - 24, 130 + st, 24 },
+    }
+    if S.inside then out[#out + 1] = { 0, 0, cw, 12 + 44 + 8 } end
+    return out
+end
+
+-- Does all of the view show at zoom z (the view at its top-left), clear of the canvas' own controls?
+function Builder:FitsAt(z)
+    local cw, ch = CanvasSize()
+    local W, H = cw / z, ch / z
+    local ctl = {}
+    for _, r in ipairs(ControlRects()) do ctl[#ctl + 1] = { r[1] / z, r[2] / z, r[3] / z, r[4] / z } end
+    for _, r in ipairs(DrawnRects()) do
+        if r[1] < 0 or r[2] < 0 or r[1] + r[3] > W - 4 or r[2] + r[4] > H - 4 then return false end
+        for _, c in ipairs(ctl) do
+            if r[1] < c[1] + c[3] and c[1] < r[1] + r[3] and r[2] < c[2] + c[4] and c[2] < r[2] + r[4] then return false end
+        end
+    end
+    return true
+end
+
+-- A view seen for the first time opens at 100%, or a step or two out when what's on it would run past the canvas or
+-- under its controls at 100% (a busy stage): the largest step where all of it shows (none: 100%, zoom to fit is there).
+local FIT_STEPS = { 1, 0.9, 0.8, 0.67 }
+OpenFitted = function(v)
+    if v.seen or S.practice then return end
+    v.seen = true
+    if v.x ~= 0 or v.y ~= 0 or v.z ~= 1 then return end
+    for _, z in ipairs(FIT_STEPS) do
+        if Builder:FitsAt(z) then
+            if z ~= 1 then
+                v.z = z
+                ApplyView()
+                Builder:RenderOverview()
+            end
+            return
+        end
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Smart blocks: adding one, stepping inside
 ---------------------------------------------------------------------------
@@ -3651,8 +3789,6 @@ function Builder:RenderStartFrom(show)
         sf:SetAllPoints(ui.cv)
         sf:SetFrameLevel(ui.cv:GetFrameLevel() + 800)
         sf.box = CreateFrame("Frame", nil, sf)
-        sf.box:SetPoint("TOPLEFT", sf, "TOPLEFT", 20, -20)
-        sf.box:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -20, 46)
         sf.box.bg = sf.box:CreateTexture(nil, "BACKGROUND")
         sf.box.bg:SetAllPoints()
         sf.box.bg:SetColorTexture(1, 1, 1, 0.02)
@@ -3747,6 +3883,10 @@ function Builder:RenderStartFrom(show)
     sf.t2:ClearAllPoints()
     sf.t2:SetPoint("TOP", sf.t, "BOTTOM", 0, -5)
     local gy = top + 18 + 5 + t2h + 24
+    -- (the box holds its words and cards, 24 around them: clear of the overview and the zoom bar under it)
+    sf.box:ClearAllPoints()
+    sf.box:SetPoint("TOPLEFT", sf, "TOPLEFT", side - 24, -(top - 24))
+    sf.box:SetSize(gw + 48, total + 48)
     for i, c in ipairs(sf.cards) do
         local col, row = (i - 1) % cols, floor((i - 1) / cols)
         c:SetHeight(cardH)
@@ -4726,7 +4866,7 @@ end
 
 -- A definition's one line in the palette ("everyone sees it", "lower wins · a time", "Halaa · 600 yd").
 function Defs:Sub(kind, e)
-    if e.builtin then return kind == "tags" and "everyone in the event · built in" or "the season · built in" end
+    if e.builtin then return kind == "tags" and "every entrant · built in" or "the season · built in" end
     if kind == "tags" then return self.SHOWN_WORD[e.shown or "all"] or self.SHOWN_WORD.all end
     if kind == "scores" then
         local s = e.high == false and "lower wins" or "higher wins"
@@ -5105,6 +5245,7 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
         self.list = list or {}
         for _, c in ipairs(self.chips) do c:Hide() end
         local x, y = 0, 0
+        local rowH = 20
         for i, s in ipairs(self.list) do
             local c = self.chips[i]
             if not c then
@@ -5129,21 +5270,47 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
             c.index = i
             c:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 1, 1, 1, 0.22 })
             c.fs:SetWordWrap(false)
+            Sized(c.fs, 11)
             c.fs:SetText(s)
-            local w = min(width, 8 + TextW(c.fs) + 6 + 9 + 7)
+            -- (a long one: smaller, then on two lines in a taller chip; never past the box)
+            local room = width - 8 - 6 - 9 - 7
+            if TextW(c.fs) > room then Sized(c.fs, 10) end
+            local tall = TextW(c.fs) > room
+            local ch = tall and 32 or 20
+            if tall then
+                if not c.tall then
+                    c.tall = CreateFrame("Frame", nil, c)
+                    c.tall:SetAllPoints()
+                    c.tall:SetFrameLevel(max(0, c:GetFrameLevel() - 1))
+                    UI():AddPillShape(c.tall, 32)
+                    c.tall:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 1, 1, 1, 0.22 })
+                end
+                c.fs:SetWordWrap(true)
+                c.fs:SetWidth(room)
+                c.fs:SetText(s)
+            else
+                c.fs:SetWidth(max(1, TextW(c.fs) + 2))
+            end
+            if c.tall then c.tall:SetShown(tall) end
+            for _, t in ipairs(c.pillEdge or {}) do t:SetShown(not tall) end
+            for _, t in ipairs(c.pillFill or {}) do t:SetShown(not tall) end
+            c:SetHeight(ch)
+            local w = tall and width or min(width, 8 + TextW(c.fs) + 6 + 9 + 7)
             c:SetWidth(w)
-            if x > 0 and x + w > width then x, y = 0, y + 24 end
+            if x > 0 and x + w > width then x, y = 0, y + rowH + 4 end
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y)
             c:Show()
+            rowH = (x == 0) and ch or max(rowH, ch)
             x = x + w + 4
         end
         local aw = 70
-        if x > 0 and x + aw > width then x, y = 0, y + 24 end
+        local adding = #self.list < maxN
+        if adding and x > 0 and x + aw > width then x, y, rowH = 0, y + rowH + 4, 20 end
         self.add:ClearAllPoints()
         self.add:SetPoint("TOPLEFT", self, "TOPLEFT", x, -y)
-        self.add:SetShown(#self.list < maxN)
-        self.h = y + 20
+        self.add:SetShown(adding)
+        self.h = y + rowH
         self:SetHeight(self.h)
     end
     return box
@@ -6491,6 +6658,29 @@ function MapSheet.NewView(parent, w, h)
         circ:Set(r, { stroke = { c[1], c[2], c[3], 1 }, width = thick, shadow = true, fill = { c[1], c[2], c[3], fillA } })
         return circ
     end
+    -- the mouse near a place's middle (not dragging): its card in the tooltip (zone, coordinates, how far from me)
+    local hover = CreateFrame("Frame", nil, v)
+    hover.t = 0
+    hover:SetScript("OnUpdate", function(f, dt)
+        f.t = f.t + (dt or 0)
+        if f.t < 0.1 then return end
+        f.t = 0
+        local px, py, on = v:Cursor()
+        local found
+        if on and v.hov and not (IsMouseButtonDown and IsMouseButtonDown("LeftButton")) then
+            for _, h in ipairs(v.hov) do
+                local reach = max(10, min(h[3], 24))
+                if (px - h[1]) ^ 2 + (py - h[2]) ^ 2 <= reach * reach then found = h[4] end
+            end
+        end
+        if found and v.tipFor ~= found then
+            EUI():PlaceTip(v, found, false)
+            v.tipFor = found
+        elseif not found and v.tipFor then
+            GameTooltip:Hide()
+            v.tipFor = nil
+        end
+    end)
     function v:Done()
         for i = self.nc + 1, #self.circles do self.circles[i]:Hide() end
         for i = self.nl + 1, #self.lines do self.lines[i]:Hide() end
@@ -6523,13 +6713,47 @@ function MapSheet.DrawPlaces(v, edit)
     local d = Def()
     local per = v:PerYard()
     local T = Defs.TEAL
+    v.hov = {}
+    -- (names: the one being changed first, each kept inside the map, under its ring or over it at the foot; one that
+    -- would lie on another is left to its card on hover)
+    local kept = {}
+    local function name(text, px, py, r, c)
+        if not text or text == "" then return end
+        local fs = v:Label(text, px, py + r + 10, c)
+        local tw = TextW(fs)
+        local y = py + r + 10
+        if y + 7 > v.H then y = py - r - 10 end
+        -- (a place whose name has no room on the map: its card on hover says it)
+        if y < 8 or y > v.H - 8 or px < -r or px > v.W + r then fs:Hide() return end
+        local x = max(tw / 2 + 4, min(v.W - tw / 2 - 4, px))
+        local x1, y1, x2, y2 = x - tw / 2 - 2, y - 7, x + tw / 2 + 2, y + 7
+        for _, k in ipairs(kept) do
+            if x1 < k[3] and k[1] < x2 and y1 < k[4] and k[2] < y2 then fs:Hide() return end
+        end
+        kept[#kept + 1] = { x1, y1, x2, y2 }
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", v.ov, "TOPLEFT", x, -y)
+    end
+    if edit and tonumber(edit.map) == v.map and tonumber(edit.x) and tonumber(edit.y) and edit.n and edit.n ~= "" then
+        local px, py = v:ToView(edit.x, edit.y)
+        local r = max(6, (tonumber(edit.r) or 30) * per)
+        -- (its own name over its ring: the handle is at its right)
+        local fs = v:Label(edit.n, px, py - r - 11, GOLD3)
+        local tw = TextW(fs)
+        local x = max(tw / 2 + 4, min(v.W - tw / 2 - 4, px))
+        local y = (py - r - 11 < 8) and (py + r + 11) or (py - r - 11)
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", v.ov, "TOPLEFT", x, -y)
+        kept[#kept + 1] = { x - tw / 2 - 2, y - 7, x + tw / 2 + 2, y + 7 }
+    end
     for _, e in ipairs(B():Defs(d, "places")) do
         if (not edit or e.id ~= edit.pid) and tonumber(e.map) == v.map and tonumber(e.x) and tonumber(e.y) then
             local px, py = v:ToView(e.x, e.y)
             local r = max(6, (tonumber(e.r) or 30) * per)
             v:Ring(px, py, r, T, 0.2, 1.6)
             v:Tex(EUI().MASK, px, py, 4, { 0.61, 0.94, 1 }, 1, 4)
-            v:Label(e.n, px, py + r + 10, { 1, 1, 1 })
+            name(e.n, px, py, r, { 1, 1, 1 })
+            v.hov[#v.hov + 1] = { px, py, r, e }
         end
     end
     if edit and tonumber(edit.map) == v.map and tonumber(edit.x) and tonumber(edit.y) then
@@ -6543,7 +6767,6 @@ function MapSheet.DrawPlaces(v, edit)
         v:Line(px, py - 6, px, py + 6, GOLD3, 1, 1.6, 5)
         v:Tex(EUI().MASK, px + r, py, 13, { 0, 0, 0 }, 1, 6)
         v:Tex(EUI().MASK, px + r, py, 11, { 0.96, 0.93, 0.82 }, 1, 7)
-        if edit.n and edit.n ~= "" then v:Label(edit.n, px, py - r - 11, GOLD3) end
         v.handle = { x = px + r, y = py, cx = px, cy = py }
     else
         v.handle = nil
@@ -7106,7 +7329,9 @@ function Defs:ShowCard(pid, anchor)
         v:Line(px - 6, py, px + 6, py, GOLD3, 1, 1.6, 5)
         v:Line(px, py - 6, px, py + 6, GOLD3, 1, 1.6, 5)
         v:Tex(EUI().MASK, px + r, py, 11, { 0.96, 0.93, 0.82 }, 1, 7)
+        MapSheet.DrawMe(v)
         v:Done()
+        v:ShowZone(true)
         top = CARD_MAP_H
     end
     if c.chip then EP():Release(c.chip) end
@@ -7121,7 +7346,10 @@ function Defs:ShowCard(pid, anchor)
     c.line:ClearAllPoints()
     c.line:SetPoint("LEFT", c.chip, "RIGHT", 8, 0)
     local n = B():DefinitionUses(d, "places", pid)
-    c.m:SetText(Plural(n, "piece uses", "pieces use") .. " it. "
+    -- (where it is exactly, and how far from me: "At 41.5, 47.0, 340 yd from you.")
+    local xy, yd = EUI():Coords(pl, 1), EUI():YardsTo(pl)
+    local at = xy and ("At " .. xy .. (yd and (", " .. floor(yd + 0.5) .. " yd from you") or "") .. ". ") or ""
+    c.m:SetText(at .. Plural(n, "piece uses", "pieces use") .. " it. "
         .. (CanEdit() and "Click to pick another, or to change it on the map." or ""))
     c.m:ClearAllPoints()
     c.m:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -(top + 9 + 19 + 6))

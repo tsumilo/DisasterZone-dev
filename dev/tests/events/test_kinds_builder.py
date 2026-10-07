@@ -537,7 +537,7 @@ def a_place_blank_picks_a_place_and_shows_its_card():
         for _, bl in ipairs(f.blanks) do if bl.piece == T_LEAVE.top then T_CHIP = bl.frame end end
         T_CHIP:GetScript('OnEnter')(T_CHIP)""")
     card = c.eval_py("local c = T_UI().pcard; return { c:IsShown(), c.m:GetText() }")
-    assert card[0] and card[1].startswith("3 pieces use it"), card
+    assert card[0] and card[1].startswith("At ") and "3 pieces use it" in card[1], card
     c.eval("T_CHIP:GetScript('OnLeave')(T_CHIP)")
     assert not c.eval("return T_UI().pcard:IsShown()")
     # a new place from the picker: set from where I stand, then the blank holds it
@@ -870,7 +870,7 @@ def hide_and_seek_is_built_from_nothing_and_practised_to_the_end():
     c.eval("T_CLICK(T_SC, T_PIECE(T_SC, 2), 2); ns.EventBuilder:PickTyped('Go back to the play area')")
     assert c.eval("return #ns.EventBlocks:Problems(T_D())") == 0, \
         c.eval_py("local o = {}; for _, p in ipairs(ns.EventBlocks:Problems(T_D())) do o[#o + 1] = p.text end; return o")
-    assert status(c) == "Every piece is set"
+    assert status(c) == "Ready to practice"
     c.eval("ns.EventBuilder:Primary()")          # Save
     assert c.eval("return ns.Events:GetDef(T_D().id) ~= nil")
     # practice: 16 dummies hide, one seeks; the panel makes the seeker touch every hider

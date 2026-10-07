@@ -49,7 +49,7 @@ def it_opens_every_stage_of_the_starter():
         w.tick(0.2)
     n = c.eval("local S, ui = ns.EventBuilder:GetState(); local n = 0; for _ in pairs(ui.scripts) do n = n + 1 end; return n")
     assert n == 4, n          # Always: final is set, match ends, goes offline, Matches done
-    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.status.fs:GetText()") == "Every piece is set"
+    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.status.fs:GetText()") == "Ready to practice"
     w.assert_no_errors()
 
 
@@ -76,7 +76,7 @@ def the_picker_fills_a_blank():
     w.tick(0.2)
     assert c.eval("local S = ns.EventBuilder:GetState(); for _, x in ipairs(S.def.scripts) do "
                   "if x.id == 'c3' then return x.top.n.a[1].a[1] end end") == "both"
-    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.status.fs:GetText()") == "Every piece is set"
+    assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.status.fs:GetText()") == "Ready to practice"
     # a typed number
     c.eval("""
         local S = ns.EventBuilder:GetState()
@@ -96,12 +96,15 @@ def a_dragged_piece_snaps_under_a_hat():
     c.eval(MOUSE)
     before = script_of(c, "c3")
     assert before["n"] == "ch.show"
-    # a "tell" from the palette, dropped just under "when Matches final is set" (x 20, y 22: its body ends at 22 + 42)
+    # a "tell" from the palette, dropped just under "when Matches final is set" (wherever the example puts it: its
+    # body ends 42 under its top)
     c.eval("""
         MOUSE_DOWN = true
         MOUSE_X, MOUSE_Y = 0, 0
         ns.EventBuilder:PressNew(ns.EventBlocks:New('ch.tell'))
-        MOUSE_X, MOUSE_Y = 20 + 12 + 4, 22 + 42 + 12 + 3
+        local c3
+        for _, s in ipairs(ns.EventBuilder:GetState().def.scripts) do if s.id == 'c3' then c3 = s end end
+        MOUSE_X, MOUSE_Y = c3.x + 12 + 4, c3.y + 42 + 12 + 3
         ns.EventBuilder:OnCanvasUpdate()
         ns.EventBuilder:OnCanvasUpdate()""")
     assert c.eval("local S, ui = ns.EventBuilder:GetState(); return ui.ghost:IsShown()")

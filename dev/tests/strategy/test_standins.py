@@ -839,7 +839,10 @@ def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
         if G.data_key(k) == k:
             assert s["unpacks"] == 1 and not s.get("shared"), (k, s)
         else:
-            assert s["unpacks"] == 0 and s["shared"] == G.data_key(k), (k, s)
+            # (a room that is another room's - Romulo and Wolf are Oz's stage, Rokad and Shadikith Hyakiss's corridor -
+            # uses that room's data: the same set when it was loaded just before, else unpacked once more, as S.Load
+            # keeps only the last two rooms prepared; rooms load here in name order, so both happen)
+            assert s["shared"] == G.data_key(k) and s["unpacks"] <= 1, (k, s)
     # [key, unpacks, A, B, C prepared]: A unpacked once, again and as D (the same room) not; B, C: A let go, then back
     assert r["steps"] == [["T_A", 1, True, False, False], ["T_A", 0, True, False, False],
                           ["T_D", 0, True, False, False], ["T_B", 1, True, True, False],

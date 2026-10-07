@@ -95,8 +95,9 @@ function E:New(def, opts)
     return self:Restore(def, st, opts)
 end
 
--- A run from a snapshot (a new host, or a /reload of the host): its scripts that were waiting are gone, everything
--- else (timers, matches, stats, the stage) goes on.
+-- A run from a snapshot (a new host, or a /reload of the host): everything goes on (timers, matches, stats, the
+-- stage, open asks), and so do the scripts that were waiting (st.waits: Run:Revive), each where it was; part 1's
+-- questions who won are dropped (the host decides the match).
 function E:Restore(def, st, opts)
     opts = opts or {}
     -- a state from another client: every part it must have (a broken one would stop the run each second)
@@ -134,18 +135,29 @@ function E:Restore(def, st, opts)
     end
     for key, l in pairs(st.last) do if type(l) ~= "table" then st.last[key] = nil end end
     for key, f in pairs(st.flags) do if type(f) ~= "table" then st.flags[key] = nil end end
-    -- the scripts waiting for answers are gone, and with them their questions (they'd be on screens for good)
+    -- part 1's questions who won are dropped (the scripts asking them don't come back; the host decides the match)
     for id in pairs(st.asks) do st.asks[id] = nil end
+    -- an open ask stays open until it would have closed (its script, waiting for it, comes back: Revive). A state
+    -- that went out showed a secret one's answers as only "answered": they stay answered, but nobody knows what
+    -- (lost: not counted, not anyone's answer)
     for aid, a in pairs(st.qa) do
         if type(a) ~= "table" then
             st.qa[aid] = nil
         else
-            a.open = false
             if type(a.who) ~= "table" then a.who = {} end
             if type(a.ans) ~= "table" then a.ans = {} end
             if type(a.order) ~= "table" then a.order = {} end
+            if type(a.lost) ~= "table" then a.lost = nil end
+            if a.hid then
+                a.lost = a.lost or {}
+                for k in pairs(a.ans) do a.lost[k] = true end
+                a.hid = nil
+            end
+            if a.open and not (tonumber(a.ends) and type(a.id) == "number") then a.open = false end
         end
     end
+    local waits = st.waits
+    st.waits = nil
     local run = setmetatable({}, Run)
     run.def = Copy(def)
     B():Migrate(run.def)
@@ -159,6 +171,7 @@ function E:Restore(def, st, opts)
     run.queue = {}
     run.log = {}
     run:IndexScripts()
+    if st.phase == "live" then run:Revive(waits) end
     return run
 end
 
@@ -172,9 +185,12 @@ function Run:Snapshot(full)
             local ad = self.def.asks and self.def.asks[aid]
             if a.open and ad and ad.secret then
                 for k in pairs(a.ans or {}) do a.ans[k] = true end
+                a.hid = true   -- (a taker of this state knows who answered, not what: Restore)
             end
         end
     end
+    -- the scripts that wait (a wait, an ask): where each one is, so a restored run goes on from there
+    st.waits = self:Waits()
     return st
 end
 
@@ -196,15 +212,18 @@ end
 
 -- Scripts by their hat's key: user scripts, then each smart block's own (its copy, or the built-in ones).
 function Run:IndexScripts()
-    local by = {}
+    local by, scripts = {}, {}
     local function add(s, block)
         local top = s.top
         if type(top) ~= "table" or not top.k then return end
         local pd = B().PIECES[top.k]
         if not pd or pd.shape ~= "hat" then return end
         by[top.k] = by[top.k] or {}
-        tinsert(by[top.k], { id = s.id, st = s.st or "*", top = top, block = block })
+        local e = { id = s.id, st = s.st or "*", top = top, block = block }
+        tinsert(by[top.k], e)
+        scripts[(block or "") .. "/" .. tostring(s.id)] = e
     end
+    self.scripts = scripts
     for _, s in ipairs(self.def.scripts or {}) do add(s, nil) end
     for _, bid in ipairs(B():BlocksOf(self.def)) do
         local b = self.def.blocks[bid]
@@ -389,6 +408,8 @@ end
 function Run:SetScore(sid, key, n, add)
     sid = self:ScoreId(sid)
     if type(sid) ~= "string" or type(key) ~= "string" or key == "" then return end
+    -- (only who is in the event: one who left has no scores, gets no prizes)
+    if not self:InEvent(key) then return end
     local SEASON = B().SEASON
     if sid ~= SEASON and not B():Definition(self.def, "scores", sid) then return end
     n = Grant(self, sid, Num(n))
@@ -479,6 +500,50 @@ local function CtxCopy(ctx)
         if type(v) ~= "table" or v.list or IsQuestion(v) then out[k] = Copy(v) end
     end
     return out
+end
+
+local WAIT_SAVE = 24   -- waiting scripts a state keeps (the oldest first)
+
+-- The waiting scripts as a state keeps them: { { s = script id, b = its block, tb = the thread's block, ctx, path } }.
+-- (Part 1's question who won isn't kept: a restored run drops it, the host decides the match.)
+function Run:Waits()
+    local list = {}
+    for th in pairs(self.threads) do
+        local path = th.path
+        local leaf = th.wait and path and path[#path]
+        if leaf and leaf.k ~= "bk.ask" and th.s and th.s.id ~= nil then list[#list + 1] = th end
+    end
+    tsort(list, function(a, b) return (a.n or 0) < (b.n or 0) end)
+    local out = {}
+    for i = 1, min(#list, WAIT_SAVE) do
+        local th = list[i]
+        out[i] = { s = th.s.id, b = th.s.block, tb = th.block, ctx = CtxCopy(th.ctx), path = Copy(th.path) }
+    end
+    return out
+end
+
+-- A restored run's waiting scripts go on where they were (each waits again for what it waited for: a wait to its
+-- end, an open ask to its closing; one that ended meanwhile goes on at the next tick). A script the def doesn't have
+-- any more, or one that changed, doesn't come back.
+function Run:Revive(waits)
+    if type(waits) ~= "table" then return end
+    for i = 1, min(#waits, WAIT_SAVE) do
+        local w = waits[i]
+        local s = type(w) == "table" and self.scripts[(type(w.b) == "string" and w.b or "") .. "/" .. tostring(w.s)]
+        if s and type(w.path) == "table" and #w.path > 0 then
+            self.spawnSeq = (self.spawnSeq or 0) + 1
+            local block = type(w.tb) == "string" and self.def.blocks[w.tb] and w.tb or s.block
+            local th = { s = s, ctx = type(w.ctx) == "table" and CtxCopy(w.ctx) or {}, block = block, steps = 0, path = {},
+                n = self.spawnSeq }
+            local path = w.path
+            th.co = cocreate(function() self:Exec(th, s.top.n, nil, path) end)
+            self.threads[th] = true
+            -- (it runs to its wait: nothing before it runs again)
+            self:Step(th)
+        elseif type(w) == "table" then
+            self:Log("error", "A script that was waiting couldn't go on")
+        end
+    end
 end
 
 -- One timer per name, player, block and match: starting it again restarts it (two matches' no-show timers are two).
@@ -629,10 +694,24 @@ function Run:Split(keys, a, b)
     self:NoTagCheck(b, beforeB)
 end
 
--- A player who left the event: no tags, buttons, arrow or place any more (and their asks don't wait for them).
+-- A player who left the event: no tags, scores, buttons, arrow or place any more (and their asks don't wait for
+-- them). (Season points they won stay: part 1's rule.)
 function Run:DropPlayer(key)
     for tid in pairs(self.st.tags) do
         if self.st.tags[tid][key] then self:Untag(tid, { key }) end
+    end
+    for sid, t in pairs(self.st.scores) do
+        if t[key] ~= nil then
+            t[key] = nil
+            -- (the lead goes to whoever is best now: "the lead changes")
+            if self.st.lead[sid] == key then
+                local best = self:Ranked(sid)[1]
+                self.st.lead[sid] = best and best.key or nil
+                if best then
+                    self:Fire("pt.lead", { player = best.key }, nil, nil, function(s) return s.top.a[1] == sid end)
+                end
+            end
+        end
     end
     for _, holders in pairs(self.st.buttons) do holders[key] = nil end
     self.st.point[key] = nil
@@ -697,9 +776,10 @@ end
 -- Asks (the addon asks: a card for the players asked, closes by itself) and buttons
 ---------------------------------------------------------------------------
 
+-- Everyone asked has answered (who is offline isn't waited for: they may still answer while it's open).
 function Run:AllAnswered(a)
     for k in pairs(a.who) do
-        if a.ans[k] == nil then return false end
+        if a.ans[k] == nil and not self.st.off[k] then return false end
     end
     return true
 end
@@ -826,9 +906,16 @@ function Run:Tally(aid)
         if not r then r = { v = v, n = 0, i = #out + 1 }; at[key] = r; out[#out + 1] = r end
         r.n = r.n + 1
     end
+    local lost = type(a.lost) == "table" and a.lost or {}
     for _, k in ipairs(a.order or {}) do
         local v = a.ans[k]
-        if IsList(v) then for i = 1, #v do count(v[i]) end elseif v ~= nil then count(v) end
+        if lost[k] then
+            -- (answered before a takeover: not known)
+        elseif IsList(v) then
+            for i = 1, #v do count(v[i]) end
+        elseif v ~= nil then
+            count(v)
+        end
     end
     tsort(out, function(x, y)
         if x.n ~= y.n then return x.n > y.n end
@@ -974,10 +1061,10 @@ local function Players(run, th, v)
     return out
 end
 
--- "one of {players}": an empty blank is anyone in the event.
+-- "one of {players}": an empty blank is anyone in the event (the host too: "find the host").
 local function OneOf(run, s, slot, key)
     local v = s.top.a[slot]
-    if v == nil or v == "" then return Contains(run.st.entrants, key) ~= nil end
+    if v == nil or v == "" then return run:InEvent(key) end
     return Contains(Players(run, HatThread(run, s), v), key) ~= nil
 end
 
@@ -1018,7 +1105,10 @@ function Run:Pos(key, pos)
     local p = self.st.pos[key] or {}
     local function n01(v) v = tonumber(v); return v and v == v and max(0, min(1, v)) or nil end
     local function fin(v) v = tonumber(v); return v and v == v and abs(v) < 1e7 and v or nil end
-    if tonumber(pos.map) then
+    if pos.inst then
+        -- in an instance: where they are isn't known (not where they were before it)
+        p.map, p.x, p.y, p.wx, p.wy, p.cont = nil, nil, nil, nil, nil, nil
+    elseif tonumber(pos.map) then
         p.map, p.x, p.y = floor(tonumber(pos.map)), n01(pos.x), n01(pos.y)
         p.wx, p.wy, p.cont = fin(pos.wx), fin(pos.wy), tonumber(pos.cont)
     elseif fin(pos.wx) and fin(pos.wy) then
@@ -1579,6 +1669,20 @@ function Run:SetOnline(key, online)
     local what = online and "on" or "off"
     self:Fire("ev.happen", { player = key }, nil, nil, function(s) return s.top.a[1] == what end)
     self:Pump()
+    -- (an ask that waited only for them closes: the others have answered)
+    if not online then
+        local closed = false
+        for aid, a in pairs(self.st.qa) do
+            if a.open and a.who[key] and a.ans[key] == nil and self:AllAnswered(a) then
+                self:CloseAsk(aid)
+                closed = true
+            end
+        end
+        if closed then
+            self:Pump()
+            self:Resume()
+        end
+    end
 end
 
 -- A player's answer to an ask (who won): answer = a player key.
@@ -1779,7 +1883,8 @@ function Run:Spawn(s, ctx, bid)
         self:Log("error", "Too many scripts at once: one was skipped")
         return
     end
-    local th = { s = s, ctx = CtxCopy(ctx), block = s.block or bid, steps = 0 }
+    self.spawnSeq = (self.spawnSeq or 0) + 1
+    local th = { s = s, ctx = CtxCopy(ctx), block = s.block or bid, steps = 0, path = {}, n = self.spawnSeq }
     th.ctx._timer, th.ctx._block = nil, nil
     -- the values a script last ran with (the builder's practice run shows them in its pieces)
     self.lastCtx = self.lastCtx or {}
@@ -1841,6 +1946,8 @@ function Run:Resume()
             if due then list[#list + 1] = th end
         end
     end
+    -- (in the order they started: two waits ending in the same second go on the same way every time)
+    tsort(list, function(a, b) return (a.n or 0) < (b.n or 0) end)
     for _, th in ipairs(list) do
         th.wait = nil
         self:Step(th)
@@ -1848,10 +1955,19 @@ function Run:Resume()
     self:Pump()
 end
 
--- Every second or so: timers that ran out, "every" pieces, waits.
+-- Every second or so: timers that ran out, "every" pieces, waits, asks whose time is up.
 function Run:Tick()
     if self.st.phase ~= "live" then return end
     local now = self.now()
+    -- (an ask closes at its time even when the script that asked it isn't there to close it: a restored run's)
+    local ended = {}
+    for aid, a in pairs(self.st.paused and {} or self.st.qa) do
+        if type(a) == "table" and a.open and tonumber(a.ends) and a.ends <= now then ended[#ended + 1] = aid end
+    end
+    tsort(ended)
+    for _, aid in ipairs(ended) do self:CloseAsk(aid) end
+    -- ("when ... closes" runs before the script that asked goes on, as when the last answer closes it)
+    if ended[1] then self:Pump() end
     local timers = self.st.timers
     local due = {}
     for i = #timers, 1, -1 do
@@ -1946,6 +2062,18 @@ end
 
 local VALUE = {}
 local DO = {}
+-- How a piece goes on where its script was when the run was saved (a /reload of the host, a takeover): the waits
+-- (wait, ask) and the C pieces holding them. RESUME[k](run, th, p, frame, frames) -> as DO.
+local RESUME = {}
+
+-- Where a script is, so that a restored run can go on from there (Run:Waits, Run:Revive): th.path holds a frame for
+-- each stack being run (the script's own, then each C piece's inside): { i = the piece's place in its stack, k = its
+-- key, and what that piece keeps: br (if: the branch taken), li (a loop's turn), n (repeat's count), list (for each's
+-- players), sv (the loop's value before it), at (wait: when it ends), aid / q (ask: which, and its number) }.
+local function Frame(th)
+    local path = th.path
+    return path and path[#path] or {}
+end
 
 Eval = function(run, th, v)
     if type(v) ~= "table" then return v end
@@ -2191,7 +2319,7 @@ end
 VALUE["as.answer"] = function(run, th, p)
     local k = PlayerOf(run, th, arg(p, 1))
     local a = run.st.qa[arg(p, 2)]
-    if not (k and a) then return nil end
+    if not (k and a) or (type(a.lost) == "table" and a.lost[k]) then return nil end
     return Copy(a.ans[k])
 end
 VALUE["as.top"] = function(run, th, p)
@@ -2299,40 +2427,78 @@ DO["sg.cancel"] = function(run, th, p)
 end
 DO["lo.stop"] = function() return "stop" end
 
+-- (C pieces note in their frame what they're doing - the branch, the loop's turn - so a restored run can go on
+-- inside them: RESUME, Run:Exec)
 DO["lo.if"] = function(run, th, p)
-    if Bool(run, th, arg(p, 1)) then return run:Exec(th, p.c1, true) end
+    if Bool(run, th, arg(p, 1)) then
+        Frame(th).br = "c1"
+        return run:Exec(th, p.c1, true)
+    end
 end
 DO["lo.ifelse"] = function(run, th, p)
-    if Bool(run, th, arg(p, 1)) then return run:Exec(th, p.c1, true) end
-    return run:Exec(th, p.c2, true)
+    local br = Bool(run, th, arg(p, 1)) and "c1" or "c2"
+    Frame(th).br = br
+    return run:Exec(th, p[br], true)
 end
-DO["lo.rep"] = function(run, th, p)
-    local n = min(100, floor(Num(Eval(run, th, arg(p, 1)))))
-    for _ = 1, n do
-        local r = run:Exec(th, p.c1, true)
+RESUME["lo.if"] = function(run, th, p, fr, rs) return run:Exec(th, p[fr.br == "c2" and "c2" or "c1"], true, rs) end
+RESUME["lo.ifelse"] = RESUME["lo.if"]
+
+local function Repeat(run, th, p, n, from, rs)
+    local fr = Frame(th)
+    fr.n = n
+    for li = from, n do
+        fr.li = li
+        local r = run:Exec(th, p.c1, true, li == from and rs or nil)
         if r == "stop" then return r end
     end
 end
-DO["lo.each"] = function(run, th, p)
-    local list = Players(run, th, arg(p, 1))
-    local saved = th.ctx.each
-    for _, k in ipairs(list) do
-        th.ctx.each = k
-        local r = run:Exec(th, p.c1, true)
+DO["lo.rep"] = function(run, th, p) return Repeat(run, th, p, min(100, floor(Num(Eval(run, th, arg(p, 1))))), 1) end
+RESUME["lo.rep"] = function(run, th, p, fr, rs)
+    local n = max(0, min(100, floor(Num(fr.n))))
+    return Repeat(run, th, p, n, max(1, min(n, floor(Num(fr.li)))), rs)
+end
+
+local function EachFrom(run, th, p, list, from, saved, rs)
+    local fr = Frame(th)
+    fr.list, fr.sv = list, saved
+    for li = from, #list do
+        fr.li = li
+        th.ctx.each = list[li]
+        local r = run:Exec(th, p.c1, true, li == from and rs or nil)
         if r == "stop" then th.ctx.each = saved; return r end
     end
     th.ctx.each = saved
 end
-DO["lo.lfor"] = function(run, th, p)
+DO["lo.each"] = function(run, th, p) return EachFrom(run, th, p, Players(run, th, arg(p, 1)), 1, th.ctx.each) end
+RESUME["lo.each"] = function(run, th, p, fr, rs)
+    local list = {}
+    for i = 1, min(type(fr.list) == "table" and #fr.list or 0, 40) do
+        if type(fr.list[i]) == "string" then list[#list + 1] = fr.list[i] end
+    end
+    if #list == 0 then error("this script can't go on where it was", 0) end
+    local sv = fr.sv
+    if type(sv) ~= "string" then sv = nil end
+    return EachFrom(run, th, p, list, max(1, min(#list, floor(Num(fr.li)))), sv, rs)
+end
+
+local function ForFrom(run, th, p, from, saved, rs)
     local lid = arg(p, 1)
     local items = run:ListItems(lid)
-    local saved = th.ctx.item
-    for i = 1, min(#items, B().LIMITS.items * 2) do
+    local fr = Frame(th)
+    fr.sv = saved
+    for i = from, min(#items, B().LIMITS.items * 2) do
+        fr.li = i
         th.ctx.item = run:ItemValue(lid, i)
-        local r = run:Exec(th, p.c1, true)
+        local r = run:Exec(th, p.c1, true, i == from and rs or nil)
         if r == "stop" then th.ctx.item = saved; return r end
     end
     th.ctx.item = saved
+end
+DO["lo.lfor"] = function(run, th, p) return ForFrom(run, th, p, 1, th.ctx.item) end
+RESUME["lo.lfor"] = function(run, th, p, fr, rs)
+    local sv = fr.sv
+    if type(sv) == "table" and not IsQuestion(sv) then sv = nil end
+    return ForFrom(run, th, p, max(1, floor(Num(fr.li))), sv, rs)
 end
 DO["lo.vset"] = function(run, th, p)
     local name = arg(p, 1)
@@ -2365,7 +2531,7 @@ DO["pt.badge"] = function(run, th, p)
     local bid = arg(p, 1)
     if not (run.def.badges and run.def.badges[bid]) then return end
     for _, k in ipairs(Players(run, th, arg(p, 2))) do
-        local dup = false
+        local dup = not run:InEvent(k)   -- (one who left the event gets no badge)
         for _, a in ipairs(run.st.awards) do
             if a.p == k and a.b == bid then dup = true end
         end
@@ -2385,7 +2551,8 @@ DO["pl.split"] = function(run, th, p) run:Split(Players(run, th, arg(p, 1)), arg
 DO["pc.point"] = function(run, th, p)
     local pid = PlaceOf(run, th, arg(p, 2))
     for _, k in ipairs(Players(run, th, arg(p, 1))) do
-        if run:InEvent(k) then run.st.point[k] = pid end
+        -- (one who is there already has nowhere to go: as when they get there)
+        if run:InEvent(k) then run.st.point[k] = not (pid and run:InPlace(k, pid)) and pid or nil end
     end
     if pid then run:Log("point", run:Text(pid)) end
 end
@@ -2394,12 +2561,27 @@ DO["pc.unpoint"] = function(run, th, p)
 end
 
 -- asks: the script waits until the ask closes (time up, everyone answered, or "close")
-local function AskAndWait(run, th, aid, to, q, item)
-    local a = run:OpenAsk(aid, to, q, item)
-    if not a then return end
+local function AskWait(run, th, aid, a)
+    local fr = Frame(th)
+    fr.aid, fr.q = aid, a.id
     Wait(th, { at = a.ends, cond = function() return not a.open or run.st.qa[aid] ~= a end })
     if a.open and run.st.qa[aid] == a then run:CloseAsk(aid) end
 end
+local function AskAndWait(run, th, aid, to, q, item)
+    local a = run:OpenAsk(aid, to, q, item)
+    if a then AskWait(run, th, aid, a) end
+end
+-- (restored: the ask still open waits on; one that closed meanwhile goes on at the next tick)
+RESUME["as.ask"] = function(run, th, p, fr)
+    local aid = fr.aid
+    local a = type(aid) == "string" and run.st.qa[aid]
+    if type(a) == "table" and a.open and a.id == fr.q then
+        AskWait(run, th, aid, a)
+    else
+        Wait(th, { at = 0 })
+    end
+end
+RESUME["as.askq"] = RESUME["as.ask"]
 DO["as.ask"] = function(run, th, p)
     local aid = arg(p, 2)
     local ad = type(aid) == "string" and run.def.asks and run.def.asks[aid]
@@ -2509,7 +2691,14 @@ end
 
 DO["tm.wait"] = function(run, th, p)
     local sec = max(0, min(3600, Num(Eval(run, th, arg(p, 1)))))
-    Wait(th, { at = run.now() + sec })
+    local at = run.now() + sec
+    Frame(th).at = at
+    Wait(th, { at = at })
+end
+-- (restored: the wait ends when it would have; past that, at the next tick)
+RESUME["tm.wait"] = function(run, th, p, fr)
+    local at = tonumber(fr.at)   -- (a server time: not Num, which holds numbers to +-1e9)
+    Wait(th, { at = (at and at == at) and at or 0 })
 end
 DO["tm.start"] = function(run, th, p)
     run:StartTimer(Eval(run, th, arg(p, 2)), Eval(run, th, arg(p, 1)), nil, th.ctx, th.block)
@@ -2644,19 +2833,52 @@ DO["bk.ask"] = function(run, th, p)
     th.ctx.answer = first
     run:Changed()
 end
+-- (part 1's rule: a restored run drops the question who won, and the script asking it; the host decides the match)
+RESUME["bk.ask"] = function() return "stop" end
 
--- Runs a stack from piece p. inner: a C piece's insides (a "stop" there ends the whole script).
-function Run:Exec(th, p, inner)
-    while p do
-        Bump(self, th)
-        local f = DO[p.k]
-        if f then
-            local r = f(self, th, p)
-            if r == "stop" then return "stop" end
-        end
-        p = p.n
+-- Runs a stack from piece p. inner: a C piece's insides (a "stop" there ends the whole script). resume: the frames
+-- of a script that was waiting (Run:Revive): the pieces before the one each frame names ran already and are skipped,
+-- that one goes on where it was (RESUME); a script that changed since (not the same piece there) stops.
+function Run:Exec(th, p, inner, resume)
+    local path = th.path
+    if not path then
+        path = {}
+        th.path = path
     end
-    return nil
+    local depth = #path + 1
+    local want = resume and resume[depth]
+    if resume and type(want) ~= "table" then error("this script can't go on where it was", 0) end
+    local i, out = 0, nil
+    while p do
+        i = i + 1
+        if want and i < Num(want.i) then
+            p = p.n
+        else
+            Bump(self, th)
+            local fr = { i = i, k = p.k }
+            path[depth] = fr
+            local r
+            if want then
+                if p.k ~= want.k or not RESUME[p.k] then error("this script changed: it can't go on where it was", 0) end
+                for k, v in pairs(want) do
+                    if fr[k] == nil and type(k) == "string" then fr[k] = Copy(v) end
+                end
+                want = nil
+                r = RESUME[p.k](self, th, p, fr, resume)
+            else
+                local f = DO[p.k]
+                if f then r = f(self, th, p) end
+            end
+            if r == "stop" then
+                out = "stop"
+                break
+            end
+            p = p.n
+        end
+    end
+    if want then error("this script changed: it can't go on where it was", 0) end
+    path[depth] = nil
+    return out
 end
 
 ---------------------------------------------------------------------------

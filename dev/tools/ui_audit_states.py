@@ -1515,4 +1515,191 @@ STATES[_EVB:_EVB] = [
 # (part 1's picker state named a piece part 2 migrated away: the same view on the show's players blank)
 for _i, _st in enumerate(STATES):
     if _st[0] == "Events - builder picker":
-        STATES[_i] = (_st[0], ev_builder(EVB_PICKER))
+        # (with the renders' real geometry: the picker places itself by the window's edges, as in the game)
+        STATES[_i] = (_st[0], ev_builder("__MOCK.real_geometry = true; ns.EventBuilder:Refresh()" + EVB_PICKER))
+
+# The final UI QA pass (2026-10-07): "Where to go" (the meeting place on the tracker, the event page's map and meta
+# with "Show the way", the schedule sheet's "Meet at", the board's map with the zone and my arrow) and the edge cases
+# the pass checked. A planned red light 12 minutes away (Gina, its host, a few yards from its start line); its calendar
+# event is taken off again before "Home - calendar busy" (it stays last).
+QA_EVENTS = []
+
+
+def qa_meet(after, minutes=12, art=True, near=True):
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        if art:
+            g.eval(EVB_MAPART)
+        did = g.eval("local d = ns.Events:NewDef(false); for k, v in pairs(ns.EventBlocks:Example('redlight')) do "
+                     "d[k] = v end; ns.Events:SaveDef(d); return d.id")
+        p = g.eval_py("local d = ns.Events:GetDef(...); local p = d.places[d.meet]; return { p.map, p.x, p.y }", did)
+        if near:
+            w.set_position("Gina", p[0], p[1] + 0.03, p[2] + 0.02, subzone="Nagrand")
+        else:
+            w.set_position("Gina", None)
+        occ = g.eval("return ns.Events:Schedule(..., GetServerTime() + select(2, ...) * 60)", did, minutes)
+        QA_EVENTS.append((occ, did))
+        w.tick(1)
+        g.eval("__MOCK.real_geometry = true")
+        g.eval(after, occ, did)
+        w.tick(0.5)
+        return g
+    return fn
+
+
+def qa_cleanup(w, c):
+    g = c["Gina"]
+    w.set_position("Gina", None)
+    for occ, did in QA_EVENTS:
+        g.eval("ns.Events:DeleteOcc(...); ns.Events:DeleteDef(select(2, ...))", occ, did)
+    del QA_EVENTS[:]
+    g.eval("ns.EventTracker:Refresh()")
+
+
+_QA = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_QA:_QA] = [
+    ("Events - tracker meet", qa_meet("ns.EventTracker:Refresh()")),
+    ("Events - tracker meet far", qa_meet("ns.EventTracker:Refresh()", near=False)),
+    ("Events - event page meet", qa_meet("ns.EventsUI:OpenEvent((...))")),
+    ("Events - schedule meet at", qa_meet("ns.EventsUI:Open('library'); ns.EventsUI:OpenSchedule(select(2, ...))")),
+    ("Events - board meet map", qa_meet("ns.EventTracker:Hide(); ns.EventLive:StartPractice(ns.Events:GetDef(select(2, ...)), 8); "
+                                        "ns.EventBoard:Open('practice')")),
+]
+
+# The edge cases: practice runs of any size made by hand (the board only reads the state), long names (24 letters,
+# the limit) for 8 tags / 8 scores / 24 places, long choices, banners over a prompt, the builder's editors full.
+QA_LUA = r"""
+QA = {}
+local B, L, E = ns.EventBlocks, ns.EventLive, ns.EventEngine
+QA.LONG = { 'Hidden in the long grass', 'Seekers of the far hills', 'Found behind the old mil', 'Out of the race for good',
+  'Wardens of the green hil', 'Watchers of the dark woo', 'Keepers of the high towe', 'Runners of the long rive' }
+QA.SCORES = { 'Most mushrooms gathered!', 'Longest time spent hidde', 'Fewest steps on the rout', 'Points from the judges 1',
+  'Fish caught in Terokkar!', 'Gold gained in the marke', 'Ogres killed near Halaa!', 'Hints given to the seeker' }
+QA.COLORS = { 'green', 'red', 'purple', 'blue', 'orange', 'yellow', 'teal', 'pink' }
+function QA.Big(d, n, close)
+  for _, b in pairs(d.blocks) do if b.kind == 'signup' then b.set = b.set or {}; b.set.spots = 64 end end
+  L:StartPractice(d, 2)
+  local _, p = L:GetPractice()
+  local keys = {}
+  for i = 1, n do keys[i] = 'Dummy' .. i .. '-Practice' end
+  local run = E:New(d, { id = 'practice', host = ns.Util.PlayerKey(), signups = keys, out = {}, practice = true,
+    now = function() return L:PracticeNow() end, nameOf = L.DisplayName })
+  p.run = run
+  run:Start()
+  if close then for bid, b in pairs(run.st.blocks) do if b.kind == 'signup' and b.open then run:CloseSignup(bid) end end end
+  run:Tick()
+  L:SetPracticePaused(true)
+  ns.EventBoard:Open('practice')
+  ns.EventBoard:Refresh()
+  return run
+end
+function QA.Long(d, tags, scores, places)
+  if tags then d.tags = {}; for i = 1, tags do d.tags['tg' .. i] = { n = QA.LONG[i], c = QA.COLORS[i], shown = 'all' } end end
+  if scores then d.scores = {}; for i = 1, scores do d.scores['sc' .. i] = { n = QA.SCORES[i], high = true, fmt = 'num', board = true } end end
+  if places then
+    d.places = {}
+    for i = 1, places do
+      d.places['pc' .. i] = { n = ('Place number %d of the hu'):format(i), map = 1951, x = 0.2 + 0.6 * ((i * 37) % 100) / 100,
+        y = 0.2 + 0.6 * ((i * 61) % 100) / 100, r = 30 + (i % 4) * 40, z = 'Nagrand', sz = 'Halaa' }
+    end
+    d.meet = 'pc1'
+  end
+  return d
+end
+function QA.Spread(st, d)
+  local tids = {}
+  for id in pairs(d.tags or {}) do tids[#tids + 1] = id end
+  table.sort(tids, function(a, b) return tonumber(a:match('%d+')) < tonumber(b:match('%d+')) end)
+  st.tags = {}
+  for _, id in ipairs(tids) do st.tags[id] = {} end
+  for i, k in ipairs(st.entrants) do if #tids > 0 then st.tags[tids[((i - 1) % #tids) + 1]][k] = true end end
+  st.scores = {}
+  for id in pairs(d.scores or {}) do
+    st.scores[id] = {}
+    for i, k in ipairs(st.entrants) do st.scores[id][k] = (i * 7919) % 97 end
+  end
+  st.seq = (st.seq or 0) + 1
+  ns.EventBoard:Refresh()
+end
+function QA.Choices()
+  local d = B:Example('tmog')
+  local me = ns.Util.PlayerKey()
+  d.asks = { ak1 = { n = 'The theme of next week!!', q = 'Which theme should the next contest have?', kind = 'choice',
+    from = 'entrants', votes = 1, time = 90, choices = { 'Pirates of the Barrens and Booty Bay ships',
+    'The Undead of Stratholme and Scholomance', 'Night elves', 'Holiday outfits from every festival' } } }
+  L:StartPractice(d, 6)
+  local run = L:GetPractice()
+  L:SetPracticePaused(true)
+  local now = L:PracticeNow()
+  run.st.entrants[#run.st.entrants + 1] = me
+  run.st.qa = { ak1 = { open = true, who = { [me] = true }, q = d.asks.ak1.q, at = now, ends = now + 90, ans = {} } }
+  run.st.seq = run.st.seq + 1
+  ns.EventTracker:Refresh()
+end
+"""
+
+
+def qa_edge(lua, art=False):
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        if art:
+            g.eval(EVB_MAPART)
+        g.eval(QA_LUA)
+        g.eval("__MOCK.real_geometry = true")
+        g.eval(lua)
+        w.tick(0.6)
+        return g
+    return fn
+
+
+_QA2 = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_QA2:_QA2] = [
+    ("Events - board race 40 racers", qa_edge("QA.Big(ns.EventBlocks:Example('race'), 40, false)")),
+    ("Events - board 8 long tags 40 players", qa_edge("local d = QA.Long(ns.EventBlocks:Example('hide'), 8, 2); "
+                                                      "local run = QA.Big(d, 40, true); QA.Spread(run.st, d)")),
+    ("Events - board 8 long scores", qa_edge("local d = QA.Long(ns.EventBlocks:Example('fish'), nil, 8); "
+                                             "local run = QA.Big(d, 40, true); QA.Spread(run.st, d)")),
+    ("Events - board 24 places", qa_edge("local d = QA.Long(ns.EventBlocks:Example('hide'), nil, nil, 24); "
+                                         "QA.Big(d, 6, false)", art=True)),
+    ("Events - board bracket 40", qa_edge("QA.Big(ns.EventBlocks:Example('duel'), 40, true)")),
+    ("Events - ask long choices", qa_edge("QA.Choices()")),
+    ("Events - banners over a prompt", qa_edge("QA.Choices(); for i = 1, 3 do ns.EventTracker:Show('practice', 'A very long "
+                                               "banner text number ' .. i .. ': hide in the play area now, the seekers come "
+                                               "in three minutes and they will find you') end")),
+    ("Events - tracker long name", qa_edge("local d = ns.EventBlocks:Example('hide'); d.name = 'The great hide and seek of "
+                                           "Nagrand'; QA.Big(d, 6, true); ns.EventBoard:Close(); local st = "
+                                           "ns.EventLive:GetPractice().st; st.point = { [ns.Util.PlayerKey()] = 'pc1' }; "
+                                           "st.buttons = { Hint = { [ns.Util.PlayerKey()] = true } }; ns.EventTracker:Refresh()")),
+    ("Events - builder 8 long tags", evb("hide", "s3", "pl", "local d = ns.EventBuilder:GetState().def; d.tags = {}; "
+                                     "for i = 1, 8 do ns.EventBlocks:NewDefinition(d, 'tags', { n = ({ 'Hidden in the long grass', "
+                                     "'Seekers of the far hills', 'Found behind the old mil', 'Out of the race for good', "
+                                     "'Wardens of the green hil', 'Watchers of the dark woo', 'Keepers of the high towe', "
+                                     "'Runners of the long rive' })[i] }) end; ns.EventBuilder:Refresh()")),
+    ("Events - builder long choices", evb("tmog", "s4", "as", "ns.EventBlocks:NewDefinition(ns.EventBuilder:GetState().def, "
+                                      "'asks', { n = 'The theme of next week!!', q = 'Which theme next week?', kind = 'choice', "
+                                      "choices = { 'Pirates of the Barrens and Booty Bay', 'The Undead of Stratholme and "
+                                      "Scholomance', 'Night elves', 'Holiday outfits from every festival x', 'Tier four sets', "
+                                      "'Anything goes this time' }, votes = 3 }); ns.EventBuilder:Refresh(); "
+                                      "ns.EventBuilder.Defs:Open('asks', 'ak4')")),
+    ("Events - builder map sheet 24 places", evb("hide", "s3", "pc", "local d = ns.EventBuilder:GetState().def; d.places = {}; "
+                                             "for i = 1, 24 do d.places['pc' .. i] = { n = ('Place number %d of the hu'):format(i), "
+                                             "map = 1951, x = 0.2 + 0.6 * ((i * 37) % 100) / 100, y = 0.2 + 0.6 * ((i * 61) % 100) "
+                                             "/ 100, r = 30 + (i % 4) * 40, z = 'Nagrand' } end; d.meet = 'pc1'; "
+                                             "ns.EventBuilder:Refresh(); ns.EventBuilder.MapSheet:Open({ pid = 'pc3' })", art=True)),
+    ("Events - builder read-only list", evb("race", "s2", "lo", "local S = ns.EventBuilder:GetState(); S.readOnly = true; "
+                                            "ns.EventBuilder:Refresh(); ns.EventBuilder.Defs:Open('lists', 'ls1')")),
+]
+_HOME_LAST = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+_home_fn = STATES[_HOME_LAST][1]
+
+
+def _home_after_qa(w, c):
+    qa_cleanup(w, c)
+    return _home_fn(w, c)
+
+
+STATES[_HOME_LAST] = (STATES[_HOME_LAST][0], _home_after_qa)

@@ -265,8 +265,8 @@ event's definitions plus "+ New ...".
   too). The same touch again within 2 s, or radar on the same player within 5 s, is one.
 - EVM on the wire: `{ t = "EVM", o = occId, to = "all" | {keys} | nil, k = "show" | "tell" | "sound" | "plates", text,
   off, at }`: GUILD for every entrant online (`to = "all"`) or for 4+ players (`to` = their keys), else a whisper each
-  (`to` = nil: the receiver), 4 a second at most (it shares the event prefix with the states: a line can take a few
-  seconds while a big state goes out). Taken only from the host the receiver knows; one that comes before the state
+  (`to` = nil: the receiver), 8 at once and then 1 a second (CDLf's own pace: since the QA pass, see below; the same
+  line waiting for several players goes as one GUILD message naming them). Taken only from the host the receiver knows; one that comes before the state
   naming its sender (a run's first messages, a takeover's) waits 10 s for it. `show` and `sound` older than 20 s are
   dropped. `sound` = a `B.SOUNDS` key: the receiving client plays it (SOUNDKIT, else the fallback id), then fires
   `EVENT_SOUND` (the UI doesn't play it again). `plates`: `off = true` hides friendly nameplates (the CVar
@@ -453,6 +453,78 @@ event's definitions plus "+ New ...".
   Examples menu).
 - Practice: "Make something happen" lists the facts the event listens for first (the rest under "Something else");
   leaves / enters a place a dummy is already out of / in says so instead of doing nothing.
+
+## Where to go (the user in game, 2026-10-07: "as someone who joined this event, how do I know where to start?")
+
+The board showed "Start line" on a map with no zone, no coordinates and no "you", and nothing pointed an entrant
+there before the host's pieces did. For every event with places:
+- **Meeting place.** `def.meet` = a pid (the examples set theirs: Red light's Start line, the race's first place,
+  hide and seek's Meeting spot, ...); a calendar event may override it: `o.meet` (the schedule sheet's "Meet at",
+  a dropdown of the def's places; the free "where" text stays for events without places). `Events:MeetOf(o)` -> pid.
+- **Me-API (works for a planned event too, not only live):** `Live:MyMeet(occ)` -> pid, yards, bearing (nil in an
+  instance or another continent: then zone name only); `Live:PointMe(occ, pid)` / `Live:PointMe(occ, nil)`: a local
+  point of my own (never sent), shown like a host's point; a host's point replaces it.
+- **Tracker:** a signed-up player sees, from 30 min before the start and while a sign-up stage runs, "starts in 12 min
+  · Meet at Start line · 340 yd" with the arrow and the place's minimap ring (and "Meet at Start line · Zangarmarsh"
+  when far away / another continent / an instance).
+- **Every map** (board, event page, map sheet, hover card): my own arrow (my own position, never others'), the zone's
+  name, and each place's hover card: zone, coordinates ("41.2, 52.8"), yards from me; a click on a place = "Show the
+  way" (PointMe).
+- **Event page:** the banner's meta says "Meet at Start line · Zangarmarsh 41, 52", with a secondary "Show the way".
+
+**Built (core, 2026-10-07)**: `def.meet` is kept by CleanDef only when it's one of the def's places (older records hash
+as they did); `B:RemoveDefinition(d, "places", pid)` clears it. The examples: hide and seek and infection meet in the
+middle of their Play area (pc1, no extra place), the race at Garadar (pc1: the start and the finish; the route's first
+checkpoint is pc2), red light at its Start line (pc1); duel cup, derby, transmog and trivia have no places, no meet.
+`Events:Schedule(defId, at, { meet = pid })` (a pid the def doesn't have is ignored), `Events:EditOcc(id, at, where,
+note, meet)` (meet nil: as it was; false: the def's own again), CleanRecord O keeps `meet`. `Events:MeetOf(o)` = o.meet
+if it's a place of o.def, else o.def.meet if it is, else nil. `Live:MyMeet(occ)` -> pid, yards, bearing (as MyPoint;
+"practice" reads the practice def's meet; nothing when there's no meet). `Live:PointMe(occ, pid)` -> true / false (a
+place the def doesn't have), `PointMe(occ, nil)` stops; kept in a local table, never sent, fires EVENT_LIVE_UPDATED.
+`Live:MyPoint(occ)` = the host's point when there is one (that clears my own), else mine, which ends by itself once I'm
+inside its place's radius (r, default 30), as the host's points do.
+
+**Settled by playing the examples live (the core QA pass, 2026-10-07; tests/events/test_kinds_play.py, test_kinds_edge.py)**
+- A restored run goes on where it was (the host's /reload: its own full state; a takeover: the last state that went
+  out). Run:Snapshot carries `waits` (24 at most, oldest first): each waiting script's id, block, values and its place
+  (`path`: a frame a stack, the piece's number and key, and what the C pieces hold: the branch, the loop's turn, a for
+  each's players, the value before the loop; a wait's end, an ask's id and number). E:Restore brings them back
+  (Run:Revive) and each one waits again for what it waited for: a wait until it would have ended (past that: at the
+  next tick), an open ask until it closes; nothing before it runs again. A script that changed, or one the def doesn't
+  have, doesn't come back (logged); part 1's question who won is dropped as before (the host decides the match).
+  Open asks stay open on a restore. The trivia loop, the catwalk, the judges' pick, the vote, the hint's minute, the
+  race's countdown and red light's "turning" all go on.
+- An ask closes at its time in Run:Tick even when no script waits for it; "when ... closes" runs before the script
+  that asked goes on (time-outs as for the last answer). "Everyone answered" leaves out who is offline (they may
+  still answer while it's open): a quiz doesn't wait 30 s a question for a player whose game went away.
+- A state that went out shows a secret open ask's answers as `true` and marks the ask `hid`; a taker's Restore keeps
+  them as answered but unknown (`a.lost[key]`): not counted (Tally, the board's result), not anyone's answer.
+- My answers the host's state doesn't show while the ask is open (sent while the host reloaded, or to a host who was
+  gone) go again (`Live:AnswerAgain`, at most every 5 s, when a state comes and when I take over). Every restore counts
+  `st.boot` up: the entrants' games tell a reloaded host again which places they're in and where they are, as for a new
+  host. What happened during the gap itself (a place entered and left, a press) is lost.
+- One who left the event (after the sign-up closed, or from an open one) has no scores any more and gets none, nor a
+  badge (`SetScore` and "give the badge" take players in the event only: entrants and the host); if they led, the lead
+  goes to the best one now ("when the lead changes" runs). Their season points stay (part 1).
+- The host's own answers and button presses count when the host isn't an entrant (an ask or a button put to "the
+  host"); the host's other facts don't.
+- In an instance an entrant's game sends `pos { inst = true }` once (when the def uses distances): the host forgets
+  their position (yards read 9999, "nearest" skips them); out again, a position at once.
+- Two reports of one duel: the same second on the two clocks, or arriving within 3 s of each other here (two clients'
+  server times can be seconds apart; no duel of a pair ends that soon after the last).
+- The derby knows Mr. Pinchy by his item id (27388), not his English name (another one on other clients).
+- The host's messages to players (EVM, CDLf) go at the prefix's own pace, 8 at once and then 1 a second (they went 4 a
+  second, which the server throttles past its burst of 10: in a 16-player trivia night the "Right!" lines came 15 s
+  late, then minutes); whispers of the same line waiting for several players go as one GUILD message naming them
+  (16 players: everyone told within 2-4 s of answering).
+- The examples' prizes look at every entrant's place (Podium: "for each entrant, if place by S = n"), not "top 3":
+  two tied for third are both third. Red light's red comes 2 s after "Red light! Stop!" (the banner's way out and the
+  stop's way back), not 1.
+- "point {players} to {place}": one the host knows is in that place already gets no arrow. An empty players blank of
+  "touches" / "targets" is anyone in the event, the host too.
+- `Live:AnswerAsk2` refuses more than 3 picks (it cut them to the first three before). `Events:SignUp` while the event
+  runs says what its run would: "Sign-up is closed." / "It's full." (before, it said yes and nothing happened).
+- The mock's GetRealZoneText is the zone of the map a test stands someone on (World.set_position), as in the game.
 
 ## UI to mock up (sections 17+, replacing the first drafts where the pieces changed)
 

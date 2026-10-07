@@ -13,6 +13,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/EventBlocks.lua", ...) then r
 --     tags = { [tid] = { n, c, shown } }, scores = { [sid] = { n, high, fmt, board, cap } },
 --     places = { [pid] = { n, map, x, y, r, z, sz } }, lists = { [lid] = { n, kind, items } },
 --     asks = { [aid] = { n, q, kind, choices, from, votes, self, time, secret } },
+--     meet = pid | nil (one of its places: where the entrants meet; a calendar event may name another, o.meet),
 --     notes = { { st, x, y, text } ... }, review = { rev, at, note } | nil }
 -- A script: { id, st = stageId | "*" (Always), x, y, top = piece }.
 -- A piece: { k = key, a = { arg ... }, n = next piece, c1 = first piece inside, c2 = first piece of "else" }.
@@ -736,6 +737,8 @@ end
 -- Takes a definition out (the pieces that use it then say so).
 function B:RemoveDefinition(d, kind, id)
     if type(d) == "table" and type(d[kind]) == "table" then d[kind][id] = nil end
+    -- (the place to meet at goes with its place)
+    if type(d) == "table" and kind == "places" and d.meet == id then d.meet = nil end
 end
 
 -- How many pieces use a definition ("3 pieces use it").
@@ -896,12 +899,13 @@ local function CloseOrCancel(id, least, why)
 end
 
 -- Badges and season points for the top three by a score (ties share a place), then the event's one guild post.
+-- (Every entrant's place is looked at, not "top 3": two tied for third are both third.)
 local function Podium(score, gold, silver, bronze, pts, post)
     local place = function(n, badge, p)
         return If(N("lo.eq", N("pt.place", C("each"), score), n), N("pt.badge", badge, C("each")), N("pt.add", p, SEASON, C("each")))
     end
     return B:Stack(
-        Each(N("pl.top", 3, score), place(1, gold, pts[1]), place(2, silver, pts[2]), place(3, bronze, pts[3])),
+        Each(N("pl.all"), place(1, gold, pts[1]), place(2, silver, pts[2]), place(3, bronze, pts[3])),
         If(N("lo.set", N("pl.top", 1, score)), N("ch.guild", post)),
         N("sg.end"))
 end
@@ -1008,6 +1012,7 @@ EX[2] = { key = "hide", name = "Hide and seek in Nagrand", icon = ICON .. "Abili
         scores = { sc1 = { n = "Finds", high = true, fmt = "num", board = true },
                    sc2 = { n = "Hidden", high = true, fmt = "time", board = true } },
         places = { pc1 = Copy(PLAY_AREA) },
+        meet = "pc1",   -- (where to meet: the middle of the play area)
         vars = { { n = "Clue", t = "text" } },
         badges = {
             seeker = { n = "Sharp eyes", i = ICON .. "Ability_Hunter_SniperShot", f = "gold", ti = "the Seeker" },
@@ -1089,6 +1094,7 @@ EX[3] = { key = "infect", name = "Infection", icon = ICON .. "INV_Misc_Bone_ElfS
         scores = { sc1 = { n = "Infections", high = true, fmt = "num", board = true },
                    sc2 = { n = "Survived", high = true, fmt = "time", board = true } },
         places = { pc1 = Copy(PLAY_AREA) },
+        meet = "pc1",   -- (where to meet: the middle of the play area)
         badges = {
             zero = { n = "Patient zero", i = ICON .. "Spell_Shadow_PlagueCloud", f = "fel" },
             last = { n = "Last one standing", i = ICON .. "INV_Misc_Bone_ElfSkull_01", f = "gold", ti = "the Immune" },
@@ -1155,6 +1161,7 @@ EX[4] = { key = "race", name = "Mount race", icon = ICON .. "Ability_Mount_Ridin
         tags = { tg1 = { n = "Racing", c = "blue", shown = "all" }, tg2 = { n = "Out", c = "grey", shown = "all" } },
         scores = { sc1 = { n = "Time", high = false, fmt = "time", board = true } },
         places = {},
+        meet = "pc1",   -- (where to meet: Garadar, the start and the finish)
         lists = { ls1 = { n = "Route", kind = "place", items = {} } },
         badges = {
             gold = { n = "Fastest rider", i = ICON .. "Ability_Mount_RidingHorse", f = "gold", ti = "the Swift" },
@@ -1241,7 +1248,7 @@ EX[5] = { key = "fish", name = "Fishing derby", icon = ICON .. "Trade_Fishing", 
             N("ev.happen", "fish"),
             N("pt.add", 1, "sc1", C("player"))) },
         { id = "f4", st = "s2", x = 20, y = 280, top = B:Stack(
-            N("ev.happen", "fish", "Mr. Pinchy"),
+            N("ev.happen", "fish", 27388),   -- (Mr. Pinchy by his item id: his name is another in other languages)
             N("ch.moment", J(C("player"), " fished up Mr. Pinchy"))) },
         { id = "f5", st = "s2", x = 444, y = 22, top = B:Stack(
             N("pt.lead", "sc1"),
@@ -1389,6 +1396,7 @@ EX[8] = { key = "redlight", name = "Red light, green light", icon = ICON .. "Spe
             pc1 = { n = "Start line", map = NAGRAND, x = 0.405, y = 0.44, r = 30, z = "Nagrand", sz = "Halaa" },
             pc2 = { n = "Finish line", map = NAGRAND, x = 0.43, y = 0.47, r = 25, z = "Nagrand", sz = "Halaa" },
         },
+        meet = "pc1",   -- (where to meet: the start line)
         vars = { { n = "Light", t = "text" } },
         badges = {
             gold = { n = "Green machine", i = ICON .. "Spell_ChargePositive", f = "gold", ti = "the Unstoppable" },
@@ -1419,7 +1427,8 @@ EX[8] = { key = "redlight", name = "Red light, green light", icon = ICON .. "Spe
             N("tm.start", N("lo.rand", 5, 12), "Flip"),
             N("tm.start", 600, "Game"),
             N("tm.show", "Game")) },
-        -- the light flips: red (after a second to stop), then green again
+        -- the light flips: red (after two seconds to stop: the banner's way to the players, their stop's way back
+        -- to the host), then green again
         { id = "g4", st = "s2", x = 444, y = 22, top = B:Stack(
             N("ev.timer", "Flip"),
             IfElse(N("lo.eq", V("Light"), "green"),
@@ -1427,7 +1436,7 @@ EX[8] = { key = "redlight", name = "Red light, green light", icon = ICON .. "Spe
                     N("lo.vset", "Light", "turning"),
                     N("ch.show", All(), J("Red light! Stop!")),
                     N("ch.sound", "warning", T("tg1")),
-                    N("tm.wait", 1),
+                    N("tm.wait", 2),
                     N("lo.vset", "Light", "red"),
                     Each(T("tg1"), If(N("wo.is", C("each"), "moving"),
                         N("pl.untag", C("each"), "tg1"),
@@ -1463,21 +1472,26 @@ EX[8] = { key = "redlight", name = "Red light, green light", icon = ICON .. "Spe
 end }
 
 -- The examples, each a new copy: { { key, name, icon, art, desc, def } } in the list's order.
--- Where each example's scripts sit on the canvas (two columns a stage, none on top of another: measured in the
--- builder; a stage with a smart block's card has its scripts to the card's right).
+-- Where each example's scripts sit on the canvas, measured in the builder (2026-10-07): columns 20 and ~430 apart,
+-- none on top of another, clear of the overview and the zoom bar in the canvas' bottom-right corner; a stage with a
+-- smart block's card has its scripts right of the card (370) or under it. Everything shows at 100% (the canvas is 762
+-- x 585 there) but in four busy stages the builder opens zoomed out to show all of it: hide's Seek (90%), race's Race
+-- (80%), fish's Prizes (80%), quiz's Prizes (90%) and red light's Play (67%).
 local LAYOUT = {
-    hide = { h1 = { 370, 22 }, h2 = { 20, 22 }, h3 = { 647, 22 }, h4 = { 20, 22 }, h5 = { 20, 22 }, h6 = { 588, 22 },
-             h7 = { 20, 240 }, h8 = { 588, 268 }, h9 = { 588, 374 }, h10 = { 588, 480 }, h11 = { 20, 22 } },
-    infect = { i1 = { 370, 22 }, i2 = { 20, 22 }, i3 = { 671, 22 }, i4 = { 20, 22 }, i5 = { 483, 22 }, i6 = { 20, 22 },
-               i7 = { 20, 184 }, i8 = { 20, 290 }, i9 = { 20, 22 } },
-    race = { r1 = { 370, 22 }, r1j = { 370, 156 }, r2 = { 370, 290 }, r3 = { 20, 22 }, r4 = { 521, 22 }, r5 = { 521, 199 },
-             r6 = { 20, 339 }, r7 = { 521, 389 }, r8 = { 521, 495 }, r9 = { 20, 22 } },
-    fish = { f1 = { 370, 22 }, f2 = { 20, 22 }, f3 = { 583, 22 }, f4 = { 583, 128 }, f5 = { 20, 184 }, f6 = { 583, 234 },
+    duel = { c1 = { 20, 245 }, c2 = { 370, 22 }, c9 = { 370, 22 }, c6 = { 20, 22 }, c8 = { 20, 22 }, c4 = { 20, 22 },
+             c7 = { 20, 255 }, c5 = { 420, 22 }, c3 = { 420, 171 } },
+    hide = { h1 = { 370, 22 }, h2 = { 20, 22 }, h3 = { 509, 22 }, h4 = { 20, 22 }, h6 = { 20, 22 }, h7 = { 20, 262 },
+             h8 = { 20, 569 }, h5 = { 469, 22 }, h10 = { 469, 240 }, h9 = { 469, 374 }, h11 = { 20, 22 } },
+    infect = { i1 = { 370, 22 }, i2 = { 20, 22 }, i3 = { 525, 22 }, i5 = { 20, 22 }, i8 = { 20, 339 }, i4 = { 453, 22 },
+               i7 = { 453, 184 }, i9 = { 20, 22 }, i6 = { 20, 22 } },
+    race = { r2 = { 370, 22 }, r1 = { 20, 245 }, r1j = { 20, 379 }, r3 = { 20, 22 }, r5 = { 20, 339 }, r4 = { 20, 529 },
+             r6 = { 428, 22 }, r7 = { 428, 283 }, r8 = { 428, 389 }, r9 = { 20, 22 } },
+    fish = { f1 = { 370, 22 }, f2 = { 20, 22 }, f5 = { 20, 184 }, f3 = { 449, 22 }, f4 = { 449, 128 }, f6 = { 449, 234 },
              f7 = { 20, 22 } },
     tmog = { t1 = { 370, 22 }, t2 = { 20, 22 }, t3 = { 20, 22 }, t4 = { 20, 22 }, t5 = { 20, 22 }, t6 = { 20, 22 } },
-    quiz = { q1 = { 370, 22 }, q2 = { 20, 22 }, q3 = { 689, 22 }, q4 = { 20, 22 } },
-    redlight = { g1 = { 370, 22 }, g1j = { 370, 156 }, g2 = { 370, 290 }, g3 = { 20, 22 }, g4 = { 487, 22 }, g5 = { 20, 296 },
-                 g6 = { 20, 600 }, g7 = { 487, 645 }, g8 = { 487, 751 }, g9 = { 20, 22 } },
+    quiz = { q1 = { 370, 22 }, q2 = { 20, 22 }, q3 = { 20, 311 }, q4 = { 20, 22 } },
+    redlight = { g2 = { 370, 22 }, g1 = { 20, 245 }, g1j = { 20, 379 }, g4 = { 20, 22 }, g8 = { 20, 645 }, g7 = { 20, 751 },
+                 g3 = { 426, 22 }, g5 = { 779, 22 }, g6 = { 426, 326 }, g9 = { 20, 22 } },
 }
 
 local function Make(e)

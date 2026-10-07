@@ -529,14 +529,20 @@ def messages_reach_only_the_players_named():
     for n in names:
         texts = [x[2] for x in got(by[n])]
         assert "Forged" not in texts and "Forged 2" not in texts and "Old" not in texts, (n, texts)
-    # many whispers: at most 4 a second, the rest wait their turn
+    # many whispers: 8 at once, then 1 a second (the prefix's own pace, 2026-10-07: it was 4 a second, which the
+    # server throttles past its burst); the same line waiting for several players goes as one message naming them
+    w.tick(10)
     a3 = len(w.addon_log)
     g.eval(out + "for i = 1, 3 do for _, k in ipairs({ 'Bert-Thunderstrike', 'Cora-Thunderstrike', "
            "'Dain-Thunderstrike', 'Eve-Thunderstrike' }) do o.tell({ k }, 'Line ' .. i) end end", occ)
     w.tick(0.5)
     first = len(event_msgs(w, a3, "Gina"))
     w.tick(4)
-    assert first == 4 and len(event_msgs(w, a3, "Gina")) == 12, (first, len(event_msgs(w, a3, "Gina")))
+    sent = event_msgs(w, a3, "Gina")
+    assert first == 8 and len(sent) == 9 and sent[-1]["chat_type"] == "GUILD", (first, len(sent))
+    for n in ("Bert", "Cora", "Dain", "Eve"):
+        lines = [x[2] for x in got(by[n]) if x[2].startswith("Line ")]
+        assert lines == ["Line 1", "Line 2", "Line 3"], (n, lines)
     w.assert_no_errors()
 
 

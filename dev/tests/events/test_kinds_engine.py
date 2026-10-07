@@ -649,12 +649,18 @@ def an_ask_closes_when_a_restore_comes_and_a_paused_one_waits():
         local mid = { run.st.qa.ak1.open, run.st.qa.ak1.ends - K.clock }
         K.adv(15)
         local closed = { run.st.qa.ak1.open, K.moments() }
-        -- a restored run: the open ask is closed (the script waiting for it is gone)
+        -- a restored run (the host's /reload, a takeover): the open ask stays open, the script waiting for it comes
+        -- back and goes on once it closes (2026-10-07: before, the ask closed and the script was gone)
         local run2 = K.mk(d, 2)
         local r2 = ns.EventEngine:Restore(d, run2:Snapshot(true), { now = function() return K.clock end, out = K.out })
-        return { paused = paused, mid = mid, closed = closed, restored = r2.st.qa.ak1.open, err = K.errors() }""")
+        K.run = r2
+        local restored = { r2.st.qa.ak1.open, #r2.st.moments }
+        K.adv(31)
+        return { paused = paused, mid = mid, closed = closed, restored = restored, after = { r2.st.qa.ak1.open, K.moments() },
+                 err = K.errors() }""")
     assert out["paused"] is True and out["mid"][0] is True and out["mid"][1] == 10, out
-    assert out["closed"] == [False, ["after"]] and out["restored"] is False and out["err"] == [], out
+    assert out["closed"] == [False, ["after"]] and out["restored"] == [True, 0] and out["err"] == [], out
+    assert out["after"] == [False, ["after"]], out["after"]
     w.assert_no_errors()
 
 
@@ -1347,7 +1353,8 @@ def example_fishing_derby_end_to_end():
         local run = K.mk(B:Example("fish"), 4)
         local P = K.P
         local r = { stage = run.st.stage, shown = run.st.shown.Derby }
-        local catch = function(i, name) run:Happen(P(i), "fish", { item = 1, name = name or "Barbed Gill Trout" }) end
+        -- (Mr. Pinchy is item 27388: the derby knows him by it, whatever the client calls him)
+        local catch = function(i, name) run:Happen(P(i), "fish", { item = name and 27388 or 1, name = name or "Barbed Gill Trout" }) end
         catch(1); K.adv(60); catch(2); catch(2); K.adv(60); catch(1); catch(3, "Mr. Pinchy"); catch(2); catch(1); catch(1)
         r.leads = {}
         for _, t in ipairs(K.told) do if t.k == "P4" then r.leads[#r.leads + 1] = t.text end end

@@ -134,7 +134,7 @@ function T:MyEvent()
         local occ = self.demoOcc or "odemo1"
         local st, def = StateOf(occ)
         if not (st and def) then return nil end
-        return occ, st, def, E():BracketOf(def, st)
+        return occ, st, def, (E():BracketOf(def, st))
     end
     local best, bestScore
     for _, occ in ipairs(L():GetLiveList() or {}) do
@@ -154,8 +154,11 @@ function T:MyEvent()
         -- the builder's practice run, when it puts something on my screen
         if PracticeForMe() then
             local st, def = StateOf("practice")
-            if st and def then return "practice", st, def, E():BracketOf(def, st) end
+            if st and def then return "practice", st, def, (E():BracketOf(def, st)) end
         end
+        -- a planned event I'm in, about to start, with a place to meet (or one I asked the way to)
+        local occ, o = self:Upcoming()
+        if occ then return occ, nil, o.def, nil, o end
         return nil
     end
     local st = StateOf(best)
@@ -223,12 +226,20 @@ local function CreateTracker()
     head:SetPoint("TOPRIGHT")
     head:SetHeight(18)
     head:RegisterForClicks("LeftButtonUp")
-    head:SetScript("OnClick", function() if cur.occ then Board():Toggle(cur.occ) end end)
+    head:SetScript("OnClick", function()
+        if not cur.occ then return end
+        -- (a planned event has no board yet: its page)
+        if cur.planned and ns.EventsUI and ns.EventsUI.OpenEvent then
+            ns.EventsUI:OpenEvent(cur.occ)
+            return
+        end
+        Board():Toggle(cur.occ)
+    end)
     head:SetScript("OnEnter", function(self)
         f.name:SetTextColor(1, 0.92, 0.5)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine(f.name:GetText() or "Event")
-        GameTooltip:AddLine("Click: the live board", 1, 1, 1)
+        GameTooltip:AddLine(cur.planned and "Click: the event's page" or "Click: the live board", 1, 1, 1)
         GameTooltip:Show()
     end)
     head:SetScript("OnLeave", function()
@@ -324,9 +335,16 @@ local function CreateTracker()
     return f
 end
 
+-- The event's name at the top: smaller when long, else on two lines (the clock keeps its place at the right).
+local function TitleFit(f, name)
+    local one = H().Fit2(f.name, name, TRK_W - 23 - 44, 12.5, 10)
+    f.headH = one and 18 or 32
+    f.head:SetHeight(f.headH)
+end
+
 -- Lays the tracker's lines out top to bottom (shown ones only) and sizes it.
 local function LayTracker(f)
-    local y = 18
+    local y = f.headH or 18
     for _, fs in ipairs({ f.l1, f.l2, f.l3 }) do
         fs:ClearAllPoints()
         if fs:IsShown() and (fs:GetText() or "") ~= "" then
@@ -558,23 +576,17 @@ function T:FillPart2(f, occ, st, def, bk)
         c:Show()
     end
     for i = n + 1, #f.chips do f.chips[i]:Hide() end
-    -- the arrow to the place I'm pointed to
+    -- the arrow to the place I'm pointed to; while the sign-up runs (nobody pointed yet), to where everyone meets
     local place = mine.pid and type(def.places) == "table" and def.places[mine.pid]
     local arr = f.arr
+    local inIt = Contains(st.entrants, me) or Contains(st.signups, me) or L():IsHostOf(occ)
+    if not place and inIt and L().MyMeet and EUI():StageSub(def, st) == "signing up" then
+        local pid, yd, br = L():MyMeet(occ)
+        place = pid and type(def.places) == "table" and def.places[pid]
+        if place then mine.pid, mine.yards, mine.bearing, mine.meet = pid, yd, br, true end
+    end
     if place then
-        h.Fit(arr.name, place.n or "A place", TRK_W - TRK_IN - 48, 12.5, 10.5)
-        arr.tipTitle = place.n
-        if mine.yards then
-            arr.yd:SetText(floor(mine.yards + 0.5) .. " yd")
-            arr.yd:SetTextColor(0.612, 0.937, 1)
-            arr.tipText = "The event points you here: follow the arrow. Its ring is on your minimap."
-        else
-            arr.yd:SetText("outside instances")
-            arr.yd:SetTextColor(0.62, 0.62, 0.62)
-            arr.tipText = "Places work in the open world: the arrow comes back when you're out of the instance."
-        end
-        self:SetArrow(mine.bearing)
-        arr:Show()
+        self:ArrowTo(f, place, mine.yards, mine.bearing, mine.meet)
     else
         arr:Hide()
     end
@@ -650,11 +662,15 @@ end
 function T:TickArrow()
     local f = trk
     if not (f and f:IsShown() and cur.occ) then return end
-    if f.arr:IsShown() and not (Board().DemoKinds and Board():DemoKinds(cur.occ)) and L().MyPoint then
-        local pid, yards, bearing = L():MyPoint(cur.occ)
-        if pid and f.mine and pid == f.mine.pid then
-            if yards then f.arr.yd:SetText(floor(yards + 0.5) .. " yd") end
+    if f.arr:IsShown() and f.mine and not (Board().DemoKinds and Board():DemoKinds(cur.occ)) and L().MyPoint then
+        local pid, yards, bearing
+        if f.mine.meet then pid, yards, bearing = L():MyMeet(cur.occ) else pid, yards, bearing = L():MyPoint(cur.occ) end
+        if pid and pid == f.mine.pid then
+            if yards then f.arr.yd:SetText(self:YardsText(f.arr, yards)) end
             self:SetArrow(bearing)
+        elseif not pid and not f.mine.meet then
+            -- (I got there: my own point ends by itself)
+            self:Later()
         end
     end
     self:MoveMinimapRing()
@@ -728,13 +744,125 @@ function T:MoveMinimapRing()
         clip = { -cx, -cy, R - 2 } })
 end
 
+---------------------------------------------------------------------------
+-- Where to go before it starts (EVENTS_KINDS.md "Where to go"): the meeting place
+---------------------------------------------------------------------------
+
+local MEET_BEFORE, MEET_AFTER = 30 * 60, 60 * 60
+
+-- The planned event the tracker shows: one I'm in (or host) starting within 30 min (an hour late at most) with a
+-- place to meet, else one I asked the way to (Show the way). occ, o.
+function T:Upcoming()
+    if DemoOn() then return nil end
+    local ev, me = Ev(), Me()
+    if not (ev and ev.GetOccurrences) then return nil end
+    local now = ServerNow()
+    local best, bestAt, asked
+    for _, o in ipairs(ev:GetOccurrences(now - 6 * 3600, now + 7 * 86400) or {}) do
+        local state = ev:OccState(o)
+        if state == "planned" and type(o.def) == "table" then
+            local mineToo = ev:IsSignedUp(o.id) or ev:HostOf(o) == me
+            local soon = o.at - now <= MEET_BEFORE and now - o.at <= MEET_AFTER
+            if mineToo and soon and ev:MeetOf(o) and (not bestAt or o.at < bestAt) then best, bestAt = o, o.at end
+            -- (a place I asked the way to, on its page or its map)
+            if not asked and L().MyPoint and L():MyPoint(o.id) then asked = o end
+        end
+    end
+    local o = best or asked
+    if o then return o.id, o end
+    return nil
+end
+
+-- "Starts in 12 min" (a minute's words), "Starts any minute" once it's due, "Starts Wed 20:00" further off.
+local function StartsText(at)
+    local left = at - ServerNow()
+    if left <= 30 then return "Starts any minute" end
+    if left < 90 * 60 then return "Starts in " .. max(1, ceil(left / 60)) .. " min" end
+    local day = EUI().Day and EUI():Day(at)
+    return "Starts " .. (day and (day .. " ") or "") .. date("%H:%M", at)
+end
+T.StartsText = StartsText
+
+-- The arrow's row for a place: "Meet at Start line" (meet) or its name; "340 yd", "Zangarmarsh · 2400 yd" when it's
+-- in another zone, "Zangarmarsh" when the way isn't known (an instance, another continent).
+function T:ArrowTo(f, place, yards, bearing, meet)
+    local h = H()
+    local arr = f.arr
+    local name = place.n or "A place"
+    h.Fit(arr.name, meet and ("Meet at " .. name) or name, TRK_W - TRK_IN - 48, 12.5, 10.5)
+    arr.tipTitle = meet and ("Meet at " .. name) or name
+    local zone = EUI():PlaceZone(place)
+    local S = ns.EventSensors
+    local me = S and S.MyPos and S:MyPos()
+    local elsewhere = zone and me and tonumber(me.map) ~= tonumber(place.map) and EUI():MapName(me.map) ~= zone
+    arr.prefix = elsewhere and (zone .. " · ") or ""
+    -- (where everyone meets: "you're there" inside it; a place the event points me to stops pointing there by itself)
+    arr.r = meet and (tonumber(place.r) or 30) or nil
+    if yards then
+        arr.yd:SetText(self:YardsText(arr, yards))
+        arr.yd:SetTextColor(0.612, 0.937, 1)
+        arr.tipText = (meet and "Where everyone meets before it starts: follow the arrow. " or
+            "The event points you here: follow the arrow. ") .. "Its ring is on your minimap."
+    else
+        local xy = EUI():Coords(place, 0)
+        arr.yd:SetText(zone or (xy and ("at " .. xy)) or "outside instances")
+        arr.yd:SetTextColor(0.62, 0.62, 0.62)
+        arr.tipText = ((zone and xy) and (zone .. " " .. xy .. ". ") or "")
+            .. "The arrow shows the way once you're in the open world on the same continent."
+    end
+    self:SetArrow(bearing)
+    arr:Show()
+end
+
+-- "340 yd" ("Zangarmarsh · 2400 yd" in another zone), "you're there" inside the place.
+function T:YardsText(arr, yards)
+    if arr.r and yards <= arr.r then return "you're there" end
+    return (arr.prefix or "") .. floor(yards + 0.5) .. " yd"
+end
+
+-- A planned event's tracker: its name, when it starts, and the way to where everyone meets (or the place I asked
+-- the way to).
+function T:FillPlanned(occ, o)
+    local f = trk or CreateTracker()
+    local h = H()
+    local def = o.def
+    f.icon:SetTexture(def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+    TitleFit(f, def.name or "Event")
+    f.clockMatch = nil
+    for _, x in ipairs({ f.ready, f.board, f.pips, f.segs }) do x:Hide() end
+    f.pipText:SetText("")
+    for _, fs in ipairs({ f.l1, f.l2, f.l3 }) do fs:SetText("") end
+    for _, list in ipairs({ f.chips, f.scores, f.btns, f.feed }) do for _, x in ipairs(list) do x:Hide() end end
+    f.planned = o
+    f.stage:SetText(StartsText(o.at))
+    f.stage:SetTextColor(0.94, 0.94, 0.94)
+    f.stage:Show()
+    -- the place I asked the way to first, else where everyone meets
+    local pid, yards, bearing = L():MyPoint(occ)
+    local meet = false
+    if not pid then
+        pid, yards, bearing = L():MyMeet(occ)
+        meet = pid ~= nil
+    end
+    local place = pid and type(def.places) == "table" and def.places[pid]
+    f.mine = { pid = place and pid or nil, yards = yards, bearing = bearing, meet = meet, tags = {}, scores = {},
+        buttons = {}, feed = {} }
+    if place then self:ArrowTo(f, place, yards, bearing, meet) else f.arr:Hide() end
+    self:RefreshMinimapRing(occ, nil, def, f.mine)
+    LayTracker(f)
+    f:Show()
+    self:TickClocks()
+    Anchor()
+end
+
 -- The lines for the event (occ) and my place in it.
 function T:FillTracker(occ, st, def, bk)
     local f = trk or CreateTracker()
     local h = H()
     local me = Me()
+    f.planned = nil
     f.icon:SetTexture(def and def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-    h.Fit(f.name, def and def.name or "Event", TRK_W - 23 - 44, 12.5, 10)
+    TitleFit(f, def and def.name or "Event")
     f.clockMatch = nil
     f.ready:Hide()
     f.board:Hide()
@@ -855,17 +983,27 @@ function T:FillTracker(occ, st, def, bk)
         f.board:SetShown(#disputes > 0)
     end
     self:FillPart2(f, occ, st, def, bk)
+    -- (the meeting place's arrow says where: the "where" text of the calendar event isn't needed under it)
+    if f.mine and f.mine.meet and (f.l3:GetText() or ""):find("^Meet at ") then f.l3:SetText("") end
     -- (part 2's stage line says where it stands: the host's line doesn't repeat the stage)
     if not bk and f.l1:GetText() and f.l1:GetText():find("^You're hosting") then f.l1:SetText("You're hosting") end
     LayTracker(f)
+    -- (shown first: the clock ticks only on a shown tracker, and one coming back must not show the last event's time)
+    f:Show()
     self:TickClocks()
     Anchor()
-    f:Show()
 end
 
 function T:TickClocks()
     local f = trk
     if not (f and f:IsShown()) then return end
+    if f.planned then
+        -- (before it starts: the time to its start, under an hour)
+        local left = f.planned.at - ServerNow()
+        f.clock:SetText((left > 0 and left < 3600) and H().Clock(left) or "")
+        f.stage:SetText(StartsText(f.planned.at))
+        return
+    end
     local m = f.clockMatch
     local st = cur.occ and StateOf(cur.occ)
     if m and st and m.st == "play" then
@@ -905,8 +1043,10 @@ end
 -- part 2's prompts on screen: the cards of open asks and the results of closed ones, in the order they came
 local p2 = { order = {}, cards = {}, free = {}, results = {}, seen = {}, shownResult = {}, answered = {} }
 
--- The cards stack in the middle of the screen, top down from above its centre; when they don't fit, in two
--- columns side by side (they never overlap).
+local banners = {}      -- the "show" banners at the top of the screen (T:Show), the newest first
+
+-- The cards stack in the middle of the screen, top down from above its centre (below the banners when they reach
+-- that far); when they don't fit, in two columns side by side (they never overlap).
 local function Stack()
     local list = {}
     for _, f in ipairs({ card, ask, waitc, toast }) do if f and f:IsShown() then list[#list + 1] = f end end
@@ -914,6 +1054,10 @@ local function Stack()
     local top = 175
     local sh = (UIParent and UIParent:GetHeight()) or 768
     if not sh or sh <= 0 then sh = 768 end
+    -- (the banners' foot, from the screen's top: 150 down, 8 between them)
+    local foot = 0
+    for _, f in ipairs(banners) do if f:IsShown() then foot = max(foot, 150) + f:GetHeight() + 8 end end
+    if foot > 0 then top = min(top, floor(sh / 2 - foot - 4)) end
     local room = sh / 2 + top - 24
     local total = 0
     for i, f in ipairs(list) do total = total + f:GetHeight() + (i > 1 and 10 or 0) end
@@ -1625,9 +1769,22 @@ function T:LayAsk(f)
     else
         -- yes / no, a choice: a button each (answering at once)
         local choices = kind == "yesno" and { "Yes", "No" } or (a.choices or {})
-        local cols = (kind == "yesno" or #choices <= 2) and 2 or 2
-        local bw = floor((w - 28 - 8) / cols)
+        local cols = 2
         local bh = kind == "yesno" and 40 or 34
+        -- (long choices: one a row; longer still, on two lines in a taller button: never cut)
+        local wrap = false
+        if kind ~= "yesno" then
+            f.measure = f.measure or H().Text(f, "GameFontHighlight", 10)
+            local widest = 0
+            for _, c in ipairs(choices) do
+                f.measure:SetText(tostring(c))
+                widest = max(widest, H().Width(f.measure))
+            end
+            f.measure:SetText("")
+            if widest > floor((w - 28 - 8) / 2) - 12 then cols = 1 end
+            if widest > (w - 28) - 16 then wrap, bh = true, 46 end
+        end
+        local bw = floor((w - 28 - 8 * (cols - 1)) / cols)
         for i, c in ipairs(choices) do
             local b = f.opts[i]
             if not b then
@@ -1636,7 +1793,16 @@ function T:LayAsk(f)
             end
             b.value = (kind == "yesno") and (i == 1) or c
             b:SetSize(bw, bh)
-            h.Fit(b:GetFontString(), tostring(c), bw - 12, 12.5, 10)
+            local fs = b:GetFontString()
+            fs:SetWordWrap(wrap)
+            if wrap then
+                H().Sized(fs, 11)
+                fs:SetWidth(bw - 16)
+                fs:SetText(tostring(c))
+            else
+                fs:SetWidth(bw - 12)
+                h.Fit(fs, tostring(c), bw - 12, 12.5, 10)
+            end
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", f, "TOPLEFT", 14 + ((i - 1) % cols) * (bw + 8), -(y + floor((i - 1) / cols) * (bh + 8)))
             b:Show()
@@ -2119,7 +2285,6 @@ end
 ---------------------------------------------------------------------------
 
 local BANNER_W, BANNER_FOR = 520, 6
-local banners = {}
 
 local function NewBanner()
     local f = CreateFrame("Frame", "DisasterZoneEventBanner" .. (#banners + 1), UIParent)
@@ -2143,10 +2308,11 @@ local function NewBanner()
     UI():SetEdgeColor(f, 1, 0.82, 0, 0.55)
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(30, 30)
-    f.icon:SetPoint("LEFT", 14, 0)
+    -- (from the top, as the words: a banner of three lines grows down, the icon beside its first two)
+    f.icon:SetPoint("TOPLEFT", 14, -17)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     f.kick = Kicker(f)
-    f.kick:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 12, 2)
+    f.kick:SetPoint("TOPLEFT", f, "TOPLEFT", 14 + 30 + 12, -15)
     f.t = H().Text(f, "GameFontHighlightLarge", 17, 1, 1, 1)
     f.t:SetWordWrap(true)
     f.t:SetSpacing(2)
@@ -2174,6 +2340,8 @@ function T:LayBanners()
             y = y - f:GetHeight() - 8
         end
     end
+    -- (the cards in the middle start below them)
+    Stack()
 end
 
 -- A banner for me (EVENT_SHOW): the event's art and name, the text big; the newest on top, two at most.
@@ -2358,8 +2526,15 @@ function T:Observe(occ, st, def, bk)
 end
 
 function T:Refresh()
-    local occ, st, def, bk = self:MyEvent()
-    cur.occ = occ
+    local occ, st, def, bk, planned = self:MyEvent()
+    if type(planned) ~= "table" then planned = nil end
+    cur.occ, cur.planned = occ, planned and true or nil
+    if planned then
+        for _, f in ipairs({ card, ask, waitc }) do if f then f:Hide() end end
+        self:FillPlanned(occ, planned)
+        self:RefreshAsks()
+        return
+    end
     if not occ then
         if trk then trk:Hide() end
         if mmRing then mmRing:Hide() end

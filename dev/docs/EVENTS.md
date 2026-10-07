@@ -111,7 +111,8 @@ keep any such fake state in the UI module, never send it.
 ## Engine rules settled by the edge-case pass (2026-10-06)
 
 - Asks carry `b` (the bracket id); a match decided by any means drops its asks, and the script waiting on one stops.
-  A restored run (reload, takeover) drops open asks: the match goes on, the host can decide it.
+  A restored run (reload, takeover) drops open asks: the match goes on, the host can decide it. (Part 2's asks and
+  waiting scripts go on where they were: EVENTS_KINDS.md, "Settled by playing the examples live".)
 - A bracket of 0 or 1 players fires "is done" at once, with no champion (a one-player ranked event earns nothing).
 - Leaving after the sign-up closed takes the player out: their match is a walkover for the opponent (`m.wo`), later
   ones too, and they leave `entrants` (no hosting, no prizes).

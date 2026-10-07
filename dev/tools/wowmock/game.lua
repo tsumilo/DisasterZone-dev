@@ -896,7 +896,15 @@ function GetDifficultyInfo(id)
   local names = { [1] = "Normal", [2] = "Heroic", [3] = "10 Player", [4] = "25 Player", [9] = "40 Player", [148] = "20 Player" }
   return names[id] or "Normal", (id == 1 or id == 2) and "party" or "raid", id == 2, false, false, false, nil
 end
-function GetRealZoneText() local inst = M.W.instance; return inst and inst.name or (M.W.zone or "Shattrath City") end
+function GetRealZoneText()
+  local inst = M.W.instance
+  if inst then return inst.name end
+  -- (standing somewhere in the open world, World.set_position: that zone's name, as the game says it)
+  local m = me()
+  local o = m and m.pos and M.outdoor_maps and M.outdoor_maps[m.pos.map]
+  if o and o.mapType == 3 then return o.name end
+  return M.W.zone or "Shattrath City"
+end
 function GetZoneText() return GetRealZoneText() end
 -- (a client's subzone: World.set_position(c, ..., subzone=...); "" in the open with none, and in instances)
 function GetSubZoneText() local s = me() and me().subzone; return (not M.W.instance and type(s) == "string") and s or "" end

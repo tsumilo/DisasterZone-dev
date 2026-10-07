@@ -563,10 +563,23 @@ end
 function W.Has(def, kind) return def ~= nil and #B():BlocksOf(def, kind) > 0 end
 
 -- Who takes part: duelists in a bracket, players otherwise.
+-- Who takes part, in the event's own word (the mockups' "16 duelists", "9 of 20 racers", "12 anglers"): Matches'
+-- duelists, a route's racers, a fishing contest's anglers, else players.
+local WALK = { ["lo.lnext"] = true, ["lo.lmine"] = true, ["lo.lpos"] = true, ["lo.lend"] = true }
 function W.Noun(def, n)
-    local duel = W.Has(def, "bracket")
-    if n == 1 then return duel and "duelist" or "player" end
-    return duel and "duelists" or "players"
+    local one, many = "player", "players"
+    if W.Has(def, "bracket") then
+        one, many = "duelist", "duelists"
+    elseif type(def) == "table" then
+        local s = B():Senses(def) or {}
+        local walked = false
+        for _, sc in ipairs(def.scripts or {}) do
+            B():Walk(sc.top, function(p) if WALK[p.k] then walked = true end end)
+        end
+        if s.happen and s.happen.fish then one, many = "angler", "anglers"
+        elseif walked then one, many = "racer", "racers" end
+    end
+    return n == 1 and one or many
 end
 
 function W.Spots(def)
@@ -1361,6 +1374,13 @@ function H.NewBanner(parent, height)
     b.btn2 = H.Button(b, "", 70, 26, "secondary")
     b.btn2.glyph = b.btn2:CreateTexture(nil, "OVERLAY")
     b.btn2.glyph:SetSize(12, 12)
+    -- (a third: "Show the way" on an event's page with a meeting place)
+    b.btn3 = H.Button(b, "", 70, 26, "secondary")
+    b.btn3.glyph = b.btn3:CreateTexture(nil, "OVERLAY")
+    b.btn3.glyph:SetSize(12, 12)
+    b.btn3:HookScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    b.btn3:HookScript("OnLeave", HideTip)
+    b.btn3:Hide()
     b.chip = H.Chip(b, 22)
     b.note = Text(b, 11, C.grey)
     b.note:SetJustifyH("RIGHT")
@@ -1432,7 +1452,7 @@ function H.BannerButton(btn, text, kind, glyph, fn, minW)
     btn:Show()
 end
 
--- Lays out the bottom row's right side: [why] [note] [chip] [btn2] [btn]; the stage line at the left gets the room
+-- Lays out the bottom row's right side: [why] [note] [chip] [btn3] [btn2] [btn]; the stage line at the left gets the room
 -- they leave (w: the banner's width).
 function H.BannerRight(b, w)
     local anchor = b
@@ -1450,7 +1470,7 @@ function H.BannerRight(b, w)
         end
         anchor = f
     end
-    for _, f in ipairs({ b.btn, b.btn2, b.chip, b.note, b.why }) do
+    for _, f in ipairs({ b.btn, b.btn2, b.btn3, b.chip, b.note, b.why }) do
         if f:IsShown() then
             used = used + ((f == b.note) and NatW(f) or f:GetWidth()) + 8
             if (f == b.note or f == b.why) and first then
@@ -1735,7 +1755,7 @@ function Up.FillOcc(r, o)
     local spots = W.Spots(d)
     local n = #Ev():GetSignups(o.id)
     local st = Ev():OccState(o)
-    local parts = { W.Kind(d), spots and (n .. " of " .. spots) or (n .. " " .. W.Noun(d, n)), W.Clock(o.at),
+    local parts = { W.Kind(d), spots and (n .. " of " .. spots .. " " .. W.Noun(d, spots)) or (n .. " " .. W.Noun(d, n)), W.Clock(o.at),
         Name(Ev():HostOf(o)) }
     if st == "live" then
         local keys = W.Entrants(o)
@@ -2221,8 +2241,56 @@ function Pg.Create(p)
     v.rewards = {}
     v.esect = H.Sect(v.content)
     v.ents = {}
+    v.wsect = H.Sect(v.content)
+    v.wsect:Hide()
     v.res = Pg.CreateResults(v)
     return v
+end
+
+-- Where an event is (Where to go): its places with coordinates on a map most of them are on, the meeting place
+-- first. { map, list = { place ... }, meet = pid } or nil (no places on a map).
+local WHERE_H = 150
+function Pg.Places(d, meet)
+    local list, count, best, bestN = {}, {}, nil, 0
+    for _, p in ipairs(B():Defs(d, "places", true)) do
+        local m = tonumber(p.map)
+        if m and tonumber(p.x) and tonumber(p.y) then
+            list[#list + 1] = p
+            count[m] = (count[m] or 0) + 1
+            if count[m] > bestN or (p.id == meet) then best, bestN = m, max(bestN, count[m]) end
+        end
+    end
+    if not best then return nil end
+    local on = {}
+    for _, p in ipairs(list) do if tonumber(p.map) == best then on[#on + 1] = p end end
+    return { map = best, list = on, meet = meet }
+end
+
+-- The "Where" section's map: the places (the meeting place in gold), my own arrow, the zone's name; a place's card
+-- on hover, and a click shows me the way there.
+function Pg.FillWhere(v, o, wh, x, y)
+    local m = v.wmap
+    if not m then
+        m = EUI():CreateZoneMap(v.content, RIGHT_W, WHERE_H)
+        v.wmap = m
+    end
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", v.content, "TOPLEFT", x, -y)
+    m:SetSize2(RIGHT_W, WHERE_H)
+    m:SetMap(wh.map)
+    local pts = {}
+    for _, p in ipairs(wh.list) do pts[#pts + 1] = { tonumber(p.x), tonumber(p.y), tonumber(p.r) or 30 } end
+    -- (close in: places a few hundred yards apart keep their names apart)
+    m:Fit(pts, 0.12)
+    for i, p in ipairs(wh.list) do
+        m:Place(i, tonumber(p.x), tonumber(p.y), tonumber(p.r) or 30, p.n, p.id == wh.meet and "hot" or "place")
+        local pid = p.id
+        m:PlaceInfo(i, { place = p, click = function() EUI():ShowTheWay(o.id, pid, o.def) end })
+    end
+    m:Done(#wh.list)
+    m:ShowZone(true)
+    m:ShowMe(true)
+    m:Show()
 end
 
 -- A rule of a stage ("best of 3", "5 min no-show"): a small flat chip with its glyph. look: nil (the glyph g), or
@@ -2595,7 +2663,10 @@ function Pg.FillBody(v, o, keys, st)
     for _, h in ipairs(rowH) do rh = rh + h end
     if nr == 0 then rh = 26 end
     local entH = ceil(seats / 2) * 24
-    local rightH = 28 + rh + 8 + 28 + max(24, entH)
+    -- (where it is: a map of its places, when it has any)
+    local wh = Pg.Places(d, Ev():MeetOf(o))
+    local whereH = wh and (28 + WHERE_H + 8) or 0
+    local rightH = 28 + rh + 8 + whereH + 28 + max(24, entH)
     local avail = H.Hgt() - BODY_Y - 10
     -- the left column's height needs its width: measure with the full width first
     local lw = W0 - RIGHT_W - COL_GAP
@@ -2662,8 +2733,20 @@ function Pg.FillBody(v, o, keys, st)
     v.noRewards:ClearAllPoints()
     v.noRewards:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + 2, -32)
     v.noRewards:SetText(more and "No badges: season points only." or "No badges: it's for the fun of it.")
-    -- entrants
-    local ey = 28 + rh + 8
+    -- where (the map), then the entrants
+    if wh then
+        local wy = 28 + rh + 8
+        v.wsect:ClearAllPoints()
+        v.wsect:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx, -wy)
+        v.wsect:SetWidth(RIGHT_W)
+        local mp = wh.meet and B():Definition(d, "places", wh.meet)
+        v.wsect:Set("Where", mp and ("meet at " .. (mp.n or "the place")) or nil)
+        Pg.FillWhere(v, o, wh, rx, wy + 28)
+    else
+        v.wsect:Hide()
+        if v.wmap then v.wmap:Hide() end
+    end
+    local ey = 28 + rh + 8 + whereH
     v.esect:ClearAllPoints()
     v.esect:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx, -ey)
     v.esect:SetWidth(RIGHT_W)
@@ -2745,7 +2828,16 @@ function Pg.FillBanner(v, o, keys, st)
         meta[1] = W.Day(o.at)
         meta[2] = W.Clock(o.at)
     end
-    if where then meta[#meta + 1] = where end
+    -- (where everyone meets, for an event with places: its zone and coordinates; else the host's own words)
+    local meetId = Ev():MeetOf(o)
+    local mp = meetId and B():Definition(d, "places", meetId)
+    if mp then
+        local zone, xy = EUI():PlaceZone(mp), EUI():Coords(mp, 0)
+        local at = (zone and xy) and (zone .. " " .. xy) or zone or xy
+        meta[#meta + 1] = "Meet at " .. (mp.n or "the place") .. (at and (" · " .. at) or "")
+    elseif where then
+        meta[#meta + 1] = where
+    end
     meta[#meta + 1] = "hosted by " .. Name(host)
     local k = o.ranked and Ev():GetReview(o.dk)
     if k and k.ok then meta[#meta + 1] = "reviewed by " .. Name(k.by) end
@@ -2759,6 +2851,7 @@ function Pg.FillBanner(v, o, keys, st)
     b.why:Hide()
     b.btn:Hide()
     b.btn2:Hide()
+    b.btn3:Hide()
     local spots = W.Spots(d)
     if occState == "live" then
         b.meter:Hide()
@@ -2811,6 +2904,12 @@ function Pg.FillBanner(v, o, keys, st)
         b.note:Show()
     elseif occState == "cancelled" and o.cancel ~= "Cancelled" then
         H.BannerWhy(b, o.cancel, w - 14 - 330 - 24)
+    end
+    -- the way to where everyone meets (the tracker's arrow and the minimap's ring, for me only)
+    if mp and (occState == "planned" or occState == "live") then
+        H.BannerButton(b.btn3, "Show the way", "secondary", nil, function() EUI():ShowTheWay(o.id, meetId, d) end)
+        b.btn3.tip = { "Show the way", "An arrow under your minimap and a ring on it point you to " .. (mp.n or "the place")
+            .. ", where everyone meets. Only you see it." }
     end
     H.BannerRight(b, w)
 end
@@ -3271,6 +3370,14 @@ function Pg.LayMoments(f, r, moments, x, y, w, n)
     f.mom:SetWidth(w)
     f.mom:SetShown(#moments > 0)
     f.momSect:Set("Moments")
+    -- (the players named in them in their class colours, me in blue: the mockup's moments)
+    local keys, seen = {}, {}
+    local function add(k) if type(k) == "string" and not seen[k] then seen[k] = true; keys[#keys + 1] = k end end
+    add(r.champ); add(r.second); add(r.third)
+    for k in pairs(type(r.points) == "table" and r.points or {}) do add(k) end
+    for k in pairs(type(r.mw) == "table" and r.mw or {}) do add(k) end
+    for _, g in ipairs(type(r.last4) == "table" and r.last4 or {}) do add(g.a); add(g.b) end
+    local H2 = ns.EventBoard and ns.EventBoard.H
     local my = 30
     for i = 1, max(#moments, #f.moments) do
         local m = Pool(f.moments, i, function() return Pg.NewMoment(f.mom) end)
@@ -3280,7 +3387,11 @@ function Pg.LayMoments(f, r, moments, x, y, w, n)
             m:ClearAllPoints()
             m:SetPoint("TOPLEFT", f.mom, "TOPLEFT", 0, -my)
             m.icon:SetTexture(x2.i or r.icon or "Interface\\Icons\\INV_Misc_Note_01")
-            local th = Wrap(m.fs, x2.text or "", w - 24, 11)
+            local text = x2.text or ""
+            if H2 and H2.ColorNames then
+                text = H2.ColorNames(text, keys):gsub("%f[%w]you%f[^%w]", "|cff66b8ffyou|r")
+            end
+            local th = Wrap(m.fs, text, w - 24, 11)
             m.t2:ClearAllPoints()
             m.t2:SetPoint("TOPLEFT", m.fs, "TOPLEFT", 0, -th)
             m.t2:SetText(x2.at and W.Clock(x2.at) or "")
@@ -5463,9 +5574,22 @@ function Sh.Schedule()
         Sh.RefreshSchedule()
     end, tip)
     f.time:SetPoint("LEFT", f.day, "RIGHT", 6, 0)
-    FormLabel(f, "Where", LX, -162)
+    f.whereLabel = FormLabel(f, "Where", LX, -162)
     f.where = Field(f, 372, 26, 48, "Ring of Trials, Nagrand")
     f.where:SetPoint("TOPLEFT", FX, -155)
+    -- (an event with places: where everyone meets is one of them, picked here; the free text is for the others)
+    f.meet = UI():CreateSleekDropdown(f, 372, function() return Sh.MeetOptions(f.s) end,
+        function() return f.s and f.s.meet end, function(v)
+            if f.s then f.s.meet = v end
+        end)
+    f.meet:SetHeight(26)
+    f.meet:SetPoint("TOPLEFT", FX, -155)
+    f.meet:HookScript("OnEnter", function(self)
+        Tip(self, { "Meet at", "Where everyone gathers before it starts: their tracker points them there from 30 "
+            .. "minutes before, and the event's page shows the way." })
+    end)
+    f.meet:HookScript("OnLeave", HideTip)
+    f.meet:Hide()
     FormLabel(f, "Note", LX, -196)
     f.note = Field(f, 372, 26, 200, "Optional, e.g. \"bring a flask\"")
     f.note:SetPoint("TOPLEFT", FX, -189)
@@ -5482,11 +5606,32 @@ function Sh.Schedule()
     return f
 end
 
+-- The schedule sheet's "Meet at" choices: the event's places ("Start line · Nagrand 40, 44"), its own first.
+function Sh.MeetOptions(s)
+    local out = {}
+    local d = s and s.def
+    if not d then return out end
+    local own = {}
+    for _, p in ipairs(B():Defs(d, "places", true)) do
+        local zone, xy = EUI():PlaceZone(p), EUI():Coords(p, 0)
+        local at = (zone and xy) and (zone .. " " .. xy) or zone or xy
+        local o = { value = p.id, text = (p.n or "A place") .. (at and (" · " .. at) or "") }
+        if p.id == d.meet then tinsert(own, 1, o) else own[#own + 1] = o end
+    end
+    return own
+end
+
 function Sh.RefreshSchedule()
     local f = sheets.schedule
     local s = f and f.s
     if not s then return end
     ClampWhen(s)
+    -- (Meet at for an event with places, Where for the rest)
+    local places = #Sh.MeetOptions(s) > 0
+    f.meet:SetShown(places)
+    f.where:SetShown(not places)
+    f.whereLabel:SetText(places and "Meet at" or "Where")
+    if places then f.meet:Refresh() end
     local minDay = MinMinutes(0) >= 24 * 60 and 1 or 0
     f.day:Set(DayText(s.day), s.day > minDay, s.day < (s.maxDay or DAYS_AHEAD))
     f.time:Set(("%02d:%02d"):format(floor(s.mins / 60), s.mins % 60), s.mins > MinMinutes(s.day), s.mins < 24 * 60 - 15)
@@ -5529,6 +5674,14 @@ function Sh.SubmitSchedule()
     local note = ns.Util.Trim(f.note:GetText() or "")
     where = where ~= "" and where or nil
     note = note ~= "" and note or nil
+    -- (an event with places meets at one of them: no free text then; its own meeting place is kept as its own)
+    local places = #Sh.MeetOptions(s) > 0
+    local meet
+    if places then
+        where = nil
+        meet = s.meet
+        if meet == (s.def and s.def.meet) then meet = nil end
+    end
     if s.occ then
         -- (it may have changed while the sheet was open: removed, called off, started)
         local o = Ev():GetOcc(s.occ)
@@ -5536,7 +5689,10 @@ function Sh.SubmitSchedule()
         local why = (not o and "It's gone from the calendar.") or (st == "cancelled" and "It was cancelled.")
             or (st == "live" and "It's running: it can't move now.") or (st == "done" and "It's over.")
             or (Ev():HostOf(o) ~= Me() and "Only its host can move it.") or nil
-        if why or not Ev():EditOcc(s.occ, at, where, note) then
+        -- (meet: a place of its own, false back to the event's own, nil as it was: events without places)
+        local meetArg
+        if places then meetArg = meet or false end
+        if why or not Ev():EditOcc(s.occ, at, where, note, meetArg) then
             f:Error(why or "Only its host can move it.")
             return false
         end
@@ -5554,7 +5710,7 @@ function Sh.SubmitSchedule()
         f:Error("Some of its pieces need fixing first: open it in the builder.")
         return false
     end
-    local occ = Ev():Schedule(s.defId, at, { where = where, note = note })
+    local occ = Ev():Schedule(s.defId, at, { where = where, note = note, meet = meet })
     if not occ then
         f:Error("The calendar is full right now.")
         return false
@@ -5592,6 +5748,12 @@ function EventsUI:OpenSchedule(defId, occId)
     f.strip:Set(d)
     f.where:SetText(o and o.where or "")
     f.note:SetText(o and o.note or "")
+    -- (where everyone meets: the calendar event's own choice, else its event's, else its first place)
+    s.meet = (o and Ev():MeetOf(o)) or d.meet
+    if not s.meet then
+        local first = Sh.MeetOptions(s)[1]
+        s.meet = first and first.value or nil
+    end
     f:Open()
     Sh.RefreshSchedule()
     return true
