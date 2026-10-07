@@ -10,7 +10,7 @@ ns.CHANGELOG = {
       sections = {
           { heading = "Events", lines = {
               "A new tab, Events: the guild's own events, like duel cups, races, hunts and contests.",
-              "It wears a small BETA tag for now: still being tested, so things may change or not work yet.",
+              "It wears a small BETA tag for now: still being tested, so things may change or break.",
               "Build one in the event builder: snap pieces together like a puzzle, no code.",
               "Start from one of 8 examples: a duel cup, hide and seek, a mount race, a fishing derby...",
               "Stages run along the top (Sign-up, Matches, Finals, Prizes); Always runs in each of them.",
