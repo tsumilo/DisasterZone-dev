@@ -4063,6 +4063,10 @@ end
 
 function PlanUI:RefreshTeams()
     if not teamsView or not teamsView:IsVisible() then return end
+    if ns.RaidGroupsUI:IsCardDragging() then
+        TV.deferred = true
+        return
+    end
     local t, d = teamsView, teamsView.detail
     local teams = RP():GetTeams()
     local organizer = RP():CanManageTeams()
@@ -5063,6 +5067,9 @@ function TV.newSlotRow(col)
     b:SetScript("OnClick", function(self)
         if RP():CanManageTeams() and self.role then TV.openSteps(self.role, self) end
     end)
+    b:RegisterForDrag("LeftButton")
+    b:SetScript("OnDragStart", function(self) TV.compDragStart(self) end)
+    b:SetScript("OnDragStop", function() ns.RaidGroupsUI:EndCardDrag() end)
     return b
 end
 
@@ -5098,7 +5105,12 @@ function TV.slotTooltip(self)
     end
     if organizer then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Click to change this column's slots.", 0.6, 0.6, 0.6, true)
+        if slot.member then
+            GameTooltip:AddLine("Drag to Unassigned to take them out of the groups.", 0.6, 0.6, 0.6, true)
+        else
+            GameTooltip:AddLine("Drag a player from Unassigned here to fill it.", 0.6, 0.6, 0.6, true)
+        end
+        GameTooltip:AddLine("Click to change this role's slots.", 0.6, 0.6, 0.6, true)
     end
     GameTooltip:Show()
 end
@@ -5126,14 +5138,19 @@ function TV.newBenchChip(parent)
             or kind == "waitlist" and ("Waitlist #%d: not on the roster yet."):format(m.n or 0)
             or "In a group, beyond the comp.", 0.6, 0.6, 0.6, true)
         if RP():CanManageTeams() then
-            GameTooltip:AddLine(kind == "unassigned" and "Click to put them in a group or change the spec."
+            GameTooltip:AddLine(kind == "unassigned" and "Drag onto an open slot to fill it, or click to put them in a "
+                .. "group or change the spec."
                 or kind == "waitlist" and "Click to move them in line, onto the roster or off the waitlist."
-                or "Click to add a slot or change the spec.", 0.6, 0.6, 0.6, true)
+                or "Drag onto an open slot to play its spec, or click to add a slot or change the spec.",
+                0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", hideTooltip)
     b:SetScript("OnClick", function(self) TV.benchMenu(self) end)
+    b:RegisterForDrag("LeftButton")
+    b:SetScript("OnDragStart", function(self) TV.compDragStart(self) end)
+    b:SetScript("OnDragStop", function() ns.RaidGroupsUI:EndCardDrag() end)
     return b
 end
 
@@ -5574,13 +5591,106 @@ function TV.fillCompView(m, organizer)
         local p, list = e[1], e[2]
         p.label.fs:SetText(p.title .. "  " .. colorize("8c8c8c", #list))
         p.label:SetWidth(TV.GUT_W)
-        p:SetShown(#list > 0)
-        if #list > 0 then
+        local show = #list > 0 or (organizer and e[3] == "unassigned")
+        p:SetShown(show)
+        if show then
             y = y + TV.fillChipPanel(p, list, e[3], y) + TV.BAND_GAP
         end
     end
     cc:SetWidth(W)
     cc:SetHeight(max(1, y - TV.BAND_GAP))
+end
+
+-- Dragging in Comp (organizers): a player from Unassigned or beyond the comp onto an open slot of their class fills
+-- it: they play its spec in this lineup, and from Unassigned they take the seat where the slot waits in the groups
+-- (its ghost), else the first free seat. A slot's player (or one beyond the comp) dropped on Unassigned leaves the
+-- groups. The lifted card's label says where it lands; a slot it can't fill lights red and says why.
+function TV.compDragStart(src)
+    if not RP():CanManageTeams() then return end
+    local dr = state.draft
+    local m = src.slot and src.slot.member or src.member
+    if not (dr and m and m.key) then return end
+    local from = src.slot and "slot" or src.kind
+    if from ~= "slot" and from ~= "unassigned" and from ~= "beyond" then return end
+    -- (the groups as they are drawn: the seats and where each open slot waits)
+    teamsView.grid:Refresh()
+    local drag = { key = m.key, c = m.c, sp = m.sp, from = from }
+    ns.RaidGroupsUI:StartCardDrag(src, ns.RaidGroupsUI:PlayerPlate({ key = m.key, c = m.c, sp = m.sp }), {
+        target = function() return TV.compTarget(drag) end,
+        drop = function(t) TV.compDrop(drag, t) end,
+        finish = function()
+            if TV.deferred then
+                TV.deferred = nil
+                PlanUI:RefreshTeams()
+            end
+        end,
+    })
+end
+
+-- Where an open slot would put the dragged player: beyond the comp, their own group; from Unassigned, the seat where
+-- the slot's ghost waits, else the first free seat. Returns group, seat (nil: the group picks), or nil (no room).
+function TV.slotSeat(drag, slot)
+    local dr = state.draft
+    if drag.from == "beyond" and TV.inGroup(dr, drag.key) then return dr.grp[drag.key], nil end
+    local grid = teamsView.grid
+    local n = ns.RaidComp:GroupCount(dr.sz)
+    for pass = 1, 2 do
+        for g = 1, n do
+            for _, ch in ipairs(grid.boxes[g].chips) do
+                if not ch.key and (pass == 2 or (ch.ghost and ch.ghost.c == slot.c and ch.ghost.sp == slot.sp)) then
+                    return g, ch.slot
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- What the cursor is over during a Comp drag: { frame, ok, label, kind = "slot" | "out", slot, g, seat } or nil.
+function TV.compTarget(drag)
+    local d = teamsView.detail
+    for _, col in ipairs(d.cols) do
+        for _, r in ipairs(col.rows) do
+            if r:IsShown() and r.slot and r:IsMouseOver() then
+                local slot = r.slot
+                if slot.member then return nil end
+                if drag.from == "slot" then
+                    return { frame = r, ok = false, label = "Drag to Unassigned to take them out" }
+                end
+                if slot.c ~= drag.c then
+                    return { frame = r, ok = false,
+                             label = "Only " .. TV.article(ns.RaidComp:ClassName(slot.c) or "") .. " "
+                                 .. tostring(ns.RaidComp:ClassName(slot.c) or "?") .. " can fill this" }
+                end
+                local g, seat = TV.slotSeat(drag, slot)
+                if not g then return { frame = r, ok = false, label = "No group has room" } end
+                local label = "Group " .. g .. (seat and (", seat " .. seat) or "")
+                if drag.sp ~= slot.sp then label = label .. " · as " .. tostring(ns.RaidComp:SpecLabel(slot.c, slot.sp)) end
+                return { frame = r, ok = true, kind = "slot", slot = slot, g = g, seat = seat, label = label }
+            end
+        end
+    end
+    local u = d.unassigned
+    if drag.from ~= "unassigned" and u:IsShown() and u:IsMouseOver() then
+        return { frame = (u.drop and u.drop:IsShown()) and u.drop or u, ok = true, kind = "out",
+                 label = "Out of the groups" }
+    end
+    return nil
+end
+
+function TV.compDrop(drag, t)
+    local dr = state.draft
+    if not dr or not RP():CanManageTeams() then return end
+    local shown = teamsView.grid.shown
+    if t.kind == "out" then
+        PlanUI:MoveDraftMember(drag.key, nil, nil, nil, shown)
+    elseif t.kind == "slot" then
+        if drag.from == "unassigned" and not PlanUI:MoveDraftMember(drag.key, t.g, nil, t.seat, shown) then
+            return PlanUI:RefreshTeams()
+        end
+        if dr.members[drag.key] and drag.sp ~= t.slot.sp then dr.s[drag.key] = t.slot.sp end
+    end
+    PlanUI:RefreshTeams()
 end
 
 -- The gutter's pips: a square per slot in its class colour, hollow while open, wrapping at width w.
@@ -5635,7 +5745,23 @@ function TV.fillChipPanel(p, list, kind, y)
         chip:Show()
     end
     for j = #list + 1, #p.chips do p.chips[j]:Hide() end
-    local h = max(24, ceil(#list / TV.TILES) * (TV.TILE_H + TV.TILE_GAP) - TV.TILE_GAP)
+    -- (nobody there: a well across the tiles, where a player dragged out of the groups lands)
+    if #list == 0 and not p.drop then
+        local w = CreateFrame("Frame", nil, p)
+        ns.RaidGroupsUI:DecoratePlate(w)
+        ns.RaidGroupsUI:PaintPlate(w, { kind = "empty" })
+        w.fs = textOf(w, "GameFontDisableSmall", 11)
+        w.fs:SetPoint("CENTER", 0, 0)
+        w.fs:SetText("Drag a player here to take them out of the groups")
+        p.drop = w
+    end
+    if p.drop then
+        p.drop:SetShown(#list == 0)
+        p.drop:ClearAllPoints()
+        p.drop:SetPoint("TOPLEFT", p, "TOPLEFT", TV.GUT, 0)
+        p.drop:SetSize(TV.W - TV.GUT, TV.TILE_H)
+    end
+    local h = max(24, ceil(max(1, #list) / TV.TILES) * (TV.TILE_H + TV.TILE_GAP) - TV.TILE_GAP)
     p:ClearAllPoints()
     p:SetPoint("TOPLEFT", teamsView.detail.compContent, "TOPLEFT", 0, -y)
     p:SetSize(TV.W, h)

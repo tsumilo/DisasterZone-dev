@@ -38,6 +38,8 @@ ns.CHANGELOG = {
               "Unassigned players are cards under the groups (Kara lineups: beside the two groups).",
               "The raid buffs sit next to Groups | Comp; unsaved changes are said on the banner.",
               "Comp: a band per role with the same cards, five a row, and a pip per slot.",
+              "Comp: drag a player onto an open slot to fill it; they take its spec and its seat.",
+              "Comp: drag a slot's player to Unassigned to take them out of the groups.",
           } },
       } },
     { version = "1.3.2", date = "7 October 2026", title = "Events, the Group Finder, gems and enchants",

@@ -297,6 +297,59 @@ def the_groups_show_plates_ghost_seats_and_a_plate_can_be_dragged():
     w.assert_no_errors()
 
 
+def comp_drag(cl, w, src, over):
+    """Drags src onto the frame `over` (nil: nowhere) in the Comp view; returns the lifted card's label."""
+    cl.eval("_G.IsMouseButtonDown = function() return true end")
+    cl.eval("local s = ...; s:GetScript('OnDragStart')(s)", src)
+    if over:
+        cl.eval("local f = ...; f.IsMouseOver = function() return true end", over)
+    w.tick(0.2)
+    label = strip_codes(cl.eval("local g = ns.RaidGroupsUI.__plateGhost; return g and g.tip:IsShown() and "
+                                "g.tip.fs:GetText() or ''") or "")
+    cl.eval("local s = ...; s:GetScript('OnDragStop')(s)", src)
+    if over:
+        cl.eval("local f = ...; f.IsMouseOver = nil", over)
+    cl.eval("_G.IsMouseButtonDown = function() return false end")
+    w.tick(0.3)
+    return label
+
+
+@case
+def comp_slots_fill_by_dragging_and_a_slots_player_drags_out():
+    w, c = world()
+    bob = c["Bob"]
+    tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
+                    groups={"Lee": 1, "Rita": 1})
+    w.tick(1)
+    open_teams(w, bob, tid, "comp")
+    # Sam (Combat Rogue, unassigned) onto an open Rogue slot: he takes the seat where it waits, as its spec
+    find = ("for _, col in ipairs(%s.cols) do for _, r in ipairs(col.rows) do if r:IsShown() and r.slot and "
+            "not r.slot.member and r.slot.c == ... then return r end end end" % D)
+    sam = bob.eval("for _, ch in ipairs(%s.unassigned.chips) do if ch:IsShown() and ch.member and ch.member.key == ... "
+                   "then return ch end end" % D, K("Sam"))
+    assert sam is not None
+    priest = bob.eval(find, "PRIEST")
+    label = comp_drag(bob, w, sam, priest)
+    assert label.startswith("Only a Priest"), label
+    assert bob.eval_py("return ns.RaidPlanUI:GetDraft().grp").get(K("Sam")) is None
+    rogue = bob.eval(find, "ROGUE")
+    slot = bob.eval_py("local r = ...; return { sp = r.slot.sp }", rogue)
+    label = comp_drag(bob, w, sam, rogue)
+    assert label.startswith("Group "), label
+    dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
+    assert dr["grp"].get(K("Sam")) is not None, dr
+    assert dr["s"][K("Sam")] == slot["sp"], (dr["s"], slot)
+    # a slot's player (Lee) onto Unassigned: out of the groups, the slot opens again
+    lee = bob.eval("for _, col in ipairs(%s.cols) do for _, r in ipairs(col.rows) do if r:IsShown() and r.slot and "
+                   "r.slot.member and r.slot.member.key == ... then return r end end end" % D, K("Lee"))
+    assert lee is not None
+    label = comp_drag(bob, w, lee, bob.eval("return %s.unassigned" % D))
+    assert label == "Out of the groups", label
+    assert bob.eval_py("return ns.RaidPlanUI:GetDraft().grp").get(K("Lee")) is None
+    assert shown(bob, D + ".saveBtn")
+    w.assert_no_errors()
+
+
 @case
 def a_raid_lists_the_open_slots_and_the_lf_message():
     w, c = world()

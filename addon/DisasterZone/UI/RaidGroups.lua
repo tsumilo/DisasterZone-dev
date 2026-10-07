@@ -1377,6 +1377,17 @@ local function ensurePlateGhost()
 end
 
 -- The lifted plate's label: where a drop at `t` lands (nil: hidden).
+-- The lifted plate's label (nil: hidden).
+local function setLiftTip(text)
+    local g = plateGhost
+    if not g then return end
+    g.tip:SetShown(text ~= nil)
+    if text then
+        g.tip.fs:SetText(text)
+        g.tip:SetSize(floor((g.tip.fs:GetStringWidth() or 100) + 16 + 0.5), floor((g.tip.fs:GetStringHeight() or 12) + 10 + 0.5))
+    end
+end
+
 local function plateGhostTip(grid, t)
     local g = plateGhost
     if not g then return end
@@ -1392,11 +1403,7 @@ local function plateGhostTip(grid, t)
     elseif t and t.pool then
         text = "Out of the groups"
     end
-    g.tip:SetShown(text ~= nil)
-    if text then
-        g.tip.fs:SetText(text)
-        g.tip:SetSize(floor((g.tip.fs:GetStringWidth() or 100) + 16 + 0.5), floor((g.tip.fs:GetStringHeight() or 12) + 10 + 0.5))
-    end
+    setLiftTip(text)
 end
 
 local function cursorIn(frame)
@@ -1553,6 +1560,109 @@ function Grid:EndDrag()
         self:Refresh()
     end
 end
+
+---------------------------------------------------------------------------
+-- Card drags outside the grid (the Teams page's Comp view): the same lifted plate and label, the spot under the
+-- cursor lit gold (a drop does something) or red (it can't land there). The caller decides what is under the
+-- cursor and what a drop does; nothing is re-laid out during the drag, so the frame it began on stays shown (only
+-- that frame hears OnDragStop: call GroupsUI:EndCardDrag() from it; the lifted plate also ends it when the button
+-- is up).
+---------------------------------------------------------------------------
+
+local cardDrag, cardMarker
+
+local function cardMark(t)
+    local m = cardMarker
+    if not m then
+        m = CreateFrame("Frame", nil, UIParent)
+        m.fill = m:CreateTexture(nil, "OVERLAY")
+        m.fill:SetAllPoints()
+        UI():AddEdges(m, "OVERLAY")
+        m:EnableMouse(false)
+        cardMarker = m
+    end
+    local f = t and t.frame
+    if not f then
+        m:Hide()
+        return
+    end
+    m:SetParent(f)
+    m:ClearAllPoints()
+    m:SetAllPoints(f)
+    m:SetFrameLevel(f:GetFrameLevel() + 5)
+    if t.ok then
+        m.fill:SetColorTexture(1, 0.82, 0, 0.1)
+        UI():SetEdgeColor(m, 1, 0.82, 0, 0.85)
+    else
+        m.fill:SetColorTexture(1, 0.25, 0.25, 0.06)
+        UI():SetEdgeColor(m, 1, 0.3, 0.3, 0.8)
+    end
+    m:Show()
+end
+
+-- src = the frame the drag began on (dimmed until the drop), plate = its PaintPlate fields; opts = { target() ->
+-- { frame, ok, label, ... } | nil (asked every frame), drop(t) (a release over an ok target), finish() (after
+-- every drag, dropped or not) }. Returns true when the drag began.
+function GroupsUI:StartCardDrag(src, plate, opts)
+    if cardDrag then return false end
+    local ok, g = pcall(function()
+        local f = ensurePlateGhost()
+        f:SetScale(src:GetEffectiveScale() / UIParent:GetEffectiveScale())
+        f:SetSize(src:GetWidth(), src:GetHeight())
+        local cx, cy = cursorIn(f)
+        f.dx, f.dy = (src:GetLeft() or cx) - cx, (src:GetTop() or cy) - cy
+        paintPlate(f, plate)
+        f.pBase:SetColorTexture(0.137, 0.137, 0.16, 1)
+        UI():SetEdgeColor(f, 1, 0.82, 0, 0.9)
+        f.tip:Hide()
+        return f
+    end)
+    if not ok then
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then handler(g) end
+        return false
+    end
+    cardDrag = { src = src, opts = opts }
+    src:SetAlpha(0.35)
+    g:SetScript("OnUpdate", function(f)
+        if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then return GroupsUI:EndCardDrag() end
+        local x, y = cursorIn(f)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + f.dx, y + f.dy)
+        local d = cardDrag
+        if not d then return end
+        local t = d.opts.target()
+        local sig = t and (tostring(t.frame) .. ":" .. tostring(t.ok) .. ":" .. tostring(t.label)) or ""
+        if sig ~= d.sig then
+            d.sig = sig
+            cardMark(t)
+            setLiftTip(t and t.label or nil)
+        end
+    end)
+    local x, y = cursorIn(g)
+    g:ClearAllPoints()
+    g:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + g.dx, y + g.dy)
+    g:Show()
+    if GameTooltip then GameTooltip:Hide() end
+    return true
+end
+
+function GroupsUI:EndCardDrag()
+    local d = cardDrag
+    if not d then return end
+    cardDrag = nil
+    local ok, t = pcall(d.opts.target)
+    if plateGhost then
+        plateGhost:SetScript("OnUpdate", nil)
+        plateGhost:Hide()
+    end
+    if cardMarker then cardMarker:Hide() end
+    d.src:SetAlpha(1)
+    if ok and t and t.ok and d.opts.drop then d.opts.drop(t) end
+    if d.opts.finish then d.opts.finish() end
+end
+
+function GroupsUI:IsCardDragging() return cardDrag ~= nil end
 
 -- A raid-buff icon for a strip outside the grid (the Teams page's Comp view): GroupsUI:SetBuffIcon(b, entry) fills it
 -- from a RaidComp:BuffStates entry (lit / planned / off, with its tooltip).
