@@ -427,86 +427,199 @@ local function NewCard(parent, key)
     return c
 end
 
-local function BuildBlizzardPanel(canvas)
-    local UI = ns.UI
-    local p = {}
+-- The hero band, from the back: the raid's loading screen (the next raid's, else Outland), a dark fade from the left
+-- so the text reads, embers drifting up, the seal in its glow with a sheen that sweeps its gold now and then, then
+-- the name, the guild, a live line (next raid, members online, BiS) and the two buttons. p.intro() plays the opening:
+-- the seal grows in, the text rises and fades in, the gold line draws across.
+local HERO_H = 176
+local EMBERS = 16
 
-    -- the hero band
+local function Countdown(s)
+    if s <= 0 then return "now" end
+    local d, h, m = math.floor(s / 86400), math.floor(s % 86400 / 3600), math.floor(s % 3600 / 60)
+    if d > 0 then return ("in %dd %dh"):format(d, h) end
+    if h > 0 then return ("in %dh %dm"):format(h, m) end
+    return ("in %dm"):format(math.max(1, m))
+end
+
+local function NextRaid()
+    local RP = ns.RaidPlan
+    if not (RP and RP.GetRaids) then return nil end
+    local now, best = time(), nil
+    local ok, list = pcall(RP.GetRaids, RP, now - 4 * 3600, now + 14 * 86400)
+    if not ok or type(list) ~= "table" then return nil end
+    for _, v in ipairs(list) do
+        if type(v.t) == "number" and v.t >= now - 4 * 3600 and (not best or v.t < best.t) then best = v end
+    end
+    return best
+end
+
+local function EaseOutBack(t)
+    t = t - 1
+    return 1 + 2.4 * t * t * t + 1.4 * t * t
+end
+
+local function Shade(parent, layer, dir, a1, a2, r, g, b)
+    local t = parent:CreateTexture(nil, "BACKGROUND", nil, layer)
+    t:SetColorTexture(1, 1, 1, 1)
+    if not (CreateColor and pcall(t.SetGradient, t, dir, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2))) then
+        t:SetColorTexture(r, g, b, (a1 + a2) / 2)
+    end
+    return t
+end
+
+local function BuildHero(canvas, p)
+    local UI = ns.UI
     local hero = CreateFrame("Frame", nil, canvas)
     hero:SetPoint("TOPLEFT", 12, -12)
     hero:SetPoint("TOPRIGHT", -12, -12)
-    hero:SetHeight(150)
-    Fill(hero:CreateTexture(nil, "BACKGROUND"), 0.05, 0.04, 0.08, 0.9):SetAllPoints()
-    local wash = hero:CreateTexture(nil, "BACKGROUND", nil, 1)   -- purple light from the seal's side
-    wash:SetPoint("TOPLEFT")
-    wash:SetPoint("BOTTOMLEFT")
-    wash:SetWidth(360)
-    wash:SetColorTexture(1, 1, 1, 1)
-    if not (CreateColor and pcall(wash.SetGradient, wash, "HORIZONTAL", CreateColor(0.23, 0.15, 0.33, 0.55),
-            CreateColor(0.05, 0.04, 0.08, 0))) then
-        wash:SetColorTexture(0.23, 0.15, 0.33, 0.25)
-    end
-    Edge(hero, GOLD[1], GOLD[2], GOLD[3], 0.18)
-    local line = Fill(hero:CreateTexture(nil, "ARTWORK"), GOLD[1], GOLD[2], GOLD[3], 0.85)
-    line:SetPoint("BOTTOMLEFT", 0, 0)
-    line:SetPoint("BOTTOMRIGHT", 0, 0)
-    line:SetHeight(2)
-
-    -- a large faint seal, cut by the band's right edge
+    hero:SetHeight(HERO_H)
     hero:SetClipsChildren(true)
-    local mark = hero:CreateTexture(nil, "BACKGROUND", nil, 2)
-    mark:SetSize(300, 300)
-    mark:SetPoint("CENTER", hero, "RIGHT", -70, -10)
-    if ns:HasAssets(4) then
-        mark:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal")
-        mark:SetDesaturated(true)
-        mark:SetVertexColor(0.55, 0.45, 0.7)
-        mark:SetAlpha(0.07)
-    else
-        mark:Hide()
+    Fill(hero:CreateTexture(nil, "BACKGROUND"), 0.05, 0.04, 0.08, 1):SetAllPoints()
+
+    -- the painting and its shades
+    p.art = hero:CreateTexture(nil, "BACKGROUND", nil, 1)
+    p.art:SetAllPoints()
+    local left = Shade(hero, 2, "HORIZONTAL", 0.97, 0.15, 0.04, 0.03, 0.07)
+    left:SetPoint("TOPLEFT")
+    left:SetPoint("BOTTOMLEFT")
+    left:SetPoint("RIGHT", hero, "CENTER", 120, 0)
+    local rest = Fill(hero:CreateTexture(nil, "BACKGROUND", nil, 2), 0.04, 0.03, 0.07, 0.15)
+    rest:SetPoint("TOPLEFT", left, "TOPRIGHT")
+    rest:SetPoint("BOTTOMRIGHT")
+    local low = Shade(hero, 3, "VERTICAL", 0.75, 0, 0.03, 0.02, 0.05)   -- (vertical: the first colour is the bottom's)
+    low:SetPoint("BOTTOMLEFT")
+    low:SetPoint("BOTTOMRIGHT")
+    low:SetHeight(60)
+    Fill(hero:CreateTexture(nil, "BACKGROUND", nil, 4), 0.25, 0.12, 0.4, 0.12):SetAllPoints()   -- a purple cast
+    Edge(hero, GOLD[1], GOLD[2], GOLD[3], 0.18)
+    p.line = Fill(hero:CreateTexture(nil, "OVERLAY", nil, 7), GOLD[1], GOLD[2], GOLD[3], 0.9)
+    p.line:SetPoint("BOTTOMLEFT")
+    p.line:SetHeight(2)
+    p.line:SetWidth(1)
+    p.raidName = hero:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")   -- whose painting it is
+    p.raidName:SetPoint("BOTTOMRIGHT", -10, 8)
+    p.raidName:SetTextColor(0.75, 0.7, 0.62, 0.8)
+
+    -- embers
+    local embers = {}
+    for i = 1, EMBERS do
+        local e = hero:CreateTexture(nil, "ARTWORK", nil, 0)
+        e:SetTexture(DISC)
+        e:SetBlendMode("ADD")
+        embers[i] = e
+    end
+    local function Spawn(e, anywhere)
+        local w = hero:GetWidth() or 600
+        if w < 100 then w = 600 end
+        e.x = math.random() * w
+        e.y = -6
+        e.v = 9 + math.random() * 16
+        e.ph = math.random() * 6.28
+        e.span = (HERO_H + 12) / e.v
+        e.life = anywhere and math.random() * e.span or 0
+        local s = 2 + math.random() * 3
+        e:SetSize(s, s)
+        if math.random() < 0.6 then e:SetVertexColor(1, 0.62, 0.22) else e:SetVertexColor(0.95, 0.82, 0.45) end
     end
 
-    local halo = hero:CreateTexture(nil, "ARTWORK")
+    -- the seal, in a frame of its own so the opening can scale it
+    local sealF = CreateFrame("Frame", nil, hero)
+    sealF:SetSize(150, 150)
+    local halo = sealF:CreateTexture(nil, "ARTWORK")
     halo:SetTexture(DISC)
-    halo:SetSize(150, 150)
-    halo:SetPoint("LEFT", 6, 0)
+    halo:SetAllPoints()
     halo:SetVertexColor(0.45, 0.3, 0.65)
-    local orbit = hero:CreateTexture(nil, "ARTWORK", nil, 1)
+    local orbit = sealF:CreateTexture(nil, "ARTWORK", nil, 1)
     orbit:SetTexture(RING)
+    orbit:SetPoint("CENTER")
     orbit:SetSize(124, 124)
-    orbit:SetPoint("CENTER", halo)
     orbit:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.35)
-    local seal = hero:CreateTexture(nil, "OVERLAY")
-    seal:SetSize(104, 104)
-    seal:SetPoint("CENTER", halo)
-    if ns:HasAssets(4) then
-        seal:SetTexture("Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal")
-    else
-        seal:SetTexture("Interface\\Icons\\INV_Misc_Bag_10_Blue")
-        seal:SetSize(72, 72)
+    local seal = sealF:CreateTexture(nil, "OVERLAY")
+    seal:SetSize(108, 108)
+    seal:SetPoint("CENTER")
+    local hasSeal = ns:HasAssets(4)
+    seal:SetTexture(hasSeal and "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal"
+        or "Interface\\Icons\\INV_Misc_Bag_10_Blue")
+    if not hasSeal then seal:SetSize(72, 72) end
+    -- the sheen: a slanted band of light, cut to the seal's disc
+    local mask = sealF:CreateMaskTexture()
+    mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    mask:SetAllPoints(seal)
+    local sheen = {}
+    for i = 1, 2 do
+        local s = sealF:CreateTexture(nil, "OVERLAY", nil, 2)
+        s:SetColorTexture(1, 1, 1, 1)
+        s:SetBlendMode("ADD")
+        s:SetSize(14, 160)
+        local c1 = CreateColor and CreateColor(1, 0.92, 0.7, 0)
+        local c2 = CreateColor and CreateColor(1, 0.92, 0.7, 0.55)
+        if not (c1 and pcall(s.SetGradient, s, "HORIZONTAL", i == 1 and c1 or c2, i == 1 and c2 or c1)) then
+            s:SetColorTexture(1, 0.92, 0.7, 0.2)
+        end
+        s:SetRotation(math.rad(-25))
+        s:AddMaskTexture(mask)
+        s:Hide()
+        sheen[i] = s
     end
 
-    local title = hero:CreateFontString(nil, "OVERLAY")
+    -- the text column
+    local col = CreateFrame("Frame", nil, hero)
+    col:SetPoint("TOPLEFT", 172, 0)
+    col:SetPoint("BOTTOMRIGHT")
+    local title = col:CreateFontString(nil, "OVERLAY")
     title:SetFontObject(HeroFont(30))
-    title:SetPoint("TOPLEFT", halo, "TOPRIGHT", 8, -30)
+    title:SetPoint("TOPLEFT", 0, -26)
     title:SetText("|cffff8000Disaster|r|cfff5e6b8Zone|r")
+    title:SetShadowOffset(1, -2)
+    title:SetShadowColor(0, 0, 0, 0.9)
 
-    local ver = CreateFrame("Frame", nil, hero)
+    local ver = CreateFrame("Frame", nil, col)
     ver.text = ver:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     ver.text:SetPoint("CENTER")
     ver.text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     local applied = ns.Boot and ns.Boot.applied and (ns.Boot.applied.files or 0) > 0
-    ver.text:SetText("v" .. tostring(ns.version or "?") .. (applied and ("  ·  update on " .. tostring(ns.diskVersion)) or ""))
+    ver.text:SetText("v" .. tostring(ns.version or "?")
+        .. (applied and ("  ·  update on " .. tostring(ns.diskVersion)) or ""))
     ver:SetSize(ver.text:GetStringWidth() + 16, 18)
     ver:SetPoint("LEFT", title, "RIGHT", 12, 0)
-    Fill(ver:CreateTexture(nil, "BACKGROUND"), GOLD[1], GOLD[2], GOLD[3], 0.12):SetAllPoints()
-    Edge(ver, GOLD[1], GOLD[2], GOLD[3], 0.4)
+    Fill(ver:CreateTexture(nil, "BACKGROUND"), 0.08, 0.06, 0.03, 0.75):SetAllPoints()
+    Edge(ver, GOLD[1], GOLD[2], GOLD[3], 0.5)
 
-    p.guild = hero:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    p.guild = col:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     p.guild:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -6)
-    p.guild:SetTextColor(0.8, 0.78, 0.86)
+    p.guild:SetTextColor(0.85, 0.82, 0.9)
+    p.guild:SetShadowOffset(1, -1)
 
-    local open = UI:CreateButton(hero, "Open DisasterZone", 150, 26, function()
+    -- the live line: three small facts, each with a gold label, split by thin gold rules
+    local function fact(anchor, dx)
+        local f = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        if anchor then
+            f:SetPoint("LEFT", anchor, "RIGHT", dx, 0)
+        else
+            f:SetPoint("TOPLEFT", p.guild, "BOTTOMLEFT", 0, -10)
+        end
+        f:SetShadowOffset(1, -1)
+        return f
+    end
+    local function rule(anchor)
+        local r = Fill(col:CreateTexture(nil, "OVERLAY"), GOLD[1], GOLD[2], GOLD[3], 0.5)
+        r:SetSize(1, 10)
+        r:SetPoint("LEFT", anchor, "RIGHT", 10, 0)
+        return r
+    end
+    p.factRaid = fact()
+    p.factOnline = fact(rule(p.factRaid), 10)
+    p.factBis = fact(rule(p.factOnline), 10)
+    p.bisBar = CreateFrame("Frame", nil, col)
+    p.bisBar:SetSize(54, 4)
+    p.bisBar:SetPoint("LEFT", p.factBis, "RIGHT", 8, 0)
+    Fill(p.bisBar:CreateTexture(nil, "BACKGROUND"), 1, 1, 1, 0.12):SetAllPoints()
+    p.bisFill = Fill(p.bisBar:CreateTexture(nil, "ARTWORK"), GOLD[1], GOLD[2], GOLD[3], 1)
+    p.bisFill:SetPoint("TOPLEFT")
+    p.bisFill:SetPoint("BOTTOMLEFT")
+
+    local open = UI:CreateButton(col, "Open DisasterZone", 150, 26, function()
         local sp = _G.SettingsPanel
         if sp and sp:IsShown() then
             if _G.HideUIPanel then _G.HideUIPanel(sp) else sp:Hide() end
@@ -514,19 +627,131 @@ local function BuildBlizzardPanel(canvas)
         ns.MainFrame:Open()
     end)
     if open.SetKind then open:SetKind("primary") end
-    open:SetPoint("TOPLEFT", p.guild, "BOTTOMLEFT", -1, -14)
-    local settings = UI:CreateButton(hero, "Settings", 100, 26, OpenFromBlizzard)
+    open:SetPoint("TOPLEFT", p.factRaid, "BOTTOMLEFT", -1, -16)
+    local settings = UI:CreateButton(col, "Settings", 100, 26, OpenFromBlizzard)
     settings:SetPoint("LEFT", open, "RIGHT", 8, 0)
 
-    -- the seal breathes: the glow swells and fades, the gold orbit widens and narrows with it
-    local t = 0
+    -- motion: the glow breathes, embers rise, the sheen passes every few seconds, the opening plays on show
+    local t, intro, sheenAt = 0, nil, 1.2
+    local function placeSeal(scale)
+        scale = math.max(scale, 0.05)
+        sealF:SetScale(scale)
+        sealF:ClearAllPoints()
+        sealF:SetPoint("CENTER", hero, "TOPLEFT", 85 / scale, -HERO_H / 2 / scale)
+    end
+    placeSeal(1)
+    function p.intro()
+        intro = 0
+        sheenAt = t + 1.1
+        for _, e in ipairs(embers) do Spawn(e, true) end
+    end
     hero:SetScript("OnUpdate", function(_, elapsed)
         t = t + elapsed
         local b = math.sin(t * 1.4)
-        halo:SetAlpha(0.32 + 0.12 * b)
+        halo:SetAlpha(0.3 + 0.12 * b)
         orbit:SetSize(124 + 6 * b, 124 + 6 * b)
         orbit:SetAlpha(0.7 + 0.3 * b)
+        -- embers (dimmer over the seal's side)
+        local w = hero:GetWidth() or 600
+        for _, e in ipairs(embers) do
+            if not e.span then Spawn(e, true) end
+            e.life = e.life + elapsed
+            if e.life >= e.span then Spawn(e) end
+            local x = e.x + math.sin(e.ph + e.life * 1.3) * 8
+            local k = e.life / e.span
+            e:SetAlpha(math.min(1, k * 5) * (1 - k) * 0.85 * (x < 170 and 0.45 or 1))
+            e:ClearAllPoints()
+            e:SetPoint("CENTER", hero, "BOTTOMLEFT", x, e.y + e.v * e.life)
+        end
+        -- the sheen: 0.8 s across the seal, then again 5 s later
+        local s = (t - sheenAt) / 0.8
+        if s >= 1 then
+            sheenAt = t + 5
+            s = -1
+        end
+        for i, tex in ipairs(sheen) do
+            tex:SetShown(s >= 0)
+            if s >= 0 then
+                tex:ClearAllPoints()
+                tex:SetPoint("CENTER", seal, "CENTER", -80 + 160 * s + (i == 1 and -7 or 7), 0)
+            end
+        end
+        -- the opening
+        if intro then
+            intro = intro + elapsed
+            placeSeal(0.55 + 0.45 * EaseOutBack(math.min(1, intro / 0.55)))
+            sealF:SetAlpha(math.min(1, intro / 0.25))
+            local c = math.min(1, math.max(0, (intro - 0.15) / 0.45))
+            local ce = 1 - (1 - c) ^ 3
+            col:SetAlpha(ce)
+            col:ClearAllPoints()
+            col:SetPoint("TOPLEFT", 172, -10 * (1 - ce))
+            col:SetPoint("BOTTOMRIGHT", 0, -10 * (1 - ce))
+            local l = math.min(1, math.max(0, (intro - 0.25) / 0.6))
+            p.line:SetWidth(math.max(1, w * (1 - (1 - l) ^ 3)))
+            if intro > 0.9 then
+                intro = nil
+                placeSeal(1)
+            end
+        else
+            p.line:SetWidth(w)
+        end
     end)
+    p.hero = hero
+    return hero
+end
+
+local function RefreshHero(p)
+    local guild = IsInGuild() and GetGuildInfo("player")
+    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
+    p.guild:SetText(guild and ("<" .. guild .. ">  ·  " .. (council and "Loot Council" or "Raider"))
+        or "Your guild's raids, loot and pastimes in one place")
+
+    local v = NextRaid()
+    local PUI = ns.RaidPlanUI
+    local w = math.max(p.hero:GetWidth() or 0, 600)
+    local file, l, r, t, b
+    if PUI and PUI.RaidArt then file, l, r, t, b = PUI:RaidArt(v and v.i or "other", w, HERO_H, 1) end
+    if not file then
+        file, l, r, t, b = "Interface\\Glues\\LoadingScreens\\LoadScreenOutland", 0, 1, 0.3, 0.3 + HERO_H / w
+    end
+    p.art:SetTexture(file)
+    p.art:SetTexCoord(l, r, t, b)
+    local G = "|cffd6b05c"
+    if v then
+        local name = ns.RaidPlan.GetRaidName and ns.RaidPlan:GetRaidName(v) or "Raid"
+        p.factRaid:SetText(G .. "Next raid|r  " .. name .. "  ·  " .. date("%a %H:%M", v.t) .. "  ·  "
+            .. Countdown(v.t - time()))
+        local inst = ns.RaidPlan.GetInstance and ns.RaidPlan:GetInstance(v.i)
+        p.raidName:SetText(inst and inst.name or "")
+    else
+        p.factRaid:SetText(G .. "Next raid|r  none planned")
+        p.raidName:SetText("")
+    end
+    local online = 0
+    if IsInGuild() then
+        local _, on = GetNumGuildMembers()
+        online = tonumber(on) or 0
+    end
+    p.factOnline:SetText(G .. "Online|r  " .. online)
+    local ok, prog = false, nil
+    if ns.MyBiS and ns.MyBiS.GetProgress then ok, prog = pcall(ns.MyBiS.GetProgress, ns.MyBiS) end
+    if ok and type(prog) == "table" and (prog.total or 0) > 0 then
+        p.factBis:SetText(G .. "BiS|r  " .. (prog.obtained or 0) .. "/" .. prog.total)
+        p.bisFill:SetWidth(math.max(1, 54 * math.min(1, (prog.obtained or 0) / prog.total)))
+        p.bisBar:Show()
+    else
+        p.factBis:SetText(G .. "BiS|r  no list yet")
+        p.bisBar:Hide()
+    end
+    p.intro()
+end
+
+local function BuildBlizzardPanel(canvas)
+    local UI = ns.UI
+    local p = {}
+
+    local hero = BuildHero(canvas, p)
 
     -- the cards
     local head = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -580,10 +805,7 @@ local function BuildBlizzardPanel(canvas)
 end
 
 local function RefreshBlizzardPanel(canvas, p)
-    local guild = IsInGuild() and GetGuildInfo("player")
-    local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
-    p.guild:SetText(guild and ("<" .. guild .. ">  ·  " .. (council and "Loot Council" or "Raider"))
-        or "Your guild's raids, loot and pastimes in one place")
+    RefreshHero(p)
     local status = ns.Sync and ns.Sync.GetStatusText and ns.Sync:GetStatusText()
     p.status:SetText(((status and status ~= "" and ns.UI:SafeText(status)) or "Ready"))
 
@@ -602,7 +824,7 @@ local function RefreshBlizzardPanel(canvas, p)
         c:SetPoint("TOPLEFT", p.grid, "TOPLEFT", col * (w + GAP), -row * (CARD_H + GAP))
         c.settled = false
         c:SetAlpha(0)
-        c.fade = (i - 1) * 0.03                     -- the cards appear one after another
+        c.fade = 0.35 + (i - 1) * 0.03                    -- the cards appear one after another
         c:Show()
     end
     -- the fade-in, run from the canvas so cards keep their own OnUpdate for hover
