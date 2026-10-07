@@ -412,7 +412,7 @@ function Kit.Chart(parent)
         local top = h - self.inset.t
         -- grid: round values, labels left of the chart
         if o.grid then
-            local step = NiceStep(o.y1 / 1.05, 3)
+            local step = NiceStep(o.y1 / 1.05, 4)
             local v = step
             while v < o.y1 do
                 local _, y = self:Map(0, v)
@@ -489,21 +489,25 @@ function Kit.Chart(parent)
             if s.fill and #pts > 1 then
                 local x0 = self:Map(pts[1][1], 0)
                 local x1 = self:Map(pts[#pts][1], 0)
-                local x = x0
+                -- columns edge to edge on whole units (no overlap: overlapping see-through columns show as
+                -- stripes); each column's gradient runs from 0 at the baseline to A * its height / the plot height,
+                -- so the alpha at any height is the same in every column and the wash reads as one smooth surface
+                local x = floor(x0)
                 local span = (w - self.inset.l - self.inset.r)
+                local A = s.fillAlpha or 0.22
                 while x < x1 do
-                    local dataX = o.x0 + (x + FILL_STEP / 2 - self.inset.l) / span * (o.x1 - o.x0)
+                    local cw = min(FILL_STEP, floor(x1) - x)
+                    if cw < 1 then break end
+                    local dataX = o.x0 + (x + cw / 2 - self.inset.l) / span * (o.x1 - o.x0)
                     local y = YAt(pts, dataX) or 0
                     local _, py = self:Map(dataX, y)
+                    local hgt = max(1, py - base)
                     local t = take("fill", function() return self:CreateTexture(nil, "BACKGROUND", nil, 1) end)
                     t:ClearAllPoints()
                     t:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x, base)
-                    t:SetSize(min(FILL_STEP, x1 - x) + 0.5, max(1, py - base))
-                    -- the gradient spans the column's own height: scale its top alpha by how tall it is, so the
-                    -- wash fades evenly with height instead of every column ending equally bright
-                    local fa = (s.fillAlpha or 0.16) * ((py - base) / max(1, top - base)) ^ 0.6
-                    Kit.Gradient(t, { col[1], col[2], col[3], 0 }, { col[1], col[2], col[3], fa })
-                    x = x + FILL_STEP
+                    t:SetSize(cw, hgt)
+                    Kit.Gradient(t, { col[1], col[2], col[3], 0 }, { col[1], col[2], col[3], A * hgt / max(1, top - base) })
+                    x = x + cw
                 end
             end
             if (s.width or 2) > 0.05 then
@@ -669,9 +673,12 @@ function Kit.Spark(parent, w, h)
         local lo, hi = math.huge, -math.huge
         for i = 1, n do lo = min(lo, vals[i] or 0); hi = max(hi, vals[i] or 0) end
         if hi - lo < 1e-6 then lo, hi = lo - 1, hi + 1 end
-        local step = (w - 6) / 7
-        local x0 = w - 3 - (n - 1) * step
-        local function pt(i) return x0 + (i - 1) * step, 3 + ((vals[i] or 0) - lo) / (hi - lo) * (h - 6) end
+        local sw, sh = self:GetWidth() or w, self:GetHeight() or h      -- (it may have been resized)
+        if sw <= 0 then sw = w end
+        if sh <= 0 then sh = h end
+        local step = (sw - 6) / 7
+        local x0 = sw - 3 - (n - 1) * step
+        local function pt(i) return x0 + (i - 1) * step, 3 + ((vals[i] or 0) - lo) / (hi - lo) * (sh - 6) end
         for i = 2, n do
             local l = self.lines[i - 1]
             if not l then

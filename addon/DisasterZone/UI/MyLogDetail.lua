@@ -272,7 +272,18 @@ local function Points(p, view)
     local n = floor(dur / 5) + 1
     for i = 1, n do
         local len = min(5, dur - (i - 1) * 5)
-        if len >= 1 then out[#out + 1] = { (i - 1) * 5 + len / 2, (tl[i] or 0) / len } end
+        if len >= 2 then out[#out + 1] = { (i - 1) * 5 + len / 2, (tl[i] or 0) / len } end   -- (a 1 s tail is noise)
+    end
+    -- damage taken comes in single hits: a 15 s average reads as pressure instead of a row of needles
+    if view == "tanking" and #out > 2 then
+        local avg = {}
+        for i = 1, #out do
+            local a, b = max(1, i - 1), min(#out, i + 1)
+            local sum = 0
+            for j = a, b do sum = sum + out[j][2] end
+            avg[i] = { out[i][1], sum / (b - a + 1) }
+        end
+        out = avg
     end
     return out
 end
@@ -387,7 +398,17 @@ local function BuildBossView(body)
     v.timeline.fallback = { 772, 200 }
     v.list = UI():CreateScrollList(v, ROW_H, InitAbility)
     v.list.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y)
-    v.list.frame:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD + 20, 46)
+    v.list.frame:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD + 20, LIST_Y)
+    -- whole rows only: a half row peeking out over the uptime cards looks broken
+    local function fitList()
+        local h = v:GetHeight() or 0
+        if h <= 0 then h = 550 end          -- (the page's height in the 800 x 580 window, before layout)
+        local avail = h + LIST_Y - 48
+        v.list.frame:SetHeight(max(ROW_H, floor(avail / ROW_H) * ROW_H))
+    end
+    fitList()
+    v.FitList = fitList
+    v:HookScript("OnSizeChanged", fitList)
     v.list:SetEmptyText("The detail of this pull aged out: only the newest pulls of a boss keep it.")
 
     -- uptimes: small cards with a bar each
@@ -477,8 +498,10 @@ local function RefreshBoss(state)
     local ticks = {}
     for _, g in ipairs(p.gaps or {}) do ticks[#ticks + 1] = { g.at, C.down, g.at + g.len } end
     local series = {}
-    if q then series[#series + 1] = { points = b, color = { 0.62, 0.65, 0.70 }, width = 1.2, alpha = 0.55, smooth = true } end
-    table.insert(series, 1, { points = a, color = C.gold, width = 1.8, fill = true, fillAlpha = 0.16, smooth = true, glow = true, endDot = true })
+    -- (damage taken is already averaged; a curve through sparse hits would wobble)
+    local smooth = view ~= "tanking"
+    if q then series[#series + 1] = { points = b, color = { 0.62, 0.65, 0.70 }, width = 1.2, alpha = 0.55, smooth = smooth } end
+    table.insert(series, 1, { points = a, color = C.gold, width = 1.8, fill = true, fillAlpha = 0.16, smooth = smooth, glow = true, endDot = true })
     v.chart:SetData({
         x0 = 0, x1 = x1, y1 = hi * 1.12, series = series, bands = bands, ticks = ticks, grid = true, marks = marks,
         hover = function(x)
@@ -529,7 +552,7 @@ local function RefreshBoss(state)
     v.stats:SetCell(2, "Active time", ps.act and strformat("%.1f%%", ps.act * 100) or "-", actNote, actKind)
     local gn, gs = GapsOf(p)
     local qn = q and GapsOf(q) or nil
-    v.stats:SetCell(3, "Idle gaps", strformat("%d  ·  %.0f s", gn, gs), qn and ("was " .. qn) or "",
+    v.stats:SetCell(3, strformat("Idle gaps · %.0f s", gs), tostring(gn), qn and ("was " .. qn) or "",
         qn and (gn <= qn and "up" or "down") or "mute")
     local rec, mechId = Recovery(p)
     local qrec = q and Recovery(q)
@@ -543,6 +566,7 @@ local function RefreshBoss(state)
     end
 
     -- breakdown or timeline
+    v.FitList()
     local timeline = cur.mode == "timeline"
     v.modeSeg:SetSelected(timeline and "timeline" or "list")
     v.list.frame:SetShown(not timeline)

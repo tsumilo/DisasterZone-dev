@@ -141,10 +141,11 @@ def page_shows_the_newest_run_against_the_one_before():
     rs = rows(c)
     assert [r["boss"] for r in rs] == ["Hydross the Unstable", "The Lurker Below", "Lady Vashj"]
     hero = c.eval_py("local h = %s.hero; return { h.num:GetText(), h.metric:GetText(), h.change:IsShown() and h.change.fs:GetText(), "
-                     "h.stats:GetText(), h.best:IsShown() }" % p)
+                     "(function() local o = {}; for _, x in ipairs(h.cells) do o[#o + 1] = x.lab:GetText() .. '=' .. x.val:GetText() .. ' ' .. x.delta:GetText() end; return table.concat(o, '|') end)(), "
+                     "h.best:IsShown() }" % p)
     assert hero[0] == "1,325" and hero[1] == "AVG DPS ON KILLS", hero
     assert "+10.4%" in hero[2], hero              # 1325 vs 1200
-    assert "121.0" in hero[3] and "ilvl" in hero[3] and "2" in hero[3] and "death" in hero[3], hero
+    assert "ITEM LEVEL=121.0 +1" in hero[3] and "DEATHS=2 +2" in hero[3] and "ACTIVE=90.0%" in hero[3], hero
     assert hero[4] is True                          # the best night here
     crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % p)
     assert crumb == ["My Log", "Serpentshrine Cavern"], crumb
@@ -168,7 +169,7 @@ def views_follow_the_role_until_picked():
     open_page(w, c)
     p = "ns.MainFrame:GetPanel('mylog')"
     assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG HPS ON KILLS"
-    assert "overheal" in c.eval("return %s.hero.stats:GetText()" % p)
+    assert c.eval("return %s.hero.cells[1].lab:GetText()" % p) == "OVERHEAL"
     c.eval("ns.MyLogUI:SetView('damage')")
     assert c.eval("return %s.hero.metric:GetText()" % p) == "AVG DPS ON KILLS"
     c.eval("ns.MyLogUI:SetView('tanking')")
@@ -267,7 +268,7 @@ def boss_detail_compares_two_kills():
     used = c.eval_py("local b = ns.MyLogDetail:GetViews(); local u = b.chart.used; return { u.line or 0, u.band or 0, u.tick or 0, u.fill or 0 }")
     assert used[0] > 100 and used[1] == 3 and used[2] >= 3 and used[3] > 50, used
     cells = c.eval_py("local b = ns.MyLogDetail:GetViews(); local o = {}; for _, x in ipairs(b.stats.cells) do o[#o + 1] = x.lab:GetText() end; return o")
-    assert cells == ["DPS", "ACTIVE TIME", "IDLE GAPS", "BACK AFTER WHIRLWIND"], cells
+    assert cells[0] == "DPS" and cells[1] == "ACTIVE TIME" and cells[2].startswith("IDLE GAPS") and cells[3] == "BACK AFTER WHIRLWIND", cells
     crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % P)
     assert crumb == ["My Log", "Serpentshrine Cavern", "Leotheras the Blind"], crumb
     c.eval("ns.MyLogUI:SetView('tanking')")

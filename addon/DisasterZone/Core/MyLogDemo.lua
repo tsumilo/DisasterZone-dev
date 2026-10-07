@@ -74,7 +74,7 @@ local function NewPull(at, b, zone, iid, kill, dps, skill, opts)
         for _, dip in ipairs(b.dips or {}) do
             if t >= dip[1] and t < dip[1] + dip[2] then f = f * (0.25 + skill * 0.35) end
         end
-        local v = floor(Around(dps * 5 * f, 0.08))
+        local v = floor(Around(dps * min(5, dur - t) * f, 0.08))        -- (the last bucket is only part filled)
         p.tl.d[i] = v
         total = total + v
         p.tl.p[i] = max(5, floor(100 - (t / dur) * 70 + 20 * sin(i * 0.4)))

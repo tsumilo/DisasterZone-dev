@@ -107,11 +107,28 @@ local function BuildHero(parent)
     h.change:SetPoint("LEFT", h.metric, "RIGHT", 8, 0)
     h.best = k.Chip(h, 16)
     h.best:SetPoint("LEFT", h.change, "RIGHT", 5, 0)
-    h.stats = h:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    h.stats:SetPoint("TOPLEFT", h, "TOPLEFT", 18, -110)
-    h.stats:SetPoint("RIGHT", h, "LEFT", 400, 0)
-    h.stats:SetJustifyH("LEFT")
-    h.stats:SetWordWrap(false)
+    -- four small numbers under the big one: a label over a value and its change
+    h.cells = {}
+    for i = 1, 4 do
+        local c = CreateFrame("Frame", nil, h)
+        c:SetSize(98, 32)
+        c:SetPoint("TOPLEFT", h, "TOPLEFT", 18 + (i - 1) * 102, -106)
+        c.lab = k.Label(c, "")
+        c.lab:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+        c.lab:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
+        c.val = k.Text(c, "numS")
+        c.val:SetFont(k.NUM_FONT, 16, "")
+        c.val:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -13)
+        c.delta = k.Text(c, "numXS")
+        c.delta:SetPoint("BOTTOMLEFT", c.val, "BOTTOMRIGHT", 5, 1)
+        if i > 1 then
+            c.div = h:CreateTexture(nil, "BORDER")
+            c.div:SetColorTexture(1, 1, 1, 0.07)
+            c.div:SetSize(1, 26)
+            c.div:SetPoint("TOPRIGHT", c, "TOPLEFT", -8, -2)
+        end
+        h.cells[i] = c
+    end
 
     h.trend = k.Chart(h)
     h.trend:SetPoint("TOPRIGHT", h, "TOPRIGHT", -14, -14)
@@ -126,16 +143,23 @@ local function BuildHero(parent)
     return h
 end
 
-local function StatBit(value, label, change, higherIsBetter, isCount)
+-- One of the banner's small numbers: label, value, change (a number; text shown as given) and whether up is good.
+local function SetCell(c, label, value, change, higherIsBetter, fmt)
     local k = K()
     local C = k.C
-    local s = k.Paint(value, C.fg) .. " " .. k.Paint(label, C.mute)
-    if change then
-        local good
-        if isCount then good = change < 0 else good = (change > 0) == higherIsBetter end
-        if abs(change) >= 0.05 then s = s .. " " .. k.Paint(change > 0 and ("+" .. change) or tostring(change), good and C.up or C.down) end
+    if not label then c:Hide() return end
+    c:Show()
+    c.lab:SetText(label:upper())
+    c.val:SetText(value)
+    if change and abs(change) >= 0.05 then
+        local good = (change > 0) == higherIsBetter
+        local col = good and C.up or C.down
+        c.delta:SetText(strformat(fmt or "%+.1f", change))
+        c.delta:SetTextColor(col[1], col[2], col[3])
+    else
+        c.delta:SetText(change and "same" or "")
+        c.delta:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
     end
-    return s
 end
 
 local function Round1(x) return floor(x * 10 + 0.5) / 10 end
@@ -162,33 +186,24 @@ local function FillHero(run, prevRun, runs)
         end
     end
     h.best:Set((best and now.value and #runs > 1) and "best night" or nil, "pb")
+    local cells = h.cells
+    local dDeaths = prevRun and (now.deaths - (before.deaths or 0)) or nil
+    local function pts(a, b) return (a and b) and Round1((a - b) * 100) or nil end
+    local function pct(x, d) return x and strformat("%." .. (d or 1) .. "f%%", x * 100) or "-" end
     if view == "healing" then
-        h.stats:SetText(table.concat({
-            StatBit(now.overheal and strformat("%.0f%%", now.overheal * 100) or "-", "overheal",
-                now.overheal and before.overheal and Round1((now.overheal - before.overheal) * 100), false),
-            StatBit(now.active and strformat("%.1f%%", now.active * 100) or "-", "active",
-                now.active and before.active and Round1((now.active - before.active) * 100), true),
-            StatBit(tostring(now.deaths), now.deaths == 1 and "death" or "deaths", prevRun and (now.deaths - (before.deaths or 0)), false, true),
-            StatBit(now.ilvl and strformat("%.1f", now.ilvl) or "-", "ilvl", now.ilvl and before.ilvl and Round1(now.ilvl - before.ilvl), true),
-        }, "    "))
+        SetCell(cells[1], "Overheal", pct(now.overheal, 0), pts(now.overheal, before.overheal), false)
+        SetCell(cells[2], "Active", pct(now.active), pts(now.active, before.active), true)
     elseif view == "tanking" then
-        h.stats:SetText(table.concat({
-            StatBit(now.avoid and strformat("%.1f%%", now.avoid * 100) or "-", "swings avoided",
-                now.avoid and before.avoid and Round1((now.avoid - before.avoid) * 100), true),
-            StatBit(now.active and strformat("%.1f%%", now.active * 100) or "-", "active",
-                now.active and before.active and Round1((now.active - before.active) * 100), true),
-            StatBit(tostring(now.deaths), now.deaths == 1 and "death" or "deaths", prevRun and (now.deaths - (before.deaths or 0)), false, true),
-        }, "    "))
+        SetCell(cells[1], "Swings avoided", pct(now.avoid), pts(now.avoid, before.avoid), true)
+        SetCell(cells[2], "Active", pct(now.active), pts(now.active, before.active), true)
     else
-        local avPct = k.Change(now.avoidable, before.avoidable)
-        h.stats:SetText(table.concat({
-            StatBit(now.active and strformat("%.1f%%", now.active * 100) or "-", "active",
-                now.active and before.active and Round1((now.active - before.active) * 100), true),
-            StatBit(k.Num(now.avoidable), "avoidable a kill", nil) .. (avPct and abs(avPct) >= 0.5 and (" " .. k.Paint(strformat("%+.0f%%", avPct), avPct < 0 and C.up or C.down)) or ""),
-            StatBit(tostring(now.deaths), now.deaths == 1 and "death" or "deaths", prevRun and (now.deaths - (before.deaths or 0)), false, true),
-            StatBit(now.ilvl and strformat("%.1f", now.ilvl) or "-", "ilvl", now.ilvl and before.ilvl and Round1(now.ilvl - before.ilvl), true),
-        }, "    "))
+        SetCell(cells[1], "Active", pct(now.active), pts(now.active, before.active), true)
+        local avc = k.Change(now.avoidable, before.avoidable)
+        SetCell(cells[2], "Avoidable / kill", k.Num(now.avoidable), avc, false, "%+.0f%%")
     end
+    SetCell(cells[3], "Deaths", tostring(now.deaths), dDeaths, false, "%+d")
+    SetCell(cells[4], "Item level", now.ilvl and strformat("%.1f", now.ilvl) or "-",
+        (now.ilvl and before.ilvl) and Round1(now.ilvl - before.ilvl) or nil, true)
     -- trend: up to 8 nights ending with this one
     local pts, labels = {}, {}
     local from = min(#runs, state.run + TREND_N - 1)
@@ -264,36 +279,29 @@ local function NewCard(parent)
     c:SetHeight(CARD_H)
     c.bg = c:CreateTexture(nil, "BACKGROUND")
     c.bg:SetAllPoints()
-    c.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], 1)
     UI():AddEdges(c, "BORDER", true)
     UI():SetEdgeColor(c, 1, 1, 1, 0.07)
-    c.port = k.Portrait(c, 32)
-    c.port:SetPoint("LEFT", c, "LEFT", 12, 0)
+    c.port = k.Portrait(c, 40)
     c.name = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 54, -10)
-    c.name:SetWidth(180)
     c.name:SetJustifyH("LEFT")
     c.name:SetWordWrap(false)
     c.sub = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.sub:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -3)
-    c.sub:SetWidth(180)
     c.sub:SetJustifyH("LEFT")
     c.sub:SetWordWrap(false)
+    c.extra = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    c.extra:SetJustifyH("LEFT")
+    c.extra:SetWordWrap(false)
     c.num = k.Text(c, "num")
-    c.num:SetPoint("TOPRIGHT", c, "TOPRIGHT", -82, -8)
     c.num:SetJustifyH("RIGHT")
     c.chip = k.Chip(c, 15)
-    c.chip:SetPoint("TOPRIGHT", c, "TOPRIGHT", -82, -29)
-    c.spark = k.Spark(c, 62, 26)
-    c.spark:SetPoint("RIGHT", c, "RIGHT", -10, 0)
+    c.spark = k.Spark(c, 92, 34)
     -- how close to my best: a thin line along the bottom
     c.line = c:CreateTexture(nil, "ARTWORK")
     c.line:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
     c.line:SetHeight(2)
     -- wipes only: the best pull's boss health
     c.prog = CreateFrame("Frame", nil, c)
-    c.prog:SetSize(150, 30)
-    c.prog:SetPoint("RIGHT", c, "RIGHT", -12, 0)
+    c.prog:SetSize(160, 30)
     c.prog.lab = c.prog:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     c.prog.lab:SetPoint("TOPLEFT")
     c.prog.lab:SetText("best pull")
@@ -303,7 +311,7 @@ local function NewCard(parent)
     c.prog.well = c.prog:CreateTexture(nil, "ARTWORK")
     c.prog.well:SetColorTexture(C.well[1], C.well[2], C.well[3], 1)
     c.prog.well:SetPoint("BOTTOMLEFT", c.prog, "BOTTOMLEFT", 0, 4)
-    c.prog.well:SetSize(150, 6)
+    c.prog.well:SetSize(160, 6)
     c.prog.fill = c.prog:CreateTexture(nil, "ARTWORK", nil, 1)
     c.prog.fill:SetPoint("LEFT", c.prog.well, "LEFT", 0, 0)
     c.prog.fill:SetHeight(6)
@@ -322,6 +330,45 @@ local function NewCard(parent)
     return c
 end
 
+-- Places a card's parts for its height h (cards grow to fill the page; tall ones show a third line).
+local function ShapeCard(c, h)
+    local k = K()
+    local tall = h >= 66
+    local ps = max(30, min(44, h - 26))
+    c:SetHeight(h)
+    c.port:SetSize(ps, ps)
+    c.port.tex:SetSize(ps, ps)
+    c.port.ring:SetSize(ps + 6, ps + 6)
+    c.port.gap:SetSize(ps + 3, ps + 3)
+    c.port:ClearAllPoints()
+    c.port:SetPoint("LEFT", c, "LEFT", 14, 0)
+    local tx = 14 + ps + 12
+    local block = tall and 46 or 30
+    local top = -(h - block) / 2
+    c.name:ClearAllPoints()
+    c.name:SetPoint("TOPLEFT", c, "TOPLEFT", tx, top)
+    c.sub:ClearAllPoints()
+    c.sub:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -4)
+    c.extra:ClearAllPoints()
+    c.extra:SetPoint("TOPLEFT", c.sub, "BOTTOMLEFT", 0, -3)
+    c.extra:SetShown(tall)
+    local sw = tall and 72 or 60
+    c.spark:SetSize(sw, max(20, h - 26))
+    c.spark:ClearAllPoints()
+    c.spark:SetPoint("RIGHT", c, "RIGHT", -12, 0)
+    c.num:SetFont(k.NUM_FONT, tall and 22 or 19, "")
+    c.num:ClearAllPoints()
+    c.num:SetPoint("BOTTOMRIGHT", c, "RIGHT", -(sw + 22), tall and 1 or 0)
+    c.chip:ClearAllPoints()
+    c.chip:SetPoint("TOPRIGHT", c, "RIGHT", -(sw + 22), -4)
+    local textW = (c:GetWidth() or 380) - tx - sw - 22 - 66
+    c.name:SetWidth(textW)
+    c.sub:SetWidth(textW)
+    c.extra:SetWidth(textW)
+    c.prog:ClearAllPoints()
+    c.prog:SetPoint("RIGHT", c, "RIGHT", -14, 0)
+end
+
 local function FillCard(c, r)
     local k = K()
     local C = k.C
@@ -331,11 +378,15 @@ local function FillCard(c, r)
     local higher = state.view ~= "tanking"
     if r.kill then
         local p = r.kill
-        local act = p.s and p.s.act
-        local bits = { "kill " .. k.Clock(p.dur) }
-        if act then bits[#bits + 1] = strformat("%.0f%% active", act * 100) end
-        if r.deaths > 0 then bits[#bits + 1] = k.Paint(r.deaths == 1 and "died" or (r.deaths .. " deaths"), C.down) end
-        c.sub:SetText(table.concat(bits, " · "))
+        local s = p.s or {}
+        local bits = { k.Clock(p.dur) .. " kill" }
+        if s.act then bits[#bits + 1] = strformat("%.0f%% active", s.act * 100) end
+        c.sub:SetText(table.concat(bits, "  ·  "))
+        local more = {}
+        local gaps = p.gaps and #p.gaps
+        if gaps then more[#more + 1] = gaps == 1 and "1 idle gap" or (gaps .. " idle gaps") end
+        if r.deaths > 0 then more[#more + 1] = k.Paint(r.deaths == 1 and "died once" or (r.deaths .. " deaths"), C.down) end
+        c.extra:SetText(table.concat(more, "  ·  "))
         c.num:SetText(k.Num(r.value))
         c.num:Show()
         -- personal best of this boss (same view)?
@@ -348,7 +399,8 @@ local function FillCard(c, r)
                 if v < best then best = v; isBest = false end
             end
         end
-        if isBest and (#(r.spark or {}) > 1) then
+        local pb = isBest and #(r.spark or {}) > 1
+        if pb then
             c.chip:Set("best", "pb")
         elseif r.prev then
             local text, kind = k.ChangeChip(r.change, higher, r.sameSpec and "" or "*")
@@ -360,14 +412,14 @@ local function FillCard(c, r)
         c.spark:Show()
         c.prog:Hide()
         local frac = (best and best > 0 and r.value) and (higher and r.value / best or best / r.value) or 1
-        local w = ((c:GetWidth() or 380) - 2) * max(0.05, min(1, frac))
-        c.line:SetWidth(w)
-        local col = (isBest and #(r.spark or {}) > 1) and C.gold or C.blue
-        k.Gradient(c.line, { col[1], col[2], col[3], 0 }, { col[1], col[2], col[3], 0.8 }, "HORIZONTAL")
+        c.line:SetWidth(((c:GetWidth() or 380) - 2) * max(0.05, min(1, frac)))
+        local col = pb and C.gold or C.blue
+        k.Gradient(c.line, { col[1], col[2], col[3], 0 }, { col[1], col[2], col[3], 0.55 }, "HORIZONTAL")
         c.line:Show()
-        c.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], 1)
+        k.Gradient(c.bg, { C.card[1], C.card[2], C.card[3], 1 }, { C.card2[1], C.card2[2], C.card2[3], 1 })
     else
-        c.sub:SetText(strformat("%d pull%s · no kill yet", r.pulls, r.pulls == 1 and "" or "s"))
+        c.sub:SetText(strformat("%d pull%s  ·  no kill yet", r.pulls, r.pulls == 1 and "" or "s"))
+        c.extra:SetText(r.deaths > 0 and k.Paint(r.deaths == 1 and "died once" or (r.deaths .. " deaths"), C.down) or "")
         c.num:Hide()
         c.chip:Set(nil)
         c.spark:Hide()
@@ -375,31 +427,35 @@ local function FillCard(c, r)
         c.prog:Show()
         local left = r.best or 100
         c.prog.val:SetText(strformat("%.0f%% left", left))
-        c.prog.fill:SetWidth(max(1, 150 * (100 - left) / 100))
+        c.prog.fill:SetWidth(max(1, 160 * (100 - left) / 100))
         k.Gradient(c.prog.fill, { 0.12, 0.54, 0.49, 1 }, { 0.37, 0.82, 0.78, 1 }, "HORIZONTAL")
-        c.bg:SetColorTexture(C.card2[1] * 0.85, C.card2[2] * 0.85, C.card2[3] * 0.85, 1)
+        k.Gradient(c.bg, { C.card[1] * 0.8, C.card[2] * 0.8, C.card[3] * 0.8, 1 }, { C.card[1], C.card[2], C.card[3], 1 })
     end
 end
 
 local function LayoutCards(rows)
     local p = panel
-    local child = p.cardsChild
-    local w = (p.cardsScroll:GetWidth() or 772)
+    local area = p.cardsArea
+    local w = area:GetWidth() or 0
     if w <= 0 then w = 772 end
-    child:SetWidth(w)
+    local avail = area:GetHeight() or 0
+    if avail <= 0 then avail = 300 end
+    local lines = max(1, math.ceil(#rows / 2))
+    local h = floor((avail - (lines - 1) * CARD_GAP) / lines)
+    h = max(46, min(86, h))
     local cw = (w - CARD_GAP) / 2
     for i, r in ipairs(rows) do
         local c = p.cards[i]
-        if not c then c = NewCard(child); p.cards[i] = c end
+        if not c then c = NewCard(area); p.cards[i] = c end
         c:ClearAllPoints()
         local col, line = (i - 1) % 2, floor((i - 1) / 2)
-        c:SetPoint("TOPLEFT", child, "TOPLEFT", col * (cw + CARD_GAP), -line * (CARD_H + CARD_GAP))
+        c:SetPoint("TOPLEFT", area, "TOPLEFT", col * (cw + CARD_GAP), -line * (h + CARD_GAP))
         c:SetWidth(cw)
+        ShapeCard(c, h)
         FillCard(c, r)
         c:Show()
     end
     for i = #rows + 1, #p.cards do p.cards[i]:Hide() end
-    child:SetHeight(max(1, floor((#rows + 1) / 2) * (CARD_H + CARD_GAP)))
 end
 
 ---------------------------------------------------------------------------
@@ -424,21 +480,21 @@ local function FillNights(runs)
         local b = p.nights[slot]
         if not b then
             b = CreateFrame("Button", nil, p.foot)
-            b:SetSize(20, 28)
+            b:SetSize(16, 28)
             b.bar = b:CreateTexture(nil, "ARTWORK")
             b.bar:SetPoint("BOTTOM", b, "BOTTOM", 0, 0)
-            b.bar:SetWidth(18)
+            b.bar:SetWidth(14)
             b:SetScript("OnEnter", function(self)
                 local r = self.run
                 if not r then return end
                 UI():SetTextTooltip(self, { k.Day(r.at), strformat("%s %s · %d kill%s%s", k.Num(self.value),
                     VIEW_BY_KEY[state.view].metric, r.kills, r.kills == 1 and "" or "s",
                     r.wipes > 0 and strformat(", %d wipe%s", r.wipes, r.wipes == 1 and "" or "s") or "") }, "ANCHOR_TOP")
-                if not self.on then self.bar:SetVertexColor(0.30, 0.38, 0.52, 1) end
+                if not self.on then k.Gradient(self.bar, { 0.24, 0.30, 0.42, 1 }, { 0.36, 0.45, 0.60, 1 }) end
             end)
             b:SetScript("OnLeave", function(self)
                 GameTooltip:Hide()
-                if not self.on then self.bar:SetVertexColor(0.19, 0.23, 0.31, 1) end
+                if not self.on then k.Gradient(self.bar, { 0.16, 0.19, 0.26, 1 }, { 0.22, 0.27, 0.36, 1 }) end
             end)
             b:SetScript("OnClick", function(self) MyLogUI:SelectRun(self.index) end)
             p.nights[slot] = b
@@ -449,17 +505,15 @@ local function FillNights(runs)
         b.bar:SetHeight(8 + f * 18)
         if b.on then
             k.Gradient(b.bar, { 0.66, 0.54, 0, 1 }, { 1, 0.82, 0, 1 })
-            b.bar:SetVertexColor(1, 1, 1, 1)
         else
-            b.bar:SetTexture("Interface\\Buttons\\WHITE8X8")
-            b.bar:SetVertexColor(0.19, 0.23, 0.31, 1)
+            k.Gradient(b.bar, { 0.16, 0.19, 0.26, 1 }, { 0.22, 0.27, 0.36, 1 })
         end
         b:ClearAllPoints()
-        b:SetPoint("BOTTOMLEFT", p.nightsLab, "BOTTOMRIGHT", 10 + (slot - 1) * 24, -4)
+        b:SetPoint("BOTTOMLEFT", p.nightsLab, "BOTTOMRIGHT", 12 + (slot - 1) * 20, -4)
         b:Show()
     end
     p.nightsHint:ClearAllPoints()
-    p.nightsHint:SetPoint("LEFT", p.nightsLab, "RIGHT", 18 + n * 24, 0)
+    p.nightsHint:SetPoint("LEFT", p.nightsLab, "RIGHT", 22 + n * 20, 0)
     p.nightsHint:SetText(n > 1 and "click a night to open it" or "")
     -- deaths in this instance's stored pulls
     local deaths = 0
@@ -637,13 +691,11 @@ function MyLogUI:CreatePanel(parent)
     p.cardsHint:SetPoint("TOPRIGHT", rv, "TOPRIGHT", -PAD - 2, CARDS_LABEL_Y)
     p.cardsHint:SetJustifyH("RIGHT")
 
-    p.cardsScroll = UI():CreateScrollFrame(rv, nil)
-    p.cardsScroll:SetPoint("TOPLEFT", rv, "TOPLEFT", PAD, CARDS_Y)
-    p.cardsScroll:SetPoint("BOTTOMRIGHT", rv, "BOTTOMRIGHT", -PAD, FOOT_H + 6)
-    p.cardsChild = CreateFrame("Frame", nil, p.cardsScroll)
-    p.cardsChild:SetSize(772, 10)
-    p.cardsScroll:SetScrollChild(p.cardsChild)
-    p.cardsScroll:HookScript("OnSizeChanged", function() if p:IsShown() and lastRows then LayoutCards(lastRows) end end)
+    -- the cards fill the space between the label and the footer (no scrolling: they shrink to fit)
+    p.cardsArea = CreateFrame("Frame", nil, rv)
+    p.cardsArea:SetPoint("TOPLEFT", rv, "TOPLEFT", PAD, CARDS_Y)
+    p.cardsArea:SetPoint("BOTTOMRIGHT", rv, "BOTTOMRIGHT", -PAD, FOOT_H + 14)
+    p.cardsArea:SetScript("OnSizeChanged", function() if p:IsShown() and lastRows then LayoutCards(lastRows) end end)
 
     local foot = CreateFrame("Frame", nil, rv)
     foot:SetPoint("BOTTOMLEFT", rv, "BOTTOMLEFT", PAD, 6)
