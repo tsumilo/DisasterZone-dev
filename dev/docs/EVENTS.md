@@ -11,7 +11,11 @@ Approved by the user 2026-10-06 ("go for glory"). Mockups (the target look, appr
 | Core/EventBlocks.lua | `ns.EventBlocks` | The pieces catalogue, categories + colours, smart blocks, the starter event, checks, plain words, diff |
 | Core/EventEngine.lua | `ns.EventEngine` | The interpreter (a run): stages, scripts (coroutines), timers, Sign-up + Bracket blocks |
 | Core/Events.lua | `ns.Events` | Library (D), reviews (K), calendar (O), sign-ups (J), results (R), season (C), titles (T); sync |
-| Core/EventLive.lua | `ns.EventLive` | Live runs: host broadcast, duel reports, asks, takeover, host controls, practice runs |
+| Core/EventLive.lua | `ns.EventLive` | Live runs: host broadcast, duel reports, asks, takeover, host controls, practice runs; part 2: facts from entrants, EVM (CDLf) delivery, the me-API |
+| Core/EventSensors.lua | `ns.EventSensors` | Part 2: what an entrant's client senses for a live event (only what its def uses) |
+
+Part 2 (general building blocks: tags, scores, places, lists, asks, buttons, Matches): `EVENTS_KINDS.md`; mockups
+shots 17-25.
 | UI/EventWidgets.lua | `ns.EventUI` | Shared look: art crops, shade, badges, class circles + names, progress line, pills, dates |
 | UI/EventPieces.lua | `ns.EventPieces` | Draws pieces (frames) and lays them out (builder, inside view, practice, review) |
 | UI/EventBuilder.lua | `ns.EventBuilder` | The builder window (mockup shots 3-6), practice mode (shot 6) |
@@ -93,6 +97,8 @@ New atlas icons (UI.ICON): `play, pause, skip, flag, trophy, lock, infinity, bra
 `EVENTS_UPDATED` (library / calendar / results / season changed), `EVENT_LIVE_UPDATED (occId)`,
 `EVENT_ANNOUNCE (occId, text)` (show it big, like a raid warning, to me), `EVENT_COUNTDOWN (occId, seconds)`,
 `EVENT_PRACTICE_UPDATED`, `EVENT_PRACTICE_LOG (kind, text)`, `EVENT_PRACTICE_RAN (scriptId, blockId)`, `DEMO_TOGGLED`.
+Part 2: `EVENT_SHOW (occId, text)` (a banner for me), `EVENT_TELL (occId, text)` (a tracker line), `EVENT_SOUND
+(occId, sound)`.
 
 ## Demo mode
 

@@ -2,10 +2,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/EventsTab.lua", ...) then retur
 -- The Events tab (dev/docs/EVENTS.md; mockup shots 0-2 and 11-14): the guild's own events, built from pieces.
 --   Upcoming: the banner (what is live, else what is next) with its stages and the one thing to do; the week's
 --     events and the last results below it; my season on the right.
---   An event's page (a click on a row or the banner): the event in plain words stage by stage, its rewards and its
---     entrants; Join / Leave, the host's Start, Edit and Cancel. Once it is over the page is its results: the
---     podium, the awards, the night's moments, the last four and its numbers.
---   Library: every event the guild saved, as cards; hovering one shows Host / Copy / Edit / Share.
+--   An event's page (a click on a row or the banner): the event in plain words stage by stage (part 2's blocks as
+--     chips: tags in their colours, what wins, places and "open world only", asks, buttons, walked lists, Matches'
+--     "won by"; an Always row for what runs the whole event), its rewards (badges, the scores that decide them, season
+--     points) and its entrants; Join / Leave, the host's Start, Edit and Cancel. Once it is over the page is its
+--     results: the podium (from Matches, else the first score on the board), the awards, each score's table, the tags
+--     at the end, the night's moments, the last four and its numbers.
+--   Library: every event the guild saved, as cards with their kinds (Sign-up, Matches, Tags, Places, Asks ...);
+--     hovering one shows Host / Copy / Edit / Share. Examples (beside New event) starts from one of the eight.
 --   Season: the standings with titles and badges, my season and the ranked events that paid out.
 --   Review (GM, officers, guild council): what waits for a decision and, piece by piece, what changed.
 --
@@ -25,7 +29,7 @@ local addonName, ns = ...
 local EventsUI = ns:NewModule("EventsUI")
 
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
-local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
+local tinsert, tsort, tconcat, tremove = table.insert, table.sort, table.concat, table.remove
 local type, pairs, ipairs, tostring, tonumber = type, pairs, ipairs, tostring, tonumber
 
 local DAY = 86400
@@ -350,14 +354,17 @@ function H.Chip(parent, h)
     c:EnableMouse(true)
     c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
     c:SetScript("OnLeave", HideTip)
-    function c:Set(text, glyph, edge, color)
+    -- (tint: the glyph's colour; a dot, DISC, is a tag's: smaller)
+    function c:Set(text, glyph, edge, color, tint)
         self.face:Hide()
         local x = 10
+        self.glyph:SetSize(12, 12)
         if glyph then
             if type(glyph) == "string" and glyph:find("\\") then
                 self.glyph:SetTexture(glyph)
                 self.glyph:SetTexCoord(0, 1, 0, 1)
-                self.glyph:SetVertexColor(1, 1, 1, 1)
+                self.glyph:SetVertexColor(tint and tint[1] or 1, tint and tint[2] or 1, tint and tint[3] or 1, 1)
+                if glyph == DISC then self.glyph:SetSize(9, 9) end
             else
                 H.Glyph(self.glyph, glyph, { 0.85, 0.85, 0.85, 0.85 })
             end
@@ -481,18 +488,23 @@ local function HideFrom(list, i)
 end
 H.Pool, H.HideFrom = Pool, HideFrom
 
--- A More menu: entries { icon (UI.ICON key / index), text, tip, fn, color, danger }.
+-- A More menu: entries { icon (UI.ICON key / index, or a texture path: an item icon), text, tip, fn, color, danger }.
 function H.Menu(owner, entries, title)
     local Ui = UI()
-    Ui:ContextMenu(owner, function(root)
+    return Ui:ContextMenu(owner, function(root)
         if title and root.CreateTitle then root:CreateTitle(title) end
         for _, e in ipairs(entries) do
             if e.divider then
                 if root.CreateDivider then root:CreateDivider() end
             else
-                local icon = type(e.icon) == "number" and e.icon or Ui.ICON[e.icon] or Ui.ICON.more
-                local color = e.color or (e.danger and { 1, 0.4, 0.35 }) or C.gold
-                local b = root:CreateButton(Ui:AtlasIconText(icon, 14, color) .. "  " .. e.text, e.fn)
+                local mark
+                if type(e.icon) == "string" and e.icon:find("\\") then
+                    mark = "|T" .. e.icon .. ":16:16:0:0:64:64:5:59:5:59|t"
+                else
+                    local icon = type(e.icon) == "number" and e.icon or Ui.ICON[e.icon] or Ui.ICON.more
+                    mark = Ui:AtlasIconText(icon, 14, e.color or (e.danger and { 1, 0.4, 0.35 }) or C.gold)
+                end
+                local b = root:CreateButton(mark .. "  " .. e.text, e.fn)
                 if b and b.SetTooltip and e.tip then
                     b:SetTooltip(function(tt)
                         tt:AddLine(e.text, 1, 0.82, 0)
@@ -569,11 +581,89 @@ function W.Bracket(def)
     return bid and def.blocks[bid] or nil
 end
 
--- The kind of event in one word (the rows' second line): its last smart block's label.
+-- The kind of event in one word (the rows' second line): what tells it apart most, from its blocks and definitions
+-- (Matches, Asks, a route of places, Tags, Places, Lists, Scores, Sign-up).
 function W.Kind(def)
-    local kinds = def and B():Kinds(def) or {}
-    local k = kinds[#kinds]
-    return k and B().SMART[k] and B().SMART[k].label or "Event"
+    if type(def) ~= "table" then return "Event" end
+    local has = {}
+    for _, k in ipairs(B():Kinds(def, true)) do has[k] = true end
+    if has.bracket then return B():KindLabel("bracket") end
+    if has.asks then return B():KindLabel("asks") end
+    for _, l in ipairs(has.lists and B():Defs(def, "lists", true) or {}) do
+        if l.kind == "place" then return B():KindLabel("places") end
+    end
+    for _, k in ipairs({ "tags", "places", "lists", "scores", "signup" }) do
+        if has[k] then return B():KindLabel(k) end
+    end
+    return "Event"
+end
+
+-- The kinds a card / banner shows as chips, in B:Kinds order: { { k, label, icon } }. Smart blocks have their own
+-- icons; a definition kind gets the one that reads as it.
+local KIND_ICON = {
+    tags = "Interface\\Icons\\Spell_Holy_PrayerOfSpirit", scores = "Interface\\Icons\\INV_Misc_Note_06",
+    places = "Interface\\Icons\\INV_Misc_Map_01", lists = "Interface\\Icons\\INV_Scroll_03",
+    asks = "Interface\\Icons\\INV_Letter_15",
+}
+-- (the first to go when they don't all fit: the least telling)
+local KIND_DROP = { scores = 1, lists = 2, signup = 3, places = 4, tags = 5, asks = 6, bracket = 7 }
+function W.KindChips(def)
+    local out = {}
+    for _, k in ipairs(type(def) == "table" and B():Kinds(def, true) or {}) do
+        local sm = B().SMART[k]
+        out[#out + 1] = { k = k, label = B():KindLabel(k), icon = (sm and sm.icon) or KIND_ICON[k] or QUESTION,
+            drop = KIND_DROP[k] or 0 }
+    end
+    return out
+end
+
+-- Tooltip words for a kind chip.
+local KIND_TIP = {
+    signup = "Members join it before it starts.", bracket = "Players meet one on one, round after round.",
+    tags = "Players are put in groups (Hiders, Seekers ...) as it runs.", scores = "Players collect points, times or "
+        .. "gold; the best win.", places = "Spots in the world: the event knows who is there (open world only).",
+    lists = "Lists it goes through: a route, questions ...", asks = "It asks players: votes, answers, scores.",
+}
+
+-- A score's words: "most Fish", "fastest Time", "longest Hidden" (what wins), from its definition.
+local SCORE_WAY = { num = { "most", "fewest" }, time = { "longest", "fastest" }, gold = { "most", "least" } }
+function W.Way(sc)
+    if type(sc) ~= "table" then return "most" end
+    local way = SCORE_WAY[sc.fmt] or SCORE_WAY.num
+    return way[sc.high == false and 2 or 1]
+end
+
+-- A score's number in its look (a time m:ss, gold 1g 20s, a number). sc: a definition or a result's score table.
+function W.ScoreText(sc, n)
+    if type(sc) ~= "table" then return tostring(n or "") end
+    return B():FormatScore({ scores = { x = { fmt = sc.fmt } } }, "x", n)
+end
+
+-- A player's score said with its name: "31 Fish", "Time 4:01" (a time reads after the name).
+function W.ScoreLine(sc, n)
+    local v = W.ScoreText(sc, n)
+    if sc and sc.fmt == "time" then return (sc.n or "") .. " " .. v end
+    return v .. " " .. (sc and sc.n or "")
+end
+
+-- A result's score table ranked: { { key, n, place } } best first (ties share a place: 1, 2, 2, 4).
+function W.RankRows(s)
+    local rows = {}
+    local high = s.high ~= false
+    for k, n in pairs(type(s.v) == "table" and s.v or {}) do
+        if type(k) == "string" and tonumber(n) then rows[#rows + 1] = { key = k, n = tonumber(n) } end
+    end
+    tsort(rows, function(a, b)
+        if a.n ~= b.n then
+            if high then return a.n > b.n end
+            return a.n < b.n
+        end
+        return a.key < b.key
+    end)
+    for i, r in ipairs(rows) do
+        r.place = (i > 1 and rows[i - 1].n == r.n) and rows[i - 1].place or i
+    end
+    return rows
 end
 
 -- How the bracket seeds ("seeded by season rank"), or nil.
@@ -655,40 +745,162 @@ local function TargetLabel(v)
     return pd and (pd.text or ""):gsub("{%d}", ""):gsub("^%s+", ""):gsub("%s+$", "") or ""
 end
 
+-- Where a players value goes, as a reward's place: { label, order, place, sid } (ctx: the stack's surroundings: an
+-- enclosing "if each player's place by S = n" gives place n by S).
+local function Where(v, ctx)
+    if type(v) ~= "table" or not v.k then return { label = "", order = 9 } end
+    local p = TARGET_ORDER[v.k]
+    if p then return { label = W.Ord(p), order = p, place = p } end
+    local a = v.a or {}
+    if v.k == "ctx" and a[1] == "each" and ctx.place then
+        return { label = W.Ord(ctx.place), order = ctx.place, place = ctx.place, sid = ctx.sid }
+    end
+    if v.k == "pl.top" and tonumber(a[1]) == 1 and type(a[2]) == "string" then
+        return { label = "1st", order = 1, place = 1, sid = a[2] }
+    end
+    if v.k == "ctx" and a[1] == "each" and ctx.each == "top" and ctx.sid then
+        return { label = "top " .. (ctx.n or 3), order = 4, sid = ctx.sid }
+    end
+    if v.k == "as.top" then return { label = "most picked", order = 7 } end
+    if v.k == "var" then return { label = tostring(a[1] or ""), order = 8 } end
+    return { label = TargetLabel(v), order = 9 }
+end
+
+-- An "if" whose condition is "X's place by S = n" (either way round): n, S.
+local function PlaceCond(c)
+    if type(c) ~= "table" or c.k ~= "lo.eq" then return nil end
+    local x, y = c.a and c.a[1], c.a and c.a[2]
+    if type(y) == "table" and type(x) ~= "table" then x, y = y, x end
+    if type(x) == "table" and x.k == "pt.place" and tonumber(y) and type(x.a and x.a[2]) == "string" then
+        return tonumber(y), x.a[2]
+    end
+    return nil
+end
+
+-- "for each player in ..." of everyone in it (every entrant, a sign-up's list, the Entrants tag).
+local function AllPlayers(v)
+    if type(v) ~= "table" then return false end
+    return v.k == "pl.all" or v.k == "su.list" or (v.k == "pl.tagged" and v.a and v.a[1] == B().ENTRANTS)
+end
+
+-- The rewards an event gives, from its pieces: its badges, where each goes (a placing by Matches or by a score, a
+-- variable's player ...) and the season points the same pieces give with it; and the other season points.
+-- Returns list, extra:
+--   list = { { id, b = badge, label = "1st" | "most Finds" | "Biggest upset" ..., order, place, sid, pts } }, in
+--     placing order (badges no piece gives yet come last);
+--   extra = { match = n (each match won), play = n (playing), other = { { label, pts } } (points no badge goes with) }.
 function W.Rewards(def)
-    local list, byBadge, pts, matchPts = {}, {}, {}, 0
-    if type(def) ~= "table" then return list, 0 end
+    local list, byBadge, extra = {}, {}, { match = 0, play = 0, other = {} }
+    if type(def) ~= "table" then return list, extra end
     local SEASON = B().SEASON
-    local function scan(top, hat)
-        B():Walk(top, function(p)
-            if p.k == "pt.badge" and type(p.a[1]) == "string" then
-                local id = p.a[1]
+    local function scanStack(first, ctx)
+        local stack = {}
+        local p = first
+        while type(p) == "table" and p.k and #stack < 400 do
+            stack[#stack + 1] = p
+            p = p.n
+        end
+        -- the season points of this stack, by whom they go to
+        local season, sigs = {}, {}
+        for _, q in ipairs(stack) do
+            if q.k == "pt.add" and q.a and q.a[2] == SEASON and type(q.a[1]) == "number" then
+                local sig = TargetSig(q.a[3])
+                if not season[sig] then sigs[#sigs + 1] = { sig = sig, v = q.a[3] } end
+                season[sig] = (season[sig] or 0) + q.a[1]
+            end
+        end
+        local used = {}
+        for _, q in ipairs(stack) do
+            if q.k == "pt.badge" and q.a and type(q.a[1]) == "string" then
+                local id = q.a[1]
                 if def.badges and def.badges[id] and not byBadge[id] then
-                    byBadge[id] = { id = id, b = def.badges[id], sig = TargetSig(p.a[2]), label = TargetLabel(p.a[2]),
-                        order = (type(p.a[2]) == "table" and TARGET_ORDER[p.a[2].k]) or 9 }
+                    local w = Where(q.a[2], ctx)
+                    local sig = TargetSig(q.a[2])
+                    byBadge[id] = { id = id, b = def.badges[id], label = w.label, order = w.order, place = w.place,
+                        sid = w.sid, pts = season[sig] }
+                    used[sig] = true
                     list[#list + 1] = byBadge[id]
                 end
-            elseif p.k == "pt.add" and p.a[2] == SEASON and type(p.a[1]) == "number" then
-                local sig = TargetSig(p.a[3])
-                if hat == "bk.end" and sig:find("^ctx|winner") then
-                    matchPts = matchPts + p.a[1]
+            end
+        end
+        for _, x in ipairs(sigs) do
+            if not used[x.sig] then
+                local n = season[x.sig]
+                local v = x.v
+                if ctx.hat == "bk.end" and x.sig:find("^ctx|winner") then
+                    extra.match = extra.match + n
+                elseif ctx.each == "all" and type(v) == "table" and v.k == "ctx" and v.a and v.a[1] == "each" then
+                    extra.play = max(extra.play, n)
                 else
-                    pts[sig] = (pts[sig] or 0) + p.a[1]
+                    local w = Where(v, ctx)
+                    extra.other[#extra.other + 1] = { label = w.label, pts = n, order = w.order }
                 end
             end
-        end)
+        end
+        -- what the pieces hold (an if's condition, a "for each"'s players)
+        for _, q in ipairs(stack) do
+            if q.c1 or q.c2 then
+                local sub = {}
+                for k, x in pairs(ctx) do sub[k] = x end
+                if q.k == "lo.if" or q.k == "lo.ifelse" then
+                    local n, sid = PlaceCond(q.a and q.a[1])
+                    if n then sub.place, sub.sid = n, sid end
+                elseif q.k == "lo.each" then
+                    local v = q.a and q.a[1]
+                    sub.place, sub.sid, sub.n = nil, nil, nil
+                    if AllPlayers(v) then
+                        sub.each = "all"
+                    elseif type(v) == "table" and v.k == "pl.top" and type(v.a and v.a[2]) == "string" then
+                        sub.each, sub.sid, sub.n = "top", v.a[2], tonumber(v.a[1])
+                    else
+                        sub.each = "some"
+                    end
+                end
+                if q.c1 then scanStack(q.c1, sub) end
+                if q.c2 then
+                    -- (the else of "if place = n": not that place)
+                    if q.k == "lo.ifelse" then sub.place, sub.sid = ctx.place, ctx.sid end
+                    scanStack(q.c2, sub)
+                end
+            end
+        end
     end
-    for _, s in ipairs(def.scripts or {}) do scan(s.top, s.top and s.top.k) end
-    for _, r in ipairs(list) do r.pts = pts[r.sig] end
+    for _, s in ipairs(def.scripts or {}) do scanStack(s.top, { hat = s.top and s.top.k }) end
+    -- placings by more than one score: say which ("most Finds", "2nd by Hidden")
+    local sids, nSids = {}, 0
+    for _, r in ipairs(list) do
+        if r.sid and not sids[r.sid] then sids[r.sid] = true; nSids = nSids + 1 end
+    end
+    if nSids > 1 then
+        for _, r in ipairs(list) do
+            local sc = r.sid and B():Definition(def, "scores", r.sid)
+            if sc and r.place == 1 then
+                r.label = W.Way(sc) .. " " .. (sc.n or "")
+            elseif sc and r.place then
+                r.label = W.Ord(r.place) .. " by " .. (sc.n or "")
+            end
+        end
+    end
     -- badges no piece gives (designed, not placed yet) still show
     for _, x in ipairs(B():BadgeList(def)) do
         if not byBadge[x.id] then list[#list + 1] = { id = x.id, b = x.b, label = "", order = 10 } end
     end
     tsort(list, function(a, b)
         if a.order ~= b.order then return a.order < b.order end
+        if (a.sid or "") ~= (b.sid or "") then return (a.sid or "") < (b.sid or "") end
         return (a.b.n or "") < (b.b.n or "")
     end)
-    return list, matchPts
+    return list, extra
+end
+
+-- The season points no badge goes with, in a few words: "5 for playing, 5 a match won" (nil: none).
+function W.ExtraText(extra)
+    if type(extra) ~= "table" then return nil end
+    local parts = {}
+    if (extra.play or 0) > 0 then parts[#parts + 1] = extra.play .. " for playing" end
+    if (extra.match or 0) > 0 then parts[#parts + 1] = extra.match .. " a match won" end
+    if #parts == 0 then return nil end
+    return tconcat(parts, ", ")
 end
 
 -- The reward of a badge given in a result (matched by name), for its points.
@@ -710,6 +922,15 @@ function W.PieceCount(def)
     return n
 end
 
+-- How many "post in guild chat" pieces an event has (the review's chat check).
+function W.GuildPosts(def)
+    local n = 0
+    B():EachScript(def, function(s)
+        B():Walk(s.top, function(p) if p.k == "ch.guild" then n = n + 1 end end)
+    end)
+    return n
+end
+
 -- The season points one piece hands out (distinct, largest first): "50 / 30 / 20 / 10".
 function W.Grants(def)
     local seen, list = {}, {}
@@ -725,13 +946,38 @@ function W.Grants(def)
     return list
 end
 
--- My place in a result: "you won", "you placed 2nd", "you played" or nil.
+-- A result's first three: its record's (Matches, or the run's own placings), else, without Matches, the first score
+-- on the board ranked (as EventEngine's Result places them). Returns champ, second, third, the score table (or nil).
+function W.Placings(r)
+    if r.champ or r.second or r.third then return r.champ, r.second, r.third, nil end
+    local def = W.DefOfResult(r)
+    if W.Has(def, "bracket") or #(r.last4 or {}) > 0 then return nil end
+    local by = W.BoardScores(r, def)[1]
+    if not by then return nil end
+    local rows = W.RankRows(by)
+    return rows[1] and rows[1].key, rows[2] and rows[2].key, rows[3] and rows[3].key, by
+end
+
+-- My place in a result: "you won", "you placed 2nd", by a score "you placed 7th", "you played" or nil.
 function W.MyPlace(r)
     local me = Me()
-    if r.champ == me then return "you won", 1 end
-    if r.second == me then return "you placed 2nd", 2 end
-    if r.third == me then return "you placed 3rd", 3 end
+    local c, s, t, by = W.Placings(r)
+    if c == me then return "you won", 1 end
+    if s == me then return "you placed 2nd", 2 end
+    if t == me then return "you placed 3rd", 3 end
+    for _, x in ipairs(by and W.RankRows(by) or {}) do
+        if x.key == me then return "you placed " .. W.Ord(x.place), x.place end
+    end
     if r.points and r.points[me] then return "you played", nil end
+    -- (in a score's table, or with a tag at the end)
+    for _, sc in ipairs(r.scores or {}) do
+        if type(sc.v) == "table" and sc.v[me] ~= nil then return "you played", nil end
+    end
+    for _, tg in ipairs(r.tags or {}) do
+        for _, k in ipairs(type(tg.k) == "table" and tg.k or {}) do
+            if k == me then return "you played", nil end
+        end
+    end
     return nil
 end
 
@@ -746,7 +992,24 @@ function W.Kicker(def, st)
         return base .. " · " .. rn
     end
     local s = st and B():Stage(def, st.stage)
-    return s and string.upper(s.name or "") or "LIVE"
+    local words = s and string.upper(s.name or "") or "LIVE"
+    -- (a timer the event shows on its board: the time it has left, "SEEK · 14 MIN LEFT")
+    local left = W.TimeLeft(st)
+    return left and (words .. " · " .. string.upper(left)) or words
+end
+
+-- The time a live run's shown timer has left (the event's board shows it): "14 min left", "40 sec left" (nil: none,
+-- or paused).
+function W.TimeLeft(st)
+    local now = Now()
+    if type(st) ~= "table" or st.paused or type(st.shown) ~= "table" then return nil end
+    for _, t in ipairs(type(st.timers) == "table" and st.timers or {}) do
+        if type(t) == "table" and not t.p and t.n and st.shown[t.n] and tonumber(t.at) and t.at > now then
+            local left = t.at - now
+            return left >= 60 and (ceil(left / 60) .. " min left") or (floor(left) .. " sec left")
+        end
+    end
+    return nil
 end
 
 -- A demo result as the mockups show it (the core's demo results leave the night's details out): made-up moments,
@@ -754,12 +1017,13 @@ end
 function W.DemoDress(r)
     if not (DemoOn() and r and not r.dressed) then return r end
     r.dressed = true
-    -- (the demo's results are of its Friday duel cup)
+    -- (the demo's cup results are of its Friday duel cup; its derby comes with its own moments and Fish table)
     if not r.dk then
         for _, d in ipairs(Ev():GetDefs()) do
             if d.name == r.name then r.dk = d.id end
         end
     end
+    if not W.Has(W.DefOfResult(r), "bracket") then return r end
     local D = ns.Demo
     local names = D and D.GetMembers and D:GetMembers() or {}
     local others = {}
@@ -855,6 +1119,39 @@ function A.NewEvent() A.Builder(nil) end
 function A.Copy(d)
     local copy = Ev():CopyDef(d)
     if copy then A.Builder(copy) end
+end
+
+-- The builder on one of the examples (B:Examples), as my own new event (not saved until the builder saves it).
+function A.FromExample(key)
+    local ex = B():Example(key)
+    local d = ex and Ev():CopyDef(ex)
+    if not d then return false end
+    A.Builder(d)
+    return true
+end
+
+-- "Examples": the eight examples to start from, with their icons (the tooltip says what each one shows).
+function A.ExamplesMenu(owner)
+    local entries = {}
+    for _, e in ipairs(B():Examples()) do
+        local key = e.key
+        entries[#entries + 1] = { icon = e.icon, text = e.name, tip = e.desc .. ". Opens in the builder as your own "
+            .. "event: change anything, then save it.", fn = function() A.FromExample(key) end }
+    end
+    return H.Menu(owner, entries, "Start from an example")
+end
+
+-- The "Examples" button beside a New event (one word and an icon; its tooltip says what it does).
+function A.ExamplesButton(parent, h)
+    local b = H.Button(parent, "Examples", nil, h, "secondary", function(self) A.ExamplesMenu(self) end, 22)
+    H.Fit(b, 90, h >= 26 and 30 or 26)
+    b:HookScript("OnEnter", function(self)
+        Tip(self, { "Start from an example", "Eight ready events, each showing a few blocks at work: a duel cup, hide "
+            .. "and seek, a race, a fishing derby, a quiz... Pick one to open it in the builder as your own." },
+            "ANCHOR_BOTTOM")
+    end)
+    b:HookScript("OnLeave", HideTip)
+    return b
 end
 
 -- The share reference of a calendar event / a library event, when the share links know events.
@@ -1174,9 +1471,11 @@ function H.BannerIcons(b, showMore, ref, shareResults)
     b.ref = ref
     b.more:SetShown(showMore)
     local anchor = showMore and b.more or nil
+    local used = showMore and b.more:GetWidth() or 0
     local function after(f)
         f:ClearAllPoints()
         if anchor then f:SetPoint("RIGHT", anchor, "LEFT", -6, 0) else f:SetPoint("TOPRIGHT", b, "TOPRIGHT", -12, -9) end
+        used = used + (anchor and 6 or 0) + f:GetWidth()
         anchor = f
     end
     if shareResults and ref then
@@ -1191,6 +1490,80 @@ function H.BannerIcons(b, showMore, ref, shareResults)
             if ref then after(b.share) end
         end
     end
+    -- (the kind chips go left of them: H.BannerKinds)
+    b.iconsLeft, b.iconsW = anchor, used
+end
+
+-- A kind chip (Sign-up, Matches, Tags, Places ...): a small pill with its icon; hovering says what it means.
+function H.KindMini(parent)
+    local m = H.Mini(parent)
+    m:EnableMouse(true)
+    m:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    m:SetScript("OnLeave", HideTip)
+    return m
+end
+
+-- Kind chips for def in a pool: as many as fit in room (the least telling go first); place(list) puts the ones
+-- shown. noTip: chips without a tooltip of their own (a library card's: its hover shows its actions). Returns the
+-- width they take.
+function H.LayKinds(pool, parent, def, room, place, noTip)
+    local chips = W.KindChips(def)
+    for i, c in ipairs(chips) do
+        local m = Pool(pool, i, function() return noTip and H.Mini(parent) or H.KindMini(parent) end)
+        m:Set(c.label, "mute", c.icon)
+        m.tip = { c.label, KIND_TIP[c.k] or "" }
+        c.m, c.w = m, m:GetWidth()
+    end
+    HideFrom(pool, #chips + 1)
+    local function total()
+        local t = 0
+        for i, c in ipairs(chips) do if not c.off then t = t + c.w + (i > 1 and 4 or 0) end end
+        return t
+    end
+    while total() > room do
+        local worst
+        for _, c in ipairs(chips) do
+            if not c.off and (not worst or c.drop < worst.drop) then worst = c end
+        end
+        if not worst then break end
+        worst.off = true
+    end
+    local shown = {}
+    for _, c in ipairs(chips) do
+        if c.off then c.m:Hide() else shown[#shown + 1] = c.m end
+    end
+    place(shown)
+    return total()
+end
+
+-- The banner's kind chips, at the top right left of its icons, in the room the top row's left side (the back link,
+-- the Live pill and its kicker) leaves.
+function H.BannerKinds(b, def, w)
+    b.kinds = b.kinds or {}
+    if type(def) ~= "table" then
+        HideFrom(b.kinds, 1)
+        return
+    end
+    local left = 14
+    if b.back:IsShown() then left = 12 + 70 end
+    if b.kick:IsShown() then left = (b.live:IsShown() and (14 + b.live:GetWidth() + 8) or 14) + NatW(b.kick) end
+    local iconsW = b.iconsW or 0
+    local room = w - left - 24 - 12 - iconsW - (iconsW > 0 and 8 or 0)
+    H.LayKinds(b.kinds, b, def, room, function(list)
+        local anchor = b.iconsLeft
+        -- (from the right: the last first, so they read in their order)
+        for i = #list, 1, -1 do
+            local m = list[i]
+            m:ClearAllPoints()
+            if anchor then
+                m:SetPoint("RIGHT", anchor, "LEFT", anchor == b.iconsLeft and -8 or -4, 0)
+            else
+                m:SetPoint("RIGHT", b, "TOPRIGHT", -12, -20)
+            end
+            m:Show()
+            anchor = m
+        end
+    end)
 end
 
 -- The entrants' meter: up to six faces, "12 of 16 duelists", a bar.
@@ -1406,10 +1779,11 @@ function Up.FillResult(r, res)
     Color(r.l1, { 0.81, 0.81, 0.81 })
     r.pill:Hide()
     local parts = {}
+    local champ = W.Placings(res)
     if res.cancel then
         parts[1] = "Cancelled"
-    elseif res.champ then
-        parts[1] = "Won by " .. Name(res.champ)
+    elseif champ then
+        parts[1] = "Won by " .. Name(champ)
     end
     local mine = W.MyPlace(res)
     if mine then parts[#parts + 1] = mine end
@@ -1423,6 +1797,20 @@ function Up.FillResult(r, res)
     r.btn:SetHeight(22)
     r.btn.tip = nil
     Up.RowName(r, res.name or "Event")
+end
+
+-- A live event's chip for me, when it has no Matches: my tag that I see ("You: Hiders", its colour), else my place
+-- by its first score on the board ("You're 3rd", my face). Returns words, tint, face (nil: nothing to say).
+function W.MyLiveChip(occId)
+    local L = Live()
+    local tags = L and L.MyTags and L:MyTags(occId) or {}
+    for _, t in ipairs(tags) do
+        if t.n then return "You: " .. t.n, B():TagColor(t.c), false end
+    end
+    for _, s in ipairs(L and L.MyScores and L:MyScores(occId) or {}) do
+        if s.board and s.place then return "You're " .. W.Ord(s.place), nil, true end
+    end
+    return nil
 end
 
 -- The banner: what is live, else the next event, else the last result.
@@ -1458,6 +1846,7 @@ function Up.FillHero(v, w)
         b.kick:Hide()
         b.prog:Hide()
         H.BannerIcons(b, false, nil)
+        H.BannerKinds(b, nil, w)
         H.BannerButton(b.btn, "Library", "primary", nil, function() EventsUI:SetView("library") end)
         H.BannerRight(b, w)
         return nil
@@ -1467,7 +1856,8 @@ function Up.FillHero(v, w)
         local o = Ev():GetOcc(r.id)
         b.occId = r.id
         local meta = {}
-        if r.champ then meta[#meta + 1] = "Won by " .. Name(r.champ) end
+        local champ = W.Placings(r)
+        if champ then meta[#meta + 1] = "Won by " .. Name(champ) end
         meta[#meta + 1] = (r.n or 0) .. " " .. W.Noun(W.DefOfResult(r), r.n)
         if r.hosts and r.hosts[1] then meta[#meta + 1] = "hosted by " .. Name(r.hosts[1]) end
         H.BannerHead(b, w, r.art, r.icon, r.name, { { r.cancel and "Cancelled" or ("Ended " .. W.Clock(r.t1)), "ended" } },
@@ -1483,6 +1873,7 @@ function Up.FillHero(v, w)
             b.prog:Hide()
         end
         H.BannerIcons(b, false, A.OccRef(r.id))
+        H.BannerKinds(b, (o and o.def) or W.DefOfResult(r), w)
         H.BannerButton(b.btn, "Results", "primary", nil, function() EventsUI:OpenEvent(r.id) end)
         H.BannerRight(b, w)
         return r.id
@@ -1505,7 +1896,7 @@ function Up.FillHero(v, w)
         b.kick:SetPoint("LEFT", b.live, "RIGHT", 8, 0)
         b.kick:Show()
         H.SetProg(b, d, st, EUI():StageSub(d, st))
-        -- my match: who I meet and when
+        -- my match: who I meet and when; else my tag ("You: Hiders") or my place by its first score ("You're 3rd")
         local m = Live():MyMatch(o.id)
         if m then
             local opp = (m.a == me) and m.b or m.a
@@ -1514,6 +1905,13 @@ function Up.FillHero(v, w)
             b.chip:Set(words, nil, { 0.4, 0.72, 1, 0.75 }, { 0.84, 0.92, 1 })
             if opp then b.chip:SetFace(opp) end
             b.chip:Show()
+        else
+            local words, tint, face = W.MyLiveChip(o.id)
+            if words then
+                b.chip:Set(words, tint and DISC or nil, { 0.4, 0.72, 1, 0.75 }, { 0.84, 0.92, 1 }, tint)
+                if face then b.chip:SetFace(Me()) end
+                b.chip:Show()
+            end
         end
         H.BannerButton(b.btn, "Watch", "primary", "eye", function() A.Watch(o.id) end)
     else
@@ -1548,6 +1946,7 @@ function Up.FillHero(v, w)
         end
     end
     H.BannerIcons(b, true, A.OccRef(o.id))
+    H.BannerKinds(b, d, w)
     H.BannerRight(b, w)
     return o.id
 end
@@ -1823,7 +2222,9 @@ function Pg.Create(p)
     return v
 end
 
--- A rule of a stage ("best of 3", "5 min no-show"): a small flat chip with its glyph.
+-- A rule of a stage ("best of 3", "5 min no-show"): a small flat chip with its glyph. look: nil (the glyph g), or
+-- { dot = rgb } (a tag: its colour), { ring = rgb } (a place), { box = true } (a button: a small button's shape).
+local PLACE_C = { 0.34, 0.84, 0.94 }    -- Places' colour (EventBlocks' pc edge)
 function Pg.NewRule(parent)
     local c = CreateFrame("Frame", nil, parent)
     c:SetHeight(18)
@@ -1832,14 +2233,96 @@ function Pg.NewRule(parent)
     c.glyph = c:CreateTexture(nil, "ARTWORK")
     c.glyph:SetSize(11, 11)
     c.glyph:SetPoint("LEFT", 7, 0)
+    c.dot = Disc(c, 8, { 1, 1, 1 }, "ARTWORK")
+    c.dot:SetPoint("CENTER", c, "LEFT", 12, 0)
+    c.box = CreateFrame("Frame", nil, c)
+    c.box:SetSize(13, 9)
+    c.box:SetPoint("LEFT", 6, 0)
+    Fill(c.box, { 0.22, 0.22, 0.25, 1 })
+    Edges(c.box, { 1, 1, 1, 0.5 })
     c.fs = Text(c, 11, { 0.82, 0.82, 0.82 })
     c.fs:SetPoint("LEFT", 23, 0)
-    function c:Set(g, t)
-        H.Glyph(self.glyph, g, { 1, 1, 1, 0.8 })
+    c:EnableMouse(true)
+    c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    c:SetScript("OnLeave", HideTip)
+    function c:Set(g, t, look, tip)
+        self.tip = tip
+        self.glyph:Hide()
+        self.dot:Hide()
+        self.box:Hide()
+        if look and look.dot then
+            local k = look.dot
+            self.dot:SetTexture(DISC)
+            self.dot:SetSize(8, 8)
+            self.dot:SetVertexColor(k[1], k[2], k[3], 1)
+            self.dot:Show()
+            UI():SetEdgeColor(self, k[1], k[2], k[3], 0.3)
+        elseif look and look.ring then
+            local k = look.ring
+            self.dot:SetTexture(EUI().RING)
+            self.dot:SetSize(11, 11)
+            self.dot:SetVertexColor(k[1], k[2], k[3], 1)
+            self.dot:Show()
+            UI():SetEdgeColor(self, k[1], k[2], k[3], 0.3)
+        elseif look and look.box then
+            self.box:Show()
+            UI():SetEdgeColor(self, 1, 1, 1, 0.1)
+        else
+            H.Glyph(self.glyph, g, { 1, 1, 1, 0.8 })
+            self.glyph:Show()
+            UI():SetEdgeColor(self, 1, 1, 1, 0.1)
+        end
         self.fs:SetText(t or "")
         self:SetWidth(ceil(23 + SW(self.fs) + 8))
     end
     return c
+end
+
+-- What the page says to a tag's / place's / list's chip on hover.
+local SHOWN_WORDS = { all = "Everyone sees who has it.", self = "Only the players who have it see it.",
+    host = "Only the host sees who has it." }
+local LIST_GLYPH = { place = 36, question = 11, text = 25 }
+
+-- A stage's rules (EventBlocks:DescribeStage) as the page's chips: { { g, t, look, tip } }. A tags rule is a chip per
+-- tag in its colour; a place has its ring; asks, buttons and lists their own glyphs; after the places (and a route
+-- of them), "open world only" (places don't work in dungeons).
+function Pg.Chips(d, s)
+    local out, world = {}, nil
+    for _, r in ipairs(s.rules or {}) do
+        if type(r.tags) == "table" then
+            for _, tid in ipairs(r.tags) do
+                local tg = B():Definition(d, "tags", tid)
+                if tg then
+                    out[#out + 1] = { t = tg.n, look = { dot = B():TagColor(tg.c) },
+                        tip = { tg.n, "A tag: a group of players. " .. (SHOWN_WORDS[tg.shown or "all"] or "") } }
+                end
+            end
+        elseif r.place then
+            local pl = B():Definition(d, "places", r.place)
+            local size = pl and tonumber(pl.r) and (" · " .. floor(pl.r) .. " yd") or ""
+            local where = pl and (pl.sz or pl.z) or nil
+            out[#out + 1] = { t = r.t, look = { ring = PLACE_C }, tip = { r.t, (where and (where .. size) or ("A place"
+                .. size)), "The event knows who is in it. The game doesn't say where players are." } }
+            world = #out
+        elseif r.list then
+            local l = B():Definition(d, "lists", r.list)
+            out[#out + 1] = { g = l and LIST_GLYPH[l.kind] or 25, t = r.t }
+            if l and l.kind == "place" then world = #out end
+        elseif r.ask then
+            out[#out + 1] = { g = 42, t = r.t, tip = { "Asks", "The addon asks the players and shows the answers: no "
+                .. "chat needed." } }
+        elseif r.button then
+            out[#out + 1] = { t = r.t, look = { box = true }, tip = { r.button, "A button in the event's tracker, under "
+                .. "the minimap, for the players who get it." } }
+        else
+            out[#out + 1] = { g = r.g, t = r.t }
+        end
+    end
+    if world then
+        tinsert(out, world + 1, { g = 7, t = "open world only", tip = { "Open world only", "Places work in the open "
+            .. "world, not in dungeons or raids." } })
+    end
+    return out
 end
 
 function Pg.NewStage(parent)
@@ -1872,10 +2355,18 @@ function Pg.NewStage(parent)
     return r
 end
 
--- Fills a stage row (w wide): number, name, when, the plain words and the rules; returns its height.
+-- Fills a stage row (w wide): number, name, when, the plain words and the rules; returns its height. i = "*": the
+-- Always row (what runs the whole event): an infinity in its ring.
 function Pg.FillStage(r, i, s, w, how, when, last)
     r:SetWidth(w)
-    r.nb:SetText(i)
+    r.nb:SetText(i == "*" and "" or i)
+    if not r.inf then
+        r.inf = r:CreateTexture(nil, "ARTWORK")
+        r.inf:SetSize(13, 13)
+        r.inf:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
+    end
+    r.inf:SetShown(i == "*")
+    if i == "*" then H.Glyph(r.inf, "infinity", { 0.85, 0.85, 0.87, 0.9 }) end
     r.t1:SetText(s.name or "")
     r.when:SetText(when or "")
     r.glow:SetShown(how == "now")
@@ -1911,10 +2402,10 @@ function Pg.FillStage(r, i, s, w, how, when, last)
     end
     local y = 28 + th + (th > 0 and 5 or 2)
     local x, ri, rows = 35, 0, 0
-    for _, rule in ipairs(s.rules or {}) do
+    for _, rule in ipairs(s.chips or s.rules or {}) do
         ri = ri + 1
         local c = Pool(r.rules, ri, function() return Pg.NewRule(r) end)
-        c:Set(rule.g, rule.t)
+        c:Set(rule.g, rule.t, rule.look, rule.tip)
         local cw = c:GetWidth()
         if x > 35 and x + cw > w then
             x = 35
@@ -1952,26 +2443,36 @@ function Pg.NewReward(parent)
 end
 
 -- A reward: its badge, where it goes ("1ST", "BIGGEST UPSET"), its name, its points and title. Returns its height.
-function Pg.FillReward(c, rw, d, cellW, cols)
+-- Where a reward goes ("1ST", "MOST FINDS", "BIGGEST UPSET"), in its cell: smaller, else two lines. Its height.
+function Pg.RewardLabel(c, rw, cellW)
+    local _, ph = FitText(c.place, string.upper(rw.label ~= "" and rw.label or "badge"), cellW - 6, { 10, 9 })
+    c.place:SetJustifyH("CENTER")
+    return max(12, ph or 12)
+end
+
+-- labelH: the row's tallest label (its names line up under it).
+function Pg.FillReward(c, rw, d, cellW, cols, labelH)
     local four = cols > 3
     local badge, other = four and c.small or c.big, four and c.big or c.small
     other:Hide()
     badge:SetBadge({ n = rw.b.n, i = rw.b.i, f = rw.b.f, ti = rw.b.ti, ev = d.name })
-    c.place:SetText(string.upper(rw.label ~= "" and rw.label or "badge"))
+    local ph = Pg.RewardLabel(c, rw, cellW)
+    ph = max(ph, labelH or 0)
     c.place:ClearAllPoints()
     c.place:SetPoint("TOP", badge, "BOTTOM", 0, -7)
     Sized(c.n, four and 11 or 12)
     local nh = Wrap(c.n, rw.b.n or "Badge", cellW - 6, four and 11 or 12)
     c.n:ClearAllPoints()
-    c.n:SetPoint("TOP", c.place, "BOTTOM", 0, -3)
+    c.n:SetPoint("TOP", badge, "BOTTOM", 0, -(7 + ph + 3))
     local sub = rw.pts and ("+" .. rw.pts) or nil
     if rw.b.ti and rw.b.ti ~= "" then sub = sub and (sub .. (four and ", title" or " and a title")) or "a title" end
     c.s:SetText(sub or "")
     c.s:ClearAllPoints()
     c.s:SetPoint("TOP", c.n, "TOP", 0, -nh - 1)
     c.s:SetShown(sub ~= nil)
-    return 6 + badge:GetHeight() + 7 + 12 + 3 + nh + (sub and 15 or 0) + 8
+    return 6 + badge:GetHeight() + 7 + ph + 3 + nh + (sub and 15 or 0) + 8
 end
+
 
 function Pg.NewEntrant(parent)
     local e = CreateFrame("Frame", nil, parent)
@@ -2024,7 +2525,8 @@ function Pg.StageWhen(o, desc, st)
                 how[i], out[i] = "done", "done"
             elseif cur and i == cur then
                 how[i] = "now"
-                local sub = EUI():StageSub(d, st)
+                local sub = EUI():StageSub(d, st) or W.TimeLeft(st)
+
                 out[i] = "now" .. (sub and (" · " .. sub) or "")
             else
                 how[i], out[i] = "next", (cur and i == cur + 1) and "next" or "later"
@@ -2050,8 +2552,13 @@ function Pg.FillBody(v, o, keys, st)
     local d = o.def
     local W0 = H.W() - 2 * PAD
     local desc = B():Describe(d, { closesAt = Ev():ClosesAt(o) })
+    for _, s in ipairs(desc) do s.chips = Pg.Chips(d, s) end
+    -- what runs the whole event (the builder's Always): a row of its own after the stages, when it does something
+    local always = B():DescribeStage(d, { id = "*", name = "Always" })
+    always.chips = Pg.Chips(d, always)
+    if #always.chips == 0 and (always.text or "") == "" then always = nil end
     -- the right column first: its height decides the scroll bar
-    local rewards = W.Rewards(d)
+    local rewards, extra = W.Rewards(d)
     local spots = W.Spots(d)
     -- (open seats only while one can still take them)
     local occState = Ev():OccState(o)
@@ -2063,13 +2570,19 @@ function Pg.FillBody(v, o, keys, st)
     local cols = nr <= 3 and 3 or 4
     -- the rewards' cells first (their words wrap): the rows' heights
     local cellW = floor(RIGHT_W / cols)
-    local rowH, cellH = {}, {}
+    local rowH, cellH, labelH = {}, {}, {}
+    -- (where each goes first: a row's names line up under its tallest label)
+    for i = 1, nr do
+        local c = Pool(v.rewards, i, function() return Pg.NewReward(v.content) end)
+        local row = floor((i - 1) / cols) + 1
+        labelH[row] = max(labelH[row] or 0, Pg.RewardLabel(c, rewards[i], cellW))
+    end
     for i = 1, max(nr, #v.rewards) do
         local c = Pool(v.rewards, i, function() return Pg.NewReward(v.content) end)
         local rw = rewards[i]
         if rw then
             local row = floor((i - 1) / cols) + 1
-            cellH[i] = Pg.FillReward(c, rw, d, cellW, cols)
+            cellH[i] = Pg.FillReward(c, rw, d, cellW, cols, labelH[row])
             rowH[row] = max(rowH[row] or 0, cellH[i])
         else
             c:Hide()
@@ -2099,7 +2612,16 @@ function Pg.FillBody(v, o, keys, st)
             r:Show()
             y = y + h
         end
-        HideFrom(v.stages, #desc + 1)
+        local n = #desc
+        if always then
+            n = n + 1
+            local r = Pool(v.stages, n, function() return Pg.NewStage(v.content) end)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
+            y = y + Pg.FillStage(r, "*", always, width, "always", "the whole event", true)
+            r:Show()
+        end
+        HideFrom(v.stages, n + 1)
         return y
     end
     local leftH = layoutLeft(lw)
@@ -2115,7 +2637,10 @@ function Pg.FillBody(v, o, keys, st)
     v.rsect:ClearAllPoints()
     v.rsect:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx, 0)
     v.rsect:SetWidth(RIGHT_W)
-    v.rsect:Set("Rewards", (#rewards > 0 and not o.ranked) and "if it were ranked" or nil)
+    -- (the season points no badge goes with at the right; an event that isn't ranked gives none of it)
+    local more = W.ExtraText(extra)
+    local right = ((#rewards > 0 or more) and not o.ranked) and "if it were ranked" or (more and ("plus " .. more))
+    v.rsect:Set("Rewards", right)
     -- (a short row of rewards sits in the middle of the column)
     local ry = 28
     for i = 1, nr do
@@ -2133,7 +2658,7 @@ function Pg.FillBody(v, o, keys, st)
     v.noRewards:SetShown(nr == 0)
     v.noRewards:ClearAllPoints()
     v.noRewards:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + 2, -32)
-    v.noRewards:SetText("No badges: it's for the fun of it.")
+    v.noRewards:SetText(more and "No badges: season points only." or "No badges: it's for the fun of it.")
     -- entrants
     local ey = 28 + rh + 8
     v.esect:ClearAllPoints()
@@ -2141,6 +2666,16 @@ function Pg.FillBody(v, o, keys, st)
     v.esect:SetWidth(RIGHT_W)
     local noun = W.Noun(d, 2)
     v.esect:Set(noun:sub(1, 1):upper() .. noun:sub(2), W.SeedText(d))
+    local seeded = W.Has(d, "bracket")
+    -- (a live event without Matches: its first score on the board next to each name)
+    local liveScore
+    if not seeded and st and st.phase == "live" and type(st.scores) == "table" then
+        for _, sc in ipairs(B():Defs(d, "scores", true)) do
+            if sc.board and not liveScore then
+                liveScore = { sc = sc, rows = type(st.scores[sc.id]) == "table" and st.scores[sc.id] or {} }
+            end
+        end
+    end
     local colW = floor((RIGHT_W - 10) / 2)
     for i = 1, max(seats, #v.ents) do
         local e = Pool(v.ents, i, function() return Pg.NewEntrant(v.content) end)
@@ -2153,8 +2688,15 @@ function Pg.FillBody(v, o, keys, st)
             if k then
                 e.face:Set(k)
                 e.n:SetText(Name(k))
-                e.sd:SetText("#" .. i)
-                e.sd:Show()
+                -- (a seed in Matches; while a score chase runs, the player's score; else nothing to number)
+                local right
+                if seeded then
+                    right = "#" .. i
+                elseif liveScore and liveScore.rows[k] ~= nil then
+                    right = W.ScoreText(liveScore.sc, liveScore.rows[k])
+                end
+                e.sd:SetText(right or "")
+                e.sd:SetShown(right ~= nil)
             else
                 e.face:SetEmpty()
                 e.n:SetText(Hex(C.open, "Open seat"))
@@ -2207,6 +2749,8 @@ function Pg.FillBanner(v, o, keys, st)
     H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.58)
     b.back:Show()
     H.BannerIcons(b, true, A.OccRef(o.id))
+    H.BannerKinds(b, d, w)
+
     b.chip:Hide()
     b.note:Hide()
     b.why:Hide()
@@ -2295,6 +2839,7 @@ function Pg.Fill(v)
         -- (the scroll bar is the page's, not the scroll frame's: it goes too)
         v.scroll:Hide()
         v.scroll.ScrollBar:Hide()
+        v.rscroll:Show()
         v.res:Show()
         Pg.FillResults(v, W.DemoDress(r), o)
         return true
@@ -2302,6 +2847,8 @@ function Pg.Fill(v)
     if not o then return false end
     v.mode = "event"
     v.res:Hide()
+    v.rscroll:Hide()
+    v.rscroll.ScrollBar:Hide()
     v.scroll:Show()
     local keys, st = W.Entrants(o)
     Pg.FillBanner(v, o, keys, st)
@@ -2311,19 +2858,27 @@ function Pg.Fill(v)
 end
 
 ---------------------------------------------------------------------------
--- Results (shot 11): the podium, the awards, the night
+-- Results (shot 11): the podium, the awards, the night; the scores' tables and who had each tag at the end
 ---------------------------------------------------------------------------
 
 local POD_H, AW_W, RECAP_Y = 196, 296, 208
 local PED = { { "p2", 44, 46, { 0.86, 0.89, 0.95 } }, { "p1", 58, 72, { 1, 0.82, 0 } }, { "p3", 40, 30, { 0.86, 0.56, 0.32 } } }
+local TROW_RH, TAG_RH = 22, 26     -- a score table's row, a tag's row
+local TABLE_MIN, MOM_MIN = 220, 250
 
 function Pg.CreateResults(v)
-    local f = CreateFrame("Frame", nil, v)
-    f:SetPoint("TOPLEFT", PAD, -BODY_Y)
-    f:SetPoint("BOTTOMRIGHT", -PAD, 10)
+    -- (its own scroll frame: long score tables scroll; its bar is the page's, as the event page's)
+    v.rscroll = UI():CreateScrollFrame(v)
+    v.rscroll:SetPoint("TOPLEFT", PAD, -BODY_Y)
+    v.rscroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.rscroll:SetWidth(PAGE_W - 2 * PAD)
+    v.rscroll:Hide()
+    local f = CreateFrame("Frame", nil, v.rscroll)
+    f:SetSize(PAGE_W - 2 * PAD, PAGE_H - BODY_Y - 10)
+    v.rscroll:SetScrollChild(f)
     f.stand = CreateFrame("Frame", nil, f)
     f.stand:SetPoint("TOPLEFT", 0, 0)
-    f.stand:SetHeight(POD_H)
+    f.stand:SetSize(400, POD_H)
     f.peds = {}
     for i, def in ipairs(PED) do
         local p = CreateFrame("Frame", nil, f.stand)
@@ -2373,8 +2928,7 @@ function Pg.CreateResults(v)
     f.awards = {}
     -- the night: moments, the last four, the numbers
     f.mom = CreateFrame("Frame", nil, f)
-    f.mom:SetPoint("TOPLEFT", 0, -RECAP_Y)
-    f.mom:SetHeight(170)
+    f.mom:SetSize(300, 170)
     f.momSect = H.Sect(f.mom)
     f.momSect:SetPoint("TOPLEFT")
     f.momSect:SetPoint("TOPRIGHT")
@@ -2400,6 +2954,15 @@ function Pg.CreateResults(v)
     f.numSect:SetPoint("TOPLEFT")
     f.numSect:SetPoint("TOPRIGHT")
     f.nums = {}
+    -- the scores' tables (each score on the board, ranked) and who had each tag at the end
+    f.tables = {}
+    f.tags = CreateFrame("Frame", nil, f)
+    f.tags:SetSize(400, 60)
+    f.tagSect = H.Sect(f.tags)
+    f.tagSect:SetPoint("TOPLEFT")
+    f.tagSect:SetPoint("TOPRIGHT")
+    f.tagRows = {}
+    f.nobody = Text(f, 11, C.grey)
     return f
 end
 
@@ -2497,8 +3060,140 @@ function Pg.NewMatch(parent)
     return m
 end
 
--- The line under a placing on the podium: "won the final 3-2", "lost the final 2-3", "won the bronze 2-1".
-function W.PodiumLine(r, key, place)
+-- A score's table on the results: its name and what wins, then every player ranked (place, face, name, the
+-- number in the score's look); mine lit.
+function Pg.NewTable(parent)
+    local t = CreateFrame("Frame", nil, parent)
+    t:SetSize(240, 60)
+    t.sect = H.Sect(t)
+    t.sect:SetPoint("TOPLEFT")
+    t.sect:SetPoint("TOPRIGHT")
+    t.rows = {}
+    t.none = Text(t, 11, C.grey)
+    t.none:SetPoint("TOPLEFT", 2, -34)
+    t.none:SetText("Nobody scored.")
+    return t
+end
+
+function Pg.NewTableRow(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(240, TROW_RH)
+    r.bg = Fill(r, { 0.4, 0.72, 1, 0.08 })
+    r.bar = Line(r, { 0.4, 0.72, 1, 1 })
+    r.bar:SetPoint("TOPLEFT")
+    r.bar:SetPoint("BOTTOMLEFT")
+    r.bar:SetWidth(2)
+    r.line = Line(r, { 1, 1, 1, 0.035 })
+    r.line:SetHeight(1)
+    r.line:SetPoint("BOTTOMLEFT")
+    r.line:SetPoint("BOTTOMRIGHT")
+    r.rk = Text(r, 12, { 0.62, 0.62, 0.62 }, true)
+    r.rk:SetJustifyH("RIGHT")
+    r.rk:SetPoint("RIGHT", r, "LEFT", 22, 0)
+    r.face = H.Face(r, 16)
+    r.face:SetPoint("LEFT", 30, 0)
+    r.n = Text(r, 11, C.white)
+    r.n:SetPoint("LEFT", r.face, "RIGHT", 7, 0)
+    r.v = Text(r, 13, { 0.93, 0.93, 0.93 }, true)
+    r.v:SetJustifyH("RIGHT")
+    r.v:SetPoint("RIGHT", -6, 0)
+    return r
+end
+
+-- Fills a score's table w wide; returns its height.
+function Pg.FillTable(t, s, w)
+    t:SetWidth(w)
+    t.sect:Set(s.n or "Score", W.Way(s) .. " wins")
+    local rows = W.RankRows(s)
+    local y = 28
+    for i = 1, max(#rows, #t.rows) do
+        local x = rows[i]
+        if x and i <= 40 then
+            local r = Pool(t.rows, i, function() return Pg.NewTableRow(t) end)
+            r:SetWidth(w)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", t, "TOPLEFT", 0, -y)
+            local mine = IsMe(x.key)
+            r.bg:SetShown(mine)
+            r.bar:SetShown(mine)
+            r.rk:SetText(x.place)
+            Color(r.rk, x.place <= 3 and C.gold or { 0.62, 0.62, 0.62 })
+            r.face:Set(x.key)
+            r.v:SetText(W.ScoreText(s, x.n))
+            -- (a long name: a point smaller between the face and the number; never cut)
+            FitText(r.n, Name(x.key), w - 53 - NatW(r.v) - 14, { 11, 10, 9 })
+            r:Show()
+            y = y + TROW_RH
+        elseif t.rows[i] then
+            t.rows[i]:Hide()
+        end
+    end
+    t.none:SetShown(#rows == 0)
+    if #rows == 0 then y = y + 26 end
+    t:SetHeight(y)
+    t:Show()
+    return y
+end
+
+-- A tag's row at the end: its colour and name, how many had it of how many played, and who (a tag only some see:
+-- just the count, and me when I had it).
+function Pg.NewTagRow(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(300, TAG_RH)
+    r.dot = Disc(r, 9, { 1, 1, 1 }, "ARTWORK")
+    r.dot:SetPoint("CENTER", r, "LEFT", 6, 0)
+    r.n = Text(r, 12, C.white)
+    r.n:SetPoint("LEFT", 18, 0)
+    r.c = Text(r, 11, C.grey)
+    r.c:SetPoint("LEFT", r.n, "RIGHT", 8, 0)
+    r.faces = {}
+    r.more = Text(r, 11, C.grey)
+    return r
+end
+
+function Pg.FillTagRow(r, t, n, w, host)
+    r:SetWidth(w)
+    local k = B():TagColor(t.c)
+    r.dot:SetVertexColor(k[1], k[2], k[3], 1)
+    r.n:SetText(t.n or "Tag")
+    local keys = type(t.k) == "table" and t.k or {}
+    r.c:SetText(#keys .. ((n or 0) > 0 and (" of " .. n) or ""))
+    -- who: everyone when the tag is everyone's to see (or the host's and I hosted it), else only me
+    local show = {}
+    local all = (t.shown or "all") == "all" or (t.shown == "host" and host)
+    for _, key in ipairs(keys) do
+        if all or IsMe(key) then show[#show + 1] = key end
+    end
+    local x = 18 + NatW(r.n) + 8 + NatW(r.c) + 12
+    local fit = max(0, floor((w - x - 30) / 18))
+    for i = 1, max(#show, #r.faces) do
+        local f = Pool(r.faces, i, function() return H.Face(r, 15) end)
+        if show[i] and i <= fit then
+            f:Set(show[i])
+            f:ClearAllPoints()
+            f:SetPoint("LEFT", r, "LEFT", x + (i - 1) * 18, 0)
+            f:Show()
+        else
+            f:Hide()
+        end
+    end
+    local left = #show - min(#show, fit)
+    r.more:SetShown(left > 0)
+    if left > 0 then
+        r.more:SetText("+" .. left)
+        r.more:ClearAllPoints()
+        r.more:SetPoint("LEFT", r, "LEFT", x + fit * 18 + 2, 0)
+    end
+    r:Show()
+end
+
+-- The line under a placing on the podium: "won the final 3-2", "lost the final 2-3", "won the bronze 2-1"; by a
+-- score: "31 Fish", "Time 4:01".
+function W.PodiumLine(r, key, place, sc)
+    if sc then
+        local n = sc.v and sc.v[key]
+        if n ~= nil then return W.ScoreLine(sc, n) end
+    end
     for _, m in ipairs(r.last4 or {}) do
         if (m.final and (place == 1 or place == 2)) or (m.bronze and place == 3) then
             if m.a == key or m.b == key then
@@ -2510,7 +3205,16 @@ function W.PodiumLine(r, key, place)
     return place == 1 and "champion" or (place == 2 and "runner-up" or "third place")
 end
 
--- An award's second line: the title it gives, how the final went, whom the bronze was won against.
+-- A result's score table by its id (nil: none).
+function W.ResultScore(r, sid)
+    for _, s in ipairs(sid and r.scores or {}) do
+        if s.id == sid then return s end
+    end
+    return nil
+end
+
+-- An award's second line: the title it gives, how the final went, whom the bronze was won against; for a badge a
+-- score decides, the player's score ("31 Fish").
 function W.AwardLine(r, a, reward)
     if a.ti and a.ti ~= "" then return "and the title \"" .. a.ti .. "\"" end
     for _, m in ipairs(r.last4 or {}) do
@@ -2523,6 +3227,8 @@ function W.AwardLine(r, a, reward)
             if m.win == a.p then return "beat " .. EUI():Plain(other) .. " for bronze" end
         end
     end
+    local sc = reward and W.ResultScore(r, reward.sid)
+    if sc and sc.v and sc.v[a.p] ~= nil then return W.ScoreLine(sc, sc.v[a.p]) end
     if reward and reward.label and reward.label ~= "" and not reward.label:find("^%d") then
         return string.lower(reward.label)
     end
@@ -2532,7 +3238,10 @@ end
 function Pg.ResultsMenu(owner, occId)
     local entries = {}
     if Live() and Live():GetState(occId) then
-        entries[#entries + 1] = { icon = "bracket", text = "Board", tip = "Opens the live board on the final bracket.",
+        local o = Ev():GetOcc(occId)
+        local matches = o and W.Has(o.def, "bracket")
+        entries[#entries + 1] = { icon = matches and "bracket" or "eye", text = "Board", tip = matches
+            and "Opens the live board on the final bracket." or "Opens the live board as the event ended.",
             fn = function() A.Watch(occId) end }
     end
     if W.CanRemove() then
@@ -2540,6 +3249,47 @@ function Pg.ResultsMenu(owner, occId)
             .. "everyone, with the season points and badges they gave.", fn = function() A.RemoveResult(occId) end }
     end
     if #entries > 0 then H.Menu(owner, entries) end
+end
+
+-- The result's tables of the scores on the board (its event's board flags; all of them when the event is gone).
+function W.BoardScores(r, def)
+    local out = {}
+    for _, s in ipairs(r.scores or {}) do
+        local sc = def and B():Definition(def, "scores", s.id)
+        if not def or not sc or sc.board then out[#out + 1] = s end
+    end
+    return out
+end
+
+-- The moments column (up to n), x / y in the results frame, w wide: its height.
+function Pg.LayMoments(f, r, moments, x, y, w, n)
+    f.mom:ClearAllPoints()
+    f.mom:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
+    f.mom:SetWidth(w)
+    f.mom:SetShown(#moments > 0)
+    f.momSect:Set("Moments")
+    local my = 30
+    for i = 1, max(#moments, #f.moments) do
+        local m = Pool(f.moments, i, function() return Pg.NewMoment(f.mom) end)
+        local x2 = moments[i]
+        if x2 and i <= n then
+            m:SetWidth(w)
+            m:ClearAllPoints()
+            m:SetPoint("TOPLEFT", f.mom, "TOPLEFT", 0, -my)
+            m.icon:SetTexture(x2.i or r.icon or "Interface\\Icons\\INV_Misc_Note_01")
+            local th = Wrap(m.fs, x2.text or "", w - 24, 11)
+            m.t2:ClearAllPoints()
+            m.t2:SetPoint("TOPLEFT", m.fs, "TOPLEFT", 0, -th)
+            m.t2:SetText(x2.at and W.Clock(x2.at) or "")
+            m:SetHeight(th + 12)
+            m:Show()
+            my = my + th + 12 + 8
+        else
+            m:Hide()
+        end
+    end
+    f.mom:SetHeight(my)
+    return #moments > 0 and my or 0
 end
 
 function Pg.FillResults(v, r, o)
@@ -2557,6 +3307,7 @@ function Pg.FillResults(v, r, o)
     b.back:Show()
     local canMore = (Live() and Live():GetState(r.id)) or W.CanRemove()
     H.BannerIcons(b, canMore and true or false, A.OccRef(r.id), true)
+    H.BannerKinds(b, def, w)
     b.chip:Hide()
     b.note:Hide()
     b.btn:Hide()
@@ -2570,27 +3321,21 @@ function Pg.FillResults(v, r, o)
     -- why it was called off (the pill already says it was)
     H.BannerWhy(b, r.cancel ~= "Cancelled" and r.cancel or nil, floor(w * 0.45))
     H.BannerRight(b, w)
-    -- the podium
-    local standW = w - AW_W - COL_GAP
-    f.stand:SetWidth(standW)
-    local placed = { r.second, r.champ, r.third }
-    local placeOf = { 2, 1, 3 }
-    local x0 = floor((standW - (3 * 112 + 2 * 14)) / 2)
-    for i, p in ipairs(f.peds) do
-        local key = placed[i]
-        p:ClearAllPoints()
-        p:SetPoint("BOTTOMLEFT", f.stand, "BOTTOMLEFT", x0 + (i - 1) * 126, 6)
-        if key then
-            p.face:Set(key)
-            p.nm:SetText(Name(key))
-            p.sb:SetText(W.PodiumLine(r, key, placeOf[i]))
-            p:Show()
-        else
-            p:Hide()
-        end
+    -- what it has: Matches (the podium from them, the last four), else the placings of its first score on the board
+    -- (the run's own: EventEngine's Result); the tables of its scores; who had each tag at the end
+    local matches = (def and W.Has(def, "bracket")) or #(r.last4 or {}) > 0
+    local boards = W.BoardScores(r, def)
+    local by = (not matches) and boards[1] or nil
+    local champ, second, third = r.champ, r.second, r.third
+    if by and not champ then
+        local rows = W.RankRows(by)
+        champ, second, third = rows[1] and rows[1].key, rows[2] and rows[2].key, rows[3] and rows[3].key
     end
+    local placed = { second, champ, third }
+    local placeOf = { 2, 1, 3 }
+    local anyPlaced = (champ or second or third) ~= nil
     -- awards
-    local rewards, matchPts = W.Rewards(def)
+    local rewards, extra = W.Rewards(def)
     local rows = {}
     if r.ranked then
         for _, a in ipairs(r.badges or {}) do
@@ -2601,53 +3346,32 @@ function Pg.FillResults(v, r, o)
             rows[#rows + 1] = { badge = a, key = a.p, title = a.n, l2 = W.AwardLine(r, a, rw), pts = rw and rw.pts }
         end
     end
-    if #rows == 0 then
-        for i, key in ipairs({ r.champ, r.second, r.third }) do
+    if #rows == 0 and not matches and #boards > 1 then
+        -- (no badges, several scores: who leads each, "Most Finds", "Longest Hidden")
+        for _, s in ipairs(boards) do
+            local rr = W.RankRows(s)
+            local top = rr[1]
+            if top and #rows < 4 then
+                local tied = {}
+                for i = 2, #rr do if rr[i].place == 1 then tied[#tied + 1] = rr[i].key end end
+                local l2 = W.ScoreLine(s, top.n)
+                if #tied > 0 then
+                    l2 = l2 .. ", tied with " .. EUI():Plain(tied[1]) .. (#tied > 1 and (" and " .. (#tied - 1) .. " more")
+                        or "")
+                end
+                local title = W.Way(s) .. " " .. (s.n or "")
+                rows[#rows + 1] = { key = top.key, title = title:gsub("^%l", string.upper), l2 = l2 }
+            end
+        end
+    elseif #rows == 0 then
+        for i, key in ipairs({ champ, second, third }) do
             if key then
                 rows[#rows + 1] = { key = key, title = ({ "Champion", "Runner-up", "Third place" })[i],
-                    l2 = W.PodiumLine(r, key, i) }
+                    l2 = W.PodiumLine(r, key, i, by) }
             end
         end
     end
-    local right
-    if not r.ranked then
-        right = "not ranked"
-    elseif matchPts > 0 then
-        right = "plus " .. matchPts .. " a match won"
-    end
-    f.awSect:Set("Awards", right)
-    for i = 1, max(#rows, #f.awards) do
-        local a = Pool(f.awards, i, function() return Pg.NewAward(f.aw) end)
-        local x = rows[i]
-        if x and i <= 4 then
-            a:ClearAllPoints()
-            a:SetPoint("TOPLEFT", f.aw, "TOPLEFT", 0, -(28 + (i - 1) * 44))
-            if x.badge then
-                a.badge:SetBadge(x.badge)
-                a.face:Hide()
-            else
-                a.badge:Hide()
-                a.face:Set(x.key)
-            end
-            a.pts:SetText(x.pts and ("+" .. x.pts) or "")
-            -- (a long badge name: smaller, else two lines over the second)
-            local room = AW_W - 50 - (x.pts and (NatW(a.pts) + 10) or 4)
-            local _, _, lines = FitText(a.l1, x.title .. grey(" · ") .. Name(x.key), room, { 12, 11 })
-            a.l1:ClearAllPoints()
-            a.l2:ClearAllPoints()
-            if lines == 1 then
-                a.l1:SetPoint("BOTTOMLEFT", a, "LEFT", 50, 1)
-                a.l2:SetPoint("TOPLEFT", a, "LEFT", 50, -2)
-            else
-                a.l1:SetPoint("TOPLEFT", a, "TOPLEFT", 50, -2)
-                a.l2:SetPoint("TOPLEFT", a.l1, "BOTTOMLEFT", 0, -1)
-            end
-            a.l2:SetText(x.l2 or "")
-            a:Show()
-        else
-            a:Hide()
-        end
-    end
+    local hasTop = anyPlaced or #rows > 0
     -- the night: moments, the last four, the numbers (each only when the result has it)
     local moments = {}
     for _, m in ipairs(r.moments or {}) do moments[#moments + 1] = m end
@@ -2663,97 +3387,246 @@ function Pg.FillResults(v, r, o)
     if n.duels then nums[#nums + 1] = { "Duels", n.duels } end
     if n.longest and n.longest > 0 then nums[#nums + 1] = { "Longest duel", W.MinSec(n.longest) } end
     if n.watch and n.watch > 0 then nums[#nums + 1] = { "Watching, at most", n.watch } end
-    local numW, l4W = #nums > 0 and 150 or 0, hasL4 and 300 or 0
-    local momW = w - numW - l4W - (numW > 0 and COL_GAP or 0) - (l4W > 0 and COL_GAP or 0)
-    f.mom:SetWidth(momW)
-    f.mom:SetShown(#moments > 0)
-    f.momSect:Set("Moments")
-    local my = 30
-    for i = 1, max(#moments, #f.moments) do
-        local m = Pool(f.moments, i, function() return Pg.NewMoment(f.mom) end)
-        local x = moments[i]
-        if x and i <= 4 then
-            m:SetWidth(momW)
-            m:ClearAllPoints()
-            m:SetPoint("TOPLEFT", f.mom, "TOPLEFT", 0, -my)
-            m.icon:SetTexture(x.i or "Interface\\Icons\\INV_Misc_Note_01")
-            local th = Wrap(m.fs, x.text or "", momW - 24, 11)
-            m.t2:ClearAllPoints()
-            m.t2:SetPoint("TOPLEFT", m.fs, "TOPLEFT", 0, -th)
-            m.t2:SetText(x.at and W.Clock(x.at) or "")
-            m:SetHeight(th + 12)
-            m:Show()
-            my = my + th + 12 + 8
-        else
-            m:Hide()
+    local tags = r.tags or {}
+    local hosted = false
+    for _, k in ipairs(r.hosts or {}) do if IsMe(k) then hosted = true end end
+
+
+    -- lays it all out cw wide (the scroll bar's room taken when it doesn't fit): returns its height
+    local function layout(cw)
+        f:SetWidth(cw)
+        local y = 0
+        -- the podium
+        local standW = cw - AW_W - COL_GAP
+        f.stand:SetWidth(standW)
+        f.stand:SetShown(anyPlaced)
+        local x0 = floor((standW - (3 * 112 + 2 * 14)) / 2)
+        for i, p in ipairs(f.peds) do
+            local key = placed[i]
+            p:ClearAllPoints()
+            p:SetPoint("BOTTOMLEFT", f.stand, "BOTTOMLEFT", x0 + (i - 1) * 126, 6)
+            if key then
+                p.face:Set(key)
+                FitText(p.nm, Name(key), 124, { 13, 12, 11 })
+                p.nm:SetJustifyH("CENTER")
+                FitText(p.sb, W.PodiumLine(r, key, placeOf[i], by), 124, { 11, 10 })
+                p.sb:SetJustifyH("CENTER")
+                p:Show()
+            else
+                p:Hide()
+            end
         end
-    end
-    -- the last four
-    f.l4:ClearAllPoints()
-    f.l4:SetPoint("TOPLEFT", f, "TOPLEFT", momW + COL_GAP, -RECAP_Y)
-    f.l4:SetShown(hasL4)
-    f.l4Sect:Set("The last four")
-    f.l4.full:SetShown(Live() and Live():GetState(r.id) ~= nil)
-    local spots = { { 0, 6 }, { 0, 70 }, { 164, 38 } }
-    local list = { semis[1], semis[2], final }
-    for i = 1, 3 do
-        local m = Pool(f.l4.matches, i, function() return Pg.NewMatch(f.l4.box) end)
-        if list[i] then
-            m:ClearAllPoints()
-            m:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", spots[i][1], -spots[i][2])
-            m:Set(list[i])
+        -- awards
+        local right
+        if not r.ranked then
+            right = "not ranked"
         else
-            m:Hide()
+            local more = W.ExtraText(extra)
+            right = more and ("plus " .. more) or nil
         end
-    end
-    -- the connectors: each semi's middle to the final's
-    local L = f.l4.lines
-    local function hline(t, x1, x2, y)
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", x1, -y)
-        t:SetSize(x2 - x1, 1)
-        t:Show()
-    end
-    local function vline(t, x, y1, y2)
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", x, -y1)
-        t:SetSize(1, y2 - y1)
-        t:Show()
-    end
-    for _, t in ipairs(L) do t:Hide() end
-    if final and #semis > 0 then
-        local x1, x2 = MATCH_W, MATCH_W + floor((164 - MATCH_W) / 2)
-        if semis[1] then hline(L[1], x1, x2, 25); vline(L[2], x2, 25, 58) end
-        if semis[2] then hline(L[3], x1, x2, 89); vline(L[4], x2, 57, 90) end
-        hline(L[5], x2, 164, 57)
-    end
-    -- the numbers
-    f.num:ClearAllPoints()
-    f.num:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -RECAP_Y)
-    f.num:SetShown(#nums > 0)
-    f.numSect:Set("Night in numbers")
-    for i = 1, max(#nums, #f.nums) do
-        local row = Pool(f.nums, i, function()
-            local x = CreateFrame("Frame", nil, f.num)
-            x:SetSize(150, 22)
-            x.l = Text(x, 11, { 0.85, 0.85, 0.85 })
-            x.l:SetPoint("LEFT", 0, 0)
-            x.v = Text(x, 13, C.white, true)
-            x.v:SetJustifyH("RIGHT")
-            x.v:SetPoint("RIGHT", -2, 0)
-            return x
-        end)
-        local x = nums[i]
-        if x then
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", f.num, "TOPLEFT", 0, -(30 + (i - 1) * 28))
-            row.l:SetText(x[1])
-            row.v:SetText(x[2])
-            row:Show()
-        else
-            row:Hide()
+        f.aw:SetShown(hasTop)
+        f.awSect:Set("Awards", right)
+        for i = 1, max(#rows, #f.awards) do
+            local a = Pool(f.awards, i, function() return Pg.NewAward(f.aw) end)
+            local x = rows[i]
+            if x and i <= 4 then
+                a:ClearAllPoints()
+                a:SetPoint("TOPLEFT", f.aw, "TOPLEFT", 0, -(28 + (i - 1) * 44))
+                if x.badge then
+                    a.badge:SetBadge(x.badge)
+                    a.face:Hide()
+                else
+                    a.badge:Hide()
+                    a.face:Set(x.key)
+                end
+                a.pts:SetText(x.pts and ("+" .. x.pts) or "")
+                -- (a long badge name: smaller, else two lines over the second)
+                local room = AW_W - 50 - (x.pts and (NatW(a.pts) + 10) or 4)
+                local _, _, lines = FitText(a.l1, x.title .. grey(" · ") .. Name(x.key), room, { 12, 11 })
+                a.l1:ClearAllPoints()
+                a.l2:ClearAllPoints()
+                if lines == 1 then
+                    a.l1:SetPoint("BOTTOMLEFT", a, "LEFT", 50, 1)
+                    a.l2:SetPoint("TOPLEFT", a, "LEFT", 50, -2)
+                else
+                    a.l1:SetPoint("TOPLEFT", a, "TOPLEFT", 50, -2)
+                    a.l2:SetPoint("TOPLEFT", a.l1, "BOTTOMLEFT", 0, -1)
+                end
+                FitText(a.l2, x.l2 or "", room, { 11, 10 })
+                a:Show()
+            else
+                a:Hide()
+            end
         end
+        if hasTop then y = RECAP_Y end
+        -- Matches: the moments, the last four and the numbers in a row; the score tables under them
+        local tablesY
+        f.l4:SetShown(matches and hasL4)
+        f.num:SetShown(matches and #nums > 0)
+        if matches then
+            local numW, l4W = #nums > 0 and 150 or 0, hasL4 and 300 or 0
+            local momW = cw - numW - l4W - (numW > 0 and COL_GAP or 0) - (l4W > 0 and COL_GAP or 0)
+            local mh = Pg.LayMoments(f, r, moments, 0, y, momW, 4)
+            -- the last four
+            f.l4:ClearAllPoints()
+            f.l4:SetPoint("TOPLEFT", f, "TOPLEFT", momW + COL_GAP, -y)
+            f.l4Sect:Set("The last four")
+            f.l4.full:SetShown(Live() and Live():GetState(r.id) ~= nil)
+            local spots = { { 0, 6 }, { 0, 70 }, { 164, 38 } }
+            local list = { semis[1], semis[2], final }
+            for i = 1, 3 do
+                local m = Pool(f.l4.matches, i, function() return Pg.NewMatch(f.l4.box) end)
+                if list[i] then
+                    m:ClearAllPoints()
+                    m:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", spots[i][1], -spots[i][2])
+                    m:Set(list[i])
+                else
+                    m:Hide()
+                end
+            end
+            -- the connectors: each semi's middle to the final's
+            local L = f.l4.lines
+            local function hline(t, x1, x2, ly)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", x1, -ly)
+                t:SetSize(x2 - x1, 1)
+                t:Show()
+            end
+            local function vline(t, x, y1, y2)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", f.l4.box, "TOPLEFT", x, -y1)
+                t:SetSize(1, y2 - y1)
+                t:Show()
+            end
+            for _, t in ipairs(L) do t:Hide() end
+            if final and #semis > 0 then
+                local x1, x2 = MATCH_W, MATCH_W + floor((164 - MATCH_W) / 2)
+                if semis[1] then hline(L[1], x1, x2, 25); vline(L[2], x2, 25, 58) end
+                if semis[2] then hline(L[3], x1, x2, 89); vline(L[4], x2, 57, 90) end
+                hline(L[5], x2, 164, 57)
+            end
+            -- the numbers
+            f.num:ClearAllPoints()
+            f.num:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -y)
+            f.numSect:Set("Night in numbers")
+            for i = 1, max(#nums, #f.nums) do
+                local row = Pool(f.nums, i, function()
+                    local x = CreateFrame("Frame", nil, f.num)
+                    x:SetSize(150, 22)
+                    x.l = Text(x, 11, { 0.85, 0.85, 0.85 })
+                    x.l:SetPoint("LEFT", 0, 0)
+                    x.v = Text(x, 13, C.white, true)
+                    x.v:SetJustifyH("RIGHT")
+                    x.v:SetPoint("RIGHT", -2, 0)
+                    return x
+                end)
+                local x = nums[i]
+                if x then
+                    row:ClearAllPoints()
+                    row:SetPoint("TOPLEFT", f.num, "TOPLEFT", 0, -(30 + (i - 1) * 28))
+                    row.l:SetText(x[1])
+                    row.v:SetText(x[2])
+                    row:Show()
+                else
+                    row:Hide()
+                end
+            end
+            local rowH = max(mh, hasL4 and 162 or 0, #nums > 0 and (30 + #nums * 28) or 0)
+            if rowH > 0 then y = y + rowH + 12 end
+            tablesY = y
+        end
+        -- the scores' tables: beside the moments (without Matches), as many as fit in a row, the rest under them
+        local ty = tablesY or y
+        local showMom = not matches and #moments > 0
+        local perRow = max(1, min(#boards, floor((cw - (showMom and (MOM_MIN + COL_GAP) or 0) + COL_GAP)
+            / (TABLE_MIN + COL_GAP))))
+        local tw = #boards > 0 and floor((cw - (showMom and (MOM_MIN + COL_GAP) or 0) - (perRow - 1) * COL_GAP) / perRow)
+            or 0
+        -- (one table: no wider than reads well; the moments and the tags in a column beside it)
+        local lone = not matches and #boards == 1
+        if lone then tw = min(tw, 340) end
+        local rowTop, rowH = ty, 0
+        for i = 1, max(#boards, #f.tables) do
+            local t = Pool(f.tables, i, function() return Pg.NewTable(f) end)
+            local s = boards[i]
+            if s then
+                local col = (i - 1) % perRow
+                if i > 1 and col == 0 then
+                    rowTop = rowTop + rowH + 12
+                    rowH = 0
+                end
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", f, "TOPLEFT", col * (tw + COL_GAP), -rowTop)
+                rowH = max(rowH, Pg.FillTable(t, s, tw))
+            else
+                t:Hide()
+            end
+        end
+        local momH, mx = 0, 0
+        if not matches then
+            mx = #boards > 0 and (min(#boards, perRow) * (tw + COL_GAP)) or 0
+            momH = Pg.LayMoments(f, r, moments, mx, ty, cw - mx, 8)
+        end
+        -- who had each tag at the end: under the moments beside a lone table, else under everything
+        local tx, tagsY, tagsW = 0, nil, cw
+        if lone then
+            tx, tagsW = mx, cw - mx
+            tagsY = ty + (momH > 0 and (momH + 4) or 0)
+        end
+        if #boards > 0 or momH > 0 then
+            y = max(rowTop + rowH, ty + momH) + 12
+        end
+        f.tags:SetShown(#tags > 0)
+        if #tags > 0 then
+            local atY = tagsY or y
+            f.tags:ClearAllPoints()
+            f.tags:SetPoint("TOPLEFT", f, "TOPLEFT", tx, -atY)
+            f.tags:SetWidth(tagsW)
+            f.tagSect:Set("Tags at the end")
+            local cols = tagsW >= 600 and 2 or 1
+            local colW = floor((tagsW - (cols - 1) * COL_GAP) / cols)
+            for i = 1, max(#tags, #f.tagRows) do
+                local tr = Pool(f.tagRows, i, function() return Pg.NewTagRow(f.tags) end)
+                local t = tags[i]
+                if t then
+                    local col, row = (i - 1) % cols, floor((i - 1) / cols)
+                    tr:ClearAllPoints()
+                    tr:SetPoint("TOPLEFT", f.tags, "TOPLEFT", col * (colW + COL_GAP), -(30 + row * TAG_RH))
+                    Pg.FillTagRow(tr, t, r.n, colW, hosted)
+                else
+                    tr:Hide()
+                end
+            end
+            local th = 30 + ceil(#tags / cols) * TAG_RH
+            f.tags:SetHeight(th)
+            if tagsY then
+                y = max(y, atY + th + 12)
+            else
+                y = y + th + 8
+            end
+        end
+
+        -- nothing to show at all (a cancelled event): say so
+        local empty = not hasTop and #boards == 0 and #moments == 0 and #tags == 0 and not hasL4
+        f.nobody:SetShown(empty)
+        if empty then
+            f.nobody:ClearAllPoints()
+            f.nobody:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -6)
+            f.nobody:SetText(r.cancel and "It was called off before anyone placed." or "Nobody placed.")
+            y = 30
+        end
+        return y
     end
+    local avail = H.Hgt() - BODY_Y - 10
+    local cw = w
+    local h = layout(cw)
+    if h > avail then
+        cw = w - 12
+        h = layout(cw)
+    end
+    f:SetHeight(max(1, h))
+    v.rscroll:SetWidth(cw)
+    v.rscroll.ScrollBar:Update()
 end
 
 ---------------------------------------------------------------------------
@@ -2789,6 +3662,14 @@ function Lib.Create(p)
     v.new = H.Button(v, "New event", nil, 26, "primary", A.NewEvent, "plus")
     H.Fit(v.new, 100, 30)
     v.new:SetPoint("TOPRIGHT", -PAD, -LIB_BAR_Y)
+    v.new:HookScript("OnEnter", function(self)
+        Tip(self, { "New event", "Opens the builder on an empty event: drag pieces in, practice it, save it." },
+            "ANCHOR_BOTTOM")
+    end)
+    v.new:HookScript("OnLeave", HideTip)
+    -- (beside it: start from one of the examples instead)
+    v.examples = A.ExamplesButton(v, 26)
+    v.examples:SetPoint("RIGHT", v.new, "LEFT", -6, 0)
     v.scroll = UI():CreateScrollFrame(v)
     v.scroll:SetPoint("TOPLEFT", PAD, -GRID_Y)
     v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
@@ -2837,10 +3718,6 @@ function Lib.NewCard(parent)
     c.a = Text(c, 11, C.grey)
     c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -4)
     c.minis = {}
-    for i = 1, 3 do
-        c.minis[i] = H.Mini(c)
-        c.minis[i]:Hide()
-    end
     c.acts = CreateFrame("Frame", nil, c)
     c.acts:SetSize(186, 22)
     c.acts:SetPoint("BOTTOMRIGHT", -8, 8)
@@ -2889,21 +3766,20 @@ function Lib.FillCard(c, d, w)
     local n = Ev():RunCount(d.id)
     local ran = n == 0 and "not run yet" or (n == 1 and "ran once" or (n == 2 and "ran twice" or ("ran " .. n .. " times")))
     c.a:SetText(Name(d.by) .. grey(" · " .. ran))
-    -- what kind of event it is: its smart blocks
-    local x = 10
-    for i, m in ipairs(c.minis) do
-        local k = B():Kinds(d)[i]
-        local sm = k and B().SMART[k]
-        if sm then
-            m:Set(sm.label, "mute", sm.icon)
+    -- what kind of event it is: its smart blocks and definitions (Sign-up, Matches, Tags, Places, Asks ...), as many
+    -- as the card's width takes (the least telling go first)
+    for _, m in ipairs(c.minis) do m.used = nil end
+    H.LayKinds(c.minis, c, d, w - 20, function(list)
+        local x = 10
+        for _, m in ipairs(list) do
             m:ClearAllPoints()
             m:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", x, 10)
             m.used = true
             x = x + m:GetWidth() + 4
-        else
-            m.used = nil
         end
-    end
+    end, true)
+
+
     -- the actions on hover: Host, Copy, Edit (mine), Share
     local anchor
     local function place(b, on)
@@ -2977,8 +3853,9 @@ function Lib.Fill(v)
     v.empty:SetShown(#list == 0)
     if #list == 0 then
         v.empty:SetText((state.q or "") ~= "" and "No event matches that." or (state.lib == "mine"
-            and "You haven't built an event yet: New event starts one." or (state.lib == "ranked"
-            and "No event is ranked yet." or "The guild has no events yet: New event starts one.")))
+            and "You haven't built an event yet: Examples or New event start one." or (state.lib == "ranked"
+            and "No event is ranked yet." or "The guild has no events yet: Examples or New event start one.")))
+
     end
 end
 
@@ -3367,8 +4244,10 @@ function Sea.FillEventRow(row, r)
     row.id = r.id
     EUI():SetArt(row.art.tex, r.art, 46, 30, nil, nil, 0.6)
     local me = Me()
-    local place = r.champ == me and "you won" or (r.second == me and "2nd" or (r.third == me and "3rd"
-        or (r.points[me] and "played" or "not in it")))
+    local mine, n = W.MyPlace(r)
+    local place = (n == 1 and "you won") or (n and W.Ord(n)) or (mine and "played") or (r.points[me] and "played")
+        or "not in it"
+
     row.l2:SetText(date("%a ", r.at) .. date("%d %b", r.at) .. " · " .. place)
     local p = r.points[me]
     row.p:SetText(p and ("+" .. p) or "-")
@@ -3399,10 +4278,12 @@ function W.PieceText(p, def, depth)
     local pd = p and B().PIECES[p.k]
     if not pd then return p and tostring(p.k) or "" end
     depth = depth or 0
-    local function value(v, a)
-        if v == nil then return "___" end
+    local function value(v, a, n)
+        -- (a filter its choice doesn't have isn't there: "when an entrant dies")
+        if a and a.t == "filter" and B():ArgType(p, n) == nil then return "" end
+        if v == nil then return (a and a.opt) and "any" or "___" end
         if type(v) == "table" then
-            if v.k then return depth < 3 and W.PieceText(v, def, depth + 1) or "..." end
+            if v.k then return depth < 3 and W.PieceText(v, def, depth + 1) or "a value" end
             if type(v.j) == "table" then
                 local out = {}
                 for _, x in ipairs(v.j) do
@@ -3413,6 +4294,10 @@ function W.PieceText(p, def, depth)
             return "?"
         end
         local t = a and a.t
+        if t == "text" then return "\"" .. tostring(v) .. "\"" end
+        -- (a definition's name, a choice's words: "Hiders", "catches a fish", "Raid warning")
+        local words = B().BlankWords and B():BlankWords(def, p, n)
+        if words then return words end
         if t == "block" then return B():BlockLabel(def, v) end
         if t == "stage" then return B():StageName(def, v) end
         if t == "badge" then
@@ -3432,9 +4317,10 @@ function W.PieceText(p, def, depth)
     end
     return ((pd.text or ""):gsub("{(%d)}", function(n)
         n = tonumber(n)
-        return value(p.a and p.a[n], pd.args and pd.args[n])
-    end))
+        return value(p.a and p.a[n], pd.args and pd.args[n], n)
+    end):gsub("%s+$", ""):gsub("  +", " "))
 end
+
 
 function Rv.Create(p)
     local v = CreateFrame("Frame", nil, p)
@@ -3610,6 +4496,8 @@ function Rv.NewDiff(parent)
     r.stage:SetPoint("LEFT", 9, 0)
     r.fs = Text(r, 11, C.white)
     r.fs:SetPoint("LEFT", 62, 0)
+    r.dot = Disc(r, 8, { 1, 1, 1 }, "ARTWORK")
+    r.dot:Hide()
     r:EnableMouse(true)
     r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
     r:SetScript("OnLeave", HideTip)
@@ -3617,7 +4505,86 @@ function Rv.NewDiff(parent)
 end
 
 -- A change's stage label ("Bracket", "Badges").
-function W.DiffStage(ch) return ch.stage or (ch.badge and "Badges") or "" end
+function W.DiffStage(ch)
+    return ch.stage or (ch.badge and "Badges") or (ch.def and B():KindLabel(ch.def)) or ""
+end
+
+-- A definition in a few plain words (the review's rows): "everyone sees it", "lower wins, a time, on the board",
+-- "250 yd, Terrace of Light", "8 places", "a vote, 3 each, secret".
+local ASK_WORDS = { player = "a vote for a player", choice = "a vote", text = "a typed answer", yesno = "yes or no",
+    number = "1 to 10" }
+local FMT_WORDS = { num = "a number", time = "a time", gold = "gold" }
+function W.DefWords(kind, x)
+    if type(x) ~= "table" then return "" end
+    if kind == "tags" then
+        return (string.lower(SHOWN_WORDS[x.shown or "all"] or ""):gsub("%.$", ""))
+
+    elseif kind == "scores" then
+        local parts = { (x.high == false) and "lower wins" or "higher wins", FMT_WORDS[x.fmt or "num"] or "a number" }
+        if x.board then parts[#parts + 1] = "on the board" end
+        if tonumber(x.cap) and tonumber(x.cap) > 0 then parts[#parts + 1] = "at most " .. x.cap end
+        return tconcat(parts, ", ")
+    elseif kind == "places" then
+        local parts = { floor(tonumber(x.r) or 30) .. " yd" }
+        if x.sz or x.z then parts[#parts + 1] = x.sz or x.z end
+        return tconcat(parts, ", ")
+    elseif kind == "lists" then
+        local n = type(x.items) == "table" and #x.items or 0
+        local noun = ({ place = { "place", "places" }, question = { "question", "questions" } })[x.kind or "text"]
+            or { "item", "items" }
+        return n .. " " .. (n == 1 and noun[1] or noun[2])
+    elseif kind == "asks" then
+        local parts = { ASK_WORDS[x.kind or "player"] or "a question" }
+        if (tonumber(x.votes) or 1) > 1 then parts[#parts + 1] = x.votes .. " each" end
+        if x.secret then parts[#parts + 1] = "secret" end
+        return tconcat(parts, ", ")
+    end
+    return ""
+end
+
+-- What changed in a definition, in plain words: "250 yd, was 600 yd"; "colour red, was green" ... (nil: nothing
+-- the words show).
+function W.DefChange(kind, old, new)
+    if type(old) ~= "table" or type(new) ~= "table" then return nil end
+    local parts = {}
+    local function was(now, before) parts[#parts + 1] = now .. " (was " .. before .. ")" end
+    if kind == "tags" then
+        if old.c ~= new.c then was("colour " .. tostring(new.c or "blue"), tostring(old.c or "blue")) end
+        if (old.shown or "all") ~= (new.shown or "all") then
+            was(W.DefWords("tags", new), W.DefWords("tags", old))
+        end
+    elseif kind == "scores" then
+        if (old.high == false) ~= (new.high == false) then
+            was(new.high == false and "lower wins" or "higher wins", old.high == false and "lower" or "higher")
+        end
+        if (old.fmt or "num") ~= (new.fmt or "num") then was(FMT_WORDS[new.fmt or "num"] or "?", FMT_WORDS[old.fmt or "num"] or "?") end
+        if (old.board and true or false) ~= (new.board and true or false) then
+            parts[#parts + 1] = new.board and "on the board now" or "off the board now"
+        end
+        if tonumber(old.cap) ~= tonumber(new.cap) then
+            was(tonumber(new.cap) and ("at most " .. new.cap) or "no cap", tonumber(old.cap) and tostring(old.cap) or "none")
+        end
+    elseif kind == "places" then
+        if tonumber(old.r) ~= tonumber(new.r) then
+            was(floor(tonumber(new.r) or 30) .. " yd", floor(tonumber(old.r) or 30) .. " yd")
+        end
+        if old.map ~= new.map or old.x ~= new.x or old.y ~= new.y or old.sz ~= new.sz or old.z ~= new.z then
+            parts[#parts + 1] = "moved" .. ((new.sz or new.z) and (" to " .. (new.sz or new.z)) or "")
+        end
+    elseif kind == "lists" then
+        local a, b = W.DefWords("lists", old), W.DefWords("lists", new)
+        if a ~= b then was(b, a) else parts[#parts + 1] = "items changed" end
+    elseif kind == "asks" then
+        if (old.q or "") ~= (new.q or "") then parts[#parts + 1] = "new question" end
+        local a, b = W.DefWords("asks", old), W.DefWords("asks", new)
+        if a ~= b then was(b, a) end
+        if tonumber(old.time) ~= tonumber(new.time) then
+            was(B():DurationText(tonumber(new.time) or 60), B():DurationText(tonumber(old.time) or 60))
+        end
+        if old.from ~= new.from then parts[#parts + 1] = "others to pick from" end
+    end
+    return #parts > 0 and tconcat(parts, "; ") or nil
+end
 
 -- One change: its colour bar, the stage (in a column colX wide), the piece drawn (or its words, wrapped). Returns
 -- the row's height.
@@ -3661,13 +4628,23 @@ function Rv.FillDiff(r, ch, def, w, colX)
             end
         end
     end
+    r.dot:Hide()
     if not r.pf then
         local text = ch.text or (ch.piece and W.PieceText(ch.piece, def)) or ""
+        -- (a tag's row: its colour before the words)
+        local dx = ch.dot and 14 or 0
+        if ch.dot then
+            r.dot:ClearAllPoints()
+            r.dot:SetPoint("CENTER", r, "LEFT", colX + 4, 0)
+            r.dot:SetVertexColor(ch.dot[1], ch.dot[2], ch.dot[3], 1)
+            r.dot:Show()
+        end
         r.fs:ClearAllPoints()
-        r.fs:SetPoint("LEFT", r, "LEFT", colX, 0)
-        h = max(h, Wrap(r.fs, (text:gsub("→", "to")), room, 11) + 16)
+        r.fs:SetPoint("LEFT", r, "LEFT", colX + dx, 0)
+        h = max(h, Wrap(r.fs, (text:gsub("→", "to")), room - dx, 11) + 16)
         r.fs:Show()
     end
+
     if ch.kind == "chg" and ch.old then r.tip = { "Changed", "Was: " .. W.PieceText(ch.old, def) } end
     if ch.kind == "del" and ch.piece then r.tip = { "Taken out", W.PieceText(ch.piece, def) } end
     r:SetHeight(h)
@@ -3681,6 +4658,19 @@ function Rv.Changes(d)
     local rs = Ev():ReviewState(d)
     if snap and rs ~= "ranked" then
         local changes, same = B():Diff(snap, d)
+        -- a definition's row says what it is (new) or what changed in it, in words; a tag's has its colour
+        for _, ch in ipairs(changes) do
+            if ch.def and ch.id then
+                local now = type(d[ch.def]) == "table" and d[ch.def][ch.id]
+                local was = type(snap[ch.def]) == "table" and snap[ch.def][ch.id]
+                local words
+                if ch.kind == "add" then words = W.DefWords(ch.def, now)
+                elseif ch.kind == "chg" then words = W.DefChange(ch.def, was, now) end
+                if words and words ~= "" then ch.text = (ch.text or "") .. ", " .. words end
+                local tg = ch.def == "tags" and (now or was)
+                if type(tg) == "table" then ch.dot = B():TagColor(tg.c) end
+            end
+        end
         local order = {}
         for i, ch in ipairs(changes) do order[ch] = i end
         tsort(changes, function(a, c)
@@ -3695,6 +4685,8 @@ function Rv.Changes(d)
     for _, s in ipairs(B():Describe(d)) do
         out[#out + 1] = { kind = "add", stage = s.name, text = (s.text ~= "" and s.text) or "(nothing in it yet)" }
     end
+    local always = B():DescribeStage(d, { id = "*", name = "Always" })
+    if (always.text or "") ~= "" then out[#out + 1] = { kind = "add", stage = "Always", text = always.text } end
     local label = (rs == "review" or rs == "draft") and (W.NewOrChanged(d) == "changed" and "Changed since it was ranked"
         or "New event") or "How it runs"
     local n = W.PieceCount(d)
@@ -3714,6 +4706,124 @@ function W.Checks(d)
     local n = 1 + (practiced and 1 or 0) + (blanks and 1 or 0) + (cap and 1 or 0)
     return n, 4, practiced, blanks, cap
 end
+
+-- The "Rewards it gives" rows: { { kind = badge | score | season, rw, sc, n, l2, right, new, h } }, five at most:
+-- the badges (new ones first; each with where it goes: "1st by Fish", "most Finds", "Biggest upset"), a score on
+-- the board no badge names, the season points no badge goes with ("5 for playing, 5 a match won").
+function Rv.Gives(d, snap, waiting)
+    local rewards, extra = W.Rewards(d)
+    local function isNew(rw)
+        return waiting and ((snap and not (snap.badges and snap.badges[rw.id])) or
+            (not snap and W.NewOrChanged(d) == "new")) or false
+    end
+    local out, named = {}, {}
+    for _, rw in ipairs(rewards) do
+        local sc = rw.sid and B():Definition(d, "scores", rw.sid)
+        if sc then named[rw.sid] = true end
+        local l2 = rw.label or ""
+        if sc and not l2:find(sc.n or "", 1, true) then l2 = l2 .. " by " .. (sc.n or "") end
+        local right = {}
+        if rw.pts then right[#right + 1] = "+" .. rw.pts end
+        if rw.b.ti and rw.b.ti ~= "" then right[#right + 1] = "title" end
+        out[#out + 1] = { kind = "badge", rw = rw, n = rw.b.n or "Badge", l2 = l2 ~= "" and l2 or nil,
+            right = tconcat(right, " · "), new = isNew(rw) }
+    end
+    -- (the new ones first, else in placing order)
+    local order = {}
+    for i, x in ipairs(out) do order[x] = i end
+    tsort(out, function(a, c)
+        if a.new ~= c.new then return a.new end
+        return order[a] < order[c]
+    end)
+    for _, sc in ipairs(B():Defs(d, "scores", true)) do
+        if sc.board and not named[sc.id] then
+            out[#out + 1] = { kind = "score", sc = sc, n = sc.n or "Score", l2 = W.Way(sc) .. " wins, on the board",
+                right = "" }
+        end
+    end
+    local more = W.ExtraText(extra)
+    if more then out[#out + 1] = { kind = "season", n = "Season points", l2 = more, right = "" } end
+    while #out > 5 do tremove(out, #out - (out[#out].kind == "season" and 1 or 0)) end
+    for _, x in ipairs(out) do x.h = x.l2 and 34 or 28 end
+    return out
+end
+
+function Rv.NewGive(parent)
+    local x = CreateFrame("Frame", nil, parent)
+    x:SetSize(RVCOL_W, 28)
+    x.badge = H.Badge(x, 18)
+    x.badge:SetPoint("LEFT", 0, 0)
+    x.glyph = x:CreateTexture(nil, "ARTWORK")
+    x.glyph:SetSize(15, 15)
+    x.glyph:SetPoint("CENTER", x, "LEFT", 12, 0)
+    x.n = Text(x, 12, C.white)
+    x.l2 = Text(x, 10, C.grey)
+    x.pill = H.Pill(x, 16)
+    x.r = Text(x, 11, C.grey)
+    x.r:SetJustifyH("RIGHT")
+    x.r:SetPoint("RIGHT", 0, 0)
+    return x
+end
+
+-- Fills a "Rewards it gives" row; returns its height.
+function Rv.FillGive(g, x, d)
+    local rw = x.rw
+    g.glyph:Hide()
+    if x.kind == "badge" then
+        g.badge:SetBadge({ n = rw.b.n, i = rw.b.i, f = rw.b.f, ti = rw.b.ti, ev = d.name })
+    else
+        g.badge:Hide()
+        if x.kind == "season" then
+            g.glyph:SetTexture(STAR)
+            g.glyph:SetTexCoord(0, 0.5, 0, 0.5)
+            g.glyph:SetVertexColor(1, 1, 1, 1)
+        else
+            H.Glyph(g.glyph, "trophy", { 0.85, 0.85, 0.87, 0.9 })
+        end
+        g.glyph:Show()
+    end
+    g.pill:SetShown(x.new and true or false)
+    if x.new then g.pill:SetKind("new", "warn") end
+    g.r:SetText(x.right or "")
+    -- the name in the room the pill and the points leave: smaller, never cut
+    local rtw = (x.right or "") ~= "" and (NatW(g.r) + 8) or 0
+    local room = RVCOL_W - 32 - rtw - (x.new and (g.pill:GetWidth() + 6) or 0)
+    local tw, nh, lines = FitText(g.n, x.n, room, { 12, 11, 10 })
+    g.n:ClearAllPoints()
+    g.l2:ClearAllPoints()
+    local h = x.h
+    g.pill:ClearAllPoints()
+    if lines == 2 then
+        -- (a long name on two lines from the top; its "new" and where it goes under them; the row grows)
+        g.n:SetPoint("TOPLEFT", g, "TOPLEFT", 32, -3)
+        h = 3 + nh + ((x.l2 or x.new) and 17 or 0) + 4
+        if x.new then g.pill:SetPoint("TOPLEFT", g.n, "BOTTOMLEFT", 0, -1) end
+        if x.l2 then
+            FitText(g.l2, x.l2, RVCOL_W - 32 - rtw - (x.new and (g.pill:GetWidth() + 6) or 0), { 10, 9 })
+            if x.new then
+                g.l2:SetPoint("LEFT", g.pill, "RIGHT", 6, 0)
+            else
+                g.l2:SetPoint("TOPLEFT", g.n, "BOTTOMLEFT", 0, -2)
+            end
+            g.l2:Show()
+        else
+            g.l2:Hide()
+        end
+    elseif x.l2 then
+        g.n:SetPoint("BOTTOMLEFT", g, "LEFT", 32, 0)
+        FitText(g.l2, x.l2, RVCOL_W - 32 - rtw, { 10, 9 })
+        g.l2:SetPoint("TOPLEFT", g, "LEFT", 32, -2)
+        g.l2:Show()
+    else
+        g.n:SetPoint("LEFT", g, "LEFT", 32, 0)
+        g.l2:Hide()
+    end
+    if lines ~= 2 then g.pill:SetPoint("LEFT", g.n, "LEFT", tw + 6, 0) end
+    g:SetHeight(h)
+    g:Show()
+    return h
+end
+
 
 function Rv.Decide(v, ok)
     local d = v.def
@@ -3898,9 +5008,22 @@ function Rv.Fill(v)
     end
     if #changes == 0 then dy = 0 end
     -- the rows shown at once: what leaves the columns under them their room (the rest scroll)
-    local nGive = min(4, #W.Rewards(d))
+    -- (what it gives first: its rows' heights, a long badge name on two lines, decide the room left)
+    local gives = Rv.Gives(d, snap, waiting)
+    local givesH = 0
+    for i = 1, max(#gives, #v.gives) do
+        local g = Pool(v.gives, i, function() return Rv.NewGive(v.right) end)
+        local x = gives[i]
+        if x then
+            g:ClearAllPoints()
+            g:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -(28 + givesH))
+            givesH = givesH + Rv.FillGive(g, x, d)
+        else
+            g:Hide()
+        end
+    end
     local k = Ev():GetReview(d.id)
-    local rightH = 28 + max(1, nGive) * 28 + 6 + 22 + (k and (10 + 28 + 22 + (k.note and 18 or 0)) or 0)
+    local rightH = 28 + max(28, givesH) + 6 + 22 + (k and (10 + 28 + 22 + (k.note and 18 or 0)) or 0)
     local leftH = 28 + 46 + 10 + (waiting and 56 or 0)
     local room = (H.Hgt() - 44 - 10) - 106 - 8 - max(rightH, leftH)
     local shownH, shown = 0, 0
@@ -3960,75 +5083,21 @@ function Rv.Fill(v)
     v.reply:SetWidth(lw)
     v.rsect:SetShown(waiting)
     v.reply:SetShown(waiting)
-    -- what it gives
+    -- what it gives: its badges (the new ones first: they are what is asked), the scores that decide them, the
+    -- season points no badge goes with
     v.gsect:Set("Rewards it gives")
-    local rewards = W.Rewards(d)
-    -- (new: not in the ranked version; a first review: all of them) the new ones first: they are what is asked
-    local function isNew(rw)
-        return waiting and ((snap and not (snap.badges and snap.badges[rw.id])) or
-            (not snap and W.NewOrChanged(d) == "new")) or false
-    end
-    if snap then
-        local order = {}
-        for i, rw in ipairs(rewards) do order[rw] = i end
-        tsort(rewards, function(a, c)
-            local na, nc = isNew(a), isNew(c)
-            if na ~= nc then return na end
-            return order[a] < order[c]
-        end)
-    end
-    local gy = 28
-    for i = 1, max(#rewards, #v.gives) do
-        local g = Pool(v.gives, i, function()
-            local x = CreateFrame("Frame", nil, v.right)
-            x:SetSize(RVCOL_W, 28)
-            x.badge = H.Badge(x, 18)
-            x.badge:SetPoint("LEFT", 0, 0)
-            x.n = Text(x, 12, C.white)
-            x.n:SetPoint("LEFT", 32, 0)
-            x.pill = H.Pill(x, 16)
-            x.pill:SetPoint("LEFT", x.n, "RIGHT", 6, 0)
-            x.r = Text(x, 11, C.grey)
-            x.r:SetJustifyH("RIGHT")
-            x.r:SetPoint("RIGHT", 0, 0)
-            return x
-        end)
-        local rw = rewards[i]
-        if rw and i <= 4 then
-            g:ClearAllPoints()
-            g:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -gy)
-            g.badge:SetBadge({ n = rw.b.n, i = rw.b.i, f = rw.b.f, ti = rw.b.ti, ev = d.name })
-            local new = isNew(rw)
-            g.pill:SetShown(new)
-            if new then g.pill:SetKind("new", "warn") end
-            local r = {}
-            if rw.pts then r[#r + 1] = "+" .. rw.pts end
-            if rw.b.ti and rw.b.ti ~= "" then r[#r + 1] = "title" end
-            g.r:SetText(tconcat(r, " · "))
-            -- the name in the room the pill and the points leave: smaller, else two lines (the row grows)
-            local rtw = #r > 0 and (NatW(g.r) + 8) or 0
-            local room = RVCOL_W - 32 - rtw - (new and (g.pill:GetWidth() + 6) or 0)
-            local tw, nh = FitText(g.n, rw.b.n or "Badge", room, { 12, 11 })
-            g.pill:ClearAllPoints()
-            g.pill:SetPoint("LEFT", g.n, "LEFT", tw + 6, 0)
-            local gh = max(28, nh + 6)
-            g:SetHeight(gh)
-            g:Show()
-            gy = gy + gh
-        else
-            g:Hide()
-        end
-    end
-    if #rewards == 0 then
+    local gy = 28 + givesH
+    if #gives == 0 then
         v.noGive = v.noGive or Text(v.right, 11, C.grey)
         v.noGive:ClearAllPoints()
         v.noGive:SetPoint("TOPLEFT", v.right, "TOPLEFT", 2, -32)
-        v.noGive:SetText("No badges.")
+        v.noGive:SetText("No badges, no season points.")
         v.noGive:Show()
         gy = gy + 22
     elseif v.noGive then
         v.noGive:Hide()
     end
+
     local passed, total, practiced = W.Checks(d)
     v.checks:ClearAllPoints()
     v.checks:SetPoint("TOPLEFT", v.right, "TOPLEFT", 0, -(gy + 6))
@@ -4632,7 +5701,9 @@ function EventsUI:OpenSubmit(defId)
             or "") or "start one in the builder" },
         { blanks, blanks and "Every blank is filled" or (probs .. (probs == 1 and " piece needs" or " pieces need")
             .. " fixing"), blanks and "" or "marked in the builder" },
-        { true, "Chat stays under the limit", "8 lines a minute at most" },
+        -- (the addon shows its messages itself; guild chat is its one way out, held to a post every 10 s, 20 a run)
+        { true, "Guild chat stays under the limit", W.GuildPosts(d) == 0 and "no guild posts"
+            or "a post every 10 s at most" },
         { cap, cap and "Points stay under the season cap" or "A piece gives too many season points",
             #grants > 0 and tconcat(grants, " / ", 1, min(#grants, 5)) or "no season points" },
     }
@@ -5174,6 +6245,8 @@ function EventsUI:CreatePanel(parent)
             "ANCHOR_BOTTOM")
     end)
     p.newBtn:HookScript("OnLeave", HideTip)
+    p.exBtn = A.ExamplesButton(p, 22)
+    p.exBtn:SetPoint("RIGHT", p.newBtn, "LEFT", -6, 0)
     p:SetScript("OnShow", function() EventsUI:Refresh() end)
     p.OnPanelShown = function() EventsUI:Refresh() end
     p.elapsed = 0
@@ -5208,6 +6281,8 @@ function EventsUI:Refresh()
     end
     if reviewer and not onPage then ReviewCount(panel.tabs.review, #Ev():GetReviewQueue()) end
     panel.newBtn:SetShown(not onPage and state.view == "upcoming")
+    panel.exBtn:SetShown(not onPage and state.view == "upcoming")
+
     local key = onPage and "event" or state.view
     for k, v in pairs(panel.views) do
         if k ~= key then v:Hide() end

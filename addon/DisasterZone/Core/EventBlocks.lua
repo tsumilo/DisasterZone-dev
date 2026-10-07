@@ -1965,11 +1965,19 @@ local HAPPEN_RULE = { kill = "kills count", loot = "loot counts", fish = "every 
     dismount = "stay mounted", move = "don't move", emote = "emotes count" }
 
 -- What the pieces of a stage do, as rules: { { g = glyph key, t = text } ... }, and a sentence when the stage has no
--- description of its own. opts.closesAt: the sign-up's closing time (a run's), for its rule.
+-- description of its own. opts.closesAt: the sign-up's closing time (a run's), for its rule. A rule about a definition
+-- also names it, for the event page's chips: tags = { tid ... } (the "group" rule of the tags given), score = sid,
+-- place = pid, list = lid, ask = aid, button = label; Matches' "won by" rule has win = "duel" | "pieces".
 function B:DescribeStage(d, stage, opts)
     local rules, words = {}, {}
     local seen = {}
-    local function rule(g, t) if not seen[t] then seen[t] = true; rules[#rules + 1] = { g = g, t = t } end end
+    local function rule(g, t, extra)
+        if seen[t] then return end
+        seen[t] = true
+        local r = { g = g, t = t }
+        for k, v in pairs(extra or {}) do r[k] = v end
+        rules[#rules + 1] = r
+    end
     for _, bid in ipairs(self:BlocksOf(d)) do
         local b = d.blocks[bid]
         if b.stage == stage.id then
@@ -1989,6 +1997,7 @@ function B:DescribeStage(d, stage, opts)
                 local seed = self:SmartSetting(b, "seed")
                 local pieces = self:SmartSetting(b, "win") == "pieces"
                 if pieces then rule("swords", "1 v 1 matches") else rule("swords", "best of " .. bo) end
+                rule("swords", pieces and "won by the event's rules" or "won by a duel", { win = pieces and "pieces" or "duel" })
                 rule("clock", self:DurationText(self:SmartSetting(b, "noshow")) .. " no-show")
                 rule("rank", "seeded by " .. strlower(settingLabel("bracket", "seed", seed)))
                 if pieces then
@@ -2002,10 +2011,9 @@ function B:DescribeStage(d, stage, opts)
         end
     end
     local badges, season, show, post, count = 0, false, false, false, false
-    local tags, tagSeen, scores, scoreSeen = {}, {}, {}, {}
+    local tags, tagSeen, scores, scoreSeen, tagIds = {}, {}, {}, {}, {}
     local asks, places, buttons, timers, askWords, walks = {}, {}, {}, {}, {}, {}
     local once = {}
-    local function add(list, v) if not once[v] then once[v] = true; list[#list + 1] = v end end
     for _, s in ipairs(d.scripts or {}) do
         if s.st == stage.id then
             if s.top and s.top.k == "ev.happen" and HAPPEN_RULE[s.top.a and s.top.a[1]] then
@@ -2022,7 +2030,11 @@ function B:DescribeStage(d, stage, opts)
                     for i = 2, (p.k == "pl.split") and 3 or 2 do
                         local tid = a[i]
                         local tg = type(tid) == "string" and tid ~= self.ENTRANTS and self:Definition(d, "tags", tid)
-                        if tg and not tagSeen[tid] then tagSeen[tid] = true; tags[#tags + 1] = tg.n end
+                        if tg and not tagSeen[tid] then
+                            tagSeen[tid] = true
+                            tags[#tags + 1] = tg.n
+                            tagIds[#tagIds + 1] = tid
+                        end
                     end
                 elseif (p.k == "pt.add" or p.k == "pt.set") then
                     local sid = p.k == "pt.add" and a[2] or a[1]
@@ -2030,27 +2042,35 @@ function B:DescribeStage(d, stage, opts)
                     if sc and sc.board and not scoreSeen[sid] then
                         scoreSeen[sid] = true
                         local way = SCORE_WAY[sc.fmt] or SCORE_WAY.num
-                        scores[#scores + 1] = way[sc.high == false and 2 or 1] .. " " .. sc.n .. " wins"
+                        scores[#scores + 1] = { way[sc.high == false and 2 or 1] .. " " .. sc.n .. " wins", sid }
                     end
                 elseif p.k == "as.ask" or p.k == "as.askq" then
                     local ak = type(a[2]) == "string" and self:Definition(d, "asks", a[2])
                     if ak and ASK_RULE[ak.kind] then
-                        asks[#asks + 1] = ASK_RULE[ak.kind]
+                        asks[#asks + 1] = { ASK_RULE[ak.kind], a[2] }
                         askWords[#askWords + 1] = ASK_WORDS[ak.kind]
                     end
                 elseif p.k == "pc.enter" or p.k == "pc.leave" or p.k == "pc.point" then
                     local pid = p.k == "pc.point" and a[2] or a[1]
                     local pl = type(pid) == "string" and self:Definition(d, "places", pid)
-                    if pl then add(places, pl.n) end
+                    if pl and not once["place:" .. pid] then
+                        once["place:" .. pid] = true
+                        places[#places + 1] = { pl.n, pid }
+                    end
                 elseif p.k == "as.give" and type(a[2]) == "string" and a[2] ~= "" then
-                    add(buttons, "a " .. a[2] .. " button")
+                    if not once["button:" .. a[2]] then
+                        once["button:" .. a[2]] = true
+                        buttons[#buttons + 1] = { "a " .. a[2] .. " button", a[2] }
+                    end
                 elseif p.k == "lo.lnext" or p.k == "lo.lfor" then
                     -- a list walked or gone through: "Route: 8 places", "Questions: 10"
                     local lid = p.k == "lo.lnext" and a[2] or a[1]
                     local l = type(lid) == "string" and self:Definition(d, "lists", lid)
                     local n = l and type(l.items) == "table" and #l.items or 0
-                    if l and n > 0 then
-                        add(walks, l.n .. ": " .. n .. (l.kind == "place" and (n == 1 and " place" or " places") or ""))
+                    if l and n > 0 and not once["list:" .. lid] then
+                        once["list:" .. lid] = true
+                        walks[#walks + 1] = { l.n .. ": " .. n .. (l.kind == "place" and (n == 1 and " place" or " places")
+                            or ""), lid }
                     end
                 elseif p.k == "tm.start" and type(a[1]) == "number" and a[1] >= 60 then
                     timers[#timers + 1] = self:DurationText(a[1])
@@ -2058,18 +2078,18 @@ function B:DescribeStage(d, stage, opts)
             end)
         end
     end
-    if #tags > 0 then rule("group", names(tags)) end
-    for _, t in ipairs(scores) do rule("rank", t) end
-    for _, t in ipairs(asks) do rule("eyeo", t) end
-    for _, t in ipairs(walks) do rule("eyeo", t) end
-    for _, name in ipairs(places) do rule("eyeo", name) end
-    for _, t in ipairs(buttons) do rule("eyeo", t) end
+    if #tags > 0 then rule("group", names(tags), { tags = tagIds }) end
+    for _, t in ipairs(scores) do rule("rank", t[1], { score = t[2] }) end
+    for _, t in ipairs(asks) do rule("eyeo", t[1], { ask = t[2] }) end
+    for _, t in ipairs(walks) do rule("eyeo", t[1], { list = t[2] }) end
+    for _, t in ipairs(places) do rule("eyeo", t[1], { place = t[2] }) end
+    for _, t in ipairs(buttons) do rule("eyeo", t[1], { button = t[2] }) end
     for _, t in ipairs(timers) do rule("clock", t) end
     if badges > 0 then rule("trophy", badges == 1 and "a badge" or (badges .. " badges")) end
     if season then rule("rank", "season points") end
     if count then rule("clock", "countdown") end
     if #tags > 0 then words[#words + 1] = "Tags: " .. names(tags) .. "." end
-    if #scores > 0 then words[#words + 1] = (scores[1]:gsub("^%l", strupper)) .. "." end
+    if #scores > 0 then words[#words + 1] = (scores[1][1]:gsub("^%l", strupper)) .. "." end
     if askWords[1] then words[#words + 1] = askWords[1] end
     if badges > 0 then words[#words + 1] = "Badges" .. (season and " and season points" or "") .. " are given out." end
     if post then words[#words + 1] = "The winner is posted to guild chat." end

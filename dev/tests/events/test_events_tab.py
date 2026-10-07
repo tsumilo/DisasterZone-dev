@@ -268,7 +268,7 @@ def the_review_view_ranks_an_event_for_a_reviewer():
     assert bert.eval_py("return ns.EventsUI:OpenSubmit(...)", def_id) is True
     checks = bert.eval_py("local out = {}; for _, r in ipairs(ns.EventsUI:GetSheet('submit').rows) do "
                           "out[#out + 1] = r.fs:GetText() end; return out")
-    assert checks[1:] == ["Every blank is filled", "Chat stays under the limit", "Points stay under the season cap"], checks
+    assert checks[1:] == ["Every blank is filled", "Guild chat stays under the limit", "Points stay under the season cap"], checks
     bert.eval("ns.EventsUI:GetSheet('submit').note:SetText('the final is best of 5 now')")
     assert bert.eval_py("return ns.EventsUI:SubmitReview()") is True
     w.tick(3)

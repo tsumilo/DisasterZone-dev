@@ -377,6 +377,55 @@ event's definitions plus "+ New ...".
 - Distances: the engine uses `ns.EventSensors.World` (the same map -> world as the clients) and E:New's
   `opts.worldPos(map, x, y)` in tests; "yards from" reads 9999 when a position isn't known.
 
+**Settled by the board / tracker build (UI/EventBoard.lua, UI/EventTracker.lua, UI/EventWidgets.lua, 2026-10-07)**
+- Two small engine additions (state, synced like the rest; seconds since the run began, `t0`): `st.lt[lid][key][i]` =
+  when a player passed item i of a list (Run:ListNext: the race board's splits, its gaps to the leader there, the
+  racers' dots on their leg), and `st.last[key] = { w = fish | loot | kill, i = item id, n = item / creature name,
+  at }` (Run:Happen: the leaderboard's "Last catch"). Both in STATE_TABLES (Restore keeps only tables there).
+- The board's layout per event (`EventBoard:Views(def, st)` -> `{ layout, tags, scores, main, places, walked, list,
+  signup }`): Matches -> part 1's bracket; a list walked per player (lo.lnext / lmine / lpos / lend) -> "race" (a
+  progress table: #, player, the list's segments, the first board score, the gap; my splits under my row; a places
+  list adds the route's map); two tags or more (or one and no score) -> "columns" (a column a tag in the order the
+  event made them, the board score most of a column's players have next to the names; the places map above when the
+  event has places); board scores -> "scores" (a leaderboard, tabs for several; "Last catch" when the def senses
+  fish / loot / kills, else a bar and the player's tag); a sign-up still open -> who signed up (the map stays). The
+  rail: asking now (the newest open ask, answered n of m), time left on the shown timers (what ends when, "then
+  <stage>" from that timer's script), prizes (from the pieces giving each badge: 1st / 2nd / 3rd for one score's
+  podium, else "most Finds", "longest Hidden"), the last ask's result (a quiz question's right answers green),
+  moments. The header chip: my match (part 1), else my place ("You're 3rd") in a race / score chase, else my tag
+  ("You: Hiders").
+- Shared widgets (EventWidgets, for the builder's map sheet too): `EUI:CreateZoneMap(parent, w, h)` (C_Map art layer
+  tiles, `SetMap / Fit / SetView / P / Px / Place(i, x, y, yd, name, look) / Done(n)`; a dark grid where a map has no
+  art), `EUI:CreateCircle(parent)` (`Set(r, { stroke, width, shadow, fill, dot, clip = { x, y, R } })`: lines, any
+  size, clipped to a circle for the minimap), `CreateChip`, `CreateSegments`, `CreateTimeLeft`, `CreateMedal`,
+  `Narrow(fs, size)`, `ItemIcon`, `Ago`.
+- Demo mode: `EventBoard:OpenDemo("kdemo-hide" | "kdemo-race" | "kdemo-fish")` (also in the board's More menu, "Other
+  boards"): the examples run by the engine here with no output adapters at all (nothing is sent), with me in them;
+  the tracker shows the demo board last opened.
+- Prompts: `EventTracker:AnswerAsk2(occ, aid, v)` / `:Press(occ, label)` (the practice run's own inputs for the
+  builder's practice, where I'm its host); three ask cards at most, two results (in the order the asks closed, a
+  minute at most); cards stack in one column, or two side by side when they don't fit.
+- EVENT_SOUND: EventLive plays the sound; the UI adds nothing (no second play).
+
+**Settled by the Events tab build (UI/EventsTab.lua, 2026-10-07)**
+- `B:DescribeStage` (so `B:Describe`) rules also name what they are about, for the event page's chips (the texts and
+  the stage words are unchanged): the tags rule has `tags = { tid ... }` (the page draws a chip per tag in its
+  colour), a score's `score = sid`, a place's `place = pid`, a walked list's `list = lid`, an ask's `ask = aid`, a
+  button's `button = label`. Matches add one rule: "won by a duel" / "won by the event's rules" (`win = "duel" |
+  "pieces"`).
+- The page and the review also describe what runs the whole event: `B:DescribeStage(d, { id = "*", name = "Always" })`
+  (an Always row when it has rules or words). After a place or a route of places the page adds "open world only".
+- Rewards (page, results, review) are read from the pieces stack by stack: a badge's season points are the "add n
+  Season points" of the same stack to the same players; where it goes: Matches' champion / second / third, "if each
+  player's place by S = n" inside a "for each player", "top 1 by S", a variable's name; badges placed by more than
+  one score say which ("most Finds", "2nd by Hidden"). Season points no badge goes with: a match won (`bk.end`'s
+  winner), playing (for each entrant); the rest by where they go.
+- Results without Matches: placings are the record's champ / second / third (the run's Result), else the first board
+  score's table ranked (ties share a place); a podium line is the player's score ("31 Fish", "Time 4:37"). With no
+  badges and several board scores, the awards are each score's leader ("Most Finds", "Longest Hidden").
+- "Examples" (the Library's, and Upcoming's beside New event) opens the builder on `Events:CopyDef(B:Example(key))`: a
+  new event of mine, kept only when the builder saves it.
+
 ## UI to mock up (sections 17+, replacing the first drafts where the pieces changed)
 
 - 17 the builder: the new categories, Players with its tags listed and "+ Add tag", the hide and seek example.
