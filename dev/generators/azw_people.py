@@ -198,7 +198,8 @@ def frames(display_id, height_px=30):
 # (AnimationData: 16 AttackUnarmed, 17 Attack1H, 18 Attack2H, 51/52 ReadySpellDirected/Omni, 31 SpellPrecast,
 # 53/54 SpellCastDirected/Omni, 32 SpellCast, 6 Dead, 1 Death). A missing sequence keeps the standing pose.
 # ---------------------------------------------------------------------------------------------------------------
-ACT_COLS = 5                        # wind-up, strike, spell ready, spell release, dead
+ACT_COLS = 6                        # wind-up, strike, spell ready, spell release, dead, sitting
+SIT_IDS = (97, 96)                  # SitGround, SitGroundDown (eating, drinking, a seated NPC)
 ATTACK_IDS = (16, 17, 18)
 ATTACK_2H_IDS = (18, 17, 16)
 READY_IDS = (51, 52, 31)
@@ -242,6 +243,13 @@ def _act_times(data, ids, reach):
     return out
 
 
+def _sit_time(data):
+    """(seq, t) of the model's seated pose, or None (stays standing). Kept out of _act_times: the outfit layers
+    (gen_dc_outfits) use its five columns."""
+    seq, dur = _first_seq(data, SIT_IDS)
+    return (seq, dur // 2) if seq is not None else None
+
+
 def act_frames(display_id, height_px=30):
     """The five action frames x 4 facings for a creature / NPC display (scaled like frames())."""
     mesh = character_mesh(display_id)
@@ -261,6 +269,7 @@ def act_frames(display_id, height_px=30):
         return dict(mesh, verts=RD.posed_vertices(data, seq, t) * sc)
 
     times = _act_times(data, ATTACK_IDS, lambda s, t: float(pose(s, t)["verts"][used][:, 0].max()))
+    times.append(_sit_time(data) or (None, 0))
     poses = [pose(s, t) for s, t in times]
     out = {}
     for face, yaw in FACING.items():
@@ -292,6 +301,7 @@ def outfit_act_frames(race, sex, items, height_px=30):
     height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
     ppy = min(PPY_BODY, height_px / height)
     times = _act_times(data, ATTACK_2H_IDS if two else ATTACK_IDS, lambda s, t: float(pose(s, t)["verts"][:, 0].max()))
+    times.append(_sit_time(data) or (stand_seq, 0))
     poses = [pose(s, t) for s, t in times]
     out = {}
     for face, yaw in FACING.items():

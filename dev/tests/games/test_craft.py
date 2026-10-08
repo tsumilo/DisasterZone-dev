@@ -741,5 +741,38 @@ def ui_abbey_railing_draws_in_front_of_you_and_fades():
     no_errors(w)
 
 
+@case
+def ui_eating_sits_you_down_and_swings_show():
+    # food sits you down (the seated pose); a melee blow shows the strike, a corpse lies down
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(1, 0)
+      ns.CraftUI.Glue.selected = 1
+      ns.CraftUI.Glue.EnterWorld()
+    """)
+    w.tick(0.2)
+    r = c.eval_py(r"""
+      local C, UI = ns.Craft, ns.CraftUI
+      local p = C.player
+      local food
+      for id, it in pairs(C.D.items) do
+        for _, s in ipairs(it.spells or {}) do
+          local sp = C.D.spells[s[1]]
+          if sp and sp.n == "Food" and (it.req or 0) <= 1 then food = food or id end
+        end
+      end
+      C.Items.Add(food, 1, "silent")
+      C.Items.UseById(food)
+      local now = C.Now()
+      local sat, pose = p.sitting, UI.UnitPose(p, now)
+      p.sitting = false
+      p.swungAt = now
+      local strike = UI.UnitPose(p, now + 0.2)
+      return { food = food, sat = sat, pose = pose, strike = strike }
+    """)
+    assert r.get("food") and r["sat"] and r["pose"] == 5 and r["strike"] == 1, r
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

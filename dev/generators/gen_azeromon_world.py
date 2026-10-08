@@ -34,6 +34,8 @@ BOX = (29, 36, 46, 50)
 # area IDs (AreaTable) per region we build
 REGIONS = {
     "northshire": {9, 24, 59, 34, 23},
+    # the rest of Elwynn Forest (AreaTable children of 12) - build it after Northshire: "lua northshire elwynn"
+    "elwynn": {12, 18, 53, 54, 56, 57, 60, 61, 62, 63, 64, 80, 86, 87, 88, 89, 91, 92, 120, 797, 798},
 }
 
 # overlay chars -> (tile kind, solid)
@@ -510,8 +512,9 @@ def object_models(entities):
     return out
 
 
-def emit(world, region, entities, interiors=()):
-    """Writes World/<Region>.lua: the region's blocks, area names, trees, doors and spawns."""
+def emit(world, region, entities, interiors=(), taken=frozenset()):
+    """Writes World/<Region>.lua: the region's blocks, area names, trees, doors and spawns (but none of the blocks
+    in taken: an earlier region's)."""
     import azw_entities as E
     r = world["r"]
     x0, x1, y0, y1, m = region_bbox(world, region)
@@ -524,6 +527,8 @@ def emit(world, region, entities, interiors=()):
     scen = SCN.build(dict(world, wmo_kinds=WMO_KINDS),
                      (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK),
                      os.path.join(MEDIA, "Scenery", region), objects=object_models(entities))
+    # (an earlier region's blocks are its own: their scenery is not drawn twice)
+    scen["placements"] = [p_ for p_ in scen["placements"] if block_of(p_["x"], p_["y"]) not in taken]
     for e in entities:
         if e.get("k") == "obj" and e["e"] in scen["objects"]:
             e["s"], e["sr"] = scen["objects"][e["e"]], region   # (its model's sprite in this region's scenery pages)
@@ -533,7 +538,11 @@ def emit(world, region, entities, interiors=()):
     areas = set()
     for by in range(by0, by1 + 1):
         for bx in range(bx0, bx1 + 1):
+            if by * 256 + bx in taken:
+                continue
             ys, xs = by * BLOCK - gy0, bx * BLOCK - gx0
+            if ys < 0 or xs < 0 or ys + BLOCK > G.shape[0] or xs + BLOCK > G.shape[1]:
+                continue                        # (past the edge of the terrain read in: BOX)
             g = "".join("".join(G[ys + j, xs:xs + BLOCK]) for j in range(BLOCK))
             o = "".join("".join(O[ys + j, xs:xs + BLOCK]) for j in range(BLOCK))
             s = "".join("".join(str(v) for v in S[ys + j, xs:xs + BLOCK]) for j in range(BLOCK))
@@ -542,8 +551,10 @@ def emit(world, region, entities, interiors=()):
             lines.append("B[%d] = { [=[%s]=], [=[%s]=], [=[%s]=], { %s }, [=[%s]=], R }" %
                          (by * 256 + bx, rle(g), rle(o), rle(s), ", ".join(map(str, ar)), ground[by * 256 + bx]))
     bgx0, bgx1, bgy0, bgy1 = bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK
-    trees = [t for t in world["trees"] if bgx0 <= t[0] < bgx1 and bgy0 <= t[1] < bgy1]
-    doors = [d for d in world["doors"] if bgx0 <= d["x"] < bgx1 and bgy0 <= d["y"] < bgy1]
+    trees = [t for t in world["trees"] if bgx0 <= t[0] < bgx1 and bgy0 <= t[1] < bgy1
+             and block_of(t[0], t[1]) not in taken]
+    doors = [d for d in world["doors"] if bgx0 <= d["x"] < bgx1 and bgy0 <= d["y"] < bgy1
+             and block_of(d["x"], d["y"]) not in taken]
     name = region.capitalize()
     path = os.path.join(WORLD_DIR, "%s.lua" % name)
     os.makedirs(WORLD_DIR, exist_ok=True)
@@ -641,8 +652,14 @@ def gossip_text(db, menu):
     return None
 
 
-def entities_for(world, gbox):
-    """Creatures and objects of the area as Lua-ready dicts, plus the creature entries fought there."""
+def block_of(x, y):
+    """The key of the 32x32 block holding world tile (x, y)."""
+    return int(y) // BLOCK * 256 + int(x) // BLOCK
+
+
+def entities_for(world, gbox, taken=frozenset()):
+    """Creatures and objects of the area as Lua-ready dicts, plus the creature entries fought there. taken: block
+    keys an earlier region already wrote (their spawns, buildings and objects are that region's)."""
     import azw_entities as E
     import tbcdb
     db = tbcdb.load()
@@ -658,7 +675,8 @@ def entities_for(world, gbox):
     anames = None
     for b in world.get("buildings", []):
         uid = b["w"][7]
-        bdoors = [d for d in world["doors"] if d["uid"] == uid and gx0 <= d["x"] < gx1 and gy0 <= d["y"] < gy1]
+        bdoors = [d for d in world["doors"] if d["uid"] == uid and gx0 <= d["x"] < gx1 and gy0 <= d["y"] < gy1
+                  and block_of(d["x"], d["y"]) not in taken]
         if not bdoors:
             continue
         ins = []
@@ -689,6 +707,8 @@ def entities_for(world, gbox):
             interiors.append({"uid": uid, "levels": levels, "doors": bdoors, "w": b["w"], "cave": b.get("cave", False)})
     for c in creatures:
         x, y = int(c["x"]), int(c["y"])
+        if block_of(x, y) in taken and c["guid"] not in placed:
+            continue
         base = {"g": c["guid"], "x": x, "y": y, "f": E.facing(c["face"])}
         if c["guid"] in placed:
             mid, ix, iy = placed[c["guid"]]
@@ -735,7 +755,7 @@ def entities_for(world, gbox):
             kind = "mail"
         elif o["type"] in (2, 9):        # questgiver objects / readable texts
             kind = "read"
-        if not kind:
+        if not kind or block_of(o["x"], o["y"]) in taken:
             continue
         out.append({"k": "obj", "g": o["guid"], "e": o["entry"], "n": n, "kind": kind, "x": int(o["x"]),
                     "y": int(o["y"])})
@@ -744,6 +764,8 @@ def entities_for(world, gbox):
 
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
 MOB_COLS = 5                 # creatures per row of the sheet (3 frame columns each, 4 facing rows)
+MOB_SHEET_H = 2048           # each sheet's height: 16 rows of bodies
+MOB_PER_SHEET = MOB_COLS * MOB_SHEET_H // (4 * 32)
 
 
 # the player's own race / sex (ChrRaces IDs of TBC) get a body each
@@ -772,24 +794,34 @@ def emit_sprite_sheet(displays):
             out[d] = len(frames)
             frames.append(f)
     cell = PP.SIZE
-    rows = (len(frames) + MOB_COLS - 1) // MOB_COLS
-    h = 64
-    while h < rows * 4 * cell:
-        h *= 2
-    sheet = Image.new("RGBA", (512, h), (0, 0, 0, 0))
+    # sheets of MOB_PER_SHEET bodies, 2048 high (the client's textures stop at 4096; a region like Elwynn has
+    # hundreds of bodies): sprite i lives on sheet i // MOB_PER_SHEET - mobs.blp, mobs_1.blp, ...
+    h = MOB_SHEET_H
+    nsheets = max(1, (len(frames) + MOB_PER_SHEET - 1) // MOB_PER_SHEET)
+    from azw_blp import write_dxt5
+
+    def sheet_name(base, k):
+        return "%s.blp" % base if k == 0 else "%s_%d.blp" % (base, k)
+
+    def cell_of(i, cols):
+        j = i % MOB_PER_SHEET
+        return (j % MOB_COLS) * cols, (j // MOB_COLS) * 4
+
+    sheets = [Image.new("RGBA", (512, h), (0, 0, 0, 0)) for _ in range(nsheets)]
     for i, f in enumerate(frames):
-        cx, cy = (i % MOB_COLS) * 3, (i // MOB_COLS) * 4
+        cx, cy = cell_of(i, 3)
+        sheet = sheets[i // MOB_PER_SHEET]
         for fr, face in enumerate(("down", "left", "right", "up")):
             for k in range(3):                             # stride, stand, stride (no Walk sequence: a bob)
                 img = Image.fromarray(f[face][k], "RGBA")
                 bob = 0 if f.get("walked") or k == 1 else 2
                 sheet.paste(img, ((cx + k) * cell, (cy + fr) * cell - bob), img)
-    from azw_blp import write_dxt5
-    write_dxt5(sheet, os.path.join(MEDIA, "mobs.blp"))
-    print("wrote mobs.blp", sheet.size, len(frames), "sprites")
+    for k, sheet in enumerate(sheets):
+        write_dxt5(sheet, os.path.join(MEDIA, sheet_name("mobs", k)))
+    print("wrote mobs sheets", nsheets, "x", (512, h), len(frames), "sprites")
     # Disastercraft's action frames: the same sprite order and rows, 5 columns each (azw_people.ACT_COLS: wind-up,
     # strike, spell ready, spell release, dead), 1024 wide
-    act = Image.new("RGBA", (1024, h), (0, 0, 0, 0))
+    acts = [Image.new("RGBA", (1024, h), (0, 0, 0, 0)) for _ in range(nsheets)]
     order = sorted(out.items(), key=lambda kv: kv[1])
     for d, i in order:
         try:
@@ -803,13 +835,21 @@ def emit_sprite_sheet(displays):
         if not f:                   # (no model to pose: the standing frame, so the body never vanishes mid-swing)
             w = frames[i]
             f = {face: [w[face][1]] * PP.ACT_COLS for face in ("down", "left", "right", "up")}
-        cx, cy = (i % MOB_COLS) * PP.ACT_COLS, (i // MOB_COLS) * 4
+        cx, cy = cell_of(i, PP.ACT_COLS)
+        act = acts[i // MOB_PER_SHEET]
         for fr, face in enumerate(("down", "left", "right", "up")):
             for k in range(PP.ACT_COLS):
                 img = Image.fromarray(f[face][k], "RGBA")
                 act.paste(img, ((cx + k) * cell, (cy + fr) * cell), img)
-    write_dxt5(act, os.path.join(MEDIA, "mobs_act.blp"))
-    print("wrote mobs_act.blp", act.size)
+    for k, act in enumerate(acts):
+        write_dxt5(act, os.path.join(MEDIA, sheet_name("mobs_act", k)))
+    # (sheets a smaller build no longer needs)
+    for base in ("mobs", "mobs_act"):
+        k = nsheets
+        while os.path.exists(os.path.join(MEDIA, sheet_name(base, k))):
+            os.remove(os.path.join(MEDIA, sheet_name(base, k)))
+            k += 1
+    print("wrote mobs_act sheets", nsheets)
     return out, h
 
 
@@ -859,6 +899,8 @@ def emit_species(species, sheet, sheet_h, players):
             out.append("S.%s = %s\n" % (s["key"], lua_val(d)))
         out.append("S._byEntry = { %s }\n" % ", ".join("[%d] = %s" % (s["entry"], lua_str(s["key"])) for s in order))
         out.append("D.MOB_SHEET_H = %d          -- Media/Azeromon/mobs.blp: 512 x this, 5 a row, 32 px frames\n" % sheet_h)
+        out.append("D.MOB_PER_SHEET = %d        -- bodies a sheet: sprite i is on mobs_<i // this>.blp (0: mobs.blp)\n"
+                   % MOB_PER_SHEET)
         out.append("-- the player's own body by race and sex (UnitRace file name, UnitSex 2 / 3)\n")
         out.append("D.PLAYER_SPR = { %s }\n" % ", ".join('["%s%d"] = %d' % (k[0], k[1], v) for k, v in sorted(players.items())))
         cls = {}
@@ -896,33 +938,38 @@ if __name__ == "__main__":
         import azw_people as PP
         fought_all, npc_entries, obj_entries = set(), set(), set()
         regions = []
+        taken = set()                       # blocks written by the regions before (in the order given)
         for region in sys.argv[2:] or ["northshire"]:
             x0, x1, y0, y1, m = region_bbox(world, region)
             r = world["r"]
             gb = ((x0 + r["gx0"]) // BLOCK * BLOCK, ((x1 + r["gx0"]) // BLOCK + 1) * BLOCK,
                   (y0 + r["gy0"]) // BLOCK * BLOCK, ((y1 + r["gy0"]) // BLOCK + 1) * BLOCK)
-            ents, fought, interiors = entities_for(world, gb)
+            before = frozenset(taken)
+            ents, fought, interiors = entities_for(world, gb, before)
+            taken |= {by * 256 + bx for by in range(gb[2] // BLOCK, gb[3] // BLOCK)
+                      for bx in range(gb[0] // BLOCK, gb[1] // BLOCK)}
             fought_all |= fought
             npc_entries |= {e["e"] for e in ents if e["k"] == "npc"}
             obj_entries |= {e["e"] for e in ents if e["k"] == "obj"}
-            regions.append((region, ents, interiors))
+            regions.append((region, ents, interiors, before))
         species = SP.species_for(fought_all)
         players = {}
         for race, file in PLAYER_RACES.items():
             for sex in (0, 1):
                 players[(file, sex + 2)] = PP.player_display(race, sex)
-        displays = [s["display"] for s in species.values()]
-        displays += [e["d"] for _, ents, _ in regions for e in ents if e["k"] in ("npc", "critter") and e.get("d")]
+        # (the heroes first: their bodies stay on mobs.blp, which the character screen and the Games poster read)
+        displays = [("outfit", 1, sex, items) for items in CLASS_OUTFITS.values() for sex in (0, 1)]
         displays += [d for d in players.values() if d]
-        displays += [("outfit", 1, sex, items) for items in CLASS_OUTFITS.values() for sex in (0, 1)]
+        displays += [s["display"] for s in species.values()]
+        displays += [e["d"] for _, ents, _, _ in regions for e in ents if e["k"] in ("npc", "critter") and e.get("d")]
         sheet, sheet_h = emit_sprite_sheet(displays)
         emit_seehole()
-        for region, ents, interiors in regions:
+        for region, ents, interiors, before in regions:
             for e in ents:
                 if e["k"] in ("npc", "critter") and e.get("d") in sheet:
                     e["spr"] = sheet[e["d"]]
                 e.pop("d", None)
-            emit(world, region, ents, interiors)
+            emit(world, region, ents, interiors, before)
         emit_species(species, sheet, sheet_h, {k: sheet[d] for k, d in players.items() if d in sheet})
         emit_quests(npc_entries, obj_entries)
         sys.exit(0)

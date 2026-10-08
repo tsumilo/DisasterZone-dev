@@ -508,7 +508,18 @@ end
 function World.ReleaseSpirit()
     local p, c = Craft.player, Craft.char
     if not p or not p.dead or p.ghost then return end
-    local gy = D.graveyards[1]
+    -- the graveyard nearest where you fell (inside a building: nearest its door), like WoW
+    local cx, cy = p.x, p.y
+    if p.map ~= "world" then
+        for _, d in pairs(W.doors or {}) do
+            if d.map and d.map:match("^i%d+") == p.map:match("^i%d+") then cx, cy = d.ox or d.x, d.oy or d.y break end
+        end
+    end
+    local gy, best
+    for _, g in ipairs(D.graveyards) do
+        local dd = Craft.Dist(cx, cy, g.x, g.y)
+        if not best or dd < best then gy, best = g, dd end
+    end
     p.ghost = true
     c.ghost = true
     p.hp = 1
@@ -1027,3 +1038,14 @@ function World.Reset()
     for guid, rec in pairs(World.recs) do if rec.unit then Combat.Remove(rec.unit) end end
     World.recs, World.objects, World.built = {}, {}, false
 end
+
+-- eating and drinking sit you down, like the client does when the Food / Drink aura lands
+Craft:On("aura", function(u, a, added)
+    if not added or not u or u.dead or u.kind ~= "player" then return end
+    local sp = D.spells[a.spell]
+    if sp and (sp.n == "Food" or sp.n == "Drink" or sp.n == "Food & Drink") and not u.sitting then
+        if u.casting then Combat.Interrupt(u) end
+        u.sitting = true
+        if u == Craft.player then Craft:Emit("sit", true) end
+    end
+end)

@@ -51,19 +51,35 @@ function UI.SpriteOf(u)
 end
 
 -- a body's cell: mobs.blp holds 3 walk frames (stride, stand, stride) x 4 facings, 5 bodies a row (512 wide);
--- mobs_act.blp the same bodies in the same rows with 5 action frames each (1024 wide): 0 the swing's wind-up,
--- 1 the strike, 2 a spell readied, 3 the spell let go, 4 the corpse - all posed from the model's own animations
-local ACT = { windup = 0, strike = 1, ready = 2, release = 3, dead = 4 }
+-- mobs_act.blp the same bodies in the same rows with 6 action frames each (1024 wide): 0 the swing's wind-up,
+-- 1 the strike, 2 a spell readied, 3 the spell let go, 4 the corpse, 5 seated - posed from the model's own animations
+local ACT = { windup = 0, strike = 1, ready = 2, release = 3, dead = 4, sit = 5 }
+local ACT_COLS = 6
+-- (a big world has more bodies than one sheet holds: sprite i is on sheet i // MOB_PER_SHEET - mobs.blp, mobs_1.blp)
+local sheetFiles = {}
+local function SheetFile(base, k)
+    local key = base .. k
+    local f = sheetFiles[key]
+    if not f then
+        f = K.MEDIA .. (k == 0 and base or (base .. "_" .. k)) .. ".blp"
+        sheetFiles[key] = f
+    end
+    return f
+end
+
 local function SpriteCoords(r, spr, face, frame, act)
     local H = SheetH()
+    local per = (ns.AzeroData and ns.AzeroData.MOB_PER_SHEET) or 1e9
+    local k = floor(spr / per)
+    spr = spr - k * per
     local row = floor(spr / 5) * 4 + (FACE_ROW[face] or 0)
     local tp, b = row * 32 / H, (row + 1) * 32 / H
     if act then
-        local c = (spr % 5) * 5 + act
-        r.file, r.l, r.r = MOBS_ACT, c * 32 / 1024, (c + 1) * 32 / 1024
+        local c = (spr % 5) * ACT_COLS + act
+        r.file, r.l, r.r = k == 0 and MOBS_ACT or SheetFile("mobs_act", k), c * 32 / 1024, (c + 1) * 32 / 1024
     else
         local c = (spr % 5) * 3 + frame
-        r.file, r.l, r.r = MOBS, c * 32 / 512, (c + 1) * 32 / 512
+        r.file, r.l, r.r = k == 0 and MOBS or SheetFile("mobs", k), c * 32 / 512, (c + 1) * 32 / 512
     end
     r.t, r.b = tp, b
 end
@@ -526,6 +542,7 @@ local function UnitPose(u, now)
     if s and s < SWING_TIME then return s < SWING_WINDUP and ACT.windup or ACT.strike end
     local c = u.casting
     if c then return c.channel and ACT.release or ACT.ready end
+    if u.sitting then return ACT.sit end                  -- (food: straight down, no spell let go first)
     if u.castDoneAt and now - u.castDoneAt < RELEASE_TIME then return ACT.release end
     return nil
 end
@@ -660,7 +677,8 @@ function UI.DrawWorld(dt)
             r.pt, r.x, r.y = "BOTTOM", sx, sy + 0.06 * TILE
             -- a player in their gear (Outfit.lua): the bare body instead of the class sprite, each worn piece over
             -- it, cut from the same 32 px cell
-            local layers = (u.kind == "player" or u.kind == "remote") and UI.OutfitLayers and
+            -- (the gear layers have no seated pose: seated, the class's own outfit sprite)
+            local layers = (u.kind == "player" or u.kind == "remote") and pose ~= ACT.sit and UI.OutfitLayers and
                            UI.OutfitLayers(u, pose and "act" or "walk", pose or frame, FACE_ROW[face] or 0)
             local worn
             if layers and layers[1] then
