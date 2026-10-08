@@ -11,6 +11,7 @@ down: a pixel shows where at least ~40% of it is covered. The origin is where th
 spot it stands on - so the game can put it on its tile."""
 import io
 import math
+import struct
 
 import numpy as np
 from PIL import Image
@@ -20,13 +21,46 @@ import casc_local as C
 _TEX = {}
 
 
+def register_texture(key, arr):
+    """A texture made here (a character's composed skin) under a key a triangle can name."""
+    _TEX[key] = arr
+
+
+def open_blp(data):
+    """A BLP2 as RGBA. Palettised ones (compression 1) keep their alpha in a plane after the indices (8, 4 or 1
+    bits a pixel; 0 = opaque) - Pillow takes it from the palette instead and gets 0, so they are read here."""
+    if data[:4] == b"BLP2" and data[8] == 1:
+        depth = data[9]
+        w, h = struct.unpack_from("<II", data, 12)
+        off = struct.unpack_from("<I", data, 20)[0]
+        pal = np.frombuffer(data, np.uint8, 1024, 148).reshape(256, 4)[:, [2, 1, 0]]       # BGRA -> RGB
+        idx = np.frombuffer(data, np.uint8, w * h, off)
+        rgb = pal[idx].reshape(h, w, 3)
+        a0 = off + w * h
+        if depth == 8:
+            alpha = np.frombuffer(data, np.uint8, w * h, a0).reshape(h, w)
+        elif depth == 4:
+            b = np.frombuffer(data, np.uint8, (w * h + 1) // 2, a0)
+            alpha = (np.stack([b & 15, b >> 4], 1).reshape(-1)[:w * h] * 17).astype(np.uint8).reshape(h, w)
+        elif depth == 1:
+            b = np.frombuffer(data, np.uint8, (w * h + 7) // 8, a0)
+            alpha = (np.unpackbits(b, bitorder="little")[:w * h] * 255).astype(np.uint8).reshape(h, w)
+        else:
+            alpha = np.full((h, w), 255, np.uint8)
+        return Image.fromarray(np.dstack([rgb, alpha]).astype(np.uint8), "RGBA")
+    im = Image.open(io.BytesIO(data)).convert("RGBA")
+    if data[:4] == b"BLP2" and data[9] == 0:
+        im.putalpha(255)                 # (stored without alpha: opaque)
+    return im
+
+
 def texture(fid):
     if not fid:
         return None
     if fid in _TEX:
         return _TEX[fid]
     try:
-        im = Image.open(io.BytesIO(C.read_fid(fid))).convert("RGBA")
+        im = open_blp(C.read_fid(fid))
         arr = np.asarray(im, dtype=np.float32) / 255.0
     except Exception:
         arr = None
@@ -377,24 +411,54 @@ def _sample(md, src, track_off, seq, t, kind):
     return [x + (y - x) * f for x, y in zip(a, b)]
 
 
-def posed_vertices(data, seq, t):
-    """Vertices at time t of sequence index seq (bones without data there keep their rest pose)."""
+def bone_mats(data, seq, t):
+    """Every bone's 3x4 matrix at time t of sequence index seq (seq None: the rest pose)."""
     md = data[8:] if data[:4] == b"MD21" else data
-    src = _anim_file(data, md, seq)
+    src = _anim_file(data, md, seq) if seq is not None else None
     nbone, obone = _arr(md, 0x2C)
-    nv, ov = _arr(md, 0x3C)
     mats = []
     for i in range(nbone):
         bo = obone + i * 88
         parent = struct.unpack_from("<h", md, bo + 8)[0]
-        tr = _sample(md, src, bo + 16, seq, t, "v") or (0.0, 0.0, 0.0)
-        q = _sample(md, src, bo + 36, seq, t, "q") or (0.0, 0.0, 0.0, 1.0)
-        sc = _sample(md, src, bo + 56, seq, t, "v") or (1.0, 1.0, 1.0)
+        if seq is None:
+            tr, q, sc = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), (1.0, 1.0, 1.0)
+        else:
+            tr = _sample(md, src, bo + 16, seq, t, "v") or (0.0, 0.0, 0.0)
+            q = _sample(md, src, bo + 36, seq, t, "q") or (0.0, 0.0, 0.0, 1.0)
+            sc = _sample(md, src, bo + 56, seq, t, "v") or (1.0, 1.0, 1.0)
         pivot = struct.unpack_from("<3f", md, bo + 76)
         m = MT._trs(tr, q, sc, pivot)
         if 0 <= parent < len(mats):
             m = MT._mul(mats[parent], m)
         mats.append(m)
+    return mats
+
+
+def attachment(data, att_id):
+    """(bone, position) of the model's attachment point att_id (1 right hand, 2 left hand, 0 shield), or None.
+    M2Attachment is 40 bytes at the header's 0xF0 array: id, bone, (pad), position."""
+    md = data[8:] if data[:4] == b"MD21" else data
+    n, o = _arr(md, 0xF0)
+    for i in range(n):
+        aid, bone = struct.unpack_from("<IH", md, o + i * 40)
+        if aid == att_id:
+            return bone, struct.unpack_from("<3f", md, o + i * 40 + 8)
+    return None
+
+
+def apply_mat(m, v):
+    """3x4 matrix m on points v (N, 3)."""
+    M = np.array(m, np.float64).reshape(3, 4)
+    return (v @ M[:, :3].T + M[:, 3]).astype(np.float32)
+
+
+def posed_vertices(data, seq, t):
+    """Vertices at time t of sequence index seq (bones without data there keep their rest pose)."""
+    md = data[8:] if data[:4] == b"MD21" else data
+    nv, ov = _arr(md, 0x3C)
+    mats = bone_mats(data, seq, t)
+    nbone = len(mats)
+    mats = list(mats)
     out = np.zeros((nv, 3), np.float32)
     for i in range(nv):
         vo = ov + i * 48

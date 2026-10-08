@@ -729,7 +729,10 @@ def emit_sprite_sheet(displays):
         if d in out or not d:
             continue
         try:
-            f = PP.frames(d)
+            if isinstance(d, tuple) and d[0] == "outfit":       # ("outfit", race, sex, items): a dressed player
+                f = PP.outfit_frames(d[1], d[2], list(d[3]))
+            else:
+                f = PP.frames(d)
         except Exception as e:            # a model the renderer cannot read: that one keeps the old sprites
             print("no sprite for display", d, e)
             f = None
@@ -753,6 +756,11 @@ def emit_sprite_sheet(displays):
     write_dxt5(sheet, os.path.join(MEDIA, "mobs.blp"))
     print("wrote mobs.blp", sheet.size, len(frames), "sprites")
     return out, h
+
+
+# the player classes' looks (Disastercraft): a human in the class's starting outfit (CharStartOutfit, race 1;
+# hearthstone, food and water left out), 0 = male, 1 = female
+CLASS_OUTFITS = {"WARRIOR": (38, 39, 40, 25, 2362), "MAGE": (56, 1395, 55, 35), "PRIEST": (6098, 52, 53, 51, 36)}
 
 
 def emit_species(species, sheet, sheet_h, players):
@@ -781,6 +789,14 @@ def emit_species(species, sheet, sheet_h, players):
         out.append("D.MOB_SHEET_H = %d          -- Media/Azeromon/mobs.blp: 512 x this, 5 a row, 32 px frames\n" % sheet_h)
         out.append("-- the player's own body by race and sex (UnitRace file name, UnitSex 2 / 3)\n")
         out.append("D.PLAYER_SPR = { %s }\n" % ", ".join('["%s%d"] = %d' % (k[0], k[1], v) for k, v in sorted(players.items())))
+        cls = {}
+        for c, items in CLASS_OUTFITS.items():
+            for sex in (0, 1):
+                key = ("outfit", 1, sex, items)
+                if key in sheet:
+                    cls["%s%d" % (c, sex)] = sheet[key]
+        out.append("-- the classes' starting outfits (a human: 0 male, 1 female), drawn from the models with their items\n")
+        out.append("D.CLASS_SPR = { %s }\n" % ", ".join("%s = %d" % (k, v) for k, v in sorted(cls.items())))
         f.write("".join(out).encode("utf-8"))
     print("wrote", path, os.path.getsize(path), "bytes")
 
@@ -826,6 +842,7 @@ if __name__ == "__main__":
         displays = [s["display"] for s in species.values()]
         displays += [e["d"] for _, ents, _ in regions for e in ents if e["k"] in ("npc", "critter") and e.get("d")]
         displays += [d for d in players.values() if d]
+        displays += [("outfit", 1, sex, items) for items in CLASS_OUTFITS.values() for sex in (0, 1)]
         sheet, sheet_h = emit_sprite_sheet(displays)
         for region, ents, interiors in regions:
             for e in ents:

@@ -28,3 +28,5 @@ S._byEntry = { [6] = "kobold_vermin", [299] = "young_wolf", [69] = "timber_wolf"
 D.MOB_SHEET_H = 2048          -- Media/Azeromon/mobs.blp: 512 x this, 5 a row, 32 px frames
 -- the player's own body by race and sex (UnitRace file name, UnitSex 2 / 3)
 D.PLAYER_SPR = { ["BloodElf2"] = 68, ["BloodElf3"] = 69, ["Draenei2"] = 70, ["Draenei3"] = 71, ["Dwarf2"] = 56, ["Dwarf3"] = 57, ["Gnome2"] = 64, ["Gnome3"] = 65, ["Human2"] = 35, ["Human3"] = 36, ["NightElf2"] = 58, ["NightElf3"] = 59, ["Orc2"] = 54, ["Orc3"] = 55, ["Scourge2"] = 60, ["Scourge3"] = 61, ["Tauren2"] = 62, ["Tauren3"] = 63, ["Troll2"] = 66, ["Troll3"] = 67 }
+-- the classes' starting outfits (a human: 0 male, 1 female), drawn from the models with their items
+D.CLASS_SPR = { MAGE0 = 74, MAGE1 = 75, PRIEST0 = 76, PRIEST1 = 77, WARRIOR0 = 72, WARRIOR1 = 73 }

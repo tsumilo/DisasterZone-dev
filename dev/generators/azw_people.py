@@ -208,3 +208,156 @@ def player_display(race, sex):
         if x and int(x["DisplayRaceID"]) == race and int(x["DisplaySexID"]) == sex and _baked(int(x["BakeMaterialResourcesID"])):
             return t["DisplayId1"]
     return None
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# A player character in an outfit (CharStartOutfit item IDs): the race's model, its bare skin with each item's
+# texture pieces painted into their body sections (CharComponentTextureSections, the classic 256 x 256 layout),
+# the pieces the items add (sleeves, robe, boots...) and the weapon / shield models on the hand / shield
+# attachment points, posed with the body in every frame.
+# ---------------------------------------------------------------------------------------------------------------
+from PIL import Image  # noqa: E402
+import io  # noqa: E402
+
+RACE_FILE = {1: "human", 2: "orc", 3: "dwarf", 4: "nightelf", 5: "scourge", 6: "tauren", 7: "gnome", 8: "troll",
+             10: "bloodelf", 11: "draenei"}
+# section type -> (x, y, w, h) on the 256 x 256 skin
+SECTIONS = {0: (0, 0, 128, 64), 1: (0, 64, 128, 64), 2: (0, 128, 128, 32), 3: (128, 0, 128, 64),
+            4: (128, 64, 128, 32), 5: (128, 96, 128, 64), 6: (128, 160, 128, 64), 7: (128, 224, 128, 32),
+            9: (0, 160, 128, 32), 10: (0, 192, 128, 64)}
+INV_GEOSETS = {4: [(0, 800)], 5: [(0, 800), (2, 1300)], 20: [(0, 800), (2, 1300)],     # shirt, chest, robe
+               7: [(1, 900), (2, 1300)], 8: [(0, 500)], 10: [(0, 400)], 19: [(0, 1200)], 16: [(0, 1500)]}
+HAND_SLOTS = {13: 1, 17: 1, 21: 1, 15: 1, 26: 1, 14: 0, 22: 2, 23: 2}     # inventory type -> attachment
+
+
+def _blp(fid):
+    """A BLP as RGBA. One stored without alpha (alpha depth 0, header byte 9) is opaque - Pillow hands those out
+    with alpha 0, which made pasted clothes vanish."""
+    return RD.open_blp(C.read_fid(fid))
+
+
+def _item_tex(material_id, sex):
+    """An item texture piece: of a male / female pair the higher file ID is the male one."""
+    rows = sorted(_multi("TextureFileData", "MaterialResourcesID").get(material_id, []), key=lambda r: int(r["FileDataID"]))
+    if not rows:
+        return 0
+    if len(rows) == 1:
+        return int(rows[0]["FileDataID"])
+    return int(rows[-1 if sex == 0 else 0]["FileDataID"])
+
+
+def outfit(race, sex, items):
+    """-> (body mesh with the composed skin, [(weapon mesh, attachment id)], model data) or None."""
+    import tbcdb
+    rf = RACE_FILE[race]
+    sx = "male" if sex == 0 else "female"
+    model_fid = C.fdid_of("character/%s/%s/%s%s.m2" % (rf, sx, rf, sx))
+    skin = _blp(C.fdid_of("character/%s/%s/%s%sskin00_00.blp" % (rf, sx, rf, sx))).resize((256, 256))
+    for name, sec in (("facelower00_00", 10), ("faceupper00_00", 9), ("nakedpelvisskin00_00", 5),
+                      ("nakedtorsoskin00_00", 3)):
+        fid = C.fdid_of("character/%s/%s/%s%s%s.blp" % (rf, sx, rf, sx, name))
+        if fid:
+            x, y, w, h = SECTIONS[sec]
+            piece = _blp(fid).resize((w, h))
+            skin.alpha_composite(piece, (x, y))
+    db = tbcdb.load()
+    it = db.index("item_template", "entry")
+    idi = table("ItemDisplayInfo")
+    mats = _multi("ItemDisplayInfoMaterialRes", "ItemDisplayInfoID")
+    want = {0, 101, 201, 301, 401, 501, 702, 1301}
+    hair = [r for r in table("CharHairGeosets", None) if int(r["RaceID"]) == race and int(r["SexID"]) == sex
+            and int(r["GeosetType"]) == 0 and int(r["GeosetID"]) > 0]
+    want.add(int(hair[min(4, len(hair) - 1)]["GeosetID"]) if hair else 1)
+    groups = {}
+    weapons = []
+    # items in the order the client paints them: what lies on top last (pants, boots, shirt, robe)
+    order = {4: 1, 7: 2, 8: 3, 5: 4, 20: 5, 19: 6}
+    for e in sorted(items, key=lambda e: order.get(it[e]["InventoryType"], 0) if e in it else 0):
+        t = it.get(e)
+        if not t:
+            continue
+        inv, d = t["InventoryType"], idi.get(t["displayid"])
+        if not d:
+            continue
+        for r in mats.get(t["displayid"], []):
+            sec = int(r["ComponentSection"])
+            fid = _item_tex(int(r["MaterialResourcesID"]), sex)
+            if sec in SECTIONS and fid:
+                x, y, w, h = SECTIONS[sec]
+                skin.alpha_composite(_blp(fid).resize((w, h)), (x, y))
+        for gi, base in INV_GEOSETS.get(inv, []):
+            v = int(d["GeosetGroup_%d" % gi] or 0)
+            if v:
+                groups[base // 100] = base + 1 + v
+        if inv in HAND_SLOTS and int(d["ModelResourcesID_0"] or 0):
+            mfd = _multi("ModelFileData", "ModelResourcesID").get(int(d["ModelResourcesID_0"]), [])
+            tex = _item_tex(int(d["ModelMaterialResourcesID_0"] or 0), sex)
+            if mfd:
+                wm = RD.m2_mesh(int(mfd[0]["FileDataID"]))
+                if wm:
+                    tris = [(a, b, c, tex if isinstance(tf, tuple) else tf) for a, b, c, tf in wm["tris"]]
+                    weapons.append((dict(wm, tris=tris), HAND_SLOTS[inv]))
+    for g, v in groups.items():
+        want.discard(g * 100 + 1)
+        want.add(v)
+    if 13 in groups and groups[13] > 1301:
+        want.discard(1301)
+    key = ("skin", race, sex, tuple(sorted(items)))
+    RD.register_texture(key, np.asarray(skin, np.float32) / 255.0)
+    body = RD.m2_mesh(model_fid, geoset_ok=lambda sid: sid in want)
+    hair_fid = C.fdid_of("character/%s/hair00_00.blp" % rf)
+    tris = []
+    for a, b, c, tf in body["tris"]:
+        if isinstance(tf, tuple):
+            if tf[1] == 1:
+                tf = key
+            elif tf[1] == 6:
+                tf = hair_fid or 0
+            else:
+                continue
+        tris.append((a, b, c, tf))
+    return dict(body, tris=tris, scale=1.0), weapons, C.read_fid(model_fid)
+
+
+def _dress(body, weapons, data, mats, body_verts):
+    """The body with its weapons on their attachment points for these bone matrices."""
+    verts, uvs, tris = [body_verts], [body["uvs"]], list(body["tris"])
+    n = len(body_verts)
+    for wm, att in weapons:
+        a = RD.attachment(data, att)
+        if not a or a[0] >= len(mats):
+            continue
+        bone, pos = a
+        v = RD.apply_mat(mats[bone], wm["verts"] + np.array(pos, np.float32))
+        verts.append(v)
+        uvs.append(wm["uvs"])
+        tris += [(x + n, y + n, z + n, tf) for x, y, z, tf in wm["tris"]]
+        n += len(v)
+    return dict(body, verts=np.concatenate(verts), uvs=np.concatenate(uvs), tris=tris)
+
+
+def outfit_frames(race, sex, items, height_px=30):
+    """frames() for a character in an outfit: stride / stand / stride x 4 facings, weapons in hand."""
+    got = outfit(race, sex, items)
+    if not got:
+        return None
+    body, weapons, data = got
+    stand_seq, _ = RD.find_sequence(data, 0)
+    walk_seq, dur = RD.find_sequence(data, 4)
+    poses = []
+    for seq, t in ((walk_seq, dur // 4), (stand_seq, 0), (walk_seq, 3 * dur // 4)):
+        if seq is None:
+            seq, t = stand_seq, 0
+        mats = RD.bone_mats(data, seq, t)
+        poses.append(_dress(body, weapons, data, mats, RD.posed_vertices(data, seq, t)))
+    vs = poses[1]["verts"]
+    height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
+    ppy = min(PPY_BODY, height_px / height)
+    out = {"walked": walk_seq is not None}
+    for face, yaw in FACING.items():
+        imgs = []
+        for pm in poses:
+            img, origin = RD.render(pm, yaw, ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
+            imgs.append(fit(img, origin))
+        out[face] = imgs
+    return out
