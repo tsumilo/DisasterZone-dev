@@ -502,6 +502,8 @@ local function LayoutPlates(list)
     end)
     for i = #placed, 1, -1 do placed[i] = nil end
     for _, b in ipairs(list) do
+        -- (kept inside the view: a name at the edge slides in rather than being cut off)
+        b.sx = max(b.w / 2 + 4, min(VW - b.w / 2 - 4, b.sx))
         local l, r = b.sx - b.w / 2, b.sx + b.w / 2
         local bottom = b.bottom
         for _ = 1, 8 do

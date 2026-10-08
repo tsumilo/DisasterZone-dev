@@ -5,17 +5,8 @@ local addonName, ns = ...
 
 ns.CraftChangelog = {
     {
-        version = "0.1", date = "2026-10-08",
+        version = "0.2", date = "2026-10-09",
         changes = {
-            "Azeromon is now Disastercraft: a little World of Warcraft",
-            "Pick a class: Warrior, Mage or Priest (Human)",
-            "Real-time combat: auto attack, spells, global cooldown",
-            "WoW's own spells, ranks, mana, rage and trainers",
-            "Bags, gear slots and your stats on the character sheet",
-            "Northshire's real quests, loot tables and vendors",
-            "Creatures aggro, call friends, flee, and come back",
-            "Die, run back as a ghost, and resurrect",
-            "Old Pokemon-style saves are gone: everyone starts fresh",
             "Everyone swings, casts and falls with their real animation",
             "Attack on your action bar shows your weapon",
             "The experience bar sits on the action bar like in WoW",
@@ -47,6 +38,20 @@ ns.CraftChangelog = {
             "Names sit over titles and never overlap each other",
             "Eating and drinking sit you down",
             "You rise at the graveyard nearest to where you fell",
+        },
+    },
+    {
+        version = "0.1", date = "2026-10-08",
+        changes = {
+            "Azeromon is now Disastercraft: a little World of Warcraft",
+            "Pick a class: Warrior, Mage or Priest (Human)",
+            "Real-time combat: auto attack, spells, global cooldown",
+            "WoW's own spells, ranks, mana, rage and trainers",
+            "Bags, gear slots and your stats on the character sheet",
+            "Northshire's real quests, loot tables and vendors",
+            "Creatures aggro, call friends, flee, and come back",
+            "Die, run back as a ghost, and resurrect",
+            "Old Pokemon-style saves are gone: everyone starts fresh",
         },
     },
 }
