@@ -867,10 +867,41 @@ function Chess:OnInit()
         if cmd == "invite" and arg ~= "" then
             local g, why = Chess:Invite(arg, 0)
             if g then ns:Print("Chess invite sent to %s.", arg) else ns:Print("Could not invite %s (%s).", arg, why) end
+        elseif cmd == "poster" then
+            Chess:PosterReport()
         else
             ns.Games:Open(GAME_ID)
         end
     end, "chess [invite <name>] - Karazhan Chess")
+end
+
+-- /dz chess poster: what the hub's 3D poster sees (for a screenshot of a poster that looks wrong).
+function Chess:PosterReport()
+    local cv
+    for _, p in ipairs(ns.GamesUI and ns.GamesUI.__posters or {}) do
+        if p.id == GAME_ID then cv = p.cover end
+    end
+    if not cv then return ns:Print("Chess poster: not made yet (open Guild > Games once).") end
+    if not cv.view then return ns:Print("Chess poster: the flat board (no 3D view on this client yet).") end
+    local v = cv.view
+    local sc = v.scene
+    local S = 5.6
+    local mx, my = 3.5 * S, 3.5 * S
+    local okRaw, rx, ry = pcall(sc.Project3DPointTo2D, sc, mx, v:SY(my), 0)
+    local px, py = v:Project(mx, my, 0)
+    local function n(x) return type(x) == "number" and string.format("%.1f", x) or tostring(x) end
+    ns:Print("Chess poster: shown %s, visible %s, alpha %s; stage tries %s, why %s, calibrated %s, dirty %s",
+        tostring(cv:IsShown()), tostring(cv:IsVisible()), n(cv.GetEffectiveAlpha and cv:GetEffectiveAlpha()),
+        tostring(cv.tries), tostring(cv.why), tostring(cv.calibrated), tostring(cv.dirty))
+    ns:Print("  floor %s of %d tiles shown; camera %s yd; cover %s x %s, scene %s x %s, scale %s",
+        tostring(cv.shownTiles), #(cv.tiles or {}), n(cv.dist), n(cv:GetWidth()), n(cv:GetHeight()),
+        n(sc:GetWidth()), n(sc:GetHeight()), n(sc:GetEffectiveScale()))
+    ns:Print("  board middle: raw %s %s, %s / view %s, %s; mirror %s, pitch sign %s",
+        tostring(okRaw), n(rx), n(ry), n(px), n(py), tostring(v.cam.mirror), tostring(v.cam.pitchSign))
+    local t = cv.tiles and cv.tiles[1] and cv.tiles[1].tex
+    ns:Print("  levels: floor %s, scene %s, plates %s, cover %s; first tile shown %s, layer %s",
+        tostring(v.floorFrame:GetFrameLevel()), tostring(sc:GetFrameLevel()), tostring(v.plateFrame:GetFrameLevel()),
+        tostring(cv:GetFrameLevel()), tostring(t and t:IsShown()), tostring(t and t:GetDrawLayer()))
 end
 
 function Chess:OnLogin()

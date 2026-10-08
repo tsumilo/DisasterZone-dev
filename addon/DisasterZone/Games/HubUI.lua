@@ -586,9 +586,18 @@ COVERS.chess = function(parent)
     end
 
     -- the scene as it stands: camera, floor pictures bent onto their corners, models on their squares
+    -- -> true once it stands; false to try again next frame. Only a stage the client could project counts: a
+    -- scene it cannot project yet (just shown or resized) returns nothing, and a stage set then lost its whole floor
+    -- for good (seen in game twice).
     function c:Stage()
         local w, h = self:GetWidth() or 0, self:GetHeight() or 0
-        if w <= 0 or h <= 0 then return false end
+        self.tries = (self.tries or 0) + 1
+        if w <= 0 or h <= 0 then self.why = "no size" return false end
+        Place()
+        if not v:Project(CHESS_CAM.x * CHESS_S, CHESS_CAM.y * CHESS_S, CHESS_CAM.z) then
+            self.why = "no projection"
+            return false
+        end
         if not self.calibrated then
             local cam = CHESS_CAM
             local x, y = cam.x * CHESS_S, cam.y * CHESS_S
@@ -607,6 +616,7 @@ COVERS.chess = function(parent)
         end
         local ox, oy = w / 2, h / 2
         local S2 = CHESS_S
+        local shown = 0
         for _, tl in ipairs(self.tiles) do
             -- corners: A north-west, B south-west, C south-east, D north-east (the picture's UL, LL, LR, UR)
             local ax, ay = v:Project(tl.x0, tl.y0 + S2, 0)
@@ -620,6 +630,7 @@ COVERS.chess = function(parent)
                 t:SetVertexOffset(UPPER_RIGHT_VERTEX or 3, dx - ox - 0.5, dy - oy - 0.5)
                 t:SetVertexOffset(LOWER_RIGHT_VERTEX or 4, cx - ox - 0.5, cy - oy + 0.5)
                 t:Show()
+                shown = shown + 1
             else
                 t:Hide()
             end
@@ -639,6 +650,9 @@ COVERS.chess = function(parent)
             pcall(self.fire.SetPosition, self.fire, CHESS_FIRE.f * CHESS_S / s, v:SY(CHESS_FIRE.r * CHESS_S) / s, 0)
             pcall(self.fire.SetShown, self.fire, true)
         end
+        self.shownTiles, self.dist = shown, dist
+        if shown == 0 then self.why = "no floor" return false end
+        self.why = nil
         return true
     end
 
