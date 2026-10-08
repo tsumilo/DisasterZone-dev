@@ -626,6 +626,7 @@ function Combat.Swing(a, d)
             if e.e == E_WEAPON or e.e == E_WEAPON_DMG then dmg = dmg + Combat.EffectValue(sp, e, a) end
         end
         if sp.threat then info.threat = sp.threat[1] end
+        Craft:Emit("spellhit", a, queued, d)
     end
     if result == "crit" then dmg = dmg * 2 info.crit = true end
     if result == "glancing" then
@@ -1019,6 +1020,7 @@ function Combat.Apply(u, id, target, opts)
     local sp = D.spells[id]
     if not sp then return end
     opts = opts or {}
+    Craft:Emit("spellhit", u, id, target)
     local hostile = target and Combat.Reaction(u, target) == "hostile" and target ~= u
     -- who each effect hits
     local function targetsOf(e)

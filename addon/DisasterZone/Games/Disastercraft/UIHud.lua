@@ -926,7 +926,7 @@ Craft:On("level", function(lvl)
     H.levelup:SetText("You have reached level " .. lvl .. "!")
     H.levelAt = Now()
     K.Play(K.SFX.levelup)
-    if Craft.player then UI.Effect({ kind = "pillar", u = Craft.player, color = { 1, 0.85, 0.3 }, dur = 1.6 }) end
+    if Craft.player and UI.FX then UI.LevelUpEffect(Craft.player) end
 end)
 
 Craft:On("cast", function(u, id, what, target)
@@ -934,29 +934,7 @@ Craft:On("cast", function(u, id, what, target)
         if what == "interrupted" or what == "failed" or what == "done" then H.castResult = what end
         if what == "start" or what == "channel" then H.castResult = nil end
     end
-    local sp = D.spells[id]
-    if not sp then return end
-    if what == "start" and u.map == (Craft.player and Craft.player.map) then K.Play(K.SFX.precast[sp.school] or K.SFX.precast[64], 0.2) end
-    if what == "done" then
-        if id == 6673 then K.Play(K.SFX.shout) UI.Effect({ kind = "ring", u = u, color = { 1, 0.6, 0.2 }, radius = 3, dur = 0.6 }) end
-        if id == 6343 then K.Play(K.SFX.thunder) UI.Effect({ kind = "ring", u = u, color = { 0.6, 0.8, 1 }, radius = 2.5, dur = 0.5 }) end
-        if id == 122 then UI.Effect({ kind = "ring", u = u, color = { 0.6, 0.9, 1 }, radius = 2.5, dur = 0.5 }) end
-        if id == 168 or id == 7300 then K.Play(K.SFX.frostarmor) end
-    end
-end)
-
-Craft:On("missile", function(m)
-    local sp = D.spells[m.spell]
-    local col = Combat.SCHOOL_COLORS[sp and sp.school or 1] or { 1, 1, 1 }
-    UI.Effect({ kind = "missile", m = m, color = col })
-end)
-
-Craft:On("impact", function(m)
-    local sp = D.spells[m.spell]
-    if not sp then return end
-    local col = Combat.SCHOOL_COLORS[sp.school or 1] or { 1, 1, 1 }
-    UI.Effect({ kind = "impact", u = m.dst, color = col })
-    K.Play(K.SFX.impact[sp.school] or K.SFX.impact[64], 0.05)
+    -- (the spell's own models and sound kits: UIEffects.lua)
 end)
 
 local RESULT_TEXT = { miss = "Miss", dodge = "Dodge", parry = "Parry", resist = "Resist", block = "Block", absorb = "Absorb" }
@@ -992,7 +970,7 @@ Craft:On("heal", function(src, dst, amount, info)
     if src ~= p and dst ~= p then return end
     if info.kind == "hot" and amount < 1 then return end
     UI.FCT(dst, "+" .. amount, 0.1, 1, 0.1, info.crit)
-    if info.kind ~= "hot" then K.Play(K.SFX.heal, 0.1) UI.Effect({ kind = "impact", u = dst, color = { 1, 1, 0.6 } }) end
+    -- (the heal's own impact model and sound: UIEffects.lua)
 end)
 
 Craft:On("xp", function(xp, gained)

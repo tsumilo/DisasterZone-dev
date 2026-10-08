@@ -299,6 +299,7 @@ Games\Disastercraft\Npc.lua
 Games\Disastercraft\Changelog.lua
 Games\Disastercraft\UIKit.lua
 Games\Disastercraft\UIWorld.lua
+Games\Disastercraft\UIEffects.lua
 Games\Disastercraft\UIHud.lua
 Games\Disastercraft\UIWindows.lua
 Games\Disastercraft\UIGlue.lua

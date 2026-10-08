@@ -110,6 +110,7 @@ local function OnUpdate(self, dt)
     if not UI.inWorld then return end
     Craft:Update(dt)
     UI.DrawWorld(dt)
+    if UI.FX then UI.FX.Update() end
     UI.UpdateHud(dt)
     if UI.UpdateParty then UI.UpdateParty(dt) end
     -- the loot window closes when you walk away from the corpse

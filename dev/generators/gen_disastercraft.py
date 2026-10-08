@@ -244,6 +244,74 @@ def export_item(r, icons):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Spell visuals: the client's own effect models and sounds per spell (SpellXSpellVisual -> SpellVisual ->
+# SpellVisualEvent -> SpellVisualKit -> its effects: model attachments (SpellVisualKitModelAttach ->
+# SpellVisualEffectName.ModelFileDataID) and sound kits; the missile from SpellVisualMissile)
+# ---------------------------------------------------------------------------------------------------------------
+
+# SpellVisualEvent StartEvent -> our moment: 1 precast (until 2), 3 cast, 6 impact, 7 aura (until 8), 11 channel
+VIS_EVENTS = {1: "pre", 3: "cast", 6: "imp", 7: "aura", 11: "chan"}
+
+
+def spell_visuals(spell_ids):
+    xv = {}
+    for r in table("SpellXSpellVisual"):
+        if num(r["DifficultyID"]) == 0:
+            xv.setdefault(num(r["SpellID"]), []).append(r)
+    sv = {num(r["ID"]): r for r in table("SpellVisual")}
+    ev = {}
+    for r in table("SpellVisualEvent"):
+        ev.setdefault(num(r["SpellVisualID"]), []).append(r)
+    kfx = {}
+    for r in table("SpellVisualKitEffect"):
+        kfx.setdefault(num(r["ParentSpellVisualKitID"]), []).append(r)
+    att = {num(r["ID"]): r for r in table("SpellVisualKitModelAttach")}
+    en = {num(r["ID"]): r for r in table("SpellVisualEffectName")}
+    mis = {}
+    for r in table("SpellVisualMissile"):
+        mis.setdefault(num(r["SpellVisualMissileSetID"]), []).append(r)
+    out = {}
+    for sid in spell_ids:
+        rows = sorted(xv.get(sid, []), key=lambda r: -num(r["Priority"]))
+        if not rows:
+            continue
+        vid = num(rows[0]["SpellVisualID"])
+        v = sv.get(vid, {})
+        d = {}
+        for e in ev.get(vid, []):
+            what = VIS_EVENTS.get(num(e["StartEvent"]))
+            if not what:
+                continue
+            target = num(e["TargetType"])           # 1 the caster, 2 the target
+            if what == "imp" and target == 1 and any(num(x["StartEvent"]) == 6 and num(x["TargetType"]) == 2
+                                                       for x in ev.get(vid, [])):
+                continue                             # (the impact on the target is the one we play)
+            models, sound = [], None
+            for k in kfx.get(num(e["SpellVisualKitID"]), []):
+                et = num(k["EffectType"])
+                if et == 2:
+                    a = att.get(num(k["Effect"]))
+                    n = a and en.get(num(a["SpellVisualEffectNameID"]))
+                    if n and num(n["ModelFileDataID"]):
+                        models.append([num(n["ModelFileDataID"]), num(a["AttachmentID"]),
+                                       round(num(a["Scale"], float) * (num(n["Scale"], float) or 1), 3),
+                                       round(num(a["Offset_2"], float), 3)])
+                elif et == 5 and not sound:
+                    sound = num(k["Effect"])
+            if models or sound:
+                d[what] = {"m": models or None, "s": sound, "on": target}
+        ms = num(v.get("SpellVisualMissileSetID")) if v else 0
+        for m in mis.get(ms, [])[:1]:
+            n = en.get(num(m["SpellVisualEffectNameID"]))
+            if n and num(n["ModelFileDataID"]):
+                d["mis"] = {"m": num(n["ModelFileDataID"]), "sc": num(n["Scale"], float) or 1,
+                            "from": num(m["Attachment"]), "to": num(m["DestinationAttachment"])}
+        if d:
+            out[sid] = d
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------------------------
 
@@ -504,10 +572,11 @@ def main():
             gy.append({"x": round((17066.67 - r["y"]) / TS, 2), "y": round((17066.67 - r["x"]) / TS, 2),
                        "n": r["name"]})
 
-    write(classes, xp, trainers, spell_out, item_out, creatures, loot, refs, vendors, eventai, quests, gy)
+    vis = spell_visuals(sorted(spell_out))
+    write(classes, xp, trainers, spell_out, item_out, creatures, loot, refs, vendors, eventai, quests, gy, vis)
 
 
-def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, eventai, quests, gy):
+def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, eventai, quests, gy, vis):
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     L = []
     w = L.append
@@ -567,6 +636,11 @@ def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, 
     for q in sorted(quests):
         w("D.quests[%d] = %s" % (q, lua(quests[q])))
     w("D.graveyards = %s" % lua(gy))
+    w("-- spell visuals: pre (while casting) / cast / imp (impact) / aura (while it lasts) / chan: { m = { { model")
+    w("-- FileDataID, attachment, scale, z offset } }, s = sound kit, on = 1 caster | 2 target }; mis = the missile")
+    w("D.vis = {}")
+    for sid in sorted(vis):
+        w("D.vis[%d] = %s" % (sid, lua(vis[sid])))
     open(OUT, "w", encoding="utf-8", newline="\n").write("\n".join(L) + "\n")
     print("wrote", OUT, "spells", len(spells), "items", len(items), "creatures", len(creatures),
           "refs", len(refs), "bytes", os.path.getsize(OUT))
