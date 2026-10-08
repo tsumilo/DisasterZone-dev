@@ -297,6 +297,7 @@ Games\Disastercraft\World.lua
 Games\Disastercraft\Loot.lua
 Games\Disastercraft\Quests.lua
 Games\Disastercraft\Npc.lua
+Games\Disastercraft\Talents.lua
 Games\Disastercraft\Changelog.lua
 Games\Disastercraft\Layouts.lua
 Games\Disastercraft\UIKit.lua

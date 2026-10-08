@@ -45,6 +45,23 @@ local E_WEAPON_DMG, E_TRIGGER, E_ATTACK, E_CHARGE, E_NORM_WEAPON, E_TELEPORT, E_
 local A_DUMMY, A_CONFUSE, A_STUN, A_PDMG, A_PHEAL, A_STAT, A_RESIST, A_PTRIGGER, A_PENERGIZE = 4, 5, 12, 3, 8, 29, 22, 23, 24
 local A_ROOT, A_SLOW, A_SHAPESHIFT, A_PROC, A_TRANSFORM, A_ABSORB, A_REGEN, A_POWER_REGEN = 26, 33, 36, 42, 56, 69, 84, 85
 local A_AP, A_THREAT, A_HASTE, A_RESIST_PCT, A_DMG_DONE, A_PDUMMY, A_MOD_HP = 99, 103, 138, 101, 13, 226, 34
+-- the talents' auras: threat by school, parry / dodge / block / crit / hit chances, a skill (Defense), the spell
+-- modifiers (flat / percent), crit chance by school (the 2.5 client's Holy Specialization)
+local A_MOD_THREAT, A_PARRY, A_DODGE, A_BLOCK, A_CRIT, A_HIT, A_SPELL_HIT, A_SPELL_CRIT = 10, 47, 49, 51, 52, 54, 55, 57
+local A_SKILL, A_SKILL_TALENT, A_FLAT_MOD, A_PCT_MOD, A_SCHOOL_CRIT = 30, 98, 107, 108, 552
+-- what a spell modifier changes (SpellModOp)
+local MOD_DAMAGE, MOD_DURATION, MOD_THREAT, MOD_EFFECT1, MOD_RANGE, MOD_RADIUS, MOD_CRIT, MOD_ALL_EFFECTS =
+    0, 1, 2, 3, 5, 6, 7, 8
+local MOD_PUSHBACK, MOD_CAST_TIME, MOD_COOLDOWN, MOD_EFFECT2, MOD_COST, MOD_HIT, MOD_DOT, MOD_EFFECT3 =
+    9, 10, 11, 12, 14, 16, 22, 23
+local MOD_OF_EFFECT = { [0] = MOD_EFFECT1, [1] = MOD_EFFECT2, [2] = MOD_EFFECT3 }
+-- proc flags (SpellAuraOptions.ProcTypeMask)
+local PROC_KILL, PROC_DEAL_SWING, PROC_TAKE_SWING, PROC_DEAL_MELEE_ABILITY, PROC_TAKE_MELEE_ABILITY =
+    0x2, 0x4, 0x8, 0x10, 0x20
+local PROC_DEAL_HARMFUL_SPELL, PROC_TAKE_HARMFUL_SPELL = 0x10000, 0x20000
+Combat.PROC = { KILL = PROC_KILL, DEAL_SWING = PROC_DEAL_SWING, TAKE_SWING = PROC_TAKE_SWING,
+                DEAL_MELEE_ABILITY = PROC_DEAL_MELEE_ABILITY, TAKE_MELEE_ABILITY = PROC_TAKE_MELEE_ABILITY,
+                DEAL_HARMFUL_SPELL = PROC_DEAL_HARMFUL_SPELL, TAKE_HARMFUL_SPELL = PROC_TAKE_HARMFUL_SPELL }
 
 ---------------------------------------------------------------------------
 -- Units
@@ -127,6 +144,62 @@ local function AuraMult(u, aura)
     return m
 end
 
+-- does an aura effect's class mask take in this spell (same class family, a shared bit)?
+local function MaskMatches(e, sp, src)
+    if not (e.cm and sp and sp.cm) then return false end
+    if src and src.set and sp.set and src.set ~= sp.set then return false end
+    for k = 1, 3 do
+        if band(e.cm[k] or 0, sp.cm[k] or 0) ~= 0 then return true end
+    end
+    return false
+end
+Combat.MaskMatches = MaskMatches
+
+-- the talents' spell modifiers (SPELL_AURA_ADD_FLAT_MODIFIER / ADD_PCT_MODIFIER): an aura on u whose class mask
+-- takes in the spell changes one of its numbers. op: SpellModOp. -> v, changed
+function Combat.SpellMod(u, sp, op, v)
+    if not (u and u.auras and sp and sp.cm) then return v end
+    local flat, pct = 0, 0
+    for _, a in ipairs(u.auras) do
+        local src
+        for _, e in ipairs(a.fx) do
+            if (e.a == A_FLAT_MOD or e.a == A_PCT_MOD) and e.misc == op and e.cm then
+                src = src or D.spells[a.spell]
+                if MaskMatches(e, sp, src) then
+                    if e.a == A_FLAT_MOD then flat = flat + (e.amount or 0) else pct = pct + (e.amount or 0) end
+                end
+            end
+        end
+    end
+    if flat == 0 and pct == 0 then return v end
+    return (v + flat) * (1 + pct / 100)
+end
+
+-- a spell's crit chance for u: the spell crit, its modifiers, crit by school (Holy Specialization)
+function Combat.SpellCritChance(u, sp)
+    local c = (u.spellCrit or 0) + Combat.SpellMod(u, sp, MOD_CRIT, 0)
+    for _, a in ipairs(u.auras or {}) do
+        for _, e in ipairs(a.fx) do
+            if e.a == A_SCHOOL_CRIT and ((e.misc and band(e.misc, sp.school or 1) ~= 0) or MaskMatches(e, sp)) then
+                c = c + (e.amount or 0)
+            end
+        end
+    end
+    return c
+end
+
+-- threat from u's damage of this school / spell (Arcane Subtlety's -threat, the spell's own threat modifiers)
+local function ThreatMult(u, school, sp)
+    local m = 1
+    for _, a in ipairs(u.auras or {}) do
+        for _, e in ipairs(a.fx) do
+            if e.a == A_MOD_THREAT and (not e.misc or band(e.misc, school or 1) ~= 0) then m = m * (1 + (e.amount or 0) / 100) end
+        end
+    end
+    if sp then m = m * Combat.SpellMod(u, sp, MOD_THREAT, 1) end
+    return m
+end
+
 function Combat.HasAura(u, auraType)
     for _, a in ipairs(u.auras) do
         for _, e in ipairs(a.fx) do if e.a == auraType then return a end end
@@ -173,15 +246,19 @@ function Combat.Recalc(u)
         u.ap = u.ap + g.ap + AuraSum(u, A_AP)
         u.sp = g.sp or 0
         local mc = MELEE_CRIT[u.class] or { 0, 20 }
-        u.crit = mc[1] + u.agi / mc[2] + (u.class == 1 and 5 or 0) + (g.critR or 0) / 14
+        u.crit = mc[1] + u.agi / mc[2] + (u.class == 1 and 5 or 0) + (g.critR or 0) / 14 + AuraSum(u, A_CRIT)
         local sc = SPELL_CRIT[u.class] or { 0, 0 }
-        u.spellCrit = sc[1] + (sc[2] > 0 and u.int / sc[2] or 0) + (g.spellCritR or 0) / 14
-        u.dodge = 1 + u.agi / 20 + (g.dodgeR or 0) / 12
-        u.parry = (u.spells and u.spells[3127]) and 5 or 0
+        u.spellCrit = sc[1] + (sc[2] > 0 and u.int / sc[2] or 0) + (g.spellCritR or 0) / 14 + AuraSum(u, A_SPELL_CRIT)
+        -- Defense above the level's (Anticipation, gear): 0.04% dodge, parry, block and miss each, 0.04% less crit
+        u.defense = (u.level or 1) * 5 + (g.defense or 0) + AuraSum(u, A_SKILL_TALENT, 95) + AuraSum(u, A_SKILL, 95)
+        u.defBonus = max(0, u.defense - (u.level or 1) * 5) * 0.04
+        u.dodge = 1 + u.agi / 20 + (g.dodgeR or 0) / 12 + AuraSum(u, A_DODGE) + u.defBonus
+        u.parry = (u.spells and u.spells[3127]) and (5 + AuraSum(u, A_PARRY) + u.defBonus) or 0
         u.block = (u.char and u.char.equip[17] and D.items[u.char.equip[17]] and D.items[u.char.equip[17]].s == 6
-                   and D.items[u.char.equip[17]].c == 4) and 5 or 0
+                   and D.items[u.char.equip[17]].c == 4) and (5 + AuraSum(u, A_BLOCK) + u.defBonus) or 0
         u.blockValue = floor(u.str / 20) + (g.block or 0)
-        u.hit = (g.hitR or 0) / 12
+        u.hit = (g.hitR or 0) / 12 + AuraSum(u, A_HIT)
+        u.spellHit = AuraSum(u, A_SPELL_HIT)
         u.res = g.res
         -- weapons (unarmed: 1-2 at 2.0 s)
         local mh = g.mh or { 1, 2, 0, 2.0 }
@@ -223,6 +300,7 @@ function Combat.NewPlayer(c)
     if c.ghost then u.ghost = true end
     -- the stance a warrior is born in
     if u.class == 1 and c.spells[2457] then Combat.ApplyAura(u, u, 2457, true) end
+    if Craft.Talents then Craft.Talents.ApplyAll(u) end
     return u
 end
 
@@ -261,6 +339,10 @@ function Combat.EffectValue(sp, e, caster, roll)
     end
     local die = e.die or 0
     if die > 0 then v = v + (roll == false and 1 or Roll(1, die)) end
+    if caster and sp.cm then
+        v = Combat.SpellMod(caster, sp, MOD_ALL_EFFECTS, v)
+        if MOD_OF_EFFECT[e.i or 0] then v = Combat.SpellMod(caster, sp, MOD_OF_EFFECT[e.i or 0], v) end
+    end
     return v
 end
 
@@ -283,10 +365,23 @@ function Combat.Duration(sp, caster)
     if d < 0 then return -1 end
     if sp.durLv and caster then d = d + sp.durLv * max(0, (caster.level or 1) - SpellLevel(sp)) end
     if sp.durMax and sp.durMax > 0 then d = min(d, sp.durMax) end
+    if caster then d = Combat.SpellMod(caster, sp, MOD_DURATION, d) end
     return d / 1000
 end
 
-function Combat.CastTime(sp) return (sp.cast or 0) / 1000 end
+-- seconds (u: the caster - its Improved Fireball and the like)
+function Combat.CastTime(sp, u)
+    local ms = sp.cast or 0
+    if u and ms > 0 then ms = max(0, Combat.SpellMod(u, sp, MOD_CAST_TIME, ms)) end
+    return ms / 1000
+end
+
+-- the spell's reach for u (yards)
+function Combat.Range(sp, u)
+    local r = sp.range or Craft.MELEE_RANGE
+    if u and sp.range then r = Combat.SpellMod(u, sp, MOD_RANGE, r) end
+    return r
+end
 
 function Combat.Cost(sp, u)
     if not sp.pt and not sp.cost and not sp.costPct then return 0, nil end
@@ -299,6 +394,7 @@ function Combat.Cost(sp, u)
         else base = (D.classes[u.class] and D.classes[u.class].levels[min(u.level, 10)][2]) or u.powerMax end
         cost = cost + floor(base * sp.costPct / 100)
     end
+    if u then cost = max(0, floor(Combat.SpellMod(u, sp, MOD_COST, cost) + 0.5)) end
     return cost, pt
 end
 
@@ -451,7 +547,7 @@ function Combat.Damage(src, dst, amount, info)
         Combat.EnterCombat(dst, src)
         Combat.EnterCombat(src, dst)
         if Combat.IsCreature(dst) then
-            local th = amount + (info.threat or 0)
+            local th = (amount + (info.threat or 0)) * ThreatMult(src, school, info.spell and D.spells[info.spell])
             Combat.AddThreat(dst, src, th)
         end
         if src.powerType == Craft.POWER_RAGE and info.kind == "melee" and amount > 0 then
@@ -528,6 +624,11 @@ function Combat.Die(u, killer)
         Craft:Emit("combat", false)
         if u.char then u.char.dead = true u.char.corpse = { map = u.map, x = u.x, y = u.y } end
     end
+    -- a kill that yields experience (Spirit Tap)
+    if killer and killer ~= u and Combat.IsPlayer(killer) and Combat.IsCreature(u)
+       and Craft.KillXP(killer.level or 1, u.level or 1, u.elite) > 0 then
+        Combat.Proc(killer, PROC_KILL, u, nil, { result = "kill" })
+    end
     Craft:Emit("death", u, killer)
 end
 
@@ -538,14 +639,14 @@ end
 -- the melee table for a white swing (special = a yellow attack: no glancing, crit rolled apart)
 function Combat.MeleeRoll(a, d, special)
     local diff = (d.level or 1) - (a.level or 1)
-    local miss = max(0, 5 + (diff > 0 and (diff >= 3 and 3 or diff * 0.5) or diff * 0.5) - (a.hit or 0))
+    local miss = max(0, 5 + (diff > 0 and (diff >= 3 and 3 or diff * 0.5) or diff * 0.5) - (a.hit or 0) + (d.defBonus or 0))
     if special then miss = max(0, miss) end
     local dodge = max(0, (d.dodge or 0) + diff * 0.5)
     local parry = (d.parry or 0) > 0 and max(0, d.parry + diff * 0.5) or 0
     local glance = 0
     if not special and Combat.IsPlayer(a) and Combat.IsCreature(d) then glance = max(0, 10 + diff * 10) end
     local block = (d.block or 0) > 0 and (d.block + diff * 0.5) or 0
-    local crit = max(0, (a.crit or 5) - (diff > 0 and diff or 0) * (Combat.IsPlayer(a) and 1 or 0.2))
+    local crit = max(0, (a.crit or 5) - (diff > 0 and diff or 0) * (Combat.IsPlayer(a) and 1 or 0.2) - (d.defBonus or 0))
     if (d.stunned or d.cc) then dodge, parry, block = 0, 0, 0 end
     local r = Craft.rng() * 100
     if r < miss then return "miss" end
@@ -563,14 +664,15 @@ function Combat.MeleeRoll(a, d, special)
     return "hit"
 end
 
-function Combat.SpellHit(a, d)
+function Combat.SpellHit(a, d, sp)
     if not Combat.IsPlayer(d) and Combat.IsCreature(a) then return true end
     local diff = (d.level or 1) - (a.level or 1)
     local miss
     if diff >= 3 then miss = 17 + (diff - 3) * 11
     elseif diff >= 0 then miss = 4 + diff
     else miss = max(1, 4 + diff) end
-    return not Chance(miss)
+    miss = miss - (a.spellHit or 0) - (sp and Combat.SpellMod(a, sp, MOD_HIT, 0) or 0)
+    return not Chance(max(1, miss))
 end
 
 function Combat.ArmorReduce(armor, attackerLevel)
@@ -646,15 +748,39 @@ function Combat.Swing(a, d)
     Combat.AfterSwing(a, d, info)
 end
 
--- procs when struck in melee (Frost Armor's chill)
+-- after a swing: the swinger's and the struck one's procs
 function Combat.AfterSwing(a, d, info)
-    if d.dead then return end
-    for _, x in ipairs(d.auras) do
+    if info.result == "miss" then return end
+    if info.spell then Combat.Proc(a, PROC_DEAL_MELEE_ABILITY, d, info.spell, info)
+    else Combat.Proc(a, PROC_DEAL_SWING, d, nil, info) end
+    if not d.dead then
+        Combat.Proc(d, info.spell and PROC_TAKE_MELEE_ABILITY or PROC_TAKE_SWING, a, info.spell, info)
+    end
+end
+
+-- what a proc needs beyond its flags (the client's hit masks): Shield Specialization's rage on a block
+local PROC_NEEDS = { [12298] = "block" }
+
+-- u's proc auras (SPELL_AURA_PROC_TRIGGER_SPELL) for an event: flag = PROC_*, other = the unit on the other end,
+-- spellId = the spell that did it (its class mask must match the proc's, when the proc has one)
+function Combat.Proc(u, flag, other, spellId, info)
+    if not u or u.dead then return end
+    local by = spellId and D.spells[spellId]
+    for _, x in ipairs(u.auras) do
+        local sp = D.spells[x.spell]
         for _, e in ipairs(x.fx) do
-            if e.a == A_PROC and e.trig and info.result ~= "miss" then
-                local sp = D.spells[x.spell]
-                local chance = (sp and sp.procChance and sp.procChance <= 100) and sp.procChance or 100
-                if Chance(chance) then Combat.CastSpell(d, e.trig, a, { triggered = true }) end
+            if e.a == A_PROC and e.trig and sp then
+                -- (no flags in the data: an old-style "when struck in melee" proc, like Frost Armor's)
+                local flags = sp.procFlags or (PROC_TAKE_SWING + PROC_TAKE_MELEE_ABILITY)
+                local need = PROC_NEEDS[sp.first or x.spell]
+                if band(flags, flag) ~= 0 and (not e.cm or MaskMatches(e, by, sp))
+                   and (not need or (info and info.result == need)) then
+                    local chance = (sp.procChance and sp.procChance <= 100) and sp.procChance or 100
+                    if Chance(chance) then
+                        local t = D.spells[e.trig] and Combat.TargetKind(D.spells[e.trig]) == "enemy" and other or u
+                        if t and not t.dead then Combat.CastSpell(u, e.trig, t, { triggered = true, noMiss = true }) end
+                    end
+                end
             end
         end
     end
@@ -678,8 +804,9 @@ function Combat.ApplyAura(caster, target, spellId, helpful, onlyIdx)
     for _, e in ipairs(sp.fx or {}) do
         if e.e == E_AURA and e.a and (not onlyIdx or onlyIdx[e.i]) then
             local amount = Combat.EffectValue(sp, e, caster)
+            if (e.a == A_PDMG or e.a == A_PHEAL) and caster then amount = Combat.SpellMod(caster, sp, MOD_DOT, amount) end
             local x = { a = e.a, misc = e.misc, amount = amount, per = e.per and e.per / 1000 or nil, trig = e.trig,
-                        i = e.i }
+                        i = e.i, cm = e.cm }
             if e.per then x.next = Now() + e.per / 1000 end
             if e.a == A_REGEN or e.a == A_POWER_REGEN or (e.a == A_PDUMMY and spellId and sp.n == "Drink") then
                 x.per, x.next = 1, Now() + 1                  -- (food / drink: a fifth of the value every second)
@@ -820,7 +947,8 @@ end
 local function StartCooldown(u, sp, id, opts)
     u.cdTotal = u.cdTotal or {}
     local now = Now()
-    if (sp.cd or 0) > 0 then u.cooldowns[id] = now + sp.cd / 1000 u.cdTotal[id] = sp.cd / 1000 end
+    local cd = (sp.cd or 0) > 0 and Combat.SpellMod(u, sp, MOD_COOLDOWN, sp.cd) or 0
+    if cd > 0 then u.cooldowns[id] = now + cd / 1000 u.cdTotal[id] = cd / 1000 end
     if sp.cat and (sp.catCd or 0) > 0 then
         u.cooldowns["c" .. sp.cat] = now + sp.catCd / 1000
         u.cdTotal["c" .. sp.cat] = sp.catCd / 1000
@@ -899,7 +1027,7 @@ function Combat.CastSpell(u, id, target, opts)
             end
         end
         if target ~= u then
-            local ok, why = Combat.InRange(u, target, sp.range or Craft.MELEE_RANGE, sp.minRange)
+            local ok, why = Combat.InRange(u, target, Combat.Range(sp, u), sp.minRange)
             if not ok then return fail(why) end
         end
         if (sp.cast or 0) > 0 and u.moving then return fail("moving") end
@@ -921,7 +1049,7 @@ function Combat.CastSpell(u, id, target, opts)
         local ok = Combat.InRange(u, target, sp.range or Craft.MELEE_RANGE, sp.minRange)
         if not ok then return false end
     end
-    local castTime = opts.triggered and 0 or Combat.CastTime(sp)
+    local castTime = opts.triggered and 0 or Combat.CastTime(sp, u)
     if not trig and (sp.gcd or 0) > 0 then
         u.gcdLen = sp.gcd / 1000
         u.gcdEnd = Now() + u.gcdLen
@@ -966,7 +1094,7 @@ function Combat.FinishCast(u, id, target, opts)
     if target and target.dead and Combat.TargetKind(sp) == "enemy" then return false end
     if not opts.triggered then
         if target and target ~= u then
-            local ok, why = Combat.InRange(u, target, sp.range or Craft.MELEE_RANGE)
+            local ok, why = Combat.InRange(u, target, Combat.Range(sp, u))
             if not ok then
                 if u.kind == "player" then Craft:Error(ERRORS[why]) end
                 Craft:Emit("cast", u, id, "failed", target)
@@ -1027,20 +1155,20 @@ function Combat.Apply(u, id, target, opts)
         local t1, t2 = e.t1 or 0, e.t2 or 0
         if t1 == 1 then return { u } end
         if t1 == 20 or t1 == 33 or t2 == 33 then          -- party around the caster
-            local list = Combat.Around(u, u.x, u.y, u.map, e.rad or 30, false)
+            local list = Combat.Around(u, u.x, u.y, u.map, Combat.SpellMod(u, sp, MOD_RADIUS, e.rad or 30), false)
             local seen = false
             for _, o in ipairs(list) do if o == u then seen = true end end
             if not seen then list[#list + 1] = u end
             return list
         end
         if t2 == 15 or t1 == 15 or t1 == 22 and t2 ~= 0 then
-            return Combat.Around(u, u.x, u.y, u.map, e.rad or 8, true)
+            return Combat.Around(u, u.x, u.y, u.map, Combat.SpellMod(u, sp, MOD_RADIUS, e.rad or 8), true)
         end
         return { target or u }
     end
     -- a spell that misses (enemy, magic or ranged): nothing of it lands
     if hostile and Combat.IsPlayer(u) and sp.defType ~= 2 and not opts.noMiss then
-        if not Combat.SpellHit(u, target) then
+        if not Combat.SpellHit(u, target, sp) then
             Craft:Emit("damage", u, target, 0, { kind = "spell", school = sp.school, spell = id, result = "resist" })
             Combat.EnterCombat(target, u)
             if Combat.IsCreature(target) then Combat.AddThreat(target, u, 0) end
@@ -1065,9 +1193,9 @@ function Combat.Apply(u, id, target, opts)
         if e.e == E_DAMAGE then
             for _, t in ipairs(list) do
                 if Combat.CanAttack(u, t) or t == target and hostile then
-                    local amt = Combat.EffectValue(sp, e, u) + (u.sp or 0) * (e.coef or 0)
+                    local amt = Combat.SpellMod(u, sp, MOD_DAMAGE, Combat.EffectValue(sp, e, u) + (u.sp or 0) * (e.coef or 0))
                     local info = { kind = "spell", school = sp.school or 1, spell = id }
-                    local crit = (sp.school == 1) and (physRoll == "crit") or Chance(u.spellCrit or 0)
+                    local crit = (sp.school == 1) and (physRoll == "crit") or Chance(Combat.SpellCritChance(u, sp))
                     if crit then amt = amt * (sp.school == 1 and 2 or 1.5) info.crit = true end
                     if sp.school == 1 then amt = Mitigate(u, t, amt, 1) end
                     if sp.threat then info.threat = sp.threat[1] end
@@ -1077,9 +1205,9 @@ function Combat.Apply(u, id, target, opts)
             end
         elseif e.e == E_HEAL then
             for _, t in ipairs(list) do
-                local amt = Combat.EffectValue(sp, e, u) + (u.sp or 0) * (e.coef or 0)
+                local amt = Combat.SpellMod(u, sp, MOD_DAMAGE, Combat.EffectValue(sp, e, u) + (u.sp or 0) * (e.coef or 0))
                 local info = { kind = "spell", spell = id }
-                if Chance(u.spellCrit or 0) then amt = amt * 1.5 info.crit = true end
+                if Chance(Combat.SpellCritChance(u, sp)) then amt = amt * 1.5 info.crit = true end
                 Combat.Heal(u, t, amt, info)
             end
         elseif e.e == E_WEAPON or e.e == E_WEAPON_DMG or e.e == E_NORM_WEAPON or e.e == E_WEAPON_PCT then
@@ -1087,9 +1215,9 @@ function Combat.Apply(u, id, target, opts)
                 if id == 5019 then                          -- Shoot: the wand's damage
                     local w = u.ranged
                     if w then
-                        local amt = Roll(floor(w[1]), max(floor(w[1]), floor(w[2])))
+                        local amt = Combat.SpellMod(u, sp, MOD_DAMAGE, Roll(floor(w[1]), max(floor(w[1]), floor(w[2]))))
                         local info = { kind = "ranged", school = w[3] or 1, spell = id }
-                        if Chance(u.spellCrit or 0) then amt = amt * 1.5 info.crit = true end
+                        if Chance(Combat.SpellCritChance(u, sp)) then amt = amt * 1.5 info.crit = true end
                         Combat.Damage(u, t, amt, info)
                     end
                 else
@@ -1129,6 +1257,11 @@ function Combat.Apply(u, id, target, opts)
             end
         end
     end
+    if hostile and not opts.triggered then
+        local phys = sp.defType == 2
+        Combat.Proc(u, phys and PROC_DEAL_MELEE_ABILITY or PROC_DEAL_HARMFUL_SPELL, target, id, { result = physRoll or "hit" })
+        Combat.Proc(target, phys and PROC_TAKE_MELEE_ABILITY or PROC_TAKE_HARMFUL_SPELL, u, id, { result = physRoll or "hit" })
+    end
     -- the spell's auras (all its aura effects in one aura per target)
     for t in pairs(auraTargets) do
         local helpful = Combat.Reaction(u, t) ~= "hostile"
@@ -1155,6 +1288,8 @@ function Combat.Pushback(u)
     if not c then return end
     if Combat.HasAura(u, A_ABSORB) and u.class == 5 then return end    -- (PW:Shield: no pushback)
     if (c.push or 0) >= 2 then return end
+    local keep = Combat.SpellMod(u, D.spells[c.spell], MOD_PUSHBACK, 0)
+    if keep > 0 and Chance(keep) then return end
     c.push = (c.push or 0) + 1
     if c.channel then
         c.ends = c.ends - (c.ends - c.start) * 0.25

@@ -192,6 +192,8 @@ class Spells:
                 "rplv": round(num(e["EffectRealPointsPerLevel"], float), 3) or None,
                 "chain": num(e["EffectChainTargets"]) or None, "item": num(e["EffectItemType"]) or None,
                 "mech": num(e["EffectMechanic"]) or None, "amp": round(num(e["EffectAmplitude"], float), 3) or None,
+                "cm": ([num(e["EffectSpellClassMask_%d" % k]) & 0xFFFFFFFF for k in range(3)]
+                       if any(num(e["EffectSpellClassMask_%d" % k]) for k in range(3)) else None),
             })
         castBase = self.cast.get(num(m.get("CastingTimeIndex")), {})
         out = {
@@ -219,6 +221,12 @@ class Spells:
             "desc": s.get("Description_lang") or None, "auraDesc": s.get("AuraDescription_lang") or None,
             "fx": effects,
         }
+        co = self.classopt.get(sid)
+        if co and any(num(co["SpellClassMask_%d" % k]) for k in range(3)):
+            out["set"] = num(co["SpellClassSet"])                 # (the class family: 3 mage, 4 warrior, 6 priest)
+            out["cm"] = [num(co["SpellClassMask_%d" % k]) & 0xFFFFFFFF for k in range(3)]
+        if num(au.get("ProcTypeMask_0")):
+            out["procFlags"] = num(au.get("ProcTypeMask_0"))
         return out
 
     def triggered(self, sid):
@@ -562,6 +570,30 @@ def main():
         for s in item_out[i]["spells"] or []:
             spells.add(s[0])
 
+    # ---- talents (Talent / TalentTab): each class's three trees, five points to open a tier, a point a level from 10
+    talents = {}
+    tabs = {int(r["ID"]): r for r in table("TalentTab")}
+    for cls in classes:
+        bit = 1 << (cls - 1)
+        mine = sorted((t for t in tabs.values() if int(t["ClassMask"]) & bit), key=lambda t: int(t["OrderIndex"]))
+        trees = []
+        for t in mine:
+            rows = []
+            for r in table("Talent"):
+                if int(r["TabID"]) != int(t["ID"]):
+                    continue
+                ranks = [num(r["SpellRank_%d" % k]) for k in range(9) if num(r["SpellRank_%d" % k])]
+                pre = [[num(r["PrereqTalent_%d" % k]), num(r["PrereqRank_%d" % k]) + 1]
+                       for k in range(3) if num(r["PrereqTalent_%d" % k])]
+                rows.append({"id": int(r["ID"]), "tier": int(r["TierID"]), "col": int(r["ColumnIndex"]),
+                             "ranks": ranks, "pre": pre or None})
+                for sp in ranks:
+                    spells.add(sp)
+            rows.sort(key=lambda x: (x["tier"], x["col"]))
+            trees.append({"id": int(t["ID"]), "n": t["Name_lang"], "bg": t["BackgroundFile"],
+                          "icon": num(t["SpellIconID"]), "talents": rows})
+        talents[cls] = trees
+
     # ---- spells (and what they trigger)
     todo = list(spells)
     seen = set()
@@ -597,10 +629,10 @@ def main():
                        "n": r["name"]})
 
     vis = spell_visuals(sorted(spell_out))
-    write(classes, xp, trainers, spell_out, item_out, creatures, loot, refs, vendors, eventai, quests, gy, vis)
+    write(classes, xp, trainers, spell_out, item_out, creatures, loot, refs, vendors, eventai, quests, gy, vis, talents)
 
 
-def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, eventai, quests, gy, vis):
+def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, eventai, quests, gy, vis, talents):
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     L = []
     w = L.append
@@ -618,6 +650,11 @@ def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, 
     w("-- { type (0 spell, 128 item), id } }, gear = start outfit, pos = the first step (world tiles)")
     w("-- the class skill lines (spellbook tabs, trainer headers): name -> icon")
     w("D.skillLines = %s" % lua({k: v for k, v in sorted(LINE_ICONS.items()) if v}))
+    w("-- talents: class -> { tree = { id, n, bg (Interface\TalentFrame\<bg>-TopLeft ...), icon, talents = { { id, tier,")
+    w("-- col, ranks = { spell per rank }, pre = { { talent, rank } } } } } (Talent.dbc, TalentTab.dbc)")
+    w("D.talents = {}")
+    for c in sorted(talents):
+        w("D.talents[%d] = %s" % (c, lua(talents[c])))
     w("D.classes = {}")
     for c in sorted(classes):
         w("D.classes[%d] = %s" % (c, lua(classes[c])))

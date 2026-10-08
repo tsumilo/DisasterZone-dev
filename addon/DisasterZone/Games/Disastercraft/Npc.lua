@@ -35,6 +35,9 @@ function Npc.Gossip(u)
     if cr.trainer then
         if cr.tcls == C().class then
             g.options[#g.options + 1] = { text = "I seek training.", icon = "Trainer", action = "trainer" }
+            if Craft.Talents and Craft.Talents.Spent(C()) > 0 then
+                g.options[#g.options + 1] = { text = "I wish to unlearn my talents.", icon = "Trainer", action = "unlearn" }
+            end
         elseif not g.text then
             g.text = string.format("I can only train %ss, %s.", (Craft.CLASS_NAMES[cr.tcls] or "?"):lower(),
                                    Craft.CLASS_NAMES[C().class]:lower())
@@ -127,7 +130,7 @@ function Npc.Spellbook(allRanks)
     local best = {}
     for id in pairs(c.spells) do
         local sp = D.spells[id]
-        if sp and not HIDDEN[id] then
+        if sp and not HIDDEN[id] and not (Craft.Talents and Craft.Talents.IsPassiveTalent(id)) then
             local key = allRanks and id or (sp.first or id)
             local cur = best[key]
             if not cur or (sp.rank or 1) > (D.spells[cur].rank or 1) then best[key] = id end

@@ -35,6 +35,10 @@ ns.CraftChangelog = {
             "The backpack opens again; bag slots sit on the bar art",
             "Coins no longer run into each other",
             "Action bar page arrows and the gryphons, as in WoW",
+            "Talents! A point every level from 10 (N or the micro menu)",
+            "Talents really work: faster casts, cheaper strikes, crits",
+            "Unlearn your talents at your class trainer (for a fee)",
+            "Passive effects no longer clutter your buff bar",
         },
     },
 }

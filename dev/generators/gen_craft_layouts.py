@@ -20,7 +20,7 @@ NS = "{http://www.blizzard.com/wow/ui/}"
 # the frames Disastercraft draws (root name -> what it is called in Layouts.lua)
 ROOTS = [
     "LootFrame", "ContainerFrameTemplate", "MerchantFrame", "QuestFrame", "GossipFrame", "QuestLogFrame",
-    "ClassTrainerFrame", "SpellBookFrame", "CharacterFrame", "PaperDollFrame", "PlayerFrame", "TargetFrame", "PlayerCastingBarFrame",
+    "ClassTrainerFrame", "SpellBookFrame", "CharacterFrame", "PaperDollFrame", "PlayerTalentFrame", "PlayerFrame", "TargetFrame", "PlayerCastingBarFrame",
     "MainMenuBar", "AuraButtonTemplate", "StaticPopupTemplate", "GroupLootFrameTemplate", "PartyMemberFrameTemplate",
     "BagsBar", "ActionBarButtonTemplate", "MainMenuBarMicroButton", "CharacterMicroButton", "SpellbookMicroButton",
     "QuestLogMicroButton", "SocialsMicroButton", "MainMenuMicroButton", "ExpStatusBarTemplate",

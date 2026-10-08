@@ -22,7 +22,7 @@ Blizzard_MoneyFrame Blizzard_ItemButton Blizzard_CastingBar Blizzard_PlayerFrame
 Blizzard_ZoneText Blizzard_UIErrors Blizzard_GameMenu Blizzard_QuestFrame Blizzard_GossipFrame Blizzard_Merchant
 Blizzard_ContainerFrame Blizzard_MainMenuBar Blizzard_MicroMenu Blizzard_ClassTrainerUI Blizzard_CombatText
 Blizzard_ItemTextFrame Blizzard_QuestTimer Blizzard_WatchFrame Blizzard_QuestWatch Blizzard_UnitPopup
-Blizzard_MainMenuBarBagButtons Blizzard_TimeManager""".split()
+Blizzard_MainMenuBarBagButtons Blizzard_TimeManager Blizzard_TalentUI""".split()
 SUFFIX = ["", "_TBC", "_Vanilla", "_Classic", "_Mainline", "_Wrath", "_Cata"]
 
 

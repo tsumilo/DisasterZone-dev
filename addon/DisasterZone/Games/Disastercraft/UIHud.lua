@@ -195,7 +195,8 @@ local function UpdateAuras(list, u, helpfulFirst, onlyMine)
                 local want = (pass == 1) == (a.helpful and true or false)
                 if not helpfulFirst then want = (pass == 1) == (not a.helpful) end
                 local sp = D.spells[a.spell]
-                if want and sp and sp.icon and not (sp.n == "Battle Stance") and i < #list then
+                -- (passive auras - talents and the like - never show, as in WoW)
+                if want and sp and sp.icon and not a.passive and not (sp.n == "Battle Stance") and i < #list then
                     i = i + 1
                     local b = list[i]
                     b.aura, b.unit = a, u
@@ -508,6 +509,7 @@ function UI.BuildBar(hud)
     local micro = {
         { "Character Info (C)", "Interface\\Buttons\\UI-MicroButton-Socials-Up", function() UI.Toggle("character") end, true },
         { "Spellbook & Abilities (P)", "Interface\\Buttons\\UI-MicroButton-Spellbook-Up", function() UI.Toggle("spellbook") end },
+        { "Talents (N)", "Interface\\Buttons\\UI-MicroButton-Talents-Up", function() UI.Toggle("talents") end },
         { "Quest Log (L)", "Interface\\Buttons\\UI-MicroButton-Quest-Up", function() UI.Toggle("questlog") end },
         { "Party (O)", "Interface\\Buttons\\UI-MicroButton-Socials-Up", function() UI.Toggle("party") end },
         { "Game Menu (Esc)", "Interface\\Buttons\\UI-MicroButton-MainMenu-Up", function() UI.Toggle("menu") end },

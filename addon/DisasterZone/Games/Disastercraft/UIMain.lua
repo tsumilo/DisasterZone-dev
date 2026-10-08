@@ -81,6 +81,7 @@ local function OnKeyDown(self, key)
     elseif key == "B" then UI.ToggleAllBags()
     elseif key == "C" then UI.Toggle("character")
     elseif key == "P" then UI.Toggle("spellbook")
+    elseif key == "N" then UI.Toggle("talents")
     elseif key == "L" then UI.Toggle("questlog")
     elseif key == "O" then UI.Toggle("party")
     elseif key == "F" or key == "SPACE" then
