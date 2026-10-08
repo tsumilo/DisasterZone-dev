@@ -930,6 +930,17 @@ local function pickMenu(row, root)
             end)
         end
     end
+    -- none at all: the raid goes without a strategy for this boss (e.g. its only one is still a work in progress)
+    root:CreateDivider()
+    local radio = root:CreateRadio("No strategy", function() return d.how == "none" end,
+        function() View:PickStrategy(d.occ, d.ref, nil) end)
+    if radio and radio.SetTooltip then
+        radio:SetTooltip(function(tooltip)
+            tooltip:AddLine("No strategy", 1, 0.82, 0)
+            tooltip:AddLine("This raid goes without one for this boss: nothing is assigned, no raid marks. The names "
+                .. "already in its slots stay for a later pick.", 1, 1, 1, true)
+        end)
+    end
 end
 
 -- A raid's boss as a tile (the Teams plates' look, two a row): the boss's Encounter Journal picture on the left
@@ -955,13 +966,23 @@ local function newPickLink(row)
     b.chev:SetPoint("LEFT", fs, "RIGHT", 4, -1)
     -- (b.warn: "not picked yet" / "unsaved names" turns it orange)
     function b:Paint()
-        if self.warn then self.fs:SetTextColor(1, 0.6, 0.2) else self.fs:SetTextColor(0.9, 0.85, 0.66) end
+        local data = row.__cdlData
+        if self.warn then self.fs:SetTextColor(1, 0.6, 0.2)
+        elseif data and data.how == "none" then self.fs:SetTextColor(0.6, 0.6, 0.6)
+        else self.fs:SetTextColor(0.9, 0.85, 0.66) end
     end
     function b:OpenMenu() UI():ContextMenu(self, function(root) pickMenu(row, root) end) end
     b:SetScript("OnClick", function(self) self:OpenMenu() end)
     b:SetScript("OnEnter", function(self)
         self.fs:SetTextColor(1, 0.82, 0)
         local data = row.__cdlData
+        if data and data.how == "none" then
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine("No strategy for " .. data.name)
+            GameTooltip:AddLine("Picked for this raid. Pick a strategy to use one again.", 1, 1, 1, true)
+            GameTooltip:Show()
+            return
+        end
         if not (data and data.s) then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(data.s.n)
@@ -1055,8 +1076,9 @@ local function newBossTile(parent)
         if not data then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(data.name)
-        GameTooltip:AddLine(data.s and "Click to open its board: who does what." or "No strategy for this boss yet.",
-            1, 1, 1, true)
+        GameTooltip:AddLine(data.s and "Click to open its board: who does what."
+            or (data.how == "none" and "This raid goes without a strategy for this boss.")
+            or "No strategy for this boss yet.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1108,6 +1130,8 @@ local function fillBossTile(row, d)
     local s, fill = d.s, d.fill
     local arranger = S():CanAssign(d.occ)
     local none = s == nil
+    -- (the raid picked none, though the boss has strategies: who arranges can pick one again from the link)
+    local off = none and d.how == "none"
     row.base:SetColorTexture(none and 0.051 or 0.094, none and 0.051 or 0.094, none and 0.063 or 0.11, 1)
     row.tint:SetShown(not none)
     row.top:SetShown(not none)
@@ -1126,9 +1150,18 @@ local function fillBossTile(row, d)
     row.bar:SetWidth(max(1, floor((row:GetWidth() or 0) * share + 0.5)))
     if full then row.bar:SetColorTexture(0.56, 0.89, 0.62, 0.9) else row.bar:SetColorTexture(1, 0.82, 0, 0.7) end
     -- line 2: the strategy (who arranges: its dropdown, then whether it still has to be picked; else the name)
-    row.pick:SetShown(arranger and s ~= nil)
+    row.pick:SetShown(arranger and (s ~= nil or off))
     row.l2:ClearAllPoints()
-    if arranger and s then
+    if arranger and off then
+        row.pick.warn = nil
+        row.pick.fs:SetWidth(0)
+        row.pick:SetText("No strategy")
+        row.pick.fs:SetTextColor(0.6, 0.6, 0.6)
+        row.pick:SetWidth(ceil((row.pick.fs.GetUnboundedStringWidth and row.pick.fs:GetUnboundedStringWidth()
+            or row.pick.fs:GetStringWidth()) or 70) + 14)
+        row.l2:SetPoint("LEFT", row.pick, "RIGHT", 8, 1)
+        row.l2:SetText("")
+    elseif arranger and s then
         -- names typed on the board but not saved, else a boss with several strategies where none was picked: the
         -- link turns orange (its tooltip says why; the tool row counts the bosses to pick)
         row.pick.warn = (Board():FillDraft(d.occ, d.ref) and "unsaved names")
@@ -1147,10 +1180,11 @@ local function fillBossTile(row, d)
         row.l2:SetText("")
     else
         row.l2:SetPoint("TOPLEFT", RAID_TEXT_X, -36)
-        row.l2:SetText(s and ("|cffe6d9a8" .. s.n .. "|r") or grey("No strategy for this boss yet"))
+        row.l2:SetText(s and ("|cffe6d9a8" .. s.n .. "|r")
+            or grey(off and "No strategy for this raid" or "No strategy for this boss yet"))
     end
     row.assign:SetShown(arranger and s ~= nil)
-    row.create:SetShown(none and S():CanBuild())
+    row.create:SetShown(none and not off and S():CanBuild())
     local btn = row.assign:IsShown() and row.assign or (row.create:IsShown() and row.create) or nil
     -- the count and my jobs end where the button starts
     row.stat:ClearAllPoints()
@@ -1214,7 +1248,7 @@ function View:RaidSummary(v)
             if total > 0 and n >= total then out.ready = out.ready + 1 end
             out.jobs = out.jobs + mine
             if (counts[b.ref] or 0) > 1 and how ~= "picked" then out.toPick = out.toPick + 1 end
-        else
+        elseif how ~= "none" then
             out.none = out.none + 1
         end
     end

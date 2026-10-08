@@ -707,6 +707,9 @@ local function CleanFill(r, now)
         if not IsId(r.s) then return nil end
         out.s = r.s
     end
+    -- x = true: the raid uses no strategy for this boss (picked so; 1.3.3 - older clients drop the field and fall
+    -- back to the default pick)
+    if r.x == true and r.s == nil then out.x = true end
     out.a = {}
     if r.a ~= nil then
         if type(r.a) ~= "table" then return nil end
@@ -1680,9 +1683,10 @@ end
 
 -- The strategy a raid uses for a boss, its fill, and why that one: "picked" (the raid's pick), "last" (none picked:
 -- the one the guild used last time), "only" (the boss has one) or "first" (none used yet: the first by name). nil
--- when the boss has no strategy.
+-- when the boss has no strategy, or (how = "none") when the raid picked none for it.
 function Strategy:GetRaidStrategy(occId, bossRef)
     local f = self:GetFill(occId, bossRef)
+    if f and f.x then return nil, f, "none" end
     local s = f and f.s and self:GetStrategy(f.s)
     if s and s.b == bossRef then return s, f, "picked" end
     local list = self:GetStrategies(bossRef)
@@ -1705,16 +1709,22 @@ function Strategy:GetLastPick(bossRef, occId)
 end
 
 -- Picks the strategy a raid uses for a boss and saves it at once; the names in the slots both strategies have stay.
--- Returns ok, err.
+-- stratId nil: the raid uses no strategy for the boss (e.g. its only one is still a work in progress); the names stay
+-- for a later pick. Returns ok, err.
 function Strategy:PickStrategy(occId, bossRef, stratId)
+    if stratId == nil then
+        local cur = self:GetFill(occId, bossRef)
+        return self:SaveFill(occId, bossRef, nil, cur and cur.a, true)
+    end
     local s = self:GetStrategy(stratId)
     if not s or s.b ~= bossRef then return false, "unknown strategy" end
     local cur = self:GetFill(occId, bossRef)
     return self:SaveFill(occId, bossRef, s.id, self:ValidAssignments(s, cur and cur.a))
 end
 
--- Saves (raid, boss) -> strategy + names. assignments: { [slotRef] = key } (nil keeps the current ones).
-function Strategy:SaveFill(occId, bossRef, stratId, assignments)
+-- Saves (raid, boss) -> strategy + names. assignments: { [slotRef] = key } (nil keeps the current ones); none = true:
+-- no strategy for the boss in this raid (stratId nil).
+function Strategy:SaveFill(occId, bossRef, stratId, assignments, none)
     local root, err = RequireWriter(occId)
     if not root then return false, err end
     if not IsOccId(occId) or not IsBossRef(bossRef) then return false, "unknown raid or boss" end
@@ -1723,7 +1733,8 @@ function Strategy:SaveFill(occId, bossRef, stratId, assignments)
     local id = FillId(occId, bossRef)
     local cur = root.F[id]
     local t = (v and v.t) or (cur and cur.t) or Now()
-    local rec = { id = id, o = occId, b = bossRef, t = t, rev = NextRev(cur), by = Util.PlayerKey(), s = stratId }
+    local rec = { id = id, o = occId, b = bossRef, t = t, rev = NextRev(cur), by = Util.PlayerKey(), s = stratId,
+                  x = (none and stratId == nil) and true or nil }
     local a = assignments
     if a == nil then a = cur and cur.a or {} end
     rec.a = {}

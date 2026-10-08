@@ -281,5 +281,44 @@ def the_assignments_tab_picks_from_the_row():
     w.assert_no_errors()
 
 
+@case
+def a_raid_can_go_without_a_strategy_for_a_boss():
+    """User request 2026-10-08: "No strategy" per boss, so a boss with one (work-in-progress) strategy doesn't use it."""
+    w, c = world()
+    lee, rita, sam = c["Lee"], c["Rita"], c["Sam"]
+    a = save_council(lee, "A plan")
+    occ = create(lee, i="bt", t=now(lee) + DAY)
+    w.tick(2)
+    assert used(sam, occ) == {"id": a, "how": "only"}
+    assert fill(rita, occ, BOSS, a, {"tk.1.1": K("Lee")})["ok"] is True
+    w.tick(2)
+    # the raid says no: every client sees no strategy; the names stay for a later pick
+    assert pick(rita, occ, None)["ok"] is True
+    w.tick(2)
+    assert used(sam, occ) == {"how": "none"}            # (no id: Lua drops the nil)
+    f = get_fill(sam, occ, BOSS)
+    assert f.get("x") is True and f.get("s") is None and f["a"] == {"tk.1.1": K("Lee")}, f
+    assert pick(sam, occ, None)["ok"] is False                      # (a member doesn't pick)
+    # the tile: "No strategy" as its link for who arranges, no Create; the menu ticks it
+    rita.slash("/dz raids")
+    w.tick(0.3)
+    rita.eval("ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab('assign')", occ)
+    w.tick(0.3)
+    r = rita.eval_py("local ref, found = ...; %s.box:ForEachFrame(function(row) local d = row.__cdlData; "
+                     "if d and d.ref == ref then found = { pick = row.pick:IsShown(), text = row.pick:GetText(), "
+                     "create = row.create:IsShown(), assign = row.assign:IsShown() } end end); return found" % ROWS, BOSS)
+    assert r == {"pick": True, "text": "No strategy", "create": False, "assign": False}, r
+    rita.eval("local ref = ...; %s.box:ForEachFrame(function(row) local d = row.__cdlData; if d and d.ref == ref then "
+              "row.pick:OpenMenu() end end)" % ROWS, BOSS)
+    radios = [(strip_codes(t), on) for _, k, t, on in menu_texts(rita.last_menu()) if k == "radio"]
+    assert radios[-1][0] == "No strategy", radios
+    # picking the strategy again brings its names back
+    rita.menu_select([t for _, k, t, _ in menu_texts(rita.last_menu()) if k == "radio" and strip_codes(t).startswith("A plan")][0])
+    w.tick(2)
+    assert used(sam, occ) == {"id": a, "how": "picked"}
+    assert get_fill(sam, occ, BOSS)["a"] == {"tk.1.1": K("Lee")}
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all(globals())

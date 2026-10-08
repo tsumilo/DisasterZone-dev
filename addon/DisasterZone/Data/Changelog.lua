@@ -59,6 +59,7 @@ ns.CHANGELOG = {
               "A raid locked to a team with a target comp shows its open slots in the empty seats.",
               "Assignments: each boss as a card with its picture, its strategy and how many slots are filled.",
               "A strategy that still has to be picked shows in orange; a boss without one offers Create.",
+              "Each boss's strategy menu ends with No strategy: the raid goes without one for that boss.",
           } },
       } },
     { version = "1.3.2", date = "7 October 2026", title = "Events, the Group Finder, gems and enchants",
