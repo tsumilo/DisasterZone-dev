@@ -634,8 +634,11 @@ end
 local OpenGame, Turn
 local SoftShadow
 
--- A soft shadow round frame f: a 9-slice of the radial falloff (its quarters are the round corners, its middle row
--- and column the sides), black at alpha, reaching r px out; dropped dy px and starting inset px inside the frame.
+-- A soft shadow round frame f: a 9-slice of the radial texture's falloff (its quarters are the round corners, its
+-- middle row and column the sides), black at alpha, fading over r px; dropped dy px and starting inset px inside
+-- the frame. (Radial.tga is solid to a quarter of its radius and gone at ~81%: only that band is used, so the
+-- whole r is a smooth S-shaped fade.)
+local SH_IN, SH_OUT = 0.5 - 0.125, 0.5 - 0.406      -- texcoords of the fade's start / end in the top-left quarter
 SoftShadow = function(f, r, alpha, dy, inset)
     local function piece(l, rgt, t, b)
         local tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -645,29 +648,30 @@ SoftShadow = function(f, r, alpha, dy, inset)
         return tex
     end
     local m1, m2 = 0.499, 0.501
+    local a, b, c, d = SH_OUT, SH_IN, 1 - SH_IN, 1 - SH_OUT
     local L, R, T, B = inset, -inset, -inset - dy, inset - dy     -- the shadow's inner rectangle, from f's edges
-    local tl = piece(0, 0.5, 0, 0.5)
+    local tl = piece(a, b, a, b)
     tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", L, T)
     tl:SetSize(r, r)
-    local tr = piece(0.5, 1, 0, 0.5)
+    local tr = piece(c, d, a, b)
     tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", R, T)
     tr:SetSize(r, r)
-    local bl = piece(0, 0.5, 0.5, 1)
+    local bl = piece(a, b, c, d)
     bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT", L, B)
     bl:SetSize(r, r)
-    local br = piece(0.5, 1, 0.5, 1)
+    local br = piece(c, d, c, d)
     br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", R, B)
     br:SetSize(r, r)
-    local top = piece(m1, m2, 0, 0.5)
+    local top = piece(m1, m2, a, b)
     top:SetPoint("BOTTOMLEFT", tl, "BOTTOMRIGHT")
     top:SetPoint("TOPRIGHT", tr, "TOPLEFT")
-    local bottom = piece(m1, m2, 0.5, 1)
+    local bottom = piece(m1, m2, c, d)
     bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT")
     bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
-    local left = piece(0, 0.5, m1, m2)
+    local left = piece(a, b, m1, m2)
     left:SetPoint("TOPRIGHT", tl, "BOTTOMRIGHT")
     left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT")
-    local right = piece(0.5, 1, m1, m2)
+    local right = piece(c, d, m1, m2)
     right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT")
     right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
     local mid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -683,8 +687,10 @@ local function CreatePoster(i, def)
     p.bg = p:CreateTexture(nil, "BACKGROUND")
     p.bg:SetAllPoints()
     p.bg:SetColorTexture(BASE[1], BASE[2], BASE[3], 1)
-    -- a soft drop shadow under the poster (below its fill, so only the part outside shows)
-    SoftShadow(p, 22, 0.6, 7, 5)
+    -- a soft drop shadow under the poster (below its fill, so only the part outside shows): a broad, faint one
+    -- falling well below it and a tight one hugging its edge
+    SoftShadow(p, 56, 0.42, 14, 12)
+    SoftShadow(p, 12, 0.3, 2, 2)
 
     -- the art (a loading screen, or the cover's own scene), clipped to the top of the poster
     p.artFrame = CreateFrame("Frame", nil, p)

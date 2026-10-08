@@ -225,16 +225,29 @@ local function CreateCell(parent, i)
     b.iconEdge:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
     b.iconEdge:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
     b.iconEdge:SetColorTexture(0, 0, 0, 0.9)
+    -- the rarity ring round the icon (a 1px border, so an icon-less square stays dark inside)
+    b.ring = CreateFrame("Frame", nil, b.top)
+    b.ring:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -2, 2)
+    b.ring:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 2, -2)
+    ns.UI:AddEdges(b.ring, "OVERLAY")
+    b.ring:Hide()
     b.icon2 = b.top:CreateTexture(nil, "ARTWORK", nil, 2)
     b.icon2:SetSize(10, 10)
     b.icon2:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", -4, -2)
     b.badge = b.top:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     b.badge:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 3, -1)
-    b.dot = b.top:CreateTexture(nil, "ARTWORK")
-    b.dot:SetTexture(CIRCLE)
-    b.dot:SetSize(5, 5)
-    b.dot:SetPoint("TOPLEFT", 6, -6)
-    b.dot:Hide()
+    -- rarity, like item quality: the icon's border in its colour, a soft wash of it from the top of the square, and
+    -- on a legendary square a light that sweeps across now and then (BingoUI's OnUpdate)
+    b.wash = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.wash:SetPoint("TOPLEFT", 1, -1)
+    b.wash:SetPoint("TOPRIGHT", -1, -1)
+    b.wash:Hide()
+    b.sheen1 = b:CreateTexture(nil, "BORDER", nil, 2)
+    b.sheen2 = b:CreateTexture(nil, "BORDER", nil, 2)
+    for _, t in ipairs({ b.sheen1, b.sheen2 }) do
+        t:SetBlendMode("ADD")
+        t:Hide()
+    end
 
     b.text = Label(b.top, 10, "GameFontHighlightSmall")
     b.text:SetWordWrap(true)
@@ -296,6 +309,33 @@ local function CreateCell(parent, i)
 end
 
 -- Plays the stamp landing on a cell, after delay seconds.
+-- The legendary light at e (0..1) across cell c: two ADD gradient halves, cut at the square's edges by hand.
+local SHEEN_EVERY, SHEEN_TIME, SHEEN_W = 5.5, 1.1, 40
+local function PlaceSheen(c, e)
+    local w = c:GetWidth() or 0
+    if w <= 0 then return end
+    local x = -SHEEN_W / 2 + (w + SHEEN_W) * e
+    local a = 0.16
+    for k, half in ipairs({ { x - SHEEN_W / 2, x, 0, a }, { x, x + SHEEN_W / 2, a, 0 } }) do
+        local tex = c["sheen" .. k]
+        local x0, x1, a0, a1 = half[1], half[2], half[3], half[4]
+        local l, r = max(1, x0), min(w - 1, x1)
+        if r - l < 0.5 then
+            tex:Hide()
+        else
+            tex:ClearAllPoints()
+            tex:SetPoint("TOPLEFT", c, "TOPLEFT", l, -1)
+            tex:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", l, 1)
+            tex:SetWidth(r - l)
+            local span = x1 - x0
+            Gradient(tex, "HORIZONTAL", 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span,
+                1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span)
+            tex:SetBlendMode("ADD")
+            tex:Show()
+        end
+    end
+end
+
 local function StampIn(c, delay)
     c.stamp:SetAlpha(0)
     for _, anim in ipairs(c.stampParts) do anim:SetStartDelay(delay) end
@@ -742,7 +782,11 @@ function BingoUI:Refresh()
         local c = cells[i]
         local id = cardIds and cardIds[i]
         c.rare:Hide()
-        c.dot:Hide()
+        c.wash:Hide()
+        c.legendary = nil
+        c.sheen1:Hide()
+        c.sheen2:Hide()
+        c.ring:Hide()
         if not id then
             c.icon:SetTexture(nil)
             c.iconEdge:Hide()
@@ -795,9 +839,17 @@ function BingoUI:Refresh()
             c.text:SetText(sq.text)
             c.text:SetTextColor(hit and 1 or 0.78, hit and 1 or 0.78, hit and 1 or 0.8)
             c.tip = CellTip(sq, hit, g, away[i])
-            if sq.rarity ~= "c" and not hit then
-                c.dot:SetVertexColor(col[1], col[2], col[3], 1)
-                c.dot:Show()
+            local rare = sq.rarity == "r" or sq.rarity == "l"
+            if rare then
+                ns.UI:SetEdgeColor(c.ring, col[1], col[2], col[3], 1)
+                c.ring:Show()
+                if not hit then
+                    c.wash:SetHeight(max(1, (c:GetHeight() > 0 and c:GetHeight() or 70) * 0.62))
+                    Gradient(c.wash, "VERTICAL", col[1], col[2], col[3], 0, col[1], col[2], col[3],
+                        sq.rarity == "l" and 0.2 or 0.14)
+                    c.wash:Show()
+                    c.legendary = sq.rarity == "l" or nil
+                end
             end
             if hit then
                 local isNew = not view.hits[id]
@@ -822,6 +874,9 @@ function BingoUI:Refresh()
             elseif away[i] and active then
                 Fill(c, DARK_TOP, DARK_BOTTOM)
                 ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.7)
+            elseif rare then
+                Fill(c, DARK_TOP, DARK_BOTTOM)
+                ns.UI:SetEdgeColor(c, col[1], col[2], col[3], sq.rarity == "l" and 0.3 or 0.2)
             else
                 Fill(c, DARK_TOP, DARK_BOTTOM)
                 ns.UI:SetEdgeColor(c, 1, 1, 1, 0.06)
@@ -1083,7 +1138,15 @@ function BingoUI:CreatePanel(parent)
     panel:SetScript("OnSizeChanged", function() Layout() BingoUI:Refresh() end)
     panel:SetScript("OnShow", function() BingoUI:Refresh() end)
     panel:SetScript("OnUpdate", function()
-        if hero.dot:IsShown() then hero.dotGlow:SetAlpha(0.35 + 0.35 * math.sin(GetTime() * 4)) end
+        local now = GetTime()
+        if hero.dot:IsShown() then hero.dotGlow:SetAlpha(0.35 + 0.35 * math.sin(now * 4)) end
+        -- legendary squares: a light sweeps across each every SHEEN_EVERY seconds (staggered by square)
+        for i, c in ipairs(cells) do
+            if c.legendary then
+                local t = ((now + i * 0.83) % SHEEN_EVERY) / SHEEN_TIME
+                if t < 1 then PlaceSheen(c, t) else c.sheen1:Hide() c.sheen2:Hide() end
+            end
+        end
     end)
     panel.OnGameShown = function() Layout() BingoUI:Refresh() end
     return panel
