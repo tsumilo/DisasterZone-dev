@@ -310,6 +310,14 @@ Games\Azeromon\Sound.lua
 Games\Azeromon\Arena.lua
 Games\Azeromon\WorldMap.lua
 Games\Azeromon\UI.lua
+Games\Disastercraft\Data.lua
+Games\Disastercraft\Core.lua
+Games\Disastercraft\Items.lua
+Games\Disastercraft\Combat.lua
+Games\Disastercraft\World.lua
+Games\Disastercraft\Loot.lua
+Games\Disastercraft\Quests.lua
+Games\Disastercraft\Npc.lua
 
 # In-game updates: the publisher's outbox and the end marker. Must stay the last two files.
 Core\Outbox.lua
