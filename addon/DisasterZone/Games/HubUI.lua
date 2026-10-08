@@ -540,10 +540,20 @@ COVERS.chess = function(parent)
     end
 
     -- the poster's low shade over the floor (the floor draws above the poster's own shade, which the painting
-    -- fades under): the same gradient to the ground colour, as high, on top of the floor and under the pieces
-    c.shade = v.floorFrame:CreateTexture(nil, "BACKGROUND", nil, 7)
-    c.shade:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", -1, -2)
-    c.shade:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 1, -2)
+    -- fades under): a frame of its own between the floor and the pieces (CHESS_LV lines), the ground colour solid at
+    -- the foot and a gradient over it, so the floor is dark before the title as the paintings are (one texture in
+    -- the floor's own frame was too faint in game)
+    local shadeFrame = CreateFrame("Frame", nil, c)
+    shadeFrame:SetAllPoints()
+    shadeFrame:SetFrameLevel(c:GetFrameLevel() + CHESS_LV.lines)
+    c.shadeSolid = shadeFrame:CreateTexture(nil, "ARTWORK")
+    c.shadeSolid:SetPoint("BOTTOMLEFT")
+    c.shadeSolid:SetPoint("BOTTOMRIGHT")
+    c.shadeSolid:SetHeight(14)
+    c.shadeSolid:SetColorTexture(BASE[1], BASE[2], BASE[3], 1)
+    c.shade = shadeFrame:CreateTexture(nil, "ARTWORK")
+    c.shade:SetPoint("BOTTOMLEFT", c.shadeSolid, "TOPLEFT")
+    c.shade:SetPoint("BOTTOMRIGHT", c.shadeSolid, "TOPRIGHT")
     Gradient(c.shade, "VERTICAL", BASE[1], BASE[2], BASE[3], 1, BASE[1], BASE[2], BASE[3], 0)
 
     -- the pieces and the fire
@@ -667,9 +677,10 @@ COVERS.chess = function(parent)
         w, h = floor(w), floor(max(60, h))
         if w == self.lw and h == self.lh then return end
         self.lw, self.lh = w, h
-        self:SetSize(w, h)
+        -- (1 px inside the poster's border on each side, as the painting: the floor reached over the edge line)
+        self:SetSize(w - 2, h)
         -- (the cover ends where the art does, 52 under its top: the art's height is h + 52, as Place has it)
-        self.shade:SetHeight(max(1, (h + 52) * 0.4 + 2))
+        self.shade:SetHeight(max(1, (h + 52) * 0.45))
         self.dirty = true
     end
     function c:Refresh() end
