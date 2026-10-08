@@ -1338,6 +1338,21 @@ function Combat.Update(dt)
     end
 end
 
+-- a spell's icon as the client shows it: Attack wears your main-hand weapon (a fist when you have none) instead of
+-- its own placeholder art; Shoot wears the wand
+function Combat.SpellIcon(id, c)
+    local sp = D.spells[id]
+    c = c or Craft.char
+    if id == 6603 then
+        local w = c and c.equip and c.equip[16]
+        return w and Craft.Items.Icon(w) or "Interface\\Icons\\INV_Gauntlets_04"
+    elseif id == 5019 then
+        local w = c and c.equip and c.equip[18]
+        if w then return Craft.Items.Icon(w) end
+    end
+    return sp and sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
 ---------------------------------------------------------------------------
 -- Tooltip text for a spell (WoW's $s1 / $o1 / $d / $t1 placeholders)
 ---------------------------------------------------------------------------
