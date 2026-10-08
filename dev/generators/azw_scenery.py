@@ -20,6 +20,10 @@ import azw_raw as R
 import azw_render as RD
 
 PXT = 32                     # sprite pixels a tile (the screen shows 48)
+BANDS = 4                    # interiors: depth bands a grid cell (walls drawn in front of / behind people)
+OCC_ROWS = 2                 # ... a wall is cut into bands only with floor this many rows north of it
+OCC_MIN_HEIGHT = 0.35        # ... and only where it stands this many yards over the floor
+OCC_COL = 64                 # ... in columns this wide
 PPY = PXT / A.TS             # pixels a yard on the map
 ELEV = None                  # oblique (azw_render): footprints line up with the collision tiles
 TREE_ELEV = None               # crowns from higher up: their leaf cards smear when seen from the side
@@ -225,25 +229,99 @@ def build_interiors(interiors, out_base, fine):
         mesh = wmo_with_doodads(fid)
         yaw = math.radians(rot[1] - 180)
         for lvl in it["levels"]:
-            clip = (lvl["z"] - pos[1]) + 3.4            # head height above this floor, in the WMO's frame
+            floor_z = lvl["z"] - pos[1]                  # this floor's height in the WMO's frame
+            clip = floor_z + 3.4                         # head height above this floor
             if it.get("cave"):                           # a mine: the rock overhead is what faces down
-                img, origin = RD.render(mesh, yaw, None, PPY_I, oversample=2, drop_down=True)
+                got = RD.render(mesh, yaw, None, PPY_I, oversample=2, drop_down=True, aux_floor_z=floor_z)
             else:
-                img, origin = RD.render(mesh, yaw, None, PPY_I, oversample=2, clip_z=clip)
-            if img is None:
+                got = RD.render(mesh, yaw, None, PPY_I, oversample=2, clip_z=clip, aux_floor_z=floor_z)
+            if got[0] is None:
                 continue
-            img, origin = RD.trim(img, origin)
+            img, origin, aux = got
+            # (trim, keeping the depth data in step)
+            ys, xs = np.nonzero(img[..., 3])
+            if len(xs) == 0:
+                continue
+            cx0, cx1, cy0, cy1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+            img = img[cy0:cy1, cx0:cx1]
+            north, isfloor = aux["north"][cy0:cy1, cx0:cx1], aux["floor"][cy0:cy1, cx0:cx1]
+            height = aux["height"][cy0:cy1, cx0:cx1]
+            origin = (origin[0] - cx0, origin[1] - cy0)
             # where the WMO's origin falls on the interior's grid (fine cells from the level's corner)
             ox_t = pos[0] / A.TS * fine - lvl["x0"]
             oy_t = pos[2] / A.TS * fine - lvl["y0"]
+            # The floor lies under everyone. What can stand in front of a body - a wall, railing, pillar or
+            # piece of furniture taller than a step, with floor just north of it where someone could stand
+            # (feet up to OCC_ROWS rows behind it, a cell to either side) - is cut into depth bands by the grid
+            # row of the ground under each pixel (BANDS a cell), each drawn in the world's depth order at its own
+            # row: a wall in front of you covers you, one behind you does not. The rest (back walls with nothing
+            # walkable behind them, rugs, low steps) stays with the floor, which keeps the pages few.
+            opaque = img[..., 3] > 0
             h, wd = img.shape[:2]
+            gy = oy_t - north * fine / A.TS
+            gx = ox_t + ((np.arange(wd) + 0.5 - origin[0]) / PPY_I * fine / A.TS)[None, :].repeat(h, 0)
+            walk = np.array([[ch in "frL" for ch in r_] for r_ in lvl["rows"]], bool)
+            gh, gw = walk.shape
+            padded = np.zeros((gh + OCC_ROWS, gw + 2), bool)
+            padded[OCC_ROWS:, 1:-1] = walk
+            near = np.zeros((gh, gw), bool)
+            for dy in range(OCC_ROWS + 1):
+                for dx in (-1, 0, 1):
+                    near |= padded[OCC_ROWS - dy:OCC_ROWS - dy + gh, 1 + dx:1 + dx + gw]
+            cx, cy = np.floor(gx).astype(np.int64), np.floor(gy).astype(np.int64)
+            inside = (cx >= 0) & (cx < gw) & (cy >= 0) & (cy < gh)
+            occ_cell = np.zeros((h, wd), bool)
+            occ_cell[inside] = near[cy[inside], cx[inside]]
+            wall = opaque & ~isfloor & occ_cell & (height > OCC_MIN_HEIGHT)
+            # (the floor layer keeps the whole picture: a slice's soft edge then shows the same pixels under it,
+            # not the black behind a hole - a dark crack ran along every cut wall's foot)
+            floor_img = img
+            band = np.floor(gy * BANDS).astype(np.int64)
+
+            def add(piece_img, x0, y0, sort=None):
+                sprites.append({"img": piece_img, "ox": origin[0] - x0, "oy": origin[1] - y0})
+                p = {"s": len(sprites) - 1, "x": ox_t, "y": oy_t}
+                if sort is not None:
+                    p["sort"] = sort
+                by_map.setdefault(lvl["id"], []).append(p)
+
+            # the floor in 1000-px pieces that overlap by SEAM px (filtering at a piece's edge read the empty
+            # page around it: a dark line across the room)
+            SEAM = 2
             for y0 in range(0, h, 1000):
                 for x0 in range(0, wd, 1000):
-                    piece = img[y0:y0 + 1000, x0:x0 + 1000]
-                    if not piece[..., 3].any():
+                    ya, xa = max(0, y0 - SEAM), max(0, x0 - SEAM)
+                    piece = floor_img[ya:y0 + 1000 + SEAM, xa:x0 + 1000 + SEAM]
+                    if piece[..., 3].any():
+                        add(piece, xa, ya)
+            # the walls: each band cut into columns of OCC_COL px and trimmed; a band's pixels grow one pixel into
+            # the walls next to it so neighbouring bands leave no crack
+            for b in np.unique(band[wall]):
+                sel = wall & (band == b)
+                for x0 in range(0, wd, OCC_COL):
+                    col = sel[:, x0:x0 + OCC_COL]
+                    if not col.any():
                         continue
-                    sprites.append({"img": piece, "ox": origin[0] - x0, "oy": origin[1] - y0})
-                    by_map.setdefault(lvl["id"], []).append({"s": len(sprites) - 1, "x": ox_t, "y": oy_t})
+                    ys_, xs_ = np.nonzero(col)
+                    py0, py1 = max(0, ys_.min() - 1), min(h, ys_.max() + 2)
+                    px0, px1 = max(0, x0 + xs_.min() - 1), min(wd, x0 + xs_.max() + 2)
+                    m = sel[py0:py1, px0:px1].copy()
+                    if px0 < x0:
+                        m[:, :x0 - px0] = False
+                    if px1 > x0 + OCC_COL:
+                        m[:, x0 + OCC_COL - px0:] = False
+                    g = m.copy()
+                    g[1:, :] |= m[:-1, :]
+                    g[:-1, :] |= m[1:, :]
+                    g[:, 1:] |= m[:, :-1]
+                    g[:, :-1] |= m[:, 1:]
+                    g &= wall[py0:py1, px0:px1]
+                    piece = img[py0:py1, px0:px1].copy()
+                    piece[~g] = 0
+                    while piece.shape[0] > 1000:            # (a very tall column: in page-sized parts)
+                        add(piece[:1000], px0, py0, (b + 0.5) / BANDS)
+                        piece, py0 = piece[1000:], py0 + 1000
+                    add(piece, px0, py0, (b + 0.5) / BANDS)
     pages = pack(sprites) if sprites else 0
     from azw_blp import write_dxt5
     for pg in range(pages):

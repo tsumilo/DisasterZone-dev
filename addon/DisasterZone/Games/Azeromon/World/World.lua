@@ -97,6 +97,18 @@ function W.AddInteriorArt(id, sp, flat)
     end
 end
 
+-- its walls, railings and furniture cut into depth slices: flat { sprite, x, y, sort (16 a tile) }; each slice is
+-- drawn in the world's depth order at its own grid row (in front of the people behind it, behind those in front)
+function W.AddInteriorWalls(id, sp, flat)
+    local list = W.interiorArt[id] or {}
+    W.interiorArt[id] = list
+    for i = 1, #flat, 4 do
+        local s = sp.list[flat[i] + 1]
+        list[#list + 1] = { sp = s, file = sp.file .. s.page, x = flat[i + 1] / 16, y = flat[i + 2] / 16,
+                            sort = flat[i + 3] / 16, k = 1, pxt = sp.pxt, wall = true }
+    end
+end
+
 -- a building's floor (generated from its WMO): { name, level, rows, stairs = { { x, y, map, tx, ty } } }
 function W.AddInterior(id, def)
     W.interiors[id] = def

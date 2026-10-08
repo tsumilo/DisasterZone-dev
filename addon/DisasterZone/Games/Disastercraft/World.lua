@@ -57,6 +57,65 @@ local function InteriorFloorNear(def, x, y)
     return x, y
 end
 
+local function InteriorWalk(m, x, y)
+    local row = m.rows[y + 1]
+    local ch = row and row:sub(x + 1, x + 1)
+    return ch ~= nil and ch ~= "" and INTERIOR_WALK[ch] or false
+end
+
+-- A building's way out. The generated door is one tile (ix, iy) in a doorway that is often wider, with the porch /
+-- front steps of the model's floor running on past it - walk down the hall a row off and you missed it. The inside
+-- grid lies like the world (x east, y south), so the world door's outward step (ox - x, oy - y) says which side of
+-- the doorway is out: every floor tile from the door's line outward (joined to the door, within a few tiles) leads
+-- outside, and you come in on the first floor tile on the inner side, facing in.
+local DOOR_REACH = 4
+local function DoorwayExits(m, d)
+    local ux, uy = (d.ox or d.x) - d.x, (d.oy or d.y) - d.y
+    if ux ~= 0 then ux = ux > 0 and 1 or -1 end
+    if uy ~= 0 then uy = uy > 0 and 1 or -1 end
+    local out = { map = "world", x = d.ox, y = d.oy }
+    local function Side(x, y) return (x - d.ix) * ux + (y - d.iy) * uy end
+    m.warps[d.iy * 1000 + d.ix] = out
+    if ux ~= 0 or uy ~= 0 then
+        -- the outer side, flooded from the door tile over floor (8 ways)
+        local seen, queue = { [d.iy * 1000 + d.ix] = true }, { { d.ix, d.iy } }
+        local i = 1
+        while queue[i] do
+            local x, y = queue[i][1], queue[i][2]
+            i = i + 1
+            for dy = -1, 1 do
+                for dx = -1, 1 do
+                    local nx, ny = x + dx, y + dy
+                    local k = ny * 1000 + nx
+                    if not seen[k] and InteriorWalk(m, nx, ny) and Side(nx, ny) >= 0 and
+                       abs(nx - d.ix) <= DOOR_REACH and abs(ny - d.iy) <= DOOR_REACH and not m.warps[k] then
+                        seen[k] = true
+                        m.warps[k] = out
+                        queue[#queue + 1] = { nx, ny }
+                    end
+                end
+            end
+        end
+        -- the way in: the nearest floor on the inner side that is no exit
+        local best, bd
+        for y = d.iy - DOOR_REACH, d.iy + DOOR_REACH do
+            for x = d.ix - DOOR_REACH, d.ix + DOOR_REACH do
+                if Side(x, y) < 0 and InteriorWalk(m, x, y) and not m.warps[y * 1000 + x] then
+                    local dd = (x - d.ix) ^ 2 + (y - d.iy) ^ 2 - Side(x, y) * 0.01
+                    if not bd or dd < bd then best, bd = { x, y }, dd end
+                end
+            end
+        end
+        if best then
+            d.tx, d.ty = best[1], best[2]
+            d.inFace = World.FaceOf(-ux, -uy)
+            out.face = World.FaceOf(ux, uy)
+            return
+        end
+    end
+    d.tx, d.ty = InteriorFloorNear(W.interiors[d.map], d.ix, d.iy)
+end
+
 local function BuildInteriors()
     for id, def in pairs(W.interiors or {}) do
         local m = { id = id, rows = def.rows, w = #def.rows[1], h = #def.rows, warps = {}, name = def.name,
@@ -73,8 +132,7 @@ local function BuildInteriors()
     for _, d in pairs(W.doors or {}) do
         local m = d.map and World.interiors[d.map]
         if m then
-            d.tx, d.ty = InteriorFloorNear(W.interiors[d.map], d.ix, d.iy)
-            m.warps[d.iy * 1000 + d.ix] = { map = "world", x = d.ox, y = d.oy }
+            DoorwayExits(m, d)
             if m.name == "Elwynn Forest" or m.name == "Northshire Valley" then
                 local a = WS.AreaName(d.x, d.y)
                 if a then m.name = a end
@@ -403,12 +461,14 @@ local function MovePlayer(p, dt)
         local d = W.doors and W.doors[ty * WS.WIDTH + tx]
         if d and d.map and World.interiors[d.map] then
             World.Teleport(p, d.map, (d.tx or d.ix) + 0.5, (d.ty or d.iy) + 0.5)
+            if d.inFace then p.face = d.inFace end
         end
     else
         local m = World.interiors[p.map]
         local w = m and m.warps[ty * 1000 + tx]
         if w then
             World.Teleport(p, w.map, w.x + 0.5, w.y + 0.5)      -- (outside: the tile in front of the door)
+            if w.face then p.face = w.face end
         end
     end
     World.CheckArea()
@@ -827,8 +887,8 @@ function World.UnitAt(map, x, y, radius)
     local best, bestD = nil, (radius or 0.7)
     for _, u in pairs(Combat.units) do
         if u.map == map and u ~= Craft.player and not (u.rec and u.rec.hidden) then
-            -- (the sprite stands on its feet: the clickable box reaches a tile up)
-            local d = sqrt((u.x - x) ^ 2 + ((u.y - 0.35) - y) ^ 2)
+            -- (the sprite stands on its feet, on the unit's point: the clickable box reaches a tile up)
+            local d = sqrt((u.x - x) ^ 2 + ((u.y - 0.55) - y) ^ 2)
             if d < bestD then best, bestD = u, d end
         end
     end

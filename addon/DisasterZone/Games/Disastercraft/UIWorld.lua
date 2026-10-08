@@ -18,13 +18,13 @@ local floor, max, min, abs, sqrt = math.floor, math.max, math.min, math.abs, mat
 local Now = Craft.Now
 
 local MOBS = K.MEDIA .. "mobs.blp"
+local MOBS_ACT = K.MEDIA .. "mobs_act.blp"      -- the same bodies' action frames (see SpriteCoords)
 local FACE_ROW = { down = 0, left = 1, right = 2, up = 3 }
 UI.TILE = 32
 local TILE = 32
 local view, canvas, top                 -- the clip frame, the map's frame, the frame over it (names, numbers)
 local VW, VH = 800, 600                 -- the view's size in pixels
 local grid = {}                         -- ground cells
-local sprites, spritesUsed = {}, 0
 local scen, scenUsed = {}, 0
 local camX, camY = 0, 0
 
@@ -50,30 +50,94 @@ function UI.SpriteOf(u)
     return u.sprite
 end
 
-local function SetSprite(t, spr, face, frame, dead)
-    local key = spr .. face .. frame .. (dead and "d" or "")
-    if t.key == key then return end
-    t.key = key
+-- a body's cell: mobs.blp holds 3 walk frames (stride, stand, stride) x 4 facings, 5 bodies a row (512 wide);
+-- mobs_act.blp the same bodies in the same rows with 5 action frames each (1024 wide): 0 the swing's wind-up,
+-- 1 the strike, 2 a spell readied, 3 the spell let go, 4 the corpse - all posed from the model's own animations
+local ACT = { windup = 0, strike = 1, ready = 2, release = 3, dead = 4 }
+local function SpriteCoords(r, spr, face, frame, act)
     local H = SheetH()
-    local c = (spr % 5) * 3 + frame
-    local r = floor(spr / 5) * 4 + (FACE_ROW[face] or 0)
-    local l, rr, tp, b = c * 32 / 512, (c + 1) * 32 / 512, r * 32 / H, (r + 1) * 32 / H
-    if dead then
-        -- lying on its side: the picture turned a quarter
-        t:SetTexCoord(l, b, rr, b, l, tp, rr, tp)
+    local row = floor(spr / 5) * 4 + (FACE_ROW[face] or 0)
+    local tp, b = row * 32 / H, (row + 1) * 32 / H
+    if act then
+        local c = (spr % 5) * 5 + act
+        r.file, r.l, r.r = MOBS_ACT, c * 32 / 1024, (c + 1) * 32 / 1024
     else
-        t:SetTexCoord(l, rr, tp, b)
+        local c = (spr % 5) * 3 + frame
+        r.file, r.l, r.r = MOBS, c * 32 / 512, (c + 1) * 32 / 512
     end
+    r.t, r.b = tp, b
 end
 
-local function Sprite(i)
-    local s = sprites[i]
-    if not s then
-        s = K.Tex(canvas, "ARTWORK")
-        s:SetTexture(MOBS)
-        sprites[i] = s
+---------------------------------------------------------------------------
+-- Depth: everything standing on the ground (bodies, scenery, an interior's walls, objects) is drawn back to front
+-- by the ground row it stands on. One frame's draw layers give 32 ordered slots (BORDER / ARTWORK sublevels), too
+-- few for a busy screen - a body and the wall just in front of it could share one and draw either way round - so
+-- DEPTH_FRAMES frames are stacked over the map, 32 slots each, and only distinct rows need distinct slots.
+-- Each frame the drawing code asks for pictures (Draw), and FlushDepth hands them textures from the right frame.
+---------------------------------------------------------------------------
+
+local DEPTH_FRAMES = 8
+local depthFrames, depthPools = {}, {}
+local reqs, nreq = {}, 0
+local order = {}
+UI.depthOrder = order               -- (the last frame's pictures back to front: for the test suites)
+
+-- a picture to draw this frame at depth `sort`: fill in file, l / r / t / b (or c8 = 8 coords), w, h, pt, x, y
+-- (pixels from the map's top-left), and optionally alpha, cr / cg / cb, blend
+local function Draw(sort)
+    nreq = nreq + 1
+    local r = reqs[nreq]
+    if not r then r = {} reqs[nreq] = r end
+    r.sort, r.idx = sort, nreq
+    r.c8, r.alpha, r.cr, r.cg, r.cb, r.blend, r.pt = nil, 1, 1, 1, 1, "BLEND", "TOPLEFT"
+    return r
+end
+UI.DepthDraw = Draw
+
+local function FlushDepth()
+    for i = #order, 1, -1 do order[i] = nil end
+    for i = 1, nreq do order[i] = reqs[i] end
+    table.sort(order, function(a, b)
+        if a.sort ~= b.sort then return a.sort < b.sort end
+        return a.idx < b.idx
+    end)
+    local uniq, last = 0, nil
+    for _, r in ipairs(order) do
+        if r.sort ~= last then uniq = uniq + 1 last = r.sort end
+        r.rank = uniq
     end
-    return s
+    local total = DEPTH_FRAMES * 32
+    local used = {}
+    for _, r in ipairs(order) do
+        local slot = uniq <= total and (r.rank - 1) or floor((r.rank - 1) * total / uniq)
+        local f = floor(slot / 32) + 1
+        local s = slot % 32
+        local n = (used[f] or 0) + 1
+        used[f] = n
+        local pool = depthPools[f]
+        local t = pool[n]
+        if not t then
+            t = depthFrames[f]:CreateTexture(nil, "ARTWORK")
+            pool[n] = t
+        end
+        if t.file ~= r.file then t:SetTexture(r.file) t.file = r.file end
+        local c = r.c8
+        if c then t:SetTexCoord(c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8])
+        else t:SetTexCoord(r.l, r.r, r.t, r.b) end
+        t:SetSize(r.w, r.h)
+        t:ClearAllPoints()
+        t:SetPoint(r.pt, depthFrames[f], "TOPLEFT", r.x, -r.y)
+        t:SetVertexColor(r.cr, r.cg, r.cb)
+        t:SetAlpha(r.alpha)
+        if t.blend ~= r.blend then t:SetBlendMode(r.blend) t.blend = r.blend end
+        if s < 16 then t:SetDrawLayer("BORDER", s - 8) else t:SetDrawLayer("ARTWORK", s - 24) end
+        t:Show()
+    end
+    for f = 1, DEPTH_FRAMES do
+        local pool = depthPools[f]
+        for i = (used[f] or 0) + 1, #pool do pool[i]:Hide() end
+    end
+    nreq = 0
 end
 
 ---------------------------------------------------------------------------
@@ -96,10 +160,20 @@ function UI.BuildWorld(parent)
     view.bg:SetColorTexture(0, 0, 0, 1)
     canvas = CreateFrame("Frame", nil, view)
     canvas:SetAllPoints()
+    -- the depth frames (bodies, scenery, walls: see FlushDepth), then the glows, then names and numbers
+    for f = 1, DEPTH_FRAMES do
+        local d = CreateFrame("Frame", nil, view)
+        d:SetAllPoints()
+        d:SetFrameLevel(canvas:GetFrameLevel() + f)
+        depthFrames[f], depthPools[f] = d, {}
+    end
+    local fx = CreateFrame("Frame", nil, view)
+    fx:SetAllPoints()
+    fx:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES + 1)
     top = CreateFrame("Frame", nil, view)
     top:SetAllPoints()
-    top:SetFrameLevel(canvas:GetFrameLevel() + 5)
-    UI.view, UI.canvas, UI.top = view, canvas, top
+    top:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES + 3)
+    UI.view, UI.canvas, UI.top, UI.fxLayer = view, canvas, top, fx
     -- the target's circle (under every body)
     UI.circle = K.Tex(canvas, "BACKGROUND", "Interface\\SelectionCircle\\Selection_SelectionA", 6)
     UI.circle:SetBlendMode("ADD")
@@ -216,7 +290,7 @@ local function Plate(guid)
     o.stun = K.Tex(top, "OVERLAY", "Interface\\Cooldown\\star4")
     o.stun:SetBlendMode("ADD")
     o.stun:SetVertexColor(1, 1, 0.3)
-    o.shield = K.Tex(canvas, "OVERLAY", "Spells\\GENERICGLOW64", 3)
+    o.shield = K.Tex(UI.fxLayer, "OVERLAY", "Spells\\GENERICGLOW64", 3)
     o.shield:SetBlendMode("ADD")
     o.shield:SetVertexColor(1, 0.95, 0.6, 0.6)
     overlay[guid] = o
@@ -250,7 +324,7 @@ local glowPool = {}
 local function Glow(layer)
     local t = table.remove(glowPool)
     if not t then
-        t = K.Tex(canvas, "OVERLAY", "Spells\\GENERICGLOW64", layer or 4)
+        t = K.Tex(UI.fxLayer, "OVERLAY", "Spells\\GENERICGLOW64", layer or 4)
         t:SetBlendMode("ADD")
     end
     t:Show()
@@ -281,7 +355,7 @@ local function DrawEffects()
                 local d = Craft.Dist(m.from[1], m.from[2], dst.x, dst.y)
                 local f = min(1, (now - m.start) * (sp.speed or 20) / max(0.1, d))
                 local x = m.from[1] + (dst.x - m.from[1]) * f
-                local y = (m.from[2] - 0.4) + ((dst.y - 0.4) - (m.from[2] - 0.4)) * f
+                local y = (m.from[2] - 0.9) + ((dst.y - 0.9) - (m.from[2] - 0.9)) * f      -- (chest high)
                 local sx, sy = ToScreen(x, y)
                 t:ClearAllPoints()
                 t:SetPoint("CENTER", canvas, "TOPLEFT", sx, -sy)
@@ -294,7 +368,8 @@ local function DrawEffects()
             local dur = e.dur or 0.35
             if age >= dur or not e.u then done = true else
                 local f = age / dur
-                local sx, sy = ToScreen(e.u.x, e.u.y - (e.kind == "pillar" and 0.6 or 0.3))
+                -- (a ring lies round the feet; a flash is chest high; a pillar rises from the feet)
+                local sx, sy = ToScreen(e.u.x, e.u.y - (e.kind == "pillar" and 1.1 or (e.kind == "ring" and 0 or 0.8)))
                 t:ClearAllPoints()
                 t:SetPoint("CENTER", canvas, "TOPLEFT", sx, -sy)
                 local size = e.kind == "ring" and (TILE * (0.5 + (e.radius or 2) * 2 * f)) or
@@ -315,26 +390,34 @@ end
 -- The frame
 ---------------------------------------------------------------------------
 
-local depth = {}
-local function Push(tex, sort) depth[#depth + 1] = tex depth[#depth + 1] = sort end
-
-local function SortDepth()
-    -- pairs (tex, sort) -> sorted by sort, then shared out over 32 draw slots (BORDER / ARTWORK sublevels)
-    local n = #depth / 2
-    if n == 0 then return end
-    local idx = {}
-    for i = 1, n do idx[i] = i end
-    table.sort(idx, function(a, b) return depth[a * 2] < depth[b * 2] end)
-    for r, i in ipairs(idx) do
-        local slot = floor((r - 1) * 32 / n)
-        local tex = depth[i * 2 - 1]
-        if slot < 16 then tex:SetDrawLayer("BORDER", slot - 8) else tex:SetDrawLayer("ARTWORK", slot - 24) end
-    end
-end
-
 local function UnitFrame(u, now)
     if u.moving then return floor(now * 7) % 4 == 0 and 0 or (floor(now * 7) % 4 == 2 and 2 or 1) end
     return 1
+end
+
+-- the action pose a body shows now (ACT column), or nil for its walk frames: the swing for a moment after each
+-- melee blow (wind-up, then the strike), the spell readied while casting, let go for a moment after, the corpse
+local SWING_WINDUP, SWING_TIME, RELEASE_TIME = 0.08, 0.34, 0.3
+local function UnitPose(u, now)
+    if u.dead and not u.ghost then return ACT.dead end
+    local s = u.swungAt and now - u.swungAt
+    if s and s < SWING_TIME then return s < SWING_WINDUP and ACT.windup or ACT.strike end
+    local c = u.casting
+    if c then return c.channel and ACT.release or ACT.ready end
+    if u.castDoneAt and now - u.castDoneAt < RELEASE_TIME then return ACT.release end
+    return nil
+end
+UI.UnitPose = UnitPose
+
+-- a scenery / interior sprite's picture: half a texel in from each edge (filtering there read the page around the
+-- piece: a dark seam), the drawn box shrunk to match
+local function ScenPicture(r, sc, px16)
+    local s = sc.sp
+    r.file = sc.file
+    r.l, r.r, r.t, r.b = (s.u + 0.5) / 1024, (s.u + s.w - 0.5) / 1024, (s.v + 0.5) / 1024, (s.v + s.h - 0.5) / 1024
+    r.w, r.h = (s.w - 1) * px16, (s.h - 1) * px16
+    local sx, sy = ToScreen(sc.x, sc.y)
+    r.pt, r.x, r.y = "TOPLEFT", sx - (s.ox - 0.5) * px16, sy - (s.oy - 0.5) * px16
 end
 
 function UI.DrawWorld(dt)
@@ -344,80 +427,105 @@ function UI.DrawWorld(dt)
     -- about 17 tiles across the panel at the normal zoom (the wheel zooms 0.6x - 1.8x)
     TILE = floor(Craft.Clamp(VW / 17, 30, 80) * (UI.zoom or 1) + 0.5)
     UI.TILE = TILE
-    camX, camY = p.x, p.y - 0.3
+    camX, camY = p.x, p.y - 0.8
     local cols, rows = math.ceil(VW / TILE) + 1, math.ceil(VH / TILE) + 1
     local map = p.map
     local now = Now()
-    for i = #depth, 1, -1 do depth[i] = nil end
     -- ground (outdoors); an interior is its own picture on black
     if map == "world" then DrawGround(map, cols, rows)
     else for _, col in pairs(grid) do for _, c in pairs(col) do c:Hide() end end end
-    -- scenery (trees, houses, fences), or the interior's floor art
+    -- scenery (trees, houses, fences); in an interior its floor under everyone and its walls in depth slices
     scenUsed = 0
     local x0, y0 = camX - cols / 2 - 1, camY - rows / 2 - 1
+    local x1, y1 = x0 + cols + 2, y0 + rows + 2
     local list
-    if map == "world" then list = WS.SceneryIn(x0, y0, x0 + cols + 2, y0 + rows + 2)
+    if map == "world" then list = WS.SceneryIn(x0, y0, x1, y1)
     else local m = Craft.World.interiors[map] list = m and m.art or {} end
-    local feetX, feetY = p.x, p.y + 0.5
+    local feetX, feetY = p.x, p.y
+    -- your body's box on the screen (the walls in front of it fade)
+    local psx, psy = ToScreen(p.x, p.y)
+    local pl, pr, pt, pb = psx - TILE * 0.35, psx + TILE * 0.35, psy - TILE * 0.95, psy
     for _, sc in ipairs(list) do
-        scenUsed = scenUsed + 1
-        local t = scen[scenUsed]
-        if not t then t = K.Tex(canvas, "BORDER") scen[scenUsed] = t end
-        if t.file ~= sc.file then t:SetTexture(sc.file) t.file = sc.file end
         local s, k = sc.sp, sc.k
-        t:SetTexCoord(s.u / 1024, (s.u + s.w) / 1024, s.v / 1024, (s.v + s.h) / 1024)
-        local px16 = TILE / sc.pxt * k
-        t:SetSize(s.w * px16, s.h * px16)
-        local sx, sy = ToScreen(sc.x, sc.y)
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", canvas, "TOPLEFT", sx - s.ox * px16, -(sy - s.oy * px16))
-        local alpha = 1
-        if sc.tree and sc.sort > feetY then
-            local kk = k / sc.pxt
-            local l, tt = sc.x - s.ox * kk, sc.y - s.oy * kk
-            local R = 2.5
-            if feetX + R >= l and feetX - R <= l + s.w * kk and feetY - 0.5 + R >= tt and feetY - 0.5 - R <= tt + s.h * kk then
-                alpha = 0.3
+        local kk = k / sc.pxt
+        local l, tt = sc.x - s.ox * kk, sc.y - s.oy * kk
+        if l < x1 and l + s.w * kk > x0 and tt < y1 and tt + s.h * kk > y0 then
+            local px16 = TILE / sc.pxt * k
+            if map ~= "world" and not sc.wall then
+                -- an interior's floor: under every body
+                scenUsed = scenUsed + 1
+                local t = scen[scenUsed]
+                if not t then t = K.Tex(canvas, "BACKGROUND", nil, 1) scen[scenUsed] = t end
+                if t.file ~= sc.file then t:SetTexture(sc.file) t.file = sc.file end
+                local q = {}
+                ScenPicture(q, sc, px16)
+                t:SetTexCoord(q.l, q.r, q.t, q.b)
+                t:SetSize(q.w, q.h)
+                t:ClearAllPoints()
+                t:SetPoint("TOPLEFT", canvas, "TOPLEFT", q.x, -q.y)
+                t:SetAlpha(1)
+                t:Show()
+            else
+                local r = Draw(sc.sort)
+                ScenPicture(r, sc, px16)
+                -- a wall in front of you that hides you turns see-through where it covers you (only the slices on
+                -- you, so the room keeps its walls); a tree crown fades the same way
+                if sc.wall and sc.sort > feetY and r.x < pr and r.x + r.w > pl and r.y < pb and r.y + r.h > pt then
+                    r.alpha = 0.4
+                elseif sc.tree and sc.sort > feetY then
+                    local R = 2.5
+                    if feetX + R >= l and feetX - R <= l + s.w * kk and feetY - 0.5 + R >= tt and feetY - 0.5 - R <= tt + s.h * kk then
+                        r.alpha = 0.3
+                    end
+                end
             end
         end
-        t:SetAlpha(alpha)
-        t:Show()
-        if map ~= "world" then t:SetDrawLayer("BACKGROUND", 1) else Push(t, sc.sort) end
     end
     for i = scenUsed + 1, #scen do scen[i]:Hide() end
     -- units
-    spritesUsed = 0
     local seen = {}
     local halfW, halfH = cols / 2 + 2, rows / 2 + 2
     for _, u in pairs(Combat.units) do
         if u.map == map and abs(u.x - camX) < halfW and abs(u.y - camY) < halfH and
            not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) then
-            spritesUsed = spritesUsed + 1
-            local t = Sprite(spritesUsed)
             local spr = UI.SpriteOf(u)
-            local frame = UnitFrame(u, now)
-            SetSprite(t, spr, u.face or "down", frame, u.dead and not u.ghost)
+            local r = Draw(u.y)
+            local face, frame, pose = u.face or "down", UnitFrame(u, now), UnitPose(u, now)
+            SpriteCoords(r, spr, face, frame, pose)
             local size = TILE
             if u.cc then size = TILE * 0.8 end
-            t:SetSize(size, size)
+            r.w, r.h = size, size
+            -- the body stands on its feet: the sprite's bottom row on the unit's point
             local sx, sy = ToScreen(u.x, u.y)
-            t:ClearAllPoints()
-            t:SetPoint("BOTTOM", canvas, "TOPLEFT", sx, -(sy + 0.5 * TILE))
+            r.pt, r.x, r.y = "BOTTOM", sx, sy + 0.06 * TILE
+            -- a player in their gear (Outfit.lua): the bare body instead of the class sprite, each worn piece over
+            -- it, cut from the same 32 px cell
+            local layers = (u.kind == "player" or u.kind == "remote") and UI.OutfitLayers and
+                           UI.OutfitLayers(u, pose and "act" or "walk", pose or frame, FACE_ROW[face] or 0)
+            local worn
+            if layers and layers[1] then
+                worn = {}
+                local k = size / 32
+                local left, topY = sx - size / 2, r.y - size
+                for i, L in ipairs(layers) do
+                    local q = i == 1 and r or Draw(u.y)
+                    q.file, q.l, q.r, q.t, q.b = L[1], L[2], L[3], L[4], L[5]
+                    q.pt, q.x, q.y, q.w, q.h = "TOPLEFT", left + L[6] * k, topY + L[7] * k, L[8] * k, L[9] * k
+                    if i > 1 then worn[#worn + 1] = q end
+                end
+            end
             -- tints: dead grey, a ghost pale, hit flashes red, a sheep white, slowed blue
-            if u.dead and not u.ghost then t:SetVertexColor(0.55, 0.55, 0.55)
-            elseif u.ghost then t:SetVertexColor(0.7, 0.85, 1) t:SetAlpha(0.6)
-            elseif u.flashUntil and now < u.flashUntil then t:SetVertexColor(1, 0.45, 0.45)
-            elseif u.cc then t:SetVertexColor(1, 0.85, 1)
-            elseif (u.speedMult or 1) < 1 then t:SetVertexColor(0.7, 0.85, 1)
-            else t:SetVertexColor(1, 1, 1) end
-            if not u.ghost then t:SetAlpha(1) end
-            t:Show()
-            Push(t, u.y + 0.5)
+            if u.dead and not u.ghost then r.cr, r.cg, r.cb = 0.62, 0.62, 0.62
+            elseif u.ghost then r.cr, r.cg, r.cb, r.alpha = 0.7, 0.85, 1, 0.6
+            elseif u.flashUntil and now < u.flashUntil then r.cr, r.cg, r.cb = 1, 0.45, 0.45
+            elseif u.cc then r.cr, r.cg, r.cb = 1, 0.85, 1
+            elseif (u.speedMult or 1) < 1 then r.cr, r.cg, r.cb = 0.7, 0.85, 1 end
+            for _, q in ipairs(worn or {}) do q.cr, q.cg, q.cb, q.alpha = r.cr, r.cg, r.cb, r.alpha end
             seen[u.guid] = true
             -- the plate over the head
             local o = Plate(u.guid)
             o.used = true
-            local headY = sy - 0.55 * TILE
+            local headY = sy - ((u.dead and not u.ghost) and 0.55 or 1.05) * TILE
             local react = Combat.Reaction(p, u)
             local isPlayer = Combat.IsPlayer(u)
             local showName = (u.kind == "npc") or isPlayer or u == p.target or u == UI.hover or
@@ -482,7 +590,7 @@ function UI.DrawWorld(dt)
             -- a lootable corpse sparkles
             if u.dead and u.rec and Craft.Loot.CanLoot(u) then
                 o.sparkle:ClearAllPoints()
-                o.sparkle:SetPoint("CENTER", top, "TOPLEFT", sx, -(sy - 0.1 * TILE))
+                o.sparkle:SetPoint("CENTER", top, "TOPLEFT", sx, -(sy - 0.3 * TILE))
                 o.sparkle:SetAlpha(0.55 + 0.45 * math.sin(now * 5))
                 o.sparkle:Show()
             else
@@ -500,7 +608,7 @@ function UI.DrawWorld(dt)
             -- Power Word: Shield: a golden bubble
             if Combat.HasAura(u, 69) and not u.dead then
                 o.shield:ClearAllPoints()
-                o.shield:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.1 * TILE))
+                o.shield:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.6 * TILE))
                 o.shield:SetSize(TILE * 1.5, TILE * 1.5)
                 o.shield:Show()
             else
@@ -508,7 +616,6 @@ function UI.DrawWorld(dt)
             end
         end
     end
-    for i = spritesUsed + 1, #sprites do sprites[i]:Hide() end
     for guid, o in pairs(overlay) do if not seen[guid] and o.used ~= false then HidePlate(o) end end
     -- objects (crates you can pick up, herbs, ore): their item's picture, sparkling when a quest wants them
     UI.DrawObjects(map, halfW, halfH, now)
@@ -519,7 +626,7 @@ function UI.DrawWorld(dt)
         if tgt.dead then c = { 0.6, 0.6, 0.6 } end
         local sx, sy = ToScreen(tgt.x, tgt.y)
         UI.circle:ClearAllPoints()
-        UI.circle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy + 0.38 * TILE))
+        UI.circle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.1 * TILE))
         UI.circle:SetSize(TILE * 1.25, TILE * 0.62)
         UI.circle:SetVertexColor(c[1], c[2], c[3], 0.9)
         UI.circle:Show()
@@ -530,14 +637,14 @@ function UI.DrawWorld(dt)
     if hv and hv ~= tgt and hv.map == map then
         local sx, sy = ToScreen(hv.x, hv.y)
         UI.hoverCircle:ClearAllPoints()
-        UI.hoverCircle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy + 0.38 * TILE))
+        UI.hoverCircle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.1 * TILE))
         UI.hoverCircle:SetSize(TILE * 1.2, TILE * 0.6)
         UI.hoverCircle:SetVertexColor(1, 1, 1, 0.35)
         UI.hoverCircle:Show()
     else
         UI.hoverCircle:Hide()
     end
-    SortDepth()
+    FlushDepth()
     -- the ghost run: a grey world and the way to your corpse
     UI.ghostTint:SetShown(p.ghost and true or false)
     local c = Craft.char
@@ -572,7 +679,7 @@ function UI.DrawWorld(dt)
             local pop = f.crit and (1 + 0.6 * max(0, 1 - age * 6)) or 1
             f.fs:SetScale(pop)
             f.fs:ClearAllPoints()
-            f.fs:SetPoint("CENTER", top, "TOPLEFT", (sx + f.dx) / pop, -(sy - TILE * 0.9 - rise * 46) / pop)
+            f.fs:SetPoint("CENTER", top, "TOPLEFT", (sx + f.dx) / pop, -(sy - TILE * 1.4 - rise * 46) / pop)
             f.fs:SetAlpha(rise < 0.6 and 1 or (1 - (rise - 0.6) / 0.4))
         end
     end
@@ -595,7 +702,7 @@ function UI.DrawObjects(map, halfW, halfH, now)
                 n = n + 1
                 local t = objTex[n]
                 if not t then
-                    t = { icon = K.Tex(canvas, "ARTWORK"), glow = K.Tex(top, "OVERLAY", "Interface\\Cooldown\\star4") }
+                    t = { glow = K.Tex(top, "OVERLAY", "Interface\\Cooldown\\star4") }
                     t.glow:SetBlendMode("ADD")
                     objTex[n] = t
                 end
@@ -604,17 +711,15 @@ function UI.DrawObjects(map, halfW, halfH, now)
                 elseif o.e.kind == "herb" then icon = "Interface\\Icons\\INV_Misc_Flower_02"
                 elseif o.e.kind == "ore" then icon = "Interface\\Icons\\INV_Ore_Copper_01"
                 else icon = "Interface\\Icons\\INV_Box_01" end
-                t.icon:SetTexture(icon)
                 local sx, sy = ToScreen(o.x, o.y)
-                t.icon:SetSize(TILE * 0.62, TILE * 0.62)
-                t.icon:ClearAllPoints()
-                t.icon:SetPoint("CENTER", canvas, "TOPLEFT", sx, -sy)
-                t.icon:Show()
-                Push(t.icon, o.y + 0.3)
+                local r = Draw(o.y)
+                r.file, r.l, r.r, r.t, r.b = icon, 0.07, 0.93, 0.07, 0.93
+                r.w, r.h, r.pt, r.x, r.y = TILE * 0.62, TILE * 0.62, "BOTTOM", sx, sy
+                t.shown = true
                 if wanted then
                     t.glow:SetSize(TILE * 0.9, TILE * 0.9)
                     t.glow:ClearAllPoints()
-                    t.glow:SetPoint("CENTER", top, "TOPLEFT", sx, -sy)
+                    t.glow:SetPoint("CENTER", top, "TOPLEFT", sx, -(sy - TILE * 0.31))
                     t.glow:SetAlpha(0.45 + 0.4 * math.sin(now * 4 + o.x))
                     t.glow:Show()
                 else
@@ -624,7 +729,7 @@ function UI.DrawObjects(map, halfW, halfH, now)
             end
         end
     end
-    for i = n + 1, #objTex do objTex[i].icon:Hide() objTex[i].glow:Hide() objTex[i].obj = nil end
+    for i = n + 1, #objTex do objTex[i].shown = false objTex[i].glow:Hide() objTex[i].obj = nil end
 end
 
 ---------------------------------------------------------------------------
@@ -666,7 +771,7 @@ function UI.DrawBubbles(now)
         if b.u then
             local sx, sy = ToScreen(u.x, u.y)
             b.f:ClearAllPoints()
-            b.f:SetPoint("BOTTOM", top, "TOPLEFT", sx, -(sy - TILE * 1.05 - 14))
+            b.f:SetPoint("BOTTOM", top, "TOPLEFT", sx, -(sy - TILE * 1.55 - 14))
             b.f:Show()
         else
             b.f:Hide()
@@ -678,8 +783,16 @@ end
 -- The mouse over the world
 ---------------------------------------------------------------------------
 
-local CURSORS = { attack = "ATTACK_CURSOR", talk = "SPEAK_CURSOR", loot = "LOOT_CURSOR", use = "INTERACT_CURSOR",
-                  trainer = "TRAINER_CURSOR", vendor = "BUY_CURSOR", quest = "QUEST_CURSOR" }
+-- WoW's cursors by their files (Interface\Cursor: there is no plain "Loot" one - a lootable corpse shows LootAll),
+-- and the greyed "Unable" twin the client shows while the thing is out of reach
+local CURSOR_FILE = { attack = "Attack", talk = "Speak", loot = "LootAll", use = "Interact", trainer = "Trainer",
+                      vendor = "Buy", quest = "Quest", herb = "Gatherherbs", ore = "Mine", pickup = "Pickup" }
+local UNABLE_FILE = { attack = "UnableAttack", talk = "UnableSpeak", loot = "UnableLootAll", use = "UnableInteract",
+                      trainer = "UnableTrainer", vendor = "UnableBuy", quest = "UnableQuest", pickup = "UnablePickup",
+                      herb = "UnableGatherherbs", ore = "UnableMine" }
+local CURSORS = {}
+for k, f in pairs(CURSOR_FILE) do CURSORS[k] = "Interface\\Cursor\\" .. f end
+for k, f in pairs(UNABLE_FILE) do CURSORS[k .. "-far"] = "Interface\\Cursor\\" .. f end
 
 local function PickAt(x, y)
     local p = Craft.player
@@ -687,23 +800,27 @@ local function PickAt(x, y)
     local best, bd = nil, 0.62
     for _, u in pairs(Combat.units) do
         if u ~= p and u.map == p.map and not (u.rec and u.rec.hidden) and not (u.ghost) then
-            local d = sqrt((u.x - x) ^ 2 + ((u.y - 0.1) - y) ^ 2)
+            local d = sqrt((u.x - x) ^ 2 + ((u.y - ((u.dead and not u.ghost) and 0.25 or 0.55)) - y) ^ 2)
             if d < bd then best, bd = u, d end
         end
     end
     if best then return best end
     for _, t in ipairs(objTex) do
         local o = t.obj
-        if o and t.icon:IsShown() and sqrt((o.x - x) ^ 2 + (o.y - y) ^ 2) < 0.5 then return o end
+        if o and t.shown and sqrt((o.x - x) ^ 2 + ((o.y - 0.3) - y) ^ 2) < 0.5 then return o end
     end
     return nil
 end
 UI.PickAt = PickAt
 
-local function CursorFor(x)
+local function CursorKind(x)
     local p = Craft.player
-    if not x then return nil end
-    if x.e and x.guid and x.guid:find("^O:") then return "use" end
+    if x.e and x.guid and x.guid:find("^O:") then
+        if Craft.Quests.ObjectWanted(x) then return "pickup" end
+        if x.e.kind == "herb" then return "herb", true end          -- (no Herbalism / Mining yet: greyed)
+        if x.e.kind == "ore" then return "ore", true end
+        return "use"
+    end
     if x.dead then return (x.rec and Craft.Loot.CanLoot(x)) and "loot" or nil end
     if x.kind == "npc" then
         if Craft.Quests.Marker(x.entry or 0) then return "quest" end
@@ -713,6 +830,19 @@ local function CursorFor(x)
     end
     if Combat.CanAttack(p, x) and x.kind ~= "critter" then return "attack" end
     return nil
+end
+
+-- the cursor over x: its kind, greyed ("-far") while it is out of reach (attack: never - you can always walk up)
+local function CursorFor(x)
+    if not x then return nil end
+    local kind, unable = CursorKind(x)
+    if not kind then return nil end
+    if kind ~= "attack" and not unable then
+        local p = Craft.player
+        local d = x.guid and not x.guid:find("^O:") and Craft.UnitDist(p, x) or Craft.Dist(p.x, p.y, x.x, x.y)
+        unable = d > Craft.INTERACT_RANGE
+    end
+    return unable and (kind .. "-far") or kind
 end
 
 local lastCursor
@@ -768,3 +898,19 @@ function UI.WorldClick(button)
         end
     end
 end
+
+---------------------------------------------------------------------------
+-- Action poses: a melee blow (a swing or a melee ability, hit or not) plays the swing; a spell that went off plays
+-- the release (see UnitPose)
+---------------------------------------------------------------------------
+
+Craft:On("damage", function(src, dst, amount, info)
+    if src and info and info.kind == "melee" then src.swungAt = Now() end
+end)
+
+Craft:On("cast", function(u, id, what)
+    if u and what == "done" then
+        local sp = D.spells[id]
+        if not (sp and sp.defType == 2) then u.castDoneAt = Now() end      -- (melee abilities swing instead)
+    end
+end)

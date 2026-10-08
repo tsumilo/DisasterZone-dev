@@ -1004,6 +1004,8 @@ STATES = [
     ("Disastercraft - layout merchant", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
         "local f = UI.Build('MerchantFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 20, -100) f:Show() T_LY.merchant = f"))),
     ("Disastercraft - inside the Abbey", opened("games", dc(5, 8.5, 31.5, "i10286_0"))),
+    # right behind the hall's south railing: the railing's depth slice covers the legs
+    ("Disastercraft - Abbey railing", opened("games", dc(5, 9.5, 34.7, "i10286_0"))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),

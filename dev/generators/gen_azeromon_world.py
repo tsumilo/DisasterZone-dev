@@ -577,10 +577,16 @@ def emit(world, region, entities, interiors=()):
             out.append("local IA = W.AddSprites(%s, %d, %d, { %s })\n" % (lua_str(region + "_in"), ia["pages"], SCN.PXT,
                                                                           ", ".join(map(str, sp))))
             for mid, pls in sorted(ia["maps"].items()):
-                flat = []
+                flat, walls = [], []
                 for p_ in pls:
-                    flat += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16))]
+                    if "sort" in p_:            # a depth slice of the walls: drawn in the world's depth order
+                        walls += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)),
+                                  int(round(p_["sort"] * 16))]
+                    else:
+                        flat += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16))]
                 out.append("W.AddInteriorArt(%s, IA, { %s })\n" % (lua_str(mid), ", ".join(map(str, flat))))
+                if walls:
+                    out.append("W.AddInteriorWalls(%s, IA, { %s })\n" % (lua_str(mid), ", ".join(map(str, walls))))
             print("interiors %s: %d pieces, %d page(s)" % (region, len(ia["sprites"]), ia["pages"]))
         for e in entities:
             if e.get("map") or (bgx0 <= e["x"] < bgx1 and bgy0 <= e["y"] < bgy1):
@@ -755,6 +761,29 @@ def emit_sprite_sheet(displays):
     from azw_blp import write_dxt5
     write_dxt5(sheet, os.path.join(MEDIA, "mobs.blp"))
     print("wrote mobs.blp", sheet.size, len(frames), "sprites")
+    # Disastercraft's action frames: the same sprite order and rows, 5 columns each (azw_people.ACT_COLS: wind-up,
+    # strike, spell ready, spell release, dead), 1024 wide
+    act = Image.new("RGBA", (1024, h), (0, 0, 0, 0))
+    order = sorted(out.items(), key=lambda kv: kv[1])
+    for d, i in order:
+        try:
+            if isinstance(d, tuple) and d[0] == "outfit":
+                f = PP.outfit_act_frames(d[1], d[2], list(d[3]))
+            else:
+                f = PP.act_frames(d)
+        except Exception as e:
+            print("no action frames for display", d, e)
+            f = None
+        if not f:                   # (no model to pose: the standing frame, so the body never vanishes mid-swing)
+            w = frames[i]
+            f = {face: [w[face][1]] * PP.ACT_COLS for face in ("down", "left", "right", "up")}
+        cx, cy = (i % MOB_COLS) * PP.ACT_COLS, (i // MOB_COLS) * 4
+        for fr, face in enumerate(("down", "left", "right", "up")):
+            for k in range(PP.ACT_COLS):
+                img = Image.fromarray(f[face][k], "RGBA")
+                act.paste(img, ((cx + k) * cell, (cy + fr) * cell), img)
+    write_dxt5(act, os.path.join(MEDIA, "mobs_act.blp"))
+    print("wrote mobs_act.blp", act.size)
     return out, h
 
 

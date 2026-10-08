@@ -457,6 +457,30 @@ def the_abbey_door_leads_inside():
     no_errors(w)
 
 
+@case
+def the_abbey_doorway_leads_out_from_any_row():
+    # (in game you could walk down the hall a row beside the one exit tile, out onto the front steps and never
+    # leave: the whole doorway and the steps beyond it lead out now, and you come in on the inner side)
+    w, c = game(1)
+    r = c.eval_py(r"""
+      local Craft, W = ns.Craft, ns.AzeroWorldData
+      local d = W.doors[6235 * ns.AzeroLand.WIDTH + 4129]
+      local p = Craft.player
+      Craft.World.Teleport(p, d.map, d.tx + 0.5, d.ty + 0.5)
+      local m = Craft.World.interiors[d.map]
+      local inExit = m.warps[d.ty * 1000 + d.tx] ~= nil
+      local ux, uy = d.ox - d.x, d.oy - d.y
+      -- a row beside the door's own, walking out the way the door faces
+      p.x, p.y = d.tx + 0.5 + uy, d.ty + 0.5 + ux
+      Craft.World.input.dx, Craft.World.input.dy = ux, uy
+      return { inExit = inExit, ok = Craft.World.Walkable(p.map, math.floor(p.x), math.floor(p.y)) }
+    """)
+    assert not r["inExit"] and r["ok"], r
+    w.run_until(lambda: c.eval_py("return ns.Craft.player.map == 'world'"), timeout=3)
+    c.eval_py("ns.Craft.World.input.dx, ns.Craft.World.input.dy = 0, 0")
+    no_errors(w)
+
+
 UI_SETUP = r"""
   T_UI = CreateFrame("Frame", nil, UIParent)
   T_UI:SetSize(1100, 700)
@@ -554,6 +578,38 @@ def ui_fight_shows_numbers_and_loot_window():
     if r["can"]:
         assert r["open"], r
     w.tick(0.5)
+    no_errors(w)
+
+
+@case
+def ui_abbey_railing_draws_in_front_of_you_and_fades():
+    # (in game the hero was drawn over every wall: the Abbey's walls are depth slices now - a railing just south
+    # of you draws after you, see-through where it covers you; one north of you draws before you)
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(1, 0)
+      ns.CraftUI.Glue.selected = 1
+      ns.CraftUI.Glue.EnterWorld()
+      ns.Craft.World.Teleport(ns.Craft.player, "i10286_0", 9.5, 34.7)
+    """)
+    w.tick(0.3)
+    r = c.eval_py(r"""
+      local UI, p = ns.CraftUI, ns.Craft.player
+      local sx, sy = UI.ToScreen(p.x, p.y)
+      local T = UI.TILE
+      local me, front, behind, faded
+      for i, q in ipairs(UI.depthOrder) do
+        if q.sort == p.y and not me then me = i end
+        local over = q.x < sx + T * 0.3 and q.x + q.w > sx - T * 0.3 and q.y < sy and q.y + q.h > sy - T * 0.9
+        if over and tostring(q.file):find("northshire_in") then
+          if q.sort > p.y then front = front or i faded = faded or q.alpha < 1
+          else behind = i end
+        end
+      end
+      return { me = me, front = front, behind = behind, faded = faded }
+    """)
+    assert r["me"] and r["front"] and r["front"] > r["me"] and r["faded"], r
+    assert r.get("behind") is None or r["behind"] < r["me"], r
     no_errors(w)
 
 

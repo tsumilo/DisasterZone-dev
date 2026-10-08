@@ -192,6 +192,117 @@ def frames(display_id, height_px=30):
     return out
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Action frames (Disastercraft): a second sheet, mobs_act.blp, with the same cells as mobs.blp, holding each body's
+# melee wind-up and strike, its spell ready and release, and its corpse, from the model's own sequences
+# (AnimationData: 16 AttackUnarmed, 17 Attack1H, 18 Attack2H, 51/52 ReadySpellDirected/Omni, 31 SpellPrecast,
+# 53/54 SpellCastDirected/Omni, 32 SpellCast, 6 Dead, 1 Death). A missing sequence keeps the standing pose.
+# ---------------------------------------------------------------------------------------------------------------
+ACT_COLS = 5                        # wind-up, strike, spell ready, spell release, dead
+ATTACK_IDS = (16, 17, 18)
+ATTACK_2H_IDS = (18, 17, 16)
+READY_IDS = (51, 52, 31)
+CAST_IDS = (53, 54, 32)
+
+
+def _first_seq(data, ids):
+    for a in ids:
+        s, d = RD.find_sequence(data, a)
+        if s is not None:
+            return s, d
+    return None, 0
+
+
+def _act_times(data, ids, reach):
+    """[(seq, t)] for the five action columns. reach(seq, t) -> how far forward (+x, the way a model faces) the
+    pose reaches: the strike is the attack's furthest reach, the wind-up its shortest before that."""
+    stand, _ = RD.find_sequence(data, 0)
+    out = []
+    seq, dur = _first_seq(data, ids)
+    if seq is not None and dur:
+        ts = [int(dur * k / 12) for k in range(12)]
+        rs = [reach(seq, t) for t in ts]
+        k = max(range(len(ts)), key=lambda i: rs[i])
+        w = min(range(k + 1), key=lambda i: rs[i]) if k > 0 else 0
+        if w == k:
+            w = max(0, k - 3)
+        out += [(seq, ts[w]), (seq, ts[k])]
+    else:
+        out += [(stand, 0), (stand, 0)]
+    seq, dur = _first_seq(data, READY_IDS)
+    out.append((seq, dur // 2) if seq is not None else (stand, 0))
+    seq, dur = _first_seq(data, CAST_IDS)
+    out.append((seq, int(dur * 0.4)) if seq is not None else (stand, 0))
+    seq, dur = RD.find_sequence(data, 6)
+    if seq is not None:
+        out.append((seq, 0))
+    else:
+        seq, dur = RD.find_sequence(data, 1)
+        out.append((seq, max(0, dur - 1)) if seq is not None else (stand, 0))
+    return out
+
+
+def act_frames(display_id, height_px=30):
+    """The five action frames x 4 facings for a creature / NPC display (scaled like frames())."""
+    mesh = character_mesh(display_id)
+    if not mesh or not mesh["tris"]:
+        return None
+    vs = mesh["verts"][np.unique(np.array([t[:3] for t in mesh["tris"]]))]
+    height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
+    length = float(max(vs[:, 0].max() - vs[:, 0].min(), vs[:, 1].max() - vs[:, 1].min()))
+    ppy = min(PPY_BODY, height_px / height, (SIZE - 2) / max(length, 0.3))
+    data = C.read_fid(mesh["fid"])
+    sc = mesh.get("scale", 1.0)
+    used = np.unique(np.array([t[:3] for t in mesh["tris"]]))
+
+    def pose(seq, t):
+        if seq is None:
+            return mesh
+        return dict(mesh, verts=RD.posed_vertices(data, seq, t) * sc)
+
+    times = _act_times(data, ATTACK_IDS, lambda s, t: float(pose(s, t)["verts"][used][:, 0].max()))
+    poses = [pose(s, t) for s, t in times]
+    out = {}
+    for face, yaw in FACING.items():
+        imgs = []
+        for pm in poses:
+            img, origin = RD.render(pm, yaw, ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
+            imgs.append(fit(img, origin) if img is not None else np.zeros((SIZE, SIZE, 4), np.uint8))
+        out[face] = imgs
+    return out
+
+
+def outfit_act_frames(race, sex, items, height_px=30):
+    """act_frames() for a character in an outfit, weapons in hand (a two-hander swings with Attack2H)."""
+    import tbcdb
+    got = outfit(race, sex, items)
+    if not got:
+        return None
+    body, weapons, data = got
+    it = tbcdb.load().index("item_template", "entry")
+    two = any(it.get(e) and it[e]["InventoryType"] == 17 for e in items)
+    stand_seq, _ = RD.find_sequence(data, 0)
+
+    def pose(seq, t):
+        if seq is None:
+            seq, t = stand_seq, 0
+        return _dress(body, weapons, data, RD.bone_mats(data, seq, t), RD.posed_vertices(data, seq, t))
+
+    vs = pose(stand_seq, 0)["verts"]
+    height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
+    ppy = min(PPY_BODY, height_px / height)
+    times = _act_times(data, ATTACK_2H_IDS if two else ATTACK_IDS, lambda s, t: float(pose(s, t)["verts"][:, 0].max()))
+    poses = [pose(s, t) for s, t in times]
+    out = {}
+    for face, yaw in FACING.items():
+        imgs = []
+        for pm in poses:
+            img, origin = RD.render(pm, yaw, ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
+            imgs.append(fit(img, origin) if img is not None else np.zeros((SIZE, SIZE, 4), np.uint8))
+        out[face] = imgs
+    return out
+
+
 def player_display(race, sex):
     """A display for the player's own race and sex: a class trainer of that race (dressed like an adventurer)."""
     import tbcdb

@@ -112,7 +112,7 @@ local function AttachPoint(u, att)
     local a = ATT[att or -1] or ATT[34]
     local side = a[2]
     if u.face == "up" then side = -side elseif u.face == "left" or u.face == "right" then side = side * 0.3 end
-    return sx + side * tile, sy + 0.5 * tile - a[1] * tile
+    return sx + side * tile, sy - a[1] * tile                  -- (the body's feet are on its point)
 end
 
 -- plays model fdid; place() -> x, y (screen px), yaw; until = a time, or a function -> true to end

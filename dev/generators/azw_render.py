@@ -97,7 +97,10 @@ def _transform(verts, yaw, elev):
 
 
 def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.62, diffuse=0.48, clip_z=None,
-           drop_down=False):
+           drop_down=False, aux_floor_z=None):
+    """-> (RGBA uint8 image, origin pixel). aux_floor_z (a model-frame height, oblique view only): also returns a
+    third value {"north": per-pixel map north (yd) of the surface seen, "floor": per-pixel bool - an upward face
+    within a step of that height, "height": yd above that height}, for cutting a picture into depth slices."""
     verts = np.asarray(mesh["verts"], np.float64)
     uvs = np.asarray(mesh["uvs"], np.float64)
     if len(verts) == 0 or not mesh["tris"]:
@@ -121,6 +124,11 @@ def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.
     py = (sy - y0) * k + pad
     img = np.zeros((H, W, 4), np.float32)
     zbuf = np.full((H, W), -1e18, np.float64)
+    want_aux = aux_floor_z is not None
+    if want_aux:
+        nbuf = np.zeros((H, W), np.float64)
+        hbuf = np.zeros((H, W), np.float64)
+        fbuf = np.zeros((H, W), bool)
     for t in mesh["tris"]:
         a, b, cc, tf = t[0], t[1], t[2], t[3]
         if clip_z is not None and min(verts[a, 2], verts[b, 2], verts[cc, 2]) > clip_z:
@@ -174,6 +182,13 @@ def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.
         sub[win, :3] = np.clip(rgb[win], 0, 1)
         sub[win, 3] = 1
         zb[win] = z[win]
+        if want_aux:
+            nb = nbuf[miny:maxy + 1, minx:maxx + 1]
+            nb[win] = (l0 * world[a, 1] + l1 * world[b, 1] + l2 * world[cc, 1])[win]
+            up = float(np.dot(np.cross(world[b] - world[a], world[cc] - world[a]) / ln, (0, 0, 1)))
+            zw = l0 * world[a, 2] + l1 * world[b, 2] + l2 * world[cc, 2]
+            fbuf[miny:maxy + 1, minx:maxx + 1][win] = (abs(up) >= 0.75) & (np.abs(zw - aux_floor_z) < 0.9)[win]
+            hbuf[miny:maxy + 1, minx:maxx + 1][win] = (zw - aux_floor_z)[win]
     # down to pixel size
     h, w = H // oversample, W // oversample
     a = img[..., 3].reshape(h, oversample, w, oversample)
@@ -187,6 +202,13 @@ def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.
     out[on, 3] = 255
     ox = (0 - x0) * px_per_yd + pad / oversample
     oy = (0 - y0) * px_per_yd + pad / oversample
+    if want_aux:
+        # per output pixel: the mean north of its covered samples; a floor when most of them are floor
+        cnt = np.maximum(wsum[..., 0], 1e-6)
+        north = (nbuf.reshape(h, oversample, w, oversample) * a).sum(axis=(1, 3)) / cnt
+        floor = (fbuf.reshape(h, oversample, w, oversample) * a).sum(axis=(1, 3)) * 2 > cnt
+        height = (hbuf.reshape(h, oversample, w, oversample) * a).sum(axis=(1, 3)) / cnt
+        return out, (ox, oy), {"north": north, "floor": floor, "height": height}
     return out, (ox, oy)
 
 
