@@ -25,16 +25,12 @@ local function Portrait(t, u)
     if not u then t:SetTexture(nil) return end
     if t.unitKey == u.guid then return end
     t.unitKey = u.guid
-    if u.kind == "player" then
-        K.HeroPortrait(t, (u.char and u.char.sex) or u.sex or (Craft.char and Craft.char.sex) or 0)
+    -- (you and other heroes: their face; creatures: the client's portrait of their model, cut round)
+    if u.kind == "player" or Combat.IsPlayer(u) then
+        K.HeroPortrait(t, (u.char and u.char.sex) or u.sex or (u.kind == "player" and Craft.char and Craft.char.sex) or 0)
         return
     end
-    if Combat.IsPlayer(u) then
-        t:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
-        local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[Craft.CLASS_TOKENS[u.class] or "WARRIOR"]
-        if c then t:SetTexCoord(c[1], c[2], c[3], c[4]) end
-        return
-    end
+    K.RoundMask(t)
     local disp = u.cr and u.cr.disp
     t:SetTexCoord(0, 1, 0, 1)
     if disp and SetPortraitTextureFromCreatureDisplayID then
@@ -420,13 +416,17 @@ function UI.BuildBar(hud)
         t:SetPoint("BOTTOMLEFT", (i - 1) * 256, 0)
         t:SetTexCoord(0, 1, coords[i][1], coords[i][2])
     end
-    local capL = K.Tex(bar, "OVERLAY", "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Human")
+    -- the gryphons (MainActionBar.xml: EndCap-Dwarf, 28 px over the bar's ends, 3 below it)
+    local caps = CreateFrame("Frame", nil, bar)
+    caps:SetAllPoints()
+    caps:SetFrameLevel(bar:GetFrameLevel() + 10)
+    local capL = K.Tex(caps, "OVERLAY", "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Dwarf")
     capL:SetSize(128, 128)
-    capL:SetPoint("BOTTOM", bar, "BOTTOMLEFT", -32, 0)
-    local capR = K.Tex(bar, "OVERLAY", "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Human")
+    capL:SetPoint("BOTTOMRIGHT", bar, "BOTTOMLEFT", 28, -3)
+    local capR = K.Tex(caps, "OVERLAY", "Interface\\MainMenuBar\\UI-MainMenuBar-EndCap-Dwarf")
     capR:SetSize(128, 128)
     capR:SetTexCoord(1, 0, 0, 1)
-    capR:SetPoint("BOTTOM", bar, "BOTTOMRIGHT", 32, 0)
+    capR:SetPoint("BOTTOMLEFT", bar, "BOTTOMRIGHT", -29, -3)
     -- the action buttons: the main row, then the second row above it (Shift + the key)
     H.actions = {}
     for i = 1, 12 do
@@ -434,6 +434,39 @@ function UI.BuildBar(hud)
         b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * 42, 4)
         H.actions[i] = b
     end
+    -- the page arrows and number after the twelfth button (ActionBarPageNumber: 42 x 36, arrows 19 x 17 at -6, +-10,
+    -- the number at +15); the main row shows page 1 (slots 1-12) or page 2 (13-24)
+    H.page = 1
+    local pg = CreateFrame("Frame", nil, bar)
+    pg:SetSize(42, 36)
+    pg:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 8 + 12 * 42 - 6, 3)
+    pg.text = K.Text(pg, "GameFontNormalSmall", "OVERLAY", "CENTER")
+    pg.text:SetSize(17, 10)
+    pg.text:SetPoint("CENTER", 15, 0)
+    local ART = { up = "Up", down = "Down", disabled = "Disabled", highlight = "Highlight" }
+    local function arrow(dir, y)
+        local b = CreateFrame("Button", nil, pg)
+        b:SetSize(19, 17)
+        b:SetPoint("CENTER", -6, y)
+        for _, st in ipairs({ { "Normal", "up" }, { "Pushed", "down" }, { "Disabled", "disabled" }, { "Highlight", "highlight" } }) do
+            local t = b:CreateTexture(nil, st[1] == "Highlight" and "HIGHLIGHT" or "ARTWORK")
+            if not (t.SetAtlas and pcall(t.SetAtlas, t, "hud-MainMenuBar-arrow" .. dir .. "-" .. st[2], true)) then
+                t:SetTexture("Interface\\MainMenuBar\\UI-MainMenu-Scroll" .. (dir == "up" and "Up" or "Down") .. "Button-" .. ART[st[2]])
+            end
+            if st[1] == "Highlight" then t:SetBlendMode("ADD") end
+            t:ClearAllPoints()
+            t:SetAllPoints()
+            b["Set" .. st[1] .. "Texture"](b, t)
+        end
+        b:SetScript("OnClick", function()
+            UI.SetActionPage(H.page % 2 + 1)
+            K.Play(K.SFX.click or 856)
+        end)
+        return b
+    end
+    pg.up, pg.down = arrow("up", 10), arrow("down", -10)
+    pg.text:SetText("1")
+    H.pageFrame = pg
     local row2 = CreateFrame("Frame", nil, hud)
     row2:SetSize(500, 40)
     row2:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 8, 18)
@@ -483,7 +516,7 @@ function UI.BuildBar(hud)
     for i, m in ipairs(micro) do
         local b = CreateFrame("Button", nil, bar)
         b:SetSize(28, 58)
-        b:SetPoint("BOTTOMLEFT", 552 + (i - 1) * 29, 2)
+        b:SetPoint("BOTTOMLEFT", 546 + (i - 1) * 25, 2)          -- (CharacterMicroButton at 546, 2; each 3 over the last)
         b:SetNormalTexture(m[2])
         b:SetHighlightTexture("Interface\\Buttons\\UI-MicroButton-Hilight", "ADD")
         if m[4] then
@@ -500,12 +533,13 @@ function UI.BuildBar(hud)
         b:SetScript("OnLeave", K.HideTooltip)
         H.micro[i] = b
     end
-    -- bags: the backpack and four bag slots (right to left)
+    -- bags: the backpack and four bag slots, right to left on the art's own slot frames (MainMenuBarBackpackButton
+    -- at BOTTOMRIGHT -6, 2; each CharacterBagNSlot 37 px, 5 px left of the one before)
     H.bagButtons = {}
     for i = 0, 4 do
-        local b = K.SlotButton(bar, i == 0 and 37 or 30)
-        if i == 0 then b:SetPoint("BOTTOMRIGHT", -6, 4)
-        else b:SetPoint("RIGHT", H.bagButtons[i - 1], "LEFT", -4, 0) end
+        local b = K.SlotButton(bar, 37)
+        if i == 0 then b:SetPoint("BOTTOMRIGHT", -6, 2)
+        else b:SetPoint("RIGHT", H.bagButtons[i - 1], "LEFT", -5, 0) end
         b.bag = i
         b:SetScript("OnClick", function(self, button)
             if UI.cursorItem and self.bag > 0 then UI.DropOnBagSlot(self.bag) return end
@@ -1010,3 +1044,14 @@ end)
 Craft:On("engage", function(mob)
     if (mob.name or ""):find("Kobold") then K.Play(K.SFX.kobold.aggro, 0.5) end
 end)
+
+-- the main row's action page (the arrows by the bar): 1 = slots 1-12, 2 = slots 13-24
+function UI.SetActionPage(page)
+    H.page = page
+    for i = 1, 12 do
+        local b = H.actions and H.actions[i]
+        if b then b.slot = (page - 1) * 12 + i end
+    end
+    if H.pageFrame then H.pageFrame.text:SetText(page) end
+    if UI.UpdateHud then UI.UpdateHud(0) end
+end

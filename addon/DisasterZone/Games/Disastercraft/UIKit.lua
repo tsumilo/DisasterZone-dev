@@ -36,46 +36,71 @@ function K.Frame(parent, w, h, backdrop, level)
     return f
 end
 
--- the hero's own looks: a human of the character's sex, never your WoW character (creature displays 49 / 50: the
--- bare human male / female models)
-K.HUMAN_DISPLAY = { [0] = 49, [1] = 50 }
-
+-- the hero's face in the frames: a round portrait drawn from the same bare human as the pixel sprite
+-- (dev/generators/gen_dc_portraits.py: Media/Azeromon/Outfit/portrait0 male, portrait1 female) - never your own
+-- WoW character, never an untextured model
 function K.HeroPortrait(t, sex)
-    if SetPortraitTextureFromCreatureDisplayID and pcall(SetPortraitTextureFromCreatureDisplayID, t, K.HUMAN_DISPLAY[sex or 0] or 49) then
-        t:SetTexCoord(0, 1, 0, 1)
-        return
-    end
-    t:SetTexture("Interface\\CharacterFrame\\TempPortrait")
+    t:SetTexture(K.MEDIA .. "Outfit\\portrait" .. (sex == 1 and 1 or 0))
+    t:SetTexCoord(0, 1, 0, 1)
 end
 
--- a DressUpModel showing a human of this sex in these items. SetUnit / SetCustomRace load the model after they
--- return, and the loaded model wears the unit's own (real) gear - so the outfit goes on once it has loaded
--- (OnModelLoaded) and again on the next few frames (clients where that script never fires).
+-- a portrait cut round (SetPortraitTextureFromCreatureDisplayID hands out a square picture; the classic unit frames
+-- only frame a circle) - the client's own portrait mask
+function K.RoundMask(t)
+    if t.dzMask or not t.GetParent then return end
+    local p = t:GetParent()
+    if not (p and p.CreateMaskTexture and t.AddMaskTexture) then return end
+    local m = p:CreateMaskTexture()
+    m:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    m:SetAllPoints(t)
+    t:AddMaskTexture(m)
+    t.dzMask = m
+end
+
+-- a DressUpModel showing a human of this sex in these items. A model loads after SetUnit / SetCustomRace return,
+-- and a load landing late puts the unit's own look back - so it goes a step at a time: the unit (the first time),
+-- once that has loaded the race and sex, once that has loaded undress and try the items on (and again for a
+-- moment after, for a load that lands late).
+local DRESS_WAIT = 0.6
 function K.DressModel(m, sex, items)
     if not m then return end
     m.dzOutfit = { sex = sex or 0, items = items or {} }
-    local function apply()
-        local o = m.dzOutfit
-        if not o then return end
+    if not m.dzHooked then
+        m.dzHooked = true
+        pcall(m.HookScript, m, "OnModelLoaded", function(self) self.dzLoaded = true end)
+    end
+    local step, wait, dressing, at = 2, 0, 0, 1
+    if not m.dzUnit then
+        m.dzUnit, m.dzLoaded = true, false
+        pcall(m.SetUnit, m, "player")
+        step = 1
+    end
+    local function dress()
         if m.Undress then pcall(m.Undress, m) end
-        for _, id in ipairs(o.items) do
+        for _, id in ipairs(m.dzOutfit.items) do
             if m.TryOn then pcall(m.TryOn, m, "item:" .. id) end
         end
     end
-    if not m.dzDressHooked then
-        m.dzDressHooked = true
-        pcall(m.HookScript, m, "OnModelLoaded", apply)
-        m.dzApply = apply
-    end
-    pcall(m.SetUnit, m, "player")
-    if m.SetCustomRace then pcall(m.SetCustomRace, m, 1, m.dzOutfit.sex) end
-    apply()
-    -- (the frames after: whatever finishes loading late is undressed again)
-    local left, at = 1.0, 0
     m:SetScript("OnUpdate", function(self, dt)
-        left, at = left - dt, at + dt
-        if at >= 0.1 then at = 0 m.dzApply() end
-        if left <= 0 then self:SetScript("OnUpdate", nil) end
+        wait = wait + dt
+        if step == 1 then                                   -- the unit's model
+            if self.dzLoaded or wait > DRESS_WAIT then step, wait = 2, 0 end
+        elseif step == 2 then                               -- a human of the hero's sex
+            if self.SetCustomRace and self.dzSex ~= self.dzOutfit.sex then
+                self.dzLoaded, self.dzSex = false, self.dzOutfit.sex
+                pcall(self.SetCustomRace, self, 1, self.dzOutfit.sex)
+                step, wait = 3, 0
+            else
+                step, wait = 4, 0
+            end
+        elseif step == 3 then
+            if self.dzLoaded or wait > DRESS_WAIT then step, wait = 4, 0 end
+        else                                                -- the outfit, a few times over
+            at = at + dt
+            if at >= 0.1 then at = 0 dress() end
+            dressing = dressing + dt
+            if dressing > 1.0 then self:SetScript("OnUpdate", nil) end
+        end
     end)
 end
 

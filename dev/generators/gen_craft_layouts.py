@@ -297,6 +297,9 @@ def frame(e, stack, kind=None):
     over["regions"] = regions or None
     over["frames"] = frames or None
     over["btex"] = btex or None
+    if "SmallMoneyFrameTemplate" in inherits:
+        # (SmallMoneyFrame_OnLoad sets self.small: 13 px coins)
+        over["kv"] = dict(over.get("kv") or {}, small=True)
     return merge(d, over)
 
 

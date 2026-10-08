@@ -116,8 +116,9 @@ function F.SetItemButton(refs, bname, id, count, tintRed)
     end
 end
 
--- MoneyFrame_Update: gold / silver / copper buttons with their coin icons, the empty ones folded away
-local ICON_W, SPACING = 13, -4
+-- MoneyFrame_Update: gold / silver / copper buttons with their coin icons, the empty ones folded away; each one
+-- 4 px left of the next (MONEY_BUTTON_SPACING), coins 19 px (13 on a small money frame)
+local SPACING = -4
 local COIN = { Gold = { 0, 0.25 }, Silver = { 0.25, 0.5 }, Copper = { 0.5, 0.75 } }
 function F.Money(refs, fname, copper, red)
     local frame = refs[fname]
@@ -125,7 +126,7 @@ function F.Money(refs, fname, copper, red)
     copper = floor(copper or 0)
     local g, s, c = floor(copper / 10000), floor(copper / 100) % 100, copper % 100
     local vals = { Gold = g, Silver = s, Copper = c }
-    local prev
+    local ICON_W = frame.small and 13 or 19
     local show = false
     for _, den in ipairs({ "Gold", "Silver", "Copper" }) do
         local b = refs[fname .. den .. "Button"]
@@ -135,7 +136,7 @@ function F.Money(refs, fname, copper, red)
                 b.coin:SetTexture("Interface\\MoneyFrame\\UI-MoneyIcons")
                 b.coin:SetTexCoord(COIN[den][1], COIN[den][2], 0, 1)
                 b.coin:SetSize(ICON_W, ICON_W)
-                b.coin:SetPoint("RIGHT", b, "RIGHT", 0, 0)
+                b.coin:SetPoint("RIGHT", b, "RIGHT", -1, 1)
                 b.text = b:GetFontString() or b:CreateFontString(nil, "OVERLAY", "NumberFontNormalRight")
                 if not b:GetFontString() then b:SetFontString(b.text) end
                 if b.text.SetFontObject and _G.NumberFontNormalRight then b.text:SetFontObject(_G.NumberFontNormalRight) end
@@ -158,8 +159,8 @@ function F.Money(refs, fname, copper, red)
     -- right to left, copper on the frame's right edge
     local cb, sb, gb = refs[fname .. "CopperButton"], refs[fname .. "SilverButton"], refs[fname .. "GoldButton"]
     if cb then cb:ClearAllPoints() cb:SetPoint("RIGHT", frame, "RIGHT", 0, 0) end
-    if sb then sb:ClearAllPoints() sb:SetPoint("RIGHT", cb, "LEFT", -SPACING, 0) end
-    if gb then gb:ClearAllPoints() gb:SetPoint("RIGHT", sb, "LEFT", -SPACING, 0) end
+    if sb then sb:ClearAllPoints() sb:SetPoint("RIGHT", cb, "LEFT", SPACING, 0) end
+    if gb then gb:ClearAllPoints() gb:SetPoint("RIGHT", sb, "LEFT", SPACING, 0) end
     frame:Show()
 end
 
@@ -1248,6 +1249,8 @@ local function CharacterSheet()
             end
         end)
     end
+    -- (dressed again each time the sheet opens: a hidden model may have been reset by the client)
+    cha:HookScript("OnShow", function() cha.modelKey = nil end)
     cha.left, cha.right = "PLAYERSTAT_BASE_STATS", nil
     StatDropdown(chaRefs.PlayerStatFrameLeftDropdown, "left")
     StatDropdown(chaRefs.PlayerStatFrameRightDropdown, "right")

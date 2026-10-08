@@ -73,9 +73,10 @@ local function OnKeyDown(self, key)
     elseif key == "TAB" then
         Craft.World.TabTarget()
     elseif ACTION_KEYS[key] then
-        local slot = ACTION_KEYS[key] + (shift and 12 or 0)
+        -- (the main row follows its action page; Shift the row above)
+        local b = UI.Hud.actions[ACTION_KEYS[key] + (shift and 12 or 0)]
+        local slot = b and b.slot or (ACTION_KEYS[key] + (shift and 12 or 0))
         Craft.Npc.UseAction(slot)
-        local b = UI.Hud.actions[slot]
         if b then UI.Flash(b) end
     elseif key == "B" then UI.ToggleAllBags()
     elseif key == "C" then UI.Toggle("character")
