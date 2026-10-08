@@ -714,8 +714,10 @@ local function CreatePoster(i, def)
 
     -- the art (a loading screen, or the cover's own scene), clipped to the top of the poster
     p.artFrame = CreateFrame("Frame", nil, p)
-    p.artFrame:SetPoint("TOPLEFT")
-    p.artFrame:SetPoint("TOPRIGHT")
+    -- (1 px inside the poster's border: a clip edge is rounded to whole pixels on its own, and while a poster moves
+    -- by fractions of a pixel a sliver of the bright art showed past the dark / the border at its side)
+    p.artFrame:SetPoint("TOPLEFT", 1, -1)
+    p.artFrame:SetPoint("TOPRIGHT", -1, -1)
     p.artFrame:SetFrameLevel(p:GetFrameLevel() + 1)
     pcall(p.artFrame.SetClipsChildren, p.artFrame, true)
     p.art = p.artFrame:CreateTexture(nil, "BACKGROUND")
@@ -730,8 +732,9 @@ local function CreatePoster(i, def)
     p.topShade:SetPoint("TOPRIGHT")
     Gradient(p.topShade, "VERTICAL", BASE[1], BASE[2], BASE[3], 0, BASE[1], BASE[2], BASE[3], 0.6)
     p.lowShade = p.over:CreateTexture(nil, "BACKGROUND")
-    p.lowShade:SetPoint("BOTTOMLEFT", p.artFrame, "BOTTOMLEFT")
-    p.lowShade:SetPoint("BOTTOMRIGHT", p.artFrame, "BOTTOMRIGHT")
+    -- (it reaches 2 px past the art's foot, solid there, so no line of art shows above the title mid-animation)
+    p.lowShade:SetPoint("BOTTOMLEFT", p.artFrame, "BOTTOMLEFT", -1, -2)
+    p.lowShade:SetPoint("BOTTOMRIGHT", p.artFrame, "BOTTOMRIGHT", 1, -2)
     Gradient(p.lowShade, "VERTICAL", BASE[1], BASE[2], BASE[3], 1, BASE[1], BASE[2], BASE[3], 0)
 
     p.kicker = Label(p.over, 9.5)
@@ -900,10 +903,10 @@ local function Place(p, x, y, w, h)
     p:SetPoint("TOPLEFT", carousel, "TOPLEFT", x, -y)
     p:SetSize(w, h)
     local artH = floor(h * 0.76)
-    p.artFrame:SetHeight(artH)
+    p.artFrame:SetHeight(artH - 1)
     p.topShade:SetHeight(max(1, h * 0.14))
-    p.lowShade:SetHeight(max(1, artH * 0.4))
-    if p.art:IsShown() then CropArt(p.art, w, artH, FOCUS[p.artKey]) end
+    p.lowShade:SetHeight(max(1, artH * 0.4 + 2))
+    if p.art:IsShown() then CropArt(p.art, w - 2, artH - 1, FOCUS[p.artKey]) end
     if p.cover.Layout then p.cover:Layout(w, artH - 52) end
     if p.sheenT then PlaceSheen(p, p.sheenT) end
 end
