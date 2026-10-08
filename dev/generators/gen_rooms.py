@@ -558,6 +558,34 @@ def clip_faces(faces, box, zlo, zhi, zb):
     return out
 
 
+def clip_aligned(faces, spec):
+    """The parts of faces inside a turned rectangle (ALIGNED): exact cuts, in the rectangle's own frame."""
+    (cx, cy), (ux, uy), (u0, u1, v0, v1) = spec
+    vx, vy = -uy, ux
+
+    def to_uv(p):
+        dx, dy = p[0] - cx, p[1] - cy
+        return (dx * ux + dy * uy, dx * vx + dy * vy) + tuple(p[2:])
+
+    def back(p):
+        return (cx + p[0] * ux + p[1] * vx, cy + p[0] * uy + p[1] * vy) + tuple(p[2:])
+    out = []
+    for key, pts, fl in faces:
+        poly = [to_uv(p) for p in pts]
+        for axis, lo, hi in ((0, u0, u1), (1, v0, v1)):
+            poly = G.clip_poly(poly, axis, lo, False)
+            if len(poly) >= 3:
+                poly = G.clip_poly(poly, axis, hi, True)
+            if len(poly) < 3:
+                break
+        if len(poly) < 3:
+            continue
+        poly = [back(p) for p in poly]
+        for k in range(1, len(poly) - 1):
+            out.append((key, (poly[0], poly[k], poly[k + 1]), fl))
+    return out
+
+
 CLUTTER = 4.0                   # yd: as small as a room gets, loose objects up to this size across are left out
 MERGE_TOL = 0.3                 # yd: faces fused into one piece stay this close to the piece's plane
 
@@ -804,11 +832,22 @@ BOX = {"Karazhan:Nightbane": (-11125.6 - 57, -1925.0 - 57, -11125.6 + 57, -1925.
        "Karazhan:Chess": (-11080.48 - 34.5, -1876.24 - 34.5, -11080.48 + 34.5, -1876.24 + 34.5)}
 # Rooms whose box must stay whole: over budget they lower their walls and drop clutter instead of shrinking.
 KEEP_BOX = {"Karazhan:Chess"}
+# Rooms also cut to a rectangle turned with what they hold: world centre (x, y), the rectangle's u axis as a world
+# direction (v is u turned a quarter left), and u0, u1, v0, v1 (yd). The chess board lies 38 degrees off the world's
+# axes, so its square box kept two big corners of hall nobody looks at (seen in game: triangles not needed); this is
+# the board (u along the files, v along the ranks, 22.5 yd to its edges) and ~8.5 yd of floor and pillars round it,
+# 32 on the a-file side for the Echo of Medivh (29 yd out).
+ALIGNED = {"Karazhan:Chess": ((-11080.48, -1876.24), (3.49 / 5.6163, -4.4 / 5.6163), (-32.0, 31.0, -31.0, 31.0))}
 # yd under the boss' floor a room keeps, where ROOM_DOWN would fill it with what is under a roof (the terrace sits on
 # top of the tower's rooms).
-DOWN = {"Karazhan:Nightbane": 4.0}
+DOWN = {"Karazhan:Nightbane": 4.0,
+        # (the chess board is a floor over Karazhan's lower levels: nothing under it is ever seen from above)
+        "Karazhan:Chess": 1.5}
 # yd over it, likewise (the tower walls beside the terrace would leave room for only half of it).
-UP = {"Karazhan:Nightbane": 8.0}
+UP = {"Karazhan:Nightbane": 8.0,
+      # (the chess hall: the floor alone - its pillars and walls only stood in the way of the board, user
+      # 2026-10-08; the floor is whole under them, and 0.1 yd leaves no stubs of their bases)
+      "Karazhan:Chess": 0.1}
 
 
 def plan(ref, starters, portraits, maps):
@@ -978,6 +1017,8 @@ def build(p):
     centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
     while True:
         faces = clip_faces(raw, box, zb - down, zb + up, zb)
+        if p["ref"] in ALIGNED:
+            faces = clip_aligned(faces, ALIGNED[p["ref"]])
         smaller = None if p["ref"] in KEEP_BOX else shrink(box, spot, centre)
         if len(faces) > MAX_TRIS and smaller:
             box = smaller
