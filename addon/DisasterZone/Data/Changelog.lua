@@ -56,7 +56,8 @@ ns.CHANGELOG = {
               "A move made while they're offline reaches them when they log in. Resign or offer a draw.",
               "Guild ladder: results of guild games go round the guild; everyone sees the same ratings.",
               "A flat board too (before a client restart, or picked over the board).",
-              "The poster shows your latest game and how many wait for your move. /dz chess opens it.",
+              "Its poster is the hall in 3D, mid-fight, and says how many games wait for your move.",
+              "/dz chess opens it.",
           } },
           { heading = "Teams, redesigned", lines = {
               "Raids > Teams opens on a board: every team as a banner, yours first, with its next raid.",

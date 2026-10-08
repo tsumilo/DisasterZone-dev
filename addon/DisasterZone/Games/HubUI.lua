@@ -394,9 +394,35 @@ COVERS.bingo = function(parent)
     return c
 end
 
--- Karazhan Chess: the game you looked at last (else the opening position) on a small board of the hall's marble,
--- each piece a disc in its side's colour with its letter; the last move's squares lit.
-COVERS.chess = function(parent)
+-- Karazhan Chess, in 3D: a moment of a game in the Gamesman's Hall, frozen mid-fight - the event's own pieces on the
+-- hall's own marble (the floor textures of the chess room: 127857 the board, two squares a side to a picture,
+-- 127914 the pale floor round it), a footman and a grunt trading blows, a charger on a wolf, the Horde queen casting at
+-- the footman from behind the grunts, a grunt fallen, Medivh's fire burning in front, Blackhand looming at the back.
+-- Cheap on purpose: one ModelScene with seven models and an effect, 196 flat textures (one per square) bent into
+-- perspective (as the room renderer does), and a camera that never moves - nothing is worked out per frame once it
+-- stands, and it is only drawn while the poster is in front. Without the 3D files (no client restart yet) the
+-- flat board below stands in.
+local CHESS_S = 5.6                         -- yd: one square (the event's)
+local CHESS_LV = { floor = 1, lines = 2, room0 = 3, scene = 4, copy0 = 5, plates = 6 }
+local CHESS_BOARD, CHESS_FLOOR = 127857, 127914
+-- the pieces: display, size (CreatureDisplayInfo), square (file, rank), facing (towards a square), animation (17 a
+-- one-handed blow, 16 an unarmed / beast one, 52 a cast, 6 lying dead, 0 standing). Framed for CHESS_CAM: checked by
+-- projecting every square in the mock (the clash mid-poster, the far pieces under its top).
+local CHESS_CAST = {
+    { d = 16276, s = 1.5, f = 3, r = 3, at = { 4, 4 }, anim = 17 },     -- Human Footman (d4) on the grunt
+    { d = 16264, s = 1.5, f = 4, r = 4, at = { 3, 3 }, anim = 17 },     -- Orc Grunt (e5) striking back
+    { d = 19783, s = 1.75, f = 4, r = 2, at = { 5, 3 }, anim = 16 },    -- Human Charger (e3) on the wolf
+    { d = 2352, s = 2, f = 5, r = 3, at = { 4, 2 }, anim = 16 },        -- Orc Wolf (f4)
+    { d = 16263, s = 2.5, f = 4, r = 6, at = { 3, 3 }, anim = 52 },     -- Orc Warlock (e7) casting at the footman
+    { d = 16264, s = 1.5, f = 3, r = 4, at = { 0, 2 }, anim = 6 },      -- a grunt fallen on d5
+    { d = 16270, s = 3, f = 3, r = 7, at = { 4, 4 }, anim = 0 },        -- Warchief Blackhand (d8) looming
+}
+local CHESS_FIRE = { fdid = 165599, size = 6.6, f = 3, r = 2 }         -- Fury of Medivh's fire on d3, in front
+-- the camera: low behind the Alliance's side, looking up the board at the clash (squares, yd, radians)
+local CHESS_CAM = { x = 3.8, y = 3.4, z = 1.6, heading = math.pi / 2 - 0.38, pitch = 0.33, dist = 21 }
+
+-- the flat stand-in (no 3D yet): your latest game on a small board, a disc and a letter per piece
+local function ChessMiniBoard(parent)
     local c = CreateFrame("Frame", nil, parent)
     c.cells = {}
     for i = 1, 64 do
@@ -436,7 +462,7 @@ COVERS.chess = function(parent)
         end
         local pos = g and C:Position(g) or R.New()
         local me = g and g.me or 1
-        local last = g and #g.moves > 0 and R.ParseSquare and g.moves[#g.moves] or nil
+        local last = g and #g.moves > 0 and g.moves[#g.moves] or nil
         local lf, lt = last and R.ParseSquare(last:sub(1, 2)), last and R.ParseSquare(last:sub(3, 4))
         for i, cell in ipairs(self.cells) do
             local row, col = floor((i - 1) / 8), (i - 1) % 8
@@ -444,8 +470,7 @@ COVERS.chess = function(parent)
             local rank, file = me == 1 and (7 - row) or row, me == 1 and col or (7 - col)
             local sq = R.Square(file, rank)
             local light = (file + rank) % 2 == 1
-            local lit = sq == lf or sq == lt
-            if lit then
+            if sq == lf or sq == lt then
                 cell.bg:SetColorTexture(0.42, 0.32, 0.6, 0.92)
             elseif light then
                 cell.bg:SetColorTexture(0.72, 0.69, 0.66, 0.88)
@@ -454,7 +479,6 @@ COVERS.chess = function(parent)
             end
             local v = pos.b[sq]
             if v ~= 0 then
-                local p = v > 0 and v or -v
                 if v > 0 then
                     cell.disc:SetVertexColor(0.2, 0.36, 0.72, 1)
                     cell.letter:SetTextColor(0.9, 0.95, 1)
@@ -462,7 +486,7 @@ COVERS.chess = function(parent)
                     cell.disc:SetVertexColor(0.62, 0.14, 0.1, 1)
                     cell.letter:SetTextColor(1, 0.86, 0.8)
                 end
-                cell.letter:SetText(R.LETTER[p]:upper())
+                cell.letter:SetText(R.LETTER[v > 0 and v or -v]:upper())
                 cell.disc:Show()
                 cell.letter:Show()
             else
@@ -470,6 +494,137 @@ COVERS.chess = function(parent)
                 cell.letter:Hide()
             end
         end
+    end
+    return c
+end
+
+COVERS.chess = function(parent)
+    local R3 = ns.Render3D
+    local probe = parent:CreateTexture()
+    local canBend = probe.SetVertexOffset ~= nil
+    probe:Hide()
+    if not (R3 and R3.NewView and canBend) then return ChessMiniBoard(parent) end
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(FRONT_W, 300)
+    c:SetClipsChildren(true)
+    local v = R3.NewView(c, { room = false, lv = CHESS_LV, fov = 0.95, near = 0.5, far = 400, label = "Chess poster" })
+    if not v then
+        c:Hide()
+        return ChessMiniBoard(parent)
+    end
+    c.frontOnly = true                       -- (drawn only in front: the side posters keep their painting)
+    c.view = v
+
+    -- the floor: a picture's quarter per square (a picture holds 2 x 2), the board and three rows of the pale floor
+    -- round it, fading out. One square a piece: a piece reaching behind the camera is hidden whole, and one square is
+    -- small enough to lie under the view's bottom edge then (a bigger one would leave a hole there).
+    c.tiles = {}
+    for r = -3, 10 do
+        for f = -3, 10 do
+            local board = f >= 0 and f <= 7 and r >= 0 and r <= 7
+            local ring = max(-f, -r, f - 7, r - 7, 0)
+            local t = v.floorFrame:CreateTexture(nil, "BACKGROUND", nil, board and 2 or 0)
+            t:SetSize(1, 1)
+            t:SetPoint("CENTER", v.floorFrame, "CENTER", 0, 0)
+            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end
+            if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
+            t:SetTexture(board and CHESS_BOARD or CHESS_FLOOR, "REPEAT", "REPEAT")
+            -- (the picture's top left quarter is dark: a1's; u along the files, v along the ranks)
+            local u0, v0 = (f % 2) * 0.5, (r % 2) * 0.5
+            t:SetTexCoord(u0, v0 + 0.5, u0, v0, u0 + 0.5, v0 + 0.5, u0 + 0.5, v0)
+            local light = board and 0.8 or 0.62
+            local a = board and 1 or ({ 0.85, 0.55, 0.25 })[ring]
+            t:SetVertexColor(light, light, light * 1.04, a)
+            c.tiles[#c.tiles + 1] = { tex = t, x0 = (f - 0.5) * CHESS_S, y0 = (r - 0.5) * CHESS_S }
+        end
+    end
+
+    -- the pieces and the fire
+    c.actors = {}
+    for i, p in ipairs(CHESS_CAST) do
+        local a = (i == 1 and v.probe) or v:NewActor()
+        if a then
+            a.anim = p.anim
+            pcall(a.SetModelByCreatureDisplayID, a, p.d)
+            pcall(a.SetUseCenterForOrigin, a, false, false, false)
+            pcall(a.SetScale, a, p.s)
+            pcall(a.SetAnimation, a, p.anim)
+            c.actors[i] = { a = a, p = p }
+        end
+    end
+    local fire = v:NewActor()
+    if fire then
+        fire.anim = 0
+        pcall(fire.SetModelByFileID, fire, CHESS_FIRE.fdid)   -- (the spell's own effect model: tools/spell_visuals.py)
+        pcall(fire.SetUseCenterForOrigin, fire, false, false, false)
+        c.fire = fire
+    end
+
+    local function Place()
+        local cam = CHESS_CAM
+        v:Orbit(cam.x * CHESS_S, cam.y * CHESS_S, cam.z, cam.heading, cam.pitch, cam.dist)
+    end
+
+    -- the scene as it stands: camera, floor pictures bent onto their corners, models on their squares
+    function c:Stage()
+        local w, h = self:GetWidth() or 0, self:GetHeight() or 0
+        if w <= 0 or h <= 0 then return false end
+        if not self.calibrated then
+            local cam = CHESS_CAM
+            local x, y = cam.x * CHESS_S, cam.y * CHESS_S
+            self.calibrated = v:Calibrate(Place, x, y, cam.z, x - math.sin(cam.heading) * 2,
+                y + math.cos(cam.heading) * 2, cam.z)
+            if not self.calibrated then return false end
+        end
+        Place()
+        local ox, oy = w / 2, h / 2
+        local S2 = CHESS_S
+        for _, tl in ipairs(self.tiles) do
+            -- corners: A north-west, B south-west, C south-east, D north-east (the picture's UL, LL, LR, UR)
+            local ax, ay = v:Project(tl.x0, tl.y0 + S2, 0)
+            local bx, by = v:Project(tl.x0, tl.y0, 0)
+            local cx, cy = v:Project(tl.x0 + S2, tl.y0, 0)
+            local dx, dy = v:Project(tl.x0 + S2, tl.y0 + S2, 0)
+            local t = tl.tex
+            if ax and bx and cx and dx then
+                t:SetVertexOffset(UPPER_LEFT_VERTEX or 1, ax - ox + 0.5, ay - oy - 0.5)
+                t:SetVertexOffset(LOWER_LEFT_VERTEX or 2, bx - ox + 0.5, by - oy + 0.5)
+                t:SetVertexOffset(UPPER_RIGHT_VERTEX or 3, dx - ox - 0.5, dy - oy - 0.5)
+                t:SetVertexOffset(LOWER_RIGHT_VERTEX or 4, cx - ox - 0.5, cy - oy + 0.5)
+                t:Show()
+            else
+                t:Hide()
+            end
+        end
+        local mirror = v.cam.mirror or 1
+        for _, e in ipairs(self.actors) do
+            local p, a = e.p, e.a
+            local x, y = p.f * CHESS_S, p.r * CHESS_S
+            local face = math.atan2((p.at[2] - p.r), (p.at[1] - p.f))
+            pcall(a.SetPosition, a, x / p.s, v:SY(y) / p.s, 0)
+            pcall(a.SetYaw, a, mirror * face)
+            pcall(a.SetShown, a, true)
+        end
+        if self.fire then
+            local s = CHESS_S * 0.5 / CHESS_FIRE.size
+            pcall(self.fire.SetScale, self.fire, s)
+            pcall(self.fire.SetPosition, self.fire, CHESS_FIRE.f * CHESS_S / s, v:SY(CHESS_FIRE.r * CHESS_S) / s, 0)
+            pcall(self.fire.SetShown, self.fire, true)
+        end
+        return true
+    end
+
+    function c:Layout(w, h)
+        w, h = floor(w), floor(max(60, h))
+        if w == self.lw and h == self.lh then return end
+        self.lw, self.lh = w, h
+        self:SetSize(w, h)
+        self.dirty = true
+    end
+    function c:Refresh() end
+    -- (only while the scene still has to be set: a resize, or the client gave no size yet)
+    function c:Tick()
+        if self.dirty and self:Stage() then self.dirty = false end
     end
     return c
 end

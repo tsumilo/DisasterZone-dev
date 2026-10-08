@@ -498,5 +498,46 @@ def the_hub_has_a_chess_poster_with_what_waits_for_you():
     no_errors(w)
 
 
+@case
+def the_poster_is_a_still_3d_scene_with_no_holes_in_its_floor():
+    w, c = boot()
+    c.eval("ns.MainFrame:Open('games')")
+    w.tick(0.5)
+    c.eval("ns.GamesUI:ShowFront('chess')")
+    w.tick(1.5)
+    got = c.eval_py(r"""
+      local p for _, q in ipairs(ns.GamesUI.__posters) do if q.id == 'chess' then p = q end end
+      local cv = p.cover
+      local v = cv.view
+      local w, h = cv:GetWidth(), cv:GetHeight()
+      local holes, shown = 0, 0
+      for _, tl in ipairs(cv.tiles) do
+        if tl.tex:IsShown() then shown = shown + 1 else
+          for _, q in ipairs({ { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }) do
+            local x, y = v:Project(tl.x0 + q[1] * 5.6, tl.y0 + q[2] * 5.6, 0)
+            if x and x > 0 and x < w and y > 0 and y < h then holes = holes + 1 end
+          end
+        end
+      end
+      -- every piece's feet inside the poster
+      local out = 0
+      for _, e in ipairs(cv.actors) do
+        local x, y = v:Project(e.p.f * 5.6, e.p.r * 5.6, 0)
+        if not x or x < 0 or x > w or y < 0 or y > h then out = out + 1 end
+      end
+      return { three = v ~= nil, front = cv.frontOnly, dirty = cv.dirty, shown = shown, holes = holes,
+               actors = #cv.actors, out = out }
+    """)
+    assert got["three"] and got["front"] and not got["dirty"], got
+    assert got["holes"] == 0 and got["shown"] > 100 and got["actors"] == 7 and got["out"] == 0, got
+    # nothing is worked out again while it stands
+    c.eval("local p for _, q in ipairs(ns.GamesUI.__posters) do if q.id == 'chess' then p = q end end "
+           "local stage, n = p.cover.Stage, 0 p.cover.Stage = function(...) n = n + 1 return stage(...) end "
+           "T_CH.count = function() return n end")
+    w.tick(2)
+    assert c.eval("return T_CH.count()") == 0
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()
