@@ -111,6 +111,8 @@ the feature off.
 - The signing key is `dev\keys\patch_key.json`. It is git-ignored: back it up somewhere safe.
 - Before publishing a large update: `luaenv\Scripts\python.exe tools\patched_run.py` runs every suite with the
   whole addon delivered through the update path.
-- Before any release: `luaenv\Scripts\python.exe tf_e\run_all.py --all` (no skipping).
+- Before any release: `luaenv\Scripts\python.exe tf_e\run_all.py --all` (no skipping). It is also the only run that
+  includes the release-only suites (`RELEASE_ONLY` in `tools\testmap.py`: the 60-member scale suite, a few minutes
+  per case). A normal run lists them when they are due; `release.py full` / `patch` warn while they are not green.
 
 Read `addon\DisasterZone\NOTICE.md` before sharing outside the guild. The data files are generated from GPL v2 AtlasLoot data.

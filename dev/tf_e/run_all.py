@@ -7,6 +7,7 @@ line per suite as it finishes. Usage:
   test files and helpers, the harness and mock, and the addon functions it called), or when it has no record yet.
   A suite that failed and whose inputs did not change is listed as failed again (exit code 1) without rerunning.
   --all runs every suite (before a release, or when in doubt); --dry-run only prints what would run and why.
+- Release-only suites (RELEASE_ONLY: the 60-member scale suite) run only with --all or when a filter names them.
 - Longest first: each run records how long every suite took (tf_e/timings.json) and the next run starts the slowest
   ones first, so one long suite does not start last and hold up the end of the run.
 - Shards: the suites in SHARDS are split into n processes run side by side (DZ_SHARD="i/n", see harness.in_shard).
@@ -42,14 +43,8 @@ SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(12, (os.cpu_count() or
 MIN_FREE_MB = 1500
 TIMEOUT = 1500
 
-# suite (tests/<area>/<file>) -> shard count. Only suites that would otherwise set the length of a whole run.
-SHARDS = {
-    "scale/test_raid_night.py": 4,          # 4 cases of 1-4 minutes
-    "regressions/test_final_review.py": 3,
-    "patch/test_patch_net.py": 2,
-    "sync/test_sync_traffic.py": 2,
-    "strategy/test_strategy_3d.py": 2,
-}
+SHARDS = testmap.SHARDS                  # suite -> shard count (tools/testmap.py)
+RELEASE_ONLY = testmap.RELEASE_ONLY      # suites only --all runs (or a filter naming them)
 
 args = sys.argv[1:]
 RUN_ALL = "--all" in args
@@ -94,17 +89,21 @@ def load_timings():
         return {}
 
 
-skipped = []
+skipped, held = [], []
 if not RUN_ALL:
     why = [(t, testmap.reason(task_name(t))) for t in tasks]
     skipped = [t for t, r in why if r is None]
     tasks = [t for t, r in why if r is not None]
+    # release-only suites wait for --all, unless a filter names them
+    held = [t for t in tasks if suite_key(t[0]) in RELEASE_ONLY
+            and not any(s in suite_key(t[0]) or s in t[0].replace("\\", "/") for s in FILTERS)]
+    tasks = [t for t in tasks if t not in held]
     if DRY:
         for t, r in why:
             if r is not None:
-                print("%-45s %s" % (task_name(t), r))
+                print("%-45s %s%s" % (task_name(t), r, "  [release-only: --all]" if t in held else ""))
 if DRY:
-    print("== would run %d of %d suite run(s)" % (len(tasks), len(tasks) + len(skipped)))
+    print("== would run %d of %d suite run(s)" % (len(tasks), len(tasks) + len(skipped) + len(held)))
     sys.exit(0)
 
 timings = load_timings()
@@ -264,5 +263,8 @@ for name, (rc, summary, fails, out) in sorted(stale_fails):
     print("   FAILED (last run, unchanged since) %-30s %s  %s" % (name, summary, out))
     for l in fails:
         print("      " + l)
+if held:
+    print("   release-only, not run (changed since their last run; --all runs them before a release): %s" % (
+        ", ".join(sorted({suite_key(t[0]) for t in held}))))
 if bad or stale_fails:
     sys.exit(1)

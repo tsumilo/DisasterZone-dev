@@ -266,7 +266,22 @@ def git_commit():
         return ""
 
 
+def warn_release_suites():
+    """The release-only test suites (tf_e/run_all.py RELEASE_ONLY) are left out of normal test runs: say so when
+    they have not passed on the current sources. A warning only, never a stop."""
+    try:
+        import testmap
+        problems = testmap.release_check()
+    except Exception as e:  # noqa: BLE001 - a missing test record must never block a release
+        problems = ["could not check the release-only test suites: %s" % e]
+    if problems:
+        print("WARNING: release-only tests are not green on these sources (run tf_e\\run_all.py --all):")
+        for p in problems:
+            print("  " + p)
+
+
 def cmd_full(args):
+    warn_release_suites()
     problems = check_tree(ADDON_DIR)
     if problems:
         raise ReleaseError("not ready for a release:\n  " + "\n  ".join(problems))
@@ -553,6 +568,7 @@ def make_patch(base, addon_dir, key, seq, revoke=False):
 
 
 def cmd_patch(args):
+    warn_release_suites()
     if not os.path.exists(KEY_PATH):
         raise ReleaseError("no signing key: run 'release.py keygen' first")
     key = patchlib.load_key(KEY_PATH)

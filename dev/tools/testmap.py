@@ -37,6 +37,32 @@ COV_DIR = os.path.join(MAP_DIR, "cov")
 SRC_DIR = os.path.join(MAP_DIR, "src")
 
 
+# suite (tests/<area>/<file>) -> shard count, for tf_e/run_all.py. Only suites that would otherwise set the length
+# of a whole run.
+SHARDS = {
+    "scale/test_raid_night.py": 4,          # 4 cases of 1-4 minutes
+    "regressions/test_final_review.py": 3,
+    "patch/test_patch_net.py": 2,
+    "sync/test_sync_traffic.py": 2,
+    "strategy/test_strategy_3d.py": 2,
+}
+
+# Release-only: slow scale suites that call nearly everything, so they would rerun on almost any change. A normal
+# run_all leaves them out (and says so when they are due); --all, or a filter naming them, runs them. release.py warns
+# when one has not passed on the current sources (release_check).
+RELEASE_ONLY = {
+    "scale/test_raid_night.py",             # 60 members through a raid night: cases up to ~4 minutes
+}
+
+
+def task_names(suite):
+    """run_all's task names for a suite ("area/test_x.py"): one per shard."""
+    area, f = suite.split("/", 1)
+    base = "%s__%s" % (area, f[:-3])
+    n = SHARDS.get(suite, 1)
+    return [base] if n == 1 else ["%s.s%dof%d" % (base, i + 1, n) for i in range(n)]
+
+
 def cover_base(task_name):
     return os.path.join(COV_DIR, task_name + ".json")
 
@@ -369,6 +395,23 @@ def reason(task_name):
                 if m[0].intersection(called) or (m[1] and called):
                     return "%s: %s changed, read by %s" % (rel, name, rel2)
     return None
+
+
+def release_check():
+    """Problems with the release-only suites (RELEASE_ONLY) on the current sources: [] when every shard of each passed
+    and nothing it depends on changed since. release.py prints these as a warning."""
+    out = []
+    for suite in sorted(RELEASE_ONLY):
+        for n in task_names(suite):
+            c = cached_result(n)
+            why = reason(n)
+            if c is None:
+                out.append("%s: no passing run on record" % n)
+            elif why:
+                out.append("%s: not run since %s" % (n, why))
+            elif c[0] != 0:
+                out.append("%s: failed its last run (%s)" % (n, c[3]))
+    return out
 
 
 def prune(keep_days=3):
