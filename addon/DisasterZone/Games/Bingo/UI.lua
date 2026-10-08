@@ -1,28 +1,35 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Bingo/UI.lua", ...) then return end -- DisasterZone Games/Bingo/UI.lua
 -- ns.BingoUI: the Council Bingo panel and a small movable counter ("Bingo 12/25") shown while a game runs and
--- the main window is closed. The panel: a B-I-N-G-O card with square icons, your raid-marker "dauber" stamped on
--- every marked square with who set it off, a pulse on squares one away from a line, a gold line through every
--- completed line with a BINGO! slam, and a right column with the live race, the feed of marked squares and
--- the season leaderboard.
+-- the main window is closed.
+-- The panel, in the hub's look: a header banner (the raid's loading screen, LIVE, host, your marked / lines /
+-- one-away numbers, Start / End), the B-I-N-G-O card filling the stage (square icon + who set it off on top, the
+-- square's text under it, rarity on the edge; your raid-marker "dauber" stamped on every marked square, a pulse on
+-- squares one away from a line, a glowing gold line through every completed line with a BINGO! slam), and a right
+-- column with the live race, the feed of marked squares and the season leaderboard. Everything is laid out from
+-- the panel's size (the stage under the hub's strip).
 local addonName, ns = ...
 
 local BingoUI = ns:NewModule("BingoUI")
 local Util = ns.Util
 
-local CELL_W, CELL_H, GAP = 78, 72, 3
-local GRID_W, GRID_H = 5 * CELL_W + 4 * GAP, 5 * CELL_H + 4 * GAP
-local CARD_PAD, CARD_HEAD = 8, 24
-local CARD_W, CARD_H = GRID_W + 2 * CARD_PAD, GRID_H + 2 * CARD_PAD + CARD_HEAD
-local SIDE_W = 150
-local RACE_ROWS, FEED_ROWS, SEASON_ROWS = 8, 8, 5
+local floor, min, max = math.floor, math.min, math.max
+
+local PAD, GAP = 10, 8                       -- the page's spacing grid
+local HERO_H, SIDE_W, FOOT_H = 78, 236, 24   -- header banner, right column, dauber row under the card
+local LETTER_H, CARD_PAD, CELL_GAP = 22, 8, 4
+local FALLBACK_W, FALLBACK_H = 786, 518     -- the stage before the client has laid it out
+local RACE_ROWS, FEED_ROWS, SEASON_ROWS = 5, 5, 3
 local FONT = "Fonts\\FRIZQT__.TTF"
 local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
-local STAMP_ALPHA = 0.9
+local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+local RADIAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\MyBiS\\Radial"
+local SEAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\Launcher\\seal"
+local STAMP_ALPHA = 1
 
 local RARITY = {
-    c = { 0.85, 0.85, 0.85, name = "Common" },
-    r = { 0.35, 0.65, 1.0, name = "Rare" },
-    l = { 1.0, 0.5, 0.0, name = "Legendary" },
+    c = { 0.86, 0.86, 0.86, name = "Common", edge = 0.10 },
+    r = { 0.35, 0.65, 1.0, name = "Rare", edge = 0.45 },
+    l = { 1.0, 0.5, 0.0, name = "Legendary", edge = 0.7 },
 }
 local GOLD = { 1, 0.82, 0 }
 local LETTERS = {
@@ -30,8 +37,8 @@ local LETTERS = {
 }
 local MARKER_NAMES = { "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull" }
 
-local panel, card, cells, overlay, lineTex, slam, statusText, startBtn, stopBtn, announceBox
-local dauberBtns, raceRows, feedRows, seasonText, raceEmpty, feedEmpty
+local panel, hero, card, grid, cells, overlay, lineTex, lineGlow, slam, statusText, startBtn, stopBtn, announceBox
+local dauberBar, dauberBtns, side, raceRows, feedRows, seasonRows, raceEmpty, feedEmpty, seasonEmpty, stats
 local mini
 
 ---------------------------------------------------------------------------
@@ -91,23 +98,54 @@ local function WhoText(who)
     return "|cffffd100" .. who .. "|r"
 end
 
-local function KeyText(key)
+local function ClassOf(key)
     local info = Util.group and Util.group[key]
+    if info and info.classFile then return info.classFile end
+    return ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key) or nil
+end
+
+local function KeyText(key)
+    local cls = ClassOf(key)
     local name = ShortName(key)
-    if info and info.classFile then return "|c" .. Util.ClassColorHex(info.classFile) .. name .. "|r" end
+    if cls then return "|c" .. Util.ClassColorHex(cls) .. name .. "|r" end
     return name
 end
 
-local function Glow(frame, on)
-    local lib = LibStub and LibStub("LibCustomGlow-1.0", true)
-    if not lib or not lib.PixelGlow_Start then return end
-    if on and not frame.glowing then
-        pcall(lib.PixelGlow_Start, frame, { 1, 0.5, 0, 0.9 }, 8, 0.12, 10, 1, 0, 0, false, "cdlBingo")
-        frame.glowing = true
-    elseif not on and frame.glowing then
-        pcall(lib.PixelGlow_Stop, frame, "cdlBingo")
-        frame.glowing = nil
+local function ClassRGB(key)
+    local cls = ClassOf(key)
+    local c = cls and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cls]
+    if c then return c.r, c.g, c.b end
+    return 0.6, 0.6, 0.6
+end
+
+local function Label(parent, size, font, layer, flags)
+    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    if size then
+        local path, _, f = fs:GetFont()
+        if path then fs:SetFont(path, size, flags or f) end
     end
+    return fs
+end
+
+local gradA = CreateColor and CreateColor(0, 0, 0, 0)
+local gradB = CreateColor and CreateColor(0, 0, 0, 0)
+-- A gradient (orient "VERTICAL": colour 1 at the bottom) or, without SetGradient, its midpoint.
+local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
+    tex:SetColorTexture(1, 1, 1, 1)
+    if gradA and tex.SetGradient then
+        gradA:SetRGBA(r1, g1, b1, a1)
+        gradB:SetRGBA(r2, g2, b2, a2)
+        tex:SetGradient(orient, gradA, gradB)
+    else
+        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
+    end
+end
+
+-- A cell's fill, top colour then bottom colour.
+local function Fill(c, top, bottom)
+    Gradient(c.bg, "VERTICAL", bottom[1], bottom[2], bottom[3], bottom[4] or 0.95, top[1], top[2], top[3], top[4] or 0.95)
 end
 
 local function SetScaleAnim(a, from, to)
@@ -119,35 +157,49 @@ local function SetScaleAnim(a, from, to)
     end
 end
 
+local function Kicker(parent, text)
+    local fs = Label(parent, 9.5)
+    fs:SetTextColor(0.62, 0.62, 0.62)
+    fs:SetText(text)
+    return fs
+end
+
 ---------------------------------------------------------------------------
 -- Cells
 ---------------------------------------------------------------------------
 
+-- The dauber's ink: the colour of each raid marker (star, circle, diamond, triangle, moon, square, cross, skull).
+local INK = {
+    { 1, 0.86, 0.25 }, { 1, 0.56, 0.16 }, { 0.78, 0.4, 1 }, { 0.35, 0.9, 0.4 },
+    { 0.72, 0.82, 1 }, { 0.3, 0.62, 1 }, { 1, 0.3, 0.25 }, { 0.92, 0.92, 0.92 },
+}
+
+-- A square: one calm tile for every square (icon centred, the words under it); rarity is a small dot in the
+-- corner. Marked: a soft blot of your dauber's ink behind it and the marker in its corner. Who set it off is in
+-- the tooltip (and the Latest list).
 local function CreateCell(parent, i)
-    local b = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    b:SetSize(CELL_W, CELL_H)
-    local row, col = math.floor((i - 1) / 5), (i - 1) % 5
-    b:SetPoint("TOPLEFT", col * (CELL_W + GAP), -row * (CELL_H + GAP))
-    b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+    local b = CreateFrame("Frame", nil, parent)
+    b.index = i
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    ns.UI:AddEdges(b, "BORDER", true)
+    -- a completed line: a gold bar along the top
+    b.rare = b:CreateTexture(nil, "BORDER", nil, 1)
+    b.rare:SetPoint("TOPLEFT", 1, 0)
+    b.rare:SetPoint("TOPRIGHT", -1, 0)
+    b.rare:SetHeight(2)
+    b.rare:SetColorTexture(1, 0.82, 0, 1)
+    b.rare:Hide()
 
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(26, 26)
-    b.icon:SetPoint("TOP", 0, -5)
-    b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    b.icon2 = b:CreateTexture(nil, "ARTWORK", nil, 2)
-    b.icon2:SetSize(13, 13)
-    b.icon2:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", -4, -2)
-    b.badge = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
-    b.badge:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 3, -1)
-
-    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.text:SetPoint("TOPLEFT", 3, -33)
-    b.text:SetPoint("BOTTOMRIGHT", -3, 3)
-    b.text:SetJustifyH("CENTER")
-    b.text:SetJustifyV("MIDDLE")
+    -- the ink blot (marked), behind everything else on the square
+    b.ink = b:CreateTexture(nil, "BACKGROUND", nil, 2)
+    b.ink:SetTexture(RADIAL)
+    b.ink:SetPoint("CENTER", 0, 0)
+    b.ink:SetSize(70, 70)
+    b.ink:Hide()
 
     -- "one away" pulse
-    b.pulse = b:CreateTexture(nil, "BACKGROUND", nil, 2)
+    b.pulse = b:CreateTexture(nil, "BACKGROUND", nil, 3)
     b.pulse:SetPoint("TOPLEFT", 1, -1)
     b.pulse:SetPoint("BOTTOMRIGHT", -1, 1)
     b.pulse:SetColorTexture(1, 0.82, 0, 1)
@@ -157,18 +209,53 @@ local function CreateCell(parent, i)
     b.pulseAnim = b.pulse:CreateAnimationGroup()
     b.pulseAnim:SetLooping("BOUNCE")
     local p = b.pulseAnim:CreateAnimation("Alpha")
-    p:SetFromAlpha(0.04)
-    p:SetToAlpha(0.32)
-    p:SetDuration(0.7)
+    p:SetFromAlpha(0.02)
+    p:SetToAlpha(0.14)
+    p:SetDuration(0.9)
     p:SetSmoothing("IN_OUT")
 
-    -- the dauber stamp, the name ribbon and a flash when the stamp lands
-    b.stamp = b:CreateTexture(nil, "OVERLAY", nil, 5)
-    b.stamp:SetSize(34, 34)
-    b.stamp:SetPoint("CENTER", b.icon, "CENTER", 3, -3)
+    -- the words, on a frame above the gold threads of completed lines (CreateCard sets its level)
+    b.top = CreateFrame("Frame", nil, b)
+    b.top:SetAllPoints()
+    b.icon = b.top:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(20, 20)
+    b.icon:SetPoint("TOP", 0, -7)
+    b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.iconEdge = b.top:CreateTexture(nil, "ARTWORK", nil, -1)
+    b.iconEdge:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
+    b.iconEdge:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
+    b.iconEdge:SetColorTexture(0, 0, 0, 0.9)
+    b.icon2 = b.top:CreateTexture(nil, "ARTWORK", nil, 2)
+    b.icon2:SetSize(10, 10)
+    b.icon2:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", -4, -2)
+    b.badge = b.top:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.badge:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 3, -1)
+    b.dot = b.top:CreateTexture(nil, "ARTWORK")
+    b.dot:SetTexture(CIRCLE)
+    b.dot:SetSize(5, 5)
+    b.dot:SetPoint("TOPLEFT", 6, -6)
+    b.dot:Hide()
+
+    b.text = Label(b.top, 10, "GameFontHighlightSmall")
+    b.text:SetWordWrap(true)
+    b.text:SetJustifyH("CENTER")
+    b.text:SetJustifyV("TOP")
+    b.text:SetPoint("TOP", b.icon, "BOTTOM", 0, -5)
+    b.text:SetPoint("LEFT", 5, 0)
+    b.text:SetPoint("RIGHT", -5, 0)
+    b.text:SetPoint("BOTTOM", 0, 3)
+    -- (who set it off: kept for the tooltip and the tests, not drawn on the square)
+    b.who = Label(b.top, 10, "GameFontHighlightSmall")
+    b.who:Hide()
+    b.ribbon = b.who
+
+    -- the dauber's marker in the corner, landing with a stamp and a flash
+    b.stamp = b.top:CreateTexture(nil, "OVERLAY", nil, 5)
+    b.stamp:SetSize(16, 16)
+    b.stamp:SetPoint("TOPRIGHT", -4, -4)
     b.stampAnim = b.stamp:CreateAnimationGroup()
     local s = b.stampAnim:CreateAnimation("Scale")
-    SetScaleAnim(s, 2.6, 1)
+    SetScaleAnim(s, 2.8, 1)
     s:SetDuration(0.22)
     s:SetSmoothing("IN")
     if s.SetOrigin then s:SetOrigin("CENTER", 0, 0) end
@@ -179,36 +266,32 @@ local function CreateCell(parent, i)
     b.stampAnim:SetScript("OnFinished", function() b.stamp:SetAlpha(STAMP_ALPHA) end)
     b.stampParts = { s, a }
 
-    b.flash = b:CreateTexture(nil, "OVERLAY", nil, 6)
+    b.flash = b.top:CreateTexture(nil, "OVERLAY", nil, 6)
     b.flash:SetAllPoints()
-    b.flash:SetColorTexture(1, 1, 1, 1)
+    b.flash:SetColorTexture(1, 0.9, 0.5, 1)
     b.flash:SetBlendMode("ADD")
     b.flash:SetAlpha(0)
     b.flashAnim = b.flash:CreateAnimationGroup()
     local f = b.flashAnim:CreateAnimation("Alpha")
-    f:SetFromAlpha(0.55)
+    f:SetFromAlpha(0.35)
     f:SetToAlpha(0)
-    f:SetDuration(0.45)
+    f:SetDuration(0.5)
     b.flashAnim:SetScript("OnFinished", function() b.flash:SetAlpha(0) end)
     b.flashPart = f
 
-    b.ribbon = b:CreateTexture(nil, "OVERLAY", nil, 3)
-    b.ribbon:SetPoint("BOTTOMLEFT", 1, 1)
-    b.ribbon:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.ribbon:SetHeight(13)
-    b.ribbon:SetColorTexture(0, 0, 0, 0.8)
-    b.who = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    b.who:SetPoint("CENTER", b.ribbon, "CENTER", 0, 0)
-    b.who:SetPoint("LEFT", b.ribbon, "LEFT", 2, 0)
-    b.who:SetPoint("RIGHT", b.ribbon, "RIGHT", -2, 0)
-    b.who:SetWordWrap(false)
-    b.who:SetDrawLayer("OVERLAY", 4)
-
     b:EnableMouse(true)
     b:SetScript("OnEnter", function(self)
+        self.hl:Show()
         if self.tip then ns.UI:SetTextTooltip(self, self.tip) end
     end)
-    b:SetScript("OnLeave", function() ns.UI:HideTooltip() end)
+    b:SetScript("OnLeave", function(self)
+        self.hl:Hide()
+        ns.UI:HideTooltip()
+    end)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.035)
+    b.hl:Hide()
     return b
 end
 
@@ -237,13 +320,13 @@ local function SetPulse(c, on)
 end
 
 local function ShowStamp(c, who, isNew, delay)
-    c.stamp:SetTexture(RAID_ICON .. Dauber())
-    if c.stamp.SetRotation then c.stamp:SetRotation(c.angle or 0) end
+    local n = Dauber()
+    c.stamp:SetTexture(RAID_ICON .. n)
     c.stamp:Show()
-    c.ribbon:Show()
+    local ink = INK[n] or INK[1]
+    c.ink:SetVertexColor(ink[1], ink[2], ink[3], 0.22)
+    c.ink:Show()
     c.who:SetText(who or "")
-    c.who:Show()
-    c.text:SetPoint("BOTTOMRIGHT", -3, 14)
     if isNew then
         StampIn(c, delay)
     elseif not c.stampAnim:IsPlaying() then
@@ -254,9 +337,8 @@ end
 local function HideStamp(c)
     c.stampAnim:Stop()
     c.stamp:Hide()
-    c.ribbon:Hide()
-    c.who:Hide()
-    c.text:SetPoint("BOTTOMRIGHT", -3, 3)
+    c.ink:Hide()
+    c.who:SetText("")
 end
 
 ---------------------------------------------------------------------------
@@ -266,17 +348,40 @@ end
 local function CreateSlam(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetAllPoints()
-    f:SetFrameLevel(parent:GetFrameLevel() + 5)
+    f:SetFrameLevel(parent:GetFrameLevel() + 8)     -- (over the squares' words, which sit over the lines)
     f.band = f:CreateTexture(nil, "BACKGROUND")
     f.band:SetPoint("LEFT")
     f.band:SetPoint("RIGHT")
-    f.band:SetHeight(70)
-    f.band:SetColorTexture(0, 0, 0, 0.75)
+    f.band:SetHeight(84)
+    f.bandL = f:CreateTexture(nil, "BACKGROUND")
+    f.bandL:SetPoint("TOPLEFT", f.band, "TOPLEFT")
+    f.bandL:SetPoint("BOTTOMRIGHT", f.band, "BOTTOM")
+    Gradient(f.bandL, "HORIZONTAL", 0, 0, 0, 0, 0, 0, 0, 0.82)
+    f.bandR = f:CreateTexture(nil, "BACKGROUND")
+    f.bandR:SetPoint("TOPLEFT", f.band, "TOP")
+    f.bandR:SetPoint("BOTTOMRIGHT", f.band, "BOTTOMRIGHT")
+    Gradient(f.bandR, "HORIZONTAL", 0, 0, 0, 0.82, 0, 0, 0, 0)
+    f.edgeT = f:CreateTexture(nil, "BORDER")
+    f.edgeT:SetPoint("BOTTOMLEFT", f.band, "TOPLEFT", 40, 0)
+    f.edgeT:SetPoint("BOTTOMRIGHT", f.band, "TOPRIGHT", -40, 0)
+    f.edgeT:SetHeight(1)
+    f.edgeB = f:CreateTexture(nil, "BORDER")
+    f.edgeB:SetPoint("TOPLEFT", f.band, "BOTTOMLEFT", 40, 0)
+    f.edgeB:SetPoint("TOPRIGHT", f.band, "BOTTOMRIGHT", -40, 0)
+    f.edgeB:SetHeight(1)
+    f.burst = f:CreateTexture(nil, "ARTWORK")
+    f.burst:SetTexture(RADIAL)
+    f.burst:SetBlendMode("ADD")
+    f.burst:SetSize(340, 160)
+    f.burst:SetPoint("CENTER", 0, 4)
     f.text = f:CreateFontString(nil, "OVERLAY")
-    f.text:SetFont(FONT, 46, "THICKOUTLINE")
-    f.text:SetPoint("CENTER", 0, 4)
-    f.sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.sub:SetPoint("TOP", f.text, "BOTTOM", 0, -2)
+    f.text:SetFont(FONT, 44, "OUTLINE")
+    f.text:SetShadowOffset(2, -2)
+    f.text:SetShadowColor(0, 0, 0, 1)
+    f.text:SetPoint("CENTER", 0, 6)
+    f.sub = Label(f, 11)
+    f.sub:SetJustifyH("CENTER")
+    f.sub:SetPoint("TOP", f.text, "BOTTOM", 0, -3)
     f.anim = f:CreateAnimationGroup()
     local fadeIn = f.anim:CreateAnimation("Alpha")
     fadeIn:SetFromAlpha(0)
@@ -298,6 +403,9 @@ local function CreateSlam(parent)
     function f:Slam(text, color, sub)
         self.text:SetText(text)
         self.text:SetTextColor(color[1], color[2], color[3])
+        self.burst:SetVertexColor(color[1], color[2], color[3], 0.55)
+        self.edgeT:SetColorTexture(color[1], color[2], color[3], 0.7)
+        self.edgeB:SetColorTexture(color[1], color[2], color[3], 0.7)
         self.sub:SetText(sub or "")
         self:Show()
         self.anim:Stop()
@@ -310,31 +418,51 @@ end
 -- Right column
 ---------------------------------------------------------------------------
 
-local function CreateRow(parent, height)
+-- A list row: a quiet plate, a coloured edge on the left (mine / a bingo), a progress line along its foot,
+-- left and right text; r.icon when withIcon.
+local function CreateRow(parent, height, withIcon)
     local r = CreateFrame("Frame", nil, parent)
-    r:SetSize(SIDE_W, height)
-    r.bar = r:CreateTexture(nil, "BACKGROUND")
-    r.bar:SetPoint("TOPLEFT")
+    r:SetHeight(height)
+    r.plate = r:CreateTexture(nil, "BACKGROUND")
+    r.plate:SetAllPoints()
+    r.plate:SetColorTexture(1, 1, 1, 0.025)
+    r.mark = r:CreateTexture(nil, "BORDER")
+    r.mark:SetPoint("TOPLEFT")
+    r.mark:SetPoint("BOTTOMLEFT")
+    r.mark:SetWidth(2)
+    r.mark:Hide()
+    r.bar = r:CreateTexture(nil, "BORDER", nil, 1)
     r.bar:SetPoint("BOTTOMLEFT")
+    r.bar:SetHeight(2)
     r.bar:SetWidth(1)
-    r.left = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.left:SetPoint("LEFT", 3, 0)
-    r.left:SetJustifyH("LEFT")
-    r.left:SetWordWrap(false)
-    r.right = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.right:SetPoint("RIGHT", -3, 0)
+    local x = 8
+    if withIcon then
+        r.icon = r:CreateTexture(nil, "ARTWORK")
+        r.icon:SetSize(14, 14)
+        r.icon:SetPoint("LEFT", 6, 0)
+        r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        x = 26
+    end
+    r.left = Label(r, 11, "GameFontHighlightSmall")
+    r.left:SetPoint("LEFT", x, 0)
+    r.right = Label(r, 11, "GameFontHighlightSmall")
     r.right:SetJustifyH("RIGHT")
-    r.left:SetPoint("RIGHT", r.right, "LEFT", -4, 0)
+    r.right:SetPoint("RIGHT", -8, 0)
+    r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
     r:EnableMouse(true)
     r:SetScript("OnEnter", function(self)
+        self.plate:SetColorTexture(1, 1, 1, 0.06)
         if self.tip then ns.UI:SetTextTooltip(self, self.tip, "ANCHOR_LEFT") end
     end)
-    r:SetScript("OnLeave", function() ns.UI:HideTooltip() end)
+    r:SetScript("OnLeave", function(self)
+        self.plate:SetColorTexture(1, 1, 1, 0.025)
+        ns.UI:HideTooltip()
+    end)
     r:Hide()
     return r
 end
 
-local function SeasonBoard()
+local function SeasonRows()
     local rows = {}
     for key, r in pairs(ns.Bingo:GetSeason()) do
         rows[#rows + 1] = { key = key, b = r.bingos or 0, f = r.firsts or 0, x = r.blackouts or 0 }
@@ -344,22 +472,37 @@ local function SeasonBoard()
         if a.f ~= b.f then return a.f > b.f end
         return a.key < b.key
     end)
-    local lines = {}
-    for i = 1, math.min(#rows, SEASON_ROWS) do
+    return rows
+end
+
+local function RefreshSeason()
+    local rows = SeasonRows()
+    local top = rows[1] and max(1, rows[1].b) or 1
+    for i, row in ipairs(seasonRows) do
         local r = rows[i]
-        lines[#lines + 1] = string.format("%d. %s  |cffffffff%d|r%s%s", i, KeyText(r.key), r.b,
-            r.f > 0 and ("  |cff33ff99" .. r.f .. " first|r") or "",
-            r.x > 0 and ("  |cffff8000" .. r.x .. " blackout|r") or "")
+        if r then
+            local medal = i == 1 and "|cffffd100" or i == 2 and "|cffc0c0c8" or i == 3 and "|cffcd7f32" or "|cff8a8a8a"
+            row.left:SetText(medal .. i .. "|r   " .. KeyText(r.key))
+            row.right:SetText("|cffffffff" .. r.b .. "|r |cff8a8a8a" .. (r.b == 1 and "bingo" or "bingos") .. "|r")
+            row.bar:SetWidth(max(1, (row:GetWidth() > 0 and row:GetWidth() or SIDE_W) * r.b / top))
+            row.bar:SetColorTexture(1, 0.82, 0, i == 1 and 0.7 or 0.35)
+            local tip = { ShortName(r.key), string.format("%d bingo%s this season", r.b, r.b == 1 and "" or "s") }
+            if r.f > 0 then tip[#tip + 1] = { r.f .. " first of the game", 0.2, 1, 0.6 } end
+            if r.x > 0 then tip[#tip + 1] = { r.x .. " blackout" .. (r.x == 1 and "" or "s"), 1, 0.5, 0 } end
+            row.tip = tip
+            row:Show()
+        else
+            row:Hide()
+        end
     end
-    if #rows == 0 then lines[#lines + 1] = "|cff888888No bingos yet.|r" end
-    return table.concat(lines, "\n")
+    seasonEmpty:SetShown(#rows == 0)
 end
 
 local function RefreshRace(g)
     local race = g and ns.Bingo:GetRace() or {}
     local me = Util.PlayerKey()
     local shown = {}
-    for i = 1, math.min(#race, RACE_ROWS) do shown[i] = race[i] end
+    for i = 1, min(#race, RACE_ROWS) do shown[i] = race[i] end
     if #race > RACE_ROWS then
         local mine
         for i = RACE_ROWS + 1, #race do if race[i].key == me then mine = race[i] end end
@@ -372,17 +515,19 @@ local function RefreshRace(g)
         if r then
             local pos = i
             for j, x in ipairs(race) do if x == r then pos = j end end
-            local nameText = KeyText(r.key)
-            if r.key == me then nameText = "|cffffd100>|r " .. nameText end
-            row.left:SetText(pos .. ". " .. nameText)
+            row.left:SetText("|cff8a8a8a" .. pos .. "|r   " .. KeyText(r.key))
+            local w = row:GetWidth() > 0 and row:GetWidth() or SIDE_W
             if r.lines > 0 then
                 row.right:SetText("|cffffd100BINGO" .. (r.lines > 1 and (" x" .. r.lines) or "") .. "|r")
-                row.bar:SetColorTexture(0.6, 0.45, 0, 0.45)
+                row.bar:SetColorTexture(1, 0.82, 0, 0.8)
             else
-                row.right:SetText(r.marked .. "/25")
-                row.bar:SetColorTexture(0.2, 0.55, 0.2, r.key == me and 0.5 or 0.3)
+                row.right:SetText(r.marked .. "|cff8a8a8a/25|r")
+                local cr, cg, cb = ClassRGB(r.key)
+                row.bar:SetColorTexture(cr, cg, cb, 0.65)
             end
-            row.bar:SetWidth(math.max(1, SIDE_W * r.marked / 25))
+            row.bar:SetWidth(max(1, w * r.marked / 25))
+            row.mark:SetShown(r.key == me)
+            row.mark:SetColorTexture(1, 0.82, 0, 1)
             local tip = { ShortName(r.key), string.format("%d/25 marked, %d line%s", r.marked, r.lines,
                 r.lines == 1 and "" or "s") }
             if winnerAt[r.key] then
@@ -405,11 +550,14 @@ local function RefreshFeed(g)
         if e then
             local sq = ns.BingoSquares:Get(e.id)
             local icon = ns.BingoSquares:Icon(sq)
-            local who = e.who and WhoText(e.who) or "|cff888888someone|r"
-            row.left:SetText(string.format("|T%s:12:12:0:0:64:64:5:59:5:59|t %s", tostring(icon), who))
-            row.right:SetText("|cff888888" .. date("%H:%M", e.t) .. "|r")
-            row.bar:SetColorTexture(0, 0, 0, 0)
+            row.icon:SetTexture(icon)
             local col = RARITY[sq and sq.rarity] or RARITY.c
+            row.left:SetText(e.who and WhoText(e.who) or "|cff8a8a8asomeone|r")
+            row.right:SetText("|cff8a8a8a" .. date("%H:%M", e.t) .. "|r")
+            row.mark:SetShown(sq and sq.rarity ~= "c")
+            row.mark:SetColorTexture(col[1], col[2], col[3], 1)
+            row.bar:SetWidth(1)
+            row.bar:SetColorTexture(0, 0, 0, 0)
             local tip = { { sq and sq.text or e.id, col[1], col[2], col[3], wrap = true } }
             if e.who then tip[#tip + 1] = "Set off by " .. e.who end
             tip[#tip + 1] = "Marked at " .. date("%H:%M", e.t)
@@ -420,6 +568,52 @@ local function RefreshFeed(g)
         end
     end
     feedEmpty:SetShown(#feed == 0)
+end
+
+---------------------------------------------------------------------------
+-- Layout: everything from the panel's size
+---------------------------------------------------------------------------
+
+local function Layout()
+    if not panel then return end
+    local W, H = panel:GetWidth() or 0, panel:GetHeight() or 0
+    if W < 300 or H < 300 then W, H = FALLBACK_W, FALLBACK_H end
+    hero:SetHeight(HERO_H)
+    local cardW = W - 2 * PAD - GAP - SIDE_W
+    local cardH = H - HERO_H - 2 * PAD
+    card:ClearAllPoints()
+    card:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -(HERO_H + PAD))
+    card:SetSize(cardW, cardH)
+    local gw = cardW - 2 * CARD_PAD
+    local gh = cardH - 2 * CARD_PAD - LETTER_H
+    local cw = floor((gw - 4 * CELL_GAP) / 5)
+    local ch = floor((gh - 4 * CELL_GAP) / 5)
+    gw, gh = 5 * cw + 4 * CELL_GAP, 5 * ch + 4 * CELL_GAP
+    grid:ClearAllPoints()
+    grid:SetPoint("TOP", card, "TOP", 0, -(CARD_PAD + LETTER_H))
+    grid:SetSize(gw, gh)
+    for i, c in ipairs(cells) do
+        local row, col = floor((i - 1) / 5), (i - 1) % 5
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", grid, "TOPLEFT", col * (cw + CELL_GAP), -row * (ch + CELL_GAP))
+        c:SetSize(cw, ch)
+        c.ink:SetSize(min(cw, ch) * 1.3, min(cw, ch) * 1.3)
+    end
+    for col, fs in ipairs(card.letters) do
+        fs:ClearAllPoints()
+        fs:SetPoint("BOTTOM", grid, "TOPLEFT", (col - 1) * (cw + CELL_GAP) + cw / 2, 4)
+    end
+    side:ClearAllPoints()
+    side:SetPoint("TOPLEFT", card, "TOPRIGHT", GAP, 0)
+    side:SetSize(SIDE_W, H - HERO_H - 2 * PAD)
+    -- your dauber and the announce switch close the right column
+    announceBox:ClearAllPoints()
+    announceBox:SetPoint("BOTTOMLEFT", side, "BOTTOMLEFT", -4, 0)
+    dauberBar:ClearAllPoints()
+    dauberBar:SetPoint("BOTTOMLEFT", announceBox, "TOPLEFT", 4, 2)
+    if hero.art:IsShown() and ns.GamesUI and ns.GamesUI.CropArt then
+        ns.GamesUI.CropArt(hero.art, W, HERO_H, hero.focus)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -438,6 +632,90 @@ local function CellTip(sq, hit, g, away)
         if away then tip[#tip + 1] = { "One away from a line!", 1, 0.82, 0 } end
     end
     return tip
+end
+
+local DARK_TOP, DARK_BOTTOM = { 0.12, 0.12, 0.138 }, { 0.085, 0.085, 0.1 }
+local HIT_TOP, HIT_BOTTOM = { 0.15, 0.13, 0.08 }, { 0.09, 0.08, 0.05 }
+local LINE_TOP, LINE_BOTTOM = { 0.25, 0.19, 0.05 }, { 0.14, 0.105, 0.03 }
+
+local function PaintStat(s, value, label, r, g, b)
+    s.value:SetText(value)
+    s.value:SetTextColor(r or 1, g or 1, b or 1)
+    s.label:SetText(label)
+    s:Show()
+end
+
+local function RefreshHero(g, active, marked, lines, awayCount)
+    local Bingo = ns.Bingo
+    -- the art: the raid you're in while it runs, else Karazhan
+    local key = active and ns.GamesUI and ns.GamesUI.InstanceHere and ns.GamesUI:InstanceHere()
+    if ns.GamesUI and ns.GamesUI.RaidArt then
+        local file, focus = ns.GamesUI:RaidArt(key or "kara")
+        if hero.file ~= file then
+            hero.file, hero.focus = file, focus
+            hero.art:SetTexture(file)
+            hero.art:Show()
+            Layout()
+        end
+    end
+    local inst = active and GetInstanceInfo and select(2, GetInstanceInfo()) == "raid" and GetInstanceInfo()
+    if active then
+        hero.kicker:SetText(inst and ("LIVE   \194\183   " .. inst:upper()) or "LIVE")
+        hero.kicker:SetTextColor(1, 1, 1)
+    elseif g then
+        hero.kicker:SetText("FINISHED")
+        hero.kicker:SetTextColor(0.62, 0.62, 0.62)
+    else
+        hero.kicker:SetText("RAID NIGHT")
+        hero.kicker:SetTextColor(0.62, 0.62, 0.62)
+    end
+    hero.dot:SetShown(active and true or false)
+    hero.dotGlow:SetShown(active and true or false)
+    hero.kicker:ClearAllPoints()
+    hero.kicker:SetPoint("TOPLEFT", active and 31 or 16, -14)
+    hero.edge:SetShown(active and true or false)
+
+    if not g then
+        statusText:SetText("No game yet. The raid leader starts one with |cffffd100/dz bingo start|r.")
+    else
+        local parts = { "host " .. ShortName(g.host or "?") }
+        if g.started then parts[#parts + 1] = "started " .. date("%H:%M", g.started) end
+        if active and awayCount > 0 then
+            parts[#parts + 1] = string.format("|cffffd100%d one away!|r", awayCount)
+        end
+        statusText:SetText(table.concat(parts, "   \194\183   "))
+    end
+
+    -- the numbers (right), then the buttons that apply
+    local showStart = Bingo:CanStart() and not active
+    local showStop = active and Bingo:IsHost()
+    startBtn:SetShown(showStart)
+    startBtn:SetEnabled(showStart)
+    stopBtn:SetShown(showStop)
+    stopBtn:SetEnabled(showStop)
+    local right = hero
+    local rx = -16
+    for _, b in ipairs({ startBtn, stopBtn }) do
+        if b:IsShown() then
+            b:ClearAllPoints()
+            b:SetPoint("RIGHT", right, right == hero and "RIGHT" or "LEFT", rx, 0)
+            right, rx = b, -8
+        end
+    end
+    if g then
+        stats[1]:Hide()
+        PaintStat(stats[2], tostring(lines), lines == 1 and "LINE" or "LINES", 1, lines > 0 and 0.82 or 1, lines > 0 and 0 or 1)
+        PaintStat(stats[3], marked .. "|cff8a8a8a/25|r", "MARKED")
+        local anchor, ax = right, right == hero and -18 or -22
+        for i = 3, 2, -1 do
+            local s = stats[i]
+            s:ClearAllPoints()
+            s:SetPoint("RIGHT", anchor, anchor == hero and "RIGHT" or "LEFT", ax, 0)
+            anchor, ax = s, -18
+        end
+    else
+        for _, s in ipairs(stats) do s:Hide() end
+    end
 end
 
 function BingoUI:Refresh()
@@ -459,37 +737,43 @@ function BingoUI:Refresh()
     if type(view.hits) ~= "table" then view.hits = {} end
     local newCount, awayCount = 0, 0
 
+    local inkC = INK[Dauber()] or INK[1]
     for i = 1, 25 do
         local c = cells[i]
         local id = cardIds and cardIds[i]
-        c.angle = ((i * 37) % 60 - 30) / 100
+        c.rare:Hide()
+        c.dot:Hide()
         if not id then
             c.icon:SetTexture(nil)
+            c.iconEdge:Hide()
             c.icon2:Hide()
             c.badge:SetText("")
             c.text:SetText("")
             c.tip = nil
             HideStamp(c)
             SetPulse(c, false)
-            Glow(c, false)
-            c:SetBackdropColor(0.05, 0.05, 0.05, 0.6)
-            c:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.6)
+            Fill(c, { 0.09, 0.09, 0.105, 0.7 }, { 0.06, 0.06, 0.07, 0.7 })
+            ns.UI:SetEdgeColor(c, 1, 1, 1, 0.04)
         elseif id == ns.BingoSquares.FREE then
-            c.icon:SetTexture(ns.BingoSquares.FREE_ICON)
-            c.icon:SetAlpha(0.55)
+            c.icon:SetTexture(SEAL)
+            c.icon:SetTexCoord(0, 1, 0, 1)
+            c.icon:SetAlpha(1)
+            if c.icon.SetDesaturated then c.icon:SetDesaturated(false) end
+            c.iconEdge:Hide()
             c.icon2:Hide()
             c.badge:SetText("")
-            c.text:SetText("|cffff8000Casual Disaster|r")
+            c.text:SetText("|cffffd100FREE|r")
             c.tip = { { "Casual Disaster", 1, 0.5, 0 }, "Free square: everyone starts with the centre." }
-            ShowStamp(c, "|cffff8000FREE|r", false)
+            HideStamp(c)
+            c.who:SetText("FREE")
             SetPulse(c, false)
-            Glow(c, false)
             if onLine[i] then
-                c:SetBackdropColor(0.35, 0.26, 0.03, 0.95)
-                c:SetBackdropBorderColor(1, 0.82, 0, 1)
+                Fill(c, LINE_TOP, LINE_BOTTOM)
+                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.9)
+                c.rare:Show()
             else
-                c:SetBackdropColor(0.3, 0.14, 0, 0.9)
-                c:SetBackdropBorderColor(1, 0.5, 0, 1)
+                Fill(c, { 0.16, 0.13, 0.06 }, { 0.09, 0.075, 0.035 })
+                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.3)
             end
         else
             local sq = ns.BingoSquares:Get(id)
@@ -497,7 +781,10 @@ function BingoUI:Refresh()
             local hit = hits[id] ~= nil
             local icon, icon2 = ns.BingoSquares:Icon(sq)
             c.icon:SetTexture(icon)
-            c.icon:SetAlpha(hit and 0.55 or 1)
+            c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            c.icon:SetAlpha(1)
+            if c.icon.SetDesaturated then c.icon:SetDesaturated(false) end
+            c.iconEdge:Show()
             if icon2 then
                 c.icon2:SetTexture(icon2)
                 c.icon2:Show()
@@ -506,8 +793,12 @@ function BingoUI:Refresh()
             end
             c.badge:SetText(sq.badge or "")
             c.text:SetText(sq.text)
-            c.text:SetTextColor(hit and 1 or col[1], hit and 1 or col[2], hit and 1 or col[3])
+            c.text:SetTextColor(hit and 1 or 0.78, hit and 1 or 0.78, hit and 1 or 0.8)
             c.tip = CellTip(sq, hit, g, away[i])
+            if sq.rarity ~= "c" and not hit then
+                c.dot:SetVertexColor(col[1], col[2], col[3], 1)
+                c.dot:Show()
+            end
             if hit then
                 local isNew = not view.hits[id]
                 if isNew then
@@ -515,25 +806,25 @@ function BingoUI:Refresh()
                     newCount = newCount + 1
                 end
                 local who = Bingo:GetWho(id)
-                ShowStamp(c, who and WhoText(who) or "|cff888888marked|r", isNew, (newCount - 1) * 0.12)
+                ShowStamp(c, who and WhoText(who) or "marked", isNew, (newCount - 1) * 0.12)
             else
                 HideStamp(c)
             end
             SetPulse(c, away[i] and active)
             if away[i] then awayCount = awayCount + 1 end
-            Glow(c, sq.rarity == "l" and not hit)
             if onLine[i] then
-                c:SetBackdropColor(0.35, 0.26, 0.03, 0.95)
-                c:SetBackdropBorderColor(1, 0.82, 0, 1)
+                Fill(c, LINE_TOP, LINE_BOTTOM)
+                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.9)
+                c.rare:Show()
             elseif hit then
-                c:SetBackdropColor(0.1, 0.24, 0.1, 0.92)
-                c:SetBackdropBorderColor(col[1], col[2], col[3], 1)
+                Fill(c, { 0.13 + inkC[1] * 0.04, 0.13 + inkC[2] * 0.04, 0.14 + inkC[3] * 0.04 }, DARK_BOTTOM)
+                ns.UI:SetEdgeColor(c, inkC[1], inkC[2], inkC[3], 0.35)
             elseif away[i] and active then
-                c:SetBackdropColor(0.06, 0.06, 0.07, 0.92)
-                c:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+                Fill(c, DARK_TOP, DARK_BOTTOM)
+                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.7)
             else
-                c:SetBackdropColor(0.06, 0.06, 0.07, 0.92)
-                c:SetBackdropBorderColor(col[1], col[2], col[3], 0.6)
+                Fill(c, DARK_TOP, DARK_BOTTOM)
+                ns.UI:SetEdgeColor(c, 1, 1, 1, 0.06)
             end
         end
     end
@@ -541,11 +832,14 @@ function BingoUI:Refresh()
     -- gold lines through completed lines
     local isFull = {}
     for _, li in ipairs(full) do isFull[li] = true end
-    for li, tex in ipairs(lineTex) do tex:SetShown(isFull[li] == true) end
+    for li, tex in ipairs(lineTex) do
+        tex:SetShown(isFull[li] == true)
+        lineGlow[li]:SetShown(isFull[li] == true)
+    end
 
     -- the slam, once per new line / blackout (waits until the card is on screen)
     if g and cardIds then
-        local delay = newCount > 0 and math.min(1.5, newCount * 0.12 + 0.2) or 0
+        local delay = newCount > 0 and min(1.5, newCount * 0.12 + 0.2) or 0
         local function Celebrate(text, color, sub)
             if delay > 0 then
                 C_Timer.After(delay, function() slam:Slam(text, color, sub) end)
@@ -565,49 +859,106 @@ function BingoUI:Refresh()
         end
     end
 
-    -- header
-    if not g then
-        statusText:SetText("No game yet. The raid leader starts one with |cffffd100/dz bingo start|r.")
-    else
-        local host = ShortName(g.host or "?")
-        statusText:SetText(string.format("%s  ·  host %s  ·  %d/25 marked  ·  %d line%s%s",
-            active and "|cff33ff99Live|r" or "|cff888888Finished|r", host, marked, lines, lines == 1 and "" or "s",
-            (active and awayCount > 0) and string.format("  ·  |cffff8000%d one away!|r", awayCount) or ""))
-    end
-    startBtn:SetEnabled(Bingo:CanStart() and not active)
-    stopBtn:SetEnabled(active and Bingo:IsHost())
+    RefreshHero(g, active, marked, lines, awayCount)
     announceBox:SetChecked(Bingo:GetAnnounce())
     local dauber = Dauber()
     for i, b in ipairs(dauberBtns) do
         b.sel:SetShown(i == dauber)
-        b.tex:SetAlpha(i == dauber and 1 or 0.45)
+        b.selEdge:SetShown(i == dauber)
+        b.tex:SetAlpha(i == dauber and 1 or 0.4)
     end
     RefreshRace(g)
     RefreshFeed(g)
-    seasonText:SetText(SeasonBoard())
+    RefreshSeason()
 end
 
 ---------------------------------------------------------------------------
 -- Panel
 ---------------------------------------------------------------------------
 
+local function CreateHero(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetPoint("TOPLEFT")
+    f:SetPoint("TOPRIGHT")
+    f:SetHeight(HERO_H)
+    f.base = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    f.base:SetAllPoints()
+    f.base:SetColorTexture(0.078, 0.078, 0.09, 1)
+    f.art = f:CreateTexture(nil, "BACKGROUND", nil, -7)
+    f.art:SetAllPoints()
+    f.art:SetVertexColor(0.85, 0.85, 0.88)
+    f.art:Hide()
+    f.fade = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+    f.fade:SetPoint("TOPLEFT")
+    f.fade:SetPoint("BOTTOMLEFT")
+    f.fade:SetPoint("RIGHT", f, "CENTER", 60, 0)
+    Gradient(f.fade, "HORIZONTAL", 0.078, 0.078, 0.09, 0.97, 0.078, 0.078, 0.09, 0.35)
+    f.fadeR = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+    f.fadeR:SetPoint("TOPLEFT", f.fade, "TOPRIGHT")
+    f.fadeR:SetPoint("BOTTOMRIGHT")
+    Gradient(f.fadeR, "HORIZONTAL", 0.078, 0.078, 0.09, 0.35, 0.078, 0.078, 0.09, 0.9)
+    f.line = f:CreateTexture(nil, "BORDER")
+    f.line:SetPoint("BOTTOMLEFT")
+    f.line:SetPoint("BOTTOMRIGHT")
+    f.line:SetHeight(1)
+    f.line:SetColorTexture(1, 1, 1, 0.07)
+    f.edge = f:CreateTexture(nil, "BORDER", nil, 1)
+    f.edge:SetPoint("TOPLEFT")
+    f.edge:SetPoint("TOPRIGHT")
+    f.edge:SetHeight(2)
+    Gradient(f.edge, "HORIZONTAL", 1, 0.29, 0.24, 1, 1, 0.82, 0, 1)
+    f.edge:Hide()
+
+    f.dot = f:CreateTexture(nil, "OVERLAY")
+    f.dot:SetTexture(CIRCLE)
+    f.dot:SetSize(7, 7)
+    f.dot:SetVertexColor(1, 0.29, 0.24)
+    f.dot:SetPoint("TOPLEFT", 16, -15)
+    f.dotGlow = f:CreateTexture(nil, "ARTWORK")
+    f.dotGlow:SetTexture(RADIAL)
+    f.dotGlow:SetBlendMode("ADD")
+    f.dotGlow:SetVertexColor(1, 0.29, 0.24, 0.6)
+    f.dotGlow:SetSize(22, 22)
+    f.dotGlow:SetPoint("CENTER", f.dot, "CENTER")
+    f.kicker = Label(f, 9.5)
+    f.title = Label(f, 22, "GameFontHighlightLarge")
+    f.title:SetText("Council Bingo")
+    f.title:SetPoint("TOPLEFT", 16, -30)
+    f.title:SetShadowOffset(1, -1)
+    return f
+end
+
+local function CreateStat(parent)
+    local s = CreateFrame("Frame", nil, parent)
+    s:SetSize(64, 40)
+    s.value = Label(s, 20, "GameFontHighlightLarge")
+    s.value:SetJustifyH("RIGHT")
+    s.value:SetPoint("TOPRIGHT", 0, -2)
+    s.label = Label(s, 9)
+    s.label:SetJustifyH("RIGHT")
+    s.label:SetTextColor(0.55, 0.55, 0.55)
+    s.label:SetPoint("TOPRIGHT", s.value, "BOTTOMRIGHT", 0, -3)
+    s:Hide()
+    return s
+end
+
 local function CreateCard(parent)
-    local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    f:SetSize(CARD_W, CARD_H)
-    f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border",
-        tile = false, edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-    f:SetBackdropColor(0.17, 0.05, 0.04, 0.95)
+    local f = CreateFrame("Frame", nil, parent)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    Gradient(f.bg, "VERTICAL", 0.05, 0.05, 0.06, 0.92, 0.085, 0.085, 0.1, 0.92)
+    ns.UI:AddEdges(f, "BORDER")
+    ns.UI:SetEdgeColor(f, 1, 1, 1, 0.07)
 
-    local grid = CreateFrame("Frame", nil, f)
-    grid:SetSize(GRID_W, GRID_H)
-    grid:SetPoint("TOPLEFT", CARD_PAD, -(CARD_PAD + CARD_HEAD))
-
+    grid = CreateFrame("Frame", nil, f)
+    f.letters = {}
     for c, l in ipairs(LETTERS) do
         local fs = f:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(FONT, 20, "THICKOUTLINE")
+        fs:SetFont(FONT, 15, "")
         fs:SetText(l[1])
-        fs:SetTextColor(l[2], l[3], l[4])
-        fs:SetPoint("BOTTOM", grid, "TOPLEFT", (c - 1) * (CELL_W + GAP) + CELL_W / 2, 3)
+        fs:SetTextColor(0.62, 0.62, 0.65)
+        fs:SetShadowOffset(1, -1)
+        f.letters[c] = fs
     end
 
     cells = {}
@@ -617,12 +968,21 @@ local function CreateCard(parent)
     overlay = CreateFrame("Frame", nil, grid)
     overlay:SetAllPoints()
     overlay:SetFrameLevel(grid:GetFrameLevel() + 10)
-    lineTex = {}
+    for _, c in ipairs(cells) do c.top:SetFrameLevel(grid:GetFrameLevel() + 12) end
+    lineTex, lineGlow = {}, {}
     for li, line in ipairs(ns.BingoCard.LINES) do
         local a, b = cells[line[1]], cells[line[#line]]
-        local t = overlay:CreateLine(nil, "OVERLAY")
-        t:SetThickness(5)
-        t:SetColorTexture(1, 0.82, 0, 0.85)
+        -- a completed line: a gold thread behind the squares, seen in the gaps between them
+        local glow = grid:CreateLine(nil, "BACKGROUND")
+        glow:SetThickness(10)
+        glow:SetColorTexture(1, 0.82, 0, 0.25)
+        glow:SetStartPoint("CENTER", a)
+        glow:SetEndPoint("CENTER", b)
+        glow:Hide()
+        lineGlow[li] = glow
+        local t = grid:CreateLine(nil, "ARTWORK")
+        t:SetThickness(3)
+        t:SetColorTexture(1, 0.86, 0.2, 1)
         t:SetStartPoint("CENTER", a)
         t:SetEndPoint("CENTER", b)
         t:Hide()
@@ -632,102 +992,100 @@ local function CreateCard(parent)
     return f
 end
 
-local function CreateDauberPicker(parent)
+local function CreateDauberBar(parent)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(48 + 8 * 20, 20)
-    local label = ns.UI:CreateLabel(f, "Dauber", "GameFontNormalSmall")
+    f:SetSize(SIDE_W, FOOT_H)
+    local label = Kicker(f, "DAUBER")
     label:SetPoint("LEFT", 2, 0)
     dauberBtns = {}
     for i = 1, 8 do
         local b = CreateFrame("Button", nil, f)
-        b:SetSize(18, 18)
-        b:SetPoint("LEFT", 44 + (i - 1) * 20, 0)
+        b:SetSize(20, 20)
+        b:SetPoint("LEFT", 54 + (i - 1) * 22, 0)
         b.sel = b:CreateTexture(nil, "BACKGROUND")
         b.sel:SetPoint("TOPLEFT", -2, 2)
         b.sel:SetPoint("BOTTOMRIGHT", 2, -2)
-        b.sel:SetColorTexture(1, 0.82, 0, 0.5)
+        b.sel:SetColorTexture(1, 0.82, 0, 0.22)
+        b.selEdge = CreateFrame("Frame", nil, b)
+        b.selEdge:SetPoint("TOPLEFT", -2, 2)
+        b.selEdge:SetPoint("BOTTOMRIGHT", 2, -2)
+        ns.UI:AddEdges(b.selEdge, "BORDER")
+        ns.UI:SetEdgeColor(b.selEdge, 1, 0.82, 0, 0.8)
         b.tex = b:CreateTexture(nil, "ARTWORK")
-        b.tex:SetAllPoints()
+        b.tex:SetPoint("TOPLEFT", 2, -2)
+        b.tex:SetPoint("BOTTOMRIGHT", -2, 2)
         b.tex:SetTexture(RAID_ICON .. i)
         b:SetScript("OnClick", function()
             ns.Games:GetData("bingo").dauber = i
             BingoUI:Refresh()
         end)
         b:SetScript("OnEnter", function(self)
+            self.tex:SetAlpha(1)
             ns.UI:SetTextTooltip(self, { "Dauber: " .. MARKER_NAMES[i], "Stamps your marked squares with this marker." })
         end)
-        b:SetScript("OnLeave", function() ns.UI:HideTooltip() end)
+        b:SetScript("OnLeave", function(self)
+            ns.UI:HideTooltip()
+            self.tex:SetAlpha(i == Dauber() and 1 or 0.4)
+        end)
         dauberBtns[i] = b
     end
     return f
 end
 
-local function SideHeader(parent, text)
-    return ns.UI:CreateLabel(parent, text, "GameFontNormal")
+-- A section of the right column: its kicker and n rows of height h under it; returns the rows and the empty text.
+local function Section(y, title, n, h, withIcon, emptyText)
+    local head = Kicker(side, title)
+    head:SetPoint("TOPLEFT", side, "TOPLEFT", 2, y)
+    local rule = side:CreateTexture(nil, "BORDER")
+    rule:SetHeight(1)
+    rule:SetPoint("LEFT", head, "RIGHT", 8, 0)
+    rule:SetPoint("RIGHT", side, "RIGHT", 0, 0)
+    rule:SetColorTexture(1, 1, 1, 0.06)
+    local rows = {}
+    for i = 1, n do
+        local r = CreateRow(side, h, withIcon)
+        r:SetPoint("TOPLEFT", side, "TOPLEFT", 0, y - 16 - (i - 1) * (h + 2))
+        r:SetPoint("RIGHT", side, "RIGHT", 0, 0)
+        rows[i] = r
+    end
+    local empty = Label(side, 11, "GameFontHighlightSmall")
+    empty:SetText("|cff6f6f6f" .. emptyText .. "|r")
+    empty:SetPoint("TOPLEFT", side, "TOPLEFT", 2, y - 20)
+    return rows, empty, y - 16 - n * (h + 2)
 end
 
 function BingoUI:CreatePanel(parent)
     panel = CreateFrame("Frame", nil, parent)
 
-    local title = ns.UI:CreateLabel(panel, "Council Bingo", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 10, -10)
-
-    startBtn = ns.UI:CreateButton(panel, "Start game", 100, 22, function() ns.Bingo:Start() end)
-    startBtn:SetPoint("TOPRIGHT", -10, -8)
-    stopBtn = ns.UI:CreateButton(panel, "End game", 90, 22, function() ns.Bingo:Stop() end)
-    stopBtn:SetPoint("RIGHT", startBtn, "LEFT", -4, 0)
-
-    statusText = ns.UI:CreateLabel(panel, "", "GameFontHighlightSmall")
-    statusText:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    statusText:SetPoint("RIGHT", -10, 0)
+    hero = CreateHero(panel)
+    statusText = Label(hero, 11, "GameFontHighlightSmall")
+    statusText:SetTextColor(0.72, 0.72, 0.72)
+    statusText:SetPoint("TOPLEFT", hero.title, "BOTTOMLEFT", 0, -6)
+    startBtn = ns.UI:CreateSleekButton(hero, "Start game", 104, 24, function() ns.Bingo:Start() end, "primary")
+    stopBtn = ns.UI:CreateSleekButton(hero, "End game", 90, 24, function() ns.Bingo:Stop() end)
+    stats = { CreateStat(hero), CreateStat(hero), CreateStat(hero) }
+    statusText:SetPoint("RIGHT", hero, "CENTER", 80, 0)
 
     card = CreateCard(panel)
-    card:SetPoint("TOPLEFT", 4, -48)
-
-    local dauber = CreateDauberPicker(panel)
-    dauber:SetPoint("TOPLEFT", card, "BOTTOMLEFT", 6, -4)
-    announceBox = ns.UI:CreateCheckbox(panel, "Announce bingos in raid chat (host)",
+    dauberBar = CreateDauberBar(panel)
+    announceBox = ns.UI:CreateCheckbox(panel, "Announce bingos in raid chat",
         function() return ns.Bingo:GetAnnounce() end,
         function(v) ns.Bingo:SetAnnounce(v) end)
-    announceBox:SetPoint("LEFT", dauber, "RIGHT", 14, 0)
 
     -- right column: race, feed, season
-    local side = CreateFrame("Frame", nil, panel)
-    side:SetPoint("TOPLEFT", card, "TOPRIGHT", 10, -4)
-    side:SetSize(SIDE_W, CARD_H)
+    side = CreateFrame("Frame", nil, panel)
+    local y
+    raceRows, raceEmpty, y = Section(0, "RACE", RACE_ROWS, 22, false, "No game running.")
+    feedRows, feedEmpty, y = Section(y - 14, "LATEST", FEED_ROWS, 20, true, "Nothing marked yet.")
+    seasonRows, seasonEmpty = Section(y - 14, "SEASON", SEASON_ROWS, 20, false, "No bingos yet.")
 
-    local raceHead = SideHeader(side, "Race")
-    raceHead:SetPoint("TOPLEFT", 0, 0)
-    raceRows = {}
-    for i = 1, RACE_ROWS do
-        local r = CreateRow(side, 15)
-        r:SetPoint("TOPLEFT", raceHead, "BOTTOMLEFT", 0, -3 - (i - 1) * 16)
-        raceRows[i] = r
-    end
-    raceEmpty = ns.UI:CreateLabel(side, "|cff888888No game running.|r", "GameFontHighlightSmall")
-    raceEmpty:SetPoint("TOPLEFT", raceHead, "BOTTOMLEFT", 3, -4)
-
-    local feedHead = SideHeader(side, "Latest")
-    feedHead:SetPoint("TOPLEFT", raceHead, "BOTTOMLEFT", 0, -10 - RACE_ROWS * 16)
-    feedRows = {}
-    for i = 1, FEED_ROWS do
-        local r = CreateRow(side, 15)
-        r:SetPoint("TOPLEFT", feedHead, "BOTTOMLEFT", 0, -3 - (i - 1) * 16)
-        feedRows[i] = r
-    end
-    feedEmpty = ns.UI:CreateLabel(side, "|cff888888Nothing yet...|r", "GameFontHighlightSmall")
-    feedEmpty:SetPoint("TOPLEFT", feedHead, "BOTTOMLEFT", 3, -4)
-
-    local seasonHead = SideHeader(side, "Season")
-    seasonHead:SetPoint("TOPLEFT", feedHead, "BOTTOMLEFT", 0, -10 - FEED_ROWS * 16)
-    seasonText = ns.UI:CreateLabel(side, "", "GameFontHighlightSmall")
-    seasonText:SetPoint("TOPLEFT", seasonHead, "BOTTOMLEFT", 3, -4)
-    seasonText:SetWidth(SIDE_W)
-    seasonText:SetJustifyH("LEFT")
-    seasonText:SetJustifyV("TOP")
-
+    Layout()
+    panel:SetScript("OnSizeChanged", function() Layout() BingoUI:Refresh() end)
     panel:SetScript("OnShow", function() BingoUI:Refresh() end)
-    panel.OnGameShown = function() BingoUI:Refresh() end
+    panel:SetScript("OnUpdate", function()
+        if hero.dot:IsShown() then hero.dotGlow:SetAlpha(0.35 + 0.35 * math.sin(GetTime() * 4)) end
+    end)
+    panel.OnGameShown = function() Layout() BingoUI:Refresh() end
     return panel
 end
 
@@ -736,12 +1094,22 @@ end
 ---------------------------------------------------------------------------
 
 local function CreateMini()
-    local f = CreateFrame("Button", "DisasterZoneBingoMini", UIParent, "BackdropTemplate")
-    f:SetSize(150, 24)
+    local f = CreateFrame("Button", "DisasterZoneBingoMini", UIParent)
+    f:SetSize(170, 26)
     f:SetPoint("TOP", 0, -120)
-    f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-    f:SetBackdropColor(0, 0, 0, 0.7)
-    f:SetBackdropBorderColor(1, 0.5, 0, 0.8)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    Gradient(f.bg, "VERTICAL", 0.05, 0.05, 0.06, 0.9, 0.12, 0.12, 0.14, 0.9)
+    ns.UI:AddEdges(f, "BORDER", true)
+    ns.UI:SetEdgeColor(f, 1, 1, 1, 0.12)
+    f.accent = f:CreateTexture(nil, "BORDER", nil, 1)
+    f.accent:SetPoint("TOPLEFT", 1, -1)
+    f.accent:SetPoint("BOTTOMLEFT", 1, 1)
+    f.accent:SetWidth(2)
+    f.accent:SetColorTexture(1, 0.82, 0, 1)
+    f.icon = f:CreateTexture(nil, "ARTWORK")
+    f.icon:SetSize(16, 16)
+    f.icon:SetPoint("LEFT", 9, 0)
     f:SetMovable(true)
     f:RegisterForDrag("LeftButton")
     f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -760,11 +1128,18 @@ local function CreateMini()
         end
     end)
     f:SetScript("OnEnter", function(self)
+        ns.UI:SetEdgeColor(self, 1, 0.82, 0, 0.5)
         ns.UI:SetTextTooltip(self, { "Council Bingo", "Left-click: open your card", "Right-click: hide until the next game" })
     end)
-    f:SetScript("OnLeave", function() ns.UI:HideTooltip() end)
-    f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.text:SetPoint("CENTER")
+    f:SetScript("OnLeave", function(self)
+        ns.UI:SetEdgeColor(self, 1, 1, 1, 0.12)
+        ns.UI:HideTooltip()
+    end)
+    f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.text:SetPoint("LEFT", f.icon, "RIGHT", 7, 0)
+    f.text:SetPoint("RIGHT", -8, 0)
+    f.text:SetJustifyH("LEFT")
+    f.text:SetWordWrap(false)
     local pos = ns.Games:GetData("bingo").miniPos
     if type(pos) == "table" and type(pos[1]) == "string" then
         f:ClearAllPoints()
@@ -795,9 +1170,11 @@ local function CreateMini()
             for _ in pairs(away) do awayCount = awayCount + 1 end
         end
         local extra = ""
-        if lines > 0 then extra = "  |cff33ff99BINGO|r"
-        elseif awayCount > 0 then extra = "  |cffff80001 away!|r" end
-        self.text:SetText(string.format("Bingo %d/25%s", marked, extra))
+        if lines > 0 then extra = "   |cffffd100BINGO|r"
+        elseif awayCount > 0 then extra = "   |cffffd1001 away!|r" end
+        self.icon:SetTexture(RAID_ICON .. Dauber())
+        self.accent:SetColorTexture(lines > 0 and 1 or 1, lines > 0 and 0.82 or 0.29, lines > 0 and 0 or 0.24, 1)
+        self.text:SetText(string.format("Bingo  |cffffffff%d|r|cff8a8a8a/25|r%s", marked, extra))
         self:Show()
     end
     f:Hide()
@@ -807,7 +1184,8 @@ end
 -- For the test harness.
 function BingoUI:GetWidgets()
     return { panel = panel, cells = cells, lines = lineTex, slam = slam, race = raceRows, feed = feedRows,
-        dauber = dauberBtns, status = statusText, card = card }
+        season = seasonRows, dauber = dauberBtns, status = statusText, card = card, hero = hero, side = side,
+        start = startBtn, stop = stopBtn }
 end
 
 function BingoUI:OnInit()

@@ -33,6 +33,10 @@ ns.CHANGELOG = {
               "Each poster shows a result of yours and who in the guild is playing it right now.",
               "During a raid's Bingo game the tab opens on Bingo, LIVE, saying how close your card is.",
               "Click the front poster and it grows into the game; < GAMES at the top goes back.",
+              "Council Bingo, redrawn: a header with the raid's painting, LIVE, your lines and marked squares.",
+              "The card fills the page: calm squares, the icon over the words, rarity as a small dot.",
+              "Marked squares take your dauber's ink and its marker; completed lines turn gold.",
+              "The race, the latest squares and the season sit beside the card, with your dauber under them.",
           } },
           { heading = "Teams, redesigned", lines = {
               "Raids > Teams opens on a board: every team as a banner, yours first, with its next raid.",

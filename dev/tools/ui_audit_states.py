@@ -900,6 +900,17 @@ STATES = [
                                                          "ns.MembersUI:SetCard('chars')")),
     ("Games", opened("games")),
     ("Games - Bingo", opened("games", "ns.GamesUI:Select('bingo')")),
+    # the Bingo card mid-game: a complete row (with the slam settled), a diagonal one square away, who set squares
+    # off, the race and the feed
+    ("Games - Bingo card live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
+                                                "d.current = { id = 'cardlive', host = me, started = now - 3600, hits = {}, who = {} } "
+                                                "d.view = { g = 'cardlive', hits = {}, lines = 1 } "
+                                                "local card = ns.Bingo:GetMyCard() "
+                                                "local who = { 'Victhar', 'Fazerblue', 'Lady Vashj', 'Saltykim', 'Dyrma' } "
+                                                "for n, i in ipairs({ 11, 12, 14, 15, 1, 7, 19, 3, 22 }) do "
+                                                "  d.current.hits[card[i]] = now - 600 + n * 30 d.view.hits[card[i]] = true "
+                                                "  d.current.who[card[i]] = who[(n % #who) + 1] end "
+                                                "ns.GamesUI:Select('bingo')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
     ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the

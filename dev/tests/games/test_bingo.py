@@ -553,9 +553,15 @@ def dauber_choice_changes_the_stamp_and_the_card_fits():
     w.tick(0.2)
     assert str(c.eval(WS + "return W.cells[1].stamp:GetTexture()")).endswith("_8")
     assert c.eval("return ns.Games:GetData('bingo').dauber") == 8
-    # the card fits the ~596 x 540 games stage (the mock does no layout, so check the declared sizes)
+    # the card, the right column and the header fill the hub's ~786 x 518 stage without spilling (the mock does no
+    # layout, so the panel lays itself out for that fallback size: check the declared sizes)
     wid, hei = c.eval(WS + "return W.card:GetWidth(), W.card:GetHeight()")
-    assert 4 + wid + 10 + 150 <= 596 and 48 + hei + 26 <= 540, (wid, hei)
+    sw = c.eval(WS + "return W.side:GetWidth()")
+    hh = c.eval(WS + "return W.hero:GetHeight()")
+    assert 10 + wid + 8 + sw + 10 <= 786 and hh + 10 + hei + 10 <= 518, (wid, hei, sw, hh)
+    assert wid >= 480 and hei >= 360, (wid, hei)                     # (the card uses the room it has)
+    cw, ch = c.eval(WS + "return W.cells[1]:GetWidth(), W.cells[1]:GetHeight()")
+    assert cw >= 90 and ch >= 70, (cw, ch)
     no_errors(w)
 
 

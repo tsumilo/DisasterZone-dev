@@ -632,6 +632,49 @@ local function PaintEdge(p)
 end
 
 local OpenGame, Turn
+local SoftShadow
+
+-- A soft shadow round frame f: a 9-slice of the radial falloff (its quarters are the round corners, its middle row
+-- and column the sides), black at alpha, reaching r px out; dropped dy px and starting inset px inside the frame.
+SoftShadow = function(f, r, alpha, dy, inset)
+    local function piece(l, rgt, t, b)
+        local tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        tex:SetTexture(RADIAL)
+        tex:SetVertexColor(0, 0, 0, alpha)
+        tex:SetTexCoord(l, rgt, t, b)
+        return tex
+    end
+    local m1, m2 = 0.499, 0.501
+    local L, R, T, B = inset, -inset, -inset - dy, inset - dy     -- the shadow's inner rectangle, from f's edges
+    local tl = piece(0, 0.5, 0, 0.5)
+    tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", L, T)
+    tl:SetSize(r, r)
+    local tr = piece(0.5, 1, 0, 0.5)
+    tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", R, T)
+    tr:SetSize(r, r)
+    local bl = piece(0, 0.5, 0.5, 1)
+    bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT", L, B)
+    bl:SetSize(r, r)
+    local br = piece(0.5, 1, 0.5, 1)
+    br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", R, B)
+    br:SetSize(r, r)
+    local top = piece(m1, m2, 0, 0.5)
+    top:SetPoint("BOTTOMLEFT", tl, "BOTTOMRIGHT")
+    top:SetPoint("TOPRIGHT", tr, "TOPLEFT")
+    local bottom = piece(m1, m2, 0.5, 1)
+    bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT")
+    bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
+    local left = piece(0, 0.5, m1, m2)
+    left:SetPoint("TOPRIGHT", tl, "BOTTOMRIGHT")
+    left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT")
+    local right = piece(0.5, 1, m1, m2)
+    right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT")
+    right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
+    local mid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    mid:SetColorTexture(0, 0, 0, alpha)
+    mid:SetPoint("TOPLEFT", tl, "BOTTOMRIGHT")
+    mid:SetPoint("BOTTOMRIGHT", br, "TOPLEFT")
+end
 
 local function CreatePoster(i, def)
     local p = CreateFrame("Button", nil, carousel)
@@ -640,6 +683,8 @@ local function CreatePoster(i, def)
     p.bg = p:CreateTexture(nil, "BACKGROUND")
     p.bg:SetAllPoints()
     p.bg:SetColorTexture(BASE[1], BASE[2], BASE[3], 1)
+    -- a soft drop shadow under the poster (below its fill, so only the part outside shows)
+    SoftShadow(p, 22, 0.6, 7, 5)
 
     -- the art (a loading screen, or the cover's own scene), clipped to the top of the poster
     p.artFrame = CreateFrame("Frame", nil, p)
@@ -680,7 +725,11 @@ local function CreatePoster(i, def)
     p.dotGlow:SetSize(22, 22)
     p.dotGlow:Hide()
 
-    p.foot = CreateFrame("Frame", nil, p.over)
+    -- the words (title, line, stat, who plays) on their own frame: it fades while a poster turns between front and
+    -- side, so the switch of size happens unseen
+    p.words = CreateFrame("Frame", nil, p.over)
+    p.words:SetAllPoints()
+    p.foot = CreateFrame("Frame", nil, p.words)
     p.foot:SetHeight(20)
     p.foot:SetPoint("BOTTOMLEFT", 16, 16)
     p.foot:SetPoint("BOTTOMRIGHT", -16, 16)
@@ -711,22 +760,22 @@ local function CreatePoster(i, def)
     p.footText = Label(p.foot, 11)
     p.footText:SetTextColor(0.81, 0.81, 0.81)
 
-    p.stat = Label(p.over, 12)
+    p.stat = Label(p.words, 12)
     p.stat:SetTextColor(0.74, 0.74, 0.74)
-    p.rule = p.over:CreateTexture(nil, "ARTWORK")
+    p.rule = p.words:CreateTexture(nil, "ARTWORK")
     p.rule:SetHeight(1)
     p.rule:SetPoint("BOTTOMLEFT", p.stat, "TOPLEFT", 0, 12)
     p.rule:SetPoint("BOTTOMRIGHT", p.stat, "TOPRIGHT", 0, 12)
     local a = Accent(def.id)
     Gradient(p.rule, "HORIZONTAL", a[1], a[2], a[3], 0.6, a[1], a[2], a[3], 0)
-    p.desc = Label(p.over, 11)
+    p.desc = Label(p.words, 11)
     p.desc:SetWordWrap(true)
     p.desc:SetJustifyV("BOTTOM")
     p.desc:SetSpacing(3)
     p.desc:SetTextColor(0.65, 0.65, 0.65)
     p.desc:SetPoint("BOTTOMLEFT", p.rule, "TOPLEFT", 0, 13)
-    p.desc:SetPoint("BOTTOMRIGHT", p.rule, "TOPRIGHT", 0, 13)
-    p.title = Label(p.over, 26, "GameFontHighlightLarge")
+    p.desc:SetWidth(FRONT_W - 32)          -- (fixed: it never re-wraps while the poster grows)
+    p.title = Label(p.words, 26, "GameFontHighlightLarge")
     local font, _, flags = p.title:GetFont()
     p.titleFont, p.titleFlags = font, flags
 
@@ -872,8 +921,12 @@ local function PaintDots()
     for i, d in ipairs(dots) do
         local on = i == cur
         local a = Accent(posters[i] and posters[i].id)
-        d.tex:SetWidth(on and 18 or 6)
-        if on then d.tex:SetVertexColor(a[1], a[2], a[3], 1) else d.tex:SetVertexColor(1, 1, 1, 0.22) end
+        d.tex:SetWidth(on and 20 or 6)
+        d.mid:SetShown(on)
+        d.capR:SetShown(on)
+        for _, t in ipairs({ d.capL, d.capR, d.mid }) do
+            if on then t:SetVertexColor(a[1], a[2], a[3], 1) else t:SetVertexColor(1, 1, 1, 0.24) end
+        end
     end
 end
 
@@ -899,6 +952,7 @@ local function LayoutCarousel()
         p.off = off
         local x, y, w, h, gone = Slot(off)
         SetSideLook(p, off ~= 0)
+        p.words:SetAlpha(1)
         Place(p, x, y, w, h)
         p:SetAlpha(gone == 1 and 0 or 1)
         p.cover:SetAlpha(1)
@@ -936,7 +990,6 @@ function Turn(i)
         to[k] = { x, y, w, h, off }
         p.off = off
         p:Show()
-        if off == 0 then SetSideLook(p, false) end
         SetPosterLevel(p, off == 0)
         p.hover = nil
         PaintEdge(p)
@@ -960,6 +1013,11 @@ local function StepTurn(e)
             p:SetAlpha(abs(b[5]) > 1 and (1 - e) or 1)
         end
         Place(p, x, y, w, h)
+        if (a[5] == 0) ~= (b[5] == 0) then
+            -- front <-> side: the words fade out, swap size at the midpoint, fade back in
+            if e >= 0.5 then SetSideLook(p, b[5] ~= 0) end
+            p.words:SetAlpha(e < 0.5 and (1 - 2 * e) or (2 * e - 1))
+        end
         local frontness = b[5] == 0 and e or (a[5] == 0 and 1 - e or 0)
         p.dim:SetAlpha(SIDE_DIM * (1 - frontness))
         if p.cover.frontOnly then
@@ -1158,10 +1216,22 @@ local function BuildPosters()
         if not d then
             d = CreateFrame("Button", nil, carousel)
             d:SetSize(22, 14)
-            d.tex = d:CreateTexture(nil, "ARTWORK")
-            d.tex:SetColorTexture(1, 1, 1, 1)
-            d.tex:SetHeight(4)
+            -- a rounded pill: two circles and the bar between their centres
+            d.tex = CreateFrame("Frame", nil, d)
+            d.tex:SetHeight(6)
             d.tex:SetPoint("CENTER")
+            d.capL = d.tex:CreateTexture(nil, "ARTWORK")
+            d.capL:SetTexture(CIRCLE)
+            d.capL:SetSize(6, 6)
+            d.capL:SetPoint("LEFT")
+            d.capR = d.tex:CreateTexture(nil, "ARTWORK")
+            d.capR:SetTexture(CIRCLE)
+            d.capR:SetSize(6, 6)
+            d.capR:SetPoint("RIGHT")
+            d.mid = d.tex:CreateTexture(nil, "ARTWORK")
+            d.mid:SetTexture("Interface\\Buttons\\WHITE8X8")
+            d.mid:SetPoint("TOPLEFT", 3, 0)
+            d.mid:SetPoint("BOTTOMRIGHT", -3, 0)
             d:SetScript("OnClick", function(self) if not anim then Turn(self.index) end end)
             dots[i] = d
         end
@@ -1349,6 +1419,15 @@ function GamesUI:ShowHub()
 end
 
 function GamesUI:GetSelected() return selected end
+
+-- Shared with the games' own panels (Bingo's header): a raid's loading screen (FileDataID) and where its subject
+-- stands across it, the crop of it to w x h, and the raid instance the player is in (key, name) or nil.
+function GamesUI:RaidArt(key)
+    key = LOADSCREEN[key] and key or "kara"
+    return LOADSCREEN[key], FOCUS[key]
+end
+GamesUI.CropArt = CropArt
+function GamesUI:InstanceHere() return InstanceHere() end
 
 -- Puts game id's poster in front at once (tests, the audit's views).
 function GamesUI:ShowFront(id)
