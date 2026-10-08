@@ -220,6 +220,18 @@ function Net:PlayingNow()
     return n
 end
 
+-- The same players' keys (me first while I play, the rest by name): the hub's faces.
+function Net:PlayingKeys()
+    local out, now = {}, Now()
+    for key, p in pairs(peers) do
+        if now - (p.seen or 0) <= Net.TIMEOUT then out[#out + 1] = key end
+    end
+    table.sort(out)
+    local me = ns.Util and ns.Util.PlayerKey()
+    if active and me then table.insert(out, 1, me) end
+    return out
+end
+
 function Net:Count()
     local n = 0
     for _ in pairs(peers) do n = n + 1 end

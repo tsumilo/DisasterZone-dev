@@ -343,6 +343,7 @@ function Bingo:OnInit()
     ns.Games:Register(GAME_ID, {
         name = "Council Bingo",
         desc = "Raid bingo: squares fill in by themselves as the raid happens. First full line wins.",
+        tagline = "Squares fill in by themselves as the raid happens. First full line wins.",
         icon = "Interface\\Icons\\INV_Misc_Note_02",
         order = 10,
         create = function(parent) return ns.BingoUI:CreatePanel(parent) end,

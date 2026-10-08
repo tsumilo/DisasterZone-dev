@@ -18,6 +18,7 @@ local function SortList()
 end
 
 -- def = { name = "Council Bingo", desc = "...", icon = "Interface\\Icons\\...", order = 10,
+--         tagline = "...",                               (optional: the poster's one line; nil = desc)
 --         create = function(parent) return frame end,   (frame may implement :OnGameShown / :OnGameHidden)
 --         status = function() return text end }          (optional: the line under the name, e.g. "2 playing now";
 --                                                           nil falls back to the best score)
@@ -33,6 +34,7 @@ function Games:Register(id, def)
     end
     d.name = def.name or id
     d.desc = def.desc or ""
+    d.tagline = def.tagline
     d.icon = def.icon or "Interface\\Icons\\INV_Misc_Dice_01"
     d.order = tonumber(def.order) or (#list * 10)
     d.create = def.create

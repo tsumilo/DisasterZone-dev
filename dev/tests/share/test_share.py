@@ -391,12 +391,16 @@ def share_icons_on_raids_members_strategies_boards_and_games():
     w.tick(0.3)
     ref = rita.eval("return ns.StrategyBoard:GetWindow().shareBtn.getRef()")
     assert ref == "board:%s:Karazhan:Attumen" % occ, ref
-    # the games: one on each game's row
+    # the games: one in the strip over the open game (the carousel itself has none: the page's own share is "games")
     rita.eval("ns.ShareWindow:Close(); ns.MainFrame:Open('games')")
     w.tick(0.3)
-    refs = rita.eval_py(FIND_SHARE + "local out = {}; for _, b in ipairs(find(ns.MainFrame:GetFrame(), 'Share this game')) "
-                        "do b:Click(); out[#out + 1] = ns.ShareWindow:GetRef(); ns.ShareWindow:Close() end; return out")
-    assert sorted(refs) == ["game:azeromon", "game:bingo", "game:trainer"], refs
+    refs = []
+    for gid in ("bingo", "trainer", "azeromon"):
+        rita.eval("ns.GamesUI:Select(...)", gid)
+        w.tick(0.3)
+        refs += rita.eval_py(FIND_SHARE + "local out = {}; for _, b in ipairs(find(ns.MainFrame:GetFrame(), 'Share this game')) "
+                             "do b:Click(); out[#out + 1] = ns.ShareWindow:GetRef(); ns.ShareWindow:Close() end; return out")
+    assert refs == ["game:bingo", "game:trainer", "game:azeromon"], refs
     w.assert_no_errors()
 
 

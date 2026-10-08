@@ -25,6 +25,15 @@ ns.CHANGELOG = {
               "Idle gaps show red across the lanes. Hover for what happened; scroll to zoom in.",
               "Demo mode fills My Log with made-up raid nights, so you can look around first.",
           } },
+          { heading = "Games, in the spotlight", lines = {
+              "Guild > Games opens on a spotlight: one game's poster in front, the others at its sides.",
+              "Turn it with the arrows, the mouse wheel or the dots, or click a poster at the side.",
+              "The posters are alive: your Bingo card fills in, Azeromon's hero walks through Elwynn.",
+              "Raid Trainer's poster lists its bosses with your best clear time for each.",
+              "Each poster shows a result of yours and who in the guild is playing it right now.",
+              "During a raid's Bingo game the tab opens on Bingo, LIVE, saying how close your card is.",
+              "Click the front poster and it grows into the game; < GAMES at the top goes back.",
+          } },
           { heading = "Teams, redesigned", lines = {
               "Raids > Teams opens on a board: every team as a banner, yours first, with its next raid.",
               "Each team has a theme: pick the raid whose painting is its banner (... > Theme).",

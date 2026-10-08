@@ -902,6 +902,16 @@ STATES = [
     ("Games - Bingo", opened("games", "ns.GamesUI:Select('bingo')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
     ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
+    # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
+    # square that just filled glowing)
+    ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),
+    ("Games - Azeromon in front", opened("games", "ns.GamesUI:ShowFront('azeromon')")),
+    ("Games - Bingo live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
+                                           "d.current = { id = 'hubdemo', host = me, started = now, hits = {} } "
+                                           "local card = ns.Bingo:GetMyCard() "
+                                           "for _, i in ipairs({ 1, 7, 19, 3, 10, 22 }) do d.current.hits[card[i]] = now - 600 end "
+                                           "d.current.hits[card[16]] = now "
+                                           "ns.GamesUI:ShowFront('bingo')")),
     # the Dungeons tab (UI/DungeonsTab.lua) on demo mode's runs: up for a run as healer (the place that wants a healer
     # glows), Lower City only honored (Shadow Labyrinth heroic blocked); my own run with two asking to join; the List
     # a run sheet (a dungeon picked, and with a picked time); the ping; the empty board of a real guild
