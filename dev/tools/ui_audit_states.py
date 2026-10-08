@@ -899,6 +899,9 @@ STATES = [
     ("Members - long rank, older version", members_view("ns.MembersUI:ShowMember('Saltykim-Thunderstrike'); "
                                                          "ns.MembersUI:SetCard('chars')")),
     ("Games", opened("games")),
+    ("Games - Bingo", opened("games", "ns.GamesUI:Select('bingo')")),
+    ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
+    ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
     # the Dungeons tab (UI/DungeonsTab.lua) on demo mode's runs: up for a run as healer (the place that wants a healer
     # glows), Lower City only honored (Shadow Labyrinth heroic blocked); my own run with two asking to join; the List
     # a run sheet (a dungeon picked, and with a picked time); the ping; the empty board of a real guild
