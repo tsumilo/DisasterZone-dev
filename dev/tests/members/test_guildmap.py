@@ -297,5 +297,36 @@ def dots_glide_to_their_new_place():
     w.assert_no_errors()
 
 
+@case
+def the_games_world_map_groups_like_the_map_page():
+    """Blizzard's world map (M) gets the same pins: crowds on a continent and one pin per instance with its count (the
+    bug: every member drawn on their own, an instance's people stacked as many "1" badges)."""
+    w, g, a, b = trio()
+    g.slash("/dz demo on")
+    w.tick(1)
+    # (a stand-in for WorldMapFrame: a canvas 1002 x 668 at zoom 1 showing Outland)
+    ui = g.eval_py("""
+      local mapID = ...
+      local wm = CreateFrame("Frame", "WorldMapFrame", UIParent)
+      local canvas = CreateFrame("Frame", nil, wm)
+      canvas:SetSize(1002, 668)
+      wm.GetCanvas = function() return canvas end
+      wm.GetMapID = function() return mapID end
+      wm.GetCanvasScale = function() return 1 end
+      wm.IsShown = function() return true end
+      local W = ns.GuildMapUI.WorldMap
+      W:Refresh()
+      local o = { n = W.count, kinds = {} }
+      for _, b in ipairs(W.pins) do if b:IsShown() then
+        local d = b.data
+        local k = d.kind .. (d.kind == "dungeon" and (":" .. #d.keys) or "")
+        o.kinds[k] = (o.kinds[k] or 0) + 1 end end
+      return o""", OUTLAND)
+    kinds = ui["kinds"]
+    assert kinds.get("dungeon:10") == 1 and kinds.get("dungeon:6") == 1 and kinds.get("dungeon:3") == 1, kinds
+    assert kinds.get("crowd", 0) >= 2 and "me" not in kinds, kinds
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

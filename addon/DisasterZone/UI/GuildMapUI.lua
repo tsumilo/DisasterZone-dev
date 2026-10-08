@@ -409,7 +409,11 @@ local function NewPin(v)
         local d = self.data
         if not d then return end
         if d.kind == "crowd" or d.kind == "dungeon" then
-            if d.zoom then GuildMapUI:ShowZone(d.zoom) end
+            if d.zoom and self.world and WorldMapFrame and WorldMapFrame.SetMapID then
+                WorldMapFrame:SetMapID(d.zoom)
+            elseif d.zoom then
+                GuildMapUI:ShowZone(d.zoom)
+            end
         elseif not ns.Util.IsMe(d.key) then
             if button == "RightButton" then PersonMenu(self, d.key) else OpenProfile(d.key) end
         end
@@ -1291,35 +1295,41 @@ function WorldMap:Refresh()
     local wm = WorldMapFrame
     local pins = WorldPins()
     local G = GM()
-    local show = wm and wm.IsShown and wm:IsShown() and G and G:GetShowOnWorldMap() and G:IsSharing()
+    local show = wm and wm.IsShown and wm:IsShown() and G and G:GetShowOnWorldMap() and (G:IsSharing() or G:IsDemo())
     local canvas = show and wm.GetCanvas and wm:GetCanvas()
     local mapID = show and wm.GetMapID and wm:GetMapID()
     local n = 0
-    if canvas and mapID then
+    local info = mapID and Info(mapID)
+    -- (a continent or a zone; the game draws its own arrow for me)
+    if canvas and info and (info.mapType == 2 or info.mapType == 3) then
         local W, H = canvas:GetWidth() or 0, canvas:GetHeight() or 0
         local scale = (wm.GetCanvasScale and wm:GetCanvasScale()) or 1
         if scale <= 0 then scale = 1 end
+        local others = {}
         for key, e in pairs(G:GetEntries()) do
-            if not e.me then
-                local x, y = G:PlaceOn(e, mapID)
-                if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-                    n = n + 1
-                    local b = pins[n]
-                    if not b then
-                        b = NewPin(canvas)
-                        pins[n] = b
-                    end
-                    if b:GetParent() ~= canvas then b:SetParent(canvas) end
-                    b.data = { kind = e.i and "dungeon" or "dot", key = (not e.i) and key or nil, keys = { key },
-                               e = e, title = e.n }
-                    b:SetScale(1 / scale)
-                    b:ClearAllPoints()
-                    b:SetPoint("CENTER", canvas, "TOPLEFT", x * W * scale, -y * H * scale)
-                    b:SetFrameStrata("HIGH")
-                    b:Paint()
-                    b:Show()
-                end
+            if not e.me then others[key] = e end
+        end
+        -- the same pins as the Map page: crowds on a continent, an instance's people in one; placed in the pins' own
+        -- units (they keep their size whatever the zoom: scale 1 / the canvas's)
+        local built = Build(others, mapID, info.mapType == 3, W * scale, H * scale,
+            function(x, y) return x * W * scale, y * H * scale end)
+        for _, d in ipairs(built) do
+            d.label = nil
+            n = n + 1
+            local b = pins[n]
+            if not b then
+                b = NewPin(canvas)
+                b.world = true
+                pins[n] = b
             end
+            if b:GetParent() ~= canvas then b:SetParent(canvas) end
+            b.data = d
+            b:SetScale(1 / scale)
+            b:ClearAllPoints()
+            b:SetPoint("CENTER", canvas, "TOPLEFT", d.px, -d.py)
+            b:SetFrameStrata("HIGH")
+            b:Paint()
+            b:Show()
         end
     end
     for i = n + 1, #pins do pins[i]:Hide() end
