@@ -76,6 +76,18 @@ def lua(v, depth=0):
     raise TypeError(type(v))
 
 
+_ZONES = {}
+
+
+def zone_names():
+    """AreaTable: area ID -> name (a quest's ZoneOrSort: the quest log's header)."""
+    if not _ZONES:
+        path = os.path.join(HERE, "..", "art", "tbcdb", "db2", "AreaTable.csv")
+        for r in csv.DictReader(open(path, encoding="utf-8")):
+            _ZONES[int(r["ID"])] = r["AreaName_lang"]
+    return _ZONES
+
+
 def table(name):
     path = os.path.join(D2, name + ".csv")
     if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -119,6 +131,9 @@ def world_entities():
 # Spells
 # ---------------------------------------------------------------------------------------------------------------
 
+LINE_ICONS = {}                             # class skill line name -> its icon (the spellbook's side tabs)
+
+
 class Spells:
     def __init__(self):
         self.name = {int(r["ID"]): r["Name_lang"] for r in table("SpellName")}
@@ -133,6 +148,14 @@ class Spells:
             self.power.setdefault(int(r["SpellID"]), r)
         self.cd = {int(r["SpellID"]): r for r in table("SpellCooldowns")}
         self.cast = {int(r["ID"]): r for r in table("SpellCastTimes")}
+        # the class skill line a spell is taught under (the trainer's headers: Fire, Frost, Arms, Holy ...)
+        lines = {int(r["ID"]): r for r in table("SkillLine")}
+        self.line = {}
+        for r in table("SkillLineAbility"):
+            sl = lines.get(int(r["SkillLine"]))
+            if sl and int(sl["CategoryID"] or 0) == 7:
+                self.line.setdefault(int(r["Spell"]), sl["DisplayName_lang"])
+                LINE_ICONS[sl["DisplayName_lang"]] = int(sl["SpellIconFileID"] or 0) or None
         self.dur = {int(r["ID"]): r for r in table("SpellDuration")}
         self.rng = {int(r["ID"]): r for r in table("SpellRange")}
         self.rad = {int(r["ID"]): r for r in table("SpellRadius")}
@@ -172,7 +195,7 @@ class Spells:
             })
         castBase = self.cast.get(num(m.get("CastingTimeIndex")), {})
         out = {
-            "n": self.name.get(sid, "?"), "r": s.get("NameSubtext_lang") or None,
+            "n": self.name.get(sid, "?"), "r": s.get("NameSubtext_lang") or None, "line": self.line.get(sid),
             "icon": num(m.get("SpellIconFileDataID")) or None, "school": num(m.get("SchoolMask")) or 1,
             "cast": num(castBase.get("Base")) or None, "dur": num(dur.get("Duration")) or None,
             "durLv": num(dur.get("DurationPerLevel")) or None, "durMax": num(dur.get("MaxDuration")) or None,
@@ -524,7 +547,8 @@ def main():
                      "choice": choice or None, "rew": rew or None, "spell": r["RewSpellCast"] or r["RewSpell"] or None,
                      "src": [r["SrcItemId"], r["SrcItemCount"] or 1] if r["SrcItemId"] else None,
                      "offer": r["OfferRewardText"] or None, "req": r["RequestItemsText"] or None,
-                     "flags": r["QuestFlags"] or None, "next": r["NextQuestInChain"] or None}
+                     "flags": r["QuestFlags"] or None, "next": r["NextQuestInChain"] or None,
+                     "zone": zone_names().get(r["ZoneOrSort"]) if r["ZoneOrSort"] > 0 else None}
         if r["RewSpellCast"] or r["RewSpell"]:
             spells.add(r["RewSpellCast"] or r["RewSpell"])
 
@@ -592,6 +616,8 @@ def write(classes, xp, trainers, spells, items, creatures, loot, refs, vendors, 
     w("D.xp = %s" % lua([xp[i] for i in range(1, MAX_LEVEL + 1)]))
     w("-- class: levels = { { base hp, base mana, str, agi, sta, int, spi } per level }, start spells, bar = { [slot] =")
     w("-- { type (0 spell, 128 item), id } }, gear = start outfit, pos = the first step (world tiles)")
+    w("-- the class skill lines (spellbook tabs, trainer headers): name -> icon")
+    w("D.skillLines = %s" % lua({k: v for k, v in sorted(LINE_ICONS.items()) if v}))
     w("D.classes = {}")
     for c in sorted(classes):
         w("D.classes[%d] = %s" % (c, lua(classes[c])))

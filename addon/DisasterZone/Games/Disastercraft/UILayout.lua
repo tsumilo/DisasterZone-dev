@@ -28,7 +28,10 @@ local STRINGS = { ACCEPT = "Accept", DECLINE = "Decline", CANCEL = "Cancel", COM
                   QUEST_OBJECTIVES = "Quest Objectives", REWARD_ITEMS_ONLY = "You will receive:",
                   REWARD_CHOICES = "You will be able to choose one of these rewards:",
                   REWARDS = "Rewards", REWARD_ITEMS = "You will also receive:", QUEST_DESCRIPTION = "Description",
-                  PAGE_NUMBER = "Page %d", TRAINER_COST = "Cost:", NEED = "Need", GREED = "Greed", PASS = "Pass" }
+                  PAGE_NUMBER = "Page %d", TRAINER_COST = "Cost:", NEED = "Need", GREED = "Greed", PASS = "Pass",
+                  TRACK_QUEST = "Track", QUESTLOG_NO_QUESTS_TEXT = "No Active Quests", ALL = "All",
+                  QUEST_LOG_COUNT_TEMPLATE = "Quests: %d/%d", QUEST_REWARDS = "Rewards", COMPLETE = "Complete",
+                  PLAYER_LEVEL = "Level %s %s %s", COSTS_LABEL = "Cost:", FILTER = "Filter" }
 
 local function Str(s)
     if not s then return nil end
@@ -162,7 +165,7 @@ local function MakeFrame(ctx, parent, d, parentObj)
     f.keys = {}
     Register(ctx, f, d, parentObj)
     ApplySize(f, d.size)
-    if d.strata then pcall(f.SetFrameStrata, f, d.strata) end
+    -- (no frameStrata: inside the game panel every frame keeps the panel's strata; frame levels order them)
     if d.useParentLevel and parent.GetFrameLevel then f:SetFrameLevel(parent:GetFrameLevel()) end
     if d.mouse ~= nil and f.EnableMouse then f:EnableMouse(d.mouse) end
     if d.alpha then f:SetAlpha(d.alpha) end

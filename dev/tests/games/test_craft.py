@@ -554,6 +554,78 @@ def ui_windows_open_and_fill():
 
 
 @case
+def ui_blizzard_windows_fill_like_the_client():
+    """The quest log, the trainer and the spellbook on the client's own frames: headers, rows, details, tabs."""
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(5, 1)
+      ns.CraftUI.Glue.selected = 5
+      ns.CraftUI.Glue.EnterWorld()
+    """)
+    w.tick(1.0)
+    r = c.eval_py(r"""
+      local UI, Craft = ns.CraftUI, ns.Craft
+      Craft.Quests.Accept(783)
+      UI.Toggle("questlog")
+      local q = UI.QuestLogWindow().refs
+      local log = { q.QuestLogTitle1:GetText(), q.QuestLogTitle2:GetText(), q.QuestLogQuestTitle:GetText(),
+                    q.QuestLogQuestCount:GetText(), q.QuestLogTitle3:IsShown() }
+      UI.CloseAll()
+      local anetta = T_DC.find(375, "any")
+      UI.OpenTrainer(anetta)
+      local t = UI.open.trainer.refs
+      local trainer = { t.ClassTrainerSkill1Text:GetText(), t.ClassTrainerSkill2Text:GetText(),
+                        t.ClassTrainerSkillName:GetText(), t.ClassTrainerNameText:GetText() }
+      UI.CloseAll()
+      UI.Toggle("spellbook")
+      local s = UI.SpellBookWindow().refs
+      local book = { s.SpellBookSkillLineTab1.tooltip, s.SpellBookSkillLineTab2.tooltip, s.SpellButton1SpellName:GetText(),
+                     s.SpellBookPageText:GetText(), s.SpellButton2:IsEnabled() and true or false }
+      return { log = log, trainer = trainer, book = book }
+    """)
+    log, trainer, book = r["log"], r["trainer"], r["book"]
+    assert log[0] == "Northshire Valley", log                  # (the zone header, then the quest)
+    assert log[1].strip() == "A Threat Within" and log[2] == "A Threat Within", log
+    assert log[3] == "Quests: 1/20" and not log[4], log
+    assert trainer[0] in ("Discipline", "Holy", "Shadow Magic"), trainer   # (a skill-line header first)
+    assert trainer[1].strip() and trainer[2] and trainer[3] == "Priestess Anetta", trainer
+    assert book[0] == "General" and book[1] in ("Discipline", "Holy"), book
+    assert book[2] and book[3] == "Page 1" and book[4] is False, book   # (SpellButton2 is the right column's first)
+    w.tick(1.0)
+    no_errors(w)
+
+
+@case
+def ui_hero_sprite_wears_its_gear():
+    """The pixel hero is a bare body plus one layer per item worn; taking an item off takes its layer away."""
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(1, 0)
+      ns.CraftUI.Glue.selected = 1
+      ns.CraftUI.Glue.EnterWorld()
+    """)
+    w.tick(0.5)
+    r = c.eval_py(r"""
+      local UI, Craft, Items = ns.CraftUI, ns.Craft, ns.Craft.Items
+      local p = Craft.player
+      local function n(kind, col, face) local l = UI.OutfitLayers(p, kind, col, face) return l and #l or 0 end
+      local worn = n("walk", 1, 0)
+      local act = n("act", 1, 2)
+      local first = UI.OutfitLayers(p, "walk", 1, 0)[1]
+      Items.Unequip(4)                              -- (the shirt off)
+      local shirtless = n("walk", 1, 0)
+      Items.Unequip(16)                             -- (and the sword)
+      local unarmed = n("walk", 1, 2)
+      return { worn = worn, act = act, shirtless = shirtless, unarmed = unarmed, body = first[1], h = first[9] }
+    """)
+    assert r["worn"] >= 4 and r["act"] >= 4, r                 # body, shirt, pants, boots, sword, shield
+    assert r["shirtless"] == r["worn"] - 1, r
+    assert r["unarmed"] < r["worn"], r
+    assert "Outfit\\outfit" in r["body"] and r["h"] >= 20, r   # (the body: a whole figure on the sheet)
+    no_errors(w)
+
+
+@case
 def ui_fight_shows_numbers_and_loot_window():
     w, c = ui_game()
     c.eval(r"""

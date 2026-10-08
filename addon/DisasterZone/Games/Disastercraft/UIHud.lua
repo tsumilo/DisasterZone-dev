@@ -785,18 +785,23 @@ local function UpdateTracker()
         fs:Show()
         y = y + (fs:GetStringHeight() or 13) + 2
     end
-    for qi, q in ipairs(log) do
-        if qi > 5 then break end
-        line(q.title, 13, 1, 0.82, 0)
-        if q.done then line("- Complete", 12, 0.2, 1, 0.2, 8)
-        elseif #q.lines > 0 then
-            for _, l in ipairs(q.lines) do
-                if l.done then line("- " .. l.text, 12, 0.6, 0.6, 0.6, 8) else line("- " .. l.text, 12, 1, 1, 1, 8) end
+    local unwatch = Craft.char and Craft.char.unwatch or {}
+    local shown = 0
+    -- (the quest log's Track box takes a quest off; five at most, like WoW)
+    for _, q in ipairs(log) do
+        if not unwatch[q.id] and shown < 5 then
+            shown = shown + 1
+            line(q.title, 13, 1, 0.82, 0)
+            if q.done then line("- Complete", 12, 0.2, 1, 0.2, 8)
+            elseif #q.lines > 0 then
+                for _, l in ipairs(q.lines) do
+                    if l.done then line("- " .. l.text, 12, 0.6, 0.6, 0.6, 8) else line("- " .. l.text, 12, 1, 1, 1, 8) end
+                end
+            else
+                line("- " .. (q.goal or ""), 12, 1, 1, 1, 8)
             end
-        else
-            line("- " .. (q.goal or ""), 12, 1, 1, 1, 8)
+            y = y + 4
         end
-        y = y + 4
     end
     for j = i + 1, #f.lines do f.lines[j]:Hide() end
 end

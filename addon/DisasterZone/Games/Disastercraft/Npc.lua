@@ -120,31 +120,46 @@ end
 ---------------------------------------------------------------------------
 
 local HIDDEN = { [81] = true, [6603] = false }
-function Npc.Spellbook()
+-- the spellbook's tabs like WoW's: General, then the class's skill lines (Arcane, Fire, Frost ...), each { name,
+-- icon, list of spell ids } in level order; the highest rank of each spell only, unless allRanks
+function Npc.Spellbook(allRanks)
     local c = C()
     local best = {}
     for id in pairs(c.spells) do
         local sp = D.spells[id]
         if sp and not HIDDEN[id] then
-            local key = sp.first or id
+            local key = allRanks and id or (sp.first or id)
             local cur = best[key]
             if not cur or (sp.rank or 1) > (D.spells[cur].rank or 1) then best[key] = id end
         end
     end
-    local general, class = {}, {}
+    local tabs, byLine = {}, {}
+    local general = { name = "General", icon = "Interface\\Icons\\INV_Misc_Book_09", list = {} }
     for _, id in pairs(best) do
-        if id == 6603 or id == 5019 then general[#general + 1] = id else class[#class + 1] = id end
+        local sp = D.spells[id]
+        local line = (id ~= 6603 and id ~= 5019) and (sp.line or Craft.CLASS_NAMES[c.class]) or nil
+        if not line then
+            table.insert(general.list, id)
+        else
+            if not byLine[line] then
+                byLine[line] = { name = line, icon = D.skillLines and D.skillLines[line], list = {} }
+                tabs[#tabs + 1] = byLine[line]
+            end
+            table.insert(byLine[line].list, id)
+        end
     end
-    local function byName(a, b)
+    local function byLevel(a, b)
         local la, lb = D.spells[a].lvl or 1, D.spells[b].lvl or 1
         if la ~= lb then return la < lb end
-        return D.spells[a].n < D.spells[b].n
+        if D.spells[a].n ~= D.spells[b].n then return D.spells[a].n < D.spells[b].n end
+        return (D.spells[a].rank or 1) < (D.spells[b].rank or 1)
     end
-    table.sort(general, byName)
-    table.sort(class, byName)
-    return { { name = "General", icon = "Interface\\Icons\\INV_Misc_Book_09", list = general },
-             { name = Craft.CLASS_NAMES[c.class], icon = nil, list = class } }
+    table.sort(tabs, function(x, y) return x.name < y.name end)
+    table.insert(tabs, 1, general)
+    for _, t in ipairs(tabs) do table.sort(t.list, byLevel) end
+    return tabs
 end
+
 
 ---------------------------------------------------------------------------
 -- Vendors

@@ -381,6 +381,7 @@ def outfit(race, sex, items):
     want.add(int(hair[min(4, len(hair) - 1)]["GeosetID"]) if hair else 1)
     groups = {}
     weapons = []
+    cape = 0
     # items in the order the client paints them: what lies on top last (pants, boots, shirt, robe)
     order = {4: 1, 7: 2, 8: 3, 5: 4, 20: 5, 19: 6}
     for e in sorted(items, key=lambda e: order.get(it[e]["InventoryType"], 0) if e in it else 0):
@@ -400,6 +401,8 @@ def outfit(race, sex, items):
             v = int(d["GeosetGroup_%d" % gi] or 0)
             if v:
                 groups[base // 100] = base + 1 + v
+        if inv == 16:
+            cape = _item_tex(int(d["ModelMaterialResourcesID_0"] or 0), sex)     # (the cape's own picture)
         if inv in HAND_SLOTS and int(d["ModelResourcesID_0"] or 0):
             mfd = _multi("ModelFileData", "ModelResourcesID").get(int(d["ModelResourcesID_0"]), [])
             tex = _item_tex(int(d["ModelMaterialResourcesID_0"] or 0), sex)
@@ -424,6 +427,8 @@ def outfit(race, sex, items):
                 tf = key
             elif tf[1] == 6:
                 tf = hair_fid or 0
+            elif tf[1] == 2 and cape:
+                tf = cape                     # (texture type 2: the cape)
             else:
                 continue
         tris.append((a, b, c, tf))

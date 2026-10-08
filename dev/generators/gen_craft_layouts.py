@@ -318,7 +318,9 @@ def resolve_names(d, parent_name):
         d["buttonText"]["name"] = d["buttonText"]["name"].replace("$parent", my or "")
     for f in d.get("frames") or []:
         resolve_names(f, my)
-    for lst in ((d.get("regions") or []), (d.get("frames") or [])):
+    # (a button's text and art name "$parent..." too: the button itself)
+    extra = list((d.get("btex") or {}).values()) + ([d["buttonText"]] if d.get("buttonText") else [])
+    for lst in ((d.get("regions") or []), (d.get("frames") or []), extra):
         for x in lst:
             for an in x.get("anchors") or []:
                 if an.get("to"):

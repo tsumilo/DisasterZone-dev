@@ -1318,5 +1318,761 @@ function UI.RefreshCharacter()
     end
 end
 
+---------------------------------------------------------------------------
+-- The quest log (QuestLogFrame, TBC): zone headers and quests in six rows (QuestLog_Update), the selected quest's
+-- details on the parchment below (QuestLog_UpdateQuestDetails, QuestFrameItems_Update). Shift-click a quest to
+-- track it or not; the light by "Track" shows which.
+---------------------------------------------------------------------------
+
+local QUESTS_DISPLAYED, QUEST_HEIGHT = 6, 16
+local ql, qlRefs
+local diffFonts = {}
+
+-- a font object in a quest's difficulty colour (QuestDifficultyColors' fonts)
+local function DiffFont(r, g, b)
+    local k = string.format("%.2f%.2f%.2f", r, g, b)
+    if diffFonts[k] == nil then
+        local ok, fo = pcall(CreateFont, "DZCraftQuestDiff" .. k:gsub("%.", ""))
+        if ok and fo then
+            fo:SetFontObject(GameFontNormal)
+            fo:SetTextColor(r, g, b)
+            diffFonts[k] = fo
+        else
+            diffFonts[k] = false
+        end
+    end
+    return diffFonts[k] or nil
+end
+
+local function QuestZone(id)
+    local x = Craft.Quests.Extra(id)
+    return x.zone or "Northshire Valley"
+end
+
+-- the log's lines: { header = zone } or { quest = log entry }, headers in the order their quests come
+local function LogEntries()
+    local log = Craft.Quests.Log()
+    local zones, byZone = {}, {}
+    for _, q in ipairs(log) do
+        local z = QuestZone(q.id)
+        if not byZone[z] then byZone[z] = {} zones[#zones + 1] = z end
+        table.insert(byZone[z], q)
+    end
+    local out = {}
+    for _, z in ipairs(zones) do
+        out[#out + 1] = { header = z }
+        if not ql.collapsed[z] then
+            for _, q in ipairs(byZone[z]) do out[#out + 1] = { quest = q } end
+        end
+    end
+    return out, #log
+end
+
+local function QuestLogWindow()
+    if ql then return ql end
+    ql, qlRefs = UI.Build("QuestLogFrame", UI.hudFrame)
+    ql.collapsed, ql.offset = {}, 0
+    CloseButtonOf(ql, qlRefs, "QuestLogFrame")
+    qlRefs.QuestFrameExitButton:SetScript("OnClick", function() UI.CloseWindow(ql) end)
+    qlRefs.QuestFramePushQuestButton:Disable()
+    qlRefs.QuestLogFrameAbandonButton:SetScript("OnClick", function()
+        local q = ql.selected and Craft.Quests.Get(ql.selected)
+        if not q then return end
+        local id = ql.selected
+        UI.Popup("abandon", "Abandon \"" .. q.title .. "\"?",
+            { UI.Str("ACCEPT"), function() Craft.Quests.Abandon(id) ql.selected = nil UI.RefreshQuestLog() end },
+            { UI.Str("CANCEL"), function() end })
+    end)
+    if qlRefs.QuestLogTrackTracking then qlRefs.QuestLogTrackTracking:SetVertexColor(1, 0, 0) end
+    if qlRefs.QuestLogTrack then
+        qlRefs.QuestLogTrack:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(_G.QUEST_WATCH_TOOLTIP or "Shift-click a quest to track it.", nil, nil, nil, nil, 1)
+            GameTooltip:Show()
+        end)
+        qlRefs.QuestLogTrack:SetScript("OnLeave", K.HideTooltip)
+    end
+    -- "All": collapse / expand every header (QuestLogCollapseAllButton_OnClick)
+    qlRefs.QuestLogCollapseAllButton:SetScript("OnClick", function(self)
+        local any = next(ql.collapsed) ~= nil
+        ql.collapsed = {}
+        if not any then
+            for _, e in ipairs((LogEntries())) do if e.header then ql.collapsed[e.header] = true end end
+        end
+        UI.RefreshQuestLog()
+    end)
+    for i = 1, QUESTS_DISPLAYED do
+        local b = qlRefs["QuestLogTitle" .. i]
+        b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        b:SetScript("OnClick", function(self)
+            local e = self.entry
+            if not e then return end
+            if e.header then
+                ql.collapsed[e.header] = not ql.collapsed[e.header] or nil
+            elseif IsShiftKeyDown and IsShiftKeyDown() then
+                local c = Craft.char
+                c.unwatch = c.unwatch or {}
+                c.unwatch[e.quest.id] = not c.unwatch[e.quest.id] or nil
+                ql.selected = e.quest.id
+            else
+                ql.selected = e.quest.id
+                ql.scrollDetail = true
+            end
+            K.Play(K.SFX.click or 856)
+            UI.RefreshQuestLog()
+        end)
+    end
+    -- the list scrolls by the wheel (FauxScrollFrame)
+    local list = qlRefs.QuestLogListScrollFrame
+    ql:EnableMouseWheel(true)
+    ql:SetScript("OnMouseWheel", function(_, d)
+        local n = #(LogEntries())
+        ql.offset = max(0, min(n - QUESTS_DISPLAYED, ql.offset - d))
+        UI.RefreshQuestLog()
+    end)
+    WireScroll(qlRefs, "QuestLogDetailScrollFrame")
+    return ql
+end
+UI.QuestLogWindow = QuestLogWindow
+
+local function SetLastShown(child, w)
+    local sp = qlRefs.QuestLogSpacerFrame
+    if sp and w then
+        sp:ClearAllPoints()
+        sp:SetPoint("TOP", w, "BOTTOM", 0, 0)
+        ql.lastShown = w
+    end
+end
+
+-- QuestFrameItems_Update("QuestLog")
+local function QuestLogRewards(id)
+    local x = Craft.Quests.Extra(id)
+    local choices, items, money = x.choice or {}, x.rew or {}, x.money or 0
+    local R = qlRefs
+    for i = 1, 10 do if R["QuestLogItem" .. i] then R["QuestLogItem" .. i]:Hide() end end
+    if #choices + #items == 0 and money == 0 then
+        R.QuestLogRewardTitleText:Hide()
+        R.QuestLogItemChooseText:Hide()
+        R.QuestLogItemReceiveText:Hide()
+        if R.QuestLogMoneyFrame then R.QuestLogMoneyFrame:Hide() end
+        return
+    end
+    R.QuestLogRewardTitleText:Show()
+    R.QuestLogRewardTitleText:SetTextColor(TITLE_COLOR[1], TITLE_COLOR[2], TITLE_COLOR[3])
+    SetLastShown(nil, R.QuestLogRewardTitleText)
+    local function fill(index, id, n)
+        local bn = "QuestLogItem" .. index
+        local b = R[bn]
+        F.SetItemButton(R, bn, id, n)
+        local it = D.items[id]
+        if R[bn .. "Name"] then R[bn .. "Name"]:SetText(it and it.n or "?") end
+        local usable = not (it and it.inv and Items.INV_SLOTS[it.inv]) or Items.CanEquip(it, Craft.char)
+        local icon = R[bn .. "IconTexture"]
+        if icon then icon:SetVertexColor(1, usable and 1 or 0, usable and 1 or 0) end
+        if R[bn .. "NameFrame"] then R[bn .. "NameFrame"]:SetVertexColor(1, usable and 1 or 0, usable and 1 or 0) end
+        b:SetScript("OnEnter", function(self) K.ItemTooltip(self, id, "nosell") end)
+        b:SetScript("OnLeave", K.HideTooltip)
+        b:ClearAllPoints()
+        b:Show()
+        SetLastShown(nil, b)
+        return b
+    end
+    local count = 0
+    if #choices > 0 then
+        local t = R.QuestLogItemChooseText
+        t:SetText(UI.Str("REWARD_CHOICES"))
+        t:SetTextColor(TEXT_COLOR[1], TEXT_COLOR[2], TEXT_COLOR[3])
+        t:Show()
+        SetLastShown(nil, t)
+        for i, c in ipairs(choices) do
+            count = count + 1
+            local b = fill(count, c[1], c[2])
+            if i > 1 then
+                if i % 2 == 1 then b:SetPoint("TOPLEFT", R["QuestLogItem" .. (count - 2)], "BOTTOMLEFT", 0, -2)
+                else b:SetPoint("TOPLEFT", R["QuestLogItem" .. (count - 1)], "TOPRIGHT", 1, 0) end
+            else
+                b:SetPoint("TOPLEFT", t, "BOTTOMLEFT", -3, -5)
+            end
+        end
+    else
+        R.QuestLogItemChooseText:Hide()
+    end
+    if #items > 0 or money > 0 then
+        local t = R.QuestLogItemReceiveText
+        t:SetTextColor(TEXT_COLOR[1], TEXT_COLOR[2], TEXT_COLOR[3])
+        t:ClearAllPoints()
+        if #choices > 0 then
+            t:SetText(UI.Str("REWARD_ITEMS"))
+            local index = #choices
+            if index % 2 == 0 then index = index - 1 end
+            t:SetPoint("TOPLEFT", R["QuestLogItem" .. index], "BOTTOMLEFT", 3, -5)
+        else
+            t:SetText(UI.Str("REWARD_ITEMS_ONLY"))
+            t:SetPoint("TOPLEFT", R.QuestLogRewardTitleText, "BOTTOMLEFT", 3, -5)
+        end
+        t:Show()
+        SetLastShown(nil, t)
+        if money > 0 and R.QuestLogMoneyFrame then
+            F.Money(R, "QuestLogMoneyFrame", money)
+            R.QuestLogMoneyFrame:Show()
+            SetLastShown(nil, R.QuestLogMoneyFrame)
+        elseif R.QuestLogMoneyFrame then
+            R.QuestLogMoneyFrame:Hide()
+        end
+        local base = count
+        for i, r in ipairs(items) do
+            count = count + 1
+            local b = fill(count, r[1], r[2])
+            if i > 1 then
+                if i % 2 == 1 then b:SetPoint("TOPLEFT", R["QuestLogItem" .. (count - 2)], "BOTTOMLEFT", 0, -2)
+                else b:SetPoint("TOPLEFT", R["QuestLogItem" .. (count - 1)], "TOPRIGHT", 1, 0) end
+            else
+                b:SetPoint("TOPLEFT", t, "BOTTOMLEFT", -3, -5)
+            end
+        end
+        if base == count and money > 0 then SetLastShown(nil, R.QuestLogMoneyFrame) end
+    else
+        R.QuestLogItemReceiveText:Hide()
+        if R.QuestLogMoneyFrame then R.QuestLogMoneyFrame:Hide() end
+    end
+end
+
+-- QuestLog_UpdateQuestDetails
+local function QuestLogDetails(id)
+    local R = qlRefs
+    local q = Craft.Quests.Get(id)
+    R.QuestLogQuestTitle:SetText(q.title)
+    R.QuestLogQuestTitle:SetTextColor(TITLE_COLOR[1], TITLE_COLOR[2], TITLE_COLOR[3])
+    R.QuestLogObjectivesText:SetText(Craft.Quests.Text(q.goal))
+    R.QuestLogObjectivesText:SetTextColor(TEXT_COLOR[1], TEXT_COLOR[2], TEXT_COLOR[3])
+    SetLastShown(nil, R.QuestLogObjectivesText)
+    R.QuestLogTimerText:Hide()
+    R.QuestLogObjective1:SetPoint("TOPLEFT", R.QuestLogObjectivesText, "BOTTOMLEFT", 0, -10)
+    local lines = Craft.Quests.Progress(id)
+    for i, l in ipairs(lines) do
+        local fs = R["QuestLogObjective" .. i]
+        if fs then
+            if l.done then fs:SetTextColor(0.2, 0.2, 0.2) fs:SetText(l.text .. " (" .. UI.Str("COMPLETE") .. ")")
+            else fs:SetTextColor(0, 0, 0) fs:SetText(l.text) end
+            fs:Show()
+            SetLastShown(nil, fs)
+        end
+    end
+    for i = #lines + 1, 10 do if R["QuestLogObjective" .. i] then R["QuestLogObjective" .. i]:Hide() end end
+    R.QuestLogRequiredMoneyText:Hide()
+    if R.QuestLogRequiredMoneyFrame then R.QuestLogRequiredMoneyFrame:Hide() end
+    R.QuestLogSuggestedGroupNum:Hide()
+    R.QuestLogDescriptionTitle:ClearAllPoints()
+    R.QuestLogDescriptionTitle:SetPoint("TOPLEFT", #lines > 0 and R["QuestLogObjective" .. #lines] or R.QuestLogObjectivesText,
+        "BOTTOMLEFT", 0, -10)
+    R.QuestLogDescriptionTitle:SetTextColor(TITLE_COLOR[1], TITLE_COLOR[2], TITLE_COLOR[3])
+    R.QuestLogQuestDescription:SetText(Craft.Quests.Text(q.text))
+    R.QuestLogQuestDescription:SetTextColor(TEXT_COLOR[1], TEXT_COLOR[2], TEXT_COLOR[3])
+    SetLastShown(nil, R.QuestLogQuestDescription)
+    for _, k in ipairs({ "QuestLogSpellLearnText", "QuestLogHonorFrame", "QuestLogPlayerTitleFrame" }) do
+        if R[k] then R[k]:Hide() end
+    end
+    QuestLogRewards(id)
+    -- the scroll child as tall as what is in it (UpdateScrollChildRect)
+    local child, sp = R.QuestLogDetailScrollChildFrame, R.QuestLogSpacerFrame
+    local top, bottom = child and child:GetTop(), sp and sp:GetBottom()
+    if child then child:SetHeight((top and bottom and top > bottom) and (top - bottom) or 400) end
+    if ql.scrollDetail then
+        ql.scrollDetail = nil
+        local sf = R.QuestLogDetailScrollFrame
+        if sf and sf.SetTo then sf.SetTo(0) elseif sf then sf:SetVerticalScroll(0) end
+    end
+end
+
+function UI.RefreshQuestLog()
+    local f = ql
+    if not f or not f:IsShown() then return end
+    local R = qlRefs
+    local entries, numQuests = LogEntries()
+    local has = #entries > 0
+    R.EmptyQuestLogFrame:SetShown(not has)
+    R.QuestLogDetailScrollFrame:SetShown(has)
+    R.QuestLogExpandButtonFrame:SetShown(has)
+    if has then R.QuestLogFrameAbandonButton:Enable() else R.QuestLogFrameAbandonButton:Disable() end
+    R.QuestLogQuestCount:SetFormattedText(UI.Str("QUEST_LOG_COUNT_TEMPLATE"), numQuests, Craft.Quests.MAX_LOG)
+    -- the list (FauxScrollFrame_Update: the bar only when it does not all fit; rows 293 wide with it, 316 without)
+    f.offset = max(0, min(f.offset, #entries - QUESTS_DISPLAYED))
+    local scrolls = #entries > QUESTS_DISPLAYED
+    R.QuestLogListScrollFrame:SetShown(scrolls)
+    local rowW = scrolls and 293 or 316
+    R.QuestLogHighlightFrame:SetWidth(rowW)
+    -- the selection: still in the log, else the first quest
+    local selOk = false
+    for _, e in ipairs(entries) do if e.quest and e.quest.id == f.selected then selOk = true end end
+    if not selOk then
+        f.selected = nil
+        for _, q in ipairs(Craft.Quests.Log()) do f.selected = q.id break end
+    end
+    R.QuestLogHighlightFrame:Hide()
+    local unwatch = Craft.char.unwatch or {}
+    for i = 1, QUESTS_DISPLAYED do
+        local b = R["QuestLogTitle" .. i]
+        local e = entries[i + f.offset]
+        b.entry = e
+        b:SetWidth(rowW)
+        local tag, check = R["QuestLogTitle" .. i .. "Tag"], R["QuestLogTitle" .. i .. "Check"]
+        local text, hl = R["QuestLogTitle" .. i .. "NormalText"], R["QuestLogTitle" .. i .. "Highlight"]
+        R["QuestLogTitle" .. i .. "GroupMates"]:SetText("")
+        if e then
+            local r, g, bl
+            if e.header then
+                b:SetText(e.header)
+                b:SetNormalTexture(f.collapsed[e.header] and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+                local nt = b:GetNormalTexture()
+                if nt then nt:SetAlpha(1) end
+                if hl then hl:SetTexture("Interface\\Buttons\\UI-PlusButton-Hilight") end
+                tag:SetText("")
+                check:Hide()
+                r, g, bl = 0.7, 0.7, 0.7                -- (QuestDifficultyColors.header)
+            else
+                local q = e.quest
+                b:SetText("  " .. q.title)
+                if b.ClearNormalTexture then b:ClearNormalTexture() end
+                local nt = b:GetNormalTexture()
+                if nt then nt:SetAlpha(0) end
+                if hl then hl:SetTexture("") end
+                r, g, bl = Craft.Quests.Color(q.level, Craft.char.level)
+                tag:SetText(q.done and ("(" .. UI.Str("COMPLETE") .. ")") or "")
+                text:SetWidth(0)
+                local tw = text:GetStringWidth() or 0
+                local maxW = 275 - 15 - (q.done and (tag:GetStringWidth() or 0) or 0)
+                if tw > maxW then text:SetWidth(maxW) tw = maxW end
+                check:ClearAllPoints()
+                check:SetPoint("LEFT", b, "LEFT", tw + 24, 0)
+                check:SetShown(not unwatch[q.id])
+            end
+            local fo = DiffFont(r, g, bl)
+            if fo then b:SetNormalFontObject(fo) elseif text then text:SetTextColor(r, g, bl) end
+            tag:SetTextColor(r, g, bl)
+            b:Show()
+            if e.quest and e.quest.id == f.selected then
+                R.QuestLogSkillHighlight:SetVertexColor(r, g, bl)
+                R.QuestLogHighlightFrame:ClearAllPoints()
+                R.QuestLogHighlightFrame:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+                R.QuestLogHighlightFrame:Show()
+                tag:SetTextColor(1, 1, 1)
+                b:LockHighlight()
+            else
+                b:UnlockHighlight()
+            end
+        else
+            b:Hide()
+        end
+    end
+    R.QuestLogCollapseAllButton:SetNormalTexture(next(f.collapsed) and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+    if R.QuestLogTrackTracking then
+        local w = f.selected and not unwatch[f.selected]
+        R.QuestLogTrackTracking:SetVertexColor(w and 0 or 1, w and 1 or 0, 0)
+    end
+    if f.selected then QuestLogDetails(f.selected) end
+end
+
+---------------------------------------------------------------------------
+-- The class trainer (Blizzard_TrainerUI, classic): the spells under their skill lines (Fire, Frost, Arms ...) in
+-- eleven rows, green to learn, red not yet, grey known (hidden by the filter, like WoW's default); the chosen
+-- one's icon, requirements, cost and text below (ClassTrainerFrame_Update, ClassTrainer_SetSelection).
+---------------------------------------------------------------------------
+
+local SKILLS_DISPLAYED = 11
+local tr, trRefs
+local TRAIN_COLOR = { available = { 0.25, 0.75, 0.25 }, unavailable = { 0.9, 0, 0 }, used = { 0.5, 0.5, 0.5 } }
+local TRAIN_SUB = { available = { 0, 0.6, 0 }, unavailable = { 0.6, 0, 0 }, used = { 0.5, 0.5, 0.5 } }
+local trainFonts = {}
+
+local function TrainFont(state)
+    if trainFonts[state] == nil then
+        local c = TRAIN_COLOR[state]
+        local ok, fo = pcall(CreateFont, "DZCraftTrain" .. state)
+        if ok and fo then fo:SetFontObject(GameFontNormalLeft or GameFontNormal) fo:SetTextColor(c[1], c[2], c[3]) end
+        trainFonts[state] = ok and fo or false
+    end
+    return trainFonts[state] or nil
+end
+
+-- the services: { header = line } and { e = TrainerList entry } in skill-line order, filtered
+local function TrainerEntries(f)
+    local lines, by = {}, {}
+    for _, e in ipairs(Craft.Npc.TrainerList(f.npc)) do
+        if f.filter[e.state] then
+            local sp = D.spells[e.spell]
+            local line = sp.line or Craft.CLASS_NAMES[Craft.char.class]
+            if not by[line] then by[line] = {} lines[#lines + 1] = line end
+            table.insert(by[line], e)
+        end
+    end
+    table.sort(lines)
+    local out = {}
+    for _, line in ipairs(lines) do
+        out[#out + 1] = { header = line }
+        if not f.collapsed[line] then
+            table.sort(by[line], function(a, b)
+                if a.level ~= b.level then return a.level < b.level end
+                return D.spells[a.spell].n < D.spells[b.spell].n
+            end)
+            for _, e in ipairs(by[line]) do out[#out + 1] = { e = e } end
+        end
+    end
+    return out
+end
+
+local function TrainerWindow()
+    if tr then return tr end
+    tr, trRefs = UI.Build("ClassTrainerFrame", UI.hudFrame)
+    tr.filter = { available = true, unavailable = true, used = false }
+    tr.collapsed, tr.offset = {}, 0
+    -- ClassTrainer_SetToClassTrainer: eleven rows, the details below the bar
+    trRefs.ClassTrainerListScrollFrame:SetHeight(184)
+    trRefs.ClassTrainerDetailScrollFrame:SetHeight(119)
+    trRefs.ClassTrainerHorizontalBarLeft:ClearAllPoints()
+    trRefs.ClassTrainerHorizontalBarLeft:SetPoint("TOPLEFT", tr, "TOPLEFT", 15, -275)
+    WireScroll(trRefs, "ClassTrainerDetailScrollFrame")
+    CloseButtonOf(tr, trRefs, "ClassTrainerFrame")
+    trRefs.ClassTrainerCancelButton:SetScript("OnClick", function() UI.CloseWindow(tr) end)
+    tr.onClose = function() tr.npc = nil end
+    trRefs.ClassTrainerTrainButton:SetScript("OnClick", function()
+        local e = tr.selected
+        if e and e.state == "available" and Craft.Npc.Learn(e.spell, e.cost) then
+            K.Play(K.SFX.quest)
+            tr.selected = nil                         -- (the next one to learn is picked)
+        end
+        UI.RefreshTrainer()
+    end)
+    trRefs.ClassTrainerCollapseAllButton:SetScript("OnClick", function()
+        local any = next(tr.collapsed) ~= nil
+        tr.collapsed = {}
+        if not any then
+            for _, x in ipairs(TrainerEntries(tr)) do if x.header then tr.collapsed[x.header] = true end end
+        end
+        UI.RefreshTrainer()
+    end)
+    for i = 1, SKILLS_DISPLAYED do
+        trRefs["ClassTrainerSkill" .. i]:SetScript("OnClick", function(self)
+            local x = self.entry
+            if not x then return end
+            if x.header then tr.collapsed[x.header] = not tr.collapsed[x.header] or nil
+            else tr.selected = x.e end
+            UI.RefreshTrainer()
+        end)
+    end
+    trRefs.ClassTrainerSkillIcon:SetScript("OnEnter", function(self)
+        if tr.selected then K.SpellTooltip(self, tr.selected.spell) end
+    end)
+    trRefs.ClassTrainerSkillIcon:SetScript("OnLeave", K.HideTooltip)
+    -- the filter (Available / Unavailable / Used), Blizzard's dropdown where the client has it
+    local dd = tr.FilterDropdown
+    if dd and dd.SetupMenu then
+        if dd.SetSelectionText then dd:SetSelectionText(function() return _G.FILTER or "Filter" end) end
+        dd:SetupMenu(function(_, root)
+            for _, s in ipairs({ { "available", "|cff20ff20" .. (_G.AVAILABLE or "Available") .. "|r" },
+                                 { "unavailable", "|cffff2020" .. (_G.UNAVAILABLE or "Unavailable") .. "|r" },
+                                 { "used", "|cff808080" .. (_G.USED or "Used") .. "|r" } }) do
+                root:CreateCheckbox(s[2], function() return tr.filter[s[1]] end,
+                    function() tr.filter[s[1]] = not tr.filter[s[1]] UI.RefreshTrainer() end, s[1])
+            end
+        end)
+    elseif dd then
+        dd:Hide()
+    end
+    tr:EnableMouseWheel(true)
+    tr:SetScript("OnMouseWheel", function(_, d)
+        tr.offset = max(0, min(#TrainerEntries(tr) - SKILLS_DISPLAYED, tr.offset - d))
+        UI.RefreshTrainer()
+    end)
+    return tr
+end
+
+function UI.OpenTrainer(u)
+    local f = TrainerWindow()
+    f.npc, f.selected, f.offset = u, nil, 0
+    trRefs.ClassTrainerNameText:SetText(u.name)
+    NpcPortrait(trRefs.ClassTrainerFramePortrait, u)
+    if UI.open.quest then UI.CloseWindow(UI.open.quest) end
+    if UI.open.gossip then UI.CloseWindow(UI.open.gossip) end
+    UI.ShowWindow("trainer", f)
+    K.Play(K.SFX.book, 0.1)
+    UI.RefreshTrainer()
+end
+
+-- ClassTrainer_SetSelection: the chosen spell's details
+local function TrainerDetails(e)
+    local R = trRefs
+    local show = e ~= nil
+    for _, k in ipairs({ "ClassTrainerSkillName", "ClassTrainerSubSkillName", "ClassTrainerSkillIcon",
+                         "ClassTrainerSkillRequirements", "ClassTrainerSkillDescription", "ClassTrainerDetailMoneyFrame",
+                         "ClassTrainerCostLabel" }) do
+        if R[k] then R[k]:SetShown(show) end
+    end
+    R.ClassTrainerSkillHighlightFrame:SetShown(show)
+    if not e then R.ClassTrainerTrainButton:Disable() return end
+    local sp = D.spells[e.spell]
+    local c = TRAIN_COLOR[e.state]
+    R.ClassTrainerSkillHighlight:SetVertexColor(e.state == "available" and 0 or c[1], e.state == "available" and 1 or c[2],
+        e.state == "available" and 0 or c[3])
+    R.ClassTrainerSkillName:SetText(sp.n)
+    R.ClassTrainerSubSkillName:SetText(sp.r and ("(" .. sp.r .. ")") or "")
+    R.ClassTrainerSkillIcon:SetNormalTexture(Combat.SpellIcon(e.spell))
+    -- Requires: Level 4, Fireball (Rank 1) - red when not met
+    local reqs, c0 = {}, Craft.char
+    if e.level > 1 then
+        reqs[#reqs + 1] = (c0.level >= e.level and "" or "|cffff2020") .. string.format("Level %d", e.level) .. (c0.level >= e.level and "" or "|r")
+    end
+    if sp.prev and D.spells[sp.prev] then
+        local p = D.spells[sp.prev]
+        local s = p.n .. (p.r and (" (" .. p.r .. ")") or "")
+        reqs[#reqs + 1] = c0.spells[sp.prev] and s or ("|cffff2020" .. s .. "|r")
+    end
+    R.ClassTrainerSkillRequirements:SetText(#reqs > 0 and ((_G.REQUIRES_LABEL or "Requires:") .. " " .. table.concat(reqs, ", ")) or "")
+    local unaffordable = Craft:Money() < e.cost
+    if e.cost > 0 then
+        R.ClassTrainerCostLabel:Show()
+        R.ClassTrainerDetailMoneyFrame:Show()
+        F.Money(R, "ClassTrainerDetailMoneyFrame", e.cost, unaffordable)
+        R.ClassTrainerSkillDescription:SetPoint("TOPLEFT", R.ClassTrainerCostLabel, "BOTTOMLEFT", 0, -10)
+    else
+        R.ClassTrainerCostLabel:Hide()
+        R.ClassTrainerDetailMoneyFrame:Hide()
+        R.ClassTrainerSkillDescription:SetPoint("TOPLEFT", R.ClassTrainerCostLabel, "TOPLEFT", 0, 0)
+    end
+    R.ClassTrainerSkillDescription:SetText(Combat.SpellText(e.spell, Craft.player))
+    R.ClassTrainerTrainButton:SetEnabled(e.state == "available" and not unaffordable)
+end
+
+function UI.RefreshTrainer()
+    local f = tr
+    if not f or not f:IsShown() or not f.npc then return end
+    local R = trRefs
+    local g = Craft.Npc.Gossip(f.npc)
+    R.ClassTrainerGreetingText:SetText(g.text or "")
+    local entries = TrainerEntries(f)
+    -- the selection: still listed, else the first one to learn (ClassTrainer_SelectFirstLearnableSkill)
+    local sel
+    for _, x in ipairs(entries) do if x.e and f.selected and x.e.spell == f.selected.spell then sel = x.e end end
+    if not sel then
+        for _, x in ipairs(entries) do if x.e and x.e.state == "available" then sel = x.e break end end
+        if not sel then for _, x in ipairs(entries) do if x.e then sel = x.e break end end end
+    end
+    f.selected = sel
+    f.offset = max(0, min(f.offset, #entries - SKILLS_DISPLAYED))
+    local scrolls = #entries > SKILLS_DISPLAYED
+    R.ClassTrainerListScrollFrame:SetShown(scrolls)
+    R.ClassTrainerSkillHighlightFrame:Hide()
+    if #entries > 0 then R.ClassTrainerCollapseAllButton:Enable() else R.ClassTrainerCollapseAllButton:Disable() end
+    for i = 1, SKILLS_DISPLAYED do
+        local b = R["ClassTrainerSkill" .. i]
+        local x = entries[i + f.offset]
+        b.entry = x
+        local text, sub, hl = R["ClassTrainerSkill" .. i .. "Text"], R["ClassTrainerSkill" .. i .. "SubText"],
+                              R["ClassTrainerSkill" .. i .. "Highlight"]
+        if x then
+            b:SetWidth(scrolls and 293 or 323)
+            if x.header then
+                text:SetText(x.header)
+                text:SetWidth(0)
+                b:SetNormalFontObject(GameFontNormal)
+                sub:Hide()
+                b:SetNormalTexture(f.collapsed[x.header] and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+                local nt = b:GetNormalTexture()
+                if nt then nt:SetAlpha(1) end
+                if hl then hl:SetTexture("Interface\\Buttons\\UI-PlusButton-Hilight") end
+                b:UnlockHighlight()
+            else
+                local e = x.e
+                local sp = D.spells[e.spell]
+                if b.ClearNormalTexture then b:ClearNormalTexture() end
+                local nt = b:GetNormalTexture()
+                if nt then nt:SetAlpha(0) end
+                if hl then hl:SetTexture("") end
+                text:SetText("  " .. sp.n)
+                if sp.r then
+                    sub:SetText("(" .. sp.r .. ")")
+                    sub:ClearAllPoints()
+                    sub:SetPoint("LEFT", text, "RIGHT", 10, 0)
+                    sub:Show()
+                    text:SetWidth(0)
+                else
+                    sub:Hide()
+                    text:SetWidth(270)
+                end
+                local fo = TrainFont(e.state)
+                if fo then b:SetNormalFontObject(fo) end
+                if e ~= sel then text:SetTextColor(unpack(TRAIN_COLOR[e.state])) end
+                local sc = TRAIN_SUB[e.state]
+                sub:SetTextColor(sc[1], sc[2], sc[3])
+                if e == sel then
+                    R.ClassTrainerSkillHighlightFrame:ClearAllPoints()
+                    R.ClassTrainerSkillHighlightFrame:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+                    R.ClassTrainerSkillHighlightFrame:Show()
+                    b:LockHighlight()
+                    sub:SetTextColor(1, 1, 1)
+                else
+                    b:UnlockHighlight()
+                end
+            end
+            b:Show()
+        else
+            b:Hide()
+        end
+    end
+    R.ClassTrainerCollapseAllButton:SetNormalTexture(next(f.collapsed) and "Interface\\Buttons\\UI-PlusButton-Up" or "Interface\\Buttons\\UI-MinusButton-Up")
+    TrainerDetails(sel)
+    F.Money(R, "ClassTrainerMoneyFrame", Craft:Money())
+end
+
+---------------------------------------------------------------------------
+-- The spellbook (SpellBookFrame, the classic book TBC uses): twelve spells a page - the left column first, then
+-- the right (SpellButton ids 1-6, 7-12) - the skill-line tabs down the right edge (General, Arcane, Fire ...),
+-- pages, "Show all spell ranks" (SpellButton_UpdateButton, SpellBookFrame_UpdateSkillLineTabs)
+---------------------------------------------------------------------------
+
+local SPELLS_PER_PAGE = 12
+local sb, sbRefs
+local PASSIVE_COLOR, NORMAL_COLOR = { 0.77, 0.64, 0 }, { 1, 0.82, 0 }
+
+local function SpellBookWindow()
+    if sb then return sb end
+    sb, sbRefs = UI.Build("SpellBookFrame", UI.hudFrame)
+    sb.tab, sb.pages, sb.allRanks = 2, {}, false
+    CloseButtonOf(sb, sbRefs, "SpellBook")
+    sbRefs.SpellBookTitleText:SetText(UI.Str("SPELLBOOK"))
+    -- one book (no pet): the bottom tab says Spellbook, the others hide
+    local t1 = sbRefs.SpellBookFrameTabButton1
+    if t1 then
+        t1:SetText(UI.Str("SPELLBOOK"))
+        t1:Show()
+        t1:Disable()
+    end
+    for i = 2, 3 do if sbRefs["SpellBookFrameTabButton" .. i] then sbRefs["SpellBookFrameTabButton" .. i]:Hide() end end
+    sbRefs.SpellBookPrevPageButton:SetScript("OnClick", function()
+        sb.pages[sb.tab] = max(1, (sb.pages[sb.tab] or 1) - 1)
+        K.Play(K.SFX.page or 836)
+        UI.RefreshSpellbook()
+    end)
+    sbRefs.SpellBookNextPageButton:SetScript("OnClick", function()
+        sb.pages[sb.tab] = (sb.pages[sb.tab] or 1) + 1
+        K.Play(K.SFX.page or 836)
+        UI.RefreshSpellbook()
+    end)
+    local cb = sbRefs.ShowAllSpellRanksCheckbox
+    if cb then
+        if cb.Text then cb.Text:SetText(_G.SHOW_ALL_SPELL_RANKS or "Show all spell ranks") end
+        cb:SetScript("OnClick", function(self) sb.allRanks = self:GetChecked() and true or false UI.RefreshSpellbook() end)
+    end
+    for i = 1, 8 do
+        local t = sbRefs["SpellBookSkillLineTab" .. i]
+        if t then
+            t:SetScript("OnClick", function()
+                sb.tab = i
+                K.Play(K.SFX.page or 836)
+                UI.RefreshSpellbook()
+            end)
+            t:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(self.tooltip or "", 1, 1, 1)
+                GameTooltip:Show()
+            end)
+            t:SetScript("OnLeave", K.HideTooltip)
+        end
+    end
+    for i = 1, SPELLS_PER_PAGE do
+        local b = sbRefs["SpellButton" .. i]
+        b:RegisterForDrag("LeftButton")
+        b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        local function pickup(self)
+            if self.spell and not Combat.IsPassive(D.spells[self.spell]) then UI.PickupAction("spell", self.spell) end
+        end
+        b:SetScript("OnDragStart", pickup)
+        b:SetScript("OnClick", function(self)
+            self:SetChecked(false)
+            if not self.spell then return end
+            if (IsShiftKeyDown and IsShiftKeyDown()) or UI.cursorAction then pickup(self) return end
+            if self.spell == 6603 then Combat.StartAttack(Craft.player) return end
+            if not Combat.IsPassive(D.spells[self.spell]) then Combat.CastSpell(Craft.player, self.spell) end
+        end)
+        b:SetScript("OnEnter", function(self) if self.spell then K.SpellTooltip(self, self.spell) end end)
+        b:SetScript("OnLeave", K.HideTooltip)
+    end
+    return sb
+end
+UI.SpellBookWindow = SpellBookWindow
+
+function UI.RefreshSpellbook()
+    local f = sb
+    if not f or not f:IsShown() then return end
+    local R = sbRefs
+    local cls = Craft.char.class
+    if R.ShowAllSpellRanksCheckbox then
+        -- (warriors and rogues have no ranks to show, like WoW)
+        R.ShowAllSpellRanksCheckbox:SetShown(cls ~= 1 and cls ~= 4)
+        R.ShowAllSpellRanksCheckbox:SetChecked(f.allRanks)
+    end
+    local tabs = Craft.Npc.Spellbook(f.allRanks)
+    if not tabs[f.tab] then f.tab = 1 end
+    for i = 1, 8 do
+        local t = R["SpellBookSkillLineTab" .. i]
+        local tab = tabs[i]
+        if t then
+            if tab then
+                local icon = tab.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+                t:SetNormalTexture(icon)
+                t.tooltip = tab.name
+                t:SetChecked(f.tab == i)
+                t:Show()
+            else
+                t:Hide()
+            end
+            if R["SpellBookSkillLineTab" .. i .. "Flash"] then R["SpellBookSkillLineTab" .. i .. "Flash"]:Hide() end
+        end
+    end
+    local list = tabs[f.tab].list
+    local maxPages = max(1, ceil(#list / SPELLS_PER_PAGE))
+    local page = min(f.pages[f.tab] or 1, maxPages)
+    f.pages[f.tab] = page
+    R.SpellBookPrevPageButton:SetEnabled(page > 1)
+    R.SpellBookNextPageButton:SetEnabled(page < maxPages)
+    R.SpellBookPageText:SetFormattedText(UI.Str("PAGE_NUMBER"), page)
+    for i = 1, SPELLS_PER_PAGE do
+        local b = R["SpellButton" .. i]
+        local n = "SpellButton" .. i
+        local id = list[(b:GetID() or i) + SPELLS_PER_PAGE * (page - 1)]
+        b.spell = id
+        local icon, name, sub = R[n .. "IconTexture"], R[n .. "SpellName"], R[n .. "SubSpellName"]
+        local nt, hl, cd = R[n .. "NormalTexture"], R[n .. "Highlight"], R[n .. "Cooldown"]
+        if R[n .. "AutoCastOverlay"] then R[n .. "AutoCastOverlay"]:Hide() end
+        b:SetChecked(false)
+        if not id then
+            icon:Hide() name:Hide() sub:Hide()
+            if cd then cd:Hide() end
+            if hl then hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square") end
+            if nt then nt:SetVertexColor(1, 1, 1) end
+            b:Disable()
+        else
+            b:Enable()
+            local sp = D.spells[id]
+            local passive = Combat.IsPassive(sp)
+            icon:SetTexture(Combat.SpellIcon(id))
+            name:SetText(sp.n)
+            local subText = sp.r or (passive and (_G.SPELL_PASSIVE or "Passive")) or ""
+            sub:SetText(subText)
+            name:ClearAllPoints()
+            name:SetPoint("LEFT", b, "RIGHT", 5, subText == "" and 1 or 3)
+            icon:Show() name:Show() sub:Show()
+            local col = passive and PASSIVE_COLOR or NORMAL_COLOR
+            name:SetTextColor(col[1], col[2], col[3])
+            if nt then if passive then nt:SetVertexColor(0, 0, 0) else nt:SetVertexColor(1, 1, 1) end end
+            if hl then hl:SetTexture(passive and "Interface\\Buttons\\UI-PassiveHighlight" or "Interface\\Buttons\\ButtonHilight-Square") end
+            if cd then
+                local left, total = Combat.CooldownLeft(Craft.player, id)
+                if left and left > 0 and total then cd:SetCooldown(GetTime() - (total - left), total) cd:Show()
+                else cd:Hide() end
+            end
+        end
+    end
+end
+
 -- the events that redraw these windows
 Craft:On("money", function() UI.RefreshMerchant() end)

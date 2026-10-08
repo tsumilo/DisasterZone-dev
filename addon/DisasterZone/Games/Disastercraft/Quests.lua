@@ -335,7 +335,7 @@ function Quests.Color(qlvl, plvl)
     local d = (qlvl or 1) - (plvl or 1)
     if d >= 5 then return 1, 0.1, 0.1 end
     if d >= 3 then return 1, 0.5, 0.25 end
-    if d >= -2 then return 1, 0.82, 0 end
+    if d >= -2 then return 1, 1, 0 end
     if qlvl > Craft.GrayLevel(plvl) then return 0.25, 0.75, 0.25 end
     return 0.5, 0.5, 0.5
 end
