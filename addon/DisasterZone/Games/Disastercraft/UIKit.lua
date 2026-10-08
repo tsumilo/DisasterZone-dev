@@ -36,6 +36,49 @@ function K.Frame(parent, w, h, backdrop, level)
     return f
 end
 
+-- the hero's own looks: a human of the character's sex, never your WoW character (creature displays 49 / 50: the
+-- bare human male / female models)
+K.HUMAN_DISPLAY = { [0] = 49, [1] = 50 }
+
+function K.HeroPortrait(t, sex)
+    if SetPortraitTextureFromCreatureDisplayID and pcall(SetPortraitTextureFromCreatureDisplayID, t, K.HUMAN_DISPLAY[sex or 0] or 49) then
+        t:SetTexCoord(0, 1, 0, 1)
+        return
+    end
+    t:SetTexture("Interface\\CharacterFrame\\TempPortrait")
+end
+
+-- a DressUpModel showing a human of this sex in these items. SetUnit / SetCustomRace load the model after they
+-- return, and the loaded model wears the unit's own (real) gear - so the outfit goes on once it has loaded
+-- (OnModelLoaded) and again on the next few frames (clients where that script never fires).
+function K.DressModel(m, sex, items)
+    if not m then return end
+    m.dzOutfit = { sex = sex or 0, items = items or {} }
+    local function apply()
+        local o = m.dzOutfit
+        if not o then return end
+        if m.Undress then pcall(m.Undress, m) end
+        for _, id in ipairs(o.items) do
+            if m.TryOn then pcall(m.TryOn, m, "item:" .. id) end
+        end
+    end
+    if not m.dzDressHooked then
+        m.dzDressHooked = true
+        pcall(m.HookScript, m, "OnModelLoaded", apply)
+        m.dzApply = apply
+    end
+    pcall(m.SetUnit, m, "player")
+    if m.SetCustomRace then pcall(m.SetCustomRace, m, 1, m.dzOutfit.sex) end
+    apply()
+    -- (the frames after: whatever finishes loading late is undressed again)
+    local left, at = 1.0, 0
+    m:SetScript("OnUpdate", function(self, dt)
+        left, at = left - dt, at + dt
+        if at >= 0.1 then at = 0 m.dzApply() end
+        if left <= 0 then self:SetScript("OnUpdate", nil) end
+    end)
+end
+
 function K.Tex(parent, layer, file, sub)
     local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
     if file then t:SetTexture(file) end

@@ -308,7 +308,7 @@ local function line_width(line, size, k)
   return w
 end
 local function widthOf(st)
-  if st.w then return st.w end
+  if st.w and st.w > 0 then return st.w end        -- (a width of 0: unbounded, the client's rule)
   local ok, l, b, w = pcall(M.region_rect, st.self)
   return (ok and w and w > 0) and w or nil
 end
@@ -342,7 +342,7 @@ FS.GetUnboundedStringWidth = function(self) local nat = layout(self); return nat
 FS.GetStringWidth = function(self)
   local nat, lines, size, box = layout(self)
   local st = OBJ[self]
-  local w = st.w or widthOf(st)
+  local w = widthOf(st)
   if w and nat > w then return w end
   return nat
 end
@@ -352,7 +352,7 @@ FS.GetLineHeight = function(self) local _, _, size = layout(self); return size e
 FS.IsTruncated = function(self)
   local nat, lines, size, box = layout(self)
   local st = OBJ[self]
-  local w = st.w or widthOf(st)
+  local w = widthOf(st)
   return (st.wrap == false and w and nat > w + 0.5) and true or false
 end
 local origCreate = M.CreateObject

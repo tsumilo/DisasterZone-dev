@@ -41,14 +41,12 @@ end
 -- your character in an outfit (start gear), optionally as the other sex (when the client allows it)
 local function Dress(m, cls, sex)
     if not m then return end
-    pcall(m.SetUnit, m, "player")
-    if m.SetCustomRace and sex ~= nil then pcall(m.SetCustomRace, m, 1, sex) end
-    if m.Undress then pcall(m.Undress, m) end
-    local cd = D.classes[cls]
+    local cd, items = D.classes[cls], {}
     for _, id in ipairs(cd and cd.gear or {}) do
         local it = D.items[id]
-        if it and it.inv and m.TryOn then pcall(m.TryOn, m, "item:" .. id) end
+        if it and it.inv then items[#items + 1] = id end
     end
+    K.DressModel(m, sex or 0, items)
 end
 
 function UI.BuildGlue(parent)

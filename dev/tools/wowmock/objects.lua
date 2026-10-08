@@ -901,8 +901,9 @@ define("TextureBase", "Region", {
     S(self).gradient = { orient, rgba(c1), rgba(c2) }
   end,
   SetGradientAlpha = function() end,
-  SetHorizTile = function() end,
-  SetVertTile = function() end,
+  -- (kept for tools/ui_look.py: a tiled texture repeats at its own size)
+  SetHorizTile = function(self, on) S(self).htile = on and true or nil end,
+  SetVertTile = function(self, on) S(self).vtile = on and true or nil end,
   AddMaskTexture = function(self, m) local st = S(self); st.masks = st.masks or {}; st.masks[#st.masks + 1] = m end,
   RemoveMaskTexture = function(self, m)
     local st = S(self)

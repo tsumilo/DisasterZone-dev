@@ -523,7 +523,7 @@ def ui_windows_open_and_fill():
       local t = UI.open.trainer and UI.open.trainer:IsShown()
       return { shown = shown, q = q, m = m, t = t }
     """)
-    assert len(r["shown"]) >= 5, r
+    assert len(r["shown"]) >= 4, r          # (a third side panel pushes one out, like WoW)
     assert r["q"] and r["m"] and r["t"], r
     w.tick(1.0)
     no_errors(w)

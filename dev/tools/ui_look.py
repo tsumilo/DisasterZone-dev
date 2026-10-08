@@ -127,6 +127,8 @@ for _, o in ipairs(M.all_objects) do
       rec.desat = st.desat
       rec.blend = st.blend
       rec.grad = st.gradient
+      rec.htile = st.htile
+      rec.vtile = st.vtile
       local m = st.masks and st.masks[1]
       if m and OBJ[m] then rec.mask = OBJ[m].texture and tostring(OBJ[m].texture) or nil end
     else
@@ -167,6 +169,14 @@ def _casc_mod():
 
 
 def _open_bytes(b):
+    # (BLP2 encoding 3 = raw BGRA, which Pillow does not read: the client's tiled frame strips use it)
+    if b[:4] == b"BLP2" and len(b) > 148 and b[8] == 3:
+        import struct
+        w, h = struct.unpack_from("<II", b, 12)
+        off = struct.unpack_from("<I", b, 20)[0]
+        raw = b[off:off + w * h * 4]
+        im = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
+        return im
     im = Image.open(io.BytesIO(b))
     im.load()
     return im.convert("RGBA")
@@ -220,7 +230,7 @@ def _load(key):
         path = None
     else:
         path = key
-        name = re.sub(r"[^a-z0-9]+", "_", path).strip("_")
+        name = re.sub(r"[^a-z0-9_]+", "_", path).strip("_")       # (keeps "_": _UI-Frame is not UI-Frame)
         addon = "interface\\addons\\disasterzone\\"
         if path.startswith(addon):
             base = os.path.join(ADDON, *path[len(addon):].split("\\"))
@@ -338,7 +348,18 @@ def texture_image(r, w, h):
                 crop = crop.transpose(Image.FLIP_LEFT_RIGHT)
             if flip_y:
                 crop = crop.transpose(Image.FLIP_TOP_BOTTOM)
-        im = crop.resize((w, h), Image.LANCZOS)
+        if r.get("htile") or r.get("vtile"):
+            # a tiled texture (horizTile / vertTile): the piece at its own size, repeated over the region
+            cw, ch = crop.size
+            tw = max(1, int(round(cw * (h / ch)))) if r.get("htile") and not r.get("vtile") else (cw if r.get("htile") else w)
+            th = max(1, int(round(ch * (w / cw)))) if r.get("vtile") and not r.get("htile") else (ch if r.get("vtile") else h)
+            piece = crop.resize((tw, th), Image.LANCZOS)
+            im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            for yy in range(0, h, th):
+                for xx in range(0, w, tw):
+                    im.paste(piece, (xx, yy))
+        else:
+            im = crop.resize((w, h), Image.LANCZOS)
         if r.get("desat"):
             a = im.split()[3]
             gray = im.convert("L")

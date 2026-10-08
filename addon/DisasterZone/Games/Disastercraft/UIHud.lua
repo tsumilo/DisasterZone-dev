@@ -25,9 +25,9 @@ local function Portrait(t, u)
     if not u then t:SetTexture(nil) return end
     if t.unitKey == u.guid then return end
     t.unitKey = u.guid
-    if u.kind == "player" and SetPortraitTexture then
-        local ok = pcall(SetPortraitTexture, t, "player")
-        if ok then t:SetTexCoord(0, 1, 0, 1) return end
+    if u.kind == "player" then
+        K.HeroPortrait(t, (u.char and u.char.sex) or u.sex or (Craft.char and Craft.char.sex) or 0)
+        return
     end
     if Combat.IsPlayer(u) then
         t:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
@@ -291,7 +291,7 @@ local function UpdateAction(b)
     local usable, nomana, far = true, false, false
     if a[1] == "spell" then
         local sp = D.spells[id]
-        b.icon:SetTexture(sp and sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        b.icon:SetTexture(Combat.SpellIcon(id, c))
         b.count:SetText("")
         local left, total = Combat.CooldownLeft(p, id)
         if left > 0 and total > 0 then
@@ -442,21 +442,34 @@ function UI.BuildBar(hud)
         b:SetPoint("BOTTOMLEFT", (i - 13) * 42, 0)
         H.actions[i] = b
     end
-    -- experience (purple; the next level's number on the right)
-    local xp = K.Bar(bar, 1016, 10, 0.58, 0, 0.55)
-    xp:SetPoint("BOTTOM", bar, "TOP", 0, 0)
-    xp.bg:SetColorTexture(0.1, 0, 0.12, 0.9)
-    xp.text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
-    xp.text:Hide()
-    xp:EnableMouse(true)
-    xp:SetScript("OnEnter", function() xp.text:Show() end)
-    xp:SetScript("OnLeave", function() xp.text:Hide() end)
-    for i = 1, 19 do
-        local div = K.Tex(xp, "OVERLAY", K.WHITE)
-        div:SetSize(1, 10)
-        div:SetColorTexture(0, 0, 0, 0.7)
-        div:SetPoint("LEFT", i * 1016 / 20, 0)
+    -- experience, as the client lays it on the bar (StatusTrackingBar.xml / ExpBar.xml): a 1024 x 13 strip on the
+    -- bar's top edge, an 8-high purple bar inside it and the Dwarf art's own frame strip (with its notches) over it
+    local strip = CreateFrame("Frame", nil, bar)
+    strip:SetSize(1024, 13)
+    strip:SetPoint("TOP", bar, "TOP", 0, 0)
+    strip:SetFrameLevel(bar:GetFrameLevel() + 2)
+    local xp = K.Bar(strip, 1024, 8, 0.58, 0, 0.55)
+    xp:SetPoint("RIGHT", strip, "RIGHT", 0, 0)
+    xp.bg:SetColorTexture(0, 0, 0, 0.5)
+    local frameCoords = { { 0.79296875, 0.83203125 }, { 0.54296875, 0.58203125 }, { 0.29296875, 0.33203125 },
+                          { 0.04296875, 0.08203125 } }
+    for i = 1, 4 do
+        local t = K.Tex(strip, "OVERLAY", "Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf")
+        t:SetSize(256, 10)
+        t:SetPoint("TOPLEFT", (i - 1) * 256, 0)
+        t:SetTexCoord(0, 1, frameCoords[i][1], frameCoords[i][2])
     end
+    -- the text sits over the frame (TextStatusBar: shown while the mouse is on the bar)
+    local over = CreateFrame("Frame", nil, strip)
+    over:SetAllPoints()
+    over:SetFrameLevel(strip:GetFrameLevel() + 3)
+    xp.text:Hide()
+    xp.text = K.Text(over, "TextStatusBarText", "OVERLAY", "CENTER")
+    xp.text:SetPoint("CENTER", strip, "CENTER", 0, 1)
+    xp.text:Hide()
+    strip:EnableMouse(true)
+    strip:SetScript("OnEnter", function() xp.text:Show() end)
+    strip:SetScript("OnLeave", function() xp.text:Hide() end)
     H.xp = xp
     -- micro menu: character, spellbook, quest log, social (party), main menu
     local micro = {
@@ -478,7 +491,7 @@ function UI.BuildBar(hud)
             local t = K.Tex(b, "OVERLAY")
             t:SetSize(18, 25)
             t:SetPoint("TOP", 0, -28)
-            if SetPortraitTexture then pcall(SetPortraitTexture, t, "player") end
+            K.HeroPortrait(t, Craft.char and Craft.char.sex or 0)
             t:SetTexCoord(0.2, 0.8, 0.0666, 0.9)
             b.portrait = t
         end

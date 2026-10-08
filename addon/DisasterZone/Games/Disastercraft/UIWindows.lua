@@ -56,7 +56,7 @@ local LEFT_SLOTS = {}            -- (WoW's UIPanel layout: windows open at the l
 
 function UI.ShowWindow(name, f, side)
     if not f then return end
-    f:SetFrameLevel(UI.hudFrame:GetFrameLevel() + 60)          -- (over the chat box and the bars)
+    UI.SetLevelTree(f, UI.hudFrame:GetFrameLevel() + 60)       -- (over the chat box and the bars)
     UI.open[name] = f
     f:ClearAllPoints()
     if side == "right" then f:SetPoint("TOPRIGHT", UI.hudFrame, "TOPRIGHT", -8, -90)
@@ -144,7 +144,7 @@ end
 function UI.PickupAction(kind, id)
     UI.ClearCursorItem()
     UI.cursorAction = { kind, id }
-    UI.cursorFrame.icon:SetTexture(kind == "spell" and (D.spells[id] and D.spells[id].icon) or Items.Icon(id))
+    UI.cursorFrame.icon:SetTexture(kind == "spell" and Combat.SpellIcon(id) or Items.Icon(id))
     UI.cursorFrame:Show()
 end
 
@@ -826,7 +826,7 @@ function UI.RefreshTrainer()
     local e = f.selected
     if e then
         local sp = D.spells[e.spell]
-        f.icon.icon:SetTexture(sp.icon)
+        f.icon.icon:SetTexture(Combat.SpellIcon(e.spell))
         f.icon.icon:Show()
         f.icon:SetScript("OnEnter", function(self) K.SpellTooltip(self, e.spell) end)
         f.name:SetText(sp.n .. (sp.r and ("  |cff808080" .. sp.r .. "|r") or ""))
@@ -917,7 +917,7 @@ function UI.RefreshSpellbook()
         b.spell = id
         if id then
             local sp = D.spells[id]
-            b.icon:SetTexture(sp.icon)
+            b.icon:SetTexture(Combat.SpellIcon(id))
             b.icon:Show()
             b.name:SetText(sp.n)
             b.sub:SetText(Combat.IsPassive(sp) and "Passive" or (sp.r or ""))
@@ -928,102 +928,6 @@ function UI.RefreshSpellbook()
         end
     end
     f.pageText:SetText("Page " .. f.page)
-end
-
----------------------------------------------------------------------------
--- Character (paper doll)
----------------------------------------------------------------------------
-
-local cf
-local LEFT = { 1, 2, 3, 15, 5, 4, 19, 9 }
-local RIGHT = { 10, 6, 7, 8, 11, 12, 13, 14 }
-local BOTTOM = { 16, 17, 18 }
-
-local function CharacterFrame()
-    if cf then return cf end
-    cf = Panel(UI.hudFrame, "Interface\\PaperDollInfoFrame\\UI-Character-General", "Bottom", "")
-    cf.sub = K.Text(cf, "GameFontHighlightSmall", "OVERLAY", "CENTER")
-    cf.sub:SetPoint("TOP", 0, -40)
-    cf.slots = {}
-    local function slot(id, x, y)
-        local b = K.SlotButton(cf, 37, "Interface\\PaperDoll\\UI-PaperDoll-Slot-" .. Items.SLOT_ART[id])
-        b.bg:SetSize(37, 37)
-        b.bg:SetPoint("CENTER")
-        b:SetPoint("TOPLEFT", x, y)
-        b.slot = id
-        b:RegisterForDrag("LeftButton")
-        b:SetScript("OnClick", function(self, button)
-            if UI.cursorItem then UI.DropOnEquip(self.slot) return end
-            if button == "RightButton" then Items.Unequip(self.slot) return end
-            UI.PickupEquipped(self.slot)
-        end)
-        b:SetScript("OnDragStart", function(self) if not UI.cursorItem then UI.PickupEquipped(self.slot) end end)
-        b:SetScript("OnReceiveDrag", function(self) if UI.cursorItem then UI.DropOnEquip(self.slot) end end)
-        b:SetScript("OnEnter", function(self)
-            local it = Craft.char.equip[self.slot]
-            if it then K.ItemTooltip(self, it)
-            else GameTooltip:SetOwner(self, "ANCHOR_RIGHT") GameTooltip:SetText(Items.SLOT_NAMES[self.slot], 1, 1, 1) GameTooltip:Show() end
-        end)
-        b:SetScript("OnLeave", K.HideTooltip)
-        cf.slots[id] = b
-    end
-    for i, id in ipairs(LEFT) do slot(id, 21, -74 - (i - 1) * 41) end
-    for i, id in ipairs(RIGHT) do slot(id, 305, -74 - (i - 1) * 41) end
-    for i, id in ipairs(BOTTOM) do slot(id, 122 + (i - 1) * 41, -386) end
-    -- your WoW character, dressed in this game's gear
-    local ok, m = pcall(CreateFrame, "DressUpModel", nil, cf)
-    if ok and m then
-        m:SetSize(231, 210)
-        m:SetPoint("TOPLEFT", 65, -76)
-        cf.model = m
-    end
-    -- the stats (WoW's two boxes)
-    cf.stats = {}
-    local function stat(i, x, y)
-        local l = K.Text(cf, "GameFontNormalSmall", "OVERLAY", "LEFT")
-        l:SetPoint("TOPLEFT", x, y)
-        local r = K.Text(cf, "GameFontHighlightSmall", "OVERLAY", "RIGHT")
-        r:SetPoint("TOPRIGHT", cf, "TOPLEFT", x + 110, y)
-        cf.stats[i] = { l, r }
-    end
-    for i = 1, 6 do stat(i, 72, -292 - (i - 1) * 13) end
-    for i = 7, 12 do stat(i, 192, -292 - (i - 7) * 13) end
-    return cf
-end
-
-function UI.RefreshCharacter()
-    local f = cf
-    if not f or not f:IsShown() then return end
-    local c, p = Craft.char, Craft.player
-    f.title:SetText(c.name)
-    f.sub:SetText(string.format("Level %d Human %s", c.level, Craft.CLASS_NAMES[c.class]))
-    if SetPortraitTexture then pcall(SetPortraitTexture, f.portrait, "player") end
-    for id, b in pairs(f.slots) do K.SetItem(b, c.equip[id]) end
-    if f.model then
-        local key = ""
-        for s = 1, 19 do key = key .. (c.equip[s] or 0) .. "," end
-        if f.modelKey ~= key then
-            f.modelKey = key
-            pcall(f.model.SetUnit, f.model, "player")
-            if f.model.Undress then pcall(f.model.Undress, f.model) end
-            for s = 1, 19 do
-                local id = c.equip[s]
-                if id and f.model.TryOn then pcall(f.model.TryOn, f.model, "item:" .. id) end
-            end
-        end
-    end
-    local lines = {
-        { "Strength:", p.str }, { "Agility:", p.agi }, { "Stamina:", p.sta }, { "Intellect:", p.int },
-        { "Spirit:", p.spi }, { "Armor:", p.armor },
-        { "Damage:", string.format("%d - %d", floor(p.mh[1] + p.ap / 14 * p.mh[4]), floor(p.mh[2] + p.ap / 14 * p.mh[4])) },
-        { "Speed:", string.format("%.2f", p.mh[4]) }, { "Power:", p.ap },
-        { "Crit:", string.format("%.1f%%", p.crit) }, { "Dodge:", string.format("%.1f%%", p.dodge) },
-        { p.powerType == Craft.POWER_MANA and "Spell Crit:" or "Parry:", string.format("%.1f%%", p.powerType == Craft.POWER_MANA and p.spellCrit or p.parry) },
-    }
-    for i, s in ipairs(f.stats) do
-        s[1]:SetText(lines[i][1])
-        s[2]:SetText(lines[i][2])
-    end
 end
 
 ---------------------------------------------------------------------------
@@ -1263,7 +1167,7 @@ end
 
 function UI.Toggle(name)
     if name == "character" then
-        local f = CharacterFrame()
+        local f = UI.CharacterSheet()
         if f:IsShown() then UI.CloseWindow(f) else UI.ShowWindow("character", f) K.Play(K.SFX.sheet) UI.RefreshCharacter() end
     elseif name == "spellbook" then
         local f = SpellbookFrame()

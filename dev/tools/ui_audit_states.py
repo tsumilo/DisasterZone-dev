@@ -994,6 +994,15 @@ STATES = [
     ("Disastercraft - loot", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 38 +
         "p.map, p.x, p.y = T_DCU.map, T_DCU.x - 1, T_DCU.y T_DCU.tapper = p.guid C.Combat.Damage(p, T_DCU, 9999, { school = 1 }) "
         "T_DCU.rec.loot = { money = 7, items = { { id = 2589, n = 2 }, { id = 1364, n = 1 } } } C.Loot.Open(T_DCU)"))),
+    # the client's own frames built from Layouts.lua (UILayout.lua), shown as they come
+    ("Disastercraft - layout loot", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
+        "local f = UI.Build('LootFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 40, -120) f:Show() T_LY.loot = f "
+        "local g = UI.Build('ContainerFrameTemplate', UI.hudFrame) g:ClearAllPoints() g:SetPoint('TOPLEFT', 260, -120) g:Show() T_LY.bag = g"))),
+    ("Disastercraft - layout quest", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
+        "local f, r = UI.Build('QuestFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 20, -100) f:Show() T_LY.quest = f "
+        "if r.QuestFrameDetailPanel then r.QuestFrameDetailPanel:Show() end"))),
+    ("Disastercraft - layout merchant", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
+        "local f = UI.Build('MerchantFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 20, -100) f:Show() T_LY.merchant = f"))),
     ("Disastercraft - inside the Abbey", opened("games", dc(5, 8.5, 31.5, "i10286_0"))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
