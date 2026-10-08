@@ -6,6 +6,20 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Changelog.lua", ...
 local addonName, ns = ...
 
 ns.AzeroChangelog = {
+    { version = "1.0", date = "8 October 2026", title = "The real Azeroth: Northshire",
+      lines = {
+          "A new journey: the real map, from Northshire Valley.",
+          "Ground, trees, props and buildings from WoW's own art.",
+          "Every NPC, creature and herb where it stands in WoW.",
+          "Creatures roam their real spots; red ones come for you.",
+          "Defias and other people are fought, never tamed.",
+          "Northshire's real quests, texts and all, plus a quest log.",
+          "Quest marks over people: ! to take, ? to hand in.",
+          "Inside the Abbey and Echo Ridge Mine, floor by floor.",
+          "People and beasts walk with their own animations.",
+          "Your character is your own race; the map fills the panel.",
+          "Old saves are kept aside; everyone starts over.",
+      } },
     { version = "0.14", date = "30 September 2026", title = "The Guild Hall",
       lines = {
           "The Guild Hall under the inn: a trophy for every raid boss.",

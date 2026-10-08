@@ -72,7 +72,12 @@ function B.New(opts)
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
         b:Say("%s sent out %s!", b.pvp.name, foeName)
     elseif b.wild then
-        b:Say(opts.rare and "A rare %s appeared!" or "A wild %s appeared!", foeName)
+        local fsp = D.species[b.foe.mon.sp]
+        if fsp and fsp.untameable then
+            b:Say("%s attacks!", foeName)                  -- (a Defias Thug: no beast of his, he fights himself)
+        else
+            b:Say(opts.rare and "A rare %s appeared!" or "A wild %s appeared!", foeName)
+        end
         b:Emit({ t = "send", side = "foe", mon = b.foe.mon })
     else
         b:Say("%s would like to battle!", b.trainer.name)
@@ -130,7 +135,11 @@ function B:SideName(side)
     local mon = self[side].mon
     if side == "foe" and self.pvp then return self.pvp.name .. "'s " .. M.Name(mon) end
     if self.pvp and self.pvp.watch then return self.pvp.watch.ally .. "'s " .. M.Name(mon) end
-    if side == "foe" then return (self.wild and "Wild " or "Foe ") .. M.Name(mon) end
+    if side == "foe" then
+        local sp = D.species[mon.sp]
+        if self.wild and sp and sp.untameable then return M.Name(mon) end
+        return (self.wild and "Wild " or "Foe ") .. M.Name(mon)
+    end
     return M.Name(mon)
 end
 
@@ -595,6 +604,11 @@ function B:UseItem(item, target)
             self.bag[item] = self.bag[item] - 1
             self:Say("You threw a %s!", def.name)
             self:Say("%s swatted the rod away! That beast is already tamed!", self.trainer.name)
+            return true
+        end
+        local sp = D.species[self.foe.mon.sp]
+        if sp and sp.untameable then                   -- people (Defias, guards...) are fought, never tamed
+            self:Say("%s can't be tamed! Only beasts and wild creatures answer a Taming Rod.", M.Name(self.foe.mon))
             return true
         end
         self.bag[item] = self.bag[item] - 1

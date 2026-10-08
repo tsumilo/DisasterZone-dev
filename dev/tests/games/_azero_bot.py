@@ -1,6 +1,11 @@
 """Lua-side bot shared by the Azeromon suites (installed with c.eval(BOT))."""
 BOT = r"""
 local G, D, M = ns.Azero, ns.AzeroData, ns.AzeroMon
+-- the suites written for the old made-up maps play there (the real map has its own suite: test_azeromon_realmap)
+if ns.AzeroMaps.LEGACY_START and not T_AZ_REAL then
+  ns.AzeroMaps.START, ns.AzeroMaps.RESPAWN = ns.AzeroMaps.LEGACY_START, ns.AzeroMaps.LEGACY_RESPAWN
+  if D.legacyDexOrder then D.dexOrder = D.legacyDexOrder end
+end
 if ns.AzeroUI then ns.AzeroUI.tipsOff = true end      -- one-time tips would interrupt the scripted tests
 T_AZ = { log = {}, choice = 1 }
 function T_AZ.seed(n)

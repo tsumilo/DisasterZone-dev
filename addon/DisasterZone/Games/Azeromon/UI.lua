@@ -17,6 +17,7 @@ local HX, HY = 5, 4                       -- player's screen tile
 local SW, SH = TILE * VW, TILE * VH
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\Azeromon\\"
 local ATLAS, CHARS, PLATFORM = MEDIA .. "atlas", MEDIA .. "chars", MEDIA .. "platform"
+local MOBS, CROWNS = MEDIA .. "mobs.blp", MEDIA .. "crowns"      -- the real map: creatures from their models, tree tops
 -- Pixel Operator by Jayvee Enaguas (CC0). Falls back to the game font if the file is missing (needs a restart).
 local FONT = MEDIA .. "fonts\\PixelOperator.ttf"
 local FONT_BOLD = MEDIA .. "fonts\\PixelOperator-Bold.ttf"
@@ -31,7 +32,7 @@ local floor, max, min = math.floor, math.max, math.min
 local SPRITE_COL = { bald = 0, hero = 3, girl = 6, skel = 9 }
 local FACE_ROW = { down = 0, left = 1, right = 2, up = 3 }
 
-local root, screen, world, focusOverlay
+local root, screen, world, view, focusOverlay
 local R = {}               -- widgets
 local stack = {}           -- open menus (top = last)
 local focused = false
@@ -71,6 +72,19 @@ local function SetChar(t, sprite, face, frame)
     local key = sprite .. face .. frame
     if t.charKey == key then return end
     t.charKey = key
+    local mob = type(sprite) == "number"            -- drawn from its WoW model: its slot in mobs.blp (Species.lua spr)
+    local file = mob and MOBS or CHARS
+    if t.charFile ~= file then
+        t.charFile = file
+        if mob then t:SetTexture(file) else SetPixelTexture(t, file) end     -- (rendered art: smooth, not blocky)
+    end
+    if mob then
+        local H = D.MOB_SHEET_H or 256
+        local c = (sprite % 5) * 3 + frame
+        local r = math.floor(sprite / 5) * 4 + (FACE_ROW[face] or 0)
+        t:SetTexCoord(c * 32 / 512, (c + 1) * 32 / 512, r * 32 / H, (r + 1) * 32 / H)
+        return
+    end
     local c = (SPRITE_COL[sprite] or 3) + frame
     local r = FACE_ROW[face] or 0
     t:SetTexCoord(c * 16 / 256 + E, (c + 1) * 16 / 256 - E, r * 16 / 128 + E, (r + 1) * 16 / 128 - E)
@@ -1384,6 +1398,7 @@ end
 ---------------------------------------------------------------------------
 
 local START_HELP = {
+    "Your quests: what to do, and how far along you are.",
     "Beasts you have seen and tamed.",
     "Check and reorder your beasts.",
     "Use the items you are carrying.",
@@ -1675,9 +1690,32 @@ local function StartMenuHelp(i)
     R.bagDesc.fs:SetText(START_HELP[i] or "")
 end
 
+-- The quest log (the real map's quests, World/WorldGame.lua): one row a quest, its progress on the right;
+-- A shows what to do and how far along it is.
+function Scr.OpenQuestLog()
+    local WG = ns.AzeroWorldGame
+    local log = WG and WG.Log(G) or {}
+    if #log == 0 then
+        Message("Your quest log is empty. Look for a yellow ! over someone's head.")
+        return
+    end
+    local items = {}
+    for i, q in ipairs(log) do
+        items[i] = { text = q.title, right = q.done and "Done" or nil, rightColor = q.done and { 1, 0.82, 0.1 } or nil,
+                     onSelect = function()
+                         R.bagDesc:Hide()                -- (the start menu's help box sat over the message)
+                         local text = q.goal .. "\n\n" .. table.concat(q.lines, "\n")
+                         if q.done then text = text .. "\n\nReady to turn in." end
+                         Message(text)
+                     end }
+    end
+    PushMenu(items, { w = 330, rowH = 27, level = 70, title = "Quest Log", onCancel = function(menu) PopMenu(menu) end })
+end
+
 local function OpenStartMenu()
     ns.AzeroSound:Play("open")
     local items = {
+        { text = "QUESTS", onSelect = function() Scr.OpenQuestLog() end },
         { text = "BESTIARY", onSelect = function() OpenLog() end },
         { text = "PARTY", disabled = #G.save.party == 0, onSelect = function() OpenParty(nil) end },
         { text = "BAG", onSelect = function()
@@ -2804,24 +2842,48 @@ end
 ---------------------------------------------------------------------------
 
 local grid = {}            -- [i][j] = { base, over }
+local crowns = {}          -- tree tops on the real map
+local CROWN_SIZES = { 32, 48, 64, 80, 96, 112, 128 }   -- (gen_azeromon_world_art.CROWN_SIZES)
 local sprites = {}         -- pool for NPCs
 local torchFrame = "torch1"
 
-local function BuildWorld()
-    world = CreateFrame("Frame", nil, screen)
-    world:SetAllPoints()
+-- the tiles on screen: VW x VH (+ a border each side), made as the view grows
+local function EnsureGrid()
     for i = 0, VW + 1 do
-        grid[i] = {}
+        grid[i] = grid[i] or {}
         for j = 0, VH + 1 do
-            local base = Tex(world, "BACKGROUND", 0)
-            base:SetSize(TILE, TILE)
-            SetPixelTexture(base, ATLAS)
-            local over = Tex(world, "BORDER", 0)
-            over:SetSize(TILE, TILE)
-            SetPixelTexture(over, ATLAS)
-            grid[i][j] = { base = base, over = over }
+            if not grid[i][j] then
+                local base = Tex(world, "BACKGROUND", 0)
+                base:SetSize(TILE, TILE)
+                SetPixelTexture(base, ATLAS)
+                local over = Tex(world, "BORDER", 0)
+                over:SetSize(TILE, TILE)
+                SetPixelTexture(over, ATLAS)
+                grid[i][j] = { base = base, over = over }
+            end
         end
     end
+    -- cells past the view's edge (it got smaller) stay hidden
+    for i, col in pairs(grid) do
+        for j, cell in pairs(col) do
+            if i > VW + 1 or j > VH + 1 then cell.base:Hide() cell.over:Hide() end
+        end
+    end
+end
+
+local function BuildWorld()
+    -- the map fills the whole game panel (wider or taller than the screen the menus and battles use): `view`
+    -- clips to the panel, `world` is a whole number of tiles centred in it
+    view = CreateFrame("Frame", nil, root)
+    view:SetPoint("CENTER")
+    view:SetSize(SW, SH)
+    pcall(view.SetClipsChildren, view, true)
+    view:SetFrameLevel(root:GetFrameLevel() + 1)          -- (over the panel's backdrop, under the screen's boxes)
+    screen:SetFrameLevel(root:GetFrameLevel() + 3)
+    world = CreateFrame("Frame", nil, view)
+    world:SetPoint("CENTER")
+    world:SetSize(VW * TILE, VH * TILE)
+    EnsureGrid()
     R.player = Tex(world, "ARTWORK", 2)
     R.player:SetSize(TILE, TILE)
     SetPixelTexture(R.player, CHARS)
@@ -2847,14 +2909,14 @@ local function BuildWorld()
     R.hint:Hide()
 
     R.banner = Box(world, 220, 44, 30)
-    R.banner:SetPoint("TOPLEFT", 8, -8)
+    R.banner:SetPoint("TOPLEFT", screen, "TOPLEFT", 8, -8)
     R.banner.fs = Font(R.banner, 16, nil, true)
     R.banner.fs:SetPoint("CENTER")
     R.banner.fs:SetJustifyH("CENTER")
     R.banner.fs:SetJustifyV("MIDDLE")
 
-    R.fade = Tex(screen, "OVERLAY", 7)
-    R.fade:SetAllPoints()
+    R.fade = Tex(world, "OVERLAY", 7)
+    R.fade:SetAllPoints(view)
     R.fade:SetColorTexture(0, 0, 0, 1)
     R.fade:Hide()
 
@@ -2926,7 +2988,7 @@ local function DrawHint()
     local s = G.save
     local tx, ty = HX + (x - s.x), HY + (y - s.y)
     local left = tx * TILE + TILE / 2 - h:GetWidth() / 2
-    left = max(4, min(SW - h:GetWidth() - 4, left))
+    left = max(4, min(VW * TILE - h:GetWidth() - 4, left))
     h:ClearAllPoints()
     h:SetPoint("BOTTOMLEFT", world, "TOPLEFT", left, -ty * TILE + 2)
     h:Show()
@@ -2947,6 +3009,8 @@ local function DrawWorld()
     local fx, fy = floor(px), floor(py)
     local ox, oy = (px - fx) * TILE, (py - fy) * TILE
     local outdoor = m.def.outdoor
+    -- the real map: scenery, people, creatures and the player drawn back to front by where they stand (depth)
+    local depth = (m.world or m.def.art) and {} or nil
     for i = 0, VW + 1 do
         for j = 0, VH + 1 do
             local wx, wy = fx - HX - 1 + i, fy - HY - 1 + j
@@ -2957,6 +3021,8 @@ local function DrawWorld()
             else
                 local k = m.key(wx, wy)
                 base, over = m.base[k], m.over[k]
+                if m.world or m.def.art then over = nil end    -- (the real map's props are model sprites)
+                if m.def.art then base = "void" end          -- (an interior drawn from its model: black around it)
                 if over == "torch1" then over = torchFrame end
                 if m.water[k] then                     -- the calm frame only (swapping frames flickered)
                     base = m.theme.water and m.theme.water[2] or "water2"
@@ -2968,8 +3034,33 @@ local function DrawWorld()
                     over = up and D.resources[res] and D.resources[res].tile or over
                 end
             end
-            SetTile(cell.base, base)
+            local gfile, gslot, grow
+            if m.world then gfile, gslot, grow = ns.AzeroLand.GroundTile(wx, wy) end
+            if gfile then                                 -- the real map: WoW's own ground, blended as in the client
+                if cell.base.tileName ~= false or cell.gfile ~= gfile or cell.gslot ~= gslot then
+                    if cell.gfile ~= gfile then cell.base:SetTexture(gfile) end     -- (smooth: rendered art)
+                    cell.gfile, cell.gslot = gfile, gslot
+                    cell.base.tileName = false
+                    -- half a texel in from the tile's edges, so the smooth filter does not pull in the neighbour
+                    local c, r, h = gslot % grow, floor(gslot / grow), 0.5 / 1024
+                    cell.base:SetTexCoord(c / grow + h, (c + 1) / grow - h, r / grow + h, (r + 1) / grow - h)
+                    cell.base:Show()
+                end
+            else
+                if cell.gfile then cell.gfile = nil cell.base.tileName = nil SetPixelTexture(cell.base, ATLAS) end
+                SetTile(cell.base, base)
+            end
             SetTile(cell.over, over)
+            -- the real map's relief: each tile lit by its slope (World.lua shade 0..9)
+            -- (not on WoW's own ground: its textures already carry the light, and per-tile steps showed as squares)
+            local sh = m.shade and not gfile and wx >= 0 and wy >= 0 and m.shade[m.key(wx, wy)]
+            local lit = sh and (0.74 + sh * 0.035) or 1
+            if lit > 1 then lit = 1 end
+            if cell.lit ~= lit then
+                cell.lit = lit
+                cell.base:SetVertexColor(lit, lit, lit)
+                cell.over:SetVertexColor(lit, lit, lit)
+            end
             local x, y = (i - 1) * TILE - ox, -((j - 1) * TILE - oy)
             if cell.x ~= x or cell.y ~= y then
                 cell.x, cell.y = x, y
@@ -2986,7 +3077,8 @@ local function DrawWorld()
         local f = G.moving and (G.moving.t / G.moving.dur) or (G.bump and (0.2 - G.bump) / 0.2 or 0)
         if f > 0.2 and f < 0.8 then frame = G.stepParity and 0 or 2 end
     end
-    SetChar(R.player, "hero", s.face, frame)
+    SetChar(R.player, UI.PlayerSprite(), s.face, frame)
+    if depth then depth[#depth + 1] = { tex = R.player, sort = py + 1 } end
     DrawHint()
     local onTall = m.tall[m.key(s.x, s.y)] and not walking
     R.grassOver:SetShown(onTall and true or false)
@@ -3007,12 +3099,14 @@ local function DrawWorld()
             sp:ClearAllPoints()
             sp:SetPoint("TOPLEFT", world, "TOPLEFT", sx, sy)
             SetChar(sp, npc.def.sprite or "bald", npc.face, nframe)
+            if depth then depth[#depth + 1] = { tex = sp, sort = ny + 1 } end
             local t = npc.def.tint
             if t then sp:SetVertexColor(t[1], t[2], t[3]) else sp:SetVertexColor(1, 1, 1) end
             sp:Show()
-            local title = G.NpcTitle(npc.def)
+            local plain = npc.def.mob or npc.def.critter
+            local title = not plain and G.NpcTitle(npc.def)
             sp.title:SetText(title and ("<" .. title .. ">") or "")
-            sp.name:SetText(G.NpcName(npc.def) or "")
+            sp.name:SetText((not plain) and G.NpcName(npc.def) or "")     -- (wild creatures: no plate)
             sp.name:ClearAllPoints()
             sp.name:SetPoint("BOTTOM", sp.title, "TOP", 0, -1)
             sp.title:Show()
@@ -3020,9 +3114,73 @@ local function DrawWorld()
             sp.bang:ClearAllPoints()
             sp.bang:SetPoint("BOTTOM", sp.name, "TOP", 0, -2)
             sp.bang:SetShown(npc.exclaim ~= nil)
+            -- WoW's quest markers: yellow ! a quest, grey ! one you are too low for, grey ? one under way,
+            -- yellow ? one to hand in
+            local mark, grey = nil, nil
+            if npc.def.ent and npc.def.ent.k == "npc" and ns.AzeroWorldGame then
+                mark, grey = ns.AzeroWorldGame.Marker(G, npc.def.ent)
+            end
+            if not sp.quest then
+                sp.quest = world:CreateTexture(nil, "OVERLAY")
+                sp.quest:SetSize(26, 26)
+            end
+            if mark and not npc.exclaim then
+                sp.quest:SetTexture(mark == "!" and "Interface\\GossipFrame\\AvailableQuestIcon"
+                                    or "Interface\\GossipFrame\\ActiveQuestIcon")
+                if sp.quest.SetDesaturated then sp.quest:SetDesaturated(grey and true or false) end
+                sp.quest:SetVertexColor(grey and 0.7 or 1, grey and 0.7 or 1, grey and 0.7 or 1)
+                sp.quest:ClearAllPoints()
+                sp.quest:SetPoint("BOTTOM", sp.name, "TOP", 0, 0)
+                sp.quest:Show()
+            else
+                sp.quest:Hide()
+            end
         end
     end
-    for i = n + 1, #sprites do sprites[i]:Hide() sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide() end
+    for i = n + 1, #sprites do
+        sprites[i]:Hide() sprites[i].bang:Hide() sprites[i].name:Hide() sprites[i].title:Hide()
+        if sprites[i].quest then sprites[i].quest:Hide() end
+    end
+    -- the real map's scenery: every tree, fence, prop and building drawn from its own WoW model (World.lua
+    -- SceneryIn), layered with everyone else below. A tree crown in front of the player turns see-through.
+    local cn = 0
+    if depth and ns.AzeroLand then
+        local vx0, vy0 = px - HX - 1, py - HY - 1
+        local list = m.def.art or ns.AzeroLand.SceneryIn(vx0, vy0, vx0 + VW + 2, vy0 + VH + 2)
+        local feet = py + 1
+        for _, p in ipairs(list) do
+            cn = cn + 1
+            local ct = crowns[cn]
+            if not ct then
+                ct = Tex(world, "BORDER", 0)
+                crowns[cn] = ct
+            end
+            if ct.file ~= p.file then
+                ct.file = p.file
+                ct:SetTexture(p.file)                     -- (smooth: rendered art)
+            end
+            local s, k = p.sp, p.k
+            ct:SetTexCoord(s.u / 1024, (s.u + s.w) / 1024, s.v / 1024, (s.v + s.h) / 1024)
+            local px16 = TILE / p.pxt * k
+            ct:SetSize(s.w * px16, s.h * px16)
+            ct:ClearAllPoints()
+            ct:SetPoint("TOPLEFT", world, "TOPLEFT", (p.x - px + HX) * TILE - s.ox * px16,
+                        -((p.y - py + HY) * TILE - s.oy * px16))
+            local alpha = 1
+            if p.tree and p.sort > feet then
+                -- see-through while it covers the player's surroundings (Elwynn's crowns are 6-8 tiles wide)
+                local kk = k / p.pxt
+                local l, t = p.x - s.ox * kk, p.y - s.oy * kk
+                local cx, cy, R = px + 0.5, py + 0.5, 2.5
+                local over = cx + R >= l and cx - R <= l + s.w * kk and cy + R >= t and cy - R <= t + s.h * kk
+                if over then alpha = 0.3 end                    -- (only crowns: a barrel stays a barrel)
+            end
+            ct:SetAlpha(alpha)
+            depth[#depth + 1] = { tex = ct, sort = p.sort }
+            ct:Show()
+        end
+    end
+    for i = cn + 1, #crowns do crowns[i]:Hide() end
     -- other players (guildmates), drawn with the hero sprite in their class colour and a name tag
     local pn = 0
     for _, p in ipairs(ns.AzeroNet:PeersOn(m.id)) do
@@ -3037,6 +3195,7 @@ local function DrawWorld()
         sp:ClearAllPoints()
         sp:SetPoint("TOPLEFT", world, "TOPLEFT", (nx - px + HX) * TILE, -(ny - py + HY) * TILE)
         SetChar(sp, "hero", p.face or "down", pframe)
+        if depth then depth[#depth + 1] = { tex = sp, sort = ny + 1 } end
         local cc = RAID_CLASS_COLORS and p.class and RAID_CLASS_COLORS[p.class]
         if cc then
             sp:SetVertexColor(0.55 + cc.r * 0.45, 0.55 + cc.g * 0.45, 0.55 + cc.b * 0.45)
@@ -3062,6 +3221,16 @@ local function DrawWorld()
         end
     end
     for i = pn + 1, #peerSprites do peerSprites[i]:Hide() peerSprites[i].label:Hide() peerSprites[i].bubble:Hide() end
+    -- back to front: 32 draw slots (BORDER then ARTWORK, 16 sublevels each) shared out by rank - the further
+    -- south something stands, the later it is drawn (a guard behind a tree is hidden by its crown)
+    if depth and #depth > 0 then
+        table.sort(depth, function(a, b) return a.sort < b.sort end)
+        local n = #depth
+        for r, d in ipairs(depth) do
+            local slot = floor((r - 1) * 32 / n)
+            if slot < 16 then d.tex:SetDrawLayer("BORDER", slot - 8) else d.tex:SetDrawLayer("ARTWORK", slot - 24) end
+        end
+    end
     -- banner / fade
     if G.banner then
         R.banner:Show()
@@ -3163,12 +3332,34 @@ end
 -- Title screen
 ---------------------------------------------------------------------------
 
+-- The player's own body (your character's race and sex, drawn from its WoW model: World/Species.lua PLAYER_SPR),
+-- or the pixel hero where there is none.
+function UI.PlayerSprite()
+    if not UI.playerSprite then
+        local race = UnitRace and select(2, UnitRace("player"))
+        local sex = UnitSex and UnitSex("player")
+        UI.playerSprite = (D.PLAYER_SPR and race and sex and D.PLAYER_SPR[race .. sex]) or "hero"
+    end
+    return UI.playerSprite
+end
+
+-- Straight into the saved game (the title's CONTINUE without its menu; the UI audit's renders use it).
+function UI:ContinueGame()
+    CloseAllMenus()
+    R.title:Hide()
+    world:Show()
+    G:Load()
+end
+
 local function ShowTitle()
     R.title:Show()
     world:Hide()
     CloseAllMenus()
     ClearText()
-    for i, sp in ipairs(D.starters) do
+    local starters = (ns.AzeroWorldGame and ns.AzeroWorldGame.STARTERS) or D.starters
+    for i = 1, #R.titleModels do R.titleModels[i]:Hide() end
+    for i, sp in ipairs(starters) do
+        if not R.titleModels[i] then break end
         R.titleModels[i]:Show()
         ShowCreature(R.titleModels[i], sp, 0)
     end
@@ -3191,8 +3382,8 @@ local function ShowTitle()
             G:NewGame()
             G:Run(function(g)
                 g:Say("Welcome to Azeroth, the world of AZEROMON!")
-                g:Say("From the forests of Elwynn to the jungles of Un'Goro, beasts of every kind roam these lands. Hunters tame them as companions and fight side by side.")
-                g:Say("Your journey begins in Goldshire, in the heart of Elwynn Forest. Good luck, {PLAYER}!")
+                g:Say("Every wolf, kobold and murloc here roams where it roams in the real world. Hunters tame them as companions and fight side by side.")
+                g:Say("Your journey begins where every human's does: Northshire Valley, outside the Abbey. Deputy Willem has work for you, and Eagan Peltskinner behind the Abbey has a beast to spare. Good luck, {PLAYER}!")
                 local perk = g:PerkInfo()
                 if perk then g:Say(perk.name .. ": " .. perk.text) end
             end)
@@ -3741,7 +3932,11 @@ local function CurrentDir()
     return best
 end
 
-local function SetFocus(on)
+local SetFocus
+-- (the UI audit's renders: the game as when playing, without the paused overlay)
+function UI:Focus(on) SetFocus(on) end
+
+function SetFocus(on)
     focused = on and true or false
     if root then
         pcall(root.EnableKeyboard, root, focused)
@@ -4382,7 +4577,22 @@ function UI:CreatePanel(parent)
 
     local function FitScreen(w, h)
         w, h = w or root:GetWidth(), h or root:GetHeight()
-        if w and h and w > 0 and h > 0 then screen:SetScale(max(0.3, min(w / SW, h / SH))) end
+        if w and h and w > 0 and h > 0 then
+            local sc = max(0.3, min(w / SW, h / SH))
+            screen:SetScale(sc)
+            -- the map takes the whole panel: as many tiles as fit (an odd number, so the player is in the middle)
+            view:SetScale(sc)
+            view:SetSize(w / sc, h / sc)
+            local nw, nh = math.ceil(w / sc / TILE), math.ceil(h / sc / TILE)
+            if nw % 2 == 0 then nw = nw + 1 end
+            if nh % 2 == 0 then nh = nh + 1 end
+            VW, VH = math.max(11, math.min(41, nw)), math.max(9, math.min(31, nh))
+            HX, HY = floor(VW / 2), floor(VH / 2)
+            world:SetSize(VW * TILE, VH * TILE)
+            EnsureGrid()
+            R.player:ClearAllPoints()
+            R.player:SetPoint("TOPLEFT", world, "TOPLEFT", HX * TILE, -HY * TILE)
+        end
         KH.PlaceKeyStrip(h)
     end
     root:SetScript("OnSizeChanged", function(self, w, h) FitScreen(w, h) end)

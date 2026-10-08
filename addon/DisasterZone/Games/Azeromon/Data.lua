@@ -7,7 +7,7 @@ local addonName, ns = ...
 local D = {}
 ns.AzeroData = D
 
-D.SAVE_VERSION = 1
+D.SAVE_VERSION = 2          -- 2: the real map (World/) - version 1 saves are archived, not loaded
 D.MAX_PARTY = 6
 D.MAX_LEVEL = 100
 D.START_MONEY = 3000       -- copper (30 silver)

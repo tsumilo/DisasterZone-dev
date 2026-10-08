@@ -139,6 +139,10 @@ end
 
 function G.Compile(id)
     local def = Maps[id]
+    if type(def) == "table" and def.world then            -- the real map (World/World.lua): read lazily
+        if not compiled[id] then compiled[id] = ns.AzeroLand.Compile(id, def, G) end
+        return compiled[id]
+    end
     if compiled[id] and not (type(def) == "table" and def.dynamic) then return compiled[id] end
     if type(def) ~= "table" or not def.rows then return nil end
     local rows = def.rows
@@ -183,13 +187,13 @@ function G.Compile(id)
             elseif ch == "w" then
                 base = "water1"
                 m.water[k] = true
-            elseif ch == "W" then base = "wall"
+            elseif ch == "W" then base = def.wallTile or "wall"     -- (the real map's interiors: stone, rock)
             elseif ch == "r" then base = "rug"
             elseif ch == "X" then base = "void"
             elseif def.outdoor or def.theme then       -- outdoor ground, or a themed cave floor
                 base = ((x * 7 + y * 13) % 5 == 0) and th.grass2 or th.grass1
             else
-                base = "floor"
+                base = def.floorTile or "floor"
             end
             m.base[k] = base
             if ch == "T" then m.over[k] = th.tree else m.over[k] = OVER_CHARS[ch] end   -- (no tree in a mine)
@@ -261,6 +265,11 @@ end
 
 function G:NewGame()
     local data = self:Data()
+    -- a save of the old (made-up) Azeroth is kept aside, never loaded: the real map starts everyone over
+    if type(data.save) == "table" and data.save.v ~= D.SAVE_VERSION then
+        data.oldSaves = type(data.oldSaves) == "table" and data.oldSaves or {}
+        table.insert(data.oldSaves, data.save)
+    end
     data.save = {
         v = D.SAVE_VERSION,
         map = Maps.START.map, x = Maps.START.x, y = Maps.START.y, face = Maps.START.face,
@@ -362,6 +371,7 @@ function G:EnterMap(id, x, y, face, silent)
         self.npcs[#self.npcs + 1] = { def = def, id = def.id, x = def.x, y = def.y, face = def.face or "down",
             homeX = def.x, homeY = def.y, hidden = hidden, wanderIn = 2 + self.rng(0, 30) / 10 }
     end
+    if ns.AzeroWorldGame then ns.AzeroWorldGame.OnEnterMap(self, m) end     -- the real map's people and creatures
     if not silent then
         self.fade = 0.3
         if m.def.outdoor then
@@ -376,7 +386,8 @@ end
 
 function G:NpcAt(x, y)
     for _, n in ipairs(self.npcs or {}) do
-        if not n.hidden and ((n.x == x and n.y == y) or (n.moving and n.fromX == x and n.fromY == y)) then return n end
+        if not n.hidden and not n.def.critter                     -- (a rabbit never stands in anyone's way)
+            and ((n.x == x and n.y == y) or (n.moving and n.fromX == x and n.fromY == y)) then return n end
     end
 end
 
@@ -869,7 +880,13 @@ function G:TryStep(dir, run)
         self.bump = 0.2
         return "blocked"
     end
-    if m.solid[m.key(nx, ny)] or self:NpcAt(nx, ny) or self:SolidNode(nx, ny) then
+    local inWay = self:NpcAt(nx, ny)
+    if inWay and inWay.def.mob and ns.AzeroWorldGame then        -- walking into a creature starts the fight
+        inWay.face = OPPOSITE[dir]
+        self:Run(function(g) ns.AzeroWorldGame.Fight(g, inWay) end)
+        return "blocked"
+    end
+    if m.solid[m.key(nx, ny)] or inWay or self:SolidNode(nx, ny) then
         if not self.bump then self:Sfx("bump") end
         self.bump = 0.2
         return "blocked"
@@ -883,6 +900,7 @@ function G:OnArrive(forced)
     local m = self.map
     local k = m.key(s.x, s.y)
     s.steps = (s.steps or 0) + 1
+    if m.world and ns.AzeroWorldGame then ns.AzeroWorldGame.OnArrive(self) end
     if forced then return end
     local wp = m.warp[k]
     if wp then
@@ -1012,6 +1030,10 @@ function G:PressA()
     end
     if npc then
         npc.face = OPPOSITE[s.face]
+        if npc.def.mob and ns.AzeroWorldGame then
+            self:Run(function(g) ns.AzeroWorldGame.Fight(g, npc) end)
+            return
+        end
         local id = npc.def.trainer
         local line = id and self:TrainerLocked(id)
         if line then
@@ -1119,7 +1141,8 @@ function G:UpdateNpcs(dt)
                 local d = DIRS[dir]
                 local nx, ny = n.x + d[1], n.y + d[2]
                 n.face = dir
-                if math.abs(nx - n.homeX) <= 2 and math.abs(ny - n.homeY) <= 2 and not self:Blocked(nx, ny)
+                local reach = n.def.wanderR or 2
+                if math.abs(nx - n.homeX) <= reach and math.abs(ny - n.homeY) <= reach and not self:Blocked(nx, ny)
                     and not self.map.warp[self.map.key(nx, ny)] and not self.map.trigger[self.map.key(nx, ny)] then
                     n.moving = { t = 0, dur = G.STEP_TIME * 1.5 }
                     n.fromX, n.fromY = n.x, n.y
@@ -1146,6 +1169,7 @@ function G:Update(dt)
         if self.bump <= 0 then self.bump = nil end
     end
     self:UpdateNpcs(dt)
+    if ns.AzeroWorldGame then ns.AzeroWorldGame.Update(self, dt) end
 
     local p = self.pending
     if p and (p.kind == "wait" or p.kind == "evolve") then

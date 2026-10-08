@@ -291,6 +291,11 @@ Games\Azeromon\Battle.lua
 Games\Azeromon\Maps.lua
 Games\Azeromon\MapsStranglethorn.lua
 Games\Azeromon\Game.lua
+Games\Azeromon\World\World.lua
+Games\Azeromon\World\Northshire.lua
+Games\Azeromon\World\Species.lua
+Games\Azeromon\World\Quests.lua
+Games\Azeromon\World\WorldGame.lua
 Games\Azeromon\Net.lua
 Games\Azeromon\PvP.lua
 Games\Azeromon\Watch.lua

@@ -236,6 +236,11 @@ ns:Fire("MYLOG_CHANGED")
 """
 
 
+# a new Azeromon game standing at (x, y) on map m with a starter, straight past the title
+AZ_REAL = ("ns.GamesUI:Select('azeromon') local G = ns.Azero G:NewGame() local s = G.save "
+           "s.x, s.y, s.map = %d, %d, '%s' table.insert(s.party, ns.AzeroMon.New('young_wolf', 3, G.rng)) "
+           "ns.AzeroUI.tipsOff = true ns.AzeroUI:ContinueGame() G.banner = nil G.fade = nil ns.AzeroUI:Focus(true) ns.AzeroUI._Fit(790, 518)")
+
 # Karazhan Chess: a game against Medivh (Magus, cheats) twelve moves in with his fire on c4 and f3, a guild invite,
 # a guild game waiting for the opponent, a finished one
 CHESS_GAMES = ("T_AUD = T_AUD or {} local C = ns.Chess local d = C.Data() d.games = {} "
@@ -950,6 +955,15 @@ STATES = [
                                     "ns.ChessUI:OpenLobby() ns.ChessUI._Tab('ladder')")),
     ("Games - Chess in front", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = nil ns.GamesUI:ShowHub() "
                                       "ns.GamesUI:ShowFront('chess')")),
+    # Azeromon on the real map (Games/Azeromon/World): a new game's first step outside Northshire Abbey, the river
+    # bridge, the vineyard, inside the Abbey
+    ("Azeromon - Northshire start", opened("games", AZ_REAL % (4127, 6243, "world"))),
+    ("Azeromon - Northshire Abbey door", opened("games", AZ_REAL % (4130, 6238, "world"))),
+    ("Azeromon - Northshire bridge", opened("games", AZ_REAL % (4163, 6250, "world"))),
+    ("Azeromon - Northshire vineyard", opened("games", AZ_REAL % (4176, 6268, "world"))),
+    ("Azeromon - kobold camp", opened("games", AZ_REAL % (4137, 6205, "world"))),
+    ("Azeromon - valley gate", opened("games", AZ_REAL % (4114, 6265, "world"))),
+    ("Azeromon - inside the Abbey", opened("games", AZ_REAL % (6, 33, "i10286_0"))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),

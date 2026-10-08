@@ -66,7 +66,7 @@ def tga(img, name):
     print("wrote", name + ".tga", img.size)
 
 
-ATLAS_H = 512          # 16 columns x 32 rows of 16px tiles (power of two)
+ATLAS_H = 1024         # 16 columns x 64 rows of 16px tiles (power of two); 512 until the real map's tiles
 
 
 def build_atlas():
@@ -87,7 +87,8 @@ def build_atlas():
             for x in range(w):
                 add("%s_%d_%d" % (name, x, y), sheet, c0 + x, r0 + y)
     # Westfall + Forest's Edge (appended so earlier slots never move)
-    for name, img, w, h in westfall_art() + mine_art() + town_art() + duskwood_art() + jungle_art() + hideout_art() + hall_art():
+    import gen_azeromon_world_art as WA
+    for name, img, w, h in westfall_art() + mine_art() + town_art() + duskwood_art() + jungle_art() + hideout_art() + hall_art() + WA.world_art(R, T):
         if w == 1 and h == 1:
             add(name, img, 0, 0)
         else:
@@ -1135,6 +1136,8 @@ def write_lua(index):
 
 if __name__ == "__main__":
     idx = build_atlas()
+    import gen_azeromon_world_art as WA
+    WA.build_crowns(OUT)
     build_chars()
     build_platform()
     write_lua(idx)

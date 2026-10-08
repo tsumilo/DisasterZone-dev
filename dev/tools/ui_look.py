@@ -188,6 +188,27 @@ def load(tex):
     return img
 
 
+def _palette_blp(path):
+    """A palettised BLP2 with an 8-bit alpha plane after the indices (Azeromon's scenery pages): Pillow takes the
+    alpha from the palette instead, so it is read here. None for any other file."""
+    import struct
+    with open(path, "rb") as f:
+        d = f.read()
+    if d[:4] != b"BLP2" or d[8] != 1 or d[9] != 8:
+        return None
+    w, h = struct.unpack_from("<II", d, 12)
+    off = struct.unpack_from("<I", d, 20)[0]
+    pal = [struct.unpack_from("<4B", d, 148 + i * 4) for i in range(256)]
+    idx = d[off:off + w * h]
+    alpha = d[off + w * h:off + 2 * w * h]
+    lut = bytes(v for b, g, r, a in pal for v in (r, g, b))
+    rgb = Image.frombytes("P", (w, h), idx)
+    rgb.putpalette(lut)
+    img = rgb.convert("RGB")
+    img.putalpha(Image.frombytes("L", (w, h), alpha))
+    return img
+
+
 def _load(key):
     os.makedirs(CACHE, exist_ok=True)
     if key.startswith("itemicon:"):
@@ -205,6 +226,9 @@ def _load(key):
             base = os.path.join(ADDON, *path[len(addon):].split("\\"))
             for ext in ("", ".tga", ".blp", ".png"):
                 if os.path.isfile(base + ext):
+                    pal = _palette_blp(base + ext)
+                    if pal is not None:
+                        return pal
                     return Image.open(base + ext).convert("RGBA")
             return None
         fid = None
