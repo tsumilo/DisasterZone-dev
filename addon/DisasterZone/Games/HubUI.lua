@@ -16,7 +16,8 @@ local floor, min, max, abs, sin, pi = math.floor, math.min, math.max, math.abs, 
 local STRIP_H = 30
 local FRONT_W, SIDE_W, SIDE_K = 300, 196, 0.88     -- poster widths; a side poster's height share of the front's
 local SIDE_DIM = 0.55                              -- the dark over a side poster
-local TURN_TIME, OPEN_TIME, BACK_TIME = 0.32, 0.28, 0.2
+local TURN_TIME, OPEN_TIME, BACK_TIME = 0.32, 0.58, 0.52
+local OPEN_DARK = 0.72                              -- how dark the painting gets as it becomes the game's backdrop
 local BASE = { 0.086, 0.086, 0.102 }               -- the posters' ground (#16161a)
 local FALLBACK_W, FALLBACK_H = 786, 548            -- the tab's size before the client has laid it out
 local MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
@@ -959,6 +960,7 @@ local function LayoutCarousel()
         local x, y, w, h, gone = Slot(off)
         SetSideLook(p, off ~= 0)
         p.words:SetAlpha(1)
+        p.over:SetAlpha(1)
         Place(p, x, y, w, h)
         p:SetAlpha(gone == 1 and 0 or 1)
         p.cover:SetAlpha(1)
@@ -1061,22 +1063,44 @@ local function HideGamePanel()
     end
 end
 
-local function ShowGamePanel(id)
+-- The game's panel (created once), placed on the stage; nil when it can't be made.
+local function GamePanel(id)
     local def = ns.Games:Get(id)
-    if not def or not stage then return false end
-    if selected ~= id then HideGamePanel() end
+    if not def or not stage then return nil end
     local p = panels[id]
     if not p then
         local ok, frame = xpcall(function() return def.create(stage) end, geterrorhandler())
-        if not ok or not frame then return false end
+        if not ok or not frame then return nil end
         p = frame
         p:ClearAllPoints()
         p:SetAllPoints(stage)
         panels[id] = p
     end
+    return p
+end
+
+-- The strip and the stage, dy px off their places (they glide in / out), at alpha a.
+local function PlaceGame(dyStrip, dyStage, a)
+    strip:ClearAllPoints()
+    strip:SetPoint("TOPLEFT", 0, dyStrip)
+    strip:SetPoint("TOPRIGHT", 0, dyStrip)
+    strip:SetAlpha(a)
+    stage:ClearAllPoints()
+    stage:SetPoint("TOPLEFT", 0, -STRIP_H - dyStage)
+    stage:SetPoint("BOTTOMRIGHT", 0, -dyStage)
+    stage:SetAlpha(a)
+end
+
+-- Shows game id on the stage at once (the carousel goes).
+local function ShowGamePanel(id)
+    if selected ~= id then HideGamePanel() end
+    local p = GamePanel(id)
+    if not p then return false end
     selected = id
     ns.Games:GetData(id).opened = time()
     carousel:Hide()
+    carousel:SetAlpha(1)
+    PlaceGame(0, 0, 1)
     strip:Show()
     stage:Show()
     StripFill(id)
@@ -1086,7 +1110,22 @@ local function ShowGamePanel(id)
     return true
 end
 
--- Opens game id: animated (the front poster grows into the tab, its neighbours slide away) or at once.
+-- The poster's look while it is the doorway into its game: its words / cover / shading at alpha `words`, the
+-- painting darkened by `dark` (0..1).
+local function DoorLook(p, words, dark)
+    p.over:SetAlpha(words)
+    p.dim:SetAlpha(OPEN_DARK * dark)
+end
+
+local function InOut(t) -- ease-in-out cubic
+    if t < 0.5 then return 4 * t * t * t end
+    t = -2 * t + 2
+    return 1 - t * t * t / 2
+end
+local function Phase(t, from, to) return max(0, min(1, (t - from) / (to - from))) end
+
+-- Opens game id: animated (the front poster grows into the tab and darkens while its words go, its neighbours
+-- drift away, then the game rises in under the strip as the poster dissolves) or at once.
 function OpenGame(id, animate)
     local idx
     for i, p in ipairs(posters) do if p.id == id then idx = i end end
@@ -1097,47 +1136,112 @@ function OpenGame(id, animate)
         ShowGamePanel(id)
         return
     end
+    -- make the game now (a first build can take a moment: better at the click than mid-flight)
+    if selected and selected ~= id then HideGamePanel() end
+    local panel = GamePanel(id)
+    if not panel then return end
     local from = {}
     for k, p in ipairs(posters) do
         local x, y, w, h = Slot(p.off)
         from[k] = { x, y, w, h, p.off }
     end
-    anim = { t = 0, dur = OPEN_TIME, kind = "open", from = from, id = id }
+    for _, tex in ipairs({ auraFrom, auraTo }) do tex.target = 0 end
+    StripFill(id)
+    PlaceGame(-10, 14, 0)
+    strip:Show()
+    stage:Show()
+    panel:SetAlpha(1)
+    panel:Show()
+    anim = { t = 0, dur = OPEN_TIME, kind = "open", from = from, id = id, panel = panel }
 end
 
-local function StepOpen(e)
+local function StepOpen(t)
+    local g = InOut(Phase(t, 0, 0.66))          -- the poster grows
+    local words = 1 - Phase(t, 0, 0.32)          -- its words go first
+    local side = Ease(Phase(t, 0, 0.6))          -- the neighbours drift away
+    local r = Ease(Phase(t, 0.45, 1))            -- the game comes in, the poster dissolves
     for k, p in ipairs(posters) do
         local a = anim.from[k]
         if a[5] == 0 then
-            Place(p, Lerp(a[1], 0, e), Lerp(a[2], 0, e), Lerp(a[3], W, e), Lerp(a[4], H, e))
+            Place(p, Lerp(a[1], 0, g), Lerp(a[2], 0, g), Lerp(a[3], W, g), Lerp(a[4], H, g))
+            DoorLook(p, words, g)
         else
-            Place(p, a[1] + (a[5] < 0 and -60 or 60) * e, a[2], a[3], a[4])
-            p:SetAlpha(1 - e)
+            Place(p, a[1] + (a[5] < 0 and -70 or 70) * side, a[2], a[3], a[4])
+            p:SetAlpha(1 - side)
+        end
+    end
+    carousel:SetAlpha(1 - r)
+    PlaceGame(-10 * (1 - r), 14 * (1 - r), r)
+end
+
+-- The open's end (also when the tab hides mid-way): the game in place, the carousel put back for later.
+local function EndOpen()
+    local id = anim and anim.id
+    anim = nil
+    if not id then return end
+    for _, p in ipairs(posters) do
+        p.over:SetAlpha(1)
+        p:SetAlpha(1)
+    end
+    ShowGamePanel(id)
+end
+
+-- Back to the carousel: the game fades and sinks, the darkened painting shrinks back into its slot and brightens,
+-- its words return, its neighbours glide back in.
+local function BackToCarousel()
+    if not selected then return end
+    local leaving = panels[selected]
+    selected = nil
+    for _, p in ipairs(posters) do FillPoster(p) end
+    LayoutCarousel()
+    carousel:Show()
+    carousel:SetAlpha(1)
+    SetAura(posters[cur] and posters[cur].id, false)
+    local to = {}
+    for k, p in ipairs(posters) do
+        local x, y, w, h = Slot(p.off)
+        to[k] = { x, y, w, h, p.off }
+        if p.off == 0 then
+            Place(p, 0, 0, W, H)
+            DoorLook(p, 0, 1)
+        elseif abs(p.off) == 1 then
+            p:SetAlpha(0)
+        end
+    end
+    anim = { t = 0, dur = BACK_TIME, kind = "back", to = to, leaving = leaving }
+end
+
+local function StepBack(t)
+    local out = Ease(Phase(t, 0, 0.35))           -- the game goes
+    local g = InOut(Phase(t, 0.1, 0.8))           -- the poster shrinks back
+    local words = Ease(Phase(t, 0.6, 1))          -- its words return
+    local side = Ease(Phase(t, 0.35, 1))          -- the neighbours glide in
+    PlaceGame(-10 * out, 10 * out, 1 - out)
+    for k, p in ipairs(posters) do
+        local b = anim.to[k]
+        if b[5] == 0 then
+            Place(p, Lerp(0, b[1], g), Lerp(0, b[2], g), Lerp(W, b[3], g), Lerp(H, b[4], g))
+            DoorLook(p, words, 1 - g)
+        elseif abs(b[5]) == 1 then
+            Place(p, b[1] + (b[5] < 0 and -70 or 70) * (1 - side), b[2], b[3], b[4])
+            p:SetAlpha(side)
         end
     end
 end
 
-local function EndOpen()
-    local id = anim.id
+local function EndBack()
+    local leaving = anim and anim.leaving
     anim = nil
-    if ShowGamePanel(id) then
-        local panel = panels[id]
-        panel:SetAlpha(0)
-        anim = { t = 0, dur = 0.16, kind = "fadein", frame = panel }
+    if leaving then
+        leaving:Hide()
+        if leaving.OnGameHidden then pcall(leaving.OnGameHidden, leaving) end
     end
-end
-
-local function BackToCarousel()
-    HideGamePanel()
-    selected = nil
     strip:Hide()
     stage:Hide()
-    carousel:Show()
-    for _, p in ipairs(posters) do FillPoster(p) end
+    PlaceGame(0, 0, 1)
+    for _, p in ipairs(posters) do p.over:SetAlpha(1) end
     LayoutCarousel()
-    SetAura(posters[cur] and posters[cur].id, true)
-    carousel:SetAlpha(0)
-    anim = { t = 0, dur = BACK_TIME, kind = "fadein", frame = carousel }
+    Sheen(posters[cur])
 end
 
 ---------------------------------------------------------------------------
@@ -1147,19 +1251,23 @@ end
 local motes = {}
 local refreshIn = 0
 
-local function OnUpdate(_, elapsed)
+local paused        -- (tests and the audit's frame-by-frame views: animations wait for GamesUI:StepAnim)
+
+local function OnUpdate(_, elapsed, stepping)
     elapsed = min(elapsed or 0, 0.1)
-    if anim then
+    if anim and (stepping or not paused) then
         anim.t = anim.t + elapsed
         local t = min(1, anim.t / anim.dur)
         local e = Ease(t)
         if anim.kind == "turn" then StepTurn(e)
-        elseif anim.kind == "open" then StepOpen(e)
+        elseif anim.kind == "open" then StepOpen(t)
+        elseif anim.kind == "back" then StepBack(t)
         elseif anim.kind == "fadein" then anim.frame:SetAlpha(e) end
         if t >= 1 then
             local kind = anim.kind
             if kind == "turn" then anim = nil EndTurn()
             elseif kind == "open" then EndOpen()
+            elseif kind == "back" then EndBack()
             else anim.frame:SetAlpha(1) anim = nil end
         end
     end
@@ -1378,6 +1486,7 @@ function GamesUI:CreatePanel(parent)
     root:SetScript("OnUpdate", OnUpdate)
     root:SetScript("OnHide", function()
         if anim and anim.kind == "open" then EndOpen() end
+        if anim and anim.kind == "back" then EndBack() end
         if anim then
             if anim.frame then anim.frame:SetAlpha(1) end
             anim = nil
@@ -1414,10 +1523,15 @@ end
 -- Back to the carousel (nothing open).
 function GamesUI:ShowHub()
     if root and selected then
+        if anim then
+            if anim.kind == "open" then EndOpen() elseif anim.kind == "back" then EndBack() end
+            anim = nil
+        end
         HideGamePanel()
         selected = nil
         strip:Hide()
         stage:Hide()
+        PlaceGame(0, 0, 1)
         carousel:Show()
         carousel:SetAlpha(1)
         Refresh()
@@ -1450,6 +1564,11 @@ end
 function GamesUI:GetFront() return posters[cur] and posters[cur].id end
 function GamesUI:Turn(i) Turn(i) end
 function GamesUI:IsAnimating() return anim ~= nil end
+-- Holds the animations (true) so a test can move them on by hand with StepAnim(seconds).
+function GamesUI:PauseAnim(on) paused = on and true or nil end
+function GamesUI:StepAnim(sec)
+    for _ = 1, math.ceil((sec or 0) / 0.01) do OnUpdate(nil, 0.01, true) end
+end
 GamesUI.__posters = posters
 
 function GamesUI:OnInit()

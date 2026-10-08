@@ -103,6 +103,48 @@ def front_poster_grows_into_the_game_and_back_returns():
     no_errors(w)
 
 
+ALPHAS = ("local car = ns.GamesUI.__posters[1]:GetParent() local root = car:GetParent() local o = {} "
+          "for _, ch in ipairs({ root:GetChildren() }) do o[#o + 1] = ch:IsShown() and ch:GetAlpha() or -1 end return o")
+
+
+@case
+def the_open_and_the_way_back_are_one_crossfade():
+    """Paused and stepped by hand: the poster grows first with the game invisible, then the carousel fades out
+    exactly as the strip and the game fade in; back runs the other way and ends on the same poster in front."""
+    w, c = solo()
+    c.world = w
+    hub(c)
+    c.eval("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true)")
+    c.eval("for _, p in ipairs(%s) do if p.off == 0 then p:Click() end end" % POSTERS)
+    c.eval("ns.GamesUI:StepAnim(0.2)")
+    car, strip, stage = c.eval_py(ALPHAS)[0:3]
+    assert car == 1 and strip == 0 and stage == 0, (car, strip, stage)
+    words = c.eval("for _, p in ipairs(%s) do if p.off == 0 then return p.over:GetAlpha() end end" % POSTERS)
+    assert words < 0.1, words                                       # (the poster's words have gone)
+    c.eval("ns.GamesUI:StepAnim(0.2)")
+    car, strip, stage = c.eval_py(ALPHAS)[0:3]
+    assert 0 < strip < 1 and abs(car + strip - 1) < 0.01, (car, strip)
+    c.eval("ns.GamesUI:StepAnim(0.3)")
+    assert c.eval("return ns.GamesUI:GetSelected()") == "azeromon"
+    assert c.eval("return ns.GamesUI:IsAnimating()") is False
+    # back: the game fades while the poster comes back; nothing selected from the first frame
+    c.eval("local function find(fr) for _, ch in ipairs({ fr:GetChildren() }) do "
+           "  if ch.fs and ch.fs.GetText and ch.fs:GetText() == 'GAMES' and ch:IsVisible() then return ch end "
+           "  local x = find(ch) if x then return x end end end "
+           "find(ns.MainFrame:GetFrame()):Click()")
+    assert c.eval("return ns.GamesUI:GetSelected()") is None
+    c.eval("ns.GamesUI:StepAnim(0.1)")
+    car, strip = c.eval_py(ALPHAS)[0:2]
+    assert car == 1 and 0 < strip < 1, (car, strip)
+    c.eval("ns.GamesUI:StepAnim(0.5)")
+    car, strip = c.eval_py(ALPHAS)[0:2]
+    assert car == 1 and strip == -1, (car, strip)                   # (the strip is hidden again)
+    assert front(c) == "azeromon"
+    assert c.eval("for _, p in ipairs(%s) do if p.off == 0 then return p.over:GetAlpha() end end" % POSTERS) == 1
+    c.eval("ns.GamesUI:PauseAnim(false)")
+    no_errors(w)
+
+
 @case
 def links_open_a_game_at_once_and_it_comes_first_next_time():
     w, c = solo()
