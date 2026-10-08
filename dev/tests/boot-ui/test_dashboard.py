@@ -603,6 +603,12 @@ def nav_groups_pages_under_five_tabs():
     w.tick(0.3)
     assert selected(c) == "mybis", selected(c)
     assert c.eval_py(menu) == ["My BiS", "Atlas"], c.eval_py(menu)
+    # it is a page list: each row its title over its line, the open page with the gold bar, no radio dots
+    rows = c.eval_py("local fr = ns.UI:GetMenuFrames() local o = {} for _, r in ipairs(fr[1].rows) do if r.desc then "
+                     "o[#o + 1] = { r.page, r.sub:GetText(), r.bar:IsShown(), r.ring:IsShown(), r:GetHeight() } "
+                     "end end return o")
+    assert rows == [[True, "Your BiS lists and what you still need.", True, False, 38],
+                    [True, "Every raid and dungeon's drops, sets and costs.", False, False, 38]], rows
     c.eval("local t = ... t.IsMouseOver = nil", gear)
     c.eval("ns.UI:CloseMenus()")
     # it remembers the page used last in it

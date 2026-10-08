@@ -61,6 +61,10 @@ ns.CHANGELOG = {
               "A strategy that still has to be picked shows in orange; a boss without one offers Create.",
               "Each boss's strategy menu ends with No strategy: the raid goes without one for that boss.",
           } },
+          { heading = "Menus", lines = {
+              "The Raids, Gear and Guild menus show each page with a line saying what it holds.",
+              "The page you're on has a gold bar; Events wears its BETA pill in the menu too.",
+          } },
       } },
     { version = "1.3.2", date = "7 October 2026", title = "Events, the Group Finder, gems and enchants",
       sections = {
