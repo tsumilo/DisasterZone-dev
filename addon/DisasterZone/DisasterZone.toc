@@ -318,6 +318,13 @@ Games\Disastercraft\World.lua
 Games\Disastercraft\Loot.lua
 Games\Disastercraft\Quests.lua
 Games\Disastercraft\Npc.lua
+Games\Disastercraft\Changelog.lua
+Games\Disastercraft\UIKit.lua
+Games\Disastercraft\UIWorld.lua
+Games\Disastercraft\UIHud.lua
+Games\Disastercraft\UIWindows.lua
+Games\Disastercraft\UIGlue.lua
+Games\Disastercraft\UIMain.lua
 
 # In-game updates: the publisher's outbox and the end marker. Must stay the last two files.
 Core\Outbox.lua

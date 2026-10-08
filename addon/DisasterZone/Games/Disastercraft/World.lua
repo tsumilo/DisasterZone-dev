@@ -484,8 +484,11 @@ end
 -- Creatures: the brain (only the client with authority runs it; the rest follow its word)
 ---------------------------------------------------------------------------
 
+-- WoW's aggro radius: the creature's detection range (10 yards for Northshire's critters of trouble, 18 for the
+-- rest; 20 when unknown), a yard less for each level you are above it, a yard more for each below; 5 at least
 local function AggroRange(mob, pl)
-    local yd = 20 + ((mob.level or 1) - (pl.level or 1))
+    local base = (mob.cr and mob.cr.det) or 20
+    local yd = base + ((mob.level or 1) - (pl.level or 1))
     return Craft.Clamp(yd, 5, 45)
 end
 
@@ -587,12 +590,14 @@ local function EventAITimers(mob, target)
     end
 end
 
--- creatures of the same faction near a creature that just got pulled join in
+-- creatures of the same faction within the pulled one's call-for-help radius (5 yards in Northshire) join in
 local function CallForHelp(mob, foe)
+    local radius = mob.cr and mob.cr.cfh
+    if not radius or radius <= 0 then return end
     for _, rec in pairs(World.recs) do
         local o = rec.unit
         if o and o ~= mob and not o.dead and o.kind == "mob" and rec.state == "idle" and o.hostile and
-           o.cr and mob.cr and o.cr.fac == mob.cr.fac and o.map == mob.map and Craft.UnitDist(o, mob) <= 7 then
+           o.cr and mob.cr and o.cr.fac == mob.cr.fac and o.map == mob.map and Craft.UnitDist(o, mob) <= radius then
             World.Engage(o, foe)
         end
     end

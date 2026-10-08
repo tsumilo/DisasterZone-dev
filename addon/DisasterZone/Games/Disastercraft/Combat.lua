@@ -236,7 +236,7 @@ function Combat.NewCreature(guid, kind, entry, e)
     if cr.hp[2] and lv2 > lv1 then hp = floor(cr.hp[1] + (cr.hp[2] - cr.hp[1]) * (level - lv1) / (lv2 - lv1) + 0.5) end
     local u = { guid = guid, kind = kind, entry = entry, cr = cr, name = cr.n, level = level,
                 hp = max(1, hp), hpMax = max(1, hp), powerType = Craft.POWER_MANA,
-                hostile = e and e.h or false, elite = (cr.rank or 0) > 0 }
+                hostile = (cr.hostile or (e and e.h)) and true or false, elite = (cr.rank or 0) > 0 }
     if cr.mana then u.powerMax = cr.mana[1] u.power = u.powerMax else u.powerMax, u.power = 0, 0 end
     Combat.Add(u)
     Combat.Recalc(u)

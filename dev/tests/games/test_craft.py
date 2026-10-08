@@ -457,5 +457,105 @@ def the_abbey_door_leads_inside():
     no_errors(w)
 
 
+UI_SETUP = r"""
+  T_UI = CreateFrame("Frame", nil, UIParent)
+  T_UI:SetSize(1100, 700)
+  T_UI:SetPoint("CENTER")
+  T_UI:Show()
+  local def = ns.Games:Get("disastercraft")
+  T_PANEL = def.create(T_UI)
+  T_PANEL:Show()
+  T_PANEL:OnGameShown()
+"""
+
+
+def ui_game(cls=1):
+    w, c = solo("Alice", tick=2)
+    c.eval(HELPER)
+    c.eval(UI_SETUP)
+    w.tick(0.2)
+    return w, c
+
+
+@case
+def ui_character_screens_and_entering_the_world():
+    w, c = ui_game()
+    r = c.eval_py(r"""
+      local UI = ns.CraftUI
+      UI.Glue.ShowCreate()
+      ns.CraftUI.Glue.newClass = 8
+      ns.CraftUI.Glue.RefreshCreate()
+      ns.CraftUI.glue.create.accept:Click()
+      local chars = #ns.Craft:Characters()
+      UI.Glue.EnterWorld()
+      return { chars = chars, inWorld = UI.inWorld == true, cls = ns.Craft.char and ns.Craft.char.class }
+    """)
+    assert r["chars"] == 1 and r["inWorld"] and r["cls"] == 8, r
+    w.tick(3.0)
+    no_errors(w)
+
+
+@case
+def ui_windows_open_and_fill():
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(5, 1)
+      ns.CraftUI.Glue.selected = 5
+      ns.CraftUI.Glue.EnterWorld()
+    """)
+    w.tick(1.0)
+    r = c.eval_py(r"""
+      local UI, Craft = ns.CraftUI, ns.Craft
+      UI.Toggle("character") UI.Toggle("spellbook") UI.Toggle("questlog") UI.ToggleAllBags() UI.ToggleMenu()
+      local shown = {}
+      for n, f in pairs(UI.open) do if f:IsShown() then shown[#shown + 1] = n end end
+      UI.CloseAll()
+      -- talk to Deputy Willem (quests), a vendor, the priest trainer
+      local willem = T_DC.find(823, "any")
+      Craft.player.map, Craft.player.x, Craft.player.y = willem.map, willem.x + 0.5, willem.y
+      UI.OpenGossip(willem)
+      local q = UI.open.quest and UI.open.quest:IsShown()
+      local danil = T_DC.find(152, "any")
+      UI.OpenMerchant(danil)
+      local m = UI.open.merchant and UI.open.merchant:IsShown()
+      local anetta = T_DC.find(375, "any")
+      UI.OpenTrainer(anetta)
+      local t = UI.open.trainer and UI.open.trainer:IsShown()
+      return { shown = shown, q = q, m = m, t = t }
+    """)
+    assert len(r["shown"]) >= 5, r
+    assert r["q"] and r["m"] and r["t"], r
+    w.tick(1.0)
+    no_errors(w)
+
+
+@case
+def ui_fight_shows_numbers_and_loot_window():
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(1, 0)
+      ns.CraftUI.Glue.selected = 1
+      ns.CraftUI.Glue.EnterWorld()
+      local u = T_DC.find(6)
+      T_DC.calm(u)
+      T_DC.mob = u
+      T_DC.near(u, 3)
+      ns.Craft.World.SetTarget(u)
+      ns.Craft.Combat.StartAttack(ns.Craft.player, u)
+    """)
+    w.run_until(lambda: c.eval_py("return T_DC.mob.dead"), timeout=60)
+    w.tick(0.5)
+    r = c.eval_py(r"""
+      local u = T_DC.mob
+      local can = ns.Craft.Loot.CanLoot(u)
+      if can then ns.Craft.World.Interact(u) end
+      return { can = can, open = ns.CraftUI.open.loot ~= nil }
+    """)
+    if r["can"]:
+        assert r["open"], r
+    w.tick(0.5)
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

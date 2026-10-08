@@ -262,6 +262,23 @@ CHESS_LADDER = ("local res = C.Data().results local names = { 'Victhar', 'Fazerb
                 "  at = time() - 100000 + i * 1000, n = 40 + i } end end C.ratings = nil ")
 
 
+# Disastercraft (Games/Disastercraft): a character of class `cls` in the world at (x, y) on map m, then `extra`
+DC_IN = ("ns.GamesUI:Select('disastercraft') local C, UI = ns.Craft, ns.CraftUI UI.CloseAll() UI.ClearCursorItem() "
+         "if not (C:Data().chars and C:Data().chars[%d]) then C:NewCharacter(%d, %d) end "
+         "if UI.inWorld and C.char.class ~= %d then UI.ToGlue() end if not UI.inWorld then UI.Glue.selected = %d UI.Glue.EnterWorld() end "
+         "local p = C.player p.map, p.x, p.y = '%s', %s, %s C.World.CheckArea(true) UI.Hud.zoneAt = nil "
+         "%s UI.DrawWorld(0) UI.UpdateHud(0)")
+
+
+def dc(cls, x, y, m="world", extra="", sex=0):
+    return DC_IN % (cls, cls, sex, cls, cls, m, x, y, extra)
+
+
+# the nearest spawn of an entry (any map) as T_DCU
+DC_FIND = ("local best for _, rec in pairs(ns.Craft.World.recs) do local u = rec.unit "
+           "if u and u.entry == %d and not u.dead then best = best or u end end T_DCU = best ")
+
+
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -964,6 +981,34 @@ STATES = [
     ("Azeromon - kobold camp", opened("games", AZ_REAL % (4137, 6205, "world"))),
     ("Azeromon - valley gate", opened("games", AZ_REAL % (4114, 6265, "world"))),
     ("Azeromon - inside the Abbey", opened("games", AZ_REAL % (6, 33, "i10286_0"))),
+    # Disastercraft: the character screens; a warrior's first step outside Northshire Abbey; a fight at the kobold
+    # camp (target frame, numbers, the cast bar of a mage); the windows: character, spellbook, bags, quest log,
+    # a quest giver's greeting and quest, the merchant, the trainer, the loot window
+    ("Disastercraft - character select", opened("games", "ns.GamesUI:Select('disastercraft') local C = ns.Craft "
+        "if not (C:Data().chars and C:Data().chars[1]) then C:NewCharacter(1, 0) end ns.CraftUI.Glue.ShowSelect()")),
+    ("Disastercraft - character create", opened("games", "ns.GamesUI:Select('disastercraft') ns.CraftUI.Glue.ShowCreate()")),
+    ("Disastercraft - Northshire start", opened("games", dc(1, 4127.8, 6244))),
+    ("Disastercraft - kobold fight", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 257 +
+        "C.World.SetTarget(T_DCU) T_DCU.inCombat = true T_DCU.hp = math.floor(T_DCU.hpMax * 0.6) "
+        "p.x, p.y = T_DCU.x - 1, T_DCU.y C.Combat.StartAttack(p, T_DCU) p.power = 230 "
+        "UI.FCT(T_DCU, '7', 1, 1, 1) UI.FCT(T_DCU, '14', 1, 1, 1, true) UI.FCT(p, '-3', 1, 0.1, 0.1) "
+        "C:Msg('Kobold Worker says: You no take candle!', 'monster') C:Notice('Kobold Worker slain: 3/10')"))),
+    ("Disastercraft - mage casting", opened("games", dc(8, 4134.5, 6206, "world", DC_FIND % 6 +
+        "C.World.SetTarget(T_DCU) p.x, p.y = T_DCU.x, T_DCU.y + 4 C.Combat.CastSpell(p, 133, T_DCU) "
+        "p.casting.start = p.casting.start - 0.8"))),
+    ("Disastercraft - character sheet", opened("games", dc(1, 4127.8, 6244, "world", "UI.Toggle('character')"))),
+    ("Disastercraft - spellbook", opened("games", dc(8, 4127.8, 6244, "world", "UI.Toggle('spellbook')"))),
+    ("Disastercraft - bags", opened("games", dc(1, 4127.8, 6244, "world", "C.Items.Add(750, 5, 'silent') C.Items.Add(2589, 3, 'silent') UI.ToggleAllBags()"))),
+    ("Disastercraft - quest log", opened("games", dc(1, 4127.8, 6244, "world", "C.Quests.Accept(783) C.char.done[783] = true C.char.quests[783] = nil C.Quests.Accept(7) C.char.quests[7].k[6] = 4 UI.Toggle('questlog')"))),
+    ("Disastercraft - quest giver", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenGossip(T_DCU)"))),
+    ("Disastercraft - quest details", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.QuestDetail(T_DCU, C.Quests.Get(783))"))),
+    ("Disastercraft - quest reward", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 196 + "C.char.done[783] = true C.char.done[5261] = true C.Quests.Accept(33) C.Items.Add(750, 8, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.QuestReward(T_DCU, C.Quests.Get(33))"))),
+    ("Disastercraft - merchant", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 152 + "C:AddMoney(523, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenMerchant(T_DCU)"))),
+    ("Disastercraft - trainer", opened("games", dc(8, 4127.8, 6244, "world", DC_FIND % 198 + "C:AddMoney(150, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenTrainer(T_DCU)"))),
+    ("Disastercraft - loot", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 38 +
+        "p.map, p.x, p.y = T_DCU.map, T_DCU.x - 1, T_DCU.y T_DCU.tapper = p.guid C.Combat.Damage(p, T_DCU, 9999, { school = 1 }) "
+        "T_DCU.rec.loot = { money = 7, items = { { id = 2589, n = 2 }, { id = 1364, n = 1 } } } C.Loot.Open(T_DCU)"))),
+    ("Disastercraft - inside the Abbey", opened("games", dc(5, 8.5, 31.5, "i10286_0"))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),

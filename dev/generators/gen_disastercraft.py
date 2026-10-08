@@ -321,6 +321,19 @@ def main():
     npctext = wdb.index("npc_text", "ID")
     gossip = wdb.multi("gossip_menu", "entry")
     ai = db.multi("creature_ai_scripts", "creature_id")
+    # hostility to an Alliance player (WoW's rule as Wowhead shows it: the template's enemy group holds players,
+    # or the creature is of the "monster" group without being their friend)
+    ftemp = {int(r["ID"]): r for r in csv.DictReader(open(os.path.join(DEV, "art", "tbcdb", "db2", "FactionTemplate.csv"),
+                                                            encoding="utf-8"))}
+
+    def hostile(fac):
+        t = ftemp.get(fac)
+        if not t:
+            return False
+        eg, fg, fr = int(t["EnemyGroup"]), int(t["FactionGroup"]), int(t["FriendGroup"])
+        if eg & 3:
+            return True
+        return bool(fg & 8) and not (fr & 3)
 
     def add_loot(lid, tname="creature_loot_template", into=None):
         rows = db.multi(tname, "entry").get(lid, [])
@@ -346,12 +359,15 @@ def main():
                 continue
             flags = c["NpcFlags"]
             d = {"n": c["Name"], "sub": c["SubName"] or None, "lv": [c["MinLevel"], c["MaxLevel"]],
+                 "disp": c["DisplayId1"] or None, "det": c["Detection"] or None,
+                 "cfh": c["CallForHelp"] or None, "pursuit": c["Pursuit"] or None,
                  "hp": [c["MinLevelHealth"], c["MaxLevelHealth"]], "mana": [c["MinLevelMana"], c["MaxLevelMana"]]
                  if c["MaxLevelMana"] else None,
                  "dmg": [max(1, int(c["MinMeleeDmg"])), max(1, int(round(c["MaxMeleeDmg"])))],
                  "ap": c["MeleeAttackPower"] or None, "armor": c["Armor"] or None,
                  "spd": c["MeleeBaseAttackTime"], "rank": c["Rank"] or None, "type": c["CreatureType"] or None,
                  "fam": c["Family"] or None, "fac": c["Faction"], "flags": flags or None,
+                 "hostile": hostile(c["Faction"]) or None,
                  "school": c["DamageSchool"] or None, "run": round(c["SpeedRun"], 3), "walk": round(c["SpeedWalk"], 3),
                  "xpm": c["ExperienceMultiplier"] if c["ExperienceMultiplier"] != 1 else None,
                  "gold": [c["MinLootGold"], c["MaxLootGold"]] if c["MaxLootGold"] else None,
