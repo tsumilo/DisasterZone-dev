@@ -105,7 +105,7 @@ def the_sheet_makes_one_raid_of_two_instances():
                          "out[t.key] = t.num:GetText() end end; return out" % ED)
     assert badges == {"gruul": "1", "mag": "2"}, badges
     # the preview: the board's card
-    assert text_of(bob, ED + ".preview.inst") == "GRUUL + MAG · 25"
+    assert text_of(bob, ED + ".preview.t2").startswith("Gruul + Mag · 25"), text_of(bob, ED + ".preview.t2")
     assert text_of(bob, ED + ".preview.t1") == "Gruul + Mag"
     assert bob.eval("return %s.preview.art2:IsShown()" % ED) is True
     assert text_of(bob, ED + ".who").startswith("Every guild member can sign up.")

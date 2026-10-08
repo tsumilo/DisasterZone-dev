@@ -41,6 +41,7 @@ Data\Gems.lua
 Data\Atlas.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
+Data\BossJournal.lua
 Data\BossAbilities.lua
 Data\RaidMaps.lua
 Data\StarterStrategies.lua

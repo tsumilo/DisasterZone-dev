@@ -348,10 +348,11 @@ def share_icons_on_raids_members_strategies_boards_and_games():
     rita, bob = c["Rita"], c["Bob"]
     sid = save_strategy(bob, "Teron farm", "BlackTemple:Teron")
     w.tick(3)
-    # a raid (everyone): far right of its actions
+    # a raid (everyone): the navigation strip's Share icon, while its page is open
     rita.slash("/dz raids")
     w.tick(0.5)
-    btn = "ns.RaidsUI:GetPanel().upcoming.detail.shareBtn"
+    rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
+    btn = "ns.MainFrame:GetShareButton()"
     assert rita.eval("return %s:IsShown()" % btn) is True
     rita.eval("ns.RaidPlanUI:SetDetailTab('assign')")
     rita.click(rita.eval("return " + btn))

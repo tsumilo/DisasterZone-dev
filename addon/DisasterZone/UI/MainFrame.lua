@@ -655,6 +655,9 @@ function MainFrame:GetFrame()
     return EnsureFrame()
 end
 
+-- The Share icon of the navigation strip (it shares what the window shows, e.g. the raid whose page is open).
+function MainFrame:GetShareButton() return shareBtn end
+
 function MainFrame:IsShown()
     return frame ~= nil and frame:IsShown()
 end

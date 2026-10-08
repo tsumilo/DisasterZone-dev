@@ -404,7 +404,8 @@ def a_raid_lists_the_open_slots_and_the_lf_message():
     w.tick(2)
     signup(rita, occ, "A", 2)
     w.tick(2)
-    # Sign-ups: the healers column ends with the open slots (gold); the count stays the answers
+    # Sign-ups: the healers' band ends with the open slots (ghost plates: the spec, the class under it); the count
+    # stays the answers
     bob.slash("/dz raids")
     w.tick(0.3)
     bob.eval("ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab('signups')", occ)
@@ -412,7 +413,7 @@ def a_raid_lists_the_open_slots_and_the_lf_message():
     rows = bob.eval_py("local out = {}; for _, r in ipairs(%s.upcoming.detail.roster.cols[2].rows) do if r:IsShown() then "
                        "out[#out + 1] = { r.fs:GetText(), r.cdlCell.open == true } end end; return out" % P)
     rows = [(strip_codes(t), bool(o)) for t, o in (rows.values() if isinstance(rows, dict) else rows)]
-    assert rows[0] == ("Rita", False) and ("Holy Paladin", True) in rows and ("Restoration Druid", True) in rows, rows
+    assert rows[0] == ("Rita", False) and ("Holy", True) in rows and ("Restoration", True) in rows, rows
     assert text_of(bob, P + ".upcoming.detail.roster.cols[2].count") == "1"
     # who runs the raid: a click opens Add players with that class and spec ready for a guest
     bob.eval("for _, r in ipairs(%s.upcoming.detail.roster.cols[2].rows) do if r:IsShown() and r.cdlCell.open "

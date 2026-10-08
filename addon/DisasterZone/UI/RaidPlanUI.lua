@@ -445,16 +445,11 @@ local RAID_ART = {
     other = { 131860, 0.50, 0.45 },
 }
 local PAD, GAP = 10, 8
-local CARD_H = 84
-local ART_W, DATE_W = 196, 56
-local ANS_W = 214                    -- the card's answer area (Accept / Tentative / ..., or my answer)
+local CARD_H = 92                    -- a raid on the board: a banner of its loading screen (the Teams board's height)
 local FILTER_ROW = 22
 local SECTION_H = 30
-local HERO_H = 140                   -- the banner (the way back and the raid's actions in its top row): every tab
-local TABS_H = 24
-local COL_HEAD_H = 28
-local COL_ROW_H = 22
-local CHIP_H, CHIP_GAP = 22, 6
+local HERO_H = 128                   -- the raid's banner (the same on every tab); its tabs sit on its foot
+local TABS_H = 34
 local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
 local PANEL_BG = { 0.08, 0.08, 0.095, 0.9 }
 local EDGE = { 0.34, 0.34, 0.38, 0.5 }
@@ -463,6 +458,19 @@ local PILL = {
     B = { 0.20, 0.27, 0.45, 0.35, 0.6, 0.73, 1, "c4d6ff" }, X = { 0.45, 0.10, 0.10, 0.35, 1, 0.33, 0.33, "ffb0b0" },
     R = { 0.47, 0.39, 0.08, 0.35, 1, 0.82, 0, "ffe680" }, N = { 0.2, 0.2, 0.22, 0.6, 0.45, 0.45, 0.48, "9e9e9e" },
 }
+-- The raid page in the Teams look (2026-10-08, dev/art/casc/teams_mockup/build_raidpage.py): its sizes and helpers
+-- (one local: this file is near Lua's 200 locals).
+local UP = {
+    W = 770,                 -- the width inside PAD (GetWidth is 0 before a layout)
+    LT_BG = { 0.085, 0.085, 0.1 },   -- the tabs' strip, and the banner's foot fading into it
+    TB_H = 26,               -- the open tab's tool row, under the tabs
+    TAB_MIN = 170,           -- a page tab's least width
+    -- Sign-ups as the Comp view's role bands: the gutter (role, count, pips), five plates a row after it
+    GUT = 104, GUT_W = 96, TILES = 5, TILE_H = 30, TILE_GAP = 4, TILE_GAPX = 6, BAND_GAP = 12,
+    ANS_W = 330,             -- the banner's answer side (the title never runs under it)
+}
+UP.TB_Y = HERO_H + TABS_H + 10                   -- the tool row's top
+UP.BODY_Y = UP.TB_Y + UP.TB_H + 8                -- where a tab's content starts
 
 -- (melee, ranged and casters share the damage icon)
 local function roleIcon(role, size) return UI():RoleIconText(role, size) end
@@ -582,46 +590,31 @@ local function roleCounts(v)
     return out, tentative
 end
 
--- The answer pill (my answer, my request, cancelled): p:Set(kind, text, sub)
+-- The answer pill (my answer, my request, cancelled): a flat tag in the answer's colour with a dot. p:Set(kind, text,
+-- sub); sub is a line under it (the banner's), nil for none.
 local function newPill(parent)
     local p = CreateFrame("Button", nil, parent)
-    p:SetHeight(22)
-    local function disc(layer, sub, inset)
-        local l = p:CreateTexture(nil, layer, nil, sub)
-        l:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-        l:SetSize(22 - 2 * inset, 22 - 2 * inset)
-        l:SetPoint("LEFT", inset, 0)
-        local r = p:CreateTexture(nil, layer, nil, sub)
-        r:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-        r:SetSize(22 - 2 * inset, 22 - 2 * inset)
-        r:SetPoint("RIGHT", -inset, 0)
-        local m = p:CreateTexture(nil, layer, nil, sub)
-        m:SetColorTexture(1, 1, 1, 1)
-        m:SetPoint("TOPLEFT", p, "TOPLEFT", 11, -inset)
-        m:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -11, inset)
-        return { l, r, m }
-    end
-    p.edge = disc("BACKGROUND", 1, 0)
-    p.fill = disc("BACKGROUND", 2, 1)
-    p.icon = p:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(13, 13)
-    p.icon:SetPoint("LEFT", 7, 0)
-    p.text = textOf(p, "GameFontHighlight", 12)
-    p.text:SetPoint("LEFT", p.icon, "RIGHT", 4, 0)
+    p:SetHeight(20)
+    p.bg = p:CreateTexture(nil, "BACKGROUND")
+    p.bg:SetAllPoints()
+    UI():AddEdges(p, "BORDER")
+    p.dot = p:CreateTexture(nil, "ARTWORK")
+    p.dot:SetSize(6, 6)
+    p.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    p.dot:SetPoint("LEFT", 10, 0)
+    p.text = textOf(p, "GameFontHighlight", 11)
+    p.text:SetPoint("LEFT", p.dot, "RIGHT", 7, 0)
     p.sub = textOf(parent, "GameFontHighlightSmall", 10)
     p.sub:SetTextColor(0.62, 0.62, 0.62)
     p.sub:SetJustifyH("RIGHT")
-    p.sub:SetPoint("TOPRIGHT", p, "BOTTOMRIGHT", -2, -3)
-    function p:Set(kind, text, sub, icon)
+    p.sub:SetPoint("TOPRIGHT", p, "BOTTOMRIGHT", -2, -4)
+    function p:Set(kind, text, sub)
         local c = PILL[kind] or PILL.N
-        for _, t in ipairs(self.fill) do t:SetVertexColor(c[1], c[2], c[3], 0.95) end
-        for _, t in ipairs(self.edge) do t:SetVertexColor(c[5], c[6], c[7], c[4] + 0.3) end
+        self.bg:SetColorTexture(c[1], c[2], c[3], 0.5)
+        UI():SetEdgeColor(self, c[5], c[6], c[7], 0.4)
+        self.dot:SetVertexColor(c[5], c[6], c[7], 1)
         self.text:SetText("|cff" .. c[8] .. text .. "|r")
-        self.icon:SetShown(icon ~= nil)
-        if icon then self.icon:SetTexture(icon) end
-        self:SetWidth(floor((icon and 24 or 10) + (self.text:GetStringWidth() or 40) + 10))
-        self.text:ClearAllPoints()
-        if icon then self.text:SetPoint("LEFT", self.icon, "RIGHT", 4, 0) else self.text:SetPoint("LEFT", 10, 0) end
+        self:SetWidth(floor(10 + 6 + 7 + (self.text:GetStringWidth() or 40) + 11 + 0.5))
         self.sub:SetText(sub or "")
         self.sub:SetShown(sub ~= nil)
     end
@@ -633,8 +626,6 @@ local function newPill(parent)
 end
 
 local PILL_TEXT = { A = "Accepted", T = "Tentative", B = "Bench", X = "Absent", R = "Asked to join", C = "Cancelled" }
-local PILL_ICON = { A = "Interface\\RaidFrame\\ReadyCheck-Ready", T = "Interface\\RaidFrame\\ReadyCheck-Waiting",
-                    X = "Interface\\RaidFrame\\ReadyCheck-NotReady" }
 
 local function specLabelOf(s)
     local spec = specOf(s)
@@ -654,86 +645,87 @@ local function answerMenu(owner, v, current)
     end)
 end
 
+-- The board's raid: a banner of its loading screen (a raid of several instances: two screens side by side), like the
+-- Teams board's teams. Left: when (gold while it is close), the name, where / who leads / who it is for. Right: my
+-- answer (a pill once given; Accept / Tentative / ... while not; Ask to join; or why I can't) and under it who accepted
+-- by role and how full it is. The New raid sheet shows one as its preview (PlanUI:CreateRaidCard).
 local function newRaidCard(parent)
     local c = CreateFrame("Button", nil, parent)
     c:SetHeight(CARD_H)
     c:RegisterForClicks("LeftButtonUp")
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
     c.bg:SetAllPoints()
-    c.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-    UI():AddEdges(c, "BORDER")
-    c.art = c:CreateTexture(nil, "ARTWORK", nil, 0)
-    c.art:SetPoint("TOPLEFT", 1, -1)
-    c.art:SetSize(ART_W, CARD_H - 2)
-    -- (a raid of several instances: its second loading screen beside the first, a thin line between them)
-    c.art2 = c:CreateTexture(nil, "ARTWORK", nil, 0)
+    c.bg:SetColorTexture(0.055, 0.055, 0.067, 1)
+    c.art = c:CreateTexture(nil, "BACKGROUND", nil, 2)
+    c.art:SetPoint("TOPLEFT", 0, 0)
+    c.art:SetPoint("BOTTOMLEFT", 0, 0)
+    c.art:SetVertexColor(0.85, 0.85, 0.85)
+    c.art2 = c:CreateTexture(nil, "BACKGROUND", nil, 2)
     c.art2:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 0, 0)
-    c.art2:SetHeight(CARD_H - 2)
+    c.art2:SetPoint("BOTTOMRIGHT", 0, 0)
+    c.art2:SetVertexColor(0.85, 0.85, 0.85)
     c.art2:Hide()
-    c.artLine = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.artLine = c:CreateTexture(nil, "BACKGROUND", nil, 4)
     c.artLine:SetColorTexture(0, 0, 0, 0.6)
     c.artLine:SetWidth(2)
     c.artLine:SetPoint("TOPLEFT", c.art2, "TOPLEFT", -1, 0)
     c.artLine:SetPoint("BOTTOMLEFT", c.art2, "BOTTOMLEFT", -1, 0)
     c.artLine:Hide()
-    c.fade = c:CreateTexture(nil, "ARTWORK", nil, 2)
-    -- (the fade and the shade cover the whole art box: one loading screen, or two side by side)
-    c.fade:SetPoint("TOPRIGHT", c, "TOPLEFT", 1 + ART_W, -1)
-    c.fade:SetPoint("BOTTOMRIGHT", c, "BOTTOMLEFT", 1 + ART_W, 1)
-    c.fade:SetWidth(floor(ART_W * 0.45))
-    gradient(c.fade, "HORIZONTAL", CARD_BG[1], CARD_BG[2], CARD_BG[3], 0, 1)
-    c.shade = c:CreateTexture(nil, "ARTWORK", nil, 1)
-    c.shade:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
-    c.shade:SetPoint("BOTTOMRIGHT", c, "BOTTOMLEFT", 1 + ART_W, 1)
-    c.shade:SetHeight(30)
-    gradient(c.shade, "VERTICAL", 0, 0, 0, 0.8, 0)
-    c.inst = textOf(c, "GameFontNormalSmall", 10)
-    c.inst:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT", 10, 9)
-    -- the date: weekday, day, time, centred in its column (half over the art's fade)
-    c.dn = textOf(c, "GameFontHighlightLarge", 24)
-    c.dn:SetJustifyH("CENTER")
-    c.dn:SetPoint("CENTER", c, "LEFT", ART_W - 12 + DATE_W / 2, 1)
-    c.wd = textOf(c, "GameFontNormalSmall", 10)
-    c.wd:SetJustifyH("CENTER")
-    c.wd:SetPoint("BOTTOM", c.dn, "TOP", 0, 2)
-    c.tm = textOf(c, "GameFontHighlightSmall", 11)
-    c.tm:SetTextColor(0.62, 0.62, 0.62)
-    c.tm:SetJustifyH("CENTER")
-    c.tm:SetPoint("TOP", c.dn, "BOTTOM", 0, -2)
-    c.div = c:CreateTexture(nil, "ARTWORK", nil, 3)
-    c.div:SetColorTexture(1, 1, 1, 0.08)
-    c.div:SetWidth(1)
-    c.div:SetPoint("TOPLEFT", ART_W + DATE_W - 10, -16)
-    c.div:SetPoint("BOTTOMLEFT", ART_W + DATE_W - 10, 16)
-    -- title, who / when, the accepted by role: three lines centred on the card
-    local x0 = ART_W + DATE_W + 4
-    c.t1 = textOf(c, "GameFontHighlight", 15)
-    c.t1:SetPoint("TOPLEFT", x0, -15)
+    c.fadeL = c:CreateTexture(nil, "BACKGROUND", nil, 3)
+    c.fadeL:SetPoint("TOPLEFT", 0, 0)
+    c.fadeL:SetPoint("BOTTOMLEFT", 0, 0)
+    c.fadeL:SetWidth(460)
+    gradient(c.fadeL, "HORIZONTAL", 0.055, 0.055, 0.067, 0.96, 0.28)
+    c.fadeR = c:CreateTexture(nil, "BACKGROUND", nil, 3)
+    c.fadeR:SetPoint("TOPLEFT", c.fadeL, "TOPRIGHT", 0, 0)
+    c.fadeR:SetPoint("BOTTOMRIGHT", 0, 0)
+    gradient(c.fadeR, "HORIZONTAL", 0.055, 0.055, 0.067, 0.28, 0.8)
+    UI():AddEdges(c, "BORDER")
+    UI():SetEdgeColor(c, 1, 1, 1, 0.07)
+    -- the left: when, the name, where and who
+    c.kick = textOf(c, "GameFontNormalSmall", 10)
+    c.kick:SetTextColor(0.72, 0.72, 0.72)
+    c.kick:SetPoint("LEFT", c, "TOPLEFT", 18, -21)
+    c.t1 = textOf(c, "GameFontHighlightLarge", 20)
+    c.t1:SetPoint("TOPLEFT", 18, -34)
     c.t2 = textOf(c, "GameFontHighlightSmall", 11)
-    c.t2:SetTextColor(0.62, 0.62, 0.62)
-    c.t2:SetPoint("TOPLEFT", c.t1, "BOTTOMLEFT", 0, -4)
-    c.meter = textOf(c, "GameFontHighlightSmall", 11)
-    c.meter:SetPoint("TOPLEFT", c.t2, "BOTTOMLEFT", 0, -7)
-    -- my answer: Accept / Tentative / ..., or the pill of my answer, or Ask to join, or why I can't
-    c.more = UI():CreateTipIconButton(c, 26, UI().ICON.more, "More answers", "Bench or Absent, or open the raid.")
-    c.more:SetPoint("RIGHT", c, "RIGHT", -14, 0)
-    c.tentative = UI():CreateSleekButton(c, "Tentative", 80, 26, nil)
+    c.t2:SetTextColor(0.66, 0.66, 0.66)
+    c.t2:SetPoint("TOPLEFT", 18, -64)
+    -- the right, on top: my answer
+    c.more = UI():CreateTipIconButton(c, 22, UI().ICON.more, "More answers", "Bench or Absent, or open the raid.")
+    c.more:SetPoint("TOPRIGHT", -18, -15)
+    c.tentative = UI():CreateSleekButton(c, "Tentative", 76, 22, nil)
     c.tentative:SetPoint("RIGHT", c.more, "LEFT", -4, 0)
-    c.accept = UI():CreateSleekButton(c, "Accept", 70, 26, nil, "primary")
+    c.accept = UI():CreateSleekButton(c, "Accept", 64, 22, nil, "primary")
     c.accept:SetPoint("RIGHT", c.tentative, "LEFT", -4, 0)
-    c.ask = UI():CreateSleekButton(c, "Ask to join", 96, 26, nil)
-    c.ask:SetPoint("RIGHT", c, "RIGHT", -14, 0)
+    c.ask = UI():CreateSleekButton(c, "Ask to join", 90, 22, nil)
+    c.ask:SetPoint("TOPRIGHT", -18, -15)
     c.why = textOf(c, "GameFontHighlightSmall", 11)
     c.why:SetTextColor(0.62, 0.62, 0.62)
     c.why:SetJustifyH("RIGHT")
-    c.why:SetPoint("RIGHT", c, "RIGHT", -16, 0)
+    c.why:SetPoint("RIGHT", c, "TOPRIGHT", -18, -26)
     c.pill = newPill(c)
+    c.pill:SetPoint("TOPRIGHT", -18, -16)
+    -- the right, under it: who accepted by role, and how full it is
+    c.r3 = textOf(c, "GameFontHighlightSmall", 11)
+    c.r3:SetJustifyH("RIGHT")
+    c.r3:SetPoint("RIGHT", c, "TOPRIGHT", -18, -65)
+    c.track = c:CreateTexture(nil, "ARTWORK")
+    c.track:SetSize(110, 3)
+    c.track:SetColorTexture(1, 1, 1, 0.14)
+    c.track:SetPoint("RIGHT", c.r3, "LEFT", -8, 0)
+    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 1)
+    c.fill:SetHeight(3)
+    c.fill:SetPoint("LEFT", c.track, "LEFT", 0, 0)
+    c.fill:SetColorTexture(0.56, 0.89, 0.62, 1)
+    c.meter = textOf(c, "GameFontHighlightSmall", 11)
+    c.meter:SetJustifyH("RIGHT")
     c:SetScript("OnEnter", function(self)
         UI():SetEdgeColor(self, 1, 0.82, 0, 0.55)
         raidRowTooltip(self)
     end)
     c:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], 0.6)
+        UI():SetEdgeColor(self, 1, 1, 1, 0.07)
         hideTooltip()
     end)
     c:SetScript("OnClick", function(self)
@@ -743,74 +735,97 @@ local function newRaidCard(parent)
     return c
 end
 
+-- The banner's kicker: "TOMORROW   FRI 9 OCT · 20:00" (the countdown in gold within a week; a raid that is over says
+-- how long ago in grey; a cancelled one says so in red).
+function UP.kicker(v)
+    local when = (date("%a ", v.t) .. tonumber(date("%d", v.t)) .. date(" %b", v.t)):upper() .. " · " .. fmtTime(v.t)
+    local now = Now()
+    local lead
+    if v.cancelled then lead = colorize("ff5555", "CANCELLED")
+    elseif v.t < now - 6 * 3600 then lead = grey(relDay(v.t):upper())
+    elseif v.t - now < 7 * DAY then lead = colorize("ffd100", relDay(v.t):upper()) end
+    return lead and (lead .. "    " .. when) or when
+end
+
 local function fillRaidCard(c, v, width)
     c.__cdlData = { v = v }
     c:SetWidth(width)
-    UI():SetEdgeColor(c, EDGE[1], EDGE[2], EDGE[3], 0.6)
+    UI():SetEdgeColor(c, 1, 1, 1, 0.07)
     local list = RP():GetRaidInstances(v)
     local two = #list > 1
-    local aw = two and floor(ART_W / 2) or ART_W
-    local file, l, r, t, b = artCoords(list[1] or v.i, aw, CARD_H - 2, two and 0.3 or 0.5)
+    local aw = two and floor(width / 2) or width
+    local file, l, r, t, b = artCoords(list[1] or v.i, aw, CARD_H, two and 0.5 or 0.95)
     c.art:SetTexture(file)
     c.art:SetTexCoord(l, r, t, b)
     c.art:SetWidth(aw)
     c.art2:SetShown(two)
     c.artLine:SetShown(two)
     if two then
-        c.art2:SetWidth(ART_W - aw)
-        local f2, l2, r2, t2, b2 = artCoords(list[2], ART_W - aw, CARD_H - 2, 0.3)
+        local f2, l2, r2, t2, b2 = artCoords(list[2], width - aw, CARD_H, 0.5)
         c.art2:SetTexture(f2)
         c.art2:SetTexCoord(l2, r2, t2, b2)
     end
-    local inst = RP():GetInstance(list[1] or v.i)
-    c.inst:SetText((((two and instNames(v, true)) or (inst and inst.name) or "Raid") .. " · " .. (v.sz or 0)):upper())
-    c.wd:SetText(date("%a", v.t):upper())
-    c.dn:SetText(tonumber(date("%d", v.t)))
-    c.tm:SetText(fmtTime(v.t))
+    c.fadeL:SetWidth(floor(width * 0.6))
     local past = v.t < Now() - 6 * 3600
     local dim = v.cancelled or past
     for _, art in ipairs({ c.art, c.art2 }) do
         art:SetDesaturated(dim and true or false)
         art:SetAlpha(dim and 0.6 or 1)
     end
-    for _, fs in ipairs({ c.t1, c.wd, c.dn, c.meter }) do fs:SetAlpha(dim and 0.55 or 1) end
+    for _, fs in ipairs({ c.t1, c.meter, c.r3 }) do fs:SetAlpha(dim and 0.55 or 1) end
+    c.kick:SetText(UP.kicker(v))
     c.t1:SetText(RP():GetRaidName(v))
-    -- who leads, who it is for, when; and for who runs it, the requests waiting. Many teams: as many named as fit
+    setSize(c.t1, 20)
+    if (c.t1:GetStringWidth() or 0) > width - 18 - 260 then setSize(c.t1, 16) end
+    -- where, who leads, who it is for; for who runs it, the requests waiting. Many teams: as many named as fit
+    local inst = RP():GetInstance(list[1] or v.i)
+    local where = ((two and instNames(v, true)) or (inst and inst.name) or "Raid") .. " · " .. (v.sz or 0)
     local nReq = (v.lk and RP():CanManageRaid(v)) and #RP():GetRequests(v.id) or 0
     local function line(keep)
-        local parts = {}
+        local parts = { where }
         if v.rl then parts[#parts + 1] = colored(v.rl) .. grey(" leads")
         elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
         local teams = teamNames(v, true, keep)
-        if teams ~= "Everyone" then parts[#parts + 1] = teams end
-        parts[#parts + 1] = v.cancelled and colorize("ff5555", "cancelled") or relDay(v.t)
+        if teams ~= "Everyone" then
+            parts[#parts + 1] = (v.lk and ("|T" .. UI().ICON_LOCK .. ":11:11|t ") or "") .. teams
+        end
         if v.weekly then parts[#parts + 1] = "weekly" end
         if nReq > 0 then parts[#parts + 1] = colorize("ffd100", nReq .. (nReq == 1 and " request" or " requests")) end
-        return tconcat(parts, " · ")
+        return tconcat(parts, "   ·   ")
     end
-    local lineW = width - ART_W - DATE_W - 4 - ANS_W
+    local lineW = width - 18 - 280
     for _, keep in ipairs({ false, 2, 1, 0 }) do
         c.t2:SetText(line(keep or nil))
         -- (the unbounded width: GetStringWidth stops at the width the line was given)
         local tw = c.t2.GetUnboundedStringWidth and c.t2:GetUnboundedStringWidth() or c.t2:GetStringWidth()
         if (tw or 0) <= lineW then break end
     end
-    -- the accepted by role and how full it is (no targets: the raid has none), or that nobody answered yet
+    c.t1:SetWidth(width - 18 - 230)
+    c.t2:SetWidth(lineW)
+
+    -- who accepted by role and how full it is (no targets: the raid has none), or that nobody answered yet
     local rc, tentative = roleCounts(v)
     local cnt = counts(v.id)
-    if cnt.A == 0 and tentative == 0 then
-        c.meter:SetText(grey("No answers yet"))
+    local any = cnt.A > 0 or tentative > 0
+    c.track:SetShown(any)
+    c.r3:SetShown(any)
+    c.meter:ClearAllPoints()
+    if any then
+        c.meter:SetText(("%s %d      %s %d      %s %d"):format(roleIcon("tank", 12), rc.tank, roleIcon("healer", 12),
+            rc.healer, roleIcon("dps", 12), rc.melee + rc.ranged + rc.nospec))
+        c.meter:SetPoint("RIGHT", c.track, "LEFT", -14, 0)
+        local of = v.sz or 0
+        c.r3:SetText(colorize("ffffff", cnt.A) .. colorize("808080", "/" .. of))
+        local share = of > 0 and min(1, cnt.A / of) or 0
+        c.fill:SetShown(share > 0)
+        c.fill:SetWidth(max(1, floor(110 * share + 0.5)))
     else
-        local full = cnt.A >= (v.sz or 0) and (v.sz or 0) > 0
-        local meter = ("%s %d    %s %d    %s %d"):format(roleIcon("tank"), rc.tank, roleIcon("healer"), rc.healer,
-            roleIcon("dps"), rc.melee + rc.ranged + rc.nospec)
-        local total = ("%d of %d"):format(cnt.A, v.sz or 0)
-        meter = meter .. "      " .. (full and colorize("8fe39d", total) or grey(total))
-        if tentative > 0 then meter = meter .. grey(" · " .. tentative .. " tentative") end
-        c.meter:SetText(meter)
+        c.fill:Hide()
+        c.meter:SetText(grey("No answers yet"))
+        c.meter:SetPoint("RIGHT", c, "TOPRIGHT", -18, -65)
     end
 
-    -- the answer area
+    -- my answer
     local kind, block, canAnswer, canAsk, mine = myState(v)
     for _, w in ipairs({ c.accept, c.tentative, c.more, c.ask }) do w:Hide() end
     c.why:Hide()
@@ -818,22 +833,19 @@ local function fillRaidCard(c, v, width)
     local id = v.id
     if kind == "C" then
         c.pill:Set("N", "Cancelled")
-        c.pill:ClearAllPoints()
-        c.pill:SetPoint("RIGHT", c, "RIGHT", -14, 0)
         c.pill:SetPillShown(true)
         c.pill:SetScript("OnClick", nil)
+        c.pill:SetScript("OnEnter", nil)
         c.pill:SetAlpha(1)
     elseif STATUS[kind] or kind == "R" then
-        local sub = (kind ~= "R" and mine and specLabelOf(mine)) and ("as " .. specLabelOf(mine)) or nil
-        if kind == "R" then sub = "a raid leader approves" end
-        c.pill:Set(kind, PILL_TEXT[kind], sub, PILL_ICON[kind])
-        c.pill:ClearAllPoints()
-        c.pill:SetPoint("RIGHT", c, "RIGHT", -14, sub and 8 or 0)
+        local spec = kind ~= "R" and mine and specLabelOf(mine)
+        c.pill:Set(kind, PILL_TEXT[kind] .. (spec and ("  ·  " .. spec) or ""))
         c.pill:SetPillShown(true)
         local open = not v.cancelled and not past
         c.pill:SetScript("OnClick", open and function(self) answerMenu(self, v, kind) end or nil)
         c.pill:SetScript("OnEnter", function(self)
-            if open then UI():SetTextTooltip(self, { "Your answer", "Click to change it." }, "ANCHOR_TOP") end
+            if kind == "R" then UI():SetTextTooltip(self, { "Asked to join", "A raid leader approves it." }, "ANCHOR_TOP")
+            elseif open then UI():SetTextTooltip(self, { "Your answer", "Click to change it." }, "ANCHOR_TOP") end
         end)
         c.pill:SetScript("OnLeave", hideTooltip)
         c.pill:SetAlpha(open and 1 or 0.6)
@@ -852,11 +864,6 @@ local function fillRaidCard(c, v, width)
         c.why:SetText(words or "")
         c.why:SetShown(words ~= nil)
     end
-    -- the texts never run under the answer area
-    local textW = width - ART_W - DATE_W - 4 - ANS_W
-    c.t1:SetWidth(textW)
-    c.t2:SetWidth(textW)
-    c.meter:SetWidth(textW)
 end
 
 -- For other pages (Home): a raid card as the board draws it (a click opens the raid's page on the Raids tab), and a
@@ -864,9 +871,13 @@ end
 function PlanUI:CreateRaidCard(parent) return newRaidCard(parent) end
 function PlanUI:FillRaidCard(card, v, width) fillRaidCard(card, v, width) end
 function PlanUI:RaidArt(inst, w, h, fw) return artCoords(inst, w, h, fw) end
+function PlanUI:RaidCardHeight() return CARD_H end
 
 ---------------------------------------------------------------------------
--- The raid page: Sign-ups as role columns, then the players outside them in labelled boxes
+-- The raid page: Sign-ups as role bands (the Teams Comp view's): the role, its count and a pip per player in a gutter
+-- on the left, the players as plates five a row. Requests to join on top (Approve / Deny on the plate for who runs
+-- the raid); the players outside the roles (spec not set, bench, absent, declined, no answer) in bands of their own
+-- under them, dimmed.
 ---------------------------------------------------------------------------
 
 local COLS = {
@@ -884,105 +895,130 @@ local function cellRowClick(self, button)
     if button == "RightButton" or (self.cdlCell and self.cdlCell.request) then rosterMenu(self) end
 end
 
--- One player in a column or a box: class circle, name (a guest tag), and on the right a ? for tentative and the
--- spec's icon (its name is in the tooltip). A box shows players as chips.
-local function newCellRow(parent, chip)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(chip and CHIP_H or COL_ROW_H)
-    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    b:SetScript("OnClick", cellRowClick)
+-- A tile's x and width in the bands (column c of UP.TILES, after the gutter).
+function UP.tileX(c)
+    return UP.GUT + floor(c * (UP.W - UP.GUT + UP.TILE_GAPX) / UP.TILES + 0.5)
+end
+
+function UP.tileW(c)
+    return UP.tileX(c + 1) - UP.TILE_GAPX - UP.tileX(c)
+end
+
+-- A small square button on a request's plate: Approve (the ready check's tick) or Deny (its cross).
+function UP.reqButton(plate, tex, title, fn)
+    local b = CreateFrame("Button", nil, plate)
+    b:SetSize(20, 20)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.bg:SetColorTexture(0, 0, 0, 0.4)
+    UI():AddEdges(b, "BORDER")
+    UI():SetEdgeColor(b, 1, 1, 1, 0.12)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(13, 13)
+    b.icon:SetPoint("CENTER", 0, 0)
+    b.icon:SetTexture(tex)
+    b:SetScript("OnClick", function()
+        local d, occ = plate.cdlCell, state.selected
+        if d and occ then fn(d, occ) end
+    end)
     b:SetScript("OnEnter", function(self)
-        if self.hl then self.hl:Show() end
-        cellTooltip(self)
+        UI():SetEdgeColor(self, 1, 0.82, 0, 0.7)
+        UI():SetTextTooltip(self, title, "ANCHOR_TOP")
     end)
     b:SetScript("OnLeave", function(self)
-        if self.hl then self.hl:Hide() end
+        UI():SetEdgeColor(self, 1, 1, 1, 0.12)
         hideTooltip()
     end)
-    if chip then panel(b, CARD_BG, { 0.34, 0.34, 0.38, 0.6 }) end
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.06)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(16, 16)
-    b.icon:SetPoint("LEFT", chip and 3 or 0, 0)
-    b.fs = textOf(b, "GameFontHighlight", 12)
-    b.fs:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
-    b.tag = textOf(b, "GameFontHighlightSmall", 9)
-    b.tag:SetTextColor(0.4, 0.8, 1)
-    b.tag:SetPoint("LEFT", b.fs, "RIGHT", 4, 0)
-    b.tag:SetText("GUEST")
-    b.spec = b:CreateTexture(nil, "ARTWORK")
-    b.spec:SetSize(14, 14)
-    b.spec:SetPoint("RIGHT", chip and -5 or -1, 0)
-    b.spec:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    b.maybe = b:CreateTexture(nil, "ARTWORK")
-    b.maybe:SetSize(12, 12)
-    b.maybe:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
     return b
 end
 
-local function fillCellRow(b, cell, chip)
+-- One player (or an open slot of the team's comp) as a plate. On its right: a ? for tentative, the note's icon, or on
+-- a request Approve / Deny (who runs the raid).
+function UP.newCell(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(UP.TILE_H)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnClick", cellRowClick)
+    b:SetScript("OnEnter", function(self) cellTooltip(self) end)
+    b:SetScript("OnLeave", hideTooltip)
+    ns.RaidGroupsUI:DecoratePlate(b)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.05)
+    b.fs = b.pName                 -- (the name: tests and tools read it here)
+    b.mark = b:CreateTexture(nil, "OVERLAY")
+    b.mark:SetSize(12, 12)
+    b.mark:SetPoint("RIGHT", -8, 0)
+    b.no = UP.reqButton(b, "Interface\\RaidFrame\\ReadyCheck-NotReady", { "Deny", "They stay out of this raid." },
+        function(d, occ)
+            local ok, err = RP():DeclineSignup(occ, d.key)
+            if not ok then Print(err or "Could not change the raid.") end
+        end)
+    b.no:SetPoint("RIGHT", -6, 0)
+    b.yes = UP.reqButton(b, "Interface\\RaidFrame\\ReadyCheck-Ready", { "Approve", "Invites them to this raid (only)." },
+        function(d, occ)
+            local ok, err = RP():ApproveRequest(occ, d.key)
+            if not ok then Print(err or "Could not change the raid.") end
+        end)
+    b.yes:SetPoint("RIGHT", b.no, "LEFT", -4, 0)
+    return b
+end
+
+-- (the name and spec lines end before what the plate shows on its right)
+function UP.cellRoom(b, right)
+    b.pName:SetPoint("RIGHT", b, "RIGHT", right, 0)
+    b.pSub:SetPoint("RIGHT", b, "RIGHT", right, 0)
+end
+
+function UP.fillCell(b, cell, organizer)
     b.cdlCell = cell
-    -- an open slot of the team's comp (1.3.1): a gold ring with the class faint inside, the spec's name in gold
+    local G = ns.RaidGroupsUI
+    b.mark:Hide()
+    b.yes:Hide()
+    b.no:Hide()
+    b:SetAlpha(1)
     if cell.open then
-        if not b.ring then
-            b.ring = b:CreateTexture(nil, "ARTWORK", nil, -2)
-            b.ring:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-            b.ring:SetVertexColor(1, 0.82, 0)
-            b.ring:SetSize(18, 18)
-            b.ring:SetPoint("CENTER", b, "LEFT", 8, 0)
-            b.ringIn = b:CreateTexture(nil, "ARTWORK", nil, -1)
-            b.ringIn:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-            b.ringIn:SetVertexColor(PANEL_BG[1], PANEL_BG[2], PANEL_BG[3])
-            b.ringIn:SetSize(16, 16)
-            b.ringIn:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
-        end
-        b.ring:Show()
-        b.ringIn:Show()
-        b.icon:ClearAllPoints()
-        b.icon:SetSize(12, 12)
-        b.icon:SetPoint("CENTER", b.ring, "CENTER", 0, 0)
-        UI():ClassIcon(b.icon, cell.c)
-        b.icon:SetAlpha(0.35)
-        b.fs:SetText(colorize("ffd100", cell.name or "?"))
-        b.tag:Hide()
-        b.maybe:Hide()
-        local icon = ns.RaidComp:SpecIcon(cell.c, cell.sp)
-        b.spec:SetShown(icon ~= nil)
-        if icon then b.spec:SetTexture(icon) end
-        b.spec:SetAlpha(0.35)
-        b:SetAlpha(1)
+        G:PaintPlate(b, G:GhostPlate({ c = cell.c, sp = cell.sp, name = cell.name }))
+        UP.cellRoom(b, -6)
         b:Show()
         return
     end
-    if b.ring then
-        b.ring:Hide()
-        b.ringIn:Hide()
-        b.icon:ClearAllPoints()
-        b.icon:SetSize(16, 16)
-        b.icon:SetPoint("LEFT", chip and 3 or 0, 0)
-    end
-    b.icon:SetAlpha(1)
-    b.spec:SetAlpha(1)
     local s = cell.s
-    local cls = classOf(cell.key, s)
-    UI():ClassIcon(b.icon, cls)
-    if not cls then b.icon:Hide() end
-    b.fs:SetText(colored(cell.key, cls) .. ((s and s.n) and grey(" *") or ""))
-    b.tag:SetShown(cell.guest and true or false)
+    local cls = (s and s.c) or classOf(cell.key, s)
+    local spec = specLabelOf(s)
     local st = s and s.st
-    local icon = not chip and s and s.c and ns.RaidComp:SpecIcon(s.c, s.sp) or nil
-    b.spec:SetShown(icon ~= nil)
-    if icon then b.spec:SetTexture(icon) end
-    b.maybe:SetShown(not chip and st == "T")
-    b.maybe:ClearAllPoints()
-    b.maybe:SetPoint("RIGHT", icon and b.spec or b, icon and "LEFT" or "RIGHT", -4, 0)
-    if chip then
-        local w = 3 + 16 + 6 + (b.fs:GetStringWidth() or 60) + (cell.guest and (4 + (b.tag:GetStringWidth() or 28)) or 0) + 9
-        b:SetWidth(floor(w + 0.5))
+    local sub = spec or "Spec not set"
+    local short
+    if cell.request then sub, short = sub .. " · wants to join", "wants to join"
+    elseif cell.declined then sub = "declined"
+    elseif cell.dim then sub = "no answer yet" end
+    -- (a guest: "Guest" in blue before the spec; a narrow plate keeps "Guest" alone)
+    if cell.guest then sub, short = "|cff66ccffGuest|r · " .. sub, "|cff66ccffGuest|r" end
+    G:PaintPlate(b, { kind = "player", c = cls, sp = s and s.sp, name = colored(cell.key, cls), sub = sub,
+                      subShort = short, auto = spec == nil, dim = cell.out, edge = isMe(cell.key) and "me" or nil })
+    local right = -6
+    if cell.request then
+        UI():SetEdgeColor(b, 1, 0.82, 0, 0.55)
+        if organizer then
+            b.yes:Show()
+            b.no:Show()
+            right = -54
+        end
+    elseif st == "T" and not cell.out then
+        b.mark:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
+        b.mark:SetTexCoord(0, 1, 0, 1)
+        b.mark:SetVertexColor(1, 1, 1)
+        b.mark:Show()
+        right = -24
+    elseif s and s.n and s.n ~= "" and not cell.out then
+        b.mark:SetTexture(UI().ICON_ATLAS)
+        b.mark:SetTexCoord(unpack(UI():IconCoords(UI().ICON.notes)))
+        b.mark:SetVertexColor(1, 0.82, 0)
+        b.mark:Show()
+        right = -24
     end
-    b:SetAlpha((st == "T" and 0.7) or (cell.dim and 0.6) or 1)
+    UP.cellRoom(b, right)
+    b:SetAlpha((cell.out and 0.6) or (st == "T" and 0.8) or 1)
     b:Show()
 end
 
@@ -1020,7 +1056,7 @@ local function rosterModel(v)
         for _, key in ipairs(list) do cells[#cells + 1] = cell(key) end
         model.cols[i] = { label = col.label, role = col.key, count = accepted, more = #list - accepted, cells = cells }
     end
-    -- 1.3.1: the open slots of the team's target comp, gold at the end of each role column (the counts stay the
+    -- 1.3.1: the open slots of the team's target comp, as ghosts at the end of each role's band (the counts stay the
     -- answers); a raid that is over has none
     local open = v.t >= Now() - 6 * 3600 and RP():GetRaidOpenSlots(v) or nil
     if open then
@@ -1040,19 +1076,20 @@ local function rosterModel(v)
         for _, key in ipairs(keys) do
             local c = cell(key)
             c.dim = dim
+            c.out = true
             cells[#cells + 1] = c
         end
         model.boxes[#model.boxes + 1] = { label = label, color = color, cells = cells, n = #keys }
     end
-    -- requests to join first: who runs the raid answers them (a click)
+    -- requests to join first: who runs the raid answers them (on the plate)
     local requests = RP():GetRequests(v.id)
     if #requests > 0 then
         local cells = {}
         for _, r in ipairs(requests) do
             cells[#cells + 1] = { key = r.key, s = { c = r.c, sp = r.sp, n = r.n }, request = true }
         end
-        model.boxes[#model.boxes + 1] = { label = "Requests to join", color = "ffd100", cells = cells, n = #requests,
-                                          req = true, hint = RP():CanManageRaid(v) and "click a name to approve or deny" }
+        model.boxes[#model.boxes + 1] = { label = "Requests", color = "ffd100", cells = cells, n = #requests,
+                                          req = true }
     end
     box("Spec not set", STATUS.T.color, other.nospec)
     box("Bench", STATUS.B.color, other.B)
@@ -1062,42 +1099,84 @@ local function rosterModel(v)
         if not signups[key] then out[#out + 1] = key end
     end
     box("Declined", "ff5555", out, nameLess)
-    box("No response", "ff9933", noResponse(v, signups), nameLess, true)
+    box("To answer", "ff9933", noResponse(v, signups), nameLess, true)
     return model
 end
 
--- The Sign-ups view: d.roster = { frame (scroll frame), content, box = { ForEachFrame(fn) } over the columns and boxes
--- (each with .cells, the shown players) }.
+-- A band: its label (a role's icon first) and count in the gutter, a rule above it (but the first), its plates.
+function UP.newBand(parent, role)
+    local col = CreateFrame("Frame", nil, parent)
+    col.role = col:CreateTexture(nil, "ARTWORK")
+    col.role:SetTexture(UI().ROLE_TEX)
+    col.role:SetSize(15, 15)
+    col.role:SetPoint("LEFT", col, "TOPLEFT", 0, -8)
+    col.role:SetShown(role and true or false)
+    col.title = textOf(col, "GameFontHighlight", 12)
+    col.title:SetPoint("LEFT", col, "TOPLEFT", role and 21 or 0, -8)
+    col.count = textOf(col, "GameFontHighlight", 11)
+    col.count:SetJustifyH("RIGHT")
+    col.count:SetPoint("RIGHT", col, "TOPLEFT", UP.GUT_W, -8)
+    col.rule = col:CreateTexture(nil, "BORDER")
+    col.rule:SetColorTexture(1, 1, 1, 0.055)
+    col.rule:SetHeight(1)
+    col.rule:SetPoint("BOTTOMLEFT", col, "TOPLEFT", 0, 6)
+    col.rule:SetPoint("BOTTOMRIGHT", col, "TOPRIGHT", 0, 6)
+    -- (requests: a soft gold wash behind the band)
+    col.wash = col:CreateTexture(nil, "BACKGROUND")
+    col.wash:SetPoint("TOPLEFT", 0, 6)
+    col.wash:SetPoint("BOTTOMRIGHT", 0, -6)
+    gradient(col.wash, "HORIZONTAL", 1, 0.82, 0, 0.07, 0)
+    col.wash:Hide()
+    col.none = textOf(col, "GameFontDisableSmall", 11)
+    col.none:SetPoint("LEFT", col, "TOPLEFT", UP.GUT + 2, -15)
+    col.none:SetText("Nobody yet")
+    col.pips = {}
+    col.pipsH = 0
+    col.rows = {}
+    col.cells = col.rows
+    return col
+end
+
+-- The gutter's pips: a square per player in their class colour (faded: tentative), hollow for an open slot.
+function UP.fillPips(col, cells)
+    local per = max(1, floor((UP.GUT_W + 2) / 8))
+    local n = 0
+    for j, cell in ipairs(cells) do
+        n = j
+        local pip = col.pips[j]
+        if not pip then
+            pip = CreateFrame("Frame", nil, col)
+            pip:SetSize(6, 6)
+            pip.edge = pip:CreateTexture(nil, "ARTWORK", nil, 1)
+            pip.edge:SetAllPoints()
+            pip.hole = pip:CreateTexture(nil, "ARTWORK", nil, 2)
+            pip.hole:SetPoint("TOPLEFT", 1, -1)
+            pip.hole:SetPoint("BOTTOMRIGHT", -1, 1)
+            pip.hole:SetColorTexture(0.055, 0.055, 0.065, 1)
+            col.pips[j] = pip
+        end
+        local cls = cell.open and cell.c or ((cell.s and cell.s.c) or classOf(cell.key, cell.s))
+        local r, g, b = UI():ClassColor(cls)
+        local maybe = cell.s and cell.s.st == "T"
+        pip.edge:SetColorTexture(r, g, b, cell.open and 0.6 or (maybe and 0.45 or 1))
+        pip.hole:SetShown(cell.open == true)
+        pip:ClearAllPoints()
+        pip:SetPoint("TOPLEFT", col, "TOPLEFT", ((j - 1) % per) * 8, -22 - floor((j - 1) / per) * 8)
+        pip:Show()
+    end
+    for j = n + 1, #col.pips do col.pips[j]:Hide() end
+    col.pipsH = n > 0 and (ceil(n / per) * 8 - 2) or 0
+end
+
+-- The Sign-ups view: d.roster = { frame (scroll frame), content, box = { ForEachFrame(fn) } over the bands (each with
+-- .cells, the shown plates) }.
 local function createRoster(d)
     local sf = UI():CreateScrollFrame(d)
     local content = CreateFrame("Frame", nil, sf)
-    content:SetSize(600, 10)
+    content:SetSize(UP.W, 10)
     sf:SetScrollChild(content)
     local r = { frame = sf, content = content, cols = {}, boxes = {} }
-    for i = 1, #COLS do
-        local col = CreateFrame("Frame", nil, content)
-        panel(col)
-        col.role = col:CreateTexture(nil, "ARTWORK")
-        col.role:SetTexture(UI().ROLE_TEX)
-        col.role:SetSize(16, 16)
-        col.role:SetPoint("TOPLEFT", 9, -6)
-        col.title = textOf(col, "GameFontNormal", 12)
-        col.title:SetPoint("LEFT", col.role, "RIGHT", 6, 0)
-        col.count = textOf(col, "GameFontHighlight", 12)
-        col.count:SetJustifyH("RIGHT")
-        col.count:SetPoint("RIGHT", col, "TOPRIGHT", -10, -14)
-        col.rule = col:CreateTexture(nil, "BORDER")
-        col.rule:SetColorTexture(1, 1, 1, 0.07)
-        col.rule:SetHeight(1)
-        col.rule:SetPoint("TOPLEFT", 8, -COL_HEAD_H)
-        col.rule:SetPoint("TOPRIGHT", -8, -COL_HEAD_H)
-        col.none = textOf(col, "GameFontDisableSmall", 10)
-        col.none:SetPoint("TOPLEFT", 10, -COL_HEAD_H - 8)
-        col.none:SetText("Nobody yet")
-        col.rows = {}
-        col.cells = col.rows
-        r.cols[i] = col
-    end
+    for i = 1, #COLS do r.cols[i] = UP.newBand(content, COLS[i].key) end
     r.empty = content:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     r.empty:SetText("No answers yet: players show here by role as they answer.")
     function r:ForEachGroup(fn)
@@ -1110,91 +1189,72 @@ local function createRoster(d)
     return r
 end
 
+-- Lays one band out at y (its plates five a row, the gutter's pips; span 2: two tiles each, two a row, for the
+-- requests' Approve / Deny); returns its height.
+function UP.layBand(col, cells, y, organizer, first, span)
+    span = span or 1
+    local per = floor(UP.TILES / span)
+    for j, cell in ipairs(cells) do
+        local row = col.rows[j] or UP.newCell(col)
+        col.rows[j] = row
+        local c, rr = ((j - 1) % per) * span, floor((j - 1) / per)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", col, "TOPLEFT", UP.tileX(c), -rr * (UP.TILE_H + UP.TILE_GAP))
+        row:SetSize(UP.tileX(c + span) - UP.TILE_GAPX - UP.tileX(c), UP.TILE_H)
+        UP.fillCell(row, cell, organizer)
+    end
+    for j = #cells + 1, #col.rows do
+        col.rows[j]:Hide()
+        col.rows[j].cdlCell = nil
+    end
+    UP.fillPips(col, cells)
+    col.none:SetShown(#cells == 0)
+    local rows = ceil(max(1, #cells) / per)
+    local h = max(rows * (UP.TILE_H + UP.TILE_GAP) - UP.TILE_GAP, 22 + col.pipsH)
+    col.rule:SetShown(not first)
+    col:ClearAllPoints()
+    col:SetPoint("TOPLEFT", col:GetParent(), "TOPLEFT", 0, -y)
+    col:SetSize(UP.W, h)
+    col:Show()
+    return h
+end
+
 local function refreshRoster(d, v, width)
     local r = d.roster
     local model = rosterModel(v)
-    local colW = floor((width - 3 * GAP) / 4)
+    local organizer = RP():CanManageRaid(v)
+    UP.W = width
+    local y = 0
+    local bi = 0
+    local function boxBand(m)
+        bi = bi + 1
+        local bx = r.boxes[bi] or UP.newBand(r.content, nil)
+        r.boxes[bi] = bx
+        bx.title:SetText(m.req and colorize("ffd100", m.label) or colorize("a8a8ad", m.label))
+        bx.count:SetText(m.req and colorize("ffd100", m.n) or grey(m.n))
+        bx.wash:SetShown(m.req and true or false)
+        local h = UP.layBand(bx, m.cells, y, organizer, y == 0, m.req and 2 or 1)
+        -- (only the role bands have pips)
+        for _, pip in ipairs(bx.pips) do pip:Hide() end
+        y = y + h + UP.BAND_GAP + (m.req and 6 or 0)
+    end
+    -- requests on top, then the roles, then the players outside them
+    for _, m in ipairs(model.boxes) do if m.req then boxBand(m) end end
     local depth = 0
     for i, col in ipairs(r.cols) do
         local m = model.cols[i]
-        col:ClearAllPoints()
-        -- (the last column takes the rounding, so the right edges line up with the banner's)
-        col:SetPoint("TOPLEFT", r.content, "TOPLEFT", (i - 1) * (colW + GAP), 0)
-        col:SetWidth(i == #r.cols and (width - 3 * (colW + GAP)) or colW)
         UI():SetRoleIcon(col.role, m.role)
         col.title:SetText(m.label)
         col.count:SetText(m.count .. (m.more > 0 and grey(" +" .. m.more) or ""))
-        for j, cell in ipairs(m.cells) do
-            local row = col.rows[j] or newCellRow(col)
-            col.rows[j] = row
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", col, "TOPLEFT", 9, -COL_HEAD_H - 4 - (j - 1) * COL_ROW_H)
-            row:SetPoint("TOPRIGHT", col, "TOPRIGHT", -9, -COL_HEAD_H - 4 - (j - 1) * COL_ROW_H)
-            fillCellRow(row, cell, false)
-        end
-        for j = #m.cells + 1, #col.rows do
-            col.rows[j]:Hide()
-            col.rows[j].cdlCell = nil
-        end
-        col.none:SetShown(#m.cells == 0)
+        local h = UP.layBand(col, m.cells, y, organizer, y == 0)
+        y = y + h + UP.BAND_GAP
         depth = max(depth, #m.cells)
     end
-    local colH = COL_HEAD_H + 4 + max(1, depth) * COL_ROW_H + 8
-    for _, col in ipairs(r.cols) do col:SetHeight(colH) end
-    -- the boxes under the columns, one per kind, the players as chips that wrap
-    local y = colH + GAP
-    for bi, m in ipairs(model.boxes) do
-        local bx = r.boxes[bi]
-        if not bx then
-            bx = CreateFrame("Frame", nil, r.content)
-            panel(bx)
-            bx.label = textOf(bx, "GameFontHighlight", 12)
-            bx.label:SetPoint("TOPLEFT", 10, -9)
-            bx.hint = textOf(bx, "GameFontHighlightSmall", 10)
-            bx.hint:SetTextColor(0.55, 0.55, 0.55)
-            bx.hint:SetPoint("LEFT", bx.label, "RIGHT", 10, 0)
-            bx.rows = {}
-            bx.cells = bx.rows
-            r.boxes[bi] = bx
-        end
-        if m.req then
-            bx.bg:SetColorTexture(0.13, 0.12, 0.08, 0.94)
-            UI():SetEdgeColor(bx, 1, 0.82, 0, 0.55)
-        else
-            bx.bg:SetColorTexture(PANEL_BG[1], PANEL_BG[2], PANEL_BG[3], PANEL_BG[4])
-            UI():SetEdgeColor(bx, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
-        end
-        bx.label:SetText(colorize(m.color, m.label) .. grey(" (" .. m.n .. ")"))
-        bx.hint:SetText(m.hint or "")
-        bx:ClearAllPoints()
-        bx:SetPoint("TOPLEFT", r.content, "TOPLEFT", 0, -y)
-        bx:SetWidth(width)
-        local cx, cy = 10, -30
-        for j, cell in ipairs(m.cells) do
-            local chip = bx.rows[j] or newCellRow(bx, true)
-            bx.rows[j] = chip
-            fillCellRow(chip, cell, true)
-            local w = chip:GetWidth()
-            if cx + w > width - 10 and cx > 10 then
-                cx, cy = 10, cy - (CHIP_H + CHIP_GAP)
-            end
-            chip:ClearAllPoints()
-            chip:SetPoint("TOPLEFT", bx, "TOPLEFT", cx, cy)
-            cx = cx + w + CHIP_GAP
-        end
-        for j = #m.cells + 1, #bx.rows do
-            bx.rows[j]:Hide()
-            bx.rows[j].cdlCell = nil
-        end
-        local h = -cy + CHIP_H + 10
-        bx:SetHeight(h)
-        bx:Show()
-        y = y + h + GAP
-    end
-    for bi = #model.boxes + 1, #r.boxes do r.boxes[bi]:Hide() end
+    for _, m in ipairs(model.boxes) do if not m.req then boxBand(m) end end
+    for i = bi + 1, #r.boxes do r.boxes[i]:Hide() end
     r.content:SetWidth(width)
-    r.content:SetHeight(max(1, y - GAP))
-    -- nobody answered and nobody is waited for: one line instead of four empty columns
+    r.content:SetHeight(max(1, y - UP.BAND_GAP))
+    -- nobody answered and nobody is waited for: one line instead of four empty bands
     local any = depth > 0 or #model.boxes > 0
     for _, col in ipairs(r.cols) do col:SetShown(any) end
     r.empty:SetShown(not any)
@@ -1706,7 +1766,26 @@ local function createRaidGroups(d)
                 PlanUI:RefreshUpcoming()
             end)
         end,
+        -- the Teams look: players as plates, empty seats as wells, the raid comp's open slots waiting in them
+        quiet = true,
+        isMe = isMe,
+        getGhosts = function(byGroup, n)
+            local v = selectedRaid()
+            local open = v and v.t >= Now() - 6 * 3600 and RP():GetRaidOpenSlots(v) or nil
+            if not (open and open.slots and #open.slots > 0) then return nil end
+            return ns.RaidComp:PlaceOpen(byGroup, open.slots, n)
+        end,
+        ghostTooltip = function(seat, slot)
+            local v = selectedRaid()
+            if not v then return end
+            local open = RP():GetRaidOpenSlots(v)
+            seat.cdlCell = { open = true, c = slot.c, sp = slot.sp, name = slot.name, occ = v.id,
+                             team = open and open.teamName }
+            PlanUI:OpenSlotTooltip(seat)
+        end,
         poolLabel = "Not in a group",
+        poolTip = { "Not in a group", "Accepted, but in none of the groups: Invite & sort leaves them out. Drag them "
+            .. "into a group." },
         stripParent = g.buffs,
         stripRoom = function() return g.stripRoom end,
         buffStates = function(placed)
@@ -1887,6 +1966,161 @@ local function layoutMine(d)
     d.mine:SetWidth(max(1, x))
 end
 
+-- One answer of the banner's switch: its word; mine is lit in the answer's colour (b.chosen; b:Paint()).
+function UP.newAnswer(parent, st)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(22)
+    b.st = st
+    b.fill = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.fill:SetAllPoints()
+    UI():AddEdges(b, "BORDER")
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.05)
+    b.fs = textOf(b, "GameFontHighlight", 12)
+    b.fs:SetJustifyH("CENTER")
+    b.fs:SetPoint("CENTER", 0, 0)
+    b.fs:SetText(STATUS[st].button)
+    b:SetWidth(floor((b.fs:GetStringWidth() or 50) + 26 + 0.5))
+    function b:Paint()
+        local r, g, bl = hexRGB(STATUS[self.st].color)
+        local on = self.chosen
+        self.fill:SetShown(on and true or false)
+        if on then
+            self.fill:SetColorTexture(r * 0.45, g * 0.45, bl * 0.45, 0.85)
+            UI():SetEdgeColor(self, r, g, bl, 0.6)
+            self.fs:SetTextColor(min(1, r * 0.5 + 0.55), min(1, g * 0.5 + 0.55), min(1, bl * 0.5 + 0.55))
+        else
+            UI():SetEdgeColor(self, 0, 0, 0, 0)
+            local c = self:IsEnabled() and 0.66 or 0.4
+            self.fs:SetTextColor(c, c, c)
+        end
+    end
+    b:SetScript("OnClick", function(self) PlanUI:Answer(self.st) end)
+    b:SetScript("OnEnter", function(self)
+        if self.chosen and self.since then
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine("Your answer")
+            GameTooltip:AddLine("Since " .. self.since, 1, 1, 1)
+            GameTooltip:Show()
+        end
+    end)
+    b:SetScript("OnLeave", hideTooltip)
+    b:Paint()
+    return b
+end
+
+-- A tab on the banner's foot (the Teams lineup tab's look): the name, a count on the right, a bar along the bottom;
+-- the open one lit with a gold top edge. t:SetActive(on), t:SetCount(have, of).
+function UP.newPageTab(parent, label, key, tip)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetHeight(TABS_H)
+    c.key = key
+    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
+    c.bg:SetAllPoints()
+    c.bg:SetColorTexture(0.125, 0.125, 0.145, 1)
+    c.top = c:CreateTexture(nil, "ARTWORK", nil, 3)
+    c.top:SetPoint("TOPLEFT", 0, 0)
+    c.top:SetPoint("TOPRIGHT", 0, 0)
+    c.top:SetHeight(2)
+    c.top:SetColorTexture(1, 0.82, 0, 1)
+    c.sep = c:CreateTexture(nil, "BORDER")
+    c.sep:SetPoint("TOPRIGHT", 0, 0)
+    c.sep:SetPoint("BOTTOMRIGHT", 0, 0)
+    c.sep:SetWidth(1)
+    c.sep:SetColorTexture(1, 1, 1, 0.06)
+    c.hl = c:CreateTexture(nil, "HIGHLIGHT")
+    c.hl:SetAllPoints()
+    c.hl:SetColorTexture(1, 1, 1, 0.04)
+    c.name = textOf(c, "GameFontHighlight", 13)
+    c.name:SetPoint("LEFT", 14, 0)
+    c.name:SetText(label)
+    c.count = textOf(c, "GameFontHighlight", 12)
+    c.count:SetJustifyH("RIGHT")
+    c.count:SetPoint("RIGHT", -16, 0)
+    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 2)
+    c.fill:SetPoint("BOTTOMLEFT", 0, 0)
+    c.fill:SetHeight(2)
+    c:SetScript("OnClick", function(self)
+        state.detailTab = self.key
+        PlanUI:RefreshUpcoming()
+    end)
+    c:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(label)
+        GameTooltip:AddLine(tip, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    c:SetScript("OnLeave", hideTooltip)
+    function c:SetActive(on)
+        self.active = on and true or false
+        self.bg:SetShown(self.active)
+        self.top:SetShown(self.active)
+        local g = self.active and 1 or 0.66
+        self.name:SetTextColor(g, g, g)
+        self:Paint()
+    end
+    function c:SetCount(have, of)
+        self.have, self.of = have, of
+        self:Paint()
+    end
+    function c:Paint()
+        local have, of = self.have, self.of
+        local full = of and of > 0 and have >= of
+        if have and of then
+            self.count:SetText((full and colorize("8fe39d", have) or (self.active and colorize("ffffff", have)
+                or colorize("bdbdbd", have))) .. colorize("808080", "/" .. of))
+        else
+            self.count:SetText("")
+        end
+        local w = max(UP.TAB_MIN, floor(14 + (self.name:GetStringWidth() or 60) + 24 + (self.count:GetStringWidth() or 30)
+            + 16 + 0.5))
+        self:SetWidth(w)
+        local share = (have and of and of > 0) and min(1, have / of) or 0
+        self.fill:SetShown(share > 0)
+        self.fill:SetWidth(max(1, floor(w * share + 0.5)))
+        if full then self.fill:SetColorTexture(0.56, 0.89, 0.62, self.active and 1 or 0.5)
+        else self.fill:SetColorTexture(1, 0.82, 0, self.active and 1 or 0.35) end
+    end
+    c:SetActive(false)
+    return c
+end
+
+-- What I may do to the raid on the page: { leader, edit, cancel, invite } (the banner's ··· menu; Add players is on the
+-- Sign-ups tab).
+function UP.actions(v)
+    local a = { leader = false, edit = false, cancel = false, invite = false }
+    if not v then return a end
+    local organizer = RP():CanManageRaid(v)
+    a.leader = RP():CanAssignLeader() and true or false
+    a.edit, a.cancel = organizer and true or false, organizer and true or false
+    a.invite = (organizer or RP():CanManageRoster(v)) and true or false
+    return a
+end
+
+function PlanUI:GetRaidActions()
+    return UP.actions(state.selected and RP():GetRaid(state.selected) or nil)
+end
+
+-- The banner's ··· menu: Raid leader, Edit, then cancelling / deleting (cancelMenu's entries).
+function UP.actionsMenu(owner)
+    local v = state.selected and RP():GetRaid(state.selected)
+    if not v then return end
+    local a = UP.actions(v)
+    UI():ContextMenu(owner, function(root)
+        if a.leader then
+            root:CreateButton(UI():AtlasIconText(UI().ICON.crown, 13) .. "  Raid leader", function() PlanUI:OpenLeader(v.id) end)
+        end
+        if a.edit then
+            root:CreateButton(UI():AtlasIconText(16, 13) .. "  Edit", function() PlanUI:OpenEditor(v.id) end)
+        end
+        if a.cancel then
+            if a.leader or a.edit then root:CreateDivider() end
+            cancelMenu(root)
+        end
+    end)
+end
+
 function PlanUI:CreateUpcoming(parent)
     local u = CreateFrame("Frame", nil, parent)
     upcoming = u
@@ -1915,7 +2149,9 @@ function PlanUI:CreateUpcoming(parent)
     board.content:SetSize(700, 10)
     board.scroll:SetScrollChild(board.content)
     board.cards, board.heads = {}, {}
-    board.firstHead = textOf(board, "GameFontNormal", 13)
+    -- (the section headers: small grey capitals, the Teams board's)
+    board.firstHead = textOf(board, "GameFontNormalSmall", 10)
+    board.firstHead:SetTextColor(0.55, 0.55, 0.55)
     board.firstHead:SetPoint("LEFT", board, "TOPLEFT", PAD + 1, -FILTER_ROW / 2)
     board.empty = board:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     board.empty:SetPoint("TOP", 0, -100)
@@ -1937,139 +2173,135 @@ function PlanUI:CreateUpcoming(parent)
     d.empty:SetPoint("TOP", 0, -60)
     d.empty:SetText("Pick a raid.")
 
-    -- the banner: the raid's art; the way back and the raid's actions on top, its facts bottom left (the countdown
-    -- beside the title), my answer bottom right
+    -- the banner (every tab), the Teams banner's look: the raid's loading screen, dark under its facts (left) and my
+    -- answer (right), its foot fading into the tabs
     local hero = CreateFrame("Frame", nil, d)
     hero:SetPoint("TOPLEFT", PAD, 0)
     hero:SetPoint("TOPRIGHT", -PAD, 0)
     hero:SetHeight(HERO_H)
     d.hero = hero
-    hero.art = hero:CreateTexture(nil, "BACKGROUND", nil, 0)
-    hero.art:SetPoint("TOPLEFT", 1, -1)
-    hero.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    hero.shadeB = hero:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hero.shadeB:SetAllPoints(hero.art)
-    gradient(hero.shadeB, "VERTICAL", 0.035, 0.035, 0.043, 0.92, 0)
-    -- (the top row reads on any art)
-    hero.shadeT = hero:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hero.shadeT:SetPoint("TOPLEFT", hero.art)
-    hero.shadeT:SetPoint("TOPRIGHT", hero.art)
-    hero.shadeT:SetHeight(48)
-    gradient(hero.shadeT, "VERTICAL", 0.035, 0.035, 0.043, 0, 0.7)
-    hero.shadeL = hero:CreateTexture(nil, "BACKGROUND", nil, 2)
-    hero.shadeL:SetPoint("TOPLEFT", hero.art)
-    hero.shadeL:SetPoint("BOTTOMLEFT", hero.art)
-    hero.shadeL:SetWidth(460)
-    gradient(hero.shadeL, "HORIZONTAL", 0.035, 0.035, 0.043, 0.7, 0)
-    hero.shadeR = hero:CreateTexture(nil, "BACKGROUND", nil, 2)
-    hero.shadeR:SetPoint("TOPRIGHT", hero.art)
-    hero.shadeR:SetPoint("BOTTOMRIGHT", hero.art)
-    hero.shadeR:SetWidth(360)
-    gradient(hero.shadeR, "HORIZONTAL", 0.035, 0.035, 0.043, 0, 0.6)
-    UI():AddEdges(hero, "BORDER")
-    UI():SetEdgeColor(hero, EDGE[1], EDGE[2], EDGE[3], 0.7)
+    hero.bg = hero:CreateTexture(nil, "BACKGROUND", nil, 1)
+    hero.bg:SetAllPoints()
+    hero.bg:SetColorTexture(UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 1)
+    hero.art = hero:CreateTexture(nil, "BACKGROUND", nil, 2)
+    hero.art:SetAllPoints()
+    hero.art:SetVertexColor(0.85, 0.85, 0.85)
+    hero.fadeL = hero:CreateTexture(nil, "BACKGROUND", nil, 3)
+    hero.fadeL:SetPoint("TOPLEFT", 0, 0)
+    hero.fadeL:SetPoint("BOTTOMLEFT", 0, 0)
+    hero.fadeL:SetWidth(470)
+    gradient(hero.fadeL, "HORIZONTAL", 0.055, 0.055, 0.067, 0.97, 0.3)
+    hero.fadeR = hero:CreateTexture(nil, "BACKGROUND", nil, 3)
+    hero.fadeR:SetPoint("TOPLEFT", hero.fadeL, "TOPRIGHT", 0, 0)
+    hero.fadeR:SetPoint("BOTTOMRIGHT", 0, 0)
+    gradient(hero.fadeR, "HORIZONTAL", 0.055, 0.055, 0.067, 0.3, 0.82)
+    hero.fadeB = hero:CreateTexture(nil, "BACKGROUND", nil, 4)
+    hero.fadeB:SetPoint("BOTTOMLEFT", 0, 0)
+    hero.fadeB:SetPoint("BOTTOMRIGHT", 0, 0)
+    hero.fadeB:SetHeight(44)
+    gradient(hero.fadeB, "VERTICAL", UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 1, 0)
 
-    -- its top row: back to the board; the raid's actions (icons, what each does is in its tooltip)
+    -- its top row: back to the board; the raid's actions in one ··· menu (who may run them)
     d.back = CreateFrame("Button", nil, hero)
-    d.back:SetHeight(22)
-    d.back:SetPoint("TOPLEFT", 10, -8)
+    d.back:SetSize(80, 14)
+    d.back:SetPoint("TOPLEFT", 16, -11)
     d.back.icon = d.back:CreateTexture(nil, "ARTWORK")
-    d.back.icon:SetSize(11, 11)
-    d.back.icon:SetPoint("LEFT", 2, 0)
+    d.back.icon:SetSize(10, 10)
+    d.back.icon:SetPoint("LEFT", 0, 0)
     leftChevron(d.back.icon)
-    d.back.text = textOf(d.back, "GameFontHighlight", 12)
-    d.back.text:SetPoint("LEFT", d.back.icon, "RIGHT", 5, 0)
-    d.back.text:SetText("All raids")
-    d.back:SetWidth(floor(2 + 11 + 5 + (d.back.text:GetStringWidth() or 60) + 6))
+    d.back.text = textOf(d.back, "GameFontNormalSmall", 10)
+    d.back.text:SetPoint("LEFT", d.back.icon, "RIGHT", 4, 0)
+    d.back.text:SetText("ALL RAIDS")
     local function backColor(self, on)
-        if on then self.text:SetTextColor(1, 0.82, 0) else self.text:SetTextColor(0.85, 0.85, 0.85) end
-        if on then self.icon:SetVertexColor(1, 0.82, 0) else self.icon:SetVertexColor(0.85, 0.85, 0.85) end
+        local r, g, b = 0.65, 0.65, 0.65
+        if on then r, g, b = 1, 0.82, 0 end
+        self.text:SetTextColor(r, g, b)
+        self.icon:SetVertexColor(r, g, b)
     end
     backColor(d.back, false)
     d.back:SetScript("OnEnter", function(self) backColor(self, true) end)
     d.back:SetScript("OnLeave", function(self) backColor(self, false) end)
     d.back:SetScript("OnClick", function() PlanUI:ShowBoard() end)
-    local ACT = 22
-    d.cancelBtn = UI():CreateTipIconButton(hero, ACT, 20, "Cancel or delete", "Call the raid off (it stays listed as "
-        .. "cancelled), stop a weekly raid from repeating, or delete it.", function(self)
-        UI():ContextMenu(self, cancelMenu)
-    end)
-    function d.cancelBtn:OpenMenu() UI():ContextMenu(self, cancelMenu) end
-    d.editBtn = UI():CreateTipIconButton(hero, ACT, 16, "Edit raid", "Change the raid's time, size, teams or note.",
-        function()
-            if state.selected then PlanUI:OpenEditor(state.selected) end
-        end)
-    d.inviteBtn = UI():CreateTipIconButton(hero, ACT, 19, "Add players", "Guild members outside the raid's teams (on a "
-        .. "locked raid they are the only ones besides the teams), and guests: players who are not in the guild, "
-        .. "added by name.", function()
-        if state.selected then PlanUI:OpenInvites(state.selected) end
-    end)
-    d.leaderBtn = UI():CreateTipIconButton(hero, ACT, UI().ICON.crown, "Raid leader", "Choose who leads this raid. "
-        .. "They run it with the Guild Master and the raid leaders: edit it, add players, lay out the groups. Its "
-        .. "strategies and assignments are theirs and the Guild Master's alone.", function()
-        if state.selected then PlanUI:OpenLeader(state.selected) end
-    end)
-    -- everyone: a link to this raid (and the tab open on it) for the chat, "sign up here" (UI/Share.lua)
-    d.shareBtn = ns.Share:CreateButton(hero, ACT, function()
-        return state.selected and ns.Share:RaidRef(state.selected, state.detailTab) or nil
-    end, "Share this raid")
+    d.moreBtn = UI():CreateTipIconButton(hero, 22, UI().ICON.more, "Raid actions", "Raid leader, Edit, Cancel or "
+        .. "Delete.", function(self) UP.actionsMenu(self) end)
+    function d.moreBtn:OpenMenu() UP.actionsMenu(self) end
+    d.moreBtn:SetPoint("TOPRIGHT", -10, -9)
 
+    -- the facts, top to bottom: when (the countdown in gold), the name, where / by / for, the raid's note
+    d.kick = textOf(hero, "GameFontNormalSmall", 10)
+    d.kick:SetTextColor(0.72, 0.72, 0.72)
+    d.kick:SetPoint("TOPLEFT", 16, -31)
+    d.title = textOf(hero, "GameFontHighlightLarge", 22)
+    d.title:SetPoint("TOPLEFT", d.kick, "BOTTOMLEFT", 0, -6)
     d.sub2 = textOf(hero, "GameFontHighlightSmall", 11)
     d.sub2:SetTextColor(0.66, 0.66, 0.66)
-    d.sub2:SetPoint("BOTTOMLEFT", 14, 13)
-    d.sub = textOf(hero, "GameFontHighlightSmall", 11)
-    d.sub:SetTextColor(0.86, 0.86, 0.86)
-    d.sub:SetPoint("BOTTOMLEFT", d.sub2, "TOPLEFT", 0, 4)
-    d.title = textOf(hero, "GameFontHighlightLarge", 19)
-    d.title:SetPoint("BOTTOMLEFT", d.sub, "TOPLEFT", 0, 6)
-    d.when = CreateFrame("Frame", nil, hero)
-    d.when:SetHeight(18)
-    d.when:SetPoint("LEFT", d.title, "RIGHT", 12, 1)
-    d.when.bg = d.when:CreateTexture(nil, "BACKGROUND")
-    d.when.bg:SetAllPoints()
-    d.when.bg:SetColorTexture(0.035, 0.035, 0.043, 0.75)
-    UI():AddEdges(d.when)
-    UI():SetEdgeColor(d.when, 1, 0.82, 0, 0.4)
-    d.when.text = textOf(d.when, "GameFontNormalSmall", 11)
-    d.when.text:SetPoint("CENTER", 0, 0)
+    d.sub2:SetPoint("TOPLEFT", d.title, "BOTTOMLEFT", 0, -7)
+    -- the raid's own note (only when it has one): two lines at most, all of it in the tooltip
+    local nl = CreateFrame("Frame", nil, hero)
+    d.noteLine = nl
+    nl:SetPoint("TOPLEFT", d.sub2, "BOTTOMLEFT", 0, -7)
+    nl:SetSize(400, 14)
+    nl.icon = nl:CreateTexture(nil, "ARTWORK")
+    nl.icon:SetSize(11, 11)
+    nl.icon:SetPoint("TOPLEFT", 0, 0)
+    nl.icon:SetTexture(UI().ICON_ATLAS)
+    nl.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.notes)))
+    nl.icon:SetVertexColor(0.62, 0.62, 0.62)
+    nl.fs = nl:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    setSize(nl.fs, 11)
+    nl.fs:SetTextColor(0.6, 0.6, 0.6)
+    nl.fs:SetJustifyH("LEFT")
+    nl.fs:SetPoint("TOPLEFT", nl.icon, "TOPRIGHT", 6, 0)
+    nl.fs:SetWordWrap(true)
+    nl.fs:SetMaxLines(2)
+    nl:EnableMouse(true)
+    nl:SetScript("OnEnter", function(self)
+        if not self.note then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("The raid's note")
+        GameTooltip:AddLine(self.note, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    nl:SetScript("OnLeave", hideTooltip)
 
-    -- my answer: the four answers joined; under them my spec, character and note; above them what a request means.
-    -- Who can't answer sees why instead (and their answer, on a raid that is over).
-    u.statusBtns = {}
-    local prev
-    for i = #STATUS_ORDER, 1, -1 do
-        local st = STATUS_ORDER[i]
-        local b = UI():CreateSleekButton(hero, STATUS[st].button, 72, 24, function() PlanUI:Answer(st) end)
-        if prev then b:SetPoint("RIGHT", prev, "LEFT", 1, 0) else b:SetPoint("BOTTOMRIGHT", -12, 36) end
-        b.st = st
-        b:HookScript("OnEnter", function(self)
-            if self.chosen and self.since then
-                GameTooltip:SetOwner(self, "ANCHOR_TOP")
-                GameTooltip:AddLine("Your answer")
-                GameTooltip:AddLine("Since " .. self.since, 1, 1, 1)
-                GameTooltip:Show()
-            end
-        end)
-        b:HookScript("OnLeave", hideTooltip)
-        u.statusBtns[st] = b
-        prev = b
-    end
-    d.hint = textOf(hero, "GameFontHighlightSmall", 11)
+    -- my answer, on the right: a kicker ("YOUR ANSWER", or what a request means), the four answers as one switch (mine
+    -- lit in its colour), under them my spec, character and note. Who can't answer sees why instead (and their
+    -- answer, on a raid that is over).
+    d.hint = textOf(hero, "GameFontNormalSmall", 10)
     d.hint:SetJustifyH("RIGHT")
-    d.hint:SetPoint("BOTTOMRIGHT", -12, 36 + 24 + 7)
+    d.hint:SetPoint("TOPRIGHT", -16, -40)
+    local seg = CreateFrame("Frame", nil, hero)
+    seg:SetHeight(26)
+    seg:SetPoint("TOPRIGHT", -16, -54)
+    seg.bg = seg:CreateTexture(nil, "BACKGROUND")
+    seg.bg:SetAllPoints()
+    seg.bg:SetColorTexture(0, 0, 0, 0.45)
+    UI():AddEdges(seg, "BORDER")
+    UI():SetEdgeColor(seg, 1, 1, 1, 0.08)
+    d.aseg = seg
+    u.statusBtns = {}
+    local x = 2
+    for _, st in ipairs(STATUS_ORDER) do
+        local b = UP.newAnswer(seg, st)
+        b:SetPoint("LEFT", seg, "LEFT", x, 0)
+        x = x + b:GetWidth()
+        u.statusBtns[st] = b
+    end
+    seg:SetWidth(x + 2)
     d.pill = newPill(hero)
+    d.pill:SetPoint("TOPRIGHT", -16, -57)
     d.reason = textOf(hero, "GameFontHighlight", 12)
     d.reason:SetJustifyH("RIGHT")
 
     local mine = CreateFrame("Frame", nil, hero)
     mine:SetHeight(18)
-    mine:SetPoint("BOTTOMRIGHT", -12, 11)
+    mine:SetPoint("TOPRIGHT", -16, -88)
     d.mine = mine
     d.asLabel = textOf(mine, "GameFontHighlightSmall", 11)
     d.asLabel:SetTextColor(0.62, 0.62, 0.62)
     d.asLabel:SetText("As")
     u.specDD = linkDropdown(mine, { options = mySpecOptions, selected = function() return mySpec(state.selected) end,
-        select = setSpec, title = "Spec", tip = "The spec you come as: it puts you in the right role column." })
+        select = setSpec, title = "Spec", tip = "The spec you come as: it puts you in the right role." })
     d.onLabel = textOf(mine, "GameFontHighlightSmall", 11)
     d.onLabel:SetTextColor(0.62, 0.62, 0.62)
     d.onLabel:SetText("on")
@@ -2141,89 +2373,66 @@ function PlanUI:CreateUpcoming(parent)
         hideTooltip()
     end)
 
-    -- the raid's own note, under the banner (only when it has one)
-    local nl = CreateFrame("Frame", nil, d)
-    d.noteLine = nl
-    nl.icon = nl:CreateTexture(nil, "ARTWORK")
-    nl.icon:SetSize(12, 12)
-    nl.icon:SetPoint("TOPLEFT", 2, -1)
-    nl.icon:SetTexture(UI().ICON_ATLAS)
-    nl.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.notes)))
-    nl.icon:SetVertexColor(1, 0.82, 0, 0.8)
-    nl.fs = nl:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    setSize(nl.fs, 11)
-    nl.fs:SetTextColor(0.85, 0.85, 0.85)
-    nl.fs:SetJustifyH("LEFT")
-    nl.fs:SetPoint("TOPLEFT", nl.icon, "TOPRIGHT", 6, 0)
-    nl.fs:SetWordWrap(true)
-    nl.fs:SetMaxLines(2)
-
-    -- Sign-ups / Groups / Assignments (Addendum K: the raid's strategy boards, who does what on each boss); the open
-    -- tab's context on the right of the same row (the counts, or the Groups actions)
+    -- Sign-ups / Groups / Assignments (Addendum K: the raid's strategy boards, who does what on each boss) as tabs on
+    -- the banner's foot, like a team's lineups: the name, how far along it is, a bar along the bottom
     local tabs = CreateFrame("Frame", nil, d)
     tabs:SetHeight(TABS_H)
+    tabs:SetPoint("TOPLEFT", PAD, -HERO_H)
+    tabs:SetPoint("TOPRIGHT", -PAD, -HERO_H)
+    tabs.bg = tabs:CreateTexture(nil, "BACKGROUND")
+    tabs.bg:SetAllPoints()
+    tabs.bg:SetColorTexture(UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 1)
+    tabs.rule = tabs:CreateTexture(nil, "BORDER")
+    tabs.rule:SetPoint("BOTTOMLEFT", 0, 0)
+    tabs.rule:SetPoint("BOTTOMRIGHT", 0, 0)
+    tabs.rule:SetHeight(1)
+    tabs.rule:SetColorTexture(1, 1, 1, 0.08)
     d.tabs = tabs
-    local function tab(label, key)
-        local b = UI():CreateUnderlineTab(tabs, label, function()
-            state.detailTab = key
-            PlanUI:RefreshUpcoming()
-        end, "small")
-        b.key = key
-        return b
-    end
-    d.tabSignups = tab("Sign-ups", "signups")
-    d.tabSignups:SetPoint("BOTTOMLEFT", -4, 0)
-    d.tabGroups = tab("Groups", "groups")
-    d.tabGroups:SetPoint("LEFT", d.tabSignups, "RIGHT", 4, 0)
-    d.tabAssign = tab("Assignments", "assign")
-    d.tabAssign:SetPoint("LEFT", d.tabGroups, "RIGHT", 4, 0)
-    d.tabLine = tabs:CreateTexture(nil, "BORDER")
-    d.tabLine:SetPoint("BOTTOMLEFT", 0, 0)
-    d.tabLine:SetPoint("BOTTOMRIGHT", 0, 0)
-    d.tabLine:SetHeight(1)
-    d.tabLine:SetColorTexture(1, 1, 1, 0.1)
-    d.counts = textOf(tabs, "GameFontHighlightSmall", 11)
-    d.counts:SetJustifyH("RIGHT")
-    d.counts:SetPoint("BOTTOMRIGHT", 0, 5)
+    d.tabSignups = UP.newPageTab(tabs, "Sign-ups", "signups", "Who answered, by role.")
+    d.tabGroups = UP.newPageTab(tabs, "Groups", "groups", "Who goes in which group: who accepted, placed.")
+    d.tabAssign = UP.newPageTab(tabs, "Assignments", "assign", "Each boss's strategy and who does what on it: the "
+        .. "bosses whose slots are all filled.")
+
+    -- the open tab's tool row (Sign-ups: the counts, Add players; Groups and Assignments have their own)
+    local bar = CreateFrame("Frame", nil, d)
+    bar:SetHeight(UP.TB_H)
+    bar:SetPoint("TOPLEFT", PAD, -UP.TB_Y)
+    bar:SetPoint("TOPRIGHT", -PAD, -UP.TB_Y)
+    d.rosterBar = bar
+    d.counts = textOf(bar, "GameFontHighlightSmall", 11)
+    d.counts:SetTextColor(0.55, 0.55, 0.55)
+    d.counts:SetPoint("LEFT", 0, 0)
+    d.inviteBtn = UI():CreateSleekButton(bar, UI():AtlasIconText(19, 13) .. "  Add players", 110, 22, function()
+        if state.selected then PlanUI:OpenInvites(state.selected) end
+    end)
+    d.inviteBtn:SetPoint("RIGHT", 0, 0)
+    tipButton(d.inviteBtn, "Add players", "Guild members outside the raid's teams (on a locked raid they are the only "
+        .. "ones besides the teams), and guests: players who are not in the guild, added by name.")
 
     createRoster(d)
     createRaidGroups(d)
     d.assign = ns.StrategiesUI:CreateRaidAssignments(d)
-    -- its hint is the tab's context, on the right of the tab row
-    d.assign.hint:ClearAllPoints()
-    d.assign.hint:SetPoint("BOTTOMRIGHT", d.tabs, "BOTTOMRIGHT", 0, 5)
-    d.assign.hint:SetJustifyH("RIGHT")
     return u
 end
 
--- The page's parts top to bottom: the crumb, the banner (the same on every tab), the raid's note when it has one,
--- the tab row, the open tab.
-local function layoutPage(d, noteH)
-    local top = HERO_H + 10
-    d.noteLine:ClearAllPoints()
-    if noteH > 0 then
-        d.noteLine:SetPoint("TOPLEFT", PAD, -top)
-        d.noteLine:SetPoint("TOPRIGHT", -PAD, -top)
-        d.noteLine:SetHeight(noteH)
-        top = top + noteH + 8
-    end
-    d.noteLine:SetShown(noteH > 0)
-    d.tabs:ClearAllPoints()
-    d.tabs:SetPoint("TOPLEFT", PAD, -top)
-    d.tabs:SetPoint("TOPRIGHT", -PAD, -top)
-    top = top + TABS_H + 10
-    for _, f in ipairs({ d.roster.frame, d.groups, d.assign }) do
+-- The page's parts top to bottom: the banner and its tabs (the same on every tab), the open tab's tool row, the open
+-- tab (Groups and Assignments draw their own tool row at their top).
+local function layoutPage(d)
+    d.roster.frame:ClearAllPoints()
+    d.roster.frame:SetPoint("TOPLEFT", PAD, -UP.BODY_Y)
+    d.roster.frame:SetPoint("BOTTOMRIGHT", -PAD, 4)
+    for _, f in ipairs({ d.groups, d.assign }) do
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", PAD, -top)
+        f:SetPoint("TOPLEFT", PAD, -UP.TB_Y)
         f:SetPoint("BOTTOMRIGHT", -PAD, 4)
     end
 end
 
--- The title in the room left of the answers: 19, else 17, else 15 (wrapping to two lines at worst), never cut.
+-- The title in the room left of the answers: 22, else 19, else 16 (wrapping to two lines at worst), never cut.
 local function fitTitle(fs, text, room)
     fs:SetWordWrap(false)
     fs:SetWidth(0)
-    for _, size in ipairs({ 19, 17, 15 }) do
+    for _, size in ipairs({ 22, 19, 16 }) do
         setSize(fs, size)
         fs:SetText(text)
         if (fs:GetStringWidth() or 0) <= room then return end
@@ -2246,20 +2455,15 @@ local function refreshAnswer(d, v)
     local request = canAsk and RP():GetMyRequest(v.id)
     local canAnswer = open and (block == nil or canAsk)
     if request and not mine then mine = request end
-    local level = d.hero:GetFrameLevel()
+    d.aseg:SetShown(canAnswer)
     for st, bt in pairs(upcoming.statusBtns) do
         bt:SetShown(canAnswer)
         bt:SetEnabled(canAnswer)
-        -- my saved answer is the lit one (raised, so its coloured edge shows over the shared ones)
         bt.chosen = (mine and mine.st == st) and true or false
         bt.since = bt.chosen and (mine.rev or mine.at) and shortDay(mine.rev or mine.at) or nil
-        if bt.chosen then bt:SetTint(hexRGB(STATUS[st].color)) else bt:SetTint(nil) end
-        bt:SetFrameLevel(level + (bt.chosen and 3 or 2))
+        bt:Paint()
     end
     d.mine:SetShown(canAnswer)
-    d.hint:SetText((canAnswer and request and colorize("ffd100", "Request sent: a raid leader will approve it. "
-            .. "Absent withdraws it."))
-        or (canAnswer and canAsk and colorize("ffd100", "Locked to its teams: pick an answer to ask to join.")) or "")
     -- can't answer: why, and on a raid that is over or closed to me, the answer I had
     local why
     if not canAnswer then
@@ -2272,18 +2476,23 @@ local function refreshAnswer(d, v)
         end
     end
     local had = not canAnswer and mine and STATUS[mine.st]
+    -- the kicker: what a request means, else "YOUR ANSWER" over the answers or the answer I had
+    local hint = (canAnswer and request and colorize("ffd100", "REQUEST SENT: A RAID LEADER APPROVES IT"))
+        or (canAnswer and canAsk and colorize("ffd100", "LOCKED TO ITS TEAMS: ANSWER TO ASK TO JOIN"))
+        or ((canAnswer or had) and "YOUR ANSWER") or ""
+    d.hint:SetText(hint)
+    d.hint:SetTextColor(0.72, 0.72, 0.72)
     d.pill:SetPillShown(had and true or false)
     if had then
         local kind = (request and not RP():GetMySignup(v.id)) and "R" or mine.st
-        d.pill:Set(kind, PILL_TEXT[kind], nil, PILL_ICON[kind])
-        d.pill:ClearAllPoints()
-        d.pill:SetPoint("BOTTOMRIGHT", d.hero, "BOTTOMRIGHT", -12, 37)
+        local spec = kind ~= "R" and specLabelOf(mine)
+        d.pill:Set(kind, PILL_TEXT[kind] .. (spec and ("  ·  " .. spec) or ""))
         d.pill:SetScript("OnClick", nil)
     end
     d.reason:SetText(why or "")
     d.reason:SetShown(why ~= nil)
     d.reason:ClearAllPoints()
-    d.reason:SetPoint("BOTTOMRIGHT", d.hero, "BOTTOMRIGHT", -12, had and 14 or 41)
+    d.reason:SetPoint("TOPRIGHT", d.hero, "TOPRIGHT", -16, had and -88 or -60)
     if not canAnswer then return end
 
     -- under the answers, right to left: note, character (when I have more than one), spec
@@ -2302,68 +2511,91 @@ local function refreshAnswer(d, v)
     layoutMine(d)
 end
 
+-- The tabs' counts (accepted of the raid's size; placed of who accepted; bosses whose slots are all filled) and
+-- places, left to right.
+function UP.layoutTabs(d, v)
+    local c = counts(v.id)
+    d.tabSignups:SetCount(c.A, v.sz or 0)
+    local dr = raidDraft(v)
+    local placed, total = 0, 0
+    for _, m in ipairs(raidMembers()) do
+        total = total + 1
+        if dr.grp[m.key] then placed = placed + 1 end
+    end
+    if total > 0 then d.tabGroups:SetCount(placed, total) else d.tabGroups:SetCount(nil, nil) end
+    local sum = ns.StrategiesUI.RaidSummary and ns.StrategiesUI:RaidSummary(v)
+    if sum and sum.bosses > 0 then d.tabAssign:SetCount(sum.ready, sum.bosses) else d.tabAssign:SetCount(nil, nil) end
+    local x = 0
+    for _, t in ipairs({ d.tabSignups, d.tabGroups, d.tabAssign }) do
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", d.tabs, "TOPLEFT", x, 0)
+        x = x + t:GetWidth()
+    end
+end
+
+-- Sign-ups' tool row: what the bands don't add up at a glance ("18 accepted · 1 tentative · 4 absent · 2 to answer").
+function UP.countsText(v)
+    local c = counts(v.id)
+    local function n(x) return colorize("e8e8e8", x) end
+    local parts = { n(c.A) .. " accepted" }
+    if c.T > 0 then parts[#parts + 1] = n(c.T) .. " tentative" end
+    if c.B > 0 then parts[#parts + 1] = n(c.B) .. " on the bench" end
+    if c.X > 0 then parts[#parts + 1] = n(c.X) .. " absent" end
+    local waiting = #noResponse(v, RP():GetSignups(v.id))
+    if waiting > 0 then parts[#parts + 1] = n(waiting) .. " to answer" end
+    if c.guests > 0 then parts[#parts + 1] = n(c.guests) .. (c.guests == 1 and " guest" or " guests") end
+    return tconcat(parts, "   ·   ")
+end
+
 local function refreshDetail(v)
     local d = upcoming.detail
     local has = v ~= nil
     local tab = (state.detailTab == "groups" or state.detailTab == "assign") and state.detailTab or "signups"
-    for _, region in ipairs({ d.hero, d.tabs, d.back }) do region:SetShown(has) end
+    for _, region in ipairs({ d.hero, d.tabs }) do region:SetShown(has) end
     d.empty:SetShown(not has)
+    d.rosterBar:SetShown(has and tab == "signups")
     d.roster.frame:SetShown(has and tab == "signups")
     d.groups:SetShown(has and tab == "groups")
     d.assign:SetShown(has and tab == "assign")
-    d.counts:SetShown(has and tab == "signups")
     d.tabSignups:SetActive(tab == "signups")
     d.tabGroups:SetActive(tab == "groups")
     d.tabAssign:SetActive(tab == "assign")
-    -- who runs this raid: the raid planners (GM, raid leaders) and the raid's own leader
-    local organizer = has and RP():CanManageRaid(v)
-    d.editBtn:SetShown(organizer)
-    d.cancelBtn:SetShown(organizer)
-    d.inviteBtn:SetShown(organizer or (has and RP():CanManageRoster(v)))
-    d.leaderBtn:SetShown(has and RP():CanAssignLeader())
-    d.shareBtn:SetShown(has)
-    -- the shown icons sit right to left without gaps (Share at the far right for everyone)
-    local prev = nil
-    for _, b in ipairs({ d.shareBtn, d.cancelBtn, d.editBtn, d.inviteBtn, d.leaderBtn }) do
-        if b:IsShown() then
-            b:ClearAllPoints()
-            if prev then b:SetPoint("RIGHT", prev, "LEFT", -4, 0) else b:SetPoint("TOPRIGHT", d.hero, "TOPRIGHT", -10, -8) end
-            prev = b
-        end
-    end
-    if not has then
-        d.noteLine:Hide()
-        return
-    end
+    -- who runs this raid (the raid planners: GM, raid leaders; and the raid's own leader): the ··· menu, Add players
+    local a = UP.actions(v)
+    d.moreBtn:SetShown(a.leader or a.edit or a.cancel)
+    d.inviteBtn:SetShown(a.invite)
+    if not has then return end
 
     local width = (d:GetWidth() or 0) - 2 * PAD
     if width < 300 then width = 770 end
-    local file, l, r, t, b = artCoords(v.i, width, HERO_H, 0.98)
+    UP.W = width
+    local file, l, r, t, b = artCoords(v.i, width, HERO_H, 0.95)
     d.hero.art:SetTexture(file)
     d.hero.art:SetTexCoord(l, r, t, b)
     d.hero.art:SetDesaturated(v.cancelled and true or false)
-    d.when.text:SetText(v.cancelled and "cancelled" or relDay(v.t))
-    d.when:SetWidth((d.when.text:GetStringWidth() or 40) + 18)
-    fitTitle(d.title, RP():GetRaidName(v) .. (v.cancelled and "  |cffff5555CANCELLED|r" or ""),
-        width - 28 - 4 * 72 - 24 - d.when:GetWidth() - 12)
+    d.hero.fadeL:SetWidth(floor(width * 0.62))
+    d.kick:SetText(UP.kicker(v))
+    fitTitle(d.title, RP():GetRaidName(v), width - 16 - UP.ANS_W)
+    -- where, how many; who leads it (or made it); who it is for
     local names = instNames(v)
-    d.sub:SetText(("%s · %s · %s%d-player"):format(date("%A ", v.t) .. tonumber(date("%d", v.t)) .. date(" %B", v.t),
-        fmtTime(v.t), names and (names .. " · ") or "", v.sz or 0))
-    local who = {}
-    if v.rl then who[#who + 1] = colored(v.rl) .. " leads" elseif v.by then who[#who + 1] = "by " .. shortName(v.by) end
-    who[#who + 1] = teamNames(v, false, 2)
-    if v.weekly then who[#who + 1] = "every week" end
-    d.sub2:SetText(tconcat(who, " · "))
-    refreshAnswer(d, v)
-
-    -- the raid's note (two lines at most), then the tabs
-    local noteH = 0
-    if v.no and v.no ~= "" then
-        d.noteLine.fs:SetWidth(width - 20)
-        d.noteLine.fs:SetText(v.no)
-        noteH = max(14, floor((d.noteLine.fs:GetStringHeight() or 13) + 1.5))
+    local inst = RP():GetInstance(v.i)
+    local parts = { (names or (inst and inst.name) or "Raid") .. " · " .. (v.sz or 0) .. "-player" }
+    if v.rl then parts[#parts + 1] = colored(v.rl) .. " leads" elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
+    parts[#parts + 1] = teamNames(v, false, 2)
+    if v.weekly then parts[#parts + 1] = "every week" end
+    d.sub2:SetText(tconcat(parts, "   ·   "))
+    local nl = d.noteLine
+    nl.note = (v.no and v.no ~= "") and v.no or nil
+    nl:SetShown(nl.note ~= nil)
+    if nl.note then
+        local w = width - 16 - UP.ANS_W - 10
+        nl.fs:SetWidth(w - 17)
+        nl.fs:SetText(nl.note)
+        nl:SetSize(w, max(14, floor((nl.fs:GetStringHeight() or 13) + 1.5)))
     end
-    layoutPage(d, noteH)
+    refreshAnswer(d, v)
+    UP.layoutTabs(d, v)
+    layoutPage(d)
 
     if tab == "groups" then
         refreshGroups(v)
@@ -2372,13 +2604,7 @@ local function refreshDetail(v)
         ns.StrategiesUI:RefreshRaid(v)
         return
     end
-    local c = counts(v.id)
-    -- only what the columns don't show at a glance: how full it is, the guests, the maybes
-    local accepted = ("%d/%d accepted"):format(c.A, v.sz or 0)
-    local parts = { c.A > 0 and colorize(STATUS.A.color, accepted) or grey(accepted) }
-    if c.guests > 0 then parts[#parts + 1] = c.guests .. (c.guests == 1 and " guest" or " guests") end
-    if c.T > 0 then parts[#parts + 1] = c.T .. " tentative" end
-    d.counts:SetText(tconcat(parts, grey(" · ")))
+    d.counts:SetText(UP.countsText(v))
     refreshRoster(d, v, width)
 end
 
@@ -2393,12 +2619,13 @@ local function refreshBoard(rows)
     for _, d in ipairs(rows) do
         if d.header then
             if ci == 0 and hi == 0 then
-                board.firstHead:SetText(d.header)
+                board.firstHead:SetText(d.header:upper())
             else
                 hi = hi + 1
-                local h = board.heads[hi] or textOf(board.content, "GameFontNormal", 13)
+                local h = board.heads[hi] or textOf(board.content, "GameFontNormalSmall", 10)
+                h:SetTextColor(0.55, 0.55, 0.55)
                 board.heads[hi] = h
-                h:SetText(d.header)
+                h:SetText(d.header:upper())
                 h:ClearAllPoints()
                 h:SetPoint("TOPLEFT", board.content, "TOPLEFT", 1, -y - 8)
                 h:Show()

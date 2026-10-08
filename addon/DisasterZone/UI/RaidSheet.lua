@@ -1211,7 +1211,7 @@ function S.refresh()
     sh.pick:ClearAllPoints()
     sh.pick:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD, -(y + 6))
     sh.previewW = inner
-    y = y + 84 + 14
+    y = y + PlanUI:RaidCardHeight() + 14
     local series = sh.occ and sh.series
     sh.saveAllBtn:SetShown(series and true or false)
     sh.weeklyInfo:SetShown(series and true or false)

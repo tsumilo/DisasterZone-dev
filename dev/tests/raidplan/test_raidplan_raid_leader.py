@@ -243,8 +243,9 @@ def the_raid_leader_window_and_header():
         w.tick(0.3)
         cl.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
         w.tick(0.3)
-        shown = cl.eval_py("local d = %s; return { edit = d.editBtn:IsShown(), cancel = d.cancelBtn:IsShown(), "
-                           "invite = d.inviteBtn:IsShown(), leader = d.leaderBtn:IsShown(), sub = d.sub2:GetText() }" % D)
+        shown = cl.eval_py("local d = %s; local a = ns.RaidPlanUI:GetRaidActions(); return { edit = a.edit, "
+                           "cancel = a.cancel, invite = d.inviteBtn:IsShown(), leader = a.leader, "
+                           "more = d.moreBtn:IsShown(), sub = d.sub2:GetText() }" % D)
         shown["sub"] = strip_codes(shown["sub"])
         return shown
 
@@ -254,8 +255,9 @@ def the_raid_leader_window_and_header():
     assert "by Lee" in h["sub"] and "leads" not in h["sub"], h
     h = header(lee)
     assert h["edit"] and h["cancel"] and h["invite"] and h["leader"], h
-    # Lee opens the window from the crown, picks Sam, saves
-    lee.click(lee.eval("return %s.leaderBtn" % D))
+    # Lee opens the window from the ··· menu's Raid leader, picks Sam, saves
+    entries = [e["text"] for e in lee.dropdown_menu(lee.eval("return %s.moreBtn" % D))["children"] if e.get("text")]
+    lee.menu_select([t for t in entries if "Raid leader" in t][0])
     w.tick(0.2)
     assert lee.eval("return %s:IsShown()" % LW)
     assert "No raid leader" in strip_codes(lee.eval("return %s.pickText:GetText()" % LW))
@@ -277,8 +279,8 @@ def the_raid_leader_window_and_header():
     assert h["edit"] and h["cancel"] and h["invite"] and not h["leader"], h
     h = header(bob)
     assert not h["edit"] and not h["cancel"] and not h["leader"], h
-    # the icons sit in the banner's top row, the title below them (it never runs under them)
-    assert sam.eval("local d = %s; return d.shareBtn:GetParent() == d.hero and d.editBtn:GetParent() == d.hero" % D) is True
+    # the ··· menu sits in the banner's top row (sharing the raid is the navigation strip's Share icon)
+    assert sam.eval("local d = %s; return d.moreBtn:GetParent() == d.hero and d.moreBtn:IsShown()" % D) is True
     # Sam opens the editor; the council is told why not
     sam.eval("ns.RaidPlanUI:OpenEditor(...)", occ)
     assert sam.eval("return ns.RaidPlanUI:GetEditor():IsShown()")

@@ -174,7 +174,8 @@ def raid_leader_fills_and_raiders_see_their_jobs():
     w.tick(0.5)
     rita.eval("ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab('assign')", occ)
     w.tick(0.3)
-    assert rita.find_text("0/10 filled", True, True)
+    assert any(strip_codes(rita.eval("local o = ...; return o:GetText()", o) or "") == "0/10"
+               for o in rita.find_text("0", True, True))
     assert rita.find_text("The Illidari Council", True, True)
     # the raid leader assigns
     bob.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS, "fill")
@@ -206,7 +207,8 @@ def raid_leader_fills_and_raiders_see_their_jobs():
     assert f["s"] == sid and f["a"]["zn.1.1"] == K("Hana") and len(f["a"]) == 5, f
     # the member's tab counts it
     rita.eval("ns.RaidPlanUI:RefreshUpcoming()")
-    assert rita.find_text("5/10 filled", True, True)
+    assert any(strip_codes(rita.eval("local o = ...; return o:GetText()", o) or "") == "5/10"
+               for o in rita.find_text("5", True, True))
     # Hana opens the board: her jobs as chips in the dock (a misdirect, the first zone), and the slot token shows the
     # tank's name
     hana.eval("ns.StrategyBoard:OpenRaid(...)", occ, BOSS)

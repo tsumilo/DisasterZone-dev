@@ -139,7 +139,7 @@ def groups_tab_edit_save_and_read_only_for_members():
     signup(c["Sam"], occ, "A", 2)
     w.tick(2)
     assert "Sam" not in sum(grid_groups(bob), [])        # both groups full: Sam waits in the pool
-    assert bob.find_text("Not in a group (1)", True, True)
+    assert bob.find_text("NOT IN A GROUP", True, True)
     # swap Sam with War, save
     bob.eval("ns.RaidPlanUI:GetRaidGrid():Drop(..., 1, select(2, ...))", K("Sam"), K("War"))
     w.tick(0.3)
@@ -284,13 +284,18 @@ def whole_groups_swap_in_the_raid_and_the_team_and_resort_follows():
     assert planned_ok(w, occ, bob) == {}
     before = grid_groups(bob)
     grid = "ns.RaidPlanUI:GetRaidGrid()"
-    # click "swap" on group 1, cancel, then swap group 1 with group 2 (click on group 2's box)
-    bob.click(bob.eval("return %s.boxes[1].swap" % grid))
-    assert bob.eval("return %s.boxes[1].swap.fs:GetText()" % grid).endswith("cancel|r")
-    bob.click(bob.eval("return %s.boxes[1].swap" % grid))
+    # group 1's title dragged onto group 2 swaps them (a click on it does nothing: no picked state)
+    title = bob.eval("return %s.boxes[1].swap" % grid)
+    bob.click(title)
     assert bob.eval("return %s.swapFrom" % grid) is None
-    bob.click(bob.eval("return %s.boxes[1].swap" % grid))
-    bob.click(bob.eval("return %s.boxes[2]" % grid))
+    target = bob.eval("return %s.boxes[2]" % grid)
+    bob.eval("_G.IsMouseButtonDown = function() return true end")
+    bob.eval("local s = ...; s:GetScript('OnDragStart')(s)", title)
+    bob.eval("local f = ...; f.IsMouseOver = function() return true end", target)
+    w.tick(0.2)
+    bob.eval("local s = ...; s:GetScript('OnDragStop')(s)", title)
+    bob.eval("local f = ...; f.IsMouseOver = nil", target)
+    bob.eval("_G.IsMouseButtonDown = function() return false end")
     w.tick(0.3)
     after = grid_groups(bob)
     assert after[0] == before[1] and after[1] == before[0], (before, after)
@@ -300,9 +305,9 @@ def whole_groups_swap_in_the_raid_and_the_team_and_resort_follows():
     w.tick(15)
     assert w.subgroup_of("Tank") == 2 and w.subgroup_of("Moon") == 1, (w.subgroup_of("Tank"), w.subgroup_of("Moon"))
     assert planned_ok(w, occ, bob) == {}
-    # members don't get the swap link
+    # members can't move anyone (a group's title is only its title for them)
     open_groups(w, pip, occ)
-    assert not pip.eval("return %s.boxes[1].swap:IsShown()" % grid)
+    assert pip.eval("return %s.opts.isEditable()" % grid) is False
     # the Teams view swaps the same way
     bob.eval("ns.RaidsUI:SetView('teams'); ns.RaidPlanUI:SelectTeam(ns.RaidPlan:GetTeams()[1].id)")
     w.tick(0.3)

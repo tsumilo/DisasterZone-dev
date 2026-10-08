@@ -225,19 +225,19 @@ def the_assignments_tab_picks_from_the_row():
         return cl.eval_py("local ref, found = ...; %s.box:ForEachFrame(function(row) local d = row.__cdlData; "
                           "if d and d.ref == ref then found = { l1 = row.l1:GetText(), l2 = row.l2:GetText(), stat = row.stat:GetText(), "
                           "pick = row.pick:IsShown(), pickText = row.pick:GetText(), assign = row.assign:IsShown(), "
-                          "pickW = row.pick:GetWidth() } "
+                          "pickW = row.pick:GetWidth(), warn = row.pick.warn } "
                           "end end); return found" % ROWS, BOSS)
 
     # the leader: a dropdown with the strategy in use, "not picked yet" while it is the default
     r = council_row(sam)
     assert r["pick"] and r["assign"] and r["pickText"] == "A plan", r
-    assert strip_codes(r["l2"]) == "not picked yet" and strip_codes(r["stat"]) == "0/10 filled", r
-    assert 110 <= r["pickW"] <= 230, r
+    assert r.get("warn") == "not picked yet" and strip_codes(r["stat"]) == "0/10", r
+    assert 30 <= r["pickW"] <= 200, r
     # a raid leader on the list who doesn't lead it, and the guild council: the name as text, no dropdown, no Assign
     for x in (lee, bob):
         r = council_row(x)
         assert not r["pick"] and not r["assign"] and strip_codes(r["l2"]) == "A plan", (x.name, r)
-        assert strip_codes(r["stat"]) == "0/10 filled" and r["l1"] == "The Illidari Council", (x.name, r)
+        assert strip_codes(r["stat"]) == "0/10" and r["l1"] == "The Illidari Council", (x.name, r)
     # the leader opens the dropdown: both strategies, who made them, how big
     sam.eval("local ref = ...; %s.box:ForEachFrame(function(row) local d = row.__cdlData; if d and d.ref == ref then "
              "row.pick:OpenMenu() end end)" % ROWS, BOSS)
@@ -249,7 +249,7 @@ def the_assignments_tab_picks_from_the_row():
     w.tick(2)
     assert get_fill(lee, occ, BOSS)["s"] == b
     r = council_row(sam)
-    assert r["pickText"] == "B plan" and strip_codes(r["l2"]) == "", r
+    assert r["pickText"] == "B plan" and r.get("warn") is None, r
     # the council's row follows
     r = council_row(bob)
     assert strip_codes(r["l2"]) == "B plan", r

@@ -35,12 +35,12 @@ P = "ns.RaidsUI:GetPanel()"
 
 
 def has_line(cl, label, count):
-    """A roster line "<label> (<n>): names" (the label is colour-coded)."""
-    for o in cl.find_text(label, True, True):
-        t = strip_codes(cl.eval("local o = ...; return o:GetText()", o) or "")
-        if label in t and count in t:
-            return True
-    return False
+    """A Sign-ups band "<label>" with <count> in its gutter (count given as "(n)")."""
+    n = count.strip("()")
+    bands = cl.eval_py("local out = {}; ns.RaidsUI:GetPanel().upcoming.detail.roster.box:ForEachFrame(function(b) "
+                       "out[#out + 1] = { b.title:GetText() or '', b.count:GetText() or '' } end); return out") or []
+    bands = bands.values() if isinstance(bands, dict) else bands
+    return any(strip_codes(t) == label and strip_codes(c) == n for t, c in bands)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -84,7 +84,7 @@ def member_sees_upcoming_and_answers_from_the_strip():
     assert bob.find_text("Tanks", True, True) and bob.find_text("Ranged", True, True)
     assert bob.find_text("Lee", True, True) and bob.find_text("Rita", True, True)
     assert has_line(bob, "Absent", "(1)")
-    assert bob.find_text("2/10 accepted", True, True)
+    assert "2 accepted" in strip_codes(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.counts:GetText()") or "")
     assert shown(bob, P + ".logBtn") and shown(bob, P + ".newRaidBtn")
     w.assert_no_errors()
 
@@ -107,7 +107,7 @@ def no_response_line_lists_invited_members_without_an_answer():
     open_tab(w, bob)
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.3)
-    assert has_line(bob, "No response", "(2)")
+    assert has_line(bob, "To answer", "(2)")
     assert has_line(bob, "Bench", "(1)")
     w.assert_no_errors()
 
@@ -172,8 +172,9 @@ def cancel_menu_cancels_restores_and_deletes_weekly():
     open_tab(w, bob)
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.3)
-    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn")
-    entries = [e["text"] for e in bob.dropdown_menu(btn)["children"] if e.get("text")]
+    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.moreBtn")
+    # (the ··· menu: Raid leader and Edit with their icons, then cancelling and deleting)
+    entries = [e["text"] for e in bob.dropdown_menu(btn)["children"] if e.get("text") and "|T" not in e["text"]]
     assert entries == ["Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
                        "Delete the whole weekly raid..."], entries
     bob.menu_select("Cancel this week's raid")
@@ -385,7 +386,7 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     open_tab(w, bob)
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", one)
     w.tick(0.3)
-    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn")   # Delete is in its menu
+    btn = bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.moreBtn")   # Delete is in its menu
     # declining the dialog keeps it
     bob.click(btn)
     bob.menu_select("Delete raid...")
@@ -416,7 +417,7 @@ def delete_removes_a_raid_for_everyone_after_confirming():
     open_tab(w, rita)
     rita.eval("ns.RaidPlanUI:SelectRaid(...)", sid + "#1")
     w.tick(0.3)
-    assert not rita.eval("return ns.RaidsUI:GetPanel().upcoming.detail.cancelBtn:IsShown()")
+    assert not rita.eval("return ns.RaidsUI:GetPanel().upcoming.detail.moreBtn:IsShown()")
     c["Lee"].logout()
     w.tick(1)
     bob.eval("ns.RaidPlan:DeleteRaid(..., 'series')", sid + "#1")

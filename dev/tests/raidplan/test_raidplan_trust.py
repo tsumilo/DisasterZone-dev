@@ -249,8 +249,8 @@ def a_weeks_own_leader_edits_and_cancels_that_week_but_does_not_delete_it():
     w.tick(0.5)
     vic.eval("ns.RaidPlanUI:SelectRaid(...)", occ1)
     w.tick(0.3)
-    btn = vic.eval("return %s.upcoming.detail.cancelBtn" % P)
-    entries = [e["text"] for e in vic.dropdown_menu(btn)["children"] if e.get("text")]
+    btn = vic.eval("return %s.upcoming.detail.moreBtn" % P)
+    entries = [e["text"] for e in vic.dropdown_menu(btn)["children"] if e.get("text") and "|T" not in e["text"]]
     assert entries == ["Cancel this week's raid"], entries
     vic.eval("ns.RaidPlanUI:OpenEditor(...)", occ1)
     assert vic.eval("return ns.RaidPlanUI:GetEditor():IsShown()")
@@ -265,8 +265,8 @@ def a_weeks_own_leader_edits_and_cancels_that_week_but_does_not_delete_it():
     w.tick(0.5)
     sam.eval("ns.RaidPlanUI:SelectRaid(...)", occ0)
     w.tick(0.3)
-    btn = sam.eval("return %s.upcoming.detail.cancelBtn" % P)
-    entries = [e["text"] for e in sam.dropdown_menu(btn)["children"] if e.get("text")]
+    btn = sam.eval("return %s.upcoming.detail.moreBtn" % P)
+    entries = [e["text"] for e in sam.dropdown_menu(btn)["children"] if e.get("text") and "|T" not in e["text"]]
     assert entries == ["Cancel this week's raid", "Stop repeating after this raid", "Delete this week's raid...",
                        "Delete the whole weekly raid..."], entries
     assert call(sam, "DeleteRaid", occ0)["ok"] is True

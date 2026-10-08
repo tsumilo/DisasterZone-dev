@@ -101,12 +101,12 @@ RAID_ROW = """
 
 
 def has_line(cl, label, count):
-    """A roster line "<label> (<n>)" (the label is colour-coded)."""
-    for o in cl.find_text(label, True, True):
-        t = strip_codes(cl.eval("local o = ...; return o:GetText()", o) or "")
-        if label in t and count in t:
-            return True
-    return False
+    """A Sign-ups band "<label>" with <count> in its gutter (count given as "(n)")."""
+    n = count.strip("()")
+    bands = cl.eval_py("local out = {}; ns.RaidsUI:GetPanel().upcoming.detail.roster.box:ForEachFrame(function(b) "
+                       "out[#out + 1] = { b.title:GetText() or '', b.count:GetText() or '' } end); return out") or []
+    bands = bands.values() if isinstance(bands, dict) else bands
+    return any(strip_codes(t) == label and strip_codes(c) == n for t, c in bands)
 
 
 def listed(cl):
@@ -452,9 +452,10 @@ def the_roster_marks_guests_and_managers_right_click():
     w.tick(2)
     open_tab(w, bob, occ)
     install_helpers(bob)
-    assert bob.find_text("3/10 accepted", True, True) and bob.find_text("1 guest", True, True)
+    counts = strip_codes(bob.eval("return ns.RaidsUI:GetPanel().upcoming.detail.counts:GetText()") or "")
+    assert "3 accepted" in counts and "1 guest" in counts, counts
     cell = bob.eval(ROSTER_CELL, K("Pugsy"))
-    assert cell is not None and bob.eval("return (...).tag:IsShown()", cell) is True        # the GUEST tag
+    assert cell is not None and "Guest" in strip_codes(bob.eval("return (...).pSub:GetText()", cell))   # Guest
     bob.hover(cell)
     lines = [strip_codes(l) for l, _ in tt_lines(bob)]
     bob.leave(cell)

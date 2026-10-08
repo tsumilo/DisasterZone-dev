@@ -947,7 +947,7 @@ STATES = [
     # the Share window (UI/ShareWindow.lua), dropped from the icon that opened it
     ("Share - raid", opened("raids", "ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); "
                                      "ns.ShareWindow:Open('raid:' .. (...), "
-                                     "ns.RaidsUI:GetPanel().upcoming.detail.shareBtn)")),
+                                     "ns.MainFrame:GetShareButton())")),
     ("Share - member", members_view("ns.MembersUI:ShowMember('Vaenyria-Thunderstrike'); "
                                     "ns.ShareWindow:Open('member:Vaenyria', ns.MembersUI:GetPanel().right.share)")),
     ("Share - window alone", opened("raids", "ns.MainFrame:Close(); ns.ShareWindow:Open('raid:' .. (...)); "

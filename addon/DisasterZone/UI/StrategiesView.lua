@@ -8,10 +8,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/StrategiesView.lua", ...) then 
 --                       and Share (a link in chat) for everyone, Collaborators for the owner, Delete for the owner,
 --                       the GM and the guild council. My unsaved drafts sit on top (continue / discard; saving one
 --                       makes it a strategy). New strategy and the tutorial (?) sit on the Raids tab's view row.
---   Assignments tab   - of a planned raid (Upcoming): its bosses, the strategy each uses and how many slots are
---                       filled, with Open (everyone) and Assign. Who leads the raid (its own leader; a raid without
---                       one: the raid leaders) and the GM pick each boss' strategy in the row's dropdown, saved at
---                       once; a boss not picked yet uses the one the guild used last.
+--   Assignments tab   - of a planned raid (Upcoming): its bosses as tiles with their journal pictures, the strategy
+--                       each uses and how many slots are filled; a click opens the board (everyone), Assign fills
+--                       it. Who leads the raid (its own leader; a raid without one: the raid leaders) and the GM
+--                       pick each boss' strategy in the tile's link-dropdown, saved at once; a boss not picked yet
+--                       uses the one the guild used last.
 local addonName, ns = ...
 
 local View = ns:NewModule("StrategiesUI")
@@ -38,9 +39,10 @@ local PILL = {                       -- fill, edge (mixed with the card's fill),
 }
 local ART_TOP = 0.29                 -- a loading screen's picture starts under the game's logo
 -- A planned raid's Assignments tab.
-local RAID_ROW_H = 52                -- a raid's boss row: a card 46 high and the gap under it
-local PICK_MIN, PICK_MAX = 110, 230  -- a raid's strategy dropdown: as wide as the name (32 characters fit)
-local TEXT_END = 160                 -- a raid's boss row: its texts end where Open / Assign start
+local RAID_TILE_H = 62               -- a raid's boss tile (two a row)
+local RAID_TEXT_X = 104              -- its texts start right of the boss's picture
+local RAID_PICK_MAX = 200            -- its strategy's link-dropdown: as wide as the name, at most this
+local RAID_TOP = 34                  -- the tab's tool row above the tiles
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -930,121 +932,235 @@ local function pickMenu(row, root)
     end
 end
 
-local function initRaidBossRow(row, d)
-    if not row.cdlInit then
-        row.cdlInit = true
-        -- a flat card (the raid page's), lit a little under the mouse
-        row.card = row:CreateTexture(nil, "BACKGROUND")
-        row.card:SetPoint("TOPLEFT", 0, 0)
-        row.card:SetPoint("BOTTOMRIGHT", 0, RAID_ROW_H - 46)
-        row.card:SetColorTexture(0.08, 0.08, 0.095, 0.9)
-        for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
-                             { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
-            local t = row:CreateTexture(nil, "BORDER")
-            t:SetPoint(e[1], row.card, e[1])
-            t:SetPoint(e[2], row.card, e[2])
-            if e[3] then t:SetHeight(1) else t:SetWidth(1) end
-            t:SetColorTexture(0.34, 0.34, 0.38, 0.5)
-        end
-        local hl = row:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints(row.card)
-        hl:SetColorTexture(1, 1, 1, 0.04)
-        row.assign = UI():CreateButton(row, "Assign", 70, 20, function(self)
-            local data = self:GetParent().__cdlData
-            if data then Board():OpenRaid(data.occ, data.ref, "fill") end
-        end)
-        row.assign:SetPoint("RIGHT", row.card, "RIGHT", -10, 0)
-        row.open = UI():CreateButton(row, "Open", 70, 20, function(self)
-            local data = self:GetParent().__cdlData
-            if data then Board():OpenRaid(data.occ, data.ref) end
-        end)
-        -- line 1: the boss, and on the right how many of its slots are filled (my jobs in green); line 2: the
-        -- strategy (a dropdown as wide as its name for who arranges the raid, the name for everyone else) and, for
-        -- the arrangers, whether it still has to be picked
-        row.l1 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.l1:SetPoint("TOPLEFT", 12, -7)
-        row.l1:SetJustifyH("LEFT")
-        row.l1:SetWordWrap(false)
-        row.stat = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.stat:SetPoint("LEFT", row.l1, "RIGHT", 8, 0)
-        row.stat:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -13)
-        row.stat:SetJustifyH("RIGHT")
-        row.stat:SetWordWrap(false)
-        row.pick = UI():CreateSleekMenuButton(row, "", PICK_MIN, function(root) pickMenu(row, root) end, 20)
-        row.pick:SetPoint("TOPLEFT", 10, -22)
-        row.pick:HookScript("OnEnter", function(self)
-            local data = row.__cdlData
-            if not (data and data.s) then return end
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine("Strategy for " .. data.name)
-            if data.how == "picked" then
-                GameTooltip:AddLine("Picked for this raid. Pick another to switch: names in the slots both "
-                    .. "strategies have stay.", 1, 1, 1, true)
-            elseif data.how == "last" then
-                GameTooltip:AddLine("Not picked yet: this raid uses the strategy the guild used last time. Pick one "
-                    .. "to keep it.", 1, 1, 1, true)
-            elseif data.how == "first" then
-                GameTooltip:AddLine("Not picked yet: this raid uses the first one by name. Pick one to keep it.",
-                    1, 1, 1, true)
-            else
-                GameTooltip:AddLine("The only strategy for this boss.", 1, 1, 1, true)
-            end
-            GameTooltip:Show()
-        end)
-        row.pick:HookScript("OnLeave", function() GameTooltip:Hide() end)
-        row.l2 = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.l2:SetJustifyH("LEFT")
-        row.l2:SetWordWrap(false)
-        row:SetScript("OnClick", function(self)
-            local data = self.__cdlData
-            if data then Board():OpenRaid(data.occ, data.ref) end
-        end)
+-- A raid's boss as a tile (the Teams plates' look, two a row): the boss's Encounter Journal picture on the left
+-- (Data/BossJournal.lua; else the creature's portrait), its name and how many of its strategy's slots are filled,
+-- under them the strategy (a gold link-dropdown for who arranges the raid, the name for everyone else) and my jobs,
+-- Assign on the right, a bar along the bottom that fills with the slots. A boss without a strategy is a well (Create
+-- for who builds strategies). A click opens the boss's board.
+
+-- The strategy's link-dropdown: the name with a small gold chevron (b:SetText / GetText / OpenMenu).
+local function newPickLink(row)
+    local b = CreateFrame("Button", nil, row)
+    b:SetHeight(16)
+    local fs = newText(b, "GameFontHighlightSmall", 11)
+    fs:SetPoint("LEFT", 0, 0)
+    fs:SetTextColor(0.9, 0.85, 0.66)
+    b:SetFontString(fs)
+    b.fs = fs
+    b.chev = b:CreateTexture(nil, "ARTWORK")
+    b.chev:SetSize(9, 9)
+    b.chev:SetTexture(UI().ICON_ATLAS)
+    b.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
+    b.chev:SetVertexColor(1, 0.82, 0)
+    b.chev:SetPoint("LEFT", fs, "RIGHT", 4, -1)
+    -- (b.warn: "not picked yet" / "unsaved names" turns it orange)
+    function b:Paint()
+        if self.warn then self.fs:SetTextColor(1, 0.6, 0.2) else self.fs:SetTextColor(0.9, 0.85, 0.66) end
     end
+    function b:OpenMenu() UI():ContextMenu(self, function(root) pickMenu(row, root) end) end
+    b:SetScript("OnClick", function(self) self:OpenMenu() end)
+    b:SetScript("OnEnter", function(self)
+        self.fs:SetTextColor(1, 0.82, 0)
+        local data = row.__cdlData
+        if not (data and data.s) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(data.s.n)
+        GameTooltip:AddLine("The strategy for " .. data.name, 0.7, 0.7, 0.7)
+        if self.warn == "unsaved names" then
+            GameTooltip:AddLine("Names typed on its board are not saved yet: open the board to save them.", 1, 0.6, 0.2, true)
+        end
+        if data.how == "picked" then
+            GameTooltip:AddLine("Picked for this raid. Pick another to switch: names in the slots both strategies "
+                .. "have stay.", 1, 1, 1, true)
+        elseif data.how == "last" then
+            GameTooltip:AddLine("Not picked yet: this raid uses the strategy the guild used last time. Pick one to "
+                .. "keep it.", 1, 1, 1, true)
+        elseif data.how == "first" then
+            GameTooltip:AddLine("Not picked yet: this raid uses the first one by name. Pick one to keep it.", 1, 1, 1, true)
+        else
+            GameTooltip:AddLine("The only strategy for this boss.", 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function(self)
+        self:Paint()
+        GameTooltip:Hide()
+    end)
+    return b
+end
+
+local function newBossTile(parent)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(RAID_TILE_H)
+    row.base = row:CreateTexture(nil, "BACKGROUND", nil, -2)
+    row.base:SetAllPoints()
+    row.tint = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+    row.tint:SetAllPoints()
+    gradient(row.tint, "HORIZONTAL", 1, 1, 1, 0.035, 0.012)
+    row.top = row:CreateTexture(nil, "BORDER")
+    row.top:SetPoint("TOPLEFT", 0, 0)
+    row.top:SetPoint("TOPRIGHT", 0, 0)
+    row.top:SetHeight(1)
+    row.top:SetColorTexture(1, 1, 1, 0.06)
+    row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 0)
+    row.shade:SetPoint("TOPLEFT", 0, 0)
+    row.shade:SetPoint("TOPRIGHT", 0, 0)
+    row.shade:SetHeight(4)
+    gradient(row.shade, "VERTICAL", 0, 0, 0, 0, 0.85)
+    row.hl = row:CreateTexture(nil, "HIGHLIGHT")
+    row.hl:SetAllPoints()
+    row.hl:SetColorTexture(1, 1, 1, 0.04)
+    -- the slots' bar along the bottom
+    row.track = row:CreateTexture(nil, "BORDER")
+    row.track:SetPoint("BOTTOMLEFT", 0, 0)
+    row.track:SetPoint("BOTTOMRIGHT", 0, 0)
+    row.track:SetHeight(2)
+    row.track:SetColorTexture(1, 1, 1, 0.05)
+    row.bar = row:CreateTexture(nil, "ARTWORK", nil, 1)
+    row.bar:SetPoint("BOTTOMLEFT", 0, 0)
+    row.bar:SetHeight(2)
+    -- the boss: the journal's picture (128x64, its feet on the tile's foot), else a round portrait
+    row.ej = row:CreateTexture(nil, "ARTWORK")
+    row.ej:SetSize(100, 50)
+    row.ej:SetPoint("BOTTOMLEFT", -6, 2)
+    row.face = row:CreateTexture(nil, "ARTWORK")
+    row.face:SetSize(34, 34)
+    row.face:SetPoint("LEFT", 22, 0)
+    row.l1 = newText(row, "GameFontHighlight", 13)
+    row.l1:SetPoint("TOPLEFT", RAID_TEXT_X, -15)
+    row.stat = newText(row, "GameFontHighlightSmall", 11)
+    row.stat:SetJustifyH("RIGHT")
+    row.pick = newPickLink(row)
+    row.pick:SetPoint("TOPLEFT", RAID_TEXT_X, -34)
+    row.l2 = newText(row, "GameFontHighlightSmall", 11)
+    row.jobs = newText(row, "GameFontHighlightSmall", 10)
+    row.jobs:SetJustifyH("RIGHT")
+    row.jobs:SetTextColor(0.56, 0.89, 0.62)
+    row.assign = UI():CreateSleekButton(row, "Assign", 62, 20, function(self)
+        local data = self:GetParent().__cdlData
+        if data then Board():OpenRaid(data.occ, data.ref, "fill") end
+    end)
+    row.assign:SetPoint("RIGHT", -10, 0)
+    row.create = UI():CreateSleekButton(row, "Create", 62, 20, function(self)
+        local data = self:GetParent().__cdlData
+        if data then Board():OpenRaid(data.occ, data.ref) end
+    end)
+    row.create:SetPoint("RIGHT", -10, 0)
+    row:SetScript("OnClick", function(self)
+        local data = self.__cdlData
+        if data and data.s then Board():OpenRaid(data.occ, data.ref) end
+    end)
+    row:SetScript("OnEnter", function(self)
+        local data = self.__cdlData
+        if not data then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(data.name)
+        GameTooltip:AddLine(data.s and "Click to open its board: who does what." or "No strategy for this boss yet.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return row
+end
+
+-- The boss's picture on the tile: the journal's, else the creature's portrait (round), else the raid's skull.
+local function paintBossArt(row, ref, none)
+    local fid = ns.Data and ns.Data.BossJournal and ns.Data.BossJournal[ref]
+    row.ej:SetShown(fid ~= nil)
+    row.face:SetShown(fid == nil)
+    if fid then
+        row.ej:SetTexture(fid)
+        row.ej:SetTexCoord(0, 1, 0, 1)
+        if row.ej.SetDesaturated then row.ej:SetDesaturated(none) end
+        row.ej:SetAlpha(none and 0.35 or 1)
+        return
+    end
+    local list = ns.Data and ns.Data.BossPortraits and ns.Data.BossPortraits[ref]
+    local disp = list and list[1] and list[1].d
+    if disp and SetPortraitTextureFromCreatureDisplayID then
+        row.face:SetTexCoord(0, 1, 0, 1)
+        pcall(SetPortraitTextureFromCreatureDisplayID, row.face, disp)
+    else
+        row.face:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_8")
+        row.face:SetTexCoord(0, 1, 0, 1)
+    end
+    if row.face.SetDesaturated then row.face:SetDesaturated(none) end
+    row.face:SetAlpha(none and 0.35 or 1)
+end
+
+-- n of the strategy's slots filled, n of them mine (the raid's fill for it).
+local function slotCounts(s, fill)
+    local slots = S():GetSlots(s)
+    local a = (fill and fill.s == s.id) and fill.a or {}
+    local n, mine = 0, 0
+    local me = ns.Util.PlayerKey()
+    for _, slot in ipairs(slots) do
+        if a[slot.ref] then
+            n = n + 1
+            if a[slot.ref] == me then mine = mine + 1 end
+        end
+    end
+    return n, #slots, mine
+end
+
+local function fillBossTile(row, d)
+    row.__cdlData = d
     local s, fill = d.s, d.fill
     local arranger = S():CanAssign(d.occ)
+    local none = s == nil
+    row.base:SetColorTexture(none and 0.051 or 0.094, none and 0.051 or 0.094, none and 0.063 or 0.11, 1)
+    row.tint:SetShown(not none)
+    row.top:SetShown(not none)
+    row.shade:SetShown(none)
+    paintBossArt(row, d.ref, none)
     row.l1:SetText(d.name)
-    local stat = ""
-    if s then
-        local slots = S():GetSlots(s)
-        local a = (fill and fill.s == s.id) and fill.a or {}
-        local n, mine = 0, 0
-        local me = ns.Util.PlayerKey()
-        for _, slot in ipairs(slots) do
-            if a[slot.ref] then
-                n = n + 1
-                if a[slot.ref] == me then mine = mine + 1 end
-            end
-        end
-        stat = ("%d/%d filled"):format(n, #slots)
-        if mine > 0 then stat = stat .. " · |cff33ff99" .. mine .. (mine == 1 and " job" or " jobs") .. " for you|r" end
-    end
-    row.stat:SetText(stat)
+    row.l1:SetTextColor(none and 0.54 or 1, none and 0.54 or 1, none and 0.54 or 1)
+    local filled, total, mine = 0, 0, 0
+    if s then filled, total, mine = slotCounts(s, fill) end
+    local full = total > 0 and filled >= total
+    row.stat:SetText(s and ((full and "|cff8fe39d" .. filled .. "|r" or filled) .. grey("/" .. total)) or "")
+    row.jobs:SetText(mine > 0 and (mine .. (mine == 1 and " job" or " jobs") .. " for you") or "")
+    local share = total > 0 and min(1, filled / total) or 0
+    row.track:SetShown(not none)
+    row.bar:SetShown(share > 0)
+    row.bar:SetWidth(max(1, floor((row:GetWidth() or 0) * share + 0.5)))
+    if full then row.bar:SetColorTexture(0.56, 0.89, 0.62, 0.9) else row.bar:SetColorTexture(1, 0.82, 0, 0.7) end
+    -- line 2: the strategy (who arranges: its dropdown, then whether it still has to be picked; else the name)
     row.pick:SetShown(arranger and s ~= nil)
     row.l2:ClearAllPoints()
     if arranger and s then
-        -- as wide as the name: its label measured on one anchor (unbounded), then put back between the edges
+        -- names typed on the board but not saved, else a boss with several strategies where none was picked: the
+        -- link turns orange (its tooltip says why; the tool row counts the bosses to pick)
+        row.pick.warn = (Board():FillDraft(d.occ, d.ref) and "unsaved names")
+            or ((d.count > 1 and d.how ~= "picked") and "not picked yet") or nil
+        -- (as wide as the name, up to where my jobs and Assign start; a longer name is cut, its tooltip has it)
+        local room = floor((row:GetWidth() or 0) - RAID_TEXT_X - 84 - (mine > 0 and ((row.jobs:GetStringWidth() or 0) + 10) or 0))
+        if room < 60 then room = RAID_PICK_MAX end
+        row.pick.fs:SetWidth(0)
         row.pick:SetText(s.n)
-        local fs = row.pick:GetFontString()
-        fs:ClearAllPoints()
-        fs:SetPoint("LEFT", 8, 0)
-        row.pick:SetWidth(min(PICK_MAX, max(PICK_MIN, ceil(fs:GetStringWidth() or 0) + 32)))
-        fs:SetPoint("RIGHT", -20, 0)
-        row.l2:SetPoint("LEFT", row.pick, "RIGHT", 8, 0)
-        -- names typed on the board but not saved, else a boss with several strategies where none was picked
-        row.l2:SetText((Board():FillDraft(d.occ, d.ref) and "|cffff9933unsaved names|r")
-            or ((d.count > 1 and d.how ~= "picked") and "|cffff9933not picked yet|r") or "")
+        row.pick:Paint()
+        local fs = row.pick.fs
+        local tw = ceil((fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 0)
+        if tw + 14 > room then row.pick.fs:SetWidth(room - 14) end
+        row.pick:SetWidth(min(room, tw + 14))
+        row.l2:SetPoint("LEFT", row.pick, "RIGHT", 8, 1)
+        row.l2:SetText("")
     else
-        row.l2:SetPoint("TOPLEFT", 12, -27)
-        row.l2:SetText(s and ("|cffffffff" .. s.n .. "|r") or "No strategy for this boss yet")
+        row.l2:SetPoint("TOPLEFT", RAID_TEXT_X, -36)
+        row.l2:SetText(s and ("|cffe6d9a8" .. s.n .. "|r") or grey("No strategy for this boss yet"))
     end
-    row.l2:SetPoint("RIGHT", row, "TOPRIGHT", -TEXT_END, -32)
     row.assign:SetShown(arranger and s ~= nil)
-    row.open:ClearAllPoints()
-    if arranger and s then row.open:SetPoint("RIGHT", row.assign, "LEFT", -4, 0) else row.open:SetPoint("RIGHT", row.card, "RIGHT", -10, 0) end
-    row.open:SetShown(s ~= nil or S():CanBuild())
+    row.create:SetShown(none and S():CanBuild())
+    local btn = row.assign:IsShown() and row.assign or (row.create:IsShown() and row.create) or nil
+    -- the count and my jobs end where the button starts
+    row.stat:ClearAllPoints()
+    row.stat:SetPoint("RIGHT", row, "TOPRIGHT", btn and -84 or -12, -22)
+    row.jobs:ClearAllPoints()
+    row.jobs:SetPoint("RIGHT", row, "TOPRIGHT", btn and -84 or -12, -41)
+    row:Show()
 end
 
--- The raid picks a strategy for a boss (the row's dropdown).
+-- The raid picks a strategy for a boss (the tile's dropdown).
 function View:PickStrategy(occId, bossRef, stratId)
     local ok, err = S():PickStrategy(occId, bossRef, stratId)
     if not ok then
@@ -1055,45 +1171,101 @@ function View:PickStrategy(occId, bossRef, stratId)
     return true
 end
 
--- The frame shown in a planned raid's detail (RaidPlanUI adds it as the Assignments tab).
+-- The frame shown in a planned raid's page (RaidPlanUI adds it as the Assignments tab): a tool row (what the tiles
+-- add up to), the tiles two a row in a scroll frame. f.list keeps the old list's handles (tests, tools):
+-- list.box:ForEachFrame(fn) over the shown tiles.
 function View:CreateRaidAssignments(parent)
     local f = CreateFrame("Frame", nil, parent)
     assign = f
-    -- (the raid page puts the hint on its tab row; the cards fill the width, the scroll bar sits in the margin)
-    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.hint:SetPoint("TOPLEFT", 2, -2)
-    f.hint:SetPoint("RIGHT", -2, 0)
-    f.hint:SetJustifyH("LEFT")
-    f.list = UI():CreateScrollList(f, RAID_ROW_H, initRaidBossRow)
-    f.list.frame:SetPoint("TOPLEFT", 0, 0)
-    f.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
-    if f.list.bar then
-        f.list.bar:ClearAllPoints()
-        f.list.bar:SetPoint("TOPLEFT", f.list.box, "TOPRIGHT", 4, 0)
-        f.list.bar:SetPoint("BOTTOMLEFT", f.list.box, "BOTTOMRIGHT", 4, 0)
-    end
+    f.hint = newText(f, "GameFontHighlightSmall", 11)
+    f.hint:SetTextColor(0.55, 0.55, 0.55)
+    f.hint:SetPoint("LEFT", f, "TOPLEFT", 0, -13)
+    f.scroll = UI():CreateScrollFrame(f)
+    f.scroll:SetPoint("TOPLEFT", 0, -RAID_TOP)
+    f.scroll:SetPoint("BOTTOMRIGHT", 0, 0)
+    f.content = CreateFrame("Frame", nil, f.scroll)
+    f.content:SetSize(INNER_W, 10)
+    f.scroll:SetScrollChild(f.content)
+    f.tiles = {}
+    f.empty = newText(f, "GameFontDisable", 12)
+    f.empty:SetJustifyH("CENTER")
+    f.empty:SetPoint("TOP", f, "TOP", 0, -RAID_TOP - 30)
+    f.list = {
+        box = { ForEachFrame = function(_, fn)
+            for _, t in ipairs(f.tiles) do if t:IsShown() then fn(t) end end
+        end },
+        SetEmptyText = function(_, text) f.empty:SetText(text or "") end,
+        GetData = function() return f.rows or {} end,
+    }
     return f
+end
+
+-- What a raid's bosses add up to: { bosses, ready (every slot filled), toPick (several strategies, none picked),
+-- none (no strategy), jobs (slots with my name) }.
+function View:RaidSummary(v)
+    local out = { bosses = 0, ready = 0, toPick = 0, none = 0, jobs = 0 }
+    if not v then return out end
+    local counts = S():CountByBoss()
+    for _, b in ipairs(S():GetRaidBosses(v)) do
+        out.bosses = out.bosses + 1
+        local s, fill, how = S():GetRaidStrategy(v.id, b.ref)
+        if s then
+            local n, total, mine = slotCounts(s, fill)
+            if total > 0 and n >= total then out.ready = out.ready + 1 end
+            out.jobs = out.jobs + mine
+            if (counts[b.ref] or 0) > 1 and how ~= "picked" then out.toPick = out.toPick + 1 end
+        else
+            out.none = out.none + 1
+        end
+    end
+    return out
 end
 
 function View:RefreshRaid(v)
     if not assign then return end
-    if not v then
-        assign.list:SetData({})
-        return
-    end
-    local bosses = S():GetRaidBosses(v)
-    local counts = S():CountByBoss()
+    local f = assign
     local rows = {}
-    for _, b in ipairs(bosses) do
-        local s, fill, how = S():GetRaidStrategy(v.id, b.ref)
-        rows[#rows + 1] = { occ = v.id, ref = b.ref, name = b.name, s = s, fill = fill, how = how,
-                            count = counts[b.ref] or 0 }
+    if v then
+        local counts = S():CountByBoss()
+        for _, b in ipairs(S():GetRaidBosses(v)) do
+            local s, fill, how = S():GetRaidStrategy(v.id, b.ref)
+            rows[#rows + 1] = { occ = v.id, ref = b.ref, name = b.name, s = s, fill = fill, how = how,
+                                count = counts[b.ref] or 0 }
+        end
     end
-    local hint = "Who does what on each boss. Open a boss to see its board."
-    if S():CanAssign(v.id) then hint = "Pick the strategy for each boss here; Assign puts names in its slots." end
-    assign.hint:SetText(#rows > 0 and hint or "")
-    assign.list:SetEmptyText("This raid has no boss list (\"Other\" raids have no strategy boards).")
-    assign.list:SetData(rows)
+    f.rows = rows
+    -- the tool row: my jobs, the bosses still to pick (who arranges), those without a strategy
+    local parts = {}
+    if v and #rows > 0 then
+        local sum = self:RaidSummary(v)
+        if sum.jobs > 0 then parts[#parts + 1] = "|cff8fe39d" .. sum.jobs .. (sum.jobs == 1 and " job" or " jobs") .. " for you|r" end
+        if sum.toPick > 0 and S():CanAssign(v.id) then
+            parts[#parts + 1] = "|cffe8e8e8" .. sum.toPick .. "|r" .. (sum.toPick == 1 and " boss" or " bosses") .. " to pick"
+        end
+        if sum.none > 0 then parts[#parts + 1] = "|cffe8e8e8" .. sum.none .. "|r without a strategy" end
+        if #parts == 0 then parts[1] = "Click a boss to open its board: who does what." end
+    end
+    f.hint:SetText(tconcat(parts, "   ·   "))
+    -- the tiles, two a row
+    local width = (f:GetWidth() or 0)
+    if width < 300 then width = INNER_W end
+    local w = floor((width - GAP) / 2)
+    for i, d in ipairs(rows) do
+        local t = f.tiles[i] or newBossTile(f.content)
+        f.tiles[i] = t
+        local c, r = (i - 1) % 2, floor((i - 1) / 2)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", f.content, "TOPLEFT", c * (w + GAP) + (c == 1 and (width - 2 * w - GAP) or 0), -r * (RAID_TILE_H + GAP))
+        t:SetSize(w, RAID_TILE_H)
+        fillBossTile(t, d)
+    end
+    for i = #rows + 1, #f.tiles do
+        f.tiles[i]:Hide()
+        f.tiles[i].__cdlData = nil
+    end
+    f.content:SetSize(width, max(1, ceil(#rows / 2) * (RAID_TILE_H + GAP) - GAP))
+    f.empty:SetText(v and #rows == 0 and "This raid has no boss list (\"Other\" raids have no strategy boards)." or "")
+    f.empty:SetShown(v ~= nil and #rows == 0)
 end
 
 function View:OnInit()

@@ -197,7 +197,7 @@ def the_raid_window_and_the_sign_up_strip():
     rita.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.5)
     assert rita.eval("return %s.upcoming.statusBtns.A:IsEnabled()" % P) is True
-    assert rita.find_text("pick an answer to ask to join", True, True)
+    assert rita.find_text("ANSWER TO ASK TO JOIN", True, True)
     open_tab(w, sam)
     sam.eval("ns.RaidPlanUI:SelectRaid(...)", occ)
     w.tick(0.5)
@@ -322,8 +322,10 @@ def requests_to_join_a_locked_raid():
     open_tab(w, bob)
     bob.eval("ns.RaidPlanUI:SelectRaid(...)", occ3)
     w.tick(0.5)
-    assert any("Requests to join (1)" in strip_codes(bob.eval("local o = ...; return o:GetText()", o) or "")
-               for o in bob.find_text("Requests to join", True, True))
+    band = bob.eval_py("local out; ns.RaidsUI:GetPanel().upcoming.detail.roster.box:ForEachFrame(function(b) "
+                       "if b.title and b.title:GetText() and b.title:GetText():find('Requests') then "
+                       "out = { b.count:GetText(), #b.cells } end end); return out")
+    assert band and strip_codes(band[0]) == "1", band
     bob.eval("ns.RaidPlanUI:ShowBoard()")
     w.tick(0.3)
     assert bob.find_text("1 request", True, True)                     # on the raid's card

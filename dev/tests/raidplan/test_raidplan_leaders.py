@@ -350,7 +350,7 @@ def raid_leaders_manage_raids_and_their_groups_the_council_teams_and_groups():
         w.tick(0.3)
         assert cl.eval("return ns.RaidPlanUI:GetRaidGrid().opts.isEditable()") is True
         cl.click(cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.tabSignups"))
-        assert cl.eval("return ns.RaidsUI:GetPanel().upcoming.detail.editBtn:IsShown()") is raid_btn
+        assert cl.eval("return ns.RaidPlanUI:GetRaidActions().edit") is raid_btn
     w.assert_no_errors()
 
 
