@@ -1,7 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/HubUI.lua", ...) then return end -- DisasterZone Games/HubUI.lua
 -- ns.GamesUI: the "Games" tab. A spotlight carousel: one game's poster in front, its neighbours dimmed at the sides
 -- (arrows, mouse wheel, the dots or a click on a side poster turn it). A poster is the game's cover, alive while the
--- tab is open (your Bingo card filling in, the Trainer's bosses and best times, a walk through Azeromon's Elwynn),
+-- tab is open (your Bingo card filling in, the Trainer's bosses and best times, Disastercraft's Northshire),
 -- then its name, one line, one stat of yours and who plays it now. Clicking the front poster grows it into the game:
 -- a slim strip on top ("< GAMES", the game, who plays, share) and the game's panel under it.
 -- While a Bingo game runs the carousel opens on Bingo (LIVE); otherwise on the game you opened last.
@@ -27,7 +27,7 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
-    bingo = { 1, 0.82, 0 }, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
+    bingo = { 1, 0.82, 0 }, trainer = { 0.31, 0.83, 0.88 }, disastercraft = { 1, 0.69, 0.25 },
     chess = { 0.74, 0.58, 1 },
 }
 local DEFAULT_ACCENT = { 1, 0.82, 0 }
@@ -247,28 +247,27 @@ INFO.trainer = function()
     return out
 end
 
--- Azeromon: badges and tamed beasts from the save; who is out walking Elwynn now.
-INFO.azeromon = function()
+-- Disastercraft: your best character (level and class) and the quests done; who is playing now.
+INFO.disastercraft = function()
     local out = { kicker = "ADVENTURE" }
-    local s = Saved("azeromon").save
-    local D = ns.AzeroData
-    if type(s) == "table" and D and type(D.badges) == "table" then
-        local badges, total, tamed = 0, 0, 0
-        for id in pairs(D.badges) do
-            total = total + 1
-            if type(s.flags) == "table" and s.flags["badge_" .. id] then badges = badges + 1 end
-        end
-        for _ in pairs(type(s.caught) == "table" and s.caught or {}) do tamed = tamed + 1 end
-        out.stat = string.format("Badges |cffffffff%d of %d|r  \194\183  |cffffffff%d|r tamed", badges, total, tamed)
+    local data = Saved("disastercraft")
+    local best, quests = nil, 0
+    for _, c in pairs(type(data.chars) == "table" and data.chars or {}) do
+        if type(c) == "table" and (not best or (c.level or 1) > (best.level or 1)) then best = c end
+        for _ in pairs(type(c) == "table" and type(c.done) == "table" and c.done or {}) do quests = quests + 1 end
+    end
+    if best then
+        local names = { [1] = "Warrior", [5] = "Priest", [8] = "Mage" }
+        out.stat = string.format("Level |cffffffff%d|r %s  \194\183  |cffffffff%d|r %s", best.level or 1,
+            names[best.class] or "", quests, quests == 1 and "quest" or "quests")
     else
         out.stat = "|cff8a8a8aNot started yet|r"
     end
-    local Net = ns.AzeroNet
-    local keys = Net and Net.PlayingKeys and Net:PlayingKeys() or {}
-    local n = Net and Net.PlayingNow and Net:PlayingNow() or #keys
-    if n > 0 then
+    local P = ns.Craft and ns.Craft.Party
+    local keys = P and P.PlayingKeys and P.PlayingKeys() or {}
+    if #keys > 0 then
         out.faces = keys
-        out.foot = string.format("%d playing now", n)
+        out.foot = string.format("%d playing now", #keys)
     end
     return out
 end
@@ -287,7 +286,7 @@ INFO.chess = function()
     if waiting > 0 then
         out.stat = string.format("|cffc9a2ffYour move|r in |cffffffff%d|r %s", waiting, waiting == 1 and "game" or "games")
     elseif mine then
-        out.stat = string.format("Guild rating |cffffffff%d|r  9483  %d-%d-%d", mine.rating, mine.w, mine.l, mine.d)
+        out.stat = string.format("Guild rating |cffffffff%d|r  \194\183  %d-%d-%d", mine.rating, mine.w, mine.l, mine.d)
     else
         local w, n = 0, 0
         for _, s in pairs(type(data.stats) == "table" and data.stats or {}) do
@@ -760,112 +759,89 @@ COVERS.trainer = function(parent)
     return c
 end
 
--- Azeromon: a little Elwynn of the game's own tiles (a house, its path, tall grass, trees) with the hero walking
--- down the path and back. Drawn into the poster's art box (clipped there).
--- (the meadow is wider than any poster: the front one grows to the whole tab when its game opens, and the scene
--- must still reach both edges; the house and its path sit in the middle at column SCENE_OX + 6)
-local SCENE_C, SCENE_R, SCENE_OX, TILE = 32, 16, 9, 32
-local function SceneTiles()
-    local t = {}
-    local function put(name, x, y) t[#t + 1] = { name, x, y } end
-    for y = 0, SCENE_R - 1 do
-        for x = 0, SCENE_C - 1 do put(((x * 7 + y * 3) % 5 == 0) and "grass2" or "grass1", x, y) end
-    end
-    local function big(prefix, x, y, w, h)
-        for j = 0, h - 1 do for i = 0, w - 1 do put(prefix .. "_" .. i .. "_" .. j, x + i, y + j) end end
-    end
-    local function tall(x0, y0, w, h)
-        for y = y0, y0 + h - 1 do
-            for x = x0, x0 + w - 1 do
-                local e = (y == y0 and "t" or y == y0 + h - 1 and "b" or "") .. (x == x0 and "l" or x == x0 + w - 1 and "r" or "")
-                put(e == "" and "tall_c" or ("tall_" .. e), x, y)
+-- Disastercraft: the real Northshire Valley in front of the Abbey (WoW's own ground and scenery from the game's
+-- map data), with a warrior, a mage and a priest walking the path. Drawn into the poster's art box (clipped there);
+-- wide enough for the front poster that grows to the whole tab.
+local SCENE_X, SCENE_Y, SCENE_W, SCENE_H, TILE = 4107, 6236, 44, 22, 32
+local SCENE_HEROES = { { "WARRIOR0", 0 }, { "MAGE1", 1.1 }, { "PRIEST0", 2.2 } }
+
+COVERS.disastercraft = function(parent, poster)
+    local c = CreateFrame("Frame", nil, poster.artFrame)
+    c:SetAllPoints(poster.artFrame)
+    local WS = ns.AzeroLand
+    if not WS or not WS.GroundTile then return c end
+    c.world = CreateFrame("Frame", nil, c)
+    c.world:SetSize(SCENE_W * TILE, SCENE_H * TILE)
+    local depth = {}
+    for y = 0, SCENE_H - 1 do
+        for x = 0, SCENE_W - 1 do
+            local file, slot, row = WS.GroundTile(SCENE_X + x, SCENE_Y + y)
+            if file then
+                local t = c.world:CreateTexture(nil, "BACKGROUND")
+                t:SetTexture(file)
+                local cc, rr, h = slot % row, floor(slot / row), 0.5 / 1024
+                t:SetTexCoord(cc / row + h, (cc + 1) / row - h, rr / row + h, (rr + 1) / row - h)
+                t:SetSize(TILE + 1, TILE + 1)
+                t:SetPoint("TOPLEFT", x * TILE, -y * TILE)
             end
         end
     end
-    -- the middle: the house, its path, the tall grass, trees and flowers round it
-    local X = SCENE_OX
-    for y = 7, SCENE_R - 1 do put("path_l", X + 5, y) put("path_c", X + 6, y) put("path_r", X + 7, y) end
-    big("house", X + 4, 1, 5, 6)
-    big("bigtree", X + 0, 2, 3, 3)
-    big("bigtree", X + 10, 0, 3, 3)
-    for _, p in ipairs({ { 9, 4 }, { 12, 4 }, { 1, 6 }, { 0, 9 }, { 12, 13 }, { 1, 14 } }) do put("tree", X + p[1], p[2]) end
-    put("pine", X + 13, 6) put("pine", X + 2, 0) put("oak", X + 3, 11)
-    tall(X + 9, 9, 4, 4)
-    for _, p in ipairs({ { 3, 8 }, { 2, 12 }, { 8, 8 }, { 4, 14 }, { 9, 14 }, { 13, 10 } }) do put("flowers", X + p[1], p[2]) end
-    put("sign", X + 8, 7)
-    -- the meadow beyond, left and right
-    big("bigtree", 1, 1, 3, 3)
-    big("bigtree", 25, 8, 3, 3)
-    big("bigtree", 28, 0, 3, 3)
-    tall(1, 9, 4, 3)
-    tall(24, 3, 3, 3)
-    for _, p in ipairs({ { 6, 3 }, { 7, 7 }, { 0, 6 }, { 5, 13 }, { 2, 14 }, { 7, 11 }, { 23, 0 }, { 30, 5 },
-                         { 23, 8 }, { 29, 12 }, { 24, 14 }, { 31, 9 } }) do put("tree", p[1], p[2]) end
-    for _, p in ipairs({ { 5, 0 }, { 8, 12 }, { 22, 11 }, { 31, 14 }, { 27, 4 } }) do put("pine", p[1], p[2]) end
-    for _, p in ipairs({ { 4, 5 }, { 0, 12 }, { 6, 9 }, { 3, 15 }, { 26, 13 }, { 28, 6 }, { 22, 3 }, { 30, 11 },
-                         { 24, 11 } }) do put("flowers", p[1], p[2]) end
-    put("rock", 8, 4) put("rock", 27, 15) put("oak", 31, 3)
-    return t
-end
-
-local function PixelTexture(t, file)
-    if not pcall(t.SetTexture, t, file, nil, nil, "NEAREST") then t:SetTexture(file) end
-    if t.SetSnapToPixelGrid then pcall(t.SetSnapToPixelGrid, t, false) end
-    if t.SetTexelSnappingBias then pcall(t.SetTexelSnappingBias, t, 0) end
-end
-
-COVERS.azeromon = function(parent, poster)
-    local A = ns.AzeroAtlas
-    local c = CreateFrame("Frame", nil, poster.artFrame)
-    c:SetAllPoints(poster.artFrame)
-    if not A then return c end
-    local AH = ns.AzeroAtlasHeight or 256
-    local E = 0.02 / 256
-    c.world = CreateFrame("Frame", nil, c)
-    c.world:SetSize(SCENE_C * TILE, SCENE_R * TILE)
-    for _, tl in ipairs(SceneTiles()) do
-        local i = A[tl[1]]
-        if i then
-            local t = c.world:CreateTexture(nil, "ARTWORK", nil, tl[1]:find("^grass") and -1 or (tl[1]:find("^path") and 0 or 1))
-            PixelTexture(t, MEDIA .. "Azeromon\\atlas")
-            local col, row = i % 16, floor(i / 16)
-            t:SetTexCoord(col * 16 / 256 + E, (col + 1) * 16 / 256 - E, row * 16 / AH + E, (row + 1) * 16 / AH - E)
-            t:SetSize(TILE, TILE)
-            t:SetPoint("TOPLEFT", tl[2] * TILE, -tl[3] * TILE)
-        end
+    for _, p in ipairs(WS.SceneryIn and WS.SceneryIn(SCENE_X, SCENE_Y, SCENE_X + SCENE_W, SCENE_Y + SCENE_H) or {}) do
+        local s, k = p.sp, p.k
+        local t = c.world:CreateTexture(nil, "BORDER")
+        t:SetTexture(p.file)
+        t:SetTexCoord(s.u / 1024, (s.u + s.w) / 1024, s.v / 1024, (s.v + s.h) / 1024)
+        local px = TILE / p.pxt * k
+        t:SetSize(s.w * px, s.h * px)
+        t:SetPoint("TOPLEFT", (p.x - SCENE_X) * TILE - s.ox * px, -((p.y - SCENE_Y) * TILE - s.oy * px))
+        depth[#depth + 1] = { t, p.sort }
     end
-    c.hero = c.world:CreateTexture(nil, "ARTWORK", nil, 3)
-    PixelTexture(c.hero, MEDIA .. "Azeromon\\chars")
-    c.hero:SetSize(TILE, TILE)
-    c.y, c.dir, c.pause, c.clock = 7.4, 1, 1.2, 0
-    local function frame(face, f)
-        local col, row = 3 + f, (face == "up") and 3 or 0
-        c.hero:SetTexCoord(col * 16 / 256 + E, (col + 1) * 16 / 256 - E, row * 16 / 128 + E, (row + 1) * 16 / 128 - E)
+    c.heroes = {}
+    local D = ns.AzeroData
+    for i, h in ipairs(SCENE_HEROES) do
+        local t = c.world:CreateTexture(nil, "BORDER")
+        t:SetTexture(MEDIA .. "Azeromon\mobs.blp")
+        t:SetSize(TILE * 1.2, TILE * 1.2)
+        c.heroes[i] = { tex = t, spr = D and D.CLASS_SPR and D.CLASS_SPR[h[1]] or 72, phase = h[2] }
+    end
+    c.depth = depth
+    c.clock = 0
+    local H = (D and D.MOB_SHEET_H) or 2048
+    local function frame(t, spr, face, f)
+        local col = (spr % 5) * 3 + f
+        local row = floor(spr / 5) * 4 + face
+        t:SetTexCoord(col * 32 / 512, (col + 1) * 32 / 512, row * 32 / H, (row + 1) * 32 / H)
     end
     function c:Layout(w, h)
         self.world:ClearAllPoints()
-        -- the house and the path in the middle of the art, the roof just under the kicker
-        self.world:SetPoint("TOPLEFT", self, "TOP", -(SCENE_OX + 6.5) * TILE, 0.4 * TILE)
+        -- the Abbey's door path in the middle, the front steps under the kicker
+        self.world:SetPoint("TOP", self, "TOP", 0, 2.4 * TILE)
     end
     function c:Refresh() end
     function c:Tick(elapsed)
         self.clock = self.clock + elapsed
-        if self.pause > 0 then
-            self.pause = self.pause - elapsed
-            frame(self.dir > 0 and "down" or "up", 1)
-        else
-            self.y = self.y + self.dir * elapsed * 2.2
-            if self.y >= 10.2 or self.y <= 7.2 then
-                self.y = max(7.2, min(10.2, self.y))
-                self.dir, self.pause = -self.dir, 1.6
-            end
+        -- three heroes down the road from the Abbey's door and back (south, then north), one after another
+        local list = {}
+        for i, h in ipairs(self.heroes) do
+            local t = (self.clock * 0.18 + h.phase / 3.3) % 2
+            local down = t < 1
+            local f = down and t or (2 - t)
+            local y = 8 + f * 9
+            local x = 20.5 + (i - 2) * 1.3
+            h.tex:ClearAllPoints()
+            h.tex:SetPoint("BOTTOM", self.world, "TOPLEFT", x * TILE, -y * TILE)
             local steps = { 0, 1, 2, 1 }
-            frame(self.dir > 0 and "down" or "up", steps[floor(self.clock * 7) % 4 + 1])
+            frame(h.tex, h.spr, down and 0 or 3, steps[floor(self.clock * 7 + i) % 4 + 1])
+            list[#list + 1] = { h.tex, y }
         end
-        self.hero:ClearAllPoints()
-        self.hero:SetPoint("TOPLEFT", self.world, "TOPLEFT", (SCENE_OX + 6) * TILE, -floor(self.y * TILE + 0.5))
+        for _, d in ipairs(self.depth) do list[#list + 1] = d end
+        table.sort(list, function(a, b) return a[2] < b[2] end)
+        local n = #list
+        for r, d in ipairs(list) do
+            local slot = floor((r - 1) * 16 / n)
+            d[1]:SetDrawLayer("BORDER", slot - 8)
+        end
     end
-    frame("down", 1)
     return c
 end
 
@@ -1214,7 +1190,7 @@ local function FillPoster(p)
     SetFaces(p, info.faces)
     p.hasFoot = (info.foot or "") ~= ""
     SetSideLook(p, p.side or false)
-    if p.id ~= "azeromon" then
+    if p.id ~= "disastercraft" then
         local key = info.art or "kara"
         p.art:SetTexture(LOADSCREEN[key] or LOADSCREEN.kara)
         p.art:SetVertexColor(0.78, 0.78, 0.8)

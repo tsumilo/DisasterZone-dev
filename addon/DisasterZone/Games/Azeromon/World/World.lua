@@ -21,6 +21,7 @@ local W = { blocks = {}, areas = {}, treeCells = {}, doors = {}, entCells = {}, 
 ns.AzeroWorldData = W
 local WS = {}
 ns.AzeroLand = WS
+ns.AzeroData = ns.AzeroData or {}  -- (Species.lua fills it: sprites, species, CLASS_SPR)
 
 local WIDTH = 8192                 -- tiles across the map (64 ADTs x 128)
 local BLOCK = 32

@@ -4,7 +4,7 @@ Covers: the tab opens on a carousel of every game (nothing selected, share ref "
 and a click on a side poster turn it (animated, wrapping round); a click on the front poster grows it into the
 game (strip + panel, share ref "game:<id>") and "< GAMES" goes back; links / Select open a game at once; the front
 poster on opening is Bingo while a game runs (LIVE, "n square from a line"), else the game opened last; each
-poster's stat comes from the game's saved data (Trainer best times + clears/tries, Azeromon badges / tamed,
+poster's stat comes from the game's saved data (Trainer best times + clears/tries, Disastercraft's best character,
 Bingo season); covers never raise Lua errors while they animate.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_hub.py [-k name]
@@ -47,7 +47,7 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     assert c.eval("return ns.GamesUI:GetSelected()") is None
     assert c.eval("return #%s" % POSTERS) == 4
     order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
-    assert order == ["bingo", "trainer", "azeromon", "chess"], order
+    assert order == ["bingo", "trainer", "disastercraft", "chess"], order
     n = len(order)
     start = front(c)
     i0 = order.index(start)
@@ -115,7 +115,7 @@ def the_open_and_the_way_back_are_one_crossfade():
     w, c = solo()
     c.world = w
     hub(c)
-    c.eval("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true)")
+    c.eval("ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:PauseAnim(true)")
     c.eval("for _, p in ipairs(%s) do if p.off == 0 then p:Click() end end" % POSTERS)
     c.eval("ns.GamesUI:StepAnim(0.2)")
     car, strip, stage = c.eval_py(ALPHAS)[0:3]
@@ -126,7 +126,7 @@ def the_open_and_the_way_back_are_one_crossfade():
     car, strip, stage = c.eval_py(ALPHAS)[0:3]
     assert 0 < strip < 1 and abs(car + strip - 1) < 0.01, (car, strip)
     c.eval("ns.GamesUI:StepAnim(0.3)")
-    assert c.eval("return ns.GamesUI:GetSelected()") == "azeromon"
+    assert c.eval("return ns.GamesUI:GetSelected()") == "disastercraft"
     assert c.eval("return ns.GamesUI:IsAnimating()") is False
     # back: the game fades while the poster comes back; nothing selected from the first frame
     c.eval("local function find(fr) for _, ch in ipairs({ fr:GetChildren() }) do "
@@ -140,7 +140,7 @@ def the_open_and_the_way_back_are_one_crossfade():
     c.eval("ns.GamesUI:StepAnim(0.5)")
     car, strip = c.eval_py(ALPHAS)[0:2]
     assert car == 1 and strip == -1, (car, strip)                   # (the strip is hidden again)
-    assert front(c) == "azeromon"
+    assert front(c) == "disastercraft"
     assert c.eval("for _, p in ipairs(%s) do if p.off == 0 then return p.over:GetAlpha() end end" % POSTERS) == 1
     c.eval("ns.GamesUI:PauseAnim(false)")
     no_errors(w)
@@ -150,16 +150,16 @@ def the_open_and_the_way_back_are_one_crossfade():
 def links_open_a_game_at_once_and_it_comes_first_next_time():
     w, c = solo()
     c.world = w
-    c.eval("ns.Games:Open('azeromon')")
+    c.eval("ns.Games:Open('disastercraft')")
     w.tick(0.2)
-    assert c.eval("return ns.GamesUI:GetSelected()") == "azeromon"
+    assert c.eval("return ns.GamesUI:GetSelected()") == "disastercraft"
     assert c.eval("return ns.GamesUI:IsAnimating()") is False
     c.eval("ns.GamesUI:ShowHub()")
     assert c.eval("return ns.GamesUI:GetSelected()") is None
     c.eval("ns.MainFrame:Open('home')")
     w.tick(0.2)
     hub(c)
-    assert front(c) == "azeromon"
+    assert front(c) == "disastercraft"
     no_errors(w)
 
 
@@ -168,7 +168,7 @@ def a_running_bingo_game_comes_first_and_says_how_close_you_are():
     w, c = solo()
     c.world = w
     hub(c)
-    c.eval("ns.GamesUI:ShowFront('azeromon')")
+    c.eval("ns.GamesUI:ShowFront('disastercraft')")
     c.eval("local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
            "d.current = { id = 'hubtest', host = me, started = now, hits = {} } "
            "local card = ns.Bingo:GetMyCard() "
@@ -199,9 +199,8 @@ def poster_stats_come_from_each_games_saved_data():
     c.eval("local d = ns.Games:GetData('trainer') "
            "d.enc = { vashj = { looter = { tries = 3, clears = 1, bestTime = 271.4 } }, "
            "          teron = { quick = { tries = 2, clears = 0 } } } d.last = 'vashj'")
-    c.eval("local s = { flags = {}, caught = { a = true, b = true }, seen = {} } "
-           "local n = 0 for id in pairs(ns.AzeroData.badges) do n = n + 1 if n <= 2 then s.flags['badge_' .. id] = true end end "
-           "ns.Games:GetData('azeromon').save = s")
+    c.eval("ns.Games:GetData('disastercraft').chars = { [1] = { v = 1, class = 1, level = 4, done = { [7] = true, [783] = true } }, "
+           "[8] = { v = 1, class = 8, level = 2, done = { [5261] = true } } }")
     hub(c)
     assert strip_codes(poster(c, "trainer", "stat")) == "1 clear  ·  5 tries"
     chips = c.eval_py("for _, p in ipairs(%s) do if p.id == 'trainer' then local o = {} "
@@ -209,8 +208,8 @@ def poster_stats_come_from_each_games_saved_data():
                       "return o end end" % POSTERS)
     assert [ch[0] for ch in chips] == ["Lady Vashj", "Teron Gorefiend"], chips
     assert chips[0][1] == "4:31" and strip_codes(chips[1][1]) == "not cleared", chips
-    total = c.eval("local n = 0 for _ in pairs(ns.AzeroData.badges) do n = n + 1 end return n")
-    assert strip_codes(poster(c, "azeromon", "stat")) == "Badges 2 of %d  ·  2 tamed" % total
+    got = strip_codes(poster(c, "disastercraft", "stat"))
+    assert got == "Level 4 Warrior  ·  3 quests", repr(got)
     no_errors(w)
 
 

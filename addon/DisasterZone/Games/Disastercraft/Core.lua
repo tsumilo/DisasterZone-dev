@@ -370,7 +370,7 @@ function Craft:OnInit()
             .. "fight with your guild.",
         tagline = "Your own World of Warcraft, in the guild window.",
         icon = "Interface\\Icons\\INV_Sword_04",
-        order = 5,
+        order = 20,
         create = function(parent) return ns.CraftUI:CreatePanel(parent) end,
         status = function()
             local n = ns.Craft.Party and ns.Craft.Party.PlayingCount and ns.Craft.Party.PlayingCount() or 0
