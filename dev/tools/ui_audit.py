@@ -212,7 +212,7 @@ end
 for _, o in ipairs(M.all_objects) do
   local st = OBJ[o]
   local kind = st and st.kind
-  if st and (kind == "FontString" or st.is_frame or kind == "Texture") then
+  if st and (kind == "FontString" or st.is_frame or kind == "Texture" or kind == "MaskTexture") then
     local vis = (o.IsVisible and o:IsVisible()) and 1 or 0
     local pts = {}
     for _, p in ipairs(st.points) do

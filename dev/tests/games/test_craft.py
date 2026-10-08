@@ -674,7 +674,7 @@ def ui_abbey_railing_draws_in_front_of_you_and_fades():
         if q.sort == p.y and not me then me = i end
         local over = q.x < sx + T * 0.3 and q.x + q.w > sx - T * 0.3 and q.y < sy and q.y + q.h > sy - T * 0.9
         if over and tostring(q.file):find("northshire_in") then
-          if q.sort > p.y then front = front or i faded = faded or q.alpha < 1
+          if q.sort > p.y then front = front or i faded = faded or q.alpha < 1 or q.see ~= nil
           else behind = i end
         end
       end

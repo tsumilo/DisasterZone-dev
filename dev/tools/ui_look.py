@@ -131,6 +131,16 @@ for _, o in ipairs(M.all_objects) do
       rec.vtile = st.vtile
       local m = st.masks and st.masks[1]
       if m and OBJ[m] then rec.mask = OBJ[m].texture and tostring(OBJ[m].texture) or nil end
+      -- every mask with its own region (placed where it is on the screen; CLAMPTOWHITE: no mask outside it)
+      if st.masks and #st.masks > 0 then
+        rec.masks = {}
+        for _, mk in ipairs(st.masks) do
+          local ms = OBJ[mk]
+          if ms and ms.texture then
+            rec.masks[#rec.masks + 1] = { seq = ms.seq, tex = tostring(ms.texture), wrap = ms.hwrap }
+          end
+        end
+      end
     else
       rec.tcolor = st.tcolor
       local fo = st.fontobj
@@ -299,6 +309,27 @@ def _tint(im, rgba):
     out = [bands[0].point(lambda x: int(x * r)), bands[1].point(lambda x: int(x * g)),
            bands[2].point(lambda x: int(x * b)), bands[3].point(lambda x: int(x * a))]
     return Image.merge("RGBA", out)
+
+
+def _apply_masks(im, masks, at, lay, ibox):
+    """Each mask texture at its own place on the screen: the texture keeps its pixels where the mask's alpha is;
+    outside the mask's box nothing is kept, or everything for a CLAMPTOWHITE mask."""
+    masks = list(masks.values()) if isinstance(masks, dict) else list(masks)
+    w, h = im.size
+    keep = None
+    for mk in masks:
+        rc = lay.rect(int(mk.get("seq") or 0))
+        src = load(mk.get("tex"))
+        if not rc or src is None:
+            continue
+        mx0, my0, mx1, my1 = ibox(rc)
+        field = Image.new("L", (w, h), 255 if mk.get("wrap") == "CLAMPTOWHITE" else 0)
+        if mx1 > mx0 and my1 > my0:
+            field.paste(src.resize((mx1 - mx0, my1 - my0), Image.LANCZOS).split()[3], (mx0 - at[0], my0 - at[1]))
+        keep = field if keep is None else ImageChops.multiply(keep, field)
+    if keep is not None:
+        im.putalpha(ImageChops.multiply(im.split()[3], keep))
+    return im
 
 
 def texture_image(r, w, h):
@@ -580,7 +611,11 @@ def render(regs, lay, findings, path, look, A, crop=None):
             x0, y0, x1, y1 = ibox(rc)
             d = dict(lk)
             d["color_rgba"] = r.get("color")
+            if lk.get("masks"):
+                d["mask"] = None                 # (placed below instead of stretched over the texture)
             im = texture_image(d, x1 - x0, y1 - y0)
+            if im is not None and lk.get("masks"):
+                im = _apply_masks(im, lk["masks"], (x0, y0), lay, ibox)
             if im is not None:
                 _paste(img, im, x0, y0, clip_px, lk.get("blend"))
         elif r["kind"] == "FontString":

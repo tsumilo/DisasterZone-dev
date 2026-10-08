@@ -76,7 +76,7 @@ end
 -- Each frame the drawing code asks for pictures (Draw), and FlushDepth hands them textures from the right frame.
 ---------------------------------------------------------------------------
 
-local DEPTH_FRAMES = 8
+local DEPTH_FRAMES = 16
 local depthFrames, depthPools = {}, {}
 local reqs, nreq = {}, 0
 local order = {}
@@ -89,27 +89,94 @@ local function Draw(sort)
     local r = reqs[nreq]
     if not r then r = {} reqs[nreq] = r end
     r.sort, r.idx = sort, nreq
-    r.c8, r.alpha, r.cr, r.cg, r.cb, r.blend, r.pt = nil, 1, 1, 1, 1, "BLEND", "TOPLEFT"
+    r.c8, r.alpha, r.cr, r.cg, r.cb, r.blend, r.pt, r.see = nil, 1, 1, 1, 1, "BLEND", "TOPLEFT", nil
     return r
 end
 UI.DepthDraw = Draw
 
+-- Seeing through: a wall or roof slice in front of a body near you (yours, your target's, the nearest few within
+-- FADE_NEAR tiles) gets a soft hole round that body - a mask (Media/Azeromon/seehole: white with a feathered,
+-- faint middle; clamped to white outside) laid over the body, opening as the body goes behind it and closing as it
+-- comes out. Without mask textures the covering slices fade instead.
+local FADE_NEAR, SEE_MAX = 6, 4
+local HOLE_W, HOLE_H = 1.9, 2.3             -- the hole's size in tiles
+local SEEHOLE = K.MEDIA .. "seehole.blp"
+local seeBoxes, seeN, seeOpen = {}, 0, {}   -- this frame's bodies; how open each body's hole is (by guid)
+local depthMasks = {}                       -- [frame][i]: the hole for seeBoxes[i] in that frame (or false)
+
+-- the bodies whose holes a wall slice (picture r at depth sort) takes: in front of the body and over its hole
+local function SeeHoles(r, sort)
+    local out
+    for i = 1, seeN do
+        local b = seeBoxes[i]
+        if sort > b.y and r.x < b.hx1 and r.x + r.w > b.hx0 and r.y < b.hy1 and r.y + r.h > b.hy0 then
+            out = out or {}
+            out[#out + 1] = i
+            if r.x < b.bx1 and r.x + r.w > b.bx0 and r.y < b.by1 and r.y + r.h > b.by0 then b.hit = true end
+        end
+    end
+    return out
+end
+
+local function HasMask(list, m)
+    for _, x in ipairs(list) do if x == m then return true end end
+    return false
+end
+
+-- a texture's holes: those its picture asks for (open ones), none else
+local function ApplyHoles(t, f, see)
+    local have = t.holes
+    if have then
+        for k = #have, 1, -1 do
+            local m = have[k]
+            local b = seeBoxes[m.seeIdx]
+            if not (see and HasMask(see, m.seeIdx) and b and m.seeIdx <= seeN and b.open > 0.02) then
+                t:RemoveMaskTexture(m)
+                table.remove(have, k)
+            end
+        end
+    end
+    if see then
+        for _, i in ipairs(see) do
+            local m = depthMasks[f] and depthMasks[f][i]
+            if m and seeBoxes[i].open > 0.02 then
+                have = have or {}
+                t.holes = have
+                if not HasMask(have, m) then t:AddMaskTexture(m) have[#have + 1] = m end
+            end
+        end
+    end
+end
+
 local function FlushDepth()
+    -- the holes where their bodies are, as open as they are
+    for f = 1, DEPTH_FRAMES do
+        local ms = depthMasks[f]
+        if ms then
+            for i, m in ipairs(ms) do
+                local b = i <= seeN and seeBoxes[i]
+                if b and b.open > 0.02 then
+                    m:ClearAllPoints()
+                    m:SetPoint("CENTER", depthFrames[f], "TOPLEFT", b.cx, -b.cy)
+                    m:SetSize(max(1, b.hw * b.open), max(1, b.hh * b.open))
+                end
+            end
+        end
+    end
     for i = #order, 1, -1 do order[i] = nil end
     for i = 1, nreq do order[i] = reqs[i] end
     table.sort(order, function(a, b)
         if a.sort ~= b.sort then return a.sort < b.sort end
         return a.idx < b.idx
     end)
-    local uniq, last = 0, nil
-    for _, r in ipairs(order) do
-        if r.sort ~= last then uniq = uniq + 1 last = r.sort end
-        r.rank = uniq
-    end
+    -- every picture its own slot, in order: two in one slot draw in either order (a body's gear layers share its
+    -- row, and flickered under the body while walking); a crowded screen shares slots out evenly
+    local n = #order
     local total = DEPTH_FRAMES * 32
     local used = {}
-    for _, r in ipairs(order) do
-        local slot = uniq <= total and (r.rank - 1) or floor((r.rank - 1) * total / uniq)
+    for i, r in ipairs(order) do
+        r.rank = i
+        local slot = n <= total and (i - 1) or floor((i - 1) * total / n)
         local f = floor(slot / 32) + 1
         local s = slot % 32
         local n = (used[f] or 0) + 1
@@ -128,7 +195,12 @@ local function FlushDepth()
         t:ClearAllPoints()
         t:SetPoint(r.pt, depthFrames[f], "TOPLEFT", r.x, -r.y)
         t:SetVertexColor(r.cr, r.cg, r.cb)
-        t:SetAlpha(r.alpha)
+        local a = r.alpha
+        if depthMasks[f] then ApplyHoles(t, f, r.see)
+        elseif r.see then
+            for _, i in ipairs(r.see) do a = min(a, 1 - 0.6 * seeBoxes[i].open) end
+        end
+        t:SetAlpha(a)
         if t.blend ~= r.blend then t:SetBlendMode(r.blend) t.blend = r.blend end
         if s < 16 then t:SetDrawLayer("BORDER", s - 8) else t:SetDrawLayer("ARTWORK", s - 24) end
         t:Show()
@@ -166,6 +238,18 @@ function UI.BuildWorld(parent)
         d:SetAllPoints()
         d:SetFrameLevel(canvas:GetFrameLevel() + f)
         depthFrames[f], depthPools[f] = d, {}
+        -- (a hole per body we may see through: masks only act on textures of their own frame)
+        if d.CreateMaskTexture then
+            local ms = {}
+            for i = 1, SEE_MAX do
+                local ok, m = pcall(d.CreateMaskTexture, d)
+                if not ok or not m then ms = nil break end
+                m:SetTexture(SEEHOLE, "CLAMPTOWHITE", "CLAMPTOWHITE")
+                m.seeIdx = i
+                ms[i] = m
+            end
+            depthMasks[f] = ms or nil
+        end
     end
     local fx = CreateFrame("Frame", nil, view)
     fx:SetAllPoints()
@@ -175,10 +259,12 @@ function UI.BuildWorld(parent)
     top:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES + 3)
     UI.view, UI.canvas, UI.top, UI.fxLayer = view, canvas, top, fx
     -- the target's circle (under every body)
-    UI.circle = K.Tex(canvas, "BACKGROUND", "Interface\\SelectionCircle\\Selection_SelectionA", 6)
+    -- (the client's glowing ring, added light tinted by reaction; the map is a ground plan, so it stays round -
+    -- Selection_SelectionA is an atlas of an arc and bars, not a circle)
+    UI.circle = K.Tex(canvas, "BACKGROUND", "Interface\\Minimap\\Ping\\ping4", 6)
     UI.circle:SetBlendMode("ADD")
     UI.circle:Hide()
-    UI.hoverCircle = K.Tex(canvas, "BACKGROUND", "Interface\\SelectionCircle\\Selection_SelectionA", 5)
+    UI.hoverCircle = K.Tex(canvas, "BACKGROUND", "Interface\\Minimap\\Ping\\ping4", 5)
     UI.hoverCircle:SetBlendMode("ADD")
     UI.hoverCircle:Hide()
     -- the ghost world: grey and cold
@@ -390,6 +476,42 @@ end
 -- The frame
 ---------------------------------------------------------------------------
 
+-- The labels over the heads: each a block standing on its head; the target's and the hovered one's keep their
+-- place, the rest (nearest the bottom of the screen first) step up past any label they would overlap
+local placed = {}
+local function LayoutPlates(list)
+    table.sort(list, function(a, b)
+        if a.prio ~= b.prio then return a.prio < b.prio end
+        return a.bottom > b.bottom
+    end)
+    for i = #placed, 1, -1 do placed[i] = nil end
+    for _, b in ipairs(list) do
+        local l, r = b.sx - b.w / 2, b.sx + b.w / 2
+        local bottom = b.bottom
+        for _ = 1, 8 do
+            local hit
+            for _, q in ipairs(placed) do
+                if l < q[2] and r > q[1] and bottom - b.h < q[4] and bottom > q[3] then hit = q break end
+            end
+            if not hit then break end
+            bottom = hit[3] - 1
+        end
+        placed[#placed + 1] = { l, r, bottom - b.h, bottom }
+        for _, part in ipairs(b.parts) do
+            local region, off = part[1], part[2]
+            region:ClearAllPoints()
+            region:SetPoint("BOTTOM", top, "TOPLEFT", b.sx, -(bottom - off - (region == b.o.bar and 2 or 0)))
+        end
+    end
+end
+
+-- the ring round a unit's feet: as wide as its body (critters small; a corpse lies longer)
+local function CircleSize(u)
+    if u.kind == "critter" then return 0.6 end
+    if u.dead and not u.ghost then return 1.15 end
+    return 0.95
+end
+
 local function UnitFrame(u, now)
     if u.moving then return floor(now * 7) % 4 == 0 and 0 or (floor(now * 7) % 4 == 2 and 2 or 1) end
     return 1
@@ -442,9 +564,27 @@ function UI.DrawWorld(dt)
     if map == "world" then list = WS.SceneryIn(x0, y0, x1, y1)
     else local m = Craft.World.interiors[map] list = m and m.art or {} end
     local feetX, feetY = p.x, p.y
-    -- your body's box on the screen (the walls in front of it fade)
-    local psx, psy = ToScreen(p.x, p.y)
-    local pl, pr, pt, pb = psx - TILE * 0.35, psx + TILE * 0.35, psy - TILE * 0.95, psy
+    -- the bodies a wall may not hide (see SeeHoles): you, your target, then the nearest within FADE_NEAR tiles
+    local cand = {}
+    for _, u in pairs(Combat.units) do
+        if u.map == map and not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) and
+           (u == p or u == p.target or (abs(u.x - p.x) < FADE_NEAR and abs(u.y - p.y) < FADE_NEAR)) then
+            cand[#cand + 1] = { u = u, k = (u == p and -2) or (u == p.target and -1) or Craft.Dist(u.x, u.y, p.x, p.y) }
+        end
+    end
+    table.sort(cand, function(a, b) return a.k < b.k end)
+    seeN = min(#cand, SEE_MAX)
+    for i = 1, seeN do
+        local u = cand[i].u
+        local ux, uy = ToScreen(u.x, u.y)
+        local b = seeBoxes[i]
+        if not b then b = {} seeBoxes[i] = b end
+        b.u, b.y, b.hit = u, u.y, false
+        b.cx, b.cy = ux, uy - TILE * 0.5
+        b.bx0, b.bx1, b.by0, b.by1 = ux - TILE * 0.3, ux + TILE * 0.3, uy - TILE * 0.95, uy - TILE * 0.05
+        b.hw, b.hh = TILE * HOLE_W, TILE * HOLE_H
+        b.hx0, b.hx1, b.hy0, b.hy1 = b.cx - b.hw / 2, b.cx + b.hw / 2, b.cy - b.hh / 2, b.cy + b.hh / 2
+    end
     for _, sc in ipairs(list) do
         local s, k = sc.sp, sc.k
         local kk = k / sc.pxt
@@ -468,22 +608,42 @@ function UI.DrawWorld(dt)
             else
                 local r = Draw(sc.sort)
                 ScenPicture(r, sc, px16)
-                -- a wall in front of you that hides you turns see-through where it covers you (only the slices on
-                -- you, so the room keeps its walls); a tree crown fades the same way
-                if sc.wall and sc.sort > feetY and r.x < pr and r.x + r.w > pl and r.y < pb and r.y + r.h > pt then
-                    r.alpha = 0.4
+                -- a wall in front of a body near you turns see-through where it covers it (only the slices on it,
+                -- so the room keeps its walls); a tree crown in front of you fades; both ease in and out
+                local want = 1
+                if sc.wall then
+                    r.see = SeeHoles(r, sc.sort)
                 elseif sc.tree and sc.sort > feetY then
                     local R = 2.5
                     if feetX + R >= l and feetX - R <= l + s.w * kk and feetY - 0.5 + R >= tt and feetY - 0.5 - R <= tt + s.h * kk then
-                        r.alpha = 0.3
+                        want = 0.3
                     end
                 end
+                local a = sc.fadeA or 1
+                if a ~= want then
+                    local step = (dt or 0) * 3
+                    a = a < want and min(want, a + step) or max(want, a - step)
+                    if not dt or dt <= 0 then a = want end
+                    sc.fadeA = a
+                end
+                r.alpha = a
             end
         end
     end
     for i = scenUsed + 1, #scen do scen[i]:Hide() end
+    -- each hole opens while its body is behind a wall and closes once it comes out (kept by guid: it follows them)
+    for i = 1, seeN do
+        local b = seeBoxes[i]
+        local g = b.u.guid or b.u
+        local o, want = seeOpen[g] or 0, b.hit and 1 or 0
+        if not dt or dt <= 0 then o = want
+        elseif want > o then o = min(want, o + dt * 4) else o = max(want, o - dt * 3) end
+        seeOpen[g] = o > 0 and o or nil
+        b.open = o
+    end
     -- units
     local seen = {}
+    local plates = {}
     local halfW, halfH = cols / 2 + 2, rows / 2 + 2
     for _, u in pairs(Combat.units) do
         if u.map == map and abs(u.x - camX) < halfW and abs(u.y - camY) < halfH and
@@ -531,7 +691,25 @@ function UI.DrawWorld(dt)
             local showName = (u.kind == "npc") or isPlayer or u == p.target or u == UI.hover or
                              (u.inCombat and u.target == p)
             if u == p then showName = false end
-            local y = headY
+            -- the label over the head, built upward like WoW's: health bar, <title>, name, quest mark (placed
+            -- after every body is in - see LayoutPlates - so no two labels overlap)
+            local blk = { o = o, sx = sx, bottom = headY, w = 0, h = 0, parts = {}, u = u,
+                          prio = (u == p.target and 0) or (u == UI.hover and 1) or 2 }
+            local function Part(region, height, width)
+                blk.parts[#blk.parts + 1] = { region, blk.h, height }
+                blk.h = blk.h + height
+                blk.w = max(blk.w, width or 0)
+            end
+            if u.kind == "mob" and not u.dead and (u.inCombat or u == p.target) then
+                o.bar:SetWidth(max(36, TILE * 1.4))
+                o.bar:SetValue(u.hp / max(1, u.hpMax))
+                local c = REACT[react] or REACT.neutral
+                o.bar:SetStatusBarColor(c[1], c[2] * 0.9, c[3])
+                o.bar:Show()
+                Part(o.bar, 9, max(36, TILE * 1.4) + 8)
+            else
+                o.bar:Hide()
+            end
             if showName then
                 local c = REACT[react] or REACT.neutral
                 if isPlayer then
@@ -542,51 +720,30 @@ function UI.DrawWorld(dt)
                 if u.title and u.kind == "npc" then
                     o.title:SetText("<" .. u.title .. ">")
                     o.title:SetTextColor(0.9, 0.9, 0.9)
-                    o.title:ClearAllPoints()
-                    o.title:SetPoint("BOTTOM", top, "TOPLEFT", sx, -y)
                     o.title:Show()
-                    y = y + 11
+                    Part(o.title, 11, o.title:GetStringWidth() or 60)
                 else
                     o.title:Hide()
                 end
                 o.name:SetText(u.name or "")
                 o.name:SetTextColor(c[1], c[2], c[3])
-                o.name:ClearAllPoints()
-                o.name:SetPoint("BOTTOM", top, "TOPLEFT", sx, -y)
                 o.name:Show()
-                y = y + 13
+                Part(o.name, 13, o.name:GetStringWidth() or 60)
             else
                 o.name:Hide() o.title:Hide()
             end
-            -- a health plate on creatures in a fight with you or targeted
-            if u.kind == "mob" and not u.dead and (u.inCombat or u == p.target) then
-                o.bar:ClearAllPoints()
-                o.bar:SetPoint("BOTTOM", top, "TOPLEFT", sx, -(showName and (headY - 2) or headY) + 0)
-                o.bar:SetWidth(max(36, TILE * 1.4))
-                o.bar:SetValue(u.hp / max(1, u.hpMax))
-                local c = REACT[react] or REACT.neutral
-                o.bar:SetStatusBarColor(c[1], c[2] * 0.9, c[3])
-                o.bar:Show()
-                if showName then
-                    o.name:ClearAllPoints()
-                    o.name:SetPoint("BOTTOM", o.bar, "TOP", 0, 2)
-                end
-            else
-                o.bar:Hide()
-            end
-            -- quest markers
             local mark, grey
             if u.kind == "npc" and u.entry then mark, grey = Craft.Quests.Marker(u.entry) end
             if mark then
                 o.quest:SetTexture(mark == "!" and "Interface\\GossipFrame\\AvailableQuestIcon"
                                    or "Interface\\GossipFrame\\ActiveQuestIcon")
                 if o.quest.SetDesaturated then o.quest:SetDesaturated(grey and true or false) end
-                o.quest:ClearAllPoints()
-                o.quest:SetPoint("BOTTOM", top, "TOPLEFT", sx, -(y + 1))
                 o.quest:Show()
+                Part(o.quest, 23, 22)
             else
                 o.quest:Hide()
             end
+            if blk.h > 0 then plates[#plates + 1] = blk end
             -- a lootable corpse sparkles
             if u.dead and u.rec and Craft.Loot.CanLoot(u) then
                 o.sparkle:ClearAllPoints()
@@ -617,6 +774,7 @@ function UI.DrawWorld(dt)
         end
     end
     for guid, o in pairs(overlay) do if not seen[guid] and o.used ~= false then HidePlate(o) end end
+    LayoutPlates(plates)
     -- objects (crates you can pick up, herbs, ore): their item's picture, sparkling when a quest wants them
     UI.DrawObjects(map, halfW, halfH, now)
     -- the target's circle
@@ -626,9 +784,10 @@ function UI.DrawWorld(dt)
         if tgt.dead then c = { 0.6, 0.6, 0.6 } end
         local sx, sy = ToScreen(tgt.x, tgt.y)
         UI.circle:ClearAllPoints()
-        UI.circle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.1 * TILE))
-        UI.circle:SetSize(TILE * 1.25, TILE * 0.62)
-        UI.circle:SetVertexColor(c[1], c[2], c[3], 0.9)
+        local d = TILE * CircleSize(tgt)
+        UI.circle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.04 * TILE))
+        UI.circle:SetSize(d, d)
+        UI.circle:SetVertexColor(c[1], c[2], c[3], 1)
         UI.circle:Show()
     else
         UI.circle:Hide()
@@ -637,9 +796,10 @@ function UI.DrawWorld(dt)
     if hv and hv ~= tgt and hv.map == map then
         local sx, sy = ToScreen(hv.x, hv.y)
         UI.hoverCircle:ClearAllPoints()
-        UI.hoverCircle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.1 * TILE))
-        UI.hoverCircle:SetSize(TILE * 1.2, TILE * 0.6)
-        UI.hoverCircle:SetVertexColor(1, 1, 1, 0.35)
+        local d = TILE * CircleSize(hv)
+        UI.hoverCircle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.04 * TILE))
+        UI.hoverCircle:SetSize(d, d)
+        UI.hoverCircle:SetVertexColor(1, 1, 1, 0.4)
         UI.hoverCircle:Show()
     else
         UI.hoverCircle:Hide()
@@ -692,13 +852,24 @@ end
 ---------------------------------------------------------------------------
 
 local objTex = {}
+-- an object's picture from its own model (the generator's W.objSprites[region], entity field s), or nil
+local function ObjectModel(o)
+    if o.model ~= nil then return o.model or nil end
+    local e = o.e
+    local SP = e and e.s and W.objSprites and W.objSprites[e.sr or ""]
+    local s = SP and SP.list[e.s + 1]
+    o.model = s and { sp = s, file = SP.file .. s.page, x = o.x, y = o.y, k = 1, pxt = SP.pxt } or false
+    return o.model or nil
+end
+
 function UI.DrawObjects(map, halfW, halfH, now)
     local n = 0
     for _, o in ipairs(Craft.World.objects) do
         if o.map == map and abs(o.x - camX) < halfW and abs(o.y - camY) < halfH then
             local wanted = Craft.Quests.ObjectWanted(o)
             local used = o.usedUntil and Craft.World.Clock() < o.usedUntil
-            if not used and (wanted or o.e.kind == "herb" or o.e.kind == "ore" or o.e.kind == "chest") then
+            local model = ObjectModel(o)
+            if not used and (model or wanted or o.e.kind == "herb" or o.e.kind == "ore" or o.e.kind == "chest") then
                 n = n + 1
                 local t = objTex[n]
                 if not t then
@@ -713,8 +884,12 @@ function UI.DrawObjects(map, halfW, halfH, now)
                 else icon = "Interface\\Icons\\INV_Box_01" end
                 local sx, sy = ToScreen(o.x, o.y)
                 local r = Draw(o.y)
-                r.file, r.l, r.r, r.t, r.b = icon, 0.07, 0.93, 0.07, 0.93
-                r.w, r.h, r.pt, r.x, r.y = TILE * 0.62, TILE * 0.62, "BOTTOM", sx, sy
+                if model then
+                    ScenPicture(r, model, TILE / model.pxt)        -- (its own model, like the scenery)
+                else
+                    r.file, r.l, r.r, r.t, r.b = icon, 0.07, 0.93, 0.07, 0.93
+                    r.w, r.h, r.pt, r.x, r.y = TILE * 0.62, TILE * 0.62, "BOTTOM", sx, sy
+                end
                 t.shown = true
                 if wanted then
                     t.glow:SetSize(TILE * 0.9, TILE * 0.9)

@@ -1006,6 +1006,9 @@ STATES = [
     ("Disastercraft - inside the Abbey", opened("games", dc(5, 8.5, 31.5, "i10286_0"))),
     # right behind the hall's south railing: the railing's depth slice covers the legs
     ("Disastercraft - Abbey railing", opened("games", dc(5, 9.5, 34.7, "i10286_0"))),
+    # outdoors by the Abbey's east end: Eagan Peltskinner under the roof (it fades round him), trees behind it
+    ("Disastercraft - by Eagan", opened("games", dc(1, 4133.5, 6223.6))),
+    ("Disastercraft - Abbey east trees", opened("games", dc(1, 4128.5, 6228.5))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),

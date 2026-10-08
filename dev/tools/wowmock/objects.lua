@@ -855,7 +855,9 @@ local FontStringMethods = {
 }
 
 define("TextureBase", "Region", {
-  SetTexture = function(self, tex) local st = S(self); st.texture = tex; st.atlas = nil; return true end,
+  SetTexture = function(self, tex, hwrap, vwrap)
+    local st = S(self); st.texture = tex; st.atlas = nil; st.hwrap, st.vwrap = hwrap, vwrap; return true
+  end,
   GetTexture = function(self) return S(self).texture end,
   GetTextureFileID = function(self) local t = S(self).texture; return type(t) == "number" and t or nil end,
   GetTextureFilePath = function(self) return S(self).texture end,

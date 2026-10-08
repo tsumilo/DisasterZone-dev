@@ -85,6 +85,20 @@ function W.AddScenery(sp, flat)
     end
 end
 
+-- a building's depth slices outdoors: flat { sprite, x, y, sort (16 a tile) }; each slice sorts at the ground row
+-- under it, so whatever stands behind one wing and in front of another is drawn right (and may fade: wall)
+function W.AddSceneryWalls(sp, flat)
+    for i = 1, #flat, 4 do
+        local s = sp.list[flat[i] + 1]
+        local p = { sp = s, file = sp.file .. s.page, x = flat[i + 1] / 16, y = flat[i + 2] / 16,
+                    sort = flat[i + 3] / 16, k = 1, pxt = sp.pxt, wall = true }
+        local key = floor(p.y / CELL) * 1024 + floor(p.x / CELL)
+        local list = W.scenCells[key]
+        if not list then list = {} W.scenCells[key] = list end
+        list[#list + 1] = p
+    end
+end
+
 -- an interior floor's picture, drawn from its building's model: flat { sprite (0-based), x, y (16 a tile) }
 W.interiorArt = {}
 function W.AddInteriorArt(id, sp, flat)

@@ -24,6 +24,7 @@ BANDS = 4                    # interiors: depth bands a grid cell (walls drawn i
 OCC_ROWS = 2                 # ... a wall is cut into bands only with floor this many rows north of it
 OCC_MIN_HEIGHT = 0.35        # ... and only where it stands this many yards over the floor
 OCC_COL = 64                 # ... in columns this wide
+WMO_BANDS = 2                # outdoor buildings: depth bands a tile
 PPY = PXT / A.TS             # pixels a yard on the map
 ELEV = None                  # oblique (azw_render): footprints line up with the collision tiles
 TREE_ELEV = None               # crowns from higher up: their leaf cards smear when seen from the side
@@ -84,7 +85,9 @@ def pack(sprites, page=1024):
     return pages
 
 
-def build(world, gbox, out_base):
+def build(world, gbox, out_base, objects=None):
+    """objects: {key: (model FileDataID, scale)} - game objects (herbs, ore, quest crates) drawn from their own
+    models; their sprites come back as result["objects"][key] = sprite index."""
     r = world["r"]
     gx0, gx1, gy0, gy1 = gbox
     sprites, keys, placements = [], {}, []
@@ -139,7 +142,76 @@ def build(world, gbox, out_base):
         ids = sprite_for(key, lambda: RD.render(_scaled(mesh, s), yaw, el, PPY))
         for i in ids or ():
             placements.append({"s": i, "x": gx, "y": gy, "sort": gy, "kind": kind, "k": round(k, 2)})
-    # buildings, walls, bridges (WMOs)
+    # buildings, walls, bridges (WMOs): cut into depth slices by the ground row under each pixel (WMO_BANDS a
+    # tile), so a tree or a body behind one wing and in front of another sorts against the part it is really
+    # behind; their flat ground-level parts (steps, porches, decks) lie under everything
+    def wmo_pieces(key, mesh, yaw, floor_z):
+        if key in keys:
+            return keys[key]
+        got = RD.render(mesh, yaw, ELEV, PPY, oversample=2, aux_floor_z=floor_z)
+        if got[0] is None:
+            keys[key] = None
+            return None
+        img, origin, aux = got
+        ys, xs = np.nonzero(img[..., 3])
+        if len(xs) == 0:
+            keys[key] = None
+            return None
+        cx0, cx1, cy0, cy1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+        img = img[cy0:cy1, cx0:cx1]
+        north, isfloor = aux["north"][cy0:cy1, cx0:cx1], aux["floor"][cy0:cy1, cx0:cx1]
+        origin = (origin[0] - cx0, origin[1] - cy0)
+        h, wd = img.shape[:2]
+        opaque = img[..., 3] > 0
+        out = []
+
+        def add(piece, x0, y0, rel):
+            sprites.append({"img": piece, "ox": origin[0] - x0, "oy": origin[1] - y0, "key": key})
+            out.append((len(sprites) - 1, rel))
+
+        flat = opaque & isfloor
+        if flat.any():
+            fl = img.copy()
+            fl[~flat] = 0
+            for y0 in range(0, h, 1000):
+                for x0 in range(0, wd, 1000):
+                    piece = fl[y0:y0 + 1000, x0:x0 + 1000]
+                    if piece[..., 3].any():
+                        add(piece, x0, y0, None)
+        rest = opaque & ~isfloor
+        # (bands counted from the model's origin, north positive: a band's sort is the placement's row minus it)
+        band = np.floor(north / A.TS * WMO_BANDS).astype(np.int64)
+        for b in np.unique(band[rest]):
+            sel = rest & (band == b)
+            for x0 in range(0, wd, OCC_COL):
+                m = sel[:, x0:x0 + OCC_COL]
+                if not m.any():
+                    continue
+                ys_, xs_ = np.nonzero(m)
+                # (a pixel of overlap into the building next to it, so neighbouring slices leave no seam)
+                py0, py1 = max(0, ys_.min() - 1), min(h, ys_.max() + 2)
+                px0, px1 = max(0, x0 + xs_.min() - 1), min(wd, x0 + xs_.max() + 2)
+                mm = sel[py0:py1, px0:px1].copy()
+                if px0 < x0:
+                    mm[:, :x0 - px0] = False
+                if px1 > x0 + OCC_COL:
+                    mm[:, x0 + OCC_COL - px0:] = False
+                g = mm.copy()
+                g[1:, :] |= mm[:-1, :]
+                g[:-1, :] |= mm[1:, :]
+                g[:, 1:] |= mm[:, :-1]
+                g[:, :-1] |= mm[:, 1:]
+                g &= opaque[py0:py1, px0:px1]
+                piece = img[py0:py1, px0:px1].copy()
+                piece[~g] = 0
+                rel = (b + 0.5) / WMO_BANDS * A.TS          # yards north of the origin
+                while piece.shape[0] > 1000:
+                    add(piece[:1000], px0, py0, rel)
+                    piece, py0 = piece[1000:], py0 + 1000
+                add(piece, px0, py0, rel)
+        keys[key] = out
+        return out
+
     for w in r["wmos"]:
         fid, pos, rot = w[0], w[1], w[2]
         gx, gy = pos[0] / A.TS, pos[2] / A.TS
@@ -155,12 +227,33 @@ def build(world, gbox, out_base):
         if max(bb[3] - bb[0], bb[5] - bb[2]) > 400:
             continue                     # a whole city (Stormwind): drawn in pieces with its own step
         yaw = math.radians(rot[1] - 180)
-        key = ("wmo", fid, round(rot[1], 1))
-        ids = sprite_for(key, lambda: RD.render(mesh, yaw, ELEV, PPY, oversample=2))
-        # drawn behind whoever stands south of its northern half: sort by the middle of its footprint
-        for i in ids or ():
-            placements.append({"s": i, "x": gx, "y": gy, "sort": (bb[2] + bb[5]) / 2 / A.TS, "kind": "wmo",
-                               "uid": w[7]})
+        # the ground under its origin, in the model's frame (what counts as its flat ground-level parts)
+        lx, ly = int(gx) - r["gx0"], int(gy) - r["gy0"]
+        ground = float(r["z"][ly, lx]) if 0 <= lx < r["W"] and 0 <= ly < r["H"] else pos[1]
+        key = ("wmo", fid, round(rot[1], 1), round(ground - pos[1], 1))
+        for i, rel in wmo_pieces(key, mesh, yaw, ground - pos[1]) or ():
+            pl = {"s": i, "x": gx, "y": gy, "kind": "wmo", "uid": w[7]}
+            if rel is None:
+                pl["sort"] = -1e6                        # (flat on the ground: under everyone)
+            else:
+                pl["sort"] = gy - rel / A.TS
+                pl["wall"] = True
+            placements.append(pl)
+    # game objects: one sprite per model and size, standing on its origin like a doodad
+    obj_sprites = {}
+    for okey, (ofid, osc) in sorted((objects or {}).items(), key=lambda kv: str(kv[0])):
+        try:
+            mesh = RD.m2_mesh(ofid)
+        except Exception:
+            mesh = None
+        if not mesh or not mesh["tris"]:
+            continue
+        ext = mesh["verts"].max(0) - mesh["verts"].min(0)
+        boost = PROP_SCALE if max(ext[0], ext[1], ext[2]) * osc < SMALL else 1.0
+        s = round(osc * boost, 2)
+        ids = sprite_for(("go", ofid, s), lambda: RD.render(_scaled(mesh, s), 0.0, ELEV, PPY))
+        if ids:
+            obj_sprites[okey] = ids[0]
     pages = pack(sprites)
     os.makedirs(os.path.dirname(out_base), exist_ok=True)
     for pg in range(pages):
@@ -171,7 +264,7 @@ def build(world, gbox, out_base):
                 canvas[sp["v"]:sp["v"] + h, sp["u"]:sp["u"] + w_] = sp["img"]
         from azw_blp import write_dxt5
         write_dxt5(Image.fromarray(canvas, "RGBA"), "%s_%d.blp" % (out_base, pg))
-    return {"sprites": sprites, "placements": placements, "pages": pages}
+    return {"sprites": sprites, "placements": placements, "pages": pages, "objects": obj_sprites}
 
 
 # ---------------------------------------------------------------------------------------------------------------

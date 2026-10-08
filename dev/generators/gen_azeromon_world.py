@@ -493,6 +493,23 @@ def emit_ground(world, region, bx0, bx1, by0, by1):
     return out, pages
 
 
+def object_models(entities):
+    """{gameobject entry: (model FileDataID, size)} for the region's objects (GameObjectDisplayInfo)."""
+    import tbcdb
+    import gen_disastercraft as GD
+    tmpl = tbcdb.load().index("gameobject_template", "entry")
+    disp = {int(r["ID"]): int(r["FileDataID"] or 0) for r in GD.table("GameObjectDisplayInfo")}
+    out = {}
+    for e in entities:
+        if e.get("k") != "obj" or e["e"] in out:
+            continue
+        t = tmpl.get(e["e"])
+        fid = t and disp.get(int(t["displayId"] or 0))
+        if fid:
+            out[e["e"]] = (fid, float(t["size"] or 1))
+    return out
+
+
 def emit(world, region, entities, interiors=()):
     """Writes World/<Region>.lua: the region's blocks, area names, trees, doors and spawns."""
     import azw_entities as E
@@ -506,7 +523,10 @@ def emit(world, region, entities, interiors=()):
     import azw_scenery as SCN
     scen = SCN.build(dict(world, wmo_kinds=WMO_KINDS),
                      (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK),
-                     os.path.join(MEDIA, "Scenery", region))
+                     os.path.join(MEDIA, "Scenery", region), objects=object_models(entities))
+    for e in entities:
+        if e.get("k") == "obj" and e["e"] in scen["objects"]:
+            e["s"], e["sr"] = scen["objects"][e["e"]], region   # (its model's sprite in this region's scenery pages)
     print("scenery %s: %d sprites, %d placements, %d page(s)" % (region, len(scen["sprites"]),
                                                                  len(scen["placements"]), scen["pages"]))
     lines = []
@@ -545,12 +565,18 @@ def emit(world, region, entities, interiors=()):
             sp += [s_["page"], s_["u"], s_["v"], w_, h_, int(round(s_["ox"])), int(round(s_["oy"]))]
         out.append("local SP = W.AddSprites(%s, %d, %d, { %s })\n" % (lua_str(region), scen["pages"], SCN.PXT,
                                                                        ", ".join(map(str, sp))))
-        pl = []
+        pl, walls = [], []
         for p_ in scen["placements"]:
+            if p_.get("wall"):                  # a building's depth slice (see azw_scenery: wmo_pieces)
+                walls += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)), int(round(p_["sort"] * 16))]
+                continue
             kk = int(round(p_.get("k", 1) * 100))
             pl += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)), int(round(p_["sort"] * 16)),
                    -kk if p_.get("kind") == "tree" else kk]           # (negative: a tree, its crown may fade)
         out.append("W.AddScenery(SP, { %s })\n" % ", ".join(map(str, pl)))
+        out.append("W.objSprites = W.objSprites or {} W.objSprites[%s] = SP\n" % lua_str(region))
+        if walls:
+            out.append("W.AddSceneryWalls(SP, { %s })\n" % ", ".join(map(str, walls)))
         for d in doors:
             out.append("W.AddDoor(%s)\n" % lua_val({"x": d["x"], "y": d["y"], "ox": d["out"][0], "oy": d["out"][1],
                                                      "wmo": d["wmo"], "uid": d["uid"]}))
@@ -787,6 +813,23 @@ def emit_sprite_sheet(displays):
     return out, h
 
 
+def emit_seehole():
+    """Media/Azeromon/seehole.blp: Disastercraft's see-through mask (UIWorld SeeHoles) - white, with a feathered
+    ellipse in the middle where a wall in front of a body shows faintly (28 %)."""
+    import numpy as np
+    from PIL import Image
+    from azw_blp import write_dxt5
+    n = 128
+    y, x = np.mgrid[0:n, 0:n] + 0.5
+    d = np.sqrt(((x - n / 2) / (n / 2)) ** 2 + ((y - n / 2) / (n / 2)) ** 2)
+    t = np.clip((d - 0.45) / (0.97 - 0.45), 0, 1)
+    t = t * t * (3 - 2 * t)
+    img = np.zeros((n, n, 4), np.uint8)
+    img[..., :3] = 255
+    img[..., 3] = ((0.28 + 0.72 * t) * 255).astype(np.uint8)
+    write_dxt5(Image.fromarray(img, "RGBA"), os.path.join(MEDIA, "seehole.blp"))
+
+
 # the player classes' looks (Disastercraft): a human in the class's starting outfit (CharStartOutfit, race 1;
 # hearthstone, food and water left out), 0 = male, 1 = female
 CLASS_OUTFITS = {"WARRIOR": (38, 39, 40, 25, 2362), "MAGE": (56, 1395, 55, 35), "PRIEST": (6098, 52, 53, 51, 36)}
@@ -873,6 +916,7 @@ if __name__ == "__main__":
         displays += [d for d in players.values() if d]
         displays += [("outfit", 1, sex, items) for items in CLASS_OUTFITS.values() for sex in (0, 1)]
         sheet, sheet_h = emit_sprite_sheet(displays)
+        emit_seehole()
         for region, ents, interiors in regions:
             for e in ents:
                 if e["k"] in ("npc", "critter") and e.get("d") in sheet:
