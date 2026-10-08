@@ -539,6 +539,13 @@ COVERS.chess = function(parent)
         end
     end
 
+    -- the poster's low shade over the floor (the floor draws above the poster's own shade, which the painting
+    -- fades under): the same gradient to the ground colour, as high, on top of the floor and under the pieces
+    c.shade = v.floorFrame:CreateTexture(nil, "BACKGROUND", nil, 7)
+    c.shade:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", -1, -2)
+    c.shade:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 1, -2)
+    Gradient(c.shade, "VERTICAL", BASE[1], BASE[2], BASE[3], 1, BASE[1], BASE[2], BASE[3], 0)
+
     -- the pieces and the fire
     c.actors = {}
     for i, p in ipairs(CHESS_CAST) do
@@ -661,6 +668,8 @@ COVERS.chess = function(parent)
         if w == self.lw and h == self.lh then return end
         self.lw, self.lh = w, h
         self:SetSize(w, h)
+        -- (the cover ends where the art does, 52 under its top: the art's height is h + 52, as Place has it)
+        self.shade:SetHeight(max(1, (h + 52) * 0.4 + 2))
         self.dirty = true
     end
     function c:Refresh() end
