@@ -68,6 +68,7 @@ ns.CHANGELOG = {
               "Tabs per continent with how many are there. Click a region to open its map.",
               "Right-click or the path at the top goes back out. The list beside it goes by zone.",
               "Crowds are rings in their class colours; dungeons and raids sit at their entrance.",
+              "A white skull marks a dungeon, a gold one a raid.",
               "Dots glide as people move; your arrow follows you and turns with you.",
               "Right-click someone to whisper or invite them; click for their Members profile.",
               "Members: the card says where they are, or the zone they were last seen in.",

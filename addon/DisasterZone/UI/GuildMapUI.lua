@@ -23,7 +23,19 @@ local CLUSTER_PX = 16          -- dots closer than this on a continent are one c
 local CROWD_PX = 28            -- a crowd and anything closer than this are one crowd
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local ARROW = "Interface\\Minimap\\MinimapArrow"
-local SKULL = "Interface\\WorldMap\\Skull_64"
+local SKULL = "Interface\\WorldMap\\Skull_64"                         -- gold: a raid
+local SKULL_WHITE = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8"   -- white: a dungeon
+
+-- A skull on a texture: gold for a raid (the world map's), white for a dungeon (the skull raid mark).
+local function SetSkull(tex, raid)
+    if raid then
+        tex:SetTexture(SKULL)
+        tex:SetTexCoord(0, 0.5, 0, 0.5)
+    else
+        tex:SetTexture(SKULL_WHITE)
+        tex:SetTexCoord(0, 1, 0, 1)
+    end
+end
 local GOLD = { 1, 0.82, 0 }
 
 local panel
@@ -461,6 +473,10 @@ local function NewPin(v)
             self.count:SetText(#d.keys)
         end
         self.skull:SetShown(kind == "dungeon")
+        if kind == "dungeon" then
+            SetSkull(self.skull, d.raid)
+            self.skull:SetSize(d.raid and 16 or 14, d.raid and 16 or 14)
+        end
         self.badgeFrame:SetShown(kind == "dungeon")
         self.under:SetShown(kind == "dungeon" and d.showName ~= false)
         if kind == "dungeon" then
@@ -950,8 +966,9 @@ local function Build(entries, map, zoneView, W, H, place)
                 if e.i then name = e.n or "?"
                 elseif zoneView and zk:sub(1, 1) == "s" then name = e.s
                 else name = G:GetMapName(e.m) or "?" end
-                z = { key = zk, name = name, keys = {}, inst = e.i ~= nil,
-                      sub = e.i and ((G:GetMapName((G:GetEntrance(e.i))) or "") .. " · " .. "instance") or nil,
+                z = { key = zk, name = name, keys = {}, inst = e.i ~= nil, raid = G:IsRaid(e),
+                      sub = e.i and ((G:GetMapName((G:GetEntrance(e.i))) or "") .. " · "
+                          .. (G:IsRaid(e) and "raid" or "dungeon")) or nil,
                       zoom = (not zoneView) and (e.i and (G:GetEntrance(e.i)) or e.m) or nil }
                 byZone[zk] = z
                 zoneList[#zoneList + 1] = z
@@ -988,6 +1005,7 @@ local function Build(entries, map, zoneView, W, H, place)
                 end
                 table.sort(keys)
                 pins[#pins + 1] = { kind = "dungeon", keys = keys, px = it.px, py = it.py, title = it.e.n,
+                                    raid = GM():IsRaid(it.e),
                                     zoneKey = it.zoneKey, zoom = (not zoneView) and (GM():GetEntrance(it.e.i)) or nil }
             else
                 used[i] = true
@@ -1038,7 +1056,7 @@ local function Build(entries, map, zoneView, W, H, place)
     -- no pin hides another: overlapping ones are nudged apart (me never moves; crowds and dungeons stay near enough
     -- to their spot to read right)
     local function radius(d)
-        if d.kind == "dungeon" then return 19 end   -- (its count badge sticks out)
+        if d.kind == "dungeon" then return 21 end   -- (its count badge sticks out)
         if d.kind == "crowd" then return 16 end
         if d.kind == "me" then return 15 end
         return (d.e and d.e.z) and 9 or 7
@@ -1238,6 +1256,7 @@ function GuildMapUI:PaintList()
         r.line:SetShown(i > 1)
         r.bar:SetShown(state.hot == z.key)
         r.icon:SetShown(z.inst)
+        if z.inst then SetSkull(r.icon, z.raid) end
         r.name:ClearAllPoints()
         r.name:SetPoint("TOPLEFT", z.inst and 28 or 10, -7)
         r.name:SetPoint("RIGHT", r.count, "LEFT", -6, 0)

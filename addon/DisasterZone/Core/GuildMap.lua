@@ -3,8 +3,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/GuildMap.lua", ...) then retu
 -- "unset" until they choose). What you see matches what you share: sharing your zone only shows everyone by zone.
 -- Traffic (prefix CDLq, GUILD) only while somebody looks:
 --   MQ  { s }            a sharer opened the map (again every ASK_EVERY s while it stays open): sharers answer
---   MP  { m, x, y, s, i, n, a, z, h }   where I am: m the zone's uiMapID, x / y 0..10000 on it (exact only), s the
---                        subzone, i / n the instance's id / name inside one, a away, z zone only, h hidden (in a
+--   MP  { m, x, y, s, i, n, r, a, z, h }   where I am: m the zone's uiMapID, x / y 0..10000 on it (exact only), s
+--                        the subzone, i / n the instance's id / name inside one (r: a raid), a away, z zone only, h hidden (in a
 --                        battleground or arena: nobody sees me there). Sent on a zone change, an ask, and while
 --                        anyone looked in the last VIEW_TTL s whenever I moved (checked every CHECK s), at least
 --                        every HEARTBEAT s.
@@ -196,6 +196,15 @@ function GuildMap:PlaceOn(e, to)
     return self:Translate(m, x, y, to)
 end
 
+-- The raids among the instances (a sender older than the r field: their instance id says it).
+local RAIDS = { [532] = true, [565] = true, [544] = true, [548] = true, [550] = true, [564] = true, [534] = true,
+    [568] = true, [580] = true, [409] = true, [469] = true, [249] = true, [309] = true, [509] = true, [531] = true }
+
+-- Is an entry inside a raid (rather than a dungeon)?
+function GuildMap:IsRaid(e)
+    return e and e.i and (e.r or RAIDS[e.i]) and true or false
+end
+
 function GuildMap:GetEntrance(instanceID)
     local en = ENTRANCES[tonumber(instanceID) or 0]
     if not en then return nil end
@@ -218,7 +227,7 @@ function GuildMap:GetMine()
     if IsInInstance then inInst, kind = IsInInstance() end
     if inInst and (kind == "party" or kind == "raid" or kind == "scenario") then
         local name, _, _, _, _, _, _, id = GetInstanceInfo()
-        e.i, e.n = tonumber(id), name
+        e.i, e.n, e.r = tonumber(id), name, kind == "raid" or nil
         return e
     end
     local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
@@ -247,6 +256,7 @@ local function Wire(e)
     local msg = { t = "MP" }
     if e.h then msg.h = 1 return msg end
     msg.m, msg.i, msg.n, msg.s = e.m, e.i, e.n and e.n:sub(1, 40), e.s
+    if e.r then msg.r = 1 end
     if e.x and e.y and not e.z then msg.x, msg.y = floor(e.x * SCALE + 0.5), floor(e.y * SCALE + 0.5) end
     if e.a then msg.a = 1 end
     if e.z then msg.z = 1 end
@@ -380,7 +390,8 @@ local function OnPosition(key, msg)
         return
     end
     local e = { m = Num(msg.m, 1, 100000), i = Num(msg.i, 1, 100000), n = Str(msg.n), s = Str(msg.s),
-                a = msg.a and true or nil, z = msg.z and true or nil, at = GetTime(), ts = time() }
+                r = msg.r and true or nil, a = msg.a and true or nil, z = msg.z and true or nil,
+                at = GetTime(), ts = time() }
     local x, y = Num(msg.x, 0, SCALE), Num(msg.y, 0, SCALE)
     if x and y and not e.z then e.x, e.y = x / SCALE, y / SCALE end
     if not e.m and not e.i then return end

@@ -328,5 +328,24 @@ def the_games_world_map_groups_like_the_map_page():
     w.assert_no_errors()
 
 
+@case
+def raids_and_dungeons_are_told_apart():
+    """A raid gets the gold skull, a dungeon the white one: the sender says which (r), the instance id is the fallback."""
+    w, g, a, b = trio()
+    share(g, "exact")
+    share(a, "exact")
+    share(b, "exact")
+    look(g)
+    w.tick(5)
+    w.enter_instance("Shadow Labyrinth", 555, "party", 5, clients=[a])
+    w.tick(6)
+    assert g.eval_py("return ns.GuildMap:IsRaid(ns.GuildMap:GetEntries()[...])", K("Alfa")) is False
+    w.leave_instance([a])
+    w.enter_instance("Some New Raid", 9999, "raid", 25, clients=[b])     # (not in the fallback list: r says it)
+    w.tick(6)
+    assert g.eval_py("return ns.GuildMap:IsRaid(ns.GuildMap:GetEntries()[...])", K("Bert")) is True
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()
