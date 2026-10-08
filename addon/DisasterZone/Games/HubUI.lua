@@ -432,30 +432,49 @@ end
 
 -- Azeromon: a little Elwynn of the game's own tiles (a house, its path, tall grass, trees) with the hero walking
 -- down the path and back. Drawn into the poster's art box (clipped there).
-local SCENE_C, SCENE_R, TILE = 14, 16, 32
+-- (the meadow is wider than any poster: the front one grows to the whole tab when its game opens, and the scene
+-- must still reach both edges; the house and its path sit in the middle at column SCENE_OX + 6)
+local SCENE_C, SCENE_R, SCENE_OX, TILE = 32, 16, 9, 32
 local function SceneTiles()
     local t = {}
     local function put(name, x, y) t[#t + 1] = { name, x, y } end
     for y = 0, SCENE_R - 1 do
         for x = 0, SCENE_C - 1 do put(((x * 7 + y * 3) % 5 == 0) and "grass2" or "grass1", x, y) end
     end
-    for y = 7, SCENE_R - 1 do put("path_l", 5, y) put("path_c", 6, y) put("path_r", 7, y) end
     local function big(prefix, x, y, w, h)
         for j = 0, h - 1 do for i = 0, w - 1 do put(prefix .. "_" .. i .. "_" .. j, x + i, y + j) end end
     end
-    big("house", 4, 1, 5, 6)
-    big("bigtree", 0, 2, 3, 3)
-    big("bigtree", 10, 0, 3, 3)
-    for _, p in ipairs({ { 9, 4 }, { 12, 4 }, { 1, 6 }, { 0, 9 }, { 12, 13 }, { 1, 14 } }) do put("tree", p[1], p[2]) end
-    put("pine", 13, 6) put("pine", 2, 0) put("oak", 3, 11)
-    for y = 9, 12 do
-        for x = 9, 12 do
-            local e = (y == 9 and "t" or y == 12 and "b" or "") .. (x == 9 and "l" or x == 12 and "r" or "")
-            put(e == "" and "tall_c" or ("tall_" .. e), x, y)
+    local function tall(x0, y0, w, h)
+        for y = y0, y0 + h - 1 do
+            for x = x0, x0 + w - 1 do
+                local e = (y == y0 and "t" or y == y0 + h - 1 and "b" or "") .. (x == x0 and "l" or x == x0 + w - 1 and "r" or "")
+                put(e == "" and "tall_c" or ("tall_" .. e), x, y)
+            end
         end
     end
-    for _, p in ipairs({ { 3, 8 }, { 2, 12 }, { 8, 8 }, { 4, 14 }, { 9, 14 }, { 13, 10 } }) do put("flowers", p[1], p[2]) end
-    put("sign", 8, 7)
+    -- the middle: the house, its path, the tall grass, trees and flowers round it
+    local X = SCENE_OX
+    for y = 7, SCENE_R - 1 do put("path_l", X + 5, y) put("path_c", X + 6, y) put("path_r", X + 7, y) end
+    big("house", X + 4, 1, 5, 6)
+    big("bigtree", X + 0, 2, 3, 3)
+    big("bigtree", X + 10, 0, 3, 3)
+    for _, p in ipairs({ { 9, 4 }, { 12, 4 }, { 1, 6 }, { 0, 9 }, { 12, 13 }, { 1, 14 } }) do put("tree", X + p[1], p[2]) end
+    put("pine", X + 13, 6) put("pine", X + 2, 0) put("oak", X + 3, 11)
+    tall(X + 9, 9, 4, 4)
+    for _, p in ipairs({ { 3, 8 }, { 2, 12 }, { 8, 8 }, { 4, 14 }, { 9, 14 }, { 13, 10 } }) do put("flowers", X + p[1], p[2]) end
+    put("sign", X + 8, 7)
+    -- the meadow beyond, left and right
+    big("bigtree", 1, 1, 3, 3)
+    big("bigtree", 25, 8, 3, 3)
+    big("bigtree", 28, 0, 3, 3)
+    tall(1, 9, 4, 3)
+    tall(24, 3, 3, 3)
+    for _, p in ipairs({ { 6, 3 }, { 7, 7 }, { 0, 6 }, { 5, 13 }, { 2, 14 }, { 7, 11 }, { 23, 0 }, { 30, 5 },
+                         { 23, 8 }, { 29, 12 }, { 24, 14 }, { 31, 9 } }) do put("tree", p[1], p[2]) end
+    for _, p in ipairs({ { 5, 0 }, { 8, 12 }, { 22, 11 }, { 31, 14 }, { 27, 4 } }) do put("pine", p[1], p[2]) end
+    for _, p in ipairs({ { 4, 5 }, { 0, 12 }, { 6, 9 }, { 3, 15 }, { 26, 13 }, { 28, 6 }, { 22, 3 }, { 30, 11 },
+                         { 24, 11 } }) do put("flowers", p[1], p[2]) end
+    put("rock", 8, 4) put("rock", 27, 15) put("oak", 31, 3)
     return t
 end
 
@@ -496,7 +515,7 @@ COVERS.azeromon = function(parent, poster)
     function c:Layout(w, h)
         self.world:ClearAllPoints()
         -- the house and the path in the middle of the art, the roof just under the kicker
-        self.world:SetPoint("TOPLEFT", self, "TOP", -6.5 * TILE, 0.4 * TILE)
+        self.world:SetPoint("TOPLEFT", self, "TOP", -(SCENE_OX + 6.5) * TILE, 0.4 * TILE)
     end
     function c:Refresh() end
     function c:Tick(elapsed)
@@ -514,7 +533,7 @@ COVERS.azeromon = function(parent, poster)
             frame(self.dir > 0 and "down" or "up", steps[floor(self.clock * 7) % 4 + 1])
         end
         self.hero:ClearAllPoints()
-        self.hero:SetPoint("TOPLEFT", self.world, "TOPLEFT", 6 * TILE, -floor(self.y * TILE + 0.5))
+        self.hero:SetPoint("TOPLEFT", self.world, "TOPLEFT", (SCENE_OX + 6) * TILE, -floor(self.y * TILE + 0.5))
     end
     frame("down", 1)
     return c
