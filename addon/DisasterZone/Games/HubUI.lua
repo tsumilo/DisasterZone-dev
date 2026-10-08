@@ -28,6 +28,7 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
     bingo = { 1, 0.82, 0 }, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
+    chess = { 0.74, 0.58, 1 },
 }
 local DEFAULT_ACCENT = { 1, 0.82, 0 }
 
@@ -272,6 +273,35 @@ INFO.azeromon = function()
     return out
 end
 
+-- Karazhan Chess: games waiting for your move, else your guild rating or your record against Medivh.
+INFO.chess = function()
+    local out = { kicker = "THE GAMESMAN'S HALL", art = "kara" }
+    local C = ns.Chess
+    local data = Saved("chess")
+    local waiting = C and C:MyTurnCount() or 0
+    local open = 0
+    for _, g in pairs(type(data.games) == "table" and data.games or {}) do
+        if type(g) == "table" and g.status ~= "over" then open = open + 1 end
+    end
+    local mine = C and C:MyRating()
+    if waiting > 0 then
+        out.stat = string.format("|cffc9a2ffYour move|r in |cffffffff%d|r %s", waiting, waiting == 1 and "game" or "games")
+    elseif mine then
+        out.stat = string.format("Guild rating |cffffffff%d|r  9483  %d-%d-%d", mine.rating, mine.w, mine.l, mine.d)
+    else
+        local w, n = 0, 0
+        for _, s in pairs(type(data.stats) == "table" and data.stats or {}) do
+            if type(s) == "table" then
+                w = w + (tonumber(s.w) or 0)
+                n = n + (tonumber(s.w) or 0) + (tonumber(s.l) or 0) + (tonumber(s.d) or 0)
+            end
+        end
+        out.stat = n > 0 and string.format("Beat Medivh |cffffffff%d|r of %d", w, n) or "|cff8a8a8aNot played yet|r"
+    end
+    if open > 0 then out.foot = string.format("%d %s open", open, open == 1 and "game" or "games") end
+    return out
+end
+
 local function Info(id)
     local fn = INFO[id]
     if fn then
@@ -360,6 +390,86 @@ COVERS.bingo = function(parent)
         local p = 0.45 + 0.4 * sin(self.clock * 3.2)
         for i in pairs(self.need or {}) do ns.UI:SetEdgeColor(self.cells[i], 1, 0.82, 0, p) end
         if self.fresh then self.cells[self.fresh].glow:SetAlpha(0.35 + 0.3 * sin(self.clock * 4)) end
+    end
+    return c
+end
+
+-- Karazhan Chess: the game you looked at last (else the opening position) on a small board of the hall's marble,
+-- each piece a disc in its side's colour with its letter; the last move's squares lit.
+COVERS.chess = function(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c.cells = {}
+    for i = 1, 64 do
+        local cell = CreateFrame("Frame", nil, c)
+        cell.bg = cell:CreateTexture(nil, "BACKGROUND")
+        cell.bg:SetAllPoints()
+        cell.disc = cell:CreateTexture(nil, "ARTWORK")
+        cell.disc:SetTexture(CIRCLE)
+        cell.letter = Label(cell, 9, "GameFontHighlightSmall")
+        cell.letter:SetJustifyH("CENTER")
+        cell.letter:SetPoint("CENTER", 0, 0)
+        c.cells[i] = cell
+    end
+    function c:Layout(w, h)
+        local size = floor(min(w - 40, h - 16, 176))
+        if size < 40 then size = 40 end
+        local cs = size / 8
+        self:SetSize(size, size)
+        for i, cell in ipairs(self.cells) do
+            local r, col = floor((i - 1) / 8), (i - 1) % 8
+            cell:ClearAllPoints()
+            cell:SetPoint("TOPLEFT", self, "TOPLEFT", col * cs, -r * cs)
+            cell:SetSize(cs, cs)
+            cell.disc:ClearAllPoints()
+            cell.disc:SetPoint("CENTER")
+            cell.disc:SetSize(cs * 0.74, cs * 0.74)
+            local path, _, flags = cell.letter:GetFont()
+            if path then cell.letter:SetFont(path, max(6, floor(cs * 0.5)), flags) end
+        end
+    end
+    function c:Refresh()
+        local C, R = ns.Chess, ns.ChessRules
+        if not (C and R) then return end
+        local g
+        for _, x in ipairs(C:List()) do
+            if x.status ~= "invited" and x.status ~= "asked" then g = x break end
+        end
+        local pos = g and C:Position(g) or R.New()
+        local me = g and g.me or 1
+        local last = g and #g.moves > 0 and R.ParseSquare and g.moves[#g.moves] or nil
+        local lf, lt = last and R.ParseSquare(last:sub(1, 2)), last and R.ParseSquare(last:sub(3, 4))
+        for i, cell in ipairs(self.cells) do
+            local row, col = floor((i - 1) / 8), (i - 1) % 8
+            -- (your side at the bottom)
+            local rank, file = me == 1 and (7 - row) or row, me == 1 and col or (7 - col)
+            local sq = R.Square(file, rank)
+            local light = (file + rank) % 2 == 1
+            local lit = sq == lf or sq == lt
+            if lit then
+                cell.bg:SetColorTexture(0.42, 0.32, 0.6, 0.92)
+            elseif light then
+                cell.bg:SetColorTexture(0.72, 0.69, 0.66, 0.88)
+            else
+                cell.bg:SetColorTexture(0.14, 0.13, 0.15, 0.9)
+            end
+            local v = pos.b[sq]
+            if v ~= 0 then
+                local p = v > 0 and v or -v
+                if v > 0 then
+                    cell.disc:SetVertexColor(0.2, 0.36, 0.72, 1)
+                    cell.letter:SetTextColor(0.9, 0.95, 1)
+                else
+                    cell.disc:SetVertexColor(0.62, 0.14, 0.1, 1)
+                    cell.letter:SetTextColor(1, 0.86, 0.8)
+                end
+                cell.letter:SetText(R.LETTER[p]:upper())
+                cell.disc:Show()
+                cell.letter:Show()
+            else
+                cell.disc:Hide()
+                cell.letter:Hide()
+            end
+        end
     end
     return c
 end

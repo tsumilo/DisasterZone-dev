@@ -45,18 +45,19 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     c.world = w
     hub(c)
     assert c.eval("return ns.GamesUI:GetSelected()") is None
-    assert c.eval("return #%s" % POSTERS) == 3
+    assert c.eval("return #%s" % POSTERS) == 4
     order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
-    assert order == ["bingo", "trainer", "azeromon"], order
+    assert order == ["bingo", "trainer", "azeromon", "chess"], order
+    n = len(order)
     start = front(c)
     i0 = order.index(start)
     # the right arrow: next game, animated
     c.eval("ns.GamesUI:Turn(%d)" % (i0 + 2))
     assert c.eval("return ns.GamesUI:IsAnimating()") is True
     settle(c)
-    assert front(c) == order[(i0 + 1) % 3]
+    assert front(c) == order[(i0 + 1) % n]
     # the mouse wheel (down = next) wraps round
-    for _ in range(2):
+    for _ in range(n - 1):
         c.eval("local p for _, x in ipairs(%s) do if x.off == 0 then p = x end end "
                "p:GetScript('OnMouseWheel')(p, -1)" % POSTERS)
         settle(c)
@@ -64,7 +65,7 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     # a click on a side poster turns it to the front; a click on the front one doesn't turn
     c.eval("for _, p in ipairs(%s) do if p.off == -1 then p:Click() end end" % POSTERS)
     settle(c)
-    assert front(c) == order[(i0 - 1) % 3]
+    assert front(c) == order[(i0 - 1) % n]
     # a click while it turns is ignored (no half-turned carousel)
     c.eval("ns.GamesUI:Turn(1)")
     c.eval("for _, p in ipairs(%s) do if p.off == 1 then p:Click() end end" % POSTERS)
@@ -72,7 +73,7 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     assert front(c) == "bingo"
     # exactly one poster in front, the others dimmed at the sides
     offs = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.off end return o" % POSTERS)
-    assert sorted(offs) == [-1, 0, 1], offs
+    assert [o for o in sorted(offs) if -1 <= o <= 1] == [-1, 0, 1] and len(offs) == n, offs   # (the rest off stage)
     no_errors(w)
 
 

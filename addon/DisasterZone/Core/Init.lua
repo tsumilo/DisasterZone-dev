@@ -229,7 +229,7 @@ local KNOWN_MESSAGES = {
     -- fired once per resolved guild, deferred (never from inside a Guild call).
     GUILD_KEY_READY = true,
     -- Minigames (Games/Hub.lua): the game list / a highscore changed; (inCombat) combat started / ended
-    GAMES_UPDATED = true, GAMES_COMBAT = true,
+    GAMES_UPDATED = true, GAMES_COMBAT = true, CHESS_UPDATED = true,
     PATCH_UPDATED = true,   -- in-game updates (Core/Patch.lua): download progress / an update is ready / status
     BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
     OFFICER_NOTES_UPDATED = true,   -- (key | nil) an officer note, or my access to them, changed

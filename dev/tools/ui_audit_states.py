@@ -236,6 +236,27 @@ ns:Fire("MYLOG_CHANGED")
 """
 
 
+# Karazhan Chess: a game against Medivh (Magus, cheats) twelve moves in with his fire on c4 and f3, a guild invite,
+# a guild game waiting for the opponent, a finished one
+CHESS_GAMES = ("T_AUD = T_AUD or {} local C = ns.Chess local d = C.Data() d.games = {} "
+               "local g = C:NewAIGame(1, 'magus', true) T_AUD.g = g "
+               "g.moves = { 'e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'g8f6', 'd2d3', 'f8c5', 'c2c3', 'd7d6', 'b1d2', 'a7a6' } "
+               "g.events = { { ply = 12, k = 'fire', sq = { 'c4', 'f3' }, line = 2 } } "
+               "d.games['inv1'] = { id = 'inv1', mode = 'guild', me = -1, opp = 'Victhar-Thunderstrike', moves = {}, "
+               "  created = time() - 60, updated = time() - 60, status = 'invited', acked = 0 } "
+               "d.games['gg1'] = { id = 'gg1', mode = 'guild', me = 1, opp = 'Fazerblue-Thunderstrike', "
+               "  moves = { 'd2d4', 'd7d5', 'c2c4' }, created = time() - 9000, updated = time() - 3000, status = 'active', acked = 2 } "
+               "d.games['ov1'] = { id = 'ov1', mode = 'ai', me = -1, opp = 'Medivh', strength = 'guardian', cheats = false, seed = 5, "
+               "  moves = { 'f2f3', 'e7e5', 'g2g4', 'd8h4' }, events = {}, created = time() - 90000, updated = time() - 86000, "
+               "  status = 'over', result = '0-1', reason = 'checkmate' } ")
+# ... and a guild ladder of six members
+CHESS_LADDER = ("local res = C.Data().results local names = { 'Victhar', 'Fazerblue', 'Saltykim', 'Dyrma', 'Frostweaver' } "
+                "local me = ns.Util.PlayerKey() for i = 1, 24 do local a = names[(i % 5) + 1] .. '-Thunderstrike' "
+                "local b = (i % 3 == 0) and me or (names[((i * 2) % 5) + 1] .. '-Thunderstrike') "
+                "if a ~= b then res['r' .. i] = { w = a, b = b, r = (i % 4 == 0) and '1/2-1/2' or ((i % 3 == 1) and '1-0' or '0-1'), "
+                "  at = time() - 100000 + i * 1000, n = 40 + i } end end C.ratings = nil ")
+
+
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -913,6 +934,22 @@ STATES = [
                                                 "ns.GamesUI:Select('bingo')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
     ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
+    # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire
+    # on two of your pieces and his line (the flat board: the audit has no 3D rooms); the guild ladder
+    ("Games - Chess lobby", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.GamesUI:Select('chess') "
+                                   "ns.ChessUI:OpenLobby()")),
+    ("Games - Chess game", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.GamesUI:Select('chess') "
+                                  "ns.ChessUI:OpenGame(T_AUD.g) ns.ChessUI._Note(T_AUD.g.events[1]) "
+                                  "ns.ChessUI.Say({ 'Time for an alternative scenario.' }) ns.ChessUI._OnSquare(ns.ChessRules.ParseSquare('f3'))")),
+    # ... with the moves drawer open; a finished game's card (Medivh mated as Black in four)
+    ("Games - Chess moves", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.Chess:Prefs().moves = true "
+                                   "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(T_AUD.g)")),
+    ("Games - Chess over", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.Chess:Prefs().moves = nil "
+                                  "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(ns.Chess:Get('ov1'))")),
+    ("Games - Chess ladder", opened("games", CHESS_GAMES + CHESS_LADDER + "ns.GamesUI:Select('chess') "
+                                    "ns.ChessUI:OpenLobby() ns.ChessUI._Tab('ladder')")),
+    ("Games - Chess in front", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = nil ns.GamesUI:ShowHub() "
+                                      "ns.GamesUI:ShowFront('chess')")),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),

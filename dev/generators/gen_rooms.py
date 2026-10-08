@@ -797,7 +797,13 @@ def safe_key(ref):
 LEVEL = {"Karazhan:Nightbane": 91.5}
 # The box (world x0, y0, x1, y1) where the starter page frames more than the fight: the terrace disc (~53 yd round
 # its centre) instead of the page, whose middle is the tower beside it.
-BOX = {"Karazhan:Nightbane": (-11125.6 - 57, -1925.0 - 57, -11125.6 + 57, -1925.0 + 57)}
+BOX = {"Karazhan:Nightbane": (-11125.6 - 57, -1925.0 - 57, -11125.6 + 57, -1925.0 + 57),
+       # the whole chess board (boss_chess_event.cpp SetupBoard: cell (c, r) at x = -11108.1 + 3.49c + 4.4r,
+       # y = -1872.91 - 4.4c + 3.45r, 5.6 yd squares turned 38 degrees) and 3 yd past its corners: the Games hub's
+       # Karazhan Chess plays on all 64 squares (shrinking round Medivh cut two corners off)
+       "Karazhan:Chess": (-11080.48 - 34.5, -1876.24 - 34.5, -11080.48 + 34.5, -1876.24 + 34.5)}
+# Rooms whose box must stay whole: over budget they lower their walls and drop clutter instead of shrinking.
+KEEP_BOX = {"Karazhan:Chess"}
 # yd under the boss' floor a room keeps, where ROOM_DOWN would fill it with what is under a roof (the terrace sits on
 # top of the tower's rooms).
 DOWN = {"Karazhan:Nightbane": 4.0}
@@ -972,12 +978,12 @@ def build(p):
     centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
     while True:
         faces = clip_faces(raw, box, zb - down, zb + up, zb)
-        smaller = shrink(box, spot, centre)
+        smaller = None if p["ref"] in KEEP_BOX else shrink(box, spot, centre)
         if len(faces) > MAX_TRIS and smaller:
             box = smaller
             continue
         r = make(p, raw, spot, box, faces, coll)
-        if len(r["nodes"]) > MAX_NODES:
+        if len(r["nodes"]) > MAX_NODES or (p["ref"] in KEEP_BOX and len(faces) > MAX_TRIS):
             if smaller:
                 box = smaller
                 continue
