@@ -44,6 +44,7 @@ for p in (os.path.join(DEV, "generators"), os.path.join(DEV, "tools")):
 
 import gen_standins as G  # noqa: E402
 from lupa import lua51  # noqa: E402
+import harness  # noqa: E402
 
 KEY = G.DEFAULT_KEY
 SHIPPED = os.path.join(G.OUT_DIR, KEY + ".lua")
@@ -645,9 +646,8 @@ def run_all(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     flt = argv[argv.index("-k") + 1] if "-k" in argv else None
     failed, passed, t_all = [], 0, time.time()
-    for fn in _CASES:
-        if flt and flt not in fn.__name__:
-            continue
+    picked = [fn for fn in _CASES if not flt or flt in fn.__name__]
+    for fn in [fn for i, fn in enumerate(picked) if harness.in_shard(i)]:
         t0 = time.time()
         try:
             fn()

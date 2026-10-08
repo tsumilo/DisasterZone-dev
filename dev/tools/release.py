@@ -193,26 +193,34 @@ def guards(addon_dir, action):
             if m and m.group(1).decode("ascii", "replace") == rel:
                 continue
             body = data[m.end():] if m else data
-            with open(path, "wb") as fh:
-                fh.write(bom + guard_for(rel) + body)
+            _put(path, bom + guard_for(rel) + body)
             changed.append(rel)
         elif action == "remove":
             if m:
-                with open(path, "wb") as fh:
-                    fh.write(bom + data[m.end():])
+                _put(path, bom + data[m.end():])
                 changed.append(rel)
         else:
             raise ReleaseError("guards: add, remove or check")
     return changed, problems
 
 
+def _put(path, data):
+    """Writes a file by replacing it (atomic). Never writes into the existing file: the test suites hard-link their
+    copies of the addon tree (tests/patch/_patchkit.py), and an in-place write would change every linked copy."""
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, path)
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Full release
 # ---------------------------------------------------------------------------------------------------------------
 
-def stage_tree(src, dst, lua_only=False, build=None, key=None):
+def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False):
     """Copy the addon folder `src` to `dst` as a release: BuildInfo gets the build id, the outbox is emptied.
     lua_only=True copies only what the game executes (.toc, .lua): enough for the offline harness.
+    link=True hard-links the files instead of copying them (tests: a new copy costs a virus scan on first read).
     Returns the release record (without the zip)."""
     if os.path.exists(dst):
         raise ReleaseError("%s already exists" % dst)
@@ -221,17 +229,14 @@ def stage_tree(src, dst, lua_only=False, build=None, key=None):
             continue
         target = os.path.join(dst, rel)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copyfile(os.path.join(src, rel), target)
+        (os.link if link else shutil.copyfile)(os.path.join(src, rel), target)
     pack = asset_pack(src)
-    with open(os.path.join(dst, "Core", "Outbox.lua"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(patchlib.OUTBOX_STUB)
+    _put(os.path.join(dst, "Core", "Outbox.lua"), patchlib.OUTBOX_STUB.encode("utf-8"))
     if key is not None:
-        with open(os.path.join(dst, "Core", "PatchKey.lua"), "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(patch_key_lua(key))
+        _put(os.path.join(dst, "Core", "PatchKey.lua"), patch_key_lua(key).encode("utf-8"))
     hashes = file_hashes(dst)
     bid = build or build_id(hashes)
-    with open(os.path.join(dst, "Core", "BuildInfo.lua"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(build_info_lua(bid, pack))
+    _put(os.path.join(dst, "Core", "BuildInfo.lua"), build_info_lua(bid, pack).encode("utf-8"))
     headers, files, raw = parse_toc(dst)
     return {"version": headers.get("version", "0"), "build": bid, "assetPack": pack, "files": hashes,
             "toc": raw, "luaOnly": bool(lua_only)}
@@ -290,8 +295,7 @@ def cmd_full(args):
     with open(os.path.join(RELEASES, "base.json"), "w", encoding="utf-8") as fh:
         json.dump({"version": version}, fh)
     # a new base makes the outbox of the previous one meaningless
-    with open(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(patchlib.OUTBOX_STUB)
+    _put(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), patchlib.OUTBOX_STUB.encode("utf-8"))
     print("release %s: build %s, art pack %d, %d files" % (version, record["build"], record["assetPack"], len(record["files"])))
     print("  %s (%.1f MB)" % (zip_path, os.path.getsize(zip_path) / 1048576.0))
     print("  this is now the base for in-game updates. Members install the zip once; after that 'release.py patch'.")
@@ -479,8 +483,7 @@ def restore_to_base(base, addon_dir, zip_path, backup_dir):
             else:
                 data = zf.read(ADDON_NAME + "/" + rel)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "wb") as fh:
-                    fh.write(data)
+                _put(path, data)
     left = source_differences(base, addon_dir)
     if left:
         raise ReleaseError("could not put these back to release %s: %s (your versions are in %s)" % (
@@ -595,8 +598,7 @@ def cmd_patch(args):
     os.makedirs(RELEASES, exist_ok=True)
     with open(os.path.join(RELEASES, "patches.json"), "w", encoding="utf-8") as fh:
         json.dump(log, fh, indent=1)
-    with open(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(patchlib.outbox_lua(bundle))
+    _put(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), patchlib.outbox_lua(bundle).encode("utf-8"))
     wire = bundle["ztotal"] + len(bundle["z0"])
     print("update #%d: %s on top of %s (build %s)" % (seq, bundle["version"], base["version"], base["build"]))
     for it in bundle["items"]:
@@ -655,8 +657,7 @@ def cmd_selftest(args):
     os.makedirs(RELEASES, exist_ok=True)
     with open(os.path.join(RELEASES, "patches.json"), "w", encoding="utf-8") as fh:
         json.dump(log, fh, indent=1)
-    with open(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(patchlib.outbox_lua(bundle))
+    _put(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), patchlib.outbox_lua(bundle).encode("utf-8"))
     print("self-test update #%d: %d files, %d KB of source, %d KB encoded" % (
         seq, len(bundle["items"]), bundle["total"] // 1024, (bundle["ztotal"] + len(bundle["z0"])) // 1024))
     print("  in game, on this development copy:")
@@ -720,8 +721,7 @@ def cmd_keygen(args):
     print("generating %d one-time keys..." % (1 << args.height))
     key = patchlib.keygen(args.height)
     patchlib.save_key(KEY_PATH, key)
-    with open(os.path.join(ADDON_DIR, "Core", "PatchKey.lua"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(patch_key_lua(key))
+    _put(os.path.join(ADDON_DIR, "Core", "PatchKey.lua"), patch_key_lua(key).encode("utf-8"))
     print("private key: %s  (back this file up; never share or commit it)" % KEY_PATH)
     print("public key written to Core\\PatchKey.lua")
 

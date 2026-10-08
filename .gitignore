@@ -33,3 +33,5 @@ dev/generators/data/wowsims_specs/
 
 # Compiled-bytecode cache of the addon files (dev/tools/harness.py)
 dev/.luacache/
+dev/tf_e/timings.json
+dev/.testmap/

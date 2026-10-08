@@ -55,9 +55,12 @@ def main():
         base_dir, sv, bundle = build(tmp)
         print("shadow release in %s: %d files travel as an update (%d KB of source)" % (
             base_dir, len(bundle["items"]), bundle["total"] // 1024))
-        env = dict(os.environ, DISASTERZONE_ADDON_DIR=base_dir, DISASTERZONE_PATCH_SV=sv)
+        # every suite, every time (--all); its pass/fail records stay apart from normal runs' (DZ_TESTMAP_DIR)
+        env = dict(os.environ, DISASTERZONE_ADDON_DIR=base_dir, DISASTERZONE_PATCH_SV=sv,
+                   DZ_TESTMAP_DIR=os.path.join(tmp, "testmap"))
         py = os.path.join(DEV, "luaenv", "Scripts", "python.exe")
-        rc = subprocess.call([py, os.path.join(DEV, "tf_e", "run_all.py"), "patched"] + sys.argv[1:], cwd=DEV, env=env)
+        rc = subprocess.call([py, os.path.join(DEV, "tf_e", "run_all.py"), "patched", "--all"] + sys.argv[1:],
+                             cwd=DEV, env=env)
         sys.exit(rc)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

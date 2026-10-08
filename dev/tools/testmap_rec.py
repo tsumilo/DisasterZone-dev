@@ -1,0 +1,131 @@
+"""Records what one test process depended on, for tf_e/run_all.py's change-based selection (tools/testmap.py).
+
+Loaded at start-up by tools/covsite/sitecustomize.py into every Python process that has DZ_COVER set: the suite run_all
+starts and any Python child process the suite starts (release.py, generators, ...). At exit it writes
+<DZ_COVER>.<pid>.part:
+
+    files  {path: sha1}   every file under dev/ or the addon folder the process opened for reading, plus the dev/
+                          Python modules it imported (the suite, its helpers, harness, generators it imports)
+    dirs   {path: sha1}   the listing of every such directory it listed (new or removed files change behaviour)
+    lua    {rel: sha1}    addon Lua files the harness loaded as chunks (only their called functions count, below)
+    funcs  {rel: [line]}  addon functions (by the line they start on) some client called, from harness coverage
+
+Paths are relative to the repo's dev/ folder ("dev:...") or to the addon folder ("addon:...").
+"""
+import atexit
+import hashlib
+import json
+import os
+import sys
+
+DEV = os.path.normcase(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ADDON = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
+ADDON = os.path.normcase(os.path.realpath(_ADDON))
+# under dev/: run output, caches and the Python environment are not inputs
+_SKIP = tuple(os.path.join(DEV, d) + os.sep for d in ("tf_e", ".luacache", ".testmap", "luaenv", "__pycache__"))
+
+_files = set()
+_dirs = set()
+
+
+def key_of(path):
+    """'dev:<rel>' / 'addon:<rel>' for a path under dev/ or the addon folder, else None."""
+    try:
+        p = os.path.normcase(os.path.abspath(path))
+    except (TypeError, ValueError):
+        return None
+    if p.startswith(DEV + os.sep):
+        if p.startswith(_SKIP) or "__pycache__" in p:
+            return None
+        return "dev:" + p[len(DEV) + 1:].replace("\\", "/")
+    if p.startswith(ADDON + os.sep) or p == ADDON:
+        return "addon:" + p[len(ADDON) + 1:].replace("\\", "/")
+    real = os.path.normcase(os.path.realpath(p))  # dev/../addon/DisasterZone is a junction to the addon folder
+    if real != p and real.startswith(ADDON + os.sep):
+        return "addon:" + real[len(ADDON) + 1:].replace("\\", "/")
+    return None
+
+
+def path_of(key):
+    kind, rel = key.split(":", 1)
+    return os.path.join(DEV if kind == "dev" else ADDON, rel.replace("/", os.sep))
+
+
+def sha1_file(path):
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha1(fh.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def sha1_dir(path):
+    try:
+        names = sorted(os.listdir(path))
+    except OSError:
+        return None
+    return hashlib.sha1("\n".join(names).encode("utf-8")).hexdigest()
+
+
+def _audit(event, args):
+    if event == "open":
+        path, mode = args[0], args[1]
+        if isinstance(path, (str, bytes)) and (mode is None or ("r" in mode and "+" not in mode)):
+            h = sys.modules.get("harness")
+            if h is not None and getattr(h, "_READING_CHUNK", False):
+                return
+            _files.add(path if isinstance(path, str) else os.fsdecode(path))
+    elif event in ("os.listdir", "os.scandir"):
+        path = args[0]
+        if isinstance(path, (str, bytes)):
+            # the import system lists every sys.path folder: not a dependency (a new file there changes nothing)
+            f = sys._getframe(1)
+            for _ in range(4):
+                if f is None:
+                    break
+                if "importlib" in f.f_code.co_filename or f.f_code.co_filename.startswith("<frozen"):
+                    return
+                f = f.f_back
+            _dirs.add(path if isinstance(path, str) else os.fsdecode(path))
+
+
+def _write():
+    out = os.environ.get("DZ_COVER")
+    if not out:
+        return
+    files, dirs = {}, {}
+    for m in list(sys.modules.values()):
+        f = getattr(m, "__file__", None)
+        if f and f.endswith(".py"):
+            _files.add(f)
+    for p in _files:
+        k = key_of(p)
+        if k and k not in files and os.path.isfile(p):
+            files[k] = sha1_file(p)
+    for p in _dirs:
+        k = key_of(p)
+        if k and k not in dirs:
+            dirs[k] = sha1_dir(p)
+    h = sys.modules.get("harness")
+    lua = dict(getattr(h, "_COVER_FILES", {}) or {})
+    funcs = {k: sorted(v) for k, v in (getattr(h, "_COVER_FUNCS", {}) or {}).items()}
+    data = {"files": files, "dirs": dirs, "lua": lua, "funcs": funcs}
+    try:
+        tmp = "%s.%d.tmp" % (out, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, separators=(",", ":"), sort_keys=True)
+        os.replace(tmp, "%s.%d.part" % (out, os.getpid()))
+    except OSError:
+        pass
+
+
+_started = False
+
+
+def start():
+    global _started
+    if _started or not os.environ.get("DZ_COVER"):
+        return
+    _started = True
+    sys.addaudithook(_audit)
+    atexit.register(_write)

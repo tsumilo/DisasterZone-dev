@@ -17,7 +17,7 @@ TESTS = os.path.join(SCRATCH, "tests")
 if TESTS not in sys.path:
     sys.path.insert(0, TESTS)
 
-from harness import World, Client, ExtraMember, LuaErrorsFound, LuaEvalError, ADDON_DIR  # noqa: E402,F401
+from harness import World, Client, ExtraMember, LuaErrorsFound, LuaEvalError, ADDON_DIR, in_shard  # noqa: E402,F401
 from cdl_council import seed_guild_council, gm_pick, raid_pick, council_of  # noqa: E402,F401
 
 REALM = "Thunderstrike"
@@ -59,9 +59,8 @@ class Runner:
             flt = sys.argv[sys.argv.index("-k") + 1]
         passed, failed = [], []
         print("== %s ==" % self.title)
-        for fn in self.cases:
-            if flt and flt not in fn.__name__:
-                continue
+        picked = [fn for fn in self.cases if not flt or flt in fn.__name__]
+        for fn in [fn for i, fn in enumerate(picked) if in_shard(i)]:
             t0 = time.time()
             try:
                 fn()

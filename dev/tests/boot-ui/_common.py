@@ -18,7 +18,7 @@ TESTS = os.path.join(SCRATCH, "tests")
 if TESTS not in sys.path:
     sys.path.insert(0, TESTS)
 
-from harness import World, Client, ExtraMember, LuaErrorsFound, LuaEvalError  # noqa: E402,F401
+from harness import World, Client, ExtraMember, LuaErrorsFound, LuaEvalError, in_shard  # noqa: E402,F401
 from cdl_council import (seed_guild_council, gm_pick, raid_pick, council_of, key,  # noqa: E402,F401
                          GUILD_INFO_SPY, guild_info_calls)
 
@@ -52,10 +52,9 @@ def run_all(argv=None):
         flt = argv[argv.index("-k") + 1]
     failed, passed = [], 0
     t_all = time.time()
-    for fn in _CASES:
+    picked = [fn for fn in _CASES if not flt or flt in fn.__name__]
+    for fn in [fn for i, fn in enumerate(picked) if in_shard(i)]:
         name = fn.__name__
-        if flt and flt not in name:
-            continue
         t0 = time.time()
         try:
             fn()

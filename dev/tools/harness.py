@@ -14,6 +14,7 @@ Each Client is its own lupa Lua 5.1 runtime with the mock client (tools/wowmock/
 the virtual clock, the addon-message bus, chat, guild/group/instance state and SavedVariables across relogs.
 Run `python tools/harness.py` for a smoke test that loads DisasterZone on three clients and prints the reports.
 """
+import hashlib
 import heapq
 import itertools
 import json
@@ -39,6 +40,18 @@ ADDON_NAME = "DisasterZone"
 # them the board acts as after an update that brought new files: no 2D / 3D switch. The Raid Trainer's own floors
 # (*Floor.lua) and Render3D/Rooms/Index.lua always load.
 LOAD_ROOMS = os.environ.get("DISASTERZONE_ROOMS") == "1"
+
+
+# tf_e/run_all.py splits its longest suites into shards run side by side: DZ_SHARD="i/n" makes a suite's runner keep
+# only the cases whose position (among the cases its -k filter selected) is i mod n. Unset: every case runs.
+_SHARD = os.environ.get("DZ_SHARD") or ""
+
+
+def in_shard(position):
+    if "/" not in _SHARD:
+        return True
+    i, n = _SHARD.split("/", 1)
+    return position % int(n) == int(i)
 
 
 def is_board_room(rel):
@@ -93,12 +106,13 @@ _COMPILER = None
 def _compile(src, chunkname):
     """Bytecode for src, or None when it does not compile."""
     global _COMPILER
-    import hashlib
     h = hashlib.sha1(chunkname.encode("utf-8") + b"\0" + src).hexdigest()
     disk = os.path.join(BC_CACHE_DIR, h[:2], h + ".luac")
     try:
         with open(disk, "rb") as fh:
-            return fh.read()
+            bc = fh.read()
+        os.utime(disk)  # recently used: tools/testmap.prune() deletes what nothing used for a week
+        return bc
     except OSError:
         pass
     if _COMPILER is None:
@@ -131,13 +145,102 @@ def _chunk(path, chunkname, strip_bom=True):
     hit = _CHUNKS.get(key)
     if hit and hit[0] == stamp:
         return hit[1]
-    with open(path, "rb") as fh:
-        src = fh.read()
+    global _READING_CHUNK
+    _READING_CHUNK = chunkname.startswith(COVER_PREFIX)  # tools/testmap_rec.py: counted per function, not per file
+    try:
+        with open(path, "rb") as fh:
+            src = fh.read()
+    finally:
+        _READING_CHUNK = False
     if strip_bom and src.startswith(b"\xef\xbb\xbf"):
         src = src[3:]
+    if COVER_FILE and chunkname.startswith(COVER_PREFIX):
+        src = _cover_source(chunkname, src)
     out = (BC_CACHE_ON and _compile(src, chunkname)) or src
     _CHUNKS[key] = (stamp, out)
     return out
+
+
+# Coverage for tf_e/run_all.py's change-based selection (tools/testmap.py). With DZ_COVER set, each addon function
+# body starts with a table write (`__DZC_<tag>[<line>]=true`, put after the parameter list on the same line, so line
+# numbers stay as they are); the first write of a line in a runtime reports (file, line the function starts on) to
+# Python. A debug.sethook call hook did the same at 6x the run time; this costs next to nothing. tools/testmap_rec.py
+# writes _COVER_FILES / _COVER_FUNCS out at exit; each source a suite ran is kept in DZ_COVER_SRC/<sha1>.lua, so a
+# later run can diff today's file against the exact version the suite saw.
+COVER_FILE = os.environ.get("DZ_COVER") or None
+COVER_SRC = os.environ.get("DZ_COVER_SRC") or None
+COVER_PREFIX = "@Interface/AddOns/%s/" % ADDON_NAME
+_COVER_FUNCS = {}  # rel -> set(linedefined)
+_COVER_FILES = {}  # rel -> sha1
+_COVER_TAGS = {}  # tag -> rel
+_READING_CHUNK = False
+_LUA_TOKEN = re.compile(rb"""
+    (--\[(=*)\[.*?\]\2\])                     # long comment
+  | (--[^\n]*)                                # comment
+  | (\[(=*)\[.*?\]\5\])                       # long string
+  | ("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')  # string
+  | ([A-Za-z_][A-Za-z0-9_]*)                  # name
+  | ([()])
+""", re.S | re.X)
+
+
+def _instrument(src, tag):
+    """src with `__DZC_<tag>[line]=true ` after every function's parameter list."""
+    if b"function" not in src:
+        return src
+    out, last, state, line, pos_line, fn_line = [], 0, 0, 1, 0, 0
+    for m in _LUA_TOKEN.finditer(src):
+        name, paren = m.group(7), m.group(8)
+        if state == 0:
+            if name == b"function":
+                line += src.count(b"\n", pos_line, m.start())
+                pos_line = m.start()
+                fn_line, state = line, 1
+        elif paren == b"(" and state == 1:
+            state = 2
+        elif paren == b")" and state == 2:
+            out.append(src[last:m.end()])
+            out.append(b" __DZC_%s[%d]=true " % (tag.encode(), fn_line))
+            last, state = m.end(), 0
+    out.append(src[last:])
+    return b"".join(out)
+
+
+def _cover_source(chunkname, src):
+    """Records the source a suite ran (hash + a copy in COVER_SRC) and returns it instrumented."""
+    rel = chunkname[len(COVER_PREFIX):]
+    h = hashlib.sha1(src).hexdigest()
+    _COVER_FILES[rel] = h
+    if COVER_SRC:
+        path = os.path.join(COVER_SRC, h + ".lua")
+        if not os.path.exists(path):
+            try:
+                os.makedirs(COVER_SRC, exist_ok=True)
+                tmp = "%s.%d.tmp" % (path, os.getpid())
+                with open(tmp, "wb") as fh:
+                    fh.write(src)
+                os.replace(tmp, path)
+            except OSError:
+                pass
+    tag = hashlib.sha1(rel.encode("utf-8")).hexdigest()[:10]
+    _COVER_TAGS[tag] = rel
+    return _instrument(src, tag)
+
+
+def _cover_report(tag, line):
+    _COVER_FUNCS.setdefault(_COVER_TAGS[tag], set()).add(int(line))
+
+
+def _cover_tables(rt):
+    """Lua function(tag) that creates the global __DZC_<tag> table in this runtime (once)."""
+    return rt.execute("""
+        local report = ...
+        return function(tag)
+          local name = "__DZC_" .. tag
+          if rawget(_G, name) then return end
+          rawset(_G, name, setmetatable({}, { __newindex = function(t, k, v) rawset(t, k, v) report(tag, k) end }))
+        end
+    """, _cover_report)
 
 
 def _known_events():
@@ -1249,6 +1352,7 @@ class Client:
         if fn is None:
             raise RuntimeError("wowmock/mock.lua failed to compile: %s" % (res[1],))
         self.M = fn(cfg, py, sources)
+        self._cover_table = _cover_tables(rt) if COVER_FILE else None
         self.M.load_items(_read(os.path.join(MOCK_DIR, "items.lua")))
         for iid in self.world.custom_items:
             self._define_item(iid)
@@ -1407,6 +1511,8 @@ class Client:
         if src is None:
             missing.append(rel)
             return
+        if self._cover_table is not None:
+            self._cover_table(hashlib.sha1(rel.replace("\\", "/").encode("utf-8")).hexdigest()[:10])
         self._set_time()
         self.M.load_file(src, chunkname, self.addon_name)
 

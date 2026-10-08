@@ -63,7 +63,24 @@ def _pristine():
         write(dst, "Core/PatchKey.lua", release.patch_key_lua(key()))
         write(dst, "Core/BuildInfo.lua", 'DisasterZoneBuild = {\n    id = "dev",\n    assetPack = 1,\n}\n')
         _PRISTINE = dst
+        _PRISTINE_STAT.update(_stat_tree(dst))
+    elif _stat_tree(_PRISTINE) != _PRISTINE_STAT:
+        # some case wrote INTO a file of a hard-linked copy (see source_copy): every later copy would carry it
+        changed = sorted(k for k, v in _stat_tree(_PRISTINE).items() if _PRISTINE_STAT.get(k) != v)
+        raise AssertionError("_patchkit: the pristine tree changed through a hard link: %s" % ", ".join(changed[:5]))
     return _PRISTINE
+
+
+_PRISTINE_STAT = {}
+
+
+def _stat_tree(root):
+    out = {}
+    for d, _, files in os.walk(root):
+        for f in files:
+            st = os.stat(os.path.join(d, f))
+            out[os.path.join(d, f)] = (st.st_size, st.st_mtime_ns)
+    return out
 
 
 def read(root, rel):
@@ -72,10 +89,10 @@ def read(root, rel):
 
 
 def write(root, rel, text):
+    """Replaces the file (never writes into it: copies are hard links to the pristine tree, see source_copy)."""
     path = os.path.join(root, rel)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as fh:
-        fh.write(text.encode("utf-8"))
+    release._put(path, text.encode("utf-8"))
 
 
 def append(root, rel, text):
@@ -116,9 +133,11 @@ def guard(rel):
 
 
 def source_copy(name="src", mods=None, version=None):
-    """A copy of the source tree; mods(root) edits it."""
+    """A copy of the source tree; mods(root) edits it. The files are hard links to the pristine tree: a fresh copy
+    of ~400 files cost seconds in virus scans on first read, every case. So nothing may write into a file of a copy:
+    write() and release.py replace files instead."""
     dst = _unique(name)
-    shutil.copytree(_pristine(), dst)
+    shutil.copytree(_pristine(), dst, copy_function=os.link)
     if version:
         set_version(dst, version)
     if mods:
@@ -129,7 +148,7 @@ def source_copy(name="src", mods=None, version=None):
 def release_of(src, name="rel", build=None):
     """Package `src` as a release (what a member installs). Returns (folder, release record)."""
     dst = _unique(name)
-    record = release.stage_tree(src, dst, lua_only=True, build=build)
+    record = release.stage_tree(src, dst, lua_only=True, build=build, link=True)
     return dst, record
 
 

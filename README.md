@@ -52,7 +52,9 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 | What | Command |
 |---|---|
 | Static check (syntax, stray globals, unknown APIs) | `luaenv\Scripts\python.exe tools\check.py` |
-| All test suites | `luaenv\Scripts\python.exe tf_e\run_all.py` |
+| Test suites (only what your change can affect) | `luaenv\Scripts\python.exe tf_e\run_all.py` |
+| What that would run, and why | `luaenv\Scripts\python.exe tf_e\run_all.py --dry-run` |
+| Every suite, no skipping | `luaenv\Scripts\python.exe tf_e\run_all.py --all` |
 | One suite | `luaenv\Scripts\python.exe tests\loot-roll\test_rolls.py` (add `-k name` to run cases matching `name`) |
 | Harness self-test | `luaenv\Scripts\python.exe tools\test_harness_selftest.py` |
 | Multi-return hazard scan | `luaenv\Scripts\python.exe find_multiret.py` |
@@ -61,9 +63,29 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 
 `tools\README.md` documents the mock client (World / Client, the guild and raid simulation, loot, `/roll`, relog). Use it to write new scenarios.
 
+### How run_all stays fast
+- **Only what changed.** Every suite records what it depended on (`dev\.testmap\`, git-ignored): the files it
+  read (its test file, helpers, harness, mock, generators, the TOC) and the addon functions its clients called.
+  `run_all.py` skips a suite when nothing of that changed since its last run. An edit inside a function reruns
+  the suites that called it (for a nested function, only the suites that called that function). An edit to a data
+  table (`ns.Data.X = {...}`, `ns.CHANGELOG`) reruns the suites that called a function reading `X`. Other
+  top-level code (outside every function) reruns every suite that loaded the file. Comments, blank lines and a
+  new function nobody calls yet rerun nothing. A suite that failed and whose inputs did not change is listed as
+  failed again, with its old output, without being rerun.
+  Use `--all` before a release, or when something outside the repo changed (date-dependent code, the Python
+  install). `tools\test_testmap.py` checks the selection itself.
+- **Bytecode cache.** The harness compiles each addon file once (`dev\.luacache\`). Clients after that load the
+  bytecode, which makes a client boot about 5x faster. `DISASTERZONE_NO_BCCACHE=1` turns it off.
+- **Scheduling.** Longest suites first (`tf_e\timings.json`), the longest ones split into shards (`SHARDS` in
+  `run_all.py`, `DZ_SHARD=i/n`), and one shared set of worker slots for every `run_all` on the machine
+  (`DZ_TEST_SLOTS`, default 12), so parallel agents share the CPU instead of each starting a full set.
+- **Patch suites** hard-link their copies of the addon tree, because a fresh copy costs a virus scan on every
+  first read. Never write *into* a file of such a copy: use `_patchkit.write()` / `release._put()`, which replace
+  the file.
+
 ## Making a change
 1. Edit the addon under `addon\DisasterZone\`. This is the same folder as the game's AddOns folder.
-2. Run `tools\check.py` and `tf_e\run_all.py`, and add a test for any bug you fix.
+2. Run `tools\check.py` and `tf_e\run_all.py` (it runs only the suites your change can affect), and add a test for any bug you fix.
 3. Test it in game with `/reload`. Paste any BugSack error into the next Claude session.
 4. Bump `## Version` in `DisasterZone.toc` when you ship to the guild (see Releasing). A new Lua file needs the line-1 guard: `tools\release.py guards add`.
 5. Commit here: `git add -A && git commit -m "..."`.
@@ -89,5 +111,6 @@ the feature off.
 - The signing key is `dev\keys\patch_key.json`. It is git-ignored: back it up somewhere safe.
 - Before publishing a large update: `luaenv\Scripts\python.exe tools\patched_run.py` runs every suite with the
   whole addon delivered through the update path.
+- Before any release: `luaenv\Scripts\python.exe tf_e\run_all.py --all` (no skipping).
 
 Read `addon\DisasterZone\NOTICE.md` before sharing outside the guild. The data files are generated from GPL v2 AtlasLoot data.

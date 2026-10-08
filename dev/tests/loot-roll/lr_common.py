@@ -13,7 +13,7 @@ SCRATCH = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(SCRATCH, "tools"))
 sys.path.insert(0, os.path.join(SCRATCH, "tests"))
 
-from harness import World, Client, ExtraMember, LuaErrorsFound, LuaEvalError  # noqa: E402,F401
+from harness import World, Client, ExtraMember, LuaErrorsFound, LuaEvalError, in_shard  # noqa: E402,F401
 from cdl_council import gm_pick, raid_pick, seed_guild_council  # noqa: E402,F401
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -70,9 +70,9 @@ class Runner:
     def run(self, only=None):
         failed = 0
         print("== %s ==" % self.title)
-        for name, fn in self.results:
-            if only and only not in name:
-                continue
+        picked = [(n, f) for n, f in self.results if not only or only in n]
+        picked = [nf for i, nf in enumerate(picked) if in_shard(i)]
+        for name, fn in picked:
             try:
                 fn()
                 print("PASS %s" % name)
@@ -81,7 +81,7 @@ class Runner:
                 print("FAIL %s: %s" % (name, _short(e)))
                 tb = traceback.format_exc()
                 print("     " + "\n     ".join(tb.strip().splitlines()[-25:]))
-        total = len([1 for n, _ in self.results if not only or only in n])
+        total = len(picked)
         print("-- %s: %d case(s), %d passed, %d failed" % (self.title, total, total - failed, failed))
         return 1 if failed else 0
 
