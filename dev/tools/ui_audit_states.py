@@ -267,6 +267,30 @@ def demo(fn_lua, key=None):
     return fn
 
 
+def map_view(lua=None, share="exact"):
+    """Guild > Map on Gina's screen: she stands in Honor Hold and shares (`share`), the demo guild spread over
+    Outland (none for "unset": the card asking first)."""
+    def fn(w, c):
+        g = c["Gina"]
+        close_all(g)
+        w.set_position(g, 1944, 0.56, 0.62, subzone="Honor Hold")
+        g.eval("ns.DB:SetSetting('map.share', ...)", share)
+        on = g.eval("return ns.Demo:IsEnabled()")
+        if share != "unset" and not on:
+            g.slash("/dz demo on")
+            w.tick(1)
+        elif share == "unset" and on:
+            g.slash("/dz demo off")
+            w.tick(1)
+        tab(g, "map")
+        w.tick(1)
+        if lua:
+            g.eval(lua)
+            w.tick(0.3)
+        return g
+    return fn
+
+
 MB = {}
 MB_ENCHANTS = [("Enchant Bracer - Spellpower", 27917, None), ("Enchant Bracer - Major Healing", 27911, None),
                ("Enchant Bracer - Brawn", 27899, None), ("Enchant Weapon - Soulfrost", 27982, None),
@@ -854,6 +878,11 @@ STATES = [
                                                "ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID, "
                                                "'Shadowmelder-Thunderstrike', 'Karazhan:Prince')")),
     ("Members - roster", members_view()),
+    # Guild > Map (UI/GuildMapUI.lua): the card asking first, Outland with the demo guild, Shattrath zoomed in
+    ("Guild map - asks first", map_view(share="unset")),
+    ("Guild map - Outland", map_view()),
+    ("Guild map - Shattrath", map_view("ns.GuildMapUI:ShowZone(1955)")),
+    ("Guild map - Hellfire Peninsula", map_view("ns.GuildMapUI:ShowZone(1944)")),
     ("Members - member card", members_view("ns.MembersUI:ShowMember('Vaenyria-Thunderstrike', 333)")),
     ("Members - recipes", members_view("ns.MembersUI:SetMode('recipes')")),
     # the card's other tabs, a profession filter (the rank in gold, highest first), a member without DisasterZone

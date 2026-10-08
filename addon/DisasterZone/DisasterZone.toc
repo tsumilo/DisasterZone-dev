@@ -44,6 +44,7 @@ Data\BossPortraits.lua
 Data\BossJournal.lua
 Data\BossAbilities.lua
 Data\RaidMaps.lua
+Data\MapOverlays.lua
 Data\StarterStrategies.lua
 Data\ModelIndex.lua
 Data\EncounterObjects.lua
@@ -57,6 +58,7 @@ Core\Store.lua
 Core\Comm.lua
 Core\Sync.lua
 Core\Professions.lua
+Core\GuildMap.lua
 Core\OfficerNotes.lua
 Core\PatchKey.lua
 Core\Patch.lua
@@ -251,6 +253,7 @@ UI\EventsTab.lua
 UI\EventBoard.lua
 UI\EventTracker.lua
 UI\Members.lua
+UI\GuildMapUI.lua
 UI\SessionBar.lua
 UI\DropPanel.lua
 UI\RollFrame.lua

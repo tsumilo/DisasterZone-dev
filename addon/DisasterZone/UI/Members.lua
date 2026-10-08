@@ -1369,7 +1369,7 @@ end
 -- width they take.
 local function placeHeaderButtons(right, btn)
     local prev = btn
-    for _, b in ipairs({ right.share, right.addNote }) do
+    for _, b in ipairs({ right.onMap, right.share, right.addNote }) do
         b:ClearAllPoints()
         if b:IsShown() then
             if prev then b:SetPoint("RIGHT", prev, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", 0, -HEAD_BTN_Y) end
@@ -1377,7 +1377,7 @@ local function placeHeaderButtons(right, btn)
         end
     end
     local used = 0
-    for _, b in ipairs({ btn, right.share, right.addNote }) do
+    for _, b in ipairs({ btn, right.onMap, right.share, right.addNote }) do
         if b and b:IsShown() then used = used + b:GetWidth() + 6 end
     end
     return used
@@ -1460,6 +1460,17 @@ local function updateDetail(p)
         local level = levelOf(member)
         if level then parts[#parts + 1] = "Level " .. level end
         parts[#parts + 1] = STATUS_WORD[status]
+        -- where they are (Guild > Map, while we both share): "In Halaa, Nagrand", else "Last seen in Nagrand, 2h ago"
+        local where = ns.GuildMap and ns.GuildMap:GetWhere(member)
+        if where and not ns.Util.IsMe(member) then
+            local place = where.inst or (where.sub and where.zone and (where.sub .. ", " .. where.zone)) or where.zone
+            if place and where.live then
+                parts[#parts + 1] = "In " .. place
+            elseif place then
+                parts[#parts + 1] = "Last seen in " .. place .. ", " .. ns.Util.FormatAgo(where.t)
+            end
+        end
+        right.onMap.key = (where and where.live and not ns.Util.IsMe(member)) and member or nil
         local vst, v = versionOf(member)
         if vst == "older" or vst == "newer" then parts[#parts + 1] = "|cff8a8a8eDisasterZone|r " .. tostring(v) end
         right.metaParts = parts
@@ -1479,6 +1490,7 @@ local function updateDetail(p)
     right.sub:ClearAllPoints()
     right.sub:SetPoint("TOPLEFT", metaX, -28)
     right.share:SetShown(recipe ~= nil or member ~= nil)
+    right.onMap:SetShown(member ~= nil and right.onMap.key ~= nil)
     local used = placeHeaderButtons(right, btn)
     right.headHit:SetShown(recipe ~= nil or member ~= nil)
     if recipe or member then
@@ -1604,6 +1616,12 @@ local function createCard(p)
             if self.key then editNote(self.key) end
         end)
     right.addNote:Hide()
+    -- where they stand now, on Guild > Map (shown while they share with me)
+    right.onMap = UI:CreateTipIconButton(right, 22, 7, "Show on the map", "Guild > Map, zoomed into where they are.",
+        function(self)
+            if self.key and ns.GuildMapUI then ns.GuildMapUI:ShowPerson(self.key) end
+        end)
+    right.onMap:Hide()
 
     -- the specs as chips: a round icon, the name, the talent points (main) or "off spec"
     right.specChips = {}
@@ -1877,7 +1895,7 @@ function MembersUI:OnInit()
     end
     local function refresh() MembersUI:RequestRefresh() end
     for _, msg in ipairs({ "PROFESSIONS_UPDATED", "ROSTER_UPDATED", "DEMO_TOGGLED", "OFFICER_NOTES_UPDATED",
-                           "PEERS_UPDATED", "ITEMINFO_READY" }) do
+                           "PEERS_UPDATED", "ITEMINFO_READY", "GUILDMAP_UPDATED" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("members", function() ns.MainFrame:Open("members") end,

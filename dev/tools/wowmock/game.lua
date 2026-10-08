@@ -1041,6 +1041,7 @@ M.outdoor_maps = {
   [1953] = { name = "Netherstorm", cont = 530, left = 7512.5, top = 5341.67, w = 5574.99, h = 3716.67 },
   [1955] = { name = "Shattrath City", cont = 530, left = 6135.42, top = -1031.25, w = 1306.25, h = 870.83 },
 }
+M.outdoor_maps[1955].parent = 1952   -- (Shattrath City is a child of Terokkar Forest, as in the client)
 for id, m in pairs(M.outdoor_maps) do
   m.mapType = m.mapType or 3
   m.parent = m.parent or 1945
@@ -1090,7 +1091,9 @@ function IsFalling() return M.falling == true end
 -- The open world zones' map art (the client's world map: 1002 x 668 in 4 x 3 tiles of 256), by their file names.
 M.outdoor_art = { [1944] = "Hellfire", [1945] = "Expansion01", [1946] = "Zangarmarsh", [1948] = "ShadowmoonValley",
   [1949] = "BladesEdgeMountains", [1951] = "Nagrand", [1952] = "TerokkarForest", [1953] = "Netherstorm",
-  [1955] = "ShattrathCity" }
+  [1955] = "ShattrathCity", [1414] = "Kalimdor", [1415] = "Azeroth" }
+-- The other continents by name (the Guild map's tabs; no world rectangles: nothing stands on them in the mock)
+M.continent_maps = { [1414] = "Kalimdor", [1415] = "Eastern Kingdoms" }
 -- A few instance floors with map art (Enum.UIMapType.Dungeon = 4), as the strategy boards read them: 3 floors of
 -- Black Temple in one map group, 1002 x 668 layers of 256px tiles (4 x 3 = 12 file ids each).
 M.dungeon_maps = {
@@ -1110,6 +1113,7 @@ C_Map = {
     if d then return { mapID = id, name = d.name, mapType = 4, parentMapID = 1946, flags = 0 } end
     local o = M.outdoor_maps[id]
     if o then return { mapID = id, name = o.name, mapType = o.mapType, parentMapID = o.parent, flags = 0 } end
+    if M.continent_maps[id] then return { mapID = id, name = M.continent_maps[id], mapType = 2, parentMapID = 947, flags = 0 } end
     return { mapID = id, name = GetRealZoneText(), mapType = 3, parentMapID = 0 }
   end,
   -- (uiMapID, unit) -> Vector2D (0..1 on that map, may fall outside it on the same continent) or nil: nobody set
@@ -1141,6 +1145,22 @@ C_Map = {
       if x and (override or (x >= 0 and x <= 1 and y >= 0 and y <= 1)) then return id, CreateVector2D(x, y) end
     end
     return nil
+  end,
+  -- (uiMapID, x, y) -> the info of the smallest child map at that point of it (a zone on a continent, a city in a
+  -- zone), else the map's own info, as the game's world map asks while the mouse moves over it
+  GetMapInfoAtPosition = function(id, x, y)
+    id = tonumber(id)
+    local cont, wx, wy = map_to_world(id, x, y)
+    local best
+    if cont then
+      for cid, m in pairs(M.outdoor_maps) do
+        if m.parent == id then
+          local cx, cy = world_to_map(cid, cont, wx, wy)
+          if cx and cx >= 0 and cx <= 1 and cy >= 0 and cy <= 1 and (not best or m.w < M.outdoor_maps[best].w) then best = cid end
+        end
+      end
+    end
+    return C_Map.GetMapInfo(best or id)
   end,
   GetMapGroupID = function(id) local d = M.dungeon_maps[id]; return d and d.group or nil end,
   GetMapGroupMembersInfo = function(gid)

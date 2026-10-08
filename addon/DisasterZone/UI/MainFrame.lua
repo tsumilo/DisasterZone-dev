@@ -29,7 +29,7 @@ local NAV_HIDDEN = {}
 local NAV_GROUPS = {
     { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council", "mylog" } },
     { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "atlas" } },
-    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "events", "games" } },
+    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "games" } },
 }
 -- A line under each page in a group's menu (its tooltip).
 local NAV_PAGE_TIPS = {
@@ -39,6 +39,7 @@ local NAV_PAGE_TIPS = {
     mybis   = "Your BiS lists and what you still need.",
     atlas   = "Every raid and dungeon's drops, sets and costs.",
     members = "The guild's members, professions and recipes.",
+    map     = "Where guildmates are right now.",
     events  = "Guild events and cups (beta).",
     games   = "Bingo and the other games to play with the guild.",
 }

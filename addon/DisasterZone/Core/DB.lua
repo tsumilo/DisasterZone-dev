@@ -47,6 +47,9 @@ local DEFAULTS = {
         atlas = { show = "all" },      -- Atlas tab: Show "all" | "class" | "spec" | "os" (off spec)
         raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
         mylog = { enabled = false, heroics = false, keepWeeks = 12 },  -- My Log (Core/MyLog.lua): opt-in, off
+        -- Guild > Map (Core/GuildMap.lua): share "unset" (not asked yet) | "off" | "zone" | "exact"; blizzard: dots on
+        -- the game's world map too
+        map = { share = "unset", blizzard = true },
         strategy = {             -- Addendum K encounter helpers (Core/StrategyLive.lua)
             autoMark = true,     -- as raid leader: put the plan's raid marks on the mobs
             reminder = true,     -- near a planned boss: my jobs (and the leader's overview)
@@ -75,6 +78,8 @@ local DEFAULTS = {
     shopping = {},     -- [charKey] = { { id, n, d }, ... } the Atlas shopping list (Core/ShoppingList.lua), never synced
     prices = {},       -- [itemID] = "cost|time" what a vendor asked (Core/Currency.lua), account wide, never synced
     prof = {},         -- [guildKey] ={ [charKey] = professions and recipes } (Core/Professions.lua)
+    -- mapSeen (no default): [guildKey] = { [charKey] = { m, i, n, t } } the zone a guildmate was last seen in
+    -- (Core/GuildMap.lua), only learned while I share
     games = {},        -- [gameId] = per-game saved data (Games/Hub.lua): best, plays, ...
     dropHistory = {},  -- array of recent drops (§10.2), newest last, max 40, pruned > 24h
     -- groupLock (no default): { by = key, at = serverTime } while this character, as the raid's loot
