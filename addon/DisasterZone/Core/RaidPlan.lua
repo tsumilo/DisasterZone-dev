@@ -128,6 +128,9 @@ local pending = {}                  -- ["kind:id"] = { kind, rec, via }: newer v
 local asks = {}                     -- [digest item] = true: records to ask a raid planner for (AskPlanner)
 local asked = {}                    -- [digest item] = rev: the version a planner was asked about last
 local restampQueued = false         -- a pass of RestampPass is scheduled
+-- 1.3.3: the helpers added for the 2026-10-08 edge-case fixes (edits that crossed, the blacklist per entry, ...), in
+-- one table: the main chunk is near Lua's 200 locals.
+local Merge = {}
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -354,7 +357,8 @@ local function Root(create)
         r = {}
         db.raidplan[g] = r
     end
-    for _, k in ipairs({ "T", "S", "E", "U", "W", "OK" }) do
+    -- (G, 1.3.3: deletions Prune dropped, Merge.Bury)
+    for _, k in ipairs({ "T", "S", "E", "U", "W", "OK", "G" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
     end
     -- 1.3: trust marks name the version's writer too (TrustKey); a mark of before is moved to the version stored
@@ -921,6 +925,16 @@ end
 local function MergeRecord(root, kind, rec, via)
     local store = root[kind]
     local cur = store[rec.id]
+    -- 1.3.3: a deletion Prune dropped (Merge.Bury) beats an old copy from someone who was away: the copy is refused
+    -- and the sender gets the deletion back
+    local grave = root.G[kind .. ":" .. rec.id]
+    if grave then
+        if not Newer(rec, grave) then
+            Merge.SendGrave(kind, grave, via)
+            return false
+        end
+        root.G[kind .. ":" .. rec.id] = nil
+    end
     if cur then
         -- A client before 1.3.1 drops a team's target comp (cp) from the copy it passes on, one before 1.3.2 its
         -- lineups (L): of two copies of a version that differ only by those, the one with more of them wins
@@ -997,6 +1011,9 @@ end
 local function MergeSignup(root, occId, key, s)
     local e = root.E[occId]
     if e and e.del and Trusted(root, "E", e) then return false end
+    -- (a raid deleted or a weekly raid ended long ago: Merge.Bury)
+    local sid = SplitOcc(occId)
+    if root.G["E:" .. occId] or (sid and root.G["S:" .. sid]) then return false end
     local occ = root.U[occId]
     if not occ then
         if CountTable(root.U) >= MAX_SIGNUP_OCCS then return false end
@@ -1746,10 +1763,22 @@ end
 
 ---------------------------------------------------------------------------
 -- Blacklist: players who take no part in the guild's raids. One list per guild, db.raidBlacklist[guildKey] =
--- { rev, by, l = { [key] = { r = reason, by = who, at = when } } }, shared whole like the raid leaders list: BLL on
--- GUILD (or WHISPER as an answer), accepted only from a roster manager, the newer rev wins. HELLO carries my rev
--- (blr); a manager answers an older one, and a member asks (BLQ) a manager who holds a newer one.
+-- { rev, by, l = { [key] = { r = reason, by = who, at = when, v = version } }, x = { [key] = version } }: BLL on
+-- GUILD (or WHISPER as an answer), accepted only from a roster manager. HELLO carries my rev (blr); a manager answers
+-- an older one, and a member asks (BLQ) a manager who holds a newer one.
+-- 1.3.3: merged per player, not replaced whole (an officer who missed an entry erased it with their next save): each
+-- entry has its own version v, a removal leaves a marker x[key] = its version, and the newer of the two wins. A list
+-- from a client before 1.3.3 (no f = 2) only adds and updates entries: one missing there may be one it never got (its
+-- entries count as of when they were added). rev only grows; a manager whose merged list holds more than the one
+-- it got sends theirs on, one rev higher, so the managers end up with the same list.
 ---------------------------------------------------------------------------
+
+Merge.MAX_BL_MARKS = 200     -- removal markers kept (the oldest go first)
+
+-- An entry's version: v, else (saved or sent before 1.3.3) when it was added.
+function Merge.EntryRev(e)
+    return type(e) == "table" and (e.v or e.at) or 0
+end
 
 local function BlacklistRec(create)
     local db = ns.db
@@ -1791,9 +1820,38 @@ local function CleanBlacklist(l)
             if not IsInt(e.a, 1, MAX_STAMP) then return nil end
             entry.at = e.a
         end
+        if e.v ~= nil then
+            if not IsInt(e.v, 1, MAX_STAMP) then return nil end
+            entry.v = e.v
+        end
         out[k] = entry
     end
     return out
+end
+
+-- The removal markers as sent { { k, v }, ... } -> { [key] = v }, or nil.
+function Merge.CleanMarks(x)
+    if x == nil then return {} end
+    if type(x) ~= "table" then return nil end
+    local out = {}
+    for i = 1, Merge.MAX_BL_MARKS + 1 do
+        local e = x[i]
+        if e == nil then break end
+        if i > Merge.MAX_BL_MARKS or type(e) ~= "table" then return nil end
+        local k = WireKey(e.k)
+        if not k or not IsInt(e.v, 1, MAX_STAMP) then return nil end
+        out[k] = e.v
+    end
+    return out
+end
+
+-- At most MAX_BL_MARKS markers: the oldest go.
+function Merge.TrimMarks(rec)
+    local list = {}
+    for k, v in pairs(rec.x) do list[#list + 1] = { k = k, v = v } end
+    if #list <= Merge.MAX_BL_MARKS then return end
+    tsort(list, function(a, b) if a.v ~= b.v then return a.v < b.v end return a.k < b.k end)
+    for i = 1, #list - Merge.MAX_BL_MARKS do rec.x[list[i].k] = nil end
 end
 
 local function WireBlacklist(rec)
@@ -1803,15 +1861,21 @@ local function WireBlacklist(rec)
     local l = {}
     for i, k in ipairs(keys) do
         local e = rec.l[k]
-        l[i] = { k = k, r = e.r, b = e.by, a = e.at }
+        l[i] = { k = k, r = e.r, b = e.by, a = e.at, v = Merge.EntryRev(e) > 0 and Merge.EntryRev(e) or nil }
     end
-    return l
+    local xs = {}
+    for k in pairs(type(rec.x) == "table" and rec.x or {}) do xs[#xs + 1] = k end
+    tsort(xs)
+    local x = {}
+    for i, k in ipairs(xs) do x[i] = { k = k, v = rec.x[k] } end
+    return l, x
 end
 
 local function SendBlacklist(target)
     local rec = BlacklistRec(false)
     if not rec or rec.rev == 0 then return false end
-    local msg = { t = "BLL", rev = rec.rev, by = rec.by, l = WireBlacklist(rec) }
+    local l, x = WireBlacklist(rec)
+    local msg = { t = "BLL", rev = rec.rev, by = rec.by, l = l, x = next(x) and x or nil, f = 2 }
     if target then return Send(msg, "WHISPER", target, "data") end
     return Send(msg, "GUILD", nil, "data")
 end
@@ -1821,13 +1885,60 @@ local function OnBlacklist(sender, msg, dist)
     if not IsInt(msg.rev, 1, Now() + FUTURE_SLACK) then return end
     local l = CleanBlacklist(msg.l)
     if not l then return end
+    local full = msg.f == 2                  -- 1.3.3: entries with versions and the removal markers
+    local x = full and Merge.CleanMarks(msg.x) or {}
+    if not x then return end
     local rec = BlacklistRec(true)
     if not rec then return end
-    if msg.rev < rec.rev then return end
-    if msg.rev == rec.rev and Util.Hash(l) <= Util.Hash(rec.l) then return end   -- the same rev: every client keeps one
-    rec.rev, rec.l, rec.by = msg.rev, l, (msg.by ~= nil and WireKey(msg.by)) or sender
-    ns:Fire("RAID_BLACKLIST_CHANGED")
-    Changed()
+    if type(rec.x) ~= "table" then rec.x = {} end
+    local limit = Now() + FUTURE_SLACK
+    local changed = false
+    -- removals first: a marker beats an entry as old or older
+    for k, v in pairs(x) do
+        if v <= limit then
+            if rec.l[k] and Merge.EntryRev(rec.l[k]) <= v then rec.l[k] = nil; changed = true end
+            if (rec.x[k] or 0) < v then rec.x[k] = v end
+        end
+    end
+    for k, e in pairs(l) do
+        local v = Merge.EntryRev(e)
+        if v == 0 and not full then v = 1 end
+        local cur = rec.l[k]
+        local cv = Merge.EntryRev(cur)
+        if v <= limit and v > (rec.x[k] or 0)
+            and (not cur or v > cv or (v == cv and Util.Hash(e) > Util.Hash(cur)))
+            and (cur or CountTable(rec.l) < MAX_BLACKLIST) then
+            e.v = v > 0 and v or nil
+            rec.l[k] = e
+            changed = true
+        end
+    end
+    Merge.TrimMarks(rec)
+    -- what I hold that the sender lacks (a list before 1.3.3 can't tell: it is not answered)
+    local more = false
+    if full then
+        for k, e in pairs(rec.l) do
+            local o = l[k]
+            if not o or Merge.EntryRev(o) < Merge.EntryRev(e)
+                or (o ~= e and Merge.EntryRev(o) == Merge.EntryRev(e) and Util.Hash(o) ~= Util.Hash(e)) then
+                more = true
+            end
+        end
+        for k, v in pairs(rec.x) do
+            if (x[k] or 0) < v then more = true end
+        end
+    end
+    local rev = max(rec.rev, msg.rev)
+    if more and CanRoster(Util.PlayerKey()) then
+        rec.rev, rec.by = max(rev + 1, Now()), Util.PlayerKey()
+        Util.Debounce("raidplan-bll", 1, function() SendBlacklist() end)
+    elseif rev > rec.rev then
+        rec.rev, rec.by = rev, (msg.by ~= nil and WireKey(msg.by)) or sender
+    end
+    if changed then
+        ns:Fire("RAID_BLACKLIST_CHANGED")
+        Changed()
+    end
 end
 
 local function OnBlacklistQuery(sender, msg, dist)
@@ -1909,7 +2020,11 @@ function RaidPlan:SetBlacklisted(name, reason)
     if not CanRoster(Util.PlayerKey()) then return false, REFUSED.roster end
     local rec = BlacklistRec(true)
     if not rec then return false, "Your guild is not known yet; try again in a moment." end
-    local key = WireKey(type(name) == "string" and Util.Trim(name) or name)
+    -- (1.3.3: in the game's case, "rita" is Rita: Util.TypedPlayerKey)
+    local listed = {}
+    for k in pairs(rec.l) do listed[#listed + 1] = k end
+    tsort(listed)
+    local key = WireKey(type(name) == "string" and Util.TypedPlayerKey(name, listed) or name)
     if not key then return false, "That is not a player name." end
     if Util.IsMe(key) then return false, "You can't blacklist yourself." end
     local r
@@ -1921,7 +2036,10 @@ function RaidPlan:SetBlacklisted(name, reason)
         return false, "The blacklist holds at most " .. MAX_BLACKLIST .. " players."
     end
     local cur = rec.l[key]
-    rec.l[key] = { r = r, by = Util.PlayerKey(), at = cur and cur.at or Now() }
+    if type(rec.x) ~= "table" then rec.x = {} end
+    local v = max(Now(), Merge.EntryRev(cur) + 1, (rec.x[key] or 0) + 1)
+    rec.l[key] = { r = r, by = Util.PlayerKey(), at = cur and cur.at or Now(), v = v }
+    rec.x[key] = nil
     SaveBlacklist(rec)
     return true, key
 end
@@ -1930,6 +2048,9 @@ function RaidPlan:RemoveBlacklisted(key)
     if not CanRoster(Util.PlayerKey()) then return false, REFUSED.roster end
     local rec = BlacklistRec(true)
     if not rec or type(key) ~= "string" or not rec.l[key] then return false, "That player is not on the blacklist." end
+    if type(rec.x) ~= "table" then rec.x = {} end
+    rec.x[key] = max(Now(), Merge.EntryRev(rec.l[key]) + 1)
+    Merge.TrimMarks(rec)
     rec.l[key] = nil
     SaveBlacklist(rec)
     return true
@@ -2219,16 +2340,20 @@ function RaidPlan:GetRaidTeamPlayers(occId, teamId)
 end
 
 -- The set of invited members { [key] = true } (the players of the raid's visible teams, GetRaidTeamPlayers, plus its
--- extra invites), or nil when the raid names no team and no invite (open to everyone).
+-- extra invites), or nil when the raid names no team and no invite (open to everyone). 1.3.3: teams that are all gone
+-- (deleted, or not here yet) count as none: a locked raid whose teams were deleted is open, not shut to everyone.
 function RaidPlan:GetInvited(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return nil end
     local tm, inv = v.tm or {}, v.inv or {}
     if #tm == 0 and #inv == 0 then return nil end
-    local set = {}
+    local set, teams = {}, 0
     for _, id in ipairs(tm) do
-        for _, key in ipairs(self:GetRaidTeamPlayers(v, id) or {}) do set[key] = true end
+        local players = self:GetRaidTeamPlayers(v, id)
+        if players then teams = teams + 1 end
+        for _, key in ipairs(players or {}) do set[key] = true end
     end
+    if teams == 0 and #inv == 0 then return nil end
     for _, key in ipairs(inv) do set[key] = true end
     return set
 end
@@ -2249,15 +2374,51 @@ function RaidPlan:GetLayoutMembers(occId)
             seen[key] = true
         end
     end
-    for key in pairs(v.grp or {}) do
-        if not seen[key] and not (signups[key] and signups[key].st == "X") and not InSet(v.rj, key)
-            and not self:IsBlacklisted(key) then
+    -- (1.3.3: not one whose player answered with another character, Absent or not, nor one in a group the raid's
+    -- size doesn't have)
+    local nGroups = ns.RaidComp:GroupCount(v.sz)
+    for key, g in pairs(v.grp or {}) do
+        if not seen[key] and InSet(signups, key) == nil and not InSet(v.rj, key)
+            and type(g) == "number" and g <= nGroups and not self:IsBlacklisted(key) then
             local sp, c = self:GetMemberSpec(key)
             out[#out + 1] = { key = key, c = c, sp = sp }
         end
     end
     tsort(out, function(a, b) return a.key < b.key end)
     return out
+end
+
+-- 1.3.3: has the player behind `key` (any of their characters) answered Absent for the raid (a view or an id)?
+function RaidPlan:IsAbsent(occId, key)
+    local v = AsView(occId)
+    if not v then return false end
+    local signups = self:GetSignups(v.id)
+    local hit = InSet(signups, key)
+    return hit ~= nil and signups[hit].st == "X"
+end
+
+-- 1.3.3: a saved layout as it holds now: a player who answered Absent since (with any character), was declined or
+-- blacklisted, or sits in a group the raid's size doesn't have, is out; a seat whose player answered with another
+-- character goes to that character. Returns grp, gs (copies).
+function Merge.CurrentLayout(v)
+    local grp, gs = {}, {}
+    local signups = RaidPlan:GetSignups(v.id)
+    local nGroups = ns.RaidComp:GroupCount(v.sz)
+    local keys = {}
+    for key in pairs(v.grp or {}) do keys[#keys + 1] = key end
+    tsort(keys)
+    for _, key in ipairs(keys) do
+        local g = v.grp[key]
+        local hit = InSet(signups, key)
+        local s = hit and signups[hit]
+        local to = (hit and not s.guest) and hit or key
+        if type(g) == "number" and g >= 1 and g <= nGroups and not (s and s.st == "X") and not InSet(v.rj, key)
+            and not RaidPlan:IsBlacklisted(key) and (grp[to] == nil or to == key) then
+            grp[to] = g
+            gs[to] = v.gs and v.gs[key] or nil
+        end
+    end
+    return grp, gs
 end
 
 -- §60: the starting layout of a raid that has no saved one: its teams' layouts (1.3.2: the lineup of each team for the
@@ -2359,9 +2520,29 @@ end
 function RaidPlan:GetLayout(occId)
     local v = type(occId) == "table" and occId or self:GetRaid(occId)
     if not v then return {}, false end
-    if v.grp and next(v.grp) then return CopyMap(v.grp), true, CopyMap(v.gs) or {} end
+    if v.grp and next(v.grp) then
+        local grp, gs = Merge.CurrentLayout(v)
+        return grp, true, gs
+    end
     local grp, seats = self:BuildLayout(v)
     return grp, false, seats or {}
+end
+
+-- 1.3.3: is a group invite from `from` most likely for a planned raid? A raid around now (from 2 hours before its
+-- start to 6 hours after) that I answered (not Absent) or have a group in, which `from` runs or lays out. (The dungeon
+-- runs' invite toast leaves those to the game's own pop-up: an officer forming the raid may have a run listed too.)
+function RaidPlan:IsRaidInviteFrom(from)
+    local me = Util.PlayerKey()
+    if not me or type(from) ~= "string" or Util.IsMe(from) then return false end
+    local now = Now()
+    for _, v in ipairs(self:GetRaids(now - SIGNUP_CLOSE, now + 2 * 3600)) do
+        if not v.cancelled and (self:CanEditGroups(v, from) or self:CanManageRaid(v, from)) then
+            local mine = self:GetMySignup(v.id)
+            local grp = self:GetLayout(v)
+            if (mine and mine.st ~= "X") or InSet(grp, me) then return true end
+        end
+    end
+    return false
 end
 
 -- Raids in the next `days` days (default 7) I am invited to (by a team) and haven't answered, soonest first.
@@ -2675,11 +2856,16 @@ function RaidPlan:GetRaidLineup(occId, teamId)
     local want = v.tl and v.tl[teamId]
     local first
     for _, l in ipairs(t.lineups) do
-        if l.size == v.sz then
-            if l.id == want then return l, t end
-            first = first or l
+        if want ~= nil and l.id == want then
+            -- (1.3.3) the lineup the raid picked, resized since: none, like a deleted one (below)
+            if l.size == v.sz then return l, t end
+            return nil, t
         end
+        if l.size == v.sz then first = first or l end
     end
+    -- 1.3.3: the lineup the raid picked was deleted: the team's whole roster counts, not another lineup's players
+    -- (theirs would take the place of those who answered)
+    if want ~= nil then return nil, t end
     if not first then return nil end
     return first, t
 end
@@ -2897,6 +3083,93 @@ local function Commit(root, kind, rec)
     return true
 end
 
+-- Equal values for the team rebase: an empty table is the same as none.
+function Merge.Same(a, b)
+    if type(a) == "table" and next(a) == nil then a = nil end
+    if type(b) == "table" and next(b) == nil then b = nil end
+    if a == nil or b == nil then return a == b end
+    return Util.Hash(a) == Util.Hash(b)
+end
+
+-- A map rebased key by key: a key the draft changed (set, changed or cleared since base) takes the draft's value,
+-- every other key keeps theirs.
+function Merge.Map(base, mine, theirs)
+    base, mine, theirs = base or {}, mine or {}, theirs or {}
+    local out = {}
+    for k, v in pairs(theirs) do out[k] = v end
+    for k in pairs(base) do
+        if mine[k] ~= base[k] then out[k] = mine[k] end
+    end
+    for k, v in pairs(mine) do
+        if base[k] ~= v then out[k] = v end
+    end
+    return out
+end
+
+-- 1.3.3: a team draft saved after another organizer saved the same team (base = the version the draft started from,
+-- mine = the draft, theirs = the team as saved now; all GetTeam-shaped: name, members, theme, lineups { id, name,
+-- size, specs, groups, seats, comp }). What the draft changed since base wins, the rest is theirs: both edits stay
+-- instead of the later save wiping the other. Returns name, members (a set), lineups, theme.
+function Merge.Team(base, mine, theirs)
+    local name = (mine.name ~= base.name) and mine.name or theirs.name
+    local theme = theirs.theme
+    if not Merge.Same(mine.theme, base.theme) then theme = mine.theme end
+    local function Set(list)
+        local s = {}
+        for k, v in pairs(list or {}) do
+            local key = type(k) == "string" and v and k or (type(v) == "string" and v) or nil
+            if key then s[key] = true end
+        end
+        return s
+    end
+    local b, m = Set(base.members), Set(mine.members)
+    local members = Set(theirs.members)
+    for key in pairs(m) do if not b[key] then members[key] = true end end
+    for key in pairs(b) do if not m[key] then members[key] = nil end end
+    local function ById(list)
+        local out = {}
+        for _, l in ipairs(list or {}) do if l.id ~= nil then out[l.id] = l end end
+        return out
+    end
+    local bl, tl = ById(base.lineups), ById(theirs.lineups)
+    local lineups, placed = {}, {}
+    for _, l in ipairs(mine.lineups or {}) do
+        local bo, th = l.id ~= nil and bl[l.id], l.id ~= nil and tl[l.id]
+        if l.id == nil or not bo then
+            lineups[#lineups + 1] = l                     -- new in the draft
+        elseif th then
+            -- in all three: field by field (groups and seats per player, specs per player)
+            local x = { id = l.id }
+            x.name = (l.name ~= bo.name) and l.name or th.name
+            x.size = (l.size ~= bo.size) and l.size or th.size
+            x.comp = Merge.Same(l.comp, bo.comp) and th.comp or l.comp
+            x.specs = Merge.Map(bo.specs, l.specs, th.specs)
+            local grp, gs = {}, {}
+            local keys = {}
+            for _, t in ipairs({ bo.groups, bo.seats, l.groups, l.seats, th.groups, th.seats }) do
+                for k in pairs(t or {}) do keys[k] = true end
+            end
+            for k in pairs(keys) do
+                local mineMoved = (l.groups or {})[k] ~= (bo.groups or {})[k] or (l.seats or {})[k] ~= (bo.seats or {})[k]
+                local src = mineMoved and l or th
+                grp[k] = (src.groups or {})[k]
+                gs[k] = (src.seats or {})[k]
+            end
+            x.groups, x.seats = grp, gs
+            lineups[#lineups + 1] = x
+        end
+        -- (in base, gone from theirs: the other organizer deleted it; in base, kept in the draft unchanged or not,
+        -- it stays deleted)
+        if l.id ~= nil then placed[l.id] = true end
+    end
+    -- lineups the other organizer added while I was editing
+    for _, l in ipairs(theirs.lineups or {}) do
+        if not placed[l.id] and not bl[l.id] then lineups[#lineups + 1] = l end
+    end
+    -- (a lineup in base and theirs that the draft deleted stays deleted: neither loop adds it)
+    return name, members, lineups, theme
+end
+
 -- members: a set { [key] = true } or an array of keys (the roster). id = nil creates a team. opts (optional):
 --   lineups = { { id = lineup id|nil (a new one), name = text|nil, size = 10|25, specs = { [key] = spec index },
 --               groups = { [key] = 1..8 }, seats = { [key] = 1..5 }, comp = cp|nil }, ... }: every lineup, in order
@@ -2904,11 +3177,30 @@ end
 --   or, for one lineup (ln = its id, default the first; a new team gets one): size = 10|25, specs, groups, seats,
 --   comp (Core/RaidComp.lua; false clears it): nil keeps the lineup's current ones.
 --   theme = a raid key (its loading screen is the team's banner; false clears it, nil keeps it) (1.3.3)
+--   base = the team (GetTeam) the edit started from (1.3.3): when the team was saved again since, by someone else,
+--   only what this edit changed is applied over that newer version (Merge.Team); needs opts.lineups.
 -- A comp with more slots than its lineup's size is refused. Roster members who were on a waitlist of the team are
--- taken off it. Returns ok, idOrErr.
+-- taken off it. Returns ok, idOrErr, merged (true when another organizer's newer save was kept under this one).
 function RaidPlan:SaveTeam(id, name, members, opts)
     local root, err = RequireOrganizer("teams")
     if not root then return false, err end
+    if id and root.T[id] and root.T[id].del then return false, "This team was deleted meanwhile." end
+    local merged
+    if id and type(opts) == "table" and type(opts.base) == "table" and type(opts.lineups) == "table" then
+        local now = self:GetTeam(id)
+        if now and now.rev ~= opts.base.rev then
+            local th = opts.theme
+            if th == false then th = nil elseif th == nil then th = opts.base.theme end
+            local n, m, ls, t = Merge.Team(opts.base,
+                { name = CleanText(name, MAX_NAME_LEN) or name, members = members, lineups = opts.lineups, theme = th },
+                now)
+            name, members = n, m
+            local o = {}
+            for k, v in pairs(opts) do o[k] = v end
+            o.lineups, o.theme, o.base = ls, t or false, nil
+            opts, merged = o, true
+        end
+    end
     name = CleanText(name, MAX_NAME_LEN)
     if not name then return false, "Team names are 1-32 characters." end
     local list = {}
@@ -2997,7 +3289,7 @@ function RaidPlan:SaveTeam(id, name, members, opts)
     end
     tsort(gone, function(a, b) return a.ln .. ":" .. a.k < b.ln .. ":" .. b.k end)
     Lineup.Write(root, id, gone, function() return { x = true } end)
-    return true, id
+    return true, id, merged
 end
 
 function RaidPlan:DeleteTeam(id)
@@ -3291,11 +3583,39 @@ function RaidPlan:EditRaid(occId, f, scope)
         for k, val in pairs(f) do g[k] = val end
         if g.t ~= nil then
             if not IsInt(g.t, 0, Now() + MAX_AHEAD) then return false, "Pick a date at most 180 days ahead." end
-            g.t = s.t + (g.t - SeriesTime(s, v.k))
+            -- 1.3.3: sign-ups, groups and guests belong to a week by its number: every week moves within its own week
+            -- (a later start would hand each week's answers to the next raid). Skipping weeks is Cancel.
+            if math.abs(g.t - SeriesTime(s, v.k)) >= WEEK then
+                return false, "Every week moves each raid within its own week. To skip a week, cancel it instead."
+            end
+            -- the series starts on the same weekday and wall-clock time as picked for this week (not shifted by the
+            -- seconds between the two: across a clock change that lands an hour off; nor from this week's own time)
+            local d = date("*t", g.t)
+            if type(d) == "table" and v.k > 0 then
+                d.day, d.isdst = d.day - 7 * v.k, nil
+                g.t = time(d) or (g.t - v.k * WEEK)
+            end
         end
         local ok, e = ApplyFields(s, g, true)
         if not ok then return false, e end
-        return Commit(root, "S", s)
+        ok, e = Commit(root, "S", s)
+        if not ok then return false, e end
+        -- 1.3.3: this week follows the series in what was just changed (its own value for those goes)
+        local o = root.E[occId]
+        if o and not o.del and Trusted(root, "E", o) then
+            local own = false
+            for k in pairs(f) do
+                if k ~= "rl" and o[k] ~= nil then own = true end
+            end
+            if own then
+                local base = OccBase(root, occId, v)
+                for k in pairs(f) do
+                    if k ~= "rl" then base[k] = nil end
+                end
+                Commit(root, "E", base)
+            end
+        end
+        return true
     end
     local o = OccBase(root, occId, v)
     local ok, e = ApplyFields(o, f, true)
@@ -3384,7 +3704,12 @@ end
 -- Adds a player outside the guild to the raid by name (or changes their class / spec). They count as accepted. (One
 -- taken off by hand before is added: by hand, that is meant.) Returns ok, keyOrErr.
 function RaidPlan:AddGuest(occId, name, classFile, spec)
-    local key = WireKey(type(name) == "string" and Util.Trim(name) or name)
+    -- (1.3.3: in the game's case, "lee" is the guild's Lee and a guest typed "pug" the same as one who joins as Pug)
+    local v = type(name) == "string" and AsView(occId)
+    local known = {}
+    for k in pairs(v and v.gu or {}) do known[#known + 1] = k end
+    tsort(known)
+    local key = WireKey(type(name) == "string" and Util.TypedPlayerKey(name, known) or name)
     if not key then return false, "Type the guest's character name." end
     if type(classFile) ~= "string" or not (ns.SPECS and ns.SPECS[classFile]) then return false, "Pick the guest's class." end
     if spec ~= nil and not IsInt(spec, 1, SpecCount(classFile)) then return false, "invalid spec" end
@@ -3718,6 +4043,43 @@ end
 -- Retention (§54)
 ---------------------------------------------------------------------------
 
+-- 1.3.3: deletions outlive Prune. A deleted team, a deleted raid, a weekly raid cancelled or ended: once Prune drops
+-- it, its last version is kept in root.G (not shown, not in the digest) for a year. A copy from before the deletion,
+-- sent by someone who was away all that time, is refused, and they get the deletion back (it goes through their
+-- usual checks), so their client drops it too. Only a version that shows (Trusted) is kept: a made-up one can't block.
+Merge.GRAVE_KEEP = 365 * DAY
+Merge.MAX_GRAVES = 150
+
+function Merge.Bury(root, kind, rec)
+    if not Trusted(root, kind, rec) then return end
+    root.G[kind .. ":" .. rec.id] = rec
+end
+
+function Merge.TrimGraves(root, now)
+    local list = {}
+    for item, rec in pairs(root.G) do
+        if type(rec) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) or rec.rev < now - Merge.GRAVE_KEEP then
+            root.G[item] = nil
+        else
+            list[#list + 1] = item
+        end
+    end
+    if #list <= Merge.MAX_GRAVES then return end
+    tsort(list, function(a, b) return root.G[a].rev < root.G[b].rev end)
+    for i = 1, #list - Merge.MAX_GRAVES do root.G[list[i]] = nil end
+end
+
+-- The deletion back to who sent me an older copy (RPG, once a minute per record and player).
+function Merge.SendGrave(kind, rec, to)
+    if type(to) ~= "string" or Util.IsMe(to) or not RateLimit("RPGg:" .. to .. ":" .. kind .. rec.id, 60) then return end
+    local msg
+    if kind == "T" then msg = { t = "RPG", T = rec }
+    elseif kind == "S" then msg = { t = "RPG", S = rec }
+    else msg = { t = "RPG", o = rec.id, e = rec }
+    end
+    Send(msg, "WHISPER", to, "data")
+end
+
 function RaidPlan:Prune(now)
     local root = Root(false)
     if not root then return end
@@ -3729,18 +4091,24 @@ function RaidPlan:Prune(now)
     for id in pairs(root.E) do occTime[id] = OccTime(root, id) end
     for id in pairs(root.U) do occTime[id] = OccTime(root, id) end
     for id, t in pairs(root.T) do
-        if t.del and t.rev < now - TOMBSTONE_DAYS then root.T[id] = nil; changed = true end
+        if t.del and t.rev < now - TOMBSTONE_DAYS then Merge.Bury(root, "T", t); root.T[id] = nil; changed = true end
     end
     for id, s in pairs(root.S) do
         if (s.x and s.rev < now - TOMBSTONE_DAYS) or (s.u and SeriesTime(s, s.u) < cutoff) then
+            Merge.Bury(root, "S", s)
             root.S[id] = nil
             changed = true
         end
     end
     for id, e in pairs(root.E) do
         local t = occTime[id]
-        if (t and t < cutoff) or (not t and e.rev < now - TOMBSTONE_DAYS) then root.E[id] = nil; changed = true end
+        if (t and t < cutoff) or (not t and e.rev < now - TOMBSTONE_DAYS) then
+            if e.del then Merge.Bury(root, "E", e) end
+            root.E[id] = nil
+            changed = true
+        end
     end
+    Merge.TrimGraves(root, now)
     for id, u in pairs(root.U) do
         local t = occTime[id]
         local newest = 0

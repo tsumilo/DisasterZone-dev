@@ -495,15 +495,22 @@ def lock_ends_on_disband_authority_change_and_party():
     # a new raid starts unlocked
     raid(w, c)
     assert not any(locked(x) for x in c.values())
-    # the lead moves to Bob: Lee's lock ends everywhere
+    # the lead moves to Bob: he adopts the running raid session, its lock with it (1.3.3: Lee keeps it meanwhile, so
+    # the session no longer drops for a moment and starts over); Lee's own saved lock ends
+    sid = lee.eval("return ns.GroupRules:GetSession().id")
     lee.slash("/dz lock")
     w.tick(2)
     assert all(locked(x) for x in c.values())
     raid(w, c, leader="Bob", tick=10)
     assert bob.eval("return ns.GroupRules:IsAuthority()") is True
     for n, x in c.items():
-        assert locked(x) is False, n
+        s = x.eval_py("return ns.GroupRules:GetSession()")
+        assert s and s["id"] == sid and s["by"] == K("Bob"), (n, s)
+        assert locked(x) is True and x.eval_py("return ns.GroupRules:GetLockInfo().by") == K("Bob"), n
     assert lee.eval("return ns.db.groupLock") is None
+    bob.slash("/dz unlock")
+    w.tick(2)
+    assert not any(locked(x) for x in c.values())
     # the raid becomes a party: the lock ends (and a party can't lock)
     bob.slash("/dz lock")
     w.tick(2)

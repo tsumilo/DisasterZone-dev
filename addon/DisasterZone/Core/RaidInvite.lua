@@ -19,6 +19,7 @@ local GROUP_SIZE = 5
 local MAX_MOVES = 8          -- subgroup moves per pass (the next pass follows the roster update)
 local MAX_AGE = 8 * 3600     -- a run stops after this
 local REPASS_DELAY = 2       -- a pass that moved people checks again after this (in case no roster update comes)
+local SESSION_GRACE = 15     -- the raid session missing this long (not just while the lead passes) stops a run
 
 local active                 -- { occ, plan = { [key] = g }, name,
                              --   invited = { [key] = GetTime() }, failed = { [key] = "declined" | "offline" |
@@ -83,11 +84,13 @@ local function IsOnline(key)
     return true   -- not in my guild: let the game decide
 end
 
--- Blacklisted players, and members the organizers declined for this raid, are never invited.
+-- Blacklisted players, members the organizers declined for this raid, and (1.3.3) players who answered Absent since
+-- they were placed, are never invited.
 local function IsBlocked(key)
     local RP = ns.RaidPlan
     if not RP then return false end
     if RP.IsBlacklisted and RP:IsBlacklisted(key) then return true end
+    if active ~= nil and RP.IsAbsent and RP:IsAbsent(active.occ, key) then return true end
     return active ~= nil and RP.GetSignupBlock ~= nil and RP:GetSignupBlock(active.occ, key) == "declined"
 end
 
@@ -253,8 +256,20 @@ Pump = function()
     if inGroup then active.wasInGroup = true end
     if active.wasInGroup and not inGroup then return Stop("Invite & sort stopped: you left the group.") end
     local session = Session()
-    if session then active.session = session end
-    if active.session and not session then return Stop() end
+    if session then active.session, active.lostAt = session, nil end
+    if active.session and not session then
+        -- 1.3.3: the session gone for a while (ended), not for the moment the lead passes and the new leader's rules
+        -- are on their way: then stop, and say so
+        -- (I run the raid myself and no session: it ended, no waiting)
+        local GR = ns.GroupRules
+        local mine = GR and GR.IsAuthority and GR:IsAuthority()
+        active.lostAt = active.lostAt or GetTime()
+        if not mine and GetTime() - active.lostAt < SESSION_GRACE then
+            SchedulePump(2)
+            return
+        end
+        return Stop("Invite & sort stopped: the raid session ended.")
+    end
     if inGroup and not IsLeaderOrAssist() then
         ns:Fire("RAIDINVITE_CHANGED")
         return

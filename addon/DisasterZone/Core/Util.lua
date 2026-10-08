@@ -79,6 +79,25 @@ function Util.CapitalizeName(s)
     return s
 end
 
+-- 1.3.3: a player name typed by hand -> the key in the game's own case: a guild member's, or one of `known` (an array
+-- of keys already in use: the blacklist, a raid's guests), that folds alike; else the name capitalized ("rita" ->
+-- "Rita-<realm>"). Keys are compared as typed everywhere, so "rita" would be another player than "Rita". nil when
+-- nothing was typed.
+function Util.TypedPlayerKey(text, known)
+    local key = Util.NormalizeName(text)
+    if not key then return nil end
+    local fold = Util.FoldCase(key)
+    local G = ns.Guild
+    for _, list in ipairs({ known or {}, (G and G.GetMembers and G:GetMembers()) or {} }) do
+        for _, k in ipairs(list) do
+            if type(k) == "string" and Util.FoldCase(k) == fold then return k end
+        end
+    end
+    local name, realm = strmatch(key, "^([^%-]+)%-(.+)$")
+    if not name then return Util.CapitalizeName(key) end
+    return Util.CapitalizeName(name) .. "-" .. realm
+end
+
 -- Strips "-<own realm>"; foreign realms are kept.
 function Util.ShortName(key)
     if type(key) ~= "string" then return "" end

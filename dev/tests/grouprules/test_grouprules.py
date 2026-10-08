@@ -209,6 +209,7 @@ def raid_leader_wins_over_the_master_looter_who_takes_over_without_a_leader_with
     no_errors(w)
     # the raid leader has no DisasterZone: the master looter (not council) is the authority
     w2, d = world([("Gina", 0, "PALADIN"), ("Mia", 3, "MAGE"), ("Rita", 3, "PRIEST"), ("Sam", 3, "ROGUE")])
+    w2.auto_session = False     # (with a raid session running, its holder keeps it while in the raid: 1.3.3)
     zed = ExtraMember("Zed", "WARRIOR", guild="Casual Disaster", guild_rank=3)
     w2.offline_members.append(zed)
     w2._sync(roster_changed=True)                   # (Zed is in the guild roster: a guild member, not a pug)
@@ -309,6 +310,7 @@ def forged_gs_from_an_ineligible_raider_and_out_of_range_values_are_rejected():
 @case
 def leader_leaves_the_next_eligible_authority_takes_over_or_personal_values():
     w, c = world([("Gina", 0, "PALADIN"), ("Lee", 3, "WARRIOR"), ("Mia", 3, "MAGE"), ("Rita", 3, "PRIEST")])
+    w.auto_session = False      # (with a raid session running, its holder keeps it while in the raid: 1.3.3)
     zed = ExtraMember("Zed", "WARRIOR", guild="Casual Disaster", guild_rank=3)
     w.offline_members.append(zed)
     w._sync(roster_changed=True)                    # (Zed is in the guild roster: a guild member, not a pug)
@@ -373,11 +375,20 @@ def a_guild_assistant_with_the_raid_log_runs_a_pug_led_raid():
         assert authority(x) == K("Gina"), (x.name, authority(x))
         s = x.eval_py("return ns.GroupRules:GetSession()")
         assert s and s["by"] == K("Gina") and s["id"] == rid, (x.name, s)
-    # a pug master looter with DisasterZone (a leader without it) is no authority either; no eligible assistant: none
+    # a pug master looter with DisasterZone (a leader without it) is no authority either; no eligible assistant:
+    # (1.3.3) Gina, who runs the raid session, keeps it while she is in the raid
     w.make_raid([pete, gina, rita, sam], leader="Norl", extra_members=["Norl"], master_looter=pete, assistants=[sam])
     w.tick(12)
     for x in (gina, rita, sam):
+        assert authority(x) == K("Gina"), (x.name, authority(x))
+        assert x.eval_py("return ns.GroupRules:GetSession().id") == rid, x.name
+    # she leaves the raid: none
+    w.make_raid([pete, rita, sam], leader="Norl", extra_members=["Norl"], master_looter=pete, assistants=[sam])
+    w.tick(12)
+    for x in (rita, sam):
         assert authority(x) is None, (x.name, authority(x))
+    w.make_raid([pete, gina, rita, sam], leader="Norl", extra_members=["Norl"], master_looter=pete, assistants=[sam])
+    w.tick(12)
     # the guild's raid leader with DisasterZone comes first, assistants or not
     w.make_raid([pete, gina, rita, sam], leader=rita, assistants=[gina], master_looter=pete)
     w.tick(12)

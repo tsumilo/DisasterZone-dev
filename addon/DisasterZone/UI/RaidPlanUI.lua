@@ -3282,10 +3282,12 @@ function TV.deleteText(team)
     for _, v in ipairs(raids) do
         if v.lk then
             -- who is still in through the raid's other teams and its extra invites
-            local keep = {}
+            local keep, others = {}, 0
             for _, id in ipairs(v.tm or {}) do
                 if id ~= team.id then
-                    for _, key in ipairs(RP():GetRaidTeamPlayers(v, id) or {}) do keep[key] = true end
+                    local players = RP():GetRaidTeamPlayers(v, id)
+                    if players then others = others + 1 end
+                    for _, key in ipairs(players or {}) do keep[key] = true end
                 end
             end
             for _, key in ipairs(v.inv or {}) do keep[key] = true end
@@ -3293,7 +3295,11 @@ function TV.deleteText(team)
             for _, key in ipairs(RP():GetRaidTeamPlayers(v, team.id) or {}) do
                 if not keep[key] then lose[key] = true end
             end
-            if next(lose) then
+            if others == 0 and #(v.inv or {}) == 0 then
+                -- (no team left and nobody invited: the raid opens up, GetInvited)
+                lines[#lines + 1] = colorize("ffd100", ("%s is locked to this team only: it opens to everyone."):format(
+                    TV.day(v.t)))
+            elseif next(lose) then
                 for key, s in pairs(RP():GetSignups(v.id)) do
                     if not s.guest and TV.inSet(lose, key) then answers = answers + 1 end
                 end
@@ -3455,11 +3461,14 @@ function PlanUI:SaveTeam()
     for i, l in ipairs(dr.lineups) do
         lineups[i] = { id = l.id, name = l.name, size = l.sz, specs = l.s, groups = l.grp, seats = l.gs, comp = l.cp }
     end
-    local ok, res = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members, { lineups = lineups,
-        theme = dr.th or false })
+    local ok, res, merged = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members, { lineups = lineups,
+        theme = dr.th or false, base = dr.base })
     if not ok then
         Print(res or "Could not save the team.")
         return false
+    end
+    if merged then
+        Print("Someone else saved this team while you were editing it: your changes were saved on top of theirs.")
     end
     state.team, state.newTeam = res, nil
     -- (the open lineup stays open: a new one got its id now)
@@ -3554,14 +3563,27 @@ function PlanUI:DeleteLineup(i, sure)
     if not l or #dr.lineups < 2 or not RP():CanManageTeams() then return false end
     TV.stash()
     local waiting = (dr.id and l.id) and #RP():GetWaitlist({ id = dr.id, ln = l.id, members = dr.members }) or 0
-    if not sure and (next(l.grp) or next(l.cp) or waiting > 0) then
+    -- (1.3.3) the raids that picked it: they count the team's whole roster instead (RaidPlan:GetRaidLineup)
+    local using = {}
+    if dr.id and l.id then
+        for _, v in ipairs(TV.raids(dr.id)) do
+            if v.tl and v.tl[dr.id] == l.id then using[#using + 1] = TV.day(v.t) .. " " .. RP():GetRaidName(v) end
+        end
+    end
+    if not sure and (next(l.grp) or next(l.cp) or waiting > 0 or #using > 0) then
         local parts = {}
         if next(l.grp) then parts[#parts + 1] = "its groups" end
         if next(l.cp) then parts[#parts + 1] = "its target comp" end
         if waiting > 0 then parts[#parts + 1] = ("its waitlist (%d)"):format(waiting) end
-        StaticPopup_Show("DISASTERZONE_PLAN_CONFIRM", ("Delete the lineup %s, with %s?\n\nIt goes when you save the "
-            .. "team; Undo brings it back until then."):format(colorize("ffd100", TV.lineupName(dr, i)),
-            tconcat(parts, ", ")), nil, { fn = function() PlanUI:DeleteLineup(i, true) end })
+        local text = #parts > 0 and ("Delete the lineup %s, with %s?"):format(colorize("ffd100", TV.lineupName(dr, i)),
+            tconcat(parts, ", ")) or ("Delete the lineup %s?"):format(colorize("ffd100", TV.lineupName(dr, i)))
+        if #using > 0 then
+            text = text .. "\n\n" .. colorize("ffd100", ("%s use%s it: the whole team is invited there instead."):format(
+                #using > 2 and (using[1] .. (" and %d more"):format(#using - 1)) or tconcat(using, " and "),
+                #using == 1 and "s" or ""))
+        end
+        StaticPopup_Show("DISASTERZONE_PLAN_CONFIRM", text .. "\n\nIt goes when you save the team; Undo brings it back "
+            .. "until then.", nil, { fn = function() PlanUI:DeleteLineup(i, true) end })
         return false
     end
     local li = dr.li

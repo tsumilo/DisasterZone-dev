@@ -1376,6 +1376,10 @@ local function OnPartyInvite(_, name)
     local run = from and RunLedBy(from)
     if not run or InRun(run, Me()) then return end
     if WillAcceptInviteRemoveQueues and WillAcceptInviteRemoveQueues() then return end
+    -- (1.3.3) the leader is forming a planned raid I'm in, and I didn't ask to join the run: that invite is the
+    -- raid's, the game's own pop-up answers it
+    local RP = ns.RaidPlan
+    if Asked()[run.id] == nil and RP and RP.IsRaidInviteFrom and RP:IsRaidInviteFrom(from) then return end
     local n = ((invite and invite.n) or 0) + 1
     invite = { run = run.id, from = from, n = n }
     -- UIParent shows its pop-up for the same event (before or after this handler): close it now and next frame

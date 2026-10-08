@@ -29,6 +29,11 @@ local zoneEnteredAt                     -- server time I entered the current rai
 local promptedAt = -PROMPT_SNOOZE
 local missedPull = false                -- a boss was pulled here while no session ran
 local pulls = {}                        -- [encounterID] = server time of the pull (the kill's `dur`)
+-- 1.3.3: the open record's session as seen running by me since I loaded (its id). Only then does the record take in
+-- roster changes, and an end of the session close it "now" (endedBy). An open record from before my logout
+-- or crash whose session is gone by the time I hear the authority (I missed the end) closes at its last activity, as
+-- the safety net does, without the players who joined the group after it.
+local confirmed
 
 ---------------------------------------------------------------------------
 -- Storage
@@ -133,7 +138,7 @@ local function ScheduleScan()
     Util.After(ROSTER_DELAY, function()
         scanPending = false
         local rec = OpenRecord()
-        if rec then
+        if rec and rec.id == confirmed then
             Scan(rec)
             Changed(rec)
         end
@@ -253,6 +258,7 @@ local function Reconcile()
     local s = GR:GetSession()
     if s then
         if rec and rec.id ~= s.id then Close(rec, nil) end
+        confirmed = s.id
         if not rec or rec.id ~= s.id then
             Open(s)
         elseif s.rpAt and (tonumber(rec.plAt) or 0) < s.rpAt then
@@ -260,7 +266,8 @@ local function Reconcile()
             Changed(rec)
         end
     elseif rec then
-        Close(rec, from or Util.PlayerKey())
+        -- (1.3.3) ended while I was away: at its last activity, not now
+        Close(rec, rec.id == confirmed and (from or Util.PlayerKey()) or nil)
     end
 end
 
@@ -1166,7 +1173,7 @@ function RaidLog:OnLogin()
     self:Prune()
     local function Tick()
         local rec = OpenRecord()
-        if rec and IsInRaid() then
+        if rec and rec.id == confirmed and IsInRaid() then
             Scan(rec)
             Changed(rec)
         end

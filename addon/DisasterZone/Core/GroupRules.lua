@@ -293,6 +293,18 @@ local function Candidates()
             tsort(extra)
             for _, key in ipairs(extra) do list[#list + 1] = key end
         end
+        -- 1.3.3: last, who ran the raid session until now, while still in the raid: the lead passed to someone
+        -- without DisasterZone (or a pug) no longer ends the session for everyone; when the new leader has it, they
+        -- come first and adopt the session as before
+        local keeper = (seenSession and seenSession.by) or (mySession and Util.PlayerKey()) or nil
+        for _, key in ipairs(list) do
+            if key == keeper then keeper = nil break end
+        end
+        if keeper and (not guildRaid or G:IsInGuild(keeper, true)) then
+            for _, key in ipairs(members) do
+                if key == keeper then list[#list + 1] = keeper break end
+            end
+        end
     elseif IsInGroup() then
         local leader
         local council = {}

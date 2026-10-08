@@ -212,7 +212,12 @@ local function typedKey(text)
     text = ns.Util.Trim(text or "")
     local base = text:match("^([^%-]+)")
     if not base or #base < 2 or base:find("[%s%d%p]") then return nil end
-    local key = ns.Util.NormalizeName(text)
+    -- (1.3.3: in the game's case: the guest book's own players first, then the guild's, else capitalized)
+    local known = {}
+    for _, e in ipairs(GB() and GB().GetEntries and GB():GetEntries() or {}) do
+        if type(e) == "table" and e.key then known[#known + 1] = e.key end
+    end
+    local key = ns.Util.TypedPlayerKey(text, known)
     if not key or ns.Util.IsMe(key) then return nil end
     return key
 end

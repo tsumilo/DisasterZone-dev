@@ -256,7 +256,8 @@ def delete_says_what_a_locked_raid_loses():
     w, c = world()
     bob, rita = c["Bob"], c["Rita"]
     a = team(bob, "Main", ["Rita", "Lee", "Sam"])
-    occ = create(bob, i="ssc", t=now(bob) + 2 * DAY, tm=[a], lk=True)
+    # (Gina invited on top: the raid stays locked once the team is gone, 1.3.3)
+    occ = create(bob, i="ssc", t=now(bob) + 2 * DAY, tm=[a], lk=True, inv=[K("Gina")])
     create(bob, i="mag", t=now(bob) + 3 * DAY, tm=[a])
     w.tick(2)
     signup(rita, occ, "A", 2)

@@ -65,7 +65,8 @@ def organizer_team_and_raid_reach_everyone():
     w.tick(2)
     for n, x in c.items():
         assert x.eval_py("return ns.RaidPlan:GetTeams()") == [], n
-        assert x.eval("return ns.RaidPlan:GetInvited(...)", occ) is not None   # names a team: invited set (empty)
+        # (1.3.3: its only team is gone and nobody else is invited: open to everyone, not shut to all)
+        assert x.eval("return ns.RaidPlan:GetInvited(...)", occ) is None
     w.assert_no_errors()
 
 
