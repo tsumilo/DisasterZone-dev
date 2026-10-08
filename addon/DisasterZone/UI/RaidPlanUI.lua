@@ -2750,7 +2750,7 @@ function TV.waitMembers()
     if not dr or not dr.id or not dr.ln then return out end
     for _, w in ipairs(RP():GetWaitlist(TV.ref(dr))) do
         out[#out + 1] = { key = w.key, c = w.c, sp = w.sp, auto = w.source ~= "waitlist", source = w.source,
-                          prefix = colorize("9e9e9e", w.n .. ". "), noRole = true, n = w.n, waiting = true,
+                          prefix = colorize("9e9e9e", w.n .. ". "), noRole = true, n = w.n, waiting = true, at = w.at,
                           info = { ("Waitlist #%d, joined %s."):format(w.n, relDay(w.at)) } }
     end
     return out
@@ -3740,14 +3740,7 @@ function PlanUI:CreateTeams(parent)
             return (dr and not next(dr.members)) and "Add members with the search above: they land here, then drag "
                 .. "them into groups." or "Drop a player here to take them out of the groups."
         end,
-        waitlist = {
-            label = "Waitlist",
-            tip = { "Waitlist", "Not on the roster: players waiting for a spot in this lineup, first in line first. "
-                .. "Guild members put themselves on it; they aren't invited to the team's raids and don't count for "
-                .. "its comp." },
-            getMembers = TV.waitMembers,
-            empty = TV.waitEmpty,
-        },
+        -- (the waitlist is an icon at the end of the lineup tabs: TV.createWaitlist)
         stripParent = d.buffs,
         quiet = true,
         getGhosts = function(byGroup, n) return TV.ghosts(byGroup, n) end,
@@ -3760,11 +3753,6 @@ function PlanUI:CreateTeams(parent)
     -- the raid buffs of who sits in the groups: in the toolbar, after Groups | Comp (anchored by TV.layoutTool)
     d.buffs:SetParent(d.views)
     d.buffs:SetSize(1, 20)
-    -- the waitlist's header: Join / Leave for a guild member who isn't on the roster
-    d.joinBtn = UI():CreateSleekButton(t.grid.wait, "Join the waitlist", 128, 20, function(self) TV.joinClick(self) end)
-    d.joinBtn:SetPoint("TOPRIGHT", t.grid.wait, "TOPRIGHT", -6, -4)
-    setSize(d.joinBtn:GetFontString(), 11)
-    d.joinBtn:Hide()
     -- the target comp: the Groups | Comp tabs, the Comp view
     TV.createComp(t, d)
     -- every team as a banner (the view opens on it)
@@ -3816,6 +3804,7 @@ function PlanUI:CreateTeams(parent)
     -- leaving with unsaved changes another way (another tab, the window closed): ask now, Cancel comes back here
     t:SetScript("OnHide", function()
         if t.detail.steps then t.detail.steps:Hide() end
+        if t.detail.wl then t.detail.wl:Hide() end
         if not TV.unsaved() then return end
         StaticPopup_Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { stay = function()
             if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("raids") end
@@ -4117,11 +4106,16 @@ function PlanUI:RefreshTeams()
     end
     if board then
         d.steps:Hide()
+        d.wl:Hide()
         if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Close() end
         TV.fillBoard(teams)
         return
     end
 
+    -- the waitlist's dropdown follows the open lineup (another one: it closes)
+    if d.wl:IsShown() then
+        if d.wl.team ~= dr.id or d.wl.ln ~= dr.ln then d.wl:Hide() else TV.fillWaitlist() end
+    end
     -- the target comp: who fills which slot (nil without one), the strip's states
     local m = TV.match(dr)
     TV.cur = { match = m }
@@ -4176,7 +4170,6 @@ function PlanUI:RefreshTeams()
     d.scroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
     d.scroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
     t.grid.frame:SetWidth(TV.W)
-    TV.fillJoin(dr)
     t.grid:Refresh()
     t.grid.frame:SetHeight(t.grid:GetContentHeight() + 6)
     if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Refresh(true) end
@@ -4227,29 +4220,6 @@ function TV.layoutTool(kind)
     d.buffs:SetShown(kind == "groups")
 end
 
--- The waitlist's empty line: organizers always see the waitlist (what it is for); players who aren't on the roster
--- see it to join; roster members only once someone waits. nil = hidden while empty.
-function TV.waitEmpty()
-    local dr = state.draft
-    if not dr or not dr.id or not dr.ln then return nil end
-    if RP():CanManageTeams() then return nil end
-    if TV.myKey(dr.members) then return nil end
-    return "Nobody is waiting for a spot yet."
-end
-
--- The waitlist's Join / Leave button: for me when I'm not on the roster (a saved lineup).
-function TV.fillJoin(dr)
-    local b = teamsView.detail.joinBtn
-    local me = ns.Util.PlayerKey()
-    local show = dr.id ~= nil and dr.ln ~= nil and not dr.members[me] and not (dr.base and TV.inMembers(dr.base, me))
-    b:SetShown(show)
-    if not show then return end
-    local on = TV.waiting(me) ~= nil
-    b.on = on
-    b:SetText(on and "Leave the waitlist" or "Join the waitlist")
-    b:SetKind(on and "secondary" or "primary")
-end
-
 function TV.inMembers(team, key)
     for _, k in ipairs(team.members or {}) do
         if k == key then return true end
@@ -4257,30 +4227,454 @@ function TV.inMembers(team, key)
     return false
 end
 
--- Join: pick the spec I'd play (my specs, or as my sign-ups say); Leave: right away.
-function TV.joinClick(btn)
-    local dr = state.draft
-    if not dr or not dr.id or not dr.ln then return end
-    local id, ln = dr.id, dr.ln
-    if btn.on then
-        local ok, err = RP():LeaveWaitlist(id, ln)
-        if not ok then Print(err or "Could not leave the waitlist.") end
-        return
+---------------------------------------------------------------------------
+-- Teams view: the waitlist as an icon (2026-10-08, dev/art/casc/teams_mockup/build_v5.py). At the right end of the
+-- lineup tabs, for the open lineup: the team icon with a gold badge counting who waits (a soft glow when someone new
+-- joins). A click drops the list: each player's place, card and how long they've waited; organizers get ··· (Move
+-- up / down, a group, the roster, off the waitlist) and drag a row straight into a group or onto an open Comp slot
+-- (the list fades out of the way meanwhile, still there so the drop is heard); my own row has Leave; someone not on
+-- the roster gets "Play [spec] Join the waitlist". Shown to organizers and to players not on the roster always, to
+-- roster members while someone waits.
+---------------------------------------------------------------------------
+
+TV.WL = { ICON_W = 44, W = 316, ROW = 40, PLATE_W = 168, HEAD = 40 }
+
+function TV.createWaitlist(d)
+    local row = d.lc
+    local b = CreateFrame("Button", nil, row)
+    b:SetSize(TV.WL.ICON_W, TV.LT_H)
+    b:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
+    b.bg = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.bg:SetAllPoints()
+    b.bg:SetColorTexture(0.125, 0.125, 0.145, 1)
+    b.sep = b:CreateTexture(nil, "BORDER")
+    b.sep:SetPoint("TOPLEFT", 0, 0)
+    b.sep:SetPoint("BOTTOMLEFT", 0, 0)
+    b.sep:SetWidth(1)
+    b.sep:SetColorTexture(1, 1, 1, 0.06)
+    b.under = b:CreateTexture(nil, "ARTWORK", nil, 3)
+    b.under:SetPoint("BOTTOMLEFT", 0, 0)
+    b.under:SetPoint("BOTTOMRIGHT", 0, 0)
+    b.under:SetHeight(2)
+    b.under:SetColorTexture(1, 0.82, 0, 1)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints()
+    b.hl:SetColorTexture(1, 1, 1, 0.05)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(18, 18)
+    b.icon:SetPoint("CENTER", -2, 0)
+    if ns:HasAssets(4) then
+        b.icon:SetTexture(UI().ICON_ATLAS)
+        b.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.team)))
+    else
+        b.icon:SetTexture("Interface\\Icons\\INV_Misc_GroupNeedMore")
+        b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     end
-    local _, cls = UnitClass("player")
-    local function join(sp)
-        local ok, err = RP():JoinWaitlist(id, ln, sp)
-        if not ok then Print(err or "Could not join the waitlist.") end
-    end
-    UI():ContextMenu(btn, function(root)
-        root:CreateTitle("Join as")
-        for i, spec in ipairs(cls and ns.SPECS[cls] or {}) do
-            root:CreateButton(TV.specIconText(cls, i, 14) .. " " .. spec.label, function() join(i) end)
+    -- the badge: a gold pill with the count, ringed in the strip's colour; a glow behind it when the count grows
+    local g = CreateFrame("Frame", nil, b)
+    g:SetSize(15, 14)
+    g:SetPoint("LEFT", b, "CENTER", 4, 7)
+    g:SetFrameLevel(b:GetFrameLevel() + 3)
+    local function pill(layer, sub, inset, r, gg, bb, a)
+        local parts = {}
+        for _, side in ipairs({ "LEFT", "RIGHT" }) do
+            local c = g:CreateTexture(nil, layer, nil, sub)
+            c:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+            c:SetVertexColor(r, gg, bb, a)
+            c:SetSize(14 + 2 * inset, 14 + 2 * inset)
+            c:SetPoint(side, g, side, side == "LEFT" and -inset or inset, 0)
+            parts[#parts + 1] = c
         end
-        local asp, ac = RP():GetMemberSpec(ns.Util.PlayerKey())
-        local label = asp and ns.RaidComp:SpecLabel(ac, asp)
-        if label then root:CreateButton(colorize("9e9e9e", "As my sign-ups say (" .. label .. ")"), function() join(nil) end) end
+        local m = g:CreateTexture(nil, layer, nil, sub)
+        m:SetColorTexture(r, gg, bb, a)
+        m:SetPoint("TOPLEFT", g, "TOPLEFT", 7, inset)
+        m:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", -7, -inset)
+        parts[#parts + 1] = m
+        return parts
+    end
+    g.glow = pill("BACKGROUND", 0, 4, 1, 0.82, 0, 0)
+    pill("BORDER", 0, 2, TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 1)
+    pill("ARTWORK", 0, 0, 1, 0.82, 0, 1)
+    g.fs = g:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    do
+        local path = g.fs:GetFont()
+        if path then g.fs:SetFont(path, 10, "") end
+    end
+    g.fs:SetPoint("CENTER", 0, 0)
+    g.fs:SetTextColor(0.1, 0.07, 0)
+    b.badge = g
+    b:SetScript("OnClick", function() TV.toggleWaitlist() end)
+    b:SetScript("OnEnter", function(self)
+        self.icon:SetAlpha(1)
+        if d.wl:IsShown() then return end
+        local dr = state.draft
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Waitlist")
+        local n = self.n or 0
+        GameTooltip:AddLine((n == 0 and "Nobody is waiting" or n == 1 and "1 player is waiting" or (n .. " players are waiting"))
+            .. " for a spot in " .. (dr and TV.lineupName(dr, dr.li) or "this lineup") .. ".", 1, 1, 1, true)
+        GameTooltip:Show()
     end)
+    b:SetScript("OnLeave", function(self)
+        TV.paintWaitlistIcon()
+        hideTooltip()
+    end)
+    d.wlBtn = b
+
+    -- the dropdown: a top-level panel (it takes the window's scale when it opens), a catcher behind it closes it
+    local p = CreateFrame("Frame", nil, UIParent)
+    p:SetFrameStrata("DIALOG")
+    p:SetToplevel(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:SetSize(TV.WL.W, 120)
+    for i, o in ipairs({ { 0, -10, 0.35 }, { 0, -3, 0.45 } }) do
+        local sh = p:CreateTexture(nil, "BACKGROUND", nil, -8 + i)
+        sh:SetPoint("TOPLEFT", -3 - o[1], 1 + o[2] / 3)
+        sh:SetPoint("BOTTOMRIGHT", 3 + o[1], o[2])
+        sh:SetColorTexture(0, 0, 0, o[3])
+    end
+    p.bg = p:CreateTexture(nil, "BACKGROUND", nil, 0)
+    p.bg:SetAllPoints()
+    p.bg:SetColorTexture(0.078, 0.078, 0.09, 1)
+    UI():AddEdges(p, "BORDER")
+    UI():SetEdgeColor(p, 1, 1, 1, 0.11)
+    p.title = textOf(p, "GameFontNormalSmall", 10)
+    p.title:SetTextColor(0.69, 0.69, 0.71)
+    p.title:SetPoint("LEFT", p, "TOPLEFT", 12, -20)
+    p.count = textOf(p, "GameFontHighlightSmall", 11)
+    p.count:SetTextColor(0.54, 0.54, 0.56)
+    p.count:SetJustifyH("RIGHT")
+    p.count:SetPoint("RIGHT", p, "TOPRIGHT", -12, -20)
+    p.rows = {}
+    p.empty = textOf(p, "GameFontHighlight", 12)
+    p.empty:SetTextColor(0.75, 0.75, 0.77)
+    p.empty:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -TV.WL.HEAD - 4)
+    p.empty:SetText("Nobody is waiting for a spot yet.")
+    p.emptySub = textOf(p, "GameFontHighlightSmall", 11)
+    p.emptySub:SetTextColor(0.5, 0.5, 0.52)
+    p.emptySub:SetPoint("TOPLEFT", p.empty, "BOTTOMLEFT", 0, -6)
+    p.emptySub:SetWidth(TV.WL.W - 24)
+    p.emptySub:SetJustifyH("LEFT")
+    p.emptySub:SetWordWrap(true)
+    p.emptySub:SetSpacing(2)
+    p.emptySub:SetText("Players who aren't on the roster can put themselves in line here; organizers drag them in.")
+    p.rule = p:CreateTexture(nil, "BORDER")
+    p.rule:SetHeight(1)
+    p.rule:SetColorTexture(1, 1, 1, 0.06)
+    p.foot = textOf(p, "GameFontHighlightSmall", 11)
+    p.foot:SetTextColor(0.42, 0.42, 0.45)
+    -- Join (not on the roster): the spec I'd play, then the button
+    p.play = textOf(p, "GameFontHighlight", 12)
+    p.play:SetTextColor(0.63, 0.63, 0.65)
+    p.play:SetText("Play")
+    p.spec = UI():CreateSleekMenuButton(p, "", 104, function(root) TV.waitSpecMenu(root) end)
+    p.join = UI():CreateSleekButton(p, "Join the waitlist", 124, 22, function() TV.joinWaitlist() end, "primary")
+    local catcher = CreateFrame("Button", nil, UIParent)
+    catcher:SetAllPoints(UIParent)
+    catcher:SetFrameStrata("DIALOG")
+    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
+    catcher:RegisterForClicks("AnyUp")
+    catcher:SetScript("OnClick", function() p:Hide() end)
+    catcher:Hide()
+    p.catcher = catcher
+    p:SetScript("OnShow", function() catcher:Show() end)
+    p:SetScript("OnHide", function()
+        catcher:Hide()
+        p:SetAlpha(1)
+        TV.paintWaitlistIcon()
+    end)
+    p:Hide()
+    d.wl = p
+end
+
+-- The icon: shown (organizers, players not on the roster, else while someone waits), the badge, the open look.
+-- Returns whether it shows. dr / organizer default to the open draft and me.
+function TV.paintWaitlistIcon(dr, organizer)
+    local d = teamsView and teamsView.detail
+    local b = d and d.wlBtn
+    if not b then return false end
+    dr = dr or state.draft
+    if organizer == nil then organizer = RP():CanManageTeams() end
+    local saved = dr ~= nil and dr.id ~= nil and dr.ln ~= nil
+    local n = saved and #TV.waitMembers() or 0
+    local show = saved and (organizer or TV.notOnRoster(dr) or n > 0)
+    b:SetShown(show)
+    b.n = n
+    if not show then return false end
+    local open = d.wl:IsShown()
+    b.bg:SetShown(open)
+    b.under:SetShown(open)
+    b.icon:SetAlpha((open or b:IsMouseOver()) and 1 or (n > 0 and 0.78 or 0.32))
+    local g = b.badge
+    g:SetShown(n > 0)
+    g.fs:SetText(n > 99 and "99+" or tostring(n))
+    g:SetWidth(n < 10 and 14 or (n < 100 and 20 or 26))
+    -- someone new in line since I last looked at this lineup: the badge glows once
+    local key = dr.id .. ":" .. dr.ln
+    TV.wlSeen = TV.wlSeen or {}
+    if TV.wlSeen[key] and n > TV.wlSeen[key] then TV.glowBadge() end
+    TV.wlSeen[key] = n
+    return true
+end
+
+function TV.notOnRoster(dr)
+    local me = ns.Util.PlayerKey()
+    return not dr.members[me] and not (dr.base and TV.inMembers(dr.base, me))
+end
+
+function TV.glowBadge()
+    local g = teamsView.detail.wlBtn.badge
+    local t = 0
+    g:SetScript("OnUpdate", function(self, elapsed)
+        t = t + (elapsed or 0)
+        local a = t < 0.15 and (t / 0.15) or max(0, 1 - (t - 0.15) / 0.6)
+        for _, tex in ipairs(self.glow) do tex:SetAlpha(0.55 * a) end
+        if t >= 0.75 then self:SetScript("OnUpdate", nil) end
+    end)
+end
+
+function TV.toggleWaitlist()
+    local d, dr = teamsView.detail, state.draft
+    local p = d.wl
+    if p:IsShown() or not (dr and dr.id and dr.ln) then return p:Hide() end
+    p.team, p.ln = dr.id, dr.ln
+    p:SetScale((d:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
+    p:Show()
+    TV.fillWaitlist()
+    UI():DropIn(p, function(dx, dy)
+        p:ClearAllPoints()
+        p:SetPoint("TOPRIGHT", d.wlBtn, "BOTTOMRIGHT", dx, -6 + dy)
+    end)
+    TV.paintWaitlistIcon()
+    hideTooltip()
+end
+
+-- "12 min", "5 h", "2 days" since t.
+function TV.waited(t)
+    local s = max(0, Now() - (tonumber(t) or Now()))
+    if s < 3600 then return max(1, floor(s / 60)) .. " min" end
+    if s < 86400 then return floor(s / 3600) .. " h" end
+    local days = floor(s / 86400)
+    return days == 1 and "1 day" or (days .. " days")
+end
+
+function TV.newWaitRow(p)
+    local r = CreateFrame("Button", nil, p)
+    r:SetSize(TV.WL.W - 16, TV.WL.ROW - 4)
+    r:RegisterForClicks("RightButtonUp")
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    r.n = textOf(r, "GameFontHighlightSmall", 11)
+    r.n:SetTextColor(0.48, 0.48, 0.5)
+    r.n:SetJustifyH("RIGHT")
+    r.n:SetWidth(14)
+    r.n:SetPoint("LEFT", r, "LEFT", 2, 0)
+    r.plate = CreateFrame("Frame", nil, r)
+    r.plate:SetSize(TV.WL.PLATE_W, 32)
+    r.plate:SetPoint("LEFT", r, "LEFT", 24, 0)
+    ns.RaidGroupsUI:DecoratePlate(r.plate)
+    r.time = textOf(r, "GameFontHighlightSmall", 11)
+    r.time:SetTextColor(0.48, 0.48, 0.5)
+    r.time:SetJustifyH("RIGHT")
+    r.more = UI():CreateTipIconButton(r, 20, UI().ICON.more, "More", nil, function(self)
+        local key = r.member and r.member.key
+        if key then UI():ContextMenu(self, function(root) TV.waitMenu(root, key) end) end
+    end)
+    r.more:SetPoint("RIGHT", r, "RIGHT", -2, 0)
+    r.leave = UI():CreateSleekButton(r, "Leave", 54, 20, function()
+        local dr = state.draft
+        local ok, err = RP():LeaveWaitlist(dr.id, dr.ln)
+        if not ok then Print(err or "Could not leave the waitlist.") end
+    end)
+    setSize(r.leave:GetFontString(), 11)
+    r.leave:SetPoint("RIGHT", r, "RIGHT", -2, 0)
+    r:SetScript("OnClick", function(self)
+        if self.member and RP():CanManageTeams() then
+            local key = self.member.key
+            UI():ContextMenu(self, function(root) TV.waitMenu(root, key) end)
+        end
+    end)
+    r:SetScript("OnEnter", function(self)
+        local w = self.member
+        if not w then return end
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine(colored(w.key, w.c) .. (TV.isMine(w.key) and " |cff9e9e9e(you)|r" or ""))
+        GameTooltip:AddLine((w.sp and ns.RaidComp:SlotName(w.c, w.sp)) or "Spec unknown", 1, 1, 1)
+        for _, line in ipairs(w.info or {}) do GameTooltip:AddLine(line, 0.75, 0.75, 0.75, true) end
+        if RP():CanManageTeams() then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Drag into a group (or onto an open Comp slot) to put them on the roster.", 0.6, 0.6, 0.6, true)
+        end
+        GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", hideTooltip)
+    r:RegisterForDrag("LeftButton")
+    r:SetScript("OnDragStart", function(self) TV.waitDragStart(self) end)
+    r:SetScript("OnDragStop", function() ns.RaidGroupsUI:EndCardDrag() end)
+    return r
+end
+
+function TV.fillWaitlist()
+    local d, dr = teamsView.detail, state.draft
+    local p = d.wl
+    if not (p:IsShown() and dr and dr.id and dr.ln) then return end
+    local organizer = RP():CanManageTeams()
+    local me = ns.Util.PlayerKey()
+    local list = TV.waitMembers()
+    p.title:SetText("WAITLIST" .. colorize("8c8c8c", "  ·  " .. TV.lineupName(dr, dr.li)))
+    p.count:SetText(#list > 0 and (#list .. " waiting") or "")
+    local mine = false
+    for i, w in ipairs(list) do
+        local r = p.rows[i] or TV.newWaitRow(p)
+        p.rows[i] = r
+        r.member = w
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -TV.WL.HEAD - (i - 1) * TV.WL.ROW)
+        r.n:SetText(w.n)
+        local own = w.key == me
+        mine = mine or own
+        ns.RaidGroupsUI:PaintPlate(r.plate, ns.RaidGroupsUI:PlayerPlate({ key = w.key, c = w.c, sp = w.sp, auto = w.auto },
+            own and "me" or nil))
+        r.plate:SetAlpha(1)
+        r.time:SetText(TV.waited(w.at))
+        r.more:SetShown(organizer and not own)
+        r.leave:SetShown(own)
+        r.time:ClearAllPoints()
+        if r.more:IsShown() then r.time:SetPoint("RIGHT", r.more, "LEFT", -6, 0)
+        elseif own then r.time:SetPoint("RIGHT", r.leave, "LEFT", -8, 0)
+        else r.time:SetPoint("RIGHT", r, "RIGHT", -2, 0) end
+        r:Show()
+    end
+    for i = #list + 1, #p.rows do
+        p.rows[i]:Hide()
+        p.rows[i].member = nil
+    end
+    local y = TV.WL.HEAD + #list * TV.WL.ROW
+    p.empty:SetShown(#list == 0)
+    p.emptySub:SetShown(#list == 0)
+    if #list == 0 then y = TV.WL.HEAD + 4 + (p.empty:GetStringHeight() or 14) + 6 + max(14, p.emptySub:GetStringHeight() or 28) + 8 end
+    -- the foot: Join for someone not on the roster and not in line yet; else a line on how it works
+    local canJoin = TV.notOnRoster(dr) and not mine
+    p.rule:ClearAllPoints()
+    p.rule:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 2))
+    p.rule:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -(y + 2))
+    p.play:SetShown(canJoin)
+    p.spec:SetShown(canJoin)
+    p.join:SetShown(canJoin)
+    p.foot:SetShown(not canJoin and (#list > 0 or not organizer))
+    if canJoin then
+        TV.paintWaitSpec()
+        p.play:ClearAllPoints()
+        p.play:SetPoint("LEFT", p, "TOPLEFT", 12, -(y + 22))
+        p.spec:ClearAllPoints()
+        p.spec:SetPoint("LEFT", p.play, "RIGHT", 8, 0)
+        p.join:ClearAllPoints()
+        p.join:SetPoint("RIGHT", p, "TOPRIGHT", -12, -(y + 22))
+        y = y + 42
+    else
+        p.foot:SetText(organizer and "Drag a player into a group to put them on the roster"
+            or (mine and "First in line gets the next spot" or "Players waiting for a spot in this lineup"))
+        p.foot:ClearAllPoints()
+        p.foot:SetPoint("LEFT", p, "TOPLEFT", 12, -(y + 16))
+        y = y + (p.foot:IsShown() and 30 or 4)
+    end
+    p.rule:SetShown(p.foot:IsShown() or canJoin)
+    p:SetHeight(floor(y + 0.5))
+end
+
+-- Join's spec (nil: as my sign-ups say) and its menu.
+function TV.paintWaitSpec()
+    local p = teamsView.detail.wl
+    local _, cls = UnitClass("player")
+    local sp = TV.wlSpec
+    if not sp then sp = RP():GetMemberSpec(ns.Util.PlayerKey()) end
+    local label = sp and cls and ns.RaidComp:SpecLabel(cls, sp)
+    p.spec:SetText(label or "My spec")
+end
+
+function TV.waitSpecMenu(root)
+    local _, cls = UnitClass("player")
+    for i, spec in ipairs(cls and ns.SPECS[cls] or {}) do
+        root:CreateButton(TV.specIconText(cls, i, 14) .. " " .. spec.label, function()
+            TV.wlSpec = i
+            TV.paintWaitSpec()
+        end)
+    end
+    local asp, ac = RP():GetMemberSpec(ns.Util.PlayerKey())
+    local label = asp and ns.RaidComp:SpecLabel(ac, asp)
+    if label then
+        root:CreateButton(colorize("9e9e9e", "As my sign-ups say (" .. label .. ")"), function()
+            TV.wlSpec = nil
+            TV.paintWaitSpec()
+        end)
+    end
+end
+
+function TV.joinWaitlist()
+    local dr = state.draft
+    if not (dr and dr.id and dr.ln) then return end
+    local ok, err = RP():JoinWaitlist(dr.id, dr.ln, TV.wlSpec)
+    if not ok then Print(err or "Could not join the waitlist.") end
+end
+
+-- A waitlisted player dragged out of the list (organizers): into a group, onto Unassigned, or (Comp) onto an open
+-- slot; they join the roster where they land (Save keeps it). The list fades out of the way while the card moves
+-- and closes on a drop; released anywhere else it comes back.
+function TV.waitDragStart(r)
+    if not RP():CanManageTeams() or not r.member then return end
+    local d = teamsView.detail
+    local w = r.member
+    local comp = PlanUI:GetTeamTab() == "comp" and TV.cur and TV.cur.match ~= nil
+    teamsView.grid:Refresh()
+    local drag = { key = w.key, c = w.c, sp = w.sp, from = "waitlist" }
+    local dropped = false
+    local ok = ns.RaidGroupsUI:StartCardDrag(r.plate, ns.RaidGroupsUI:PlayerPlate({ key = w.key, c = w.c, sp = w.sp }), {
+        target = function()
+            if comp then return TV.compTarget(drag) end
+            return TV.gridTarget(drag)
+        end,
+        drop = function(t)
+            dropped = true
+            if comp then return TV.compDrop(drag, t) end
+            TV.gridDrop(drag, t)
+        end,
+        finish = function()
+            if dropped then d.wl:Hide() else d.wl:SetAlpha(1) end
+        end,
+    })
+    if ok then d.wl:SetAlpha(0) end
+end
+
+-- What a dragged waitlisted player is over on the Groups tab (the grid's own drop rules), as a card-drag target.
+function TV.gridTarget(drag)
+    local grid = teamsView.grid
+    local t = grid:DropTarget(drag.key)
+    if not t then return nil end
+    if t.pool then
+        return { frame = grid.pool, ok = true, kind = "pool", label = "Onto the roster (Unassigned)" }
+    end
+    if t.full then return { frame = t.box, ok = false, label = "Group " .. t.g .. " is full" } end
+    if t.target then
+        local m = t.chip and t.chip.member
+        return { frame = t.chip, ok = true, kind = "group", g = t.g, target = t.target,
+                 label = "Swap with " .. colored(t.target, m and m.c) .. "\n" .. colorize("9e9e9e", "they go to Unassigned") }
+    end
+    local label = "Group " .. t.g .. (t.seat and (", seat " .. t.seat) or "")
+    local gh = t.chip and t.chip.ghost
+    label = label .. "\n" .. colorize("9e9e9e", "onto the roster" .. (gh and (" · planned: "
+        .. tostring(ns.RaidComp:SlotName(gh.c, gh.sp) or gh.name or "?")) or ""))
+    return { frame = t.chip or t.box, ok = true, kind = "group", g = t.g, seat = t.seat, label = label }
+end
+
+function TV.gridDrop(drag, t)
+    if t.kind == "pool" then
+        PlanUI:MoveDraftMember(drag.key, nil, nil, nil, teamsView.grid.shown)
+    else
+        PlanUI:MoveDraftMember(drag.key, t.g, t.target, t.seat, teamsView.grid.shown)
+    end
+    PlanUI:RefreshTeams()
 end
 
 ---------------------------------------------------------------------------
@@ -4598,6 +4992,7 @@ function TV.createLineupTabs(d)
         end
     end)
     d.lcMore.fs:SetFontObject("GameFontHighlightSmall")
+    TV.createWaitlist(d)
 end
 
 function TV.newLineupTab(parent)
@@ -4689,6 +5084,7 @@ end
 function TV.layoutLineupTabs(dr, organizer, m, y)
     local d = teamsView.detail
     local row = d.lc
+    local wl = TV.paintWaitlistIcon(dr, organizer)
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
     local n = #dr.lineups
@@ -4744,7 +5140,7 @@ function TV.layoutLineupTabs(dr, organizer, m, y)
         c.tip = tip
         tabs[i] = w
     end
-    local room = TV.W - (add and 36 or 0)
+    local room = TV.W - (add and 36 or 0) - (wl and TV.WL.ICON_W or 0)
     local total = 0
     for i = 1, n do total = total + tabs[i] end
     local shown = {}
@@ -5714,7 +6110,7 @@ function TV.compDragStart(src)
     local m = src.slot and src.slot.member or src.member
     if not (dr and m and m.key) then return end
     local from = src.slot and "slot" or src.kind
-    if from ~= "slot" and from ~= "unassigned" and from ~= "beyond" then return end
+    if from ~= "slot" and from ~= "unassigned" and from ~= "beyond" and from ~= "waitlist" then return end
     -- (the groups as they are drawn: the seats and where each open slot waits)
     teamsView.grid:Refresh()
     local drag = { key = m.key, c = m.c, sp = m.sp, from = from }
@@ -5778,7 +6174,7 @@ function TV.compTarget(drag)
     local u = d.unassigned
     if drag.from ~= "unassigned" and u:IsShown() and u:IsMouseOver() then
         return { frame = (u.drop and u.drop:IsShown()) and u.drop or u, ok = true, kind = "out",
-                 label = "Out of the groups" }
+                 label = drag.from == "waitlist" and "Onto the roster (Unassigned)" or "Out of the groups" }
     end
     return nil
 end
@@ -5790,7 +6186,8 @@ function TV.compDrop(drag, t)
     if t.kind == "out" then
         PlanUI:MoveDraftMember(drag.key, nil, nil, nil, shown)
     elseif t.kind == "slot" then
-        if drag.from == "unassigned" and not PlanUI:MoveDraftMember(drag.key, t.g, nil, t.seat, shown) then
+        if (drag.from == "unassigned" or drag.from == "waitlist")
+            and not PlanUI:MoveDraftMember(drag.key, t.g, nil, t.seat, shown) then
             return PlanUI:RefreshTeams()
         end
         if dr.members[drag.key] and drag.sp ~= t.slot.sp then dr.s[drag.key] = t.slot.sp end

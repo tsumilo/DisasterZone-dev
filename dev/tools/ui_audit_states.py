@@ -1241,6 +1241,11 @@ STATES[_HOME:_HOME] = [
     # lineups and the waitlist (1.3.2): the second lineup open, the view of a player who isn't on the roster
     ("Raids - Teams - lineup Kara A", teams_view(lua="ns.RaidPlanUI:SelectLineup(2)")),
     ("Raids - Teams - waitlist (not on the roster)", teams_view("Vaenyria")),
+    # the waitlist as an icon (2026-10-08): its dropdown open for an organizer, and for a player in line
+    ("Raids - Teams - waitlist open", teams_view(lua="local b = ns.RaidsUI:GetPanel().teams.detail.wlBtn; "
+                                                 "b:GetScript('OnClick')(b)")),
+    ("Raids - Teams - waitlist open (in line)", teams_view("Vaenyria", lua="local b = ns.RaidsUI:GetPanel().teams.detail.wlBtn; "
+                                                                        "b:GetScript('OnClick')(b)")),
     ("Raids - Upcoming - SSC sign-ups (comp)", teams_raid("signups")),
     ("Raids - Upcoming - SSC groups (comp)", teams_raid("groups")),
 ]

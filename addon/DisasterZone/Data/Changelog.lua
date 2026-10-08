@@ -41,6 +41,8 @@ ns.CHANGELOG = {
               "Comp: drag a player onto an open slot to fill it; they take its spec and its seat.",
               "Comp: drag a slot's player to Unassigned to take them out of the groups.",
               "Switching Groups and Comp slides the switch and glides the new view in.",
+              "The waitlist is an icon at the end of the lineup tabs, with a badge counting who waits.",
+              "Click it for the line: drag a player straight into a group, or join and leave it there.",
               "Bloodlust / Heroism counts as a raid buff (raid-wide on these realms), not a group one.",
           } },
       } },

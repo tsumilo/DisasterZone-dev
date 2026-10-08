@@ -446,40 +446,51 @@ def the_teams_page_lineups_and_waitlist():
     rita.eval("ns.RaidPlanUI:SelectLineup(2)")
     w.tick(0.3)
     assert lineup_chips(rita) == [("Kara A", True), ("SSC", False)] or lineup_chips(rita)[1] == ("Kara A", True)
-    assert shown(rita, "ns.RaidPlanUI:GetTeamGrid().wait") and shown(rita, D + ".joinBtn")
-    assert strip_codes(rita.eval("return %s.joinBtn:GetText()" % D)) == "Join the waitlist"
+    # the waitlist is an icon at the end of the lineup tabs; its list says nobody waits yet and offers Join
+    assert shown(rita, D + ".wlBtn") and not shown(rita, D + ".wlBtn.badge")
+    rita.click(rita.eval("return %s.wlBtn" % D))
+    assert shown(rita, D + ".wl") and shown(rita, D + ".wl.join")
     assert rita.find_text("Nobody is waiting for a spot yet.", True, True)
-    # a member of the roster sees no empty waitlist and no Join
+    # a member of the roster sees no icon while nobody waits
     lee = c["Lee"]
     open_teams(w, lee, tid)
-    assert not shown(lee, "ns.RaidPlanUI:GetTeamGrid().wait") and not shown(lee, D + ".joinBtn")
-    # Join: pick the spec
-    rita.click(rita.eval("return %s.joinBtn" % D))
+    assert not shown(lee, D + ".wlBtn")
+    # Join: pick the spec, then Join
+    rita.click(rita.eval("return %s.wl.spec" % D))
     entries = [strip_codes(e.get("text") or "").strip() for e in rita.last_menu()["children"] if e.get("text")]
-    assert entries[:4] == ["Join as", "Discipline", "Holy", "Shadow"], entries
+    assert entries[:3] == ["Discipline", "Holy", "Shadow"], entries
     hit = [e.get("text") for e in rita.last_menu()["children"] if strip_codes(e.get("text") or "").strip() == "Holy"]
     rita.menu_select(hit[0])
+    rita.click(rita.eval("return %s.wl.join" % D))
     w.tick(2)
     assert waitlist(bob, tid, ka) == [(K("Rita"), 2, 1)]
-    assert strip_codes(rita.eval("return %s.joinBtn:GetText()" % D)) == "Leave the waitlist"
+    # her own row: Leave; the badge counts her
+    assert shown(rita, D + ".wl") and shown(rita, D + ".wl.rows[1].leave") and not shown(rita, D + ".wl.join")
+    assert strip_codes(rita.eval("return %s.wlBtn.badge.fs:GetText()" % D)) == "1"
     assert strip_codes(rita.eval("return %s.card.you.fs:GetText()" % TV)) == "You: Kara A · #1 on the waitlist"
-    # the organizer: a new lineup (draft), renamed, saved; Rita's chip in Kara A's waitlist dragged into group 2
+    # the organizer: the badge, the list, Rita's row dragged into group 2 (the list fades out of the way, then closes)
     open_teams(w, bob, tid)
     bob.eval("ns.RaidPlanUI:SelectLineup(2)")
     w.tick(0.3)
     grid = "ns.RaidPlanUI:GetTeamGrid()"
-    wchips = bob.eval_py("local out = {}; for _, ch in ipairs(%s.wait.chips) do if ch:IsShown() then "
-                         "out[#out + 1] = ch.key end end; return out" % grid)
-    assert lst(wchips) == [K("Rita")], wchips
-    assert strip_codes(bob.eval("return %s.wait.label:GetText()" % grid)).startswith("WAITLIST")
+    assert strip_codes(bob.eval("return %s.wlBtn.badge.fs:GetText()" % D)) == "1"
+    assert bob.eval("return %s.wait" % grid) is None                     # no waitlist block under the groups
+    bob.click(bob.eval("return %s.wlBtn" % D))
+    row = D + ".wl.rows[1]"
+    assert bob.eval("return %s.member.key" % row) == K("Rita") and shown(bob, row + ".more")
     assert strip_codes(bob.eval("return %s.pool.label:GetText()" % grid)).startswith("UNASSIGNED") and bob.eval(
         "local n = 0; for _, c in ipairs(%s.pool.chips) do if c:IsShown() then n = n + 1 end end; return n" % grid) == 1   # Lee (in SSC)
-    bob.eval("%s:Drop(..., 2)" % grid, K("Rita"))
+    bob.eval("_G.IsMouseButtonDown = function() return true end")
+    bob.eval("local r = %s; r:GetScript('OnDragStart')(r)" % row)
+    assert bob.eval("return %s.wl:GetAlpha()" % D) == 0 and shown(bob, row)
+    bob.eval("local g = %s; g.boxes[2].IsMouseOver = function() return true end" % grid)
+    w.tick(0.2)
+    bob.eval("local r = %s; r:GetScript('OnDragStop')(r)" % row)
+    bob.eval("_G.IsMouseButtonDown = function() return false end; %s.boxes[2].IsMouseOver = nil" % grid)
     w.tick(0.3)
     dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")
     assert dr["members"].get(K("Rita")) and dr["grp"].get(K("Rita")) == 2, dr
-    assert lst(bob.eval_py("local out = {}; for _, ch in ipairs(%s.wait.chips) do if ch:IsShown() then "
-                           "out[#out + 1] = ch.key end end; return out" % grid)) == []
+    assert not shown(bob, D + ".wl")
     assert bob.eval("return ns.RaidPlanUI:AddLineup(10)") is True
     w.tick(0.3)
     assert [n for n, _ in lineup_chips(bob)] == ["SSC", "Kara A", "10-man"], lineup_chips(bob)
