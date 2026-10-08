@@ -38,16 +38,24 @@ local function Model(parent, w, h)
     return m
 end
 
--- your character in an outfit (start gear), optionally as the other sex (when the client allows it)
-local function Dress(m, cls, sex)
+-- the 3D model in an outfit: what the character wears (equip), or the class's start gear for a new one
+local function Dress(m, cls, sex, equip)
     if not m then return end
-    local cd, items = D.classes[cls], {}
-    for _, id in ipairs(cd and cd.gear or {}) do
-        local it = D.items[id]
-        if it and it.inv then items[#items + 1] = id end
+    local items = {}
+    if equip then
+        for s = 1, 19 do if equip[s] then items[#items + 1] = equip[s] end end
+    else
+        local cd = D.classes[cls]
+        for _, id in ipairs(cd and cd.gear or {}) do
+            local it = D.items[id]
+            if it and it.inv then items[#items + 1] = id end
+        end
     end
     K.DressModel(m, sex or 0, items)
 end
+
+-- the centre column (between What's new and the character list): the model, the name, Enter World
+local MID_X = 40
 
 function UI.BuildGlue(parent)
     local g = CreateFrame("Frame", nil, parent)
@@ -71,11 +79,15 @@ function UI.BuildGlue(parent)
     g.tag = K.Font(g, 12, "OUTLINE")
     g.tag:SetPoint("TOPLEFT", g.name, "BOTTOMLEFT", 2, -4)
     g.tag:SetText("Northshire Abbey - " .. (Craft.CLASS_NAMES and "a little World of Warcraft" or ""))
-    g.model = Model(g, 300, 420)
-    if g.model then g.model:SetPoint("CENTER", -20, 10) end
-    g.sprite = K.Tex(g, "ARTWORK", K.MEDIA .. "mobs.blp")
-    g.sprite:SetSize(96, 96)
-    g.sprite:SetPoint("BOTTOM", -20, 96)
+    -- the 3D model stands in the middle, high and large like the client's; the name and Enter World under it
+    g.model = Model(g, 300, 380)
+    if g.model then g.model:SetPoint("CENTER", MID_X, 60) end
+    -- the hero as it walks the world (the pixel sprite in its gear), a small badge by the name
+    g.badge = CreateFrame("Frame", nil, g)
+    g.badge:SetSize(48, 48)
+    g.badge.layers = {}
+    g.sprite = K.Tex(g.badge, "ARTWORK", K.MEDIA .. "mobs.blp")
+    g.sprite:SetAllPoints()
     UI.glue = g
     Glue.BuildSelect(g)
     Glue.BuildCreate(g)
@@ -83,7 +95,28 @@ function UI.BuildGlue(parent)
     return g
 end
 
-local function SetSpriteFor(t, cls, sex)
+-- the badge: the pixel hero standing, facing you - the bare body and its gear layers (Outfit.lua) when there is
+-- outfit data, else the class's start-outfit sprite
+local function SetSpriteFor(t, cls, sex, char)
+    local badge = t:GetParent()
+    for _, l in ipairs(badge.layers) do l:Hide() end
+    local layers = UI.OutfitLayers and UI.OutfitLayers(char or { sex = sex, equip = {} }, "walk", 1, 0)
+    if layers and layers[1] then
+        t:Hide()
+        local k = badge:GetWidth() / 32
+        for i, L in ipairs(layers) do
+            local x = badge.layers[i]
+            if not x then x = badge:CreateTexture(nil, "ARTWORK", nil, min(7, i)) badge.layers[i] = x end
+            x:SetTexture(L[1])
+            x:SetTexCoord(L[2], L[3], L[4], L[5])
+            x:ClearAllPoints()
+            x:SetPoint("TOPLEFT", badge, "TOPLEFT", L[6] * k, -L[7] * k)
+            x:SetSize(L[8] * k, L[9] * k)
+            x:Show()
+        end
+        return
+    end
+    t:Show()
     local spr = ns.AzeroData and ns.AzeroData.CLASS_SPR
     local s = spr and spr[(Craft.CLASS_TOKENS[cls] or "WARRIOR") .. (sex or 0)] or 35
     local H = (ns.AzeroData and ns.AzeroData.MOB_SHEET_H) or 2048
@@ -109,8 +142,8 @@ function Glue.BuildSelect(g)
     s.rows = {}
     for i = 1, 3 do
         local b = CreateFrame("Button", nil, list)
-        b:SetSize(232, 54)
-        b:SetPoint("TOPLEFT", 14, -42 - (i - 1) * 58)
+        b:SetSize(232, 66)
+        b:SetPoint("TOPLEFT", 14, -42 - (i - 1) * 70)
         b.hl = K.Tex(b, "BACKGROUND", "Interface\\Glues\\CharacterSelect\\Glue-CharacterSelect-Highlight")
         b.hl:SetAllPoints()
         b.hl:SetBlendMode("ADD")
@@ -119,7 +152,7 @@ function Glue.BuildSelect(g)
         b.icon:SetSize(32, 32)
         b.icon:SetPoint("LEFT", 6, 0)
         b.name = K.Text(b, "GameFontNormalLarge", "OVERLAY", "LEFT")
-        b.name:SetPoint("TOPLEFT", 46, -8)
+        b.name:SetPoint("TOPLEFT", 46, -6)
         b.info = K.Text(b, "GameFontHighlightSmall", "OVERLAY", "LEFT")
         b.info:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -2)
         b.where = K.Text(b, "GameFontDisableSmall", "OVERLAY", "LEFT")
@@ -139,12 +172,12 @@ function Glue.BuildSelect(g)
     end)
     s.delete:SetPoint("BOTTOM", 0, 18)
     s.enter = K.Button(s, "Enter World", 180, 34, function() Glue.EnterWorld() end)
-    s.enter:SetPoint("BOTTOM", -20, 30)
-    s.who = K.Font(s, 22, "THICKOUTLINE")
-    s.who:SetPoint("BOTTOM", s.enter, "TOP", 0, 128)
-    s.who:SetTextColor(1, 0.82, 0)
+    s.enter:SetPoint("BOTTOM", MID_X, 30)
     s.whoInfo = K.Font(s, 13, "OUTLINE")
-    s.whoInfo:SetPoint("TOP", s.who, "BOTTOM", 0, -4)
+    s.whoInfo:SetPoint("BOTTOM", s.enter, "TOP", 0, 14)
+    s.who = K.Font(s, 22, "THICKOUTLINE")
+    s.who:SetPoint("BOTTOM", s.whoInfo, "TOP", 0, 4)
+    s.who:SetTextColor(1, 0.82, 0)
 end
 
 function Glue.Refresh()
@@ -181,13 +214,17 @@ function Glue.Refresh()
     if sel then
         s.who:SetText(sel.name)
         s.whoInfo:SetText(string.format("Level %d Human %s", sel.level, Craft.CLASS_NAMES[sel.class]))
-        Dress(g.model, sel.class, sel.sex)
-        SetSpriteFor(g.sprite, sel.class, sel.sex)
-        g.sprite:Show()
+        Dress(g.model, sel.class, sel.sex, sel.equip)
+        SetSpriteFor(g.sprite, sel.class, sel.sex, sel)
+        -- (left of the wider of the two lines, standing on the lower one)
+        local w = max(s.who:GetStringWidth() or 0, s.whoInfo:GetStringWidth() or 0)
+        g.badge:ClearAllPoints()
+        g.badge:SetPoint("BOTTOMRIGHT", s.whoInfo, "BOTTOM", -w / 2 - 8, -4)
+        g.badge:Show()
     else
         s.who:SetText(#chars == 0 and "Create your first character" or "")
         s.whoInfo:SetText("")
-        g.sprite:Hide()
+        g.badge:Hide()
         if g.model then g.model:Hide() end
     end
     if g.model and sel then g.model:Show() end
@@ -281,14 +318,24 @@ function Glue.RefreshCreate()
     c.accept:SetEnabled(not taken)
     Dress(g.model, Glue.newClass, Glue.newSex)
     if g.model then g.model:Show() end
-    SetSpriteFor(g.sprite, Glue.newClass, Glue.newSex)
-    g.sprite:Show()
+    -- (a new character wears its class's start outfit)
+    local start = {}
+    for _, id in ipairs(D.classes[Glue.newClass] and D.classes[Glue.newClass].gear or {}) do
+        local it = D.items[id]
+        local slot = it and it.inv and Craft.Items.SlotFor and Craft.Items.SlotFor(it, { equip = start })
+        if slot then start[slot] = id end
+    end
+    SetSpriteFor(g.sprite, Glue.newClass, Glue.newSex, { sex = Glue.newSex, equip = start })
+    g.badge:ClearAllPoints()
+    g.badge:SetPoint("BOTTOM", g, "BOTTOM", MID_X, 72)
+    g.badge:Show()
 end
 
 function Glue.ShowCreate()
     local g = UI.glue
     g.select:Hide()
     g.create:Show()
+    if g.news then g.news:Hide() end           -- (WoW's create screen has no news)
     Glue.newClass = nil
     for _, cls in ipairs(Craft.PLAYABLE) do
         if not (Craft:Data().chars and Craft:Data().chars[cls]) then Glue.newClass = cls break end
@@ -300,6 +347,7 @@ function Glue.ShowSelect()
     local g = UI.glue
     g.create:Hide()
     g.select:Show()
+    if g.news then g.news:Show() end
     Glue.Refresh()
 end
 
@@ -308,27 +356,39 @@ end
 ---------------------------------------------------------------------------
 
 function Glue.BuildNews(g)
-    local box = GlueBox(g, 300, 260)
+    local box = GlueBox(g, 270, 250)
     box:SetPoint("BOTTOMLEFT", 20, 24)
     local t = K.Text(box, "GameFontNormal", "OVERLAY", "LEFT")
     t:SetPoint("TOPLEFT", 16, -12)
     t:SetText("What's new")
-    box.text = K.Text(box, "GameFontHighlightSmall", "OVERLAY", "LEFT")
-    box.text:SetPoint("TOPLEFT", 16, -32)
-    box.text:SetWidth(270)
+    -- the releases, newest first, in a box that scrolls with the wheel (clipped to it)
+    local sf = CreateFrame("ScrollFrame", nil, box)
+    sf:SetPoint("TOPLEFT", 14, -32)
+    sf:SetPoint("BOTTOMRIGHT", -10, 12)
+    if sf.SetClipsChildren then sf:SetClipsChildren(true) end
+    local child = CreateFrame("Frame", nil, sf)
+    child:SetSize(240, 10)
+    sf:SetScrollChild(child)
+    box.text = K.Text(child, "GameFontHighlightSmall", "OVERLAY", "LEFT")
+    box.text:SetPoint("TOPLEFT", 2, 0)
+    box.text:SetWidth(236)
     if box.text.SetSpacing then box.text:SetSpacing(2) end
     g.news = box
     local log = ns.CraftChangelog or {}
     local lines = {}
     for i, rel in ipairs(log) do
-        if i > 2 then break end
+        if i > 3 then break end
+        if i > 1 then lines[#lines + 1] = " " end
         lines[#lines + 1] = "|cffffd100" .. rel.version .. "|r  |cff808080" .. (rel.date or "") .. "|r"
-        for j, l in ipairs(rel.changes or {}) do
-            if j > 9 then break end
-            lines[#lines + 1] = "- " .. l
-        end
+        for _, l in ipairs(rel.changes or {}) do lines[#lines + 1] = "- " .. l end
     end
     box.text:SetText(table.concat(lines, "\n"))
+    child:SetHeight(max(10, (box.text:GetStringHeight() or 100) + 6))
+    sf:EnableMouseWheel(true)
+    sf:SetScript("OnMouseWheel", function(self, d)
+        local range = max(0, child:GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(max(0, min(range, self:GetVerticalScroll() - d * 24)))
+    end)
     local data = Craft:Data()
     if log[1] then data.newsSeen = log[1].version end
 end
