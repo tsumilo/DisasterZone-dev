@@ -738,7 +738,31 @@ function View:Draw()
     self:ProjectSquares()
 end
 
+-- While the panel fades (the hub's way into a game and back out), nothing of the hall is drawn: its opaque pieces
+-- (blend DISABLE) and the models do not fade with their parent, and stayed whole over the carousel until the panel
+-- was hidden (seen in game 2026-10-08). Back at full alpha it is drawn again.
+function View:Faded()
+    local a = self.frame.GetEffectiveAlpha and self.frame:GetEffectiveAlpha() or 1
+    if a < 0.99 then
+        if not self.faded then
+            self.faded = true
+            if self.R and self.R.Clear then self.R.Clear() end
+            self.view.scene:Hide()
+            self.view.plateFrame:Hide()
+        end
+        return true
+    end
+    if self.faded then
+        self.faded = false
+        self.view.scene:Show()
+        self.view.plateFrame:Show()
+        self.dirty = true
+    end
+    return false
+end
+
 function View:OnUpdate(elapsed)
+    if self:Faded() then return end
     local moved = false
     local ca = self.camAnim
     if ca then

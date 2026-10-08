@@ -560,9 +560,29 @@ COVERS.chess = function(parent)
         c.fire = fire
     end
 
+    local dist = CHESS_CAM.dist
     local function Place()
         local cam = CHESS_CAM
-        v:Orbit(cam.x * CHESS_S, cam.y * CHESS_S, cam.z, cam.heading, cam.pitch, cam.dist)
+        v:Orbit(cam.x * CHESS_S, cam.y * CHESS_S, cam.z, cam.heading, cam.pitch, dist)
+    end
+
+    -- The camera's distance that fits every piece (feet and head) inside the poster, a margin round it: the client's
+    -- lens was found to frame tighter than the test mock's (pieces cut at the edges in game), so it is measured here.
+    local function Fit(w, h)
+        local cx, cy = v:Project(CHESS_CAM.x * CHESS_S, CHESS_S * CHESS_CAM.y, CHESS_CAM.z)
+        if not cx then return end
+        local need = 0
+        for _, p in ipairs(CHESS_CAST) do
+            for _, z in ipairs({ 0, 2.2 * p.s }) do
+                local x, y = v:Project(p.f * CHESS_S, p.r * CHESS_S, z)
+                if not x then
+                    need = max(need, 2)
+                else
+                    need = max(need, abs(x - cx) / max(1, w / 2 - 14), abs(y - cy) / max(1, h / 2 - 14))
+                end
+            end
+        end
+        return need
     end
 
     -- the scene as it stands: camera, floor pictures bent onto their corners, models on their squares
@@ -576,7 +596,15 @@ COVERS.chess = function(parent)
                 y + math.cos(cam.heading) * 2, cam.z)
             if not self.calibrated then return false end
         end
+        dist = CHESS_CAM.dist
         Place()
+        -- (pulled back until it all fits: a few steps, the picture roughly shrinks with the distance)
+        for _ = 1, 4 do
+            local need = Fit(w, h)
+            if not need or need <= 1.02 then break end
+            dist = dist * min(2, need * 1.04)
+            Place()
+        end
         local ox, oy = w / 2, h / 2
         local S2 = CHESS_S
         for _, tl in ipairs(self.tiles) do
@@ -623,9 +651,12 @@ COVERS.chess = function(parent)
     end
     function c:Refresh() end
     -- (only while the scene still has to be set: a resize, or the client gave no size yet)
+    -- (only while it can be seen: a hidden ModelScene projects nothing, and a stage set then lost its whole floor -
+    -- seen in game after coming back from a game; shown again, it is set again)
     function c:Tick()
-        if self.dirty and self:Stage() then self.dirty = false end
+        if self.dirty and self:IsVisible() and self:Stage() then self.dirty = false end
     end
+    c:SetScript("OnShow", function(self) self.dirty = true end)
     return c
 end
 

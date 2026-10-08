@@ -536,7 +536,44 @@ def the_poster_is_a_still_3d_scene_with_no_holes_in_its_floor():
            "T_CH.count = function() return n end")
     w.tick(2)
     assert c.eval("return T_CH.count()") == 0
+    # it is set only while it can be seen (a hidden scene projects nothing: the floor was lost in game), and set
+    # again when shown
+    c.eval("local p for _, q in ipairs(ns.GamesUI.__posters) do if q.id == 'chess' then p = q end end "
+           "T_CH.cover = p.cover p.cover:Hide() p.cover.dirty = true")
+    w.tick(0.5)
+    assert c.eval("return T_CH.count()") == 0 and c.eval("return T_CH.cover.dirty") is True
+    c.eval("T_CH.cover:Show()")
+    w.tick(0.5)
+    assert c.eval("return T_CH.count()") >= 1 and not c.eval("return T_CH.cover.dirty")
     no_errors(w)
+
+
+@case
+def the_hall_is_not_drawn_while_the_panel_fades():
+    import harness  # noqa: E402
+    old = harness.LOAD_ROOMS
+    harness.LOAD_ROOMS = True
+    try:
+        w, c = boot()
+        c.eval("ns.MainFrame:Open('games') ns.GamesUI:Select('chess') ns.Chess:Prefs().flat = nil "
+               "ns.ChessUI:ApplyBoardMode()")
+        w.tick(1)
+        c.eval("ns.ChessUI:OpenGame(ns.Chess:NewAIGame(1, 'magus', false))")
+        w.tick(0.5)
+        B = "ns.ChessUI._Board3D()"
+        assert c.eval("return %s.view.scene:IsShown()" % B) is True
+        # (the hub fades the stage on the way back: opaque room pieces and models ignore that alpha)
+        c.eval("%s.frame:GetParent():SetAlpha(0.5)" % B)
+        w.tick(0.2)
+        assert c.eval("return %s.view.scene:IsShown()" % B) is False
+        assert c.eval("return %s.faded" % B) is True
+        c.eval("%s.frame:GetParent():SetAlpha(1)" % B)
+        w.tick(0.2)
+        assert c.eval("return %s.view.scene:IsShown()" % B) is True
+        assert c.eval("return %s.faded" % B) is False
+        no_errors(w)
+    finally:
+        harness.LOAD_ROOMS = old
 
 
 if __name__ == "__main__":

@@ -517,7 +517,12 @@ local Region = define("Region", nil, {
   IsAnchoringRestricted = function() return false end,
   SetAlpha = function(self, a) S(self).alpha = tonumber(a) or 1 end,
   GetAlpha = function(self) return S(self).alpha end,
-  GetEffectiveAlpha = function(self) return S(self).alpha end,
+  -- (the client multiplies the parents' alpha in, as the scale below; IgnoreParentAlpha is not modelled)
+  GetEffectiveAlpha = function(self)
+    local st, a = S(self), 1
+    while st do a = a * (st.alpha or 1); st = st.parent and OBJ[st.parent] end
+    return a
+  end,
   SetScale = function(self, s) S(self).scale = tonumber(s) or 1 end,
   GetScale = function(self) return S(self).scale end,
   GetEffectiveScale = function(self)
