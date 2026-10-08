@@ -51,6 +51,9 @@ def reaction(template_id):
         return "friendly"
     if int(t["EnemyGroup"]) & PLAYER_MASK:
         return "hostile"
+    # the "monster" group (FactionGroup 8) attacks players unless it names them a friend: Kobold Vermin (25)
+    if int(t["FactionGroup"]) & 8 and not int(t["FriendGroup"]) & PLAYER_MASK:
+        return "hostile"
     if int(t["FriendGroup"]) & PLAYER_MASK or int(t["FactionGroup"]) & 2:
         return "friendly"
     return "neutral"

@@ -70,6 +70,15 @@ Art direction changed mid-step at the user's request: EVERYTHING from WoW's own 
   sections painted, item geosets, weapon/shield on attachments 1/0); D.CLASS_SPR in Species.lua (human,
   CharStartOutfit). azw_render.open_blp decodes palettised BLP alpha (Pillow reads it as 0).
 
+## 2026-10-08 later: the Pokemon engine is gone (Disastercraft, dev kit 02b8b80)
+The game on this data is now Disastercraft (Games/Disastercraft, real-time MMO). Kept and still generated here:
+World/{World.lua, Northshire.lua, Species.lua, Quests.lua} + Media/Azeromon/{Ground, Scenery, mobs.blp}. Keep their
+shape stable (Disastercraft's UIWorld.lua reads WS.GroundTile / WS.SceneryIn / W.interiorArt). Species.lua's header
+creates ns.AzeroData. Check maps with `tools/ui_audit.py <out> -k "Disastercraft" --look`; the old "Azeromon - *"
+views, test_azeromon*.py, _azero_bot.py and tools/render_map.py are gone.
+Hostility (azw_entities.reaction): FactionGroup 8 ("monster") is hostile unless FriendGroup names players (kobolds).
+Everything below about battles / species / starters / quest UI is history.
+
 Open items / next:
 - User: "can't reach certain places because of how the movement works" - ask for the spots (reachability audit
   shows the valley floor ~89% reached; eastern cliffs are cut off as in WoW).

@@ -771,7 +771,7 @@ def emit_species(species, sheet, sheet_h, players):
         out = [header(path),
                "-- Battle species of the real creatures (azw_species.py): real names and models, element from type /\n"
                "-- family, stats from an archetype grown with the creature's level, catch = 0 never tamed.\n",
-               "local addonName, ns = ...\nlocal D = ns.AzeroData\nlocal S = {}\nD.worldSpecies = S\n"]
+               "local addonName, ns = ...\nns.AzeroData = ns.AzeroData or {}\nlocal D = ns.AzeroData\nlocal S = {}\nD.worldSpecies = S\n"]
         for i, s in enumerate(order):
             d = {"name": s["name"], "type": s["type"], "num": i + 1, "display": s["display"], "catch": s["catch"],
                  "exp": s["exp"], "base": s["base"], "entry": s["entry"], "lvl": list(s["lvl"]),

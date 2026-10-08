@@ -2,6 +2,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/World/Species.lua",
 -- Battle species of the real creatures (azw_species.py): real names and models, element from type /
 -- family, stats from an archetype grown with the creature's level, catch = 0 never tamed.
 local addonName, ns = ...
+ns.AzeroData = ns.AzeroData or {}
 local D = ns.AzeroData
 local S = {}
 D.worldSpecies = S
