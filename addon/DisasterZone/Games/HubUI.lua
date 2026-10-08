@@ -1166,7 +1166,7 @@ function OpenGame(id, animate)
     end
     for _, tex in ipairs({ auraFrom, auraTo }) do tex.target = 0 end
     StripFill(id)
-    PlaceGame(-10, 14, 0)
+    PlaceGame(0, 14, 0)
     strip:Show()
     stage:Show()
     panel:SetAlpha(1)
@@ -1190,7 +1190,7 @@ local function StepOpen(t)
         end
     end
     carousel:SetAlpha(1 - r)
-    PlaceGame(-10 * (1 - r), 14 * (1 - r), r)
+    PlaceGame(0, 14 * (1 - r), r)
 end
 
 -- The open's end (also when the tab hides mid-way): the game in place, the carousel put back for later.
@@ -1235,7 +1235,7 @@ local function StepBack(t)
     local g = InOut(Phase(t, 0.1, 0.8))           -- the poster shrinks back
     local words = Ease(Phase(t, 0.6, 1))          -- its words return
     local side = Ease(Phase(t, 0.35, 1))          -- the neighbours glide in
-    PlaceGame(-10 * out, 10 * out, 1 - out)
+    PlaceGame(0, 10 * out, 1 - out)
     for k, p in ipairs(posters) do
         local b = anim.to[k]
         if b[5] == 0 then
@@ -1405,6 +1405,8 @@ function GamesUI:CreatePanel(parent)
 
     carousel = CreateFrame("Frame", nil, root)
     carousel:SetAllPoints()
+    -- nothing the carousel draws may leave the page: posters sliding out, their shadows, a poster growing
+    pcall(carousel.SetClipsChildren, carousel, true)
     carousel:EnableMouseWheel(true)
     carousel:SetScript("OnMouseWheel", function(_, d) if not anim then Turn(cur - d) end end)
     local glows = {}
@@ -1412,7 +1414,7 @@ function GamesUI:CreatePanel(parent)
         local t = carousel:CreateTexture(nil, "BACKGROUND", nil, -6)
         t:SetTexture(RADIAL)
         t:SetBlendMode("ADD")
-        t:SetSize(760, 640)
+        t:SetSize(760, 500)                       -- (its top edge on the page's: it stays inside too)
         t:SetPoint("CENTER", carousel, "TOP", 0, -250)
         t:SetAlpha(0)
         glows[i] = t
