@@ -12,6 +12,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Menu.lua", ...) then return end
 --     menu, or one of a large frame (a row, the map), opens at the cursor. The owner lights up while its menu is
 --     open (owner:SetLit(on) and owner:OnMenuShown(on), when it has them).
 --   A click outside, Escape or the owner hiding closes it; a click on an open dropdown closes it again.
+--   A list of pages (the nav strip's group menus): when every entry has a line under it (entry:SetSubtext), the
+--     panel drops the marks and shows two-line rows to its edges, the picked one with a gold bar and a faint gold
+--     wash; entry:SetBadge(text, color) puts the strip's pill after an entry's title.
 --   UI:CloseMenus(), UI:GetOpenMenu(). ContextMenu returns { root, owner, Close, IsShown } (nil: nothing to show).
 -- UI.menuObserver(root) (the test harness's hook) sees each menu's entries as it opens.
 local addonName, ns = ...
@@ -25,6 +28,7 @@ local MOUSE = MenuInputContext and MenuInputContext.MouseButton or 2
 local NOOP = function() end
 
 local ROW_H, DIV_H, SPACER_H = 20, 9, 6
+local PAGE_H, PAGE_X, PAGE_BAR = 38, 12, 2   -- a page list's rows: height, text inset, the picked one's bar
 local PAD = 5                  -- inside the panel, around the rows (the invite list's)
 local MARK_X, MARK = 4, 12     -- a check box / radio dot at the row's left
 local TEXT_X = 6               -- a row's text; after the marks when the menu has any
@@ -112,6 +116,8 @@ function Desc:SetTitleAndTextTooltip(title, text)
 end
 
 function Desc:SetIsSelected(fn) self.isSelected = fn end
+function Desc:SetSubtext(text) self.subtext = text end
+function Desc:SetBadge(text, color) self.badge = text and { text = text, color = color } or nil end
 
 function Desc:IsSelected()
     if not self.isSelected then return false end
@@ -175,13 +181,31 @@ local function Disc(r, layer, size, c)
     return t
 end
 
+-- A page list's row: no marks; the picked page has the gold bar and wash, a hovered one a faint light.
+local function PaintPage(r, d, en)
+    local hot = en and r.hovered
+    local on = d:IsSelected()
+    for _, t in ipairs(r.marks) do t:Hide() end
+    r.bar:SetShown(on)
+    if on then r.hl:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], hot and 0.11 or 0.07)
+    else r.hl:SetColorTexture(1, 1, 1, 0.05) end
+    r.hl:SetShown((on or hot) and true or false)
+    local a = en and 1 or 0.45
+    if on or hot then r.fs:SetTextColor(1, 1, 1) else r.fs:SetTextColor(0.9, 0.9, 0.9) end
+    r.fs:SetAlpha(a)
+    r.sub:SetTextColor(0.56, 0.56, 0.58)
+    r.sub:SetAlpha(a)
+end
+
 local function PaintRow(r)
     local d = r.desc
     if not d then return end
     local k = d.kind
     local en = d:IsEnabled()
+    if r.page then return PaintPage(r, d, en) end
     local pick = k == "button" or k == "checkbox" or k == "radio"
     local hot = pick and en and (r.hovered or r.open)
+    r.hl:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.14)
     r.hl:SetShown(hot and true or false)
     local on = (k == "checkbox" or k == "radio") and d:IsSelected()
     r.box:SetShown(k == "checkbox")
@@ -334,6 +358,17 @@ local function NewRow(f)
     r.line:SetPoint("LEFT", 2, 0)
     r.line:SetPoint("RIGHT", -2, 0)
     r.line:SetColorTexture(1, 1, 1, 0.08)
+    -- a page list's: the line under the title, the picked page's bar
+    r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.sub:SetJustifyH("LEFT")
+    r.sub:SetWordWrap(false)
+    r.sub:Hide()
+    r.bar = r:CreateTexture(nil, "ARTWORK")
+    r.bar:SetWidth(PAGE_BAR)
+    r.bar:SetPoint("TOPLEFT", 0, 0)
+    r.bar:SetPoint("BOTTOMLEFT", 0, 0)
+    r.bar:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+    r.bar:Hide()
     r:SetScript("OnEnter", RowEnter)
     r:SetScript("OnLeave", RowLeave)
     r:SetScript("OnClick", RowClick)
@@ -364,12 +399,93 @@ local function PlaceCanvas(f)
 end
 
 -- Fills panel f with desc's entries and sizes it (at least minW wide; a scroll mode or the screen's height caps it).
+-- A page's pill after its title (the nav strip's: dark fill, coloured edge and text); the width it adds, 0 for none.
+local function PlacePill(r, badge, titleW)
+    if not badge then
+        if r.pill then r.pill:Hide() end
+        return 0
+    end
+    local p = r.pill
+    if not p then
+        p = CreateFrame("Frame", nil, r)
+        p:SetHeight(11)
+        if UI.AddPillShape then UI:AddPillShape(p, 11) end
+        p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local path, _, flags = p.fs:GetFont()
+        p.fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 7.5, flags or "")
+        p.fs:SetPoint("CENTER", 0.5, 0)
+        r.pill = p
+    end
+    local c = badge.color or GOLD
+    if p.SetPillColors then
+        p:SetPillColors({ 0.1 + (c[1] - 0.1) * 0.16, 0.1 + (c[2] - 0.1) * 0.16, 0.12 + (c[3] - 0.12) * 0.16, 1 },
+            { c[1], c[2], c[3], 0.5 })
+    end
+    p.fs:SetText(badge.text or "")
+    p.fs:SetTextColor(c[1], c[2], c[3])
+    local w = floor((p.fs:GetStringWidth() or 18) + 8 + 0.5)
+    p:SetWidth(w)
+    p:ClearAllPoints()
+    p:SetPoint("LEFT", r.fs, "LEFT", titleW + 6, 0)
+    p:Show()
+    return w + 6
+end
+
+local function TextW(fs)
+    local w = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or nil
+    return w or fs:GetStringWidth() or 0
+end
+
+-- A page list's row: the title over its line, both from PAGE_X; the width it needs.
+local function LayoutPage(r, d)
+    r.fs:SetFontObject("GameFontHighlight")
+    r.fs:ClearAllPoints()
+    r.fs:SetPoint("TOPLEFT", r, "TOPLEFT", PAGE_X, -6)
+    r.fs:SetText(d.text or "")
+    local titleW = TextW(r.fs)
+    local tw = titleW + PlacePill(r, d.badge, titleW)
+    r.sub:ClearAllPoints()
+    r.sub:SetPoint("TOPLEFT", r, "TOPLEFT", PAGE_X, -22)
+    r.sub:SetText(d.subtext or "")
+    r.sub:Show()
+    r.line:Hide()
+    r.arrow:Hide()
+    return max(tw, TextW(r.sub)) + 2 * PAGE_X + 4
+end
+
+-- Any other row: one line from x; the width it needs.
+local function LayoutRow(r, d, x)
+    local k = d.kind
+    r.sub:Hide()
+    r.bar:Hide()
+    if r.pill then r.pill:Hide() end
+    r.fs:SetFontObject(k == "title" and "GameFontNormalSmall" or "GameFontHighlightSmall")
+    -- the text's own width first, held by its left edge only (in game GetStringWidth stops at the width a
+    -- text was given, so a row as narrow as the last menu's would cut it); then it spans the row
+    r.fs:ClearAllPoints()
+    r.fs:SetPoint("LEFT", r, "LEFT", x, 0)
+    r.fs:SetText((k == "divider" or k == "spacer") and "" or (d.text or ""))
+    local tw = TextW(r.fs)
+    if r.hasKids then r.fs:SetPoint("RIGHT", r.arrow, "LEFT", -4, 0) else r.fs:SetPoint("RIGHT", r, "RIGHT", -6, 0) end
+    r.line:SetShown(k == "divider")
+    r.arrow:SetShown(r.hasKids)
+    if tw <= 0 then return 0 end
+    return x + tw + (r.hasKids and (SUB_W + 4) or 0) + 8 + 2 * PAD
+end
+
 local function Layout(f, desc, minW)
     local list = Visible(desc)
     local marks = false
+    local pages = #list > 0
     for _, d in ipairs(list) do
         if d.kind == "checkbox" or d.kind == "radio" then marks = true end
+        if not d.subtext or (d.kind ~= "radio" and d.kind ~= "button") or #d.children > 0 then pages = false end
     end
+    -- (a page list's rows reach the panel's edges, inside its 1px line)
+    local padX = pages and 1 or PAD
+    f.clip:ClearAllPoints()
+    f.clip:SetPoint("TOPLEFT", padX, -PAD)
+    f.clip:SetPoint("BOTTOMRIGHT", -padX, PAD)
     local textX = marks and (MARK_X + MARK + 6) or TEXT_X
     local w, h = max(minW or 0, MIN_W), 0
     for i, d in ipairs(list) do
@@ -378,26 +494,17 @@ local function Layout(f, desc, minW)
         local k = d.kind
         r.desc, r.level, r.hovered, r.open = d, f.level, false, false
         r.hasKids = #d.children > 0
-        r.h = (k == "divider" and DIV_H) or (k == "spacer" and SPACER_H) or ROW_H
+        r.page = pages
+        r.h = (pages and PAGE_H) or (k == "divider" and DIV_H) or (k == "spacer" and SPACER_H) or ROW_H
         r:SetHeight(r.h)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", f.canvas, "TOPLEFT", 0, -h)
         r:SetPoint("TOPRIGHT", f.canvas, "TOPRIGHT", 0, -h)
         h = h + r.h
-        local x = (k == "title") and TEXT_X or textX
-        r.fs:SetFontObject(k == "title" and "GameFontNormalSmall" or "GameFontHighlightSmall")
-        -- the text's own width first, held by its left edge only (in game GetStringWidth stops at the width a
-        -- text was given, so a row as narrow as the last menu's would cut it); then it spans the row
-        r.fs:ClearAllPoints()
-        r.fs:SetPoint("LEFT", r, "LEFT", x, 0)
-        r.fs:SetText((k == "divider" or k == "spacer") and "" or (d.text or ""))
-        local tw = r.fs.GetUnboundedStringWidth and r.fs:GetUnboundedStringWidth() or nil
-        tw = tw or r.fs:GetStringWidth() or 0
-        if r.hasKids then r.fs:SetPoint("RIGHT", r.arrow, "LEFT", -4, 0) else r.fs:SetPoint("RIGHT", r, "RIGHT", -6, 0) end
-        r.line:SetShown(k == "divider")
-        r.arrow:SetShown(r.hasKids)
-        if tw > 0 then
-            w = max(w, x + tw + (r.hasKids and (SUB_W + 4) or 0) + 8 + 2 * PAD)
+        if pages then
+            w = max(w, LayoutPage(r, d) + 2 * padX)
+        else
+            w = max(w, LayoutRow(r, d, (k == "title") and TEXT_X or textX))
         end
         PaintRow(r)
         r:Show()
@@ -413,7 +520,7 @@ local function Layout(f, desc, minW)
     viewH = min(viewH, (UIParent:GetHeight() or 768) / scale - 40 - 2 * PAD)
     f.contentH, f.viewH, f.offset = h, viewH, 0
     f.scrolls = h > viewH + 0.5
-    f.canvas:SetSize(w - 2 * PAD, max(h, 1))
+    f.canvas:SetSize(w - 2 * padX, max(h, 1))
     f:SetSize(w, floor(viewH + 2 * PAD + 0.5))
     PlaceCanvas(f)
 end

@@ -643,6 +643,11 @@ def st_blizzard_options(w, c):
 STATES = [
     ("Blizzard options panel", st_blizzard_options),
     ("Home", opened("home")),
+    # the nav strip's group menus (UI/Menu.lua's page list: title over its line, the open page with the gold bar)
+    ("Nav - Guild menu", opened("home", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
+                                             "do if t.cdlKey == 'grp:guild' then t.IsMouseOver = function() return true end; t:Click() end end")),
+    ("Nav - Raids menu", opened("home", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
+                                           "do if t.cdlKey == 'grp:raids' then t.IsMouseOver = function() return true end; t:Click() end end")),
     ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
                                            "local key = tonumber(date('%Y%m%d', v.t)); "
                                            "for _, c in ipairs(ns.Dashboard:GetPanel().calCard.cells) do "

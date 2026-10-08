@@ -121,11 +121,12 @@ local function GroupMenu(g, owner)
         for _, key in ipairs(g.pages) do
             local def = tabDefs[key]
             if def and IsAvailable(def) then
-                local label = def.label
-                if NAV_BADGES[key] then label = label .. "  |cffbb8cff" .. NAV_BADGES[key].text .. "|r" end
-                local item = root:CreateRadio(label, function() return currentKey == key end,
+                -- (a page list: the title, its line under it, the strip's pill; no tooltip, the line says it)
+                local item = root:CreateRadio(def.label, function() return currentKey == key end,
                     function() SelectPage(key) end)
-                if NAV_PAGE_TIPS[key] then item:SetTitleAndTextTooltip(def.label, NAV_PAGE_TIPS[key]) end
+                item:SetSubtext(NAV_PAGE_TIPS[key] or "")
+                local badge = NAV_BADGES[key]
+                if badge then item:SetBadge(badge.text, badge.color) end
             end
         end
     end)
