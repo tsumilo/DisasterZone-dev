@@ -78,6 +78,68 @@ def _mock_sources():
     return {m: _read(os.path.join(MOCK_DIR, m)) for m in MODULES}
 
 
+# Addon files as Lua 5.1 bytecode. Compiling the addon (~17 MB of source) was two thirds of every client boot, and a
+# suite boots dozens of clients. A file is compiled once (in a private runtime) and every client after that loads its
+# bytecode: string.dump keeps the chunk name, line numbers and local names, so errors and tracebacks read the same.
+# Keyed by (path, mtime, size) in memory, so another agent's edit is picked up by the next boot, and by a hash of
+# (chunk name, source) on disk (dev/.luacache/), shared by every test process. A file that fails to compile is handed
+# over as source so the mock records the syntax error as before. DISASTERZONE_NO_BCCACHE=1 turns it off.
+BC_CACHE_DIR = os.path.join(os.path.dirname(HERE), ".luacache")
+BC_CACHE_ON = os.environ.get("DISASTERZONE_NO_BCCACHE") != "1"
+_CHUNKS = {}  # (path, chunkname, strip_bom) -> ((mtime_ns, size), bytes to hand to M.load_file)
+_COMPILER = None
+
+
+def _compile(src, chunkname):
+    """Bytecode for src, or None when it does not compile."""
+    global _COMPILER
+    import hashlib
+    h = hashlib.sha1(chunkname.encode("utf-8") + b"\0" + src).hexdigest()
+    disk = os.path.join(BC_CACHE_DIR, h[:2], h + ".luac")
+    try:
+        with open(disk, "rb") as fh:
+            return fh.read()
+    except OSError:
+        pass
+    if _COMPILER is None:
+        _COMPILER = lua51.LuaRuntime(encoding=None)
+        _COMPILER.execute(b"function __dz_compile(src, name) local f = loadstring(src, name) "
+                          b"if f then return string.dump(f) end end")
+    bc = _COMPILER.globals()[b"__dz_compile"](src, chunkname.encode("utf-8"))
+    if bc is None:
+        return None
+    try:
+        os.makedirs(os.path.dirname(disk), exist_ok=True)
+        tmp = "%s.%d.tmp" % (disk, os.getpid())
+        with open(tmp, "wb") as fh:
+            fh.write(bc)
+        os.replace(tmp, disk)
+    except OSError:
+        pass
+    return bc
+
+
+def _chunk(path, chunkname, strip_bom=True):
+    """What M.load_file gets for an addon file: cached bytecode, or the source (cache off / syntax error).
+    None when the file does not exist."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    stamp = (st.st_mtime_ns, st.st_size)
+    key = (path, chunkname, strip_bom)
+    hit = _CHUNKS.get(key)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    with open(path, "rb") as fh:
+        src = fh.read()
+    if strip_bom and src.startswith(b"\xef\xbb\xbf"):
+        src = src[3:]
+    out = (BC_CACHE_ON and _compile(src, chunkname)) or src
+    _CHUNKS[key] = (stamp, out)
+    return out
+
+
 def _known_events():
     if "events" not in _CACHE:
         p = os.path.join(HERE, "known_globals.json")
@@ -1340,16 +1402,13 @@ class Client:
         self.world.saved.setdefault(self.full_name, {})[name] = lua_source
 
     def _load_one(self, rel, missing):
-        path = os.path.join(self.addon_dir, rel)
-        if not os.path.exists(path):
+        chunkname = "@Interface/AddOns/%s/%s" % (self.addon_name, rel.replace("\\", "/"))
+        src = _chunk(os.path.join(self.addon_dir, rel), chunkname)  # re-checked per boot: agents edit while tests run
+        if src is None:
             missing.append(rel)
             return
-        with open(path, "rb") as fh:  # not cached: other agents edit the addon while tests run
-            src = fh.read()
-        if src.startswith(b"\xef\xbb\xbf"):
-            src = src[3:]
         self._set_time()
-        self.M.load_file(src, "@Interface/AddOns/%s/%s" % (self.addon_name, rel.replace("\\", "/")), self.addon_name)
+        self.M.load_file(src, chunkname, self.addon_name)
 
     def load_files(self, files, fire_login=False, addon_name=ADDON_NAME):
         """Load specific files (relative to the addon folder, or absolute) with (addon_name, ns). With
@@ -1361,12 +1420,13 @@ class Client:
                 self.M.apply_saved("DisasterZonePatchDB", fh.read())
         for f in files:
             if os.path.isabs(f):
-                if not os.path.exists(f):
+                chunkname = "@" + f.replace("\\", "/")
+                src = _chunk(f, chunkname, strip_bom=False)
+                if src is None:
                     missing.append(f)
                     continue
-                src = open(f, "rb").read()
                 self._set_time()
-                self.M.load_file(src, "@" + f.replace("\\", "/"), addon_name)
+                self.M.load_file(src, chunkname, addon_name)
             else:
                 self._load_one(f.replace("\\", "/"), missing)
         if missing:
