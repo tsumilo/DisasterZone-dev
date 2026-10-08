@@ -66,6 +66,10 @@ Art direction changed mid-step at the user's request: EVERYTHING from WoW's own 
 - Media size Northshire ~ 30 MB (ground ~7, scenery ~11, interiors ~16 pages!) - interiors need shrinking before
   Elwynn (lower res / tighter crop).
 
+- Class outfits (for Disastercraft): azw_people.outfit / outfit_frames dress a player model from item IDs (skin
+  sections painted, item geosets, weapon/shield on attachments 1/0); D.CLASS_SPR in Species.lua (human,
+  CharStartOutfit). azw_render.open_blp decodes palettised BLP alpha (Pillow reads it as 0).
+
 Open items / next:
 - User: "can't reach certain places because of how the movement works" - ask for the spots (reachability audit
   shows the valley floor ~89% reached; eastern cliffs are cut off as in WoW).
