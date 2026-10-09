@@ -62,14 +62,32 @@ end
 -- once that has loaded the race and sex, once that has loaded undress and try the items on (and again for a
 -- moment after, for a load that lands late).
 local DRESS_WAIT = 0.6
+local HUMAN_BODY = { [0] = 119940, [1] = 119563 }     -- character\human\male\humanmale.m2, ...\female\humanfemale.m2
+
+-- does the model show a human of this sex? (nil when the client cannot say: no GetModelFileID / nothing loaded)
+local function HumanBody(m, sex)
+    if not m.GetModelFileID then return nil end
+    local ok, fid = pcall(m.GetModelFileID, m)
+    if not ok or not fid or fid == 0 then return nil end
+    return fid == HUMAN_BODY[sex]
+end
+K.HumanBody = HumanBody
+
+-- The hero's sex is not the WoW character's (the model starts as "player"): SetCustomRace turns it. Its gender
+-- argument is undocumented for this client (0 / 1, or UnitSex's 2 / 3), so each is tried until the loaded body file
+-- is the right one; if neither takes, the body itself is loaded by its file (right sex, without the outfit).
+local SexOffsets = { 0, 2 }                           -- gender = sex + offset (the first tried first)
+
 function K.DressModel(m, sex, items)
     if not m then return end
-    m.dzOutfit = { sex = sex or 0, items = items or {} }
+    sex = sex or 0
+    m.dzOutfit = { sex = sex, items = items or {} }
     if not m.dzHooked then
         m.dzHooked = true
         pcall(m.HookScript, m, "OnModelLoaded", function(self) self.dzLoaded = true end)
     end
     local step, wait, dressing, at = 2, 0, 0, 1
+    local tries = 0
     if not m.dzUnit then
         m.dzUnit, m.dzLoaded = true, false
         pcall(m.SetUnit, m, "player")
@@ -83,18 +101,37 @@ function K.DressModel(m, sex, items)
     end
     m:SetScript("OnUpdate", function(self, dt)
         wait = wait + dt
+        local want = self.dzOutfit.sex
         if step == 1 then                                   -- the unit's model
             if self.dzLoaded or wait > DRESS_WAIT then step, wait = 2, 0 end
         elseif step == 2 then                               -- a human of the hero's sex
-            if self.SetCustomRace and self.dzSex ~= self.dzOutfit.sex then
-                self.dzLoaded, self.dzSex = false, self.dzOutfit.sex
-                pcall(self.SetCustomRace, self, 1, self.dzOutfit.sex)
-                step, wait = 3, 0
-            else
+            if HumanBody(self, want) == true then
                 step, wait = 4, 0
+            else
+                tries = tries + 1
+                -- (the convention that worked before first)
+                -- (and the first once more: a late load of the unit's own model can undo a right one)
+                local first = self.dzSexOff or SexOffsets[1]
+                local off = ({ first, first == 0 and 2 or 0, first })[tries]
+                if self.SetCustomRace and off then
+                    self.dzLoaded = false
+                    pcall(self.SetCustomRace, self, 1, want + off)
+                    self.dzTryOff = off
+                    step, wait = 3, 0
+                else
+                    if HumanBody(self, want) == false and self.SetModel then pcall(self.SetModel, self, HUMAN_BODY[want]) end
+                    step, wait = 4, 0
+                end
             end
         elseif step == 3 then
-            if self.dzLoaded or wait > DRESS_WAIT then step, wait = 4, 0 end
+            if self.dzLoaded or wait > DRESS_WAIT then
+                local ok = HumanBody(self, want)
+                if ok == false then step, wait = 2, 0
+                else
+                    if ok then self.dzSexOff = self.dzTryOff end
+                    step, wait = 4, 0
+                end
+            end
         else                                                -- the outfit, a few times over
             at = at + dt
             if at >= 0.1 then at = 0 dress() end

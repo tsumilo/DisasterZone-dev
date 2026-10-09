@@ -38,6 +38,8 @@ ns.CraftChangelog = {
             "Names sit over titles and never overlap each other",
             "Eating and drinking sit you down",
             "You rise at the graveyard nearest to where you fell",
+            "Bag slots no longer glow blue",
+            "The 3D hero is the sex you picked, not your WoW character's",
         },
     },
     {

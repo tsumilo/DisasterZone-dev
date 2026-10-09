@@ -92,6 +92,9 @@ F.NpcPortrait = NpcPortrait
 function F.SetItemButton(refs, bname, id, count, tintRed)
     local b = refs[bname]
     if not b then return end
+    -- (the template's in-game-store highlight is shown until Blizzard's ContainerFrame_Update hides it: our frames
+    -- carry no Blizzard scripts, so every bag slot glowed blue)
+    if b.BattlepayItemTexture then b.BattlepayItemTexture:Hide() end
     local icon = refs[bname .. "IconTexture"] or b.icon
     local cnt = refs[bname .. "Count"] or b.Count
     b.itemId = id
