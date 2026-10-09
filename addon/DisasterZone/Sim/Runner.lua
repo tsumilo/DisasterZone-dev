@@ -79,12 +79,42 @@ local function WithoutShout(cfg)
   return out
 end
 
-function Runner:BuffConfig(key)
+-- WoWSims' three setups for the class: "raid25" | "raid10" | "solo".
+function Runner:BaseConfig(key)
   local warrior = self:Class() == "WARRIOR"
-  if key == "raid10" then return warrior and WithoutShout(RAID10) or RAID10 end
+  if key == "raid10" then return RAID10 end
   if key == "solo" then return SOLO end
   if warrior then return S.BUFF_PRESETS.wowsims_warrior end
   return S.BUFF_PRESETS.wowsims_ret
+end
+
+function Runner:IsBaseKey(key)
+  return key == "raid25" or key == "raid10" or key == "solo"
+end
+
+-- The buff config of a buffs setting: WoWSims' three, a preset of mine ("p:<id>") or a team lineup ("t:<team>:<ln>",
+-- ns.SimBuffs). A preset or lineup that is gone falls back to 25-man buffs.
+function Runner:BuffConfig(key)
+  local cfg
+  if self:IsBaseKey(key) then
+    cfg = self:BaseConfig(key)
+  else
+    local SB = ns.SimBuffs
+    cfg = SB and (SB:Resolve(key, self:Class(), self:BaseConfig("raid25"))) or nil
+    cfg = cfg or self:BaseConfig("raid25")
+  end
+  if self:Class() == "WARRIOR" then cfg = WithoutShout(cfg) end
+  return cfg
+end
+
+-- The name the card shows for a buffs setting, and whether it still exists.
+function Runner:BuffName(key)
+  for _, b in ipairs(self.BUFFS) do if b.key == key then return b.text, true end end
+  local SB = ns.SimBuffs
+  local cfg, _, name = nil, nil, nil
+  if SB then cfg, _, name = SB:Resolve(key, self:Class(), self:BaseConfig("raid25")) end
+  if cfg then return name, true end
+  return self.BUFFS[1].text, false
 end
 
 -- ---------------------------------------------------------------------------------------------------------------

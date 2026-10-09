@@ -15,6 +15,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Menu.lua", ...) then return end
 --   A list of pages (the nav strip's group menus): when every entry has a line under it (entry:SetSubtext), the
 --     panel drops the marks and shows two-line rows to its edges, the picked one with a gold bar and a faint gold
 --     wash; entry:SetBadge(text, color) puts the strip's pill after an entry's title.
+--   entry:SetHint(text, onClick) puts a grey note at a row's right end; with onClick it is a small button of its own
+--     (gold on hover; a click on it runs onClick and closes the menu instead of picking the row).
 --   UI:CloseMenus(), UI:GetOpenMenu(). ContextMenu returns { root, owner, Close, IsShown } (nil: nothing to show).
 -- UI.menuObserver(root) (the test harness's hook) sees each menu's entries as it opens.
 local addonName, ns = ...
@@ -118,6 +120,7 @@ end
 function Desc:SetIsSelected(fn) self.isSelected = fn end
 function Desc:SetSubtext(text) self.subtext = text end
 function Desc:SetBadge(text, color) self.badge = text and { text = text, color = color } or nil end
+function Desc:SetHint(text, onClick) self.hint = text and { text = text, onClick = onClick } or nil end
 
 function Desc:IsSelected()
     if not self.isSelected then return false end
@@ -225,6 +228,11 @@ local function PaintRow(r)
     for _, t in ipairs(r.marks) do t:SetAlpha(a) end
     local c = hot and 1 or 0.7
     r.arrow:SetVertexColor(c, c, c + 0.03, a)
+    if r.hint and r.hint:IsShown() then
+        if r.hintBtn.hovered then r.hint:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+        else r.hint:SetTextColor(0.56, 0.56, 0.59) end
+        r.hint:SetAlpha(a)
+    end
 end
 
 local function PaintLevels()
@@ -369,6 +377,31 @@ local function NewRow(f)
     r.bar:SetPoint("BOTTOMLEFT", 0, 0)
     r.bar:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
     r.bar:Hide()
+    -- a note at the right end (entry:SetHint); clickable when it has its own action
+    r.hint = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.hint:SetJustifyH("RIGHT")
+    r.hint:SetWordWrap(false)
+    r.hint:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+    r.hint:Hide()
+    r.hintBtn = CreateFrame("Button", nil, r)
+    r.hintBtn:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
+    r.hintBtn:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
+    r.hintBtn:Hide()
+    r.hintBtn:SetScript("OnEnter", function(b)
+        b.hovered = true
+        RowEnter(r)
+    end)
+    r.hintBtn:SetScript("OnLeave", function(b)
+        b.hovered = false
+        RowLeave(r)
+    end)
+    r.hintBtn:SetScript("OnClick", function()
+        local d = r.desc
+        local h = d and d.hint
+        if not (h and h.onClick) then return end
+        CloseAll()
+        h.onClick(d.data)
+    end)
     r:SetScript("OnEnter", RowEnter)
     r:SetScript("OnLeave", RowLeave)
     r:SetScript("OnClick", RowClick)
@@ -450,6 +483,8 @@ local function LayoutPage(r, d)
     r.sub:Show()
     r.line:Hide()
     r.arrow:Hide()
+    r.hint:Hide()
+    r.hintBtn:Hide()
     return max(tw, TextW(r.sub)) + 2 * PAGE_X + 4
 end
 
@@ -469,8 +504,19 @@ local function LayoutRow(r, d, x)
     if r.hasKids then r.fs:SetPoint("RIGHT", r.arrow, "LEFT", -4, 0) else r.fs:SetPoint("RIGHT", r, "RIGHT", -6, 0) end
     r.line:SetShown(k == "divider")
     r.arrow:SetShown(r.hasKids)
+    local hw = 0
+    local h = not r.hasKids and d.hint or nil
+    r.hint:SetShown(h and true or false)
+    r.hintBtn:SetShown(h and h.onClick and true or false)
+    r.hintBtn.hovered = false
+    if h then
+        r.hint:SetText(h.text or "")
+        hw = TextW(r.hint) + 16
+        r.hintBtn:SetWidth(hw)
+        r.fs:SetPoint("RIGHT", r.hint, "LEFT", -10, 0)
+    end
     if tw <= 0 then return 0 end
-    return x + tw + (r.hasKids and (SUB_W + 4) or 0) + 8 + 2 * PAD
+    return x + tw + hw + (r.hasKids and (SUB_W + 4) or 0) + 8 + 2 * PAD
 end
 
 local function Layout(f, desc, minW)

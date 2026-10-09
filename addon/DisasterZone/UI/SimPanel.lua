@@ -125,8 +125,18 @@ function SimPanel:SetActive(on)
     if R() then R():Cancel() end
     state.running = false
     SimPanel:ClosePicker()
+    if ns.SimBuffsUI then ns.SimBuffsUI:Close() end
   end
   if ns.MyBiS then ns.MyBiS:Refresh() end
+end
+
+-- The card's buffs setting: "raid25" | "raid10" | "solo" | "p:<id>" (my preset) | "t:<team>:<lineup>" (ns.SimBuffs).
+function SimPanel:GetBuffs() return Settings().buffs end
+
+function SimPanel:SetBuffs(key)
+  SetSetting("buffs", key)
+  state.stale = true
+  self:UpdateCard()
 end
 
 function SimPanel:Toggle() self:SetActive(not state.active) end
@@ -422,20 +432,17 @@ function SimPanel:CreateCard(parent, w, h)
   end
   local inner = w - 2 * PADX
   local half = floor((inner - 4) / 2)
-  c.buffs = dd(half, function()
-    local o = {}
-    for _, b in ipairs(R().BUFFS) do o[#o + 1] = { value = b.key, text = b.text } end
-    return o
-  end, function() return Settings().buffs end, function(v) SetSetting("buffs", v) end, function(tt)
-    for _, b in ipairs(R().BUFFS) do
-      if b.key == Settings().buffs then
-        tt:AddLine(b.text, 1, 0.82, 0)
-        tt:AddLine((R():Class() == "WARRIOR" and b.tipWarrior) or b.tip, 1, 1, 1, true)
-      end
-    end
+  -- buffs: WoWSims' setups, my presets, my teams' lineups (ns.SimBuffs; the editor is UI/SimBuffs.lua)
+  c.buffs = UI:CreateSleekMenuButton(c, "", inner, function(root) SimPanel:BuildBuffsMenu(root) end, 20)
+  function c.buffs:Refresh() self:SetText((R():BuffName(Settings().buffs))) end
+  c.buffs:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    SimPanel:BuffsTooltip(GameTooltip, Settings().buffs)
+    GameTooltip:Show()
   end)
+  c.buffs:HookScript("OnLeave", function() GameTooltip:Hide() end)
   c.buffs:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", PADX, 34)
-  c.duration = dd(inner - half - 4, function()
+  c.duration = dd(half, function()
     local o = {}
     for _, d in ipairs(R().DURATIONS) do o[#o + 1] = { value = d, text = ("%d:%02d"):format(floor(d / 60), d % 60) } end
     return o
@@ -443,8 +450,8 @@ function SimPanel:CreateCard(parent, w, h)
     tt:AddLine("Fight length", 1, 0.82, 0)
     tt:AddLine("Longer fights spread cooldowns, drums and potions thinner over the fight.", 1, 1, 1, true)
   end)
-  c.duration:SetPoint("LEFT", c.buffs, "RIGHT", 4, 0)
-  c.mob = dd(half, function()
+  c.duration:SetPoint("TOPLEFT", c.buffs, "BOTTOMLEFT", 0, -4)
+  c.mob = dd(inner - half - 4, function()
     local o = {}
     for _, m in ipairs(R().MOB_TYPES) do o[#o + 1] = { value = m.key, text = m.text } end
     return o
@@ -456,8 +463,89 @@ function SimPanel:CreateCard(parent, w, h)
       end
     end
   end)
-  c.mob:SetPoint("TOPLEFT", c.buffs, "BOTTOMLEFT", 0, -4)
+  c.mob:SetPoint("LEFT", c.duration, "RIGHT", 4, 0)
   return c
+end
+
+-- The buffs menu: WoWSims' three, my presets (edit on the right), my teams' lineups (where I stand on the right; a
+-- click there opens the editor), then New preset.
+function SimPanel:BuildBuffsMenu(root)
+  local SB = ns.SimBuffs
+  local function isSel(key) return Settings().buffs == key end
+  local function pick(key)
+    SimPanel:SetBuffs(key)
+    return MenuResponse and MenuResponse.Close or nil
+  end
+  local function edit(key) if ns.SimBuffsUI then ns.SimBuffsUI:Open(key) end end
+  root:CreateTitle("WoWSims presets")
+  for _, b in ipairs(R().BUFFS) do
+    local e = root:CreateRadio(b.text, isSel, pick, b.key)
+    if e.SetHint and b.key == "raid25" then e:SetHint("WoWSims' raid setup") end
+    e:SetTooltip(function(tt) SimPanel:BuffsTooltip(tt, b.key) end)
+  end
+  local presets = SB and SB:GetPresets() or {}
+  if #presets > 0 then
+    root:CreateDivider()
+    root:CreateTitle("My presets")
+    for _, p in ipairs(presets) do
+      local e = root:CreateRadio(p.name, isSel, pick, p.key)
+      if e.SetHint then e:SetHint("edit", edit) end
+      e:SetTooltip(function(tt) SimPanel:BuffsTooltip(tt, p.key) end)
+    end
+  end
+  local lineups = SB and SB:MyLineups() or {}
+  if #lineups > 0 then
+    root:CreateDivider()
+    root:CreateTitle("My teams \194\183 follow who is there")
+    for _, l in ipairs(lineups) do
+      local e = root:CreateRadio(l.name, isSel, pick, l.key)
+      local where = l.group and ("group " .. l.group) or "no group yet"
+      if l.open > 0 then where = where .. (" \194\183 %d open slot%s"):format(l.open, l.open == 1 and "" or "s") end
+      if e.SetHint then e:SetHint(where, edit) end
+      e:SetTooltip(function(tt) SimPanel:BuffsTooltip(tt, l.key) end)
+    end
+  end
+  root:CreateDivider()
+  root:CreateButton("|cffe2b33e+|r  New preset...", function() edit(nil) end)
+end
+
+-- What a buffs setting holds, for a tooltip.
+function SimPanel:BuffsTooltip(tt, key)
+  for _, b in ipairs(R().BUFFS) do
+    if b.key == key then
+      tt:AddLine(b.text, 1, 0.82, 0)
+      tt:AddLine((R():Class() == "WARRIOR" and b.tipWarrior) or b.tip, 1, 1, 1, true)
+      return
+    end
+  end
+  local SB = ns.SimBuffs
+  local _, cls = UnitClass("player")
+  local cfg, info, name = nil, nil, nil
+  if SB then cfg, info, name = SB:Resolve(key, cls, R():BaseConfig("raid25")) end
+  if not cfg then
+    tt:AddLine("25-man buffs", 1, 0.82, 0)
+    tt:AddLine("The preset or team you picked is gone; the sim uses WoWSims' 25-man setup.", 1, 1, 1, true)
+    return
+  end
+  tt:AddLine(name, 1, 0.82, 0)
+  if info then
+    local where = info.group and ("You're in group " .. info.group .. ".") or "You're in no group of this lineup yet: no party buffs."
+    tt:AddLine("Follows who is placed in this team lineup. " .. where, 1, 1, 1, true)
+  else
+    tt:AddLine("Your preset (saved for all your characters).", 1, 1, 1, true)
+  end
+  local on = {}
+  for _, t in ipairs(SB:Tiles(cls)) do
+    local v = SB:Get(cfg, t)
+    if v > 0 then
+      local s = t.name
+      if t.kind == "tri" and v == 2 then s = s .. " (improved)" end
+      if t.states then s = t.states[v + 1] end
+      on[#on + 1] = s
+    end
+  end
+  tt:AddLine(#on > 0 and table.concat(on, ", ") or "Nothing on.", 0.8, 0.8, 0.8, true)
+  tt:AddLine("Click \"edit\" in the list to change it.", 0.56, 0.56, 0.59, true)
 end
 
 function SimPanel:ShowCard(on)
@@ -805,6 +893,7 @@ function SimPanel:OpenPicker(sid, anchor)
   if pstate.running then R():Cancel() end
   pstate.sid, pstate.results, pstate.ranked, pstate.status, pstate.running = sid, nil, nil, nil, false
   pstate.host = NewHost()
+  if ns.SimBuffsUI then ns.SimBuffsUI:Close() end
   ns.Picker:Open(Phase(), sid, "main", anchor, List(), pstate.host)
 end
 

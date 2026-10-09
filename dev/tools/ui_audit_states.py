@@ -156,7 +156,7 @@ def close_all(cl):
                               'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport',
                               'DisasterZoneRunToast', 'DisasterZoneStrategyShare',
                               'DisasterZoneEventSchedule', 'DisasterZoneEventSubmit', 'DisasterZoneBadgeDesigner',
-                              'DisasterZoneEventSeason', 'DisasterZoneEventConfirm' }) do
+                              'DisasterZoneEventSeason', 'DisasterZoneEventConfirm', 'DisasterZoneSimBuffs' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -745,6 +745,28 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False):
     return fn
 
 
+def sim_buffs(kind):
+    """The gear sim's buffs (Sim/BuffPresets.lua, UI/SimBuffs.lua) on Gina's screen, after the teams seed (she is in
+    group 5 of the main team's Thursday 25, with its Standard 25 comp: open slots): kind "menu" = the card's buffs
+    menu with two presets of hers; "team" = the editor following the Thursday 25; "preset" = the editor on a preset."""
+    def fn(w, c):
+        teams_seed(w, c)
+        teams_comp(w, c, True)
+        g = sim_mode(run=False)(w, c)
+        g.eval("for _, p in ipairs(ns.SimBuffs:GetPresets()) do ns.SimBuffs:DeletePreset(p.id) end; "
+               "ns.SimBuffs:SavePreset(nil, 'Pug SSC', ns.SimRunner:BaseConfig('raid10')); "
+               "ns.SimBuffs:SavePreset(nil, 'Kara alts', ns.SimRunner:BaseConfig('solo'))")
+        if kind == "menu":
+            g.eval("ns.SimPanel:SetBuffs(ns.SimBuffs:MyLineups()[1].key); ns.SimPanel._card().buffs:OpenMenu()")
+        elif kind == "team":
+            g.eval("ns.SimBuffsUI:Open(ns.SimBuffs:MyLineups()[1].key)")
+        else:
+            g.eval("ns.SimBuffsUI:Open(ns.SimBuffs:GetPresets()[2].key)")
+        w.tick(0.3)
+        return g
+    return fn
+
+
 def st_blizzard_options(w, c):
     """DisasterZone's panel in Blizzard's Options > AddOns (UI/Settings.lua), at the canvas size the game gives it."""
     g = c["Gina"]
@@ -1098,6 +1120,13 @@ STATES = [
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),
     ("Games - Disastercraft in front", opened("games", "ns.GamesUI:ShowFront('disastercraft')")),
+    ("FILMSCOUT match", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local L = F.NewReel(host, 10) F.Begin(L, { cam = { 4127.8, 6243.2, 4127.8, 6243.2 }, zoom = { 1.35, 1.35 } }) F.Frame(L, 0, 780, 540) ")),
+    ("FILMSCOUT 4064 6144", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local x0, y0, z = %d, %d, 0.239 local cx, cy = x0 + 48, y0 + 0.42 * 540 / (34 * z) local L = F.NewReel(host, 10) F.Begin(L, { cam = { cx, cy, cx, cy }, zoom = { z, z }, area = { x0 - 4, y0 - 4, x0 + 100, y0 + 70 } }) F.Frame(L, 0, 780, 540) local lab = CreateFrame('Frame', nil, host) lab:SetAllPoints() lab:SetFrameLevel(40) for gx = x0, x0 + 96, 8 do for gy = y0, y0 + 64, 8 do local fs = lab:CreateFontString(nil, 'OVERLAY', 'GameFontHighlightSmall') fs:SetText(gx .. ',' .. gy) fs:SetTextColor(1, 0.2, 1) fs:SetPoint('CENTER', host, 'TOPLEFT', 390 + (gx - cx) * 34 * z, -(0.42 * 540 + (gy - cy) * 34 * z)) end end " % (4064, 6144))),
+    ("FILMSCOUT 4160 6144", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local x0, y0, z = %d, %d, 0.239 local cx, cy = x0 + 48, y0 + 0.42 * 540 / (34 * z) local L = F.NewReel(host, 10) F.Begin(L, { cam = { cx, cy, cx, cy }, zoom = { z, z }, area = { x0 - 4, y0 - 4, x0 + 100, y0 + 70 } }) F.Frame(L, 0, 780, 540) local lab = CreateFrame('Frame', nil, host) lab:SetAllPoints() lab:SetFrameLevel(40) for gx = x0, x0 + 96, 8 do for gy = y0, y0 + 64, 8 do local fs = lab:CreateFontString(nil, 'OVERLAY', 'GameFontHighlightSmall') fs:SetText(gx .. ',' .. gy) fs:SetTextColor(1, 0.2, 1) fs:SetPoint('CENTER', host, 'TOPLEFT', 390 + (gx - cx) * 34 * z, -(0.42 * 540 + (gy - cy) * 34 * z)) end end " % (4160, 6144))),
+    ("FILMSCOUT 4064 6208", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local x0, y0, z = %d, %d, 0.239 local cx, cy = x0 + 48, y0 + 0.42 * 540 / (34 * z) local L = F.NewReel(host, 10) F.Begin(L, { cam = { cx, cy, cx, cy }, zoom = { z, z }, area = { x0 - 4, y0 - 4, x0 + 100, y0 + 70 } }) F.Frame(L, 0, 780, 540) local lab = CreateFrame('Frame', nil, host) lab:SetAllPoints() lab:SetFrameLevel(40) for gx = x0, x0 + 96, 8 do for gy = y0, y0 + 64, 8 do local fs = lab:CreateFontString(nil, 'OVERLAY', 'GameFontHighlightSmall') fs:SetText(gx .. ',' .. gy) fs:SetTextColor(1, 0.2, 1) fs:SetPoint('CENTER', host, 'TOPLEFT', 390 + (gx - cx) * 34 * z, -(0.42 * 540 + (gy - cy) * 34 * z)) end end " % (4064, 6208))),
+    ("FILMSCOUT 4160 6208", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local x0, y0, z = %d, %d, 0.239 local cx, cy = x0 + 48, y0 + 0.42 * 540 / (34 * z) local L = F.NewReel(host, 10) F.Begin(L, { cam = { cx, cy, cx, cy }, zoom = { z, z }, area = { x0 - 4, y0 - 4, x0 + 100, y0 + 70 } }) F.Frame(L, 0, 780, 540) local lab = CreateFrame('Frame', nil, host) lab:SetAllPoints() lab:SetFrameLevel(40) for gx = x0, x0 + 96, 8 do for gy = y0, y0 + 64, 8 do local fs = lab:CreateFontString(nil, 'OVERLAY', 'GameFontHighlightSmall') fs:SetText(gx .. ',' .. gy) fs:SetTextColor(1, 0.2, 1) fs:SetPoint('CENTER', host, 'TOPLEFT', 390 + (gx - cx) * 34 * z, -(0.42 * 540 + (gy - cy) * 34 * z)) end end " % (4160, 6208))),
+    ("FILMSCOUT 4064 6272", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local x0, y0, z = %d, %d, 0.239 local cx, cy = x0 + 48, y0 + 0.42 * 540 / (34 * z) local L = F.NewReel(host, 10) F.Begin(L, { cam = { cx, cy, cx, cy }, zoom = { z, z }, area = { x0 - 4, y0 - 4, x0 + 100, y0 + 70 } }) F.Frame(L, 0, 780, 540) local lab = CreateFrame('Frame', nil, host) lab:SetAllPoints() lab:SetFrameLevel(40) for gx = x0, x0 + 96, 8 do for gy = y0, y0 + 64, 8 do local fs = lab:CreateFontString(nil, 'OVERLAY', 'GameFontHighlightSmall') fs:SetText(gx .. ',' .. gy) fs:SetTextColor(1, 0.2, 1) fs:SetPoint('CENTER', host, 'TOPLEFT', 390 + (gx - cx) * 34 * z, -(0.42 * 540 + (gy - cy) * 34 * z)) end end " % (4064, 6272))),
+    ("FILMSCOUT 4160 6272", opened("games", "local F = ns.GamesUI.Film local host = T_FH or CreateFrame('Frame', nil, UIParent) T_FH = host host:SetSize(780, 540) host:ClearAllPoints() host:SetPoint('CENTER', UIParent, 'CENTER', 0, -20) host:SetFrameStrata('DIALOG') host.bg = host.bg or host:CreateTexture(nil, 'BACKGROUND') host.bg:SetAllPoints() host.bg:SetColorTexture(0, 0, 0, 1) local x0, y0, z = %d, %d, 0.239 local cx, cy = x0 + 48, y0 + 0.42 * 540 / (34 * z) local L = F.NewReel(host, 10) F.Begin(L, { cam = { cx, cy, cx, cy }, zoom = { z, z }, area = { x0 - 4, y0 - 4, x0 + 100, y0 + 70 } }) F.Frame(L, 0, 780, 540) local lab = CreateFrame('Frame', nil, host) lab:SetAllPoints() lab:SetFrameLevel(40) for gx = x0, x0 + 96, 8 do for gy = y0, y0 + 64, 8 do local fs = lab:CreateFontString(nil, 'OVERLAY', 'GameFontHighlightSmall') fs:SetText(gx .. ',' .. gy) fs:SetTextColor(1, 0.2, 1) fs:SetPoint('CENTER', host, 'TOPLEFT', 390 + (gx - cx) * 34 * z, -(0.42 * 540 + (gy - cy) * 34 * z)) end end " % (4160, 6272))),
     ("Games - Bingo live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
                                            "d.current = { id = 'hubdemo', host = me, started = now, hits = {} } "
                                            "local card = ns.Bingo:GetMyCard() "
@@ -1487,6 +1516,10 @@ STATES[_HOME:_HOME] = [
                                                                         "b:GetScript('OnClick')(b)")),
     ("Raids - Upcoming - SSC sign-ups (comp)", teams_raid("signups")),
     ("Raids - Upcoming - SSC groups (comp)", teams_raid("groups")),
+    # the gear sim's buffs: the card's menu (presets + teams), the editor on a team lineup and on a preset
+    ("My BiS - Sim buffs menu", sim_buffs("menu")),
+    ("My BiS - Sim buffs team", sim_buffs("team")),
+    ("My BiS - Sim buffs preset", sim_buffs("preset")),
 ]
 
 

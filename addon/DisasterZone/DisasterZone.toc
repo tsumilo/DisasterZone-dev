@@ -77,6 +77,7 @@ Sim\Warrior.lua
 Sim\Data.lua
 Sim\Setup.lua
 Sim\Runner.lua
+Sim\BuffPresets.lua
 
 Core\GuildMap.lua
 Core\OfficerNotes.lua
@@ -247,6 +248,7 @@ UI\Dashboard.lua
 UI\PaperDoll.lua
 UI\GemEditor.lua
 UI\SimPanel.lua
+UI\SimBuffs.lua
 UI\MyBiS.lua
 UI\ImportExport.lua
 UI\Picker.lua
