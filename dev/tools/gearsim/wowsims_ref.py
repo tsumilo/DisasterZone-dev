@@ -146,7 +146,12 @@ def run(sc, iterations=None, debug=False):
     dur = res.get("avgIterationDuration") or sc.get("duration", 180)
     iters = res.get("iterationsDone") or (iterations or sc.get("iterations", 10000))
     actions = {}
-    for a in pl.get("actions", []):
+    acts = [(a, "") for a in pl.get("actions", [])]
+    for pet in pl.get("pets", []):
+        acts += [(a, "pet:") for a in pet.get("actions", [])]
+    for a, prefix in acts:
+        if prefix and not any(t.get("damage", 0) or t.get("casts", 0) for t in a.get("targets", [])):
+            continue  # (an idle pet, e.g. the Earth Elemental, would overwrite the busy one's keys)
         dmg = sum(t.get("damage", 0) for t in a.get("targets", []))
         casts = sum(t.get("casts", 0) for t in a.get("targets", []))
         hits = sum(t.get("hits", 0) + t.get("crits", 0) + t.get("ticks", 0) + t.get("critTicks", 0) for t in a.get("targets", []))
@@ -154,7 +159,7 @@ def run(sc, iterations=None, debug=False):
         tg = [t for t in a.get("targets", []) if t.get("unitIndex", 0) == 0] or a.get("targets", [])
         def tot(k):
             return sum(t.get(k, 0) for t in tg) / iters
-        actions[action_name(a["id"])] = {
+        actions[prefix + action_name(a["id"])] = {
             "dps": dmg / iters / dur, "casts": casts / iters, "hits": hits / iters, "crits": crits / iters,
             "enemy": {"damage": tot("damage") / dur, "hits": tot("hits"), "crits": tot("crits"), "misses": tot("misses"),
                       "dodges": tot("dodges"), "glances": tot("glances"), "resistedHits": tot("resistedHits"),

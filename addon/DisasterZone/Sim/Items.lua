@@ -224,3 +224,52 @@ IE[24114] = function(p) p:AddStat(ST.MeleeCritRating, 28) end
 IE[24116] = function(p) p:AddStat(ST.SpellDamage, 34) end
 -- Chain of the Twilight Owl: +2% spell crit to the party.
 IE[24121] = function(p) p:AddStat(ST.SpellCritPercent, 2) end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Crafted and dungeon set bonuses (common/tbc/items_sets.go). Stat bonuses are part of the gear (build phase).
+-- ---------------------------------------------------------------------------------------------------------------
+S.SET_BONUSES = S.SET_BONUSES or {}
+do
+  local SB = S.SET_BONUSES
+  local function stats(t, profession)
+    return function(p)
+      if profession and p.professions[1] ~= profession and p.professions[2] ~= profession then return end
+      for k, v in pairs(t) do p:AddStat(ST[k], v) end
+    end
+  end
+  -- "Your attacks have a chance to grant you 160 attack power for 15 sec." (2% on any hit)
+  local function heroicResolution(p, a)
+    local buff = p:NewTemporaryStatsAura("Heroic Resolution", { [ST.AttackPower] = 160, [ST.RangedAttackPower] = 160 }, 15)
+    S.AttachProcTrigger(a, p, { name = "Heroic Resolution", callback = "hit", procChance = 0.02,
+      handler = function(sim) buff:Activate(sim) end })
+  end
+  SB["Doomplate Battlegear"] = { [2] = stats({ MeleeHitRating = 35 }), [4] = heroicResolution }
+  SB["Wastewalker Armor"] = { [2] = stats({ MeleeHitRating = 35 }), [4] = heroicResolution }
+  SB["Mana-Etched Regalia"] = { [2] = stats({ SpellHitRating = 35 }), [4] = function(p, a)
+    local buff = p:NewTemporaryStatsAura("Spell Power Bonus", { [ST.SpellDamage] = 110, [ST.HealingPower] = 110 }, 15)
+    S.AttachProcTrigger(a, p, { name = "Mana Etched Regalia 4pc", callback = "hit", procChance = 0.02,
+      procMask = PM.SpellDamage, handler = function(sim) buff:Activate(sim) end })
+  end }
+  SB["Burning Rage"] = { [2] = stats({ MeleeHitRating = 20 }, "Blacksmithing") }
+  SB["Khorium Ward"] = { [3] = stats({ HealingPower = 55, SpellDamage = 19 }, "Blacksmithing") }
+  SB["Netherstrike Armor"] = { [3] = stats({ SpellDamage = 23, HealingPower = 23 }) }
+  SB["Netherscale Armor"] = { [3] = stats({ MeleeHitRating = 20 }) }
+  SB["Windhawk Armor"] = { [3] = stats({ MP5 = 8 }) }
+  SB["Primal Intent"] = { [3] = stats({ AttackPower = 40 }) }
+  SB["Felscale Armor"] = { [2] = stats({ MeleeCritRating = 15 }), [4] = stats({ Stamina = 20 }) }
+  SB["Thick Draenic Armor"] = { [2] = stats({ MeleeHitRating = 15 }), [4] = stats({ MeleeCritRating = 15 }) }
+  SB["Fel Skin"] = { [3] = stats({ DodgeRating = 20 }, "Leatherworking") }
+  SB["Strength of the Clefthoof"] = { [3] = stats({ Strength = 20 }, "Leatherworking") }
+  SB["Spellstrike Infusion"] = { [2] = function(p, a)
+    if p.professions[1] ~= "Tailoring" and p.professions[2] ~= "Tailoring" then return end
+    local buff = p:NewTemporaryStatsAura("Lesser Spell Blasting", { [ST.SpellDamage] = 92 }, 10)
+    S.AttachProcTrigger(a, p, { name = "Spellstrike Infusion 2pc", callback = "hit", procChance = 0.05,
+      procMask = PM.SpellDamage, canProcFromProcs = true, classSpellsOnly = true,
+      handler = function(sim) buff:Activate(sim) end })
+  end }
+  SB["Wrath of Spellfire"] = { [3] = function(p) p:AddStatDependency(ST.Intellect, ST.SpellDamage, 0.07) end }
+  SB["Soulcloth Embrace"] = { [3] = stats({ SpellHitRating = 16 }) }
+  SB["Imbued Netherweave"] = { [3] = stats({ SpellCritRating = 28 }) }
+  SB["Netherweave Vestments"] = { [2] = stats({ SpellDamage = 23, HealingPower = 23 }), [4] = stats({ SpellCritRating = 14 }) }
+  SB["Arcanoweave Vestments"] = { [3] = stats({ SpellHitRating = 16 }) }
+end

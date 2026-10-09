@@ -104,6 +104,18 @@ S.BUFF_PRESETS = {
     consumables = { potId = 22838, flaskId = 22854, foodId = 27658, conjuredId = 22788, explosiveId = 30217,
       superSapper = true, goblinSapper = true, ohImbueId = 29453, scrollAgi = true, scrollStr = true },
   },
+  -- The WoWSims Enhancement preset (ui/specs/shaman/enhancement/presets.ts, P1): the shaman drops his own totems and
+  -- beats his own drums.
+  wowsims_enh = {
+    raid = { bloodlust = true, powerWordFortitude = 2, giftOfTheWild = 2, arcaneBrilliance = true },
+    party = { ferociousInspiration = 2, braidedEterniumChain = true, leaderOfThePack = 1, battleShout = 2 },
+    individual = { blessingOfKings = true, blessingOfMight = 2 },
+    debuffs = { exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1080, improvedSealOfTheCrusader = 2,
+      judgementOfWisdom = true, misery = true, bloodFrenzy = true, giftOfArthas = true, mangle = true, exposeArmor = 2,
+      faerieFire = 2, sunderArmor = true, curseOfElements = 2, curseOfRecklessness = true, huntersMark = 2 },
+    consumables = { potId = 22838, flaskId = 22854, foodId = 27658, drumsId = "LesserDrumsOfBattle", conjuredId = 22788,
+      explosiveId = 30217, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
+  },
 }
 
 -- Static consumable data (assets/database/db.json)
@@ -196,8 +208,11 @@ function S.ApplyConsumables(p, c, cfg)
   if c.conjuredId == 22788 then S.FlameCap(p) end
   if c.mhImbueId then S.StaticImbue(p, c.mhImbueId) end
   if c.ohImbueId then S.StaticImbue(p, c.ohImbueId) end
+  -- drums and explosives share one cooldown timer (consumes.go drumsBombsSharedTimer)
+  p.drumsBombsTimer = p.drumsBombsTimer or p:NewTimer()
   local eng = p.professions[1] == "Engineering" or p.professions[2] == "Engineering"
   if eng then S.Explosives(p, c) end
+  if c.drumsId and c.drumsId ~= 0 and c.drumsId ~= "DrumsUnknown" then S.OwnDrums(p, c.drumsId) end
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -267,6 +282,37 @@ function S.PartyDrums(p, kind)
   p:AddMajorCooldown({ spell = spell, priority = 2000 })
 end
 
+-- consumes.go registerDrumsCD: your own drums (a GCD; the lesser ones take a 1 s cast), 2 minutes, sharing a
+-- cooldown with explosives; Tinnitus stops a second set of drums for 2 minutes.
+local DRUMS = { GreaterDrumsOfBattle = 1, GreaterDrumsOfRestoration = 2, GreaterDrumsOfWar = 3, LesserDrumsOfBattle = 4,
+  LesserDrumsOfRestoration = 5, LesserDrumsOfWar = 6 }
+function S.OwnDrums(p, kind)
+  local n = type(kind) == "number" and kind or DRUMS[kind] or 0
+  local label, stats, duration, id
+  if n == 1 or n == 4 then
+    label, stats, duration, id = "Drums of Battle", { [ST.MeleeHasteRating] = 80, [ST.SpellHasteRating] = 80 }, 30, 35476
+  elseif n == 3 or n == 6 then
+    label, stats, duration, id = "Drums of War", { [ST.AttackPower] = 60, [ST.RangedAttackPower] = 60, [ST.SpellDamage] = 30 }, 30, 35475
+  elseif n == 2 or n == 5 then
+    label, stats, duration, id = "Drums of Restoration", { [ST.MP5] = 200 }, 15, 35478
+  else
+    return
+  end
+  local tinnitus = p:GetAura("Tinnitus") or p:RegisterAura({ label = "Tinnitus", duration = 120 })
+  local a = p:NewTemporaryStatsAura(label, stats, duration)
+  a.actionId = { spellId = id }
+  p.aurasByKey = p.aurasByKey or {}
+  p.aurasByKey[S.ActionKey(a.actionId)] = p.aurasByKey[S.ActionKey(a.actionId)] or a
+  local og = a.onGain
+  a.onGain = function(aura, sim) og(aura, sim); tinnitus:Activate(sim) end
+  local spell = p:RegisterSpell({ id = id, metricsKey = "drums_own", procMask = PM.Empty, flags = F.NoOnCastComplete,
+    castTime = (n <= 3) and 0 or 1, gcd = 1.5, cd = 120, sharedCd = 120, sharedCdTimer = p.drumsBombsTimer,
+    relatedSelfBuff = a,
+    extraCastCondition = function() return not tinnitus.active end,
+    applyEffects = function(sim) if not tinnitus.active then a:Activate(sim) end end })
+  p:AddMajorCooldown({ spell = spell, priority = 2000 })
+end
+
 function S.HastePotion(p)
   local a = p:NewTemporaryStatsAura("Haste Potion", { [ST.MeleeHasteRating] = 400 }, 15)
   local spell = p:RegisterSpell({ id = "item:22838", procMask = PM.Empty, flags = F.Potion + F.NoOnCastComplete,
@@ -330,7 +376,7 @@ function S.DemonicRune(p)
 end
 
 function S.Explosives(p, c)
-  local shared = p:NewTimer()
+  local shared = p.drumsBombsTimer or p:NewTimer()
   local function explosive(id, lo, hi, cd, castTime, speed, prio, selfDamage)
     local spell
     spell = p:RegisterSpell({ id = "item:" .. id, school = SCHOOL.Fire, defenseType = S.DEF_MAGIC, procMask = PM.Empty,

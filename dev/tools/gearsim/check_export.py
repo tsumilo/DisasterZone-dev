@@ -20,6 +20,8 @@ from common import Client, new_world, up, settle  # noqa: E402
 INV = [1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18]
 FURY_P1 = [29021, 29349, 29023, 24259, 29019, 28795, 28824, 28779, 28741, 28608, 28730, 28757, 21670, 28830, 28438,
            28729, 28772]
+ENH_P1 = [29040, 29381, 29043, 24259, 29515, 29517, 29516, 28776, 28741, 28545, 30834, 28757, 28830, 29383, 28308,
+          28308, 27815]
 P1 = {1: 29073, 2: 28745, 3: 29075, 15: 24259, 5: 29071, 9: 28795, 10: 30644, 6: 28779, 7: 30257, 8: 28608,
       11: 28757, 12: 30834, 13: 29383, 14: 28830, 16: 28429, 18: 27484}
 
@@ -36,13 +38,17 @@ def to_request(settings, iterations):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iterations", type=int, default=3000)
-    ap.add_argument("--spec", default="ret", choices=["ret", "fury"])
+    ap.add_argument("--spec", default="ret", choices=["ret", "fury", "enh"])
     a = ap.parse_args()
     w = new_world()
     if a.spec == "fury":
         c = Client(w, "Grunt", class_file="WARRIOR", race="Orc", guild_rank=3)
         spec, talents = "Fury", "3400502130201-05050005505012050115"
         gear = {INV[i]: iid for i, iid in enumerate(FURY_P1)}
+    elif a.spec == "enh":
+        c = Client(w, "Totemz", class_file="SHAMAN", race="Orc", guild_rank=3)
+        spec, talents = "Enhancement", "03-500502210501133531151-50005301"
+        gear = {INV[i]: iid for i, iid in enumerate(ENH_P1)}
     else:
         c = Client(w, "Raider", class_file="PALADIN", race="BloodElf", guild_rank=3)
         spec, talents, gear = "Retribution", "5-053201-0523005120033125331051", P1

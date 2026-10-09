@@ -27,6 +27,8 @@ local function ParseConst(v)
     if n then return tonumber(n) end
     n = v:match("^(-?[%d%.]+)m$")
     if n then return tonumber(n) * 60 end
+    n = v:match("^(-?[%d%.]+)%%$")
+    if n then return tonumber(n) / 100 end
     return tonumber(v) or v
   end
   return v
@@ -54,6 +56,34 @@ local function ConstNum(c)
   n.isConst, n.const = true, c
   return n
 end
+-- A string constant ("Magma", "Earth Shock"): only compared for (in)equality.
+local function ConstStr(c)
+  local n = Bool(function() return c end)
+  n.isConst, n.const, n.str = true, c, true
+  return n
+end
+
+-- major_cooldown.go GetMatchingStatBuffSpells: the auto-used cooldowns whose buff raises one of these stats (proto
+-- Stat numbers, -1 = none) and that take no GCD or cast time.
+local function MatchingStatBuffSpells(u, types)
+  local want = {}
+  for _, t in ipairs(types) do
+    local st = (t and t >= 0) and S.WS_STAT[t] or nil
+    if st then want[st] = true end
+  end
+  local out = {}
+  for _, m in ipairs(u.majorCooldowns or {}) do
+    local sp = m.spell
+    local b = sp.relatedSelfBuff and sp.relatedSelfBuff.buffStats
+    if b and (sp.gcd or 0) == 0 and (sp.castTime or 0) == 0 then
+      local hit = false
+      for st, v in pairs(b) do if want[st] and v ~= 0 then hit = true end end
+      if hit then out[#out + 1] = sp end
+    end
+  end
+  return out
+end
+S.MatchingStatBuffSpells = MatchingStatBuffSpells
 
 -- apl_helpers.go getUnit: the aura's owner (Self by default, or the current target)
 function Rot:SourceUnit(ref)
@@ -91,7 +121,13 @@ function Rot:Value(node, vars)
     local c = ParseConst(node.const.val)
     if type(c) == "number" then return ConstNum(c) end
     if type(c) == "boolean" then return ConstBool(c) end
+    if type(c) == "string" and c ~= "" then return ConstStr(c) end
     return nil
+  elseif node.variablePlaceholder then
+    -- a group's parameter: the value the group reference passed (apl_action_group_reference.go)
+    local v = vars and vars[node.variablePlaceholder.name]
+    if not v then return nil end
+    return self:Value(v, vars)
   elseif node.variableRef then
     local name = node.variableRef.name
     local v = (vars and vars[name]) or self.variables[name]
@@ -293,6 +329,31 @@ function Rot:Value(node, vars)
     return Num(function() return u.rage end)
   elseif node.multipleCdUsages then
     return self:MultipleCdUsages(node.multipleCdUsages, vars)
+  elseif node.spellCurrentCost then
+    local sp = self.resolveSpell(node.spellCurrentCost.spellId)
+    if not sp then return nil end
+    return Num(function() return sp:CurrentCost() end)
+  elseif node.dotIsActive then
+    -- ticks and expiries are events (pending actions / aura trackers) that wake the rotation
+    local sp = self.resolveSpell(node.dotIsActive.spellId)
+    if not (sp and (sp.dots or sp.aoeDot)) then return nil end
+    return Bool(function()
+      local d = sp.aoeDot or sp:Dot(u.currentTarget)
+      return d ~= nil and d:IsActive()
+    end)
+  elseif node.numStatBuffCooldowns then
+    local c = node.numStatBuffCooldowns
+    return ConstNum(#MatchingStatBuffSpells(u, { c.statType1, c.statType2, c.statType3 }))
+  elseif node.totemRemainingTime then
+    -- shaman apl_values.go APLValueTotemRemainingTime
+    local cfg = node.totemRemainingTime
+    local ex = u.totemExpirations
+    local kind = cfg.totemType
+    if not ex or not kind then return nil end
+    local delay = cfg.includeReactionTime and u.reactionTime or 0
+    return Num(function(sim) return max(0, (ex[kind] or -huge) + delay - sim.now) end,
+      function(sim) return ((ex[kind] or -huge) + delay > sim.now) and -1 or 0 end,
+      function(sim) return Future((ex[kind] or -huge) + delay, sim.now) end)
   end
   local k = next(node)
   error("APL: value node not implemented: " .. tostring(k))
@@ -388,10 +449,10 @@ end
 
 -- Compile an action: returns { ready = fn(sim) -> bool, exec = fn(sim), next = fn(sim) }, or nil where WoWSims drops
 -- it (an unknown spell or group, an empty action, a condition that is always false).
-function Rot:Action(node, vars)
+function Rot:Action(node, vars, knownSpell)
   local impl
   if node.castSpell then
-    local sp = self.resolveSpell(node.castSpell.spellId)
+    local sp = knownSpell or self.resolveSpell(node.castSpell.spellId)
     if not sp then return nil end
     local u = self.unit
     local isMCD = S.has(sp.flags, S.F.MCD) and not S.has(sp.flags, S.F.Reactive)
@@ -399,7 +460,7 @@ function Rot:Action(node, vars)
     impl = {
       ready = function(sim)
         local t = u.currentTarget
-        return sp:CanCastOrQueue(sim, t) and (not isMCD or u.GCD.readyAt <= sim.now)
+        return sp:CanCastOrQueue(sim, t) and (not isMCD or u.GCD.readyAt <= sim.now or self.inSequence)
       end,
       exec = function(sim) sp:CastOrQueue(sim, u.currentTarget) end,
       next = function(sim) return CastNextChange(sp, u, sim, usesGcd) end,
@@ -472,6 +533,49 @@ function Rot:Action(node, vars)
         return t
       end,
     }
+  elseif node.itemSwap then
+    -- no item swap sets in this sim: WoWSims drops the action without one (apl_actions_misc.go)
+    return nil
+  elseif node.castAllStatBuffCooldowns then
+    -- apl_actions_casting.go APLActionCastAllStatBuffCooldowns: every matching cooldown that is ready (all of them
+    -- inside a strict sequence); the matched spells leave the auto-used cooldowns.
+    local c = node.castAllStatBuffCooldowns
+    local spells = MatchingStatBuffSpells(self.unit, { c.statType1, c.statType2, c.statType3 })
+    if #spells == 0 then return nil end
+    local subs = {}
+    for _, sp in ipairs(spells) do
+      self.directSpells[sp] = true
+      subs[#subs + 1] = self:Action({ castSpell = { spellId = sp.actionRef or { otherId = "__spell" } } }, vars, sp)
+    end
+    local rot = self
+    local ready = {}
+    impl = {
+      castsSpells = true,
+      ready = function(sim)
+        local n = 0
+        for i = 1, #subs do
+          if subs[i].ready(sim) then n = n + 1; ready[n] = subs[i] end
+        end
+        for i = n + 1, #ready do ready[i] = nil end
+        if rot.inSequence then return n == #subs end
+        return n > 0
+      end,
+      exec = function(sim)
+        local list = ready
+        if sim.now < 0 then list = subs end
+        local copy = {}
+        for i = 1, #list do copy[i] = list[i] end
+        for i = 1, #copy do copy[i].exec(sim) end
+      end,
+      next = function(sim)
+        local t = huge
+        for i = 1, #subs do local x = subs[i].next(sim); if x < t then t = x end end
+        return t
+      end,
+    }
+  elseif node.strictSequence then
+    impl = self:StrictSequence(node.strictSequence, vars)
+    if not impl then return nil end
   elseif node.wait then
     -- apl_actions_timing.go APLActionWait: a controlling action; the list is not read again until it ends
     local d = self:Value(node.wait.duration, vars)
@@ -577,6 +681,7 @@ function S.NewRotation(unit, apl, resolveSpell, resolveAura)
   end
   unit.rotation = rot
   unit.rotationAction = { prio = S.PRIO_GCD, isRotation = true, fn = function(sim)
+    S.CompleteDueHardcast(unit, sim)
     if sim.now < 0 then return end
     rot:DoNextAction(sim)
   end }
@@ -594,6 +699,126 @@ function Rot:Reset(sim)
   self.inLoop = false
   self.waitUntil = nil
   self.unit.skipWake = nil
+  self.controlling = nil
+  self.inSequence = false
+  for _, seq in ipairs(self.sequences or {}) do seq:ResetSeq() end
+end
+
+function Rot:FirstReady(sim)
+  local list = self.list
+  for i = 1, #list do
+    if list[i].ready(sim) then return list[i] end
+  end
+  return nil
+end
+
+-- apl_actions_sequences.go APLActionStrictSequence: once its first action is ready (and the GCD is within the queue
+-- window), it takes control of the rotation and runs its actions in order; a spell queued for the end of the GCD
+-- advances it when it fires; if the GCD is ready and the next action isn't, the sequence gives up.
+local Seq = {}
+Seq.__index = Seq
+
+function Seq:ResetSeq()
+  self.idx = 1
+  self:Unhook()
+end
+
+function Seq:Unhook()
+  local pa = self.hooked
+  if pa then
+    pa.fn = self.hookedFn
+    self.hooked, self.hookedFn = nil, nil
+  end
+end
+
+function Seq:Relinquish()
+  local rot = self.rot
+  self.idx = 1
+  self:Unhook()
+  rot.inSequence = false
+  if rot.controlling == self then rot.controlling = nil end
+end
+
+function Seq:Advance()
+  self.idx = self.idx + 1
+  if self.idx > #self.subs then self:Relinquish() end
+end
+
+function Seq:Hook(pa)
+  if self.hooked == pa then return end
+  self:Unhook()
+  local old = pa.fn
+  self.hooked, self.hookedFn = pa, old
+  local seq = self
+  pa.fn = function(sim)
+    if seq.hooked == pa then seq:Unhook() end
+    old(sim)
+    seq:Advance()
+  end
+end
+
+function Seq:GetNext(sim)
+  local rot, u = self.rot, self.rot.unit
+  local a = self.subs[self.idx]
+  if a.ready(sim) then
+    if u.GCD.readyAt <= sim.now then self:Advance() end
+    return a
+  end
+  local q = u.queued
+  if q and q.initiatedAt == sim.now and q.pa and not q.pa.consumed and not q.pa.cancelled then
+    self:Hook(q.pa)
+    u:SetRotationTimer(sim, q.pa.at + 1e-9)
+    return nil
+  end
+  if u.GCD.readyAt - sim.now <= S.QUEUE_WINDOW then
+    self:Relinquish()
+    return rot:FirstReady(sim)
+  end
+  return nil
+end
+
+function Rot:StrictSequence(cfg, vars)
+  local subs = {}
+  local hasSpells = false
+  for _, a in ipairs(cfg.actions or {}) do
+    local c = self:Action(a, vars)
+    if c then
+      subs[#subs + 1] = c
+      if c.spell or c.castsSpells then hasSpells = true end
+    end
+  end
+  if #subs == 0 then return nil end
+  local rot, u = self, self.unit
+  local seq = setmetatable({ rot = self, subs = subs, idx = 1 }, Seq)
+  self.sequences = self.sequences or {}
+  self.sequences[#self.sequences + 1] = seq
+  self.hasSequences = true
+  return {
+    castsSpells = true,
+    ready = function(sim)
+      rot.inSequence = true
+      if hasSpells and u.GCD.readyAt - sim.now > S.QUEUE_WINDOW then
+        rot.inSequence = false
+        return false
+      end
+      if not subs[1].ready(sim) then
+        rot.inSequence = false
+        return false
+      end
+      return true
+    end,
+    exec = function(sim)
+      rot.inSequence = true
+      seq.idx = 1
+      rot.controlling = seq
+    end,
+    next = function(sim)
+      local t = subs[1].next(sim)
+      local x = u.GCD.readyAt - S.QUEUE_WINDOW
+      if x > sim.now and x < t then t = x end
+      return t
+    end,
+  }
 end
 
 -- Earliest time at which time alone could make any action ready (or change what the tracked auras, execute phase
@@ -627,8 +852,10 @@ function Rot:DoNextAction(sim)
       if sim.now < self.waitUntil then break end
       self.waitUntil = nil
     end
-    for i = 1, #list do
-      if list[i].ready(sim) then nextA = list[i]; break end
+    if self.controlling then
+      nextA = self.controlling:GetNext(sim)
+    else
+      nextA = self:FirstReady(sim)
     end
     if not nextA then break end
     n = n + 1
@@ -639,7 +866,7 @@ function Rot:DoNextAction(sim)
   if u.RotationTimer.readyAt <= sim.now then
     local rt = u.reactionTime
     local target = max(sim.now + rt, u.GCD.readyAt)
-    local bound = (not S.NO_SKIP) and self:NextChange(sim) or 0
+    local bound = (not S.NO_SKIP and not self.controlling and not self.hasSequences) and self:NextChange(sim) or 0
     if bound > target then
       -- Sleep to the first poll of WoWSims' grid (target + k * reaction time) at or after the bound.
       local k = ceil((bound - target) / rt - EPS)
@@ -681,6 +908,22 @@ function Unit:AddMajorCooldown(mcd)
   if not S.has(mcd.spell.flags, S.F.MCD) then mcd.spell.flags = mcd.spell.flags + S.F.MCD end
   if mcd.reactive and not S.has(mcd.spell.flags, S.F.Reactive) then mcd.spell.flags = mcd.spell.flags + S.F.Reactive end
   self.majorCooldowns[#self.majorCooldowns + 1] = mcd
+  mcd.order = #self.majorCooldowns
+end
+
+-- major_cooldown.go reset: every iteration starts from the registration order (then sorts by readiness).
+function Unit:ResetMajorCooldownOrder()
+  local list = self.majorCooldowns
+  if not list then return end
+  for i = 2, #list do
+    local x = list[i]
+    local j = i - 1
+    while j >= 1 and list[j].order > x.order do
+      list[j + 1] = list[j]
+      j = j - 1
+    end
+    list[j + 1] = x
+  end
 end
 
 function Unit:UpdateMajorCooldowns()

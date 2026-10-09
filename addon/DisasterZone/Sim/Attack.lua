@@ -253,6 +253,7 @@ function Unit:Reset(sim)
   self.GCD.readyAt = S.STARTING_CD
   self.RotationTimer.readyAt = S.STARTING_CD
   self.hardcastExpires = -huge
+  self.hardcastComplete = nil
   self.queued = nil
   -- stats back to the initial ones
   for _, d in ipairs(self.deps) do if d.dynamic and d.enabled then d.enabled = false; self.linearCache = nil end end
@@ -280,7 +281,10 @@ function Unit:Reset(sim)
     self.rotationAction.queuedIn = false
     self.rotationAction.consumed = true
   end
-  if self.majorCooldowns then self:UpdateMajorCooldowns() end
+  if self.majorCooldowns then
+    self:ResetMajorCooldownOrder()
+    self:UpdateMajorCooldowns()
+  end
   if self.agentReset then self.agentReset(sim) end
   if self.metrics then self.metrics:ResetIteration() end
   sim:AddTracker(self)
@@ -304,7 +308,9 @@ function Unit:StartPull(sim)
 end
 
 function Unit:DoneIteration(sim)
+  if self.agentDone then self.agentDone(sim) end
   self.hardcastExpires = -huge
+  self.hardcastComplete = nil
   -- Deactivate every aura so mods and pseudo stats unwind (auraTracker.doneIteration).
   local again = true
   while again do

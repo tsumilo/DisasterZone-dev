@@ -139,17 +139,24 @@ local function NewDot(spell, cfg, aura)
   aura.onExpire = function(a, sim)
     if oe then oe(a, sim) end
     local pa = dot.tickAction
-    -- an expiry at the time of the last tick runs first: apply that tick here
-    if pa and pa.at == sim.now and not pa.consumed and not pa.cancelled then
+    -- an expiry at the time of the last tick runs first: apply that tick here (also when that tick is the event
+    -- being run: dot.go cancels it either way, so it doesn't tick again with the snapshot cleared)
+    if pa and not pa.cancelled and pa.at - sim.now < 1e-9 and sim.now - pa.at < 1e-9 then
       dot.remainingTicks = dot.remainingTicks - 1
       dot:TickOnce(sim)
     end
-    if pa and not pa.consumed and not pa.cancelled then sim:Cancel(pa) end
+    if pa and not pa.cancelled then sim:Cancel(pa) end
     dot.tickAction = nil
     dot.snapshotAttackerMultiplier = 0
     dot.snapshotBaseDamage = 0
   end
   return dot
+end
+
+-- A DoT's aura carries its spell's ActionID (the rotation looks it up by that).
+function S.DotActionId(spell)
+  if type(spell.id) ~= "number" then return nil end
+  return { spellId = spell.id, tag = spell.tag }
 end
 
 -- spell.go createDots: one DoT per enemy (or one on the caster for self-only / AoE ones).
@@ -158,7 +165,7 @@ function S.CreateDots(spell, cfg)
   local caster = spell.unit
   local label = (cfg.label or tostring(spell.id)) .. "-" .. tostring(caster.label or "player")
   if cfg.selfOnly then
-    local aura = caster:RegisterAura({ label = cfg.label or tostring(spell.id), actionId = spell.actionId })
+    local aura = caster:RegisterAura({ label = cfg.label or tostring(spell.id), actionId = spell.actionId or S.DotActionId(spell) })
     spell.aoeDot = NewDot(spell, cfg, aura)
     return
   end
@@ -172,7 +179,7 @@ function S.SpellMT_Dot(spell, target)
   if spell.aoeDot then return spell.aoeDot end
   local d = spell.dots[target]
   if not d then
-    local aura = target:RegisterAura({ label = spell.dotLabel, dotOf = spell })
+    local aura = target:RegisterAura({ label = spell.dotLabel, dotOf = spell, actionId = S.DotActionId(spell) })
     d = NewDot(spell, spell.dotConfig, aura)
     spell.dots[target] = d
   end

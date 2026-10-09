@@ -148,6 +148,7 @@ function Unit:NewTemporaryStatsAura(label, stats, duration)
   local bonus = {}
   for k, v in pairs(stats) do bonus[k] = v end
   a:AttachStatsBuff(bonus)
+  a.buffStats = bonus -- StatBuffAura.BuffedStatTypes (castAllStatBuffCooldowns)
   return a
 end
 

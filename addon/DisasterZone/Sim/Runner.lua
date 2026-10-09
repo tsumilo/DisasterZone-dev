@@ -11,13 +11,15 @@ ns.SimRunner = Runner
 
 local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 
-Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true }
+Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
+  ["SHAMAN:Enhancement"] = true }
 -- what the sim covers, for the texts that say so
-Runner.COVERED = "Retribution Paladins and Fury / Arms Warriors"
+Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors and Enhancement Shamans"
 -- class file -> the sim's class
-Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior" }
+Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman" }
 -- WoWSims' class options (dps/presets.ts DefaultOptions)
 Runner.CLASS_OPTIONS = {
+  Shaman = { imbueMh = "WindfuryWeapon", imbueOh = "WindfuryWeapon", syncType = "DelayOffhandSwings", shieldProcrate = 0 },
   Warrior = { queueDelay = 0.25, startingRage = 50, defaultShout = "Battle", defaultStance = "Berserker",
     hasBsT2 = true, stanceSnapshot = true },
 }
@@ -29,6 +31,11 @@ Runner.FRAME_BUDGET_MS = 12
 -- ---------------------------------------------------------------------------------------------------------------
 Runner.BUFFS = {
   { key = "raid25", text = "25-man buffs",
+    tipShaman = "WoWSims' Enhancement raid setup: Bloodlust, Ferocious Inspiration, Braided Eternium Chain, Leader of the "
+      .. "Pack, Battle Shout, Kings and Might, Gift of the Wild, Fortitude, Arcane Intellect, Sunder / Expose Armor, Faerie "
+      .. "Fire, Curses of Recklessness and the Elements, Misery, Blood Frenzy, Mangle, Gift of Arthas, Hunter's Mark, "
+      .. "Expose Weakness, Judgements of the Crusader and Wisdom; flask, food, scrolls, Haste Potion, Flame Cap, your own "
+      .. "drums, explosives (Engineering). You drop your own totems and Fire Elemental.",
     tipWarrior = "WoWSims' Warrior raid setup: Bloodlust, drums, Windfury and Grace of Air (twisted), Strength of Earth, "
       .. "Leader of the Pack, Ferocious Inspiration, Braided Eternium Chain, Unleashed Rage, Kings and Might, Gift of the "
       .. "Wild, Fortitude, Sunder / Expose Armor, Faerie Fire, Curse of Recklessness, Blood Frenzy, Mangle, Gift of "
@@ -80,11 +87,25 @@ local function WithoutShout(cfg)
 end
 
 -- WoWSims' three setups for the class: "raid25" | "raid10" | "solo".
+-- A Shaman drops his own totems: the group's go (in WoWSims the shaman's own would take their place).
+local SHAMAN_OWN = { windfuryTotem = true, graceOfAirTotem = true, strengthOfEarthTotem = true, manaSpringTotem = true,
+  totemTwisting = true }
+local function WithoutTotems(cfg)
+  local out = {}
+  for k, v in pairs(cfg) do out[k] = v end
+  local party, ind = {}, {}
+  for k, v in pairs(cfg.party or {}) do if not SHAMAN_OWN[k] then party[k] = v end end
+  for k, v in pairs(cfg.individual or {}) do if k ~= "unleashedRage" then ind[k] = v end end
+  out.party, out.individual = party, ind
+  return out
+end
+
 function Runner:BaseConfig(key)
-  local warrior = self:Class() == "WARRIOR"
+  local cls = self:Class()
   if key == "raid10" then return RAID10 end
   if key == "solo" then return SOLO end
-  if warrior then return S.BUFF_PRESETS.wowsims_warrior end
+  if cls == "WARRIOR" then return S.BUFF_PRESETS.wowsims_warrior end
+  if cls == "SHAMAN" then return S.BUFF_PRESETS.wowsims_enh end
   return S.BUFF_PRESETS.wowsims_ret
 end
 
@@ -104,6 +125,7 @@ function Runner:BuffConfig(key)
     cfg = cfg or self:BaseConfig("raid25")
   end
   if self:Class() == "WARRIOR" then cfg = WithoutShout(cfg) end
+  if self:Class() == "SHAMAN" then cfg = WithoutTotems(cfg) end
   return cfg
 end
 
@@ -161,6 +183,7 @@ Runner.DEFAULT_TALENTS = {
   ["PALADIN:Retribution"] = "5-053201-0523005120033125331051",
   ["WARRIOR:Fury"] = "3400502130201-05050005505012050115",
   ["WARRIOR:Arms"] = "32005011352010500221-0550000500521203",
+  ["SHAMAN:Enhancement"] = "03-500502210501133531151-50005301",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -498,6 +521,13 @@ Runner.ABILITIES = {
   [29707] = "Heroic Strike", [25231] = "Cleave", [30335] = "Bloodthirst", [30330] = "Mortal Strike",
   [25236] = "Execute", ["1680:1"] = "Whirlwind", ["1680:2"] = "Whirlwind", [11585] = "Overpower", [25242] = "Slam",
   [12867] = "Deep Wounds", [25212] = "Hamstring", [25208] = "Rend",
+  -- Shamans (the Fire Elemental's attacks count as one)
+  ["25505:1"] = "Windfury Weapon", ["25505:2"] = "Windfury Weapon", ["17364:1"] = "Stormstrike",
+  ["17364:2"] = "Stormstrike", [25454] = "Earth Shock", [25457] = "Flame Shock", ["25457:1"] = "Flame Shock",
+  [25464] = "Frost Shock", [25537] = "Fire Nova Totem", [25550] = "Magma Totem", [25530] = "Searing Totem",
+  [25489] = "Flametongue Weapon", windfury_totem = "Windfury Totem",
+  pet_fire_elemental_melee = "Fire Elemental", pet_fire_elemental_13339 = "Fire Elemental",
+  pet_fire_elemental_12470 = "Fire Elemental", pet_fire_elemental_13376 = "Fire Elemental",
 }
 
 -- The breakdown: { { name, dps } } merged by name, largest first.
@@ -599,6 +629,9 @@ end
 
 -- class -> WoWSims player spec field and options
 Runner.WOWSIMS_SPEC = {
+  Shaman = { class = "ClassShaman", field = "enhancementShaman", options = { options = {
+    classOptions = { shieldProcrate = 0, imbueMh = "WindfuryWeapon" }, imbueOh = "WindfuryWeapon",
+    syncType = "DelayOffhandSwings" } } },
   Paladin = { class = "ClassPaladin", field = "retributionPaladin", options = { options = { classOptions = {} } } },
   Warrior = { class = "ClassWarrior", field = "dpsWarrior", options = { options = { classOptions = {
     queueDelay = 250, startingRage = 50, defaultShout = "WarriorShoutBattle", defaultStance = "WarriorStanceBerserker",

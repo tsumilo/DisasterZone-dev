@@ -16,6 +16,7 @@ APLS = {
     "PALADIN:Retribution": "ui/specs/paladin/retribution/apls/default.apl.json",
     "WARRIOR:Fury": "ui/specs/warrior/dps/apls/fury.apl.json",
     "WARRIOR:Arms": "ui/specs/warrior/dps/apls/arms.apl.json",
+    "SHAMAN:Enhancement": "ui/specs/shaman/enhancement/apls/default.apl.json",
 }
 
 

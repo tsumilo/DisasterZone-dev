@@ -303,6 +303,43 @@ def fury_and_arms_warriors_sim():
         assert_no_lua_errors(w)
 
 
+# WoWSims' P1 Enhancement preset (ui/specs/shaman/enhancement/gear_sets/p1.gear.json), no gems or enchants
+ENH_P1 = [29040, 29381, 29043, 24259, 29515, 29517, 29516, 28776, 28741, 28545, 30834, 28757, 28830, 29383, 28308,
+          28308, 27815]
+
+
+@r.case
+def enhancement_shaman_sims():
+    w = new_world()
+    c = Client(w, "Totemz", class_file="SHAMAN", race="Orc", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Enhancement") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(ENH_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 8")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    assert c.eval("return ns.MainFrame:GetPanel('mybis').simBtn:IsEnabled()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 1300 < res["work"] < 2900 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Melee", "Windfury Weapon", "Stormstrike", "Fire Elemental"):
+        assert want in names, (want, names)
+    # the shaman's own totems replace the group's
+    cfg = c.eval_py("return ns.SimRunner:BuffConfig('raid10')")
+    assert "windfuryTotem" not in cfg["party"] and "strengthOfEarthTotem" not in cfg["party"], cfg["party"]
+    doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                          "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+    assert doc["player"]["class"] == "ClassShaman" and "enhancementShaman" in doc["player"], doc["player"].keys()
+    assert doc["player"]["consumables"].get("drumsId") == "LesserDrumsOfBattle", doc["player"]["consumables"]
+    assert_no_lua_errors(w)
+
+
 @r.case
 def swapped_item_keeps_the_meta_gem_on():
     w, c = solo()

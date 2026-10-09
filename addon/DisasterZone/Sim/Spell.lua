@@ -88,6 +88,8 @@ F.MeleeMetrics = 512; F.NoOnCastComplete = 1024; F.APL = 2048; F.MCD = 4096; F.R
 F.NoOnDamageDealt = 16384; F.Potion = 32768; F.NoSpellMods = 65536; F.PassiveSpell = 131072
 F.SuppressWeaponProcs = 262144; F.Proc = 524288; F.Explosive = 1048576; F.Conjured = 2097152
 F.NoMetrics = 4194304
+-- SpellFlagAgentReserved1-4: the class's own flags (shaman: ShamanSpell, Shock, Instant, Focusable)
+F.Agent1 = 8388608; F.Agent2 = 16777216; F.Agent3 = 33554432; F.Agent4 = 67108864
 S.F = F
 
 -- SpellSchool and school index (stats.SchoolIndex order: none, physical, arcane, fire, frost, holy, nature, shadow)
@@ -388,6 +390,17 @@ function Spell:IssueRefund(sim)
   elseif cost.resource == "energy" then self.unit:AddEnergy(sim, cost.refund * c, "refund") end
 end
 
+-- gcd.go hardcast action / character.go rotationAction: whichever runs first at the end of a cast completes it
+-- (the rotation finishes a due cast before it picks the next action).
+function S.CompleteDueHardcast(u, sim)
+  local c = u.hardcastComplete
+  if c and u.hardcastExpires ~= -huge and u.hardcastExpires <= sim.now then
+    u.hardcastExpires = -huge
+    u.hardcastComplete = nil
+    c(sim)
+  end
+end
+
 function Spell:Cast(sim, target)
   local u = self.unit
   if (self.gcd > 0 or self.castTime > 0) then u:CancelQueuedSpell(sim) end
@@ -428,17 +441,15 @@ function Spell:Cast(sim, target)
   if castTime > 0 then
     u.hardcastExpires = sim.now + castTime
     local spell = self
-    sim:Add({ at = u.hardcastExpires, prio = S.PRIO_GCD, fn = function(s)
-      if u.hardcastExpires <= s.now then
-        u.hardcastExpires = -huge
-        if not spell:CanCompleteCast(s, target) then return end
-        spell:SpendCost(s)
-        spell:TriggerCooldown(s)
-        if spell.sharedCdTimer then spell.sharedCdTimer.readyAt = s.now + spell.sharedCdDuration * spell.cdMultiplier end
-        spell:ApplyEffectsInternal(s, target)
-        if not has(spell.flags, F.NoOnCastComplete) then u:OnCastComplete(s, spell) end
-      end
-    end })
+    u.hardcastComplete = function(s)
+      if not spell:CanCompleteCast(s, target) then return end
+      spell:SpendCost(s)
+      spell:TriggerCooldown(s)
+      if spell.sharedCdTimer then spell.sharedCdTimer.readyAt = s.now + spell.sharedCdDuration * spell.cdMultiplier end
+      spell:ApplyEffectsInternal(s, target)
+      if not has(spell.flags, F.NoOnCastComplete) then u:OnCastComplete(s, spell) end
+    end
+    sim:Add({ at = u.hardcastExpires, prio = S.PRIO_GCD, fn = function(s) S.CompleteDueHardcast(u, s) end })
     return true
   end
   self:SpendCost(sim)
@@ -654,6 +665,18 @@ function Spell:CalcDamage(sim, target, base, outcomeFn)
   return self:CalcDamageInternal(sim, target, base, mult, false, outcomeFn)
 end
 
+-- spell_result.go CalcPeriodicDamage: a tick computed live (not snapshotted) with its DoT's coefficient and multiplier.
+function Spell:CalcPeriodicDamage(sim, target, base, outcomeFn)
+  local at = self.unit.attackTables[target]
+  local mult = self:AttackerDamageMultiplier(at, true)
+  local dot = self.aoeDot or self:Dot(target)
+  if dot.bonusCoefficient > 0 then base = base + dot.bonusCoefficient * self:BonusDamage(at) end
+  mult = mult * dot.periodicDamageMultiplier
+  return self:CalcDamageInternal(sim, target, base, mult, true, outcomeFn)
+end
+
+function Spell:AOEDot() return self.aoeDot end
+
 function Spell:CalcOutcome(sim, target, outcomeFn)
   local at = self.unit.attackTables[target]
   local r = NewResult(target)
@@ -861,6 +884,22 @@ function OUT.MeleeSpecialHit(spell, sim, r, at)
   r.outcome = O.Hit
 end
 
+OUT.MeleeSpecialHitNoHitCounter = OUT.MeleeSpecialHit
+
+-- outcomeMeleeSpecialBlockAndCrit: an attack that already landed (Stormstrike's weapon hits) can only crit or be
+-- blocked.
+function OUT.MeleeSpecialBlockAndCrit(spell, sim, r, at)
+  if spell.unit.ps.InFrontOfTarget then
+    local roll = sim:Rand()
+    if CritSeparateRoll(spell, sim, r, at) then return end
+    local blocked = Block(spell, r, at, roll, 0)
+    if not blocked then r.outcome = O.Hit end
+    return
+  end
+  if CritSeparateRoll(spell, sim, r, at) then return end
+  r.outcome = O.Hit
+end
+
 function OUT.RangedHitAndCrit(spell, sim, r, at)
   local roll = sim:Rand()
   local chance = MissChance(spell, at, false)
@@ -887,6 +926,20 @@ function OUT.MagicHit(spell, sim, r, at)
 end
 
 function OUT.MagicHitAndCrit(spell, sim, r, at)
+  if sim:Proc(1 - spell:SpellChanceToMiss(at)) then
+    if sim:Rand() < spell:SpellCritChance(r.target, at) then
+      r.outcome = O.Crit
+      r.damage = r.damage * spell:CritDamageMultiplier(at)
+    else
+      r.outcome = O.Hit
+    end
+  else
+    SetMiss(r, O.Miss)
+  end
+end
+
+-- Dot.OutcomeTickMagicHitAndCrit / spell.OutcomeTickMagicHitAndCrit
+function OUT.TickMagicHitAndCrit(spell, sim, r, at)
   if sim:Proc(1 - spell:SpellChanceToMiss(at)) then
     if sim:Rand() < spell:SpellCritChance(r.target, at) then
       r.outcome = O.Crit

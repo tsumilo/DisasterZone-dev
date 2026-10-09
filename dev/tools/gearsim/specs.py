@@ -53,6 +53,27 @@ WARRIOR_OPTIONS = {"options": {"classOptions": {
 WARRIOR_LUA_OPTIONS = {"queueDelay": 0.25, "startingRage": 50, "defaultShout": "Battle", "defaultStance": "Berserker",
                        "hasBsT2": True, "stanceSnapshot": True}
 
+# ui/specs/shaman/enhancement/presets.ts (P1 settings): the shaman drops his own totems and casts his own drums
+ENH_BUFFS = {
+    "raid": {"bloodlust": True, "powerWordFortitude": IMP, "giftOfTheWild": IMP, "arcaneBrilliance": True},
+    "party": {"ferociousInspiration": 2, "braidedEterniumChain": True, "leaderOfThePack": REG, "battleShout": IMP},
+    "individual": {"blessingOfKings": True, "blessingOfMight": IMP},
+    "debuffs": {
+        "exposeWeaknessUptime": 0.9, "exposeWeaknessHunterAgility": 1080, "improvedSealOfTheCrusader": IMP,
+        "judgementOfWisdom": True, "screech": True, "misery": True, "bloodFrenzy": True, "giftOfArthas": True,
+        "mangle": True, "exposeArmor": IMP, "faerieFire": IMP, "sunderArmor": True, "curseOfElements": IMP,
+        "curseOfRecklessness": True, "huntersMark": IMP,
+    },
+    "consumables": {
+        "potId": 22838, "flaskId": 22854, "foodId": 27658, "drumsId": "LesserDrumsOfBattle", "conjuredId": 22788,
+        "explosiveId": 30217, "superSapper": True, "goblinSapper": True, "scrollAgi": True, "scrollStr": True,
+    },
+}
+ENH_OPTIONS = {"options": {"classOptions": {"shieldProcrate": 0, "imbueMh": "WindfuryWeapon"},
+                           "imbueOh": "WindfuryWeapon", "syncType": "DelayOffhandSwings"}}
+ENH_LUA_OPTIONS = {"shieldProcrate": 0, "imbueMh": "WindfuryWeapon", "imbueOh": "WindfuryWeapon",
+                   "syncType": "DelayOffhandSwings"}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -63,4 +84,7 @@ SPECS = {
     "arms": {"class": "Warrior", "wsClass": "ClassWarrior", "field": "dpsWarrior", "options": WARRIOR_OPTIONS,
              "apl": "ui/specs/warrior/dps/apls/arms.apl.json", "buffs": WARRIOR_BUFFS, "luaBuffs": "wowsims_warrior",
              "luaOptions": WARRIOR_LUA_OPTIONS},
+    "enh": {"class": "Shaman", "wsClass": "ClassShaman", "field": "enhancementShaman", "options": ENH_OPTIONS,
+            "apl": "ui/specs/shaman/enhancement/apls/default.apl.json", "buffs": ENH_BUFFS, "luaBuffs": "wowsims_enh",
+            "luaOptions": ENH_LUA_OPTIONS},
 }

@@ -89,13 +89,15 @@ local function TileIcon(t)
   return "Interface\\Icons\\" .. t.icon
 end
 
-local function Shouts(t) return t.selfClass and t.selfClass == MyClass() end
+-- A buff the simmed class brings itself (a Warrior's shout, a Shaman's totems): shown, not clickable.
+local function Own(t) return t.own and t.own[MyClass()] or nil end
+local function Shouts(t) return Own(t) ~= nil end
 
 -- The tile's line under its name, and how it looks: text, dim (off), open (an open comp slot brings it), changed.
 local function TileLine(t, v)
   local S = SB()
   local stateText = S:StateText(t, v)
-  if Shouts(t) then return "you shout yourself", true end
+  if Shouts(t) then return Own(t)[1], true end
   local info = view.info
   if not info or t.sec == "mine" then
     local changed = info and info.tiles[t.key] and info.tiles[t.key].changed
@@ -147,7 +149,7 @@ local function TileTooltip(f)
   GameTooltip:AddLine(t.name, 1, 0.82, 0)
   if t.tip then GameTooltip:AddLine(t.tip, 1, 1, 1, true) end
   if Shouts(t) then
-    GameTooltip:AddLine("You shout yourself; the sim's rotation keeps your own Battle Shout up.", 1, 1, 1, true)
+    GameTooltip:AddLine(Own(t)[2], 1, 1, 1, true)
     GameTooltip:Show()
     return
   end

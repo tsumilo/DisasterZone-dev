@@ -1,0 +1,113 @@
+{
+ "spec": "enh",
+ "race": "Orc",
+ "talents": "03-500502210501133531151-50005301",
+ "gear": [
+  {
+   "id": 29040,
+   "enchant": 3003,
+   "gems": [
+    32409,
+    24027
+   ]
+  },
+  {
+   "id": 29381
+  },
+  {
+   "id": 29043,
+   "enchant": 2986,
+   "gems": [
+    24027,
+    24058
+   ]
+  },
+  {
+   "id": 24259,
+   "enchant": 368,
+   "gems": [
+    24027
+   ]
+  },
+  {
+   "id": 29515,
+   "enchant": 2661,
+   "gems": [
+    24027,
+    24027,
+    24027
+   ]
+  },
+  {
+   "id": 29517,
+   "enchant": 2647,
+   "gems": [
+    24027
+   ]
+  },
+  {
+   "id": 29516,
+   "gems": [
+    24027,
+    24027
+   ]
+  },
+  {
+   "id": 28776,
+   "enchant": 684,
+   "gems": [
+    24054,
+    24054
+   ]
+  },
+  {
+   "id": 28741,
+   "enchant": 3012,
+   "gems": [
+    24027,
+    24027,
+    24027
+   ]
+  },
+  {
+   "id": 28545,
+   "enchant": 2939,
+   "gems": [
+    24027,
+    24058
+   ]
+  },
+  {
+   "id": 30834
+  },
+  {
+   "id": 28757
+  },
+  {
+   "id": 28830
+  },
+  {
+   "id": 29383
+  },
+  {
+   "id": 28308,
+   "enchant": 2673
+  },
+  {
+   "id": 28308,
+   "enchant": 2673
+  },
+  {
+   "id": 27815
+  }
+ ],
+ "buffs": "wowsims_default",
+ "consumables": "wowsims_default",
+ "duration": 180,
+ "durationVariation": 0,
+ "mobType": "Mechanical",
+ "iterations": 10000,
+ "seed": 101,
+ "profession1": "Engineering",
+ "profession2": "Leatherworking"
+}

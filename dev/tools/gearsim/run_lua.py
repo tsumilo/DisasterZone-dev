@@ -25,8 +25,8 @@ WOWSIMS = os.path.join(DEV, "ext", "wowsims-tbc")
 ADDON = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone"))
 if not os.path.isdir(ADDON):
     ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
-SIM_FILES = ["Core", "Unit", "Spell", "Attack", "Resources", "Dot", "APL", "Character", "Buffs", "Items", "Paladin",
-             "Warrior", "Data", "Setup"]
+SIM_FILES = ["Core", "Unit", "Spell", "Attack", "Resources", "Dot", "Pet", "APL", "Character", "Buffs", "Items",
+             "Paladin", "Warrior", "Shaman", "Data", "Setup"]
 DATA_FILES = ["Data/Gems.lua", "Data/SimItems.lua"]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -229,6 +229,9 @@ KEYMAP = {  # our metrics keys -> WoWSims action names
     "bloodlust": "spell:2825:-1", "drums": "spell:35476:-1", "flame_cap": "item:22788", 31893: "spell:31893", 35395: "spell:35395", "soc_proc": "spell:20424",
     "windfury": "OtherActionAttack:25584", 31898: "spell:31898", "item:23827": "item:23827", "item:10646": "item:10646",
     "item:23737": "item:23737", "judge_soc": "spell:20467",
+    "pet_fire_elemental_melee": "pet:OtherActionAttack:1", "pet_fire_elemental_13339": "pet:spell:13339",
+    "pet_fire_elemental_12470": "pet:spell:12470", "pet_fire_elemental_13376": "pet:spell:13376",
+    "windfury_totem": "OtherActionAttack:25584", "drums_own": "spell:35476",
 }
 
 

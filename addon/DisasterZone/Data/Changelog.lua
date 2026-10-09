@@ -8,7 +8,7 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.4", date = "9 October 2026", title = "Gear sim, Disastercraft talent rows",
       sections = {
-          { heading = "Gear sim (Retribution)", lines = {
+          { heading = "Gear sim", lines = {
               "New Sim button in My BiS: sim your gear and see what a change is worth, in real DPS.",
               "It plays the fight out a thousand times with WoWSims' rotation, buffs and numbers.",
               "The doll becomes your Working set: it starts as the gear you wear.",
@@ -19,6 +19,7 @@ ns.CHANGELOG = {
               "Pick 25-man buffs, 10-man or solo, the fight length and the boss type at the bottom.",
               "Changed slots are marked gold. It pauses in combat and only runs when you press Run.",
               "Fury and Arms Warriors can sim too, with WoWSims' Warrior rotations and raid setup.",
+              "Enhancement Shamans too: twisted totems, Stormstrike, shocks and the Fire Elemental.",
               "Swapped-in items get gems that keep your meta gem on; the card warns when a meta is off.",
               "The ... menu copies the exact sim input for WoWSims (Import > JSON), to compare both sims.",
               "Build your own buff presets: New preset in the buffs list, then click buffs on or off.",
