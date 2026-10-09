@@ -164,5 +164,30 @@ def every_priest_choice_works():
     check_class(5)
 
 
+@case
+def the_talent_window_shows_rows_and_clicks_choose():
+    from test_craft import ui_game
+    w, c = ui_game()
+    c.eval("ns.Craft:NewCharacter(5, 0) ns.CraftUI.Glue.selected = 5 ns.CraftUI.Glue.EnterWorld()")
+    w.tick(1.0)
+    r = c.eval_py(r"""
+      local C, UI = ns.Craft, ns.CraftUI
+      C.char.level, C.player.level = 4, 4
+      UI.Toggle("talents")
+      local f = UI.TalentWindow()
+      f.rows[2].buttons[2]:Click()                                 -- Improved Shadow Word: Pain
+      f.rows[3].buttons[1]:Click()                                 -- (level 6: closed)
+      local r1, r2 = f.rows[1], f.rows[2]
+      return { shown = f:IsShown(), head = f.heads[2]:GetText(), level = r2.level:GetText(),
+               chosen = C.Talents.Choice(nil, 2), closed = C.Talents.Choice(nil, 3),
+               glow = r2.buttons[2].glow:IsShown(), other = r2.buttons[1].glow:IsShown(),
+               name = r2.buttons[2].name:GetText() }
+    """)
+    assert r["shown"] and r["head"] == "Shadow" and r["level"] == "4", r
+    assert r["chosen"] == 2 and r.get("closed") is None, r
+    assert r["glow"] and not r["other"] and r["name"] == "Improved Shadow Word: Pain", r
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

@@ -2150,339 +2150,196 @@ function UI.RefreshSpellbook()
 end
 
 ---------------------------------------------------------------------------
--- Talents (PlayerTalentFrame, the classic one TBC uses): a tab per tree with its painted background, the talents
--- on their tier / column (SetTalentButtonLocation), the prerequisite branches and arrows (TalentFrame_DrawLines,
--- TalentFrame_Update), points spent and unspent, the talent tooltip (GameTooltip:SetTalent's lines)
+-- Talents: the rows (Talents.lua) in the classic PlayerTalentFrame's chrome - its portrait, title, close button,
+-- the class's painted background (dimmed) and the points bar; the trees' tabs, buttons and branches stay hidden.
+-- A row per second level, a column per spec (named over the columns): click a talent to take it, the row's other
+-- two go dim; a row above your level is grey with its level in red. The tooltip: name, spec, what it does, then
+-- "Click to learn" / "Requires level N" / "Can't change talents in combat".
 ---------------------------------------------------------------------------
 
-local TALENT_SIZE, OFFSET_X, OFFSET_Y, STEP = 32, 35, 20, 63
-local MAX_TIERS, NUM_COLUMNS, MAX_TALENTS, MAX_BRANCHES, MAX_ARROWS = 11, 4, 40, 30, 30
-local BRANCH_TC = {
-    up = { [1] = { 0.12890625, 0.25390625, 0, 0.484375 }, [-1] = { 0.12890625, 0.25390625, 0.515625, 1.0 } },
-    down = { [1] = { 0, 0.125, 0, 0.484375 }, [-1] = { 0, 0.125, 0.515625, 1.0 } },
-    left = { [1] = { 0.2578125, 0.3828125, 0, 0.5 }, [-1] = { 0.2578125, 0.3828125, 0.5, 1.0 } },
-    right = { [1] = { 0.2578125, 0.3828125, 0, 0.5 }, [-1] = { 0.2578125, 0.3828125, 0.5, 1.0 } },
-    topright = { [1] = { 0.515625, 0.640625, 0, 0.5 }, [-1] = { 0.515625, 0.640625, 0.5, 1.0 } },
-    topleft = { [1] = { 0.640625, 0.515625, 0, 0.5 }, [-1] = { 0.640625, 0.515625, 0.5, 1.0 } },
-    bottomright = { [1] = { 0.38671875, 0.51171875, 0, 0.5 }, [-1] = { 0.38671875, 0.51171875, 0.5, 1.0 } },
-    bottomleft = { [1] = { 0.51171875, 0.38671875, 0, 0.5 }, [-1] = { 0.51171875, 0.38671875, 0.5, 1.0 } },
-    tdown = { [1] = { 0.64453125, 0.76953125, 0, 0.5 }, [-1] = { 0.64453125, 0.76953125, 0.5, 1.0 } },
-    tup = { [1] = { 0.7734375, 0.8984375, 0, 0.5 }, [-1] = { 0.7734375, 0.8984375, 0.5, 1.0 } },
-}
-local ARROW_TC = {
-    top = { [1] = { 0, 0.5, 0, 0.5 }, [-1] = { 0, 0.5, 0.5, 1.0 } },
-    right = { [1] = { 1.0, 0.5, 0, 0.5 }, [-1] = { 1.0, 0.5, 0.5, 1.0 } },
-    left = { [1] = { 0.5, 1.0, 0, 0.5 }, [-1] = { 0.5, 1.0, 0.5, 1.0 } },
-}
 local tf, tfRefs
+local ROW_H, LEVEL_W, HEAD_H = 63, 36, 18
+local AREA_X, AREA_Y, AREA_W = 23, -77, 318
 
-local function TalentButtonName(i) return "PlayerTalentFrameTalent" .. i end
-
--- the talent tooltip: name, rank, what is missing (red), this rank's text, the next rank's, "Click to learn"
-local function TalentTooltip(owner, t, treeName)
-    local c = Craft.char
-    local T = Craft.Talents
-    local rank = T.Rank(c, t.id)
-    local spellNow = t.ranks[math.max(1, rank)]
-    local sp = D.spells[spellNow]
+local function TalentTooltip(owner)
+    local c, T = Craft.char, Craft.Talents
+    local id, ri, ci = owner.spellId, owner.row, owner.choice
+    local sp = D.spells[id]
+    if not sp then return end
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(sp and sp.n or "?", 1, 1, 1)
-    GameTooltip:AddLine(string.format(_G.TOOLTIP_TALENT_RANK or "Rank %d/%d", rank, #t.ranks), 1, 1, 1)
-    local ok, why = T.CanLearn(c, t.id)
-    local _, ti = T.Get(t.id)
-    if rank < #t.ranks then
-        if T.Spent(c, ti) < t.tier * 5 then
-            GameTooltip:AddLine(string.format(_G.TOOLTIP_TALENT_TIER_POINTS or "Requires %d points in %s Talents",
-                t.tier * 5, treeName), 1, 0.1, 0.1)
-        end
-        for _, p in ipairs(t.pre or {}) do
-            if T.Rank(c, p[1]) < p[2] then
-                local pt = T.Get(p[1])
-                local psp = pt and D.spells[pt.ranks[1]]
-                GameTooltip:AddLine(string.format(p[2] == 1 and "Requires %d point in %s" or "Requires %d points in %s",
-                    p[2], psp and psp.n or "?"), 1, 0.1, 0.1)
-            end
+    GameTooltip:AddLine(sp.n, 1, 1, 1)
+    local spec = (T.SPECS[c.class] or {})[ci]
+    if spec then GameTooltip:AddLine(spec, 0.5, 0.5, 0.5) end
+    if not Combat.IsPassive(sp) then
+        local cost, pt = Combat.Cost(sp, Craft.player)
+        if cost and cost > 0 then
+            local power = pt == Craft.POWER_RAGE and (cost / 10 .. " Rage") or (cost .. " Mana")
+            GameTooltip:AddLine(power, 1, 1, 1)
         end
     end
-    local NORMAL = { 1, 0.82, 0 }
-    GameTooltip:AddLine(Combat.SpellText(spellNow, Craft.player), NORMAL[1], NORMAL[2], NORMAL[3], true)
-    if rank > 0 and rank < #t.ranks then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(_G.TOOLTIP_TALENT_NEXT_RANK or "Next rank:", 1, 1, 1)
-        GameTooltip:AddLine(Combat.SpellText(t.ranks[rank + 1], Craft.player), NORMAL[1], NORMAL[2], NORMAL[3], true)
+    GameTooltip:AddLine(Combat.SpellText(id, Craft.player), 1, 0.82, 0, true)
+    local ok, why = T.CanChoose(c, ri, ci)
+    if ok then
+        GameTooltip:AddLine(T.Choice(c, ri) and "Click to switch to this talent" or (_G.TOOLTIP_TALENT_LEARN or "Click to learn"), 0, 1, 0)
+    elseif why == "level" then
+        GameTooltip:AddLine(string.format("Requires level %d", T.Rows(c.class)[ri].level), 1, 0.1, 0.1)
+    elseif why == "combat" then
+        GameTooltip:AddLine("Can't change talents in combat", 1, 0.1, 0.1)
     end
-    if ok then GameTooltip:AddLine(_G.TOOLTIP_TALENT_LEARN or "Click to learn", 0, 1, 0) end
     GameTooltip:Show()
+end
+
+local function ChoiceButton(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(math.floor((AREA_W - LEVEL_W) / 3), ROW_H - 4)
+    b.slot = b:CreateTexture(nil, "BACKGROUND")
+    b.slot:SetTexture("Interface\\Buttons\\UI-EmptySlot")
+    b.slot:SetSize(56, 56)
+    b.slot:SetPoint("TOP", 0, 7)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(30, 30)
+    b.icon:SetPoint("TOP", 0, -6)
+    b.glow = b:CreateTexture(nil, "OVERLAY")
+    b.glow:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+    b.glow:SetBlendMode("ADD")
+    b.glow:SetAllPoints(b.icon)
+    b.name = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    b.name:SetPoint("TOP", b.icon, "BOTTOM", 0, -3)
+    b.name:SetWidth(b:GetWidth() - 4)
+    b.name:SetJustifyH("CENTER")
+    b.name:SetJustifyV("TOP")
+    b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    b:GetHighlightTexture():SetAllPoints(b.icon)
+    b:SetScript("OnClick", function(self)
+        if Craft.Talents.Choose(self.row, self.choice) then K.Play(K.SFX.click or 856) end
+        UI.RefreshTalents()
+        if GameTooltip:IsOwned(self) then TalentTooltip(self) end
+    end)
+    b:SetScript("OnEnter", TalentTooltip)
+    b:SetScript("OnLeave", K.HideTooltip)
+    return b
 end
 
 local function TalentWindow()
     if tf then return tf end
     tf, tfRefs = UI.Build("PlayerTalentFrame", UI.hudFrame)
-    tf.tab = 1
     local R = tfRefs
     CloseButtonOf(tf, R, "PlayerTalentFrame")
     if R.PlayerTalentFrameCancelButton then R.PlayerTalentFrameCancelButton:SetScript("OnClick", function() UI.CloseWindow(tf) end) end
     if R.PlayerTalentFrameTitleText then R.PlayerTalentFrameTitleText:SetText(_G.TALENTS or "Talents") end
-    -- one talent group, no preview, no pets, no glyphs: those pieces hide
-    for _, k in ipairs({ "PlayerTalentFrameActivateButton", "PlayerTalentFramePreviewBar", "PlayerTalentFrameTab4",
-                         "PlayerSpecTab1", "PlayerSpecTab2", "PlayerSpecTab3", "PlayerTalentFrameActiveTalentGroupFrame",
-                         "PlayerTalentFrameStatusText" }) do
+    -- the trees' pieces: none of them in rows
+    for k, v in pairs(R) do
+        if type(k) == "string" and v.Hide and (k:match("^PlayerTalentFrameTalent%d+$") or k:match("^PlayerTalentFrameTab%d$")
+           or k:match("^PlayerTalentFrameBranch%d+$") or k:match("^PlayerTalentFrameArrow%d+$")
+           or k:match("^PlayerSpecTab%d$")) then
+            v:Hide()
+        end
+    end
+    for _, k in ipairs({ "PlayerTalentFrameActivateButton", "PlayerTalentFramePreviewBar",
+                         "PlayerTalentFrameActiveTalentGroupFrame", "PlayerTalentFrameStatusText",
+                         "PlayerTalentFrameScrollFrame", "PlayerTalentFrameScrollFrameScrollBar",
+                         "PlayerTalentFrameSpentPointsText" }) do
         if R[k] then R[k]:Hide() end
     end
-    if R.PlayerTalentFrameStatusFrame then R.PlayerTalentFrameStatusFrame:Show() end
+    if R.PlayerTalentFrameStatusFrame then
+        -- (the bar under the title says how rows work)
+        local s = R.PlayerTalentFrameStatusFrame
+        s:Show()
+        s.hint = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        s.hint:SetPoint("CENTER", 0, 0)
+        s.hint:SetText("One talent a row. Change it any time out of combat.")
+    end
     if R.PlayerTalentFramePointsBar then
-        -- (only its bottom moves; the XML's left and right anchors stay, clear of the Close button)
         R.PlayerTalentFramePointsBar:SetPoint("BOTTOM", tf, "BOTTOM", 0, 78)
     end
-    for i = 1, 3 do
-        local tab = R["PlayerTalentFrameTab" .. i]
-        if tab then
-            tab:SetScript("OnClick", function()
-                tf.tab = i
-                K.Play(K.SFX.click or 856)
-                UI.RefreshTalents()
-            end)
-        end
+    -- the rows
+    local area = CreateFrame("Frame", nil, tf)
+    area:SetPoint("TOPLEFT", tf, "TOPLEFT", AREA_X, AREA_Y)
+    area:SetSize(AREA_W, HEAD_H + 5 * ROW_H)
+    area:SetFrameLevel(tf:GetFrameLevel() + 5)
+    tf.area = area
+    tf.heads, tf.rows = {}, {}
+    local colW = math.floor((AREA_W - LEVEL_W) / 3)
+    for ci = 1, 3 do
+        local h = area:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        h:SetPoint("TOP", area, "TOPLEFT", LEVEL_W + (ci - 0.5) * colW, -3)
+        tf.heads[ci] = h
     end
-    for i = 1, MAX_TALENTS do
-        local b = R[TalentButtonName(i)]
-        if b then
-            b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            b:SetScript("OnClick", function(self, button)
-                if button ~= "LeftButton" or not self.talent then return end
-                if Craft.Talents.Learn(self.talent.id) then K.Play(K.SFX.click or 856) end
-                UI.RefreshTalents()
-                if GameTooltip:IsOwned(self) then TalentTooltip(self, self.talent, self.treeName) end
-            end)
-            b:SetScript("OnEnter", function(self) if self.talent then TalentTooltip(self, self.talent, self.treeName) end end)
-            b:SetScript("OnLeave", K.HideTooltip)
+    for ri = 1, 5 do
+        local row = CreateFrame("Frame", nil, area)
+        row:SetPoint("TOPLEFT", area, "TOPLEFT", 0, -HEAD_H - (ri - 1) * ROW_H)
+        row:SetSize(AREA_W, ROW_H)
+        row.band = row:CreateTexture(nil, "BACKGROUND")
+        row.band:SetAllPoints()
+        row.band:SetColorTexture(0, 0, 0, ri % 2 == 1 and 0.32 or 0.2)
+        row.line = row:CreateTexture(nil, "BORDER")
+        row.line:SetColorTexture(1, 0.82, 0, 0.18)
+        row.line:SetPoint("TOPLEFT", 0, 0)
+        row.line:SetPoint("TOPRIGHT", 0, 0)
+        row.line:SetHeight(1)
+        row.level = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        row.level:SetPoint("CENTER", row, "LEFT", LEVEL_W / 2, 2)
+        row.levelLabel = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.levelLabel:SetPoint("TOP", row.level, "BOTTOM", 0, -1)
+        row.levelLabel:SetText(_G.LEVEL or "Level")
+        row.buttons = {}
+        for ci = 1, 3 do
+            local b = ChoiceButton(row)
+            b:SetPoint("TOPLEFT", row, "TOPLEFT", LEVEL_W + (ci - 1) * colW, -2)
+            b.row, b.choice = ri, ci
+            row.buttons[ci] = b
         end
-    end
-    WireScroll(R, "PlayerTalentFrameScrollFrame")
-    tf.branch = {}
-    for i = 1, MAX_TIERS do
-        tf.branch[i] = {}
-        for j = 1, NUM_COLUMNS do tf.branch[i][j] = {} end
+        tf.rows[ri] = row
     end
     return tf
 end
 UI.TalentWindow = TalentWindow
 
-local function ResetBranches(f)
-    for i = 1, MAX_TIERS do
-        for j = 1, NUM_COLUMNS do
-            local n = f.branch[i][j]
-            n.id, n.up, n.down, n.left, n.right, n.leftArrow, n.rightArrow, n.topArrow = nil, 0, 0, 0, 0, 0, 0, 0
-        end
-    end
-end
-
--- TalentFrame_DrawLines: the branch pieces from a prerequisite (tier, column) to a talent (bt, bc)
-local function DrawLines(f, bt, bc, tier, column, met)
-    local B = f.branch
-    met = met and 1 or -1
-    if bc == column then
-        for i = tier, bt - 1 do
-            B[i][bc].down = met
-            if i + 1 <= bt - 1 then B[i + 1][bc].up = met end
-        end
-        B[bt][bc].topArrow = met
-        return
-    end
-    if bt == tier then
-        local l, r = math.min(bc, column), math.max(bc, column)
-        for i = l, r - 1 do
-            B[tier][i].right = met
-            B[tier][i + 1].left = met
-        end
-        if bc < column then B[bt][bc].rightArrow = met else B[bt][bc].leftArrow = met end
-        return
-    end
-    local l, r = math.min(bc, column), math.max(bc, column)
-    if l == column then l = l + 1 else r = r - 1 end
-    local blocked = false
-    for i = l, r do if B[tier][i].id then blocked = true end end
-    l, r = math.min(bc, column), math.max(bc, column)
-    if not blocked then
-        B[tier][bc].down = met
-        B[bt][bc].up = met
-        for i = tier, bt - 1 do
-            B[i][bc].down = met
-            B[i + 1][bc].up = met
-        end
-        for i = l, r - 1 do
-            B[tier][i].right = met
-            B[tier][i + 1].left = met
-        end
-        B[bt][bc].topArrow = met
-        return
-    end
-    for i = tier, bt - 1 do
-        B[i][column].up = met
-        B[i + 1][column].down = met
-    end
-    if bc < column then B[bt][bc].rightArrow = met else B[bt][bc].leftArrow = met end
-end
-
 function UI.RefreshTalents()
     local f = tf
     if not f or not f:IsShown() then return end
     local R = tfRefs
-    local c = Craft.char
-    local T = Craft.Talents
-    local trees = T.Trees(c.class)
-    local tree = trees[f.tab] or trees[1]
-    if not tree then return end
+    local c, T = Craft.char, Craft.Talents
     K.HeroPortrait(R.PlayerTalentFramePortrait, c.sex or 0)
-    -- the tabs (tree names) and the tree's painted background
-    for i = 1, 3 do
-        local tab = R["PlayerTalentFrameTab" .. i]
-        if tab then
-            if trees[i] then tab:SetText(trees[i].n) tab:Show() else tab:Hide() end
+    -- the class's first tree painting behind the rows, dimmed
+    local tree = (D.talents and D.talents[c.class] or {})[1]
+    if tree then
+        local base = "Interface\\TalentFrame\\" .. tree.bg .. "-"
+        for _, piece in ipairs({ "TopLeft", "TopRight", "BottomLeft", "BottomRight" }) do
+            local t = R["PlayerTalentFrameBackground" .. piece]
+            if t then t:SetTexture(base .. piece) t:SetVertexColor(0.55, 0.55, 0.55) t:Show() end
         end
-    end
-    SetTabs(R, "PlayerTalentFrameTab", #trees, f.tab)
-    local base = "Interface\\TalentFrame\\" .. tree.bg .. "-"
-    for _, piece in ipairs({ "TopLeft", "TopRight", "BottomLeft", "BottomRight" }) do
-        local t = R["PlayerTalentFrameBackground" .. piece]
-        if t then t:SetTexture(base .. piece) end
     end
     local unspent = T.Points(c)
-    local spentHere = T.Spent(c, f.tab)
     R.PlayerTalentFrameTalentPointsText:SetFormattedText(_G.UNSPENT_TALENT_POINTS or "Unspent Talent Points: %s",
         "|cffffffff" .. unspent .. "|r")
-    R.PlayerTalentFrameSpentPointsText:SetFormattedText(_G.MASTERY_POINTS_SPENT or "%s Talents: %s", tree.n,
-        "|cffffffff" .. spentHere .. "|r")
-    -- the talents
-    ResetBranches(f)
-    local byId, maxTier = {}, 0
-    for _, t in ipairs(tree.talents) do byId[t.id] = t end
-    for i = 1, MAX_TALENTS do
-        local bn = TalentButtonName(i)
-        local b = R[bn]
-        local t = tree.talents[i]
-        if b and t and t.tier < MAX_TIERS and t.col < NUM_COLUMNS then
-            local tier, col = t.tier + 1, t.col + 1
-            maxTier = math.max(maxTier, tier)
-            b.talent, b.treeName = t, tree.n
-            b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", b:GetParent(), "TOPLEFT", (col - 1) * STEP + OFFSET_X, -(tier - 1) * STEP - OFFSET_Y)
-            f.branch[tier][col].id = t.id
-            local rank = T.Rank(c, t.id)
-            local sp = D.spells[t.ranks[1]]
-            local icon = R[bn .. "IconTexture"] or b.icon
-            if icon then icon:SetTexture(Combat.SpellIcon(t.ranks[1])) icon:Show() end
-            R[bn .. "Rank"]:SetText(rank)
-            local forceDesat = unspent <= 0 and rank == 0
-            local tierOpen = t.tier * 5 <= spentHere
-            local met = tierOpen and not forceDesat
-            for _, p in ipairs(t.pre or {}) do
-                local pt = byId[p[1]]
-                if pt then
-                    local learnable = T.Rank(c, p[1]) >= p[2]
-                    if forceDesat or not learnable then met = false end
-                    DrawLines(f, tier, col, pt.tier + 1, pt.col + 1, met)
-                end
-            end
-            if met then
-                if icon then icon:SetDesaturated(false) icon:SetVertexColor(1, 1, 1) end
-                if rank < #t.ranks then
-                    R[bn .. "Slot"]:SetVertexColor(0.1, 1.0, 0.1)
-                    R[bn .. "Rank"]:SetTextColor(0.1, 1.0, 0.1)
-                else
-                    R[bn .. "Slot"]:SetVertexColor(1.0, 0.82, 0)
-                    R[bn .. "Rank"]:SetTextColor(1.0, 0.82, 0)
-                end
-                R[bn .. "RankBorder"]:SetVertexColor(1, 1, 1)
-                R[bn .. "RankBorder"]:Show()
-                R[bn .. "Rank"]:Show()
-            else
-                if icon then icon:SetDesaturated(true) icon:SetVertexColor(0.65, 0.65, 0.65) end
-                R[bn .. "Slot"]:SetVertexColor(0.5, 0.5, 0.5)
-                if rank == 0 then
-                    R[bn .. "RankBorder"]:Hide()
-                    R[bn .. "Rank"]:Hide()
-                else
-                    R[bn .. "RankBorder"]:SetVertexColor(0.5, 0.5, 0.5)
-                    R[bn .. "RankBorder"]:Show()
-                    R[bn .. "Rank"]:SetTextColor(0.5, 0.5, 0.5)
-                    R[bn .. "Rank"]:Show()
-                end
-            end
-            b:Show()
-        elseif b then
-            b.talent = nil
-            b:Hide()
-        end
-    end
-    -- the branches and arrows (TalentFrame_Update's second half)
-    local bi, ai = 1, 1
-    local child = R.PlayerTalentFrameScrollChildFrame
-    local arrows = R.PlayerTalentFrameArrowFrame or child
-    local function branch(tc, x, y)
-        local t = R["PlayerTalentFrameBranch" .. bi]
-        bi = bi + 1
-        if not t or not tc then return end
-        t:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", child, "TOPLEFT", x, y)
-        t:Show()
-    end
-    local function arrow(tc, x, y)
-        local t = R["PlayerTalentFrameArrow" .. ai]
-        ai = ai + 1
-        if not t or not tc then return end
-        t:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", arrows, "TOPLEFT", x, y)
-        t:Show()
-    end
-    local ignoreUp
-    for i = 1, MAX_TIERS do
-        for j = 1, NUM_COLUMNS do
-            local n = f.branch[i][j]
-            local x = (j - 1) * STEP + OFFSET_X + 2
-            local y = -(i - 1) * STEP - OFFSET_Y - 2
-            if n.id then
-                if n.up ~= 0 then
-                    if not ignoreUp then branch(BRANCH_TC.up[n.up], x, y + TALENT_SIZE) else ignoreUp = nil end
-                end
-                if n.down ~= 0 then branch(BRANCH_TC.down[n.down], x, y - TALENT_SIZE + 1) end
-                if n.left ~= 0 then branch(BRANCH_TC.left[n.left], x - TALENT_SIZE, y) end
-                if n.right ~= 0 then
-                    local nx = f.branch[i][j + 1]
-                    if nx and nx.left ~= 0 and nx.down < 0 then branch(BRANCH_TC.right[nx.down], x + TALENT_SIZE, y)
-                    else branch(BRANCH_TC.right[n.right], x + TALENT_SIZE + 1, y) end
-                end
-                if n.rightArrow ~= 0 then arrow(ARROW_TC.right[n.rightArrow], x + TALENT_SIZE / 2 + 5, y) end
-                if n.leftArrow ~= 0 then arrow(ARROW_TC.left[n.leftArrow], x - TALENT_SIZE / 2 - 5, y) end
-                if n.topArrow ~= 0 then arrow(ARROW_TC.top[n.topArrow], x, y + TALENT_SIZE / 2 + 5) end
-            else
-                if n.up ~= 0 and n.left ~= 0 and n.right ~= 0 then branch(BRANCH_TC.tup[n.up], x, y)
-                elseif n.down ~= 0 and n.left ~= 0 and n.right ~= 0 then branch(BRANCH_TC.tdown[n.down], x, y)
-                elseif n.left ~= 0 and n.down ~= 0 then
-                    branch(BRANCH_TC.topright[n.left], x, y)
-                    branch(BRANCH_TC.down[n.down], x, y - 32)
-                elseif n.left ~= 0 and n.up ~= 0 then branch(BRANCH_TC.bottomright[n.left], x, y)
-                elseif n.left ~= 0 and n.right ~= 0 then
-                    branch(BRANCH_TC.right[n.right], x + TALENT_SIZE, y)
-                    branch(BRANCH_TC.left[n.left], x + 1, y)
-                elseif n.right ~= 0 and n.down ~= 0 then
-                    branch(BRANCH_TC.topleft[n.right], x, y)
-                    branch(BRANCH_TC.down[n.down], x, y - 32)
-                elseif n.right ~= 0 and n.up ~= 0 then branch(BRANCH_TC.bottomleft[n.right], x, y)
-                elseif n.up ~= 0 and n.down ~= 0 then
-                    branch(BRANCH_TC.up[n.up], x, y)
-                    branch(BRANCH_TC.down[n.down], x, y - 32)
-                    ignoreUp = 1
-                end
+    local specs = T.SPECS[c.class] or {}
+    for ci = 1, 3 do f.heads[ci]:SetText(specs[ci] or "") end
+    local rows = T.Rows(c.class)
+    for ri, row in ipairs(f.rows) do
+        local def = rows[ri]
+        row:SetShown(def ~= nil)
+        if def then
+            local open = T.Open(c, ri)
+            local chosen = T.Choice(c, ri)
+            row.level:SetText(def.level)
+            if open then row.level:SetTextColor(1, 0.82, 0) else row.level:SetTextColor(1, 0.1, 0.1) end
+            for ci, b in ipairs(row.buttons) do
+                local id = def.spells[ci]
+                local sp = D.spells[id]
+                b.spellId = id
+                b.icon:SetTexture(Combat.SpellIcon(id))
+                b.name:SetText(sp and sp.n or "?")
+                local lit = open and (not chosen or chosen == ci)
+                b.icon:SetDesaturated(not lit)
+                b.icon:SetVertexColor(lit and 1 or 0.6, lit and 1 or 0.6, lit and 1 or 0.6)
+                b.glow:SetShown(chosen == ci)
+                if chosen == ci then b.name:SetTextColor(1, 0.82, 0)
+                elseif lit then b.name:SetTextColor(1, 1, 1)
+                else b.name:SetTextColor(0.5, 0.5, 0.5) end
             end
         end
     end
-    for i = bi, MAX_BRANCHES do if R["PlayerTalentFrameBranch" .. i] then R["PlayerTalentFrameBranch" .. i]:Hide() end end
-    for i = ai, MAX_ARROWS do if R["PlayerTalentFrameArrow" .. i] then R["PlayerTalentFrameArrow" .. i]:Hide() end end
-    -- the scroll child as tall as the tree
-    if child then child:SetHeight(maxTier * STEP + OFFSET_Y + 10) end
 end
 
 Craft:On("talent", function() UI.RefreshTalents() end)

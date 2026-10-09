@@ -7,6 +7,9 @@ ns.CraftChangelog = {
     {
         version = "0.3", date = "2026-10-09",
         changes = {
+            "Talent rows: pick 1 of 3 talents at levels 2, 4, 6, 8, 10",
+            "Each row has a talent for every spec; swap free out of combat",
+            "New abilities from rows: Mortal Strike, Pyroblast, Mind Flay...",
             "Leveling is 3x faster: more XP, half the kills and items",
             "Creatures come back sooner after you kill them",
             "NPC greetings sit on the parchment, from the top down",

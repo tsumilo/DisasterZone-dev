@@ -987,10 +987,10 @@ STATES = [
         "p.casting.start = p.casting.start - 0.8"))),
     ("Disastercraft - character sheet", opened("games", dc(1, 4127.8, 6244, "world", "UI.Toggle('character')"))),
     ("Disastercraft - spellbook", opened("games", dc(8, 4127.8, 6244, "world", "UI.Toggle('spellbook')"))),
-    # a level 12 mage with two points in Improved Fireball: the Fire tree, a rank shown, the rest locked
+    # talent rows: a level 8 mage with three rows chosen, row 3 open without a choice, row 5 (level 10) locked
     ("Disastercraft - talents", opened("games", dc(8, 4127.8, 6244, "world",
-        "C.char.level = 12 C.char.talents = {} C.Talents.Learn(26) C.Talents.Learn(26) "
-        "UI.Toggle('talents') local f = UI.TalentWindow() f.tab = 2 UI.RefreshTalents()"))),
+        "C.char.level = 8 p.level = 8 C.char.trow = {} C.Talents.Choose(1, 1) C.Talents.Choose(2, 3) "
+        "C.Talents.Choose(4, 2) UI.Toggle('talents')"))),
     ("Disastercraft - bags", opened("games", dc(1, 4127.8, 6244, "world", "C.Items.Add(750, 5, 'silent') C.Items.Add(2589, 3, 'silent') UI.ToggleAllBags()"))),
     ("Disastercraft - quest log", opened("games", dc(1, 4127.8, 6244, "world", "C.Quests.Accept(783) C.char.done[783] = true C.char.quests[783] = nil C.Quests.Accept(7) C.char.quests[7].k[6] = 4 UI.Toggle('questlog')"))),
     ("Disastercraft - quest giver", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenGossip(T_DCU)"))),

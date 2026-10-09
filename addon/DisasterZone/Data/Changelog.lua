@@ -6,6 +6,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.3.4", date = "9 October 2026", title = "Disastercraft: talent rows, faster leveling",
+      sections = {
+          { heading = "Disastercraft", lines = {
+              "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",
+              "Rows bring abilities too: Mortal Strike, Bloodthirst, Pyroblast, Ice Barrier, Mind Flay...",
+              "Change a row's talent for free whenever you are out of combat.",
+              "Leveling is about three times faster: more XP, half the kills and items, faster respawns.",
+              "NPC greetings are written on the parchment again, starting at the top.",
+          } },
+      } },
     { version = "1.3.3", date = "9 October 2026", title = "My Log, Disastercraft and Karazhan Chess",
       sections = {
           { heading = "My Log (opt-in)", lines = {
