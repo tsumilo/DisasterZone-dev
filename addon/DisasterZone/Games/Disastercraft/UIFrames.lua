@@ -73,8 +73,13 @@ end
 -- the frame title and the round portrait (PortraitFrameTemplate)
 local function TitleAndPortrait(f, refs, name, title, portraitFn)
     local t = refs[name .. "TitleText"] or (f.TitleContainer and f.TitleContainer.TitleText)
+    -- (TBC QuestFrame keeps the NPC's name in its own QuestFrameNpcNameText, in the same title bar: one of the two)
+    local npcName = refs[name .. "NpcNameText"]
+    if npcName then npcName:SetText(title or "") title = nil end
     if t then t:SetText(title or "") end
-    local p = refs[name .. "Portrait"] or f.portrait
+    -- (the template's portrait, masked round inside the ring; a frame's own "$parentPortrait" - TBC MerchantFrame's
+    -- square one at 7,-6 - takes the name in refs and sits off the ring)
+    local p = f.portrait or refs[name .. "Portrait"]
     if p and portraitFn then portraitFn(p) end
 end
 
@@ -120,7 +125,9 @@ function F.SetItemButton(refs, bname, id, count, tintRed)
 end
 
 -- MoneyFrame_Update: gold / silver / copper buttons with their coin icons, the empty ones folded away; each one
--- 4 px left of the next (MONEY_BUTTON_SPACING), coins 19 px (13 on a small money frame)
+-- 4 px left of the next (MONEY_BUTTON_SPACING), coins 19 px (13 on a small money frame); copper 13 px in from the
+-- frame's right edge and the frame as wide as its coins plus one icon, so a frame anchored by its left (a merchant
+-- row's price) grows rightward from there
 local SPACING = -4
 local COIN = { Gold = { 0, 0.25 }, Silver = { 0.25, 0.5 }, Copper = { 0.5, 0.75 } }
 function F.Money(refs, fname, copper, red)
@@ -129,6 +136,8 @@ function F.Money(refs, fname, copper, red)
     copper = floor(copper or 0)
     local g, s, c = floor(copper / 10000), floor(copper / 100) % 100, copper % 100
     local vals = { Gold = g, Silver = s, Copper = c }
+    -- (SmallMoneyFrameTemplate, 13 tall, is small: its OnLoad sets .small, a script our frames don't carry)
+    if frame.small == nil then frame.small = (frame:GetHeight() or 28) < 20 end
     local ICON_W = frame.small and 13 or 19
     local show = false
     for _, den in ipairs({ "Gold", "Silver", "Copper" }) do
@@ -159,11 +168,19 @@ function F.Money(refs, fname, copper, red)
             end
         end
     end
-    -- right to left, copper on the frame's right edge
+    -- right to left, copper 13 in from the frame's right edge
     local cb, sb, gb = refs[fname .. "CopperButton"], refs[fname .. "SilverButton"], refs[fname .. "GoldButton"]
-    if cb then cb:ClearAllPoints() cb:SetPoint("RIGHT", frame, "RIGHT", 0, 0) end
+    if cb then cb:ClearAllPoints() cb:SetPoint("RIGHT", frame, "RIGHT", -13, 0) end
     if sb then sb:ClearAllPoints() sb:SetPoint("RIGHT", cb, "LEFT", SPACING, 0) end
     if gb then gb:ClearAllPoints() gb:SetPoint("RIGHT", sb, "LEFT", SPACING, 0) end
+    local width, any = ICON_W, false
+    for _, b in ipairs({ gb, sb, cb }) do
+        if b and b:IsShown() then
+            width = width + b:GetWidth() - (any and SPACING or 0)
+            any = true
+        end
+    end
+    frame:SetWidth(width)
     frame:Show()
 end
 
@@ -576,6 +593,8 @@ local function MerchantFrame()
     end
     merRefs.MerchantMoneyFrame:ClearAllPoints()
     merRefs.MerchantMoneyFrame:SetPoint("BOTTOMRIGHT", mer, "BOTTOMRIGHT", -4, 8)
+    -- (the merchant's own square portrait: the round one in the template's ring shows the NPC)
+    if merRefs.MerchantFramePortrait and merRefs.MerchantFramePortrait ~= mer.portrait then merRefs.MerchantFramePortrait:Hide() end
     for i = 1, 12 do
         local ib = merRefs["MerchantItem" .. i .. "ItemButton"]
         if ib then
@@ -597,7 +616,9 @@ function UI.OpenMerchant(u)
     local f = MerchantFrame()
     f.npc = u
     f.page, f.tab = 1, 1
-    TitleAndPortrait(f, merRefs, "MerchantFrame", u.name, function(p) NpcPortrait(p, u) end)
+    -- (no title: MerchantNameText carries the name, as MerchantFrame_Update writes it; the portrait follows the tab)
+    TitleAndPortrait(f, merRefs, "MerchantFrame", nil)
+    f.portraitTab = nil
     if UI.open.gossip then UI.CloseWindow(UI.open.gossip) end
     if UI.open.quest then UI.CloseWindow(UI.open.quest) end
     UI.ShowWindow("merchant", f)
@@ -634,6 +655,18 @@ function UI.RefreshMerchant()
     local f = mer
     if not f or not f:IsShown() or not f.npc then return end
     SetTabs(merRefs, "MerchantFrameTab", 2, f.tab)
+    if f.portraitTab ~= f.tab or f.portraitNpc ~= f.npc then
+        -- MerchantFrame_UpdateMerchantInfo / _UpdateBuybackInfo: the NPC or the buyback icon, the bottom border only
+        -- under the merchant's page
+        f.portraitTab, f.portraitNpc = f.tab, f.npc
+        if f.portrait then
+            if f.tab == 1 then NpcPortrait(f.portrait, f.npc)
+            else f.portrait:SetTexture("Interface\\MerchantFrame\\UI-BuyBack-Icon") end
+        end
+        for _, k in ipairs({ "MerchantFrameBottomLeftBorder", "MerchantFrameBottomRightBorder" }) do
+            if merRefs[k] then merRefs[k]:SetShown(f.tab == 1) end
+        end
+    end
     local money = Craft:Money()
     if f.tab == 1 then
         merRefs.MerchantNameText:SetText(f.npc.name)
@@ -722,6 +755,8 @@ local function QuestFrame()
     -- (qf: the HUD frame's strata; frame levels order the windows)
     qf:SetSize(338, 424)                                -- (QUEST_FRAME_DIMENSIONS for TBC)
     CloseButtonOf(qf, qRefs, "QuestFrame")
+    -- (TBC QuestFrame's own square portrait, off the ring: the template's round one shows the NPC)
+    if qRefs.QuestFramePortrait and qRefs.QuestFramePortrait ~= qf.portrait then qRefs.QuestFramePortrait:Hide() end
     qi, qiRefs = UI.Build("QuestInfoFrame", qf)
     rw, rwRefs = UI.Build("QuestInfoRewardsFrame", qf)
     for k, v in pairs(qiRefs) do qRefs[k] = v end
@@ -920,7 +955,6 @@ function UI.QuestDetail(u, q)
     local f = QuestFrame()
     f.npc = u
     TitleAndPortrait(f, qRefs, "QuestFrame", u and u.name or "", function(p) NpcPortrait(p, u) end)
-    if qRefs.QuestFrameNpcNameText then qRefs.QuestFrameNpcNameText:SetText(u and u.name or "") end
     ShowPanel("QuestFrameDetailPanel")
     local child = ScrollChildOf("QuestDetailScrollFrame", "QuestDetailScrollChildFrame")
     qRefs.QuestInfoTitleHeader:SetWidth(275)

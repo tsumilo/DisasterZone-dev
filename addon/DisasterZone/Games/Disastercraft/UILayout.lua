@@ -77,7 +77,12 @@ local function SetTex(t, d)
         local ok = pcall(t.SetAtlas, t, d.atlas, d.useAtlasSize and true or false)
         if not ok then t:SetTexture(nil) end
     elseif d.file then
-        t:SetTexture(d.file)
+        -- (a tiled texture needs REPEAT wrapping: clamped, everything past its first 256 px smears its edge pixels)
+        if d.hTile or d.vTile then
+            if not pcall(t.SetTexture, t, d.file, d.hTile and "REPEAT" or "CLAMP", d.vTile and "REPEAT" or "CLAMP") then t:SetTexture(d.file) end
+        else
+            t:SetTexture(d.file)
+        end
     elseif d.color then
         if type(d.color) == "table" then t:SetColorTexture(d.color[1], d.color[2], d.color[3], d.color[4] or 1) end
     end
