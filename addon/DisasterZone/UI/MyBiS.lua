@@ -1815,7 +1815,7 @@ function MyBiS:Refresh()
     local simOn = Sim and Sim:IsActive() and true or false
     if simBtn and simBtn.SetKind then simBtn:SetKind(simOn and "chosen" or "secondary") end
     if simOn then
-        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not Sim:IsPickerOpen() then ns.Picker:Close() end
         if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
         if doll.SetLocked then doll:SetLocked(false) end
         doll:Update(Sim:Record(), phase, Sim:Ctx(SlotSourceText))

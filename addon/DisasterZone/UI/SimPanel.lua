@@ -2,8 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SimPanel.lua", ...) then return
 -- ns.SimPanel: My BiS in Sim mode (the Sim button in the top bar). The slots show a Working set (a copy of the gear
 -- you wear to start with) that you change slot by slot; the centre runs the gear sim (Sim/*.lua, ns.SimRunner) for it
 -- against My gear or a My BiS phase, on the same random rolls, and shows the difference, the damage by ability and
--- the key stats. A slot click opens the slot's picker: your gear, bags and BiS picks, or every item for the slot, each
--- simmed on demand ("Best for this slot"). Runs only when asked (the Run sim button).
+-- the key stats. A slot click opens My BiS's item picker (UI/Picker.lua) for the Working set: your gear and bags on
+-- top, then every source, and "Best for this slot" sims what it lists. Runs only when asked (the Run sim button).
 local _, ns = ...
 
 local SimPanel = {}
@@ -31,7 +31,7 @@ local state = {
   stale = true,
   running = false,
 }
-local card, picker
+local card
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Saved state (per character)
@@ -124,7 +124,7 @@ function SimPanel:SetActive(on)
   if not on then
     if R() then R():Cancel() end
     state.running = false
-    if picker then picker:Hide() end
+    SimPanel:ClosePicker()
   end
   if ns.MyBiS then ns.MyBiS:Refresh() end
 end
@@ -571,9 +571,17 @@ function SimPanel:UpdateCard()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The slot picker
+-- The slot picker: My BiS's own (UI/Picker.lua), with the Working set as its host
 -- ---------------------------------------------------------------------------------------------------------------
-local pstate = { sid = nil, tab = "mine", search = "", rows = {}, results = nil, running = false }
+local pstate = { sid = nil, results = nil, ranked = nil, running = false, status = nil, known = {} }
+local PAIR = { [11] = 12, [12] = 11, [13] = 14, [14] = 13 }
+local SID_MH, SID_OH = 15, 16
+
+local function SlotLabel(sid) return ns.SLOTS and ns.SLOTS[sid] and ns.SLOTS[sid].label or ("Slot " .. sid) end
+
+local function IsTwoHander(itemID)
+  return itemID and ns.ItemDB and ns.ItemDB.GetEquipLoc and ns.ItemDB:GetEquipLoc(itemID) == "INVTYPE_2HWEAPON"
+end
 
 local function FitsSlot(itemID, sid)
   local s = ns.SLOTS and ns.SLOTS[sid]
@@ -594,299 +602,204 @@ local function BagItems(sid)
   if not (numSlots and getLink) then return out end
   for bag = 0, 4 do
     for slot = 1, (numSlots(bag) or 0) do
-      local link = getLink(bag, slot)
-      local e = R().ParseLink(link)
-      if e and FitsSlot(e.id, sid) then out[#out + 1] = { entry = e, from = "Bags" } end
+      local e = R().ParseLink(getLink(bag, slot))
+      if e and FitsSlot(e.id, sid) then out[#out + 1] = e end
     end
   end
   return out
 end
 
--- Rows: { entry = set entry, from = text }
-local function MineRows(sid)
-  local rows, seen = {}, {}
-  local function add(entry, from)
-    if entry and entry.id and not seen[entry.id] then
-      seen[entry.id] = true
-      rows[#rows + 1] = { entry = entry, from = from }
-    end
-  end
-  local w = SimPanel:Working()
-  add(w[sid], "Working set")
-  local eq = R():EquippedSet()
-  local pair = ({ [11] = 12, [12] = 11, [13] = 14, [14] = 13 })[sid]
-  add(eq[sid], "My gear")
-  if pair then add(eq[pair], "My gear") end
-  for _, r in ipairs(BagItems(sid)) do add(r.entry, r.from) end
+-- The set entry for an item picked into a slot: the copy you own (its gems and enchant), else its My BiS setup,
+-- else the guide's gems with the slot's enchant kept.
+local function EntryFor(itemID, sid)
+  local known = pstate.known[itemID]
+  if known then return R():CopySet({ known })[1] end
   local BiS = ns.BiS
   if BiS then
-    for p = 0, (ns.MAX_PHASE or 5) do
-      for _, s in ipairs({ sid, pair }) do
-        local main, alt = BiS:GetSlot(p, s, List())
-        local label = "My BiS " .. (ns.PhaseLabel and ns.PhaseLabel(p) or ("P" .. p))
-        if main then add(R():FillEntryFromBiS(main, p, List(), s), label) end
-        if alt then add(R():FillEntry(alt, s), label .. " (alt)") end
+    local phases = { Phase() }
+    for p = 0, (ns.MAX_PHASE or 5) do if p ~= Phase() then phases[#phases + 1] = p end end
+    for _, p in ipairs(phases) do
+      for _, s in ipairs({ sid, PAIR[sid] }) do
+        if BiS:GetSlot(p, s, List()) == itemID then return R():FillEntryFromBiS(itemID, p, List(), s) end
       end
     end
   end
-  return rows
+  return R():FillEntry(itemID, sid, SimPanel:Working()[sid])
 end
 
-local function AllRows(sid)
-  local rows = {}
-  local ItemDB = ns.ItemDB
-  if not (ItemDB and ItemDB.GetCandidates) then return rows end
-  local _, cls = UnitClass("player")
-  local armor = ({ [1] = true, [3] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true, [10] = true })[sid]
-  local cands = ItemDB:GetCandidates(sid, { includeTrash = true, maxPhase = max(1, Phase()), scope = "all",
-    sources = { raids = true, dungeons = true, crafted = true, rep = true, badges = true, pvp = false },
-    class = cls, usableOnly = true, primaryArmorOnly = armor and true or false }) or {}
-  local db = R():DB()
-  local seen = {}
-  for _, c in ipairs(cands) do
-    local id = tonumber(c.itemID)
-    if id and not seen[id] and db.items[id] then
-      seen[id] = true
-      rows[#rows + 1] = { entry = R():FillEntry(id, sid), from = ItemDB.GetSourceText and ItemDB:GetSourceText(id, true) or "" }
+-- The picker's first section: what you wear and carry for the slot.
+local function MineSection(sid)
+  local items, seen = {}, {}
+  pstate.known = {}
+  local function add(e, sub)
+    if e and e.id and not seen[e.id] then
+      seen[e.id] = true
+      pstate.known[e.id] = e
+      items[#items + 1] = { itemID = e.id, sub = sub }
     end
   end
-  return rows
+  local eq = R():EquippedSet()
+  add(eq[sid], "Equipped")
+  if PAIR[sid] then add(eq[PAIR[sid]], "Equipped  ·  " .. SlotLabel(PAIR[sid])) end
+  for _, e in ipairs(BagItems(sid)) do add(e, "In your bags") end
+  return { name = "Your gear and bags", items = items }
 end
 
-local function FilteredRows()
-  local rows = pstate.tab == "all" and AllRows(pstate.sid) or MineRows(pstate.sid)
-  local needle = (pstate.search or ""):lower()
-  if needle ~= "" then
-    local out = {}
-    for _, r in ipairs(rows) do
-      local name = (GetItemInfo and GetItemInfo(r.entry.id)) or ""
-      if name:lower():find(needle, 1, true) then out[#out + 1] = r end
-    end
-    rows = out
-  end
-  return rows
-end
-
-local function PickerRefresh(resetScroll)
-  if not picker then return end
-  pstate.rows = FilteredRows()
-  if pstate.results then
-    table.sort(pstate.rows, function(a, b)
-      local x, y = pstate.results[a.entry.id], pstate.results[b.entry.id]
-      if x and y then return x > y end
-      return x ~= nil and y == nil
-    end)
-  end
-  picker.list:SetData(pstate.rows, resetScroll)
-  picker.best:SetText(pstate.running and "Cancel" or "Best for this slot")
-  picker.status:SetText(pstate.status or "")
-end
-
-local function InitPickRow(row, d)
-  local UI = ns.UI
-  if not row.icon then
-    row:RegisterForClicks("LeftButtonUp")
-    row:SetHighlightTexture(UI:Tex("rowHilight"), "ADD")
-    row.icon = UI:CreateItemButton(row, 30)
-    row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
-    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -1)
-    row.name:SetPoint("RIGHT", row, "RIGHT", -96, 0)
-    row.name:SetJustifyH("LEFT")
-    row.name:SetWordWrap(false)
-    row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    row.sub:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 1)
-    row.sub:SetPoint("RIGHT", row, "RIGHT", -96, 0)
-    row.sub:SetJustifyH("LEFT")
-    row.sub:SetWordWrap(false)
-    row.dps = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.dps:SetPoint("RIGHT", row, "RIGHT", -48, 0)
-    row.dps:SetJustifyH("RIGHT")
-    row.delta = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.delta:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.delta:SetJustifyH("RIGHT")
-    row:SetScript("OnClick", function(self)
-      local r = self.data
-      if not r then return end
-      if UI.HandleModifiedItemClick and UI:HandleModifiedItemClick(r.entry.id) then return end
-      SimPanel:SetWorkingSlot(pstate.sid, R():CopySet({ r.entry })[1])
-      picker:Hide()
-    end)
-    row:SetScript("OnEnter", function(self)
-      if self.data then UI:SetItemTooltip(self, ns.Gems and ns.Gems:Link(self.data.entry.id, self.data.entry.enchant, self.data.entry.gems) or self.data.entry.id) end
-    end)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    row.icon.onClick = function() row:Click() end
-  end
-  row.data = d
-  local e = d.entry
-  row.icon:SetItem(e.id)
-  row.name:SetText((UI:ItemText(e.id)))
-  local w = SimPanel:Working()[pstate.sid]
-  local inUse = w and w.id == e.id
-  row.sub:SetText((d.from or "") .. (inUse and ("  ·  " .. UI:Colorize("in use", GOLD)) or ""))
-  local v = pstate.results and pstate.results[e.id]
-  local ref = pstate.results and pstate.results.ref
-  if v and ref then
-    row.dps:SetText(Fmt(v))
-    local dd = v - ref
-    row.delta:SetText(abs(dd) < 0.5 and "\194\183" or Signed(dd))
-    local col = abs(dd) < 0.5 and GREY or (dd > 0 and GREEN or RED)
-    row.delta:SetTextColor(col[1], col[2], col[3])
-  else
-    row.dps:SetText("")
-    row.delta:SetText("")
-  end
+local function RefreshPicker()
+  if ns.Picker and ns.Picker:GetHost() == pstate.host then ns.Picker:RefreshHost() end
 end
 
 local function RunBest()
   if pstate.running then
     R():Cancel()
-    pstate.running = false
-    pstate.status = nil
-    PickerRefresh(false)
+    pstate.running, pstate.status = false, nil
+    RefreshPicker()
     return
   end
-  local rows = pstate.rows
-  local jobs = { { key = "ref", set = SimPanel:TargetSet() } }
+  local sid = pstate.sid
   local base = SimPanel:Working()
-  for i, r in ipairs(rows) do
-    if i > SimPanel.MAX_PICK_RUN then break end
-    local set = R():CopySet(base)
-    set[pstate.sid] = R():CopySet({ r.entry })[1]
-    jobs[#jobs + 1] = { key = r.entry.id, set = set }
+  local cur = base[sid]
+  local db = R():DB()
+  local jobs = { { key = "ref", set = base } }
+  for _, id in ipairs(ns.Picker:VisibleItems()) do
+    if #jobs > SimPanel.MAX_PICK_RUN then break end
+    if db.items[id] and not (cur and cur.id == id) then
+      local set = R():CopySet(base)
+      set[sid] = EntryFor(id, sid)
+      if sid == SID_MH and IsTwoHander(id) then set[SID_OH] = nil end
+      jobs[#jobs + 1] = { key = id, set = set }
+    end
   end
-  pstate.running = true
-  pstate.results = nil
+  if #jobs == 1 then
+    pstate.status = "Nothing listed that the sim knows: change the filters."
+    RefreshPicker()
+    return
+  end
+  pstate.running, pstate.results, pstate.ranked = true, nil, nil
+  local curName = cur and ns.ItemDB and ns.ItemDB:GetName(cur.id) or "an empty slot"
   local ok, err = R():Start(jobs, {
     iterations = SimPanel.PICK_ITERATIONS, settings = RunSettings(),
     onProgress = function(done, total, paused)
-      pstate.status = paused and "Paused while you are in combat" or ("Simming %d items...  %d%%"):format(#jobs - 1, floor(done / max(1, total) * 100))
-      if picker then picker.status:SetText(pstate.status) end
+      pstate.status = paused and "Paused while you are in combat"
+        or ("Simming %d items...  %d%%"):format(#jobs - 1, floor(done / max(1, total) * 100))
+      if ns.Picker.RefreshHostBar then ns.Picker:RefreshHostBar() end
     end,
     onDone = function(res, e)
       pstate.running = false
       if res then
-        pstate.results = { ref = res.ref.dps }
-        for k, s in pairs(res) do if type(k) == "number" then pstate.results[k] = s.dps end end
-        pstate.status = ("%s fights each  ·  same rolls  ·  vs %s"):format(Fmt(SimPanel.PICK_ITERATIONS), SimPanel:TargetText())
+        local r = { ref = res.ref.dps }
+        local ranked = {}
+        for k, s in pairs(res) do
+          if type(k) == "number" then r[k] = s.dps; ranked[#ranked + 1] = k end
+        end
+        if cur then r[cur.id] = res.ref.dps; ranked[#ranked + 1] = cur.id end
+        table.sort(ranked, function(a, b) return r[a] > r[b] end)
+        pstate.results, pstate.ranked = r, ranked
+        pstate.status = ("%d items, %s fights each, against %s"):format(#jobs - 1, Fmt(SimPanel.PICK_ITERATIONS), curName)
       else
         pstate.status = "Stopped: " .. tostring(e)
       end
-      PickerRefresh(false)
+      RefreshPicker()
     end,
   })
   if not ok then
     pstate.running = false
     pstate.status = tostring(err)
   end
-  PickerRefresh(false)
+  RefreshPicker()
 end
 
-local function EnsurePicker(parent)
-  if picker then return picker end
-  local UI = ns.UI
-  local f = CreateFrame("Frame", nil, parent)
-  f:SetAllPoints(parent)
-  f:SetFrameStrata("DIALOG")
-  f:EnableMouse(true)
-  f:SetScript("OnMouseDown", function(self) self:Hide() end)
-  local shade = f:CreateTexture(nil, "BACKGROUND")
-  shade:SetAllPoints()
-  shade:SetColorTexture(0, 0, 0, 0.45)
-  local box = CreateFrame("Frame", nil, f)
-  box:SetSize(320, 380)
-  box:SetPoint("CENTER", f, "CENTER", 0, -10)
-  box:EnableMouse(true)
-  local bg = box:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints()
-  bg:SetColorTexture(0.09, 0.09, 0.105, 0.98)
-  local edge = box:CreateTexture(nil, "BACKGROUND", nil, -1)
-  edge:SetPoint("TOPLEFT", -1, 1)
-  edge:SetPoint("BOTTOMRIGHT", 1, -1)
-  edge:SetColorTexture(EDGE[1], EDGE[2], EDGE[3], 0.9)
-  local inner = box:CreateTexture(nil, "BACKGROUND", nil, 1)
-  inner:SetAllPoints()
-  inner:SetColorTexture(0.09, 0.09, 0.105, 1)
-  f.box = box
-
-  f.title = Text(box, 14, { 0.94, 0.94, 0.94 })
-  f.title:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -12)
-  f.best = UI:CreateSleekButton(box, "Best for this slot", 128, 22, RunBest)
-  f.best:SetPoint("TOPRIGHT", box, "TOPRIGHT", -10, -8)
-  f.best:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Best for this slot", 1, 0.82, 0)
-    GameTooltip:AddLine(("Sims every item in the list (up to %d) in this slot, with the rest of the Working set, "
-      .. "and ranks them."):format(SimPanel.MAX_PICK_RUN), 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  f.best:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-  f.tabs = {}
-  local function tab(key, text)
-    local t = UI:CreateUnderlineTab(box, text, function()
-      pstate.tab = key
-      pstate.results = nil
-      for k, b in pairs(f.tabs) do b:SetActive(k == key) end
-      PickerRefresh(true)
-    end, "small")
-    f.tabs[key] = t
-    return t
+local function NewHost()
+  local host = {}
+  host.title = function(label) return label .. "  ·  Working set" end
+  host.current = function()
+    local e = SimPanel:Working()[pstate.sid]
+    return e and e.id
   end
-  tab("mine", "Mine"):SetPoint("TOPLEFT", box, "TOPLEFT", 8, -38)
-  tab("all", "All items"):SetPoint("LEFT", f.tabs.mine, "RIGHT", 10, 0)
-  f.search = UI:CreateSearchBox(box, 120, function(text)
-    pstate.search = (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    PickerRefresh(true)
-  end, "Search")
-  f.search:SetPoint("TOPRIGHT", box, "TOPRIGHT", -10, -40)
-
-  local hdr = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  hdr:SetPoint("TOPRIGHT", box, "TOPRIGHT", -16, -68)
-  hdr:SetText("DPS     vs target")
-  f.list = UI:CreateScrollList(box, 38, InitPickRow)
-  f.list.frame:SetPoint("TOPLEFT", box, "TOPLEFT", 6, -82)
-  f.list.frame:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -2, 26)
-  f.list:SetEmptyText("No items for this slot here. Try All items, or drag an item onto the slot.")
-  f.status = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  f.status:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", 10, 8)
-  f.status:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -10, 8)
-  f.status:SetJustifyH("LEFT")
-  f:SetScript("OnHide", function()
-    if pstate.running then R():Cancel(); pstate.running = false end
-  end)
-  picker = f
-  return f
+  host.pick = function(itemID)
+    if not FitsSlot(itemID, pstate.sid) then return false end
+    SimPanel:SetWorkingSlot(pstate.sid, EntryFor(itemID, pstate.sid))
+  end
+  host.clear = function() SimPanel:SetWorkingSlot(pstate.sid, nil) end
+  host.sections = function(sid)
+    local secs = {}
+    local mine = MineSection(sid)
+    if pstate.ranked then
+      local items, inRank = {}, {}
+      for i, id in ipairs(pstate.ranked) do
+        inRank[id] = true
+        local sub = (i == 1) and "Best for this slot" or ""
+        if host.current() == id then sub = (sub ~= "" and (sub .. "  ·  ") or "") .. "In the Working set" end
+        items[#items + 1] = { itemID = id, sub = sub ~= "" and sub or (ns.ItemDB and ns.ItemDB:GetSourceText(id, true) or "") }
+      end
+      secs[#secs + 1] = { name = "Simmed, best first", items = items }
+      local rest = {}
+      for _, it in ipairs(mine.items) do if not inRank[it.itemID] then rest[#rest + 1] = it end end
+      mine.items = rest
+    end
+    secs[#secs + 1] = mine
+    return secs
+  end
+  host.value = function(itemID)
+    local r = pstate.results
+    local v = r and r[itemID]
+    if not v then return nil end
+    local d = v - r.ref
+    local col = abs(d) < 0.5 and GREY or (d > 0 and GREEN or RED)
+    return Fmt(v) .. " DPS", (abs(d) < 0.5 and "\194\183" or Signed(d)), col
+  end
+  host.button = {
+    text = function() return pstate.running and "Cancel" or "Best for this slot" end,
+    onClick = RunBest,
+    tooltip = function(tt)
+      tt:AddLine("Best for this slot", 1, 0.82, 0)
+      tt:AddLine(("Sims the first %d items listed here in this slot, with the rest of the Working set as it is, and "
+        .. "ranks them against the slot's item. The filters and the search choose which."):format(SimPanel.MAX_PICK_RUN),
+        1, 1, 1, true)
+    end,
+  }
+  host.status = function()
+    return pstate.status or ("Sims the first %d items listed, %s fights each."):format(SimPanel.MAX_PICK_RUN, Fmt(SimPanel.PICK_ITERATIONS))
+  end
+  host.onClose = function()
+    if pstate.running then R():Cancel() end
+    pstate.running, pstate.results, pstate.ranked, pstate.status = false, nil, nil, nil
+  end
+  return host
 end
 
-function SimPanel:OpenPicker(sid, parent)
-  local f = EnsurePicker(parent)
-  pstate.sid, pstate.results, pstate.status, pstate.search = sid, nil, nil, ""
-  local label = ns.SLOTS and ns.SLOTS[sid] and ns.SLOTS[sid].label or ("Slot " .. sid)
-  f.title:SetText(label)
-  f.search:SetText("")
-  for k, b in pairs(f.tabs) do b:SetActive(k == pstate.tab) end
-  f:Show()
-  f:Raise()
-  PickerRefresh(true)
+function SimPanel:OpenPicker(sid, anchor)
+  if not (ns.Picker and ns.Picker.Open) then return end
+  if pstate.running then R():Cancel() end
+  pstate.sid, pstate.results, pstate.ranked, pstate.status, pstate.running = sid, nil, nil, nil, false
+  pstate.host = NewHost()
+  ns.Picker:Open(Phase(), sid, "main", anchor, List(), pstate.host)
 end
 
-function SimPanel:ClosePicker() if picker then picker:Hide() end end
-function SimPanel:IsPickerOpen() return picker and picker:IsShown() and true or false end
-function SimPanel:PickerRows() return pstate.rows end
+function SimPanel:IsPickerOpen() return ns.Picker and ns.Picker:GetHost() ~= nil and ns.Picker:GetHost() == pstate.host end
+function SimPanel:ClosePicker() if self:IsPickerOpen() then ns.Picker:Close() end end
+
+-- The off hand can't be changed while the Working set holds a two-hander (as in the game: choose a one-hander).
+function SimPanel:OffHandBlocked()
+  local mh = self:Working()[SID_MH]
+  return mh and IsTwoHander(mh.id) and true or false
+end
 
 -- Slot clicks in Sim mode: left = the picker, right = a menu.
 function SimPanel:OnSlotClick(sid, which, mouseButton, tile, parent)
+  if sid == SID_OH and self:OffHandBlocked() then
+    ns:Print("The Working set holds a two-hander: choose a one-hander in the main hand first.")
+    return
+  end
   if mouseButton ~= "RightButton" then
-    self:OpenPicker(sid, parent)
+    self:OpenPicker(sid, tile)
     return
   end
   local eq = R():EquippedSet()[sid]
   local bis = ns.BiS and ns.BiS:GetSlot(Phase(), sid, List())
   ns.UI:ContextMenu(tile, function(root)
     root:CreateTitle((ns.SLOTS[sid] and ns.SLOTS[sid].label or "") .. "  ·  Working set")
-    root:CreateButton("Choose item...", function() self:OpenPicker(sid, parent) end)
+    root:CreateButton("Choose item...", function() self:OpenPicker(sid, tile) end)
     if eq then root:CreateButton("Use my gear's item", function() self:SetWorkingSlot(sid, R():CopySet({ eq })[1]) end) end
     if bis then
       root:CreateButton("Use My BiS item", function() self:SetWorkingSlot(sid, R():FillEntryFromBiS(bis, Phase(), List(), sid)) end)
@@ -897,6 +810,7 @@ end
 
 function SimPanel:OnSlotReceiveItem(sid, itemID)
   if not FitsSlot(itemID, sid) then return end
+  if sid == SID_OH and self:OffHandBlocked() then return end
   self:SetWorkingSlot(sid, R():FillEntry(itemID, sid, self:Working()[sid]))
 end
 
@@ -911,11 +825,10 @@ function SimPanel:BuildMoreEntries(root, entry, GOLDC)
     function() self:ResetTo(R():BiSSet(p, List())) end)
 end
 
--- Item changes in bags or gear: the picker's Mine tab.
+-- Bag changes while the picker is open: its "Your gear and bags" section.
+ns:RegisterEvent("BAG_UPDATE_DELAYED", function() if SimPanel:IsPickerOpen() then ns.Picker:RefreshHost() end end)
+
 -- test hooks
 function SimPanel._state() return state end
 function SimPanel._pstate() return pstate end
 function SimPanel._runBest() RunBest() end
-
-ns:RegisterEvent("BAG_UPDATE_DELAYED", function() if SimPanel:IsPickerOpen() and pstate.tab == "mine" then PickerRefresh(false) end end)
-ns:On("ITEMINFO_READY", function() if SimPanel:IsPickerOpen() then picker.list:Refresh() end end)

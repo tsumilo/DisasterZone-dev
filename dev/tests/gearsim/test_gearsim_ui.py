@@ -108,20 +108,46 @@ def trinket_swap_marks_changed_and_shows_difference():
 
 
 @r.case
-def picker_lists_and_sims_best_for_slot():
+def picker_is_my_bis_picker_for_the_working_set():
     w, c = solo()
     c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
     sid = sid_of(c, 13)
-    c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton', nil, UIParent)", sid)
+    bis_before = c.eval_py("return { ns.BiS:GetSlot(1, ...) }", sid)
+    c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton')", sid)
     settle(w, 0.2)
-    assert c.eval("return ns.SimPanel:IsPickerOpen()") is True
-    ids = c.eval_py("local t = {} for _, r in ipairs(ns.SimPanel:PickerRows()) do t[#t + 1] = r.entry.id end return t")
-    assert HOURGLASS in ids and 29383 in ids and DRAGONSPINE in ids, ids
+    # My BiS's own picker, borrowed by the Working set
+    assert c.eval("return ns.Picker:IsOpen() and ns.SimPanel:IsPickerOpen()") is True
+    assert "Working set" in c.eval("return DisasterZonePicker.titleText:GetText()")
+    ids = c.eval_py("return ns.Picker:VisibleItems()")
+    # equipped (both trinkets) and the bag item first, then the sources
+    assert ids[:3] == [29383, DRAGONSPINE, HOURGLASS], ids[:5]
+    assert len(ids) > 10, ids
+    # Best for this slot: ranked against the slot's item, best first
     c.eval("ns.SimPanel._runBest()")
     run_until_done(w, c)
-    got = c.eval_py("local s = ns.SimPanel._pstate() return s.results")
-    assert got and got.get("ref"), got
-    assert sum(1 for k in got if k != "ref") >= 3, got
+    st = c.eval_py("local s = ns.SimPanel._pstate() return { results = s.results, ranked = s.ranked }")
+    assert st["results"] and st["results"].get("ref"), st
+    assert len(st["ranked"]) >= 4, st
+    vals = [st["results"][i] for i in st["ranked"]]
+    assert vals == sorted(vals, reverse=True), vals
+    assert c.eval_py("return ns.Picker:VisibleItems()")[:len(st["ranked"])] == st["ranked"]
+    # a pick changes the Working set, never the BiS list
+    c.eval("ns.Picker:PickItem(...)", HOURGLASS)
+    w.tick(0.1)
+    assert c.eval("return ns.Picker:IsOpen()") is False
+    assert c.eval("return ns.SimPanel:Working()[...].id", sid) == HOURGLASS
+    assert c.eval_py("return { ns.BiS:GetSlot(1, ...) }", sid) == bis_before
+    assert_no_lua_errors(w)
+
+
+@r.case
+def off_hand_waits_for_a_one_hander():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    oh = sid_of(c, 17)
+    assert c.eval("return ns.SimPanel:OffHandBlocked()") is True      # Lionheart Champion is a two-hander
+    c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton')", oh)
+    assert c.eval("return ns.Picker:IsOpen() and true or false") is False
     assert_no_lua_errors(w)
 
 

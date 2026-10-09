@@ -4,6 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Picker.lua", ...) then return e
 -- into sections (raid -> boss, "Crafted — Blacksmithing" -> specialisation, ...), with a phase filter,
 -- search and class / armor filters; accepts shift-clicked or dragged items. It won't open while the
 -- group's raid leader has locked the BiS lists (§38).
+-- A host (the gear sim's Working set, UI/SimPanel.lua) can borrow it: picks go to the host instead of the BiS list,
+-- the host adds sections at the top, numbers per row and a button at the bottom (Picker:Open(..., host)).
 local addonName, ns = ...
 
 local Picker = {}
@@ -48,11 +50,12 @@ local PHASE_TEXT = {
     all  = function() return "All phases" end,
 }
 
-local win, list, searchBox, phaseDD, sourcesDD, cbUsable, cbArmor, current, hint
+local win, list, searchBox, phaseDD, sourcesDD, cbUsable, cbArmor, current, hint, hostBar
 local state = {
     phase = 1, sid = 1, which = "main",
     search = "", phaseMode = "upto", usable = true, armorOnly = true,
     sources = nil,       -- { raids=, dungeons=, crafted=, rep=, badges=, pvp= } (loaded on first open)
+    host = nil,          -- see Picker:Open
 }
 local listMarks = {}     -- itemID -> { which=, sid= } for the phase being edited
 local currentPick        -- itemID currently in the slot being edited
@@ -281,6 +284,7 @@ local function RefreshMarks()
     end
     local main, alt = BiS:GetSlot(state.phase, state.sid, state.list)
     if state.which == "alt" then currentPick = alt else currentPick = main end
+    if state.host then currentPick = state.host.current and state.host.current() or nil end
 end
 
 ---------------------------------------------------------------------------
@@ -405,6 +409,10 @@ end
 
 local function Pick(itemID)
     itemID = tonumber(itemID)
+    if itemID and state.host then
+        if state.host.pick(itemID) ~= false then Picker:Close() end
+        return
+    end
     if not itemID or not ns.BiS then return end
     if ns.BiS:SetSlot(state.phase, state.sid, state.which, itemID, state.list) then
         Picker:Close()
@@ -571,7 +579,9 @@ local function InitRow(row, d)
     row.name:SetText((UI:ItemText(id)))
     row.sub:Show()
     local subText
-    if d.kind and KIND_HEADER[d.kind] then
+    if d.subText then
+        subText = d.subText
+    elseif d.kind and KIND_HEADER[d.kind] then
         subText = RowSourceText(d) or TypeLine(id)
     elseif d.via == "token" then
         local tokenName = d.viaItem and ns.ItemDB and ns.ItemDB:GetName(d.viaItem)
@@ -596,15 +606,26 @@ local function InitRow(row, d)
     row.sub:SetText(subText)
 
     local mark = listMarks[id]
-    if mark then
+    local hv, hd, hcol
+    if state.host and state.host.value then hv, hd, hcol = state.host.value(id) end
+    if hv then
+        -- the host's numbers (the sim's change and DPS) take the marks' place
+        row.mark1:SetText(hd or "")
+        if hcol then row.mark1:SetTextColor(hcol[1], hcol[2], hcol[3]) else row.mark1:SetTextColor(1, 0.82, 0) end
+        row.mark1:Show()
+    elseif mark then
         local text = mark.which == "alt" and "Alt" or "Main"
         if mark.sid and mark.sid ~= state.sid then text = text .. " (" .. SlotShort(mark.sid) .. ")" end
+        row.mark1:SetTextColor(1, 0.82, 0)
         row.mark1:SetText(UI:Colorize(text, ns.COLORS and ns.COLORS[mark.which == "alt" and "alt" or "main"]))
         row.mark1:Show()
     else
         row.mark1:Hide()
     end
-    if ns.BiS and ns.BiS:IsObtained(id) then
+    if hv then
+        row.mark2:SetText(hv)
+        row.mark2:Show()
+    elseif ns.BiS and ns.BiS:IsObtained(id) then
         row.mark2:SetText("|T" .. UI:Tex("check") .. ":0|t " .. UI:Colorize("owned", ns.COLORS and ns.COLORS.obtained))
         row.mark2:Show()
     else
@@ -668,14 +689,71 @@ local function Flatten(cands)
     return rows
 end
 
+-- The host's sections ({ { name =, items = { { itemID =, sub = } } } }) as rows, searched like the rest.
+local function HostRows()
+    local rows = {}
+    local host = state.host
+    if not (host and host.sections) then return rows end
+    local needle = Lower(state.search)
+    for _, sec in ipairs(host.sections(state.sid) or {}) do
+        local items = {}
+        for _, it in ipairs(sec.items or {}) do
+            local name = ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(it.itemID) or ""
+            if needle == "" or Lower(name):find(needle, 1, true) or Lower(it.sub or ""):find(needle, 1, true) then
+                items[#items + 1] = { type = "item", itemID = it.itemID, subText = it.sub }
+            end
+        end
+        if #items > 0 then
+            rows[#rows + 1] = { type = "raid", name = sec.name, count = #items }
+            for _, r in ipairs(items) do rows[#rows + 1] = r end
+        end
+    end
+    return rows
+end
+
+local function UpdateHostBar()
+    if not hostBar then return end
+    local host = state.host
+    local on = host ~= nil and host.button ~= nil
+    hostBar:SetShown(on)
+    if hint then hint:SetShown(not on) end
+    if on then
+        hostBar.btn:SetText(host.button.text())
+        hostBar.status:SetText(host.status and host.status() or "")
+    end
+end
+
 function Picker:Rebuild(resetScroll)
     if not win or not list then return end
     RefreshMarks()
     local cands = Candidates()
     if state.search ~= "" then cands = Search(cands, state.search) end
     list:SetEmptyText(AnySource() and EMPTY_TEXT or EMPTY_NO_SOURCES)
-    list:SetData(Flatten(cands), resetScroll)
+    local rows = Flatten(cands)
+    if state.host then
+        local top = HostRows()
+        for i = #top, 1, -1 do table.insert(rows, 1, top[i]) end
+    end
+    list:SetData(rows, resetScroll)
+    UpdateHostBar()
 end
+
+-- The listed items, top to bottom, each once (a host sims these).
+function Picker:VisibleItems()
+    local out, seen = {}, {}
+    for _, d in ipairs(list and list.data or {}) do
+        if d.type == "item" and d.itemID and not seen[d.itemID] then
+            seen[d.itemID] = true
+            out[#out + 1] = d.itemID
+        end
+    end
+    return out
+end
+
+function Picker:RefreshHostBar()
+    UpdateHostBar()
+end
+
 
 local function Prefetch()
     local ItemDB = ns.ItemDB
@@ -692,6 +770,10 @@ local function UpdateHeader()
     if not win then return end
     local whichText = state.which == "alt" and "Alt" or "Main"
     -- Addendum H: the off-spec list says so in the title.
+    if state.host and state.host.title then
+        win:SetWindowTitle(state.host.title(SlotLabel(state.sid)))
+        return
+    end
     win:SetWindowTitle(("Choose %s (%s)  ·  %s%s"):format(SlotLabel(state.sid), whichText, PhaseText(state.phase),
         state.list == "os" and "  ·  Off spec" or ""))
 end
@@ -709,7 +791,11 @@ local function UpdateCurrent()
         current.clear:Enable()
     else
         current.name:SetText("|cff808080Nothing chosen yet|r")
-        current.sub:SetText(("Current %s pick for %s"):format(state.which == "alt" and "alt" or "main", SlotLabel(state.sid)))
+        if state.host then
+            current.sub:SetText(("%s is empty in the Working set"):format(SlotLabel(state.sid)))
+        else
+            current.sub:SetText(("Current %s pick for %s"):format(state.which == "alt" and "alt" or "main", SlotLabel(state.sid)))
+        end
         current.clear:Disable()
     end
 end
@@ -746,7 +832,11 @@ local function EnsureWindow()
     current.btn = UI:CreateItemButton(current, 32)
     current.btn:SetPoint("LEFT", current, "LEFT", 0, 0)
     current.clear = UI:CreateButton(current, "Clear", 60, 22, function()
-        if ns.BiS then ns.BiS:SetSlot(state.phase, state.sid, state.which, nil, state.list) end
+        if state.host then
+            if state.host.clear then state.host.clear() end
+        elseif ns.BiS then
+            ns.BiS:SetSlot(state.phase, state.sid, state.which, nil, state.list)
+        end
         UpdateCurrent()
         if list then list:Refresh() end
     end)
@@ -812,12 +902,41 @@ local function EnsureWindow()
     hint:SetJustifyH("LEFT")
     hint:SetText(HINT_TEXT)
 
+    -- a host's button and status line (in the hint's place)
+    hostBar = CreateFrame("Frame", nil, c)
+    hostBar:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 4, 5)
+    hostBar:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -4, 5)
+    hostBar:SetHeight(28)
+    hostBar.btn = UI:CreateSleekButton(hostBar, "", 130, 24, function()
+        if state.host and state.host.button then state.host.button.onClick() end
+        UpdateHostBar()
+    end)
+    hostBar.btn:SetPoint("LEFT", hostBar, "LEFT", 0, 0)
+    hostBar.btn:HookScript("OnEnter", function(self)
+        local b = state.host and state.host.button
+        if not (b and b.tooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        b.tooltip(GameTooltip)
+        GameTooltip:Show()
+    end)
+    hostBar.btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    hostBar.status = hostBar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hostBar.status:SetPoint("LEFT", hostBar.btn, "RIGHT", 8, 0)
+    hostBar.status:SetPoint("RIGHT", hostBar, "RIGHT", 0, 0)
+    hostBar.status:SetJustifyH("LEFT")
+    hostBar.status:SetWordWrap(true)
+    hostBar.status:SetMaxLines(2)
+    hostBar:Hide()
+
     -- the whole window accepts items dragged from the bags
     UI:AttachItemDrop(win, OnDropItem)
     current.btn.onReceiveItem = OnDropItem
 
     win:HookScript("OnHide", function()
         if searchBox then searchBox:ClearFocus() end
+        local host = state.host
+        state.host = nil
+        if host and host.onClose then host.onClose() end
         if ns.MyBiS and ns.MyBiS.OnPickerClosed then ns.MyBiS:OnPickerClosed() end
     end)
     return win
@@ -847,11 +966,16 @@ end
 
 -- Returns true when the picker opened (false while the group's BiS lists are locked, §38).
 -- list (Addendum H): "ms" (default) or "os" = pick for the off-spec list.
-function Picker:Open(phase, sid, which, anchor, list)
+-- host (optional; the BiS lists are then left alone): { title(slotLabel) -> text, current() -> itemID,
+-- pick(itemID) (false keeps the picker open), clear(), sections(sid) -> { { name =, items = { { itemID =, sub = } } } }
+-- listed first, value(itemID) -> valueText, changeText, color (shown instead of the list marks),
+-- button = { text(), onClick(), tooltip(tt) }, status() -> text, onClose() }.
+function Picker:Open(phase, sid, which, anchor, list, host)
     sid = tonumber(sid)
     if not sid or not SlotInfo(sid) then return false end
+    if win and win:IsShown() then win:Hide() end   -- the previous host lets go first
     local locked, info = ListLocked()
-    if locked then
+    if locked and not host then
         LockedMessage(info)
         self:Close()
         return false
@@ -861,6 +985,7 @@ function Picker:Open(phase, sid, which, anchor, list)
     state.which = which == "alt" and "alt" or "main"
     state.list = (list == "os") and "os" or nil
     state.search = ""
+    state.host = host
     Sources()
 
     EnsureWindow()
@@ -893,6 +1018,22 @@ end
 
 function Picker:GetState()
     return state.phase, state.sid, state.which, state.list
+end
+
+-- Repaint after the host's numbers changed (keeps the scroll position).
+function Picker:RefreshHost()
+    if not self:IsOpen() then return end
+    UpdateCurrent()
+    self:Rebuild(false)
+end
+
+-- Picks an item as a click on its row would (into the BiS list, or the host).
+function Picker:PickItem(itemID)
+    if self:IsOpen() then Pick(itemID) end
+end
+
+function Picker:GetHost()
+    return self:IsOpen() and state.host or nil
 end
 
 -- DisasterZone extension (§35): the ticked sources (a copy) and the phase filter ("upto" | "only" | "all").
@@ -939,7 +1080,7 @@ ns:On("OWNED_UPDATED", RefreshMarkers)
 
 -- A lock that starts while the picker is open closes it (§38).
 local function OnLockChanged()
-    if Picker:IsOpen() and ListLocked() then Picker:Close() end
+    if Picker:IsOpen() and not state.host and ListLocked() then Picker:Close() end
 end
 ns:On("BIS_LOCK_CHANGED", OnLockChanged)
 ns:On("GROUP_RULES_CHANGED", OnLockChanged)
