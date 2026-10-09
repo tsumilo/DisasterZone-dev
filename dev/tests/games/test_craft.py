@@ -427,60 +427,7 @@ def death_ghost_and_resurrect():
     no_errors(w)
 
 
-@case
-def talents_points_rules_and_effects():
-    """A point a level from 10; tiers open with five points in the tree; the ranks really change the spells."""
-    w, c = game(8)
-    r = c.eval_py(r"""
-      local Craft = ns.Craft
-      local T, p, Combat = Craft.Talents, Craft.player, Craft.Combat
-      local out = {}
-      Craft.char.level = 9
-      out.at9 = T.Points()
-      local ok9 = T.Learn(26)
-      Craft.char.level, p.level = 12, 12
-      out.at12 = T.Points()
-      local fb = Craft.D.spells[133]
-      out.cast0 = Combat.CastTime(fb, p)
-      out.learn1, out.learn2 = T.Learn(26), T.Learn(26)        -- Improved Fireball 2/5
-      out.cast2 = Combat.CastTime(fb, p)
-      out.left = T.Points()
-      -- a tier-2 talent with 2 points in the tree: locked
-      local tier2
-      for _, t in ipairs(T.Trees(8)[2].talents) do if t.tier == 1 then tier2 = t.id break end end
-      out.tier2ok, out.tier2why = T.CanLearn(nil, tier2)
-      out.book = false
-      for _, tab in ipairs(Craft.Npc.Spellbook()) do for _, id in ipairs(tab.list) do if id == 12338 then out.book = true end end end
-      out.ok9 = ok9
-      return out
-    """)
-    assert r["at9"] == 0 and r["ok9"] is False, r
-    assert r["at12"] == 3 and r["learn1"] and r["learn2"] and r["left"] == 1, r
-    assert abs(r["cast0"] - 1.5) < 1e-6 and abs(r["cast2"] - 1.3) < 1e-6, r       # (0.1 s a rank)
-    assert r["tier2ok"] is False and r["tier2why"] == "tier", r
-    assert r["book"] is False, r                                                  # (passive talents stay out)
-    no_errors(w)
-    # a warrior: Cruelty's crit, Improved Heroic Strike's rage, then unlearning at the trainer (1 g)
-    w, c = game(1)
-    r = c.eval_py(r"""
-      local Craft = ns.Craft
-      local T, p, Combat = Craft.Talents, Craft.player, Craft.Combat
-      Craft.char.level, p.level = 11, 11
-      Combat.Recalc(p)
-      local crit0, cost0 = p.crit, Combat.Cost(Craft.D.spells[78], p)
-      T.Learn(157) T.Learn(124)                                 -- Cruelty 1/5, Improved Heroic Strike 1/3
-      local crit1, cost1 = p.crit, Combat.Cost(Craft.D.spells[78], p)
-      Craft:AddMoney(10000, "silent")
-      local cost = T.ResetCost()
-      local reset = T.Reset()
-      return { crit0 = crit0, crit1 = crit1, cost0 = cost0, cost1 = cost1, resetCost = cost, reset = reset,
-               crit2 = p.crit, spent = T.Spent(), money = Craft:Money() }
-    """)
-    assert abs(r["crit1"] - r["crit0"] - 1) < 1e-6, r
-    assert r["cost0"] == 150 and r["cost1"] == 140, r                             # (15 rage, then 14)
-    assert r["resetCost"] == 10000 and r["reset"] and r["spent"] == 0, r
-    assert abs(r["crit2"] - r["crit0"]) < 1e-6, r
-    no_errors(w)
+# (talents: the rows of Games/Disastercraft/Talents.lua - tests/games/test_craft_talents.py)
 
 
 @case

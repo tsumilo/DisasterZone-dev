@@ -35,9 +35,7 @@ function Npc.Gossip(u)
     if cr.trainer then
         if cr.tcls == C().class then
             g.options[#g.options + 1] = { text = "I seek training.", icon = "Trainer", action = "trainer" }
-            if Craft.Talents and Craft.Talents.Spent(C()) > 0 then
-                g.options[#g.options + 1] = { text = "I wish to unlearn my talents.", icon = "Trainer", action = "unlearn" }
-            end
+            -- (no "unlearn my talents": a talent row's choice changes for free in the talent window)
         elseif not g.text then
             g.text = string.format("I can only train %ss, %s.", (Craft.CLASS_NAMES[cr.tcls] or "?"):lower(),
                                    Craft.CLASS_NAMES[C().class]:lower())

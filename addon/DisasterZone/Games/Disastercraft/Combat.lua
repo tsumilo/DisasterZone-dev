@@ -52,6 +52,10 @@ local A_SKILL, A_SKILL_TALENT, A_FLAT_MOD, A_PCT_MOD, A_SCHOOL_CRIT = 30, 98, 10
 -- buffs on the character sheet: stat percent (Blessing of Kings, Arcane Mind), mana (MOD_INCREASE_ENERGY), healing
 -- done, ranged attack power
 local A_STAT_PCT, A_TOTAL_STAT_PCT, A_MOD_MANA, A_HEAL_DONE, A_RANGED_AP = 80, 137, 35, 135, 124
+-- the talent rows' percent auras: damage done / taken by school, healing taken / done, cast speed, mana cost by
+-- school, maximum mana, armor from items, armor from Intellect (Arcane Fortitude)
+local A_DMG_PCT, A_DMG_TAKEN_PCT, A_HEAL_TAKEN_PCT, A_HEAL_DONE_PCT = 79, 87, 118, 136
+local A_CAST_SPEED, A_COST_PCT, A_MANA_PCT, A_ARMOR_ITEMS_PCT, A_ARMOR_OF_INT = 65, 72, 132, 142, 571
 -- what a spell modifier changes (SpellModOp)
 local MOD_DAMAGE, MOD_DURATION, MOD_THREAT, MOD_EFFECT1, MOD_RANGE, MOD_RADIUS, MOD_CRIT, MOD_ALL_EFFECTS =
     0, 1, 2, 3, 5, 6, 7, 8
@@ -158,6 +162,20 @@ local function AuraSumMask(u, aura, bits)
     end
     return s
 end
+
+-- percent auras whose misc is a school mask (none: every school), as a factor for a school
+local function PctMask(u, aura, bits)
+    local m = 1
+    for _, a in ipairs(u and u.auras or {}) do
+        for _, e in ipairs(a.fx) do
+            if e.a == aura and (not e.misc or e.misc == 0 or band(e.misc, bits or 1) ~= 0) then
+                m = m * (1 + (e.amount or 0) / 100)
+            end
+        end
+    end
+    return m
+end
+Combat.PctMask = PctMask
 
 -- a stat's percent auras (MOD_PERCENT_STAT, MOD_TOTAL_STAT_PERCENTAGE: misc = the stat, -1 = all) as a factor
 local function StatMult(u, stat)
@@ -270,10 +288,14 @@ function Combat.Recalc(u)
             u.powerType = Craft.POWER_MANA
             local oldP = u.powerMax
             u.powerMax = lv[2] + min(20, u.int) + max(0, u.int - 20) * 15 + g.manaBonus + AuraSum(u, A_MOD_MANA, 0)
+            u.powerMax = floor(u.powerMax * PctMask(u, A_MANA_PCT, 1) + 0.5)    -- (Mental Strength)
             if oldP and u.power then u.power = min(u.power, u.powerMax) end
         end
         local armorBase = g.armor + (u.agi - bonus.agi) * 2
-        u.armor = floor((g.armor + u.agi * 2 + AuraSumMask(u, A_RESIST, 1)) * AuraMult(u, A_RESIST_PCT))
+        -- (Toughness: armor from items; Arcane Fortitude: a share of Intellect)
+        local itemArmor = g.armor * PctMask(u, A_ARMOR_ITEMS_PCT, 1)
+        local intArmor = AuraSum(u, A_ARMOR_OF_INT) * u.int / 100
+        u.armor = floor((itemArmor + intArmor + u.agi * 2 + AuraSumMask(u, A_RESIST, 1)) * AuraMult(u, A_RESIST_PCT))
         bonus.armor = u.armor - armorBase
         local function MeleeAP(str) return u.class == 1 and (u.level * 3 + str * 2 - 20) or max(0, str - 10) end
         u.ap = MeleeAP(u.str) + g.ap + AuraSum(u, A_AP)
@@ -416,7 +438,10 @@ end
 -- seconds (u: the caster - its Improved Fireball and the like)
 function Combat.CastTime(sp, u)
     local ms = sp.cast or 0
-    if u and ms > 0 then ms = max(0, Combat.SpellMod(u, sp, MOD_CAST_TIME, ms)) end
+    if u and ms > 0 then
+        ms = max(0, Combat.SpellMod(u, sp, MOD_CAST_TIME, ms))
+        ms = ms / PctMask(u, A_CAST_SPEED, sp.school or 1)          -- (Icy Veins, Power Infusion)
+    end
     return ms / 1000
 end
 
@@ -438,7 +463,10 @@ function Combat.Cost(sp, u)
         else base = (D.classes[u.class] and D.classes[u.class].levels[min(u.level, 10)][2]) or u.powerMax end
         cost = cost + floor(base * sp.costPct / 100)
     end
-    if u then cost = max(0, floor(Combat.SpellMod(u, sp, MOD_COST, cost) + 0.5)) end
+    if u then
+        cost = Combat.SpellMod(u, sp, MOD_COST, cost) * PctMask(u, A_COST_PCT, sp.school or 1)
+        cost = max(0, floor(cost + 0.5))
+    end
     return cost, pt
 end
 
@@ -575,6 +603,9 @@ function Combat.Damage(src, dst, amount, info)
     if not dst or dst.dead then return 0 end
     info = info or {}
     local school = info.school or 1
+    -- damage done (Enrage, Arcane Instability, Shadowform) and taken (Shadowform) by school
+    if src and src ~= dst then amount = amount * PctMask(src, A_DMG_PCT, school) end
+    amount = amount * PctMask(dst, A_DMG_TAKEN_PCT, school)
     amount = max(0, floor(amount + 0.5))
     local absorbed = 0
     amount, absorbed = Absorb(dst, amount, school)
@@ -625,6 +656,9 @@ end
 function Combat.Heal(src, dst, amount, info)
     if not dst or dst.dead then return 0 end
     info = info or {}
+    -- healing done (Spiritual Healing) and taken (Mortal Strike's wound)
+    if src then amount = amount * PctMask(src, A_HEAL_DONE_PCT, 127) end
+    amount = amount * PctMask(dst, A_HEAL_TAKEN_PCT, 127)
     amount = max(0, floor(amount + 0.5))
     if Combat.Net and not Combat.Owns(dst) then Combat.Net.Heal(src, dst, amount, info) end
     local before = dst.hp
@@ -938,6 +972,8 @@ local function TickAura(u, a, x, now)
         end
     elseif x.a == A_PHEAL then
         Combat.Heal(caster, u, x.amount, { kind = "hot", spell = a.spell })
+    elseif x.a == 20 then                                   -- (OBS_MOD_HEALTH: a share of max health - Blood Craze)
+        Combat.Heal(caster or u, u, (u.hpMax or 0) * (x.amount or 0) / 100, { kind = "hot", spell = a.spell })
     elseif x.a == A_REGEN then
         if u.kind == "player" and u.hp < u.hpMax then
             u.regenAcc = (u.regenAcc or 0) + x.amount / 5
@@ -1111,7 +1147,15 @@ function Combat.CastSpell(u, id, target, opts)
         Combat.PayCost(u, sp)
         u.casting = { spell = id, target = target, start = Now(), ends = Now() + dur, channel = true, opts = opts,
                       push = 0 }
-        Combat.ApplyAura(u, u, id, true)
+        -- a channel whose effects hit the enemy (Mind Flay: its damage and slow) puts its aura on the target; one
+        -- that fires something every tick (Arcane Missiles) keeps it on the caster
+        local trigger = false
+        for _, e in ipairs(sp.fx or {}) do if e.a == A_PTRIGGER then trigger = true end end
+        if not trigger and target and target ~= u and Combat.TargetKind(sp) == "enemy" then
+            u.casting.tAura = Combat.ApplyAura(u, target, id, false)
+        else
+            Combat.ApplyAura(u, u, id, true)
+        end
         StartCooldown(u, sp, id, opts)
         Craft:Emit("cast", u, id, "channel", target)
         if Combat.Net and u.kind == "player" then Combat.Net.Cast(u, id, target, dur, true) end
@@ -1352,6 +1396,7 @@ function Combat.Interrupt(u, why)
     if c.channel then
         local a = Combat.FindAura(u, c.spell)
         if a then Combat.RemoveAura(u, a, "interrupt") end
+        if c.tAura and c.target then Combat.RemoveAura(c.target, c.tAura, "interrupt") end
     end
     -- (a cast stopped before it finished: the GCD is given back, like WoW)
     if not c.channel and u.gcdEnd then u.gcdEnd = Now() end
@@ -1452,6 +1497,7 @@ function Combat.Update(dt)
                         u.casting = nil
                         local a = Combat.FindAura(u, c.spell)
                         if a then Combat.RemoveAura(u, a, "expired") end
+                        if c.tAura and c.target then Combat.RemoveAura(c.target, c.tAura, "expired") end
                         Craft:Emit("cast", u, c.spell, "done", c.target)
                     else
                         Combat.FinishCast(u, c.spell, c.target, c.opts)

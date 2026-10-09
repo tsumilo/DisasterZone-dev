@@ -1,8 +1,10 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Disastercraft/Talents.lua", ...) then return end -- DisasterZone Games/Disastercraft/Talents.lua
--- Craft.Talents: WoW's talent trees (Talent.dbc / TalentTab.dbc, in Data.lua) as in TBC: a point every level from
--- 10, five points spent in a tree open its next tier, a talent's prerequisite first; each rank is a spell - a
--- passive one puts its aura on the hero (Combat's spell modifiers and stat auras do the rest), an active one goes
--- into the spellbook. A class trainer unlearns them all for a fee (1 g, then 5 g more each time, 50 g at most).
+-- Craft.Talents: talent rows (the user's pick, 2026-10-09) instead of WoW's trees, which at a level-10 cap gave one
+-- point. Every second level opens a row of three choices, one per spec of the class (Arms / Fury / Protection,
+-- Fire / Frost / Arcane, Holy / Shadow / Discipline); each choice is a real TBC talent at its top rank (a passive
+-- puts its aura on the hero - Combat's spell modifiers and stat auras do the rest) or a talent ability (into the
+-- spellbook and onto a free action button). A row's choice changes for free, out of combat, like MoP's rows.
+-- State: char.trow[row] = choice (1..3).
 local addonName, ns = ...
 
 local Craft = ns.Craft
@@ -12,145 +14,168 @@ local Combat = Craft.Combat
 local Talents = {}
 Craft.Talents = Talents
 
-local max, min = math.max, math.min
-local FIRST_LEVEL, PER_TIER = 10, 5
+-- level the row opens at, the three talent spells (top rank) in spec order
+Talents.ROWS = {
+    [1] = {                                                    -- Warrior: Arms, Fury, Protection
+        { level = 2, spells = { 12664, 12856, 16466 } },       -- Improved Heroic Strike, Cruelty, Deflection
+        { level = 4, spells = { 12697, 12666, 12753 } },       -- Improved Charge, Improved Thunder Clap, Anticipation
+        { level = 6, spells = { 12659, 13002, 16492 } },       -- Improved Rend, Unbridled Wrath, Blood Craze
+        { level = 8, spells = { 12296, 13048, 12764 } },       -- Anger Management, Enrage, Toughness
+        { level = 10, spells = { 12294, 23881, 12809 } },      -- Mortal Strike, Bloodthirst, Concussion Blow
+    },
+    [8] = {                                                    -- Mage: Fire, Frost, Arcane
+        { level = 2, spells = { 12341, 16766, 12503 } },       -- Improved Fireball, Improved Frostbolt, Arcane Mind
+        { level = 4, spells = { 11368, 12953, 15060 } },       -- Critical Mass, Piercing Ice, Arcane Instability
+        { level = 6, spells = { 12360, 12475, 28574 } },       -- Impact, Improved Frost Nova, Arcane Fortitude
+        { level = 8, spells = { 11366, 11426, 12042 } },       -- Pyroblast, Ice Barrier, Arcane Power
+        { level = 10, spells = { 11113, 12472, 31589 } },      -- Blast Wave, Icy Veins, Slow
+    },
+    [5] = {                                                    -- Priest: Holy, Shadow, Discipline
+        { level = 2, spells = { 15011, 15338, 18555 } },       -- Holy Specialization, Spirit Tap, Mental Strength
+        { level = 4, spells = { 18535, 15317, 14769 } },       -- Divine Fury, Improved SW: Pain, Improved PW: Shield
+        { level = 6, spells = { 15017, 15310, 15356 } },       -- Searing Light, Darkness, Spiritual Healing
+        { level = 8, spells = { 15237, 15407, 14752 } },       -- Holy Nova, Mind Flay, Divine Spirit
+        { level = 10, spells = { 34861, 15473, 10060 } },      -- Circle of Healing, Shadowform, Power Infusion
+    },
+}
+Talents.SPECS = { [1] = { "Arms", "Fury", "Protection" }, [8] = { "Fire", "Frost", "Arcane" },
+                  [5] = { "Holy", "Shadow", "Discipline" } }
 
--- talent id -> { tree index, row }, spell id -> talent id (built once)
-local byTalent, bySpell
-
+local bySpell
 local function Index()
-    if byTalent then return end
-    byTalent, bySpell = {}, {}
-    for _, trees in pairs(D.talents or {}) do
-        for ti, tree in ipairs(trees) do
-            for _, t in ipairs(tree.talents) do
-                byTalent[t.id] = { tree = ti, row = t }
-                for _, sp in ipairs(t.ranks) do bySpell[sp] = t.id end
-            end
+    if bySpell then return end
+    bySpell = {}
+    for cls, rows in pairs(Talents.ROWS) do
+        for ri, row in ipairs(rows) do
+            for ci, id in ipairs(row.spells) do bySpell[id] = { cls = cls, row = ri, choice = ci } end
         end
     end
 end
 
 local function C() return Craft.char end
 
-function Talents.Trees(cls) return (D.talents and D.talents[cls]) or {} end
-function Talents.Get(id) Index() return byTalent[id] and byTalent[id].row, byTalent[id] and byTalent[id].tree end
+function Talents.Rows(cls) return Talents.ROWS[cls or (C() and C().class)] or {} end
 function Talents.OfSpell(spellId) Index() return bySpell[spellId] end
-function Talents.Rank(c, id) c = c or C() return (c and c.talents and c.talents[id]) or 0 end
-
--- points spent in tree ti (all trees when nil)
-function Talents.Spent(c, ti)
+function Talents.Choice(c, row) c = c or C() return c and c.trow and c.trow[row] or nil end
+function Talents.Open(c, row)
     c = c or C()
-    Index()
-    local n = 0
-    for id, r in pairs(c and c.talents or {}) do
-        local x = byTalent[id]
-        if x and (ti == nil or x.tree == ti) then n = n + r end
-    end
-    return n
+    local r = Talents.Rows(c and c.class)[row]
+    return r ~= nil and (c.level or 1) >= r.level
 end
 
--- -> unspent, spent, earned
+-- -> rows open without a choice, rows chosen, rows open
 function Talents.Points(c)
     c = c or C()
-    local earned = max(0, (c and c.level or 1) - FIRST_LEVEL + 1)
-    local spent = Talents.Spent(c)
-    return max(0, earned - spent), spent, earned
+    local open, chosen = 0, 0
+    for ri in ipairs(Talents.Rows(c and c.class)) do
+        if Talents.Open(c, ri) then
+            open = open + 1
+            if Talents.Choice(c, ri) then chosen = chosen + 1 end
+        end
+    end
+    return open - chosen, chosen, open
 end
+function Talents.Spent(c) local _, n = Talents.Points(c) return n end
 
--- can c put a point into talent id? -> ok, why ("points" | "max" | "tier" | "prereq")
-function Talents.CanLearn(c, id)
+-- can c pick choice ci in row ri? -> ok, why ("level" | "combat" | "same" | "unknown")
+function Talents.CanChoose(c, ri, ci)
     c = c or C()
-    local t, ti = Talents.Get(id)
-    if not t then return false, "unknown" end
-    local rank = Talents.Rank(c, id)
-    if rank >= #t.ranks then return false, "max" end
-    if Talents.Points(c) <= 0 then return false, "points" end
-    if Talents.Spent(c, ti) < t.tier * PER_TIER then return false, "tier" end
-    for _, p in ipairs(t.pre or {}) do
-        if Talents.Rank(c, p[1]) < p[2] then return false, "prereq" end
-    end
+    local row = Talents.Rows(c and c.class)[ri]
+    if not (row and row.spells[ci]) then return false, "unknown" end
+    if not Talents.Open(c, ri) then return false, "level" end
+    if Talents.Choice(c, ri) == ci then return false, "same" end
+    local p = Craft.player
+    if p and p.inCombat then return false, "combat" end
     return true
 end
 
-local function ApplyRank(u, spellId, prevId)
-    if not u then return end
-    if prevId then
-        local a = Combat.FindAura(u, prevId)
-        if a then Combat.RemoveAura(u, a, "talent") end
+local function Drop(c, u, id)
+    c.spells[id] = nil
+    local a = u and Combat.FindAura(u, id)
+    if a then Combat.RemoveAura(u, a, "talent") end
+    for slot, act in pairs(c.bar or {}) do
+        if act[1] == "spell" and act[2] == id then c.bar[slot] = nil end
     end
-    local sp = D.spells[spellId]
-    if sp and Combat.IsPassive(sp) then Combat.ApplyAura(u, u, spellId, true) end
-    Combat.Recalc(u)
 end
 
--- a point into talent id (the hero's)
-function Talents.Learn(id)
+local function Take(c, u, id)
+    local sp = D.spells[id]
+    if not sp then return end
+    c.spells[id] = true
+    if Combat.IsPassive(sp) then
+        if u and not Combat.FindAura(u, id) then Combat.ApplyAura(u, u, id, true) end
+        return
+    end
+    -- an ability: onto the first free button of the main bar, as the client does with a new spell
+    for _, act in pairs(c.bar or {}) do if act[1] == "spell" and act[2] == id then return end end
+    c.bar = c.bar or {}
+    for slot = 1, 12 do
+        if not c.bar[slot] then c.bar[slot] = { "spell", id } Craft:Emit("bar") return end
+    end
+end
+
+-- picks choice ci in row ri (the old choice of the row goes)
+function Talents.Choose(ri, ci)
     local c = C()
-    local ok, why = Talents.CanLearn(c, id)
-    if not ok then return false, why end
-    local t = Talents.Get(id)
-    c.talents = c.talents or {}
-    local rank = (c.talents[id] or 0) + 1
-    local prev = rank > 1 and t.ranks[rank - 1] or nil
-    local spellId = t.ranks[rank]
-    c.talents[id] = rank
-    if prev then c.spells[prev] = nil end
-    c.spells[spellId] = true
-    ApplyRank(Craft.player, spellId, prev)
-    Craft:Emit("talent", id, rank)
+    local ok, why = Talents.CanChoose(c, ri, ci)
+    if not ok then
+        if why == "combat" then Craft:Error("You can't change talents in combat.") end
+        return false, why
+    end
+    local u = Craft.player
+    c.trow = c.trow or {}
+    local row = Talents.Rows(c.class)[ri]
+    local old = c.trow[ri]
+    if old then Drop(c, u, row.spells[old]) end
+    c.trow[ri] = ci
+    Take(c, u, row.spells[ci])
+    if u then Combat.Recalc(u) end
+    local sp = D.spells[row.spells[ci]]
+    Craft:Msg(string.format("You have learned %s.", sp and sp.n or "?"), "system")
+    Craft:Emit("talent", ri, ci)
+    Craft:Emit("spell", row.spells[ci])
     return true
 end
 
--- the hero's talents on its unit (logging in, coming back to life)
+-- the hero's chosen talents on its unit (logging in, coming back to life); rows above the level are dropped
+-- (a level lost to a debug command), and the old trees' points of earlier saves are taken back
 function Talents.ApplyAll(u)
     local c = u and u.char
-    if not (c and c.talents) then return end
-    for id, r in pairs(c.talents) do
-        local t = Talents.Get(id)
-        local spellId = t and t.ranks[r]
-        local sp = spellId and D.spells[spellId]
-        if sp and Combat.IsPassive(sp) and not Combat.FindAura(u, spellId) then Combat.ApplyAura(u, u, spellId, true) end
+    if not c then return end
+    if c.talents then
+        for _, tree in ipairs((D.talents or {})[c.class] or {}) do
+            for _, t in ipairs(tree.talents) do
+                for _, id in ipairs(t.ranks) do
+                    if c.spells[id] then
+                        c.spells[id] = nil
+                        local a = Combat.FindAura(u, id)
+                        if a then Combat.RemoveAura(u, a, "talent") end
+                    end
+                end
+            end
+        end
+        c.talents = nil
+    end
+    for ri, ci in pairs(c.trow or {}) do
+        local row = Talents.Rows(c.class)[ri]
+        local id = row and row.spells[ci]
+        if id and Talents.Open(c, ri) then
+            c.spells[id] = true
+            local sp = D.spells[id]
+            if sp and Combat.IsPassive(sp) and not Combat.FindAura(u, id) then Combat.ApplyAura(u, u, id, true) end
+        elseif id then
+            c.trow[ri] = nil
+            c.spells[id] = nil
+        end
     end
     Combat.Recalc(u)
 end
 
--- a passive talent rank (kept out of the spellbook, like WoW)
+-- a passive talent (kept out of the spellbook, like WoW)
 function Talents.IsPassiveTalent(spellId)
     local sp = D.spells[spellId]
     return Talents.OfSpell(spellId) ~= nil and sp ~= nil and Combat.IsPassive(sp)
 end
 
--- unlearning at a class trainer: 1 g the first time, 5 g more each time after, 50 g at most
-function Talents.ResetCost(c)
-    c = c or C()
-    local n = c and c.talentResets or 0
-    return min(500000, n == 0 and 10000 or n * 50000)
-end
-
-function Talents.Reset()
-    local c = C()
-    if Talents.Spent(c) == 0 then return false end
-    local cost = Talents.ResetCost(c)
-    if Craft:Money() < cost then Craft:Error("You don't have enough money.") return false end
-    Craft:AddMoney(-cost, "silent")
-    local u = Craft.player
-    for id, r in pairs(c.talents or {}) do
-        local t = Talents.Get(id)
-        local spellId = t and t.ranks[r]
-        if spellId then
-            c.spells[spellId] = nil
-            local a = u and Combat.FindAura(u, spellId)
-            if a then Combat.RemoveAura(u, a, "talent") end
-        end
-    end
-    c.talents = {}
-    c.talentResets = (c.talentResets or 0) + 1
-    if u then Combat.Recalc(u) end
-    Craft:Msg("Your talents have been reset.", "system")
-    Craft:Emit("talent")
-    return true
-end
-
--- a new level may bring a point
+-- a new level may open a row
 Craft:On("level", function() Craft:Emit("talent") end)

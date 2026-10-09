@@ -1150,12 +1150,6 @@ function UI.OpenGossip(u)
             if o.action == "vendor" then UI.OpenMerchant(u)
             elseif o.action == "trainer" then UI.OpenTrainer(u)
             elseif o.action == "bind" then Craft.Npc.Bind(u) UI.CloseWindow(f)
-            elseif o.action == "unlearn" then
-                -- (CONFIRM_TALENT_WIPE: the price, then Accept)
-                UI.CloseWindow(f)
-                UI.Popup("unlearn", "Do you want to unlearn all your talents? This will cost " ..
-                    Craft.MoneyText(Craft.Talents.ResetCost(), true) .. ".",
-                    { UI.Str("ACCEPT"), function() Craft.Talents.Reset() end }, { UI.Str("CANCEL"), function() end })
             end
         end)
     end
