@@ -44,6 +44,7 @@ ns.CraftChangelog = {
             "A minimap with WoW's own map, zoom buttons and all",
             "Discovering new places gives exploration experience",
             "Delete Character asks right there on the character screen",
+            "Vendor window fixed: portrait, prices and background",
         },
     },
     {
