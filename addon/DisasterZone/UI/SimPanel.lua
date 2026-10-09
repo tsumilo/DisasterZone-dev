@@ -430,7 +430,7 @@ function SimPanel:CreateCard(parent, w, h)
     for _, b in ipairs(R().BUFFS) do
       if b.key == Settings().buffs then
         tt:AddLine(b.text, 1, 0.82, 0)
-        tt:AddLine(b.tip, 1, 1, 1, true)
+        tt:AddLine((R():Class() == "WARRIOR" and b.tipWarrior) or b.tip, 1, 1, 1, true)
       end
     end
   end)
@@ -483,6 +483,7 @@ function SimPanel:UpdateCard()
   if not c or not c:IsShown() then return end
   local supported = R():IsSupported()
   local res = state.results
+  c.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
   c.run:SetText(state.running and "Cancel" or "Run sim")
   if c.run.SetKind then c.run:SetKind(state.running and "secondary" or "primary") end
   c.run:SetEnabled(supported and true or false)
@@ -498,7 +499,7 @@ function SimPanel:UpdateCard()
     c.big:SetText("\226\128\148"); c.delta:SetText(""); c.sure:SetText(""); c.refValue:SetText("")
     showRows(false)
     c.note:Show()
-    c.note:SetText("The gear sim covers Retribution for now. Switch the list to Retribution to sim it.")
+    c.note:SetText(("The gear sim covers %s for now. Switch to such a list to sim it."):format(R().COVERED))
     c.sub:SetText("")
     self:UpdateProgress()
     return
@@ -527,9 +528,19 @@ function SimPanel:UpdateCard()
   c.delta:SetTextColor(color[1], color[2], color[3])
   c.delta:SetAlpha(fade)
   c.sure:SetText((abs(d) < 2 * se and "within \194\177" or "\194\177") .. Fmt(2 * se))
+  local _, workMeta = R():MetaOff(self:Working())
+  local _, refMeta = R():MetaOff(self:TargetSet())
   if stale then
+    c.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
     c.sub:SetText("Changed since the last run: Run sim again")
+  elseif workMeta or refMeta then
+    -- a meta gem switched off explains a drop the stats alone don't
+    c.sub:SetTextColor(1, 0.55, 0.2)
+    local where = (workMeta and refMeta) and "Both sets: " or (workMeta and "" or (self:TargetText() .. ": "))
+    local need = (workMeta or refMeta):gsub("^at least ", ""):gsub(" gems$", ""):gsub(" and ", ", ")
+    c.sub:SetText(("%sMeta gem off: needs %s"):format(where, need))
   else
+    c.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
     c.sub:SetText(("%s fights  ·  same rolls for both sets"):format(Fmt(res.work.iterations)))
   end
   -- abilities
@@ -558,7 +569,9 @@ function SimPanel:UpdateCard()
   local ST = ns.GearSim.ST
   local st = res.work.stats or {}
   local hit = st[ST.PhysicalHitPercent] or 0
-  local hitCap = 9 - ((Settings().buffs ~= "solo") and 3 or 0)  -- Improved Faerie Fire covers 3%
+  local cfg = R():BuffConfig(Settings().buffs)
+  local iff = cfg and cfg.debuffs and (cfg.debuffs.faerieFire == 2)
+  local hitCap = 9 - (iff and 3 or 0)  -- Improved Faerie Fire covers 3%
   local expertise = floor((st[ST.ExpertiseRating] or 0) / ns.GearSim.EXPERTISE_PER_QUARTER)
   local function line(fs, label, value, col)
     fs:SetText("|cff8f8f95" .. label .. "|r  " .. value)
@@ -620,10 +633,11 @@ local function EntryFor(itemID, sid)
     local filled = R():FillEntry(itemID, sid, SimPanel:Working()[sid])
     if (e.enchant or 0) == 0 then e.enchant = filled.enchant end
     e.gems = e.gems or {}
+    local free = {}
     for i, g in pairs(filled.gems or {}) do
-      if not e.gems[i] or e.gems[i] == 0 then e.gems[i] = g end
+      if not e.gems[i] or e.gems[i] == 0 then e.gems[i] = g; free[i] = true end
     end
-    return e
+    return R():KeepMetaActive(SimPanel:Working(), sid, e, free)
   end
   local BiS = ns.BiS
   if BiS then
@@ -635,7 +649,10 @@ local function EntryFor(itemID, sid)
       end
     end
   end
-  return R():FillEntry(itemID, sid, SimPanel:Working()[sid])
+  local e = R():FillEntry(itemID, sid, SimPanel:Working()[sid])
+  local free = {}
+  for i in pairs(e.gems or {}) do free[i] = true end
+  return R():KeepMetaActive(SimPanel:Working(), sid, e, free)
 end
 
 -- The picker's first section: what you wear and carry for the slot.
@@ -826,7 +843,10 @@ end
 function SimPanel:OnSlotReceiveItem(sid, itemID)
   if not FitsSlot(itemID, sid) then return end
   if sid == SID_OH and self:OffHandBlocked() then return end
-  self:SetWorkingSlot(sid, R():FillEntry(itemID, sid, self:Working()[sid]))
+  local e = R():FillEntry(itemID, sid, self:Working()[sid])
+  local free = {}
+  for i in pairs(e.gems or {}) do free[i] = true end
+  self:SetWorkingSlot(sid, R():KeepMetaActive(self:Working(), sid, e, free))
 end
 
 -- More menu entries in Sim mode.

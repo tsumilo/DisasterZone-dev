@@ -432,7 +432,7 @@ end
 -- An extra main-hand swing that is a copy of the auto attack (Sword Specialization, Windfury).
 function S.WarriorExtraSwing(p, tag)
   local aa = p.autoAttacks
-  return p:RegisterSpell({ id = "melee_" .. tag, metricsKey = "melee", tag = tag, school = SCHOOL.Physical,
+  return p:RegisterSpell({ id = "melee_" .. tag, metricsKey = "melee_" .. tag, tag = tag, school = SCHOOL.Physical,
     defenseType = S.DEF_MELEE, procMask = PM.MeleeMHAuto,
     flags = F.MeleeMetrics + F.IncludeTargetBonusDamage + F.NoOnCastComplete + F.PassiveSpell,
     damageMultiplier = 1, damageMultiplierAdditive = 1, threatMultiplier = 1, bonusCoefficient = 1,

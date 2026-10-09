@@ -14,6 +14,8 @@ OUT = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone", "Data", 
 # key -> WoWSims APL file
 APLS = {
     "PALADIN:Retribution": "ui/specs/paladin/retribution/apls/default.apl.json",
+    "WARRIOR:Fury": "ui/specs/warrior/dps/apls/fury.apl.json",
+    "WARRIOR:Arms": "ui/specs/warrior/dps/apls/arms.apl.json",
 }
 
 

@@ -262,6 +262,71 @@ def wowsims_export_is_valid_settings_json():
     assert_no_lua_errors(w)
 
 
+INV = [1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18]   # WoWSims slot order -> inventory slot
+FURY_P1 = [29021, 29349, 29023, 24259, 29019, 28795, 28824, 28779, 28741, 28608, 28730, 28757, 21670, 28830, 28438,
+           28729, 28772]
+ARMS_P1_MH = 28429   # Lionheart Champion (two-hander)
+
+
+def warrior(spec, gear):
+    w = new_world()
+    c = Client(w, "Grunt", class_file="WARRIOR", race="Orc", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", spec) is True
+    c.equip({INV[i]: iid for i, iid in enumerate(gear) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 12")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    return w, c
+
+
+@r.case
+def fury_and_arms_warriors_sim():
+    for spec, gear in (("Fury", FURY_P1), ("Arms", FURY_P1[:14] + [ARMS_P1_MH, 0, 28772])):
+        w, c = warrior(spec, gear)
+        assert c.eval("return ns.SimRunner:IsSupported()") is True, spec
+        assert c.eval("return ns.MainFrame:GetPanel('mybis').simBtn:IsEnabled()") is True, spec
+        c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+        c.eval("ns.SimPanel:Run()")
+        run_until_done(w, c)
+        res = results(c)
+        assert res and 1300 < res["work"] < 2900 and res["diff"] == 0, (spec, res)
+        names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                          "t[#t + 1] = a.name end return t")
+        want = "Bloodthirst" if spec == "Fury" else "Mortal Strike"
+        assert want in names and "Melee" in names, (spec, names)
+        doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                              "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+        assert doc["player"]["class"] == "ClassWarrior" and "dpsWarrior" in doc["player"], spec
+        assert "battleShout" not in doc["partyBuffs"], spec
+        assert_no_lua_errors(w)
+
+
+@r.case
+def swapped_item_keeps_the_meta_gem_on():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    head, sh, chest = sid_of(c, 1), sid_of(c, 3), sid_of(c, 5)
+    # Relentless Earthstorm: 2 red, 2 yellow, 2 blue. Exactly met; Justicar's orange is a needed yellow.
+    c.eval("""local h, s, ch = ...
+      ns.SimPanel:SetWorkingSlot(h, { id = 29073, enchant = 0, gems = { 32409, 24054 } })
+      ns.SimPanel:SetWorkingSlot(s, { id = 29075, enchant = 2986, gems = { 24058, 24027 } })
+      ns.SimPanel:SetWorkingSlot(ch, { id = 29071, enchant = 0, gems = { 24058, 24054, 24027 } })""", head, sh, chest)
+    assert c.eval("return ns.SimRunner:MetaActive(ns.SimPanel:Working())") is True
+    # the Stranger has one red socket: a plain red gem there would switch the meta off
+    c.eval("local s = ... ns.SimPanel:OnSlotReceiveItem(s, 30055)", sh)
+    assert c.eval("return ns.SimPanel:Working()[...].id", sh) == 30055
+    assert c.eval("return ns.SimRunner:MetaActive(ns.SimPanel:Working())") is True,         c.eval_py("return ns.SimPanel:Working()[...].gems", sh)
+    # a set whose meta is off says so on the card
+    c.eval("local s = ... ns.SimPanel:SetWorkingSlot(s, { id = 30055, enchant = 2986, gems = { 24027 } })", sh)
+    assert c.eval("return select(2, ns.SimRunner:MetaOff(ns.SimPanel:Working()))") ==         "at least 2 Red, 2 Yellow and 2 Blue gems"
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    assert "Meta gem off: needs" in c.eval("return ns.SimPanel._card().sub:GetText()")
+    assert_no_lua_errors(w)
+
+
 @r.case
 def reset_and_reload_keep_working_set():
     w, c = solo()

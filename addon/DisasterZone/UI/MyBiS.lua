@@ -1750,7 +1750,7 @@ local function CreateTopBar(p)
         local R = ns.SimRunner
         if R and not R:IsSupported() then
             local spec = R:Spec()
-            GameTooltip:AddLine(("It covers Retribution Paladins for now%s."):format(
+            GameTooltip:AddLine(("It covers " .. R.COVERED .. " for now%s."):format(
                 spec ~= "" and (", not " .. spec .. (IsOffSpecView() and " (this off-spec list)" or "")) or ""),
                 1, 0.55, 0.2, true)
         end

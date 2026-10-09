@@ -706,7 +706,7 @@ SIM_P1 = {1: 29073, 2: 28745, 3: 29075, 15: 24259, 5: 29071, 9: 28795, 10: 30644
           11: 28757, 12: 30834, 13: 29383, 14: 28830, 16: 28429, 18: 27484}
 
 
-def sim_mode(run=True, stale=False, picker=False):
+def sim_mode(run=True, stale=False, picker=False, meta_off=False):
     """My BiS in Sim mode (UI/SimPanel.lua): Gina in WoWSims' P1 Ret gear, Hourglass in the Working set's Trinket 1,
     a short run against My gear; stale = a slot changed after the run; picker = Trinket 1's picker after Best."""
     def fn(w, c):
@@ -725,6 +725,11 @@ def sim_mode(run=True, stale=False, picker=False):
                 if not g.eval("return ns.SimRunner:IsRunning()"):
                     break
                 w.tick(0.05, 0.05)
+        if meta_off:
+            g.eval("local h, s; for i, x in ipairs(ns.SLOTS) do if x.invSlot == 1 then h = i end if x.invSlot == 3 then s = i end end; "
+                   "ns.SimPanel:SetWorkingSlot(h, { id = 29073, enchant = 3003, gems = { 32409, 24054 } }); "
+                   "ns.SimPanel:SetWorkingSlot(s, { id = 30055, enchant = 2986, gems = { 24027 } }); "
+                   "ns.SimPanel._state().stale = false; ns.SimPanel:UpdateCard()")
         if stale:
             g.eval("local sid; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 1 then sid = i end end; "
                    "ns.SimPanel:SetWorkingSlot(sid, ns.SimRunner:FillEntry(32235, sid)); ns.MyBiS:Refresh()")
@@ -815,6 +820,7 @@ STATES = [
     ("My BiS - Sim before run", sim_mode(run=False)),
     ("My BiS - Sim results", sim_mode()),
     ("My BiS - Sim stale", sim_mode(stale=True)),
+    ("My BiS - Sim meta off", sim_mode(meta_off=True)),
     ("My BiS - Sim picker", sim_mode(picker=True)),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")

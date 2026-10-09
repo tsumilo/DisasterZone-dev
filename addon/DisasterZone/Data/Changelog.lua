@@ -18,6 +18,9 @@ ns.CHANGELOG = {
               "You see the DPS change, how sure it is, and where the damage comes from.",
               "Pick 25-man buffs, 10-man or solo, the fight length and the boss type at the bottom.",
               "Changed slots are marked gold. It pauses in combat and only runs when you press Run.",
+              "Fury and Arms Warriors can sim too, with WoWSims' Warrior rotations and raid setup.",
+              "A swapped-in item gets gems that keep your meta gem on; the card warns when a meta gem is off.",
+              "The ... menu copies the exact sim input for WoWSims (Import > JSON), to compare both sims.",
           } },
           { heading = "Disastercraft", lines = {
               "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",

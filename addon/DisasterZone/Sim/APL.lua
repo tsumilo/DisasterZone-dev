@@ -279,6 +279,11 @@ function Rot:Value(node, vars)
       if sp.ignoreHaste then return sp.gcd end
       return max(sp.gcdMin or S.GCD_MIN, S.RoundMs(u:ApplyCastSpeed(sp.gcd)))
     end)
+  elseif node.spellCastTime then
+    -- spell.go default castTimeFn: ApplyCastSpeedForSpell (haste changes come with events)
+    local sp = self.resolveSpell(node.spellCastTime.spellId)
+    if not sp then return nil end
+    return Num(function() return sp.castTime * u.castSpeed * (sp.castTimeMultiplier or 1) end)
   elseif node.currentManaPercent then
     return Num(function() return u.mana / u.stats[S.ST.Mana] end)
   elseif node.currentMana then

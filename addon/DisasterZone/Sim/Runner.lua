@@ -11,7 +11,16 @@ ns.SimRunner = Runner
 
 local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 
-Runner.SPECS = { ["PALADIN:Retribution"] = true }
+Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true }
+-- what the sim covers, for the texts that say so
+Runner.COVERED = "Retribution Paladins and Fury / Arms Warriors"
+-- class file -> the sim's class
+Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior" }
+-- WoWSims' class options (dps/presets.ts DefaultOptions)
+Runner.CLASS_OPTIONS = {
+  Warrior = { queueDelay = 0.25, startingRage = 50, defaultShout = "Battle", defaultStance = "Berserker",
+    hasBsT2 = true, stanceSnapshot = true },
+}
 Runner.DEFAULT_ITERATIONS = 1000
 Runner.FRAME_BUDGET_MS = 12
 
@@ -20,6 +29,11 @@ Runner.FRAME_BUDGET_MS = 12
 -- ---------------------------------------------------------------------------------------------------------------
 Runner.BUFFS = {
   { key = "raid25", text = "25-man buffs",
+    tipWarrior = "WoWSims' Warrior raid setup: Bloodlust, drums, Windfury and Grace of Air (twisted), Strength of Earth, "
+      .. "Leader of the Pack, Ferocious Inspiration, Braided Eternium Chain, Unleashed Rage, Kings and Might, Gift of the "
+      .. "Wild, Fortitude, Sunder / Expose Armor, Faerie Fire, Curse of Recklessness, Blood Frenzy, Mangle, Gift of "
+      .. "Arthas, Hunter's Mark, Expose Weakness; flask, food, scrolls, Haste Potion, Flame Cap, sharpening stone, "
+      .. "explosives (Engineering). You shout yourself.",
     tip = "WoWSims' Retribution raid setup: Bloodlust, drums, Windfury and Grace of Air (twisted), Strength of Earth, "
       .. "Battle Shout, Leader of the Pack, Unleashed Rage, all blessings and raid buffs, Sunder / Expose Armor, Faerie "
       .. "Fire, Curse of Recklessness, Blood Frenzy, Misery, Hunter's Mark, Expose Weakness, Judgements of the "
@@ -55,9 +69,21 @@ local SOLO = {
   consumables = { potId = 22838, flaskId = 22854, foodId = 27658 },
 }
 
+-- A Warrior shouts himself: the group's Battle Shout goes (WoWSims would let his own win anyway).
+local function WithoutShout(cfg)
+  local out = {}
+  for k, v in pairs(cfg) do out[k] = v end
+  local party = {}
+  for k, v in pairs(cfg.party or {}) do if k ~= "battleShout" then party[k] = v end end
+  out.party = party
+  return out
+end
+
 function Runner:BuffConfig(key)
-  if key == "raid10" then return RAID10 end
+  local warrior = self:Class() == "WARRIOR"
+  if key == "raid10" then return warrior and WithoutShout(RAID10) or RAID10 end
   if key == "solo" then return SOLO end
+  if warrior then return S.BUFF_PRESETS.wowsims_warrior end
   return S.BUFF_PRESETS.wowsims_ret
 end
 
@@ -101,7 +127,11 @@ function Runner:TalentString()
 end
 
 -- WoWSims' standard Retribution build, for BiS lists and when talents can't be read.
-Runner.DEFAULT_TALENTS = { ["PALADIN:Retribution"] = "5-053201-0523005120033125331051" }
+Runner.DEFAULT_TALENTS = {
+  ["PALADIN:Retribution"] = "5-053201-0523005120033125331051",
+  ["WARRIOR:Fury"] = "3400502130201-05050005505012050115",
+  ["WARRIOR:Arms"] = "32005011352010500221-0550000500521203",
+}
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Gear sets: { [sid] = { id = itemID, enchant = effectID, gems = { gem item IDs } } } (sid = ns.SLOTS order)
@@ -198,6 +228,51 @@ function Runner:FillEntryFromBiS(itemID, phase, list, sid)
 end
 
 -- Whether the head's meta gem is active (its colour rule) in a set.
+-- Keeps the set's meta gem on: when the gems just put into `entry` (in slot sid; free = { [socket] = true }) would
+-- switch it off, those sockets get the cheapest gems that keep its rule (Gems:MeetMetaRule); others are left alone.
+function Runner:KeepMetaActive(set, sid, entry, free)
+  local G = ns.Gems
+  if not (G and G.MeetMetaRule and entry and next(free or {})) then return entry end
+  local trial = self:CopySet(set)
+  trial[sid] = entry
+  if self:MetaActive(trial) then return entry end
+  local guide = G.GuideFor and G:GuideFor({ cl = self:Class(), sp = self:Spec() })
+  if not guide then return entry end
+  local phase = (ns.MyBiS and ns.MyBiS.GetPhase and ns.MyBiS:GetPhase()) or 1
+  local setups, frees = {}, {}
+  for s, e in pairs(trial) do
+    if e.id and not setups[e.id] then
+      local g = {}
+      for i, v in pairs(e.gems or {}) do g[i] = v end
+      setups[e.id] = { gems = g }
+    end
+  end
+  frees[entry.id] = free
+  local ok = G:MeetMetaRule(setups, frees, G:GuideData(guide, phase), phase,
+    G.ProfessionSet and G:ProfessionSet() or {})
+  if ok then
+    local out = self:CopySet({ entry })[1]
+    for i in pairs(free) do out.gems[i] = setups[entry.id].gems[i] end
+    return out
+  end
+  return entry
+end
+
+-- The set's meta gem when its rule isn't met: gemID, what it needs (text). nil when it is on (or there is none).
+function Runner:MetaOff(set)
+  local G = ns.Gems
+  local head = set[1]
+  if not (G and head and head.gems) or self:MetaActive(set) then return nil end
+  for _, gid in pairs(head.gems) do
+    local g = G:Gem(gid)
+    if g and g.color == "M" then
+      local _, words = G:MetaState(gid, {})
+      return gid, words
+    end
+  end
+  return nil
+end
+
 function Runner:MetaActive(set)
   local G = ns.Gems
   local head = set[1]
@@ -273,8 +348,10 @@ function Runner:Scenario(set, settings)
     end
   end
   local buffs = self:BuffConfig(settings.buffs)
+  local class = self.CLASS_NAMES[self:Class() or ""] or "Paladin"
   return {
-    race = self:Race(), class = "Paladin", talents = settings.talents, gear = gear, metaActive = self:MetaActive(set),
+    race = self:Race(), class = class, classOptions = self.CLASS_OPTIONS[class], talents = settings.talents, gear = gear,
+    metaActive = self:MetaActive(set),
     buffs = buffs, consumables = buffs.consumables, professions = settings.professions or self:Professions(),
     duration = settings.duration or 180, seed = settings.seed or 101, mobType = settings.mobType or "Mechanical",
     reactionTimeMs = 0, distance = 5,
@@ -386,6 +463,11 @@ Runner.ABILITIES = {
   [31893] = "Seal of Blood", [31898] = "Judgement of Blood", [35395] = "Crusader Strike",
   [27138] = "Exorcism", [27180] = "Hammer of Wrath",
   ["item:23827"] = "Explosives", ["item:10646"] = "Explosives", ["item:23737"] = "Explosives", ["item:23736"] = "Explosives",
+  -- Warriors
+  melee_oh = "Off-hand melee", melee_12281 = "Sword Specialization", flame_cap = "Flame Cap",
+  [29707] = "Heroic Strike", [25231] = "Cleave", [30335] = "Bloodthirst", [30330] = "Mortal Strike",
+  [25236] = "Execute", ["1680:1"] = "Whirlwind", ["1680:2"] = "Whirlwind", [11585] = "Overpower", [25242] = "Slam",
+  [12867] = "Deep Wounds", [25212] = "Hamstring", [25208] = "Rend",
 }
 
 -- The breakdown: { { name, dps } } merged by name, largest first.
