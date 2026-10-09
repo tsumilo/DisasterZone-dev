@@ -440,7 +440,7 @@ function SimPanel:CreateCard(parent, w, h)
     return o
   end, function() return Settings().duration end, function(v) SetSetting("duration", v) end, function(tt)
     tt:AddLine("Fight length", 1, 0.82, 0)
-    tt:AddLine("Longer fights spread cooldowns and potions thinner; Hammer of Wrath covers the last 20%.", 1, 1, 1, true)
+    tt:AddLine("Longer fights spread cooldowns, drums and potions thinner over the fight.", 1, 1, 1, true)
   end)
   c.duration:SetPoint("LEFT", c.buffs, "RIGHT", 4, 0)
   c.mob = dd(half, function()
