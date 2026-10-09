@@ -385,11 +385,11 @@ function UI.BuildHud(parent)
     H.tcast.border:SetPoint("CENTER", 0, 0)
     H.tcast.text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
     H.tcast:Hide()
-    -- your buffs (top right)
+    -- your buffs: left of the minimap, as the client's BuffFrame (TOPRIGHT -205, -13; 8 a row)
     H.buffs = {}
     for i = 1, 16 do
         local b = AuraButton(hud, 30)
-        b:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -16 - (i - 1) % 8 * 34, -14 - floor((i - 1) / 8) * 48)
+        b:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -205 - (i - 1) % 8 * 34, -13 - floor((i - 1) / 8) * 48)
         H.buffs[i] = b
     end
     UI.BuildBar(hud)
@@ -799,7 +799,7 @@ end
 function UI.BuildTracker(hud)
     local f = CreateFrame("Frame", nil, hud)
     f:SetSize(250, 300)
-    f:SetPoint("TOPRIGHT", -16, -130)
+    f:SetPoint("TOPRIGHT", -16, -192)          -- (under the minimap cluster, 192 px tall, like QuestWatchFrame)
     f.lines = {}
     H.tracker = f
 end

@@ -875,7 +875,7 @@ end
 function UI.ShowHelp()
     UI.Popup("help", "WASD / arrows: move   Tab: next enemy   1-0 - =: action bar (Shift: 2nd row)\n" ..
         "Left-click: target   Right-click: attack / talk / loot (Shift: loot all)\n" ..
-        "F: interact   X: sit   C: character   B: bags   P: spellbook   N: talents   L: quest log   O: party\n" ..
+        "F: interact   X: sit   C: character   B: bags   P: spellbook   N: talents   M: map   L: quest log   O: party\n" ..
         "Enter: chat (/s /p /e /invite name /leave)   Esc: close / menu   Wheel: zoom",
         { "Okay", function() end })
 end
@@ -888,6 +888,8 @@ function UI.Toggle(name)
     if name == "character" then
         local f = UI.CharacterSheet()
         if f:IsShown() then UI.CloseWindow(f) else UI.ShowWindow("character", f) K.Play(K.SFX.sheet) UI.RefreshCharacter() end
+    elseif name == "worldmap" then
+        if UI.ToggleWorldMap then UI.ToggleWorldMap() end      -- (UIWorldMap.lua)
     elseif name == "talents" then
         local f = UI.TalentWindow()
         if f:IsShown() then UI.CloseWindow(f) else UI.ShowWindow("talents", f) K.Play(K.SFX.book) UI.RefreshTalents() end
