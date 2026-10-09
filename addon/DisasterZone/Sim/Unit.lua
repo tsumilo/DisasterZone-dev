@@ -234,17 +234,87 @@ end
 local scratch = nil
 local delta = nil
 
--- unit.go addStatsDynamic: recompute the total from the dependency-free stats, then react to what changed.
+-- unit.go addStatsDynamic recomputes the whole total from the dependency-free stats (attributes are floored).
+-- A change that touches no attribute (Str/Agi/Sta/Int/Spi) can't move a floor, and every other dependency is
+-- linear, so it is propagated through precomputed factors instead: same totals, a fraction of the work.
+local REGEN, MANA, MHASTE, SHASTE = ST.MP5, ST.Mana, ST.MeleeHasteRating, ST.SpellHasteRating
+
+-- For stat `src` (not an attribute): the list { dst1, f1, dst2, f2, ... } of total changes per point.
+function Unit:LinearFactors(src)
+  local cache = self.linearCache
+  if not cache then cache = {}; self.linearCache = cache end
+  local l = cache[src]
+  if l then return l end
+  local v = {}
+  for i = 1, NUM_STATS do v[i] = 0 end
+  v[src] = 1
+  local sorted = self.sortedDeps
+  for i = 1, #sorted do
+    local d = sorted[i]
+    if d.enabled then
+      if d.src == d.dst then v[d.dst] = v[d.dst] * d.amount else v[d.dst] = v[d.dst] + v[d.src] * d.amount end
+    end
+  end
+  l = {}
+  local flags = 0
+  for i = 1, NUM_STATS do
+    if v[i] ~= 0 then
+      l[#l + 1] = i
+      l[#l + 1] = v[i]
+    end
+  end
+  l.regen = v[REGEN] ~= 0 or v[ST.Intellect] ~= 0 or v[ST.Spirit] ~= 0
+  l.mana = v[MANA] ~= 0
+  l.mhaste = v[MHASTE] ~= 0
+  l.shaste = v[SHASTE] ~= 0
+  cache[src] = l
+  return l
+end
+
+local function AddLinear(self, stat, amount)
+  local l = self:LinearFactors(stat)
+  local st = self.stats
+  for i = 1, #l, 2 do
+    local dst = l[i]
+    st[dst] = st[dst] + amount * l[i + 1]
+  end
+  return l
+end
+
 function Unit:AddStatsDynamic(sim, bonus)
   local swd = self.statsWithoutDeps
-  for k, v in pairs(bonus) do swd[k] = swd[k] + v end
-  self:RecomputeStats(sim)
+  local attr = false
+  for k in pairs(bonus) do if FLOORED[k] then attr = true; break end end
+  if attr then
+    for k, v in pairs(bonus) do swd[k] = swd[k] + v end
+    self:RecomputeStats(sim)
+    return
+  end
+  local regen, mana, mh, sh = false, false, false, false
+  for k, v in pairs(bonus) do
+    swd[k] = swd[k] + v
+    local l = AddLinear(self, k, v)
+    regen = regen or l.regen; mana = mana or l.mana; mh = mh or l.mhaste; sh = sh or l.shaste
+  end
+  self:ReactToStatChange(sim, regen, mana, mh, sh)
 end
 
 function Unit:AddStatDynamic(sim, stat, amount)
   local swd = self.statsWithoutDeps
   swd[stat] = swd[stat] + amount
-  self:RecomputeStats(sim)
+  if FLOORED[stat] then
+    self:RecomputeStats(sim)
+    return
+  end
+  local l = AddLinear(self, stat, amount)
+  self:ReactToStatChange(sim, l.regen, l.mana, l.mhaste, l.shaste)
+end
+
+function Unit:ReactToStatChange(sim, regen, mana, mhaste, shaste)
+  if regen then self:UpdateManaRegenRates() end
+  if mana and self.hasMana and self.mana > self.stats[MANA] then self.mana = self.stats[MANA] end
+  if mhaste and self.autoAttacks then self.autoAttacks:UpdateSwingTimers(sim) end
+  if shaste then self:UpdateCastSpeed() end
 end
 
 function Unit:RecomputeStats(sim)
@@ -263,6 +333,7 @@ end
 function Unit:EnableDynamicStatDep(sim, dep)
   if not dep.enabled then
     dep.enabled = true
+    self.linearCache = nil
     self:RecomputeStats(sim)
   end
 end
@@ -270,6 +341,7 @@ end
 function Unit:DisableDynamicStatDep(sim, dep)
   if dep.enabled then
     dep.enabled = false
+    self.linearCache = nil
     self:RecomputeStats(sim)
   end
 end

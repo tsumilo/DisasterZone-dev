@@ -765,6 +765,15 @@ STATES = [
                                                        "ns.ImportExport:SetSource([==[" + TMB_SAMPLE + "]==])")),
     # the Pre-raid tab (phase 0), filled from Gina's guide's Pre-raid list
     ("My BiS - Pre-raid", opened("mybis", SEED_PRE_RAID + "ns.MyBiS:SetPhase(0)")),
+    # gear sim mockup base: Gina's main list as Retribution with WoWSims' Ret P1 preset (tools/gearsim)
+    ("My BiS - Ret P1 (sim base)", opened("mybis", "ns.BiS:SetSpec('Retribution'); "
+     "for sid, id in ipairs({29073, 28745, 29075, 24259, 29071, 28795, 30644, 28779, 30257, 28608, 28757, 30834, "
+     "29383, 28830, 28429, 0, 27484}) do if id > 0 then ns.BiS:SetSlot(1, sid, 'main', id) end end; "
+     "ns.MyBiS:SetPhase(1, true); ns.MyBiS:Refresh()")),
+    ("My BiS - Ret P1 working (sim base)", opened("mybis", "ns.BiS:SetSpec('Retribution'); "
+     "for sid, id in ipairs({29073, 28745, 29075, 24259, 29071, 28795, 30644, 28779, 30257, 28608, 28757, 30834, "
+     "28034, 28830, 28429, 0, 27484}) do if id > 0 then ns.BiS:SetSlot(1, sid, 'main', id) end end; "
+     "ns.MyBiS:SetPhase(1, true); ns.MyBiS:Refresh()")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
     ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "

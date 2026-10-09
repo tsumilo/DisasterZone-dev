@@ -9,10 +9,9 @@ local ST = S.ST
 local floor, huge, max, min = math.floor, math.huge, math.max, math.min
 local band = bit and bit.band
 
--- Bit flags as plain numbers; Lua 5.1 has no bit ops outside WoW, so test with a helper.
-local function has(mask, flag)
-  if band then return band(mask, flag) ~= 0 end
-  -- flag is a single power of two or a union; check any shared bit.
+-- Bit flags as plain numbers. WoW has the bit library (32 bit only); masks here go past 32 bits (class spell
+-- masks), so the test is arithmetic, memoized per (mask, flag) pair - a handful of distinct pairs per fight.
+local function hasSlow(mask, flag)
   local f = flag
   local bitv = 1
   while f > 0 do
@@ -21,6 +20,20 @@ local function has(mask, flag)
     bitv = bitv * 2
   end
   return false
+end
+local hasCache = {}
+local function has(mask, flag)
+  local row = hasCache[mask]
+  if not row then
+    row = {}
+    hasCache[mask] = row
+  end
+  local v = row[flag]
+  if v == nil then
+    v = hasSlow(mask, flag)
+    row[flag] = v
+  end
+  return v
 end
 S.has = has
 
@@ -446,8 +459,10 @@ function Spell:CritDamageMultiplier(at)
   return (base * self.critMultiplierPct * self.unit.ps.CritDamageMultiplier * at.critMultiplier - 1) * (self.critMultiplierAdditive + 1) + 1
 end
 
+-- unit.go getAttackPowerValueImpl (+ mob-type bonuses such as Mark of the Champion)
 function Spell:MeleeAttackPower(target)
-  return self.unit.stats[ST.AttackPower] + target.ps.BonusAttackPower
+  local at = self.unit.attackTables[target]
+  return self.unit.stats[ST.AttackPower] + target.ps.BonusAttackPower + (at and at.mobBonusAP or 0)
 end
 
 function Spell:SpellDamage()
@@ -463,7 +478,7 @@ function Spell:BonusDamage(at)
   if has(self.school, SCHOOL.Physical) then
     bonus = bonus + self.unit.stats[ST.PhysicalDamage]
   else
-    bonus = bonus + self:SpellDamage() + at.defender.ps.SchoolBonusSpellDamage[self.schoolIndex]
+    bonus = bonus + self:SpellDamage() + (at.mobBonusSP or 0) + at.defender.ps.SchoolBonusSpellDamage[self.schoolIndex]
   end
   return bonus
 end
@@ -756,6 +771,13 @@ function OUT.MeleeWeaponSpecialHitAndCrit(spell, sim, r, at)
   return OUT.MeleeSpecialHitAndCrit(spell, sim, r, at)
 end
 
+function OUT.MeleeSpecialNoBlockDodgeParry(spell, sim, r, at)
+  local roll = sim:Rand()
+  if roll < MissChance(spell, at, false) then return SetMiss(r, O.Miss) end
+  if CritSeparateRoll(spell, sim, r, at) then return end
+  r.outcome = O.Hit
+end
+
 function OUT.MeleeSpecialCritOnly(spell, sim, r, at)
   if CritSeparateRoll(spell, sim, r, at) then return end
   r.outcome = O.Hit
@@ -1016,8 +1038,15 @@ function S.AttachProcTrigger(aura, unit, cfg)
     local snap = result and CopyResult(result) or nil
     sim:Add({ at = sim.now + S.SPELL_BATCH, prio = S.PRIO_DOT, fn = function(s) handler(s, spell, snap) end })
   end
+  -- Whether a spell can trigger this depends only on fixed spell properties: cache it per spell.
+  local matchCache = {}
   local function callback(a, sim, spell, result)
-    if not MatchesSpell(cfg, spell) then return end
+    local mc = matchCache[spell]
+    if mc == nil then
+      mc = MatchesSpell(cfg, spell)
+      matchCache[spell] = mc
+    end
+    if not mc then return end
     if cfg.outcome and cfg.outcome ~= 0 then
       local ok = has(result.outcome, cfg.outcome)
       if has(result.outcome, O.SuppressedCrit) and has(cfg.outcome, O.Crit) then

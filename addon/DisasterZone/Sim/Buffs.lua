@@ -288,7 +288,7 @@ function S.ApplyRacials(p)
   elseif p.race == "Human" then
     p:MultiplyStat(ST.Spirit, 1.10)
     local mh = p.gear.MainHand and p.gear.MainHand.item
-    if mh and (mh.weaponType == 4 or mh.weaponType == 7) then -- mace, sword
+    if mh and (mh.weaponType == 4 or mh.weaponType == 9) then -- WeaponTypeMace, WeaponTypeSword
       p:AddStat(ST.ExpertiseRating, 5 * S.EXPERTISE_PER_QUARTER)
     end
   elseif p.race == "Draenei" then

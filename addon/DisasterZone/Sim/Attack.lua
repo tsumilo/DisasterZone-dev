@@ -249,7 +249,7 @@ function Unit:Reset(sim)
   self.hardcastExpires = -huge
   self.queued = nil
   -- stats back to the initial ones
-  for _, d in ipairs(self.deps) do if d.dynamic then d.enabled = false end end
+  for _, d in ipairs(self.deps) do if d.dynamic and d.enabled then d.enabled = false; self.linearCache = nil end end
   S.CopyStats(self.statsWithoutDeps, self.initialStatsWithoutDeps)
   S.CopyStats(self.stats, self.initialStats)
   -- Restore pseudo stats in place: closures hold on to self.ps (and its school arrays).

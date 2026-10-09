@@ -236,6 +236,7 @@ function Sim:Step()
   local paAt = pa and pa.at or huge
   if paAt >= self.minWeaponAttackTime then
     if self.minWeaponAttackTime > self.duration then return true end
+    self:WakeRotations(self.minWeaponAttackTime, huge, nil)
     self:AdvanceWeaponAttacks()
     return false
   end
@@ -243,10 +244,21 @@ function Sim:Step()
   pa.consumed = true
   if pa.cancelled then return false end
   if paAt > self.duration then return true end
+  if not pa.isRotation then self:WakeRotations(paAt, pa.prio, pa) end
   if paAt > self.now then self:Advance(paAt) end
   if pa.cancelled then return false end
   pa.fn(self)
   return false
+end
+
+-- A sleeping rotation (APL.lua) wakes at the next poll of its 10 ms grid after any event.
+function Sim:WakeRotations(at, prio, pa)
+  local units = self.units
+  for i = 1, #units do
+    local u = units[i]
+    local w = u.skipWake
+    if w and at < w then S.WakeSleepingRotation(self, u, at, prio) end
+  end
 end
 
 function Sim:Log(fmt, ...)

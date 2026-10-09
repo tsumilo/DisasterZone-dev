@@ -22,7 +22,8 @@ WOWSIMS = os.path.join(DEV, "ext", "wowsims-tbc")
 ADDON = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone"))
 if not os.path.isdir(ADDON):
     ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
-SIM_FILES = ["Core", "Unit", "Spell", "Attack", "APL", "Character", "Buffs", "Paladin", "Setup"]
+SIM_FILES = ["Core", "Unit", "Spell", "Attack", "APL", "Character", "Buffs", "Items", "Paladin", "Data", "Setup"]
+DATA_FILES = ["Data/Gems.lua", "Data/SimItems.lua"]
 
 # ---------------------------------------------------------------------------------------------------------------
 # Item data
@@ -168,9 +169,14 @@ def to_py(obj):
     return obj
 
 
-def load_engine(log=None):
+def load_engine(log=None, gamedb=False):
     L = lua51.LuaRuntime(unpack_returned_tuples=True)
     ns = L.table()
+    if gamedb:
+        for rel in DATA_FILES:
+            with open(os.path.join(ADDON, rel), encoding="utf-8") as f:
+                src = f.read()
+            L.eval("function(src, name) local f, err = loadstring(src, name); if not f then error(err) end; return f end")(src, "@" + rel)("DisasterZone", ns)
     for name in SIM_FILES:
         path = os.path.join(ADDON, "Sim", name + ".lua")
         with open(path, encoding="utf-8") as f:
@@ -180,8 +186,8 @@ def load_engine(log=None):
     return L, ns
 
 
-def run(sc, iterations=None, log=False, start=1):
-    L, ns = load_engine()
+def run(sc, iterations=None, log=False, start=1, gamedb=False):
+    L, ns = load_engine(gamedb=gamedb)
     S = ns.GearSim
     db = build_db(sc["gear"])
     with open(os.path.join(WOWSIMS, "ui", "specs", "paladin", "retribution", "apls", "default.apl.json"), encoding="utf-8") as f:
@@ -196,7 +202,7 @@ def run(sc, iterations=None, log=False, start=1):
         lsc["buffs"] = "wowsims_ret"
     if lsc.get("consumables") == "wowsims_default":
         lsc.pop("consumables")
-    sim, p, target = S.NewScenario(to_lua(L, lsc), to_lua(L, db), to_lua(L, apl))
+    sim, p, target = S.NewScenario(to_lua(L, lsc), S.GameDB() if gamedb else to_lua(L, db), to_lua(L, apl))
     if log:
         lines = []
         sim.log = L.eval("function(cb) return function(sim, s) cb(sim.now, s) end end")(lambda t, s: lines.append("[%.3f] %s" % (t, s)))
@@ -222,10 +228,11 @@ def main():
     ap.add_argument("scenario")
     ap.add_argument("--iterations", type=int)
     ap.add_argument("--log", action="store_true")
+    ap.add_argument("--gamedb", action="store_true", help="use the addon's generated data (Data/SimItems.lua, Data/Gems.lua)")
     a = ap.parse_args()
     with open(a.scenario, encoding="utf-8") as f:
         sc = json.load(f)
-    r = run(sc, a.iterations, a.log)
+    r = run(sc, a.iterations, a.log, gamedb=a.gamedb)
     ref = None
     refp = a.scenario.replace(".json", ".ref.json")
     if os.path.exists(refp):
