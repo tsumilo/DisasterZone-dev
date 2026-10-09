@@ -774,6 +774,8 @@ local FILM_FOCUS = 0.42             -- the camera's point down the art box (its 
 local FILM_ACT = { windup = 0, strike = 1, ready = 2, release = 3, dead = 4, sit = 5 }
 local FILM_STEP = { 0, 1, 2, 1 }    -- walk frames: stride, stand, stride, stand
 local SPARK = "Interface\\Cooldown\\star4"
+local FILM_HOLES = 3                -- see-through holes at most (one a hero of the shot)
+local SEEHOLE = MEDIA .. "Azeromon\\seehole.blp"   -- (the game's: white, a feathered faint middle)
 local FILM_KOBOLD = { [6] = true, [40] = true, [80] = true, [257] = true, [476] = true }   -- (candles on their heads)
 local cos, sqrt = math.cos, math.sqrt
 
@@ -844,7 +846,8 @@ function Film.NewReel(parent, level)
     f:SetAllPoints()
     f:SetFrameLevel(level)
     local L = { frame = f, grid = {}, depth = {}, pools = {}, reqs = {}, n = 0, order = {}, fx = {}, nfx = 0,
-                nums = {}, nnum = 0, cx = 0, cy = 0, ts = FILM_TILE, vx = 0, vy = 0, keep = {}, fade = {}, cast = {} }
+                nums = {}, nnum = 0, cx = 0, cy = 0, ts = FILM_TILE, vx = 0, vy = 0, keep = {}, fade = {}, cast = {},
+                holes = {}, masks = {} }
     for k = 1, FILM_DEPTH do
         local d = CreateFrame("Frame", nil, f)
         d:SetAllPoints()
@@ -938,7 +941,7 @@ local function Draw(L, sort)
     L.n = L.n + 1
     local r = L.reqs[L.n]
     if not r then r = {} L.reqs[L.n] = r end
-    r.sort, r.idx, r.alpha, r.cr, r.cg, r.cb, r.pt = sort, L.n, 1, 1, 1, 1, "TOPLEFT"
+    r.sort, r.idx, r.alpha, r.cr, r.cg, r.cb, r.pt, r.see = sort, L.n, 1, 1, 1, 1, "TOPLEFT", nil
     return r
 end
 
@@ -952,6 +955,30 @@ local function Flush(L)
         return a.idx < b.idx
     end)
     local n, total, used = #order, FILM_DEPTH * 32, {}
+    -- the holes, in every depth frame (a mask acts only on its own frame's textures)
+    for f = 1, FILM_DEPTH do
+        local ms = L.masks[f]
+        if not ms then ms = {} L.masks[f] = ms end
+        for i = 1, FILM_HOLES do
+            local m = ms[i]
+            local h = L.holes[i]
+            if not m and h and L.depth[f].CreateMaskTexture then
+                m = L.depth[f]:CreateMaskTexture()
+                m:SetTexture(SEEHOLE, "CLAMPTOWHITE", "CLAMPTOWHITE")
+                ms[i] = m
+            end
+            if m then
+                m:ClearAllPoints()
+                if h then
+                    m:SetPoint("CENTER", L.frame, "TOPLEFT", h.sx, -h.sy)
+                    m:SetSize(1.9 * L.ts, 2.3 * L.ts)
+                else
+                    m:SetPoint("CENTER", L.frame, "TOPLEFT", -9999, 9999)
+                    m:SetSize(1, 1)
+                end
+            end
+        end
+    end
     for i, r in ipairs(order) do
         local slot = n <= total and (i - 1) or floor((i - 1) * total / n)
         local f, s = floor(slot / 32) + 1, slot % 32
@@ -969,6 +996,21 @@ local function Flush(L)
         t:SetPoint(r.pt, L.frame, "TOPLEFT", r.x, -r.y)
         t:SetVertexColor(r.cr, r.cg, r.cb)
         t:SetAlpha(r.alpha)
+        -- its holes: those its picture asks for, no others
+        local ms, have = L.masks[f], t.holes
+        if have or r.see then
+            have = have or {}
+            t.holes = have
+            for i, m in pairs(have) do
+                local keep = false
+                for _, j in ipairs(r.see or {}) do if j == i then keep = true end end
+                if not keep then t:RemoveMaskTexture(m) have[i] = nil end
+            end
+            for _, j in ipairs(r.see or {}) do
+                local m = ms and ms[j]
+                if m and not have[j] then t:AddMaskTexture(m) have[j] = m end
+            end
+        end
         if s < 16 then t:SetDrawLayer("BORDER", s - 8) else t:SetDrawLayer("ARTWORK", s - 24) end
         t:Show()
     end
@@ -1055,6 +1097,15 @@ function Film.Frame(L, dt, w, h)
     for _, b in pairs(L.cast) do
         if (b.alpha or 1) > 0.01 then keep[#keep + 1] = { b.x, b.y } end
     end
+    -- where each of the shot's actors stands, for the holes walls open over them
+    local holes = L.holes
+    for i = #holes, 1, -1 do holes[i] = nil end
+    for _, b in pairs(L.cast) do
+        if (b.alpha or 1) > 0.01 and #holes < FILM_HOLES then
+            local sx, sy = FilmXY(L, b.x, b.y - (b.lift or 0))
+            holes[#holes + 1] = { x = b.x, y = b.y, fy = b.y - (b.lift or 0), sx = sx, sy = sy - 0.5 * ts }
+        end
+    end
     -- scenery in view (a sprite's picture half a texel in from its edges, as UIWorld's ScenPicture); a tree crown in
     -- front of something kept in sight turns see-through, eased, as round you in the game
     for _, sc in ipairs(L.scen) do
@@ -1076,6 +1127,16 @@ function Film.Frame(L, dt, w, h)
                 a = a < want and min(want, a + dt * 1.6) or max(want, a - dt * 1.6)
                 L.fade[sc] = a
                 r.alpha = a
+            elseif sc.wall or sc.bld then
+                -- a wall, a railing or a stair slice in front of one of the shot's actors gets a soft hole over its
+                -- body, as the game opens one (UIWorld SeeHoles), so no one seems to walk through the stone
+                for i, h in ipairs(L.holes) do
+                    if sc.sort > h.y and h.x + 0.5 > l and h.x - 0.5 < l + sp.w * k and h.fy > tt and
+                       h.fy - 1.1 < tt + sp.h * k then
+                        r.see = r.see or {}
+                        r.see[#r.see + 1] = i
+                    end
+                end
             end
             r.file = sc.file
             r.l, r.r = (sp.u + 0.5) / 1024, (sp.u + sp.w - 0.5) / 1024
@@ -1093,7 +1154,7 @@ function Film.Frame(L, dt, w, h)
             local frame = b.moving and FILM_STEP[floor(b.walk * 7) % 4 + 1] or 1
             r.file, r.l, r.r, r.t, r.b = FilmCoords(b.spr, b.face, frame, b.act)
             local size = ts * (b.size or 1)
-            local sx, sy = FilmXY(L, b.x, b.y)
+            local sx, sy = FilmXY(L, b.x, b.y - (b.lift or 0))         -- (up by the floor it stands on)
             r.w, r.h, r.pt, r.x, r.y = size, size, "BOTTOM", sx, sy + 0.06 * ts
             r.alpha = b.alpha or 1
             if b.flash and now < b.flash then r.cr, r.cg, r.cb = 1, 0.45, 0.45
@@ -1119,6 +1180,16 @@ end
 -- act(L, t, dt) moves them.
 local function Swing(t, at) return (t >= at - 0.22 and t < at and "windup") or (t >= at and t < at + 0.2 and "strike") or nil end
 local function Age(t, at, len) local a = (t - at) / (len or 1) return a >= 0 and a < 1 and a or nil end
+
+-- a body walking a building's grid (b.grid): the floor it stands on (Disastercraft's World.Settle: its height and
+-- building), and the lift and indoors the game gives it (CraftUI.Stand: drawn that far up the screen; inside a
+-- building's storey)
+local function FilmStand(b, dt)
+    local W, UI = ns.Craft and ns.Craft.World, ns.CraftUI
+    if not (W and W.Settle) then return end
+    W.Settle(b, b.e)
+    if UI and UI.Stand then UI.Stand(b, dt) end
+end
 
 -- the party walks in turn: { body, start time, path { { x, y }, ... }, facing once there, speed }
 local function Walks(t, dt, list)
@@ -1206,29 +1277,35 @@ end
 
 local FILM_SHOTS = {
     -- the Abbey's doors: three heroes come out into the morning; Deputy Willem has work for them
-    -- (the way out is the Abbey's own walk grid: the hall ends in its door at about 4130.75, 6234.9, then the porch
-    -- turns and its steps run south to the yard; a hero is not seen until it steps through the door, as the game
-    -- hides who is inside a building while you are out)
+    -- the heroes walk out of the hall the way the game would take them (its pathfinder on the Abbey's walk grid:
+    -- the door, the porch, down its steps), standing on each floor's height as the game draws it (lifted, sorted by
+    -- their feet), unseen while indoors, as the game hides who is inside a building while you are out
     { name = "Northshire Abbey", cam = { 4130.2, 6235.8, 4128.6, 6240.2 }, zoom = { 1.25, 0.98 },
       marks = { ["Deputy Willem"] = true },
       setup = function()
-          local war = Film.Body(FilmHero("WARRIOR0"), 4131.3, 6234.88, "left")
-          local mage = Film.Body(FilmHero("MAGE1"), 4131.3, 6234.88, "left")
-          local pri = Film.Body(FilmHero("PRIEST0"), 4131.3, 6234.88, "left")
-          war.alpha, mage.alpha, pri.alpha = 0, 0, 0
-          return { war = war, mage = mage, pri = pri }
+          local out = {}
+          for k, h in pairs({ war = { "WARRIOR0", 4129.4, 6241.3 }, mage = { "MAGE1", 4127.7, 6241.5 },
+                              pri = { "PRIEST0", 4128.7, 6242.3 } }) do
+              local b = Film.Body(FilmHero(h[1]), 4131.3, 6234.88, "left")
+              b.alpha, b.grid, b.map = 0, true, "world"
+              FilmStand(b, nil)
+              local W = ns.Craft and ns.Craft.World
+              local path = W and W.PathFine and W.PathFine(b.x, b.y, h[2], h[3], 40000, b.e, b.bld, nil, nil)
+              b.route = {}
+              for _, q in ipairs(path or {}) do b.route[#b.route + 1] = { q[1], q[2] } end
+              b.route[#b.route + 1] = { h[2], h[3] }
+              out[k] = b
+          end
+          return out
       end,
       act = function(L, t, dt)
           local C = L.cast
-          local function out(x, y)
-              return { { 4130.4, 6234.95 }, { 4129.62, 6235.3 }, { 4129.62, 6236.6 }, { 4128.62, 6236.95 },
-                       { 4128.62, 6239.5 }, { x, y } }
-          end
-          Walks(t, dt, { { C.war, 0.3, out(4129.4, 6241.3), "up", 1.5 }, { C.mage, 0.8, out(4127.7, 6241.5), "up", 1.5 },
-                         { C.pri, 1.3, out(4128.7, 6242.3), "up", 1.5 } })
+          Walks(t, dt, { { C.war, 0.3, C.war.route, "up", 1.5 }, { C.mage, 0.8, C.mage.route, "up", 1.5 },
+                         { C.pri, 1.3, C.pri.route, "up", 1.5 } })
           for _, b in pairs(C) do
-              -- (still in the hall: unseen; through the door: there at once, as a body stepping out)
-              if b.x > 4130.72 then b.alpha = 0 else b.alpha = min(1, (b.alpha or 0) + dt * 8) end
+              FilmStand(b, dt)
+              -- (indoors: unseen; through the door: there at once, as a body stepping out)
+              if b.inB then b.alpha = 0 else b.alpha = min(1, (b.alpha or 0) + dt * 8) end
           end
       end },
     -- Echo Ridge Mine: on the meadow under its mouth a kobold worker meets the warrior's sword, the mage's fire and
@@ -1377,10 +1454,20 @@ COVERS.disastercraft = function(parent, poster)
         local t = L.t
         local ca = min(1, max(0, (t - 0.5) / 0.8), max(0, (FILM_SHOT - 0.3 - t) / 0.7))
         if poster.off ~= 0 then ca = 0 end
-        self.cap:SetAlpha(ca)
-        self.capRule:SetAlpha(ca)
-        for _, f in ipairs(self.capFade) do f:SetAlpha(ca) end
-        self.capRule:SetWidth(40 + 110 * min(1, max(0, (t - 0.6) / 1.2)))
+        -- (hidden outright when out: a gradient line kept its colour at alpha 0 in the client and showed on the side
+        -- poster; and never wider than the card - the rule grows out, its ends fade)
+        local on = ca > 0.01
+        self.cap:SetShown(on)
+        self.capRule:SetShown(on)
+        for _, f in ipairs(self.capFade) do f:SetShown(on) end
+        if on then
+            self.cap:SetAlpha(ca)
+            self.capRule:SetAlpha(ca)
+            local room = max(20, w - 48)
+            local fade = min(60, room * 0.2)
+            self.capRule:SetWidth(min(room - 2 * fade, 40 + 110 * min(1, max(0, (t - 0.6) / 1.2))))
+            for _, f in ipairs(self.capFade) do f:SetAlpha(ca) f:SetWidth(fade) end
+        end
         -- the clouds' shadows sail east-south-east and come round again
         for _, cl in ipairs(self.clouds) do
             cl.x = cl.x + elapsed * 9

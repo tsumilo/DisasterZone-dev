@@ -260,8 +260,8 @@ def disastercraft_poster_plays_a_film_of_northshire_on_a_loop():
     # the cut: the next shot's name takes over unseen and comes up a beat after; its picture comes up over the last
     # one (both reels shown), then the last one goes
     c.eval("ns.GamesUI:FilmSeek(1, 8.5 + 0.2)")
-    cut = c.eval_py(FILM + "return { cap = f.cap:GetText(), a = f.cap:GetAlpha() }")
-    assert cut == {"cap": "Echo Ridge Mine", "a": 0}, cut
+    cut = c.eval_py(FILM + "return { cap = f.cap:GetText(), on = f.cap:IsShown() }")
+    assert cut == {"cap": "Echo Ridge Mine", "on": False}, cut
     c.eval("ns.GamesUI:FilmSeek(1, 8.5 + 0.7)")
     mid = c.eval_py(FILM + "return { a1 = f.reels[1].frame:IsShown() and f.reels[1].frame:GetAlpha() or -1, "
                     "a2 = f.reels[2].frame:IsShown() and f.reels[2].frame:GetAlpha() or -1, i = f.shotIdx }")
@@ -291,10 +291,13 @@ def disastercraft_poster_plays_a_film_of_northshire_on_a_loop():
         settle(c)
         lv = c.eval_py(FILM + "local hi = 0 local function walk(fr) hi = math.max(hi, fr:GetFrameLevel()) "
                        "for _, ch in ipairs({ fr:GetChildren() }) do walk(ch) end end walk(f) "
-                       "return { film = hi, over = p.over:GetFrameLevel(), cap = f.cap:GetAlpha() }")
+                       "return { film = hi, over = p.over:GetFrameLevel(), cap = f.cap:IsShown() and f.cap:GetAlpha() or 0, "
+                       "  rule = f.capRule:IsShown() and 1 or 0, rw = f.capRule:GetWidth() + 2 * f.capFade[1]:GetWidth(), w = f.vw or 300 }")
         assert lv["film"] < lv["over"], lv
         if gid == "chess":
-            assert lv["cap"] == 0, lv               # (a side poster shows no name)
+            assert lv["cap"] == 0 and lv["rule"] == 0, lv   # (a side poster shows no name, nor its underline)
+        else:
+            assert lv["rw"] <= lv["w"], lv                   # (the underline stays inside the card)
     no_errors(w)
 
 
