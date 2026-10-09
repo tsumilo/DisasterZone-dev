@@ -257,34 +257,6 @@ CHESS_LADDER = ("local res = C.Data().results local names = { 'Victhar', 'Fazerb
                 "  at = time() - 100000 + i * 1000, n = 40 + i } end end C.ratings = nil ")
 
 
-# Disastercraft (Games/Disastercraft): a character of class `cls` in the world at (x, y) on map m, then `extra`
-DC_IN = ("ns.GamesUI:Select('disastercraft') local C, UI = ns.Craft, ns.CraftUI UI.CloseAll() UI.ClearCursorItem() "
-         "if not (C:Data().chars and C:Data().chars[%d]) then C:NewCharacter(%d, %d) end "
-         "if UI.inWorld and C.char.class ~= %d then UI.ToGlue() end if not UI.inWorld then UI.Glue.selected = %d UI.Glue.EnterWorld() end "
-         "local p = C.player p.map, p.x, p.y = '%s', %s, %s C.World.Settle(p) C.World.CheckArea(true) UI.Hud.zoneAt = nil "
-         "%s UI.DrawWorld(0) UI.UpdateHud(0)")
-
-
-def dc(cls, x, y, m="world", extra="", sex=0):
-    return DC_IN % (cls, cls, sex, cls, cls, m, x, y, extra)
-
-
-# inside a building walked in place (id: its WMO placement): next to the first spawn standing indoors on storey
-# `st`, at its height (Lua for dc's extra)
-def dc_inside(bid, st=1):
-    return ("local WS, W = ns.AzeroLand, C.World local best for _, rec in pairs(W.recs) do local u = rec.unit "
-            "if u and u.bld and u.bld.id == %d then local b, li = W.UnitLayer(u) "
-            "local l = b and WS.Layers(b, math.floor(u.x * 4), math.floor(u.y * 4))[li] "
-            "if l and l.ind and (l.st or 1) == %d and (not best or u.guid < best.guid) then best = u end end end "
-            "if best then W.Teleport(p, 'world', best.x, best.y + 0.3, best.e) C.World.SetTarget(nil) end "
-            "for _, rec in pairs(W.recs) do if rec.unit then rec.unit.hostile = false end end " % (bid, st))
-
-
-# the nearest spawn of an entry (any map) as T_DCU
-DC_FIND = ("local best for _, rec in pairs(ns.Craft.World.recs) do local u = rec.unit "
-           "if u and u.entry == %d and not u.dead then best = best or u end end T_DCU = best ")
-
-
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -1053,7 +1025,6 @@ STATES = [
                                                 "  d.current.who[card[i]] = who[(n % #who) + 1] end "
                                                 "ns.GamesUI:Select('bingo')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
-    ("Games - Disastercraft", opened("games", "ns.GamesUI:Select('disastercraft')")),
     # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire
     # on two of your pieces and his line (the flat board: the audit has no 3D rooms); the guild ladder
     ("Games - Chess lobby", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.GamesUI:Select('chess') "
@@ -1068,82 +1039,22 @@ STATES = [
                                   "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(ns.Chess:Get('ov1'))")),
     ("Games - Chess ladder", opened("games", CHESS_GAMES + CHESS_LADDER + "ns.GamesUI:Select('chess') "
                                     "ns.ChessUI:OpenLobby() ns.ChessUI._Tab('ladder')")),
+    ("Games - Portal", opened("games", "ns.GamesUI:Select('portal')")),
     ("Games - Chess in front", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = nil ns.GamesUI:ShowHub() "
                                       "ns.GamesUI:ShowFront('chess')")),
-    # Disastercraft: the character screens; a warrior's first step outside Northshire Abbey; a fight at the kobold
-    # camp (target frame, numbers, the cast bar of a mage); the windows: character, spellbook, bags, quest log,
-    # a quest giver's greeting and quest, the merchant, the trainer, the loot window
-    ("Disastercraft - character select", opened("games", "ns.GamesUI:Select('disastercraft') local C = ns.Craft "
-        "if not (C:Data().chars and C:Data().chars[1]) then C:NewCharacter(1, 0) end ns.CraftUI.Glue.ShowSelect()")),
-    ("Disastercraft - character create", opened("games", "ns.GamesUI:Select('disastercraft') ns.CraftUI.Glue.ShowCreate()")),
-    ("Disastercraft - delete character", opened("games", "ns.GamesUI:Select('disastercraft') local C = ns.Craft "
-        "if not (C:Data().chars and C:Data().chars[1]) then C:NewCharacter(1, 0) end ns.CraftUI.Glue.ShowSelect() "
-        "ns.CraftUI.Glue.ConfirmDelete(ns.CraftUI.Glue.selected or 1)")),
-    ("Disastercraft - Northshire start", opened("games", dc(1, 4127.8, 6244))),
-    # a party of three (two remote heroes walking with you): the party frames under yours, their bodies in the world
-    ("Disastercraft - party", opened("games", dc(1, 4127.8, 6244, "world", "local P = C.Party local me = P.Me() local function friend(k, name, cls, sex, lvl, dx, dy, hp)   P.peers[k] = { key = k, name = name, class = cls, sex = sex, level = lvl, seen = GetTime(), equip = {} }   local u = P.RemoteUnit(k, P.peers[k]) u.x, u.y, u.face = p.x + dx, p.y + dy, 'downleft' u.hp = math.floor(u.hpMax * hp) u.path = {} end friend('Bob-Realm', 'Bobbert', 5, 1, 4, 1.4, 0.6, 0.8) friend('Carol-Realm', 'Carolynn', 8, 0, 3, -1.2, 1.1, 0.45) P.group = { id = me .. ':1', leader = me, members = { me, 'Bob-Realm', 'Carol-Realm' } } UI.UpdateParty(0) "))),
-    ("Disastercraft - social window", opened("games", dc(1, 4127.8, 6244, "world", "local P = C.Party local me = P.Me() local function friend(k, name, cls, sex, lvl, dx, dy, hp)   P.peers[k] = { key = k, name = name, class = cls, sex = sex, level = lvl, seen = GetTime(), equip = {} }   local u = P.RemoteUnit(k, P.peers[k]) u.x, u.y, u.face = p.x + dx, p.y + dy, 'downleft' u.hp = math.floor(u.hpMax * hp) u.path = {} end friend('Bob-Realm', 'Bobbert', 5, 1, 4, 1.4, 0.6, 0.8) friend('Carol-Realm', 'Carolynn', 8, 0, 3, -1.2, 1.1, 0.45) P.group = { id = me .. ':1', leader = me, members = { me, 'Bob-Realm', 'Carol-Realm' } } UI.UpdateParty(0)  UI.Toggle('party')"))),
     # walking diagonally (down-left): the eighth facings
-    ("Disastercraft - walking diagonally", opened("games", dc(8, 4127.8, 6244, "world", "p.face = 'downleft' p.moving = true"))),
-    ("Disastercraft - kobold fight", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 257 +
-        "C.World.SetTarget(T_DCU) T_DCU.inCombat = true T_DCU.hp = math.floor(T_DCU.hpMax * 0.6) "
-        "p.x, p.y = T_DCU.x - 1, T_DCU.y C.Combat.StartAttack(p, T_DCU) p.power = 230 "
-        "UI.FCT(T_DCU, '7', 1, 1, 1) UI.FCT(T_DCU, '14', 1, 1, 1, true) UI.FCT(p, '-3', 1, 0.1, 0.1) "
-        "C:Msg('Kobold Worker says: You no take candle!', 'monster') C:Notice('Kobold Worker slain: 3/10')"))),
-    ("Disastercraft - mage casting", opened("games", dc(8, 4134.5, 6206, "world", DC_FIND % 6 +
-        "C.World.SetTarget(T_DCU) p.x, p.y = T_DCU.x, T_DCU.y + 4 C.Combat.CastSpell(p, 133, T_DCU) "
-        "p.casting.start = p.casting.start - 0.8"))),
-    ("Disastercraft - character sheet", opened("games", dc(1, 4127.8, 6244, "world", "UI.Toggle('character')"))),
-    ("Disastercraft - spellbook", opened("games", dc(8, 4127.8, 6244, "world", "UI.Toggle('spellbook')"))),
     # talent rows: a level 8 mage with three rows chosen, row 3 open without a choice, row 5 (level 10) locked
-    ("Disastercraft - talents", opened("games", dc(8, 4127.8, 6244, "world",
-        "C.char.level = 8 p.level = 8 C.char.trow = {} C.Talents.Choose(1, 1) C.Talents.Choose(2, 3) "
-        "C.Talents.Choose(4, 2) UI.Toggle('talents')"))),
-    ("Disastercraft - bags", opened("games", dc(1, 4127.8, 6244, "world", "C.Items.Add(750, 5, 'silent') C.Items.Add(2589, 3, 'silent') UI.ToggleAllBags()"))),
-    ("Disastercraft - quest log", opened("games", dc(1, 4127.8, 6244, "world", "C.Quests.Accept(783) C.char.done[783] = true C.char.quests[783] = nil C.Quests.Accept(7) C.char.quests[7].k[6] = 4 UI.Toggle('questlog')"))),
-    ("Disastercraft - quest giver", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenGossip(T_DCU)"))),
     # Deputy Willem's gossip once his first quest is done: the greeting and two quests on the parchment
-    ("Disastercraft - gossip", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "C.char.done[783] = true C.char.level = 4 p.level = 4 p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenGossip(T_DCU)"))),
-    ("Disastercraft - quest details", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.QuestDetail(T_DCU, C.Quests.Get(783))"))),
-    ("Disastercraft - quest reward", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 196 + "C.char.done[783] = true C.char.done[5261] = true C.Quests.Accept(33) C.Items.Add(750, 8, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.QuestReward(T_DCU, C.Quests.Get(33))"))),
-    ("Disastercraft - merchant", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 152 + "C:AddMoney(523, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenMerchant(T_DCU)"))),
-    ("Disastercraft - trainer", opened("games", dc(8, 4127.8, 6244, "world", DC_FIND % 198 + "C:AddMoney(150, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenTrainer(T_DCU)"))),
-    ("Disastercraft - loot", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 38 +
-        "p.map, p.x, p.y = T_DCU.map, T_DCU.x - 1, T_DCU.y T_DCU.tapper = p.guid C.Combat.Damage(p, T_DCU, 9999, { school = 1 }) "
-        "T_DCU.rec.loot = { money = 7, items = { { id = 2589, n = 2 }, { id = 1364, n = 1 } } } C.Loot.Open(T_DCU)"))),
     # the client's own frames built from Layouts.lua (UILayout.lua), shown as they come
-    ("Disastercraft - layout loot", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
-        "local f = UI.Build('LootFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 40, -120) f:Show() T_LY.loot = f "
-        "local g = UI.Build('ContainerFrameTemplate', UI.hudFrame) g:ClearAllPoints() g:SetPoint('TOPLEFT', 260, -120) g:Show() T_LY.bag = g"))),
-    ("Disastercraft - layout quest", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
-        "local f, r = UI.Build('QuestFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 20, -100) f:Show() T_LY.quest = f "
-        "if r.QuestFrameDetailPanel then r.QuestFrameDetailPanel:Show() end"))),
-    ("Disastercraft - layout merchant", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
-        "local f = UI.Build('MerchantFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 20, -100) f:Show() T_LY.merchant = f"))),
     # inside the Abbey, walked in place: its roof gone, the ground floor cut away over head height; then upstairs
-    ("Disastercraft - inside the Abbey", opened("games", dc(5, 4127.8, 6244, "world", dc_inside(10286, 1)))),
-    ("Disastercraft - Abbey upstairs", opened("games", dc(5, 4127.8, 6244, "world", dc_inside(10286, 3)))),
     # down Echo Ridge Mine: its tunnels on black, the kobolds in them
-    ("Disastercraft - Echo Ridge Mine", opened("games", dc(5, 4127.8, 6244, "world", dc_inside(71448, 1)))),
     # outdoors by the Abbey's east end: Eagan Peltskinner under the roof (it fades round him), trees behind it
-    ("Disastercraft - by Eagan", opened("games", dc(1, 4133.5, 6223.6))),
-    ("Disastercraft - Abbey east trees", opened("games", dc(1, 4128.5, 6228.5))),
     # /collision: the solid ~1 yd cells (azw_collide) over the pictures - trunks, props, the Abbey's walls
-    ("Disastercraft - collision Abbey", opened("games", dc(1, 4128.5, 6228.5, "world", "UI.showCollision = true"))),
-    ("Disastercraft - collision start", opened("games", dc(1, 4127.8, 6244, "world", "UI.showCollision = true"))),
     # the world map (M) with Northshire and Goldshire explored; the minimap shows in every world view
-    ("Disastercraft - world map", opened("games", dc(1, 4127.8, 6244, "world",
-        "C.char.explored = { [9] = true, [87] = true, [24] = true } UI.CloseAll() UI.ToggleWorldMap()"))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),
-    ("Games - Disastercraft in front", opened("games", "ns.GamesUI:ShowFront('disastercraft')")),
     # its poster's film of Northshire, a moment into each shot (the audit ticks 0.6 s more after the state)
-    ("Games - Disastercraft film Abbey", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(1, 3.6)")),
-    ("Games - Disastercraft film Abbey door", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(1, 1.3)")),
-    ("Games - Disastercraft film fight", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(2, 1.6)")),
-    ("Games - Disastercraft film vineyards", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(3, 3.4)")),
-    ("Games - Disastercraft film gate", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(4, 5)")),
     ("Games - Bingo live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
                                            "d.current = { id = 'hubdemo', host = me, started = now, hits = {} } "
                                            "local card = ns.Bingo:GetMyCard() "

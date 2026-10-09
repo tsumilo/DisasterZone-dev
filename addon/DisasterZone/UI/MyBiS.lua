@@ -1856,6 +1856,11 @@ function MyBiS:Refresh()
     end
     if locked then lockChip:SetLock(info) end
     lockChip:SetShown(locked and true or false)
+    -- Sim sits left of whatever holds Suggest's place (the lock chip while locked)
+    if simBtn then
+        simBtn:ClearAllPoints()
+        simBtn:SetPoint("RIGHT", locked and lockChip or suggestBtn, "LEFT", -6, 0)
+    end
     if locked and ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
 
     local record = ns.ListRecordView(BiS:GetRecord(), ListArg())

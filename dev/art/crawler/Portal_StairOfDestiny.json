@@ -1,0 +1,10 @@
+{
+ "room": "Portal_StairOfDestiny",
+ "w": 130,
+ "h": 150,
+ "entrance": {
+  "x": 113.0,
+  "y": 74.3
+ },
+ "mobs": []
+}

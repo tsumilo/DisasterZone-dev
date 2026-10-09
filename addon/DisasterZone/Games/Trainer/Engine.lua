@@ -99,9 +99,13 @@ function T.WalkableFn(grid)
     end
 end
 
-function T:GetEncounters()
+-- The encounters of one game: the Raid Trainer's (game = nil) or another game's that shares this engine (the Portal
+-- crawler's dungeons register with game = "portal", Games/Portal/).
+function T:GetEncounters(game)
     local out = {}
-    for i = 1, #encList do out[i] = encList[i] end
+    for i = 1, #encList do
+        if encList[i].game == game then out[#out + 1] = encList[i] end
+    end
     return out
 end
 

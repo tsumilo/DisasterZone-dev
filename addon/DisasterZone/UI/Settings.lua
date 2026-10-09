@@ -39,7 +39,8 @@ local SECTIONS = {
     { key = "strategy", label = "Strategy boards" },
     { key = "tooltips", label = "Tooltips" },
     { key = "mylog", label = "My Log" },
-    { key = "swing", label = "Swing timer" },
+    -- only on a Retribution Paladin (the timer is for seal twisting)
+    { key = "swing", label = "Swing timer", visible = function() return ns.SwingTimer and ns.SwingTimer:IsRet() end },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
     { key = "demo", label = "Demo mode" },
@@ -285,6 +286,8 @@ end
 
 function SettingsUI:OnLogin()
     self:RegisterBlizzardCategory()
+    -- a respec into or out of Retribution shows or hides the Swing timer section
+    ns:On("SWING_STATE", function() SettingsUI:LayoutNav() end)
 end
 
 ---------------------------------------------------------------------------
@@ -1086,11 +1089,10 @@ function SettingsUI:CreatePanel(parent)
     self.panel = panel
 
     self.nav = {}
-    for i, def in ipairs(SECTIONS) do
-        local b = NewNavItem(panel, def.label, function() SettingsUI:SelectSection(def.key) end)
-        b:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -(TOP_Y + (i - 1) * NAV_H))
-        self.nav[def.key] = b
+    for _, def in ipairs(SECTIONS) do
+        self.nav[def.key] = NewNavItem(panel, def.label, function() SettingsUI:SelectSection(def.key) end)
     end
+    self:LayoutNav()
     local rule = panel:CreateTexture(nil, "BORDER")
     rule:SetColorTexture(1, 1, 1, 0.08)
     rule:SetWidth(1)
@@ -1134,9 +1136,33 @@ function SettingsUI:CreatePanel(parent)
     return panel
 end
 
+-- A section with visible() shows only while it returns true (Swing timer: Retribution Paladins); the nav closes up.
+local function SectionVisible(key)
+    for _, def in ipairs(SECTIONS) do
+        if def.key == key then return not def.visible or def.visible() and true or false end
+    end
+    return false
+end
+
+function SettingsUI:LayoutNav()
+    if not self.panel then return end
+    local i = 0
+    for _, def in ipairs(SECTIONS) do
+        local b = self.nav[def.key]
+        local shown = SectionVisible(def.key)
+        b:SetShown(shown)
+        if shown then
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", self.panel, "TOPLEFT", PAD, -(TOP_Y + i * NAV_H))
+            i = i + 1
+        end
+    end
+    if self.section and not SectionVisible(self.section) then self:SelectSection("alerts") end
+end
+
 -- Opens one section (key as in SECTIONS); the others hide. The page keeps its size: only the scroll range follows.
 function SettingsUI:SelectSection(key)
-    if not (self.sections and self.sections[key]) then key = "alerts" end
+    if not (self.sections and self.sections[key]) or not SectionVisible(key) then key = "alerts" end
     self.section = key
     if not self.sections then return end
     for k, sec in pairs(self.sections) do sec:SetShown(k == key) end
@@ -1362,14 +1388,11 @@ function SettingsUI:BuildSwing(sec)
     self:DropdownSetting(sec, "Latency", "Moves the press zone earlier. Auto measures it for you.",
         "swing.latencyMs", 0, lats, "Auto averages your world latency with what it measures from your own seal casts "
             .. "(the time from pressing to the seal landing). /dz swing shows both.")
-    self:SwitchSetting(sec, "Crusader Strike", "The planner may use it between twists.", "swing.use.cs", true)
-    self:SwitchSetting(sec, "Exorcism", "Filler on demons and undead.", "swing.use.exo", true)
-    self:SwitchSetting(sec, "Consecration", "Filler when your mana allows it.", "swing.use.cons", true)
+    self:SwitchSetting(sec, "Exorcism", "On demons and undead. Off in WoWSims' rotation: turn on only if your sim says so.", "swing.use.exo", false)
+    self:SwitchSetting(sec, "Consecration", "Off in WoWSims' rotation: turn on only if your sim says so.", "swing.use.cons", false)
     local manas = {}
     for _, n in ipairs({ 0, 20, 30, 40, 50, 60, 80 }) do manas[#manas + 1] = { value = n, text = n .. "%" } end
     self:DropdownSetting(sec, "Consecration above", "Only suggest it with at least this much mana.", "swing.consMana", 40, manas)
-    self:SwitchSetting(sec, "Use the gear sim", "Damage per cast from the sim on your gear (out of combat, a few seconds).",
-        "swing.useSim", true, "Without it the planner uses estimates from your weapon. /dz swing sim runs it again.")
     self:SwitchSetting(sec, "Sound in the twist zone", "A click when it is time to press Seal of Blood.", "swing.sound", false)
     local row = self:Row(sec, "Last fight", "")
     row.hasDesc = true
@@ -1382,8 +1405,8 @@ function SettingsUI:BuildSwing(sec)
             local tw, late, clip = c.twist or 0, c.late or 0, c.clip or 0
             local f = r.fillers or {}
             local fill = (f.exo or 0) + (f.cons or 0) + (f.how or 0)
-            row.desc:SetText(string.format("%s: %d/%d twists landed, %d late, %d clipped, %d fillers. About %.0f dps lost.",
-                r.target or "Fight", tw, tw + late + clip, late, clip, fill, (r.lostLate or 0) + (r.lostClip or 0)))
+            row.desc:SetText(string.format("%s: %d/%d twists landed, %d late, %d clipped, %d fillers.",
+                r.target or "Fight", tw, tw + late + clip, late, clip, fill))
         end,
     }
     self:EndSection(sec)
@@ -1910,6 +1933,7 @@ function SettingsUI:Refresh()
     local p = self.panel
     if not p then return end
     p.dirty = false
+    self:LayoutNav()
     self:SyncWidth()
     for _, w in ipairs(self.refreshers) do
         if w.Refresh then w:Refresh() end

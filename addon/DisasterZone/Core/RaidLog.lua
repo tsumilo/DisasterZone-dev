@@ -271,16 +271,22 @@ local function Reconcile()
     end
 end
 
-local function OnEncounterEnd(_, encounterID, encounterName, _, _, success)
-    local enc = tonumber(encounterID)
-    local pulled = enc and pulls[enc]
-    if enc then pulls[enc] = nil end
-    if success ~= 1 and success ~= true then return end
+-- 1.3.4: a kill reaches the log three ways, since ENCOUNTER_END only comes to players in the instance and in the
+-- fight when it ends (a released ghost misses it): the event, the boss's death in my combat log (one-creature
+-- encounters only), and RLK from another member of the raid who saw it. Returns true when it was new.
+local function RecordKill(enc, encounterName)
+    if not enc then return false end
+    local pulled = pulls[enc]
+    pulls[enc] = nil
     local rec = OpenRecord()
-    if not rec then return end
+    if not rec then return false end
     rec.bosses = type(rec.bosses) == "table" and rec.bosses or {}
     for _, b in ipairs(rec.bosses) do
-        if b.enc == enc then return end   -- already recorded (the same kill seen twice)
+        if b.enc == enc then return false end   -- already recorded (the same kill seen twice)
+    end
+    if type(encounterName) ~= "string" then
+        local ref = ns.ItemDB and ns.ItemDB.GetBossByEncounter and ns.ItemDB:GetBossByEncounter(enc)
+        encounterName = ref and ref.boss and ref.boss.name or nil
     end
     Scan(rec)
     local now = GetServerTime()
@@ -301,6 +307,51 @@ local function OnEncounterEnd(_, encounterID, encounterName, _, _, success)
     if ns.AzeroHideout and ns.AzeroHideout.Invalidate then ns.AzeroHideout.Invalidate() end
     rec.last = now
     Changed(rec)
+    return true
+end
+
+-- Tells the raid about a kill I saw, so a member who missed it (dead, released, outside) records it too.
+local function BroadcastKill(enc)
+    local rec = OpenRecord()
+    local Comm = ns.Comm
+    if not (rec and IsInRaid() and Comm and Comm.Send) then return end
+    if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then return end
+    Comm:Send({ t = "RLK", e = enc, s = rec.id }, "RAID", nil, "alert")
+end
+
+local function OnEncounterEnd(_, encounterID, encounterName, _, _, success)
+    local enc = tonumber(encounterID)
+    if success ~= 1 and success ~= true then
+        if enc then pulls[enc] = nil end
+        return
+    end
+    if RecordKill(enc, encounterName) then BroadcastKill(enc) end
+end
+
+-- The boss of a one-creature encounter died in my combat log: a kill even when ENCOUNTER_END never came.
+local function OnCombatLog()
+    local _, sub, _, _, _, _, _, destGUID = CombatLogGetCurrentEventInfo()
+    if sub ~= "UNIT_DIED" or not IsInRaid() then return end
+    local ref = ns.ItemDB and ns.ItemDB.GetBossBySourceGUID and ns.ItemDB:GetBossBySourceGUID(destGUID)
+    local boss = ref and ref.boss
+    local enc = boss and tonumber(boss.encounterID)
+    if not enc or type(boss.npcIDs) ~= "table" or #boss.npcIDs ~= 1 then return end
+    if RecordKill(enc, boss.name) then BroadcastKill(enc) end
+end
+
+-- RLK {e, s}: a raid member saw the kill of encounter e during session s.
+local function OnRaidKill(sender, msg, dist)
+    if dist ~= "RAID" or type(msg) ~= "table" then return end
+    local enc = tonumber(msg.e)
+    local rec = OpenRecord()
+    if not (enc and rec and msg.s == rec.id) then return end
+    local key = Util.NormalizeName(sender)
+    if not (key and Roster()[key]) then return end    -- only somebody in my raid
+    local ref = ns.ItemDB and ns.ItemDB.GetBossByEncounter and ns.ItemDB:GetBossByEncounter(enc)
+    if not ref then return end                        -- a known raid encounter only
+    local Comm = ns.Comm
+    if Comm and Comm.RateLimit and not Comm:RateLimit("RLK:" .. key, 5) then return end
+    RecordKill(enc, ref.boss and ref.boss.name)
 end
 
 ---------------------------------------------------------------------------
@@ -1160,11 +1211,13 @@ function RaidLog:OnInit()
     end)
     ns:RegisterEvent("ENCOUNTER_START", OnEncounterStart)
     ns:RegisterEvent("ENCOUNTER_END", OnEncounterEnd)
+    ns:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED", OnCombatLog)
     ns:RegisterEvent("PLAYER_ENTERING_WORLD", OnEnteringWorld)
     if ns.Comm and ns.Comm.Register then
         ns.Comm:Register("RLW", OnRaidWant)
         ns.Comm:Register("RLG", OnRaidGive)
         ns.Comm:Register("RLD", OnRaidDigest)
+        ns.Comm:Register("RLK", OnRaidKill)
     end
     ns:RegisterSlash("raid", SlashRaid, "start | options | end | status - the raid session: loot, rolls and the raid log (raid leader)")
 end

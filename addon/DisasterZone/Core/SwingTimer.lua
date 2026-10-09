@@ -12,12 +12,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/SwingTimer.lua", ...) then re
 -- UNIT_SPELLCAST_SENT to the seal's aura showing up in the combat log (a smoothed average). MARGIN keeps the press
 -- target clear of both edges (jitter).
 --
--- The planner (Plan): a small search over the next GCDs (Crusader Strike, Seal of Command, Seal of Blood twisted
--- into a swing, Exorcism, Consecration, or holding the GCD until the next swing) up to about two
--- swings ahead, scoring each line by damage. The damage per cast comes from the gear sim run on the gear you wear
--- (Calibrate, out of combat, cached by gear), or estimates from your weapon until it has run. Hammer of Wrath is left
--- out on purpose: its cast time resets the swing, which costs a twisting Ret more than it hits for. Judgement is off the
--- GCD: it is suggested right after a twisted swing, when Seal of Blood is about to be replaced by Command anyway.
+-- What to press comes from WoWSims' Retribution rotation (the one the gear sim plays, see Run below), not from a
+-- planner of our own. Hammer of Wrath is not in it: its cast time resets the swing.
 --
 -- After each fight a report counts every swing: twisted, late (Seal of Blood landed just after the swing), clipped
 -- (a GCD was running through the whole window) or plain (no Command up), plus fillers used.
@@ -34,7 +30,6 @@ local strformat = string.format
 local OVERLAP = 0.399            -- Seal of Command stays on this long after switching away (seals.go)
 local MARGIN = 0.05              -- keep the press this far from either edge of the window (jitter)
 local GCD = 1.5
-local SOC_PPM = 7
 local LATE_WINDOW = 0.25         -- Seal of Blood landing this soon after a swing counts as a late twist
 local REPORTS_MAX = 10
 
@@ -52,8 +47,6 @@ local ICONS = {
     exo = "Interface\\Icons\\Spell_Holy_Excorcism_02", cons = "Interface\\Icons\\Spell_Holy_InnerFire",
     wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
 }
-local COSTS = { soc = 280, sob = 210, cs = 236, exo = 340, cons = 660 }   -- top ranks, fallback only
-local CDS = { cs = 6, exo = 15, cons = 8 }
 
 local MARTYR = 348700            -- Seal of the Martyr: the Alliance's Seal of Blood in TBC Classic, same twist
 local names = {}                 -- key -> localized spell name
@@ -130,86 +123,6 @@ function SwingTimer:LatencyInfo()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Damage per cast: the gear sim on your gear, or weapon-based estimates
--- ---------------------------------------------------------------------------------------------------------------
-local values                     -- { soc = per SoC proc, sob = per SoB hit, cs, exo, cons, judge, src }
-
-local function WeaponAvg()
-    if UnitDamage then
-        local lo, hi = UnitDamage("player")
-        lo, hi = tonumber(lo) or 0, tonumber(hi) or 0
-        if hi > 0 then return (lo + hi) / 2 end
-    end
-    return 600
-end
-
-function SwingTimer:EstimatedValues()
-    local w = WeaponAvg()
-    local sp = (GetSpellBonusDamage and tonumber(GetSpellBonusDamage(2))) or 0
-    return {
-        soc = w * 0.70 * 1.15 + sp * 0.20, sob = w * 0.35 * 1.15, cs = w * 1.10 * 1.15,
-        exo = 662 + sp * 0.43, cons = 512 + sp * 0.95, judge = w * 0.75, src = "estimate",
-    }
-end
-
-function SwingTimer:Values()
-    if values then return values end
-    local saved = Get("values")
-    if type(saved) == "table" and saved.gear == self:GearKey() then
-        values = saved
-        return values
-    end
-    return self:EstimatedValues()
-end
-
--- What the gear you wear looks like (calibration is redone when it changes).
-function SwingTimer:GearKey()
-    local parts = {}
-    for sid = 1, 18 do
-        local id = GetInventoryItemID and GetInventoryItemID("player", sid)
-        parts[#parts + 1] = tostring(id or 0)
-    end
-    return table.concat(parts, ":")
-end
-
-local SIM_DUR = 180
--- Runs the gear sim (40 short fights) on the gear you wear and keeps damage per cast. Only out of combat, and never
--- over a sim you started yourself.
-function SwingTimer:Calibrate(force)
-    local Runner = ns.SimRunner
-    if not Runner or not Runner.Start or not self:IsRet() then return false end
-    if Runner:IsRunning() or InCombatLockdown() then return false end
-    local key = self:GearKey()
-    local saved = Get("values")
-    if not force and type(saved) == "table" and saved.gear == key then values = saved return true end
-    local set = Runner:EquippedSet()
-    local mob = Get("mobType", "Demon")
-    local ok = Runner:Start({ { key = "now", set = set } }, {
-        iterations = 40,
-        settings = { duration = SIM_DUR, talents = select(1, Runner:Talents()), mobType = mob },
-        onDone = function(res)
-            local s = res and res.now
-            if not s then return end
-            local function per(k)
-                local a = s.abilities and s.abilities[k]
-                if a and (a.casts or 0) > 0 then return a.dps * SIM_DUR / a.casts end
-                if a and (a.hits or 0) > 0 then return a.dps * SIM_DUR / a.hits end
-            end
-            local est = self:EstimatedValues()
-            local v = {
-                soc = per("soc_proc") or est.soc, sob = per(31893) or est.sob, cs = per(35395) or est.cs,
-                exo = per(27138) or est.exo, cons = est.cons,
-                judge = per(31898) or est.judge, src = "sim", gear = key, dps = s.dps,
-            }
-            values = v
-            ns.DB:SetSetting("swing.values", v)
-            ns:Fire("SWING_VALUES")
-        end,
-    })
-    return ok
-end
-
--- ---------------------------------------------------------------------------------------------------------------
 -- Live state: swing clock, seals, cooldowns
 -- ---------------------------------------------------------------------------------------------------------------
 local state = {
@@ -253,14 +166,10 @@ local function ScanSeals()
 end
 SwingTimer.ScanSeals = ScanSeals
 
-local function CdLeft(key, now)
-    local n = NameOf(key)
-    if not n or not GetSpellCooldown then return 0 end
-    local s, d = GetSpellCooldown(n)
-    s, d = tonumber(s) or 0, tonumber(d) or 0
-    if s == 0 or d <= GCD + 0.01 then return 0 end   -- a GCD is not the spell's own cooldown
-    return max(0, s + d - now)
-end
+-- Durations as the client reports them (haste, talents and set bonuses included), kept from the last time each was
+-- seen running: the GCD from a seal's cooldown, a spell's own cooldown when it is longer than the GCD.
+state.gcd = GCD
+state.cd = { cs = 6, judge = 10, exo = 15, cons = 8 }
 
 local function GcdLeft(now)
     local n = NameOf("soc") or NameOf("sob")
@@ -268,10 +177,26 @@ local function GcdLeft(now)
     local s, d = GetSpellCooldown(n)
     s, d = tonumber(s) or 0, tonumber(d) or 0
     if s == 0 or d > GCD + 0.01 then return 0 end
+    state.gcd = d
     return max(0, s + d - now)
 end
 
+local function CdLeft(key, now)
+    local n = NameOf(key)
+    if not n or not GetSpellCooldown then return 0 end
+    local s, d = GetSpellCooldown(n)
+    s, d = tonumber(s) or 0, tonumber(d) or 0
+    if s == 0 or d <= state.gcd + 0.01 then return 0 end   -- a GCD is not the spell's own cooldown
+    state.cd[key] = d
+    return max(0, s + d - now)
+end
+
+-- In the spellbook, by id (a talent spell such as Crusader Strike is missing from a Reckoning build). The name
+-- lookup is only the fallback for a client without IsPlayerSpell / IsSpellKnown.
 local function Known(key)
+    local id = IDS[key]
+    if id and IsPlayerSpell then return IsPlayerSpell(id) and true or false end
+    if id and IsSpellKnown then return IsSpellKnown(id) and true or false end
     local n = NameOf(key)
     return n ~= nil and GetSpellInfo(n) ~= nil
 end
@@ -284,129 +209,86 @@ end
 local UNDEAD_DEMON = { Demon = true, Undead = true, ["Dämon"] = true, ["Untoter"] = true, ["Démon"] = true,
     ["Mort-vivant"] = true, ["Demonio"] = true, ["No-muerto"] = true }
 
--- The planner's input, from the live client.
+-- The rotation's input, from the live client.
 function SwingTimer:Snapshot(now)
     now = now or GetTime()
     state.speed = MainSpeed()
-    local ns_, sp = self:NextSwing(now)
+    local nxt, sp = self:NextSwing(now)
     local mana, manaMax = UnitPower("player", 0) or 0, UnitPowerMax("player", 0) or 1
-    local hp, hpMax = UnitHealth("target") or 0, UnitHealthMax("target") or 0
-    local opt = {}
-    for _, k in ipairs({ "cs", "exo", "cons" }) do opt[k] = Get("use." .. k, true) and Known(k) end
-    if opt.exo and not UNDEAD_DEMON[TargetType() or ""] then opt.exo = false end
-    if opt.cons and manaMax > 0 and mana / manaMax * 100 < (tonumber(Get("consMana", 40)) or 40) then opt.cons = false end
+    local use = { cs = Known("cs"), exo = Get("use.exo", false) and Known("exo"),
+                  cons = Get("use.cons", false) and Known("cons") }
+    if use.exo and not UNDEAD_DEMON[TargetType() or ""] then use.exo = false end
+    if use.cons and manaMax > 0 and mana / manaMax * 100 < (tonumber(Get("consMana", 40)) or 40) then use.cons = false end
     return {
-        now = now, nextSwing = ns_, speed = sp, gcdReady = now + GcdLeft(now), lat = self:Latency(),
-        seal = state.seal, socUntil = state.socUntil,
-        cd = { cs = now + CdLeft("cs", now), exo = now + CdLeft("exo", now), cons = now + CdLeft("cons", now) },
-        judgeReady = now + CdLeft("judge", now), use = opt, values = self:Values(),
-        mana = mana, manaPct = manaMax > 0 and mana / manaMax or 1,
+        now = now, nextSwing = nxt, lastSwing = state.last or (nxt - sp), speed = sp, lat = self:Latency(),
+        gcdReady = now + GcdLeft(now), seal = state.seal, use = use,
+        ready = { cs = now + CdLeft("cs", now), judge = now + CdLeft("judge", now), exo = now + CdLeft("exo", now),
+                  cons = now + CdLeft("cons", now) },
+        gcd = state.gcd, cd = state.cd,
     }
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The planner (pure: Plan(snapshot) -> { steps, score }); steps = { { key, at (press time), apply, twist } }
+-- The rotation: WoWSims' Retribution priority list (Data/SimAPL.lua, the one the gear sim plays), in order:
+--   1. Seal of Command up and the swing within 0.4 s       -> Seal of Blood (the twist)
+--   2. Seal of Blood up                                     -> Crusader Strike when ready
+--   3. Seal of Blood up, GCD ready, <= 0.8 s after a swing   -> Judgement (off the GCD)
+--   4. Seal of Blood up                                     -> Exorcism / Consecration (off unless turned on;
+--                                                              WoWSims leaves both off)
+--   5. no Command, Judgement on cooldown, its GCD ends before the next window closes, >= 0.5 s after a swing
+--                                                           -> Seal of Command
+-- plus: no seal at all -> Seal of Command. The 0.4 s of rule 1 is on the server's clock; on ours the window is one
+-- round trip earlier and MARGIN inside both edges (the press zone). Haste: the swing length is the client's
+-- UnitAttackSpeed read on every pass (a running swing is rescaled the moment it changes, UNIT_ATTACK_SPEED), and the
+-- GCD and cooldowns are the durations the client last reported, so nothing here is a fixed number.
+-- Run(snap) plays the rules forward from now (as if each press is made on time) and returns the presses:
+-- { { key, at (our clock), twist (the swing it twists into) } }; the first one at or before now is the press to make.
 -- ---------------------------------------------------------------------------------------------------------------
-local function SwingValue(soc, sob, v, speed)
-    local chance = min(1, SOC_PPM * speed / 60)
-    return (soc and v.soc * chance or 0) + (sob and v.sob or 0)
-end
-
--- Scores a line: every swing up to `horizon` with the seals on at that moment, plus spell damage.
-local function Score(snap, steps, horizon)
-    local v, lat = snap.values, snap.lat
-    local total = 0
-    local events = {}
-    for _, st in ipairs(steps) do
-        if st.key == "soc" or st.key == "sob" then events[#events + 1] = st
-        elseif st.key ~= "wait" then total = total + (v[st.key] or 0) end
-    end
-    local seal, socUntil = snap.seal, snap.socUntil or 0
-    local ei = 1
-    local ts = snap.nextSwing
-    while ts <= horizon do
-        while events[ei] and events[ei].apply < ts do
-            local e = events[ei]
-            if seal == "soc" and e.key == "sob" then socUntil = e.apply + OVERLAP end
-            seal = e.key
-            ei = ei + 1
-        end
-        local soc = seal == "soc" or ts < socUntil
-        total = total + SwingValue(soc, seal == "sob", v, snap.speed)
-        ts = ts + snap.speed
-    end
-    -- ending in Command means the next swing can be twisted: half its worth
-    while events[ei] do seal = events[ei].key; ei = ei + 1 end
-    if seal == "soc" then total = total + 0.5 * SwingValue(true, true, v, snap.speed) end
-    return total
-end
-SwingTimer.Score = Score
-
--- First swing whose window a press at or after t can still reach.
-local function TwistSwing(snap, t)
-    local ts = snap.nextSwing
-    while ts - MARGIN - snap.lat < t do ts = ts + snap.speed end
-    return ts
-end
-
-function SwingTimer.Plan(snap, depth)
-    depth = depth or 5
-    local horizon = snap.now + 2 * snap.speed + GCD
-    local best, bestScore = {}, -huge
+function SwingTimer.Run(snap, horizon)
+    horizon = horizon or (snap.now + 2 * snap.speed + 0.5)
+    local lat = snap.lat
+    local t = snap.now
+    local nxt, last, speed = snap.nextSwing, snap.lastSwing, snap.speed
+    local seal, gcd = snap.seal, snap.gcdReady
+    local rd = {}
+    for k, v in pairs(snap.ready) do rd[k] = v end
+    local use, G, CD = snap.use, snap.gcd, snap.cd
     local steps = {}
-    local function rec(t, seal, cd, d)
-        if d == 0 or t >= horizon then
-            local s = Score(snap, steps, horizon)
-            if s > bestScore then
-                bestScore = s
-                best = {}
-                for i = 1, #steps do best[i] = steps[i] end
+    for _ = 1, 40 do
+        if t > horizon then break end
+        while t >= nxt do last, nxt = nxt, nxt + speed end
+        local zone0, zone1 = nxt - OVERLAP + MARGIN - lat, nxt - MARGIN - lat
+        local gcdOk = t >= gcd - 0.001
+        local act, twist
+        if seal == "soc" and gcdOk and t >= zone0 and t <= zone1 then act, twist = "sob", nxt
+        elseif seal == "sob" and gcdOk and use.cs and t >= rd.cs then act = "cs"
+        elseif seal == "sob" and gcdOk and t >= rd.judge and t - last <= 0.8 then act = "judge"
+        elseif seal == "sob" and gcdOk and use.exo and t >= rd.exo then act = "exo"
+        elseif seal == "sob" and gcdOk and use.cons and t >= rd.cons then act = "cons"
+        elseif seal ~= "soc" and gcdOk and (seal == nil or t < rd.judge) and G <= (nxt - t) + OVERLAP
+            and t - last >= 0.5 then act = "soc"
+        elseif seal == nil and gcdOk then act = "soc"
+        end
+        if act then
+            steps[#steps + 1] = { key = act, at = t, twist = twist }
+            if act == "judge" then rd.judge = t + CD.judge; seal = nil
+            else
+                gcd = t + G
+                if act == "sob" or act == "soc" then seal = act end
+                if CD[act] then rd[act] = t + CD[act] end
             end
-            return
-        end
-        local function try(key, press, newCd, newSeal, twist)
-            steps[#steps + 1] = { key = key, at = press, apply = press + snap.lat, twist = twist }
-            rec(press + GCD, newSeal or seal, newCd or cd, d - 1)
-            steps[#steps] = nil
-        end
-        for _, k in ipairs({ "cs", "exo", "cons" }) do
-            if snap.use[k] and cd[k] <= t + 0.01 then
-                local c = {}
-                for a, b in pairs(cd) do c[a] = b end
-                c[k] = t + CDS[k]
-                try(k, t, c)
-            end
-        end
-        if seal ~= "soc" then try("soc", t, nil, "soc") end
-        if seal == "soc" then
-            local ts = TwistSwing(snap, t)
-            -- aim at the middle of the window, on our clock (one round trip earlier), never past its late edge
-            local press = max(t, min(ts - OVERLAP / 2 - snap.lat, ts - MARGIN - snap.lat))
-            if ts <= horizon then try("sob", press, nil, "sob", ts) end
-        elseif seal == nil then
-            try("sob", t, nil, "sob")
-        end
-        -- hold the GCD until just after the next swing
-        local ns_ = snap.nextSwing
-        while ns_ <= t do ns_ = ns_ + snap.speed end
-        if ns_ < horizon then
-            steps[#steps + 1] = { key = "wait", at = t, apply = t }
-            rec(ns_ + 0.01, seal, cd, d - 1)
-            steps[#steps] = nil
+        else
+            -- jump to the next moment a rule could fire
+            local cand = { gcd, zone0, nxt + 0.001, last + 0.5, rd.cs, rd.judge }
+            if use.exo then cand[#cand + 1] = rd.exo end
+            if use.cons then cand[#cand + 1] = rd.cons end
+            local nt = huge
+            for _, c in ipairs(cand) do if c and c > t + 0.001 and c < nt then nt = c end end
+            if nt == huge then break end
+            t = nt
         end
     end
-    rec(max(snap.now, snap.gcdReady), snap.seal, snap.cd, depth)
-    return { steps = best, score = bestScore }
-end
-
--- Baseline for "+x dps vs twisting every swing": the same search with fillers off.
-function SwingTimer.PlanGain(snap, plan)
-    local copy = {}
-    for k, v in pairs(snap) do copy[k] = v end
-    copy.use = { cs = snap.use.cs }
-    local base = SwingTimer.Plan(copy, 4)
-    local span = 2 * snap.speed + GCD
-    return (plan.score - base.score) / span
+    return steps
 end
 
 -- Is auto attack running? No swing seen for 1.6 swings = idle: the HUD rests instead of guessing.
@@ -416,36 +298,19 @@ function SwingTimer:IsSwinging(now)
     return now - state.last < state.speed * 1.6
 end
 
--- What the HUD shows. The plan holds still between events: it is redone when something happened (a swing, a cast, a
--- seal change: MarkDirty), when its first press is overdue, or every half second, and then a fresh plan only replaces
--- the one on screen when it is clearly better (2%), so the queue does not flicker between near-equal lines.
-local shown, shownAt, dirty = nil, 0, true
-function SwingTimer:MarkDirty() dirty = true end
+-- What the HUD shows: the rotation played forward from the live state, redone every frame (it is a few dozen steps
+-- of arithmetic), so a press you hold back slides along smoothly instead of jumping at a refresh rate.
+local shown, shownAt = nil, 0
+function SwingTimer:MarkDirty() shownAt = 0 end
 
 function SwingTimer:Current()
     local now = GetTime()
     if not self:IsSwinging(now) then shown = nil return nil end
-    local first = shown and shown.plan.steps[1]
-    local overdue = first and first.at < now - 0.25
-    if shown and not dirty and not overdue and now - shownAt < 0.5 then return shown end
+    if shown and now == shownAt then return shown end
     local snap = self:Snapshot(now)
-    local plan = SwingTimer.Plan(snap)
-    if shown and not dirty and not overdue then
-        local keep = {}
-        for _, st in ipairs(shown.plan.steps) do if st.at >= now - 0.05 then keep[#keep + 1] = st end end
-        if #keep > 0 then
-            local old = Score(snap, keep, snap.now + 2 * snap.speed + GCD)
-            if plan.score < old * 1.02 then plan = { steps = keep, score = old } end
-        end
-    end
-    dirty = false
+    local steps = SwingTimer.Run(snap)
     shownAt = now
-    local judge
-    if snap.judgeReady <= now + 0.05 and snap.seal == "sob" then
-        local f = plan.steps[1]
-        if f and f.key == "soc" then judge = true end
-    end
-    shown = { snap = snap, plan = plan, judge = judge }
+    shown = { snap = snap, plan = { steps = steps } }
     return shown
 end
 
@@ -484,12 +349,26 @@ local function OnSwing(t)
     end
 end
 
+-- Extra attacks (Reckoning, Windfury, Hand of Justice, Sword Specialization): the log names them with
+-- SPELL_EXTRA_ATTACKS just before the hits they cause. Those hits are not the weapon's swing, so they must not
+-- restart the timer; they only flash the ring (state.extraAt). Unused grants expire after a moment.
+local EXTRA_TTL = 0.04          -- the hits share the grant's log timestamp (WeakAuras uses the same window)
+local extraLeft, extraUntil = 0, 0
+
 local function OnCombatLog()
-    local _, sub, _, src, _, _, _, _, _, _, _, _, spellName = CombatLogGetCurrentEventInfo()
+    local ts, sub, _, src, _, _, _, _, _, _, _, _, spellName, _, amount = CombatLogGetCurrentEventInfo()
     if src ~= myGUID then return end
     local now = GetTime()
-    if sub == "SWING_DAMAGE" or sub == "SWING_MISSED" then
-        OnSwing(now)
+    if sub == "SPELL_EXTRA_ATTACKS" then
+        extraLeft, extraUntil = (tonumber(amount) or 1), ts + EXTRA_TTL
+    elseif sub == "SWING_DAMAGE" or sub == "SWING_MISSED" then
+        if extraLeft > 0 and ts <= extraUntil then
+            extraLeft = extraLeft - 1
+            state.extraAt = now
+        else
+            extraLeft = 0
+            OnSwing(now)
+        end
     elseif sub == "SPELL_AURA_APPLIED" or sub == "SPELL_AURA_REFRESH" then
         if spellName == NameOf("sob") or spellName == NameOf("soc") then
             local s = sentAt[spellName]
@@ -517,13 +396,9 @@ local function EndFight()
     if not f or #f.swings < 4 then return end
     local c = { twist = 0, late = 0, clip = 0, plain = 0 }
     for _, k in ipairs(f.swings) do c[k] = (c[k] or 0) + 1 end
-    local v = SwingTimer:Values()
-    local speed = state.speed
-    local dur = GetTime() - f.start
-    local per = SwingValue(true, true, v, speed) - SwingValue(false, true, v, speed)
     local rep = {
-        at = time and time() or 0, target = f.target, dur = dur, swings = f.swings, counts = c, fillers = f.fillers,
-        lostLate = c.late * per / max(1, dur), lostClip = c.clip * per / max(1, dur),
+        at = time and time() or 0, target = f.target, dur = GetTime() - f.start, swings = f.swings, counts = c,
+        fillers = f.fillers,
     }
     local list = Get("reports") or {}
     table.insert(list, 1, rep)
@@ -581,13 +456,6 @@ function SwingTimer:OnLogin()
     end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if fight then EndFight() end
-        if SwingTimer.active and Get("useSim", true) then SwingTimer:Calibrate() end
-    end)
-    ns:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", function()
-        values = nil
-        if SwingTimer.active and Get("useSim", true) and not InCombatLockdown() then
-            if C_Timer then C_Timer.After(2, function() SwingTimer:Calibrate() end) end
-        end
     end)
     ns:RegisterEvent("PLAYER_TALENT_UPDATE", function() SwingTimer:Refresh() end)
     ns:RegisterEvent("SPELLS_CHANGED", function() for k in pairs(names) do names[k] = nil end end)
@@ -596,9 +464,6 @@ function SwingTimer:OnLogin()
         if type(path) == "string" and path:find("^swing") then SwingTimer:Refresh() end
     end)
     self:Refresh()
-    if self.active and Get("useSim", true) and C_Timer then
-        C_Timer.After(8, function() SwingTimer:Calibrate() end)
-    end
 end
 
 function SwingTimer:Refresh()
@@ -607,7 +472,7 @@ function SwingTimer:Refresh()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Slash: /dz swing [on | off | unlock | lock | report | sim]
+-- Slash: /dz swing [on | off | unlock | lock | report]
 -- ---------------------------------------------------------------------------------------------------------------
 ns:RegisterSlash("swing", function(rest)
     rest = (rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -617,24 +482,18 @@ ns:RegisterSlash("swing", function(rest)
     elseif rest == "unlock" or rest == "lock" then
         ns.DB:SetSetting("swing.locked", rest == "lock")
         ns:Print(rest == "lock" and "Swing timer locked." or "Swing timer unlocked: drag it where you want it, then /dz swing lock.")
-    elseif rest == "sim" then
-        if SwingTimer:Calibrate(true) then ns:Print("Simming your gear for the swing timer (out of combat, a few seconds)...")
-        else ns:Print("Can't sim right now (in combat, another sim running, or not Retribution).") end
     elseif rest == "report" then
         local r = SwingTimer:Reports()[1]
         if not r then ns:Print("No fight recorded yet.") return end
         local c = r.counts
         local total = c.twist + c.late + c.clip
-        ns:Print("%s (%ds): %d/%d twists landed, %d late, %d clipped by a GCD, %d plain swings. Lost about %.0f dps.",
-            r.target or "Last fight", floor(r.dur or 0), c.twist, total, c.late, c.clip, c.plain,
-            (r.lostLate or 0) + (r.lostClip or 0))
+        ns:Print("%s (%ds): %d/%d twists landed, %d late, %d clipped by a GCD, %d plain swings.",
+            r.target or "Last fight", floor(r.dur or 0), c.twist, total, c.late, c.clip, c.plain)
     else
         local world, meas, used = SwingTimer:LatencyInfo()
-        local v = SwingTimer:Values()
-        ns:Print("Swing timer is %s%s. Latency: world %s ms, measured %s ms, using %d ms. Damage values: %s.",
+        ns:Print("Swing timer is %s%s. Latency: world %s ms, measured %s ms, using %d ms.",
             SwingTimer:IsEnabled() and "on" or "off", SwingTimer.active and "" or " (not Retribution)",
-            tostring(world or "?"), tostring(meas or "-"), floor((used or 0) * 1000 + 0.5),
-            v.src == "sim" and "from the gear sim" or "estimates (run /dz swing sim)")
-        ns:Print("/dz swing on | off | unlock | lock | report | sim")
+            tostring(world or "?"), tostring(meas or "-"), floor((used or 0) * 1000 + 0.5))
+        ns:Print("/dz swing on | off | unlock | lock | report")
     end
-end, "Swing timer for twisting Retribution Paladins (on | off | unlock | lock | report | sim)")
+end, "Swing timer for twisting Retribution Paladins (on | off | unlock | lock | report)")

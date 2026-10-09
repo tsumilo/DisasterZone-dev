@@ -48,10 +48,10 @@ local DEFAULTS = {
         raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
         mylog = { enabled = false, heroics = false, keepWeeks = 12 },  -- My Log (Core/MyLog.lua): opt-in, off
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
-        -- latencyMs 0 = auto; use.* = what the planner may press; consMana = Consecration only above this mana %;
-        -- useSim = damage values from the gear sim; values / reports / pos are kept here too
+        -- latencyMs 0 = auto; use.exo / use.cons = the optional fillers (off, as in WoWSims' rotation); consMana =
+        -- Consecration only above this mana %; reports / pos are kept here too
         swing = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
-                  use = { cs = true, exo = true, cons = true }, consMana = 40, useSim = true,
+                  use = { exo = false, cons = false }, consMana = 40,
                   sound = false, mobType = "Demon" },
         -- Guild > Map (Core/GuildMap.lua): share "unset" (not asked yet) | "off" | "zone" | "exact"; blizzard: dots on
         -- the game's world map too

@@ -33,33 +33,50 @@ for style in ("bar", "lane", "both"):
     w.tick(1.5)
 assert ret.eval("return DisasterZoneSwingTimer:IsShown()") is True
 
-# a plan with Command up: the twist step lands inside the window, one round trip early
-plan = ret.eval("""
+# the rotation (WoWSims' Ret priority list) played from a known state
+RUN = """
     local ST = ns.SwingTimer
-    local snap = { now = 10, nextSwing = 11, speed = 3.5, gcdReady = 10, lat = 0.08, seal = 'soc', socUntil = 0,
-      cd = { cs = 99, exo = 99, cons = 99, how = 99 }, judgeReady = 99,
-      values = { soc = 1500, sob = 450, cs = 1500, exo = 1000, cons = 800, how = 900, judge = 800 },
-      use = { cs = false, exo = false, cons = false, how = false } }
-    local p = ST.Plan(snap)
-    local s = p.steps[1]
-    return s.key, s.at, s.twist
-""")
-key, at, twist = plan
-assert key == "sob", plan
-assert abs(twist - 11) < 1e-6
-apply = at + 0.08
-assert 11 - 0.399 < apply < 11, "Seal of Blood must land inside the overlap: %r" % (plan,)
+    local o = ...
+    local snap = { now = 10, nextSwing = o.next or 11, lastSwing = o.last or 7.5, speed = o.speed or 3.5, lat = 0.08,
+      gcdReady = o.gcd or 10, seal = o.seal, use = { cs = true, exo = false, cons = false },
+      ready = { cs = o.cs or 10, judge = o.judge or 10, exo = 99, cons = 99 }, gcd = 1.5,
+      cd = { cs = 6, judge = 8, exo = 15, cons = 8 } }
+    local out = {}
+    for i, st in ipairs(ST.Run(snap)) do out[i] = st.key .. '@' .. string.format('%.3f', st.at) .. (st.twist and ('>' .. st.twist) or '') end
+    return table.concat(out, ' ')
+"""
+def run(**o):
+    return ret.eval("local t = {}; for k, v in pairs(...) do t[k] = v end; return (function(...) " + RUN + " end)(t)", o)
+
+# Command up, swing at 11: Seal of Blood at the press zone's start (11 - 0.399 + 0.05 - 0.08), twisting swing 11
+seq = run(seal="soc").split()
+assert seq[0] == "sob@10.571>11", seq
+# then Crusader Strike as soon as the GCD is back, then Judgement within 0.8 s of the swing is gone -> Command
+assert seq[1].startswith("cs@12.071"), seq
+assert "soc@" in " ".join(seq[2:4]), seq
+# Blood up just after a swing, Strike ready: Strike now
+assert run(seal="sob", next=13.4, last=9.9).split()[0] == "cs@10.000"
+# Blood up, Strike cooling, Judgement ready 0.2 s after the swing: Judgement now (off the GCD), then Command
+seq = run(seal="sob", next=13.3, last=9.8, cs=14).split()
+assert seq[0] == "judge@10.000" and seq[1] == "soc@10.000", seq
+# haste: a 2.8 s swing moves the next twist with it (swing at 10.7 -> press at 10.271)
+seq = run(seal="soc", next=10.7, last=7.9, speed=2.8).split()
+assert seq[0] == "sob@10.271>10.7", seq
+
+# the Settings section is only there for a Retribution Paladin
+for c in (ret, prot):
+    c.slash("/dz settings")
+w.tick(0.5)
+assert ret.eval("return ns.SettingsUI.nav.swing:IsShown()") is True
+assert prot.eval("return ns.SettingsUI.nav.swing:IsShown()") is False
+prot.eval("ns.SettingsUI:SelectSection('swing')")
+assert prot.eval("return ns.SettingsUI:GetSection()") == "alerts", "a hidden section can't be opened"
 
 # not swinging: the HUD rests (no plan), so nothing moves out of combat
 assert ret.eval("ns.SwingTimer.state.last = nil; return ns.SwingTimer:Current() == nil") is True
-# swinging: the plan on screen holds still between events (same table within half a second)
-same = ret.eval("""
-    local ST = ns.SwingTimer
-    ST.state.last = GetTime(); ST.state.seal = 'soc'; ST:MarkDirty()
-    local a = ST:Current(); local b = ST:Current()
-    return a ~= nil and a == b
-""")
-assert same is True
+# swinging: there is a press to show
+assert ret.eval("local ST = ns.SwingTimer; ST.state.last = GetTime(); ST.state.seal = 'soc'; ST:MarkDirty(); "
+                "local c = ST:Current(); return c ~= nil and #c.plan.steps > 0") is True
 # Hammer of Wrath is never planned (its cast time resets the swing)
 assert ret.eval("return ns.SwingTimer.IDS.how == nil") is True
 

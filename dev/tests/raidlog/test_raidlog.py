@@ -451,7 +451,9 @@ def council_recorders_fill_each_others_gaps_when_the_raid_ends():
     w.tick(60, step=1)
     w.encounter(653, "Moroes", clients=[lee, gina, c["Rita"], c["Sam"]])
     w.tick(2)
-    assert len(rec(bob, rid)["bosses"]) == 1 and len(rec(gina, rid)["bosses"]) == 1
+    # 1.3.4: whoever saw a kill tells the raid (RLK), so the missed kill is filled in right away
+    assert [b["enc"] for b in rec(bob, rid)["bosses"]] == [652, 653], rec(bob, rid)["bosses"]
+    assert [b["enc"] for b in rec(gina, rid)["bosses"]] == [652, 653], rec(gina, rid)["bosses"]
     mark = len(w.addon_log)
     lee.slash("/dz raid end")
     w.tick(40)
@@ -464,7 +466,8 @@ def council_recorders_fill_each_others_gaps_when_the_raid_ends():
     # each recorder gave the other its record. A record often goes out in two AceComm parts (over 255 bytes), and how
     # big it is depends on which recorder offered first (random delays), so the parts are joined before decoding.
     rlg = lr.msgs_of_type(w, "RLG", mark, whole=True)
-    assert {m["_sender"] for m in rlg} == {K("Bob"), K("Gina")}, [(m["_sender"], m["_time"]) for m in rlg]
+    # (1.3.4: RLK already filled the kills in, so one exchange can be enough to agree)
+    assert rlg and {m["_sender"] for m in rlg} <= {K("Bob"), K("Gina")}, [(m["_sender"], m["_time"]) for m in rlg]
     # raiders never get records: only council members send or receive them
     targets = [e.get("target") for e in w.addon_log[mark:] if e["prefix"] == "CDLd"]
     assert targets and set(targets) <= {"Bob", "Gina"}, targets

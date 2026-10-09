@@ -1061,6 +1061,22 @@ local function Build(entries, map, zoneView, W, H, place)
         if d.kind == "me" then return 15 end
         return (d.e and d.e.z) and 9 or 7
     end
+    -- (each pair pushes apart along a fixed slant of its own plus their offset, the slant longer than any push
+    -- distance: a dot walking across the spot of a pin it overlaps, e.g. someone at a raid's entrance, no longer
+    -- flips to the pin's other side every report)
+    local function pinId(d)
+        return d.kind == "me" and "me" or d.key
+            or ((d.kind == "dungeon" and "d:" or "c:") .. tostring(d.zoneKey) .. ":" .. tostring(d.keys and d.keys[1]))
+    end
+    local function slant(a, b)
+        local flip = 1
+        if a > b then a, b, flip = b, a, -1 end
+        local s, h = a .. "|" .. b, 0
+        for c = 1, #s do h = (h * 31 + s:byte(c)) % 65521 end
+        local ang = h / 65521 * 2 * math.pi
+        return math.cos(ang) * flip, math.sin(ang) * flip
+    end
+    for _, d in ipairs(pins) do d.pid = pinId(d) end
     for _ = 1, 12 do
         local moved = false
         for i = 1, #pins do
@@ -1070,9 +1086,11 @@ local function Build(entries, map, zoneView, W, H, place)
                 local dist = sqrt(dx * dx + dy * dy)
                 local need = radius(A) + radius(B) + 2
                 if dist < need then
-                    if dist < 0.01 then dx, dy, dist = 1, 0, 1 end
+                    local sx, sy = slant(A.pid, B.pid)
+                    dx, dy = dx + sx * need * 1.2, dy + sy * need * 1.2
+                    local len = sqrt(dx * dx + dy * dy)
                     local push = need - dist
-                    local ux, uy = dx / dist, dy / dist
+                    local ux, uy = dx / len, dy / len
                     local wa = (A.kind == "me") and 0 or ((B.kind == "me") and 1 or 0.5)
                     A.px, A.py = A.px - ux * push * wa, A.py - uy * push * wa
                     B.px, B.py = B.px + ux * push * (1 - wa), B.py + uy * push * (1 - wa)

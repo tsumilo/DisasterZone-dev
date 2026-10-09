@@ -8,6 +8,9 @@ from _common import case, run_all, toc_version, solo, no_errors, World, Client, 
 
 EXPECTED_SETTINGS = {
     "mylog": {"enabled": False, "heroics": False, "keepWeeks": 12},
+    "swing": {"enabled": True, "style": "bar", "locked": True, "idle": False, "scale": 1, "latencyMs": 0,
+              "use": {"exo": False, "cons": False}, "consMana": 40, "sound": False,
+              "mobType": "Demon"},
     "map": {"share": "unset", "blizzard": True},
     "minimap": {"hide": False},
     "openOn": "home",
