@@ -364,6 +364,7 @@ end
 
 function Craft:OnInit()
     if not ns.Games then return end
+    if not ns:HasAssets(5) then return end            -- (its world, sprites and frames' art came in art set 5)
     ns.Games:Register("disastercraft", {
         name = "Disastercraft",
         desc = "A little World of Warcraft on the real map: pick a class, level up in Northshire, quest and "

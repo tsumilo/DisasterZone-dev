@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.3", date = "8 October 2026", title = "My Log",
+    { version = "1.3.3", date = "9 October 2026", title = "My Log, Disastercraft and Karazhan Chess",
       sections = {
           { heading = "My Log (opt-in)", lines = {
               "New in Settings > My Log: record your own play in every raid boss pull. Off by default.",
@@ -28,17 +28,25 @@ ns.CHANGELOG = {
           { heading = "Games, in the spotlight", lines = {
               "Guild > Games opens on a spotlight: one game's poster in front, the others at its sides.",
               "Turn it with the arrows, the mouse wheel or the dots, or click a poster at the side.",
-              "The posters are alive: your Bingo card fills in, Azeromon's hero walks through Elwynn.",
+              "The posters are alive: your Bingo card fills in, Disastercraft's hero walks the valley.",
               "Raid Trainer's poster lists its bosses with your best clear time for each.",
               "Each poster shows a result of yours and who in the guild is playing it right now.",
               "During a raid's Bingo game the tab opens on Bingo, LIVE, saying how close your card is.",
-              "Opening a game: the poster grows and darkens into the game's backdrop, then the game rises in.",
-              "< GAMES at the top goes back the same way: the painting shrinks into its place, its neighbours return.",
-              "Council Bingo, redrawn: a header with the raid's painting, LIVE, your lines and marked squares.",
+              "Opening a game: the poster grows and darkens into its backdrop, then the game rises in.",
+              "< GAMES at the top goes back the same way: the painting shrinks back into its place.",
+              "Council Bingo, redrawn: a header with the raid's painting, LIVE, your lines and squares.",
               "The card fills the page: calm squares with the icon over the words.",
               "Rare and legendary squares wear their colour like item quality; legendary ones shimmer.",
               "Marked squares take your dauber's ink and its marker; completed lines turn gold.",
-              "The race, the latest squares and the season sit beside the card, with your dauber under them.",
+              "The race, the latest squares and the season sit beside the card, your dauber under them.",
+          } },
+          { heading = "Disastercraft (new game)", lines = {
+              "Azeromon is now Disastercraft: a little World of Warcraft on the real Northshire map.",
+              "Pick a Warrior, Mage or Priest, level up, quest, loot and fight with your guild.",
+              "WoW's own spells, talents, trainers, vendors, bags and character sheet, in WoW's frames.",
+              "Trees, props and walls block you only where they really stand. /collision shows it.",
+              "Buffs like Battle Shout show on the character sheet, green, as they come and go.",
+              "It has its own What's new on the character screen.",
           } },
           { heading = "Karazhan Chess", lines = {
               "New game in Guild > Games: chess on Medivh's own board in the Gamesman's Hall, in 3D.",
