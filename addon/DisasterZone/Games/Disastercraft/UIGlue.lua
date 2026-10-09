@@ -164,11 +164,7 @@ function Glue.BuildSelect(g)
     s.create = K.Button(list, "Create New Character", 200, 24, function() Glue.ShowCreate() end)
     s.create:SetPoint("BOTTOM", 0, 48)
     s.delete = K.Button(list, "Delete Character", 200, 24, function()
-        local cls = Glue.selected
-        if not cls then return end
-        UI.Popup("delete", "Delete your level " .. (Craft:Data().chars[cls].level or 1) .. " " .. Craft.CLASS_NAMES[cls] .. "?",
-            { "Delete", function() Craft:DeleteCharacter(cls) Glue.selected = nil Glue.Refresh() end },
-            { "Cancel", function() end })
+        if Glue.selected then Glue.ConfirmDelete(Glue.selected) end
     end)
     s.delete:SetPoint("BOTTOM", 0, 18)
     s.enter = K.Button(s, "Enter World", 180, 34, function() Glue.EnterWorld() end)
@@ -178,6 +174,67 @@ function Glue.BuildSelect(g)
     s.who = K.Font(s, 22, "THICKOUTLINE")
     s.who:SetPoint("BOTTOM", s.whoInfo, "TOP", 0, 4)
     s.who:SetTextColor(1, 0.82, 0)
+end
+
+-- WoW's delete confirmation on the character screen itself (a GlueDialog: the HUD's popups live in the world, so
+-- the old one only showed after entering it): "Do you want to permanently delete <name>?", typing DELETE arms
+-- Okay; Enter confirms, Escape or Cancel backs out; the list updates at once.
+function Glue.ConfirmDelete(cls)
+    local g = UI.glue
+    local c = Craft:Data().chars and Craft:Data().chars[cls]
+    if not g or not c then return end
+    local d = g.deleteDialog
+    if not d then
+        d = CreateFrame("Frame", nil, g)
+        d:SetAllPoints()
+        d:SetFrameLevel(g:GetFrameLevel() + 50)
+        d:EnableMouse(true)                                   -- (modal: nothing behind it takes a click)
+        local dim = K.Tex(d, "BACKGROUND")
+        dim:SetAllPoints()
+        dim:SetColorTexture(0, 0, 0, 0.5)
+        local box = GlueBox(d, 380, 150)
+        box:SetPoint("CENTER", 0, 40)
+        d.text = K.Text(box, "GameFontHighlight", "OVERLAY", "CENTER")
+        d.text:SetPoint("TOP", 0, -18)
+        d.text:SetWidth(340)
+        d.hint = K.Text(box, "GameFontNormalSmall", "OVERLAY", "CENTER")
+        d.hint:SetPoint("TOP", d.text, "BOTTOM", 0, -8)
+        d.hint:SetText("Type \"DELETE\" into the field to confirm.")
+        local ok, eb = pcall(CreateFrame, "EditBox", nil, box, "InputBoxTemplate")
+        if not ok or not eb then eb = CreateFrame("EditBox", nil, box) end
+        eb:SetSize(140, 20)
+        eb:SetPoint("TOP", d.hint, "BOTTOM", 0, -8)
+        eb:SetAutoFocus(false)
+        if eb.SetFontObject then eb:SetFontObject(ChatFontNormal or GameFontHighlight) end
+        d.edit = eb
+        d.okay = K.Button(box, OKAY or "Okay", 120, 22, function() Glue.DoDelete() end)
+        d.okay:SetPoint("BOTTOMRIGHT", box, "BOTTOM", -6, 14)
+        d.cancel = K.Button(box, CANCEL or "Cancel", 120, 22, function() d:Hide() end)
+        d.cancel:SetPoint("BOTTOMLEFT", box, "BOTTOM", 6, 14)
+        eb:SetScript("OnTextChanged", function(self) d.okay:SetEnabled((self:GetText() or ""):upper() == "DELETE") end)
+        eb:SetScript("OnEnterPressed", function(self) if d.okay:IsEnabled() then Glue.DoDelete() end end)
+        eb:SetScript("OnEscapePressed", function() d:Hide() end)
+        d:SetScript("OnHide", function() eb:ClearFocus() end)
+        g.deleteDialog = d
+    end
+    d.cls = cls
+    -- (the client's own CONFIRM_CHAR_DELETE)
+    d.text:SetText(string.format(CONFIRM_CHAR_DELETE or "Do you want to permanently delete %s?", c.name or "this character"))
+    d.edit:SetText("")
+    d.okay:SetEnabled(false)
+    d:Show()
+    d.edit:SetFocus()
+end
+
+function Glue.DoDelete()
+    local d = UI.glue and UI.glue.deleteDialog
+    if not d or not d.cls then return end
+    Craft:DeleteCharacter(d.cls)
+    d.cls = nil
+    d:Hide()
+    Glue.selected = nil
+    Glue.Refresh()
+    if PlaySound then pcall(PlaySound, 852) end            -- (IG_QUEST_LOG_CLOSE: the glue's soft click)
 end
 
 function Glue.Refresh()

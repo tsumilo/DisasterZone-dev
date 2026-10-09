@@ -43,6 +43,7 @@ ns.CraftChangelog = {
             "Press M for the world map; it fills in as you explore",
             "A minimap with WoW's own map, zoom buttons and all",
             "Discovering new places gives exploration experience",
+            "Delete Character asks right there on the character screen",
         },
     },
     {

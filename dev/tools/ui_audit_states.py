@@ -973,6 +973,9 @@ STATES = [
     ("Disastercraft - character select", opened("games", "ns.GamesUI:Select('disastercraft') local C = ns.Craft "
         "if not (C:Data().chars and C:Data().chars[1]) then C:NewCharacter(1, 0) end ns.CraftUI.Glue.ShowSelect()")),
     ("Disastercraft - character create", opened("games", "ns.GamesUI:Select('disastercraft') ns.CraftUI.Glue.ShowCreate()")),
+    ("Disastercraft - delete character", opened("games", "ns.GamesUI:Select('disastercraft') local C = ns.Craft "
+        "if not (C:Data().chars and C:Data().chars[1]) then C:NewCharacter(1, 0) end ns.CraftUI.Glue.ShowSelect() "
+        "ns.CraftUI.Glue.ConfirmDelete(ns.CraftUI.Glue.selected or 1)")),
     ("Disastercraft - Northshire start", opened("games", dc(1, 4127.8, 6244))),
     ("Disastercraft - kobold fight", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 257 +
         "C.World.SetTarget(T_DCU) T_DCU.inCombat = true T_DCU.hp = math.floor(T_DCU.hpMax * 0.6) "

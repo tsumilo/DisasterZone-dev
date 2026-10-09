@@ -576,6 +576,34 @@ def ui_character_screens_and_entering_the_world():
 
 
 @case
+def ui_delete_character_on_the_character_screen():
+    # (in game the confirmation was the HUD's popup: it only showed after entering the world) - the character
+    # screen asks itself, Okay arms on typing DELETE, and the list updates at once
+    w, c = ui_game()
+    r = c.eval_py(r"""
+      local UI, C = ns.CraftUI, ns.Craft
+      C:NewCharacter(1, 0)
+      C:NewCharacter(8, 1)
+      UI.Glue.ShowSelect()
+      UI.Glue.selected = 1
+      UI.Glue.Refresh()
+      UI.glue.select.delete:Click()
+      local d = UI.glue.deleteDialog
+      local shown, armed0 = d and d:IsShown(), d and d.okay:IsEnabled()
+      d.edit:SetText("delete")
+      local armed1 = d.okay:IsEnabled()
+      d.okay:Click()
+      local left = {}
+      for _, ch in ipairs(C:Characters()) do left[#left + 1] = ch.class end
+      return { shown = shown, armed0 = armed0, armed1 = armed1, hidden = not d:IsShown(), left = left,
+               inWorld = UI.inWorld == true, sel = UI.Glue.selected }
+    """)
+    assert r["shown"] and not r["armed0"] and r["armed1"] and r["hidden"], r
+    assert r["left"] == [8] and not r["inWorld"] and r["sel"] == 8, r
+    no_errors(w)
+
+
+@case
 def ui_windows_open_and_fill():
     w, c = ui_game()
     c.eval(r"""
