@@ -182,5 +182,31 @@ def an_auras_visual_leaves_its_effects_alone():
     no_errors(w)
 
 
+@case
+def gossip_is_written_on_the_parchment_from_the_top():
+    # (in game the inset's dark marble covered the QuestBG parchment, and the list floated in the middle)
+    w, c = ui_game()
+    c.eval("ns.Craft:NewCharacter(1, 0) ns.CraftUI.Glue.selected = 1 ns.CraftUI.Glue.EnterWorld()")
+    w.tick(1.0)
+    r = c.eval_py(r"""
+      local C, UI = ns.Craft, ns.CraftUI
+      local u = T_DC.find(823, "any")
+      C.char.done[783] = true
+      C.char.level, C.player.level = 4, 4
+      C.player.map, C.player.x, C.player.y = u.map, u.x + 0.8, u.y
+      UI.OpenGossip(u)
+      local f = UI.open.gossip
+      local inset = f and f.Inset
+      local box = f.GreetingPanel.ScrollBox
+      local target = box.ScrollTarget or box
+      local p, rel, rp, x, y = target:GetPoint(1)
+      return { shown = f and f:IsShown(), insetBg = inset and inset.Bg and inset.Bg:IsShown(),
+               anchor = p .. ">" .. rp, toBox = rel == box, x = x, y = y, n = target:GetNumPoints() }
+    """)
+    assert r["shown"] and not r["insetBg"], r
+    assert r["anchor"] == "TOPLEFT>TOPLEFT" and r["toBox"] and r["x"] == 0 and r["y"] == 0 and r["n"] == 1, r
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

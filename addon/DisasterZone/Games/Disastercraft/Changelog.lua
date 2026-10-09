@@ -5,6 +5,12 @@ local addonName, ns = ...
 
 ns.CraftChangelog = {
     {
+        version = "0.3", date = "2026-10-09",
+        changes = {
+            "NPC greetings sit on the parchment, from the top down",
+        },
+    },
+    {
         version = "0.2", date = "2026-10-09",
         changes = {
             "Trees, props and walls block only where they really stand",

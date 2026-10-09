@@ -994,6 +994,8 @@ STATES = [
     ("Disastercraft - bags", opened("games", dc(1, 4127.8, 6244, "world", "C.Items.Add(750, 5, 'silent') C.Items.Add(2589, 3, 'silent') UI.ToggleAllBags()"))),
     ("Disastercraft - quest log", opened("games", dc(1, 4127.8, 6244, "world", "C.Quests.Accept(783) C.char.done[783] = true C.char.quests[783] = nil C.Quests.Accept(7) C.char.quests[7].k[6] = 4 UI.Toggle('questlog')"))),
     ("Disastercraft - quest giver", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenGossip(T_DCU)"))),
+    # Deputy Willem's gossip once his first quest is done: the greeting and two quests on the parchment
+    ("Disastercraft - gossip", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "C.char.done[783] = true C.char.level = 4 p.level = 4 p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenGossip(T_DCU)"))),
     ("Disastercraft - quest details", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 823 + "p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.QuestDetail(T_DCU, C.Quests.Get(783))"))),
     ("Disastercraft - quest reward", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 196 + "C.char.done[783] = true C.char.done[5261] = true C.Quests.Accept(33) C.Items.Add(750, 8, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.QuestReward(T_DCU, C.Quests.Get(33))"))),
     ("Disastercraft - merchant", opened("games", dc(1, 4127.8, 6244, "world", DC_FIND % 152 + "C:AddMoney(523, 'silent') p.map, p.x, p.y = T_DCU.map, T_DCU.x + 0.8, T_DCU.y UI.OpenMerchant(T_DCU)"))),

@@ -1054,7 +1054,13 @@ local function GossipFrame()
     gf:SetSize(338, 424)
     CloseButtonOf(gf, gRefs, "GossipFrame")
     local inset = gRefs.GossipFrameInset or gf.Inset
-    if inset then inset:SetPoint("BOTTOMRIGHT", gf, "BOTTOMRIGHT", -27, 24) end
+    if inset then
+        inset:SetPoint("BOTTOMRIGHT", gf, "BOTTOMRIGHT", -27, 24)
+        -- (the inset is a child frame: its dark marble Bg would cover GossipFrameBg, the QuestBG parchment the
+        -- greeting is written on - the client's gossip shows the parchment, so only the inset's border stays)
+        local bg = inset.Bg or gRefs.GossipFrameInsetBg
+        if bg then bg:Hide() end
+    end
     local gp = gf.GreetingPanel
     if gp and gp.GoodbyeButton then
         gp.GoodbyeButton:SetText(UI.Str("GOODBYE"))
@@ -1119,7 +1125,10 @@ function UI.OpenGossip(u)
         local b = GossipElement("btn", i)
         b:SetText(text)
         local fs = b:GetFontString()
-        if fs then fs:SetTextColor(grey and 0.4 or 0, grey and 0.4 or 0, grey and 0.4 or 0) end
+        if fs then
+            fs:SetTextColor(grey and 0.4 or 0, grey and 0.4 or 0, grey and 0.4 or 0)
+            fs:SetJustifyH("LEFT")                       -- (QuestFontLeft)
+        end
         if b.Icon then
             b.Icon:SetTexture(icon)
             b.Icon:SetVertexColor(1, 1, 1)
@@ -1149,6 +1158,11 @@ function UI.OpenGossip(u)
                     { UI.Str("ACCEPT"), function() Craft.Talents.Reset() end }, { UI.Str("CANCEL"), function() end })
             end
         end)
+    end
+    -- (no ScrollBox view drives the target here: pin it to the box's top, as the linear view lays out from there)
+    if target ~= box then
+        target:ClearAllPoints()
+        target:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
     end
     target:SetSize(300, max(y, 10))
     UI.ShowWindow("gossip", f)
