@@ -4,7 +4,7 @@
 Covers: the Sim toggle opens the card and the Working set starts as the equipped gear; Run sims Working vs My gear
 in time slices and an unchanged set comes out at exactly 0 (same rolls for both); swapping a trinket marks the slot
 as changed, makes the result stale and the next run shows a difference; the picker lists the slot's candidates and
-"Best for this slot" sims them; reset to My gear; the Working set survives a /reload; no Lua errors on the way.
+"Best for this slot" sims them; a set simmed before is never simmed again; reset to My gear; the Working set survives a /reload; no Lua errors on the way.
 
 Run: luaenv\\Scripts\\python.exe tests\\gearsim\\test_gearsim_ui.py   [-k substring]
 """
@@ -104,6 +104,64 @@ def trinket_swap_marks_changed_and_shows_difference():
     res = results(c)
     assert res["stale"] is False and res["diff"] != 0, res
     assert abs(res["work"] - res["ref"] - res["diff"]) < 1e-6, res
+    assert_no_lua_errors(w)
+
+
+def count_fights(c):
+    c.eval("""
+      local Sim = ns.GearSim.SimMT
+      if not Sim._origRunOnce then
+        Sim._origRunOnce = Sim.RunOnce
+        Sim.RunOnce = function(...) DZ_TEST_FIGHTS = (DZ_TEST_FIGHTS or 0) + 1 return Sim._origRunOnce(...) end
+      end
+      DZ_TEST_FIGHTS = 0""")
+
+
+@r.case
+def simmed_sets_are_not_simmed_again():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    n = c.eval("return ns.SimRunner.DEFAULT_ITERATIONS")
+    count_fights(c)
+    # Working = My gear: one set, simmed once
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    assert c.eval("return DZ_TEST_FIGHTS") == n
+    first = results(c)
+    # the same run again: nothing to sim, the very same numbers
+    count_fights(c)
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    assert c.eval("return DZ_TEST_FIGHTS") == 0
+    assert results(c) == first, (results(c), first)
+    # one slot changed: only the Working set is simmed; My gear comes from before
+    sid = sid_of(c, 14)
+    c.eval("local sid, id = ... ns.SimPanel:SetWorkingSlot(sid, ns.SimRunner:FillEntry(id, sid))  ns.MyBiS:Refresh()",
+           sid, HOURGLASS)
+    count_fights(c)
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    assert c.eval("return DZ_TEST_FIGHTS") == n
+    res = results(c)
+    assert res["ref"] == first["ref"] and res["diff"] != 0, res
+    # the result is the one a fresh sim gives: same seed, same scenario
+    c.eval("ns.SimRunner:ClearCache()")
+    count_fights(c)
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    assert c.eval("return DZ_TEST_FIGHTS") == 2 * n
+    assert results(c) == res, (results(c), res)
+    # Best for this slot twice: the second run sims nothing
+    c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton')", sid)
+    settle(w, 0.2)
+    c.eval("ns.SimPanel._runBest()")
+    run_until_done(w, c)
+    ranked = c.eval_py("return ns.SimPanel._pstate().results")
+    count_fights(c)
+    c.eval("ns.SimPanel._runBest()")
+    run_until_done(w, c)
+    assert c.eval("return DZ_TEST_FIGHTS") == 0
+    assert c.eval_py("return ns.SimPanel._pstate().results") == ranked
     assert_no_lua_errors(w)
 
 

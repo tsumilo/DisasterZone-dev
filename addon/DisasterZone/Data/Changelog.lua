@@ -18,6 +18,7 @@ ns.CHANGELOG = {
               "You see the DPS change, how sure it is, and where the damage comes from.",
               "Pick 25-man buffs, 10-man or solo, the fight length and the boss type at the bottom.",
               "Changed slots are marked gold. It pauses in combat and only runs when you press Run.",
+              "A set it has simmed before is not simmed again: change one slot and only that set runs.",
               "Fury and Arms Warriors can sim too, with WoWSims' Warrior rotations and raid setup.",
               "Enhancement Shamans too: twisted totems, Stormstrike, shocks and the Fire Elemental.",
               "Swapped-in items get gems that keep your meta gem on; the card warns when a meta is off.",

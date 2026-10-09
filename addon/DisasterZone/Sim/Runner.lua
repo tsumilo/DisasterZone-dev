@@ -417,56 +417,142 @@ local function InCombat()
   return (InCombatLockdown and InCombatLockdown()) or (UnitAffectingCombat and UnitAffectingCombat("player"))
 end
 
+-- Finished sets, so a set is never simmed twice: iteration i of a set depends only on its scenario, the seed and i
+-- (Sim:RunOnce seeds every iteration), so the same scenario, seed and fight count give exactly the same result.
+-- One seed per session keeps that true from run to run; the least recently used go first past CACHE_SIZE.
+Runner.CACHE_SIZE = 40
+Runner.cache, Runner.cacheOrder = {}, {}
+
+function Runner:SessionSeed()
+  self.seed = self.seed or floor((GetTime and GetTime() or os.time()) * 1000) % 1000000
+  return self.seed
+end
+
+-- A table as text with its keys in order (nil if it holds anything but numbers, strings, booleans and tables).
+local function Serialize(v, out)
+  local t = type(v)
+  if t == "number" then out[#out + 1] = ("%.17g"):format(v)
+  elseif t == "string" then out[#out + 1] = ("%q"):format(v)
+  elseif t == "boolean" then out[#out + 1] = v and "T" or "F"
+  elseif t == "table" then
+    local keys = {}
+    for k in pairs(v) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b)
+      local ta, tb = type(a), type(b)
+      if ta ~= tb then return ta < tb end
+      return a < b
+    end)
+    out[#out + 1] = "{"
+    for _, k in ipairs(keys) do
+      if not Serialize(k, out) then return false end
+      out[#out + 1] = "="
+      if not Serialize(v[k], out) then return false end
+      out[#out + 1] = ","
+    end
+    out[#out + 1] = "}"
+  else
+    return false
+  end
+  return true
+end
+
+function Runner:CacheKey(scenario, n)
+  local out = { self:SpecKey(), "|", tostring(n), "|" }
+  if not Serialize(scenario, out) then return nil end
+  return table.concat(out)
+end
+
+-- A cached result (moved to the back of the line: the sets in use stay).
+function Runner:CacheGet(key)
+  local v = key and self.cache[key]
+  if not v then return nil end
+  local order = self.cacheOrder
+  for i = 1, #order do
+    if order[i] == key then table.remove(order, i) break end
+  end
+  order[#order + 1] = key
+  return v
+end
+
+function Runner:CachePut(key, summary)
+  if not key or self.cache[key] then return end
+  self.cache[key] = summary
+  local order = self.cacheOrder
+  order[#order + 1] = key
+  while #order > self.CACHE_SIZE do
+    self.cache[table.remove(order, 1)] = nil
+  end
+end
+
+function Runner:ClearCache()
+  self.cache, self.cacheOrder = {}, {}
+end
+
 -- jobs: { { key = any, set = gear set }, ... }; opts: { iterations, settings, onProgress(done, total, paused),
 -- onDone(results), onCancel() }. results[key] = summary (S.Summarize) + iterDps; results.pairs(a, b) -> mean diff, stderr.
+-- Sets simmed before (same scenario, seed and fight count) and sets listed twice are not simmed again.
 function Runner:Start(jobs, opts)
   self:Cancel()
   local settings = opts.settings or {}
-  settings.seed = settings.seed or floor((GetTime and GetTime() or os.time()) * 1000) % 1000000
+  settings.seed = settings.seed or self:SessionSeed()
   local apl = ns.Data and ns.Data.SimAPL and ns.Data.SimAPL[self:SpecKey()]
   if not apl then return false, "No rotation for this spec yet." end
-  local runs = {}
+  local n = opts.iterations or self.DEFAULT_ITERATIONS
+  local all, sims, byCache = {}, {}, {}
   local okAll, err = pcall(function()
     for i, job in ipairs(jobs) do
-      local sim, p = S.NewScenario(self:Scenario(job.set, settings), self:DB(), apl)
-      runs[i] = { key = job.key, sim = sim, p = p }
+      local scenario = self:Scenario(job.set, settings)
+      local ck = self:CacheKey(scenario, n)
+      local r = { key = job.key, cacheKey = ck }
+      all[i] = r
+      local hit = self:CacheGet(ck)
+      if hit then
+        r.summary = hit
+      elseif ck and byCache[ck] then
+        r.same = byCache[ck]
+      else
+        r.sim, r.p = S.NewScenario(scenario, self:DB(), apl)
+        sims[#sims + 1] = r
+        if ck then byCache[ck] = r end
+      end
     end
   end)
   if not okAll then return false, tostring(err) end
-  local n = opts.iterations or self.DEFAULT_ITERATIONS
-  local run = { jobs = runs, n = n, done = 0, opts = opts, cancelled = false, nextJob = 1, nextIter = 1 }
+  local run = { jobs = all, sims = sims, n = n, done = 0, opts = opts, cancelled = false, nextJob = 1, nextIter = 1 }
   self.run = run
-  local total = n * #runs
+  local total = n * #sims
   local frame = self.frame or CreateFrame("Frame")
   self.frame = frame
   frame:SetScript("OnUpdate", function()
     if run.cancelled then frame:SetScript("OnUpdate", nil) return end
-    if InCombat() then
-      if opts.onProgress then opts.onProgress(run.done, total, true) end
-      return
+    if #sims > 0 and run.nextIter <= n then
+      if InCombat() then
+        if opts.onProgress then opts.onProgress(run.done, total, true) end
+        return
+      end
+      local t0 = clock()
+      local ok, e = pcall(function()
+        -- at least one fight a frame, then as many as fit in the budget
+        repeat
+          local r = sims[run.nextJob]
+          r.sim:RunOnce(run.nextIter)
+          run.done = run.done + 1
+          run.nextJob = run.nextJob + 1
+          if run.nextJob > #sims then run.nextJob, run.nextIter = 1, run.nextIter + 1 end
+        until run.nextIter > n or clock() - t0 >= self.FRAME_BUDGET_MS
+      end)
+      if not ok then
+        frame:SetScript("OnUpdate", nil)
+        self.run = nil
+        if opts.onDone then opts.onDone(nil, tostring(e)) end
+        return
+      end
+      if opts.onProgress then opts.onProgress(run.done, total, false) end
     end
-    local t0 = clock()
-    local ok, e = pcall(function()
-      -- at least one fight a frame, then as many as fit in the budget
-      repeat
-        local r = runs[run.nextJob]
-        r.sim:RunOnce(run.nextIter)
-        run.done = run.done + 1
-        run.nextJob = run.nextJob + 1
-        if run.nextJob > #runs then run.nextJob, run.nextIter = 1, run.nextIter + 1 end
-      until run.nextIter > n or clock() - t0 >= self.FRAME_BUDGET_MS
-    end)
-    if not ok then
+    if #sims == 0 or run.nextIter > n then
       frame:SetScript("OnUpdate", nil)
       self.run = nil
-      if opts.onDone then opts.onDone(nil, tostring(e)) end
-      return
-    end
-    if opts.onProgress then opts.onProgress(run.done, total, false) end
-    if run.nextIter > n then
-      frame:SetScript("OnUpdate", nil)
-      self.run = nil
-      if opts.onDone then opts.onDone(self:Results(runs)) end
+      if opts.onDone then opts.onDone(self:Results(all)) end
     end
   end)
   return true
@@ -487,10 +573,16 @@ function Runner:IsRunning() return self.run ~= nil end
 function Runner:Results(runs)
   local out = {}
   for _, r in ipairs(runs) do
-    local s = S.Summarize(r.sim, r.p)
-    s.iterDps = r.p.metrics.iterDps
-    s.stats = r.p.initialStats
-    out[r.key] = s
+    if r.sim then
+      local s = S.Summarize(r.sim, r.p)
+      s.iterDps = r.p.metrics.iterDps
+      s.stats = r.p.initialStats
+      r.summary = s
+      self:CachePut(r.cacheKey, s)
+    end
+  end
+  for _, r in ipairs(runs) do
+    out[r.key] = r.summary or r.same.summary
   end
   out.diff = function(a, b)
     local A, B = out[a], out[b]
