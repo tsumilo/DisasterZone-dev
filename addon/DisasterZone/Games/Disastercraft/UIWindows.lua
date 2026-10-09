@@ -909,6 +909,8 @@ end
 -- what changed -> which open window redraws
 Craft:On("item", function() UI.RefreshBags() UI.RefreshMerchant() UI.RefreshCharacter() UI.RefreshLoot() end)
 Craft:On("equip", function() UI.RefreshCharacter() UI.RefreshBags() end)
+-- (a buff on you or one running out: the sheet's numbers change with it)
+Craft:On("aura", function(u) if u == Craft.player then UI.RefreshCharacter() end end)
 Craft:On("money", function() UI.RefreshBags() UI.RefreshMerchant() UI.RefreshTrainer() end)
 Craft:On("spell", function() UI.RefreshSpellbook() UI.RefreshTrainer() end)
 Craft:On("level", function() UI.RefreshCharacter() UI.RefreshTrainer() UI.RefreshSpellbook() end)

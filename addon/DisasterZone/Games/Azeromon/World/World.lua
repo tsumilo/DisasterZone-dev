@@ -180,7 +180,8 @@ local function Block(bx, by)
         decoded, decodedCount = {}, 0
     end
     b = { g = Unrle(raw[1]), o = Unrle(raw[2]), s = Unrle(raw[3]), area = raw[4] or {}, names = {}, overs = {},
-          ground = raw[5] and Unrle3(raw[5]) or nil, region = raw[6] }
+          ground = raw[5] and Unrle3(raw[5]) or nil, region = raw[6], cm = raw[7] and Unrle3(raw[7]) or nil,
+          cmv = {} }
     decoded[key] = b
     decodedCount = decodedCount + 1
     return b
@@ -354,9 +355,50 @@ function WS.OverName(x, y)
     return name
 end
 
-function WS.Solid(x, y)
-    local g, o = WS.Tile(x, y)
+-- Fine collision (gen_azeromon_world: azw_collide): per tile a 16-bit mask of SUB x SUB cells (~1 yard each,
+-- bit sy * SUB + sx) from the client's own collision meshes - a trunk, a barrel, a building's walls take only the
+-- cells they stand on. Blocks generated before it have none: their overlay tiles are solid whole, as before.
+local SUB = 4
+WS.SUB = SUB
+local CENTRE = { 5, 6, 9, 10 }            -- the middle four cells (a tile's centre point is their corner)
+
+-- the tile's collision mask, or nil (no fine data in its block)
+function WS.CellMask(x, y)
+    local _, _, _, b, i = WS.Tile(x, y)
+    if not (b and b.cm) then return nil end
+    local m = b.cmv[i]
+    if m then return m end
+    local k = (i - 1) * 3 + 1
+    m = (RUNVAL[byte(b.cm, k)] - 1) * 4096 + (RUNVAL[byte(b.cm, k + 1)] - 1) * 64 + RUNVAL[byte(b.cm, k + 2)] - 1
+    b.cmv[i] = m
+    return m
+end
+
+local function Bit(m, n) return floor(m / 2 ^ n) % 2 == 1 end
+
+-- is the point (x, y) (fractional tiles) inside something solid?
+function WS.SolidAt(x, y)
+    local tx, ty = floor(x), floor(y)
+    local g, o, _, b, i = WS.Tile(tx, ty)
+    if not (b and b.cm) then return WS.Solid(tx, ty) end
     if o == O_DECK or o == O_DOOR then return false end
+    if SOLID_GROUND[g] then return true end
+    local m = WS.CellMask(tx, ty)
+    if m == 0 then return false end
+    return Bit(m, floor((y - ty) * SUB) * SUB + floor((x - tx) * SUB))
+end
+
+function WS.Solid(x, y)
+    local g, o, _, b = WS.Tile(x, y)
+    if o == O_DECK or o == O_DOOR then return false end
+    if b and b.cm then
+        -- (a tile for paths: blocked when something stands on its middle)
+        if SOLID_GROUND[g] then return true end
+        local m = WS.CellMask(x, y)
+        if m == 0 then return false end
+        for _, n in ipairs(CENTRE) do if Bit(m, n) then return true end end
+        return false
+    end
     if o ~= O_SPACE then
         local v = OVERB[o]
         if v and v[2] then return true end

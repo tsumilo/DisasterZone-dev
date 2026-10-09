@@ -1016,6 +1016,9 @@ STATES = [
     # outdoors by the Abbey's east end: Eagan Peltskinner under the roof (it fades round him), trees behind it
     ("Disastercraft - by Eagan", opened("games", dc(1, 4133.5, 6223.6))),
     ("Disastercraft - Abbey east trees", opened("games", dc(1, 4128.5, 6228.5))),
+    # /collision: the solid ~1 yd cells (azw_collide) over the pictures - trunks, props, the Abbey's walls
+    ("Disastercraft - collision Abbey", opened("games", dc(1, 4128.5, 6228.5, "world", "UI.showCollision = true"))),
+    ("Disastercraft - collision start", opened("games", dc(1, 4127.8, 6244, "world", "UI.showCollision = true"))),
     # the world map (M) with Northshire and Goldshire explored; the minimap shows in every world view
     ("Disastercraft - world map", opened("games", dc(1, 4127.8, 6244, "world",
         "C.char.explored = { [9] = true, [87] = true, [24] = true } UI.CloseAll() UI.ToggleWorldMap()"))),

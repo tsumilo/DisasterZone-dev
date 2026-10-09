@@ -495,6 +495,44 @@ def emit_ground(world, region, bx0, bx1, by0, by1):
     return out, pages
 
 
+def emit_collision(world, bx0, bx1, by0, by1):
+    """The fine collision layer (azw_collide) of the blocks: per block key an rle3 string of 16-bit masks per tile
+    (bit sy * 4 + sx: a solid ~1 yd cell)."""
+    import azw_collide as CO
+    cells = CO.build(dict(world, wmo_kinds=WMO_KINDS), (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK))
+    out = {}
+    for by in range(by0, by1 + 1):
+        for bx in range(bx0, bx1 + 1):
+            out[by * 256 + bx] = rle3([b64(m) for m in CO.masks(cells, bx, by, BLOCK)])
+    return out
+
+
+def patch_collision(world, region, taken=frozenset()):
+    """Writes the collision layer into an already generated World/<Region>.lua (the 7th field of each block line)
+    without rebuilding its art."""
+    x0, x1, y0, y1, m = region_bbox(world, region)
+    r = world["r"]
+    bx0, bx1 = (x0 + r["gx0"]) // BLOCK, (x1 + r["gx0"]) // BLOCK
+    by0, by1 = (y0 + r["gy0"]) // BLOCK, (y1 + r["gy0"]) // BLOCK
+    coll = emit_collision(world, bx0, bx1, by0, by1)
+    path = os.path.join(WORLD_DIR, "%s.lua" % region.capitalize())
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-8")
+    n = 0
+
+    def sub(mo):
+        nonlocal n
+        key = int(mo.group(1))
+        if key in taken or key not in coll:
+            return mo.group(0)
+        n += 1
+        return "%s, R, [=[%s]=] }" % (mo.group(2), coll[key])
+    text = re.sub(r"^(?=B\[(\d+)\] = \{)(.*?), R(?:, \[=\[[^\]]*\]=\])? \}$", sub, text, flags=re.M)
+    with open(path, "wb") as f:
+        f.write(text.encode("utf-8"))
+    print("collision: %d blocks of %s" % (n, path))
+
+
 def object_models(entities):
     """{gameobject entry: (model FileDataID, size)} for the region's objects (GameObjectDisplayInfo)."""
     import tbcdb
@@ -523,6 +561,7 @@ def emit(world, region, entities, interiors=(), taken=frozenset()):
     by0, by1 = (y0 + gy0) // BLOCK, (y1 + gy0) // BLOCK
     G, O, S = world["G"], world["O"], world["S"]
     ground, pages = emit_ground(world, region, bx0, bx1, by0, by1)
+    coll = emit_collision(world, bx0, bx1, by0, by1)
     import azw_scenery as SCN
     scen = SCN.build(dict(world, wmo_kinds=WMO_KINDS),
                      (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK),
@@ -548,8 +587,9 @@ def emit(world, region, entities, interiors=(), taken=frozenset()):
             s = "".join("".join(str(v) for v in S[ys + j, xs:xs + BLOCK]) for j in range(BLOCK))
             ar = [int(r["area"][ys + cy * 8, xs + cx * 8]) for cy in range(4) for cx in range(4)]
             areas.update(ar)
-            lines.append("B[%d] = { [=[%s]=], [=[%s]=], [=[%s]=], { %s }, [=[%s]=], R }" %
-                         (by * 256 + bx, rle(g), rle(o), rle(s), ", ".join(map(str, ar)), ground[by * 256 + bx]))
+            lines.append("B[%d] = { [=[%s]=], [=[%s]=], [=[%s]=], { %s }, [=[%s]=], R, [=[%s]=] }" %
+                         (by * 256 + bx, rle(g), rle(o), rle(s), ", ".join(map(str, ar)), ground[by * 256 + bx],
+                          coll[by * 256 + bx]))
     bgx0, bgx1, bgy0, bgy1 = bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK
     trees = [t for t in world["trees"] if bgx0 <= t[0] < bgx1 and bgy0 <= t[1] < bgy1
              and block_of(t[0], t[1]) not in taken]
@@ -933,6 +973,16 @@ def emit_quests(npcs, objects):
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "preview"
     world = build()
+    if cmd == "collision":
+        # only the fine collision layer, into the region files already written (regions in the "lua" order)
+        taken = set()
+        for region in sys.argv[2:] or ["northshire"]:
+            patch_collision(world, region, frozenset(taken))
+            x0, x1, y0, y1, m = region_bbox(world, region)
+            r = world["r"]
+            taken |= {by * 256 + bx for by in range((y0 + r["gy0"]) // BLOCK, (y1 + r["gy0"]) // BLOCK + 1)
+                      for bx in range((x0 + r["gx0"]) // BLOCK, (x1 + r["gx0"]) // BLOCK + 1)}
+        sys.exit(0)
     if cmd == "lua":
         import azw_species as SP
         import azw_people as PP

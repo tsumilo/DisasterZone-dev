@@ -1175,27 +1175,28 @@ local function Pct(v) return string.format("%.2f%%", v or 0) end
 -- the six lines of one stat box: { label, value } (UpdatePaperdollStats)
 local function StatLines(cat, p)
     local g = p.gearStats or {}
+    -- (a third field: the stat's key in p.statBonus, what buffs add - shown green / red with a tooltip)
     if cat == "PLAYERSTAT_BASE_STATS" then
-        return { { "Strength:", p.str }, { "Agility:", p.agi }, { "Stamina:", p.sta }, { "Intellect:", p.int },
-                 { "Spirit:", p.spi }, { "Armor:", p.armor } }
+        return { { "Strength:", p.str, "str" }, { "Agility:", p.agi, "agi" }, { "Stamina:", p.sta, "sta" },
+                 { "Intellect:", p.int, "int" }, { "Spirit:", p.spi, "spi" }, { "Armor:", p.armor, "armor" } }
     elseif cat == "PLAYERSTAT_MELEE_COMBAT" then
         local mh, k = p.mh, p.ap / 14 * p.mh[4]
         return { { "Damage:", string.format("%d - %d", max(1, floor(mh[1] + k)), max(1, ceil(mh[2] + k))) },
-                 { "Speed:", string.format("%.2f", mh[4] / (p.hasteMult or 1)) }, { "Power:", p.ap },
+                 { "Speed:", string.format("%.2f", mh[4] / (p.hasteMult or 1)) }, { "Power:", p.ap, "ap" },
                  { "Hit Rating:", g.hitR or 0 }, { "Crit Chance:", Pct(p.crit) }, { "Expertise:", 0 } }
     elseif cat == "PLAYERSTAT_RANGED_COMBAT" then
         local r = p.ranged
-        if not r then return { { "Damage:", "N/A" }, { "Speed:", "N/A" }, { "Power:", p.ap }, { "Hit Rating:", g.hitR or 0 },
+        if not r then return { { "Damage:", "N/A" }, { "Speed:", "N/A" }, { "Power:", p.rap or p.ap }, { "Hit Rating:", g.hitR or 0 },
                                { "Crit Chance:", Pct(p.crit) } } end
         return { { "Damage:", string.format("%d - %d", max(1, floor(r[1])), max(1, ceil(r[2]))) },
-                 { "Speed:", string.format("%.2f", r[4] or 0) }, { "Power:", p.ap }, { "Hit Rating:", g.hitR or 0 },
+                 { "Speed:", string.format("%.2f", r[4] or 0) }, { "Power:", p.rap or p.ap }, { "Hit Rating:", g.hitR or 0 },
                  { "Crit Chance:", Pct(p.crit) } }
     elseif cat == "PLAYERSTAT_SPELL_COMBAT" then
-        return { { "Bonus Damage:", p.sp or 0 }, { "Bonus Healing:", g.heal or p.sp or 0 }, { "Hit Rating:", g.spellHitR or 0 },
-                 { "Crit Chance:", Pct(p.spellCrit) }, { "Haste Rating:", 0 },
+        return { { "Bonus Damage:", p.sp or 0, "sp" }, { "Bonus Healing:", p.heal or p.sp or 0, "heal" },
+                 { "Hit Rating:", g.spellHitR or 0 }, { "Crit Chance:", Pct(p.spellCrit) }, { "Haste Rating:", 0 },
                  { "Mana Regen:", p.powerType == Craft.POWER_MANA and floor((12.5 + p.spi / 4) * 2.5) or 0 } }
     end
-    return { { "Armor:", p.armor }, { "Defense:", (p.level or 1) * 5 }, { "Dodge:", Pct(p.dodge) },
+    return { { "Armor:", p.armor, "armor" }, { "Defense:", (p.level or 1) * 5 }, { "Dodge:", Pct(p.dodge) },
              { "Parry:", Pct(p.parry) }, { "Block:", Pct(p.block) }, { "Resilience:", 0 } }
 end
 
@@ -1229,6 +1230,7 @@ end
 local function CharacterSheet()
     if cha then return cha end
     cha, chaRefs = UI.Build("CharacterFrame", UI.hudFrame)
+    UI.characterRefs = chaRefs
     local pd, pdRefs = UI.Build("PaperDollFrame", cha, chaRefs)
     for k, v in pairs(pdRefs) do chaRefs[k] = v end
     pd:SetAllPoints(cha)
@@ -1346,7 +1348,25 @@ function UI.RefreshCharacter()
                 row:SetShown(l ~= nil)
                 if l then
                     chaRefs[prefix .. i .. "Label"]:SetText(l[1])
-                    chaRefs[prefix .. i .. "StatText"]:SetText(l[2])
+                    -- (PaperDollFrame_SetStat: green when buffs raise it, red when debuffs lower it)
+                    local b = l[3] and p.statBonus and p.statBonus[l[3]] or 0
+                    local txt = tostring(l[2])
+                    if b > 0 then txt = "|cff20ff20" .. txt .. "|r" elseif b < 0 then txt = "|cffff2020" .. txt .. "|r" end
+                    chaRefs[prefix .. i .. "StatText"]:SetText(txt)
+                    row.statTip = (b ~= 0) and { (l[1]:gsub(":$", "")), l[2], b } or nil
+                    if not row.statHooked then
+                        row.statHooked = true
+                        row:EnableMouse(true)
+                        row:SetScript("OnEnter", function(self)
+                            local t = self.statTip
+                            if not t then return end
+                            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                            GameTooltip:SetText(string.format("%s %d (%d%s%d)", t[1], t[2], t[2] - t[3],
+                                                              t[3] > 0 and "+" or "-", math.abs(t[3])), 1, 1, 1)
+                            GameTooltip:Show()
+                        end)
+                        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    end
                 end
             end
         end

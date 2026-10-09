@@ -158,8 +158,28 @@ function World.Walkable(map, tx, ty)
 end
 local Walkable = World.Walkable
 
+-- is the point (x, y) free to stand on? (outdoors: the ~1 yd collision cells, see WS.SolidAt)
+local function Free(map, x, y)
+    if map == "world" then return not WS.SolidAt(x, y) end
+    return Walkable(map, floor(x), floor(y))
+end
+World.Free = Free
+
+-- the foot outdoors where the fine collision cells are: a body's half width in WoW (~0.5 yd), sampled round it
+local FOOT = 0.12
+local RING = {}
+for k = 0, 7 do RING[#RING + 1] = { math.cos(k * math.pi / 4), math.sin(k * math.pi / 4) } end
+
 -- a circle of radius r (tiles) at (x, y) fits?
 function World.Fits(map, x, y, r)
+    if map == "world" and WS.CellMask(floor(x), floor(y)) then
+        r = r or FOOT
+        if WS.SolidAt(x, y) then return false end
+        for _, o in ipairs(RING) do
+            if WS.SolidAt(x + o[1] * r, y + o[2] * r) then return false end
+        end
+        return true
+    end
     r = r or RADIUS
     for _, o in ipairs({ { -r, -r }, { r, -r }, { -r, r }, { r, r } }) do
         if not Walkable(map, floor(x + o[1]), floor(y + o[2])) then return false end
@@ -172,7 +192,10 @@ local Fits = World.Fits
 function World.MoveBy(u, dx, dy)
     local x, y = u.x, u.y
     local nx, ny = x + dx, y + dy
-    if Fits(u.map, nx, ny) then
+    if not Fits(u.map, x, y) then
+        -- (standing inside something - a spawn point or a saved spot on a cell that is solid now: walk out freely)
+        u.x, u.y = nx, ny
+    elseif Fits(u.map, nx, ny) then
         u.x, u.y = nx, ny
     elseif Fits(u.map, nx, y) then
         u.x = nx
@@ -186,10 +209,10 @@ end
 -- nothing solid on the straight line between two points
 function World.LineClear(map, x0, y0, x1, y1)
     local dx, dy = x1 - x0, y1 - y0
-    local n = max(1, floor(max(abs(dx), abs(dy)) * 3))
+    local n = max(1, floor(max(abs(dx), abs(dy)) * (map == "world" and 8 or 3)))
     for i = 0, n do
         local f = i / n
-        if not Walkable(map, floor(x0 + dx * f), floor(y0 + dy * f)) then return false end
+        if not Free(map, x0 + dx * f, y0 + dy * f) then return false end
     end
     return true
 end

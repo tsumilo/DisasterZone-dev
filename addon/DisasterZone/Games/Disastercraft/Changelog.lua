@@ -7,6 +7,10 @@ ns.CraftChangelog = {
     {
         version = "0.2", date = "2026-10-09",
         changes = {
+            "Trees, props and walls block only where they really stand",
+            "Type /collision to see what stops you",
+            "Buffs show on the character sheet (green) as they change",
+            "Food, Icy Veins and stuns no longer end early",
             "Everyone swings, casts and falls with their real animation",
             "Attack on your action bar shows your weapon",
             "The experience bar sits on the action bar like in WoW",

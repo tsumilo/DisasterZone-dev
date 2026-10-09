@@ -49,6 +49,9 @@ local A_AP, A_THREAT, A_HASTE, A_RESIST_PCT, A_DMG_DONE, A_PDUMMY, A_MOD_HP = 99
 -- modifiers (flat / percent), crit chance by school (the 2.5 client's Holy Specialization)
 local A_MOD_THREAT, A_PARRY, A_DODGE, A_BLOCK, A_CRIT, A_HIT, A_SPELL_HIT, A_SPELL_CRIT = 10, 47, 49, 51, 52, 54, 55, 57
 local A_SKILL, A_SKILL_TALENT, A_FLAT_MOD, A_PCT_MOD, A_SCHOOL_CRIT = 30, 98, 107, 108, 552
+-- buffs on the character sheet: stat percent (Blessing of Kings, Arcane Mind), mana (MOD_INCREASE_ENERGY), healing
+-- done, ranged attack power
+local A_STAT_PCT, A_TOTAL_STAT_PCT, A_MOD_MANA, A_HEAL_DONE, A_RANGED_AP = 80, 137, 35, 135, 124
 -- what a spell modifier changes (SpellModOp)
 local MOD_DAMAGE, MOD_DURATION, MOD_THREAT, MOD_EFFECT1, MOD_RANGE, MOD_RADIUS, MOD_CRIT, MOD_ALL_EFFECTS =
     0, 1, 2, 3, 5, 6, 7, 8
@@ -144,6 +147,31 @@ local function AuraMult(u, aura)
     return m
 end
 
+-- auras whose misc is a school mask (resistances: bit 1 = armor; damage / healing done): the sum of those that
+-- take in any of the bits
+local function AuraSumMask(u, aura, bits)
+    local s = 0
+    for _, a in ipairs(u.auras) do
+        for _, e in ipairs(a.fx) do
+            if e.a == aura and band(e.misc or 0, bits) ~= 0 then s = s + (e.amount or 0) end
+        end
+    end
+    return s
+end
+
+-- a stat's percent auras (MOD_PERCENT_STAT, MOD_TOTAL_STAT_PERCENTAGE: misc = the stat, -1 = all) as a factor
+local function StatMult(u, stat)
+    local m = 1
+    for _, a in ipairs(u.auras) do
+        for _, e in ipairs(a.fx) do
+            if (e.a == A_STAT_PCT or e.a == A_TOTAL_STAT_PCT) and (e.misc == stat or e.misc == -1) then
+                m = m * (1 + (e.amount or 0) / 100)
+            end
+        end
+    end
+    return m
+end
+
 -- does an aura effect's class mask take in this spell (same class family, a shared bit)?
 local function MaskMatches(e, sp, src)
     if not (e.cm and sp and sp.cm) then return false end
@@ -224,11 +252,14 @@ function Combat.Recalc(u)
         local lv = cd and cd.levels[min(u.level, #cd.levels)] or { 50, 0, 20, 20, 20, 20, 20 }
         local g = (u.kind == "player" and Craft.Items.GearStats(c)) or u.gear or Craft.Items.GearStats({ equip = {} })
         u.gearStats = g
-        u.str = lv[3] + g.str + AuraSum(u, A_STAT, 0)
-        u.agi = lv[4] + g.agi + AuraSum(u, A_STAT, 1)
-        u.sta = lv[5] + g.sta + AuraSum(u, A_STAT, 2)
-        u.int = lv[6] + g.int + AuraSum(u, A_STAT, 3)
-        u.spi = lv[7] + g.spi + AuraSum(u, A_STAT, 4)
+        -- what buffs and debuffs add to each number (the character sheet shows those green / red, as WoW)
+        local bonus = {}
+        u.statBonus = bonus
+        for i, k in ipairs({ "str", "agi", "sta", "int", "spi" }) do
+            local base = lv[i + 2] + g[k]
+            u[k] = floor((base + AuraSum(u, A_STAT, i - 1)) * StatMult(u, i - 1) + 0.5)
+            bonus[k] = u[k] - base
+        end
         local hpFromSta = min(20, u.sta) + max(0, u.sta - 20) * 10
         local old = u.hpMax
         u.hpMax = lv[1] + hpFromSta + g.hpBonus + AuraSum(u, A_MOD_HP)
@@ -238,13 +269,27 @@ function Combat.Recalc(u)
         else
             u.powerType = Craft.POWER_MANA
             local oldP = u.powerMax
-            u.powerMax = lv[2] + min(20, u.int) + max(0, u.int - 20) * 15 + g.manaBonus
+            u.powerMax = lv[2] + min(20, u.int) + max(0, u.int - 20) * 15 + g.manaBonus + AuraSum(u, A_MOD_MANA, 0)
             if oldP and u.power then u.power = min(u.power, u.powerMax) end
         end
-        u.armor = floor((g.armor + u.agi * 2 + AuraSum(u, A_RESIST, 1)) * AuraMult(u, A_RESIST_PCT))
-        if u.class == 1 then u.ap = u.level * 3 + u.str * 2 - 20 else u.ap = max(0, u.str - 10) end
-        u.ap = u.ap + g.ap + AuraSum(u, A_AP)
-        u.sp = g.sp or 0
+        local armorBase = g.armor + (u.agi - bonus.agi) * 2
+        u.armor = floor((g.armor + u.agi * 2 + AuraSumMask(u, A_RESIST, 1)) * AuraMult(u, A_RESIST_PCT))
+        bonus.armor = u.armor - armorBase
+        local function MeleeAP(str) return u.class == 1 and (u.level * 3 + str * 2 - 20) or max(0, str - 10) end
+        u.ap = MeleeAP(u.str) + g.ap + AuraSum(u, A_AP)
+        bonus.ap = u.ap - (MeleeAP(u.str - bonus.str) + g.ap)
+        u.rap = max(0, u.level + u.agi * 2 - 10) + (g.rap or 0) + AuraSum(u, A_RANGED_AP)
+        -- spell damage / healing from buffs (MOD_DAMAGE_DONE on a magic school; a physical one is melee damage)
+        local spBuff = AuraSumMask(u, A_DMG_DONE, 126)
+        u.sp = (g.sp or 0) + spBuff
+        u.heal = (g.heal or g.sp or 0) + AuraSumMask(u, A_HEAL_DONE, 127)
+        bonus.sp, bonus.heal = spBuff, u.heal - (g.heal or g.sp or 0)
+        -- resistances (holy 1 .. arcane 6, as Items.GearStats) with the buffs' (Mark of the Wild, Shadow Protection)
+        local res = {}
+        for school = 1, 6 do
+            res[school] = ((g.res or {})[school] or 0) + AuraSumMask(u, A_RESIST, 2 ^ school)
+        end
+        u.res = res
         local mc = MELEE_CRIT[u.class] or { 0, 20 }
         u.crit = mc[1] + u.agi / mc[2] + (u.class == 1 and 5 or 0) + (g.critR or 0) / 14 + AuraSum(u, A_CRIT)
         local sc = SPELL_CRIT[u.class] or { 0, 0 }
@@ -259,7 +304,6 @@ function Combat.Recalc(u)
         u.blockValue = floor(u.str / 20) + (g.block or 0)
         u.hit = (g.hitR or 0) / 12 + AuraSum(u, A_HIT)
         u.spellHit = AuraSum(u, A_SPELL_HIT)
-        u.res = g.res
         -- weapons (unarmed: 1-2 at 2.0 s)
         local mh = g.mh or { 1, 2, 0, 2.0 }
         u.mh = { mh[1], mh[2], (mh[3] or 0) == 0 and 1 or (2 ^ mh[3]), mh[4] }
@@ -742,7 +786,9 @@ function Combat.Swing(a, d)
         dmg = dmg - info.blocked
     end
     for _, x in ipairs(a.auras) do                      -- (Hex of Weakness and the like)
-        for _, e in ipairs(x.fx) do if e.a == A_DMG_DONE then dmg = dmg + (e.amount or 0) end end
+        for _, e in ipairs(x.fx) do
+            if e.a == A_DMG_DONE and band(e.misc or 1, 1) ~= 0 then dmg = dmg + (e.amount or 0) end
+        end
     end
     Combat.Damage(a, d, max(1, dmg), info)
     Combat.AfterSwing(a, d, info)
@@ -1205,7 +1251,7 @@ function Combat.Apply(u, id, target, opts)
             end
         elseif e.e == E_HEAL then
             for _, t in ipairs(list) do
-                local amt = Combat.SpellMod(u, sp, MOD_DAMAGE, Combat.EffectValue(sp, e, u) + (u.sp or 0) * (e.coef or 0))
+                local amt = Combat.SpellMod(u, sp, MOD_DAMAGE, Combat.EffectValue(sp, e, u) + (u.heal or u.sp or 0) * (e.coef or 0))
                 local info = { kind = "spell", spell = id }
                 if Chance(Combat.SpellCritChance(u, sp)) then amt = amt * 1.5 info.crit = true end
                 Combat.Heal(u, t, amt, info)

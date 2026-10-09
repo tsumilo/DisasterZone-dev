@@ -368,6 +368,40 @@ local function DrawGround(map, cols, rows)
     end
 end
 
+-- /dc collision: the solid ~1 yd cells over the view (what stops you), for checking them against the pictures
+local collTex = {}
+local function DrawCollision(map, cols, rows)
+    local n = 0
+    if UI.showCollision and map == "world" then
+        local sub = WS.SUB
+        local fx, fy = floor(camX - cols / 2), floor(camY - rows / 2)
+        for wy = fy - 1, fy + rows + 1 do
+            for wx = fx - 1, fx + cols + 1 do
+                for sy = 0, sub - 1 do
+                    for sx = 0, sub - 1 do
+                        local x, y = wx + (sx + 0.5) / sub, wy + (sy + 0.5) / sub
+                        if WS.SolidAt(x, y) then
+                            n = n + 1
+                            local t = collTex[n]
+                            if not t then
+                                t = top:CreateTexture(nil, "BACKGROUND")
+                                t:SetColorTexture(0, 0.65, 1, 0.45)
+                                collTex[n] = t
+                            end
+                            local px, py = ToScreen(wx + sx / sub, wy + sy / sub)
+                            t:ClearAllPoints()
+                            t:SetPoint("TOPLEFT", top, "TOPLEFT", floor(px + 0.5), -floor(py + 0.5))
+                            t:SetSize(max(1, TILE / sub - 1), max(1, TILE / sub - 1))
+                            t:Show()
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for i = n + 1, #collTex do collTex[i]:Hide() end
+end
+
 ---------------------------------------------------------------------------
 -- Name plates, markers, bars: one bundle per unit
 ---------------------------------------------------------------------------
@@ -575,6 +609,7 @@ function UI.DrawWorld(dt)
     -- ground (outdoors); an interior is its own picture on black
     if map == "world" then DrawGround(map, cols, rows)
     else for _, col in pairs(grid) do for _, c in pairs(col) do c:Hide() end end end
+    DrawCollision(map, cols, rows)
     -- scenery (trees, houses, fences); in an interior its floor under everyone and its walls in depth slices
     scenUsed = 0
     local x0, y0 = camX - cols / 2 - 1, camY - rows / 2 - 1

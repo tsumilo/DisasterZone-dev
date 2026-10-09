@@ -690,6 +690,7 @@ function UI.SayLine(text)
         elseif cmd == "invite" or cmd == "inv" then if Craft.Party then Craft.Party.Invite(rest) end return
         elseif cmd == "leave" then if Craft.Party then Craft.Party.Leave() end return
         elseif cmd == "sit" then Craft.World.ToggleSit() return
+        elseif cmd == "collision" then UI.showCollision = not UI.showCollision return     -- (shows what stops you)
         else Craft:Msg("Unknown command: /" .. cmd, "system") return end
     end
     if msg == "" then return end

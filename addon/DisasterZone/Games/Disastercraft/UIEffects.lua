@@ -257,13 +257,14 @@ Craft:On("aura", function(u, a, added)
     if not v or not v.aura then return end
     if added then
         if not Visible(u) then return end
-        a.fx = OnUnit(v.aura, u, function()
+        -- (a.vfx: a.fx is the aura's own effects - what it does to the stats - and must stay)
+        a.vfx = OnUnit(v.aura, u, function()
             for _, x in ipairs(u.auras) do if x == a then return u.dead end end
             return true
         end)
     else
-        StopAll(a.fx)
-        a.fx = nil
+        StopAll(a.vfx)
+        a.vfx = nil
     end
 end)
 
