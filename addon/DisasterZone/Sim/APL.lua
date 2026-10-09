@@ -457,10 +457,26 @@ function Rot:Action(node, vars, knownSpell)
     local u = self.unit
     local isMCD = S.has(sp.flags, S.F.MCD) and not S.has(sp.flags, S.F.Reactive)
     local usesGcd = sp.gcd > 0 or S.has(sp.flags, S.F.MCD)
+    local rot = self
     impl = {
+      -- sp:CanCastOrQueue(sim, u.currentTarget) inlined (Spell.lua: CanQueue, CanCompleteCast, TimeToReady), same
+      -- checks in the same order: this runs for every action on every evaluation
       ready = function(sim)
+        local now = sim.now
+        local q = u.queued
+        if q and q.initiatedAt == now then return false end
         local t = u.currentTarget
-        return sp:CanCastOrQueue(sim, t) and (not isMCD or u.GCD.readyAt <= sim.now or self.inSequence)
+        if not u.enabled or not t or not t.enabled then return false end
+        local ecc = sp.extraCastCondition
+        if ecc and not ecc(sim, t) then return false end
+        if sp.cost and not sp:MeetsCost(sim) then return false end
+        local gcdAt = u.GCD.readyAt
+        if sp.gcd > 0 and gcdAt - now > QW then return false end
+        local tm = sp.cdTimer
+        if tm and tm.readyAt - now > QW then return false end
+        tm = sp.sharedCdTimer
+        if tm and tm.readyAt - now > QW then return false end
+        return not isMCD or gcdAt <= now or rot.inSequence
       end,
       exec = function(sim) sp:CastOrQueue(sim, u.currentTarget) end,
       next = function(sim) return CastNextChange(sp, u, sim, usesGcd) end,
@@ -777,6 +793,19 @@ function Seq:GetNext(sim)
   return nil
 end
 
+-- While the sequence controls the rotation, only its current action or the GCD entering the queue window (when it
+-- gives up) can change what it does.
+function Seq:NextChange(sim)
+  local u = self.rot.unit
+  local t = sim.minTrackerTime
+  if sim.nextExecuteAt < t then t = sim.nextExecuteAt end
+  local x = u.GCD.readyAt - S.QUEUE_WINDOW
+  if x > sim.now and x < t then t = x end
+  x = self.subs[self.idx].next(sim)
+  if x < t then t = x end
+  return t
+end
+
 function Rot:StrictSequence(cfg, vars)
   local subs = {}
   local hasSpells = false
@@ -792,7 +821,6 @@ function Rot:StrictSequence(cfg, vars)
   local seq = setmetatable({ rot = self, subs = subs, idx = 1 }, Seq)
   self.sequences = self.sequences or {}
   self.sequences[#self.sequences + 1] = seq
-  self.hasSequences = true
   return {
     castsSpells = true,
     ready = function(sim)
@@ -822,16 +850,19 @@ function Rot:StrictSequence(cfg, vars)
 end
 
 -- Earliest time at which time alone could make any action ready (or change what the tracked auras, execute phase
--- or cast in progress are).
-function Rot:NextChange(sim)
-  local t = huge
+-- or cast in progress are). Stops at the first time <= low: the caller only sleeps past a bound above it.
+function Rot:NextChange(sim, low)
+  local t = sim.minTrackerTime
+  if sim.nextExecuteAt < t then t = sim.nextExecuteAt end
+  if t <= low then return t end
   local list = self.list
   for i = 1, #list do
     local x = list[i].next(sim)
-    if x < t then t = x end
+    if x < t then
+      t = x
+      if t <= low then return t end
+    end
   end
-  if sim.minTrackerTime < t then t = sim.minTrackerTime end
-  if sim.nextExecuteAt < t then t = sim.nextExecuteAt end
   return t
 end
 
@@ -866,7 +897,10 @@ function Rot:DoNextAction(sim)
   if u.RotationTimer.readyAt <= sim.now then
     local rt = u.reactionTime
     local target = max(sim.now + rt, u.GCD.readyAt)
-    local bound = (not S.NO_SKIP and not self.controlling and not self.hasSequences) and self:NextChange(sim) or 0
+    local bound = 0
+    if not S.NO_SKIP then
+      if self.controlling then bound = self.controlling:NextChange(sim) else bound = self:NextChange(sim, target) end
+    end
     if bound > target then
       -- Sleep to the first poll of WoWSims' grid (target + k * reaction time) at or after the bound.
       local k = ceil((bound - target) / rt - EPS)
