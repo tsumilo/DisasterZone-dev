@@ -1747,6 +1747,13 @@ local function CreateTopBar(p)
         GameTooltip:AddLine("Gear sim", 1, 0.82, 0)
         GameTooltip:AddLine("Compare gear by simulating fights: change slots in a Working set and run it against "
             .. "the gear you wear or a BiS phase.", 1, 1, 1, true)
+        local R = ns.SimRunner
+        if R and not R:IsSupported() then
+            local spec = R:Spec()
+            GameTooltip:AddLine(("It covers Retribution Paladins for now%s."):format(
+                spec ~= "" and (", not " .. spec .. (IsOffSpecView() and " (this off-spec list)" or "")) or ""),
+                1, 0.55, 0.2, true)
+        end
         GameTooltip:Show()
     end)
     simBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1813,6 +1820,13 @@ function MyBiS:Refresh()
     -- Sim mode (UI/SimPanel.lua): the slots show the Working set, the centre the sim
     local Sim = ns.SimPanel
     local simOn = Sim and Sim:IsActive() and true or false
+    -- only for the specs the sim covers: another spec's list (the off-spec tab too) turns Sim mode off
+    local simOK = ns.SimRunner and ns.SimRunner:IsSupported() and true or false
+    if simOn and not simOK then
+        Sim:SetActive(false)   -- refreshes again
+        return
+    end
+    if simBtn then simBtn:SetEnabled(simOK) end
     if simBtn and simBtn.SetKind then simBtn:SetKind(simOn and "chosen" or "secondary") end
     if simOn then
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not Sim:IsPickerOpen() then ns.Picker:Close() end

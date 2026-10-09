@@ -190,6 +190,42 @@ def best_for_slot_during_a_run_stops_it_cleanly():
 
 
 @r.case
+def sim_button_only_for_specs_the_sim_covers():
+    w, c = solo()
+    btn = "ns.MainFrame:GetPanel('mybis').simBtn"
+    assert c.eval("return " + btn + ":IsEnabled()") is True
+    # Holy off-spec list: the button greys out
+    assert c.eval("return ns.BiS:SetSpec('Holy', 'os')") is True
+    c.eval("ns.MyBiS:SetList('os')  ns.MyBiS:Refresh()")
+    assert c.eval("return ns.SimRunner:Spec()") == "Holy"
+    assert c.eval("return " + btn + ":IsEnabled()") is False
+    # back on the Ret list it works; switching to the Holy list while in Sim mode leaves Sim mode
+    c.eval("ns.MyBiS:SetList('ms')  ns.MyBiS:Refresh()")
+    assert c.eval("return " + btn + ":IsEnabled()") is True
+    c.eval("ns.SimPanel:Toggle()")
+    assert c.eval("return ns.SimPanel:IsActive()") is True
+    c.eval("ns.MyBiS:SetList('os')  ns.MyBiS:Refresh()")
+    assert c.eval("return ns.SimPanel:IsActive()") is False
+    assert_no_lua_errors(w)
+
+
+@r.case
+def talents_are_yours_only_when_specced_into_it():
+    w, c = solo()
+    # the mock client is specced Holy (41/20/0): a Ret sim takes the standard Ret build
+    assert c.eval("return ns.BiS:DetectSpec()") == "Holy"
+    t, own = c.eval_py("return { ns.SimRunner:Talents() }")
+    assert own is False and t == c.eval("return ns.SimRunner.DEFAULT_TALENTS['PALADIN:Retribution']"), (t, own)
+    # specced Ret: the talents are read from the game (the mock lists no talent ranks, so still the standard build)
+    c.set_talents((0, 11, 50))
+    assert c.eval("return ns.BiS:DetectSpec()") == "Retribution"
+    c.eval("ns.SimRunner.TalentString = function() return '5-05-0523005120033125331051' end")
+    t, own = c.eval_py("return { ns.SimRunner:Talents() }")
+    assert own is True and t == "5-05-0523005120033125331051", (t, own)
+    assert_no_lua_errors(w)
+
+
+@r.case
 def reset_and_reload_keep_working_set():
     w, c = solo()
     c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")

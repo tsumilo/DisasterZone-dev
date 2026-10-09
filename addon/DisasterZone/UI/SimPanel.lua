@@ -205,10 +205,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 local function RunSettings()
   local s = Settings()
-  local talents = R():TalentString()
-  if not talents or not talents:find("[1-5]") then talents = nil end
-  return { buffs = s.buffs, duration = s.duration, mobType = s.mobType,
-    talents = talents or R().DEFAULT_TALENTS[R():SpecKey()] }
+  return { buffs = s.buffs, duration = s.duration, mobType = s.mobType, talents = (R():Talents()) }
 end
 
 function SimPanel:Run()

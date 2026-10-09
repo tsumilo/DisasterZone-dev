@@ -235,9 +235,24 @@ function Runner:DB()
   return self.db
 end
 
+-- The spec of the list My BiS shows (the off-spec list's when that one is open).
+function Runner:Spec()
+  local list = (ns.MyBiS and ns.MyBiS.GetList and ns.MyBiS:GetList() == "os") and "os" or nil
+  return (ns.BiS and ns.BiS:GetSpec(list)) or ""
+end
+
 function Runner:SpecKey()
-  local spec = (ns.BiS and ns.BiS:GetSpec()) or ""
-  return (self:Class() or "") .. ":" .. spec
+  return (self:Class() or "") .. ":" .. self:Spec()
+end
+
+-- Your own talents when you are specced into the spec being simmed, else WoWSims' standard build for it.
+function Runner:Talents()
+  local spec = self:Spec()
+  if ns.BiS and ns.BiS.DetectSpec and ns.BiS:DetectSpec() == spec then
+    local t = self:TalentString()
+    if t and t:find("[1-5]") then return t, true end
+  end
+  return self.DEFAULT_TALENTS[self:SpecKey()], false
 end
 
 function Runner:IsSupported(key)
