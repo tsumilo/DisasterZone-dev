@@ -5,6 +5,20 @@ local addonName, ns = ...
 
 ns.CraftChangelog = {
     {
+        version = "0.4", date = "2026-10-09",
+        changes = {
+            "Play together: see every guildmate who is in the game",
+            "Parties of five: /invite, right-click a hero, or press O",
+            "Party XP, quest kills and loot are shared; money is split",
+            "Creatures are shared: whoever pulls one, everyone sees it",
+            "Heal and buff your friends; party chat with /p, /say near",
+            "Walk diagonally: every body faces eight ways now",
+            "Your hero and NPCs are pixel bodies everywhere, no 3D",
+            "Portraits show the pixel body, head and shoulders",
+            "Spell glows sit in the hands, behind you facing away",
+        },
+    },
+    {
         version = "0.3", date = "2026-10-09",
         changes = {
             "Walk right into the Abbey: no more doors that teleport",

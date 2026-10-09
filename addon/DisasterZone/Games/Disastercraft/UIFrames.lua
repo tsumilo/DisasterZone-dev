@@ -27,7 +27,7 @@ local LEFT_OFFSET, TOP_OFFSET = 16, -116            -- (UIParent's LEFT_OFFSET /
 local PANEL = {
     loot = nil, quest = { 0, 0, 338 }, gossip = { 0, 0, 338 }, merchant = { 0, 0, 338 },
     trainer = { -16, 12, 353 }, questlog = { -16, 12, 353 }, spellbook = { -16, 12, 353 },
-    character = { -16, 12, 353 }, talents = { -16, 12, 353 },
+    character = { -16, 12, 353 }, talents = { -16, 12, 353 }, party = { 0, 0, 316 },
 }
 
 function UI.ShowWindow(name, f, side)

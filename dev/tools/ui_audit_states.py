@@ -778,6 +778,19 @@ def st_blizzard_options(w, c):
     return g
 
 
+SWING_HUD = ("__MOCK.real_geometry = true; __MOCK.swing_speed = 3.5; "
+             "local names = { [20375] = 'Seal of Command', [31892] = 'Seal of Blood', [35395] = 'Crusader Strike', "
+             "[20271] = 'Judgement', [879] = 'Exorcism', [26573] = 'Consecration', [24275] = 'Hammer of Wrath' }; "
+             "local old = GetSpellInfo; GetSpellInfo = function(x, ...) if names[x] then return names[x] end "
+             "for _, n in pairs(names) do if n == x then return n end end return old(x, ...) end; "
+             "UnitCreatureType = function() return 'Demon' end; GetSpellTexture = function() return nil end; "
+             "local ST = ns.SwingTimer; ST.IsRet = function() return true end; ns.DB:SetSetting('swing.idle', true); "
+             "ns.DB:SetSetting('swing.style', 'STYLE'); ST:Refresh(); "
+             "ST.state.seal = 'soc'; ST.state.last = GetTime() - %s; ST.state.sealExpires = GetTime() + 22; "
+             "for i, k in ipairs({ 'twist', 'twist', 'late', 'twist', 'plain', 'twist', 'clip', 'twist', 'twist' }) do "
+             "ST:Recent()[i] = { t = 0, kind = k } end; ns.SwingTimerHUD:Update()")
+
+
 STATES = [
     ("Blizzard options panel", st_blizzard_options),
     ("Home", opened("home")),
@@ -1067,6 +1080,11 @@ STATES = [
         "if not (C:Data().chars and C:Data().chars[1]) then C:NewCharacter(1, 0) end ns.CraftUI.Glue.ShowSelect() "
         "ns.CraftUI.Glue.ConfirmDelete(ns.CraftUI.Glue.selected or 1)")),
     ("Disastercraft - Northshire start", opened("games", dc(1, 4127.8, 6244))),
+    # a party of three (two remote heroes walking with you): the party frames under yours, their bodies in the world
+    ("Disastercraft - party", opened("games", dc(1, 4127.8, 6244, "world", "local P = C.Party local me = P.Me() local function friend(k, name, cls, sex, lvl, dx, dy, hp)   P.peers[k] = { key = k, name = name, class = cls, sex = sex, level = lvl, seen = GetTime(), equip = {} }   local u = P.RemoteUnit(k, P.peers[k]) u.x, u.y, u.face = p.x + dx, p.y + dy, 'downleft' u.hp = math.floor(u.hpMax * hp) u.path = {} end friend('Bob-Realm', 'Bobbert', 5, 1, 4, 1.4, 0.6, 0.8) friend('Carol-Realm', 'Carolynn', 8, 0, 3, -1.2, 1.1, 0.45) P.group = { id = me .. ':1', leader = me, members = { me, 'Bob-Realm', 'Carol-Realm' } } UI.UpdateParty(0) "))),
+    ("Disastercraft - social window", opened("games", dc(1, 4127.8, 6244, "world", "local P = C.Party local me = P.Me() local function friend(k, name, cls, sex, lvl, dx, dy, hp)   P.peers[k] = { key = k, name = name, class = cls, sex = sex, level = lvl, seen = GetTime(), equip = {} }   local u = P.RemoteUnit(k, P.peers[k]) u.x, u.y, u.face = p.x + dx, p.y + dy, 'downleft' u.hp = math.floor(u.hpMax * hp) u.path = {} end friend('Bob-Realm', 'Bobbert', 5, 1, 4, 1.4, 0.6, 0.8) friend('Carol-Realm', 'Carolynn', 8, 0, 3, -1.2, 1.1, 0.45) P.group = { id = me .. ':1', leader = me, members = { me, 'Bob-Realm', 'Carol-Realm' } } UI.UpdateParty(0)  UI.Toggle('party')"))),
+    # walking diagonally (down-left): the eighth facings
+    ("Disastercraft - walking diagonally", opened("games", dc(8, 4127.8, 6244, "world", "p.face = 'downleft' p.moving = true"))),
     ("Disastercraft - kobold fight", opened("games", dc(1, 4134.5, 6203.5, "world", DC_FIND % 257 +
         "C.World.SetTarget(T_DCU) T_DCU.inCombat = true T_DCU.hp = math.floor(T_DCU.hpMax * 0.6) "
         "p.x, p.y = T_DCU.x - 1, T_DCU.y C.Combat.StartAttack(p, T_DCU) p.power = 230 "
@@ -1224,6 +1242,10 @@ STATES = [
     ("Settings - Rolls", opened("settings", "ns.SettingsUI:SelectSection('rolls')")),
     ("Settings - Strategy boards", opened("settings", "ns.SettingsUI:SelectSection('strategy')")),
     ("Settings - Tooltips", opened("settings", "ns.SettingsUI:SelectSection('tooltips')")),
+    ("Settings - Swing timer", opened("settings", "ns.SettingsUI:SelectSection('swing')")),
+    ("Swing timer - both, in the zone", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
+    ("Swing timer - bar, early swing", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
+    ("Swing timer - lane", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "2.0").replace("STYLE", "lane"))),
     ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
     ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
