@@ -7,6 +7,8 @@ ns.CraftChangelog = {
     {
         version = "0.3", date = "2026-10-09",
         changes = {
+            "Leveling is 3x faster: more XP, half the kills and items",
+            "Creatures come back sooner after you kill them",
             "NPC greetings sit on the parchment, from the top down",
         },
     },

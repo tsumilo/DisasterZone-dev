@@ -18,6 +18,30 @@ local Q = (ns.AzeroWorldData and ns.AzeroWorldData.quests) or {}
 Quests.Q = Q
 Quests.MAX_LOG = 20
 
+-- Faster than WoW: kill and collect objectives need Craft.QUEST_COUNT of WoW's count (at least 1), and the goal
+-- text says the new number ("Kill 10 Kobold Vermin" -> "Kill 5 Kobold Vermin"). Once per quest table.
+local function Shorten(q)
+    if q.shortened then return end
+    q.shortened = true
+    local function scale(o)
+        if not o.count or o.count <= 1 then return end
+        local was = o.count
+        o.count = max(1, math.ceil(was * Craft.QUEST_COUNT))
+        o.wowCount = was
+        if q.goal then
+            local done = false
+            q.goal = q.goal:gsub("%f[%d]" .. was .. "%f[%D]", function(s)
+                if done then return s end
+                done = true
+                return tostring(o.count)
+            end)
+        end
+    end
+    for _, k in ipairs(q.kill or {}) do scale(k) end
+    for _, it in ipairs(q.items or {}) do scale(it) end
+end
+for _, q in pairs(Q) do Shorten(q) end
+
 function Quests.Get(id) return Q[id] end
 function Quests.Extra(id) return D.quests[id] or {} end
 
@@ -182,7 +206,7 @@ function Quests.TurnIn(id, choice)
     c.quests[id] = nil
     c.done[id] = true
     Craft:Msg(q.title .. " completed.", "system")
-    local xp = Craft.QuestXP(c.level, x.lvl or q.lvl or 1, x.xpm)
+    local xp = Craft.QuestXP(c.level, x.lvl or q.lvl or 1, x.xpm) * Craft.XP_RATE
     if c.level >= D.MAX_LEVEL then
         -- (at the cap the experience is paid in money, like WoW)
         if (x.xpm or 0) > 0 then Craft:AddMoney(floor(x.xpm), "silent") end

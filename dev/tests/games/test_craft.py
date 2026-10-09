@@ -294,7 +294,10 @@ def quest_from_accept_to_turn_in():
     """)
     assert r["complete"] and r["ok"] and r["done"], r
     assert r["money"] == 25, r
-    assert "Kobold Vermin slain: 10/10" in r["notices"], r
+    # (faster than WoW: half the kills - Craft.QUEST_COUNT - and the goal says so)
+    assert "Kobold Vermin slain: 5/5" in r["notices"], r
+    goal = c.eval("return ns.Craft.Quests.Get(7).goal")
+    assert goal.startswith("Kill 5 Kobold Vermin"), goal
     no_errors(w)
 
 
@@ -306,10 +309,10 @@ def quest_drops_land_in_the_bags():
       Craft.char.done[783], Craft.char.done[5261] = true, true
       Q.Accept(33)                                  -- Wolves Across the Border: Tough Wolf Meat
       local needs = Q.NeedsItem(750)
-      Craft.Items.Add(750, 8, "loot")
+      Craft.Items.Add(750, 4, "loot")               -- (WoW asks 8: half, Craft.QUEST_COUNT)
       return { needs = needs, complete = Q.Complete(33), count = Craft.Items.Count(750) }
     """)
-    assert r["needs"] and r["complete"] and r["count"] == 8, r
+    assert r["needs"] and r["complete"] and r["count"] == 4, r
     r = c.eval_py(r"""
       local Q, Craft = ns.Craft.Quests, ns.Craft
       local x = Q.Extra(33)
@@ -862,7 +865,7 @@ def exploring_goldshire_gives_xp_and_shows_on_the_map():
       return { gained = xp1 - xp0, again = C.char.xp - xp1, open = open, closed = not (UI.open.worldmap),
                msg = C.log[#C.log] and C.log[#C.log].text, vineyards = C.char.explored[59] }
     """)
-    assert r["gained"] == 45 and r["again"] == 0 and r["vineyards"], r
+    assert r["gained"] == 45 * 3 and r["again"] == 0 and r["vineyards"], r      # (Craft.XP_RATE)
     assert r["open"] and r["closed"], r
     no_errors(w)
 

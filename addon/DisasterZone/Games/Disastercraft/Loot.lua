@@ -127,8 +127,8 @@ function Loot.KillXP(u, members)
     local base = Craft.KillXP(maxLvl, u.level, u.elite, u.cr and u.cr.xpm)
     if base <= 0 then return 0 end
     local rate = Craft.GROUP_RATE[min(5, n)] or 1
-    if n <= 1 then return Craft.KillXP(p.level, u.level, u.elite, u.cr and u.cr.xpm) end
-    return floor(base * rate * p.level / sum)
+    if n <= 1 then return Craft.KillXP(p.level, u.level, u.elite, u.cr and u.cr.xpm) * Craft.XP_RATE end
+    return floor(base * rate * p.level / sum * Craft.XP_RATE)
 end
 
 Craft:On("death", function(u, killer)

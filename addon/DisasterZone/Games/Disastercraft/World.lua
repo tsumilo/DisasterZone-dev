@@ -448,6 +448,7 @@ function World.Explore(id, name, quiet)
         if diff < -5 then xp = M.exploreXP[c.level + 5] or 0
         elseif diff > 5 then xp = floor((M.exploreXP[lvl] or 0) * max(0, min(100, 100 - (diff - 5) * 5)) / 100)
         else xp = M.exploreXP[lvl] or 0 end
+        xp = xp * Craft.XP_RATE
         if xp > 0 then
             Craft:GiveXP(xp, string.format("Discovered %s: %d experience gained", name or "?", xp))
         end
@@ -932,7 +933,7 @@ Craft:On("death", function(u, killer)
         local rec = u.rec
         rec.state = "dead"
         u.moving = false
-        rec.respawnAt = World.Clock() + max(30, rec.e.r or 300)
+        rec.respawnAt = World.Clock() + max(20, floor((rec.e.r or 300) * Craft.RESPAWN_RATE))
         rec.corpseUntil = Now() + 60
     end
 end)

@@ -24,6 +24,11 @@ Craft.WALK_SPEED = 2.5
 Craft.MELEE_RANGE = 5                     -- yards (WoW's melee reach between two normal-sized units)
 Craft.INTERACT_RANGE = 6                  -- yards to talk to an NPC or loot a corpse
 Craft.GCD = 1.5
+-- Faster than WoW (the user's pick, 2026-10-09): kills, quests and exploring give XP_RATE times WoW's experience,
+-- kill / collect objectives need QUEST_COUNT of WoW's count, creatures come back after RESPAWN_RATE of their time
+Craft.XP_RATE = 3
+Craft.QUEST_COUNT = 0.5
+Craft.RESPAWN_RATE = 0.4
 Craft.CLASS_NAMES = { [1] = "Warrior", [2] = "Paladin", [3] = "Hunter", [4] = "Rogue", [5] = "Priest",
                       [7] = "Shaman", [8] = "Mage", [9] = "Warlock", [11] = "Druid" }
 Craft.CLASS_TOKENS = { [1] = "WARRIOR", [2] = "PALADIN", [3] = "HUNTER", [4] = "ROGUE", [5] = "PRIEST",
