@@ -13,9 +13,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/SwingTimer.lua", ...) then re
 -- target clear of both edges (jitter).
 --
 -- The planner (Plan): a small search over the next GCDs (Crusader Strike, Seal of Command, Seal of Blood twisted
--- into a swing, Exorcism, Consecration, Hammer of Wrath, or holding the GCD until the next swing) up to about two
+-- into a swing, Exorcism, Consecration, or holding the GCD until the next swing) up to about two
 -- swings ahead, scoring each line by damage. The damage per cast comes from the gear sim run on the gear you wear
--- (Calibrate, out of combat, cached by gear), or estimates from your weapon until it has run. Judgement is off the
+-- (Calibrate, out of combat, cached by gear), or estimates from your weapon until it has run. Hammer of Wrath is left
+-- out on purpose: its cast time resets the swing, which costs a twisting Ret more than it hits for. Judgement is off the
 -- GCD: it is suggested right after a twisted swing, when Seal of Blood is about to be replaced by Command anyway.
 --
 -- After each fight a report counts every swing: twisted, late (Seal of Blood landed just after the swing), clipped
@@ -41,7 +42,7 @@ SwingTimer.OVERLAP, SwingTimer.MARGIN, SwingTimer.GCD = OVERLAP, MARGIN, GCD
 
 -- Spells by a known id (names come from GetSpellInfo, so any client language works)
 local IDS = {
-    soc = 20375, sob = 31892, cs = 35395, judge = 20271, exo = 879, cons = 26573, how = 24275,
+    soc = 20375, sob = 31892, cs = 35395, judge = 20271, exo = 879, cons = 26573,
 }
 SwingTimer.IDS = IDS
 -- Icons: the spell's own when the client knows it (Seal of the Martyr gets its own), these otherwise
@@ -51,8 +52,8 @@ local ICONS = {
     exo = "Interface\\Icons\\Spell_Holy_Excorcism_02", cons = "Interface\\Icons\\Spell_Holy_InnerFire",
     wait = "Interface\\Icons\\INV_Misc_PocketWatch_01",
 }
-local COSTS = { soc = 280, sob = 210, cs = 236, exo = 340, cons = 660, how = 365 }   -- top ranks, fallback only
-local CDS = { cs = 6, exo = 15, cons = 8, how = 6 }
+local COSTS = { soc = 280, sob = 210, cs = 236, exo = 340, cons = 660 }   -- top ranks, fallback only
+local CDS = { cs = 6, exo = 15, cons = 8 }
 
 local MARTYR = 348700            -- Seal of the Martyr: the Alliance's Seal of Blood in TBC Classic, same twist
 local names = {}                 -- key -> localized spell name
@@ -131,7 +132,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Damage per cast: the gear sim on your gear, or weapon-based estimates
 -- ---------------------------------------------------------------------------------------------------------------
-local values                     -- { soc = per SoC proc, sob = per SoB hit, cs, exo, cons, how, judge, src }
+local values                     -- { soc = per SoC proc, sob = per SoB hit, cs, exo, cons, judge, src }
 
 local function WeaponAvg()
     if UnitDamage then
@@ -147,7 +148,7 @@ function SwingTimer:EstimatedValues()
     local sp = (GetSpellBonusDamage and tonumber(GetSpellBonusDamage(2))) or 0
     return {
         soc = w * 0.70 * 1.15 + sp * 0.20, sob = w * 0.35 * 1.15, cs = w * 1.10 * 1.15,
-        exo = 662 + sp * 0.43, cons = 512 + sp * 0.95, how = 702 + sp * 0.43, judge = w * 0.75, src = "estimate",
+        exo = 662 + sp * 0.43, cons = 512 + sp * 0.95, judge = w * 0.75, src = "estimate",
     }
 end
 
@@ -197,7 +198,7 @@ function SwingTimer:Calibrate(force)
             local est = self:EstimatedValues()
             local v = {
                 soc = per("soc_proc") or est.soc, sob = per(31893) or est.sob, cs = per(35395) or est.cs,
-                exo = per(27138) or est.exo, cons = est.cons, how = per(27180) or est.how,
+                exo = per(27138) or est.exo, cons = est.cons,
                 judge = per(31898) or est.judge, src = "sim", gear = key, dps = s.dps,
             }
             values = v
@@ -291,15 +292,13 @@ function SwingTimer:Snapshot(now)
     local mana, manaMax = UnitPower("player", 0) or 0, UnitPowerMax("player", 0) or 1
     local hp, hpMax = UnitHealth("target") or 0, UnitHealthMax("target") or 0
     local opt = {}
-    for _, k in ipairs({ "cs", "exo", "cons", "how" }) do opt[k] = Get("use." .. k, true) and Known(k) end
+    for _, k in ipairs({ "cs", "exo", "cons" }) do opt[k] = Get("use." .. k, true) and Known(k) end
     if opt.exo and not UNDEAD_DEMON[TargetType() or ""] then opt.exo = false end
     if opt.cons and manaMax > 0 and mana / manaMax * 100 < (tonumber(Get("consMana", 40)) or 40) then opt.cons = false end
-    if opt.how and not (hpMax > 0 and hp / hpMax < 0.2) then opt.how = false end
     return {
         now = now, nextSwing = ns_, speed = sp, gcdReady = now + GcdLeft(now), lat = self:Latency(),
         seal = state.seal, socUntil = state.socUntil,
-        cd = { cs = now + CdLeft("cs", now), exo = now + CdLeft("exo", now), cons = now + CdLeft("cons", now),
-               how = now + CdLeft("how", now) },
+        cd = { cs = now + CdLeft("cs", now), exo = now + CdLeft("exo", now), cons = now + CdLeft("cons", now) },
         judgeReady = now + CdLeft("judge", now), use = opt, values = self:Values(),
         mana = mana, manaPct = manaMax > 0 and mana / manaMax or 1,
     }
@@ -370,7 +369,7 @@ function SwingTimer.Plan(snap, depth)
             rec(press + GCD, newSeal or seal, newCd or cd, d - 1)
             steps[#steps] = nil
         end
-        for _, k in ipairs({ "cs", "how", "exo", "cons" }) do
+        for _, k in ipairs({ "cs", "exo", "cons" }) do
             if snap.use[k] and cd[k] <= t + 0.01 then
                 local c = {}
                 for a, b in pairs(cd) do c[a] = b end
@@ -410,19 +409,44 @@ function SwingTimer.PlanGain(snap, plan)
     return (plan.score - base.score) / span
 end
 
--- What the HUD shows: the live plan plus the twist window, refreshed by the HUD at ~15 Hz.
+-- Is auto attack running? No swing seen for 1.6 swings = idle: the HUD rests instead of guessing.
+function SwingTimer:IsSwinging(now)
+    now = now or GetTime()
+    if not state.last then return false end
+    return now - state.last < state.speed * 1.6
+end
+
+-- What the HUD shows. The plan holds still between events: it is redone when something happened (a swing, a cast, a
+-- seal change: MarkDirty), when its first press is overdue, or every half second, and then a fresh plan only replaces
+-- the one on screen when it is clearly better (2%), so the queue does not flicker between near-equal lines.
+local shown, shownAt, dirty = nil, 0, true
+function SwingTimer:MarkDirty() dirty = true end
+
 function SwingTimer:Current()
-    local snap = self:Snapshot()
+    local now = GetTime()
+    if not self:IsSwinging(now) then shown = nil return nil end
+    local first = shown and shown.plan.steps[1]
+    local overdue = first and first.at < now - 0.25
+    if shown and not dirty and not overdue and now - shownAt < 0.5 then return shown end
+    local snap = self:Snapshot(now)
     local plan = SwingTimer.Plan(snap)
-    local nxt = snap.nextSwing
-    local lat = snap.lat
-    local zone0, zone1 = nxt - OVERLAP + MARGIN - lat, nxt - MARGIN - lat
-    local judge
-    if snap.judgeReady <= snap.now + 0.05 and snap.seal == "sob" then
-        local first = plan.steps[1]
-        if first and first.key == "soc" then judge = true end
+    if shown and not dirty and not overdue then
+        local keep = {}
+        for _, st in ipairs(shown.plan.steps) do if st.at >= now - 0.05 then keep[#keep + 1] = st end end
+        if #keep > 0 then
+            local old = Score(snap, keep, snap.now + 2 * snap.speed + GCD)
+            if plan.score < old * 1.02 then plan = { steps = keep, score = old } end
+        end
     end
-    return { snap = snap, plan = plan, zone0 = zone0, zone1 = zone1, judge = judge }
+    dirty = false
+    shownAt = now
+    local judge
+    if snap.judgeReady <= now + 0.05 and snap.seal == "sob" then
+        local f = plan.steps[1]
+        if f and f.key == "soc" then judge = true end
+    end
+    shown = { snap = snap, plan = plan, judge = judge }
+    return shown
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -449,6 +473,7 @@ end
 
 local function OnSwing(t)
     state.last = t
+    SwingTimer:MarkDirty()
     -- Command on at the swing: still the seal, or lingering after Blood replaced it
     local socUp = state.seal == "soc" or state.socUntil > t
     local gcdThrough = state.gcdStart and state.gcdStart <= t - OVERLAP and state.gcdStart + GCD >= t or false
@@ -476,7 +501,7 @@ local function OnCombatLog()
             if spellName == NameOf("sob") then state.lastSobAt = now end
         end
     elseif sub == "SPELL_CAST_SUCCESS" and fight then
-        for _, k in ipairs({ "cs", "exo", "cons", "how", "judge" }) do
+        for _, k in ipairs({ "cs", "exo", "cons", "judge" }) do
             if spellName == NameOf(k) then fight.fillers[k] = (fight.fillers[k] or 0) + 1 end
         end
     end
@@ -523,6 +548,7 @@ function SwingTimer:OnLogin()
         if unit ~= "player" or not SwingTimer.active then return end
         local before = state.seal
         ScanSeals()
+        if before ~= state.seal then SwingTimer:MarkDirty() end
         -- Blood replaced Command: Command lingers for the overlap (the aura is gone already on our side)
         if before == "soc" and state.seal == "sob" then
             state.socUntil = GetTime() + OVERLAP
@@ -536,6 +562,7 @@ function SwingTimer:OnLogin()
     ns:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit)
         if unit ~= "player" or not SwingTimer.active then return end
         local now = GetTime()
+        SwingTimer:MarkDirty()
         if GcdLeft(now) > 0 then state.gcdStart = now - (GCD - GcdLeft(now)) end
     end)
     ns:RegisterEvent("UNIT_ATTACK_SPEED", function(_, unit)

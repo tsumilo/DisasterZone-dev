@@ -50,8 +50,8 @@ local DEFAULTS = {
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
         -- latencyMs 0 = auto; use.* = what the planner may press; consMana = Consecration only above this mana %;
         -- useSim = damage values from the gear sim; values / reports / pos are kept here too
-        swing = { enabled = true, style = "both", locked = true, idle = false, scale = 1, latencyMs = 0,
-                  use = { cs = true, exo = true, cons = true, how = true }, consMana = 40, useSim = true,
+        swing = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
+                  use = { cs = true, exo = true, cons = true }, consMana = 40, useSim = true,
                   sound = false, mobType = "Demon" },
         -- Guild > Map (Core/GuildMap.lua): share "unset" (not asked yet) | "off" | "zone" | "exact"; blizzard: dots on
         -- the game's world map too

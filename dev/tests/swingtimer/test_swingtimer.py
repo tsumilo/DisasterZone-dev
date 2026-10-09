@@ -50,6 +50,19 @@ assert abs(twist - 11) < 1e-6
 apply = at + 0.08
 assert 11 - 0.399 < apply < 11, "Seal of Blood must land inside the overlap: %r" % (plan,)
 
+# not swinging: the HUD rests (no plan), so nothing moves out of combat
+assert ret.eval("ns.SwingTimer.state.last = nil; return ns.SwingTimer:Current() == nil") is True
+# swinging: the plan on screen holds still between events (same table within half a second)
+same = ret.eval("""
+    local ST = ns.SwingTimer
+    ST.state.last = GetTime(); ST.state.seal = 'soc'; ST:MarkDirty()
+    local a = ST:Current(); local b = ST:Current()
+    return a ~= nil and a == b
+""")
+assert same is True
+# Hammer of Wrath is never planned (its cast time resets the swing)
+assert ret.eval("return ns.SwingTimer.IDS.how == nil") is True
+
 # a fight: enter combat, a few swings, leave combat -> report stored
 ret.eval("""
     local ST = ns.SwingTimer

@@ -1350,7 +1350,7 @@ function SettingsUI:BuildSwing(sec)
     sec.y = sec.y - 4
     self:SwitchSetting(sec, "Swing timer", "Seal twisting for Retribution: when to press Seal of Blood, and what fits between.",
         "swing.enabled", true, "Only shows on a Retribution Paladin. /dz swing unlock lets you drag it.")
-    self:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "both", {
+    self:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "bar", {
         { value = "bar", text = "Twist bar" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
     self:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", "swing.idle", false)
     self:SwitchSetting(sec, "Locked", "Unlock to drag it where you want it.", "swing.locked", true)
@@ -1368,7 +1368,6 @@ function SettingsUI:BuildSwing(sec)
     local manas = {}
     for _, n in ipairs({ 0, 20, 30, 40, 50, 60, 80 }) do manas[#manas + 1] = { value = n, text = n .. "%" } end
     self:DropdownSetting(sec, "Consecration above", "Only suggest it with at least this much mana.", "swing.consMana", 40, manas)
-    self:SwitchSetting(sec, "Hammer of Wrath", "Filler below 20% target health.", "swing.use.how", true)
     self:SwitchSetting(sec, "Use the gear sim", "Damage per cast from the sim on your gear (out of combat, a few seconds).",
         "swing.useSim", true, "Without it the planner uses estimates from your weapon. /dz swing sim runs it again.")
     self:SwitchSetting(sec, "Sound in the twist zone", "A click when it is time to press Seal of Blood.", "swing.sound", false)

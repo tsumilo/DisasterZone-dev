@@ -34,7 +34,7 @@ ns.CHANGELOG = {
               "A blue line shows where a GCD pressed now would end; it turns red when it would cost the twist.",
               "Above the bar: what to press next and when, with Judgement on its own (it is off the GCD).",
               "The plan lane shows the next 7 seconds: twists, Crusader Strike and fillers where they fit.",
-              "Exorcism, Consecration and Hammer of Wrath are fitted in where they add damage; turn each off in Settings.",
+              "Exorcism and Consecration are fitted in where they add damage; turn either off in Settings.",
               "Damage per cast comes from the gear sim on the gear you wear (it runs out of combat).",
               "Little squares under the bar show your last swings: twisted, late, clipped or plain.",
               "After each fight: twists landed, late and clipped, in Settings > Swing timer and /dz swing report.",
