@@ -232,5 +232,71 @@ def hiding_the_tab_mid_turn_or_mid_open_leaves_a_clean_state():
     no_errors(w)
 
 
+FILM = ("local p for _, x in ipairs(ns.GamesUI.__posters) do if x.id == 'disastercraft' then p = x end end "
+        "local f = p.cover ")
+
+
+@case
+def disastercraft_poster_plays_a_film_of_northshire_on_a_loop():
+    """Disastercraft's cover is a film of the real Northshire: shots one after another, each with its place's name
+    (on the front poster only), cross-fading from one to the next and round again; the heroes, the creatures and the
+    fight's Fireballs and numbers are drawn; all of it stays under the poster's shades and words."""
+    w, c = solo()
+    c.world = w
+    hub(c)
+    c.eval("ns.GamesUI:ShowFront('disastercraft')")
+    settle(c)
+    names = c.eval_py("local o = {} for i, s in ipairs(ns.GamesUI.Film.SHOTS) do o[i] = s.name end return o")
+    assert names == ["Northshire Abbey", "Echo Ridge Mine", "Northshire Vineyards", "Northshire Valley"], names
+    # the first shot: the Abbey's name in gold once it has come up, the heroes and the valley's NPCs on the sheets
+    c.eval("ns.GamesUI:FilmSeek(1, 3)")
+    got = c.eval_py(FILM + "local L = f.reels[f.live] local bodies = 0 "
+                    "for _, pool in ipairs(L.pools) do for _, t in ipairs(pool) do "
+                    "  if t:IsShown() and tostring(t.file):find('mobs') then bodies = bodies + 1 end end end "
+                    "return { cap = f.cap:GetText(), a = f.cap:GetAlpha(), bodies = bodies, art = p.art:IsShown() }")
+    assert got["cap"] == "Northshire Abbey" and got["a"] > 0.95, got
+    assert got["bodies"] >= 4, got                  # (three heroes and Deputy Willem at least)
+    assert got["art"] is False, got                 # (no loading screen behind the film)
+    # the cut: the next shot's name takes over unseen and comes up a beat after; its picture comes up over the last
+    # one (both reels shown), then the last one goes
+    c.eval("ns.GamesUI:FilmSeek(1, 8.5 + 0.2)")
+    cut = c.eval_py(FILM + "return { cap = f.cap:GetText(), a = f.cap:GetAlpha() }")
+    assert cut == {"cap": "Echo Ridge Mine", "a": 0}, cut
+    c.eval("ns.GamesUI:FilmSeek(1, 8.5 + 0.7)")
+    mid = c.eval_py(FILM + "return { a1 = f.reels[1].frame:IsShown() and f.reels[1].frame:GetAlpha() or -1, "
+                    "a2 = f.reels[2].frame:IsShown() and f.reels[2].frame:GetAlpha() or -1, i = f.shotIdx }")
+    assert mid["a1"] == 1 and 0.3 < mid["a2"] < 0.7 and mid["i"] == 2, mid
+    w.tick(1.0)
+    after = c.eval_py(FILM + "return { r1 = f.reels[1].frame:IsShown(), live = f.live, cap = f.cap:GetText() }")
+    assert after == {"r1": False, "live": 2, "cap": "Echo Ridge Mine"}, after
+    # the fight: the first Fireball's number over the kobold, later the kobold's corpse
+    c.eval("ns.GamesUI:FilmSeek(2, 2.6)")
+    nums = c.eval_py(FILM + "local o = {} for _, fs in ipairs(f.reels[1].nums) do if fs:IsShown() then o[#o + 1] = fs:GetText() end end return o")
+    assert "41" in nums, nums
+    assert c.eval(FILM + "return f.reels[1].cast.foe.act") is None
+    c.eval("ns.GamesUI:FilmSeek(2, 7)")
+    assert c.eval(FILM + "return f.reels[1].cast.foe.act") == "dead"
+    # a whole loop: every place's name comes up, in order, and it comes round to the Abbey again
+    c.eval("ns.GamesUI:FilmSeek(1, 0)")
+    seen = []
+    for _ in range(int(4 * 8.5 / 0.5) + 6):
+        w.tick(0.5)
+        cap = c.eval(FILM + "return f.cap:GetText()")
+        if not seen or seen[-1] != cap:
+            seen.append(cap)
+    assert seen[:5] == names + ["Northshire Abbey"], seen
+    # the film's frames all sit under the poster's shades and words, on the front and at the side
+    for gid in ("disastercraft", "chess"):
+        c.eval("ns.GamesUI:ShowFront('%s')" % gid)
+        settle(c)
+        lv = c.eval_py(FILM + "local hi = 0 local function walk(fr) hi = math.max(hi, fr:GetFrameLevel()) "
+                       "for _, ch in ipairs({ fr:GetChildren() }) do walk(ch) end end walk(f) "
+                       "return { film = hi, over = p.over:GetFrameLevel(), cap = f.cap:GetAlpha() }")
+        assert lv["film"] < lv["over"], lv
+        if gid == "chess":
+            assert lv["cap"] == 0, lv               # (a side poster shows no name)
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all("games / hub")

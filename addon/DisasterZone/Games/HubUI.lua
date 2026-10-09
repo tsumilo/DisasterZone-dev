@@ -12,7 +12,6 @@ local addonName, ns = ...
 local GamesUI = ns:NewModule("GamesUI")
 
 local floor, min, max, abs, sin, pi = math.floor, math.min, math.max, math.abs, math.sin, math.pi
-local tremove = table.remove
 
 local STRIP_H = 30
 local FRONT_W, SIDE_W, SIDE_K = 300, 196, 0.88     -- poster widths; a side poster's height share of the front's
@@ -776,6 +775,7 @@ local FILM_FACE = { down = 0, left = 1, right = 2, up = 3 }
 local FILM_ACT = { windup = 0, strike = 1, ready = 2, release = 3, dead = 4, sit = 5 }
 local FILM_STEP = { 0, 1, 2, 1 }    -- walk frames: stride, stand, stride, stand
 local SPARK = "Interface\\Cooldown\\star4"
+local FILM_KOBOLD = { [6] = true, [40] = true, [80] = true, [257] = true, [476] = true }   -- (candles on their heads)
 local cos, sqrt = math.cos, math.sqrt
 
 -- a body's picture on the model sheets (Media/Azeromon/mobs*.blp: 3 walk frames x 4 facings, 5 bodies a row;
@@ -852,42 +852,34 @@ local function Wander(b, dt)
     end
 end
 
--- A reel: one shot's picture (two reels cross-fade from shot to shot).
+-- A reel: one shot's picture (two reels cross-fade from shot to shot). Everything is placed in the view's own
+-- pixels each frame (the camera's zoom is the tile's size: a scaled frame would round its pieces apart).
 function Film.NewReel(parent, level)
     local f = CreateFrame("Frame", nil, parent)
     f:SetAllPoints()
     f:SetFrameLevel(level)
-    local L = { frame = f, cells = {}, spare = {}, depth = {}, pools = {}, reqs = {}, n = 0, order = {},
-                fx = {}, nfx = 0, nums = {}, nnum = 0 }
-    L.world = CreateFrame("Frame", nil, f)
-    L.world:SetSize(1, 1)
-    L.world:SetPoint("TOPLEFT")
-    L.world:SetFrameLevel(level + 1)
+    local L = { frame = f, grid = {}, depth = {}, pools = {}, reqs = {}, n = 0, order = {}, fx = {}, nfx = 0,
+                nums = {}, nnum = 0, cx = 0, cy = 0, ts = FILM_TILE, vx = 0, vy = 0, keep = {}, fade = {}, cast = {} }
     for k = 1, FILM_DEPTH do
-        local d = CreateFrame("Frame", nil, L.world)
-        d:SetSize(1, 1)
-        d:SetPoint("TOPLEFT")
-        d:SetFrameLevel(level + 1 + k)
+        local d = CreateFrame("Frame", nil, f)
+        d:SetAllPoints()
+        d:SetFrameLevel(level + k)
         L.depth[k], L.pools[k] = d, {}
     end
-    L.over = CreateFrame("Frame", nil, L.world)
-    L.over:SetSize(1, 1)
-    L.over:SetPoint("TOPLEFT")
-    L.over:SetFrameLevel(level + 2 + FILM_DEPTH)
+    L.over = CreateFrame("Frame", nil, f)
+    L.over:SetAllPoints()
+    L.over:SetFrameLevel(level + 1 + FILM_DEPTH)
     return L
 end
 
--- starts shot `shot` on reel L: its ground forgotten, its scenery and creatures looked up round the camera's path
+-- where tile point (x, y) is in the view (pixels from its top left)
+local function FilmXY(L, x, y) return L.vx + (x - L.cx) * L.ts, L.vy + (y - L.cy) * L.ts end
+
+-- starts shot `shot` on reel L: its scenery and creatures looked up round the camera's path
 function Film.Begin(L, shot)
     local WS = ns.AzeroLand
-    for key, t in pairs(L.cells) do
-        t:Hide()
-        L.spare[#L.spare + 1] = t
-        L.cells[key] = nil
-    end
-    L.shot, L.t = shot, 0
-    local c = shot.cam
-    L.ox, L.oy = floor(min(c[1], c[3])) - 24, floor(min(c[2], c[4])) - 16
+    L.shot, L.t, L.fade = shot, 0, {}
+    local c = shot.cam or shot.area0
     local x0, x1 = min(c[1], c[3]) - 16, max(c[1], c[3]) + 16
     local y0, y1 = min(c[2], c[4]) - 10, max(c[2], c[4]) + 12
     if shot.area then x0, y0, x1, y1 = shot.area[1], shot.area[2], shot.area[3], shot.area[4] end
@@ -896,6 +888,7 @@ function Film.Begin(L, shot)
     local ents = WS and WS.EntitiesNear and WS.EntitiesNear((x0 + x1) / 2, (y0 + y1) / 2, max(x1 - x0, y1 - y0) / 2 + 2)
     for _, e in ipairs(ents or {}) do
         local x, y = e.xf or (e.x + 0.5), e.yf or (e.y + 0.5)
+        -- (a spawn indoors stands under the roof: not shown, as in the game while you are outside)
         local spr = (e.k == "mob" or e.k == "npc" or e.k == "critter") and not e.ht and FilmSprite(e)
         local clear = true
         for _, s in ipairs(shot.clear or {}) do
@@ -904,8 +897,8 @@ function Film.Begin(L, shot)
         if spr and clear and x >= x0 and x <= x1 and y >= y0 and y <= y1 then
             local b = Film.Body(spr, x, y, e.f, e.k ~= "npc")
             b.speed = e.k == "critter" and 0.7 or 0.9
-            b.kind = e.k
-            if shot.marks and e.n and shot.marks[e.n] then b.mark = shot.marks[e.n] end
+            b.candle = FILM_KOBOLD[e.e]
+            if shot.marks and e.n and shot.marks[e.n] then b.mark = true end
             L.bodies[#L.bodies + 1] = b
         end
     end
@@ -914,30 +907,45 @@ function Film.Begin(L, shot)
     L.frame:Show()
 end
 
-local function Ground(L, x0, y0, x1, y1)
+-- the ground in view: one cell a tile, WoW's own blended terrain (a cell keeps its picture while it stays)
+local function Ground(L, w, h)
     local WS = ns.AzeroLand
-    local T = FILM_TILE
-    for y = y0, y1 do
-        for x = x0, x1 do
-            local key = y * 8192 + x
-            if not L.cells[key] then
-                local t = tremove(L.spare) or L.world:CreateTexture(nil, "BACKGROUND")
-                L.cells[key] = t
-                local file, slot, row = WS.GroundTile(x, y)
+    local ts = L.ts
+    local x0, y0 = floor(L.cx - L.vx / ts), floor(L.cy - L.vy / ts)
+    local cols, rows = floor(w / ts) + 2, floor(h / ts) + 2
+    local size = floor(ts + 1.5)
+    for i = 0, max(cols, L.cols or 0) do
+        local col = L.grid[i]
+        if not col then col = {} L.grid[i] = col end
+        for j = 0, max(rows, L.rows or 0) do
+            local t = col[j]
+            if i <= cols and j <= rows then
+                if not t then
+                    t = L.frame:CreateTexture(nil, "BACKGROUND")
+                    col[j] = t
+                end
+                local file, slot, row = WS.GroundTile(x0 + i, y0 + j)
                 if file then
-                    local cc, rr, h = slot % row, floor(slot / row), 0.5 / 1024
-                    t:SetTexture(file)
-                    t:SetTexCoord(cc / row + h, (cc + 1) / row - h, rr / row + h, (rr + 1) / row - h)
-                    t:SetSize(T + 1, T + 1)
+                    if t.file ~= file then t:SetTexture(file) t.file, t.slot = file, nil end
+                    if t.slot ~= slot then
+                        t.slot = slot
+                        local cc, rr, e = slot % row, floor(slot / row), 0.5 / 1024
+                        t:SetTexCoord(cc / row + e, (cc + 1) / row - e, rr / row + e, (rr + 1) / row - e)
+                    end
+                    local sx, sy = FilmXY(L, x0 + i, y0 + j)
                     t:ClearAllPoints()
-                    t:SetPoint("TOPLEFT", L.world, "TOPLEFT", (x - L.ox) * T, -(y - L.oy) * T)
+                    t:SetPoint("TOPLEFT", L.frame, "TOPLEFT", floor(sx + 0.5), -floor(sy + 0.5))
+                    t:SetSize(size, size)
                     t:Show()
                 else
                     t:Hide()
                 end
+            elseif t then
+                t:Hide()
             end
         end
     end
+    L.cols, L.rows = cols, rows
 end
 
 -- a picture standing on ground row `sort` this frame (see Flush)
@@ -971,9 +979,9 @@ local function Flush(L)
         end
         if t.file ~= r.file then t:SetTexture(r.file) t.file = r.file end
         t:SetTexCoord(r.l, r.r, r.t, r.b)
-        t:SetSize(r.w, r.h)
+        t:SetSize(max(1, r.w), max(1, r.h))
         t:ClearAllPoints()
-        t:SetPoint(r.pt, L.depth[f], "TOPLEFT", r.x, -r.y)
+        t:SetPoint(r.pt, L.frame, "TOPLEFT", r.x, -r.y)
         t:SetVertexColor(r.cr, r.cg, r.cb)
         t:SetAlpha(r.alpha)
         if s < 16 then t:SetDrawLayer("BORDER", s - 8) else t:SetDrawLayer("ARTWORK", s - 24) end
@@ -994,14 +1002,14 @@ function Film.Glow(L, file, x, y, w, h, r, g, b, a, add)
         t = L.over:CreateTexture(nil, "ARTWORK")
         L.fx[L.nfx] = t
     end
-    local T = FILM_TILE
     if t.file ~= file then t:SetTexture(file) t.file = file end
     t:SetBlendMode(add and "ADD" or "BLEND")
     t:SetVertexColor(r, g, b)
     t:SetAlpha(max(0, min(1, a)))
-    t:SetSize(max(1, w * T), max(1, h * T))
+    t:SetSize(max(1, w * L.ts), max(1, h * L.ts))
+    local sx, sy = FilmXY(L, x, y)
     t:ClearAllPoints()
-    t:SetPoint("CENTER", L.over, "TOPLEFT", (x - L.ox) * T, -(y - L.oy) * T)
+    t:SetPoint("CENTER", L.frame, "TOPLEFT", sx, -sy)
     t:Show()
 end
 
@@ -1013,7 +1021,6 @@ function Film.Number(L, x, y, text, r, g, b, age, big)
         fs = L.over:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         L.nums[L.nnum] = fs
     end
-    local T = FILM_TILE
     -- (it pops in big and settles, as the game's combat text)
     local size = floor((big and 19 or 15) * (age < 0.12 and (1 + (0.12 - age) * 4) or 1) + 0.5)
     if fs.size ~= size then
@@ -1023,8 +1030,9 @@ function Film.Number(L, x, y, text, r, g, b, age, big)
     fs:SetText(text)
     fs:SetTextColor(r, g, b)
     fs:SetAlpha(age < 0.7 and 1 or max(0, 1 - (age - 0.7) / 0.3))
+    local sx, sy = FilmXY(L, x, y)
     fs:ClearAllPoints()
-    fs:SetPoint("CENTER", L.over, "TOPLEFT", (x - L.ox) * T, -((y - L.oy) * T - age * 30))
+    fs:SetPoint("CENTER", L.frame, "TOPLEFT", sx, -(sy - age * 30))
     fs:Show()
 end
 
@@ -1036,36 +1044,60 @@ function Film.Frame(L, dt, w, h)
     L.t = L.t + dt
     local u = min(1, L.t / (FILM_SHOT + FILM_FADE))
     local e = 0.5 - 0.5 * cos(pi * u)
-    local c = shot.cam
-    local cx, cy = Lerp(c[1], c[3], e), Lerp(c[2], c[4], e)
-    local s = Lerp(shot.zoom and shot.zoom[1] or 1, shot.zoom and shot.zoom[2] or 1, e)
-    L.cx, L.cy, L.s = cx, cy, s
+    local c, z = shot.cam, shot.zoom
+    L.ts = FILM_TILE * Lerp(z and z[1] or 1, z and z[2] or 1, e)
+    L.vx, L.vy = w / 2, h * FILM_FOCUS
     L.nfx, L.nnum = 0, 0
+    if c then L.cx, L.cy = Lerp(c[1], c[3], e), Lerp(c[2], c[4], e) end
     if shot.act then shot.act(L, L.t, dt) end
+    if shot.follow then
+        -- (a tracking shot: the camera rides with the party; its script draws no glows, placed by the camera)
+        local sx, sy, n = 0, 0, 0
+        for _, b in pairs(L.cast) do sx, sy, n = sx + b.x, sy + b.y, n + 1 end
+        L.cx, L.cy = sx / max(1, n) + shot.follow[1], sy / max(1, n) + shot.follow[2]
+    end
     for _, b in ipairs(L.bodies) do
         if b.wander and not b.held then Wander(b, dt) end
     end
-    local T = FILM_TILE
-    local fx, fy = w / 2, h * FILM_FOCUS
-    L.world:SetScale(s)
-    L.world:ClearAllPoints()
-    L.world:SetPoint("TOPLEFT", L.frame, "TOPLEFT", fx / s - (cx - L.ox) * T, -(fy / s - (cy - L.oy) * T))
-    local x0, x1 = cx - fx / (T * s), cx + (w - fx) / (T * s)
-    local y0, y1 = cy - fy / (T * s), cy + (h - fy) / (T * s)
-    Ground(L, floor(x0), floor(y0), floor(x1), floor(y1))
-    -- scenery in view (a sprite's picture half a texel in from its edges, as UIWorld's ScenPicture)
+    Ground(L, w, h)
+    local ts = L.ts
+    local x0, x1 = L.cx - L.vx / ts, L.cx + (w - L.vx) / ts
+    local y0, y1 = L.cy - L.vy / ts, L.cy + (h - L.vy) / ts
+    -- what must stay in sight: the shot's actors and the camera's point (Northshire's crowns are 10-20 tiles across)
+    local keep = L.keep
+    for i = #keep, 1, -1 do keep[i] = nil end
+    keep[1] = { L.cx, L.cy }
+    for _, b in pairs(L.cast) do
+        if (b.alpha or 1) > 0.01 then keep[#keep + 1] = { b.x, b.y } end
+    end
+    -- scenery in view (a sprite's picture half a texel in from its edges, as UIWorld's ScenPicture); a tree crown in
+    -- front of something kept in sight turns see-through, eased, as round you in the game
     for _, sc in ipairs(L.scen) do
         local sp, k = sc.sp, sc.k / sc.pxt
         local l, tt = sc.x - sp.ox * k, sc.y - sp.oy * k
         if l < x1 + 1 and l + sp.w * k > x0 - 1 and tt < y1 + 1 and tt + sp.h * k > y0 - 1 then
-            local px = T * k
+            local px = ts * k
             local r = Draw(L, sc.sort)
+            if sc.tree then
+                local want, rr = 1, sp.w * k
+                for _, q in ipairs(keep) do
+                    if sc.sort > q[2] - 0.5 and q[1] > l - 1 and q[1] < l + rr + 1 and q[2] > tt - 1 and
+                       q[2] < tt + sp.h * k + 1 then
+                        want = 0.22
+                        break
+                    end
+                end
+                local a = L.fade[sc] or want
+                a = a < want and min(want, a + dt * 1.6) or max(want, a - dt * 1.6)
+                L.fade[sc] = a
+                r.alpha = a
+            end
             r.file = sc.file
             r.l, r.r = (sp.u + 0.5) / 1024, (sp.u + sp.w - 0.5) / 1024
             r.t, r.b = (sp.v + 0.5) / 1024, (sp.v + sp.h - 0.5) / 1024
             r.w, r.h = (sp.w - 1) * px, (sp.h - 1) * px
-            r.x = (sc.x - L.ox) * T - (sp.ox - 0.5) * px
-            r.y = (sc.y - L.oy) * T - (sp.oy - 0.5) * px
+            local sx, sy = FilmXY(L, sc.x, sc.y)
+            r.x, r.y = sx - (sp.ox - 0.5) * px, sy - (sp.oy - 0.5) * px
         end
     end
     -- bodies: feet on their point
@@ -1075,15 +1107,20 @@ function Film.Frame(L, dt, w, h)
             local r = Draw(L, b.y)
             local frame = b.moving and FILM_STEP[floor(b.walk * 7) % 4 + 1] or 1
             r.file, r.l, r.r, r.t, r.b = FilmCoords(b.spr, b.face, frame, b.act)
-            local size = T * (b.size or 1)
-            r.w, r.h, r.pt = size, size, "BOTTOM"
-            r.x, r.y = (b.x - L.ox) * T, (b.y - L.oy) * T + 0.06 * T
+            local size = ts * (b.size or 1)
+            local sx, sy = FilmXY(L, b.x, b.y)
+            r.w, r.h, r.pt, r.x, r.y = size, size, "BOTTOM", sx, sy + 0.06 * ts
             r.alpha = b.alpha or 1
             if b.flash and now < b.flash then r.cr, r.cg, r.cb = 1, 0.45, 0.45
             elseif b.act == "dead" then r.cr, r.cg, r.cb = 0.62, 0.62, 0.62 end
             if b.mark then
                 Film.Glow(L, "Interface\\GossipFrame\\AvailableQuestIcon", b.x, b.y - 1.45 - 0.06 * sin(now * 3),
                           0.42, 0.42, 1, 1, 1, 1)
+            end
+            -- a kobold's candle on its head, flickering
+            if b.candle and b.act ~= "dead" then
+                local f = 0.75 + 0.15 * sin(now * 11 + b.hx) + 0.1 * sin(now * 17 + b.hy)
+                Film.Glow(L, RADIAL, b.x, b.y - 0.92, 0.7 * f, 0.7 * f, 1, 0.7, 0.3, 0.55 * f, true)
             end
         end
     end
@@ -1095,111 +1132,138 @@ end
 -- The shots. cam = { x, y from, x, y to } (tiles), zoom = { from, to }; clear = { { x, y, r } } spawns not shown
 -- (the scene's own actors stand there); marks: an NPC's quest mark by name; setup(L) -> the shot's own actors;
 -- act(L, t, dt) moves them.
-local function Swing(t, at, len) return t >= at - 0.22 and t < at and "windup" or (t >= at and t < at + (len or 0.2)) and "strike" or nil end
+local function Swing(t, at) return (t >= at - 0.22 and t < at and "windup") or (t >= at and t < at + 0.2 and "strike") or nil end
 local function Age(t, at, len) local a = (t - at) / (len or 1) return a >= 0 and a < 1 and a or nil end
 
+-- the party walks in turn: { body, start time, path { { x, y }, ... }, facing once there, speed }
+local function Walks(t, dt, list)
+    for _, q in ipairs(list) do
+        local b = q[1]
+        if t >= q[2] then
+            b.alpha = min(1, (b.alpha or 1) + dt * 3)
+            b.leg = b.leg or 1
+            local pt = q[3][b.leg]
+            if pt and Film.WalkTo(b, pt[1], pt[2], q[5] or 1.1, dt) then
+                b.leg = b.leg + 1
+                if not q[3][b.leg] and q[4] then b.face = q[4] end
+            end
+        end
+    end
+end
+
+-- A fight in front of you: the warrior's swings, the foe's blows until it falls, the mage's Fireballs (1.5 s casts
+-- flying 0.45 s), the priest mending the warrior; numbers rise as the game's combat text does.
+local function Fight(L, t)
+    local C = L.cast
+    local foe, war, mage, pri = C.foe, C.war, C.mage, C.pri
+    local dead = t >= 6.45
+    war.act, mage.act, pri.act = nil, nil, nil
+    for _, at in ipairs({ 0.6, 2.1, 3.6, 5.1 }) do war.act = war.act or Swing(t, at) end
+    foe.act = dead and "dead" or nil
+    if not dead then
+        for _, at in ipairs({ 1.2, 2.9, 4.6 }) do
+            foe.act = foe.act or Swing(t, at)
+            if t >= at and t < at + 0.18 then war.flash = t + 0.01 end
+        end
+    end
+    for _, h in ipairs({ { 0.6, "11" }, { 2.1, "14" }, { 3.6, "9" }, { 5.1, "13" } }) do
+        local a = Age(t, h[1], 1)
+        if a then Film.Number(L, foe.x + 0.55, foe.y - 1.15, h[2], 1, 1, 1, a) end
+        if t >= h[1] and t < h[1] + 0.15 then foe.flash = t + 0.01 end
+    end
+    for _, cast in ipairs({ { 0.3, "41" }, { 2.4, "38" }, { 4.5, "44" } }) do
+        local st, rel = cast[1], cast[1] + 1.5
+        local hx, hy = mage.x + 0.3, mage.y - 0.5
+        if t >= st and t < rel then
+            mage.act = "ready"
+            local k = (t - st) / 1.5
+            Film.Glow(L, RADIAL, hx, hy, 0.5 + 0.4 * k, 0.5 + 0.4 * k, 1, 0.55, 0.15, 0.5 + 0.4 * k, true)
+        elseif t >= rel and t < rel + 0.3 then
+            mage.act = "release"
+        end
+        local f = Age(t, rel, 0.45)
+        if f then
+            local tx, ty = foe.x, foe.y - 0.55
+            for j = 3, 0, -1 do
+                local g = max(0, f - j * 0.07)
+                local x, y = Lerp(hx, tx, g), Lerp(hy, ty, g) - sin(g * pi) * 0.5
+                Film.Glow(L, RADIAL, x, y, 0.9 - j * 0.17, 0.9 - j * 0.17, 1, 0.5 - j * 0.08, 0.1, 0.95 - j * 0.22, true)
+            end
+            Film.Glow(L, RADIAL, Lerp(hx, tx, f), Lerp(hy, ty, f) - sin(f * pi) * 0.5, 0.35, 0.35, 1, 0.95, 0.7, 1, true)
+        end
+        local b = Age(t, rel + 0.45, 0.5)
+        if b then
+            Film.Glow(L, RADIAL, foe.x, foe.y - 0.5, 0.8 + 1.6 * b, 0.8 + 1.6 * b, 1, 0.45, 0.1, 1 - b, true)
+            Film.Glow(L, SPARK, foe.x, foe.y - 0.5, 1.4 - 0.7 * b, 1.4 - 0.7 * b, 1, 0.8, 0.4, 1 - b, true)
+        end
+        local a = Age(t, rel + 0.45, 1.1)
+        if a then Film.Number(L, foe.x - 0.45, foe.y - 1.55, cast[2], 1, 0.87, 0.2, a, true) end
+        if t >= rel + 0.45 and t < rel + 0.6 then foe.flash = t + 0.01 end
+    end
+    if t >= 3.0 and t < 4.2 then
+        pri.act = "ready"
+        Film.Glow(L, RADIAL, pri.x + 0.3, pri.y - 0.5, 0.7, 0.7, 1, 0.9, 0.5, 0.5 + 0.3 * sin(t * 9), true)
+    elseif t >= 4.2 and t < 4.5 then
+        pri.act = "release"
+    end
+    local hl = Age(t, 4.2, 1.0)
+    if hl then
+        Film.Glow(L, RADIAL, war.x, war.y - 0.6, 1.3, 2.2, 1, 0.92, 0.45, 0.8 * (1 - hl), true)
+        for j = 1, 3 do
+            Film.Glow(L, SPARK, war.x + (j - 2) * 0.3, war.y - 0.4 - hl * (0.8 + j * 0.25), 0.45, 0.45, 1, 1, 0.7,
+                      1 - hl, true)
+        end
+    end
+    local hn = Age(t, 4.2, 1.1)
+    if hn then Film.Number(L, war.x, war.y - 1.4, "+27", 0.25, 1, 0.25, hn) end
+    if dead then war.act = nil end
+end
+
 local FILM_SHOTS = {
-    -- the Abbey's doors: three heroes come out into the morning, Deputy Willem has work for them
-    { name = "Northshire Abbey", cam = { 4135, 6235.5, 4133.5, 6241 }, zoom = { 1.15, 0.95 },
-      clear = { { 4135.5, 6238, 2.5 } }, marks = { ["Deputy Willem"] = true, ["Marshal McBride"] = true },
+    -- the Abbey's doors: three heroes come out into the morning; Deputy Willem has work for them
+    { name = "Northshire Abbey", cam = { 4130.5, 6235, 4128.5, 6240 }, zoom = { 1.2, 0.98 },
+      clear = { { 4129.5, 6238.5, 2 } }, marks = { ["Deputy Willem"] = true },
       setup = function()
-          return { war = Film.Body(FilmHero("WARRIOR0"), 4135.5, 6235.2, "down"),
-                   mage = Film.Body(FilmHero("MAGE1"), 4134.6, 6234.6, "down"),
-                   pri = Film.Body(FilmHero("PRIEST0"), 4136.4, 6234.4, "down") }
+          local war = Film.Body(FilmHero("WARRIOR0"), 4130.3, 6236.3, "down")
+          local mage = Film.Body(FilmHero("MAGE1"), 4130.3, 6236.3, "down")
+          local pri = Film.Body(FilmHero("PRIEST0"), 4130.3, 6236.3, "down")
+          war.alpha, mage.alpha, pri.alpha = 0, 0, 0
+          return { war = war, mage = mage, pri = pri }
       end,
       act = function(L, t, dt)
           local C = L.cast
-          local path = { { C.war, 0.6, 4134.2, 6242.5 }, { C.mage, 1.3, 4133.2, 6241.8 }, { C.pri, 1.9, 4135.4, 6241.6 } }
-          for _, q in ipairs(path) do
-              local b = q[1]
-              if t >= q[2] then
-                  if Film.WalkTo(b, q[3], q[4], 1.05, dt) then b.face = "down" end
-              end
-          end
+          Walks(t, dt, { { C.war, 0.5, { { 4128.6, 6242.1 } }, "up" }, { C.mage, 1.2, { { 4127.4, 6241.7 } }, "up" },
+                         { C.pri, 1.9, { { 4129.8, 6241.8 } }, "up" } })
       end },
-    -- in the woods: a timber wolf meets the warrior's sword, the mage's fire and the priest's light
-    { name = "Northshire Valley", cam = { 4111, 6223.5, 4114.5, 6223 }, zoom = { 1.02, 1.1 },
-      clear = { { 4113.5, 6224, 3.5 } },
+    -- Echo Ridge Mine: on the meadow under its mouth a kobold worker meets the warrior's sword, the mage's fire and
+    -- the priest's light; the other kobolds' candles flicker round them
+    { name = "Echo Ridge Mine", cam = { 4120.6, 6182.4, 4121.4, 6183.6 }, zoom = { 1.04, 1.14 },
+      clear = { { 4120.5, 6185, 3.2 } },
       setup = function()
-          return { foe = Film.Body(FilmSprite({ e = 69 }) or 31, 4114.9, 6223.6, "left"),
-                   war = Film.Body(FilmHero("WARRIOR1"), 4114.0, 6223.6, "right"),
-                   mage = Film.Body(FilmHero("MAGE0"), 4110.6, 6224.4, "right"),
-                   pri = Film.Body(FilmHero("PRIEST1"), 4110.9, 6222.4, "right") }
+          local foe = Film.Body(FilmSprite({ e = 257 }) or 38, 4122.4, 6185.0, "left")
+          foe.candle = true
+          return { foe = foe,
+                   war = Film.Body(FilmHero("WARRIOR1"), 4121.5, 6185.0, "right"),
+                   mage = Film.Body(FilmHero("MAGE0"), 4118.3, 6185.8, "right"),
+                   pri = Film.Body(FilmHero("PRIEST1"), 4118.6, 6183.8, "right") }
       end,
-      act = function(L, t)
+      act = function(L, t) Fight(L, t) end },
+    -- over the river's bridge into the vines, the Defias among them
+    { name = "Northshire Vineyards", cam = { 4169, 6254.5, 4177, 6265.5 }, zoom = { 1.04, 0.96 } },
+    -- the road out of the valley: down from the Abbey and west past the walled garden, toward Elwynn Forest
+    { name = "Northshire Valley", follow = { 0.4, -0.6 }, area0 = { 4106, 6248, 4124, 6258 }, zoom = { 1.0, 1.06 },
+      clear = { { 4116, 6254, 4 } },
+      setup = function()
+          return { war = Film.Body(FilmHero("WARRIOR0"), 4121.6, 6250.2, "down"),
+                   mage = Film.Body(FilmHero("MAGE1"), 4122.4, 6249.3, "down"),
+                   pri = Film.Body(FilmHero("PRIEST0"), 4121.0, 6249.0, "down") }
+      end,
+      act = function(L, t, dt)
           local C = L.cast
-          local foe, war, mage, pri = C.foe, C.war, C.mage, C.pri
-          local dead = t >= 6.45
-          -- the warrior's swings, the wolf's bites (until it falls)
-          war.act = nil
-          for _, at in ipairs({ 0.6, 2.1, 3.6, 5.1 }) do war.act = war.act or Swing(t, at) end
-          foe.act = dead and "dead" or nil
-          if not dead then
-              for _, at in ipairs({ 1.2, 2.9, 4.6 }) do
-                  foe.act = foe.act or Swing(t, at)
-                  if t >= at and t < at + 0.18 then war.flash = t + 0.01 end
-              end
-          end
-          for _, h in ipairs({ { 0.6, "11" }, { 2.1, "14" }, { 3.6, "9" }, { 5.1, "13" } }) do
-              local a = Age(t, h[1], 1)
-              if a then Film.Number(L, foe.x + 0.15, foe.y - 1.2, h[2], 1, 1, 1, a) end
-              if t >= h[1] and t < h[1] + 0.15 then foe.flash = t + 0.01 end
-          end
-          -- the mage: three Fireballs (1.5 s casts), each flying 0.45 s
-          mage.act = nil
-          for _, cast in ipairs({ { 0.3, "41" }, { 2.4, "38" }, { 4.5, "44" } }) do
-              local st, rel = cast[1], cast[1] + 1.5
-              local hx, hy = mage.x + 0.3, mage.y - 0.5
-              if t >= st and t < rel then
-                  mage.act = "ready"
-                  local k = (t - st) / 1.5
-                  Film.Glow(L, RADIAL, hx, hy, 0.5 + 0.4 * k, 0.5 + 0.4 * k, 1, 0.55, 0.15, 0.5 + 0.4 * k, true)
-              elseif t >= rel and t < rel + 0.3 then
-                  mage.act = "release"
-              end
-              local f = Age(t, rel, 0.45)
-              if f then
-                  local tx, ty = foe.x, foe.y - 0.55
-                  for j = 0, 3 do
-                      local g = max(0, f - j * 0.07)
-                      local x, y = Lerp(hx, tx, g), Lerp(hy, ty, g) - sin(g * pi) * 0.5
-                      Film.Glow(L, RADIAL, x, y, 0.9 - j * 0.17, 0.9 - j * 0.17, 1, 0.5 - j * 0.08, 0.1, 0.95 - j * 0.22, true)
-                  end
-                  Film.Glow(L, RADIAL, Lerp(hx, tx, f), Lerp(hy, ty, f) - sin(f * pi) * 0.5, 0.35, 0.35, 1, 0.95, 0.7, 1, true)
-              end
-              local b = Age(t, rel + 0.45, 0.5)
-              if b then
-                  Film.Glow(L, RADIAL, foe.x, foe.y - 0.5, 0.8 + 1.6 * b, 0.8 + 1.6 * b, 1, 0.45, 0.1, 1 - b, true)
-                  Film.Glow(L, SPARK, foe.x, foe.y - 0.5, 1.4 * (1 - b * 0.5), 1.4 * (1 - b * 0.5), 1, 0.8, 0.4, 1 - b, true)
-              end
-              local a = Age(t, rel + 0.45, 1.1)
-              if a then Film.Number(L, foe.x - 0.2, foe.y - 1.35, cast[2], 1, 0.87, 0.2, a, true) end
-              if t >= rel + 0.45 and t < rel + 0.6 then foe.flash = t + 0.01 end
-          end
-          -- the priest mends the warrior
-          pri.act = nil
-          if t >= 3.0 and t < 4.2 then
-              pri.act = "ready"
-              Film.Glow(L, RADIAL, pri.x + 0.3, pri.y - 0.5, 0.7, 0.7, 1, 0.9, 0.5, 0.5 + 0.3 * sin(t * 9), true)
-          elseif t >= 4.2 and t < 4.5 then
-              pri.act = "release"
-          end
-          local hl = Age(t, 4.2, 1.0)
-          if hl then
-              Film.Glow(L, RADIAL, war.x, war.y - 0.6, 1.3, 2.2, 1, 0.92, 0.45, 0.8 * (1 - hl), true)
-              for j = 1, 3 do
-                  Film.Glow(L, SPARK, war.x + (j - 2) * 0.3, war.y - 0.4 - hl * (0.8 + j * 0.25), 0.45, 0.45,
-                            1, 1, 0.7, 1 - hl, true)
-              end
-          end
-          local hn = Age(t, 4.2, 1.1)
-          if hn then Film.Number(L, war.x, war.y - 1.35, "+27", 0.25, 1, 0.25, hn) end
-          if dead then war.act = nil end
+          Walks(t, dt, { { C.war, 0, { { 4118.6, 6254.6 }, { 4108, 6256.9 } }, nil, 1.45 },
+                         { C.mage, 0.15, { { 4119.6, 6254.0 }, { 4109.2, 6256.2 } }, nil, 1.45 },
+                         { C.pri, 0.3, { { 4118.4, 6253.4 }, { 4109.0, 6255.5 } }, nil, 1.45 } })
       end },
-    -- Echo Ridge Mine: the kobolds' candles in the dark of the hillside
-    { name = "Echo Ridge Mine", cam = { 4131, 6176, 4136, 6172 }, zoom = { 1.0, 1.08 } },
-    -- the vineyards: Defias thugs among the vines
-    { name = "Northshire Vineyards", cam = { 4166, 6246, 4171, 6252 }, zoom = { 1.06, 0.98 } },
 }
 Film.SHOTS = FILM_SHOTS
 
@@ -1209,11 +1273,11 @@ COVERS.disastercraft = function(parent, poster)
     local WS = ns.AzeroLand
     if not WS or not WS.GroundTile then return c end
     local base = c:GetFrameLevel()
-    c.reels = { Film.NewReel(c, base + 1), Film.NewReel(c, base + 4 + FILM_DEPTH) }
+    c.reels = { Film.NewReel(c, base + 1), Film.NewReel(c, base + 3 + FILM_DEPTH) }
     -- over the film: cloud shadows drifting by, a warm light from the top, the place's name
     c.sky = CreateFrame("Frame", nil, c)
     c.sky:SetAllPoints()
-    c.sky:SetFrameLevel(base + 8 + 2 * FILM_DEPTH)
+    c.sky:SetFrameLevel(base + 5 + 2 * FILM_DEPTH)
     c.clouds = {}
     for k = 1, 3 do
         local t = c.sky:CreateTexture(nil, "BACKGROUND")
@@ -1252,12 +1316,15 @@ COVERS.disastercraft = function(parent, poster)
     Film.Begin(c.reels[1], FILM_SHOTS[1])
     c.cap:SetText(FILM_SHOTS[1].name)
 
+    -- the view: the art box (Place hands the poster's size; its art box is 1 px in on each side)
     local function View(self)
+        if self.vw then return self.vw, self.vh end
         local w, h = self:GetSize()
         if not w or w < 10 or not h or h < 10 then w, h = FRONT_W - 2, 380 end
         return w, h
     end
     function c:Layout(w, h)
+        self.vw, self.vh = max(10, w - 2), max(10, h + 51)
         self.light:SetHeight(max(1, (h + 52) * 0.45))
         self.cap:ClearAllPoints()
         self.cap:SetPoint("TOP", self, "TOP", 0, -max(44, (h + 52) * 0.12))
@@ -1275,6 +1342,7 @@ COVERS.disastercraft = function(parent, poster)
                 self.shotIdx = self.shotIdx % #FILM_SHOTS + 1
                 Film.Begin(B, FILM_SHOTS[self.shotIdx])
                 B.frame:SetAlpha(0)
+                self.cap:SetText(FILM_SHOTS[self.shotIdx].name)
             end
             Film.Frame(B, elapsed, w, h)
             -- (a true cross-fade either way round: the upper reel fades in over the lower, or out from over it)
@@ -1285,11 +1353,11 @@ COVERS.disastercraft = function(parent, poster)
                 A.frame:SetAlpha(1)
                 B.frame:SetAlpha(1)
                 self.live = 3 - self.live
-                self.cap:SetText(FILM_SHOTS[self.shotIdx].name)
             end
         end
-        -- the name: in after a beat, out before the cut (the front poster only)
-        local L = self.reels[self.live]
+        -- the name of the newest shot: in after a beat, out before the cut (the front poster only; the last shot's
+        -- name is gone before the next one begins)
+        local L = B.frame:IsShown() and B or A
         local t = L.t
         local ca = min(1, max(0, (t - 0.5) / 0.8), max(0, (FILM_SHOT - 0.3 - t) / 0.7))
         if poster.off ~= 0 then ca = 0 end
@@ -1306,6 +1374,17 @@ COVERS.disastercraft = function(parent, poster)
             cl.tex:SetPoint("TOPLEFT", self, "TOPLEFT", cl.x, -cl.y)
             cl.tex:SetSize(cl.w, cl.h)
         end
+    end
+    -- (for the test suites and the audit: shot i, t seconds in)
+    function c:Seek(i, t)
+        self.reels[2].frame:Hide()
+        self.reels[1].frame:SetAlpha(1)
+        self.live, self.shotIdx = 1, i
+        Film.Begin(self.reels[1], FILM_SHOTS[i])
+        self.cap:SetText(FILM_SHOTS[i].name)
+        local n = floor((t or 0) / 0.05 + 0.5)
+        for _ = 1, n do self:Tick(0.05) end
+        if n == 0 then self:Tick(0) end
     end
     c:Tick(0)
     return c
@@ -2359,6 +2438,12 @@ end
 
 -- The poster in front (its game id), for tests.
 function GamesUI:GetFront() return posters[cur] and posters[cur].id end
+-- Disastercraft's film: shot i, t seconds in (for the test suites and the audit)
+function GamesUI:FilmSeek(i, t)
+    for _, p in ipairs(posters) do
+        if p.id == "disastercraft" and p.cover and p.cover.Seek then p.cover:Seek(i, t) end
+    end
+end
 function GamesUI:Turn(i) Turn(i) end
 function GamesUI:IsAnimating() return anim ~= nil end
 -- Holds the animations (true) so a test can move them on by hand with StepAnim(seconds).

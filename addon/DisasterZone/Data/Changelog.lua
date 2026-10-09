@@ -33,6 +33,7 @@ ns.CHANGELOG = {
               "Change a row's talent for free whenever you are out of combat.",
               "Leveling is about three times faster: more XP, half the kills and items, faster respawns.",
               "NPC greetings are written on the parchment again, starting at the top.",
+              "Its poster in Games is now a short film of Northshire, from the Abbey to the valley road.",
           } },
       } },
     { version = "1.3.3", date = "9 October 2026", title = "My Log, Disastercraft and Karazhan Chess",
