@@ -45,6 +45,8 @@ ns.CraftChangelog = {
             "Discovering new places gives exploration experience",
             "Delete Character asks right there on the character screen",
             "Vendor window fixed: portrait, prices and background",
+            "Male heroes no longer wear the female underwear",
+            "The class icon sits inside its character row",
         },
     },
     {

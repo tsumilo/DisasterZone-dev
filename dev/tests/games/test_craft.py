@@ -804,26 +804,36 @@ def ui_eating_sits_you_down_and_swings_show():
 
 @case
 def ui_3d_model_turns_to_the_heros_sex():
-    # (in game a male hero's 3D model stayed the player's own female body) - a model that only takes UnitSex's
-    # 2 / 3 for SetCustomRace still ends up male, and remembers the convention for the next one
+    # (in game a male hero's 3D model stayed the player's own female body; then, sent UnitSex 2 = None, a male body
+    # in the female skin) - SetCustomRace gets Enum.UnitSex 0 / 1 only; a body that loads late (after the old 0.6 s
+    # wait) is waited for, and the unit's own late load putting the female body back is turned again
     w, c = ui_game()
     c.eval(r"""
       local m = CreateFrame("DressUpModel", nil, UIParent)
       m.fid = 119563                                         -- the WoW character: a human female
-      m.SetUnit = function(self) end
+      m.sent = {}
+      m.SetUnit = function(self) self.unitAt = GetTime() + 1.5 end         -- (its load lands late, once)
       m.SetCustomRace = function(self, race, g)
-        if g == 2 then self.fid = 119940 elseif g == 3 then self.fid = 119563 end
+        self.sent[#self.sent + 1] = g
+        self.raceAt, self.raceFid = GetTime() + 0.8, (g == 0 and 119940) or (g == 1 and 119563) or 0
       end
-      m.GetModelFileID = function(self) return self.fid end
+      m.GetModelFileID = function(self)
+        local now = GetTime()
+        if self.raceAt and now >= self.raceAt then self.fid, self.raceAt = self.raceFid, nil end
+        if self.unitAt and now >= self.unitAt then self.fid, self.unitAt = 119563, nil end
+        return self.fid
+      end
       T_M = m
       ns.CraftUI.Kit.DressModel(m, 0, {})
     """)
-    w.tick(4)
-    r = c.eval_py("return { fid = T_M.fid, off = T_M.dzSexOff }")
-    assert r["fid"] == 119940 and r["off"] == 2, r
+    w.tick(6)
+    r = c.eval_py("local s = {} for i, g in ipairs(T_M.sent) do s[i] = g end return { fid = T_M:GetModelFileID(), sent = s }")
+    assert r["fid"] == 119940, r
+    sent = list(r["sent"].values()) if isinstance(r["sent"], dict) else r["sent"]
+    assert sent and all(g == 0 for g in sent), r
     c.eval("ns.CraftUI.Kit.DressModel(T_M, 1, {})")
-    w.tick(3)
-    r = c.eval_py("return { fid = T_M.fid }")
+    w.tick(4)
+    r = c.eval_py("return { fid = T_M:GetModelFileID() }")
     assert r["fid"] == 119563, r
     no_errors(w)
 

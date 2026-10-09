@@ -73,10 +73,12 @@ local function HumanBody(m, sex)
 end
 K.HumanBody = HumanBody
 
--- The hero's sex is not the WoW character's (the model starts as "player"): SetCustomRace turns it. Its gender
--- argument is undocumented for this client (0 / 1, or UnitSex's 2 / 3), so each is tried until the loaded body file
--- is the right one; if neither takes, the body itself is loaded by its file (right sex, without the outfit).
-local SexOffsets = { 0, 2 }                           -- gender = sex + offset (the first tried first)
+-- The hero's sex is not the WoW character's (the model starts as "player"): SetCustomRace(1, sex) turns it, sex as
+-- the client's Enum.UnitSex (0 male, 1 female - never 2 / 3: those are None / Both, which loaded a male body in the
+-- female skin, underwear and all). A load can land well after the call, and the unit's own late load can undo it,
+-- so the body file is watched until it is the right one (the call sent again every RESEND); if it never is, the body
+-- itself is loaded by its file (right sex, without the outfit).
+local RESEND, TRIES = 1.0, 4
 
 function K.DressModel(m, sex, items)
     if not m then return end
@@ -109,30 +111,26 @@ function K.DressModel(m, sex, items)
                 step, wait = 4, 0
             else
                 tries = tries + 1
-                -- (the convention that worked before first)
-                -- (and the first once more: a late load of the unit's own model can undo a right one)
-                local first = self.dzSexOff or SexOffsets[1]
-                local off = ({ first, first == 0 and 2 or 0, first })[tries]
-                if self.SetCustomRace and off then
+                if self.SetCustomRace and tries <= TRIES then
                     self.dzLoaded = false
-                    pcall(self.SetCustomRace, self, 1, want + off)
-                    self.dzTryOff = off
+                    pcall(self.SetCustomRace, self, 1, want)
                     step, wait = 3, 0
                 else
                     if HumanBody(self, want) == false and self.SetModel then pcall(self.SetModel, self, HUMAN_BODY[want]) end
                     step, wait = 4, 0
                 end
             end
-        elseif step == 3 then
-            if self.dzLoaded or wait > DRESS_WAIT then
-                local ok = HumanBody(self, want)
-                if ok == false then step, wait = 2, 0
-                else
-                    if ok then self.dzSexOff = self.dzTryOff end
-                    step, wait = 4, 0
-                end
-            end
+        elseif step == 3 then                               -- until the right body has loaded
+            local ok = HumanBody(self, want)
+            if ok == nil and (self.dzLoaded or wait > DRESS_WAIT) then step, wait = 4, 0   -- (the client cannot say)
+            elseif ok then step, wait = 4, 0
+            elseif wait > RESEND then step, wait = 2, 0 end
         else                                                -- the outfit, a few times over
+            -- (a late load of the unit's own model puts its body back: turn it again)
+            if HumanBody(self, want) == false and tries < TRIES then
+                step, wait, dressing = 2, 0, 0
+                return
+            end
             at = at + dt
             if at >= 0.1 then at = 0 dress() end
             dressing = dressing + dt
