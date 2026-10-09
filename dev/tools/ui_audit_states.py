@@ -1013,6 +1013,9 @@ STATES = [
     # outdoors by the Abbey's east end: Eagan Peltskinner under the roof (it fades round him), trees behind it
     ("Disastercraft - by Eagan", opened("games", dc(1, 4133.5, 6223.6))),
     ("Disastercraft - Abbey east trees", opened("games", dc(1, 4128.5, 6228.5))),
+    # the world map (M) with Northshire and Goldshire explored; the minimap shows in every world view
+    ("Disastercraft - world map", opened("games", dc(1, 4127.8, 6244, "world",
+        "C.char.explored = { [9] = true, [87] = true, [24] = true } UI.CloseAll() UI.ToggleWorldMap()"))),
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),

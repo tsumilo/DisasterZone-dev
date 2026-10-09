@@ -40,6 +40,9 @@ ns.CraftChangelog = {
             "You rise at the graveyard nearest to where you fell",
             "Bag slots no longer glow blue",
             "The 3D hero is the sex you picked, not your WoW character's",
+            "Press M for the world map; it fills in as you explore",
+            "A minimap with WoW's own map, zoom buttons and all",
+            "Discovering new places gives exploration experience",
         },
     },
     {

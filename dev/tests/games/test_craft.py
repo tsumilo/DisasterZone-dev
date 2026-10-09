@@ -800,5 +800,34 @@ def ui_3d_model_turns_to_the_heros_sex():
     no_errors(w)
 
 
+@case
+def exploring_goldshire_gives_xp_and_shows_on_the_map():
+    # discovering an area: WoW's exploration XP (Goldshire, level 5: 45 at level 1), once; the world map (M) then
+    # draws its explored art; Northshire's areas have no exploration level (no XP)
+    w, c = ui_game()
+    c.eval(r"""
+      ns.Craft:NewCharacter(1, 0)
+      ns.CraftUI.Glue.selected = 1
+      ns.CraftUI.Glue.EnterWorld()
+    """)
+    w.tick(0.2)
+    r = c.eval_py(r"""
+      local C, UI = ns.Craft, ns.CraftUI
+      local xp0 = C.char.xp
+      C.World.Explore(87, "Goldshire")
+      local xp1 = C.char.xp
+      C.World.Explore(87, "Goldshire")
+      C.World.Explore(59, "Northshire Vineyards")
+      UI.ToggleWorldMap()
+      local open = UI.open.worldmap ~= nil and UI.open.worldmap:IsShown()
+      UI.CloseAll()
+      return { gained = xp1 - xp0, again = C.char.xp - xp1, open = open, closed = not (UI.open.worldmap),
+               msg = C.log[#C.log] and C.log[#C.log].text, vineyards = C.char.explored[59] }
+    """)
+    assert r["gained"] == 45 and r["again"] == 0 and r["vineyards"], r
+    assert r["open"] and r["closed"], r
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all()

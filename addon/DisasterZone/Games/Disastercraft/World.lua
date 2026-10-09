@@ -404,7 +404,32 @@ function World.CheckArea(quiet)
         World.areaName = name
         World.zoneName = zone or World.zoneName
         Craft:Emit("area", name, zone, quiet)
+        if type(id) == "number" then World.Explore(id, name, quiet) end
     end
+end
+
+-- Exploring: the first time you stand in an area it goes on your map, and (like the TBC server) you gain its
+-- exploration experience - the base XP of the area's level, less when you are far above it, a level-5-higher amount
+-- when far below; areas without a level give none. Logging in somewhere new explores it quietly.
+function World.Explore(id, name, quiet)
+    local c = Craft.char
+    local M = ns.CraftMaps
+    if not c or not M or M.areaLevel[id] == nil then return end
+    c.explored = c.explored or {}
+    if c.explored[id] then return end
+    c.explored[id] = true
+    local lvl = M.areaLevel[id]
+    if not quiet and lvl > 0 and c.level < D.MAX_LEVEL then
+        local diff = c.level - lvl
+        local xp
+        if diff < -5 then xp = M.exploreXP[c.level + 5] or 0
+        elseif diff > 5 then xp = floor((M.exploreXP[lvl] or 0) * max(0, min(100, 100 - (diff - 5) * 5)) / 100)
+        else xp = M.exploreXP[lvl] or 0 end
+        if xp > 0 then
+            Craft:GiveXP(xp, string.format("Discovered %s: %d experience gained", name or "?", xp))
+        end
+    end
+    Craft:Emit("explored", id)
 end
 
 local function StandUp(p)

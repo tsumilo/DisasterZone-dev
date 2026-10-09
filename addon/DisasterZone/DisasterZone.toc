@@ -289,6 +289,7 @@ Games\Azeromon\World\Northshire.lua
 Games\Azeromon\World\Species.lua
 Games\Azeromon\World\Quests.lua
 Games\Disastercraft\Data.lua
+Games\Disastercraft\MapData.lua
 Games\Disastercraft\OutfitData.lua
 Games\Disastercraft\Core.lua
 Games\Disastercraft\Items.lua
@@ -306,6 +307,8 @@ Games\Disastercraft\UILayout.lua
 Games\Disastercraft\UIWorld.lua
 Games\Disastercraft\UIEffects.lua
 Games\Disastercraft\UIHud.lua
+Games\Disastercraft\UIMinimap.lua
+Games\Disastercraft\UIWorldMap.lua
 Games\Disastercraft\UIWindows.lua
 Games\Disastercraft\UIFrames.lua
 Games\Disastercraft\UIGlue.lua
