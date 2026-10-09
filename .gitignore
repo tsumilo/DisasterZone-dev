@@ -40,3 +40,7 @@ dev/art/azw/
 dev/art/dc_db2/
 dev/art/framexml/
 dev/art/dc_outfits.pickle
+
+# WoWSims TBC source (MIT), cloned for the gear-sim port + match check
+dev/ext/
+dev/tools/gearsim/logs/
