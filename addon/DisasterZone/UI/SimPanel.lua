@@ -611,10 +611,20 @@ local function BagItems(sid)
 end
 
 -- The set entry for an item picked into a slot: the copy you own (its gems and enchant), else its My BiS setup,
--- else the guide's gems with the slot's enchant kept.
+-- else the guide's gems with the slot's enchant kept. An owned spare is compared set up: its empty sockets get the
+-- guide's gems and a missing enchant the slot's one (a bag copy is rarely enchanted).
 local function EntryFor(itemID, sid)
   local known = pstate.known[itemID]
-  if known then return R():CopySet({ known })[1] end
+  if known then
+    local e = R():CopySet({ known })[1]
+    local filled = R():FillEntry(itemID, sid, SimPanel:Working()[sid])
+    if (e.enchant or 0) == 0 then e.enchant = filled.enchant end
+    e.gems = e.gems or {}
+    for i, g in pairs(filled.gems or {}) do
+      if not e.gems[i] or e.gems[i] == 0 then e.gems[i] = g end
+    end
+    return e
+  end
   local BiS = ns.BiS
   if BiS then
     local phases = { Phase() }
@@ -828,6 +838,53 @@ function SimPanel:BuildMoreEntries(root, entry, GOLDC)
   local label = "My BiS " .. (ns.PhaseLabel and ns.PhaseLabel(p) or ("P" .. p))
   entry(ns.UI.ICON.copy or 1, label, GOLDC, "Starts the Working set over from " .. label .. " (its gems and enchants).",
     function() self:ResetTo(R():BiSSet(p, List())) end)
+  if root.CreateDivider then root:CreateDivider() end
+  local tip = "Everything this sim uses (gear, gems, enchants, race, talents, professions, buffs, consumables, boss "
+    .. "and rotation) as WoWSims settings: on wowsims.com/tbc open your spec's sim, Import > JSON, paste. Both sims "
+    .. "then run the same fight."
+  entry(ns.UI.ICON.export or 33, "WoWSims: Working set", GOLDC, tip, function()
+    self:ShowExport("Working set", R():WoWSimsSettings(self:Working(), RunSettings()))
+  end)
+  entry(ns.UI.ICON.export or 33, "WoWSims: " .. self:TargetText(), GOLDC, tip, function()
+    self:ShowExport(self:TargetText(), R():WoWSimsSettings(self:TargetSet(), RunSettings()))
+  end)
+end
+
+-- A window with the export text selected for Ctrl+C.
+local exportWin
+function SimPanel:ShowExport(what, text)
+  local UI = ns.UI
+  if not exportWin then
+    local f = UI:CreateWindow("DisasterZoneSimExport", "WoWSims settings", 460, 300, { noSavePosition = true })
+    f:SetPoint("CENTER")
+    local c = f.content or f
+    f.help = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.help:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -8)
+    f.help:SetPoint("RIGHT", c, "RIGHT", -8, 0)
+    f.help:SetJustifyH("LEFT")
+    f.help:SetWordWrap(true)
+    local sf = CreateFrame("ScrollFrame", nil, c, "UIPanelScrollFrameTemplate")
+    sf:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -52)
+    sf:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -28, 8)
+    local eb = CreateFrame("EditBox", nil, sf)
+    eb:SetMultiLine(true)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject("ChatFontSmall")
+    eb:SetWidth(400)
+    eb:SetScript("OnEscapePressed", function() f:Hide() end)
+    eb:SetScript("OnTextChanged", function(self, user) if user then self:SetText(f.text or "") self:HighlightText() end end)
+    sf:SetScrollChild(eb)
+    f.box = eb
+    exportWin = f
+  end
+  exportWin.text = text
+  exportWin.help:SetText(("%s: on wowsims.com/tbc open your spec's sim, click Import > JSON and paste (Ctrl+C copies "
+    .. "it, it is selected). WoWSims then sims the same gear, talents, buffs, boss and rotation as this sim."):format(what))
+  exportWin.box:SetText(text)
+  exportWin:Show()
+  exportWin:Raise()
+  exportWin.box:SetFocus()
+  exportWin.box:HighlightText()
 end
 
 -- Bag changes while the picker is open: its "Your gear and bags" section.

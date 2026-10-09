@@ -28,11 +28,15 @@ function S.NewScenario(sc, db, apl)
   p.attackTables[p] = S.NewPlayerDefenderTable(p, p)
   target.currentTarget = p
 
+  local cls = sc.class or "Paladin"
+  if cls == "Warrior" then S.SetupWarrior(p, sc.talents or "", sc.classOptions) end
   S.ApplyRacials(p)
-  if (sc.class or "Paladin") == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
+  if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
+  if cls == "Warrior" then S.WarriorApplyTalents(p) end
   S.ApplyBuffs(p, buffs)
   S.ApplyConsumables(p, cons, buffs)
+  if cls == "Warrior" then S.WarriorInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()
@@ -40,12 +44,44 @@ function S.NewScenario(sc, db, apl)
   for _, fn in ipairs(p.postFinalize) do fn() end
   p:UpdateCastSpeed()
 
-  local rot = S.NewRotation(p, apl,
-    function(ref) return S.PaladinResolveSpell(p, ref) end,
-    function(ref) return S.PaladinResolveAura(p, ref) end)
+  local rot
+  if cls == "Paladin" then
+    rot = S.NewRotation(p, apl,
+      function(ref) return S.PaladinResolveSpell(p, ref) end,
+      function(ref) return S.PaladinResolveAura(p, ref) end)
+  else
+    rot = S.NewRotation(p, apl,
+      function(ref) return S.ResolveSpell(p, ref) end,
+      function(ref, unit) return S.ResolveAura(unit or p, ref) end)
+  end
   rot:RegisterPrepull(sim)
   sim.units = { p }
   return sim, p, target
+end
+
+-- apl_helpers.go GetAPLSpell: same ActionID (tag included), spells marked for the APL first; "OtherActionPotion" is
+-- the combat potion.
+function S.ResolveSpell(p, ref)
+  if ref.otherId == "OtherActionPotion" then
+    for _, sp in ipairs(p.spellbook) do if S.has(sp.flags, S.F.Potion) then return sp end end
+    return nil
+  end
+  local key = S.ActionKey(ref)
+  if not key then return nil end
+  local found
+  for _, sp in ipairs(p.spellbook) do
+    if sp.actionKey == key then
+      if S.has(sp.flags, S.F.APL) then return sp end
+      found = found or sp
+    end
+  end
+  return found
+end
+
+-- GetAuraByID: the first aura registered with that ActionID.
+function S.ResolveAura(unit, ref)
+  local key = S.ActionKey(ref)
+  return key and unit.aurasByKey and unit.aurasByKey[key] or nil
 end
 
 -- Run n iterations starting at iteration index `from` (default 1) and summarize.

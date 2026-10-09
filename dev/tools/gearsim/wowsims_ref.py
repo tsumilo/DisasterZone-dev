@@ -22,44 +22,13 @@ EXT = os.path.normpath(os.path.join(HERE, "..", "..", "ext"))
 WOWSIMS = os.path.join(EXT, "wowsims-tbc")
 CLI = os.path.join(WOWSIMS, "wowsimcli.exe")
 
-# The Retribution UI's own defaults (ui/specs/paladin/retribution/presets.ts), P1 settings.
-RET_DEFAULTS = {
-    "raid": {
-        "bloodlust": True, "divineSpirit": "TristateEffectImproved", "arcaneBrilliance": True,
-        "giftOfTheWild": "TristateEffectImproved", "powerWordFortitude": "TristateEffectImproved",
-        "shadowProtection": True, "thorns": "TristateEffectImproved",
-    },
-    "party": {
-        "manaSpringTotem": "TristateEffectRegular", "leaderOfThePack": "TristateEffectImproved",
-        "battleShout": "TristateEffectImproved", "strengthOfEarthTotem": "TristateEffectImproved",
-        "totemTwisting": True, "windfuryTotem": "TristateEffectImproved", "graceOfAirTotem": "TristateEffectImproved",
-        "drums": "LesserDrumsOfBattle", "sanctityAura": "TristateEffectMissing",
-    },
-    "individual": {
-        "blessingOfKings": True, "blessingOfWisdom": "TristateEffectImproved",
-        "blessingOfMight": "TristateEffectImproved", "unleashedRage": True,
-    },
-    "debuffs": {
-        "misery": True, "curseOfElements": "TristateEffectImproved",
-        "improvedSealOfTheCrusader": "TristateEffectImproved", "jocRetribution2Pt4": True,
-        "judgementOfWisdom": True, "bloodFrenzy": True, "huntersMark": "TristateEffectImproved",
-        "curseOfRecklessness": True, "sunderArmor": True, "faerieFire": "TristateEffectImproved",
-        "exposeArmor": "TristateEffectImproved", "exposeWeaknessUptime": 0.9, "exposeWeaknessHunterAgility": 1080,
-    },
-    "consumables": {
-        "potId": 22838, "flaskId": 22854, "foodId": 27658, "conjuredId": 12662, "superSapper": True,
-        "goblinSapper": True, "scrollAgi": True, "scrollStr": True, "explosiveId": 30217,
-    },
-}
+from specs import SPECS, RET_BUFFS  # noqa: E402
+RET_DEFAULTS = RET_BUFFS
 
 DEFAULT_TARGET = {
     "level": 73, "mobType": "MobTypeMechanical", "swingSpeed": 2, "minBaseDamage": 15113,
     "parryHaste": True, "canCrush": True, "damageSpread": 0.5,
 }
-
-SPEC_FIELD = {"ret": ("retributionPaladin", {"options": {"classOptions": {}}}, "ClassPaladin")}
-APL_PATH = {"ret": "ui/specs/paladin/retribution/apls/default.apl.json"}
-
 
 def target_stats(armor=7685, ap=320):
     arr = [0.0] * 60  # protojson takes a dense array; indices from proto/common.proto Stat enum
@@ -90,13 +59,14 @@ STAT_INDEX = _stat_index()
 
 def build_request(sc, iterations=None, debug=False):
     spec = sc.get("spec", "ret")
-    field, spec_val, cls = SPEC_FIELD[spec]
+    sp = SPECS[spec]
+    field, spec_val, cls = sp["field"], sp["options"], sp["wsClass"]
     buffs = sc.get("buffs", "wowsims_default")
     if buffs == "wowsims_default":
-        buffs = RET_DEFAULTS
+        buffs = sp["buffs"]
     cons = sc.get("consumables", "wowsims_default")
     if cons == "wowsims_default":
-        cons = RET_DEFAULTS["consumables"]
+        cons = sp["buffs"]["consumables"]
     cons = dict(cons)
     # The sim only registers potions / conjured items that are in these lists (consumes.go:163, 369); the
     # WoWSims UI fills them. Only potId / conjuredId are auto-used, so listing the chosen ones is enough.
@@ -104,7 +74,7 @@ def build_request(sc, iterations=None, debug=False):
         cons["potions"] = [cons["potId"]]
     if cons.get("conjuredId") and "conjuredItems" not in cons:
         cons["conjuredItems"] = [cons["conjuredId"]]
-    with open(os.path.join(WOWSIMS, APL_PATH[spec]), encoding="utf-8") as f:
+    with open(os.path.join(WOWSIMS, sp["apl"]), encoding="utf-8") as f:
         apl = json.load(f)
     if sc.get("aplVariables"):
         for v in apl["valueVariables"]:

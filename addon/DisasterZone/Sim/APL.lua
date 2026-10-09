@@ -1,7 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Sim/APL.lua", ...) then return end -- DisasterZone: Sim/APL.lua
 -- ns.GearSim rotations: an interpreter for WoWSims action priority lists (apl.go and friends). The lists are
 -- WoWSims' own JSON (ui/specs/*/apls/*.apl.json) turned into Lua tables by the dev kit, so a spec's rotation is
--- data, not code. Only the node kinds the shipped lists use are implemented; an unknown node is an error.
+-- data, not code. Only the node kinds the shipped lists use are implemented; an unknown node is an error. Values
+-- and actions that name something the character doesn't have are dropped the way WoWSims' builder drops them.
 --
 -- Speed: WoWSims re-evaluates an idle rotation every reaction time (10 ms), ~5000 times a fight. Every compiled
 -- node also reports when time alone could next change its value, so an idle rotation sleeps straight to the first
@@ -10,7 +11,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Sim/APL.lua", ...) then return end
 local _, ns = ...
 local S = ns.GearSim
 
-local huge, max, min, ceil = math.huge, math.max, math.min, math.ceil
+local huge, max, min, ceil, floor = math.huge, math.max, math.min, math.ceil, math.floor
 local EPS = 1e-9
 
 local Rot = {}
@@ -43,23 +44,72 @@ local function Future(t, now) if t > now then return t end return huge end
 local function Num(v, slope, disc) return { num = true, v = v, slope = slope or ZERO, disc = disc or NEVER } end
 local function Bool(v, nextFn) return { v = v, next = nextFn or NEVER } end
 
+local function ConstBool(c)
+  local n = Bool(function() return c end)
+  n.isConst, n.const = true, c
+  return n
+end
+local function ConstNum(c)
+  local n = Num(function() return c end)
+  n.isConst, n.const = true, c
+  return n
+end
+
+-- apl_helpers.go getUnit: the aura's owner (Self by default, or the current target)
+function Rot:SourceUnit(ref)
+  if ref and ref.type == "CurrentTarget" then return self.unit.currentTarget end
+  return self.unit
+end
+
+-- Stack counts as the rotation saw them a reaction time ago (APLValueAuraNumStacks stack history)
+local function StackHistory(aura, rt)
+  if aura.stackHistory then return aura.stackHistory end
+  local h = { updateAt = huge, stacks = 0, previous = 0 }
+  aura.stackHistory = h
+  local osc, ore = aura.onStacksChange, aura.onReset
+  aura.onStacksChange = function(a, sim, old, new)
+    if osc then osc(a, sim, old, new) end
+    if sim.now - h.updateAt >= rt then h.previous = old end
+    h.updateAt = sim.now
+    h.stacks = new
+  end
+  aura.onReset = function(a, sim)
+    if ore then ore(a, sim) end
+    h.updateAt = huge
+    h.previous = a.stacks
+    h.stacks = a.stacks
+  end
+  return h
+end
+
+-- Compile a value node. Returns nil where WoWSims' builder does (an unknown aura or spell, a missing variable):
+-- and / or drop nil children, not / cmp / math of nil are nil, and an action whose condition is nil has none.
 function Rot:Value(node, vars)
   if node == nil then return nil end
   local u = self.unit
   if node.const then
     local c = ParseConst(node.const.val)
-    if type(c) == "number" then return Num(function() return c end) end
-    return Bool(function() return c end)
+    if type(c) == "number" then return ConstNum(c) end
+    if type(c) == "boolean" then return ConstBool(c) end
+    return nil
   elseif node.variableRef then
     local name = node.variableRef.name
     local v = (vars and vars[name]) or self.variables[name]
-    if not v then error("APL: unknown variable " .. name) end
+    if not v then return nil end
     return self:Value(v, vars)
   elseif node["and"] or node["or"] then
     local isAnd = node["and"] ~= nil
     local fs = {}
-    for i, v in ipairs((node["and"] or node["or"]).vals) do fs[i] = self:Value(v, vars) end
+    for _, v in ipairs((node["and"] or node["or"]).vals or {}) do
+      local c = self:Value(v, vars)
+      if c then fs[#fs + 1] = c end
+    end
     local n = #fs
+    if n == 0 then return nil end
+    if n == 1 then return fs[1] end
+    for i = 1, n do
+      if fs[i].isConst and type(fs[i].const) == "boolean" and fs[i].const == not isAnd then return ConstBool(not isAnd) end
+    end
     local v
     if isAnd then
       v = function(sim)
@@ -79,9 +129,13 @@ function Rot:Value(node, vars)
     end)
   elseif node["not"] then
     local f = self:Value(node["not"].val, vars)
+    if not f then return nil end
+    if f.isConst and type(f.const) == "boolean" then return ConstBool(not f.const) end
     return Bool(function(sim) return not Truthy(f.v(sim)) end, f.next)
   elseif node.cmp then
     local L, R, op = self:Value(node.cmp.lhs, vars), self:Value(node.cmp.rhs, vars), node.cmp.op
+    if not (L and R) then return nil end
+    if (not L.num) and op ~= "OpEq" and op ~= "OpNe" then return nil end
     local l, r = L.v, R.v
     local v
     if op == "OpGe" then v = function(sim) return l(sim) >= r(sim) end
@@ -91,7 +145,9 @@ function Rot:Value(node, vars)
     elseif op == "OpEq" then v = function(sim) return l(sim) == r(sim) end
     elseif op == "OpNe" then v = function(sim) return l(sim) ~= r(sim) end
     else error("APL: cmp op " .. tostring(op)) end
-    if not (L.num and R.num) then return Bool(v, function(sim) return sim.now end) end
+    if not (L.num and R.num) then
+      return Bool(v, function(sim) return min(L.next and L.next(sim) or sim.now, R.next and R.next(sim) or sim.now) end)
+    end
     return Bool(v, function(sim)
       local now = sim.now
       local t = min(L.disc(sim), R.disc(sim))
@@ -104,6 +160,7 @@ function Rot:Value(node, vars)
     end)
   elseif node.math then
     local L, R, op = self:Value(node.math.lhs, vars), self:Value(node.math.rhs, vars), node.math.op
+    if not (L and R) or not (L.num and R.num) then return nil end
     local l, r = L.v, R.v
     local disc = function(sim) return min(L.disc(sim), R.disc(sim)) end
     if op == "OpAdd" then
@@ -132,18 +189,50 @@ function Rot:Value(node, vars)
       if th == "E20" then return sim:IsExecute20() elseif th == "E35" then return sim:IsExecute35() end
       return false
     end)
+  elseif node.numberTargets then
+    return ConstNum(1)
+  elseif node.inputDelay then
+    return ConstNum(u.reactionTime)
+  elseif node.actionGroupUsed then
+    return ConstBool(self.usedGroups[node.actionGroupUsed.name] == true)
+  elseif node.auraIsKnown then
+    local cfg = node.auraIsKnown
+    return ConstBool(self.resolveAura(cfg.auraId, self:SourceUnit(cfg.sourceUnit)) ~= nil)
   elseif node.auraIsActive or node.auraIsInactive then
     -- expiries are covered by the aura trackers in the wake bound; gains come from events
     local cfg = node.auraIsActive or node.auraIsInactive
-    local aura = self.resolveAura(cfg.auraId)
+    local aura = self.resolveAura(cfg.auraId, self:SourceUnit(cfg.sourceUnit))
+    if not aura then return nil end
     local want = node.auraIsActive ~= nil
-    if not aura then return Bool(function() return not want end) end
+    if cfg.includeReactionTime then
+      local rt = u.reactionTime
+      local function on(sim) return aura.active and sim.now - aura.startTime >= rt end
+      local nf = function(sim)
+        if aura.active then return Future(aura.startTime + rt, sim.now) end
+        return huge
+      end
+      if want then return Bool(on, nf) end
+      return Bool(function(sim) return not on(sim) end, nf)
+    end
     return Bool(function() return aura.active == want end)
   elseif node.auraRemainingTime then
-    local aura = self.resolveAura(node.auraRemainingTime.auraId)
-    return Num(function(sim) return aura and aura:RemainingDuration(sim) or 0 end,
-      function() return (aura and aura.active and aura.expires ~= huge) and -1 or 0 end,
-      function(sim) return (aura and aura.active) and Future(aura.expires, sim.now) or huge end)
+    local cfg = node.auraRemainingTime
+    local aura = self.resolveAura(cfg.auraId, self:SourceUnit(cfg.sourceUnit))
+    if not aura then return nil end
+    return Num(function(sim) return aura.active and aura:RemainingDuration(sim) or 0 end,
+      function() return (aura.active and aura.expires ~= huge) and -1 or 0 end,
+      function(sim) return aura.active and Future(aura.expires, sim.now) or huge end)
+  elseif node.auraNumStacks then
+    local cfg = node.auraNumStacks
+    local aura = self.resolveAura(cfg.auraId, self:SourceUnit(cfg.sourceUnit))
+    if not aura or (aura.maxStacks or 0) == 0 then return nil end
+    local rt = u.reactionTime
+    local h = StackHistory(aura, rt)
+    if cfg.includeReactionTime then
+      return Num(function(sim) if sim.now - h.updateAt >= rt then return h.stacks end return h.previous end,
+        ZERO, function(sim) return Future(h.updateAt + rt, sim.now) end)
+    end
+    return Num(function() return h.stacks end)
   elseif node.autoTimeToNext then
     local aa = u.autoAttacks
     return Num(function(sim) return max(0, aa:NextAttackAt() - sim.now) end,
@@ -157,6 +246,14 @@ function Rot:Value(node, vars)
       if t ~= "MainHandAuto" and aa.oh.enabled then v = min(v, sim.now - aa.oh.previousSwing) end
       return v
     end, function() return 1 end)
+  elseif node.autoSwingTime then
+    local aa = u.autoAttacks
+    local t = node.autoSwingTime.autoType
+    return Num(function()
+      if t == "MainHand" then return max(0, aa.mh.curSwingDuration) end
+      if t == "OffHand" then return max(0, aa.oh.curSwingDuration) end
+      return 0
+    end)
   elseif node.gcdIsReady then
     return Bool(function(sim) return u.GCD.readyAt <= sim.now or (u.GCD.readyAt - sim.now) <= S.QUEUE_WINDOW end,
       function(sim) return Future(u.GCD.readyAt - S.QUEUE_WINDOW, sim.now) end)
@@ -166,24 +263,85 @@ function Rot:Value(node, vars)
       function(sim) return Future(u.GCD.readyAt, sim.now) end)
   elseif node.spellIsReady then
     local sp = self.resolveSpell(node.spellIsReady.spellId)
+    if not sp then return nil end
     return Bool(function(sim) return sp:IsReady(sim) or sp:TimeToReady(sim) <= S.QUEUE_WINDOW end,
       function(sim) return S.SpellNextReadyChange(sp, sim) end)
   elseif node.spellTimeToReady then
     local sp = self.resolveSpell(node.spellTimeToReady.spellId)
+    if not sp then return nil end
     return Num(function(sim) return sp:TimeToReady(sim) end,
       function(sim) return (sp:TimeToReady(sim) > 0) and -1 or 0 end,
       function(sim) return S.SpellNextReadyChange(sp, sim) end)
   elseif node.spellGcdHastedDuration then
     local sp = self.resolveSpell(node.spellGcdHastedDuration.spellId)
+    if not sp then return nil end
     return Num(function()
       if sp.ignoreHaste then return sp.gcd end
       return max(sp.gcdMin or S.GCD_MIN, S.RoundMs(u:ApplyCastSpeed(sp.gcd)))
     end)
   elseif node.currentManaPercent then
     return Num(function() return u.mana / u.stats[S.ST.Mana] end)
+  elseif node.currentMana then
+    return Num(function() return u.mana end)
+  elseif node.currentRage then
+    -- rage changes only through events, which wake the rotation
+    return Num(function() return u.rage end)
+  elseif node.multipleCdUsages then
+    return self:MultipleCdUsages(node.multipleCdUsages, vars)
   end
   local k = next(node)
   error("APL: value node not implemented: " .. tostring(k))
+end
+
+-- apl_values_misc.go APLValueMultipleCdUsages: use a cooldown now, or hold it for the base spell (Bloodlust) so
+-- both line up, without losing a use over the fight.
+function Rot:MultipleCdUsages(cfg, vars)
+  local target = self.resolveSpell(cfg.targetSpellId)
+  if not target or not target.relatedSelfBuff then return nil end
+  local base = cfg.baseSpellId and self.resolveSpell(cfg.baseSpellId) or nil
+  if base and not base.relatedSelfBuff then base = nil end
+  local off = cfg.offset and self:Value(cfg.offset, vars) or nil
+  local offset = off and off.v or ZERO
+  local align = cfg.alignCdEnd
+  local tCd = target.cdDuration or 0
+  local tDur = target.relatedSelfBuff.duration
+  local tEff = tCd + tDur
+  local v = function(sim)
+    local total = sim.duration
+    local remaining = total - sim.now
+    local castOffset = offset(sim)
+    local maxUses = 1 + floor(total / tCd)
+    local fullAtEnd = remaining <= tDur
+    local secondUptime = remaining >= tEff
+    if not base then
+      if align then return fullAtEnd or secondUptime end
+      return true
+    end
+    local bAura = base.relatedSelfBuff
+    local bReady = (not base.cdTimer) or base.cdTimer.readyAt <= sim.now
+    local activeAndCast = bAura.active and sim.now >= castOffset
+    local loseUses = bReady and ((maxUses - 1) * tCd + tDur + castOffset > total)
+    local castAndAgain = (not bReady) and secondUptime
+    local activeAtEnd = castOffset + bAura.duration >= total
+    local exceeds = bAura.duration >= remaining - tDur
+    if align then
+      if maxUses == 1 then
+        return fullAtEnd or (activeAtEnd and activeAndCast and not exceeds) or ((not activeAtEnd) and activeAndCast)
+      end
+      return fullAtEnd or activeAndCast or loseUses or castAndAgain
+    end
+    return activeAndCast or castAndAgain or loseUses or ((not bReady) and target:IsReady(sim))
+  end
+  return Bool(v, function(sim)
+    local now, t = sim.now, huge
+    local total = sim.duration
+    local x = Future(total - tDur, now); if x < t then t = x end
+    x = Future(total - tEff, now); if x < t then t = x end
+    x = Future(offset(sim), now); if x < t then t = x end
+    if base and base.cdTimer then x = Future(base.cdTimer.readyAt, now); if x < t then t = x end end
+    x = S.SpellNextReadyChange(target, sim); if x < t then t = x end
+    return t
+  end)
 end
 
 -- The times at which time alone changes a spell's cooldown readiness (own / shared timer, with and without the
@@ -223,9 +381,9 @@ local function CastNextChange(sp, u, sim, usesGcd)
   return t
 end
 
--- Compile an action: returns { ready = fn(sim) -> bool, exec = fn(sim), next = fn(sim) }.
+-- Compile an action: returns { ready = fn(sim) -> bool, exec = fn(sim), next = fn(sim) }, or nil where WoWSims drops
+-- it (an unknown spell or group, an empty action, a condition that is always false).
 function Rot:Action(node, vars)
-  local cond = node.condition and self:Value(node.condition, vars)
   local impl
   if node.castSpell then
     local sp = self.resolveSpell(node.castSpell.spellId)
@@ -240,19 +398,21 @@ function Rot:Action(node, vars)
       end,
       exec = function(sim) sp:CastOrQueue(sim, u.currentTarget) end,
       next = function(sim) return CastNextChange(sp, u, sim, usesGcd) end,
+      spell = sp,
     }
-    self.directSpells[sp] = true
   elseif node.groupReference then
     local g = self.groups[node.groupReference.groupName]
-    if not g then error("APL: unknown group " .. node.groupReference.groupName) end
+    if not g then return nil end
     local gv = {}
     if vars then for k, v in pairs(vars) do gv[k] = v end end
     for _, v in ipairs(node.groupReference.variables or {}) do gv[v.name] = v.value end
     for _, v in ipairs(g.variables or {}) do if gv[v.name] == nil then gv[v.name] = v.value end end
     local acts = {}
     for _, a in ipairs(g.actions) do
-      local c = self:Action(a.action, gv)
-      if c then acts[#acts + 1] = c end
+      if not a.hide then
+        local c = self:Action(a.action, gv)
+        if c then acts[#acts + 1] = c end
+      end
     end
     local n = #acts
     impl = {
@@ -307,13 +467,45 @@ function Rot:Action(node, vars)
         return t
       end,
     }
+  elseif node.wait then
+    -- apl_actions_timing.go APLActionWait: a controlling action; the list is not read again until it ends
+    local d = self:Value(node.wait.duration, vars)
+    if not d or not d.num then return nil end
+    local dv, rot, u = d.v, self, self.unit
+    impl = {
+      ready = function(sim) return dv(sim) > 0 end,
+      exec = function(sim)
+        rot.waitUntil = sim.now + dv(sim)
+        u:WaitUntil(sim, rot.waitUntil)
+      end,
+      next = function(sim)
+        local t = d.disc(sim)
+        local slope = d.slope(sim)
+        if slope < 0 then
+          local x = sim.now + dv(sim) / -slope
+          if x > sim.now and x < t then t = x end
+        end
+        return t
+      end,
+    }
   else
     local k = next(node)
     if k == "condition" then k = next(node, k) end
+    if k == nil then return nil end -- an empty action
     error("APL: action not implemented: " .. tostring(k))
   end
+  local cond = node.condition and self:Value(node.condition, vars)
+  if cond and cond.isConst then
+    if not Truthy(cond.const) then
+      -- never fires; its spell still leaves the auto-cast cooldowns (apl.go prunedActions)
+      if impl.spell and self.markDirect then self.directSpells[impl.spell] = true end
+      return nil
+    end
+    cond = nil
+  end
+  if impl.spell and self.markDirect then self.directSpells[impl.spell] = true end
   if cond then
-    local r, cv, cn, inext = impl.ready, cond.v, cond.next, impl.next
+    local r, cv, cn, inext = impl.ready, cond.v, cond.next or NEVER, impl.next
     return {
       ready = function(sim) return Truthy(cv(sim)) and r(sim) end,
       exec = impl.exec,
@@ -326,18 +518,40 @@ function Rot:Action(node, vars)
   return impl
 end
 
--- apl: the JSON table; resolveSpell({spellId, rank}) -> spell; resolveAura({spellId, rank}) -> aura
+-- Groups referenced by a list or group action that is not hidden (APLValueActionGroupUsed).
+local function UsedGroups(apl)
+  local used = {}
+  local function scan(items)
+    for _, it in ipairs(items or {}) do
+      if not it.hide and it.action and it.action.groupReference then used[it.action.groupReference.groupName] = true end
+    end
+  end
+  scan(apl.priorityList)
+  scan(apl.prepullActions)
+  for _, g in ipairs(apl.groups or {}) do scan(g.actions) end
+  return used
+end
+
+-- apl: the JSON table; resolveSpell(actionRef) -> spell; resolveAura(actionRef, sourceUnit) -> aura
 function S.NewRotation(unit, apl, resolveSpell, resolveAura)
   local rot = setmetatable({ unit = unit, resolveSpell = resolveSpell, resolveAura = resolveAura, variables = {},
-    groups = {}, directSpells = {}, list = {} }, Rot)
+    groups = {}, directSpells = {}, list = {}, usedGroups = UsedGroups(apl) }, Rot)
   for _, v in ipairs(apl.valueVariables or {}) do rot.variables[v.name] = v.value end
   for _, g in ipairs(apl.groups or {}) do rot.groups[g.name] = g end
+  rot.markDirect = true
   for _, item in ipairs(apl.priorityList or {}) do
     if not item.hide then
       local a = rot:Action(item.action)
       if a then rot.list[#rot.list + 1] = a end
     end
   end
+  -- every group's spells leave the auto-cast cooldowns, referenced or not (apl.go allAPLActions)
+  for _, g in ipairs(apl.groups or {}) do
+    for _, a in ipairs(g.actions or {}) do
+      if not a.hide then rot:Action(a.action, nil) end
+    end
+  end
+  rot.markDirect = false
   rot.prepull = {}
   for _, item in ipairs(apl.prepullActions or {}) do
     if not item.hide then
@@ -373,6 +587,7 @@ end
 
 function Rot:Reset(sim)
   self.inLoop = false
+  self.waitUntil = nil
   self.unit.skipWake = nil
 end
 
@@ -402,6 +617,11 @@ function Rot:DoNextAction(sim)
   local n = 0
   while true do
     local nextA
+    -- a Wait in progress controls the list until it ends (apl.go controllingActions)
+    if self.waitUntil then
+      if sim.now < self.waitUntil then break end
+      self.waitUntil = nil
+    end
     for i = 1, #list do
       if list[i].ready(sim) then nextA = list[i]; break end
     end

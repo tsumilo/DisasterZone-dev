@@ -14,6 +14,9 @@ import re
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from specs import SPECS  # noqa: E402
+
 from lupa import lua51
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,7 +25,8 @@ WOWSIMS = os.path.join(DEV, "ext", "wowsims-tbc")
 ADDON = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone"))
 if not os.path.isdir(ADDON):
     ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
-SIM_FILES = ["Core", "Unit", "Spell", "Attack", "APL", "Character", "Buffs", "Items", "Paladin", "Data", "Setup"]
+SIM_FILES = ["Core", "Unit", "Spell", "Attack", "Resources", "Dot", "APL", "Character", "Buffs", "Items", "Paladin",
+             "Warrior", "Data", "Setup"]
 DATA_FILES = ["Data/Gems.lua", "Data/SimItems.lua"]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -190,7 +194,8 @@ def run(sc, iterations=None, log=False, start=1, gamedb=False):
     L, ns = load_engine(gamedb=gamedb)
     S = ns.GearSim
     db = build_db(sc["gear"])
-    with open(os.path.join(WOWSIMS, "ui", "specs", "paladin", "retribution", "apls", "default.apl.json"), encoding="utf-8") as f:
+    sp = SPECS[sc.get("spec", "ret")]
+    with open(os.path.join(WOWSIMS, sp["apl"]), encoding="utf-8") as f:
         apl = json.load(f)
     if sc.get("aplVariables"):
         for v in apl["valueVariables"]:
@@ -198,8 +203,11 @@ def run(sc, iterations=None, log=False, start=1, gamedb=False):
                 v["value"] = {"const": {"val": str(sc["aplVariables"][v["name"]])}}
     lsc = dict(sc)
     lsc["gear"] = {i + 1: g for i, g in enumerate(sc["gear"]) if g and g.get("id")}
-    if lsc.get("buffs") == "wowsims_default":
-        lsc["buffs"] = "wowsims_ret"
+    lsc["class"] = sp["class"]
+    if sp.get("luaOptions") and "classOptions" not in lsc:
+        lsc["classOptions"] = sp["luaOptions"]
+    if lsc.get("buffs", "wowsims_default") == "wowsims_default":
+        lsc["buffs"] = sp["luaBuffs"]
     if lsc.get("consumables") == "wowsims_default":
         lsc.pop("consumables")
     sim, p, target = S.NewScenario(to_lua(L, lsc), S.GameDB() if gamedb else to_lua(L, db), to_lua(L, apl))
@@ -217,10 +225,22 @@ def run(sc, iterations=None, log=False, start=1, gamedb=False):
 
 
 KEYMAP = {  # our metrics keys -> WoWSims action names
-    "melee": "OtherActionAttack:1", 31893: "spell:31893", 35395: "spell:35395", "soc_proc": "spell:20424",
+    "melee": "OtherActionAttack:1", "melee_oh": "OtherActionAttack:2", "melee_12281": "OtherActionAttack:12281",
+    "bloodlust": "spell:2825:-1", "drums": "spell:35476:-1", "flame_cap": "item:22788", 31893: "spell:31893", 35395: "spell:35395", "soc_proc": "spell:20424",
     "windfury": "OtherActionAttack:25584", 31898: "spell:31898", "item:23827": "item:23827", "item:10646": "item:10646",
     "item:23737": "item:23737", "judge_soc": "spell:20467",
 }
+
+
+
+def map_key(k):
+    if k in KEYMAP:
+        return KEYMAP[k]
+    if isinstance(k, int):
+        return "spell:%d" % k
+    if isinstance(k, str) and re.match(r"^\d+:-?\d+$", k):
+        return "spell:" + k
+    return k
 
 
 def main():
@@ -247,7 +267,7 @@ def main():
         if m["dps"] <= 0 and m["casts"] <= 0:
             continue
         line = "  %-22s %8.2f dps  casts %7.2f  hits %7.2f  crits %6.2f" % (k, m["dps"], m["casts"], m["hits"], m["crits"])
-        rk = KEYMAP.get(k, "spell:%s" % k if isinstance(k, int) else k)
+        rk = map_key(k)
         if ref and rk in ref["actions"]:
             rm = ref["actions"][rk]
             line += "   | ref %8.2f dps casts %7.2f" % (rm["dps"], rm["casts"])
@@ -256,7 +276,7 @@ def main():
         print()
         print("  outcomes per fight (lua | ref):  hits  crits  glances  misses  dodges  partials")
         for k, m in sorted(r["abilities"].items(), key=lambda kv: -kv[1]["dps"]):
-            rk = KEYMAP.get(k, "spell:%s" % k if isinstance(k, int) else k)
+            rk = map_key(k)
             e = ref["actions"].get(rk, {}).get("enemy")
             if not e or m["dps"] <= 0:
                 continue

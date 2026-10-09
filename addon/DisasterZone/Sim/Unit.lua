@@ -470,8 +470,24 @@ function Unit:RegisterAura(cfg)
   a.duration = a.duration or huge
   self.auras[#self.auras + 1] = a
   if a.label then self.aurasByLabel = self.aurasByLabel or {}; self.aurasByLabel[a.label] = a end
+  if a.actionId then
+    local key = S.ActionKey(a.actionId)
+    if key then
+      self.aurasByKey = self.aurasByKey or {}
+      if not self.aurasByKey[key] then self.aurasByKey[key] = a end
+    end
+  end
   return a
 end
+
+-- aura.go GetOrRegisterAura: by label
+function Unit:GetOrRegisterAura(cfg)
+  local a = self.aurasByLabel and self.aurasByLabel[cfg.label]
+  if a then return a end
+  return self:RegisterAura(cfg)
+end
+
+function Unit:GetAuraByKey(key) return self.aurasByKey and self.aurasByKey[key] end
 
 function Unit:GetAura(label) return self.aurasByLabel and self.aurasByLabel[label] end
 
@@ -768,6 +784,38 @@ function EE:Activate(sim)
     SetActive(cat, sim, self)
   end
   return true
+end
+
+-- exclusive_effect.go SetPriority: re-applies the effect when it stays active, hands over when it doesn't.
+function EE:SetPriority(sim, newPrio)
+  if not self.isEnabled then
+    self.priority = newPrio
+    return
+  end
+  local cat = self.category
+  local cur = cat.active
+  local old = self.priority
+  self.priority = newPrio
+  local new = HighestEnabled(cat)
+  self.priority = old
+  if cur == self and new == self then
+    self.onExpire(self, sim)
+    self.priority = newPrio
+    self.onGain(self, sim)
+  elseif cur ~= self and new ~= self then
+    self.priority = newPrio
+  elseif cur == self then
+    SetActive(cat, sim, new)
+    self.priority = newPrio
+  else
+    self.priority = newPrio
+    SetActive(cat, sim, new)
+  end
+end
+
+function S.CategoryAnyActive(unit, name)
+  local c = unit.exclusiveCategories and unit.exclusiveCategories[name]
+  return c ~= nil and c.active ~= nil
 end
 
 function EE:Deactivate(sim)

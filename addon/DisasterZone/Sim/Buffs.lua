@@ -29,6 +29,22 @@ local function Periodic(p, period, prio, fn, numTicks, immediately)
 end
 S.Periodic = Periodic
 
+-- Starts a periodic action now (core.StartPeriodicAction): first run after one period.
+function S.StartPeriodicAction(sim, o)
+  local n = 0
+  local pa
+  pa = { at = sim.now + (o.tickImmediately and 0 or o.period), prio = o.prio or 0, fn = function(s)
+    n = n + 1
+    o.onAction(s)
+    if not o.numTicks or n < o.numTicks then
+      pa.at = s.now + o.period
+      s:Add(pa)
+    end
+  end }
+  sim:Add(pa)
+  return pa
+end
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- Shared aura builders used by the class code
 -- ---------------------------------------------------------------------------------------------------------------
@@ -75,6 +91,18 @@ S.BUFF_PRESETS = {
       faerieFire = 2, exposeArmor = 2, exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1080 },
     consumables = { potId = 22838, flaskId = 22854, foodId = 27658, conjuredId = 12662, superSapper = true,
       goblinSapper = true, scrollAgi = true, scrollStr = true, explosiveId = 30217 },
+  },
+  -- The WoWSims Warrior preset (ui/specs/warrior/shared/presets.ts, dps/presets.ts P1): the warrior shouts himself.
+  wowsims_warrior = {
+    raid = { bloodlust = true, powerWordFortitude = 2, giftOfTheWild = 2 },
+    party = { ferociousInspiration = 2, braidedEterniumChain = true, graceOfAirTotem = 2, strengthOfEarthTotem = 2,
+      windfuryTotem = 2, leaderOfThePack = 1, totemTwisting = true, drums = "LesserDrumsOfBattle" },
+    individual = { blessingOfKings = true, blessingOfMight = 2, unleashedRage = true },
+    debuffs = { exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1080, improvedSealOfTheCrusader = 2,
+      misery = true, bloodFrenzy = true, giftOfArthas = true, mangle = true, exposeArmor = 2, faerieFire = 2,
+      sunderArmor = true, curseOfRecklessness = true, huntersMark = 2 },
+    consumables = { potId = 22838, flaskId = 22854, foodId = 27658, conjuredId = 22788, explosiveId = 30217,
+      superSapper = true, goblinSapper = true, ohImbueId = 29453, scrollAgi = true, scrollStr = true },
   },
 }
 
@@ -165,6 +193,9 @@ function S.ApplyConsumables(p, c, cfg)
   for k, v in pairs(sb) do p:AddStat(k, v) end
   if c.potId == 22838 then S.HastePotion(p) end
   if c.conjuredId == 12662 then S.DemonicRune(p) end
+  if c.conjuredId == 22788 then S.FlameCap(p) end
+  if c.mhImbueId then S.StaticImbue(p, c.mhImbueId) end
+  if c.ohImbueId then S.StaticImbue(p, c.ohImbueId) end
   local eng = p.professions[1] == "Engineering" or p.professions[2] == "Engineering"
   if eng then S.Explosives(p, c) end
 end
@@ -182,7 +213,7 @@ function S.WindfuryTotem(p, improved)
       if proc.active and not has(spell.procMask, PM.MeleeSpecial) then proc:RemoveStack(sim) end
     end })
   local wfSpell = p:RegisterSpell({
-    id = "melee_wf", metricsKey = "windfury", school = SCHOOL.Physical, defenseType = S.DEF_MELEE, procMask = PM.MeleeMHAuto,
+    id = "melee_wf", tag = 25584, metricsKey = "windfury", school = SCHOOL.Physical, defenseType = S.DEF_MELEE, procMask = PM.MeleeMHAuto,
     flags = F.MeleeMetrics + F.IncludeTargetBonusDamage + F.NoOnCastComplete,
     damageMultiplier = 1, damageMultiplierAdditive = 1, threatMultiplier = 1, bonusCoefficient = 1,
     applyEffects = function(sim, target, spell)
@@ -195,7 +226,8 @@ function S.WindfuryTotem(p, improved)
     handler = function(sim, spell, result)
       proc:Activate(sim)
       if spell.procMask == PM.MeleeMHAuto then proc:SetStacks(sim, 1) else proc:SetStacks(sim, 2) end
-      wfSpell:Cast(sim, result.target)
+      local sp = S.MaybeReplaceMHSwing and S.MaybeReplaceMHSwing(p, sim, wfSpell) or wfSpell
+      sp:Cast(sim, result.target)
     end })
 end
 
@@ -204,7 +236,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 function S.Bloodlust(p)
   local sated = p:RegisterAura({ label = "Sated", duration = 600 })
-  local bl = p:RegisterAura({ label = "Bloodlust", duration = 40,
+  local bl = p:RegisterAura({ label = "Bloodlust", duration = 40, actionId = { spellId = 2825, tag = -1 },
     onGain = function(a, sim)
       a.unit:MultiplyAttackSpeed(sim, 1.3)
       a.unit:MultiplyCastSpeed(sim, 1.3)
@@ -214,7 +246,8 @@ function S.Bloodlust(p)
       a.unit:MultiplyAttackSpeed(sim, 1 / 1.3)
       a.unit:MultiplyCastSpeed(sim, 1 / 1.3)
     end })
-  local spell = p:RegisterSpell({ id = "bloodlust", flags = F.APL + F.NoOnCastComplete, procMask = PM.Empty, cd = 600,
+  local spell = p:RegisterSpell({ id = 2825, tag = -1, metricsKey = "bloodlust", flags = F.APL + F.NoOnCastComplete,
+    procMask = PM.Empty, cd = 600, relatedSelfBuff = bl,
     applyEffects = function(sim) if not sated.active then bl:Activate(sim) end end })
   p:AddMajorCooldown({ spell = spell, priority = 1000, shouldActivate = function() return not sated.active end })
 end
@@ -222,9 +255,13 @@ end
 function S.PartyDrums(p, kind)
   local tinnitus = p:RegisterAura({ label = "Tinnitus", duration = 120 })
   local a = p:NewTemporaryStatsAura("Drums of Battle (External)", { [ST.MeleeHasteRating] = 80, [ST.SpellHasteRating] = 80 }, 30)
+  a.actionId = { spellId = 35476, tag = -1 }
+  p.aurasByKey = p.aurasByKey or {}
+  p.aurasByKey[S.ActionKey(a.actionId)] = p.aurasByKey[S.ActionKey(a.actionId)] or a
   local og = a.onGain
   a.onGain = function(aura, sim) og(aura, sim); tinnitus:Activate(sim) end
-  local spell = p:RegisterSpell({ id = "drums", procMask = PM.Empty, cd = 120,
+  local spell = p:RegisterSpell({ id = 35476, tag = -1, metricsKey = "drums", procMask = PM.Empty, cd = 120,
+    relatedSelfBuff = a,
     extraCastCondition = function() return not tinnitus.active end,
     applyEffects = function(sim) if not tinnitus.active then a:Activate(sim) end end })
   p:AddMajorCooldown({ spell = spell, priority = 2000 })
@@ -233,8 +270,52 @@ end
 function S.HastePotion(p)
   local a = p:NewTemporaryStatsAura("Haste Potion", { [ST.MeleeHasteRating] = 400 }, 15)
   local spell = p:RegisterSpell({ id = "item:22838", procMask = PM.Empty, flags = F.Potion + F.NoOnCastComplete,
-    cd = 120, sharedCd = 120, sharedCdTimer = p:CategoryTimer("potion"),
+    cd = 120, sharedCd = 120, sharedCdTimer = p:CategoryTimer("potion"), relatedSelfBuff = a,
     applyEffects = function(sim) a:Activate(sim) end })
+  p:AddMajorCooldown({ spell = spell, priority = 0 })
+end
+
+-- consumes.go registerStaticImbue
+function S.StaticImbue(p, id)
+  if id == 29453 or id == 34340 then -- Adamantite Sharpening Stone / Weightstone
+    p:AddStat(ST.MeleeCritRating, 14)
+    local aa = p.autoAttacks
+    for _, w in ipairs({ aa.mh, aa.isDualWielding and aa.oh or nil, p.rangedWeapon }) do
+      if w then w.baseMin = w.baseMin + 12; w.baseMax = w.baseMax + 12 end
+    end
+    p:AddStat(ST.RangedCritPercent, -(14 / S.CRIT_RATING_PER_PCT))
+  elseif id == 28017 then p:AddStat(ST.SpellDamage, 42)
+  elseif id == 25122 then p:AddStat(ST.SpellDamage, 36); p:AddStat(ST.SpellCritRating, 14)
+  elseif id == 25123 then p:AddStat(ST.HealingPower, 25); p:AddStat(ST.MP5, 12)
+  end
+end
+
+-- Flame Cap (consumes.go registerConjuredCD 22788): +80 fire damage for 60 s and 18.5% on white hits for 40 fire
+-- damage; used before the pull it locks its category for its full 3 minutes.
+function S.FlameCap(p)
+  local proc = p:RegisterSpell({ id = "item:22788", metricsKey = "flame_cap", school = SCHOOL.Fire,
+    defenseType = S.DEF_MAGIC, procMask = PM.SpellDamage, flags = F.Proc, damageMultiplier = 1, threatMultiplier = 1,
+    actionKey = "i22788:proc",
+    applyEffects = function(sim, target, spell) spell:CalcAndDealDamage(sim, target, 40, OUT.MagicHitAndCrit) end })
+  local trigger = p:MakeProcTriggerAura({ name = "Flame Cap - Proc", duration = 60, procChance = 0.185,
+    procMask = PM.MeleeWhiteHit + PM.RangedAuto, outcome = O.Landed, callback = "hit",
+    handler = function(sim, _, result) proc:Cast(sim, result.target) end })
+  trigger.onReset = nil
+  local a = p:NewTemporaryStatsAura("Flame Cap", { [ST.FireDamage] = 80 }, 60)
+  a.actionId = { itemId = 22788 }
+  local og, oe = a.onGain, a.onExpire
+  a.onGain = function(aura, sim) og(aura, sim); trigger:Activate(sim) end
+  a.onExpire = function(aura, sim) oe(aura, sim); trigger:Deactivate(sim) end
+  local spell
+  spell = p:RegisterSpell({ id = "item:22788", procMask = PM.Empty, flags = F.Conjured + F.APL + F.NoOnCastComplete,
+    cd = 120, sharedCd = 120, sharedCdTimer = p:CategoryTimer(1153), relatedSelfBuff = a,
+    applyEffects = function(sim)
+      a:Activate(sim)
+      if sim.now < 0 then
+        spell.sharedCdTimer.readyAt = sim.now + 180
+        p:UpdateMajorCooldowns()
+      end
+    end })
   p:AddMajorCooldown({ spell = spell, priority = 0 })
 end
 
@@ -280,17 +361,96 @@ function S.Explosives(p, c)
   elseif c.explosiveId == 30216 then explosive(23736, 330, 770, nil, 1, 14, -990, false) end
 end
 
+-- racials.go applyWeaponSpecialization: +5 expertise with these weapon types; an off-hand-only match counts only for
+-- off-hand attacks, a main-hand-only one not for them.
+local function WeaponSpecialization(p, ...)
+  local aa = p.autoAttacks
+  local mh, oh = false, false
+  for _, wt in ipairs({ ... }) do
+    if aa.mh.weaponType == wt then mh = true end
+    if aa.isDualWielding and aa.oh.weaponType == wt then oh = true end
+  end
+  local bonus = 5 * S.EXPERTISE_PER_QUARTER
+  local function ohOnly(sp) return has(sp.procMask, PM.MeleeOH) and not has(sp.procMask, PM.MeleeMH) end
+  if mh then
+    p:AddStat(ST.ExpertiseRating, bonus)
+    if not oh and aa.isDualWielding then
+      p:AddStaticMod({ kind = "Custom",
+        apply = function(_, sp) if ohOnly(sp) then sp.bonusExpertise = sp.bonusExpertise - bonus end end,
+        remove = function(_, sp) if ohOnly(sp) then sp.bonusExpertise = sp.bonusExpertise + bonus end end })
+    end
+  elseif oh then
+    p:AddStaticMod({ kind = "Custom",
+      apply = function(_, sp) if ohOnly(sp) then sp.bonusExpertise = sp.bonusExpertise + bonus end end,
+      remove = function(_, sp) if ohOnly(sp) then sp.bonusExpertise = sp.bonusExpertise - bonus end end })
+  end
+end
+
+-- RegisterTemporaryStatsOnUseCD: a self buff on a cooldown, auto-used as a major cooldown.
+local function StatsOnUse(p, id, label, stats, duration, cd, extra)
+  local a = p:NewTemporaryStatsAura(label, stats, duration)
+  a.actionId = { spellId = id }
+  p.aurasByKey = p.aurasByKey or {}
+  p.aurasByKey["s" .. id .. ":0"] = p.aurasByKey["s" .. id .. ":0"] or a
+  local cfg = { id = id, procMask = PM.Empty, flags = F.NoOnCastComplete, cd = cd, relatedSelfBuff = a,
+    applyEffects = function(sim) a:Activate(sim) end }
+  for k, v in pairs(extra or {}) do cfg[k] = v end
+  local spell = p:RegisterSpell(cfg)
+  p:AddMajorCooldown({ spell = spell })
+  return spell, a
+end
+
 function S.ApplyRacials(p)
+  local cls = p.class
   if p.race == "BloodElf" then
-    local spell = p:RegisterSpell({ id = 28730, procMask = PM.Empty, cd = 120,
-      applyEffects = function(sim) p:AddMana(sim, 10, "arcane_torrent") end })
-    p:AddMajorCooldown({ spell = spell, priority = -1000 })
+    -- Arcane Torrent: mana or energy; a rage class gets nothing back
+    if p.hasMana or p.hasEnergy then
+      local energy = p.hasEnergy
+      local spell = p:RegisterSpell({ id = energy and 25046 or 28730, procMask = PM.Empty, cd = 120,
+        applyEffects = function(sim)
+          if energy then p:AddEnergy(sim, 10, "arcane_torrent") else p:AddMana(sim, 10, "arcane_torrent") end
+        end })
+      p:AddMajorCooldown({ spell = spell, priority = -1000, shouldActivate = function()
+        if energy then return p.energy <= p.maxEnergy - 10 end
+        return true
+      end })
+    end
   elseif p.race == "Human" then
     p:MultiplyStat(ST.Spirit, 1.10)
-    local mh = p.gear.MainHand and p.gear.MainHand.item
-    if mh and (mh.weaponType == 4 or mh.weaponType == 9) then -- WeaponTypeMace, WeaponTypeSword
-      p:AddStat(ST.ExpertiseRating, 5 * S.EXPERTISE_PER_QUARTER)
+    WeaponSpecialization(p, 4, 9) -- WeaponTypeMace, WeaponTypeSword
+  elseif p.race == "Orc" then
+    local ap, sp = 0, 0
+    if cls == "Warrior" or cls == "Rogue" or cls == "Hunter" then ap = 70 * 4 + 2
+    elseif cls == "Shaman" then ap, sp = 70 * 4 + 2, 70 * 2 + 3
+    elseif cls == "Warlock" then sp = 70 * 2 + 3 end
+    StatsOnUse(p, 33697, "Blood Fury", { [ST.AttackPower] = ap, [ST.RangedAttackPower] = ap, [ST.SpellDamage] = sp }, 15, 120)
+    WeaponSpecialization(p, 1) -- WeaponTypeAxe
+  elseif p.race == "Troll" then
+    local timer = p:NewTimer()
+    local id, cost = 20554, nil
+    if p.hasEnergy then id, cost = 26297, { energyCost = { cost = 10 } }
+    elseif p.hasRage then id, cost = 26296, { rageCost = { cost = 5 } }
+    elseif p.hasMana then id, cost = 20554, { manaCost = { flat = floor(p.baseMana * 0.06) } } end
+    for i = 1, 5 do
+      local pct = 1.10 + 0.05 * (i - 1)
+      local a = p:RegisterAura({ label = ("Berserking (%d%%)"):format(floor((pct - 1) * 100 + 0.5)),
+        actionId = { spellId = id, tag = i }, duration = 10 })
+      a:AttachMultiplyAttackSpeed(pct)
+      local og, oe = a.onGain, a.onExpire
+      a.onGain = function(aura, sim) og(aura, sim); p:MultiplyCastSpeed(sim, pct) end
+      a.onExpire = function(aura, sim) oe(aura, sim); p:MultiplyCastSpeed(sim, 1 / pct) end
+      local cfg = { id = id, tag = i, procMask = PM.Empty, cd = 180, cdTimer = timer, relatedSelfBuff = a,
+        applyEffects = function(sim) a:Activate(sim) end }
+      for k, v in pairs(cost or {}) do cfg[k] = v end
+      local spell = p:RegisterSpell(cfg)
+      p:AddMajorCooldown({ spell = spell, shouldActivate = function() return i == 1 end })
     end
+  elseif p.race == "Gnome" then
+    p:MultiplyStat(ST.Intellect, 1.05)
+  elseif p.race == "Tauren" then
+    p:MultiplyStat(ST.Health, 1.05)
+  elseif p.race == "NightElf" then
+    p.ps.BaseDodgeChance = (p.ps.BaseDodgeChance or 0) + 0.01
   elseif p.race == "Draenei" then
     p:AddStat(ST.PhysicalHitPercent, 1)
   elseif p.race == "Dwarf" then
@@ -305,6 +465,43 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Debuffs on the target
 -- ---------------------------------------------------------------------------------------------------------------
+-- debuffs.go: armor reductions share one slot; Sunder's priority is its (negative) armor change, Expose Armor's
+-- its reduction, so Expose Armor always wins.
+function S.SunderArmorAura(target)
+  local a = target:GetAura("Sunder Armor")
+  if a then return a end
+  local ee
+  a = target:RegisterAura({ label = "Sunder Armor", actionId = { spellId = 25225 }, duration = 30, maxStacks = 5,
+    onStacksChange = function(_, sim, old, new) ee:SetPriority(sim, -520 * new) end })
+  ee = a:NewExclusiveEffect("MajorArmorReduction", true, 0,
+    function(e, sim) target:AddStatDynamic(sim, ST.Armor, e.priority) end,
+    function(e, sim) target:AddStatDynamic(sim, ST.Armor, -e.priority) end)
+  return a
+end
+
+function S.ExposeArmorAura(target, comboPoints, talents)
+  local a = target:GetAura("Expose Armor")
+  if a then return a end
+  local ee
+  a = target:RegisterAura({ label = "Expose Armor", actionId = { spellId = 26866 }, duration = 30,
+    onGain = function(_, sim) ee:SetPriority(sim, 410 * comboPoints * (1 + 0.25 * talents)) end })
+  ee = a:NewExclusiveEffect("MajorArmorReduction", true, 0,
+    function(e, sim) target:AddStatDynamic(sim, ST.Armor, -e.priority) end,
+    function(e, sim) target:AddStatDynamic(sim, ST.Armor, e.priority) end)
+  return a
+end
+
+function S.BloodFrenzyAura(target, points)
+  local a = target:GetAura("Blood Frenzy")
+  if a then return a end
+  local m = 1 + 0.02 * points
+  local i = S.SCHOOL_INDEX[SCHOOL.Physical]
+  local tps = target.ps
+  return target:RegisterAura({ label = "Blood Frenzy", actionId = { spellId = 29859 }, duration = huge,
+    onGain = function() tps.SchoolDamageTakenMultiplier[i] = tps.SchoolDamageTakenMultiplier[i] * m end,
+    onExpire = function() tps.SchoolDamageTakenMultiplier[i] = tps.SchoolDamageTakenMultiplier[i] / m end })
+end
+
 function S.ApplyDebuffs(p, t, d)
   local tps = t.ps
   local SI = S.SCHOOL_INDEX
@@ -334,8 +531,18 @@ function S.ApplyDebuffs(p, t, d)
       end })
     S.MakePermanent(a)
   end
-  if d.bloodFrenzy then
-    tps.SchoolDamageTakenMultiplier[SI[SCHOOL.Physical]] = tps.SchoolDamageTakenMultiplier[SI[SCHOOL.Physical]] * 1.04
+  if d.bloodFrenzy then S.MakePermanent(S.BloodFrenzyAura(t, 2)) end
+  if d.giftOfArthas then
+    local a = t:GetOrRegisterAura({ label = "Gift of Arthas", actionId = { spellId = 11374 }, duration = 180 })
+    a.onGain = function() tps.BonusPhysicalDamageTaken = tps.BonusPhysicalDamageTaken + 8 end
+    a.onExpire = function() tps.BonusPhysicalDamageTaken = tps.BonusPhysicalDamageTaken - 8 end
+    S.MakePermanent(a)
+  end
+  if d.mangle then
+    local a = t:GetOrRegisterAura({ label = "Mangle", actionId = { spellId = 33876 }, duration = 12 })
+    a.onGain = function() tps.PeriodicPhysicalDamageTakenMultiplier = tps.PeriodicPhysicalDamageTakenMultiplier * 1.3 end
+    a.onExpire = function() tps.PeriodicPhysicalDamageTakenMultiplier = tps.PeriodicPhysicalDamageTakenMultiplier / 1.3 end
+    S.MakePermanent(a)
   end
   if Tri(d.huntersMark) == 2 then
     -- active from 1 ns; nothing happens between 0 and 1 ns that reads attack power
@@ -346,24 +553,26 @@ function S.ApplyDebuffs(p, t, d)
     t:AddStat(ST.Armor, -610)
     if Tri(d.faerieFire) == 2 then tps.ReducedPhysicalHitTakenChance = tps.ReducedPhysicalHitTakenChance - 3 end
   end
-  -- Sunder Armor stacks at 0, 1.5 ... 6 s; Expose Armor replaces it at 10 s (one MajorArmorReduction slot).
-  local sunder, ea = d.sunderArmor, Tri(d.exposeArmor) > 0
-  local eaValue = ea and 410 * 5 * (1 + 0.25 * (Tri(d.exposeArmor) == 2 and 2 or 0)) or 0
-  t:RegisterResetEffect(function(sim)
-    t.armorSlot = 0
-    local function set(s, v)
-      t:AddStatDynamic(s, ST.Armor, t.armorSlot - v)
-      t.armorSlot = v
+  -- Sunder Armor stacks at 0, 1.5 ... 6 s; Expose Armor replaces it at 10 s (one MajorArmorReduction slot)
+  -- (debuffs.go ScheduledAura).
+  if Tri(d.exposeArmor) > 0 then
+    local a = S.ExposeArmorAura(t, 5, Tri(d.exposeArmor) == 2 and 2 or 0)
+    a.onReset = function(aura, sim)
+      aura.duration = huge
+      S.StartPeriodicAction(sim, { period = 10, numTicks = 1, onAction = function(s) aura:Activate(s) end })
     end
-    if sunder then
-      for i = 0, 4 do
-        sim:Add({ at = i * 1.5, prio = S.PRIO_DOT, fn = function(s) set(s, 520 * (i + 1)) end })
-      end
+  end
+  if d.sunderArmor then
+    local a = S.SunderArmorAura(t)
+    a.onReset = function(aura, sim)
+      aura.duration = huge
+      S.StartPeriodicAction(sim, { period = 1.5, numTicks = 5, tickImmediately = true, prio = S.PRIO_DOT,
+        onAction = function(s)
+          aura:Activate(s)
+          if aura.active then aura:AddStack(s) end
+        end })
     end
-    if ea then
-      sim:Add({ at = 10, prio = 0, fn = function(s) set(s, eaValue) end })
-    end
-  end)
+  end
   -- Expose Weakness: 90% chance per 7 s window of +agi/4 attack power against the target.
   if (d.exposeWeaknessUptime or 0) > 0 and (d.exposeWeaknessHunterAgility or 0) > 0 then
     local bonus = floor(d.exposeWeaknessHunterAgility * 0.25)

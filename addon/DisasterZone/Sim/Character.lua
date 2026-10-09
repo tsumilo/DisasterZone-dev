@@ -8,8 +8,12 @@ local ST, PM, F, O = S.ST, S.PM, S.F, S.O
 
 local huge, max, min, floor, sqrt = math.huge, math.max, math.min, math.floor, math.sqrt
 
-S.CRIT_PER_AGI = { Paladin = 0.04 }
-S.CRIT_PER_INT = { Paladin = 0.0125 }
+-- base_stats_auto_gen.go CritPerAgiMaxLevel / CritPerIntMaxLevel
+S.CRIT_PER_AGI = { Warrior = 0.0303, Paladin = 0.04, Hunter = 0.025, Rogue = 0.025, Priest = 0.04, Shaman = 0.04,
+  Mage = 0.04, Warlock = 0.0405, Druid = 0.04 }
+S.CRIT_PER_INT = { Warrior = 0, Paladin = 0.0125, Hunter = 0.0125, Rogue = 0, Priest = 0.0125, Shaman = 0.0125,
+  Mage = 0.0125, Warlock = 0.0122, Druid = 0.0125 }
+S.DODGE_RATING_PER_PCT = 18.923079
 
 -- WoWSims proto Stat enum -> our stat index (item / gem / enchant data use the proto numbers)
 local WS = {
@@ -37,18 +41,44 @@ local function WSStats(t)
 end
 S.WSStats = WSStats
 
--- base_stats.go: class row + race offsets (level 70)
+-- base_stats.go: class row + ExtraClassBaseStats + race offsets (level 70); the racial resistances
+-- (racials.go) ride along with the offsets.
 local CLASS_BASE = {
+  Warrior = { Health = 4264, Agility = 96, Strength = 145, Intellect = 33, Spirit = 51, Stamina = 133,
+    AttackPower = 190, PhysicalCritPercent = 1.14 },
   Paladin = { Strength = 126, Agility = 77, Stamina = 120, Intellect = 83, Spirit = 89, Health = 3197,
     AttackPower = 190, Mana = 2953, SpellCritPercent = 3.3355, PhysicalCritPercent = 0.6520 },
+  Hunter = { Health = 3388, Agility = 151, Strength = 64, Intellect = 77, Spirit = 83, Stamina = 108,
+    AttackPower = 120, RangedAttackPower = 120, Mana = 3383, SpellCritPercent = 3.6020, PhysicalCritPercent = -1.5320 },
+  Rogue = { Health = 3524, Agility = 158, Strength = 95, Intellect = 39, Spirit = 58, Stamina = 89,
+    AttackPower = 120, PhysicalCritPercent = -0.2950 },
+  Priest = { Health = 3211, Agility = 45, Strength = 39, Intellect = 145, Spirit = 151, Stamina = 58,
+    Mana = 2620, SpellCritPercent = 1.2375, PhysicalCritPercent = 3.1830 },
+  Shaman = { Health = 2979, Agility = 64, Strength = 102, Intellect = 108, Spirit = 120, Stamina = 114,
+    AttackPower = 140, Mana = 2958, SpellCritPercent = 2.2010, PhysicalCritPercent = 1.6750 },
+  Mage = { Health = 3213, Agility = 39, Strength = 33, Intellect = 151, Spirit = 145, Stamina = 51,
+    Mana = 2241, SpellCritPercent = 0.9075, PhysicalCritPercent = 3.4575 },
+  Warlock = { Health = 3310, Agility = 58, Strength = 51, Intellect = 133, Spirit = 139, Stamina = 76,
+    AttackPower = -10, Mana = 2615, SpellCritPercent = 1.7000, PhysicalCritPercent = 2.0000 },
+  Druid = { Health = 3434, Agility = 70, Strength = 76, Intellect = 120, Spirit = 133, Stamina = 83,
+    AttackPower = -20, Mana = 2370, SpellCritPercent = 1.8515, PhysicalCritPercent = 0.9610 },
 }
+S.CLASS_BASE = CLASS_BASE
 local RACE_OFFSETS = {
   Human = {},
+  Orc = { Agility = -3, Strength = 3, Intellect = -3, Spirit = 3, Stamina = 2 },
+  Dwarf = { Agility = -4, Strength = 2, Intellect = -1, Spirit = -1, Stamina = 3, FrostResistance = 10 },
+  NightElf = { Agility = 5, Strength = -3, Stamina = -1, NatureResistance = 10 },
+  Undead = { Agility = -2, Strength = -1, Intellect = -2, Spirit = 5, Stamina = 1, ShadowResistance = 10 },
+  Tauren = { Agility = -5, Strength = 5, Intellect = -5, Spirit = 2, Stamina = 2, NatureResistance = 10 },
+  Gnome = { Agility = 3, Strength = -5, Intellect = 3, Stamina = -1, ArcaneResistance = 10 },
+  Troll = { Agility = 2, Strength = 1, Intellect = -4, Spirit = 1, Stamina = 1 },
   BloodElf = { Agility = 2, Strength = -3, Intellect = 4, Spirit = -1, Stamina = -2,
     ArcaneResistance = 5, FireResistance = 5, FrostResistance = 5, NatureResistance = 5, ShadowResistance = 5 },
   Draenei = { Agility = -3, Strength = 1, Intellect = 1, Spirit = 2, Stamina = -1, ShadowResistance = 10 },
-  Dwarf = { Agility = -4, Strength = 2, Intellect = -1, Spirit = -1, Stamina = 3, FrostResistance = 10 },
 }
+-- classes with a mana bar (EnableManaBar in their constructors)
+S.MANA_CLASSES = { Paladin = true, Hunter = true, Priest = true, Shaman = true, Mage = true, Warlock = true, Druid = true }
 
 -- Item slots in WoWSims EquipmentSpec order.
 S.SLOTS = { "Head", "Neck", "Shoulder", "Back", "Chest", "Wrist", "Hands", "Waist", "Legs", "Feet", "Finger1",
@@ -166,8 +196,11 @@ S.AddStatProc = AddStatProc
 local function AddOnUse(p, itemId, eff)
   local onUse = eff.onUse
   local buff = p:NewTemporaryStatsAura("use " .. itemId, WSStats(eff.stats), (eff.durationMs or 0) / 1000)
+  buff.actionId = { itemId = itemId }
+  p.aurasByKey = p.aurasByKey or {}
+  p.aurasByKey["i" .. itemId .. ":0"] = p.aurasByKey["i" .. itemId .. ":0"] or buff
   local cfg = {
-    id = "item:" .. itemId, school = nil, procMask = PM.Empty, flags = F.NoOnCastComplete,
+    id = "item:" .. itemId, school = nil, procMask = PM.Empty, flags = F.NoOnCastComplete, relatedSelfBuff = buff,
     cd = (onUse.cooldownMs or 0) / 1000,
     applyEffects = function(sim) buff:Activate(sim) end,
   }
@@ -203,10 +236,12 @@ function S.BuildPlayer(sim, loadout, db)
   -- character.go universal deps + EnableManaBar (mana.go)
   p:AddStatDependency(ST.Stamina, ST.Health, 10)
   p:AddStatDependency(ST.Agility, ST.Armor, 2)
-  p:AddStatDependency(ST.Intellect, ST.SpellCritPercent, S.CRIT_PER_INT[p.class])
-  p:AddStat(ST.Mana, 20 - 15 * 20)
-  p:AddStatDependency(ST.Intellect, ST.Mana, 15)
-  p:EnableManaBar(base.Mana)
+  if S.MANA_CLASSES[p.class] then
+    p:AddStatDependency(ST.Intellect, ST.SpellCritPercent, S.CRIT_PER_INT[p.class])
+    p:AddStat(ST.Mana, 20 - 15 * 20)
+    p:AddStatDependency(ST.Intellect, ST.Mana, 15)
+    p:EnableManaBar(base.Mana)
+  end
 
   -- Equipment
   p.gear, p.gearIds, p.setCounts = {}, {}, {}
@@ -243,16 +278,25 @@ function S.BuildPlayer(sim, loadout, db)
   end
   for k, v in pairs(equipStats) do p:AddStat(k, v) end
 
-  -- Weapons and auto attacks
-  local mh = p.gear.MainHand and p.gear.MainHand.item
-  local mhWeapon
-  if mh then
-    mhWeapon = S.WeaponFromItem({ min = mh.weaponMin, max = mh.weaponMax, speed = mh.weaponSpeed,
-      twoHand = mh.handType == 4, dagger = mh.weaponType == 2 }, p.ps.BonusMHDps)
-  else
-    mhWeapon = S.UnarmedWeapon()
+  -- Weapons and auto attacks (character.go WeaponFromMainHand / OffHand / Ranged)
+  local function weapon(item, bonus)
+    return S.WeaponFromItem({ min = item.weaponMin, max = item.weaponMax, speed = item.weaponSpeed,
+      twoHand = item.handType == 4, dagger = item.weaponType == 2, quality = item.quality,
+      weaponType = item.weaponType, handType = item.handType }, bonus)
   end
-  p:EnableAutoAttacks({ mainHand = mhWeapon, autoSwingMelee = true })
+  local mh = p.gear.MainHand and p.gear.MainHand.item
+  local mhWeapon = mh and (mh.weaponSpeed or 0) > 0 and weapon(mh, p.ps.BonusMHDps) or S.UnarmedWeapon()
+  local oh = p.gear.OffHand and p.gear.OffHand.item
+  local ohWeapon
+  if oh and (oh.weaponSpeed or 0) > 0 and oh.weaponType ~= 7 then ohWeapon = weapon(oh, p.ps.BonusOHDps) end
+  if oh and oh.weaponType == 7 then p.ps.CanBlock = true end
+  local ranged = p.gear.Ranged and p.gear.Ranged.item
+  if ranged and (ranged.weaponSpeed or 0) > 0 then
+    local w = S.WeaponFromItem({ min = ranged.weaponMin, max = ranged.weaponMax, speed = ranged.weaponSpeed, ranged = true,
+      quality = ranged.quality, rangedWeaponType = ranged.rangedWeaponType }, p.ps.BonusRangedDps)
+    p.rangedWeapon = w
+  end
+  p:EnableAutoAttacks({ mainHand = mhWeapon, offHand = ohWeapon, autoSwingMelee = true })
 
   return p
 end

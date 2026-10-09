@@ -226,6 +226,43 @@ def talents_are_yours_only_when_specced_into_it():
 
 
 @r.case
+def owned_spare_is_compared_set_up():
+    w, c = solo()
+    stranger = 30055   # Shoulderpads of the Stranger: one red socket
+    c.set_bags({(0, 1): stranger})
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    sid = sid_of(c, 3)
+    c.eval("local sid = ...  ns.SimPanel:SetWorkingSlot(sid, { id = 29075, enchant = 2986, gems = {} })", sid)
+    c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton')", sid)
+    c.eval("ns.Picker:PickItem(...)", stranger)
+    e = c.eval_py("local e = ns.SimPanel:Working()[...] return { id = e.id, enchant = e.enchant, gems = e.gems }", sid)
+    assert e["id"] == stranger, e
+    assert e["enchant"] == 2986, e            # the slot's shoulder enchant carries over
+    assert e["gems"] and e["gems"][0], e      # the empty socket got the guide's gem
+    assert_no_lua_errors(w)
+
+
+@r.case
+def wowsims_export_is_valid_settings_json():
+    import json
+    w, c = solo()
+    text = c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                  "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical', talents = '5-053201-0523005120033125331051' })")
+    doc = json.loads(text)
+    assert doc["apiVersion"] == 15
+    pl = doc["player"]
+    assert pl["class"] == "ClassPaladin" and pl["race"] == "RaceBloodElf", pl["race"]
+    assert len(pl["equipment"]["items"]) == 17 and pl["equipment"]["items"][2]["id"] == 29075
+    assert pl["rotation"]["type"] == "TypeAPL" and pl["retributionPaladin"] == {"options": {"classOptions": {}}}
+    assert doc["partyBuffs"]["windfuryTotem"] == "TristateEffectImproved"
+    assert doc["encounter"]["targets"][0]["mobType"] == "MobTypeMechanical"
+    assert '"currentTime":{}' in text          # empty messages stay objects
+    c.eval("ns.SimPanel:ShowExport('Working set', ...)", text)
+    assert c.eval("return DisasterZoneSimExport:IsShown()") is True
+    assert_no_lua_errors(w)
+
+
+@r.case
 def reset_and_reload_keep_working_set():
     w, c = solo()
     c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")

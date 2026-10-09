@@ -66,6 +66,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 function Runner:Race()
   local _, file = UnitRace("player")
+  if file == "Scourge" then return "Undead" end
   return file or "Human"
 end
 
@@ -403,4 +404,149 @@ function Runner:Breakdown(summary)
   end
   table.sort(list, function(x, y) return x.dps > y.dps end)
   return list
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- WoWSims settings export: exactly what a run sims (gear, gems, enchants, race, talents, professions, buffs,
+-- consumables, boss, rotation) as WoWSims' settings JSON (wowsims.com/tbc: Import > JSON), so both sims can be run
+-- on the same input.
+-- ---------------------------------------------------------------------------------------------------------------
+local TRISTATE = {}
+for _, k in ipairs({ "divineSpirit", "giftOfTheWild", "powerWordFortitude", "thorns", "manaSpringTotem",
+  "leaderOfThePack", "battleShout", "strengthOfEarthTotem", "windfuryTotem", "graceOfAirTotem", "sanctityAura",
+  "blessingOfWisdom", "blessingOfMight", "curseOfElements", "improvedSealOfTheCrusader", "huntersMark", "faerieFire",
+  "exposeArmor", "demoralizingShout", "demoralizingRoar", "devotionAura", "retributionAura", "concentrationAura",
+  "moonkinAura", "wrathOfAirTotem", "bloodPact", "commandingShout", "thunderClap" }) do TRISTATE[k] = true end
+local TRI_NAMES = { [0] = "TristateEffectMissing", [1] = "TristateEffectRegular", [2] = "TristateEffectImproved" }
+
+-- fields that are lists in WoWSims' protos (an empty one must stay [], an empty message {})
+local LISTS = {}
+for _, k in ipairs({ "vals", "actions", "groups", "priorityList", "prepullActions", "valueVariables", "variables",
+  "items", "gems", "targets", "potions", "conjuredItems", "stats", "cooldowns" }) do LISTS[k] = true end
+
+local function JStr(s)
+  return '"' .. tostring(s):gsub('[%c"\]', function(c)
+    if c == '"' then return '\\"' elseif c == "\\" then return "\\\\" elseif c == "\n" then return "\n" end
+    return ("\u%04x"):format(c:byte())
+  end) .. '"'
+end
+
+local function Encode(v, key, out)
+  local tv = type(v)
+  if tv == "table" then
+    local isList = LISTS[key] or v[1] ~= nil
+    if isList then
+      out[#out + 1] = "["
+      for i = 1, #v do
+        if i > 1 then out[#out + 1] = "," end
+        Encode(v[i], nil, out)
+      end
+      out[#out + 1] = "]"
+    else
+      local keys = {}
+      for k in pairs(v) do keys[#keys + 1] = tostring(k) end
+      table.sort(keys)
+      out[#out + 1] = "{"
+      for i, k in ipairs(keys) do
+        if i > 1 then out[#out + 1] = "," end
+        out[#out + 1] = JStr(k) .. ":"
+        local x = v[k]
+        if x == nil then x = v[tonumber(k)] end
+        Encode(x, k, out)
+      end
+      out[#out + 1] = "}"
+    end
+  elseif tv == "boolean" then
+    out[#out + 1] = v and "true" or "false"
+  elseif tv == "number" then
+    out[#out + 1] = (v == floor(v) and math.abs(v) < 1e15) and ("%d"):format(v) or ("%.10g"):format(v)
+  elseif v == nil then
+    out[#out + 1] = "null"
+  else
+    out[#out + 1] = JStr(v)
+  end
+end
+Runner.EncodeSettings = function(t)
+  local out = {}
+  Encode(t, nil, out)
+  return table.concat(out)
+end
+
+local function ProtoBuffs(t)
+  local o = {}
+  for k, v in pairs(t or {}) do
+    if TRISTATE[k] then
+      local n = (v == true) and 1 or (tonumber(v) or 0)
+      if n > 0 then o[k] = TRI_NAMES[n] end
+    elseif v ~= false and v ~= 0 then
+      o[k] = v
+    end
+  end
+  return o
+end
+
+-- class -> WoWSims player spec field and options
+Runner.WOWSIMS_SPEC = {
+  Paladin = { class = "ClassPaladin", field = "retributionPaladin", options = { options = { classOptions = {} } } },
+  Warrior = { class = "ClassWarrior", field = "dpsWarrior", options = { options = { classOptions = {
+    queueDelay = 250, startingRage = 50, defaultShout = "WarriorShoutBattle", defaultStance = "WarriorStanceBerserker",
+    hasBsT2 = true, stanceSnapshot = true } } } },
+}
+
+-- set: a gear set; settings: as for Start. Returns the JSON text.
+function Runner:WoWSimsSettings(set, settings)
+  local sc = self:Scenario(set, settings)
+  local ws = self.WOWSIMS_SPEC[sc.class] or self.WOWSIMS_SPEC.Paladin
+  local items = {}
+  for sid = 1, 17 do
+    local g = sc.gear[sid]
+    local it = {}
+    if g then
+      it.id = g.id
+      if g.enchant and g.enchant ~= 0 then it.enchant = g.enchant end
+      local gems, last = {}, 0
+      for i = 1, 4 do if g.gems and g.gems[i] and g.gems[i] ~= 0 then last = i end end
+      for i = 1, last do gems[i] = (g.gems and g.gems[i]) or 0 end
+      if last > 0 then it.gems = gems end
+    end
+    items[sid] = it
+  end
+  local cons = {}
+  for k, v in pairs(sc.consumables or {}) do cons[k] = v end
+  if cons.potId then cons.potions = { cons.potId } end
+  if cons.conjuredId then cons.conjuredItems = { cons.conjuredId } end
+  local profs = sc.professions or {}
+  local race = sc.race == "Scourge" and "Undead" or sc.race
+  local stats = {}
+  for i = 1, 60 do stats[i] = 0 end
+  stats[31 + 1] = sc.targetArmor or 7685   -- StatArmor
+  stats[17 + 1] = 320                      -- StatAttackPower
+  local player = {
+    name = UnitName and UnitName("player") or "Player",
+    race = "Race" .. race, class = ws.class,
+    equipment = { items = items },
+    consumables = cons,
+    buffs = ProtoBuffs(sc.buffs.individual),
+    talentsString = sc.talents or "",
+    profession1 = profs[1], profession2 = profs[2],
+    rotation = ns.Data and ns.Data.SimAPL and ns.Data.SimAPL[self:SpecKey()],
+    reactionTimeMs = sc.reactionTimeMs or 0,
+    distanceFromTarget = sc.distance or 5,
+  }
+  player[ws.field] = ws.options
+  local doc = {
+    apiVersion = 15,
+    player = player,
+    raidBuffs = ProtoBuffs(sc.buffs.raid),
+    partyBuffs = ProtoBuffs(sc.buffs.party),
+    debuffs = ProtoBuffs(sc.buffs.debuffs),
+    encounter = {
+      apiVersion = 15, duration = sc.duration, durationVariation = 0, executeProportion20 = 0.2,
+      executeProportion25 = 0.25, executeProportion35 = 0.35, executeProportion45 = 0.45, executeProportion90 = 0.9,
+      targets = { { level = 73, mobType = "MobType" .. (sc.mobType or "Mechanical"), swingSpeed = 2,
+        minBaseDamage = 15113, parryHaste = true, canCrush = true, damageSpread = 0.5, stats = stats } },
+    },
+    settings = { iterations = 10000, randomSeed = settings.seed or 101 },
+  }
+  return self.EncodeSettings(doc)
 end

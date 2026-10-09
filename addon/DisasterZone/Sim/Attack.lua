@@ -22,6 +22,9 @@ function S.WeaponFromItem(item, bonusDps)
     apPerDps = 14,
     twoHand = item.twoHand,
     quality = item.quality,
+    weaponType = item.weaponType,
+    handType = item.handType,
+    rangedWeaponType = item.rangedWeaponType,
   }
 end
 
@@ -34,6 +37,8 @@ S.WeaponBaseDamage = BaseDamage
 function S.WeaponAverage(w) return (w.baseMin + w.baseMax) / 2 end
 function S.WeaponDamage(w, sim, ap) return BaseDamage(w, sim) + (w.swingSpeed * ap) / w.apPerDps end
 function S.WeaponNormalizedDamage(w, sim, ap) return BaseDamage(w, sim) + (w.normalizedSpeed * ap) / w.apPerDps end
+-- attack.go CalculateAverageWeaponDamage
+function S.WeaponAverageDamage(w, ap) return (w.baseMin + w.baseMax) / 2 + (w.swingSpeed * ap) / w.apPerDps end
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Weapon attacks (one per hand)
@@ -91,7 +96,7 @@ function S.UnitMT:EnableAutoAttacks(opts)
   self.autoAttacks = aa
   local unit = self
   aa.mhSpell = self:RegisterSpell({
-    id = "melee", school = S.SCHOOL.Physical, defenseType = S.DEF_MELEE, procMask = PM.MeleeMHAuto,
+    id = "melee", tag = 1, school = S.SCHOOL.Physical, defenseType = S.DEF_MELEE, procMask = PM.MeleeMHAuto,
     flags = F.MeleeMetrics + F.IncludeTargetBonusDamage + F.NoOnCastComplete,
     damageMultiplier = 1, damageMultiplierAdditive = 1, threatMultiplier = 1, bonusCoefficient = 1,
     applyEffects = function(sim, target, spell)
@@ -102,7 +107,7 @@ function S.UnitMT:EnableAutoAttacks(opts)
   aa.mh.spell = aa.mhSpell
   if aa.isDualWielding then
     aa.ohSpell = self:RegisterSpell({
-      id = "melee_oh", school = S.SCHOOL.Physical, defenseType = S.DEF_MELEE, procMask = PM.MeleeOHAuto,
+      id = "melee_oh", tag = 2, school = S.SCHOOL.Physical, defenseType = S.DEF_MELEE, procMask = PM.MeleeOHAuto,
       flags = F.MeleeMetrics + F.IncludeTargetBonusDamage + F.NoOnCastComplete,
       damageMultiplier = 1, damageMultiplierAdditive = 1, threatMultiplier = 1, bonusCoefficient = 1,
       applyEffects = function(sim, target, spell)
@@ -227,6 +232,7 @@ end
 
 function Unit:ReactToEvent(sim, randomize, addReaction)
   self.rotation:DoNextAction(sim)
+  if self.rotation.waitUntil then return end
   local t = sim.now
   if addReaction then t = t + self.reactionTime end
   if randomize then t = sim.now + sim:Rand() * 2 * self.reactionTime end

@@ -66,11 +66,14 @@ Sim\Core.lua
 Sim\Unit.lua
 Sim\Spell.lua
 Sim\Attack.lua
+Sim\Resources.lua
+Sim\Dot.lua
 Sim\APL.lua
 Sim\Character.lua
 Sim\Buffs.lua
 Sim\Items.lua
 Sim\Paladin.lua
+Sim\Warrior.lua
 Sim\Data.lua
 Sim\Setup.lua
 Sim\Runner.lua

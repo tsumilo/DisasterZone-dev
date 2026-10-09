@@ -87,6 +87,7 @@ F.CannotBeDodged = 16; F.IncludeTargetBonusDamage = 32; F.Binary = 64; F.Channel
 F.MeleeMetrics = 512; F.NoOnCastComplete = 1024; F.APL = 2048; F.MCD = 4096; F.Reactive = 8192
 F.NoOnDamageDealt = 16384; F.Potion = 32768; F.NoSpellMods = 65536; F.PassiveSpell = 131072
 F.SuppressWeaponProcs = 262144; F.Proc = 524288; F.Explosive = 1048576; F.Conjured = 2097152
+F.NoMetrics = 4194304
 S.F = F
 
 -- SpellSchool and school index (stats.SchoolIndex order: none, physical, arcane, fire, frost, holy, nature, shadow)
@@ -140,10 +141,35 @@ S.SpellMT = Spell
 -- damageMultiplierAdditive, critMultiplierAdditive, bonusCoefficient, bonusCritPercent, bonusHitPercent,
 -- threatMultiplier, gcd, gcdMin, castTime, nonEmpty, ignoreHaste, cd (seconds) / cdTimer (shared timer),
 -- sharedCd / sharedCdTimer, manaCost = { basePct | flat }, extraCastCondition(sim, target), applyEffects(sim, target, spell)
+-- WoWSims ActionIDs: spell / item / other id + tag. ref: { spellId | itemId | otherId, tag }
+function S.ActionKey(ref)
+  local tag = ref.tag or 0
+  if ref.spellId then return "s" .. ref.spellId .. ":" .. tag end
+  if ref.itemId then return "i" .. ref.itemId .. ":" .. tag end
+  if ref.otherId then return "o" .. ref.otherId .. ":" .. tag end
+  return nil
+end
+
+-- A spell's own key: cfg.actionId, or from its id (a number is a spell id, "item:N" an item).
+local function SpellActionKey(sp)
+  if sp.actionId then return S.ActionKey(sp.actionId) end
+  local id = sp.id
+  if type(id) == "number" then return "s" .. id .. ":" .. sp.tag end
+  if type(id) == "string" then
+    local item = id:match("^item:(%d+)$")
+    if item then return "i" .. item .. ":" .. sp.tag end
+  end
+  return nil
+end
+
 function S.Unit_RegisterSpell(unit, cfg)
   local sp = setmetatable(cfg, Spell)
   sp.unit = unit
   sp.flags = sp.flags or 0
+  sp.tag = sp.tag or 0
+  sp.actionKey = sp.actionKey or SpellActionKey(sp)
+  -- tagged variants of one spell (Heroic Strike's queue, Whirlwind's off hand) report apart
+  if sp.metricsKey == nil and type(sp.id) == "number" and sp.tag ~= 0 then sp.metricsKey = sp.id .. ":" .. sp.tag end
   sp.classMask = sp.classMask or 0
   sp.procMask = sp.procMask or 0
   sp.damageMultiplier = sp.damageMultiplier or 0
@@ -177,6 +203,12 @@ function S.Unit_RegisterSpell(unit, cfg)
     -- Go: int32(BaseCostPercent * BaseMana) / 100 (integer division)
     if not mc.flat then base = floor(floor((mc.basePct or 0) * unit.baseMana) / 100) end
     sp.cost = { base = base, flatModifier = 0, percentModifier = 1, additivePercentModifier = 1 }
+  elseif sp.rageCost then
+    sp.cost = { base = sp.rageCost.cost, flatModifier = 0, percentModifier = 1, additivePercentModifier = 1,
+      resource = "rage", refund = sp.rageCost.refund or 0 }
+  elseif sp.energyCost then
+    sp.cost = { base = sp.energyCost.cost, flatModifier = 0, percentModifier = 1, additivePercentModifier = 1,
+      resource = "energy", refund = sp.energyCost.refund or 0 }
   end
   sp.gcd = sp.gcd or 0
   sp.castTime = sp.castTime or 0
@@ -192,10 +224,15 @@ function S.Unit_RegisterSpell(unit, cfg)
     sp.castKind = "full"
   end
   sp.applyEffects = sp.applyEffects or function() end
+  if sp.dot then S.CreateDots(sp, sp.dot) end
   sp.casts = 0
   sp.metrics = unit.metrics and unit.metrics:ForSpell(sp) or nil
   unit.spellbook[#unit.spellbook + 1] = sp
   if sp.id then unit.spellsById = unit.spellsById or {}; unit.spellsById[sp.id] = sp end
+  if sp.actionKey then
+    unit.spellsByKey = unit.spellsByKey or {}
+    if not unit.spellsByKey[sp.actionKey] then unit.spellsByKey[sp.actionKey] = sp end
+  end
   for _, h in ipairs(unit.spellRegistered) do h(sp) end
   return sp
 end
@@ -204,6 +241,7 @@ function S.UnitMT:RegisterSpell(cfg) return S.Unit_RegisterSpell(self, cfg) end
 function S.UnitMT:GetSpell(id) return self.spellsById and self.spellsById[id] end
 
 function Spell:Matches(mask) return has(self.classMask, mask) end
+function Spell:Dot(target) return S.SpellMT_Dot(self, target or self.unit.currentTarget) end
 
 function Spell:IsReady(sim)
   return (not self.cdTimer or self.cdTimer.readyAt <= sim.now) and (not self.sharedCdTimer or self.sharedCdTimer.readyAt <= sim.now)
@@ -235,8 +273,12 @@ function Spell:CurrentCost()
 end
 
 function Spell:MeetsCost(sim)
-  if not self.cost then return true end
+  local c = self.cost
+  if not c then return true end
   self.curCost = self:CurrentCost()
+  local r = c.resource
+  if r == "rage" then return self.unit.rage >= self.curCost end
+  if r == "energy" then return self.unit.energy >= self.curCost end
   return self.unit.mana >= self.curCost
 end
 
@@ -324,11 +366,26 @@ end
 
 function Spell:SpendCost(sim)
   local c = self.curCost or 0
-  if self.cost and c > 0 then
+  local cost = self.cost
+  if cost and c > 0 then
     local u = self.unit
-    u:SpendMana(sim, c)
-    u.ps.FiveSecondRuleRefreshTime = max(sim.now + 5, u.hardcastExpires)
+    if cost.resource == "rage" then u:SpendRage(sim, c)
+    elseif cost.resource == "energy" then u:SpendEnergy(sim, c)
+    else
+      u:SpendMana(sim, c)
+      u.ps.FiveSecondRuleRefreshTime = max(sim.now + 5, u.hardcastExpires)
+    end
   end
+end
+
+-- rage.go / energy.go IssueRefund: a share of the cost back (attacks that missed).
+function Spell:IssueRefund(sim)
+  local cost = self.cost
+  if not cost or (cost.refund or 0) <= 0 then return end
+  local c = self.curCost or 0
+  if c <= 0 then return end
+  if cost.resource == "rage" then self.unit:AddRage(sim, cost.refund * c, "refund")
+  elseif cost.resource == "energy" then self.unit:AddEnergy(sim, cost.refund * c, "refund") end
 end
 
 function Spell:Cast(sim, target)
@@ -523,10 +580,13 @@ local function Landed(r) return has(r.outcome, O.Landed) end
 S.Landed = Landed
 
 local function ApplyResistances(sim, spell, r, at, isPeriodic)
+  r.armorMult = 1
   if has(spell.flags, F.IgnoreResists) then return end
   if has(spell.school, SCHOOL.Physical) then
     if isPeriodic and not has(spell.flags, F.ApplyArmorReduction) then return end
-    r.damage = r.damage * spell:ArmorModifier(at)
+    local m = spell:ArmorModifier(at)
+    r.damage = r.damage * m
+    r.armorMult = m
     return
   end
   if has(spell.flags, F.Binary) then return end
@@ -543,9 +603,9 @@ local function ApplyResistances(sim, spell, r, at, isPeriodic)
     t00, t25, t50 = 1, 0.78 + 0.18 * val, 0.22 + 0.58 * val
   end
   if roll > t00 then return
-  elseif roll > t25 then r.damage = r.damage * 0.75; r.outcome = O.Partial1
-  elseif roll > t50 then r.damage = r.damage * 0.5; r.outcome = O.Partial2
-  else r.damage = r.damage * 0.25; r.outcome = O.Partial3 end
+  elseif roll > t25 then r.damage = r.damage * 0.75; r.outcome = O.Partial1; r.armorMult = 0.75
+  elseif roll > t50 then r.damage = r.damage * 0.5; r.outcome = O.Partial2; r.armorMult = 0.5
+  else r.damage = r.damage * 0.25; r.outcome = O.Partial3; r.armorMult = 0.25 end
 end
 
 local function ApplyTargetModifiers(spell, r, at, isPeriodic)
@@ -566,6 +626,7 @@ function Spell:CalcDamageInternal(sim, target, base, attackerMult, isPeriodic, o
   local a1 = r.damage
   ApplyResistances(sim, self, r, at, isPeriodic)
   local a2 = r.damage
+  r.postArmor = a2
   ApplyTargetModifiers(self, r, at, isPeriodic)
   local a3 = r.damage
   local partial = 0
@@ -573,6 +634,7 @@ function Spell:CalcDamageInternal(sim, target, base, attackerMult, isPeriodic, o
   r.outcome = 0
   outcomeFn(self, sim, r, at)
   if partial ~= 0 then r.outcome = r.outcome + partial end
+  r.postOutcome = r.damage
   if r.damage < 0 then r.damage = 0 end
   if sim.log then
     sim:Log("%s [DEBUG] MAP: %.1f, SP: %.1f, BaseDamage:%.1f, AfterAttackerMods:%.1f, AfterResistances:%.1f, AfterTargetMods:%.1f, AfterOutcome:%.1f",
@@ -697,6 +759,7 @@ local function Block(spell, r, at, roll, chance)
 end
 
 function OUT.AlwaysHit(spell, sim, r, at) r.outcome = O.Hit end
+function OUT.AlwaysHitNoHitCounter(spell, sim, r, at) r.outcome = O.Hit end
 
 function OUT.MeleeWhite(spell, sim, r, at)
   local roll = sim:Rand()
@@ -879,6 +942,18 @@ local MOD_KIND = {
   BonusExpertise_Rating = { function(m, s) s.bonusExpertise = s.bonusExpertise + m.value end,
                             function(m, s) s.bonusExpertise = s.bonusExpertise - m.value end },
   ThreatMultiplier_Pct = { function() end, function() end },
+  CastTime_Flat = { function(m, s) s.castTime = s.castTime + m.value end,
+                    function(m, s) s.castTime = s.castTime - m.value end },
+  BuffDuration_Flat = { function(m, s)
+                          if s.sharedCdDuration and s.sharedCdDuration ~= 0 then s.sharedCdDuration = s.sharedCdDuration + m.value end
+                          if s.relatedSelfBuff then s.relatedSelfBuff.duration = s.relatedSelfBuff.duration + m.value end
+                        end,
+                        function(m, s)
+                          if s.sharedCdDuration and s.sharedCdDuration ~= 0 then s.sharedCdDuration = s.sharedCdDuration - m.value end
+                          if s.relatedSelfBuff then s.relatedSelfBuff.duration = s.relatedSelfBuff.duration - m.value end
+                        end },
+  DotDamageDone_Pct = { function(m, s) local d = s.dotConfig or (s.aoeDot and s.aoeDot) if s.dots then for _, dt in pairs(s.dots) do dt.periodicDamageMultiplier = dt.periodicDamageMultiplier * (1 + m.value) end end end,
+                        function(m, s) if s.dots then for _, dt in pairs(s.dots) do dt.periodicDamageMultiplier = dt.periodicDamageMultiplier / (1 + m.value) end end end },
 }
 
 local function ShouldApply(spell, m)
@@ -1097,7 +1172,7 @@ function S.AttachProcTrigger(aura, unit, cfg)
 end
 
 function S.UnitMT:MakeProcTriggerAura(cfg)
-  local a = self:RegisterAura({ label = cfg.name, duration = cfg.duration })
+  local a = self:RegisterAura({ label = cfg.name, duration = cfg.duration, actionId = cfg.actionId })
   if not cfg.duration or cfg.duration == 0 then
     a.duration = huge
     a.onReset = function(aura, sim) aura:Activate(sim) end
@@ -1105,3 +1180,6 @@ function S.UnitMT:MakeProcTriggerAura(cfg)
   S.AttachProcTrigger(a, self, cfg)
   return a
 end
+
+-- shared.OutcomeMeleeNoCrit
+OUT.MeleeSpecialNoCrit = function(spell, sim, r, at) return OUT.MeleeSpecialHit(spell, sim, r, at) end
