@@ -4,7 +4,8 @@ Covers: the generated data; a new character of each class (start gear, bags, act
 mana); WoW's experience formulas; a warrior's fight with a Kobold Vermin (auto attack, rage, the kill's experience,
 loot); a mage's Fireball (cast time, mana, the missile, its burn); aggro range, social pulls and evade; quests from
 accept to turn-in (kill credit, quest drops in the bags, the reward choice, the experience); trainers; vendors;
-death, the ghost run and coming back; leveling up; the Abbey door.
+death, the ghost run and coming back; leveling up; walking into the Abbey and up its stairs (buildings are walked
+in place: no inside maps, no doors that teleport).
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_craft.py [-k name]
 """
@@ -69,6 +70,43 @@ function T_DC.near(u, yd)
   end
   p.map, p.x, p.y = u.map, u.x - yd / Craft.YARDS, u.y
   return false
+end
+-- walks the player along the building-aware path to (tx, ty) (height te in building tb) in small steps, the way the
+-- keys move you: { ok, maxStep = biggest height change of one step, e, bld = building id, why }
+function T_DC.walkTo(tx, ty, te, tb)
+  local W, p = Craft.World, Craft.player
+  local path = W.PathFine(p.x, p.y, tx, ty, 40000, p.e, p.bld, te, tb)
+  if not path then return { ok = false, why = "no path" } end
+  local maxStep, prevE, prevB = 0, p.e, p.bld
+  for _, q in ipairs(path) do
+    for _ = 1, 60 do
+      local dx, dy = q[1] - p.x, q[2] - p.y
+      local d = math.sqrt(dx * dx + dy * dy)
+      if d < 0.01 then break end
+      local st = math.min(d, 0.07)
+      if W.MoveBy(p, dx / d * st, dy / d * st) < 1e-6 then
+        return { ok = false, why = "stuck", x = p.x, y = p.y, e = p.e }
+      end
+      if p.bld and prevB == p.bld then maxStep = math.max(maxStep, math.abs(p.e - prevE)) end
+      prevE, prevB = p.e, p.bld
+    end
+  end
+  return { ok = true, maxStep = maxStep, n = #path, e = p.e, bld = p.bld and p.bld.id }
+end
+-- the Abbey's NPCs standing indoors: { unit, storey } by storey
+function T_DC.abbeyFolk()
+  local WS = ns.AzeroLand
+  local out = {}
+  for _, rec in pairs(Craft.World.recs) do
+    local u = rec.unit
+    if u and u.kind == "npc" and u.bld and u.bld.id == 10286 then
+      local b, li = Craft.World.UnitLayer(u)
+      local l = b and WS.Layers(b, math.floor(u.x * 4), math.floor(u.y * 4))[li]
+      if l and l.ind then out[#out + 1] = { u = u, st = l.st or 1 } end
+    end
+  end
+  table.sort(out, function(a, b) return a.u.guid < b.u.guid end)
+  return out
 end
 -- other creatures stay out of a test fight
 function T_DC.calm(except)
@@ -445,45 +483,72 @@ def leveling_up_raises_stats():
 
 
 @case
-def the_abbey_door_leads_inside():
+def the_abbey_is_walked_in_and_out():
+    # (the old Abbey was inside maps behind teleporting doors: in game you were thrown in and out near the door and
+    # could get stuck; now you walk in through the doorway on the same map, and back out again)
     w, c = game(1)
     r = c.eval_py(r"""
-      local Craft, W = ns.Craft, ns.AzeroWorldData
-      local d = W.doors[6235 * ns.AzeroLand.WIDTH + 4129]
+      local Craft = ns.Craft
       local p = Craft.player
-      p.x, p.y = d.ox + 0.5, d.oy + 0.5
-      Craft.World.input.dx, Craft.World.input.dy = d.x - d.ox, d.y - d.oy
-      return { door = d ~= nil, map = d and d.map }
+      local x0, y0 = p.x, p.y
+      local folk = T_DC.abbeyFolk()
+      local ground
+      for _, f in ipairs(folk) do if f.st == 1 then ground = ground or f.u end end
+      if not ground then return { why = "no ground-floor npc", n = #folk } end
+      local tele = 0
+      Craft:On("teleport", function() tele = tele + 1 end)
+      local inn = T_DC.walkTo(ground.x, ground.y, ground.e, ground.bld)
+      local inside = { map = p.map, bld = p.bld and p.bld.id, e = p.e }
+      local out = T_DC.walkTo(x0, y0)
+      return { n = #folk, inn = inn, inside = inside, out = out, outB = p.bld and p.bld.id or false, tele = tele,
+               map = p.map }
     """)
-    assert r["door"], r
-    w.run_until(lambda: c.eval_py("return ns.Craft.player.map ~= 'world'"), timeout=3)
-    r = c.eval_py("ns.Craft.World.input.dx, ns.Craft.World.input.dy = 0, 0 return { map = ns.Craft.player.map, area = ns.Craft.World.areaName }")
-    assert r["map"].startswith("i10286"), r
-    assert r["area"] == "Northshire Abbey", r
+    assert r.get("n", 0) >= 3, r
+    assert r["inn"]["ok"] and r["inside"]["bld"] == 10286 and r["inside"]["map"] == "world", r
+    assert r["out"]["ok"] and r["outB"] is False and r["map"] == "world" and r["tele"] == 0, r
     no_errors(w)
 
 
 @case
-def the_abbey_doorway_leads_out_from_any_row():
-    # (in game you could walk down the hall a row beside the one exit tile, out onto the front steps and never
-    # leave: the whole doorway and the steps beyond it lead out now, and you come in on the inner side)
+def the_abbey_stairs_climb_step_by_step():
+    # up to the Abbey's upper floors on its own stairs: the height rises a little each step, never a jump
     w, c = game(1)
     r = c.eval_py(r"""
-      local Craft, W = ns.Craft, ns.AzeroWorldData
-      local d = W.doors[6235 * ns.AzeroLand.WIDTH + 4129]
-      local p = Craft.player
-      Craft.World.Teleport(p, d.map, d.tx + 0.5, d.ty + 0.5)
-      local m = Craft.World.interiors[d.map]
-      local inExit = m.warps[d.ty * 1000 + d.tx] ~= nil
-      local ux, uy = d.ox - d.x, d.oy - d.y
-      -- a row beside the door's own, walking out the way the door faces
-      p.x, p.y = d.tx + 0.5 + uy, d.ty + 0.5 + ux
-      Craft.World.input.dx, Craft.World.input.dy = ux, uy
-      return { inExit = inExit, ok = Craft.World.Walkable(p.map, math.floor(p.x), math.floor(p.y)) }
+      local Craft = ns.Craft
+      local top
+      for _, f in ipairs(T_DC.abbeyFolk()) do
+        if f.st >= 3 and (not top or f.u.e > top.e) then top = f.u end
+      end
+      if not top then return { why = "no upstairs npc" } end
+      local got = T_DC.walkTo(top.x, top.y, top.e, top.bld)
+      got.want = top.e
+      got.name = top.name
+      return got
     """)
-    assert not r["inExit"] and r["ok"], r
-    w.run_until(lambda: c.eval_py("return ns.Craft.player.map == 'world'"), timeout=3)
-    c.eval_py("ns.Craft.World.input.dx, ns.Craft.World.input.dy = 0, 0")
+    assert r.get("ok"), r
+    assert r["maxStep"] <= 1.35 and abs(r["e"] - r["want"]) < 1.5 and r["e"] > 8, r
+    no_errors(w)
+
+
+@case
+def every_building_npc_can_walk_out():
+    # nobody indoors is walled in: from every NPC's spot in a building there is a way out onto the open ground
+    w, c = game(1)
+    r = c.eval_py(r"""
+      local Craft = ns.Craft
+      local W = Craft.World
+      local p = Craft.player
+      local bad, n = {}, 0
+      for _, rec in pairs(W.recs) do
+        local u = rec.unit
+        if u and u.kind == "npc" and u.bld and not u.bld.cave then
+          n = n + 1
+          if not W.PathFine(u.x, u.y, p.x, p.y, 40000, u.e, u.bld) then bad[#bad + 1] = u.name end
+        end
+      end
+      return { n = n, bad = bad }
+    """)
+    assert r["n"] >= 3 and not r["bad"], r
     no_errors(w)
 
 
@@ -688,34 +753,48 @@ def ui_fight_shows_numbers_and_loot_window():
 
 
 @case
-def ui_abbey_railing_draws_in_front_of_you_and_fades():
-    # (in game the hero was drawn over every wall: the Abbey's walls are depth slices now - a railing just south
-    # of you draws after you, see-through where it covers you; one north of you draws before you)
+def ui_inside_the_abbey_its_roof_goes_and_your_storey_shows():
+    # step inside and the Abbey's roof fades away to its cut-away picture of your storey; folk upstairs are not
+    # drawn; going up, the upper storey's picture shows and you are drawn higher up the screen
     w, c = ui_game()
+    c.eval(HELPER)
     c.eval(r"""
       ns.Craft:NewCharacter(1, 0)
       ns.CraftUI.Glue.selected = 1
       ns.CraftUI.Glue.EnterWorld()
-      ns.Craft.World.Teleport(ns.Craft.player, "i10286_0", 9.5, 34.7)
+      T_DC.on = false
+      local f1, up
+      for _, f in ipairs(T_DC.abbeyFolk()) do
+        if f.st == 1 then f1 = f1 or f.u end
+        if f.st >= 3 then up = up or f.u end
+      end
+      T_F1, T_UP = f1, up
+      local p = ns.Craft.player
+      ns.Craft.World.Teleport(p, "world", f1.x, f1.y + 0.3, f1.e)
     """)
-    w.tick(0.3)
+    w.tick(0.8)
     r = c.eval_py(r"""
       local UI, p = ns.CraftUI, ns.Craft.player
-      local sx, sy = UI.ToScreen(p.x, p.y)
-      local T = UI.TILE
-      local me, front, behind, faded
-      for i, q in ipairs(UI.depthOrder) do
-        if q.sort == p.y and not me then me = i end
-        local over = q.x < sx + T * 0.3 and q.x + q.w > sx - T * 0.3 and q.y < sy and q.y + q.h > sy - T * 0.9
-        if over and tostring(q.file):find("northshire_in") then
-          if q.sort > p.y then front = front or i faded = faded or q.alpha < 1 or q.see ~= nil
-          else behind = i end
-        end
+      local cut, roof = 0, 0
+      for _, q in ipairs(UI.depthOrder) do
+        if q.cut then cut = cut + 1 end
+        if q.bld == 10286 and q.alpha > 0.01 then roof = roof + 1 end
       end
-      return { me = me, front = front, behind = behind, faded = faded }
+      return { inB = p.inB and p.inB.id, st = p.inSt, cut = cut, roof = roof, f1 = UI.Shown(T_F1), up = UI.Shown(T_UP),
+               lift = p.lift }
     """)
-    assert r["me"] and r["front"] and r["front"] > r["me"] and r["faded"], r
-    assert r.get("behind") is None or r["behind"] < r["me"], r
+    assert r["inB"] == 10286 and r["st"] == 1 and r["cut"] > 5 and r["roof"] == 0, r
+    assert r["f1"] and not r["up"], r
+    c.eval(r"""
+      local p = ns.Craft.player
+      ns.Craft.World.Teleport(p, "world", T_UP.x, T_UP.y + 0.3, T_UP.e)
+    """)
+    w.tick(0.8)
+    r2 = c.eval_py(r"""
+      local UI, p = ns.CraftUI, ns.Craft.player
+      return { st = p.inSt, up = UI.Shown(T_UP), f1 = UI.Shown(T_F1), lift = p.lift }
+    """)
+    assert r2["st"] >= 3 and r2["up"] and not r2["f1"] and r2["lift"] > r["lift"] + 1, (r, r2)
     no_errors(w)
 
 

@@ -27,7 +27,6 @@ World.recs = {}                 -- guid -> { e = spawn, unit = combat unit (crea
 World.objects = {}              -- objects (quest crates, herbs, ore, chests)
 World.authority = true          -- this client simulates creatures in fights (alone: yes; in a party: the leader)
 World.input = { dx = 0, dy = 0 }
-local RADIUS = 0.3              -- a unit's foot circle, in tiles
 local ACTIVE = 40               -- tiles around a player in which creatures think
 
 ---------------------------------------------------------------------------
@@ -42,137 +41,86 @@ function World.Clock()
 end
 
 ---------------------------------------------------------------------------
--- Maps: the world and the interiors (buildings, mines)
+-- Walking: the world's ground, and buildings walked in place
 ---------------------------------------------------------------------------
+-- Outdoors a body stands on the ground (u.e = nil) and the world's ~1 yd collision cells stop it (WS.SolidAt). A
+-- building with rooms has its own walk grid over its footprint (WS.Layers: per fine cell every height a body may
+-- stand at, and which layer of each neighbour it leads to), so inside one a body has a height u.e (yards over the
+-- building's origin) and its building u.bld: it walks up a stair because the stair's cells rise a little each,
+-- a wall stops it because no link crosses it, and it walks out of the door because the doorway's cells link to
+-- the ground outside. Plain ground inside a grid (no layers) follows the outdoor rules.
 
-World.interiors = {}
-local INTERIOR_WALK = { f = true, r = true, L = true }
+local SUB = WS.SUB
+local DXS, DYS = { 0, 1, 0, -1 }, { -1, 0, 1, 0 }        -- the link directions n e s w
+local OPP = { 3, 4, 1, 2 }
 
-local function InteriorFloorNear(def, x, y)
-    for _, d in ipairs({ { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } }) do
-        local row = def.rows[y + 1 + d[2]]
-        local ch = row and row:sub(x + 1 + d[1], x + 1 + d[1])
-        if ch == "f" then return x + d[1], y + d[2] end
+-- the index of the layer at height e in a cell's layers (the nearest within reach), or nil
+local function LayerAt(lay, e, reach)
+    local best, bd
+    for k = 1, #lay do
+        local d = abs(lay[k].h - e)
+        if not bd or d < bd then best, bd = k, d end
     end
-    return x, y
+    if best and bd <= (reach or 0.75) then return best end
+    return nil
 end
 
-local function InteriorWalk(m, x, y)
-    local row = m.rows[y + 1]
-    local ch = row and row:sub(x + 1, x + 1)
-    return ch ~= nil and ch ~= "" and INTERIOR_WALK[ch] or false
+-- where a body at (x, y) stands: its building and layer index (nil, nil outdoors). e: its height (nil: on the
+-- ground - the grid's terrain layer there, else its lowest)
+local function Settle(x, y, e, b)
+    local bb, cx, cy = WS.BuildingAt(x, y)
+    if not bb then return nil, nil end
+    local lay = WS.Layers(bb, cx, cy)
+    if #lay == 0 then return nil, nil end
+    if e ~= nil and (b == nil or b == bb) then
+        local k = LayerAt(lay, e, 1e9)
+        return bb, k
+    end
+    for k = 1, #lay do if lay[k].ter then return bb, k end end
+    return bb, 1
 end
 
--- A building's way out. The generated door is one tile (ix, iy) in a doorway that is often wider, with the porch /
--- front steps of the model's floor running on past it - walk down the hall a row off and you missed it. The inside
--- grid lies like the world (x east, y south), so the world door's outward step (ox - x, oy - y) says which side of
--- the doorway is out: every floor tile from the door's line outward (joined to the door, within a few tiles) leads
--- outside, and you come in on the first floor tile on the inner side, facing in.
-local DOOR_REACH = 4
-local function DoorwayExits(m, d)
-    local ux, uy = (d.ox or d.x) - d.x, (d.oy or d.y) - d.y
-    if ux ~= 0 then ux = ux > 0 and 1 or -1 end
-    if uy ~= 0 then uy = uy > 0 and 1 or -1 end
-    local out = { map = "world", x = d.ox, y = d.oy }
-    local function Side(x, y) return (x - d.ix) * ux + (y - d.iy) * uy end
-    m.warps[d.iy * 1000 + d.ix] = out
-    if ux ~= 0 or uy ~= 0 then
-        -- the outer side, flooded from the door tile over floor (8 ways)
-        local seen, queue = { [d.iy * 1000 + d.ix] = true }, { { d.ix, d.iy } }
-        local i = 1
-        while queue[i] do
-            local x, y = queue[i][1], queue[i][2]
-            i = i + 1
-            for dy = -1, 1 do
-                for dx = -1, 1 do
-                    local nx, ny = x + dx, y + dy
-                    local k = ny * 1000 + nx
-                    if not seen[k] and InteriorWalk(m, nx, ny) and Side(nx, ny) >= 0 and
-                       abs(nx - d.ix) <= DOOR_REACH and abs(ny - d.iy) <= DOOR_REACH and not m.warps[k] then
-                        seen[k] = true
-                        m.warps[k] = out
-                        queue[#queue + 1] = { nx, ny }
-                    end
-                end
-            end
-        end
-        -- the way in: the nearest floor on the inner side that is no exit
-        local best, bd
-        for y = d.iy - DOOR_REACH, d.iy + DOOR_REACH do
-            for x = d.ix - DOOR_REACH, d.ix + DOOR_REACH do
-                if Side(x, y) < 0 and InteriorWalk(m, x, y) and not m.warps[y * 1000 + x] then
-                    local dd = (x - d.ix) ^ 2 + (y - d.iy) ^ 2 - Side(x, y) * 0.01
-                    if not bd or dd < bd then best, bd = { x, y }, dd end
-                end
-            end
-        end
-        if best then
-            d.tx, d.ty = best[1], best[2]
-            d.inFace = World.FaceOf(-ux, -uy)
-            out.face = World.FaceOf(ux, uy)
-            return
-        end
-    end
-    d.tx, d.ty = InteriorFloorNear(W.interiors[d.map], d.ix, d.iy)
-end
-
-local function BuildInteriors()
-    for id, def in pairs(W.interiors or {}) do
-        local m = { id = id, rows = def.rows, w = #def.rows[1], h = #def.rows, warps = {}, name = def.name,
-                    level = def.level, art = W.interiorArt and W.interiorArt[id] }
-        if (m.name or ""):find("Valley") and id:find("^i10286") then m.name = "Northshire Abbey" end
-        for _, st in ipairs(def.stairs or {}) do
-            local other = W.interiors[st.map]
-            local tx, ty = st.tx, st.ty
-            if other then tx, ty = InteriorFloorNear(other, st.tx, st.ty) end
-            m.warps[st.y * 1000 + st.x] = { map = st.map, x = tx, y = ty }
-        end
-        World.interiors[id] = m
-    end
-    for _, d in pairs(W.doors or {}) do
-        local m = d.map and World.interiors[d.map]
-        if m then
-            DoorwayExits(m, d)
-            if m.name == "Elwynn Forest" or m.name == "Northshire Valley" then
-                local a = WS.AreaName(d.x, d.y)
-                if a then m.name = a end
-            end
-        end
+-- the unit's height and building at its spot (spawns, teleports, saved spots)
+function World.Settle(u, e)
+    if type(e) ~= "number" then e = nil end
+    local b, k = Settle(u.x, u.y, e, u.bld)
+    if b then
+        local cx, cy = floor(u.x * SUB), floor(u.y * SUB)
+        u.bld, u.e = b, WS.Layers(b, cx, cy)[k].h
+    else
+        u.bld, u.e = nil, nil
     end
 end
 
-function World.MapName(map, x, y)
-    if map == "world" then return (WS.AreaName(floor(x), floor(y))) or "Northshire Valley" end
-    local m = World.interiors[map]
-    return m and m.name or "?"
+-- one cell over (direction d) from cell (cx, cy) for a body on layer li of building b (b nil: on the ground):
+-- ok, and the building / layer it stands on there
+local function CellStep(b, li, cx, cy, d)
+    local nx, ny = cx + DXS[d], cy + DYS[d]
+    if b and li then
+        local l = WS.Layers(b, cx, cy)[li]
+        local link = l and l[d]
+        if link == nil then return false end
+        if link == 0 then return true, nil, nil end          -- (out onto the ground)
+        return true, b, link
+    end
+    local b2 = WS.BuildingAt((nx + 0.5) / SUB, (ny + 0.5) / SUB)
+    if not b2 then return true, nil, nil end
+    local lay = WS.Layers(b2, nx, ny)
+    if #lay == 0 then return true, nil, nil end
+    for k = 1, #lay do
+        if lay[k][OPP[d]] == 0 then return true, b2, k end   -- (a layer the ground leads onto)
+    end
+    return false
 end
-
--- can a foot stand on tile (tx, ty)?
-function World.Walkable(map, tx, ty)
-    if map == "world" then return not WS.Solid(tx, ty) end
-    local m = World.interiors[map]
-    if not m then return false end
-    local row = m.rows[ty + 1]
-    local ch = row and row:sub(tx + 1, tx + 1)
-    return ch ~= nil and INTERIOR_WALK[ch] or false
-end
-local Walkable = World.Walkable
-
--- is the point (x, y) free to stand on? (outdoors: the ~1 yd collision cells, see WS.SolidAt)
-local function Free(map, x, y)
-    if map == "world" then return not WS.SolidAt(x, y) end
-    return Walkable(map, floor(x), floor(y))
-end
-World.Free = Free
 
 -- the foot outdoors where the fine collision cells are: a body's half width in WoW (~0.5 yd), sampled round it
 local FOOT = 0.12
 local RING = {}
 for k = 0, 7 do RING[#RING + 1] = { math.cos(k * math.pi / 4), math.sin(k * math.pi / 4) } end
 
--- a circle of radius r (tiles) at (x, y) fits?
-function World.Fits(map, x, y, r)
-    if map == "world" and WS.CellMask(floor(x), floor(y)) then
+-- is the point (x, y) clear of the world's collision (outdoors: the cells round the foot)?
+local function GroundFits(x, y, r)
+    if WS.CellMask(floor(x), floor(y)) then
         r = r or FOOT
         if WS.SolidAt(x, y) then return false end
         for _, o in ipairs(RING) do
@@ -180,45 +128,183 @@ function World.Fits(map, x, y, r)
         end
         return true
     end
-    r = r or RADIUS
-    for _, o in ipairs({ { -r, -r }, { r, -r }, { -r, r }, { r, r } }) do
-        if not Walkable(map, floor(x + o[1]), floor(y + o[2])) then return false end
+    return not WS.Solid(floor(x), floor(y))
+end
+
+-- a body standing at (x, y) on layer li of building b (b nil: the ground) goes straight to (nx, ny): ok, and the
+-- building / layer it ends on. Every cell crossed must be linked to the next (a corner: either way round).
+local function Probe(x, y, b, li, nx, ny)
+    local cx, cy = floor(x * SUB), floor(y * SUB)
+    local tx, ty = floor(nx * SUB), floor(ny * SUB)
+    if cx ~= tx or cy ~= ty then
+        local dx, dy = nx - x, ny - y
+        local n = max(1, floor(max(abs(dx), abs(dy)) * SUB * 2 + 0.999))
+        for i = 1, n do
+            local f = i / n
+            local qx, qy = floor((x + dx * f) * SUB), floor((y + dy * f) * SUB)
+            if qx ~= cx or qy ~= cy then
+                local ddx, ddy = qx - cx, qy - cy
+                if abs(ddx) > 1 or abs(ddy) > 1 then return false end
+                local dh = ddx > 0 and 2 or 4
+                local dv = ddy > 0 and 3 or 1
+                local ok, b2, l2
+                if ddx ~= 0 and ddy ~= 0 then
+                    local ok1, b1, l1 = CellStep(b, li, cx, cy, dh)
+                    if ok1 then ok, b2, l2 = CellStep(b1, l1, cx + ddx, cy, dv) end
+                    if not ok then
+                        ok1, b1, l1 = CellStep(b, li, cx, cy, dv)
+                        if ok1 then ok, b2, l2 = CellStep(b1, l1, cx, cy + ddy, dh) end
+                    end
+                else
+                    ok, b2, l2 = CellStep(b, li, cx, cy, ddx ~= 0 and dh or dv)
+                end
+                if not ok then return false end
+                b, li, cx, cy = b2, l2, qx, qy
+            end
+        end
     end
-    return true
+    -- the spot itself: on the ground the world's collision, on a building's ground its props too (barrels...)
+    if not b then
+        if not GroundFits(nx, ny) then return false end
+    else
+        local l = WS.Layers(b, cx, cy)[li]
+        if l and l.ter and WS.SolidAt(nx, ny) then return false end
+    end
+    return true, b, li
+end
+
+-- a unit's layer index where it stands (re-settling it when its height fits no layer of its cell)
+local function UnitLayer(u)
+    local b = u.bld
+    if not b or u.e == nil then
+        if WS.BuildingAt(u.x, u.y) then
+            World.Settle(u)
+            b = u.bld
+            if not b then return nil, nil end
+        else
+            return nil, nil
+        end
+    end
+    local cx, cy = floor(u.x * SUB), floor(u.y * SUB)
+    local lay = WS.Layers(b, cx, cy)
+    if #lay == 0 then u.bld, u.e = nil, nil return nil, nil end
+    local k = LayerAt(lay, u.e)
+    if not k then
+        World.Settle(u, u.e)
+        if not u.bld then return nil, nil end
+        k = LayerAt(WS.Layers(u.bld, cx, cy), u.e)
+    end
+    return u.bld, k
+end
+World.UnitLayer = UnitLayer
+
+local function Place(u, x, y, b, li)
+    u.x, u.y = x, y
+    if b and li then
+        local l = WS.Layers(b, floor(x * SUB), floor(y * SUB))[li]
+        u.bld, u.e = b, l and l.h or u.e
+    else
+        u.bld, u.e = nil, nil
+    end
+end
+
+-- can a body stand at (x, y) - at height e in building b, or on the ground? (spawn wander spots, the goal of a path)
+function World.Fits(map, x, y, r, e, b)
+    local bb, cx, cy = WS.BuildingAt(x, y)
+    if bb then
+        local lay = WS.Layers(bb, cx, cy)
+        if #lay > 0 then
+            local k = LayerAt(lay, e or 0, e and 0.75 or 1e9)
+            if not k then return false end
+            return not (lay[k].ter and WS.SolidAt(x, y))
+        end
+    end
+    return GroundFits(x, y, r)
 end
 local Fits = World.Fits
+
+-- (outdoors: the point free to stand on)
+function World.Free(map, x, y)
+    return not WS.SolidAt(x, y)
+end
+
+-- can a foot stand on tile (tx, ty)? (outdoor paths)
+function World.Walkable(map, tx, ty)
+    return not WS.Solid(tx, ty)
+end
+local Walkable = World.Walkable
 
 -- moves u by (dx, dy) tiles, sliding along walls; returns the distance actually moved
 function World.MoveBy(u, dx, dy)
     local x, y = u.x, u.y
     local nx, ny = x + dx, y + dy
-    if not Fits(u.map, x, y) then
+    local b, li = UnitLayer(u)
+    if not b and not GroundFits(x, y) then
         -- (standing inside something - a spawn point or a saved spot on a cell that is solid now: walk out freely)
         u.x, u.y = nx, ny
-    elseif Fits(u.map, nx, ny) then
-        u.x, u.y = nx, ny
-    elseif Fits(u.map, nx, y) then
-        u.x = nx
-    elseif Fits(u.map, x, ny) then
-        u.y = ny
+        World.Settle(u)
+        local mx, my = u.x - x, u.y - y
+        return sqrt(mx * mx + my * my)
+    end
+    local ok, b2, l2 = Probe(x, y, b, li, nx, ny)
+    if ok then Place(u, nx, ny, b2, l2)
+    else
+        ok, b2, l2 = Probe(x, y, b, li, nx, y)
+        if ok then Place(u, nx, y, b2, l2)
+        else
+            ok, b2, l2 = Probe(x, y, b, li, x, ny)
+            if ok then Place(u, x, ny, b2, l2) end
+        end
     end
     local mx, my = u.x - x, u.y - y
     return sqrt(mx * mx + my * my)
 end
 
--- nothing solid on the straight line between two points
-function World.LineClear(map, x0, y0, x1, y1)
-    local dx, dy = x1 - x0, y1 - y0
-    local n = max(1, floor(max(abs(dx), abs(dy)) * (map == "world" and 8 or 3)))
-    for i = 0, n do
-        local f = i / n
-        if not Free(map, x0 + dx * f, y0 + dy * f) then return false end
+-- nothing in the way on the straight line between two points, for a body standing at the first (height e0 in
+-- building b0, or on the ground); returns ok and the height / building it would end at
+function World.LineClear(map, x0, y0, x1, y1, e0, b0)
+    local b, li
+    if b0 and e0 then
+        local cx, cy = floor(x0 * SUB), floor(y0 * SUB)
+        li = LayerAt(WS.Layers(b0, cx, cy), e0)
+        b = li and b0 or nil
+    elseif WS.BuildingAt(x0, y0) then
+        b, li = Settle(x0, y0, nil, nil)
     end
-    return true
+    if not b then
+        -- (on the ground the whole way: the fine cells along the line)
+        local dx, dy = x1 - x0, y1 - y0
+        local n = max(1, floor(max(abs(dx), abs(dy)) * 8))
+        local inside = false
+        for i = 0, n do
+            local f = i / n
+            local px, py = x0 + dx * f, y0 + dy * f
+            if WS.BuildingAt(px, py) then inside = true break end
+            if WS.SolidAt(px, py) then return false end
+        end
+        if not inside then return true end
+    end
+    local ok, b2, l2 = Probe(x0, y0, b, li, x1, y1)
+    if not ok then return false end
+    local e1 = b2 and l2 and WS.Layers(b2, floor(x1 * SUB), floor(y1 * SUB))[l2].h or nil
+    return true, e1, b2
 end
 
--- A* over tiles (8 ways, no corner cutting); returns { {x, y}, ... } tile centres or nil
-function World.Path(map, sx, sy, tx, ty, limit)
+-- the same spot, height and all: a and b see each other (no floor between, no wall)
+function World.CanSee(a, b)
+    if a.map ~= b.map then return false end
+    local ok, e1, b1 = World.LineClear(a.map, a.x, a.y, b.x, b.y, a.e, a.bld)
+    if not ok then return false end
+    if b1 ~= b.bld then return b1 == nil and b.bld == nil end
+    return b1 == nil or abs((e1 or 0) - (b.e or 0)) < 1.5
+end
+
+-- A* over tiles outdoors (8 ways, no corner cutting); returns { {x, y}, ... } tile centres or nil. In or into a
+-- building it searches its fine cells layer by layer instead (World.PathFine).
+function World.Path(map, sx, sy, tx, ty, limit, e0, b0, e1, b1)
+    if b0 or b1 or WS.BuildingAt(sx, sy) or WS.BuildingAt(tx, ty) then
+        return World.PathFine(sx, sy, tx, ty, limit, e0, b0, e1, b1)
+    end
     sx, sy, tx, ty = floor(sx), floor(sy), floor(tx), floor(ty)
     if not Walkable(map, tx, ty) then
         -- the nearest walkable tile next to the goal
@@ -282,6 +368,106 @@ function World.Path(map, sx, sy, tx, ty, limit)
     return nil
 end
 
+-- a binary heap of { f, ... } nodes (the fine search opens thousands)
+local function HeapPush(h, node)
+    local i = #h + 1
+    h[i] = node
+    while i > 1 do
+        local p = floor(i / 2)
+        if h[p][1] <= h[i][1] then break end
+        h[p], h[i] = h[i], h[p]
+        i = p
+    end
+end
+
+local function HeapPop(h)
+    local top = h[1]
+    local last = h[#h]
+    h[#h] = nil
+    if #h > 0 then
+        h[1] = last
+        local i, n = 1, #h
+        while true do
+            local l, r, m = i * 2, i * 2 + 1, i
+            if l <= n and h[l][1] < h[m][1] then m = l end
+            if r <= n and h[r][1] < h[m][1] then m = r end
+            if m == i then break end
+            h[m], h[i] = h[i], h[m]
+            i = m
+        end
+    end
+    return top
+end
+
+-- A* over fine cells (4 ways), each node a cell and the layer stood on (0: the ground), through the same links a
+-- body walks (CellStep); the goal is the cell at (tx, ty) on the layer nearest height e1 (any, on the ground).
+-- Returns { {x, y}, ... } cell centres or nil.
+function World.PathFine(sx, sy, tx, ty, limit, e0, b0, e1, b1)
+    local scx, scy = floor(sx * SUB), floor(sy * SUB)
+    local gcx, gcy = floor(tx * SUB), floor(ty * SUB)
+    local b, li
+    if b0 and e0 then
+        li = LayerAt(WS.Layers(b0, scx, scy), e0, 1e9)
+        b = li and b0 or nil
+    else
+        b, li = Settle(sx, sy, nil, nil)
+    end
+    local function K(cx, cy, l) return (cy * 65536 + cx) * 16 + (l or 0) end
+    limit = limit or 2500
+    local sk = K(scx, scy, li)
+    local blds, g, came, closed = { [sk] = b }, { [sk] = 0 }, {}, {}
+    local open = {}
+    HeapPush(open, { max(abs(scx - gcx), abs(scy - gcy)), scx, scy, li, 0 })
+    local n = 0
+    while #open > 0 and n < limit do
+        local cur = HeapPop(open)
+        local cx, cy, cl = cur[2], cur[3], cur[4]
+        local ck = K(cx, cy, cl)
+        if not closed[ck] then
+            closed[ck] = true
+            n = n + 1
+            local cb = blds[ck]
+            if cx == gcx and cy == gcy and (e1 == nil or not cl or abs(WS.Layers(cb, cx, cy)[cl].h - e1) < 1.5) then
+                local path = {}
+                local k = ck
+                while k and k ~= sk do
+                    local cell = floor(k / 16)
+                    table.insert(path, 1, { (cell % 65536 + 0.5) / SUB, (floor(cell / 65536) + 0.5) / SUB })
+                    k = came[k]
+                end
+                return path
+            end
+            for d = 1, 4 do
+                local ok, nb, nl = CellStep(cb, cl, cx, cy, d)
+                local nx, ny = cx + DXS[d], cy + DYS[d]
+                if ok then
+                    local px, py = (nx + 0.5) / SUB, (ny + 0.5) / SUB
+                    if nb then
+                        if WS.Layers(nb, nx, ny)[nl].ter and WS.SolidAt(px, py) then ok = false end
+                    elseif WS.SolidAt(px, py) then
+                        ok = false
+                    end
+                end
+                if ok then
+                    local nk = K(nx, ny, nl)
+                    local ng = cur[5] + 1
+                    if not closed[nk] and (not g[nk] or ng < g[nk]) then
+                        g[nk] = ng
+                        came[nk] = ck
+                        blds[nk] = nb
+                        HeapPush(open, { ng + max(abs(nx - gcx), abs(ny - gcy)), nx, ny, nl, ng })
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function World.MapName(map, x, y)
+    return (WS.AreaName(floor(x or 0), floor(y or 0))) or "Northshire Valley"
+end
+
 ---------------------------------------------------------------------------
 -- Spawns: creatures, NPCs, critters, objects
 ---------------------------------------------------------------------------
@@ -297,10 +483,11 @@ local function Spawn(rec)
     local kind = e.k == "mob" and "mob" or (e.k == "critter" and "critter" or "npc")
     local u = Combat.NewCreature("C:" .. e.g, kind, e.e, e)
     u.rec = rec
-    u.map = e.map or "world"
-    u.x, u.y = e.x + 0.5, e.y + 0.5
+    u.map = "world"
+    u.x, u.y = e.xf or (e.x + 0.5), e.yf or (e.y + 0.5)
+    World.Settle(u, e.ht)                   -- (in a building: the floor it stands on)
     u.face = e.f or "down"
-    u.homeX, u.homeY = u.x, u.y
+    u.homeX, u.homeY, u.homeE, u.homeB = u.x, u.y, u.e, u.bld
     if kind == "npc" then u.name = e.n or u.name u.title = e.t or (u.cr and u.cr.sub) end
     u.sprite = e.spr
     rec.unit = u
@@ -318,53 +505,63 @@ local function BuildSpawns()
             World.recs[rec.guid] = rec
             Spawn(rec)
         elseif e.k == "obj" then
-            World.objects[#World.objects + 1] = { e = e, guid = "O:" .. e.g, map = e.map or "world",
-                                                  x = e.x + 0.5, y = e.y + 0.5 }
+            local o = { e = e, guid = "O:" .. e.g, map = "world", x = e.xf or (e.x + 0.5), y = e.yf or (e.y + 0.5) }
+            -- (where it stands, height and all, as a unit would: o.e is its spawn)
+            o.pos = { map = "world", x = o.x, y = o.y }
+            World.Settle(o.pos, e.ht)
+            World.objects[#World.objects + 1] = o
         end
     end
 end
 
--- where an idle creature stands at realm time t (wander: a new spot in its radius every few seconds)
+-- where an idle creature stands at realm time t (wander: a new spot in its radius every few seconds), and the
+-- height it stands at near there (in a building)
 local SEG = 8
 function World.IdlePos(rec, t)
     local e, u = rec.e, rec.unit
     local hx, hy = u.homeX, u.homeY
     local r = e.w or 0
-    if r <= 0 then return hx, hy, false, u.face end
+    if r <= 0 then return hx, hy, false, u.face, u.homeE end
     local g = e.g
+    rec.spots = rec.spots or {}
     local function point(k)
+        local c = rec.spots[k]
+        if c then return c[1], c[2], c[3], c[4] end
         local a = Hash(g, k) * math.pi * 2
         local d = sqrt(Hash(g + 7, k)) * r
         local px, py = hx + math.cos(a) * d, hy + math.sin(a) * d
-        if not World.LineClear(u.map, hx, hy, px, py) or not Fits(u.map, px, py) then return hx, hy end
-        return px, py
+        local ok, pe, pb = World.LineClear(u.map, hx, hy, px, py, u.homeE, u.homeB)
+        if not ok or not Fits(u.map, px, py, nil, pe, pb) then px, py, pe, pb = hx, hy, u.homeE, u.homeB end
+        rec.spots[k] = { px, py, pe, pb }
+        rec.spots[k - 3] = nil
+        return px, py, pe, pb
     end
     local k = floor(t / SEG)
     local f = (t - k * SEG)
-    local ax, ay = point(k - 1)
-    local bx, by = point(k)
+    local ax, ay, ae, ab = point(k - 1)
+    local bx, by, be = point(k)
     local dist = sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) * YARDS
     local speed = Craft.WALK_SPEED * ((u.cr and u.cr.walk) or 1)
     local walkT = dist / speed
     -- (a blocked straight line between two spots: via home)
-    if dist > 0.01 and not World.LineClear(u.map, ax, ay, bx, by) then
+    if dist > 0.01 and not World.LineClear(u.map, ax, ay, bx, by, ae, ab) then
         local d1 = sqrt((hx - ax) ^ 2 + (hy - ay) ^ 2) * YARDS
         local d2 = sqrt((bx - hx) ^ 2 + (by - hy) ^ 2) * YARDS
         local t1, t2 = d1 / speed, d2 / speed
         if f < t1 then
             local p = f / t1
-            return ax + (hx - ax) * p, ay + (hy - ay) * p, true, World.FaceOf(hx - ax, hy - ay)
+            return ax + (hx - ax) * p, ay + (hy - ay) * p, true, World.FaceOf(hx - ax, hy - ay), ae
         elseif f < t1 + t2 then
             local p = (f - t1) / t2
-            return hx + (bx - hx) * p, hy + (by - hy) * p, true, World.FaceOf(bx - hx, by - hy)
+            return hx + (bx - hx) * p, hy + (by - hy) * p, true, World.FaceOf(bx - hx, by - hy), u.homeE
         end
-        return bx, by, false, World.FaceOf(bx - hx, by - hy)
+        return bx, by, false, World.FaceOf(bx - hx, by - hy), be
     end
     if f < walkT then
         local p = f / walkT
-        return ax + (bx - ax) * p, ay + (by - ay) * p, true, World.FaceOf(bx - ax, by - ay)
+        return ax + (bx - ax) * p, ay + (by - ay) * p, true, World.FaceOf(bx - ax, by - ay), p < 0.5 and ae or be
     end
-    return bx, by, false, (dist > 0.01) and World.FaceOf(bx - ax, by - ay) or u.face
+    return bx, by, false, (dist > 0.01) and World.FaceOf(bx - ax, by - ay) or u.face, be
 end
 
 function World.FaceOf(dx, dy)
@@ -379,14 +576,23 @@ end
 function World.Enter(c)
     if not World.built then
         World.built = true
-        BuildInteriors()
         BuildSpawns()
     end
     local p = Combat.NewPlayer(c)
     Craft.player = p
-    p.map = c.map or "world"
+    p.map = "world"
     p.x, p.y = c.x, c.y
-    if p.map ~= "world" and not World.interiors[p.map] then p.map, p.x, p.y = "world", c.bind.x, c.bind.y end
+    -- (saved inside one of the old inside maps, before buildings were walked in place: back at the hearth)
+    if c.map and c.map ~= "world" then
+        local b = c.bind or {}
+        if b.map and b.map ~= "world" then
+            local gy = D.graveyards and D.graveyards[1]
+            b = gy and { x = gy.x, y = gy.y } or b
+        end
+        p.x, p.y, c.e = b.x or p.x, b.y or p.y, nil
+    end
+    c.map = "world"
+    World.Settle(p, c.e)
     World.area = nil
     World.CheckArea(true)
     return p
@@ -397,7 +603,7 @@ function World.Leave()
     if p then
         local c = Craft.char
         if c then
-            c.map, c.x, c.y, c.face = p.map, p.x, p.y, p.face
+            c.map, c.x, c.y, c.e, c.face = p.map, p.x, p.y, p.e, p.face
             c.hp, c.power = p.hp, p.power
         end
         Combat.Remove(p)
@@ -405,8 +611,10 @@ function World.Leave()
     Craft.player = nil
 end
 
-function World.Teleport(u, map, x, y)
-    u.map, u.x, u.y = map, x, y
+-- e: the height to stand at there (in a building; nil: its ground)
+function World.Teleport(u, map, x, y, e)
+    u.map, u.x, u.y = "world", x, y
+    World.Settle(u, e)
     u.path = nil
     if u == Craft.player then
         Combat.Interrupt(u, "teleport")
@@ -419,9 +627,7 @@ end
 function World.CheckArea(quiet)
     local p = Craft.player
     if not p then return end
-    local name, zone, id
-    if p.map == "world" then name, zone, id = WS.AreaName(floor(p.x), floor(p.y))
-    else name, zone, id = World.MapName(p.map), nil, p.map end
+    local name, zone, id = WS.AreaName(floor(p.x), floor(p.y))
     if id and id ~= World.area then
         World.area = id
         World.areaName = name
@@ -504,22 +710,6 @@ local function MovePlayer(p, dt)
     p.moving = moved > 0
     p.face = World.FaceOf(dx, dy)
     if p.autoShot then p.autoShot = false end
-    -- doors and stairs
-    local tx, ty = floor(p.x), floor(p.y)
-    if p.map == "world" then
-        local d = W.doors and W.doors[ty * WS.WIDTH + tx]
-        if d and d.map and World.interiors[d.map] then
-            World.Teleport(p, d.map, (d.tx or d.ix) + 0.5, (d.ty or d.iy) + 0.5)
-            if d.inFace then p.face = d.inFace end
-        end
-    else
-        local m = World.interiors[p.map]
-        local w = m and m.warps[ty * 1000 + tx]
-        if w then
-            World.Teleport(p, w.map, w.x + 0.5, w.y + 0.5)      -- (outside: the tile in front of the door)
-            if w.face then p.face = w.face end
-        end
-    end
     World.CheckArea()
 end
 
@@ -550,20 +740,15 @@ function World.Hearth()
     local p, c = Craft.player, Craft.char
     if not p or not c then return end
     local b = c.bind
-    World.Teleport(p, b.map or "world", b.x, b.y)
+    World.Teleport(p, "world", b.x, b.y, b.e)
 end
 
 -- dying, the ghost run, coming back
 function World.ReleaseSpirit()
     local p, c = Craft.player, Craft.char
     if not p or not p.dead or p.ghost then return end
-    -- the graveyard nearest where you fell (inside a building: nearest its door), like WoW
+    -- the graveyard nearest where you fell, like WoW
     local cx, cy = p.x, p.y
-    if p.map ~= "world" then
-        for _, d in pairs(W.doors or {}) do
-            if d.map and d.map:match("^i%d+") == p.map:match("^i%d+") then cx, cy = d.ox or d.x, d.oy or d.y break end
-        end
-    end
     local gy, best
     for _, g in ipairs(D.graveyards) do
         local dd = Craft.Dist(cx, cy, g.x, g.y)
@@ -589,7 +774,7 @@ function World.Revive(atCorpse)
     p.dead, p.ghost = false, false
     c.dead, c.ghost = nil, nil
     if atCorpse and c.corpse then
-        World.Teleport(p, c.corpse.map, c.corpse.x, c.corpse.y)
+        World.Teleport(p, "world", c.corpse.x, c.corpse.y, c.corpse.e)
     end
     c.corpse = nil
     Combat.Recalc(p)
@@ -759,20 +944,23 @@ end
 World.Evade = Evade
 
 -- steps a creature toward (tx, ty) at speed (yards / s); uses a path around walls when the straight line is blocked
-local function Steer(mob, tx, ty, speed, dt, stopYd)
+local function Steer(mob, tx, ty, speed, dt, stopYd, te, tb)
     local rec = mob.rec
     local d = Craft.Dist(mob.x, mob.y, tx, ty)
     if d <= (stopYd or 0.3) then mob.moving = false return true end
     local gx, gy = tx, ty
-    if not World.LineClear(mob.map, mob.x, mob.y, tx, ty) then
+    local clear, le, lb = World.LineClear(mob.map, mob.x, mob.y, tx, ty, mob.e, mob.bld)
+    if clear and (te ~= nil or tb ~= nil) and (lb ~= tb or abs((le or 0) - (te or 0)) > 1.5) then clear = false end
+    if not clear then
         local now = Now()
         if not rec.path or (rec.pathAt or 0) < now or rec.pathGoal ~= floor(tx) * 16384 + floor(ty) then
-            rec.path = World.Path(mob.map, mob.x, mob.y, tx, ty, 700)
+            rec.path = World.Path(mob.map, mob.x, mob.y, tx, ty, 700, mob.e, mob.bld, te, tb)
             rec.pathAt = now + 0.6
             rec.pathGoal = floor(tx) * 16384 + floor(ty)
         end
         local p = rec.path and rec.path[1]
-        while p and Craft.Dist(mob.x, mob.y, p[1], p[2]) < 0.6 do
+        local near = (mob.bld or tb) and 0.35 or 0.6         -- (a building's path runs cell by cell)
+        while p and Craft.Dist(mob.x, mob.y, p[1], p[2]) < near do
             table.remove(rec.path, 1)
             p = rec.path[1]
         end
@@ -817,7 +1005,7 @@ local function ThinkCombat(mob, dt)
     local reach = Craft.MELEE_RANGE
     if rec.ranged and (mob.power or 0) > 0 then reach = rec.ranged - 2 end
     if d > reach - 0.5 and not mob.rooted then
-        Steer(mob, target.x, target.y, RunSpeed(mob), dt, reach - 1)
+        Steer(mob, target.x, target.y, RunSpeed(mob), dt, reach - 1, target.e, target.bld)
     else
         mob.moving = false
         Combat.Face(mob, target)
@@ -841,9 +1029,9 @@ end
 
 local function ThinkEvade(mob, dt)
     local rec = mob.rec
-    local done = Steer(mob, mob.homeX, mob.homeY, RunSpeed(mob) * 1.4, dt, 0.5)
+    local done = Steer(mob, mob.homeX, mob.homeY, RunSpeed(mob) * 1.4, dt, 0.5, mob.homeE, mob.homeB)
     if done or (rec.stuck or 0) > 3 then
-        mob.x, mob.y = mob.homeX, mob.homeY
+        mob.x, mob.y, mob.e, mob.bld = mob.homeX, mob.homeY, mob.homeE, mob.homeB
         mob.hp = mob.hpMax
         mob.power = mob.powerMax or 0
         mob.inCombat = false
@@ -858,7 +1046,7 @@ local function IdleAggro(mob, players)
     for _, pl in ipairs(players) do
         if pl.map == mob.map and not pl.dead and not pl.ghost then
             local d = Craft.UnitDist(mob, pl)
-            if d <= AggroRange(mob, pl) and World.LineClear(mob.map, mob.x, mob.y, pl.x, pl.y) then
+            if d <= AggroRange(mob, pl) and World.CanSee(mob, pl) then
                 World.Engage(mob, pl)
                 return true
             end
@@ -897,11 +1085,13 @@ local function UpdateCreatures(dt)
                 end
             elseif rec.state == "idle" or rec.state == "return" then
                 if near or rec.state == "return" then
-                    local ix, iy, moving, face = World.IdlePos(rec, clock)
+                    local ix, iy, moving, face, ie = World.IdlePos(rec, clock)
                     if rec.state == "return" then
-                        if Steer(u, ix, iy, Craft.WALK_SPEED * 1.5, dt, 0.3) then rec.state = "idle" end
+                        if Steer(u, ix, iy, Craft.WALK_SPEED * 1.5, dt, 0.3, ie, u.homeB) then rec.state = "idle" end
                     elseif not u.stunned and not u.rooted then
+                        local ox, oy = u.x, u.y
                         u.x, u.y, u.moving, u.face = ix, iy, moving, face
+                        if (ox ~= ix or oy ~= iy or u.e == nil) and (u.homeB or u.bld) then World.Settle(u, ie) end
                     end
                     if scan and World.authority and rec.state == "idle" then IdleAggro(u, players) end
                     -- spawn buffs (Frost Armor on the Geomancer)
@@ -1077,7 +1267,7 @@ function World.Update(dt)
     if now - lastSave > 2 then
         lastSave = now
         local c = Craft.char
-        c.map, c.x, c.y, c.face = p.map, p.x, p.y, p.face
+        c.map, c.x, c.y, c.e, c.face = p.map, p.x, p.y, p.e, p.face
         c.hp, c.power = p.hp, p.power
     end
 end

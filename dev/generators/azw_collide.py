@@ -6,9 +6,10 @@ wall. This module draws what really stops a body, from the client's own collisio
              WoW), placed as its sprite is drawn (azw_scenery: organic kinds unturned, small props PROP_SCALE
              bigger), cut to the band a body fills over the model's foot (BAND)
     WMOs     their collidable faces steeper than 50 degrees (azw_struct), cut to the band over the floor the tile
-             stands on; in a building's roof tiles (O "R") also every cell under its indoor groups' ceilings
+             stands on - except buildings walked in place (world["walked_in"]): their walls, floors and stairs are
+             in their own walk grids (azw_building)
 A cell is solid when a face reaches into its middle (the square shrunk by INSET a side); a doodad thinner than
-that still takes the cell under its middle. Door tiles (O "D") stay open: stepping on one walks you inside.
+that still takes the cell under its middle.
 
 build(world, gbox) -> {(cx, cy) fine cell: True} for the cells in the grid box gbox (tiles gx0, gx1, gy0, gy1)
 masks(world, cells, bx, by, block) -> [16-bit mask per tile of the block, row by row] (bit = sy * SUB + sx)"""
@@ -272,8 +273,8 @@ def build(world, gbox):
     n_wmo = 0
     for w in r["wmos"]:
         kind = world.get("wmo_kinds", {}).get(w[0], "auto")
-        if kind == "skip":
-            continue
+        if kind == "skip" or w[7] in world.get("walked_in", ()):
+            continue                    # (a building walked in place: its walls are in its own grid, azw_building)
         bb = w[3]
         if bb[3] / A.TS < gx0 or bb[0] / A.TS > gx1 or bb[5] / A.TS < gy0 or bb[2] / A.TS > gy1:
             continue

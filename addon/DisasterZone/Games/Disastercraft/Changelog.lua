@@ -7,6 +7,10 @@ ns.CraftChangelog = {
     {
         version = "0.3", date = "2026-10-09",
         changes = {
+            "Walk right into the Abbey: no more doors that teleport",
+            "Climb real stairs: each floor shows as you reach it",
+            "Roofs fade away while you are inside a building",
+            "Mines are walked in place too, dark around the tunnels",
             "Talent rows: pick 1 of 3 talents at levels 2, 4, 6, 8, 10",
             "Each row has a talent for every spec; swap free out of combat",
             "New abilities from rows: Mortal Strike, Pyroblast, Mind Flay...",

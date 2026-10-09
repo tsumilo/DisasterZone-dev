@@ -700,7 +700,7 @@ function Combat.Die(u, killer)
     if u.kind == "player" then
         u.inCombat = false
         Craft:Emit("combat", false)
-        if u.char then u.char.dead = true u.char.corpse = { map = u.map, x = u.x, y = u.y } end
+        if u.char then u.char.dead = true u.char.corpse = { map = u.map, x = u.x, y = u.y, e = u.e } end
     end
     -- a kill that yields experience (Spirit Tap)
     if killer and killer ~= u and Combat.IsPlayer(killer) and Combat.IsCreature(u)

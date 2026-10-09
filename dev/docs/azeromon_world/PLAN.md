@@ -85,3 +85,26 @@ Open items / next:
 - Starters (Young Wolf / Kobold Vermin from Eagan) and rival: ask the user.
 - Herb/ore nodes still Red Voxel tiles: render their GO models.
 - Old suites (test_azeromon*.py) run on LEGACY_START via _azero_bot; not re-run after the UI changes.
+
+## 2026-10-09: buildings walked in place (no inside maps)
+User report: walking round Northshire Abbey "zones me to random places", "not intuitive", "sometimes I get stuck"
+(the old inside maps: floors by NPC height, roofs counted as floor, one-tile stair warps, a flooded doorway of exit
+tiles). User chose: no inside maps at all, stairs as real elevation.
+- azw_building.py: per WMO with indoor groups (<= 400 yd) a walk grid over its footprint, SUB x SUB cells a tile
+  (as the outdoor collision): every height a body can stand at per cell (its walkable colliding faces + the
+  terrain), standable = nothing collidable in [h + 0.55, h + 1.9]; links to the neighbour layer nearest in height
+  within STEP 1.3 yd with no steep face crossing the centre-to-centre line at body height; terrain to terrain
+  always (outdoor rules); grid edges link "outdoors". Layers not reachable from outdoors are dropped (roofs).
+  Plain terrain cells are left out (outdoor collision there). Storeys = flat indoor floors (>= 40 cells, 2.6 yd
+  apart); the next storey begins SWITCH_AT 2.2 yd up. Heights in yd over the WMO origin (= its picture's frame).
+- azw_scenery: each storey's cut-away picture (wmo_with_doodads, clip at floor + 3.4 yd; a mine: drop_down plus
+  _over_tunnels - triangles more than a head over the lowest floor of the cell under them); the building's
+  outdoor pieces tagged bld (hidden while inside). azw_collide skips these WMOs. Spawns inside get ht / xf / yf.
+- Lua: W.AddBuilding / W.AddBuildingArt, WS.BuildingAt / WS.Layers / WS.StoreyOf; Disastercraft World.lua
+  units carry e (height) + bld; Probe / CellStep / MoveBy / LineClear / CanSee / PathFine (heap A* over cells and
+  layers); UIWorld: Stand (lift 0.6 e, eased), Shown (same storey only; mine: only the mine), cut-away fades,
+  veil in mines. Old saves inside an interior go to the hearth.
+- Tests: test_craft.py the_abbey_is_walked_in_and_out, the_abbey_stairs_climb_step_by_step,
+  every_building_npc_can_walk_out, ui_inside_the_abbey_its_roof_goes_and_your_storey_shows; ui_audit views
+  "Disastercraft - inside the Abbey / Abbey upstairs / Echo Ridge Mine".
+- Known: people are drawn at Pokemon scale (a tile tall) so rooms look cramped at world scale.

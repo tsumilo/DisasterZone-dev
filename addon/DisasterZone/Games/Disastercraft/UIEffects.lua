@@ -107,7 +107,7 @@ end
 
 -- the screen point (top-left origin, pixels) of unit u's attachment
 local function AttachPoint(u, att)
-    local sx, sy = UI.ToScreen(u.x, u.y)
+    local sx, sy = UI.UnitScreen(u)                            -- (up by its height in a building)
     local tile = UI.TILE or 32
     local a = ATT[att or -1] or ATT[34]
     local side = a[2]
@@ -192,7 +192,7 @@ local function StopAll(list) for _, e in ipairs(list or {}) do FX.Stop(e) end en
 
 local function Visible(u)
     local p = Craft.player
-    return u and p and u.map == p.map and abs(u.x - p.x) < 30 and abs(u.y - p.y) < 22
+    return u and p and u.map == p.map and abs(u.x - p.x) < 30 and abs(u.y - p.y) < 22 and (not UI.Shown or UI.Shown(u))
 end
 
 -- casts: the precast glow while it lasts, the flash when it goes off, the channel

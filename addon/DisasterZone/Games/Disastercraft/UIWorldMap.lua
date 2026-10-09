@@ -21,14 +21,10 @@ local art, overlays, dots = {}, {}, {}
 local arrow
 local shown                                -- the uiMapID on show
 
--- a hero's place on the world grid: inside a building, the door it went in by
+-- a hero's place on the world grid (buildings are walked in place: inside one too)
 function UI.MapPoint(u)
     if not u then return nil end
-    if u.map == "world" then return u.x, u.y end
-    for _, d in pairs(W.doors or {}) do
-        if d.map and d.map:match("^i%d+") == (u.map or ""):match("^i%d+") then return d.ox or d.x, d.oy or d.y end
-    end
-    return nil
+    return u.x, u.y
 end
 
 -- the way you face, as a map rotation (0 = north, counter-clockwise): the last way you moved

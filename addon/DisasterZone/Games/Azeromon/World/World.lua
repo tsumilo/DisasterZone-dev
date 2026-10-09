@@ -11,13 +11,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/World/World.lua", .
 --
 -- Ground classes: . grass  , dark grass  * flowers  = road  : dirt  + cobbles  % crops  ^ rocky  # cliff
 --                 ~ shallow water  w deep water  s sand  X nothing (outside the data)
--- Overlay: tree trunks, rocks, fences, props, building blocks (R), walls (#), decks (=), doors (D) - see OVER.
+-- Overlay: tree trunks, rocks, fences, props, building blocks (R), walls (#), decks (=) - see OVER. Buildings with
+-- rooms are walked in place: their walk grids (W.AddBuilding, WS.Layers) say where a body stands at what height.
 local addonName, ns = ...
 
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local byte, sub, rep, concat = string.byte, string.sub, string.rep, table.concat
 
-local W = { blocks = {}, areas = {}, treeCells = {}, doors = {}, entCells = {}, ents = {}, interiors = {} }
+local W = { blocks = {}, areas = {}, treeCells = {}, entCells = {}, ents = {} }
 ns.AzeroWorldData = W
 local WS = {}
 ns.AzeroLand = WS
@@ -26,7 +27,8 @@ ns.AzeroData = ns.AzeroData or {}  -- (Species.lua fills it: sprites, species, C
 local WIDTH = 8192                 -- tiles across the map (64 ADTs x 128)
 local BLOCK = 32
 local CELL = 16                    -- entity / tree index cell (tiles)
-WS.WIDTH, WS.BLOCK = WIDTH, BLOCK
+local SUB = 4                      -- fine cells a tile (collision, building walk grids)
+WS.WIDTH, WS.BLOCK, WS.SUB = WIDTH, BLOCK, SUB
 WS.YARDS = 533.3333 / 128
 
 ---------------------------------------------------------------------------
@@ -44,10 +46,6 @@ function W.AddTrees(flat)
         if not list then list = {} W.treeCells[key] = list end
         list[#list + 1] = { x = x, y = y, r = flat[i + 2] / 10 }
     end
-end
-
-function W.AddDoor(d)
-    W.doors[d.y * WIDTH + d.x] = d
 end
 
 -- a region's ground pages (Media/Azeromon/Ground/<name>_<n>.blp, 64 x 64 tiles of 16 px each)
@@ -70,14 +68,15 @@ function W.AddSprites(name, pages, pxPerTile, flat)
     return sp
 end
 
--- placements, flat { sprite (0-based), x, y, sort y (map pixels, 16 a tile), size x 100, ... }
+-- placements, flat { sprite (0-based), x, y, sort y (map pixels, 16 a tile), size x 100, ... }; bld: the building
+-- walked in place these pieces show from outside (hidden while you are in it)
 W.scenCells = {}
-function W.AddScenery(sp, flat)
+function W.AddScenery(sp, flat, bld)
     for i = 1, #flat, 5 do
         local s = sp.list[flat[i] + 1]
         local k = flat[i + 4] / 100
         local p = { sp = s, file = sp.file .. s.page, x = flat[i + 1] / 16, y = flat[i + 2] / 16,
-                    sort = flat[i + 3] / 16, k = math.abs(k), pxt = sp.pxt, tree = k < 0 or nil }
+                    sort = flat[i + 3] / 16, k = math.abs(k), pxt = sp.pxt, tree = k < 0 or nil, bld = bld }
         local key = floor(p.y / CELL) * 1024 + floor(p.x / CELL)
         local list = W.scenCells[key]
         if not list then list = {} W.scenCells[key] = list end
@@ -87,11 +86,11 @@ end
 
 -- a building's depth slices outdoors: flat { sprite, x, y, sort (16 a tile) }; each slice sorts at the ground row
 -- under it, so whatever stands behind one wing and in front of another is drawn right (and may fade: wall)
-function W.AddSceneryWalls(sp, flat)
+function W.AddSceneryWalls(sp, flat, bld)
     for i = 1, #flat, 4 do
         local s = sp.list[flat[i] + 1]
         local p = { sp = s, file = sp.file .. s.page, x = flat[i + 1] / 16, y = flat[i + 2] / 16,
-                    sort = flat[i + 3] / 16, k = 1, pxt = sp.pxt, wall = true }
+                    sort = flat[i + 3] / 16, k = 1, pxt = sp.pxt, wall = true, bld = bld }
         local key = floor(p.y / CELL) * 1024 + floor(p.x / CELL)
         local list = W.scenCells[key]
         if not list then list = {} W.scenCells[key] = list end
@@ -99,46 +98,48 @@ function W.AddSceneryWalls(sp, flat)
     end
 end
 
--- an interior floor's picture, drawn from its building's model: flat { sprite (0-based), x, y (16 a tile) }
-W.interiorArt = {}
-function W.AddInteriorArt(id, sp, flat)
-    local list = W.interiorArt[id] or {}
-    W.interiorArt[id] = list
+-- A building walked in place (gen: azw_building): its walk grid - SUB x SUB cells a tile from cell (x0, y0), w x h,
+-- one string a row (see WS.Layers) - and its storeys { f = floor, top = where the next one begins } in yards over
+-- the building's origin, the frame its pictures are drawn in (a body h yards up is drawn 0.6 h yards up the screen)
+W.buildings = {}
+W.bldCells = {}
+function W.AddBuilding(def)
+    def.dec = {}
+    def.art = {}
+    W.buildings[def.id] = def
+    for cy = floor(def.y0 / SUB / CELL), floor((def.y0 + def.h) / SUB / CELL) do
+        for cx = floor(def.x0 / SUB / CELL), floor((def.x0 + def.w) / SUB / CELL) do
+            local key = cy * 1024 + cx
+            local list = W.bldCells[key]
+            if not list then list = {} W.bldCells[key] = list end
+            list[#list + 1] = def
+        end
+    end
+end
+
+-- a storey's cut-away picture: the floor pieces { sprite, x, y } under everyone, the walls { sprite, x, y, sort }
+-- in depth slices
+function W.AddBuildingArt(id, storey, sp, flat, walls)
+    local b = W.buildings[id]
+    if not b then return end
+    local list = {}
+    b.art[storey] = list
     for i = 1, #flat, 3 do
         local s = sp.list[flat[i] + 1]
         list[#list + 1] = { sp = s, file = sp.file .. s.page, x = flat[i + 1] / 16, y = flat[i + 2] / 16,
-                            sort = -1e9, k = 1, pxt = sp.pxt }
+                            sort = -1e6, k = 1, pxt = sp.pxt, cut = true }
+    end
+    for i = 1, #walls, 4 do
+        local s = sp.list[walls[i] + 1]
+        list[#list + 1] = { sp = s, file = sp.file .. s.page, x = walls[i + 1] / 16, y = walls[i + 2] / 16,
+                            sort = walls[i + 3] / 16, k = 1, pxt = sp.pxt, wall = true, cut = true }
     end
 end
 
--- its walls, railings and furniture cut into depth slices: flat { sprite, x, y, sort (16 a tile) }; each slice is
--- drawn in the world's depth order at its own grid row (in front of the people behind it, behind those in front)
-function W.AddInteriorWalls(id, sp, flat)
-    local list = W.interiorArt[id] or {}
-    W.interiorArt[id] = list
-    for i = 1, #flat, 4 do
-        local s = sp.list[flat[i] + 1]
-        list[#list + 1] = { sp = s, file = sp.file .. s.page, x = flat[i + 1] / 16, y = flat[i + 2] / 16,
-                            sort = flat[i + 3] / 16, k = 1, pxt = sp.pxt, wall = true }
-    end
-end
-
--- a building's floor (generated from its WMO): { name, level, rows, stairs = { { x, y, map, tx, ty } } }
-function W.AddInterior(id, def)
-    W.interiors[id] = def
-end
-
--- the world door at (x, y) leads into interior `map`, onto its exit mat (ix, iy)
-function W.LinkDoor(x, y, map, ix, iy)
-    local d = W.doors[y * WIDTH + x]
-    if d then d.map, d.ix, d.iy = map, ix, iy end
-end
-
--- e.k = "npc" | "mob" | "obj"; e.g = the spawn's database guid (stable id); e.map = the interior it stands in
--- (then x / y are that interior's)
+-- e.k = "npc" | "mob" | "obj"; e.g = the spawn's database guid (stable id); in a building e.ht is the height it
+-- stands at (yards over the building's origin) and e.xf / e.yf its exact spot
 function W.Add(e)
     W.ents[#W.ents + 1] = e
-    if e.map then return end
     local key = CellKey(e.x, e.y)
     local list = W.entCells[key]
     if not list then list = {} W.entCells[key] = list end
@@ -358,8 +359,6 @@ end
 -- Fine collision (gen_azeromon_world: azw_collide): per tile a 16-bit mask of SUB x SUB cells (~1 yard each,
 -- bit sy * SUB + sx) from the client's own collision meshes - a trunk, a barrel, a building's walls take only the
 -- cells they stand on. Blocks generated before it have none: their overlay tiles are solid whole, as before.
-local SUB = 4
-WS.SUB = SUB
 local CENTRE = { 5, 6, 9, 10 }            -- the middle four cells (a tile's centre point is their corner)
 
 -- the tile's collision mask, or nil (no fine data in its block)
@@ -404,6 +403,76 @@ function WS.Solid(x, y)
         if v and v[2] then return true end
     end
     return SOLID_GROUND[g] or false
+end
+
+---------------------------------------------------------------------------
+-- Buildings walked in place: per fine cell the layers a body may stand on
+---------------------------------------------------------------------------
+
+-- the building whose walk grid covers the point (x, y) (tiles), and that cell
+function WS.BuildingAt(x, y)
+    local cx, cy = floor(x * SUB), floor(y * SUB)
+    local list = W.bldCells[floor(y / CELL) * 1024 + floor(x / CELL)]
+    if not list then return nil end
+    for _, b in ipairs(list) do
+        if cx >= b.x0 and cy >= b.y0 and cx < b.x0 + b.w and cy < b.y0 + b.h then return b, cx, cy end
+    end
+    return nil
+end
+
+local B64VAL = {}
+for i = 1, #RUNS do B64VAL[byte(RUNS, i)] = i - 1 end
+local L_NONE, L_OUT = byte("."), byte("o")
+
+-- a row of the grid: per cell (from x0) its list of layers { h, ind, ter, st, [1..4] = link n e s w }; a link is
+-- the neighbour's layer index, 0 = outdoors (the world's own ground and collision), nil = no way
+local function DecodeRow(b, j)
+    local s = b.rows[j + 1]
+    local row = {}
+    local i, x = 1, 0
+    while s and i <= #s do
+        local run = B64VAL[byte(s, i)] + 1
+        local n = B64VAL[byte(s, i + 1)]
+        i = i + 2
+        local lay = {}
+        for k = 1, n do
+            local v = B64VAL[byte(s, i)] * 64 + B64VAL[byte(s, i + 1)]
+            local fl = B64VAL[byte(s, i + 2)]
+            local l = { h = v / 16 - 128, ind = fl % 2 == 1, ter = floor(fl / 2) % 2 == 1 }
+            local st = floor(fl / 4)
+            if st > 0 then l.st = st end
+            for d = 1, 4 do
+                local c = byte(s, i + 2 + d)
+                if c == L_OUT then l[d] = 0 elseif c ~= L_NONE then l[d] = B64VAL[c] + 1 end
+            end
+            lay[k] = l
+            i = i + 7
+        end
+        for _ = 1, run do
+            row[x] = lay
+            x = x + 1
+        end
+    end
+    b.dec[j] = row
+    return row
+end
+
+local NOLAYERS = {}
+-- the layers of building b's fine cell (cx, cy) (world cell coordinates); empty: plain ground (outdoor rules)
+function WS.Layers(b, cx, cy)
+    local j, i = cy - b.y0, cx - b.x0
+    if i < 0 or j < 0 or i >= b.w or j >= b.h then return NOLAYERS end
+    local row = b.dec[j] or DecodeRow(b, j)
+    return row[i] or NOLAYERS
+end
+
+-- the storey (1-based) a height h is in, in building b
+function WS.StoreyOf(b, h)
+    local s = b.storeys
+    for k = 1, #s do
+        if h < s[k].top then return k end
+    end
+    return #s > 0 and #s or nil
 end
 
 function WS.Shade(x, y)
@@ -523,10 +592,6 @@ function WS.Compile(id, def, G)
     m.object = setmetatable({}, { __index = function(_, k)
         local e = objectAt[k]
         return e and WS.ObjectDef and WS.ObjectDef(e) or nil
-    end })
-    m.warp = setmetatable({}, { __index = function(_, k)
-        local d = W.doors[k]
-        return d and WS.DoorWarp and WS.DoorWarp(d) or nil
     end })
     return m
 end

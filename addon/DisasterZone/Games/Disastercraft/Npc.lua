@@ -58,7 +58,7 @@ end
 
 function Npc.Bind(u)
     local c = C()
-    c.bind = { map = u.map, x = u.x, y = u.y + 1, name = Craft.World.MapName(u.map, u.x, u.y) }
+    c.bind = { map = "world", x = u.x, y = u.y + 1, e = u.e, name = Craft.World.MapName(u.map, u.x, u.y) }
     Craft:Msg(c.bind.name .. " is now your home.", "system")
 end
 

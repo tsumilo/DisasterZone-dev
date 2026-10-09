@@ -5,9 +5,9 @@
 
 Pipeline: azw_raw (terrain per tile) -> ground classes (azw_classify) -> WMOs (azw_struct) -> doodads -> layers:
     G  ground class char per tile (azw_classify.CLASSES)
-    O  overlay char per tile (OVER below): trunks, rocks, fences, props, building roofs / walls / doors, bridges
+    O  overlay char per tile (OVER below): trunks, rocks, fences, props, building roofs / walls, bridges
     S  hill shade 0..9 per tile (light from the north-west, from the terrain normal)
-and entity lists (trees with crown sizes, doors, NPCs, mobs...)."""
+and entity lists (trees with crown sizes, NPCs, mobs...). Buildings with rooms are walked in place: azw_building."""
 import io
 import re
 import math
@@ -55,6 +55,7 @@ TILE_TO_OVER = {v[0]: k for k, v in OVER.items()}
 # WMO kinds where the automatic rules need help: "cave" = only its entrance matters outdoors
 WMO_KINDS = {
     110750: "cave",          # Echo Ridge Mine
+    111538: "cave",          # Jasperlode Mine
 }
 
 
@@ -112,7 +113,6 @@ def build(box=BOX):
     # surface height a person stands on (terrain, or the water surface)
     stand = r["z"] + np.where(r["liq"] > 0, r["depth"], 0)
     # --- WMOs ---
-    doors = []
     buildings = []
     for info in ST.apply(None, r["wmos"], WMO_KINDS):
         gx0, gy0 = r["gx0"], r["gy0"]
@@ -134,72 +134,11 @@ def build(box=BOX):
                 O[y, x] = "#"
             elif floors and G[y, x] in ("w", "~", "#", "^"):
                 O[y, x] = "="                    # a bridge deck / stairs over water or rock
-        if cave:
-            # a mine's mouth: the portal between its outdoor entrance and the tunnels, on the nearest walkable
-            # ground at that height; the way out is the walkable neighbour farthest from the tunnels
-            cx_ = sum(t[0] for t in info["cells"]) / max(1, len(info["cells"]))
-            cy_ = sum(t[1] for t in info["cells"]) / max(1, len(info["cells"]))
-            for (dx, dy, dz, grp, pi) in info["doors"]:
-                best = None
-                for yy in range(int(dy) - 4, int(dy) + 5):
-                    for xx in range(int(dx) - 4, int(dx) + 5):
-                        lx, ly = xx - gx0, yy - gy0
-                        if not (0 <= lx < W and 0 <= ly < H) or G[ly, lx] in "#wX" or O[ly, lx] != " ":
-                            continue
-                        if abs(float(stand[ly, lx]) - dz) > 6:
-                            continue
-                        d2 = (xx + 0.5 - dx) ** 2 + (yy + 0.5 - dy) ** 2
-                        if best is None or d2 < best[0]:
-                            best = (d2, xx, yy)
-                if not best:
-                    continue
-                _, xx, yy = best
-                outs = [(xx + ax, yy + ay) for ax, ay in ((0, 1), (0, -1), (1, 0), (-1, 0))
-                        if 0 <= xx + ax - gx0 < W and 0 <= yy + ay - gy0 < H
-                        and G[yy + ay - gy0, xx + ax - gx0] not in "#wX" and O[yy + ay - gy0, xx + ax - gx0] == " "]
-                if not outs:
-                    continue
-                out_t = max(outs, key=lambda t: (t[0] - cx_) ** 2 + (t[1] - cy_) ** 2)
-                O[yy - gy0, xx - gx0] = "D"
-                doors.append({"x": xx, "y": yy, "out": out_t, "z": dz, "wmo": info["w"][0], "uid": info["w"][7],
-                              "portal": pi, "px": dx, "py": dy})
-            buildings.append({"w": info["w"], "cells": set(info["cells"]), "cave": True})
-            continue
-        # doors: from the portal, walk away from the building's middle to the edge of its roof
-        roofs = [(tx, ty) for (tx, ty), c in info["cells"].items()
-                 if 0 <= tx - gx0 < W and 0 <= ty - gy0 < H and O[ty - gy0, tx - gx0] == "R"]
-        if not roofs:
-            continue
-        mx = sum(t[0] for t in roofs) / len(roofs) + 0.5
-        my = sum(t[1] for t in roofs) / len(roofs) + 0.5
-        for (dx, dy, dz, grp, pi) in info["doors"]:
-            vx, vy = dx - mx, dy - my
-            ln = math.hypot(vx, vy) or 1
-            vx, vy = vx / ln, vy / ln
-            px_, py_ = dx, dy
-            last = None
-            for _ in range(200):
-                x, y = int(px_) - gx0, int(py_) - gy0
-                if not (0 <= x < W and 0 <= y < H):
-                    break
-                if O[y, x] != "R":
-                    if last:
-                        break
-                else:
-                    last = (x, y)
-                px_ += vx * 0.25
-                py_ += vy * 0.25
-            if not last:
-                continue
-            ox, oy = int(px_) - gx0, int(py_) - gy0
-            if 0 <= ox < W and 0 <= oy < H and abs(dz - float(stand[oy, ox])) > 12:
-                continue                         # an upper-floor door (a balcony): not reachable from the ground
-            x, y = last
-            O[y, x] = "D"
-            doors.append({"x": x + gx0, "y": y + gy0, "out": (int(px_), int(py_)), "z": dz, "wmo": info["w"][0],
-                          "uid": info["w"][7], "portal": pi, "px": dx, "py": dy})
-        if info["indoor"] and not cave:
-            buildings.append({"w": info["w"], "cells": set(info["cells"])})
+        # a building with rooms (indoor groups) is walked in place: azw_building makes its walk grid when its
+        # region is written (building_grids)
+        bb = info["w"][3]
+        if info["indoor"] and max(bb[3] - bb[0], bb[5] - bb[2]) <= 400:
+            buildings.append({"w": info["w"], "kind": info["kind"]})
     # --- doodads ---
     unknown = {}
     for fid, p, rot, sc, uid in r["doodads"]:
@@ -267,8 +206,28 @@ def build(box=BOX):
     S = np.clip(np.round((lam - 0.35) / 0.65 * 9), 0, 9).astype(int)
     smooth(G)
     connect_decks(O, G)
-    return {"r": r, "G": G, "O": O, "S": S, "trees": trees, "doors": doors, "unknown": unknown,
-            "buildings": buildings}
+    return {"r": r, "G": G, "O": O, "S": S, "trees": trees, "unknown": unknown, "buildings": buildings}
+
+
+def building_grids(world, gbox, taken=frozenset()):
+    """{uid: azw_building grid} of the buildings whose origin lies in the grid box (tiles gx0, gx1, gy0, gy1) and
+    not in an earlier region's blocks (cached on the world)."""
+    import azw_building as BL
+    cache = world.setdefault("grids", {})
+    gx0, gx1, gy0, gy1 = gbox
+    out = {}
+    for b in world["buildings"]:
+        w = b["w"]
+        x, y = w[1][0] / A.TS, w[1][2] / A.TS
+        if not (gx0 <= x < gx1 and gy0 <= y < gy1) or block_of(int(x), int(y)) in taken:
+            continue
+        if w[7] not in cache:
+            cache[w[7]] = BL.grid(world["r"], w, b["kind"])
+            if cache[w[7]]:
+                print(BL.report(cache[w[7]]))
+        if cache[w[7]]:
+            out[w[7]] = cache[w[7]]
+    return out
 
 
 # Classes that only colour the ground (walkability stays the same whatever they become): the blend of WoW's
@@ -499,7 +458,9 @@ def emit_collision(world, bx0, bx1, by0, by1):
     """The fine collision layer (azw_collide) of the blocks: per block key an rle3 string of 16-bit masks per tile
     (bit sy * 4 + sx: a solid ~1 yd cell)."""
     import azw_collide as CO
-    cells = CO.build(dict(world, wmo_kinds=WMO_KINDS), (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK))
+    # (buildings walked in place keep their walls in their own walk grids: azw_building)
+    cells = CO.build(dict(world, wmo_kinds=WMO_KINDS, walked_in={b["w"][7] for b in world["buildings"]}),
+                     (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK))
     out = {}
     for by in range(by0, by1 + 1):
         for bx in range(bx0, bx1 + 1):
@@ -550,9 +511,9 @@ def object_models(entities):
     return out
 
 
-def emit(world, region, entities, interiors=(), taken=frozenset()):
-    """Writes World/<Region>.lua: the region's blocks, area names, trees, doors and spawns (but none of the blocks
-    in taken: an earlier region's)."""
+def emit(world, region, entities, taken=frozenset()):
+    """Writes World/<Region>.lua: the region's blocks, area names, trees, buildings and spawns (but none of the
+    blocks in taken: an earlier region's)."""
     import azw_entities as E
     r = world["r"]
     x0, x1, y0, y1, m = region_bbox(world, region)
@@ -563,9 +524,11 @@ def emit(world, region, entities, interiors=(), taken=frozenset()):
     ground, pages = emit_ground(world, region, bx0, bx1, by0, by1)
     coll = emit_collision(world, bx0, bx1, by0, by1)
     import azw_scenery as SCN
-    scen = SCN.build(dict(world, wmo_kinds=WMO_KINDS),
-                     (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK),
-                     os.path.join(MEDIA, "Scenery", region), objects=object_models(entities))
+    import azw_building as BL
+    gbox = (bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK)
+    grids = building_grids(world, gbox, taken)
+    scen = SCN.build(dict(world, wmo_kinds=WMO_KINDS), gbox, os.path.join(MEDIA, "Scenery", region),
+                     objects=object_models(entities), buildings=grids)
     # (an earlier region's blocks are its own: their scenery is not drawn twice)
     scen["placements"] = [p_ for p_ in scen["placements"] if block_of(p_["x"], p_["y"]) not in taken]
     for e in entities:
@@ -593,8 +556,6 @@ def emit(world, region, entities, interiors=(), taken=frozenset()):
     bgx0, bgx1, bgy0, bgy1 = bx0 * BLOCK, (bx1 + 1) * BLOCK, by0 * BLOCK, (by1 + 1) * BLOCK
     trees = [t for t in world["trees"] if bgx0 <= t[0] < bgx1 and bgy0 <= t[1] < bgy1
              and block_of(t[0], t[1]) not in taken]
-    doors = [d for d in world["doors"] if bgx0 <= d["x"] < bgx1 and bgy0 <= d["y"] < bgy1
-             and block_of(d["x"], d["y"]) not in taken]
     name = region.capitalize()
     path = os.path.join(WORLD_DIR, "%s.lua" % name)
     os.makedirs(WORLD_DIR, exist_ok=True)
@@ -616,57 +577,49 @@ def emit(world, region, entities, interiors=(), taken=frozenset()):
             sp += [s_["page"], s_["u"], s_["v"], w_, h_, int(round(s_["ox"])), int(round(s_["oy"]))]
         out.append("local SP = W.AddSprites(%s, %d, %d, { %s })\n" % (lua_str(region), scen["pages"], SCN.PXT,
                                                                        ", ".join(map(str, sp))))
-        pl, walls = [], []
+        # (a building walked in place: its outside pieces carry its id - hidden while you are in it - and each
+        # storey's cut-away picture is its own list, see W.AddBuilding)
+        pl, walls, by_bld, cuts = [], [], {}, {}
         for p_ in scen["placements"]:
+            if "st" in p_:
+                c_ = cuts.setdefault((p_["bld"], p_["st"]), ([], []))
+                if p_.get("wall"):
+                    c_[1].extend([p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)),
+                                  int(round(p_["sort"] * 16))])
+                else:
+                    c_[0].extend([p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16))])
+                continue
+            if p_.get("bld"):
+                tl, tw = by_bld.setdefault(p_["bld"], ([], []))
+            else:
+                tl, tw = pl, walls
             if p_.get("wall"):                  # a building's depth slice (see azw_scenery: wmo_pieces)
-                walls += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)), int(round(p_["sort"] * 16))]
+                tw += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)), int(round(p_["sort"] * 16))]
                 continue
             kk = int(round(p_.get("k", 1) * 100))
-            pl += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)), int(round(p_["sort"] * 16)),
+            tl += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)), int(round(p_["sort"] * 16)),
                    -kk if p_.get("kind") == "tree" else kk]           # (negative: a tree, its crown may fade)
         out.append("W.AddScenery(SP, { %s })\n" % ", ".join(map(str, pl)))
         out.append("W.objSprites = W.objSprites or {} W.objSprites[%s] = SP\n" % lua_str(region))
         if walls:
             out.append("W.AddSceneryWalls(SP, { %s })\n" % ", ".join(map(str, walls)))
-        for d in doors:
-            out.append("W.AddDoor(%s)\n" % lua_val({"x": d["x"], "y": d["y"], "ox": d["out"][0], "oy": d["out"][1],
-                                                     "wmo": d["wmo"], "uid": d["uid"]}))
-        for it in interiors:
-            for l in it["levels"]:
-                out.append("W.AddInterior(%s, %s)\n" % (lua_str(l["id"]), lua_val({
-                    "name": l["name"], "level": l["level"], "rows": l["rows"],
-                    "stairs": [{"x": w_["x"], "y": w_["y"], "map": "i%d_%d" % (it["uid"], w_["to"]),
-                                "tx": w_["tx"], "ty": w_["ty"]} for w_ in l["warps"]]})))
-            for d in it["doors"]:
-                if "inside" in d and False:
-                    pass
-                if "inside" in d:
-                    out.append("W.LinkDoor(%d, %d, %s, %d, %d)\n" % (d["x"], d["y"], lua_str("i%d_0" % it["uid"]),
-                                                                     d["inside"][0], d["inside"][1]))
-        # the floors drawn from the building's own model (azw_scenery.build_interiors)
-        if interiors:
-            import azw_interior as AI
-            ia = SCN.build_interiors(interiors, os.path.join(MEDIA, "Scenery", region + "_in"), AI.FINE)
-            sp = []
-            for s_ in ia["sprites"]:
-                h_, w_ = s_["img"].shape[:2]
-                sp += [s_["page"], s_["u"], s_["v"], w_, h_, int(round(s_["ox"])), int(round(s_["oy"]))]
-            out.append("local IA = W.AddSprites(%s, %d, %d, { %s })\n" % (lua_str(region + "_in"), ia["pages"], SCN.PXT,
-                                                                          ", ".join(map(str, sp))))
-            for mid, pls in sorted(ia["maps"].items()):
-                flat, walls = [], []
-                for p_ in pls:
-                    if "sort" in p_:            # a depth slice of the walls: drawn in the world's depth order
-                        walls += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16)),
-                                  int(round(p_["sort"] * 16))]
-                    else:
-                        flat += [p_["s"], int(round(p_["x"] * 16)), int(round(p_["y"] * 16))]
-                out.append("W.AddInteriorArt(%s, IA, { %s })\n" % (lua_str(mid), ", ".join(map(str, flat))))
-                if walls:
-                    out.append("W.AddInteriorWalls(%s, IA, { %s })\n" % (lua_str(mid), ", ".join(map(str, walls))))
-            print("interiors %s: %d pieces, %d page(s)" % (region, len(ia["sprites"]), ia["pages"]))
+        # buildings walked in place (azw_building): the walk grid, the storeys, the pictures
+        for uid, g in sorted(grids.items()):
+            out.append("W.AddBuilding(%s)\n" % lua_val({
+                "id": uid, "x0": g["cx0"], "y0": g["cy0"], "w": g["w"], "h": g["h"], "cave": g["cave"] or None,
+                "storeys": [{"f": round(st["f"], 2), "top": round(min(st["top"], 9999), 2)} for st in g["storeys"]],
+                "rows": BL.encode_rows(g)}))
+            tl, tw = by_bld.get(uid, ([], []))
+            if tl:
+                out.append("W.AddScenery(SP, { %s }, %d)\n" % (", ".join(map(str, tl)), uid))
+            if tw:
+                out.append("W.AddSceneryWalls(SP, { %s }, %d)\n" % (", ".join(map(str, tw)), uid))
+            for k in range(len(g["storeys"])):
+                fl, wl = cuts.get((uid, k), ([], []))
+                out.append("W.AddBuildingArt(%d, %d, SP, { %s }, { %s })\n" % (uid, k + 1, ", ".join(map(str, fl)),
+                                                                                ", ".join(map(str, wl))))
         for e in entities:
-            if e.get("map") or (bgx0 <= e["x"] < bgx1 and bgy0 <= e["y"] < bgy1):
+            if bgx0 <= e["x"] < bgx1 and bgy0 <= e["y"] < bgy1:
                 out.append("W.Add(%s)\n" % lua_val(e))
         f.write("".join(out).encode("utf-8"))
     print("wrote", path, os.path.getsize(path), "bytes")
@@ -709,51 +662,25 @@ def entities_for(world, gbox, taken=frozenset()):
     gx0, gx1, gy0, gy1 = gbox
     out, fought = [], set()
     creatures = E.creatures(gx0, gx1, gy0, gy1)
-    # buildings with a door get an inside (azw_interior): the creatures standing in their footprint go there
-    import azw_interior as AI
-    interiors, placed = [], {}
-    anames = None
-    for b in world.get("buildings", []):
-        uid = b["w"][7]
-        bdoors = [d for d in world["doors"] if d["uid"] == uid and gx0 <= d["x"] < gx1 and gy0 <= d["y"] < gy1
-                  and block_of(d["x"], d["y"]) not in taken]
-        if not bdoors:
-            continue
-        ins = []
-        for c in creatures:
-            x, y = int(c["x"]), int(c["y"])
-            lx, ly = x - r["gx0"], y - r["gy0"]
-            if (x, y) not in b["cells"] or not (0 <= lx < r["W"] and 0 <= ly < r["H"]):
+    # in a building walked in place (azw_building) a spawn stands on the layer nearest its height (ht, yd over the
+    # building's origin) at its exact spot (xf, yf)
+    import azw_building as BL
+    grids = building_grids(world, gbox, taken)
+
+    def place(base, fx, fy, z):
+        for g in grids.values():
+            if not (g["cx0"] <= fx * BL.SUB < g["cx0"] + g["w"] and g["cy0"] <= fy * BL.SUB < g["cy0"] + g["h"]):
                 continue
-            if b.get("cave"):
-                ground = float(r["z"][ly, lx])
-                if c["z"] < ground - 3:                  # under the hill: in the tunnels
-                    ins.append(c)
-            elif world["O"][ly, lx] in "RD":
-                ins.append(c)
-        d0 = bdoors[0]
-        aid = int(r["area"][d0["y"] - r["gy0"], d0["x"] - r["gx0"]])
-        if anames is None:
-            anames = {}
-        if aid not in anames:
-            anames.update(area_names({aid}))
-        name = anames.get(aid, {}).get("name", "Inside")
-        levels = AI.build(b["w"], bdoors, ins, name, single=b.get("cave", False))
-        for l in levels:
-            l["id"] = "i%d_%d" % (uid, l["level"])
-            for (c, ix, iy) in l["npcs"]:
-                placed[c["guid"]] = (l["id"], ix, iy)
-        if levels:
-            interiors.append({"uid": uid, "levels": levels, "doors": bdoors, "w": b["w"], "cave": b.get("cave", False)})
+            got = BL.layer_for(g, fx, fy, z - g["oz"], reach=1e9)
+            if got:
+                base.update(ht=round(got[2]["h"], 2), xf=round(fx, 2), yf=round(fy, 2))
+            return
     for c in creatures:
         x, y = int(c["x"]), int(c["y"])
-        if block_of(x, y) in taken and c["guid"] not in placed:
+        if block_of(x, y) in taken:
             continue
         base = {"g": c["guid"], "x": x, "y": y, "f": E.facing(c["face"])}
-        if c["guid"] in placed:
-            mid, ix, iy = placed[c["guid"]]
-            base.update(map=mid, x=ix, y=iy)
-            c = dict(c, move=0, path=[])
+        place(base, c["x"], c["y"], c["z"])
         if c["move"] == 1 and c["wander"]:
             base["w"] = max(1, int(round(c["wander"] / A.TS)))
         if c["path"]:
@@ -797,9 +724,11 @@ def entities_for(world, gbox, taken=frozenset()):
             kind = "read"
         if not kind or block_of(o["x"], o["y"]) in taken:
             continue
-        out.append({"k": "obj", "g": o["guid"], "e": o["entry"], "n": n, "kind": kind, "x": int(o["x"]),
-                    "y": int(o["y"])})
-    return out, fought, interiors
+        ob = {"k": "obj", "g": o["guid"], "e": o["entry"], "n": n, "kind": kind, "x": int(o["x"]), "y": int(o["y"])}
+        if "z" in o:
+            place(ob, o["x"], o["y"], o["z"])
+        out.append(ob)
+    return out, fought
 
 
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
@@ -995,13 +924,13 @@ if __name__ == "__main__":
             gb = ((x0 + r["gx0"]) // BLOCK * BLOCK, ((x1 + r["gx0"]) // BLOCK + 1) * BLOCK,
                   (y0 + r["gy0"]) // BLOCK * BLOCK, ((y1 + r["gy0"]) // BLOCK + 1) * BLOCK)
             before = frozenset(taken)
-            ents, fought, interiors = entities_for(world, gb, before)
+            ents, fought = entities_for(world, gb, before)
             taken |= {by * 256 + bx for by in range(gb[2] // BLOCK, gb[3] // BLOCK)
                       for bx in range(gb[0] // BLOCK, gb[1] // BLOCK)}
             fought_all |= fought
             npc_entries |= {e["e"] for e in ents if e["k"] == "npc"}
             obj_entries |= {e["e"] for e in ents if e["k"] == "obj"}
-            regions.append((region, ents, interiors, before))
+            regions.append((region, ents, before))
         species = SP.species_for(fought_all)
         players = {}
         for race, file in PLAYER_RACES.items():
@@ -1011,15 +940,15 @@ if __name__ == "__main__":
         displays = [("outfit", 1, sex, items) for items in CLASS_OUTFITS.values() for sex in (0, 1)]
         displays += [d for d in players.values() if d]
         displays += [s["display"] for s in species.values()]
-        displays += [e["d"] for _, ents, _, _ in regions for e in ents if e["k"] in ("npc", "critter") and e.get("d")]
+        displays += [e["d"] for _, ents, _ in regions for e in ents if e["k"] in ("npc", "critter") and e.get("d")]
         sheet, sheet_h = emit_sprite_sheet(displays)
         emit_seehole()
-        for region, ents, interiors, before in regions:
+        for region, ents, before in regions:
             for e in ents:
                 if e["k"] in ("npc", "critter") and e.get("d") in sheet:
                     e["spr"] = sheet[e["d"]]
                 e.pop("d", None)
-            emit(world, region, ents, interiors, before)
+            emit(world, region, ents, before)
         emit_species(species, sheet, sheet_h, {k: sheet[d] for k, d in players.items() if d in sheet})
         emit_quests(npc_entries, obj_entries)
         sys.exit(0)

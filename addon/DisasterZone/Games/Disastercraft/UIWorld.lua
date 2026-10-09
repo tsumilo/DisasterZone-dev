@@ -4,6 +4,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Disastercraft/UIWorld.lua", 
 -- drawn back to front by where they stand; the target's selection circle, name plates, quest markers, floating
 -- combat text, missiles and impacts, chat bubbles, the corpse's sparkle. Mouse: left-click targets, right-click
 -- talks / attacks / loots, the wheel zooms, hovering shows the unit's tooltip and WoW's cursors.
+-- Buildings are walked in place: step inside one and its roof fades away to the storey you stand on (its cut-away
+-- picture, see W.AddBuildingArt); up the stairs the next storey's picture takes over; a mine's tunnels are drawn
+-- on black. Who stands on another storey (or inside while you are out) is not shown.
 local addonName, ns = ...
 
 local UI = ns.CraftUI
@@ -106,6 +109,7 @@ local function Draw(sort)
     if not r then r = {} reqs[nreq] = r end
     r.sort, r.idx = sort, nreq
     r.c8, r.alpha, r.cr, r.cg, r.cb, r.blend, r.pt, r.see = nil, 1, 1, 1, 1, "BLEND", "TOPLEFT", nil
+    r.cut, r.bld = nil, nil                -- (what the picture is: for the test suites)
     return r
 end
 UI.DepthDraw = Draw
@@ -248,6 +252,10 @@ function UI.BuildWorld(parent)
     view.bg:SetColorTexture(0, 0, 0, 1)
     canvas = CreateFrame("Frame", nil, view)
     canvas:SetAllPoints()
+    UI.veil = K.Tex(canvas, "BACKGROUND", nil, 7)
+    UI.veil:SetAllPoints()
+    UI.veil:SetColorTexture(0, 0, 0, 1)
+    UI.veil:Hide()
     -- the depth frames (bodies, scenery, walls: see FlushDepth), then the glows, then names and numbers
     for f = 1, DEPTH_FRAMES do
         local d = CreateFrame("Frame", nil, view)
@@ -310,6 +318,56 @@ local function ToScreen(x, y)
 end
 UI.ToScreen = ToScreen
 
+---------------------------------------------------------------------------
+-- Heights: a body in a building is drawn up the screen by its height (OBLIQUE yards a yard, as the building's own
+-- picture is rendered: azw_render), eased so a step up a stair or out of a door does not jump; and it is seen only
+-- from the storey it is on
+---------------------------------------------------------------------------
+
+local OBLIQUE, LIFT_RATE = 0.6, 3.5        -- (tiles a second the drawn height catches up)
+local SUBC = WS.SUB
+local inB, inSt, inCave                    -- the building and storey you are inside (nil: outdoors)
+
+-- where u stands: its lift (tiles up the screen) and the building / storey it is inside (nil when out, or on a
+-- building's outdoor parts: porches, steps)
+local function Stand(u, dt)
+    local b, li = Craft.World.UnitLayer(u)
+    local want, ib, ist = 0, nil, nil
+    if b and li then
+        local l = WS.Layers(b, floor(u.x * SUBC), floor(u.y * SUBC))[li]
+        if l then
+            if not l.ter then want = OBLIQUE * l.h / Craft.YARDS end
+            if l.ind then ib, ist = b, l.st or 1 end
+        end
+    end
+    local cur = u.lift
+    if not cur or not dt or dt <= 0 or u.liftMap ~= u.map then cur = want
+    elseif cur < want then cur = min(want, cur + LIFT_RATE * dt)
+    elseif cur > want then cur = max(want, cur - LIFT_RATE * dt) end
+    u.lift, u.liftMap, u.inB, u.inSt = cur, u.map, ib, ist
+    return cur
+end
+UI.Stand = Stand
+
+-- is u seen from where you stand? (outdoors: those outdoors; inside: those on your storey, and outdoors unless
+-- you are down a mine)
+local function Shown(u)
+    if not u or u.map ~= (Craft.player and Craft.player.map) then return false end
+    if u.inB == nil and u.bld and u.lift == nil then Stand(u) end
+    if inB then
+        if u.inB == inB and u.inSt == inSt then return true end
+        return u.inB == nil and not inCave
+    end
+    return u.inB == nil
+end
+UI.Shown = Shown
+
+-- a unit's feet on the screen (lifted by its height)
+function UI.UnitScreen(u)
+    return ToScreen(u.x, u.y - (u.lift or 0))
+end
+local UnitScreen = UI.UnitScreen
+
 -- the cursor's world point
 function UI.CursorWorld()
     local cx, cy = GetCursorPosition()
@@ -337,6 +395,9 @@ end
 
 local function DrawGround(map, cols, rows)
     local fx, fy = floor(camX - cols / 2), floor(camY - rows / 2)
+    -- (down a mine: black round its tunnels)
+    UI.veil:SetAlpha(UI.veilA or 0)
+    UI.veil:SetShown((UI.veilA or 0) > 0.01)
     for i = 0, cols + 1 do
         for j = 0, rows + 1 do
             local c = Cell(i, j)
@@ -380,7 +441,18 @@ local function DrawCollision(map, cols, rows)
                 for sy = 0, sub - 1 do
                     for sx = 0, sub - 1 do
                         local x, y = wx + (sx + 0.5) / sub, wy + (sy + 0.5) / sub
-                        if WS.SolidAt(x, y) then
+                        local solid
+                        local b, cx, cy = WS.BuildingAt(x, y)
+                        local lay = b and WS.Layers(b, cx, cy)
+                        if lay and #lay > 0 then
+                            -- (a building's cell: no floor within a step of your height)
+                            local e, ok = Craft.player.bld == b and Craft.player.e or 0, false
+                            for _, l in ipairs(lay) do if abs(l.h - e) <= 1.3 then ok = true end end
+                            solid = not ok
+                        else
+                            solid = WS.SolidAt(x, y)
+                        end
+                        if solid then
                             n = n + 1
                             local t = collTex[n]
                             if not t then
@@ -452,7 +524,7 @@ function UI.FCT(u, text, r, g, b, crit, big)
     fs:SetText(text)
     fs:SetTextColor(r or 1, g or 1, b or 1)
     fs:Show()
-    fct[#fct + 1] = { fs = fs, u = u, x = u.x, y = u.y, map = u.map, t0 = Now(), crit = crit,
+    fct[#fct + 1] = { fs = fs, u = u, x = u.x, y = u.y - (u.lift or 0), map = u.map, t0 = Now(), crit = crit,
                       dx = (math.random() - 0.5) * 18 }
 end
 
@@ -491,7 +563,8 @@ local function DrawEffects()
                 local d = Craft.Dist(m.from[1], m.from[2], dst.x, dst.y)
                 local f = min(1, (now - m.start) * (sp.speed or 20) / max(0.1, d))
                 local x = m.from[1] + (dst.x - m.from[1]) * f
-                local y = (m.from[2] - 0.9) + ((dst.y - 0.9) - (m.from[2] - 0.9)) * f      -- (chest high)
+                local dy = dst.y - (dst.lift or 0)
+                local y = (m.from[2] - 0.9) + ((dy - 0.9) - (m.from[2] - 0.9)) * f      -- (chest high)
                 local sx, sy = ToScreen(x, y)
                 t:ClearAllPoints()
                 t:SetPoint("CENTER", canvas, "TOPLEFT", sx, -sy)
@@ -505,7 +578,7 @@ local function DrawEffects()
             if age >= dur or not e.u then done = true else
                 local f = age / dur
                 -- (a ring lies round the feet; a flash is chest high; a pillar rises from the feet)
-                local sx, sy = ToScreen(e.u.x, e.u.y - (e.kind == "pillar" and 1.1 or (e.kind == "ring" and 0 or 0.8)))
+                local sx, sy = ToScreen(e.u.x, e.u.y - (e.u.lift or 0) - (e.kind == "pillar" and 1.1 or (e.kind == "ring" and 0 or 0.8)))
                 t:ClearAllPoints()
                 t:SetPoint("CENTER", canvas, "TOPLEFT", sx, -sy)
                 local size = e.kind == "ring" and (TILE * (0.5 + (e.radius or 2) * 2 * f)) or
@@ -584,6 +657,67 @@ local function UnitPose(u, now)
 end
 UI.UnitPose = UnitPose
 
+---------------------------------------------------------------------------
+-- Buildings cut away: inside one its outside pieces (the roof) fade out and the picture of your storey shows;
+-- going up or down, the new storey's picture is there at once and the old one fades; going out, the roof fades in
+-- and only then the cut-away goes
+---------------------------------------------------------------------------
+
+local CUT_RATE = 4                          -- fades a second
+local roofA = {}                            -- building id -> its outside pieces' alpha (missing: 1)
+local cuts = {}                             -- { b, st, a } cut-away pictures being drawn
+
+function UI.UpdateCutaway(dt)
+    local step = (dt and dt > 0) and dt * CUT_RATE or 1
+    -- the roof of the building you are in fades out; every other one back in
+    if inB then roofA[inB.id] = max(0, (roofA[inB.id] or 1) - step) end
+    for id, a in pairs(roofA) do
+        if not inB or id ~= inB.id then
+            a = a + step
+            roofA[id] = a < 1 and a or nil
+        end
+    end
+    local have
+    for i = #cuts, 1, -1 do
+        local c = cuts[i]
+        if inB and c.b == inB and c.st == inSt then
+            c.a, have = 1, true
+        elseif c.b == inB or not roofA[c.b.id] then
+            -- (another storey shown, or out of the building with its roof back: fade away)
+            c.a = c.a - step
+            if c.a <= 0 then table.remove(cuts, i) end
+        end
+    end
+    if inB and not have then cuts[#cuts + 1] = { b = inB, st = inSt, a = 1 } end
+    -- down a mine: the world round it goes dark
+    local want = inCave and 1 or 0
+    local v = UI.veilA or 0
+    if v < want then v = min(want, v + step) elseif v > want then v = max(want, v - step) end
+    UI.veilA = v
+end
+
+-- how much of a building's outside piece shows
+function UI.BuildingAlpha(sc)
+    if sc.cut then return sc.cutA or 0 end
+    if inCave then return 0 end
+    return roofA[sc.bld] or 1
+end
+
+-- the scenery to draw in the rectangle: the world's (less what a mine hides), then the cut-away pictures
+function UI.SceneryFor(x0, y0, x1, y1)
+    local out = {}
+    if (UI.veilA or 0) < 0.99 then
+        for _, sc in ipairs(WS.SceneryIn(x0, y0, x1, y1)) do out[#out + 1] = sc end
+    end
+    for _, c in ipairs(cuts) do
+        for _, sc in ipairs(c.b.art[c.st] or {}) do
+            sc.cutA = c.a
+            out[#out + 1] = sc
+        end
+    end
+    return out
+end
+
 -- a scenery / interior sprite's picture: half a texel in from each edge (filtering there read the page around the
 -- piece: a dark seam), the drawn box shrunk to match
 local function ScenPicture(r, sc, px16)
@@ -602,26 +736,30 @@ function UI.DrawWorld(dt)
     -- about 17 tiles across the panel at the normal zoom (the wheel zooms 0.6x - 1.8x)
     TILE = floor(Craft.Clamp(VW / 17, 30, 80) * (UI.zoom or 1) + 0.5)
     UI.TILE = TILE
-    camX, camY = p.x, p.y - 0.8
+    -- where you stand: the storey you are inside decides what is drawn
+    Stand(p, dt)
+    inB, inSt = p.inB, p.inSt
+    inCave = inB and inB.cave and true or nil
+    camX, camY = p.x, p.y - 0.8 - (p.lift or 0)
     local cols, rows = math.ceil(VW / TILE) + 1, math.ceil(VH / TILE) + 1
     local map = p.map
     local now = Now()
-    -- ground (outdoors); an interior is its own picture on black
-    if map == "world" then DrawGround(map, cols, rows)
-    else for _, col in pairs(grid) do for _, c in pairs(col) do c:Hide() end end end
+    UI.UpdateCutaway(dt)
+    DrawGround(map, cols, rows)
     DrawCollision(map, cols, rows)
-    -- scenery (trees, houses, fences); in an interior its floor under everyone and its walls in depth slices
+    -- scenery (trees, houses, fences); the building you are in drawn cut away at your storey instead of its roof
     scenUsed = 0
     local x0, y0 = camX - cols / 2 - 1, camY - rows / 2 - 1
     local x1, y1 = x0 + cols + 2, y0 + rows + 2
-    local list
-    if map == "world" then list = WS.SceneryIn(x0, y0, x1, y1)
-    else local m = Craft.World.interiors[map] list = m and m.art or {} end
+    local list = UI.SceneryFor(x0, y0, x1, y1)
     local feetX, feetY = p.x, p.y
     -- the bodies a wall may not hide (see SeeHoles): you, your target, then the nearest within FADE_NEAR tiles
     local cand = {}
     for _, u in pairs(Combat.units) do
-        if u.map == map and not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) and
+        if u ~= p and u.map == map and abs(u.x - camX) < cols and abs(u.y - camY) < rows then Stand(u, dt) end
+    end
+    for _, u in pairs(Combat.units) do
+        if u.map == map and not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) and Shown(u) and
            (u == p or u == p.target or (abs(u.x - p.x) < FADE_NEAR and abs(u.y - p.y) < FADE_NEAR)) then
             cand[#cand + 1] = { u = u, k = (u == p and -2) or (u == p.target and -1) or Craft.Dist(u.x, u.y, p.x, p.y) }
         end
@@ -630,7 +768,7 @@ function UI.DrawWorld(dt)
     seeN = min(#cand, SEE_MAX)
     for i = 1, seeN do
         local u = cand[i].u
-        local ux, uy = ToScreen(u.x, u.y)
+        local ux, uy = UnitScreen(u)
         local b = seeBoxes[i]
         if not b then b = {} seeBoxes[i] = b end
         b.u, b.y, b.hit = u, u.y, false
@@ -643,24 +781,12 @@ function UI.DrawWorld(dt)
         local s, k = sc.sp, sc.k
         local kk = k / sc.pxt
         local l, tt = sc.x - s.ox * kk, sc.y - s.oy * kk
-        if l < x1 and l + s.w * kk > x0 and tt < y1 and tt + s.h * kk > y0 then
+        local fade = (sc.bld or sc.cut) and UI.BuildingAlpha(sc) or 1
+        if fade > 0.01 and l < x1 and l + s.w * kk > x0 and tt < y1 and tt + s.h * kk > y0 then
             local px16 = TILE / sc.pxt * k
-            if map ~= "world" and not sc.wall then
-                -- an interior's floor: under every body
-                scenUsed = scenUsed + 1
-                local t = scen[scenUsed]
-                if not t then t = K.Tex(canvas, "BACKGROUND", nil, 1) scen[scenUsed] = t end
-                if t.file ~= sc.file then t:SetTexture(sc.file) t.file = sc.file end
-                local q = {}
-                ScenPicture(q, sc, px16)
-                t:SetTexCoord(q.l, q.r, q.t, q.b)
-                t:SetSize(q.w, q.h)
-                t:ClearAllPoints()
-                t:SetPoint("TOPLEFT", canvas, "TOPLEFT", q.x, -q.y)
-                t:SetAlpha(1)
-                t:Show()
-            else
+            do
                 local r = Draw(sc.sort)
+                r.cut, r.bld = sc.cut, sc.bld
                 ScenPicture(r, sc, px16)
                 -- a wall in front of a body near you turns see-through where it covers it (only the slices on it,
                 -- so the room keeps its walls); a tree crown in front of you fades; both ease in and out
@@ -680,7 +806,7 @@ function UI.DrawWorld(dt)
                     if not dt or dt <= 0 then a = want end
                     sc.fadeA = a
                 end
-                r.alpha = a
+                r.alpha = a * fade
             end
         end
     end
@@ -701,7 +827,7 @@ function UI.DrawWorld(dt)
     local halfW, halfH = cols / 2 + 2, rows / 2 + 2
     for _, u in pairs(Combat.units) do
         if u.map == map and abs(u.x - camX) < halfW and abs(u.y - camY) < halfH and
-           not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) then
+           not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) and Shown(u) then
             local spr = UI.SpriteOf(u)
             local r = Draw(u.y)
             local face, frame, pose = u.face or "down", UnitFrame(u, now), UnitPose(u, now)
@@ -709,8 +835,8 @@ function UI.DrawWorld(dt)
             local size = TILE
             if u.cc then size = TILE * 0.8 end
             r.w, r.h = size, size
-            -- the body stands on its feet: the sprite's bottom row on the unit's point
-            local sx, sy = ToScreen(u.x, u.y)
+            -- the body stands on its feet: the sprite's bottom row on the unit's point (up by its height)
+            local sx, sy = UnitScreen(u)
             r.pt, r.x, r.y = "BOTTOM", sx, sy + 0.06 * TILE
             -- a player in their gear (Outfit.lua): the bare body instead of the class sprite, each worn piece over
             -- it, cut from the same 32 px cell
@@ -834,10 +960,10 @@ function UI.DrawWorld(dt)
     UI.DrawObjects(map, halfW, halfH, now)
     -- the target's circle
     local tgt = p.target
-    if tgt and tgt.map == map and not (tgt.rec and tgt.rec.hidden) then
+    if tgt and tgt.map == map and not (tgt.rec and tgt.rec.hidden) and Shown(tgt) then
         local c = REACT[Combat.Reaction(p, tgt)] or REACT.neutral
         if tgt.dead then c = { 0.6, 0.6, 0.6 } end
-        local sx, sy = ToScreen(tgt.x, tgt.y)
+        local sx, sy = UnitScreen(tgt)
         UI.circle:ClearAllPoints()
         local d = TILE * CircleSize(tgt)
         UI.circle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.04 * TILE))
@@ -848,8 +974,8 @@ function UI.DrawWorld(dt)
         UI.circle:Hide()
     end
     local hv = UI.hover
-    if hv and hv ~= tgt and hv.map == map then
-        local sx, sy = ToScreen(hv.x, hv.y)
+    if hv and hv ~= tgt and hv.map == map and Shown(hv) then
+        local sx, sy = UnitScreen(hv)
         UI.hoverCircle:ClearAllPoints()
         local d = TILE * CircleSize(hv)
         UI.hoverCircle:SetPoint("CENTER", canvas, "TOPLEFT", sx, -(sy - 0.04 * TILE))
@@ -864,7 +990,7 @@ function UI.DrawWorld(dt)
     UI.ghostTint:SetShown(p.ghost and true or false)
     local c = Craft.char
     if p.ghost and c and c.corpse and c.corpse.map == map then
-        local sx, sy = ToScreen(c.corpse.x, c.corpse.y)
+        local sx, sy = ToScreen(c.corpse.x, c.corpse.y - (c.corpse.e and c.corpse.e > 0 and OBLIQUE * c.corpse.e / Craft.YARDS or 0))
         sx, sy = Craft.Clamp(sx, 20, VW - 20), Craft.Clamp(sy, 20, VH - 40)
         UI.corpseMark:ClearAllPoints()
         UI.corpseMark:SetPoint("CENTER", top, "TOPLEFT", sx, -sy)
@@ -888,7 +1014,7 @@ function UI.DrawWorld(dt)
             table.remove(fct, i)
         else
             local u = f.u
-            local x, y = u and u.map == map and u.x or f.x, u and u.map == map and u.y or f.y
+            local x, y = u and u.map == map and u.x or f.x, u and u.map == map and (u.y - (u.lift or 0)) or f.y
             local sx, sy = ToScreen(x, y)
             local rise = age / dur
             local pop = f.crit and (1 + 0.6 * max(0, 1 - age * 6)) or 1
@@ -920,7 +1046,7 @@ end
 function UI.DrawObjects(map, halfW, halfH, now)
     local n = 0
     for _, o in ipairs(Craft.World.objects) do
-        if o.map == map and abs(o.x - camX) < halfW and abs(o.y - camY) < halfH then
+        if o.map == map and abs(o.x - camX) < halfW and abs(o.y - camY) < halfH and Shown(o.pos or o) then
             local wanted = Craft.Quests.ObjectWanted(o)
             local used = o.usedUntil and Craft.World.Clock() < o.usedUntil
             local model = ObjectModel(o)
@@ -937,9 +1063,10 @@ function UI.DrawObjects(map, halfW, halfH, now)
                 elseif o.e.kind == "herb" then icon = "Interface\\Icons\\INV_Misc_Flower_02"
                 elseif o.e.kind == "ore" then icon = "Interface\\Icons\\INV_Ore_Copper_01"
                 else icon = "Interface\\Icons\\INV_Box_01" end
-                local sx, sy = ToScreen(o.x, o.y)
+                local sx, sy = UnitScreen(o.pos or o)
                 local r = Draw(o.y)
                 if model then
+                    model.y = o.y - ((o.pos or o).lift or 0)
                     ScenPicture(r, model, TILE / model.pxt)        -- (its own model, like the scenery)
                 else
                     r.file, r.l, r.r, r.t, r.b = icon, 0.07, 0.93, 0.07, 0.93
@@ -997,9 +1124,9 @@ end
 function UI.DrawBubbles(now)
     for _, b in ipairs(bubbles) do
         local u = b.u
-        if u and (now - b.t0 > 6 or u.dead or u.map ~= Craft.player.map) then b.u = nil end
+        if u and (now - b.t0 > 6 or u.dead or u.map ~= Craft.player.map or not Shown(u)) then b.u = nil end
         if b.u then
-            local sx, sy = ToScreen(u.x, u.y)
+            local sx, sy = UnitScreen(u)
             b.f:ClearAllPoints()
             b.f:SetPoint("BOTTOM", top, "TOPLEFT", sx, -(sy - TILE * 1.55 - 14))
             b.f:Show()
@@ -1029,15 +1156,16 @@ local function PickAt(x, y)
     -- bodies: the sprite stands on its feet, so the clickable box is the tile above the feet point
     local best, bd = nil, 0.62
     for _, u in pairs(Combat.units) do
-        if u ~= p and u.map == p.map and not (u.rec and u.rec.hidden) and not (u.ghost) then
-            local d = sqrt((u.x - x) ^ 2 + ((u.y - ((u.dead and not u.ghost) and 0.25 or 0.55)) - y) ^ 2)
+        if u ~= p and u.map == p.map and not (u.rec and u.rec.hidden) and not (u.ghost) and Shown(u) then
+            local uy = u.y - (u.lift or 0)
+            local d = sqrt((u.x - x) ^ 2 + ((uy - ((u.dead and not u.ghost) and 0.25 or 0.55)) - y) ^ 2)
             if d < bd then best, bd = u, d end
         end
     end
     if best then return best end
     for _, t in ipairs(objTex) do
         local o = t.obj
-        if o and t.shown and sqrt((o.x - x) ^ 2 + ((o.y - 0.3) - y) ^ 2) < 0.5 then return o end
+        if o and t.shown and sqrt((o.x - x) ^ 2 + ((o.y - ((o.pos or o).lift or 0) - 0.3) - y) ^ 2) < 0.5 then return o end
     end
     return nil
 end

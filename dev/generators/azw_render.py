@@ -97,7 +97,7 @@ def _transform(verts, yaw, elev):
 
 
 def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.62, diffuse=0.48, clip_z=None,
-           drop_down=False, aux_floor_z=None):
+           drop_down=False, aux_floor_z=None, aux_floor_tol=0.9, drop_tris=None):
     """-> (RGBA uint8 image, origin pixel). aux_floor_z (a model-frame height, oblique view only): also returns a
     third value {"north": per-pixel map north (yd) of the surface seen, "floor": per-pixel bool - an upward face
     within a step of that height, "height": yd above that height}, for cutting a picture into depth slices."""
@@ -129,7 +129,9 @@ def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.
         nbuf = np.zeros((H, W), np.float64)
         hbuf = np.zeros((H, W), np.float64)
         fbuf = np.zeros((H, W), bool)
-    for t in mesh["tris"]:
+    for ti, t in enumerate(mesh["tris"]):
+        if drop_tris is not None and ti in drop_tris:
+            continue                     # (cut away by the caller: a mine's roof over its tunnel)
         a, b, cc, tf = t[0], t[1], t[2], t[3]
         if clip_z is not None and min(verts[a, 2], verts[b, 2], verts[cc, 2]) > clip_z:
             continue                     # (an interior: ceilings and the floors above taken off)
@@ -187,7 +189,7 @@ def render(mesh, yaw, elev, px_per_yd, oversample=4, alpha_test=0.35, ambient=0.
             nb[win] = (l0 * world[a, 1] + l1 * world[b, 1] + l2 * world[cc, 1])[win]
             up = float(np.dot(np.cross(world[b] - world[a], world[cc] - world[a]) / ln, (0, 0, 1)))
             zw = l0 * world[a, 2] + l1 * world[b, 2] + l2 * world[cc, 2]
-            fbuf[miny:maxy + 1, minx:maxx + 1][win] = (abs(up) >= 0.75) & (np.abs(zw - aux_floor_z) < 0.9)[win]
+            fbuf[miny:maxy + 1, minx:maxx + 1][win] = (abs(up) >= 0.75) & (np.abs(zw - aux_floor_z) < aux_floor_tol)[win]
             hbuf[miny:maxy + 1, minx:maxx + 1][win] = (zw - aux_floor_z)[win]
     # down to pixel size
     h, w = H // oversample, W // oversample

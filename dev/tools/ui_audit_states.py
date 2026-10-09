@@ -261,12 +261,23 @@ CHESS_LADDER = ("local res = C.Data().results local names = { 'Victhar', 'Fazerb
 DC_IN = ("ns.GamesUI:Select('disastercraft') local C, UI = ns.Craft, ns.CraftUI UI.CloseAll() UI.ClearCursorItem() "
          "if not (C:Data().chars and C:Data().chars[%d]) then C:NewCharacter(%d, %d) end "
          "if UI.inWorld and C.char.class ~= %d then UI.ToGlue() end if not UI.inWorld then UI.Glue.selected = %d UI.Glue.EnterWorld() end "
-         "local p = C.player p.map, p.x, p.y = '%s', %s, %s C.World.CheckArea(true) UI.Hud.zoneAt = nil "
+         "local p = C.player p.map, p.x, p.y = '%s', %s, %s C.World.Settle(p) C.World.CheckArea(true) UI.Hud.zoneAt = nil "
          "%s UI.DrawWorld(0) UI.UpdateHud(0)")
 
 
 def dc(cls, x, y, m="world", extra="", sex=0):
     return DC_IN % (cls, cls, sex, cls, cls, m, x, y, extra)
+
+
+# inside a building walked in place (id: its WMO placement): next to the first spawn standing indoors on storey
+# `st`, at its height (Lua for dc's extra)
+def dc_inside(bid, st=1):
+    return ("local WS, W = ns.AzeroLand, C.World local best for _, rec in pairs(W.recs) do local u = rec.unit "
+            "if u and u.bld and u.bld.id == %d then local b, li = W.UnitLayer(u) "
+            "local l = b and WS.Layers(b, math.floor(u.x * 4), math.floor(u.y * 4))[li] "
+            "if l and l.ind and (l.st or 1) == %d and (not best or u.guid < best.guid) then best = u end end end "
+            "if best then W.Teleport(p, 'world', best.x, best.y + 0.3, best.e) C.World.SetTarget(nil) end "
+            "for _, rec in pairs(W.recs) do if rec.unit then rec.unit.hostile = false end end " % (bid, st))
 
 
 # the nearest spawn of an entry (any map) as T_DCU
@@ -1012,9 +1023,11 @@ STATES = [
         "if r.QuestFrameDetailPanel then r.QuestFrameDetailPanel:Show() end"))),
     ("Disastercraft - layout merchant", opened("games", dc(1, 4127.8, 6244, "world", "T_LY = T_LY or {} for _, f in pairs(T_LY) do f:Hide() end "
         "local f = UI.Build('MerchantFrame', UI.hudFrame) f:ClearAllPoints() f:SetPoint('TOPLEFT', 20, -100) f:Show() T_LY.merchant = f"))),
-    ("Disastercraft - inside the Abbey", opened("games", dc(5, 8.5, 31.5, "i10286_0"))),
-    # right behind the hall's south railing: the railing's depth slice covers the legs
-    ("Disastercraft - Abbey railing", opened("games", dc(5, 9.5, 34.7, "i10286_0"))),
+    # inside the Abbey, walked in place: its roof gone, the ground floor cut away over head height; then upstairs
+    ("Disastercraft - inside the Abbey", opened("games", dc(5, 4127.8, 6244, "world", dc_inside(10286, 1)))),
+    ("Disastercraft - Abbey upstairs", opened("games", dc(5, 4127.8, 6244, "world", dc_inside(10286, 3)))),
+    # down Echo Ridge Mine: its tunnels on black, the kobolds in them
+    ("Disastercraft - Echo Ridge Mine", opened("games", dc(5, 4127.8, 6244, "world", dc_inside(71448, 1)))),
     # outdoors by the Abbey's east end: Eagan Peltskinner under the roof (it fades round him), trees behind it
     ("Disastercraft - by Eagan", opened("games", dc(1, 4133.5, 6223.6))),
     ("Disastercraft - Abbey east trees", opened("games", dc(1, 4128.5, 6228.5))),

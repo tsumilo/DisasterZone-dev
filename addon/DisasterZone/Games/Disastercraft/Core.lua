@@ -45,9 +45,15 @@ function Craft.Dist(ax, ay, bx, by)
     return sqrt(dx * dx + dy * dy) * Craft.YARDS
 end
 
+-- (in a building walked in place a unit has a height: someone on the floor above is that much farther away)
 function Craft.UnitDist(a, b)
     if not a or not b or a.map ~= b.map then return 1e9 end
-    return Craft.Dist(a.x, a.y, b.x, b.y)
+    local d = Craft.Dist(a.x, a.y, b.x, b.y)
+    if a.bld or b.bld then
+        local dz = (a.bld and a.e or 0) - (b.bld and b.e or 0)
+        if dz > 1 or dz < -1 then d = sqrt(d * d + dz * dz) end
+    end
+    return d
 end
 
 function Craft.Clamp(v, lo, hi) return v < lo and lo or (v > hi and hi or v) end

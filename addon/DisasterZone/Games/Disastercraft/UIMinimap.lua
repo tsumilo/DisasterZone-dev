@@ -16,7 +16,6 @@ local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 local TS = 533.33333 / 128                      -- yards a grid tile
 local SIZE = 140                                -- the round map, px
 local ACROSS_OUT = { 466.67, 400, 333.33, 266.67, 200, 133.33 } -- yards across, outdoors (WoW's zoom levels)
-local ACROSS_IN = { 120, 100, 80, 60, 45, 30 }                  -- ... inside a building
 local ADT = 128                                 -- grid tiles an ADT
 
 local cluster, map, mask, tiles, inner, blips, arrow, zoneText, zoomIn, zoomOut, toggle
@@ -194,31 +193,6 @@ local function DrawTiles(p, d)
     return gpx
 end
 
--- inside a building: its own floor picture (the interior art without the depth slices), a cell = half a tile
-local function DrawInside(p, d)
-    for i = 1, #tiles do tiles[i]:Hide() end
-    local m = Craft.World.interiors[p.map]
-    local cpx = SIZE * (TS / 2) / d                -- px a cell
-    local n = 0
-    for _, sc in ipairs(m and m.art or {}) do
-        if not sc.wall then
-            n = n + 1
-            local t = inner[n]
-            if not t then t = MaskedTex("BACKGROUND", 2) inner[n] = t end
-            local s = sc.sp
-            t:SetTexture(sc.file)
-            t:SetTexCoord(s.u / 1024, (s.u + s.w) / 1024, s.v / 1024, (s.v + s.h) / 1024)
-            local k = cpx / sc.pxt
-            t:SetSize(s.w * k, s.h * k)
-            t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", map, "CENTER", (sc.x - p.x) * cpx - s.ox * k, -((sc.y - p.y) * cpx - s.oy * k))
-            t:Show()
-        end
-    end
-    for i = n + 1, #inner do inner[i]:Hide() end
-    return cpx
-end
-
 function UI.UpdateMinimap()
     local p = Craft.player
     if not p or not cluster or not map:IsShown() then
@@ -228,9 +202,7 @@ function UI.UpdateMinimap()
     local W = Craft.World
     zoneText:SetText(W.areaName or W.MapName(p.map, p.x, p.y))
     zoneText:SetTextColor(0.1, 1, 0.1)                 -- (friendly territory: Alliance land)
-    local outside = p.map == "world"
-    local d = (outside and ACROSS_OUT or ACROSS_IN)[zoom]
-    local px = outside and DrawTiles(p, d) or DrawInside(p, d)
+    local px = DrawTiles(p, ACROSS_OUT[zoom])
     if arrow.SetRotation then arrow:SetRotation(UI.FacingAngle and UI.FacingAngle(p) or 0) end
     -- blips: quest givers, other heroes, your corpse (within the round map)
     local n = 0
