@@ -83,13 +83,9 @@ local function TitleAndPortrait(f, refs, name, title, portraitFn)
     if p and portraitFn then portraitFn(p) end
 end
 
+-- (the NPC's own pixel body, as on the map - not the client's 3D portrait)
 local function NpcPortrait(t, u)
-    if u and u.cr and u.cr.disp and SetPortraitTextureFromCreatureDisplayID then
-        local ok = pcall(SetPortraitTextureFromCreatureDisplayID, t, u.cr.disp)
-        if ok then return end
-    end
-    if SetPortraitToTexture then pcall(SetPortraitToTexture, t, "Interface\\CharacterFrame\\TempPortrait")
-    else t:SetTexture("Interface\\CharacterFrame\\TempPortrait") end
+    K.SpritePortrait(t, u)
 end
 F.NpcPortrait = NpcPortrait
 
@@ -1275,17 +1271,20 @@ local function CharacterSheet()
             b:SetScript("OnLeave", K.HideTooltip)
         end
     end
-    -- the model: drag to turn it, the two round buttons too (Model_OnLoad / Model_RotateLeft)
+    -- the model's place: your pixel body in your gear, whole pixels, standing on the floor of the frame; drag to
+    -- turn it, the two round buttons too (Model_OnLoad / Model_RotateLeft), a facing a step
     local m = chaRefs.CharacterModelFrame
     if m then
-        m.rot = 0
-        local function turn(d)
-            m.rot = (m.rot + d) % (2 * math.pi)
-            if m.SetFacing then pcall(m.SetFacing, m, m.rot) end
-        end
+        local sv = K.Sprite(m, m:GetWidth() > 10 and m:GetWidth() or 233, m:GetHeight() > 10 and m:GetHeight() or 215)
+        sv:SetPoint("BOTTOM", m, "BOTTOM", 0, 6)
+        sv.intScale = true
+        K.Turntable(sv, false, true)
+        sv:EnableMouse(false)
+        m.dzSprite = sv
+        local function turn(d) sv:Drag(d) end
         local l, r = chaRefs.CharacterModelFrameRotateLeftButton, chaRefs.CharacterModelFrameRotateRightButton
-        if r then r:SetScript("OnClick", function() turn(0.25) end) end
-        if l then l:SetScript("OnClick", function() turn(-0.25) end) end
+        if r then r:SetScript("OnClick", function() sv:Turn(1) end) end
+        if l then l:SetScript("OnClick", function() sv:Turn(-1) end) end
         m:EnableMouse(true)
         m:SetScript("OnMouseDown", function(self) self.dragX = GetCursorPosition() end)
         m:SetScript("OnMouseUp", function(self)
@@ -1298,12 +1297,12 @@ local function CharacterSheet()
         m:HookScript("OnUpdate", function(self)
             if self.dragX then
                 local x = GetCursorPosition()
-                turn((x - self.dragX) * 0.02)
+                turn((x - self.dragX) / max(0.01, self:GetEffectiveScale() or 1))
                 self.dragX = x
             end
         end)
     end
-    -- (dressed again each time the sheet opens: a hidden model may have been reset by the client)
+    -- (drawn again each time the sheet opens)
     cha:HookScript("OnShow", function() cha.modelKey = nil end)
     cha.left, cha.right = "PLAYERSTAT_BASE_STATS", nil
     StatDropdown(chaRefs.PlayerStatFrameLeftDropdown, "left")
@@ -1318,7 +1317,7 @@ function UI.RefreshCharacter()
     local c, p = Craft.char, Craft.player
     chaRefs.CharacterNameText:SetText(c.name)
     chaRefs.CharacterLevelText:SetFormattedText("Level %d %s %s", c.level, "Human", Craft.CLASS_NAMES[c.class])
-    K.HeroPortrait(chaRefs.CharacterFramePortrait, c.sex or 0)
+    K.SpritePortrait(chaRefs.CharacterFramePortrait, p)
     SetTabs(chaRefs, "CharacterFrameTab", 1, 1)
     for id, nm in ipairs(SLOT_BUTTON) do
         local bn = "Character" .. nm .. "Slot"
@@ -1332,17 +1331,13 @@ function UI.RefreshCharacter()
             end
         end
     end
-    -- the model in this game's gear
+    -- you, in this game's gear
     local m = chaRefs.CharacterModelFrame
-    if m then
-        local key, items = tostring(c.sex), {}
-        for s = 1, 19 do
-            key = key .. "," .. (c.equip[s] or 0)
-            if c.equip[s] then items[#items + 1] = c.equip[s] end
-        end
+    if m and m.dzSprite then
+        local key = UI.GearKey(c)
         if f.modelKey ~= key then
             f.modelKey = key
-            K.DressModel(m, c.sex or 0, items)
+            m.dzSprite:SetWho(p)
         end
     end
     -- the stat boxes
@@ -2300,7 +2295,7 @@ function UI.RefreshTalents()
     if not f or not f:IsShown() then return end
     local R = tfRefs
     local c, T = Craft.char, Craft.Talents
-    K.HeroPortrait(R.PlayerTalentFramePortrait, c.sex or 0)
+    K.SpritePortrait(R.PlayerTalentFramePortrait, Craft.player or c)
     -- the class's first tree painting behind the rows, dimmed
     local tree = (D.talents and D.talents[c.class] or {})[1]
     if tree then

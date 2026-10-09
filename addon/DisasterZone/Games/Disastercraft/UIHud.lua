@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Disastercraft/UIHud.lua", ...) then return end -- DisasterZone Games/Disastercraft/UIHud.lua
 -- CraftUI's heads-up display, laid out like WoW 2.x: the player frame (your own portrait) and the target frame
--- (the creature's 3D portrait, its level in difficulty colour, the elite dragon), buffs at the top right, the main
+-- (portraits: each body's own pixel sprite, head and shoulders; its level in difficulty colour, the elite dragon), buffs at the top right, the main
 -- menu bar with its gryphons (twelve action buttons on 1-0 - =, a second row on Shift), the experience bar, the micro
 -- menu and the bag buttons, the cast bar, the chat box, the red error line and the yellow notices, the zone text,
 -- the quest tracker, the death popups.
@@ -21,23 +21,17 @@ UI.Hud = H
 -- Unit frames
 ---------------------------------------------------------------------------
 
+-- everyone's portrait is their own pixel body, head and shoulders (a hero in their gear), as on the map
 local function Portrait(t, u)
-    if not u then t:SetTexture(nil) return end
-    if t.unitKey == u.guid then return end
-    t.unitKey = u.guid
-    -- (you and other heroes: their face; creatures: the client's portrait of their model, cut round)
-    if u.kind == "player" or Combat.IsPlayer(u) then
-        K.HeroPortrait(t, (u.char and u.char.sex) or u.sex or (u.kind == "player" and Craft.char and Craft.char.sex) or 0)
+    if not u then
+        if t.unitKey then t.unitKey = nil K.SpritePortrait(t, nil) t:SetTexture(nil) end
         return
     end
-    K.RoundMask(t)
-    local disp = u.cr and u.cr.disp
-    t:SetTexCoord(0, 1, 0, 1)
-    if disp and SetPortraitTextureFromCreatureDisplayID then
-        local ok = pcall(SetPortraitTextureFromCreatureDisplayID, t, disp)
-        if ok then return end
-    end
-    t:SetTexture("Interface\\CharacterFrame\\TempPortrait")
+    -- (again when the unit or its gear changes: a hero's gear is part of the picture)
+    local key = u.guid .. ":" .. (u.char and u.char.equip and UI.GearKey and UI.GearKey(u.char) or "")
+    if t.unitKey == key then return end
+    t.unitKey = key
+    K.SpritePortrait(t, u)
 end
 H.Portrait = Portrait
 
@@ -361,7 +355,8 @@ function UI.BuildHud(parent)
     H.player = UnitFrame(hud, true)
     H.player:SetPoint("TOPLEFT", -19, -4)
     H.player:SetScript("OnClick", function(_, button)
-        if button == "LeftButton" then Craft.World.SetTarget(Craft.player) end
+        if button == "LeftButton" then Craft.World.SetTarget(Craft.player)
+        elseif UI.UnitMenu then UI.UnitMenu(Craft.player) end            -- (Leave Party)
     end)
     H.target = UnitFrame(hud, false)
     H.target:SetPoint("TOPLEFT", 250, -4)
@@ -523,12 +518,11 @@ function UI.BuildBar(hud)
         b:SetHighlightTexture("Interface\\Buttons\\UI-MicroButton-Hilight", "ADD")
         if m[4] then
             -- the character button: your portrait on the blank button
-            local t = K.Tex(b, "OVERLAY")
-            t:SetSize(18, 25)
-            t:SetPoint("TOP", 0, -28)
-            K.HeroPortrait(t, Craft.char and Craft.char.sex or 0)
-            t:SetTexCoord(0.2, 0.8, 0.0666, 0.9)
-            b.portrait = t
+            local sv = K.Sprite(b, 18, 25)
+            sv:SetPoint("TOP", 0, -28)
+            sv:SetFrameLevel(b:GetFrameLevel() + 1)
+            sv:EnableMouse(false)
+            b.portrait = sv
         end
         b:SetScript("OnClick", m[3])
         b:SetScript("OnEnter", function(self) GameTooltip:SetOwner(self, "ANCHOR_TOP") GameTooltip:SetText(m[1], 1, 1, 1) GameTooltip:Show() end)
@@ -914,6 +908,17 @@ function UI.UpdateHud(dt)
     local p = Craft.player
     if not p or not H.frame then return end
     UpdateUnitFrame(H.player, p)
+    -- (the character button's portrait: you, in your gear)
+    local mp = H.micro and H.micro[1] and H.micro[1].portrait
+    if mp then
+        local key = p.guid .. ":" .. (UI.GearKey and UI.GearKey(p.char or {}) or "")
+        if mp.key ~= key then
+            mp.key = key
+            mp.who = p
+            mp.crop = { 9, 1, 23, 20 }
+            mp:SetPose("down", "walk", 1)
+        end
+    end
     local t = p.target
     if t and (t.rec and t.rec.hidden) then Craft.World.SetTarget(nil) t = nil end
     UpdateUnitFrame(H.target, t)

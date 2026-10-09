@@ -22,7 +22,6 @@ local Now = Craft.Now
 
 local MOBS = K.MEDIA .. "mobs.blp"
 local MOBS_ACT = K.MEDIA .. "mobs_act.blp"      -- the same bodies' action frames (see SpriteCoords)
-local FACE_ROW = { down = 0, left = 1, right = 2, up = 3 }
 UI.TILE = 32
 local TILE = 32
 local view, canvas, top                 -- the clip frame, the map's frame, the frame over it (names, numbers)
@@ -75,7 +74,8 @@ local function SpriteCoords(r, spr, face, frame, act)
     local per = (ns.AzeroData and ns.AzeroData.MOB_PER_SHEET) or 1e9
     local k = floor(spr / per)
     spr = spr - k * per
-    local row = floor(spr / 5) * 4 + (FACE_ROW[face] or 0)
+    local nf = (ns.AzeroData and ns.AzeroData.MOB_FACES) or 4
+    local row = floor(spr / 5) * nf + Craft.FaceRow(face, nf)
     local tp, b = row * 32 / H, (row + 1) * 32 / H
     if act then
         local c = (spr % 5) * ACT_COLS + act
@@ -96,7 +96,9 @@ end
 ---------------------------------------------------------------------------
 
 local DEPTH_FRAMES = 16
+local DEPTH_STEP = 2                -- depth frames are this many levels apart: a spell effect fits between two
 local depthFrames, depthPools = {}, {}
+local plan_f, plan_s = {}, {}       -- (FlushDepth's frame / slot of each picture when bodies carry effects)
 local reqs, nreq = {}, 0
 local order = {}
 UI.depthOrder = order               -- (the last frame's pictures back to front: for the test suites)
@@ -110,6 +112,7 @@ local function Draw(sort)
     r.sort, r.idx = sort, nreq
     r.c8, r.alpha, r.cr, r.cg, r.cb, r.blend, r.pt, r.see = nil, 1, 1, 1, 1, "BLEND", "TOPLEFT", nil
     r.cut, r.bld = nil, nil                -- (what the picture is: for the test suites)
+    r.u = nil                              -- (a body's pictures: their unit - a spell effect on it goes with them)
     return r
 end
 UI.DepthDraw = Draw
@@ -194,11 +197,46 @@ local function FlushDepth()
     local n = #order
     local total = DEPTH_FRAMES * 32
     local used = {}
+    -- A body with a spell effect on it (UI.FX.Units: a glow in its hands, a shield round it) begins a depth frame
+    -- and the picture after it begins the next: the effect's scene then sits at the level just under the body's
+    -- first frame (behind it: a hand on its far side, a ring at its feet) or just over its last (in front), between
+    -- everything behind the body and everything in front of it. Too crowded for that: effects over everything.
+    local fxu = UI.FX and UI.FX.Units and UI.FX.Units()
+    local fs, ss
+    if fxu and next(fxu) then
+        for u in pairs(fxu) do u.fxFrom, u.fxTo = nil, nil end
+        fs, ss = plan_f, plan_s
+        local f, s, i = 1, 0, 1
+        while i <= n do
+            local u = order[i].u
+            local j = i
+            if u and fxu[u] then
+                while j < n and order[j + 1].u == u do j = j + 1 end
+                if s > 0 then f, s = f + 1, 0 end
+                u.fxFrom = f
+            end
+            for k = i, j do
+                if s >= 32 then f, s = f + 1, 0 end
+                fs[k], ss[k] = f, s
+                s = s + 1
+            end
+            if u and fxu[u] then
+                u.fxTo = f
+                f, s = f + 1, 0
+            end
+            i = j + 1
+            if fs[j] > DEPTH_FRAMES then fs = nil break end
+        end
+        if not fs then
+            for u in pairs(fxu) do u.fxFrom, u.fxTo = nil, nil end
+        end
+    end
     for i, r in ipairs(order) do
         r.rank = i
         local slot = n <= total and (i - 1) or floor((i - 1) * total / n)
         local f = floor(slot / 32) + 1
         local s = slot % 32
+        if fs then f, s = fs[i], ss[i] end
         local n = (used[f] or 0) + 1
         used[f] = n
         local pool = depthPools[f]
@@ -232,6 +270,14 @@ local function FlushDepth()
     nreq = 0
 end
 
+-- the frame levels a spell effect on unit u takes this frame: just behind its body, just in front of it (nil: the
+-- body was not drawn apart - the effect goes over everything)
+function UI.FxLevels(u)
+    local a, b = u and u.fxFrom, u and u.fxTo
+    if not (a and depthFrames[a] and depthFrames[b]) then return nil end
+    return depthFrames[a]:GetFrameLevel() - 1, depthFrames[b]:GetFrameLevel() + 1
+end
+
 ---------------------------------------------------------------------------
 -- Building the view
 ---------------------------------------------------------------------------
@@ -260,7 +306,7 @@ function UI.BuildWorld(parent)
     for f = 1, DEPTH_FRAMES do
         local d = CreateFrame("Frame", nil, view)
         d:SetAllPoints()
-        d:SetFrameLevel(canvas:GetFrameLevel() + f)
+        d:SetFrameLevel(canvas:GetFrameLevel() + f * DEPTH_STEP)
         depthFrames[f], depthPools[f] = d, {}
         -- (a hole per body we may see through: masks only act on textures of their own frame)
         if d.CreateMaskTexture then
@@ -277,10 +323,10 @@ function UI.BuildWorld(parent)
     end
     local fx = CreateFrame("Frame", nil, view)
     fx:SetAllPoints()
-    fx:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES + 1)
+    fx:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES * DEPTH_STEP + 1)
     top = CreateFrame("Frame", nil, view)
     top:SetAllPoints()
-    top:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES + 3)
+    top:SetFrameLevel(canvas:GetFrameLevel() + DEPTH_FRAMES * DEPTH_STEP + 3)
     UI.view, UI.canvas, UI.top, UI.fxLayer = view, canvas, top, fx
     -- the target's circle (under every body)
     -- (the client's glowing ring, added light tinted by reaction; the map is a ground plan, so it stays round -
@@ -830,6 +876,7 @@ function UI.DrawWorld(dt)
            not (u.rec and u.rec.hidden) and not (u.ghost and u ~= p) and Shown(u) then
             local spr = UI.SpriteOf(u)
             local r = Draw(u.y)
+            r.u = u
             local face, frame, pose = u.face or "down", UnitFrame(u, now), UnitPose(u, now)
             SpriteCoords(r, spr, face, frame, pose)
             local size = TILE
@@ -842,7 +889,7 @@ function UI.DrawWorld(dt)
             -- it, cut from the same 32 px cell
             -- (the gear layers have no seated pose: seated, the class's own outfit sprite)
             local layers = (u.kind == "player" or u.kind == "remote") and pose ~= ACT.sit and UI.OutfitLayers and
-                           UI.OutfitLayers(u, pose and "act" or "walk", pose or frame, FACE_ROW[face] or 0)
+                           UI.OutfitLayers(u, pose and "act" or "walk", pose or frame, face)
             local worn
             if layers and layers[1] then
                 worn = {}
@@ -850,6 +897,7 @@ function UI.DrawWorld(dt)
                 local left, topY = sx - size / 2, r.y - size
                 for i, L in ipairs(layers) do
                     local q = i == 1 and r or Draw(u.y)
+                    q.u = u
                     q.file, q.l, q.r, q.t, q.b = L[1], L[2], L[3], L[4], L[5]
                     q.pt, q.x, q.y, q.w, q.h = "TOPLEFT", left + L[6] * k, topY + L[7] * k, L[8] * k, L[9] * k
                     if i > 1 then worn[#worn + 1] = q end

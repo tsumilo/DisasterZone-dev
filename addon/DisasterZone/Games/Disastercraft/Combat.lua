@@ -9,8 +9,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Disastercraft/Combat.lua", .
 --           face, hp, hpMax, power, powerMax, powerType, stats..., auras = {}, casting, target, threat, ... }
 -- Rage is kept in tenths like the client (Heroic Strike costs 150 = 15 rage).
 --
--- Who decides what: Combat.Owns(unit) - this client applies damage to the units it owns (itself; the creatures it
--- simulates). Party.lua swaps in the networked version; alone, everything is yours.
+-- Who decides what: Combat.Owns(unit) - this client applies damage to the units it owns: its hero, and the
+-- creatures it runs (Party.lua: whoever pulled a fight runs it; an idle creature is no one's - anyone may pull it).
+-- A remote hero, or a creature someone else runs, only shows here: what hits it goes to its owner (Combat.Net).
 local addonName, ns = ...
 
 local Craft = ns.Craft
@@ -121,7 +122,10 @@ function Combat.CanAttack(a, b)
 end
 
 function Combat.Owns(u)
-    return u.kind == "player" or u.kind == "mob" or u.kind == "critter" or u.kind == "npc"
+    if u.kind == "player" then return true end
+    if u.kind == "remote" then return false end
+    local P = Craft.Party
+    return not (P and u.rec and u.rec.owner and not P.OwnsRec(u.rec))
 end
 
 ---------------------------------------------------------------------------
@@ -268,7 +272,7 @@ function Combat.Recalc(u)
         local c = u.char
         local cd = D.classes[u.class]
         local lv = cd and cd.levels[min(u.level, #cd.levels)] or { 50, 0, 20, 20, 20, 20, 20 }
-        local g = (u.kind == "player" and Craft.Items.GearStats(c)) or u.gear or Craft.Items.GearStats({ equip = {} })
+        local g = Craft.Items.GearStats((c and c.equip) and c or { equip = {} })
         u.gearStats = g
         -- what buffs and debuffs add to each number (the character sheet shows those green / red, as WoW)
         local bonus = {}
@@ -356,7 +360,9 @@ end
 
 -- a fresh player unit for the logged in character
 function Combat.NewPlayer(c)
-    local u = { guid = "P:" .. (c.name or "you"), kind = "player", name = c.name, level = c.level, class = c.class,
+    -- (the guid is the WoW player's: two heroes of one name in the guild stay apart)
+    local key = ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey()
+    local u = { guid = "P:" .. (key or c.name or "you"), kind = "player", name = c.name, level = c.level, class = c.class,
                 char = c, spells = c.spells, map = c.map, x = c.x, y = c.y, face = c.face or "down" }
     Combat.Add(u)
     Combat.Recalc(u)
@@ -603,19 +609,22 @@ function Combat.Damage(src, dst, amount, info)
     if not dst or dst.dead then return 0 end
     info = info or {}
     local school = info.school or 1
-    -- damage done (Enrage, Arcane Instability, Shadowform) and taken (Shadowform) by school
-    if src and src ~= dst then amount = amount * PctMask(src, A_DMG_PCT, school) end
-    amount = amount * PctMask(dst, A_DMG_TAKEN_PCT, school)
+    -- damage done (Enrage, Arcane Instability, Shadowform) and taken (Shadowform) by school: the done part where
+    -- the attacker is, the taken part (and absorbs) where the struck unit is owned
+    if src and src ~= dst and not info.net then amount = amount * PctMask(src, A_DMG_PCT, school) end
+    local owned = Combat.Owns(dst)
+    if owned then amount = amount * PctMask(dst, A_DMG_TAKEN_PCT, school) end
     amount = max(0, floor(amount + 0.5))
     local absorbed = 0
-    amount, absorbed = Absorb(dst, amount, school)
+    if owned then amount, absorbed = Absorb(dst, amount, school) end
     info.absorbed = absorbed > 0 and absorbed or nil
-    if Combat.Net and not Combat.Owns(dst) then
-        -- someone else's unit: tell its owner; show it now (the owner's answer corrects the health)
+    if Combat.Net and not owned then
+        -- someone else's unit: tell its owner; show it now (the owner's word corrects the health, and only the
+        -- owner says when it dies)
         Combat.Net.Damage(src, dst, amount, info)
     end
     local before = dst.hp
-    dst.hp = max(0, dst.hp - amount)
+    dst.hp = max(owned and 0 or 1, dst.hp - amount)
     local dealt = before - dst.hp
     -- threat, combat, rage
     if src and src ~= dst then
@@ -649,7 +658,7 @@ function Combat.Damage(src, dst, amount, info)
         Combat.Pushback(dst)
     end
     Craft:Emit("damage", src, dst, amount, info)
-    if dst.hp <= 0 then Combat.Die(dst, src) end
+    if dst.hp <= 0 and owned then Combat.Die(dst, src) end
     return dealt
 end
 
@@ -657,10 +666,11 @@ function Combat.Heal(src, dst, amount, info)
     if not dst or dst.dead then return 0 end
     info = info or {}
     -- healing done (Spiritual Healing) and taken (Mortal Strike's wound)
-    if src then amount = amount * PctMask(src, A_HEAL_DONE_PCT, 127) end
-    amount = amount * PctMask(dst, A_HEAL_TAKEN_PCT, 127)
+    if src and not info.net then amount = amount * PctMask(src, A_HEAL_DONE_PCT, 127) end
+    local owned = Combat.Owns(dst)
+    if owned then amount = amount * PctMask(dst, A_HEAL_TAKEN_PCT, 127) end
     amount = max(0, floor(amount + 0.5))
-    if Combat.Net and not Combat.Owns(dst) then Combat.Net.Heal(src, dst, amount, info) end
+    if Combat.Net and not owned then Combat.Net.Heal(src, dst, amount, info) end
     local before = dst.hp
     dst.hp = min(dst.hpMax, dst.hp + amount)
     local healed = dst.hp - before
@@ -957,6 +967,14 @@ function Combat.CancelAura(u, a)
     if a and a.helpful and not a.passive then Combat.RemoveAura(u, a, "cancel") end
 end
 
+-- a damage / healing over time ticks on one client only: the caster's when a hero cast it (its numbers), else the
+-- one that owns the unit it is on
+function Combat.TicksHere(caster, u)
+    if caster and caster.kind == "player" then return true end
+    if caster and caster.kind == "remote" then return false end
+    return Combat.Owns(u)
+end
+
 local function TickAura(u, a, x, now)
     local caster = a.caster and Combat.units[a.caster] or nil
     local sp = D.spells[a.spell]
@@ -967,11 +985,11 @@ local function TickAura(u, a, x, now)
                 if e.i == x.i and e.coef then amt = amt + (caster.sp or 0) * e.coef / max(1, (a.dur or 1) / (x.per or 3)) end
             end
         end
-        if caster == nil or Combat.Owns(u) or (caster and caster.kind == "player") then
+        if Combat.TicksHere(caster, u) then
             Combat.Damage(caster, u, amt, { kind = "dot", school = sp and sp.school or 1, spell = a.spell })
         end
     elseif x.a == A_PHEAL then
-        Combat.Heal(caster, u, x.amount, { kind = "hot", spell = a.spell })
+        if Combat.TicksHere(caster, u) then Combat.Heal(caster, u, x.amount, { kind = "hot", spell = a.spell }) end
     elseif x.a == 20 then                                   -- (OBS_MOD_HEALTH: a share of max health - Blood Craze)
         Combat.Heal(caster or u, u, (u.hpMax or 0) * (x.amount or 0) / 100, { kind = "hot", spell = a.spell })
     elseif x.a == A_REGEN then
@@ -1139,7 +1157,7 @@ function Combat.CastSpell(u, id, target, opts)
     if castTime > 0 then
         u.casting = { spell = id, target = target, start = Now(), ends = Now() + castTime, opts = opts, push = 0 }
         Craft:Emit("cast", u, id, "start", target)
-        if Combat.Net and u.kind == "player" then Combat.Net.Cast(u, id, target, castTime) end
+        if Combat.Net then Combat.Net.Cast(u, id, target, castTime) end
         return true
     end
     if IsChannel(sp) and not trig then
@@ -1158,7 +1176,7 @@ function Combat.CastSpell(u, id, target, opts)
         end
         StartCooldown(u, sp, id, opts)
         Craft:Emit("cast", u, id, "channel", target)
-        if Combat.Net and u.kind == "player" then Combat.Net.Cast(u, id, target, dur, true) end
+        if Combat.Net then Combat.Net.Cast(u, id, target, dur, true) end
         return true
     end
     return Combat.FinishCast(u, id, target, opts)
@@ -1196,7 +1214,7 @@ function Combat.FinishCast(u, id, target, opts)
         if opts.item then Craft.Items.Consume(opts) end
     end
     Craft:Emit("cast", u, id, "done", target)
-    if Combat.Net and u.kind == "player" and not opts.triggered then Combat.Net.CastDone(u, id, target) end
+    if Combat.Net and not opts.triggered then Combat.Net.CastDone(u, id, target) end
     -- missiles fly at their speed (yards / second); everything else lands now
     if sp.speed and sp.speed > 0 and target and target ~= u then
         local d = Craft.UnitDist(u, target)
@@ -1212,7 +1230,7 @@ end
 
 function Combat.Face(u, t)
     local dx, dy = t.x - u.x, t.y - u.y
-    if abs(dx) > abs(dy) then u.face = dx > 0 and "right" or "left" else u.face = dy > 0 and "down" or "up" end
+    u.face = Craft.FaceOf(dx, dy)
 end
 
 -- units around a point (enemies of caster within r yards)
@@ -1225,7 +1243,8 @@ function Combat.Around(caster, x, y, map, r, enemies)
                    (o.hostile or o.inCombat or Combat.IsPlayer(o) or Combat.IsPlayer(caster) == false) then
                     out[#out + 1] = o
                 end
-            elseif Combat.Reaction(caster, o) == "friendly" and Combat.IsPlayer(o) then
+            elseif Combat.Reaction(caster, o) == "friendly" and Combat.IsPlayer(o) and
+                   (o == caster or not Craft.Party or Craft.Party.IsMember(o) or Craft.Party.IsMember(caster)) then
                 out[#out + 1] = o
             end
         end
@@ -1357,7 +1376,7 @@ function Combat.Apply(u, id, target, opts)
         local helpful = Combat.Reaction(u, t) ~= "hostile"
         if t == u then helpful = true end
         local a = Combat.ApplyAura(u, t, id, helpful, auraIdx)
-        if a and Combat.Net and u.kind == "player" and t ~= u then Combat.Net.Aura(u, t, id, a) end
+        if a and Combat.Net and t ~= u and not Combat.Owns(t) then Combat.Net.Aura(u, t, id, a) end
         if hostile and t ~= u then
             Combat.EnterCombat(t, u)
             Combat.EnterCombat(u, t)
@@ -1401,7 +1420,7 @@ function Combat.Interrupt(u, why)
     -- (a cast stopped before it finished: the GCD is given back, like WoW)
     if not c.channel and u.gcdEnd then u.gcdEnd = Now() end
     Craft:Emit("cast", u, c.spell, "interrupted", c.target)
-    if Combat.Net and u.kind == "player" then Combat.Net.Cast(u, c.spell, c.target, 0) end
+    if Combat.Net then Combat.Net.Cast(u, c.spell, c.target, 0) end
 end
 
 ---------------------------------------------------------------------------
@@ -1474,7 +1493,8 @@ function Combat.Update(dt)
             local traveled = (now - m.start) * (sp.speed or 20)
             if traveled >= left or now >= m.arrive + 1.5 then
                 table.remove(ms, i)
-                Combat.Apply(m.src, m.spell, d, m.opts)
+                -- (one seen from afar lands where its caster is: here it only shows)
+                if not m.net then Combat.Apply(m.src, m.spell, d, m.opts) end
                 Craft:Emit("impact", m)
             end
         else
@@ -1484,7 +1504,26 @@ function Combat.Update(dt)
     local tick = now >= regenAt
     if tick then regenAt = now + 2 end
     for _, u in pairs(Combat.units) do
-        if not u.dead then
+        local own = Combat.Owns(u)
+        if not u.dead and not own then
+            -- (someone else's: its cast and its swings are theirs to finish; here it only shows. Its auras run out
+            -- here too, and my own damage / healing over time on it ticks here - Combat.TicksHere)
+            local c = u.casting
+            if c and now >= c.ends + 0.5 then u.casting = nil end
+            for i = #u.auras, 1, -1 do
+                local a = u.auras[i]
+                if a then
+                    for _, x in ipairs(a.fx) do
+                        if x.next and now >= x.next then
+                            x.next = x.next + (x.per or 1)
+                            if x.a == A_PDMG or x.a == A_PHEAL then TickAura(u, a, x, now) end
+                        end
+                    end
+                    if a.expires and now >= a.expires then Combat.RemoveAura(u, a, "expired") end
+                end
+            end
+        end
+        if not u.dead and own then
             -- casts
             local c = u.casting
             if c and c.opening then

@@ -23,10 +23,15 @@ local PITCH = 0.95              -- radians down from level (the map leans its he
 local SIZE_YD = 6               -- each scene's square, in yards
 local POOL_MAX = 28
 
--- attachment -> height over the feet (fraction of the body sprite) and sideways (fraction, for the right hand)
-local ATT = { [-1] = { 0, 0 }, [0] = { 0.45, 0.2 }, [1] = { 0.45, 0.22 }, [2] = { 0.45, -0.22 }, [11] = { 0.9, 0 },
+-- attachment -> height over the feet (fraction of the body sprite) and sideways (fraction, toward screen right for
+-- a body facing you; its right hand is on your left), for bodies without hand data (D.HANDS)
+local ATT = { [-1] = { 0, 0 }, [0] = { 0.45, -0.2 }, [1] = { 0.45, -0.22 }, [2] = { 0.45, 0.22 }, [11] = { 0.9, 0 },
               [15] = { 0.55, 0 }, [16] = { 0.55, 0 }, [18] = { 1.05, 0 }, [19] = { 0, 0 }, [20] = { 0.95, 0 },
-              [21] = { 0.45, -0.22 }, [22] = { 0.45, 0.22 }, [34] = { 0.5, 0 }, [35] = { 0.5, 0 } }
+              [21] = { 0.45, 0.22 }, [22] = { 0.45, -0.22 }, [34] = { 0.5, 0 }, [35] = { 0.5, 0 } }
+-- the hand an attachment is: 1 left, 2 right (D.HANDS order)
+local HAND = { [2] = 1, [21] = 1, [1] = 2, [22] = 2, [0] = 2 }
+-- attachments on the ground: drawn under the body
+local GROUND = { [-1] = true, [19] = true }
 
 local pool, active = {}, {}
 local pitchSign = nil           -- the client's pitch convention, found once (Project3DPointTo2D)
@@ -34,9 +39,10 @@ local pitchSign = nil           -- the client's pitch convention, found once (Pr
 local function PxPerYard() return (UI.TILE or 32) / 2.13 end
 
 local function NewScene()
-    local ok, sc = pcall(CreateFrame, "ModelScene", nil, UI.top)
+    -- (in the world's view, beside its depth frames: each frame its level is set between them, see FX.Place)
+    local ok, sc = pcall(CreateFrame, "ModelScene", nil, UI.view or UI.top)
     if not ok or not sc or not sc.CreateActor then return nil end
-    sc:SetFrameLevel((UI.top:GetFrameLevel() or 1) + 1)
+    sc:SetFrameLevel((UI.fxLayer or UI.top):GetFrameLevel() + 1)
     pcall(sc.SetCameraNearClip, sc, 1)
     pcall(sc.SetCameraFarClip, sc, 200)
     pcall(sc.SetLightVisible, sc, true)
@@ -105,15 +111,47 @@ local function Release(e)
     end
 end
 
--- the screen point (top-left origin, pixels) of unit u's attachment
+-- a body's hand in its cell now: x, y (32 px cell, from its top-left) and whether it is on the body's far side, from
+-- D.HANDS (made with the sprites: per facing, the standing / spell-ready / spell-released pose, each hand)
+local POSE_HAND = { [2] = 2, [3] = 3 }          -- action column (ready, release) -> D.HANDS pose (1 standing)
+local function HandAt(u, hand)
+    local A = ns.AzeroData
+    local spr = A and A.HANDS and UI.SpriteOf and UI.SpriteOf(u)
+    local list = spr and A.HANDS[spr]
+    if not list then return nil end
+    local pose = POSE_HAND[UI.UnitPose and UI.UnitPose(u, Now()) or -1] or 1
+    local row = Craft.FaceRow(u.face or "down", A.MOB_FACES or 4)
+    local v = list[(row * 3 + pose - 1) * 2 + hand]
+    if not v or v == 0 then return nil end
+    local behind = v < 0
+    v = abs(v)
+    return floor(v / 100) / 2, (v % 100) / 2, behind
+end
+
+-- the screen point (top-left origin, pixels) of unit u's attachment, and whether it is behind the body
 local function AttachPoint(u, att)
     local sx, sy = UI.UnitScreen(u)                            -- (up by its height in a building)
     local tile = UI.TILE or 32
+    local hand = HAND[att or -1]
+    if hand and u.guid then
+        local hx, hy, behind = HandAt(u, hand)
+        if hx then
+            -- (the body's cell: its size wide, standing with its bottom 0.06 tile under the point, as UIWorld draws it)
+            local size = u.cc and tile * 0.8 or tile
+            return sx - size / 2 + hx * size / 32, sy + 0.06 * tile - size + hy * size / 32, behind
+        end
+    end
     local a = ATT[att or -1] or ATT[34]
     local side = a[2]
-    if u.face == "up" then side = -side elseif u.face == "left" or u.face == "right" then side = side * 0.3 end
-    return sx + side * tile, sy - a[1] * tile                  -- (the body's feet are on its point)
+    local f = u.face or "down"
+    if f:find("^up") then side = -side end
+    if f:find("left$") or f:find("right$") then
+        -- (side on: both hands in front of the body, toward the way it faces)
+        side = side * 0.3 + (f:find("left$") and -0.12 or 0.12)
+    end
+    return sx + side * tile, sy - a[1] * tile, GROUND[att or -1] or (hand and f:find("^up") and true) or false
 end
+UI.AttachPoint = AttachPoint
 
 -- plays model fdid; place() -> x, y (screen px), yaw; until = a time, or a function -> true to end
 function FX.Play(fdid, scale, place, untilT, opts)
@@ -138,13 +176,20 @@ function FX.Play(fdid, scale, place, untilT, opts)
 end
 
 function FX.Place(e)
-    local x, y, yaw = e.place()
+    local x, y, yaw, behind = e.place()
     if not x then return false end
     local sc = e.sc
     local px = SIZE_YD * PxPerYard()
     if abs((sc:GetWidth() or 0) - px) > 0.5 then Frame(sc, px) end
     sc:ClearAllPoints()
     sc:SetPoint("CENTER", UI.top, "TOPLEFT", x, -y)
+    -- on a body: between the pictures behind it and the body (a far hand, the ground at its feet) or just in front
+    -- of it; else (a missile, a body not drawn apart) over everything
+    local lb, lf
+    if e.unit and UI.FxLevels then lb, lf = UI.FxLevels(e.unit) end
+    local lv = lb and (e.behind and lb or lf) or ((UI.fxLayer or UI.top):GetFrameLevel() + 1)
+    if sc.lv ~= lv then sc:SetFrameLevel(lv) sc.lv = lv end
+    e.lv = lv
     if yaw and sc.actor.SetYaw then pcall(sc.actor.SetYaw, sc.actor, yaw) end
     return true
 end
@@ -167,6 +212,21 @@ function FX.Clear()
     for e in pairs(active) do Release(e) end
 end
 
+-- (for the test suites: the effects playing now)
+function FX.Active()
+    local out = {}
+    for e in pairs(active) do out[#out + 1] = e end
+    return out
+end
+
+-- the units with an effect on them now (UIWorld draws each apart, so its effects can go behind or in front of it)
+local units = {}
+function FX.Units()
+    for u in pairs(units) do units[u] = nil end
+    for e in pairs(active) do if e.unit then units[e.unit] = true end end
+    return units
+end
+
 ---------------------------------------------------------------------------
 -- A spell's moments
 ---------------------------------------------------------------------------
@@ -181,7 +241,12 @@ local function OnUnit(v, u, untilT)
     local list = {}
     for _, m in ipairs(v.m or {}) do
         local att = m[2]
-        local e = FX.Play(m[1], m[3] or 1, function() return AttachPoint(u, att) end, untilT)
+        local e
+        e = FX.Play(m[1], m[3] or 1, function()
+            local x, y, behind = AttachPoint(u, att)
+            if e then e.behind = behind end
+            return x, y
+        end, untilT)
         if e then e.unit = u list[#list + 1] = e end
     end
     Sound(v.s)
@@ -222,11 +287,19 @@ Craft:On("missile", function(m)
     local v = D.vis[m.spell]
     if not v or not v.mis or not (Visible(m.src) or Visible(m.dst)) then return end
     local sp = D.spells[m.spell]
+    -- (it leaves from the caster's hand as it was when the spell went: that hand's offset from the feet, in tiles)
+    local tile = UI.TILE or 32
+    local hx, hy = AttachPoint(m.src, (v.mis.from or 0) > 0 and v.mis.from or 21)     -- (-1: the casting hand)
+    local bx, by = UI.UnitScreen(m.src)
+    local ox, oy = (hx - bx) / tile, (hy - by) / tile
+    local from = { x = m.from[1], y = m.from[2], e = m.src.e, bld = m.src.bld, lift = m.src.lift }
     local e
     e = FX.Play(v.mis.m, v.mis.sc or 1, function()
         local dst = m.dst
         if not dst then return nil end
-        local fx, fy = AttachPoint({ x = m.from[1], y = m.from[2], face = m.src.face }, 21)
+        local t = UI.TILE or 32
+        local sx, sy = UI.UnitScreen(from)
+        local fx, fy = sx + ox * t, sy + oy * t
         local tx, ty = AttachPoint(dst, v.mis.to or 34)
         local d = Craft.Dist(m.from[1], m.from[2], dst.x, dst.y)
         local f = min(1, (Now() - m.start) * ((sp and sp.speed) or 20) / max(0.1, d))
@@ -273,7 +346,12 @@ Craft:On("logout", function() FX.Clear() end)
 
 -- the level-up: WoW's golden column (spells/levelup/levelup.m2) round your feet, and its sound
 function UI.LevelUpEffect(u)
-    local e = FX.Play(166464, 1, function() return AttachPoint(u, 19) end, Now() + 3)
+    local e
+    e = FX.Play(166464, 1, function()
+        local x, y, behind = AttachPoint(u, 19)
+        if e then e.behind = behind end
+        return x, y
+    end, Now() + 3)
     if e then e.unit = u end
     if PlaySoundFile and Craft:Data().sfx ~= false then pcall(PlaySoundFile, 569593, "SFX") end
 end

@@ -774,6 +774,10 @@ function GetSpellCooldown(id)
   return M.now, M.gcd or 1.5, 1
 end
 function UnitAttackSpeed() return M.swing_speed or 2.6, nil end
+-- 2.5.x: minDamage, maxDamage, minOffHand, maxOffHand, physicalBonusPos, physicalBonusNeg, percent
+function UnitDamage() return M.weapon_min or 330, M.weapon_max or 490, 0, 0, 0, 0, 1 end
+-- 2.5.x: spell damage bonus for a school (1 physical .. 7 arcane)
+function GetSpellBonusDamage(school) return M.spell_damage or 0 end
 function UnitRangedDamage() return M.ranged_speed or 3.0, 0, 0, 0, 0, 0 end
 function UnitIsFeignDeath(unit) return unit == "player" and M.feigning == true or false end
 function GetShapeshiftFormID() return M.form end

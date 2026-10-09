@@ -31,27 +31,21 @@ local function GlueBox(parent, w, h)
     return f
 end
 
-local function Model(parent, w, h)
-    local ok, m = pcall(CreateFrame, "DressUpModel", nil, parent)
-    if not ok or not m then return nil end
-    m:SetSize(w, h)
-    return m
+-- the start outfit of a class by slot (what a new character wears)
+local function StartGear(cls)
+    local start = {}
+    for _, id in ipairs(D.classes[cls] and D.classes[cls].gear or {}) do
+        local it = D.items[id]
+        local slot = it and it.inv and Craft.Items.SlotFor and Craft.Items.SlotFor(it, { equip = start })
+        if slot then start[slot] = id end
+    end
+    return start
 end
 
--- the 3D model in an outfit: what the character wears (equip), or the class's start gear for a new one
+-- the hero on the stage: the pixel body as it walks the world, in what it wears (or its class's start gear)
 local function Dress(m, cls, sex, equip)
     if not m then return end
-    local items = {}
-    if equip then
-        for s = 1, 19 do if equip[s] then items[#items + 1] = equip[s] end end
-    else
-        local cd = D.classes[cls]
-        for _, id in ipairs(cd and cd.gear or {}) do
-            local it = D.items[id]
-            if it and it.inv then items[#items + 1] = id end
-        end
-    end
-    K.DressModel(m, sex or 0, items)
+    m:SetWho({ class = cls, sex = sex or 0, equip = equip or StartGear(cls) })
 end
 
 -- the centre column (between What's new and the character list): the model, the name, Enter World
@@ -60,7 +54,7 @@ local MID_X = 40
 function UI.BuildGlue(parent)
     local g = CreateFrame("Frame", nil, parent)
     g:SetAllPoints()
-    g:SetFrameLevel(parent:GetFrameLevel() + 40)
+    g:SetFrameLevel(parent:GetFrameLevel() + 180)
     g:EnableMouse(true)
     g.bg = K.Tex(g, "BACKGROUND")
     g.bg:SetAllPoints()
@@ -79,50 +73,22 @@ function UI.BuildGlue(parent)
     g.tag = K.Font(g, 12, "OUTLINE")
     g.tag:SetPoint("TOPLEFT", g.name, "BOTTOMLEFT", 2, -4)
     g.tag:SetText("Northshire Abbey - " .. (Craft.CLASS_NAMES and "a little World of Warcraft" or ""))
-    -- the 3D model stands in the middle, high and large like the client's; the name and Enter World under it
-    g.model = Model(g, 300, 380)
-    if g.model then g.model:SetPoint("CENTER", MID_X, 60) end
-    -- the hero as it walks the world (the pixel sprite in its gear), a small badge by the name
-    g.badge = CreateFrame("Frame", nil, g)
-    g.badge:SetSize(48, 48)
-    g.badge.layers = {}
-    g.sprite = K.Tex(g.badge, "ARTWORK", K.MEDIA .. "mobs.blp")
-    g.sprite:SetAllPoints()
+    -- the hero stands in the middle, high and large like the client's model: its pixel body, whole pixels, turning
+    -- on its own (drag it to turn it); the name and Enter World under it
+    g.model = K.Sprite(g, 300, 380)
+    g.model.intScale = true
+    g.model:SetPoint("CENTER", MID_X, 60)
+    K.Turntable(g.model, true)
+    -- (its shadow on the floor)
+    g.shadow = K.Tex(g, "BORDER", "Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    g.shadow:SetSize(150, 34)
+    g.shadow:SetPoint("BOTTOM", g.model, "BOTTOM", 0, -12)
+    g.shadow:SetVertexColor(0, 0, 0, 0.55)
     UI.glue = g
     Glue.BuildSelect(g)
     Glue.BuildCreate(g)
     Glue.BuildNews(g)
     return g
-end
-
--- the badge: the pixel hero standing, facing you - the bare body and its gear layers (Outfit.lua) when there is
--- outfit data, else the class's start-outfit sprite
-local function SetSpriteFor(t, cls, sex, char)
-    local badge = t:GetParent()
-    for _, l in ipairs(badge.layers) do l:Hide() end
-    local layers = UI.OutfitLayers and UI.OutfitLayers(char or { sex = sex, equip = {} }, "walk", 1, 0)
-    if layers and layers[1] then
-        t:Hide()
-        local k = badge:GetWidth() / 32
-        for i, L in ipairs(layers) do
-            local x = badge.layers[i]
-            if not x then x = badge:CreateTexture(nil, "ARTWORK", nil, min(7, i)) badge.layers[i] = x end
-            x:SetTexture(L[1])
-            x:SetTexCoord(L[2], L[3], L[4], L[5])
-            x:ClearAllPoints()
-            x:SetPoint("TOPLEFT", badge, "TOPLEFT", L[6] * k, -L[7] * k)
-            x:SetSize(L[8] * k, L[9] * k)
-            x:Show()
-        end
-        return
-    end
-    t:Show()
-    local spr = ns.AzeroData and ns.AzeroData.CLASS_SPR
-    local s = spr and spr[(Craft.CLASS_TOKENS[cls] or "WARRIOR") .. (sex or 0)] or 35
-    local H = (ns.AzeroData and ns.AzeroData.MOB_SHEET_H) or 2048
-    local c = (s % 5) * 3 + 1
-    local r = floor(s / 5) * 4
-    t:SetTexCoord(c * 32 / 512, (c + 1) * 32 / 512, r * 32 / H, (r + 1) * 32 / H)
 end
 
 ---------------------------------------------------------------------------
@@ -273,19 +239,12 @@ function Glue.Refresh()
         s.who:SetText(sel.name)
         s.whoInfo:SetText(string.format("Level %d Human %s", sel.level, Craft.CLASS_NAMES[sel.class]))
         Dress(g.model, sel.class, sel.sex, sel.equip)
-        SetSpriteFor(g.sprite, sel.class, sel.sex, sel)
-        -- (left of the wider of the two lines, standing on the lower one)
-        local w = max(s.who:GetStringWidth() or 0, s.whoInfo:GetStringWidth() or 0)
-        g.badge:ClearAllPoints()
-        g.badge:SetPoint("BOTTOMRIGHT", s.whoInfo, "BOTTOM", -w / 2 - 8, -4)
-        g.badge:Show()
     else
         s.who:SetText(#chars == 0 and "Create your first character" or "")
         s.whoInfo:SetText("")
-        g.badge:Hide()
-        if g.model then g.model:Hide() end
     end
-    if g.model and sel then g.model:Show() end
+    g.model:SetShown(sel ~= nil)
+    g.shadow:SetShown(sel ~= nil)
 end
 
 function Glue.EnterWorld()
@@ -374,19 +333,10 @@ function Glue.RefreshCreate()
     local taken = Craft:Data().chars and Craft:Data().chars[Glue.newClass]
     c.taken:SetText(taken and ("You already have a " .. Craft.CLASS_NAMES[Glue.newClass] .. ".") or "")
     c.accept:SetEnabled(not taken)
-    Dress(g.model, Glue.newClass, Glue.newSex)
-    if g.model then g.model:Show() end
     -- (a new character wears its class's start outfit)
-    local start = {}
-    for _, id in ipairs(D.classes[Glue.newClass] and D.classes[Glue.newClass].gear or {}) do
-        local it = D.items[id]
-        local slot = it and it.inv and Craft.Items.SlotFor and Craft.Items.SlotFor(it, { equip = start })
-        if slot then start[slot] = id end
-    end
-    SetSpriteFor(g.sprite, Glue.newClass, Glue.newSex, { sex = Glue.newSex, equip = start })
-    g.badge:ClearAllPoints()
-    g.badge:SetPoint("BOTTOM", g, "BOTTOM", MID_X, 72)
-    g.badge:Show()
+    Dress(g.model, Glue.newClass, Glue.newSex)
+    g.model:Show()
+    g.shadow:Show()
 end
 
 function Glue.ShowCreate()

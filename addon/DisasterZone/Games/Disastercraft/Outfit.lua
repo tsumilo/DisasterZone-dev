@@ -11,8 +11,8 @@ local O = ns.CraftOutfit
 local SLOTS = { 4, 7, 8, 9, 5, 10, 6, 19, 15, 17, 16 }      -- the slots that show (rings, trinkets, ranged do not)
 local stacks, frames = {}, {}
 
--- the layers of what a character wears, body first: { layer, ... } (cached by sex + gear). A layer: 32 frames x
--- { sheet, x, y, w, h, ox, oy } (frame = column * 4 + facing; sheet 0 = nothing shows in that frame)
+-- the layers of what a character wears, body first: { layer, ... } (cached by sex + gear). A layer: 8 x O.faces
+-- frames x { sheet, x, y, w, h, ox, oy } (frame = column * O.faces + facing; sheet 0 = nothing shows there)
 local function Stack(c)
     local sex = c.sex or 0
     local key = sex
@@ -36,7 +36,7 @@ local function Stack(c)
 end
 
 -- the textures to stack for player unit u in one frame: kind "walk" (col 0-2: stride, stand, stride) or "act"
--- (col 0-4: wind-up, strike, spell ready, spell release, dead); face 0 down, 1 left, 2 right, 3 up.
+-- (col 0-4: wind-up, strike, spell ready, spell release, dead); face: a facing name ("downleft") or its row.
 -- -> { { file, l, r, t, b, x, y, w, h }, ... } (x, y, w, h: px in the sprite's 32 px cell from its top-left;
 -- texcoords on the file), or nil when there is no outfit data (draw the old sprite)
 function UI.OutfitLayers(u, kind, col, face)
@@ -45,11 +45,13 @@ function UI.OutfitLayers(u, kind, col, face)
     if not c or not c.equip then return nil end
     local st, key = Stack(c)
     local bc = (kind == "act" and 3 or 0) + (col or 0)
-    local fkey = key .. "|" .. bc .. "|" .. (face or 0)
+    local nf = O.faces or 4
+    local row = type(face) == "string" and ns.Craft.FaceRow(face, nf) or (face or 0)
+    local fkey = key .. "|" .. bc .. "|" .. row
     local out = frames[fkey]
     if out then return out end
     out = {}
-    local b = (bc * 4 + (face or 0)) * 7
+    local b = (bc * nf + row) * 7
     for _, l in ipairs(st) do
         local n = l[b + 1]
         if n and n > 0 then
@@ -60,6 +62,13 @@ function UI.OutfitLayers(u, kind, col, face)
     end
     frames[fkey] = out
     return out
+end
+
+-- a character's look as a key (sex and what shows): pictures of them are redrawn when it changes
+function UI.GearKey(c)
+    local key = tostring(c.sex or 0)
+    for _, s in ipairs(SLOTS) do key = key .. "," .. (c.equip and c.equip[s] or 0) end
+    return key
 end
 
 -- (the caches only grow with new gear sets; a reload empties them)

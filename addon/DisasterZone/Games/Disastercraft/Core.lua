@@ -58,6 +58,31 @@ end
 
 function Craft.Clamp(v, lo, hi) return v < lo and lo or (v > hi and hi or v) end
 
+-- Facings: the eight ways a body can face (the sprite sheets' rows, in this order; sheets drawn before the
+-- diagonals have only the first four, and a diagonal there shows as its up / down)
+Craft.FACES = { "down", "left", "right", "up", "downleft", "downright", "upleft", "upright" }
+Craft.FACE_ROW = { down = 0, left = 1, right = 2, up = 3, downleft = 4, downright = 5, upleft = 6, upright = 7 }
+local FACE4 = { downleft = 0, downright = 0, upleft = 3, upright = 3 }
+-- the map rotation of a facing (0 = north, counter-clockwise)
+Craft.FACE_ANGLE = { up = 0, upleft = math.pi / 4, left = math.pi / 2, downleft = 3 * math.pi / 4, down = math.pi,
+                     downright = -3 * math.pi / 4, right = -math.pi / 2, upright = -math.pi / 4 }
+
+-- the row of facing `face` on a sheet with `faces` rows a body (4 or 8)
+function Craft.FaceRow(face, faces)
+    local r = Craft.FACE_ROW[face] or 0
+    if r > 3 and (faces or 8) < 8 then return FACE4[face] end
+    return r
+end
+
+-- the way a body faces moving (dx, dy) (x east, y south): one of the eight, a diagonal within 22.5 degrees of one
+function Craft.FaceOf(dx, dy)
+    local ax, ay = abs(dx), abs(dy)
+    if ax < 1e-9 and ay < 1e-9 then return "down" end
+    if ay <= ax * 0.4142 then return dx > 0 and "right" or "left" end
+    if ax <= ay * 0.4142 then return dy > 0 and "down" or "up" end
+    return (dy > 0 and "down" or "up") .. (dx > 0 and "right" or "left")
+end
+
 Craft.rng = math.random                   -- (tests swap in a seeded one)
 function Craft.Roll(lo, hi)
     if hi <= lo then return lo end

@@ -771,28 +771,16 @@ local FILM_TILE = 34                -- pixels a tile at zoom 1 (the game draws ~
 local FILM_SHOT, FILM_FADE = 8.5, 1.4   -- seconds a shot; its last FILM_FADE cross-fades into the next
 local FILM_DEPTH = 4                -- depth frames a reel, 32 ordered slots each
 local FILM_FOCUS = 0.42             -- the camera's point down the art box (its foot is under the title's shade)
-local FILM_FACE = { down = 0, left = 1, right = 2, up = 3 }
 local FILM_ACT = { windup = 0, strike = 1, ready = 2, release = 3, dead = 4, sit = 5 }
 local FILM_STEP = { 0, 1, 2, 1 }    -- walk frames: stride, stand, stride, stand
 local SPARK = "Interface\\Cooldown\\star4"
 local FILM_KOBOLD = { [6] = true, [40] = true, [80] = true, [257] = true, [476] = true }   -- (candles on their heads)
 local cos, sqrt = math.cos, math.sqrt
 
--- a body's picture on the model sheets (Media/Azeromon/mobs*.blp: 3 walk frames x 4 facings, 5 bodies a row;
--- mobs_act*.blp the same rows with 6 action frames) - as UIWorld's SpriteCoords
+-- a body's picture on the model sheets: Disastercraft's own (CraftUI.Kit.BodyCoords: the sheets' layout, the
+-- eight facings)
 local function FilmCoords(spr, face, frame, act)
-    local D = ns.AzeroData or EMPTY
-    local H, per = D.MOB_SHEET_H or 2048, D.MOB_PER_SHEET or 1e9
-    local k = floor(spr / per)
-    spr = spr - k * per
-    local row = floor(spr / 5) * 4 + (FILM_FACE[face] or 0)
-    local file = MEDIA .. "Azeromon\\" .. (act and "mobs_act" or "mobs") .. (k > 0 and ("_" .. k) or "") .. ".blp"
-    if act then
-        local c = (spr % 5) * 6 + FILM_ACT[act]
-        return file, c * 32 / 1024, (c + 1) * 32 / 1024, row * 32 / H, (row + 1) * 32 / H
-    end
-    local c = (spr % 5) * 3 + frame
-    return file, c * 32 / 512, (c + 1) * 32 / 512, row * 32 / H, (row + 1) * 32 / H
+    return ns.CraftUI.Kit.BodyCoords(spr, face, not act and frame or nil, act and FILM_ACT[act] or nil)
 end
 
 local function FilmSprite(e)
@@ -820,10 +808,7 @@ local function Rand(b)
     return b.seed
 end
 
-local function FaceTo(dx, dy)
-    if abs(dx) > abs(dy) then return dx > 0 and "right" or "left" end
-    return dy > 0 and "down" or "up"
-end
+local function FaceTo(dx, dy) return ns.Craft.FaceOf(dx, dy) end
 
 -- walks b toward (x, y) at speed tiles a second; true once there
 function Film.WalkTo(b, x, y, speed, dt)

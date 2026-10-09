@@ -39,6 +39,7 @@ local SECTIONS = {
     { key = "strategy", label = "Strategy boards" },
     { key = "tooltips", label = "Tooltips" },
     { key = "mylog", label = "My Log" },
+    { key = "swing", label = "Swing timer" },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
     { key = "demo", label = "Demo mode" },
@@ -1116,6 +1117,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildStrategy(self.sections.strategy)
     self:BuildTooltips(self.sections.tooltips)
     self:BuildMyLog(self.sections.mylog)
+    self:BuildSwing(self.sections.swing)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
     self:BuildDemo(self.sections.demo)
@@ -1340,6 +1342,51 @@ function SettingsUI:BuildWindow(sec)
             Set("minimap.hide", not shown)
             SetMinimapShown(shown)
         end)
+    self:EndSection(sec)
+end
+
+-- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): seal twisting for Retribution Paladins.
+function SettingsUI:BuildSwing(sec)
+    sec.y = sec.y - 4
+    self:SwitchSetting(sec, "Swing timer", "Seal twisting for Retribution: when to press Seal of Blood, and what fits between.",
+        "swing.enabled", true, "Only shows on a Retribution Paladin. /dz swing unlock lets you drag it.")
+    self:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "both", {
+        { value = "bar", text = "Twist bar" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
+    self:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", "swing.idle", false)
+    self:SwitchSetting(sec, "Locked", "Unlock to drag it where you want it.", "swing.locked", true)
+    local scales = {}
+    for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3, 1.5 }) do scales[#scales + 1] = { value = n, text = math.floor(n * 100) .. "%" } end
+    self:DropdownSetting(sec, "Size", "", "swing.scale", 1, scales)
+    local lats = { { value = 0, text = "Auto" } }
+    for _, n in ipairs({ 20, 40, 60, 80, 100, 150, 200, 300 }) do lats[#lats + 1] = { value = n, text = n .. " ms" } end
+    self:DropdownSetting(sec, "Latency", "Moves the press zone earlier. Auto measures it for you.",
+        "swing.latencyMs", 0, lats, "Auto averages your world latency with what it measures from your own seal casts "
+            .. "(the time from pressing to the seal landing). /dz swing shows both.")
+    self:SwitchSetting(sec, "Crusader Strike", "The planner may use it between twists.", "swing.use.cs", true)
+    self:SwitchSetting(sec, "Exorcism", "Filler on demons and undead.", "swing.use.exo", true)
+    self:SwitchSetting(sec, "Consecration", "Filler when your mana allows it.", "swing.use.cons", true)
+    local manas = {}
+    for _, n in ipairs({ 0, 20, 30, 40, 50, 60, 80 }) do manas[#manas + 1] = { value = n, text = n .. "%" } end
+    self:DropdownSetting(sec, "Consecration above", "Only suggest it with at least this much mana.", "swing.consMana", 40, manas)
+    self:SwitchSetting(sec, "Hammer of Wrath", "Filler below 20% target health.", "swing.use.how", true)
+    self:SwitchSetting(sec, "Use the gear sim", "Damage per cast from the sim on your gear (out of combat, a few seconds).",
+        "swing.useSim", true, "Without it the planner uses estimates from your weapon. /dz swing sim runs it again.")
+    self:SwitchSetting(sec, "Sound in the twist zone", "A click when it is time to press Seal of Blood.", "swing.sound", false)
+    local row = self:Row(sec, "Last fight", "")
+    row.hasDesc = true
+    PlaceText(row, 0)
+    self.refreshers[#self.refreshers + 1] = {
+        Refresh = function()
+            local r = ns.SwingTimer and ns.SwingTimer:Reports()[1]
+            if not r then row.desc:SetText("No fight yet. /dz swing report prints the latest one.") return end
+            local c = r.counts or {}
+            local tw, late, clip = c.twist or 0, c.late or 0, c.clip or 0
+            local f = r.fillers or {}
+            local fill = (f.exo or 0) + (f.cons or 0) + (f.how or 0)
+            row.desc:SetText(string.format("%s: %d/%d twists landed, %d late, %d clipped, %d fillers. About %.0f dps lost.",
+                r.target or "Fight", tw, tw + late + clip, late, clip, fill, (r.lostLate or 0) + (r.lostClip or 0)))
+        end,
+    }
     self:EndSection(sec)
 end
 

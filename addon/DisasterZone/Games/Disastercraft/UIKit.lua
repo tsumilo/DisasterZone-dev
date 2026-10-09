@@ -36,107 +36,199 @@ function K.Frame(parent, w, h, backdrop, level)
     return f
 end
 
--- the hero's face in the frames: a round portrait drawn from the same bare human as the pixel sprite
--- (dev/generators/gen_dc_portraits.py: Media/Azeromon/Outfit/portrait0 male, portrait1 female) - never your own
--- WoW character, never an untextured model
-function K.HeroPortrait(t, sex)
-    t:SetTexture(K.MEDIA .. "Outfit\\portrait" .. (sex == 1 and 1 or 0))
-    t:SetTexCoord(0, 1, 0, 1)
-end
+---------------------------------------------------------------------------
+-- The pixel body in a frame: the character screens, the character sheet and every portrait show the same
+-- sprite as the map (its gear layers for a hero), scaled up with crisp pixels.
+---------------------------------------------------------------------------
 
--- a portrait cut round (SetPortraitTextureFromCreatureDisplayID hands out a square picture; the classic unit frames
--- only frame a circle) - the client's own portrait mask
-function K.RoundMask(t)
-    if t.dzMask or not t.GetParent then return end
-    local p = t:GetParent()
-    if not (p and p.CreateMaskTexture and t.AddMaskTexture) then return end
-    local m = p:CreateMaskTexture()
-    m:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    m:SetAllPoints(t)
-    t:AddMaskTexture(m)
-    t.dzMask = m
-end
-
--- a DressUpModel showing a human of this sex in these items. A model loads after SetUnit / SetCustomRace return,
--- and a load landing late puts the unit's own look back - so it goes a step at a time: the unit (the first time),
--- once that has loaded the race and sex, once that has loaded undress and try the items on (and again for a
--- moment after, for a load that lands late).
-local DRESS_WAIT = 0.6
-local HUMAN_BODY = { [0] = 119940, [1] = 119563 }     -- character\human\male\humanmale.m2, ...\female\humanfemale.m2
-
--- does the model show a human of this sex? (nil when the client cannot say: no GetModelFileID / nothing loaded)
-local function HumanBody(m, sex)
-    if not m.GetModelFileID then return nil end
-    local ok, fid = pcall(m.GetModelFileID, m)
-    if not ok or not fid or fid == 0 then return nil end
-    return fid == HUMAN_BODY[sex]
-end
-K.HumanBody = HumanBody
-
--- The hero's sex is not the WoW character's (the model starts as "player"): SetCustomRace(1, sex) turns it, sex as
--- the client's Enum.UnitSex (0 male, 1 female - never 2 / 3: those are None / Both, which loaded a male body in the
--- female skin, underwear and all). A load can land well after the call, and the unit's own late load can undo it,
--- so the body file is watched until it is the right one (the call sent again every RESEND); if it never is, the body
--- itself is loaded by its file (right sex, without the outfit).
-local RESEND, TRIES = 1.0, 4
-
-function K.DressModel(m, sex, items)
-    if not m then return end
-    sex = sex or 0
-    m.dzOutfit = { sex = sex, items = items or {} }
-    if not m.dzHooked then
-        m.dzHooked = true
-        pcall(m.HookScript, m, "OnModelLoaded", function(self) self.dzLoaded = true end)
+-- a body's cell on the model sheets -> file, l, r, t, b: walk frame 0-2 on mobs*.blp, or action column `act`
+-- (0 wind-up, 1 strike, 2 ready, 3 release, 4 dead, 5 seated) on mobs_act*.blp
+function K.BodyCoords(spr, face, frame, act)
+    local A = ns.AzeroData or {}
+    local H, per, nf = A.MOB_SHEET_H or 2048, A.MOB_PER_SHEET or 1e9, A.MOB_FACES or 4
+    local k = floor(spr / per)
+    spr = spr - k * per
+    local row = floor(spr / 5) * nf + Craft.FaceRow(face, nf)
+    local t, b = row * 32 / H, (row + 1) * 32 / H
+    local file = K.MEDIA .. (act and "mobs_act" or "mobs") .. (k > 0 and ("_" .. k) or "") .. ".blp"
+    if act then
+        local c = (spr % 5) * 6 + act
+        return file, c * 32 / 1024, (c + 1) * 32 / 1024, t, b
     end
-    local step, wait, dressing, at = 2, 0, 0, 1
-    local tries = 0
-    if not m.dzUnit then
-        m.dzUnit, m.dzLoaded = true, false
-        pcall(m.SetUnit, m, "player")
-        step = 1
+    local c = (spr % 5) * 3 + (frame or 1)
+    return file, c * 32 / 512, (c + 1) * 32 / 512, t, b
+end
+
+-- the sheet index of whoever `who` is: a unit (UI.SpriteOf), a saved character { class, sex }, or { spr = n }
+local function SprOf(who)
+    if who.spr then return who.spr end
+    if who.guid and UI.SpriteOf then return UI.SpriteOf(who) end
+    local spr = ns.AzeroData and ns.AzeroData.CLASS_SPR
+    return spr and spr[(Craft.CLASS_TOKENS[who.class] or "WARRIOR") .. (who.sex or 0)] or 0
+end
+K.SprOf = SprOf
+
+-- the pictures that make up `who` in one frame, bottom first: { { file, l, r, t, b, x, y, w, h }, ... } with x, y,
+-- w, h in the 32 px cell. A hero with gear: the bare body and its gear layers (Outfit.lua); else the sheet's cell.
+-- kind "walk" (col 0-2) or "act" (col as K.BodyCoords' act)
+function K.BodyLayers(who, kind, col, face)
+    if not who then return {} end
+    local c = who.char or who
+    local hero = who.kind == "player" or who.kind == "remote" or (who.class and not who.guid)
+    if hero and c.equip and UI.OutfitLayers and not (kind == "act" and col == 5) then
+        local got = UI.OutfitLayers(who, kind, col, face)
+        if got and got[1] then return got end
     end
-    local function dress()
-        if m.Undress then pcall(m.Undress, m) end
-        for _, id in ipairs(m.dzOutfit.items) do
-            if m.TryOn then pcall(m.TryOn, m, "item:" .. id) end
+    local file, l, r, t, b = K.BodyCoords(SprOf(who), face, kind ~= "act" and col or nil, kind == "act" and col or nil)
+    return { { file, l, r, t, b, 0, 0, 32, 32 } }
+end
+
+-- K.Sprite(parent, w, h): a frame showing a body. :SetWho(who) (a unit, a saved character or { spr = n }),
+-- :SetPose(face, kind, col), :SetCrop(x0, y0, x1, y1) (the part of the 32 px cell to fit in the frame; default
+-- the whole cell), :SetRound(true) (cut round, as a portrait). The pixels stay crisp (NEAREST filtering).
+local function PaintSprite(f)
+    for _, t in ipairs(f.tex) do t:Hide() end
+    if not f.who then return end
+    local host, at = f.host or f, f.anchor or f
+    local w, h = f.w or at:GetWidth(), f.h or at:GetHeight()
+    if not w or w < 2 then w, h = 64, 64 end
+    local x0, y0, x1, y1 = f.crop[1], f.crop[2], f.crop[3], f.crop[4]
+    local k = min(w / max(1, x1 - x0), h / max(1, y1 - y0))
+    if f.intScale and k >= 2 then k = floor(k) end            -- (whole pixels: every sprite pixel the same size)
+    local ox, oy = (w - (x1 - x0) * k) / 2, (h - (y1 - y0) * k)          -- (centred, standing on the bottom)
+    if f.round then oy = (h - (y1 - y0) * k) / 2 end
+    for i, L in ipairs(K.BodyLayers(f.who, f.kind, f.col, f.face)) do
+        local t = f.tex[i]
+        if not t then
+            t = host:CreateTexture(nil, f.layer or "ARTWORK", nil, min(7, (f.sub or 0) + i - 1))
+            if f.mask then t:AddMaskTexture(f.mask) end
+            f.tex[i] = t
         end
+        if t.file ~= L[1] then
+            if not pcall(t.SetTexture, t, L[1], "CLAMP", "CLAMP", "NEAREST") then t:SetTexture(L[1]) end
+            t.file = L[1]
+        end
+        t:SetTexCoord(L[2], L[3], L[4], L[5])
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", at, "TOPLEFT", ox + (L[6] - x0) * k, -(oy + (L[7] - y0) * k))
+        t:SetSize(max(1, L[8] * k), max(1, L[9] * k))
+        t:SetVertexColor(f.cr or 1, f.cg or 1, f.cb or 1)
+        t:Show()
     end
-    m:SetScript("OnUpdate", function(self, dt)
-        wait = wait + dt
-        local want = self.dzOutfit.sex
-        if step == 1 then                                   -- the unit's model
-            if self.dzLoaded or wait > DRESS_WAIT then step, wait = 2, 0 end
-        elseif step == 2 then                               -- a human of the hero's sex
-            if HumanBody(self, want) == true then
-                step, wait = 4, 0
-            else
-                tries = tries + 1
-                if self.SetCustomRace and tries <= TRIES then
-                    self.dzLoaded = false
-                    pcall(self.SetCustomRace, self, 1, want)
-                    step, wait = 3, 0
-                else
-                    if HumanBody(self, want) == false and self.SetModel then pcall(self.SetModel, self, HUMAN_BODY[want]) end
-                    step, wait = 4, 0
-                end
-            end
-        elseif step == 3 then                               -- until the right body has loaded
-            local ok = HumanBody(self, want)
-            if ok == nil and (self.dzLoaded or wait > DRESS_WAIT) then step, wait = 4, 0   -- (the client cannot say)
-            elseif ok then step, wait = 4, 0
-            elseif wait > RESEND then step, wait = 2, 0 end
-        else                                                -- the outfit, a few times over
-            -- (a late load of the unit's own model puts its body back: turn it again)
-            if HumanBody(self, want) == false and tries < TRIES then
-                step, wait, dressing = 2, 0, 0
-                return
-            end
-            at = at + dt
-            if at >= 0.1 then at = 0 dress() end
-            dressing = dressing + dt
-            if dressing > 1.0 then self:SetScript("OnUpdate", nil) end
+end
+
+function K.Sprite(parent, w, h)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(w, h)
+    f.w, f.h = w, h
+    pcall(f.SetClipsChildren, f, true)
+    f.tex, f.crop = {}, { 0, 0, 32, 32 }
+    f.face, f.kind, f.col = "down", "walk", 1
+    function f:SetWho(who) self.who = who PaintSprite(self) end
+    function f:SetPose(face, kind, col)
+        self.face, self.kind, self.col = face or self.face, kind or self.kind, col or self.col
+        PaintSprite(self)
+    end
+    function f:SetCrop(a, b, c, d) self.crop = { a, b, c, d } PaintSprite(self) end
+    function f:SetBox(w2, h2) self.w, self.h = w2, h2 self:SetSize(w2, h2) PaintSprite(self) end
+    function f:SetTint(r, g, b) self.cr, self.cg, self.cb = r, g, b PaintSprite(self) end
+    function f:SetRound(on)
+        self.round = on
+        local host = self.host or self
+        if on and not self.mask and host.CreateMaskTexture then
+            local m = host:CreateMaskTexture()
+            m:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            m:SetAllPoints(self.anchor or self)
+            self.mask = m
+            for _, t in ipairs(self.tex) do t:AddMaskTexture(m) end
+        end
+        PaintSprite(self)
+    end
+    f.Repaint = PaintSprite
+    return f
+end
+
+-- the facings in turning order (a quarter-turn is two steps)
+K.RING = { "down", "downleft", "left", "upleft", "up", "upright", "right", "downright" }
+
+-- makes K.Sprite sv turn like the client's character model: sv:Turn(steps) one facing a step; dragging across it
+-- (unless noMouse: the caller forwards drags with sv:Drag(dx px)) turns a facing every 24 px; auto: it turns on
+-- its own, a facing a second, resting facing you, until you drag it
+function K.Turntable(sv, auto, noMouse)
+    sv.ring, sv.auto, sv.idle, sv.spin, sv.acc = 1, auto, 0, 0, 0
+    function sv:Turn(d)
+        self.ring = (self.ring - 1 + d) % #K.RING + 1
+        self:SetPose(K.RING[self.ring])
+    end
+    function sv:Drag(dx)
+        self.idle, self.acc = 0, self.acc + dx
+        while self.acc >= 24 do self.acc = self.acc - 24 self:Turn(1) end
+        while self.acc <= -24 do self.acc = self.acc + 24 self:Turn(-1) end
+    end
+    function sv:Face(face)
+        for i, f in ipairs(K.RING) do if f == face then self.ring = i end end
+        self:SetPose(face)
+    end
+    if not noMouse then
+        sv:EnableMouse(true)
+        sv:SetScript("OnMouseDown", function(self) self.dragX = GetCursorPosition() end)
+        sv:SetScript("OnMouseUp", function(self) self.dragX = nil end)
+    end
+    sv:SetScript("OnUpdate", function(self, el)
+        if self.dragX then
+            local x = GetCursorPosition()
+            self:Drag((x - self.dragX) / max(0.01, self:GetEffectiveScale() or 1))
+            self.dragX = x
+            return
+        end
+        if not self.auto then return end
+        self.idle = self.idle + el
+        if self.idle < 5 then return end                    -- (left alone a while after a drag)
+        self.spin = self.spin + el
+        if self.spin >= (self.ring == 1 and 2.6 or 0.9) then
+            self.spin = 0
+            self:Turn(1)
         end
     end)
+    sv.idle = 5
+end
+
+-- a portrait's crop: the head and shoulders of the standing body facing you (D.BOX: its opaque box), a square
+local function PortraitCrop(who)
+    local box = ns.AzeroData and ns.AzeroData.BOX and ns.AzeroData.BOX[SprOf(who)]
+    local x0, y0, x1, y1 = 3, 1, 29, 31
+    if box then x0, y0, x1, y1 = box[1], box[2], box[3], box[4] end
+    local w, h = x1 - x0, y1 - y0
+    local s = max(8, min(w, h, h > w * 1.4 and h * 0.55 or h))          -- (a person: the top half; a beast: all)
+    s = max(s, min(w, 18))
+    local cx = (x0 + x1) / 2
+    return cx - s / 2, y0 - 1, cx + s / 2, y0 - 1 + s
+end
+
+-- the pixel portrait of `who` in place of texture t (a unit frame's or a window's round portrait): drawn in t's
+-- own frame and draw layer just over it, so the frame's ring art stays on top; cut round. t itself becomes the
+-- dark disc behind the body. who nil: just the disc.
+function K.SpritePortrait(t, who)
+    local sv = t.dzSprite
+    if not sv then
+        local layer, sub = t:GetDrawLayer()
+        sv = K.Sprite(t:GetParent(), 1, 1)
+        sv:Hide()
+        sv.host, sv.anchor, sv.layer, sv.sub = t:GetParent(), t, layer or "BACKGROUND", min(6, (sub or 0) + 1)
+        sv.w, sv.h = nil, nil
+        sv:SetRound(true)
+        t.dzSprite = sv
+    end
+    t:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    t:SetTexCoord(0, 1, 0, 1)
+    t:SetVertexColor(0.1, 0.09, 0.08)
+    sv.who = who
+    if who then
+        local a, b, c, d = PortraitCrop(who)
+        sv.crop = { a, b, c, d }
+        sv.face, sv.kind, sv.col = "down", "walk", 1
+    end
+    sv:Repaint()
 end
 
 function K.Tex(parent, layer, file, sub)

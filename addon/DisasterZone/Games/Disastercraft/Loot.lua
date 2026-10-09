@@ -104,6 +104,7 @@ end
 
 -- the first player to hurt a creature owns its kill (and their party)
 Craft:On("damage", function(src, dst, amount, info)
+    if info and info.display then return end          -- (a hit seen from afar: its owner tags it)
     if dst and Combat.IsCreature(dst) and src and Combat.IsPlayer(src) and not dst.tapper then
         dst.tapper = src.guid
         dst.tapParty = Craft.Party and Craft.Party.IdOf and Craft.Party.IdOf(src) or nil
@@ -131,11 +132,28 @@ function Loot.KillXP(u, members)
     return floor(base * rate * p.level / sum * Craft.XP_RATE)
 end
 
+-- a quest drop I may take: one I still need (in a party each member takes their own)
+local function MayTake(it)
+    return not it.quest or not Craft.Quests or Craft.Quests.NeedsItem(it.id)
+end
+Loot.MayTake = MayTake
+
 Craft:On("death", function(u, killer)
     if not Combat.IsCreature(u) or not u.rec then return end
-    if not Loot.Mine(u) then return end
     local p = Craft.player
     if not p then return end
+    -- the loot: rolled by whoever runs the creature (alone: you), for the party that tagged it; in a party its
+    -- quest drops are rolled for anyone who may need them (each takes their own, see MayTake)
+    if Combat.Owns(u) and u.tapper and not u.netDeath then
+        local party = Craft.Party and Craft.Party.InParty and Craft.Party.InParty()
+        local others = u.tapper ~= p.guid
+        u.rec.loot = Loot.Generate(u, function(item)
+            return party or others or (Craft.Quests and Craft.Quests.NeedsItem(item))
+        end)
+        if #u.rec.loot.items == 0 and u.rec.loot.money == 0 then u.rec.loot = nil end
+        if u.rec.loot then u.rec.corpseUntil = Craft.Now() + 300 end
+    end
+    if not Loot.Mine(u) then return end
     -- party members near the kill share it
     local members = Craft.Party and Craft.Party.MembersNear and Craft.Party.MembersNear(u, 74) or { p }
     local mine = false
@@ -148,12 +166,6 @@ Craft:On("death", function(u, killer)
         end
         if Craft.Quests then Craft.Quests.OnKill(u) end
     end
-    -- the loot: rolled by whoever owns the creature (alone: you); a party's leader shares it out (Party.lua)
-    if Combat.Owns(u) and (not Craft.Party or not Craft.Party.HandlesLoot or not Craft.Party.HandlesLoot(u)) then
-        u.rec.loot = Loot.Generate(u, function(item) return Craft.Quests and Craft.Quests.NeedsItem(item) end)
-        if #u.rec.loot.items == 0 and u.rec.loot.money == 0 then u.rec.loot = nil end
-        if u.rec.loot then u.rec.corpseUntil = Craft.Now() + 300 end
-    end
 end)
 
 function Loot.CanLoot(u)
@@ -162,7 +174,9 @@ function Loot.CanLoot(u)
     if not Loot.Mine(u) then return false end
     if l.money > 0 then return true end
     for _, it in ipairs(l.items) do
-        if not it.taken and (not it.owner or it.owner == (Craft.player and Craft.player.guid)) then return true end
+        if not it.taken and MayTake(it) and (not it.owner or it.owner == (Craft.player and Craft.player.guid)) then
+            return true
+        end
     end
     return false
 end
@@ -222,6 +236,7 @@ function Loot.Take(i)
     local l = Loot.Items()
     local it = l and l.items[i]
     if not it or it.taken then return false end
+    if not MayTake(it) then Craft:Error("You can't loot that item.") return false end
     if it.owner and it.owner ~= Craft.player.guid then Craft:Error("You can't loot that item.") return false end
     if it.rolling then Craft:Error("That item is being rolled for.") return false end
     if Craft.Party and Craft.Party.TakeLoot and Craft.Party.TakeLoot(Loot.open, i, it) then

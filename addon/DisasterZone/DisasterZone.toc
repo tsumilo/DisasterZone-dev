@@ -87,6 +87,7 @@ Core\Ledger.lua
 Core\RaidLog.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
+Core\SwingTimer.lua
 Core\RaidPlan.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
@@ -287,6 +288,7 @@ UI\MyLogKit.lua
 UI\MyLogUI.lua
 UI\MyLogTimeline.lua
 UI\MyLogDetail.lua
+UI\SwingTimerHUD.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)
@@ -322,6 +324,7 @@ Games\Disastercraft\Loot.lua
 Games\Disastercraft\Quests.lua
 Games\Disastercraft\Npc.lua
 Games\Disastercraft\Talents.lua
+Games\Disastercraft\Party.lua
 Games\Disastercraft\Changelog.lua
 Games\Disastercraft\Layouts.lua
 Games\Disastercraft\UIKit.lua
@@ -333,6 +336,7 @@ Games\Disastercraft\UIHud.lua
 Games\Disastercraft\UIMinimap.lua
 Games\Disastercraft\UIWorldMap.lua
 Games\Disastercraft\UIWindows.lua
+Games\Disastercraft\UIParty.lua
 Games\Disastercraft\UIFrames.lua
 Games\Disastercraft\UIGlue.lua
 Games\Disastercraft\UIMain.lua

@@ -832,38 +832,103 @@ def ui_eating_sits_you_down_and_swings_show():
 
 
 @case
-def ui_3d_model_turns_to_the_heros_sex():
-    # (in game a male hero's 3D model stayed the player's own female body; then, sent UnitSex 2 = None, a male body
-    # in the female skin) - SetCustomRace gets Enum.UnitSex 0 / 1 only; a body that loads late (after the old 0.6 s
-    # wait) is waited for, and the unit's own late load putting the female body back is turned again
+def ui_spell_glows_sit_in_the_hands_behind_or_in_front_of_the_body():
+    """A mage's Fireball glow (its precast models in both hands) sits at her hands as the sprite has them in that
+    facing and pose (D.HANDS), between the pictures behind her body and her body for a hand on its far side
+    (facing away), just over her body for a hand on the near side (facing you); her body is drawn apart."""
     w, c = ui_game()
-    c.eval(r"""
-      local m = CreateFrame("DressUpModel", nil, UIParent)
-      m.fid = 119563                                         -- the WoW character: a human female
-      m.sent = {}
-      m.SetUnit = function(self) self.unitAt = GetTime() + 1.5 end         -- (its load lands late, once)
-      m.SetCustomRace = function(self, race, g)
-        self.sent[#self.sent + 1] = g
-        self.raceAt, self.raceFid = GetTime() + 0.8, (g == 0 and 119940) or (g == 1 and 119563) or 0
+    c.eval("ns.Craft:NewCharacter(8, 1) ns.CraftUI.Glue.selected = 8 ns.CraftUI.Glue.EnterWorld()")
+    w.tick(1.0)
+    out = {}
+    for face, dy in (("up", -4), ("down", 4)):
+        out[face] = c.eval_py(r"""
+          local UI, Craft = ns.CraftUI, ns.Craft
+          local p = Craft.player
+          local dy = select(2, ...)
+          p.casting = nil p.gcdEnd = nil
+          -- a target dummy straight ahead (a vermin moved there), so she turns that way
+          local t = nil
+          for _, rec in pairs(Craft.World.recs) do if rec.unit and rec.unit.entry == 6 and not rec.unit.dead then t = rec.unit break end end
+          t.x, t.y = p.x, p.y + dy
+          Craft.Combat.CastSpell(p, 133, t)
+          UI.DrawWorld(0.05) UI.FX.Update() UI.DrawWorld(0.05) UI.FX.Update()
+          local lb, lf = UI.FxLevels(p)
+          local lv, n, hands = {}, 0, 0
+          for _, e in ipairs(UI.FX.Active()) do
+            if e.unit == p then n = n + 1 lv[#lv + 1] = e.lv if e.behind ~= nil then hands = hands + 1 end end
+          end
+          local hx, hy, behind = UI.AttachPoint(p, 21)
+          local sx, sy = UI.UnitScreen(p)
+          return { face = p.face, lb = lb or false, lf = lf or false, lv = lv, n = n,
+                   hx = hx - sx, hy = sy - hy, behind = behind and true or false, pose = UI.UnitPose(p, Craft.Now()) }
+        """, face, dy)
+    up, down = out["up"], out["down"]
+    assert up["face"] == "up" and down["face"] == "down", out
+    assert up["n"] >= 1 and down["n"] >= 1, out
+    assert up["lb"] and down["lf"], out
+    # (each hand on its own: facing away the readied hands are behind her, at least the far one; facing you in
+    # front; never over everything else)
+    # (the readied pose draws one hand back over the shoulder: even facing you that one is behind her)
+    assert up["lb"] in up["lv"] and all(l in (up["lb"], up["lf"]) for l in up["lv"]), up
+    assert down["lf"] in down["lv"] and all(l in (down["lb"], down["lf"]) for l in down["lv"]), down
+    assert up["behind"], out
+    assert up["pose"] == 2, up                            # (spell readied)
+    # the hand is in the body's middle height, not on its feet or over its head
+    tile = c.eval("return ns.CraftUI.TILE")
+    assert 0.2 * tile < down["hy"] < 0.9 * tile, (down, tile)
+    no_errors(w)
+
+
+@case
+def ui_pixel_bodies_replace_3d_models_and_portraits():
+    """No 3D models and no client portraits: the character screens, the character sheet and every portrait (yours,
+    your target's, a quest giver's) show the body's own pixel sprite - a hero's in its gear layers, crisp, cut round
+    in a portrait - and the big ones turn through the eight facings (dragged, by the arrows, on their own)."""
+    w, c = ui_game()
+    r = c.eval_py(r"""
+      local UI, K = ns.CraftUI, ns.CraftUI.Kit
+      UI.Glue.ShowCreate()
+      UI.Glue.newClass, UI.Glue.newSex = 8, 1
+      UI.Glue.RefreshCreate()
+      local m = UI.glue.model
+      local files = {}
+      for _, t in ipairs(m.tex) do if t:IsShown() then files[#files + 1] = tostring(t.file) end end
+      local faces = { m.face }
+      for i = 1, 8 do m:Turn(1) faces[#faces + 1] = m.face end
+      local models = 0
+      local function walk(f)
+        if f.GetObjectType and (f:GetObjectType() == "DressUpModel" or f:GetObjectType() == "PlayerModel") and f:IsVisible() then
+          models = models + 1
+        end
+        for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end
       end
-      m.GetModelFileID = function(self)
-        local now = GetTime()
-        if self.raceAt and now >= self.raceAt then self.fid, self.raceAt = self.raceFid, nil end
-        if self.unitAt and now >= self.unitAt then self.fid, self.unitAt = 119563, nil end
-        return self.fid
-      end
-      T_M = m
-      ns.CraftUI.Kit.DressModel(m, 0, {})
+      walk(UI.glue)
+      return { files = files, faces = faces, models = models, shown = m:IsShown() }
     """)
-    w.tick(6)
-    r = c.eval_py("local s = {} for i, g in ipairs(T_M.sent) do s[i] = g end return { fid = T_M:GetModelFileID(), sent = s }")
-    assert r["fid"] == 119940, r
-    sent = list(r["sent"].values()) if isinstance(r["sent"], dict) else r["sent"]
-    assert sent and all(g == 0 for g in sent), r
-    c.eval("ns.CraftUI.Kit.DressModel(T_M, 1, {})")
-    w.tick(4)
-    r = c.eval_py("return { fid = T_M:GetModelFileID() }")
-    assert r["fid"] == 119563, r
+    assert r["shown"] and r["files"], r
+    assert all("Outfit" in f or "mobs" in f for f in r["files"]), r
+    assert r["faces"] == ["down", "downleft", "left", "upleft", "up", "upright", "right", "downright", "down"], r
+    assert r["models"] == 0, r
+    # in the world: your portrait and a creature's are pixel bodies, the character sheet's model too
+    c.eval("ns.Craft:NewCharacter(1, 0) ns.CraftUI.Glue.selected = 1 ns.CraftUI.Glue.EnterWorld()")
+    w.tick(1.0)
+    r = c.eval_py(r"""
+      local UI, Craft = ns.CraftUI, ns.Craft
+      local p = Craft.player
+      local wolf = T_DC.find(299)
+      Craft.World.SetTarget(wolf)
+      UI.UpdateHud(0)
+      local function files(t)
+        local o = {}
+        for _, x in ipairs(t.dzSprite and t.dzSprite.tex or {}) do if x:IsShown() then o[#o + 1] = tostring(x.file) end end
+        return o
+      end
+      return { me = files(UI.Hud.player.portrait), it = files(UI.Hud.target.portrait),
+               round = UI.Hud.player.portrait.dzSprite.mask ~= nil }
+    """)
+    assert r["me"] and all("Outfit" in f or "mobs" in f for f in r["me"]), r
+    assert r["it"] and all("mobs" in f for f in r["it"]), r
+    assert r["round"], r
     no_errors(w)
 
 

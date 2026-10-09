@@ -214,6 +214,9 @@ local KNOWN_MESSAGES = {
     LIST_UPDATED = true, LISTS_RESET = true, ITEMINFO_READY = true,
     DROP = true, LEDGER_UPDATED = true, PEERS_UPDATED = true,
     SYNC_STATUS = true, SETTINGS_CHANGED = true, DEMO_TOGGLED = true,
+    -- Core/SwingTimer.lua: SWING_STATE (active) on/off for this character, SWING_VALUES the sim's damage values,
+    -- SWING_REPORT (report) a fight ended
+    SWING_STATE = true, SWING_VALUES = true, SWING_REPORT = true,
     -- Addendum A §19: roll sessions (Core/Roll.lua)
     ROLL_UPDATED = true,   -- (sessionID) any change: start, roll, response, close, award, cancel
     ROLL_STARTED = true,   -- (session) a roll session opened (raider popup)

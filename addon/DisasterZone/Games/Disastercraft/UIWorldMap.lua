@@ -35,8 +35,7 @@ function UI.FacingAngle(u)
         return UI.lastAngle
     end
     if u == Craft.player and UI.lastAngle then return UI.lastAngle end
-    local f = u.face
-    return (f == "left" and math.pi / 2) or (f == "right" and -math.pi / 2) or (f == "down" and math.pi) or 0
+    return Craft.FACE_ANGLE[u.face] or 0
 end
 
 local function Tex(parent, layer, sub)

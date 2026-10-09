@@ -47,6 +47,12 @@ local DEFAULTS = {
         atlas = { show = "all" },      -- Atlas tab: Show "all" | "class" | "spec" | "os" (off spec)
         raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
         mylog = { enabled = false, heroics = false, keepWeeks = 12 },  -- My Log (Core/MyLog.lua): opt-in, off
+        -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
+        -- latencyMs 0 = auto; use.* = what the planner may press; consMana = Consecration only above this mana %;
+        -- useSim = damage values from the gear sim; values / reports / pos are kept here too
+        swing = { enabled = true, style = "both", locked = true, idle = false, scale = 1, latencyMs = 0,
+                  use = { cs = true, exo = true, cons = true, how = true }, consMana = 40, useSim = true,
+                  sound = false, mobType = "Demon" },
         -- Guild > Map (Core/GuildMap.lua): share "unset" (not asked yet) | "off" | "zone" | "exact"; blizzard: dots on
         -- the game's world map too
         map = { share = "unset", blizzard = true },

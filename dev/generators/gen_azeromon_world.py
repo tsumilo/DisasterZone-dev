@@ -732,9 +732,12 @@ def entities_for(world, gbox, taken=frozenset()):
 
 
 MEDIA = os.path.join(ADDON, "Media", "Azeromon")
-MOB_COLS = 5                 # creatures per row of the sheet (3 frame columns each, 4 facing rows)
-MOB_SHEET_H = 2048           # each sheet's height: 16 rows of bodies
-MOB_PER_SHEET = MOB_COLS * MOB_SHEET_H // (4 * 32)
+MOB_COLS = 5                 # creatures per row of the sheet (3 frame columns each, 8 facing rows)
+MOB_FACES = 8                # down, left, right, up, then the diagonals (azw_people.FACES)
+MOB_SHEET_H = 4096           # each sheet's height: 16 rows of bodies (the client's textures stop at 4096)
+MOB_PER_SHEET = MOB_COLS * MOB_SHEET_H // (MOB_FACES * 32)
+HANDS = {}                   # sprite index -> its hand points (azw_people._act_render), for Species.lua D.HANDS
+BOXES = {}                   # sprite index -> its standing, facing-you picture's opaque box in the cell (portraits)
 
 
 # the player's own race / sex (ChrRaces IDs of TBC) get a body each
@@ -774,13 +777,17 @@ def emit_sprite_sheet(displays):
 
     def cell_of(i, cols):
         j = i % MOB_PER_SHEET
-        return (j % MOB_COLS) * cols, (j // MOB_COLS) * 4
+        return (j % MOB_COLS) * cols, (j // MOB_COLS) * MOB_FACES
 
     sheets = [Image.new("RGBA", (512, h), (0, 0, 0, 0)) for _ in range(nsheets)]
     for i, f in enumerate(frames):
+        import numpy as np
+        ys, xs = np.nonzero(f["down"][1][..., 3])
+        if len(xs):
+            BOXES[i] = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
         cx, cy = cell_of(i, 3)
         sheet = sheets[i // MOB_PER_SHEET]
-        for fr, face in enumerate(("down", "left", "right", "up")):
+        for fr, face in enumerate(PP.FACES):
             for k in range(3):                             # stride, stand, stride (no Walk sequence: a bob)
                 img = Image.fromarray(f[face][k], "RGBA")
                 bob = 0 if f.get("walked") or k == 1 else 2
@@ -803,10 +810,12 @@ def emit_sprite_sheet(displays):
             f = None
         if not f:                   # (no model to pose: the standing frame, so the body never vanishes mid-swing)
             w = frames[i]
-            f = {face: [w[face][1]] * PP.ACT_COLS for face in ("down", "left", "right", "up")}
+            f = {face: [w[face][1]] * PP.ACT_COLS for face in PP.FACES}
+        if f.get("hands"):
+            HANDS[i] = f["hands"]
         cx, cy = cell_of(i, PP.ACT_COLS)
         act = acts[i // MOB_PER_SHEET]
-        for fr, face in enumerate(("down", "left", "right", "up")):
+        for fr, face in enumerate(PP.FACES):
             for k in range(PP.ACT_COLS):
                 img = Image.fromarray(f[face][k], "RGBA")
                 act.paste(img, ((cx + k) * cell, (cy + fr) * cell), img)
@@ -820,6 +829,30 @@ def emit_sprite_sheet(displays):
             k += 1
     print("wrote mobs_act sheets", nsheets)
     return out, h
+
+
+def hands_lua():
+    """D.HANDS[sprite] = { 48 numbers }: per facing (8, sheet order) x pose (stand, ready, release) x hand (left,
+    right): (x2 * 100 + y2), x2 / y2 the hand's cell position in half pixels (0..99), negative when the hand is
+    behind the body, 0 when the model has no such hand."""
+    rows = []
+    import azw_people as PP
+    for spr in sorted(HANDS):
+        h = HANDS[spr]
+        vals = []
+        for face in PP.FACES:
+            for pose in h.get(face, [[None, None]] * 3):
+                for pt in pose:
+                    if not pt:
+                        vals.append(0)
+                        continue
+                    x2 = max(0, min(99, int(round(pt[0] * 2))))
+                    y2 = max(1, min(99, int(round(pt[1] * 2))))
+                    v = x2 * 100 + y2
+                    vals.append(-v if pt[2] else v)
+        rows.append("[%d] = { %s }" % (spr, ", ".join(str(v) for v in vals)))
+    return ("-- each body's spell hands per facing and pose (Disastercraft's cast glows; see gen_azeromon_world.hands_lua)\n"
+            "D.HANDS = {\n    " + ",\n    ".join(rows) + ",\n}\n")
 
 
 def emit_seehole():
@@ -868,6 +901,11 @@ def emit_species(species, sheet, sheet_h, players):
             out.append("S.%s = %s\n" % (s["key"], lua_val(d)))
         out.append("S._byEntry = { %s }\n" % ", ".join("[%d] = %s" % (s["entry"], lua_str(s["key"])) for s in order))
         out.append("D.MOB_SHEET_H = %d          -- Media/Azeromon/mobs.blp: 512 x this, 5 a row, 32 px frames\n" % sheet_h)
+        out.append("D.MOB_FACES = %d             -- facing rows a body (down, left, right, up, downleft, downright, upleft, upright)\n"
+                   % MOB_FACES)
+        out.append(hands_lua())
+        out.append("-- each body's standing, facing-you picture: its opaque box in the 32 px cell (x0, y0, x1, y1; portraits)\n")
+        out.append("D.BOX = { %s }\n" % ", ".join("[%d] = { %d, %d, %d, %d }" % ((k,) + BOXES[k]) for k in sorted(BOXES)))
         out.append("D.MOB_PER_SHEET = %d        -- bodies a sheet: sprite i is on mobs_<i // this>.blp (0: mobs.blp)\n"
                    % MOB_PER_SHEET)
         out.append("-- the player's own body by race and sex (UnitRace file name, UnitSex 2 / 3)\n")

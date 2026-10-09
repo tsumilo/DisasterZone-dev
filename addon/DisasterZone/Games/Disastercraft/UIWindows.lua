@@ -371,11 +371,7 @@ end
 
 local function NpcPortrait(t, u)
     if not u then return end
-    if u.cr and u.cr.disp and SetPortraitTextureFromCreatureDisplayID then
-        pcall(SetPortraitTextureFromCreatureDisplayID, t, u.cr.disp)
-    else
-        t:SetTexture("Interface\\CharacterFrame\\TempPortrait")
-    end
+    K.SpritePortrait(t, u)
 end
 
 local qf                         -- the one quest / gossip frame (WoW's QuestFrame + GossipFrame)

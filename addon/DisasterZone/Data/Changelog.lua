@@ -27,6 +27,18 @@ ns.CHANGELOG = {
               "Your group's totems and shouts, blessings and debuffs come from the specs placed there.",
               "The comp's open slots count as filled unless you untick it; your clicks stay on top.",
           } },
+          { heading = "Swing timer (Retribution)", lines = {
+              "New swing timer for seal twisting, built in: it shows on Retribution Paladins in combat.",
+              "The orange zone on the bar is when to press Seal of Blood, already moved earlier by your ping.",
+              "A blue line shows where a GCD pressed now would end; it turns red when it would cost the twist.",
+              "Above the bar: what to press next and when, with Judgement on its own (it is off the GCD).",
+              "The plan lane shows the next 7 seconds: twists, Crusader Strike and fillers where they fit.",
+              "Exorcism, Consecration and Hammer of Wrath are fitted in where they add damage; turn each off in Settings.",
+              "Damage per cast comes from the gear sim on the gear you wear (it runs out of combat).",
+              "Little squares under the bar show your last swings: twisted, late, clipped or plain.",
+              "After each fight: twists landed, late and clipped, in Settings > Swing timer and /dz swing report.",
+              "/dz swing unlock to move it, /dz swing for your latency and where the numbers come from.",
+          } },
           { heading = "Disastercraft", lines = {
               "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",
               "Rows bring abilities too: Mortal Strike, Bloodthirst, Pyroblast, Ice Barrier, Mind Flay...",

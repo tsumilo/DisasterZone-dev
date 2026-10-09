@@ -7,7 +7,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Disastercraft/World.lua", ..
 -- (evade: back home, full health), die, leave a corpse to loot, and come back after their real respawn time.
 --
 -- Idle wandering is a pure function of the spawn and the realm clock, so every guildmate sees the same kobold at
--- the same spot without a word on the network; only creatures in a fight are simulated (by the party leader).
+-- the same spot without a word on the network; a creature in a fight is run by one client - whoever pulled it
+-- (Party.lua: rec.owner) - and the others show what it tells them.
 local addonName, ns = ...
 
 local Craft = ns.Craft
@@ -25,7 +26,7 @@ local YARDS = Craft.YARDS
 
 World.recs = {}                 -- guid -> { e = spawn, unit = combat unit (creatures), kind, ... }
 World.objects = {}              -- objects (quest crates, herbs, ore, chests)
-World.authority = true          -- this client simulates creatures in fights (alone: yes; in a party: the leader)
+-- (who runs a fighting creature: Craft.Party.OwnsRec(rec) - alone, always you)
 World.input = { dx = 0, dy = 0 }
 local ACTIVE = 40               -- tiles around a player in which creatures think
 
@@ -564,10 +565,7 @@ function World.IdlePos(rec, t)
     return bx, by, false, (dist > 0.01) and World.FaceOf(bx - ax, by - ay) or u.face, be
 end
 
-function World.FaceOf(dx, dy)
-    if abs(dx) > abs(dy) then return dx > 0 and "right" or "left" end
-    return dy > 0 and "down" or "up"
-end
+function World.FaceOf(dx, dy) return Craft.FaceOf(dx, dy) end
 
 ---------------------------------------------------------------------------
 -- The player
@@ -908,9 +906,18 @@ local function CallForHelp(mob, foe)
     end
 end
 
+-- does this client run creature rec's fight? (an idle one: whoever pulls it does)
+local function Runs(rec)
+    local P = Craft.Party
+    return not P or P.OwnsRec(rec)
+end
+World.Runs = Runs
+
 function World.Engage(mob, foe)
     local rec = mob.rec
     if not rec or mob.dead or rec.state == "evade" then return end
+    -- (someone else runs this fight: it is theirs to start)
+    if Craft.Party and not Craft.Party.Claim(rec) then return end
     if rec.state == "idle" or rec.state == "return" then
         rec.state = "combat"
         rec.engageX, rec.engageY = mob.x, mob.y
@@ -1055,10 +1062,16 @@ local function IdleAggro(mob, players)
 end
 
 local thinkAcc = 0
+local me_only
 local function UpdateCreatures(dt)
     local now = Now()
     local clock = World.Clock()
     local players = Players()
+    -- (each client notices for its own hero only: a guildmate's client does for theirs)
+    local mine = me_only or {}
+    for k in pairs(mine) do mine[k] = nil end
+    if Craft.player and not Craft.player.dead and not Craft.player.ghost then mine[1] = Craft.player end
+    me_only = mine
     thinkAcc = thinkAcc + dt
     local scan = thinkAcc >= 0.2
     if scan then thinkAcc = 0 end
@@ -1093,22 +1106,22 @@ local function UpdateCreatures(dt)
                         u.x, u.y, u.moving, u.face = ix, iy, moving, face
                         if (ox ~= ix or oy ~= iy or u.e == nil) and (u.homeB or u.bld) then World.Settle(u, ie) end
                     end
-                    if scan and World.authority and rec.state == "idle" then IdleAggro(u, players) end
+                    if scan and rec.state == "idle" then IdleAggro(u, mine) end
                     -- spawn buffs (Frost Armor on the Geomancer)
-                    if scan and World.authority and D.eventai[u.entry] and rec.state == "idle" then
+                    if scan and Runs(rec) and D.eventai[u.entry] and rec.state == "idle" then
                         local rules = D.eventai[u.entry]
                         for i, r in ipairs(rules) do
                             if r[1] == 27 and not Combat.FindAura(u, r[3]) then RunActions(u, r[7], nil) end
                         end
                     end
                 end
-            elseif World.authority then
+            elseif Runs(rec) then
                 if rec.state == "combat" then ThinkCombat(u, dt)
                 elseif rec.state == "flee" then ThinkFlee(u, dt)
                 elseif rec.state == "evade" then ThinkEvade(u, dt) end
             end
             -- a creature attacked while idle (a spell from range) fights back
-            if not u.dead and rec.state == "idle" and u.inCombat and next(u.threat) and World.authority then
+            if not u.dead and rec.state == "idle" and u.inCombat and next(u.threat) and Runs(rec) then
                 local t = Combat.PickTarget(u)
                 if t then World.Engage(u, t) end
             end
@@ -1211,6 +1224,11 @@ function World.Interact(x)
     end
     if Combat.CanAttack(p, u) and u.kind ~= "critter" then
         Combat.StartAttack(p, u)
+        return
+    end
+    -- (another hero: its menu - invite, promote, uninvite)
+    if u.kind == "remote" then
+        Craft:Emit("unitmenu", u)
         return
     end
     if u.kind == "npc" then
