@@ -1140,6 +1140,7 @@ STATES = [
     ("Games - Disastercraft in front", opened("games", "ns.GamesUI:ShowFront('disastercraft')")),
     # its poster's film of Northshire, a moment into each shot (the audit ticks 0.6 s more after the state)
     ("Games - Disastercraft film Abbey", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(1, 3.6)")),
+    ("Games - Disastercraft film Abbey door", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(1, 1.3)")),
     ("Games - Disastercraft film fight", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(2, 1.6)")),
     ("Games - Disastercraft film vineyards", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(3, 3.4)")),
     ("Games - Disastercraft film gate", opened("games", "ns.GamesUI:ShowFront('disastercraft') ns.GamesUI:FilmSeek(4, 5)")),

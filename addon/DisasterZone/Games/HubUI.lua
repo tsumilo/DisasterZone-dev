@@ -1206,19 +1206,30 @@ end
 
 local FILM_SHOTS = {
     -- the Abbey's doors: three heroes come out into the morning; Deputy Willem has work for them
-    { name = "Northshire Abbey", cam = { 4130.5, 6235, 4128.5, 6240 }, zoom = { 1.2, 0.98 },
-      clear = { { 4129.5, 6238.5, 2 } }, marks = { ["Deputy Willem"] = true },
+    -- (the way out is the Abbey's own walk grid: the hall ends in its door at about 4130.75, 6234.9, then the porch
+    -- turns and its steps run south to the yard; a hero is not seen until it steps through the door, as the game
+    -- hides who is inside a building while you are out)
+    { name = "Northshire Abbey", cam = { 4130.2, 6235.8, 4128.6, 6240.2 }, zoom = { 1.25, 0.98 },
+      marks = { ["Deputy Willem"] = true },
       setup = function()
-          local war = Film.Body(FilmHero("WARRIOR0"), 4130.3, 6236.3, "down")
-          local mage = Film.Body(FilmHero("MAGE1"), 4130.3, 6236.3, "down")
-          local pri = Film.Body(FilmHero("PRIEST0"), 4130.3, 6236.3, "down")
+          local war = Film.Body(FilmHero("WARRIOR0"), 4131.3, 6234.88, "left")
+          local mage = Film.Body(FilmHero("MAGE1"), 4131.3, 6234.88, "left")
+          local pri = Film.Body(FilmHero("PRIEST0"), 4131.3, 6234.88, "left")
           war.alpha, mage.alpha, pri.alpha = 0, 0, 0
           return { war = war, mage = mage, pri = pri }
       end,
       act = function(L, t, dt)
           local C = L.cast
-          Walks(t, dt, { { C.war, 0.5, { { 4128.6, 6242.1 } }, "up" }, { C.mage, 1.2, { { 4127.4, 6241.7 } }, "up" },
-                         { C.pri, 1.9, { { 4129.8, 6241.8 } }, "up" } })
+          local function out(x, y)
+              return { { 4130.4, 6234.95 }, { 4129.62, 6235.3 }, { 4129.62, 6236.6 }, { 4128.62, 6236.95 },
+                       { 4128.62, 6239.5 }, { x, y } }
+          end
+          Walks(t, dt, { { C.war, 0.3, out(4129.4, 6241.3), "up", 1.5 }, { C.mage, 0.8, out(4127.7, 6241.5), "up", 1.5 },
+                         { C.pri, 1.3, out(4128.7, 6242.3), "up", 1.5 } })
+          for _, b in pairs(C) do
+              -- (still in the hall: unseen; through the door: there at once, as a body stepping out)
+              if b.x > 4130.72 then b.alpha = 0 else b.alpha = min(1, (b.alpha or 0) + dt * 8) end
+          end
       end },
     -- Echo Ridge Mine: on the meadow under its mouth a kobold worker meets the warrior's sword, the mage's fire and
     -- the priest's light; the other kobolds' candles flicker round them
@@ -1276,19 +1287,20 @@ COVERS.disastercraft = function(parent, poster)
     c.light:SetPoint("TOPRIGHT")
     c.light:SetBlendMode("ADD")
     Gradient(c.light, "VERTICAL", 1, 0.75, 0.4, 0, 1, 0.75, 0.4, 0.16)
-    c.cap = Label(c.sky, 21, "GameFontNormalHuge")
+    -- (the name is on the poster's words layer: always over the art, whatever the film's frames do)
+    c.cap = Label(parent, 21, "GameFontNormalHuge")
     c.cap:SetJustifyH("CENTER")
     c.cap:SetFont("Fonts\\MORPHEUS.TTF", 21, "OUTLINE")
     c.cap:SetTextColor(1, 0.82, 0)
     c.cap:SetShadowOffset(1, -1)
-    c.capRule = c.sky:CreateTexture(nil, "ARTWORK")
+    c.capRule = parent:CreateTexture(nil, "ARTWORK")
     c.capRule:SetHeight(1)
     c.capRule:SetWidth(150)
     c.capRule:SetPoint("TOP", c.cap, "BOTTOM", 0, -6)
     Gradient(c.capRule, "HORIZONTAL", 1, 0.82, 0, 0.7, 1, 0.82, 0, 0.7)
     c.capFade = {}
     for k, side in ipairs({ "LEFT", "RIGHT" }) do
-        local t = c.sky:CreateTexture(nil, "ARTWORK")
+        local t = parent:CreateTexture(nil, "ARTWORK")
         t:SetHeight(1)
         t:SetWidth(60)
         t:SetPoint(k == 1 and "RIGHT" or "LEFT", c.capRule, side, 0, 0)
@@ -1315,8 +1327,27 @@ COVERS.disastercraft = function(parent, poster)
         self.cap:SetPoint("TOP", self, "TOP", 0, -max(44, (h + 52) * 0.12))
     end
     function c:Refresh() end
+    -- The film's frames in order, just under the poster's words: reel 1 (its ground, depth frames, glows), reel 2,
+    -- the sky. Put back every frame should a level change elsewhere (the carousel raising its front poster) have
+    -- moved them apart: a depth frame over the sky drew the scenery over the light and the clouds.
+    local function Relevel(self)
+        local top = poster.over:GetFrameLevel() - 1
+        if self.sky:GetFrameLevel() == top and self.lvTop == top then return end
+        self.lvTop = top
+        local lv = top - 2 * (FILM_DEPTH + 2) - 1
+        self:SetFrameLevel(lv)
+        for _, L in ipairs(self.reels) do
+            lv = lv + 1
+            L.frame:SetFrameLevel(lv)
+            for k = 1, FILM_DEPTH do L.depth[k]:SetFrameLevel(lv + k) end
+            L.over:SetFrameLevel(lv + FILM_DEPTH + 1)
+            lv = lv + FILM_DEPTH + 1
+        end
+        self.sky:SetFrameLevel(top)
+    end
     -- (time jumps: the hub hands at most 0.1 s a frame)
     function c:Tick(elapsed)
+        Relevel(self)
         local w, h = View(self)
         local A = self.reels[self.live]
         local B = self.reels[3 - self.live]
