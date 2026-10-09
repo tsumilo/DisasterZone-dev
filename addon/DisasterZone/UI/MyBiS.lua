@@ -71,7 +71,7 @@ local KIND_GROUP = {
 
 local panel, bar, doll, card
 local phaseButtons = {}
-local suggestBtn, moreBtn, lockChip
+local suggestBtn, moreBtn, lockChip, simBtn, simCard
 local selectedPhase, userPickedPhase
 local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
@@ -719,6 +719,10 @@ local function ShowSlotMenu(sid, tile)
 end
 
 local function OnSlotClick(sid, which, mouseButton, tile)
+    if ns.SimPanel and ns.SimPanel:IsActive() then
+        ns.SimPanel:OnSlotClick(sid, which, mouseButton, tile, panel)
+        return
+    end
     if mouseButton == "RightButton" or SlotDisabled(CurrentPhase(), sid) then
         -- clicking a disabled slot offers "Enable slot"
         ShowSlotMenu(sid, tile)
@@ -728,6 +732,10 @@ local function OnSlotClick(sid, which, mouseButton, tile)
 end
 
 local function OnSlotReceiveItem(sid, itemID, which)
+    if ns.SimPanel and ns.SimPanel:IsActive() then
+        ns.SimPanel:OnSlotReceiveItem(sid, itemID)
+        return
+    end
     if not ns.BiS then return end
     local phase = CurrentPhase()
     if SlotDisabled(phase, sid) then
@@ -751,6 +759,8 @@ function MyBiS:SetPhase(p, byUser)
     if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
     self:Refresh()
 end
+
+function MyBiS:GetPanel() return panel end
 
 function MyBiS:GetPhase()
     return CurrentPhase()
@@ -1136,6 +1146,12 @@ local function BuildMoreMenu(root)
     end
     local function openWindow(tab)
         if ns.ImportExport then ns.ImportExport:Open(tab) end
+    end
+    -- Sim mode: start the Working set over (from the gear you wear or the shown BiS phase)
+    if ns.SimPanel and ns.SimPanel:IsActive() then
+        root:CreateTitle("Working set")
+        ns.SimPanel:BuildMoreEntries(root, entry, GOLD)
+        if root.CreateDivider then root:CreateDivider() end
     end
     if locked then
         root:CreateTitle(LockLine())
@@ -1720,6 +1736,21 @@ local function CreateTopBar(p)
     -- §38: while my list is locked the chip takes Suggest's place
     lockChip = CreateLockChip(bar)
     lockChip:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
+
+    -- the gear sim (UI/SimPanel.lua): Sim mode on / off
+    simBtn = UI:CreateSleekButton(bar, "Sim", 56, BAR_H, function()
+        if ns.SimPanel then ns.SimPanel:Toggle() end
+    end)
+    simBtn:SetPoint("RIGHT", suggestBtn, "LEFT", -6, 0)
+    simBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Gear sim", 1, 0.82, 0)
+        GameTooltip:AddLine("Compare gear by simulating fights: change slots in a Working set and run it against "
+            .. "the gear you wear or a BiS phase.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    simBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    p.simBtn = simBtn
 end
 
 ---------------------------------------------------------------------------
@@ -1743,11 +1774,13 @@ function MyBiS:CreatePanel(parent)
         onSlotClick = OnSlotClick,
         onSlotReceiveItem = OnSlotReceiveItem,
         onGemsClick = function(sid, tile)
+            if ns.SimPanel and ns.SimPanel:IsActive() then return end
             if tile.mainID and ns.GemEditor then ns.GemEditor:Open(tile, tile.mainID, CurrentPhase(), ListArg()) end
         end,
     })
     card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
     card.lockBanner = lockChip
+    if ns.SimPanel then simCard = ns.SimPanel:CreateCard(doll.center, doll.centerWidth or 230, doll.centerHeight or 426) end
 
     panel:SetScript("OnShow", function(self)
         if self.dirty then MyBiS:Refresh() end
@@ -1776,6 +1809,27 @@ function MyBiS:Refresh()
     local phase = CurrentPhase()
     UpdatePhaseButtons()
     RefreshSpecTabs()   -- Addendum H: the spec tabs show the shown list and both specs
+
+    -- Sim mode (UI/SimPanel.lua): the slots show the Working set, the centre the sim
+    local Sim = ns.SimPanel
+    local simOn = Sim and Sim:IsActive() and true or false
+    if simBtn and simBtn.SetKind then simBtn:SetKind(simOn and "chosen" or "secondary") end
+    if simOn then
+        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+        if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
+        if doll.SetLocked then doll:SetLocked(false) end
+        doll:Update(Sim:Record(), phase, Sim:Ctx(SlotSourceText))
+        Sim:MarkDoll(doll)
+        card:Hide()
+        Sim:ShowCard(true)
+        return
+    end
+    if Sim then
+        Sim:MarkDoll(doll)
+        Sim:ShowCard(false)
+        if Sim:IsPickerOpen() then Sim:ClosePicker() end
+    end
+    card:Show()
 
     -- §38: while the lists are locked the chip says so in Suggest's place, and the menus offer what still works.
     local locked, info = ListLocked()

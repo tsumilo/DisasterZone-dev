@@ -85,6 +85,44 @@ IE[17076] = function(p)
   WeaponProc(p, 17076, 2, function(sim) a:Activate(sim); a:AddStack(sim) end)
 end
 
+-- Stacking trinkets (shared_utils.go buildProcAura / buildStackingCDAuras): a window aura opens a stacking stat
+-- aura with no duration of its own and ends it on expiry; a trigger attached to the window adds the stacks.
+local MELEE_RANGED = PM.Melee + PM.Ranged
+local function StackWindow(p, label, duration, maxStacks, bonus)
+  local stats = StackingStatAura(p, label .. " Stacks", huge, maxStacks, bonus)
+  local window = p:RegisterAura({ label = label, duration = duration })
+  window.onGain = function(_, sim) stats:Activate(sim) end
+  window.onExpire = function(_, sim) stats:Deactivate(sim) end
+  return window, stats
+end
+
+-- Blackened Naaru Sliver: 10% on landed melee / ranged hits (45 s cooldown) opens Battle Trance for 20 s; every
+-- landed hit in it adds 44 attack power, up to 10 stacks.
+IE[34427] = function(p)
+  local window, stats = StackWindow(p, "Battle Trance", 20, 10, { [ST.AttackPower] = 44, [ST.RangedAttackPower] = 44 })
+  S.AttachProcTrigger(window, p, { name = "Blackened Naaru Sliver Stack Trigger", callback = "hit",
+    procMask = MELEE_RANGED, outcome = O.Landed, procChance = 1,
+    handler = function(sim) if stats.active then stats:AddStack(sim) end end })
+  p:MakeProcTriggerAura({ name = "Blackened Naaru Sliver", callback = "hit", procMask = MELEE_RANGED,
+    outcome = O.Landed, requireDamageDealt = true, procChance = 0.1, icd = 45,
+    handler = function(sim) window:Activate(sim) end })
+end
+
+-- Badge of the Swarmguard: use (3 min) opens a 30 s window; landed melee / ranged hits that deal damage add
+-- 200 armor penetration at 10 PPM, up to 6 stacks.
+IE[21670] = function(p)
+  local window, stats = StackWindow(p, "Badge of the Swarmguard", 30, 6, { [ST.ArmorPenetration] = 200 })
+  S.AttachProcTrigger(window, p, { name = "Badge of the Swarmguard", callback = "hit", procMask = MELEE_RANGED,
+    outcome = O.Landed, requireDamageDealt = true, dpm = S.NewPPM(p, 10, MELEE_RANGED),
+    handler = function(sim) if stats.active then stats:AddStack(sim) end end })
+  local spell = p:RegisterSpell({ id = "item:21670", procMask = PM.Empty, flags = F.NoOnCastComplete, cd = 180,
+    applyEffects = function(sim)
+      stats:Activate(sim)
+      window:Activate(sim)
+    end })
+  p:AddMajorCooldown({ spell = spell, priority = 0 })
+end
+
 -- World Breaker: PPM 1, +900 crit rating for the next 2 melee hits (4 s).
 IE[30090] = function(p)
   local a = p:RegisterAura({ label = "World Breaker", duration = 4, maxStacks = 2 })

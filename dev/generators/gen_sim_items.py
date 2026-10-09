@@ -3,7 +3,7 @@
 Sources (all from the WoWSims checkout in dev/ext/wowsims-tbc, MIT):
   assets/database/db.json                       items: base stats, weapon damage / speed, set, item effects
   sim/common/tbc/stat_bonus_procs_auto_gen.go   trigger settings of generic stat procs (callback, mask, outcome)
-  sim/common/tbc/stat_bonus_cds_auto_gen.go     which on-use effects are plain stat actives
+  sim/common/tbc/stat_bonus_cds_auto_gen.go     which on-use effects are plain stat actives (+ items_trinkets.go)
 Sockets, socket bonuses, gems and enchants are already in Data/Gems.lua (gen_gems.py) and are not repeated.
 
 Format (one string per item, parsed lazily by Sim/Data.lua):
@@ -66,14 +66,14 @@ def go_procs():
 
 
 def go_onuse():
-    path = os.path.join(WOWSIMS, "sim", "common", "tbc", "stat_bonus_cds_auto_gen.go")
     ids = set()
-    for line in open(path, encoding="utf-8"):
-        if line.lstrip().startswith("//"):
-            continue
-        m = re.search(r"shared\.NewSimpleStatActive\((\d+)\)", line)
-        if m:
-            ids.add(int(m.group(1)))
+    for name in ("stat_bonus_cds_auto_gen.go", "items_trinkets.go"):   # the figurines are in items_trinkets.go
+        for line in open(os.path.join(WOWSIMS, "sim", "common", "tbc", name), encoding="utf-8"):
+            if line.lstrip().startswith("//"):
+                continue
+            m = re.search(r"shared\.NewSimpleStatActive\((\d+)\)", line)
+            if m:
+                ids.add(int(m.group(1)))
     return ids
 
 
@@ -93,10 +93,13 @@ def main():
     a = ap.parse_args()
     db = json.load(open(os.path.join(WOWSIMS, "assets", "database", "db.json"), encoding="utf-8"))
     procs, onuse = go_procs(), go_onuse()
+    # items with a hand-written effect in Sim/Items.lua are always in, whatever their item level
+    with open(os.path.join(ADDON, "Sim", "Items.lua"), encoding="utf-8") as f:
+        handwritten = set(int(x) for x in re.findall(r"IE\[(\d+)\]", f.read()))
     rows = []
     for it in db["items"]:
         so = it.get("scalingOptions", {}).get("0", {})
-        if it.get("quality", 0) < 2 or so.get("ilvl", 0) < a.min_ilvl:
+        if it.get("quality", 0) < 2 or (so.get("ilvl", 0) < a.min_ilvl and it["id"] not in handwritten):
             continue
         if it.get("type", 0) == 0:
             continue

@@ -6,8 +6,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.4", date = "9 October 2026", title = "Disastercraft: talent rows, faster leveling",
+    { version = "1.3.4", date = "9 October 2026", title = "Gear sim, Disastercraft talent rows",
       sections = {
+          { heading = "Gear sim (Retribution)", lines = {
+              "New Sim button in My BiS: sim your gear and see what a change is worth, in real DPS.",
+              "It plays the fight out a thousand times with WoWSims' rotation, buffs and numbers.",
+              "The doll becomes your Working set: it starts as the gear you wear.",
+              "Click a slot to pick an item from your bags, your gear, your BiS list or every item.",
+              "Best for this slot sims each item in that slot and ranks them for you.",
+              "Run sim compares the Working set with your gear or a BiS phase, with the same luck.",
+              "You see the DPS change, how sure it is, and where the damage comes from.",
+              "Pick 25-man buffs, 10-man or solo, the fight length and the boss type at the bottom.",
+              "Changed slots are marked gold. It pauses in combat and only runs when you press Run.",
+          } },
           { heading = "Disastercraft", lines = {
               "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",
               "Rows bring abilities too: Mortal Strike, Bloodthirst, Pyroblast, Ice Barrier, Mind Flay...",

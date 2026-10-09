@@ -635,6 +635,24 @@ def drawn_text_rect(lay, r, rect):
     return (x, y, w, h)
 
 
+STRATA_RANK = {"BACKGROUND": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "DIALOG": 4, "FULLSCREEN": 5,
+               "FULLSCREEN_DIALOG": 6, "TOOLTIP": 7}
+REGION_KINDS = ("FontString", "Texture", "MaskTexture")
+
+
+def draw_rank(regs, s):
+    """(strata, frame level) the game draws s at: strata inherited from the nearest frame that sets one (MEDIUM by
+    default), a region at its frame's level."""
+    r = regs[s]
+    frame = r["parent"] if r["kind"] in REGION_KINDS else s
+    level = float((regs.get(frame) or r)["level"] or 0)
+    strata, cur = "", frame
+    while cur in regs and not strata:
+        strata = regs[cur]["strata"] or ""
+        cur = regs[cur]["parent"]
+    return (STRATA_RANK.get(str(strata), 2), level)
+
+
 def audit(regs, uiparent):
     lay = Layout(regs, uiparent)
     findings = []
@@ -723,6 +741,24 @@ def audit(regs, uiparent):
                                  "over": rect[2], "text": plain_text(r["text"]).strip()[:60],
                                  "msg": "inside a %s with no %s: the game draws none of it" % (ra["kind"], miss)})
                 break
+    # texts hidden under an opaque texture drawn above them (a modal box over a page) are not on screen
+    covers = []
+    for cs, cr in regs.items():
+        if cr["vis"] and cr["kind"] == "Texture" and cr["color"] and float(cr["color"][3]) >= 0.9:
+            rc = lay.rect(cs)
+            if rc and rc[2] > 20 and rc[3] > 20:
+                covers.append((draw_rank(regs, cs), rc))
+    if covers:
+        def hidden(s, ink):
+            rk = draw_rank(regs, s)
+            for crk, rc in covers:
+                if crk > rk and rc[0] <= ink[0] and rc[1] <= ink[1] and rc[0] + rc[2] >= ink[0] + ink[2] and                         rc[1] + rc[3] >= ink[1] + ink[3]:
+                    return True
+            return False
+        hid = set(t[0] for t in texts if hidden(t[0], t[3]))
+        if hid:
+            texts = [t for t in texts if t[0] not in hid]
+            findings = [f for f in findings if f["seq"] not in hid]
     # overlaps between texts of the same window
     by_win = {}
     for item in texts:
@@ -767,6 +803,8 @@ def audit(regs, uiparent):
         for (cs, crect, cclip) in controls:
             if cs in anc or lay.window(cs) != win or s in set(lay.ancestors(cs)):
                 continue
+            if draw_rank(regs, cs)[0] < draw_rank(regs, s)[0]:
+                continue                               # the control is drawn in a lower strata, under the text
             if r["parent"] in set(lay.ancestors(cs)) and False:
                 continue
             a = ink if clip is None else intersect(ink, clip)
@@ -813,7 +851,8 @@ def render(regs, lay, findings, path, crop=None):
     def box(rc):
         return ((rc[0] - cl) * PNG_SCALE, (ct - rc[1] - rc[3]) * PNG_SCALE,
                 (rc[0] + rc[2] - cl) * PNG_SCALE, (ct - rc[1]) * PNG_SCALE)
-    order = sorted(shown, key=lambda s: (str(regs[s]["strata"]), float(regs[s]["level"] or 0), s))
+    layer = {"BACKGROUND": 0, "BORDER": 1, "ARTWORK": 2, "OVERLAY": 3, "HIGHLIGHT": 4}
+    order = sorted(shown, key=lambda s: (draw_rank(regs, s), layer.get(str(regs[s]["layer"]), 2), s))
     for s in order:
         r = regs[s]
         rc = lay.rect(s)

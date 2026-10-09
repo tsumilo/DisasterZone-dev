@@ -702,6 +702,44 @@ def atlas_hover(select_lua, item_lua):
     return fn
 
 
+SIM_P1 = {1: 29073, 2: 28745, 3: 29075, 15: 24259, 5: 29071, 9: 28795, 10: 30644, 6: 28779, 7: 30257, 8: 28608,
+          11: 28757, 12: 30834, 13: 29383, 14: 28830, 16: 28429, 18: 27484}
+
+
+def sim_mode(run=True, stale=False, picker=False):
+    """My BiS in Sim mode (UI/SimPanel.lua): Gina in WoWSims' P1 Ret gear, Hourglass in the Working set's Trinket 1,
+    a short run against My gear; stale = a slot changed after the run; picker = Trinket 1's picker after Best."""
+    def fn(w, c):
+        g = opened("mybis", "ns.BiS:SetSpec('Retribution'); ns.MyBiS:SetPhase(1, true)")(w, c)
+        g.equip(SIM_P1)
+        g.set_bags({(0, 1): 28034, (0, 2): 28288})
+        g.eval("ns.SimRunner.DEFAULT_ITERATIONS = 60; ns.SimPanel.PICK_ITERATIONS = 20; "
+               "ns.SimPanel:ResetTo(ns.SimRunner:EquippedSet()); "
+               "local sid; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 13 then sid = i end end; "
+               "ns.SimPanel:SetWorkingSlot(sid, ns.SimRunner:FillEntry(28034, sid)); "
+               "ns.SimPanel:SetActive(true); ns.MyBiS:Refresh()")
+        w.tick(0.3)
+        if run:
+            g.eval("ns.SimPanel:Run()")
+            for _ in range(400):
+                if not g.eval("return ns.SimRunner:IsRunning()"):
+                    break
+                w.tick(0.05, 0.05)
+        if stale:
+            g.eval("local sid; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 1 then sid = i end end; "
+                   "ns.SimPanel:SetWorkingSlot(sid, ns.SimRunner:FillEntry(32235, sid)); ns.MyBiS:Refresh()")
+        if picker:
+            g.eval("local sid; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 13 then sid = i end end; "
+                   "ns.SimPanel:OnSlotClick(sid, 'main', 'LeftButton', nil, ns.MyBiS:GetPanel()); ns.SimPanel._runBest()")
+            for _ in range(400):
+                if not g.eval("return ns.SimRunner:IsRunning()"):
+                    break
+                w.tick(0.05, 0.05)
+        w.tick(0.3)
+        return g
+    return fn
+
+
 def st_blizzard_options(w, c):
     """DisasterZone's panel in Blizzard's Options > AddOns (UI/Settings.lua), at the canvas size the game gives it."""
     g = c["Gina"]
@@ -774,6 +812,10 @@ STATES = [
      "for sid, id in ipairs({29073, 28745, 29075, 24259, 29071, 28795, 30644, 28779, 30257, 28608, 28757, 30834, "
      "28034, 28830, 28429, 0, 27484}) do if id > 0 then ns.BiS:SetSlot(1, sid, 'main', id) end end; "
      "ns.MyBiS:SetPhase(1, true); ns.MyBiS:Refresh()")),
+    ("My BiS - Sim before run", sim_mode(run=False)),
+    ("My BiS - Sim results", sim_mode()),
+    ("My BiS - Sim stale", sim_mode(stale=True)),
+    ("My BiS - Sim picker", sim_mode(picker=True)),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
     ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "

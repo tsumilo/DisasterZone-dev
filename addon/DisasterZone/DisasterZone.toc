@@ -38,6 +38,8 @@ Data\Sources.lua
 Data\ItemClasses.lua
 Data\BiSLists.lua
 Data\Gems.lua
+Data\SimItems.lua
+Data\SimAPL.lua
 Data\Atlas.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
@@ -58,6 +60,21 @@ Core\Store.lua
 Core\Comm.lua
 Core\Sync.lua
 Core\Professions.lua
+
+# Gear sim: a Lua port of WoWSims TBC (Sim\Core.lua explains)
+Sim\Core.lua
+Sim\Unit.lua
+Sim\Spell.lua
+Sim\Attack.lua
+Sim\APL.lua
+Sim\Character.lua
+Sim\Buffs.lua
+Sim\Items.lua
+Sim\Paladin.lua
+Sim\Data.lua
+Sim\Setup.lua
+Sim\Runner.lua
+
 Core\GuildMap.lua
 Core\OfficerNotes.lua
 Core\PatchKey.lua
@@ -226,6 +243,7 @@ UI\MinimapArc.lua
 UI\Dashboard.lua
 UI\PaperDoll.lua
 UI\GemEditor.lua
+UI\SimPanel.lua
 UI\MyBiS.lua
 UI\ImportExport.lua
 UI\Picker.lua

@@ -85,14 +85,14 @@ def parse_go_procs():
 
 
 def parse_go_onuse():
-    path = os.path.join(WOWSIMS, "sim", "common", "tbc", "stat_bonus_cds_auto_gen.go")
     ids = set()
-    for line in open(path, encoding="utf-8"):
-        if line.lstrip().startswith("//"):
-            continue
-        m = re.search(r"shared\.NewSimpleStatActive\((\d+)\)", line)
-        if m:
-            ids.add(int(m.group(1)))
+    for name in ("stat_bonus_cds_auto_gen.go", "items_trinkets.go"):   # the figurines are in items_trinkets.go
+        for line in open(os.path.join(WOWSIMS, "sim", "common", "tbc", name), encoding="utf-8"):
+            if line.lstrip().startswith("//"):
+                continue
+            m = re.search(r"shared\.NewSimpleStatActive\((\d+)\)", line)
+            if m:
+                ids.add(int(m.group(1)))
     return ids
 
 
