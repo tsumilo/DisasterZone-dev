@@ -272,7 +272,7 @@ local function InCombat()
 end
 
 -- jobs: { { key = any, set = gear set }, ... }; opts: { iterations, settings, onProgress(done, total, paused),
--- onDone(results) }. results[key] = summary (S.Summarize) + iterDps; results.pairs(a, b) -> mean diff, stderr.
+-- onDone(results), onCancel() }. results[key] = summary (S.Summarize) + iterDps; results.pairs(a, b) -> mean diff, stderr.
 function Runner:Start(jobs, opts)
   self:Cancel()
   local settings = opts.settings or {}
@@ -301,13 +301,14 @@ function Runner:Start(jobs, opts)
     end
     local t0 = clock()
     local ok, e = pcall(function()
-      while run.nextIter <= n and clock() - t0 < self.FRAME_BUDGET_MS do
+      -- at least one fight a frame, then as many as fit in the budget
+      repeat
         local r = runs[run.nextJob]
         r.sim:RunOnce(run.nextIter)
         run.done = run.done + 1
         run.nextJob = run.nextJob + 1
         if run.nextJob > #runs then run.nextJob, run.nextIter = 1, run.nextIter + 1 end
-      end
+      until run.nextIter > n or clock() - t0 >= self.FRAME_BUDGET_MS
     end)
     if not ok then
       frame:SetScript("OnUpdate", nil)
@@ -325,10 +326,13 @@ function Runner:Start(jobs, opts)
   return true
 end
 
+-- Stops the run (a new Start stops the one before): its owner hears it through opts.onCancel.
 function Runner:Cancel()
-  if self.run then self.run.cancelled = true end
+  local run = self.run
+  if run then run.cancelled = true end
   self.run = nil
   if self.frame then self.frame:SetScript("OnUpdate", nil) end
+  if run and run.opts.onCancel then run.opts.onCancel() end
 end
 
 function Runner:IsRunning() return self.run ~= nil end

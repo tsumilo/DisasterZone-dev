@@ -227,6 +227,10 @@ function SimPanel:Run()
       state.progress, state.paused = done / max(1, total), paused
       self:UpdateProgress()
     end,
+    onCancel = function()
+      state.running = false
+      self:UpdateCard()
+    end,
     onDone = function(res, e)
       state.running = false
       if not res then
@@ -684,6 +688,10 @@ local function RunBest()
         or ("Simming %d items...  %d%%"):format(#jobs - 1, floor(done / max(1, total) * 100))
       if ns.Picker.RefreshHostBar then ns.Picker:RefreshHostBar() end
     end,
+    onCancel = function()
+      pstate.running, pstate.status = false, nil
+      RefreshPicker()
+    end,
     onDone = function(res, e)
       pstate.running = false
       if res then
@@ -831,4 +839,5 @@ ns:RegisterEvent("BAG_UPDATE_DELAYED", function() if SimPanel:IsPickerOpen() the
 -- test hooks
 function SimPanel._state() return state end
 function SimPanel._pstate() return pstate end
+function SimPanel._card() return card end
 function SimPanel._runBest() RunBest() end

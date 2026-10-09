@@ -152,6 +152,44 @@ def off_hand_waits_for_a_one_hander():
 
 
 @r.case
+def run_keeps_going_with_the_window_closed():
+    w, c = solo()
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 40  ns.SimRunner.FRAME_BUDGET_MS = 0")   # a few fights per frame
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    w.tick(0.05, 0.05)
+    assert c.eval("return ns.SimRunner:IsRunning()") is True
+    c.eval("ns.MainFrame:Close()")
+    assert c.eval("return ns.MainFrame:IsShown() and true or false") is False
+    run_until_done(w, c)
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 0.2)
+    res = results(c)
+    assert res and res["work"] > 1000 and res["stale"] is False, res
+    # the card shows them
+    assert c.eval("return ns.SimPanel._card().big:GetText()") == c.eval("return ns.SimPanel.Fmt(...)", res["work"])
+    assert_no_lua_errors(w)
+
+
+@r.case
+def best_for_slot_during_a_run_stops_it_cleanly():
+    w, c = solo()
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 40  ns.SimRunner.FRAME_BUDGET_MS = 0")
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    w.tick(0.05, 0.05)
+    assert c.eval("return ns.SimPanel._state().running") is True
+    c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton')", sid_of(c, 13))
+    c.eval("ns.SimPanel._runBest()")
+    # the card no longer claims a run
+    assert c.eval("return ns.SimPanel._state().running") is False
+    assert c.eval("return ns.SimPanel._card().run:GetText()") == "Run sim"
+    run_until_done(w, c)
+    assert c.eval_py("return ns.SimPanel._pstate().ranked") is not None
+    assert_no_lua_errors(w)
+
+
+@r.case
 def reset_and_reload_keep_working_set():
     w, c = solo()
     c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
