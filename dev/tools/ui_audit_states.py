@@ -898,6 +898,8 @@ def kit_view(run=False, spec="Retribution", lua=None):
         g.equip(SIM_P1)
         g.set_bags({(0, 1): (22854, 2), (0, 2): (22838, 5), (0, 3): (27655, 6), (0, 4): (22832, 2)})
         g.eval("ns.Kit.ITERATIONS = 12; ns.Kit:ClearResults(); ns.KitView:SetActive(true)")
+        if lua:
+            g.eval(lua)
         w.tick(0.3)
         if run:
             g.eval("ns.KitView:Run()")

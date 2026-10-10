@@ -161,6 +161,36 @@ def add_prog_kit_fills_the_shopping_list():
 
 
 @r.case
+def left_out_slots_stay_off_the_list_per_kit():
+    w, c = solo()
+    open_kit(w, c)
+    assert snap(c)["bar"]["pips"] == 6
+    # leave the prog kit's food and weapon out: not counted, not bought; the farm kit keeps its own
+    c.eval("ns.Kit:SetOff('best', 'food', true); ns.Kit:SetOff('best', 'weapon', true)")
+    settle(w, 0.3)
+    s = snap(c)
+    food = row(s, "FOOD")
+    assert food["bestOff"] is True and food["budgetOff"] is False, food
+    assert food["bestLine"] == "Left out", food
+    assert s["bar"]["pips"] == 4, s["bar"]
+    assert s["bar"]["bags"] == "2 of 4 in your bags", s["bar"]
+    c.eval("ns.KitView:AddKit('best')")
+    entries = {e["id"]: e["n"] for e in c.eval_py("return ns.Shop:GetEntries()")}
+    assert CLEFTHOOF not in entries and STONE not in entries, entries
+    # the farm kit: leave the potion out
+    c.eval("ns.Kit:SetOff('budget', 'potion', true)")
+    c.eval("ns.KitView:AddKit('budget')")
+    entries = {e["id"]: e["n"] for e in c.eval_py("return ns.Shop:GetEntries()")}
+    assert SUPER_MANA not in entries, entries
+    # saved per spec, and putting it back brings it back
+    assert c.eval("return ns.Kit:IsOff('best', 'food', 'PALADIN:Holy')") is False
+    c.eval("ns.Kit:SetOff('best', 'food', false)")
+    settle(w, 0.3)
+    assert row(snap(c), "FOOD")["bestOff"] is False
+    assert_no_lua_errors(w)
+
+
+@r.case
 def kit_sim_numbers_every_slot():
     w, c = solo()
     open_kit(w, c)
