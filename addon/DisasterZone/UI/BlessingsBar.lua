@@ -132,18 +132,28 @@ local function NewPopRow(i)
     p.hl = p:CreateTexture(nil, "HIGHLIGHT")
     p.hl:SetAllPoints()
     Fill(p.hl, 1, 0.82, 0, 0.08)
-    p.icon = p:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(17, 17)
-    p.icon:SetPoint("LEFT", p, "LEFT", 4, 0)
+    -- the icon in a frame of its own: a gold edge while the player has a single blessing of mine
+    p.iconBox = CreateFrame("Frame", nil, p)
+    p.iconBox:SetSize(17, 17)
+    p.iconBox:SetPoint("LEFT", p, "LEFT", 4, 0)
+    p.icon = p.iconBox:CreateTexture(nil, "ARTWORK")
+    p.icon:SetAllPoints()
     p.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     p.name = Text(p, 11.5)
-    p.name:SetPoint("LEFT", p.icon, "RIGHT", 7, 0)
+    p.name:SetPoint("LEFT", p.iconBox, "RIGHT", 7, 0)
     p.state = Text(p, 10, { 0.62, 0.62, 0.64 })
     p.state:SetPoint("RIGHT", p, "RIGHT", -4, 0)
     p.state:SetJustifyH("RIGHT")
     p:SetAttribute("type1", "spell")
     p:SetAttribute("type2", "spell")
     p:RegisterForClicks("AnyUp")
+    -- the wheel steps through the single blessings I can give this player (back to the class's at the end)
+    p:EnableMouseWheel(true)
+    p:SetScript("OnMouseWheel", function(self, delta)
+        if not InCombatLockdown() and self.member then Bar:CycleSingle(self, delta) end
+    end)
+    p:HookScript("OnEnter", function(self) Bar:PopTip(self) end)
+    p:HookScript("OnLeave", function() GameTooltip:Hide() end)
     return p
 end
 
@@ -489,6 +499,8 @@ function Bar:FillPop(row)
         end
         local sbi = Bl:GetSingle(me, r.ci, m.name)
         local bi = sbi or r.bi
+        p.member, p.ci, p.greater = m, r.ci, r.bi
+        if sbi then Edge(p.iconBox, 1, 0.82, 0, 1) else Edge(p.iconBox, 0, 0, 0, 1) end
         if not combat then
             local real = not m.demo
             p:SetAttribute("unit1", real and m.unit or nil)
@@ -517,6 +529,42 @@ function Bar:FillPop(row)
         for i = #r.members + 1, #pop.rows do pop.rows[i]:Hide() end
         pop:SetHeight(26 + #r.members * 23)
     end
+end
+
+-- Wheel on a player: my single blessing for them steps to the next (or previous) one I can give, skipping the
+-- class's Greater (they have it already) and Sacrifice on myself; past the last it goes back to the class's.
+function Bar:CycleSingle(p, delta)
+    local Bl = B()
+    local me, m = Bl:Me(), p.member
+    local options = { 0 }
+    for bi = 1, #Bl.D.BLESSINGS do
+        if Bl:Can(me, bi) and bi ~= p.greater and not (bi == 7 and m.name == me) then options[#options + 1] = bi end
+    end
+    local cur = Bl:GetSingle(me, p.ci, m.name) or 0
+    local at = 1
+    for i, bi in ipairs(options) do if bi == cur then at = i end end
+    at = (at - 1 - delta) % #options + 1
+    Bl:SetSingle(me, p.ci, m.name, options[at])
+    self:FillPop(pop.row)
+    self:PopTip(p)
+end
+
+function Bar:PopTip(p)
+    local m = p.member
+    if not m then return end
+    local Bl = B()
+    local me = Bl:Me()
+    local sbi = Bl:GetSingle(me, p.ci, m.name)
+    GameTooltip:SetOwner(p, "ANCHOR_LEFT")
+    GameTooltip:AddLine(m.name)
+    if sbi then
+        GameTooltip:AddLine(strformat("Gets %s from you instead of the class's", Bl:BlessingName(sbi)), 1, 0.82, 0, true)
+    end
+    if p.greater then GameTooltip:AddLine("Click: " .. Bl:BlessingName(p.greater, true), 0.85, 0.85, 0.85) end
+    local bi = sbi or p.greater
+    if bi then GameTooltip:AddLine("Right-click: " .. Bl:BlessingName(bi), 0.85, 0.85, 0.85) end
+    GameTooltip:AddLine("Wheel: give them a single blessing instead", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
 end
 
 function Bar:TogglePop(row)

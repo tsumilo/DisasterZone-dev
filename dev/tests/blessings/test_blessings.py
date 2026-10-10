@@ -222,6 +222,17 @@ vic.eval("ns.Blessings:SetAssign('Caelith', 1, 6); ns.Blessings:AutoAssign()")
 w.tick(2)
 assert vic.eval("return DisasterZoneBlessBar ~= nil and DisasterZoneBlessBar:IsShown()") is True
 assert vic.eval("return DisasterZoneBlessRow1:GetAttribute('spell1') == nil") is True, "nothing to cast in demo"
+# the hunters' players: the wheel on one gives them a single blessing of mine instead (and back again)
+vic.eval("ns.Blessings:SetAssign('Victhar', 6, 1)")
+w.tick(1)
+vic.eval("for i = 1, 20 do local r = _G['DisasterZoneBlessRow' .. i]; if r and r.data and r.data.cls == 'HUNTER' then "
+         "ns.BlessingsBar:TogglePop(r) end end")
+assert vic.eval("return DisasterZoneBlessPopout:IsShown()") is True
+vic.eval("DisasterZoneBlessPop1:GetScript('OnMouseWheel')(DisasterZoneBlessPop1, -1)")
+single = vic.eval("return ns.Blessings:GetSingle('Victhar', 6, 'Faelar')")
+assert single and single != 1, single
+vic.eval("local f = DisasterZoneBlessPop1:GetScript('OnMouseWheel'); f(DisasterZoneBlessPop1, 1)")
+assert vic.eval("return ns.Blessings:GetSingle('Victhar', 6, 'Faelar')") is None, "back to the class's"
 assert vic.eval("return ns.SwingTimer.active and DisasterZoneSwingTimer ~= nil and DisasterZoneSwingTimer:IsShown()") is True
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")

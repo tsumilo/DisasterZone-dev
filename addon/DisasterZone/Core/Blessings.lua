@@ -1003,6 +1003,18 @@ function Blessings:SendSelf(target)
         p.symbols or 0), target)
 end
 
+-- Sends SELF to the group once, 1-3 s from now (later calls in the meantime ride along).
+local selfQueued = false
+function Blessings:QueueSelf()
+    if selfQueued then return end
+    selfQueued = true
+    local function go()
+        selfQueued = false
+        Blessings:SendSelf()
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(1 + math.random() * 2, go) else go() end
+end
+
 -- Accepts an edit of paladin name from sender: their own, a leader's, or for a paladin who lets anyone assign.
 local function MayEdit(sender, name)
     if not name or name == "" then return false end
@@ -1137,8 +1149,9 @@ function Blessings:OnMessage(text, channel, senderFull)
     local kind = strmatch(text, "^(%u+)")
     local fn = kind and HANDLERS[kind]
     if kind == "REQ" then
-        local broadcast = (IsInRaid() and InInstanceGroup()) or Blessings:IsLeader(sender)
-        Blessings:SendSelf(not broadcast and senderFull or nil)
+        -- (Pally Power whispers every asker; one broadcast a moment later answers everyone who asked meanwhile,
+        -- Pally Power users included, without a whisper per paladin per asker)
+        if Blessings:IsPaladin() or Blessings:AmLeader() then Blessings:QueueSelf() end
     elseif fn then
         fn(sender, text)
     end
@@ -1282,7 +1295,7 @@ function Blessings:OnLogin()
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", function()
         local now = IsInGroup()
         if now and not wasInGroup then
-            if C_Timer then C_Timer.After(2, Hello) else Hello() end
+            if C_Timer then C_Timer.After(2 + math.random() * 2, Hello) else Hello() end
         elseif not now and wasInGroup then
             Blessings:OnGroupLeft()
         end
@@ -1324,7 +1337,8 @@ function Blessings:OnLogin()
         end
     end)
     if IsInGroup() then
-        if C_Timer then C_Timer.After(3, Hello) else Hello() end
+        -- (after a login or /reload in a group: after ChatThrottleLib's quiet first seconds, spread out)
+        if C_Timer then C_Timer.After(6 + math.random() * 6, Hello) else Hello() end
     end
 end
 
