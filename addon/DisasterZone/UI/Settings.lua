@@ -40,6 +40,7 @@ local SECTIONS = {
     { key = "strategy", label = "Strategy boards" },
     { key = "tooltips", label = "Tooltips" },
     { key = "mylog", label = "My Log" },
+    { key = "meters", label = "Meters" },
     -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
     { key = "classtools", label = "Class tools", visible = function() return SettingsUI:HasClassTools() end },
     { key = "window", label = "Window" },
@@ -1124,6 +1125,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildStrategy(self.sections.strategy)
     self:BuildTooltips(self.sections.tooltips)
     self:BuildMyLog(self.sections.mylog)
+    self:BuildMeters(self.sections.meters)
     self:BuildClassTools(self.sections.classtools)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
@@ -1646,6 +1648,89 @@ function SettingsUI:BuildMyLog(sec)
         end,
     }
     self:EndSection(sec)
+end
+
+-- Meters (Core/Meter.lua, Core/Threat.lua): a switch per window, then their options in three groups. An option is
+-- dimmed and locked while the window it belongs to is off (the shared ones while both are off).
+function SettingsUI:BuildMeters(sec)
+    local sub = self:Subtitle(sec)
+    sub:SetText("Damage and threat in two small windows. They count what your own combat log sees; nothing is shared or posted.")
+    sub:SetTextColor(GREY[1], GREY[2], GREY[3])
+    local groups = { dmg = {}, thr = {}, both = {} }
+    local function Head(text, icon)
+        local fs = NewFS(sec, "GameFontHighlight", nil, false)
+        fs:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 16)
+        fs:SetText((icon and ("|T" .. icon .. ":18:18:0:0:64:64:5:59:5:59|t  ") or "") .. text)
+        sec.y = sec.y - 38
+    end
+    local function Track(g, ctrl, row) groups[g][#groups[g] + 1] = { ctrl = ctrl, row = row } end
+
+    Head("Damage meter", "Interface\\Icons\\Ability_Warrior_SavageBlow")
+    self:SwitchSetting(sec, "Show the damage meter",
+        "Damage, healing, taken, deaths, interrupts, dispels and active time for your group.", "meters.dmg", false,
+        "Hover a bar for a player's top abilities, click it for the full breakdown. /dz meter shows or hides it.")
+    Track("dmg", self:DropdownSetting(sec, "Fights to keep", "Older fights drop off the list. Whole raid always stays.",
+        "meters.keep", 25, { { value = 10, text = "Last 10" }, { value = 25, text = "Last 25" }, { value = 50, text = "Last 50" } }))
+    Track("dmg", self:DropdownSetting(sec, "Start a new fight on", "Boss pulls always start their own fight.",
+        "meters.split", "all", { { value = "all", text = "Every combat" }, { value = "boss", text = "Boss pulls only" } }))
+    local row = self:Row(sec, "Clear all fights", "Empties the fight list and Whole raid.")
+    local armed, clr
+    local function disarm() armed = nil; clr:SetText("Clear") end
+    clr = ns.UI:CreateButton(row, "Clear", 120, 22, function()
+        if armed then
+            disarm()
+            if ns.Meter then ns.Meter:ClearAll() end
+            return
+        end
+        local token = {}
+        armed = token
+        clr:SetText("Click again")
+        C_Timer.After(4, function() if armed == token then disarm() end end)
+    end)
+    clr:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.control = clr
+    PlaceText(row, 120)
+    Track("dmg", clr, row)
+
+    Head("Threat meter", "Interface\\Icons\\Ability_Warrior_DefensiveStance")
+    self:SwitchSetting(sec, "Show the threat meter", "Your target's threat table, from the game itself, with your pull point.",
+        "meters.thr", false, "The same numbers ThreatClassic2 reads. /dz threat shows or hides it.")
+    Track("thr", self:DropdownSetting(sec, "Warn me at",
+        "Share of your pull point. Melee pulls at 110% of the tank, ranged at 130%.", "meters.warn", 85,
+        { { value = 0, text = "Never" }, { value = 75, text = "75%" }, { value = 85, text = "85%" },
+          { value = 90, text = "90%" }, { value = 95, text = "95%" } }))
+    Track("thr", self:SwitchSetting(sec, "Warning sound", "Plays once each time you cross the line.", "meters.sound", true))
+    Track("thr", self:SwitchSetting(sec, "Flash the screen edges", "A soft red pulse while you stay over the line.",
+        "meters.flash", true))
+    Track("thr", self:DropdownSetting(sec, "Tank view", "Shows how close each player is to their own pull point.",
+        "meters.tankView", "auto", { { value = "auto", text = "While I tank" }, { value = "always", text = "Always" },
+                                     { value = "never", text = "Never" } }))
+
+    Head("Both windows", nil)
+    Track("both", self:DropdownSetting(sec, "Show them", "When the windows appear on their own.", "meters.show", "group",
+        { { value = "group", text = "In a group" }, { value = "instance", text = "In instances" },
+          { value = "always", text = "Always" } }))
+    Track("both", self:DropdownSetting(sec, "Out of combat", "What the windows do a few seconds after a fight.",
+        "meters.ooc", "fade", { { value = "fade", text = "Fade" }, { value = "hide", text = "Hide" },
+                                { value = "stay", text = "Stay" } }))
+    Track("both", self:SwitchSetting(sec, "Lock windows", "Unlock to move and resize them.", "meters.locked", true))
+    Track("both", self:DropdownSetting(sec, "Size", "Bar height and text size together.", "meters.size", "normal",
+        { { value = "small", text = "Small" }, { value = "normal", text = "Normal" }, { value = "large", text = "Large" } }))
+    self:EndSection(sec)
+
+    self.refreshers[#self.refreshers + 1] = {
+        Refresh = function()
+            local dmg, thr = Get("meters.dmg", false), Get("meters.thr", false)
+            local on = { dmg = dmg, thr = thr, both = dmg or thr }
+            for g, list in pairs(groups) do
+                for _, e in ipairs(list) do
+                    local enabled = on[g] and true or false
+                    if e.ctrl and e.ctrl.SetEnabled then e.ctrl:SetEnabled(enabled) end
+                    if e.row then e.row:SetAlpha(enabled and 1 or 0.42) end
+                end
+            end
+        end,
+    }
 end
 
 function SettingsUI:BuildDemo(sec)

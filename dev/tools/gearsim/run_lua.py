@@ -64,7 +64,7 @@ def parse_go_procs():
     lines = [l for l in open(path, encoding="utf-8") if not l.lstrip().startswith("//")]
     src = "".join(lines)
     out = {}
-    for m in re.finditer(r"shared\.New(?:Stacking)?ProcStatBonusEffectWithVariants\(shared\.ProcStatBonusEffect\{(.*?)\},\s*\[\]shared\.ItemVariant\{(.*?)\}\)", src, re.S):
+    for m in re.finditer(r"shared\.New(?:Stacking)?(?:Proc)?StatBonusEffectWithVariants\(shared\.ProcStatBonusEffect\{(.*?)\},\s*\[\]shared\.ItemVariant\{(.*?)\}\)", src, re.S):
         body, variants = m.group(1), m.group(2)
         cfg = {}
         cb = re.search(r"Callback:\s*([^,\n]+)", body)
@@ -119,7 +119,8 @@ def build_db(gear):
         for e in it.get("itemEffects", []):
             eso = (e.get("scalingOptions") or {}).get("0", {})
             ef = {"buffId": e.get("buffId"), "durationMs": e.get("effectDurationMs", 0),
-                  "stats": {int(k): v for k, v in (eso.get("stats") or {}).items()}}
+                  "stats": {int(k): v for k, v in (eso.get("stats") or {}).items()},
+                  "maxStacks": e.get("maxCumulativeStacks", 0)}
             if e.get("proc"):
                 ef["proc"] = {"ppm": e["proc"].get("ppm", 0), "icdMs": e["proc"].get("icdMs", 0),
                               "procChance": e["proc"].get("procChance", 0)}
@@ -221,6 +222,8 @@ def run(sc, iterations=None, log=False, start=1, gamedb=False):
     lsc = dict(sc)
     lsc["gear"] = {i + 1: g for i, g in enumerate(sc["gear"]) if g and g.get("id")}
     lsc["class"] = sp["class"]
+    if "distanceFromTarget" in sc and "distance" not in sc:
+        lsc["distance"] = sc["distanceFromTarget"]
     if sp.get("luaOptions") and "classOptions" not in lsc:
         lsc["classOptions"] = sp["luaOptions"]
     if lsc.get("buffs", "wowsims_default") == "wowsims_default":

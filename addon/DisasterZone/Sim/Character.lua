@@ -171,7 +171,15 @@ end
 -- eff: { buffId, durationMs, stats (WS numbers), proc = { ppm, icdMs, procChance } }
 -- trig: { callback, procMask, outcome, requireDamage, weaponProc, canProcFromProcs, classSpellsOnly, spellFlagsExclude }
 local function AddStatProc(p, itemId, eff, trig, slotHand)
-  local buff = p:NewTemporaryStatsAura("proc " .. itemId .. ":" .. (eff.buffId or 0), WSStats(eff.stats), (eff.durationMs or 0) / 1000)
+  local label = "proc " .. itemId .. ":" .. (eff.buffId or 0)
+  local buff, stacking
+  if (eff.maxStacks or 0) > 0 then
+    -- buildProcAura MakeStackingAura: each proc refreshes the aura and adds a stack
+    buff = S.StackingStatAura(p, label, (eff.durationMs or 0) / 1000, eff.maxStacks, WSStats(eff.stats))
+    stacking = true
+  else
+    buff = p:NewTemporaryStatsAura(label, WSStats(eff.stats), (eff.durationMs or 0) / 1000)
+  end
   local proc = eff.proc or {}
   local dpm
   if (proc.ppm or 0) > 0 then
@@ -188,7 +196,10 @@ local function AddStatProc(p, itemId, eff, trig, slotHand)
     canProcFromProcs = trig.canProcFromProcs, isWeaponProc = trig.weaponProc, spellFlagsExclude = trig.spellFlagsExclude,
     procChance = (proc.procChance and proc.procChance > 0) and proc.procChance or nil, dpm = dpm,
     icd = (proc.icdMs or 0) / 1000,
-    handler = function(sim) buff:Activate(sim) end,
+    handler = function(sim)
+      buff:Activate(sim)
+      if stacking then buff:AddStack(sim) end
+    end,
   })
 end
 S.AddStatProc = AddStatProc

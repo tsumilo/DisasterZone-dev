@@ -779,13 +779,31 @@ function UnitDamage() return M.weapon_min or 330, M.weapon_max or 490, 0, 0, 0, 
 -- 2.5.x: spell damage bonus for a school (1 physical .. 7 arcane)
 function GetSpellBonusDamage(school) return M.spell_damage or 0 end
 function UnitRangedDamage() return M.ranged_speed or 3.0, 0, 0, 0, 0, 0 end
-function UnitIsFeignDeath(unit) return unit == "player" and M.feigning == true or false end
+-- (any token that is me: "player", "raid3", my name; only I can be feigning in the mock)
+function UnitIsFeignDeath(unit)
+  local m = unit_rec(unit)
+  return m ~= nil and m.full == me().full and M.feigning == true or false
+end
 function GetShapeshiftFormID() return M.form end
 function UnitStat() return 0, 0, 0, 0 end
 function UnitArmor() return 0, 0, 0, 0, 0 end
+-- (other group members: __MOCK.combat_names[name] = true; an enemy NPC: __MOCK.npc_combat[guid] = true)
 function UnitAffectingCombat(unit)
   if slower(unit or "") == "player" then return M.combat == true end
-  return false
+  local m = unit_rec(unit)
+  if not m then return false end
+  if m.npc then return (M.npc_combat or {})[m.guid] == true end
+  return (M.combat_names or {})[m.name] == true
+end
+-- Threat (Core/Threat.lua): __MOCK.threat[name] = { isTanking, status, scaledPercent, rawPercent, threatValue } of a
+-- group member on whatever enemy is asked about (one table for every enemy); nil = no threat on it.
+function UnitDetailedThreatSituation(unit, mob)
+  if unit == nil or mob == nil then error("Usage: UnitDetailedThreatSituation(unit, mobUnit)", 2) end
+  local m, e = unit_rec(unit), unit_rec(mob)
+  if not m or not e then return nil end
+  local t = M.threat and M.threat[m.name]
+  if not t then return nil end
+  return t[1], t[2], t[3], t[4], t[5]
 end
 function UnitGroupRolesAssigned() return "NONE" end
 function UnitIsGroupLeader(unit) local m = unit_rec(unit); return m ~= nil and M.W.group ~= nil and m.group_rank == 2 end

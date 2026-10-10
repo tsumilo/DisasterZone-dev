@@ -55,6 +55,80 @@ local function StackingStatAura(p, label, duration, maxStacks, bonus)
   end
   return a
 end
+S.StackingStatAura = StackingStatAura
+
+-- shared.NewProcDamageEffect: a damage spell cast on whatever the trigger hit (CallbackOnSpellHitDealt / periodic).
+local function ProcDamage(p, itemId, cfg)
+  local spell = p:RegisterSpell({ id = cfg.spellId, school = cfg.school, defenseType = S.DEF_MAGIC, procMask = PM.Empty,
+    flags = F.NoOnCastComplete + F.PassiveSpell + F.NoOnDamageDealt + F.Proc, damageMultiplier = 1, threatMultiplier = 1,
+    applyEffects = function(sim, target, sp)
+      sp:CalcAndDealDamage(sim, target, sim:Roll(cfg.min, cfg.max), OUT.MagicHitAndCrit)
+    end })
+  p:MakeProcTriggerAura({ name = cfg.name, callback = cfg.callback or "hit", procMask = cfg.procMask, outcome = O.Landed,
+    requireDamageDealt = true, procChance = cfg.procChance or 1, icd = cfg.icd, triggerImmediately = true,
+    handler = function(sim, _, result) spell:Cast(sim, result.target) end })
+end
+local MELEE_ALL = PM.MeleeMHAuto + PM.MeleeOHAuto + PM.MeleeMHSpecial + PM.MeleeOHSpecial
+-- Blazefury Medallion / Fiery Retributer: 2 fire damage on every landed melee hit
+IE[17111] = function(p)
+  ProcDamage(p, 17111, { name = "Blazefury Medallion", spellId = 7712, school = SCHOOL.Fire, min = 2, max = 2,
+    procMask = MELEE_ALL })
+end
+IE[19968] = function(p)
+  ProcDamage(p, 19968, { name = "Fiery Retributer", spellId = 7712, school = SCHOOL.Fire, min = 2, max = 2,
+    procMask = MELEE_ALL })
+end
+-- Timbal's Focusing Crystal: 10% on periodic spell damage, 285-475 shadow damage (15 s cooldown)
+IE[34470] = function(p)
+  ProcDamage(p, 34470, { name = "Timbal's Focusing Crystal", spellId = 45055, school = SCHOOL.Shadow, min = 285,
+    max = 475, callback = "periodic", procMask = PM.SpellDamage, procChance = 0.1, icd = 15 })
+end
+
+-- Thunderfury: PPM 6, 300 nature damage (magic hit and crit); a landed one takes 25 nature resistance off the
+-- target for 12 s. The bounce (no damage) and the attack speed debuff don't change the player's damage.
+IE[19019] = function(p)
+  local spell
+  local function resistAura(t)
+    return t:GetOrRegisterAura({ label = "Thunderfury", actionId = { spellId = 21992 }, duration = 12,
+      onGain = function(_, sim) t:AddStatDynamic(sim, ST.NatureResistance, -25) end,
+      onExpire = function(_, sim) t:AddStatDynamic(sim, ST.NatureResistance, 25) end })
+  end
+  spell = p:RegisterSpell({ id = 21992, tag = 1, school = SCHOOL.Nature, defenseType = S.DEF_MAGIC,
+    procMask = PM.SpellDamage, flags = F.Proc, damageMultiplier = 1, threatMultiplier = 0.5,
+    applyEffects = function(sim, t, sp)
+      local r = sp:CalcAndDealDamage(sim, t, 300, OUT.MagicHitAndCrit)
+      if S.Landed(r) then resistAura(r.target):Activate(sim) end
+    end })
+  WeaponProc(p, 19019, 6, function(sim, _, result) spell:Cast(sim, result.target) end)
+end
+
+-- Blinkstrike: PPM 1, an extra main-hand swing (a Heroic Strike queued takes it).
+IE[31332] = function(p)
+  local swing
+  WeaponProc(p, 31332, 1, function(sim, _, result)
+    swing = swing or S.WarriorExtraSwing(p, 31332)
+    S.MaybeReplaceMHSwing(p, sim, swing):Cast(sim, result.target)
+  end, true)
+end
+
+-- Rod of the Sun King: PPM 1, 10 energy (rogues, cats) or 5 rage.
+IE[29996] = function(p)
+  if not p.hasEnergy and not p.hasRage then return end
+  WeaponProc(p, 29996, 1, function(sim)
+    if p.hasEnergy then p:AddEnergy(sim, 10, "rod_of_the_sun_king")
+    elseif p.hasRage then p:AddRage(sim, 5, "rod_of_the_sun_king") end
+  end, true)
+end
+
+-- Syphon of the Nathrezim: PPM 1 opens Siphon Essence for 6 s: every melee hit deals 20 shadow damage.
+IE[32262] = function(p)
+  local dmg = p:RegisterSpell({ id = 40293, school = SCHOOL.Shadow, procMask = PM.Empty,
+    flags = F.PassiveSpell + F.Proc, damageMultiplier = 1,
+    applyEffects = function(sim, t, sp) sp:CalcAndDealDamage(sim, t, 20, OUT.AlwaysHit) end })
+  local a = p:MakeProcTriggerAura({ name = "Siphon Essence", duration = 6, procMask = PM.Melee, callback = "hit",
+    handler = function(sim, _, result) dmg:Cast(sim, result.target) end })
+  WeaponProc(p, 32262, 1, function(sim) a:Activate(sim) end)
+end
 
 -- Hand of Justice: 1.3333% per landed hit, 2 s cooldown, one extra main-hand swing.
 IE[11815] = function(p)
@@ -121,6 +195,22 @@ IE[21670] = function(p)
       window:Activate(sim)
     end })
   p:AddMajorCooldown({ spell = spell, priority = 0 })
+end
+
+-- Talisman of Ascendance: use (1 min; 20 s shared trinket cooldown) opens a 20 s window; every landed special
+-- melee / ranged hit or damage spell adds 40 spell damage / 75 healing, up to 5 stacks.
+IE[22678] = function(p)
+  local window, stats = StackWindow(p, "Talisman of Ascendance", 20, 5, S.WSStats({ [4] = 75, [5] = 40 }))
+  S.AttachProcTrigger(window, p, { name = "Talisman of Ascendance", callback = "hit", outcome = O.Landed,
+    procMask = PM.MeleeMHSpecial + PM.MeleeOHSpecial + PM.RangedAuto + PM.RangedSpecial + PM.SpellDamage, procChance = 1,
+    handler = function(sim) if stats.active then stats:AddStack(sim) end end })
+  local spell = p:RegisterSpell({ id = "item:22678", procMask = PM.Empty, flags = F.NoOnCastComplete, cd = 60,
+    sharedCd = 20, sharedCdTimer = p:CategoryTimer(1141), relatedSelfBuff = stats,
+    applyEffects = function(sim)
+      stats:Activate(sim)
+      window:Activate(sim)
+    end })
+  p:AddMajorCooldown({ spell = spell })
 end
 
 -- World Breaker: PPM 1, +900 crit rating for the next 2 melee hits (4 s).
@@ -288,4 +378,134 @@ do
     a.onGain = function(aura, sim) if og then og(aura, sim) end demons(200) end
     a.onExpire = function(aura, sim) if oe then oe(aura, sim) end demons(-200) end
   end }
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Caster trinkets, meta gems and weapon enchants (items_trinkets.go, metagems.go, enchants.go)
+-- ---------------------------------------------------------------------------------------------------------------
+-- The Lightning Capacitor: a charge on each spell crit (2.5 s lockout after a bolt); the third throws a 694-806
+-- nature bolt that travels 20 yards a second and can crit.
+IE[28785] = function(p)
+  local bolt = p:RegisterSpell({ id = 37661, school = SCHOOL.Nature, defenseType = S.DEF_MAGIC, procMask = PM.Empty,
+    flags = F.PassiveSpell + F.IgnoreAttackerModifiers, damageMultiplier = 1,
+    applyEffects = function(sim, target, spell)
+      sim:Add({ at = sim.now + p.distance / 20, prio = 0, fn = function(s)
+        spell:CalcAndDealDamage(s, target, s:Roll(694, 806), OUT.MagicHitAndCrit)
+      end })
+    end })
+  local icd = p:NewTimer()
+  local charge = p:RegisterAura({ label = "Electrical Charge", actionId = { spellId = 37658 }, maxStacks = 3 })
+  p:MakeProcTriggerAura({ name = "The Lightning Capacitor", procMask = PM.SpellDamage, canProcFromProcs = true,
+    outcome = O.Crit, callback = "hit",
+    handler = function(sim)
+      if icd.readyAt > sim.now then return end
+      charge:Activate(sim)
+      if charge.stacks + 1 >= 3 then
+        charge:Deactivate(sim)
+        bolt:Cast(sim, p.currentTarget)
+        icd.readyAt = sim.now + 2.5
+      else
+        charge:AddStack(sim)
+      end
+    end })
+end
+
+-- Eye of Magtheridon: a resisted spell gives 170 spell damage for 10 s.
+IE[28789] = function(p)
+  local a = p:NewTemporaryStatsAura("Recurring Power", { [ST.SpellDamage] = 170, [ST.HealingPower] = 170 }, 10)
+  p:MakeProcTriggerAura({ name = "Eye of Magtheridon", classSpellsOnly = true, outcome = O.Miss, callback = "hit",
+    handler = function(sim) a:Activate(sim) end })
+end
+
+-- Pendant of the Violet Eye: for 20 s every spell that costs mana adds 21 mp5 (up to 20 times).
+IE[28727] = function(p)
+  local stacks = StackingStatAura(p, "Enlightenment", huge, 20, { [ST.MP5] = 21 })
+  local trigger = p:RegisterAura({ label = "Enlightenment Trigger", actionId = { spellId = 29601 }, duration = 20,
+    onExpire = function(_, sim) stacks:Deactivate(sim) end })
+  S.AttachProcTrigger(trigger, p, { name = "Enlightenment", callback = "cast", procMask = PM.SpellDamage + PM.SpellHealing,
+    extraCondition = function(_, spell) return (spell.curCost or 0) > 0 end,
+    handler = function(sim) stacks:Activate(sim); stacks:AddStack(sim) end })
+  local spell = p:RegisterSpell({ id = "item:28727", procMask = PM.Empty, cd = 120, relatedSelfBuff = trigger,
+    applyEffects = function(sim) trigger:Activate(sim) end })
+  p:AddMajorCooldown({ spell = spell })
+end
+
+-- Shifting Naaru Sliver: 320 spell damage for 15 s (2 min; shares the offensive trinket cooldown for 15 s).
+IE[34429] = function(p)
+  local a = p:NewTemporaryStatsAura("Power Circle", { [ST.SpellDamage] = 320, [ST.HealingPower] = 320 }, 15)
+  local spell = p:RegisterSpell({ id = "item:34429", procMask = PM.Empty, cd = 120, sharedCd = 15,
+    sharedCdTimer = p:CategoryTimer(1141), relatedSelfBuff = a,
+    applyEffects = function(sim) a:Activate(sim) end })
+  p:AddMajorCooldown({ spell = spell })
+end
+
+-- Mystical Skyfire Diamond: 15% on a cast, 320 spell haste rating for 4 s (35 s cooldown).
+IE[25893] = function(p)
+  local a = p:NewTemporaryStatsAura("Focus", { [ST.SpellHasteRating] = 320 }, 4)
+  p:MakeProcTriggerAura({ name = "Mystical Skyfire Diamond", procChance = 0.15, classSpellsOnly = true, icd = 35,
+    callback = "cast", handler = function(sim) a:Activate(sim) end })
+end
+-- Bracing Earthstorm Diamond: +26 healing, +9 spell damage
+IE[25897] = function(p) p:AddStats({ [ST.HealingPower] = 26, [ST.SpellDamage] = 9 }) end
+-- Insightful Earthstorm Diamond: 5% on a cast, 300 mana (15 s cooldown).
+IE[25901] = function(p)
+  p:MakeProcTriggerAura({ name = "Insightful Earthstorm Diamond", procMask = PM.SpellDamage + PM.SpellHealing,
+    procChance = 0.05, icd = 15, callback = "cast", classSpellsOnly = true,
+    handler = function(sim) if p.hasMana then p:AddMana(sim, 300, "insightful_earthstorm") end end })
+end
+-- Thundering Skyfire Diamond: 1.5 PPM on white hits, 240 melee haste rating for 6 s (40 s cooldown).
+IE[32410] = function(p)
+  local a = p:NewTemporaryStatsAura("Skyfire Swiftness", { [ST.MeleeHasteRating] = 240 }, 6)
+  p:MakeProcTriggerAura({ name = "Thundering Skyfire Diamond", dpm = S.NewPPM(p, 1.5, PM.WhiteHit), icd = 40,
+    outcome = O.Landed, callback = "hit", handler = function(sim) a:Activate(sim) end })
+end
+-- Eternal Earthstorm Diamond: block value +10%
+IE[35501] = function(p) p.ps.BlockValueMultiplier = p.ps.BlockValueMultiplier * 1.1 end
+-- Ember Skyfire Diamond: intellect +2%
+IE[35503] = function(p) p:MultiplyStat(ST.Intellect, 1.02) end
+
+S.ENCHANT_EFFECTS = S.ENCHANT_EFFECTS or {}
+local function EnchantedHands(p, id)
+  local m = 0
+  if p.gear.MainHand and p.gear.MainHand.spec.enchant == id then m = m + PM.MeleeMH end
+  if p.gear.OffHand and p.gear.OffHand.spec.enchant == id then m = m + PM.MeleeOH end
+  return m
+end
+-- Executioner: 1 PPM, 840 armor penetration for 15 s.
+S.ENCHANT_EFFECTS[3225] = function(p)
+  local a = p:NewTemporaryStatsAura("Executioner", { [ST.ArmorPenetration] = 840 }, 15)
+  p:MakeProcTriggerAura({ name = "Enchant Weapon - Executioner", callback = "hit", isWeaponProc = true,
+    dpm = S.NewPPM(p, 1, EnchantedHands(p, 3225)), outcome = O.Landed, handler = function(sim) a:Activate(sim) end })
+end
+-- Deathfrost: 50% on melee hits or on spell damage (25 s lockout), 150 frost damage that can crit.
+S.ENCHANT_EFFECTS[3273] = function(p)
+  local spell = p:RegisterSpell({ id = 46579, school = SCHOOL.Frost, defenseType = S.DEF_MAGIC,
+    flags = F.NoOnCastComplete + F.PassiveSpell + F.Proc, procMask = PM.SpellDamage, damageMultiplier = 1,
+    threatMultiplier = 1,
+    applyEffects = function(sim, target, sp) sp:CalcAndDealDamage(sim, target, 150, OUT.MagicCrit) end })
+  local lockout = p:NewTimer()
+  local melee = S.NewPPM(p, 0, PM.Melee, 0.5)
+  local function handler(sim, _, result) spell:Cast(sim, result.target) end
+  p:MakeProcTriggerAura({ name = "Enchant Weapon - Deathfrost (Melee)", callback = "hit", isWeaponProc = true,
+    outcome = O.Landed,
+    extraCondition = function(sim, sp)
+      if lockout.readyAt > sim.now or not melee.Proc(sim, sp.procMask) then return false end
+      lockout.readyAt = sim.now + 25
+      return true
+    end, handler = handler })
+  p:MakeProcTriggerAura({ name = "Enchant Weapon - Deathfrost (Spell)", callback = { "hit", "periodic" },
+    procMask = PM.SpellDamage, outcome = O.Landed,
+    extraCondition = function(sim)
+      if lockout.readyAt > sim.now or not sim:Proc(0.5) then return false end
+      lockout.readyAt = sim.now + 25
+      return true
+    end, handler = handler })
+end
+-- +7 weapon damage
+S.ENCHANT_EFFECTS[963] = function(p)
+  local aa = p.autoAttacks
+  if p.gear.MainHand and p.gear.MainHand.spec.enchant == 963 then aa.mh.baseMin = aa.mh.baseMin + 7; aa.mh.baseMax = aa.mh.baseMax + 7 end
+  if p.gear.OffHand and p.gear.OffHand.spec.enchant == 963 and aa.isDualWielding then
+    aa.oh.baseMin = aa.oh.baseMin + 7; aa.oh.baseMax = aa.oh.baseMax + 7
+  end
 end

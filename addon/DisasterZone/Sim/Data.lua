@@ -30,7 +30,8 @@ local function ParseItem(id)
   for e in effs:gmatch("[^/]+") do
     local p = {}
     for x in (e .. ","):gmatch("([^,]*),") do p[#p + 1] = x end
-    local ef = { buffId = tonumber(p[1]), durationMs = tonumber(p[2]) or 0, stats = ParseStats(p[3]) }
+    local ef = { buffId = tonumber(p[1]), durationMs = tonumber(p[2]) or 0, stats = ParseStats(p[3]),
+      maxStacks = tonumber(p[10]) or 0 }
     local ppm, icd, chance = tonumber(p[4]) or 0, tonumber(p[5]) or 0, tonumber(p[6]) or 0
     if ppm > 0 or icd > 0 or chance > 0 then ef.proc = { ppm = ppm, icdMs = icd, procChance = chance } end
     local cd, cat, catCd = tonumber(p[7]) or 0, tonumber(p[8]) or 0, tonumber(p[9]) or 0

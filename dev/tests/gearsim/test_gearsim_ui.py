@@ -437,6 +437,46 @@ def feral_cat_sims():
     assert_no_lua_errors(w)
 
 
+# WoWSims' P1 Elemental preset (ui/specs/shaman/elemental/gear_sets/p1.gear.json), no gems or enchants
+ELE_P1 = [29035, 28762, 29037, 28797, 29519, 29521, 28780, 29520, 30734, 28517, 30667, 28753, 29370, 28785, 28770, 29268,
+          28248]
+
+
+@r.case
+def elemental_shaman_sims():
+    w = new_world()
+    c = Client(w, "Sparks", class_file="SHAMAN", race="Draenei", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Elemental") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(ELE_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 1000 < res["work"] < 2600 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Lightning Bolt", "Chain Lightning", "Lightning Capacitor"):
+        assert want in names, (want, names)
+    assert "Melee" not in names, names
+    sc = c.eval_py("return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), { buffs = 'raid25', duration = 180 })")
+    assert sc["distance"] == 20 and sc["classOptions"]["elemental"] is True, (sc["distance"], sc["classOptions"])
+    # his own totems: the group's Totem of Wrath / Wrath of Air go
+    for key in ("raid25", "raid10"):
+        party = c.eval_py("return ns.SimRunner:BuffConfig(...)", key).get("party") or {}
+        assert not party.get("totemOfWrath") and not party.get("wrathOfAirTotem"), (key, party)
+    doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                          "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+    assert doc["player"]["class"] == "ClassShaman" and "elementalShaman" in doc["player"], doc["player"].keys()
+    assert doc["player"]["distanceFromTarget"] == 20
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()

@@ -9,7 +9,8 @@ Sockets, socket bonuses, gems and enchants are already in Data/Gems.lua (gen_gem
 Format (one string per item, parsed lazily by Sim/Data.lua):
   [itemID] = "type,hand,weaponType,speed,min,max|stats|set|effects"
     stats   "statID:value,..." (WoWSims proto Stat numbers)
-    effects "buffId,durationMs,stats(statID:value;...),ppm,icdMs,procChance,useCdMs,categoryId,categoryCdMs" joined by "/"
+    effects "buffId,durationMs,stats(statID:value;...),ppm,icdMs,procChance,useCdMs,categoryId,categoryCdMs[,maxStacks]"
+    joined by "/"
   ns.Data.SimProcs[itemID] = "callback,procMask,outcome,flags" (flags: d require damage, w weapon proc,
     p can proc from procs, c class spells only)
   ns.Data.SimOnUse[itemID] = true
@@ -47,7 +48,7 @@ def go_procs():
     path = os.path.join(WOWSIMS, "sim", "common", "tbc", "stat_bonus_procs_auto_gen.go")
     src = "".join(l for l in open(path, encoding="utf-8") if not l.lstrip().startswith("//"))
     out = {}
-    pat = r"shared\.New(?:Stacking)?ProcStatBonusEffectWithVariants\(shared\.ProcStatBonusEffect\{(.*?)\},\s*\[\]shared\.ItemVariant\{(.*?)\}\)"
+    pat = r"shared\.New(?:Stacking)?(?:Proc)?StatBonusEffectWithVariants\(shared\.ProcStatBonusEffect\{(.*?)\},\s*\[\]shared\.ItemVariant\{(.*?)\}\)"
     for m in re.finditer(pat, src, re.S):
         body, variants = m.group(1), m.group(2)
         cb = re.search(r"Callback:\s*([^,\n]+)", body)
@@ -112,11 +113,14 @@ def main():
             proc, use = e.get("proc") or {}, e.get("onUse") or {}
             if not proc and not use:
                 continue
-            effs.append(",".join([
+            fields = [
                 str(e.get("buffId", 0)), fmt_num(e.get("effectDurationMs", 0)), stats_str(eso.get("stats") or {}, ";"),
                 fmt_num(proc.get("ppm", 0)), fmt_num(proc.get("icdMs", 0)), fmt_num(proc.get("procChance", 0)),
                 fmt_num(use.get("cooldownMs", 0)), fmt_num(use.get("categoryId", 0)), fmt_num(use.get("categoryCooldownMs", 0)),
-            ]))
+            ]
+            if e.get("maxCumulativeStacks"):
+                fields.append(str(e["maxCumulativeStacks"]))
+            effs.append(",".join(fields))
         rows.append((it["id"], "%s|%s|%s|%s" % (head, stats_str(so.get("stats") or {}), (it.get("setName") or "").replace("|", "/"),
                                                  "/".join(effs))))
     rows.sort()

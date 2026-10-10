@@ -1,0 +1,197 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Threat.lua", ...) then return end -- DisasterZone: threat meter.
+-- My group's threat on one enemy, read from the game itself (UnitDetailedThreatSituation, the source ThreatClassic2
+-- uses), so the numbers are exact. The window is UI/ThreatWindow.lua. Off until the player turns it on (Settings >
+-- Meters, meters.thr). Nothing is sent: every client asks its own game.
+--
+-- The enemy: my target when I can attack it; with a friendly player targeted, their target; else the first boss
+-- unit; else my focus.
+-- A row: raw = threat as a share of the tank's (100 = the tank, it can pass 100 up to the pull point), scaled = share
+-- of that player's own pull point (100 = they pull). The pull point is raw / scaled (110% in melee range, 130% at
+-- range), so it needs no range check; without numbers yet it falls back to CheckInteractDistance (10 yd = melee).
+-- Warning: when I am not tanking and my scaled share reaches meters.warn (85): the window pulses, the screen edges
+-- flash (meters.flash) and a sound plays once per crossing (meters.sound).
+-- Tank view (meters.tankView "auto" = while I tank the enemy or my group role is tank, "always", "never"): the rows
+-- are the others by their scaled share, the closest to pulling first.
+local addonName, ns = ...
+
+local Threat = ns:NewModule("Threat")
+
+local pairs, ipairs, tonumber, type = pairs, ipairs, tonumber, type
+local floor, max, min = math.floor, math.max, math.min
+local tsort = table.sort
+
+local POLL = 0.2
+local SOUND = 8959                -- the raid warning sound
+
+local state = { rows = {}, mob = nil }   -- the last scan (Threat:GetState)
+local ticker
+local listening = false
+local wasHot = false
+local listeners = {}
+
+local function Setting(path, default)
+    local v = ns.DB and ns.DB.GetSetting and ns.DB:GetSetting("meters." .. path)
+    if v == nil then return default end
+    return v
+end
+Threat.Setting = Setting
+
+function Threat:IsEnabled() return Setting("thr", false) and true or false end
+function Threat:IsDemo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and ns.MeterDemo ~= nil or false end
+function Threat:OnChange(fn) listeners[#listeners + 1] = fn end
+local function Changed() for _, fn in ipairs(listeners) do pcall(fn, state) end end
+
+local function Attackable(unit)
+    return UnitExists(unit) and UnitCanAttack("player", unit) and not (UnitIsDead and UnitIsDead(unit))
+end
+
+-- The enemy the window follows (a unit token) or nil.
+function Threat:Mob()
+    if Attackable("target") then return "target" end
+    if UnitExists("target") and not UnitCanAttack("player", "target") and Attackable("targettarget") then
+        return "targettarget"
+    end
+    for i = 1, 4 do
+        local u = "boss" .. i
+        if Attackable(u) then return u end
+    end
+    if Attackable("focus") then return "focus" end
+    return nil
+end
+
+local function Units()
+    local list = { "player" }
+    local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+    if IsInRaid and IsInRaid() then
+        list = {}
+        for i = 1, n do list[#list + 1] = "raid" .. i end
+    elseif n > 0 then
+        for i = 1, n - 1 do list[#list + 1] = "party" .. i end
+    end
+    return list
+end
+
+local function MyRole()
+    local r = UnitGroupRolesAssigned and UnitGroupRolesAssigned("player")
+    return r
+end
+
+function Threat:TankView(me)
+    local mode = Setting("tankView", "auto")
+    if mode == "always" then return true end
+    if mode == "never" then return false end
+    return (me and me.tank) or MyRole() == "TANK"
+end
+
+-- Scans the group's threat on mob: state = { mob, name, combat, rows = { { unit, guid, name, cls, tank, raw, scaled,
+-- value, me } } (raw order, highest first), me, pull (my pull point, % of the tank), hot, tankView, view (the rows
+-- the window shows, in order) }.
+function Threat:Scan()
+    local mob = self:Mob()
+    local st = { rows = {}, mob = mob }
+    if mob then
+        st.name = UnitName(mob)
+        st.guid = UnitGUID and UnitGUID(mob)
+        st.combat = UnitAffectingCombat and UnitAffectingCombat(mob) or false
+        for _, unit in ipairs(Units()) do
+            if UnitExists(unit) and UnitDetailedThreatSituation then
+                local isTanking, _, scaled, raw, value = UnitDetailedThreatSituation(unit, mob)
+                if raw or isTanking then
+                    local _, cls = UnitClass(unit)
+                    local isMe = UnitIsUnit and UnitIsUnit(unit, "player")
+                    local row = { unit = unit, guid = UnitGUID(unit), name = UnitName(unit), cls = cls,
+                                  tank = isTanking and true or false, raw = isTanking and 100 or (tonumber(raw) or 0),
+                                  scaled = isTanking and 100 or (tonumber(scaled) or 0), value = tonumber(value) or 0,
+                                  me = isMe or nil }
+                    st.rows[#st.rows + 1] = row
+                    if isMe then st.me = row end
+                end
+            end
+        end
+        tsort(st.rows, function(a, b)
+            if a.raw ~= b.raw then return a.raw > b.raw end
+            return (a.name or "") < (b.name or "")
+        end)
+    end
+    self:Derive(st)
+    state = st
+    return st
+end
+
+-- The parts every scan (and the demo) shares: my pull point, the warning, the view.
+function Threat:Derive(st)
+    local me = st.me
+    if me and not me.tank then
+        if me.scaled > 0 and me.raw > 0 then
+            st.pull = floor(me.raw / me.scaled * 100 + 0.5)
+        else
+            local near = st.mob and CheckInteractDistance and CheckInteractDistance(st.mob, 3)
+            st.pull = near and 110 or 130
+        end
+        local warn = tonumber(Setting("warn", 85)) or 85
+        st.hot = warn > 0 and me.scaled >= warn
+    end
+    st.tankView = self:TankView(me)
+    if st.tankView then
+        local view = {}
+        for _, r in ipairs(st.rows) do if not r.me then view[#view + 1] = r end end
+        tsort(view, function(a, b)
+            if a.tank ~= b.tank then return b.tank end           -- the one tanking (another tank) last
+            if a.scaled ~= b.scaled then return a.scaled > b.scaled end
+            return (a.name or "") < (b.name or "")
+        end)
+        st.view = view
+        st.hot = false
+    else
+        st.view = st.rows
+    end
+    return st
+end
+
+function Threat:GetState()
+    if self:IsDemo() and ns.MeterDemo and ns.MeterDemo.Threat then return ns.MeterDemo:Threat() end
+    return state
+end
+
+local function Warn(st)
+    local hot = st.hot and true or false
+    if hot and not wasHot and Setting("sound", true) and PlaySound then pcall(PlaySound, SOUND, "Master") end
+    wasHot = hot
+end
+
+local function Poll()
+    if not listening then return end
+    local st = Threat:Scan()
+    Warn(st)
+    Changed()
+end
+
+local function Listen(on)
+    if on == listening then return end
+    listening = on
+    if on then
+        if C_Timer and C_Timer.NewTicker then ticker = C_Timer.NewTicker(POLL, Poll) end
+        Poll()
+    else
+        if ticker then ticker:Cancel(); ticker = nil end
+        state = { rows = {} }
+        wasHot = false
+        Changed()
+    end
+end
+
+function Threat:Refresh() Listen(self:IsEnabled()) end
+
+function Threat:OnLogin()
+    ns:On("SETTINGS_CHANGED", function(path)
+        if type(path) == "string" and path:sub(1, 7) == "meters." then Threat:Refresh() end
+    end)
+    ns:RegisterSlash("threat", function(arg)
+        arg = (arg or ""):lower()
+        if arg == "on" or arg == "off" then ns.DB:SetSetting("meters.thr", arg == "on")
+        elseif ns.ThreatWindow then ns.ThreatWindow:Toggle() end
+    end, "show or hide the threat meter (on | off)")
+    self:Refresh()
+end
+
+Threat._Poll = Poll
