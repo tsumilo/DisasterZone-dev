@@ -37,6 +37,7 @@ function S.NewScenario(sc, db, apl)
     S.SetupDruid(p, sc.talents or "", sc.classOptions)
     if p.druid.cat then buffs = S.DruidCatPartyBuffs(p, buffs) end
   end
+  if cls == "Priest" then S.SetupPriest(p, sc.talents or "", sc.classOptions) end
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
@@ -44,12 +45,15 @@ function S.NewScenario(sc, db, apl)
   if cls == "Shaman" then S.ShamanApplyTalents(p) end
   if cls == "Rogue" then S.RogueApplyTalents(p) end
   if cls == "Druid" then S.DruidApplyTalents(p) end
+  if cls == "Priest" then S.PriestApplyTalents(p) end
   S.ApplyBuffs(p, buffs)
+  for _, pet in ipairs(p.pets or {}) do S.ApplyPetBuffs(pet, buffs) end
   S.ApplyConsumables(p, cons, buffs)
   if cls == "Warrior" then S.WarriorInitialize(p) end
   if cls == "Shaman" then S.ShamanInitialize(p) end
   if cls == "Rogue" then S.RogueInitialize(p) end
   if cls == "Druid" then S.DruidInitialize(p) end
+  if cls == "Priest" then S.PriestInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()

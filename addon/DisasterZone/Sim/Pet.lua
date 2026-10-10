@@ -36,7 +36,8 @@ function PR:Reset()
 end
 
 -- cfg = { name, key (metrics prefix), baseStats = { [stat name] = v }, inherit = fn(ownerStats) -> { [ST] = v },
---   mainHand = weapon, rotation = fn(sim, pet), onEnable = fn(sim, pet) }
+--   mainHand = weapon, rotation = fn(sim, pet), onEnable = fn(sim, pet), guardian (default true: no buffs),
+--   enabledOnStart (false: no targeted buffs either) }
 function S.NewPet(owner, cfg)
   local pet = S.NewUnit("pet", owner.label .. " - " .. cfg.name)
   pet.owner = owner
@@ -52,6 +53,8 @@ function S.NewPet(owner, cfg)
   pet.inherit = cfg.inherit
   pet.inherited = S.NewStats()
   pet.onEnable = cfg.onEnable
+  pet.guardian = cfg.guardian ~= false
+  pet.enabledOnStart = cfg.enabledOnStart == true
   for k, v in pairs(cfg.baseStats or {}) do pet:AddStat(ST[k], v) end
   pet:AddStatDependency(ST.Stamina, ST.Health, 10)
   pet:AddStatDependency(ST.Agility, ST.Armor, 2)
@@ -131,7 +134,13 @@ function Unit:DisablePet(sim)
   self.hardcastComplete = nil
   self.enabled = false
   if self.timeoutAction and not self.timeoutAction.consumed then sim:Cancel(self.timeoutAction) end
-  for _, a in ipairs(self.auras) do if a.active then a:Deactivate(sim) end end
+  -- auraTracker.expireAll: the auras with a duration; permanent ones (buffs) stay
+  local list = self.activeAuras
+  while #list > 0 do
+    local a, n = list[1], #list
+    a:Deactivate(sim)
+    if #list == n and list[1] == a then table.remove(list, 1) end
+  end
 end
 
 -- Pets reset with their owner (pet.go reset: disabled until summoned).

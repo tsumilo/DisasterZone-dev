@@ -166,9 +166,13 @@ def run(sc, iterations=None, debug=False):
                       "dodges": tot("dodges"), "glances": tot("glances"), "resistedHits": tot("resistedHits"),
                       "resistedCrits": tot("resistedCrits")},
         }
+    resources = {}
+    for r in pl.get("resources", []):
+        k = "%s/%s" % (action_name(r["id"]), r.get("type", ""))
+        resources[k] = resources.get(k, 0) + r.get("actualGain", r.get("gain", 0)) / iters
     return {
         "dps": pl["dps"]["avg"], "dpsStdev": pl["dps"].get("stdev", 0), "iterations": iters,
-        "actions": actions, "logs": res.get("logs", ""),
+        "actions": actions, "resources": resources, "logs": res.get("logs", ""),
     }
 
 

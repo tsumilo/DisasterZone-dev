@@ -81,6 +81,7 @@ Sim\Warrior.lua
 Sim\Shaman.lua
 Sim\Rogue.lua
 Sim\Druid.lua
+Sim\Priest.lua
 Sim\Data.lua
 Sim\Setup.lua
 Sim\Runner.lua

@@ -31,7 +31,7 @@ local NAV_HIDDEN = { notify = true }
 -- last in it (settings.navLast). Groups follow shared data: raid nights and their loot, items, the guild's people and pastimes.
 local NAV_GROUPS = {
     { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council", "mylog" } },
-    { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "atlas" } },
+    { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "gearsim", "consumables", "atlas" } },
     { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "polls", "games" } },
 }
 -- A line under each page in a group's menu (its tooltip).
@@ -40,6 +40,8 @@ local NAV_PAGE_TIPS = {
     council = "Loot decisions: the roster, items, the loot log and the council.",
     mylog   = "Your own boss pulls, run against run. Only you can see it.",
     mybis   = "Your BiS lists and what you still need.",
+    gearsim = "Try gear before you have it: simulated fights.",
+    consumables = "The flask, food and potions for your spec.",
     atlas   = "Every raid and dungeon's drops, sets and costs.",
     members = "The guild's members, professions and recipes.",
     map     = "Where guildmates are right now.",
@@ -513,7 +515,9 @@ local function BuildPanel(def)
         def.panel = panel
         panel:ClearAllPoints()
         panel:SetAllPoints(frame.content)
-        if def.key ~= currentKey then panel:Hide() end
+        -- (pages can share a panel, e.g. My BiS / Gear sim / Consumables: never hide the one on show)
+        local cur = currentKey and tabDefs[currentKey]
+        if def.key ~= currentKey and not (cur and cur.panel == panel) then panel:Hide() end
     end
     Timing(def.key).build = clock() - t0
     return def.panel
@@ -548,16 +552,17 @@ ShowPanel = function(key)
         if type(settings.navLast) ~= "table" then settings.navLast = {} end
         settings.navLast[g.key] = key
     end
-    for k, other in pairs(tabDefs) do
-        if k ~= key and other.panel then other.panel:Hide() end
-    end
     local panel = BuildPanel(def)
+    for k, other in pairs(tabDefs) do
+        if k ~= key and other.panel and other.panel ~= panel then other.panel:Hide() end
+    end
     if panel then
         if switching and frame:IsShown() then FadeIn(panel) else panel:SetAlpha(1) end
         local t0 = clock()
         panel:Show()
+        -- (the page's key: a panel shared by several pages shows the one asked for)
         if panel.OnPanelShown then
-            xpcall(function() panel:OnPanelShown() end, geterrorhandler())
+            xpcall(function() panel:OnPanelShown(key) end, geterrorhandler())
         end
         local t, ms = Timing(key), clock() - t0
         t.show, t.shows = ms, t.shows + 1
@@ -576,7 +581,7 @@ local function WarmPanel(def)
     local panel = def.panel
     if not (panel and WARM[def.key] and frame:IsShown() and def.key ~= currentKey and not panel:IsShown()) then return end
     panel:Show()
-    if panel.OnPanelShown then xpcall(function() panel:OnPanelShown() end, geterrorhandler()) end
+    if panel.OnPanelShown then xpcall(function() panel:OnPanelShown(def.key) end, geterrorhandler()) end
     if def.key ~= currentKey then panel:Hide() end
 end
 

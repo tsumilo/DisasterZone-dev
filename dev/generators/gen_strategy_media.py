@@ -530,6 +530,21 @@ def ic_bell(d, k):
     d.ellipse(_pts(k, [(25, 51), (39, 60)]), fill=255)
 
 
+# (the Gear menu's pages, art pack 6: 57 a flask (Consumables), 58 a bar chart (Gear sim))
+def ic_flask(d, k):
+    # a round potion flask: cork, neck, round body
+    d.rounded_rectangle(_pts(k, [(24, 3), (40, 10)]), radius=_w(k, 2), fill=255)
+    d.rectangle(_pts(k, [(27, 9), (37, 28)]), fill=255)
+    d.ellipse(_pts(k, [(11, 21), (53, 62)]), fill=255)
+
+
+def ic_chart(d, k):
+    # a bar chart: three rising bars on a baseline
+    for x, y in ((9, 34), (27, 20), (45, 7)):
+        d.rounded_rectangle(_pts(k, [(x, y), (x + 11, 53)]), radius=_w(k, 3), fill=255)
+    d.rounded_rectangle(_pts(k, [(5, 55), (60, 60)]), radius=_w(k, 2), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
@@ -537,7 +552,7 @@ TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
               ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar,
               ic_team, ic_play, ic_pause, ic_skip, ic_flag, ic_trophy, ic_lock, ic_infinity, ic_bracket,
-              ic_poll, ic_bell]
+              ic_poll, ic_bell, ic_flask, ic_chart]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

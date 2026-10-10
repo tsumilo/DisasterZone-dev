@@ -121,6 +121,19 @@ ELE_BUFFS = {
                     "mhImbueId": 25122, "potId": 22839},
 }
 
+# ui/specs/priest/dps/presets.ts (phase 3 ISB uptime)
+SPRIEST_BUFFS = {
+    "raid": {"bloodlust": True, "arcaneBrilliance": True, "giftOfTheWild": IMP, "powerWordFortitude": IMP,
+             "divineSpirit": IMP},
+    "party": {"manaSpringTotem": "TristateEffectRegular", "wrathOfAirTotem": IMP, "eyeOfTheNight": True,
+              "chainOfTheTwilightOwl": True},
+    "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "shadowPriestDps": 0},
+    "debuffs": {"improvedSealOfTheCrusader": IMP, "judgementOfWisdom": True, "faerieFire": IMP, "shadowEmbrace": True,
+                "curseOfElements": IMP, "exposeArmor": IMP, "isbUptime": 0.72},
+    "consumables": {"flaskId": 22866, "foodId": 27657, "conjuredId": 12662, "mhImbueId": 22522, "potId": 22839,
+                    "explosiveId": 30217, "drumsId": "LesserDrumsOfBattle"},
+}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -139,6 +152,10 @@ SPECS = {
     "cat": {"class": "Druid", "wsClass": "ClassDruid", "field": "feralCatDruid",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/druid/feralcat/apls/default.apl.json",
             "buffs": CAT_BUFFS, "luaBuffs": "wowsims_cat", "luaOptions": {"form": "Cat"}},
+    "spriest": {"class": "Priest", "wsClass": "ClassPriest", "field": "dpsPriest",
+                "options": {"options": {"classOptions": {"preShadowform": True}}},
+                "apl": "ui/specs/priest/dps/apls/default.apl.json", "buffs": SPRIEST_BUFFS, "luaBuffs": "wowsims_spriest",
+                "luaOptions": {"preShadowform": True}},
     "ele": {"class": "Shaman", "wsClass": "ClassShaman", "field": "elementalShaman",
             "options": {"options": {"classOptions": {"shieldProcrate": 0}}},
             "apl": "ui/specs/shaman/elemental/apls/default.apl.json", "buffs": ELE_BUFFS, "luaBuffs": "wowsims_ele",

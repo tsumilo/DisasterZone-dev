@@ -16,6 +16,12 @@ apl = json.load(open(os.path.join(run_lua.WOWSIMS, sp["apl"]), encoding="utf-8")
 lsc = dict(sc)
 lsc['gear'] = {i + 1: g for i, g in enumerate(sc['gear']) if g and g.get('id')}
 lsc['class'] = sp["class"]
+if "distanceFromTarget" in sc and "distance" not in sc:
+    lsc["distance"] = sc["distanceFromTarget"]
+if "professions" not in sc:
+    lsc["professions"] = [sc.get("profession1", "Engineering"), sc.get("profession2", "Blacksmithing")]
+if "channelClipDelay" in sc and "channelClipDelayMs" not in sc:
+    lsc["channelClipDelayMs"] = sc["channelClipDelay"]
 if sp.get("luaOptions"):
     lsc.setdefault("classOptions", sp["luaOptions"])
 lsc['buffs'] = sp["luaBuffs"]

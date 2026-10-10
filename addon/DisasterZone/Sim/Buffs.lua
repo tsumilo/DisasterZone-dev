@@ -130,6 +130,17 @@ S.BUFF_PRESETS = {
     consumables = { potId = 22838, battleElixirId = 22831, guardianElixirId = 32067, foodId = 27664, mhImbueId = 34340,
       conjuredId = 12662, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
   },
+  -- The WoWSims Shadow Priest preset (ui/specs/priest/dps/presets.ts, phase 3 ISB uptime); the priest brings his own
+  -- Misery and Shadow Weaving.
+  wowsims_spriest = {
+    raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
+    party = { manaSpringTotem = 1, wrathOfAirTotem = 2, eyeOfTheNight = true, chainOfTheTwilightOwl = true },
+    individual = { blessingOfKings = true, blessingOfWisdom = 2 },
+    debuffs = { improvedSealOfTheCrusader = 2, judgementOfWisdom = true, faerieFire = 2, curseOfElements = 2,
+      exposeArmor = 2, isbUptime = 0.72 },
+    consumables = { flaskId = 22866, foodId = 27657, conjuredId = 12662, mhImbueId = 22522, potId = 22839,
+      explosiveId = 30217, drumsId = "LesserDrumsOfBattle" },
+  },
   -- The WoWSims Elemental preset (ui/specs/shaman/elemental/presets.ts): the shaman drops his own totems.
   wowsims_ele = {
     raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
@@ -159,6 +170,32 @@ S.BUFF_PRESETS = {
 local function Tri(v) if v == true then return 1 end return v or 0 end
 local ALLIANCE = { Draenei = true, Dwarf = true, Gnome = true, Human = true, NightElf = true }
 local DRAENEI_CASTER = { Mage = true, Priest = true, Shaman = true }
+
+-- buffs.go applyPetBuffEffects: a pet that isn't a guardian gets the buffs too, less what its owner casts on it in
+-- combat (Bloodlust), what can't apply (Windfury, drums, innervates, Power Infusion) and, for one summoned in the
+-- fight, the targeted buffs it wasn't there for. The owner's party necklaces reach it as well.
+local NECK_PARTY = { [24121] = "chainOfTheTwilightOwl", [24116] = "eyeOfTheNight", [24114] = "braidedEterniumChain",
+  [20966] = "jadePendantOfBlasting" }
+function S.ApplyPetBuffs(pet, cfg)
+  if pet.guardian then return end
+  local raid, party, ind = {}, {}, {}
+  for k, v in pairs(cfg.raid or {}) do raid[k] = v end
+  for k, v in pairs(cfg.party or {}) do party[k] = v end
+  for k, v in pairs(cfg.individual or {}) do ind[k] = v end
+  raid.bloodlust, raid.thorns = nil, nil
+  party.windfuryTotem, party.drums = nil, nil
+  local neck = NECK_PARTY[pet.owner.gearIds.Neck or 0]
+  if neck then party[neck] = true end
+  if Tri(party.leaderOfThePack) > 1 then party.leaderOfThePack = 1 end
+  if Tri(party.moonkinAura) > 1 then party.moonkinAura = 1 end
+  ind.innervates, ind.powerInfusions = nil, nil
+  if not pet.enabledOnStart then
+    raid.arcaneBrilliance, raid.divineSpirit, raid.giftOfTheWild, raid.powerWordFortitude = nil, nil, nil, nil
+    raid.shadowProtection = nil
+    ind = { unleashedRage = ind.unleashedRage }
+  end
+  S.ApplyBuffs(pet, { raid = raid, party = party, individual = ind })
+end
 
 -- Raid + party + individual buffs on the player.
 function S.ApplyBuffs(p, cfg)
