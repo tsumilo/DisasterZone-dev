@@ -11,6 +11,8 @@ EXPECTED_SETTINGS = {
     "swing": {"enabled": True, "style": "bar", "locked": True, "idle": False, "scale": 1, "latencyMs": 0,
               "use": {"exo": False, "cons": False}, "consMana": 40, "sound": False,
               "mobType": "Demon"},
+    "bless": {"bar": "group", "layout": "vertical", "warnMin": 5, "free": False, "symbols": 20, "pets": True,
+              "locked": True, "scale": 1},
     "map": {"share": "unset", "blizzard": True},
     "minimap": {"hide": False},
     "openOn": "home",
