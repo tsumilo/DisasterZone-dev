@@ -120,6 +120,7 @@ ns.CHANGELOG = {
               "The leader and assistants assign; paladins can let anyone assign them.",
               "New buff bar in groups, in two looks: a rail of class rings or a strip of tiles.",
               "Rings and lines drain as blessings run out; what to do next glows and says when.",
+              "Bless a class again and it eases back to calm with a soft golden bloom.",
               "Click a class to cast its Greater Blessing; right-click it to see its players.",
               "Scroll on a player there to give them a single blessing instead.",
               "Pick the look in the planner's More menu or Settings > Class tools.",

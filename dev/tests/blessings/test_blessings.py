@@ -234,6 +234,24 @@ assert single and single != 1, single
 vic.eval("local f = DisasterZoneBlessPop1:GetScript('OnMouseWheel'); f(DisasterZoneBlessPop1, 1)")
 assert vic.eval("return ns.Blessings:GetSingle('Victhar', 6, 'Faelar')") is None, "back to the class's"
 assert vic.eval("return ns.SwingTimer.active and DisasterZoneSwingTimer ~= nil and DisasterZoneSwingTimer:IsShown()") is True
+# motion: the urgent class eases back to calm when blessed again, with one bloom that fades out
+MOTION = """
+    local f
+    for i = 1, 20 do local r = _G['DisasterZoneBlessRow' .. i]; if r and r.face.wasHot then f = r.face end end
+    if not f then return 'no urgent row' end
+    ns.BlessingsBar.Aim(f, { hot = 0, lift = 0, line = 1 }, true)
+    local out = {}
+    for i = 1, 40 do
+        ns.BlessingsBar.Step(f, 0.05)
+        if i == 3 then out.midHot, out.midBloom = f.motion.cur.hot, f.bloom:IsShown() end
+    end
+    out.endHot, out.endBloom, out.label = f.motion.cur.hot, f.bloom:IsShown(), f.label:IsShown()
+    return out
+"""
+mo = vic.eval_py(MOTION)
+assert isinstance(mo, dict), mo
+assert 0 < mo["midHot"] < 1 and mo["midBloom"] is True, mo
+assert mo["endHot"] == 0 and mo["endBloom"] is False and mo["label"] is False, mo
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)

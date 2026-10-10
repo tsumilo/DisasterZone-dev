@@ -10,6 +10,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then re
 --                shrinks with the time left); the tile to do next lifts with its time on a gold chip. Aura on the
 --                left, Symbols on the right.
 -- No panel behind it (only a faint one while unlocked, to drag it by).
+-- Motion: the urgent look eases in and out (the strip's tile lifts and settles, the chip / label fades and drifts,
+-- the hairline refills, gold blends back to calm), and a class that was missing or running out blooms once when
+-- it is blessed again. All of it on the faces (not secure), so it runs in combat too.
 -- Right-click a class for its players (nothing pops up on hover): click = the Greater on them, right-click = their single
 -- blessing, wheel = give them a single blessing instead. Click a class: the Greater on a member in range.
 -- Every cast is a secure button whose target is chosen out of combat (WoW forbids changing them in combat): in a
@@ -170,6 +173,12 @@ local function NewRow(i)
     face.glow:SetTexture(SOFT)
     face.glow:SetPoint("CENTER")
     face.glow:SetVertexColor(1, 0.78, 0.16, 0.55)
+    face.glow:SetAlpha(0)
+    -- the bloom when a class is blessed again: a ring (rail) or a soft light (strip) that opens and fades
+    face.bloom = face:CreateTexture(nil, "OVERLAY", nil, 2)
+    face.bloom:SetPoint("CENTER")
+    face.bloom:SetBlendMode("ADD")
+    face.bloom:Hide()
     -- rail: the track, the draining ring (a cooldown swipe), the class circle
     face.track = face:CreateTexture(nil, "BORDER")
     face.track:SetTexture(RING)
@@ -485,6 +494,102 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Layout (out of combat: it moves secure buttons)
 -- ---------------------------------------------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------------------------------------------
+-- Motion: each face eases its "hot" (urgent) look, its lift and its hairline toward targets (an exponential
+-- approach: quick at first, settling softly), and plays a bloom when a class is blessed again.
+-- ---------------------------------------------------------------------------------------------------------------
+local exp, abs = math.exp, math.abs
+local TAU = { hot = 0.11, lift = 0.09, line = 0.22 }
+local BLOOM_TAU = 0.3
+
+local function Mix(a, b, t) return a + (b - a) * t end
+
+-- Places and colours what moves, from the face's current values.
+local function ApplyMotion(f)
+    local m = f.motion
+    if not m or not f.row then return end
+    local hot, lift, line = m.cur.hot or 0, m.cur.lift or 0, m.cur.line or 0
+    f:ClearAllPoints()
+    f:SetPoint("CENTER", f.row, "CENTER", 0, lift)
+    f.glow:SetAlpha(0.55 * hot)
+    f.label:SetAlpha(hot)
+    f.label:SetShown(hot > 0.01)
+    f.label:ClearAllPoints()
+    if f.layout == "horizontal" then
+        f.label:SetPoint("BOTTOM", f, "TOP", 0, 8 - (1 - hot) * 5)
+        local e = Mix(0, 1, hot)
+        Edge(f.tileEdge, e, Mix(0, 0.82, hot), 0, Mix(0.9, 1, hot))
+        local cr, cg, cb = f.classRGB[1], f.classRGB[2], f.classRGB[3]
+        f.lineFill:SetVertexColor(Mix(cr, GOLD[1], hot), Mix(cg, GOLD[2], hot), Mix(cb, GOLD[3], hot), 0.95)
+        f.lineFill:SetWidth(max(0.5, (S_T - 4) * line))
+        f.lineFill:SetShown(line > 0.004)
+    else
+        f.label:SetPoint("RIGHT", f, "LEFT", -12 - (1 - hot) * 8, 0)
+        if f.cd.SetSwipeColor then
+            f.cd:SetSwipeColor(Mix(CALM[1], GOLD[1], hot), Mix(CALM[2], GOLD[2], hot), Mix(CALM[3], GOLD[3], hot),
+                Mix(CALM[4], 1, hot))
+        end
+    end
+    local b = m.bloom
+    if b and b > 0.01 then
+        local base = f.layout == "horizontal" and S_T * 1.4 or R_S + 6
+        local size = base * (1 + 0.65 * (1 - b))
+        f.bloom:SetSize(size, size)
+        f.bloom:SetAlpha(0.85 * b)
+        f.bloom:Show()
+    else
+        f.bloom:Hide()
+    end
+end
+
+local function Step(f, dt)
+    local m = f.motion
+    local settled = true
+    for k, target in pairs(m.tgt) do
+        local v = m.cur[k] or target
+        v = v + (target - v) * (1 - exp(-dt / (TAU[k] or 0.12)))
+        if abs(v - target) < 0.003 then v = target else settled = false end
+        m.cur[k] = v
+    end
+    if m.bloom then
+        m.bloom = m.bloom * exp(-dt / BLOOM_TAU)
+        if m.bloom < 0.01 then m.bloom = nil else settled = false end
+    end
+    ApplyMotion(f)
+    return settled
+end
+
+local function Run(f)
+    if f.moving then return end
+    f.moving = true
+    f:SetScript("OnUpdate", function(self, elapsed)
+        if Step(self, min(elapsed or 0, 0.1)) then
+            self.moving = false
+            self:SetScript("OnUpdate", nil)
+        end
+    end)
+end
+
+-- New targets for a face (hot 0..1, lift px, line 0..1); bloom: play the "blessed again" bloom. The first targets
+-- are taken as they are (no motion when the bar first shows).
+local function Aim(f, tgt, bloom)
+    local m = f.motion
+    if not m then
+        f.motion = { cur = {}, tgt = tgt }
+        for k, v in pairs(tgt) do f.motion.cur[k] = v end
+        ApplyMotion(f)
+        return
+    end
+    m.tgt = tgt
+    if bloom then m.bloom = 1 end
+    local moving = m.bloom ~= nil
+    for k, v in pairs(tgt) do
+        if abs((m.cur[k] or v) - v) > 0.003 then moving = true end
+    end
+    if moving then Run(f) else ApplyMotion(f) end
+end
+Bar.Aim, Bar.Step = Aim, Step
+
 -- No panel: the circles, tiles and text float on the world. While unlocked a faint panel shows what to drag.
 local function ApplyChrome()
     local unlocked = not B().Setting("locked", true)
@@ -521,6 +626,9 @@ local function PlaceRail(list)
         row:SetSize(R_S, R_S)
         row:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(R_HEAD + (i - 1) * (R_S + R_GAP)))
         local f = row.face
+        f.row, f.layout = row, "vertical"
+        f.bloom:SetTexture(RING)
+        f.bloom:SetVertexColor(1, 0.86, 0.4)
         f:SetSize(R_S, R_S)
         f.glow:SetSize(R_S * 2.4, R_S * 2.4)
         f.track:ClearAllPoints()
@@ -584,6 +692,9 @@ local function PlaceStrip(list)
         row:SetSize(S_T, S_T)
         row:SetPoint("LEFT", frame, "LEFT", S_SIDE + 8 + (i - 1) * (S_T + S_GAP), 2)
         local f = row.face
+        f.row, f.layout = row, "horizontal"
+        f.bloom:SetTexture(SOFT)
+        f.bloom:SetVertexColor(1, 0.9, 0.55)
         f:SetSize(S_T, S_T)
         f.glow:SetSize(S_T * 2.2, S_T * 2.2)
         f.tile:ClearAllPoints()
@@ -718,21 +829,14 @@ function Bar:Update()
             local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[r.cls]
             local frac = st.left and max(0, min(1, st.left / total)) or 0
             f.miss:SetCount(#st.missing)
-            f.glow:SetShown(isNext and true or false)
-            f.label:SetShown(isNext and true or false)
+            f.glow:Show()
+            f.classRGB = { cr, cg, cb }
             local reach = r.unit and 1 or 0.5
             if layout == "horizontal" then
                 f.tile:SetTexture(r.bi and Bl:BlessingIcon(r.bi, true) or Bl:BlessingIcon(1))
                 f.tile:SetAlpha(reach)
                 f.corner:SetTexture(CIRCLES)
                 if c then f.corner:SetTexCoord(c[1], c[2], c[3], c[4]) end
-                if isNext then Edge(f.tileEdge, 1, 0.82, 0, 1) else Edge(f.tileEdge, 0, 0, 0, 0.9) end
-                f:ClearAllPoints()
-                f:SetPoint("CENTER", row, "CENTER", 0, isNext and 7 or 0)
-                f.lineFill:SetWidth(max(0.5, (S_T - 4) * frac))
-                if isNext then f.lineFill:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
-                else f.lineFill:SetVertexColor(cr, cg, cb, 0.9) end
-                f.lineFill:SetShown(frac > 0)
                 if isNext then
                     f.label.text:SetText(#st.missing > 0 and strformat("%d missing", #st.missing) or Minutes(st.left))
                     f.label.text:SetTextColor(0.1, 0.08, 0.01)
@@ -744,10 +848,6 @@ function Bar:Update()
                 if c then f.cls:SetTexCoord(c[1], c[2], c[3], c[4]) end
                 f.cls:SetAlpha(reach)
                 f.corner:SetTexture(r.bi and Bl:BlessingIcon(r.bi, true) or Bl:BlessingIcon(1))
-                f:ClearAllPoints()
-                f:SetPoint("CENTER", row, "CENTER", 0, 0)
-                local col = isNext and GOLD or CALM
-                if f.cd.SetSwipeColor then f.cd:SetSwipeColor(col[1], col[2], col[3], col[4] or 1) end
                 if st.left and st.left > 0 then
                     -- (started total - left ago: the swipe shows what is left and drains on its own)
                     local start = floor((now - (total - st.left)) * 2 + 0.5) / 2
@@ -769,6 +869,11 @@ function Bar:Update()
                 end
             end
             if isNext then f.label:SetWidth((f.label.text:GetStringWidth() or 40) + 16) end
+            -- motion: ease toward the new look; bloom when it was urgent or missing and no longer is
+            local blessed = (f.wasHot and not isNext) or ((f.wasMissing or 0) > #st.missing)
+            Aim(f, { hot = isNext and 1 or 0, lift = (isNext and layout == "horizontal") and 7 or 0, line = frac },
+                blessed and f.motion ~= nil)
+            f.wasHot, f.wasMissing = isNext and true or false, #st.missing
         end
     end
     if pop and pop:IsShown() and pop.row and pop.row.data then self:FillPop(pop.row) end
