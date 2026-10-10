@@ -1278,6 +1278,8 @@ STATES = [
         "t = '20:00' } end; ns.PollsUI:SetDraft({ q = 'Which nights can you raid SSC next week?', k = 'days', rv = 'live', "
         "days = { d(3), d(5), d(6), d(8) }, a = { { 'r', 'leader' }, { 'r', 'officer' }, { 'p', 'Lightbringer-' .. ns.Util.GetPlayerRealm() } } })")),
     ("Polls - pop-up", polls_toast),
+    # Home with several polls waiting: one chip for them all
+    ("Home - polls waiting", polls_view("ns.MainFrame:Open('home')")),
     # the Events tab (UI/EventsTab.lua) on demo mode's events: the live cup on the banner, the week and my season; a
     # planned event's page; last week's results; the library with a card hovered; the season; the review of my own
     # event; the sheets other modules open (host it, send it for review, the badge designer)
