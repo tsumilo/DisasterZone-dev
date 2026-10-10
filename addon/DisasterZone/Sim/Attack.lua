@@ -280,6 +280,7 @@ function Unit:Reset(sim)
   self.hardcastExpires = -huge
   self.hardcastComplete = nil
   self.queued = nil
+  self.channeledDot = nil
   -- stats back to the initial ones
   for _, d in ipairs(self.deps) do if d.dynamic and d.enabled then d.enabled = false; self.linearCache = nil end end
   S.CopyStats(self.statsWithoutDeps, self.initialStatsWithoutDeps)

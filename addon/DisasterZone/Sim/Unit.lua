@@ -72,7 +72,7 @@ function S.NewUnit(kind, label)
     ps = S.NewPseudoStats(),
     auras = {},          -- every registered aura
     activeAuras = {},    -- active auras with a finite duration
-    onSpellHitDealt = {}, onSpellHitTaken = {}, onPeriodicDamageDealt = {}, onCastComplete = {},
+    onSpellHitDealt = {}, onSpellHitTaken = {}, onPeriodicDamageDealt = {}, onPeriodicDamageTaken = {}, onCastComplete = {},
     onApplyEffects = {}, onEncounterStart = {},
     minExpires = huge,
     spellbook = {},
@@ -83,6 +83,7 @@ function S.NewUnit(kind, label)
     GCD = S.NewTimer(),
     RotationTimer = S.NewTimer(),
     hardcastExpires = -huge,
+    channelClipDelay = 0,
     castSpeed = 1,
     enabled = true,
     distance = 5,
@@ -458,6 +459,7 @@ S.AuraMT = Aura
 
 local CALLBACK_LISTS = {
   "onApplyEffects", "onCastComplete", "onSpellHitDealt", "onSpellHitTaken", "onPeriodicDamageDealt", "onEncounterStart",
+  "onPeriodicDamageTaken",
 }
 
 function Unit:RegisterAura(cfg)
@@ -849,6 +851,7 @@ end
 function Unit:OnSpellHitDealt(sim, spell, result) Dispatch(self.onSpellHitDealt, "onSpellHitDealt", sim, spell, result) end
 function Unit:OnSpellHitTaken(sim, spell, result) Dispatch(self.onSpellHitTaken, "onSpellHitTaken", sim, spell, result) end
 function Unit:OnPeriodicDamageDealt(sim, spell, result) Dispatch(self.onPeriodicDamageDealt, "onPeriodicDamageDealt", sim, spell, result) end
+function Unit:OnPeriodicDamageTaken(sim, spell, result) Dispatch(self.onPeriodicDamageTaken, "onPeriodicDamageTaken", sim, spell, result) end
 function Unit:OnCastComplete(sim, spell) Dispatch(self.onCastComplete, "onCastComplete", sim, spell) end
 function Unit:OnApplyEffects(sim, target, spell)
   local list = self.onApplyEffects

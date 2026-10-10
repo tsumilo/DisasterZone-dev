@@ -5,11 +5,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Sim/Dot.lua", ...) then return end
 -- A spell gets its DoT with cfg.dot = { label, numberOfTicks, tickLength, onSnapshot(sim, target, dot),
 -- onTick(sim, target, dot), affectedByCastSpeed, hasteReducesDuration, bonusCoefficient, periodicDamageMultiplier,
 -- selfOnly, maxStacks }; spell:Dot(target) returns it.
+--
+-- A channeled spell's DoT (flag Channeled: Mind Flay) is the channel: while it runs the rotation only asks whether
+-- to clip it (the channel action's interruptIf, at each tick and when the GCD ends); when it ends or is clipped the
+-- rotation goes on after the channel clip delay.
 local _, ns = ...
 local S = ns.GearSim
 local O = S.O
 
-local huge, floor = math.huge, math.floor
+local huge, floor, max = math.huge, math.floor, math.max
 
 local Dot = {}
 Dot.__index = Dot
@@ -27,8 +31,38 @@ end
 function Dot:BaseDuration() return self.baseTickCount * self.baseTickLength * self.baseDurationMultiplier end
 
 function Dot:CalcTickPeriod()
-  if self.affectedByCastSpeed then return S.RoundMs(self.spell.unit:ApplyCastSpeed(self.baseTickLength)) end
+  if self.affectedByCastSpeed then
+    local u = self.spell.unit
+    if self.isChanneled then
+      -- ApplyCastSpeedForSpell
+      return S.RoundMs(self.baseTickLength * u.castSpeed * max(0, self.spell.castTimeMultiplier or 1))
+    end
+    return S.RoundMs(u:ApplyCastSpeed(self.baseTickLength))
+  end
   return self.baseTickLength
+end
+
+-- Ticks done so far (dot.go TickCount).
+function Dot:TickCount()
+  if self.hasteReducesDuration then return self.baseTickCount + self.extraTicks - self.remainingTicks end
+  return self:HastedTickCount() + self.extraTicks - self.remainingTicks
+end
+
+-- dot.go ChannelCanBeInterrupted: ticks left and the channel action's interruptIf holds.
+function Dot:ChannelCanBeInterrupted(sim)
+  if not self.isChanneled or self.remainingTicks == 0 then return false end
+  local rot = self.spell.unit.rotation
+  local f = rot and rot.interruptChannelIf
+  return f ~= nil and f(sim)
+end
+
+-- Clip the channel now: no last tick on the way out; the rotation goes on after the clip delay.
+function Dot:Clip(sim)
+  local u = self.spell.unit
+  self.noFinalTick = true
+  self.aura:Deactivate(sim)
+  self.noFinalTick = nil
+  if u.GCD.readyAt <= sim.now then u:WaitUntil(sim, sim.now + u.channelClipDelay) end
 end
 
 function Dot:CalculateTickCount(baseDuration, tickPeriod) return RoundToEven(baseDuration / tickPeriod) end
@@ -68,7 +102,23 @@ end
 function Dot:PeriodicTick(sim)
   self.remainingTicks = self.remainingTicks - 1
   self:TickOnce(sim)
-  if self.aura.active then
+  if self.isChanneled then
+    local u = self.spell.unit
+    if self.remainingTicks == 0 and u.GCD.readyAt <= sim.now then
+      -- a WaitUntil even with no clip delay, so the rotation runs after the channel aura fades
+      u:WaitUntil(sim, sim.now + u.channelClipDelay)
+    else
+      local rot = u.rotation
+      local gcdLeft = u.GCD.readyAt - sim.now
+      -- a clip only because the GCD is inside the queue window is left to the rotation at the GCD
+      if rot and rot.ShouldInterruptChannel and rot:ShouldInterruptChannel(sim)
+        and (gcdLeft <= 0 or gcdLeft > S.QUEUE_WINDOW) then
+        self:Clip(sim)
+        return
+      end
+    end
+  end
+  if self.aura.active and (not self.isChanneled or self.remainingTicks > 0) then
     local pa = self.tickAction
     pa.at = sim.now + self.tickPeriod
     pa.consumed, pa.cancelled = nil, nil
@@ -122,6 +172,7 @@ local function NewDot(spell, cfg, aura)
     spell = spell, aura = aura,
     baseTickCount = cfg.numberOfTicks, baseTickLength = cfg.tickLength,
     remainingTicks = cfg.numberOfTicks, extraTicks = 0, baseDurationMultiplier = 1,
+    isChanneled = S.has(spell.flags or 0, S.F.Channeled),
     onSnapshot = cfg.onSnapshot, onTick = cfg.onTick,
     affectedByCastSpeed = cfg.affectedByCastSpeed, hasteReducesDuration = cfg.hasteReducesDuration,
     bonusCoefficient = cfg.bonusCoefficient or 0, periodicDamageMultiplier = cfg.periodicDamageMultiplier or 1,
@@ -135,18 +186,26 @@ local function NewDot(spell, cfg, aura)
     if og then og(a, sim) end
     dot.tickAction = { at = sim.now + dot.tickPeriod, prio = 0, fn = function(s) dot:PeriodicTick(s) end }
     sim:Add(dot.tickAction)
+    if dot.isChanneled then dot.spell.unit.channeledDot = dot end
   end
   aura.onExpire = function(a, sim)
     if oe then oe(a, sim) end
     local pa = dot.tickAction
     -- an expiry at the time of the last tick runs first: apply that tick here (also when that tick is the event
     -- being run: dot.go cancels it either way, so it doesn't tick again with the snapshot cleared)
-    if pa and not pa.cancelled and pa.at - sim.now < 1e-9 and sim.now - pa.at < 1e-9 then
+    if pa and not pa.cancelled and not dot.noFinalTick and pa.at - sim.now < 1e-9 and sim.now - pa.at < 1e-9 then
       dot.remainingTicks = dot.remainingTicks - 1
       dot:TickOnce(sim)
     end
     if pa and not pa.cancelled then sim:Cancel(pa) end
     dot.tickAction = nil
+    if dot.isChanneled then
+      local u = dot.spell.unit
+      u.channeledDot = nil
+      local rot = u.rotation
+      if rot then rot.interruptChannelIf, rot.allowChannelRecast = nil, false end
+      if u.GCD.readyAt <= sim.now then u:WaitUntil(sim, sim.now + u.channelClipDelay) end
+    end
     dot.snapshotAttackerMultiplier = 0
     dot.snapshotBaseDamage = 0
   end

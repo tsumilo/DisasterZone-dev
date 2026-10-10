@@ -21,7 +21,7 @@ function S.NewScenario(sc, db, apl)
 
   local p = S.BuildPlayer(sim, {
     race = sc.race, class = sc.class or "Paladin", gear = sc.gear, metaActive = sc.metaActive,
-    reactionTimeMs = sc.reactionTimeMs, distance = sc.distance, professions = sc.professions or { "Engineering", "Blacksmithing" },
+    reactionTimeMs = sc.reactionTimeMs, distance = sc.distance, channelClipDelayMs = sc.channelClipDelayMs, professions = sc.professions or { "Engineering", "Blacksmithing" },
   }, db)
   p.currentTarget = target
   p.consumables = cons

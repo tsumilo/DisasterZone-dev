@@ -238,6 +238,7 @@ function S.BuildPlayer(sim, loadout, db)
   p.postFinalize = {}
   p.reactionTime = max((loadout.reactionTimeMs or 0), 10) / 1000
   p.distance = loadout.distance or 5
+  p.channelClipDelay = max(0, loadout.channelClipDelayMs or 0) / 1000
   p.professions = loadout.professions or {}
   p.db = db
 

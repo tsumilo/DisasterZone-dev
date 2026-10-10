@@ -38,6 +38,7 @@ local function Truthy(v) return v and v ~= 0 end
 local function NEVER() return huge end
 local function ZERO() return 0 end
 local function Future(t, now) if t > now then return t end return huge end
+local CastNextChange -- below
 
 -- Node shapes:
 --   number:  { num = true, v = fn(sim), slope = fn(sim), disc = fn(sim) }  value changes linearly with time at
@@ -370,6 +371,27 @@ function Rot:Value(node, vars)
   elseif node.spellIsKnown then
     -- apl_values_spell.go: a constant, whether the character has the spell
     return ConstBool(self.resolveSpell(node.spellIsKnown.spellId) ~= nil)
+  elseif node.spellChanneledTicks then
+    -- apl_values_spell.go: ticks done by the channel in progress (whichever spell it is), 0 without one
+    if not self.resolveSpell(node.spellChanneledTicks.spellId) then return nil end
+    return Num(function() local d = u.channeledDot; return d and d:TickCount() or 0 end, nil,
+      function(sim) local d = u.channeledDot; local pa = d and d.tickAction; return pa and Future(pa.at, sim.now) or huge end)
+  elseif node.spellCanCast then
+    -- CanCastOrQueue on the current target
+    local sp = self.resolveSpell(node.spellCanCast.spellId)
+    if not sp then return nil end
+    local usesGcd = sp.gcd > 0 or S.has(sp.flags, S.F.MCD)
+    return Bool(function(sim) return sp:CanCastOrQueue(sim, u.currentTarget) end,
+      function(sim) return CastNextChange(sp, u, sim, usesGcd) end)
+  elseif node.dotTickFrequency then
+    -- the snapshotted tick period while it runs, else what it would be now (haste changes come with events)
+    local sp = self.resolveSpell(node.dotTickFrequency.spellId)
+    if not (sp and (sp.dots or sp.aoeDot)) then return nil end
+    return Num(function()
+      local d = sp.aoeDot or sp:Dot(u.currentTarget)
+      if d:IsActive() then return d.tickPeriod end
+      return d:CalcTickPeriod()
+    end)
   elseif node.dotRemainingTime then
     local sp = self.resolveSpell(node.dotRemainingTime.spellId)
     if not (sp and (sp.dots or sp.aoeDot)) then return nil end
@@ -483,7 +505,7 @@ function S.SpellNextReadyChange(sp, sim)
   return t
 end
 
-local function CastNextChange(sp, u, sim, usesGcd)
+function CastNextChange(sp, u, sim, usesGcd)
   local now = sim.now
   local t = S.SpellNextReadyChange(sp, sim)
   if usesGcd then
@@ -531,6 +553,7 @@ function Rot:Action(node, vars, knownSpell)
       exec = function(sim) sp:CastOrQueue(sim, u.currentTarget) end,
       next = function(sim) return CastNextChange(sp, u, sim, usesGcd) end,
       spell = sp,
+      kind = "cast",
     }
   elseif node.groupReference then
     local g = self.groups[node.groupReference.groupName]
@@ -563,10 +586,31 @@ function Rot:Action(node, vars, knownSpell)
         return t
       end,
     }
+  elseif node.channelSpell then
+    -- apl_actions_casting.go APLActionChannelSpell: casts like castSpell and hands its interruptIf to the channel
+    -- (without one it is a plain castSpell)
+    local c = node.channelSpell
+    local inner = self:Action({ castSpell = { spellId = c.spellId, target = c.target } }, vars)
+    if not inner then return nil end
+    local iv = c.interruptIf and self:Value(c.interruptIf, vars)
+    if not iv then
+      impl = inner
+    else
+      if not S.has(inner.spell.flags, S.F.Channeled) then return nil end
+      local rot, ivf = self, iv.v
+      local allow = c.allowRecast and true or false
+      local f = function(sim) return Truthy(ivf(sim)) end
+      impl = { kind = "channel", spell = inner.spell, ready = inner.ready, next = inner.next,
+        exec = function(sim)
+          inner.exec(sim)
+          rot.interruptChannelIf, rot.allowChannelRecast = f, allow
+        end }
+    end
   elseif node.autocastOtherCooldowns then
     local u = self.unit
     local nextMCD
     impl = {
+      kind = "autocast",
       ready = function(sim)
         nextMCD = u:FirstReadyMCD(sim)
         if not nextMCD then return false end
@@ -708,6 +752,7 @@ function Rot:Action(node, vars, knownSpell)
   if cond then
     local r, cv, cn, inext = impl.ready, cond.v, cond.next or NEVER, impl.next
     return {
+      kind = impl.kind, spell = impl.spell, cond = cv, impl = impl,
       ready = function(sim) return Truthy(cv(sim)) and r(sim) end,
       exec = impl.exec,
       next = function(sim)
@@ -758,8 +803,15 @@ function S.NewRotation(unit, apl, resolveSpell, resolveAura)
     if not item.hide then
       local a = rot:Action(item.action)
       if a then
-        local at = ParseConst(item.doAtValue.const.val)
-        rot.prepull[#rot.prepull + 1] = { at = at, action = a }
+        -- apl.go: doAtValue read once at build time (GetDuration(nil)); a positive time drops the action
+        local dv, at = item.doAtValue, nil
+        if dv.const then
+          at = ParseConst(dv.const.val)
+        else
+          local v = rot:Value(dv)
+          at = v and v.v({ now = 0 })
+        end
+        if type(at) == "number" and at <= 0 then rot.prepull[#rot.prepull + 1] = { at = at, action = a } end
       end
     end
   end
@@ -789,6 +841,7 @@ end
 
 function Rot:Reset(sim)
   self.inLoop = false
+  self.interruptChannelIf, self.allowChannelRecast = nil, false
   self.waitUntil = nil
   self.unit.skipWake = nil
   self.controlling = nil
@@ -944,9 +997,56 @@ end
 
 -- apl.go DoNextAction: run every ready action in priority order until none is ready, then wait for the GCD or
 -- the reaction time, whichever is later.
+-- apl.go nextActionWouldRecastChannel: would the channel's own spell be the first thing cast if it ended now?
+-- (CanCast, not CanCastOrQueue; read as if no channel ran)
+function Rot:NextActionWouldRecastChannel(sim, dot)
+  local u = self.unit
+  local ch = dot.spell
+  local chMask = ch.classMask or 0
+  u.channeledDot = nil
+  local list = self.list
+  for i = 1, #list do
+    local a = list[i]
+    if not (a.cond and not Truthy(a.cond(sim))) then
+      local k = a.kind
+      if k == "cast" or k == "channel" then
+        local sp = a.spell
+        local canCast = sp:CanCast(sim, u.currentTarget)
+        if sp == ch or (chMask ~= 0 and S.has(sp.classMask or 0, chMask)) then return canCast end
+        if canCast then return false end
+      elseif k ~= "autocast" then
+        if (a.impl or a).ready(sim) then return false end
+      end
+    end
+  end
+  return false
+end
+
+-- apl.go shouldInterruptChannel
+function Rot:ShouldInterruptChannel(sim)
+  local u = self.unit
+  local dot = u.channeledDot
+  if not dot or not dot:ChannelCanBeInterrupted(sim) then return false end
+  local would = self:NextActionWouldRecastChannel(sim, dot)
+  u.channeledDot = dot
+  if would then return self.allowChannelRecast and true or false end
+  return true
+end
+
 function Rot:DoNextAction(sim)
   if sim.now < 0 or self.inLoop then return end
   local u = self.unit
+  local cd = u.channeledDot
+  if cd then
+    -- while channeling the rotation only decides whether to clip (also when the GCD ends)
+    u.skipWake = nil
+    if cd.remainingTicks == 0 then
+      cd:Deactivate(sim)
+      return
+    end
+    if self:ShouldInterruptChannel(sim) then cd:Clip(sim) end
+    return
+  end
   if u.RotationTimer.readyAt > sim.now then return end
   u.skipWake = nil
   self.inLoop = true
@@ -974,7 +1074,7 @@ function Rot:DoNextAction(sim)
     local rt = u.reactionTime
     local target = max(sim.now + rt, u.GCD.readyAt)
     local bound = 0
-    if not S.NO_SKIP then
+    if not S.NO_SKIP and not u.channeledDot then
       if self.controlling then bound = self.controlling:NextChange(sim) else bound = self:NextChange(sim, target) end
     end
     if bound > target then

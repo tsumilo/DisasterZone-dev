@@ -224,6 +224,10 @@ def run(sc, iterations=None, log=False, start=1, gamedb=False):
     lsc["class"] = sp["class"]
     if "distanceFromTarget" in sc and "distance" not in sc:
         lsc["distance"] = sc["distanceFromTarget"]
+    if "professions" not in sc:
+        lsc["professions"] = [sc.get("profession1", "Engineering"), sc.get("profession2", "Blacksmithing")]
+    if "channelClipDelay" in sc and "channelClipDelayMs" not in sc:
+        lsc["channelClipDelayMs"] = sc["channelClipDelay"]
     if sp.get("luaOptions") and "classOptions" not in lsc:
         lsc["classOptions"] = sp["luaOptions"]
     if lsc.get("buffs", "wowsims_default") == "wowsims_default":

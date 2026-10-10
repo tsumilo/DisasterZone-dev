@@ -94,6 +94,7 @@ def build_request(sc, iterations=None, debug=False):
         "rotation": apl,
         "reactionTimeMs": sc.get("reactionTimeMs", 0),
         "distanceFromTarget": sc.get("distanceFromTarget", 5),
+        "channelClipDelayMs": sc.get("channelClipDelay", 0),
         "inFrontOfTarget": sc.get("inFrontOfTarget", False),
     }
     target = dict(DEFAULT_TARGET)

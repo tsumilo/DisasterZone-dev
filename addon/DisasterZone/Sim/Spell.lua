@@ -700,6 +700,7 @@ function Spell:DealDamageInternal(sim, r, isPeriodic)
   if not has(self.flags, F.NoOnDamageDealt) then
     if isPeriodic then
       self.unit:OnPeriodicDamageDealt(sim, self, r)
+      r.target:OnPeriodicDamageTaken(sim, self, r)
     else
       self.unit:OnSpellHitDealt(sim, self, r)
       r.target:OnSpellHitTaken(sim, self, r)
@@ -1029,6 +1030,17 @@ local MOD_KIND = {
                           if s.sharedCdDuration and s.sharedCdDuration ~= 0 then s.sharedCdDuration = s.sharedCdDuration - m.value end
                           if s.relatedSelfBuff then s.relatedSelfBuff.duration = s.relatedSelfBuff.duration - m.value end
                         end },
+  -- spell_mod.go applyDotNumberOfTicks (the config too: Dot.lua makes a target's DoT when first used)
+  DotNumberOfTicks_Flat = { function(m, s)
+                              if s.dotConfig then s.dotConfig.numberOfTicks = s.dotConfig.numberOfTicks + m.value end
+                              for _, d in pairs(s.dots or {}) do d.baseTickCount = d.baseTickCount + m.value end
+                              if s.aoeDot then s.aoeDot.baseTickCount = s.aoeDot.baseTickCount + m.value end
+                            end,
+                            function(m, s)
+                              if s.dotConfig then s.dotConfig.numberOfTicks = s.dotConfig.numberOfTicks - m.value end
+                              for _, d in pairs(s.dots or {}) do d.baseTickCount = d.baseTickCount - m.value end
+                              if s.aoeDot then s.aoeDot.baseTickCount = s.aoeDot.baseTickCount - m.value end
+                            end },
   DotDamageDone_Pct = { function(m, s) local d = s.dotConfig or (s.aoeDot and s.aoeDot) if s.dots then for _, dt in pairs(s.dots) do dt.periodicDamageMultiplier = dt.periodicDamageMultiplier * (1 + m.value) end end end,
                         function(m, s) if s.dots then for _, dt in pairs(s.dots) do dt.periodicDamageMultiplier = dt.periodicDamageMultiplier / (1 + m.value) end end end },
 }
@@ -1150,7 +1162,7 @@ end
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Proc triggers (aura_helpers.go AttachProcTriggerCallback / MakeProcTriggerAura)
--- cfg: name, callback ("hit" | "taken" | "periodic" | "cast" | "apply" | {list}), procMask, procMaskExclude,
+-- cfg: name, callback ("hit" | "taken" | "periodic" | "periodicTaken" | "cast" | "apply" | {list}), procMask, procMaskExclude,
 -- spellFlags, spellFlagsExclude, outcome, requireDamageDealt, procChance, dpm, icd, handler(sim, spell, result),
 -- triggerImmediately, classMask, classSpellsOnly, extraCondition, canProcFromProcs, isWeaponProc
 -- ---------------------------------------------------------------------------------------------------------------
@@ -1224,6 +1236,7 @@ function S.AttachProcTrigger(aura, unit, cfg)
     if c == "hit" then aura.onSpellHitDealt = callback
     elseif c == "taken" then aura.onSpellHitTaken = callback
     elseif c == "periodic" then aura.onPeriodicDamageDealt = callback
+    elseif c == "periodicTaken" then aura.onPeriodicDamageTaken = callback
     elseif c == "cast" then
       aura.onCastComplete = function(a, sim, spell)
         if not MatchesSpell(cfg, spell) then return end
