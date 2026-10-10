@@ -9,6 +9,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then re
 --   "horizontal" Strip: a tray of blessing tiles (the class on the corner, a hairline in the class colour that
 --                shrinks with the time left); the tile to do next lifts with its time on a gold chip. Aura on the
 --                left, Symbols on the right.
+-- No panel behind it (only a faint one while unlocked, to drag it by).
 -- Hover a class (or right-click it) for its players: click = the Greater on them, right-click = their single
 -- blessing, wheel = give them a single blessing instead. Click a class: the Greater on a member in range.
 -- Every cast is a secure button whose target is chosen out of combat (WoW forbids changing them in combat): in a
@@ -270,7 +271,6 @@ local function Build()
     frame.shadow:SetPoint("TOPLEFT", -14, 10)
     frame.shadow:SetPoint("BOTTOMRIGHT", 14, -18)
     frame:SetMovable(true)
-    frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self)
         if not B().Setting("locked", true) and not InCombatLockdown() then self:StartMoving() end
@@ -458,6 +458,19 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Layout (out of combat: it moves secure buttons)
 -- ---------------------------------------------------------------------------------------------------------------
+-- No panel: the circles, tiles and text float on the world. While unlocked a faint panel shows what to drag.
+local function ApplyChrome()
+    local unlocked = not B().Setting("locked", true)
+    frame.bg:SetShown(unlocked)
+    frame.shadow:SetShown(unlocked)
+    for _, e in ipairs(frame.edges or {}) do e:SetShown(unlocked) end
+    frame:EnableMouse(unlocked)
+    if not unlocked then
+        frame.div1:Hide()
+        frame.div2:Hide()
+    end
+end
+
 local function PlaceRail(list)
     local x = R_PAD
     frame.aura:ClearAllPoints()
@@ -627,6 +640,7 @@ function Bar:Update()
             rows[i].data = nil
         end
         if layout == "horizontal" then PlaceStrip(list) else PlaceRail(list) end
+        ApplyChrome()
         frame:Show()
         dirty = false
     end
