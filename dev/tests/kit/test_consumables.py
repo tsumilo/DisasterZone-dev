@@ -48,7 +48,7 @@ def snap(c):
 
 
 def open_kit(w, c):
-    c.eval("ns.MyBiS:GetPanel().kitBtn:Click()")
+    c.eval("ns.MainFrame:Open('consumables')")
     settle(w, 0.3)
 
 
@@ -68,29 +68,53 @@ def row(s, title):
     raise AssertionError("no row %r in %r" % (title, [x["title"] for x in s["rows"]]))
 
 
+def bar(c):
+    return c.eval_py("local p = ns.MyBiS:GetPanel() local ph = 0 for _, b in ipairs(p.phaseButtons or {}) do "
+                     "if b:IsShown() then ph = ph + 1 end end return { view = ns.MyBiS:GetView(), "
+                     "page = ns.MainFrame:GetSelectedTab(), title = p.pageTitle:IsShown() and "
+                     "p.pageTitle.text:GetText() or false, more = p.moreBtn:IsShown(), phases = ph }")
+
+
 @r.case
-def button_shows_kit_and_takes_turns_with_sim():
+def gear_pages_share_one_panel_each_with_its_own_bar():
     w, c = solo()
+    # My BiS: the phases, More, no title
+    b = bar(c)
+    assert b == {"view": "list", "page": "mybis", "title": False, "more": True, "phases": b["phases"]}, b
+    assert b["phases"] >= 5, b
+    # Consumables: its own page, the kit, its title instead of the phases, no More
     open_kit(w, c)
     assert c.eval("return ns.KitView:IsActive()") is True
-    s = snap(c)
-    assert s["shown"] is True, s
-    assert c.eval("return ns.MyBiS:GetPanel().kitBtn:IsShown()") is True
-    # Sim mode turns the kit off, the kit turns Sim off
-    c.eval("ns.MyBiS:GetPanel().simBtn:Click()")
+    assert snap(c)["shown"] is True
+    assert bar(c) == {"view": "kit", "page": "consumables", "title": "Consumables", "more": False, "phases": 0}
+    # Gear sim: the kit goes, Sim mode comes, More (the Working set) is back
+    c.eval("ns.MainFrame:Open('gearsim')")
     settle(w, 0.3)
     assert c.eval("return ns.SimPanel:IsActive()") is True
     assert c.eval("return ns.KitView:IsActive()") is False
     assert snap(c)["shown"] is False
-    open_kit(w, c)
-    assert c.eval("return ns.SimPanel:IsActive()") is False
-    assert c.eval("return ns.KitView:IsActive()") is True
-    assert snap(c)["shown"] is True
-    # a phase click is a gear view
-    c.eval("ns.MyBiS:SetPhase(2, true)")
+    assert bar(c) == {"view": "sim", "page": "gearsim", "title": "Gear sim", "more": True, "phases": 0}
+    # the old switches open the pages: KitView:SetActive(true) -> Consumables, SimPanel:SetActive(false) -> My BiS
+    c.eval("ns.KitView:SetActive(true)")
     settle(w, 0.3)
-    assert c.eval("return ns.KitView:IsActive()") is False
-    assert snap(c)["shown"] is False
+    assert bar(c)["page"] == "consumables"
+    assert c.eval("return ns.SimPanel:IsActive()") is False
+    c.eval("ns.SimPanel:SetActive(true)  ns.SimPanel:SetActive(false)")
+    settle(w, 0.3)
+    assert bar(c)["page"] == "mybis" and bar(c)["view"] == "list", bar(c)
+    assert c.eval("return ns.SimPanel:IsActive() or ns.KitView:IsActive()") is False
+    # one panel for the three pages, shown (the background build of the others doesn't hide it)
+    assert c.eval("return ns.MainFrame:GetPanel('gearsim') == ns.MainFrame:GetPanel('mybis') and "
+                  "ns.MainFrame:GetPanel('consumables') == ns.MainFrame:GetPanel('mybis')") is True
+    settle(w, 3)
+    assert c.eval("return ns.MyBiS:GetPanel():IsShown()") is True
+    # another page and back: the mode follows the page
+    c.eval("ns.MainFrame:Open('atlas')")
+    settle(w, 0.3)
+    assert c.eval("return ns.MyBiS:GetPanel():IsShown()") is False
+    c.eval("ns.MainFrame:Open('consumables')")
+    settle(w, 0.3)
+    assert bar(c)["view"] == "kit" and c.eval("return ns.MyBiS:GetPanel():IsShown()") is True
     assert_no_lua_errors(w)
 
 

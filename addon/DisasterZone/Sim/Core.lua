@@ -12,7 +12,9 @@ local floor, huge, max, min = math.floor, math.huge, math.max, math.min
 
 S.NEVER = huge
 S.SPELL_BATCH = 0.010 -- SpellBatchWindow
-S.QUEUE_WINDOW = 0.400 -- MaxSpellQueueWindow
+-- MaxSpellQueueWindow, plus 1 ns: Go's clock is whole nanoseconds, so a spell exactly 400 ms from ready is inside
+-- the window there; here float error can put it a hair outside
+S.QUEUE_WINDOW = 0.400 + 1e-9
 S.GCD_DEFAULT = 1.5
 S.GCD_MIN = 1.0
 
@@ -236,7 +238,7 @@ function Sim:Advance(t)
     self:NextExecutePhase()
     for _, cb in ipairs(self.executeCallbacks) do cb(self, self.executePhase) end
   end
-  if t >= self.minTrackerTime then
+  if t + S.TIME_EPS >= self.minTrackerTime then
     local m = huge
     local trackers = self.trackers
     for i = 1, #trackers do

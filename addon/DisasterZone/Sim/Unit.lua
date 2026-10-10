@@ -590,9 +590,13 @@ function Aura:RemainingDuration(sim)
   return self.expires - sim.now
 end
 
--- aura.go auraTracker.advance: expire everything due, then report the next expiry.
+-- aura.go auraTracker.advance: expire everything due, then report the next expiry. Go's clock is whole
+-- nanoseconds, so an expiry and an event computed to the same time are the same time there; here float error can
+-- put the expiry a hair after the event: anything due within 1 ns counts as due.
+local TIME_EPS = 1e-9
+S.TIME_EPS = TIME_EPS
 function Unit:AdvanceAuras(sim)
-  if sim.now < self.minExpires then return self.minExpires end
+  if sim.now + TIME_EPS < self.minExpires then return self.minExpires end
   local restart = true
   while restart do
     restart = false
@@ -600,7 +604,7 @@ function Unit:AdvanceAuras(sim)
     local list = self.activeAuras
     for i = 1, #list do
       local a = list[i]
-      if a.expires <= sim.now then
+      if a.expires <= sim.now + TIME_EPS then
         a:Deactivate(sim)
         restart = true -- activeAuras changed
         break

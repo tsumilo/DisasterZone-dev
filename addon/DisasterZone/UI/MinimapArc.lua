@@ -26,6 +26,7 @@ local BODY = { 0.10, 0.12, 0.16 }
 local PAGE_ICON = {
     home = 30, raids = { 45, 26 }, council = 26, mybis = { 51, 15 }, atlas = 31, members = { 46, 19 },
     events = { 50, 37 }, games = 21, dungeons = 36, changelog = 25, settings = 13, polls = { 55, 25, 6 },
+    gearsim = { 58, 25, 6 }, consumables = { 57, 40, 6 },
 }
 
 local holder, halo, track, label, plus

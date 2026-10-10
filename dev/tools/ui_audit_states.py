@@ -161,6 +161,7 @@ def close_all(cl):
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
+      if ns.NavMenu and ns.NavMenu.Close then pcall(ns.NavMenu.Close, ns.NavMenu) end
       if ns.EventBuilder and ns.EventBuilder.StopPractice then pcall(ns.EventBuilder.StopPractice, ns.EventBuilder) end
       if ns.EventLive and ns.EventLive.StopPractice then pcall(ns.EventLive.StopPractice, ns.EventLive) end
       if ns.EventTracker and ns.EventTracker.Hide then pcall(ns.EventTracker.Hide, ns.EventTracker) end
@@ -969,6 +970,8 @@ STATES = [
                                              "do if t.cdlKey == 'grp:guild' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:guild') end end")),
     ("Nav - Gear menu", opened("mybis", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
                                          "do if t.cdlKey == 'grp:gear' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:gear') end end")),
+    ("Nav - Gear menu, Gear sim", opened("gearsim", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
+                                         "do if t.cdlKey == 'grp:gear' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:gear') end end; ns.NavMenu:Focus('consumables')")),
     ("Nav - Raids menu", opened("home", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
                                            "do if t.cdlKey == 'grp:raids' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:raids') end end")),
     ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
@@ -1408,6 +1411,11 @@ STATES = [
     ("Meters - healer breakdown", opened("home", "ns.MainFrame:Close(); " + MET +
         "local g; for k, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Thunderhoofx' then g = k end end; "
         "ns.MeterDetail:Open('cur', g, 'healing')")),
+    ("Meters - bar tooltip", opened("home", "ns.MainFrame:Close(); " + MET +
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 960, 560; ns.MeterPanels:Rebuild(); ns.MeterPanels:Draw(); local pf = ns.MeterPanels._Panel('damage'); local g = ns.MeterDemo.ME; ns.MeterPanels.ShowRowTip(pf.rowsByKey[g])")),
+    ("Meters - bar tooltip, died", opened("home", "ns.MainFrame:Close(); " + MET +
+        "local yb; for k, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Yubell' then yb = k end end; "
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 960, 560; ns.MeterPanels:Rebuild(); ns.MeterPanels:Draw(); local pf = ns.MeterPanels._Panel('damage'); local g = yb; ns.MeterPanels.ShowRowTip(pf.rowsByKey[g])")),
     ("Meters - death recap", opened("home", "ns.MainFrame:Close(); " + MET +
         "ns.MeterDetail:OpenDeath('cur', ns.Meter:GetSegment('cur').deaths[1])")),
     ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),

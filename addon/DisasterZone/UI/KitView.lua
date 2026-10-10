@@ -65,20 +65,21 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 function KitView:IsActive() return state.active end
 
--- quiet = no refresh (Sim mode turning it off on its way in)
-function KitView:SetActive(on, quiet)
+-- The view on / off, nothing else: the Consumables page sets it (UI/MyBiS.lua's ApplyView, which refreshes).
+function KitView:SetMode(on)
   on = on and true or false
-  if on == state.active then
-    if not quiet and ns.MyBiS then ns.MyBiS:Refresh() end
-    return
-  end
+  if on == state.active then return end
   state.active = on
-  if on and ns.SimPanel and ns.SimPanel:IsActive() then
-    ns.SimPanel:SetActive(false)   -- (refreshes My BiS, with this view already on)
+  if not on and K() and K():IsRunning() then K():Cancel() end
+end
+
+-- Opens the Consumables page (on) or goes back to My BiS (off).
+function KitView:SetActive(on)
+  if ns.MyBiS and ns.MyBiS.OpenView then
+    ns.MyBiS:OpenView(on and "kit" or "list")
     return
   end
-  if not on and K() and K():IsRunning() then K():Cancel() end
-  if not quiet and ns.MyBiS then ns.MyBiS:Refresh() end
+  self:SetMode(on)
 end
 
 function KitView:Toggle() self:SetActive(not state.active) end

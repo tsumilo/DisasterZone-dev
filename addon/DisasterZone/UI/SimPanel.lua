@@ -118,18 +118,29 @@ end
 -- Mode
 -- ---------------------------------------------------------------------------------------------------------------
 function SimPanel:IsActive() return state.active end
+-- The last run's results ({ work, ref, diff, se, target }), nil before one.
+function SimPanel:GetResults() return state.results end
 
-function SimPanel:SetActive(on)
-  state.active = on and true or false
-  -- Sim mode and the consumables view take turns
-  if on and ns.KitView then ns.KitView:SetActive(false, true) end
+-- Sim mode on / off, nothing else: the Gear sim page sets it (UI/MyBiS.lua's ApplyView, which refreshes).
+function SimPanel:SetMode(on)
+  on = on and true or false
+  if on == state.active then return end
+  state.active = on
   if not on then
     if R() then R():Cancel() end
     state.running = false
     SimPanel:ClosePicker()
     if ns.SimBuffsUI then ns.SimBuffsUI:Close() end
   end
-  if ns.MyBiS then ns.MyBiS:Refresh() end
+end
+
+-- Opens the Gear sim page (on) or goes back to My BiS (off).
+function SimPanel:SetActive(on)
+  if ns.MyBiS and ns.MyBiS.OpenView then
+    ns.MyBiS:OpenView(on and "sim" or "list")
+    return
+  end
+  self:SetMode(on)
 end
 
 -- The card's buffs setting: "raid25" | "raid10" | "solo" | "p:<id>" (my preset) | "t:<team>:<lineup>" (ns.SimBuffs).

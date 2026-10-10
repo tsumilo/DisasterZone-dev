@@ -6,6 +6,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyBiS.lua", ...) then return en
 -- reputation / badge / PvP items count under their own source (§37), and while the group's raid leader locks the BiS
 -- lists the top bar says so and only what still works is offered (§38).
 -- ADDENDUM H: the spec tabs switch the whole tab (doll, spec, tools, centre) between the two lists.
+-- One panel, three pages of the Gear menu: My BiS (the lists), Gear sim (UI/SimPanel.lua) and Consumables
+-- (UI/KitView.lua). The page shown sets the mode (MyBiS:ApplyView); each page's top bar has only its own controls:
+-- My BiS the phases, the spec tabs, Suggest and More; Gear sim its title, the spec tabs and More (the Working set);
+-- Consumables its title and the spec tabs.
 -- Gems and enchants: every pick's strip on its tile (UI/PaperDoll.lua) opens the editor (UI/GemEditor.lua); the
 -- centre says how many gems and enchants the phase has under the obtained count; Suggest also fills them.
 -- The first phase tab is the Pre-raid list (phase 0: dungeons, reputation, crafting, badges; only its owner sees it).
@@ -71,7 +75,11 @@ local KIND_GROUP = {
 
 local panel, bar, doll, card
 local phaseButtons = {}
-local suggestBtn, moreBtn, lockChip, simBtn, simCard, kitBtn, kitView
+local suggestBtn, moreBtn, lockChip, simCard, kitView, pageTitle
+-- the pages on this panel: page key <-> view
+local VIEW_OF = { mybis = "list", gearsim = "sim", consumables = "kit" }
+local PAGE_OF = { list = "mybis", sim = "gearsim", kit = "consumables" }
+local currentView = "list"
 local selectedPhase, userPickedPhase
 local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
@@ -747,8 +755,6 @@ end
 
 function MyBiS:SetPhase(p, byUser)
     p = ClampPhase(p)
-    -- a phase is a gear view: a click on one leaves Consumables
-    if byUser and ns.KitView and ns.KitView:IsActive() then ns.KitView:SetActive(false, true) end
     if byUser then
         userPickedPhase = true
         RememberPhase(p)
@@ -1150,10 +1156,11 @@ local function BuildMoreMenu(root)
         if ns.ImportExport then ns.ImportExport:Open(tab) end
     end
     -- Sim mode: start the Working set over (from the gear you wear or the shown BiS phase)
+    -- (the Gear sim page: only the Working set's entries; the lists' own are My BiS's)
     if ns.SimPanel and ns.SimPanel:IsActive() then
         root:CreateTitle("Working set")
         ns.SimPanel:BuildMoreEntries(root, entry, GOLD)
-        if root.CreateDivider then root:CreateDivider() end
+        return
     end
     if locked then
         root:CreateTitle(LockLine())
@@ -1653,7 +1660,7 @@ local function UpdatePhaseButtons()
         b:SetWidth(floor((tonumber(fs:GetStringWidth()) or 14) + 16 + (marked and 13 or 0) + 0.5))
         fs:ClearAllPoints()
         fs:SetPoint("CENTER", marked and -6 or 0, 1)
-        b:SetActive(b.phase == phase and not (ns.KitView and ns.KitView:IsActive()))
+        b:SetActive(b.phase == phase)
     end
 end
 
@@ -1713,7 +1720,7 @@ local function CreateTopBar(p)
         phaseButtons[i] = b
     end
 
-    -- Addendum H: the spec tabs (which list the tab shows, both specs, a menu to change them)
+    -- Addendum H: the spec tabs (which list the tab shows, both specs, a menu to change them); LayoutBar moves them
     CreateSpecRow(bar):SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 22, 0)
 
     moreBtn = UI:CreateTipIconButton(bar, BAR_H, UI.ICON.more, "More", "Import a BiS list from another site, export "
@@ -1722,6 +1729,7 @@ local function CreateTopBar(p)
     end)
     moreBtn:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
     p.moreBtn = moreBtn
+    p.phaseButtons = phaseButtons
 
     suggestBtn = UI:CreateSleekMenuButton(bar, "Suggest", SUGGEST_W, BuildSuggestMenu, BAR_H)
     suggestBtn:GetFontString():SetFontObject("GameFontHighlight")
@@ -1739,43 +1747,73 @@ local function CreateTopBar(p)
     lockChip = CreateLockChip(bar)
     lockChip:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
 
-    -- the gear sim (UI/SimPanel.lua): Sim mode on / off
-    simBtn = UI:CreateSleekButton(bar, "Sim", 56, BAR_H, function()
-        if ns.SimPanel then ns.SimPanel:Toggle() end
-    end)
-    simBtn:SetPoint("RIGHT", suggestBtn, "LEFT", -6, 0)
-    simBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("Gear sim", 1, 0.82, 0)
-        GameTooltip:AddLine("Compare gear by simulating fights: change slots in a Working set and run it against "
-            .. "the gear you wear or a BiS phase.", 1, 1, 1, true)
-        local R = ns.SimRunner
-        if R and not R:IsSupported() then
-            local spec = R:Spec()
-            GameTooltip:AddLine(("It covers " .. R.COVERED .. " for now%s."):format(
-                spec ~= "" and (", not " .. spec .. (IsOffSpecView() and " (this off-spec list)" or "")) or ""),
-                1, 0.55, 0.2, true)
-        end
-        GameTooltip:Show()
-    end)
-    simBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    p.simBtn = simBtn
+    -- the Gear sim / Consumables pages' title in the phases' place (the nav strip says only "Gear")
+    pageTitle = CreateFrame("Frame", nil, bar)
+    pageTitle:SetSize(120, BAR_H)
+    pageTitle:SetPoint("LEFT", bar, "LEFT", 0, 0)
+    pageTitle.icon = pageTitle:CreateTexture(nil, "ARTWORK")
+    pageTitle.icon:SetSize(16, 16)
+    pageTitle.icon:SetPoint("LEFT", 2, 0)
+    pageTitle.icon:SetTexture(UI.ICON_ATLAS)
+    pageTitle.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+    pageTitle.text = Text(pageTitle, "GameFontHighlight")
+    pageTitle.text:SetPoint("LEFT", pageTitle.icon, "RIGHT", 7, 0)
+    pageTitle:Hide()
+    p.pageTitle = pageTitle
+end
 
-    -- the consumables view (UI/KitView.lua): the spec's kit, best and budget
-    kitBtn = UI:CreateSleekButton(bar, "Consumables", 96, BAR_H, function()
-        if ns.KitView then ns.KitView:Toggle() end
-    end)
-    kitBtn:SetPoint("RIGHT", simBtn, "LEFT", -6, 0)
-    kitBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("Consumables", 1, 0.82, 0)
-        GameTooltip:AddLine("The flask, food, weapon oil or stone, potion and more for this spec: the best for prog "
-            .. "nights and a cheaper pick for farm nights, what your bags hold and who in the guild makes it.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    kitBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    p.kitBtn = kitBtn
+-- The top bar for a view: the phases (My BiS) or the page's title (Gear sim, Consumables) on the left, then the spec
+-- tabs; More on the right except on Consumables (Suggest / the lock chip are My BiS's, Refresh shows them).
+local TITLES = {
+    sim = { text = "Gear sim", icon = "chart", standIn = "notes" },
+    kit = { text = "Consumables", icon = "flask", standIn = "bag" },
+}
+local function LayoutBar(view)
+    local UI = ns.UI
+    local t = TITLES[view]
+    for _, b in ipairs(phaseButtons) do b:SetShown(not t) end
+    specRow:ClearAllPoints()
+    if t then
+        local icon = ns:HasAssets(6) and UI.ICON[t.icon] or UI.ICON[t.standIn]
+        local c = UI:IconCoords(icon)
+        pageTitle.icon:SetTexCoord(c[1], c[2], c[3], c[4])
+        pageTitle.text:SetText(t.text)
+        pageTitle:SetWidth(floor(2 + 16 + 7 + (tonumber(pageTitle.text:GetStringWidth()) or 70) + 0.5))
+        pageTitle:Show()
+        specRow:SetPoint("LEFT", pageTitle, "RIGHT", 22, 0)
+    else
+        pageTitle:Hide()
+        specRow:SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 22, 0)
+    end
+    moreBtn:SetShown(view ~= "kit")
+    if view == "sim" then
+        moreBtn.tipText = "Start the Working set over from the gear you wear or a BiS phase, or export a set to WoWSims."
+    else
+        moreBtn.tipText = "Import a BiS list from another site, export yours to WoWSims or Wowhead, copy another "
+            .. "phase or list, or clear this phase's picks."
+    end
+end
+
+-- The view shown: "list" (My BiS), "sim" (Gear sim) or "kit" (Consumables).
+function MyBiS:GetView() return currentView end
+
+-- Puts the panel in a view (the page MainFrame shows: panel.OnPanelShown). Sim and the kit turn on only through here.
+function MyBiS:ApplyView(view)
+    view = PAGE_OF[view] and view or "list"
+    local changed = view ~= currentView
+    currentView = view
+    if ns.SimPanel and ns.SimPanel.SetMode then ns.SimPanel:SetMode(view == "sim") end
+    if ns.KitView and ns.KitView.SetMode then ns.KitView:SetMode(view == "kit") end
+    if changed or not panel or panel.dirty then self:Refresh() end
+end
+
+-- Opens a view's page in the main window (SimPanel / KitView:SetActive come here).
+function MyBiS:OpenView(view)
+    local key = PAGE_OF[view] or "mybis"
+    local MF = ns.MainFrame
+    if MF and MF.Open and MF:GetSelectedTab() ~= key then MF:Open(key) end
+    -- (shown by MainFrame: OnPanelShown applied it already; without the window, here)
+    if currentView ~= VIEW_OF[key] then self:ApplyView(VIEW_OF[key]) end
 end
 
 ---------------------------------------------------------------------------
@@ -1814,8 +1852,13 @@ function MyBiS:CreatePanel(parent)
     panel:SetScript("OnHide", function()
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
     end)
-    panel.OnPanelShown = function(self)
-        if self.dirty then MyBiS:Refresh() end
+    -- (MainFrame passes the page: My BiS, Gear sim and Consumables share this panel)
+    panel.OnPanelShown = function(self, key)
+        if key and VIEW_OF[key] then
+            MyBiS:ApplyView(VIEW_OF[key])
+        elseif self.dirty then
+            MyBiS:Refresh()
+        end
     end
 
     panel.dirty = true
@@ -1836,20 +1879,13 @@ function MyBiS:Refresh()
     UpdatePhaseButtons()
     RefreshSpecTabs()   -- Addendum H: the spec tabs show the shown list and both specs
 
-    -- Sim mode (UI/SimPanel.lua): the slots show the Working set, the centre the sim
+    -- Gear sim (UI/SimPanel.lua): the slots show the Working set, the centre the sim (for a spec it doesn't cover
+    -- the card says so)
     local Sim = ns.SimPanel
     local simOn = Sim and Sim:IsActive() and true or false
-    -- only for the specs the sim covers: another spec's list (the off-spec tab too) turns Sim mode off
-    local simOK = ns.SimRunner and ns.SimRunner:IsSupported() and true or false
-    if simOn and not simOK then
-        Sim:SetActive(false)   -- refreshes again
-        return
-    end
-    if simBtn then simBtn:SetEnabled(simOK) end
-    if simBtn and simBtn.SetKind then simBtn:SetKind(simOn and "chosen" or "secondary") end
-    -- Consumables (UI/KitView.lua): the kit takes the page's body; Suggest (a gear action) steps aside
+    -- Consumables (UI/KitView.lua): the kit takes the page's body
     local kitOn = ns.KitView and ns.KitView:IsActive() and not simOn or false
-    if kitBtn and kitBtn.SetKind then kitBtn:SetKind(kitOn and "chosen" or "secondary") end
+    LayoutBar(simOn and "sim" or (kitOn and "kit" or "list"))
     if kitView then
         doll:SetShown(not kitOn)
         ns.KitView:Show(kitOn)
@@ -1860,8 +1896,6 @@ function MyBiS:Refresh()
         if Sim then Sim:ShowCard(false) end
         suggestBtn:Hide()
         lockChip:Hide()
-        simBtn:ClearAllPoints()
-        simBtn:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
         return
     end
     -- §38: while the lists are locked the chip says so in Suggest's place, and the menus offer what still works.
@@ -1875,12 +1909,10 @@ function MyBiS:Refresh()
     end
     if locked then lockChip:SetLock(info) end
     lockChip:SetShown(locked and true or false)
-    -- Sim sits left of whatever holds Suggest's place (the lock chip while locked)
-    if simBtn then
-        simBtn:ClearAllPoints()
-        simBtn:SetPoint("RIGHT", locked and lockChip or suggestBtn, "LEFT", -6, 0)
-    end
     if simOn then
+        -- (Suggest and the lock chip are the lists' own)
+        suggestBtn:Hide()
+        lockChip:Hide()
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not Sim:IsPickerOpen() then ns.Picker:Close() end
         if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
         if doll.SetLocked then doll:SetLocked(false) end
@@ -2007,6 +2039,9 @@ end
 
 if ns.MainFrame and ns.MainFrame.RegisterTab then
     ns.MainFrame:RegisterTab("mybis", "My BiS", 1, function(parent) return MyBiS:CreatePanel(parent) end)
+    -- the same panel in the Gear sim and Consumables views (their own pages in the Gear menu)
+    ns.MainFrame:RegisterTab("gearsim", "Gear sim", 1.1, function(parent) return MyBiS:CreatePanel(parent) end)
+    ns.MainFrame:RegisterTab("consumables", "Consumables", 1.2, function(parent) return MyBiS:CreatePanel(parent) end)
 end
 
 ns:On("MYLIST_CHANGED", RequestRefresh)

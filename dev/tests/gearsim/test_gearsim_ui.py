@@ -248,22 +248,24 @@ def best_for_slot_during_a_run_stops_it_cleanly():
 
 
 @r.case
-def sim_button_only_for_specs_the_sim_covers():
+def gear_sim_page_says_when_the_spec_isnt_covered():
     w, c = solo()
-    btn = "ns.MainFrame:GetPanel('mybis').simBtn"
-    assert c.eval("return " + btn + ":IsEnabled()") is True
-    # Holy off-spec list: the button greys out
+    c.eval("ns.MainFrame:Open('gearsim')")
+    settle(w, 0.3)
+    assert c.eval("return ns.SimPanel:IsActive()") is True
+    run = "return ns.SimPanel._card().run:IsEnabled()"
+    assert c.eval(run) is True
+    # the Holy off-spec list: the page stays, its card says what the sim covers and Run sim greys out
     assert c.eval("return ns.BiS:SetSpec('Holy', 'os')") is True
     c.eval("ns.MyBiS:SetList('os')  ns.MyBiS:Refresh()")
     assert c.eval("return ns.SimRunner:Spec()") == "Holy"
-    assert c.eval("return " + btn + ":IsEnabled()") is False
-    # back on the Ret list it works; switching to the Holy list while in Sim mode leaves Sim mode
-    c.eval("ns.MyBiS:SetList('ms')  ns.MyBiS:Refresh()")
-    assert c.eval("return " + btn + ":IsEnabled()") is True
-    c.eval("ns.SimPanel:Toggle()")
     assert c.eval("return ns.SimPanel:IsActive()") is True
-    c.eval("ns.MyBiS:SetList('os')  ns.MyBiS:Refresh()")
-    assert c.eval("return ns.SimPanel:IsActive()") is False
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "gearsim"
+    assert c.eval(run) is False
+    assert "covers" in c.eval("return ns.SimPanel._card().note:GetText()")
+    # back on the Ret list it runs again
+    c.eval("ns.MyBiS:SetList('ms')  ns.MyBiS:Refresh()")
+    assert c.eval(run) is True
     assert_no_lua_errors(w)
 
 
@@ -344,7 +346,6 @@ def fury_and_arms_warriors_sim():
     for spec, gear in (("Fury", FURY_P1), ("Arms", FURY_P1[:14] + [ARMS_P1_MH, 0, 28772])):
         w, c = warrior(spec, gear)
         assert c.eval("return ns.SimRunner:IsSupported()") is True, spec
-        assert c.eval("return ns.MainFrame:GetPanel('mybis').simBtn:IsEnabled()") is True, spec
         c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
         c.eval("ns.SimPanel:Run()")
         run_until_done(w, c)
@@ -383,7 +384,6 @@ def combat_rogue_sims():
     c.eval('ns.MainFrame:Open("mybis")')
     settle(w, 1)
     assert c.eval("return ns.SimRunner:IsSupported()") is True
-    assert c.eval("return ns.MainFrame:GetPanel('mybis').simBtn:IsEnabled()") is True
     c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
     c.eval("ns.SimPanel:Run()")
     run_until_done(w, c)
@@ -489,7 +489,6 @@ def enhancement_shaman_sims():
     c.eval('ns.MainFrame:Open("mybis")')
     settle(w, 1)
     assert c.eval("return ns.SimRunner:IsSupported()") is True
-    assert c.eval("return ns.MainFrame:GetPanel('mybis').simBtn:IsEnabled()") is True
     c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
     c.eval("ns.SimPanel:Run()")
     run_until_done(w, c)

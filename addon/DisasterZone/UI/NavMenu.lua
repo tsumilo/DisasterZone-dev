@@ -55,6 +55,8 @@ local INFO = {
     council = { art = 131849, cx = 0.22, icon = "crown", accent = { 0.77, 0.55, 1 } },
     mylog   = { art = 131842, cx = 0.42, icon = "practice", accent = { 0.37, 0.82, 1 } },
     mybis   = { art = 131846, cx = 0.50, icon = "bag", accent = { 1, 0.82, 0 } },
+    gearsim = { art = 131873, cx = 0.55, icon = "chart", accent = { 1, 0.55, 0.25 } },
+    consumables = { art = 131847, cx = 0.45, icon = "flask", accent = { 0.53, 0.85, 0.42 } },
     atlas   = { art = LS .. "Outland", cx = 0.50, icon = "eye", accent = { 0.53, 0.85, 0.42 } },
     members = { art = LS .. "EasternKingdom", cx = 0.50, icon = "team", accent = { 1, 0.82, 0 } },
     map     = { art = LS .. "Kalimdor", cx = 0.55, icon = "flag", accent = { 0.37, 0.82, 1 } },
@@ -67,7 +69,10 @@ NavMenu.INFO = INFO
 
 local function IconIndex(name)
     local I = UI.ICON
-    if name == "poll" and not (ns.HasAssets and ns:HasAssets(6)) then name = "notes" end
+    -- (art pack 6 icons: their stand-ins before it)
+    if not (ns.HasAssets and ns:HasAssets(6)) then
+        name = ({ poll = "notes", chart = "notes", flask = "bag" })[name] or name
+    end
     return I[name] or I.notes
 end
 
@@ -213,6 +218,24 @@ FACTS.mybis = function()
     if not pr or (tonumber(pr.total) or 0) <= 0 then return end
     local ph = B.GetPhase and B:GetPhase()
     return { { (pr.obtained or 0) .. "/" .. pr.total, ph == 0 and "obtained, pre-raid" or ("obtained, phase " .. tostring(ph or 1)) } }
+end
+
+FACTS.gearsim = function()
+    local S = ns.SimPanel
+    local res = S and S.GetResults and S:GetResults()
+    if not (res and res.ref and (tonumber(res.ref.dps) or 0) > 0) then return end
+    local d = floor((tonumber(res.diff) or 0) + 0.5)
+    return { { (d >= 0 and "+" or "^f") .. math.abs(d) .. " DPS", "Working set vs " .. S:TargetText(res.target) } }
+end
+
+FACTS.consumables = function()
+    local K = ns.Kit
+    local rows = K and K.Get and K:Get()
+    if not rows then return end
+    local s = K:Summary(rows, "best")
+    if (s.slots or 0) <= 0 then return end
+    if s.ready >= s.slots then return { { "Ready", "for tonight" } } end
+    return { { s.ready .. "/" .. s.slots, "in your bags" } }
 end
 
 FACTS.atlas = function()

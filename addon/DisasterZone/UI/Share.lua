@@ -46,6 +46,8 @@ local ICON = {
 local PAGES = {
     home       = { label = "Home", tab = "home", desc = "Your raids, BiS progress and what's new." },
     mybis      = { label = "My BiS", tab = "mybis", desc = "Your best in slot lists." },
+    gearsim    = { label = "Gear sim", tab = "gearsim", desc = "Simulated fights to compare gear before you have it." },
+    consumables = { label = "Consumables", tab = "consumables", desc = "The flask, food and potions for each spec." },
     council    = { label = "Council", tab = "council", desc = "The loot council's view.",
                    closed = "The Council tab is for the loot council." },
     loot       = { label = "Council: Loot Log", tab = "council", councilView = "log", desc = "Every item handed out.",

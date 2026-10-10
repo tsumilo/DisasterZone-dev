@@ -24,7 +24,7 @@ ns.CHANGELOG = {
               "Nothing is shared or posted: each player counts their own combat log.",
           } },
           { heading = "Gear sim", lines = {
-              "New Sim button in My BiS: sim your gear and see what a change is worth, in real DPS.",
+              "New Gear sim page (Gear menu): sim your gear and see what a change is worth, in real DPS.",
               "It plays the fight out a thousand times with WoWSims' rotation, buffs and numbers.",
               "The doll becomes your Working set: it starts as the gear you wear.",
               "Click a slot for the item picker (your gear and bags first); picks go to the Working set.",
@@ -49,7 +49,7 @@ ns.CHANGELOG = {
               "The comp's open slots count as filled unless you untick it; your clicks stay on top.",
           } },
           { heading = "Consumables", lines = {
-              "New Consumables button in My BiS: the flask, food, weapon stone or oil, potion and more for your spec.",
+              "New Consumables page (Gear menu): the flask, food, stone or oil and potions for your spec.",
               "Best picks for prog nights on the left, a cheaper pick for farm nights on the right.",
               "The middle says what each one is for, like one flask or two elixirs, never both.",
               "Each pick shows what it does, and a check when your bags hold enough for a night.",
@@ -145,6 +145,7 @@ ns.CHANGELOG = {
               "The page under the mouse shows big on the right, with its art slowly drifting.",
               "Each page shows what is going on: the next raid, items to decide, who is online.",
               "Jump straight into a page's tabs from the menu: Teams, Strategies, Loot log, Recipes.",
+              "Gear holds My BiS, Gear sim, Consumables and Atlas; each bar shows only that page's tools.",
           } },
           { heading = "Cleaner counts", lines = {
               "Every count has one new look: the bell, tabs, menus, the minimap button, the waitlist.",
