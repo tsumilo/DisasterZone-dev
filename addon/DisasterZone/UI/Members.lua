@@ -1501,7 +1501,10 @@ local function updateDetail(p)
         right.title:SetWidth(room)
         right.sub:SetWidth(cardWidth() - metaX)
         if member then fitParts(right.sub, right.metaParts, cardWidth() - metaX) end
-        right.headHit:SetWidth(56 + room)
+        -- the hover area stops short of the buttons, pinned to the card's right edge so it follows resizes
+        right.headHit:ClearAllPoints()
+        right.headHit:SetPoint("TOPLEFT", 0, 0)
+        right.headHit:SetPoint("TOPRIGHT", -(used + 2), 0)
     end
 end
 
@@ -1622,6 +1625,10 @@ local function createCard(p)
             if self.key and ns.GuildMapUI then ns.GuildMapUI:ShowPerson(self.key) end
         end)
     right.onMap:Hide()
+    -- above the header's hover area (the member / recipe tooltip), so they take the mouse
+    for _, hb in ipairs({ right.whisper, right.link, right.share, right.addNote, right.onMap }) do
+        hb:SetFrameLevel(right.headHit:GetFrameLevel() + 2)
+    end
 
     -- the specs as chips: a round icon, the name, the talent points (main) or "off spec"
     right.specChips = {}
