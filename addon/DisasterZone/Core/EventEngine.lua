@@ -47,11 +47,21 @@ E.Run = Run
 -- Random numbers: the run's own (its state travels with the snapshot, so a new host goes on the same way)
 ---------------------------------------------------------------------------
 
+-- Park-Miller (16807 mod 2^31 - 1): the products stay under 2^46, so every client's doubles get the exact same
+-- numbers (the old 1103515245 multiplier went past 2^53 and lost its low bits: every seed fell into one short
+-- cycle). Any state number works, one from an older client's snapshot too.
+local RAND_MOD = 2147483647
+
 local function Rand(st, lo, hi)
-    st.rng = (st.rng * 1103515245 + 12345) % 2147483648
-    if not lo then return st.rng / 2147483648 end
-    return lo + floor(st.rng / 2147483648 * (hi - lo + 1))
+    local s = floor(tonumber(st.rng) or 1) % RAND_MOD
+    if not (s >= 1) then s = 1 end                -- (0, or not a number at all)
+    s = (s * 16807) % RAND_MOD
+    st.rng = s
+    local r = (s - 1) / (RAND_MOD - 1)            -- [0, 1)
+    if not lo then return r end
+    return lo + floor(r * (hi - lo + 1))
 end
+E.Rand = Rand
 
 local function Shuffle(st, list)
     for i = #list, 2, -1 do

@@ -860,5 +860,39 @@ def the_season_check_sees_taken_set_and_smart_block_grants():
     w.assert_no_errors()
 
 
+@case
+def the_run_dice_never_fall_into_a_short_cycle():
+    """The old generator's product went past 2^53: every seed ended in one ~10k-long cycle. Now none repeats for
+    long, the draws spread evenly, and any state from an older client's snapshot (0, past the modulus, not a number)
+    still gives numbers in range."""
+    w, c = one()
+    r = c.eval_py(r"""
+      local E = ns.EventEngine
+      local out = { repeats = {}, spread = {}, odd = {} }
+      for _, seed in ipairs({ 1, 12345, 987654321, 2147483646 }) do
+        local st, seen, rep = { rng = seed }, {}, false
+        for _ = 1, 30000 do
+          E.Rand(st)
+          if seen[st.rng] then rep = true break end
+          seen[st.rng] = true
+        end
+        out.repeats[#out.repeats + 1] = rep
+      end
+      local st, n = { rng = 42 }, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+      for _ = 1, 20000 do local v = E.Rand(st, 1, 10) n[v] = n[v] + 1 end
+      out.spread = n
+      for _, s in ipairs({ 0, 2147483648, 4294967295, 0 / 0, -5 }) do
+        local v = E.Rand({ rng = s }, 1, 6)
+        out.odd[#out.odd + 1] = (v >= 1 and v <= 6 and v == math.floor(v)) and true or false
+      end
+      return out
+    """)
+    assert r["repeats"] == [False, False, False, False], r
+    assert all(1700 <= k <= 2300 for k in r["spread"]), r["spread"]
+    assert r["odd"] == [True] * 5, r
+    w.assert_no_errors()
+
+
+
 if __name__ == "__main__":
     run_all()
