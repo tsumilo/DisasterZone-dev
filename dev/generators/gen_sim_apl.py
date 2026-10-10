@@ -29,6 +29,9 @@ APLS = {
     "MAGE:Arcane": "ui/specs/mage/dps/apls/arcane.apl.json",
     "MAGE:Fire": os.path.join(DEV, "data", "apl", "mage_fire.apl.json"),
     "MAGE:Frost": os.path.join(DEV, "data", "apl", "mage_frost.apl.json"),
+    "WARLOCK:Affliction": "ui/specs/warlock/dps/apls/affliction.apl.json",
+    "WARLOCK:Demonology": "ui/specs/warlock/dps/apls/demonology.apl.json",
+    "WARLOCK:Destruction": "ui/specs/warlock/dps/apls/destruction.apl.json",
 }
 
 

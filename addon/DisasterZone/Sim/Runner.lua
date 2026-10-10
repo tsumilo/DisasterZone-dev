@@ -14,14 +14,30 @@ local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
   ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
   ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true, ["PRIEST:Shadow"] = true,
-  ["DRUID:Balance"] = true, ["MAGE:Arcane"] = true, ["MAGE:Fire"] = true, ["MAGE:Frost"] = true }
+  ["DRUID:Balance"] = true, ["MAGE:Arcane"] = true, ["MAGE:Fire"] = true, ["MAGE:Frost"] = true,
+  ["WARLOCK:Affliction"] = true, ["WARLOCK:Demonology"] = true, ["WARLOCK:Destruction"] = true }
 -- what the sim covers, for the texts that say so
 Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues, Feral / "
-  .. "Balance Druids, Shadow Priests and Mages"
+  .. "Balance Druids, Shadow Priests, Mages and Warlocks"
 -- class file -> the sim's class
 Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid",
-  PRIEST = "Priest", MAGE = "Mage" }
--- spec key -> what differs from the class: options, WoWSims' default reaction time (ms) and distance (yards)
+  PRIEST = "Priest", MAGE = "Mage", WARLOCK = "Warlock" }
+-- A warlock's demon and curse as in WoWSims' presets: Affliction keeps an Imp and casts Curse of the Elements,
+-- Demonology keeps a Succubus, Destruction sacrifices it when it has Demonic Sacrifice; both of those curse with
+-- Recklessness. Returns the sim's options and the WoWSims export's.
+local function WarlockOptions(spec)
+  return function(talents)
+    local demo = ((talents or "") .. "--"):match("^[^%-]*%-([^%-]*)") or ""
+    local sacrifice = spec == "Destruction" and (tonumber(demo:sub(14, 14)) or 0) > 0
+    local summon = (spec == "Affliction") and "Imp" or "Succubus"
+    local curse = (spec == "Affliction") and "Elements" or "Recklessness"
+    return { armor = "FelArmor", curse = curse, summon = summon, sacrificeSummon = sacrifice },
+      { armor = "FelArmor", curseOptions = curse, summon = summon, sacrificeSummon = sacrifice }
+  end
+end
+
+-- spec key -> what differs from the class: options (optionsFn: from the talents), WoWSims' default reaction time (ms)
+-- and distance (yards)
 Runner.SPEC_SETTINGS = {
   ["DRUID:Feral (Cat)"] = { options = { form = "Cat" }, reactionTimeMs = 250, distance = 0, buffs = "wowsims_cat",
     field = "feralCatDruid" },
@@ -38,6 +54,12 @@ Runner.SPEC_SETTINGS = {
     wsOptions = { defaultMageArmor = "MageArmorMoltenArmor" } },
   ["MAGE:Frost"] = { options = { defaultMageArmor = "MoltenArmor" }, distance = 20, buffs = "wowsims_mage", field = "mage",
     wsOptions = { defaultMageArmor = "MageArmorMoltenArmor" } },
+  ["WARLOCK:Affliction"] = { optionsFn = WarlockOptions("Affliction"), distance = 20, buffs = "wowsims_warlock",
+    field = "warlock" },
+  ["WARLOCK:Demonology"] = { optionsFn = WarlockOptions("Demonology"), distance = 20, buffs = "wowsims_warlock",
+    field = "warlock" },
+  ["WARLOCK:Destruction"] = { optionsFn = WarlockOptions("Destruction"), distance = 20, buffs = "wowsims_warlock",
+    field = "warlock" },
 }
 -- WoWSims' class options (dps/presets.ts DefaultOptions)
 Runner.CLASS_OPTIONS = {
@@ -68,6 +90,13 @@ Runner.BUFFS = {
       .. "the Elements, Improved Shadow Bolt (72% uptime), Judgements of the Crusader and Wisdom, Faerie Fire, Expose "
       .. "Armor; Flask of Pure Death, Blackened Basilisk, Destruction Potion, Demonic Rune. You bring your own Misery, "
       .. "Shadow Weaving, Vampiric Touch and Shadowfiend.",
+    tipWarlock = "WoWSims' Warlock raid setup: Bloodlust, drums, Mana Spring, Moonkin Aura, Totem of Wrath and Wrath of "
+      .. "Air, Chain of the Twilight Owl, Eye of the Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane "
+      .. "Brilliance, Divine Spirit, Curse of the Elements, Misery, Shadow Weaving, Improved Shadow Bolt (72% uptime), "
+      .. "Judgements of the Crusader and Wisdom and the melee debuffs; Flask of Pure Death, Blackened Basilisk, Brilliant "
+      .. "Wizard Oil, Destruction Potion, Demonic Rune, explosives (Engineering). You cast your own curse (Affliction: "
+      .. "Elements, else Recklessness) and Life Tap; your demon is out (Affliction: Imp, Demonology: Succubus) or "
+      .. "sacrificed (Destruction with Demonic Sacrifice).",
     tipMage = "WoWSims' Mage raid setup: Bloodlust, drums, Mana Spring, Mana Tide and Wrath of Air, Kings, Wisdom and "
       .. "Salvation, Gift of the Wild, Fortitude, Arcane Brilliance, Divine Spirit, Shadow Protection, Innervate, a Shadow "
       .. "Priest's mana, Curse of the Elements, Misery, Judgements of the Crusader and Wisdom, Improved Shadow Bolt (72% "
@@ -285,6 +314,9 @@ Runner.DEFAULT_TALENTS = {
   -- no WoWSims preset for these two: standard Fire (10/48/3) and Frost (10/0/51) builds, checked against WoWSims
   ["MAGE:Fire"] = "2-505202012303331053125-043000001",
   ["MAGE:Frost"] = "230005--0535000310035310251551",
+  ["WARLOCK:Affliction"] = "05022221112351055003--50500051220001",
+  ["WARLOCK:Demonology"] = "01-205003213305010150134-50500251020001",
+  ["WARLOCK:Destruction"] = "-20500301332101-50500051220051053105",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -509,7 +541,8 @@ function Runner:Scenario(set, settings, cons)
   local buffs = self:BuffConfig(settings.buffs)
   local class = self.CLASS_NAMES[self:Class() or ""] or "Paladin"
   return {
-    race = self:Race(), class = class, classOptions = ss.options or self.CLASS_OPTIONS[class], talents = settings.talents,
+    race = self:Race(), class = class, talents = settings.talents,
+    classOptions = (ss.optionsFn and ss.optionsFn(settings.talents)) or ss.options or self.CLASS_OPTIONS[class],
     gear = gear,
     metaActive = self:MetaActive(set),
     buffs = buffs, consumables = cons or buffs.consumables, professions = settings.professions or self:Professions(),
@@ -758,6 +791,12 @@ Runner.ABILITIES = {
   [27070] = "Fireball", ["27070:1"] = "Fireball", [12846] = "Ignite", [27079] = "Fire Blast", [27074] = "Scorch",
   [33938] = "Pyroblast", ["33938:1"] = "Pyroblast", [33933] = "Blast Wave", [33043] = "Dragon's Breath",
   pet_water_elemental_31707 = "Water Elemental",
+  -- Warlocks
+  [27209] = "Shadow Bolt", [32231] = "Incinerate", [27215] = "Immolate", ["27215:1"] = "Immolate", [27216] = "Corruption",
+  [27218] = "Curse of Agony", [30910] = "Curse of Doom", [30405] = "Unstable Affliction", [30911] = "Siphon Life",
+  [27223] = "Death Coil", [30546] = "Shadowburn", [30912] = "Conflagrate", [30545] = "Soul Fire",
+  [30459] = "Searing Pain", [30414] = "Shadowfury", pet_imp_27267 = "Imp", pet_succubus_27274 = "Succubus",
+  pet_succubus_melee = "Succubus",
   -- Rogues
   [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
   [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",
@@ -874,6 +913,8 @@ Runner.WOWSIMS_SPEC = {
   Rogue = { class = "ClassRogue", field = "rogue", options = { options = { classOptions = {} } } },
   Druid = { class = "ClassDruid", field = "feralCatDruid", options = { options = { classOptions = {} } } },
   Priest = { class = "ClassPriest", field = "dpsPriest", options = { options = { classOptions = { preShadowform = true } } } },
+  Warlock = { class = "ClassWarlock", field = "warlock", options = { options = { classOptions = { armor = "FelArmor",
+    curseOptions = "Recklessness", summon = "Succubus", sacrificeSummon = true } } } },
   Mage = { class = "ClassMage", field = "mage", options = { options = { classOptions = {
     defaultMageArmor = "MageArmorMageArmor" } } } },
   Warrior = { class = "ClassWarrior", field = "dpsWarrior", options = { options = { classOptions = {
@@ -888,7 +929,9 @@ function Runner:WoWSimsSettings(set, settings)
   local ss = self.SPEC_SETTINGS[self:SpecKey()]
   if ss and ss.field then
     local co = {}
-    for k, v in pairs(ss.wsOptions or {}) do co[k] = v end
+    local wso = ss.wsOptions
+    if ss.optionsFn then wso = select(2, ss.optionsFn(sc.talents)) end
+    for k, v in pairs(wso or {}) do co[k] = v end
     ws = { class = ws and ws.class, field = ss.field, options = { options = { classOptions = co } } }
   end
   local items = {}

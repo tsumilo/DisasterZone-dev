@@ -12645,6 +12645,821 @@ ns.Data.SimAPL = {
       },
     },
   },
+  ["WARLOCK:Affliction"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              itemId = 29370,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-1s",
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 33697,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-1s",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        action = {
+          autocastOtherCooldowns = {},
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                warlockAssignedCurseIsActive = {},
+              },
+            },
+          },
+          castWarlockAssignedCurse = {},
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 27215,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27215,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 30405,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 30405,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 27216,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27216,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 30911,
+                    rank = 6,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 30911,
+              rank = 6,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                remainingTimePercent = {},
+              },
+              rhs = {
+                const = {
+                  val = "5%",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27223,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                remainingTimePercent = {},
+              },
+              rhs = {
+                const = {
+                  val = "5%",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 30546,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                currentManaPercent = {},
+              },
+              rhs = {
+                const = {
+                  val = "15%",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27222,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 27209,
+            },
+          },
+        },
+      },
+    },
+  },
+  ["WARLOCK:Demonology"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              itemId = 29370,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-1s",
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 33697,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-1s",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        action = {
+          autocastOtherCooldowns = {},
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                warlockAssignedCurseIsActive = {},
+              },
+            },
+          },
+          castWarlockAssignedCurse = {},
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 27215,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27215,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 27216,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27216,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                remainingTimePercent = {},
+              },
+              rhs = {
+                const = {
+                  val = "5%",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27223,
+              rank = 4,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                remainingTimePercent = {},
+              },
+              rhs = {
+                const = {
+                  val = "5%",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 30546,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                currentManaPercent = {},
+              },
+              rhs = {
+                const = {
+                  val = "15%",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27222,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 27209,
+            },
+          },
+        },
+      },
+    },
+  },
+  ["WARLOCK:Destruction"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 27209,
+              rank = 11,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-3.4s",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        action = {
+          autocastOtherCooldowns = {},
+        },
+      },
+      {
+        action = {
+          groupReference = {
+            groupName = "Cast Curse",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Should Cast Shadow Burn",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 30546,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Should Cast Death Coil",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27223,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Should Cast Immolate",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27215,
+              rank = 9,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 27209,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 27222,
+            },
+          },
+        },
+      },
+    },
+    groups = {
+      {
+        name = "Cast Curse",
+        actions = {
+          {
+            action = {
+              condition = {
+                ["or"] = {
+                  vals = {
+                    {
+                      variableRef = {
+                        name = "Should Cast Recklessness or Elements",
+                      },
+                    },
+                    {
+                      variableRef = {
+                        name = "Should Cast Doom",
+                      },
+                    },
+                  },
+                },
+              },
+              castWarlockAssignedCurse = {},
+            },
+          },
+          {
+            action = {
+              condition = {
+                variableRef = {
+                  name = "Should Cast Agony",
+                },
+              },
+              castSpell = {
+                spellId = {
+                  spellId = 27218,
+                  rank = 7,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    valueVariables = {
+      {
+        name = "Should Cast Immolate",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    dotRemainingTime = {
+                      spellId = {
+                        spellId = 27215,
+                        tag = 1,
+                        rank = 9,
+                      },
+                    },
+                  },
+                  rhs = {
+                    spellCastTime = {
+                      spellId = {
+                        spellId = 27215,
+                        rank = 9,
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    remainingTime = {},
+                  },
+                  rhs = {
+                    math = {
+                      op = "OpAdd",
+                      lhs = {
+                        spellCastTime = {
+                          spellId = {
+                            spellId = 27215,
+                            rank = 9,
+                          },
+                        },
+                      },
+                      rhs = {
+                        dotBaseDuration = {
+                          spellId = {
+                            spellId = 27215,
+                            tag = 1,
+                            rank = 9,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Should Cast Death Coil",
+        value = {
+          cmp = {
+            op = "OpLe",
+            lhs = {
+              math = {
+                op = "OpAdd",
+                lhs = {
+                  remainingTime = {},
+                },
+                rhs = {
+                  spellTravelTime = {
+                    spellId = {
+                      spellId = 27223,
+                      rank = 4,
+                    },
+                  },
+                },
+              },
+            },
+            rhs = {
+              math = {
+                op = "OpAdd",
+                lhs = {
+                  spellCastTime = {
+                    spellId = {
+                      spellId = 27209,
+                      rank = 11,
+                    },
+                  },
+                },
+                rhs = {
+                  spellTravelTime = {
+                    spellId = {
+                      spellId = 27209,
+                      rank = 11,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Should Cast Shadow Burn",
+        value = {
+          cmp = {
+            op = "OpLe",
+            lhs = {
+              remainingTime = {},
+            },
+            rhs = {
+              math = {
+                op = "OpAdd",
+                lhs = {
+                  spellCastTime = {
+                    spellId = {
+                      spellId = 27209,
+                      rank = 11,
+                    },
+                  },
+                },
+                rhs = {
+                  spellTravelTime = {
+                    spellId = {
+                      spellId = 27209,
+                      rank = 11,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Should Cast Shadow Bolt",
+        value = {
+          const = {
+            val = "True",
+          },
+        },
+      },
+      {
+        name = "Should Cast Recklessness or Elements",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                ["not"] = {
+                  val = {
+                    warlockAssignedCurseIsActive = {},
+                  },
+                },
+              },
+              {
+                ["or"] = {
+                  vals = {
+                    {
+                      warlockIsAssignedCurse = {
+                        curseType = "Elements",
+                      },
+                    },
+                    {
+                      warlockIsAssignedCurse = {
+                        curseType = "Recklessness",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Should Cast Doom",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                warlockIsAssignedCurse = {
+                  curseType = "Doom",
+                },
+              },
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    remainingTime = {},
+                  },
+                  rhs = {
+                    dotBaseDuration = {
+                      spellId = {
+                        spellId = 30910,
+                        rank = 2,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Should Cast Agony",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                ["or"] = {
+                  vals = {
+                    {
+                      warlockIsAssignedCurse = {},
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            warlockIsAssignedCurse = {
+                              curseType = "Doom",
+                            },
+                          },
+                          {
+                            ["not"] = {
+                              val = {
+                                warlockAssignedCurseIsActive = {},
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpLt",
+                              lhs = {
+                                remainingTime = {},
+                              },
+                              rhs = {
+                                dotBaseDuration = {
+                                  spellId = {
+                                    spellId = 30910,
+                                    rank = 2,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                ["not"] = {
+                  val = {
+                    dotIsActive = {
+                      spellId = {
+                        spellId = 27218,
+                        rank = 7,
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    remainingTime = {},
+                  },
+                  rhs = {
+                    math = {
+                      op = "OpMul",
+                      lhs = {
+                        dotTickFrequency = {
+                          spellId = {
+                            spellId = 27218,
+                            rank = 7,
+                          },
+                        },
+                      },
+                      rhs = {
+                        const = {
+                          val = "9",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 }
 ns.Data.SimAPL["ROGUE:Assassination"] = ns.Data.SimAPL["ROGUE:Combat"]
 ns.Data.SimAPL["ROGUE:Subtlety"] = ns.Data.SimAPL["ROGUE:Combat"]

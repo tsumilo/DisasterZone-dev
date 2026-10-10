@@ -144,6 +144,8 @@ function Unit:DisablePet(sim)
   for k, v in pairs(self.inherited) do if v ~= 0 then back[k] = -v end end
   self:AddStatsDynamic(sim, back)
   for k in pairs(self.inherited) do self.inherited[k] = 0 end
+  -- pet.go Disable: OnPetDisable runs with the owner's share gone, before the pet's own auras end
+  if self.onDisable then self.onDisable(sim, self) end
   if self.rotationAction.queuedIn and not self.rotationAction.consumed then sim:Cancel(self.rotationAction) end
   self.skipWake = nil
   local aa = self.autoAttacks
@@ -175,6 +177,8 @@ function S.ResetPets(owner, sim)
     pet.enabled = false
     for k in pairs(pet.inherited) do pet.inherited[k] = 0 end
     pet.timeoutAction = nil
+    -- pet.go reset: a pet out from the start (a warlock's demon) is summoned right away
+    if pet.enabledOnStart then pet:EnablePet(sim) end
   end
 end
 

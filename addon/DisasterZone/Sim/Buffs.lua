@@ -166,6 +166,20 @@ S.BUFF_PRESETS = {
     consumables = { flaskId = 22866, foodId = 27657, conjuredId = 12662, mhImbueId = 22522, potId = 22839,
       explosiveId = 30217, drumsId = "LesserDrumsOfBattle" },
   },
+  -- The WoWSims Warlock preset (ui/specs/warlock/dps/presets.ts, phase 3 ISB / Expose Weakness); the warlock casts his
+  -- own curse (Warlock.lua drops the raid's copy of it). The fire build: Flame Cap and Improved Scorch.
+  wowsims_warlock = {
+    raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
+    party = { manaSpringTotem = 1, moonkinAura = 1, totemOfWrath = 1, wrathOfAirTotem = 2, eyeOfTheNight = true,
+      chainOfTheTwilightOwl = true, drums = "LesserDrumsOfBattle" },
+    individual = { blessingOfKings = true, blessingOfWisdom = 2 },
+    debuffs = { exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1210, isbUptime = 0.72,
+      improvedSealOfTheCrusader = 2, judgementOfWisdom = true, misery = true, shadowWeaving = true, sunderArmor = true,
+      faerieFire = 2, curseOfRecklessness = true, curseOfElements = 2, bloodFrenzy = true, giftOfArthas = true,
+      mangle = true, exposeArmor = 2, huntersMark = 2 },
+    consumables = { flaskId = 22866, foodId = 27657, conjuredId = 12662, mhImbueId = 25122, potId = 22839,
+      explosiveId = 30217, petScrollAgi = true, petScrollStr = true },
+  },
   -- The WoWSims Elemental preset (ui/specs/shaman/elemental/presets.ts): the shaman drops his own totems.
   wowsims_ele = {
     raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
@@ -190,6 +204,18 @@ S.BUFF_PRESETS = {
       explosiveId = 30217, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
   },
 }
+do
+  -- the Warlock fire build's preset: Flame Cap instead of the Demonic Rune, Improved Scorch on the target
+  local w = S.BUFF_PRESETS.wowsims_warlock
+  local fire = {}
+  for k, v in pairs(w) do fire[k] = v end
+  fire.debuffs, fire.consumables = {}, {}
+  for k, v in pairs(w.debuffs) do fire.debuffs[k] = v end
+  for k, v in pairs(w.consumables) do fire.consumables[k] = v end
+  fire.debuffs.improvedScorch = true
+  fire.consumables.conjuredId = 22788
+  S.BUFF_PRESETS.wowsims_warlock_fire = fire
+end
 
 
 local function Tri(v) if v == true then return 1 end return v or 0 end
@@ -220,6 +246,9 @@ function S.ApplyPetBuffs(pet, cfg)
     ind = { unleashedRage = ind.unleashedRage }
   end
   S.ApplyBuffs(pet, { raid = raid, party = party, individual = ind })
+  -- the exclusive flat stat buffs (Arcane Brilliance, Divine Spirit): a pet has no scrolls to weigh them against
+  for k, v in pairs(pet.statBuffCategory or {}) do pet:AddStat(k, v) end
+  pet.statBuffCategory = nil
 end
 
 -- Raid + party + individual buffs on the player.
@@ -341,6 +370,13 @@ function S.ApplyConsumables(p, c, cfg)
     local cons = id and id ~= 0 and cdb and cdb[id]
     if cons then p:AddStats(S.WSStats(cons.stats)) end
   end
+  -- consumes.go Pet Consumes: scrolls for a pet that isn't a guardian
+  for _, pet in ipairs(p.pets or {}) do
+    if not pet.guardian then
+      if c.petScrollAgi then pet:AddStat(ST.Agility, 20) end
+      if c.petScrollStr then pet:AddStat(ST.Strength, 20) end
+    end
+  end
   addStats(c.flaskId)
   if c.battleElixirId ~= 9224 then addStats(c.battleElixirId) end
   if c.guardianElixirId ~= 9088 then addStats(c.guardianElixirId) end
@@ -396,12 +432,32 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Bloodlust, drums, potions, runes, explosives, racials (all auto-used major cooldowns)
 -- ---------------------------------------------------------------------------------------------------------------
+-- buffs.go BloodlustAura: the owner's pets that aren't guardians get it too when they are out at the time
+local function PetBloodlust(pet)
+  return pet:RegisterAura({ label = "Bloodlust", duration = 40, actionId = { spellId = 2825, tag = -1 },
+    onGain = function(a, sim)
+      a.unit:MultiplyAttackSpeed(sim, 1.3)
+      a.unit:MultiplyCastSpeed(sim, 1.3)
+    end,
+    onExpire = function(a, sim)
+      a.unit:MultiplyAttackSpeed(sim, 1 / 1.3)
+      a.unit:MultiplyCastSpeed(sim, 1 / 1.3)
+    end })
+end
+
 function S.Bloodlust(p)
   local sated = p:RegisterAura({ label = "Sated", duration = 600 })
+  local petAuras = {}
+  for _, pet in ipairs(p.pets or {}) do
+    if not pet.guardian then petAuras[#petAuras + 1] = PetBloodlust(pet) end
+  end
   local bl = p:RegisterAura({ label = "Bloodlust", duration = 40, actionId = { spellId = 2825, tag = -1 },
     onGain = function(a, sim)
       a.unit:MultiplyAttackSpeed(sim, 1.3)
       a.unit:MultiplyCastSpeed(sim, 1.3)
+      for _, pa in ipairs(petAuras) do
+        if pa.unit.enabled then pa:Activate(sim) end
+      end
       sated:Activate(sim)
     end,
     onExpire = function(a, sim)
@@ -934,6 +990,31 @@ function S.BloodFrenzyAura(target, points)
     onExpire = function() tps.SchoolDamageTakenMultiplier[i] = tps.SchoolDamageTakenMultiplier[i] / m end })
 end
 
+-- debuffs.go ImprovedShadowBoltAura: shadow damage taken +4% a point, 4 charges, 12 s. Kept up a share of the time
+-- by the raid (uptime > 0), or by a warlock's crits (uptime 0: a landed shadow spell hit uses up a charge). One aura
+-- per point count. The raid's comes first (debuffs before talents); a warlock's talent asking for the same aura gets
+-- it with its charge rule added (GetOrRegisterAura replaces the callbacks): the raid's applications carry 1 charge,
+-- so the next shadow hit ends them. A raid call that finds the aura (Lua repeats it in ApplyDebuffs) changes nothing.
+local function ISBChargeRule(aura, sim, spell, result)
+  if not has(spell.school or 0, SCHOOL.Shadow) or not S.Landed(result) or result.damage == 0
+    or not has(spell.procMask or 0, PM.SpellDamage) then return end
+  aura:RemoveStack(sim)
+end
+
+function S.ImprovedShadowBoltAura(t, uptime, points)
+  local label = "ImprovedShadowBolt-" .. points
+  local a = t:GetAura(label)
+  if a then
+    if uptime == 0 then a.onSpellHitTaken = ISBChargeRule end
+    return a
+  end
+  a = t:RegisterAura({ label = label, actionId = { spellId = 17800 }, duration = 12, maxStacks = 4 })
+  if uptime == 0 then a.onSpellHitTaken = ISBChargeRule end
+  a:AttachMultiplicativePseudoStatBuff("SchoolDamageTakenMultiplier", 1 + 0.04 * points, S.SCHOOL_INDEX[SCHOOL.Shadow])
+  S.ApplyFixedUptimeAura(a, uptime, a.duration, 1e-9) -- Go's startTime 1 = 1 ns
+  return a
+end
+
 function S.ApplyDebuffs(p, t, d)
   local tps = t.ps
   local SI = S.SCHOOL_INDEX
@@ -1001,15 +1082,7 @@ function S.ApplyDebuffs(p, t, d)
   if d.improvedScorch then ScheduledStacks(S.ImprovedScorchAura(t), 1.2, 5, true) end
   if d.shadowWeaving then ScheduledStacks(S.ShadowWeavingAura(t), 1.5, 5, true) end
   if d.wintersChill then S.MakePermanent(S.WintersChillAura(t, p, 5)) end
-  if (d.isbUptime or 0) > 0 then
-    -- debuffs.go ImprovedShadowBoltAura: shadow damage x1.2, kept up a share of the time by a warlock
-    local a = t:GetAura("ImprovedShadowBolt-5")
-    if not a then
-      a = t:RegisterAura({ label = "ImprovedShadowBolt-5", actionId = { spellId = 17800 }, duration = 12, maxStacks = 4 })
-      a:AttachMultiplicativePseudoStatBuff("SchoolDamageTakenMultiplier", 1.2, S.SCHOOL_INDEX[SCHOOL.Shadow])
-      S.ApplyFixedUptimeAura(a, d.isbUptime, a.duration, 1e-9) -- Go's startTime 1 = 1 ns
-    end
-  end
+  if (d.isbUptime or 0) > 0 then S.ImprovedShadowBoltAura(t, d.isbUptime, 5) end
   -- Expose Weakness: 90% chance per 7 s window of +agi/4 attack power against the target.
   if (d.exposeWeaknessUptime or 0) > 0 and (d.exposeWeaknessHunterAgility or 0) > 0 then
     local bonus = floor(d.exposeWeaknessHunterAgility * 0.25)

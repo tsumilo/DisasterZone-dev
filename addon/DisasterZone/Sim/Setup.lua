@@ -40,6 +40,10 @@ function S.NewScenario(sc, db, apl)
   end
   if cls == "Priest" then S.SetupPriest(p, sc.talents or "", sc.classOptions) end
   if cls == "Mage" then S.SetupMage(p, sc.talents or "", sc.classOptions) end
+  if cls == "Warlock" then
+    S.SetupWarlock(p, sc.talents or "", sc.classOptions)
+    buffs = S.WarlockRaidBuffs(p, buffs)
+  end
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
@@ -51,10 +55,15 @@ function S.NewScenario(sc, db, apl)
   if cls == "Druid" then S.DruidApplyTalents(p) end
   if cls == "Priest" then S.PriestApplyTalents(p) end
   if cls == "Mage" then S.MageApplyTalents(p) end
+  if cls == "Warlock" then S.WarlockApplyTalents(p) end
   p.buffRecord = {}
   S.ApplyBuffs(p, buffs)
   p.buffRecordDone, p.buffRecord = p.buffRecord, nil
-  for _, pet in ipairs(p.pets or {}) do S.ApplyPetBuffs(pet, buffs) end
+  for _, pet in ipairs(p.pets or {}) do
+    pet.buffRecord = {}
+    S.ApplyPetBuffs(pet, buffs)
+    pet.buffRecordDone, pet.buffRecord = pet.buffRecord, nil
+  end
   S.ApplyConsumables(p, cons, buffs)
   if cls == "Warrior" then S.WarriorInitialize(p) end
   if cls == "Shaman" then S.ShamanInitialize(p) end
@@ -62,6 +71,7 @@ function S.NewScenario(sc, db, apl)
   if cls == "Druid" then S.DruidInitialize(p) end
   if cls == "Priest" then S.PriestInitialize(p) end
   if cls == "Mage" then S.MageInitialize(p) end
+  if cls == "Warlock" then S.WarlockInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()

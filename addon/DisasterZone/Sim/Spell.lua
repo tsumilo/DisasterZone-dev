@@ -1060,6 +1060,15 @@ local MOD_KIND = {
                               for _, d in pairs(s.dots or {}) do d.baseTickCount = d.baseTickCount - m.value end
                               if s.aoeDot then s.aoeDot.baseTickCount = s.aoeDot.baseTickCount - m.value end
                             end },
+  -- spell_mod.go applyDotBonusCoefficientFlat
+  DotBonusCoefficient_Flat = { function(m, s)
+                                 for _, d in pairs(s.dots or {}) do d.bonusCoefficient = d.bonusCoefficient + m.value end
+                                 if s.aoeDot then s.aoeDot.bonusCoefficient = s.aoeDot.bonusCoefficient + m.value end
+                               end,
+                               function(m, s)
+                                 for _, d in pairs(s.dots or {}) do d.bonusCoefficient = d.bonusCoefficient - m.value end
+                                 if s.aoeDot then s.aoeDot.bonusCoefficient = s.aoeDot.bonusCoefficient - m.value end
+                               end },
   DotDamageDone_Pct = { function(m, s) local d = s.dotConfig or (s.aoeDot and s.aoeDot) if s.dots then for _, dt in pairs(s.dots) do dt.periodicDamageMultiplier = dt.periodicDamageMultiplier * (1 + m.value) end end end,
                         function(m, s) if s.dots then for _, dt in pairs(s.dots) do dt.periodicDamageMultiplier = dt.periodicDamageMultiplier / (1 + m.value) end end end },
 }

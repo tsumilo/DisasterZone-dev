@@ -26,7 +26,7 @@ ADDON = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone"))
 if not os.path.isdir(ADDON):
     ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 SIM_FILES = ["Core", "Unit", "Spell", "Attack", "Resources", "Dot", "Pet", "APL", "Character", "Buffs", "Items",
-             "Paladin", "Warrior", "Shaman", "Rogue", "Druid", "Priest", "Mage", "Data", "Setup"]
+             "Paladin", "Warrior", "Shaman", "Rogue", "Druid", "Priest", "Mage", "Warlock", "Data", "Setup"]
 DATA_FILES = ["Data/Gems.lua", "Data/SimItems.lua"]
 
 # ---------------------------------------------------------------------------------------------------------------

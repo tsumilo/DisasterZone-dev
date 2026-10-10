@@ -25,7 +25,7 @@ SCENARIOS = {
     "ret_p1_default": 200, "ret_p1_human": 100, "ret_p1_hourglass": 100, "ret_p2_default": 100,
     "ret_p3_default": 100, "ret_preraid_default": 100, "fury_p1": 100, "arms_p1": 100, "enh_p1": 60,
     "rogue_p1": 100, "rogue_mutilate": 60, "cat_p1": 60, "ele_p1": 60, "spriest_p1": 60, "balance_p1": 60,
-    "arcane_p1": 60, "fire_p1": 60, "frost_p1": 30,
+    "arcane_p1": 60, "fire_p1": 60, "frost_p1": 30, "aff_t4": 30, "demo_t4": 30, "destro_t4": 30,
 }
 
 DUMP = """function(S, sim, p, n, noskip)

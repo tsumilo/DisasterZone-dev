@@ -432,6 +432,32 @@ function Rot:Value(node, vars)
     local sp = self.resolveSpell(node.spellCurrentCost.spellId)
     if not sp then return nil end
     return Num(function() return sp:CurrentCost() end)
+  elseif node.dotBaseDuration then
+    -- apl_values_dot.go: read once when the list is built (set bonus auras come on later, at the pull)
+    local sp = self.resolveSpell(node.dotBaseDuration.spellId)
+    if not (sp and (sp.dots or sp.aoeDot or sp.relatedDotSpell)) then return nil end
+    local d = sp.aoeDot or sp:Dot(u.currentTarget)
+    return ConstNum(d.baseTickCount * d.baseTickLength * (d.baseDurationMultiplier or 1))
+  elseif node.spellTravelTime then
+    -- spell.go TravelTime: distance over missile speed
+    local sp = self.resolveSpell(node.spellTravelTime.spellId)
+    if not sp then return nil end
+    local speed = sp.missileSpeed or 0
+    return ConstNum(speed == 0 and 0 or (u.distance or 0) / speed)
+  elseif node.warlockIsAssignedCurse then
+    -- warlock apl_values.go: whether the warlock's assigned curse is this one (Agony when none is named)
+    local wl = u.warlock
+    if not wl then return nil end
+    return ConstBool(wl.curse == (node.warlockIsAssignedCurse.curseType or "Agony"))
+  elseif node.warlockAssignedCurseIsActive then
+    -- the assigned curse on the target for at least the reaction time
+    local wl = u.warlock
+    local sp = wl and wl.assignedCurse
+    if not sp then return nil end
+    local function aura() return sp.curseAura or sp:Dot(u.currentTarget).aura end
+    local rt = u.reactionTime
+    return Bool(function(sim) local a = aura(); return a.active and sim.now - a.startTime >= rt end,
+      function(sim) local a = aura(); if a.active then return Future(a.startTime + rt, sim.now) end return huge end)
   elseif node.dotIsActive then
     -- ticks and expiries are events (pending actions / aura trackers) that wake the rotation
     local sp = self.resolveSpell(node.dotIsActive.spellId)
@@ -669,6 +695,19 @@ function Rot:Action(node, vars, knownSpell)
         end
         return t
       end,
+    }
+  elseif node.castWarlockAssignedCurse then
+    -- warlock apl_values.go APLActionCastWarlockAssignedCurse: CanCast / Cast (not queued)
+    local u = self.unit
+    local sp = u.warlock and u.warlock.assignedCurse
+    if not sp then return nil end
+    local usesGcd = sp.gcd > 0
+    impl = {
+      ready = function(sim) return sp:CanCast(sim, u.currentTarget) end,
+      exec = function(sim) sp:Cast(sim, u.currentTarget) end,
+      next = function(sim) return CastNextChange(sp, u, sim, usesGcd) end,
+      spell = sp,
+      kind = "cast",
     }
   elseif node.itemSwap then
     -- no item swap sets in this sim: WoWSims drops the action without one (apl_actions_misc.go)

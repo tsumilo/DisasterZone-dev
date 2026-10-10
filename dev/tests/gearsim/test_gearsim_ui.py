@@ -594,6 +594,61 @@ def mage_sims():
     assert_no_lua_errors(w)
 
 
+# WoWSims' T4 Warlock preset (ui/specs/warlock/dps/gear_sets/t4.gear.json), no gems or enchants
+WARLOCK_T4 = [28963, 28530, 28967, 28766, 28964, 24250, 28968, 24256, 24262, 21870, 28793, 28753, 27683, 29370, 28802,
+              28734, 28673]
+
+
+@r.case
+def warlock_sims():
+    w = new_world()
+    c = Client(w, "Doomz", class_file="WARLOCK", race="Orc", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Destruction") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(WARLOCK_T4) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 1000 < res["work"] < 2800 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Shadow Bolt", "Immolate"):
+        assert want in names, (want, names)
+    assert "Melee" not in names, names
+    # the demon and curse follow the spec (and Demonic Sacrifice for Destruction)
+    cases = (("Affliction", "Imp", "Elements", False), ("Demonology", "Succubus", "Recklessness", False),
+             ("Destruction", "Succubus", "Recklessness", True))
+    for spec, summon, curse, sac in cases:
+        assert c.eval("return ns.BiS:SetSpec(...)", spec) is True
+        assert c.eval("return ns.SimRunner:IsSupported()") is True, spec
+        assert c.eval("return ns.Data.SimAPL[ns.SimRunner:SpecKey()] ~= nil") is True, spec
+        t = c.eval("return ns.SimRunner.DEFAULT_TALENTS[ns.SimRunner:SpecKey()]")
+        sc = c.eval_py("local t = ... return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), "
+                       "{ buffs = 'raid25', duration = 180, talents = t })", t)
+        o = sc["classOptions"]
+        assert sc["distance"] == 20 and o["summon"] == summon, (spec, o)
+        assert o["curse"] == curse and o["sacrificeSummon"] is sac, (spec, o)
+        doc = __import__("json").loads(c.eval("local t = ... return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                              "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical', talents = t })", t))
+        pl = doc["player"]
+        co = pl["warlock"]["options"]["classOptions"]
+        assert pl["class"] == "ClassWarlock" and co["curseOptions"] == curse and co["summon"] == summon, (spec, pl)
+    # Demonology keeps its Succubus out: her Lash of Pain and melee count for the warlock
+    assert c.eval("return ns.BiS:SetSpec(...)", "Demonology") is True
+    c.eval("ns.MyBiS:Refresh()  ns.SimPanel:Run()")
+    run_until_done(w, c)
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    assert "Succubus" in names and "Corruption" in names, names
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()
