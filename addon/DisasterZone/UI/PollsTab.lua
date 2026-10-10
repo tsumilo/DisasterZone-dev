@@ -1961,7 +1961,7 @@ function S.Build(v)
     v.kLab = Label(L0, "Kind")
     v.kLab:SetPoint("TOPLEFT", 0, -52)
     v.tiles = {}
-    local defs = { { "one", PollIcon(), "One answer", "Pick one" }, { "many", PollIcon(), "Several", "Pick any number" },
+    local defs = { { "one", PollIcon(), "One answer", "Pick one" }, { "many", PollIcon(), "Several", "Pick any" },
                    { "yn", CHECK_GLYPH, "Yes or no", "Quick answer" },
                    { "days", UI().ICON.calendar, "Pick days", "When can you" } }
     for i, d in ipairs(defs) do
