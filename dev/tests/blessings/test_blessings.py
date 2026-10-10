@@ -262,6 +262,21 @@ mo = vic.eval_py(MOTION)
 assert isinstance(mo, dict), mo
 assert 0 < mo["midHot"] < 1 and mo["midBloom"] is True, mo
 assert mo["endHot"] == 0 and mo["endBloom"] is False and mo["label"] is False, mo
+# hover: a class's face eases into its hover look and back out (nothing pops up)
+HOVER = """
+    local r = DisasterZoneBlessRow1
+    local f = r.face
+    ns.BlessingsBar:Hover(r, true)
+    for i = 1, 3 do ns.BlessingsBar.Step(f, 0.03) end
+    local mid = f.motion.cur.hover
+    for i = 1, 30 do ns.BlessingsBar.Step(f, 0.05) end
+    local full = f.motion.cur.hover
+    ns.BlessingsBar:Hover(r, false)
+    for i = 1, 30 do ns.BlessingsBar.Step(f, 0.05) end
+    return { mid, full, f.motion.cur.hover, DisasterZoneBlessPopout:IsShown() and r == ns.BlessingsBar:GetPopout().row }
+"""
+hv = vic.eval_py(HOVER)
+assert 0 < hv[0] < 1 and hv[1] == 1 and hv[2] == 0, hv
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)

@@ -189,6 +189,13 @@ local function NewRow(i)
     face.bloom:SetPoint("CENTER")
     face.bloom:SetBlendMode("ADD")
     face.bloom:Hide()
+    -- hover: a faint white halo behind the circle (rail) / a faint light over the tile (strip)
+    face.halo = face:CreateTexture(nil, "BACKGROUND", nil, 1)
+    face.halo:SetTexture(SOFT)
+    face.halo:SetPoint("CENTER")
+    face.halo:SetBlendMode("ADD")
+    face.halo:SetVertexColor(1, 1, 1)
+    face.halo:SetAlpha(0)
     -- rail: the track, the draining ring (a cooldown swipe), the class circle
     face.track = face:CreateTexture(nil, "BORDER")
     face.track:SetTexture(RING)
@@ -213,6 +220,11 @@ local function NewRow(i)
     face.line = Fill(face:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.1)
     face.lineFill = face:CreateTexture(nil, "OVERLAY")
     face.lineFill:SetTexture(WHITE8)
+    face.sheen = face:CreateTexture(nil, "ARTWORK", nil, 3)
+    face.sheen:SetTexture(WHITE8)
+    face.sheen:SetBlendMode("ADD")
+    face.sheen:SetVertexColor(1, 1, 1)
+    face.sheen:SetAlpha(0)
     -- both: my blessing in the corner (rail) / the class in the corner (strip), the missing count
     face.corner = face.top:CreateTexture(nil, "OVERLAY")
     face.corner:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -227,6 +239,8 @@ local function NewRow(i)
     face.label.text = Text(face.label, 10, { 1, 0.9, 0.55 })
     face.label.text:SetPoint("CENTER", 0, 0)
     face.label:Hide()
+    r:HookScript("OnEnter", function(self) Bar:Hover(self, true) end)
+    r:HookScript("OnLeave", function(self) Bar:Hover(self, false) end)
     r:SetScript("PostClick", function(self, button, down)
         if Released(down) and button == "RightButton" and not InCombatLockdown() then Bar:TogglePop(self) end
     end)
@@ -575,7 +589,7 @@ end
 -- approach: quick at first, settling softly), and plays a bloom when a class is blessed again.
 -- ---------------------------------------------------------------------------------------------------------------
 local exp, abs = math.exp, math.abs
-local TAU = { hot = 0.11, lift = 0.09, line = 0.22 }
+local TAU = { hot = 0.11, lift = 0.09, line = 0.22, hover = 0.07 }
 local BLOOM_TAU = 0.3
 
 local function Mix(a, b, t) return a + (b - a) * t end
@@ -585,22 +599,43 @@ local function ApplyMotion(f)
     local m = f.motion
     if not m or not f.row then return end
     local hot, lift, line = m.cur.hot or 0, m.cur.lift or 0, m.cur.line or 0
+    local hover = m.cur.hover or 0
     f:ClearAllPoints()
-    f:SetPoint("CENTER", f.row, "CENTER", 0, lift)
+    f:SetPoint("CENTER", f.row, "CENTER", 0, lift + (f.layout == "horizontal" and 2 * hover or 0))
     f.glow:SetAlpha(0.55 * hot)
     f.label:SetAlpha(hot)
     f.label:SetShown(hot > 0.01)
     f.label:ClearAllPoints()
     if f.layout == "horizontal" then
         f.label:SetPoint("BOTTOM", f, "TOP", 0, 8 - (1 - hot) * 5)
-        local e = Mix(0, 1, hot)
-        Edge(f.tileEdge, e, Mix(0, 0.82, hot), 0, Mix(0.9, 1, hot))
+        -- the edge: black at rest, soft white on hover, gold when it is the one to do next
+        local er, eg, eb, ea = Mix(0, 0.85, hover), Mix(0, 0.85, hover), Mix(0, 0.88, hover), Mix(0.9, 0.7, hover)
+        Edge(f.tileEdge, Mix(er, 1, hot), Mix(eg, 0.82, hot), Mix(eb, 0, hot), Mix(ea, 1, hot))
+        local g = hover
+        f.tile:ClearAllPoints()
+        f.tile:SetPoint("TOPLEFT", -g, g)
+        f.tile:SetPoint("BOTTOMRIGHT", g, -g)
+        f.sheen:ClearAllPoints()
+        f.sheen:SetAllPoints(f.tile)
+        f.sheen:SetAlpha(0.09 * hover)
+        f.sheen:SetShown(hover > 0.01)
+        f.halo:Hide()
         local cr, cg, cb = f.classRGB[1], f.classRGB[2], f.classRGB[3]
         f.lineFill:SetVertexColor(Mix(cr, GOLD[1], hot), Mix(cg, GOLD[2], hot), Mix(cb, GOLD[3], hot), 0.95)
         f.lineFill:SetWidth(max(0.5, (S_T - 4) * line))
         f.lineFill:SetShown(line > 0.004)
     else
         f.label:SetPoint("RIGHT", f, "LEFT", -12 - (1 - hot) * 8, 0)
+        -- hover: the circle grows a little, a faint halo behind it, the ring's track brightens
+        local g = 2 - 1.5 * hover
+        f.cls:ClearAllPoints()
+        f.cls:SetPoint("TOPLEFT", g, -g)
+        f.cls:SetPoint("BOTTOMRIGHT", -g, g)
+        f.halo:SetSize(R_S * 2, R_S * 2)
+        f.halo:SetAlpha(0.16 * hover)
+        f.halo:SetShown(hover > 0.01)
+        f.track:SetVertexColor(1, 1, 1, 0.12 + 0.2 * hover)
+        f.sheen:Hide()
         if f.cd.SetSwipeColor then
             f.cd:SetSwipeColor(Mix(CALM[1], GOLD[1], hot), Mix(CALM[2], GOLD[2], hot), Mix(CALM[3], GOLD[3], hot),
                 Mix(CALM[4], 1, hot))
@@ -665,6 +700,18 @@ local function Aim(f, tgt, bloom)
     if moving then Run(f) else ApplyMotion(f) end
 end
 Bar.Aim, Bar.Step = Aim, Step
+
+-- The mouse over a class: its face eases into the hover look (and back when it leaves). Nothing pops up.
+function Bar:Hover(row, on)
+    local f = row.face
+    f.hoverOn = on and true or false
+    local m = f.motion
+    if not m then return end
+    local t = {}
+    for k, v in pairs(m.tgt) do t[k] = v end
+    t.hover = on and 1 or 0
+    Aim(f, t)
+end
 
 -- No panel: the circles, tiles and text float on the world. While unlocked a faint panel shows what to drag.
 local function ApplyChrome()
@@ -948,7 +995,8 @@ function Bar:Update()
             if isNext then f.label:SetWidth((f.label.text:GetStringWidth() or 40) + 16) end
             -- motion: ease toward the new look; bloom when it was urgent or missing and no longer is
             local blessed = (f.wasHot and not isNext) or ((f.wasMissing or 0) > #st.missing)
-            Aim(f, { hot = isNext and 1 or 0, lift = (isNext and layout == "horizontal") and 7 or 0, line = frac },
+            Aim(f, { hot = isNext and 1 or 0, lift = (isNext and layout == "horizontal") and 7 or 0, line = frac,
+                hover = f.hoverOn and 1 or 0 },
                 blessed and f.motion ~= nil)
             f.wasHot, f.wasMissing = isNext and true or false, #st.missing
         end
