@@ -300,6 +300,11 @@ assert order({}) == ["greater", "u1", "greater"], order({})                     
 assert order({"u1:3": 1500}) == ["single", "u2", "single"], order({"u1:3": 1500})  # then the tank's Light
 assert order({"u1:3": 200, "u2:5": 500}) == ["greater", "u1", "greater"]           # Kings running short: Greater
 assert order({"u1:3": 1500, "u2:5": 500}) == ["greater", "u1", "none"]             # nothing due: Greater again
+# a class of exceptions only (me alone with my own small Wisdom): nothing due refreshes the single, never the Greater
+ALONE = ORDER.replace("{ name = 'A', unit = 'u1', online = true, dead = false, demo = true },", "")
+assert ALONE != ORDER
+alone = [txt(x) for x in lone.eval_py(ALONE, {"u2:5": 500})]
+assert alone == ["single", "u2", "none"], alone
 
 w.assert_no_errors()
 print(w.report())

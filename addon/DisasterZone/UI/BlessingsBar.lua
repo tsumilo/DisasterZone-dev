@@ -465,8 +465,18 @@ function Bar:MyRows()
             local st = Bl:ClassState(me, ci, byClass, bi)
             local gname = bi and Bl:BlessingName(bi, true)
             local t = bi and GreaterTarget(byClass[ci], gname, bi)
+            -- the icon: the Greater, or (everyone here is an exception, e.g. me alone with my own) the single
+            local icon = bi and Bl:BlessingIcon(bi, true)
+            local plain = false
+            for _, m in ipairs(byClass[ci]) do
+                if not (singles and singles[m.name]) then plain = true end
+            end
+            if (not plain or not bi) and singles then
+                local _, sbi = next(singles)
+                if sbi then icon = Bl:BlessingIcon(sbi) end
+            end
             out[#out + 1] = { ci = ci, cls = cls, bi = bi, members = byClass[ci], state = st, unit = t and t.unit,
-                greaterName = gname }
+                greaterName = gname, icon = icon or Bl:BlessingIcon(1) }
         end
     end
     return out
@@ -512,7 +522,21 @@ function Bar:NextFor(r, needOnly)
             if inRange and (not left or left < warn) then return name, m.unit, "single", m end
         end
     end
-    if not needOnly and r.unit and r.greaterName then return r.greaterName, r.unit, "greater" end
+    if needOnly then return nil end
+    -- nothing due: the Greater again, but only when someone here is on it (it would overwrite the singles of the
+    -- others); a class of exceptions only (me alone with my own single) refreshes the single running lowest
+    local plain, best, bestLeft = false, nil, nil
+    for _, m in ipairs(r.members) do
+        local sbi = Bl:GetSingle(me, r.ci, m.name)
+        if not sbi then
+            if ok(m) then plain = true end
+        elseif ok(m) then
+            local left = Bl:BuffLeft(m.unit, sbi) or 0
+            if not bestLeft or left < bestLeft then best, bestLeft = m, left end
+        end
+    end
+    if plain and r.unit and r.greaterName then return r.greaterName, r.unit, "greater" end
+    if best then return Bl:BlessingName(Bl:GetSingle(me, r.ci, best.name)), best.unit, "single", best end
     return nil
 end
 
@@ -874,7 +898,7 @@ function Bar:Update()
             f.classRGB = { cr, cg, cb }
             local reach = r.unit and 1 or 0.5
             if layout == "horizontal" then
-                f.tile:SetTexture(r.bi and Bl:BlessingIcon(r.bi, true) or Bl:BlessingIcon(1))
+                f.tile:SetTexture(r.icon)
                 f.tile:SetAlpha(reach)
                 f.corner:SetTexture(CIRCLES)
                 if c then f.corner:SetTexCoord(c[1], c[2], c[3], c[4]) end
@@ -888,7 +912,7 @@ function Bar:Update()
                 f.cls:SetTexture(CIRCLES)
                 if c then f.cls:SetTexCoord(c[1], c[2], c[3], c[4]) end
                 f.cls:SetAlpha(reach)
-                f.corner:SetTexture(r.bi and Bl:BlessingIcon(r.bi, true) or Bl:BlessingIcon(1))
+                f.corner:SetTexture(r.icon)
                 if st.left and st.left > 0 then
                     -- (started total - left ago: the swipe shows what is left and drains on its own)
                     local start = floor((now - (total - st.left)) * 2 + 0.5) / 2
