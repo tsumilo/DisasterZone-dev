@@ -309,6 +309,11 @@ local KNOWN_MESSAGES = {
     PERF_UPDATED = true,
     -- the guild map (Core/GuildMap.lua): somebody moved / came / left, or my sharing changed
     GUILDMAP_UPDATED = true,
+    -- attendance (Core/RaidLog.lua, Core/Attendance.lua): (recId, key) somebody left / joined the raid group while it
+    -- is logged; (recId, key, character) an expected player left the raid I lead before its end; (recId, plannedEnd) I
+    -- left a raid that expects me before its end; the GM's margins changed; my own attendance arrived
+    RAIDLOG_LEFT = true, RAIDLOG_JOINED = true, ATTENDANCE_PLAYER_LEFT = true, ATTENDANCE_LEFT_EARLY = true,
+    ATTENDANCE_RULES_CHANGED = true, ATTENDANCE_MINE = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

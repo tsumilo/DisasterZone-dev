@@ -110,6 +110,7 @@ Core\Blessings.lua
 Core\Totems.lua
 Core\RaidNights.lua
 Core\RaidPlan.lua
+Core\Attendance.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
 Core\RaidLink.lua

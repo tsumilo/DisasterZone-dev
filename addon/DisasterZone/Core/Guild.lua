@@ -1455,6 +1455,24 @@ function Guild:IsRaidLogMember(key)
     return type(key) == "string" and (Guild:IsRaidPlanner(key) or Guild:IsGuildCouncil(key)) and true or false
 end
 
+-- 1.3.5: decides attendance reviews (Core/Attendance.lua): the GM, officers and the guild council (user decision
+-- 2026-10-11: "a guild management issue").
+function Guild:IsAttendanceReviewer(key)
+    return type(key) == "string" and (Guild:IsGM(key) or Guild:IsOfficer(key) or Guild:IsGuildCouncil(key)) and true
+        or false
+end
+
+-- 1.3.5: reads and shares the raid log: its members, and the attendance reviewers (officers who aren't on a list get
+-- the attendance pages, not the other raid log rights: linking, bench marks, deleting). The loot handed out stays
+-- loot council data.
+function Guild:IsRaidLogReader(key)
+    return (Guild:IsRaidLogMember(key) or Guild:IsAttendanceReviewer(key)) and true or false
+end
+
+function Guild:AmIRaidLogReader()
+    return Guild:IsRaidLogReader(Util.PlayerKey())
+end
+
 function Guild:AmIRaidLogMember()
     return Guild:IsRaidLogMember(Util.PlayerKey())
 end
@@ -1482,10 +1500,19 @@ function Guild:GetRaidLeadersInfo()
     return { rev = rec.rev, by = rec.by, members = SetToArray(rec.m) }
 end
 
+-- 1.3.5: the attendance rules travel with the list (Core/Attendance.lua): ar = { o = how late (minutes) still counts as
+-- on time, d = how long a disconnect is ignored }, set by the GM. Clients before 1.3.5 ignore the field.
+local function CleanRules(ar)
+    if type(ar) ~= "table" then return nil end
+    local o, d = tonumber(ar.o), tonumber(ar.d)
+    if not (IsInt(o, 0, 60) and IsInt(d, 0, 60)) then return nil end
+    return { o = o, d = d }
+end
+
 local function SendRLL(target)
     local rec = LeadersRec(false)
     if not rec or rec.rev == 0 then return false end
-    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by }
+    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar) }
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     return Send(msg, "GUILD", nil, "ctrl")
 end
@@ -1521,7 +1548,34 @@ local function OnRaidLeaders(sender, msg, dist)
         if a <= b then return end                      -- the same (or the smaller) list: keep mine
     end
     rec.rev, rec.m, rec.by = msg.rev, set, by
+    rec.ar = CleanRules(msg.ar)
     Recompute()
+    ns:Fire("ATTENDANCE_RULES_CHANGED")
+end
+
+-- 1.3.5: the attendance rules { o = on-time minutes, d = disconnect minutes } (the GM's, else 5 and 10).
+Guild.ATTENDANCE_RULES = { o = 5, d = 10 }
+function Guild:GetAttendanceRules()
+    local rec = LeadersRec(false)
+    local ar = rec and CleanRules(rec.ar)
+    return ar or { o = Guild.ATTENDANCE_RULES.o, d = Guild.ATTENDANCE_RULES.d }
+end
+
+-- The GM only: sets the attendance rules (minutes, 0..60) and shares them with the raid leaders list. Returns ok, err.
+function Guild:SetAttendanceRules(o, d)
+    if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
+    if not ready then return false, "the guild roster has not loaded yet" end
+    if not Guild:IsGM(Util.PlayerKey()) then return false, "only the Guild Master sets the attendance rules" end
+    local ar = CleanRules({ o = o, d = d })
+    if not ar then return false, "the margins are whole minutes from 0 to 60" end
+    local rec = LeadersRec(true)
+    if not rec then return false, "your guild is not known yet" end
+    rec.rev = max(floor(Now()), rec.rev + 1)
+    rec.ar = ar
+    rec.by = rec.by or Util.PlayerKey()
+    SendRLL()
+    ns:Fire("ATTENDANCE_RULES_CHANGED")
+    return true
 end
 
 local function OnRaidLeadersQuery(sender, msg, dist)

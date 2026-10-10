@@ -35,6 +35,15 @@ local pulls = {}                        -- [encounterID] = server time of the pu
 -- the safety net does, without the players who joined the group after it.
 local confirmed
 
+-- 1.3.5 (time-based attendance, Core/Attendance.lua): each player's time online in the raid group, as pieces
+-- a.s = { from1, to1, from2, to2, ... } (oldest first). A scan extends the last piece while they stay; a piece starts
+-- anew after a gap longer than PIECE_JOIN (a scan missed is not a gap). At most MAX_PIECES: past that, the two closest
+-- pieces become one (the gap between them is the shortest, so it is the least likely to matter).
+local PIECE_JOIN = 2 * SCAN_INTERVAL + 10
+local MAX_PIECES = 16
+local groupSeen = {}                    -- [key] = server time first seen online in my raid group (this login)
+local lastRoster                        -- the keys of the last scan's roster (who left the group since)
+
 ---------------------------------------------------------------------------
 -- Storage
 ---------------------------------------------------------------------------
@@ -44,6 +53,14 @@ local confirmed
 local function IsPlanner(key)
     local Guild = ns.Guild
     return Guild and Guild.IsRaidLogMember and type(key) == "string" and Guild:IsRaidLogMember(key) and true or false
+end
+
+-- 1.3.5: reads and shares the raid log: its members and the attendance reviewers (the GM, officers, guild council).
+local function IsReader(key)
+    local Guild = ns.Guild
+    if not (Guild and type(key) == "string") then return false end
+    if Guild.IsRaidLogReader then return Guild:IsRaidLogReader(key) end
+    return IsPlanner(key)
 end
 
 local function RaidsDB()
@@ -107,13 +124,65 @@ local function NoteZone(rec)
     return true
 end
 
--- Updates attendance (joins / leaves) and the activity stamp from the live roster.
+-- Two pieces lists (see PIECE_JOIN) as one: overlapping or nearly touching pieces joined, at most MAX_PIECES.
+local function JoinPieces(a, b)
+    local list = {}
+    for _, s in ipairs({ a or {}, b or {} }) do
+        for i = 1, #s - 1, 2 do list[#list + 1] = { s[i], s[i + 1] } end
+    end
+    tsort(list, function(x, y) return x[1] < y[1] end)
+    local out = {}
+    for _, p in ipairs(list) do
+        local n = #out
+        if n >= 2 and p[1] <= out[n] + PIECE_JOIN then
+            if p[2] > out[n] then out[n] = p[2] end
+        else
+            out[n + 1], out[n + 2] = p[1], p[2]
+        end
+    end
+    while #out > 2 * MAX_PIECES do
+        local best, gap = 2, math.huge
+        for i = 2, #out - 2, 2 do
+            if out[i + 1] - out[i] < gap then best, gap = i, out[i + 1] - out[i] end
+        end
+        table.remove(out, best + 1)
+        table.remove(out, best)
+    end
+    return out
+end
+
+-- The player is online in the group now (since: when I first saw them there, for the first piece of a record).
+local function AddPresence(a, now, since)
+    local s = type(a.s) == "table" and a.s or {}
+    local n = #s
+    if n >= 2 and now - s[n] <= PIECE_JOIN then
+        if now > s[n] then s[n] = now end
+        a.s = s
+    else
+        a.s = JoinPieces(s, { math.min(since or now, now), now })
+    end
+end
+
+-- Who of my raid group is online, since when (groupSeen): a session started late still knows who was there first.
+local function NoteGroup(roster)
+    local now = GetServerTime()
+    for key in pairs(groupSeen) do
+        local m = roster[key]
+        if not (m and m.online) then groupSeen[key] = nil end
+    end
+    for key, m in pairs(roster) do
+        if m.online and not groupSeen[key] then groupSeen[key] = now end
+    end
+end
+
+-- Updates attendance (joins / leaves, the presence pieces) and the activity stamp from the live roster.
 local function Scan(rec)
     if not rec then return end
     local now = GetServerTime()
     if not rec.g then rec.g = GuildKey() end
     local inside = NoteZone(rec)
     local roster = Roster()
+    NoteGroup(roster)
     rec.att = type(rec.att) == "table" and rec.att or {}
     for key, m in pairs(roster) do
         local a = rec.att[key]
@@ -124,12 +193,26 @@ local function Scan(rec)
         if not a.j then a.j = now end   -- (a bench mark of somebody who never joined, joining now)
         if m.class then a.c = m.class end
         a.l = nil   -- present (again)
+        if m.online then AddPresence(a, now, groupSeen[key]) end
         if m.online and rec.zone and m.zone == rec.zone then inside = true end
     end
     for key, a in pairs(rec.att) do
         if not roster[key] and not a.l and not a.b then a.l = now end
     end
     if inside then rec.last = now end
+    -- who left the group since the last scan / joined it (the raid leader's attendance prompt, fill-ins)
+    local before = lastRoster and lastRoster.id == rec.id and lastRoster.keys or nil
+    local keys = {}
+    for key in pairs(roster) do keys[key] = true end
+    lastRoster = { id = rec.id, keys = keys }
+    if before then
+        for key in pairs(before) do
+            if not keys[key] then ns:Fire("RAIDLOG_LEFT", rec.id, key) end
+        end
+        for key in pairs(keys) do
+            if not before[key] then ns:Fire("RAIDLOG_JOINED", rec.id, key) end
+        end
+    end
 end
 
 local function ScheduleScan()
@@ -141,6 +224,10 @@ local function ScheduleScan()
         if rec and rec.id == confirmed then
             Scan(rec)
             Changed(rec)
+        elseif IsInRaid() then
+            NoteGroup(Roster())            -- (no session yet: who is here since when, for when it starts)
+        else
+            wipe(groupSeen)
         end
     end)
 end
@@ -157,6 +244,8 @@ end
 -- unlinked: nothing of the old raid's sign-ups stays behind (no-shows, reliability, the guest book).
 local function DropSignups(rec, plAt)
     rec.su = nil
+    -- 1.3.5: who the raid expected (and when) came from the same link (Attendance:Snapshot)
+    rec.ex, rec.exAt, rec.ef, rec.et, rec.sn = nil, nil, nil, nil, nil
     plAt = tonumber(plAt)
     if not plAt or plAt <= 0 or type(rec.att) ~= "table" then return end
     for key, a in pairs(rec.att) do
@@ -174,6 +263,9 @@ end
 local function SetLink(rec, pl, plAt)
     if pl ~= rec.pl then DropSignups(rec, rec.plAt) end
     rec.pl, rec.plAt = pl, plAt
+    -- 1.3.5: who is expected, saved when the raid gets its planned raid (at the start, or a relink)
+    local Att = ns.Attendance
+    if Att and Att.Snapshot then Att:Snapshot(rec) end
 end
 
 local function Open(session)
@@ -206,6 +298,12 @@ end
 local function SnapshotPlan(rec)
     local RP = ns.RaidPlan
     if not rec.pl or not (RP and RP.GetSignups) then return end
+    -- 1.3.5: the expected list if it was never saved (the plan arrived late), and the sign-up notes / Absent answers
+    local Att = ns.Attendance
+    if Att and Att.Snapshot then
+        if not rec.ex then Att:Snapshot(rec) end
+        if Att.SnapshotNotes then Att:SnapshotNotes(rec) end
+    end
     local signups = RP:GetSignups(rec.pl)
     if not next(signups) then return end
     rec.su = rec.su or {}
@@ -393,6 +491,26 @@ function RaidLog:GetCurrentID()
     local rec = OpenRecord()
     return rec and rec.id or nil
 end
+
+-- 1.3.5 (Core/Attendance.lua): the record being recorded now (stored table), or nil.
+function RaidLog:GetOpenRecord()
+    if not IsInRaid() then return nil end
+    local rec = OpenRecord()
+    return rec and rec.id == confirmed and rec or nil
+end
+
+-- 1.3.5: a record's attendance fields were changed here (a decision, a mark, a reason): refresh, and offer my digest
+-- to the other raid log members when the raid is over (so the change spreads now, not at the next login).
+function RaidLog:NoteEdit(rec)
+    Changed(rec)
+    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
+    if type(rec) == "table" and rec.stop and not demo then
+        Util.Debounce("raidlog-edit", 5, function() RaidLog:OfferDigest() end)
+    end
+end
+
+RaidLog.JoinPieces = function(_, a, b) return JoinPieces(a, b) end
+RaidLog.PIECE_JOIN = PIECE_JOIN
 
 -- The open record when a new authority may resume it (I am in a raid and it was active recently), or nil:
 -- { id, start, pl, plAt } (1.3: with its planned-raid link, so a resumed session keeps it; plAt without pl = unlinked
@@ -824,7 +942,7 @@ end
 
 local function IsGuildCouncilPair(sender)
     local me = Util.PlayerKey()
-    return me ~= nil and IsPlanner(me) and IsPlanner(sender)
+    return me ~= nil and IsReader(me) and IsReader(sender)
 end
 
 local function SendTo(msg, target, class)
@@ -833,12 +951,58 @@ local function SendTo(msg, target, class)
     return Comm:Send(msg, "WHISPER", target, class)
 end
 
--- The merge-relevant content of a record (what the digest covers).
-local function RecordHash(rec)
+-- 1.3.5: a record's attendance fields (Core/Attendance.lua) for the hash: presence pieces, who was expected and
+-- when, sign-up notes, the raid leader's marks, own reasons, decisions and chat lines picked.
+local function AttendanceHash(rec)
+    local function flat(map, fields)
+        local out = {}
+        for key, v in pairs(map or {}) do
+            local parts = { key }
+            for i, f in ipairs(fields) do
+                local x = v[f]
+                if type(x) == "table" then
+                    local l = {}
+                    for _, line in ipairs(x) do l[#l + 1] = (line.t or "") .. "@" .. (line.ch or "") .. (line.at or 0) end
+                    x = table.concat(l, "~")
+                end
+                parts[i + 1] = tostring(x == nil and "" or x)
+            end
+            out[#out + 1] = table.concat(parts, ";")
+        end
+        tsort(out)
+        return table.concat(out, "|")
+    end
+    local pieces = {}
+    for key, a in pairs(rec.att or {}) do
+        if a.s then pieces[#pieces + 1] = key .. "=" .. table.concat(a.s, ",") end
+    end
+    tsort(pieces)
+    local ex = {}
+    for key, k in pairs(rec.ex or {}) do ex[#ex + 1] = key .. "=" .. k end
+    tsort(ex)
+    return Util.Hash({ table.concat(pieces, "|"), table.concat(ex, ","), rec.exAt or 0, rec.ef or 0, rec.et or 0,
+        flat(rec.sn, { "n", "x", "at" }), flat(rec.mk, { "b", "sw", "rm", "od", "by", "at" }),
+        flat(rec.rs, { "c", "n", "at" }), flat(rec.dc, { "d", "by", "at", "n" }), flat(rec.q, { "by", "at", "l" }) })
+end
+
+-- The merge-relevant content of a record (what the digest covers). v2 (1.3.5) also covers the attendance fields;
+-- the plain hash is what a client before 1.3.5 computes (it drops those fields), for comparing digests with one.
+local function RecordHash(rec, v2)
     if rec.del then return Util.Hash({ "del", rec.delAt or 0, rec.delBy or "" }) end
     local att = {}
     for key, a in pairs(rec.att or {}) do
         att[key] = { a.j or 0, a.l or 0, a.k or 0, a.b and 1 or 0, a.bts or 0 }
+    end
+    if v2 then
+        local bosses = {}
+        for i, b in ipairs(rec.bosses or {}) do
+            bosses[i] = { b.enc or 0, b.ts or 0, b.roster and table.concat(b.roster, ",") or "", b.dur or 0 }
+        end
+        local su = {}
+        for key, st in pairs(rec.su or {}) do su[#su + 1] = key .. "=" .. st end
+        tsort(su)
+        return Util.Hash({ rec.start or 0, rec.stop or 0, rec.endedBy or "", rec.zone or "", att, bosses, rec.pl or "",
+                           rec.plAt or 0, table.concat(su, ","), AttendanceHash(rec) })
     end
     local bosses = {}
     for i, b in ipairs(rec.bosses or {}) do
@@ -855,8 +1019,10 @@ local function Syncable(rec, g, minTs)
     return type(rec) == "table" and rec.stop and (rec.g == g) and type(rec.start) == "number" and rec.start >= minTs
 end
 
--- { [week] = checksum } of my closed raids of the last SYNC_DAYS (my current guild only).
-function RaidLog:GetDigest()
+-- { [week] = checksum } of my closed raids of the last SYNC_DAYS (my current guild only). 1.3.5: v = 2, the checksums
+-- cover the attendance fields too (older clients skip the v key: not a week); legacy = true: the checksums a client
+-- before 1.3.5 makes, to compare with its digest.
+function RaidLog:GetDigest(legacy)
     local out = {}
     local raids = RaidsDB()
     local g = GuildKey()
@@ -868,14 +1034,104 @@ function RaidLog:GetDigest()
             local wk = floor(rec.start / WEEK)
             perWeek[wk] = perWeek[wk] or {}
             local list = perWeek[wk]
-            list[#list + 1] = id .. ":" .. RecordHash(rec)
+            list[#list + 1] = id .. ":" .. RecordHash(rec, not legacy)
         end
     end
     for wk, list in pairs(perWeek) do
         tsort(list)
         out[wk] = Util.Hash(list)
     end
+    if not legacy then out.v = 2 end
     return out
+end
+
+-- 1.3.5: presence pieces from the wire: whole numbers, in order, from <= to, at most MAX_PIECES; nil when none.
+local function CleanPieces(s)
+    if type(s) ~= "table" or #s < 2 or #s > 2 * MAX_PIECES or #s % 2 ~= 0 then return nil end
+    local out, prev = {}, 0
+    for i = 1, #s, 2 do
+        local f, t = s[i], s[i + 1]
+        if not (IsInt(f, prev, MAX_TS) and IsInt(t, f, MAX_TS)) then return nil end
+        out[i], out[i + 1], prev = f, t, t
+    end
+    return out
+end
+
+-- A short plain text (a note, a reason, a chat line): at most `max` characters, no control or escape codes.
+local function CleanText(s, max)
+    if type(s) ~= "string" or s == "" or #s > (max or 200) or s:find("[%c|]") then return nil end
+    return s
+end
+
+local CHAT_KINDS = { Raid = true, Party = true, Guild = true, Whisper = true, Officer = true, Say = true }
+
+-- 1.3.5: a record's attendance fields from the wire (Core/Attendance.lua), into `out`. Anything malformed is left out
+-- (never the whole record: a newer client may send what this one doesn't know).
+local function CleanAttendance(r, out, now)
+    local function key(k) return IsKey(k) and Util.NormalizeName(k) or nil end
+    local function stamp(t) return IsInt(t, 1, now + FUTURE_SLACK) and t or nil end
+    local function each(map, fn)
+        if type(map) ~= "table" then return nil end
+        local res, n = {}, 0
+        for k, v in pairs(map) do
+            n = n + 1
+            if n > MAX_ATT then break end
+            local kk = key(k)
+            local c = kk and type(v) == "table" and fn(v)
+            if c then res[kk] = c end
+        end
+        return next(res) and res or nil
+    end
+    if out.pl then   -- (who was expected belongs to the planned raid, like the sign-ups)
+        local n = 0
+        for k, kind in pairs(type(r.ex) == "table" and r.ex or {}) do
+            n = n + 1
+            if n > MAX_ATT then break end
+            local kk = key(k)
+            if kk and (kind == "l" or kind == "a") then
+                out.ex = out.ex or {}
+                out.ex[kk] = kind
+            end
+        end
+        if out.ex then
+            out.exAt = stamp(r.exAt)
+            out.ef = IsInt(r.ef, 1, MAX_TS) and r.ef or nil
+            out.et = out.ef and IsInt(r.et, out.ef, MAX_TS) and r.et or nil
+        end
+        out.sn = each(r.sn, function(v)
+            local c = { n = CleanText(v.n, 120), x = v.x == true or nil, at = stamp(v.at) }
+            return (c.n or c.x) and c or nil
+        end)
+    end
+    out.mk = each(r.mk, function(v)
+        local at = stamp(v.at)
+        if not at then return nil end
+        return { b = v.b == true or nil, sw = key(v.sw), rm = v.rm == true or nil, od = v.od == true or nil,
+                 by = key(v.by), at = at }
+    end)
+    out.rs = each(r.rs, function(v)
+        local at = stamp(v.at)
+        local c = type(v.c) == "string" and #v.c <= 16 and v.c:find("^%a+$") and v.c or nil
+        if not at or not (c or v.n) then return nil end
+        return { c = c, n = CleanText(v.n), at = at }
+    end)
+    out.dc = each(r.dc, function(v)
+        local at, by = stamp(v.at), key(v.by)
+        if not (at and by and (v.d == "x" or v.d == "c")) then return nil end
+        return { d = v.d, by = by, at = at, n = CleanText(v.n) }
+    end)
+    out.q = each(r.q, function(v)
+        local at, by = stamp(v.at), key(v.by)
+        if not (at and by and type(v.l) == "table") then return nil end
+        local lines = {}
+        for i = 1, 5 do
+            local line = v.l[i]
+            if type(line) ~= "table" then break end
+            local t, at2 = CleanText(line.t), stamp(line.at)
+            if t and at2 and CHAT_KINDS[line.ch] then lines[#lines + 1] = { t = t, ch = line.ch, at = at2 } end
+        end
+        return { by = by, at = at, l = lines }
+    end)
 end
 
 -- Validates an untrusted record: a clean copy or nil.
@@ -924,9 +1180,12 @@ local function CleanRecord(r, now)
             if a.b == true then c.b = true end
             if IsInt(a.bts, 0, now + FUTURE_SLACK) then c.bts = a.bts end
             if type(a.c) == "string" and a.c:find("^%u+$") and #a.c <= 16 then c.c = a.c end
+            local s = CleanPieces(a.s)
+            if s then c.s = s end
             out.att[k] = c
         end
     end
+    CleanAttendance(r, out, now)
     if type(r.bosses) ~= "table" or #r.bosses > MAX_BOSSES then return nil end
     for _, b in ipairs(r.bosses) do
         if type(b) == "table" and IsInt(b.enc, 1, 100000) and IsInt(b.ts, 0, now + FUTURE_SLACK) then
@@ -969,7 +1228,7 @@ local function MaxN(a, b) if a and b then return math.max(a, b) end return a or 
 
 -- Merges a clean peer record into mine (commutative). Returns true when mine changed.
 local function MergeRecord(cur, e)
-    local before = RecordHash(cur)
+    local before = RecordHash(cur, true)
     -- the planned-raid link: the newer decision wins (the same time: the larger id, so both sides agree). 1.3: the
     -- sign-ups (su) and the bench marks made from them belong to a link: two copies of the same link are joined, else the
     -- winning link's come along and the other link's are dropped (loseAt: the losing link's time in e's bench marks).
@@ -984,10 +1243,30 @@ local function MergeRecord(cur, e)
                 if not cur.su[key] or st > cur.su[key] then cur.su[key] = st end
             end
         end
+        -- 1.3.5: who was expected: the later snapshot wins; two of the same time are joined
+        if e.ex then
+            local ca, ea = tonumber(cur.exAt) or 0, tonumber(e.exAt) or 0
+            if not cur.ex or ea > ca then
+                cur.ex, cur.exAt, cur.ef, cur.et = Util.CopyTable(e.ex), e.exAt, e.ef, e.et
+            elseif ea == ca then
+                for key, kind in pairs(e.ex) do
+                    if not cur.ex[key] or kind == "l" then cur.ex[key] = kind end
+                end
+                cur.ef = MinN(cur.ef, e.ef)
+                cur.et = MaxN(cur.et, e.et)
+            end
+        end
+        for key, v in pairs(e.sn or {}) do
+            cur.sn = cur.sn or {}
+            local c = cur.sn[key]
+            if not c or (v.at or 0) > (c.at or 0) then cur.sn[key] = v end
+        end
     elseif eWins then
         DropSignups(cur, cp)
         cur.pl, cur.plAt = e.pl, e.plAt
         cur.su = e.su and Util.CopyTable(e.su) or nil
+        cur.ex, cur.exAt, cur.ef, cur.et = e.ex and Util.CopyTable(e.ex) or nil, e.exAt, e.ef, e.et
+        cur.sn = e.sn and Util.CopyTable(e.sn) or nil
     else
         loseAt = ep > 0 and ep or nil
     end
@@ -1024,8 +1303,22 @@ local function MergeRecord(cur, e)
             c.l = MaxN(c.l, a.l)
             c.k = math.max(tonumber(c.k) or 0, a.k or 0)
             if not c.c then c.c = a.c end
+            if a.s then c.s = JoinPieces(c.s, a.s) end   -- 1.3.5: what any recorder saw them there
             local cb, eb = c.bts or 0, a.bts or 0
             if eb > cb or (eb == cb and a.b and not c.b) then c.b, c.bts = a.b, a.bts end
+        end
+    end
+    -- 1.3.5: the raid leader's marks, own reasons, decisions and picked chat lines: per player, the newest wins (the
+    -- same time: the larger author, so both sides agree). A decision counts only from a reviewer.
+    local Att = ns.Attendance
+    for _, field in ipairs({ "mk", "rs", "dc", "q" }) do
+        for key, v in pairs(e[field] or {}) do
+            local ok = field ~= "dc" or not (Att and Att.CanReview) or Att:CanReview(v.by)
+            local c = cur[field] and cur[field][key]
+            if ok and (not c or v.at > (c.at or 0) or (v.at == c.at and (v.by or "") > (c.by or ""))) then
+                cur[field] = cur[field] or {}
+                cur[field][key] = v
+            end
         end
     end
     cur.bosses = type(cur.bosses) == "table" and cur.bosses or {}
@@ -1051,7 +1344,7 @@ local function MergeRecord(cur, e)
         if a.ts ~= b.ts then return a.ts < b.ts end
         return a.enc < b.enc
     end)
-    return RecordHash(cur) ~= before
+    return RecordHash(cur, true) ~= before
 end
 
 -- A peer's record (from RLG). Returns true when stored or changed.
@@ -1101,7 +1394,7 @@ end
 -- Requests the weeks where the peer's digest differs from mine.
 function RaidLog:SyncFromDigest(X, digest)
     if DemoOn() or type(X) ~= "string" or type(digest) ~= "table" or not IsGuildCouncilPair(X) then return end
-    local mine = self:GetDigest()
+    local mine = self:GetDigest(digest.v ~= 2)   -- (a client before 1.3.5: compare without the attendance fields)
     local nowWeek = floor(GetServerTime() / WEEK)
     local minWeek = floor((GetServerTime() - SYNC_DAYS * DAY) / WEEK)
     local weeks, seen = {}, 0
@@ -1166,7 +1459,7 @@ end
 
 -- After a raid ends here: offer my digest to the online guild council (jittered: every recorder does this).
 function RaidLog:OfferDigest()
-    if DemoOn() or not IsPlanner(Util.PlayerKey()) then return end
+    if DemoOn() or not IsReader(Util.PlayerKey()) then return end
     Util.RandomDelay(RD_DELAY_MIN, RD_DELAY_MAX, function()
         -- the online council peers and the online raid leaders (raid planners only)
         local targets, seen = {}, {}
@@ -1180,9 +1473,16 @@ function RaidLog:OfferDigest()
                 targets[#targets + 1] = key
             end
         end
+        -- 1.3.5: the online officers (attendance reviewers)
+        for _, key in ipairs(Guild and Guild.GetOnlineMembers and Guild:GetOnlineMembers() or {}) do
+            if not seen[key] and not Util.IsMe(key) and Guild.IsOfficer and Guild:IsOfficer(key) then
+                seen[key] = true
+                targets[#targets + 1] = key
+            end
+        end
         local msg = { t = "RLD", rd = RaidLog:GetDigest(), q = true }
         for _, key in ipairs(targets) do
-            if IsPlanner(key) then SendTo(msg, key, "ctrl") end
+            if IsReader(key) then SendTo(msg, key, "ctrl") end
         end
     end)
 end

@@ -417,8 +417,8 @@ function Sync:SendHello(force)
         msg.mh = ns.Store and ns.Store.GetManifestHashes and ns.Store:GetManifestHashes(msg.m) or nil
         msg.ld = LedgerDigest()
         msg.rd = RaidDigest()
-    elseif Guild.AmIRaidLogMember and Guild:AmIRaidLogMember() then
-        msg.rd = RaidDigest()   -- Addendum J §62: raid leaders exchange the raid log (never lists or the award log)
+    elseif (Guild.AmIRaidLogReader and Guild:AmIRaidLogReader()) or (Guild.AmIRaidLogMember and Guild:AmIRaidLogMember()) then
+        msg.rd = RaidDigest()   -- 1.3.5: the attendance reviewers (officers) too   -- Addendum J §62: raid leaders exchange the raid log (never lists or the award log)
     end
     if Guild.GetRaidLeadersRev then msg.rlr = Guild:GetRaidLeadersRev() end   -- Addendum J §62
     if Guild.GetAccountsHash then msg.av = Guild:GetAccountsHash() end        -- accounts (Guild.lua)
