@@ -65,8 +65,16 @@ local function Edge(f, r, g, b, a)
     UI():SetEdgeColor(f, r, g, b, a)
 end
 
-local function Round(tex)
-    if tex.SetMask then tex:SetMask(DISC) end
+-- A round icon the way the game makes portraits round (a mask on an icon came out in stripes on this client).
+local function SetRoundIcon(tex, path)
+    if tex.roundPath == path then return end
+    tex.roundPath = path
+    tex:SetTexture(path)
+    tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    if SetPortraitToTexture and type(path) == "string" then
+        tex:SetTexCoord(0, 1, 0, 1)
+        SetPortraitToTexture(tex, path)
+    end
 end
 
 local function Secure(parent, name)
@@ -246,8 +254,6 @@ local function HeaderIcon(name, size)
     b:SetSize(size, size)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetAllPoints()
-    b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    Round(b.icon)
     b.ring = b:CreateTexture(nil, "OVERLAY")
     b.ring:SetTexture(RING)
     b.ring:SetPoint("TOPLEFT", -2, 2)
@@ -292,7 +298,7 @@ local function Build()
     frame.aura = aura
 
     local rf = HeaderIcon("DisasterZoneBlessRF", 16)
-    rf.icon:SetTexture(B().D.RF_ICON)
+    SetRoundIcon(rf.icon, B().D.RF_ICON)
     rf:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine(GetSpellInfo(B().D.RIGHTEOUS_FURY) or "Righteous Fury")
@@ -649,7 +655,7 @@ function Bar:Update()
     frame:SetAlpha(combat and 0.75 or 1)
     local ai = Bl:GetAura(me)
     if ai then
-        frame.aura.icon:SetTexture(Bl:AuraIcon(ai))
+        SetRoundIcon(frame.aura.icon, Bl:AuraIcon(ai))
         local on = Bl:IsDemo()
         for i = 1, 40 do
             local name, _, _, _, _, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
