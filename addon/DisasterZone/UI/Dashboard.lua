@@ -725,22 +725,78 @@ end
 -- The actions that need me now: { text, kind = warn | info | bad | plain, icon, tip = { lines }, onClick }.
 -- The notification center's items that show on Home (Core/Notify.lua, kinds with home = true): what waits for me
 -- first, then the news (what's new, a newer version). A kind's chip(it) gives the chip's look; the text is its short.
+-- Several items of one kind make one chip (three polls are "3 polls waiting", not three chips): the kind's
+-- chipGroup(items) gives its text (else "<label> (n)"), the look is its first item's chip, the tip lists them all and a
+-- click runs the kind's openGroup(items), else opens its page.
+local GROUP_TIP_MAX = 10
+
+local function kindChip(def, it)
+    if not def.chip then return {} end
+    local ok, r = pcall(def.chip, it)
+    return ok and type(r) == "table" and r or {}
+end
+
+local function groupChip(N, def, items)
+    local c = kindChip(def, items[1])
+    local g
+    if def.chipGroup then
+        local ok, r = pcall(def.chipGroup, items)
+        if ok then g = r end
+    end
+    if type(g) == "string" then g = { text = g } end
+    g = type(g) == "table" and g or {}
+    local tip = { g.title or def.label }
+    for i, it in ipairs(items) do
+        if i > GROUP_TIP_MAX then
+            tip[#tip + 1] = "|cff9e9e9e+" .. (#items - GROUP_TIP_MAX) .. " more|r"
+            break
+        end
+        tip[#tip + 1] = (it.title or it.short or "") .. (it.from and ("|cff9e9e9e  " .. shortName(it.from) .. "|r") or "")
+    end
+    tip[#tip + 1] = "|cff9e9e9eClick to see them all.|r"
+    local onClick
+    if def.openGroup or def.page then
+        onClick = function()
+            for _, it in ipairs(items) do N:MarkSeen(it.id) end
+            if def.openGroup then
+                local ok, err = pcall(def.openGroup, items)
+                if not ok then ns:Debug("Notify openGroup %s failed: %s", def.kind, tostring(err)) end
+            elseif ns.MainFrame then
+                ns.MainFrame:Open(def.page)
+            end
+        end
+    end
+    return { text = g.text or (def.label .. " (" .. #items .. ")"), kind = g.kind or c.kind or "plain",
+             icon = g.icon or c.icon, tip = g.tip or tip, onClick = onClick }
+end
+
 local function feedChips(out)
     local N = ns.Notify
     if not (N and N.IsLoaded and N:IsLoaded()) then return end
+    local groups, order = {}, {}
     for _, it in ipairs(N:List({ home = true })) do
-        local def = N:GetKind(it.kind) or {}
-        local c = {}
-        if def.chip then
-            local ok, r = pcall(def.chip, it)
-            if ok and type(r) == "table" then c = r end
+        local g = groups[it.kind]
+        if not g then
+            g = {}
+            groups[it.kind] = g
+            order[#order + 1] = it.kind
         end
-        local tip = { it.title or "" }
-        if it.text and it.text ~= "" then tip[#tip + 1] = it.text end
-        local id = it.id
-        out[#out + 1] = { text = c.text or it.short or it.title or "", kind = c.kind or "plain", icon = c.icon,
-                          tip = c.tip or tip,
-                          onClick = def.open and function() N:Open(id) end or nil }
+        g[#g + 1] = it
+    end
+    for _, kind in ipairs(order) do
+        local items, def = groups[kind], N:GetKind(kind) or {}
+        if #items > 1 then
+            out[#out + 1] = groupChip(N, def, items)
+        else
+            local it = items[1]
+            local c = kindChip(def, it)
+            local tip = { it.title or "" }
+            if it.text and it.text ~= "" then tip[#tip + 1] = it.text end
+            local id = it.id
+            out[#out + 1] = { text = c.text or it.short or it.title or "", kind = c.kind or "plain", icon = c.icon,
+                              tip = c.tip or tip,
+                              onClick = def.open and function() N:Open(id) end or nil }
+        end
     end
 end
 

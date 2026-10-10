@@ -65,6 +65,8 @@ function S.NewSim(opts)
     pending = {},       -- sorted, next action LAST (as in Go)
     weaponAttacks = {}, -- WeaponAttack objects currently swinging
     minWeaponAttackTime = huge,
+    tasks = {},         -- objects with RunTask(sim) -> next time (energy / focus ticks)
+    minTaskTime = huge,
     trackers = {},      -- units whose auras expire
     minTrackerTime = huge,
     now = 0,
@@ -166,6 +168,37 @@ function Sim:RemoveWeaponAttack(wa)
   end
 end
 
+-- Tasks (sim.go AddTask / RescheduleTask): run before pending actions at the same time, after weapon swings.
+function Sim:AddTask(task)
+  self.tasks[#self.tasks + 1] = task
+end
+
+function Sim:RemoveTask(task)
+  local list = self.tasks
+  for i = 1, #list do
+    if list[i] == task then
+      list[i] = list[#list]
+      list[#list] = nil
+      return
+    end
+  end
+end
+
+function Sim:RescheduleTask(t)
+  if t < self.minTaskTime then self.minTaskTime = t end
+end
+
+function Sim:AdvanceTasks()
+  if self.minTaskTime > self.now then self:Advance(self.minTaskTime) end
+  local m = huge
+  local list = self.tasks
+  for i = 1, #list do
+    local t = list[i]:RunTask(self)
+    if t < m then m = t end
+  end
+  self.minTaskTime = m
+end
+
 function Sim:RescheduleTracker(t)
   if t < self.minTrackerTime then self.minTrackerTime = t end
 end
@@ -234,10 +267,17 @@ function Sim:Step()
   local last = #pas
   local pa = pas[last]
   local paAt = pa and pa.at or huge
-  if paAt >= self.minWeaponAttackTime then
-    if self.minWeaponAttackTime > self.duration then return true end
-    self:WakeRotations(self.minWeaponAttackTime, huge, nil)
+  local mw, mt = self.minWeaponAttackTime, self.minTaskTime
+  if paAt >= mw and mw <= mt then
+    if mw > self.duration then return true end
+    self:WakeRotations(mw, huge, nil)
     self:AdvanceWeaponAttacks()
+    return false
+  end
+  if paAt >= mt then
+    if mt > self.duration then return true end
+    self:WakeRotations(mt, huge, nil)
+    self:AdvanceTasks()
     return false
   end
   pas[last] = nil
@@ -281,6 +321,8 @@ function Sim:RunOnce(iteration)
   self.minTrackerTime = huge
   self.weaponAttacks = {}
   self.minWeaponAttackTime = huge
+  self.tasks = {}
+  self.minTaskTime = huge
   self.damageTaken = 0
   self.isInPrepull = true
 

@@ -349,6 +349,47 @@ def a_raid_invite_reaches_the_bell_a_pop_up_and_home_then_leaves_once_answered()
 
 
 @case
+def several_items_of_one_kind_make_one_home_chip():
+    w, c = solo("Alice")
+    c.eval("""
+      __H = { items = {} }
+      ns.Notify:RegisterKind("homeKind", { section = "Tests", page = "raids", label = "Home things", needsYou = true,
+        popup = false, home = true, open = function(it) __H.opened = it.key end,
+        chip = function(it) return { kind = "warn" } end,
+        chipGroup = function(items) return { text = #items .. " home things" } end,
+        openGroup = function(items) __H.group = #items end })
+      ns.Notify:RegisterSource("homeKind", function()
+        local out = {}
+        for k, v in pairs(__H.items) do out[#out + 1] = { key = k, title = v, short = v, from = 'Bob-Test' } end
+        return out
+      end)""")
+    w.tick(0.5)
+
+    def put_home(key, title):
+        c.eval("__H.items[...] = select(2, ...); ns.Notify:Refresh('homeKind')", key, title)
+        w.tick(0.3)
+
+    put_home("a", "Thing one")
+    open_window(c)
+    one = home_chip(c, "Thing one")
+    assert one is not None
+    c.click(one)
+    assert c.eval("return __H.opened") == "a"
+    put_home("b", "Thing two")
+    put_home("c", "Thing three")
+    c.eval("ns.Dashboard:Refresh()")
+    w.tick(0.3)
+    assert home_chip(c, "Thing") is None, "no chip per item once there are several"
+    grp = home_chip(c, "3 home things")
+    assert grp is not None
+    tip = c.eval_py("return (...).tip", grp)
+    assert len([l for l in tip if "Thing" in l]) == 3, tip
+    c.click(grp)
+    assert c.eval("return __H.group") == 3
+    no_errors(w)
+
+
+@case
 def demo_mode_items_never_reach_saved_variables():
     w, c = solo("Alice")
     setup(c, news=True)

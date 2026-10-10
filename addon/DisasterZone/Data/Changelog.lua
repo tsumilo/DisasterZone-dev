@@ -84,6 +84,7 @@ ns.CHANGELOG = {
               "Counts show on the tabs, in the menus and on the minimap button; its tooltip lists them.",
               "Settings > Notifications: per kind, pop-up, sound or a chat line; quiet for an hour.",
               "Home's chips come from the same list, so Home and the bell always agree.",
+              "Several of one kind are one chip on Home (\"3 polls waiting\"); its tooltip lists them.",
           } },
           { heading = "Raids, Gear and Guild menus", lines = {
               "The menus under Raids, Gear and Guild are a spotlight now: the pages on the left.",

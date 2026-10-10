@@ -76,6 +76,14 @@ local function register()
             return { text = it.from and ("Poll from " .. Short(it.from)) or "Answer a poll", kind = "warn",
                      icon = { tex = UI().ICON_ATLAS, coords = UI():IconCoords(ns:HasAssets(6) and 55 or 25) } }
         end,
+        -- several on Home: one chip ("3 polls from Victhar" when one person asks them all)
+        chipGroup = function(items)
+            local by = items[1].from
+            for _, it in ipairs(items) do if it.from ~= by then by = nil break end end
+            return { text = #items .. " polls " .. (by and ("from " .. Short(by)) or "waiting"),
+                     title = #items .. " polls waiting for you" }
+        end,
+        openGroup = function() openTab("polls") end,
     })
     N:RegisterSource("polls", function()
         local P, out = ns.Polls, {}
@@ -108,6 +116,10 @@ local function register()
             return { { text = "Accept", primary = true, fn = answer("A") }, { text = "Tentative", fn = answer("T") } }
         end,
         chip = function() return { kind = "warn", icon = { tex = "Interface\\RaidFrame\\ReadyCheck-Ready", desat = true } } end,
+        chipGroup = function(items)
+            return { text = "Sign up: " .. #items .. " raids", title = #items .. " raids you haven't answered" }
+        end,
+        openGroup = function() openRaid() end,
     })
     N:RegisterSource("raidAnswer", function()
         local rp, out = ns.RaidPlan, {}
@@ -131,6 +143,12 @@ local function register()
             return { { text = "Review", primary = true, fn = function() N:Open(it.id) end } }
         end,
         chip = function() return { kind = "warn", icon = atlas(UI().ICON.team or 46) } end,
+        chipGroup = function(items)
+            local n = 0
+            for _, it in ipairs(items) do n = n + (it.n or 1) end
+            return { text = n .. " join requests", title = n .. " join requests for " .. #items .. " raids you run" }
+        end,
+        openGroup = function() openRaid() end,
     })
     N:RegisterSource("raidRequests", function()
         local rp, out = ns.RaidPlan, {}

@@ -545,3 +545,43 @@ function HUD:OnLogin()
     end)
     self:Refresh()
 end
+
+-- The kit's Settings section (UI/Settings.lua gives every class tool one; this one shows for Retribution only).
+if ns.ClassKit then ns.ClassKit:Extend("swing", { settings = function(S, sec)
+    S:SwitchSetting(sec, "Swing timer", "Seal twisting for Retribution: when to press Seal of Blood, and what fits between.",
+        "swing.enabled", true, "Only shows on a Retribution Paladin. /dz swing unlock lets you drag it.")
+    S:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "bar", {
+        { value = "bar", text = "Twist bar" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
+    S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", "swing.idle", false)
+    S:SwitchSetting(sec, "Locked", "Unlock to drag it where you want it.", "swing.locked", true)
+    local scales = {}
+    for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3, 1.5 }) do scales[#scales + 1] = { value = n, text = floor(n * 100) .. "%" } end
+    S:DropdownSetting(sec, "Size", "", "swing.scale", 1, scales)
+    local lats = { { value = 0, text = "Auto" } }
+    for _, n in ipairs({ 20, 40, 60, 80, 100, 150, 200, 300 }) do lats[#lats + 1] = { value = n, text = n .. " ms" } end
+    S:DropdownSetting(sec, "Latency", "Moves the press zone earlier. Auto measures it for you.",
+        "swing.latencyMs", 0, lats, "Auto averages your world latency with what it measures from your own seal casts "
+            .. "(the time from pressing to the seal landing). /dz swing shows both.")
+    S:SwitchSetting(sec, "Exorcism", "On demons and undead. Off in WoWSims' rotation: turn on only if your sim says so.", "swing.use.exo", false)
+    S:SwitchSetting(sec, "Consecration", "Off in WoWSims' rotation: turn on only if your sim says so.", "swing.use.cons", false)
+    local manas = {}
+    for _, n in ipairs({ 0, 20, 30, 40, 50, 60, 80 }) do manas[#manas + 1] = { value = n, text = n .. "%" } end
+    S:DropdownSetting(sec, "Consecration above", "Only suggest it with at least this much mana.", "swing.consMana", 40, manas)
+    S:SwitchSetting(sec, "Sound in the twist zone", "A click when it is time to press Seal of Blood.", "swing.sound", false)
+    local row = S:Row(sec, "Last fight", "")
+    row.hasDesc = true
+    S.PlaceText(row, 0)
+    S.refreshers[#S.refreshers + 1] = {
+        Refresh = function()
+            local r = ns.SwingTimer and ns.SwingTimer:Reports()[1]
+            if not r then row.desc:SetText("No fight yet. /dz swing report prints the latest one.") return end
+            local c = r.counts or {}
+            local tw, late, clip = c.twist or 0, c.late or 0, c.clip or 0
+            local f = r.fillers or {}
+            local fill = (f.exo or 0) + (f.cons or 0) + (f.how or 0)
+            row.desc:SetText(strformat("%s: %d/%d twists landed, %d late, %d clipped, %d fillers.",
+                r.target or "Fight", tw, tw + late + clip, late, clip, fill))
+        end,
+    }
+    S:EndSection(sec)
+end }) end

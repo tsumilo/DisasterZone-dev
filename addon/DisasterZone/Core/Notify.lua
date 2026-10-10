@@ -7,7 +7,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Notify.lua", ...) then return
 --   Notify:RegisterKind("raidAnswer", { section = "Raids", page = "raids", icon = 45, label = "Raid answers",
 --       desc = "Raids you're invited to and haven't answered", needsYou = true, popup = true, sound = true,
 --       chat = false, home = true, open = function(item) ... end, actions = function(item) return { ... } end,
---       chip = function(item) return { text, kind, icon } end })
+--       chip = function(item) return { text, kind, icon } end,
+--       chipGroup = function(items) return { text, title } end, openGroup = function(items) ... end })
+-- (Home folds several items of one kind into one chip: chipGroup words it, openGroup or the kind's page opens them.)
 -- and either lists what is there now (a source: the feed follows it, items gone from it leave by themselves)
 --   Notify:RegisterSource("raidAnswer", function() return { { key, title, text, from, time, expires, short, data } }
 --       end, { "RAIDPLAN_CHANGED" })   -- messages that make it look again (also every 30 s and at login)

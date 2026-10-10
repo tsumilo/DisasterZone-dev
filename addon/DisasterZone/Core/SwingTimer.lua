@@ -77,21 +77,15 @@ SwingTimer.Get = Get
 
 function SwingTimer:IsEnabled() return Get("enabled", true) and true or false end
 
+-- A class tool (Core/ClassKit.lua) for Retribution: the most points in the third tree, or (no points yet) Seal of
+-- Command known. Its Settings section comes from UI/SwingTimerHUD.lua.
+ns.ClassKit:Register({
+    key = "swing", label = "Swing timer", class = "PALADIN", specs = { "Retribution" }, order = 20, icon = IDS.sob,
+    fallback = function() return NameOf("soc") ~= nil and (IsSpellKnown and IsSpellKnown(IDS.soc)) or false end,
+})
+
 function SwingTimer:IsRet()
-    local _, cls = UnitClass("player")
-    if cls ~= "PALADIN" then return false end
-    -- Retribution = the most points in the third tree; Seal of Command known counts too (low levels, odd builds)
-    if GetNumTalentTabs and GetTalentTabInfo then
-        local best, bi = -1, nil
-        for i = 1, GetNumTalentTabs() do
-            local pts = select(3, GetTalentTabInfo(i))
-            if type(pts) ~= "number" then pts = select(5, GetTalentTabInfo(i)) end
-            pts = tonumber(pts) or 0
-            if pts > best then best, bi = pts, i end
-        end
-        if best > 0 then return bi == 3 end
-    end
-    return NameOf("soc") ~= nil and (IsSpellKnown and IsSpellKnown(IDS.soc)) or false
+    return ns.ClassKit:IsMine("swing")
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -457,9 +451,8 @@ function SwingTimer:OnLogin()
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if fight then EndFight() end
     end)
-    ns:RegisterEvent("PLAYER_TALENT_UPDATE", function() SwingTimer:Refresh() end)
+    ns:On("CLASSKIT_CHANGED", function() SwingTimer:Refresh() end)
     ns:RegisterEvent("SPELLS_CHANGED", function() for k in pairs(names) do names[k] = nil end end)
-    ns:RegisterEvent("CHARACTER_POINTS_CHANGED", function() SwingTimer:Refresh() end)
     ns:On("SETTINGS_CHANGED", function(path)
         if type(path) == "string" and path:find("^swing") then SwingTimer:Refresh() end
     end)

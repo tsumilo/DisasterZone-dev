@@ -91,6 +91,7 @@ Core\Ledger.lua
 Core\RaidLog.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
+Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\RaidPlan.lua
 Core\RaidComp.lua

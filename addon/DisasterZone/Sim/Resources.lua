@@ -82,3 +82,83 @@ function Unit:SpendRage(sim, amount)
   if sim.log then sim:Log("Spent %.3f rage (%.3f --> %.3f)", amount, self.rage, self.rage - amount) end
   self.rage = self.rage - amount
 end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Energy and combo points (energy.go): 20.2 energy every 2.02 s as a sim task, the first tick at a random point of
+-- the first 2.02 s after the prepull start. Energy changes don't wake the rotation (it polls).
+-- ---------------------------------------------------------------------------------------------------------------
+S.ENERGY_TICK, S.ENERGY_PER_TICK = 2.02, 20.2
+
+-- opts: { maxEnergy, maxComboPoints }
+function Unit:EnableEnergyBar(opts)
+  self.hasEnergy = true
+  self.maxEnergy = max(10, opts.maxEnergy or 100)
+  self.maxComboPoints = opts.maxComboPoints or 0
+  self.energy, self.comboPoints = self.maxEnergy, 0
+  self.energyRegenMultiplier = 1
+  self.nextEnergyTick = 0
+  self.energyGains = {}
+  local u = self
+  local task = {}
+  function task.RunTask(_, sim)
+    if sim.now < u.nextEnergyTick then return u.nextEnergyTick end
+    u:AddEnergy(sim, S.ENERGY_PER_TICK * u.energyRegenMultiplier, "regen")
+    u.nextEnergyTick = sim.now + S.ENERGY_TICK
+    return u.nextEnergyTick
+  end
+  self.energyTask = task
+  self:RegisterResetEffect(function(sim)
+    u.energy, u.comboPoints = u.maxEnergy, 0
+    u.energyRegenMultiplier = 1
+    sim:AddTask(task)
+    u.nextEnergyTick = sim:PrepullStartTime() + sim:Rand() * S.ENERGY_TICK
+    sim:RescheduleTask(u.nextEnergyTick)
+  end)
+end
+
+function Unit:CurrentEnergy() return self.energy end
+function Unit:ComboPoints() return self.comboPoints end
+
+function Unit:AddEnergy(sim, amount, metric)
+  if amount < 0 then error("negative energy") end
+  local new = min(self.energy + amount, self.maxEnergy)
+  if metric then self.energyGains[metric] = (self.energyGains[metric] or 0) + (new - self.energy) end
+  if sim.log then sim:Log("Gained %.3f energy from %s (%.3f --> %.3f)", amount, tostring(metric), self.energy, new) end
+  self.energy = new
+end
+
+function Unit:SpendEnergy(sim, amount)
+  if amount < 0 then error("negative energy spend") end
+  if sim.log then sim:Log("Spent %.3f energy (%.3f --> %.3f)", amount, self.energy, self.energy - amount) end
+  self.energy = self.energy - amount
+end
+
+function Unit:EnergyIsTicking(sim)
+  local n = self.nextEnergyTick
+  return n ~= 0 and n - sim.now <= S.ENERGY_TICK and sim.now <= n
+end
+
+-- A partial tick for the time since the last one, and the tick timer restarts (ResetEnergyTick).
+function Unit:ResetEnergyTick(sim)
+  if not self:EnergyIsTicking(sim) then return end
+  local since = max(sim.now - (self.nextEnergyTick - S.ENERGY_TICK), 0)
+  self:AddEnergy(sim, S.ENERGY_PER_TICK * self.energyRegenMultiplier * (since / S.ENERGY_TICK), "regen")
+  self.nextEnergyTick = sim.now + S.ENERGY_TICK
+  sim:RescheduleTask(self.nextEnergyTick)
+end
+
+function Unit:MultiplyEnergyRegenSpeed(sim, m)
+  self:ResetEnergyTick(sim)
+  self.energyRegenMultiplier = self.energyRegenMultiplier * m
+end
+
+function Unit:AddComboPoints(sim, n, metric)
+  local new = min(self.comboPoints + n, self.maxComboPoints)
+  if sim.log then sim:Log("Gained %d combo points from %s (%d --> %d)", n, tostring(metric), self.comboPoints, new) end
+  self.comboPoints = new
+end
+
+function Unit:SpendComboPoints(sim)
+  if sim.log then sim:Log("Spent %d combo points", self.comboPoints) end
+  self.comboPoints = 0
+end
