@@ -890,6 +890,26 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False):
     return fn
 
 
+def kit_view(run=False, spec="Retribution"):
+    """My BiS > Consumables (UI/KitView.lua): Gina in WoWSims' P1 Ret gear, a flask, Haste Potions and Ravager Dogs in
+    her bags; run = after a short kit sim."""
+    def fn(w, c):
+        g = opened("mybis", "ns.BiS:SetSpec('%s'); ns.MyBiS:SetPhase(1, true)" % spec)(w, c)
+        g.equip(SIM_P1)
+        g.set_bags({(0, 1): (22854, 2), (0, 2): (22838, 5), (0, 3): (27655, 6), (0, 4): (22832, 2)})
+        g.eval("ns.Kit.ITERATIONS = 12; ns.Kit:ClearResults(); ns.KitView:SetActive(true)")
+        w.tick(0.3)
+        if run:
+            g.eval("ns.KitView:Run()")
+            for _ in range(600):
+                if not g.eval("return ns.Kit:IsRunning()"):
+                    break
+                w.tick(0.05, 0.05)
+        w.tick(0.3)
+        return g
+    return fn
+
+
 def sim_buffs(kind):
     """The gear sim's buffs (Sim/BuffPresets.lua, UI/SimBuffs.lua) on Gina's screen, after the teams seed (she is in
     group 5 of the main team's Thursday 25, with its Standard 25 comp: open slots): kind "menu" = the card's buffs
@@ -1002,6 +1022,9 @@ STATES = [
     ("My BiS - Sim stale", sim_mode(stale=True)),
     ("My BiS - Sim meta off", sim_mode(meta_off=True)),
     ("My BiS - Sim picker", sim_mode(picker=True)),
+    ("My BiS - Consumables", kit_view()),
+    ("My BiS - Consumables simmed", kit_view(run=True)),
+    ("My BiS - Consumables healer", kit_view(spec="Holy")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
     ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "

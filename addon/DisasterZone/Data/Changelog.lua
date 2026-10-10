@@ -29,6 +29,16 @@ ns.CHANGELOG = {
               "Your group's totems and shouts, blessings and debuffs come from the specs placed there.",
               "The comp's open slots count as filled unless you untick it; your clicks stay on top.",
           } },
+          { heading = "Consumables", lines = {
+              "New Consumables button in My BiS: the flask, food, weapon stone or oil, potion and more for your spec.",
+              "Best picks for prog nights on the left, a cheaper pick for farm nights on the right.",
+              "The middle says what each one is for, like one flask or two elixirs, never both.",
+              "Each pick shows what it does, and a check when your bags hold enough for a night.",
+              "Missing ones name the guildie who makes them; the bag button puts them on your shopping list.",
+              "Add prog kit and Add farm kit put everything your bags lack on the list in one click.",
+              "Damage specs can Sim the kit: the gear sim gives every pick its DPS with the gear you wear.",
+              "With Auctionator, what a night's worth costs. Each spec tab has its own kit.",
+          } },
           { heading = "Feedback", lines = {
               "New speech bubble next to What's new: send feedback on a bug, an idea or a change.",
               "Pick Something broke, I have an idea, Change something or I love this, and say it.",

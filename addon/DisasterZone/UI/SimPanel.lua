@@ -121,6 +121,8 @@ function SimPanel:IsActive() return state.active end
 
 function SimPanel:SetActive(on)
   state.active = on and true or false
+  -- Sim mode and the consumables view take turns
+  if on and ns.KitView then ns.KitView:SetActive(false, true) end
   if not on then
     if R() then R():Cancel() end
     state.running = false
@@ -217,6 +219,9 @@ local function RunSettings()
   local s = Settings()
   return { buffs = s.buffs, duration = s.duration, mobType = s.mobType, talents = (R():Talents()) }
 end
+
+-- The card's settings for a run (the consumables view sims with them too).
+function SimPanel:RunSettings() return RunSettings() end
 
 function SimPanel:Run()
   if state.running then
@@ -515,7 +520,7 @@ function SimPanel:BuffsTooltip(tt, key)
     if b.key == key then
       tt:AddLine(b.text, 1, 0.82, 0)
       local cls = R():Class()
-      tt:AddLine((cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or b.tip, 1, 1, 1, true)
+      tt:AddLine((R():Spec() == "Elemental" and b.tipElemental) or (cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or b.tip, 1, 1, 1, true)
       return
     end
   end

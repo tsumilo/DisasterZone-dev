@@ -4,7 +4,7 @@
 ## Author: Casual Disaster
 ## Version: 1.3.3
 ## X-CDL-Protocol: 1
-## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB
+## SavedVariables: DisasterZoneDB, DisasterZonePatchDB, DisasterZoneLogDB, DisasterZoneMeterDB
 ## LoadSavedVariablesFirst: 1
 ## OptionalDeps: CDLoot
 ## IconTexture: Interface\AddOns\DisasterZone\Media\Launcher\seal
@@ -41,6 +41,7 @@ Data\Gems.lua
 Data\SimItems.lua
 Data\SimAPL.lua
 Data\Atlas.lua
+Data\Consumables.lua
 Data\Classes\Paladin.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
@@ -94,6 +95,9 @@ Core\Ledger.lua
 Core\RaidLog.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
+Core\Meter.lua
+Core\Threat.lua
+Core\MeterDemo.lua
 Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\Blessings.lua
@@ -122,6 +126,7 @@ Core\Atlas.lua
 Core\Materials.lua
 Core\Currency.lua
 Core\ShoppingList.lua
+Core\Kit.lua
 Core\Codec.lua
 Core\BiSImport.lua
 Core\BiSExport.lua
@@ -152,6 +157,7 @@ UI\PaperDoll.lua
 UI\GemEditor.lua
 UI\SimPanel.lua
 UI\SimBuffs.lua
+UI\KitView.lua
 UI\MyBiS.lua
 UI\ImportExport.lua
 UI\Picker.lua
@@ -195,6 +201,9 @@ UI\MyLogKit.lua
 UI\MyLogUI.lua
 UI\MyLogTimeline.lua
 UI\MyLogDetail.lua
+UI\MeterWindow.lua
+UI\MeterDetail.lua
+UI\ThreatWindow.lua
 UI\SwingTimerHUD.lua
 UI\BlessingsUI.lua
 UI\BlessingsBar.lua

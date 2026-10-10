@@ -71,7 +71,7 @@ local KIND_GROUP = {
 
 local panel, bar, doll, card
 local phaseButtons = {}
-local suggestBtn, moreBtn, lockChip, simBtn, simCard
+local suggestBtn, moreBtn, lockChip, simBtn, simCard, kitBtn, kitView
 local selectedPhase, userPickedPhase
 local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
@@ -747,6 +747,8 @@ end
 
 function MyBiS:SetPhase(p, byUser)
     p = ClampPhase(p)
+    -- a phase is a gear view: a click on one leaves Consumables
+    if byUser and ns.KitView and ns.KitView:IsActive() then ns.KitView:SetActive(false, true) end
     if byUser then
         userPickedPhase = true
         RememberPhase(p)
@@ -1651,7 +1653,7 @@ local function UpdatePhaseButtons()
         b:SetWidth(floor((tonumber(fs:GetStringWidth()) or 14) + 16 + (marked and 13 or 0) + 0.5))
         fs:ClearAllPoints()
         fs:SetPoint("CENTER", marked and -6 or 0, 1)
-        b:SetActive(b.phase == phase)
+        b:SetActive(b.phase == phase and not (ns.KitView and ns.KitView:IsActive()))
     end
 end
 
@@ -1758,6 +1760,22 @@ local function CreateTopBar(p)
     end)
     simBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     p.simBtn = simBtn
+
+    -- the consumables view (UI/KitView.lua): the spec's kit, best and budget
+    kitBtn = UI:CreateSleekButton(bar, "Consumables", 96, BAR_H, function()
+        if ns.KitView then ns.KitView:Toggle() end
+    end)
+    kitBtn:SetPoint("RIGHT", simBtn, "LEFT", -6, 0)
+    kitBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Consumables", 1, 0.82, 0)
+        GameTooltip:AddLine("The flask, food, weapon oil or stone, potion and more for this spec: the best for prog "
+            .. "nights and a cheaper pick for farm nights, what your bags hold and who in the guild makes it.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    kitBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    p.kitBtn = kitBtn
 end
 
 ---------------------------------------------------------------------------
@@ -1788,6 +1806,7 @@ function MyBiS:CreatePanel(parent)
     card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
     card.lockBanner = lockChip
     if ns.SimPanel then simCard = ns.SimPanel:CreateCard(doll.center, doll.centerWidth or 230, doll.centerHeight or 426) end
+    if ns.KitView then kitView = ns.KitView:Create(body) end
 
     panel:SetScript("OnShow", function(self)
         if self.dirty then MyBiS:Refresh() end
@@ -1828,6 +1847,39 @@ function MyBiS:Refresh()
     end
     if simBtn then simBtn:SetEnabled(simOK) end
     if simBtn and simBtn.SetKind then simBtn:SetKind(simOn and "chosen" or "secondary") end
+    -- Consumables (UI/KitView.lua): the kit takes the page's body; Suggest (a gear action) steps aside
+    local kitOn = ns.KitView and ns.KitView:IsActive() and not simOn or false
+    if kitBtn and kitBtn.SetKind then kitBtn:SetKind(kitOn and "chosen" or "secondary") end
+    if kitView then
+        doll:SetShown(not kitOn)
+        ns.KitView:Show(kitOn)
+    end
+    if kitOn then
+        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+        if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
+        if Sim then Sim:ShowCard(false) end
+        suggestBtn:Hide()
+        lockChip:Hide()
+        simBtn:ClearAllPoints()
+        simBtn:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
+        return
+    end
+    -- §38: while the lists are locked the chip says so in Suggest's place, and the menus offer what still works.
+    local locked, info = ListLocked()
+    local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
+    suggestBtn:SetShown((loon and not locked) and true or false)
+    -- an empty phase: Suggest is the next step (the page's one gold button)
+    if suggestBtn.SetKind then
+        local info = ComputeProgress(phase)
+        suggestBtn:SetKind(info.filled == 0 and "primary" or "secondary")
+    end
+    if locked then lockChip:SetLock(info) end
+    lockChip:SetShown(locked and true or false)
+    -- Sim sits left of whatever holds Suggest's place (the lock chip while locked)
+    if simBtn then
+        simBtn:ClearAllPoints()
+        simBtn:SetPoint("RIGHT", locked and lockChip or suggestBtn, "LEFT", -6, 0)
+    end
     if simOn then
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not Sim:IsPickerOpen() then ns.Picker:Close() end
         if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
@@ -1845,22 +1897,6 @@ function MyBiS:Refresh()
     end
     card:Show()
 
-    -- §38: while the lists are locked the chip says so in Suggest's place, and the menus offer what still works.
-    local locked, info = ListLocked()
-    local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
-    suggestBtn:SetShown((loon and not locked) and true or false)
-    -- an empty phase: Suggest is the next step (the page's one gold button)
-    if suggestBtn.SetKind then
-        local info = ComputeProgress(phase)
-        suggestBtn:SetKind(info.filled == 0 and "primary" or "secondary")
-    end
-    if locked then lockChip:SetLock(info) end
-    lockChip:SetShown(locked and true or false)
-    -- Sim sits left of whatever holds Suggest's place (the lock chip while locked)
-    if simBtn then
-        simBtn:ClearAllPoints()
-        simBtn:SetPoint("RIGHT", locked and lockChip or suggestBtn, "LEFT", -6, 0)
-    end
     if locked and ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
 
     local record = ns.ListRecordView(BiS:GetRecord(), ListArg())

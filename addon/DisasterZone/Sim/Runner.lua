@@ -13,15 +13,17 @@ local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 
 Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
   ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
-  ["DRUID:Feral (Cat)"] = true }
+  ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true }
 -- what the sim covers, for the texts that say so
-Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement Shamans, Rogues and Feral Druids"
+Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues and Feral Druids"
 -- class file -> the sim's class
 Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid" }
 -- spec key -> what differs from the class: options, WoWSims' default reaction time (ms) and distance (yards)
 Runner.SPEC_SETTINGS = {
   ["DRUID:Feral (Cat)"] = { options = { form = "Cat" }, reactionTimeMs = 250, distance = 0, buffs = "wowsims_cat",
     field = "feralCatDruid" },
+  ["SHAMAN:Elemental"] = { options = { elemental = true, imbueMh = "NoImbue", imbueOh = "NoImbue", shieldProcrate = 0 },
+    distance = 20, buffs = "wowsims_ele", field = "elementalShaman" },
 }
 -- WoWSims' class options (dps/presets.ts DefaultOptions)
 Runner.CLASS_OPTIONS = {
@@ -42,6 +44,11 @@ Runner.BUFFS = {
       .. "Fire, Curses of Recklessness and the Elements, Misery, Blood Frenzy, Mangle, Gift of Arthas, Hunter's Mark, "
       .. "Expose Weakness, Judgements of the Crusader and Wisdom; flask, food, scrolls, Haste Potion, Flame Cap, your own "
       .. "drums, explosives (Engineering). You drop your own totems and Fire Elemental.",
+    tipElemental = "WoWSims' Elemental raid setup: Bloodlust, drums, Moonkin Aura, Chain of the Twilight Owl, Eye of the "
+      .. "Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane Intellect, Divine Spirit, a Shadow Priest's mana, "
+      .. "Curse of the Elements, Misery, Judgement of Wisdom and the melee debuffs; Flask of Blinding Light, Blackened "
+      .. "Basilisk, Brilliant Wizard Oil, Destruction Potion, Demonic Rune. You drop your own Totem of Wrath, Wrath of Air "
+      .. "and Mana Spring.",
     tipRogue = "WoWSims' Rogue raid setup: Bloodlust, drums, Windfury and Grace of Air (twisted), Strength of Earth, "
       .. "Battle Shout, Leader of the Pack, Ferocious Inspiration, Unleashed Rage, Kings and Might, Gift of the Wild, "
       .. "Sunder Armor, Faerie Fire, Curse of Recklessness, Blood Frenzy, Mangle, Misery, Gift of Arthas, Hunter's Mark, "
@@ -107,11 +114,13 @@ end
 -- A Shaman drops his own totems: the group's go (in WoWSims the shaman's own would take their place).
 local SHAMAN_OWN = { windfuryTotem = true, graceOfAirTotem = true, strengthOfEarthTotem = true, manaSpringTotem = true,
   totemTwisting = true }
-local function WithoutTotems(cfg)
+-- An Elemental Shaman drops Totem of Wrath, Wrath of Air and Mana Spring himself.
+local ELE_OWN = { totemOfWrath = true, wrathOfAirTotem = true, manaSpringTotem = true }
+local function WithoutTotems(cfg, own)
   local out = {}
   for k, v in pairs(cfg) do out[k] = v end
   local party, ind = {}, {}
-  for k, v in pairs(cfg.party or {}) do if not SHAMAN_OWN[k] then party[k] = v end end
+  for k, v in pairs(cfg.party or {}) do if not (own or SHAMAN_OWN)[k] then party[k] = v end end
   for k, v in pairs(cfg.individual or {}) do if k ~= "unleashedRage" then ind[k] = v end end
   out.party, out.individual = party, ind
   return out
@@ -139,11 +148,11 @@ function Runner:BaseConfig(key)
   local cls = self:Class()
   if key == "raid10" then return RAID10 end
   if key == "solo" then return SOLO end
+  local ss = self.SPEC_SETTINGS[self:SpecKey()]
+  if ss and ss.buffs then return S.BUFF_PRESETS[ss.buffs] end
   if cls == "WARRIOR" then return S.BUFF_PRESETS.wowsims_warrior end
   if cls == "SHAMAN" then return S.BUFF_PRESETS.wowsims_enh end
   if cls == "ROGUE" then return S.BUFF_PRESETS.wowsims_rogue end
-  local ss = self.SPEC_SETTINGS[self:SpecKey()]
-  if ss and ss.buffs then return S.BUFF_PRESETS[ss.buffs] end
   return S.BUFF_PRESETS.wowsims_ret
 end
 
@@ -163,7 +172,7 @@ function Runner:BuffConfig(key)
     cfg = cfg or self:BaseConfig("raid25")
   end
   if self:Class() == "WARRIOR" then cfg = WithoutShout(cfg) end
-  if self:Class() == "SHAMAN" then cfg = WithoutTotems(cfg) end
+  if self:Class() == "SHAMAN" then cfg = WithoutTotems(cfg, self:Spec() == "Elemental" and ELE_OWN or nil) end
   if self:Class() == "ROGUE" then cfg = RogueOwn(cfg) end
   return cfg
 end
@@ -228,6 +237,7 @@ Runner.DEFAULT_TALENTS = {
   ["ROGUE:Assassination"] = "005323105500102521051-003305000054",
   ["ROGUE:Subtlety"] = "0053201-023305000005015-0500001000301210500050",
   ["DRUID:Feral (Cat)"] = "-503032132322105301251-05503301",
+  ["SHAMAN:Elemental"] = "55003105100213351051--05105301005",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -438,7 +448,8 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Scenarios and runs
 -- ---------------------------------------------------------------------------------------------------------------
-function Runner:Scenario(set, settings)
+-- cons: the consumables to sim instead of the buffs setting's own (My BiS > Consumables, Core/Kit.lua).
+function Runner:Scenario(set, settings, cons)
   local gear = {}
   local db = self:DB()
   local ss = self.SPEC_SETTINGS[self:SpecKey()] or {}
@@ -454,7 +465,7 @@ function Runner:Scenario(set, settings)
     race = self:Race(), class = class, classOptions = ss.options or self.CLASS_OPTIONS[class], talents = settings.talents,
     gear = gear,
     metaActive = self:MetaActive(set),
-    buffs = buffs, consumables = buffs.consumables, professions = settings.professions or self:Professions(),
+    buffs = buffs, consumables = cons or buffs.consumables, professions = settings.professions or self:Professions(),
     duration = settings.duration or 180, seed = settings.seed or 101, mobType = settings.mobType or "Mechanical",
     reactionTimeMs = ss.reactionTimeMs or 0, distance = ss.distance or 5,
   }
@@ -537,7 +548,7 @@ function Runner:ClearCache()
   self.cache, self.cacheOrder = {}, {}
 end
 
--- jobs: { { key = any, set = gear set }, ... }; opts: { iterations, settings, onProgress(done, total, paused),
+-- jobs: { { key = any, set = gear set, cons = consumables (optional) }, ... }; opts: { iterations, settings, onProgress(done, total, paused),
 -- onDone(results), onCancel() }. results[key] = summary (S.Summarize) + iterDps; results.pairs(a, b) -> mean diff, stderr.
 -- Sets simmed before (same scenario, seed and fight count) and sets listed twice are not simmed again.
 function Runner:Start(jobs, opts)
@@ -550,7 +561,7 @@ function Runner:Start(jobs, opts)
   local all, sims, byCache = {}, {}, {}
   local okAll, err = pcall(function()
     for i, job in ipairs(jobs) do
-      local scenario = self:Scenario(job.set, settings)
+      local scenario = self:Scenario(job.set, settings, job.cons)
       local ck = self:CacheKey(scenario, n)
       local r = { key = job.key, cacheKey = ck }
       all[i] = r
@@ -669,6 +680,8 @@ Runner.ABILITIES = {
   [25489] = "Flametongue Weapon", windfury_totem = "Windfury Totem",
   pet_fire_elemental_melee = "Fire Elemental", pet_fire_elemental_13339 = "Fire Elemental",
   pet_fire_elemental_12470 = "Fire Elemental", pet_fire_elemental_13376 = "Fire Elemental",
+  [25449] = "Lightning Bolt", ["25449:6"] = "Lightning Bolt", [25442] = "Chain Lightning", ["25442:6"] = "Chain Lightning",
+  [37661] = "Lightning Capacitor",
   -- Rogues
   [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
   [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",
