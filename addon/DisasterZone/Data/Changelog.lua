@@ -47,11 +47,11 @@ ns.CHANGELOG = {
           } },
           { heading = "Guild polls", lines = {
               "New Guild > Polls: the GM, officers and Guild Council ask, the people they pick answer.",
-              "Ask everyone, teams or lineups, officers, the council, raid leaders, ranks or single players.",
+              "Ask everyone, teams or lineups, officers, the council, raid leaders, ranks or players.",
               "Four kinds: one answer, several answers, yes or no, and Pick days.",
               "Pick days: tick each night can, if needed or can't; the best night is framed in gold.",
               "Results show live, after you vote or when the poll closes. Names are always shown.",
-              "Polls that don't ask you never show up. One answer per player, from any of your characters.",
+              "Polls that don't ask you never show up. One answer per player, from any character.",
               "A pop-up when a poll arrives (never in combat): yes or no is answered right there.",
               "The asker sees who hasn't answered and can nudge them, close the poll early or extend it.",
               "Members who were offline get the poll and its answers when they log in.",

@@ -348,64 +348,6 @@ local function Leading(p, res)
 end
 
 ---------------------------------------------------------------------------
--- The list
----------------------------------------------------------------------------
-
-local L = {}
-
-function L.NewRow(parent)
-    local r = CreateFrame("Button", nil, parent)
-    r:SetHeight(ROW_H)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.03)
-    r.line = Line(r, { 1, 1, 1, 0.045 })
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
-    r.box = CreateFrame("Frame", nil, r)
-    r.box:SetSize(40, 40)
-    r.box:SetPoint("LEFT", 0, 0)
-    Fill(r.box, { 0.094, 0.094, 0.11, 1 })
-    Edges(r.box, CARD_EDGE)
-    r.glyph = r.box:CreateTexture(nil, "ARTWORK")
-    r.glyph:SetSize(20, 20)
-    r.glyph:SetPoint("CENTER")
-    r.dot = r.box:CreateTexture(nil, "OVERLAY")
-    r.dot:SetTexture(DISC)
-    r.dot:SetSize(8, 8)
-    r.dot:SetVertexColor(1, 0.82, 0)
-    r.dot:SetPoint("CENTER", r.box, "TOPRIGHT", -1, -1)
-    r.title = Text(r, 12, C.white)
-    r.title:SetPoint("TOPLEFT", 51, -11)
-    r.meta = Text(r, 10, C.grey)
-    r.meta:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -4)
-    r.b1 = Button(r, "", 64, 22, "primary")
-    r.b2 = Button(r, "", 40, 18, "secondary")
-    r.more = UI():CreateTipIconButton(r, 18, UI().ICON.more, "More", nil, function() end)
-    r.mini = CreateFrame("Frame", nil, r)
-    r.mini:SetSize(115, 20)
-    r.mini.l = Text(r.mini, 10, { 0.74, 0.74, 0.74 })
-    r.mini.l:SetPoint("TOPLEFT")
-    r.mini.r = Text(r.mini, 10, { 0.74, 0.74, 0.74 }, true)
-    r.mini.r:SetJustifyH("RIGHT")
-    r.mini.r:SetPoint("TOPRIGHT")
-    r.mini.bar = Bar(r.mini, 4)
-    r.mini.bar:SetPoint("BOTTOMLEFT")
-    r.mini.bar:SetPoint("BOTTOMRIGHT")
-    r.mini.bar:SetWidth(115)
-    r.lock = CreateFrame("Frame", nil, r)
-    r.lock:SetSize(120, 16)
-    r.lock.icon = r.lock:CreateTexture(nil, "ARTWORK")
-    r.lock.icon:SetSize(11, 11)
-    r.lock.icon:SetPoint("LEFT")
-    Glyph(r.lock.icon, UI().ICON.lock, C.dim)
-    r.lock.fs = Text(r.lock, 10, C.dim)
-    r.lock.fs:SetPoint("LEFT", r.lock.icon, "RIGHT", 5, 0)
-    r:SetScript("OnClick", function(self) if self.pid then PollsUI:OpenPoll(self.pid) end end)
-    return r
-end
-
 local function ManageMenu(owner, p)
     UI():ContextMenu(owner, function(root)
         if IsMe(p.by) and P():IsOpen(p) then
@@ -427,21 +369,395 @@ local function ManageMenu(owner, p)
     end)
 end
 
+---------------------------------------------------------------------------
+-- The banner (the Events / Raids pages' look): the poll's art under a shade, its icon tile, the question, who asked
+-- whom, a stack of who answered with a bar, when it closes, and what I can do.
+---------------------------------------------------------------------------
+
+local BAN_LIST_H, BAN_PAGE_H = 132, 150
+local KIND_ICON = { one = "Interface\\Icons\\INV_Scroll_03", many = "Interface\\Icons\\INV_Misc_Note_05",
+                    yn = "Interface\\Icons\\INV_Misc_Coin_01", days = "Interface\\Icons\\INV_Misc_PocketWatch_01" }
+local THEMES = { "kara", "gruul", "mag", "ssc", "tk", "hyjal", "bt", "za", "swp" }
+local FACE_RING = { 0, 0, 0, 1 }
+local SEG_ON, SEG_ON_EDGE = { 0.11, 0.33, 0.14, 1 }, { 0.26, 0.74, 0.31, 1 }
+
+-- A poll's art: the theme of the first team it asks, else one picked from its id (so it stays put).
+local function ArtKey(p)
+    local R = ns.RaidPlan
+    for _, t in ipairs(p and p.a or {}) do
+        if t[1] == "t" then
+            local team = R and R.GetTeam and R:GetTeam(t[2])
+            if team and team.theme then return team.theme end
+            local n = 0
+            for i = 1, #t[2] do n = n + t[2]:byte(i) end
+            return THEMES[n % #THEMES + 1]
+        end
+    end
+    local id = p and p.id or "x"
+    local n = 0
+    for i = 1, #id do n = n + id:byte(i) end
+    return THEMES[n % #THEMES + 1]
+end
+
+local function SetArt(tex, p, w, h, fw)
+    local PUI = ns.RaidPlanUI
+    if PUI and PUI.RaidArt then
+        local file, l, r, t, b = PUI:RaidArt(ArtKey(p), w, h, fw or 0.95)
+        if t < 0.28 then                                     -- (under the game's logo)
+            local d = min(0.28 - t, 0.98 - b)
+            t, b = t + d, b + d
+        end
+        tex:SetTexture(file)
+        tex:SetTexCoord(l, r, t, b)
+    else
+        tex:SetColorTexture(0.12, 0.12, 0.14, 1)
+    end
+end
+
+-- An icon tile (an item icon with its dark edge and a gold ring, the event icons' look).
+local function IconTile(parent, size, ring)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.outer = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND")
+    f.outer:ClearAllPoints()
+    f.outer:SetPoint("TOPLEFT", -1, 1)
+    f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
+    if ring then
+        f.ring = Fill(f, ring, "BACKGROUND", -1)
+        f.ring:ClearAllPoints()
+        f.ring:SetPoint("TOPLEFT", -2, 2)
+        f.ring:SetPoint("BOTTOMRIGHT", 2, -2)
+    end
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    f.tex:SetAllPoints()
+    f.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    function f:Set(kind) self.tex:SetTexture(KIND_ICON[kind] or KIND_ICON.one) end
+    return f
+end
+
+-- A class circle with its dark ring (the Duelists list's).
+local function RingFace(parent, size)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.ring = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    f.ring:SetTexture(DISC)
+    f.ring:SetSize(size + 3, size + 3)
+    f.ring:SetPoint("CENTER")
+    f.ring:SetVertexColor(FACE_RING[1], FACE_RING[2], FACE_RING[3], 1)
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    f.tex:SetAllPoints()
+    function f:Set(key)
+        self.key = key
+        EUI():SetClass(self.tex, key)
+        self:Show()
+    end
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function(self)
+        if not self.key then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(EUI():Name(self.key, true))
+        GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", HideTip)
+    return f
+end
+
+-- A pill on the art: a glyph and a few words.
+local function ArtChip(parent)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetHeight(22)
+    UI():AddPillShape(c, 22)
+    c:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, { 1, 1, 1, 0.2 })
+    c.glyph = c:CreateTexture(nil, "ARTWORK")
+    c.glyph:SetSize(12, 12)
+    c.glyph:SetPoint("LEFT", 9, 0)
+    c.fs = Text(c, 11, { 0.91, 0.91, 0.91 })
+    c.fs:SetPoint("LEFT", c.glyph, "RIGHT", 6, 0)
+    function c:Set(text, glyph, color)
+        self.fs:SetText(text)
+        Glyph(self.glyph, glyph or UI().ICON.calendar, color or { 0.86, 0.86, 0.86 })
+        self:SetWidth(ceil(9 + 12 + 6 + TextW(self.fs) + 11))
+        self:Show()
+    end
+    return c
+end
+
+-- The answer bar (the raid page's Accept / Tentative): a dark band, the picked answer green.
+local function SegBar(parent, h)
+    local s = CreateFrame("Frame", nil, parent)
+    s:SetHeight(h or 24)
+    s.bg = Fill(s, { 0.07, 0.08, 0.09, 0.82 })
+    s.opts = {}
+    function s:Set(labels, picked, onPick, minW)
+        local x = 0
+        for i, label in ipairs(labels) do
+            local b = self.opts[i]
+            if not b then
+                b = CreateFrame("Button", nil, self)
+                b.fill = Fill(b, SEG_ON, "BACKGROUND", 1)
+                UI():AddEdges(b, "BORDER")
+                b.fs = Text(b, 12, C.text)
+                b.fs:SetJustifyH("CENTER")
+                b.fs:SetPoint("CENTER", 0, 0)
+                b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+                b.hl:SetAllPoints()
+                b.hl:SetColorTexture(1, 1, 1, 0.05)
+                self.opts[i] = b
+            end
+            b.fs:SetText(label)
+            local w = max(minW or 64, ceil(TextW(b.fs) + 30))
+            b:SetSize(w, self:GetHeight())
+            b:ClearAllPoints()
+            b:SetPoint("LEFT", self, "LEFT", x, 0)
+            local on = picked == i
+            b.fill:SetShown(on)
+            UI():SetEdgeColor(b, SEG_ON_EDGE[1], SEG_ON_EDGE[2], SEG_ON_EDGE[3], on and 1 or 0)
+            Color(b.fs, on and C.white or { 0.82, 0.82, 0.82 })
+            b:SetScript("OnClick", function() if onPick then onPick(i) end end)
+            b:Show()
+            x = x + w
+        end
+        for i = #labels + 1, #self.opts do self.opts[i]:Hide() end
+        self:SetWidth(x)
+        self:Show()
+        return x
+    end
+    return s
+end
+
+local function Banner(parent, h, page)
+    local b = CreateFrame("Frame", nil, parent)
+    b:SetHeight(h)
+    b.art = b:CreateTexture(nil, "BACKGROUND")
+    b.art:SetAllPoints()
+    EUI():AddShade(b)
+    EUI():Edge(b)
+    local top = 14
+    if page then
+        b.back = CreateFrame("Button", nil, b)
+        b.back:SetSize(60, 16)
+        b.back:SetPoint("TOPLEFT", 12, -12)
+        b.back.chev = b.back:CreateTexture(nil, "ARTWORK")
+        b.back.chev:SetSize(9, 9)
+        b.back.chev:SetPoint("LEFT", 0, 0)
+        b.back.chev:SetTexture(UI().ICON_ATLAS)
+        UI():SetChevron(b.back.chev, false)
+        b.back.chev:SetVertexColor(0.86, 0.86, 0.86)
+        b.back.fs = Text(b.back, 11, { 0.88, 0.88, 0.88 })
+        b.back.fs:SetPoint("LEFT", b.back.chev, "RIGHT", 6, 0)
+        b.back.fs:SetText("Polls")
+        b.back:SetScript("OnClick", function() PollsUI:ShowList() end)
+        b.back:SetScript("OnEnter", function(self) Color(self.fs, C.gold) self.chev:SetVertexColor(1, 0.82, 0) end)
+        b.back:SetScript("OnLeave", function(self)
+            Color(self.fs, { 0.88, 0.88, 0.88 })
+            self.chev:SetVertexColor(0.86, 0.86, 0.86)
+        end)
+        top = 36
+    end
+    b.kick = Text(b, 10, C.gold)
+    b.kick:SetPoint("TOPLEFT", 14, -14)
+    b.icon = IconTile(b, 46, { 1, 0.82, 0.36, 0.85 })
+    b.icon:SetPoint("TOPLEFT", 14, -top)
+    b.q = Text(b, 19, C.white)
+    b.q:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 12, -2)
+    b.pill = EUI():CreatePill(b, 17)
+    b.meta = Text(b, 11, { 0.86, 0.86, 0.86 })
+    b.meta:SetPoint("TOPLEFT", b.q, "BOTTOMLEFT", 0, -6)
+    b.faces = {}
+    b.count = Text(b, 11, { 0.86, 0.86, 0.86 })
+    b.bar = Bar(b, 4, C.green)
+    b.bar:SetWidth(120)
+    b.chip = ArtChip(b)
+    b.btn = Button(b, "Answer", 70, 25, "primary")
+    b.seg = SegBar(b, 25)
+    b.segLab = Text(b, 9, { 0.86, 0.86, 0.86 })
+    b.segLab:SetText("YOUR ANSWER")
+    b.more = UI():CreateTipIconButton(b, 22, UI().ICON.more, "More", "Close, extend or remove the poll.", function(self)
+        local p = P():GetPoll(self:GetParent().pid)
+        if p then ManageMenu(self, p) end
+    end)
+    b.more:SetPoint("TOPRIGHT", -12, -12)
+    return b
+end
+
+-- Fills a banner for poll p. mode "list" (the poll waiting for me on the list) | "page" (the poll's own page).
+local function FillBanner(b, p, mode, w)
+    local Pl = P()
+    b.pid = p.id
+    w = w or (PAGE_W - 2 * PAD)
+    SetArt(b.art, p, w, b:GetHeight())
+    b.icon:Set(p.k)
+    local open = Pl:IsOpen(p)
+    if mode == "list" then
+        b.kick:SetText(("Waiting for you · " .. KIND_WORD[p.k] .. " · closes " .. When(p.cl, true)):upper())
+        b.kick:Show()
+        b.icon:ClearAllPoints()
+        b.icon:SetPoint("TOPLEFT", 14, -34)
+    else
+        b.kick:Hide()
+    end
+    b.q:SetText(p.q)
+    local res = Pl:Results(p)
+    local meta = { KIND_WORD[p.k] }
+    meta[#meta + 1] = (IsMe(p.by) and "asked by you" or ("asked by " .. Name(p.by)))
+    meta[#meta + 1] = TargetsWord(p)
+    if mode == "page" and p.k == "days" then meta[#meta + 1] = Plural(#p.o, "day") end
+    b.meta:SetText(tconcat(meta, " · "))
+    -- a pill after the question: Closed, or my answer
+    local mine = Pl:MyVote(p)
+    local pillText, pillTone
+    if not open then pillText, pillTone = "Closed", "changed"
+    elseif mine and p.k ~= "days" and mode == "page" then pillText, pillTone = "Answered", "rank" end
+    local qRoom = w - 14 - 46 - 12 - (b.more:IsShown() and 46 or 16) - (pillText and 90 or 0)
+    b.q:SetWidth(min(TextW(b.q) + 2, qRoom))
+    b.meta:SetWidth(w - 14 - 46 - 12 - 16)
+    if pillText then
+        b.pill:SetKind(pillText, pillTone)
+        b.pill:ClearAllPoints()
+        b.pill:SetPoint("LEFT", b.q, "RIGHT", 10, 0)
+        b.pill:Show()
+    else
+        b.pill:Hide()
+    end
+    -- who answered: faces, "n of m answered", a bar
+    local voters = {}
+    for _, slot in ipairs(p.m) do
+        local v = res.votes[slot]
+        if v then voters[#voters + 1] = v.by end
+    end
+    local fx = 14
+    for i = 1, min(6, #voters) do
+        local f = Pool(b.faces, i, function() return RingFace(b, 16) end)
+        f:ClearAllPoints()
+        f:SetPoint("BOTTOMLEFT", fx, 16)
+        f:SetFrameLevel(b:GetFrameLevel() + 2 + (6 - i))
+        f:Set(voters[i])
+        fx = fx + 12
+    end
+    HideFrom(b.faces, min(6, #voters) + 1)
+    b.count:ClearAllPoints()
+    b.count:SetPoint("BOTTOMLEFT", fx + (#voters > 0 and 12 or 0), 17)
+    b.count:SetText(res.answered .. " of " .. res.total .. " answered")
+    b.bar:ClearAllPoints()
+    b.bar:SetPoint("LEFT", b.count, "RIGHT", 14, 0)
+    b.bar:Set(res.total > 0 and res.answered / res.total or 0, 120)
+    -- the right side: the answer bar (yes / no), Answer, or when it closes
+    b.btn:Hide(); b.seg:Hide(); b.segLab:Hide(); b.chip:Hide()
+    b.more:SetShown(mode == "page" and Pl:CanManage(p))
+    local asked = Pl:AsksMe(p)
+    local right = -14
+    if p.k == "yn" and asked and open and (not mine or p.ch) then
+        local picked = mine and mine.c[1] or nil
+        b.seg:Set({ "Yes", "No" }, picked, function(i)
+            Pl:Vote(p.id, { i })
+        end, 70)
+        b.seg:ClearAllPoints()
+        b.seg:SetPoint("BOTTOMRIGHT", right, 12)
+        b.segLab:ClearAllPoints()
+        b.segLab:SetPoint("BOTTOMRIGHT", b.seg, "TOPRIGHT", 0, 5)
+        b.segLab:Show()
+        right = right - b.seg:GetWidth() - 12
+    elseif mode == "list" then
+        b.btn:SetText("Answer")
+        b.btn:SetScript("OnClick", function() PollsUI:OpenPoll(p.id) end)
+        b.btn:ClearAllPoints()
+        b.btn:SetPoint("BOTTOMRIGHT", right, 12)
+        b.btn:Show()
+        right = right - b.btn:GetWidth() - 10
+    elseif mode == "page" and IsMe(p.by) and open and #res.waiting > 0 then
+        b.btn:SetText("Nudge them")
+        FitButton(b.btn, 96)
+        b.btn:SetKind("secondary")
+        b.btn:SetScript("OnClick", function() PollsUI:Nudge(p.id) end)
+        b.btn:ClearAllPoints()
+        b.btn:SetPoint("BOTTOMRIGHT", right, 12)
+        b.btn:Show()
+        right = right - b.btn:GetWidth() - 10
+    end
+    if mode == "list" then b.btn:SetKind("primary") FitButton(b.btn, 70) end
+    b.chip:Set(open and ("Closes " .. When(p.cl, true)) or ("Closed " .. When(p.cl)), UI().ICON.calendar)
+    b.chip:ClearAllPoints()
+    b.chip:SetPoint("BOTTOMRIGHT", right, 13)
+end
+
+---------------------------------------------------------------------------
+-- The list
+---------------------------------------------------------------------------
+
+local L = {}
+local CARD_W = 282
+local LROW_H = 50
+
+function L.NewRow(parent)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetHeight(LROW_H)
+    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    r.line = Line(r, { 1, 1, 1, 0.045 })
+    r.line:SetHeight(1)
+    r.line:SetPoint("BOTTOMLEFT")
+    r.line:SetPoint("BOTTOMRIGHT")
+    r.art = CreateFrame("Frame", nil, r)
+    r.art:SetSize(64, 38)
+    r.art:SetPoint("LEFT", 2, 0)
+    r.art.outer = Fill(r.art, { 0, 0, 0, 1 }, "BACKGROUND")
+    r.art.outer:ClearAllPoints()
+    r.art.outer:SetPoint("TOPLEFT", -1, 1)
+    r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
+    r.art.tex = r.art:CreateTexture(nil, "ARTWORK")
+    r.art.tex:SetAllPoints()
+    r.icon = IconTile(r, 20)
+    r.icon:SetPoint("BOTTOMLEFT", r.art, "BOTTOMLEFT", -5, -5)
+    r.icon:SetFrameLevel(r.art:GetFrameLevel() + 3)
+    r.dot = r.art:CreateTexture(nil, "OVERLAY")
+    r.dot:SetTexture(DISC)
+    r.dot:SetSize(8, 8)
+    r.dot:SetVertexColor(1, 0.82, 0)
+    r.dot:SetPoint("CENTER", r.art, "TOPRIGHT", 0, 0)
+    r.title = Text(r, 12, C.white)
+    r.title:SetPoint("TOPLEFT", 80, -10)
+    r.meta = Text(r, 10, C.grey)
+    r.meta:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -5)
+    r.b1 = Button(r, "", 64, 24, "primary")
+    r.b2 = Button(r, "", 44, 24, "secondary")
+    r.more = UI():CreateTipIconButton(r, 20, UI().ICON.more, "More", nil, function() end)
+    r.mini = CreateFrame("Frame", nil, r)
+    r.mini:SetSize(110, 20)
+    r.mini.l = Text(r.mini, 10, { 0.82, 0.82, 0.82 })
+    r.mini.l:SetPoint("TOPLEFT")
+    r.mini.r = Text(r.mini, 10, { 0.82, 0.82, 0.82 }, true)
+    r.mini.r:SetJustifyH("RIGHT")
+    r.mini.r:SetPoint("TOPRIGHT")
+    r.mini.bar = Bar(r.mini, 4)
+    r.mini.bar:SetPoint("BOTTOMLEFT")
+    r.mini.bar:SetPoint("BOTTOMRIGHT")
+    r.mini.bar:SetWidth(110)
+    r.lock = CreateFrame("Frame", nil, r)
+    r.lock:SetSize(120, 16)
+    r.lock.icon = r.lock:CreateTexture(nil, "ARTWORK")
+    r.lock.icon:SetSize(11, 11)
+    r.lock.icon:SetPoint("LEFT")
+    Glyph(r.lock.icon, UI().ICON.lock, C.dim)
+    r.lock.fs = Text(r.lock, 10, C.dim)
+    r.lock.fs:SetPoint("LEFT", r.lock.icon, "RIGHT", 5, 0)
+    r:SetScript("OnClick", function(self) if self.pid then PollsUI:OpenPoll(self.pid) end end)
+    return r
+end
+
 -- Fills a list row for poll p in section `sec` ("wait" | "done" | "mine" | "closed").
 function L.Fill(r, p, sec, w)
+    local Pl = P()
     r.pid = p.id
     r:SetWidth(w)
-    Glyph(r.glyph, KindGlyph(p.k), { 0.81, 0.81, 0.81 })
-    r.dot:SetShown(sec == "wait")
+    SetArt(r.art.tex, p, 64, 38, 0.6)
+    r.icon:Set(p.k)
+    r.dot:SetShown(sec == "wait" or (sec == "mine" and Pl:AsksMe(p) and not Pl:MyVote(p)))
     r.title:SetText(p.q)
-    local res = P():Results(p)
+    local res = Pl:Results(p)
     local meta = { KIND_WORD[p.k] }
-    local mine = P():MyVote(p)
-    if sec == "wait" or sec == "closed" or sec == "mine" then
-        if not IsMe(p.by) then meta[#meta + 1] = "asked by " .. Name(p.by) end
-        meta[#meta + 1] = TargetsWord(p)
-        meta[#meta + 1] = ClosesWord(p)
-    else
+    local mine = Pl:MyVote(p)
+    if sec == "done" then
         if mine and p.k ~= "days" then
             local picks = {}
             for _, i in ipairs(mine.c) do picks[#picks + 1] = p.o[i] end
@@ -449,51 +765,58 @@ function L.Fill(r, p, sec, w)
         else
             meta[#meta + 1] = "you answered"
         end
-        if P():ResultsShown(p) then
-            meta[#meta + 1] = res.answered .. " of " .. res.total .. " answered"
-        else
-            meta[#meta + 1] = "results when it closes " .. white(When(p.cl))
-        end
+        meta[#meta + 1] = ClosesWord(p)
+    else
+        if not IsMe(p.by) then meta[#meta + 1] = "asked by " .. Name(p.by) end
+        meta[#meta + 1] = TargetsWord(p)
+        meta[#meta + 1] = ClosesWord(p)
     end
-    r.meta:SetText(tconcat(meta, " · "))
+    r.metaVariants = { tconcat(meta, " · ") }
+    for drop = #meta - 1, 2, -1 do
+        local short = {}
+        for i, m in ipairs(meta) do
+            if i == 1 or i > drop or i == #meta then short[#short + 1] = m end
+        end
+        r.metaVariants[#r.metaVariants + 1] = tconcat(short, " · ")
+    end
+    r.metaVariants[#r.metaVariants + 1] = meta[#meta]
     r.b1:Hide(); r.b2:Hide(); r.more:Hide(); r.mini:Hide(); r.lock:Hide()
     local right = 0
     if sec == "wait" then
         if p.k == "yn" then
-            r.b1:SetText("No"); r.b1:SetKind("secondary"); FitButton(r.b1, 44)
-            r.b2:SetText("Yes"); r.b2:SetHeight(22); r.b2:SetKind("secondary"); FitButton(r.b2, 44)
-            Sized(r.b2:GetFontString(), 11)
-            r.b1:ClearAllPoints(); r.b1:SetPoint("RIGHT", -4, 0)
-            r.b2:ClearAllPoints(); r.b2:SetPoint("RIGHT", r.b1, "LEFT", -8, 0)
-            r.b1:SetScript("OnClick", function() P():Vote(p.id, { 2 }) end)
-            r.b2:SetScript("OnClick", function() P():Vote(p.id, { 1 }) end)
+            r.b1:SetText("No"); r.b1:SetKind("secondary"); FitButton(r.b1, 48)
+            r.b2:SetText("Yes"); r.b2:SetKind("secondary"); FitButton(r.b2, 48)
+            r.b1:ClearAllPoints(); r.b1:SetPoint("RIGHT", -2, 0)
+            r.b2:ClearAllPoints(); r.b2:SetPoint("RIGHT", r.b1, "LEFT", -6, 0)
+            r.b1:SetScript("OnClick", function() Pl:Vote(p.id, { 2 }) end)
+            r.b2:SetScript("OnClick", function() Pl:Vote(p.id, { 1 }) end)
             r.b1:Show(); r.b2:Show()
-            right = r.b1:GetWidth() + r.b2:GetWidth() + 16
+            right = r.b1:GetWidth() + r.b2:GetWidth() + 12
         else
             r.b1:SetText("Answer"); r.b1:SetKind("primary"); FitButton(r.b1, 70)
-            r.b1:ClearAllPoints(); r.b1:SetPoint("RIGHT", -4, 0)
+            r.b1:ClearAllPoints(); r.b1:SetPoint("RIGHT", -2, 0)
             r.b1:SetScript("OnClick", function() PollsUI:OpenPoll(p.id) end)
             r.b1:Show()
-            right = r.b1:GetWidth() + 8
+            right = r.b1:GetWidth() + 6
         end
     elseif sec == "mine" then
-        r.dot:SetShown(P():AsksMe(p) and not mine)
-        r.more:ClearAllPoints(); r.more:SetPoint("RIGHT", -4, 0)
+        r.more:ClearAllPoints(); r.more:SetPoint("RIGHT", -2, 0)
         r.more:SetScript("OnClick", function(self) ManageMenu(self, p) end)
         r.more:Show()
         r.mini.l:SetText("Answered")
+        Sized(r.mini.l, 10)
         r.mini.r:SetText(res.answered .. "/" .. res.total)
         r.mini.bar.fill:SetColorTexture(C.green[1], C.green[2], C.green[3], 1)
-        r.mini.bar:Set(res.total > 0 and res.answered / res.total or 0, 115)
+        r.mini.bar:Set(res.total > 0 and res.answered / res.total or 0, 110)
         r.mini:ClearAllPoints(); r.mini:SetPoint("RIGHT", r.more, "LEFT", -10, 0)
         r.mini:Show()
-        right = 115 + 32
+        right = 110 + 34
     else
-        local shown = P():ResultsShown(p)
+        local shown = Pl:ResultsShown(p)
         local lead, share = Leading(p, res)
         if shown and lead then
             r.mini.r:SetText(share .. "%")
-            local room = 115 - TextW(r.mini.r) - 6
+            local room = 110 - TextW(r.mini.r) - 6
             for _, size in ipairs({ 10, 9, 8 }) do
                 Sized(r.mini.l, size)
                 r.mini.l:SetText(lead)
@@ -501,23 +824,134 @@ function L.Fill(r, p, sec, w)
             end
             if TextW(r.mini.l) > room then r.mini.l:SetText("Leading") end
             r.mini.bar.fill:SetColorTexture(C.bar[1], C.bar[2], C.bar[3], 1)
-            r.mini.bar:Set(share / 100, 115)
-            r.mini:ClearAllPoints(); r.mini:SetPoint("RIGHT", -4, 0)
+            r.mini.bar:Set(share / 100, 110)
+            r.mini:ClearAllPoints(); r.mini:SetPoint("RIGHT", -2, 0)
             r.mini:Show()
-            right = 120
+            right = 116
         elseif not shown then
             r.lock.fs:SetText("Results " .. When(p.cl))
             r.lock:SetWidth(16 + TextW(r.lock.fs))
-            r.lock:ClearAllPoints(); r.lock:SetPoint("RIGHT", -4, 0)
+            r.lock:ClearAllPoints(); r.lock:SetPoint("RIGHT", -2, 0)
             r.lock:Show()
             right = r.lock:GetWidth() + 8
         end
     end
-    -- (the title and line never run under the right side)
-    local room = w - 51 - right - 12
+    local room = w - 80 - right - 12
+    -- the question at 12, else 11; still too long: on two lines, the line under it goes to the tooltip
+    r.title:SetWordWrap(false)
     r.title:SetWidth(room)
-    r.meta:SetWidth(room)
+    r.title:ClearAllPoints()
+    r.title:SetPoint("TOPLEFT", 80, -10)
+    local fits = false
+    for _, size in ipairs({ 12, 11 }) do
+        Sized(r.title, size)
+        r.title:SetText(p.q)
+        if TextW(r.title) <= room then fits = true break end
+    end
+    r.tip = nil
+    if fits then
+        r.meta:Show()
+        for _, text in ipairs(r.metaVariants) do
+            r.meta:SetText(text)
+            if TextW(r.meta) <= room then break end
+        end
+        r.meta:SetWidth(room)
+        if r.meta:GetText() ~= r.metaVariants[1] then r.tip = { p.q, r.metaVariants[1] } end
+    else
+        r.title:ClearAllPoints()
+        r.title:SetPoint("LEFT", 80, 0)
+        Wrap(r.title, p.q, room, 11)
+        r.meta:Hide()
+        r.tip = { p.q, r.metaVariants[1] }
+    end
+    r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
+    r:SetScript("OnLeave", HideTip)
     r:Show()
+end
+
+-- The card at the right: the polls that closed lately, with what won.
+function L.BuildCard(v)
+    local c = CreateFrame("Frame", nil, v)
+    c:SetWidth(CARD_W)
+    Fill(c, CARD)
+    Edges(c, CARD_EDGE)
+    c.title = Text(c, 13, C.gold)
+    c.title:SetPoint("TOPLEFT", 12, -12)
+    c.title:SetText("Closed lately")
+    c.all = CreateFrame("Button", nil, c)
+    c.all:SetSize(40, 16)
+    c.all:SetPoint("TOPRIGHT", -10, -11)
+    c.all.fs = Text(c.all, 11, { 0.82, 0.82, 0.82 })
+    c.all.fs:SetJustifyH("RIGHT")
+    c.all.fs:SetPoint("RIGHT", -12, 0)
+    c.all.fs:SetText("All")
+    c.all.chev = c.all:CreateTexture(nil, "ARTWORK")
+    c.all.chev:SetSize(9, 9)
+    c.all.chev:SetPoint("RIGHT", 0, 0)
+    c.all.chev:SetTexture(UI().ICON_ATLAS)
+    UI():SetChevron(c.all.chev, true)
+    c.all.chev:SetVertexColor(0.82, 0.82, 0.82)
+    c.all:SetScript("OnClick", function() PollsUI:ShowList("closed") end)
+    c.rule = Line(c, { 1, 1, 1, 0.08 })
+    c.rule:SetHeight(1)
+    c.rule:SetPoint("TOPLEFT", 10, -36)
+    c.rule:SetPoint("TOPRIGHT", -10, -36)
+    c.items = {}
+    c.empty = Text(c, 11, C.dim)
+    c.empty:SetPoint("TOPLEFT", 12, -48)
+    c.empty:SetText("Nothing has closed yet.")
+    v.card = c
+end
+
+function L.FillCard(v, closed)
+    local c = v.card
+    local y = 46
+    local n = 0
+    for _, p in ipairs(closed) do
+        if n >= 5 then break end
+        n = n + 1
+        local it = Pool(c.items, n, function()
+            local f = CreateFrame("Button", nil, c)
+            f.icon = IconTile(f, 22)
+            f.icon:SetPoint("TOPLEFT", 1, -1)
+            f.q = Text(f, 11, C.white)
+            f.q:SetPoint("TOPLEFT", 32, 0)
+            f.w = Text(f, 10, C.gold)
+            f.w:SetPoint("TOPLEFT", f.q, "BOTTOMLEFT", 0, -4)
+            f.pct = Text(f, 10, { 0.82, 0.82, 0.82 }, true)
+            f.pct:SetJustifyH("RIGHT")
+            f.pct:SetPoint("TOPRIGHT", 0, -15)
+            f.bar = Bar(f, 3)
+            f.hl = f:CreateTexture(nil, "HIGHLIGHT")
+            f.hl:SetPoint("TOPLEFT", -6, 4)
+            f.hl:SetPoint("BOTTOMRIGHT", 6, -4)
+            f.hl:SetColorTexture(1, 1, 1, 0.03)
+            return f
+        end)
+        local w = CARD_W - 24
+        it:SetSize(w, 40)
+        it:ClearAllPoints()
+        it:SetPoint("TOPLEFT", 12, -y)
+        it.icon:Set(p.k)
+        it.q:SetText(p.q)
+        it.q:SetWidth(w - 32)
+        local res = P():Results(p)
+        local lead, share = Leading(p, res)
+        it.w:SetText(lead or Hex(C.dim, "No answers"))
+        it.w:SetWidth(w - 32 - 36)
+        it.pct:SetText(lead and (share .. "%") or "")
+        it.bar:ClearAllPoints()
+        it.bar:SetPoint("BOTTOMLEFT", 32, 0)
+        it.bar:SetPoint("BOTTOMRIGHT", 0, 0)
+        it.bar:Set(lead and share / 100 or 0, w - 32)
+        it:SetScript("OnClick", function() PollsUI:OpenPoll(p.id) end)
+        it:Show()
+        y = y + 52
+    end
+    HideFrom(c.items, n + 1)
+    c.empty:SetShown(n == 0)
+    c.all:SetShown(n > 0)
+    c:SetHeight(n == 0 and 76 or (y + 4))
 end
 
 function L.Build(v)
@@ -525,47 +959,66 @@ function L.Build(v)
     v.tabOpen:SetPoint("TOPLEFT", PAD - 4, -6)
     v.tabClosed = UI():CreateUnderlineTab(v, "Closed", function() PollsUI:ShowList("closed") end, "page")
     v.tabClosed:SetPoint("LEFT", v.tabOpen, "RIGHT", 4, 0)
-    v.new = Button(v, "New poll", 96, 22, "secondary", function() PollsUI:OpenNew() end, UI().ICON.plus)
-    v.new:SetPoint("TOPRIGHT", -PAD, -8)
+    v.new = Button(v, "New poll", 104, 24, "primary", function() PollsUI:OpenNew() end, UI().ICON.plus)
+    v.new:SetPoint("TOPRIGHT", -PAD, -7)
+    v.hero = Banner(v, BAN_LIST_H, false)
+    v.hero:SetPoint("TOPLEFT", PAD, -(TABS_H + 6))
+    v.hero:SetPoint("TOPRIGHT", -PAD, -(TABS_H + 6))
     v.scroll = UI():CreateScrollFrame(v)
-    v.scroll:SetPoint("TOPLEFT", PAD, -(TABS_H + 10))
-    v.scroll:SetPoint("BOTTOMRIGHT", -PAD, PAD)
     v.content = CreateFrame("Frame", nil, v.scroll)
     v.content:SetSize(PAGE_W - 2 * PAD, 10)
     v.scroll:SetScrollChild(v.content)
     v.heads, v.rows = {}, {}
     v.empty = Text(v.content, 11, C.dim)
-    v.emptyBtn = Button(v.content, "New poll", 96, 22, "primary", function() PollsUI:OpenNew() end, UI().ICON.plus)
+    L.BuildCard(v)
 end
 
 function L.Refresh(v)
     local Pl = P()
     local polls = Pl:GetPolls()
-    local waiting = Pl:WaitingCount()
-    UI():SetTabCount(v.tabOpen, waiting)
+    UI():SetTabCount(v.tabOpen, Pl:WaitingCount())
     v.tabOpen:SetActive(state.tab == "open")
     v.tabClosed:SetActive(state.tab == "closed")
     v.new:SetShown(Pl:AmIAsker())
-    local groups = {}
-    if state.tab == "open" then
-        local wait, done, mine = {}, {}, {}
-        for _, p in ipairs(polls) do
-            if Pl:IsOpen(p) then
-                if IsMe(p.by) then
-                    mine[#mine + 1] = p
-                elseif Pl:AsksMe(p) then
-                    if Pl:MyVote(p) then done[#done + 1] = p else wait[#wait + 1] = p end
-                end
-            end
+    local wait, done, mine, closed = {}, {}, {}, {}
+    for _, p in ipairs(polls) do
+        if not Pl:IsOpen(p) then
+            closed[#closed + 1] = p
+        elseif IsMe(p.by) then
+            mine[#mine + 1] = p
+        elseif Pl:AsksMe(p) then
+            if Pl:MyVote(p) then done[#done + 1] = p else wait[#wait + 1] = p end
         end
+    end
+    -- the banner: the open poll waiting for me that closes first (open tab only)
+    local hero = state.tab == "open" and wait[1] or nil
+    local top = TABS_H + 6
+    if hero then
+        table.remove(wait, 1)
+        FillBanner(v.hero, hero, "list")
+        v.hero:Show()
+        top = top + BAN_LIST_H + 14
+    else
+        v.hero:Hide()
+    end
+    local groups
+    if state.tab == "open" then
         groups = { { "Waiting for you", wait, "wait" }, { "Answered", done, "done" }, { "Your polls", mine, "mine" } }
     else
-        local closed = {}
-        for _, p in ipairs(polls) do
-            if not Pl:IsOpen(p) then closed[#closed + 1] = p end
-        end
         groups = { { "Closed", closed, "closed" } }
     end
+    -- the card at the right (open tab, when something closed)
+    local withCard = state.tab == "open" and #closed > 0
+    local listW = PAGE_W - 2 * PAD - (withCard and (CARD_W + 16) or 0)
+    v.card:SetShown(withCard)
+    if withCard then
+        v.card:ClearAllPoints()
+        v.card:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -top)
+        L.FillCard(v, closed)
+    end
+    v.scroll:ClearAllPoints()
+    v.scroll:SetPoint("TOPLEFT", PAD, -top)
+    v.scroll:SetSize(listW, PAGE_H - top - PAD)
     local total, heads = 0, 0
     for _, g in ipairs(groups) do
         if #g[2] > 0 then
@@ -573,9 +1026,8 @@ function L.Refresh(v)
             total = total + min(#g[2], MAX_LIST_ROWS)
         end
     end
-    local avail = (v.scroll:GetHeight() or 0) > 50 and v.scroll:GetHeight() or (PAGE_H - TABS_H - 20)
-    local need = total * ROW_H + heads * 28 + max(0, heads - 1) * 12
-    local cw = need > avail and (PAGE_W - 2 * PAD - 14) or (PAGE_W - 2 * PAD)
+    local need = total * LROW_H + heads * 28 + max(0, heads - 1) * 12
+    local cw = need > (PAGE_H - top - PAD) and (listW - 14) or listW
     v.content:SetWidth(cw)
     local y, hi, ri = 0, 0, 0
     for _, g in ipairs(groups) do
@@ -586,7 +1038,7 @@ function L.Refresh(v)
             s:ClearAllPoints()
             if hi > 1 then y = y + 12 end
             s:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
-            s:Set(g[1])
+            s:Set(g[1], tostring(#g[2]))
             y = y + 28
             for i = 1, min(#g[2], MAX_LIST_ROWS) do
                 ri = ri + 1
@@ -594,15 +1046,14 @@ function L.Refresh(v)
                 r:ClearAllPoints()
                 r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
                 L.Fill(r, g[2][i], g[3], cw)
-                y = y + ROW_H
+                y = y + LROW_H
             end
         end
     end
     HideFrom(v.heads, hi + 1)
     HideFrom(v.rows, ri + 1)
     v.empty:Hide()
-    v.emptyBtn:Hide()
-    if ri == 0 then
+    if ri == 0 and not hero then
         v.empty:ClearAllPoints()
         v.empty:SetPoint("TOPLEFT", v.content, "TOPLEFT", 2, -8)
         if state.tab == "open" then
@@ -622,40 +1073,36 @@ end
 ---------------------------------------------------------------------------
 
 local V = {}
+local BODY_Y = BAN_PAGE_H + 8 + 14
+local COL_R = 282
+
+function PollsUI:Nudge(id)
+    local n, why = P():Nudge(id)
+    if n and n > 0 then
+        ns:Print("reminded %s about the poll.", Plural(n, "player"))
+    elseif why == "soon" then
+        ns:Print("you nudged them a moment ago: wait a few minutes before the next one.")
+    end
+end
 
 function V.Build(v)
-    v.back = CreateFrame("Button", nil, v)
-    v.back:SetSize(60, 14)
-    v.back:SetPoint("TOPLEFT", PAD, -8)
-    v.back.fs = Text(v.back, 9, { 0.55, 0.55, 0.55 })
-    v.back.fs:SetPoint("LEFT")
-    v.back.fs:SetText("‹ POLLS")
-    v.back:SetScript("OnClick", function() PollsUI:ShowList() end)
-    v.back:SetScript("OnEnter", function(self) Color(self.fs, C.gold) end)
-    v.back:SetScript("OnLeave", function(self) Color(self.fs, { 0.55, 0.55, 0.55 }) end)
-    v.kick = Text(v, 10, C.gold)
-    v.kick:SetPoint("TOPLEFT", PAD, -28)
-    v.q = Text(v, 17, C.white)
-    v.q:SetPoint("TOPLEFT", PAD, -43)
-    v.meta = Text(v, 10, C.grey)
-    v.meta:SetPoint("TOPLEFT", PAD, -71)
-    v.chips = {}
-    v.more = UI():CreateTipIconButton(v, 18, UI().ICON.more, "More", "Close, extend or remove the poll.", function(self)
-        local p = P():GetPoll(state.poll)
-        if p then ManageMenu(self, p) end
-    end)
-    v.more:SetPoint("TOPRIGHT", -PAD, -26)
-    -- the answers / results column (scrolls when long)
+    v.ban = Banner(v, BAN_PAGE_H, true)
+    v.ban:SetPoint("TOPLEFT", PAD, -8)
+    v.ban:SetPoint("TOPRIGHT", -PAD, -8)
+    local LW = PAGE_W - 2 * PAD - COL_R - 24
+    v.lsec = Sect(v)
+    v.lsec:SetPoint("TOPLEFT", PAD, -BODY_Y)
+    v.lsec:SetWidth(LW)
     v.scroll = UI():CreateScrollFrame(v)
-    v.scroll:SetPoint("TOPLEFT", PAD, -104)
-    v.scroll:SetSize(LEFT_W, PAGE_H - 104 - PAD)
+    v.scroll:SetPoint("TOPLEFT", PAD, -(BODY_Y + 34))
+    v.scroll:SetSize(LW, PAGE_H - BODY_Y - 34 - PAD)
     v.body = CreateFrame("Frame", nil, v.scroll)
-    v.body:SetSize(LEFT_W, 10)
+    v.body:SetSize(LW, 10)
     v.scroll:SetScrollChild(v.body)
     v.ans, v.res = {}, {}
-    v.vote = Button(v.body, "Vote", 70, 22, "primary", function() V.SendVote() end)
+    v.vote = Button(v.body, "Vote", 76, 24, "primary", function() V.SendVote() end)
     v.note = Text(v.body, 10, C.dim)
-    v.change = Button(v.body, "Change vote", 100, 22, "secondary", function()
+    v.change = Button(v.body, "Change my answer", 130, 24, "secondary", function()
         state.changing = true
         local p = P():GetPoll(state.poll)
         local mine = p and P():MyVote(p)
@@ -664,90 +1111,61 @@ function V.Build(v)
         PollsUI:Refresh()
     end)
     v.err = Text(v.body, 10, C.red)
-    -- the card at the right
-    v.card = CreateFrame("Frame", nil, v)
-    v.card:SetPoint("TOPLEFT", CARD_X, -104)
-    v.card:SetPoint("TOPRIGHT", -PAD, -104)
-    v.card:SetHeight(200)
-    Fill(v.card, CARD)
-    Edges(v.card, CARD_EDGE)
-    v.card.title = Text(v.card, 12, C.gold)
-    v.card.title:SetPoint("TOPLEFT", 9, -9)
-    v.card.right = Text(v.card, 10, { 0.74, 0.74, 0.74 })
-    v.card.right:SetJustifyH("RIGHT")
-    v.card.right:SetPoint("TOPRIGHT", -9, -10)
-    v.card.rule = Line(v.card, { 0.14, 0.14, 0.15, 1 })
-    v.card.rule:SetHeight(1)
-    v.card.rule:SetPoint("TOPLEFT", 1, -28)
-    v.card.rule:SetPoint("TOPRIGHT", -1, -28)
-    v.card.people = {}
-    v.card.more = Text(v.card, 10, C.dim)
-    v.card.nudge = Button(v.card, "Nudge them", 96, 20, "secondary", function()
-        local n, why = P():Nudge(state.poll)
-        if n and n > 0 then
-            ns:Print("reminded %s about the poll.", Plural(n, "player"))
-        elseif why == "soon" then
-            ns:Print("you nudged them a moment ago: wait a few minutes before the next one.")
-        end
-    end, UI().ICON.whisper)
-    v.card2 = CreateFrame("Frame", nil, v)
-    v.card2:SetPoint("TOPLEFT", v.card, "BOTTOMLEFT", 0, -GAP)
-    v.card2:SetPoint("TOPRIGHT", v.card, "BOTTOMRIGHT", 0, -GAP)
-    v.card2:SetHeight(64)
-    Fill(v.card2, CARD)
-    Edges(v.card2, CARD_EDGE)
-    v.card2.fs = Text(v.card2, 10, C.grey)
-    v.card2.fs:SetPoint("TOPLEFT", 9, -10)
-    v.card2.close = Button(v.card2, "Close now", 80, 20, "secondary", function() P():Close(state.poll) end)
-    v.card2.close:SetPoint("TOPLEFT", 9, -30)
-    v.card2.extend = Button(v.card2, "Extend", 64, 20, "secondary", function() P():Extend(state.poll, DAY) end)
-    v.card2.extend:SetPoint("LEFT", v.card2.close, "RIGHT", 6, 0)
+    -- the people (right column)
+    v.rsec = Sect(v)
+    v.rsec:SetPoint("TOPRIGHT", -PAD, -BODY_Y)
+    v.rsec:SetWidth(COL_R)
+    v.people = {}
+    v.pmore = Text(v, 10, C.dim)
     -- Pick days
     v.grid = CreateFrame("Frame", nil, v)
-    v.grid:SetPoint("TOPLEFT", PAD, -104)
+    v.grid:SetPoint("TOPLEFT", PAD, -BODY_Y)
     v.grid:SetPoint("BOTTOMRIGHT", -PAD, PAD)
     V.BuildGrid(v.grid)
 end
 
-local function AnswerRow(parent)
+local function AnswerRow(parent, w)
     local b = CreateFrame("Button", nil, parent)
-    b:SetSize(LEFT_W, ANS_H)
-    b.bg = Fill(b, C.row)
+    b:SetSize(w, ANS_H)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.bg:SetTexture(WHITE)
     Edges(b, C.rowEdge)
     b.bar = b:CreateTexture(nil, "ARTWORK")
     b.bar:SetColorTexture(1, 0.82, 0, 1)
-    b.bar:SetPoint("TOPLEFT", -1, 1)
-    b.bar:SetPoint("BOTTOMLEFT", -1, -1)
+    b.bar:SetPoint("TOPLEFT", 0, 0)
+    b.bar:SetPoint("BOTTOMLEFT", 0, 0)
     b.bar:SetWidth(3)
     b.ring = b:CreateTexture(nil, "ARTWORK", nil, 1)
     b.ring:SetTexture(DISC)
-    b.ring:SetSize(13, 13)
-    b.ring:SetPoint("LEFT", 10, 0)
+    b.ring:SetSize(14, 14)
+    b.ring:SetPoint("LEFT", 12, 0)
     b.hole = b:CreateTexture(nil, "ARTWORK", nil, 2)
     b.hole:SetTexture(DISC)
-    b.hole:SetSize(10, 10)
+    b.hole:SetSize(11, 11)
     b.hole:SetPoint("CENTER", b.ring)
     b.dot = b:CreateTexture(nil, "ARTWORK", nil, 3)
     b.dot:SetTexture(DISC)
-    b.dot:SetSize(6, 6)
+    b.dot:SetSize(7, 7)
     b.dot:SetPoint("CENTER", b.ring)
     b.dot:SetVertexColor(1, 0.82, 0)
     b.box = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.box:SetSize(12, 12)
-    b.box:SetPoint("LEFT", 10, 0)
+    b.box:SetSize(13, 13)
+    b.box:SetPoint("LEFT", 12, 0)
     b.check = b:CreateTexture(nil, "ARTWORK", nil, 3)
     b.check:SetTexture(CHECK)
-    b.check:SetSize(18, 18)
+    b.check:SetSize(19, 19)
     b.check:SetPoint("CENTER", b.box, "CENTER", 1, 0)
     b.check:SetVertexColor(1, 0.82, 0)
     b.fs = Text(b, 12, C.text)
-    b.fs:SetPoint("LEFT", 32, 0)
+    b.fs:SetPoint("LEFT", 36, 0)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.03)
-    function b:Set(text, multi, on)
+    b.hl:SetColorTexture(1, 1, 1, 0.035)
+    function b:Set(text, multi, on, rowW)
+        self:SetWidth(rowW or w)
         self.fs:SetText(text)
-        self.fs:SetWidth(LEFT_W - 44)
+        self.fs:SetWidth((rowW or w) - 48)
         self.ring:SetShown(not multi)
         self.hole:SetShown(not multi)
         self.dot:SetShown(not multi and on)
@@ -755,18 +1173,22 @@ local function AnswerRow(parent)
         self.check:SetShown(multi and on)
         self.bar:SetShown(on)
         if on then
-            self.bg:SetColorTexture(C.pick[1], C.pick[2], C.pick[3], 1)
+            if self.bg.SetGradient and CreateColor then
+                self.bg:SetGradient("HORIZONTAL", CreateColor(0.24, 0.2, 0.08, 1), CreateColor(0.12, 0.11, 0.07, 1))
+            end
             UI():SetEdgeColor(self, C.pickEdge[1], C.pickEdge[2], C.pickEdge[3], 1)
             Color(self.fs, C.white)
             self.ring:SetVertexColor(1, 0.82, 0, 1)
-            self.hole:SetVertexColor(C.pick[1], C.pick[2], C.pick[3], 1)
-            self.box:SetColorTexture(0.18, 0.15, 0.09, 1)
+            self.hole:SetVertexColor(0.2, 0.17, 0.08, 1)
+            self.box:SetColorTexture(0.24, 0.2, 0.08, 1)
         else
-            self.bg:SetColorTexture(C.row[1], C.row[2], C.row[3], 1)
+            if self.bg.SetGradient and CreateColor then
+                self.bg:SetGradient("HORIZONTAL", CreateColor(0.12, 0.12, 0.14, 1), CreateColor(0.085, 0.085, 0.1, 1))
+            end
             UI():SetEdgeColor(self, C.rowEdge[1], C.rowEdge[2], C.rowEdge[3], 1)
             Color(self.fs, C.text)
             self.ring:SetVertexColor(0.42, 0.42, 0.45, 1)
-            self.hole:SetVertexColor(C.row[1], C.row[2], C.row[3], 1)
+            self.hole:SetVertexColor(0.11, 0.11, 0.13, 1)
             self.box:SetColorTexture(0.3, 0.3, 0.33, 1)
         end
         self:Show()
@@ -774,71 +1196,71 @@ local function AnswerRow(parent)
     return b
 end
 
-local function ResultBlock(parent)
+local function ResultBlock(parent, w)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetWidth(LEFT_W)
-    f.l = Text(f, 12, C.white)
+    f:SetWidth(w)
+    f.l = Text(f, 13, C.white)
     f.l:SetPoint("TOPLEFT", 0, 0)
-    f.mine = CreateFrame("Frame", nil, f)
-    f.mine:SetSize(70, 14)
-    UI():AddPillShape(f.mine, 14)
-    f.mine:SetPillColors({ 0.18, 0.15, 0.09, 1 }, { 0.54, 0.45, 0.13, 1 })
-    f.mine.icon = f.mine:CreateTexture(nil, "ARTWORK")
-    f.mine.icon:SetTexture(CHECK)
-    f.mine.icon:SetSize(13, 13)
-    f.mine.icon:SetPoint("LEFT", 4, 0)
-    f.mine.icon:SetVertexColor(1, 0.82, 0)
-    f.mine.fs = Text(f.mine, 9, C.gold)
-    f.mine.fs:SetPoint("LEFT", f.mine.icon, "RIGHT", 1, 0)
-    f.mine.fs:SetText("Your vote")
-    f.mine:SetPoint("LEFT", f.l, "RIGHT", 7, 0)
-    f.c = Text(f, 11, { 0.74, 0.74, 0.74 }, true)
+    f.mine = EUI():CreatePill(f, 16)
+    f.c = Text(f, 12, C.white, true)
     f.c:SetJustifyH("RIGHT")
-    f.c:SetPoint("TOPRIGHT", 0, -1)
-    f.bar = Bar(f, 6)
-    f.bar:SetPoint("TOPLEFT", 0, -19)
-    f.bar:SetPoint("TOPRIGHT", 0, -19)
-    f.names = Text(f, 9, C.dim)
-    f.names:SetPoint("TOPLEFT", 0, -30)
+    f.c:SetPoint("TOPRIGHT", 0, 0)
+    f.pct = Text(f, 11, { 0.66, 0.66, 0.68 }, true)
+    f.pct:SetJustifyH("RIGHT")
+    f.bar = CreateFrame("Frame", nil, f)
+    f.bar:SetHeight(8)
+    f.bar:SetPoint("TOPLEFT", 0, -21)
+    f.bar:SetPoint("TOPRIGHT", 0, -21)
+    f.bar.track = Fill(f.bar, { 0.14, 0.14, 0.16, 1 })
+    f.bar.fill = f.bar:CreateTexture(nil, "ARTWORK")
+    f.bar.fill:SetPoint("TOPLEFT")
+    f.bar.fill:SetPoint("BOTTOMLEFT")
+    f.bar.fill:SetTexture(WHITE)
+    if f.bar.fill.SetGradient and CreateColor then
+        f.bar.fill:SetGradient("HORIZONTAL", CreateColor(0.72, 0.53, 0.04, 1), CreateColor(1, 0.82, 0.25, 1))
+    else
+        f.bar.fill:SetColorTexture(C.bar[1], C.bar[2], C.bar[3], 1)
+    end
+    f.names = Text(f, 10, C.dim)
+    f.names:SetPoint("TOPLEFT", 0, -36)
     return f
 end
 
 local function PersonRow(parent)
     local r = CreateFrame("Frame", nil, parent)
-    r:SetHeight(21)
-    r.face = Face(r, 14)
-    r.face:SetPoint("LEFT", 0, 0)
-    r.fs = Text(r, 10, C.white)
-    r.fs:SetPoint("LEFT", r.face, "RIGHT", 5, 0)
+    r:SetHeight(24)
+    r.face = RingFace(r, 17)
+    r.face:SetPoint("LEFT", 2, 0)
+    r.fs = Text(r, 11, C.white)
+    r.fs:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
     r.mark = r:CreateTexture(nil, "ARTWORK")
     r.mark:SetTexture(CHECK)
-    r.mark:SetSize(15, 15)
+    r.mark:SetSize(16, 16)
     r.mark:SetPoint("RIGHT", 0, 0)
     r.mark:SetVertexColor(0.31, 0.83, 0.42)
-    r.wait = Text(r, 9, C.dim)
-    r.wait:SetJustifyH("RIGHT")
-    r.wait:SetPoint("RIGHT", 0, 0)
-    r.wait:SetText("waiting")
+    r.wait = r:CreateTexture(nil, "ARTWORK")
+    r.wait:SetTexture(DISC)
+    r.wait:SetSize(9, 9)
+    r.wait:SetPoint("RIGHT", -3, 0)
+    r.wait:SetVertexColor(1, 1, 1, 0.16)
+    r.waitHole = r:CreateTexture(nil, "ARTWORK", nil, 1)
+    r.waitHole:SetTexture(DISC)
+    r.waitHole:SetSize(7, 7)
+    r.waitHole:SetPoint("CENTER", r.wait)
+    r.waitHole:SetVertexColor(0.08, 0.08, 0.09, 1)
+    r:EnableMouse(true)
+    r:SetScript("OnEnter", function(self)
+        if self.tipText then Tip(self, self.tipText) end
+    end)
+    r:SetScript("OnLeave", HideTip)
     return r
 end
 
--- The card: who answered (names, not picks), or (the asker; or results shown) who hasn't.
-function V.FillCard(v, p, res, manage)
-    local c = v.card
-    local list, title, right, marks
-    if manage then
-        list, title, right, marks = res.waiting, "Not answered", res.waiting and (#res.waiting .. " of " .. res.total), false
-    else
-        list, title, right, marks = p.m, "Asked", res.answered .. "/" .. res.total .. " answered", true
-    end
-    c.title:SetText(title)
-    c.right:SetText(right)
-    local cw = c:GetWidth()
-    if not cw or cw < 50 then cw = PAGE_W - CARD_X - PAD end
-    local colW = floor((cw - 18 - 12) / 2)
-    -- answered first when the card shows marks
-    local keys = {}
-    for _, k in ipairs(list) do keys[#keys + 1] = k end
+-- The right column: who answered (names, not picks; answered first), or for the asker who hasn't.
+function V.FillPeople(v, p, res)
+    local manage = IsMe(p.by)
+    local keys, marks = {}, not manage
+    for _, k in ipairs(manage and res.waiting or p.m) do keys[#keys + 1] = k end
     if marks then
         tsort(keys, function(a, b)
             local va, vb = res.votes[a] ~= nil, res.votes[b] ~= nil
@@ -846,68 +1268,45 @@ function V.FillCard(v, p, res, manage)
             return a < b
         end)
     end
-    local maxRows = manage and 7 or 9
+    v.rsec:Set(manage and "Not answered" or "Answered",
+        manage and (#res.waiting .. " of " .. res.total) or (res.answered .. " of " .. res.total))
+    local colW = floor((COL_R - 14) / 2)
+    local maxRows = 12
     local shown = min(#keys, maxRows * 2)
     if #keys > maxRows * 2 then shown = maxRows * 2 - 1 end
+    local x0 = PAGE_W - PAD - COL_R
     for i = 1, shown do
-        local r = Pool(c.people, i, function() return PersonRow(c) end)
+        local r = Pool(v.people, i, function() return PersonRow(v) end)
         local k = keys[i]
         local vote = res.votes[k]
         local who = vote and vote.by or k
         r:SetWidth(colW)
         r:ClearAllPoints()
         local col, row = (i - 1) % 2, floor((i - 1) / 2)
-        r:SetPoint("TOPLEFT", 9 + col * (colW + 12), -(34 + row * 21))
+        r:SetPoint("TOPLEFT", v, "TOPLEFT", x0 + col * (colW + 14), -(BODY_Y + 36 + row * 26))
         r.face:Set(who)
         r.fs:SetText(Name(who))
-        r.fs:SetWidth(colW - 19 - (marks and (vote and 18 or 40) or 0))
+        r.fs:SetWidth(colW - 27 - (marks and 18 or 0))
         r.mark:SetShown(marks and vote ~= nil)
         r.wait:SetShown(marks and vote == nil)
+        r.waitHole:SetShown(marks and vote == nil)
+        r.tipText = marks and { Name(who), vote and "Has answered" or "Hasn't answered yet" } or nil
         r:Show()
     end
-    HideFrom(c.people, shown + 1)
-    local rows = ceil(shown / 2)
-    local y = 34 + rows * 21
-    c.more:Hide()
+    HideFrom(v.people, shown + 1)
+    v.pmore:Hide()
     if #keys > shown then
-        c.more:ClearAllPoints()
-        c.more:SetPoint("TOPLEFT", 9 + (shown % 2) * (colW + 12), -(34 + (rows - (shown % 2 == 1 and 1 or 0)) * 21 + 4))
-        c.more:SetText("and " .. (#keys - shown) .. " more")
-        c.more:Show()
-        if shown % 2 == 0 then y = y + 21 end
-    end
-    if #keys == 0 then
-        c.more:ClearAllPoints()
-        c.more:SetPoint("TOPLEFT", 9, -38)
-        c.more:SetText(manage and "Everyone has answered." or "Nobody yet.")
-        c.more:Show()
-        y = 58
-    end
-    c.nudge:Hide()
-    if manage and #keys > 0 and P():IsOpen(p) then
-        c.nudge:ClearAllPoints()
-        c.nudge:SetPoint("TOPLEFT", 9, -(y + 4))
-        c.nudge:Show()
-        y = y + 30
-    end
-    c:SetHeight(y + 8)
-    -- the asker's closing card
-    if IsMe(p.by) then
-        local shownWord = ({ live = "results always shown", vote = "results show after voting",
-                             close = "results show when it closes" })[p.rv]
-        v.card2.fs:SetText((P():IsOpen(p) and "Closes " or "Closed ") .. white(When(p.cl, true)) .. " · " .. shownWord)
-        v.card2.close:SetShown(P():IsOpen(p))
-        v.card2.extend:SetText(P():IsOpen(p) and "Extend" or "Open again")
-        FitButton(v.card2.extend, 64)
-        v.card2.extend:ClearAllPoints()
-        if P():IsOpen(p) then
-            v.card2.extend:SetPoint("LEFT", v.card2.close, "RIGHT", 6, 0)
-        else
-            v.card2.extend:SetPoint("TOPLEFT", 9, -30)
-        end
-        v.card2:Show()
-    else
-        v.card2:Hide()
+        local rows = ceil(shown / 2)
+        v.pmore:ClearAllPoints()
+        v.pmore:SetPoint("TOPLEFT", v, "TOPLEFT", x0 + 2 + (shown % 2) * (colW + 14),
+            -(BODY_Y + 36 + (rows - (shown % 2 == 1 and 1 or 0)) * 26 + 6))
+        v.pmore:SetText("and " .. (#keys - shown) .. " more")
+        v.pmore:Show()
+    elseif #keys == 0 then
+        v.pmore:ClearAllPoints()
+        v.pmore:SetPoint("TOPLEFT", v, "TOPLEFT", x0 + 2, -(BODY_Y + 40))
+        v.pmore:SetText(manage and "Everyone has answered." or "Nobody yet.")
+        v.pmore:Show()
     end
 end
 
@@ -936,51 +1335,36 @@ function V.Refresh(v)
         PollsUI:ShowList()
         return
     end
+    FillBanner(v.ban, p, "page")
     local open = Pl:IsOpen(p)
-    local kick = KIND_WORD[p.k]:upper() .. " · " .. (open and ("CLOSES " .. When(p.cl, true)) or ("CLOSED " .. When(p.cl))):upper()
-    v.kick:SetText(kick)
-    v.q:SetText(p.q)
-    v.q:SetWidth(PAGE_W - 2 * PAD - 30)
-    v.meta:SetText((IsMe(p.by) and "Asked by you" or ("Asked by " .. Name(p.by))) .. " · for")
-    local x = PAD + TextW(v.meta) + 6
-    for i, t in ipairs(p.a or {}) do
-        local ch = Pool(v.chips, i, function() return Chip(v, 17) end)
-        ch:ClearAllPoints()
-        ch:SetPoint("LEFT", v, "TOPLEFT", x, -77)
-        local w = ch:Set(P():TargetName(t), TargetGlyph(t))
-        x = x + w + 4
-        if x > PAGE_W - PAD - 60 then
-            for j = i + 1, #(p.a or {}) do if v.chips[j] then v.chips[j]:Hide() end end
-            break
-        end
-    end
-    HideFrom(v.chips, #(p.a or {}) + 1)
-    v.more:SetShown(Pl:CanManage(p))
     local res = Pl:Results(p)
-    local manage = Pl:CanManage(p) and IsMe(p.by)
     if p.k == "days" then
-        v.scroll:Hide(); v.card:Hide(); v.card2:Hide()
+        v.scroll:Hide(); v.lsec:Hide(); v.rsec:Hide(); v.pmore:Hide()
+        HideFrom(v.people, 1)
         v.grid:Show()
         V.FillGrid(v.grid, p, res)
         return
     end
     v.grid:Hide()
-    v.scroll:Show(); v.card:Show()
+    v.scroll:Show(); v.lsec:Show(); v.rsec:Show()
+    local LW = v.body:GetWidth()
     local mine = Pl:MyVote(p)
     local asked = Pl:AsksMe(p)
-    local answering = asked and open and (not mine or state.changing)
+    local answering = asked and open and (not mine or state.changing) and p.k ~= "yn"
     local shown = Pl:ResultsShown(p)
     local y = 0
     for _, b in ipairs(v.ans) do b:Hide() end
     for _, b in ipairs(v.res) do b:Hide() end
     v.vote:Hide(); v.note:Hide(); v.change:Hide(); v.err:Hide()
     if answering then
+        v.lsec:Set(mine and "Change your answer" or "Your answer",
+            p.k == "many" and ((p.mx or 0) > 0 and ("pick up to " .. p.mx) or "pick any") or "pick one")
         local multi = p.k == "many"
         for i = 1, #p.o do
-            local b = Pool(v.ans, i, function() return AnswerRow(v.body) end)
+            local b = Pool(v.ans, i, function() return AnswerRow(v.body, LW) end)
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", 0, -y)
-            b:Set(p.o[i], multi, state.pick[i] and true or false)
+            b:Set(p.o[i], multi, state.pick[i] and true or false, LW)
             b:SetScript("OnClick", function()
                 if multi then
                     local n = 0
@@ -999,27 +1383,21 @@ function V.Refresh(v)
             end)
             y = y + ANS_H + ANS_GAP
         end
-        y = y + 10
+        y = y + 8
         v.vote:SetText(mine and "Save" or "Vote")
         v.vote:ClearAllPoints()
         v.vote:SetPoint("TOPLEFT", 0, -y)
         v.vote:Show()
-        local note
-        if p.k == "many" and (p.mx or 0) > 0 then note = "Pick up to " .. p.mx .. "." elseif p.k == "many" then
-            note = "Pick as many as you like."
-        end
-        local after = ({ live = nil, vote = "Results show after you vote.", close = "Results show when it closes." })[p.rv]
-        local change = p.ch and "You can change it until it closes." or "Your answer can't be changed afterwards."
         local words = {}
-        for _, s in ipairs({ note or false, after or false, change }) do
-            if s then words[#words + 1] = s end
-        end
+        local after = ({ vote = "Results show after you vote.", close = "Results show when it closes." })[p.rv]
+        if after then words[#words + 1] = after end
+        words[#words + 1] = p.ch and "You can change it until it closes." or "Your answer can't be changed afterwards."
         v.note:SetText(tconcat(words, " "))
         v.note:ClearAllPoints()
-        v.note:SetPoint("LEFT", v.vote, "RIGHT", 10, 0)
-        v.note:SetWidth(LEFT_W - v.vote:GetWidth() - 10)
+        v.note:SetPoint("LEFT", v.vote, "RIGHT", 12, 0)
+        v.note:SetWidth(LW - v.vote:GetWidth() - 12)
         v.note:Show()
-        y = y + 30
+        y = y + 32
         if state.err then
             v.err:SetText(state.err)
             v.err:ClearAllPoints()
@@ -1028,9 +1406,9 @@ function V.Refresh(v)
             y = y + 16
         end
     elseif shown then
+        v.lsec:Set("Results", Plural(res.answered, "answer"))
         local myPick = {}
         for _, i in ipairs(mine and mine.c or {}) do myPick[i] = true end
-        -- most picked first
         local order = {}
         for i = 1, #p.o do order[i] = i end
         tsort(order, function(a, b)
@@ -1039,64 +1417,78 @@ function V.Refresh(v)
         end)
         local denom = max(1, res.answered)
         for n, i in ipairs(order) do
-            local f = Pool(v.res, n, function() return ResultBlock(v.body) end)
+            local f = Pool(v.res, n, function() return ResultBlock(v.body, LW) end)
+            f:SetWidth(LW)
             f:ClearAllPoints()
             f:SetPoint("TOPLEFT", 0, -y)
             f.l:SetText(p.o[i])
-            f.l:SetWidth(min(TextW(f.l) + 2, LEFT_W - 160))
-            f.mine:SetShown(myPick[i] and true or false)
             local pct = floor(res.counts[i] * 100 / denom + 0.5)
-            f.c:SetText(res.counts[i] .. " · " .. pct .. "%")
-            f.bar:Set(res.counts[i] / denom, LEFT_W)
+            f.c:SetText(tostring(res.counts[i]))
+            f.pct:SetText(pct .. "%")
+            f.pct:ClearAllPoints()
+            f.pct:SetPoint("RIGHT", f.c, "LEFT", -8, 0)
+            local roomL = LW - TextW(f.c) - TextW(f.pct) - 20 - (myPick[i] and 84 or 0)
+            f.l:SetWidth(min(TextW(f.l) + 2, roomL))
+            if myPick[i] then
+                f.mine:SetKind("Your vote", "rank")
+                f.mine:ClearAllPoints()
+                f.mine:SetPoint("LEFT", f.l, "RIGHT", 8, 0)
+                f.mine:Show()
+            else
+                f.mine:Hide()
+            end
+            f.bar.fill:SetWidth(max(0.01, LW * res.counts[i] / denom))
+            f.bar.fill:SetShown(res.counts[i] > 0)
             local names = {}
             for _, k in ipairs(res.voters[i]) do names[#names + 1] = Name(k) end
             local h = 0
             if #names > 0 then
-                h = Wrap(f.names, tconcat(names, Hex(C.dim, ", ")), LEFT_W, 9)
+                h = Wrap(f.names, tconcat(names, Hex(C.dim, ", ")), LW, 10)
                 f.names:Show()
             else
                 f.names:Hide()
             end
-            f:SetHeight(30 + h)
+            f:SetHeight(36 + h)
             f:Show()
-            y = y + 30 + h + 12
+            y = y + 36 + h + 14
         end
-        if asked and open and p.ch and mine then
+        if asked and open and p.ch and mine and p.k ~= "yn" then
             v.change:ClearAllPoints()
             v.change:SetPoint("TOPLEFT", 0, -(y + 2))
             v.change:Show()
-            y = y + 30
+            y = y + 32
         end
     else
-        -- answered, results wait
+        -- answered (or not asked), results wait
+        v.lsec:Set(mine and "Your answer" or "Answers", "results " .. When(p.cl))
         local myPick = {}
         for _, i in ipairs(mine and mine.c or {}) do myPick[i] = true end
         for i = 1, #p.o do
-            local b = Pool(v.ans, i, function() return AnswerRow(v.body) end)
+            local b = Pool(v.ans, i, function() return AnswerRow(v.body, LW) end)
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", 0, -y)
-            b:Set(p.o[i], p.k == "many", myPick[i] and true or false)
+            b:Set(p.o[i], p.k == "many", myPick[i] and true or false, LW)
             b:SetScript("OnClick", nil)
             y = y + ANS_H + ANS_GAP
         end
-        v.note:SetText(asked and mine and ("Voted. Results show when it closes " .. white(When(p.cl)) .. ".")
-            or ("Results show when it closes " .. white(When(p.cl)) .. "."))
+        v.note:SetText((mine and "Voted. " or "") .. "Results show when it closes " .. white(When(p.cl, true)) .. ".")
         v.note:ClearAllPoints()
         v.note:SetPoint("TOPLEFT", 0, -(y + 6))
-        v.note:SetWidth(LEFT_W)
+        v.note:SetWidth(LW)
         v.note:Show()
-        y = y + 24
-        if asked and open and p.ch and mine then
+        y = y + 26
+        if asked and open and p.ch and mine and p.k ~= "yn" then
             v.change:ClearAllPoints()
             v.change:SetPoint("TOPLEFT", 0, -(y + 4))
             v.change:Show()
-            y = y + 30
+            y = y + 32
         end
     end
     v.body:SetHeight(max(10, y))
-    V.FillCard(v, p, res, manage)
+    V.FillPeople(v, p, res)
 end
 
+---------------------------------------------------------------------------
 ---------------------------------------------------------------------------
 -- Pick days: the grid
 ---------------------------------------------------------------------------
@@ -1137,10 +1529,10 @@ end
 local function GridRow(parent, n)
     local r = CreateFrame("Frame", nil, parent)
     r:SetHeight(23)
-    r.face = Face(r, 14)
-    r.face:SetPoint("LEFT", 4, 0)
-    r.fs = Text(r, 10, C.white)
-    r.fs:SetPoint("LEFT", r.face, "RIGHT", 6, 0)
+    r.face = RingFace(r, 15)
+    r.face:SetPoint("LEFT", 5, 0)
+    r.fs = Text(r, 11, C.white)
+    r.fs:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
     r.cells = {}
     return r
 end
@@ -1322,7 +1714,7 @@ function V.FillGrid(g, p, res)
         end
         tsort(others, function(a, b) return a.by < b.by end)
         local footH = 22
-        local avail = PAGE_H - 104 - PAD - y - footH - 30
+        local avail = PAGE_H - BODY_Y - PAD - y - footH - 30
         g.scroll:ClearAllPoints()
         g.scroll:SetPoint("TOPLEFT", 0, -y)
         local listH = #others * 23
@@ -1489,7 +1881,7 @@ function S.Post()
 end
 
 local function Label(parent, text)
-    local fs = Text(parent, 9, { 0.55, 0.55, 0.55 })
+    local fs = Text(parent, 11, { 0.62, 0.62, 0.62 })
     fs:SetText(text)
     return fs
 end
@@ -1499,14 +1891,14 @@ local function Tile(parent, kind, glyph, title, sub)
     b:SetSize(114, 46)
     b.bg = Fill(b, C.row)
     Edges(b, { 0.2, 0.2, 0.23, 1 })
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(12, 12)
-    b.icon:SetPoint("TOPLEFT", 8, -10)
+    b.icon = IconTile(b, 24)
+    b.icon:SetPoint("LEFT", 10, 0)
+    b.icon:Set(kind)
     b.t = Text(b, 11, C.text)
-    b.t:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
+    b.t:SetPoint("TOPLEFT", 42, -10)
     b.t:SetText(title)
-    b.s = Text(b, 8, C.dim)
-    b.s:SetPoint("TOPLEFT", 8, -28)
+    b.s = Text(b, 9, C.dim)
+    b.s:SetPoint("TOPLEFT", 42, -26)
     b.s:SetText(sub)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
@@ -1522,7 +1914,8 @@ local function Tile(parent, kind, glyph, title, sub)
             UI():SetEdgeColor(self, 0.2, 0.2, 0.23, 1)
             Color(self.t, C.text)
         end
-        Glyph(self.icon, self.glyph, on and C.gold or { 0.86, 0.86, 0.86 })
+        self.icon.tex:SetDesaturated(not on)
+        self.icon.tex:SetAlpha(on and 1 or 0.75)
     end
     b:SetScript("OnClick", function()
         state.draft.k = kind
@@ -1552,10 +1945,10 @@ function S.Build(v)
     v.left:SetSize(SHEET_L, 10)
     v.scroll:SetScrollChild(v.left)
     local L0 = v.left
-    v.qLab = Label(L0, "QUESTION")
+    v.qLab = Label(L0, "Question")
     v.qLab:SetPoint("TOPLEFT", 0, 0)
     v.q = UI():CreateSleekEditBox(L0, SHEET_L, 24)
-    v.q:SetPoint("TOPLEFT", 0, -12)
+    v.q:SetPoint("TOPLEFT", 0, -16)
     v.q:SetMaxLetters(P().MAX_Q)
     v.q:SetTextColor(1, 1, 1)
     v.q:SetScript("OnTextChanged", function(self, user)
@@ -1565,18 +1958,18 @@ function S.Build(v)
         end
     end)
     UI():SetEditPlaceholder(v.q, "Which night should we move SSC to?")
-    v.kLab = Label(L0, "KIND")
-    v.kLab:SetPoint("TOPLEFT", 0, -48)
+    v.kLab = Label(L0, "Kind")
+    v.kLab:SetPoint("TOPLEFT", 0, -52)
     v.tiles = {}
-    local defs = { { "one", PollIcon(), "One answer", "Pick one" }, { "many", PollIcon(), "Several answers", "Pick any" },
+    local defs = { { "one", PollIcon(), "One answer", "Pick one" }, { "many", PollIcon(), "Several", "Pick any number" },
                    { "yn", CHECK_GLYPH, "Yes or no", "Quick answer" },
                    { "days", UI().ICON.calendar, "Pick days", "When can you" } }
     for i, d in ipairs(defs) do
         local t = Tile(L0, d[1], d[2], d[3], d[4])
-        t:SetPoint("TOPLEFT", (i - 1) * 122, -60)
+        t:SetPoint("TOPLEFT", (i - 1) * 122, -68)
         v.tiles[i] = t
     end
-    v.aLab = Label(L0, "ANSWERS")
+    v.aLab = Label(L0, "Answers")
     v.answers = {}
     v.addAns = CreateFrame("Button", nil, L0)
     v.addAns:SetSize(SHEET_L, 22)
@@ -1618,11 +2011,11 @@ function S.Build(v)
     -- Pick days: the calendar and the picked days' times
     v.cal = S.BuildCalendar(L0)
     v.dayRows = {}
-    v.tLab = Label(L0, "TIME (OPTIONAL)")
+    v.tLab = Label(L0, "Start time (optional)")
     v.daysNote = Text(L0, 9, C.dim)
     v.daysNote:SetText("Voters tick each day: can, if needed or can't.")
     -- closes / results / can change
-    v.cLab = Label(L0, "CLOSES")
+    v.cLab = Label(L0, "Closes")
     v.cDate = UI():CreateDatePicker(L0, {
         width = 104,
         get = function()
@@ -1648,7 +2041,7 @@ function S.Build(v)
         if state.draft then state.draft.ctime = val end
     end)
     v.cTime:SetHeight(22)
-    v.rLab = Label(L0, "RESULTS")
+    v.rLab = Label(L0, "Results")
     v.seg = {}
     for i, d in ipairs({ { "live", "Live" }, { "vote", "After voting" }, { "close", "When closed" } }) do
         local b = Button(L0, d[2], 10, 22, "secondary", function()
@@ -1667,11 +2060,11 @@ function S.Build(v)
     R0:SetPoint("TOPLEFT", PAD + SHEET_L + 18, -56)
     R0:SetPoint("BOTTOMRIGHT", -PAD, 40)
     v.right = R0
-    v.wLab = Label(R0, "WHO VOTES")
+    v.wLab = Label(R0, "Who votes")
     v.wLab:SetPoint("TOPLEFT", 0, 0)
     v.chipBox = CreateFrame("Frame", nil, R0)
-    v.chipBox:SetPoint("TOPLEFT", 0, -12)
-    v.chipBox:SetPoint("TOPRIGHT", 0, -12)
+    v.chipBox:SetPoint("TOPLEFT", 0, -16)
+    v.chipBox:SetPoint("TOPRIGHT", 0, -16)
     v.chipBox:SetHeight(26)
     Fill(v.chipBox, { 0.10, 0.10, 0.12, 0.92 })
     Edges(v.chipBox, { 0.34, 0.34, 0.38, 0.9 })
@@ -1705,27 +2098,10 @@ function S.Build(v)
         GameTooltip:Show()
     end)
     v.count:SetScript("OnLeave", HideTip)
+    v.pvSect = Sect(R0)
+    v.pvBan = Banner(R0, 104, false)
     v.preview = CreateFrame("Frame", nil, R0)
-    v.preview:SetPoint("LEFT", R0, "LEFT")
-    v.preview:SetPoint("RIGHT", R0, "RIGHT")
-    v.preview:SetHeight(120)
-    Fill(v.preview, CARD)
-    Edges(v.preview, CARD_EDGE)
-    v.preview.title = Text(v.preview, 12, C.gold)
-    v.preview.title:SetPoint("TOPLEFT", 9, -9)
-    v.preview.title:SetText("Preview")
-    v.preview.r = Text(v.preview, 10, { 0.74, 0.74, 0.74 })
-    v.preview.r:SetJustifyH("RIGHT")
-    v.preview.r:SetPoint("TOPRIGHT", -9, -10)
-    v.preview.r:SetText("as a voter")
-    local rule = Line(v.preview, { 0.14, 0.14, 0.15, 1 })
-    rule:SetHeight(1)
-    rule:SetPoint("TOPLEFT", 1, -28)
-    rule:SetPoint("TOPRIGHT", -1, -28)
-    v.preview.kick = Text(v.preview, 8, C.gold)
-    v.preview.kick:SetPoint("TOPLEFT", 9, -37)
-    v.preview.q = Text(v.preview, 11, C.white)
-    v.preview.q:SetPoint("TOPLEFT", 9, -50)
+    v.preview:SetHeight(10)
     v.preview.items = {}
     -- the footer
     v.post = Button(v, "Post poll", 80, 22, "primary", function() S.Post() end)
@@ -1743,7 +2119,7 @@ end
 function S.BuildCalendar(parent)
     local c = CreateFrame("Frame", nil, parent)
     c:SetSize(7 * 31, 22 + 16 + 6 * 26)
-    c.lab = Label(c, "DAYS")
+    c.lab = Label(c, "Days")
     c.lab:SetPoint("TOPLEFT", 0, 0)
     c.prev = UI():CreateArrowButton(c, false, 14, 14, function() S.ShiftMonth(-1) end)
     c.next = UI():CreateArrowButton(c, true, 14, 14, function() S.ShiftMonth(1) end)
@@ -1813,7 +2189,7 @@ function S.FillCalendar(c)
         d.month = { t.year, t.month }
     end
     local y, m = d.month[1], d.month[2]
-    c.lab:SetText("DAYS · " .. date("%B", time({ year = y, month = m, day = 1, hour = 12 })):upper())
+    c.lab:SetText("Days · " .. date("%B", time({ year = y, month = m, day = 1, hour = 12 })))
     local first = time({ year = y, month = m, day = 1, hour = 12 })
     local wd = (tonumber(date("%w", first)) + 6) % 7          -- Monday first
     local dim = tonumber(date("%d", time({ year = y, month = m + 1, day = 0, hour = 12 })))
@@ -1925,25 +2301,67 @@ function S.RefreshAudience(v)
         or "Pick teams, roles, ranks or players.")
     v.count:ClearAllPoints()
     v.count:SetPoint("TOPLEFT", v.search.frame, "BOTTOMLEFT", 0, -10)
+    v.pvSect:ClearAllPoints()
+    v.pvSect:SetPoint("TOPLEFT", v.count, "BOTTOMLEFT", 0, -14)
+    v.pvSect:SetPoint("RIGHT", v.right, "RIGHT")
+    v.pvSect:Set("Preview", "what voters see")
+    v.pvBan:ClearAllPoints()
+    v.pvBan:SetPoint("TOPLEFT", v.pvSect, "BOTTOMLEFT", 0, -10)
+    v.pvBan:SetPoint("RIGHT", v.right, "RIGHT")
     v.preview:ClearAllPoints()
-    v.preview:SetPoint("TOPLEFT", v.count, "BOTTOMLEFT", 0, -14)
+    v.preview:SetPoint("TOPLEFT", v.pvBan, "BOTTOMLEFT", 0, -10)
     v.preview:SetPoint("RIGHT", v.right, "RIGHT")
+end
+
+-- The preview banner: the list's banner as the people asked will see it (kicker, icon, the question on up to two
+-- lines, who is asked).
+function S.FillPreviewBanner(b, d, w)
+    local fake = { id = "preview", k = d.k, a = d.a, cl = ClosesAt(d) }
+    SetArt(b.art, fake, w, b:GetHeight())
+    b.icon:Set(d.k)
+    b.icon:SetSize(36, 36)
+    b.icon:ClearAllPoints()
+    b.icon:SetPoint("TOPLEFT", 12, -30)
+    b.kick:SetText((KIND_WORD[d.k] .. " · closes " .. When(ClosesAt(d), true)):upper())
+    b.kick:ClearAllPoints()
+    b.kick:SetPoint("TOPLEFT", 12, -12)
+    Sized(b.kick, 9)
+    b.kick:Show()
+    local q = ns.Util.Trim(d.q or "")
+    Sized(b.q, 13)
+    b.q:ClearAllPoints()
+    b.q:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 10, -1)
+    Wrap(b.q, q ~= "" and q or Hex(C.dim, "Your question"), w - 12 - 36 - 10 - 12, 13)
+    b.meta:Hide(); b.pill:Hide(); b.bar:Hide(); b.btn:Hide(); b.seg:Hide(); b.segLab:Hide(); b.chip:Hide()
+    b.more:Hide()
+    local keys = S.Asked()
+    local fx = 12
+    for i = 1, min(6, #keys) do
+        local f = Pool(b.faces, i, function() return RingFace(b, 14) end)
+        f:ClearAllPoints()
+        f:SetPoint("BOTTOMLEFT", fx, 12)
+        f:SetFrameLevel(b:GetFrameLevel() + 2 + (6 - i))
+        f:Set(keys[i])
+        fx = fx + 10
+    end
+    HideFrom(b.faces, min(6, #keys) + 1)
+    b.count:ClearAllPoints()
+    b.count:SetPoint("BOTTOMLEFT", fx + (#keys > 0 and 10 or 0), 12)
+    Sized(b.count, 10)
+    b.count:SetText(#keys > 0 and (Plural(#keys, "person", "people") .. " asked") or "Nobody asked yet")
 end
 
 function S.RefreshPreview(v)
     local d = state.draft
     local pv = v.preview
-    pv.kick:SetText((KIND_WORD[d.k] .. " · closes " .. When(ClosesAt(d), true)):upper())
-    local q = ns.Util.Trim(d.q or "")
-    local w = pv:GetWidth()
-    if not w or w < 50 then w = PAGE_W - PAD - (PAD + SHEET_L + 18) end
-    local qh = Wrap(pv.q, q ~= "" and q or Hex(C.dim, "Your question"), w - 18, 11)
-    local y = 50 + qh + 8
+    local w = PAGE_W - PAD - (PAD + SHEET_L + 18)
+    S.FillPreviewBanner(v.pvBan, d, w)
+    local y = 0
     local items = d.k == "days" and d.days or DraftAnswers(d)
     local n, dn = 0, 0
     pv.dayItems = pv.dayItems or {}
     if d.k == "days" then
-        local cw = floor((w - 18 - 4 * 3) / 5)
+        local cw = floor((w - 4 * 3) / 5)
         for i, e in ipairs(items) do
             if i > 10 then break end
             dn = dn + 1
@@ -1961,7 +2379,7 @@ function S.RefreshPreview(v)
             end)
             b:SetSize(cw, 30)
             b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", 9 + ((i - 1) % 5) * (cw + 3), -(y + floor((i - 1) / 5) * 34))
+            b:SetPoint("TOPLEFT", ((i - 1) % 5) * (cw + 3), -(y + floor((i - 1) / 5) * 34))
             local yy, mo, dd = P().DayParts(e.d)
             local t = time({ year = yy, month = mo, day = dd, hour = 12 })
             b.a:SetText(date("%a", t):upper())
@@ -1975,9 +2393,9 @@ function S.RefreshPreview(v)
             n = n + 1
             local b = Pool(pv.items, n, function() return CreateFrame("Frame", nil, pv) end)
             if not b.fs then b.fs = Text(b, 10, C.dim) b.fs:SetPoint("LEFT") end
-            b:SetSize(w - 18, 14)
+            b:SetSize(w, 14)
             b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", 9, -y)
+            b:SetPoint("TOPLEFT", 0, -y)
             b.fs:SetText("Pick the days in the calendar.")
             b.fs:Show()
             if b.bg then b.bg:Hide() b.a:Hide() b.b:Hide() end
@@ -1999,9 +2417,9 @@ function S.RefreshPreview(v)
                 b.ring:SetVertexColor(0.42, 0.42, 0.45)
             end
             if b.bg then b.bg:Hide() b.a:Hide() b.b:Hide() end
-            b:SetSize(w - 18, 16)
+            b:SetSize(w, 16)
             b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", 9, -y)
+            b:SetPoint("TOPLEFT", 0, -y)
             b.fs:SetText(a)
             b.fs:SetWidth(w - 40)
             b.fs:Show()
@@ -2015,9 +2433,9 @@ function S.RefreshPreview(v)
             if not b.fs then b.fs = Text(b, 10, C.dim) b.fs:SetPoint("LEFT", 16, 0) end
             if b.ring then b.ring:Hide() end
             if b.bg then b.bg:Hide() b.a:Hide() b.b:Hide() end
-            b:SetSize(w - 18, 16)
+            b:SetSize(w, 16)
             b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", 9, -y)
+            b:SetPoint("TOPLEFT", 0, -y)
             b.fs:SetText("and " .. (#items - 6) .. " more")
             b.fs:Show()
             b:Show()
@@ -2026,7 +2444,7 @@ function S.RefreshPreview(v)
     end
     HideFrom(pv.items, n + 1)
     HideFrom(pv.dayItems, dn + 1)
-    pv:SetHeight(y + 8)
+    pv:SetHeight(max(10, y))
 end
 
 function S.Refresh(v)
@@ -2037,7 +2455,7 @@ function S.Refresh(v)
     end
     if not v.q:HasFocus() then v.q:SetText(d.q or "") end
     for _, t in ipairs(v.tiles) do t:SetOn(t.kind == d.k) end
-    local y = 118
+    local y = 126
     local L0 = v.left
     for _, r in ipairs(v.answers) do r:Hide() end
     v.addAns:Hide(); v.ynNote:Hide(); v.upTo:Hide(); v.upToDD:Hide()
@@ -2045,8 +2463,8 @@ function S.Refresh(v)
     for _, r in ipairs(v.dayRows) do r:Hide() end
     v.aLab:ClearAllPoints()
     v.aLab:SetPoint("TOPLEFT", 0, -y)
-    v.aLab:SetText(d.k == "days" and "" or "ANSWERS")
-    y = y + 12
+    v.aLab:SetText(d.k == "days" and "" or "Answers")
+    y = y + 16
     if d.k == "one" or d.k == "many" then
         for i = 1, #d.o do
             local r = Pool(v.answers, i, function()
@@ -2162,18 +2580,18 @@ function S.Refresh(v)
     y = y + 12
     v.cLab:ClearAllPoints(); v.cLab:SetPoint("TOPLEFT", 0, -y)
     v.rLab:ClearAllPoints(); v.rLab:SetPoint("TOPLEFT", 190, -y)
-    v.cDate:ClearAllPoints(); v.cDate:SetPoint("TOPLEFT", 0, -(y + 12))
+    v.cDate:ClearAllPoints(); v.cDate:SetPoint("TOPLEFT", 0, -(y + 16))
     if v.cDate.Refresh then v.cDate:Refresh() end
     v.cTime:ClearAllPoints(); v.cTime:SetPoint("LEFT", v.cDate, "RIGHT", 6, 0)
     if v.cTime.Refresh then v.cTime:Refresh() end
     local sx = 190
     for _, b in ipairs(v.seg) do
         b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", sx, -(y + 12))
+        b:SetPoint("TOPLEFT", sx, -(y + 16))
         b:SetKind(b.key == d.rv and "chosen" or "secondary")
         sx = sx + b:GetWidth() - 1
     end
-    y = y + 12 + 22 + 10
+    y = y + 16 + 22 + 10
     v.change:ClearAllPoints()
     v.change:SetPoint("TOPLEFT", -4, -y)
     v.change:SetChecked(d.ch and true or false)

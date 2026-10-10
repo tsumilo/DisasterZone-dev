@@ -157,7 +157,7 @@ def close_all(cl):
                               'DisasterZoneRunToast', 'DisasterZoneStrategyShare',
                               'DisasterZoneEventSchedule', 'DisasterZoneEventSubmit', 'DisasterZoneBadgeDesigner',
                               'DisasterZoneEventSeason', 'DisasterZoneEventConfirm', 'DisasterZoneSimBuffs', 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar',
-                              'DisasterZonePollToast' }) do
+                              'DisasterZonePollToast', 'DisasterZoneNotifyToast', 'DisasterZoneNotifyTray' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end

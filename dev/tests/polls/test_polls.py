@@ -258,7 +258,7 @@ def the_asker_adds_people_and_removes_the_poll():
 
 
 @case
-def the_sheet_posts_and_the_row_answers_yes_or_no():
+def the_sheet_posts_and_the_banner_answers_yes_or_no():
     w, (g, b, c, d, e) = guild()
     ok = g.eval_py("""
         ns.MainFrame:Open("polls")
@@ -270,19 +270,24 @@ def the_sheet_posts_and_the_row_answers_yes_or_no():
         return { view = st.view, poll = st.poll, err = st.sheetErr }""")
     assert ok["view"] == "poll" and ok["poll"], ok
     w.tick(5)
-    # Brakka answers from the list row: Yes is the second button from the right
+    # Brakka's list leads with it in the banner: Yes on its answer bar
     out = b.eval_py("""
         ns.MainFrame:Open("polls")
         ns.PollsUI:ShowList("open")
         local v = ns.PollsUI:GetPanel().list
-        local row = v.rows[1]
-        local yes = row.b2
-        local text = yes:GetText()
+        local shown = v.hero:IsShown() and v.hero.pid
+        local yes = v.hero.seg.opts[1]
+        local text = yes.fs:GetText()
         yes:Click()
-        return { text = text, waiting = ns.Polls:WaitingCount() }""")
-    assert out["text"] == "Yes" and out["waiting"] == 0, out
+        return { shown = shown, text = text, waiting = ns.Polls:WaitingCount() }""")
+    assert out["shown"] == ok["poll"] and out["text"] == "Yes" and out["waiting"] == 0, out
     w.tick(5)
     assert results(g, ok["poll"])["counts"] == [1, 0]
+    # on the poll's page the answer bar shows the pick and No changes it
+    c.eval("ns.MainFrame:Open('polls'); ns.PollsUI:OpenPoll(...); ns.PollsUI:GetPanel().poll.ban.seg.opts[2]:Click()",
+           ok["poll"])
+    w.tick(5)
+    assert results(g, ok["poll"])["counts"] == [1, 1]
     # an empty sheet says what's missing and posts nothing
     err = g.eval_py("""
         ns.PollsUI:OpenNew()
@@ -294,31 +299,18 @@ def the_sheet_posts_and_the_row_answers_yes_or_no():
 
 
 @case
-def the_pop_up_answers_and_waits_for_combat_and_the_notification_center():
+def the_notification_center_counts_and_pops_up_polls_not_the_page():
     w, (g, b, c, d, e) = guild()
-    pid = post(g, "Pop-up?", "yn", None, [["p", k(b)], ["p", k(c)], ["p", k(d)]])
+    pid = post(g, "Pop-up?", "yn", None, [["p", k(b)], ["p", k(c)]])
     w.tick(5)
-    shown = b.eval_py("local t = ns.PollsUI:GetToast(); return { t and t:IsShown() or false, t and t.pid or '' }")
-    assert shown == [True, pid], shown
-    b.eval("ns.PollsUI:GetToast().a:Click()")         # Yes
-    w.tick(1)
-    assert results(b, pid)["counts"][0] == 1
-    # in combat it waits; afterwards it shows
-    c.eval("InCombatLockdown = function() return true end; ns.PollsUI:HideToast()")
-    pid2 = post(g, "In combat?", "yn", None, [["p", k(c)]])
-    w.tick(5)
-    assert c.eval("local t = ns.PollsUI:GetToast(); return t and t:IsShown() and t.pid == ... or false", pid2) is False
-    c.eval("InCombatLockdown = function() return false end")
-    c.fire("PLAYER_REGEN_ENABLED")
-    w.tick(3)
-    assert c.eval("local t = ns.PollsUI:GetToast(); return t and t:IsShown() and t.pid == ... or false", pid2) is True
-    # with a notification center the polls page leaves the pop-ups to it
-    d.eval("ns.Notify = ns.Notify or { stub = true }; local t = ns.PollsUI:GetToast(); if t then t:Hide() end")
-    pid3 = post(g, "Notify?", "yn", None, [["p", k(d)]])
-    w.tick(5)
-    assert d.eval("local t = ns.PollsUI:GetToast(); return t and t:IsShown() and t.pid == ... or false", pid3) is False
+    # the page's own pop-up stays off: the notification center has the poll
+    assert b.eval("local t = ns.PollsUI:GetToast(); return t and t:IsShown() or false") is False
+    assert b.eval("return ns.Notify:Count({ page = 'polls' })") == 1
+    assert d.eval("return ns.Notify:Count({ page = 'polls' })") == 0      # not asked
+    assert vote(b, pid, [1])[0] is True
+    w.tick(2)
+    assert b.eval("return ns.Notify:Count({ page = 'polls' })") == 0
     w.assert_no_errors()
-
 
 if __name__ == "__main__":
     run_all()
