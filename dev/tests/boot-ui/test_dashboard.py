@@ -583,8 +583,7 @@ def nav_groups_pages_under_five_tabs():
                       "o[#o + 1] = t.cdlKey end end return o")
     assert strip == ["home", "grp:raids", "grp:gear", "dungeons", "grp:guild", "feedback", "changelog", "settings"], strip
     tab = "for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == ... then return t end end"
-    menu = ("local m = ns.UI:GetOpenMenu() local o = {} if m then for _, d in ipairs(m.root.children) do "
-            "o[#o + 1] = d.text end end return o")
+    menu = "return ns.NavMenu:GetPages()"
     gear = c.eval(tab, "grp:gear")
     # resting the mouse on a group's tab opens the menu of its pages without changing the page
     c.eval("local t = ... t.IsMouseOver = function() return true end", gear)
@@ -597,20 +596,50 @@ def nav_groups_pages_under_five_tabs():
     c.leave(gear)
     w.tick(0.6)
     assert c.eval_py(menu) == [], c.eval_py(menu)
-    # a click goes to the group's first page
+    # a click goes to the group's first page and closes the menu (a rest still pending doesn't open it after all)
     c.eval("local t = ... t.IsMouseOver = function() return true end", gear)
+    c.hover(gear)
+    w.tick(0.3)
     c.click(gear)
     w.tick(0.3)
     assert selected(c) == "mybis", selected(c)
+    assert c.eval_py(menu) == [], c.eval_py(menu)
+    c.leave(gear)
+    c.hover(gear)
+    c.click(gear)
+    w.tick(0.3)
+    assert c.eval_py(menu) == [], c.eval_py(menu)
+    c.eval("ns.MainFrame:OpenGroupMenu('grp:gear')")
     assert c.eval_py(menu) == ["My BiS", "Atlas"], c.eval_py(menu)
-    # it is a page list: each row its title over its line, the open page with the gold bar, no radio dots
-    rows = c.eval_py("local fr = ns.UI:GetMenuFrames() local o = {} for _, r in ipairs(fr[1].rows) do if r.desc then "
-                     "o[#o + 1] = { r.page, r.sub:GetText(), r.bar:IsShown(), r.ring:IsShown(), r:GetHeight() } "
-                     "end end return o")
-    assert rows == [[True, "Your BiS lists and what you still need.", True, False, 38],
-                    [True, "Every raid and dungeon's drops, sets and costs.", False, False, 38]], rows
+    # a spotlight: the list (the page shown now gold, the spotlit one with the bar), the page big on the right
+    rows = c.eval_py("local f = ns.NavMenu:GetFrame() local o = {} for _, r in ipairs(f.rows) do if r:IsShown() then "
+                     "o[#o + 1] = { r.page.key, r.bar:IsShown() } end end return o")
+    assert rows == [["mybis", True], ["atlas", False]], rows
+    spot = "local s = ns.NavMenu:GetFrame().spot return { s.name:GetText(), s.line:GetText() }"
+    assert c.eval_py(spot) == ["My BiS", "Your BiS lists and what you still need."], c.eval_py(spot)
+    # the mouse on a row spotlights it; Atlas jumps straight into its shopping list
+    c.eval("ns.NavMenu:Focus('atlas')")
+    assert c.eval_py(spot)[0] == "Atlas"
+    chips = c.eval_py("local o = {} for _, ch in ipairs(ns.NavMenu:GetFrame().spot.chips) do if ch:IsShown() then "
+                      "o[#o + 1] = ch.fs:GetText() end end return o")
+    assert chips == ["Shopping list"], chips
+    c.eval("ns.NavMenu:GetFrame().spot.chips[1]:Click()")
+    w.tick(0.3)
+    assert selected(c) == "atlas" and c.eval_py(menu) == [], (selected(c), c.eval_py(menu))
+    # the gold tie's fading lines end at the panel's corners (under Raids, near the window's edge, they ran out of it)
+    raids = c.eval(tab, "grp:raids")
+    c.eval("local t = ... t.IsMouseOver = function() return true end", raids)
+    c.hover(raids)
+    w.tick(0.3)
+    tie = c.eval_py("local f = ns.NavMenu:GetFrame() local _, _, _, x = f.tie:GetPoint(1) "
+                    "return { x, f.tieL:IsShown() and f.tieL:GetWidth() or 0, f.tieR:IsShown() and f.tieR:GetWidth() or 0, "
+                    "f:GetWidth() }")
+    x, lw, rw, pw = tie
+    assert x - 22 - lw >= 0 and x + 22 + rw <= pw, tie
+    c.eval("local t = ... t.IsMouseOver = nil", raids)
+    c.eval("ns.NavMenu:Close()")
     c.eval("local t = ... t.IsMouseOver = nil", gear)
-    c.eval("ns.UI:CloseMenus()")
+    c.eval("ns.NavMenu:Close()")
     # it remembers the page used last in it
     c.eval("ns.MainFrame:Open('atlas')")
     c.click(c.eval(tab, "home"))
@@ -619,7 +648,7 @@ def nav_groups_pages_under_five_tabs():
     assert selected(c) == "atlas", selected(c)
     assert c.eval("for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:gear' then "
                   "return t.active end end") is True
-    c.eval("ns.UI:CloseMenus()")
+    c.eval("ns.NavMenu:Close()")
     # a page opened by key lights its group's tab
     c.eval("ns.MainFrame:Open('games')")
     assert c.eval("for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == 'grp:guild' then "

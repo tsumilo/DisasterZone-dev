@@ -85,6 +85,12 @@ ns.CHANGELOG = {
               "Settings > Notifications: per kind, pop-up, sound or a chat line; quiet for an hour.",
               "Home's chips come from the same list, so Home and the bell always agree.",
           } },
+          { heading = "Raids, Gear and Guild menus", lines = {
+              "The menus under Raids, Gear and Guild are a spotlight now: the pages on the left.",
+              "The page under the mouse shows big on the right, with its art slowly drifting.",
+              "Each page shows what is going on: the next raid, items to decide, who is online.",
+              "Jump straight into a page's tabs from the menu: Teams, Strategies, Loot log, Recipes.",
+          } },
           { heading = "Cleaner counts", lines = {
               "Every count has one new look: the bell, tabs, menus, the minimap button, the waitlist.",
               "A solid gold circle with sharp dark digits, like today on the calendar; no thin ring.",

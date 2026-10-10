@@ -250,6 +250,7 @@ UI\Tour.lua
 Data\Tours\Strategy.lua
 UI\DatePicker.lua
 UI\MainFrame.lua
+UI\NavMenu.lua
 UI\MinimapArc.lua
 UI\Dashboard.lua
 UI\PaperDoll.lua

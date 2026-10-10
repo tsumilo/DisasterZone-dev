@@ -121,73 +121,60 @@ local function SelectPage(key)
     ShowPanel(key)
 end
 
+-- A group's menu: the spotlight of its pages (UI/NavMenu.lua): the list on the left, the page under the mouse big on
+-- the right with its live facts and jumps into its views; a click opens the page (and the view).
 local function GroupMenu(g, owner)
-    ns.UI:ContextMenu(owner, function(root)
-        for _, key in ipairs(g.pages) do
-            local def = tabDefs[key]
-            if def and IsAvailable(def) then
-                -- (a page list: the title, its line under it, the strip's pill; no tooltip, the line says it)
-                local item = root:CreateRadio(def.label, function() return currentKey == key end,
-                    function() SelectPage(key) end)
-                item:SetSubtext(NAV_PAGE_TIPS[key] or "")
-                local badge = NAV_BADGES[key]
-                -- (what waits for me on the page: its count, the notification center's)
-                local n = ns.Notify and ns.Notify:IsLoaded() and ns.Notify:Count({ page = key }) or 0
-                if n > 0 then
-                    item:SetCount(n)
-                elseif badge then
-                    item:SetBadge(badge.text, badge.color)
-                end
-            end
+    local pages = {}
+    for _, key in ipairs(g.pages) do
+        local def = tabDefs[key]
+        if def and IsAvailable(def) then
+            -- (what waits for me on the page: its count, the notification center's; else the strip's pill)
+            local n = ns.Notify and ns.Notify:IsLoaded() and ns.Notify:Count({ page = key }) or 0
+            pages[#pages + 1] = { key = key, label = def.label, line = NAV_PAGE_TIPS[key] or "",
+                                  count = n > 0 and n or nil, badge = n <= 0 and NAV_BADGES[key] or nil }
         end
-    end)
+    end
+    local current = GROUP_OF[currentKey] == g and currentKey or nil
+    return ns.NavMenu:Open(owner, { pages = pages, current = current, focus = current or GroupPage(g),
+        onPick = function(key, view)
+            SelectPage(key)
+            ns.NavMenu:OpenView(key, view)
+        end })
 end
 
 local groupByKey = {}
 for _, g in ipairs(NAV_GROUPS) do groupByKey[g.key] = g end
 
 -- A group's menu opens on hover (a short rest on the tab) and closes once the mouse has left both the tab and the
--- menu for a moment; a click goes to the group's page used last (the menu stays).
+-- menu for a moment; a click goes to the group's page used last and closes the menu (it opens again on the next
+-- rest on a tab).
 local HOVER_OPEN, HOVER_CLOSE = 0.15, 0.35
 local hoverSeq = 0
 local watch = CreateFrame("Frame")
 watch:Hide()
 
-local function MenuOf(owner)
-    local m = ns.UI:GetOpenMenu()
-    return m and m.owner == owner and m or nil
-end
-
-local function OverMenu()
-    local frames, depth = ns.UI:GetMenuFrames()
-    for i = 1, depth or 0 do
-        local f = frames and frames[i]
-        if f and f:IsShown() and f:IsMouseOver() then return true end
-    end
-    return false
-end
-
 watch:SetScript("OnUpdate", function(self, elapsed)
-    local m = self.owner and MenuOf(self.owner)
-    if not m then
+    local NM = ns.NavMenu
+    if not (self.owner and NM:IsOpenFor(self.owner)) then
         self:Hide()
         return
     end
-    if self.owner:IsMouseOver() or OverMenu() then
+    if self.owner:IsMouseOver() or NM:IsMouseOver() then
         self.away = 0
     else
         self.away = self.away + (elapsed or 0)
         if self.away >= HOVER_CLOSE then
-            m:Close()
+            NM:Close()
             self:Hide()
         end
     end
 end)
 
+-- Opens g's menu under owner (not when it is open already).
 local function OpenGroupMenu(g, owner)
-    if not owner or MenuOf(owner) then return end
+    if not owner or ns.NavMenu:IsOpenFor(owner) then return end
     GroupMenu(g, owner)
-    if MenuOf(owner) then
+    if ns.NavMenu:IsOpenFor(owner) then
         watch.owner, watch.away = owner, 0
         watch:Show()
     end
@@ -200,8 +187,10 @@ local function OnNavSelect(navKey)
         return
     end
     local page = GroupPage(g)
+    -- (the click is the choice: the menu closes, and a rest still pending on the tab doesn't open it after all)
+    hoverSeq = hoverSeq + 1
+    ns.NavMenu:Close()
     if page then SelectPage(page) end
-    OpenGroupMenu(g, tabs and tabs.byKey[navKey])
 end
 
 local function HookGroupHover()
@@ -711,6 +700,12 @@ local function DefaultKey()
         return currentKey or (type(settings.lastTab) == "string" and settings.lastTab) or "home"
     end
     return "home"
+end
+
+-- Opens a group tab's menu as resting the mouse on it does (navKey "grp:raids" ...): tests and the audit's views.
+function MainFrame:OpenGroupMenu(navKey)
+    local g = groupByKey[navKey]
+    if g and tabs then OpenGroupMenu(g, tabs.byKey[navKey]) end
 end
 
 function MainFrame:Open(key)
