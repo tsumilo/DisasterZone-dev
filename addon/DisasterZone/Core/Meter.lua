@@ -669,9 +669,10 @@ function Meter:OnCombatLog()
     elseif CAST[sub] then
         if g and not isPet then
             NoteSpell(g, a13)
-            if sub == "SPELL_CAST_SUCCESS" and live then
-                local a = live.actors[g]
-                if a then Touch(a, now) end
+            if sub == "SPELL_CAST_SUCCESS" then
+                -- a cast is activity in the fight and in Whole raid alike (only counting it in the fight made Whole
+                -- raid's active time shorter, so its DPS came out above every single fight's; in-game report)
+                Each(function(seg) local a = seg.actors[g]; if a then Touch(a, now) end end)
             end
         end
     elseif sub == "UNIT_DIED" then

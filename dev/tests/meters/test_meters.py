@@ -697,5 +697,58 @@ def solo_header_and_bar_agree_and_chart_labels_leave_with_the_chart():
     assert r.cl.eval(shown) == 0
 
 
+@case
+def whole_raid_dps_lies_between_the_fights():
+    """Reported in game 2026-10-10: fights of 800-1000 DPS added up to 1,134 in All fights (casts counted as activity
+    in a fight but not in the whole)."""
+    r = Raid()
+    dps = []
+    for amount in (900, 1300):
+        r.combat(True)
+        r.hit("Gina", amount, dst=r.add, dst_name="Crystalcore Devastator")
+        r.tick(3)                                            # (a 6 s gap only the cast bridges)
+        r.ev("SPELL_CAST_SUCCESS", r.me, "Gina", ME_FLAGS, "", "", 0, 20375, r.spell(20375), 1)
+        r.tick(3)
+        r.hit("Gina", amount, dst=r.add, dst_name="Crystalcore Devastator")
+        r.end_fight()
+        dps.append(r.cl.eval("local s = ns.Meter:GetSegment('cur'); return ns.Meter:Rows(s, 'dps')[1].v"))
+        r.tick(10)
+    whole = r.cl.eval("local s = ns.Meter:GetSegment('all'); return ns.Meter:Rows(s, 'dps')[1].v")
+    assert min(dps) <= whole <= max(dps), (dps, whole)
+
+
+@case
+def stacks_grow_away_from_the_screen_edge_and_hold_still_in_a_fight():
+    """Asked 2026-10-10: engaging a target, does Threat grow upward or push Damage done down? Low on the screen a
+    stack is held by its bottom edge (Threat grows upward, Damage done stays put); in a fight panels only grow."""
+    r = Raid(thr=True)
+    r.tick(0.5)
+    p = r.cl.eval_py("local f = ns.MeterPanels._Stacks()[1]; local a, _, b = f:GetPoint(); "
+                     "local s = ns.MeterPanels.Layout().stacks[1]; return { a, b, s.b ~= nil, s.y == nil, f.up }")
+    assert p == ["BOTTOMLEFT", "BOTTOMLEFT", True, True, True], p
+    r.cl.target_npc(r.boss)
+    r.combat(True, "Victhar")
+    r.hit("Gina", 100)
+    threat(r, {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 1, 62, 68, 136000),
+               "Hunt": (False, 0, 40, 52, 104000)})
+    h = r.cl.eval("ns.MeterPanels:Draw(); return ns.MeterPanels._Panel('threat'):GetHeight()")
+    assert h > 24, h
+    threat(r, {})                                            # the target died: nobody has threat
+    h2 = r.cl.eval("ns.MeterPanels:Draw(); return ns.MeterPanels._Panel('threat'):GetHeight()")
+    assert h2 == h, (h, h2)                                  # holds still while the fight goes on
+    r.end_fight()
+    h3 = r.cl.eval("ns.MeterPanels:Draw(); return ns.MeterPanels._Panel('threat'):GetHeight()")
+    assert h3 == 24, h3                                      # just its header once the fight is over
+
+
+@case
+def an_older_layout_low_on_the_screen_switches_to_its_bottom_edge_in_place():
+    r = Raid()
+    r.cl.eval("ns.DB:SetSetting('meters.layout', { v = 1, stacks = { { x = 900, y = 260, w = 300, panels = { "
+              "{ tabs = { { view = 'damage', seg = 'cur' } } } } } } }); ns.MeterPanels:Rebuild()")
+    s = r.cl.eval_py("local s = ns.MeterPanels.Layout().stacks[1]; return { s.y, s.b, ns.MeterPanels.Layout().v }")
+    assert s[0] is None and s[1] == 260 - 24 and s[2] == 2, s
+
+
 if __name__ == "__main__":
     run_all()

@@ -12,7 +12,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterPanels.lua", ...) then ret
 -- with Shift) to pull that panel out; drag a tab out to make it a panel. While dragging, near another stack's top or
 -- bottom edge a gold line shows where it joins; beside a stack it lines up; over a panel's header it becomes a tab
 -- there ("Drop to add as a tab").
--- Layout (meters.layout, saved): { v = 1, stacks = { { x, y (top left, in the holder's units), w, panels = {
+-- Growing: a stack in the lower half of the screen is held by its bottom edge (b) and grows upward, one in the upper
+-- half by its top (y) and grows downward; in a fight a panel only grows (it shrinks back after), so nothing jumps.
+-- Layout (meters.layout, saved): { v = 2, stacks = { { x, y (top) | b (bottom), in the holder's units, w, panels = {
 --   { tabs = { { view, seg } }, active, rows } } } } }. Views whose meter is off are left out (a panel with none
 -- left hides) and come back when it is turned on again; turning a meter on adds a panel for it when there is none.
 -- Bars: flat class colour, my bar with a gold edge and kept in view (below the fold it takes the last row with its
@@ -79,7 +81,7 @@ end
 local function Layout()
     local m = ns.DB:GetSetting("meters.layout")
     if type(m) ~= "table" or type(m.stacks) ~= "table" then
-        m = { v = 1, stacks = {} }
+        m = { v = 2, stacks = {} }
         ns.DB:SetSetting("meters.layout", m)
     end
     return m
@@ -127,7 +129,7 @@ function MP:EnsureViews()
 end
 
 function MP:ResetLayout()
-    ns.DB:SetSetting("meters.layout", { v = 1, stacks = {} })
+    ns.DB:SetSetting("meters.layout", { v = 2, stacks = {} })
     self:EnsureViews()
     self:Rebuild()
 end
@@ -375,13 +377,27 @@ function MP:Rebuild()
         if not f then f = NewStack(); stackFrames[si] = f end
         f.si, f.layout = si, s
         s.w = min(MAX_W, max(MIN_W, tonumber(s.w) or DEFAULT_W))
-        if not s.x or not s.y then
+        if not s.x or (not s.y and not s.b) then
             s.x = hw - s.w - 60 - (si - 1) * (s.w + 12)
-            s.y = 460
+            s.b, s.y = 220, nil
         end
         if not (drag and drag.frame == f) then
             f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", s.x, s.y)
+            if s.b then f:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", s.x, s.b)
+            else f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", s.x, s.y) end
+        end
+        f.up = s.b ~= nil
+        f.grip:ClearAllPoints()
+        if f.up then
+            f.grip:SetPoint("TOPRIGHT", -1, -1)
+            f.grip:GetNormalTexture():SetTexCoord(0, 1, 1, 0)
+            f.grip:GetHighlightTexture():SetTexCoord(0, 1, 1, 0)
+            f.grip:GetPushedTexture():SetTexCoord(0, 1, 1, 0)
+        else
+            f.grip:SetPoint("BOTTOMRIGHT", -1, 1)
+            f.grip:GetNormalTexture():SetTexCoord(0, 1, 0, 1)
+            f.grip:GetHighlightTexture():SetTexCoord(0, 1, 0, 1)
+            f.grip:GetPushedTexture():SetTexCoord(0, 1, 0, 1)
         end
         f:SetWidth(s.w)
         f.panels = {}
@@ -434,76 +450,219 @@ local function RowSeg(pf)
     return Meter:GetSegment(tab.seg or "cur"), tab.view, tab
 end
 
-local function RowTooltip(row)
+-- The bar's tooltip (the mockup's): the class in a gold ring with the name and spec, up to three big numbers with
+-- small captions, the top abilities (icon, name, amount, share), a red line when they died, and a green hint. Our own
+-- frame: GameTooltip cannot lay out columns.
+local TIP_W, TIP_PAD, TIP_LINE = 272, 11, 21
+local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
+local tip
+
+local function Tip()
+    if tip then return tip end
+    tip = CreateFrame("Frame", "DisasterZoneMeterTip", UIParent)
+    tip:SetFrameStrata("TOOLTIP")
+    tip:SetClampedToScreen(true)
+    tip:SetWidth(TIP_W)
+    local bg, edge = ns.UI.DROP_BG or { 0.06, 0.06, 0.07, 0.98 }, ns.UI.DROP_EDGE or { 0.34, 0.34, 0.38, 1 }
+    tip.bg = K.Tex(tip, "BACKGROUND", K.WHITE, 0.035, 0.035, 0.047, 0.97)
+    tip.bg:SetAllPoints()
+    tip.outer = K.Tex(tip, "BACKGROUND", K.WHITE, 0, 0, 0, 0.9, -8)
+    tip.outer:SetPoint("TOPLEFT", -1, 1)
+    tip.outer:SetPoint("BOTTOMRIGHT", 1, -1)
+    for _, pts in ipairs({ { "TOPLEFT", "TOPRIGHT", "h" }, { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
+                           { "TOPLEFT", "BOTTOMLEFT", "v" }, { "TOPRIGHT", "BOTTOMRIGHT", "v" } }) do
+        local e = K.Tex(tip, "BORDER", K.WHITE, edge[1], edge[2], edge[3], 0.9)
+        e:SetPoint(pts[1]); e:SetPoint(pts[2])
+        if pts[3] == "h" then e:SetHeight(1) else e:SetWidth(1) end
+    end
+    -- header: the class in a gold ring, the name, the spec
+    tip.ring = K.Tex(tip, "ARTWORK", K.DISC, 0.72, 0.56, 0.17, 0.85)
+    tip.ring:SetSize(34, 34)
+    tip.ring:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD - 2, -TIP_PAD + 2)
+    tip.gap = tip:CreateTexture(nil, "ARTWORK", nil, 1)
+    tip.gap:SetTexture(K.DISC)
+    tip.gap:SetVertexColor(0, 0, 0, 1)
+    tip.gap:SetSize(32, 32)
+    tip.gap:SetPoint("CENTER", tip.ring)
+    tip.cls = tip:CreateTexture(nil, "ARTWORK", nil, 2)
+    tip.cls:SetSize(30, 30)
+    tip.cls:SetPoint("CENTER", tip.ring)
+    tip.name = K.Font(tip, K.FRIZ, 15, { 1, 1, 1 })
+    tip.name:SetPoint("TOPLEFT", tip.ring, "TOPRIGHT", 8, -1)
+    tip.spec = K.Font(tip, K.FRIZ, 12, K.DIM)
+    tip.spec:SetPoint("TOPLEFT", tip.name, "BOTTOMLEFT", 0, -3)
+    -- the big numbers
+    tip.stats = {}
+    for i = 1, 3 do
+        local s = {}
+        s.num = K.Font(tip, K.NARROW, 17, { 1, 1, 1 })
+        s.lab = K.Font(tip, K.FRIZ, 12, K.DIM)
+        s.lab:SetPoint("TOPLEFT", s.num, "BOTTOMLEFT", 0, -2)
+        tip.stats[i] = s
+    end
+    tip.lines = {}
+    tip.foot = K.Font(tip, K.FRIZ, 12, { 0.2, 0.87, 0.2 })
+    tip:Hide()
+    return tip
+end
+
+local function TipLine(i)
+    local l = tip.lines[i]
+    if l then return l end
+    l = {}
+    l.icon = K.Tex(tip, "ARTWORK", 134400)
+    l.icon:SetSize(16, 16)
+    l.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    l.name = K.Font(tip, K.FRIZ, 12.5, { 1, 1, 1 })
+    l.name:SetJustifyH("LEFT")
+    l.amount = K.Font(tip, K.NARROW, 13.5, { 1, 1, 1 })
+    l.amount:SetJustifyH("RIGHT")
+    l.pct = K.Font(tip, K.NARROW, 12.5, K.DIM)
+    l.pct:SetJustifyH("RIGHT")
+    l.pct:SetWidth(38)
+    tip.lines[i] = l
+    return l
+end
+
+local function ShowRowTip(row)
     local r, pf = row.data, row.pf
     if not r then return end
+    Tip()
     local seg, mode = RowSeg(pf)
     local a = r.a
-    local tt = GameTooltip
-    tt:SetOwner(row, "ANCHOR_NONE")
-    tt:ClearAllPoints()
-    local left = row:GetLeft() or 0
-    if left * (row:GetEffectiveScale() or 1) > (UIParent:GetWidth() or 1000) * (UIParent:GetEffectiveScale() or 1) / 2 then
-        tt:SetPoint("TOPRIGHT", row, "TOPLEFT", -10, 4)
-    else
-        tt:SetPoint("TOPLEFT", row, "TOPRIGHT", 10, 4)
-    end
-    local spec = a.s and ((a.s:gsub(" %(.*%)", "")) .. " ") or ""
-    tt:AddDoubleLine(K.ClassHex(a.c) .. (a.n or "?") .. "|r",
-        "|cffa29d90" .. spec .. (a.c and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[a.c] or a.c) or "") .. "|r")
     local dur = Meter:Duration(seg)
     local act = Meter:ActiveTime(seg, a)
+
+    -- header
+    local coords = a.c and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[a.c]
+    if coords then
+        tip.cls:SetTexture(CLASS_CIRCLES)
+        tip.cls:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    else
+        tip.cls:SetTexture(134400)
+        tip.cls:SetTexCoord(0, 1, 0, 1)
+    end
+    tip.name:SetText(a.n or "?")
+    tip.name:SetTextColor(K.ClassColor(a.c))
+    local cls = a.c and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[a.c] or a.c) or ""
+    local spec = a.s and (a.s == "Feral (Bear)" and "Guardian" or (a.s:gsub(" %(.*%)", ""))) or nil
+    tip.spec:SetText(spec and (spec .. " " .. cls) or cls)
+
+    -- what each mode shows: the big numbers and the lines { key, name, amount text, share, colour }
+    local stats, lines, red, hint = {}, {}, nil, "Click for the full breakdown"
     local function top(list, total)
         local arr = {}
         for k, s in pairs(list or {}) do arr[#arr + 1] = { k, type(s) == "table" and s.a or s } end
         tsort(arr, function(x, y) return x[2] > y[2] end)
         for i = 1, min(5, #arr) do
             local k, v = arr[i][1], arr[i][2]
-            tt:AddDoubleLine(K.IconText(k, 14, a) .. " " .. K.SpellName(k, a.pn),
-                K.Fmt(v) .. strformat("  |cffa29d90%d%%|r", total > 0 and floor(v / total * 100 + 0.5) or 0),
-                1, 1, 1, 1, 1, 1)
+            lines[#lines + 1] = { k, K.SpellName(k, a.pn), K.Fmt(v), total > 0 and floor(v / total * 100 + 0.5) .. "%" or "" }
         end
     end
     if mode == "deaths" and r.d then
         local d = r.d
-        tt:AddLine(strformat("Died at %s to %s", K.Clock(d.t), d.by and K.SpellName(d.by) or "?"), 1, 0.48, 0.42)
+        stats = { { K.Clock(d.t), "died at" }, { d.hpMax and d.hpMax > 0 and K.Int(d.hpMax) or "?", "health" } }
+        red = { d.by, "Killed by " .. (d.by and K.SpellName(d.by) or "?") .. (d.src and (" · " .. d.src) or "") }
         for i = #(d.ev or {}), max(1, #(d.ev or {}) - 3), -1 do
             local e = d.ev[i]
-            local amt = (e[2] == "d" and "|cffff6b5c-" or "|cff45d474+") .. K.Int(e[4]) .. "|r"
-            tt:AddDoubleLine(strformat("|cffa29d90%.1f s|r %s %s", e[1], K.IconText(e[3], 14), K.SpellName(e[3])), amt,
-                1, 1, 1, 1, 1, 1)
+            lines[#lines + 1] = { e[3], K.SpellName(e[3]), (e[2] == "d" and "|cffff6b5c-" or "|cff45d474+") .. K.Int(e[4]) .. "|r",
+                                  strformat("%.1f s", e[1]) }
         end
-        tt:AddLine("Click for the death recap", 0.2, 0.87, 0.2)
+        hint = "Click for the death recap"
     elseif mode == "healing" then
-        tt:AddLine(strformat("%s healing · %s per second · %d%% overhealing", K.Fmt(a.h), K.Int(a.h / act),
-            (a.h + a.oh) > 0 and floor(a.oh / (a.h + a.oh) * 100 + 0.5) or 0), 0.64, 0.62, 0.56)
+        stats = { { K.Fmt(a.h), "healing" }, { K.Int(a.h / act), "per second" },
+                  { strformat("%d%%", (a.h + a.oh) > 0 and floor(a.oh / (a.h + a.oh) * 100 + 0.5) or 0), "overhealing" } }
         top(a.hs, a.h)
-        tt:AddLine("Click for the full breakdown", 0.2, 0.87, 0.2)
     elseif mode == "taken" then
-        tt:AddLine(strformat("%s taken · %s per second", K.Fmt(a.t), K.Int(a.t / dur)), 0.64, 0.62, 0.56)
+        stats = { { K.Fmt(a.t), "taken" }, { K.Int(a.t / dur), "per second" } }
         top(a.ts, a.t)
-        tt:AddLine("Click for the full breakdown", 0.2, 0.87, 0.2)
     elseif mode == "kicks" or mode == "dispels" then
         local by, cut = mode == "kicks" and a.ks or a.ds, mode == "kicks" and a.kx or a.dx
-        for k, n in pairs(by or {}) do tt:AddDoubleLine(K.IconText(k, 14) .. " " .. K.SpellName(k), tostring(n), 1, 1, 1, 1, 1, 1) end
-        if cut and next(cut) then
-            tt:AddLine(mode == "kicks" and "What they interrupted" or "What they removed", 0.64, 0.62, 0.56)
-            for k, n in pairs(cut) do tt:AddDoubleLine(K.IconText(k, 14) .. " " .. K.SpellName(k), tostring(n), 1, 1, 1, 1, 1, 1) end
+        local n = mode == "kicks" and a.k or a.dp
+        stats = { { tostring(n or 0), mode == "kicks" and "interrupts" or "dispels" } }
+        for k, c in pairs(by or {}) do lines[#lines + 1] = { k, K.SpellName(k), tostring(c), "" } end
+        for k, c in pairs(cut or {}) do
+            lines[#lines + 1] = { k, (mode == "kicks" and "Cut: " or "Removed: ") .. K.SpellName(k), tostring(c), "" }
         end
+        hint = nil
     else
-        tt:AddLine(strformat("%s damage · %s per second · %d%% active", K.Fmt(a.d), K.Int(a.d / act),
-            floor(min(dur, a.act or 0) / dur * 100 + 0.5)), 0.64, 0.62, 0.56)
+        stats = { { K.Fmt(a.d), "damage" }, { K.Int(a.d / act), "per second" },
+                  { strformat("%d%%", floor(min(dur, a.act or 0) / dur * 100 + 0.5)), "active" } }
         top(a.sp, a.d)
-        tt:AddLine("Click for the full breakdown", 0.2, 0.87, 0.2)
     end
-    tt:Show()
+    if mode ~= "deaths" and Meter:IsDead(seg, r.g) then
+        for _, d in ipairs(seg.deaths) do
+            if d.g == r.g then red = { d.by, strformat("Died at %s · %s", K.Clock(d.t), d.by and K.SpellName(d.by) or "?") } break end
+        end
+        hint = "Click for the full breakdown"
+    end
+
+    -- lay it out
+    local y = -TIP_PAD - 34 - 10
+    local x = TIP_PAD
+    for i, s in ipairs(tip.stats) do
+        local st = stats[i]
+        s.num:SetShown(st ~= nil)
+        s.lab:SetShown(st ~= nil)
+        if st then
+            s.num:SetText(st[1])
+            s.lab:SetText(st[2])
+            s.num:ClearAllPoints()
+            s.num:SetPoint("TOPLEFT", tip, "TOPLEFT", x, y)
+            x = x + max(s.num:GetStringWidth(), s.lab:GetStringWidth()) + 16
+        end
+    end
+    y = y - (#stats > 0 and 40 or 0)
+    for _, l in pairs(tip.lines) do l.icon:Hide(); l.name:Hide(); l.amount:Hide(); l.pct:Hide() end
+    local function place(i, key, name, amount, pct, color)
+        local l = TipLine(i)
+        l.icon:SetTexture(K.SpellIcon(key, a))
+        l.icon:ClearAllPoints()
+        l.icon:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, y - 2)
+        l.pct:SetText(pct or "")
+        l.pct:ClearAllPoints()
+        l.pct:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -TIP_PAD, y - 3)
+        l.amount:SetText(amount or "")
+        l.amount:ClearAllPoints()
+        l.amount:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -TIP_PAD - ((pct or "") ~= "" and 42 or 0), y - 3)
+        l.name:SetText(name)
+        l.name:ClearAllPoints()
+        l.name:SetPoint("TOPLEFT", l.icon, "TOPRIGHT", 7, -1)
+        l.name:SetPoint("RIGHT", l.amount, "LEFT", -8, 0)
+        if color then l.name:SetTextColor(color[1], color[2], color[3]) else l.name:SetTextColor(1, 1, 1) end
+        l.icon:Show(); l.name:Show(); l.amount:Show(); l.pct:Show()
+        y = y - TIP_LINE
+    end
+    for i, ln in ipairs(lines) do place(i, ln[1], ln[2], ln[3], ln[4]) end
+    if red then place(#lines + 1, red[1], red[2], "", "", { 1, 0.48, 0.42 }) end
+    tip.foot:SetShown(hint ~= nil)
+    if hint then
+        tip.foot:SetText(hint)
+        tip.foot:ClearAllPoints()
+        tip.foot:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, y - 5)
+        y = y - 5 - 16
+    end
+    tip:SetHeight(-y + TIP_PAD - 4)
+
+    -- beside the bar, on the side with room
+    tip:ClearAllPoints()
+    local left = (row:GetLeft() or 0) * (row:GetEffectiveScale() or 1)
+    if left > (UIParent:GetWidth() or 1000) * (UIParent:GetEffectiveScale() or 1) / 2 then
+        tip:SetPoint("TOPRIGHT", row, "TOPLEFT", -10, 4)
+    else
+        tip:SetPoint("TOPLEFT", row, "TOPRIGHT", 10, 4)
+    end
+    tip:Show()
 end
+MP.ShowRowTip = ShowRowTip
+local function HideRowTip() if tip then tip:Hide() end end
+MP._Tip = function() return tip end
 
 local function RowClick(row, button)
     if button == "RightButton" then MP:PanelMenu(row.pf, row) return end
     local r = row.data
     if not r or not ns.MeterDetail then return end
-    GameTooltip:Hide()
+    HideRowTip()
     local _, mode, tab = RowSeg(row.pf)
     if mode == "deaths" and r.d then ns.MeterDetail:OpenDeath(tab.seg or "cur", r.d)
     else ns.MeterDetail:Open(tab.seg or "cur", r.g, mode) end
@@ -554,8 +713,8 @@ local function NewRow(pf)
     row.skull:SetSize(11, 11)
     row.name = K.Font(row, K.FRIZ, 12, { 1, 1, 1 })
     row.name:SetJustifyH("LEFT")
-    row:SetScript("OnEnter", RowTooltip)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnEnter", ShowRowTip)
+    row:SetScript("OnLeave", HideRowTip)
     row:SetScript("OnClick", RowClick)
     return row
 end
@@ -944,6 +1103,8 @@ end
 function MP:Draw()
     if not holder or not holder:IsShown() then dirty = true return end
     dirty = false
+    local fight = (Meter:GetLive() ~= nil) or (UnitAffectingCombat and UnitAffectingCombat("player")) or false
+    local migrated = false
     lastDraw = GetTime()
     for _, f in ipairs(stackFrames) do
         if f:IsShown() and f.layout then
@@ -957,6 +1118,12 @@ function MP:Draw()
                 pf.sep:SetShown(i > 1)
                 local n
                 if IsThreat(tab.view) then n = DrawThreat(pf) else n = DrawMeter(pf, tab) end
+                if fight then
+                    n = max(n, pf.peak or 0)
+                    pf.peak = n
+                else
+                    pf.peak = nil
+                end
                 DrawHead(pf, tab)
                 local body = n > 0 and (PAD * 2 + n * ROW_H + (n - 1) * ROW_GAP) or 0
                 pf.rows:SetHeight(max(1, body - PAD * 2))
@@ -968,7 +1135,22 @@ function MP:Draw()
             end
             f:SetHeight(max(HEAD_H, y))
             f.warn = hot
+            -- (layouts saved before stacks could hang from their bottom edge: a stack low on the screen switches to
+            -- its bottom edge once, where it is now, so it stays put and grows upward from here on)
+            local s = f.layout
+            if (Layout().v or 1) < 2 and s.y and not s.b and not drag then
+                local h = max(HEAD_H, y)
+                local _, hh = HolderSize()
+                if s.y - h / 2 < hh / 2 then
+                    s.b, s.y = s.y - h, nil
+                    migrated = true
+                end
+            end
         end
+    end
+    if (Layout().v or 1) < 2 and holder:IsShown() then
+        Layout().v = 2
+        if migrated then self:Rebuild() end
     end
 end
 
@@ -1011,7 +1193,7 @@ end
 function MP:StartDrag(si)
     local f = stackFrames[si]
     if not f then return end
-    GameTooltip:Hide()
+    GameTooltip:Hide(); HideRowTip()
     ns.UI:CloseMenus()
     f:SetFrameLevel(holder:GetFrameLevel() + 50)
     f:StartMoving()
@@ -1129,7 +1311,11 @@ function MP:EndDrag()
     local L = Layout()
     local s = f.layout
     if not s then self:Rebuild() return end
-    s.x, s.y = f:GetLeft() or s.x, f:GetTop() or s.y
+    -- where it was let go: held by the edge nearer the screen's edge, so it grows away from it
+    local _, hh = HolderSize()
+    local top, bottom = f:GetTop() or s.y or 0, f:GetBottom() or s.b or 0
+    s.x = f:GetLeft() or s.x
+    if (top + bottom) / 2 < hh / 2 then s.b, s.y = bottom, nil else s.y, s.b = top, nil end
     local tg = d.target
     if tg then
         local si = IndexOf(L.stacks, s)
@@ -1142,24 +1328,27 @@ function MP:EndDrag()
             if si then tremove(L.stacks, si) end
         elseif tg.kind == "below" then
             for _, p in ipairs(s.panels) do tg.stack.panels[#tg.stack.panels + 1] = p end
+            if tg.stack.b then tg.stack.b = bottom end          -- (held by its bottom: that edge moves down)
             if si then tremove(L.stacks, si) end
         elseif tg.kind == "above" then
             for i = #s.panels, 1, -1 do tinsert(tg.stack.panels, 1, s.panels[i]) end
-            tg.stack.y = s.y
-            tg.stack.x = tg.stack.x
+            if tg.stack.y then tg.stack.y = top end             -- (held by its top: that edge moves up)
             if si then tremove(L.stacks, si) end
         elseif tg.kind == "right" or tg.kind == "left" then
-            s.x, s.y = tg.x, tg.y
+            s.x = tg.x
+            if tg.stack.b then s.b, s.y = tg.stack.b, nil else s.y, s.b = tg.y, nil end   -- lined up on the same edge
         end
     end
     f:SetFrameLevel(holder:GetFrameLevel() + 1)
     self:Rebuild()
 end
 
+-- The corner sets the width and the row count of the panel next to it (the bottom one, or the top one of a stack
+-- held by its bottom edge, whose corner is at the top).
 function MP:StartResize(f)
     if Locked() or not f.layout then return end
-    local last = f.panels[#f.panels]
-    resize = { frame = f, panel = last and last.layout, pf = last }
+    local pf = f.up and f.panels[1] or f.panels[#f.panels]
+    resize = { frame = f, panel = pf and pf.layout, pf = pf, up = f.up }
 end
 
 local function UpdateResize()
@@ -1173,7 +1362,7 @@ local function UpdateResize()
     f:SetWidth(w)
     f.layout.w = floor(w + 0.5)
     if r.panel and r.pf then
-        local h = (r.pf:GetTop() or 0) - cy - HEAD_H - PAD * 2
+        local h = (r.up and (cy - (r.pf:GetBottom() or 0)) or ((r.pf:GetTop() or 0) - cy)) - HEAD_H - PAD * 2
         r.panel.rows = min(MAX_ROWS, max(1, floor((h + ROW_GAP) / (ROW_H + ROW_GAP) + 0.5)))
     end
     MP:Draw()
@@ -1282,12 +1471,12 @@ function MP:Spawn(pf, v)
     local s = pf and pf.layout and L.stacks[pf.si]
     local hw = HolderSize()
     local w = s and s.w or DEFAULT_W
-    local x, y
+    local x, y, bt
     if s then
         x = (s.x > hw / 2) and (s.x - w - 12) or (s.x + w + 12)
-        y = s.y
+        y, bt = s.y, s.b
     end
-    L.stacks[#L.stacks + 1] = { x = x, y = y, w = w, panels = { NewPanelData(v) } }
+    L.stacks[#L.stacks + 1] = { x = x, y = y, b = bt, w = w, panels = { NewPanelData(v) } }
     if IsThreat(v) and not Threat:IsEnabled() then Set("thr", true) end
     if not IsThreat(v) and not Meter:IsEnabled() then Set("dmg", true) end
     self:Rebuild()
@@ -1308,7 +1497,7 @@ function MP:Close(pf)
         if pi then tremove(s.panels, pi) end
         if #s.panels == 0 then tremove(L.stacks, pf.si) end
     end
-    GameTooltip:Hide()
+    GameTooltip:Hide(); HideRowTip()
     self:Rebuild()
 end
 
