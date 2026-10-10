@@ -13,8 +13,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then re
 -- Motion: the urgent look eases in and out (the strip's tile lifts and settles, the chip / label fades and drifts,
 -- the hairline refills, gold blends back to calm), and a class that was missing or running out blooms once when
 -- it is blessed again. All of it on the faces (not secure), so it runs in combat too.
--- Right-click a class for its players (nothing pops up on hover): click = the Greater on them, right-click = their single
--- blessing, wheel = give them a single blessing instead. Click a class: the Greater on a member in range.
+-- Click a class: the next thing it needs, in order: the Greater (someone on it is missing it or it runs short; it goes
+-- first, it overwrites single blessings), then each exception's single blessing, one per click; nothing due: the
+-- Greater again. Right-click a class for its players (nothing pops up on hover): click = recast their own blessing
+-- now (their single, else the Greater), right-click = the small one on them only, wheel = a single blessing
+-- instead.
 -- Every cast is a secure button whose target is chosen out of combat (WoW forbids changing them in combat): in a
 -- fight the bar dims and keeps its targets, and catches up when the fight ends. Key binding: "Bless next".
 local addonName, ns = ...
@@ -165,6 +168,13 @@ local function NewRow(i)
     local r = Secure(frame, "DisasterZoneBlessRow" .. i)
     r:SetSize(R_S, R_S)
     r:SetAttribute("type1", "spell")
+    r:SetScript("PreClick", function(self)
+        if InCombatLockdown() or not self.data then return end
+        local spell, unit = Bar:NextFor(self.data)
+        if B():IsDemo() then spell, unit = nil, nil end
+        self:SetAttribute("spell1", spell)
+        self:SetAttribute("unit1", unit)
+    end)
     local face = CreateFrame("Frame", nil, r)
     face:SetSize(R_S, R_S)
     face:SetPoint("CENTER")
@@ -476,18 +486,48 @@ function Bar:Urgent(list)
 end
 
 -- spell, unit for the "Bless next" key: a missing single blessing first, else the urgent class's Greater.
-function Bar:NextCast()
+-- What a click on class row r casts: spell, unit, kind ("greater" | "single"), member. In order: the Greater when
+-- someone on it (not an exception) is missing it or has it running short (it goes first: casting it overwrites my
+-- single blessings on the class); then each exception missing their single or running short, one per click;
+-- nothing due: the Greater again (unless needOnly).
+function Bar:NextFor(r, needOnly)
     local Bl = B()
-    local list = self:MyRows()
     local me = Bl:Me()
-    for _, r in ipairs(list) do
-        for _, m in ipairs(r.state.missing) do
-            local sbi = Bl:GetSingle(me, r.ci, m.name)
-            if sbi and UnitIsVisible(m.unit) then return Bl:BlessingName(sbi), m.unit end
+    local warn = (tonumber(Bl.Setting("warnMin", 5)) or 5) * 60
+    local function ok(m) return m.online and not m.dead and (m.demo or UnitIsVisible(m.unit)) end
+    if r.bi and r.unit then
+        for _, m in ipairs(r.members) do
+            if not Bl:GetSingle(me, r.ci, m.name) and ok(m) then
+                local left = Bl:BuffLeft(m.unit, r.bi)
+                if not left or left < warn then return r.greaterName, r.unit, "greater", m end
+            end
         end
     end
+    for _, m in ipairs(r.members) do
+        local sbi = Bl:GetSingle(me, r.ci, m.name)
+        if sbi and ok(m) then
+            local name = Bl:BlessingName(sbi)
+            local inRange = m.demo or not IsSpellInRange or IsSpellInRange(name, m.unit) ~= 0
+            local left = Bl:BuffLeft(m.unit, sbi)
+            if inRange and (not left or left < warn) then return name, m.unit, "single", m end
+        end
+    end
+    if not needOnly and r.unit and r.greaterName then return r.greaterName, r.unit, "greater" end
+    return nil
+end
+
+-- spell, unit for the "Bless next" key: the next thing the most urgent class needs, else any class's next need.
+function Bar:NextCast()
+    local list = self:MyRows()
     local u = self:Urgent(list)
-    if u and u.unit then return u.greaterName, u.unit end
+    if u then
+        local spell, unit = self:NextFor(u)
+        if spell then return spell, unit end
+    end
+    for _, r in ipairs(list) do
+        local spell, unit = self:NextFor(r, true)
+        if spell then return spell, unit end
+    end
     return nil, nil
 end
 
@@ -767,9 +807,10 @@ function Bar:Update()
             local row = rows[i] or NewRow(i)
             rows[i] = row
             -- (demo mode: nothing to cast on)
-            local real = r.unit and not Bl:IsDemo()
-            row:SetAttribute("spell1", real and r.greaterName or nil)
-            row:SetAttribute("unit1", real and r.unit or nil)
+            local spell, unit = self:NextFor(r)
+            if Bl:IsDemo() then spell, unit = nil, nil end
+            row:SetAttribute("spell1", spell)
+            row:SetAttribute("unit1", unit)
             row.data = r
             row:Show()
         end
@@ -904,7 +945,10 @@ function Bar:FillPop(row)
             local real = not m.demo
             p:SetAttribute("unit1", real and m.unit or nil)
             p:SetAttribute("unit2", real and m.unit or nil)
-            p:SetAttribute("spell1", (real and r.bi) and Bl:BlessingName(r.bi, true) or nil)
+            -- click: their own blessing now, whatever is left (their single, else the Greater); right-click: the
+            -- small one on them only
+            local own = sbi and Bl:BlessingName(sbi) or (r.bi and Bl:BlessingName(r.bi, true))
+            p:SetAttribute("spell1", real and own or nil)
             p:SetAttribute("spell2", (real and bi) and Bl:BlessingName(bi) or nil)
             p:Show()
         end
@@ -985,9 +1029,12 @@ function Bar:PopTip(p)
     if sbi then
         GameTooltip:AddLine(strformat("Gets %s from you instead of the class's", Bl:BlessingName(sbi)), 1, 0.82, 0, true)
     end
-    if p.greater then GameTooltip:AddLine("Click: " .. Bl:BlessingName(p.greater, true), 0.85, 0.85, 0.85) end
-    local bi = sbi or p.greater
-    if bi then GameTooltip:AddLine("Right-click: " .. Bl:BlessingName(bi), 0.85, 0.85, 0.85) end
+    if sbi then
+        GameTooltip:AddLine("Click: " .. Bl:BlessingName(sbi), 0.85, 0.85, 0.85)
+    elseif p.greater then
+        GameTooltip:AddLine("Click: " .. Bl:BlessingName(p.greater, true) .. " (the whole class)", 0.85, 0.85, 0.85)
+        GameTooltip:AddLine("Right-click: " .. Bl:BlessingName(p.greater) .. " (them only)", 0.85, 0.85, 0.85)
+    end
     GameTooltip:AddLine("Wheel: give them a single blessing instead", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end

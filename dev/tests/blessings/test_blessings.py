@@ -276,6 +276,31 @@ assert lone.eval("return DisasterZoneBlessBar:IsShown()") is True
 rows = lone.eval_py("local t = {}; for _, r in ipairs(ns.BlessingsBar:MyRows()) do t[#t + 1] = { r.cls, r.bi, r.unit } end; return t")
 assert len(rows) == 1 and txt(rows[0][0]) == "PALADIN" and rows[0][1] == 1 and txt(rows[0][2]) == "player", rows
 
+# a click on a class casts in order: the Greater when someone on it lacks it or it runs short, then each
+# exception's single blessing, one per click; nothing due: the Greater again
+ORDER = """
+    local B, Bar = ns.Blessings, ns.BlessingsBar
+    local me = B:Me()
+    B.Store().single[me] = { [1] = { Tank = 5 } }
+    local left = ...
+    local old = B.BuffLeft
+    B.BuffLeft = function(_, unit, bi) return left[unit .. ':' .. bi] end
+    local r = { ci = 1, bi = 3, greaterName = 'GBoK', unit = 'u1', members = {
+        { name = 'A', unit = 'u1', online = true, dead = false, demo = true },
+        { name = 'Tank', unit = 'u2', online = true, dead = false, demo = true } } }
+    local s1, u1, k1 = Bar:NextFor(r)
+    local s2, u2, k2 = Bar:NextFor(r, true)
+    B.BuffLeft = old
+    B.Store().single[me] = nil
+    return { k1 or 'none', u1 or 'none', k2 or 'none' }
+"""
+def order(left):
+    return [txt(x) for x in lone.eval_py(ORDER, left)]
+assert order({}) == ["greater", "u1", "greater"], order({})                       # A lacks Kings: Greater first
+assert order({"u1:3": 1500}) == ["single", "u2", "single"], order({"u1:3": 1500})  # then the tank's Light
+assert order({"u1:3": 200, "u2:5": 500}) == ["greater", "u1", "greater"]           # Kings running short: Greater
+assert order({"u1:3": 1500, "u2:5": 500}) == ["greater", "u1", "none"]             # nothing due: Greater again
+
 w.assert_no_errors()
 print(w.report())
 print("ok")
