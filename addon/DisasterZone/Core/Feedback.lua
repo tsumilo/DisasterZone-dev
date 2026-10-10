@@ -765,9 +765,14 @@ local function HookErrors()
     end
     if not (geterrorhandler and seterrorhandler) then return nil end
     local prev = geterrorhandler()
+    local busy = false      -- (never into ourselves: a handler that calls back would loop)
     seterrorhandler(function(msg, ...)
+        if busy then return msg end
+        busy = true
         pcall(NoteError, msg, debugstack and debugstack(3, 12, 0) or nil)
+        busy = false
         if prev then return prev(msg, ...) end
+        return msg
     end)
     return "handler"
 end

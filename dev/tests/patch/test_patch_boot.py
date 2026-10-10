@@ -522,7 +522,7 @@ def startup_errors_offer_a_rollback():
     w.tick(2)
     s = boot_state(c)
     assert s["state"] == "applied" and s["errors"] == 2 and s["init"] and s["loggedIn"], s
-    assert len(c.errors) == 2
+    assert len(c.errors) == 2, c.errors
     w.clear_errors()
     assert c.eval("return DisasterZonePatchDB.lastLoad.errors") == 2
     assert c.eval("return DisasterZoneBootDialog:IsShown()") is True

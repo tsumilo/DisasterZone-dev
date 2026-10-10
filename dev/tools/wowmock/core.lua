@@ -58,13 +58,14 @@ end
 local safecall = M.safecall
 
 -- WoW's global error handler (AceComm / CallbackHandler / ChatThrottleLib use it)
+-- As in WoW: geterrorhandler() returns the handler set last; a handler that replaces it is expected to call the one it
+-- replaced (BugGrabber, DisasterZone's Core/Feedback.lua), which ends here and records the error once.
 M.user_errorhandler = nil
 M.errorhandler = function(e)
   M.record_error(e, "geterrorhandler()", traceback(tostring(e), 2))
-  if M.user_errorhandler then pcall(M.user_errorhandler, e) end
   return e
 end
-function geterrorhandler() return M.errorhandler end
+function geterrorhandler() return M.user_errorhandler or M.errorhandler end
 function seterrorhandler(fn)
   if type(fn) ~= "function" then error("Usage: seterrorhandler(errfunc)", 2) end
   M.user_errorhandler = fn
