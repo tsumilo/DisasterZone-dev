@@ -864,5 +864,37 @@ def the_corner_changes_rows_only_by_how_far_it_is_dragged():
     assert rows() is None and r.cl.eval("return ns.MeterPanels.Layout().v") == 3
 
 
+@case
+def the_mouse_wheel_scrolls_a_panel_past_its_last_row():
+    extra = [ExtraMember("P%02d" % i, "ROGUE") for i in range(14)]
+    r = Raid(extra=extra)
+    r.combat(True)
+    r.hit("Gina", 50)
+    for i, m in enumerate(extra):
+        r.hit(m.name, 1000 + i * 10)
+    r.tick(1)
+    shown = """
+        ns.MeterPanels:Draw()
+        local pf = ns.MeterPanels._Panel('damage')
+        local o = {}
+        for _, row in pairs(pf.rowsByKey) do if row:IsShown() then o[#o + 1] = { -row.ty, row.data.a.n } end end
+        table.sort(o, function(a, b) return a[1] < b[1] end)
+        local names = {}
+        for i, x in ipairs(o) do names[i] = x[2] end
+        return { names, pf.thumb:IsShown(), pf.offset }"""
+    names, thumb, off = r.cl.eval_py(shown)
+    assert names[0] == "P13" and names[-1] == "Gina" and thumb is True and off == 0, (names, thumb, off)
+    r.cl.eval("local pf = ns.MeterPanels._Panel('damage'); pf:GetScript('OnMouseWheel')(pf, -3)")
+    names, thumb, off = r.cl.eval_py(shown)
+    assert off == 3 and names[0] == "P10" and names[-1] == "Gina", (names, off)     # I stay pinned at the bottom
+    r.cl.eval("local pf = ns.MeterPanels._Panel('damage'); pf:GetScript('OnMouseWheel')(pf, -50)")
+    names, thumb, off = r.cl.eval_py(shown)
+    assert off == 15 - 8 and names[-1] == "Gina" and "P00" in names, (names, off)   # the bottom: me in my own place
+    r.end_fight()
+    r.combat(True)
+    r.hit("Gina", 10, dst=r.add, dst_name="Crystalcore Devastator")
+    assert r.cl.eval("return ns.MeterPanels._Panel('damage').offset") == 0      # a new fight starts at the top
+
+
 if __name__ == "__main__":
     run_all()

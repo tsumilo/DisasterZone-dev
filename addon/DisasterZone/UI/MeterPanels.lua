@@ -334,6 +334,16 @@ local function NewPanel()
     pf.pull = K.Tex(over, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
     pf.pull:SetWidth(2)
     pf.rowsByKey, pf.rowPool, pf.trowsByKey, pf.trowPool = {}, {}, {}, {}
+    -- the mouse wheel scrolls past the panel's last row (rows don't take the wheel, so it reaches the panel)
+    pf.thumb = K.Tex(over, "OVERLAY", K.WHITE, 1, 1, 1, 0.3)
+    pf.thumb:SetWidth(2)
+    pf.thumb:Hide()
+    pf:EnableMouseWheel(true)
+    pf:SetScript("OnMouseWheel", function(self, delta)
+        if (self.maxOff or 0) <= 0 then return end
+        self.offset = min(self.maxOff, max(0, (self.offset or 0) - delta))
+        MP:Draw()
+    end)
     allPanels[#allPanels + 1] = pf
     return pf
 end
@@ -795,6 +805,39 @@ end
 
 local EMPTY_NOTE = { deaths = "nobody died", kicks = "no interrupts", dispels = "no dispels" }
 
+-- The rows a panel shows: V of them from its scroll offset (the mouse wheel moves it); my own row, when it is out of
+-- that window, takes the last slot (pinned, with its real place).
+local function Window(pf, list, V, isMe)
+    local maxOff = max(0, #list - V)
+    local off = min(maxOff, max(0, floor(pf.offset or 0)))
+    pf.offset, pf.maxOff = off, maxOff
+    local out = {}
+    for i = off + 1, min(#list, off + V) do out[#out + 1] = list[i] end
+    local meIdx
+    for i, r in ipairs(list) do if isMe(r) then meIdx = i break end end
+    if meIdx and (meIdx <= off or meIdx > off + V) and V >= 2 then
+        out[#out] = list[meIdx]
+        out.pinned = list[meIdx]
+    end
+    pf.jump = pf.lastOff ~= nil and pf.lastOff ~= off      -- (scrolled: rows take their places at once)
+    pf.lastOff = off
+    return out
+end
+
+-- The scroll thumb on the panel's right edge while it has more rows than it shows.
+local function Thumb(pf, total, V)
+    local t = pf.thumb
+    if not t or (pf.maxOff or 0) <= 0 or total <= V then
+        if t then t:Hide() end
+        return
+    end
+    local h = V * (ROW_H + ROW_GAP) - ROW_GAP
+    t:ClearAllPoints()
+    t:SetPoint("TOPRIGHT", pf.rows, "TOPRIGHT", 0, -floor(h * (pf.offset or 0) / total + 0.5))
+    t:SetHeight(max(6, h * V / total))
+    t:Show()
+end
+
 local function DrawMeter(pf, tab)
     local mode = tab.view
     local seg = Meter:GetSegment(tab.seg or "cur")
@@ -819,20 +862,13 @@ local function DrawMeter(pf, tab)
         pf.tot:SetText("")
     end
 
-    local order = {}
-    local meIdx
     for i, r in ipairs(rows) do
         r.rank = i
-        r.pinned = nil
         r.me = ns.MeterWindow.IsMe(r.d and r.d.g or r.g)
-        if r.me and not meIdx then meIdx = i end
-        order[i] = r
     end
-    if meIdx and meIdx > V and V >= 2 then
-        local me = tremove(order, meIdx)
-        me.pinned = true
-        tinsert(order, V, me)
-    end
+    local order = Window(pf, rows, V, function(r) return r.me end)
+    for _, r in ipairs(rows) do r.pinned = (r == order.pinned) or nil end
+    Thumb(pf, #rows, V)
     local topV = 0
     for _, r in ipairs(rows) do topV = max(topV, r.v + (r.ext or 0)) end
     if mode == "active" then topV = dur end
@@ -841,7 +877,7 @@ local function DrawMeter(pf, tab)
     if rowW <= 0 then rowW = PanelWidth(pf) - PAD * 2 end
     local valueFn = VALUE[mode] or VALUE.damage
     local seen = {}
-    for i = 1, V do
+    for i = 1, #order do
         local r = order[i]
         local key = r.d and ("d" .. tostring(r.d.t) .. tostring(r.d.g)) or r.g
         seen[key] = true
@@ -879,8 +915,8 @@ local function DrawMeter(pf, tab)
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
         row.tw = max(1, (mode == "deaths") and rowW or (r.v / topV * rowW))
         row.tew = (r.ext and r.ext > 0) and (r.ext / topV * rowW) or 0
-        if fresh or not row.y then
-            if pf.drawn and mode ~= "deaths" then
+        if fresh or not row.y or pf.jump then
+            if pf.drawn and mode ~= "deaths" and not pf.jump then
                 row.y, row.w, row.ew = -(V * (ROW_H + ROW_GAP)), 0, 0   -- a new player comes in from below
             else
                 row.y, row.w, row.ew = row.ty, row.tw, row.tew
@@ -961,13 +997,10 @@ local function DrawThreat(pf)
     local rowsW = (pf.rows:GetWidth() or 0)
     if rowsW <= 0 then rowsW = PanelWidth(pf) - PAD * 2 end
     local trackW = max(10, rowsW - T_TRACK_L - T_TRACK_R)
-    local list = {}
-    for i = 1, #view do list[i] = view[i] end
-    local meIdx
-    for i, r in ipairs(list) do if r.me then meIdx = i end end
-    if meIdx and meIdx > V and V >= 2 then tinsert(list, V, tremove(list, meIdx)) end
+    local list = Window(pf, view, V, function(r) return r.me end)
+    Thumb(pf, #view, V)
     local seen = {}
-    for i = 1, V do
+    for i = 1, #list do
         local r = list[i]
         local key = r.guid or r.name
         seen[key] = true
@@ -990,7 +1023,7 @@ local function DrawThreat(pf)
         local frac = st.tankView and min(1, share / 100) or min(1, share / THREAT_SCALE)
         row.tw = max(1, frac * trackW)
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
-        if fresh or not row.y then row.y, row.w = row.ty, row.tw end
+        if fresh or not row.y or pf.jump then row.y, row.w = row.ty, row.tw end
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", pf.rows, "TOPLEFT", 0, row.y)
         row:SetPoint("RIGHT", pf.rows, "RIGHT", 0, 0)
@@ -1263,9 +1296,9 @@ function MP.FindTarget(m, cx, cy, others)
             return { kind = "below", stack = o.stack }, { gl, gb + 1, gw, 2 }
         elseif abs(l - gl) < SNAP_X and abs((t - h) - gt) < SNAP then
             return { kind = "above", stack = o.stack }, { gl, gt + 1, gw, 2 }
-        elseif abs(t - gt) < SIDE_Y and abs(l - (gl + gw)) < SNAP then
+        elseif (abs(t - gt) < SIDE_Y or abs((t - h) - gb) < SIDE_Y) and abs(l - (gl + gw)) < SNAP then
             return { kind = "right", stack = o.stack, x = gl + gw + 3, y = gt }, { gl + gw + 1, gt, 2, max(gh, h) }
-        elseif abs(t - gt) < SIDE_Y and abs((l + w) - gl) < SNAP then
+        elseif (abs(t - gt) < SIDE_Y or abs((t - h) - gb) < SIDE_Y) and abs((l + w) - gl) < SNAP then
             return { kind = "left", stack = o.stack, x = gl - w - 3, y = gt }, { gl - 3, gt, 2, max(gh, h) }
         end
     end
@@ -1676,6 +1709,7 @@ function MP:OnLogin()
                     for _, t in ipairs(p.tabs) do if t.seg ~= "all" then t.seg = "cur" end end
                 end
             end
+            for _, pf in ipairs(allPanels) do pf.offset = 0 end
             combatEndedAt = GetTime()
             MP:UpdateVisibility()
         elseif what == "end" then
