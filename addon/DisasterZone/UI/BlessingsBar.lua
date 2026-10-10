@@ -10,7 +10,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then re
 --                shrinks with the time left); the tile to do next lifts with its time on a gold chip. Aura on the
 --                left, Symbols on the right.
 -- No panel behind it (only a faint one while unlocked, to drag it by).
--- Hover a class (or right-click it) for its players: click = the Greater on them, right-click = their single
+-- Right-click a class for its players (nothing pops up on hover): click = the Greater on them, right-click = their single
 -- blessing, wheel = give them a single blessing instead. Click a class: the Greater on a member in range.
 -- Every cast is a secure button whose target is chosen out of combat (WoW forbids changing them in combat): in a
 -- fight the bar dims and keeps its targets, and catches up when the fight ends. Key binding: "Bless next".
@@ -209,10 +209,8 @@ local function NewRow(i)
     face.label.text:SetPoint("CENTER", 0, 0)
     face.label:Hide()
     r:SetScript("PostClick", function(self, button, down)
-        if Released(down) and button == "RightButton" and not InCombatLockdown() then Bar:TogglePop(self, true) end
+        if Released(down) and button == "RightButton" and not InCombatLockdown() then Bar:TogglePop(self) end
     end)
-    r:HookScript("OnEnter", function(self) Bar:HoverRow(self) end)
-    r:HookScript("OnLeave", function() GameTooltip:Hide() end)
     return r
 end
 
@@ -373,13 +371,13 @@ local function Build()
     pop.hint:SetText("wheel: a single blessing instead")
     pop.rows = {}
     pop:Hide()
-    -- (it goes when the mouse leaves both it and its class, unless a right-click pinned it)
+    -- (it goes a second after the mouse leaves both it and its class; a right-click on the class closes it too)
     local away = 0
     pop:SetScript("OnUpdate", function(self, elapsed)
-        if self.pinned or InCombatLockdown() then return end
+        if InCombatLockdown() then return end
         if self:IsMouseOver() or (self.row and self.row:IsMouseOver()) then away = 0 return end
         away = away + (elapsed or 0)
-        if away > 0.4 then
+        if away > 1 then
             away = 0
             self:Hide()
         end
@@ -835,17 +833,14 @@ function Bar:FillPop(row)
     end
 end
 
--- Shows a class's players next to it (left of the rail, above the strip). pin: stays until clicked again.
-function Bar:TogglePop(row, pin)
+-- Right-click: a class's players next to it (left of the rail, above the strip); again: closed.
+function Bar:TogglePop(row)
     if InCombatLockdown() or not row.data then return end
     if pop:IsShown() and pop.row == row then
-        if pin and not pop.pinned then pop.pinned = true return end
         pop:Hide()
-        pop.pinned = nil
         return
     end
     pop.row = row
-    pop.pinned = pin or nil
     pop:ClearAllPoints()
     if Layout() == "horizontal" then
         pop:SetPoint("BOTTOM", row, "TOP", 0, 18)
@@ -854,22 +849,6 @@ function Bar:TogglePop(row, pin)
     end
     self:FillPop(row)
     pop:Show()
-end
-
--- Hover: the class's players (out of combat), or in combat a tooltip saying what a click does.
-function Bar:HoverRow(row)
-    local r = row.data
-    if not r then return end
-    if not InCombatLockdown() then
-        if not (pop:IsShown() and pop.row == row) then self:TogglePop(row) end
-        return
-    end
-    GameTooltip:SetOwner(row, "ANCHOR_LEFT")
-    GameTooltip:AddLine(strformat("%s · %s", Plural(r.cls), r.greaterName or "single blessings"))
-    if r.unit then
-        GameTooltip:AddLine("Click: cast it on " .. (GetUnitName(r.unit, true) or "?"), 0.85, 0.85, 0.85)
-    end
-    GameTooltip:Show()
 end
 
 -- Wheel on a player: my single blessing for them steps to the next (or previous) one I can give, skipping the
@@ -919,7 +898,6 @@ function Bar:OnLogin()
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function()
         if pop and pop:IsShown() then
             pop:Hide()
-            pop.pinned = nil
         end
         if frame then frame:SetAlpha(0.75) end
     end)
@@ -942,7 +920,7 @@ if ns.ClassKit then ns.ClassKit:Extend("bless", {
     iconPath = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings",
     action = { label = "Open planner", run = function() if ns.BlessingsUI then ns.BlessingsUI:Open() end end },
     settings = function(S, sec)
-    S:DropdownSetting(sec, "Buff bar", "Your blessings per class: click to cast, hover for the players.",
+    S:DropdownSetting(sec, "Buff bar", "Your blessings per class: click to cast, right-click for the players.",
         "bless.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
             { value = "always", text = "Always" }, { value = "off", text = "Off" } })
     S:DropdownSetting(sec, "Bar layout", "A rail of class rings, or a strip of tiles over your action bars.",
