@@ -1224,6 +1224,14 @@ define("Cooldown", "Frame", {
   Clear = function(self) S(self).cd = nil end,
   GetCooldownTimes = function(self) local c = S(self).cd; if c then return c[1] * 1000, c[2] * 1000 end return 0, 0 end,
   GetCooldownDuration = function(self) local c = S(self).cd; return c and c[2] * 1000 or 0 end,
+  SetSwipeTexture = function(self, tex) S(self).swipeTex = tex end,
+  SetSwipeColor = function(self, r, g, b, a) S(self).swipeColor = { r, g, b, a or 1 } end,
+  SetDrawSwipe = function(self, on) S(self).drawSwipe = on and true or false end,
+  SetDrawEdge = function(self, on) S(self).drawEdge = on and true or false end,
+  SetDrawBling = function(self, on) S(self).drawBling = on and true or false end,
+  SetReverse = function(self, on) S(self).reverse = on and true or false end,
+  SetHideCountdownNumbers = function(self, on) S(self).hideNumbers = on and true or false end,
+  SetUseCircularEdge = function(self, on) S(self).circularEdge = on and true or false end,
 })
 local function message_methods()
   return {

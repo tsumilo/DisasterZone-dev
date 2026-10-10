@@ -24,6 +24,12 @@ ns.CHANGELOG = {
               "Deleting something has a red button, so it never looks like the safe choice.",
               "Panels, the raid reminder and the strategy prompts lost their rounded game borders.",
           } },
+          { heading = "Paladins: blessings strip", lines = {
+              "The strip bar's blessings are round, with a ring around each that drains as it runs out.",
+              "The ring turns red when a blessing runs short and gold on the one to do next.",
+              "The class sits on the top-right corner, the red count of who is missing it top-left.",
+              "No more \"5 missing\" chip: the red count says it. The chip only shows the time left.",
+          } },
       } },
     { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",
       sections = {
