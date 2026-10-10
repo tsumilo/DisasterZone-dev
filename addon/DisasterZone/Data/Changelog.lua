@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.4", date = "9 October 2026", title = "Gear sim, Disastercraft talent rows",
+    { version = "1.3.4", date = "9 October 2026", title = "Gear sim, meters and Azeromon's return",
       sections = {
           { heading = "Damage and threat meters", lines = {
               "Built-in meters: no need for Details or a threat addon. Off until you turn them on.",
@@ -40,7 +40,7 @@ ns.CHANGELOG = {
               "A set it has simmed before is not simmed again: change one slot and only that set runs.",
               "Fury and Arms Warriors can sim too, with WoWSims' Warrior rotations and raid setup.",
               "Enhancement Shamans too: twisted totems, Stormstrike, shocks and the Fire Elemental.",
-              "Rogues too (Combat, Mutilate and Hemorrhage builds), with poisons and their own Expose Armor.",
+              "Rogues too: Combat, Mutilate and Hemorrhage builds, poisons and their own Expose Armor.",
               "Feral Druids too, in cat form: powershifting, Shred, Rip, Mangle and Ferocious Bite.",
               "Elemental Shamans too: Lightning Bolt and Chain Lightning with overloads, and their own totems.",
               "Shadow Priests too: Mind Flay clipped like WoWSims does, Vampiric Touch mana and the Shadowfiend.",
@@ -197,24 +197,17 @@ ns.CHANGELOG = {
               "Guild > Members: the share and note icons on your own card (or an offline member's) click again.",
               "The top bar's share icon now works on Polls, Map, Atlas, My Log and Notifications too.",
           } },
-          { heading = "Disastercraft", lines = {
-              "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",
-              "Rows bring abilities too: Mortal Strike, Bloodthirst, Pyroblast, Ice Barrier, Mind Flay...",
-              "Change a row's talent for free whenever you are out of combat.",
-              "Leveling is about three times faster: more XP, half the kills and items, faster respawns.",
-              "NPC greetings are written on the parchment again, starting at the top.",
-              "Its poster in Games is now a short film of Northshire, from the Abbey to the valley road.",
-              "Play together: everyone in the guild who is in the game shares one Northshire.",
-              "Parties of five like WoW's: /invite, right-click a hero, or the Social window (O).",
-              "A party shares kill experience, quest kills and loot (free for all; money is split).",
-              "Creatures are shared: whoever pulls one runs it, everyone sees the same fight.",
-              "Heal and buff other heroes; party chat with /p, and /say reaches those near you.",
-              "Heroes and creatures walk and face in eight directions, diagonals included.",
-              "The pixel body replaces the 3D models: character screen, character sheet, portraits.",
-              "Spell glows sit in the caster's hands, and behind the body when the hand is behind it.",
+          { heading = "Azeromon is back", lines = {
+              "Disastercraft is gone: Azeromon, the beast-taming game, is back in Guild > Games.",
+              "Played it before? CONTINUE picks up your old save, beasts and badges included.",
+              "A /reload in the middle of a scene undoes it: no double gifts, prizes or skipped gates.",
+              "Trades can't copy a beast any more, and a slow turn gives only one player the win.",
+              "Messages and menus no longer freeze the game when a duel or trade arrives.",
+              "The guild board, bounties and Guild Hall trophies count right, and alts only once.",
+              "Every fix is listed in the game's own What's new, on its title screen.",
           } },
       } },
-    { version = "1.3.3", date = "9 October 2026", title = "My Log, Disastercraft and Karazhan Chess",
+    { version = "1.3.3", date = "9 October 2026", title = "My Log, Teams and Karazhan Chess",
       sections = {
           { heading = "My Log (opt-in)", lines = {
               "New in Settings > My Log: record your own play in every raid boss pull. Off by default.",
@@ -236,7 +229,7 @@ ns.CHANGELOG = {
           { heading = "Games, in the spotlight", lines = {
               "Guild > Games opens on a spotlight: one game's poster in front, the others at its sides.",
               "Turn it with the arrows, the mouse wheel or the dots, or click a poster at the side.",
-              "The posters are alive: your Bingo card fills in, Disastercraft's hero walks the valley.",
+              "The posters are alive: your Bingo card fills in as the raid goes.",
               "Raid Trainer's poster lists its bosses with your best clear time for each.",
               "Each poster shows a result of yours and who in the guild is playing it right now.",
               "During a raid's Bingo game the tab opens on Bingo, LIVE, saying how close your card is.",
@@ -247,14 +240,6 @@ ns.CHANGELOG = {
               "Rare and legendary squares wear their colour like item quality; legendary ones shimmer.",
               "Marked squares take your dauber's ink and its marker; completed lines turn gold.",
               "The race, the latest squares and the season sit beside the card, your dauber under them.",
-          } },
-          { heading = "Disastercraft (new game)", lines = {
-              "Azeromon is now Disastercraft: a little World of Warcraft on the real Northshire map.",
-              "Pick a Warrior, Mage or Priest, level up, quest, loot and fight with your guild.",
-              "WoW's own spells, talents, trainers, vendors, bags and character sheet, in WoW's frames.",
-              "Trees, props and walls block you only where they really stand. /collision shows it.",
-              "Buffs like Battle Shout show on the character sheet, green, as they come and go.",
-              "It has its own What's new on the character screen.",
           } },
           { heading = "Karazhan Chess", lines = {
               "New game in Guild > Games: chess on Medivh's own board in the Gamesman's Hall, in 3D.",
