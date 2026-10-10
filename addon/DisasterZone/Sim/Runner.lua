@@ -13,15 +13,20 @@ local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 
 Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
   ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
-  ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true }
+  ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true, ["PRIEST:Shadow"] = true }
 -- what the sim covers, for the texts that say so
-Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues and Feral Druids"
+Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues, Feral Druids "
+  .. "and Shadow Priests"
 -- class file -> the sim's class
-Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid" }
+Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid",
+  PRIEST = "Priest" }
 -- spec key -> what differs from the class: options, WoWSims' default reaction time (ms) and distance (yards)
 Runner.SPEC_SETTINGS = {
   ["DRUID:Feral (Cat)"] = { options = { form = "Cat" }, reactionTimeMs = 250, distance = 0, buffs = "wowsims_cat",
     field = "feralCatDruid" },
+  -- wsOptions: the class options of the WoWSims export
+  ["PRIEST:Shadow"] = { options = { preShadowform = true }, distance = 20, channelClipDelayMs = 100,
+    buffs = "wowsims_spriest", field = "dpsPriest", wsOptions = { preShadowform = true } },
   ["SHAMAN:Elemental"] = { options = { elemental = true, imbueMh = "NoImbue", imbueOh = "NoImbue", shieldProcrate = 0 },
     distance = 20, buffs = "wowsims_ele", field = "elementalShaman" },
 }
@@ -44,6 +49,11 @@ Runner.BUFFS = {
       .. "Fire, Curses of Recklessness and the Elements, Misery, Blood Frenzy, Mangle, Gift of Arthas, Hunter's Mark, "
       .. "Expose Weakness, Judgements of the Crusader and Wisdom; flask, food, scrolls, Haste Potion, Flame Cap, your own "
       .. "drums, explosives (Engineering). You drop your own totems and Fire Elemental.",
+    tipPriest = "WoWSims' Shadow Priest raid setup: Bloodlust, drums, Mana Spring and Wrath of Air, Chain of the Twilight "
+      .. "Owl, Eye of the Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane Intellect, Divine Spirit, Curse of "
+      .. "the Elements, Improved Shadow Bolt (72% uptime), Judgements of the Crusader and Wisdom, Faerie Fire, Expose "
+      .. "Armor; Flask of Pure Death, Blackened Basilisk, Destruction Potion, Demonic Rune. You bring your own Misery, "
+      .. "Shadow Weaving, Vampiric Touch and Shadowfiend.",
     tipElemental = "WoWSims' Elemental raid setup: Bloodlust, drums, Moonkin Aura, Chain of the Twilight Owl, Eye of the "
       .. "Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane Intellect, Divine Spirit, a Shadow Priest's mana, "
       .. "Curse of the Elements, Misery, Judgement of Wisdom and the melee debuffs; Flask of Blinding Light, Blackened "
@@ -128,6 +138,17 @@ end
 
 -- A Rogue always has poisons on (Deadly Poison on the off hand, WoWSims' default, unless the setup names its own)
 -- and keeps up his own Expose Armor: the group's goes.
+-- A Shadow Priest's own Vampiric Touch feeds himself: no other shadow priest's mana (his Misery is his own too:
+-- Buffs.lua S.ApplyDebuffs).
+local function PriestOwn(cfg)
+  local out = {}
+  for k, v in pairs(cfg) do out[k] = v end
+  local ind = {}
+  for k, v in pairs(cfg.individual or {}) do if k ~= "shadowPriestDps" then ind[k] = v end end
+  out.individual = ind
+  return out
+end
+
 local function RogueOwn(cfg)
   local out = {}
   for k, v in pairs(cfg) do out[k] = v end
@@ -174,6 +195,7 @@ function Runner:BuffConfig(key)
   if self:Class() == "WARRIOR" then cfg = WithoutShout(cfg) end
   if self:Class() == "SHAMAN" then cfg = WithoutTotems(cfg, self:Spec() == "Elemental" and ELE_OWN or nil) end
   if self:Class() == "ROGUE" then cfg = RogueOwn(cfg) end
+  if self:Class() == "PRIEST" then cfg = PriestOwn(cfg) end
   return cfg
 end
 
@@ -238,6 +260,7 @@ Runner.DEFAULT_TALENTS = {
   ["ROGUE:Subtlety"] = "0053201-023305000005015-0500001000301210500050",
   ["DRUID:Feral (Cat)"] = "-503032132322105301251-05503301",
   ["SHAMAN:Elemental"] = "55003105100213351051--05105301005",
+  ["PRIEST:Shadow"] = "500230013--503250510240103051451",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -467,7 +490,7 @@ function Runner:Scenario(set, settings, cons)
     metaActive = self:MetaActive(set),
     buffs = buffs, consumables = cons or buffs.consumables, professions = settings.professions or self:Professions(),
     duration = settings.duration or 180, seed = settings.seed or 101, mobType = settings.mobType or "Mechanical",
-    reactionTimeMs = ss.reactionTimeMs or 0, distance = ss.distance or 5,
+    reactionTimeMs = ss.reactionTimeMs or 0, distance = ss.distance or 5, channelClipDelayMs = ss.channelClipDelayMs or 0,
   }
 end
 
@@ -682,6 +705,10 @@ Runner.ABILITIES = {
   pet_fire_elemental_12470 = "Fire Elemental", pet_fire_elemental_13376 = "Fire Elemental",
   [25449] = "Lightning Bolt", ["25449:6"] = "Lightning Bolt", [25442] = "Chain Lightning", ["25442:6"] = "Chain Lightning",
   [37661] = "Lightning Capacitor",
+  -- Priests
+  [25387] = "Mind Flay", [25375] = "Mind Blast", [25372] = "Mind Blast", [25368] = "Shadow Word: Pain",
+  [34917] = "Vampiric Touch", [32996] = "Shadow Word: Death", [25446] = "Starshards", [25467] = "Devouring Plague",
+  pet_shadowfiend_melee = "Shadowfiend",
   -- Rogues
   [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
   [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",
@@ -797,6 +824,7 @@ Runner.WOWSIMS_SPEC = {
   Paladin = { class = "ClassPaladin", field = "retributionPaladin", options = { options = { classOptions = {} } } },
   Rogue = { class = "ClassRogue", field = "rogue", options = { options = { classOptions = {} } } },
   Druid = { class = "ClassDruid", field = "feralCatDruid", options = { options = { classOptions = {} } } },
+  Priest = { class = "ClassPriest", field = "dpsPriest", options = { options = { classOptions = { preShadowform = true } } } },
   Warrior = { class = "ClassWarrior", field = "dpsWarrior", options = { options = { classOptions = {
     queueDelay = 250, startingRage = 50, defaultShout = "WarriorShoutBattle", defaultStance = "WarriorStanceBerserker",
     hasBsT2 = true, stanceSnapshot = true } } } },
@@ -807,7 +835,11 @@ function Runner:WoWSimsSettings(set, settings)
   local sc = self:Scenario(set, settings)
   local ws = self.WOWSIMS_SPEC[sc.class] or self.WOWSIMS_SPEC.Paladin
   local ss = self.SPEC_SETTINGS[self:SpecKey()]
-  if ss and ss.field then ws = { class = ws.class, field = ss.field, options = { options = { classOptions = {} } } } end
+  if ss and ss.field then
+    local co = {}
+    for k, v in pairs(ss.wsOptions or {}) do co[k] = v end
+    ws = { class = ws and ws.class, field = ss.field, options = { options = { classOptions = co } } }
+  end
   local items = {}
   for sid = 1, 17 do
     local g = sc.gear[sid]
@@ -844,6 +876,7 @@ function Runner:WoWSimsSettings(set, settings)
     rotation = ns.Data and ns.Data.SimAPL and ns.Data.SimAPL[self:SpecKey()],
     reactionTimeMs = sc.reactionTimeMs or 0,
     distanceFromTarget = sc.distance or 5,
+    channelClipDelayMs = sc.channelClipDelayMs or 0,
   }
   player[ws.field] = ws.options
   local doc = {

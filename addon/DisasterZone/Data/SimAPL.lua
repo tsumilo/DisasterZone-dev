@@ -5765,6 +5765,861 @@ ns.Data.SimAPL = {
       },
     },
   },
+  ["PRIEST:Shadow"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 34917,
+            },
+          },
+        },
+        doAtValue = {
+          variableRef = {
+            name = "PrePull",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        hide = true,
+        action = {
+          schedule = {
+            schedule = "0s",
+            innerAction = {
+              castSpell = {
+                spellId = {
+                  spellId = 34433,
+                  rank = 1,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Short Fight",
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "OOM",
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 34433,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          autocastOtherCooldowns = {},
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Troll",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 20554,
+              tag = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Long Fight",
+                  },
+                },
+                {
+                  ["and"] = {
+                    vals = {
+                      {
+                        dotIsActive = {
+                          spellId = {
+                            spellId = 25368,
+                            rank = 10,
+                          },
+                        },
+                      },
+                      {
+                        cmp = {
+                          op = "OpGe",
+                          lhs = {
+                            dotRemainingTime = {
+                              spellId = {
+                                spellId = 25368,
+                                rank = 10,
+                              },
+                            },
+                          },
+                          rhs = {
+                            spellGcdHastedDuration = {
+                              spellId = {
+                                spellId = 34433,
+                                rank = 1,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  dotIsActive = {
+                    spellId = {
+                      spellId = 34917,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 34433,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Night Elf",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 25446,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["not"] = {
+              val = {
+                dotIsActive = {
+                  spellId = {
+                    spellId = 25368,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 25368,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLt",
+              lhs = {
+                dotRemainingTime = {
+                  spellId = {
+                    spellId = 34917,
+                  },
+                },
+              },
+              rhs = {
+                spellCastTime = {
+                  spellId = {
+                    spellId = 34917,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 34917,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  spellIsReady = {
+                    spellId = {
+                      spellId = 25372,
+                      rank = 10,
+                    },
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      spellIsKnown = {
+                        spellId = {
+                          spellId = 25467,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 14751,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 25375,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 32996,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  spellIsReady = {
+                    spellId = {
+                      spellId = 25467,
+                    },
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      spellIsReady = {
+                        spellId = {
+                          spellId = 25372,
+                          rank = 10,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 14751,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Undead",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 25467,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      dotRemainingTime = {
+                        spellId = {
+                          spellId = 25368,
+                          rank = 10,
+                        },
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "0.7s",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          channelSpell = {
+            spellId = {
+              spellId = 25387,
+              rank = 7,
+            },
+            interruptIf = {
+              variableRef = {
+                name = "Mind Flay Clip",
+              },
+            },
+          },
+        },
+      },
+    },
+    valueVariables = {
+      {
+        name = "Night Elf",
+        value = {
+          spellIsKnown = {
+            spellId = {
+              spellId = 25446,
+            },
+          },
+        },
+      },
+      {
+        name = "Undead",
+        value = {
+          spellIsKnown = {
+            spellId = {
+              spellId = 25467,
+            },
+          },
+        },
+      },
+      {
+        name = "Troll",
+        value = {
+          ["or"] = {
+            vals = {
+              {
+                spellIsKnown = {
+                  spellId = {
+                    spellId = 20554,
+                    tag = 1,
+                  },
+                },
+              },
+              {
+                spellIsKnown = {
+                  spellId = {
+                    spellId = 20554,
+                    tag = 2,
+                  },
+                },
+              },
+              {
+                spellIsKnown = {
+                  spellId = {
+                    spellId = 20554,
+                    tag = 3,
+                  },
+                },
+              },
+              {
+                spellIsKnown = {
+                  spellId = {
+                    spellId = 20554,
+                    tag = 4,
+                  },
+                },
+              },
+              {
+                spellIsKnown = {
+                  spellId = {
+                    spellId = 20554,
+                    tag = 5,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Short Fight",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    remainingTime = {},
+                  },
+                  rhs = {
+                    const = {
+                      val = "120s",
+                    },
+                  },
+                },
+              },
+              {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    currentTime = {},
+                  },
+                  rhs = {
+                    const = {
+                      val = "3s",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Long Fight",
+        value = {
+          ["or"] = {
+            vals = {
+              {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          currentTime = {},
+                        },
+                        rhs = {
+                          const = {
+                            val = "118s",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["or"] = {
+                        vals = {
+                          {
+                            ["and"] = {
+                              vals = {
+                                {
+                                  auraIsKnown = {
+                                    auraId = {
+                                      itemId = 22839,
+                                    },
+                                  },
+                                },
+                                {
+                                  ["or"] = {
+                                    vals = {
+                                      {
+                                        spellIsReady = {
+                                          spellId = {
+                                            itemId = 22839,
+                                          },
+                                        },
+                                      },
+                                      {
+                                        auraIsActive = {
+                                          auraId = {
+                                            itemId = 22839,
+                                          },
+                                          includeReactionTime = true,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            ["and"] = {
+                              vals = {
+                                {
+                                  ["not"] = {
+                                    val = {
+                                      auraIsKnown = {
+                                        auraId = {
+                                          itemId = 22839,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                                {
+                                  auraIsActive = {
+                                    auraId = {
+                                      spellId = 35476,
+                                      tag = -1,
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            ["and"] = {
+                              vals = {
+                                {
+                                  ["not"] = {
+                                    val = {
+                                      auraIsKnown = {
+                                        auraId = {
+                                          spellId = 35476,
+                                          tag = -1,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                                {
+                                  cmp = {
+                                    op = "OpGe",
+                                    lhs = {
+                                      currentTime = {},
+                                    },
+                                    rhs = {
+                                      const = {
+                                        val = "118s",
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                currentTime = {},
+                              },
+                              rhs = {
+                                const = {
+                                  val = "118s",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "OOM",
+        value = {
+          cmp = {
+            op = "OpLe",
+            lhs = {
+              currentManaPercent = {},
+            },
+            rhs = {
+              const = {
+                val = "5%",
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Mind Flay Clip",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                cmp = {
+                  op = "OpEq",
+                  lhs = {
+                    spellChanneledTicks = {
+                      spellId = {
+                        spellId = 25387,
+                      },
+                    },
+                  },
+                  rhs = {
+                    const = {
+                      val = "2",
+                    },
+                  },
+                },
+              },
+              {
+                ["or"] = {
+                  vals = {
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            spellCanCast = {
+                              spellId = {
+                                spellId = 25368,
+                                rank = 10,
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                currentMana = {},
+                              },
+                              rhs = {
+                                spellCurrentCost = {
+                                  spellId = {
+                                    spellId = 25368,
+                                    rank = 10,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            spellCanCast = {
+                              spellId = {
+                                spellId = 32996,
+                                rank = 2,
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                currentMana = {},
+                              },
+                              rhs = {
+                                spellCurrentCost = {
+                                  spellId = {
+                                    spellId = 32996,
+                                    rank = 2,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            spellCanCast = {
+                              spellId = {
+                                spellId = 25372,
+                                rank = 10,
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                currentMana = {},
+                              },
+                              rhs = {
+                                spellCurrentCost = {
+                                  spellId = {
+                                    spellId = 25372,
+                                    rank = 10,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            cmp = {
+                              op = "OpLe",
+                              lhs = {
+                                spellCastTime = {
+                                  spellId = {
+                                    spellId = 34917,
+                                    rank = 3,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                dotRemainingTime = {
+                                  spellId = {
+                                    spellId = 34917,
+                                    rank = 3,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                currentMana = {},
+                              },
+                              rhs = {
+                                spellCurrentCost = {
+                                  spellId = {
+                                    spellId = 34917,
+                                    rank = 3,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            cmp = {
+                              op = "OpLe",
+                              lhs = {
+                                spellTimeToReady = {
+                                  spellId = {
+                                    spellId = 25372,
+                                    rank = 10,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                math = {
+                                  op = "OpMul",
+                                  lhs = {
+                                    const = {
+                                      val = "3",
+                                    },
+                                  },
+                                  rhs = {
+                                    dotTickFrequency = {
+                                      spellId = {
+                                        spellId = 25387,
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                currentMana = {},
+                              },
+                              rhs = {
+                                spellCurrentCost = {
+                                  spellId = {
+                                    spellId = 25372,
+                                    rank = 10,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "VT Cast Time",
+        value = {
+          spellCastTime = {
+            spellId = {
+              spellId = 34917,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        name = "PrePull",
+        value = {
+          math = {
+            op = "OpSub",
+            lhs = {
+              const = {
+                val = "0s",
+              },
+            },
+            rhs = {
+              spellCastTime = {
+                spellId = {
+                  spellId = 34917,
+                  rank = 3,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   ["ROGUE:Combat"] = {
     type = "TypeAPL",
     prepullActions = {

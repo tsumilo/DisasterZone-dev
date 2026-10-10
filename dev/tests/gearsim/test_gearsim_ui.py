@@ -477,6 +477,46 @@ def elemental_shaman_sims():
     assert_no_lua_errors(w)
 
 
+# WoWSims' P1 Shadow Priest preset (ui/specs/priest/dps/gear_sets/p1.gear.json), no gems or enchants
+SPRIEST_P1 = [24266, 30666, 21869, 28570, 21871, 24250, 28507, 28799, 24262, 21870, 29352, 28793, 27683, 29370, 28770,
+              29272, 29350]
+
+
+@r.case
+def shadow_priest_sims():
+    w = new_world()
+    c = Client(w, "Flayer", class_file="PRIEST", race="Troll", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Shadow") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(SPRIEST_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 900 < res["work"] < 2400 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Mind Flay", "Mind Blast", "Shadow Word: Pain", "Vampiric Touch", "Shadow Word: Death"):
+        assert want in names, (want, names)
+    sc = c.eval_py("return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), { buffs = 'raid25', duration = 180 })")
+    assert sc["distance"] == 20 and sc["channelClipDelayMs"] == 100, (sc["distance"], sc["channelClipDelayMs"])
+    # his own Vampiric Touch: no other shadow priest's mana, whatever the setting
+    for key in ("raid25", "raid10"):
+        ind = c.eval_py("return ns.SimRunner:BuffConfig(...)", key).get("individual") or {}
+        assert not ind.get("shadowPriestDps"), (key, ind)
+    doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                          "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+    pl = doc["player"]
+    assert pl["class"] == "ClassPriest" and pl["dpsPriest"]["options"]["classOptions"]["preShadowform"] is True, pl.keys()
+    assert pl["channelClipDelayMs"] == 100 and pl["distanceFromTarget"] == 20
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()

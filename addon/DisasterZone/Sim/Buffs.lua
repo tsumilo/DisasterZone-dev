@@ -902,7 +902,8 @@ end
 function S.ApplyDebuffs(p, t, d)
   local tps = t.ps
   local SI = S.SCHOOL_INDEX
-  if d.misery then
+  -- a Shadow Priest with the talent keeps up his own Misery (Priest.lua)
+  if d.misery and not p.ownMisery then
     for _, s in ipairs({ SCHOOL.Arcane, SCHOOL.Fire, SCHOOL.Frost, SCHOOL.Holy, SCHOOL.Nature, SCHOOL.Shadow }) do
       tps.SchoolDamageTakenMultiplier[SI[s]] = tps.SchoolDamageTakenMultiplier[SI[s]] * 1.05
     end

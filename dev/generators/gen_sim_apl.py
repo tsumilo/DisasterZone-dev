@@ -18,6 +18,7 @@ APLS = {
     "WARRIOR:Arms": "ui/specs/warrior/dps/apls/arms.apl.json",
     "SHAMAN:Enhancement": "ui/specs/shaman/enhancement/apls/default.apl.json",
     "SHAMAN:Elemental": "ui/specs/shaman/elemental/apls/default.apl.json",
+    "PRIEST:Shadow": "ui/specs/priest/dps/apls/default.apl.json",
     # one Rogue list for every build: it checks which of Mutilate / Hemorrhage / Backstab the rogue has
     "ROGUE:Combat": "ui/specs/rogue/dps/apls/swords.apl.json",
     "ROGUE:Assassination": "ui/specs/rogue/dps/apls/swords.apl.json",

@@ -175,6 +175,7 @@ function S.PriestApplyTalents(p)
   end
   if T.Misery > 0 then
     -- kept up as long as the longest of the DoTs that refreshed it
+    p.ownMisery = true
     local misery = S.MiseryAura(target, T.Misery)
     p:MakeProcTriggerAura({ name = "Misery Trigger", classMask = M.ShadowWordPain + M.VampiricTouch + M.MindFlay,
       outcome = O.Landed, callback = "hit",
