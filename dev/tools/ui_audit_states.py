@@ -1114,6 +1114,7 @@ STATES = [
                                                 "  d.current.who[card[i]] = who[(n % #who) + 1] end "
                                                 "ns.GamesUI:Select('bingo')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
+    ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
     # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire
     # on two of your pieces and his line (the flat board: the audit has no 3D rooms); the guild ladder
     ("Games - Chess lobby", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = true ns.GamesUI:Select('chess') "
@@ -1128,7 +1129,6 @@ STATES = [
                                   "ns.GamesUI:Select('chess') ns.ChessUI:OpenGame(ns.Chess:Get('ov1'))")),
     ("Games - Chess ladder", opened("games", CHESS_GAMES + CHESS_LADDER + "ns.GamesUI:Select('chess') "
                                     "ns.ChessUI:OpenLobby() ns.ChessUI._Tab('ladder')")),
-    ("Games - Portal", opened("games", "ns.GamesUI:Select('portal')")),
     ("Games - Chess in front", opened("games", CHESS_GAMES + "ns.Chess:Prefs().flat = nil ns.GamesUI:ShowHub() "
                                       "ns.GamesUI:ShowFront('chess')")),
     # walking diagonally (down-left): the eighth facings
@@ -1143,6 +1143,7 @@ STATES = [
     # the Games hub's carousel with each game in front; Bingo live (a game running: a line one square away, the
     # square that just filled glowing)
     ("Games - Raid Trainer in front", opened("games", "ns.GamesUI:ShowFront('trainer')")),
+    ("Games - Azeromon in front", opened("games", "ns.GamesUI:ShowFront('azeromon')")),
     # its poster's film of Northshire, a moment into each shot (the audit ticks 0.6 s more after the state)
     ("Games - Bingo live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
                                            "d.current = { id = 'hubdemo', host = me, started = now, hits = {} } "

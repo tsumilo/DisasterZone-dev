@@ -294,12 +294,12 @@ def new_and_deleted_files():
               + order + "'A:' .. tostring(name) .. ':' .. tostring(ns.Util ~= nil) .. ':' .. tostring(ns.Dungeon ~= nil)\n")
         toc_add(root, "Core/TestNewA.lua", "Core/Util.lua")           # runs right before Core/Sha256.lua
         write(root, "Core/TestNewB.lua", guard("Core/TestNewB.lua") + "-- test\nlocal name, ns = ...\n"
-              + order + "'B:' .. tostring(ns.ChessUI ~= nil)\n")
+              + order + "'B:' .. tostring(ns.AzeroUI ~= nil)\n")
         toc_add(root, "Core/TestNewB.lua", "UI/PatchUI.lua")
         # after every other patchable file: only the end marker can run it
         write(root, "Core/TestNewZ.lua", guard("Core/TestNewZ.lua") + "-- test\nlocal name, ns = ...\n"
-              + order + "'Z:' .. tostring(ns.ChessUI ~= nil)\n")
-        toc_add(root, "Core/TestNewZ.lua", "Games/Chess/UI.lua")
+              + order + "'Z:' .. tostring(ns.AzeroUI ~= nil)\n")
+        toc_add(root, "Core/TestNewZ.lua", "Games/Azeromon/UI.lua")
     base_dir, record, new_dir = simple_pair(base_mods=base_mods, new_mods=new_mods)
     bundle = make(record, new_dir)
     kinds = {i["path"]: (i["kind"], i.get("before")) for i in bundle["items"]}

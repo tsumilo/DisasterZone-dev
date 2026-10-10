@@ -99,8 +99,8 @@ function T.WalkableFn(grid)
     end
 end
 
--- The encounters of one game: the Raid Trainer's (game = nil) or another game's that shares this engine (the Portal
--- crawler's dungeons register with game = "portal", Games/Portal/).
+-- The encounters of one game: the Raid Trainer's (game = nil) or another game's that shares this engine (one that
+-- registers its encounters with game = "<its id>").
 function T:GetEncounters(game)
     local out = {}
     for i = 1, #encList do

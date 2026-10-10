@@ -1,0 +1,156 @@
+[
+ {
+  "state": "Raids - Teams",
+  "findings": [],
+  "texts": 33,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - overview",
+  "findings": [],
+  "texts": 48,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - overview comp",
+  "findings": [],
+  "texts": 52,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - overview (member)",
+  "findings": [],
+  "texts": 48,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - overview new team",
+  "findings": [],
+  "texts": 38,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams (member)",
+  "findings": [],
+  "texts": 57,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - organizer",
+  "findings": [],
+  "texts": 70,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - organizer dirty",
+  "findings": [],
+  "texts": 73,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - add members",
+  "findings": [],
+  "texts": 136,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - 10-man",
+  "findings": [],
+  "texts": 44,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - new team",
+  "findings": [],
+  "texts": 36,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - no teams (organizer)",
+  "findings": [],
+  "texts": 19,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - no teams (member)",
+  "findings": [],
+  "texts": 17,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - member, not on the team",
+  "findings": [],
+  "texts": 36,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - comp card (member)",
+  "findings": [],
+  "texts": 58,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - comp groups",
+  "findings": [],
+  "texts": 70,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - comp",
+  "findings": [],
+  "texts": 67,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - comp steppers",
+  "findings": [],
+  "texts": 81,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - comp empty",
+  "findings": [],
+  "texts": 29,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - comp (member)",
+  "findings": [],
+  "texts": 61,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - lineup Kara A",
+  "findings": [],
+  "texts": 76,
+  "unresolved": 0,
+  "unresolved_src": []
+ },
+ {
+  "state": "Raids - Teams - waitlist (not on the roster)",
+  "findings": [],
+  "texts": 58,
+  "unresolved": 0,
+  "unresolved_src": []
+ }
+]

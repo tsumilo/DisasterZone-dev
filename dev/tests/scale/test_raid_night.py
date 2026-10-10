@@ -2,6 +2,7 @@
 
   professions      60 members scan two professions each, a relog wave in sync, one fresh install catching up
   stale wave       an officer changes a strategy and a raid while 55 members are offline; they log in within a minute
+  azeromon         15 members walk around in Azeromon for a minute while 45 others (one in combat) only listen
   patch            an in-game update published to 60 members (run with: -k patch)
 
 Every case prints its numbers (messages, bytes, server-throttled sends, time to convergence) and asserts only the
@@ -25,6 +26,7 @@ from _common import case, run_all, World, Client, gm_pick  # noqa: E402
 from mb_common import set_skills, open_tradeskill, K  # noqa: E402
 from st_common import save_council  # noqa: E402
 from rp_common import create, set_raid_leaders, now, DAY  # noqa: E402
+from _azero_bot import BOT  # noqa: E402
 
 N = int(os.environ.get("DZ_SCALE_N", "60"))
 CLASSES = ["PALADIN", "WARRIOR", "DRUID", "HUNTER", "ROGUE", "PRIEST", "MAGE", "WARLOCK", "SHAMAN"]
@@ -299,6 +301,74 @@ def stale_strategy_login_wave():
              "NEVER" if took is None else "%.0f" % took, last - logged_in, digests, len(away), throttles(everyone), wall()))
     w.assert_no_errors()
     assert took is not None, "plans did not converge"
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Azeromon presence
+# ----------------------------------------------------------------------------------------------------------------
+def open_game(c, w, x, y):
+    c.eval(BOT)
+    c.eval("T_AZ.seed(5)")
+    c.slash("/dz play azeromon")
+    w.tick(0.3)
+    c.eval("ns.AzeroUI._HandleKey('A')")
+    for _ in range(40):
+        w.tick(0.3)
+        c.eval("ns.AzeroUI._HandleKey('A')")
+        if not c.eval("return ns.Azero.pending ~= nil"):
+            break
+    c.eval("ns.Azero:EnterMap('town', %d, %d, 'down', true)" % (x, y))
+
+
+DECODE_COST = r"""
+local n = ...
+local LD, LS = LibStub("LibDeflate"), LibStub("LibSerialize")
+local msg = { t = "AZP", v = 1, m = "town", x = 12, y = 9, f = "down", p = "RRRD", c = "PALADIN" }
+local wire = LD:EncodeForWoWAddonChannel(LD:CompressDeflate(LS:Serialize(msg)))
+for _ = 1, n do
+  local inf = LD:DecompressDeflate(LD:DecodeForWoWAddonChannel(wire))
+  LS:Deserialize(inf)
+end
+return { bytes = #wire }
+"""
+
+
+@case
+def azeromon_walkers_at_guild_size():
+    w, gm, officers, everyone = guild()
+    wall = stopwatch()
+    login_wave(w, everyone, spread=10.0)
+    quiet(w)
+    walkers = everyone[5:20]
+    for i, c in enumerate(walkers):
+        open_game(c, w, 6 + i % 8, 8 + i // 8)
+    listener = everyone[-1]
+    listener.set_combat(True)   # a raider in a boss fight still receives (and decodes) everything
+    w.tick(5)
+    recv0 = listener.eval("return ns.Comm.stats.recv")
+    mark, start, thr0 = len(w.addon_log), w.now, throttles(walkers)
+    for i in range(240):        # one minute, a step every 0.25 s
+        for k, c in enumerate(walkers):
+            c.eval("T_AZ.step(%r)" % ("right" if ((i + k) // 4) % 2 == 0 else "left"))
+        w.tick(0.25, 0.25)
+    span = w.now - start
+    # a walker also opens the guild board: the question and 59 possible answers share the game prefix
+    q_mark = len(w.addon_log)
+    walkers[0].eval("ns.AzeroGuild:Query()")
+    w.tick(10)
+    s = stats(w, mark, ("CDLg",))
+    recv = listener.eval("return ns.Comm.stats.recv") - recv0
+    t0 = time.time()
+    cost = listener.eval_py(DECODE_COST, 2000)
+    cost["ms"] = (time.time() - t0) * 1000 / 2000
+    answers = [e for e in w.addon_log[q_mark:] if e["prefix"] == "CDLg"]
+    note("%d walkers for %.0f s: %s" % (len(walkers), span, fmt(s)))
+    note("  %.1f game messages per second on the guild channel; a member who never opened the game (in combat) decoded "
+         "%d of them = %.1f per second; one decode costs %.3f ms in this Lua (%d bytes on the wire) = %.2f ms per second; "
+         "server-throttled sends of the walkers %d; guild board question + answers: %d messages in 10 s; %.0f s wall" % (
+             s["wire"] / span, recv, recv / (span + 10), cost["ms"], cost["bytes"], cost["ms"] * recv / (span + 10),
+             throttles(walkers) - thr0, len(answers), wall()))
+    w.assert_no_errors()
 
 
 # ----------------------------------------------------------------------------------------------------------------

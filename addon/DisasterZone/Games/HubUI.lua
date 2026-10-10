@@ -1,7 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Games/HubUI.lua", ...) then return end -- DisasterZone Games/HubUI.lua
 -- ns.GamesUI: the "Games" tab. A spotlight carousel: one game's poster in front, its neighbours dimmed at the sides
 -- (arrows, mouse wheel, the dots or a click on a side poster turn it). A poster is the game's cover, alive while the
--- tab is open (your Bingo card filling in, the Trainer's bosses and best times, the chess board),
+-- tab is open (your Bingo card filling in, the Trainer's bosses and best times, a walk through Azeromon's Elwynn),
 -- then its name, one line, one stat of yours and who plays it now. Clicking the front poster grows it into the game:
 -- a slim strip on top ("< GAMES", the game, who plays, share) and the game's panel under it.
 -- While a Bingo game runs the carousel opens on Bingo (LIVE); otherwise on the game you opened last.
@@ -27,7 +27,7 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
-    bingo = { 1, 0.82, 0 }, trainer = { 0.31, 0.83, 0.88 }, portal = { 0.45, 1, 0.45 },
+    bingo = { 1, 0.82, 0 }, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
     chess = { 0.74, 0.58, 1 },
 }
 local DEFAULT_ACCENT = { 1, 0.82, 0 }
@@ -247,6 +247,33 @@ INFO.trainer = function()
     return out
 end
 
+-- Azeromon: badges and tamed beasts from the save; who is out walking Elwynn now.
+INFO.azeromon = function()
+    local out = { kicker = "ADVENTURE" }
+    local s = Saved("azeromon").save
+    local D = ns.AzeroData
+    if type(s) == "table" and D and type(D.badges) == "table" then
+        local badges, total, tamed = 0, 0, 0
+        for id in pairs(D.badges) do
+            total = total + 1
+            if type(s.flags) == "table" and s.flags["badge_" .. id] then badges = badges + 1 end
+        end
+        for _ in pairs(type(s.caught) == "table" and s.caught or {}) do tamed = tamed + 1 end
+        out.stat = string.format("Badges |cffffffff%d of %d|r  \194\183  |cffffffff%d|r tamed", badges, total, tamed)
+    else
+        out.stat = "|cff8a8a8aNot started yet|r"
+    end
+    local Net = ns.AzeroNet
+    local keys = Net and Net.PlayingKeys and Net:PlayingKeys() or {}
+    local n = Net and Net.PlayingNow and Net:PlayingNow() or #keys
+    if n > 0 then
+        out.faces = keys
+        out.foot = string.format("%d playing now", n)
+    end
+    return out
+end
+
+-- Karazhan Chess: games waiting for your move, else your guild rating or your record against Medivh.
 INFO.chess = function()
     local out = { kicker = "THE GAMESMAN'S HALL", art = "kara" }
     local C = ns.Chess
@@ -734,6 +761,115 @@ COVERS.trainer = function(parent)
 end
 
 
+-- Azeromon: a little Elwynn of the game's own tiles (a house, its path, tall grass, trees) with the hero walking
+-- down the path and back. Drawn into the poster's art box (clipped there).
+-- (the meadow is wider than any poster: the front one grows to the whole tab when its game opens, and the scene
+-- must still reach both edges; the house and its path sit in the middle at column SCENE_OX + 6)
+local SCENE_C, SCENE_R, SCENE_OX, TILE = 32, 16, 9, 32
+local function SceneTiles()
+    local t = {}
+    local function put(name, x, y) t[#t + 1] = { name, x, y } end
+    for y = 0, SCENE_R - 1 do
+        for x = 0, SCENE_C - 1 do put(((x * 7 + y * 3) % 5 == 0) and "grass2" or "grass1", x, y) end
+    end
+    local function big(prefix, x, y, w, h)
+        for j = 0, h - 1 do for i = 0, w - 1 do put(prefix .. "_" .. i .. "_" .. j, x + i, y + j) end end
+    end
+    local function tall(x0, y0, w, h)
+        for y = y0, y0 + h - 1 do
+            for x = x0, x0 + w - 1 do
+                local e = (y == y0 and "t" or y == y0 + h - 1 and "b" or "") .. (x == x0 and "l" or x == x0 + w - 1 and "r" or "")
+                put(e == "" and "tall_c" or ("tall_" .. e), x, y)
+            end
+        end
+    end
+    -- the middle: the house, its path, the tall grass, trees and flowers round it
+    local X = SCENE_OX
+    for y = 7, SCENE_R - 1 do put("path_l", X + 5, y) put("path_c", X + 6, y) put("path_r", X + 7, y) end
+    big("house", X + 4, 1, 5, 6)
+    big("bigtree", X + 0, 2, 3, 3)
+    big("bigtree", X + 10, 0, 3, 3)
+    for _, p in ipairs({ { 9, 4 }, { 12, 4 }, { 1, 6 }, { 0, 9 }, { 12, 13 }, { 1, 14 } }) do put("tree", X + p[1], p[2]) end
+    put("pine", X + 13, 6) put("pine", X + 2, 0) put("oak", X + 3, 11)
+    tall(X + 9, 9, 4, 4)
+    for _, p in ipairs({ { 3, 8 }, { 2, 12 }, { 8, 8 }, { 4, 14 }, { 9, 14 }, { 13, 10 } }) do put("flowers", X + p[1], p[2]) end
+    put("sign", X + 8, 7)
+    -- the meadow beyond, left and right
+    big("bigtree", 1, 1, 3, 3)
+    big("bigtree", 25, 8, 3, 3)
+    big("bigtree", 28, 0, 3, 3)
+    tall(1, 9, 4, 3)
+    tall(24, 3, 3, 3)
+    for _, p in ipairs({ { 6, 3 }, { 7, 7 }, { 0, 6 }, { 5, 13 }, { 2, 14 }, { 7, 11 }, { 23, 0 }, { 30, 5 },
+                         { 23, 8 }, { 29, 12 }, { 24, 14 }, { 31, 9 } }) do put("tree", p[1], p[2]) end
+    for _, p in ipairs({ { 5, 0 }, { 8, 12 }, { 22, 11 }, { 31, 14 }, { 27, 4 } }) do put("pine", p[1], p[2]) end
+    for _, p in ipairs({ { 4, 5 }, { 0, 12 }, { 6, 9 }, { 3, 15 }, { 26, 13 }, { 28, 6 }, { 22, 3 }, { 30, 11 },
+                         { 24, 11 } }) do put("flowers", p[1], p[2]) end
+    put("rock", 8, 4) put("rock", 27, 15) put("oak", 31, 3)
+    return t
+end
+
+local function PixelTexture(t, file)
+    if not pcall(t.SetTexture, t, file, nil, nil, "NEAREST") then t:SetTexture(file) end
+    if t.SetSnapToPixelGrid then pcall(t.SetSnapToPixelGrid, t, false) end
+    if t.SetTexelSnappingBias then pcall(t.SetTexelSnappingBias, t, 0) end
+end
+
+COVERS.azeromon = function(parent, poster)
+    local A = ns.AzeroAtlas
+    local c = CreateFrame("Frame", nil, poster.artFrame)
+    c:SetAllPoints(poster.artFrame)
+    if not A then return c end
+    local AH = ns.AzeroAtlasHeight or 256
+    local E = 0.02 / 256
+    c.world = CreateFrame("Frame", nil, c)
+    c.world:SetSize(SCENE_C * TILE, SCENE_R * TILE)
+    for _, tl in ipairs(SceneTiles()) do
+        local i = A[tl[1]]
+        if i then
+            local t = c.world:CreateTexture(nil, "ARTWORK", nil, tl[1]:find("^grass") and -1 or (tl[1]:find("^path") and 0 or 1))
+            PixelTexture(t, MEDIA .. "Azeromon\\atlas")
+            local col, row = i % 16, floor(i / 16)
+            t:SetTexCoord(col * 16 / 256 + E, (col + 1) * 16 / 256 - E, row * 16 / AH + E, (row + 1) * 16 / AH - E)
+            t:SetSize(TILE, TILE)
+            t:SetPoint("TOPLEFT", tl[2] * TILE, -tl[3] * TILE)
+        end
+    end
+    c.hero = c.world:CreateTexture(nil, "ARTWORK", nil, 3)
+    PixelTexture(c.hero, MEDIA .. "Azeromon\\chars")
+    c.hero:SetSize(TILE, TILE)
+    c.y, c.dir, c.pause, c.clock = 7.4, 1, 1.2, 0
+    local function frame(face, f)
+        local col, row = 3 + f, (face == "up") and 3 or 0
+        c.hero:SetTexCoord(col * 16 / 256 + E, (col + 1) * 16 / 256 - E, row * 16 / 128 + E, (row + 1) * 16 / 128 - E)
+    end
+    function c:Layout(w, h)
+        self.world:ClearAllPoints()
+        -- the house and the path in the middle of the art, the roof just under the kicker
+        self.world:SetPoint("TOPLEFT", self, "TOP", -(SCENE_OX + 6.5) * TILE, 0.4 * TILE)
+    end
+    function c:Refresh() end
+    function c:Tick(elapsed)
+        self.clock = self.clock + elapsed
+        if self.pause > 0 then
+            self.pause = self.pause - elapsed
+            frame(self.dir > 0 and "down" or "up", 1)
+        else
+            self.y = self.y + self.dir * elapsed * 2.2
+            if self.y >= 10.2 or self.y <= 7.2 then
+                self.y = max(7.2, min(10.2, self.y))
+                self.dir, self.pause = -self.dir, 1.6
+            end
+            local steps = { 0, 1, 2, 1 }
+            frame(self.dir > 0 and "down" or "up", steps[floor(self.clock * 7) % 4 + 1])
+        end
+        self.hero:ClearAllPoints()
+        self.hero:SetPoint("TOPLEFT", self.world, "TOPLEFT", (SCENE_OX + 6) * TILE, -floor(self.y * TILE + 0.5))
+    end
+    frame("down", 1)
+    return c
+end
+
 ---------------------------------------------------------------------------
 -- A poster
 ---------------------------------------------------------------------------
@@ -1079,12 +1215,14 @@ local function FillPoster(p)
     SetFaces(p, info.faces)
     p.hasFoot = (info.foot or "") ~= ""
     SetSideLook(p, p.side or false)
-    do
+    if p.id ~= "azeromon" then
         local key = info.art or "kara"
         p.art:SetTexture(LOADSCREEN[key] or LOADSCREEN.kara)
         p.art:SetVertexColor(0.78, 0.78, 0.8)
         p.artKey = key
         p.art:Show()
+    else
+        p.art:Hide()
     end
     if p.cover.Refresh then xpcall(function() p.cover:Refresh() end, geterrorhandler()) end
     PaintEdge(p)
@@ -1139,15 +1277,36 @@ local function SetAura(id, instant)
     end
 end
 
-local function PaintDots()
+-- The dots under the carousel: the front game's is a pill in its colour, the others small grey dots. A turn
+-- animates them with the posters: the old pill shrinks and greys while the new one stretches and takes its colour
+-- (d.k: 0 a dot .. 1 the pill, eased; d.target where it goes); a hovered dot brightens.
+local function DrawDot(d)
+    local k = d.k or 0
+    local e = k * k * (3 - 2 * k)                               -- (smoothstep: starts and lands softly)
+    local a = d.accent or DEFAULT_ACCENT
+    d.tex:SetWidth(6 + 14 * e)
+    local g = d.hover and 0.5 or 0.24
+    local r, gr, b, al = Lerp(1, a[1], e), Lerp(1, a[2], e), Lerp(1, a[3], e), Lerp(g, 1, e)
+    for _, t in ipairs({ d.capL, d.capR, d.mid }) do t:SetVertexColor(r, gr, b, al) end
+end
+
+-- instant: no animation (the carousel laid out from scratch)
+local function PaintDots(instant)
     for i, d in ipairs(dots) do
-        local on = i == cur
-        local a = Accent(posters[i] and posters[i].id)
-        d.tex:SetWidth(on and 20 or 6)
-        d.mid:SetShown(on)
-        d.capR:SetShown(on)
-        for _, t in ipairs({ d.capL, d.capR, d.mid }) do
-            if on then t:SetVertexColor(a[1], a[2], a[3], 1) else t:SetVertexColor(1, 1, 1, 0.24) end
+        d.target = (i == cur) and 1 or 0
+        d.accent = Accent(posters[i] and posters[i].id)
+        if instant or d.k == nil then d.k = d.target end
+        DrawDot(d)
+    end
+end
+
+-- One frame of the dots' animation (they move at the posters' pace).
+local function StepDots(elapsed)
+    for _, d in ipairs(dots) do
+        if d.k and d.target and d.k ~= d.target then
+            local step = elapsed / TURN_TIME
+            d.k = (d.target > d.k) and min(d.target, d.k + step) or max(d.target, d.k - step)
+            DrawDot(d)
         end
     end
 end
@@ -1187,7 +1346,7 @@ local function LayoutCarousel()
     local show = #posters > 1
     arrows[1]:SetShown(show)
     arrows[2]:SetShown(show)
-    PaintDots()
+    PaintDots(true)
 end
 
 -- Turns the carousel so poster i is in front (animated).
@@ -1487,6 +1646,7 @@ local function OnUpdate(_, elapsed, stepping)
         end
     end
     if not carousel:IsShown() then return end
+    StepDots(elapsed)
     for _, tex in ipairs({ auraFrom, auraTo }) do
         local a = tex:GetAlpha()
         local d = (tex.target or 0) - a
@@ -1562,6 +1722,8 @@ local function BuildPosters()
             d.mid:SetPoint("TOPLEFT", 3, 0)
             d.mid:SetPoint("BOTTOMRIGHT", -3, 0)
             d:SetScript("OnClick", function(self) if not anim then Turn(self.index) end end)
+            d:SetScript("OnEnter", function(self) self.hover = true DrawDot(self) end)
+            d:SetScript("OnLeave", function(self) self.hover = nil DrawDot(self) end)
             dots[i] = d
         end
         d.index = i
@@ -1787,6 +1949,17 @@ function GamesUI:StepAnim(sec)
     for _ = 1, math.ceil((sec or 0) / 0.01) do OnUpdate(nil, 0.01, true) end
 end
 GamesUI.__posters = posters
+-- The dots' widths and colours (tests): { width, r, g, b, a } per dot
+function GamesUI.__dots()
+    local out = {}
+    for i, d in ipairs(dots or {}) do
+        if d:IsShown() then
+            local r, g, b, a = d.mid:GetVertexColor()
+            out[i] = { d.tex:GetWidth(), r, g, b, a }
+        end
+    end
+    return out
+end
 
 function GamesUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then

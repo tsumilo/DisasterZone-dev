@@ -4,7 +4,7 @@ Covers: the tab opens on a carousel of every game (nothing selected, share ref "
 and a click on a side poster turn it (animated, wrapping round); a click on the front poster grows it into the
 game (strip + panel, share ref "game:<id>") and "< GAMES" goes back; links / Select open a game at once; the front
 poster on opening is Bingo while a game runs (LIVE, "n square from a line"), else the game opened last; each
-poster's stat comes from the game's saved data (Trainer best times + clears/tries, the Portal,
+poster's stat comes from the game's saved data (Trainer best times + clears/tries, Azeromon badges / tamed,
 Bingo season); covers never raise Lua errors while they animate.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_hub.py [-k name]
@@ -45,9 +45,9 @@ def tab_opens_on_the_carousel_and_turns_every_way():
     c.world = w
     hub(c)
     assert c.eval("return ns.GamesUI:GetSelected()") is None
-    assert c.eval("return #%s" % POSTERS) == 4        # (Bingo, Trainer, Chess, the Portal)
+    assert c.eval("return #%s" % POSTERS) == 4
     order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
-    assert order == ["bingo", "trainer", "chess", "portal"], order
+    assert order == ["bingo", "trainer", "azeromon", "chess"], order
     n = len(order)
     start = front(c)
     i0 = order.index(start)
@@ -115,7 +115,7 @@ def the_open_and_the_way_back_are_one_crossfade():
     w, c = solo()
     c.world = w
     hub(c)
-    c.eval("ns.GamesUI:ShowFront('portal') ns.GamesUI:PauseAnim(true)")
+    c.eval("ns.GamesUI:ShowFront('azeromon') ns.GamesUI:PauseAnim(true)")
     c.eval("for _, p in ipairs(%s) do if p.off == 0 then p:Click() end end" % POSTERS)
     c.eval("ns.GamesUI:StepAnim(0.2)")
     car, strip, stage = c.eval_py(ALPHAS)[0:3]
@@ -126,7 +126,7 @@ def the_open_and_the_way_back_are_one_crossfade():
     car, strip, stage = c.eval_py(ALPHAS)[0:3]
     assert 0 < strip < 1 and abs(car + strip - 1) < 0.01, (car, strip)
     c.eval("ns.GamesUI:StepAnim(0.3)")
-    assert c.eval("return ns.GamesUI:GetSelected()") == "portal"
+    assert c.eval("return ns.GamesUI:GetSelected()") == "azeromon"
     assert c.eval("return ns.GamesUI:IsAnimating()") is False
     # back: the game fades while the poster comes back; nothing selected from the first frame
     c.eval("local function find(fr) for _, ch in ipairs({ fr:GetChildren() }) do "
@@ -140,7 +140,7 @@ def the_open_and_the_way_back_are_one_crossfade():
     c.eval("ns.GamesUI:StepAnim(0.5)")
     car, strip = c.eval_py(ALPHAS)[0:2]
     assert car == 1 and strip == -1, (car, strip)                   # (the strip is hidden again)
-    assert front(c) == "portal"
+    assert front(c) == "azeromon"
     assert c.eval("for _, p in ipairs(%s) do if p.off == 0 then return p.over:GetAlpha() end end" % POSTERS) == 1
     c.eval("ns.GamesUI:PauseAnim(false)")
     no_errors(w)
@@ -150,16 +150,16 @@ def the_open_and_the_way_back_are_one_crossfade():
 def links_open_a_game_at_once_and_it_comes_first_next_time():
     w, c = solo()
     c.world = w
-    c.eval("ns.Games:Open('portal')")
+    c.eval("ns.Games:Open('azeromon')")
     w.tick(0.2)
-    assert c.eval("return ns.GamesUI:GetSelected()") == "portal"
+    assert c.eval("return ns.GamesUI:GetSelected()") == "azeromon"
     assert c.eval("return ns.GamesUI:IsAnimating()") is False
     c.eval("ns.GamesUI:ShowHub()")
     assert c.eval("return ns.GamesUI:GetSelected()") is None
     c.eval("ns.MainFrame:Open('home')")
     w.tick(0.2)
     hub(c)
-    assert front(c) == "portal"
+    assert front(c) == "azeromon"
     no_errors(w)
 
 
@@ -168,7 +168,7 @@ def a_running_bingo_game_comes_first_and_says_how_close_you_are():
     w, c = solo()
     c.world = w
     hub(c)
-    c.eval("ns.GamesUI:ShowFront('portal')")
+    c.eval("ns.GamesUI:ShowFront('azeromon')")
     c.eval("local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
            "d.current = { id = 'hubtest', host = me, started = now, hits = {} } "
            "local card = ns.Bingo:GetMyCard() "
@@ -199,6 +199,9 @@ def poster_stats_come_from_each_games_saved_data():
     c.eval("local d = ns.Games:GetData('trainer') "
            "d.enc = { vashj = { looter = { tries = 3, clears = 1, bestTime = 271.4 } }, "
            "          teron = { quick = { tries = 2, clears = 0 } } } d.last = 'vashj'")
+    c.eval("local s = { flags = {}, caught = { a = true, b = true }, seen = {} } "
+           "local n = 0 for id in pairs(ns.AzeroData.badges) do n = n + 1 if n <= 2 then s.flags['badge_' .. id] = true end end "
+           "ns.Games:GetData('azeromon').save = s")
     hub(c)
     assert strip_codes(poster(c, "trainer", "stat")) == "1 clear  ·  5 tries"
     chips = c.eval_py("for _, p in ipairs(%s) do if p.id == 'trainer' then local o = {} "
@@ -206,6 +209,8 @@ def poster_stats_come_from_each_games_saved_data():
                       "return o end end" % POSTERS)
     assert [ch[0] for ch in chips] == ["Lady Vashj", "Teron Gorefiend"], chips
     assert chips[0][1] == "4:31" and strip_codes(chips[1][1]) == "not cleared", chips
+    total = c.eval("local n = 0 for _ in pairs(ns.AzeroData.badges) do n = n + 1 end return n")
+    assert strip_codes(poster(c, "azeromon", "stat")) == "Badges 2 of %d  ·  2 tamed" % total
     no_errors(w)
 
 
@@ -225,6 +230,30 @@ def hiding_the_tab_mid_turn_or_mid_open_leaves_a_clean_state():
     w.tick(0.3)
     assert c.eval("return ns.GamesUI:IsAnimating()") is False
     assert c.eval("return ns.GamesUI:GetSelected()") is not None   # (the open finished: the game is open)
+    no_errors(w)
+
+
+@case
+def the_dots_stretch_and_take_the_colour_with_the_turn():
+    """The front game's dot is a pill in its colour; a turn shrinks and greys the old one while the new one stretches
+    and takes its colour, at the posters' pace (half-way: both between a dot and a pill)."""
+    w, c = solo()
+    c.world = w
+    hub(c)
+    order = c.eval_py("local o = {} for i, p in ipairs(%s) do o[i] = p.id end return o" % POSTERS)
+    i0 = order.index(front(c))
+    d = c.eval_py("return ns.GamesUI.__dots()")
+    assert d[i0][0] == 20 and all(x[0] == 6 for k, x in enumerate(d) if k != i0), d
+    assert abs(d[i0][4] - 1) < 1e-6 and all(abs(x[4] - 0.24) < 1e-6 for k, x in enumerate(d) if k != i0), d
+    i1 = (i0 + 1) % len(order)
+    c.eval("ns.GamesUI:PauseAnim(true) ns.GamesUI:Turn(%d) ns.GamesUI:StepAnim(0.16)" % (i1 + 1))
+    d = c.eval_py("return ns.GamesUI.__dots()")
+    assert 6 < d[i0][0] < 20 and 6 < d[i1][0] < 20, d                    # both on their way
+    assert 0.24 < d[i1][4] < 1 and 0.24 < d[i0][4] < 1, d
+    c.eval("ns.GamesUI:StepAnim(0.3) ns.GamesUI:PauseAnim(false)")
+    d = c.eval_py("return ns.GamesUI.__dots()")
+    assert d[i1][0] == 20 and d[i0][0] == 6, d
+    assert abs(d[i1][4] - 1) < 1e-6 and abs(d[i0][4] - 0.24) < 1e-6, d
     no_errors(w)
 
 

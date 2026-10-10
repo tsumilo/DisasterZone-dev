@@ -2432,7 +2432,7 @@ def run_suites(baseline=None):
     py = sys.executable
     rows = []
     tests = list(SUITES) + sorted("tests/games/" + f for f in os.listdir(os.path.join(DEV, "tests", "games"))
-                                  if f.startswith("test_craft") and f.endswith(".py"))
+                                  if f.startswith("test_azeromon") and f.endswith(".py"))
     for t in tests:
         t0 = time.perf_counter()
         try:

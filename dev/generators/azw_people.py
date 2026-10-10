@@ -23,10 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DB2 = os.path.join(HERE, "..", "art", "tbcdb", "db2")
 ELEV = 26
 SIZE = 32
-FACING = {"up": 0.0, "down": math.pi, "left": math.pi / 2, "right": -math.pi / 2,
-          "downleft": 3 * math.pi / 4, "downright": -3 * math.pi / 4, "upleft": math.pi / 4, "upright": -math.pi / 4}
-# the sheets' facing rows, in order (the first four as before the diagonals came)
-FACES = ("down", "left", "right", "up", "downleft", "downright", "upleft", "upright")
+FACING = {"up": 0.0, "down": math.pi, "left": math.pi / 2, "right": -math.pi / 2}
 
 _T = {}
 
@@ -138,11 +135,6 @@ def character_mesh(display_id):
 
 def fit(img, origin, size=SIZE):
     """A rendered sprite into a size x size cell, standing on its bottom row, centred on its origin."""
-    return fit_at(img, origin, size)[0]
-
-
-def fit_at(img, origin, size=SIZE):
-    """fit(), and where the model's origin landed in the cell (x, y px) - for points of the model (the hands)."""
     img, origin = RD.trim(img, origin)
     h, w = img.shape[:2]
     out = np.zeros((size, size, 4), np.uint8)
@@ -155,42 +147,7 @@ def fit_at(img, origin, size=SIZE):
                 tx = x0 + xx
                 if 0 <= tx < size and img[yy, xx, 3]:
                     out[ty, tx] = img[yy, xx]
-    return out, (x0 + origin[0], y0 + origin[1])
-
-
-# ---------------------------------------------------------------------------------------------------------------
-# Hands: where a body's spell hands are in its cells (Disastercraft draws the cast glow there, behind the body when
-# the hand is on its far side). Attachment 21 / 22 (SpellLeftHand / SpellRightHand), else 2 / 1 (HandLeft / Right).
-# ---------------------------------------------------------------------------------------------------------------
-HAND_ATTS = ((21, 2), (22, 1))          # left, right
-HAND_COLS = ("stand", "ready", "release")
-
-
-def hand_points(data, seq, t, scale=1.0):
-    """[(x, y, z) model frame] of the left and right spell hands in this pose (None where the model has none)."""
-    mats = RD.bone_mats(data, seq, t)
-    out = []
-    for ids in HAND_ATTS:
-        p = None
-        for a in ids:
-            got = RD.attachment(data, a)
-            if got and got[0] < len(mats):
-                v = RD.apply_mat(mats[got[0]], np.array([got[1]], np.float32))[0] * scale
-                p = (float(v[0]), float(v[1]), float(v[2]))
-                break
-        out.append(p)
     return out
-
-
-def project_hand(p, yaw, ppy, ocell):
-    """A model-frame point -> (cell x, cell y, behind the body?) for a sprite fitted with its origin at ocell."""
-    if p is None or ocell is None:
-        return None
-    c, s = math.cos(yaw), math.sin(yaw)
-    north = p[0] * c - p[1] * s
-    east = -(p[0] * s + p[1] * c)
-    se, ce = math.sin(math.radians(ELEV)), math.cos(math.radians(ELEV))
-    return (ocell[0] + east * ppy, ocell[1] - (north * se + p[2] * ce) * ppy, north > 0.08)
 
 
 # one scale for every body: a human (~2 yd) fills the cell's height, a rabbit is a rabbit; only what would not
@@ -224,151 +181,15 @@ def frames(display_id, height_px=30):
     except Exception:
         poses = [mesh, mesh, mesh]
     out = {"walked": walked}
-    for face in FACES:
+    for face, yaw in FACING.items():
         imgs = []
         for pm in poses:
-            img, origin = RD.render(pm, FACING[face], ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
+            img, origin = RD.render(pm, yaw, ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
             if img is None:
                 return None
             imgs.append(fit(img, origin))
         out[face] = imgs
     return out
-
-
-# ---------------------------------------------------------------------------------------------------------------
-# Action frames (Disastercraft): a second sheet, mobs_act.blp, with the same cells as mobs.blp, holding each body's
-# melee wind-up and strike, its spell ready and release, and its corpse, from the model's own sequences
-# (AnimationData: 16 AttackUnarmed, 17 Attack1H, 18 Attack2H, 51/52 ReadySpellDirected/Omni, 31 SpellPrecast,
-# 53/54 SpellCastDirected/Omni, 32 SpellCast, 6 Dead, 1 Death). A missing sequence keeps the standing pose.
-# ---------------------------------------------------------------------------------------------------------------
-ACT_COLS = 6                        # wind-up, strike, spell ready, spell release, dead, sitting
-SIT_IDS = (97, 96)                  # SitGround, SitGroundDown (eating, drinking, a seated NPC)
-ATTACK_IDS = (16, 17, 18)
-ATTACK_2H_IDS = (18, 17, 16)
-READY_IDS = (51, 52, 31)
-CAST_IDS = (53, 54, 32)
-
-
-def _first_seq(data, ids):
-    for a in ids:
-        s, d = RD.find_sequence(data, a)
-        if s is not None:
-            return s, d
-    return None, 0
-
-
-def _act_times(data, ids, reach):
-    """[(seq, t)] for the five action columns. reach(seq, t) -> how far forward (+x, the way a model faces) the
-    pose reaches: the strike is the attack's furthest reach, the wind-up its shortest before that."""
-    stand, _ = RD.find_sequence(data, 0)
-    out = []
-    seq, dur = _first_seq(data, ids)
-    if seq is not None and dur:
-        ts = [int(dur * k / 12) for k in range(12)]
-        rs = [reach(seq, t) for t in ts]
-        k = max(range(len(ts)), key=lambda i: rs[i])
-        w = min(range(k + 1), key=lambda i: rs[i]) if k > 0 else 0
-        if w == k:
-            w = max(0, k - 3)
-        out += [(seq, ts[w]), (seq, ts[k])]
-    else:
-        out += [(stand, 0), (stand, 0)]
-    seq, dur = _first_seq(data, READY_IDS)
-    out.append((seq, dur // 2) if seq is not None else (stand, 0))
-    seq, dur = _first_seq(data, CAST_IDS)
-    out.append((seq, int(dur * 0.4)) if seq is not None else (stand, 0))
-    seq, dur = RD.find_sequence(data, 6)
-    if seq is not None:
-        out.append((seq, 0))
-    else:
-        seq, dur = RD.find_sequence(data, 1)
-        out.append((seq, max(0, dur - 1)) if seq is not None else (stand, 0))
-    return out
-
-
-def _sit_time(data):
-    """(seq, t) of the model's seated pose, or None (stays standing). Kept out of _act_times: the outfit layers
-    (gen_dc_outfits) use its five columns."""
-    seq, dur = _first_seq(data, SIT_IDS)
-    return (seq, dur // 2) if seq is not None else None
-
-
-def act_frames(display_id, height_px=30):
-    """The action frames x 8 facings for a creature / NPC display (scaled like frames()), and its hands."""
-    mesh = character_mesh(display_id)
-    if not mesh or not mesh["tris"]:
-        return None
-    vs = mesh["verts"][np.unique(np.array([t[:3] for t in mesh["tris"]]))]
-    height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
-    length = float(max(vs[:, 0].max() - vs[:, 0].min(), vs[:, 1].max() - vs[:, 1].min()))
-    ppy = min(PPY_BODY, height_px / height, (SIZE - 2) / max(length, 0.3))
-    data = C.read_fid(mesh["fid"])
-    sc = mesh.get("scale", 1.0)
-    used = np.unique(np.array([t[:3] for t in mesh["tris"]]))
-
-    def pose(seq, t):
-        if seq is None:
-            return mesh
-        return dict(mesh, verts=RD.posed_vertices(data, seq, t) * sc)
-
-    times = _act_times(data, ATTACK_IDS, lambda s, t: float(pose(s, t)["verts"][used][:, 0].max()))
-    times.append(_sit_time(data) or (None, 0))
-    stand, _ = RD.find_sequence(data, 0)
-    return _act_render([pose(s, t) for s, t in times], times, pose(stand, 0), stand, data, sc, ppy)
-
-
-def _act_render(poses, times, stand_pose, stand_seq, data, sc, ppy):
-    """The action frames x 8 facings, and out["hands"][face] = [stand, ready, release] x [left, right] hand
-    points (cell x, cell y, behind) - each in its own picture's frame (a pose fits its cell on its own)."""
-    out, hands = {}, {}
-    hand_pts = []
-    for seq, t in ((stand_seq, 0), times[2], times[3]):
-        try:
-            hand_pts.append(hand_points(data, seq, t, sc) if seq is not None else [None, None])
-        except Exception:
-            hand_pts.append([None, None])
-    for face in FACES:
-        yaw = FACING[face]
-        imgs, origins = [], []
-        for pm in [stand_pose] + poses:
-            img, origin = RD.render(pm, yaw, ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
-            if img is None:
-                imgs.append(np.zeros((SIZE, SIZE, 4), np.uint8))
-                origins.append(None)
-            else:
-                cell, oc = fit_at(img, origin)
-                imgs.append(cell)
-                origins.append(oc)
-        out[face] = imgs[1:]
-        # (stand = the standing picture, ready = action column 2, release = action column 3)
-        hands[face] = [[project_hand(p, yaw, ppy, origins[k]) for p in hand_pts[i]]
-                       for i, k in enumerate((0, 3, 4))]
-    out["hands"] = hands
-    return out
-
-
-def outfit_act_frames(race, sex, items, height_px=30):
-    """act_frames() for a character in an outfit, weapons in hand (a two-hander swings with Attack2H)."""
-    import tbcdb
-    got = outfit(race, sex, items)
-    if not got:
-        return None
-    body, weapons, data = got
-    it = tbcdb.load().index("item_template", "entry")
-    two = any(it.get(e) and it[e]["InventoryType"] == 17 for e in items)
-    stand_seq, _ = RD.find_sequence(data, 0)
-
-    def pose(seq, t):
-        if seq is None:
-            seq, t = stand_seq, 0
-        return _dress(body, weapons, data, RD.bone_mats(data, seq, t), RD.posed_vertices(data, seq, t))
-
-    vs = pose(stand_seq, 0)["verts"]
-    height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
-    ppy = min(PPY_BODY, height_px / height)
-    times = _act_times(data, ATTACK_2H_IDS if two else ATTACK_IDS, lambda s, t: float(pose(s, t)["verts"][:, 0].max()))
-    times.append(_sit_time(data) or (stand_seq, 0))
-    return _act_render([pose(s, t) for s, t in times], times, pose(stand_seq, 0), stand_seq, data, 1.0, ppy)
 
 
 def player_display(race, sex):
@@ -449,7 +270,6 @@ def outfit(race, sex, items):
     want.add(int(hair[min(4, len(hair) - 1)]["GeosetID"]) if hair else 1)
     groups = {}
     weapons = []
-    cape = 0
     # items in the order the client paints them: what lies on top last (pants, boots, shirt, robe)
     order = {4: 1, 7: 2, 8: 3, 5: 4, 20: 5, 19: 6}
     for e in sorted(items, key=lambda e: order.get(it[e]["InventoryType"], 0) if e in it else 0):
@@ -469,8 +289,6 @@ def outfit(race, sex, items):
             v = int(d["GeosetGroup_%d" % gi] or 0)
             if v:
                 groups[base // 100] = base + 1 + v
-        if inv == 16:
-            cape = _item_tex(int(d["ModelMaterialResourcesID_0"] or 0), sex)     # (the cape's own picture)
         if inv in HAND_SLOTS and int(d["ModelResourcesID_0"] or 0):
             mfd = _multi("ModelFileData", "ModelResourcesID").get(int(d["ModelResourcesID_0"]), [])
             tex = _item_tex(int(d["ModelMaterialResourcesID_0"] or 0), sex)
@@ -495,8 +313,6 @@ def outfit(race, sex, items):
                 tf = key
             elif tf[1] == 6:
                 tf = hair_fid or 0
-            elif tf[1] == 2 and cape:
-                tf = cape                     # (texture type 2: the cape)
             else:
                 continue
         tris.append((a, b, c, tf))
@@ -521,7 +337,7 @@ def _dress(body, weapons, data, mats, body_verts):
 
 
 def outfit_frames(race, sex, items, height_px=30):
-    """frames() for a character in an outfit: stride / stand / stride x 8 facings, weapons in hand."""
+    """frames() for a character in an outfit: stride / stand / stride x 4 facings, weapons in hand."""
     got = outfit(race, sex, items)
     if not got:
         return None
@@ -538,10 +354,10 @@ def outfit_frames(race, sex, items, height_px=30):
     height = max(0.3, float(vs[:, 2].max() - min(0.0, vs[:, 2].min())))
     ppy = min(PPY_BODY, height_px / height)
     out = {"walked": walk_seq is not None}
-    for face in FACES:
+    for face, yaw in FACING.items():
         imgs = []
         for pm in poses:
-            img, origin = RD.render(pm, FACING[face], ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
+            img, origin = RD.render(pm, yaw, ELEV, ppy, oversample=4, ambient=0.72, diffuse=0.42)
             imgs.append(fit(img, origin))
         out[face] = imgs
     return out
