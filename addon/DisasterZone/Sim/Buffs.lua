@@ -104,6 +104,18 @@ S.BUFF_PRESETS = {
     consumables = { potId = 22838, flaskId = 22854, foodId = 27658, conjuredId = 22788, explosiveId = 30217,
       superSapper = true, goblinSapper = true, ohImbueId = 29453, scrollAgi = true, scrollStr = true },
   },
+  -- The WoWSims Combat Rogue preset (ui/specs/rogue/dps/spec.ts defaults, presets.ts consumables).
+  wowsims_rogue = {
+    raid = { bloodlust = true, giftOfTheWild = 2 },
+    party = { battleShout = 2, ferociousInspiration = 1, strengthOfEarthTotem = 2, graceOfAirTotem = 2, windfuryTotem = 2,
+      leaderOfThePack = 1, totemTwisting = true, drums = "LesserDrumsOfBattle" },
+    individual = { blessingOfKings = true, blessingOfMight = 2, unleashedRage = true },
+    debuffs = { exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1080, bloodFrenzy = true, huntersMark = 2,
+      improvedSealOfTheCrusader = 2, mangle = true, misery = true, curseOfRecklessness = true, faerieFire = 2,
+      giftOfArthas = true, sunderArmor = true },
+    consumables = { battleElixirId = 22831, guardianElixirId = 32062, foodId = 33872, potId = 22838, conjuredId = 7676,
+      ohImbueId = 27186 },
+  },
   -- The WoWSims Enhancement preset (ui/specs/shaman/enhancement/presets.ts, P1): the shaman drops his own totems and
   -- beats his own drums.
   wowsims_enh = {
@@ -118,9 +130,6 @@ S.BUFF_PRESETS = {
   },
 }
 
--- Static consumable data (assets/database/db.json)
-local FLASKS = { [22854] = { [ST.AttackPower] = 120, [ST.RangedAttackPower] = 120 } }
-local FOODS = { [27658] = { [ST.Strength] = 20, [ST.Spirit] = 20 } }
 
 local function Tri(v) if v == true then return 1 end return v or 0 end
 
@@ -198,14 +207,24 @@ end
 -- Consumables (consumes.go). Run after ApplyBuffs (scrolls share the StatBuff categories).
 function S.ApplyConsumables(p, c, cfg)
   local sb = p.statBuffCategory or {}
-  if c.flaskId and FLASKS[c.flaskId] then for k, v in pairs(FLASKS[c.flaskId]) do p:AddStat(k, v) end end
-  if c.foodId and FOODS[c.foodId] then for k, v in pairs(FOODS[c.foodId]) do p:AddStat(k, v) end end
+  -- flask, battle and guardian elixirs, food: their stats (db consumables); Elixir of Demonslaying and Gift of
+  -- Arthas as guardian elixir have effects of their own (not simmed)
+  local cdb = p.db and p.db.consumables
+  local function addStats(id)
+    local cons = id and id ~= 0 and cdb and cdb[id]
+    if cons then p:AddStats(S.WSStats(cons.stats)) end
+  end
+  addStats(c.flaskId)
+  if c.battleElixirId ~= 9224 then addStats(c.battleElixirId) end
+  if c.guardianElixirId ~= 9088 then addStats(c.guardianElixirId) end
+  addStats(c.foodId)
   if c.scrollAgi then sb[ST.Agility] = max(sb[ST.Agility] or 0, 20) end
   if c.scrollStr then sb[ST.Strength] = max(sb[ST.Strength] or 0, 20) end
   for k, v in pairs(sb) do p:AddStat(k, v) end
   if c.potId == 22838 then S.HastePotion(p) end
   if c.conjuredId == 12662 then S.DemonicRune(p) end
   if c.conjuredId == 22788 then S.FlameCap(p) end
+  if c.conjuredId == 7676 and p.hasEnergy then S.ThistleTea(p) end
   if c.mhImbueId then S.StaticImbue(p, c.mhImbueId) end
   if c.ohImbueId then S.StaticImbue(p, c.ohImbueId) end
   -- drums and explosives share one cooldown timer (consumes.go drumsBombsSharedTimer)
@@ -375,6 +394,22 @@ function S.DemonicRune(p)
   end })
 end
 
+-- Thistle Tea (consumes.go makeConjuredActivationSpell 7676): 100 - 2 * (70 - 40) = 40 energy; 5 min, sharing
+-- 2 minutes with runes and Flame Cap; used before the pull it locks the category for its full 2 minutes.
+function S.ThistleTea(p)
+  local spell
+  spell = p:RegisterSpell({ id = "item:7676", procMask = PM.Empty, flags = F.Conjured + F.APL + F.NoOnCastComplete,
+    cd = 300, sharedCd = 120, sharedCdTimer = p:CategoryTimer(1153),
+    applyEffects = function(sim)
+      p:AddEnergy(sim, 40, "thistle_tea")
+      if sim.now < 0 then
+        spell.sharedCdTimer.readyAt = sim.now + 120
+        p:UpdateMajorCooldowns()
+      end
+    end })
+  p:AddMajorCooldown({ spell = spell, priority = 0, shouldActivate = function() return p.maxEnergy - p.energy >= 40 end })
+end
+
 function S.Explosives(p, c)
   local shared = p.drumsBombsTimer or p:NewTimer()
   local function explosive(id, lo, hi, cd, castTime, speed, prio, selfDamage)
@@ -525,12 +560,14 @@ function S.SunderArmorAura(target)
   return a
 end
 
+-- comboPoints: a number, or a function returning the caster's combo points when the debuff lands (a rogue's own).
 function S.ExposeArmorAura(target, comboPoints, talents)
   local a = target:GetAura("Expose Armor")
   if a then return a end
   local ee
+  local cp = type(comboPoints) == "function" and comboPoints or function() return comboPoints end
   a = target:RegisterAura({ label = "Expose Armor", actionId = { spellId = 26866 }, duration = 30,
-    onGain = function(_, sim) ee:SetPriority(sim, 410 * comboPoints * (1 + 0.25 * talents)) end })
+    onGain = function(_, sim) ee:SetPriority(sim, 410 * cp() * (1 + 0.25 * talents)) end })
   ee = a:NewExclusiveEffect("MajorArmorReduction", true, 0,
     function(e, sim) target:AddStatDynamic(sim, ST.Armor, -e.priority) end,
     function(e, sim) target:AddStatDynamic(sim, ST.Armor, e.priority) end)

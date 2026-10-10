@@ -26,7 +26,7 @@ ADDON = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone"))
 if not os.path.isdir(ADDON):
     ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 SIM_FILES = ["Core", "Unit", "Spell", "Attack", "Resources", "Dot", "Pet", "APL", "Character", "Buffs", "Items",
-             "Paladin", "Warrior", "Shaman", "Data", "Setup"]
+             "Paladin", "Warrior", "Shaman", "Rogue", "Data", "Setup"]
 DATA_FILES = ["Data/Gems.lua", "Data/SimItems.lua"]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -142,8 +142,10 @@ def build_db(gear):
             e = ench_by_id.get(spec["enchant"])
             if e:
                 enchants[spec["enchant"]] = {"effectId": e["effectId"], "stats": dense_to_dict(e.get("stats"))}
+    consumables = {c["id"]: {"id": c["id"], "type": c.get("type", 0), "stats": dense_to_dict(c.get("stats"))}
+                   for c in db.get("consumables", [])}
     return {"items": items, "gems": gems, "enchants": enchants, "itemProcs": parse_go_procs(),
-            "onUse": {i: True for i in parse_go_onuse()}}
+            "onUse": {i: True for i in parse_go_onuse()}, "consumables": consumables}
 
 
 # ---------------------------------------------------------------------------------------------------------------

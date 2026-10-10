@@ -327,6 +327,26 @@ function Rot:Value(node, vars)
   elseif node.currentRage then
     -- rage changes only through events, which wake the rotation
     return Num(function() return u.rage end)
+  elseif node.currentEnergy then
+    -- energy ticks are sim tasks, which wake the rotation like any event
+    if not u.hasEnergy then return nil end
+    return Num(function() return u.energy end)
+  elseif node.maxEnergy then
+    if not u.hasEnergy then return nil end
+    return Num(function() return u.maxEnergy end)
+  elseif node.currentComboPoints then
+    if not u.hasEnergy then return nil end
+    return Num(function() return u.comboPoints end)
+  elseif node.spellIsKnown then
+    -- apl_values_spell.go: a constant, whether the character has the spell
+    return ConstBool(self.resolveSpell(node.spellIsKnown.spellId) ~= nil)
+  elseif node.dotRemainingTime then
+    local sp = self.resolveSpell(node.dotRemainingTime.spellId)
+    if not (sp and (sp.dots or sp.aoeDot)) then return nil end
+    local function aura() return (sp.aoeDot or sp:Dot(u.currentTarget)).aura end
+    return Num(function(sim) local a = aura(); return a.active and a:RemainingDuration(sim) or 0 end,
+      function() local a = aura(); return (a.active and a.expires ~= huge) and -1 or 0 end,
+      function(sim) local a = aura(); return a.active and Future(a.expires, sim.now) or huge end)
   elseif node.multipleCdUsages then
     return self:MultipleCdUsages(node.multipleCdUsages, vars)
   elseif node.spellCurrentCost then
@@ -592,6 +612,32 @@ function Rot:Action(node, vars, knownSpell)
   elseif node.strictSequence then
     impl = self:StrictSequence(node.strictSequence, vars)
     if not impl then return nil end
+  elseif node.waitUntil then
+    -- apl_actions_timing.go APLActionWaitUntil: ready while its condition is false; once run it controls the
+    -- rotation (nothing else is read) until the condition holds.
+    local c = self:Value(node.waitUntil.condition, vars)
+    if not c then return nil end
+    local cv, cn, rot = c.v, c.next or NEVER, self
+    local ctl = { rot = self }
+    function ctl:GetNext(sim)
+      if Truthy(cv(sim)) then
+        rot.controlling = nil
+        return rot:FirstReady(sim)
+      end
+      return nil
+    end
+    function ctl:NextChange(sim)
+      local t = sim.minTrackerTime
+      if sim.nextExecuteAt < t then t = sim.nextExecuteAt end
+      local x = cn(sim)
+      if x < t then t = x end
+      return t
+    end
+    impl = {
+      ready = function(sim) return not Truthy(cv(sim)) end,
+      exec = function(sim) rot.controlling = ctl end,
+      next = cn,
+    }
   elseif node.wait then
     -- apl_actions_timing.go APLActionWait: a controlling action; the list is not read again until it ends
     local d = self:Value(node.wait.duration, vars)

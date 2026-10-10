@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Sim/Resources.lua", ...) then return end -- DisasterZone: Sim/Resources.lua
--- ns.GearSim power bars other than mana: rage (rage.go). Spells name their cost with rageCost = { cost, refund }
--- (Spell.lua); gains wake the rotation the way WoWSims' AddRage does (ReactToEvent with the reaction time).
+-- ns.GearSim power bars other than mana: rage (rage.go), energy and combo points (energy.go). Spells name their cost
+-- with rageCost / energyCost = { cost, refund } (Spell.lua); rage gains wake the rotation the way WoWSims' AddRage does (ReactToEvent with the reaction time).
 local _, ns = ...
 local S = ns.GearSim
 local PM, O = S.PM, S.O

@@ -74,6 +74,21 @@ ENH_OPTIONS = {"options": {"classOptions": {"shieldProcrate": 0, "imbueMh": "Win
 ENH_LUA_OPTIONS = {"shieldProcrate": 0, "imbueMh": "WindfuryWeapon", "imbueOh": "WindfuryWeapon",
                    "syncType": "DelayOffhandSwings"}
 
+# ui/specs/rogue/dps/spec.ts defaults + presets.ts DefaultConsumables (P1)
+ROGUE_BUFFS = {
+    "raid": {"bloodlust": True, "giftOfTheWild": IMP},
+    "party": {"battleShout": IMP, "ferociousInspiration": 1, "strengthOfEarthTotem": IMP, "graceOfAirTotem": IMP,
+              "windfuryTotem": IMP, "leaderOfThePack": REG, "totemTwisting": True, "drums": "LesserDrumsOfBattle"},
+    "individual": {"blessingOfKings": True, "blessingOfMight": IMP, "unleashedRage": True},
+    "debuffs": {
+        "exposeWeaknessUptime": 0.9, "exposeWeaknessHunterAgility": 1080, "bloodFrenzy": True, "huntersMark": IMP,
+        "improvedSealOfTheCrusader": IMP, "mangle": True, "misery": True, "curseOfRecklessness": True,
+        "faerieFire": IMP, "giftOfArthas": True, "sunderArmor": True,
+    },
+    "consumables": {"battleElixirId": 22831, "guardianElixirId": 32062, "foodId": 33872, "potId": 22838,
+                    "conjuredId": 7676, "ohImbueId": 27186},
+}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -87,4 +102,6 @@ SPECS = {
     "enh": {"class": "Shaman", "wsClass": "ClassShaman", "field": "enhancementShaman", "options": ENH_OPTIONS,
             "apl": "ui/specs/shaman/enhancement/apls/default.apl.json", "buffs": ENH_BUFFS, "luaBuffs": "wowsims_enh",
             "luaOptions": ENH_LUA_OPTIONS},
+    "rogue": {"class": "Rogue", "wsClass": "ClassRogue", "field": "rogue", "options": {"options": {"classOptions": {}}},
+              "apl": "ui/specs/rogue/dps/apls/swords.apl.json", "buffs": ROGUE_BUFFS, "luaBuffs": "wowsims_rogue"},
 }

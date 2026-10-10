@@ -4,7 +4,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Sim/Dot.lua", ...) then return end
 --
 -- A spell gets its DoT with cfg.dot = { label, numberOfTicks, tickLength, onSnapshot(sim, target, dot),
 -- onTick(sim, target, dot), affectedByCastSpeed, hasteReducesDuration, bonusCoefficient, periodicDamageMultiplier,
--- selfOnly }; spell:Dot(target) returns it.
+-- selfOnly, maxStacks }; spell:Dot(target) returns it.
 local _, ns = ...
 local S = ns.GearSim
 local O = S.O
@@ -179,7 +179,8 @@ function S.SpellMT_Dot(spell, target)
   if spell.aoeDot then return spell.aoeDot end
   local d = spell.dots[target]
   if not d then
-    local aura = target:RegisterAura({ label = spell.dotLabel, dotOf = spell, actionId = S.DotActionId(spell) })
+    local aura = target:RegisterAura({ label = spell.dotLabel, dotOf = spell, actionId = S.DotActionId(spell),
+      maxStacks = spell.dotConfig.maxStacks })
     d = NewDot(spell, spell.dotConfig, aura)
     spell.dots[target] = d
   end

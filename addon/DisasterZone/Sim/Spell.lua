@@ -87,7 +87,7 @@ F.CannotBeDodged = 16; F.IncludeTargetBonusDamage = 32; F.Binary = 64; F.Channel
 F.MeleeMetrics = 512; F.NoOnCastComplete = 1024; F.APL = 2048; F.MCD = 4096; F.Reactive = 8192
 F.NoOnDamageDealt = 16384; F.Potion = 32768; F.NoSpellMods = 65536; F.PassiveSpell = 131072
 F.SuppressWeaponProcs = 262144; F.Proc = 524288; F.Explosive = 1048576; F.Conjured = 2097152
-F.NoMetrics = 4194304
+F.NoMetrics = 4194304; F.Poison = 134217728
 -- SpellFlagAgentReserved1-4: the class's own flags (shaman: ShamanSpell, Shock, Instant, Focusable)
 F.Agent1 = 8388608; F.Agent2 = 16777216; F.Agent3 = 33554432; F.Agent4 = 67108864
 S.F = F
@@ -885,6 +885,26 @@ function OUT.MeleeSpecialHit(spell, sim, r, at)
 end
 
 OUT.MeleeSpecialHitNoHitCounter = OUT.MeleeSpecialHit
+
+-- outcomeMeleeWeaponSpecialNoParry (Shiv): the weapon special table without parry.
+function OUT.MeleeWeaponSpecialNoParry(spell, sim, r, at)
+  if spell.unit.ps.InFrontOfTarget then
+    local roll = sim:Rand()
+    local chance = MissChance(spell, at, false)
+    if roll < chance then return SetMiss(r, O.Miss) end
+    if not has(spell.flags, F.CannotBeDodged) then
+      chance = chance + DodgeChance(spell, at)
+      if roll < chance then return SetMiss(r, O.Dodge) end
+    end
+    local blocked
+    blocked, chance = Block(spell, r, at, roll, chance)
+    if blocked then return end
+    if CritSeparateRoll(spell, sim, r, at) then return end
+    r.outcome = O.Hit
+    return
+  end
+  return OUT.MeleeSpecialHitAndCrit(spell, sim, r, at)
+end
 
 -- outcomeMeleeSpecialBlockAndCrit: an attack that already landed (Stormstrike's weapon hits) can only crit or be
 -- blocked.

@@ -31,15 +31,18 @@ function S.NewScenario(sc, db, apl)
   local cls = sc.class or "Paladin"
   if cls == "Warrior" then S.SetupWarrior(p, sc.talents or "", sc.classOptions) end
   if cls == "Shaman" then S.SetupShaman(p, sc.talents or "", sc.classOptions) end
+  if cls == "Rogue" then S.SetupRogue(p, sc.talents or "", sc.classOptions, cons) end
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
   if cls == "Warrior" then S.WarriorApplyTalents(p) end
   if cls == "Shaman" then S.ShamanApplyTalents(p) end
+  if cls == "Rogue" then S.RogueApplyTalents(p) end
   S.ApplyBuffs(p, buffs)
   S.ApplyConsumables(p, cons, buffs)
   if cls == "Warrior" then S.WarriorInitialize(p) end
   if cls == "Shaman" then S.ShamanInitialize(p) end
+  if cls == "Rogue" then S.RogueInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()

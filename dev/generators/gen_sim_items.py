@@ -139,6 +139,13 @@ def main():
     lines.append("ns.Data.SimOnUse = {")
     lines.append("  " + ", ".join("[%d] = true" % i for i in sorted(onuse)))
     lines.append("}")
+    # consumables with stats (flasks, elixirs, food, potions): "type|stats" (WS stat numbers)
+    lines.append("ns.Data.SimConsumables = {")
+    for c in sorted(db.get("consumables", []), key=lambda c: c["id"]):
+        st = {i: v for i, v in enumerate(c.get("stats") or []) if v}
+        if st:
+            lines.append('  [%d] = "%d|%s",' % (c["id"], c.get("type", 0), stats_str(st)))
+    lines.append("}")
     with open(OUT, "wb") as f:
         f.write(("\n".join(lines) + "\n").encode("utf-8"))
     print("%d items, %d procs, %d on-use -> %s (%d KB)" % (len(rows), len(procs), len(onuse), OUT, os.path.getsize(OUT) // 1024))

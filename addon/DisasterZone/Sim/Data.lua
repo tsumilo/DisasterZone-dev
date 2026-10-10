@@ -15,7 +15,7 @@ local function ParseStats(s, sep)
   return t
 end
 
-local items, gems, enchants = {}, {}, {}
+local items, gems, enchants, consumables = {}, {}, {}, {}
 
 local function ParseItem(id)
   local raw = ns.Data and ns.Data.SimItems and ns.Data.SimItems[id]
@@ -93,5 +93,15 @@ function S.GameDB()
       return p or nil
     end }),
     onUse = (ns.Data and ns.Data.SimOnUse) or {},
+    consumables = setmetatable({}, { __index = function(t, id)
+      local c = consumables[id]
+      if c == nil then
+        local r = ns.Data and ns.Data.SimConsumables and ns.Data.SimConsumables[id]
+        local ty, st = r and r:match("^(%d+)|(.*)$")
+        c = ty and { id = id, type = tonumber(ty), stats = ParseStats(st) } or false
+        consumables[id] = c
+      end
+      return c or nil
+    end }),
   }
 end

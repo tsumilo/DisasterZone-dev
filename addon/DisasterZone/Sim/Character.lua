@@ -228,6 +228,7 @@ function S.BuildPlayer(sim, loadout, db)
   p.reactionTime = max((loadout.reactionTimeMs or 0), 10) / 1000
   p.distance = loadout.distance or 5
   p.professions = loadout.professions or {}
+  p.db = db
 
   -- Base stats
   local base = CLASS_BASE[p.class]
