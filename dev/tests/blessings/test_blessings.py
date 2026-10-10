@@ -233,6 +233,16 @@ single = vic.eval("return ns.Blessings:GetSingle('Victhar', 6, 'Faelar')")
 assert single and single != 1, single
 vic.eval("local f = DisasterZoneBlessPop1:GetScript('OnMouseWheel'); f(DisasterZoneBlessPop1, 1)")
 assert vic.eval("return ns.Blessings:GetSingle('Victhar', 6, 'Faelar')") is None, "back to the class's"
+# the players list fades in like the addon's dropdowns, and fades out on a second right-click
+HUNT = ("for i = 1, 20 do local r = _G['DisasterZoneBlessRow' .. i]; if r and r.data and r.data.cls == 'HUNTER' then "
+        "return r end end")
+vic.eval("local r = (function() " + HUNT + " end)(); ns.BlessingsBar:TogglePop(r)")     # (closes the open one)
+w.tick(0.5)
+assert vic.eval("return DisasterZoneBlessPopout:IsShown()") is False, "faded out"
+vic.eval("local r = (function() " + HUNT + " end)(); ns.BlessingsBar:TogglePop(r)")
+assert vic.eval("return DisasterZoneBlessPopout:IsShown() and DisasterZoneBlessPopout:GetAlpha() < 1") is True, "fading in"
+w.tick(0.3)
+assert vic.eval("return DisasterZoneBlessPopout:GetAlpha()") == 1
 assert vic.eval("return ns.SwingTimer.active and DisasterZoneSwingTimer ~= nil and DisasterZoneSwingTimer:IsShown()") is True
 # motion: the urgent class eases back to calm when blessed again, with one bloom that fades out
 MOTION = """

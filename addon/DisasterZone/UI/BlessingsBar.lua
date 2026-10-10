@@ -394,11 +394,23 @@ local function Build()
     local away = 0
     pop:SetScript("OnUpdate", function(self, elapsed)
         if InCombatLockdown() then return end
+        if self.fadeT then
+            -- fading out: the drop-in played backwards
+            self.fadeT = self.fadeT + (elapsed or 0)
+            local e = min(1, self.fadeT / (UI().DROP_TIME or 0.14))
+            self:SetAlpha(1 - e)
+            if self.place then self.place(self.dx * e, self.dy * e) end
+            if e >= 1 then
+                self.fadeT = nil
+                self:Hide()
+            end
+            return
+        end
         if self:IsMouseOver() or (self.row and self.row:IsMouseOver()) then away = 0 return end
         away = away + (elapsed or 0)
         if away > 1 then
             away = 0
-            self:Hide()
+            Bar:HidePop()
         end
     end)
 
@@ -803,7 +815,7 @@ function Bar:Update()
     if not self:Wanted() then
         if combat then dirty = true return end
         frame:Hide()
-        if pop then pop:Hide() end
+        if pop then Bar:HidePop(true) end
         return
     end
     local Bl = B()
@@ -818,7 +830,7 @@ function Bar:Update()
         if frame.layout ~= layout then
             frame.layout = layout
             RestorePos()
-            if pop then pop:Hide() end
+            if pop then Bar:HidePop(true) end
         end
         local ai = Bl:GetAura(me)
         frame.aura:SetAttribute("spell", (ai and not Bl:IsDemo()) and Bl:AuraName(ai) or nil)
@@ -1009,19 +1021,36 @@ end
 -- Right-click: a class's players next to it (left of the rail, above the strip); again: closed.
 function Bar:TogglePop(row)
     if InCombatLockdown() or not row.data then return end
-    if pop:IsShown() and pop.row == row then
-        pop:Hide()
+    if pop:IsShown() and pop.row == row and not pop.fadeT then
+        self:HidePop()
         return
     end
     pop.row = row
-    pop:ClearAllPoints()
-    if Layout() == "horizontal" then
-        pop:SetPoint("BOTTOM", row, "TOP", 0, 18)
-    else
-        pop:SetPoint("RIGHT", row, "LEFT", -14, 0)
+    pop.fadeT = nil
+    -- it comes in like the addon's dropdowns (UI:DropIn: fades up while it moves the last few px): out of the
+    -- rail from the circle's side, up out of the strip
+    local fall = UI().DROP_FALL or 6
+    local strip = Layout() == "horizontal"
+    pop.dx, pop.dy = strip and 0 or fall, strip and -fall or 0
+    pop.place = function(dx, dy)
+        pop:ClearAllPoints()
+        if strip then pop:SetPoint("BOTTOM", row, "TOP", dx, 18 + dy)
+        else pop:SetPoint("RIGHT", row, "LEFT", -14 + dx, dy) end
     end
     self:FillPop(row)
     pop:Show()
+    if UI().DropIn then UI():DropIn(pop, pop.place, pop.dx, pop.dy) else pop.place(0, 0) end
+end
+
+-- Closes the players: fades out toward its class (instant: at once, e.g. as a fight starts, when it can't wait).
+function Bar:HidePop(instant)
+    if not pop or not pop:IsShown() then return end
+    if instant or InCombatLockdown() or not pop.place then
+        pop.fadeT = nil
+        pop:Hide()
+        return
+    end
+    if not pop.fadeT then pop.fadeT = 0 end
 end
 
 -- Wheel on a player: my single blessing for them steps to the next (or previous) one I can give, skipping the
@@ -1073,7 +1102,7 @@ function Bar:OnLogin()
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() Bar:Update() end)
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function()
         if pop and pop:IsShown() then
-            pop:Hide()
+            Bar:HidePop(true)
         end
         if frame then frame:SetAlpha(0.75) end
     end)
