@@ -1632,7 +1632,19 @@ function CloseSpecialWindows()
 end
 function AnimateTexCoords(texture, textureWidth, textureHeight, frameWidth, frameHeight, numFrames, elapsed, throttle) end
 function SetPortraitTexture() end
-function SetPortraitToTexture() end
+-- (the game draws the texture round: a circle mask here, so renders show it the same)
+function SetPortraitToTexture(tex, path)
+  if not (tex and tex.SetTexture) then return end
+  tex:SetTexture(path)
+  local parent = tex.GetParent and tex:GetParent()
+  if parent and parent.CreateMaskTexture and tex.AddMaskTexture and not rawget(tex, "__portraitMask") then
+    local m = parent:CreateMaskTexture()
+    m:SetTexture("Interface\CharacterFrame\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    m:SetAllPoints(tex)
+    tex:AddMaskTexture(m)
+    rawset(tex, "__portraitMask", m)
+  end
+end
 function EditBox_ClearFocus(eb) eb:ClearFocus() end
 function EditBox_HighlightText(eb) eb:HighlightText() end
 function EditBox_ClearHighlight(eb) eb:HighlightText(0, 0) end

@@ -161,6 +161,8 @@ UI\Dashboard.lua
 UI\PaperDoll.lua
 UI\GemEditor.lua
 UI\SimPanel.lua
+UI\SimStage.lua
+UI\SimNerd.lua
 UI\SimBuffs.lua
 UI\KitView.lua
 UI\MyBiS.lua

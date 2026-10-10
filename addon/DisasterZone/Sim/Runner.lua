@@ -660,6 +660,20 @@ end
 
 function Runner:IsRunning() return self.run ~= nil end
 
+-- The fights' DPS so far of the running job `key` (a cached or repeated set: its whole list), nil without a run.
+function Runner:LiveList(key)
+  local run = self.run
+  if not run then return nil end
+  for _, r in ipairs(run.jobs) do
+    if r.key == key then
+      local src = r.same or r
+      if src.p then return src.p.metrics.iterDps end
+      if src.summary then return src.summary.iterDps end
+      return nil
+    end
+  end
+end
+
 -- Finished runs -> results by key; a paired difference between two keys (same iterations, same seeds).
 function Runner:Results(runs)
   local out = {}
@@ -672,8 +686,10 @@ function Runner:Results(runs)
       self:CachePut(r.cacheKey, s)
     end
   end
+  out.cached = {}
   for _, r in ipairs(runs) do
     out[r.key] = r.summary or r.same.summary
+    if not r.sim then out.cached[r.key] = true end
   end
   out.diff = function(a, b)
     local A, B = out[a], out[b]

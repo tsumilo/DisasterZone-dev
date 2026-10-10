@@ -1,0 +1,29 @@
+gems__test_gems                               rc=0     5s  -- gems and enchants: 12 passed, 0 failed
+preraid__test_preraid                         rc=0     6s  -- pre-raid lists: 11 passed, 0 failed
+patch__test_release_tool                      rc=1    73s  -- test_release_tool.py: 10 case(s), 9 passed, 1 failed (63.4s)
+      FAIL selftest_runs_the_whole_addon_from_the_store_on_the_development_copy (3.69s)
+patch__test_patch_boot                        rc=1    74s  -- test_patch_boot.py: 24 case(s), 23 passed, 1 failed (64.3s)
+      FAIL every_file_from_the_patch (4.56s)
+patch__test_patch_net.s2of2                   rc=0    76s  -- test_patch_net.py: 12 case(s), 12 passed, 0 failed (69.9s)
+patch__test_patch_net.s1of2                   rc=0    78s  -- test_patch_net.py: 13 case(s), 13 passed, 0 failed (72.3s)
+patch__test_patch_scale                       rc=0    79s  -- test_patch_scale.py: 2 case(s), 2 passed, 0 failed (74.2s)
+scale__test_raid_night.s4of4                  rc=0    87s  -- test_raid_night.py: 1 case(s), 1 passed, 0 failed (84.1s)
+== 8 suite run(s), 2 failed, 87s wall, 479s total; 158 skipped: nothing they depend on changed since their last run (--all runs them)
+   FAILED patch__test_patch_boot                        rc=1    74s  -- test_patch_boot.py: 24 case(s), 23 passed, 1 failed (64.3s)
+   FAILED patch__test_release_tool                      rc=1    73s  -- test_release_tool.py: 10 case(s), 9 passed, 1 failed (63.4s)
+   FAILED (last run, unchanged since) atlas__test_atlas              -- test_atlas.py: 26 case(s), 25 passed, 1 failed (17.2s)  C:\Users\emilo\CDLoot-dev\dev\tf_e\run\atlas__test_atlas.txt
+      FAIL tab_sits_after_my_bis_and_opens_on_the_guild_phase_raid (1.42s)
+   FAILED (last run, unchanged since) boot-ui__test_demo             -- test_demo.py: 5 case(s), 3 passed, 2 failed (5.9s)  C:\Users\emilo\CDLoot-dev\dev\tf_e\final1\boot-ui__test_demo.txt
+      FAIL demo_toggle_repeatedly_changes_nothing_saved_and_sends_nothing (2.41s)
+      FAIL demo_works_without_a_guild_and_sends_nothing (0.66s)
+   FAILED (last run, unchanged since) boot-ui__test_mybis            -- test_mybis.py: 19 case(s), 17 passed, 2 failed (26.5s)  C:\Users\emilo\CDLoot-dev\dev\tf_e\run\boot-ui__test_mybis.txt
+      FAIL spec_dropdown_and_auto_detect (0.32s)
+      FAIL uncached_item_names_fill_in_after_load (0.57s)
+   FAILED (last run, unchanged since) boot-ui__test_settings         -- test_settings.py: 10 case(s), 8 passed, 2 failed (9.8s)  C:\Users\emilo\CDLoot-dev\dev\tf_e\final1\boot-ui__test_settings.txt
+      FAIL minimap_toggle_hides_and_shows_the_button (1.02s)
+      FAIL blizzard_settings_entry_opens_the_tab (1.02s)
+   FAILED (last run, unchanged since) strategy__test_standins_gen      
+   FAILED (last run, unchanged since) strategy__test_strategy_3d.s1of2 -- test_strategy_3d.py: 12 case(s), 11 passed, 1 failed (45.4s)  C:\Users\emilo\CDLoot-dev\dev\tf_e\run\strategy__test_strategy_3d.s1of2.txt
+      FAIL a_big_model_is_hidden_part_by_part_and_you_swim_in_its_pool (3.47s)
+   FAILED (last run, unchanged since) strategy__test_strategy_3d.s2of2 -- test_strategy_3d.py: 11 case(s), 10 passed, 1 failed (50.7s)  C:\Users\emilo\CDLoot-dev\dev\tf_e\run\strategy__test_strategy_3d.s2of2.txt
+      FAIL kiljaeden_stands_in_the_backdrop_under_the_whole_room (2.62s)

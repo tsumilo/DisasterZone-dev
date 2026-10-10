@@ -1,8 +1,8 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Totems.lua", ...) then return end -- DisasterZone: shaman totems.
 -- The shaman Totem planner (a class tool, Core/ClassKit.lua, for every shaman spec): which totem each shaman drops
 -- for each element, Windfury twisted with Grace of Air, who gets Earth Shield, when to use Heroism, and totems that
--- change for one boss. Totems and Heroism only reach the shaman's own party, so the planner also shows each
--- shaman's raid group and the groups no shaman covers. The window is UI/TotemsUI.lua, the in-raid bar
+-- change for one boss. Totems only reach the shaman's own party, so the planner also shows each shaman's raid group
+-- and the groups no shaman covers. Heroism reaches the whole raid (Anniversary): one shaman casts it, one backs up. The window is UI/TotemsUI.lua, the in-raid bar
 -- UI/TotemBar.lua; mockup dev/art/casc/totem_mockup.
 --
 -- Sync speaks ShamanPower's wire protocol (prefix SHPWR, plain text; dev/docs/research/shamanpower.md), so
@@ -446,9 +446,9 @@ function Totems:SubgroupOf(name, roster)
     return nil
 end
 
--- What a group without a shaman misses, as words: "Heroism, Strength of Earth, Windfury".
+-- What a group without a shaman misses, as words: "Strength of Earth, Windfury, Grace of Air".
 function Totems:MissesText(g)
-    local parts = { self:HeroName() }
+    local parts = {}
     for _, n in ipairs(GROUP_KIND[g.kind].needs) do parts[#parts + 1] = D.TOTEMS[n[1]][n[2]].short end
     return tconcat(parts, ", ")
 end
@@ -474,9 +474,28 @@ function Totems:GetES(name)
     return (t and t ~= "" and t ~= "NONE") and t or nil
 end
 
+-- When shaman `name` uses Heroism: "pull" | "execute" | "call" | "backup" | "none" (the default: someone else does).
 function Totems:GetHero(name)
     local s = DB()
-    return s and s.hero[name] or "pull"
+    return s and s.hero[name] or "none"
+end
+
+function Totems:HeroCasts(key)
+    for _, h in ipairs(D.HERO_WHEN) do
+        if h.key == key then return h.casts and true or false end
+    end
+    return false
+end
+
+-- The shamans set to cast Heroism (more than one: all but one are wasted, Exhaustion), and the backups.
+function Totems:HeroCasters(roster)
+    local casters, backups = {}, {}
+    for _, s in ipairs(self:Shamans(roster)) do
+        local h = self:GetHero(s.name)
+        if self:HeroCasts(h) then casters[#casters + 1] = s.name
+        elseif h == "backup" then backups[#backups + 1] = s.name end
+    end
+    return casters, backups
 end
 
 -- A boss change: { i = index, alt = true when it is the second one (right-click on the bar) } or nil.
@@ -627,7 +646,7 @@ function Totems:SetHero(name, key)
     local ok = false
     for _, h in ipairs(D.HERO_WHEN) do if h.key == key then ok = true end end
     if not ok then return false end
-    DB().hero[name] = (key ~= "pull") and key or nil
+    DB().hero[name] = (key ~= "none") and key or nil
     Queue("H" .. name, strformat("DZHERO %s %s", name, key))
     Changed()
     return true
@@ -670,7 +689,7 @@ function Totems:Apply(plan)
                 Queue("E" .. name, strformat("ESASSIGN %s %s", name, t or "NONE"))
             end
             if plan.hero and plan.hero[name] then
-                DB().hero[name] = (plan.hero[name] ~= "pull") and plan.hero[name] or nil
+                DB().hero[name] = (plan.hero[name] ~= "none") and plan.hero[name] or nil
                 Queue("H" .. name, strformat("DZHERO %s %s", name, plan.hero[name]))
             end
         end
@@ -750,8 +769,36 @@ function Totems:AutoPlan(roster)
         end
         plan.assign[s.name] = row
         plan.twist[s.name] = (row[4] == D.WINDFURY[2] and self:SpecOf(s.name) == "Enhancement" and s.known[4][2]) and true or false
-        plan.hero[s.name] = "pull"
+        plan.hero[s.name] = "none"
     end
+    -- Heroism: one caster for the whole raid and one backup. A caster already set (mine to change or not) stays;
+    -- else Enhancement, then Elemental, then Restoration (healers have their hands full), by name.
+    local caster, backup
+    for _, s in ipairs(self:Shamans(roster)) do
+        local h = self:GetHero(s.name)
+        if self:HeroCasts(h) and not caster then caster = s.name end
+        if h == "backup" and not backup then backup = s.name end
+    end
+    local SPEC_ORDER = { Enhancement = 1, Elemental = 2, Restoration = 3 }
+    local pool = {}
+    for _, s in ipairs(mine) do pool[#pool + 1] = s end
+    tsort(pool, function(a, b)
+        local x, y = SPEC_ORDER[self:SpecOf(a.name)] or 4, SPEC_ORDER[self:SpecOf(b.name)] or 4
+        if x ~= y then return x < y end
+        return a.name < b.name
+    end)
+    for _, s in ipairs(pool) do
+        if not caster then
+            caster = s.name
+            plan.hero[s.name] = "pull"
+        elseif not backup and s.name ~= caster then
+            backup = s.name
+            plan.hero[s.name] = "backup"
+        end
+    end
+    if caster and plan.hero[caster] then plan.hero[caster] = self:GetHero(caster) ~= "none" and self:HeroCasts(self:GetHero(caster))
+        and self:GetHero(caster) or "pull" end
+    if backup and plan.hero[backup] then plan.hero[backup] = "backup" end
     -- Earth Shield: each Restoration shaman on a different tank (main tanks first), else nobody
     local tanks, used = {}, {}
     for _, m in ipairs(roster) do
@@ -1033,6 +1080,14 @@ function Totems:ReportLines()
         if #by[sub].shamans == 0 then none[#none + 1] = tostring(sub) end
     end
     if IsInRaid() and #none > 0 then lines[#lines + 1] = "No shaman in group " .. tconcat(none, ", ") end
+    local casters, backups = self:HeroCasters(roster)
+    if #casters > 0 then
+        local h = self:GetHero(casters[1])
+        local when = ""
+        for _, x in ipairs(D.HERO_WHEN) do if x.key == h then when = x.long:gsub("^Casts it ", "") end end
+        lines[#lines + 1] = strformat("%s: %s %s%s", self:HeroName(), casters[1], when,
+            #backups > 0 and (", backup " .. backups[1]) or "")
+    end
     return lines
 end
 
@@ -1100,7 +1155,7 @@ end
 -- The DisasterZone extras for one shaman: DZHERO, then their boss changes in chunks.
 function Totems:SendExtras(name, target)
     local h = self:GetHero(name)
-    if h and h ~= "pull" then self:SendRaw(strformat("DZHERO %s %s", name, h), target) end
+    if h and h ~= "none" then self:SendRaw(strformat("DZHERO %s %s", name, h), target) end
     local entries = {}
     for bossKey, b in pairs(DB().boss) do
         for el, o in pairs(b[name] or {}) do
@@ -1254,7 +1309,7 @@ HANDLERS.DZHERO = function(sender, msg)
     local name, key = strmatch(msg, "^DZHERO (%S+) (%a+)$")
     if not name or not MayEdit(sender, name) then return end
     for _, h in ipairs(D.HERO_WHEN) do
-        if h.key == key then DB().hero[name] = (key ~= "pull") and key or nil end
+        if h.key == key then DB().hero[name] = (key ~= "none") and key or nil end
     end
     Changed()
 end
@@ -1347,6 +1402,7 @@ local function BuildDemo()
     s.assign.Iridi = { 2, 1, 1, 3 }
     s.assign.Velaara = { 2, 2, 1, 3 }
     s.twist[me] = true
+    s.hero[me], s.hero.Velaara = "pull", "backup"
     s.es.Ornaar, s.es.Velaara = "Victhar", "Caelith"
     s.boss["SerpentshrineCavern:Hydross"] = {}
     for _, n in ipairs({ "Ornaar", me, "Iridi", "Velaara" }) do

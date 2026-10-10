@@ -123,6 +123,11 @@ assert 1 in [p[3] for p in plan.values()], "someone drops Windfury for the tanks
 assert vel.eval("return ns.Totems:GetES('Velaara')") == "Victhar", "Restoration shields the tank"
 assert kha.eval("return ns.Totems:GetES('Velaara')") == "Victhar"
 assert any(t.startswith("PASSIGN Iridi@") for t in texts(vic)), texts(vic)
+# Heroism is raid-wide: one caster (Enhancement first) and one backup, the rest don't cast it
+hero = {n: txt(vic.eval("return ns.Totems:GetHero(...)", n)) for n in ("Khaadun", "Iridi", "Velaara")}
+assert hero == {"Khaadun": "pull", "Iridi": "backup", "Velaara": "none"}, hero
+assert iri.eval("return ns.Totems:GetHero('Khaadun')") == "pull", "synced"
+assert iri.eval("return ns.Totems:MissesText(ns.Totems:Groups()[2]):find('Heroism') == nil") is True
 
 # twist, Earth Shield, Heroism timing and a boss change from the leader reach the shamans
 vic.eval("ns.Totems:SetAssign('Khaadun', 4, 1); ns.Totems:SetTwist('Khaadun', true)")

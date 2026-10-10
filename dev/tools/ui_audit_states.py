@@ -853,7 +853,7 @@ SIM_P1 = {1: 29073, 2: 28745, 3: 29075, 15: 24259, 5: 29071, 9: 28795, 10: 30644
           11: 28757, 12: 30834, 13: 29383, 14: 28830, 16: 28429, 18: 27484}
 
 
-def sim_mode(run=True, stale=False, picker=False, meta_off=False):
+def sim_mode(run=True, stale=False, picker=False, meta_off=False, running=False, nerd=None):
     """My BiS in Sim mode (UI/SimPanel.lua): Gina in WoWSims' P1 Ret gear, Hourglass in the Working set's Trinket 1,
     a short run against My gear; stale = a slot changed after the run; picker = Trinket 1's picker after Best."""
     def fn(w, c):
@@ -866,10 +866,21 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False):
                "ns.SimPanel:SetWorkingSlot(sid, ns.SimRunner:FillEntry(28034, sid)); "
                "ns.SimPanel:SetActive(true); ns.MyBiS:Refresh()")
         w.tick(0.3)
+        g.eval("ns.SimStage.holdAt = nil")
+        if running:
+            g.eval("ns.SimStage.holdAt = 0.62; ns.SimPanel:Run()")
+            for _ in range(40):
+                w.tick(0.05, 0.05)
+            return g
         if run:
             g.eval("ns.SimPanel:Run()")
             for _ in range(400):
                 if not g.eval("return ns.SimRunner:IsRunning()"):
+                    break
+                w.tick(0.05, 0.05)
+            # the stage's sweep, the flash and the moves into the result (UI/SimStage.lua)
+            for _ in range(80):
+                if g.eval("return ns.SimStage.mode ~= 'run' and next(ns.SimStage._tweens()) == nil"):
                     break
                 w.tick(0.05, 0.05)
         if meta_off:
@@ -887,6 +898,9 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False):
                 if not g.eval("return ns.SimRunner:IsRunning()"):
                     break
                 w.tick(0.05, 0.05)
+        if nerd:
+            g.eval("ns.SimNerd:Open('%s')" % nerd)
+            w.tick(0.8, 0.05)
         w.tick(0.3)
         return g
     return fn
@@ -1029,6 +1043,7 @@ STATES = [
      "28034, 28830, 28429, 0, 27484}) do if id > 0 then ns.BiS:SetSlot(1, sid, 'main', id) end end; "
      "ns.MyBiS:SetPhase(1, true); ns.MyBiS:Refresh()")),
     ("My BiS - Sim before run", sim_mode(run=False)),
+    ("My BiS - Sim running", sim_mode(running=True)),
     ("My BiS - Sim results", sim_mode()),
     ("My BiS - Sim stale", sim_mode(stale=True)),
     ("My BiS - Sim meta off", sim_mode(meta_off=True)),

@@ -25,10 +25,10 @@ local PAD, GAP = 10, 8
 local BANNER_H = 72
 local TABS_H = 24
 local GRID_W = 722               -- the Blessings planner's grid (cards to the last cell): both windows line up
-local CARD_W, ROW_H, ROW_GAP = 176, 50, 6
+local CARD_W, ROW_H, ROW_GAP = 170, 50, 6
 local GROUP_X, GROUP_W = CARD_W + GAP, 104
 local CELL_X, CELL_W, ICON = CARD_W + GAP + GROUP_W + 2, 58, 32
-local HERO_X, HERO_W = CELL_X + 4 * CELL_W + 6, 68
+local HERO_X, HERO_W = CELL_X + 4 * CELL_W + 6, 74
 local ES_X = HERO_X + HERO_W + 6
 local ES_W = GRID_W - ES_X
 -- boss changes: a rule across the width ("BOSS CHANGES 2 ---- +"), then chips from the left edge, 4 a line (the
@@ -369,7 +369,8 @@ local function BuildBanner(c)
     auto:HookScript("OnEnter", function(self)
         Tip(self, "Auto-assign", { "Gives every shaman you may change the totems their party wants: Windfury and "
             .. "Strength of Earth for melee (Enhancement twists Grace of Air in), Wrath of Air and Totem of Wrath for "
-            .. "casters, Mana Spring for all. Restoration shamans shield a tank each." })
+            .. "casters, Mana Spring for all. Restoration shamans shield a tank each. One shaman casts Heroism for "
+            .. "the raid, another backs up." })
     end)
     auto:HookScript("OnLeave", function() GameTooltip:Hide() end)
     bn.auto = auto
@@ -553,12 +554,14 @@ local function NewRow(c, i)
     hero.bg = Fill(hero:CreateTexture(nil, "BACKGROUND"), 0.1, 0.1, 0.118, 1)
     hero.bg:SetAllPoints()
     Edge(hero, 0.15, 0.15, 0.17, 1)
+    -- (stacked: the icon, the timing under it; centred so any label fits the narrow column)
     hero.icon = hero:CreateTexture(nil, "ARTWORK")
-    hero.icon:SetSize(24, 24)
-    hero.icon:SetPoint("LEFT", hero, "LEFT", 8, 0)
+    hero.icon:SetSize(22, 22)
+    hero.icon:SetPoint("TOP", hero, "TOP", 0, -6)
     hero.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    hero.text = Text(hero, 11, { 0.91, 0.91, 0.91 })
-    hero.text:SetPoint("LEFT", hero.icon, "RIGHT", 7, 0)
+    hero.text = Text(hero, 9.5, { 0.91, 0.91, 0.91 })
+    hero.text:SetPoint("TOP", hero.icon, "BOTTOM", 0, -3)
+    hero.text:SetJustifyH("CENTER")
     hero:RegisterForClicks("LeftButtonUp")
     hero:SetScript("OnClick", function(self)
         if row.name and not bossTab and T():CanEdit(row.name) then HeroMenu(self, row.name) end
@@ -568,7 +571,8 @@ local function NewRow(c, i)
         local h = T():GetHero(row.name)
         local long = ""
         for _, x in ipairs(T().D.HERO_WHEN) do if x.key == h then long = x.long end end
-        local lines = { long, strformat("Only reaches %s's party.", row.name) }
+        local lines = { long, "The whole raid gets it; Exhaustion stops a second one for 10 minutes, so one shaman casts it." }
+        if self.clash then tinsert(lines, { "Also set to cast: " .. self.clash, 1, 0.45, 0.4 }) end
         if T():CanEdit(row.name) and not bossTab then tinsert(lines, { "Click: when", 0.6, 0.6, 0.6 }) end
         Tip(self, T():HeroName(), lines)
     end)
@@ -899,7 +903,7 @@ function TUI:GroupTip(owner, sub)
             lines[#lines + 1] = { m.name .. (m.tank and " · tank" or ""), r, g, b }
         end
     end
-    lines[#lines + 1] = { "Totems and Heroism only reach this party.", 0.6, 0.6, 0.6 }
+    lines[#lines + 1] = { "Totems only reach this party.", 0.6, 0.6, 0.6 }
     Tip(owner, "Group " .. sub, lines)
 end
 
@@ -1085,6 +1089,7 @@ function TUI:Refresh()
 
     local rowsTop = headY + 20
     local inGroup = Tm:InGroup()
+    local heroCasters = Tm:HeroCasters(roster)
     for i, e in ipairs(entries) do
         local row = frame.rows[i]
         if not row then
@@ -1190,9 +1195,22 @@ function TUI:Refresh()
             local htext = "Pull"
             for _, x in ipairs(Tm.D.HERO_WHEN) do if x.key == hk then htext = x.text end end
             row.hero.text:SetText(htext)
+            row.hero.icon:ClearAllPoints()
+            if htext == "" then row.hero.icon:SetPoint("CENTER", row.hero, "CENTER", 0, 0)
+            else row.hero.icon:SetPoint("TOP", row.hero, "TOP", 0, -6) end
             row.hero.icon:SetAlpha(bossTab and 0.4 or 1)
             row.hero.text:SetAlpha(bossTab and 0.55 or 1)
-            row.hero.icon:SetDesaturated(hk == "none" or bossTab ~= nil)
+            row.hero.icon:SetDesaturated(not Tm:HeroCasts(hk) or bossTab ~= nil)
+            if hk == "none" then row.hero.icon:SetAlpha(0.3) end
+            -- two shamans set to cast it: only one counts (red edge on both, like two auras in one party)
+            row.hero.clash = nil
+            if Tm:HeroCasts(hk) then
+                for _, other in ipairs(heroCasters) do
+                    if other ~= name then row.hero.clash = other end
+                end
+            end
+            if row.hero.clash then UI():SetEdgeColor(row.hero, RED[1], RED[2], RED[3], 1)
+            else UI():SetEdgeColor(row.hero, 0.15, 0.15, 0.17, 1) end
             -- Earth Shield
             local es = row.es
             es.can = s.es and true or false

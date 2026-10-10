@@ -1,9 +1,10 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SimPanel.lua", ...) then return end -- DisasterZone: UI/SimPanel.lua
--- ns.SimPanel: My BiS in Sim mode (the Sim button in the top bar). The slots show a Working set (a copy of the gear
--- you wear to start with) that you change slot by slot; the centre runs the gear sim (Sim/*.lua, ns.SimRunner) for it
--- against My gear or a My BiS phase, on the same random rolls, and shows the difference, the damage by ability and
--- the key stats. A slot click opens My BiS's item picker (UI/Picker.lua) for the Working set: your gear and bags on
--- top, then every source, and "Best for this slot" sims what it lists. Runs only when asked (the Run sim button).
+-- ns.SimPanel: the Gear sim page (My BiS's panel in Sim mode). The slots show a Working set (a copy of the gear you
+-- wear to start with) that you change slot by slot; a run sims it (Sim/*.lua, ns.SimRunner) against My gear or a
+-- My BiS phase on the same random rolls. This file holds the state, the settings and the runs; UI/SimStage.lua draws
+-- the page (the sigil, the settings sentence, the result) and UI/SimNerd.lua the Nerd stats. A slot click opens My
+-- BiS's item picker (UI/Picker.lua) for the Working set: your gear and bags on top, then every source, and "Best for
+-- this slot" sims what it lists. Runs only when asked (a click on the sigil).
 local _, ns = ...
 
 local SimPanel = {}
@@ -15,11 +16,6 @@ local GOLD = { 0.89, 0.70, 0.24 }
 local GREEN = { 0.31, 0.83, 0.42 }
 local RED = { 0.88, 0.38, 0.31 }
 local GREY = { 0.56, 0.56, 0.59 }
-local CARD_BG = { 0.085, 0.085, 0.1, 0.96 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
-local BAR_BG = { 0.15, 0.15, 0.17, 1 }
-local BAR_FG = { 0.79, 0.65, 0.25, 1 }
-local MAX_ABILITIES = 6
 SimPanel.PICK_ITERATIONS = 300
 SimPanel.MAX_PICK_RUN = 30
 
@@ -30,6 +26,7 @@ local state = {
   results = nil,       -- the last run: { work = summary, ref = summary, diff, se, at }
   stale = true,
   running = false,
+  serial = 0,          -- +1 for every finished run (the stage tells a finished run from a stopped one)
 }
 local card
 
@@ -60,8 +57,9 @@ local DEFAULTS = { buffs = "raid25", duration = 180, mobType = "Mechanical" }
 local function Settings()
   local s = Saved()
   return { buffs = s.buffs or DEFAULTS.buffs, duration = s.duration or DEFAULTS.duration,
-    mobType = s.mobType or DEFAULTS.mobType }
+    mobType = s.mobType or DEFAULTS.mobType, fights = s.fights or ns.SimRunner.DEFAULT_ITERATIONS }
 end
+SimPanel.FIGHTS = { { n = 300, text = "Quick" }, { n = 1000, text = "Normal" }, { n = 3000, text = "Precise" } }
 local function SetSetting(key, v) Saved(true)[key] = v end
 
 local function SaveWorking()
@@ -230,9 +228,12 @@ local function RunSettings()
   local s = Settings()
   return { buffs = s.buffs, duration = s.duration, mobType = s.mobType, talents = (R():Talents()) }
 end
+SimPanel.Settings = Settings
 
 -- The card's settings for a run (the consumables view sims with them too).
 function SimPanel:RunSettings() return RunSettings() end
+
+local function Now() return debugprofilestop and debugprofilestop() or ((GetTime and GetTime() or 0) * 1000) end
 
 function SimPanel:Run()
   if state.running then
@@ -242,13 +243,19 @@ function SimPanel:Run()
     return
   end
   if not R():IsSupported() then return end
+  local fights = Settings().fights
   state.running = true
-  state.progress = 0
+  state.progress, state.paused, state.total = 0, false, fights
+  local info = { started = Now(), frames = 0, pausedEver = false, fights = fights }
+  state.info = info
   local ok, err = R():Start({ { key = "work", set = self:Working() }, { key = "ref", set = self:TargetSet() } }, {
+    iterations = fights,
     settings = RunSettings(),
     onProgress = function(done, total, paused)
       state.progress, state.paused = done / max(1, total), paused
-      self:UpdateProgress()
+      info.frames = info.frames + 1
+      if paused then info.pausedEver = true end
+      info.simmed = total
     end,
     onCancel = function()
       state.running = false
@@ -260,8 +267,13 @@ function SimPanel:Run()
         ns:Print("The gear sim stopped: %s", tostring(e))
       else
         local d, se = res.diff("work", "ref")
-        state.results = { work = res.work, ref = res.ref, diff = d, se = se, target = state.target }
+        info.ms = Now() - info.started
+        info.cached = res.cached
+        info.settings = RunSettings()
+        state.results = { work = res.work, ref = res.ref, diff = d, se = se, target = state.target, info = info }
         state.stale = false
+        state.serial = state.serial + 1
+        if info.simmed and info.simmed > 0 and info.ms > 0 then state.msPerFight = info.ms / info.simmed end
       end
       self:UpdateCard()
     end,
@@ -273,22 +285,16 @@ function SimPanel:Run()
   self:UpdateCard()
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- The centre card
--- ---------------------------------------------------------------------------------------------------------------
-local FONT = (GameFontNormal and GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
-
-local function Text(parent, size, color, justify)
-  local fs = parent:CreateFontString(nil, "OVERLAY")
-  fs:SetFont(FONT, size, "")
-  fs:SetShadowOffset(1, -1)
-  fs:SetShadowColor(0, 0, 0, 0.8)
-  if color then fs:SetTextColor(color[1], color[2], color[3]) end
-  fs:SetJustifyH(justify or "LEFT")
-  fs:SetWordWrap(false)
-  return fs
+-- The Working set's fights simmed so far in the running (or last) run, and the run's fight count.
+function SimPanel:LiveList()
+  local list = R().LiveList and R():LiveList("work")
+  if not list and state.results then list = state.results.work.iterDps end
+  return list, state.total or (state.results and state.results.work.iterations)
 end
 
+-- ---------------------------------------------------------------------------------------------------------------
+-- The page (UI/SimStage.lua draws it)
+-- ---------------------------------------------------------------------------------------------------------------
 local function Fmt(v)
   v = floor(v + 0.5)
   local s = tostring(abs(v))
@@ -305,182 +311,149 @@ local function Signed(v)
   if v >= 0.5 then return "+" .. Fmt(v) elseif v <= -0.5 then return "\226\136\146" .. Fmt(v) end
   return "0"
 end
+SimPanel.Signed = Signed
 
-function SimPanel:CreateCard(parent, w, h)
-  local UI = ns.UI
-  local c = CreateFrame("Frame", nil, parent)
-  c:SetAllPoints(parent)
-  c:Hide()
-  card = c
-  local bg = c:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints()
-  bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-  local PADX = 13
+local function Duration(d) return ("%d:%02d"):format(floor(d / 60), d % 60) end
+local function MobText(key)
+  for _, m in ipairs(R().MOB_TYPES) do if m.key == key then return m.text, m end end
+  return key
+end
 
-  c.cap = Text(c, 9, GREY)
-  c.cap:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -11)
-  c.cap:SetText("WORKING SET")
+-- body: the page's body; doll: the paper doll (the Working set).
+function SimPanel:CreateCard(body, doll)
+  card = ns.SimStage:Create(body, doll)
+  return card
+end
 
-  c.big = Text(c, 30, { 0.94, 0.94, 0.94 })
-  c.big:SetPoint("TOPLEFT", c.cap, "BOTTOMLEFT", -1, -4)
-  c.unit = Text(c, 12, GREY)
-  c.unit:SetPoint("BOTTOMLEFT", c.big, "BOTTOMRIGHT", 4, 3)
-  c.unit:SetText("DPS")
+-- The settings' words for the sentence and the chip.
+function SimPanel:SettingWords()
+  local s = Settings()
+  local n = 0
+  if R():IsSupported() then for _ in pairs(self:Changed()) do n = n + 1 end end
+  local buffs = (R():BuffName(s.buffs))
+  local mob = MobText(s.mobType)
+  return {
+    changes = n, target = self:TargetText(), fights = Fmt(s.fights) .. " fights", duration = Duration(s.duration),
+    boss = "level 73 " .. mob, buffs = buffs,
+    chip = ("%s \195\151 %s  \194\183  Lv 73 %s  \194\183  %s"):format(Fmt(s.fights), Duration(s.duration), mob, buffs),
+    chipShort = ("%s \195\151 %s  \194\183  %s  \194\183  %s"):format(Fmt(s.fights), Duration(s.duration), mob, buffs),
+  }
+end
 
-  c.vs = Text(c, 11, { 0.66, 0.66, 0.66 })
-  c.vs:SetPoint("TOPLEFT", c.big, "BOTTOMLEFT", 1, -12)
-  c.vs:SetText("vs")
-  c.target = UI:CreateSleekDropdown(c, 92, function()
-    local opts = { { value = "gear", text = "My gear" } }
-    for p = 0, (ns.MAX_PHASE or 5) do
-      opts[#opts + 1] = { value = tostring(p), text = SimPanel:TargetText(p) }
-    end
-    return opts
-  end, function() return tostring(state.target) end, function(v)
-    state.target = (v == "gear") and "gear" or tonumber(v)
-    state.stale = true
-    if ns.MyBiS then ns.MyBiS:Refresh() end
-  end)
-  c.target:SetHeight(20)
-  c.target:SetPoint("LEFT", c.vs, "RIGHT", 5, 0)
-  c.refValue = Text(c, 11, { 0.66, 0.66, 0.66 })
-  c.refValue:SetPoint("LEFT", c.target, "RIGHT", 6, 0)
+-- About how long a run of n fights takes (both sets), from the last run's speed.
+function SimPanel:EstimateText(n)
+  local ms = state.msPerFight
+  if not ms then return nil end
+  local sec = ms * n * 2 / 1000
+  if sec < 1.5 then return "about a second" end
+  if sec < 90 then return ("about %d s"):format(floor(sec + 0.5)) end
+  return ("about %d min"):format(floor(sec / 60 + 0.5))
+end
 
-  c.delta = Text(c, 16, GREY)
-  c.delta:SetPoint("TOPLEFT", c.vs, "BOTTOMLEFT", 0, -13)
-  c.sure = Text(c, 9, GREY)
-  c.sure:SetPoint("BOTTOMLEFT", c.delta, "BOTTOMRIGHT", 6, 1)
-  c.sure:SetPoint("RIGHT", c, "RIGHT", -PADX, 0)
-  c.sureHit = CreateFrame("Frame", nil, c)
-  c.sureHit:SetAllPoints(c.sure)
-  c.sureHit:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("How sure", 1, 0.82, 0)
-    GameTooltip:AddLine("The real difference is within this range of the number shown, 19 times out of 20. "
-      .. "\"within\" means the two sets are too close to call: run more fights or call it a tie.", 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  c.sureHit:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-  c.run = UI:CreateSleekButton(c, "Run sim", w - 2 * PADX, 28, function() SimPanel:Run() end, "primary")
-  c.run:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -116)
-  c.run:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Run sim", 1, 0.82, 0)
-    GameTooltip:AddLine(("Simulates %s fights of each set with the same random rolls. Paused while you are in "
-      .. "combat."):format(Fmt(R().DEFAULT_ITERATIONS)), 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  c.run:HookScript("OnLeave", function() GameTooltip:Hide() end)
-
-  c.progress = c:CreateTexture(nil, "OVERLAY")
-  c.progress:SetPoint("TOPLEFT", c.run, "BOTTOMLEFT", 0, -2)
-  c.progress:SetHeight(2)
-  c.progress:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-  c.sub = Text(c, 9, GREY, "CENTER")
-  c.sub:SetPoint("TOP", c.run, "BOTTOM", 0, -7)
-  c.sub:SetWidth(w - 2 * PADX)
-
-  c.sect1 = Text(c, 9, GREY)
-  c.sect1:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -170)
-  c.sect1:SetText("WHERE THE DAMAGE COMES FROM")
-  c.rows = {}
-  for i = 1, MAX_ABILITIES do
-    local r = CreateFrame("Frame", nil, c)
-    r:SetSize(w - 2 * PADX, 21)
-    r:SetPoint("TOPLEFT", c.sect1, "BOTTOMLEFT", 0, -5 - (i - 1) * 22)
-    r.name = Text(r, 11, { 0.85, 0.85, 0.85 })
-    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
-    r.delta = Text(r, 10, GREY, "RIGHT")
-    r.delta:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, -1)
-    r.delta:SetWidth(30)
-    r.value = Text(r, 11, { 0.9, 0.9, 0.9 }, "RIGHT")
-    r.value:SetPoint("TOPRIGHT", r, "TOPRIGHT", -32, 0)
-    r.value:SetWidth(44)
-    r.name:SetPoint("RIGHT", r.value, "LEFT", -4, 0)
-    r.track = r:CreateTexture(nil, "ARTWORK")
-    r.track:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 2)
-    r.track:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 2)
-    r.track:SetHeight(2)
-    r.track:SetColorTexture(BAR_BG[1], BAR_BG[2], BAR_BG[3], BAR_BG[4])
-    r.bar = r:CreateTexture(nil, "OVERLAY")
-    r.bar:SetPoint("BOTTOMLEFT", r.track, "BOTTOMLEFT", 0, 0)
-    r.bar:SetHeight(2)
-    r.bar:SetColorTexture(BAR_FG[1], BAR_FG[2], BAR_FG[3], BAR_FG[4])
-    c.rows[i] = r
-  end
-
-  c.sect2 = Text(c, 9, GREY)
-  c.sect2:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -318)
-  c.sect2:SetText("STATS")
-  c.stats = {}
-  for i = 1, 4 do
-    local fs = Text(c, 10, { 0.8, 0.8, 0.8 })
-    local col, row = (i - 1) % 2, floor((i - 1) / 2)
-    local leftW = floor((w - 2 * PADX) * 0.44)
-    fs:SetPoint("TOPLEFT", c.sect2, "BOTTOMLEFT", col * leftW, -5 - row * 15)
-    fs:SetWidth(col == 0 and leftW - 4 or (w - 2 * PADX) - leftW)
-    c.stats[i] = fs
-  end
-
-  c.note = Text(c, 10, GREY, "CENTER")
-  c.note:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -176)
-  c.note:SetPoint("TOPRIGHT", c, "TOPRIGHT", -PADX, -176)
-  c.note:SetWordWrap(true)
-
-  -- settings: buffs, fight length, boss type
-  local function dd(width, options, get, set, tipFn)
-    local b = UI:CreateSleekDropdown(c, width, options, get, function(v)
-      set(v)
-      state.stale = true
-      SimPanel:UpdateCard()
-    end)
-    b:SetHeight(20)
-    if tipFn then
-      b:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        tipFn(GameTooltip)
-        GameTooltip:Show()
-      end)
-      b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    end
-    return b
-  end
-  local inner = w - 2 * PADX
-  local half = floor((inner - 4) / 2)
-  -- buffs: WoWSims' setups, my presets, my teams' lineups (ns.SimBuffs; the editor is UI/SimBuffs.lua)
-  c.buffs = UI:CreateSleekMenuButton(c, "", inner, function(root) SimPanel:BuildBuffsMenu(root) end, 20)
-  function c.buffs:Refresh() self:SetText((R():BuffName(Settings().buffs))) end
-  c.buffs:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    SimPanel:BuffsTooltip(GameTooltip, Settings().buffs)
-    GameTooltip:Show()
-  end)
-  c.buffs:HookScript("OnLeave", function() GameTooltip:Hide() end)
-  c.buffs:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", PADX, 34)
-  c.duration = dd(half, function()
-    local o = {}
-    for _, d in ipairs(R().DURATIONS) do o[#o + 1] = { value = d, text = ("%d:%02d"):format(floor(d / 60), d % 60) } end
-    return o
-  end, function() return Settings().duration end, function(v) SetSetting("duration", v) end, function(tt)
+SimPanel.WordTip = {
+  working = function(tt)
+    tt:AddLine("Working set", 1, 0.82, 0)
+    tt:AddLine("The gear the sim tries: your own to start with. After a run its slots show on both sides; click one "
+      .. "to try another item.", 1, 1, 1, true)
+  end,
+  target = function(tt)
+    tt:AddLine("Compared with", 1, 0.82, 0)
+    tt:AddLine("Both sets fight the same fights, roll for roll, so the difference is the gear alone.", 1, 1, 1, true)
+  end,
+  fights = function(tt)
+    tt:AddLine("Fights", 1, 0.82, 0)
+    tt:AddLine("More fights pin the average down closer (the \194\177 shrinks) but take longer.", 1, 1, 1, true)
+  end,
+  duration = function(tt)
     tt:AddLine("Fight length", 1, 0.82, 0)
     tt:AddLine("Longer fights spread cooldowns, drums and potions thinner over the fight.", 1, 1, 1, true)
-  end)
-  c.duration:SetPoint("TOPLEFT", c.buffs, "BOTTOMLEFT", 0, -4)
-  c.mob = dd(inner - half - 4, function()
-    local o = {}
-    for _, m in ipairs(R().MOB_TYPES) do o[#o + 1] = { value = m.key, text = m.text } end
-    return o
-  end, function() return Settings().mobType end, function(v) SetSetting("mobType", v) end, function(tt)
-    for _, m in ipairs(R().MOB_TYPES) do
-      if m.key == Settings().mobType then
-        tt:AddLine("Boss type: " .. m.text, 1, 0.82, 0)
-        tt:AddLine(m.tip, 1, 1, 1, true)
-      end
+  end,
+  mob = function(tt)
+    local _, m = MobText(Settings().mobType)
+    tt:AddLine("Boss type", 1, 0.82, 0)
+    tt:AddLine(m and m.tip or "", 1, 1, 1, true)
+  end,
+  buffs = function(tt) SimPanel:BuffsTooltip(tt, Settings().buffs) end,
+}
+
+local function SettingChanged()
+  state.stale = true
+  SimPanel:UpdateCard()
+end
+
+-- One setting's menu (a word of the sentence, or a submenu of the chip's menu).
+function SimPanel:BuildSettingMenu(root, key)
+  local close = MenuResponse and MenuResponse.Close or nil
+  if key == "working" then
+    root:CreateTitle("Working set")
+    root:CreateButton("Start over from my gear", function() self:ResetTo(R():EquippedSet()) end)
+    local p = Phase()
+    local label = "My BiS " .. (ns.PhaseLabel and ns.PhaseLabel(p) or ("P" .. p))
+    root:CreateButton("Start over from " .. label, function() self:ResetTo(R():BiSSet(p, List())) end)
+  elseif key == "target" then
+    root:CreateTitle("Compare with")
+    local function isSel(v) return tostring(state.target) == v end
+    local function pick(v)
+      state.target = (v == "gear") and "gear" or tonumber(v)
+      state.stale = true
+      if ns.MyBiS then ns.MyBiS:Refresh() end
+      self:UpdateCard()
+      return close
     end
-  end)
-  c.mob:SetPoint("LEFT", c.duration, "RIGHT", 4, 0)
-  return c
+    root:CreateRadio("My gear", isSel, pick, "gear")
+    for p = 0, (ns.MAX_PHASE or 5) do root:CreateRadio(self:TargetText(p), isSel, pick, tostring(p)) end
+  elseif key == "fights" then
+    root:CreateTitle("Fights")
+    local function isSel(v) return Settings().fights == v end
+    local function pick(v) SetSetting("fights", v); SettingChanged(); return close end
+    for _, f in ipairs(SimPanel.FIGHTS) do
+      local e = root:CreateRadio(("%s  \194\183  %s"):format(f.text, Fmt(f.n)), isSel, pick, f.n)
+      local est = self:EstimateText(f.n)
+      if est and e.SetHint then e:SetHint(est) end
+    end
+  elseif key == "duration" then
+    root:CreateTitle("Fight length")
+    local function isSel(v) return Settings().duration == v end
+    local function pick(v) SetSetting("duration", v); SettingChanged(); return close end
+    for _, d in ipairs(R().DURATIONS) do root:CreateRadio(Duration(d), isSel, pick, d) end
+  elseif key == "mob" then
+    root:CreateTitle("Boss type")
+    local function isSel(v) return Settings().mobType == v end
+    local function pick(v) SetSetting("mobType", v); SettingChanged(); return close end
+    for _, m in ipairs(R().MOB_TYPES) do
+      local e = root:CreateRadio(m.text, isSel, pick, m.key)
+      e:SetTooltip(function(tt) tt:AddLine(m.text, 1, 0.82, 0) tt:AddLine(m.tip, 1, 1, 1, true) end)
+    end
+  elseif key == "buffs" then
+    self:BuildBuffsMenu(root)
+  end
+end
+
+-- The result chip's menu: every setting as a submenu.
+function SimPanel:BuildSettingsMenu(root)
+  local w = self:SettingWords()
+  root:CreateTitle("Settings")
+  local function sub(label, value, key)
+    local e = root:CreateButton(label .. "  |cff8f8f95" .. value .. "|r")
+    self:BuildSettingMenu(e, key)
+  end
+  sub("Compare with", w.target, "target")
+  sub("Fights", Fmt(Settings().fights), "fights")
+  sub("Fight length", w.duration, "duration")
+  sub("Boss", (MobText(Settings().mobType)), "mob")
+  sub("Buffs", w.buffs, "buffs")
+  root:CreateDivider()
+  sub("Working set", w.changes == 1 and "1 change" or (w.changes .. " changes"), "working")
+end
+
+-- "Meta gem off: needs ..." when a set's meta gem is switched off (it explains a drop the stats alone don't).
+function SimPanel:MetaWarning()
+  local _, workMeta = R():MetaOff(self:Working())
+  local _, refMeta = R():MetaOff(self:TargetSet())
+  if not (workMeta or refMeta) then return nil end
+  local where = (workMeta and refMeta) and "Both sets: " or (workMeta and "" or (self:TargetText() .. ": "))
+  local need = (workMeta or refMeta):gsub("^at least ", ""):gsub(" gems$", ""):gsub(" and ", ", ")
+  return ("%sMeta gem off: needs %s"):format(where, need)
 end
 
 -- The buffs menu: WoWSims' three, my presets (edit on the right), my teams' lineups (where I stand on the right; a
@@ -566,127 +539,14 @@ function SimPanel:BuffsTooltip(tt, key)
 end
 
 function SimPanel:ShowCard(on)
-  if card then card:SetShown(on and true or false) end
-  if on then self:UpdateCard() end
+  if ns.SimStage then ns.SimStage:Show(on) end
 end
 
-function SimPanel:UpdateProgress()
-  if not card then return end
-  local w = card.run:GetWidth() or 200
-  if state.running then
-    card.progress:Show()
-    card.progress:SetWidth(max(1, w * (state.progress or 0)))
-    card.sub:SetText(state.paused and "Paused while you are in combat"
-      or ("Simming...  %d%%"):format(floor((state.progress or 0) * 100)))
-  else
-    card.progress:Hide()
-  end
-end
+function SimPanel:UpdateProgress() end
 
 function SimPanel:UpdateCard()
-  local c = card
-  if not c or not c:IsShown() then return end
-  local supported = R():IsSupported()
-  local res = state.results
-  c.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
-  c.run:SetText(state.running and "Cancel" or "Run sim")
-  if c.run.SetKind then c.run:SetKind(state.running and "secondary" or "primary") end
-  c.run:SetEnabled(supported and true or false)
-  c.target:Refresh()
-  c.buffs:Refresh(); c.duration:Refresh(); c.mob:Refresh()
-
-  local function showRows(on)
-    c.sect1:SetShown(on); c.sect2:SetShown(on)
-    for _, r in ipairs(c.rows) do r:SetShown(on) end
-    for _, s in ipairs(c.stats) do s:SetShown(on) end
-  end
-  if not supported then
-    c.big:SetText("\226\128\148"); c.delta:SetText(""); c.sure:SetText(""); c.refValue:SetText("")
-    showRows(false)
-    c.note:Show()
-    c.note:SetText(("The gear sim covers %s for now. Switch to such a list to sim it."):format(R().COVERED))
-    c.sub:SetText("")
-    self:UpdateProgress()
-    return
-  end
-  if not res then
-    c.big:SetText("\226\128\148"); c.delta:SetText(""); c.sure:SetText(""); c.refValue:SetText("")
-    showRows(false)
-    c.note:Show()
-    c.note:SetText(("Change slots on the left and right, then Run sim: it compares your Working set with %s.")
-      :format(self:TargetText()))
-    c.sub:SetText(("%s fights  ·  same rolls for both sets"):format(Fmt(R().DEFAULT_ITERATIONS)))
-    self:UpdateProgress()
-    return
-  end
-  c.note:Hide()
-  showRows(true)
-  local stale = state.stale and not state.running
-  local fade = stale and 0.45 or 1
-  c.big:SetText(Fmt(res.work.dps))
-  c.big:SetAlpha(fade)
-  c.refValue:SetText(Fmt(res.ref.dps))
-  local d, se = res.diff, res.se
-  local color = (abs(d) < 2 * se) and GREY or (d > 0 and GREEN or RED)
-  local pct = d / res.ref.dps * 100
-  c.delta:SetText(Signed(d) .. " DPS  " .. (pct >= 0 and "+" or "\226\136\146") .. ("%.1f%%"):format(abs(pct)))
-  c.delta:SetTextColor(color[1], color[2], color[3])
-  c.delta:SetAlpha(fade)
-  c.sure:SetText((abs(d) < 2 * se and "within \194\177" or "\194\177") .. Fmt(2 * se))
-  local _, workMeta = R():MetaOff(self:Working())
-  local _, refMeta = R():MetaOff(self:TargetSet())
-  if stale then
-    c.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
-    c.sub:SetText("Changed since the last run: Run sim again")
-  elseif workMeta or refMeta then
-    -- a meta gem switched off explains a drop the stats alone don't
-    c.sub:SetTextColor(1, 0.55, 0.2)
-    local where = (workMeta and refMeta) and "Both sets: " or (workMeta and "" or (self:TargetText() .. ": "))
-    local need = (workMeta or refMeta):gsub("^at least ", ""):gsub(" gems$", ""):gsub(" and ", ", ")
-    c.sub:SetText(("%sMeta gem off: needs %s"):format(where, need))
-  else
-    c.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
-    c.sub:SetText(("%s fights  ·  same rolls for both sets"):format(Fmt(res.work.iterations)))
-  end
-  -- abilities
-  local work, ref = R():Breakdown(res.work), R():Breakdown(res.ref)
-  local refBy = {}
-  for _, a in ipairs(ref) do refBy[a.name] = a.dps end
-  local top = work[1] and work[1].dps or 1
-  local rw = c.rows[1]:GetWidth() or 200
-  for i, r in ipairs(c.rows) do
-    local a = work[i]
-    if a then
-      r:Show()
-      r.name:SetText(a.name)
-      r.value:SetText(Fmt(a.dps))
-      local dd = a.dps - (refBy[a.name] or 0)
-      r.delta:SetText(abs(dd) < 0.5 and "\194\183" or Signed(dd))
-      local col = abs(dd) < 0.5 and GREY or (dd > 0 and GREEN or RED)
-      r.delta:SetTextColor(col[1], col[2], col[3])
-      r.bar:SetWidth(max(1, rw * a.dps / top))
-      r:SetAlpha(fade)
-    else
-      r:Hide()
-    end
-  end
-  -- stats (the Working set's, buffs included, before procs)
-  local ST = ns.GearSim.ST
-  local st = res.work.stats or {}
-  local hit = st[ST.PhysicalHitPercent] or 0
-  local cfg = R():BuffConfig(Settings().buffs)
-  local iff = cfg and cfg.debuffs and (cfg.debuffs.faerieFire == 2)
-  local hitCap = 9 - (iff and 3 or 0)  -- Improved Faerie Fire covers 3%
-  local expertise = floor((st[ST.ExpertiseRating] or 0) / ns.GearSim.EXPERTISE_PER_QUARTER)
-  local function line(fs, label, value, col)
-    fs:SetText("|cff8f8f95" .. label .. "|r  " .. value)
-    fs:SetAlpha(fade)
-  end
-  line(c.stats[1], "Hit", hit >= hitCap and "|cff4fd36bcapped|r" or ("%.1f%% of %d%%"):format(hit, hitCap))
-  line(c.stats[2], "Expertise", tostring(expertise))
-  line(c.stats[3], "Crit", ("%.1f%%"):format(st[ST.PhysicalCritPercent] or 0))
-  line(c.stats[4], "Attack power", Fmt(st[ST.AttackPower] or 0))
-  self:UpdateProgress()
+  if ns.SimStage then ns.SimStage:Sync(true) end
+  if ns.SimNerd and ns.SimNerd.Refresh then ns.SimNerd:Refresh() end
 end
 
 -- ---------------------------------------------------------------------------------------------------------------

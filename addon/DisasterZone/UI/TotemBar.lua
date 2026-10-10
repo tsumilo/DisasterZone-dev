@@ -879,7 +879,7 @@ function Bar:HeaderTip(b, which)
         for _, x in ipairs(Tm.D.HERO_WHEN) do
             if x.key == h then GameTooltip:AddLine("Plan: " .. x.long, 0.85, 0.85, 0.85) end
         end
-        GameTooltip:AddLine("Only your party gets it.", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine("The whole raid gets it; one shaman casts it.", 0.6, 0.6, 0.6)
     else
         GameTooltip:AddLine(Tm:TotemName(3, 3) or "Mana Tide")
         GameTooltip:AddLine("Your party's mana, 5 min cooldown", 0.85, 0.85, 0.85)

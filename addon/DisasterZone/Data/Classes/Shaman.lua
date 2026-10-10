@@ -92,12 +92,15 @@ ns.ClassData.SHAMAN = {
 
     HEROISM = 32182, HEROISM_ICON = ICON .. "Ability_Shaman_Heroism",          -- Alliance (Draenei)
     BLOODLUST = 2825, BLOODLUST_ICON = ICON .. "Spell_Nature_Bloodlust",        -- Horde
-    -- when to use it (synced among DisasterZone users only)
+    -- Heroism / Bloodlust reach the whole raid on the Anniversary client, and Exhaustion / Sated stops a second one
+    -- for 10 minutes: one shaman casts it (pull, execute or on call), another can be the backup if they die, the rest
+    -- don't. Synced among DisasterZone users only (DZHERO).
     HERO_WHEN = {
-        { key = "pull", text = "Pull", long = "On the pull" },
-        { key = "execute", text = "< 30%", long = "When the boss is under 30%" },
-        { key = "call", text = "On call", long = "When the leader calls it" },
-        { key = "none", text = "Keep", long = "Not this fight" },
+        { key = "pull", text = "Pull", long = "Casts it on the pull", casts = true },
+        { key = "execute", text = "< 30%", long = "Casts it when the boss is under 30%", casts = true },
+        { key = "call", text = "On call", long = "Casts it when the leader calls it", casts = true },
+        { key = "backup", text = "Backup", long = "Casts it only if the one who should is dead" },
+        { key = "none", text = "", long = "Doesn't cast it (someone else does)" },
     },
 
     EARTH_SHIELD = 974, EARTH_SHIELD_ICON = ICON .. "Spell_Nature_SkinofEarth", EARTH_SHIELD_CHARGES = 6,
