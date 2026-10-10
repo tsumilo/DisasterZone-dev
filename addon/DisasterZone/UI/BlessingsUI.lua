@@ -25,7 +25,12 @@ local BANNER_H = 72
 local CARD_W, ROW_H, ROW_GAP = 192, 54, 6
 local CELL_W, ICON = 58, 32
 local HEAD_H = 52
-local CHIP_W, CHIP_H, CHIP_PITCH = 156, 36, 162
+-- exceptions: a rule across the width ("EXCEPTIONS 12 ---- +"), then chips from the left edge, 4 a line
+local EXC_W = CARD_W + GAP + 9 * CELL_W - 2        -- the grid's width (cards to the last cell)
+local RULE_H, CHIP_PER = 22, 4
+local CHIP_H = 36
+local CHIP_W = floor((EXC_W - (CHIP_PER - 1) * 6) / CHIP_PER)
+local CHIP_PITCH = CHIP_W + 6
 local PALETTE = { 3, 2, 1, 4, 5, 6 }
 local PAL_PINK = { 0.96, 0.55, 0.73 }
 local GOLD = { 1, 0.82, 0 }
@@ -632,20 +637,26 @@ local function Build()
     frame.chips = {}
     frame.excCap = Text(c, 9.5, GREY)
     frame.excCap:SetText("EXCEPTIONS")
-    frame.excHint = Text(c, 10, GREY)
-    frame.excHint:SetWordWrap(true)
-    frame.excHint:SetWidth(CARD_W - 6)
-    frame.excHint:SetText("One player gets another blessing")
+    frame.excCount = Text(c, 10, { 0.47, 0.47, 0.5 })
+    frame.excRule = c:CreateTexture(nil, "ARTWORK")
+    frame.excRule:SetTexture(WHITE8)
+    frame.excRule:SetHeight(1)
+    if frame.excRule.SetGradient and CreateColor then
+        frame.excRule:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 0.14), CreateColor(1, 1, 1, 0.04))
+    else
+        frame.excRule:SetVertexColor(1, 1, 1, 0.08)
+    end
     local add = CreateFrame("Button", nil, c)
-    add:SetSize(CHIP_H, CHIP_H)
+    add:SetSize(RULE_H, RULE_H)
     Edge(add, 0.24, 0.24, 0.27, 1)
-    add.plus = Text(add, 16, { 0.55, 0.55, 0.58 })
+    add.plus = Text(add, 15, { 0.6, 0.6, 0.64 })
     add.plus:SetPoint("CENTER", 0, 1)
     add.plus:SetText("+")
     add:SetScript("OnClick", function(self) AddExceptionMenu(self) end)
     add:SetScript("OnEnter", function(self)
         UI():SetEdgeColor(self, 1, 0.82, 0, 0.9)
-        Tip(self, "Add an exception", { "One player gets a single blessing from a paladin instead of the class one." })
+        Tip(self, "Add an exception", { "One player gets a single blessing from a paladin instead of the class one, "
+            .. "e.g. tanks on Light instead of Salvation. Or drop a blessing here." })
     end)
     add:SetScript("OnLeave", function(self)
         UI():SetEdgeColor(self, 0.24, 0.24, 0.27, 1)
@@ -847,16 +858,25 @@ function BUI:Refresh()
     frame.emptyTitle:SetShown(#pals == 0)
     frame.emptyText:SetShown(#pals == 0)
 
-    -- exceptions
+    -- exceptions: the rule ("EXCEPTIONS 12 ---- +"), then the chips under it from the left edge
     local rowsH = max(1, #pals) * (ROW_H + ROW_GAP)
     local ey = PAD + BANNER_H + HEAD_H + 8 + rowsH + 6
-    frame.excCap:ClearAllPoints()
-    frame.excCap:SetPoint("TOPLEFT", c, "TOPLEFT", PAD + 2, -(ey + 2))
-    frame.excHint:ClearAllPoints()
-    frame.excHint:SetPoint("TOPLEFT", c, "TOPLEFT", PAD + 2, -(ey + 16))
     local ex = Bl:Exceptions()
-    local x0 = PAD + CARD_W + GAP
-    local perLine = 3
+    local x0 = PAD
+    local perLine = CHIP_PER
+    local mid = -(ey + RULE_H / 2)
+    frame.excCap:ClearAllPoints()
+    frame.excCap:SetPoint("LEFT", c, "TOPLEFT", x0 + 2, mid)
+    frame.excCount:ClearAllPoints()
+    frame.excCount:SetPoint("LEFT", frame.excCap, "RIGHT", 8, 0)
+    frame.excCount:SetText(#ex > 0 and #ex or "")
+    frame.addChip:ClearAllPoints()
+    frame.addChip:SetPoint("TOPRIGHT", c, "TOPLEFT", x0 + EXC_W, -ey)
+    frame.addChip:SetShown(#pals > 0 and canAny)
+    frame.excRule:ClearAllPoints()
+    frame.excRule:SetPoint("LEFT", #ex > 0 and frame.excCount or frame.excCap, "RIGHT", 10, 0)
+    frame.excRule:SetPoint("RIGHT", c, "TOPLEFT", x0 + EXC_W - (frame.addChip:IsShown() and (RULE_H + 8) or 0), mid)
+    local cy = ey + RULE_H + 8
     for i, e in ipairs(ex) do
         local chip = frame.chips[i]
         if not chip then
@@ -865,7 +885,7 @@ function BUI:Refresh()
         end
         local col, line = (i - 1) % perLine, floor((i - 1) / perLine)
         chip:ClearAllPoints()
-        chip:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + col * CHIP_PITCH, -(ey + line * (CHIP_H + 6)))
+        chip:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + col * CHIP_PITCH, -(cy + line * (CHIP_H + 6)))
         chip.ex = e
         local cls = Bl.D.CLASSES[e.ci]
         local r, g, b = ClassRGB(cls)
@@ -882,15 +902,8 @@ function BUI:Refresh()
         chip:Show()
     end
     for i = #ex + 1, #frame.chips do frame.chips[i]:Hide() end
-    -- "+" after the last chip, on its line when it fits (a full line of chips leaves room for it)
-    local n = #ex
-    local col, line = n % perLine, floor(n / perLine)
-    if n > 0 and col == 0 then col, line = perLine, line - 1 end
-    frame.addChip:ClearAllPoints()
-    frame.addChip:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + col * CHIP_PITCH, -(ey + line * (CHIP_H + 6)))
-    frame.addChip:SetShown(#pals > 0 and canAny)
-    local lines = line + 1
-    local contentH = ey + lines * (CHIP_H + 6) + PAD
+    local lines = math.ceil(#ex / perLine)
+    local contentH = (lines > 0) and (cy + lines * (CHIP_H + 6) - 6 + PAD) or (ey + RULE_H + PAD)
     frame:SetHeight(contentH + 34)
 end
 
