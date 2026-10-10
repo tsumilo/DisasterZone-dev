@@ -920,5 +920,65 @@ def a_drag_lasts_until_the_button_is_let_go_even_if_the_client_never_reports_it_
     assert r.cl.eval("return ns.MeterPanels._Dragging()") is False
 
 
+@case
+def docking_is_easy_to_hit_and_a_row_moves_as_one():
+    """Reported in game 2026-10-11: the gold line showed beside a stack but never at its top or bottom (it was drawn
+    under the stacks), and a drop beside a stack only lined it up. Now over a stack's lower / upper half (or just past
+    that edge) it joins under / over it, a row (dropped beside) moves together, and Shift takes one out of it."""
+    r = Raid(thr=True)
+    res = r.cl.eval_py("""
+        local F = ns.MeterPanels.FindTarget
+        local A = { name = "A" }
+        local others = { { A, 100, 500, 300, 120, heads = { { "pA1", 100, 500, 400, 476 } } } }
+        local function k(m, sides) local t = F(m, 900, 900, others, sides); return t and t.kind or "none" end
+        return {
+            k({ 120, 420, 300, 80 }),            -- over A's lower half (A runs 500 down to 380)
+            k({ 80, 560, 300, 100 }),            -- over A's upper half
+            k({ 130, 350, 300, 80 }),            -- 30 px under A's bottom
+            k({ 120, 300, 300, 80 }),            -- too far under
+            k({ 120, 420, 300, 80 }, true),      -- a whole row moving: never into a stack
+            k({ 420, 470, 200, 80 }, true),      -- beside, 20 px off, lower down: A's row
+        }""")
+    assert res == ["below", "above", "below", "none", "none", "right"], res
+
+    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.tick(0.5)
+    r.cl.eval("ns.MeterPanels:Spawn(ns.MeterPanels._Panel('damage'), 'healing')")
+    assert layout(r) == ["threat/damage", "healing"]
+    # dropped beside the first stack: one row, flush (their borders overlap), held by the same edge
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        local L = MP.Layout()
+        L.stacks[1].x, L.stacks[1].y, L.stacks[1].b, L.stacks[1].w = 200, 700, nil, 300
+        __MOCK.mouse_down = true
+        MP:StartDrag(2)
+        MP._SetTarget({ kind = "right", stack = L.stacks[1] })
+        __MOCK.mouse_down = false
+        MP:EndDrag()
+    """)
+    row = r.cl.eval_py("""
+        local L = ns.MeterPanels.Layout()
+        local a, c = L.stacks[1], L.stacks[2]
+        return { a.g ~= nil and a.g == c.g, c.x, c.y or -1, c.b or -1 }""")
+    assert row == [True, 499, 700, -1], row
+    # the stacks keep their places: dragging one takes the other along
+    r.cl.eval("__MOCK.mouse_down = true; ns.MeterPanels:StartDrag(1)")
+    assert r.cl.eval("return ns.MeterPanels._DragRow()") == 1
+    r.cl.eval("__MOCK.mouse_down = false; ns.MeterPanels:EndDrag()")
+    # a wider left stack pushes the right one along
+    r.cl.eval("local L = ns.MeterPanels.Layout(); L.stacks[1].w = 360; ns.MeterPanels:Rebuild()")
+    assert r.cl.eval("local L = ns.MeterPanels.Layout(); return L.stacks[2].x - L.stacks[1].x") == 359
+    # Shift on the right one's header: it alone, out of the row (a row of one is no row)
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        __MOCK.mouse_down = true
+        MP:StartDrag(2, true)
+    """)
+    assert r.cl.eval("return ns.MeterPanels._DragRow()") == 0
+    r.cl.eval("__MOCK.mouse_down = false; ns.MeterPanels:EndDrag()")
+    assert r.cl.eval_py("local L = ns.MeterPanels.Layout(); return { L.stacks[1].g or 0, L.stacks[2].g or 0 }") == [0, 0]
+    assert layout(r) == ["threat/damage", "healing"]
+
+
 if __name__ == "__main__":
     run_all()

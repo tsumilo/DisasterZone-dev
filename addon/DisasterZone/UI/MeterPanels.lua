@@ -9,9 +9,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterPanels.lua", ...) then ret
 --   Body: as tall as its rows, up to the panel's own row limit (the stack's corner sets it, and the width): no empty
 --   boxes; a panel with nothing to show is just its header.
 -- Docking (unlocked, meters.locked false): drag the top header to move a stack; drag a lower header (or the top one
--- with Shift) to pull that panel out; drag a tab out to make it a panel. While dragging, near another stack's top or
--- bottom edge a gold line shows where it joins; beside a stack it lines up; over a panel's header it becomes a tab
--- there ("Drop to add as a tab").
+-- with Shift) to pull that panel out; drag a tab out to make it a panel. While dragging, the stack it would join gets a
+-- gold outline and a gold line shows where: over its top or bottom half it joins the stack (one under the other);
+-- beside it, it joins its row (stacks side by side that move together, s.g = the row's number; Shift-drag a top
+-- header to take that stack out of its row); over a panel's header it becomes a tab there ("Drop to add as a tab").
 -- Growing: a stack in the lower half of the screen is held by its bottom edge (b) and grows upward, one in the upper
 -- half by its top (y) and grows downward; in a fight a panel only grows (it shrinks back after), so nothing jumps.
 -- Layout (meters.layout, saved): { v = 2, stacks = { { x, y (top) | b (bottom), in the holder's units, w, panels = {
@@ -31,7 +32,7 @@ local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 local HEAD_H, ROW_H, ROW_GAP, PAD = 24, 19, 1, 3
 local DEFAULT_W, MIN_W, MAX_W = 300, 170, 640
 local DEFAULT_ROWS, MAX_ROWS = 8, 40
-local SNAP, SNAP_X, SIDE_Y = 18, 60, 30
+local NEAR, SIDE_Y = 40, 60      -- docking: how far past an edge a drop still joins; how far apart tops may be beside
 local FADED, FADE_AFTER = 0.38, 3
 local EASE = 0.09
 local SCALES = { small = 0.9, normal = 1, large = 1.15 }
@@ -46,7 +47,7 @@ local VIEWS = { "damage", "dps", "healing", "taken", "deaths", "kicks", "dispels
 local THREAT_VIEW = { key = "threat", label = "Threat", icon = "Interface\\Icons\\Ability_Warrior_DefensiveStance" }
 
 local Meter, Threat, K
-local holder, guide, guideV, flash, driver
+local holder, guide, outline, flash, driver
 local stackFrames = {}            -- [i] = the frame of layout.stacks[i]
 local frameOf = {}                -- [layout panel table] = its panel frame
 local allPanels = {}              -- every panel frame made
@@ -166,7 +167,7 @@ local function NewStack()
     f.grip = grip
     f.hint = K.Font(f, K.FRIZ, 12, K.GOLD)
     f.hint:SetPoint("BOTTOM", f, "TOP", 0, 4)
-    f.hint:SetText("Drag a header to move or dock · the corner to resize")
+    f.hint:SetText("Drag a header to move or dock · Shift to pull one out · the corner to resize")
     f.hint:Hide()
     f:SetScript("OnMouseUp", function(_, button) if button == "RightButton" and f.panels[1] then MP:PanelMenu(f.panels[1], f) end end)
     return f
@@ -183,6 +184,8 @@ local function HeadDragStart(pf, tabIndex)
         MP:Detach(si, pi, tabIndex)
     elseif pf.first and not IsShiftKeyDown() then
         MP:StartDrag(si)
+    elseif pf.first and s.g then
+        MP:StartDrag(si, true)                -- (Shift on a stack in a row: it alone, out of the row)
     elseif #s.panels > 1 then
         MP:Detach(si, pi)
     else
@@ -376,6 +379,50 @@ end
 -- Rebuild: frames for the layout (after any change to it)
 ---------------------------------------------------------------------------
 
+-- Does a stack show anything (a panel whose meter is on)?
+local function Visible(s)
+    for _, p in ipairs(s.panels) do if ShownTab(p) then return true end end
+    return false
+end
+local function Width(s) return min(MAX_W, max(MIN_W, tonumber(s.w) or DEFAULT_W)) end
+
+-- Rows (stacks docked side by side, same s.g): left to right by x, each one's left edge on the one before's right
+-- edge (their borders overlap into one line), all held by the leftmost one's edge. A row of one is no row.
+local function PackRows(L)
+    local rows = {}
+    for _, s in ipairs(L.stacks) do
+        if s.g then
+            local r = rows[s.g] or {}
+            rows[s.g] = r
+            r[#r + 1] = s
+        end
+    end
+    for _, r in pairs(rows) do
+        local shown = {}
+        for _, s in ipairs(r) do if Visible(s) then shown[#shown + 1] = s end end
+        if #r < 2 then
+            r[1].g = nil
+        elseif #shown >= 2 then
+            tsort(shown, function(a, c) return (a.x or 0) < (c.x or 0) end)
+            local a = shown[1]
+            for i = 2, #shown do
+                local s, prev = shown[i], shown[i - 1]
+                s.x = (prev.x or 0) + Width(prev) - 1
+                if a.b then s.b, s.y = a.b, nil else s.y, s.b = a.y, nil end
+            end
+        end
+    end
+end
+
+local function Moving(f) return drag and drag.moving and drag.moving[f] end
+
+local function Anchor(f, s)
+    if Moving(f) then return end
+    f:ClearAllPoints()
+    if s.b then f:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", s.x, s.b)
+    else f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", s.x, s.y) end
+end
+
 local function ReleasePanel(pf)
     if pf.layout then frameOf[pf.layout] = nil end
     pf.layout = nil
@@ -398,19 +445,18 @@ function MP:Rebuild()
     local used = {}
     local hw, hh = HolderSize()
     for si, s in ipairs(L.stacks) do
-        local f = stackFrames[si]
-        if not f then f = NewStack(); stackFrames[si] = f end
-        f.si, f.layout = si, s
-        s.w = min(MAX_W, max(MIN_W, tonumber(s.w) or DEFAULT_W))
+        s.w = Width(s)
         if not s.x or (not s.y and not s.b) then
             s.x = hw - s.w - 60 - (si - 1) * (s.w + 12)
             s.b, s.y = 220, nil
         end
-        if not (drag and drag.frame == f) then
-            f:ClearAllPoints()
-            if s.b then f:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", s.x, s.b)
-            else f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", s.x, s.y) end
-        end
+    end
+    PackRows(L)
+    for si, s in ipairs(L.stacks) do
+        local f = stackFrames[si]
+        if not f then f = NewStack(); stackFrames[si] = f end
+        f.si, f.layout = si, s
+        Anchor(f, s)
         f.up = s.b ~= nil
         f.grip:ClearAllPoints()
         if f.up then
@@ -446,7 +492,7 @@ function MP:Rebuild()
     for i = #L.stacks + 1, #stackFrames do
         stackFrames[i].panels = {}
         stackFrames[i].layout = nil
-        if not (drag and drag.frame == stackFrames[i]) then stackFrames[i]:Hide() end
+        if not Moving(stackFrames[i]) then stackFrames[i]:Hide() end
     end
     for _, pf in ipairs(allPanels) do
         if not used[pf] and pf.layout ~= nil then ReleasePanel(pf)
@@ -1241,18 +1287,34 @@ end
 -- Docking: dragging, detaching, snapping, tabs
 ---------------------------------------------------------------------------
 
-function MP:StartDrag(si)
+function MP:StartDrag(si, alone)
     local f = stackFrames[si]
     if not f then return end
     GameTooltip:Hide(); HideRowTip()
     ns.UI:CloseMenus()
     f:SetFrameLevel(holder:GetFrameLevel() + 50)
+    -- a stack in a row takes the row along (alone: it leaves the row)
+    local s = f.layout
+    local members, moving = {}, { [f] = true }
+    if s and s.g and alone then
+        s.g = nil
+    elseif s and s.g then
+        for _, g in ipairs(stackFrames) do
+            if g ~= f and g:IsShown() and g.layout and g.layout.g == s.g then
+                g:SetFrameLevel(holder:GetFrameLevel() + 50)
+                members[#members + 1] = { frame = g, ox = (g:GetLeft() or 0) - (f:GetLeft() or 0),
+                                          oy = (g:GetTop() or 0) - (f:GetTop() or 0) }
+                moving[g] = true
+            end
+        end
+    end
     -- the stack follows the cursor (set each frame in UpdateDrag) instead of StartMoving: no client frame-moving
     -- state to depend on. In game the docking never happened: the drag ended on its first frame (see ButtonUp).
     local sc = f:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
     cx, cy = cx / sc, cy / sc
-    drag = { si = si, frame = f, dx = cx - (f:GetLeft() or 0), dy = cy - (f:GetTop() or 0) }
+    drag = { si = si, frame = f, dx = cx - (f:GetLeft() or 0), dy = cy - (f:GetTop() or 0), members = members,
+             moving = moving }
 end
 
 -- Is the left button up again? Only once IsMouseButtonDown has said it was down during this drag / resize: in this
@@ -1292,37 +1354,65 @@ end
 
 local function Rect(fr) return fr:GetLeft() or 0, fr:GetTop() or 0, fr:GetWidth() or 0, fr:GetHeight() or 0 end
 
+-- The gold line where it joins and the outline of what it joins: frames of their own above every stack (as textures
+-- of the holder they were drawn under the stacks, and a line on a stack's top or bottom edge never showed).
 local function ShowGuide(x, y, w, h)
     guide:ClearAllPoints()
     guide:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", x, y)
-    guide:SetSize(max(2, w), max(2, h))
+    guide:SetSize(max(3, w), max(3, h))
     guide:Show()
+end
+local function ShowOutline(l, t, w, h)
+    outline:ClearAllPoints()
+    outline:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", l, t)
+    outline:SetSize(max(2, w), max(2, h))
+    outline:Show()
+end
+local function HideGuides()
+    guide:Hide()
+    outline:Hide()
+    for _, pf in ipairs(allPanels) do pf.head.drop:Hide(); pf.head.dropText:Hide() end
 end
 
 -- Where a stack dropped now would go (no frames involved, so it can be tested with plain numbers): m = the moving
--- stack { l, t, w, h }, cx / cy = the cursor, others = { { stack, l, t, w, h, heads = { { panel, l, t, r, b } } } }.
--- Returns the target ({ kind = "tab" | "below" | "above" | "right" | "left", stack, panel, x, y }) and the guide
--- ({ x, y, w, h }) or nil.
-function MP.FindTarget(m, cx, cy, others)
-    for _, o in ipairs(others) do
-        for _, hd in ipairs(o.heads) do
-            if cx >= hd[2] and cx <= hd[4] and cy <= hd[3] and cy >= hd[5] then
-                return { kind = "tab", stack = o.stack, panel = hd[1], head = hd }
+-- stack (or row) { l, t, w, h }, cx / cy = the cursor, others = { { stack, l, t, w, h, heads = { { panel, l, t, r, b
+-- } } } }, sides = only beside (a whole row moving). Returns the target ({ kind = "tab" | "below" | "above" | "right"
+-- | "left", stack, panel, rect = { l, t, w, h } }) and the guide ({ x, y, w, h }) or nil.
+--   Over a header: a tab there. Over a stack, or just past its top or bottom edge (NEAR), lined up with it (they
+--   overlap by 40% of the narrower one): above or below it, by which half its middle is in (2026-10-11: an exact
+--   edge, 18 px, was too hard to hit). Beside it (its edge within NEAR, tops within SIDE_Y or overlapping): its row.
+function MP.FindTarget(m, cx, cy, others, sides)
+    if not sides then
+        for _, o in ipairs(others) do
+            for _, hd in ipairs(o.heads) do
+                if cx >= hd[2] and cx <= hd[4] and cy <= hd[3] and cy >= hd[5] then
+                    return { kind = "tab", stack = o.stack, panel = hd[1], head = hd, rect = { o[2], o[3], o[4], o[5] } }
+                end
             end
         end
     end
     local l, t, w, h = m[1], m[2], m[3], m[4]
+    local mc = t - h / 2
     for _, o in ipairs(others) do
         local gl, gt, gw, gh = o[2], o[3], o[4], o[5]
         local gb = gt - gh
-        if abs(l - gl) < SNAP_X and abs(t - gb) < SNAP then
-            return { kind = "below", stack = o.stack }, { gl, gb + 1, gw, 2 }
-        elseif abs(l - gl) < SNAP_X and abs((t - h) - gt) < SNAP then
-            return { kind = "above", stack = o.stack }, { gl, gt + 1, gw, 2 }
-        elseif (abs(t - gt) < SIDE_Y or abs((t - h) - gb) < SIDE_Y) and abs(l - (gl + gw)) < SNAP then
-            return { kind = "right", stack = o.stack, x = gl + gw + 3, y = gt }, { gl + gw + 1, gt, 2, max(gh, h) }
-        elseif (abs(t - gt) < SIDE_Y or abs((t - h) - gb) < SIDE_Y) and abs((l + w) - gl) < SNAP then
-            return { kind = "left", stack = o.stack, x = gl - w - 3, y = gt }, { gl - 3, gt, 2, max(gh, h) }
+        local rect = { gl, gt, gw, gh }
+        local across = min(l + w, gl + gw) - max(l, gl)          -- horizontal overlap
+        local upDown = min(t, gt) - max(t - h, gb)               -- vertical overlap
+        if not sides and across >= min(w, gw) * 0.4 then
+            if mc < gt - gh / 2 and t >= gb - NEAR then
+                return { kind = "below", stack = o.stack, rect = rect }, { gl, gb + 1, gw, 3 }
+            elseif mc >= gt - gh / 2 and t - h <= gt + NEAR then
+                return { kind = "above", stack = o.stack, rect = rect }, { gl, gt + 2, gw, 3 }
+            end
+        end
+        local level = abs(t - gt) < SIDE_Y or abs((t - h) - gb) < SIDE_Y or upDown > 0
+        if level and across < min(w, gw) * 0.4 then
+            if abs(l - (gl + gw)) < NEAR then
+                return { kind = "right", stack = o.stack, rect = rect }, { gl + gw - 2, gt, 3, max(gh, h) }
+            elseif abs((l + w) - gl) < NEAR then
+                return { kind = "left", stack = o.stack, rect = rect }, { gl - 1, gt, 3, max(gh, h) }
+            end
         end
     end
     return nil
@@ -1332,16 +1422,20 @@ local function UpdateDrag()
     local d = drag
     local f = d.frame
     if ButtonUp(d) then MP:EndDrag() return end
-    for _, pf in ipairs(allPanels) do pf.head.drop:Hide(); pf.head.dropText:Hide() end
-    guide:Hide()
+    HideGuides()
     local sc = f:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
     cx, cy = cx / sc, cy / sc
+    local nx, ny = cx - (d.dx or 0), cy - (d.dy or 0)
     f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", cx - (d.dx or 0), cy - (d.dy or 0))
+    f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", nx, ny)
+    for _, mb in ipairs(d.members or {}) do
+        mb.frame:ClearAllPoints()
+        mb.frame:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", nx + mb.ox, ny + mb.oy)
+    end
     local others = {}
     for _, g in ipairs(stackFrames) do
-        if g ~= f and g:IsShown() and g.layout then
+        if not d.moving[g] and g:IsShown() and g.layout then
             local gl, gt, gw, gh = Rect(g)
             local o = { g.layout, gl, gt, gw, gh, heads = {} }
             for _, pf in ipairs(g.panels) do
@@ -1352,14 +1446,22 @@ local function UpdateDrag()
             others[#others + 1] = o
         end
     end
+    -- (a row moving: its whole box, and only beside another stack)
     local l, t, w, h = Rect(f)
-    local target, g = MP.FindTarget({ l, t, w, h }, cx, cy, others)
+    local r, bt = l + w, t - h
+    for _, mb in ipairs(d.members or {}) do
+        local ml, mt, mw, mh = Rect(mb.frame)
+        l, t, r, bt = min(l, ml), max(t, mt), max(r, ml + mw), min(bt, mt - mh)
+    end
+    local target, g = MP.FindTarget({ l, t, r - l, t - bt }, cx, cy, others, #(d.members or {}) > 0)
     d.target = target
     if target and target.kind == "tab" then
         target.head.frame.head.drop:Show()
         target.head.frame.head.dropText:Show()
-    elseif g then
-        ShowGuide(g[1], g[2], g[3], g[4])
+    elseif target then
+        local q = target.rect
+        ShowOutline(q[1], q[2], q[3], q[4])
+        if g then ShowGuide(g[1], g[2], g[3], g[4]) end
     end
 end
 
@@ -1370,16 +1472,26 @@ function MP:EndDrag()
     if not d then return end
     drag = nil
     local f = d.frame
-    guide:Hide()
-    for _, pf in ipairs(allPanels) do pf.head.drop:Hide(); pf.head.dropText:Hide() end
+    HideGuides()
     local L = Layout()
     local s = f.layout
     if not s then self:Rebuild() return end
-    -- where it was let go: held by the edge nearer the screen's edge, so it grows away from it
+    -- where it was let go: held by the edge nearer the screen's edge, so it grows away from it (a row: all of it)
     local _, hh = HolderSize()
     local top, bottom = f:GetTop() or s.y or 0, f:GetBottom() or s.b or 0
-    s.x = f:GetLeft() or s.x
-    if (top + bottom) / 2 < hh / 2 then s.b, s.y = bottom, nil else s.y, s.b = top, nil end
+    local byBottom = (top + bottom) / 2 < hh / 2
+    local moved = { s }
+    for _, mb in ipairs(d.members or {}) do if mb.frame.layout then moved[#moved + 1] = mb.frame.layout end end
+    for _, fr in ipairs(d.members or {}) do fr.frame:SetFrameLevel(holder:GetFrameLevel() + 1) end
+    local frames = { f }
+    for _, mb in ipairs(d.members or {}) do frames[#frames + 1] = mb.frame end
+    for _, fr in ipairs(frames) do
+        local st = fr.layout
+        if st then
+            st.x = fr:GetLeft() or st.x
+            if byBottom then st.b, st.y = fr:GetBottom() or st.b or 0, nil else st.y, st.b = fr:GetTop() or st.y or 0, nil end
+        end
+    end
     local tg = d.target
     if tg then
         local si = IndexOf(L.stacks, s)
@@ -1399,8 +1511,34 @@ function MP:EndDrag()
             if tg.stack.y then tg.stack.y = top end             -- (held by its top: that edge moves up)
             if si then tremove(L.stacks, si) end
         elseif tg.kind == "right" or tg.kind == "left" then
-            s.x = tg.x
-            if tg.stack.b then s.b, s.y = tg.stack.b, nil else s.y, s.b = tg.y, nil end   -- lined up on the same edge
+            -- into the target's row, right beside it: the row's order is set here (x from the target outward) and
+            -- PackRows keeps it
+            local gid = tg.stack.g
+            if not gid then
+                gid = 0
+                for _, st in ipairs(L.stacks) do gid = max(gid, st.g or 0) end
+                gid = gid + 1
+                tg.stack.g = gid
+            end
+            local isMoved = {}
+            for _, st in ipairs(moved) do isMoved[st] = true end
+            local row = {}
+            for _, st in ipairs(L.stacks) do
+                if st.g == gid and not isMoved[st] and Visible(st) then row[#row + 1] = st end
+            end
+            tsort(row, function(a, c) return (a.x or 0) < (c.x or 0) end)
+            tsort(moved, function(a, c) return (a.x or 0) < (c.x or 0) end)
+            local at = (IndexOf(row, tg.stack) or #row) + (tg.kind == "right" and 1 or 0)
+            for i, st in ipairs(moved) do
+                st.g = gid
+                tinsert(row, at + i - 1, st)
+            end
+            local ti = IndexOf(row, tg.stack)
+            for i = ti - 1, 1, -1 do row[i].x = row[i + 1].x - Width(row[i]) + 1 end
+            for i = ti + 1, #row do row[i].x = row[i - 1].x + Width(row[i - 1]) - 1 end
+            for _, st in ipairs(row) do
+                if tg.stack.b then st.b, st.y = tg.stack.b, nil else st.y, st.b = tg.stack.y, nil end
+            end
         end
     end
     f:SetFrameLevel(holder:GetFrameLevel() + 1)
@@ -1428,6 +1566,12 @@ local function UpdateResize()
     local w = min(MAX_W, max(MIN_W, cx - (f:GetLeft() or 0)))
     f:SetWidth(w)
     f.layout.w = floor(w + 0.5)
+    if f.layout.g then                  -- (the stacks right of it in its row move along)
+        PackRows(Layout())
+        for _, g in ipairs(stackFrames) do
+            if g ~= f and g.layout and g.layout.g == f.layout.g then Anchor(g, g.layout) end
+        end
+    end
     -- rows change by how far the corner moved (away from the stack's held edge = more), from the count it had: a
     -- width-only drag never touches them. (Measured from the panel's own edge, a panel showing no rows, like Threat
     -- out of combat, went to 1 row the moment the corner was touched; in-game report 2026-10-10.)
@@ -1592,6 +1736,14 @@ function MP:PanelMenu(pf, owner)
         local reset = root:CreateButton("Reset layout")
         reset:CreateButton("Yes, one stack again", function() MP:ResetLayout() end)
         root:CreateDivider()
+        local s = pf.layout and Layout().stacks[pf.si or 0]
+        if s and s.g then
+            root:CreateButton("Undock from the row", function()
+                s.g = nil
+                s.x = s.x + 24
+                MP:Rebuild()
+            end)
+        end
         root:CreateButton("Close this panel", function() MP:Close(pf) end)
         root:CreateButton("Hide all until /dz meter", function() userHidden = true; MP:UpdateVisibility() end)
     end)
@@ -1681,10 +1833,23 @@ function MP:Build()
     holder:SetAllPoints(UIParent)
     holder:SetFrameStrata("MEDIUM")
     holder:SetScale(SCALES[Setting("size", "normal")] or 1)
-    guide = holder:CreateTexture(nil, "OVERLAY")
-    guide:SetTexture(K.WHITE)
-    guide:SetVertexColor(1, 0.82, 0, 1)
+    guide = CreateFrame("Frame", nil, holder)
+    guide:SetFrameLevel(holder:GetFrameLevel() + 100)
+    guide.tex = K.Tex(guide, "OVERLAY", K.WHITE, 1, 0.82, 0, 1)
+    guide.tex:SetAllPoints()
     guide:Hide()
+    outline = CreateFrame("Frame", nil, holder)
+    outline:SetFrameLevel(holder:GetFrameLevel() + 99)
+    outline.fill = K.Tex(outline, "BACKGROUND", K.WHITE, 1, 0.82, 0, 0.07)
+    outline.fill:SetAllPoints()
+    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+                         { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+        local t = K.Tex(outline, "OVERLAY", K.WHITE, 1, 0.82, 0, 0.85)
+        t:SetPoint(e[1])
+        t:SetPoint(e[2])
+        if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+    end
+    outline:Hide()
     flash = CreateFrame("Frame", nil, UIParent)
     flash:SetAllPoints(UIParent)
     flash:SetFrameStrata("BACKGROUND")
@@ -1777,5 +1942,6 @@ MP._Panel = function(v)
 end
 MP._Target = function() return drag and drag.target end
 MP._Dragging = function() return drag ~= nil end
+MP._DragRow = function() return drag and #(drag.members or {}) or 0 end
 MP._UpdateDrag = function() if drag then UpdateDrag() end end
 MP._SetTarget = function(t) if drag then drag.target = t end end
