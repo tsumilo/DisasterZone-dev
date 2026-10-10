@@ -286,6 +286,23 @@ HOVER = """
 """
 hv = vic.eval_py(HOVER)
 assert 0 < hv[0] < 1 and hv[1] == 1 and hv[2] == 0, hv
+# the rings are never re-anchored while nothing moves (re-anchoring a cooldown ring redraws it: a blink a second)
+vic.eval("""
+    _G.__moves = 0
+    for i = 1, 20 do
+        local r = _G['DisasterZoneBlessRow' .. i]
+        if r and r:IsShown() then
+            for _, fr in ipairs({ r.face.cd, r.face }) do
+                local old = fr.ClearAllPoints
+                fr.ClearAllPoints = function(self, ...) _G.__moves = _G.__moves + 1; return old(self, ...) end
+            end
+        end
+    end
+""")
+for _ in range(3):
+    vic.eval("ns.BlessingsBar:Update()")
+    w.tick(1)
+assert vic.eval("return _G.__moves") == 0, vic.eval("return _G.__moves")
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)

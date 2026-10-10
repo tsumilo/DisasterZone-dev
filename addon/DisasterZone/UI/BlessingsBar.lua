@@ -600,8 +600,13 @@ local function ApplyMotion(f)
     if not m or not f.row then return end
     local hot, lift = m.cur.hot or 0, m.cur.lift or 0
     local hover = m.cur.hover or 0
-    f:ClearAllPoints()
-    f:SetPoint("CENTER", f.row, "CENTER", 0, lift + (f.layout == "horizontal" and 2 * hover or 0))
+    -- (re-anchored only when it moves: re-anchoring the face redraws its cooldown ring, a blink every second)
+    local y = lift + (f.layout == "horizontal" and 2 * hover or 0)
+    if f.atY ~= y or f.atRow ~= f.row then
+        f.atY, f.atRow = y, f.row
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", f.row, "CENTER", 0, y)
+    end
     f.glow:SetAlpha(0.55 * hot)
     f.label:SetAlpha(hot)
     f.label:SetShown(hot > 0.01 and not f.labelOff)
@@ -900,7 +905,14 @@ function Bar:Update()
             rows[i]:Hide()
             rows[i].data = nil
         end
-        if layout == "horizontal" then PlaceStrip(list) else PlaceRail(list) end
+        -- (placed again only when the layout or the number of classes changes: re-anchoring the cooldown rings every
+        -- second made them blink in game)
+        local sig = layout .. ":" .. #list
+        if frame.placed ~= sig then
+            frame.placed = sig
+            if layout == "horizontal" then PlaceStrip(list) else PlaceRail(list) end
+            for _, row in ipairs(rows) do row.face.atY = nil end
+        end
         ApplyChrome()
         frame:Show()
         dirty = false
