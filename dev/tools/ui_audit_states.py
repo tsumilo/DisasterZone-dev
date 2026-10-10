@@ -184,6 +184,7 @@ def close_all(cl):
       if ns.UI and ns.UI.CloseMenus then ns.UI:CloseMenus() end
       __MOCK.real_geometry = nil
       local rf = _G.DisasterZoneRollFrame; if rf and rf.Hide then rf:Hide() end
+      if ns.Popup then ns.Popup:HideAll() end
       if GameTooltip then GameTooltip:Hide() end""")
 
 
@@ -1617,11 +1618,19 @@ def teams_seed(w, c):
     alt = [K(n) for n in ("Vaenyria", "Dornak", "Elowen", "Kaelyn", "Faelar", "Isolde", "Nyxa", "Brakka")]
     res = k.eval_py(SAVE_TEAM, None, "Alt team", alt, 25, {}, {})
     assert res["ok"] is True, res
+    TEAMS["alt"] = res["r"]
     kara = [K(n) for n, _, _ in TEAMS_KARA]
     res = k.eval_py(SAVE_TEAM, None, "Kara B", kara, 10, {K(n): sp for n, sp, _ in TEAMS_KARA if sp},
                     {K(n): g for n, _, g in TEAMS_KARA if g})
     assert res["ok"] is True, res
     TEAMS["kara"] = res["r"]
+    # 1.3.5: raid nights (Thu + an optional Sun for the main team, Mon + Wed for Kara B)
+    for tid, nts, note in ((IDS["team"], [{"w": 3 * 1440 + 1170, "m": 210}, {"w": 6 * 1440 + 1170, "m": 210, "o": True}],
+                            "Online 15 min before invites. Flasks and food on progression nights."),
+                           (TEAMS["kara"], [{"w": 1200, "m": 180}, {"w": 2 * 1440 + 1200, "m": 210}], None)):
+        res = k.eval_py("local id, nt, nn = ...; local t = ns.RaidPlan:GetTeam(id); local ok, r = ns.RaidPlan:SaveTeam("
+                        "id, t.name, t.members, { nights = nt, note = nn }); return { ok = ok, r = r }", tid, nts, note)
+        assert res["ok"] is True, res
     w.tick(2)
     t0 = now(k)
     TEAMS["ssc"] = create(k, i="ssc", t=t0 + 2 * DAY, tm=[IDS["team"]], lk=True)
@@ -1667,7 +1676,7 @@ def teams_view(viewer="Gina", lua=None, no_teams=False, party=False, comp=False,
             cl.eval("local RP = ns.RaidPlan; if RP.__GetTeams then RP.GetTeams, RP.__GetTeams = RP.__GetTeams, nil end; "
                     "if ns.RaidPlanUI.DiscardDraft then ns.RaidPlanUI:DiscardDraft() end")
             close_all(cl)
-            cl.eval("StaticPopup_HideAll()")
+            cl.eval("StaticPopup_HideAll(); if ns.Popup then ns.Popup:HideAll() end")
         v = c[viewer]
         if no_teams:
             v.eval("local RP = ns.RaidPlan; RP.__GetTeams = RP.GetTeams; RP.GetTeams = function() return {} end")
@@ -1680,7 +1689,7 @@ def teams_view(viewer="Gina", lua=None, no_teams=False, party=False, comp=False,
             v.eval("ns.RaidPlanUI:SetTeamTab(...)", view)
         w.tick(0.3)
         if lua:
-            v.eval(lua, IDS["team"], TEAMS.get("kara"))
+            v.eval(lua, IDS["team"], TEAMS.get("kara"), TEAMS.get("alt"))
             w.tick(0.3)
         return v
     return fn
@@ -1695,7 +1704,7 @@ def teams_raid(tab_key, comp=True):
         g = c["Gina"]
         g.eval("if ns.RaidPlanUI.DiscardDraft then ns.RaidPlanUI:DiscardDraft() end")
         close_all(g)
-        g.eval("StaticPopup_HideAll()")
+        g.eval("StaticPopup_HideAll(); if ns.Popup then ns.Popup:HideAll() end")
         tab(g, "raids")
         w.tick(0.3)
         g.eval("ns.RaidsUI:SetView('upcoming'); ns.RaidPlanUI:SelectRaid(...); ns.RaidPlanUI:SetDetailTab(select(2, ...))",
@@ -1740,6 +1749,16 @@ STATES[_HOME:_HOME] = [
                                                  "b:GetScript('OnClick')(b)")),
     ("Raids - Teams - waitlist open (in line)", teams_view("Vaenyria", lua="local b = ns.RaidsUI:GetPanel().teams.detail.wlBtn; "
                                                                         "b:GetScript('OnClick')(b)")),
+    # 1.3.5: raid nights: the editor (organizer), a team without nights, Join with the nights above it
+    ("Raids - Teams - raid nights editor", teams_view(lua="ns.RaidPlanUI:OpenNightsEditor()")),
+    ("Raids - Teams - raid nights none", teams_view(lua="ns.RaidPlanUI:SelectTeam(select(3, ...))")),
+    ("Raids - Teams - raid nights join", teams_view("Vaenyria", lua="local id = ...; ns.RaidPlan:LeaveWaitlist(id, '1'); "
+                                                    "ns.RaidPlanUI:RefreshTeams(); local b = ns.RaidsUI:GetPanel()"
+                                                    ".teams.detail.wlBtn; b:Click()")),
+    # 1.3.5: the addon's own dialogs (UI/Popup.lua): three buttons, a deletion (red), a field
+    ("Dialog - unsaved changes", teams_view(lua="ns.RaidPlanUI:ToggleDraftNight(2); ns.RaidPlanUI:ShowTeamBoard()")),
+    ("Dialog - delete team", teams_view(lua="ns.RaidPlanUI:DeleteTeam()")),
+    ("Dialog - lineup name", teams_view(lua="ns.Popup:Show('DISASTERZONE_LINEUP_NAME', nil, nil, { i = 2, name = 'Kara A' })")),
     ("Raids - Upcoming - SSC sign-ups (comp)", teams_raid("signups")),
     ("Raids - Upcoming - SSC groups (comp)", teams_raid("groups")),
     # the gear sim's buffs: the card's menu (presets + teams), the editor on a team lineup and on a preset

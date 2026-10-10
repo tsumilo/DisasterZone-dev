@@ -2659,11 +2659,13 @@ local function councilPhaseOptions()
 end
 
 local function ensureClearPopup()
-    local dialogs = StaticPopupDialogs
+    local dialogs = ns.Popup.dialogs
     if type(dialogs) ~= "table" or dialogs.DISASTERZONE_CLEAR_COUNCIL then return end
     dialogs.DISASTERZONE_CLEAR_COUNCIL = {
+        title = "Clear the council",
+        danger = true,
         text = "%s",
-        button1 = YES or "Yes",
+        button1 = "Clear",
         button2 = CANCEL or "Cancel",
         OnAccept = function(self, data)
             CouncilUI:ClearCouncil(data or self.data)
@@ -3844,7 +3846,7 @@ function CouncilUI:ConfirmClearCouncil(kind)
     else
         text = "Remove everyone from your raid council list?\n\nThe raid leader always stays on the council of their raid."
     end
-    if StaticPopup_Show then StaticPopup_Show("DISASTERZONE_CLEAR_COUNCIL", text, nil, kind) end
+    if ns.Popup then ns.Popup:Show("DISASTERZONE_CLEAR_COUNCIL", text, nil, kind) end
     return true
 end
 

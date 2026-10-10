@@ -551,10 +551,12 @@ local popupsReady = false
 local function EnsurePopups()
     if popupsReady then return end
     popupsReady = true
-    StaticPopupDialogs["DISASTERZONE_CLEAR_PHASE"] = {
+    ns.Popup.dialogs["DISASTERZONE_CLEAR_PHASE"] = {
+        title = "Clear picks",
+        danger = true,
         text = "Clear every main and alt pick in %s?",
-        button1 = YES or "Yes",
-        button2 = NO or "No",
+        button1 = "Clear",
+        button2 = CANCEL or "Cancel",
         OnAccept = function(_, data)
             if data and data.phase and ns.BiS then ns.BiS:ClearPhase(data.phase, data.list) end
         end,
@@ -563,10 +565,12 @@ local function EnsurePopups()
         hideOnEscape = true,
         preferredIndex = 3,
     }
-    StaticPopupDialogs["DISASTERZONE_REPLACE_TEMPLATE"] = {
+    ns.Popup.dialogs["DISASTERZONE_REPLACE_TEMPLATE"] = {
+        title = "Replace picks",
+        danger = true,
         text = "Replace every pick in %s with the suggested BiS list for %s?",
-        button1 = YES or "Yes",
-        button2 = NO or "No",
+        button1 = "Replace",
+        button2 = CANCEL or "Cancel",
         OnAccept = function(_, data)
             if data then MyBiS:ApplySuggestion(data.phase, true, data.list) end
         end,
@@ -575,7 +579,8 @@ local function EnsurePopups()
         hideOnEscape = true,
         preferredIndex = 3,
     }
-    StaticPopupDialogs["DISASTERZONE_RELABEL_LIST"] = {
+    ns.Popup.dialogs["DISASTERZONE_RELABEL_LIST"] = {
+        title = "Change the list's spec",
         text = "Your %s picks become your %s list (they stay as they are: Suggest can fill it from that spec's "
             .. "guide).",
         button1 = OKAY or "Okay",
@@ -586,10 +591,12 @@ local function EnsurePopups()
         hideOnEscape = true,
         preferredIndex = 3,
     }
-    StaticPopupDialogs["DISASTERZONE_REMOVE_OFFSPEC"] = {
+    ns.Popup.dialogs["DISASTERZONE_REMOVE_OFFSPEC"] = {
+        title = "Remove the off-spec list",
+        danger = true,
         text = "Remove your off-spec list and all its picks?",
-        button1 = YES or "Yes",
-        button2 = NO or "No",
+        button1 = "Remove",
+        button2 = CANCEL or "Cancel",
         OnAccept = function()
             if ns.BiS and ns.BiS:RemoveOffSpec() then
                 selectedList = "ms"
@@ -791,7 +798,7 @@ end
 function MyBiS:ConfirmRemoveOffSpec()
     if not HasOffSpec() then return false end
     EnsurePopups()
-    StaticPopup_Show("DISASTERZONE_REMOVE_OFFSPEC")
+    ns.Popup:Show("DISASTERZONE_REMOVE_OFFSPEC")
     return true
 end
 
@@ -844,7 +851,7 @@ end
 local function Relabel(list, from, to, fn)
     if from ~= "" and ListHasPicks(list) then
         EnsurePopups()
-        StaticPopup_Show("DISASTERZONE_RELABEL_LIST", from, to, { fn = fn })
+        ns.Popup:Show("DISASTERZONE_RELABEL_LIST", from, to, { fn = fn })
     else
         fn()
     end
@@ -1110,7 +1117,7 @@ local function BuildSuggestMenu(root)
     end)
     root:CreateButton("Replace all (confirm)", function()
         EnsurePopups()
-        StaticPopup_Show("DISASTERZONE_REPLACE_TEMPLATE", PL(phase) .. (ListArg() and " (off spec)" or ""), spec,
+        ns.Popup:Show("DISASTERZONE_REPLACE_TEMPLATE", PL(phase) .. (ListArg() and " (off spec)" or ""), spec,
             { phase = phase, list = ListArg() })
     end)
     -- gems and enchants of the phase's picks, from the same guide
@@ -1194,7 +1201,7 @@ local function BuildMoreMenu(root)
             return
         end
         EnsurePopups()
-        StaticPopup_Show("DISASTERZONE_CLEAR_PHASE", which, nil, { phase = phase, list = ListArg() })
+        ns.Popup:Show("DISASTERZONE_CLEAR_PHASE", which, nil, { phase = phase, list = ListArg() })
     end)
 end
 

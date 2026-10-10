@@ -2796,13 +2796,14 @@ end
 function DropPanel:ConfirmReroll(b)
     local s = b and b.rollSession
     local rolled = b and b.rollStats and tonumber(b.rollStats.rolled) or 0
-    if type(s) ~= "table" or rolled == 0 or not _G.StaticPopup_Show then
+    if type(s) ~= "table" or rolled == 0 or not ns.Popup then
         self:StartRoll(b.itemID, b.copy)
         return
     end
-    local dialogs = _G.StaticPopupDialogs
+    local dialogs = ns.Popup.dialogs
     if dialogs and not dialogs.DISASTERZONE_REROLL then
         dialogs.DISASTERZONE_REROLL = {
+            title = "Re-roll",
             text = "Start a new roll for %s?\n(%s so far are discarded)",
             button1 = "Re-roll",
             button2 = _G.CANCEL or "Cancel",
@@ -2815,7 +2816,7 @@ function DropPanel:ConfirmReroll(b)
             preferredIndex = 3,
         }
     end
-    _G.StaticPopup_Show("DISASTERZONE_REROLL", ItemLink(b.itemID) or ItemName(b.itemID),
+    ns.Popup:Show("DISASTERZONE_REROLL", ItemLink(b.itemID) or ItemName(b.itemID),
         rolled == 1 and "1 roll" or (rolled .. " rolls"), { itemID = b.itemID, copy = b.copy })
 end
 
@@ -3143,11 +3144,12 @@ function DropPanel:AwardByName(data, text)
 end
 
 local function EnsureAwardPopup()
-    local dialogs = _G.StaticPopupDialogs
+    local dialogs = ns.Popup.dialogs
     if not dialogs or dialogs.DISASTERZONE_AWARD_OTHER then return end
     dialogs.DISASTERZONE_AWARD_OTHER = {
+        title = "Award to someone else",
         text = "Record %s as awarded to (character name):",
-        button1 = _G.ACCEPT or "Accept",
+        button1 = "Award",
         button2 = _G.CANCEL or "Cancel",
         hasEditBox = 1,
         maxLetters = 48,
@@ -3196,8 +3198,8 @@ function DropPanel:AwardSomeoneElse(itemID, bossKey, copy, drop)
         return
     end
     EnsureAwardPopup()
-    if _G.StaticPopup_Show then
-        _G.StaticPopup_Show("DISASTERZONE_AWARD_OTHER", ItemLink(itemID) or ItemName(itemID), nil,
+    if ns.Popup then
+        ns.Popup:Show("DISASTERZONE_AWARD_OTHER", ItemLink(itemID) or ItemName(itemID), nil,
             { itemID = itemID, bossKey = bossKey, copy = copy, drop = drop })
     end
 end
@@ -3225,9 +3227,10 @@ end
 -- One step of the non-roll hand-out: master looter -> give with master loot after a confirmation, then record;
 -- anyone else -> record (council).
 local function EnsureTargetPopups()
-    local dialogs = _G.StaticPopupDialogs
+    local dialogs = ns.Popup.dialogs
     if not dialogs or dialogs.DISASTERZONE_GIVE_TARGET then return end
     dialogs.DISASTERZONE_GIVE_TARGET = {
+        title = "Give item",
         text = "Give %s to %s?",
         button1 = "Give",
         button2 = _G.CANCEL or "Cancel",
@@ -3238,6 +3241,7 @@ local function EnsureTargetPopups()
         preferredIndex = 3,
     }
     dialogs.DISASTERZONE_RECORD_TARGET = {
+        title = "Award item",
         text = "Award %s to %s anyway?\n(hand it out via master loot or trade)",
         button1 = "Award",
         button2 = _G.CANCEL or "Cancel",
@@ -3262,8 +3266,8 @@ function DropPanel:GiveToTarget(data)
         ns:Print("Could not hand %s to %s: %s.", ItemLink(data.itemID) or ItemName(data.itemID), ShortName(data.key),
             tostring(why or "unknown error"))
         EnsureTargetPopups()
-        if _G.StaticPopup_Show then
-            _G.StaticPopup_Show("DISASTERZONE_RECORD_TARGET", ItemLink(data.itemID) or ItemName(data.itemID),
+        if ns.Popup then
+            ns.Popup:Show("DISASTERZONE_RECORD_TARGET", ItemLink(data.itemID) or ItemName(data.itemID),
                 ColoredName(data.key), data)
         end
     end
@@ -3303,8 +3307,8 @@ function DropPanel:AwardToTarget(b, kind)
     -- Master looter with the item in the loot window: hand it over, then record.
     if not drop.test and CanMasterLoot(itemID) then
         EnsureTargetPopups()
-        if _G.StaticPopup_Show then
-            _G.StaticPopup_Show("DISASTERZONE_GIVE_TARGET", ItemLink(itemID) or ItemName(itemID),
+        if ns.Popup then
+            ns.Popup:Show("DISASTERZONE_GIVE_TARGET", ItemLink(itemID) or ItemName(itemID),
                 ColoredName(key) .. " (" .. TARGET_LABELS[kind] .. ")",
                 { itemID = itemID, key = key, kind = kind, bossKey = bossKey, copy = b.copy, drop = drop })
         end

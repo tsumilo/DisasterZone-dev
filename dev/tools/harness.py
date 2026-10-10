@@ -1510,12 +1510,30 @@ class Client:
         # WoW order: SavedVariables are assigned after the files ran and right before ADDON_LOADED
         if not sv_first:
             self._apply_saved(headers)
+        self._hook_popups()
         self.M.addon_loaded(self.addon_name)
         self.M.login_events(not reload, bool(reload), self.world.roster_delay or 0)
         self.loaded = True
         if self.world.fail_fast:
             self.world.assert_no_errors()
         return self
+
+    def _hook_popups(self):
+        """The addon's own dialogs (UI/Popup.lua, 1.3.5) are logged in __MOCK.popup_log like StaticPopups, so tests
+        read what was asked either way."""
+        self.eval("""
+            local P = ns and ns.Popup
+            if not P or P.__logged then return end
+            P.__logged = true
+            local show = P.Show
+            P.Show = function(self, which, t1, t2, data)
+              local f = show(self, which, t1, t2, data)
+              if f then
+                __MOCK.popup_log = __MOCK.popup_log or {}
+                __MOCK.popup_log[#__MOCK.popup_log + 1] = { which = which, text = f.text:GetText(), data = data }
+              end
+              return f
+            end""")
 
     def _apply_saved(self, headers):
         for sv in self._sv_names(headers):
@@ -1900,18 +1918,46 @@ class Client:
         lines = _conv(self.M.export(self._call("show_tooltip_item", int(item_id))))
         return [(l[0] if len(l) > 0 else "", l[1] if len(l) > 1 else None) for l in (lines or [])]
 
+    def _addon_popup_act(self, name, index, text):
+        """Button `index` of the addon's own dialog `name` (UI/Popup.lua); False when none is shown."""
+        return self.eval("""
+            local which, i, text = ...
+            local P = ns and ns.Popup
+            local f = P and P:FindVisible(which)
+            if not f then return false end
+            if text ~= nil then f.editBox:SetText(text) end
+            P:Click(f, i)
+            return true""", name, index, text) is True
+
     def accept_popup(self, name, text=None):
-        """Click button1 (OnAccept) of the visible StaticPopup `name`; text fills its edit box first."""
-        if not self._call("popup_act", name, 1, text):
-            raise AssertionError("%s: no visible StaticPopup %r (visible: %s)" % (self.full_name, name, self.popups()))
+        """Click button1 (OnAccept) of the visible dialog `name` (the addon's own, or a StaticPopup); text fills its
+        edit box first."""
+        if not self._addon_popup_act(name, 1, text) and not self._call("popup_act", name, 1, text):
+            raise AssertionError("%s: no visible popup %r (visible: %s)" % (self.full_name, name, self.popups()))
 
     def cancel_popup(self, name):
-        if not self._call("popup_act", name, 2, None):
-            raise AssertionError("%s: no visible StaticPopup %r" % (self.full_name, name))
+        if not self._addon_popup_act(name, 2, None) and not self._call("popup_act", name, 2, None):
+            raise AssertionError("%s: no visible popup %r" % (self.full_name, name))
+
+    def popup_button(self, name, index):
+        """Click button `index` (1..3) of the visible dialog `name`."""
+        if not self._addon_popup_act(name, index, None) and not self._call("popup_act", name, index, None):
+            raise AssertionError("%s: no visible popup %r (visible: %s)" % (self.full_name, name, self.popups()))
+
+    def popup_text(self, name):
+        """The text of the visible dialog `name` (the addon's own or a StaticPopup), or None."""
+        return self.eval("""
+            local which = ...
+            local f = ns and ns.Popup and ns.Popup:FindVisible(which)
+            if not f and StaticPopup_FindVisible then f = StaticPopup_FindVisible(which) end
+            return f and f.text:GetText() or nil""", name)
 
     def escape_popups(self):
-        """Press Escape in the game world: StaticPopup_EscapePressed (what ToggleGameMenu runs first). Every shown
-        hideOnEscape popup gets OnCancel(dialog, data, "clicked") unless noCancelOnEscape. True if one closed."""
+        """Press Escape in the game world: the addon's top dialog closes (it takes the key), else
+        StaticPopup_EscapePressed (what ToggleGameMenu runs first). Every shown hideOnEscape popup gets
+        OnCancel(dialog, data, "clicked") unless noCancelOnEscape. True if one closed."""
+        if self.eval("return ns and ns.Popup and ns.Popup:EscapePressed() or false") is True:
+            return True
         return bool(self._call("popup_escape"))
 
     def set_ml_refusal(self, member, kind="inv_full"):
@@ -1922,8 +1968,13 @@ class Client:
         self._call("set_ml_refusal", full, kind)
 
     def popups(self):
+        """The names of the visible dialogs: the addon's own (UI/Popup.lua), then StaticPopups."""
         return self.eval_py("""
             local out = {}
+            for i = 1, 4 do
+              local f = _G["DisasterZonePopup" .. i]
+              if f and f:IsShown() then out[#out + 1] = f.which end
+            end
             for i = 1, STATICPOPUP_NUMDIALOGS do
               local f = __MOCK.popup_frames[i]
               if f and f:IsShown() then out[#out + 1] = f.which end

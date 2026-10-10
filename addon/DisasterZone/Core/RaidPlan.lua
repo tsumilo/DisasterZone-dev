@@ -716,6 +716,11 @@ local function CleanTeam(r, now)
     end
     -- 1.3.3: the team's theme, a raid key whose loading screen is its banner (unknown keys: none, never refused)
     if type(r.th) == "string" and INSTANCE_BY_KEY[r.th] then out.th = r.th end
+    -- 1.3.5: the raid nights (Core/RaidNights.lua) and their note. false = none, written by a client that knows them;
+    -- nil = a client before 1.3.5 wrote it (MergeRecord keeps my nights then). Bad nights are dropped, never refused.
+    local nt = ns.RaidNights:Clean(r.nt)
+    if nt then out.nt = #nt > 0 and nt or false end
+    out.nn = ns.RaidNights:CleanNote(r.nn)
     return out
 end
 
@@ -937,17 +942,18 @@ local function MergeRecord(root, kind, rec, via)
     end
     if cur then
         -- A client before 1.3.1 drops a team's target comp (cp) from the copy it passes on, one before 1.3.2 its
-        -- lineups (L): of two copies of a version that differ only by those, the one with more of them wins
-        -- (whatever their hashes), and one with fewer never replaces mine. (Two edits in the same second that differ
-        -- elsewhere still go by the hash.)
+        -- lineups (L), one before 1.3.5 its raid nights (nt, with their note nn): of two copies of a version that
+        -- differ only by those, the one with more of them wins (whatever their hashes), and one with fewer never
+        -- replaces mine. (Two edits in the same second that differ elsewhere still go by the hash.)
         local tie
         if kind == "T" and rec.rev == cur.rev then
-            local na = (rec.cp and 1 or 0) + (rec.L and 1 or 0)
-            local nb = (cur.cp and 1 or 0) + (cur.L and 1 or 0)
+            local na = (rec.cp and 1 or 0) + (rec.L and 1 or 0) + (rec.nt ~= nil and 1 or 0)
+            local nb = (cur.cp and 1 or 0) + (cur.L and 1 or 0) + (cur.nt ~= nil and 1 or 0)
             if na ~= nb then
+                local skip = { cp = true, L = true, nt = true, nn = true }
                 local a, b = {}, {}
-                for k, v in pairs(rec) do if k ~= "cp" and k ~= "L" then a[k] = v end end
-                for k, v in pairs(cur) do if k ~= "cp" and k ~= "L" then b[k] = v end end
+                for k, v in pairs(rec) do if not skip[k] then a[k] = v end end
+                for k, v in pairs(cur) do if not skip[k] then b[k] = v end end
                 if Util.Hash(a) == Util.Hash(b) then tie = na > nb end
             end
         end
@@ -957,6 +963,10 @@ local function MergeRecord(root, kind, rec, via)
         -- the first lineup (sz / s / grp / gs / cp). The other lineups are carried over from mine.
         if kind == "T" and not rec.del and rec.L == nil and type(cur.L) == "table" and rec.rev > cur.rev then
             rec.L = Lineup.CarryOver(cur.L, rec)
+        end
+        -- (and one from a client before 1.3.5, which doesn't know the raid nights: mine stay)
+        if kind == "T" and not rec.del and rec.nt == nil and cur.nt ~= nil and rec.rev > cur.rev then
+            rec.nt, rec.nn = cur.nt, cur.nn
         end
         -- A client before 1.3 drops the guests and the declined / removed answers from the copy it passes on: the
         -- same version of a raid without them never replaces mine.
@@ -1616,7 +1626,8 @@ function RaidPlan:GetTeams()
 end
 
 -- A visible team: { id, name, members = { key, ... }, by, rev, lineups = { { id, name|nil, size, specs, groups,
--- seats, comp|nil }, ... } } (copies). size / specs / groups / seats / comp: its first lineup's, as before 1.3.2.
+-- seats, comp|nil }, ... }, theme, nights = { { w, m, o }, ... } (Core/RaidNights.lua), note|nil } (copies).
+-- size / specs / groups / seats / comp: its first lineup's, as before 1.3.2.
 function RaidPlan:GetTeam(id)
     local root = Root(false)
     local t = root and type(id) == "string" and root.T[id]
@@ -1628,6 +1639,7 @@ function RaidPlan:GetTeam(id)
     end
     local first = lineups[1]
     return { id = t.id, name = t.n, members = CopyList(t.m) or {}, by = t.by, rev = t.rev, lineups = lineups, theme = t.th,
+             nights = ns.RaidNights:Copy(t.nt) or {}, note = t.nn,
              size = first.size, specs = CopyMap(first.specs), groups = CopyMap(first.groups),
              seats = CopyMap(first.seats), comp = ns.RaidComp:CopyComp(first.comp) }
 end
@@ -3109,11 +3121,15 @@ end
 -- 1.3.3: a team draft saved after another organizer saved the same team (base = the version the draft started from,
 -- mine = the draft, theirs = the team as saved now; all GetTeam-shaped: name, members, theme, lineups { id, name,
 -- size, specs, groups, seats, comp }). What the draft changed since base wins, the rest is theirs: both edits stay
--- instead of the later save wiping the other. Returns name, members (a set), lineups, theme.
+-- instead of the later save wiping the other. Returns name, members (a set), lineups, theme, nights, note (1.3.5:
+-- nights and note as GetTeam's; mine when the draft changed them, else theirs).
 function Merge.Team(base, mine, theirs)
     local name = (mine.name ~= base.name) and mine.name or theirs.name
     local theme = theirs.theme
     if not Merge.Same(mine.theme, base.theme) then theme = mine.theme end
+    local Nights = ns.RaidNights
+    local nights = Nights:Same(mine.nights, base.nights) and theirs.nights or mine.nights
+    local note = (mine.note ~= base.note) and mine.note or theirs.note
     local function Set(list)
         local s = {}
         for k, v in pairs(list or {}) do
@@ -3167,7 +3183,7 @@ function Merge.Team(base, mine, theirs)
         if not placed[l.id] and not bl[l.id] then lineups[#lineups + 1] = l end
     end
     -- (a lineup in base and theirs that the draft deleted stays deleted: neither loop adds it)
-    return name, members, lineups, theme
+    return name, members, lineups, theme, nights, note
 end
 
 -- members: a set { [key] = true } or an array of keys (the roster). id = nil creates a team. opts (optional):
@@ -3177,6 +3193,8 @@ end
 --   or, for one lineup (ln = its id, default the first; a new team gets one): size = 10|25, specs, groups, seats,
 --   comp (Core/RaidComp.lua; false clears it): nil keeps the lineup's current ones.
 --   theme = a raid key (its loading screen is the team's banner; false clears it, nil keeps it) (1.3.3)
+--   nights = { { w, m, o }, ... } (Core/RaidNights.lua; {} or false clears them, nil keeps them), note = text (false
+--   clears it, nil keeps it) (1.3.5)
 --   base = the team (GetTeam) the edit started from (1.3.3): when the team was saved again since, by someone else,
 --   only what this edit changed is applied over that newer version (Merge.Team); needs opts.lineups.
 -- A comp with more slots than its lineup's size is refused. Roster members who were on a waitlist of the team are
@@ -3191,13 +3209,18 @@ function RaidPlan:SaveTeam(id, name, members, opts)
         if now and now.rev ~= opts.base.rev then
             local th = opts.theme
             if th == false then th = nil elseif th == nil then th = opts.base.theme end
-            local n, m, ls, t = Merge.Team(opts.base,
-                { name = CleanText(name, MAX_NAME_LEN) or name, members = members, lineups = opts.lineups, theme = th },
+            local nt, nn = opts.nights, opts.note
+            if nt == false then nt = {} elseif nt == nil then nt = opts.base.nights end
+            if nn == false then nn = nil elseif nn == nil then nn = opts.base.note end
+            local n, m, ls, t, nts, nns = Merge.Team(opts.base,
+                { name = CleanText(name, MAX_NAME_LEN) or name, members = members, lineups = opts.lineups, theme = th,
+                  nights = nt, note = nn },
                 now)
             name, members = n, m
             local o = {}
             for k, v in pairs(opts) do o[k] = v end
             o.lineups, o.theme, o.base = ls, t or false, nil
+            o.nights, o.note = nts or false, nns or false
             opts, merged = o, true
         end
     end
@@ -3274,8 +3297,21 @@ function RaidPlan:SaveTeam(id, name, members, opts)
     local th = opts.theme
     if th == nil then th = cur and cur.th or nil elseif th == false then th = nil end
     if th ~= nil and not INSTANCE_BY_KEY[th] then return false, "unknown theme" end
+    -- (the raid nights and their note: false / {} clears, nil keeps the saved ones; always written, false for none,
+    -- so a copy from a client that doesn't know them can be told apart: MergeRecord)
+    local Nights = ns.RaidNights
+    local nt = opts.nights
+    if nt == nil then nt = cur and cur.nt or false end
+    nt = Nights:Clean(nt)
+    if nt == false then return false, "Those raid nights are not valid." end
+    local nn = opts.note
+    if nn == nil then nn = cur and cur.nn or nil elseif nn == false then nn = nil end
+    if nn ~= nil and not Nights:CleanNote(nn) and Util.Trim(tostring(nn)) ~= "" then
+        return false, ("The note is one line of at most %d characters."):format(Nights.MAX_NOTE)
+    end
     local rec = { id = id, rev = NextRev(cur), by = Util.PlayerKey(), n = name, m = list, L = lineups, th = th,
-                  sz = first.sz, s = first.s, grp = first.grp, gs = first.gs, cp = first.cp }
+                  sz = first.sz, s = first.s, grp = first.grp, gs = first.gs, cp = first.cp,
+                  nt = #nt > 0 and nt or false, nn = Nights:CleanNote(nn) }
     local ok, e = Commit(root, "T", rec)
     if not ok then return false, e end
     -- who joined the roster leaves the team's waitlists

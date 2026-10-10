@@ -44,9 +44,8 @@ def text_of(cl, expr):
 
 
 def popup_click(cl, name, index):
-    """Click button `index` (1 Save, 2 Discard, 3 Cancel) of the visible StaticPopup `name`."""
-    assert cl.eval("local which, i = ...; local _, f = StaticPopup_Visible(which); if not f then return false end;"
-                   " StaticPopup_OnClick(f, i); return true", name, index) is True, cl.popups()
+    """Click button `index` (1 Save, 2 Discard, 3 Cancel) of the visible dialog `name`."""
+    cl.popup_button(name, index)
 
 
 def menu_pick(cl, word):
@@ -167,7 +166,7 @@ def unsaved_changes_ask_before_they_are_lost():
     # another team: asks; Cancel stays with the changes
     bob.click(bob.eval("return %s.back" % D))
     assert bob.popups() == ["DISASTERZONE_TEAM_UNSAVED"]
-    assert "Alpha" in bob.eval("local _, f = StaticPopup_Visible('DISASTERZONE_TEAM_UNSAVED'); return f.text:GetText()")
+    assert "Alpha" in bob.popup_text("DISASTERZONE_TEAM_UNSAVED")
     popup_click(bob, "DISASTERZONE_TEAM_UNSAVED", 3)
     assert bob.eval("return ns.RaidPlanUI:GetSelectedTeam()") == a and bob.eval_py("return ns.RaidPlanUI:GetDraft().members")[K("Rita")]
     # Discard: the changes go, Beta opens
@@ -232,7 +231,7 @@ def new_team_cancel_copy_and_clear_groups():
     # ... > Copy: a new draft with the members, specs and groups, saved as "Kara A 2"
     bob.click(bob.eval("return %s.moreBtn" % D))
     menu = [strip_codes(e.get("text") or "").strip() for e in bob.last_menu()["children"] if e.get("text")]
-    assert menu == ["Theme", "Copy", "Clear groups", "Delete"], menu
+    assert menu == ["Theme", "Raid nights", "Copy", "Clear groups", "Delete"], menu
     menu_pick(bob, "Copy")
     w.tick(0.3)
     dr = bob.eval_py("return ns.RaidPlanUI:GetDraft()")

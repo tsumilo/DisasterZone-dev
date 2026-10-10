@@ -24,9 +24,13 @@ local function Offer()
     end
     waiting = false
     offered[ready.seq] = true
-    if not (StaticPopupDialogs and StaticPopup_Show) then return end
-    if not StaticPopupDialogs[POPUP] then
-        StaticPopupDialogs[POPUP] = {
+    -- (the addon's own dialog; the game's StaticPopup if that isn't there, so an update is never stuck unoffered)
+    local P = ns.Popup
+    local dialogs = P and P.dialogs or StaticPopupDialogs
+    if not dialogs then return end
+    if not dialogs[POPUP] then
+        dialogs[POPUP] = {
+            title = "Update ready",
             text = "DisasterZone %s is ready.\n\nReload the interface now to use it?",
             button1 = "Reload",
             button2 = "Later",
@@ -39,7 +43,8 @@ local function Offer()
             preferredIndex = 3,
         }
     end
-    StaticPopup_Show(POPUP, tostring(ready.version))
+    if P then P:Show(POPUP, tostring(ready.version))
+    elseif StaticPopup_Show then StaticPopup_Show(POPUP, tostring(ready.version)) end
 end
 
 function PatchUI:OnInit()

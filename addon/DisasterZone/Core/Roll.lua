@@ -1392,9 +1392,9 @@ end
 
 -- areason (optional): the award reason chosen with the award (Addendum G), carried to Finish.
 local function ShowPopup(which, ses, key, areason)
-    if type(StaticPopup_Show) ~= "function" then return false end
+    if not ns.Popup then return false end
     local label = ns.ReasonLabel(areason)
-    StaticPopup_Show(which, ItemText(ses), NameText(key) .. (label and (" (" .. label .. ")") or ""),
+    ns.Popup:Show(which, ItemText(ses), NameText(key) .. (label and (" (" .. label .. ")") or ""),
         { id = ses.id, key = key, itemID = ses.i, reason = areason })
     return true
 end
@@ -2492,8 +2492,9 @@ function Roll:OnInit()
     end
     ns:RegisterSlash("roll", SlashRoll, "<item link> - start a raid roll for an item (loot council / master looter); 'end' ends it")
 
-    if StaticPopupDialogs then
-        StaticPopupDialogs["DISASTERZONE_GIVE_ITEM"] = {
+    if ns.Popup.dialogs then
+        ns.Popup.dialogs["DISASTERZONE_GIVE_ITEM"] = {
+            title = "Give item",
             text = "Give %s to %s?",
             button1 = "Give",
             button2 = CANCEL or "Cancel",
@@ -2503,7 +2504,8 @@ function Roll:OnInit()
             hideOnEscape = true,
             preferredIndex = 3,
         }
-        StaticPopupDialogs["DISASTERZONE_CONFIRM_AWARD"] = {
+        ns.Popup.dialogs["DISASTERZONE_CONFIRM_AWARD"] = {
+            title = "Award item",
             text = "Award %s to %s?\n(hand it out via master loot or trade)",
             button1 = "Award",
             button2 = CANCEL or "Cancel",

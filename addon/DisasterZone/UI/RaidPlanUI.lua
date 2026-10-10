@@ -1419,14 +1419,14 @@ function PlanUI:ConfirmDelete(scope)
     else
         what = ("%s on %s"):format(raidTitle(v), date("%a %d %b %H:%M", v.t))
     end
-    StaticPopup_Show("DISASTERZONE_PLAN_DELETE", what, nil, { fn = function()
+    ns.Popup:Show("DISASTERZONE_PLAN_DELETE", what, nil, { fn = function()
         local ok, err = RP():DeleteRaid(v.id, scope)
         if not ok then Print(err or "Could not delete the raid.") end
     end })
 end
 
 function PlanUI:Confirm(text, fn)
-    StaticPopup_Show("DISASTERZONE_PLAN_CONFIRM", text, nil, { fn = fn })
+    ns.Popup:Show("DISASTERZONE_PLAN_CONFIRM", text, nil, { fn = fn })
 end
 
 ---------------------------------------------------------------------------
@@ -2753,7 +2753,7 @@ local TV = {                -- the Teams view's sizes and helpers (one local: th
     LT_BG = { 0.085, 0.085, 0.1 },          -- the lineup tabs' strip, and the banner's foot fading into it
     COL2 = 400,             -- the card's right column (the raids that invite the team): x, and its width 358
     COL2_W = 358,
-    NAME_MIN = 140, NAME_MAX = 420,
+    NAME_MIN = 140, NAME_MAX = 300,        -- (300: the raid nights' block starts at 326)
     -- the themes a team can pick (their loading screen is its banner); a team without one takes its next raid's
     THEMES = { "kara", "gruul", "mag", "ssc", "tk", "hyjal", "bt", "za", "swp" },
     MAX = 40,               -- members a team holds (RaidPlan's MAX_TEAM_MEMBERS)
@@ -2808,6 +2808,7 @@ function TV.differs(dr, t)
     if not t then return true end
     if dr == state.draft then TV.stash() end
     if t.name ~= ns.Util.Trim(teamsView.nameBox:GetText() or "") or dr.th ~= t.theme then return true end
+    if not ns.RaidNights:Same(dr.nights, t.nights) or dr.note ~= t.note then return true end
     local set = {}
     for _, key in ipairs(t.members) do set[key] = true end
     if not TV.sameMap(dr.members, set) or #dr.lineups ~= #t.lineups then return true end
@@ -2876,7 +2877,8 @@ function TV.unsaved()
     if not dr.id then
         TV.stash()
         local name = ns.Util.Trim(teamsView.nameBox:GetText() or "")
-        return next(dr.members) ~= nil or next(dr.cp or {}) ~= nil or #dr.lineups > 1
+        return next(dr.members) ~= nil or next(dr.cp or {}) ~= nil or #dr.lineups > 1 or #(dr.nights or {}) > 0
+            or dr.note ~= nil
             or (name ~= "" and name ~= TV.NEW_NAME)
     end
     return TV.dirty()
@@ -2926,6 +2928,7 @@ function TV.load(id, copy)
         name = copy and TV.copyName(copy.name) or (t and t.name or TV.NEW_NAME),
         members = members, lineups = lineups,
         th = t and t.theme or nil,
+        nights = ns.RaidNights:Copy(t and t.nights) or {}, note = t and t.note or nil,     -- (1.3.5)
         base = (t and not copy) and t or nil,     -- (the saved version it started from: a newer one replaces it)
     }
     local li = 1
@@ -3257,7 +3260,7 @@ end
 -- Runs fn now, or, with unsaved changes, after Save or Discard in a popup (Cancel stays on the team).
 function TV.guard(fn)
     if not TV.unsaved() then return fn() end
-    StaticPopup_Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { fn = fn })
+    ns.Popup:Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { fn = fn })
 end
 
 -- Delete, in words from the real data: which raids invite the team and what a raid locked to its teams loses.
@@ -3367,7 +3370,7 @@ function PlanUI:SetDraftSize(size)
     local slots = ns.RaidComp:CompSize(dr.cp)
     if slots > size then
         local preset = ns.RaidComp:GetPresets(size)[1]
-        StaticPopup_Show("DISASTERZONE_TEAM_COMP_SIZE", ("The target comp has %d slots, more than the team's %d.\n\n"
+        ns.Popup:Show("DISASTERZONE_TEAM_COMP_SIZE", ("The target comp has %d slots, more than the team's %d.\n\n"
             .. "Start it again from %s?"):format(slots, size, preset and preset.name or "nothing"), nil, { fn = function()
                 dr.cp = preset and preset.cp or {}
                 PlanUI:SetDraftSize(size)
@@ -3462,7 +3465,7 @@ function PlanUI:SaveTeam()
         lineups[i] = { id = l.id, name = l.name, size = l.sz, specs = l.s, groups = l.grp, seats = l.gs, comp = l.cp }
     end
     local ok, res, merged = RP():SaveTeam(dr.id, teamsView.nameBox:GetText(), dr.members, { lineups = lineups,
-        theme = dr.th or false, base = dr.base })
+        theme = dr.th or false, nights = dr.nights or false, note = dr.note or false, base = dr.base })
     if not ok then
         Print(res or "Could not save the team.")
         return false
@@ -3582,7 +3585,7 @@ function PlanUI:DeleteLineup(i, sure)
                 #using > 2 and (using[1] .. (" and %d more"):format(#using - 1)) or tconcat(using, " and "),
                 #using == 1 and "s" or ""))
         end
-        StaticPopup_Show("DISASTERZONE_PLAN_CONFIRM", text .. "\n\nIt goes when you save the team; Undo brings it back "
+        ns.Popup:Show("DISASTERZONE_PLAN_CONFIRM", text .. "\n\nIt goes when you save the team; Undo brings it back "
             .. "until then.", nil, { fn = function() PlanUI:DeleteLineup(i, true) end })
         return false
     end
@@ -3601,7 +3604,7 @@ function TV.lineupMenu(owner, i)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(TV.lineupName(dr, i))
         root:CreateButton(UI():AtlasIconText(16, 14, { 0.9, 0.9, 0.9 }) .. "  Rename", function()
-            StaticPopup_Show("DISASTERZONE_LINEUP_NAME", nil, nil, { i = i, name = dr.lineups[i].name or "" })
+            ns.Popup:Show("DISASTERZONE_LINEUP_NAME", nil, nil, { i = i, name = dr.lineups[i].name or "" })
         end)
         local sub = root:CreateButton("Size")
         sub:CreateRadio("10-man", function() return dr.sz == 10 end, function() PlanUI:SetDraftSize(10) end)
@@ -3645,6 +3648,7 @@ function PlanUI:DiscardDraft()
 end
 
 function PlanUI:SelectTeam(id)
+    TV.closeNights()
     TV.guard(function()
         state.team, state.newTeam, state.board = id, nil, false
         TV.load(id)
@@ -3656,7 +3660,7 @@ end
 function PlanUI:DeleteTeam()
     local team = state.team and RP():GetTeam(state.team)
     if not team or not RP():CanManageTeams() then return end
-    StaticPopup_Show("DISASTERZONE_TEAM_DELETE", TV.deleteText(team), nil, { fn = function()
+    ns.Popup:Show("DISASTERZONE_TEAM_DELETE", TV.deleteText(team), nil, { fn = function()
         local ok, err = RP():DeleteTeam(team.id)
         if not ok then
             Print(err or "Could not delete the team.")
@@ -4054,8 +4058,9 @@ function PlanUI:CreateTeams(parent)
     t:SetScript("OnHide", function()
         if t.detail.steps then t.detail.steps:Hide() end
         if t.detail.wl then t.detail.wl:Hide() end
+        TV.closeNights()
         if not TV.unsaved() then return end
-        StaticPopup_Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { stay = function()
+        ns.Popup:Show("DISASTERZONE_TEAM_UNSAVED", TV.draftName(), nil, { stay = function()
             if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("raids") end
             if ns.RaidsUI and ns.RaidsUI.SetView then ns.RaidsUI:SetView("teams") end
         end })
@@ -4081,6 +4086,10 @@ function TV.moreMenu(owner)
         tip(root:CreateButton(UI():AtlasIconText(UI().ICON.eye, 14, { 0.9, 0.9, 0.9 }) .. "  Theme", function()
             C_Timer.After(0, function() UI():ContextMenu(owner, TV.themeMenu) end)
         end), "Theme", "The raid whose loading screen is the team's banner, here and on the board. Saved with the team.")
+        tip(root:CreateButton(UI():AtlasIconText(16, 14, { 0.9, 0.9, 0.9 }) .. "  Raid nights", function()
+            C_Timer.After(0, function() PlanUI:OpenNightsEditor() end)
+        end), "Raid nights", "The nights the team raids and their hours, shown on its banner and to players who "
+            .. "want to join. Saved with the team.")
         if not id then return end
         tip(root:CreateButton(UI():AtlasIconText(17, 14, { 0.9, 0.9, 0.9 }) .. "  Copy", function() PlanUI:CopyTeam(id) end),
             "Copy", "A new team with the same roster and lineups (groups, specs, comps). It is saved when you "
@@ -4193,7 +4202,9 @@ function TV.fillCard(dr, organizer)
     else card.changed:SetPoint("LEFT", card.count, "RIGHT", 8, 0) end
     card.changed:SetText(changed and (grey("·  ") .. changed) or "")
     local used = (card.count:GetStringWidth() or 0) + (you:IsShown() and (10 + you:GetWidth()) or 0)
-    if used + 8 + (card.changed:GetStringWidth() or 0) > TV.LEFT_W then card.changed:SetText("") end
+    -- (left of the raid nights when the banner shows them: organizers always, else a team with nights)
+    local room = (organizer or (dr.nights and #dr.nights > 0)) and (TV.N.X - 36) or TV.LEFT_W
+    if used + 8 + (card.changed:GetStringWidth() or 0) > room then card.changed:SetText("") end
     TV.layoutCard()
 
     -- the right: the next raid, or what a team is for
@@ -4254,6 +4265,7 @@ function TV.fillCard(dr, organizer)
     local file, l, r, tt, b = artCoords(th, TV.W, TV.CARD_H, 0.95)
     card.art:SetTexture(file)
     card.art:SetTexCoord(l, r, tt, b)
+    TV.paintHeroNights(dr, organizer)
 end
 
 -- A team's theme: its own, else its next raid's first instance, else one picked from its id (so it stays put).
@@ -4769,6 +4781,7 @@ function TV.fillWaitlist()
     if #list == 0 then y = TV.WL.HEAD + 4 + (p.empty:GetStringHeight() or 14) + 6 + max(14, p.emptySub:GetStringHeight() or 28) + 8 end
     -- the foot: Join for someone not on the roster and not in line yet; else a line on how it works
     local canJoin = TV.notOnRoster(dr) and not mine
+    y = TV.wlNights(p, dr, y)
     p.rule:ClearAllPoints()
     p.rule:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 2))
     p.rule:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -(y + 2))
@@ -5497,6 +5510,549 @@ function TV.endAnim()
 end
 
 ---------------------------------------------------------------------------
+-- Teams view: raid nights (1.3.5). The nights of the week a team raids (Core/RaidNights.lua), shown in my clock: a
+-- RAID NIGHTS block on every banner of the board and on the team's banner (a week strip M T W T F S S, a core night
+-- lit gold, an optional one a hollow gold edge, and the hours under it), and in the waitlist panel above Join, so
+-- players see what they sign up for. Organizers click the block (or ··· > Raid nights) for the editor: day tiles, the
+-- hours of each night, Optional, one note. A draft change like the theme (Save / Undo).
+---------------------------------------------------------------------------
+
+TV.N = {
+    X = 326,                          -- the block's left edge on a banner (the name stays left of it)
+    CELL = 17, CELL_H = 19, CELL_GAP = 3,
+    PANEL_W = 420, TILE_H = 34, ROW_H = 38,
+    CELL_BG = { 0.08, 0.08, 0.09, 0.95 }, EDGE = { 0.20, 0.20, 0.23, 1 }, PICKED_BG = { 0.17, 0.14, 0.05, 0.95 },
+    GOLD = { 0.91, 0.73, 0.14 },
+    DEFAULT = { 19 * 60 + 30, 23 * 60 },     -- a team's first night: 19:30 - 23:00
+}
+
+local function Nights() return ns.RaidNights end
+
+-- The tooltip: each night with its hours, the optional ones said, the note, the clock.
+function TV.nightsTooltip(owner, list, note, editable)
+    local RN = Nights()
+    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Raid nights")
+    for _, x in ipairs(RN:LocalList(list)) do
+        GameTooltip:AddDoubleLine(RN.DAYS[x.d] .. (x.o and colorize("9e9e9e", "  optional") or ""),
+            RN:Clock(x.s) .. " – " .. RN:Clock(x.e), 1, 1, 1, 1, 1, 1)
+    end
+    if note then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("\"" .. note .. "\"", 0.85, 0.85, 0.85, true)
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("In your clock. Optional nights: come if you can.", 0.6, 0.6, 0.6, true)
+    if editable then GameTooltip:AddLine("Click to change them.", 0.6, 0.6, 0.6, true) end
+    GameTooltip:Show()
+end
+
+-- The week strip: M T W T F S S, a raid night lit (core: gold fill and edge; optional: a hollow gold edge).
+function TV.newWeekStrip(parent)
+    local N = TV.N
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(7 * N.CELL + 6 * N.CELL_GAP, N.CELL_H)
+    f.cells = {}
+    for i = 1, 7 do
+        local c = CreateFrame("Frame", nil, f)
+        c:SetSize(N.CELL, N.CELL_H)
+        c:SetPoint("LEFT", f, "LEFT", (i - 1) * (N.CELL + N.CELL_GAP), 0)
+        c.bg = c:CreateTexture(nil, "BACKGROUND")
+        c.bg:SetAllPoints()
+        UI():AddEdges(c, "BORDER")
+        c.fs = textOf(c, "GameFontHighlightSmall", 10)
+        c.fs:SetJustifyH("CENTER")
+        c.fs:SetPoint("CENTER", 1, 0)
+        c.fs:SetText(Nights().LETTERS[i])
+        f.cells[i] = c
+    end
+    return f
+end
+
+function TV.paintWeekStrip(f, list)
+    local by = {}
+    for _, x in ipairs(Nights():LocalList(list)) do
+        -- (two nights on one day of my week: the core one shows)
+        if not by[x.d] or by[x.d].o then by[x.d] = x end
+    end
+    for i, c in ipairs(f.cells) do
+        local x = by[i]
+        if x and not x.o then
+            c.bg:SetColorTexture(1, 0.82, 0, 0.22)
+            UI():SetEdgeColor(c, 1, 0.82, 0, 0.9)
+            c.fs:SetTextColor(1, 0.86, 0.2)
+        elseif x then
+            c.bg:SetColorTexture(1, 0.82, 0, 0.03)
+            UI():SetEdgeColor(c, 1, 0.82, 0, 0.42)
+            c.fs:SetTextColor(0.86, 0.74, 0.4)
+        else
+            c.bg:SetColorTexture(0, 0, 0, 0.32)
+            UI():SetEdgeColor(c, 1, 1, 1, 0.07)
+            c.fs:SetTextColor(0.42, 0.42, 0.45)
+        end
+    end
+end
+
+-- A banner's block: RAID NIGHTS, the strip, the hours. Editable (organizers, on the team's banner): a gold kicker and
+-- a pencil on hover, a click opens the editor; without nights "+ Set raid nights".
+function TV.newNightsBlock(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(160, 52)
+    b.kick = textOf(b, "GameFontNormalSmall", 10)
+    b.kick:SetTextColor(0.72, 0.72, 0.72)
+    b.kick:SetPoint("TOPLEFT", 0, 0)
+    b.kick:SetText("RAID NIGHTS")
+    b.pen = b:CreateTexture(nil, "ARTWORK")
+    b.pen:SetSize(10, 10)
+    b.pen:SetTexture(UI().ICON_ATLAS)
+    b.pen:SetTexCoord(unpack(UI():IconCoords(16)))
+    b.pen:SetVertexColor(1, 0.82, 0)
+    b.pen:SetPoint("LEFT", b.kick, "RIGHT", 5, 0)
+    b.pen:Hide()
+    b.strip = TV.newWeekStrip(b)
+    b.strip:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -15)
+    b.times = textOf(b, "GameFontHighlightSmall", 11)
+    b.times:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -41)
+    b.add = textOf(b, "GameFontHighlight", 13)
+    b.add:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -17)
+    b.add:SetText(colorize("ffd100", "+") .. "  Set raid nights")
+    b.addSub = textOf(b, "GameFontHighlightSmall", 11)
+    b.addSub:SetTextColor(0.55, 0.55, 0.57)
+    b.addSub:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -38)
+    b.addSub:SetText("When the team is expected online")
+    b:SetScript("OnEnter", function(self)
+        if self.editable then
+            self.kick:SetTextColor(1, 0.82, 0)
+            self.pen:Show()
+        end
+        if self.list and #self.list > 0 then TV.nightsTooltip(self, self.list, self.note, self.editable) end
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.kick:SetTextColor(0.72, 0.72, 0.72)
+        self.pen:Hide()
+        hideTooltip()
+    end)
+    b:SetScript("OnClick", function(self) if self.editable then TV.openNights(self) end end)
+    return b
+end
+
+-- Fills a block (list / note: wire nights and the note). Shown with nights, or for organizers ("Set raid nights").
+function TV.paintNightsBlock(b, list, note, editable)
+    b.list, b.note, b.editable = list, note, editable
+    local has = list ~= nil and #list > 0
+    b.strip:SetShown(has)
+    b.times:SetShown(has)
+    b.add:SetShown(not has and editable)
+    b.addSub:SetShown(not has and editable)
+    b:EnableMouse(has or editable)
+    if has then
+        TV.paintWeekStrip(b.strip, list)
+        local times, opt = Nights():TimesText(list)
+        b.times:SetText(colorize("e6e6e6", times) .. (opt and colorize("8c8c8c", "  ·  " .. opt) or ""))
+    end
+    -- (as wide as what it says: it never reaches under the next raid on its right)
+    local w = (b.kick:GetStringWidth() or 70) + 18
+    if has then w = max(w, b.strip:GetWidth(), b.times:GetStringWidth() or 0)
+    else w = max(w, b.add:GetStringWidth() or 0, b.addSub:GetStringWidth() or 0) end
+    b:SetWidth(ceil(w + 2))
+    b:SetShown(has or editable)
+end
+
+-- A board banner (TV.fillTeamCard): the block at N.X, the name kept left of it.
+function TV.paintBoardNights(c, tm)
+    c.nights = c.nights or TV.newNightsBlock(c)
+    TV.paintNightsBlock(c.nights, tm.nights, tm.note, false)
+    c.nights:ClearAllPoints()
+    c.nights:SetPoint("TOPLEFT", c, "TOPLEFT", TV.N.X, -18)
+    if c.nights:IsShown() and (c.t1:GetStringWidth() or 0) > TV.N.X - 18 - 24 then setSize(c.t1, 16) end
+end
+
+-- The team's banner (TV.fillCard): the block with the draft's nights; organizers edit them.
+function TV.paintHeroNights(dr, organizer)
+    local card = teamsView.card
+    card.nights = card.nights or TV.newNightsBlock(card)
+    TV.paintNightsBlock(card.nights, dr.nights, dr.note, organizer)
+    card.nights:ClearAllPoints()
+    card.nights:SetPoint("TOPLEFT", card, "TOPLEFT", TV.N.X, -14)
+    if not organizer and card.nights:IsShown() and (card.title:GetStringWidth() or 0) > TV.N.X - 12 - 28 then
+        setSize(card.title, 16)
+    end
+    -- (the next raid's button only as wide as its lines, so the two never overlap)
+    local nx = card.next
+    if nx:IsShown() then
+        local lw = (nx.line:GetStringWidth() or 0) + (nx.lock:IsShown() and 16 or 0)
+        local sw = (nx.sub:GetStringWidth() or 0) + (nx.icon:IsShown() and 16 or 0)
+            + (nx.extra:IsShown() and (nx.extra:GetWidth() + 6) or 0)
+        nx:SetWidth(ceil(max(lw, sw, nx.label:GetStringWidth() or 0) + 2))
+    end
+    -- (and "No raid invites this team yet" in the room right of the block, on more lines)
+    local right = teamsView.detail.moreBtn:IsShown() and 40 or 16
+    local room = card.nights:IsShown() and (TV.W - right - (TV.N.X + card.nights:GetWidth() + 24)) or 300
+    card.note:SetWidth(floor(max(150, min(300, room))))
+    TV.fillNightsPanel()
+end
+
+---------------------------------------------------------------------------
+-- The editor: drops from the banner's block. Day tiles add or take off a night; each night a row (from, to,
+-- Optional); the note; Done. It changes the draft: Save / Undo on the tool row.
+---------------------------------------------------------------------------
+
+function TV.flatCell(f)
+    local N = TV.N
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    UI():AddEdges(f, "BORDER")
+    function f:Paint(picked)
+        local bg = picked and N.PICKED_BG or N.CELL_BG
+        self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+        if picked then UI():SetEdgeColor(self, N.GOLD[1], N.GOLD[2], N.GOLD[3], 1)
+        else UI():SetEdgeColor(self, N.EDGE[1], N.EDGE[2], N.EDGE[3], 1) end
+    end
+    f:Paint(false)
+    local hl = f:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.05)
+    return f
+end
+
+-- A time stepper: the arrows (and the mouse wheel) move it a quarter of an hour; onStep(dir).
+function TV.newStepper(parent, w, onStep)
+    local s = TV.flatCell(CreateFrame("Frame", nil, parent))
+    s:SetSize(w, 26)
+    s:EnableMouseWheel(true)
+    s:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
+    s.down = UI():CreateArrowButton(s, false, 20, 24, function() onStep(-1) end)
+    s.down:SetPoint("LEFT", 1, 0)
+    s.up = UI():CreateArrowButton(s, true, 20, 24, function() onStep(1) end)
+    s.up:SetPoint("RIGHT", -1, 0)
+    s.fs = textOf(s, "GameFontHighlight", 13)
+    s.fs:SetJustifyH("CENTER")
+    s.fs:SetPoint("CENTER", 0, 0)
+    return s
+end
+
+function TV.createNightsPanel()
+    local N = TV.N
+    local p = CreateFrame("Frame", nil, UIParent)
+    p:SetFrameStrata("DIALOG")
+    p:SetToplevel(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:SetSize(N.PANEL_W, 200)
+    for i, o in ipairs({ { 0, -10, 0.35 }, { 0, -3, 0.45 } }) do
+        local sh = p:CreateTexture(nil, "BACKGROUND", nil, -8 + i)
+        sh:SetPoint("TOPLEFT", -3 - o[1], 1 + o[2] / 3)
+        sh:SetPoint("BOTTOMRIGHT", 3 + o[1], o[2])
+        sh:SetColorTexture(0, 0, 0, o[3])
+    end
+    p.bg = p:CreateTexture(nil, "BACKGROUND", nil, 0)
+    p.bg:SetAllPoints()
+    p.bg:SetColorTexture(0.078, 0.078, 0.09, 1)
+    UI():AddEdges(p, "BORDER")
+    UI():SetEdgeColor(p, 1, 1, 1, 0.11)
+    p.title = textOf(p, "GameFontNormalSmall", 10)
+    p.title:SetTextColor(0.69, 0.69, 0.71)
+    p.title:SetPoint("LEFT", p, "TOPLEFT", 14, -20)
+    p.title:SetText("RAID NIGHTS")
+    p.clock = textOf(p, "GameFontHighlightSmall", 11)
+    p.clock:SetTextColor(0.5, 0.5, 0.52)
+    p.clock:SetJustifyH("RIGHT")
+    p.clock:SetPoint("RIGHT", p, "TOPRIGHT", -14, -20)
+    p.clock:SetText("Times in your clock")
+    -- the days: a tile each, picked = a raid night
+    local inner = N.PANEL_W - 28
+    local tw = floor((inner - 6 * 3) / 7)
+    p.tiles = {}
+    for i = 1, 7 do
+        local t = TV.flatCell(CreateFrame("Button", nil, p))
+        t:SetSize(tw, N.TILE_H)
+        t:SetPoint("TOPLEFT", p, "TOPLEFT", 14 + (i - 1) * (tw + 3), -36)
+        t.fs = textOf(t, "GameFontHighlight", 12)
+        t.fs:SetJustifyH("CENTER")
+        t.fs:SetPoint("CENTER", 0, 0)
+        t.fs:SetText(Nights().SHORT[i])
+        t.d = i
+        t:SetScript("OnClick", function(self) PlanUI:ToggleDraftNight(self.d) end)
+        p.tiles[i] = t
+    end
+    p.rows = {}
+    p.empty = textOf(p, "GameFontHighlightSmall", 11)
+    p.empty:SetTextColor(0.55, 0.55, 0.57)
+    p.empty:SetText("Pick the nights the team raids.")
+    p.note = UI():CreateSleekEditBox(p, inner, 26, "GameFontHighlightSmall")
+    p.note:SetMaxLetters(Nights().MAX_NOTE)
+    p.note:SetAutoFocus(false)
+    p.note:SetTextColor(0.92, 0.92, 0.92)
+    p.note:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    p.note:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    p.note:HookScript("OnTextChanged", function(self, user)
+        if not user then return end
+        local dr = state.draft
+        if not dr then return end
+        local text = ns.Util.Trim(self:GetText() or "")
+        dr.note = text ~= "" and text or nil
+        PlanUI:RefreshTeamButtons()
+    end)
+    UI():SetEditPlaceholder(p.note, "Note (optional): \"online 15 min before invites\"")
+    p.rule = p:CreateTexture(nil, "BORDER")
+    p.rule:SetHeight(1)
+    p.rule:SetColorTexture(1, 1, 1, 0.06)
+    p.foot = textOf(p, "GameFontHighlightSmall", 11)
+    p.foot:SetTextColor(0.45, 0.45, 0.48)
+    p.foot:SetText("Saved with the team: Save, or Undo")
+    p.done = UI():CreateSleekButton(p, "Done", 64, 22, function() p:Hide() end, "primary")
+    local catcher = CreateFrame("Button", nil, UIParent)
+    catcher:SetAllPoints(UIParent)
+    catcher:SetFrameStrata("DIALOG")
+    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
+    catcher:RegisterForClicks("AnyUp")
+    catcher:SetScript("OnClick", function() p:Hide() end)
+    catcher:Hide()
+    p.catcher = catcher
+    p:SetScript("OnShow", function() catcher:Show() end)
+    p:SetScript("OnHide", function()
+        catcher:Hide()
+        p.note:ClearFocus()
+        -- (the block shows the note in its tooltip; the banner says "changed, not saved")
+        if teamsView and teamsView:IsShown() then PlanUI:RefreshTeams() end
+    end)
+    p:Hide()
+    teamsView.nightsPanel = p
+    return p
+end
+
+function TV.newNightRow(p)
+    local N = TV.N
+    local r = CreateFrame("Frame", nil, p)
+    r:SetSize(N.PANEL_W - 28, N.ROW_H)
+    r.rule = r:CreateTexture(nil, "BORDER")
+    r.rule:SetPoint("TOPLEFT", 0, 0)
+    r.rule:SetPoint("TOPRIGHT", 0, 0)
+    r.rule:SetHeight(1)
+    r.rule:SetColorTexture(1, 1, 1, 0.05)
+    r.day = textOf(r, "GameFontHighlight", 13)
+    r.day:SetPoint("LEFT", r, "LEFT", 0, 0)
+    r.from = TV.newStepper(r, 84, function(dir) if r.x then PlanUI:StepDraftNight(r.x.d, "s", dir) end end)
+    r.from:SetPoint("LEFT", r, "LEFT", 88, 0)
+    r.dash = textOf(r, "GameFontHighlight", 13)
+    r.dash:SetTextColor(0.5, 0.5, 0.52)
+    r.dash:SetText("–")
+    r.dash:SetPoint("LEFT", r.from, "RIGHT", 6, 0)
+    r.to = TV.newStepper(r, 84, function(dir) if r.x then PlanUI:StepDraftNight(r.x.d, "e", dir) end end)
+    r.to:SetPoint("LEFT", r.from, "RIGHT", 20, 0)
+    r.opt = UI():CreateSwitch(r, nil, function(on) if r.x then PlanUI:SetDraftNightOptional(r.x.d, on) end end,
+        "Optional")
+    setSize(r.opt.label, 12)
+    r.opt.label:SetTextColor(0.78, 0.78, 0.8)
+    r.opt:SetPoint("LEFT", r.to, "RIGHT", 16, 0)
+    r.opt:HookScript("OnEnter", function(self)
+        UI():SetTextTooltip(self, { "Optional", "A night players come to when they can; the others are core nights." },
+            "ANCHOR_TOP")
+    end)
+    r.opt:HookScript("OnLeave", hideTooltip)
+    return r
+end
+
+function TV.fillNightsPanel()
+    local p = teamsView and teamsView.nightsPanel
+    local dr = state.draft
+    if not (p and p:IsShown() and dr) then return end
+    local N, RN = TV.N, Nights()
+    local loc = RN:LocalList(dr.nights)
+    local by = {}
+    for _, x in ipairs(loc) do by[x.d] = x end
+    for i, t in ipairs(p.tiles) do
+        local on = by[i] ~= nil
+        t:Paint(on)
+        t.fs:SetTextColor(on and 1 or 0.62, on and 0.86 or 0.62, on and 0.2 or 0.64)
+    end
+    local y = 36 + N.TILE_H + 10
+    for i, x in ipairs(loc) do
+        local r = p.rows[i] or TV.newNightRow(p)
+        p.rows[i] = r
+        r.x = x
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -y)
+        r.day:SetText(RN.DAYS[x.d])
+        r.day:SetTextColor(x.o and 0.78 or 1, x.o and 0.78 or 1, x.o and 0.8 or 1)
+        r.from.fs:SetText(RN:Clock(x.s))
+        r.to.fs:SetText(RN:Clock(x.e))
+        r.opt:SetChecked(x.o)
+        r:Show()
+        y = y + N.ROW_H
+    end
+    for i = #loc + 1, #p.rows do
+        p.rows[i]:Hide()
+        p.rows[i].x = nil
+    end
+    p.empty:SetShown(#loc == 0)
+    if #loc == 0 then
+        p.empty:ClearAllPoints()
+        p.empty:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -(y + 2))
+        y = y + 22
+    end
+    p.note:ClearAllPoints()
+    p.note:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -(y + 4))
+    if not p.note:HasFocus() and (p.note:GetText() or "") ~= (dr.note or "") then p.note:SetText(dr.note or "") end
+    y = y + 4 + 26 + 12
+    p.rule:ClearAllPoints()
+    p.rule:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -y)
+    p.rule:SetPoint("TOPRIGHT", p, "TOPRIGHT", -14, -y)
+    p.foot:ClearAllPoints()
+    p.foot:SetPoint("LEFT", p, "TOPLEFT", 14, -(y + 20))
+    p.done:ClearAllPoints()
+    p.done:SetPoint("RIGHT", p, "TOPRIGHT", -14, -(y + 20))
+    p:SetHeight(y + 40)
+end
+
+-- Opens (or closes) the editor under owner (the banner's block).
+function TV.openNights(owner)
+    if not RP():CanManageTeams() or not state.draft then return end
+    local p = (teamsView and teamsView.nightsPanel) or TV.createNightsPanel()
+    if p:IsShown() then return p:Hide() end
+    p.owner = owner
+    p:SetScale((teamsView:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
+    p:Show()
+    TV.fillNightsPanel()
+    hideTooltip()
+    UI():DropIn(p, function(dx, dy)
+        p:ClearAllPoints()
+        p:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", -14 + dx, -8 + dy)
+    end)
+end
+
+function TV.closeNights()
+    local p = teamsView and teamsView.nightsPanel
+    if p and p:IsShown() then p:Hide() end
+end
+
+-- The draft's night on day d of my week (its index in dr.nights and its local form), or nil.
+function TV.draftNight(d)
+    local dr = state.draft
+    for _, x in ipairs(Nights():LocalList(dr and dr.nights)) do
+        if x.d == d then
+            for i, n in ipairs(dr.nights) do
+                if n == x.n then return i, x end
+            end
+        end
+    end
+    return nil
+end
+
+function TV.nightsChanged()
+    PlanUI:RefreshTeams()
+    TV.fillNightsPanel()
+end
+
+-- Day d (1 = Monday, my clock) a raid night or not; a new night takes the hours of the one before it.
+function PlanUI:ToggleDraftNight(d)
+    local dr = state.draft
+    if not dr or not RP():CanManageTeams() then return false end
+    dr.nights = dr.nights or {}
+    local i = TV.draftNight(d)
+    if i then
+        table.remove(dr.nights, i)
+    else
+        if #dr.nights >= Nights().MAX then return false end
+        local loc = Nights():LocalList(dr.nights)
+        local last = loc[#loc]
+        local s, e = last and last.s or TV.N.DEFAULT[1], last and last.e or TV.N.DEFAULT[2]
+        dr.nights[#dr.nights + 1] = Nights():FromLocal(d, s, e)
+    end
+    TV.nightsChanged()
+    return true
+end
+
+-- Moves the start ("s") or the end ("e") of day d's night a quarter of an hour (dir -1 / 1); a night never lasts
+-- no time.
+function PlanUI:StepDraftNight(d, field, dir)
+    local dr = state.draft
+    local i, x = TV.draftNight(d)
+    if not i or not RP():CanManageTeams() then return false end
+    local s, e = x.s, x.e
+    if field == "s" then s = (s + dir * 15) % 1440 else e = (e + dir * 15) % 1440 end
+    local n = Nights():FromLocal(x.d, s, e, x.o)
+    if not n then return false end
+    dr.nights[i] = n
+    TV.nightsChanged()
+    return true
+end
+
+function PlanUI:SetDraftNightOptional(d, on)
+    local dr = state.draft
+    local i = TV.draftNight(d)
+    if not i or not RP():CanManageTeams() then return false end
+    dr.nights[i].o = on and true or nil
+    TV.nightsChanged()
+    return true
+end
+
+function PlanUI:SetDraftNightsNote(text)
+    local dr = state.draft
+    if not dr then return end
+    text = ns.Util.Trim(text or "")
+    dr.note = text ~= "" and text or nil
+    PlanUI:RefreshTeams()
+end
+
+function PlanUI:OpenNightsEditor()
+    local card = teamsView and teamsView.card
+    if card and card.nights and card.nights:IsShown() then TV.openNights(card.nights) end
+end
+
+function PlanUI:GetNightsEditor() return teamsView and teamsView.nightsPanel end
+
+---------------------------------------------------------------------------
+-- The waitlist panel (someone not on the roster): the nights above Join, so they know what they sign up for.
+---------------------------------------------------------------------------
+
+function TV.wlNights(p, dr, y)
+    local list = dr.nights
+    local show = list ~= nil and #list > 0 and TV.notOnRoster(dr)
+    if not p.nt then
+        local f = CreateFrame("Frame", nil, p)
+        f:SetSize(TV.WL.W - 24, 60)
+        f.rule = f:CreateTexture(nil, "BORDER")
+        f.rule:SetPoint("TOPLEFT", 0, 0)
+        f.rule:SetPoint("TOPRIGHT", 0, 0)
+        f.rule:SetHeight(1)
+        f.rule:SetColorTexture(1, 1, 1, 0.06)
+        f.kick = textOf(f, "GameFontNormalSmall", 10)
+        f.kick:SetTextColor(0.69, 0.69, 0.71)
+        f.kick:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -16)
+        f.kick:SetText("RAID NIGHTS")
+        f.strip = TV.newWeekStrip(f)
+        f.strip:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -11)
+        f.days = textOf(f, "GameFontHighlight", 13)
+        f.days:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -38)
+        f.times = textOf(f, "GameFontHighlightSmall", 11)
+        f.times:SetPoint("LEFT", f.days, "RIGHT", 8, -1)
+        f.note = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        setSize(f.note, 11)
+        f.note:SetWidth(TV.WL.W - 24)
+        f.note:SetJustifyH("LEFT")
+        f.note:SetWordWrap(true)
+        f.note:SetSpacing(2)
+        f.note:SetTextColor(0.62, 0.62, 0.64)
+        f.note:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -58)
+        p.nt = f
+    end
+    local f = p.nt
+    f:SetShown(show)
+    if not show then return y end
+    TV.paintWeekStrip(f.strip, list)
+    f.days:SetText(Nights():DaysText(list))
+    local times, opt = Nights():TimesText(list)
+    f.times:SetText(colorize("c8c8c8", times) .. (opt and colorize("808080", "  ·  " .. opt) or ""))
+    f.note:SetText(dr.note and ("\"" .. dr.note .. "\"") or "")
+    local h = 58 + (dr.note and ((f.note:GetStringHeight() or 14) + 4) or 0) + 4
+    f:SetHeight(h)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 2))
+    return y + h
+end
+
+---------------------------------------------------------------------------
 -- The board: every team as a banner of its theme's loading screen (whose team, its name, players and lineups on the
 -- left; the next raid and how full it is on the right). Mine first, under "Your teams"; a click opens one.
 ---------------------------------------------------------------------------
@@ -5627,6 +6183,7 @@ function TV.fillTeamCard(c, tm, mine, width)
         c.track:Hide()
         c.fill:Hide()
     end
+    TV.paintBoardNights(c, tm)
     c:Show()
 end
 
@@ -5665,6 +6222,7 @@ end
 
 -- Back to the board (asks first while the open team has unsaved changes).
 function PlanUI:ShowTeamBoard()
+    TV.closeNights()
     TV.guard(function()
         state.board = true
         if state.newTeam then
@@ -7146,8 +7704,10 @@ function PlanUI:OnInit()
             PlanUI:RefreshBlacklist()
         end)
     end
-    if StaticPopupDialogs then
-        StaticPopupDialogs["DISASTERZONE_PLAN_DELETE"] = {
+    if ns.Popup.dialogs then
+        ns.Popup.dialogs["DISASTERZONE_PLAN_DELETE"] = {
+            title = "Delete",
+            danger = true,
             text = "Delete %s?\n\nIt disappears for everyone, with its sign-ups and groups. This can't be undone.",
             button1 = DELETE or "Delete",
             button2 = CANCEL or "Cancel",
@@ -7160,7 +7720,7 @@ function PlanUI:OnInit()
             hideOnEscape = true,
             preferredIndex = 3,
         }
-        StaticPopupDialogs["DISASTERZONE_PLAN_CONFIRM"] = {
+        ns.Popup.dialogs["DISASTERZONE_PLAN_CONFIRM"] = {
             text = "%s",
             button1 = YES or "Yes",
             button2 = NO or "No",
@@ -7174,7 +7734,8 @@ function PlanUI:OnInit()
         }
         -- Teams: unsaved changes when leaving the team (Save / Discard / Cancel; Escape = Cancel), and Delete with
         -- what it changes
-        StaticPopupDialogs["DISASTERZONE_TEAM_UNSAVED"] = {
+        ns.Popup.dialogs["DISASTERZONE_TEAM_UNSAVED"] = {
+            title = "Unsaved changes",
             text = "|cffffd100%s|r has changes that aren't saved.",
             button1 = "Save",
             button2 = "Discard",
@@ -7196,7 +7757,7 @@ function PlanUI:OnInit()
             noCancelOnEscape = true,
             preferredIndex = 3,
         }
-        StaticPopupDialogs["DISASTERZONE_TEAM_COMP_SIZE"] = {
+        ns.Popup.dialogs["DISASTERZONE_TEAM_COMP_SIZE"] = {
             text = "%s",
             button1 = YES or "Yes",
             button2 = CANCEL or "Cancel",
@@ -7213,8 +7774,9 @@ function PlanUI:OnInit()
         local function rename(data, text)
             if type(data) == "table" and data.i then PlanUI:RenameLineup(data.i, text) end
         end
-        StaticPopupDialogs["DISASTERZONE_LINEUP_NAME"] = {
-            text = "Lineup name (empty: its size, e.g. \"25-man\"):",
+        ns.Popup.dialogs["DISASTERZONE_LINEUP_NAME"] = {
+            title = "Lineup name",
+            text = "Leave it empty for its size, e.g. \"25-man\".",
             button1 = SAVE or "Save",
             button2 = CANCEL or "Cancel",
             hasEditBox = 1,
@@ -7246,7 +7808,9 @@ function PlanUI:OnInit()
             hideOnEscape = true,
             preferredIndex = 3,
         }
-        StaticPopupDialogs["DISASTERZONE_TEAM_DELETE"] = {
+        ns.Popup.dialogs["DISASTERZONE_TEAM_DELETE"] = {
+            title = "Delete team",
+            danger = true,
             text = "%s",
             button1 = DELETE or "Delete",
             button2 = CANCEL or "Cancel",

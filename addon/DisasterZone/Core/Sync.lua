@@ -555,8 +555,8 @@ end
 local function ShowRestorePopup()
     local offer, rec = restoreOffer, OwnRecord()
     if not offer or not rec or offer.rev <= OwnRev() then return end
-    if not StaticPopup_Show then return end
-    StaticPopup_Show("DISASTERZONE_RESTORE", Util.ShortName(offer.from),
+    if not ns.Popup then return end
+    ns.Popup:Show("DISASTERZONE_RESTORE", Util.ShortName(offer.from),
         strformat("rev %d, yours %d", offer.rev, OwnRev()), { from = offer.from, rev = offer.rev })
 end
 
@@ -1051,8 +1051,9 @@ function Sync:OnInit()
     ns:RegisterSlash("sync", SlashSync, "ask the guild / council to sync BiS lists now")
     ns:RegisterSlash("version", SlashVersion, "list DisasterZone versions seen in the guild")
 
-    if StaticPopupDialogs then
-        StaticPopupDialogs["DISASTERZONE_RESTORE"] = {
+    if ns.Popup.dialogs then
+        ns.Popup.dialogs["DISASTERZONE_RESTORE"] = {
+            title = "Restore your BiS list",
             text = "A council member (%s) has a newer copy of your BiS list (%s). Restore it?",
             button1 = "Restore",
             button2 = "Keep mine",

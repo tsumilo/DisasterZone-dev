@@ -6,6 +6,25 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.3.5", date = "10 October 2026", title = "Raid nights for teams",
+      sections = {
+          { heading = "Raids: raid nights", lines = {
+              "Teams can say which nights they raid: see when you're expected before you join.",
+              "Every team banner shows its week, the raid nights lit gold, and the hours under it.",
+              "A hollow gold day is an optional night: come if you can.",
+              "Hover the nights for each night's hours and the team's note.",
+              "Times show in your own clock, and stay put when the clocks change.",
+              "Organizers: click Raid nights on the team's banner (or ··· > Raid nights) to set them.",
+              "Pick the days, set each night's hours, mark optional nights and add a note.",
+              "The waitlist shows the nights above Join, so you know what you sign up for.",
+          } },
+          { heading = "One look everywhere", lines = {
+              "Questions and confirmations are the addon's own dialogs now, not the game's red ones.",
+              "They open over the window they belong to, with a title, and Escape closes them.",
+              "Deleting something has a red button, so it never looks like the safe choice.",
+              "Panels, the raid reminder and the strategy prompts lost their rounded game borders.",
+          } },
+      } },
     { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",
       sections = {
           { heading = "Damage and threat meters", lines = {

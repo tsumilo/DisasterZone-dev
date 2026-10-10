@@ -300,31 +300,69 @@ local dialog
 local function ShowDialog(text, acceptText, onAccept, cancelText)
     if not CreateFrame or not UIParent then return end
     if not dialog then
-        local f = CreateFrame("Frame", "DisasterZoneBootDialog", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+        -- the addon's dialog look (UI/Popup.lua) drawn with plain textures: a slate panel, a 1 px edge, a gold title
+        -- over a gold line, flat buttons (the first gold)
+        local f = CreateFrame("Frame", "DisasterZoneBootDialog", UIParent)
         f:SetSize(420, 170)
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
-        f:SetFrameStrata("DIALOG")
-        if f.SetBackdrop then
-            f:SetBackdrop({
-                bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-                tile = true, tileSize = 32, edgeSize = 24,
-                insets = { left = 6, right = 6, top = 6, bottom = 6 },
-            })
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:EnableMouse(true)
+        local function fill(layer, r, g, b, a)
+            local t = f:CreateTexture(nil, layer)
+            t:SetColorTexture(r, g, b, a)
+            return t
         end
-        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        f.title:SetPoint("TOP", f, "TOP", 0, -16)
+        local shade = fill("BACKGROUND", 0, 0, 0, 0.5)
+        shade:SetPoint("TOPLEFT", -4, 2)
+        shade:SetPoint("BOTTOMRIGHT", 4, -6)
+        local bg = fill("BACKGROUND", 0.09, 0.09, 0.105, 1)
+        bg:SetAllPoints()
+        for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+                             { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+            local t = fill("BORDER", 0.30, 0.30, 0.33, 1)
+            t:SetPoint(e[1])
+            t:SetPoint(e[2])
+            if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+        end
+        local glint = fill("ARTWORK", 0.79, 0.64, 0.15, 0.6)
+        glint:SetHeight(1)
+        glint:SetPoint("TOPLEFT", 1, -40)
+        glint:SetPoint("TOPRIGHT", -1, -40)
+        f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -14)
         f.title:SetText("|cffff8000Disaster|rZone")
         f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        f.text:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -44)
-        f.text:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -44)
+        f.text:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -54)
+        f.text:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -54)
         f.text:SetJustifyH("LEFT")
-        f.accept = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        f.accept:SetSize(150, 24)
-        f.accept:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -6, 16)
-        f.cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        f.cancel:SetSize(150, 24)
-        f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 6, 16)
+        f.text:SetSpacing(3)
+        local function button(gold)
+            local b = CreateFrame("Button", nil, f)
+            b:SetSize(130, 26)
+            b.bg = b:CreateTexture(nil, "BACKGROUND")
+            b.bg:SetAllPoints()
+            if gold then b.bg:SetColorTexture(0.30, 0.24, 0.05, 1) else b.bg:SetColorTexture(0.12, 0.12, 0.14, 1) end
+            for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+                                 { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+                local t = b:CreateTexture(nil, "BORDER")
+                if gold then t:SetColorTexture(1, 0.82, 0, 0.75) else t:SetColorTexture(0.34, 0.34, 0.38, 0.9) end
+                t:SetPoint(e[1])
+                t:SetPoint(e[2])
+                if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+            end
+            local hl = b:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetAllPoints()
+            hl:SetColorTexture(1, 1, 1, 0.07)
+            local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            fs:SetPoint("CENTER")
+            if gold then fs:SetTextColor(1, 0.82, 0) end
+            b:SetFontString(fs)
+            return b
+        end
+        f.accept = button(true)
+        f.accept:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 12)
+        f.cancel = button(false)
+        f.cancel:SetPoint("RIGHT", f.accept, "LEFT", -6, 0)
         f.cancel:SetScript("OnClick", function() f:Hide() end)
         dialog = f
     end

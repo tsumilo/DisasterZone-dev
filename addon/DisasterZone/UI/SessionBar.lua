@@ -268,14 +268,15 @@ function SessionBar:DescribeFeatures(f)
 end
 
 local function ConfirmEnd()
-    local dialogs = _G.StaticPopupDialogs
-    if not (dialogs and _G.StaticPopup_Show) then
+    local dialogs = ns.Popup.dialogs
+    if not (dialogs and ns.Popup) then
         ns.RaidLog:End()
         return
     end
     if not dialogs.DISASTERZONE_RAID_END then
         dialogs.DISASTERZONE_RAID_END = {
-            text = "End the raid?\n%s\n\nThis finishes the raid log and unlocks the BiS lists.",
+            title = "End the raid",
+            text = "%s\n\nThis finishes the raid log and unlocks the BiS lists.",
             button1 = "End raid",
             button2 = _G.CANCEL or "Cancel",
             OnAccept = function() ns.RaidLog:End() end,
@@ -285,7 +286,7 @@ local function ConfirmEnd()
             preferredIndex = 3,
         }
     end
-    _G.StaticPopup_Show("DISASTERZONE_RAID_END", SessionBar:GetText())
+    ns.Popup:Show("DISASTERZONE_RAID_END", SessionBar:GetText())
 end
 
 local function SavePosition(f)

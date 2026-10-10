@@ -593,6 +593,13 @@ local function CreateCloseX(f, size)
     return b
 end
 
+-- The window's flat close X for any frame (red under the mouse); onClick defaults to hiding `parent`.
+function UI:CreateCloseButton(parent, size, onClick)
+    local b = CreateCloseX(parent, size or 20)
+    if onClick then b:SetScript("OnClick", onClick) end
+    return b
+end
+
 -- Sets f's header height (the main window's is taller: UI/MainFrame.lua); the gold rule follows, the content stays
 -- where its owner put it.
 function UI:SetWindowHeadHeight(f, h)
@@ -734,11 +741,13 @@ function UI:CreateWindow(name, title, width, height, opts)
     return f
 end
 
+-- (flat since 1.3.5: a plain fill and a 1 px edge, like every other panel, instead of the game's rounded tooltip
+-- border; SetBackdropColor / SetBackdropBorderColor still colour them)
 local PANEL_BACKDROP = {
-    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 16, edgeSize = 12,
-    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Buttons\\WHITE8X8",
+    tile = false, edgeSize = 1,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
 }
 
 ---------------------------------------------------------------------------

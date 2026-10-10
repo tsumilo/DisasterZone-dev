@@ -214,7 +214,7 @@ def escape_restore_popup_keep_mine_click_still_supersedes():
     after = B.eval_py(COPY, key("Carol"))
     assert after["neck"] is False and after["rev"] > newer["rev"], after
     # a popup that is never shown (all dialogs busy -> OnCancel(nil, data)) does nothing
-    C.eval("StaticPopupDialogs.DISASTERZONE_RESTORE.OnCancel(nil, { from = 'x', rev = 1 }, nil)")
+    C.eval("ns.Popup:Get('DISASTERZONE_RESTORE').OnCancel(nil, { from = 'x', rev = 1 }, nil)")
     w.tick(10)
     assert B.eval_py(COPY, key("Carol")) == after
     w.assert_no_errors()

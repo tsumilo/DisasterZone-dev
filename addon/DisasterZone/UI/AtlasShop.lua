@@ -554,7 +554,7 @@ local function CreateTitle(parent)
     h.more = U:CreateTipIconButton(h, 20, U.ICON.more, "More", nil, function(self)
         U:ContextMenu(self, function(root)
             local b = root:CreateButton(U:AtlasIconText(U.ICON.trash, 12) .. " Clear", function()
-                StaticPopup_Show("DISASTERZONE_SHOP_CLEAR")
+                ns.Popup:Show("DISASTERZONE_SHOP_CLEAR")
             end)
             if b and b.SetTooltip then
                 b:SetTooltip(function(tt) GameTooltip_SetTitle(tt, "Take everything off the list") end)
@@ -774,10 +774,12 @@ function ShopUI:Create(helpers, midFrame, rightFrame)
     list.emptyText:SetPoint("TOPRIGHT", list.frame, "TOPRIGHT", -IN, -12)
     list.emptyText:SetJustifyH("LEFT")
 
-    StaticPopupDialogs["DISASTERZONE_SHOP_CLEAR"] = {
+    ns.Popup.dialogs["DISASTERZONE_SHOP_CLEAR"] = {
+        title = "Clear the shopping list",
+        danger = true,
         text = "Take everything off your shopping list?",
-        button1 = YES or "Yes",
-        button2 = NO or "No",
+        button1 = "Clear",
+        button2 = CANCEL or "Cancel",
         OnAccept = function() Shop():Clear() end,
         timeout = 0,
         whileDead = true,

@@ -108,6 +108,7 @@ Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\Blessings.lua
 Core\Totems.lua
+Core\RaidNights.lua
 Core\RaidPlan.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
@@ -149,6 +150,7 @@ Render3D\Standins.lua
 
 # UI
 UI\Widgets.lua
+UI\Popup.lua
 UI\Menu.lua
 UI\TooltipSkin.lua
 UI\Share.lua

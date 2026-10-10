@@ -325,11 +325,13 @@ end
 
 local CONFIRM = "DISASTERZONE_IMPORT_REPLACE"
 local function EnsurePopup()
-    if StaticPopupDialogs[CONFIRM] then return end
-    StaticPopupDialogs[CONFIRM] = {
+    if ns.Popup.dialogs[CONFIRM] then return end
+    ns.Popup.dialogs[CONFIRM] = {
+        title = "Replace picks",
+        danger = true,
         text = "Replace every pick in %s with the imported list?",
-        button1 = YES or "Yes",
-        button2 = NO or "No",
+        button1 = "Replace",
+        button2 = CANCEL or "Cancel",
         OnAccept = function() Win:Apply(true) end,
         timeout = 0,
         whileDead = true,
@@ -491,7 +493,7 @@ local function CreateImportPane(parent)
         if not plan then return end
         if PhaseHasPicks(plan) then
             EnsurePopup()
-            StaticPopup_Show(CONFIRM, ReplaceTarget(plan))
+            ns.Popup:Show(CONFIRM, ReplaceTarget(plan))
         else
             Win:Apply(true)
         end

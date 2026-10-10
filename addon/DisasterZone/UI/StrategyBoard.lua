@@ -135,35 +135,28 @@ local PROMPT_LEN = 64       -- letters a prompt takes unless the caller asks for
 
 local function ensurePrompt()
     if prompt then return prompt end
-    local f = CreateFrame("Frame", "DisasterZoneStrategyPrompt", UIParent, "BackdropTemplate")
-    f:SetSize(360, 130)
+    local f = CreateFrame("Frame", "DisasterZoneStrategyPrompt", UIParent)
+    f:SetSize(360, 142)
     -- above the board and everything drawn on its map
     f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetToplevel(true)
     f:SetPoint("CENTER", 0, 120)
     f:EnableMouse(true)
-    f.solid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-    f.solid:SetPoint("TOPLEFT", 6, -6)
-    f.solid:SetPoint("BOTTOMRIGHT", -6, 6)
-    f.solid:SetColorTexture(0.06, 0.06, 0.07, 1)
-    if f.SetBackdrop then
-        f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 24,
-            insets = { left = 6, right = 6, top = 6, bottom = 6 } })
-    end
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.title:SetPoint("TOPLEFT", 16, -16)
+    -- the addon's dialog look (UI/Popup.lua): slate, soft shadow, gold title over a gold glint
+    ns.Popup:SkinPanel(f)
+    f.title:SetPoint("TOPLEFT", 16, -14)
     f.title:SetPoint("RIGHT", -16, 0)
-    f.title:SetJustifyH("LEFT")
+    f.glint:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -40)
+    f.glint:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -40)
     f.edit = UI():CreateSleekEditBox(f)
     f.edit:SetAutoFocus(false)
-    f.edit:SetHeight(22)
-    f.edit:SetPoint("TOPLEFT", 22, -40)
-    f.edit:SetPoint("RIGHT", -20, 0)
+    f.edit:SetHeight(26)
+    f.edit:SetPoint("TOPLEFT", 16, -54)
+    f.edit:SetPoint("RIGHT", -16, 0)
     f.edit:SetMaxLetters(PROMPT_LEN)
-    f.scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-    f.scroll:SetPoint("TOPLEFT", 18, -40)
-    f.scroll:SetPoint("BOTTOMRIGHT", -36, 44)
+    f.scroll = UI():CreateScrollFrame(f)
+    f.scroll:SetPoint("TOPLEFT", 20, -56)
+    f.scroll:SetPoint("BOTTOMRIGHT", -34, 54)
     f.multi = CreateFrame("EditBox", nil, f.scroll)
     f.multi:SetMultiLine(true)
     f.multi:SetAutoFocus(false)
@@ -198,10 +191,10 @@ local function ensurePrompt()
         f:Hide()
         if cb then cb(text) end
     end
-    f.ok = UI():CreateButton(f, _G.OKAY or "OK", 90, 22, accept)
-    f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 14)
-    f.cancel = UI():CreateButton(f, _G.CANCEL or "Cancel", 90, 22, function() f.cb = nil; f:Hide() end)
-    f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 14)
+    f.ok = UI():CreateSleekButton(f, _G.OKAY or "OK", 84, 26, accept, "primary")
+    f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 12)
+    f.cancel = UI():CreateSleekButton(f, _G.CANCEL or "Cancel", 84, 26, function() f.cb = nil; f:Hide() end)
+    f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
     f.edit:SetScript("OnEnterPressed", accept)
     f.edit:SetScript("OnEscapePressed", function() f.cb = nil; f:Hide() end)
     f.multi:SetScript("OnEscapePressed", function() f.cb = nil; f:Hide() end)
@@ -210,7 +203,7 @@ local function ensurePrompt()
         if IsControlKeyDown() then accept() else self:Insert("\n") end
     end)
     f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.hint:SetPoint("BOTTOMLEFT", 18, 20)
+    f.hint:SetPoint("BOTTOMLEFT", 16, 20)
     f.hint:SetText("Ctrl+Enter: OK")
     f:Hide()
     prompt = f
@@ -224,7 +217,7 @@ function Board:Prompt(title, default, cb, multiline, maxLen)
     f.cb = cb
     f.isMulti = multiline and true or false
     -- a short text gets a smaller box than the page notes
-    f:SetSize(multiline and 520 or 360, multiline and ((maxLen or S().MAX_NOTES) > S().MAX_TEXT and 260 or 180) or 120)
+    f:SetSize(multiline and 520 or 360, multiline and ((maxLen or S().MAX_NOTES) > S().MAX_TEXT and 280 or 200) or 132)
     f.edit:SetMaxLetters(multiline and PROMPT_LEN or maxLen or PROMPT_LEN)
     f.multi:SetMaxLetters(maxLen or S().MAX_NOTES)
     f.multi:SetWidth(460)
@@ -1626,7 +1619,7 @@ function Board:Discard()
     else
         text = ("Discard %s?\n|cff9e9e9eIt was never saved: it is gone for good.|r"):format(name)
     end
-    StaticPopup_Show("DISASTERZONE_STRAT_DISCARD", text, nil, { fn = function() Board:CancelChanges() end })
+    ns.Popup:Show("DISASTERZONE_STRAT_DISCARD", text, nil, { fn = function() Board:CancelChanges() end })
 end
 
 function Board:CancelChanges()
@@ -1656,7 +1649,7 @@ function Board:Save(force)
     if st.mode == "edit" then
         local newer = not force and savedSince()
         if newer then
-            StaticPopup_Show("DISASTERZONE_STRAT_NEWER",
+            ns.Popup:Show("DISASTERZONE_STRAT_NEWER",
                 ("%s saved a newer version of |cffffd100%s|r at %s, after you started.\n|cff9e9e9eSaving puts yours in its place.|r")
                     :format(presenceName(newer.by), st.strat.n, date("%H:%M", newer.rev)), nil,
                 { fn = function() Board:Save(true) end })
@@ -1734,7 +1727,7 @@ function Board:UseStrategy(id, force)
     end
     if lost > 0 and not force then
         local v = raidView()
-        StaticPopup_Show("DISASTERZONE_STRAT_SWITCH",
+        ns.Popup:Show("DISASTERZONE_STRAT_SWITCH",
             ("Use |cffffd100%s|r for %s?\n|cff9e9e9e%s no slot there and %s cleared.|r"):format(s.n,
                 v and raidWhen(v.t) or "this raid", lost == 1 and "1 of your names has" or (lost .. " of your names have"),
                 lost == 1 and "is" or "are"), nil, { fn = function() Board:UseStrategy(id, true) end })
@@ -1879,7 +1872,7 @@ function Board:DeletePage(i, force)
     local what, many = pageContents(p)
     if not force and what then
         local id = p.id
-        StaticPopup_Show("DISASTERZONE_STRAT_DELETE_PAGE",
+        ns.Popup:Show("DISASTERZONE_STRAT_DELETE_PAGE",
             ("Delete the page |cffffd100%s|r?\n|cff9e9e9eIts %s %s with it. Ctrl+Z brings %s back.|r"):format(p.n,
                 what, many and "go" or "goes", many and "them" or "it"), nil, { fn = function()
                 for j, x in ipairs(st.strat and st.strat.p or {}) do
@@ -2116,7 +2109,7 @@ function Board:Click3D()
         return
     end
     local bossRef = st.strat and st.strat.b or st.boss
-    StaticPopup_Show("DISASTERZONE_STRAT_MAP3D",
+    ns.Popup:Show("DISASTERZONE_STRAT_MAP3D",
         ("This page is drawn on |cffffd100%s|r; %s's room is on |cffffd100%s|r.\n|cff9e9e9eUse that map for this page "
             .. "and open the room?|r"):format(MapUI():MapShortName(p.m, bossRef), S():GetBossName(bossRef),
             MapUI():MapShortName(m.id, bossRef)), nil, { fn = function() Board:UseRoomMap() end })
@@ -3175,8 +3168,10 @@ function Board:OnLogin()
 end
 
 -- The board's questions (the game's confirm boxes): data.fn runs on the first button.
-local function confirmDialog(button1, button2)
+local function confirmDialog(button1, button2, title, danger)
     return {
+        title = title,
+        danger = danger,
         text = "%s",
         button1 = button1,
         button2 = button2,
@@ -3191,12 +3186,12 @@ local function confirmDialog(button1, button2)
 end
 
 function Board:OnInit()
-    if StaticPopupDialogs then
-        StaticPopupDialogs["DISASTERZONE_STRAT_DISCARD"] = confirmDialog("Discard", "Keep editing")
-        StaticPopupDialogs["DISASTERZONE_STRAT_DELETE_PAGE"] = confirmDialog(DELETE or "Delete", CANCEL or "Cancel")
-        StaticPopupDialogs["DISASTERZONE_STRAT_NEWER"] = confirmDialog("Save mine", CANCEL or "Cancel")
-        StaticPopupDialogs["DISASTERZONE_STRAT_SWITCH"] = confirmDialog("Use it", CANCEL or "Cancel")
-        StaticPopupDialogs["DISASTERZONE_STRAT_MAP3D"] = confirmDialog("Use it", CANCEL or "Cancel")
+    if ns.Popup.dialogs then
+        ns.Popup.dialogs["DISASTERZONE_STRAT_DISCARD"] = confirmDialog("Discard", "Keep editing", "Discard changes", true)
+        ns.Popup.dialogs["DISASTERZONE_STRAT_DELETE_PAGE"] = confirmDialog(DELETE or "Delete", CANCEL or "Cancel", "Delete page", true)
+        ns.Popup.dialogs["DISASTERZONE_STRAT_NEWER"] = confirmDialog("Save mine", CANCEL or "Cancel", "Saved by someone else")
+        ns.Popup.dialogs["DISASTERZONE_STRAT_SWITCH"] = confirmDialog("Use it", CANCEL or "Cancel")
+        ns.Popup.dialogs["DISASTERZONE_STRAT_MAP3D"] = confirmDialog("Use it", CANCEL or "Cancel")
     end
     local function refresh()
         if not (win and win:IsShown()) then return end

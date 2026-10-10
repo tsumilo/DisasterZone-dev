@@ -786,9 +786,9 @@ ShowNextPopup = function()
     if not (members and members[key]) then return ShowNextPopup() end   -- gone meanwhile
     local R = RP()
     local e = R and R.GetBlacklistEntry and R:GetBlacklistEntry(key)
-    if not e or type(StaticPopup_Show) ~= "function" then return ShowNextPopup() end
+    if not e or not ns.Popup then return ShowNextPopup() end
     local detail = BlacklistDetail(e)
-    if StaticPopup_Show("DISASTERZONE_BLACKLIST_JOINED", Util.ShortName(key), detail ~= "" and ("\n" .. detail) or "",
+    if ns.Popup:Show("DISASTERZONE_BLACKLIST_JOINED", Util.ShortName(key), detail ~= "" and ("\n" .. detail) or "",
         { key = key }) then
         popupOpen = true
     end
@@ -891,8 +891,10 @@ function GuestBook:OnInit()
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", function() ScheduleScan() end)
     ns:On("RAIDINVITE_CHANGED", function() if IsInRaid() then ScheduleScan(2) end end)
     ns:On("GROUP_RULES_CHANGED", function() if IsInRaid() then ScheduleScan(2) end end)
-    if StaticPopupDialogs then
-        StaticPopupDialogs["DISASTERZONE_BLACKLIST_JOINED"] = {
+    if ns.Popup.dialogs then
+        ns.Popup.dialogs["DISASTERZONE_BLACKLIST_JOINED"] = {
+            title = "Blacklisted player",
+            danger = true,
             text = "%s is on the raid blacklist.%s",
             button1 = "Remove from group",
             button2 = "Keep",
