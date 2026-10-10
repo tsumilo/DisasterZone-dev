@@ -217,8 +217,16 @@ local function NewTab(pf)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    b:SetScript("OnDragStart", function(self) HeadDragStart(pf, self.index) end)
-    b:SetScript("OnDragStop", function() MP:EndDrag() end)
+    -- (a tab dragged out stays alive, invisible, until the drop: a hidden frame never gets its OnDragStop)
+    b:SetScript("OnDragStart", function(self)
+        self.dragging = true
+        HeadDragStart(pf, self.index)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self.dragging = nil
+        self:SetAlpha(1)
+        MP:EndDrag()
+    end)
     return b
 end
 
@@ -1075,7 +1083,9 @@ local function DrawHead(pf, tab)
         return 2 + 20 + 20 + 5 + tw + vw + 8
     end
     local x = 3
-    for _, b in ipairs(pf.tabs) do b:Hide() end
+    for _, b in ipairs(pf.tabs) do
+        if b.dragging then b:SetAlpha(0) else b:Hide() end
+    end
     if #avail > 1 then
         pf.mode:Hide()
         local shown = ShownTab(p)
@@ -1237,8 +1247,21 @@ function MP:StartDrag(si)
     GameTooltip:Hide(); HideRowTip()
     ns.UI:CloseMenus()
     f:SetFrameLevel(holder:GetFrameLevel() + 50)
-    f:StartMoving()
-    drag = { si = si, frame = f }
+    -- the stack follows the cursor (set each frame in UpdateDrag) instead of StartMoving: no client frame-moving
+    -- state to depend on. In game the docking never happened: the drag ended on its first frame (see ButtonUp).
+    local sc = f:GetEffectiveScale()
+    local cx, cy = GetCursorPosition()
+    cx, cy = cx / sc, cy / sc
+    drag = { si = si, frame = f, dx = cx - (f:GetLeft() or 0), dy = cy - (f:GetTop() or 0) }
+end
+
+-- Is the left button up again? Only once IsMouseButtonDown has said it was down during this drag / resize: in this
+-- client it may never say so (a drag that ended on its first frame), and then the drag ends on OnDragStop or
+-- GLOBAL_MOUSE_UP instead.
+local function ButtonUp(state)
+    local down = IsMouseButtonDown and IsMouseButtonDown("LeftButton")
+    if down then state.sawDown = true return false end
+    return state.sawDown == true
 end
 
 -- Pulls a panel (or one of its tabs) out of its stack into a stack of its own and starts dragging that.
@@ -1308,12 +1331,14 @@ end
 local function UpdateDrag()
     local d = drag
     local f = d.frame
-    if not IsMouseButtonDown("LeftButton") then MP:EndDrag() return end
+    if ButtonUp(d) then MP:EndDrag() return end
     for _, pf in ipairs(allPanels) do pf.head.drop:Hide(); pf.head.dropText:Hide() end
     guide:Hide()
     local sc = f:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
     cx, cy = cx / sc, cy / sc
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", cx - (d.dx or 0), cy - (d.dy or 0))
     local others = {}
     for _, g in ipairs(stackFrames) do
         if g ~= f and g:IsShown() and g.layout then
@@ -1345,8 +1370,6 @@ function MP:EndDrag()
     if not d then return end
     drag = nil
     local f = d.frame
-    f:StopMovingOrSizing()
-    if f.SetUserPlaced then f:SetUserPlaced(false) end
     guide:Hide()
     for _, pf in ipairs(allPanels) do pf.head.drop:Hide(); pf.head.dropText:Hide() end
     local L = Layout()
@@ -1397,7 +1420,7 @@ end
 
 local function UpdateResize()
     local r = resize
-    if not IsMouseButtonDown("LeftButton") then MP:EndResize() return end
+    if ButtonUp(r) then MP:EndResize() return end
     local f = r.frame
     local sc = f:GetEffectiveScale()
     local cx, cy = GetCursorPosition()
@@ -1731,6 +1754,12 @@ function MP:OnLogin()
     for _, ev in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }) do
         ns:RegisterEvent(ev, function() MP:UpdateVisibility() end)
     end
+    -- the left button let go anywhere: a drag or a resize ends (a hidden tab never gets its OnDragStop)
+    ns:RegisterEvent("GLOBAL_MOUSE_UP", function(_, button)
+        if button and button ~= "LeftButton" then return end
+        if drag then MP:EndDrag() end
+        if resize then MP:EndResize() end
+    end)
     self:UpdateVisibility()
 end
 
@@ -1747,5 +1776,6 @@ MP._Panel = function(v)
     end
 end
 MP._Target = function() return drag and drag.target end
+MP._Dragging = function() return drag ~= nil end
 MP._UpdateDrag = function() if drag then UpdateDrag() end end
 MP._SetTarget = function(t) if drag then drag.target = t end end

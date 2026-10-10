@@ -896,5 +896,29 @@ def the_mouse_wheel_scrolls_a_panel_past_its_last_row():
     assert r.cl.eval("return ns.MeterPanels._Panel('damage').offset") == 0      # a new fight starts at the top
 
 
+@case
+def a_drag_lasts_until_the_button_is_let_go_even_if_the_client_never_reports_it_down():
+    """Reported in game 2026-10-11: panels would not dock. The drag ended whenever IsMouseButtonDown("LeftButton")
+    said no, which this client may say all along: every drag ended on its first frame. Now the stack follows the
+    cursor itself and the drag ends on OnDragStop / GLOBAL_MOUSE_UP, or on IsMouseButtonDown only after it said yes."""
+    r = Raid(thr=True)
+    r.cl.eval("ns.DB:SetSetting('meters.locked', false); __MOCK.mouse_down = false")
+    r.tick(0.5)
+    r.cl.eval("local pf = ns.MeterPanels._Panel('threat'); pf.head:GetScript('OnDragStart')(pf.head)")
+    r.cl.eval("__MOCK.cursor = { 700, 500 }")
+    r.tick(0.3)                                              # OnUpdate runs: the API never says the button is down
+    assert r.cl.eval("return ns.MeterPanels._Dragging()") is True
+    moved = r.cl.eval_py("local f = ns.MeterPanels._Stacks()[1]; local p, rel, rp, x, y = f:GetPoint(); return { p, rp }")
+    assert moved == ["TOPLEFT", "BOTTOMLEFT"], moved                        # it follows the cursor
+    r.cl.eval("local pf = ns.MeterPanels._Panel('threat'); pf.head:GetScript('OnDragStop')(pf.head)")
+    assert r.cl.eval("return ns.MeterPanels._Dragging()") is False
+    # where the API does report the button: down, then up ends it
+    r.cl.eval("local pf = ns.MeterPanels._Panel('threat'); __MOCK.mouse_down = true; pf.head:GetScript('OnDragStart')(pf.head)")
+    r.tick(0.1)
+    r.cl.eval("__MOCK.mouse_down = false; __MOCK.cursor = nil")
+    r.tick(0.1)
+    assert r.cl.eval("return ns.MeterPanels._Dragging()") is False
+
+
 if __name__ == "__main__":
     run_all()
