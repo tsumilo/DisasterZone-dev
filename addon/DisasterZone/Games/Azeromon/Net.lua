@@ -3,7 +3,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Net.lua", ...) then
 -- While the game is open (and out of combat), each client tells the guild where it is, at most once a second:
 --   { t = "AZP", v, m = map, x, y, f = facing, p = "UDLR..." (steps taken since the last update), c = class,
 --     s = what I'm busy with (nil | "pvp" | "battle" | "trade" | "watch"), o = my opponent's key when s = "pvp" }
--- plus a heartbeat every HEARTBEAT seconds when standing still, and { t = "AZL" } when leaving.
+-- plus a heartbeat every HEARTBEAT seconds when standing still, and { t = "AZL" } when leaving. Presence yields to
+-- the game's own traffic: nothing goes out while the game prefix has a backlog, and during a player battle (whose
+-- turns share that queue) at most every MATCH_EVERY seconds.
 -- Receivers replay the steps, so other players walk the same path about a second behind. Peers never block
 -- movement (like players passing each other in the games) and are forgotten after TIMEOUT seconds of silence.
 -- All traffic uses the "game" prefix (CDLg) and GUILD only; nothing here touches loot or council state.
@@ -18,14 +20,18 @@ Net.SEND_EVERY = 1.0
 Net.HEARTBEAT = 10
 Net.TIMEOUT = 25
 Net.MAX_STEPS = 16
+Net.MATCH_EVERY = 5       -- while I'm in a player battle (I can't walk anyway)
+Net.MAX_BACKLOG = 250     -- bytes waiting on the game prefix above which presence waits (a turn goes first)
 
 local STEP_CODE = { up = "U", down = "D", left = "L", right = "R" }
 local STATUS = { pvp = true, battle = true, trade = true, watch = true }
 local CODE_DIR = { U = "up", D = "down", L = "left", R = "right" }
 
 local peers = {}          -- [senderKey] = peer
+local leftAt = {}         -- [senderKey] = when they said goodbye (AZL), until they show up again
 local steps = ""          -- my steps since the last update
 local lastSent, lastMap, sentAt = nil, nil, -999
+local lastStatus = nil    -- what I was busy with in my last update
 local active = false      -- the game panel is open and a save is loaded
 
 local function Now() return GetTime() end
@@ -77,6 +83,7 @@ local function SendPresence()
         sentAt = Now()
         lastSent = StateKey(s)
         lastMap = s.map
+        lastStatus = st
     end
 end
 
@@ -85,6 +92,8 @@ function Net:SetActive(on)
     if active == on then return end
     active = on
     if not on then
+        -- closing the game mid-match leaves it (a forfeit the opponent hears at once)
+        if ns.AzeroPvP and ns.AzeroPvP.Leave then ns.AzeroPvP:Leave() end
         if IsInGuild and IsInGuild() and ns.Comm and not InCombat() then
             ns.Comm:Send({ t = "AZL", v = Net.VERSION }, "GUILD", nil, "game")
         end
@@ -122,6 +131,7 @@ local function OnPresence(senderKey, msg)
         peers[senderKey] = p
     end
     p.seen = Now()
+    leftAt[senderKey] = nil
     p.class = type(msg.c) == "string" and msg.c or p.class
     p.status = STATUS[msg.s] and msg.s or nil
     p.vs = p.status == "pvp" and type(msg.o) == "string" and msg.o or nil
@@ -150,6 +160,7 @@ end
 
 local function OnLeave(senderKey)
     peers[senderKey] = nil
+    leftAt[senderKey] = Now()
 end
 
 ---------------------------------------------------------------------------
@@ -181,13 +192,17 @@ function Net:Update(dt)
     end
     -- send
     if not CanSend() then return end
+    if ns.Comm.Backlog and ns.Comm:Backlog("game") > Net.MAX_BACKLOG then return end
     local s = G.save
     local state = StateKey(s)
     local elapsed = now - sentAt
+    -- in a match only a new status (the bubble others watch for) goes out at the usual pace
+    local every = Net.SEND_EVERY
+    if ns.AzeroPvP and ns.AzeroPvP:InMatch() and Net.Status() == lastStatus then every = Net.MATCH_EVERY end
     if s.map ~= lastMap and elapsed >= 0.25 then
         steps = ""                 -- a map change is a jump, not a walk
         SendPresence()
-    elseif (state ~= lastSent and elapsed >= Net.SEND_EVERY) or elapsed >= Net.HEARTBEAT then
+    elseif (state ~= lastSent and elapsed >= every) or elapsed >= Net.HEARTBEAT then
         SendPresence()
     end
 end
@@ -203,6 +218,10 @@ function Net:PeersOn(mapId)
 end
 
 function Net:Peer(key) return peers[key] end
+
+-- Did this guildmate close the game (AZL) and not come back since? (Silence alone says nothing: presence stops
+-- during WoW combat.)
+function Net:HasLeft(key) return leftAt[key] ~= nil and peers[key] == nil end
 
 function Net:PeerAt(mapId, x, y)
     for _, p in pairs(peers) do
@@ -249,4 +268,4 @@ function Net:OnInit()
 end
 
 -- For tests
-Net._Reset = function() peers, steps, lastSent, lastMap, sentAt = {}, "", nil, nil, -999 end
+Net._Reset = function() peers, leftAt, steps, lastSent, lastMap, sentAt = {}, {}, "", nil, nil, -999 end

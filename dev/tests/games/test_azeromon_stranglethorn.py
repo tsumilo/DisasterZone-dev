@@ -78,6 +78,7 @@ def the_road_south_opens_with_the_night_watch_seal():
 @case
 def the_vale_connects_end_to_end_on_open_ground():
     w, c = game()
+    c.eval("ns.Azero:SetFlag('badge_nightwatch')")                 # (the arena's roads open with the Night Watch)
     # south along the road, one edge at a time
     c.eval("ns.Azero:EnterMap('rebelcamp', 11, 0, 'down', true)")
     seen = ["rebelcamp"]

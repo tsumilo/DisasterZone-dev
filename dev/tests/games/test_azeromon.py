@@ -295,9 +295,11 @@ def a_broken_save_is_repaired_on_load():
       G:Load()
       local s = G.save
       return { map = s.map, party = #s.party, lvl = s.party[1].lvl, hp = s.party[1].hp, moves = #s.party[1].moves,
-               pp = s.party[1].moves[1].pp, net = s.bag.net, fake = s.bag.fake, potion = s.bag.potion, money = s.money }
+               pp = s.party[1].moves[1].pp, net = s.bag.net, fake = s.bag.fake, potion = s.bag.potion, money = s.money,
+               max = ns.AzeroMon.MaxHP(s.party[1]) }
     """)
-    assert r["map"] == "home" and r["party"] == 1 and r["lvl"] == 100 and r["hp"] == 0, r
+    # (a party where nothing can fight - a save from mid-battle - is rested)
+    assert r["map"] == "home" and r["party"] == 1 and r["lvl"] == 100 and r["hp"] == r["max"], r
     assert r["moves"] == 1 and r["pp"] == 25 and r["net"] == 3, r
     assert r.get("fake") is None and r.get("potion") is None and r["money"] == 0, r
     no_errors(w)

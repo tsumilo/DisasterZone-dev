@@ -249,9 +249,58 @@ function G:Data() return ns.Games:GetData(G.GAME_ID) end
 -- A sound effect (Sound.lua's S.SFX name).
 function G:Sfx(name, arg) if ns.AzeroSound then ns.AzeroSound:Play(name, arg) end end
 
+-- Any save counts, from any version: Load repairs what it can (an unknown map sends the player home), so CONTINUE
+-- is offered and NEW GAME always asks before erasing it.
 function G:HasSave()
-    local s = self:Data().save
-    return type(s) == "table" and s.v == D.SAVE_VERSION and Maps[s.map] ~= nil
+    self:RestoreUndo()
+    return type(self:Data().save) == "table"
+end
+
+-- A /reload (or a disconnect) in the middle of a script - a talk, a battle, a gift - must not keep half of it: a
+-- starter given before its flag, a prize paid before the trainer counts as beaten, a gate's text cut before the
+-- push back. While a script runs, data.undo holds the save as it was when the script started; the script's end
+-- drops it, and a load that finds one puts it back. G:Checkpoint() makes the save as it is now the state to go back
+-- to (what another player already saw happen: a trade's swap, a player battle's result).
+local function Copy(v)
+    if type(v) ~= "table" then return v end
+    local t = {}
+    for k, x in pairs(v) do t[k] = Copy(x) end
+    return t
+end
+
+function G:Checkpoint()
+    local data = self:Data()
+    data.undo = (self.co and type(self.save) == "table") and { save = Copy(self.save) } or nil
+end
+
+function G:RestoreUndo()
+    if self.co then return end                     -- (only a fresh load: never under a running script)
+    local data = self:Data()
+    local u = data.undo
+    data.undo = nil
+    if type(u) == "table" and type(u.save) == "table" then data.save = u.save end
+end
+
+-- The nearest open tile to (x, y) on compiled map `m` (itself when open): a saved spot that is a wall now, a map
+-- edge that lands in a tree. nil when the map has no open tile.
+function G.OpenSpot(m, x, y)
+    local npcAt = {}
+    for _, n in ipairs(m.def.npcs or {}) do npcAt[m.key(n.x, n.y)] = true end
+    local function open(tx, ty)
+        if tx < 0 or ty < 0 or tx >= m.w or ty >= m.h then return false end
+        local k = m.key(tx, ty)
+        return not m.solid[k] and not npcAt[k] and not m.trigger[k]
+    end
+    x = math.max(0, math.min(m.w - 1, math.floor(tonumber(x) or 0)))
+    y = math.max(0, math.min(m.h - 1, math.floor(tonumber(y) or 0)))
+    if open(x, y) then return x, y end
+    for r = 1, m.w + m.h do
+        for dx = -r, r do
+            local dy = r - math.abs(dx)
+            if open(x + dx, y + dy) then return x + dx, y + dy end
+            if dy ~= 0 and open(x + dx, y - dy) then return x + dx, y - dy end
+        end
+    end
 end
 
 function G:PlayerName()
@@ -261,6 +310,7 @@ end
 
 function G:NewGame()
     local data = self:Data()
+    data.undo = nil
     data.save = {
         v = D.SAVE_VERSION,
         map = Maps.START.map, x = Maps.START.x, y = Maps.START.y, face = Maps.START.face,
@@ -272,8 +322,11 @@ end
 
 -- Validates the save (unknown species / maps are dropped), then enters the saved map.
 function G:Load()
+    self.co, self.pending = nil, nil
+    self:RestoreUndo()
     local s = self:Data().save
     self.save = s
+    s.v = D.SAVE_VERSION
     local function clean(list)
         local out = {}
         if type(list) == "table" then
@@ -295,8 +348,25 @@ function G:Load()
         if type(s[k]) ~= "table" then s[k] = {} end
     end
     s.money = math.max(0, math.floor(tonumber(s.money) or 0))
-    if not Maps[s.map] then s.map, s.x, s.y, s.face = Maps.START.map, Maps.START.x, Maps.START.y, Maps.START.face end
-    self.co, self.pending, self.moving, self.fade = nil, nil, nil, nil
+    -- a beast to play with: one from the stable when the party is empty, the starter again when every saved beast
+    -- was dropped (a species gone from the game); a party that can't fight (a save from mid-battle) is rested
+    if #s.party == 0 and #s.box > 0 then table.insert(s.party, table.remove(s.box, 1)) end
+    if #s.party == 0 and s.flags.starter then
+        if D.species[s.flags.starter] then table.insert(s.party, M.New(s.flags.starter, 5, self.rng))
+        else s.flags.starter = nil end
+    end
+    if #s.party > 0 and not M.FirstUsable(s.party) then
+        for _, mon in ipairs(s.party) do M.Heal(mon) end
+    end
+    local m = G.Compile(s.map)
+    if not m then
+        s.map, s.x, s.y, s.face = Maps.START.map, Maps.START.x, Maps.START.y, Maps.START.face
+        m = G.Compile(s.map)
+    end
+    s.x, s.y = G.OpenSpot(m, s.x, s.y)
+    if not DIRS[s.face] then s.face = "down" end
+    if type(s.respawn) == "table" and not G.Compile(s.respawn.map) then s.respawn = nil end
+    self.moving, self.fade = nil, nil
     self.input.dir, self.input.held = nil, 0
     self:EnterMap(s.map, s.x, s.y, s.face, true)
     self.started = true
@@ -358,7 +428,7 @@ function G:EnterMap(id, x, y, face, silent)
     self.moving = nil
     self.npcs = {}
     for _, def in ipairs(m.def.npcs or {}) do
-        local hidden = def.hidden and def.hidden(self)
+        local hidden = self:NpcHidden(def)
         self.npcs[#self.npcs + 1] = { def = def, id = def.id, x = def.x, y = def.y, face = def.face or "down",
             homeX = def.x, homeY = def.y, hidden = hidden, wanderIn = 2 + self.rng(0, 30) / 10 }
     end
@@ -372,6 +442,27 @@ function G:EnterMap(id, x, y, face, silent)
     end
     ns:Fire("AZERO_MAP", id)
     self:Emit("map", { id = id })
+end
+
+-- An NPC is gone when its map says so, or when it is a trainer who leaves once beaten (a boss, a pirate captain).
+function G:NpcHidden(def)
+    if def.hidden and def.hidden(self) then return true end
+    local t = def.trainer and D.trainers[def.trainer]
+    return (t and t.vanish and self:Flag("beat_" .. def.trainer)) and true or false
+end
+
+-- After a script: NPCs that a story flag sent away or brought (a boss who shows once his hunters are beaten)
+-- change at once, not on the next visit. One that would appear on the player's tile waits for the next visit.
+function G:RefreshNpcs()
+    local s = self.save
+    for _, n in ipairs(self.npcs or {}) do
+        local hidden = self:NpcHidden(n.def)
+        if hidden then
+            n.hidden = true
+        elseif n.hidden and not (s and n.x == s.x and n.y == s.y) then
+            n.hidden = false
+        end
+    end
 end
 
 function G:NpcAt(x, y)
@@ -405,11 +496,16 @@ end
 -- Script runner
 ---------------------------------------------------------------------------
 
+-- `self.runFrom` = { x, y }: where a reload puts the player back (a step trigger: the tile before it).
 function G:Run(fn, ...)
     if self.co then return false end
     local args = { ... }
     local n = select("#", ...)
     self.co = coroutine.create(function() fn(self, unpack(args, 1, n)) end)
+    self:Checkpoint()
+    local from, undo = self.runFrom, self:Data().undo
+    self.runFrom = nil
+    if from and undo then undo.save.x, undo.save.y = from[1], from[2] end
     self:Resume()
     return true
 end
@@ -420,6 +516,7 @@ function G:Resume(...)
     local ok, err = coroutine.resume(co, ...)
     if not ok then
         self.co, self.pending = nil, nil
+        self:Data().undo = nil
         local handler = geterrorhandler and geterrorhandler()
         if handler then handler(err) else error(err) end
         return
@@ -427,6 +524,8 @@ function G:Resume(...)
     if coroutine.status(co) == "dead" and self.co == co then
         self.co, self.pending = nil, nil
         self.showSpecies = nil
+        self:Data().undo = nil
+        self:RefreshNpcs()
     end
 end
 
@@ -564,6 +663,10 @@ end
 -- opts.noBlackout: a loss does not send the player back (the first rival battle).
 function G:RunBattle(foes, trainerId, opts)
     local s = self.save
+    if not M.FirstUsable(s.party) then              -- (callers check first; a battle needs a beast that can fight)
+        self:Say("None of your beasts can fight!")
+        return "none"
+    end
     local b = ns.AzeroBattle.New({
         party = s.party, foes = foes, wild = trainerId == nil,
         trainer = trainerId and self:TrainerDef(trainerId), bag = s.bag, rng = self.rng,
@@ -641,13 +744,16 @@ function G:EvolveNow(mon, into)
     self:Sfx("evolve")
     self:Say(string.format("What? %s is evolving!", old))
     if self:Wait({ kind = "evolve", t = G.EVOLVE_TIME, mon = mon, from = mon.sp, into = into }) == "cancel" then
-        mon.evoStop = mon.lvl
+        -- it waits for its next level; at the top level there is none, so it asks again after its next battle.
+        -- A trade evolution stopped here is kept (tradeEvo) and comes back the same way.
+        mon.evoStop = (mon.lvl >= D.MAX_LEVEL) and (mon.lvl - 1) or mon.lvl
+        if M.TradeEvolution(mon) == into then mon.tradeEvo = into end
         self:ShowSpecies(mon.sp, mon.shiny)
         self:Say(string.format("Huh? %s stopped evolving!", old))
         self:ShowSpecies(nil)
         return false
     end
-    mon.evoStop = nil
+    mon.evoStop, mon.tradeEvo = nil, nil
     local from = mon.sp
     M.Evolve(mon, into)
     self.save.seen[into], self.save.caught[into] = true, true
@@ -677,7 +783,7 @@ function G:Blackout()
     s.money = s.money - lost
     self:HealParty()
     local r = s.respawn
-    if type(r) ~= "table" or not Maps[r.map] then r = Maps.RESPAWN end
+    if type(r) ~= "table" or not G.Compile(r.map) then r = Maps.RESPAWN end
     self:EnterMap(r.map, r.x, r.y, r.face)
     if self:Perk("keepMoney") then
         self:Say(string.format("%s: {PLAYER} kept every coin and fled back to %s...", self:PerkInfo().name,
@@ -853,8 +959,13 @@ function G:TryStep(dir, run)
     if nx < 0 or ny < 0 or nx >= m.w or ny >= m.h then
         local side = ({ up = "north", down = "south", left = "west", right = "east" })[dir]
         local edge = m.def.edges and m.def.edges[side]
+        if edge and edge.open and not edge.open(self) then      -- a road the story keeps closed for now
+            self:Run(function(g) g:Say(edge.closed or "The way is closed.") end)
+            return "blocked"
+        end
         if edge then
-            -- north / south keep x (shifted by dx); west / east keep y (shifted by dy)
+            -- north / south keep x (shifted by dx); west / east keep y (shifted by dy); a tile that is a tree
+            -- or a wall on the other side gives the nearest open one
             local target = G.Compile(edge.map)
             local tx, ty
             if dir == "up" or dir == "down" then
@@ -862,6 +973,7 @@ function G:TryStep(dir, run)
             else
                 tx, ty = (dir == "left") and (target.w - 1) or 0, ny + (edge.dy or 0)
             end
+            tx, ty = G.OpenSpot(target, tx, ty)
             self:EnterMap(edge.map, tx, ty, dir)
             return "edge"
         end
@@ -878,7 +990,8 @@ function G:TryStep(dir, run)
     return "moved"
 end
 
-function G:OnArrive(forced)
+-- fromX, fromY: the tile the step started on (a gate's trigger sends a reloaded player back there).
+function G:OnArrive(forced, fromX, fromY)
     local s = self.save
     local m = self.map
     local k = m.key(s.x, s.y)
@@ -892,6 +1005,7 @@ function G:OnArrive(forced)
     end
     local tr = m.trigger[k]
     if tr and (not tr.cond or tr.cond(self)) then
+        if fromX then self.runFrom = { fromX, fromY } end
         self:Run(tr.script)
         return
     end
@@ -902,7 +1016,7 @@ function G:OnArrive(forced)
     local rate = m.tall[k] and G.ENCOUNTER_PCT or (m.def.cave and m.def.cave.rate) or G.ENCOUNTER_PCT
     if wildTile and #list > 0 and M.FirstUsable(s.party) and self.rng(1, 100) <= rate then
         local sp, lvl, e = self:RollEncounter(list)
-        self:Run(function(g) g:WildBattle(sp, lvl, e and e.rare) end)
+        if sp then self:Run(function(g) g:WildBattle(sp, lvl, e and e.rare) end) end      -- (nil: nothing out now)
     end
 end
 
@@ -1018,7 +1132,9 @@ function G:PressA()
             self:Run(function(g) g:Say(g:TrainerDef(id).name .. ": " .. g:Fmt(line)) end)
             return
         end
-        if id and not self:Flag("beat_" .. id) then
+        if id and not M.FirstUsable(s.party) and (not self:Flag("beat_" .. id) or self:RematchReady(id)) then
+            self:Run(function(g) g:Say(g:TrainerDef(id).name .. ": Your beasts can't fight like that. Rest them at an inn, then come back.") end)
+        elseif id and not self:Flag("beat_" .. id) then
             self:Run(function(g) g:TrainerEncounter(npc, false) end)
         elseif id then
             self:Run(function(g) g:TrainerAgain(npc) end)
@@ -1158,7 +1274,7 @@ function G:Update(dt)
         mv.t = mv.t + dt
         if mv.t >= mv.dur then
             self.moving = nil
-            self:OnArrive(mv.forced)
+            self:OnArrive(mv.forced, mv.fromX, mv.fromY)
             if not mv.forced then self:Emit("step") end
             if self.pending and self.pending.kind == "walk" and not self.pending.npc then self:Advance() end
         end
@@ -1474,7 +1590,8 @@ local function EncounterIDFor(bossKey)
 end
 G.EncounterIDFor = EncounterIDFor
 
-local function Now() return (time and time()) or 0 end
+-- realm time, so a PC clock set back doesn't keep a rare roaming
+local function Now() return (GetServerTime and GetServerTime()) or (time and time()) or 0 end
 
 function G:RaidRareStore()
     local d = self:Data()

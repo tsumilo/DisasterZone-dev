@@ -11,7 +11,8 @@ ns.AzeroHideout = H
 local G, D, Maps = ns.Azero, ns.AzeroData, ns.AzeroMaps
 
 ---------------------------------------------------------------------------
--- The bosses with a plinth: every raid boss with an encounter id (the Opera's three variants share one)
+-- The bosses with a plinth: every raid boss with an encounter id (the Opera's three variants share one; the Chess
+-- Event is a chest in the loot data but a real encounter the raid log counts)
 ---------------------------------------------------------------------------
 
 H.RAIDS = {}                  -- { key, name, bosses = { { key, name, enc, raid } } } in raid order
@@ -24,7 +25,7 @@ local function Build()
         local seen = {}
         for _, b in ipairs(raid.bosses or {}) do
             local enc = tonumber(b.encounterID)
-            if enc and not b.isTrash and not b.isChest and not seen[enc] then
+            if enc and not b.isTrash and not seen[enc] then
                 seen[enc] = true
                 local e = { key = b.key, name = (enc == 655) and "The Opera Event" or b.name, enc = enc, raid = raid.key,
                             raidName = raid.name }
@@ -51,16 +52,34 @@ end
 
 -- A kill counts for the guild when more than half of the roster at the kill were guildmates. A kill whose roster
 -- the log has already dropped (older than 90 days) counts: the log is the guild's own.
+-- The live guild roster judges it, so: while the roster is not in yet (just after login or a /reload) a kill counts
+-- (judged again once it is); a kill once judged the guild's is remembered (DisasterZoneDB.games.azeromon.hallKills),
+-- so it keeps its trophy when raiders leave the guild later. A count of guildmates stored with the kill (gn) wins.
+local function KillId(b) return tostring(b.enc) .. ":" .. tostring(b.ts) end
+
+local function Remembered()
+    local d = G:Data()
+    if type(d.hallKills) ~= "table" then d.hallKills = {} end
+    return d.hallKills
+end
+
 local function GuildKill(b)
     local Guild = ns.Guild
-    if type(b.roster) ~= "table" or #b.roster == 0 or not (Guild and Guild.IsInGuild) then return true end
+    if type(b.roster) ~= "table" or #b.roster == 0 then return true end
+    local gn = tonumber(b.gn)
+    if gn then return gn * 2 > #b.roster end
+    if Remembered()[KillId(b)] then return true end
+    if not (Guild and Guild.IsInGuild) then return true end
+    if Guild.IsReady and not Guild:IsReady() then return true end          -- unknown yet: not a failure
     local n = 0
     local Util = ns.Util
     for _, key in ipairs(b.roster) do
         local k = (Util and Util.NormalizeName) and Util.NormalizeName(key) or key
         if Guild:IsInGuild(k) or (Util and Util.IsMe and Util.IsMe(k)) then n = n + 1 end
     end
-    return n * 2 > #b.roster
+    local yes = n * 2 > #b.roster
+    if yes then Remembered()[KillId(b)] = true end
+    return yes
 end
 
 local cache, cacheAt
@@ -97,6 +116,19 @@ end
 
 function H.Trophy(enc) return H.Trophies()[enc] end
 function H.Invalidate() cache = nil end
+
+-- The roster came in (or changed) while the hall is on screen: the plinths look again (Game.lua compiles them on
+-- entering the map, the UI draws m.over every frame).
+local function RefreshPlinths()
+    cache = nil
+    local m = G.map
+    if not (m and m.id == "hideout" and m.object and m.over) then return end
+    for k, o in pairs(m.object) do
+        if type(o.tile) == "function" then m.over[k] = o.tile(G) end
+    end
+end
+H.RefreshPlinths = RefreshPlinths
+if ns.On then ns:On("ROSTER_UPDATED", RefreshPlinths) end
 
 function H.FormatDuration(sec)
     sec = math.floor(math.max(0, tonumber(sec) or 0))

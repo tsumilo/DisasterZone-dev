@@ -17,7 +17,6 @@ local D = ns.AzeroData
 local DAY, HOUR = 86400, 3600
 local ICON_BOUNTY = "Interface\\Icons\\INV_Misc_Note_01"
 local ICON_GUILD = "Interface\\Icons\\INV_Shirt_GuildTabard_01"
-local SOUND_DONE = 878                      -- IG_QUEST_LIST_COMPLETE
 
 B.clock, B.resetIn, B.region = nil, nil, nil       -- tests: fixed time / seconds to reset / region
 
@@ -33,16 +32,56 @@ local function Now()
     return (GetServerTime and GetServerTime()) or (time and time()) or 0
 end
 
--- Seconds until the next daily reset (to midnight UTC if the client doesn't say).
-function B.ResetIn()
-    local left = B.resetIn or (GetQuestResetTime and tonumber(GetQuestResetTime()))
-    if not left or left <= 0 or left > DAY then left = DAY - Now() % DAY end
-    return left
+-- The reset hour (UTC) is learned whenever the client tells the time to the reset, and kept (account-wide:
+-- DisasterZoneDB.games.azeromon.reset = { h = the latest hour seen, k = the hour day keys are counted on }), so a
+-- client that answers 0 / nil / nonsense for a while (seen right after login) still lands on the same day.
+-- k only moves when the reset hour really changes (not by the hour summer time shifts it), so day keys stay put.
+local DEFAULT_RESET = { [3] = 3 }              -- by region (3 = Europe); elsewhere 15:00 UTC; until one is seen
+
+local function ResetMemo()
+    local d = G:Data()
+    if type(d.reset) ~= "table" then d.reset = {} end
+    return d.reset
 end
 
--- The day: the hour of the next daily reset, the same number for everyone in the region.
+local function ApiLeft()
+    if B.resetIn then return B.resetIn end
+    local left = GetQuestResetTime and tonumber(GetQuestResetTime())
+    if left and left > 0 and left <= DAY then return left end
+    return nil
+end
+
+-- The server time of the next daily reset.
+local function NextReset()
+    local now = Now()
+    local memo = ResetMemo()
+    local left = ApiLeft()
+    if left then
+        local h = math.floor(((now + left) % DAY) / HOUR + 0.5) % 24
+        memo.h = h
+        local k = tonumber(memo.k)
+        local apart = k and math.min((h - k) % 24, (k - h) % 24)
+        if not apart or apart >= 2 then memo.k = h end
+        return now + left
+    end
+    local region = B.region or (GetCurrentRegion and GetCurrentRegion())
+    local h = tonumber(memo.h) or DEFAULT_RESET[region] or 15
+    local base = h * HOUR
+    return base + (math.floor((now - base) / DAY) + 1) * DAY
+end
+
+-- Seconds until the next daily reset.
+function B.ResetIn()
+    return NextReset() - Now()
+end
+
+-- The day: the hour of the next daily reset (counted on the remembered reset hour), the same number for everyone in
+-- the region, and the same number all day however the client reports the time to the reset.
 function B.DayKey()
-    return math.floor((Now() + B.ResetIn()) / HOUR + 0.5)
+    local nextReset = NextReset()
+    local k = tonumber(ResetMemo().k) or math.floor((nextReset % DAY) / HOUR + 0.5) % 24
+    local day = math.floor((nextReset - k * HOUR) / DAY + 0.5)
+    return day * 24 + k
 end
 
 local function WeeklyResetWeekday()           -- 0 = Sunday
@@ -53,7 +92,7 @@ end
 -- The week counts up at each weekly reset: the block of daily resets that follow it. Also returns the seconds
 -- until the next weekly reset.
 function B.WeekKey()
-    local nextReset = Now() + B.ResetIn()
+    local nextReset = NextReset()
     local day = math.floor(nextReset / DAY)                    -- the date of the next daily reset
     local weekday = (day + 4) % 7                               -- the epoch's day 0 was a Thursday
     local since = (weekday - (WeeklyResetWeekday() + 1)) % 7   -- days since the week's first reset date
@@ -62,8 +101,14 @@ function B.WeekKey()
 end
 
 ---------------------------------------------------------------------------
--- State (in the save): { day, list = { { id, arg, n, got, done, money, item, count } }, week, wn, tiers = {} }
+-- State: { day, list = { { id, arg, n, got, done, money, item, count } }, week, wn, tiers = {},
+--          days = { [day] = list }, weeks = { [week] = { wn, tiers } } }
+-- Account-wide (DisasterZoneDB.games.azeromon.bounty), not in the save: a New Game must not pay today's bounties or
+-- the week's tiers again (it used to live in the save; the first read moves it over). The last few days and weeks
+-- are kept, so a day or week that comes back (a clock or reset-time hiccup) has its progress, not a fresh roll.
 ---------------------------------------------------------------------------
+
+local KEEP_DAYS, KEEP_WEEKS = 3, 2
 
 local function Roll(day)
     local rng = ns.AzeroPvP.NewRng(day * 7919 + 17)
@@ -83,18 +128,43 @@ end
 
 function B.Goal(week) return D.guildGoals[(week % #D.guildGoals) + 1] end
 
+-- Works with the game closed too (the guild summary reads it); nil for someone who never played.
 function B:State()
-    local s = G.save
+    local d = G:Data()
+    local s = G.save or d.save
     if type(s) ~= "table" then return nil end
-    local st = s.bounty
+    local st = d.bounty
+    if type(st) ~= "table" then
+        st = type(s.bounty) == "table" and s.bounty or {}       -- from the save (before 1.3.4)
+        s.bounty = nil
+        d.bounty = st
+    end
+    if type(st.days) ~= "table" then st.days = {} end
+    if type(st.weeks) ~= "table" then st.weeks = {} end
     local day = B.DayKey()
-    if type(st) ~= "table" or st.day ~= day or type(st.list) ~= "table" then
-        local old = type(st) == "table" and st or {}
-        st = { day = day, list = Roll(day), week = old.week, wn = old.wn, tiers = old.tiers }
-        s.bounty = st
+    if st.day ~= day or type(st.list) ~= "table" then
+        if type(st.list) == "table" and tonumber(st.day) then st.days[st.day] = st.list end
+        local list = st.days[day]
+        st.days[day] = nil
+        st.day, st.list = day, type(list) == "table" and list or Roll(day)
+        for k in pairs(st.days) do
+            if type(k) ~= "number" or math.abs(k - day) > KEEP_DAYS * 24 then st.days[k] = nil end
+        end
     end
     local week = B.WeekKey()
-    if st.week ~= week or type(st.tiers) ~= "table" then st.week, st.wn, st.tiers = week, 0, {} end
+    if st.week ~= week or type(st.tiers) ~= "table" then
+        if tonumber(st.week) and type(st.tiers) == "table" then st.weeks[st.week] = { wn = st.wn, tiers = st.tiers } end
+        local old = st.weeks[week]
+        st.weeks[week] = nil
+        if type(old) == "table" and type(old.tiers) == "table" then
+            st.week, st.wn, st.tiers = week, tonumber(old.wn) or 0, old.tiers
+        else
+            st.week, st.wn, st.tiers = week, 0, {}
+        end
+        for k in pairs(st.weeks) do
+            if type(k) ~= "number" or math.abs(k - week) > KEEP_WEEKS then st.weeks[k] = nil end
+        end
+    end
     return st
 end
 
@@ -135,15 +205,19 @@ end
 -- Paying out
 ---------------------------------------------------------------------------
 
+-- The paid mark lives outside the save (State), the money in it: a checkpoint keeps the two in step when a script
+-- is rolled back by a /reload (Game.lua).
 local function Pay(money, items)
     local s = G.save
     s.money = s.money + (money or 0)
     for item, n in pairs(items or {}) do s.bag[item] = (s.bag[item] or 0) + n end
+    if G.Checkpoint then G:Checkpoint() end
 end
 
+-- Silent: the "bounty" / "guildtier" event already plays the sound (Sound.lua), once.
 local function Toast(label, name, icon)
     if ns.AzeroAch and ns.AzeroAch.Notify then
-        ns.AzeroAch:Notify({ label = label, name = name, icon = icon, sound = SOUND_DONE, open = function()
+        ns.AzeroAch:Notify({ label = label, name = name, icon = icon, sound = false, open = function()
             if ns.AzeroUI and ns.AzeroUI.OpenBountiesPage then ns.AzeroUI:OpenBountiesPage() end
         end })
     end
@@ -157,6 +231,7 @@ function B:Complete(b)
 end
 
 function B:CheckTiers()
+    if not G.save then return end                    -- the game is closed: paid on the next load
     local st = B:State()
     if not st or (st.wn or 0) < 1 then return end
     local reached = B:Tier()

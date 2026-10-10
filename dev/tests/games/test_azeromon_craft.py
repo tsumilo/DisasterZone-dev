@@ -96,10 +96,11 @@ def learning_trades_from_the_goldshire_trainers():
     assert "Your skill of 1 will be lost." in c.eval("return ns.Azero.pending.text")
     c.eval("ns.Azero:Advance(1)")                                     # Yes
     said = texts_until_choice(c)
-    assert "You have unlearned Mining." in said, said
+    assert "You have unlearned Mining." not in said, said           # forgotten only once the new trade is picked
     assert c.eval_py("return ns.Azero.pending.options") == ["Learn Alchemy"]
     c.eval("ns.Azero:Advance(1)")
-    texts_until_choice(c)
+    said = texts_until_choice(c)
+    assert "You have unlearned Mining." in said, said
     assert c.eval("return ns.AzeroCraft.Skill('alchemy')") == 1 and c.eval("return ns.AzeroCraft.Skill('mining')") is None
     no_errors(w)
 

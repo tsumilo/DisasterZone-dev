@@ -4,6 +4,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/Watch.lua", ...) th
 -- the seed, both teams and every turn so far (AZV start), then each turn as it resolves (AZV turn). The spectator
 -- runs its own copy of the battle from p1's side, catches up silently and plays the rest like any battle.
 -- Protocol: see PvP.lua (AZW / AZV). Watching changes nothing on either player's side; B stops watching.
+-- Liveness comes from the player I asked (turns, or a keepalive when a turn is slow), not from world presence,
+-- which stops during WoW combat; I tell that player I'm still here the same way, so a /reload frees my slot.
 local addonName, ns = ...
 
 local W = ns:NewModule("AzeroWatch")
@@ -11,10 +13,12 @@ local G = ns.Azero
 local P = ns.AzeroPvP
 
 W.ANSWER_TIMEOUT = 15
-W.SILENCE = 90                 -- no turn for this long (the players' own limit is 60 s a turn): the relay is lost
+-- nothing from the player for this long: the relay is lost. Longer than the longest legal wait for a turn (the
+-- turn timer plus the grace before a timeout is called), and the player sends a keepalive every P.KEEPALIVE.
+W.SILENCE = P.TURN_TIMEOUT + P.TURN_GRACE + 30
 
 local asking = nil             -- { to, at }                      waiting for AZV start
-local session = nil            -- { id, from, battle, applied, early = { [n] = pair }, heard }
+local session = nil            -- { id, from, battle, applied, early = { [n] = pair }, heard, said }
 
 local function Now() return GetTime() end
 local function ShortName(key) return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key) end
@@ -41,7 +45,7 @@ end
 
 function W:Watch(g, peer)
     asking = { to = peer.key, at = Now() }
-    if not Whisper(peer.key, { t = "AZW", op = "ask", v = P.VERSION }) then
+    if not Whisper(peer.key, { t = "AZW", op = "ask", v = P.VERSION, fp = P.Fingerprint() }) then
         asking = nil
         g:Say(peer.name .. " can't be reached right now.")
         return
@@ -68,7 +72,8 @@ function W:Watch(g, peer)
         g:Say("Something went wrong with that battle. You can't watch it.")
         return
     end
-    session = { id = answer.id, from = peer.key, battle = b, applied = applied, early = {}, heard = Now() }
+    session = { id = answer.id, from = peer.key, battle = b, applied = applied, early = {}, heard = Now(),
+                said = Now() }
     g.battle = b
     local result = g:Wait({ kind = "battle", battle = b }) or b.result
     g.battle = nil
@@ -88,6 +93,13 @@ function W:Watching() return session ~= nil end
 
 local function OnReply(sender, msg)
     if type(msg) ~= "table" then return end
+    if msg.op == "alive" or msg.op == "off" then
+        local s = session
+        if not s or sender ~= s.from or msg.id ~= s.id then return end
+        s.heard = Now()
+        if msg.op == "off" then s.battle:EndWatch("lost", "The battle was called off.") end
+        return
+    end
     if msg.op == "turn" then
         local s = session
         if not s or sender ~= s.from or msg.id ~= s.id then return end
@@ -119,10 +131,15 @@ function W:Update()
     end
     local s = session
     if s and s.battle.need ~= "done" then
-        local gone = ns.AzeroNet and not ns.AzeroNet:Peer(s.from)
-        if gone or now - s.heard > W.SILENCE then
-            s.battle:EndWatch("lost", string.format("%s left, so the battle can't be followed any more.",
-                ShortName(s.from)))
+        local name = ShortName(s.from)
+        if ns.AzeroNet and ns.AzeroNet:HasLeft(s.from) then
+            s.battle:EndWatch("lost", string.format("%s left, so the battle can't be followed any more.", name))
+        elseif now - s.heard > W.SILENCE then
+            s.battle:EndWatch("lost", string.format("Lost touch with %s, so the battle can't be followed any more.",
+                name))
+        elseif now - s.said > P.KEEPALIVE then
+            s.said = now
+            Whisper(s.from, { t = "AZW", op = "here" })
         end
     end
 end

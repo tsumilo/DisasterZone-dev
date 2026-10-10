@@ -302,8 +302,9 @@ function C:TrainerTalk(g, id)
         g:Say(t.name .. ": " .. t.done)
         return
     end
-    -- two professions already: offer to forget one first
+    -- two professions already: offer to forget one first (forgotten only once the new one is picked and paid for)
     local known = C.Known()
+    local forgetProf
     if #known >= D.MAX_PROFESSIONS then
         local names, forget = {}, {}
         for i, p in ipairs(known) do
@@ -321,15 +322,24 @@ function C:TrainerTalk(g, id)
             g:Say(t.name .. ": Come back if you change your mind.")
             return
         end
-        local _, msg = C:Unlearn(p)
-        g:Say(msg)
+        forgetProf = p
     end
     local pick = g:Choose(string.format("%s: Care to learn a trade? %s each.", t.name, D.Money(D.PROFESSION_FEE)), options)
     if not pick then
         g:Say(t.name .. ": Come back anytime.")
         return
     end
+    if G.save.money < D.PROFESSION_FEE then
+        g:Say("You can't afford the training (" .. D.Money(D.PROFESSION_FEE) .. ").")
+        return
+    end
+    local oldSkill = forgetProf and C.Skill(forgetProf)
+    if forgetProf then
+        local _, msg = C:Unlearn(forgetProf)
+        g:Say(msg)
+    end
     local ok, msg = C:Learn(profs[pick])
+    if not ok and forgetProf then Profs()[forgetProf] = oldSkill end      -- (can't happen after the checks above)
     g:Say(msg)
     if ok then g:Say(t.name .. ": " .. D.professions[profs[pick]].howto) end
 end
@@ -346,7 +356,16 @@ function C:NodeState(mapId, node)
     local st = type(s.nodes) == "table" and s.nodes[NodeKey(mapId, node)]
     local up = not st or Now() - (tonumber(st.t) or 0) >= C.RESPAWN
     local list = node.list
-    local res = list[((node.x * 7 + node.y * 13) + (st and st.n or 0)) % #list + 1]
+    local at = (node.x * 7 + node.y * 13) + (st and tonumber(st.n) or 0)
+    local res = list[at % #list + 1]
+    -- what grows back is the node's turn in the map's list, skipping what the player's skill can't gather yet
+    -- (else a node that turned into one above their skill stayed out of reach for good); same order every time
+    for i = 0, #list - 1 do
+        local id = list[(at + i) % #list + 1]
+        local r = D.resources[id]
+        local skill = r and C.Skill(r.kind == "herb" and "herbalism" or "mining")
+        if skill and skill >= r.skill then res = id break end
+    end
     return up, res
 end
 

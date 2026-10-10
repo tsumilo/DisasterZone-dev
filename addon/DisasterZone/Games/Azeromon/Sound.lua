@@ -97,7 +97,7 @@ S.ON_EVENT = {
     evolve = "evolved",
     shiny = "shiny",
     badge = "fanfare",
-    guildtier = "fanfare",
+    guildtier = "fanfare",                  -- (the bounty / guild goal toasts stay silent: one sound each)
     bounty = "bounty",
     sell = "sell",
     craft = function(e) return e.prof == "alchemy" and "alchemy" or "smith" end,

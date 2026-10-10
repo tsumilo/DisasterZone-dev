@@ -35,6 +35,9 @@ local root, screen, world, focusOverlay
 local R = {}               -- widgets
 local stack = {}           -- open menus (top = last)
 local focused = false
+local paused = false       -- Esc / combat / hidden window: the game stops, network timers keep going (OnUpdate)
+local uiMessage = nil      -- the Message on screen (UI messages below), { after, base }
+local BT = { busy = nil }  -- battle playback state (Battle below)
 local now = 0
 local KH = {}              -- help and reference: key hints, tips, the controls page, the type chart
 local Scr = {}             -- the screens' helpers (summary pages, trade, stable, professions, ...)
@@ -708,8 +711,22 @@ local function ShowPage(i)
     R.textfs:SetText("")
 end
 
+-- Takes a Message off the screen without running its `after` (another text took the box over): the game never
+-- waits on a message nobody can see. Puts the box back to its own level (Message lifts it over menus).
+local function DropMessage()
+    local m = uiMessage
+    if not m then return end
+    uiMessage = nil
+    R.textbox:SetFrameLevel(m.base)
+    R.textArrow:SetFrameLevel(m.base + 2)
+    R.nameTab:SetFrameLevel(m.base - 1)
+end
+
 -- "Name: words" shows Name on a tab above the box (dialogue), like the later games.
 local function SetText(str, opts)
+    DropMessage()
+    -- a battle line waiting to be read loses its onDone here: stop waiting for it
+    if BT.anim and BT.anim.waitText then BT.anim = nil end
     str = str or ""
     local speaker, rest = str:match("^([%a][%w%s%.']-): (.+)$")
     if speaker and #speaker <= 28 then str = rest else speaker = nil end
@@ -771,6 +788,8 @@ local function TextA()
 end
 
 local function ClearText()
+    DropMessage()
+    if BT.anim and BT.anim.waitText then BT.anim = nil end
     text.full, text.onDone, text.auto, text.pages = nil, nil, nil, nil
     if R.textbox then R.textbox:Hide() R.nameTab:Hide() end
 end
@@ -816,7 +835,9 @@ local function NewRow(f)
     row.bar.bg:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 3)
     row.icon = Tex(row, "ARTWORK")
     row.icon:SetPoint("LEFT", 22, 0)
+    -- a Message up (over this menu or beside it) has to be answered first, by mouse as by keys
     row:SetScript("OnEnter", function(self)
+        if uiMessage then return end
         local menu = self:GetParent().menu
         if menu and stack[#stack] == menu and self.idx then menu.cursor = self.idx UI:RefreshMenu(menu) end
     end)
@@ -826,6 +847,7 @@ local function NewRow(f)
             if UI.Press then UI.Press("B") end
             return
         end
+        if uiMessage then return end
         local menu = self:GetParent().menu
         if menu and stack[#stack] == menu and self.idx then menu.cursor = self.idx UI:MenuSelect(menu) end
     end)
@@ -947,11 +969,12 @@ local function PushMenu(items, opts)
         f:EnableMouseWheel(true)
         f:SetScript("OnMouseWheel", function(self, delta)
             local menu = self.menu
-            if menu and stack[#stack] == menu then MenuMoveBy(menu, delta > 0 and "up" or "down") end
+            if menu and stack[#stack] == menu and not uiMessage then MenuMoveBy(menu, delta > 0 and "up" or "down") end
         end)
     end
+    -- co: the script running when it opened (nil: the player's own menu); see SyncPending
     local menu = { frame = f, items = items, cursor = opts.cursor or 1, cols = cols, opts = opts,
-                   rowH = rowH, perPage = perLines * cols, first = 1 }
+                   rowH = rowH, perPage = perLines * cols, first = 1, co = G.co }
     f.menu = menu
     ScrollToCursor(menu)
     DrawRows(menu)
@@ -1028,28 +1051,35 @@ end
 -- UI messages (not from the engine): text + A to continue
 ---------------------------------------------------------------------------
 
-local uiMessage = nil
+-- (uiMessage is declared at the top: the text box and the menu rows check it)
 -- A message in the text box, answered with Space / X. When a menu covers the text box (the move list sits in its
 -- place, a bag or a summary on top), the box comes up over it for the message and goes back down afterwards.
+-- While it is up nothing else takes the box: engine prompts wait (SyncPending), menus ignore keys and clicks, and
+-- a second message waits for this one. Any other text that still replaces it drops it (DropMessage).
 local function Message(str, after)
+    if uiMessage then
+        local first = uiMessage.after
+        uiMessage.after = function()
+            if first then first() end
+            Message(str, after)
+        end
+        return
+    end
     local tb = R.textbox
     local base = tb:GetFrameLevel()
     local top = stack[#stack]
     local over = top and top.frame and top.frame:IsShown() and top.frame:GetFrameLevel() + 10
+    local msg = { after = after, base = base }
+    SetText(str, { onDone = function()
+        ClearText()                    -- (drops uiMessage and puts the box back down)
+        if msg.after then msg.after() end
+    end })
     if over and over > base then
         tb:SetFrameLevel(over)
         R.textArrow:SetFrameLevel(over + 2)
         R.nameTab:SetFrameLevel(over - 1)
     end
-    uiMessage = { after = after }
-    SetText(str, { onDone = function()
-        uiMessage = nil
-        ClearText()
-        tb:SetFrameLevel(base)
-        R.textArrow:SetFrameLevel(base + 2)
-        R.nameTab:SetFrameLevel(base - 1)
-        if after then after() end
-    end })
+    uiMessage = msg
 end
 
 ---------------------------------------------------------------------------
@@ -1231,7 +1261,7 @@ local function ShowSummary(mon, onClose, page)
     ShowCreature(f.model, mon.sp, 0.5, mon.shiny)
     f.star:SetShown(mon.shiny == true)
     local sm = { mon = mon, page = page or "info", cursor = 1 }
-    local entry = { frame = f, items = {}, cursor = 1, cols = 1, summary = sm, isSummary = true, opts = {
+    local entry = { frame = f, items = {}, cursor = 1, cols = 1, summary = sm, isSummary = true, co = G.co, opts = {
         onCancel = function(menu) PopMenu(menu) if onClose then onClose() end end } }
     sm.entry = entry
     stack[#stack + 1] = entry
@@ -2193,7 +2223,7 @@ end
 -- Battle
 ---------------------------------------------------------------------------
 
-local BT = { busy = nil }     -- playback state
+-- (BT, the playback state, is declared at the top: the text box and messages need it)
 BT.lastMove = setmetatable({}, { __mode = "k" })   -- [beast] = the move slot it used last (the move list opens there)
 
 -- A shiny's entrance: stars burst out around the model, with the dig-site chime.
@@ -2428,7 +2458,10 @@ end
 
 local function OpenActionMenu()
     local b = G.battle
-    SetText(string.format("What will\n%s do?", M.Name(b.ally.mon)), { lines = 3 })
+    -- kept: after a message during the choice it comes back (UpdateBattle)
+    BT.prompt = string.format("What will\n%s do?", M.Name(b.ally.mon))
+    BT.actionOpen = true
+    SetText(BT.prompt, { lines = 3 })
     text.shown = 999
     local items = {
         { text = "FIGHT", onSelect = function()
@@ -2501,14 +2534,24 @@ local function OpenActionMenu()
             return pick(idx, menu)
         end
     end
-    PushMenu(items, { anchor = { "BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0 }, w = 230, h = BOX_H, rowH = 38, cols = 2,
-        level = 70, cursor = BT.lastAction or 1, onCancel = function() end })
+    BT.actionMenu = PushMenu(items, { anchor = { "BOTTOMRIGHT", screen, "BOTTOMRIGHT", 0, 0 }, w = 230, h = BOX_H,
+        rowH = 38, cols = 2, level = 70, cursor = BT.lastAction or 1, onCancel = function() end })
+end
+
+-- Closes the FIGHT / BAG / PARTY / RUN menus and whatever was opened from them.
+local function CloseActionMenus()
+    BT.actionOpen = nil
+    CloseAllMenus()
+    R.moveInfo:Hide()
+    R.bagDesc:Hide()
 end
 
 function UI:BattleAct(action)
     local b = G.battle
     if not b then return end
-    CloseAllMenus()
+    -- only while the battle waits for this choice (a PvP turn that ran out has already forfeited)
+    if b.need ~= "action" then CloseActionMenus() return end
+    CloseActionMenus()
     ClearText()
     if not b:Act(action) then
         Message("It won't have any effect.", function() BT.needShown = nil end)
@@ -2567,15 +2610,20 @@ local function StartBattleView(b)
     local foeSp = b.foe and b.foe.mon and D.species[b.foe.mon.sp]
     if b.wild and foeSp and foeSp.rare and PlaySound then pcall(PlaySound, 8959, "Master") end   -- RAID_WARNING
     ns.AzeroSound:Play("encounter")
+    -- the battle takes the keys: overworld menus still open (a guildmate's challenge accepted over the start
+    -- menu) close, and so do their boxes
+    CloseAllMenus()
+    R.money:Hide() R.bagDesc:Hide() R.moveCompare:Hide() R.log:Hide()
     BT.battle = b
     BT.anim, BT.needShown, BT.ended, BT.snap, BT.lastNeed = nil, nil, nil, nil, nil
-    BT.lastAction = nil
+    BT.lastAction, BT.actionOpen, BT.prompt = nil, nil, nil
     BT.intro = 0.95
     R.battle:Show()
     world:Hide()
     R.foeBox:Hide() R.allyBox:Hide()
     R.foeBox.animHP, R.allyBox.animHP, R.allyBox.animExp = nil, nil, nil
     R.net:Hide()
+    R.net:SetVertexColor(1, 1, 1)            -- (greyed by the last catch)
     -- Load and measure both leads right away, invisibly: the fit samples the idle animation for SAMPLE_TIME,
     -- which then happens during the intro text instead of delaying the send-out.
     ShowCreature(R.foeModel, b.foe.mon.sp, -0.7, b.foe.mon.shiny)
@@ -2584,7 +2632,7 @@ local function StartBattleView(b)
 end
 
 local function EndBattleView()
-    BT.battle = nil
+    BT.battle, BT.actionOpen = nil, nil
     R.battle:Hide()
     world:Show()
     CloseAllMenus()
@@ -2680,6 +2728,7 @@ local function PlayEvent(e)
         end
     elseif e.t == "throw" then
         local net, fm = R.net, R.foeModel
+        net:SetVertexColor(1, 1, 1)
         net:Show()
         local shakes = e.shakes
         local caught = e.caught
@@ -2734,6 +2783,9 @@ local function UpdateBattle(dt)
         BT.intro = nil
         R.flash:Hide()
     end
+    -- the battle stopped waiting for my choice while its menus were open (a PvP turn ran out and forfeited):
+    -- they close, so nothing picked from them reaches a battle that has moved on
+    if BT.actionOpen and b.need ~= "action" then CloseActionMenus() end
     local a = BT.anim
     if a then
         if a.waitText then UpdateText(dt) return end
@@ -2762,6 +2814,11 @@ local function UpdateBattle(dt)
     if b.need ~= BT.lastNeed then
         BT.lastNeed = b.need
         BT.needShown = nil
+    end
+    -- a message during the choice took "What will X do?" with it: back once FIGHT / BAG / PARTY / RUN is on top
+    if BT.actionOpen and b.need == "action" and not text.full and BT.prompt and stack[#stack] == BT.actionMenu then
+        SetText(BT.prompt, { lines = 3 })
+        text.shown = 999
     end
     if BT.needShown then return end
     if b.need == "wait" then
@@ -3092,10 +3149,22 @@ local shownPending = nil
 local function SyncPending()
     local p = G.pending
     if p == shownPending then return end
+    -- a Message on screen is answered first: the new prompt (a guildmate's challenge, a trade partner leaving)
+    -- shows once it is closed, instead of taking its place and leaving the game waiting on it
+    if uiMessage then return end
     shownPending = p
     if not p then
-        if not uiMessage then ClearText() end
+        ClearText()
         return
+    end
+    -- menus the player opened before this script started (the start menu, the bag) are not part of it: a
+    -- guildmate's challenge or trade request closes them, so its prompt gets the keys
+    for _, m in ipairs(stack) do
+        if m.co ~= G.co then
+            CloseAllMenus()
+            R.money:Hide()
+            break
+        end
     end
     if p.kind == "text" then
         SetText(p.text, { onDone = function() G:Advance() end })
@@ -3458,7 +3527,7 @@ function Scr.OpenTrophy(enc)
     local top = stack[#stack]
     f:SetFrameLevel(max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0))
     f:Show()
-    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true,
+    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true, co = G.co,
         opts = { onCancel = function(m) PopMenu(m) ShowCreature(f.model, nil) f:Hide() G:Advance() end } }
 end
 UI._Trophy = function() return R.trophy and R.trophy:IsShown() and { title = R.trophy.title:GetText(), lines = { R.trophy.lines[1]:GetText(), R.trophy.lines[2]:GetText(), R.trophy.lines[3]:GetText() } } or nil end
@@ -3523,7 +3592,7 @@ function KH.OpenTypeChart()
     local top = stack[#stack]
     f:SetFrameLevel(max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0))
     f:Show()
-    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true,
+    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true, co = G.co,
         opts = { onCancel = function(m) PopMenu(m) f:Hide() end } }
 end
 
@@ -3580,7 +3649,7 @@ function KH.OpenChangelog()
     local top = stack[#stack]
     f:SetFrameLevel(max(100, top and top.frame and top.frame:GetFrameLevel() + 10 or 0))
     f:Show()
-    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true,
+    stack[#stack + 1] = { frame = f, items = {}, cursor = 1, cols = 1, isPanel = true, co = G.co,
         onKey = function(key)
             if key == "right" and i < #log then i = i + 1 show() return true end
             if key == "left" and i > 1 then i = i - 1 show() return true end
@@ -3741,8 +3810,12 @@ local function CurrentDir()
     return best
 end
 
-local function SetFocus(on)
+-- pause: true when focus goes because the player paused (Esc), combat started or the window closed - the game stops
+-- until the next click. (The panel starts unfocused on the title screen, where nothing runs: not a pause.)
+local function SetFocus(on, pause)
     focused = on and true or false
+    paused = not focused and (pause and true or paused)
+    if R.pauseNote then R.pauseNote:SetText(paused and KH.PauseNote() or "") end
     if root then
         pcall(root.EnableKeyboard, root, focused)
         focusOverlay:SetShown(not focused)
@@ -3750,6 +3823,18 @@ local function SetFocus(on)
     wipe(heldDirs)
     G:SetDir(nil)
     G.input.run = false
+end
+
+-- The pause overlay's second line: what keeps running for the guildmate on the other side ("" when nothing does).
+function KH.PauseNote()
+    local b, p = BT.battle, G.pending
+    if b and b.pvp then return b.pvp.watch and "The match keeps playing." or "Your turn timer keeps running." end
+    if p and p.kind == "trade" then return "The trade timer keeps running." end
+    if (p and p.kind == "netwait") or (ns.AzeroPvP and ns.AzeroPvP.incoming)
+        or (ns.AzeroTrade and ns.AzeroTrade.incoming) then
+        return "The request timer keeps running."
+    end
+    return ""
 end
 
 -- A reference panel on top (type chart, what's new): its own keys first, then Space / X close it.
@@ -3826,7 +3911,7 @@ local function OnKeyDown(self, key)
     if key == "ESCAPE" then
         -- the first Escape pauses: the game lets the keyboard go and the overlay shows. With the keyboard released,
         -- a second Escape reaches the client and closes DisasterZone's window as usual.
-        SetFocus(false)
+        SetFocus(false, true)
         pcall(self.SetPropagateKeyboardInput, self, false)
         return
     end
@@ -3874,18 +3959,26 @@ local function OnUpdate(self, elapsed)
     ns.AzeroPvP:Update()
     ns.AzeroWatch:Update()
     ns.AzeroTrade:Update()
-    KH.CheckTips()
     ns.AzeroGuild:Update()
+    -- Paused: the network above keeps going (guildmates wait on us), and so does a match between players (its
+    -- turn timer runs on); the rest waits for the click - no walking, tips, text or battle playback.
+    local live = BT.battle and BT.battle.pvp and true or false
+    if paused then
+        if not live and text.doneAt then text.doneAt = text.doneAt + elapsed end   -- auto text resumes in place
+        R.pauseNote:SetText(KH.PauseNote())
+    else
+        KH.CheckTips()
+    end
     -- directions pressed while a menu was open do not walk once it closes
     local busy = #stack > 0 or uiMessage
     if busy then G:SetDir(nil) elseif focused then G:SetDir(CurrentDir()) end
-    if not BT.battle then G:Update(elapsed) end
+    if not BT.battle and not paused then G:Update(elapsed) end
     SyncPending()
     if BT.battle then
-        UpdateBattle(elapsed)
+        if live or not paused then UpdateBattle(elapsed) end
     else
         DrawWorld()
-        UpdateText(elapsed)
+        if not paused then UpdateText(elapsed) end
     end
     Scr.UpdateSpecies(elapsed)
     if R.money:IsShown() then
@@ -4065,7 +4158,11 @@ function UI:CreatePanel(parent)
     R.nameTab:Hide()
     R.textbox:SetScript("OnMouseDown", function(_, button)
         if button == "RightButton" then HandleKey("B") return end
-        if uiMessage or (G.pending and G.pending.kind == "text") or (BT.battle and text.full) then HandleKey("A") end
+        -- a click on the box only moves the text on: with a menu open (the battle's FIGHT / BAG / PARTY / RUN under
+        -- "What will X do?") Space would pick its highlighted entry, so the click does nothing
+        if uiMessage then HandleKey("A") return end
+        if #stack > 0 then return end
+        if (G.pending and G.pending.kind == "text") or (BT.battle and text.full) then HandleKey("A") end
     end)
     R.textbox:Hide()
 
@@ -4218,6 +4315,7 @@ function UI:CreatePanel(parent)
             end
         end
         cell:SetScript("OnEnter", function()
+            if uiMessage then return end
             local top = stack[#stack]
             if top and top.isSummary and top.summary.page == "gear" then
                 top.summary.cursor = i
@@ -4227,6 +4325,7 @@ function UI:CreatePanel(parent)
         cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         cell:SetScript("OnClick", function(_, button)
             if button == "RightButton" then UI.Press("B") return end
+            if uiMessage then return end
             local top = stack[#stack]
             if top and top.isSummary and top.summary.page == "gear" then
                 top.summary.cursor = i
@@ -4353,6 +4452,12 @@ function UI:CreatePanel(parent)
     fl2:SetFont(FONT, 12, "OUTLINE")
     fl2:SetText("Click to play. The game takes the keyboard while it is active; Esc pauses it, Esc again closes DisasterZone.")
     fl2:SetPoint("TOP", fl, "BOTTOM", 0, -8)
+    -- what keeps running while paused (a PvP turn timer, a trade): KH.PauseNote, set every frame while paused
+    R.pauseNote = focusOverlay:CreateFontString(nil, "OVERLAY")
+    R.pauseNote:SetFont(FONT, 12, "OUTLINE")
+    R.pauseNote:SetTextColor(1, 0.72, 0.45)
+    R.pauseNote:SetPoint("TOP", fl2, "BOTTOM", 0, -6)
+    R.pauseNote:SetText("")
     focusOverlay:SetScript("OnClick", function()
         if InCombatLockdown() then ns:Print("Azeromon waits until you leave combat.") return end
         SetFocus(true)
@@ -4387,13 +4492,13 @@ function UI:CreatePanel(parent)
     end
     root:SetScript("OnSizeChanged", function(self, w, h) FitScreen(w, h) end)
     UI._Fit = function(w, h) FitScreen(w, h) return screen:GetScale() end
-    root:SetScript("OnHide", function() SetFocus(false) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end)
+    root:SetScript("OnHide", function() SetFocus(false, true) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end)
 
     root.OnGameShown = function()
         FitScreen()
         if not G.started then ShowTitle() end
     end
-    root.OnGameHidden = function() SetFocus(false) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end
+    root.OnGameHidden = function() SetFocus(false, true) ns.AzeroNet:SetActive(false) ns.AzeroSound:Stop() end
     SetFocus(false)
     ShowTitle()
     return root
@@ -4401,7 +4506,7 @@ end
 
 function UI:OnInit()
     ns:On("GAMES_COMBAT", function(inCombat)
-        if inCombat then SetFocus(false) end
+        if inCombat then SetFocus(false, true) end
     end)
     ns:RegisterSlash("azeromon", function(rest)
         local cmd, a, b = (rest or ""):match("^%s*(%S*)%s*(%S*)%s*(%S*)")
@@ -4470,7 +4575,12 @@ function UI:RegisterScreen(kind, fn) UI.screens[kind] = fn end
 
 -- For tests
 UI._HandleKey = function(k) HandleKey(k) end
-UI._State = function() return { stack = #stack, battle = BT.battle ~= nil, msg = uiMessage ~= nil, text = text.full } end
+UI._State = function()
+    return { stack = #stack, battle = BT.battle ~= nil, msg = uiMessage ~= nil, text = text.full, paused = paused,
+             waitText = (BT.anim and BT.anim.waitText) and true or false, actionOpen = BT.actionOpen and true or false }
+end
+UI._PauseNote = function() return R.pauseNote:GetText() end
+UI._NetColor = function() return { R.net:GetVertexColor() } end
 UI._Levels = function()
     local out = {}
     for i, m in ipairs(stack) do
@@ -4556,7 +4666,7 @@ UI._KeyStrip = function()
     end
     return { keys = out, alpha = ks:GetAlpha(), outside = ks.outside }
 end
-UI._Focus = function(on) SetFocus(on) end
+UI._Focus = function(on, pause) SetFocus(on, pause) end
 UI._Outside = function() return R.keyStrip.outside end
 UI._RightClick = function(what)
     local m = stack[#stack]

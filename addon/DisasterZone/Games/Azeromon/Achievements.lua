@@ -310,7 +310,10 @@ local ACHIEVEMENTS = {
       end },
     { id = "guildfirst", name = "First in the Guild", points = 25, icon = "INV_Misc_Book_11",
       desc = "Be the first player in your guild known to complete the Bestiary.",
-      on = "bestiary", test = function(g, e)
+      -- also re-checked on load and whenever a guildmate's summary arrives (OnInit): a claim that only looked
+      -- earlier (a wrong PC clock) is clamped by GuildBoard and stops blocking it
+      on = { "bestiary", "load" }, test = function(g, e)
+          if g:Data().bestiaryDone == nil then return false end
           local first = ns.AzeroGuild:FirstComplete()
           return first ~= nil and first.me == true
       end },
@@ -484,6 +487,7 @@ local function BuildToast()
         self:Hide()
         local open = self.current and self.current.open
         if open then open() elseif ns.AzeroUI and ns.AzeroUI.OpenAchievements then ns.AzeroUI:OpenAchievements() end
+        Toast()                              -- the next one in line (OnUpdate, which moves the queue on, stops hidden)
     end)
     -- the real alert: 0.2 s fade in, glow flash, a shine sweeping across, ~4 s hold, 1.5 s fade out
     f:SetScript("OnUpdate", function(self, dt)
@@ -519,12 +523,13 @@ Toast = function()
     toast:Show()
     if a.sound then
         if PlaySound then pcall(PlaySound, a.sound, "Master") end
-    else
+    elseif a.sound == nil then
         PlayJingle()
     end
 end
 
 -- Other Azeromon news in the same toast (bounties, the guild goal): { label, name, icon, sound, open = fn }.
+-- sound = false: a silent toast (the event that caused it already made its sound).
 function A:Notify(t)
     queue[#queue + 1] = { label = t.label, name = t.name, icon = t.icon, sound = t.sound, open = t.open }
     Toast()
@@ -541,4 +546,12 @@ function A:OnInit()
         Count(g, e)
         Check(g, e)
     end)
+    -- "First in the Guild" depends on what guildmates report: look again when a summary arrives (game loaded only)
+    if ns.On then
+        ns:On("AZERO_GUILD_UPDATED", function()
+            if not G.save or A.Earned().guildfirst then return end
+            local ok, yes = pcall(A.byId.guildfirst.test, G, {}, A)
+            if ok and yes then A:Award("guildfirst") end
+        end)
+    end
 end

@@ -2,7 +2,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/GuildBoard.lua", ..
 -- ns.AzeroGuild: the guild Bestiary and leaderboard.
 -- Each player's addon shares a small summary with the guild on the game prefix (CDLg):
 --   AZS { v, n = tamed species, c = { dex numbers tamed }, b = badges, w/l/d = player-battle record,
---         ap = achievement points, done = time() the Bestiary was first completed (or nil) }
+--         ap = achievement points, done = server time the Bestiary was first completed (or nil),
+--         id = this account's Azeromon id (one save per account: alts answer with the same save, so the board keeps
+--         one entry per id, under the character heard from last) }
+--   A field left out keeps what was known before (a summary sent from saved data with the game closed carries
+--   everything, but older clients may not).
 --   AZQ { v }   "please send me your summary" (opening the guild pages); answered from saved data, even with the
 --               game closed, after a short random delay so a whole guild does not answer at once.
 --   AZN { v, k, sp }  news for the guild's chat: k = "shiny" (found one) or "shinytamed". Shown to guildmates who
@@ -10,7 +14,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Azeromon/GuildBoard.lua", ..
 --   (AZS also carries sh = shinies tamed, and wk / wn = the week's number and my part of the weekly guild goal;
 --    older clients ignore them.)
 -- Sent while Azeromon is open whenever something in it changes (at most every SEND_EVERY s) and every REFRESH s.
--- Everything received is kept (DisasterZoneDB.games.azeromon.guild), so the board still shows offline guildmates.
+-- Everything received is kept (DisasterZoneDB.games.azeromon.guild), so the board still shows offline guildmates;
+-- players who left the guild (once the roster is in) and anyone not heard from for FORGET_AFTER are dropped.
 -- Trust-based, for fun: nothing here touches loot or council data.
 --
 -- Leaderboard categories are one entry each in CATEGORIES below.
@@ -25,13 +30,16 @@ GB.SEND_EVERY = 10
 GB.REFRESH = 300
 GB.QUERY_EVERY = 30
 GB.MAX_SPECIES = 200
+GB.FORGET_AFTER = 30 * 86400
+GB.CACHE_FOR = 1               -- s: the board's entries and rankings (the hall's statues ask every frame)
+GB.EPOCH = 1788220800          -- 1 Sep 2026: no Bestiary was completed before Azeromon existed (clamps bad clocks)
 
 local dirty, lastSent = true, -999
 local lastQuery = -999
 local replyAt = nil
 
 local function Now() return GetTime() end
-local function Clock() return (time and time()) or 0 end
+local function Clock() return (GetServerTime and GetServerTime()) or (time and time()) or 0 end
 local function ShortName(key) return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key) end
 
 ---------------------------------------------------------------------------
@@ -57,6 +65,43 @@ end
 local function MyKey() return ns.Util.PlayerKey() end
 GB.MyKey = MyKey
 
+-- The save as stored: the loaded one, or (the game not opened this session) the one in saved data. Read only.
+local function StoredSave()
+    if type(G.save) == "table" then return G.save end
+    local s = G:Data().save
+    return type(s) == "table" and s or nil
+end
+
+-- This account's Azeromon id (made once, kept with the account's Azeromon data, so a New Game keeps it).
+local ALNUM = "0123456789abcdefghijklmnopqrstuvwxyz"
+local function MyUid()
+    local d = G:Data()
+    if type(d.uid) ~= "string" or not d.uid:match("^%w+$") then
+        local seed, h = tostring(MyKey()) .. ":" .. tostring(Clock()) .. ":" .. tostring(Now()), 0
+        for i = 1, #seed do h = (h * 31 + seed:byte(i)) % 2147483647 end
+        local t = {}
+        for i = 1, 10 do
+            h = (h * 16807 + math.random(0, 2147483646)) % 2147483647
+            local n = h % 36 + 1
+            t[i] = ALNUM:sub(n, n)
+        end
+        d.uid = table.concat(t)
+    end
+    return d.uid
+end
+GB.MyUid = MyUid
+
+-- My Bestiary stamp; one from a wrong clock (before Azeromon existed, or in the future) becomes now.
+local function MyDone()
+    local d = G:Data()
+    local done = tonumber(d.bestiaryDone)
+    if done and (done < GB.EPOCH or done > Clock() + 300) then
+        done = Clock()
+        d.bestiaryDone = done
+    end
+    return done
+end
+
 -- Records the first time this account completed the Bestiary.
 function GB:CheckCompletion()
     local s = G.save
@@ -71,20 +116,24 @@ function GB:CheckCompletion()
     end
 end
 
+-- From the stored save when the game has not been opened this session (answers to AZQ), never loading it.
 function GB:MySummary()
-    local s = G.save
+    local s = StoredSave()
     local wk, wn
     local st = s and ns.AzeroBounty and ns.AzeroBounty:State()
     if st then wk, wn = st.week, st.wn or 0 end
     local nums, n = {}, 0
+    local badges = 0
     if s then
-        for id in pairs(s.caught) do
+        for id in pairs(type(s.caught) == "table" and s.caught or {}) do
             local sp = D.species[id]
             if sp then
                 n = n + 1
                 nums[#nums + 1] = sp.num
             end
         end
+        local flags = type(s.flags) == "table" and s.flags or {}
+        for id in pairs(D.badges) do if flags["badge_" .. id] then badges = badges + 1 end end
     end
     table.sort(nums)
     local w, l, dr = 0, 0, 0
@@ -94,8 +143,8 @@ function GB:MySummary()
             if type(r) == "table" then w, l, dr = w + (r.w or 0), l + (r.l or 0), dr + (r.d or 0) end
         end
     end
-    return { v = GB.VERSION, n = n, c = nums, b = s and G:BadgeCount() or 0, w = w, l = l, d = dr,
-             ap = ns.AzeroAch and ns.AzeroAch:Points() or 0, done = G:Data().bestiaryDone,
+    return { v = GB.VERSION, n = n, c = nums, b = badges, w = w, l = l, d = dr, id = MyUid(),
+             ap = ns.AzeroAch and ns.AzeroAch:Points() or 0, done = MyDone(),
              sh = ns.AzeroAch and ns.AzeroAch.Stat("shinies") or 0, wk = wk, wn = wn,
              ar = ns.AzeroArena and ns.AzeroArena.Best() or 0 }
 end
@@ -132,26 +181,85 @@ local function Int(v, lo, hi)
     return v
 end
 
+-- The board's cache (Entries / Ranking), dropped whenever what it is made of may have changed.
+local entCache, entAt, rankCache = nil, -999, {}
+local function Invalidate() entCache, rankCache = nil, {} end
+GB.Invalidate = Invalidate
+
+-- A Bestiary stamp that can't be right (before Azeromon existed, or ahead of the server's clock) is not trusted.
+local function SaneDone(t, now) return t and t >= GB.EPOCH and t <= now + 300 end
+
 local function OnSummary(sender, msg)
     if type(msg) ~= "table" or msg.v ~= GB.VERSION then return end
-    local caught = {}
+    local store = Store()
+    local old = type(store[sender]) == "table" and store[sender] or {}
+    local now = Clock()
+    local caught, n = {}, 0
     if type(msg.c) == "table" then
         for i = 1, math.min(#msg.c, GB.MAX_SPECIES) do
             local id = SpeciesByNum(tonumber(msg.c[i]))
             if id then caught[id] = true end
         end
+    elseif type(old.caught) == "table" then
+        caught = old.caught
     end
-    local n = 0
     for _ in pairs(caught) do n = n + 1 end
-    Store()[sender] = {
-        name = ShortName(sender), n = n, caught = caught,
-        b = Int(msg.b, 0, 99) or 0, w = Int(msg.w, 0, 1e6) or 0, l = Int(msg.l, 0, 1e6) or 0, d = Int(msg.d, 0, 1e6) or 0,
-        ap = Int(msg.ap, 0, 1e6) or 0, done = Int(msg.done, 1, 4102444800), sh = Int(msg.sh, 0, 1e6) or 0,
-        wk = Int(msg.wk, 0, 1e7), wn = Int(msg.wn, 0, 1e7) or 0, ar = Int(msg.ar, 0, 1e4) or 0,
-        seen = Clock(),
+    -- a field left out keeps the old value; one sent but out of range counts as 0 (or none)
+    local function Num(k, lo, hi, none)
+        if msg[k] == nil then
+            if old[k] ~= nil then return old[k] end
+            return none
+        end
+        local v = Int(msg[k], lo, hi)
+        if v == nil then return none end
+        return v
+    end
+    local oldDone = SaneDone(tonumber(old.done), now) and tonumber(old.done) or nil
+    local done = oldDone
+    if msg.done ~= nil then
+        done = Int(msg.done, 1, 4102444800)
+        -- a wrong clock: counted from when it was first heard of, and a stamp once known never moves later
+        if done and not SaneDone(done, now) then done = oldDone or now end
+        if oldDone and done and oldDone < done then done = oldDone end
+    end
+    local id = msg.id
+    if type(id) ~= "string" or #id > 16 or not id:match("^%w+$") then id = old.id end
+    if id and HasPlayed() and id == MyUid() then             -- my own account (an alt of mine): that's me
+        store[sender] = nil
+        Invalidate()
+        return
+    end
+    store[sender] = {
+        name = ShortName(sender), n = n, caught = caught, id = id,
+        b = Num("b", 0, 99, 0), w = Num("w", 0, 1e6, 0), l = Num("l", 0, 1e6, 0), d = Num("d", 0, 1e6, 0),
+        ap = Num("ap", 0, 1e6, 0), done = done, sh = Num("sh", 0, 1e6, 0),
+        wk = Num("wk", 0, 1e7, nil), wn = Num("wn", 0, 1e7, 0), ar = Num("ar", 0, 1e4, 0),
+        seen = now,
     }
+    -- the same account (an alt) under another name: only the character heard from last stays
+    if id then
+        for key, e in pairs(store) do
+            if key ~= sender and type(e) == "table" and e.id == id then store[key] = nil end
+        end
+    end
+    Invalidate()
     ns:Fire("AZERO_GUILD_UPDATED", sender)
 end
+
+-- Drops players who left the guild (once the roster is in) and anyone not heard from for FORGET_AFTER.
+local function Prune()
+    local store = Store()
+    local now = Clock()
+    local Guild = ns.Guild
+    local roster = Guild and Guild.IsInGuild and Guild.IsReady and Guild:IsReady()
+    for key, e in pairs(store) do
+        if type(e) ~= "table" or (tonumber(e.seen) or 0) < now - GB.FORGET_AFTER
+           or (roster and type(key) == "string" and not Guild:IsInGuild(key)) then
+            store[key] = nil
+        end
+    end
+end
+GB.Prune = Prune
 
 local function OnQuery(sender, msg)
     if type(msg) ~= "table" or msg.v ~= GB.VERSION or not HasPlayed() then return end
@@ -172,25 +280,44 @@ end
 ---------------------------------------------------------------------------
 
 -- Every known player (me included, always current): { key, name, me, n, caught, b, w, l, d, ap, done }
+-- One entry per account (my own alts' and anyone's duplicates left out). Cached: read only, rebuilt after a change
+-- (a summary, a game event, MarkDirty) or CACHE_FOR seconds.
 function GB:Entries()
+    local now = Now()
+    if entCache and now - entAt < GB.CACHE_FOR then return entCache end
+    Prune()
     local out = {}
     local mine = MyKey()
+    local played = HasPlayed()
+    local myId = played and MyUid() or nil
+    local byId = {}
     for key, e in pairs(Store()) do
-        if key ~= mine then
+        if key ~= mine and not (myId and e.id == myId) then
             local c = {}
             for k, v in pairs(e) do c[k] = v end
             c.key = key
-            out[#out + 1] = c
+            local prev = c.id and byId[c.id]
+            if prev and (tonumber(prev.seen) or 0) >= (tonumber(c.seen) or 0) then
+                c = nil
+            elseif prev then
+                for i, x in ipairs(out) do if x == prev then table.remove(out, i) break end end
+            end
+            if c then
+                if c.id then byId[c.id] = c end
+                out[#out + 1] = c
+            end
         end
     end
-    if HasPlayed() then
+    if played then
         local m = GB:MySummary()
+        local s = StoredSave()
         local caught = {}
-        for id in pairs(G.save and G.save.caught or {}) do if D.species[id] then caught[id] = true end end
+        for id in pairs(s and type(s.caught) == "table" and s.caught or {}) do if D.species[id] then caught[id] = true end end
         out[#out + 1] = { key = mine, name = ShortName(mine), me = true, n = m.n, caught = caught, b = m.b,
                           w = m.w, l = m.l, d = m.d, ap = m.ap, done = m.done, sh = m.sh, wk = m.wk, wn = m.wn,
-                          ar = m.ar }
+                          ar = m.ar, id = m.id }
     end
+    entCache, entAt, rankCache = out, now, {}
     return out
 end
 
@@ -224,8 +351,10 @@ function GB:Ranking(catId)
     local cat
     for _, c in ipairs(GB.CATEGORIES) do if c.id == catId then cat = c end end
     if not cat then return {} end
+    local entries = GB:Entries()                  -- (first: a rebuild clears the cached rankings)
+    if rankCache[catId] then return rankCache[catId] end
     local rows = {}
-    for _, e in ipairs(GB:Entries()) do rows[#rows + 1] = { entry = e, value = cat.value(e), text = cat.text(e) } end
+    for _, e in ipairs(entries) do rows[#rows + 1] = { entry = e, value = cat.value(e), text = cat.text(e) } end
     table.sort(rows, function(a, b)
         if a.value ~= b.value then return a.value > b.value end
         return a.entry.name < b.entry.name
@@ -235,14 +364,16 @@ function GB:Ranking(catId)
         if r.value ~= prev then rank, prev = i, r.value end
         r.rank = rank
     end
+    rankCache[catId] = rows
     return rows
 end
 
 -- The first player known to have completed the Bestiary: entry, time (nil if nobody yet).
 function GB:FirstComplete()
     local best
+    local now = Clock()
     for _, e in ipairs(GB:Entries()) do
-        if e.done and (not best or e.done < best.done) then best = e end
+        if SaneDone(e.done, now) and (not best or e.done < best.done) then best = e end
     end
     return best
 end
@@ -277,7 +408,7 @@ function GB:WeeklyTotal(week)
     return total, people
 end
 
-function GB:MarkDirty() dirty = true end
+function GB:MarkDirty() dirty = true Invalidate() end
 
 ---------------------------------------------------------------------------
 -- Guild news (a shiny found or tamed)
@@ -323,6 +454,8 @@ function GB:OnInit()
     for _, ev in ipairs({ "tame", "evolve", "badge", "pvp", "achievement", "load", "arena" }) do
         G:On(ev, function() dirty = true end)
     end
+    G:On("*", Invalidate)                      -- anything in the game may change my own entry
+    if ns.On then ns:On("ROSTER_UPDATED", function() Prune() Invalidate() end) end
     G:On("tame", function() GB:CheckCompletion() end)
     G:On("shiny", function(_, e) GB:Announce("shiny", e.mon.sp) end)
     G:On("tame", function(_, e) if e.mon and e.mon.shiny and e.how == "caught" then GB:Announce("shinytamed", e.mon.sp) end end)
@@ -334,4 +467,4 @@ function GB:OnInit()
 end
 
 -- For tests
-GB._Reset = function() dirty, lastSent, lastQuery, replyAt = true, -999, -999, nil end
+GB._Reset = function() dirty, lastSent, lastQuery, replyAt = true, -999, -999, nil Invalidate() end

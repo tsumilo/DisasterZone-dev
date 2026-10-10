@@ -309,8 +309,15 @@ Maps.arena = {
         "T..............T",
         "TTTTTTT..TTTTTTT",
     },
-    -- the road through the arena: Zul'Mamwe to the north, Southern Stranglethorn to the south
-    edges = { north = { map = "zulmamwe", dx = 4 }, south = { map = "stvsouth", dx = 4 } },
+    -- the road through the arena: Zul'Mamwe to the north, Southern Stranglethorn to the south. Thor flies here
+    -- from Sentinel Hill early on, so the roads out stay shut until the Night Watch opens the vale (or the
+    -- gryphon would skip the Deadmines and Duskwood)
+    edges = {
+        north = { map = "zulmamwe", dx = 4, open = function(G) return G:Flag("badge_nightwatch") end,
+                  closed = "Arena Guard: The jungle roads are closed. Trolls on every path. Darkshire's Night Watch says when they open." },
+        south = { map = "stvsouth", dx = 4, open = function(G) return G:Flag("badge_nightwatch") end,
+                  closed = "Arena Guard: Nobody walks to Booty Bay while the jungle roads are closed. Ask Darkshire's Night Watch." },
+    },
     signs = {
         { x = 9, y = 10, text = "THE GURUBASHI ARENA\nBeast fights daily. See Short John Mithril in the ring." },
     },

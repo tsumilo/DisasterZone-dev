@@ -4,7 +4,7 @@ Covers: presence carries what a player is busy with (a player battle names the o
 guildmates and "Space: Watch the battle"; a spectator who joins mid-match catches up and then sees exactly what
 the challenger sees, turn by turn, to the same result (with gear on a beast: both players and the spectator build
 the teams the same way); the players' own match and records are untouched; stopping (B) tells the player and the
-match goes on; a player who leaves ends the watch; late / full / finished answers; pressing A on a guildmate busy
+match goes on; a player who leaves (a forfeit) ends the watch; late / full / finished answers; pressing A on a guildmate busy
 with something else; a whole watch through the real UI with keys only.
 
 Run: luaenv\\Scripts\\python.exe tests\\games\\test_azeromon_watch.py [-k name]
@@ -232,10 +232,11 @@ def the_watch_ends_when_the_player_leaves():
     watch(c)
     run(w, (a, b, c), seconds=1)
     assert c.eval("return ns.AzeroWatch:Watching()")
-    a.eval("ns.AzeroNet:SetActive(false)")      # Alice closes the game: she says goodbye (AZL)
-    run(w, (c,), seconds=1)
-    assert "Alice left, so the battle can't be followed any more." in log(c), log(c)
+    a.eval("ns.AzeroNet:SetActive(false)")      # Alice closes the game mid-match: that's a forfeit (then AZL)
+    run(w, (b, c), seconds=1)
+    assert "Alice forfeited the match!" in log(c), log(c)
     assert not c.eval("return ns.AzeroWatch:Watching()")
+    assert b.eval_py("return T_PVP.results") == ["win"], b.eval_py("return T_PVP.results")
     no_errors(w)
 
 

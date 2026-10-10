@@ -347,8 +347,8 @@ function B:Act(a)
         end
         self.runs = self.runs + 1
         local mine, theirs = self:EffStat("ally", "spe"), self:EffStat("foe", "spe")
-        local odds = floor(mine * 128 / theirs + 30 * self.runs) % 256
-        if mine >= theirs or self.rng(0, 255) < odds then
+        local odds = floor(mine * 128 / theirs + 30 * self.runs)       -- past 255 it always works (Gen III)
+        if mine >= theirs or odds > 255 or self.rng(0, 255) < odds then
             self:Emit({ t = "sfx", sound = "run" })
             self:Say("Got away safely!")
             return self:Finish("run")
@@ -418,17 +418,17 @@ function B:FoeTurnOnly()
     self:CheckFaints()
 end
 
--- End of turn: burn / poison. Returns true (the action was accepted).
+-- End of turn: burn / poison on every beast still standing - also when the other one fainted this turn.
+-- Returns true (the action was accepted).
 function B:EndTurn()
-    if self.need == "action" then
-        for _, side in ipairs({ "ally", "foe" }) do
-            local mon = self[side].mon
-            if mon.hp > 0 and (mon.status == "brn" or mon.status == "psn") then
-                self:SetHP(side, mon.hp - max(1, floor(M.MaxHP(mon) / 8)))
-                self:Emit({ t = "sfx", sound = mon.status })
-                self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
-                if self:CheckFaints() then break end
-            end
+    for _, side in ipairs({ "ally", "foe" }) do
+        if self.need == "done" then break end
+        local mon = self[side].mon
+        if mon.hp > 0 and (mon.status == "brn" or mon.status == "psn") then
+            self:SetHP(side, mon.hp - max(1, floor(M.MaxHP(mon) / 8)))
+            self:Emit({ t = "sfx", sound = mon.status })
+            self:Say("%s is hurt by its %s!", self:SideName(side), mon.status == "brn" and "burn" or "poison")
+            self:CheckFaints()
         end
     end
     self.turn = self.turn + 1
@@ -703,8 +703,10 @@ function B:ValidPvP(side, a)
     if type(a) ~= "table" then a = {} end
     if a.kind == "forfeit" then return { kind = "forfeit" } end
     if a.kind == "switch" then
-        local mon = TeamOf(self, side)[tonumber(a.idx) or 0]
-        if mon and mon.hp > 0 and a.idx ~= IdxOf(self, side) then return { kind = "switch", idx = a.idx } end
+        local idx = tonumber(a.idx)                  -- (a string "2" from the wire is a number here, or nothing)
+        idx = idx and idx == floor(idx) and idx or 0
+        local mon = TeamOf(self, side)[idx]
+        if mon and mon.hp > 0 and idx ~= IdxOf(self, side) then return { kind = "switch", idx = idx } end
     end
     local mon = self[side].mon
     local idx = tonumber(a.idx)

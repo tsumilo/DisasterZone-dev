@@ -82,7 +82,7 @@ def every_raid_boss_has_a_plinth():
       for _, raid in ipairs(ns.Data.Raids) do
         local seen = {}
         for _, b in ipairs(raid.bosses) do
-          if b.encounterID and not b.isTrash and not b.isChest and not seen[b.encounterID] then
+          if b.encounterID and not b.isTrash and not seen[b.encounterID] then   -- (Chess: a chest, but an encounter)
             seen[b.encounterID] = true expected = expected + 1
           end
         end

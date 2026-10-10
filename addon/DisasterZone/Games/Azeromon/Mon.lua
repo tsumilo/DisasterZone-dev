@@ -115,10 +115,11 @@ function M.AddExp(mon, amount)
     return gained
 end
 
--- Species this creature should evolve into now (or nil).
+-- Species this creature should evolve into now (or nil): by level, or a trade evolution that was stopped.
 function M.EvolutionTarget(mon)
     local evo = D.species[mon.sp].evolve
     if evo and evo.level and mon.lvl >= evo.level then return evo.into end
+    if evo and evo.trade and mon.tradeEvo == evo.into then return evo.into end
 end
 
 -- Species a creature evolves into when it is traded (or nil).
@@ -145,16 +146,36 @@ function M.ExpProgress(mon)
     return max(0, min(1, (mon.exp - a) / (b - a)))
 end
 
+-- Every move a beast of `sp` at `lvl` can know: its own list and its earlier forms' (the pet trainer's rule).
+function M.LegalMoves(sp, lvl)
+    local legal, cur, guard = {}, sp, 0
+    while cur and guard < 8 do
+        for _, e in ipairs(D.species[cur].learn or {}) do
+            if e[1] <= lvl then legal[e[2]] = true end
+        end
+        local prev
+        for id, s in pairs(D.species) do
+            if s.evolve and s.evolve.into == cur then prev = id break end
+        end
+        cur, guard = prev, guard + 1
+    end
+    return legal
+end
+
 -- Validates a saved creature (drops unknown species / moves, clamps numbers). Returns nil when unusable.
-function M.Sanitize(mon)
+-- `foreign`: it comes from another player (a trade, a player battle): no bosses, and only moves it could know.
+function M.Sanitize(mon, foreign)
     if type(mon) ~= "table" or not D.species[mon.sp] then return nil end
+    if foreign and D.species[mon.sp].boss then return nil end
     mon.lvl = max(1, min(D.MAX_LEVEL, floor(tonumber(mon.lvl) or 1)))
     mon.exp = max(M.ExpForLevel(mon.lvl), tonumber(mon.exp) or 0)
     if type(mon.ivs) ~= "table" then mon.ivs = { 0, 0, 0, 0, 0, 0 } end
-    local moves = {}
+    local legal = foreign and M.LegalMoves(mon.sp, mon.lvl)
+    local moves, known = {}, {}
     if type(mon.moves) == "table" then
         for _, m in ipairs(mon.moves) do
-            if type(m) == "table" and D.moves[m.id] and #moves < 4 then
+            if type(m) == "table" and D.moves[m.id] and #moves < 4 and not known[m.id] and (not legal or legal[m.id]) then
+                known[m.id] = true
                 moves[#moves + 1] = { id = m.id, pp = max(0, min(D.moves[m.id].pp, tonumber(m.pp) or 0)) }
             end
         end
@@ -163,8 +184,14 @@ function M.Sanitize(mon)
     mon.moves = moves
     mon.hp = max(0, min(M.MaxHP(mon), floor(tonumber(mon.hp) or 0)))
     if mon.status and not D.status[mon.status] then mon.status = nil end
+    if mon.status == "slp" then
+        mon.sleep = max(1, min(3, floor(tonumber(mon.sleep) or 1)))        -- a sleep lasts 1-3 turns
+    else
+        mon.sleep = nil
+    end
     mon.shiny = (mon.shiny == true) or nil
     mon.evoStop = tonumber(mon.evoStop) and floor(tonumber(mon.evoStop)) or nil
+    if foreign or mon.tradeEvo ~= M.TradeEvolution(mon) then mon.tradeEvo = nil end
     -- gear: { slot = item } (a single item id from before the slots goes into its slot)
     if type(mon.gear) == "string" then
         local def = D.items[mon.gear]
