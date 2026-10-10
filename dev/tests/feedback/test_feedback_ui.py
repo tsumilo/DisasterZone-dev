@@ -55,6 +55,10 @@ def demo_mode_fills_the_page_and_saves_and_sends_nothing():
     assert g.eval_py("local s = ns.db.feedback; local n = 0 for _, b in pairs(s or {}) do for _ in pairs(b.r or {}) do "
                      "n = n + 1 end end return n") == 0
     assert g.eval("return ns.Feedback:Get(...).no ~= nil", id_), "demo: Tsumil has it after a moment"
+    # the demo's officer answer is news in the bell too (kept in memory by the notification center)
+    g.eval("ns.Notify:Refresh('feedbackAnswer')")
+    w.tick(0.2)
+    assert g.eval("for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackAnswer' then return it.title end end")         == "Caelith answered your feedback"
     # off again: the real (empty) feedback, the demo's gone
     g.slash("/dz demo off")
     w.tick(1)

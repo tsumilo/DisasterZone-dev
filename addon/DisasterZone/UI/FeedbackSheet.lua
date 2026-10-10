@@ -782,7 +782,8 @@ end
 local function AnswerItems()
     local F, FUI = FB(), ns.FeedbackUI
     local out = {}
-    if not (F and FUI) or F.DemoOn() then return out end
+    -- (in demo mode too: the notification center keeps demo items in memory, never in the saved variables)
+    if not (F and FUI) then return out end
     for _, item in ipairs(F:List({ mine = true }, "new")) do
         if item.mine and FUI:HasNews(item) then
             local who, text, at = News(item)
