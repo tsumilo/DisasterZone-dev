@@ -493,6 +493,15 @@ local WIN_RULE = { 0.17, 0.17, 0.19 }                 -- the rule's ends; its mi
 local WIN_GOLD = { 0.79, 0.64, 0.15 }
 local SEAL = "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal"
 local HEAD_ART = { 131860, 0.50, 0.45 }               -- no raid planned: the Outland loading screen (RaidPlanUI's "other")
+-- The body's finish, so the slate isn't one flat colour: a faint light under the header falling off towards the
+-- middle (light: its alpha at the top), and a client stone texture added (ADD) at `amount` over a fill that much
+-- darker, so the slate keeps its tone and only the grain shows (the client's textures are too flat to show laid
+-- over it). GRAINS: the texture, its mean brightness.
+local GRAINS = {
+    rock = { "Interface\\FrameGeneral\\UI-Background-Rock", 0.187 },
+    marble = { "Interface\\FrameGeneral\\UI-Background-Marble", 0.053 },
+}
+UI.WIN_FINISH = { light = 0.06, grain = "rock", amount = 0.3 }
 
 -- (a texture filled with a gradient from colour c1 at alpha a1 to c2 at a2; orient "HORIZONTAL" runs left to right,
 -- "VERTICAL" bottom to top)
@@ -621,7 +630,11 @@ function UI:CreateWindow(name, title, width, height, opts)
     UI:SoftShadow(f, 10, 0.35, 2, 1)
     local bg = f:CreateTexture(nil, "BACKGROUND", nil, -7)
     bg:SetAllPoints()
-    bg:SetColorTexture(UI.WIN_BG[1], UI.WIN_BG[2], UI.WIN_BG[3], 1)
+    local fin = UI.WIN_FINISH
+    local grainDef = fin.amount > 0 and GRAINS[fin.grain]
+    local lift = grainDef and fin.amount * grainDef[2] or 0
+    bg:SetColorTexture(math.max(0, UI.WIN_BG[1] - lift), math.max(0, UI.WIN_BG[2] - lift),
+        math.max(0, UI.WIN_BG[3] - lift), 1)
     UI:AddEdges(f, "BORDER")
     UI:SetEdgeColor(f, WIN_EDGE[1], WIN_EDGE[2], WIN_EDGE[3], 1)
     for _, p in ipairs({ { "TOPLEFT", -1, 1, "TOPRIGHT", 1, 1, true }, { "BOTTOMLEFT", -1, -1, "BOTTOMRIGHT", 1, -1, true },
@@ -640,21 +653,41 @@ function UI:CreateWindow(name, title, width, height, opts)
     head:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
     head:SetHeight(UI.WIN_HEAD)
     f.head = head
-    local art = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+    local art = f:CreateTexture(nil, "BACKGROUND", nil, -5)
     art:SetAllPoints(head)
     art:SetVertexColor(0.8, 0.8, 0.8)
     f.cdlHeadArt = art
-    local shadeL = f:CreateTexture(nil, "BACKGROUND", nil, -5)
+    local shadeL = f:CreateTexture(nil, "BACKGROUND", nil, -4)
     shadeL:SetPoint("TOPLEFT", head)
     shadeL:SetPoint("BOTTOMRIGHT", head, "BOTTOM")
     GradientFill(shadeL, "HORIZONTAL", UI.WIN_BG, 0.92, UI.WIN_BG, 0.55)
-    local shadeR = f:CreateTexture(nil, "BACKGROUND", nil, -5)
+    local shadeR = f:CreateTexture(nil, "BACKGROUND", nil, -4)
     shadeR:SetPoint("TOPLEFT", head, "TOP")
     shadeR:SetPoint("BOTTOMRIGHT", head)
     GradientFill(shadeR, "HORIZONTAL", UI.WIN_BG, 0.55, UI.WIN_BG, 0.35)
-    local shadeV = f:CreateTexture(nil, "BACKGROUND", nil, -4)
+    local shadeV = f:CreateTexture(nil, "BACKGROUND", nil, -3)
     shadeV:SetAllPoints(head)
     GradientFill(shadeV, "VERTICAL", UI.WIN_BG, 0.75, UI.WIN_BG, 0)
+
+    -- the body's finish: the stone grain over the whole slate (the header's art covers it up there), the light
+    -- under the header
+    if grainDef then
+        local grain = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+        grain:SetPoint("TOPLEFT", 1, -1)
+        grain:SetPoint("BOTTOMRIGHT", -1, 1)
+        grain:SetTexture(grainDef[1], "REPEAT", "REPEAT")
+        grain:SetHorizTile(true)
+        grain:SetVertTile(true)
+        grain:SetDesaturated(true)
+        grain:SetBlendMode("ADD")
+        grain:SetAlpha(fin.amount)
+    end
+    if fin.light > 0 then
+        local light = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+        light:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
+        light:SetPoint("BOTTOMRIGHT", f, "RIGHT", -1, 0)
+        GradientFill(light, "VERTICAL", { 1, 1, 1 }, 0, { 1, 1, 1 }, fin.light)
+    end
 
     -- the gold glint under the header: the edge's grey at both ends, gold in the middle
     local rule = CreateFrame("Frame", nil, f)

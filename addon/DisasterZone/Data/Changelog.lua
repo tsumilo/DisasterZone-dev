@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.4", date = "9 October 2026", title = "Gear sim, meters and Azeromon's return",
+    { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",
       sections = {
           { heading = "Damage and threat meters", lines = {
               "Built-in meters: no need for Details or a threat addon. Off until you turn them on.",
@@ -184,6 +184,7 @@ ns.CHANGELOG = {
               "The guild line says who is online and when the next raid starts.",
               "Small windows get a slim strip of that art, the seal, the title and a flat close X.",
               "A soft shadow and a gold glint under the header; nothing inside a window moved.",
+              "The window body has a faint stone grain and a soft light under the header.",
           } },
           { heading = "Raids, Gear and Guild menus", lines = {
               "The menus under Raids, Gear and Guild are a spotlight now: the pages on the left.",
