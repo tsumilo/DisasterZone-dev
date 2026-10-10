@@ -42,6 +42,8 @@ ns.CHANGELOG = {
               "Add prog kit and Add farm kit put everything your bags lack on the list in one click.",
               "Damage specs can Sim the kit: the gear sim gives every pick its DPS with the gear you wear.",
               "With Auctionator, what a night's worth costs. Each spec tab has its own kit.",
+              "Click a pick to choose your own in the item picker: flasks, elixirs, food, potions and more.",
+              "Right-click a pick to leave it out of the prog or farm kit, or go back to the guide's pick.",
           } },
           { heading = "Feedback", lines = {
               "New speech bubble next to What's new: send feedback on a bug, an idea or a change.",

@@ -103,6 +103,7 @@ local KIT_NAME = { best = "prog kit", budget = "farm kit" }
 
 local function CardTooltip(c)
   local Kt = K()
+  if not c.row then return end
   local row, s = c.row, c.row and c.row[c.sideKey]
   if not s then return end
   GameTooltip:SetOwner(c, c.side == "R" and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
@@ -117,7 +118,7 @@ local function CardTooltip(c)
   if s.kind == "skip" or s.kind == "same" then
     GameTooltip:AddLine(s.kind == "skip" and "Skip it" or "Same as the best pick", 1, 0.82, 0)
     if s.text and s.text ~= "" then GameTooltip:AddLine(s.text, 1, 1, 1, true) end
-    if s.kind == "same" then GameTooltip:AddLine("Right-click: leave it out of your farm kit", 0.5, 0.5, 0.52) end
+    GameTooltip:AddLine("Click: choose your own  \194\183  Right-click: more", 0.5, 0.5, 0.52)
     GameTooltip:Show()
     return
   end
@@ -147,8 +148,13 @@ local function CardTooltip(c)
     local p = Kt:Price(id)
     if p then GameTooltip:AddLine((Money(p * need) or "") .. " a night (Auctionator)", 0.6, 0.6, 0.62) end
   end
+  if s.custom then
+    local def = s.default and #s.default > 0 and NameOf(s.default)
+      or (s.defaultKind == "same" and "same as the prog kit") or "skip it"
+    GameTooltip:AddLine("Your own pick  \194\183  the guide's: " .. def, GOLD[1], GOLD[2], GOLD[3], true)
+  end
   GameTooltip:AddLine("A night: a three hour raid.  Shift-click an icon to link it.", 0.5, 0.5, 0.52, true)
-  GameTooltip:AddLine("Right-click: leave it out of your " .. KIT_NAME[c.sideKey], 0.5, 0.5, 0.52)
+  GameTooltip:AddLine("Click: choose another  \194\183  Right-click: more", 0.5, 0.5, 0.52)
   GameTooltip:Show()
 end
 
@@ -161,21 +167,130 @@ local function Hovered(c)
   return c:IsMouseOver() or c.bag:IsMouseOver()
 end
 
--- Right-click: leave the slot out of this kit (or put it back); a click on a left-out card puts it back.
+-- ---------------------------------------------------------------------------------------------------------------
+-- My own pick for a slot: My BiS's item picker (UI/Picker.lua) with only consumables in it
+-- ---------------------------------------------------------------------------------------------------------------
+local pstate = {}
+
+local function Cap(title) return title:sub(1, 1) .. title:sub(2):lower() end
+
+local function CurrentRow()
+  for _, row in ipairs(K():Get() or {}) do
+    if row.key == pstate.slot then return row end
+  end
+  return nil
+end
+
+local function NewHost()
+  local Kt = K()
+  local side, slot = pstate.side, pstate.slot
+  local host = { only = true, clearText = "Default", searchHint = "Search consumables...", emptyIcon = "Interface\\Icons\\INV_Misc_QuestionMark" }
+  local function ids()
+    local row = CurrentRow()
+    return row and Kt:SideIds(row, side) or {}
+  end
+  host.title = function()
+    local row = CurrentRow()
+    return Cap(row and row.title or slot) .. "  \194\183  " .. Cap(KIT_NAME[side])
+  end
+  host.current = function() return ids()[1] end
+  host.currentSub = function()
+    local row = CurrentRow()
+    local s = row and row[side]
+    local cur = ids()
+    local name = #cur > 0 and NameOf(cur) or Col("Skip it", GREY)
+    if s and s.custom then
+      local def = s.default and #s.default > 0 and NameOf(s.default)
+        or (s.defaultKind == "same" and "same as the prog kit") or "skip it"
+      return name, "Your pick  \194\183  the guide's: " .. def, true
+    end
+    return name, "The guide's pick", false
+  end
+  host.clear = function() Kt:SetPick(side, slot, nil) end
+  -- a flask or a single pick closes the picker; an elixir or a scroll keeps it open for the second one
+  host.pick = function(itemID)
+    if Kt:SlotOf(itemID) ~= slot then
+      ns:Print("%s doesn't go in this slot.", Kt:Name(itemID))
+      return false
+    end
+    if Kt:PickInto(side, slot, itemID) then return false end
+  end
+  host.sections = function()
+    local secs = {}
+    local row = CurrentRow()
+    local mine, guide, seen = {}, {}, {}
+    -- the guide's picks for the slot (both kits)
+    for _, sk in ipairs({ "best", "budget" }) do
+      local d = row and row[sk] and row[sk].default
+      for _, id in ipairs(d or {}) do
+        if not seen[id] then
+          seen[id] = true
+          guide[#guide + 1] = { itemID = id, sub = Kt:Effect(id) .. "  \194\183  " .. (sk == "best" and "prog" or "farm") }
+        end
+      end
+    end
+    for _, grp in ipairs(Kt:Candidates(slot)) do
+      for _, id in ipairs(grp.ids) do
+        if Kt:Have(id) > 0 then mine[#mine + 1] = { itemID = id, sub = Kt:Effect(id) } end
+      end
+    end
+    if #mine > 0 then secs[#secs + 1] = { name = "In your bags", items = mine } end
+    if #guide > 0 then secs[#secs + 1] = { name = "The guide's picks", items = guide } end
+    for _, grp in ipairs(Kt:Candidates(slot)) do
+      local items = {}
+      for _, id in ipairs(grp.ids) do items[#items + 1] = { itemID = id, sub = Kt:Effect(id) } end
+      secs[#secs + 1] = { name = Kt.KIND_NAMES[grp.kind] or grp.kind, items = items }
+    end
+    return secs
+  end
+  host.value = function(itemID)
+    local n = Kt:Have(itemID)
+    if n <= 0 then return nil end
+    return Col(n .. " in bags", n >= Kt:Need(itemID) and GREEN or SOFT), ""
+  end
+  host.onClose = function() pstate.host = nil end
+  return host
+end
+
+function KitView:OpenPicker(side, slot, anchor)
+  if not (ns.Picker and ns.Picker.Open) then return end
+  pstate.side, pstate.slot = side, slot
+  pstate.host = NewHost()
+  ns.Picker:Open(1, 1, "main", anchor, nil, pstate.host)
+end
+
+function KitView:IsPickerOpen()
+  return ns.Picker and pstate.host ~= nil and ns.Picker:GetHost() == pstate.host or false
+end
+
+function KitView:ClosePicker()
+  if self:IsPickerOpen() then ns.Picker:Close() end
+end
+
+-- Click: choose another item for the slot (a left-out card: put it back). Right-click: a menu (choose, the guide's
+-- pick back, leave out / put back).
 local function CardClick(c, button)
   local s = c.row and c.row[c.sideKey]
-  if not s or s.kind == "skip" then return end
+  if not s then return end
   local Kt, slot, side = K(), c.row.key, c.sideKey
   if button == "RightButton" then
     local off = Kt:IsOff(side, slot)
     ns.UI:ContextMenu(c, function(root)
-      root:CreateTitle(c.row.title:sub(1, 1) .. c.row.title:sub(2):lower() .. "  \194\183  " .. KIT_NAME[side])
-      root:CreateButton(off and "Put back in the kit" or "Leave out of the kit", function()
-        Kt:SetOff(side, slot, not off)
-      end)
+      root:CreateTitle(Cap(c.row.title) .. "  \194\183  " .. KIT_NAME[side])
+      root:CreateButton("Choose item...", function() KitView:OpenPicker(side, slot, c) end)
+      if s.custom then
+        root:CreateButton("Use the guide's pick", function() Kt:SetPick(side, slot, nil) end)
+      end
+      if s.kind ~= "skip" then
+        root:CreateButton(off and "Put back in the kit" or "Leave out of the kit", function()
+          Kt:SetOff(side, slot, not off)
+        end)
+      end
     end)
   elseif c.off then
     Kt:SetOff(side, slot, false)
+  else
+    KitView:OpenPicker(side, slot, c)
   end
 end
 
@@ -513,6 +628,7 @@ end
 
 function KitView:Show(on)
   if not view then return end
+  if not on then self:ClosePicker() end
   view:SetShown(on and true or false)
   if on then self:Update() end
 end
@@ -633,6 +749,8 @@ function KitView:Snapshot()
         best = Plain(r.best.name:GetText()), bestLine = Plain(r.best.line:GetText()),
         bestReady = r.best.check:IsShown(), bestCanList = r.best.canList, bestOff = r.best.off,
         budgetOff = r.budget.off,
+        bestCustom = r.best.row and r.best.row.best.custom or false,
+        budgetCustom = r.budget.row and r.budget.row.budget.custom or false,
         budget = Plain(r.budget.name:GetText()), budgetLine = Plain(r.budget.line:GetText()),
       }
     end
@@ -656,4 +774,7 @@ end
 ns:RegisterEvent("BAG_UPDATE_DELAYED", Later)
 ns:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", Later)
 ns:On("SHOP_UPDATED", Later)
-ns:On("KIT_CHANGED", function() if view and view:IsShown() then KitView:Update() end end)
+ns:On("KIT_CHANGED", function()
+  if view and view:IsShown() then KitView:Update() end
+  if KitView:IsPickerOpen() then ns.Picker:RefreshHost() end
+end)

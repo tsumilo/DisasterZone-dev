@@ -191,6 +191,55 @@ def left_out_slots_stay_off_the_list_per_kit():
 
 
 @r.case
+def own_picks_through_the_item_picker():
+    w, c = solo()
+    open_kit(w, c)
+    # a click on the prog kit's food opens the picker with consumables only (no gear sections)
+    c.eval("""local v = ns.KitView
+      for _, r in ipairs({ ns.KitView:Snapshot() }) do end
+      ns.KitView:OpenPicker('best', 'food', ns.MyBiS:GetPanel())""")
+    settle(w, 0.3)
+    assert c.eval("return ns.KitView:IsPickerOpen()") is True
+    ids = c.eval_py("return ns.Picker:VisibleItems()")
+    assert 27658 in ids and 33872 in ids, ids           # the guide's food and another one from WoWSims' data
+    assert 22854 not in ids, ids                         # no flask in the food slot
+    assert all(c.eval("return ns.Kit:SlotOf(...)", i) == "food" for i in ids), ids
+    # pick Spicy Hot Talbuk: the card shows it, marked as my own; the farm kit keeps the guide's
+    c.eval("ns.Picker:PickItem(33872)")
+    settle(w, 0.3)
+    assert c.eval("return ns.KitView:IsPickerOpen()") is False
+    s = snap(c)
+    food = row(s, "FOOD")
+    assert food["best"] == "Spicy Hot Talbuk" and food["bestCustom"] is True, food
+    assert food["budget"] == "Ravager Dog" and food["budgetCustom"] is False, food
+    # an elixir pair for the prog kit's flask: battle then guardian, the picker stays open in between
+    c.eval("ns.KitView:OpenPicker('best', 'flask', ns.MyBiS:GetPanel())")
+    c.eval("ns.Picker:PickItem(22831)")
+    assert c.eval("return ns.KitView:IsPickerOpen()") is True
+    c.eval("ns.Picker:PickItem(32062)")
+    assert c.eval_py("return ns.Kit:GetPick('best', 'flask')") == [22831, 32062]
+    c.eval("ns.Picker:PickItem(22866)")   # a flask replaces both elixirs
+    assert c.eval_py("return ns.Kit:GetPick('best', 'flask')") == [22866]
+    # a wrong item stays out; Default goes back to the guide's pick
+    c.eval("ns.KitView:OpenPicker('best', 'food', ns.MyBiS:GetPanel())")
+    c.eval("ns.Picker:PickItem(22854)")
+    assert c.eval_py("return ns.Kit:GetPick('best', 'food')") == [33872]
+    c.eval("ns.Picker:Close()  ns.Kit:SetPick('best', 'food', nil)")
+    settle(w, 0.3)
+    assert row(snap(c), "FOOD")["best"] == "Roasted Clefthoof"
+    # a farm pick for a slot the guide skips, and the shopping list uses own picks
+    c.eval("ns.Kit:SetPick('budget', 'extra', { 12662 })")
+    settle(w, 0.3)
+    assert row(snap(c), "EXTRA")["budget"] == "Demonic Rune", row(snap(c), "EXTRA")
+    c.eval("ns.Kit:SetPick('best', 'food', { 27664 })  ns.KitView:AddKit('best')")
+    entries = {e["id"]: e["n"] for e in c.eval_py("return ns.Shop:GetEntries()")}
+    assert entries.get(27664) == 6 and CLEFTHOOF not in entries, entries
+    # per spec: Holy keeps the guide's
+    assert c.eval("return ns.Kit:GetPick('best', 'food', 'PALADIN:Holy') == nil") is True
+    assert_no_lua_errors(w)
+
+
+@r.case
 def kit_sim_numbers_every_slot():
     w, c = solo()
     open_kit(w, c)

@@ -50,14 +50,51 @@ function Kit:Name(id)
   return it and it[1] or ("item " .. tostring(id))
 end
 
+-- WoWSims' consumable types (Data/SimItems.lua SimConsumables) -> the kit's kinds, for items the kit's own list lacks.
+local SIM_TYPE = { [1] = "potion", [2] = "flask", [3] = "food", [6] = "battle", [7] = "guardian", [11] = "rune" }
+
+local function SimRecord(id)
+  local raw = ns.Data and ns.Data.SimConsumables and ns.Data.SimConsumables[id]
+  if not raw then return nil end
+  local t, stats = raw:match("^(%d+)|([^|]*)|")
+  return tonumber(t), stats or "", raw
+end
+
 function Kit:Kind(id)
   local it = self:Item(id)
-  return it and it[4]
+  if it then return it[4] end
+  local t = SimRecord(id)
+  return t and SIM_TYPE[t] or nil
 end
+
+-- WoWSims' stat numbers -> words for an item the kit's own list doesn't describe.
+local STAT_WORDS = { [0] = "Strength", [1] = "Agility", [2] = "Stamina", [3] = "Intellect", [4] = "healing",
+  [5] = "spell damage", [6] = "arcane dmg", [7] = "fire dmg", [8] = "frost dmg", [9] = "holy dmg", [10] = "nature dmg",
+  [11] = "shadow dmg", [12] = "spell hit", [13] = "spell crit", [14] = "spell haste", [15] = "spell pen.",
+  [16] = "Spirit", [17] = "attack power", [18] = "ranged AP", [20] = "hit", [21] = "crit", [22] = "haste",
+  [24] = "expertise", [25] = "defense", [28] = "dodge", [30] = "resilience", [31] = "armor", [33] = "health",
+  [34] = "mana", [35] = "mp5", [36] = "arcane res.", [37] = "fire res.", [38] = "frost res.", [39] = "nature res.",
+  [40] = "shadow res." }
 
 function Kit:Effect(id)
   local it = self:Item(id)
-  return it and it[3] or ""
+  if it then return it[3] or "" end
+  local _, stats, raw = SimRecord(id)
+  if not stats then return "" end
+  local parts = {}
+  for k, v in stats:gmatch("(%d+):([%-%d%.]+)") do
+    local w = STAT_WORDS[tonumber(k)]
+    if w and #parts < 2 then
+      v = tonumber(v)
+      parts[#parts + 1] = (v >= 0 and "+" or "") .. math.floor(v + 0.5) .. " " .. w
+    end
+  end
+  if #parts == 0 then
+    -- a potion / rune that restores something: "...|899:601:1:..." resource 1 = mana, 6 = health
+    if raw:find(":1:%d+:%d+") then return "Restores mana" end
+    if raw:find(":6:%d+:%d+") then return "Restores health" end
+  end
+  return table.concat(parts, ", ")
 end
 
 -- How many of an item one night takes.
@@ -85,12 +122,139 @@ local function Ids(list, blunt)
   return out
 end
 
--- The kit of a spec: { { key, title, why, best = side, budget = side }, ... } in the order shown; a side is
--- { kind = "items", ids = { ... } } | { kind = "same", text } | { kind = "skip", text }. Slots the spec has nothing
--- for are left out. nil for a spec without a kit.
-function Kit:Get(key)
+-- ---------------------------------------------------------------------------------------------------------------
+-- My own picks (per character and spec, the prog and farm kits apart): setting kit.picks.<me> =
+-- { [spec key] = { best = { slot = { ids } }, budget = {...} } }; they replace the guide's pick for that slot.
+-- ---------------------------------------------------------------------------------------------------------------
+local function CharKey()
+  local key = ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() or (UnitName("player") or "me")
+  return (tostring(key):gsub("%.", "_"))
+end
+
+local function Setting(root, create)
+  local DB = ns.DB
+  if not DB then return nil end
+  local path = root .. "." .. CharKey()
+  local t = DB:GetSetting(path)
+  if type(t) ~= "table" then
+    if not create then return nil end
+    DB:SetSetting(path, {})
+    t = DB:GetSetting(path)
+  end
+  return t
+end
+
+-- My pick for a slot of a kit (a copy of its ids), nil while the guide's stands.
+function Kit:GetPick(side, slot, key)
+  local t = Setting("kit.picks")
+  local spec = t and t[key or self:SpecKey()]
+  local ids = type(spec) == "table" and type(spec[side]) == "table" and spec[side][slot]
+  if type(ids) ~= "table" or #ids == 0 then return nil end
+  local out = {}
+  for i, id in ipairs(ids) do if tonumber(id) then out[#out + 1] = tonumber(id) end end
+  return #out > 0 and out or nil
+end
+
+-- ids = nil goes back to the guide's pick.
+function Kit:SetPick(side, slot, ids, key)
+  key = key or self:SpecKey()
+  local t = Setting("kit.picks", ids ~= nil)
+  if not t then return end
+  t[key] = type(t[key]) == "table" and t[key] or {}
+  t[key][side] = type(t[key][side]) == "table" and t[key][side] or {}
+  if ids and #ids > 0 then
+    local copy = {}
+    for i, id in ipairs(ids) do copy[i] = id end
+    t[key][side][slot] = copy
+  else
+    t[key][side][slot] = nil
+  end
+  if not next(t[key][side]) then t[key][side] = nil end
+  if not next(t[key]) then t[key] = nil end
+  self.results = nil   -- the numbers were for the old picks
+  ns:Fire("KIT_CHANGED")
+end
+
+-- What a slot takes: the kinds of item, in the picker's order.
+Kit.SLOT_KINDS = { flask = { "flask", "battle", "guardian" }, food = { "food" }, weapon = { "stone", "oil" },
+  potion = { "potion" }, scroll = { "scroll" }, extra = { "rune" } }
+Kit.KIND_NAMES = { flask = "Flasks", battle = "Battle elixirs", guardian = "Guardian elixirs", food = "Food",
+  stone = "Stones", oil = "Oils", potion = "Potions", scroll = "Scrolls", rune = "Runes and the like" }
+
+function Kit:SlotOf(id)
+  local kind = self:Kind(id)
+  for slot, kinds in pairs(self.SLOT_KINDS) do
+    for _, k in ipairs(kinds) do if k == kind then return slot end end
+  end
+  return nil
+end
+
+-- Every item a slot can take, by kind: { { kind, ids = { ... } }, ... } (the kit's own list first, then what
+-- WoWSims' data knows).
+function Kit:Candidates(slot)
   local d = D()
-  local kit = d and d.KITS[key or self:SpecKey()]
+  local out = {}
+  for _, kind in ipairs(self.SLOT_KINDS[slot] or {}) do
+    local ids, seen = {}, {}
+    for id, it in pairs(d.ITEMS) do
+      if it[4] == kind then ids[#ids + 1] = id; seen[id] = true end
+    end
+    for id in pairs((ns.Data and ns.Data.SimConsumables) or {}) do
+      if not seen[id] and self:Kind(id) == kind then ids[#ids + 1] = id end
+    end
+    table.sort(ids, function(a, b)
+      local ka, kb = d.ITEMS[a] ~= nil, d.ITEMS[b] ~= nil
+      if ka ~= kb then return ka end
+      return self:Name(a) < self:Name(b)
+    end)
+    if #ids > 0 then out[#out + 1] = { kind = kind, ids = ids } end
+  end
+  return out
+end
+
+-- Picks an item into a slot of a kit: a flask stands alone; an elixir takes the place of the flask or the elixir of
+-- its kind and keeps the other one; a scroll is added or taken off (the last one stays). Returns true when the slot
+-- may take a second item (elixirs, scrolls: the picker stays open).
+function Kit:PickInto(side, slot, id, key)
+  local kind = self:Kind(id)
+  if self:SlotOf(id) ~= slot then return false end
+  local rows = self:Get(key) or {}
+  local cur = {}
+  for _, row in ipairs(rows) do
+    if row.key == slot then cur = self:SideIds(row, side) end
+  end
+  local ids
+  if kind == "battle" or kind == "guardian" then
+    local battle, guardian
+    for _, x in ipairs(cur) do
+      local k = self:Kind(x)
+      if k == "battle" then battle = x elseif k == "guardian" then guardian = x end
+    end
+    if kind == "battle" then battle = id else guardian = id end
+    ids = {}
+    if battle then ids[#ids + 1] = battle end
+    if guardian then ids[#ids + 1] = guardian end
+  elseif kind == "scroll" then
+    ids = {}
+    local had = false
+    for _, x in ipairs(cur) do
+      if x == id then had = true elseif self:Kind(x) == "scroll" then ids[#ids + 1] = x end
+    end
+    if not had or #ids == 0 then table.insert(ids, 1, id) end
+  else
+    ids = { id }
+  end
+  self:SetPick(side, slot, ids, key)
+  return kind == "battle" or kind == "guardian" or kind == "scroll"
+end
+
+-- The kit of a spec: { { key, title, why, best = side, budget = side }, ... } in the order shown; a side is
+-- { kind = "items", ids = { ... }, custom = my own pick, default = the guide's ids } | { kind = "same", text } |
+-- { kind = "skip", text }. Slots the spec has nothing for are left out. nil for a spec without a kit.
+function Kit:Get(key)
+  key = key or self:SpecKey()
+  local d = D()
+  local kit = d and d.KITS[key]
   if not kit then return nil end
   local blunt = self:BluntMainHand()
   local rows = {}
@@ -98,13 +262,21 @@ function Kit:Get(key)
     local k = kit[s.key]
     if k then
       local row = { key = s.key, title = s.title, why = k.why or s.why }
-      row.best = { kind = "items", ids = Ids(k.best, blunt) }
+      local def = Ids(k.best, blunt)
+      local mine = self:GetPick("best", s.key, key)
+      row.best = { kind = "items", ids = mine or def, custom = mine ~= nil, default = def }
+      mine = self:GetPick("budget", s.key, key)
+      local bdef
       if k.budget == "same" then
         row.budget = { kind = "same", text = k.sameWhy or "" }
       elseif k.budget == false then
         row.budget = { kind = "skip", text = k.skip or "" }
       else
-        row.budget = { kind = "items", ids = Ids(k.budget, blunt), text = k.budgetWhy }
+        bdef = Ids(k.budget, blunt)
+        row.budget = { kind = "items", ids = bdef, text = k.budgetWhy, default = bdef }
+      end
+      if mine then
+        row.budget = { kind = "items", ids = mine, custom = true, default = bdef, defaultKind = row.budget.kind }
       end
       rows[#rows + 1] = row
     end
@@ -189,23 +361,7 @@ end
 -- Slots left out of a kit (per character and spec, the prog and farm kits apart): not counted, not bought, not in
 -- the kit's DPS total. Saved as setting kit.chars.<me> = { [spec key] = { best = { slot = true }, budget = {...} } }.
 -- ---------------------------------------------------------------------------------------------------------------
-local function CharKey()
-  local key = ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() or (UnitName("player") or "me")
-  return (tostring(key):gsub("%.", "_"))
-end
-
-local function OffTable(create)
-  local DB = ns.DB
-  if not DB then return nil end
-  local path = "kit.chars." .. CharKey()
-  local t = DB:GetSetting(path)
-  if type(t) ~= "table" then
-    if not create then return nil end
-    DB:SetSetting(path, {})
-    t = DB:GetSetting(path)
-  end
-  return t
-end
+local function OffTable(create) return Setting("kit.chars", create) end
 
 function Kit:IsOff(side, slot, key)
   local t = OffTable()

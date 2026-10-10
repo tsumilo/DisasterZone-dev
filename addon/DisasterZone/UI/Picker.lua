@@ -5,7 +5,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Picker.lua", ...) then return e
 -- search and class / armor filters; accepts shift-clicked or dragged items. It won't open while the
 -- group's raid leader has locked the BiS lists (§38).
 -- A host (the gear sim's Working set, UI/SimPanel.lua) can borrow it: picks go to the host instead of the BiS list,
--- the host adds sections at the top, numbers per row and a button at the bottom (Picker:Open(..., host)).
+-- the host adds sections at the top, numbers per row and a button at the bottom (Picker:Open(..., host)). A host
+-- with only = true (My BiS > Consumables, UI/KitView.lua) lists its own sections alone: no gear, no gear filters.
 local addonName, ns = ...
 
 local Picker = {}
@@ -22,6 +23,7 @@ local EMPTY_NO_SOURCES = "No sources ticked. Choose at least one under Sources."
 local HINT_TEXT = "Shift-click an item link or drag an item from your bags here to use any other item."
 local DUNGEON_SUFFIX = " (5-man)"
 local HEROIC_TAG = "|cffff7f3fHeroic|r"
+local SEARCH_HINT = "Search items, bosses, professions, factions..."
 local DASH = " \226\128\148 "            -- " — " (U+2014 is in the game fonts)
 
 -- Sources (§35): filter.sources keys, in menu / section order.
@@ -253,6 +255,7 @@ local function BuildFilter()
 end
 
 local function Candidates()
+    if state.host and state.host.only then return {} end
     local ItemDB = ns.ItemDB
     if not (ItemDB and ItemDB.GetCandidates) or not AnySource() then return {} end
     local rows = ItemDB:GetCandidates(state.sid, BuildFilter())
@@ -698,9 +701,11 @@ local function HostRows()
     for _, sec in ipairs(host.sections(state.sid) or {}) do
         local items = {}
         for _, it in ipairs(sec.items or {}) do
-            local name = ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(it.itemID) or ""
+            local name = ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(it.itemID)
+            if not name and C_Item and C_Item.GetItemInfo then name = C_Item.GetItemInfo(it.itemID) end
+            name = name or ""
             if needle == "" or Lower(name):find(needle, 1, true) or Lower(it.sub or ""):find(needle, 1, true) then
-                items[#items + 1] = { type = "item", itemID = it.itemID, subText = it.sub }
+                items[#items + 1] = { type = "item", itemID = it.itemID, subText = it.sub or "" }
             end
         end
         if #items > 0 then
@@ -783,8 +788,16 @@ local function UpdateCurrent()
     local UI = ns.UI
     RefreshMarks()
     local id = currentPick
-    current.btn:SetItem(id, UI:EmptySlotTexture(state.sid))
-    if id then
+    current.btn:SetItem(id, (state.host and state.host.emptyIcon) or UI:EmptySlotTexture(state.sid))
+    local host = state.host
+    current.clear:SetText(host and host.clearText or "Clear")
+    if host and host.currentSub then
+        -- the host says what is chosen (and whether Clear does anything)
+        local name, sub, canClear = host.currentSub(id)
+        current.name:SetText(name or (id and UI:ItemText(id)) or "")
+        current.sub:SetText(sub or "")
+        if canClear then current.clear:Enable() else current.clear:Disable() end
+    elseif id then
         current.name:SetText((UI:ItemText(id)))
         local src = ns.ItemDB and ns.ItemDB:GetSourceText(id, true)
         current.sub:SetText(src or "Other source")
@@ -858,7 +871,7 @@ local function EnsureWindow()
         if text == state.search then return end
         state.search = text
         Picker:Rebuild(true)
-    end, "Search items, bosses, professions, factions...")
+    end, SEARCH_HINT)
     searchBox:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -48)
     searchBox:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -48)
 
@@ -942,6 +955,11 @@ local function EnsureWindow()
     return win
 end
 
+-- The list starts under the filters, or under the search box for a host with only its own items.
+local function PlaceList(only)
+    list.frame:SetPoint("TOPLEFT", win.content, "TOPLEFT", 0, only and -76 or -130)
+end
+
 local function Position(anchor)
     win:ClearAllPoints()
     local main = ns.MainFrame and ns.MainFrame:IsShown() and ns.MainFrame:GetFrame() or nil
@@ -994,11 +1012,17 @@ function Picker:Open(phase, sid, which, anchor, list, host)
     UpdateHeader()
 
     searchBox:SetText("")
+    local only = host and host.only and true or false
     cbUsable:Refresh()
     cbArmor:Refresh()
-    cbArmor:SetShown(ARMOR_SLOTS[sid] and true or false)
+    cbUsable:SetShown(not only)
+    cbArmor:SetShown(not only and ARMOR_SLOTS[sid] and true or false)
     phaseDD:Refresh()
     sourcesDD:Refresh()
+    phaseDD:SetShown(not only)
+    sourcesDD:SetShown(not only)
+    PlaceList(only)
+    if searchBox.cdlHint then searchBox.cdlHint:SetText(host and host.searchHint or SEARCH_HINT) end
 
     Prefetch()
     win:Show()

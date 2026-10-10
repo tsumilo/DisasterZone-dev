@@ -1027,7 +1027,9 @@ STATES = [
     ("My BiS - Consumables", kit_view()),
     ("My BiS - Consumables simmed", kit_view(run=True)),
     ("My BiS - Consumables healer", kit_view(spec="Holy")),
-    ("My BiS - Consumables left out", kit_view(lua="ns.Kit:SetOff('best', 'food', true); ns.Kit:SetOff('budget', 'scroll', true)")),
+    ("My BiS - Consumables picker", kit_view(lua="ns.Kit:SetPick('best', 'food', { 33872 }); "
+                                               "ns.KitView:OpenPicker('best', 'flask', ns.MyBiS:GetPanel())")),
+    ("My BiS - Consumables left out",kit_view(lua="ns.Kit:SetOff('best', 'food', true); ns.Kit:SetOff('budget', 'scroll', true)")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
     ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "

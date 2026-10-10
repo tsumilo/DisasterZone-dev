@@ -1855,7 +1855,7 @@ function MyBiS:Refresh()
         ns.KitView:Show(kitOn)
     end
     if kitOn then
-        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not ns.KitView:IsPickerOpen() then ns.Picker:Close() end
         if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
         if Sim then Sim:ShowCard(false) end
         suggestBtn:Hide()

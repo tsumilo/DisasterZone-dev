@@ -66,8 +66,12 @@ C.ITEMS = {
   [27503] = { "Scroll of Strength V", "Strength", "+20 Strength", "scroll" },
   [27498] = { "Scroll of Agility V", "Agility", "+20 Agility", "scroll" },
   [27500] = { "Scroll of Protection V", "Protection", "+300 armor", "scroll" },
+  [27499] = { "Scroll of Intellect V", "Intellect", "+20 Intellect", "scroll" },
+  [27501] = { "Scroll of Spirit V", "Spirit", "+30 Spirit", "scroll" },
+  [27502] = { "Scroll of Stamina V", "Stamina", "+20 Stamina", "scroll" },
   -- runes and the like (their own shared 2 minute timer)
   [12662] = { "Demonic Rune", nil, "900 to 1500 mana", "rune" },
+  [20520] = { "Dark Rune", nil, "900 to 1500 mana", "rune" },
   [22788] = { "Flame Cap", nil, "+80 fire damage for 1 min", "rune" },
   [7676] = { "Thistle Tea", nil, "+40 energy", "rune" },
 }
