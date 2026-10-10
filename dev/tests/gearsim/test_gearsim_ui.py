@@ -239,9 +239,9 @@ def best_for_slot_during_a_run_stops_it_cleanly():
     assert c.eval("return ns.SimPanel._state().running") is True
     c.eval("ns.SimPanel:OnSlotClick(..., 'main', 'LeftButton')", sid_of(c, 13))
     c.eval("ns.SimPanel._runBest()")
-    # the card no longer claims a run
+    # the page no longer claims a run: the sigil is back before a run
     assert c.eval("return ns.SimPanel._state().running") is False
-    assert c.eval("return ns.SimPanel._card().run:GetText()") == "Run sim"
+    assert c.eval("return ns.SimStage.mode") == "idle"
     run_until_done(w, c)
     assert c.eval_py("return ns.SimPanel._pstate().ranked") is not None
     assert_no_lua_errors(w)
@@ -255,7 +255,7 @@ def gear_sim_page_says_when_the_spec_isnt_covered():
     assert c.eval("return ns.SimPanel:IsActive()") is True
     run = "return ns.SimPanel._card().run:IsEnabled()"
     assert c.eval(run) is True
-    # the Holy off-spec list: the page stays, its card says what the sim covers and Run sim greys out
+    # the Holy off-spec list: the page stays, it says what the sim covers and the sigil can't be clicked
     assert c.eval("return ns.BiS:SetSpec('Holy', 'os')") is True
     c.eval("ns.MyBiS:SetList('os')  ns.MyBiS:Refresh()")
     assert c.eval("return ns.SimRunner:Spec()") == "Holy"
@@ -552,6 +552,48 @@ def balance_druid_sims():
     assert_no_lua_errors(w)
 
 
+# WoWSims' P1 Mage preset (ui/specs/mage/dps/gear_sets/p1_*.gear.json), no gems or enchants
+MAGE_P1 = [29076, 28762, 29079, 28766, 21848, 28411, 21847, 21846, 29078, 28517, 29287, 28793, 29370, 28785, 28770,
+           29271, 28783]
+
+
+@r.case
+def mage_sims():
+    w = new_world()
+    c = Client(w, "Frosty", class_file="MAGE", race="Troll", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Frost") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(MAGE_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 900 < res["work"] < 2400 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Frostbolt", "Water Elemental"):
+        assert want in names, (want, names)
+    assert "Melee" not in names, names
+    # all three trees are covered; Arcane wears Mage Armor, Fire and Frost Molten Armor (as in WoWSims)
+    for spec, armor, ws in (("Arcane", "MageArmor", "MageArmorMageArmor"), ("Fire", "MoltenArmor", "MageArmorMoltenArmor"),
+                            ("Frost", "MoltenArmor", "MageArmorMoltenArmor")):
+        assert c.eval("return ns.BiS:SetSpec(...)", spec) is True
+        assert c.eval("return ns.SimRunner:IsSupported()") is True, spec
+        assert c.eval("return ns.Data.SimAPL[ns.SimRunner:SpecKey()] ~= nil") is True, spec
+        sc = c.eval_py("return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), { buffs = 'raid25', duration = 180 })")
+        assert sc["distance"] == 20 and sc["classOptions"]["defaultMageArmor"] == armor, (spec, sc["classOptions"])
+        doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                              "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+        pl = doc["player"]
+        assert pl["class"] == "ClassMage" and pl["mage"]["options"]["classOptions"]["defaultMageArmor"] == ws, (spec, pl)
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()
@@ -603,7 +645,8 @@ def swapped_item_keeps_the_meta_gem_on():
     assert c.eval("return select(2, ns.SimRunner:MetaOff(ns.SimPanel:Working()))") ==         "at least 2 Red, 2 Yellow and 2 Blue gems"
     c.eval("ns.SimPanel:Run()")
     run_until_done(w, c)
-    assert "Meta gem off: needs" in c.eval("return ns.SimPanel._card().sub:GetText()")
+    settle(w, 2.5)   # (the sigil sweeps, flashes, then shows the result)
+    assert "Meta gem off: needs" in c.eval("return ns.SimStage._frame().meta:GetText()")
     assert_no_lua_errors(w)
 
 

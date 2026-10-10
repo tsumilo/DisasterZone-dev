@@ -899,6 +899,12 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False, running=False,
                     break
                 w.tick(0.05, 0.05)
         if nerd:
+            if nerd == "stats":
+                g.eval("ns.SimNerd:CalcWeights()")
+                for _ in range(400):
+                    if not g.eval("return ns.SimRunner:IsRunning()"):
+                        break
+                    w.tick(0.05, 0.05)
             g.eval("ns.SimNerd:Open('%s')" % nerd)
             w.tick(0.8, 0.05)
         w.tick(0.3)
@@ -1046,6 +1052,12 @@ STATES = [
     ("My BiS - Sim running", sim_mode(running=True)),
     ("My BiS - Sim results", sim_mode()),
     ("My BiS - Sim stale", sim_mode(stale=True)),
+    ("My BiS - Sim nerd overview", sim_mode(nerd="overview")),
+    ("My BiS - Sim nerd abilities", sim_mode(nerd="abilities")),
+    ("My BiS - Sim nerd buffs", sim_mode(nerd="buffs")),
+    ("My BiS - Sim nerd mana", sim_mode(nerd="mana")),
+    ("My BiS - Sim nerd stats", sim_mode(nerd="stats")),
+    ("My BiS - Sim nerd run", sim_mode(nerd="run")),
     ("My BiS - Sim meta off", sim_mode(meta_off=True)),
     ("My BiS - Sim picker", sim_mode(picker=True)),
     ("My BiS - Consumables", kit_view()),

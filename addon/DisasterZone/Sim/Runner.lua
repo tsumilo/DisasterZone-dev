@@ -14,13 +14,13 @@ local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
   ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
   ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true, ["PRIEST:Shadow"] = true,
-  ["DRUID:Balance"] = true }
+  ["DRUID:Balance"] = true, ["MAGE:Arcane"] = true, ["MAGE:Fire"] = true, ["MAGE:Frost"] = true }
 -- what the sim covers, for the texts that say so
 Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues, Feral / "
-  .. "Balance Druids and Shadow Priests"
+  .. "Balance Druids, Shadow Priests and Mages"
 -- class file -> the sim's class
 Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid",
-  PRIEST = "Priest" }
+  PRIEST = "Priest", MAGE = "Mage" }
 -- spec key -> what differs from the class: options, WoWSims' default reaction time (ms) and distance (yards)
 Runner.SPEC_SETTINGS = {
   ["DRUID:Feral (Cat)"] = { options = { form = "Cat" }, reactionTimeMs = 250, distance = 0, buffs = "wowsims_cat",
@@ -31,6 +31,13 @@ Runner.SPEC_SETTINGS = {
     buffs = "wowsims_spriest", field = "dpsPriest", wsOptions = { preShadowform = true } },
   ["SHAMAN:Elemental"] = { options = { elemental = true, imbueMh = "NoImbue", imbueOh = "NoImbue", shieldProcrate = 0 },
     distance = 20, buffs = "wowsims_ele", field = "elementalShaman" },
+  -- WoWSims ships an Arcane list only: Fire and Frost run our own (dev/data/apl), checked in both sims
+  ["MAGE:Arcane"] = { options = { defaultMageArmor = "MageArmor" }, distance = 20, buffs = "wowsims_mage", field = "mage",
+    wsOptions = { defaultMageArmor = "MageArmorMageArmor" } },
+  ["MAGE:Fire"] = { options = { defaultMageArmor = "MoltenArmor" }, distance = 20, buffs = "wowsims_mage", field = "mage",
+    wsOptions = { defaultMageArmor = "MageArmorMoltenArmor" } },
+  ["MAGE:Frost"] = { options = { defaultMageArmor = "MoltenArmor" }, distance = 20, buffs = "wowsims_mage", field = "mage",
+    wsOptions = { defaultMageArmor = "MageArmorMoltenArmor" } },
 }
 -- WoWSims' class options (dps/presets.ts DefaultOptions)
 Runner.CLASS_OPTIONS = {
@@ -61,6 +68,11 @@ Runner.BUFFS = {
       .. "the Elements, Improved Shadow Bolt (72% uptime), Judgements of the Crusader and Wisdom, Faerie Fire, Expose "
       .. "Armor; Flask of Pure Death, Blackened Basilisk, Destruction Potion, Demonic Rune. You bring your own Misery, "
       .. "Shadow Weaving, Vampiric Touch and Shadowfiend.",
+    tipMage = "WoWSims' Mage raid setup: Bloodlust, drums, Mana Spring, Mana Tide and Wrath of Air, Kings, Wisdom and "
+      .. "Salvation, Gift of the Wild, Fortitude, Arcane Brilliance, Divine Spirit, Shadow Protection, Innervate, a Shadow "
+      .. "Priest's mana, Curse of the Elements, Misery, Judgements of the Crusader and Wisdom, Improved Shadow Bolt (72% "
+      .. "uptime); Adept's Elixir, Elixir of Draenic Wisdom, Blackened Basilisk, Brilliant Wizard Oil, Super Mana Potion. "
+      .. "You bring your own mana gems, Evocation, Improved Scorch, Winter's Chill and Water Elemental.",
     tipElemental = "WoWSims' Elemental raid setup: Bloodlust, drums, Moonkin Aura, Chain of the Twilight Owl, Eye of the "
       .. "Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane Intellect, Divine Spirit, a Shadow Priest's mana, "
       .. "Curse of the Elements, Misery, Judgement of Wisdom and the melee debuffs; Flask of Blinding Light, Blackened "
@@ -269,6 +281,10 @@ Runner.DEFAULT_TALENTS = {
   ["SHAMAN:Elemental"] = "55003105100213351051--05105301005",
   ["PRIEST:Shadow"] = "500230013--503250510240103051451",
   ["DRUID:Balance"] = "510022312503135231351--520033",
+  ["MAGE:Arcane"] = "2500052300030150330125--053500031003001",
+  -- no WoWSims preset for these two: standard Fire (10/48/3) and Frost (10/0/51) builds, checked against WoWSims
+  ["MAGE:Fire"] = "2-505202012303331053125-043000001",
+  ["MAGE:Frost"] = "230005--0535000310035310251551",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -593,6 +609,7 @@ function Runner:Start(jobs, opts)
   local okAll, err = pcall(function()
     for i, job in ipairs(jobs) do
       local scenario = self:Scenario(job.set, settings, job.cons)
+      if job.bonus then scenario.bonusStats = job.bonus end
       local ck = self:CacheKey(scenario, n)
       local r = { key = job.key, cacheKey = ck }
       all[i] = r
@@ -736,6 +753,11 @@ Runner.ABILITIES = {
   -- Balance Druids
   [26986] = "Starfire", [9876] = "Starfire", [26988] = "Moonfire", ["26988:1"] = "Moonfire", [27013] = "Insect Swarm",
   [26985] = "Wrath", pet_treant_melee = "Treants",
+  -- Mages
+  [30451] = "Arcane Blast", [38699] = "Arcane Missiles", ["38699:1"] = "Arcane Missiles", [27072] = "Frostbolt",
+  [27070] = "Fireball", ["27070:1"] = "Fireball", [12846] = "Ignite", [27079] = "Fire Blast", [27074] = "Scorch",
+  [33938] = "Pyroblast", ["33938:1"] = "Pyroblast", [33933] = "Blast Wave", [33043] = "Dragon's Breath",
+  pet_water_elemental_31707 = "Water Elemental",
   -- Rogues
   [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
   [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",
@@ -852,6 +874,8 @@ Runner.WOWSIMS_SPEC = {
   Rogue = { class = "ClassRogue", field = "rogue", options = { options = { classOptions = {} } } },
   Druid = { class = "ClassDruid", field = "feralCatDruid", options = { options = { classOptions = {} } } },
   Priest = { class = "ClassPriest", field = "dpsPriest", options = { options = { classOptions = { preShadowform = true } } } },
+  Mage = { class = "ClassMage", field = "mage", options = { options = { classOptions = {
+    defaultMageArmor = "MageArmorMageArmor" } } } },
   Warrior = { class = "ClassWarrior", field = "dpsWarrior", options = { options = { classOptions = {
     queueDelay = 250, startingRage = 50, defaultShout = "WarriorShoutBattle", defaultStance = "WarriorStanceBerserker",
     hasBsT2 = true, stanceSnapshot = true } } } },

@@ -107,16 +107,22 @@ Metrics.__index = Metrics
 
 function S.NewMetrics()
   return setmetatable({ byKey = {}, totalDamage = 0, iterDamage = 0, iterations = 0, iterDps = {}, mana = {},
-    oomTime = 0 }, Metrics)
+    oomTime = 0, manaSpent = {}, auras = {}, manaSum = {}, manaSq = {}, manaFights = 0 }, Metrics)
 end
+
+-- Only watched, never acted on: none of what follows touches a roll, a timer or the order of events (the Nerd
+-- stats page, UI/SimNerd.lua, reads it).
+S.MANA_STEP = 5            -- seconds between the mana curve's points
 
 function Metrics:ForSpell(sp)
   local key = sp.metricsKey or sp.id or "?"
   local m = self.byKey[key]
   if not m then
-    m = { key = key, damage = 0, casts = 0, hits = 0, crits = 0 }
+    m = { key = key, damage = 0, casts = 0, hits = 0, crits = 0, critDamage = 0, maxHit = 0 }
     self.byKey[key] = m
   end
+  if not m.spellId and type(sp.id) == "number" then m.spellId = sp.id end
+  if not m.itemId and type(sp.id) == "string" then m.itemId = tonumber(sp.id:match("^item:(%d+)")) end
   return m
 end
 
@@ -124,9 +130,73 @@ function Metrics:ManaGain(key, amount)
   self.mana[key] = (self.mana[key] or 0) + amount
 end
 
-function Metrics:ResetIteration()
+function Metrics:ManaSpend(key, amount)
+  self.manaSpent[key] = (self.manaSpent[key] or 0) + amount
+end
+
+-- The mana curve: the value held through each MANA_STEP of the fight (the last change before the step's end).
+function Metrics:ManaAt(now, value)
+  local cur = self.curMana
+  if not cur then return end
+  local step = S.MANA_STEP
+  while self.manaNext <= now do
+    local b = self.manaNext / step
+    self.manaFight[b] = cur
+    self.manaNext = self.manaNext + step
+  end
+  self.curMana = value
+  if value < self.manaLow then self.manaLow = value end
+end
+
+-- Player auras with a duration (procs, cooldowns, potions): time up and gains per fight; the first fight's
+-- intervals for its timeline.
+function Metrics:AuraOn(a, now)
+  local key = a.label or tostring(a)
+  local r = self.auras[key]
+  if not r then
+    r = { label = a.label, actionId = a.actionId, time = 0, gains = 0 }
+    self.auras[key] = r
+  end
+  r.gains = r.gains + 1
+end
+
+function Metrics:AuraOff(a, from, to)
+  local r = self.auras[a.label or tostring(a)]
+  if not r then return end
+  if to > from then r.time = r.time + (to - from) end
+  if self.recording and to > from then
+    local tl = self.timeline.auras
+    if #tl < 400 then tl[#tl + 1] = { key = a.label or tostring(a), from = from, to = to, actionId = a.actionId } end
+  end
+end
+
+function Metrics:CastLog(now, sp)
+  if not self.recording or now > 20 then return end
+  local list = self.timeline.casts
+  if #list < 120 then
+    list[#list + 1] = { t = now, key = sp.metricsKey or sp.id, spellId = type(sp.id) == "number" and sp.id or nil,
+      gcd = (sp.gcd or 0) > 0 }
+  end
+end
+
+function Metrics:CritLog(now, sp)
+  local list = self.recording and self.timeline.casts
+  local last = list and list[#list]
+  if last and last.t == now and last.key == (sp.metricsKey or sp.id) then last.crit = true end
+end
+
+function Metrics:ResetIteration(unit)
   self.iterStart = 0
   for _, m in pairs(self.byKey) do m.iterDamage0 = m.damage end
+  -- (pets share their owner's metrics and reset too: the fight's records belong to the player's reset)
+  if not (unit and unit.kind == "player") then return end
+  self.recording = self.iterations == 0
+  if self.recording then self.timeline = { casts = {}, auras = {} } end
+  if (unit.stats[S.ST.Mana] or 0) > 0 then
+    self.curMana, self.manaNext, self.manaFight, self.manaLow = unit.mana, 0, {}, unit.mana
+  else
+    self.curMana = nil
+  end
 end
 
 function Metrics:DoneIteration(sim)
@@ -136,6 +206,19 @@ function Metrics:DoneIteration(sim)
   self.iterDps[self.iterations] = dmg / sim.duration
   self.totalDamage = self.totalDamage + dmg
   self.totalDuration = (self.totalDuration or 0) + sim.duration
+  if self.curMana then
+    self:ManaAt(sim.duration, self.curMana)
+    self.manaFight[sim.duration / S.MANA_STEP] = self.manaFight[sim.duration / S.MANA_STEP] or self.curMana
+    for b, v in pairs(self.manaFight) do
+      self.manaSum[b] = (self.manaSum[b] or 0) + v
+      self.manaSq[b] = (self.manaSq[b] or 0) + v * v
+    end
+    self.manaFights = self.manaFights + 1
+    self.manaLowSum = (self.manaLowSum or 0) + self.manaLow
+    if self.manaLow < 1 then self.manaOutFights = (self.manaOutFights or 0) + 1 end
+    self.curMana = nil
+  end
+  self.recording = false
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -423,9 +506,27 @@ function S.Summarize(sim, p)
   for k, a in pairs(m.byKey) do
     abilities[k] = { dps = a.damage / n / dur, casts = a.casts / n, hits = a.hits / n, crits = a.crits / n,
       glances = (a.glances or 0) / n, misses = (a.misses or 0) / n, dodges = (a.dodges or 0) / n,
-      partials = (a.partials or 0) / n }
+      partials = (a.partials or 0) / n, damage = a.damage / n, critDamage = (a.critDamage or 0) / n,
+      maxHit = a.maxHit or 0, spellId = a.spellId, itemId = a.itemId }
   end
   local mana = {}
   for k, v in pairs(m.mana) do mana[k] = v / n end
-  return { dps = mean, stdev = sd, stderr = sd / sqrt(n), iterations = n, abilities = abilities, mana = mana }
+  local spent = {}
+  for k, v in pairs(m.manaSpent) do spent[k] = v / n end
+  local auras = {}
+  for k, r in pairs(m.auras) do
+    auras[k] = { label = r.label, actionId = r.actionId, uptime = r.time / m.totalDuration, gains = r.gains / n }
+  end
+  local curve
+  if m.manaFights > 0 then
+    curve = { step = S.MANA_STEP, mean = {}, sd = {}, max = p and p.stats and p.stats[S.ST.Mana] or 0,
+      low = m.manaLowSum / m.manaFights, outFights = m.manaOutFights or 0, fights = m.manaFights }
+    for b, s in pairs(m.manaSum) do
+      local mu = s / m.manaFights
+      curve.mean[b] = mu
+      curve.sd[b] = sqrt(max(0, m.manaSq[b] / m.manaFights - mu * mu))
+    end
+  end
+  return { dps = mean, stdev = sd, stderr = sd / sqrt(n), iterations = n, abilities = abilities, mana = mana,
+    manaSpent = spent, auras = auras, manaCurve = curve, timeline = m.timeline, duration = dur }
 end

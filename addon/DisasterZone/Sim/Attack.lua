@@ -312,7 +312,7 @@ function Unit:Reset(sim)
     self:UpdateMajorCooldowns()
   end
   if self.agentReset then self.agentReset(sim) end
-  if self.metrics then self.metrics:ResetIteration() end
+  if self.metrics then self.metrics:ResetIteration(self) end
   sim:AddTracker(self)
   if self.kind ~= "enemy" and self.rotation then
     -- the rotation's first evaluation happens when the GCD timer is set at the pull
@@ -337,7 +337,14 @@ function Unit:DoneIteration(sim)
   if self.agentDone then self.agentDone(sim) end
   self.hardcastExpires = -huge
   self.hardcastComplete = nil
-  -- Deactivate every aura so mods and pseudo stats unwind (auraTracker.doneIteration).
+  self:DeactivateAllAuras(sim)
+  if self.metrics then self.metrics:DoneIteration(sim) end
+end
+
+-- Deactivate every aura, permanent ones too, so mods and pseudo stats unwind (auraTracker.doneIteration). Pets
+-- and targets get this as well: an aura's onStacksChange / onExpire state would otherwise leak into the next
+-- iteration (Winter's Chill kept its +10% crit mod for the next fight's first Frostbolt).
+function Unit:DeactivateAllAuras(sim)
   local again = true
   while again do
     again = false
@@ -349,7 +356,6 @@ function Unit:DoneIteration(sim)
       end
     end
   end
-  if self.metrics then self.metrics:DoneIteration(sim) end
 end
 
 function Unit:NewTimer()

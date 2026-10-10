@@ -43,6 +43,8 @@ function S.NewScenario(sc, db, apl)
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
+  -- stat weights (UI/SimNerd.lua): extra stats as if from gear, so buffs scale them like WoWSims' own
+  if sc.bonusStats then p:AddStats(sc.bonusStats) end
   if cls == "Warrior" then S.WarriorApplyTalents(p) end
   if cls == "Shaman" then S.ShamanApplyTalents(p) end
   if cls == "Rogue" then S.RogueApplyTalents(p) end

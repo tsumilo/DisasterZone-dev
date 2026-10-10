@@ -429,11 +429,17 @@ function Unit:AddMana(sim, amount, metric)
   local old = self.mana
   local new = min(old + amount, self.stats[ST.Mana])
   self.mana = new
-  if metric and self.metrics then self.metrics:ManaGain(metric, new - old) end
+  local m = self.metrics
+  if m then
+    if metric then m:ManaGain(metric, new - old) end
+    if m.curMana and self.kind == "player" then m:ManaAt(sim.now, new) end
+  end
 end
 
 function Unit:SpendMana(sim, amount)
   self.mana = self.mana - amount
+  local m = self.metrics
+  if m and m.curMana and self.kind == "player" then m:ManaAt(sim.now, self.mana) end
 end
 
 function Unit:SpiritRegenPerSecond()
@@ -553,6 +559,7 @@ function Aura:Activate(sim)
   self.startTime = sim.now
   self:Refresh(sim)
   local u = self.unit
+  if u.metrics and u.kind == "player" and self.duration ~= huge then u.metrics:AuraOn(self, sim.now) end
   if self.duration ~= huge then u.activeAuras[#u.activeAuras + 1] = self end
   for i = 1, #CALLBACK_LISTS do
     local name = CALLBACK_LISTS[i]
@@ -571,9 +578,12 @@ function Aura:Deactivate(sim)
     local endAt = (sim.now > self.expires) and self.expires or sim.now
     self.uptime = self.uptime + endAt - max(self.startTime, 0)
   end
+  local u = self.unit
+  if u.metrics and u.kind == "player" and self.duration ~= huge then
+    u.metrics:AuraOff(self, max(self.startTime, 0), (sim.now > self.expires) and self.expires or sim.now)
+  end
   self.expires = 0
   self.fadeTime = sim.now
-  local u = self.unit
   if self.duration ~= huge then RemoveFromList(u.activeAuras, self) end
   for i = 1, #CALLBACK_LISTS do
     local name = CALLBACK_LISTS[i]

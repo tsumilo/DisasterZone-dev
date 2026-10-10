@@ -364,7 +364,14 @@ end
 function Spell:ApplyEffectsInternal(sim, target)
   if sim.log then sim:Log("Cast %s", tostring(self.metricsKey or self.id)) end
   self.casts = self.casts + 1
-  if self.metrics then self.metrics.casts = self.metrics.casts + 1 end
+  if self.metrics then
+    self.metrics.casts = self.metrics.casts + 1
+    local um = self.unit.metrics
+    -- (the first fight's casts: what the player pressed, not procs)
+    if um and um.recording and sim.now >= 0 and (self.gcd > 0 or has(self.flags, F.APL) or has(self.flags, F.MCD)) then
+      um:CastLog(sim.now, self)
+    end
+  end
   if not has(self.flags, F.NoOnCastComplete) then self.unit:OnApplyEffects(sim, target, self) end
   self.applyEffects(sim, target, self)
 end
@@ -378,6 +385,7 @@ function Spell:SpendCost(sim)
     elseif cost.resource == "energy" then u:SpendEnergy(sim, c)
     else
       u:SpendMana(sim, c)
+      if u.metrics and self.metrics then u.metrics:ManaSpend(self.metrics.key, c) end
       u.ps.FiveSecondRuleRefreshTime = max(sim.now + 5, u.hardcastExpires)
     end
   end
@@ -693,7 +701,12 @@ function Spell:DealDamageInternal(sim, r, isPeriodic)
     local m = self.metrics
     local o = r.outcome
     m.damage = m.damage + r.damage
-    if has(o, O.Crit) and not has(o, O.Block) then m.crits = m.crits + 1
+    if r.damage > m.maxHit then m.maxHit = r.damage end
+    if has(o, O.Crit) and not has(o, O.Block) then
+      m.crits = m.crits + 1
+      m.critDamage = m.critDamage + r.damage
+      local um = self.unit.metrics
+      if um and um.recording then um:CritLog(sim.now, self) end
     elseif has(o, O.Glance) then m.glances = (m.glances or 0) + 1
     elseif Landed(r) then m.hits = m.hits + 1
     elseif has(o, O.Miss) then m.misses = (m.misses or 0) + 1

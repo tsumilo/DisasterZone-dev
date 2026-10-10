@@ -315,6 +315,7 @@ local function DashPool(f, i)
   local d = f.dashes[i]
   if not d then
     d = f:CreateTexture(nil, "ARTWORK")
+    d:SetColorTexture(1, 1, 1, 1)
     d:SetSize(3, 1)
     f.dashes[i] = d
   end
@@ -801,7 +802,7 @@ function Stage:RefreshSettings()
     { w.buffs, key = "buffs", tip = P().WordTip.buffs }, { ".", tight = true },
   }
   LayoutSentence(stage.sentence, { line1, line2 })
-  stage.chip:SetLabel(w.chip, w.chipShort)
+  stage.chip:SetLabel(w.chip)
   if stage.chip:IsShown() then At(stage.chip, stage.chip.revealX, stage.chip.revealY) end
   sigil.runSub:SetText(Spaced(w.fights))
 end
@@ -922,6 +923,7 @@ local function Inside(mode)
   sigil.runText:SetShown(before); sigil.runSub:SetShown(before and mode ~= "unsupported")
   sigil.k:SetShown(not before); sigil.n:SetShown(not before); sigil.pm:SetShown(not before)
   sigil.again:SetShown(mode == "stale")
+  sigil:SetEnabled(mode ~= "unsupported")
   sigil.n:SetFont(FONT, (mode == "done" or mode == "stale") and 42 or 34, "")
   sigil.n:SetAlpha(mode == "stale" and 0.35 or 1)
   sigil.pm:SetAlpha(mode == "stale" and 0.35 or 1)
@@ -952,12 +954,13 @@ local function FillResults()
   stage.cmpRef.frac = (a - lo) / (hi - lo)
   stage.cmpWork.frac = (b - lo) / (hi - lo)
   local d, se = res.diff, res.se
-  local close = abs(d) < 2 * se
+  local none = abs(d) < 0.5                     -- the same gear (or as good as): nothing to call
+  local close = none or abs(d) < 2 * se
   local col = close and C.grey or (d > 0 and C.green or C.red)
   local pct = d / max(1, a) * 100
   local da, db = stage.delta.a, stage.delta.b
   da:SetText(ns.SimPanel.Signed(d) .. " DPS")
-  db:SetText((pct >= 0 and "+" or "\226\136\146") .. ("%.1f%%"):format(abs(pct)))
+  db:SetText(abs(pct) < 0.05 and "0.0%" or ((pct >= 0 and "+" or "\226\136\146") .. ("%.1f%%"):format(abs(pct))))
   da:SetTextColor(col[1], col[2], col[3]); db:SetTextColor(col[1], col[2], col[3])
   local wa, wb = tonumber(da:GetStringWidth()) or 70, tonumber(db:GetStringWidth()) or 40
   local x0 = (230 - (wa + 6 + wb)) / 2
@@ -965,7 +968,10 @@ local function FillResults()
   db:ClearAllPoints(); db:SetPoint("BOTTOMLEFT", da, "BOTTOMRIGHT", 6, 1)
   local sure = ("\194\177%s"):format(Fmt(2 * se))
   local v = stage.verdict.fs
-  if close then
+  if none then
+    v:SetText("No difference")
+    v:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+  elseif close then
     v:SetText("Too close to call  |cff8f8f95\194\183  " .. sure .. "|r")
     v:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
   elseif d > 0 then
@@ -1024,6 +1030,7 @@ function Stage:Apply(mode, animate)
     stage.meta:Hide()
     PaintTicks(0)
   elseif mode == "run" then
+    if ns.SimNerd then ns.SimNerd:Close(true) end
     stage.note:Hide()
     sigil.k:SetText(Spaced("Simulating"))
     sigil.n:SetText("\226\128\148")
@@ -1165,10 +1172,14 @@ function Stage:Sync(animate)
   local want = Wanted()
   if not want then return end
   local cur = self.mode
+  -- (My BiS shows the doll on every repaint: before a result it stays hidden)
+  if (cur == "idle" or cur == "run" or cur == "unsupported") and doll and doll:IsShown() and not tweens.doll then
+    doll:Hide()
+  end
   if cur == "run" and want ~= "run" then
     -- a finished run sweeps to its end first (StepRun, then Finish); a stopped one goes back now
     local finished = (P()._state().serial or 0) ~= (self.runSerial or 0)
-    if finished and animate ~= false and stage:IsVisible() then return end
+    if finished and animate ~= false and stage:IsVisible() and P()._state().doneSeen then return end
     if self.finishing and animate ~= false then return end
     FinishTweens()
     self:Apply(want, animate and not finished)
@@ -1181,6 +1192,13 @@ function Stage:Sync(animate)
     return
   end
   self:Apply(want, animate and cur ~= nil)
+end
+
+-- Back from Nerd stats: the result page fades in like a page of the main window.
+function Stage:FadePage()
+  if not (stage and ns.SimNerd and ns.SimNerd.FadeIn) then return end
+  ns.SimNerd.FadeIn(stage)
+  if doll and doll:IsShown() then ns.SimNerd.FadeIn(doll) end
 end
 
 -- (tests) the stage's mode, sweep and the frames.

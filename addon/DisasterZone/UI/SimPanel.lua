@@ -273,6 +273,8 @@ function SimPanel:Run()
         state.results = { work = res.work, ref = res.ref, diff = d, se = se, target = state.target, info = info }
         state.stale = false
         state.serial = state.serial + 1
+        -- (a run that ended while the page was out of sight shows its result at once, no sweep)
+        state.doneSeen = ns.SimStage and ns.SimStage.frame and ns.SimStage.frame:IsVisible() or false
         if info.simmed and info.simmed > 0 and info.ms > 0 then state.msPerFight = info.ms / info.simmed end
       end
       self:UpdateCard()
@@ -283,6 +285,14 @@ function SimPanel:Run()
     ns:Print("The gear sim can't run: %s", tostring(err))
   end
   self:UpdateCard()
+end
+
+-- Nerd stats' "Run 3,000 fights": that many fights from now on, and a run at once.
+function SimPanel.SetFightsAndRun(n)
+  SetSetting("fights", n)
+  state.stale = true
+  if ns.SimNerd then ns.SimNerd:Close() end
+  if not state.running then SimPanel:Run() end
 end
 
 -- The Working set's fights simmed so far in the running (or last) run, and the run's fight count.
@@ -335,8 +345,7 @@ function SimPanel:SettingWords()
   return {
     changes = n, target = self:TargetText(), fights = Fmt(s.fights) .. " fights", duration = Duration(s.duration),
     boss = "level 73 " .. mob, buffs = buffs,
-    chip = ("%s \195\151 %s  \194\183  Lv 73 %s  \194\183  %s"):format(Fmt(s.fights), Duration(s.duration), mob, buffs),
-    chipShort = ("%s \195\151 %s  \194\183  %s  \194\183  %s"):format(Fmt(s.fights), Duration(s.duration), mob, buffs),
+    chip = ("%s \195\151 %s  \194\183  %s"):format(Fmt(s.fights), Duration(s.duration), mob),
   }
 end
 
@@ -504,7 +513,7 @@ function SimPanel:BuffsTooltip(tt, key)
     if b.key == key then
       tt:AddLine(b.text, 1, 0.82, 0)
       local cls = R():Class()
-      tt:AddLine((R():Spec() == "Elemental" and b.tipElemental) or (R():Spec() == "Balance" and b.tipBalance) or (cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or (cls == "PRIEST" and b.tipPriest) or b.tip, 1, 1, 1, true)
+      tt:AddLine((R():Spec() == "Elemental" and b.tipElemental) or (R():Spec() == "Balance" and b.tipBalance) or (cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or (cls == "PRIEST" and b.tipPriest) or (cls == "MAGE" and b.tipMage) or b.tip, 1, 1, 1, true)
       return
     end
   end
