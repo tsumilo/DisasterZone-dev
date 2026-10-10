@@ -431,9 +431,173 @@ function UI:RestorePosition(f)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 end
 
+-- A soft shadow round frame f: a 9-slice of the radial texture's falloff (its quarters are the round corners, its
+-- middle row and column the sides), black at alpha, fading over r px; dropped dy px and starting inset px inside
+-- the frame. (Radial.tga is solid to a quarter of its radius and gone at ~81%: only that band is used, so the
+-- whole r is a smooth S-shaped fade.) Drawn at BACKGROUND -8: a fill above it hides the part under the frame.
+local RADIAL = "Interface\\AddOns\\DisasterZone\\Media\\MyBiS\\Radial"
+local SH_IN, SH_OUT = 0.5 - 0.125, 0.5 - 0.406      -- texcoords of the fade's start / end in the top-left quarter
+function UI:SoftShadow(f, r, alpha, dy, inset)
+    local function piece(l, rgt, t, b)
+        local tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        tex:SetTexture(RADIAL)
+        tex:SetVertexColor(0, 0, 0, alpha)
+        tex:SetTexCoord(l, rgt, t, b)
+        return tex
+    end
+    local m1, m2 = 0.499, 0.501
+    local a, b, c, d = SH_OUT, SH_IN, 1 - SH_IN, 1 - SH_OUT
+    local L, R, T, B = inset, -inset, -inset - dy, inset - dy     -- the shadow's inner rectangle, from f's edges
+    local tl = piece(a, b, a, b)
+    tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", L, T)
+    tl:SetSize(r, r)
+    local tr = piece(c, d, a, b)
+    tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", R, T)
+    tr:SetSize(r, r)
+    local bl = piece(a, b, c, d)
+    bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT", L, B)
+    bl:SetSize(r, r)
+    local br = piece(c, d, c, d)
+    br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", R, B)
+    br:SetSize(r, r)
+    local top = piece(m1, m2, a, b)
+    top:SetPoint("BOTTOMLEFT", tl, "BOTTOMRIGHT")
+    top:SetPoint("TOPRIGHT", tr, "TOPLEFT")
+    local bottom = piece(m1, m2, c, d)
+    bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT")
+    bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
+    local left = piece(a, b, m1, m2)
+    left:SetPoint("TOPRIGHT", tl, "BOTTOMRIGHT")
+    left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT")
+    local right = piece(c, d, m1, m2)
+    right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT")
+    right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
+    local mid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    mid:SetColorTexture(0, 0, 0, alpha)
+    mid:SetPoint("TOPLEFT", tl, "BOTTOMRIGHT")
+    mid:SetPoint("BOTTOMRIGHT", br, "TOPLEFT")
+end
+
+---------------------------------------------------------------------------
+-- The window frame (2026-10-10, the "Banner" look of dev/art/casc/frame_mockup), every DisasterZone window instead
+-- of Blizzard's BasicFrameTemplateWithInset: a slate panel with a 1 px edge and a soft shadow; a header strip of
+-- the next raid's loading screen shaded to the slate, the DZ seal, the title and a flat close X (red under the
+-- mouse); a gold glint along the header's foot. The content keeps the template's place (5 in from the sides and
+-- the bottom, 27 from the top), so no window's layout moves. The main window grows its header (UI/MainFrame.lua).
+---------------------------------------------------------------------------
+
+UI.WIN_BG = { 0.078, 0.078, 0.09 }
+UI.WIN_HEAD = 26                     -- the header strip; the gold rule under it, the content 1 px further down
+local WIN_EDGE = { 0.23, 0.23, 0.25 }
+local WIN_RULE = { 0.17, 0.17, 0.19 }                 -- the rule's ends; its middle is gold
+local WIN_GOLD = { 0.79, 0.64, 0.15 }
+local SEAL = "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal"
+local HEAD_ART = { 131860, 0.50, 0.45 }               -- no raid planned: the Outland loading screen (RaidPlanUI's "other")
+
+-- (a texture filled with a gradient from colour c1 at alpha a1 to c2 at a2; orient "HORIZONTAL" runs left to right,
+-- "VERTICAL" bottom to top)
+local function GradientFill(tex, orient, c1, a1, c2, a2)
+    tex:SetColorTexture(1, 1, 1, 1)
+    if tex.SetGradient and CreateColor then
+        tex:SetGradient(orient, CreateColor(c1[1], c1[2], c1[3], a1), CreateColor(c2[1], c2[2], c2[3], a2))
+    else
+        tex:SetColorTexture(c1[1], c1[2], c1[3], (a1 + a2) / 2)
+    end
+end
+
+-- The next raid (a RaidPlan view, the soonest not cancelled from 6 hours ago on), or nil; looked up at most once a
+-- minute (every window's header and the main window's line ask on show).
+local nextRaid, nextRaidAt = nil, -100
+function UI:NextRaid()
+    local now = GetTime()
+    if now - nextRaidAt < 60 then return nextRaid end
+    nextRaidAt, nextRaid = now, nil
+    local rp = ns.RaidPlan
+    if rp and rp.GetRaids and GetServerTime then
+        local ok, list = pcall(rp.GetRaids, rp, GetServerTime() - 6 * 3600)
+        for _, v in ipairs(ok and list or {}) do
+            if not v.cancelled then
+                nextRaid = v
+                break
+            end
+        end
+    end
+    return nextRaid
+end
+
+-- Paints f's header with the next raid's loading screen (its first instance), cropped to the header's size.
+function UI:PaintWindowArt(f)
+    local art = f.cdlHeadArt
+    if not art then return end
+    local w, h = f:GetWidth() or 0, f.cdlHeadH or UI.WIN_HEAD
+    if w <= 0 then w = 400 end
+    local v = UI:NextRaid()
+    local inst
+    if v then
+        local rp = ns.RaidPlan
+        local keys = rp and rp.GetRaidInstances and rp:GetRaidInstances(v)
+        inst = keys and keys[1] or v.i
+    end
+    -- (a wider share of the picture on a tall header, a narrow band of it on a slim strip)
+    local fw = h >= 40 and 0.75 or 0.4
+    local PlanUI = ns.RaidPlanUI
+    local file, l, r, t, b
+    if PlanUI and PlanUI.RaidArt then file, l, r, t, b = PlanUI:RaidArt(inst, w, h, fw) end
+    if not file then
+        local fh = fw * (4 / 3) * (h / w)
+        l, t = HEAD_ART[2] - fw / 2, HEAD_ART[3] - fh / 2
+        file, r, b = HEAD_ART[1], l + fw, t + fh
+    end
+    art:SetTexture(file)
+    art:SetTexCoord(l, r, t, b)
+end
+
+-- A flat close X: two light strokes, the button red under the mouse.
+local function CreateCloseX(f, size)
+    local b = CreateFrame("Button", nil, f)
+    b:SetSize(size, size)
+    b:SetFrameLevel(f:GetFrameLevel() + 20)
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetAllPoints()
+    b.bg:SetColorTexture(0.64, 0.14, 0.12, 1)
+    b.bg:SetAlpha(0)
+    b.strokes = {}
+    local d = floor(size * 0.21 + 0.5)          -- half a stroke's reach on each axis
+    for i, sy in ipairs({ 1, -1 }) do
+        local s = b:CreateLine(nil, "ARTWORK")
+        s:SetColorTexture(1, 1, 1, 1)
+        s:SetVertexColor(0.84, 0.84, 0.86)
+        s:SetThickness(1.5)
+        s:SetStartPoint("CENTER", b, -d, -d * sy)
+        s:SetEndPoint("CENTER", b, d, d * sy)
+        b.strokes[i] = s
+    end
+    b:SetScript("OnEnter", function(self)
+        self.bg:SetAlpha(1)
+        for _, s in ipairs(self.strokes) do s:SetVertexColor(1, 1, 1) end
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.bg:SetAlpha(0)
+        for _, s in ipairs(self.strokes) do s:SetVertexColor(0.84, 0.84, 0.86) end
+    end)
+    b:SetScript("OnClick", function() f:Hide() end)
+    return b
+end
+
+-- Sets f's header height (the main window's is taller: UI/MainFrame.lua); the gold rule follows, the content stays
+-- where its owner put it.
+function UI:SetWindowHeadHeight(f, h)
+    f.cdlHeadH = h
+    f.head:SetHeight(h)
+    f.headRule:ClearAllPoints()
+    f.headRule:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -h)
+    f.headRule:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -h)
+    UI:PaintWindowArt(f)
+end
+
 -- opts (optional, DisasterZone extension): { noSavePosition = true }
 function UI:CreateWindow(name, title, width, height, opts)
-    local f = CreateFrame("Frame", name, UIParent, "BasicFrameTemplateWithInset")
+    local f = CreateFrame("Frame", name, UIParent)
     f.cdlName = name
     f.noSavePosition = opts and opts.noSavePosition or nil
     f:SetSize(width or 400, height or 300)
@@ -452,23 +616,85 @@ function UI:CreateWindow(name, title, width, height, opts)
         tinsert(UISpecialFrames, name)
     end
 
-    local titleText = f.TitleText or (f.TitleContainer and f.TitleContainer.TitleText)
-    if not titleText then
-        titleText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        titleText:SetPoint("TOP", f, "TOP", 0, -5)
+    -- the panel: a broad soft shadow and a tight one, the slate fill, a 1 px edge and a faint black ring outside it
+    UI:SoftShadow(f, 40, 0.45, 10, 8)
+    UI:SoftShadow(f, 10, 0.35, 2, 1)
+    local bg = f:CreateTexture(nil, "BACKGROUND", nil, -7)
+    bg:SetAllPoints()
+    bg:SetColorTexture(UI.WIN_BG[1], UI.WIN_BG[2], UI.WIN_BG[3], 1)
+    UI:AddEdges(f, "BORDER")
+    UI:SetEdgeColor(f, WIN_EDGE[1], WIN_EDGE[2], WIN_EDGE[3], 1)
+    for _, p in ipairs({ { "TOPLEFT", -1, 1, "TOPRIGHT", 1, 1, true }, { "BOTTOMLEFT", -1, -1, "BOTTOMRIGHT", 1, -1, true },
+                         { "TOPLEFT", -1, 1, "BOTTOMLEFT", -1, -1 }, { "TOPRIGHT", 1, 1, "BOTTOMRIGHT", 1, -1 } }) do
+        local t = f:CreateTexture(nil, "BORDER")
+        t:SetPoint(p[1], f, p[1], p[2], p[3])
+        t:SetPoint(p[4], f, p[4], p[5], p[6])
+        if p[7] then t:SetHeight(1) else t:SetWidth(1) end
+        t:SetColorTexture(0, 0, 0, 0.7)
     end
+
+    -- the header: the art, shaded to the slate from the left and towards its foot (the window's own textures, under
+    -- every child frame; f.head only places them)
+    local head = CreateFrame("Frame", nil, f)
+    head:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
+    head:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
+    head:SetHeight(UI.WIN_HEAD)
+    f.head = head
+    local art = f:CreateTexture(nil, "BACKGROUND", nil, -6)
+    art:SetAllPoints(head)
+    art:SetVertexColor(0.8, 0.8, 0.8)
+    f.cdlHeadArt = art
+    local shadeL = f:CreateTexture(nil, "BACKGROUND", nil, -5)
+    shadeL:SetPoint("TOPLEFT", head)
+    shadeL:SetPoint("BOTTOMRIGHT", head, "BOTTOM")
+    GradientFill(shadeL, "HORIZONTAL", UI.WIN_BG, 0.92, UI.WIN_BG, 0.55)
+    local shadeR = f:CreateTexture(nil, "BACKGROUND", nil, -5)
+    shadeR:SetPoint("TOPLEFT", head, "TOP")
+    shadeR:SetPoint("BOTTOMRIGHT", head)
+    GradientFill(shadeR, "HORIZONTAL", UI.WIN_BG, 0.55, UI.WIN_BG, 0.35)
+    local shadeV = f:CreateTexture(nil, "BACKGROUND", nil, -4)
+    shadeV:SetAllPoints(head)
+    GradientFill(shadeV, "VERTICAL", UI.WIN_BG, 0.75, UI.WIN_BG, 0)
+
+    -- the gold glint under the header: the edge's grey at both ends, gold in the middle
+    local rule = CreateFrame("Frame", nil, f)
+    rule:SetHeight(1)
+    f.headRule = rule
+    local ruleL = f:CreateTexture(nil, "ARTWORK")
+    ruleL:SetPoint("TOPLEFT", rule)
+    ruleL:SetPoint("BOTTOMRIGHT", rule, "BOTTOM")
+    GradientFill(ruleL, "HORIZONTAL", WIN_RULE, 1, WIN_GOLD, 0.55)
+    local ruleR = f:CreateTexture(nil, "ARTWORK")
+    ruleR:SetPoint("TOPLEFT", rule, "TOP")
+    ruleR:SetPoint("BOTTOMRIGHT", rule)
+    GradientFill(ruleR, "HORIZONTAL", WIN_GOLD, 0.55, WIN_RULE, 1)
+
+    -- the seal, the title, the close X
+    local seal = f:CreateTexture(nil, "ARTWORK")
+    seal:SetTexture(SEAL)
+    seal:SetSize(18, 18)
+    seal:SetPoint("TOPLEFT", head, "TOPLEFT", 7, -4)
+    f.seal = seal
+    local close = CreateCloseX(f, 20)
+    close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
+    f.closeButton = close
+    local titleText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    titleText:SetPoint("LEFT", seal, "RIGHT", 7, 0)
+    titleText:SetPoint("RIGHT", close, "LEFT", -6, 0)
+    titleText:SetJustifyH("LEFT")
+    titleText:SetWordWrap(false)
+    titleText:SetShadowOffset(1, -1)
     titleText:SetText(title or "")
     f.titleText = titleText
     f.SetWindowTitle = function(self, text) self.titleText:SetText(text or "") end
+    UI:SetWindowHeadHeight(f, UI.WIN_HEAD)
+    f:HookScript("OnShow", function(self) UI:PaintWindowArt(self) end)
+    f:HookScript("OnSizeChanged", function(self) UI:PaintWindowArt(self) end)
 
+    -- (BasicFrameTemplateWithInset's content place: its inset 2 / 24 in, the content 3 further)
     local content = CreateFrame("Frame", nil, f)
-    if f.Inset then
-        content:SetPoint("TOPLEFT", f.Inset, "TOPLEFT", 3, -3)
-        content:SetPoint("BOTTOMRIGHT", f.Inset, "BOTTOMRIGHT", -3, 3)
-    else
-        content:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -26)
-        content:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -6, 6)
-    end
+    content:SetPoint("TOPLEFT", f, "TOPLEFT", 5, -(UI.WIN_HEAD + 1))
+    content:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -5, 5)
     f.content = content
 
     UI:RestorePosition(f)
@@ -3395,7 +3621,7 @@ function UI:CreateNavStrip(parent, defs, onSelect)
     local rightAnchor = CreateFrame("Frame", nil, strip)
     rightAnchor:SetSize(1, 1)
 
-    local obj = { frame = strip, buttons = {}, byKey = {}, selected = nil, rightAnchor = rightAnchor }
+    local obj = { frame = strip, rule = rule, buttons = {}, byKey = {}, selected = nil, rightAnchor = rightAnchor }
     parent.Tabs = {}
 
     for i, def in ipairs(defs or {}) do

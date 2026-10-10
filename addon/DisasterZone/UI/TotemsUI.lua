@@ -759,7 +759,7 @@ local function BuildBossStrip(c)
 end
 
 local function Build()
-    frame = UI():CreateWindow("DisasterZoneTotems", "DisasterZone - Totems", W, 420)
+    frame = UI():CreateWindow("DisasterZoneTotems", "Totems", W, 420)
     frame:Hide()
     frame:SetScript("OnShow", function() TUI:Refresh() end)
     local c = frame.content

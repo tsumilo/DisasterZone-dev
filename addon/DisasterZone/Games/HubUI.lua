@@ -985,51 +985,8 @@ end
 local OpenGame, Turn
 local SoftShadow
 
--- A soft shadow round frame f: a 9-slice of the radial texture's falloff (its quarters are the round corners, its
--- middle row and column the sides), black at alpha, fading over r px; dropped dy px and starting inset px inside
--- the frame. (Radial.tga is solid to a quarter of its radius and gone at ~81%: only that band is used, so the
--- whole r is a smooth S-shaped fade.)
-local SH_IN, SH_OUT = 0.5 - 0.125, 0.5 - 0.406      -- texcoords of the fade's start / end in the top-left quarter
-SoftShadow = function(f, r, alpha, dy, inset)
-    local function piece(l, rgt, t, b)
-        local tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-        tex:SetTexture(RADIAL)
-        tex:SetVertexColor(0, 0, 0, alpha)
-        tex:SetTexCoord(l, rgt, t, b)
-        return tex
-    end
-    local m1, m2 = 0.499, 0.501
-    local a, b, c, d = SH_OUT, SH_IN, 1 - SH_IN, 1 - SH_OUT
-    local L, R, T, B = inset, -inset, -inset - dy, inset - dy     -- the shadow's inner rectangle, from f's edges
-    local tl = piece(a, b, a, b)
-    tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", L, T)
-    tl:SetSize(r, r)
-    local tr = piece(c, d, a, b)
-    tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", R, T)
-    tr:SetSize(r, r)
-    local bl = piece(a, b, c, d)
-    bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT", L, B)
-    bl:SetSize(r, r)
-    local br = piece(c, d, c, d)
-    br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", R, B)
-    br:SetSize(r, r)
-    local top = piece(m1, m2, a, b)
-    top:SetPoint("BOTTOMLEFT", tl, "BOTTOMRIGHT")
-    top:SetPoint("TOPRIGHT", tr, "TOPLEFT")
-    local bottom = piece(m1, m2, c, d)
-    bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT")
-    bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
-    local left = piece(a, b, m1, m2)
-    left:SetPoint("TOPRIGHT", tl, "BOTTOMRIGHT")
-    left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT")
-    local right = piece(c, d, m1, m2)
-    right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT")
-    right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
-    local mid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-    mid:SetColorTexture(0, 0, 0, alpha)
-    mid:SetPoint("TOPLEFT", tl, "BOTTOMRIGHT")
-    mid:SetPoint("BOTTOMRIGHT", br, "TOPLEFT")
-end
+-- A soft shadow round frame f (UI:SoftShadow, the windows' too).
+SoftShadow = function(f, r, alpha, dy, inset) ns.UI:SoftShadow(f, r, alpha, dy, inset) end
 
 local function CreatePoster(i, def)
     local p = CreateFrame("Button", nil, carousel)

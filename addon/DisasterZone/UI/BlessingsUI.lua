@@ -626,7 +626,7 @@ local function NewChip(c)
 end
 
 local function Build()
-    frame = UI():CreateWindow("DisasterZoneBlessings", "DisasterZone - Blessings", W, 420)
+    frame = UI():CreateWindow("DisasterZoneBlessings", "Blessings", W, 420)
     frame:Hide()
     frame:SetScript("OnShow", function() BUI:Refresh() end)
     local c = frame.content

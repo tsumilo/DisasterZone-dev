@@ -29,7 +29,7 @@ local ipairs, pairs, type, tonumber, tostring, pcall = ipairs, pairs, type, tonu
 ---------------------------------------------------------------------------
 local PANEL_NAME = "DisasterZoneDropPanel"
 -- One grid (the makeover brief): PAD at the window's sides, GAP between blocks, CARD_PAD inside an item card. The
--- window's content area is PANEL_W - 12 wide (BasicFrameTemplateWithInset); the scroll bar sits in the right PAD.
+-- window's content area is PANEL_W - 12 wide (UI:CreateWindow's frame); the scroll bar sits in the right PAD.
 local PANEL_W, PANEL_MIN_H, PANEL_MAX_H = 460, 170, 560
 -- (anchored to the window itself: the content area starts INSET_L / INSET_T in, as CreateWindow places it)
 local INSET_L, INSET_T, INSET_B = 6, 26, 6
@@ -985,7 +985,7 @@ end
 function DropPanel:GetFrame()
     if self.frame then return self.frame end
     local UI = ns.UI
-    local f = UI:CreateWindow(PANEL_NAME, "DisasterZone - Boss drop", PANEL_W, 300)
+    local f = UI:CreateWindow(PANEL_NAME, "Boss drop", PANEL_W, 300)
     f:Hide()
     self.frame = f
     local c = f.content or f

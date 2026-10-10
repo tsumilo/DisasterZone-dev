@@ -2537,6 +2537,8 @@ function Dashboard:GetPanel() return panel end
 
 -- A raid's short name as the chips write it ("Sign up: Thu Kara"), for the notification feed.
 function Dashboard:ShortRaidName(v) return shortRaidName(v) end
+-- "in 12 min", "tomorrow", "started 20m ago": the banner's countdown to t (the main window's header line uses it).
+function Dashboard:Countdown(t) return countdown(t) end
 
 function Dashboard:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then

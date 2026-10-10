@@ -6,8 +6,10 @@ local addonName, ns = ...
 local MainFrame = ns:NewModule("MainFrame")
 
 local FRAME_NAME = "DisasterZoneMainFrame"
-local NAV_H = 28                          -- the navigation strip; every page keeps an 800x580 window's space
-local WIDTH, HEIGHT = 800, 580 + NAV_H
+local NAV_H = 28                          -- the navigation strip, along the foot of the header
+local HEAD_H = 60                         -- the header (UI:CreateWindow's, made tall): the seal, the guild's line, the strip
+-- (every page keeps the space it had under the old 26 px title bar + the strip: 790 x 548)
+local WIDTH, HEIGHT = 800, 580 + HEAD_H + 1 - 27
 
 -- Pages shown as an icon at the right of the strip (in the pages' order: Feedback, Changelog, Settings), and pages
 -- without a tab (none at the moment).
@@ -65,7 +67,7 @@ local MOVED = {
 
 local tabDefs = {}      -- key -> { key, label, order, createFn, isAvailableFn, panel }
 local tabList = {}      -- defs sorted by order
-local frame, tabs, status, shareBtn, bellBtn
+local frame, tabs, status, shareBtn, bellBtn, kicker
 local currentKey
 
 ---------------------------------------------------------------------------
@@ -238,9 +240,10 @@ local function BuildTabs()
     end)
     tabs = ns.UI:CreateNavStrip(frame, defs, OnNavSelect)
     HookGroupHover()
-    local inset = frame.Inset
-    tabs.frame:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, inset and -3 or -26)
-    tabs.frame:SetPoint("TOPRIGHT", inset or frame, "TOPRIGHT", inset and -3 or -6, inset and -3 or -26)
+    -- along the header's foot, right of the seal; the window's gold rule under it instead of the strip's own
+    tabs.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", 64, -(HEAD_H - NAV_H))
+    tabs.frame:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -(HEAD_H - NAV_H))
+    if tabs.rule then tabs.rule:Hide() end
     -- right to left before the icon tabs: Share (what the page shows), then the sync status
     local right = tabs.rightAnchor
     if shareBtn then
@@ -285,6 +288,8 @@ end
 -- Title & status
 ---------------------------------------------------------------------------
 
+-- The header's line: the guild in capitals, then who is online and the next raid ("CASUAL DISASTER  · 9 online ·
+-- next raid in 13 min"). The window title (hidden here, read by Feedback) keeps "DisasterZone - <guild>".
 local function UpdateTitle()
     if not frame then return end
     local guild = ns.Guild and ns.Guild.GetGuildName and ns.Guild:GetGuildName()
@@ -296,6 +301,20 @@ local function UpdateTitle()
     else
         frame:SetWindowTitle("DisasterZone")
     end
+    if not kicker then return end
+    local facts = {}
+    if IsInGuild() and GetNumGuildMembers then
+        local _, online = GetNumGuildMembers()
+        if (tonumber(online) or 0) > 0 then facts[#facts + 1] = online .. " online" end
+    end
+    local v = ns.UI:NextRaid()
+    local D = ns.Dashboard
+    if v and v.t and D and D.Countdown then
+        facts[#facts + 1] = (v.t > GetServerTime() and "next raid " or "raid ") .. D:Countdown(v.t)
+    end
+    local line = (guild and guild ~= "") and guild:upper() or "DISASTERZONE"
+    if #facts > 0 then line = line .. "  |cffa7a7ad\194\183 " .. table.concat(facts, " \194\183 ") .. "|r" end
+    kicker:SetText(line)
 end
 
 -- The sync status at the right of the strip: a mark with the full text in its tooltip; words only when something
@@ -644,9 +663,40 @@ local function EnsureFrame()
     local UI = ns.UI
     frame = UI:CreateWindow(FRAME_NAME, "DisasterZone", WIDTH, HEIGHT)
     frame:Hide()
-    -- the pages start under the navigation strip
-    local inset = frame.Inset
-    frame.content:SetPoint("TOPLEFT", inset or frame, "TOPLEFT", inset and 3 or 6, (inset and -3 or -26) - NAV_H)
+    -- the tall header: the seal big with a soft gold halo, the guild's line beside it, the strip along its foot
+    -- (BuildTabs); the pages start under its gold rule
+    UI:SetWindowHeadHeight(frame, HEAD_H)
+    frame.titleText:Hide()
+    frame.seal:SetSize(46, 46)
+    frame.seal:ClearAllPoints()
+    frame.seal:SetPoint("TOPLEFT", frame, "TOPLEFT", 11, -7)
+    local RADIAL = "Interface\AddOns\DisasterZone\Media\MyBiS\Radial"
+    local halo = frame:CreateTexture(nil, "BORDER")
+    halo:SetTexture(RADIAL)
+    halo:SetVertexColor(1, 0.82, 0, 0.2)
+    halo:SetSize(84, 84)
+    halo:SetPoint("CENTER", frame.seal)
+    local under = frame:CreateTexture(nil, "BORDER", nil, 1)
+    under:SetTexture(RADIAL)
+    under:SetVertexColor(0, 0, 0, 0.75)
+    under:SetSize(60, 60)
+    under:SetPoint("CENTER", frame.seal, "CENTER", 0, -2)
+    kicker = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    kicker:SetPoint("TOPLEFT", frame, "TOPLEFT", 70, -11)
+    kicker:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -34, -11)
+    kicker:SetJustifyH("LEFT")
+    kicker:SetWordWrap(false)
+    kicker:SetTextColor(0.85, 0.70, 0.29)
+    frame.content:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -(HEAD_H + 1))
+    -- (the countdown in the line moves on while the window is open)
+    local since = 0
+    frame:HookScript("OnUpdate", function(_, elapsed)
+        since = since + (elapsed or 0)
+        if since >= 30 then
+            since = 0
+            UpdateTitle()
+        end
+    end)
 
     status = CreateStatus()
     -- a link in chat to what the page shows (the raid, the member, ... picked on it; UI/Share.lua)

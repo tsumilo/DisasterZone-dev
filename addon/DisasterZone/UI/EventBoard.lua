@@ -28,7 +28,7 @@ local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabl
 local function ServerNow() return (GetServerTime and GetServerTime()) or time() end
 
 local WIN_W, WIN_H = 800, 608
-local CW, CH = 790, 576            -- the window's inside (BasicFrameTemplateWithInset's inset, 3px in)
+local CW, CH = 790, 576            -- the window's inside (UI:CreateWindow's content: 5 in, 27 under the top)
 local HDR_H, HOST_H = 98, 34
 local BR_X, BR_Y, BR_W = 12, 106, 560
 local RAIL_W = 196
