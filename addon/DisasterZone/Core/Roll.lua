@@ -513,6 +513,7 @@ end
 local AdvanceQueue   -- forward declaration
 local SnapshotTiers  -- forward declaration (Results section)
 local SendTiers      -- forward declaration (Network section)
+local WithHoldings   -- forward declaration (raider responses)
 local SiblingWinners, CantUse   -- forward declarations (Results section)
 
 local function ScheduleAdvance(delay)
@@ -693,6 +694,7 @@ end
 
 -- Tiers: 1 main-spec BiS, 2 main-spec alt, 3 off-spec list (Addendum H), 4 everyone else.
 local TIER_OTHER = 4
+local MAT_NONE = 1000   -- (a crafting material: "still missing" of someone who has no craft that uses it)
 
 local function TierOf(w, ses)
     if type(w) ~= "table" then return TIER_OTHER end
@@ -767,6 +769,13 @@ local function LiveWanters(ses)
             if not cur or t < cur.tier then best[w.key] = { entry = w, tier = t } end
         end
     end
+    -- A crafting material (Materials): the players with a craft that uses it on a list, at that list's tier.
+    local M = ns.Materials
+    if next(best) == nil and M and M.IsMaterial and M:IsMaterial(ses.i) then
+        for key, w in pairs(M:GetWants(ses.i, { viewPhase = phase }).byKey) do
+            best[key] = { entry = w, tier = TierOf(w, ses) }
+        end
+    end
     return best
 end
 
@@ -829,6 +838,11 @@ local function BuildResults(ses)
     -- Winners of the other copies of this item from this drop: the tiers are frozen when a copy opens, so the
     -- winner of copy 1 (awarded after copy 2 opened) would still be suggested for copy 2.
     local sibWon = SiblingWinners(ses)
+    -- A crafting material: whoever this one completes a craft for comes first, then whoever is closest to one.
+    local M = ns.Materials
+    local mat = not plain and M and M.IsMaterial and M:IsMaterial(ses.i)
+        and M:GetWants(ses.i, { viewPhase = ns.Guild and ns.Guild.GetGuildPhase and ns.Guild:GetGuildPhase() or nil })
+        or nil
     for key, b in pairs(best) do
         if b.entry.inRaid then Row(key) end
     end
@@ -898,6 +912,14 @@ local function BuildResults(ses)
             r.cantUse = true
         end
         r.spec = (w and w.spec) or SpecOf(key)
+        if mat then
+            -- the craft they want the material for: how many it takes, how many they hold, what is left after this one
+            local m = mat.byKey[key]
+            if m and r.tier < TIER_OTHER then
+                r.craft, r.need, r.held, r.heldSrc, r.left, r.completes = m.craft, m.need, m.held, m.heldSrc, m.left,
+                    m.completes
+            end
+        end
         r.equippedList = (w and type(w.equippedList) == "table") and w.equippedList or EquippedFor(key, ses.i)
         r.wonTonight = (w and tonumber(w.wonTonight)) or WonTonight(key)
         r.lockChanged = not plain and LockFlag(ses, key) or nil   -- never suggested (Addendum F §38)
@@ -935,6 +957,10 @@ local function BuildResults(ses)
         end
         local ga, gb = RowGroup(a), RowGroup(b)
         if ga ~= gb then return ga < gb end
+        if mat then
+            local la, lb = a.left or MAT_NONE, b.left or MAT_NONE
+            if la ~= lb then return la < lb end
+        end
         if a.tier ~= b.tier then return a.tier < b.tier end
         if ga == 1 and a.roll ~= b.roll then return a.roll > b.roll end
         if ga == 2 then
@@ -982,7 +1008,7 @@ local function BuildResults(ses)
         top.suggestedBy = "roll"
         local tied = {}
         for _, r in ipairs(out) do
-            if RowGroup(r) == 1 and Suggestible(r) and r.tier == top.tier and r.roll == top.roll then
+            if RowGroup(r) == 1 and Suggestible(r) and r.tier == top.tier and r.roll == top.roll and r.left == top.left then
                 tied[#tied + 1] = r
             end
         end
@@ -1276,13 +1302,23 @@ end
 -- Public API: raider responses and rolls
 ---------------------------------------------------------------------------
 
+-- A crafting material (Materials): the RR also says how many I hold (h) and the craft I want it for (f). Older
+-- clients ignore the two fields.
+WithHoldings = function(msg, ses)
+    local M = ns.Materials
+    if not (M and M.OwnReport and M:IsMaterial(ses.i)) then return msg end
+    local h, f = M:OwnReport(ses.i)
+    if h then msg.h, msg.f = h, f end
+    return msg
+end
+
 -- Roll button: /roll 1-100 plus RR "roll". The roll itself is read back from the system message.
 function Roll:RespondRoll(id)
     local ses = self:Get(id)
     local me = Util.PlayerKey()
     if not ses or ses.state ~= "open" or not me then return false end
     ses.responses[me] = "roll"
-    if not ses.demo then Send({ t = "RR", id = ses.id, r = "roll" }) end
+    if not ses.demo then Send(WithHoldings({ t = "RR", id = ses.id, r = "roll" }, ses)) end
     Updated(ses)
     if type(RandomRoll) == "function" then
         local ok, err = pcall(RandomRoll, ROLL_MIN, ROLL_MAX)
@@ -1296,7 +1332,7 @@ function Roll:RespondPass(id)
     local me = Util.PlayerKey()
     if not ses or not me or not IsAccepting(ses) then return false end
     ses.responses[me] = "pass"
-    if not ses.demo then Send({ t = "RR", id = ses.id, r = "pass" }) end
+    if not ses.demo then Send(WithHoldings({ t = "RR", id = ses.id, r = "pass" }, ses)) end
     Updated(ses)
     return true
 end
@@ -2179,7 +2215,9 @@ local function OnRollResponse(sender, msg, dist)
         BufferResponse(id, sender, r)
         return
     end
-    Roll:OnResponse(sender, id, r)
+    if Roll:OnResponse(sender, id, r) and msg.h ~= nil and ns.Materials and ns.Materials.OnReport then
+        ns.Materials:OnReport(sender, sessions[id].i, msg.h, msg.f)
+    end
 end
 
 -- RE {id, x}: from the starter or whoever may award the roll (Manages: a council member; 1.3: the master looter of a

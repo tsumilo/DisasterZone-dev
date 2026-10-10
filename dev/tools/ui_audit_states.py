@@ -561,6 +561,95 @@ def st_drop(features, roll=False, viewer="Gina", then=None, item_lua=None):
     return fn
 
 
+# Crafting materials (2026-10-10): a Nether Vortex from SSC trash. Lists: Shadowmelder Belt of Deep Shadow (holds 1:
+# this one completes it), Victhar Red Belt of Battle + Lionheart Executioner (alt), Moonwhisper Belt of Natural Power,
+# Lightbringer Belt of the Long Road, Frostweaver (not in the raid) Belt of Blasting. Moonwhisper crafts the
+# leatherworking belts, Grumpykat (not in the raid) the tailoring ones.
+MAT_LISTS = {"Shadowmelder": [(2, 8, "main", 30040)], "Victhar": [(2, 8, "main", 30032), (2, 15, "alt", 28430)],
+             "Moonwhisper": [(2, 8, "main", 30042)], "Lightbringer": [(2, 8, "main", 30036)],
+             "Frostweaver": [(2, 8, "main", 30038)]}
+MAT_RECIPES = {"Moonwhisper": ("Leatherworking", [("Belt of Deep Shadow", 36351, 30040),
+                                                  ("Belt of Natural Power", 36349, 30042)]),
+               "Grumpykat": ("Tailoring", [("Belt of Blasting", 36315, 30038), ("Belt of the Long Road", 36316, 30036)])}
+
+
+def seed_materials(w, c):
+    if IDS.get("materials"):
+        return
+    IDS["materials"] = True
+    for name, picks in MAT_LISTS.items():
+        for phase, sid, which, item in picks:
+            c[name].eval("ns.BiS:SetSlot(...)", phase, sid, which, item)
+        c[name].eval("ns.BiS:Commit()")
+    for name, (prof, recipes) in MAT_RECIPES.items():
+        cl = c[name]
+        for rname, spell, _ in recipes:
+            cl.eval("__MOCK.SPELL_NAMES[...] = select(2, ...)", spell, rname)
+        set_skills(cl, [(prof, 375, 375)])
+        cl.eval("local name, rows = ...; __MOCK.tradeskill = { name = name, rank = 375, max = 375, rows = rows }", prof,
+                [{"name": "Recipes", "header": True}] + [{"name": n, "spell": sp, "item": it} for n, sp, it in recipes])
+        cl.fire("TRADE_SKILL_SHOW")
+    for x in c.values():
+        x.eval("ns.BiS:Commit()")
+    w.tick(1)
+    for x in c.values():
+        x.slash("/dz sync")
+        w.tick(0.3)
+    w.tick(45)
+
+
+def st_material(stage):
+    """stage: "panel" (the council's card), "rolling" (Shadowmelder, Victhar, Lightbringer rolled), "popup" (Victhar's
+    roll popup), "awarded" (awarded to Shadowmelder: the craft line with Whisper)."""
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        seed_materials(w, c)
+        members = [g] + [c[n] for n in ("Victhar", "Shadowmelder", "Vaenyria", "Moonwhisper", "Lightbringer",
+                                         "Pugsyhealer", "Darkstalkerr")]
+        w.enter_instance("Serpentshrine Cavern", 548, max_players=25)
+        w.make_raid(members, leader=g)
+        w.tick(4)
+        if g.eval("return ns.GroupRules:GetSession() ~= nil"):
+            g.eval("ns.RaidLog:End()")
+            w.tick(2)
+        g.eval("ns.GroupRules:SetSession(true, nil, ...)", {"loot": True, "rolls": True, "lock": False})
+        w.tick(3)
+        g.eval("for _, s in ipairs(ns.Roll:GetQueue() or {}) do if s.id then ns.Roll:End(s.id) end end; "
+               "local a = ns.Roll:GetActive(); if a then ns.Roll:End(a.id) end")
+        for x in c.values():
+            x.eval("ns.Materials:Reset()")
+        c["Shadowmelder"].set_bags({(0, 1): (30183, 1)})
+        w.tick(1)
+        DROPS.append(1)
+        g.open_loot([(30183, 4)], source_guid="Creature-0-1-2-3-21251-%06X" % len(DROPS))
+        w.tick(3)
+        viewer = g
+        if stage in ("rolling", "popup", "awarded"):
+            g.eval("ns.DropPanel:StartRoll(30183)")
+            w.tick(1)
+            if stage != "popup":
+                for n, v in (("Victhar", 91), ("Shadowmelder", 34), ("Lightbringer", 66)):
+                    w.player_roll(c[n], v)
+                w.tick(2)
+            else:
+                viewer = c["Victhar"]
+        if stage == "awarded":
+            g.eval("local b = ns.DropPanel.blocks[1]; ns.DropPanel:EndRoll(b.rollSession)")
+            w.tick(1)
+            g.eval("ns.DropPanel:Render(); ns.DropPanel:AwardSuggested(ns.DropPanel.blocks[1])")
+            w.tick(0.5)
+            for p in ("DISASTERZONE_CONFIRM_AWARD", "DISASTERZONE_GIVE_ITEM"):
+                if p in g.popups():
+                    g.accept_popup(p)
+            w.tick(2)
+        g.eval("ns.DropPanel:Render()")
+        g.eval("local f = ns.DropPanel.frame; if f then f:ClearAllPoints(); f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 40, -80) end")
+        return viewer
+    return fn
+
+
 def st_settings_in_raid(section):
     """Settings on Gina's screen while Grumpykat leads the raid (his loot rules: 45 s rolls, rares, phase P2)."""
     def fn(w, c):
@@ -1225,6 +1314,10 @@ STATES = [
     # Gina's own P1 head (the longest head name) rolled: her popup's BiS pill
     ("Raid - roll popup (BiS)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
                                         item_lua="return (ns.BiS:GetSlot(1, 1))")),
+    ("Raid - drop panel (material)", st_material("panel")),
+    ("Raid - drop panel (material, rolling)", st_material("rolling")),
+    ("Raid - roll popup (material)", st_material("popup")),
+    ("Raid - drop panel (material, awarded)", st_material("awarded")),
     ("Raid - Start raid window", st_start_window),
     ("Raid - Raids tab - Upcoming (leader)", st_raids_in_raid("ns.RaidsUI:SetView('upcoming')")),
     ("Raid - Raid log - Players (leader)", st_raids_in_raid("ns.RaidsUI:SetView('log'); ns.RaidsUI:SetMode('players')")),

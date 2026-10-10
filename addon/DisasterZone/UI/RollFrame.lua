@@ -29,6 +29,7 @@ local STATUS_W = 126
 local NAME_W = FRAME_W - TEXT_X - 26       -- the item's name runs to the X
 local TEXT_W = FRAME_W - TEXT_X - PAD - ROLL_W - 6 - PASS_W - 12
 local BG = { 0.043, 0.043, 0.051 }
+local PIP_MAX, PIP_SIZE = 5, 7    -- a crafting material: the holdings squares
 local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local TICK = 0.1                 -- countdown bar refresh while a roll is open
 local FADE_AFTER_AWARD = 5       -- seconds the result stays before fading out
@@ -269,6 +270,7 @@ function RollFrame:OnInit()
     ns:On("ITEMINFO_READY", function() RollFrame:RefreshItem() end)
     ns:On("OWNED_UPDATED", function() RollFrame:RefreshItem() end)
     ns:On("MYLIST_CHANGED", function() RollFrame:RefreshItem() end)
+    ns:On("MATERIALS_UPDATED", function() RollFrame:RefreshItem() end)
     ns:On("SETTINGS_CHANGED", function(key)
         if key == "roll.popup" and not Setting("roll.popup", true) then RollFrame:Hide() end
     end)
@@ -374,6 +376,26 @@ function RollFrame:GetFrame()
     f.bisPill:Hide()
     f.bis = Text(f, "GameFontHighlightSmall", 11)
     f.bis:SetTextColor(0.62, 0.62, 0.62)
+
+    -- a crafting material: "for Belt of Blasting" is a button when more than one craft on my lists uses it (pick the
+    -- one I want it for), and the wearing line becomes my holdings: squares + "You have 1 of 2 · completes it"
+    f.forBtn = CreateFrame("Button", nil, f)
+    f.forBtn:SetScript("OnClick", function(self) RollFrame:OpenCraftMenu(self) end)
+    f.forBtn:SetScript("OnEnter", function(self)
+        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        _G.GameTooltip:AddLine("Click: pick the craft you want it for (the council sees your pick)", 1, 1, 1, true)
+        _G.GameTooltip:Show()
+    end)
+    f.forBtn:SetScript("OnLeave", HideTooltip)
+    f.forBtn:Hide()
+    f.pips = {}
+    for i = 1, PIP_MAX do
+        local t = f:CreateTexture(nil, "ARTWORK")
+        t:SetSize(PIP_SIZE, PIP_SIZE)
+        t:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X + (i - 1) * (PIP_SIZE + 2), -56)
+        t:Hide()
+        f.pips[i] = t
+    end
 
     f.wearLabel = Text(f, "GameFontHighlightSmall", 11)
     f.wearLabel:SetTextColor(0.62, 0.62, 0.62)
@@ -734,6 +756,15 @@ function RollFrame:RefreshItem()
 
     local m = OwnMatch(itemID)
     local pill, kind, detail = OwnStatus(m)
+    -- a crafting material: what it is for on my lists
+    local M = ns.Materials
+    local craft, crafts
+    if not m and M and M.IsMaterial and M:IsMaterial(itemID) then craft, crafts = M:GetOwnPick(itemID) end
+    if craft then
+        pill, kind = OwnStatus(craft.match)
+        detail = "for " .. ItemText(craft.use.item)
+        if #crafts > 1 then detail = detail .. Paint(format(" +%d", #crafts - 1), "muted") end
+    end
     f.bis:ClearAllPoints()
     if pill then
         f.bisPill:Set(pill, kind)
@@ -747,6 +778,17 @@ function RollFrame:RefreshItem()
         f.bis:SetWidth(TEXT_W)
     end
     f.bis:SetText(detail)
+    f.forBtn:SetShown(craft ~= nil and #crafts > 1)
+    if craft then
+        f.forBtn:ClearAllPoints()
+        f.forBtn:SetPoint("TOPLEFT", f.bis, "TOPLEFT", 0, 2)
+        f.forBtn:SetSize(max(40, min(TEXT_W, (f.bis:GetStringWidth() or 0) + 4)), 16)
+        self:ShowHoldings(craft)
+        return
+    end
+    for _, t in ipairs(f.pips) do t:Hide() end
+    f.wearLabel:ClearAllPoints()
+    f.wearLabel:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -54)
 
     local group = ItemSlotGroup(itemID, m)
     local getItem = _G.GetInventoryItemID
@@ -777,6 +819,56 @@ function RollFrame:RefreshItem()
     else
         f.wearLabel:SetText("Wearing:")
     end
+end
+
+-- The holdings line of a crafting material: a square per material the craft takes (held gold, this one half gold,
+-- missing grey), then "You have 1 of 2", green "· completes it" when this one finishes the craft.
+function RollFrame:ShowHoldings(w)
+    local f = self.frame
+    for i = 1, #f.wear do
+        f.wear[i].itemID = nil
+        f.wear[i]:Hide()
+    end
+    local need, held = w.use.count, min(w.held, w.use.count)
+    local n = min(need, PIP_MAX)
+    for i, t in ipairs(f.pips) do
+        if i > n then
+            t:Hide()
+        else
+            if i <= held then
+                t:SetColorTexture(0.84, 0.66, 0.14, 1)
+            elseif i == held + 1 then
+                t:SetColorTexture(0.84, 0.66, 0.14, 0.4)
+            else
+                t:SetColorTexture(0.30, 0.30, 0.33, 1)
+            end
+            t:Show()
+        end
+    end
+    f.wearLabel:ClearAllPoints()
+    f.wearLabel:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X + n * (PIP_SIZE + 2) + 4, -54)
+    f.wearLabel:SetText(format("You have %d of %d", held, need) .. (w.completes and Paint(" · completes it", "obtained") or ""))
+end
+
+-- The crafts on my lists that use the material: pick the one I want it for.
+function RollFrame:OpenCraftMenu(owner)
+    local s = self.session
+    local M = ns.Materials
+    local itemID = type(s) == "table" and tonumber(s.i)
+    if not (itemID and M and ns.UI and ns.UI.ContextMenu) then return end
+    local cur, list = M:GetOwnPick(itemID)
+    ns.UI:ContextMenu(owner, function(root)
+        root:CreateTitle("I want it for")
+        for _, w in ipairs(list or {}) do
+            local item = w.use.item
+            local text = ItemText(item) .. Paint(format("  %d/%d", min(w.held, w.use.count), w.use.count), "muted")
+            if cur and cur.use.item == item then text = text .. Paint("  (picked)", "obtained") end
+            root:CreateButton(text, function()
+                M:SetOwnPick(itemID, item)
+                RollFrame:RefreshItem()
+            end)
+        end
+    end)
 end
 
 function RollFrame:SetButtonsShown(shown)

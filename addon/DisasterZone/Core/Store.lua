@@ -886,6 +886,14 @@ function Store:CountWanters(itemID, opts)
     return #Store:GetWanters(itemID, opts)
 end
 
+-- Has key got itemID (their synced owned list; my own bags, bank and gear live)?
+function Store:IsObtainedBy(key, itemID)
+    itemID = tonumber(itemID)
+    if type(key) ~= "string" or not itemID then return false end
+    EnsureIndex()
+    return IsObtained(key, itemID)
+end
+
 -- Counts main picks of one phase: filled, obtained, still needed. Disabled slots (Addendum F §36) are left
 -- out of every count: total = slots - disabled, disabled = n. list (Addendum H): "os" = the off-spec list.
 function Store:GetPlayerSummary(key, phase, list)

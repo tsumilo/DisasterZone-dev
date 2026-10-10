@@ -111,6 +111,7 @@ Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
 Core\Atlas.lua
+Core\Materials.lua
 Core\Currency.lua
 Core\ShoppingList.lua
 Core\Codec.lua

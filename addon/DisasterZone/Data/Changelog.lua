@@ -29,6 +29,15 @@ ns.CHANGELOG = {
               "Your group's totems and shouts, blessings and debuffs come from the specs placed there.",
               "The comp's open slots count as filled unless you untick it; your clicks stay on top.",
           } },
+          { heading = "Crafting materials (Nether Vortex)", lines = {
+              "A dropped Vortex lists who wants it: the crafts on their lists that use it.",
+              "Each craft shows who in the guild makes it, or that nobody does.",
+              "Squares show how many each person already has toward their craft.",
+              "Whoever it completes a craft for comes first, then whoever is closest.",
+              "The roll popup says what it's for: \"for Belt of Blasting · you have 1 of 2\".",
+              "Two crafts on your lists? Click the craft in the popup to pick the one you want.",
+              "After the award: the craft it counts toward, and Whisper tells the crafter.",
+          } },
           { heading = "Swing timer (Retribution)", lines = {
               "New swing timer for seal twisting, built in: it shows on Retribution Paladins in combat.",
               "The orange zone is when to press Seal of Blood, already moved earlier by your ping.",

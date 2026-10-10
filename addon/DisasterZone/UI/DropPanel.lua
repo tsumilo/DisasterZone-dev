@@ -82,6 +82,12 @@ local COL = { name = { 20, 84 }, spec = { 108, 74 }, pill = 186, status = { 234,
               votes = { 286, 18 }, roll = { 306, 24 } }
 local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
+-- A crafting material (Materials): the holdings squares at a row's right end, the craft's header line, and the
+-- craft line of an awarded material (who crafts it, Whisper).
+local MAT = { PIP_MAX = 5, PIP_SIZE = 7, MAT_GROUPS = 5, MAT_PER_GROUP = 3, MADE_H = 22 }
+MAT.PIPS_W = 22 + MAT.PIP_MAX * (MAT.PIP_SIZE + 2)
+local Mat = {}   -- the material helpers (functions; one local keeps the file under Lua's 200 locals)
+
 local SLOT_GROUP_FALLBACK = {
     [11] = { 11, 12 }, [12] = { 11, 12 }, [13] = { 13, 14 }, [14] = { 13, 14 }, [15] = { 15, 16 }, [16] = { 15, 16 },
 }
@@ -232,11 +238,23 @@ local function SanitizeItems(list)
     return out
 end
 
--- Store:GetWanters returns one entry per (player, wanted item); the panel needs one per player.
+-- A crafting material (Nether Vortex, ...): who wants it for which craft (Materials:GetWants), or nil.
+local function MaterialWants(itemID, vp)
+    local M = ns.Materials
+    if not (M and M.IsMaterial and M:IsMaterial(itemID)) then return nil end
+    return M:GetWants(itemID, { viewPhase = vp })
+end
+
+-- Store:GetWanters returns one entry per (player, wanted item); the panel needs one per player. A crafting material:
+-- the players with a craft that uses it on a list (the craft they want it for, best first).
 local function UniqueWanters(itemID, opts)
     local out = {}
     if not (ns.Store and ns.Store.GetWanters) then return out end
     local list = ns.Store:GetWanters(itemID, opts)
+    if type(list) == "table" and #list == 0 then
+        local mat = MaterialWants(itemID, opts and opts.viewPhase)
+        if mat then list = mat.wants end
+    end
     if type(list) ~= "table" then return out end
     local seen = {}
     for _, w in ipairs(list) do
@@ -256,6 +274,15 @@ local function OwnNeededMatch(itemID, includeOS)
     if type(matches) ~= "table" then return nil end
     for _, m in ipairs(matches) do
         if type(m) == "table" and not m.obtained and (includeOS or not m.os) then return m end
+    end
+    -- a crafting material: the craft on my lists it is for (the match of that craft, via = "craft")
+    local M = ns.Materials
+    local w = M and M.IsMaterial and M:IsMaterial(itemID) and M:GetOwnPick(itemID, includeOS)
+    if w then
+        local m = {}
+        for k, v in pairs(w.match) do m[k] = v end
+        m.via, m.wanted, m.need, m.held, m.completes = "craft", w.use.item, w.use.count, w.held, w.completes
+        return m
     end
     return nil
 end
@@ -721,7 +748,8 @@ function DropPanel:OnInit()
         if lf and lf:IsShown() then DropPanel:UpdateAllLootButtons() end
     end
     for _, msg in ipairs({ "LEDGER_UPDATED", "LIST_UPDATED", "LISTS_RESET", "GROUP_UPDATED",
-                           "OWNED_UPDATED", "MYLIST_CHANGED", "SETTINGS_CHANGED" }) do
+                           "OWNED_UPDATED", "MYLIST_CHANGED", "SETTINGS_CHANGED", "MATERIALS_UPDATED",
+                           "PROFESSIONS_UPDATED" }) do
         ns:On(msg, dataChanged)
     end
     ns:On("ITEMINFO_READY", function()
@@ -839,6 +867,13 @@ function DropPanel:PrintOwnDrop(itemID, m, test, tries)
     local link = ItemLink(itemID)
     if not link and (tries or 0) < 4 then
         C_Timer.After(0.5, function() DropPanel:PrintOwnDrop(itemID, m, test, (tries or 0) + 1) end)
+        return
+    end
+    if m.via == "craft" then
+        -- a crafting material: "Nether Vortex: for Belt of Blasting on your BiS list (you have 1 of 2)"
+        ns:Print("%s %s: for %s on your %s list (you have %d of %d)%s", m.os and "" or STAR, link or ItemName(itemID),
+            ItemLink(m.wanted) or ItemName(m.wanted), m.os and "off-spec" or "BiS", tonumber(m.held) or 0,
+            tonumber(m.need) or 0, test and " [test]" or "")
         return
     end
     local which = (m.which == "alt") and "alt" or "main"
@@ -1328,6 +1363,21 @@ local function VoteCell(row, canVote)
 end
 
 -- Addendum I §51: "Attendance 92% (7/8 raids)" from the raid log, when any raid is logged.
+-- A crafting material: the craft they want it for, how many they hold (and where that number comes from).
+function Mat.AddCraftLines(tt, w, itemID)
+    tt:AddLine("For " .. ItemText(w.craft) .. format(" (%d per craft)", tonumber(w.need) or 0), 0.8, 0.8, 0.8)
+    local held = tonumber(w.held) or 0
+    local from = (w.heldSrc == "report" and "their DisasterZone told us")
+        or (w.heldSrc == "live" and "your bags and bank") or "from the loot log: no word from their DisasterZone yet"
+    tt:AddLine(format("Holds %d %s (%s)", held, ItemName(itemID), from), 0.7, 0.7, 0.7, true)
+    if w.completes then
+        local m = Color("main")
+        tt:AddLine("This one completes the craft", m[1], m[2], m[3])
+    elseif w.left then
+        tt:AddLine(format("Still %d more after this one", w.left), 0.7, 0.7, 0.7)
+    end
+end
+
 local function AddAttendanceLine(tt, key)
     if not IsCouncil() then return end   -- other raiders' attendance is council data
     local RL = ns.RaidLog
@@ -1419,6 +1469,7 @@ local function RollRowTooltip(self, tt, vp)
         local w = Color("warn")
         tt:AddLine("Tied with the suggested winner", w[1], w[2], w[3])
     end
+    if row.craft then Mat.AddCraftLines(tt, row, self.itemID) end
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then tt:AddLine(format("Won %d item(s) tonight", won), 0.7, 0.7, 0.7) end
     AddAttendanceLine(tt, row.key)
@@ -1448,10 +1499,15 @@ local function RollRowTooltip(self, tt, vp)
     tt:Show()
 end
 
+
 local function RowOnEnter(self)
     local tt = _G.GameTooltip
     local vp = ViewPhase()
     tt:SetOwner(self, "ANCHOR_RIGHT")
+    if self.matOthers then
+        Mat.MatOthersOnEnter(self)
+        return
+    end
     if self.more then
         tt:AddLine(format("%d more", #self.more), 1, 0.82, 0)
         local plain = self.moreKind == "roll" and PlainMode(nil, self.session)
@@ -1493,7 +1549,9 @@ local function RowOnEnter(self)
         for i, ph in ipairs(w.phases) do ps[i] = "P" .. tostring(ph) end
         tt:AddLine("Listed in " .. tconcat(ps, ", "), 0.7, 0.7, 0.7)
     end
-    if w.wanted and w.wanted ~= self.itemID then
+    if w.craft then
+        Mat.AddCraftLines(tt, w, self.itemID)
+    elseif w.wanted and w.wanted ~= self.itemID then
         tt:AddLine("Wants " .. ItemText(w.wanted) .. " (via this item)", 0.7, 0.7, 0.7)
     end
     tt:AddLine(w.inRaid and "In your raid" or (w.online and "Online, not in your raid" or "Offline"), 0.7, 0.7, 0.7)
@@ -1542,6 +1600,58 @@ local function NewFS(parent, font, col, size)
     fs:SetWordWrap(false)
     if size then Sized(fs, size) end
     return fs
+end
+
+-- A crafting material's holdings at the right end of a row: one square per material the craft takes (held gold, the
+-- one this drop would add half gold, still missing grey) and "1/2" (grey when estimated from the loot log).
+function Mat.NewPips(r)
+    local p = CreateFrame("Frame", nil, r)
+    p:SetSize(MAT.PIPS_W, ROW_H)
+    p:SetPoint("RIGHT", r, "RIGHT", 0, 0)
+    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    Sized(p.count, 10)
+    p.count:SetPoint("RIGHT", p, "RIGHT", 0, 0)
+    p.count:SetWidth(20)
+    p.count:SetJustifyH("RIGHT")
+    p.sq = {}
+    for i = 1, MAT.PIP_MAX do
+        local t = p:CreateTexture(nil, "ARTWORK")
+        t:SetSize(MAT.PIP_SIZE, MAT.PIP_SIZE)
+        t:SetPoint("RIGHT", p, "RIGHT", -(22 + (MAT.PIP_MAX - i) * (MAT.PIP_SIZE + 2)), 0)
+        p.sq[i] = t
+    end
+    p:Hide()
+    return p
+end
+
+-- held, need: counts (need nil hides the pips); estimated: held comes from the loot log; this: the drop adds one.
+function Mat.SetPips(r, held, need, estimated, this)
+    local p = r.pips
+    need = tonumber(need)
+    if not need or need < 1 then
+        p:Hide()
+        return
+    end
+    held = tonumber(held) or 0
+    local n = min(need, MAT.PIP_MAX)
+    for i = 1, MAT.PIP_MAX do
+        local t, slot = p.sq[i], i - (MAT.PIP_MAX - n)   -- right-aligned: the last n squares
+        if slot < 1 then
+            t:Hide()
+        else
+            if slot <= held then
+                t:SetColorTexture(0.84, 0.66, 0.14, 1)
+            elseif slot == held + 1 and this then
+                t:SetColorTexture(0.84, 0.66, 0.14, 0.4)
+            else
+                t:SetColorTexture(0.30, 0.30, 0.33, 1)
+            end
+            t:Show()
+        end
+    end
+    p.count:SetText(format("%d/%d", min(held, need), need))
+    if estimated then p.count:SetTextColor(0.55, 0.55, 0.55) else p.count:SetTextColor(1, 1, 1) end
+    p:Show()
 end
 
 local function NewEquippedButton(r)
@@ -1624,6 +1734,7 @@ function DropPanel:NewRow(b)
     r.eqs[2]:SetPoint("RIGHT", r, "RIGHT", 0, 0)
     r.eqs[1]:SetPoint("RIGHT", r.eqs[2], "LEFT", -2, 0)
     r.eq = r.eqs[2]   -- v0.1 field name (single icon); a lone item sits in the right-hand column
+    r.pips = Mat.NewPips(r)
     r:SetScript("OnEnter", RowOnEnter)
     r:SetScript("OnLeave", HideTooltip)
     r:SetScript("OnClick", RowOnClick)
@@ -1700,6 +1811,8 @@ local function SetRowMode(r, mode)
     r.pill:Hide()
     r.status:SetShown(mode == "normal")
     r.status:SetText("")
+    r.status:SetWidth(COL.status[2])
+    r.pips:Hide()
     r.tag:SetShown(roll)
     r.tag:SetText("")
     r.votes:SetShown(roll and IsCouncil())
@@ -1727,6 +1840,7 @@ end
 local function FillRow(r, w, itemID, vp, itemSid)
     SetRowMode(r, "normal")
     r.data, r.itemID, r.more, r.moreKind, r.session, r.itemSid = w, itemID, nil, nil, nil, itemSid
+    r.matOthers = nil
     SetPresence(r, w.inRaid and "raid" or (w.online and "online" or "offline"))
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, w.classFile) end
     r.name:SetText(ColoredName(w.key, w.classFile))
@@ -1744,8 +1858,17 @@ local function FillRow(r, w, itemID, vp, itemSid)
         -- §38: changed their list while the lists were locked
         status = WarnIcon(10) .. " " .. (status ~= "" and status or Paint("changed", "warn"))
     end
+    if w.craft then
+        -- a crafting material: "completes it" and the holdings squares instead of the worn items
+        if w.completes and w.inRaid and not w.cantUse then status = Paint("completes it", "main") end
+        -- (the status runs up to the squares: fewer squares, more room)
+        r.status:SetWidth(ROW_W - COL.status[1] - (22 + min(tonumber(w.need) or 0, MAT.PIP_MAX) * (MAT.PIP_SIZE + 2)) - 4)
+        SetEquipped(r, {})
+        Mat.SetPips(r, w.held, w.need, w.heldSrc == "log", true)
+    else
+        SetEquipped(r, WornOfWanter(w, itemSid))
+    end
     r.status:SetText(status)
-    SetEquipped(r, WornOfWanter(w, itemSid))
     r:SetAlpha(w.inRaid and 1 or 0.55)
     return ROW_H
 end
@@ -1753,6 +1876,7 @@ end
 local function FillRollRow(r, row, session, itemID, vp, itemSid)
     SetRowMode(r, "roll")
     r.data, r.itemID, r.more, r.moreKind, r.session, r.itemSid = row, itemID, nil, nil, session, itemSid
+    r.matOthers = nil
     local inRaid = row.inRaid
     if inRaid == nil then inRaid = IsInMyGroup(row.key) end
     SetPresence(r, inRaid and "raid" or "offline")
@@ -1780,7 +1904,16 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     r.voteBtn:SetShown(canVote)
     r.voteHint:SetShown(canVote and (tonumber(row.votes) or 0) == 0)
     r.roll:SetText(RollCell(row, session))
-    SetEquipped(r, WornOfRow(row, itemSid))
+    if row.need then
+        -- a crafting material: what they hold of it toward their craft ("1/2", gold when this one completes it)
+        SetEquipped(r, {})
+        if tag == "" then
+            r.tag:SetText(Paint(format("%d/%d", min(tonumber(row.held) or 0, row.need), row.need),
+                row.completes and "main" or "muted"))
+        end
+    else
+        SetEquipped(r, WornOfRow(row, itemSid))
+    end
 
     local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key
     if winner then
@@ -1802,7 +1935,7 @@ end
 
 local function FillMoreRow(r, rest, kind, session)
     SetRowMode(r, "more")
-    r.data, r.more, r.moreKind, r.session = nil, rest, kind, session
+    r.data, r.more, r.moreKind, r.session, r.matOthers = nil, rest, kind, session, nil
     r.moreText:SetText(format("+%d more", #rest))
     r:SetAlpha(1)
     return ROW_H
@@ -1910,7 +2043,18 @@ function DropPanel:NewBlock(parent)
     end)
     b.awardRoll = UI:CreateButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardSuggested(b) end)
     AddButtonTooltip(b.awardRoll, function() return DropPanel:AwardSuggestedTooltip(b) end)
-    b.actionButtons = { b.rollBtn, b.endRoll, b.reroll, b.unqueue, b.award, b.awardRoll }
+    -- a crafting material: award it straight to the best wanter (whoever it completes a craft for, then the closest)
+    b.awardMat = UI:CreateButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardMaterialBest(b) end)
+    AddButtonTooltip(b.awardMat, function()
+        local w = b.matBest
+        if type(w) ~= "table" then return "" end
+        local why = w.completes and "this one completes their craft"
+            or format("they will have %d of %d", (tonumber(w.held) or 0) + 1, tonumber(w.need) or 0)
+        return format("Award to %s for %s: %s.\n\nFirst whoever a drop completes a craft for, then whoever is "
+            .. "closest, BiS before off-spec. The More menu's Award picks someone else.", ShortName(w.key),
+            ItemName(w.craft), why)
+    end)
+    b.actionButtons = { b.rollBtn, b.endRoll, b.reroll, b.unqueue, b.award, b.awardRoll, b.awardMat }
     return b
 end
 
@@ -1963,6 +2107,315 @@ local function FitName(fs, text, width)
     end
 end
 
+---------------------------------------------------------------------------
+-- Crafting materials (Materials): a craft's header line, the "+N more crafts" line and an awarded material's craft
+---------------------------------------------------------------------------
+function Mat.PresenceOf(key)
+    if IsInMyGroup(key) then return "in " .. GroupWord() end
+    if IsMe(key) or (ns.Guild and ns.Guild.IsOnline and ns.Guild:IsOnline(key)) then return "online" end
+    return "offline"
+end
+
+-- "No Swordsmith in the guild" / "Nobody in the guild crafts it" (only members who share professions are known).
+function Mat.NoCrafterText(use)
+    if type(use.spec) == "string" and use.spec ~= "" then return "No " .. use.spec .. " in the guild" end
+    return "Nobody in the guild crafts it"
+end
+
+function Mat.ProfIcon(use)
+    return use.prof and use.prof.icon or nil
+end
+
+function Mat.AddCraftersTooltip(tt, use)
+    local M = ns.Materials
+    local list = M and M.GetCrafters and M:GetCrafters(use) or {}
+    if #list == 0 then
+        local w = Color("warn")
+        tt:AddLine(Mat.NoCrafterText(use), w[1], w[2], w[3])
+        tt:AddLine("Only members who opened their profession window with DisasterZone are known.", 0.6, 0.6, 0.6, true)
+        return
+    end
+    tt:AddLine("Crafted by", 1, 0.82, 0)
+    for _, key in ipairs(list) do
+        tt:AddDoubleLine(ColoredName(key), Mat.PresenceOf(key), 1, 1, 1, 0.6, 0.6, 0.6)
+    end
+end
+
+function Mat.MatHeadOnEnter(self)
+    local use = self.use
+    if type(use) ~= "table" then return end
+    local tt = _G.GameTooltip
+    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:SetItemByID(use.item)
+    tt:AddLine(" ")
+    tt:AddLine(format("Takes %d %s", use.count, ItemName(self.itemID)), 0.8, 0.8, 0.8)
+    Mat.AddCraftersTooltip(tt, use)
+    tt:Show()
+end
+
+function Mat.MatHeadOnClick(self)
+    if self.use and ns.UI and ns.UI.HandleModifiedItemClick then ns.UI:HandleModifiedItemClick(self.use.item) end
+end
+
+function DropPanel:GetMatHead(b, i)
+    b.matHeads = b.matHeads or {}
+    local h = b.matHeads[i]
+    if h then return h end
+    h = CreateFrame("Button", nil, b)
+    h:SetHeight(ROW_H)
+    h.rule = h:CreateTexture(nil, "BACKGROUND")
+    h.rule:SetColorTexture(1, 1, 1, 0.06)
+    h.rule:SetHeight(1)
+    h.rule:SetPoint("TOPLEFT", h, "TOPLEFT", 0, 1)
+    h.rule:SetPoint("TOPRIGHT", h, "TOPRIGHT", 0, 1)
+    h.icon = h:CreateTexture(nil, "ARTWORK")
+    h.icon:SetSize(14, 14)
+    h.icon:SetPoint("LEFT", h, "LEFT", 0, 0)
+    h.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    h.name = Text(h, "GameFontHighlightSmall", 11)
+    h.name:SetPoint("LEFT", h.icon, "RIGHT", 5, 0)
+    h.per = Text(h, "GameFontDisableSmall", 10)
+    h.per:SetPoint("LEFT", h.name, "RIGHT", 6, 0)
+    h.crafter = Text(h, "GameFontHighlightSmall", 10)
+    h.crafter:SetPoint("RIGHT", h, "RIGHT", 0, 0)
+    h.crafter:SetJustifyH("RIGHT")
+    h.prof = h:CreateTexture(nil, "ARTWORK")
+    h.prof:SetSize(12, 12)
+    h.prof:SetPoint("RIGHT", h.crafter, "LEFT", -4, 0)
+    h.prof:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    h:SetScript("OnEnter", Mat.MatHeadOnEnter)
+    h:SetScript("OnLeave", HideTooltip)
+    h:SetScript("OnClick", Mat.MatHeadOnClick)
+    b.matHeads[i] = h
+    return h
+end
+
+-- One craft's header: the item, "2 per craft", and the crafter on the right (the group's best wanter when they
+-- craft it themselves, else someone in the raid, online, any), or a warning when nobody in the guild crafts it.
+function Mat.FillMatHead(h, use, itemID, forKey, first)
+    h.use, h.itemID = use, itemID
+    h.rule:SetShown(not first)
+    h.icon:SetTexture(ItemIcon(use.item))
+    h.per:SetText(format("%d per craft", use.count))
+    local M = ns.Materials
+    local key = M and M.PickCrafter and M:PickCrafter(use, forKey)
+    local icon = Mat.ProfIcon(use)
+    if key then
+        h.crafter:SetText(ColoredName(key) .. Paint(" · " .. Mat.PresenceOf(key), "muted"))
+    else
+        h.crafter:SetText(Paint(Mat.NoCrafterText(use), "warn"))
+    end
+    h.prof:SetTexture(icon)
+    h.prof:SetShown(icon ~= nil)
+    -- the name takes what is left (it never pushes the crafter off the line)
+    local right = (h.crafter:GetStringWidth() or 0) + (icon and 16 or 0) + 8
+    local per = (h.per:GetStringWidth() or 0) + 6
+    h.name:SetWidth(1000)
+    h.name:SetText(ItemText(use.item))
+    local room = ROW_W - 19 - per - right
+    h.name:SetWidth(max(40, min(room, (h.name:GetStringWidth() or 0) + 2)))
+    return ROW_H
+end
+
+-- The "+N more crafts" line of a material: crafts nobody here has on a list, in its tooltip.
+function Mat.MatOthersOnEnter(self)
+    local list = self.matOthers
+    if type(list) ~= "table" then return end
+    local tt = _G.GameTooltip
+    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:AddLine(format("%d more crafts use %s", #list, ItemName(self.itemID)), 1, 0.82, 0)
+    local M = ns.Materials
+    for _, use in ipairs(list) do
+        local key = M and M.PickCrafter and M:PickCrafter(use)
+        tt:AddDoubleLine(ItemText(use.item) .. Paint(format("  x%d", use.count), "muted"),
+            key and ColoredName(key) or Paint(Mat.NoCrafterText(use), "muted"), 1, 1, 1, 0.8, 0.8, 0.8)
+    end
+    tt:AddLine("Not on anyone's list here", 0.6, 0.6, 0.6)
+    tt:Show()
+end
+
+-- The craft line of an awarded material: "[Belt of Blasting] 2/2 · ready to craft", and on the right who crafts it
+-- with a Whisper button (or "Crafted by the winner").
+function Mat.MadeOnEnter(self)
+    local m = self:GetParent()
+    local use = m.use
+    if type(use) ~= "table" then return end
+    local tt = _G.GameTooltip
+    tt:SetOwner(self, "ANCHOR_RIGHT")
+    tt:SetItemByID(use.item)
+    tt:AddLine(" ")
+    Mat.AddCraftersTooltip(tt, use)
+    tt:Show()
+end
+
+function DropPanel:GetMade(b)
+    if b.made then return b.made end
+    local m = CreateFrame("Frame", nil, b)
+    m:SetHeight(MAT.MADE_H)
+    m.bg = m:CreateTexture(nil, "BACKGROUND")
+    m.bg:SetAllPoints()
+    m.bg:SetColorTexture(1, 1, 1, 0.03)
+    m.hit = CreateFrame("Button", nil, m)
+    m.hit:SetPoint("TOPLEFT", m, "TOPLEFT", 0, 0)
+    m.hit:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 0, 0)
+    m.hit:SetScript("OnEnter", Mat.MadeOnEnter)
+    m.hit:SetScript("OnLeave", HideTooltip)
+    m.icon = m:CreateTexture(nil, "ARTWORK")
+    m.icon:SetSize(14, 14)
+    m.icon:SetPoint("LEFT", m, "LEFT", 6, 0)
+    m.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    m.name = Text(m, "GameFontHighlightSmall", 11)
+    m.name:SetPoint("LEFT", m.icon, "RIGHT", 5, 0)
+    m.prog = Text(m, "GameFontHighlightSmall", 10)
+    m.prog:SetPoint("LEFT", m.name, "RIGHT", 6, 0)
+    m.whisper = ns.UI:CreateButton(m, "Whisper", 58, 18, function() DropPanel:WhisperCrafter(b) end)
+    m.whisper:SetPoint("RIGHT", m, "RIGHT", -2, 0)
+    AddButtonTooltip(m.whisper, function()
+        return "Whisper the crafter how many the winner has now, and for which craft."
+    end)
+    m.crafter = Text(m, "GameFontHighlightSmall", 10)
+    m.crafter:SetJustifyH("RIGHT")
+    m.prof = m:CreateTexture(nil, "ARTWORK")
+    m.prof:SetSize(12, 12)
+    m.prof:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    m.prof:SetPoint("RIGHT", m.crafter, "LEFT", -4, 0)
+    b.made = m
+    return m
+end
+
+-- What an awarded material counts toward: the winner's craft and how many they have with it (a report from before
+-- the award gets it added; the loot log already counts it). nil when no craft on their lists uses it.
+function Mat.MadeOf(itemID, winnerKey, award, vp)
+    local M = ns.Materials
+    if not (M and M.IsMaterial and M:IsMaterial(itemID)) then return nil end
+    local w = M:GetWants(itemID, { viewPhase = vp }).byKey[winnerKey]
+    if not w then return nil end
+    local have = tonumber(w.held) or 0
+    local at = type(award) == "table" and tonumber(award.ts) or nil
+    if w.heldSrc == "report" and (not at or (tonumber(w.heldAt) or 0) <= at) then have = have + 1 end
+    return w, min(have, w.need)
+end
+
+function DropPanel:FillMade(b, itemID, winnerKey, award, vp, y)
+    local w, have = Mat.MadeOf(itemID, winnerKey, award, vp)
+    if not w then
+        if b.made then b.made:Hide() end
+        return y
+    end
+    local m = self:GetMade(b)
+    local M = ns.Materials
+    local use = M:GetUse(itemID, w.craft)
+    m.use, m.winner, m.have, m.itemID = use, winnerKey, have, itemID
+    m.icon:SetTexture(ItemIcon(w.craft))
+    m.name:SetWidth(1000)
+    m.name:SetText(ItemText(w.craft))
+    local ready = have >= w.need
+    m.prog:SetText(ready and Paint(format("%d/%d · ready to craft", have, w.need), "obtained")
+        or Paint(format("%d/%d", have, w.need), "muted"))
+    local key = use and M:PickCrafter(use, winnerKey)
+    m.crafterKey = key
+    local icon = use and Mat.ProfIcon(use)
+    m.crafter:ClearAllPoints()
+    local canWhisper = key and key ~= winnerKey and not IsMe(key)
+    if canWhisper then
+        m.crafter:SetPoint("RIGHT", m.whisper, "LEFT", -6, 0)
+        m.crafter:SetText(ColoredName(key))
+    else
+        m.crafter:SetPoint("RIGHT", m, "RIGHT", -6, 0)
+        if not key then
+            m.crafter:SetText(Paint(use and Mat.NoCrafterText(use) or "", "warn"))
+        elseif key == winnerKey then
+            m.crafter:SetText(Paint("Crafted by the winner", "muted"))
+        else
+            m.crafter:SetText(Paint("You craft it", "muted"))
+        end
+    end
+    m.whisper:SetShown(canWhisper and true or false)
+    m.prof:SetTexture(icon)
+    m.prof:SetShown(icon ~= nil and key ~= nil)
+    -- the crafter never overlaps the craft: "ready to craft" goes first, then the name gets shorter
+    local avail = ROW_W - 6 - 19 - (m.crafter:GetStringWidth() or 0) - ((icon and key) and 16 or 0)
+        - (canWhisper and 64 or 6) - 12
+    if ready and (m.name:GetStringWidth() or 0) + 6 + (m.prog:GetStringWidth() or 0) > avail then
+        m.prog:SetText(Paint(format("%d/%d", have, w.need), "obtained"))
+    end
+    local nameRoom = avail - 6 - (m.prog:GetStringWidth() or 0)
+    m.name:SetWidth(max(40, min(nameRoom, (m.name:GetStringWidth() or 0) + 2)))
+    m.hit:SetWidth(max(40, 25 + (m.name:GetStringWidth() or 0)))
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -y)
+    m:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -y)
+    m:Show()
+    return y + MAT.MADE_H
+end
+
+-- Whisper: "Shadowmelder has 1/2 [Nether Vortex] for [Belt of Deep Shadow]" to the crafter.
+function DropPanel:WhisperCrafter(b)
+    local m = b and b.made
+    if not (m and m.use and m.crafterKey and m.winner) then return end
+    local line = format("%s has %d/%d %s for %s", ShortName(m.winner), m.have or 0, m.use.count,
+        ItemLink(m.itemID) or ItemName(m.itemID), ItemLink(m.use.item) or ItemName(m.use.item))
+    if DemoEnabled() or (self.drop and self.drop.test) then
+        ns:Print("[not sent] To %s: %s", ShortName(m.crafterKey), line)
+        return
+    end
+    if _G.SendChatMessage then _G.SendChatMessage(line, "WHISPER", nil, m.crafterKey) end
+end
+
+-- A material's candidates, grouped by craft: each craft's header, then up to MAT_PER_GROUP wanters ("+N more" past
+-- that), then one "+N more crafts" line for the crafts nobody here wants. Returns y, rowIdx, headIdx.
+function DropPanel:FillMaterial(b, mat, itemID, vp, y)
+    local rowIdx, headIdx = 0, 0
+    for gi, g in ipairs(mat.groups) do
+        if gi > MAT.MAT_GROUPS then break end
+        headIdx = headIdx + 1
+        local h = self:GetMatHead(b, headIdx)
+        y = y + (gi > 1 and 4 or 0)
+        local hh = Mat.FillMatHead(h, g.use, itemID, g.wanters[1] and g.wanters[1].key, gi == 1)
+        PlaceRow(h, b, y)
+        y = y + hh
+        local n = #g.wanters
+        local limit = (n > MAT.MAT_PER_GROUP + 1) and MAT.MAT_PER_GROUP or n
+        for i = 1, limit do
+            rowIdx = rowIdx + 1
+            local r = self:GetRow(b, rowIdx)
+            local rh = FillRow(r, g.wanters[i], itemID, vp, nil)
+            PlaceRow(r, b, y)
+            y = y + rh
+        end
+        if n > limit then
+            rowIdx = rowIdx + 1
+            local rest = {}
+            for i = limit + 1, n do rest[#rest + 1] = g.wanters[i] end
+            local r = self:GetRow(b, rowIdx)
+            PlaceRow(r, b, y)
+            y = y + FillMoreRow(r, rest, "wanters")
+        end
+    end
+    local others = {}
+    for gi = MAT.MAT_GROUPS + 1, #mat.groups do others[#others + 1] = mat.groups[gi].use end
+    for _, use in ipairs(mat.others) do others[#others + 1] = use end
+    if #others > 0 and headIdx > 0 then
+        rowIdx = rowIdx + 1
+        local r = self:GetRow(b, rowIdx)
+        FillMoreRow(r, {}, "crafts")
+        r.matOthers = others
+        r.moreText:SetText(format("+%d more crafts use it", #others))
+        y = y + 2
+        PlaceRow(r, b, y)
+        y = y + ROW_H
+    end
+    return y, rowIdx, headIdx
+end
+
+-- The award button of a material's card: "Award to <the best wanter in the raid>".
+function DropPanel:AwardMaterialBest(b)
+    local w = b and b.matBest
+    local drop = self.drop
+    if type(w) ~= "table" or type(drop) ~= "table" then return end
+    self:Award(b.itemID, w.key, type(drop.b) == "string" and drop.b or "", b.copy, drop, nil, WanterReason(w))
+end
+
 -- Awarded items whose rolls were opened again (per item and copy, until the panel shows another drop).
 function DropPanel:IsUnfolded(itemID, copy)
     return self.unfolded ~= nil and self.unfolded.drop == self.drop and self.unfolded[tostring(itemID) .. ":" .. tostring(copy or 1)] == true
@@ -2000,8 +2453,10 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     local wanters = (not rolling) and (plain and {} or UniqueWanters(itemID, { includeObtained = false, list = "both" }))
         or nil
     b.wanters = wanters
+    local mat = (not rolling and not plain) and MaterialWants(itemID, vp) or nil
+    b.matBest = nil
 
-    local y, rowIdx, n = ITEM_HEAD_H, 0, 0
+    local y, rowIdx, n, headIdx = ITEM_HEAD_H, 0, 0, 0
     local noneText = (not plain) and "Nobody has this on their BiS list" or nil
     if rolling then
         local results = {}
@@ -2050,6 +2505,13 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         else
             b.reservedY = nil
         end
+    elseif mat then
+        -- a crafting material: its candidates grouped by the craft they want it for
+        b.reservedY = nil
+        n = #mat.wants
+        b.sub:SetText(mode == "queued" and RollStateText(nil, nil, queuePos or 1) or "Crafting material")
+        y, rowIdx, headIdx = self:FillMaterial(b, mat, itemID, vp, y)
+        noneText = "No craft that uses it is on anyone's list"
     else
         b.reservedY = nil
         n = #wanters
@@ -2080,9 +2542,10 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     -- "Show rolls" link on its second line opens them again.
     local folded = winnerKey ~= nil and n > 0 and not self:IsUnfolded(itemID, copy)
     if folded then
-        rowIdx, y = 0, ITEM_HEAD_H
+        rowIdx, headIdx, y = 0, 0, ITEM_HEAD_H
         b.reservedY = nil
     end
+    for i = headIdx + 1, #(b.matHeads or {}) do b.matHeads[i]:Hide() end
     if winnerKey and n > 0 then
         b.fold:SetLabel(folded and format("Show %s (%d)", rolling and "rolls" or "list", n) or "Hide")
         b.fold:Show()
@@ -2091,6 +2554,16 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     end
     for i = rowIdx + 1, #b.rows do b.rows[i]:Hide() end
     local anyRows = rowIdx > 0
+    -- an awarded material: the craft it counts toward and who crafts it
+    if winnerKey and (folded or n == 0) then
+        local y2 = self:FillMade(b, itemID, winnerKey, award, vp, y + 2)
+        if y2 > y + 2 then
+            y = y2
+            anyRows = true
+        end
+    elseif b.made then
+        b.made:Hide()
+    end
 
     -- Nothing to list: one quiet line (none for an awarded item or the plain panel's items).
     if n == 0 and not winnerKey and noneText then
@@ -2134,6 +2607,15 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             slot = b.unqueue
         end
         if canAwardItem and not locked then gold = b.award end
+        -- a crafting material: "Award to <the best wanter in the raid>" (the menu stays in More)
+        local best = mat and mat.wants[1]
+        if gold == b.award and best and best.inRaid and not best.cantUse then
+            b.matBest = best
+            b.awardMat:SetText("Award to " .. ShortName(best.key))
+            local fs = b.awardMat.GetFontString and b.awardMat:GetFontString()
+            b.awardMat:SetWidth(min(220, max(96, (fs and tonumber(fs:GetStringWidth()) or 0) + 24)))
+            gold = b.awardMat
+        end
     end
     b.award:Enable()
     -- one gold button: the award (Roll on the plain roll panel, where the highest roll decides)
@@ -2450,10 +2932,38 @@ end
 ---------------------------------------------------------------------------
 -- Announce & award
 ---------------------------------------------------------------------------
+-- " · Belt of Blasting 1/2" after a crafting material's candidate in a menu ("" for anything else).
+function Mat.CraftNote(w)
+    if not w.craft then return "" end
+    return Paint(format(" · %s %d/%d", ItemName(w.craft), min(tonumber(w.held) or 0, w.need), w.need), "muted")
+end
+
+-- A crafting material: "Belt of Blasting: Vaenyria 1/2, Kaelyn 0/2; Red Belt of Battle: Victhar 0/2" (in the group).
+function Mat.MaterialAnnounce(mat)
+    local inGroup = _G.IsInGroup and _G.IsInGroup()
+    local parts = {}
+    for _, g in ipairs(mat.groups) do
+        local names = {}
+        for _, w in ipairs(g.wanters) do
+            if (w.inRaid or not inGroup) and #names < 4 then
+                names[#names + 1] = format("%s %d/%d", ShortName(w.key), min(tonumber(w.held) or 0, w.need), w.need)
+            end
+        end
+        if #names > 0 and #parts < 4 then parts[#parts + 1] = ItemName(g.use.item) .. ": " .. tconcat(names, ", ") end
+    end
+    return parts
+end
+
 function DropPanel:BuildAnnounceLine(itemID)
     local link = ItemLink(itemID) or ItemName(itemID)
     -- No loot council (1.3): the item alone, BiS lists don't count in this raid.
     if PlainMode(self.drop) then return format("DisasterZone: %s", link) end
+    local mat = MaterialWants(itemID, ViewPhase())
+    if mat then
+        local parts = Mat.MaterialAnnounce(mat)
+        if #parts == 0 then return format("DisasterZone: %s - no craft that uses it is on anyone's list", link) end
+        return format("DisasterZone: %s - %s", link, tconcat(parts, "; "))
+    end
     local wanters = UniqueWanters(itemID, { includeObtained = false, list = "both" })
     local inGroup = _G.IsInGroup and _G.IsInGroup()
     local mains, alts, offs = {}, {}, {}
@@ -2871,7 +3381,7 @@ function DropPanel:BuildAwardMenu(root, b)
             if w.inRaid or not inGroup then
                 here[#here + 1] = key
                 local reason = WanterReason(w)
-                root:CreateButton(ColoredName(key, w.classFile) .. "  " .. BadgeText(w, vp)
+                root:CreateButton(ColoredName(key, w.classFile) .. "  " .. BadgeText(w, vp) .. Mat.CraftNote(w)
                     .. (w.cantUse and (" " .. Paint("can't use", "bad")) or ""), function() award(key, reason) end)
             else
                 away[#away + 1] = w
@@ -3116,6 +3626,11 @@ function DropPanel:RefreshToastText()
     local line = format("%s · P%d", SlotLabel(m.sid), tonumber(m.phase) or 0)
     if m.via and shown ~= e.itemID then line = ItemText(shown) .. " · " .. line end
     if #paren > 0 then line = line .. " (" .. tconcat(paren, ", ") .. ")" end
+    if m.via == "craft" then
+        -- a crafting material: the craft it is for and how many I have
+        line = "For " .. ItemText(shown) .. Paint(format(" · you have %d of %d", tonumber(m.held) or 0,
+            tonumber(m.need) or 0), "muted")
+    end
     FitLine(t.text, line, textW, 11)
 end
 

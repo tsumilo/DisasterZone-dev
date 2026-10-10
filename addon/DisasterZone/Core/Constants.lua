@@ -11,7 +11,7 @@ local addonName, ns = ...
 ns.MAX_REV = 2147483647
 
 -- How a dropped item leads to a wanted one (BiS:MatchItem's `via`), as shown to players.
-ns.VIA_TEXT = { token = "via token", upgrade = "via Sunmote upgrade", arena = "via token exchange" }
+ns.VIA_TEXT = { token = "via token", upgrade = "via Sunmote upgrade", arena = "via token exchange", craft = "crafting material" }
 
 ns.ITEM_CLASS_WEAPON = 2   -- Enum.ItemClass.Weapon
 ns.ITEM_CLASS_ARMOR = 4    -- Enum.ItemClass.Armor
