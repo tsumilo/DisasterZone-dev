@@ -907,5 +907,72 @@ def without_the_3d_files_there_is_no_switch_and_a_restart_is_asked_for_once():
     no_errors(w)
 
 
+@case
+def the_room_data_loads_only_when_a_room_is_first_drawn():
+    """The rooms are the load-on-demand addon DisasterZone_Rooms: not loaded at login nor by the board's 2D / 3D
+    switch (it only asks whether the addon can load), loaded by the first room drawn, into DisasterZone's namespace
+    (its own namespace passes through), with ADDON_LOADED for it."""
+    w, c, bob = boot()
+    assert bob.eval("return ns.Render3D.DataLoaded()") is False
+    assert bob.eval("return (C_AddOns.IsAddOnLoaded('DisasterZone_Rooms'))") is False
+    assert bob.eval("return ns.RoomFloors == nil and ns.RoomStandins == nil")
+    assert bob.eval("return %s.mode3d:IsShown()" % W) is True                 # (the switch, without the data)
+    assert bob.eval("return ns.Render3D.DataLoaded()") is False
+    go3d(w, bob)
+    assert bob.eval("return ns.Render3D.DataLoaded()") is True
+    assert bob.eval("return (C_AddOns.IsAddOnLoaded('DisasterZone_Rooms'))") is True
+    assert bob.eval("return ns.RoomFloors.BlackTemple_Teron ~= nil and ns.TrainerFloors.teron ~= nil")
+    assert bob.eval("return ns.RoomStandins ~= nil and ns.RoomStandinGaps ~= nil and ns.RoomDepthModes ~= nil")
+    assert bob.eval("return rawget(_G, 'DisasterZone') == ns")
+    assert bob.eval("return select(2, ns.Render3D.LoadData()) == nil and ns.Render3D.LoadData() == true")
+    no_errors(w)
+
+
+def _rooms_problem(prepare):
+    """Bob opens a starter's board with the room data not loadable (prepare(bob) before the addon loads); -> the chat
+    lines that came after."""
+    w = World()
+    names = (("Gina", 0, "PALADIN"), ("Bob", 1, "MAGE"))
+    c = {}
+    for name, rank, cls in names:
+        c[name] = Client(w, name, guild_rank=rank, class_file=cls)
+    bob = c["Bob"]
+    prepare(bob)
+    for x in c.values():
+        x.load_addon()
+    w.tick(3)
+    from rp_common import gm_pick, set_raid_leaders  # noqa: E402
+    gm_pick(w, c["Gina"], ["Bob"])
+    set_raid_leaders(w, c["Gina"], ["Bob"])
+    w.tick(2)
+    n0 = len(bob.chat_frame)
+    bob.eval("ns.StrategyBoard:NewStrategy(...)", TERON)
+    w.tick(0.2)
+    assert bob.eval("return %s.mode3d:IsShown()" % W) is False
+    bob.eval("ns.StrategyBoard:Refresh()")
+    no_errors(w)
+    return w, bob, [strip_codes(str(line)) for line in bob.chat_frame[n0:]]
+
+
+@case
+def without_the_rooms_folder_there_is_no_switch_and_the_zip_is_named_once():
+    w, bob, said = _rooms_problem(lambda b: setattr(b, "lod_addons", {}))
+    rooms = [s for s in said if "DisasterZone_Rooms" in s]
+    assert len(rooms) == 1 and "zip" in rooms[0], said
+    assert not any("restart" in s.lower() for s in said), said
+    assert bob.eval("return (ns.Render3D.DataAvailable())") is False
+    # the Raid Trainer plays on a flat floor, the chess hall stays flat (no error)
+    assert bob.eval("local T = ns.Trainer local sim = T and T:NewSim('teron') "
+                    "return sim ~= nil and sim.enc.arena.mesh == nil")
+
+
+@case
+def with_the_rooms_turned_off_the_addon_list_is_named():
+    w, bob, said = _rooms_problem(lambda b: b.eval("C_AddOns.DisableAddOn('DisasterZone_Rooms')"))
+    rooms = [s for s in said if "DisasterZone_Rooms" in s]
+    assert len(rooms) == 1 and "AddOn list" in rooms[0], said
+    assert bob.eval("return select(2, ns.Render3D.DataAvailable())") == "DISABLED"
+
+
 if __name__ == "__main__":
     run_all()

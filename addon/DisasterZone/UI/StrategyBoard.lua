@@ -2140,6 +2140,11 @@ function Board:RefreshMode()
         -- the update brought new files, which only a client restart reads
         restartSaid = true
         ns:Print("Restart the game client once (a /reload is not enough) to get the strategy board's 3D view.")
+    elseif why == "rooms" and not restartSaid then
+        restartSaid = true
+        local r3 = ns.Render3D
+        local text = r3 and r3.DataProblem and r3.DataProblem()
+        if text then ns:Print(text) end
     end
     local show = page() ~= nil and (room ~= nil or why == "map")
     win.mode2d:SetShown(show)

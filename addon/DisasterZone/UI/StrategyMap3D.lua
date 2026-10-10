@@ -84,14 +84,18 @@ local RING_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\ring"
 ---------------------------------------------------------------------------
 
 -- The room a page of a strategy for `bossRef` can be drawn in, or nil and why not: "restart" (the 3D files are not
--- loaded yet: the client was not restarted since the update), "none" (no room for this boss yet), "map" (the page
+-- loaded yet: the client was not restarted since the update), "rooms" (the room data, the DisasterZone_Rooms addon,
+-- is not installed or turned off: R3.DataProblem says which), "none" (no room for this boss yet), "map" (the page
 -- uses another map than the room's; the room comes third).
 function M3:RoomFor(bossRef, page)
     local r3 = R3()
     if not (r3 and r3.NewView and r3.NewRoom and r3.RoomForBoss) then return nil, "restart" end
     local room = r3.RoomForBoss(bossRef)
     if not room then return nil, "none" end
-    if not r3.HasFloor(room) then return nil, "restart" end
+    if not r3.HasFloor(room) then
+        if r3.DataProblem and r3.DataProblem() then return nil, "rooms" end
+        return nil, "restart"
+    end
     local m = page and MapUI():ShippedMap(page.m)
     if not (m and m.file == room.map) then return nil, "map", room end
     return room
@@ -353,7 +357,9 @@ function V:Open(animate)
     if not room then return false end
     local fl = R3().Floor(room)                       -- (a packed room is unpacked here, the first time)
     if not (fl and fl.mesh) then
-        ns:Print("The 3D room of this boss could not be read.")
+        local loaded, why = R3().LoadData()
+        ns:Print(loaded and "The 3D room of this boss could not be read."
+            or ("The 3D rooms could not be loaded (DisasterZone_Rooms: %s)."):format(tostring(why)))
         return false
     end
     if room ~= self.room then

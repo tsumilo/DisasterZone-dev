@@ -459,8 +459,37 @@ function SwingTimer:OnLogin()
     self:Refresh()
 end
 
+-- Demo mode: made-up swings every 3.5 s with Seal of Command up, so the HUD and its planner can be tried by anyone,
+-- anywhere (nothing is cast).
+local demoDriver
+local function DemoSwings(on)
+    if on and not demoDriver then
+        demoDriver = CreateFrame("Frame")
+        local acc = 0
+        demoDriver:SetScript("OnUpdate", function(_, elapsed)
+            acc = acc + (elapsed or 0)
+            if acc < 0.1 then return end
+            acc = 0
+            local now = GetTime()
+            state.speed = 3.5
+            state.seal = "soc"
+            state.sealExpires = now + 25
+            if not state.last or now - state.last >= state.speed then
+                state.last = now
+                SwingTimer:MarkDirty()
+            end
+        end)
+    elseif demoDriver then
+        demoDriver:SetShown(on and true or false)
+        if not on then state.last = nil end
+    end
+end
+
+function SwingTimer:IsDemo() return ns.ClassKit:IsDemo() end
+
 function SwingTimer:Refresh()
     self.active = self:IsEnabled() and self:IsRet()
+    DemoSwings(self.active and self:IsDemo())
     ns:Fire("SWING_STATE", self.active)
 end
 

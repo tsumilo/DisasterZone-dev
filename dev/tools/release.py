@@ -22,7 +22,8 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       an in-game update"), /reload to go back. Members ignore it.
 
 What an in-game update can carry: changed, new and deleted Lua files that the TOC lists (except Libs\\ and the boot
-files). What it cannot: art, the TOC header, libraries, Core\\Boot.lua. `patch` refuses those and says a full
+files). What it cannot: art, the TOC header, libraries, Core\\Boot.lua, the 3D room data (the load-on-demand addon
+DisasterZone_Rooms next to the addon folder: the zip carries both folders, and the build id covers both). `patch` refuses those and says a full
 release is needed; for art it accepts the change when Core\\BuildInfo.lua's assetPack was raised (the code that
 needs the new art must check ns:HasAssets(n)).
 """
@@ -47,6 +48,8 @@ import patchlib  # noqa: E402
 
 ADDON_NAME = "DisasterZone"
 ADDON_DIR = os.path.join(REPO, "addon", ADDON_NAME)
+# The 3D room data: an addon of its own, loaded on demand (Render3D/Rooms.lua R3.LoadData), shipped in the same zip.
+ROOMS_NAME = "DisasterZone_Rooms"
 KEY_PATH = os.path.join(DEV, "keys", "patch_key.json")
 RELEASES = os.path.join(DEV, "releases")
 DIST = os.path.join(REPO, "dist")
@@ -73,9 +76,9 @@ def read(path):
         return fh.read()
 
 
-def parse_toc(addon_dir):
+def parse_toc(addon_dir, name=ADDON_NAME):
     """(headers {lowercase key: value}, [file paths with forward slashes, in load order], raw text)."""
-    raw = read(os.path.join(addon_dir, ADDON_NAME + ".toc")).decode("utf-8-sig")
+    raw = read(os.path.join(addon_dir, name + ".toc")).decode("utf-8-sig")
     headers, files = {}, []
     for line in raw.splitlines():
         line = line.strip()
@@ -88,9 +91,22 @@ def parse_toc(addon_dir):
 
 
 def is_room_data(path):
-    """The strategy board's generated 3D rooms (Render3D/Rooms/<Raid>_<Boss>.lua, dev/generators/gen_rooms.py):
-    megabytes of packed text, too much for an in-game update; a new or changed room ships with a full release."""
+    """The strategy board's generated 3D rooms as releases before 1.3.4 listed them in the addon's own TOC
+    (Render3D/Rooms/<Raid>_<Boss>.lua): megabytes of packed text, too much for an in-game update. They are the addon
+    DisasterZone_Rooms now (rooms_dir()); a new or changed room ships with a full release."""
     return path.startswith("Render3D/Rooms/") and "_" in path.rsplit("/", 1)[-1]
+
+
+def rooms_dir(addon_dir=None):
+    """The DisasterZone_Rooms folder next to an addon folder, or None when there is none."""
+    d = os.path.join(os.path.dirname(os.path.normpath(addon_dir or ADDON_DIR)), ROOMS_NAME)
+    return d if os.path.isfile(os.path.join(d, ROOMS_NAME + ".toc")) else None
+
+
+def rooms_hashes(addon_dir=None):
+    """{path in DisasterZone_Rooms: sha256} of the room data next to an addon folder ({} without one)."""
+    d = rooms_dir(addon_dir)
+    return file_hashes(d) if d else {}
 
 
 def is_patchable(path):
@@ -121,12 +137,16 @@ def file_hashes(addon_dir, lua_only=False):
     return out
 
 
-def build_id(hashes):
+def build_id(hashes, rooms=None):
+    """The build of a release: its files' hashes (rooms: DisasterZone_Rooms' too, so a release whose room data
+    changed is another build)."""
     h = hashlib.sha256()
     for rel in sorted(hashes):
         if rel in TOOL_MANAGED:
             continue
         h.update(rel.encode("utf-8") + b"\0" + hashes[rel].encode("ascii") + b"\n")
+    for rel in sorted(rooms or {}):
+        h.update((ROOMS_NAME + "/" + rel).encode("utf-8") + b"\0" + rooms[rel].encode("ascii") + b"\n")
     return h.hexdigest()[:16]
 
 
@@ -217,10 +237,12 @@ def _put(path, data):
 # Full release
 # ---------------------------------------------------------------------------------------------------------------
 
-def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False):
+def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False, rooms=False):
     """Copy the addon folder `src` to `dst` as a release: BuildInfo gets the build id, the outbox is emptied.
     lua_only=True copies only what the game executes (.toc, .lua): enough for the offline harness.
     link=True hard-links the files instead of copying them (tests: a new copy costs a virus scan on first read).
+    rooms=True also copies the DisasterZone_Rooms folder next to `src` (when there is one) next to `dst`; its files
+    go into the build id and the record ("rooms").
     Returns the release record (without the zip)."""
     if os.path.exists(dst):
         raise ReleaseError("%s already exists" % dst)
@@ -234,12 +256,28 @@ def stage_tree(src, dst, lua_only=False, build=None, key=None, link=False):
     _put(os.path.join(dst, "Core", "Outbox.lua"), patchlib.OUTBOX_STUB.encode("utf-8"))
     if key is not None:
         _put(os.path.join(dst, "Core", "PatchKey.lua"), patch_key_lua(key).encode("utf-8"))
+    room_hashes = {}
+    rsrc = rooms_dir(src) if rooms else None
+    if rsrc:
+        rdst = os.path.join(os.path.dirname(os.path.normpath(dst)), ROOMS_NAME)
+        if os.path.exists(rdst):
+            raise ReleaseError("%s already exists" % rdst)
+        for rel in all_files(rsrc):
+            if lua_only and not rel.endswith((".lua", ".toc")):
+                continue
+            target = os.path.join(rdst, rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            (os.link if link else shutil.copyfile)(os.path.join(rsrc, rel), target)
+        room_hashes = file_hashes(rdst)
     hashes = file_hashes(dst)
-    bid = build or build_id(hashes)
+    bid = build or build_id(hashes, room_hashes)
     _put(os.path.join(dst, "Core", "BuildInfo.lua"), build_info_lua(bid, pack).encode("utf-8"))
     headers, files, raw = parse_toc(dst)
-    return {"version": headers.get("version", "0"), "build": bid, "assetPack": pack, "files": hashes,
-            "toc": raw, "luaOnly": bool(lua_only)}
+    record = {"version": headers.get("version", "0"), "build": bid, "assetPack": pack, "files": hashes,
+              "toc": raw, "luaOnly": bool(lua_only)}
+    if rsrc:
+        record["rooms"] = room_hashes
+    return record
 
 
 def check_tree(addon_dir):
@@ -256,6 +294,14 @@ def check_tree(addon_dir):
     if lua[-2:] != ["Core/Outbox.lua", "Core/BootEnd.lua"]:
         problems.append("Core/Outbox.lua and Core/BootEnd.lua must be the last two files in the TOC")
     problems += guards(addon_dir, "check")[1]
+    rdir = rooms_dir(addon_dir)
+    if rdir:
+        rheaders = parse_toc(rdir, ROOMS_NAME)[0]
+        if rheaders.get("version") != headers.get("version"):
+            problems.append("%s.toc says version %s, %s.toc %s: give both the same" % (
+                ROOMS_NAME, rheaders.get("version"), ADDON_NAME, headers.get("version")))
+        if rheaders.get("loadondemand") not in ("1", "true"):
+            problems.append("%s.toc lacks '## LoadOnDemand: 1'" % ROOMS_NAME)
     return problems
 
 
@@ -298,12 +344,15 @@ def cmd_full(args):
     if os.path.isdir(tmp):
         shutil.rmtree(tmp)
     stage = os.path.join(tmp, ADDON_NAME)
-    record = stage_tree(ADDON_DIR, stage)
+    record = stage_tree(ADDON_DIR, stage, rooms=True)
     record["commit"] = git_commit()
     record["time"] = time.strftime("%Y-%m-%d %H:%M:%S")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-        for rel in all_files(stage):
-            zf.write(os.path.join(stage, rel), ADDON_NAME + "/" + rel)
+        for name in (ADDON_NAME, ROOMS_NAME):                # (both folders go into Interface\AddOns)
+            folder = os.path.join(tmp, name)
+            if os.path.isdir(folder):
+                for rel in all_files(folder):
+                    zf.write(os.path.join(folder, rel), name + "/" + rel)
     shutil.rmtree(tmp)
     with open(record_path, "w", encoding="utf-8") as fh:
         json.dump(record, fh, indent=1)
@@ -311,7 +360,8 @@ def cmd_full(args):
         json.dump({"version": version}, fh)
     # a new base makes the outbox of the previous one meaningless
     _put(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), patchlib.OUTBOX_STUB.encode("utf-8"))
-    print("release %s: build %s, art pack %d, %d files" % (version, record["build"], record["assetPack"], len(record["files"])))
+    print("release %s: build %s, art pack %d, %d files + %d in %s" % (
+        version, record["build"], record["assetPack"], len(record["files"]), len(record.get("rooms", {})), ROOMS_NAME))
     print("  %s (%.1f MB)" % (zip_path, os.path.getsize(zip_path) / 1048576.0))
     print("  this is now the base for in-game updates. Members install the zip once; after that 'release.py patch'.")
 
@@ -354,6 +404,14 @@ def diff_against_base(base, addon_dir):
         errors.append("the TOC order of existing files changed")
 
     lua_only = base.get("luaOnly")
+    if "rooms" in base:                                  # (the room data next to the addon: only a full release)
+        now_rooms = rooms_hashes(addon_dir)
+        if lua_only:
+            now_rooms = {k: v for k, v in now_rooms.items() if k.endswith((".lua", ".toc"))}
+        moved = sorted(k for k in set(base["rooms"]) | set(now_rooms) if base["rooms"].get(k) != now_rooms.get(k))
+        if moved:
+            errors.append("the 3D room data changed (%s/%s%s): ship a full release" % (
+                ROOMS_NAME, ", ".join(moved[:3]), ", ..." if len(moved) > 3 else ""))
     now_hashes = file_hashes(addon_dir, lua_only=lua_only)
     base_hashes = base["files"]
     pack = asset_pack(addon_dir)

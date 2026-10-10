@@ -34,11 +34,17 @@ from lupa import lua51  # noqa: E402
 ADDON_DIR = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 PATCH_SV_FILE = os.environ.get("DISASTERZONE_PATCH_SV") or None
 ADDON_NAME = "DisasterZone"
-# The strategy board's generated 3D rooms (Render3D/Rooms/<Raid>_<Boss>.lua, ~12 MB of packed text) are left out of
-# a client's load unless LOAD_ROOMS is on (env DISASTERZONE_ROOMS=1, or a suite that needs them sets
-# harness.LOAD_ROOMS = True before its clients load): 60 mock clients holding them each run out of memory. Without
-# them the board acts as after an update that brought new files: no 2D / 3D switch. The Raid Trainer's own floors
-# (*Floor.lua) and Render3D/Rooms/Index.lua always load.
+# The 3D room data is an addon of its own, loaded on demand (DisasterZone_Rooms, next to the addon folder): the mock's
+# LoadAddOn runs its files when the addon asks (Render3D/Rooms.lua R3.LoadData), with a namespace of its own.
+# DISASTERZONE_ROOMS_DIR points at another copy; a copy of the addon without one next to it (a staged release tree)
+# uses the live one.
+ROOMS_NAME = "DisasterZone_Rooms"
+ROOMS_DIR = os.environ.get("DISASTERZONE_ROOMS_DIR") or os.path.join(
+    os.path.dirname(os.path.normpath(r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone")), ROOMS_NAME)
+# Of it, the strategy board's rooms (Rooms/<Raid>_<Boss>.lua, ~12 MB of packed text) are left out unless LOAD_ROOMS is
+# on (env DISASTERZONE_ROOMS=1, or a suite that needs them sets harness.LOAD_ROOMS = True before its clients load
+# them): 60 mock clients holding them each run out of memory. Without them the board acts as after an update that
+# brought new files: no 2D / 3D switch. The Raid Trainer's own floors (*Floor.lua) and the stand-ins always load.
 LOAD_ROOMS = os.environ.get("DISASTERZONE_ROOMS") == "1"
 
 
@@ -55,8 +61,17 @@ def in_shard(position):
 
 
 def is_board_room(rel):
+    """A strategy board room file of DisasterZone_Rooms (Rooms/<Raid>_<Boss>.lua)."""
     rel = rel.replace("\\", "/")
-    return rel.startswith("Render3D/Rooms/") and "_" in rel.rsplit("/", 1)[-1]
+    return rel.startswith("Rooms/") and "_" in rel.rsplit("/", 1)[-1]
+
+
+def rooms_dir_for(addon_dir):
+    """The DisasterZone_Rooms folder that goes with an addon folder: next to it, else ROOMS_DIR."""
+    if os.environ.get("DISASTERZONE_ROOMS_DIR"):
+        return ROOMS_DIR
+    sib = os.path.join(os.path.dirname(os.path.normpath(addon_dir)), ROOMS_NAME)
+    return sib if os.path.isdir(sib) else ROOMS_DIR
 
 
 MOCK_DIR = os.path.join(HERE, "wowmock")
@@ -1255,7 +1270,7 @@ class Client:
     def __init__(self, world, name, realm=None, class_file="PALADIN", guild="Casual Disaster", guild_rank=3,
                  online=True, level=70, race="Human", faction="Alliance", sex=2, talents=(41, 20, 0),
                  legacy_globals=False, permissive_fields=False, items_uncached=False, preload_lua=None,
-                 addon_dir=None, other_addons=(), bank_requires_open=True, sv_before_files=None):
+                 addon_dir=None, other_addons=(), bank_requires_open=True, sv_before_files=None, lod_addons=None):
         """One simulated player = one Lua runtime. Created online (runtime ready, addon not yet loaded) unless
         online=False (call .login() later). legacy_globals=True defines deprecation-gated globals (GetItemInfo,
         GetContainer*, GetAddOnMetadata, GuildRoster, GetLootMethod). permissive_fields=True makes unknown frame
@@ -1263,7 +1278,9 @@ class Client:
         asynchronously (first query returns nil + GET_ITEM_INFO_RECEIVED/ITEM_DATA_LOAD_RESULT next tick).
         sv_before_files: when SavedVariables are assigned. None (default) follows the TOC: before the addon files
         run with "## LoadSavedVariablesFirst: 1", else after them, right before ADDON_LOADED (WoW's classic order).
-        True / False force one order (False = a client that ignores the directive)."""
+        True / False force one order (False = a client that ignores the directive).
+        lod_addons: {name: folder} of the load-on-demand addons installed next to it (default: DisasterZone_Rooms,
+        rooms_dir_for(addon_dir)); {} = not installed."""
         self.world = world
         self.name = name
         self.realm = realm or world.realm
@@ -1287,6 +1304,7 @@ class Client:
         self.other_addons = list(other_addons)
         self.bank_requires_open = bank_requires_open
         self.sv_before_files = sv_before_files
+        self.lod_addons = dict(lod_addons) if lod_addons is not None else {ROOMS_NAME: rooms_dir_for(self.addon_dir)}
         self.index = next(Client._index)
         self.time_offset = 1000.0 + 137.25 * self.index
         self.online = bool(online)
@@ -1345,6 +1363,7 @@ class Client:
             "convert_to_raid": lambda: self.world.convert_to_raid(self),
             "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
             "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),
+            "load_lod": self._py_load_lod,
         })
         sources = rt.table_from(_mock_sources())
         res = rt.globals().loadstring(_read(os.path.join(MOCK_DIR, "mock.lua")), "@wowmock/mock.lua")
@@ -1455,6 +1474,10 @@ class Client:
         headers, files = self.toc()
         self._set_time()
         self.M.set_toc_meta(self.addon_name, to_lua(self.runtime, headers))
+        if self.addon_name == ADDON_NAME:
+            for name, folder in self.lod_addons.items():        # (installed: GetAddOnInfo knows it, not loaded)
+                if os.path.exists(os.path.join(folder, name + ".toc")):
+                    self.M.set_toc_meta(name, to_lua(self.runtime, parse_toc(folder, name)[0]))
         sv_first = self.sv_before_files
         if sv_first is None:
             sv_first = (headers.get("loadsavedvariablesfirst") or "").lower() in ("1", "true")
@@ -1466,8 +1489,6 @@ class Client:
         if sv_first:
             self._apply_saved(headers)
         missing = []
-        if not LOAD_ROOMS:
-            files = [f for f in files if not is_board_room(f)]
         for rel in files:
             if rel.lower().endswith(".xml"):
                 if not os.path.exists(os.path.join(self.addon_dir, rel)):
@@ -1505,16 +1526,36 @@ class Client:
         the next load_addon()/login() will assign."""
         self.world.saved.setdefault(self.full_name, {})[name] = lua_source
 
-    def _load_one(self, rel, missing):
-        chunkname = "@Interface/AddOns/%s/%s" % (self.addon_name, rel.replace("\\", "/"))
-        src = _chunk(os.path.join(self.addon_dir, rel), chunkname)  # re-checked per boot: agents edit while tests run
+    def _load_one(self, rel, missing, addon=None, folder=None, ns=None):
+        addon, folder = addon or self.addon_name, folder or self.addon_dir
+        chunkname = "@Interface/AddOns/%s/%s" % (addon, rel.replace("\\", "/"))
+        src = _chunk(os.path.join(folder, rel), chunkname)  # re-checked per boot: agents edit while tests run
         if src is None:
             missing.append(rel)
             return
         if self._cover_table is not None:
-            self._cover_table(hashlib.sha1(rel.replace("\\", "/").encode("utf-8")).hexdigest()[:10])
+            tag = rel.replace("\\", "/") if addon == self.addon_name else addon + "/" + rel.replace("\\", "/")
+            self._cover_table(hashlib.sha1(tag.encode("utf-8")).hexdigest()[:10])
         self._set_time()
-        self.M.load_file(src, chunkname, self.addon_name)
+        self.M.load_file(src, chunkname, addon, ns)
+
+    def _py_load_lod(self, name):
+        """The mock's LoadAddOn for an addon not loaded yet: (true) after its files ran with a namespace of their own
+        and ADDON_LOADED fired, or (false, reason). DisasterZone_Rooms leaves out the board's rooms unless LOAD_ROOMS."""
+        folder = self.lod_addons.get(name)
+        if not folder or not os.path.exists(os.path.join(folder, name + ".toc")):
+            return False, "MISSING"
+        headers, files = parse_toc(folder, name)
+        if name == ROOMS_NAME and not LOAD_ROOMS:
+            files = [f for f in files if not is_board_room(f)]
+        ns = self.runtime.table()
+        missing = []
+        for rel in files:
+            self._load_one(rel, missing, addon=name, folder=folder, ns=ns)
+        if missing:
+            self.load_warnings.append("%s: skipped %d missing file(s): %s" % (name, len(missing), ", ".join(missing)))
+        self.M.addon_loaded(name)
+        return True, None
 
     def load_files(self, files, fire_login=False, addon_name=ADDON_NAME):
         """Load specific files (relative to the addon folder, or absolute) with (addon_name, ns). With

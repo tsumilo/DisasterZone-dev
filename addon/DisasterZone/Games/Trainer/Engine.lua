@@ -74,8 +74,7 @@ end
 function T:GetEncounter(id) return encs[id] end
 
 -- A floor's height function from a generated height grid (ns.RoomFloors, alias ns.TrainerFloors: one letter per
--- square yard, rows south to north), the shared one in Render3D/Rooms.lua; nil without a grid (the floor files come
--- with Render3D, so without it there is none).
+-- square yard, rows south to north), the shared one in Render3D/Rooms.lua; nil without a grid.
 function T.HeightFn(grid)
     local R3 = ns.Render3D
     return grid and R3 and R3.HeightFn and R3.HeightFn(grid) or nil
@@ -160,9 +159,26 @@ end
 local Sim = {}
 Sim.__index = Sim
 
+-- An arena on a generated floor (arena.floor: its key in ns.TrainerFloors) gets the floor's height, mesh and ground
+-- (and with arena.walkableFloor its outline as arena.walkable) the first time it is played: the floor files are the
+-- room data addon's (Render3D/Rooms.lua R3.LoadData), not loaded at login. Without them the arena stays flat.
+function T.FillArena(arena)
+    if not (arena and arena.floor) or arena.filled then return end
+    arena.filled = true
+    local R3 = ns.Render3D
+    if R3 and R3.LoadData then R3.LoadData() end
+    local grid = ns.TrainerFloors and ns.TrainerFloors[arena.floor]
+    if not grid then return end
+    arena.height = T.HeightFn(grid)
+    arena.mesh = grid.mesh
+    arena.ground = T.GroundFn(grid.walk)
+    if arena.walkableFloor then arena.walkable = T.WalkableFn(grid) end
+end
+
 function T:NewSim(encId, diffId, seed)
     local enc = encs[encId]
     if not enc then return nil end
+    T.FillArena(enc.arena)
     seed = floor(tonumber(seed) or ((GetTime() * 1000) % 2147483646)) % 2147483646 + 1
     local sim = setmetatable({
         enc = enc, diff = T:GetDifficulty(enc, diffId),

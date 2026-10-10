@@ -307,9 +307,7 @@ T:RegisterEncounter("teron", {
     -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
     displays = DISPLAYS,
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
-              height = T.HeightFn(ns.TrainerFloors and ns.TrainerFloors.teron),
-              mesh = ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.mesh,
-              ground = T.GroundFn(ns.TrainerFloors and ns.TrainerFloors.teron and ns.TrainerFloors.teron.walk),
+              floor = "teron",           -- (height, mesh, ground: T.FillArena, when first played)
               -- the client's own minimap of the hall (world/minimaps/wmo/.../blacktemple_031_00_00: 2 pixels a
               -- yard from the group's corner at local -675.07 / -817.63; the hall is turned half round)
               minimap = { { file = 211944, x0 = -615 - (-675.068 + 64), y0 = -759 - (-817.626 + 128),

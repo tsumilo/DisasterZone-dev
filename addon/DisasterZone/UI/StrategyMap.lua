@@ -818,7 +818,8 @@ end
 
 function Canvas:Is3D() return self.v3 ~= nil and self.v3:IsOn() end
 
--- The room this page can be drawn in, or nil and why not ("restart" / "none" / "map": StrategyMap3D:RoomFor).
+-- The room this page can be drawn in, or nil and why not ("restart" / "rooms" / "none" / "map":
+-- StrategyMap3D:RoomFor).
 function Canvas:Room3D()
     local M3 = ns.StrategyMap3D
     if not (M3 and M3.RoomFor) then return nil, "restart" end

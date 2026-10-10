@@ -52,7 +52,10 @@ Blessings.BLESS_BY_ID, Blessings.AURA_BY_ID = BLESS_BY_ID, AURA_BY_ID
 Blessings.pals = {}              -- [wire name] = paladin record (see NewPal)
 Blessings.ppLeader = false       -- a leader of the group announced Pally Power (PPLEADER)
 
+local demo                       -- demo mode's made-up raid (BuildDemo), in memory only
+
 local function DB()
+    if demo and Blessings:IsDemo() then return demo.store end
     local db = ns.db
     if not db then return nil end
     db.blessings = db.blessings or {}
@@ -100,8 +103,20 @@ function Blessings:Me()
 end
 
 function Blessings:IsPaladin()
+    if self:IsDemo() then return true end
     local _, cls = UnitClass("player")
     return cls == "PALADIN"
+end
+
+-- Demo mode (Core/Demo.lua): a made-up 25-man raid with four paladins, me one of them and leading. Edits stay in
+-- memory; nothing is sent, scanned or cast.
+function Blessings:IsDemo()
+    return ns.ClassKit and ns.ClassKit:IsDemo() or false
+end
+
+-- In a group (or the demo's raid)?
+function Blessings:InGroup()
+    return self:IsDemo() or IsInGroup()
 end
 
 local function SpellName(id)
@@ -124,18 +139,20 @@ function Blessings:AuraName(ai)
     return SpellName(a.ranks[1]) or (a.short .. " Aura")
 end
 
+-- (the client's own icon files, Data/Classes/Paladin.lua; the spell's texture only when a blessing has none there)
 function Blessings:BlessingIcon(bi, greater)
     local b = D.BLESSINGS[bi]
     if not b then return nil end
+    if greater and b.gicon then return b.gicon end
+    if b.icon then return b.icon end
     local ranks = greater and b.granks or b.ranks
-    local tex = ranks and ranks[1] and GetSpellTexture and GetSpellTexture(ranks[1][1])
-    return tex or (greater and b.gicon) or b.icon
+    return ranks and ranks[1] and GetSpellTexture and GetSpellTexture(ranks[1][1])
 end
 
 function Blessings:AuraIcon(ai)
     local a = D.AURAS[ai]
     if not a then return nil end
-    return (GetSpellTexture and GetSpellTexture(a.ranks[1])) or a.icon
+    return a.icon or (GetSpellTexture and GetSpellTexture(a.ranks[1]))
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -191,6 +208,7 @@ end
 
 -- Reads my own blessings, auras, talents and Symbols into my paladin record; true when anything changed.
 function Blessings:ScanSelf()
+    if self:IsDemo() then return false end
     local me = self:Me()
     if not me or not self:IsPaladin() then return false end
     local p = Pal(me, true)
@@ -257,6 +275,7 @@ end
 -- The spec a paladin plays, best guess: mine from my talents, others from the raid plan, else from what their
 -- blessings say (Sanctuary = Protection, Improved Might 3+ = Retribution, else Holy).
 function Blessings:SpecOf(name)
+    if self:IsDemo() and demo and demo.specs[name] then return demo.specs[name] end
     if name == self:Me() then
         local mine = ns.ClassKit and ns.ClassKit:MySpecs()
         if mine and mine[1] then return mine[1] end
@@ -285,6 +304,7 @@ end
 -- Who leads, as Pally Power counts it: raid leader and assistants in a raid, the party leader in a party, nobody
 -- in a battleground.
 function Blessings:IsLeader(name)
+    if self:IsDemo() then return name ~= nil and name == self:Me() end
     if not name or InInstanceGroup() then return false end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
@@ -305,6 +325,7 @@ function Blessings:AmLeader() return self:IsLeader(self:Me()) end
 
 -- The leader's name (raid leader or party leader), for "X assigns".
 function Blessings:LeaderName()
+    if self:IsDemo() then return self:Me() end
     if not IsInGroup() then return nil end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
@@ -324,6 +345,7 @@ end
 -- May I change this paladin's assignments?
 function Blessings:CanEdit(name)
     if not name then return false end
+    if self:IsDemo() then return true end
     if name == self:Me() then return true end
     local p = self.pals[name]
     if InInstanceGroup() then return p and p.free or false end
@@ -340,6 +362,7 @@ end
 
 -- Group members (and pets): { unit, name, class, ci, subgroup, level, pet, tank, online, dead }, in roster order.
 function Blessings:Roster()
+    if self:IsDemo() and demo then return demo.roster end
     local out = {}
     local pets = Setting("pets", true)
     local function add(unit, subgroup, role, isPet)
@@ -599,10 +622,16 @@ Blessings.WANT = WANT
 -- A tank's single blessing instead of Salvation, best first
 local TANK_SWAP = { 6, 5, 2, 1, 3 }
 
+-- rank + talent (Pally Power's score); a half point more for the spec it suits when that is all that differs
 local function Score(p, bi)
     local b = p.bless[bi]
     if not b then return nil end
-    return (b[1] or 0) + (b[2] or 0)
+    local s = (b[1] or 0) + (b[2] or 0)
+    if bi == 2 or bi == 1 then
+        local spec = Blessings:SpecOf(p.name)
+        if (bi == 2 and spec == "Retribution") or (bi == 1 and spec == "Holy") then s = s + 0.5 end
+    end
+    return s
 end
 
 -- A plan for the paladins I may change (the others keep theirs and count as given). Returns the plan Apply takes.
@@ -686,18 +715,20 @@ function Blessings:AutoPlan(roster)
         if m.tank and not m.pet then
             for _, p in ipairs(pals) do
                 if plan.assign[p.name][m.ci] == 4 then
-                    local swap
+                    -- the first that nobody gives this class yet, else the first this paladin has (Wisdom only for
+                    -- a paladin tank)
+                    local swap, fallback
                     for _, bi in ipairs(TANK_SWAP) do
-                        if p.bless[bi] and not (bi == 1 and m.class ~= "PALADIN" and m.class ~= "DRUID") then
+                        if p.bless[bi] and (bi ~= 1 or m.class == "PALADIN") then
                             local dup = false
                             for _, q in ipairs(pals) do
                                 if q ~= p and plan.assign[q.name][m.ci] == bi then dup = true end
                             end
-                            if not dup or not swap then swap = swap or (not dup and bi) end
-                            if swap then break end
+                            if not dup then swap = bi break end
+                            fallback = fallback or bi
                         end
                     end
-                    swap = swap or (p.bless[5] and 5) or nil
+                    swap = swap or fallback
                     if swap then
                         plan.single[p.name] = plan.single[p.name] or {}
                         plan.single[p.name][m.ci] = plan.single[p.name][m.ci] or {}
@@ -752,6 +783,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Seconds left of blessing bi on unit (normal or Greater, any caster), nil when it has none; isGreater.
 function Blessings:BuffLeft(unit, bi)
+    if self:IsDemo() and demo then return demo.buff(unit, bi) end
     if not UnitAura then return nil end
     for i = 1, 40 do
         local name, _, _, _, _, expires, _, _, _, spellId = UnitAura(unit, i, "HELPFUL")
@@ -830,6 +862,10 @@ function Blessings:ReportLines()
 end
 
 function Blessings:Report()
+    if self:IsDemo() then
+        for _, line in ipairs(self:ReportLines()) do ns:Print("(demo) %s", line) end
+        return true
+    end
     if not IsInGroup() then return false end
     local chan = IsInRaid() and "RAID" or "PARTY"
     if InInstanceGroup() then chan = "INSTANCE_CHAT" end
@@ -895,10 +931,11 @@ function Blessings:Channel()
 end
 
 function Blessings:SendRaw(msg, target)
+    if self:IsDemo() then return false end
     local chan = target and "WHISPER" or self:Channel()
     if not chan then return false end
     if #msg > 255 then msg = strsub(msg, 1, 255) end
-    local CTL = ChatThrottleLib
+    local CTL = _G.ChatThrottleLib     -- (comes with AceComm-3.0)
     if CTL and CTL.SendAddonMessage then
         CTL:SendAddonMessage("NORMAL", PREFIX, msg, chan, target)
     elseif C_ChatInfo and C_ChatInfo.SendAddonMessage then
@@ -978,13 +1015,8 @@ Blessings.MayEdit = MayEdit
 
 local HANDLERS = {}
 
-HANDLERS.REQ = function(sender)
-    if IsInRaid() and InInstanceGroup() then
-        Blessings:SendSelf()
-    else
-        Blessings:SendSelf(Blessings:IsLeader(sender) and nil or sender)
-    end
-end
+-- REQ: answered in OnMessage (a whisper back to whoever asked, unless they lead or this is a battleground)
+HANDLERS.REQ = function() end
 
 HANDLERS.PPLEADER = function(sender, msg)
     local name = strmatch(msg, "^PPLEADER (.+)$")
@@ -1104,14 +1136,91 @@ function Blessings:OnMessage(text, channel, senderFull)
     local sender = Util.ShortName(key)
     local kind = strmatch(text, "^(%u+)")
     local fn = kind and HANDLERS[kind]
-    if fn then
-        local whisperTo = channel == "WHISPER" and senderFull or nil
-        if kind == "REQ" then
-            Blessings:SendSelf((not (IsInRaid() and InInstanceGroup()) and not Blessings:IsLeader(sender)) and senderFull or nil)
-            return
-        end
-        fn(sender, text, whisperTo)
+    if kind == "REQ" then
+        local broadcast = (IsInRaid() and InInstanceGroup()) or Blessings:IsLeader(sender)
+        Blessings:SendSelf(not broadcast and senderFull or nil)
+    elseif fn then
+        fn(sender, text)
     end
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Demo mode: a made-up 25-man Black Temple raid (the mockup's): four paladins with me as Gina's stand-in and the
+-- leader, tanks on Light instead of Salvation, a hunter missing Might, two mages missing Salvation, the priests'
+-- Wisdom running out, two paladins on Devotion in one party
+-- ---------------------------------------------------------------------------------------------------------------
+local DEMO_CLASSES = {
+    { "WARRIOR", { "Victhar", "Brakka", "Kordan", "Ulfric" } }, { "ROGUE", { "Shadowmelder", "Vexis" } },
+    { "HUNTER", { "Faelar", "Tarrow" } }, { "DRUID", { "Moonwhisper", "Rhosyn", "Quillon" } },
+    { "SHAMAN", { "Stormfist", "Thunderhoofx" } }, { "PALADIN", { "Caelith", "Lightbringer", "Sunniva", "@me" } },
+    { "PRIEST", { "Isolde", "Nyxa", "Seraphel" } }, { "MAGE", { "Embera", "Frostweaver", "Kaelwyn" } },
+    { "WARLOCK", { "Grumpykat", "Morrigan" } },
+}
+
+local function BuildDemo()
+    local me = Blessings:Me() or "You"
+    local d = { pals = {}, roster = {}, byUnit = {}, specs = {}, started = GetTime(),
+        store = { assign = {}, single = {}, aura = {}, presets = {} } }
+    local i = 0
+    for _, e in ipairs(DEMO_CLASSES) do
+        for _, n in ipairs(e[2]) do
+            local orig = n
+            n = (n == "@me") and me or (n == me and "Thorgrim") or n   -- (my own name is taken by my paladin)
+            i = i + 1
+            local m = { unit = "dzdemo" .. i, name = n, class = e[1], ci = CLASS_INDEX[e[1]],
+                subgroup = floor((i - 1) / 5) + 1, level = 70, online = true, dead = false, demo = true,
+                tank = (orig == "Victhar" or orig == "Caelith" or orig == "Moonwhisper") or nil }
+            if n == "Caelith" or n == "Lightbringer" then m.subgroup = 1 end
+            d.roster[#d.roster + 1] = m
+            d.byUnit[m.unit] = m
+        end
+    end
+    -- who has what: everyone 25 min left, but for the gaps above (the priests' Wisdom ticks down with the clock)
+    d.buff = function(unit, bi)
+        local m = d.byUnit[unit]
+        if not m then return nil end
+        if m.name == "Tarrow" and bi == 2 then return nil end
+        if (m.name == "Embera" or m.name == "Kaelwyn") and bi == 4 then return nil end
+        if m.class == "PRIEST" and bi == 1 then return max(5, 185 - (GetTime() - d.started)) end
+        return 1500 - ((GetTime() - d.started) % 600)
+    end
+    local function pal(name, spec, bless, aura, sym)
+        d.pals[name] = { name = name, bless = bless, aura = aura, symbols = sym, free = false, cd = {}, seen = GetTime(),
+            me = name == me or nil }
+        d.specs[name] = spec
+    end
+    pal("Caelith", "Protection", { { 7, 0 }, { 8, 0 }, { 1, 0 }, { 1, 0 }, { 4, 0 }, { 5, 1 } },
+        { { 8, 5 }, { 6, 0 }, { 1, 0 }, { 4, 0 }, { 4, 0 }, { 4, 0 } }, 142)
+    pal("Sunniva", "Retribution", { { 7, 0 }, { 8, 5 }, nil, { 1, 0 }, { 4, 0 } },
+        { { 8, 0 }, { 6, 0 }, { 1, 0 }, [7] = { 1, 0 } }, 88)
+    pal(me, "Holy", { { 7, 2 }, { 8, 0 }, nil, { 1, 0 }, { 4, 0 } }, { { 8, 0 }, { 6, 0 }, { 1, 3 } }, 196)
+    pal("Lightbringer", "Holy", { { 7, 1 }, { 8, 0 }, nil, { 1, 0 }, { 4, 0 } }, { { 8, 0 }, { 6, 0 }, { 1, 0 } }, 12)
+    local s = d.store
+    local function row(name, list)
+        s.assign[name] = {}
+        for j, cls in ipairs(D.DISPLAY) do s.assign[name][CLASS_INDEX[cls]] = list[j] end
+    end
+    row("Caelith", { 3, 3, 3, 3, 3, 3, 3, 3, 3 })
+    row("Sunniva", { 2, 2, 2, 2, 2, 2, 5, 5, 5 })
+    row(me, { 5, 5, 1, 1, 1, 1, 1, 1, 1 })
+    row("Lightbringer", { 4, 4, 4, 4, 4, 4, 4, 4, 4 })
+    local function demoName(n) return n == me and "Thorgrim" or n end
+    s.single.Lightbringer = { [1] = { [demoName("Victhar")] = 5 }, [5] = { Caelith = 5 }, [4] = { [demoName("Moonwhisper")] = 5 } }
+    s.aura = { Caelith = 1, Sunniva = 7, [me] = 3, Lightbringer = 1 }
+    return d
+end
+
+local realPals
+function Blessings:OnDemoToggled(on)
+    if on then
+        demo = BuildDemo()
+        realPals = realPals or self.pals
+        self.pals = demo.pals
+    else
+        if realPals then self.pals = realPals end
+        realPals, demo = nil, nil
+    end
+    Changed()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -1134,10 +1243,13 @@ function Blessings:PruneRoster()
     if changed then Changed() end
 end
 
-local function Hello()
-    if not IsInGroup() then return end
+-- Says hello on joining a group: who I am, and (paladins, leaders, or with the planner open) asks the others. Every
+-- paladin answers a REQ with a whisper, so the rest of the raid does not ask until it looks.
+local function Hello(force)
+    if Blessings:IsDemo() or not IsInGroup() then return end
     Blessings:SendSelf()
-    Blessings:SendRaw("REQ")
+    local planner = ns.BlessingsUI and ns.BlessingsUI:IsShown()
+    if force or planner or Blessings:IsPaladin() or Util.IsPlayerLeaderOrAssist() then Blessings:SendRaw("REQ") end
 end
 Blessings.Hello = Hello
 
@@ -1164,6 +1276,8 @@ function Blessings:OnLogin()
         if prefix == PREFIX then Blessings:OnMessage(text, channel, sender) end
     end)
     if self:IsPaladin() then self:ScanSelf() end
+    ns:On("DEMO_TOGGLED", function(on) Blessings:OnDemoToggled(on) end)
+    if self:IsDemo() then self:OnDemoToggled(true) end
     local wasInGroup = IsInGroup()
     ns:RegisterEvent("GROUP_ROSTER_UPDATE", function()
         local now = IsInGroup()

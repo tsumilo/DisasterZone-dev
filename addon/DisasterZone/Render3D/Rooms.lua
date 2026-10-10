@@ -2,11 +2,13 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Rooms.lua", ...) then ret
 -- ns.Render3D rooms: the boss rooms the 3D views can draw (Blizzard's own meshes), which strategy bosses use them, and
 -- where each lies on the strategy board's floor map, so a drawing on the 2D map and the same drawing in the room are
 -- one spot.
---  * The strategy board's rooms: one per encounter, Render3D/Rooms/<Raid>_<Boss>.lua (data format 3: packed, see
---    R3.Floor) and Render3D/Rooms/Index.lua (ns.Render3D.ROOM_INDEX), made by dev/generators/gen_rooms.py from the
---    area each encounter's starter strategy shows on its floor map.
---  * The Raid Trainer's own rooms: Render3D/Rooms/TeronGorefiendFloor.lua and LadyVashjFloor.lua (format 2: plain
---    tables, read at load time; dev/generators/gen_trainer_heights.py).
+--  * The strategy board's rooms: one per encounter, DisasterZone_Rooms/Rooms/<Raid>_<Boss>.lua (data format 3:
+--    packed, see R3.Floor) and Render3D/Rooms/Index.lua (ns.Render3D.ROOM_INDEX), made by dev/generators/gen_rooms.py
+--    from the area each encounter's starter strategy shows on its floor map.
+--  * The Raid Trainer's own rooms: DisasterZone_Rooms/Rooms/TeronGorefiendFloor.lua and LadyVashjFloor.lua (format
+--    2: plain tables; dev/generators/gen_trainer_heights.py).
+--  The room files (and their stand-ins) are the load-on-demand addon DisasterZone_Rooms, read the first time a room
+--  is drawn (R3.LoadData): the index is here, so which bosses have a room is known without them.
 --
 -- Room coordinates ("arena"): yards, x east, y north, height 0 = the room's main floor (a board room's: the boss').
 -- The board: 1000 x 666 units over a shipped 1024 x 683 floor map that the page pans (vx, vy) and zooms (vz) as
@@ -82,10 +84,72 @@ function R3.RoomForBoss(bossRef)
     return type(bossRef) == "string" and byBoss[bossRef] or nil
 end
 
--- Is a room's floor file there (without unpacking it)?
+-- The room data: the addon DisasterZone_Rooms (load on demand, 18 MB of packed text in Lua memory once loaded),
+-- shipped in the same zip and made with the index above. Loaded the first time a room is drawn, and kept.
+R3.DATA_ADDON = "DisasterZone_Rooms"
+local dataState, dataWhy                 -- nil: not tried yet; true; false and the client's reason
+
+local function AddOnApi(name) return (C_AddOns and C_AddOns[name]) or _G[name] end
+
+-- Is the room data loaded? (Never loads it.)
+function R3.DataLoaded()
+    if dataState then return true end
+    local isLoaded = AddOnApi("IsAddOnLoaded")
+    return isLoaded ~= nil and isLoaded(R3.DATA_ADDON) and true or false
+end
+
+-- Can the room data be loaded, without loading it? -> true, or false and why: "MISSING" (the folder is not
+-- installed), "DISABLED" (turned off in the AddOn list), or the client's other reason.
+function R3.DataAvailable()
+    if R3.DataLoaded() then return true end
+    if dataState == false then return false, dataWhy end
+    local info = AddOnApi("GetAddOnInfo")
+    if not info then return true end                   -- (cannot tell: LoadData will)
+    local name, _, _, loadable, reason = info(R3.DATA_ADDON)
+    if not name then return false, "MISSING" end
+    if loadable == false or reason == "DISABLED" or reason == "MISSING" then return false, reason or "DISABLED" end
+    return true
+end
+
+-- Loads the room data (once). -> true when it is in; false and why when it cannot be (as R3.DataAvailable).
+function R3.LoadData()
+    if dataState ~= nil then return dataState, dataWhy end
+    if R3.DataLoaded() then
+        dataState = true
+        return true
+    end
+    local load = AddOnApi("LoadAddOn")
+    local ok, loaded, why = false, false, "UNAVAILABLE"
+    if load then ok, loaded, why = pcall(load, R3.DATA_ADDON) end
+    if ok and loaded then
+        dataState, dataWhy = true, nil
+    else
+        dataState, dataWhy = false, (ok and why) or "ERROR"
+    end
+    return dataState, dataWhy
+end
+
+-- What a member is told when the 3D rooms cannot be drawn because of the room data, or nil when that is not why.
+-- short: one line for a hint under a board.
+function R3.DataProblem(short)
+    local ok, why = R3.DataAvailable()
+    if ok then return nil end
+    if why == "MISSING" then
+        return short and "3D needs the DisasterZone_Rooms folder from the zip."
+            or "The 3D rooms come in the DisasterZone_Rooms folder: install the whole DisasterZone zip (both folders)."
+    end
+    return short and "3D needs DisasterZone 3D rooms ticked in the AddOn list."
+        or "The 3D rooms are in the DisasterZone_Rooms addon, which is turned off: tick it in the AddOn list."
+end
+
+-- Does a room have a floor? Before the room data is loaded: every room of the index does while the data can be
+-- loaded (both ship together), so the strategy board can show its 2D / 3D switch without loading 18 MB; after, the
+-- floor file itself is asked.
 function R3.HasFloor(room)
+    if room == nil then return false end
+    if not R3.DataLoaded() then return (R3.DataAvailable()) end
     local floors = ns.RoomFloors
-    return room ~= nil and floors ~= nil and floors[room.floor] ~= nil
+    return floors ~= nil and floors[room.floor] ~= nil
 end
 
 -- A packed floor (format 3) -> the format 2 tables: rows, mesh = { version = 2, textures, blend, verts, tris, nodes,
@@ -130,6 +194,8 @@ end
 local unpacked = {}                      -- floors unpacked, the most recent last
 local KEEP = 2
 function R3.Floor(room)
+    if not room then return nil end
+    R3.LoadData()
     local floors = ns.RoomFloors
     local f = room and floors and floors[room.floor]
     if not f then return nil end

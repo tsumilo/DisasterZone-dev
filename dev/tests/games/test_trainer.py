@@ -382,6 +382,11 @@ def the_room_is_the_real_hall_with_its_map_on_the_floor():
     # 0.436 yd a pixel of the 1009-wide map, scaled to 1024: the texture piece is as wide and tall as the hall
     yd_per_u = 440.0                                                 # the map's width in yards (world Y 135..575)
     assert abs((a[4] - a[3]) * yd_per_u - 60) < 1.5 and abs((a[6] - a[5]) * 512 / 683 * 293.4 - 58) < 1.5, a
+    # the floor comes from the room data addon (DisasterZone_Rooms, load on demand): filled in when first played
+    assert c.eval("local a = ns.Trainer:GetEncounter('teron').arena return a.height == nil and a.mesh == nil")
+    assert c.eval("return ns.Render3D.DataLoaded()") is False
+    c.eval("ns.Trainer.FillArena(ns.Trainer:GetEncounter('teron').arena)")
+    assert c.eval("return ns.Render3D.DataLoaded()") is True
     # the floor's real heights (Blizzard's geometry of the hall): flat round the walls, a pit 2.75 yd deep in the
     # middle of the north half with steps down its sides and a raised walkway into it from the south
     h = lambda x, y: c.eval_py("return ns.Trainer:GetEncounter('teron').arena.height(%f, %f)" % (x, y))

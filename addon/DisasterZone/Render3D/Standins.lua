@@ -288,8 +288,11 @@ function S.Prepare(rec)
     return set
 end
 
--- The data of a room, as loaded (nil without).
-local function Rec(key) return ns.RoomStandins and key and ns.RoomStandins[key] or nil end
+-- The data of a room (the room data addon is loaded first: Render3D/Rooms.lua R3.LoadData), nil without.
+local function Rec(key)
+    if not ns.RoomStandins and R3.LoadData then R3.LoadData() end
+    return ns.RoomStandins and key and ns.RoomStandins[key] or nil
+end
 
 -- The prepared set of a room (ns.RoomStandins[key]), made once per data table: rooms that are one room share their
 -- data table, and so their set. The last KEEP rooms used stay prepared - turning the mode off and on, or going back

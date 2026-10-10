@@ -449,8 +449,6 @@ local function Summary(sim)
     return out
 end
 
-local floorGrid = ns.TrainerFloors and ns.TrainerFloors.vashj
-
 T:RegisterEncounter("vashj", {
     name = "Lady Vashj",
     desc = "Phase 2: bring the Tainted Cores to the Shield Generators. You are one link of the chain.",
@@ -458,8 +456,7 @@ T:RegisterEncounter("vashj", {
     order = 20,
     displays = DISPLAYS,
     arena = { w = SIZE, h = SIZE, minimap = MINIMAP,
-              height = T.HeightFn(floorGrid), walkable = T.WalkableFn(floorGrid), mesh = floorGrid and floorGrid.mesh,
-              ground = T.GroundFn(floorGrid and floorGrid.walk) },
+              floor = "vashj", walkableFloor = true },     -- (height, mesh, ground, walkable: T.FillArena)
     difficulties = {
         { id = "all", name = "Any job (random)", role = "all" },
         { id = "looter", name = "Looter", role = "looter" },

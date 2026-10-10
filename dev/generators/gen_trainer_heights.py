@@ -12,7 +12,7 @@ The map's one WMO sits at the origin unturned, which makes world = (-local x, -l
 square round her with x east and y north (the game's world x is north, world y is west):
 arena x = local y - 923.27 + 105, arena y = -local x - 29.83 + 105, height = local z - 42.9 (her platform).
 
-Writes Render3D/Rooms/<Name>Floor.lua (shared by the Raid Trainer and the strategy board's 3D view):
+Writes DisasterZone_Rooms/Rooms/<Name>Floor.lua (shared by the Raid Trainer and the strategy board's 3D view):
   rows: one character per square yard, south to north, west to east: height = index in `alphabet` * step + base;
         a space = no floor there (not walkable);
   mesh: the room's own triangles (floor, steps, walls up to mesh_top yd; ceilings and what faces down left out),
@@ -47,7 +47,7 @@ import wmo_tools as W
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, "..", "art", "wmo")
-OUT_DIR = os.path.join(HERE, "..", "..", "addon", "DisasterZone", "Render3D", "Rooms")
+OUT_DIR = os.path.join(HERE, "..", "..", "addon", "DisasterZone_Rooms", "Rooms")    # (the load-on-demand room data)
 MAX_EDGE = 9.0
 FORMAT_VERSION = 2
 BLEND_NAMES = {0: "DISABLE", 1: "ALPHAKEY"}       # MOMT blend mode -> SetBlendMode; anything else is "BLEND"
@@ -678,9 +678,9 @@ def generate(name):
     pair, node_of = pair_tris(verts, mesh_tris, nodes)
     worst = self_check(name, textures, blends, verts, mesh_tris, nodes, pair, node_of)
     out = os.path.join(OUT_DIR, room["out"])
-    rel = "Render3D/Rooms/" + room["out"]
+    rel = "Rooms/" + room["out"]
     lines = [
-        'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (rel, rel),
+        '-- DisasterZone_Rooms %s' % rel,   # (no hot-patch guard: a floor ships with a full release)
         "-- %s, in its room's" % room["title"],
         "-- coordinates (yards, x east, y north, height 0 = the main floor).",
         "-- rows: the floor's height, one character per square yard, south to north, west to east:",

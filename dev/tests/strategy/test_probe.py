@@ -55,7 +55,7 @@ _parse_toc = harness.parse_toc
 
 def _toc_with_probe(addon_dir, addon_name=harness.ADDON_NAME):
     headers, files = _parse_toc(addon_dir, addon_name)
-    if PROBE not in files:
+    if PROBE not in files and addon_name == harness.ADDON_NAME:      # (not DisasterZone_Rooms' TOC)
         anchor = "Render3D/Rooms.lua" if "Render3D/Rooms.lua" in files else "Render3D/View.lua"
         i = files.index(anchor) + 1
         files = files[:i] + [PROBE] + files[i:]

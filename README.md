@@ -10,6 +10,7 @@ The guild-facing documentation is in `addon/DisasterZone/README.md`.
 ```
 CDLoot-dev/
   addon/DisasterZone/   -> JUNCTION to C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone  (the live addon)
+  addon/DisasterZone_Rooms/ -> JUNCTION to ...\AddOns\DisasterZone_Rooms  (the 3D room data, a load-on-demand addon)
   dev/
     docs/         SPEC.md + SPEC_ADDENDUM_A..H.md (design), research/ (api.md = verified 2.5.6 API notes),
                   impl/ (per-phase implementation, fix and review reports)
@@ -32,11 +33,14 @@ CDLoot-dev/
 
 No `.git` or dev files end up in the AddOns folder you share with the guild.
 
-**Warning:** delete the junction with `rmdir addon\DisasterZone` (cmd) only. Never use a recursive delete (Explorer "delete", `rm -rf`, `Remove-Item -Recurse`): those can follow the junction and **delete the real addon**.
+`addon/DisasterZone_Rooms` is the same kind of junction, for the second addon folder: the 3D rooms, their stand-ins and the Raid Trainer's floors (dev/generators/gen_rooms.py, gen_standins.py, gen_trainer_heights.py write there). DisasterZone loads it on demand (Render3D/Rooms.lua R3.LoadData); `release.py full` zips both folders, and room changes never travel as an in-game update.
+
+**Warning:** delete a junction with `rmdir addon\DisasterZone` (cmd) only. Never use a recursive delete (Explorer "delete", `rm -rf`, `Remove-Item -Recurse`): those can follow the junction and **delete the real addon**.
 
 If the junction is ever missing, recreate it (PowerShell):
 ```
 New-Item -ItemType Junction -Path C:\Users\emilo\CDLoot-dev\addon\DisasterZone -Target "C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
+New-Item -ItemType Junction -Path C:\Users\emilo\CDLoot-dev\addon\DisasterZone_Rooms -Target "C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone_Rooms"
 ```
 
 ## Setup (once, or after deleting `dev\luaenv`)

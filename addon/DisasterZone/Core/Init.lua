@@ -219,6 +219,8 @@ local KNOWN_MESSAGES = {
     SWING_STATE = true, SWING_VALUES = true, SWING_REPORT = true,
     -- Core/ClassKit.lua: the player's spec may have changed (class tools re-check ClassKit:IsMine)
     CLASSKIT_CHANGED = true,
+    -- Core/Blessings.lua: the blessings plan, a paladin, or who has which blessing changed
+    BLESSINGS_CHANGED = true,
     -- Addendum A §19: roll sessions (Core/Roll.lua)
     ROLL_UPDATED = true,   -- (sessionID) any change: start, roll, response, close, award, cancel
     ROLL_STARTED = true,   -- (session) a roll session opened (raider popup)

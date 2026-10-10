@@ -320,7 +320,7 @@ end
 function HUD:UpdateVisibility()
     if not frame then return end
     local show = ST.active and (not Get("locked", true) or Get("idle", false) or InCombatLockdown()
-        or UnitAffectingCombat("player"))
+        or UnitAffectingCombat("player") or ST:IsDemo())
     frame:SetShown(show and true or false)
 end
 
@@ -547,7 +547,8 @@ function HUD:OnLogin()
 end
 
 -- The kit's Settings section (UI/Settings.lua gives every class tool one; this one shows for Retribution only).
-if ns.ClassKit then ns.ClassKit:Extend("swing", { settings = function(S, sec)
+if ns.ClassKit then ns.ClassKit:Extend("swing", { iconPath = "Interface\\Icons\\Spell_Holy_SealOfBlood",
+    settings = function(S, sec)
     S:SwitchSetting(sec, "Swing timer", "Seal twisting for Retribution: when to press Seal of Blood, and what fits between.",
         "swing.enabled", true, "Only shows on a Retribution Paladin. /dz swing unlock lets you drag it.")
     S:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "bar", {

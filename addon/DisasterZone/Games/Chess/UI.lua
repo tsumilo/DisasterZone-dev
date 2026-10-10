@@ -1200,7 +1200,8 @@ local function ApplyBoardMode()
         if use3d then
             UI.hint:SetText("Click a piece, then its square.  Right-drag: turn the camera.  Wheel: zoom.")
         elseif state.restartNote then
-            UI.hint:SetText("Restart the game client once to see the Gamesman's Hall in 3D.")
+            UI.hint:SetText(state.restartNote == true and "Restart the game client once to see the Gamesman's Hall in 3D."
+                or state.restartNote)
         else
             UI.hint:SetText("Click a piece, then its square.  Right-click lets go.")
         end
@@ -1236,7 +1237,9 @@ function UI:CreatePanel(parent)
     flat = Flat.New(boardArea, OnSquare)
     board3d = ns.ChessBoard3D and ns.ChessBoard3D.New(boardArea, { onSquare = OnSquare })
     if not board3d and not (ns.ChessBoard3D and ns.ChessBoard3D.Available()) then
-        state.restartNote = true
+        -- (true: restart the client; a text: why the room data cannot load, Render3D/Rooms.lua R3.DataProblem)
+        local r3 = ns.Render3D
+        state.restartNote = r3 and r3.DataProblem and r3.DataProblem(true) or true
     end
     -- the board's own controls (over the board, top right)
     UI.modeButton = ns.UI:CreateSleekButton(boardArea, "Flat board", 84, 20, function()

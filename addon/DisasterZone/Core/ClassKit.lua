@@ -105,10 +105,18 @@ function ClassKit:MySpecs()
     return out
 end
 
--- True when the kit is for this character: its class, and one of its specs (any spec when it names none).
+-- Demo mode (Core/Demo.lua): every class tool is on for anyone, with made-up data, to try them out.
+function ClassKit:IsDemo()
+    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false
+end
+
+-- True when the kit is for this character: its class, and one of its specs (any spec when it names none); every
+-- kit in demo mode.
 function ClassKit:IsMine(key)
     local k = kits[key]
-    if not k or k.class ~= self:MyClass() then return false end
+    if not k then return false end
+    if self:IsDemo() then return true end
+    if k.class ~= self:MyClass() then return false end
     if not k.specs then return true end
     local mine = self:MySpecs()
     if #mine == 0 then return k.fallback and k.fallback() and true or false end
@@ -137,4 +145,14 @@ function ClassKit:OnLogin()
     ns:RegisterEvent("PLAYER_TALENT_UPDATE", changed)
     ns:RegisterEvent("CHARACTER_POINTS_CHANGED", changed)
     ns:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", changed)   -- skipped where the client has no dual spec
+    ns:On("DEMO_TOGGLED", changed)
+end
+
+-- Who a kit is for, in words: "Every Paladin spec", "Retribution Paladins".
+function ClassKit:ForWhom(key)
+    local k = kits[key]
+    if not k then return "" end
+    local cls = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[k.class]) or k.class
+    if not k.specs then return "Every " .. cls .. " spec" end
+    return table.concat(k.specs, " and ") .. " " .. cls .. "s"
 end

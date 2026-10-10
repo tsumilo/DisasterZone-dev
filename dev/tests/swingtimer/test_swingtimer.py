@@ -63,14 +63,20 @@ assert seq[0] == "judge@10.000" and seq[1] == "soc@10.000", seq
 seq = run(seal="soc", next=10.7, last=7.9, speed=2.8).split()
 assert seq[0] == "sob@10.271>10.7", seq
 
-# the Settings section is only there for a Retribution Paladin
+# Settings > Class tools: a card for every paladin; open for the Retribution Paladin, closed ("not your spec") for
+# the Protection one; SelectSection('swing') opens Class tools at the card
 for c in (ret, prot):
     c.slash("/dz settings")
 w.tick(0.5)
-assert ret.eval("return ns.SettingsUI.nav.swing:IsShown()") is True
-assert prot.eval("return ns.SettingsUI.nav.swing:IsShown()") is False
+assert ret.eval("return ns.SettingsUI:KitShown('swing')") is True
+assert prot.eval("return ns.SettingsUI:KitShown('swing')") is True
+CARD = ("for _, c in ipairs(ns.SettingsUI.sections.classtools.cards) do if c.kit.key == 'swing' then "
+        "return c.body:IsShown(), c.head.sub:GetText() end end")
+assert ret.eval(CARD)[0] is True
+assert prot.eval(CARD)[0] is False and "not your spec" in prot.eval(CARD)[1]
 prot.eval("ns.SettingsUI:SelectSection('swing')")
-assert prot.eval("return ns.SettingsUI:GetSection()") == "alerts", "a hidden section can't be opened"
+assert prot.eval("return ns.SettingsUI:GetSection()") == "classtools"
+assert prot.eval(CARD)[0] is True, "opening a card by its key opens it"
 
 # not swinging: the HUD rests (no plan), so nothing moves out of combat
 assert ret.eval("ns.SwingTimer.state.last = nil; return ns.SwingTimer:Current() == nil") is True

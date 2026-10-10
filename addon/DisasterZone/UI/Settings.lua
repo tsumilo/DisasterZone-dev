@@ -40,7 +40,8 @@ local SECTIONS = {
     { key = "strategy", label = "Strategy boards" },
     { key = "tooltips", label = "Tooltips" },
     { key = "mylog", label = "My Log" },
-    -- class tools (Core/ClassKit.lua) for the player's class go here, see AddKitSections
+    -- class tools (Core/ClassKit.lua): a collapsible card per tool of my class (every class's in demo mode)
+    { key = "classtools", label = "Class tools", visible = function() return SettingsUI:HasClassTools() end },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
     { key = "demo", label = "Demo mode" },
@@ -287,7 +288,10 @@ end
 function SettingsUI:OnLogin()
     self:RegisterBlizzardCategory()
     -- a respec shows or hides class tool sections (Swing timer: Retribution only)
-    ns:On("CLASSKIT_CHANGED", function() SettingsUI:LayoutNav() end)
+    ns:On("CLASSKIT_CHANGED", function()
+        SettingsUI:LayoutNav()
+        SettingsUI:LayoutClassTools()
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -1089,7 +1093,6 @@ function SettingsUI:CreatePanel(parent)
     self.panel = panel
 
     self.nav = {}
-    self:AddKitSections()
     for _, def in ipairs(SECTIONS) do
         self.nav[def.key] = NewNavItem(panel, def.label, function() SettingsUI:SelectSection(def.key) end)
     end
@@ -1121,17 +1124,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildStrategy(self.sections.strategy)
     self:BuildTooltips(self.sections.tooltips)
     self:BuildMyLog(self.sections.mylog)
-    for _, def in ipairs(SECTIONS) do
-        if def.kit then
-            local sec = self.sections[def.key]
-            if def.kit.settings then
-                sec.y = sec.y - 4
-                def.kit.settings(self, sec)
-            else
-                self:EndSection(sec)
-            end
-        end
-    end
+    self:BuildClassTools(self.sections.classtools)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
     self:BuildDemo(self.sections.demo)
@@ -1148,21 +1141,153 @@ function SettingsUI:CreatePanel(parent)
     return panel
 end
 
--- One section per class tool of the player's class (Core/ClassKit.lua), after My Log, shown while the tool is for the
--- player's spec. A kit's settings(SettingsUI, sec) fills it with the usual rows and ends it (EndSection).
-function SettingsUI:AddKitSections()
-    if self.kitsAdded or not ns.ClassKit then return end
-    self.kitsAdded = true
-    local at = #SECTIONS + 1
-    for i, def in ipairs(SECTIONS) do
-        if def.key == "mylog" then at = i + 1 end
-    end
-    for _, kit in ipairs(ns.ClassKit:List(ns.ClassKit:MyClass())) do
+-- Class tools (Core/ClassKit.lua): one section, a card per tool of my class: its header (icon, name, who it is for,
+-- the tool's own action, a chevron) opens and closes its settings. Tools for my spec start open, the others closed
+-- with "not your spec". In demo mode every class's tools show (and work with made-up data). A kit's
+-- settings(SettingsUI, body) fills the card with the usual rows (body works as a section of its own) and ends it.
+local KIT_HEAD_H, KIT_GAP, KIT_INSET = 46, 8, 14
+
+function SettingsUI:HasClassTools()
+    local CK = ns.ClassKit
+    if not CK then return false end
+    return CK:IsDemo() or #CK:List(CK:MyClass()) > 0
+end
+
+local function KitOpen(key)
+    local v = Get("classtools.open." .. key, nil)
+    if v == nil then return ns.ClassKit:IsMine(key) end
+    return v and true or false
+end
+
+local function KitFill(tex, r, g, b, a)
+    tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+    tex:SetVertexColor(r, g, b, a or 1)
+    return tex
+end
+
+function SettingsUI:BuildClassTools(sec)
+    sec.y = sec.y - 2
+    sec.lead = self:Subtitle(sec)
+    sec.lead:SetTextColor(GREY[1], GREY[2], GREY[3])
+    sec.top = -sec.y + 8
+    sec.cards = {}
+    for _, kit in ipairs(ns.ClassKit and ns.ClassKit:List() or {}) do
         local key = kit.key
-        table.insert(SECTIONS, at, { key = key, label = kit.label, kit = kit,
-            visible = function() return ns.ClassKit:IsMine(key) end })
-        at = at + 1
+        local card = CreateFrame("Frame", nil, sec)
+        card.kit = kit
+        card.bg = KitFill(card:CreateTexture(nil, "BACKGROUND"), 0.1, 0.1, 0.118, 1)
+        card.bg:SetAllPoints()
+        ns.UI:AddEdges(card)
+        ns.UI:SetEdgeColor(card, 0.17, 0.17, 0.19, 1)
+        local head = CreateFrame("Button", nil, card)
+        head:SetPoint("TOPLEFT")
+        head:SetPoint("TOPRIGHT")
+        head:SetHeight(KIT_HEAD_H)
+        head.hl = KitFill(head:CreateTexture(nil, "HIGHLIGHT"), 1, 1, 1, 0.03)
+        head.hl:SetAllPoints()
+        head.icon = head:CreateTexture(nil, "ARTWORK")
+        head.icon:SetSize(28, 28)
+        head.icon:SetPoint("LEFT", head, "LEFT", 10, 0)
+        head.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        local icon = kit.iconPath or kit.icon
+        if type(icon) == "number" and GetSpellTexture then icon = GetSpellTexture(icon) end
+        head.icon:SetTexture(icon)
+        head.title = NewFS(head, "GameFontHighlightLarge", nil, false)
+        head.title:SetPoint("TOPLEFT", head, "TOPLEFT", 48, -8)
+        head.title:SetText(kit.label)
+        head.sub = NewFS(head, "GameFontHighlightSmall", nil, false)
+        head.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
+        head.sub:SetPoint("TOPLEFT", head, "TOPLEFT", 48, -27)
+        head.chev = head:CreateTexture(nil, "ARTWORK")
+        head.chev:SetSize(12, 12)
+        head.chev:SetPoint("RIGHT", head, "RIGHT", -12, 0)
+        head.chev:SetTexture(ns.UI.ICON_ATLAS)
+        head.chev:SetVertexColor(0.75, 0.75, 0.78)
+        if kit.action then
+            local btn = ns.UI:CreateSleekButton(head, kit.action.label, kit.action.width or 110, 22,
+                function() kit.action.run() end, "primary")
+            btn:SetPoint("RIGHT", head, "RIGHT", -34, 0)
+            head.action = btn
+        end
+        head:SetScript("OnClick", function()
+            Set("classtools.open." .. key, not KitOpen(key))
+            SettingsUI:LayoutClassTools()
+        end)
+        card.head = head
+        local body = CreateFrame("Frame", nil, card)
+        body:SetPoint("TOPLEFT", head, "BOTTOMLEFT", KIT_INSET, 0)
+        body:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT", -KIT_INSET, 0)
+        body.rows = {}
+        body.y = 0
+        body.key = key
+        if kit.settings then kit.settings(self, body) else body.height = 0 end
+        body:SetHeight(max(1, body.height or 0))
+        card.body = body
+        sec.cards[#sec.cards + 1] = card
     end
+    self:LayoutClassTools()
+end
+
+-- Stacks the cards (open ones show their settings) and sizes the section.
+function SettingsUI:LayoutClassTools()
+    local sec = self.sections and self.sections.classtools
+    if not sec or not sec.cards then return end
+    local CK = ns.ClassKit
+    local demo, mine = CK:IsDemo(), CK:MyClass()
+    local cls = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[mine or ""]) or mine or ""
+    sec.lead:SetText(demo and "Demo mode: every class's tools, with made-up data. Nothing is cast or sent."
+        or ("What DisasterZone adds for " .. (cls ~= "" and (cls .. "s") or "your class") .. "."))
+    local y = sec.top
+    local chev = ns.UI:IconCoords(ns.UI.ICON.chevron)
+    for _, card in ipairs(sec.cards) do
+        local kit = card.kit
+        if demo or kit.class == mine then
+            local open = KitOpen(kit.key)
+            local forMe = CK:IsMine(kit.key)
+            card:ClearAllPoints()
+            card:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, -y)
+            card:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, -y)
+            local bodyH = open and ((card.body.height or 0) + 10) or 0
+            card:SetHeight(KIT_HEAD_H + bodyH)
+            card.body:SetShown(open)
+            card.head.sub:SetText(CK:ForWhom(kit.key) .. (forMe and "" or " · not your spec"))
+            card.head.title:SetTextColor(forMe and 1 or 0.62, forMe and 1 or 0.62, forMe and 1 or 0.64)
+            card.head.icon:SetDesaturated(not forMe)
+            if card.head.action then card.head.action:SetShown(forMe) end
+            -- the atlas chevron points down; turned up while open
+            if open then card.head.chev:SetTexCoord(chev[1], chev[2], chev[4], chev[3])
+            else card.head.chev:SetTexCoord(chev[1], chev[2], chev[3], chev[4]) end
+            card:Show()
+            y = y + KIT_HEAD_H + bodyH + KIT_GAP
+        else
+            card:Hide()
+        end
+    end
+    sec.height = y
+    if self.section == "classtools" then self:FitChild() end
+end
+
+-- Opens a class tool's card (its key, e.g. "swing", "bless") in Class tools and scrolls to it.
+function SettingsUI:OpenKit(key)
+    if not (self.sections and self.sections.classtools) then return end
+    Set("classtools.open." .. key, true)
+    self:SelectSection("classtools")
+    self:LayoutClassTools()
+    for _, card in ipairs(self.sections.classtools.cards) do
+        if card.kit.key == key and card:IsShown() and self.scroll then
+            local _, _, _, _, y = card:GetPoint(1)
+            self.scroll:SetVerticalScroll(max(0, -(tonumber(y) or 0) - 8))
+        end
+    end
+end
+
+-- Is that tool's card shown in Class tools (and the section in the nav)?
+function SettingsUI:KitShown(key)
+    if not (self.nav and self.nav.classtools and self.nav.classtools:IsShown()) then return false end
+    for _, card in ipairs(self.sections.classtools.cards or {}) do
+        if card.kit.key == key then return card:IsShown() end
+    end
+    return false
 end
 
 SettingsUI.PlaceText = PlaceText
@@ -1193,6 +1318,9 @@ end
 
 -- Opens one section (key as in SECTIONS); the others hide. The page keeps its size: only the scroll range follows.
 function SettingsUI:SelectSection(key)
+    if ns.ClassKit and ns.ClassKit:Get(key) and self.sections and not self.sections[key] then
+        return self:OpenKit(key)
+    end
     if not (self.sections and self.sections[key]) or not SectionVisible(key) then key = "alerts" end
     self.section = key
     if not self.sections then return end
@@ -1992,6 +2120,7 @@ function SettingsUI:Refresh()
     p.dirty = false
     self:LayoutNav()
     self:SyncWidth()
+    self:LayoutClassTools()
     for _, w in ipairs(self.refreshers) do
         if w.Refresh then w:Refresh() end
     end

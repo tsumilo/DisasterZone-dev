@@ -76,6 +76,26 @@ ns.CHANGELOG = {
               "After each fight: twists landed, late and clipped, in Settings and /dz swing report.",
               "/dz swing unlock to move it, /dz swing for your latency and where the numbers come from.",
           } },
+          { heading = "Paladin blessings (Pally Power, built in)", lines = {
+              "New Blessings planner for every paladin spec: paladins as rows, classes as columns.",
+              "Click a cell to pick a blessing, or drag one from the top onto a class or a whole paladin.",
+              "Right-click clears, the wheel steps through, Shift-click gives every class the same.",
+              "Exceptions: one player gets another blessing, like tanks on Light instead of Salvation.",
+              "Click a paladin's aura to set it; a red edge when two in one party run the same.",
+              "Live in every cell: who is missing the blessing and when it runs out.",
+              "Auto-assign fills it from everyone's talents: Kings, the best Might and Wisdom, then the rest.",
+              "Presets save the plan per raid; Report posts who gives what to the raid.",
+              "It speaks Pally Power's language, so Pally Power users in the raid share the same plan.",
+              "The leader and assistants assign; paladins can let anyone assign them.",
+              "New buff bar in groups: click a class to cast its Greater Blessing, right-click for players.",
+              "Its gold edge shows what to do next; your aura, Righteous Fury and Symbols sit on top.",
+              "Key binding \"Bless next\" casts whatever is due. /dz bless opens the planner.",
+          } },
+          { heading = "Class tools", lines = {
+              "New Settings > Class tools: everything DisasterZone adds for your class, in one place.",
+              "Each tool is a card that opens and closes; tools for your spec start open.",
+              "Demo mode shows every class's tools with a made-up raid, to try them anywhere.",
+          } },
           { heading = "Notifications", lines = {
               "New bell left of the sync mark: its gold number counts what waits for your answer.",
               "Click it for what needs you (polls, raids to answer, join requests) and the week's news.",
@@ -97,6 +117,11 @@ ns.CHANGELOG = {
               "Every count has one new look: the bell, tabs, menus, the minimap button, the waitlist.",
               "A solid gold circle with sharp dark digits, like today on the calendar; no thin ring.",
               "On a tab the count sits right after the name and never bumps into the next tab.",
+          } },
+          { heading = "Lighter on memory", lines = {
+              "The 3D boss rooms moved into a second folder, DisasterZone_Rooms, in the same zip.",
+              "They load only when you open a 3D board, the Raid Trainer or chess: about 20 MB less.",
+              "Install both folders. The AddOn list shows the rooms as DisasterZone 3D rooms.",
           } },
           { heading = "Fixes", lines = {
               "Guild > Members: the share and note icons on your own card (or an offline member's) click again.",

@@ -350,8 +350,7 @@ def test_generator_runs_and_keeps_its_promises():
     # (nothing harmful on any pose set: it would be written)
     assert b["harm"]["total"] == 0, b["harm"]
     text = G.lua_text(KEY, b["cubes"], checked=b["checked"])
-    assert text.startswith('if DisasterZoneBoot and DisasterZoneBoot.Run("Render3D/Standins/%s.lua", ...) then '
-                           'return end -- DisasterZone Render3D/Standins/%s.lua\n' % (KEY, KEY))
+    assert text.startswith('-- DisasterZone_Rooms Standins/%s.lua\n' % KEY)   # (DisasterZone_Rooms: no hot-patch guard)
     # what it writes reads back as what it placed
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
@@ -381,10 +380,8 @@ def test_generator_runs_and_keeps_its_promises():
 def contract_shape(path, key, r):
     """One shipped data file has the data contract's shape as Lua reads it (r: its room)."""
     src, rec = shipped(path, key)
-    rel = "Render3D/Standins/%s.lua" % key
     first = src.split("\n", 1)[0]
-    assert first == 'if DisasterZoneBoot and DisasterZoneBoot.Run("%s", ...) then return end -- DisasterZone %s' % (
-        rel, rel), first
+    assert first == '-- DisasterZone_Rooms Standins/%s.lua' % key, first
     assert len(src.encode("utf-8")) < 400_000, (key, len(src))
     lines = src.split("\n")
     assert all(len(x) <= 120 for x in lines if x.startswith("--")), key        # (the comments the code's width)
@@ -434,15 +431,16 @@ def test_shipped_file_has_the_contract_shape():
 
 
 def data_keys():
-    """The keys of the shipped data files (Render3D/Standins/<Key>.lua)."""
+    """The keys of the shipped data files (DisasterZone_Rooms/Standins/<Key>.lua)."""
     return sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith("."))
 
 
 @case
 def test_every_shipped_data_file_has_the_contract_shape_and_the_toc_loads_it():
     """Every data file: the contract's shape, made for the room file shipped next to it, the rooms it also serves the
-    same room (their room files unpack to the same payload); the TOC lists exactly these, sorted, right after
-    Render3D\\Standins.lua; and packed, a file keeps a sixth or less of the Lua memory the plain table did."""
+    same room (their room files unpack to the same payload); DisasterZone_Rooms.toc lists exactly these, sorted, as
+    one block of Standins\\ lines (after the rooms: a room's stand-ins check its floor's size); and packed, a file
+    keeps a sixth or less of the Lua memory the plain table did."""
     keys = data_keys()
     assert KEY in keys, keys
     for key in keys:
@@ -454,11 +452,11 @@ def test_every_shipped_data_file_has_the_contract_shape_and_the_toc_loads_it():
         assert key not in {k for v in G.SAME_ROOM.values() for k in v}, key      # (no file of its own)
     with open(G.TOC, "rb") as fh:
         lines = fh.read().decode("utf-8").splitlines()
-    i = lines.index("Render3D\\Standins.lua")
-    block = ["Render3D\\Standins\\%s.lua" % k for k in keys]
-    assert lines[i + 1:i + 1 + len(block)] == block, lines[i + 1:i + 2 + len(block)]
-    assert not lines[i + 1 + len(block)].startswith("Render3D\\Standins\\")
-    assert sum(1 for s in lines if s.startswith("Render3D\\Standins\\")) == len(block)
+    at = [k for k, s in enumerate(lines) if s.startswith("Standins\\")]
+    block = ["Standins\\%s.lua" % k for k in keys]
+    assert [lines[k] for k in at] == block, [lines[k] for k in at]
+    assert at == list(range(at[0], at[0] + len(block))), at
+    assert max(k for k, s in enumerate(lines) if s.startswith("Rooms\\")) < at[0]
     # (Magtheridon's Lair, measured by Lua 5.1 itself: the file's memory once run, against the version 2 table)
     f = G.read_file(SHIPPED)
     with open(SHIPPED, "rb") as fh:
@@ -482,20 +480,19 @@ def test_packed_text_round_trips_and_the_toc_block_is_all_that_changes():
         raise AssertionError("3 stand-ins read from 2")
     except ValueError:
         pass
-    # the TOC helper: only the block after Render3D\Standins.lua changes, the file's own line ends kept
+    # the TOC helper: only the block of Standins\ lines changes, the file's own line ends kept
     import tempfile
     for eol in ("\n", "\r\n"):
         with tempfile.TemporaryDirectory() as tmp:
             toc = os.path.join(tmp, "x.toc")
-            before = ["## Title: x", "Render3D\\Rooms.lua", "Render3D\\Standins.lua", "Render3D\\Standins\\Old.lua",
-                      "Render3D\\Standins\\B.lua", "UI\\After.lua", ""]
+            before = ["## Title: x", "Load.lua", "Rooms\\A_B.lua", "Standins\\Old.lua", "Standins\\B.lua",
+                      "# after", ""]
             with open(toc, "wb") as fh:
                 fh.write(eol.join(before).encode("utf-8"))
-            assert G.write_toc(["C", "A"], toc=toc) == ["Render3D\\Standins\\A.lua", "Render3D\\Standins\\C.lua"]
+            assert G.write_toc(["C", "A"], toc=toc) == ["Standins\\A.lua", "Standins\\C.lua"]
             with open(toc, "rb") as fh:
                 after = fh.read().decode("utf-8")
-            assert after == eol.join(before[:3] + ["Render3D\\Standins\\A.lua", "Render3D\\Standins\\C.lua"]
-                                     + before[5:]), after
+            assert after == eol.join(before[:3] + ["Standins\\A.lua", "Standins\\C.lua"] + before[5:]), after
 
 
 @case

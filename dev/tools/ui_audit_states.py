@@ -2335,3 +2335,113 @@ STATES += [
                                     window=False)),
     ("Settings - Notifications", notify_view("ns.SettingsUI:SelectSection('notify')", key="settings")),
 ]
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# Blessings (Core/Blessings.lua, UI/BlessingsUI.lua, UI/BlessingsBar.lua): a 25-man Black Temple plan on Gina's
+# screen, as in the mockup (dev/art/casc/pally_mockup): four paladins, tanks on Light instead of Salvation, a hunter
+# missing Might, two mages missing Salvation, priests' Wisdom running out, two paladins on Devotion in one party.
+# The roster and who has what are stubbed on Gina's Blessings module (the raid itself is a few real clients).
+BLESS_SEED = """
+local B = ns.Blessings
+local lead = ...
+local classes = { { 'WARRIOR', { 'Victhar', 'Brakka', 'Kordan', 'Ulfric' } }, { 'ROGUE', { 'Shadowmelder', 'Vexis' } },
+  { 'HUNTER', { 'Faelar', 'Tarrow' } }, { 'DRUID', { 'Moonwhisper', 'Rhosyn', 'Quillon' } },
+  { 'SHAMAN', { 'Stormfist', 'Thunderhoofx' } }, { 'PALADIN', { 'Caelith', 'Lightbringer', 'Sunniva', 'Gina' } },
+  { 'PRIEST', { 'Isolde', 'Nyxa', 'Seraphel' } }, { 'MAGE', { 'Embera', 'Frostweaver', 'Kaelwyn' } },
+  { 'WARLOCK', { 'Grumpykat', 'Morrigan' } } }
+local R, byUnit, i = {}, {}, 0
+for _, e in ipairs(classes) do
+  for _, n in ipairs(e[2]) do
+    i = i + 1
+    local m = { unit = 'raid' .. i, name = n, class = e[1], ci = B.CLASS_INDEX[e[1]], subgroup = math.floor((i - 1) / 5) + 1,
+      level = 70, online = true, dead = false,
+      tank = (n == 'Victhar' or n == 'Caelith' or n == 'Moonwhisper') or nil }
+    R[#R + 1] = m
+    byUnit[m.unit] = m
+  end
+end
+B.Roster = function() return R end
+B.BuffLeft = function(_, unit, bi)
+  local m = byUnit[unit]
+  if not m then return nil end
+  if m.name == 'Tarrow' and bi == 2 then return nil end
+  if (m.name == 'Embera' or m.name == 'Kaelwyn') and bi == 4 then return nil end
+  if m.class == 'PRIEST' and bi == 1 then return 185 end
+  return 1500
+end
+B.IsLeader = function(_, n) return n == lead end
+B.LeaderName = function() return lead end
+B.CanEdit = function(_, n) return lead == 'Gina' or n == 'Gina' end
+B.CanEditAny = function() return true end
+B.ScanSelf = function() return false end
+B.SpecOf = function(_, n)
+  return ({ Caelith = 'Protection', Sunniva = 'Retribution', Gina = 'Holy', Lightbringer = 'Holy' })[n] or 'Holy'
+end
+local function pal(name, bless, aura, sym)
+  local p = { name = name, bless = bless, aura = aura, symbols = sym, free = false, cd = {}, seen = GetTime() }
+  B.pals[name] = p
+end
+for k in pairs(B.pals) do B.pals[k] = nil end
+pal('Caelith', { { 7, 0 }, { 8, 0 }, { 1, 0 }, { 1, 0 }, { 4, 0 }, { 5, 1 } }, { { 8, 5 }, { 6, 0 }, { 1, 0 } }, 142)
+pal('Sunniva', { { 7, 0 }, { 8, 5 }, nil, { 1, 0 }, { 4, 0 } }, { { 8, 0 }, { 6, 0 }, { 1, 0 }, [7] = { 1, 0 } }, 88)
+pal('Gina', { { 7, 2 }, { 8, 0 }, nil, { 1, 0 }, { 4, 0 } }, { { 8, 0 }, { 6, 0 }, { 1, 3 } }, 196)
+pal('Lightbringer', { { 7, 1 }, { 8, 0 }, nil, { 1, 0 }, { 4, 0 } }, { { 8, 0 }, { 6, 0 }, { 1, 0 } }, 12)
+local s = B.Store()
+s.assign, s.single, s.aura = {}, {}, {}
+local function row(name, list)
+  s.assign[name] = {}
+  for j, cls in ipairs(B.D.DISPLAY) do s.assign[name][B.CLASS_INDEX[cls]] = list[j] end
+end
+row('Caelith', { 3, 3, 3, 3, 3, 3, 3, 3, 3 })
+row('Sunniva', { 2, 2, 2, 2, 2, 2, 5, 5, 5 })
+row('Gina', { 5, 5, 1, 1, 1, 1, 1, 1, 1 })
+row('Lightbringer', { 4, 4, 4, 4, 4, 4, 4, 4, 4 })
+s.single.Lightbringer = { [1] = { Victhar = 5 }, [5] = { Caelith = 5 }, [4] = { Moonwhisper = 5 } }
+s.aura = { Caelith = 1, Sunniva = 7, Gina = 3, Lightbringer = 1 }
+-- Caelith and Lightbringer share a party (the Devotion clash)
+for _, m in ipairs(R) do if m.name == 'Lightbringer' or m.name == 'Caelith' then m.subgroup = 1 end end
+"""
+
+
+def bless_view(lead="Gina", lua=None, bar=False):
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        g.eval("ns.MainFrame:Close()")
+        w.enter_instance("Black Temple", 564)
+        w.make_raid([g] + [c[n] for n in ("Victhar", "Shadowmelder", "Moonwhisper", "Lightbringer", "Grumpykat")],
+                    leader=g)
+        w.tick(1)
+        g.eval("ns.DB:SetSetting('bless.bar', ...)", "group" if bar else "off")
+        g.eval(BLESS_SEED, lead)
+        if not bar:
+            g.eval("ns.BlessingsUI:Open(); ns.BlessingsUI:Refresh()")
+        else:
+            g.eval("if ns.BlessingsUI:IsShown() then ns.BlessingsUI:Close() end; ns.BlessingsBar:Update()")
+        if lua:
+            g.eval(lua)
+        w.tick(0.3)
+        return g
+    return fn
+
+
+STATES += [
+    ("Blessings - planner (leader)", bless_view("Gina")),
+    ("Blessings - planner (member)", bless_view("Lightbringer")),
+    ("Blessings - planner, cell menu", bless_view("Gina", "local r = ns.BlessingsUI:GetFrame().rows[2]; "
+                                                  "r.cells[1]:Click('LeftButton')")),
+    ("Blessings - buff bar", bless_view("Gina", bar=True)),
+    ("Blessings - buff bar, hunters", bless_view("Gina", "local f = ns.BlessingsBar:GetFrame(); for i = 1, 20 do "
+                                                 "local r = _G['DisasterZoneBlessRow' .. i]; if r and r.data and "
+                                                 "r.data.cls == 'HUNTER' then ns.BlessingsBar:TogglePop(r) end end",
+                                                 bar=True)),
+    ("Settings - Blessings", opened("settings", "ns.SettingsUI:SelectSection('bless')")),
+]
+
+STATES += [
+    ("Settings - Class tools", opened("settings", "ns.SettingsUI:SelectSection('classtools')")),
+    ("Settings - Class tools (demo)", demo("ns.SettingsUI:SelectSection('classtools')", key="settings")),
+    ("Blessings - demo planner", demo("ns.MainFrame:Close(); ns.BlessingsUI:Open()")),
+]

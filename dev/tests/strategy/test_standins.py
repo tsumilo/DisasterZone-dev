@@ -49,28 +49,7 @@ import gen_standins as G  # noqa: E402  (the data files' writer: packed text for
 
 harness.LOAD_ROOMS = True                      # (the board's rooms)
 
-STANDINS = "Render3D/Standins.lua"
-MAG_DATA = "Render3D/Standins/MagtheridonsLair_Magtheridon.lua"
-# Until the coordinator adds the TOC lines, the suite loads the stand-ins where they will sit: after the probe, the
-# shipped room data right after them.
-_parse_toc = harness.parse_toc
-
-
-def _toc_with_standins(addon_dir, addon_name=harness.ADDON_NAME):
-    headers, files = _parse_toc(addon_dir, addon_name)
-    if STANDINS not in files:
-        for anchor in ("Render3D/Probe.lua", "Render3D/Rooms.lua", "Render3D/View.lua"):
-            if anchor in files:
-                i = files.index(anchor) + 1
-                files = files[:i] + [STANDINS] + files[i:]
-                break
-    if MAG_DATA not in files and STANDINS in files:
-        i = files.index(STANDINS) + 1
-        files = files[:i] + [MAG_DATA] + files[i:]
-    return headers, files
-
-
-harness.parse_toc = _toc_with_standins
+STANDINS = "Render3D/Standins.lua"     # (the stand-in data: DisasterZone_Rooms, loaded when a room is first drawn)
 
 TERON = "BlackTemple:Teron"
 KJ = "SunwellPlateau:Kiljaeden"
@@ -262,7 +241,8 @@ def board(boss=TERON, pause=True):
     bob.eval(HELPERS)
     bob.eval(BRUTE)
     # (no measured modes: "auto" is the box mode everywhere, as these cases were written for; auto has its own case)
-    bob.eval("__OC_MODES = ns.RoomDepthModes ns.RoomDepthModes = {}")
+    # (the room data loaded first: loading it later would fill the emptied table again)
+    bob.eval("ns.Render3D.LoadData() __OC_MODES = ns.RoomDepthModes ns.RoomDepthModes = {}")
     bob.eval("ns.StrategyBoard:NewStrategy(...)", boss)
     w.tick(0.2)
     assert bob.eval("return T3.cv():Set3D(true, false)") is True
@@ -771,8 +751,8 @@ def version_3_data_unpacks_to_the_numbers_version_2_holds_and_broken_packing_is_
 
 @case
 def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
-    """At login every data file of the TOC has run (each room's table holds its packed text, nothing unpacked); the
-    first S.Load of a room unpacks it (LibDeflate once) and prepares it, the next ones reuse it; the last two rooms used
+    """At login no data file has run (they are the load-on-demand DisasterZone_Rooms'); once loaded every one has
+    (each room's table holds its packed text, nothing unpacked); the first S.Load of a room unpacks it (LibDeflate once) and prepares it, the next ones reuse it; the last two rooms used
     stay prepared, an older one is let go and unpacked again when it comes back; rooms that are one room share one set;
     every shipped room's set is usable whole and matches what the generator wrote."""
     w = World()
@@ -790,6 +770,9 @@ def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
         LD.DecompressDeflate = function(self, ...) calls = calls + 1 return orig(self, ...) end
         local keys = ...
         local out = { loaded = {}, prepared = 0, plain = 0, sets = {} }
+        -- (the data is DisasterZone_Rooms': not at login, all of it the first time a room is drawn)
+        out.atLogin = ns.RoomStandins ~= nil
+        ns.Render3D.LoadData()
         for k, rec in pairs(ns.RoomStandins or {}) do
           out.loaded[#out.loaded + 1] = k
           if S.Prepared(k) then out.prepared = out.prepared + 1 end
@@ -830,6 +813,7 @@ def every_rooms_data_loads_at_login_and_is_unpacked_only_when_first_used():
         return out
     """, keys, *_packed([(1, 10, 0, 0, 0, 0, 0, 0.4, -1, 0, 0, 7)]))
     loaded = r["loaded"]
+    assert r["atLogin"] is False, r["atLogin"]
     # every data file ran (each sets its own key and those of its SAME_ROOM), none unpacked, none a plain table
     want = sorted(set(keys) | {k for f in keys for k in G.SAME_ROOM.get(f, ())})
     assert loaded == want, (loaded, want)
@@ -965,6 +949,7 @@ def stand_ins_made_for_another_build_of_the_room_are_refused_as_stale():
     r = c.eval_py(r"""
         local S = T_SEL.S
         local key = 'MagtheridonsLair_Magtheridon'
+        ns.Render3D.LoadData()
         local rec = ns.RoomStandins[key]
         local ok1 = S.Load(key) ~= nil
         local size = rec.room.size

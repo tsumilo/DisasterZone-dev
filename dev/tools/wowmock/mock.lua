@@ -85,13 +85,14 @@ function M.fire_safe(event, ...)
   return ok
 end
 
-function M.load_file(src, chunkname, addonName)
+-- ns: the addon's own namespace table (a load-on-demand addon's, tools/harness.py); DisasterZone's (M.ns) when nil.
+function M.load_file(src, chunkname, addonName, ns)
   local f, err = loadstring(src, chunkname)
   if not f then
     M.record_error(err, "load " .. chunkname, "syntax error while loading " .. chunkname .. ": " .. tostring(err))
     return false
   end
-  local ok = safecall("load " .. chunkname, f, addonName, M.ns)
+  local ok = safecall("load " .. chunkname, f, addonName, ns or M.ns)
   return ok
 end
 

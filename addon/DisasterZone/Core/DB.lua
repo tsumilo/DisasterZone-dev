@@ -53,6 +53,12 @@ local DEFAULTS = {
         swing = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
                   use = { exo = false, cons = false }, consMana = 40,
                   sound = false, mobType = "Demon" },
+        -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";
+        -- warnMin = a blessing counts as running out this many minutes before it ends; free = anyone may assign
+        -- me (Pally Power's Free Assignment); symbols = warn under this many Symbols of Kings; pets = pets count
+        -- in their class; pos = the bar's place
+        bless = { bar = "group", layout = "vertical", warnMin = 5, free = false, symbols = 20, pets = true,
+                  locked = true, scale = 1 },
         -- Guild > Map (Core/GuildMap.lua): share "unset" (not asked yet) | "off" | "zone" | "exact"; blizzard: dots on
         -- the game's world map too
         map = { share = "unset", blizzard = true },
@@ -83,6 +89,8 @@ local DEFAULTS = {
     tours = {},        -- [tourId] = { seen = true, done = { [chapterKey] = true } } (UI/Tour.lua), never synced
     shopping = {},     -- [charKey] = { { id, n, d }, ... } the Atlas shopping list (Core/ShoppingList.lua), never synced
     prices = {},       -- [itemID] = "cost|time" what a vendor asked (Core/Currency.lua), account wide, never synced
+    blessings = {},    -- paladin blessings (Core/Blessings.lua), account wide as Pally Power's: assign / single / aura
+                       -- by paladin name (Pally Power's wire names), presets; synced with Pally Power's protocol
     prof = {},         -- [guildKey] ={ [charKey] = professions and recipes } (Core/Professions.lua)
     -- mapSeen (no default): [guildKey] = { [charKey] = { m, i, n, t } } the zone a guildmate was last seen in
     -- (Core/GuildMap.lua), only learned while I share

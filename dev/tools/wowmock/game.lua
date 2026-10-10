@@ -2139,19 +2139,35 @@ C_AddOns = {
     return l, l
   end,
   GetNumAddOns = function() return #(M.addon_order or {}) end,
+  -- (an addon turned off with DisableAddOn: loadable false, "DISABLED", as the client after a reload)
   GetAddOnInfo = function(addon)
     local meta = addon_meta(addon)
     if not meta then return nil, nil, nil, false, "MISSING", "INSECURE", false end
     local name = type(addon) == "number" and M.addon_order[addon] or addon
+    if M.disabled_addons and M.disabled_addons[name] then
+      return name, meta.title or name, meta.notes or "", false, "DISABLED", "INSECURE", false
+    end
     return name, meta.title or name, meta.notes or "", true, nil, "INSECURE", false
   end,
+  -- A load-on-demand addon the harness knows (tools/harness.py Client lod_addons: DisasterZone_Rooms) loads now, its
+  -- files run with a namespace of its own and ADDON_LOADED fires, as in the client; any other: "MISSING".
   LoadAddOn = function(addon)
     if M.loaded_addons[addon] then return true, nil end
+    if not addon_meta(addon) then return false, "MISSING" end
+    if M.disabled_addons and M.disabled_addons[addon] then return false, "DISABLED" end
+    if PY and PY.load_lod then
+      local ok, why = PY.load_lod(addon)
+      if ok then return true, nil end
+      return false, why or "MISSING"
+    end
     return false, "MISSING"
   end,
   GetAddOnEnableState = function(addon) if addon_meta(addon) or M.loaded_addons[addon] then return 2 end return 0 end,
   DoesAddOnExist = function(addon) return addon_meta(addon) ~= nil or M.loaded_addons[addon] == true end,
-  IsAddOnLoadOnDemand = function() return false end,
+  IsAddOnLoadOnDemand = function(addon)
+    local meta = addon_meta(addon)
+    return meta ~= nil and (meta.loadondemand == "1" or meta.loadondemand == 1)
+  end,
   EnableAddOn = function() end,
   DisableAddOn = function(addon, character)
     if addon == nil then error("Usage: C_AddOns.DisableAddOn(name [, character])", 2) end
