@@ -17,7 +17,7 @@ Findings per view (grouped by the line that created the region, worst example fi
   OVERLAP   two texts drawn on top of each other
   COVERED   text drawn under a button / edit box / dropdown it does not belong to
 
-Usage (from dev):  luaenv\\Scripts\\python.exe tools\\ui_audit.py [out_dir] [-k substring] [--no-png] [--look]
+Usage (from dev):  luaenv\\Scripts\\python.exe tools\\ui_audit.py [out_dir] [-k substring[|substring...]] [--no-png] [--look]
 Writes <out_dir>/report.md, report.json and one PNG per view (findings outlined in red, numbered as in the report).
 Default out_dir: tf_e/ui_audit.
 """
@@ -240,6 +240,8 @@ for _, o in ipairs(M.all_objects) do
       r and r.h or "", scrollOf[o] and seq(scrollOf[o]) or "", st.name or "", st.template or "",
       c and table.concat({ c[1], c[2], c[3], c[4] or 1 }, ",") or "", st.layer or "",
       (st.fontstring and seq(st.fontstring)) or "", vis,
+      ((st.shadowo and st.shadowo[1] == 0 and st.shadowo[2] == 0) or (st.shadowc and (st.shadowc[4] or 1) == 0))
+        and 0 or 1,
     }, "\t")
   end
 end
@@ -249,7 +251,7 @@ return table.concat(lines, "\n")
 
 FIELDS = ["tag", "seq", "kind", "parent", "w", "h", "all", "scale", "points", "text", "font", "size", "wrap", "maxl",
           "jh", "jv", "src", "strata", "level", "clips", "scrollbox", "rowbox", "rowy", "rowh", "scrollof", "name",
-          "template", "color", "layer", "btnfs", "vis"]
+          "template", "color", "layer", "btnfs", "vis", "shadow"]
 
 
 def metrics_preload():
@@ -386,6 +388,7 @@ def capture(client):
             "name": d["name"], "template": d["template"], "level": d["level"], "strata": d["strata"],
             "color": [float(x) for x in d["color"].split(",")] if d["color"] else None, "layer": d["layer"],
             "btnfs": int(d["btnfs"]) if d["btnfs"] else None, "vis": d.get("vis") == "1",
+            "shadow": d.get("shadow") != "0",
         }
         for p in d["points"].split(";") if d["points"] else []:
             a = p.split(",")
@@ -951,7 +954,7 @@ def main():
     while args:
         a = args.pop(0)
         if a == "-k":
-            only = args.pop(0)
+            only = args.pop(0).split("|")    # (several views: -k "Notify|Polls")
         elif a == "--no-png":
             png = False
         elif a == "--look":
@@ -967,7 +970,7 @@ def main():
     report, total = [], 0
     md = ["# DisasterZone UI audit", ""]
     for name, fn in STATES:
-        if only and only not in name:
+        if only and not any(o in name for o in only):
             continue
         try:
             viewer = fn(w, c)

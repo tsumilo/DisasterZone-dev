@@ -696,7 +696,8 @@ def _draw_text(img, r, lk, rc, clip_px, lay, A, box):
 
     def put(x, y, s, col):
         fill = tuple(int(255 * c) for c in col) + (int(255 * alpha),)
-        d.text((x + sh, y + sh), s, font=fnt, fill=(0, 0, 0, int(220 * alpha)), anchor="lm")
+        if r.get("shadow", True):
+            d.text((x + sh, y + sh), s, font=fnt, fill=(0, 0, 0, int(220 * alpha)), anchor="lm")
         d.text((x, y), s, font=fnt, fill=fill, anchor="lm")
 
     if "\n" not in plain and not too_wide:

@@ -1483,39 +1483,24 @@ function UI:CreateUnderlineTab(parent, text, onClick, size)
     return b
 end
 
--- A count on an underline tab (things waiting there): a small raised pill after the label, tinted like the nav
--- strip's badges (dark fill, coloured edge and number); the underline stays under the label. n <= 0 or nil hides it.
--- The pill is tab.cnt (tab.cnt.fs its number); the tab grows by its width and the label moves left to stay centred.
-local COUNT_H, COUNT_FONT, COUNT_GAP = 12, 8, 3
-function UI:SetTabCount(tab, n, color)
-    local c = color or { 1, 0.66, 0.24 }
+-- A count on an underline tab (things waiting there): the count badge after the label, on its middle line; the
+-- underline stays under the label. n <= 0 or nil hides it. kind: the badge's (UI.COUNT_LOOK, "alert" default).
+-- The badge is tab.cnt; the tab grows by its width and the label moves left to stay centred.
+local COUNT_H, COUNT_GAP = 13, 5
+function UI:SetTabCount(tab, n, kind)
     local p = tab.cnt
     if not p then
-        p = CreateFrame("Frame", nil, tab)
-        p:SetHeight(COUNT_H)
-        UI:AddPillShape(p, COUNT_H)
-        p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        local path, _, flags = p.fs:GetFont()
-        p.fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", COUNT_FONT, flags or "")
-        p.fs:SetPoint("CENTER", 0.5, 0)
+        p = UI:CreateCountBadge(tab, COUNT_H)
         tab.cnt = p
     end
-    local base = { 0.10, 0.10, 0.12 }
-    p:SetPillColors({ base[1] + (c[1] - base[1]) * 0.18, base[2] + (c[2] - base[2]) * 0.18,
-        base[3] + (c[3] - base[3]) * 0.18, 1 }, { c[1], c[2], c[3], 0.55 })
-    p.fs:SetTextColor(c[1], c[2], c[3])
+    p:SetKind(type(kind) == "string" and kind or "alert")
     local label = tab:GetFontString()
     local extra = 0
-    if n and n > 0 then
-        p.fs:SetText(n > 99 and "99+" or tostring(n))
-        local w = math.max(COUNT_H, floor((p.fs:GetStringWidth() or 6) + 7 + 0.5))
-        p:SetWidth(w)
+    p:SetCount(n)
+    if p:IsShown() then
         p:ClearAllPoints()
-        p:SetPoint("BOTTOMLEFT", label, "RIGHT", COUNT_GAP, -1)     -- (its middle near the letters' tops)
-        p:Show()
-        extra = w + COUNT_GAP
-    else
-        p:Hide()
+        p:SetPoint("LEFT", label, "RIGHT", COUNT_GAP, 0)
+        extra = p:GetWidth() + COUNT_GAP
     end
     tab.cdlExtraW = extra
     label:ClearAllPoints()
@@ -1570,6 +1555,138 @@ function UI:AddPillShape(f, h)
         for _, t in ipairs(self.pillFill) do t:SetVertexColor(fill[1], fill[2], fill[3], fill[4] or 1) end
         for _, t in ipairs(self.pillEdge) do t:SetVertexColor(edge[1], edge[2], edge[3], edge[4] or 1) end
     end
+end
+
+-- A count of things waiting (the bell, the nav strip, tabs, menus, the minimap button): one look everywhere, like the
+-- calendar's today: a solid capsule without an edge, the number in dark narrow digits (a circle for one digit).
+-- UI:CreateCountBadge(parent, h, kind): h = its height (14 default); kind = "alert" (gold, default) | "muted" (grey,
+-- informational counts). b:SetCount(n) shows n ("99+" past 99) and hides itself for 0 / nil; b:SetLabel(text) shows
+-- any short text. b:SetCutout(r, g, b) rings it 2px in the colour it sits on, for a badge laid over an icon's corner.
+-- b:SetKind(kind) recolours it. Sizes are whole pixels so the digits stay sharp.
+UI.COUNT_LOOK = {
+    alert = { fill = { 1, 0.82, 0 },          text = { 0.09, 0.07, 0.01 } },
+    muted = { fill = { 0.30, 0.30, 0.33 },    text = { 0.93, 0.93, 0.93 } },
+}
+UI.COUNT_SURFACE = { 0.078, 0.078, 0.09 }   -- the main window's fill, the default cutout
+local COUNT_DIGITS = "Fonts\\ARIALN.TTF"
+
+-- The count badge's digits on any text (a number drawn on a gold disc of its own): narrow, no shadow; h = the disc's
+-- height.
+function UI:SetCountFont(fs, h)
+    fs:SetFont(COUNT_DIGITS, floor((h or 14) * 0.8 + 0.5), "")
+    fs:SetShadowOffset(0, 0)
+end
+
+local function CapsuleParts(f, layer, sub)
+    local disc = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+    local l = f:CreateTexture(nil, layer, nil, sub)
+    l:SetTexture(disc)
+    l:SetTexCoord(0, 0.5, 0, 1)
+    local r = f:CreateTexture(nil, layer, nil, sub)
+    r:SetTexture(disc)
+    r:SetTexCoord(0.5, 1, 0, 1)
+    local m = f:CreateTexture(nil, layer, nil, sub)
+    m:SetColorTexture(1, 1, 1, 1)
+    return { l, r, m }
+end
+
+-- Lays a capsule's parts out around f, out px past its edges, f being h high.
+local function FitCapsule(parts, f, h, out)
+    local l, r, m = parts[1], parts[2], parts[3]
+    local d = h + 2 * out
+    l:SetSize(d / 2, d)
+    l:ClearAllPoints()
+    l:SetPoint("LEFT", f, "LEFT", -out, 0)
+    r:SetSize(d / 2, d)
+    r:ClearAllPoints()
+    r:SetPoint("RIGHT", f, "RIGHT", out, 0)
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", f, "TOPLEFT", h / 2, out)
+    m:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -h / 2, -out)
+    m:SetShown((f:GetWidth() or h) > h)
+end
+
+local CountBadge = {}
+
+function CountBadge:SetKind(kind)
+    local look = UI.COUNT_LOOK[kind or "alert"] or UI.COUNT_LOOK.alert
+    self.kind = kind or "alert"
+    for _, t in ipairs(self.body) do t:SetVertexColor(look.fill[1], look.fill[2], look.fill[3], 1) end
+    self.fs:SetTextColor(look.text[1], look.text[2], look.text[3])
+end
+
+function CountBadge:SetCutout(r, g, b)
+    if not self.ring then
+        self.ring = CapsuleParts(self, "BACKGROUND", 0)
+    end
+    local c = r and { r, g, b } or UI.COUNT_SURFACE
+    for _, t in ipairs(self.ring) do t:SetVertexColor(c[1], c[2], c[3], 1) end
+    self:Fit()
+end
+
+function CountBadge:Fit()
+    local h = self.h
+    local w = math.max(h, floor((self.fs:GetStringWidth() or 6) + h * 0.55 + 0.5))
+    if (w - h) % 2 == 1 then w = w + 1 end        -- (even growth: the text stays on the pixel grid)
+    self:SetWidth(w)
+    FitCapsule(self.body, self, h, 0)
+    if self.ring then FitCapsule(self.ring, self, h, 2) end
+    if self.glow then FitCapsule(self.glow, self, h, 5) end
+end
+
+-- A soft gold glow that flashes once around it (the count just grew).
+function CountBadge:Pulse()
+    if not self.glow then
+        self.glow = CapsuleParts(self, "BACKGROUND", -1)
+        for _, t in ipairs(self.glow) do
+            t:SetVertexColor(1, 0.82, 0, 1)
+            t:SetAlpha(0)
+        end
+        self:Fit()
+    end
+    local t = 0
+    self:SetScript("OnUpdate", function(f, elapsed)
+        t = t + (elapsed or 0)
+        local a = t < 0.15 and (t / 0.15) or math.max(0, 1 - (t - 0.15) / 0.6)
+        for _, tex in ipairs(f.glow) do tex:SetAlpha(0.45 * a) end
+        if t >= 0.75 then f:SetScript("OnUpdate", nil) end
+    end)
+end
+
+function CountBadge:SetLabel(text)
+    if not text or text == "" then
+        self:Hide()
+        return
+    end
+    self.fs:SetText(text)
+    self:Fit()
+    self:Show()
+end
+
+function CountBadge:SetCount(n)
+    n = tonumber(n) or 0
+    if n <= 0 then
+        self:Hide()
+        return
+    end
+    self:SetLabel(n > 99 and "99+" or tostring(floor(n)))
+end
+
+function UI:CreateCountBadge(parent, h, kind)
+    h = h or 14
+    local b = CreateFrame("Frame", nil, parent)
+    b.h = h
+    b:SetSize(h, h)
+    b.body = CapsuleParts(b, "BACKGROUND", 2)
+    b.fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    UI:SetCountFont(b.fs, h)
+    b.fs:SetJustifyH("CENTER")
+    b.fs:SetPoint("CENTER", 0, 0)
+    for k, fn in pairs(CountBadge) do b[k] = fn end
+    b:SetKind(kind)
+    b:Fit()
+    b:Hide()
+    return b
 end
 
 -- A small rounded tag in a row or a bar: "BiS", "Alt P2", "OS", "BiS locked". A tinted fill, a 1px edge and text in
@@ -3188,6 +3305,45 @@ local function AddNavChevron(tab)
     function tab:OnMenuShown(on) UI:SetChevronUp(c, on) end
     tab.cdlDrop = true
     tab.chevron = c
+end
+
+-- A count on a nav strip tab (what waits in its pages, the notification center's). A text tab: the count badge after
+-- its label (before a group's chevron, after a text pill), the tab growing by its width with the label kept centred.
+-- An icon tab: the badge on the icon's top-right corner, ringed in the strip's colour. n <= 0 / nil hides it.
+local NAV_COUNT_H, NAV_COUNT_GAP = 14, 5
+function UI:SetNavCount(tab, n)
+    local p = tab.count
+    if not p then
+        if not n or n <= 0 then return end
+        p = UI:CreateCountBadge(tab, NAV_COUNT_H)
+        p:SetFrameLevel(tab:GetFrameLevel() + 3)
+        tab.count = p
+    end
+    if tab.icon then
+        p:SetCount(n)
+        if not p.ring then p:SetCutout() end
+        p:ClearAllPoints()
+        p:SetPoint("LEFT", tab.icon, "TOPRIGHT", -NAV_COUNT_H / 2, -2)
+        return
+    end
+    local before = p:IsShown() and (p:GetWidth() + NAV_COUNT_GAP) or 0
+    p:SetCount(n)
+    local after = p:IsShown() and (p:GetWidth() + NAV_COUNT_GAP) or 0
+    local label = tab:GetFontString()
+    local lead = tab.badge or label
+    p:ClearAllPoints()
+    p:SetPoint("LEFT", lead, "RIGHT", NAV_COUNT_GAP, lead == label and -1 or 0)
+    if tab.chevron then
+        tab.chevron:ClearAllPoints()
+        tab.chevron:SetPoint("LEFT", p:IsShown() and p or lead, "RIGHT", NAV_CHEV_GAP, p:IsShown() and 0 or -1)
+    end
+    if after == before then return end
+    tab.cdlExtraW = (tab.cdlExtraW or 0) + after - before
+    label:ClearAllPoints()
+    label:SetPoint("CENTER", -tab.cdlExtraW / 2, 1)
+    tab.line:ClearAllPoints()
+    tab.line:SetPoint("BOTTOM", -tab.cdlExtraW / 2, 0)
+    tab:SetLabel(tab:GetText())
 end
 
 local function CreateNavIcon(parent, def, onClick)

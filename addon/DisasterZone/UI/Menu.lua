@@ -14,7 +14,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Menu.lua", ...) then return end
 --   A click outside, Escape or the owner hiding closes it; a click on an open dropdown closes it again.
 --   A list of pages (the nav strip's group menus): when every entry has a line under it (entry:SetSubtext), the
 --     panel drops the marks and shows two-line rows to its edges, the picked one with a gold bar and a faint gold
---     wash; entry:SetBadge(text, color) puts the strip's pill after an entry's title.
+--     wash; entry:SetBadge(text, color) puts the strip's pill after an entry's title, entry:SetCount(n) the count
+--     badge (UI:CreateCountBadge; 0 / nil: none).
 --   entry:SetHint(text, onClick) puts a grey note at a row's right end; with onClick it is a small button of its own
 --     (gold on hover; a click on it runs onClick and closes the menu instead of picking the row).
 --   UI:CloseMenus(), UI:GetOpenMenu(). ContextMenu returns { root, owner, Close, IsShown } (nil: nothing to show).
@@ -120,6 +121,10 @@ end
 function Desc:SetIsSelected(fn) self.isSelected = fn end
 function Desc:SetSubtext(text) self.subtext = text end
 function Desc:SetBadge(text, color) self.badge = text and { text = text, color = color } or nil end
+function Desc:SetCount(n)
+    n = tonumber(n) or 0
+    self.badge = n > 0 and { count = n } or nil
+end
 function Desc:SetHint(text, onClick) self.hint = text and { text = text, onClick = onClick } or nil end
 
 function Desc:IsSelected()
@@ -434,9 +439,18 @@ end
 -- Fills panel f with desc's entries and sizes it (at least minW wide; a scroll mode or the screen's height caps it).
 -- A page's pill after its title (the nav strip's: dark fill, coloured edge and text); the width it adds, 0 for none.
 local function PlacePill(r, badge, titleW)
+    if r.count then r.count:Hide() end
     if not badge then
         if r.pill then r.pill:Hide() end
         return 0
+    end
+    if badge.count then
+        if r.pill then r.pill:Hide() end
+        r.count = r.count or UI:CreateCountBadge(r, 13)
+        r.count:SetCount(badge.count)
+        r.count:ClearAllPoints()
+        r.count:SetPoint("LEFT", r.fs, "LEFT", titleW + 6, 0)
+        return r.count:GetWidth() + 6
     end
     local p = r.pill
     if not p then
@@ -494,6 +508,7 @@ local function LayoutRow(r, d, x)
     r.sub:Hide()
     r.bar:Hide()
     if r.pill then r.pill:Hide() end
+    if r.count then r.count:Hide() end
     r.fs:SetFontObject(k == "title" and "GameFontNormalSmall" or "GameFontHighlightSmall")
     -- the text's own width first, held by its left edge only (in game GetStringWidth stops at the width a
     -- text was given, so a row as narrow as the last menu's would cut it); then it spans the row

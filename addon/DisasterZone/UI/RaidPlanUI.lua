@@ -4519,38 +4519,11 @@ function TV.createWaitlist(d)
         b.icon:SetTexture("Interface\\Icons\\INV_Misc_GroupNeedMore")
         b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     end
-    -- the badge: a gold pill with the count, ringed in the strip's colour; a glow behind it when the count grows
-    local g = CreateFrame("Frame", nil, b)
-    g:SetSize(15, 14)
+    -- the badge: the count badge, ringed in the strip's colour; it flashes when the count grows
+    local g = UI():CreateCountBadge(b, 14)
+    g:SetCutout(TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3])
     g:SetPoint("LEFT", b, "CENTER", 4, 7)
     g:SetFrameLevel(b:GetFrameLevel() + 3)
-    local function pill(layer, sub, inset, r, gg, bb, a)
-        local parts = {}
-        for _, side in ipairs({ "LEFT", "RIGHT" }) do
-            local c = g:CreateTexture(nil, layer, nil, sub)
-            c:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-            c:SetVertexColor(r, gg, bb, a)
-            c:SetSize(14 + 2 * inset, 14 + 2 * inset)
-            c:SetPoint(side, g, side, side == "LEFT" and -inset or inset, 0)
-            parts[#parts + 1] = c
-        end
-        local m = g:CreateTexture(nil, layer, nil, sub)
-        m:SetColorTexture(r, gg, bb, a)
-        m:SetPoint("TOPLEFT", g, "TOPLEFT", 7, inset)
-        m:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", -7, -inset)
-        parts[#parts + 1] = m
-        return parts
-    end
-    g.glow = pill("BACKGROUND", 0, 4, 1, 0.82, 0, 0)
-    pill("BORDER", 0, 2, TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 1)
-    pill("ARTWORK", 0, 0, 1, 0.82, 0, 1)
-    g.fs = g:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    do
-        local path = g.fs:GetFont()
-        if path then g.fs:SetFont(path, 10, "") end
-    end
-    g.fs:SetPoint("CENTER", 0, 0)
-    g.fs:SetTextColor(0.1, 0.07, 0)
     b.badge = g
     b:SetScript("OnClick", function() TV.toggleWaitlist() end)
     b:SetScript("OnEnter", function(self)
@@ -4655,10 +4628,7 @@ function TV.paintWaitlistIcon(dr, organizer)
     b.bg:SetShown(open)
     b.under:SetShown(open)
     b.icon:SetAlpha((open or b:IsMouseOver()) and 1 or (n > 0 and 0.78 or 0.32))
-    local g = b.badge
-    g:SetShown(n > 0)
-    g.fs:SetText(n > 99 and "99+" or tostring(n))
-    g:SetWidth(n < 10 and 14 or (n < 100 and 20 or 26))
+    b.badge:SetCount(n)
     -- someone new in line since I last looked at this lineup: the badge glows once
     local key = dr.id .. ":" .. dr.ln
     TV.wlSeen = TV.wlSeen or {}
@@ -4673,14 +4643,7 @@ function TV.notOnRoster(dr)
 end
 
 function TV.glowBadge()
-    local g = teamsView.detail.wlBtn.badge
-    local t = 0
-    g:SetScript("OnUpdate", function(self, elapsed)
-        t = t + (elapsed or 0)
-        local a = t < 0.15 and (t / 0.15) or max(0, 1 - (t - 0.15) / 0.6)
-        for _, tex in ipairs(self.glow) do tex:SetAlpha(0.55 * a) end
-        if t >= 0.75 then self:SetScript("OnUpdate", nil) end
-    end)
+    teamsView.detail.wlBtn.badge:Pulse()
 end
 
 function TV.toggleWaitlist()

@@ -134,7 +134,7 @@ local function GroupMenu(g, owner)
                 -- (what waits for me on the page: its count, the notification center's)
                 local n = ns.Notify and ns.Notify:IsLoaded() and ns.Notify:Count({ page = key }) or 0
                 if n > 0 then
-                    item:SetBadge(n > 99 and "99+" or tostring(n), { 1, 0.78, 0.4 })
+                    item:SetCount(n)
                 elseif badge then
                     item:SetBadge(badge.text, badge.color)
                 end

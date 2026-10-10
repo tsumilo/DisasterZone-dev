@@ -2320,6 +2320,11 @@ STATES += [
     ("Notify - bell", notify_view()),
     ("Notify - tray", notify_view("ns.NotifyUI:OpenTray('needs')")),
     ("Notify - tray everything", notify_view("ns.NotifyUI:OpenTray('all')")),
+    ("Notify - guild menu", notify_view("local t = ns.MainFrame:GetNavTabs()['grp:guild']; ns.UI:ContextMenu(t, "
+                                        "function(root) for i, k in ipairs({ 'Members', 'Map', 'Events', 'Polls' }) do "
+                                        "local e = root:CreateRadio(k, function() return i == 1 end, function() end); "
+                                        "e:SetSubtext('The guild page ' .. k .. '.'); if k == 'Polls' then e:SetCount(3) "
+                                        "elseif k == 'Events' then e:SetBadge('BETA', { 0.73, 0.55, 1 }) end end end)")),
     ("Notify - page", notify_view("ns.NotifyUI:OpenPage('needs')")),
     ("Notify - page everything", notify_view("ns.NotifyUI:OpenPage('all')")),
     ("Notify - pop-up", notify_view("ns.Notify:SetWants('polls', 'popup', true); ns.Notify:Post('polls', { key = "
