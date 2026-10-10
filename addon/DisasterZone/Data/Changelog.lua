@@ -86,9 +86,9 @@ ns.CHANGELOG = {
               "Home's chips come from the same list, so Home and the bell always agree.",
           } },
           { heading = "Cleaner counts", lines = {
-              "Every count (the bell, the tabs, menus, the minimap button, the waitlist) has one new look.",
-              "A solid gold circle with sharp dark digits, like today's date on the calendar; no thin ring.",
-              "On a tab the count sits right after the name and the tab makes room, so it never bumps the next one.",
+              "Every count has one new look: the bell, tabs, menus, the minimap button, the waitlist.",
+              "A solid gold circle with sharp dark digits, like today on the calendar; no thin ring.",
+              "On a tab the count sits right after the name and never bumps into the next tab.",
           } },
           { heading = "Disastercraft", lines = {
               "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",
