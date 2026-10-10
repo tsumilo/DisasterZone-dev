@@ -26,7 +26,7 @@ local PLACEHOLDER = {
     bug = "What happened, and what did you expect instead?",
     idea = "What would you like DisasterZone to do?",
     change = "What should work differently, and why?",
-    love = "What do you enjoy? Tsumil reads every one.",
+    love = "What do you enjoy? Every one is read.",
 }
 
 local sheet, pointer, toast
@@ -376,7 +376,7 @@ local function SimilarRow(parent)
 end
 
 local function Build()
-    local f = UI():CreateWindow("DisasterZoneFeedbackSheet", "Tell Tsumil", SHEET_W, SHEET_H)
+    local f = UI():CreateWindow("DisasterZoneFeedbackSheet", "Send feedback", SHEET_W, SHEET_H)
     f:SetFrameStrata("DIALOG")
     f:Hide()
     local c = CreateFrame("Frame", nil, f)
@@ -520,7 +520,7 @@ local function Build()
     f.foot = newText(c, "GameFontDisableSmall", true)
     f.foot:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 0, 0)
     f.foot:SetWidth(CW)
-    f.foot:SetText("Everyone in the guild can see it. It reaches Tsumil even while Tsumil is offline: whoever is "
+    f.foot:SetText("Everyone in the guild can see it. It reaches the developer even while offline: whoever is "
         .. "online carries it.")
 
     -- after Send
@@ -609,7 +609,7 @@ function Sheet:Layout()
                 local ctx, _, err = AttachedParts()
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:AddLine("Sent with your words", 1, 0.82, 0)
-                GameTooltip:AddLine("So Tsumil knows where and on what it happened. Nothing else about you is sent.",
+                GameTooltip:AddLine("So the developer knows where and on what it happened. Nothing else about you is sent.",
                     1, 1, 1, true)
                 GameTooltip:AddDoubleLine("Version", ctx.v, 0.7, 0.7, 0.7, 1, 1, 1)
                 if ctx.z then GameTooltip:AddDoubleLine("Where", ctx.z, 0.7, 0.7, 0.7, 1, 1, 1) end
@@ -679,11 +679,11 @@ function Sheet:Send()
     f.body:Hide()
     f.done:Show()
     local online = ns.Guild and ns.Guild.GetOnlineMembers and #ns.Guild:GetOnlineMembers() or 1
-    f.done.text:SetText((online > 1 or F.DemoOn()) and "Thanks! It's on its way to Tsumil through the guild. Follow it "
+    f.done.text:SetText((online > 1 or F.DemoOn()) and "Thanks! It's on its way to the developer through the guild. Follow it "
         .. "under Feedback > Yours." or "Thanks! It's saved, and goes out as soon as guildmates come online. Follow "
         .. "it under Feedback > Yours.")
     f.done.steps:Set({
-        { text = "Sent", date = "now", st = "done" }, { text = "Tsumil has it", st = "now" },
+        { text = "Sent", date = "now", st = "done" }, { text = "Received", st = "now" },
         { text = "Planned", st = "todo" }, { text = draft.kind == "bug" and "Fixed" or "In a release", st = "todo" },
     }, 380)
 end
@@ -787,7 +787,7 @@ local function AnswerItems()
     for _, item in ipairs(F:List({ mine = true }, "new")) do
         if item.mine and FUI:HasNews(item) then
             local who, text, at = News(item)
-            out[#out + 1] = { key = item.id, title = (who and ns.Util.ShortName(who) or "Tsumil") .. " answered your "
+            out[#out + 1] = { key = item.id, title = (who and ns.Util.ShortName(who) or "The developer") .. " answered your "
                 .. "feedback", text = UI():SafeText(text), from = who, time = at,
                 short = "Answer: " .. (item.text or ""):sub(1, 30) }
         end
@@ -803,7 +803,7 @@ local function RegisterKinds()
     local gold = { 1, 0.82, 0 }
     Nf:RegisterKind("feedbackAnswer", {
         section = "Feedback", page = "feedback", icon = 42, color = gold,
-        label = "Answers to your feedback", desc = "Tsumil or an officer answered your feedback, or set where it stands.",
+        label = "Answers to your feedback", desc = "The developer or an officer answered your feedback, or set where it stands.",
         needsYou = false, popup = true, sound = true,
         open = function(it) OpenItem(it.key) end,
     })
@@ -816,10 +816,10 @@ local function RegisterKinds()
     })
     Nf:RegisterKind("feedbackError", {
         section = "Feedback", page = "feedback", icon = 42, color = F.KIND_INFO.bug.color,
-        label = "DisasterZone errors", desc = "DisasterZone hit a Lua error: tell Tsumil what you were doing.",
+        label = "DisasterZone errors", desc = "DisasterZone hit a Lua error: report what you were doing.",
         needsYou = false, popup = true, sound = false,
         open = function() Sheet:Open({ kind = "bug" }) end,
-        actions = function() return { { text = "Tell Tsumil", primary = true, fn = function() Sheet:Open({ kind = "bug" })
+        actions = function() return { { text = "Report it", primary = true, fn = function() Sheet:Open({ kind = "bug" })
             end } } end,
     })
 end
@@ -829,14 +829,14 @@ local function OnError(e)
     local Nf = N()
     if Nf and Nf.Post and Sheet.kindsRegistered then
         Nf:Post("feedbackError", { key = e and e.m or "error", title = "DisasterZone hit an error",
-            text = "Tell Tsumil what you were doing? The error goes with it.", expires = time() + 1800 })
+            text = "Report what you were doing? The error goes with it.", expires = time() + 1800 })
         return
     end
     Sheet:Toast({
         icon = FB().KIND_INFO.bug.icon, color = FB().KIND_INFO.bug.color,
         title = "DisasterZone hit an error",
-        text = "Tell Tsumil what you were doing? The error goes with it.",
-        button = "Tell Tsumil", seconds = 15,
+        text = "Report what you were doing? The error goes with it.",
+        button = "Report it", seconds = 15,
         fn = function() Sheet:Open({ kind = "bug" }) end,
     })
 end
@@ -911,11 +911,11 @@ function Sheet:OnInit()
     ns:RegisterSlash("bug", function(rest)
         rest = ns.Util.Trim(rest or "")
         Sheet:Open({ kind = "bug", text = rest ~= "" and rest or nil })
-    end, "tell Tsumil something broke (the last Lua error goes with it)")
+    end, "report that something broke (the last Lua error goes with it)")
     ns:RegisterSlash("idea", function(rest)
         rest = ns.Util.Trim(rest or "")
         Sheet:Open({ kind = "idea", text = rest ~= "" and rest or nil })
-    end, "send Tsumil an idea for DisasterZone")
+    end, "send an idea for DisasterZone")
 end
 
 function Sheet:OnLogin()

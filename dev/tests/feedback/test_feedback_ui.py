@@ -97,7 +97,7 @@ def a_tile_opens_the_form_with_that_kind_and_send_shows_the_tracker():
     w.tick(0.2)
     f = "%s:GetFrame()" % SHEET
     assert a.eval("return %s.done:IsShown()" % f) is True
-    assert a.eval("return %s.done.steps.nodes[2].label:GetText()" % f) == "Tsumil has it"
+    assert a.eval("return %s.done.steps.nodes[2].label:GetText()" % f) == "Received"
     a.eval("%s.done.see:Click()" % f)
     w.tick(0.3)
     assert a.eval("return ns.MainFrame:GetSelectedTab()") == "feedback"

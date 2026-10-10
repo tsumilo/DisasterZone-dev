@@ -12,7 +12,7 @@ local WIDTH, HEIGHT = 800, 580 + NAV_H
 -- Pages shown as an icon at the right of the strip (in the pages' order: Feedback, Changelog, Settings), and pages
 -- without a tab (none at the moment).
 local NAV_ICONS = {
-    feedback  = { icon = 42, tip = { "Feedback", "Tell Tsumil about a bug, an idea or a change; see what the guild "
+    feedback  = { icon = 42, tip = { "Feedback", "Send a bug, an idea or a change to the developer; see what the guild "
                   .. "asked for and where it stands. Ctrl+right-click anything in DisasterZone to start from it." } },
     changelog = { icon = 25, tip = { "What's new", "The changes of every DisasterZone release." } },
     settings  = { icon = 13, tip = { "Settings" } },

@@ -140,7 +140,7 @@ local function Pill(item)
         local other = item.dup and F:Get(item.dup)
         return (other and other.no) and ("Same as #" .. other.no) or "Same as another", "mute"
     end
-    if item.no then return "Tsumil has it", "mute" end
+    if item.no then return "Received", "mute" end
     return "Sent", "mute"
 end
 FeedbackUI.Pill = Pill
@@ -223,7 +223,7 @@ local function VoteTip(owner, item)
         GameTooltip:AddLine(item.voteCount == 0 and "Nobody said me too yet" or "They want it too", 1, 0.82, 0)
     else
         GameTooltip:AddLine(item.voted and "You said me too" or "Me too", 1, 0.82, 0)
-        GameTooltip:AddLine(item.voted and "Click to take it back." or "Click if you want this too: Tsumil sees how "
+        GameTooltip:AddLine(item.voted and "Click to take it back." or "Click if you want this too: the developer sees how "
             .. "many asked for it.", 1, 1, 1, true)
     end
     if #names > 0 then GameTooltip:AddLine(tconcat(names, ", "), 1, 1, 1, true) end
@@ -338,13 +338,13 @@ local function BuildBanner(p)
 
     b.title = newText(b, "GameFontHighlightLarge", 19)
     b.title:SetPoint("TOPLEFT", 14, -12)
-    b.title:SetText("Tell Tsumil")
+    b.title:SetText("Feedback")
     b.desc = newText(b, "GameFontHighlightSmall", 11, true)
     b.desc:SetPoint("TOPLEFT", 14, -40)
     b.desc:SetWidth(380)
     b.desc:SetTextColor(0.81, 0.81, 0.81)
-    b.desc:SetText("Bugs, ideas and changes reach the addon's developer, even while Tsumil is offline. What ships "
-        .. "carries your name.")
+    b.desc:SetText("Bugs, ideas and changes reach the addon's developer, even while the developer is offline. What "
+        .. "ships carries your name.")
     b.stats = newText(b, "GameFontHighlight", 12)
     b.stats:SetPoint("BOTTOMLEFT", 14, 10)
     b.tiles = {}
@@ -549,7 +549,7 @@ local function Steps(item)
     local stage = F:Stage(item)
     local steps = {
         { text = "Sent", date = Day(item.at), st = "done" },
-        { text = "Tsumil has it", date = item.no and Day(item.seenAt) or "", st = stage >= 2 and "done" or "now" },
+        { text = "Received", date = item.no and Day(item.seenAt) or "", st = stage >= 2 and "done" or "now" },
     }
     if item.closed and item.state ~= "done" then
         local label = Pill(item)
@@ -703,7 +703,7 @@ local function FullStatusMenu(root, item)
             b:SetTooltip(function(tt) tt:AddLine(label, 1, 0.82, 0); tt:AddLine(tip, 1, 1, 1, true) end)
         end
     end
-    entry("planned", "Planned", "Tsumil means to do it.")
+    entry("planned", "Planned", "It will be done.")
     entry("exists", "Already in the addon", "Answer how to find it too: in the Inbox, or as the author's answer box.")
     entry("notnow", "Not planned", "Not now.")
     local sub = root:CreateButton("Same as...")
@@ -767,8 +767,8 @@ local function BuildHow(parent)
     f.sub:SetTextColor(0.55, 0.55, 0.58)
     f.sub:SetText("Pick a tile above: it takes a minute.")
     local steps = {
-        { "You tell Tsumil", "A bug, an idea, a change, or what you love." },
-        { "The guild carries it", "It reaches Tsumil even while Tsumil is offline." },
+        { "You send it", "A bug, an idea, a change, or what you love." },
+        { "The guild carries it", "It reaches the developer, even while offline." },
         { "It ships with your name", "In the changelog, with everyone who said me too." },
     }
     f.cols = {}
@@ -1151,7 +1151,7 @@ local function RenderDetail()
         d.noAns:SetPoint("TOPLEFT", d.child, "TOPLEFT", 0, y)
         d.noAns:SetWidth(inner)
         local canReply = F:CanReply(item)
-        d.noAns:SetText(item.mine and "No answers yet. Tsumil and the officers answer here."
+        d.noAns:SetText(item.mine and "No answers yet. The developer and the officers answer here."
             or (canReply and ("No answers yet. " .. Short(item.author) .. " sees yours at once, or at the next login.")
             or "No answers yet."))
         y = y - 20
@@ -1203,7 +1203,7 @@ local function RenderDetail()
         d.reply:ClearAllPoints()
         d.reply:SetPoint("BOTTOMLEFT", panel.detailBox, "BOTTOMLEFT", IN, bottom)
         d.reply:SetWidth(width - 2 * IN - 68 - 6)
-        UI():SetEditPlaceholder(d.reply, item.mine and "Add something for Tsumil" or ("Answer " .. Short(item.author)))
+        UI():SetEditPlaceholder(d.reply, item.mine and "Add something" or ("Answer " .. Short(item.author)))
         bottom = bottom + 24 + 10
     end
     d.scroll:SetSize(width - 2 * IN - 12, max(40, BODY_H - HEAD_H - 12 - bottom))
@@ -1432,5 +1432,5 @@ function FeedbackUI:OnInit()
     ns:RegisterSlash("feedback", function(rest)
         rest = ns.Util.Trim(rest or "")
         if rest ~= "" and ns.FeedbackSheet then ns.FeedbackSheet:Open({ text = rest }) else FeedbackUI:Open() end
-    end, "tell Tsumil about a bug, an idea or a change (/dz feedback <text> opens the form with it)")
+    end, "send feedback: a bug, an idea or a change (/dz feedback <text> opens the form with it)")
 end
