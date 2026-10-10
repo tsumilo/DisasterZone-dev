@@ -23,7 +23,6 @@ local strformat = string.format
 
 local RING = "Interface\\AddOns\\DisasterZone\\Media\\Blessings\\ring"
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local WHITE8 = "Interface\\Buttons\\WHITE8X8"
 local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
 local GOLD = { 1, 0.82, 0 }
