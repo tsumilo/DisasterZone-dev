@@ -71,7 +71,8 @@ CHAPTERS = ["basics", "drawing", "room3d", "jobs", "helpers", "assign", "read", 
 
 
 def setup(rooms=False):
-    """rooms: the clients load the board's 3D rooms (the mock leaves them out otherwise)."""
+    """rooms: the clients load the board's 3D rooms; without, Bob has the room data addon (DisasterZone_Rooms)
+    turned off, so the board has no 3D (as when the rooms are not installed)."""
     keep = harness.LOAD_ROOMS
     harness.LOAD_ROOMS = rooms or keep
     try:
@@ -79,6 +80,8 @@ def setup(rooms=False):
     finally:
         harness.LOAD_ROOMS = keep
     bob = c["Bob"]
+    if not rooms:
+        bob.eval("C_AddOns.DisableAddOn('DisasterZone_Rooms')")
     bob.eval(HELPERS)
     return w, c, bob
 
@@ -227,7 +230,7 @@ def every_step_points_at_a_control_on_the_screen():
                ("room3d", 7), ("room3d", 8), ("room3d", 9), ("room3d", 10), ("read", 4), ("read", 6)]
     every = [(ch, si) for ch, k in zip(CHAPTERS, n) for si in range(1, k + 1)]
     assert seen == [x for x in every if x not in skipped], seen
-    assert titles[("room3d", 1)] == "3D after a restart", titles
+    assert titles[("room3d", 1)] == "No 3D here yet", titles
     # the blocks the skipped steps would have made came anyway: one suggested block, and a rotation to track
     assert bob.eval_py("local s = %s; local out = {}; for i, k in ipairs(s.strat.p[1].k) do out[i] = k.n end; "
                        "return out" % ST) == ["Tanks", "Rotation"]
@@ -293,7 +296,7 @@ def the_steps_notice_the_real_actions():
     assert did(w, bob)["si"] == 9
     nxt()
     s = state(bob)
-    assert (s["chapter"], s["si"], s["title"]) == ("room3d", 1, "3D after a restart"), s
+    assert (s["chapter"], s["si"], s["title"]) == ("room3d", 1, "No 3D here yet"), s
     nxt()
     s = state(bob)
     assert (s["chapter"], s["si"]) == ("jobs", 1), s

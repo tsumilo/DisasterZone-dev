@@ -1305,6 +1305,7 @@ class Client:
         self.bank_requires_open = bank_requires_open
         self.sv_before_files = sv_before_files
         self.lod_addons = dict(lod_addons) if lod_addons is not None else {ROOMS_NAME: rooms_dir_for(self.addon_dir)}
+        self._load_rooms = None                      # (load_addon: LOAD_ROOMS at login; None: as it is now)
         self.index = next(Client._index)
         self.time_offset = 1000.0 + 137.25 * self.index
         self.online = bool(online)
@@ -1474,6 +1475,7 @@ class Client:
         headers, files = self.toc()
         self._set_time()
         self.M.set_toc_meta(self.addon_name, to_lua(self.runtime, headers))
+        self._load_rooms = LOAD_ROOMS                # (LOAD_ROOMS as it was when this client logged in)
         if self.addon_name == ADDON_NAME:
             for name, folder in self.lod_addons.items():        # (installed: GetAddOnInfo knows it, not loaded)
                 if os.path.exists(os.path.join(folder, name + ".toc")):
@@ -1546,7 +1548,7 @@ class Client:
         if not folder or not os.path.exists(os.path.join(folder, name + ".toc")):
             return False, "MISSING"
         headers, files = parse_toc(folder, name)
-        if name == ROOMS_NAME and not LOAD_ROOMS:
+        if name == ROOMS_NAME and not (LOAD_ROOMS if self._load_rooms is None else self._load_rooms):
             files = [f for f in files if not is_board_room(f)]
         ns = self.runtime.table()
         missing = []

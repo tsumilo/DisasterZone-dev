@@ -373,11 +373,20 @@ end
 
 local room3d = {
     {
-        title = "3D after a restart",
+        title = "No 3D here yet",
         skip = function() return not no3D() end,
-        text = "The board can show a page in the boss' room in 3D, as the game draws it. Those files come with an "
-            .. "update, and the game only reads new files when it starts: restart the client once (a /reload is not "
-            .. "enough), then come back to this chapter.\n\nNext: the tables of jobs.",
+        -- (the rooms are the DisasterZone_Rooms addon: missing or turned off, it says which; else a restart)
+        text = function()
+            local r3 = ns.Render3D
+            local problem = r3 and r3.DataProblem and r3.DataProblem()
+            if problem then
+                return "The board can show a page in the boss' room in 3D, as the game draws it. " .. problem
+                    .. "\n\nNext: the tables of jobs."
+            end
+            return "The board can show a page in the boss' room in 3D, as the game draws it. Those files come with "
+                .. "an update, and the game only reads new files when it starts: restart the client once (a /reload "
+                .. "is not enough), then come back to this chapter.\n\nNext: the tables of jobs."
+        end,
     },
     {
         title = "Into the room",

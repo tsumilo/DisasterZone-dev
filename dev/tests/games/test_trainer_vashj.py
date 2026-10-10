@@ -80,6 +80,8 @@ def sim(c, expr):
 @case
 def the_room_is_the_round_stepped_platform():
     w, c = boot()
+    # (the floor is the room data addon's: filled in when first played)
+    c.eval("ns.Trainer.FillArena(ns.Trainer:GetEncounter('vashj').arena)")
     a = c.eval_py("local a = ns.Trainer:GetEncounter('vashj').arena return { a.w, a.h, #a.mesh.tris / 4, #a.mesh.textures }")
     assert a[0] == 210 and a[1] == 210 and 3000 < a[2] < 9000 and a[3] >= 5, a
     h = lambda x, y: c.eval_py("return ns.Trainer:GetEncounter('vashj').arena.height(%f, %f)" % (x, y))
