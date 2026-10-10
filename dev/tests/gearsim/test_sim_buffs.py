@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Gear sim buff presets (Sim/BuffPresets.lua, UI/SimBuffs.lua, the card's buffs menu in UI/SimPanel.lua).
+"""Gear sim buff presets (Sim/BuffPresets.lua, UI/SimBuffs.lua, the buffs menu of the page's settings sentence, UI/SimPanel.lua).
 
 Covers: a team lineup I'm on shows in the card's buffs menu and its config follows who is placed (my group's
 totems / shout / Unleashed Rage, the raid's blessings by paladin count, debuffs by class and spec), the comp's open
@@ -117,7 +117,7 @@ def team_lineup_follows_who_is_placed():
 def card_menu_lists_teams_and_picks_one():
     w, c, tid, ln = world()
     k = "t:%s:%s" % (tid, ln)
-    c.eval("ns.SimPanel._card().buffs:OpenMenu()")
+    c.eval("ns.UI:ContextMenu(ns.SimStage._frame().chip, function(root) ns.SimPanel:BuildSettingMenu(root, 'buffs') end)")
     m = c.last_menu()
     texts = [e.get("text") for e in m["children"]]
     assert "25-man buffs" in texts and "+" not in texts, texts
@@ -189,7 +189,7 @@ def preset_built_in_editor_saved_and_deleted():
     # account-wide: stored outside the per-character sim settings
     assert c.eval("return type(ns.DB:GetSetting('sim.presets')) == 'table'") is True
     # the menu lists it with an edit hint that opens the editor
-    c.eval("ns.SimBuffsUI:Close()  ns.SimPanel._card().buffs:OpenMenu()")
+    c.eval("ns.SimBuffsUI:Close()  ns.UI:ContextMenu(ns.SimStage._frame().chip, function(root) ns.SimPanel:BuildSettingMenu(root, 'buffs') end)")
     texts = [e.get("text") for e in c.last_menu()["children"]]
     assert "Pug SSC" in texts, texts
     opened = c.eval("""local m = ns.UI:GetOpenMenu()
