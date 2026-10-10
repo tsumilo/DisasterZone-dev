@@ -120,7 +120,8 @@ def patchable_files(addon_dir):
 def all_files(addon_dir):
     out = []
     for root, dirs, files in os.walk(addon_dir):
-        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")]
+        # (.claude: a Claude Code session's files, when one ran in the addon folder)
+        dirs[:] = [d for d in dirs if d not in (".git", ".claude", "__pycache__")]
         for f in files:
             rel = os.path.relpath(os.path.join(root, f), addon_dir).replace("\\", "/")
             if not rel.startswith(DEV_ONLY):
