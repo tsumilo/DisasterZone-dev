@@ -531,7 +531,7 @@ local function ShowRowTip(row)
     local seg, mode = RowSeg(pf)
     local a = r.a
     local dur = Meter:Duration(seg)
-    local act = Meter:ActiveTime(seg, a)
+    local act = Meter:RateTime(seg, a)
 
     -- header
     local coords = a.c and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[a.c]
@@ -742,11 +742,11 @@ local function PlaceRight(row, hasSub, hasKb)
     row.name:SetPoint("RIGHT", hasKb and row.kb or row.value, "LEFT", -16, 0)
 end
 
--- (per second: by the player's active time, like Details; taken by the fight's length)
+-- (per second: Meter:RateTime, the fight's length or the player's active time; taken by the fight's length)
 local VALUE = {
-    damage = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:ActiveTime(seg, r.a)) end,
+    damage = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:RateTime(seg, r.a)) end,
     dps = function(r) return K.Int(r.v), K.Fmt(r.a.d) end,
-    healing = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:ActiveTime(seg, r.a)) end,
+    healing = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:RateTime(seg, r.a)) end,
     taken = function(r, dur) return K.Fmt(r.v), K.Int(r.v / dur) end,
     deaths = function(r) return K.Clock(r.v), nil end,
     kicks = function(r) return tostring(r.v), nil end,
@@ -765,7 +765,7 @@ end
 local function TotalText(mode, rows, total, dur, seg)
     local function perSecond(field)
         local s = 0
-        for _, r in ipairs(rows) do s = s + (r.a[field] or 0) / Meter:ActiveTime(seg, r.a) end
+        for _, r in ipairs(rows) do s = s + (r.a[field] or 0) / Meter:RateTime(seg, r.a) end
         return s
     end
     if mode == "damage" then return K.Fmt(total), K.Int(perSecond("d")) .. "/s" end

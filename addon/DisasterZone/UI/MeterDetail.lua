@@ -884,7 +884,7 @@ function MD:Draw()
     -- cards
     local c = frame.cards
     local specIcon = K.SpecIcon(a.c, a.s) or "Interface\\Icons\\Ability_Warrior_SavageBlow"
-    local act = Meter:ActiveTime(seg, a)
+    local act = Meter:RateTime(seg, a)
     MD.act = act
     if mode == "healing" then
         local tot = a.h + a.oh

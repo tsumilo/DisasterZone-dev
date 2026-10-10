@@ -654,6 +654,7 @@ def numbers_match_details_on_a_short_fight():
     """The fight Tsumil checked in game against Details (2026-10-10): Crusader Strike, two swings and a Seal of Command
     crit that killed the mob with overkill. Details: 6.6k damage, 1.8k DPS (by active time), SoC 2.9k."""
     r = Raid()
+    r.cl.eval("ns.DB:SetSetting('meters.rate', 'active')")          # (Details' activity time, the option)
     r.combat(True)
     r.hit("Gina", 1314, spell=35395)
     r.tick(0.4)
@@ -807,6 +808,30 @@ def charts_run_from_the_first_second_to_the_last():
         assert span[0] == 0 and span[1] == span[2], (mode, span)
     w = r.cl.eval("ns.MeterDetail:Open('cur', ns.MeterDemo.ME, 'damage'); return _G.DisasterZoneMeterDetail.banner.fight:GetWidth()")
     assert 120 <= w <= 260, w
+
+
+@case
+def per_second_ranks_like_the_totals_by_default():
+    """Reported in game 2026-10-10 (Maulgar): bars by damage, but per second by each player's active time, so higher
+    damage showed lower DPS (a 3.6 s two-hander's swing gaps fell out of active time, Auto Shot kept a hunter active
+    all fight). By default per second is the fight's length for everyone; active time is the option."""
+    extra = [ExtraMember("Ret", "PALADIN"), ExtraMember("Hunt", "HUNTER")]
+    r = Raid(extra=extra)
+    r.combat(True, "Ret", "Hunt")
+    for i in range(10):                                      # Ret: big swings 4.5 s apart; Hunt: small shots every 1.5 s
+        if i % 3 == 0:
+            r.hit("Ret", 3000, spell=20424)
+        r.hit("Hunt", 800, spell=75)
+        r.tick(1.5)
+    r.end_fight()
+    order = r.cl.eval_py("local s = ns.Meter:GetSegment('cur'); local o = {}; for i, x in ipairs(ns.Meter:Rows(s, 'dps')) do "
+                         "o[i] = x.a.n end; return o")
+    dmg = r.cl.eval_py("local s = ns.Meter:GetSegment('cur'); local o = {}; for i, x in ipairs(ns.Meter:Rows(s, 'damage')) do "
+                       "o[i] = x.a.n end; return o")
+    assert order == dmg, (order, dmg)
+    r.cl.eval("ns.DB:SetSetting('meters.rate', 'active')")
+    act = r.cl.eval("local s = ns.Meter:GetSegment('cur'); for _, a in pairs(s.actors) do if a.n == 'Ret' then return a.act end end")
+    assert act >= 13, act                                    # 4.5 s gaps count as active now (cut-off 5 s)
 
 
 if __name__ == "__main__":

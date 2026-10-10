@@ -53,7 +53,7 @@ local DEFAULTS = {
         -- between bosses); warn = % of my pull point (0 off); tankView "auto" | "always" | "never"; size "small" |
         -- "normal" | "large"
         meters = { dmg = false, thr = false, show = "group", ooc = "fade", keep = 25, split = "all", warn = 85,
-                   sound = true, flash = true, tankView = "auto", locked = true, size = "normal" },
+                   sound = true, flash = true, tankView = "auto", locked = true, size = "normal", rate = "fight" },
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
         -- latencyMs 0 = auto; use.exo / use.cons = the optional fillers (off, as in WoWSims' rotation); consMana =
         -- Consecration only above this mana %; reports / pos are kept here too

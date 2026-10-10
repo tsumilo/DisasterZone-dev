@@ -1684,6 +1684,10 @@ function SettingsUI:BuildMeters(sec)
         "meters.keep", 25, { { value = 10, text = "Last 10" }, { value = 25, text = "Last 25" }, { value = 50, text = "Last 50" } }))
     Track("dmg", self:DropdownSetting(sec, "Start a new fight on", "Boss pulls always start their own fight.",
         "meters.split", "all", { { value = "all", text = "Every combat" }, { value = "boss", text = "Boss pulls only" } }))
+    Track("dmg", self:DropdownSetting(sec, "Per second by", "Fight time ranks like the totals; active time leaves out idle gaps.",
+        "meters.rate", "fight", { { value = "fight", text = "Fight time" }, { value = "active", text = "Active time" } },
+        "Fight time: damage over the fight's length, as Warcraft Logs counts it. Active time: over the time each player "
+            .. "was doing something, as Details counts it by default; it favours players who stood idle."))
     local row = self:Row(sec, "Clear all fights", "Empties the fight list and Whole raid.")
     local armed, clr
     local function disarm() armed = nil; clr:SetText("Clear") end

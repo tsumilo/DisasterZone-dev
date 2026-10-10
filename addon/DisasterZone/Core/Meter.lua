@@ -15,7 +15,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 -- owner (raidNpet / partyNpet / pet, and SPELL_SUMMON from a member or one of their pets). Another player's pet whose
 -- owner is unknown is left out rather than guessed.
 -- Active time (Details' activity time): the gaps between a player's own actions up to IDLE seconds count, longer
--- gaps do not. Per-player DPS / HPS divide by it (at least 1 s); the raid's total divides by the fight's length.
+-- gaps do not. Per second divides by the fight's length (meters.rate "fight", the default) or by it ("active").
 -- A fight's clock runs from its first hit to its last (a boss fight: ENCOUNTER_START to ENCOUNTER_END).
 -- Spec: guessed from signature spells (SIG: talents or spells only one spec casts), remembered by name.
 --
@@ -49,7 +49,7 @@ local tsort, tremove = table.sort, table.remove
 local band = bit and bit.band
 
 local BUCKET = 5                  -- timeline bucket, seconds
-local IDLE = 3.5                  -- active time: gaps up to this long count
+local IDLE = 5                    -- active time: gaps up to this long count (3.5 cut slow two-handers' swing gaps)
 local RING = 48                   -- death recap: events per player kept while fighting
 local RECAP = 10                  -- seconds a recap shows
 local DEATHS_MAX = 60             -- deaths kept per fight
@@ -719,7 +719,7 @@ function Meter:Rows(seg, mode)
     for g, a in pairs(seg.actors) do
         local v, ext
         if mode == "damage" then v = a.d
-        elseif mode == "dps" then v = (a.d or 0) > 0 and a.d / self:ActiveTime(seg, a) or 0
+        elseif mode == "dps" then v = (a.d or 0) > 0 and a.d / self:RateTime(seg, a) or 0
         elseif mode == "healing" then v, ext = a.h, a.oh
         elseif mode == "taken" then v = a.t
         elseif mode == "kicks" then v = a.k
@@ -744,9 +744,18 @@ end
 
 function Meter:Find(seg, guid) return seg and seg.actors[guid] end
 
--- A player's active seconds in a fight (at least 1): what their DPS / HPS divide by, like Details.
+-- A player's active seconds in a fight (at least 1).
 function Meter:ActiveTime(seg, a)
     return max(1, min(self:Duration(seg), (a and a.act) or 0))
+end
+
+-- What a player's DPS / HPS divide by (meters.rate): "fight" = the fight's length for everyone (Warcraft Logs; the
+-- default, so per second always ranks like the totals), "active" = their own active time (Details' activity time).
+-- Active time made a raid's bars disagree (a slow two-hander's swing gaps fell out of it, a hunter's Auto Shot kept
+-- him active throughout; in-game report 2026-10-10).
+function Meter:RateTime(seg, a)
+    if Setting("rate", "fight") == "active" then return self:ActiveTime(seg, a) end
+    return max(1, self:Duration(seg))
 end
 
 -- Did this player die in the fight?
