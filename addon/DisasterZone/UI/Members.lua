@@ -1376,9 +1376,11 @@ local function placeHeaderButtons(right, btn)
             prev = b
         end
     end
-    local used = 0
-    for _, b in ipairs({ btn, right.onMap, right.share, right.addNote }) do
-        if b and b:IsShown() then used = used + b:GetWidth() + 6 end
+    -- (btn first only when there is one: a nil first entry would end ipairs at once, on my own card or an offline
+    -- member's, and the name's hover area then covered the icons)
+    local used = btn and btn:IsShown() and (btn:GetWidth() + 6) or 0
+    for _, b in ipairs({ right.onMap, right.share, right.addNote }) do
+        if b:IsShown() then used = used + b:GetWidth() + 6 end
     end
     return used
 end

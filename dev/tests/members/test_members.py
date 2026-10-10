@@ -457,6 +457,37 @@ def the_members_tab_shows_the_note_to_officers_only():
 
 
 @case
+def the_header_buttons_are_clickable_over_the_hover_area():
+    # the name's hover area (the member tooltip) stopped covering the share / note icons in game: it ends left of the
+    # buttons and they sit above it
+    w, c = officers()
+    gina = c["Gina"]
+    gina.slash("/dz members")
+    w.tick(1)
+    for name in ("Sam", "Gina"):
+        gina.eval("%s:SelectMember(...)" % UI, K(name))
+        r = gina.eval_py("""
+          local right = ns.MembersUI:GetPanel().right
+          local hit, used, lvl = right.headHit, 0, true
+          for _, b in ipairs({ right.whisper, right.share, right.addNote, right.onMap }) do
+            if b:IsShown() then
+              used = used + b:GetWidth() + 6
+              lvl = lvl and b:GetFrameLevel() > hit:GetFrameLevel()
+            end
+          end
+          local x
+          for i = 1, hit:GetNumPoints() do
+            local pt, rel, _, px = hit:GetPoint(i)
+            if pt == "TOPRIGHT" and rel == right then x = px end
+          end
+          return { x = x, used = used, above = lvl, share = right.share:IsShown() }""")
+        assert r["share"] is True, r
+        assert r["x"] is not None and -r["x"] >= r["used"], (name, r)
+        assert r["above"] is True, (name, r)
+    w.assert_no_errors()
+
+
+@case
 def a_debug_role_sees_the_notes_ui_without_touching_the_real_notes():
     """The developer's character (Tsumil) pretending to be GM / officer: the notes UI works with test notes that stay
     on that PC; nothing is sent, no real note arrives, and the real officers' notes are untouched."""

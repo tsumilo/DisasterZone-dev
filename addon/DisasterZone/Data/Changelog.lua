@@ -44,6 +44,7 @@ ns.CHANGELOG = {
               "DisasterZone errors offer to report them (Settings > Notifications turns it off).",
               "Demo mode shows a filled feedback page to try it out.",
               "/dz bug, /dz idea and /dz feedback open the form.",
+              "The share icon in the top bar links the Feedback page, or the item you have open.",
           } },
           { heading = "Guild polls", lines = {
               "New Guild > Polls: the GM, officers and Guild Council ask, the people they pick answer.",
@@ -96,6 +97,10 @@ ns.CHANGELOG = {
               "Every count has one new look: the bell, tabs, menus, the minimap button, the waitlist.",
               "A solid gold circle with sharp dark digits, like today on the calendar; no thin ring.",
               "On a tab the count sits right after the name and never bumps into the next tab.",
+          } },
+          { heading = "Fixes", lines = {
+              "Guild > Members: the share and note icons on your own card (or an offline member's) click again.",
+              "The top bar's share icon now works on Polls, Map, Atlas, My Log and Notifications too.",
           } },
           { heading = "Disastercraft", lines = {
               "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",

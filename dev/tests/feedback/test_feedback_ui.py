@@ -242,5 +242,38 @@ def the_changelog_names_who_asked_and_marks_mine():
     w.assert_no_errors()
 
 
+@case
+def the_nav_share_links_the_feedback_page_and_the_picked_item():
+    w, c = standard()
+    settle(w)
+    a, b = c["Alfa"], c["Bert"]
+    id_ = submit(a, "bug", "The share icon on the member card can't be clicked.")
+    settle(w)
+    cur = lambda cl: cl.eval("return ns.Share:CurrentRef()")  # noqa: E731
+    open_page(b, w)
+    b.eval("ns.FeedbackUI:Select(nil)")
+    assert cur(b) == "feedback"
+    b.eval("ns.FeedbackUI:Select(...)", id_)
+    assert cur(b) == "fb:" + id_
+    assert b.eval("return ns.Share:Describe(...).label", "fb:" + id_).startswith("Bug: The share icon")
+    tok = b.eval("return ns.Share:Text(...)", "fb:" + id_)
+    assert tok and tok.endswith("#fb:" + id_ + "]"), tok
+    assert b.eval_py("return #ns.Share:Parse(...)", tok) == 1
+    # a click on the link opens the page on that item; the tooltip says what it is
+    a.eval("ns.MainFrame:Open('home')")
+    assert a.eval_py("return (ns.Share:Open(...))", "fb:" + id_) is True
+    assert a.eval("return ns.MainFrame:GetSelectedTab()") == "feedback"
+    assert a.eval("return ns.FeedbackUI:GetState().sel") == id_
+    tip = a.eval_py("""GameTooltip:SetOwner(UIParent, 'ANCHOR_NONE'); ns.Share:FillTooltip(GameTooltip, ...)
+      local out = {}
+      for i = 1, GameTooltip:NumLines() do out[#out + 1] = _G['GameTooltipTextLeft' .. i]:GetText() end
+      GameTooltip:Hide(); return table.concat(out, ' | ')""", "fb:" + id_)
+    assert "Something broke" in tip and "can't be clicked" in tip, tip
+    # the other new pages are shareable too
+    for page in ("feedback", "polls", "atlas", "map", "mylog", "notify"):
+        assert b.eval("return ns.Share:Text(...)", page), page
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

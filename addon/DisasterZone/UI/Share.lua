@@ -11,9 +11,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Share.lua", ...) then return en
 -- shares it on; hovering shows what it is (EventRegistry "ChatFrame.OnHyperlinkEnter").
 --
 -- References: a page (home, mybis, council, loot, raids, teams, strategies, raidlog, dungeons, events, season,
--- members, recipes, games, changelog, settings), raid:<occ>[:groups | :assign], team:<id>, strat:<id>,
--- board:<occ>:<boss>, member:<name>, recipe:<spell>, game:<id>, ver:<version>, run:<id> (a dungeon run,
--- Core/DungeonRuns.lua), event:<occ> (a calendar event or its results), edef:<id> (an event of the library).
+-- members, recipes, map, polls, atlas, mylog, feedback, notify, games, changelog, settings), raid:<occ>[:groups |
+-- :assign], team:<id>, strat:<id>, board:<occ>:<boss>, member:<name>, recipe:<spell>, game:<id>, ver:<version>,
+-- run:<id> (a dungeon run, Core/DungeonRuns.lua), event:<occ> (a calendar event or its results), edef:<id> (an event of
+-- the library), fb:<id> (a feedback item, Core/Feedback.lua).
 -- UI/ShareWindow.lua is the window that sends one.
 local addonName, ns = ...
 
@@ -38,6 +39,7 @@ local ICON = {
     games   = "Interface\\Icons\\INV_Misc_Dice_01",
     events  = "Interface\\Icons\\Ability_DualWield",
     version = "Interface\\Icons\\INV_Misc_Note_01",
+    feedback = "Interface\\Icons\\INV_Letter_15",
 }
 
 -- The pages: their label, the tab (and the Raids / Members / Council view) they open, a line for the tooltip.
@@ -63,6 +65,14 @@ local PAGES = {
     recipes    = { label = "Members: Recipes", tab = "members", mode = "recipes",
                    desc = "Who in the guild can make what." },
     games      = { label = "Games", tab = "games", icon = ICON.games, desc = "Bingo and the other games." },
+    map        = { label = "Guild map", tab = "map", desc = "Where the guild is right now.",
+                   closed = "The guild map is for guild members." },
+    polls      = { label = "Polls", tab = "polls", desc = "The guild's polls: answer them or see the results." },
+    atlas      = { label = "Atlas", tab = "atlas", desc = "Every raid and dungeon's loot, with what it costs." },
+    mylog      = { label = "My Log", tab = "mylog", desc = "Your own raid log: every pull and your numbers." },
+    feedback   = { label = "Feedback", tab = "feedback", icon = ICON.feedback,
+                   desc = "Bugs, ideas and changes the guild sent the developer." },
+    notify     = { label = "Notifications", tab = "notify", desc = "Everything DisasterZone told you lately." },
     changelog  = { label = "What's new", tab = "changelog", icon = ICON.version,
                    desc = "The changes of every DisasterZone release." },
     settings   = { label = "Settings", tab = "settings", desc = "DisasterZone's settings." },
@@ -282,6 +292,21 @@ KINDS.edef = function(arg)
     return { label = "Event: " .. (d.name or "?"), icon = TexIcon(d.icon or ICON.events), known = true }
 end
 
+local function FB() return ns.Feedback end
+
+-- "Bug: the share icon can't be clicked", the kind's icon.
+local function FeedbackParts(item)
+    local info = FB().KIND_INFO and FB().KIND_INFO[item.kind] or {}
+    return (info.short or "Feedback") .. ": " .. (item.text or ""), info.icon
+end
+
+KINDS.fb = function(arg)
+    local item = FB() and FB():Get(arg)
+    if not item then return { icon = TexIcon(ICON.feedback) } end
+    local label, icon = FeedbackParts(item)
+    return { label = label, icon = TexIcon(icon or ICON.feedback), known = true }
+end
+
 function Share:Describe(ref)
     local kind, arg = SplitRef(ref)
     if not kind then return nil end
@@ -317,6 +342,7 @@ function Share:TeamRef(id) return type(id) == "string" and ("team:" .. id) or ni
 function Share:RunRef(id) return type(id) == "string" and ("run:" .. id) or nil end
 function Share:EventRef(occId) return type(occId) == "string" and ("event:" .. occId) or nil end
 function Share:EventDefRef(id) return type(id) == "string" and ("edef:" .. id) or nil end
+function Share:FeedbackRef(id) return type(id) == "string" and ("fb:" .. id) or nil end
 
 ---------------------------------------------------------------------------
 -- Text: what goes out in chat; ChatLink: what a chat frame shows
@@ -479,6 +505,16 @@ OPEN.edef = function(arg)
     if not ns.EventBuilder then return false end
     ns.EventBuilder:Open(d)
     return ns.EventBuilder:IsShown()
+end
+
+OPEN.fb = function(arg)
+    if not ns.FeedbackUI then return false end
+    if not (FB() and FB():Get(arg)) then
+        ns.FeedbackUI:Open("all")
+        return false, "That feedback isn't here: it hasn't reached you yet, or it was withdrawn."
+    end
+    ns.FeedbackUI:Open("all", arg)
+    return true
 end
 
 OPEN.ver = function(arg)
@@ -672,6 +708,27 @@ TIPS.edef = function(tt, arg)
     tt:AddLine("Opens it in the event builder: see its pieces, practise it, host it.", 1, 1, 1, true)
 end
 
+TIPS.fb = function(tt, arg)
+    local F = FB()
+    local item = F:Get(arg)
+    local info = F.KIND_INFO[item.kind] or {}
+    local c = info.color or { 1, 0.82, 0 }
+    tt:AddLine(info.label or "Feedback", c[1], c[2], c[3])
+    tt:AddLine(item.text or "", 1, 1, 1, true)
+    local parts = {}
+    if not item.anon and item.author then parts[#parts + 1] = "From " .. Util().ShortName(item.author) end
+    if (item.voteCount or 0) > 0 then parts[#parts + 1] = item.voteCount .. " me too" end
+    if #parts > 0 then tt:AddLine(tconcat(parts, " · "), 0.8, 0.8, 0.8) end
+    local shipped = F:ShippedText(item)
+    if shipped then
+        tt:AddLine(shipped, 0.2, 1, 0.6)
+    elseif item.state == "planned" then
+        tt:AddLine("Planned", 1, 0.82, 0)
+    elseif item.closed then
+        tt:AddLine("Closed", 0.6, 0.6, 0.6)
+    end
+end
+
 TIPS.ver = function(tt, arg)
     local e = ChangelogEntry(arg)
     tt:AddLine("DisasterZone " .. arg, 1, 0.82, 0)
@@ -795,6 +852,9 @@ function Share:CurrentRef()
             if o or r then return self:EventRef(st.occ) end
         end
         return view == "season" and "season" or "events"
+    elseif tab == "feedback" and ns.FeedbackUI then
+        local sel = (ns.FeedbackUI:GetState() or {}).sel
+        return (sel and FB() and FB():Get(sel)) and self:FeedbackRef(sel) or "feedback"
     end
     return PAGES[tab] and tab or nil
 end
