@@ -236,6 +236,8 @@ end
 -- The DoT on a target (made on first use: the targets exist after the player's spells are registered).
 function S.SpellMT_Dot(spell, target)
   if spell.aoeDot then return spell.aoeDot end
+  -- spell.go Dot: a spell whose DoT is another spell's (Moonfire's hit and its DoT)
+  if not spell.dots and spell.relatedDotSpell then return S.SpellMT_Dot(spell.relatedDotSpell, target) end
   local d = spell.dots[target]
   if not d then
     local aura = target:RegisterAura({ label = spell.dotLabel, dotOf = spell, actionId = S.DotActionId(spell),

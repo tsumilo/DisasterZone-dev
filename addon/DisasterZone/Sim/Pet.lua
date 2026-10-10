@@ -104,7 +104,8 @@ function Unit:EnablePet(sim)
   self:SetGCDTimer(sim, max(0, sim.now))
   local aa = self.autoAttacks
   if aa then
-    aa.mh.swingAt = sim.now
+    -- attack.go EnableMeleeSwing: not before now, but a later swing time (onEnable) stands
+    aa.mh.swingAt = max(aa.mh.swingAt, sim.now, 0)
     aa:StartPull(sim)
   end
 end

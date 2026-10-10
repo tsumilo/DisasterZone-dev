@@ -36,6 +36,7 @@ function S.NewScenario(sc, db, apl)
   if cls == "Druid" then
     S.SetupDruid(p, sc.talents or "", sc.classOptions)
     if p.druid.cat then buffs = S.DruidCatPartyBuffs(p, buffs) end
+    if p.druid.moonkin then buffs = S.DruidMoonkinPartyBuffs(p, buffs) end
   end
   if cls == "Priest" then S.SetupPriest(p, sc.talents or "", sc.classOptions) end
   S.ApplyRacials(p)

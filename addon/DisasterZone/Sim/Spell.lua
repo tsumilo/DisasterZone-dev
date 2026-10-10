@@ -434,6 +434,7 @@ function Spell:Cast(sim, target)
   if gcd > 0 and u.GCD.readyAt > sim.now then return false end
   if u.hardcastExpires > sim.now then return false end
   self.curGcd = gcd
+  self.curCastTime = castTime
   local gcdTime = gcd
   if gcd > 0 then gcdTime = max(self.gcdMin or S.GCD_MIN, gcd) end
   local effective = max(gcdTime, castTime)

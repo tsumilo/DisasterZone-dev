@@ -124,6 +124,13 @@ function S.SetupDruid(p, talentsStr, opts)
   p:AddStatDependency(ST.Agility, ST.PhysicalCritPercent, S.CRIT_PER_AGI.Druid)
   p:AddStatDependency(ST.Agility, ST.DodgeRating, 1 / 14.7059 * S.DODGE_RATING_PER_PCT)
   p.ps.BaseDodgeChance = (p.ps.BaseDodgeChance or 0) - 0.0187
+  if startForm == MOONKIN then
+    -- balance.go: a caster, no melee; back in its starting form at every reset (druid.go Reset)
+    dru.moonkin = true
+    p.autoAttacks.autoSwingMelee = false
+    if T.MoonkinForm > 0 then S.DruidRegisterMoonkinForm(p) end
+    p:RegisterResetEffect(function() dru.form = dru.startForm end)
+  end
   if startForm == CAT then
     dru.cat = true
     p:EnableEnergyBar({ maxEnergy = 100, maxComboPoints = 5 })
@@ -224,7 +231,7 @@ function S.DruidApplyTalents(p)
     p:AddStaticMod({ classMask = M.Moonfire, kind = "BonusCrit_Percent", value = 5 * T.ImprovedMoonfire })
   end
   if T.Vengeance > 0 then
-    p:AddStaticMod({ classMask = M.Wrath + M.Starfire + M.Moonfire, kind = "CritMultiplier_Flat", value = 0.1 * T.Vengeance })
+    p:AddStaticMod({ classMask = M.Wrath + M.Starfire + M.Moonfire, kind = "CritMultiplier_Flat", value = 0.2 * T.Vengeance })
   end
   if T.LunarGuidance > 0 then
     p:AddStatDependency(ST.Intellect, ST.SpellDamage, ({ 0.08, 0.16, 0.25 })[T.LunarGuidance])
@@ -247,7 +254,7 @@ function S.DruidApplyTalents(p)
     p:AddStaticMod({ classMask = M.Wrath, kind = "BonusCoefficient_Flat", value = 0.02 * T.WrathOfCenarius })
     p:AddStaticMod({ classMask = M.Starfire, kind = "BonusCoefficient_Flat", value = 0.04 * T.WrathOfCenarius })
   end
-  if T.NaturesGrace > 0 and S.DruidNaturesGrace then S.DruidNaturesGrace(p) end
+  if T.NaturesGrace > 0 then S.DruidNaturesGrace(p) end
 
   -- Feral
   if T.Furor > 0 then dru.furorChance = 0.2 * T.Furor end
@@ -342,6 +349,7 @@ function S.DruidInitialize(p)
     end
   end
   if dru.cat then S.DruidRegisterCatSpells(p) end
+  if dru.moonkin then S.DruidRegisterBalanceSpells(p) end
 end
 
 function S.DruidRegisterCatSpells(p)
@@ -556,7 +564,46 @@ IE[32486] = function(p)
     end })
 end
 
+-- Ivory Idol of the Moongoddess: Starfire +55 base damage; Idol of the Moon: Moonfire +33; Idol of the Avenger:
+-- Wrath +25.
+IE[27518] = function(p) p:AddStaticMod({ classMask = M.Starfire, kind = "BaseDamage_Flat", value = 55 }) end
+IE[23197] = function(p) p:AddStaticMod({ classMask = M.Moonfire, kind = "BaseDamage_Flat", value = 33 }) end
+IE[31025] = function(p) p:AddStaticMod({ classMask = M.Wrath, kind = "BaseDamage_Flat", value = 25 }) end
+
 local SB = S.SET_BONUSES
+-- Malorne Regalia 2: 5% on a damage spell cast, 120 mana (4: Innervate's cooldown, not used here)
+SB["Malorne Regalia"] = {
+  [2] = function(p, a)
+    S.AttachProcTrigger(a, p, { name = "Malorne Regalia 2pc", callback = "cast", procMask = PM.SpellDamage,
+      procChance = 0.05, handler = function(sim) p:AddMana(sim, 120, "malorne_regalia") end })
+  end,
+}
+-- Nordrassil Regalia 4: Starfire +10% on a target with Moonfire or Insect Swarm (any of them fading ends it, as in
+-- WoWSims)
+SB["Nordrassil Regalia"] = {
+  [4] = function(p, a)
+    p.postFinalize[#p.postFinalize + 1] = function()
+      local target = p.currentTarget
+      local at = p.attackTables[target]
+      local dummy = target:RegisterAura({ label = "Item - Druid T5 Balance 2P Bonus", actionId = { spellId = 37327 },
+        onGain = function() at.damageDoneByCaster = function(spell) return spell:Matches(M.Starfire) and 1.1 or 1 end end,
+        onExpire = function() at.damageDoneByCaster = nil end })
+      for _, sp in ipairs(p.spellbook) do
+        if sp:Matches(M.InsectSwarm + M.Moonfire) and sp.dots then
+          local d = sp:Dot(target)
+          local og, oe = d.aura.onGain, d.aura.onExpire
+          d.aura.onGain = function(au, sim) if og then og(au, sim) end if a.active then dummy:Activate(sim) end end
+          d.aura.onExpire = function(au, sim) if oe then oe(au, sim) end dummy:Deactivate(sim) end
+        end
+      end
+    end
+  end,
+}
+-- Thunderheart Regalia 2: Moonfire one tick longer; 4: Starfire +5% crit
+SB["Thunderheart Regalia"] = {
+  [2] = function(p, a) a:AttachSpellMod({ classMask = M.Moonfire, kind = "DotNumberOfTicks_Flat", value = 1 }) end,
+  [4] = function(p, a) a:AttachSpellMod({ classMask = M.Starfire, kind = "BonusCrit_Percent", value = 5 }) end,
+}
 SB["Moonglade Raiment"] = {
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.CatForm + M.BearForm, kind = "PowerCost_Pct_Add", value = -0.25 }) end,
 }
@@ -584,3 +631,165 @@ SB["Thunderheart Harness"] = {
     a:AttachSpellMod({ classMask = M.Rip + M.Swipe + M.FerociousBite, kind = "DamageDone_Flat", value = 0.15 })
   end,
 }
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Balance (balance.go, forms.go Moonkin, starfire.go, wrath.go, moonfire.go, insect_swarm.go, faerie_fire.go,
+-- force_of_nature.go, talents.go Nature's Grace). Hurricane (4+ targets) and Innervate (off in WoWSims' list) aren't
+-- here: the sim fights one target.
+-- ---------------------------------------------------------------------------------------------------------------
+-- forms.go RegisterMoonkinFormAura / Spell
+function S.DruidRegisterMoonkinForm(p)
+  local dru = p.druid
+  local a = p:RegisterAura({ label = "Moonkin Form", actionId = { spellId = 24858 },
+    onGain = function(_, sim)
+      if dru.form ~= MOONKIN then ClearForm(p, sim) end
+      dru.form = MOONKIN
+    end,
+    onExpire = function() dru.form = HUMANOID end })
+  dru.moonkinFormAura = a
+  FormSpell(p, ANY, { id = 24858, flags = F.NoOnCastComplete + F.APL, manaCost = { basePct = 9.3 }, gcd = 1.5,
+    ignoreHaste = true, applyEffects = function(sim) a:Activate(sim) end })
+  return a
+end
+
+-- druid.go AddPartyBuffs: in Moonkin Form the druid brings Moonkin Aura (improved with Idol of the Raven Goddess).
+function S.DruidMoonkinPartyBuffs(p, cfg)
+  if not (p.talents.MoonkinForm > 0) then return cfg end
+  local out = {}
+  for k, v in pairs(cfg) do out[k] = v end
+  local party = {}
+  for k, v in pairs(cfg.party or {}) do party[k] = v end
+  local want = (p.gearIds.Ranged == 32387) and 2 or 1
+  local have = party.moonkinAura == true and 1 or (party.moonkinAura or 0)
+  if have < want then party.moonkinAura = want end
+  out.party = party
+  return out
+end
+
+-- talents.go applyNaturesGrace: a Wrath / Starfire crit takes 0.5 s off the next Wrath / Starfire cast (15 s). A
+-- cast that started before the proc doesn't use it up.
+function S.DruidNaturesGrace(p)
+  local lastProcAt = -1
+  local a = p:RegisterAura({ label = "Nature's Grace", actionId = { spellId = 16886 }, duration = 15,
+    onReset = function() lastProcAt = -1 end,
+    onCastComplete = function(aura, sim, spell)
+      local ct = spell.curCastTime or 0
+      if ct == 0 then return end
+      if sim.now - aura.startTime < ct - S.TIME_EPS then return end
+      if lastProcAt > sim.now - ct + S.TIME_EPS then return end
+      aura:Deactivate(sim)
+    end })
+  a:AttachSpellMod({ classMask = M.Starfire + M.Wrath, kind = "CastTime_Flat", value = -0.5 })
+  p:MakeProcTriggerAura({ name = "Nature's Grace Trigger", callback = "hit", classMask = M.Wrath + M.Starfire,
+    outcome = O.Crit, triggerImmediately = true,
+    handler = function(sim)
+      lastProcAt = sim.now
+      a:Activate(sim)
+    end })
+end
+
+local function BalanceSpell(cfg)
+  cfg.defenseType = S.DEF_MAGIC
+  cfg.procMask = cfg.procMask or PM.SpellDamage
+  cfg.flags = (cfg.flags or 0) + F.APL
+  cfg.damageMultiplier = 1
+  cfg.threatMultiplier = 1
+  cfg.gcd = cfg.gcd or 1.5
+  return cfg
+end
+
+-- force_of_nature.go: three treants (guardians) for 30 s; warrior base stats, 15% of the druid's nature spell
+-- damage as attack power, staggered first swings, in front of the boss for their first 1.5 s.
+local function ForceOfNature(p)
+  local dru = p.druid
+  local treants = {}
+  for idx = 0, 2 do
+    local base = { Health = 4264, Agility = 96, Strength = 145, Intellect = 33, Spirit = 51, Stamina = 133,
+      AttackPower = 190, PhysicalCritPercent = 5 }
+    local pet = S.NewPet(p, { name = "Treant", key = "treant", baseStats = base,
+      mainHand = { baseMin = 220.5, baseMax = 312.375, swingSpeed = 1.75, normalizedSpeed = 1.75, apPerDps = 14 },
+      inherit = function(o)
+        return { [ST.Stamina] = o[ST.Stamina], [ST.AttackPower] = (o[ST.SpellDamage] + o[ST.NatureDamage]) * 0.15 }
+      end,
+      rotation = function() end })
+    pet:AddStatDependency(ST.Strength, ST.AttackPower, 2)
+    pet:AddStatDependency(ST.Agility, ST.PhysicalCritPercent, S.CRIT_PER_AGI.Warrior)
+    pet.onEnable = function(sim, u)
+      u.autoAttacks:StopMeleeUntil(sim, sim.now - 0.5 * idx)
+      u.ps.InFrontOfTarget = true
+      sim:Add({ at = sim.now + 1.5, prio = 0, fn = function() u.ps.InFrontOfTarget = false end })
+    end
+    treants[#treants + 1] = pet
+  end
+  dru.treants = treants
+  local a = p:RegisterAura({ label = "Force of Nature", actionId = { spellId = 33831 }, duration = 30 })
+  local spell = FormSpell(p, HUMANOID + MOONKIN, { id = 33831, classMask = M.ForceOfNature, flags = F.APL,
+    manaCost = { basePct = 0.12 }, gcd = 1.5, cd = 180,
+    applyEffects = function(sim)
+      for _, t in ipairs(treants) do t:EnablePetWithTimeout(sim, 30) end
+      a:Activate(sim)
+    end })
+  p:AddMajorCooldown({ spell = spell })
+end
+
+function S.DruidRegisterBalanceSpells(p)
+  local dru, T = p.druid, p.talents
+  local SPELLS = HUMANOID + MOONKIN
+  -- Starfire ranks 6 and 8 (the list downranks when mana runs low)
+  for _, r in ipairs({ { 9876, 315, 463, 543 }, { 26986, 370, 550, 647 } }) do
+    local lo, hi = r[3], r[4]
+    FormSpell(p, SPELLS, BalanceSpell({ id = r[1], school = SCHOOL.Arcane, classMask = M.Starfire,
+      manaCost = { flat = r[2] }, castTime = 3.5, bonusCoefficient = 1,
+      applyEffects = function(sim, target, spell)
+        spell:CalcAndDealDamage(sim, target, sim:Roll(lo, hi), OUT.MagicHitAndCrit)
+      end }))
+  end
+  -- Wrath (rank 10): travels at 20 yards a second
+  FormSpell(p, SPELLS, BalanceSpell({ id = 26985, school = SCHOOL.Nature, classMask = M.Wrath, manaCost = { flat = 255 },
+    castTime = 2, bonusCoefficient = 0.57099997997283936,
+    applyEffects = function(sim, target, spell)
+      local r = spell:CalcDamage(sim, target, sim:Roll(383, 432), OUT.MagicHitAndCrit)
+      sim:Add({ at = sim.now + p.distance / 20, prio = 0, fn = function(s) spell:DealDamage(s, r) end })
+    end }))
+  -- Moonfire (rank 12): the hit, then its DoT (its own spell, 4 ticks over 12 s)
+  local dot = p:RegisterSpell({ id = 26988, tag = 1, school = SCHOOL.Arcane, defenseType = S.DEF_MAGIC,
+    procMask = PM.SpellDamage, classMask = M.MoonfireDoT, flags = F.PassiveSpell, damageMultiplier = 1,
+    threatMultiplier = 1,
+    dot = { label = "Moonfire", numberOfTicks = 4, tickLength = 3, bonusCoefficient = 0.12999999523162842,
+      onSnapshot = function(sim, target, d) d:Snapshot(target, 150) end,
+      onTick = function(sim, target, d) d:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end },
+    applyEffects = function(sim, target, spell)
+      local r = spell:CalcOutcome(sim, target, OUT.AlwaysHitNoHitCounter)
+      spell:Dot(target):Apply(sim)
+      spell:DealDamage(sim, r)
+    end })
+  local mf = FormSpell(p, SPELLS, BalanceSpell({ id = 26988, school = SCHOOL.Arcane, classMask = M.Moonfire,
+    manaCost = { flat = 495 }, bonusCoefficient = 0.15000000596046448,
+    applyEffects = function(sim, target, spell)
+      local r = spell:CalcDamage(sim, target, sim:Roll(305, 357), OUT.MagicHitAndCrit)
+      if S.Landed(r) then dot:Cast(sim, target) end
+      spell:DealDamage(sim, r)
+    end }))
+  mf.relatedDotSpell = dot
+  -- Insect Swarm (talent, rank 6): 6 ticks over 12 s
+  if T.InsectSwarm > 0 then
+    FormSpell(p, SPELLS, BalanceSpell({ id = 27013, school = SCHOOL.Nature, classMask = M.InsectSwarm,
+      flags = F.Binary, manaCost = { flat = 175 },
+      dot = { label = "Insect Swarm", numberOfTicks = 6, tickLength = 2, bonusCoefficient = 0.12700000405311584,
+        onSnapshot = function(sim, target, d) d:Snapshot(target, 132) end,
+        onTick = function(sim, target, d) d:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end },
+      applyEffects = function(sim, target, spell)
+        local r = spell:CalcOutcome(sim, target, OUT.MagicHit)
+        if S.Landed(r) then spell:Dot(target):Apply(sim) end
+        spell:DealDamage(sim, r)
+      end }))
+  end
+  -- Faerie Fire (rank 5)
+  FormSpell(p, SPELLS, BalanceSpell({ id = 26993, school = SCHOOL.Nature, classMask = M.FaerieFire,
+    manaCost = { flat = 145 },
+    applyEffects = function(sim, target, spell)
+      local r = spell:CalcAndDealOutcome(sim, target, OUT.MagicHit)
+      if S.Landed(r) then S.FaerieFireAura(target, T.ImprovedFaerieFire):Activate(sim) end
+    end }))
+  if T.ForceOfNature > 0 then ForceOfNature(p) end
+end
