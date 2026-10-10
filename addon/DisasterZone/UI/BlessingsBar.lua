@@ -76,11 +76,16 @@ local function SetRoundIcon(tex, path)
     end
 end
 
+-- A secure button that casts on a click. It takes the press and the release: with "cast on key down" on (the
+-- client's default) the secure template acts on the press only and ignores a button that hears only releases.
 local function Secure(parent, name)
     local b = CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
-    b:RegisterForClicks("AnyUp")
+    b:RegisterForClicks("AnyUp", "AnyDown")
     return b
 end
+
+-- (our own click handling runs once: on the release)
+local function Released(down) return not down end
 
 local function Minutes(left)
     if not left then return "" end
@@ -203,8 +208,8 @@ local function NewRow(i)
     face.label.text = Text(face.label, 10, { 1, 0.9, 0.55 })
     face.label.text:SetPoint("CENTER", 0, 0)
     face.label:Hide()
-    r:SetScript("PostClick", function(self, button)
-        if button == "RightButton" and not InCombatLockdown() then Bar:TogglePop(self, true) end
+    r:SetScript("PostClick", function(self, button, down)
+        if Released(down) and button == "RightButton" and not InCombatLockdown() then Bar:TogglePop(self, true) end
     end)
     r:HookScript("OnEnter", function(self) Bar:HoverRow(self) end)
     r:HookScript("OnLeave", function() GameTooltip:Hide() end)
