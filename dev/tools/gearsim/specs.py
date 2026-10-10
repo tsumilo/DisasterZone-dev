@@ -148,6 +148,19 @@ BALANCE_BUFFS = {
                     "drumsId": "LesserDrumsOfBattle"},
 }
 
+# ui/specs/mage/dps/presets.ts (phase 3 ISB uptime)
+MAGE_BUFFS = {
+    "raid": {"bloodlust": True, "divineSpirit": IMP, "arcaneBrilliance": True, "giftOfTheWild": IMP,
+             "powerWordFortitude": IMP, "shadowProtection": True},
+    "party": {"manaSpringTotem": IMP, "manaTideTotems": 1, "wrathOfAirTotem": "TristateEffectRegular"},
+    "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "innervates": 1, "blessingOfSalvation": True,
+                   "shadowPriestDps": 1400},
+    "debuffs": {"misery": True, "curseOfElements": IMP, "improvedSealOfTheCrusader": IMP, "judgementOfWisdom": True,
+                "isbUptime": 0.72},
+    "consumables": {"guardianElixirId": 32067, "battleElixirId": 28103, "foodId": 27657, "mhImbueId": 25122,
+                    "potId": 22832, "drumsId": "LesserDrumsOfBattle"},
+}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -166,6 +179,19 @@ SPECS = {
     "cat": {"class": "Druid", "wsClass": "ClassDruid", "field": "feralCatDruid",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/druid/feralcat/apls/default.apl.json",
             "buffs": CAT_BUFFS, "luaBuffs": "wowsims_cat", "luaOptions": {"form": "Cat"}},
+    "arcane": {"class": "Mage", "wsClass": "ClassMage", "field": "mage",
+               "options": {"options": {"classOptions": {"defaultMageArmor": "MageArmorMageArmor"}}},
+               "apl": "ui/specs/mage/dps/apls/arcane.apl.json", "buffs": MAGE_BUFFS, "luaBuffs": "wowsims_mage",
+               "luaOptions": {"defaultMageArmor": "MageArmor"}},
+    # WoWSims ships no Fire / Frost list: our own (dev/data/apl), simmed by both sims alike
+    "fire": {"class": "Mage", "wsClass": "ClassMage", "field": "mage",
+             "options": {"options": {"classOptions": {"defaultMageArmor": "MageArmorMoltenArmor"}}},
+             "apl": "C:/Users/emilo/CDLoot-dev/dev/data/apl/mage_fire.apl.json", "buffs": MAGE_BUFFS, "luaBuffs": "wowsims_mage",
+             "luaOptions": {"defaultMageArmor": "MoltenArmor"}},
+    "frost": {"class": "Mage", "wsClass": "ClassMage", "field": "mage",
+              "options": {"options": {"classOptions": {"defaultMageArmor": "MageArmorMoltenArmor"}}},
+              "apl": "C:/Users/emilo/CDLoot-dev/dev/data/apl/mage_frost.apl.json", "buffs": MAGE_BUFFS, "luaBuffs": "wowsims_mage",
+              "luaOptions": {"defaultMageArmor": "MoltenArmor"}},
     "balance": {"class": "Druid", "wsClass": "ClassDruid", "field": "balanceDruid",
                 "options": {"options": {"classOptions": {}}},
                 "apl": "ui/specs/druid/balance/apls/default.apl.json", "buffs": BALANCE_BUFFS, "luaBuffs": "wowsims_balance",

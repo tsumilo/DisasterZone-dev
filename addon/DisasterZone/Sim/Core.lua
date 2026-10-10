@@ -361,12 +361,19 @@ end
 
 -- Mana ticks every 2 s from the prepull start (mana.go initManaTickAction).
 function Sim:InitManaTick()
+  -- mana.go: players, then their pets with a mana bar (each while enabled)
   local units = {}
   for _, u in ipairs(self.units) do if u.hasMana then units[#units + 1] = u end end
+  for _, u in ipairs(self.units) do
+    for _, pet in ipairs(u.pets or {}) do if pet.hasMana then units[#units + 1] = pet end end
+  end
   if #units == 0 then return end
   local pa
   pa = { at = self:PrepullStartTime() + 2, prio = S.PRIO_REGEN, fn = function(sim)
-    for i = 1, #units do units[i]:ManaTick(sim) end
+    for i = 1, #units do
+      local u = units[i]
+      if u.enabled ~= false then u:ManaTick(sim) end
+    end
     pa.at = sim.now + 2
     sim:Add(pa)
   end }

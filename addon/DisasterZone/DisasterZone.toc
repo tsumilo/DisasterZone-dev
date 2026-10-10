@@ -43,6 +43,7 @@ Data\SimAPL.lua
 Data\Atlas.lua
 Data\Consumables.lua
 Data\Classes\Paladin.lua
+Data\Classes\Shaman.lua
 Data\Changelog.lua
 Data\BossPortraits.lua
 Data\BossJournal.lua
@@ -82,6 +83,7 @@ Sim\Shaman.lua
 Sim\Rogue.lua
 Sim\Druid.lua
 Sim\Priest.lua
+Sim\Mage.lua
 Sim\Data.lua
 Sim\Setup.lua
 Sim\Runner.lua
@@ -102,6 +104,7 @@ Core\MeterDemo.lua
 Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\Blessings.lua
+Core\Totems.lua
 Core\RaidPlan.lua
 Core\RaidComp.lua
 Core\RaidInvite.lua
@@ -208,6 +211,8 @@ UI\MeterDetail.lua
 UI\SwingTimerHUD.lua
 UI\BlessingsUI.lua
 UI\BlessingsBar.lua
+UI\TotemsUI.lua
+UI\TotemBar.lua
 UI\PatchUI.lua
 
 # Games (just for fun; never touch loot state)

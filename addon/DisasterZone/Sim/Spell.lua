@@ -214,7 +214,10 @@ function S.Unit_RegisterSpell(unit, cfg)
   end
   sp.gcd = sp.gcd or 0
   sp.castTime = sp.castTime or 0
-  local empty = (sp.gcd == 0 and sp.castTime == 0 and not sp.nonEmpty)
+  -- spell.go: a cost makes the default cast non-empty (DefaultCast.Cost), so such a spell always takes the full path
+  local hasCost = sp.cost and (not sp.manaCost or (sp.manaCost.flat or 0) ~= 0 or (sp.manaCost.basePct or 0) ~= 0)
+    and sp.cost.base ~= 0
+  local empty = (sp.gcd == 0 and sp.castTime == 0 and not sp.nonEmpty and not hasCost)
   if sp.gcd <= 0 and sp.castTime == 0 then sp.ignoreHaste = true end
   if empty then
     if not sp.extraCastCondition and not sp.cdTimer and not sp.sharedCdTimer then
@@ -1031,6 +1034,8 @@ local MOD_KIND = {
                           if s.sharedCdDuration and s.sharedCdDuration ~= 0 then s.sharedCdDuration = s.sharedCdDuration - m.value end
                           if s.relatedSelfBuff then s.relatedSelfBuff.duration = s.relatedSelfBuff.duration - m.value end
                         end },
+  Cooldown_Multiplier = { function(m, s) s.cdMultiplier = s.cdMultiplier * m.value end,
+                          function(m, s) s.cdMultiplier = s.cdMultiplier / m.value end },
   -- spell_mod.go applyDotNumberOfTicks (the config too: Dot.lua makes a target's DoT when first used)
   DotNumberOfTicks_Flat = { function(m, s)
                               if s.dotConfig then s.dotConfig.numberOfTicks = s.dotConfig.numberOfTicks + m.value end

@@ -1,0 +1,102 @@
+{
+ "spec": "arcane",
+ "race": "Troll",
+ "talents": "2500052300030150330125--053500031003001",
+ "gear": [
+  {
+   "id": 30206,
+   "enchant": 3002,
+   "gems": [
+    34220,
+    32204
+   ]
+  },
+  {
+   "id": 30015
+  },
+  {
+   "id": 30210,
+   "enchant": 2982,
+   "gems": [
+    32204,
+    32201
+   ]
+  },
+  {
+   "id": 32331,
+   "enchant": 2621
+  },
+  {
+   "id": 30196,
+   "enchant": 2661,
+   "gems": [
+    32204,
+    32204,
+    32201
+   ]
+  },
+  {
+   "id": 30870,
+   "enchant": 2650,
+   "gems": [
+    32204
+   ]
+  },
+  {
+   "id": 30205,
+   "enchant": 2937
+  },
+  {
+   "id": 30888,
+   "gems": [
+    32204,
+    32204
+   ]
+  },
+  {
+   "id": 31058,
+   "enchant": 2748,
+   "gems": [
+    32204
+   ]
+  },
+  {
+   "id": 32239,
+   "enchant": 2940,
+   "gems": [
+    32204,
+    32204
+   ]
+  },
+  {
+   "id": 29305
+  },
+  {
+   "id": 32527
+  },
+  {
+   "id": 30720
+  },
+  {
+   "id": 32483
+  },
+  {
+   "id": 32374,
+   "enchant": 2671
+  },
+  {},
+  {
+   "id": 28783
+  }
+ ],
+ "buffs": "wowsims_default",
+ "consumables": "wowsims_default",
+ "duration": 180,
+ "durationVariation": 0,
+ "mobType": "Mechanical",
+ "iterations": 10000,
+ "seed": 101,
+ "distanceFromTarget": 20,
+ "profession1": "Engineering",
+ "profession2": "Tailoring"
+}

@@ -39,6 +39,7 @@ function S.NewScenario(sc, db, apl)
     if p.druid.moonkin then buffs = S.DruidMoonkinPartyBuffs(p, buffs) end
   end
   if cls == "Priest" then S.SetupPriest(p, sc.talents or "", sc.classOptions) end
+  if cls == "Mage" then S.SetupMage(p, sc.talents or "", sc.classOptions) end
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
@@ -47,7 +48,10 @@ function S.NewScenario(sc, db, apl)
   if cls == "Rogue" then S.RogueApplyTalents(p) end
   if cls == "Druid" then S.DruidApplyTalents(p) end
   if cls == "Priest" then S.PriestApplyTalents(p) end
+  if cls == "Mage" then S.MageApplyTalents(p) end
+  p.buffRecord = {}
   S.ApplyBuffs(p, buffs)
+  p.buffRecordDone, p.buffRecord = p.buffRecord, nil
   for _, pet in ipairs(p.pets or {}) do S.ApplyPetBuffs(pet, buffs) end
   S.ApplyConsumables(p, cons, buffs)
   if cls == "Warrior" then S.WarriorInitialize(p) end
@@ -55,6 +59,7 @@ function S.NewScenario(sc, db, apl)
   if cls == "Rogue" then S.RogueInitialize(p) end
   if cls == "Druid" then S.DruidInitialize(p) end
   if cls == "Priest" then S.PriestInitialize(p) end
+  if cls == "Mage" then S.MageInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()

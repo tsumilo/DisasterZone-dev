@@ -220,6 +220,30 @@ function Rot:Value(node, vars)
     return Num(function(sim) return sim.now end, function() return 1 end)
   elseif node.remainingTime then
     return Num(function(sim) return sim.duration - sim.now end, function() return -1 end)
+  elseif node.remainingTimePercent then
+    -- sim.go GetRemainingDurationPercent (duration fights)
+    return Num(function(sim) return (sim.duration - sim.now) / sim.duration end, function(sim) return -1 / sim.duration end)
+  elseif node.currentManaRegen then
+    -- apl_values_resources.go: the mana of one regen tick while casting (changes come with events)
+    return Num(function() return u.manaTickCasting or 0 end)
+  elseif node.sequenceIsComplete or node.sequenceIsReady then
+    -- apl_values_sequences.go: a named sequence's state (looked up when read: it may be compiled later)
+    local name = (node.sequenceIsComplete or node.sequenceIsReady).sequenceName
+    local rot = self
+    if node.sequenceIsComplete then
+      return Bool(function()
+        local q = rot.namedSequences and rot.namedSequences[name]
+        return q ~= nil and q.idx > #q.subs
+      end)
+    end
+    return Bool(function(sim)
+      local q = rot.namedSequences and rot.namedSequences[name]
+      return q ~= nil and q:IsReady(sim)
+    end, function(sim)
+      local q = rot.namedSequences and rot.namedSequences[name]
+      if not q or q.idx > #q.subs then return huge end
+      return q.subs[q.idx].next(sim)
+    end)
   elseif node.isExecutePhase then
     local th = node.isExecutePhase.threshold
     -- phase changes are covered by sim.nextExecuteAt in the rotation's wake bound
@@ -689,6 +713,72 @@ function Rot:Action(node, vars, knownSpell)
   elseif node.strictSequence then
     impl = self:StrictSequence(node.strictSequence, vars)
     if not impl then return nil end
+  elseif node.sequence then
+    -- apl_actions_sequences.go APLActionSequence: its actions one after another, one per pick; a spell queued for the
+    -- end of the GCD advances it when it fires. resetSequence starts it over.
+    local c = node.sequence
+    local subs = {}
+    for _, a in ipairs(c.actions or {}) do
+      local x = self:Action(a, vars)
+      if x then subs[#subs + 1] = x end
+    end
+    if #subs == 0 then return nil end
+    local rot, u = self, self.unit
+    local q = { subs = subs, idx = 1 }
+    function q:IsReady(sim)
+      rot.inSequence = true
+      local r = self.idx <= #self.subs and self.subs[self.idx].ready(sim)
+      rot.inSequence = false
+      return r and true or false
+    end
+    self.namedSequences = self.namedSequences or {}
+    self.allNamedSequences = self.allNamedSequences or {}
+    self.allNamedSequences[#self.allNamedSequences + 1] = q
+    if c.name and c.name ~= "" and not self.namedSequences[c.name] then self.namedSequences[c.name] = q end
+    impl = {
+      castsSpells = true,
+      ready = function(sim) return q:IsReady(sim) end,
+      exec = function(sim)
+        rot.inSequence = true
+        q.subs[q.idx].exec(sim)
+        local qd = u.queued
+        if not (qd and qd.initiatedAt == sim.now and qd.pa and not qd.pa.consumed and not qd.pa.cancelled) then
+          q.idx = q.idx + 1
+        else
+          local pa, old = qd.pa, qd.pa.fn
+          pa.fn = function(s)
+            old(s)
+            q.idx = q.idx + 1
+            pa.fn = old
+          end
+          u:SetRotationTimer(sim, pa.at + 1e-9)
+        end
+        rot.inSequence = false
+      end,
+      next = function(sim)
+        if q.idx > #q.subs then return huge end
+        return q.subs[q.idx].next(sim)
+      end,
+    }
+  elseif node.resetSequence then
+    local name, rot = node.resetSequence.sequenceName, self
+    if not name or name == "" then return nil end
+    local function seq() return rot.namedSequences and rot.namedSequences[name] end
+    impl = {
+      ready = function() local q = seq(); return q ~= nil and q.idx ~= 1 end,
+      exec = function() local q = seq(); if q then q.idx = 1 end end,
+      next = NEVER,
+    }
+  elseif node.changeTarget then
+    -- apl_actions_misc.go APLActionChangeTarget: one target here, so it only notes when it ran
+    local ct = { at = huge }
+    self.changeTargets = self.changeTargets or {}
+    self.changeTargets[#self.changeTargets + 1] = ct
+    impl = {
+      ready = function(sim) return ct.at ~= sim.now end,
+      exec = function(sim) ct.at = sim.now end,
+      next = function(sim) if ct.at == sim.now then return sim.now + 1e-9 end return huge end,
+    }
   elseif node.activateAura then
     -- apl_actions_misc.go APLActionActivateAura (Moonkin Form before the pull)
     local a = self.resolveAura(node.activateAura.auraId, self.unit)
@@ -884,6 +974,8 @@ end
 
 function Rot:Reset(sim)
   self.inLoop = false
+  for _, q in ipairs(self.allNamedSequences or {}) do q.idx = 1 end
+  for _, ct in ipairs(self.changeTargets or {}) do ct.at = huge end
   self.interruptChannelIf, self.allowChannelRecast = nil, false
   self.waitUntil = nil
   self.unit.skipWake = nil

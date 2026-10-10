@@ -148,6 +148,8 @@ function Unit:Stat(i) return self.stats[i] end
 function Unit:AddStat(i, v)
   if type(i) == "string" then i = ST[i] end
   self.stats[i] = self.stats[i] + v
+  local rec = self.buffRecord
+  if rec then rec[i] = (rec[i] or 0) + v end
 end
 
 function Unit:AddStats(t)
@@ -155,11 +157,11 @@ function Unit:AddStats(t)
 end
 
 function Unit:AddStatDependency(src, dst, amount)
-  self.deps[#self.deps + 1] = { src = src, dst = dst, amount = amount, enabled = true }
+  self.deps[#self.deps + 1] = { src = src, dst = dst, amount = amount, enabled = true, fromBuff = self.buffRecord ~= nil }
 end
 
 function Unit:MultiplyStat(s, amount)
-  self.deps[#self.deps + 1] = { src = s, dst = s, amount = amount, enabled = true }
+  self.deps[#self.deps + 1] = { src = s, dst = s, amount = amount, enabled = true, fromBuff = self.buffRecord ~= nil }
 end
 
 function Unit:NewDynamicStatDependency(src, dst, amount)
@@ -199,7 +201,20 @@ local function SortDeps(deps)
   return out
 end
 
-local function ApplyDeps(sorted, s)
+local ApplyDeps -- below
+
+-- The stats as WoWSims has them right after the character is built: raid, party and individual buffs are auras
+-- there, switched on at the reset (Setup.lua records what they add here). Used where WoWSims reads a stat at that
+-- point (Innervate's mana threshold).
+function Unit:StatsWithoutBuffs()
+  local s = CopyStats(NewStats(), self.initialStatsWithoutDeps)
+  for i, v in pairs(self.buffRecordDone or {}) do s[i] = s[i] - v end
+  local deps = {}
+  for _, d in ipairs(self.deps) do if not d.fromBuff and not d.dynamic then deps[#deps + 1] = d end end
+  return ApplyDeps(SortDeps(deps), s)
+end
+
+function ApplyDeps(sorted, s)
   for i = 1, #sorted do
     local d = sorted[i]
     if d.enabled then

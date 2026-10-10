@@ -157,7 +157,8 @@ def close_all(cl):
                               'DisasterZoneRunToast', 'DisasterZoneStrategyShare',
                               'DisasterZoneEventSchedule', 'DisasterZoneEventSubmit', 'DisasterZoneBadgeDesigner',
                               'DisasterZoneEventSeason', 'DisasterZoneEventConfirm', 'DisasterZoneSimBuffs', 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar',
-                              'DisasterZonePollToast', 'DisasterZoneNotifyToast', 'DisasterZoneNotifyTray' }) do
+                              'DisasterZonePollToast', 'DisasterZoneNotifyToast', 'DisasterZoneNotifyTray',
+                              'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -2521,6 +2522,26 @@ STATES += [
                                                   "if r and r.data and r.data.cls == 'HUNTER' then ns.BlessingsBar:TogglePop(r, true) end end", bar=True)),
 ]
 
+# Totems (Core/Totems.lua, UI/TotemsUI.lua, UI/TotemBar.lua): the demo's 25-man Serpentshrine plan (four shamans, me
+# the Enhancement one twisting, group 4 without a shaman, Hydross changing two totems). TOTEM_TWIST puts the demo's
+# Windfury clock half a second from "drop now".
+TOTEM_TWIST = "local d = ns.Totems:DemoState(); if d then d.started = GetTime() - 0.1 end"
+STATES += [
+    ("Totems - demo planner", demo("ns.MainFrame:Close(); ns.TotemsUI:SetBossTab(nil); ns.TotemsUI:Open()")),
+    ("Totems - demo planner, Hydross", demo("ns.MainFrame:Close(); ns.TotemsUI:Open(); "
+                                            "ns.TotemsUI:SetBossTab('SerpentshrineCavern:Hydross')")),
+    ("Totems - demo planner, earth menu", demo("ns.MainFrame:Close(); ns.TotemsUI:SetBossTab(nil); ns.TotemsUI:Open(); "
+                                               "ns.TotemsUI:GetFrame().rows[3].cells[1]:Click('LeftButton')")),
+    ("Totems - demo rail", demo("ns.MainFrame:Close(); ns.TotemsUI:Close(); ns.DB:SetSetting('totems.layout', 'vertical'); "
+                                + TOTEM_TWIST + "; ns.TotemBar:Update()")),
+    ("Totems - demo rail, range", demo("ns.MainFrame:Close(); ns.TotemsUI:Close(); ns.DB:SetSetting('totems.layout', 'vertical'); "
+                                       + TOTEM_TWIST + "; ns.TotemBar:Update(); ns.TotemBar:Hover(ns.TotemBar:Button('el3'), true)")),
+    ("Totems - demo strip", demo("ns.MainFrame:Close(); ns.TotemsUI:Close(); ns.DB:SetSetting('totems.layout', 'horizontal'); "
+                                 "ns.DB:SetSetting('totems.imbue', true); " + TOTEM_TWIST + "; ns.TotemBar:Update()")),
+    ("Settings - Totems (demo)", demo("ns.DB:SetSetting('totems.layout', 'vertical'); ns.DB:SetSetting('totems.imbue', false); "
+                                      "ns.SettingsUI:SelectSection('totems')", key="settings")),
+]
+
 # Meters for every demo player (DZ_AUDIT_METERS=1, not in the default run): the breakdown in each mode and tab, every
 # bar's tooltip, both death recaps. Finds labels that outgrow their cards for some class / spec.
 if os.environ.get("DZ_AUDIT_METERS"):
@@ -2562,4 +2583,13 @@ if os.environ.get("DZ_AUDIT_METERS"):
         STATES.append(("Meters all - %s tip death" % _n, _m_tip(_n, "deaths")))
         STATES.append(("Meters all - %s death recap" % _n, opened("home", "ns.MainFrame:Close(); " + MET +
             "for _, d in ipairs(ns.Meter:GetSegment('cur').deaths) do if d.n == '%s' then ns.MeterDetail:OpenDeath('cur', d) end end" % _n)))
+
+
+BLESS_HOVER = ("local r = DisasterZoneBlessRow2; ns.BlessingsBar:Hover(r, true); "
+               "for i = 1, 40 do ns.BlessingsBar.Step(r.face, 0.05) end")
+STATES += [
+    ("Blessings - buff bar, hover", bless_view("Gina", BLESS_HOVER, bar=True)),
+    ("Blessings - strip bar, hover", bless_view("Gina", "ns.DB:SetSetting('bless.layout', 'horizontal'); "
+                                                "ns.BlessingsBar:Update(); " + BLESS_HOVER, bar=True)),
+]
 

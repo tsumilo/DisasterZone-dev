@@ -130,6 +130,18 @@ S.BUFF_PRESETS = {
     consumables = { potId = 22838, battleElixirId = 22831, guardianElixirId = 32067, foodId = 27664, mhImbueId = 34340,
       conjuredId = 12662, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
   },
+  -- The WoWSims Mage preset (ui/specs/mage/dps/presets.ts, phase 3 ISB uptime)
+  wowsims_mage = {
+    raid = { bloodlust = true, divineSpirit = 2, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2,
+      shadowProtection = true },
+    party = { manaSpringTotem = 2, manaTideTotems = 1, wrathOfAirTotem = 1 },
+    individual = { blessingOfKings = true, blessingOfWisdom = 2, innervates = 1, blessingOfSalvation = true,
+      shadowPriestDps = 1400 },
+    debuffs = { misery = true, curseOfElements = 2, improvedSealOfTheCrusader = 2, judgementOfWisdom = true,
+      isbUptime = 0.72 },
+    consumables = { guardianElixirId = 32067, battleElixirId = 28103, foodId = 27657, mhImbueId = 25122, potId = 22832,
+      drumsId = "LesserDrumsOfBattle" },
+  },
   -- The WoWSims Balance Druid preset (ui/specs/druid/balance/presets.ts); the druid's own Moonkin Aura comes from his
   -- form (Druid.lua).
   wowsims_balance = {
@@ -603,6 +615,7 @@ end
 
 -- Innervate: spirit regen x5 (all of it while casting) for 20 s, used below 1000 mana (mages: 40%).
 function S.Innervates(p, n)
+  local threshold
   local a = p:RegisterAura({ label = "Innervate-29166:-1", actionId = { spellId = 29166, tag = -1 }, duration = 20,
     onGain = function()
       p.ps.ForceFullSpiritRegen = true
@@ -616,7 +629,10 @@ function S.Innervates(p, n)
     end })
   ExternalCDs(p, { id = 29166, metricsKey = "innervate", aura = a, auraDuration = 20, auraCD = 360,
     shouldActivate = function()
-      local threshold = (p.class == "Mage") and p:MaxMana() * 0.4 or 1000
+      -- buffs.go InnervateManaThreshold, read after the build: a mage's 40% is of his mana without the raid buffs
+      if not threshold then
+        threshold = (p.class == "Mage") and p:StatsWithoutBuffs()[ST.Mana] * 0.4 or 1000
+      end
       return p.mana <= threshold
     end }, n)
 end
@@ -693,12 +709,18 @@ function S.ShadowWeavingAura(target) return StackingSchoolDebuff(target, "Shadow
 function S.WintersChillAura(target, p, startingStacks)
   local a = target:GetAura("Winter's Chill")
   if a then return a end
-  local mod = p:AddDynamicMod({ kind = "BonusCrit_Percent", value = 0, school = SCHOOL.Frost })
+  -- debuffs.go: every player and pet gets +2% frost crit per stack
+  local mods = {}
+  for _, u in ipairs({ p, unpack(p.pets or {}) }) do
+    mods[#mods + 1] = u:AddDynamicMod({ kind = "BonusCrit_Percent", value = 0, school = SCHOOL.Frost })
+  end
   return target:RegisterAura({ label = "Winter's Chill", actionId = { spellId = 28595 }, duration = 15, maxStacks = 5,
     onGain = function(aura, sim) if startingStacks then aura:SetStacks(sim, startingStacks) end end,
     onStacksChange = function(_, sim, old, new)
-      mod:Activate()
-      mod:UpdateValue(2 * new)
+      for _, mod in ipairs(mods) do
+        mod:Activate()
+        mod:UpdateValue(2 * new)
+      end
     end })
 end
 
