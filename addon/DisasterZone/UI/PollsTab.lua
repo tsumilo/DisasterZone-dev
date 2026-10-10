@@ -186,6 +186,32 @@ local function Sect(parent)
     return s
 end
 
+-- The back link of the Raids page ("< ALL RAIDS"): back to the list.
+local function BackLink(parent)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(80, 14)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetSize(10, 10)
+    b.icon:SetPoint("LEFT", 0, 0)
+    UI():SetChevron(b.icon, false)
+    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    b.text:SetJustifyH("LEFT")
+    Sized(b.text, 10)
+    b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+    b.text:SetText("ALL POLLS")
+    local function paint(self, on)
+        local r, g, bl = 0.65, 0.65, 0.65
+        if on then r, g, bl = 1, 0.82, 0 end
+        self.text:SetTextColor(r, g, bl)
+        self.icon:SetVertexColor(r, g, bl)
+    end
+    paint(b, false)
+    b:SetScript("OnEnter", function(self) paint(self, true) end)
+    b:SetScript("OnLeave", function(self) paint(self, false) end)
+    b:SetScript("OnClick", function() PollsUI:ShowList() end)
+    return b
+end
+
 -- A class circle of a member.
 local function Face(parent, size)
     local f = CreateFrame("Frame", nil, parent)
@@ -534,24 +560,8 @@ local function Banner(parent, h, page)
     EUI():Edge(b)
     local top = 14
     if page then
-        b.back = CreateFrame("Button", nil, b)
-        b.back:SetSize(60, 16)
-        b.back:SetPoint("TOPLEFT", 12, -12)
-        b.back.chev = b.back:CreateTexture(nil, "ARTWORK")
-        b.back.chev:SetSize(9, 9)
-        b.back.chev:SetPoint("LEFT", 0, 0)
-        b.back.chev:SetTexture(UI().ICON_ATLAS)
-        UI():SetChevron(b.back.chev, false)
-        b.back.chev:SetVertexColor(0.86, 0.86, 0.86)
-        b.back.fs = Text(b.back, 11, { 0.88, 0.88, 0.88 })
-        b.back.fs:SetPoint("LEFT", b.back.chev, "RIGHT", 6, 0)
-        b.back.fs:SetText("Polls")
-        b.back:SetScript("OnClick", function() PollsUI:ShowList() end)
-        b.back:SetScript("OnEnter", function(self) Color(self.fs, C.gold) self.chev:SetVertexColor(1, 0.82, 0) end)
-        b.back:SetScript("OnLeave", function(self)
-            Color(self.fs, { 0.88, 0.88, 0.88 })
-            self.chev:SetVertexColor(0.86, 0.86, 0.86)
-        end)
+        b.back = BackLink(b)
+        b.back:SetPoint("TOPLEFT", 16, -11)
         top = 36
     end
     b.kick = Text(b, 10, C.gold)
@@ -1925,15 +1935,8 @@ local function Tile(parent, kind, glyph, title, sub)
 end
 
 function S.Build(v)
-    v.back = CreateFrame("Button", nil, v)
-    v.back:SetSize(60, 14)
+    v.back = BackLink(v)
     v.back:SetPoint("TOPLEFT", PAD, -8)
-    v.back.fs = Text(v.back, 9, { 0.55, 0.55, 0.55 })
-    v.back.fs:SetPoint("LEFT")
-    v.back.fs:SetText("‹ POLLS")
-    v.back:SetScript("OnClick", function() PollsUI:ShowList() end)
-    v.back:SetScript("OnEnter", function(self) Color(self.fs, C.gold) end)
-    v.back:SetScript("OnLeave", function(self) Color(self.fs, { 0.55, 0.55, 0.55 }) end)
     v.title = Text(v, 17, C.white)
     v.title:SetPoint("TOPLEFT", PAD, -26)
     v.title:SetText("New poll")
