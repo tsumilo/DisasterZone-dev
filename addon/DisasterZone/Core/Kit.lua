@@ -185,14 +185,57 @@ function Kit:Cost(ids)
   return sum
 end
 
--- A side of the whole kit: { ready = slots with a night's worth in my bags, slots = slots that take something,
+-- ---------------------------------------------------------------------------------------------------------------
+-- Slots left out of a kit (per character and spec, the prog and farm kits apart): not counted, not bought, not in
+-- the kit's DPS total. Saved as setting kit.chars.<me> = { [spec key] = { best = { slot = true }, budget = {...} } }.
+-- ---------------------------------------------------------------------------------------------------------------
+local function CharKey()
+  local key = ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() or (UnitName("player") or "me")
+  return (tostring(key):gsub("%.", "_"))
+end
+
+local function OffTable(create)
+  local DB = ns.DB
+  if not DB then return nil end
+  local path = "kit.chars." .. CharKey()
+  local t = DB:GetSetting(path)
+  if type(t) ~= "table" then
+    if not create then return nil end
+    DB:SetSetting(path, {})
+    t = DB:GetSetting(path)
+  end
+  return t
+end
+
+function Kit:IsOff(side, slot, key)
+  local t = OffTable()
+  local spec = t and t[key or self:SpecKey()]
+  return type(spec) == "table" and type(spec[side]) == "table" and spec[side][slot] == true or false
+end
+
+function Kit:SetOff(side, slot, off, key)
+  key = key or self:SpecKey()
+  if off == self:IsOff(side, slot, key) then return end
+  local t = OffTable(true)
+  if not t then return end
+  t[key] = type(t[key]) == "table" and t[key] or {}
+  t[key][side] = type(t[key][side]) == "table" and t[key][side] or {}
+  t[key][side][slot] = off and true or nil
+  if not next(t[key][side]) then t[key][side] = nil end
+  if not next(t[key]) then t[key] = nil end
+  -- the kits' DPS totals were simmed with the old choice
+  if self.results then self.results.stale = true end
+  ns:Fire("KIT_CHANGED")
+end
+
+-- A side of the whole kit (slots left out of it skipped): { ready = slots with a night's worth in my bags, slots = slots that take something,
 -- toList = { [id] = n } what the shopping list can take, listCount = how many of those the list still lacks, other = n items no craft makes, cost = copper or nil,
 -- crafted = n missing items a guildie (not me) makes }.
 function Kit:Summary(rows, side)
   local out = { ready = 0, slots = 0, toList = {}, other = 0, crafted = 0, cost = 0 }
   for _, row in ipairs(rows or {}) do
     local ids = self:SideIds(row, side)
-    if #ids > 0 then
+    if #ids > 0 and not self:IsOff(side, row.key) then
       out.slots = out.slots + 1
       if self:Ready(ids) then out.ready = out.ready + 1 end
       for id, n in pairs(self:Missing(ids)) do
@@ -291,8 +334,8 @@ local function SimSlotIds(ids)
   return out
 end
 
--- The runs a kit takes: the whole best kit, the whole budget kit, none, and per slot the best kit without the slot and
--- with the budget pick in it. jobs[i] = { key, picks }.
+-- The runs a kit takes: the whole best kit, the prog and farm kits (without the slots left out), none, and per slot
+-- the whole best kit without the slot and with the budget pick in it. jobs[i] = { key, picks }.
 function Kit:Jobs(rows)
   local best, budget = {}, {}
   for _, row in ipairs(rows) do
@@ -305,7 +348,12 @@ function Kit:Jobs(rows)
     t[slot] = ids
     return t
   end
-  local jobs = { { key = "prog", picks = best }, { key = "farm", picks = budget }, { key = "none", picks = {} } }
+  -- the totals leave out what the player left out of each kit
+  local prog, farm = {}, {}
+  for k, v in pairs(best) do if not self:IsOff("best", k) then prog[k] = v end end
+  for k, v in pairs(budget) do if not self:IsOff("budget", k) then farm[k] = v end end
+  local jobs = { { key = "all", picks = best }, { key = "prog", picks = prog }, { key = "farm", picks = farm },
+    { key = "none", picks = {} } }
   for _, row in ipairs(rows) do
     local b = best[row.key]
     if #b > 0 then jobs[#jobs + 1] = { key = "no:" .. row.key, picks = with(row.key, {}) } end
@@ -374,14 +422,14 @@ function Kit:Run(onUpdate)
         for _, row in ipairs(rows) do
           k = row.key
           if res["no:" .. k] then
-            out.best[k], out.bestSE[k] = diff("prog", "no:" .. k)
+            out.best[k], out.bestSE[k] = diff("all", "no:" .. k)
             if res["bud:" .. k] then
               out.budget[k], out.budgetSE[k] = diff("bud:" .. k, "no:" .. k)
             elseif #budget[k] > 0 then
               out.budget[k], out.budgetSE[k] = out.best[k], out.bestSE[k]   -- the same items
             end
           elseif res["bud:" .. k] then
-            out.budget[k], out.budgetSE[k] = diff("bud:" .. k, "prog")
+            out.budget[k], out.budgetSE[k] = diff("bud:" .. k, "all")
           end
         end
         self.results = out

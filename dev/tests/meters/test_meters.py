@@ -147,7 +147,7 @@ def damage_counts_like_my_log():
     r.hit("Gina", 1000)
     r.hit("Gina", 2000, crit=True)
     r.hit("Gina", 1500, absorbed=300)                        # the shield's part counts
-    r.hit("Gina", 900, overkill=400, dst=r.add, dst_name="Crystalcore Devastator")   # overkill does not
+    r.hit("Gina", 900, overkill=400, dst=r.add, dst_name="Crystalcore Devastator")   # overkill counts (Details)
     r.swing("Gina", 800, glancing=True)
     r.ev("SWING_MISSED", r.me, "Gina", ME_FLAGS, r.boss, "Void Reaver", BOSS_FLAGS, "DODGE", False, None)
     r.swing("Victhar", 600)
@@ -158,12 +158,12 @@ def damage_counts_like_my_log():
          None, None, None, False, False, False)
     r.tick(1)
     a = r.actor("Gina")
-    assert a["d"] == 1000 + 2000 + 1800 + 500 + 800, a["d"]
+    assert a["d"] == 1000 + 2000 + 1800 + 900 + 800, a["d"]
     cs = a["sp"][35395]
     assert cs["n"] == 4 and cs["c"] == 1 and cs["ca"] == 2000, cs        # the overkill hit on the add too
     melee = a["sp"][0]
     assert melee["n"] == 1 and melee["g"] == 1 and melee["m"]["DODGE"] == 1, melee
-    assert a["tg"]["Crystalcore Devastator"] == 500
+    assert a["tg"]["Crystalcore Devastator"] == 900
     assert a["t"] == 120                                     # Seal of Blood's self damage is taken, not done
     assert r.actor("Victhar")["d"] == 600
     stranger = r.cl.eval("for g, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Stranger' then return true end end return false")
@@ -239,14 +239,14 @@ def a_fight_starts_on_the_first_hit_and_ends_out_of_combat():
     assert r.segs() == 0
     r.combat(True, "Victhar")                                # (entering combat starts one: dropped if nobody hits)
     r.hit("Gina", 700, dst=r.add, dst_name="Crystalcore Devastator")
-    r.hit("Victhar", 300, dst="Creature-0-4000-550-100-20041-0000000001", dst_name="Tempest-Smith")
     assert r.cl.eval("return ns.Meter:IsRecording()") is True
     r.tick(5)
+    r.hit("Victhar", 300, dst="Creature-0-4000-550-100-20041-0000000001", dst_name="Tempest-Smith")
     assert r.cl.eval("return ns.Meter:IsRecording()") is True    # the group is still fighting
     r.end_fight()
     assert r.cl.eval("return ns.Meter:IsRecording()") is False
     s = r.seg()
-    assert s["kind"] == "trash" and not s.get("live") and s["dur"] >= 5, s
+    assert s["kind"] == "trash" and not s.get("live") and 4.9 <= s["dur"] <= 5.3, s   # first hit to last hit
     assert r.cl.eval("return ns.Meter:SegName(ns.Meter:GetSegment('cur'))") == "Crystalcore Devastator +1"
 
 
@@ -304,6 +304,7 @@ def whole_raid_adds_every_fight_and_starts_over_in_a_new_instance():
         r.combat(True, "Victhar")
         r.hit("Gina", amount, dst=r.add, dst_name="Crystalcore Devastator")
         r.tick(4)
+        r.hit("Gina", 0, dst=r.add, dst_name="Crystalcore Devastator")
         r.end_fight()
     a = r.actor("Gina", "all")
     assert a["d"] == 3500
@@ -522,6 +523,9 @@ def demo_mode_fills_both_windows():
     r = Raid(dmg=False, instance=False)
     r.cl.eval("ns.Demo:SetEnabled(true)")
     r.w.tick(1)
+    assert not r.cl.eval("local f = _G.DisasterZoneMeter; return f and f:IsShown()")   # only fills windows that are on
+    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true)")
+    r.w.tick(1)
     assert r.cl.eval("return #ns.Meter:Data().segs") == 6
     assert r.cl.eval("return ns.Meter:SegName(ns.Meter:GetSegment('cur'))") == "Void Reaver"
     assert r.cl.eval("return _G.DisasterZoneMeter and _G.DisasterZoneMeter:IsShown()") is True
@@ -530,6 +534,30 @@ def demo_mode_fills_both_windows():
     gina = r.cl.eval_py("for g, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Gina' then return a end end")
     assert gina["d"] == 1190 * 222
     assert r.cl.eval("return #ns.Meter:GetSegment('cur').deaths") == 2
+
+
+@case
+def numbers_match_details_on_a_short_fight():
+    """The fight Tsumil checked in game against Details (2026-10-10): Crusader Strike, two swings and a Seal of Command
+    crit that killed the mob with overkill. Details: 6.6k damage, 1.8k DPS (by active time), SoC 2.9k."""
+    r = Raid()
+    r.combat(True)
+    r.hit("Gina", 1314, spell=35395)
+    r.tick(0.4)
+    r.swing("Gina", 1212)
+    r.tick(3.27)
+    r.swing("Gina", 1212)
+    r.hit("Gina", 2900, spell=20424, crit=True, overkill=1297)
+    r.cl.eval("__MOCK.combat = false")
+    r.end_fight()
+    a = r.actor("Gina")
+    assert a["d"] == 1314 + 1212 * 2 + 2900, a["d"]
+    assert a["sp"][20424]["a"] == 2900
+    dps = r.cl.eval("local s = ns.Meter:GetSegment('cur'); local rows = ns.Meter:Rows(s, 'dps'); return rows[1].v")
+    assert 1750 <= dps <= 1900, dps
+    sub = r.cl.eval("ns.MeterWindow:Draw(); return ns.MeterWindow._Rows()[UnitGUID('player')].sub:GetText()")
+    assert sub == "%d" % 0 or sub.replace(",", "").isdigit(), sub
+    assert 1750 <= int(sub.replace(",", "")) <= 1900, sub
 
 
 if __name__ == "__main__":

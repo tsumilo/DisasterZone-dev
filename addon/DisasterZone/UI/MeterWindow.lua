@@ -121,9 +121,33 @@ function K.ClassHex(cls)
     return strformat("|cff%02x%02x%02x", floor(r * 255), floor(g * 255), floor(b * 255))
 end
 
+-- Spec icons by class and spec label (Core/Meter.lua's labels; RaidComp's set, which is keyed by spec index)
+local SPEC_ICONS = {
+    WARRIOR = { Arms = "Ability_Warrior_SavageBlow", Fury = "Ability_Warrior_InnerRage",
+                Protection = "Ability_Warrior_DefensiveStance" },
+    PALADIN = { Holy = "Spell_Holy_HolyBolt", Protection = "Spell_Holy_DevotionAura",
+                Retribution = "Spell_Holy_AuraOfLight" },
+    HUNTER = { ["Beast Mastery"] = "Ability_Hunter_BeastTaming", Marksmanship = "Ability_Marksmanship",
+               Survival = "Ability_Hunter_SwiftStrike" },
+    ROGUE = { Assassination = "Ability_Rogue_Eviscerate", Combat = "Ability_BackStab", Subtlety = "Ability_Stealth" },
+    PRIEST = { Discipline = "Spell_Holy_WordFortitude", Holy = "Spell_Holy_HolyBolt",
+               Shadow = "Spell_Shadow_ShadowWordPain" },
+    SHAMAN = { Elemental = "Spell_Nature_Lightning", Enhancement = "Spell_Nature_LightningShield",
+               Restoration = "Spell_Nature_MagicImmunity" },
+    MAGE = { Arcane = "Spell_Holy_MagicalSentry", Fire = "Spell_Fire_FireBolt02", Frost = "Spell_Frost_FrostBolt02" },
+    WARLOCK = { Affliction = "Spell_Shadow_DeathCoil", Demonology = "Spell_Shadow_Metamorphosis",
+                Destruction = "Spell_Shadow_RainOfFire" },
+    DRUID = { Balance = "Spell_Nature_StarFall", ["Feral (Cat)"] = "Ability_Druid_CatForm",
+              ["Feral (Bear)"] = "Ability_Racial_BearForm", Restoration = "Spell_Nature_HealingTouch" },
+}
+function K.SpecIcon(cls, spec)
+    local name = cls and spec and SPEC_ICONS[cls] and SPEC_ICONS[cls][spec]
+    return name and ("Interface\\Icons\\" .. name) or nil
+end
+
 -- A player's icon: their spec's, else their class's (UI:ClassIcon's texture coords).
 function K.SetPlayerIcon(tex, cls, spec)
-    local path = spec and ns.RaidComp and ns.RaidComp.SpecIcon and ns.RaidComp:SpecIcon(cls, spec)
+    local path = K.SpecIcon(cls, spec)
     if path then
         tex:SetTexture(path)
         tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -158,15 +182,20 @@ function K.SpellName(key, pn)
     local n = GetSpellInfo and GetSpellInfo(tonumber(key) or 0)
     return n or ("Spell " .. tostring(key))
 end
-function K.SpellIcon(key)
-    if key == 0 or key == "0" or key == "p0" or (type(key) == "string" and key:sub(1, 1) == "m") then return 132147 end
+-- An ability's icon. Melee shows the player's main hand (a = the actor, a.wi), else a sword; a pet's melee a paw.
+local SWORD = "Interface\\Icons\\INV_Sword_04"
+local PAW = "Interface\\Icons\\Ability_Hunter_Pet_Wolf"
+function K.SpellIcon(key, a)
+    if key == 0 or key == "0" then return (a and a.wi) or SWORD end
+    if key == "p0" then return PAW end
+    if type(key) == "string" and key:sub(1, 1) == "m" then return SWORD end
     if type(key) == "string" and key:sub(1, 1) == "e" then return 135805 end
-    local id = tonumber(type(key) == "string" and key:gsub("^p", "") or key)
+    local id = tonumber((type(key) == "string" and (key:gsub("^p", ""))) or key)
     local tex = id and GetSpellTexture and GetSpellTexture(id)
     return tex or 134400
 end
-function K.IconText(key, size)
-    return strformat("|T%s:%d:%d:0:0:64:64:5:59:5:59|t", tostring(K.SpellIcon(key)), size or 14, size or 14)
+function K.IconText(key, size, a)
+    return strformat("|T%s:%d:%d:0:0:64:64:5:59:5:59|t", tostring(K.SpellIcon(key, a)), size or 14, size or 14)
 end
 
 -- The flat atlas glyph (UI.ICON) on a texture.
@@ -366,13 +395,14 @@ local function RowTooltip(row)
     tt:AddDoubleLine(K.ClassHex(a.c) .. (a.n or "?") .. "|r",
         "|cffa29d90" .. spec .. (a.c and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[a.c] or a.c) or "") .. "|r")
     local dur = Meter:Duration(seg)
+    local act = Meter:ActiveTime(seg, a)
     local function top(list, total, fmt)
         local arr = {}
         for k, s in pairs(list or {}) do arr[#arr + 1] = { k, type(s) == "table" and s.a or s } end
         table.sort(arr, function(x, y) return x[2] > y[2] end)
         for i = 1, min(5, #arr) do
             local k, v = arr[i][1], arr[i][2]
-            tt:AddDoubleLine(K.IconText(k, 14) .. " " .. (fmt and fmt(k) or K.SpellName(k, a.pn)),
+            tt:AddDoubleLine(K.IconText(k, 14, a) .. " " .. (fmt and fmt(k) or K.SpellName(k, a.pn)),
                 K.Fmt(v) .. strformat("  |cffa29d90%d%%|r", total > 0 and floor(v / total * 100 + 0.5) or 0),
                 1, 1, 1, 1, 1, 1)
         end
@@ -388,7 +418,7 @@ local function RowTooltip(row)
         end
         tt:AddLine("Click for the death recap", 0.2, 0.87, 0.2)
     elseif mode == "healing" then
-        tt:AddLine(strformat("%s healing · %s per second · %d%% overhealing", K.Fmt(a.h), K.Int(a.h / dur),
+        tt:AddLine(strformat("%s healing · %s per second · %d%% overhealing", K.Fmt(a.h), K.Int(a.h / act),
             (a.h + a.oh) > 0 and floor(a.oh / (a.h + a.oh) * 100 + 0.5) or 0), 0.64, 0.62, 0.56)
         top(a.hs, a.h)
         tt:AddLine("Click for the full breakdown", 0.2, 0.87, 0.2)
@@ -404,7 +434,7 @@ local function RowTooltip(row)
             for k, n in pairs(cut) do tt:AddDoubleLine(K.IconText(k, 14) .. " " .. K.SpellName(k), tostring(n), 1, 1, 1, 1, 1, 1) end
         end
     else
-        tt:AddLine(strformat("%s damage · %s per second · %d%% active", K.Fmt(a.d), K.Int(a.d / dur),
+        tt:AddLine(strformat("%s damage · %s per second · %d%% active", K.Fmt(a.d), K.Int(a.d / act),
             floor(min(dur, a.act or 0) / dur * 100 + 0.5)), 0.64, 0.62, 0.56)
         top(a.sp, a.d)
         tt:AddLine("Click for the full breakdown", 0.2, 0.87, 0.2)
@@ -511,10 +541,11 @@ local function PlaceRight(row, hasSub, hasKb)
     row.name:SetPoint("RIGHT", hasKb and row.kb or row.value, "LEFT", -18, 0)
 end
 
+-- (per second: by the player's active time, like Details; taken by the fight's length)
 local VALUE = {
-    damage = function(r, dur) return K.Fmt(r.v), K.Int(r.v / dur) end,
-    dps = function(r, dur) return K.Int(r.v / dur), K.Fmt(r.v) end,
-    healing = function(r, dur) return K.Fmt(r.v), K.Int(r.v / dur) end,
+    damage = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:ActiveTime(seg, r.a)) end,
+    dps = function(r) return K.Int(r.v), K.Fmt(r.a.d) end,
+    healing = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:ActiveTime(seg, r.a)) end,
     taken = function(r, dur) return K.Fmt(r.v), K.Int(r.v / dur) end,
     deaths = function(r) return K.Clock(r.v), nil end,
     kicks = function(r) return tostring(r.v), nil end,
@@ -532,7 +563,11 @@ local function TotalText(seg, mode, rows, total, dur)
     local party = seg and (seg.size or 25) <= 5
     local who = party and "Party" or "Raid"
     if mode == "damage" then return who, K.Fmt(total), K.Int(total / dur) .. "/s" end
-    if mode == "dps" then return who, K.Int(total / dur), K.Fmt(total) end
+    if mode == "dps" then
+        local d = 0
+        for _, r in ipairs(rows) do d = d + (r.a.d or 0) end
+        return who, K.Int(d / dur), K.Fmt(d)
+    end
     if mode == "healing" then
         local oh = 0
         for _, r in ipairs(rows) do oh = oh + (r.ext or 0) end
@@ -624,7 +659,7 @@ function MW:Draw()
         row.rank:SetText(r.rank)
         row.name:SetText(a.n or "?")
         row.name:SetAlpha((r.d == nil and seg and seg.deaths and Meter.IsDead and Meter:IsDead(seg, r.g)) and 0.7 or 1)
-        local v1, v2 = valueFn(r, dur)
+        local v1, v2 = valueFn(r, dur, seg)
         row.value:SetText(v1)
         row.sub:SetText(v2 or "")
         local kbKey = r.d and r.d.by or (mode == "kicks" and TopKey(a.ks)) or (mode == "dispels" and TopKey(a.ds)) or nil
@@ -706,18 +741,22 @@ local function Animate(elapsed)
     return moving
 end
 
+-- The mode keeps its name; the fight's name gives way first (it shortens), and only in a very narrow window does
+-- the mode drop to its icon.
 function MW:LayoutHeader()
     local h = frame.head
     local W = frame:GetWidth() or DEFAULT_W
     local modeW = 6 + 16 + 6 + h.modeText:GetStringWidth() + 6 + 9 + 6
-    local segW = (h.dot:IsShown() and 13 or 0) + 6 + h.segText:GetStringWidth() + 5 + h.segTime:GetStringWidth() + 6 + 9 + 6
-    local avail = W - 6 - 4 - 22 - 4
-    local showLabel = modeW + segW <= avail
+    local dotW = h.dot:IsShown() and 13 or 0
+    local fixed = dotW + 6 + 5 + h.segTime:GetStringWidth() + 6 + 9 + 6        -- the fight button without its name
+    local avail = W - 4 - 2 - 22 - 4
+    local showLabel = avail - modeW - fixed >= 70
     h.modeText:SetShown(showLabel)
     h.mode:SetWidth(showLabel and modeW or (6 + 16 + 4 + 9 + 6))
-    local segRoom = avail - h.mode:GetWidth()
-    h.segText:SetWidth(min(h.segText:GetStringWidth() + 1, max(30, segRoom - (h.dot:IsShown() and 13 or 0) - 30 - h.segTime:GetStringWidth())))
-    h.seg:SetWidth(min(segW, segRoom))
+    local nameRoom = max(30, avail - h.mode:GetWidth() - fixed)
+    local nameW = min(h.segText:GetStringWidth() + 1, nameRoom)
+    h.segText:SetWidth(nameW)
+    h.seg:SetWidth(fixed + nameW)
     h.modeChev:ClearAllPoints()
     h.modeChev:SetPoint("LEFT", showLabel and h.modeText or h.modeIcon, "RIGHT", showLabel and 6 or 4, -1)
 end
@@ -863,12 +902,13 @@ function MW:ApplyLock()
     if not frame then return end
     local locked = Setting("locked", true)
     frame.grip:SetShown(not locked)
-    frame.hint:SetShown(not locked)
+    frame.hint:Hide()                                   -- (shown while the mouse is over an unlocked window)
     if locked then frame:SetEdge(1, 1, 1, 0.07) else frame:SetEdge(1, 0.82, 0, 0.55) end
     frame:SetScale(SCALES[Setting("size", "normal")] or 1)
 end
 
 function MW:OnUpdate(elapsed)
+    frame.hint:SetShown(not Setting("locked", true) and frame:IsMouseOver())
     -- fade out of combat
     local fight = InCombat()
     if fight then combatEndedAt = GetTime() end
@@ -892,7 +932,7 @@ end
 ---------------------------------------------------------------------------
 
 local function ShowWanted()
-    if not Meter:IsEnabled() and not Meter:IsDemo() then return false end
+    if not Meter:IsEnabled() then return false end           -- (demo mode only fills a window that is on)
     if userHidden then return false end
     if not Setting("locked", true) then return true end
     if Meter:IsDemo() then return true end
@@ -925,7 +965,7 @@ function MW:Toggle()
         userHidden = true
     else
         userHidden = false
-        if not Meter:IsEnabled() and not Meter:IsDemo() then
+        if not Meter:IsEnabled() then
             ns:Print("the damage meter is off: turn it on in Settings > Meters (or /dz meter on).")
             return
         end

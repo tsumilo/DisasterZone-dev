@@ -23,6 +23,7 @@ local TILE_W, TILE_H, GAP, MID_X, MID_W = 262, 56, 6, 270, 230
 local HEAD_H = 18
 local ROWS = 6
 local KITBAR_H = 58
+local BAR_X, PIPS_X = 10, 290   -- the bar spans the page: its contents start at the cards' edge (My BiS's PAD)
 local READY_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
 local state = { active = false }
@@ -98,14 +99,25 @@ end
 
 -- The card's tooltip: the item (or each of a pair), what my bags hold of a night's worth, my bank, who makes it,
 -- what a night costs; for Same / Skip it why.
+local KIT_NAME = { best = "prog kit", budget = "farm kit" }
+
 local function CardTooltip(c)
   local Kt = K()
   local row, s = c.row, c.row and c.row[c.sideKey]
   if not s then return end
   GameTooltip:SetOwner(c, c.side == "R" and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
+  if c.off then
+    GameTooltip:AddLine(NameOf(Kt:SideIds(row, c.sideKey)), 0.7, 0.7, 0.72)
+    GameTooltip:AddLine("Left out of your " .. KIT_NAME[c.sideKey] .. ": not counted and not added to the shopping list.",
+      1, 1, 1, true)
+    GameTooltip:AddLine("Click: put it back", 0.5, 0.5, 0.52)
+    GameTooltip:Show()
+    return
+  end
   if s.kind == "skip" or s.kind == "same" then
     GameTooltip:AddLine(s.kind == "skip" and "Skip it" or "Same as the best pick", 1, 0.82, 0)
     if s.text and s.text ~= "" then GameTooltip:AddLine(s.text, 1, 1, 1, true) end
+    if s.kind == "same" then GameTooltip:AddLine("Right-click: leave it out of your farm kit", 0.5, 0.5, 0.52) end
     GameTooltip:Show()
     return
   end
@@ -136,6 +148,7 @@ local function CardTooltip(c)
     if p then GameTooltip:AddLine((Money(p * need) or "") .. " a night (Auctionator)", 0.6, 0.6, 0.62) end
   end
   GameTooltip:AddLine("A night: a three hour raid.  Shift-click an icon to link it.", 0.5, 0.5, 0.52, true)
+  GameTooltip:AddLine("Right-click: leave it out of your " .. KIT_NAME[c.sideKey], 0.5, 0.5, 0.52)
   GameTooltip:Show()
 end
 
@@ -146,6 +159,24 @@ end
 
 local function Hovered(c)
   return c:IsMouseOver() or c.bag:IsMouseOver()
+end
+
+-- Right-click: leave the slot out of this kit (or put it back); a click on a left-out card puts it back.
+local function CardClick(c, button)
+  local s = c.row and c.row[c.sideKey]
+  if not s or s.kind == "skip" then return end
+  local Kt, slot, side = K(), c.row.key, c.sideKey
+  if button == "RightButton" then
+    local off = Kt:IsOff(side, slot)
+    ns.UI:ContextMenu(c, function(root)
+      root:CreateTitle(c.row.title:sub(1, 1) .. c.row.title:sub(2):lower() .. "  \194\183  " .. KIT_NAME[side])
+      root:CreateButton(off and "Put back in the kit" or "Leave out of the kit", function()
+        Kt:SetOff(side, slot, not off)
+      end)
+    end)
+  elseif c.off then
+    Kt:SetOff(side, slot, false)
+  end
 end
 
 local function CreateCard(parent, side)
@@ -228,6 +259,9 @@ local function CreateCard(parent, side)
   end)
   c.bag:HookScript("OnLeave", function() if not Hovered(c) then ShowBag(c, false) end end)
 
+  c:SetScript("OnMouseUp", function(self, button) if self:IsMouseOver() then CardClick(self, button) end end)
+  c.icon.onClick = function(_, button) CardClick(c, button) end
+  c.sub.onClick = function(_, button) CardClick(c, button) end
   local function enter() ShowBag(c, true); CardTooltip(c) end
   local function leave()
     GameTooltip:Hide()
@@ -256,7 +290,9 @@ local function SetCard(c, row, sideKey, dps, se)
   local Kt = K()
   local s = row[sideKey]
   c.row, c.sideKey = row, sideKey
+  c.off = s.kind ~= "skip" and Kt:IsOff(sideKey, row.key) or false
   c:Show()
+  c:SetAlpha(c.off and 0.4 or 1)
   c.check:Hide()
   c.canList = false
   c.name:ClearAllPoints()
@@ -277,7 +313,7 @@ local function SetCard(c, row, sideKey, dps, se)
       c.icon:Show(); c.icon:SetItem(ids[1]); c.icon:SetAlpha(0.5)
       c.sub:SetShown(ids[2] ~= nil)
       if ids[2] then c.sub:SetItem(ids[2]); c.sub:SetAlpha(0.5) end
-      c.name:SetText(Col("Same", GREY))
+      c.name:SetText(Col(c.off and "Left out" or "Same", GREY))
     end
     ShowBag(c, false)
     return
@@ -290,6 +326,11 @@ local function SetCard(c, row, sideKey, dps, se)
   c.sub:SetShown(ids[2] ~= nil)
   if ids[2] then c.sub:SetItem(ids[2]); c.sub:SetAlpha(1) end
   c.name:SetText(NameOf(ids))
+  if c.off then
+    c.line:SetText(Col("Left out", GREY))
+    ShowBag(c, false)
+    return
+  end
   c.line:SetText(LineOf(ids, dps, se))
   local ready = Kt:Ready(ids)
   c.check:SetShown(ready)
@@ -324,7 +365,8 @@ local function KitBlock(parent, caps, color)
   return b
 end
 
-function KitView:Create(parent)
+-- parent: My BiS's body (the cards); page: the whole page (the bar runs along its bottom, edge to edge).
+function KitView:Create(parent, page)
   if view then return view end
   local UI = ns.UI
   local v = CreateFrame("Frame", nil, parent)
@@ -359,8 +401,8 @@ function KitView:Create(parent)
 
   -- the kit bar
   local bar = CreateFrame("Frame", nil, v)
-  bar:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 0, 0)
-  bar:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+  bar:SetPoint("BOTTOMLEFT", page or v, "BOTTOMLEFT", 0, 0)
+  bar:SetPoint("BOTTOMRIGHT", page or v, "BOTTOMRIGHT", 0, 0)
   bar:SetHeight(KITBAR_H)
   v.bar = bar
   local bg = bar:CreateTexture(nil, "BACKGROUND")
@@ -372,9 +414,9 @@ function KitView:Create(parent)
   top:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
 
   bar.prog = KitBlock(bar, "PROG KIT", GOLD)
-  bar.prog:SetPoint("LEFT", bar, "LEFT", 14, 0)
+  bar.prog:SetPoint("LEFT", bar, "LEFT", BAR_X + 8, 0)
   bar.farm = KitBlock(bar, "FARM KIT", GREY)
-  bar.farm:SetPoint("LEFT", bar, "LEFT", 140, 0)
+  bar.farm:SetPoint("LEFT", bar, "LEFT", BAR_X + 134, 0)
   for _, b in ipairs({ bar.prog, bar.farm }) do
     b:SetScript("OnClick", function() KitView:Run() end)
     b:SetScript("OnEnter", function(self)
@@ -395,7 +437,7 @@ function KitView:Create(parent)
   end
   -- before a run: the Sim button in the blocks' place
   bar.sim = UI:CreateSleekButton(bar, "Sim the kit", 110, 24, function() KitView:Run() end)
-  bar.sim:SetPoint("LEFT", bar, "LEFT", 14, 0)
+  bar.sim:SetPoint("LEFT", bar, "LEFT", BAR_X + 8, 0)
   bar.sim:HookScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine("Sim the kit", 1, 0.82, 0)
@@ -417,13 +459,13 @@ function KitView:Create(parent)
   for i = 1, ROWS do
     local p = bar:CreateTexture(nil, "ARTWORK")
     p:SetSize(9, 9)
-    p:SetPoint("LEFT", bar, "LEFT", 296 + (i - 1) * 12, 0)
+    p:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + (i - 1) * 12, 0)
     bar.pips[i] = p
   end
   bar.bags = Text(bar, 11, SOFT)
-  bar.bags:SetPoint("LEFT", bar, "LEFT", 296 + ROWS * 12 + 6, 0)
+  bar.bags:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + ROWS * 12 + 6, 0)
   local hit = CreateFrame("Frame", nil, bar)
-  hit:SetPoint("LEFT", bar, "LEFT", 290, 0)
+  hit:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X - 6, 0)
   hit:SetSize(230, 30)
   hit:SetScript("OnEnter", function(self)
     local Kt = K()
@@ -440,7 +482,7 @@ function KitView:Create(parent)
   hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
   bar.addProg = UI:CreateSleekButton(bar, "Add prog kit", 124, 26, function() KitView:AddKit("best") end, "primary")
-  bar.addProg:SetPoint("RIGHT", bar, "RIGHT", -14, 0)
+  bar.addProg:SetPoint("RIGHT", bar, "RIGHT", -BAR_X - 8, 0)
   bar.addFarm = UI:CreateSleekButton(bar, "Add farm kit", 124, 26, function() KitView:AddKit("budget") end)
   bar.addFarm:SetPoint("RIGHT", bar.addProg, "LEFT", -6, 0)
   for _, b in ipairs({ bar.addProg, bar.addFarm }) do
@@ -516,21 +558,27 @@ function KitView:UpdateBar()
   elseif res then
     bar.prog.big:SetText(Signed(res.prog or 0) .. " DPS")
     bar.farm.big:SetText(Signed(res.farm or 0) .. " DPS")
-  end
-  local prog, farm = Kt:Summary(rows, "best"), Kt:Summary(rows, "budget")
-  for i, p in ipairs(bar.pips) do
-    local row = rows[i]
-    if row then
-      p:Show()
-      if Kt:Ready(Kt:SideIds(row, "best")) then p:SetColorTexture(GREEN[1], GREEN[2], GREEN[3], 1)
-      else p:SetColorTexture(0.2, 0.2, 0.23, 1) end
-    else
-      p:Hide()
+    -- a slot left out or put back since: the totals are old (click to sim again)
+    for _, b in ipairs({ bar.prog, bar.farm }) do
+      local col = res.stale and GREY or GREEN
+      b.big:SetTextColor(col[1], col[2], col[3])
     end
   end
-  for i = #rows + 1, ROWS do bar.pips[i]:Hide() end
+  local prog, farm = Kt:Summary(rows, "best"), Kt:Summary(rows, "budget")
+  local n = 0
+  for _, row in ipairs(rows) do
+    local ids = Kt:SideIds(row, "best")
+    if #ids > 0 and not Kt:IsOff("best", row.key) then
+      n = n + 1
+      local p = bar.pips[n]
+      p:Show()
+      if Kt:Ready(ids) then p:SetColorTexture(GREEN[1], GREEN[2], GREEN[3], 1)
+      else p:SetColorTexture(0.2, 0.2, 0.23, 1) end
+    end
+  end
+  for i = n + 1, ROWS do bar.pips[i]:Hide() end
   bar.bags:ClearAllPoints()
-  bar.bags:SetPoint("LEFT", bar, "LEFT", 296 + #rows * 12 + 6, 0)
+  bar.bags:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + n * 12 + (n > 0 and 6 or 0), 0)
   bar.bags:SetText(prog.ready == prog.slots and prog.slots > 0 and Col("Ready for tonight", GREEN)
     or ("%d of %d in your bags"):format(prog.ready, prog.slots))
   bar.addProg:SetText(prog.listCount > 0 and ("Add prog kit \194\183 " .. prog.listCount) or "Add prog kit")
@@ -583,13 +631,16 @@ function KitView:Snapshot()
       out.rows[#out.rows + 1] = {
         title = Plain(r.spine.title:GetText()), why = Plain(r.spine.why:GetText()),
         best = Plain(r.best.name:GetText()), bestLine = Plain(r.best.line:GetText()),
-        bestReady = r.best.check:IsShown(), bestCanList = r.best.canList,
+        bestReady = r.best.check:IsShown(), bestCanList = r.best.canList, bestOff = r.best.off,
+        budgetOff = r.budget.off,
         budget = Plain(r.budget.name:GetText()), budgetLine = Plain(r.budget.line:GetText()),
       }
     end
   end
   local bar = view.bar
-  out.bar = { sim = bar.sim:IsShown(), progShown = bar.prog:IsShown(), prog = Plain(bar.prog.big:GetText()),
+  local pips = 0
+  for _, pip in ipairs(bar.pips) do if pip:IsShown() then pips = pips + 1 end end
+  out.bar = { pips = pips, sim = bar.sim:IsShown(), progShown = bar.prog:IsShown(), prog = Plain(bar.prog.big:GetText()),
     farm = Plain(bar.farm.big:GetText()), bags = Plain(bar.bags:GetText()), addProg = Plain(bar.addProg:GetText()),
     addFarm = Plain(bar.addFarm:GetText()) }
   return out
@@ -605,3 +656,4 @@ end
 ns:RegisterEvent("BAG_UPDATE_DELAYED", Later)
 ns:RegisterEvent("PLAYER_EQUIPMENT_CHANGED", Later)
 ns:On("SHOP_UPDATED", Later)
+ns:On("KIT_CHANGED", function() if view and view:IsShown() then KitView:Update() end end)

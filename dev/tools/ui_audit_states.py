@@ -890,7 +890,7 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False):
     return fn
 
 
-def kit_view(run=False, spec="Retribution"):
+def kit_view(run=False, spec="Retribution", lua=None):
     """My BiS > Consumables (UI/KitView.lua): Gina in WoWSims' P1 Ret gear, a flask, Haste Potions and Ravager Dogs in
     her bags; run = after a short kit sim."""
     def fn(w, c):
@@ -1025,6 +1025,7 @@ STATES = [
     ("My BiS - Consumables", kit_view()),
     ("My BiS - Consumables simmed", kit_view(run=True)),
     ("My BiS - Consumables healer", kit_view(spec="Holy")),
+    ("My BiS - Consumables left out", kit_view(lua="ns.Kit:SetOff('best', 'food', true); ns.Kit:SetOff('budget', 'scroll', true)")),
     ("Atlas - raid boss", opened("atlas", "ns.AtlasUI:Select('raids', 'Karazhan', 'Prince')")),
     # my marks on a heroic dungeon's items: Gina's Pre-raid list (its hands also in P2: "Pre-raid, P2")
     ("Atlas - Pre-raid marks", opened("atlas", SEED_PRE_RAID + "local g = ns.BiS:GetSlot(0, 7); "

@@ -1806,7 +1806,7 @@ function MyBiS:CreatePanel(parent)
     card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
     card.lockBanner = lockChip
     if ns.SimPanel then simCard = ns.SimPanel:CreateCard(doll.center, doll.centerWidth or 230, doll.centerHeight or 426) end
-    if ns.KitView then kitView = ns.KitView:Create(body) end
+    if ns.KitView then kitView = ns.KitView:Create(body, panel) end
 
     panel:SetScript("OnShow", function(self)
         if self.dirty then MyBiS:Refresh() end

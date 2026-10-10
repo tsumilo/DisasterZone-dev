@@ -41,6 +41,12 @@ local function C3(c) return c[1], c[2], c[3] end
 -- Helpers
 ---------------------------------------------------------------------------
 
+-- "1 hit", "3 hits" (word = the plural)
+local function Count(n, word)
+    if n == 1 then word = word:gsub("es$", ""):gsub("s$", "") end
+    return K.Int(n) .. " " .. word
+end
+
 local function Ordinal(n)
     local s = (n % 10 == 1 and n % 100 ~= 11) and "st" or (n % 10 == 2 and n % 100 ~= 12) and "nd"
         or (n % 10 == 3 and n % 100 ~= 13) and "rd" or "th"
@@ -416,8 +422,7 @@ local function SetBanner(seg, a)
 end
 
 local function SetCard(c, icon, num, extra, lab)
-    if type(icon) == "number" or (type(icon) == "string" and not icon:find("\\")) then c.icon:SetSpell(icon)
-    else c.icon:SetIcon(icon) end
+    c.icon:SetIcon(icon)
     c.num:SetText(num)
     c.extra:SetText(extra or "")
     c.lab:SetText(lab)
@@ -430,13 +435,13 @@ local function Abilities(a, mode, dur)
         for k, s in pairs(a.hs or {}) do
             local tot = s.a + (s.oh or 0)
             local sub
-            if s.sh then sub = strformat("%s absorbs", K.Int(s.n))
-            else sub = strformat("%s heals · %d%% over", K.Int(s.n), tot > 0 and floor((s.oh or 0) / tot * 100 + 0.5) or 0) end
+            if s.sh then sub = Count(s.n, "absorbs")
+            else sub = strformat("%s · %d%% over", Count(s.n, "heals"), tot > 0 and floor((s.oh or 0) / tot * 100 + 0.5) or 0) end
             list[#list + 1] = { key = k, a = s.a, sub = sub, s = s }
         end
     elseif mode == "taken" then
         for k, s in pairs(a.ts or {}) do
-            list[#list + 1] = { key = k, a = s.a, sub = strformat("%s hits%s", K.Int(s.n), s.src and (" · " .. s.src) or ""), s = s }
+            list[#list + 1] = { key = k, a = s.a, sub = Count(s.n, "hits") .. (s.src and (" · " .. s.src) or ""), s = s }
         end
     else
         for k, s in pairs(a.sp or {}) do
@@ -445,7 +450,7 @@ local function Abilities(a, mode, dur)
             local unit = (k == 0 or k == "p0") and "swings" or "hits"
             local crit = s.n > 0 and s.c / s.n * 100 or 0
             list[#list + 1] = { key = k, a = s.a, s = s,
-                sub = strformat("%s %s · %s", K.Int(s.n + miss), unit, s.c > 0 and strformat("%.1f%% crit", crit) or "no crits") }
+                sub = strformat("%s · %s", Count(s.n + miss, unit), s.c > 0 and strformat("%.1f%% crit", crit) or "no crits") }
         end
     end
     tsort(list, function(x, y)
@@ -463,9 +468,10 @@ local function DrawDetail(e, total, mode, dur, a)
     if not e then det:Hide() return end
     det:Show()
     local s = e.s
-    det.icon:SetSpell(e.key)
+    det.icon:SetIcon(K.SpellIcon(e.key, a))
     det.name:SetText(K.SpellName(e.key, a.pn))
-    det.sub:SetText(strformat("%s · %s per second", K.Fmt(e.a), K.Int(e.a / dur)))
+    local per = mode == "taken" and dur or MD.act or dur
+    det.sub:SetText(strformat("%s · %s per second", K.Fmt(e.a), K.Int(e.a / per)))
     local parts = {}
     if mode == "taken" then
         parts[#parts + 1] = { "Hit", s.n, s.n > 0 and s.a / s.n or 0, HIT_COLORS.hit }
@@ -552,7 +558,7 @@ local function DrawAbilities(a, mode, dur)
         r:SetWidth(frame.listW)
         r.thumb:Hide()
         r.icon:Show()
-        r.icon:SetSpell(e.key)
+        r.icon:SetIcon(K.SpellIcon(e.key, a))
         r.rank:SetText(i)
         r.rank:Show()
         r.name:SetText(K.SpellName(e.key, a.pn))
@@ -724,13 +730,15 @@ function MD:Draw()
 
     -- cards
     local c = frame.cards
-    local specIcon = (a.s and ns.RaidComp and ns.RaidComp:SpecIcon(a.c, a.s)) or "Interface\\Icons\\INV_Misc_QuestionMark"
+    local specIcon = K.SpecIcon(a.c, a.s) or "Interface\\Icons\\Ability_Warrior_SavageBlow"
+    local act = Meter:ActiveTime(seg, a)
+    MD.act = act
     if mode == "healing" then
         local tot = a.h + a.oh
         local crits, n = 0, 0
         for _, s in pairs(a.hs or {}) do if not s.sh then crits = crits + (s.c or 0); n = n + s.n end end
         SetCard(c[1], specIcon, K.Fmt(a.h), nil, "Healing done")
-        SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / dur), idx and Ordinal(idx) or nil, "Healing per second")
+        SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / act), idx and Ordinal(idx) or nil, "Healing per second")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_Renew", strformat("%d%%", tot > 0 and floor(a.oh / tot * 100 + 0.5) or 0), nil, "Overhealing")
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit, all heals")
     elseif mode == "taken" then
@@ -744,7 +752,7 @@ function MD:Draw()
         local crits, n = 0, 0
         for _, s in pairs(a.sp or {}) do crits = crits + (s.c or 0); n = n + (s.n or 0) end
         SetCard(c[1], specIcon, K.Fmt(a.d), nil, "Damage done")
-        SetCard(c[2], "Interface\\Icons\\Spell_Nature_BloodLust", K.Int(a.d / dur), idx and Ordinal(idx) or nil, "DPS in the raid")
+        SetCard(c[2], "Interface\\Icons\\Spell_Nature_BloodLust", K.Int(a.d / act), idx and Ordinal(idx) or nil, "DPS in the raid")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_BlessingOfStrength", K.Pct(min(100, (a.act or 0) / dur * 100)), nil, "Active time")
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit, all hits")
     end
@@ -887,7 +895,7 @@ function MD:DrawDeath()
         r.bg:SetVertexColor(killing and 1 or 1, killing and 0.24 or 1, killing and 0.16 or 1, killing and 0.09 or (i % 2 == 1 and 0.02 or 0))
         r.mark:SetShown(killing)
         r.t:SetText(strformat("%.1f s", e[1]))
-        r.icon:SetSpell(e[3])
+        r.icon:SetIcon(K.SpellIcon(e[3]))
         local extra = ""
         if e[2] == "d" and e[7] then extra = " · overkill " .. K.Int(e[7]) end
         if e[2] == "h" and e[7] then extra = " · " .. K.Int(e[7]) .. " over" end

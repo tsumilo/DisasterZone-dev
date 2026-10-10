@@ -137,7 +137,11 @@ function TW:Draw()
         h.portrait:SetTexture(nil)
         h.portraitBg:Hide()
     end
-    h.name:SetText(st.name or "No target")
+    -- (no enemy: the header just says Threat, the body says why it is empty)
+    h.name:ClearAllPoints()
+    h.name:SetPoint("TOPLEFT", h, "TOPLEFT", h.portraitBg:IsShown() and 45 or 10, st.mob and -7 or -13)
+    h.name:SetPoint("RIGHT", h, "RIGHT", -30, 0)
+    h.name:SetText(st.mob and (st.name or "?") or "Threat")
     local sub = ""
     local me = st.me
     if st.tankView then
@@ -362,6 +366,7 @@ end
 
 function TW:OnUpdate(elapsed)
     local now = GetTime()
+    frame.hint:SetShown(not Setting("locked", true) and frame:IsMouseOver())
     -- the warning: the edge pulses, the screen edges flash
     local pulse = 0.5 + 0.5 * sin(now * 5.7)
     if frame.warn then
@@ -403,7 +408,7 @@ end
 ---------------------------------------------------------------------------
 
 local function ShowWanted()
-    if not Threat:IsEnabled() and not Threat:IsDemo() then return false end
+    if not Threat:IsEnabled() then return false end          -- (demo mode only fills a window that is on)
     if userHidden then return false end
     if not Setting("locked", true) or Threat:IsDemo() then return true end
     local show = Setting("show", "group")
@@ -419,7 +424,7 @@ function TW:UpdateVisibility()
     if not frame then return end
     if want then
         frame.grip:SetShown(not Setting("locked", true))
-        frame.hint:SetShown(not Setting("locked", true))
+        frame.hint:Hide()
         frame:SetScale(({ small = 0.9, normal = 1, large = 1.15 })[Setting("size", "normal")] or 1)
         if not frame:IsShown() then
             alpha = 1
@@ -438,7 +443,7 @@ function TW:Toggle()
         userHidden = true
     else
         userHidden = false
-        if not Threat:IsEnabled() and not Threat:IsDemo() then
+        if not Threat:IsEnabled() then
             ns:Print("the threat meter is off: turn it on in Settings > Meters (or /dz threat on).")
             return
         end

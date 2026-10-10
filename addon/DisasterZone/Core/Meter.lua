@@ -4,17 +4,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 -- UI/MeterWindow.lua, the breakdown and death recap UI/MeterDetail.lua. Off until the player turns it on (Settings >
 -- Meters, meters.dmg). Nothing is ever sent or posted: each client counts its own combat log.
 --
--- Counting (the same rules as Core/MyLog.lua, so the two never disagree):
---   damage done   = amount - overkill + absorbed (the hit as the target felt it, shields included); hits on other
---                   group members (Seal of Blood's self damage, ...) never count as damage done
+-- Counting (Details' rules, so the numbers match what raiders are used to; checked in game 2026-10-10):
+--   damage done   = amount + absorbed (the whole hit, overkill included, shields included); hits on other group
+--                   members (Seal of Blood's self damage, ...) never count as damage done. (My Log leaves the
+--                   killing blow's overkill out: its numbers are about the boss, these about the player.)
 --   healing       = amount - overhealing (effective) + shield absorbs (SPELL_ABSORBED, credited to the caster);
 --                   overhealing kept apart
---   damage taken  = amount - overkill + absorbed, and hits a shield took whole (MISSED ABSORB)
+--   damage taken  = amount + absorbed, and hits a shield took whole (MISSED ABSORB)
 -- Who: group members by GUID (the roster, rebuilt on GROUP_ROSTER_UPDATE); pets, guardians and totems count for their
 -- owner (raidNpet / partyNpet / pet, and SPELL_SUMMON from a member or one of their pets). Another player's pet whose
 -- owner is unknown is left out rather than guessed.
--- Active time: the gaps between a player's own actions up to IDLE seconds count as active, a longer gap counts
--- FIRST seconds for the action that ends it (an estimate; My Log measures my own exactly).
+-- Active time (Details' activity time): the gaps between a player's own actions up to IDLE seconds count, longer
+-- gaps do not. Per-player DPS / HPS divide by it (at least 1 s); the raid's total divides by the fight's length.
+-- A fight's clock runs from its first hit to its last (a boss fight: ENCOUNTER_START to ENCOUNTER_END).
 -- Spec: guessed from signature spells (SIG: talents or spells only one spec casts), remembered by name.
 --
 -- Fights: one starts when a group member hits or is hit by an enemy (or I enter combat) and ends when the whole group
@@ -48,7 +50,6 @@ local band = bit and bit.band
 
 local BUCKET = 5                  -- timeline bucket, seconds
 local IDLE = 3.5                  -- active time: gaps up to this long count
-local FIRST = 1.5                 -- ... a longer gap counts this much for the action that ends it
 local RING = 48                   -- death recap: events per player kept while fighting
 local RECAP = 10                  -- seconds a recap shows
 local DEATHS_MAX = 60             -- deaths kept per fight
@@ -254,10 +255,12 @@ local function Begin(kind)
         live = last                                   -- the trash between two bosses adds up in one fight
         live._t0 = Now() - (last.dur or 0)
         live._base = last.dur or 0
+        live._fresh = true
     else
         live = NewSeg(kind)
         live._t0 = Now()
         live._base = 0
+        live._fresh = kind == "trash"           -- a trash fight's clock starts at its first hit
         db.segs[#db.segs + 1] = live
     end
     live.live = true
@@ -268,7 +271,7 @@ local function Begin(kind)
 end
 
 local function Strip(seg)
-    seg._t0, seg._base = nil, nil
+    seg._t0, seg._base, seg._last, seg._fresh = nil, nil, nil, nil
     for _, a in pairs(seg.actors) do a._l = nil end
 end
 
@@ -285,7 +288,8 @@ function Meter:Finish(kill, cut)
     local db = Store()
     local seg = live
     live = nil
-    local dur = max(0, Now() - (seg._t0 or Now()))
+    local stop = (not cut and seg.kind ~= "boss" and seg._last) or Now()   -- trash: up to the last hit
+    local dur = max(0, stop - (seg._t0 or stop))
     local added = dur - (seg._base or 0)
     seg.dur = floor(dur * 10 + 0.5) / 10
     seg.live = nil
@@ -417,6 +421,9 @@ local function Actor(seg, guid)
         local db = Store()
         a = { n = r and r.name or "?", c = r and r.cls, s = r and (r.spec or db.specs[r.name]), d = 0, h = 0, oh = 0,
               t = 0, k = 0, dp = 0, act = 0, sp = {}, hs = {}, ts = {}, tg = {}, tl = {}, hl = {} }
+        -- the main hand's icon for the Melee row (other players' only when the client has seen their gear)
+        local wi = r and GetInventoryItemTexture and GetInventoryItemTexture(r.unit, 16)
+        if wi then a.wi = wi end
         seg.actors[guid] = a
     end
     return a
@@ -424,7 +431,7 @@ end
 
 local function Touch(a, now)
     local last = a._l
-    if last and now - last <= IDLE then a.act = a.act + (now - last) else a.act = a.act + FIRST end
+    if last and now - last <= IDLE then a.act = a.act + (now - last) end
     a._l = now
 end
 
@@ -439,7 +446,7 @@ end
 local function DoneTo(seg, g, isPet, petName, key, amount, overkill, absorbed, crit, glancing, dstName, now)
     local a = Actor(seg, g)
     amount = amount or 0
-    local useful = amount - max(overkill or 0, 0) + (absorbed or 0)
+    local useful = amount + (absorbed or 0)
     if useful < 0 then useful = 0 end
     a.d = a.d + useful
     if isPet then key = "p" .. tostring(key) end
@@ -598,13 +605,18 @@ function Meter:OnCombatLog()
         Begin("trash")
     end
     local now = Now()
+    if live._fresh then
+        live._t0 = now - (live._base or 0)
+        live._fresh = nil
+    end
+    live._last = now
     local petName = isPet and srcName or nil
     local dstOut = not InGroup(dstGUID)
 
     if sub == "SWING_DAMAGE" then
         if g and dstOut then Each(DoneTo, g, isPet, petName, 0, a12, a13, a17, a18, a19, dstName, now) end
         if toMember then
-            local amt = (a12 or 0) - max(a13 or 0, 0) + (a17 or 0)
+            local amt = (a12 or 0) + (a17 or 0)
             local key = "m" .. tostring(srcName or "?")
             Each(TakenBy, dstGUID, key, amt, srcName)
             Push(dstGUID, now, "d", key, a12 or 0, srcName, (a13 and a13 > 0) and a13 or nil)
@@ -615,14 +627,14 @@ function Meter:OnCombatLog()
             if not isPet then NoteSpell(g, a13) end
         end
         if toMember then
-            local amt = (a15 or 0) - max(a16 or 0, 0) + (a20 or 0)
+            local amt = (a15 or 0) + (a20 or 0)
             local key = a12 or 0
             Each(TakenBy, dstGUID, key, amt, srcName)
             Push(dstGUID, now, "d", key, a15 or 0, srcName, (a16 and a16 > 0) and a16 or nil)
         end
     elseif sub == "ENVIRONMENTAL_DAMAGE" then
         if toMember then
-            local amt = (a13 or 0) - max(a14 or 0, 0) + (a18 or 0)
+            local amt = (a13 or 0) + (a18 or 0)
             local key = "e" .. tostring(a12 or "?")
             Each(TakenBy, dstGUID, key, amt, nil)
             Push(dstGUID, now, "d", key, a13 or 0, nil, (a14 and a14 > 0) and a14 or nil)
@@ -688,7 +700,8 @@ function Meter:Rows(seg, mode)
     end
     for g, a in pairs(seg.actors) do
         local v, ext
-        if mode == "damage" or mode == "dps" then v = a.d
+        if mode == "damage" then v = a.d
+        elseif mode == "dps" then v = (a.d or 0) > 0 and a.d / self:ActiveTime(seg, a) or 0
         elseif mode == "healing" then v, ext = a.h, a.oh
         elseif mode == "taken" then v = a.t
         elseif mode == "kicks" then v = a.k
@@ -712,6 +725,11 @@ function Meter:Rows(seg, mode)
 end
 
 function Meter:Find(seg, guid) return seg and seg.actors[guid] end
+
+-- A player's active seconds in a fight (at least 1): what their DPS / HPS divide by, like Details.
+function Meter:ActiveTime(seg, a)
+    return max(1, min(self:Duration(seg), (a and a.act) or 0))
+end
 
 -- Did this player die in the fight?
 function Meter:IsDead(seg, guid)
