@@ -33,7 +33,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 --   actor = { n (name), c (class file), s (spec label), d, h, oh, t, k, dp, act (s), (a stat's nc: it cannot crit)
 --             sp = { [key] = { n, c, a, ca, g, ga, mx, m = { [missType] = n } } } damage by ability (key: spell id,
 --                  0 = melee, "p<id>" a pet's), pn = { [key] = pet name }, hs = { [key] = { n, c, a, oh, mx, sh } }
---                  healing by spell (sh: a shield), ts = { [key] = { n, a, src } } taken by ability, tg = { [name] =
+--                  healing by spell (sh: a shield), ts = { [key] = { n, a, mx, src } } taken by ability, tg = { [name] =
 --                  damage } by target, tl / hl = { [5 s bucket] = damage / healing }, ks / kx = { [spell id] = n }
 --                  interrupts by my spell / by the spell cut, ds / dx = dispels by my spell / by the aura removed }
 --   death = { t (s into the fight), g, n, c, by (key), byName, src, hpMax, ev = { { dt, kind "d" | "h", key, amount,
@@ -520,6 +520,7 @@ local function TakenBy(seg, g, key, amount, srcName)
     if not s then s = { n = 0, a = 0 }; a.ts[key] = s end
     s.n = s.n + 1
     s.a = s.a + amount
+    if amount > (s.mx or 0) then s.mx = amount end
     if srcName and not s.src then s.src = srcName end
 end
 

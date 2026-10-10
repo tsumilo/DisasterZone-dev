@@ -2517,3 +2517,46 @@ STATES += [
                                                   "ns.BlessingsBar:Update(); for i = 1, 20 do local r = _G['DisasterZoneBlessRow' .. i]; "
                                                   "if r and r.data and r.data.cls == 'HUNTER' then ns.BlessingsBar:TogglePop(r, true) end end", bar=True)),
 ]
+
+# Meters for every demo player (DZ_AUDIT_METERS=1, not in the default run): the breakdown in each mode and tab, every
+# bar's tooltip, both death recaps. Finds labels that outgrow their cards for some class / spec.
+if os.environ.get("DZ_AUDIT_METERS"):
+    _M_DPS = ("Victhar", "Moonwhisper", "Tsumil", "Gina", "Stonebrew", "Shadowmelder", "Brakkor", "Nightpaw",
+              "Quentrell", "Sylvaris", "Darkstalkerr", "Lunessa", "Dreadhex", "Vexmora", "Kaelthrin", "Mirelle",
+              "Yubell", "Stormcall", "Ashgrim")
+    _M_HEAL = ("Thunderhoofx", "Brightmend", "Mendwell", "Pugsyhealer", "Treeleaf", "Aurelith", "Darkstalkerr",
+               "Moonwhisper")
+    _M_FIND = "local g; for k, a in pairs(ns.Meter:GetSegment('%s').actors) do if a.n == '%s' then g = k end end; "
+
+    def _m_detail(name, mode, tab, sel="cur"):
+        return opened("home", "ns.MainFrame:Close(); " + MET + (_M_FIND % (sel, name)) +
+                      "ns.MeterDetail:Open('%s', g, '%s'); ns.MeterDetail:GetState().tab = '%s'; ns.MeterDetail:Draw()"
+                      % (sel, mode, tab))
+
+    def _m_tip(name, view, sel="cur"):
+        return opened("home", "ns.MainFrame:Close(); " + MET + (_M_FIND % (sel, name)) +
+                      "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].b, L.stacks[1].y = 700, 40, nil; "
+                      "local p = L.stacks[1].panels[2]; p.rows = 25; p.tabs[1].view = '%s'; p.tabs[1].seg = '%s'; "
+                      "ns.MeterPanels:Rebuild(); ns.MeterPanels:Draw(); local pf = ns.MeterPanels._Panel('%s'); "
+                      "local row = pf.rowsByKey[g]; if not row then for _, x in pairs(pf.rowsByKey) do "
+                      "if x.data and x.data.d and x.data.d.n == '%s' then row = x end end end; "
+                      "if row then ns.MeterPanels.ShowRowTip(row) end" % (view, sel, view, name))
+
+    for _n in _M_DPS:
+        STATES.append(("Meters all - %s damage abilities" % _n, _m_detail(_n, "damage", "abilities")))
+        STATES.append(("Meters all - %s damage targets (whole raid)" % _n, _m_detail(_n, "damage", "targets", "all")))
+        STATES.append(("Meters all - %s damage over time" % _n, _m_detail(_n, "damage", "time")))
+        STATES.append(("Meters all - %s tip damage" % _n, _m_tip(_n, "damage")))
+    for _n in _M_HEAL:
+        STATES.append(("Meters all - %s healing abilities" % _n, _m_detail(_n, "healing", "abilities")))
+        STATES.append(("Meters all - %s tip healing" % _n, _m_tip(_n, "healing")))
+    for _n in _M_DPS + ("Thunderhoofx", "Pugsyhealer"):
+        STATES.append(("Meters all - %s taken abilities" % _n, _m_detail(_n, "taken", "abilities")))
+        STATES.append(("Meters all - %s tip taken" % _n, _m_tip(_n, "taken")))
+    for _n in ("Shadowmelder", "Brightmend", "Victhar"):
+        STATES.append(("Meters all - %s tip interrupts / dispels" % _n, _m_tip(_n, "kicks" if _n != "Brightmend" else "dispels", "all")))
+    for _n in ("Yubell", "Stonebrew"):
+        STATES.append(("Meters all - %s tip death" % _n, _m_tip(_n, "deaths")))
+        STATES.append(("Meters all - %s death recap" % _n, opened("home", "ns.MainFrame:Close(); " + MET +
+            "for _, d in ipairs(ns.Meter:GetSegment('cur').deaths) do if d.n == '%s' then ns.MeterDetail:OpenDeath('cur', d) end end" % _n)))
+

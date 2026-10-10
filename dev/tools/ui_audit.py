@@ -659,6 +659,12 @@ def draw_rank(regs, s):
 def audit(regs, uiparent):
     lay = Layout(regs, uiparent)
     findings = []
+    # frames that paint a box behind their texts (a background texture covering them: cards, tooltips, rows):
+    # their own texts must stay inside it (a card label running into the next card, 2026-10-10)
+    boxed = set()
+    for _s, _r in regs.items():
+        if _r["kind"] == "Texture" and _r["vis"] and _r["all"] and _r["layer"] == "BACKGROUND":
+            boxed.add(_r["parent"])
     texts = []
     for s, r in regs.items():
         if r["kind"] != "FontString" or not r["vis"]:
@@ -708,6 +714,15 @@ def audit(regs, uiparent):
                 findings.append({"kind": "SPILL", "seq": s, "src": r["src"] or regs[owner]["src"], "rect": br,
                                  "over": nat * k - br[2] + 6, "text": label,
                                  "msg": "label %.0f wide in a %.0f wide button" % (nat * k, br[2])})
+        # past the side of the box it is drawn on
+        box = r["parent"]
+        if box in boxed and box != lay.window(s) and regs[box]["kind"] in ("Frame", "Button"):
+            bb = lay.rect(box)
+            if bb:
+                over = max(ink[0] + ink[2] - (bb[0] + bb[2]), bb[0] - ink[0])
+                if over > 2:
+                    findings.append({"kind": "BOXOUT", "seq": s, "src": r["src"], "rect": ink, "over": over,
+                                     "text": label, "msg": "%.0f past the side of its box (%s)" % (over, regs[box]["src"])})
         # past the window's edge
         win = lay.window(s)
         wr = lay.rect(win)

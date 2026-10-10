@@ -80,7 +80,7 @@ end
 -- The mode's rows (players with something to show), for the arrows and the rank.
 local function Ranked(seg, mode)
     local m = (mode == "dps") and "damage" or mode
-    if m == "deaths" or m == "active" then m = "damage" end
+    if m == "deaths" then m = "damage" end
     local rows = Meter:Rows(seg, m)
     return rows, m
 end
@@ -423,11 +423,29 @@ local function SetBanner(seg, a)
     if a then b.name:SetTextColor(K.ClassColor(a.c)) end
 end
 
+-- A card's texts always fit inside it, whatever the class or the numbers: the room right of the icon, and a text
+-- that is still too wide steps its font down (never past MIN_FONT) instead of running out of the card.
+local CARD_NUM, CARD_EXTRA, CARD_LAB, MIN_FONT = 20, 13, 12.5, 9
+local function Fit(fs, size, room)
+    local font = fs:GetFont() or K.FRIZ
+    fs:SetFont(font, size, "")
+    while size > MIN_FONT and (fs:GetStringWidth() or 0) > room do
+        size = size - 0.5
+        fs:SetFont(font, size, "")
+    end
+end
+
 local function SetCard(c, icon, num, extra, lab)
     c.icon:SetIcon(icon)
     c.num:SetText(num)
     c.extra:SetText(extra or "")
     c.lab:SetText(lab)
+    local w = c:GetWidth() or 0
+    if w <= 0 then w = (W - PAD * 2 - 8 * 3) / 4 end
+    local room = w - 12 - 34 - 11 - 10                       -- the icon, its gaps and the card's right padding
+    local extraW = (extra and extra ~= "") and (c.extra:GetStringWidth() or 0) + 6 or 0
+    Fit(c.num, CARD_NUM, room - extraW)
+    Fit(c.lab, CARD_LAB, room)
 end
 
 -- The ability list of a mode: { key, a (amount), n, sub, s (the stat) }
@@ -686,13 +704,130 @@ local function DrawTime(seg, a, mode, dur)
     frame.tabNote:SetText("5-second steps")
 end
 
+-- A list's scroll bar only when the list is taller than its room.
+local function FitScroll(sf, contentH, fallbackH)
+    local h = sf:GetHeight() or 0
+    if h <= 0 then h = fallbackH end
+    sf.ScrollBar:SetShown(sf:IsShown() and contentH > h + 1)
+    if contentH <= h + 1 then sf:SetVerticalScroll(0) end
+end
+
+-- Interrupts / Dispels: the spells they used, then what those cut or removed (a gold heading over each block).
+local function DrawUses(a, mode)
+    local by, cut = mode == "kicks" and a.ks or a.ds, mode == "kicks" and a.kx or a.dx
+    local verb = mode == "kicks" and "interrupted" or "removed"
+    local blocks = {
+        { "Spells they used", by, "used" },
+        { mode == "kicks" and "What they interrupted" or "What they removed", cut, verb },
+    }
+    local i, y = 0, 0
+    local listW = W - PAD * 2 - 12
+    local total = (mode == "kicks" and a.k or a.dp) or 0
+    for _, blk in ipairs(blocks) do
+        local list = {}
+        for k, n in pairs(blk[2] or {}) do list[#list + 1] = { key = k, n = n } end
+        tsort(list, function(x, z) if x.n ~= z.n then return x.n > z.n end return tostring(x.key) < tostring(z.key) end)
+        if #list > 0 then
+            i = i + 1
+            local hr = AbilityRow(i)
+            hr.key = nil
+            hr:ClearAllPoints()
+            hr:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -y)
+            hr:SetWidth(listW)
+            hr:SetHeight(30)
+            hr.icon:Hide(); hr.thumb:Hide(); hr.rank:Hide(); hr.track:Hide(); hr.fill:Hide(); hr.bar:Hide()
+            hr.amount:SetText(""); hr.pct:SetText(""); hr.sub:SetText("")
+            hr.name:ClearAllPoints()
+            hr.name:SetPoint("BOTTOMLEFT", hr, "BOTTOMLEFT", 6, 6)
+            hr.name:SetWidth(listW - 12)
+            hr.name:SetText(blk[1])
+            hr.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3])
+            hr.on = false
+            hr.bg:SetVertexColor(1, 1, 1, 0)
+            hr:Show()
+            y = y + 30
+            local top = list[1].n
+            for _, e in ipairs(list) do
+                i = i + 1
+                local r = AbilityRow(i)
+                r.key = nil
+                r:ClearAllPoints()
+                r:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -y)
+                r:SetWidth(listW)
+                r:SetHeight(ROW_H)
+                r.thumb:Hide(); r.rank:Hide(); r.bar:Hide()
+                r.icon:Show(); r.track:Show(); r.fill:Show()
+                r.icon:SetIcon(K.SpellIcon(e.key))
+                r.name:SetTextColor(1, 1, 1)
+                r.name:SetText(K.SpellName(e.key))
+                r.sub:SetText(strformat("%s %s", blk[3], e.n == 1 and "once" or (K.Int(e.n) .. " times")))
+                PlaceRowText(r, 46, 260)
+                r.amount:SetText(K.Int(e.n))
+                r.pct:SetText(total > 0 and strformat("%.0f%%", e.n / total * 100) or "")
+                local tw = max(10, listW - 46 - 260 - 12 - 96)
+                r.fill:SetWidth(max(1, tw * e.n / top))
+                r.on = false
+                r.bg:SetVertexColor(1, 1, 1, 0)
+                r:Show()
+                y = y + ROW_H
+            end
+        end
+    end
+    for j = i + 1, #frame.rows do frame.rows[j]:Hide() end
+    frame.listChild:SetHeight(max(10, y))
+    frame.tabNote:SetText("")
+    frame.empty:SetShown(i == 0)
+    frame.empty:SetText(mode == "kicks" and "No interrupts in this fight." or "No dispels in this fight.")
+    return y
+end
+
+-- Active time: their output per 5 s with the steps they did nothing in shaded.
+local function DrawActive(seg, a, dur)
+    local field = ((a.h or 0) > (a.d or 0)) and "hl" or "tl"
+    local own = a[field] or {}
+    local nb = max(1, math.ceil(dur / Meter.BUCKET))
+    local pts, bands, hi = {}, {}, 1
+    for bk = 1, nb do
+        local x0 = (bk - 1) * Meter.BUCKET
+        local span = min(Meter.BUCKET, dur - x0)
+        if span <= 0 then span = Meter.BUCKET end
+        local v = (own[bk] or 0) / span
+        pts[#pts + 1] = { min(dur, x0 + span / 2), v }
+        hi = max(hi, v)
+        if (own[bk] or 0) <= 0 then bands[#bands + 1] = { x0, min(dur, x0 + span), K.RED, nil, alpha = 0.14 } end
+    end
+    local step = Kit.NiceStep and Kit.NiceStep(hi * 1.1, 4) or hi / 4
+    frame.chart:SetData({
+        x0 = 0, x1 = dur, y1 = step * math.ceil(hi * 1.1 / step), grid = true, bands = bands,
+        series = { { points = pts, color = Kit.C.gold, width = 1.8, fill = true, fillAlpha = 0.16, smooth = true, glow = true } },
+        hover = function(x)
+            local bk = floor(x / Meter.BUCKET) + 1
+            local idle = (own[bk] or 0) <= 0
+            return { { K.Clock(x), Kit.C.mute }, idle and { "did nothing", Kit.C.down } or
+                     { strformat("%s %s", K.Int(Kit.YAt(pts, x) or 0), field == "hl" and "HPS" or "DPS"), Kit.C.gold } }
+        end,
+    })
+    local metric = field == "hl" and "healing" or "damage"
+    frame.legend:SetText(strformat("|cffffd100—|r %s's %s per second     |cffff5c4d■|r 5-second steps with nothing done",
+        a.n or "?", metric))
+    local ch = frame.chart
+    local chW = (ch:GetWidth() or 0) > 0 and ch:GetWidth() or ch.fallback[1]
+    for i = 1, 5 do
+        local xl = frame.xLabs[i]
+        xl:ClearAllPoints()
+        xl:SetPoint("TOP", ch, "BOTTOMLEFT", chW * (i - 1) / 4, -6)
+        xl:SetText(K.Clock(dur * (i - 1) / 4))
+        xl:Show()
+    end
+end
+
 function MD:Draw()
     if not frame or not frame:IsShown() then return end
     if S.view == "death" then return self:DrawDeath() end
     local seg = Meter:GetSegment(S.sel)
     local a = seg and seg.actors[S.guid]
     local mode = S.mode
-    if mode == "dps" or mode == "deaths" or mode == "active" or mode == "kicks" or mode == "dispels" then mode = "damage" end
+    if mode == "dps" or mode == "deaths" then mode = "damage" end
     if mode == "damage" and a and (a.d or 0) == 0 and (a.h or 0) > 0 then mode = "healing" end
     local dur = Meter:Duration(seg)
     SetBanner(seg, a or { n = "?" })
@@ -736,16 +871,33 @@ function MD:Draw()
         local crits, n = 0, 0
         for _, s in pairs(a.hs or {}) do if not s.sh and not s.nc then crits = crits + (s.c or 0); n = n + s.n end end
         SetCard(c[1], specIcon, K.Fmt(a.h), nil, "Healing done")
-        SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / act), idx and Ordinal(idx) or nil, "Healing per second")
+        SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / act), idx and Ordinal(idx) or nil, "HPS in the raid")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_Renew", strformat("%d%%", tot > 0 and floor(a.oh / tot * 100 + 0.5) or 0), nil, "Overhealing")
-        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance, heals")
+        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance")
     elseif mode == "taken" then
-        local big = 0
-        for _, s in pairs(a.ts or {}) do big = max(big, s.a / max(1, s.n)) end
+        local big = 0                                      -- the biggest single hit (older fights: the biggest average)
+        for _, s in pairs(a.ts or {}) do big = max(big, s.mx or (s.a / max(1, s.n))) end
         SetCard(c[1], specIcon, K.Fmt(a.t), nil, "Damage taken")
         SetCard(c[2], "Interface\\Icons\\Ability_Warrior_DefensiveStance", K.Int(a.t / dur), idx and Ordinal(idx) or nil, "Taken per second")
         SetCard(c[3], "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", tostring(Meter.IsDead and Meter:IsDead(seg, S.guid) and 1 or 0), nil, "Deaths")
-        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", K.Int(big), nil, "Average hit, worst ability")
+        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", K.Int(big), nil, "Biggest hit")
+    elseif mode == "kicks" or mode == "dispels" then
+        local by = mode == "kicks" and a.ks or a.ds
+        local spells, best, bestN = 0, nil, 0
+        for k, n in pairs(by or {}) do spells = spells + 1; if n > bestN then best, bestN = k, n end end
+        local count = (mode == "kicks" and a.k or a.dp) or 0
+        local info = Meter.MODE[mode]
+        SetCard(c[1], info.icon, K.Int(count), idx and Ordinal(idx) or nil, mode == "kicks" and "Interrupts" or "Dispels")
+        SetCard(c[2], best and K.SpellIcon(best) or info.icon, K.Int(bestN), nil, best and K.SpellName(best) or "Most used")
+        SetCard(c[3], "Interface\\Icons\\INV_Misc_Book_09", tostring(spells), nil, spells == 1 and "Spell used" or "Spells used")
+        local per = dur > 0 and count / (dur / 60) or 0
+        SetCard(c[4], "Interface\\Icons\\INV_Misc_PocketWatch_01", strformat("%.1f", per), nil, "Per minute")
+    elseif mode == "active" then
+        local on = min(dur, a.act or 0)
+        SetCard(c[1], Meter.MODE.active.icon, K.Pct(on / dur * 100), idx and Ordinal(idx) or nil, "Active time")
+        SetCard(c[2], specIcon, K.Clock(on), nil, "Active")
+        SetCard(c[3], "Interface\\Icons\\Spell_Nature_Sleep", K.Clock(max(0, dur - on)), nil, "Idle")
+        SetCard(c[4], "Interface\\Icons\\INV_Misc_PocketWatch_01", K.Clock(dur), nil, "Fight length")
     else
         local crits, n = 0, 0
         -- (only hits that can crit: periodic ticks, damage shields and Consecration would drag it down)
@@ -755,6 +907,36 @@ function MD:Draw()
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_BlessingOfStrength", K.Pct(min(100, (a.act or 0) / dur * 100)), nil, "Active time")
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance")
     end
+
+    -- Interrupts / Dispels: one list, no tabs; Active time: the chart, no tabs
+    if mode == "kicks" or mode == "dispels" or mode == "active" then
+        frame.tabs:Hide(); frame.tabRule:Show(); frame.tabNote:Hide()
+        frame.det:Hide()
+        frame.empty:Hide()
+        local isList = mode ~= "active"
+        frame.list:SetShown(isList)
+        for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
+        if isList then
+            frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
+            frame.list:SetWidth(W - PAD * 2 - 12)
+            frame.listChild:SetWidth(W - PAD * 2 - 12)
+            local h = DrawUses(a, mode)
+            FitScroll(frame.list, h, H + BODY_Y - 14)
+        else
+            frame.list.ScrollBar:Hide()
+            for _, r in ipairs(frame.rows) do r:Hide() end
+            if seg.noTl then
+                frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
+                frame.empty:SetText("Whole raid keeps no timeline: pick one fight to see when they were busy.")
+                frame.empty:Show()
+            else
+                frame.chart:Show(); frame.legend:Show()
+                DrawActive(seg, a, dur)
+            end
+        end
+        return
+    end
+    for _, r in ipairs(frame.rows) do r.name:SetTextColor(1, 1, 1); r.fill:Show(); r.track:Show() end
 
     -- tabs: Targets for damage only, Over time not for Whole raid
     local canTargets = mode == "damage"
@@ -768,7 +950,7 @@ function MD:Draw()
 
     local isList = S.tab ~= "time"
     frame.list:SetShown(isList)
-    frame.list.ScrollBar:SetShown(isList)
+    frame.list.ScrollBar:Hide()
     frame.chart:SetShown(not isList)
     frame.legend:SetShown(not isList)
     for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:SetShown(not isList) end
@@ -779,11 +961,13 @@ function MD:Draw()
         frame.listChild:SetWidth(frame.listW)
         for _, r in ipairs(frame.rows) do r:SetHeight(ROW_H) end
         DrawAbilities(a, mode, dur)
+        FitScroll(frame.list, frame.listChild:GetHeight() or 0, H + BODY_Y - 14)
     elseif S.tab == "targets" then
         frame.det:Hide()
         frame.list:SetWidth(W - PAD * 2 - 12)
         frame.listChild:SetWidth(W - PAD * 2 - 12)
         DrawTargets(a)
+        FitScroll(frame.list, frame.listChild:GetHeight() or 0, H + BODY_Y - 14)
     else
         frame.det:Hide()
         DrawTime(seg, a, mode, dur)
@@ -883,7 +1067,6 @@ function MD:DrawDeath()
 
     -- every event, newest first
     frame.events:Show()
-    frame.events.ScrollBar:Show()
     local n = #ev
     for i = 1, n do
         local e = ev[n - i + 1]
@@ -911,6 +1094,7 @@ function MD:DrawDeath()
     end
     for i = n + 1, #frame.evRows do frame.evRows[i]:Hide() end
     frame.eventsChild:SetHeight(max(10, n * EROW_H))
+    FitScroll(frame.events, n * EROW_H, H - BANNER_H - 196 - 14)
 end
 
 ---------------------------------------------------------------------------
