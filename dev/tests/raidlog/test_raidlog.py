@@ -602,12 +602,14 @@ def attendance_shows_in_the_council_views():
     start(w, c)
     lee.slash("/dz raid end")
     w.tick(2)
-    assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Rita")) == [50, 1, 2]
-    assert bob.eval("return ns.RaidLog:GetAttendanceText(...)", K("Sam")) == "100% (2/2)"
-    assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Nobody")) == [0, 0, 2]
+    # 1.3.5 (time-based): raids not linked to a planned raid only expect who came, so Rita's second raid (she wasn't
+    # in it) doesn't count against her; nobody expected = no attendance
+    assert bob.eval_py("return { ns.RaidLog:GetAttendance(...) }", K("Rita")) == [100, 1, 2]
+    assert bob.eval("return ns.RaidLog:GetAttendanceText(...)", K("Sam")) == "100% (2 raids)"
+    assert bob.eval("return ns.RaidLog:GetAttendance(...)", K("Nobody")) is None
     bob.eval("ns.CouncilUI:ShowMember(...)", K("Rita"))
     w.tick(0.5)
-    assert bob.find_text("attendance 50% (1/2)", True, True), "member header"
+    assert bob.find_text("attendance 100% (1 raid)", True, True), "member header"
     w.assert_no_errors()
 
 

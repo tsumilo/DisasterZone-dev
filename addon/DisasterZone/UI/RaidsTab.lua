@@ -9,9 +9,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidsTab.lua", ...) then return
 --               (when, how long, who started it, a bin to delete it), the planned raid it is linked to (a picker) and
 --               how its sign-ups turned out, then tabs: Attendance (bench marks, right-click to change), Bosses (the
 --               kills) and Awards (the items given during it).
---     Players - attendance % / boss kills / items received per player over the last N raids.
+--     Attendance - 1.3.5 (UI/AttendanceUI.lua): every member's time-based attendance over the last N raids, a click
+--               opens their page; the selected raid's Attendance tab is a time bar per player.
+--     Reviews - 1.3.5: early leaves and reasons waiting for the GM, an officer or the guild council.
 -- Start / End raid for the raid's authority sits in the toolbar. The Raid log is for raid log members (GM, guild
--- council, raid leaders; Addendum J §62), its awarded items for the loot council only.
+-- council, raid leaders; Addendum J §62) and, since 1.3.5, the officers (attendance reviewers), its awarded items for
+-- the loot council only.
 local addonName, ns = ...
 
 local RaidsUI = ns:NewModule("RaidsUI")
@@ -51,9 +54,6 @@ local TABLES = {
              { "Offline", w = 60, r = true, opt = true } },
     award = { { "Item", flex = true, icon = true }, { "Winner", w = 120 }, { "Reason", w = 84 },
               { "Time", w = 44, r = true } },
-    players = { { "Player", flex = true, icon = true }, { "Raids", w = 104, r = true },
-                { "Attendance", w = 112, r = true }, { "Boss kills", w = 70, r = true },
-                { "Items", w = 236, r = true, opt = true } },
 }
 
 -- Where a table's columns go in `width`: { [i] = { x, w, r, icon } } for the shown ones (show[i] for the opt ones).
@@ -77,7 +77,8 @@ local function placeColumns(key, width, show)
     return out
 end
 
-local state = { view = "upcoming", mode = "raids", selected = nil, range = 8, showGuests = false, tab = "att" }
+local state = { view = "upcoming", mode = "raids", selected = nil, range = 8, showGuests = false, tab = "att",
+                player = nil, lineup = nil }
 local panel
 
 ----------------------------------------------------------------------------
@@ -159,8 +160,13 @@ end
 -- lead a group: that is loot council for one raid only).
 local function isCouncil()
     local G = ns.Guild
-    return (demoOn() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember())) and true or false
+    if demoOn() then return true end
+    if G and G.AmIRaidLogReader then return G:AmIRaidLogReader() and true or false end
+    return (G and G.AmIRaidLogMember and G:AmIRaidLogMember()) and true or false
 end
+
+local function AUI() return ns.AttendanceUI end
+local function Att() return ns.Attendance end
 
 -- Awarded items in the raid log: loot council data (GM / guild council), not for raid leaders.
 local function seesItems()
@@ -548,33 +554,6 @@ local function detailRows(rec)
     return rows, place
 end
 
-local function playerRows()
-    local n = state.range ~= 0 and state.range or nil
-    local stats, total = RL():GetPlayerStats(n)
-    -- (Items is loot council data: the column is left out for raid leaders)
-    local place = placeColumns("players", INNER_W, { [5] = seesItems() })
-    local rows = {}
-    for _, s in ipairs(stats) do
-        -- 1.3: players outside the guild have the guest book; they show here only on request
-        if state.showGuests or not ns.UI:IsGuest(s.key) then
-            -- the last item, then how many (the counts line up at the right edge); none: a dim dash
-            local last = seesItems() and (s.lastItem and (ns.UI:ItemText(s.lastItem.i) .. "   " .. s.items)
-                or (s.items > 0 and tostring(s.items)) or DASH) or nil
-            -- Addendum J §61: accepted raids they didn't come to (raids linked to a planned raid)
-            local rel = RL().GetReliability and RL():GetReliability(s.key, n or 1000)
-            local noShow = rel and (rel.accepted - rel.came) or 0
-            rows[#rows + 1] = { place = place, key = s.key, class = classOf(s.key, s.class),
-                guest = ns.UI:IsGuest(s.key),
-                cols = { colored(s.key, s.class), (s.bench > 0 and grey("(" .. s.bench .. " bench)  ") or "")
-                    .. ("%d/%d"):format(s.raids, total),
-                    (noShow > 0 and ("|cffff8080" .. noShow .. " no-show|r  ") or "") .. s.pct .. "%",
-                    ("%d/%d"):format(s.kills, s.killTotal), last },
-                itemID = seesItems() and s.lastItem and s.lastItem.i or nil }
-        end
-    end
-    return rows, total, place
-end
-
 -- The selected raid's banner: its art, the raid and whether it is still going, when / how long / who started it.
 local function fillBanner(p, rec)
     local b = p.banner
@@ -704,12 +683,20 @@ local function updateToolbar(p)
     p.logSep:SetShown(log)
     p.raidsBtn:SetShown(log)
     p.playersBtn:SetShown(log)
+    p.reviewsBtn:SetShown(log)
     p.raidsBtn:SetActive(state.mode == "raids")
     p.playersBtn:SetActive(state.mode == "players")
-    p.rangeBtn:SetShown(log and state.mode == "players")
+    p.reviewsBtn:SetActive(state.mode == "reviews")
+    -- (1.3.5: the reviews waiting for a decision, gold for those who decide)
+    local Att_ = Att()
+    local pending = log and Att_ and Att_.CanReview and Att_:CanReview() and Att_:PendingCount() or 0
+    ns.UI:SetTabCount(p.reviewsBtn, pending > 0 and pending or nil)
+    local overview = log and state.mode == "players" and not state.player
+    p.rangeBtn:SetShown(overview)
     p.rangeBtn:SetText(rangeLabel(state.range))
-    p.guestsToggle:SetShown(log and state.mode == "players")
-    p.guestsToggle:SetKind(state.showGuests and "chosen" or "secondary")
+    p.guestsToggle:Hide()       -- (1.3.5: "Show guests" is in the range menu)
+    p.lineupBtn:SetShown(overview)
+    p.lineupBtn:SetText(state.lineup and state.lineup.label or "All lineups")
     local GR = ns.GroupRules
     local auth = IsInRaid() and GR and GR:IsAuthority()
     p.sessionBtn:SetShown(auth and true or false)
@@ -717,6 +704,10 @@ local function updateToolbar(p)
     -- the Players view's filters at the right of the row (left of Start / End raid)
     p.guestsToggle:ClearAllPoints()
     if auth then p.guestsToggle:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else p.guestsToggle:SetPoint("TOPRIGHT", -10, -6) end
+    p.rangeBtn:ClearAllPoints()
+    if auth then p.rangeBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else p.rangeBtn:SetPoint("TOPRIGHT", -10, -6) end
+    p.lineupBtn:ClearAllPoints()
+    p.lineupBtn:SetPoint("RIGHT", p.rangeBtn, "LEFT", -6, 0)
     local organizer = canOrganize()
     local RP = ns.RaidPlan
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
@@ -871,24 +862,66 @@ local function createLogRaids(p)
     p.detail.bar:ClearAllPoints()
     p.detail.bar:SetPoint("TOPLEFT", p.detail.box, "TOPRIGHT", 4, 0)
     p.detail.bar:SetPoint("BOTTOMLEFT", p.detail.box, "BOTTOMRIGHT", 4, 0)
+    -- 1.3.5: the Attendance tab is a time bar per player (UI/AttendanceUI.lua)
+    p.timeline = AUI():CreateTimeline(det, DETAIL_W)
+    p.timeline:SetPoint("TOPLEFT", 0, -top)
+    p.timeline:SetPoint("BOTTOMRIGHT", 0, 0)
+    p.timeline.menuExtra = function(root, r)
+        local rec = state.selected and RL():GetRaid(state.selected)
+        local G = ns.Guild
+        if not (rec and (demoOn() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember()))) then return end
+        local a = rec.att and rec.att[r.key]
+        if a and a.b then
+            root:CreateButton("Remove bench mark", function() RL():SetBench(rec.id, r.key, false) end)
+        else
+            root:CreateButton("Mark as bench / standby", function() RL():SetBench(rec.id, r.key, true) end)
+        end
+    end
 end
 
--- The Players view of the Raid log: one table over the page.
+-- The Attendance view of the Raid log (1.3.5, UI/AttendanceUI.lua): every member, or one member's page.
 local function createLogPlayers(p)
     local f = CreateFrame("Frame", nil, p)
     f:SetPoint("TOPLEFT", PAD, -TOP)
     f:SetPoint("BOTTOMRIGHT", -PAD, 4)
     p.playersView = f
-    p.playersHead = newHead(f)
-    p.playersHead:SetPoint("TOPLEFT")
-    p.playersHead:SetPoint("TOPRIGHT")
-    p.players = ns.UI:CreateScrollList(f, ROW_H, initColRow)
-    p.players.frame:SetPoint("TOPLEFT", 0, -(HEAD_H + 2))
-    p.players.frame:SetPoint("BOTTOMRIGHT", 20, 0)
-    p.players.bar:ClearAllPoints()
-    p.players.bar:SetPoint("TOPLEFT", p.players.box, "TOPRIGHT", 4, 0)
-    p.players.bar:SetPoint("BOTTOMLEFT", p.players.box, "BOTTOMRIGHT", 4, 0)
-    p.players:SetEmptyText("No raids logged yet.")
+    p.overview = AUI():CreateOverview(f, INNER_W)
+    p.overview:SetPoint("TOPLEFT")
+    p.overview:SetPoint("BOTTOMRIGHT")
+    p.overview.onPick = function(key)
+        state.player = key
+        RaidsUI:Refresh()
+    end
+    p.playerPage = AUI():CreatePlayerPage(f, INNER_W)
+    p.playerPage:SetPoint("TOPLEFT")
+    p.playerPage:SetPoint("BOTTOMRIGHT")
+    p.playerPage.onBack = function()
+        state.player = nil
+        RaidsUI:Refresh()
+    end
+    -- Reviews: what waits for a decision, then what was decided
+    p.reviews = AUI():CreateReviews(p, INNER_W)
+    p.reviews:SetPoint("TOPLEFT", PAD, -TOP)
+    p.reviews:SetPoint("BOTTOMRIGHT", -PAD, 4)
+end
+
+-- The lineups to filter the Attendance view by: every team's lineups.
+local function lineupMenu(root)
+    root:CreateRadio("All lineups", function() return state.lineup == nil end, function()
+        state.lineup = nil
+        RaidsUI:Refresh()
+    end)
+    local RP = ns.RaidPlan
+    for _, t in ipairs(RP and RP.GetTeams and RP:GetTeams() or {}) do
+        for _, l in ipairs(t.lineups or {}) do
+            local label = t.name .. " · " .. (RP:LineupName(t, l) or "")
+            root:CreateRadio(label, function() return state.lineup and state.lineup.id == l.id and state.lineup.team == t.id end,
+                function()
+                    state.lineup = { team = t.id, id = l.id, label = label }
+                    RaidsUI:Refresh()
+                end)
+        end
+    end
 end
 
 function RaidsUI:CreatePanel(parent)
@@ -918,9 +951,14 @@ function RaidsUI:CreatePanel(parent)
     p.logSep:SetPoint("LEFT", p.logBtn, "RIGHT", 8, -1)
     p.raidsBtn = UI:CreateUnderlineTab(p, "Raids", function() state.mode = "raids"; RaidsUI:Refresh() end, "small")
     p.raidsBtn:SetPoint("LEFT", p.logBtn, "RIGHT", 16, -1)
-    p.playersBtn = UI:CreateUnderlineTab(p, "Players", function() state.mode = "players"; RaidsUI:Refresh() end,
-        "small")
+    p.playersBtn = UI:CreateUnderlineTab(p, "Attendance", function()
+        state.mode, state.player = "players", nil
+        RaidsUI:Refresh()
+    end, "small")
     p.playersBtn:SetPoint("LEFT", p.raidsBtn, "RIGHT", 2, 0)
+    p.reviewsBtn = UI:CreateUnderlineTab(p, "Reviews", function() state.mode = "reviews"; RaidsUI:Refresh() end, "small")
+    p.reviewsBtn:SetPoint("LEFT", p.playersBtn, "RIGHT", 2, 0)
+    p.lineupBtn = UI:CreateSleekMenuButton(p, "All lineups", 116, function(root) lineupMenu(root) end)
     -- the Players view's filters, at the right of the row: how many raids count, and the guests (pugs)
     p.rangeBtn = UI:CreateSleekMenuButton(p, rangeLabel(state.range), 110, function(root)
         for _, n in ipairs(RANGES) do
@@ -929,6 +967,13 @@ function RaidsUI:CreatePanel(parent)
                 RaidsUI:Refresh()
             end)
         end
+        -- 1.3.5: players outside the guild (pugs), left out unless asked for
+        root:CreateDivider()
+        local cb = root:CreateCheckbox("Show guests", function() return state.showGuests end, function()
+            state.showGuests = not state.showGuests
+            RaidsUI:Refresh()
+        end)
+        cb:SetTitleAndTextTooltip("Show guests", "Players outside the guild (pugs) who raided with us.")
     end)
     -- 1.3: players outside the guild (the guest book has them) are left out of the attendance list unless shown
     -- (a switch: lit while they are shown)
@@ -1022,6 +1067,28 @@ local function refreshLogRaids(p)
     p.deleteLogBtn:SetShown(sel.stop ~= nil and RL():CanDelete())
     fillLink(p, sel)
     fillTabs(p, sel)
+    -- 1.3.5: the Attendance tab draws the night's time bars; the link row says how it went
+    local att = state.tab == "att" and Att() ~= nil
+    p.timeline:SetShown(att)
+    p.logHead:SetShown(not att)
+    p.detail.frame:SetShown(not att)
+    if att then
+        local night = Att():NightOf(sel)
+        if night then
+            local sum = p.timeline:SetNight(night)
+            local text = AUI():SummaryText(sum)
+            local line = p.signupLine
+            if text then
+                local room = DETAIL_W - p.linkBtn:GetWidth() - 16
+                line.noShow = nil
+                line:SetShown(true)
+                fitText(line.fs, { text }, room)
+                line.fs:SetWidth(room)
+                line:SetWidth(room)
+            end
+        end
+        return
+    end
     local rows, place = detailRows(sel)
     p.logHead:SetPlace(place)
     p.detail:SetData(rows)
@@ -1041,7 +1108,8 @@ function RaidsUI:Refresh()
     panel.raidList.frame:SetShown(log and raidsMode)
     panel.logDetail:SetShown(log and raidsMode)
     panel.logEmpty:SetShown(false)
-    panel.playersView:SetShown(log and not raidsMode)
+    panel.playersView:SetShown(log and state.mode == "players")
+    panel.reviews:SetShown(log and state.mode == "reviews")
     if state.view == "strategies" then
         ns.StrategiesUI:RefreshLibrary()
     elseif state.view == "guests" then
@@ -1050,11 +1118,19 @@ function RaidsUI:Refresh()
         ns.RaidPlanUI:Refresh()
     elseif raidsMode then
         refreshLogRaids(panel)
+    elseif state.mode == "reviews" then
+        panel.reviews:Refresh()
     else
-        local rows, _, place = playerRows()
-        panel.playersHead:SetPlace(place)
-        panel.playersHead:SetShown(#rows > 0)
-        panel.players:SetData(rows)
+        panel.overview:SetShown(state.player == nil)
+        panel.playerPage:SetShown(state.player ~= nil)
+        if state.player then
+            panel.playerPage:SetPlayer(state.player)
+        else
+            panel.overview.state.range = state.range
+            panel.overview.state.guests = state.showGuests
+            panel.overview.state.lineup = state.lineup
+            panel.overview:Refresh()
+        end
     end
 end
 
@@ -1068,11 +1144,27 @@ function RaidsUI:Select(id)
     self:Refresh()
 end
 
--- For tests / other modules: the Raid log's Raids (on a raid's Attendance) or Players view.
+-- For tests / other modules: the Raid log's Raids (on a raid's Attendance), Attendance ("players") or Reviews view.
 function RaidsUI:SetMode(mode, range)
     state.view, state.tab = "log", "att"
-    state.mode = mode == "players" and "players" or "raids"
+    state.mode = (mode == "players" or mode == "reviews") and mode or "raids"
+    state.player = nil
     if range then state.range = range end
+    self:Refresh()
+end
+
+-- 1.3.5: a member's attendance page (Raid log > Attendance).
+function RaidsUI:ShowAttendancePlayer(key)
+    state.view, state.mode, state.player = "log", "players", key
+    self:Refresh()
+end
+
+-- The member whose attendance page is open (or nil).
+function RaidsUI:GetAttendancePlayer() return state.player end
+
+-- The Attendance view's lineup filter: { team, id, label } or nil.
+function RaidsUI:SetLineupFilter(f)
+    state.lineup = f
     self:Refresh()
 end
 
@@ -1113,7 +1205,7 @@ function RaidsUI:OnInit()
     end
     local function refresh() RaidsUI:RequestRefresh() end
     for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "GROUP_RULES_CHANGED", "ROSTER_UPDATED", "ITEMINFO_READY",
-                           "DEMO_TOGGLED", "CONFIG_UPDATED" }) do
+                           "DEMO_TOGGLED", "CONFIG_UPDATED", "ATTENDANCE_RULES_CHANGED" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("raids", function()

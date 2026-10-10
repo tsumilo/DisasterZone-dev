@@ -9,7 +9,7 @@ from _common import (case, run_all, toc_version, solo, no_errors, World, Client,
 # Addendum E removed "/dz guildinfo"; Addendum D added "/dz rules".
 # Addendum F §38 added "lock" / "unlock" (raid BiS list lock); the Raid Trainer's renderer v2 added "trainer" (render
 # switches).
-SUBCOMMANDS = ["3d", "account", "azeromon", "bingo", "bis", "bless", "board", "bug", "changelog", "chess", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "event", "feedback", "home", "idea", "lfg", "lock", "log", "map", "maps", "members", "meter", "mylog", "perf", "plan", "play", "polls", "professions", "publish", "raid", "raids", "roll", "rules",
+SUBCOMMANDS = ["3d", "account", "attendance", "azeromon", "bingo", "bis", "bless", "board", "bug", "changelog", "chess", "config", "council", "debug", "demo", "drop", "drops", "dungeon", "event", "feedback", "home", "idea", "lfg", "lock", "log", "map", "maps", "members", "meter", "mylog", "perf", "plan", "play", "polls", "professions", "publish", "raid", "raids", "roll", "rules",
                "settings", "share", "strat", "swing", "sync", "test", "threat", "totems", "trainer", "unlock", "update", "version"]
 
 

@@ -227,13 +227,12 @@ def the_raid_log_for_council_and_raid_leaders_items_for_council_only():
     w.tick(0.3)
     assert rhea.find_text("Attendance", True, True)
     assert not rhea.find_text("Awards", True, True) and not rhea.find_text(" items", True, True)
+    # 1.3.5: the Attendance page; a player's page names the items received only for the loot council
     rhea.eval("ns.RaidsUI:SetMode('players', 8)")
     w.tick(0.3)
-    last_col = rhea.eval_py("""
-      local out = {}
-      ns.RaidsUI:GetPanel().players.box:ForEachFrame(function(r) out[#out + 1] = r.cols[5]:GetText() or '' end)
-      return out""")
-    assert all(x in ("", "Items (last)") for x in last_col), last_col
+    rhea.eval("ns.RaidsUI:ShowAttendancePlayer(...)", K("Rita"))
+    w.tick(0.3)
+    assert "item" not in rhea.eval("return ns.RaidsUI:GetPanel().playerPage.banner.sub:GetText() or ''")
     # Cora (council, no planner): the Raid log with items
     cora.slash("/dz raids")
     w.tick(0.3)
@@ -241,6 +240,9 @@ def the_raid_log_for_council_and_raid_leaders_items_for_council_only():
     cora.eval("ns.RaidsUI:Select(...)", sid)
     w.tick(0.3)
     assert cora.find_text("Awards", True, True)
+    cora.eval("ns.RaidsUI:ShowAttendancePlayer(...)", K("Rita"))
+    w.tick(0.3)
+    assert "1 item" in cora.eval("return ns.RaidsUI:GetPanel().playerPage.banner.sub:GetText() or ''")
     # Lee leads a group (loot council for that raid) but is neither: no Raid log view, no bench edits
     w.disband()
     w.tick(2)

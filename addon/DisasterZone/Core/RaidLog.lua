@@ -790,12 +790,20 @@ function RaidLog:GetPlayerStats(lastN)
     return stats, #raids
 end
 
--- "Attendance 92% (7 of the last 8)" for one player: pct, attended, of; nil when no raid is logged. Only closed
+-- "Attendance 92% (7 of the last 8)" for one player: pct, counted, of; nil when no raid is logged. Only closed
 -- raids count. Cached (rebuilt after any raid log change): the drop panel and council views ask per row.
+-- 1.3.5: the time-based attendance (Core/Attendance.lua): pct = the average credit over the raids of the last lastN
+-- that expected the player and count, counted = how many, of = the raids looked at; nil when none expected them.
 function RaidLog:GetAttendance(key, lastN)
     key = Util.NormalizeName(key)
     lastN = lastN or 8
     if not key then return nil end
+    local Att = ns.Attendance
+    if Att and Att.GetSummary then
+        local s, n = Att:GetSummary(key, lastN)
+        if not (s and s.pct) then return nil end
+        return s.pct, s.counted, n
+    end
     local c = attCache[lastN]
     local demo = DemoRaids() ~= nil
     if not c or c.g ~= GuildKey() or c.demo ~= demo then
@@ -814,11 +822,11 @@ function RaidLog:GetAttendance(key, lastN)
     return floor(a * 100 / c.n + 0.5), a, c.n
 end
 
--- "92% (7/8)" or nil.
+-- "92% (7 raids)" or nil (1.3.5: the raids that expected them; was "92% (7/8)").
 function RaidLog:GetAttendanceText(key, lastN)
-    local pct, a, n = self:GetAttendance(key, lastN)
+    local pct, a = self:GetAttendance(key, lastN)
     if not pct then return nil end
-    return ("%d%% (%d/%d)"):format(pct, a, n)
+    return ("%d%% (%d %s)"):format(pct, a, a == 1 and "raid" or "raids")
 end
 
 -- startAt (optional): an earlier start time; default = now, or my instance entry after a missed boss pull.

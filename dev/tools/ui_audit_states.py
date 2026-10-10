@@ -158,7 +158,9 @@ def close_all(cl):
                               'DisasterZoneEventSchedule', 'DisasterZoneEventSubmit', 'DisasterZoneBadgeDesigner',
                               'DisasterZoneEventSeason', 'DisasterZoneEventConfirm', 'DisasterZoneSimBuffs', 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar',
                               'DisasterZonePollToast', 'DisasterZoneNotifyToast', 'DisasterZoneNotifyTray',
-                              'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange' }) do
+                              'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange',
+                              'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
+                              'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -1490,6 +1492,15 @@ STATES = [
     ("Council - roster - raid leader", st_council_roster_lock),
     ("Council - Loot council - officer", st_council_officer),
     ("Demo - Raid log - Players", demo("ns.RaidsUI:SetMode('players')", "raids")),
+    # 1.3.5 time-based attendance (UI/AttendanceUI.lua): a member's page, the reviews, the chat picker, the prompts
+    ("Demo - Raid log - Attendance player", demo("ns.RaidsUI:SetMode('players'); "
+        "local s = ns.Attendance:GetStats(8); local k; for _, r in ipairs(s) do if r.pending > 0 then k = r.key end end; "
+        "ns.RaidsUI:ShowAttendancePlayer(k or s[1].key)", "raids")),
+    ("Demo - Raid log - Reviews", demo("ns.RaidsUI:SetMode('reviews')", "raids")),
+    ("Demo - Raid log - Reviews picker", demo("ns.RaidsUI:SetMode('reviews'); "
+        "local r; for _, x in ipairs(ns.Attendance:GetReviews().pending) do if x.reason then r = x end end; "
+        "ns.AttendanceUI:OpenPicker(nil, r or ns.Attendance:GetReviews().pending[1])", "raids")),
+    ("Demo - Attendance prompts", demo("ns.AttendanceUI:ShowDemo()", "raids")),
     # the selected logged raid's tabs (demo mode: raids with kills and awards)
     ("Demo - Raid log - Raids", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('att')", "raids")),
     ("Demo - Raid log - Bosses", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('boss')", "raids")),

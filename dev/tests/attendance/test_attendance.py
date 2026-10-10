@@ -439,5 +439,72 @@ def digests_compare_without_the_new_fields_with_older_clients():
     assert bob.eval_py("return ns.RaidLog:GetDigest()") != full
 
 
+@case
+def pugs_are_never_expected_and_unlinked_raids_have_no_planned_time():
+    """In-game report 2026-10-11: pugs listed as no-shows / left early, and Gruul + Mag nights where the pugs left
+    after Mag counted as leaving early on a raid that wasn't linked to a planned raid."""
+    w, c = world()
+    bob = c["Bob"]
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "stop": 200, "att": {"Tank": {"s": [0, 200]}, "Heal": {"s": [0, 60]},
+                                                          "Pugone": {"s": [0, 70]}, "Pugtwo": {"s": [0, 200]}}}])
+    bob.eval("ns.db.raids.r1.su = { [...] = 'A', [select(2, ...)] = 'A' }; ns.db.raids.r1.pl = 'old'; ns.db.raids.r1.plAt = 1; "
+             "ns:Fire('RAIDLOG_CHANGED')", K("Pugthree"), K("Dps"))
+    res = bob.eval_py("local n = ns.Attendance:GetNight('old'); local r = ns.Attendance:NightResults(n); "
+                      "local function keys(l) local o = {} for _, x in ipairs(l) do o[#o + 1] = x.key end return o end; "
+                      "return { e = keys(r.expected), h = keys(r.helpers), g = keys(r.guests) }")
+    assert sorted(lst(res["e"])) == sorted([K("Tank"), K("Heal"), K("Dps")]), res
+    assert sorted(lst(res["g"])) == sorted([K("Pugone"), K("Pugtwo")]) and not lst(res.get("h")), res
+    h = result(bob, "old", "Heal")
+    assert h["credit"] == 1 and h["loose"] and not h["review"], h        # left after the first part: still there
+    d = result(bob, "old", "Dps")
+    assert d["noShow"] and d["credit"] == 0, d                           # answered Accept, never came
+    s = stats(bob)
+    assert "Pugone" not in s and "Pugthree" not in s and s["Heal"]["pct"] == 100, sorted(s)
+
+
+@case
+def the_raid_log_pages_decide_and_pick_by_clicks():
+    w, c = world()
+    bob = c["Bob"]
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "pl": "oU", "stop": 200, "ex": {"Tank": "l", "Heal": "l"},
+                        "att": {"Tank": {"s": [0, 200]}, "Heal": {"s": [0, 120]}}}])
+    bob.eval("ns.Attendance:NoteChat(..., 'Raid', 'gtg sorry, kid woke up', select(2, ...))", K("Heal"), base + 119 * 60)
+    bob.slash("/dz raids")
+    w.tick(0.3)
+    bob.eval("ns.RaidsUI:SetMode('reviews')")
+    w.tick(0.5)
+    P = "ns.RaidsUI:GetPanel()"
+    assert bob.eval("return " + P + ".reviewsBtn:IsShown()")
+    card = bob.eval("local f; " + P + ".reviews.list.box:ForEachFrame(function(r) if r.cdlR and r.card:IsShown() then f = r end end); return f")
+    assert card, "a review card"
+    # Pick from chat: the likely line is ticked; Use keeps it
+    bob.click(bob.eval("return (...).card.pick", card))
+    w.tick(0.3)
+    picker = "DisasterZoneAttendancePicker"
+    assert bob.eval("return " + picker + ":IsShown()")
+    assert bob.eval("return " + picker + ".rows[1].picked") is True
+    bob.click(bob.eval("return " + picker + ".use"))
+    w.tick(0.5)
+    assert lst(result(bob, "oU", "Heal")["picked"]["l"])[0]["t"] == "gtg sorry, kid woke up"
+    # Excuse on the card decides it
+    card = bob.eval("local f; " + P + ".reviews.list.box:ForEachFrame(function(r) if r.cdlR and r.card:IsShown() then f = r end end); return f")
+    bob.click(bob.eval("return (...).card.excuse", card))
+    w.tick(0.5)
+    r = result(bob, "oU", "Heal")
+    assert r["excused"] and r["decision"]["by"] == K("Bob"), r
+    # the overview lists them; a click opens the page
+    bob.eval("ns.RaidsUI:SetMode('players')")
+    w.tick(0.5)
+    row = bob.eval("local want, f = ...; " + P + ".overview.list.box:ForEachFrame(function(r) if r.cdlS and r.cdlS.key == want then f = r end end); return f",
+                   K("Heal"))
+    bob.click(row)
+    w.tick(0.5)
+    assert bob.eval("return ns.RaidsUI:GetAttendancePlayer()") == K("Heal")
+    assert bob.eval("return " + P + ".playerPage.banner.big:GetText()") == "100%"
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all(globals())

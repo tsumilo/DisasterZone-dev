@@ -1382,7 +1382,10 @@ local function AddAttendanceLine(tt, key)
     if not IsCouncil() then return end   -- other raiders' attendance is council data
     local RL = ns.RaidLog
     local pct, a, n = RL and RL.GetAttendance and RL:GetAttendance(key)
-    if pct then tt:AddLine(format("Attendance %d%% (%d of the last %d raids)", pct, a, n), 0.7, 0.7, 0.7) end
+    -- (1.3.5: time-based, over the raids that expected them)
+    if pct then
+        tt:AddLine(format("Attendance %d%% (expected at %d of the last %d raids)", pct, a, n), 0.7, 0.7, 0.7)
+    end
 end
 
 local function RollTag(row, session)

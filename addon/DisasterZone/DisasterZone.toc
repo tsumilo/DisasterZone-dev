@@ -188,6 +188,7 @@ UI\StrategyBlocks.lua
 UI\StrategyBoard.lua
 UI\StrategiesView.lua
 UI\StrategyReminder.lua
+UI\AttendanceUI.lua
 UI\RaidsTab.lua
 UI\DungeonsTab.lua
 UI\EventWidgets.lua

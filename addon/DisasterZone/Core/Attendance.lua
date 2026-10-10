@@ -255,11 +255,20 @@ local function BuildNight(recs)
     if n.open then n.stop = nil end
     tsort(n.bosses, function(a, b) return (a.ts or 0) < (b.ts or 0) end)
     -- (a record from before 1.3.5, without a snapshot: whoever came, and who answered Accept, was expected)
+    -- (players outside the guild, pugs and guests, are never expected; a raid not linked to a planned raid has no
+    -- planned time either: who came counts as there, only an Accept answer that didn't come counts against them)
     if not next(n.ex) then
         n.legacy = true
-        for key in pairs(n.att) do n.ex[key] = "a" end
+        n.loose = true
+        for key in pairs(n.att) do
+            if InGuild(key) then n.ex[key] = "a" end
+        end
         for key, st in pairs(n.su) do
-            if st == "A" and not n.ex[key] then n.ex[key] = "a" end
+            if st == "A" and not n.ex[key] and InGuild(key) then n.ex[key] = "a" end
+        end
+    else
+        for key in pairs(n.ex) do
+            if not InGuild(key) then n.ex[key] = nil end
         end
     end
     return n
@@ -444,13 +453,20 @@ function Att:Result(n, key, rules)
     r.bench = n.bench[key] or (mk and mk.b) or false
     r.removed = mk and mk.rm or false
     local told = r.note and (r.note.x or (r.note.n and (r.late > 0 or r.noShow or r.left > 0)))
-    r.review = (not r.bench and not r.removed) and ((r.left > 0 and not r.noShow) or r.reason ~= nil or r.picked ~= nil
+    -- (a raid logged before 1.3.5 opens no review for an early leave: only for a reason someone gave)
+    local leftEarly = r.left > 0 and not r.noShow and not n.legacy
+    r.review = (not r.bench and not r.removed) and (leftEarly or r.reason ~= nil or r.picked ~= nil
         or (mk and mk.od) or told) and true or false
     r.told = told and true or false
     local d = r.decision and r.decision.d
     r.excused = d == "x"
     r.pending = r.review and not d
-    if r.bench or r.removed or r.excused then
+    if n.loose and not r.noShow then
+        r.loose = true
+        r.credit = 1
+        r.review = r.reason ~= nil or r.picked ~= nil or (mk and mk.od) or false
+        r.pending = r.review and not d
+    elseif r.bench or r.removed or r.excused then
         r.credit = 1
     elseif span > 0 then
         r.credit = present / span
@@ -465,7 +481,7 @@ end
 -- Fill-ins are linked to the player they replace. Returns { expected = { r... }, helpers = { r... } }.
 function Att:NightResults(n, rules)
     rules = rules or self:Rules()
-    local out = { expected = {}, helpers = {} }
+    local out = { expected = {}, helpers = {}, guests = {} }
     local byKey = {}
     for key in pairs(n.ex) do
         local r = self:Result(n, key, rules)
@@ -473,7 +489,11 @@ function Att:NightResults(n, rules)
         byKey[key] = r
     end
     for key in pairs(n.att) do
-        if not n.ex[key] then
+        if not n.ex[key] and not InGuild(key) then
+            local r = self:Result(n, key, rules)
+            r.guest = true
+            out.guests[#out.guests + 1] = r
+        elseif not n.ex[key] then
             local alt = false
             for e in pairs(n.ex) do
                 if SameAccount(e, key) then alt = true break end
@@ -513,6 +533,7 @@ function Att:NightResults(n, rules)
     local function byName(a, b) return a.key < b.key end
     tsort(out.expected, byName)
     tsort(out.helpers, byName)
+    tsort(out.guests, byName)
     return out
 end
 
@@ -687,6 +708,27 @@ function Att:GetStats(lastN, opts)
         return a.key < b.key
     end)
     return out, nights
+end
+
+-- One player's GetStats row over the last lastN nights (cached until anything changes), and the nights' count.
+local summaryCache = {}
+function Att:GetSummary(key, lastN)
+    lastN = lastN or 8
+    local c = summaryCache[lastN]
+    if not c or c.ver ~= ver then
+        local rows, nights = self:GetStats(lastN, { guests = true })
+        c = { ver = ver, by = {}, n = #nights }
+        for _, s in ipairs(rows) do c.by[s.key] = s end
+        summaryCache[lastN] = c
+    end
+    if c.n == 0 then return nil, 0 end
+    local s = c.by[key]
+    if not s then
+        for other, x in pairs(c.by) do
+            if SameAccount(other, key) then s = x break end
+        end
+    end
+    return s, c.n
 end
 
 -- One player's nights, newest first: { { night, r }, ... } where they were expected or came (lastN closed nights;

@@ -392,6 +392,66 @@ local DEMO_RAIDS = {
 }
 local DEMO_REASONS = { "bis", "bis", "bis", "alt", "up", "os", "de" }
 
+-- 1.3.5 (time-based attendance): a demo raid as a planned raid with its expected players, presence pieces, and the
+-- cases the Reviews page shows: the newest Karazhan has someone who left early with a reason (and chat lines to pick),
+-- a late joiner who told us before, a fill-in and a no-show; older raids' early leaves are decided.
+local DEMO_NOTE = "Work until 20:00, I'll be a bit late."
+local DEMO_DECISIONS = { { "x", "Disconnect loop, came back on the alt" }, { "c", "No word, second time" },
+                         { "x", "Asked to leave for a tank swap" } }
+
+local function DecorateAttendance(rec, n, raid, keys, showRate, present, me)
+    rec.pl = "demo-pl-" .. n
+    rec.exAt, rec.ef = rec.start, rec.start
+    -- the lineup: whoever came, and a few of the core who didn't (no-shows)
+    local ex, missing = {}, 0
+    for _, key in ipairs(present) do ex[key] = "l" end
+    for _, key in ipairs(keys) do
+        if not ex[key] and not rec.att[key] and showRate[key] >= 0.75 and missing < 2 then
+            ex[key] = "l"
+            missing = missing + 1
+        end
+    end
+    rec.ex = ex
+    for _, a in pairs(rec.att) do
+        if a.j and a.l then a.s = { a.j, a.l } end
+    end
+    rec.dc, rec.rs, rec.sn, rec.mk = {}, {}, {}, {}
+    local leaver = #present > 4 and present[#present - 1] or nil
+    local late = #present > 4 and present[#present] or nil
+    if n == 1 and leaver then
+        local leftAt = rec.att[leaver].l
+        rec.rs[leaver] = { c = "life", n = "Power went out, sorry!", at = leftAt + 180 }
+        if late then rec.sn[late] = { n = DEMO_NOTE, at = rec.start - 3 * 86400 } end
+        -- somebody who wasn't expected fills in a few minutes after the leave
+        for _, key in ipairs(keys) do
+            if not ex[key] and not rec.att[key] then
+                rec.att[key] = { c = rec.att[leaver].c, j = leftAt + 240, l = rec.stop, k = 1,
+                                 s = { leftAt + 240, rec.stop } }
+                local G = ns.Guild
+                rec.att[key].c = G and G.GetClass and G:GetClass(key) or nil
+                break
+            end
+        end
+        local Att = ns.Attendance
+        if Att and Att.NoteChat then
+            Att:NoteChat(leaver, "Raid", "sorry guys power is flickering", leftAt - 120)
+            Att:NoteChat(leaver, "Whisper", "power went out :( back sunday", leftAt + 60)
+            Att:NoteChat(leaver, "Guild", "anyone got a spare primal might?", leftAt - 5400)
+        end
+    elseif n == 2 then
+        -- an Absent answer given before the raid: waits for an officer
+        for key in pairs(ex) do
+            if not rec.att[key] and key ~= me then
+                rec.sn[key] = { x = true, n = "Away for the weekend", at = rec.start - 2 * 86400 }
+                break
+            end
+        end
+    elseif leaver then
+        local d = DEMO_DECISIONS[(n % #DEMO_DECISIONS) + 1]
+        rec.dc[leaver] = { d = d[1], by = me or present[1], at = rec.stop + 3600, n = d[2] }
+    end
+end
+
 local function BuildRaidLog()
     local rng = NewRng(SEED + 4242)
     local out = {}
@@ -467,6 +527,7 @@ local function BuildRaidLog()
             if def[5] then rec.autoEnded = true else rec.endedBy = rec.by end
             for _, a in pairs(att) do a.l = a.l or rec.stop end
             if #present > 4 then att[present[#present - 1]].l = rec.stop - 40 * 60 end
+            DecorateAttendance(rec, n, raid, keys, showRate, present, me)
             out[#out + 1] = rec
         end
     end
