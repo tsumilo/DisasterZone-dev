@@ -1386,7 +1386,7 @@ function MP.FindTarget(m, cx, cy, others, sides)
         for _, o in ipairs(others) do
             for _, hd in ipairs(o.heads) do
                 if cx >= hd[2] and cx <= hd[4] and cy <= hd[3] and cy >= hd[5] then
-                    return { kind = "tab", stack = o.stack, panel = hd[1], head = hd, rect = { o[2], o[3], o[4], o[5] } }
+                    return { kind = "tab", stack = o[1], panel = hd[1], head = hd, rect = { o[2], o[3], o[4], o[5] } }
                 end
             end
         end
@@ -1401,17 +1401,17 @@ function MP.FindTarget(m, cx, cy, others, sides)
         local upDown = min(t, gt) - max(t - h, gb)               -- vertical overlap
         if not sides and across >= min(w, gw) * 0.4 then
             if mc < gt - gh / 2 and t >= gb - NEAR then
-                return { kind = "below", stack = o.stack, rect = rect }, { gl, gb + 1, gw, 3 }
+                return { kind = "below", stack = o[1], rect = rect }, { gl, gb + 1, gw, 3 }
             elseif mc >= gt - gh / 2 and t - h <= gt + NEAR then
-                return { kind = "above", stack = o.stack, rect = rect }, { gl, gt + 2, gw, 3 }
+                return { kind = "above", stack = o[1], rect = rect }, { gl, gt + 2, gw, 3 }
             end
         end
         local level = abs(t - gt) < SIDE_Y or abs((t - h) - gb) < SIDE_Y or upDown > 0
         if level and across < min(w, gw) * 0.4 then
             if abs(l - (gl + gw)) < NEAR then
-                return { kind = "right", stack = o.stack, rect = rect }, { gl + gw - 2, gt, 3, max(gh, h) }
+                return { kind = "right", stack = o[1], rect = rect }, { gl + gw - 2, gt, 3, max(gh, h) }
             elseif abs((l + w) - gl) < NEAR then
-                return { kind = "left", stack = o.stack, rect = rect }, { gl - 1, gt, 3, max(gh, h) }
+                return { kind = "left", stack = o[1], rect = rect }, { gl - 1, gt, 3, max(gh, h) }
             end
         end
     end

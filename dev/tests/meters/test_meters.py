@@ -556,7 +556,11 @@ def where_a_dragged_stack_goes():
         local F = ns.MeterPanels.FindTarget
         local A = { name = "A" }
         local others = { { A, 100, 500, 300, 120, heads = { { "pA1", 100, 500, 400, 476 }, { "pA2", 100, 440, 400, 416 } } } }
-        local function k(m, cx, cy) local t = F(m, cx, cy, others); return t and (t.kind .. (t.panel and (":" .. t.panel) or "")) or "none" end
+        local function k(m, cx, cy)
+            local t = F(m, cx, cy, others)
+            if t and t.stack ~= A then return "no stack" end
+            return t and (t.kind .. (t.panel and (":" .. t.panel) or "")) or "none"
+        end
         return {
             k({ 600, 300, 200, 80 }, 150, 430),     -- cursor over A's second header
             k({ 110, 372, 300, 80 }, 900, 900),     -- top 8 px under A's bottom (380)
@@ -930,7 +934,11 @@ def docking_is_easy_to_hit_and_a_row_moves_as_one():
         local F = ns.MeterPanels.FindTarget
         local A = { name = "A" }
         local others = { { A, 100, 500, 300, 120, heads = { { "pA1", 100, 500, 400, 476 } } } }
-        local function k(m, sides) local t = F(m, 900, 900, others, sides); return t and t.kind or "none" end
+        local function k(m, sides)
+            local t = F(m, 900, 900, others, sides)
+            if t and t.stack ~= A then return "no stack" end
+            return t and t.kind or "none"
+        end
         return {
             k({ 120, 420, 300, 80 }),            -- over A's lower half (A runs 500 down to 380)
             k({ 80, 560, 300, 100 }),            -- over A's upper half
@@ -978,6 +986,24 @@ def docking_is_easy_to_hit_and_a_row_moves_as_one():
     r.cl.eval("__MOCK.mouse_down = false; ns.MeterPanels:EndDrag()")
     assert r.cl.eval_py("local L = ns.MeterPanels.Layout(); return { L.stacks[1].g or 0, L.stacks[2].g or 0 }") == [0, 0]
     assert layout(r) == ["threat/damage", "healing"]
+
+
+@case
+def a_real_drag_onto_a_stack_docks_it():
+    """Reported in game 2026-10-11: the outline showed but the drop did nothing. FindTarget read o.stack where the
+    stack is o[1], so every target had no stack and EndDrag failed. This drag goes the whole way: header pressed,
+    cursor moved (UpdateDrag finds the target), button let go."""
+    r = Raid(thr=True)
+    r.cl.eval("ns.DB:SetSetting('meters.locked', false); __MOCK.mouse_down = false")
+    r.tick(0.5)
+    r.cl.eval("ns.MeterPanels:Detach(1, 1); ns.MeterPanels:EndDrag()")
+    assert layout(r) == ["damage", "threat"]
+    r.cl.eval("local pf = ns.MeterPanels._Panel('threat'); __MOCK.cursor = { 320, 690 }; pf.head:GetScript('OnDragStart')(pf.head)")
+    r.cl.eval("__MOCK.cursor = { 330, 430 }")
+    r.tick(0.2)
+    assert r.cl.eval("local t = ns.MeterPanels._Target(); return t and t.stack ~= nil") is True
+    r.cl.eval("local pf = ns.MeterPanels._Panel('threat'); pf.head:GetScript('OnDragStop')(pf.head); __MOCK.cursor = nil")
+    assert len(layout(r)) == 1 and sorted(layout(r)[0].split("/")) == ["damage", "threat"], layout(r)
 
 
 if __name__ == "__main__":
