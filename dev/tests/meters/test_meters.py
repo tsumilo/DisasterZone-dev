@@ -413,12 +413,12 @@ def the_panel_shows_bars_in_order_and_keeps_mine_in_view():
         local me = pf.rowsByKey[UnitGUID('player')]
         local top = pf.rowsByKey[select(1, ...)]
         local n = 0; for _ in pairs(pf.rowsByKey) do n = n + 1 end
-        return { me.rank:GetText(), me.pinLine:IsShown(), me.you:IsShown(), me.ty, top.ty, top.rank:GetText(), n,
+        return { me.name:GetText(), me.pinLine:IsShown(), me.you:IsShown(), me.ty, top.ty, top.name:GetText(), n,
                  pf:GetHeight(), pf.totV:GetText() }
     """, r.g["P13"])
     rank, pinned, you, my_y, top_y, top_rank, n, h, tot = info
-    assert rank == "15" and pinned is True and you is True, info
-    assert top_y == 0 and top_rank == "1", info
+    assert rank.startswith("Gina") and rank.endswith("15th|r") and pinned is True and you is True, info   # no list numbers;
+    assert top_y == 0 and top_rank == "P13", info                                                       # my place named
     assert n == 8 and my_y == -7 * 20, info                 # 8 rows by default, mine on the last
     assert h == 24 + 3 * 2 + 8 * 19 + 7, info                # as tall as its rows
     assert tot and tot != "", info
@@ -770,6 +770,43 @@ def ticks_that_cannot_crit_stay_out_of_the_crit_chance():
     subs = r.cl.eval_py("local o = {}; for _, x in ipairs(_G.DisasterZoneMeterDetail.rows) do if x:IsShown() then "
                         "o[#o + 1] = x.sub:GetText() end end; return o")
     assert any(s.endswith("can't crit") for s in subs), subs
+
+
+@case
+def interrupts_dispels_and_active_time_have_their_own_breakdown_and_short_lists_no_scroll_bar():
+    """Reported 2026-10-10: those three modes opened the damage breakdown, and the death recap showed a scroll bar
+    with nothing to scroll."""
+    r = Raid(dmg=False, instance=False)
+    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetEnabled(true)")
+    find = "local g; for k, a in pairs(ns.Meter:GetSegment('all').actors) do if a.n == '%s' then g = k end end; "
+    r.cl.eval(find % "Shadowmelder" + "ns.MeterDetail:Open('all', g, 'kicks')")
+    f = "_G.DisasterZoneMeterDetail"
+    assert r.cl.eval("return %s.cards[1].lab:GetText()" % f) == "Interrupts"
+    assert r.cl.eval("return %s.cards[1].num:GetText()" % f) == "14"
+    names = r.cl.eval_py("local o = {}; for _, x in ipairs(%s.rows) do if x:IsShown() then o[#o + 1] = x.name:GetText() end end; return o" % f)
+    assert names[0] == "Spells they used" and "What they interrupted" in names, names
+    assert r.cl.eval("return %s.tabs:IsShown()" % f) is False
+    r.cl.eval(find % "Brightmend" + "ns.MeterDetail:Open('all', g, 'dispels')")
+    assert r.cl.eval("return %s.cards[1].lab:GetText()" % f) == "Dispels"
+    r.cl.eval(find.replace("'all'", "'cur'") % "Gina" + "ns.MeterDetail:Open('cur', g, 'active')")
+    assert r.cl.eval("return %s.cards[1].lab:GetText()" % f) == "Active time"
+    assert r.cl.eval("return %s.chart:IsShown()" % f) is True
+    r.cl.eval("ns.MeterDetail:OpenDeath('cur', ns.Meter:GetSegment('cur').deaths[1])")
+    assert r.cl.eval("return %s.events.ScrollBar:IsShown()" % f) is False
+
+
+@case
+def charts_run_from_the_first_second_to_the_last():
+    """Reported 2026-10-10: the Over time line started ~2.5 s in and stopped ~1-2 s early (points at step middles)."""
+    r = Raid(dmg=False, instance=False)
+    r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.Demo:SetEnabled(true)")
+    for mode, tab in (("damage", "time"), ("active", "abilities")):
+        span = r.cl.eval_py("ns.MeterDetail:Open('cur', ns.MeterDemo.ME, '%s'); ns.MeterDetail:GetState().tab = '%s'; "
+                            "ns.MeterDetail:Draw(); local o = _G.DisasterZoneMeterDetail.chart.opts; local p = o.series[1].points; "
+                            "return { p[1][1], p[#p][1], o.x1 }" % (mode, tab))
+        assert span[0] == 0 and span[1] == span[2], (mode, span)
+    w = r.cl.eval("ns.MeterDetail:Open('cur', ns.MeterDemo.ME, 'damage'); return _G.DisasterZoneMeterDetail.banner.fight:GetWidth()")
+    assert 120 <= w <= 260, w
 
 
 if __name__ == "__main__":

@@ -1416,6 +1416,9 @@ STATES = [
     ("Meters - bar tooltip, died", opened("home", "ns.MainFrame:Close(); " + MET +
         "local yb; for k, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Yubell' then yb = k end end; "
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 960, 560; ns.MeterPanels:Rebuild(); ns.MeterPanels:Draw(); local pf = ns.MeterPanels._Panel('damage'); local g = yb; ns.MeterPanels.ShowRowTip(pf.rowsByKey[g])")),
+    ("Meters - interrupts breakdown", opened("home", "ns.MainFrame:Close(); " + MET + "local g; for k, a in pairs(ns.Meter:GetSegment('all').actors) do if a.n == 'Shadowmelder' then g = k end end; ns.MeterDetail:Open('all', g, 'kicks')")),
+    ("Meters - dispels breakdown", opened("home", "ns.MainFrame:Close(); " + MET + "local g; for k, a in pairs(ns.Meter:GetSegment('all').actors) do if a.n == 'Brightmend' then g = k end end; ns.MeterDetail:Open('all', g, 'dispels')")),
+    ("Meters - active time breakdown", opened("home", "ns.MainFrame:Close(); " + MET + "local g; for k, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Yubell' then g = k end end; ns.MeterDetail:Open('cur', g, 'active')")),
     ("Meters - death recap", opened("home", "ns.MainFrame:Close(); " + MET +
         "ns.MeterDetail:OpenDeath('cur', ns.Meter:GetSegment('cur').deaths[1])")),
     ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),

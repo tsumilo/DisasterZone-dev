@@ -323,7 +323,7 @@ local function AbilityRow(i)
     r.rank:SetWidth(14)
     r.rank:SetJustifyH("RIGHT")
     r.icon = Kit.Icon(r, 32)
-    r.icon:SetPoint("LEFT", r, "LEFT", 26, 0)
+    r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
     r.thumb = r:CreateTexture(nil, "ARTWORK")
     r.thumb:SetSize(76, 40)
     r.thumb:SetPoint("LEFT", r, "LEFT", 6, 0)
@@ -580,14 +580,13 @@ local function DrawAbilities(a, mode, dur)
         r.thumb:Hide()
         r.icon:Show()
         r.icon:SetIcon(K.SpellIcon(e.key, a))
-        r.rank:SetText(i)
-        r.rank:Show()
+        r.rank:Hide()
         r.name:SetText(K.SpellName(e.key, a.pn))
         r.sub:SetText(e.sub)
-        PlaceRowText(r, 70, textW)
+        PlaceRowText(r, 52, textW)
         r.amount:SetText(K.Fmt(e.a))
         r.pct:SetText(strformat("%.1f%%", total > 0 and e.a / total * 100 or 0))
-        local tw = max(10, frame.listW - 70 - textW - 12 - 96)
+        local tw = max(10, frame.listW - 52 - textW - 12 - 96)
         r.fill:SetWidth(max(1, tw * e.a / top))
         r.on = e == sel
         r.bg:SetVertexColor(1, 1, 1, r.on and 0.06 or 0)
@@ -653,6 +652,24 @@ local function DrawTargets(a)
     frame.empty:SetText("No targets in this fight.")
 end
 
+-- Points sit at each 5 s step's middle; the line runs edge to edge (the first step's value from 0:00, the last one's to
+-- the end), so the chart's first and last seconds are not left empty.
+local function EdgeToEdge(pts, dur)
+    if #pts == 0 then return pts end
+    if pts[1][1] > 0 then table.insert(pts, 1, { 0, pts[1][2] }) end
+    if pts[#pts][1] < dur then pts[#pts + 1] = { dur, pts[#pts][2] } end
+    return pts
+end
+
+-- The fight chip as wide as its name (within limits).
+local function SetFightChip(text)
+    local f = frame.banner.fight
+    f:SetText(text or "")
+    local fs = f.GetFontString and f:GetFontString()
+    local w = fs and fs:GetStringWidth() or 0
+    f:SetWidth(min(260, max(120, w + 46)))
+end
+
 local function DrawTime(seg, a, mode, dur)
     local field = mode == "healing" and "hl" or "tl"
     local own = a[field] or {}
@@ -675,6 +692,8 @@ local function DrawTime(seg, a, mode, dur)
         avg[#avg + 1] = { x, m }
         hi = max(hi, v, m)
     end
+    EdgeToEdge(pts, dur)
+    EdgeToEdge(avg, dur)
     local step = Kit.NiceStep and Kit.NiceStep(hi * 1.1, 4) or hi / 4
     local y1 = step * math.ceil(hi * 1.1 / step)
     frame.chart:SetData({
@@ -761,10 +780,10 @@ local function DrawUses(a, mode)
                 r.name:SetTextColor(1, 1, 1)
                 r.name:SetText(K.SpellName(e.key))
                 r.sub:SetText(strformat("%s %s", blk[3], e.n == 1 and "once" or (K.Int(e.n) .. " times")))
-                PlaceRowText(r, 46, 260)
+                PlaceRowText(r, 52, 260)
                 r.amount:SetText(K.Int(e.n))
                 r.pct:SetText(total > 0 and strformat("%.0f%%", e.n / total * 100) or "")
-                local tw = max(10, listW - 46 - 260 - 12 - 96)
+                local tw = max(10, listW - 52 - 260 - 12 - 96)
                 r.fill:SetWidth(max(1, tw * e.n / top))
                 r.on = false
                 r.bg:SetVertexColor(1, 1, 1, 0)
@@ -796,6 +815,7 @@ local function DrawActive(seg, a, dur)
         hi = max(hi, v)
         if (own[bk] or 0) <= 0 then bands[#bands + 1] = { x0, min(dur, x0 + span), K.RED, nil, alpha = 0.14 } end
     end
+    EdgeToEdge(pts, dur)
     local step = Kit.NiceStep and Kit.NiceStep(hi * 1.1, 4) or hi / 4
     frame.chart:SetData({
         x0 = 0, x1 = dur, y1 = step * math.ceil(hi * 1.1 / step), grid = true, bands = bands,
@@ -808,7 +828,8 @@ local function DrawActive(seg, a, dur)
         end,
     })
     local metric = field == "hl" and "healing" or "damage"
-    frame.legend:SetText(strformat("|cffffd100—|r %s's %s per second     |cffff5c4d■|r 5-second steps with nothing done",
+    frame.legend:SetText(strformat("|cffffd100—|r %s's %s per second     "
+        .. "|TInterface\\Buttons\\WHITE8X8:10:10:0:0:8:8:0:8:0:8:255:92:77|t 5-second steps with nothing done",
         a.n or "?", metric))
     local ch = frame.chart
     local chW = (ch:GetWidth() or 0) > 0 and ch:GetWidth() or ch.fallback[1]
@@ -833,7 +854,7 @@ function MD:Draw()
     SetBanner(seg, a or { n = "?" })
     local b = frame.banner
     b.sub:SetText(a and ("|cffecdfc8" .. SpecText(a) .. "|r · " .. FightText(seg)) or FightText(seg))
-    b.fight:SetText(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "No fights")
+    SetFightChip(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "No fights")
     local ranked = Ranked(seg, mode)
     local idx
     for i, r in ipairs(ranked) do if r.g == S.guid then idx = i end end
@@ -1003,7 +1024,7 @@ function MD:DrawDeath()
     end
     b.sub:SetText(strformat("Died at |cffecdfc8%s|r to |cffff8a70%s|r · in the last %d s took |cffecdfc8%s|r, healed |cffecdfc8%s|r",
         K.Clock(d.t), d.by and K.SpellName(d.by) or "?", Meter.RECAP, K.Int(took), K.Int(healed)))
-    b.fight:SetText(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "")
+    SetFightChip(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "")
     b.step:SetText(idx and (Ordinal(idx) .. " of " .. #deaths) or "")
     b.prev:SetShown(#deaths > 1)
     b.next:SetShown(#deaths > 1)
@@ -1129,7 +1150,7 @@ function MD:Step(dir)
         S.death = list[(i - 1 + dir) % #list + 1]
     else
         local mode = S.mode
-        if mode == "dps" or mode == "deaths" or mode == "active" or mode == "kicks" or mode == "dispels" then mode = "damage" end
+        if mode == "dps" or mode == "deaths" then mode = "damage" end
         local list = Ranked(seg, mode)
         if #list == 0 then return end
         local i = 1

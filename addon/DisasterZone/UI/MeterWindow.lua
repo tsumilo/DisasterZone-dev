@@ -97,6 +97,12 @@ function K.Clock(s)
     return strformat("%d:%02d", floor(s / 60), s % 60)
 end
 function K.Pct(v) return strformat("%.1f%%", tonumber(v) or 0) end
+function K.Ordinal(n)
+    n = tonumber(n) or 0
+    local s = (n % 10 == 1 and n % 100 ~= 11) and "st" or (n % 10 == 2 and n % 100 ~= 12) and "nd"
+        or (n % 10 == 3 and n % 100 ~= 13) and "rd" or "th"
+    return n .. s
+end
 
 function K.ClassColor(cls)
     local c = cls and ((CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[cls]) or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[cls]))
