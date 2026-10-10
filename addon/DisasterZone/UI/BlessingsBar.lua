@@ -604,7 +604,7 @@ local function ApplyMotion(f)
     f:SetPoint("CENTER", f.row, "CENTER", 0, lift + (f.layout == "horizontal" and 2 * hover or 0))
     f.glow:SetAlpha(0.55 * hot)
     f.label:SetAlpha(hot)
-    f.label:SetShown(hot > 0.01)
+    f.label:SetShown(hot > 0.01 and not f.labelOff)
     f.label:ClearAllPoints()
     if f.layout == "horizontal" then
         f.label:SetPoint("BOTTOM", f, "TOP", 0, 8 - (1 - hot) * 5)
@@ -961,13 +961,16 @@ function Bar:Update()
                 f.tile:SetAlpha(reach)
                 f.corner:SetTexture(CIRCLES)
                 if c then f.corner:SetTexCoord(c[1], c[2], c[3], c[4]) end
+                -- the red badge already counts who is missing: the chip only says when it runs out
+                f.labelOff = #st.missing > 0
                 if isNext then
-                    f.label.text:SetText(#st.missing > 0 and strformat("%d missing", #st.missing) or Minutes(st.left))
+                    f.label.text:SetText(Minutes(st.left))
                     f.label.text:SetTextColor(0.1, 0.08, 0.01)
                     f.label.bg:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
                     Edge(f.label, GOLD[1], GOLD[2], GOLD[3], 1)
                 end
             else
+                f.labelOff = nil
                 f.cls:SetTexture(CIRCLES)
                 if c then f.cls:SetTexCoord(c[1], c[2], c[3], c[4]) end
                 f.cls:SetAlpha(reach)
