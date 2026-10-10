@@ -226,7 +226,7 @@ assert vic.eval("return DisasterZoneBlessRow1:GetAttribute('spell1') == nil") is
 vic.eval("ns.Blessings:SetAssign('Victhar', 6, 1)")
 w.tick(1)
 vic.eval("for i = 1, 20 do local r = _G['DisasterZoneBlessRow' .. i]; if r and r.data and r.data.cls == 'HUNTER' then "
-         "ns.BlessingsBar:TogglePop(r) end end")
+         "ns.BlessingsBar:TogglePop(r, true) end end")
 assert vic.eval("return DisasterZoneBlessPopout:IsShown()") is True
 vic.eval("DisasterZoneBlessPop1:GetScript('OnMouseWheel')(DisasterZoneBlessPop1, -1)")
 single = vic.eval("return ns.Blessings:GetSingle('Victhar', 6, 'Faelar')")

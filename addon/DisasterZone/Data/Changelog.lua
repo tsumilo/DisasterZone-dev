@@ -87,8 +87,10 @@ ns.CHANGELOG = {
               "Presets save the plan per raid; Report posts who gives what to the raid.",
               "It speaks Pally Power's language, so Pally Power users in the raid share the same plan.",
               "The leader and assistants assign; paladins can let anyone assign them.",
-              "New buff bar in groups: click a class for its Greater Blessing, right-click for players.",
-              "Its gold edge shows what to do next; your aura, Righteous Fury and Symbols sit on top.",
+              "New buff bar in groups, in two looks: a rail of class rings or a strip of tiles.",
+              "Rings and lines drain as blessings run out; what to do next glows and says when.",
+              "Click a class for its Greater Blessing; hover it for its players, scroll one for a single.",
+              "Pick the look in the planner's More menu or Settings > Class tools.",
               "Key binding \"Bless next\" casts whatever is due. /dz bless opens the planner.",
           } },
           { heading = "Class tools", lines = {

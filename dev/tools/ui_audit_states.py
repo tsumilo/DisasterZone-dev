@@ -2414,7 +2414,7 @@ def bless_view(lead="Gina", lua=None, bar=False):
         w.make_raid([g] + [c[n] for n in ("Victhar", "Shadowmelder", "Moonwhisper", "Lightbringer", "Grumpykat")],
                     leader=g)
         w.tick(1)
-        g.eval("ns.DB:SetSetting('bless.bar', ...)", "group" if bar else "off")
+        g.eval("ns.DB:SetSetting('bless.bar', ...); ns.DB:SetSetting('bless.layout', 'vertical')", "group" if bar else "off")
         g.eval(BLESS_SEED, lead)
         if not bar:
             g.eval("ns.BlessingsUI:Open(); ns.BlessingsUI:Refresh()")
@@ -2435,7 +2435,7 @@ STATES += [
     ("Blessings - buff bar", bless_view("Gina", bar=True)),
     ("Blessings - buff bar, hunters", bless_view("Gina", "local f = ns.BlessingsBar:GetFrame(); for i = 1, 20 do "
                                                  "local r = _G['DisasterZoneBlessRow' .. i]; if r and r.data and "
-                                                 "r.data.cls == 'HUNTER' then ns.BlessingsBar:TogglePop(r) end end",
+                                                 "r.data.cls == 'HUNTER' then ns.BlessingsBar:TogglePop(r, true) end end",
                                                  bar=True)),
     ("Settings - Blessings", opened("settings", "ns.SettingsUI:SelectSection('bless')")),
 ]
@@ -2444,4 +2444,12 @@ STATES += [
     ("Settings - Class tools", opened("settings", "ns.SettingsUI:SelectSection('classtools')")),
     ("Settings - Class tools (demo)", demo("ns.SettingsUI:SelectSection('classtools')", key="settings")),
     ("Blessings - demo planner", demo("ns.MainFrame:Close(); ns.BlessingsUI:Open()")),
+]
+
+STATES += [
+    ("Blessings - strip bar", bless_view("Gina", "ns.DB:SetSetting('bless.layout', 'horizontal'); ns.BlessingsBar:Update()",
+                                         bar=True)),
+    ("Blessings - strip bar, hunters", bless_view("Gina", "ns.DB:SetSetting('bless.layout', 'horizontal'); "
+                                                  "ns.BlessingsBar:Update(); for i = 1, 20 do local r = _G['DisasterZoneBlessRow' .. i]; "
+                                                  "if r and r.data and r.data.cls == 'HUNTER' then ns.BlessingsBar:TogglePop(r, true) end end", bar=True)),
 ]

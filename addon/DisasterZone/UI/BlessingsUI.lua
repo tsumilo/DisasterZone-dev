@@ -219,6 +219,14 @@ local function MoreMenu(owner)
         end
         root:CreateCheckbox("Pets count in their class", function() return Bl.Setting("pets", true) end,
             function() ns.DB:SetSetting("bless.pets", not Bl.Setting("pets", true)) end)
+        if Bl:IsPaladin() and ns.BlessingsBar then
+            root:CreateDivider()
+            root:CreateTitle("Buff bar")
+            for _, o in ipairs(ns.BlessingsBar.LAYOUTS) do
+                root:CreateRadio(o.text, function() return Bl.Setting("layout", "vertical") == o.value end,
+                    function() ns.DB:SetSetting("bless.layout", o.value) end)
+            end
+        end
         root:CreateDivider()
         local c = root:CreateButton("Clear all", function() Bl:ClearAll() end)
         c:SetEnabled(Bl:CanEditAny())
