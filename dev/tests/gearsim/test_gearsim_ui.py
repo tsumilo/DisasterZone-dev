@@ -517,6 +517,41 @@ def shadow_priest_sims():
     assert_no_lua_errors(w)
 
 
+# WoWSims' P1 Balance preset (ui/specs/druid/balance/gear_sets/p1_a.gear.json), no gems or enchants
+BALANCE_P1 = [29093, 28762, 29095, 28766, 21848, 24250, 21847, 21846, 24262, 28517, 28753, 29287, 29370, 27683, 28770,
+              29271, 27518]
+
+
+@r.case
+def balance_druid_sims():
+    w = new_world()
+    c = Client(w, "Boomkin", class_file="DRUID", race="NightElf", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Balance") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(BALANCE_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 900 < res["work"] < 2400 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Starfire", "Moonfire", "Treants"):
+        assert want in names, (want, names)
+    assert "Melee" not in names, names
+    sc = c.eval_py("return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), { buffs = 'raid25', duration = 180 })")
+    assert sc["distance"] == 20 and sc["classOptions"]["form"] == "Moonkin", (sc["distance"], sc["classOptions"])
+    doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                          "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+    assert doc["player"]["class"] == "ClassDruid" and "balanceDruid" in doc["player"], doc["player"].keys()
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()

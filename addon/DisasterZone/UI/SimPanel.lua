@@ -531,7 +531,7 @@ function SimPanel:BuffsTooltip(tt, key)
     if b.key == key then
       tt:AddLine(b.text, 1, 0.82, 0)
       local cls = R():Class()
-      tt:AddLine((R():Spec() == "Elemental" and b.tipElemental) or (cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or (cls == "PRIEST" and b.tipPriest) or b.tip, 1, 1, 1, true)
+      tt:AddLine((R():Spec() == "Elemental" and b.tipElemental) or (R():Spec() == "Balance" and b.tipBalance) or (cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or (cls == "PRIEST" and b.tipPriest) or b.tip, 1, 1, 1, true)
       return
     end
   end

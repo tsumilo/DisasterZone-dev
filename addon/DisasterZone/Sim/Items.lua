@@ -5,6 +5,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Sim/Items.lua", ...) then return e
 --
 -- Deliberate deviation from WoWSims: Hand of Justice procs with any melee weapon (WoWSims only lets it proc when the
 -- weapon is a sword, a copy of Sword Specialization's rule; the game has no such limit).
+-- Also deliberate: Figurine of the Colossus and Argussian Compass do nothing here. WoWSims casts them as holy-school
+-- spells, which breaks a Shadow Priest's Shadowform (-10% in its sweep); using an item doesn't do that in the game.
 local _, ns = ...
 local S = ns.GearSim
 local ST, PM, F, O, OUT, SCHOOL = S.ST, S.PM, S.F, S.O, S.OUT, S.SCHOOL

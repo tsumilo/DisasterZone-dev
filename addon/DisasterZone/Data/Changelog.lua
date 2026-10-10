@@ -39,6 +39,8 @@ ns.CHANGELOG = {
               "Rogues too (Combat, Mutilate and Hemorrhage builds), with poisons and their own Expose Armor.",
               "Feral Druids too, in cat form: powershifting, Shred, Rip, Mangle and Ferocious Bite.",
               "Elemental Shamans too: Lightning Bolt and Chain Lightning with overloads, and their own totems.",
+              "Shadow Priests too: Mind Flay clipped like WoWSims does, Vampiric Touch mana and the Shadowfiend.",
+              "Balance Druids too: Starfire (downranked when mana runs low), Moonfire, Faerie Fire and Force of Nature.",
               "More item effects count: Thunderfury, Blinkstrike, The Night Blade, Rod of the Sun King and others.",
               "Swapped-in items get gems that keep your meta gem on; the card warns when a meta is off.",
               "The ... menu copies the exact sim input for WoWSims (Import > JSON), to compare both sims.",

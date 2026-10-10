@@ -134,6 +134,20 @@ SPRIEST_BUFFS = {
                     "explosiveId": 30217, "drumsId": "LesserDrumsOfBattle"},
 }
 
+# ui/specs/druid/balance/presets.ts
+BALANCE_BUFFS = {
+    "raid": {"bloodlust": True, "arcaneBrilliance": True, "giftOfTheWild": IMP, "powerWordFortitude": IMP,
+             "divineSpirit": IMP},
+    "party": {"chainOfTheTwilightOwl": True, "draeneiRacialCaster": True, "eyeOfTheNight": True, "totemOfWrath": 1,
+              "wrathOfAirTotem": IMP},
+    "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "shadowPriestDps": 800},
+    "debuffs": {"bloodFrenzy": True, "curseOfElements": IMP, "curseOfRecklessness": True, "exposeArmor": IMP,
+                "giftOfArthas": True, "huntersMark": IMP, "improvedSealOfTheCrusader": IMP, "judgementOfWisdom": True,
+                "mangle": True, "misery": True, "sunderArmor": True},
+    "consumables": {"conjuredId": 12662, "flaskId": 22861, "foodId": 27657, "mhImbueId": 25122, "potId": 22832,
+                    "drumsId": "LesserDrumsOfBattle"},
+}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -152,6 +166,10 @@ SPECS = {
     "cat": {"class": "Druid", "wsClass": "ClassDruid", "field": "feralCatDruid",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/druid/feralcat/apls/default.apl.json",
             "buffs": CAT_BUFFS, "luaBuffs": "wowsims_cat", "luaOptions": {"form": "Cat"}},
+    "balance": {"class": "Druid", "wsClass": "ClassDruid", "field": "balanceDruid",
+                "options": {"options": {"classOptions": {}}},
+                "apl": "ui/specs/druid/balance/apls/default.apl.json", "buffs": BALANCE_BUFFS, "luaBuffs": "wowsims_balance",
+                "luaOptions": {"form": "Moonkin"}},
     "spriest": {"class": "Priest", "wsClass": "ClassPriest", "field": "dpsPriest",
                 "options": {"options": {"classOptions": {"preShadowform": True}}},
                 "apl": "ui/specs/priest/dps/apls/default.apl.json", "buffs": SPRIEST_BUFFS, "luaBuffs": "wowsims_spriest",

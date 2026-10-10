@@ -784,7 +784,8 @@ function S.DruidRegisterBalanceSpells(p)
         spell:DealDamage(sim, r)
       end }))
   end
-  -- Faerie Fire (rank 5)
+  -- Faerie Fire (rank 5); its debuff exists from the start, so the rotation can read it
+  S.FaerieFireAura(p.currentTarget, T.ImprovedFaerieFire)
   FormSpell(p, SPELLS, BalanceSpell({ id = 26993, school = SCHOOL.Nature, classMask = M.FaerieFire,
     manaCost = { flat = 145 },
     applyEffects = function(sim, target, spell)

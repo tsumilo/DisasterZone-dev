@@ -13,10 +13,11 @@ local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 
 Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
   ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
-  ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true, ["PRIEST:Shadow"] = true }
+  ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true, ["PRIEST:Shadow"] = true,
+  ["DRUID:Balance"] = true }
 -- what the sim covers, for the texts that say so
-Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues, Feral Druids "
-  .. "and Shadow Priests"
+Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues, Feral / "
+  .. "Balance Druids and Shadow Priests"
 -- class file -> the sim's class
 Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid",
   PRIEST = "Priest" }
@@ -24,6 +25,7 @@ Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shama
 Runner.SPEC_SETTINGS = {
   ["DRUID:Feral (Cat)"] = { options = { form = "Cat" }, reactionTimeMs = 250, distance = 0, buffs = "wowsims_cat",
     field = "feralCatDruid" },
+  ["DRUID:Balance"] = { options = { form = "Moonkin" }, distance = 20, buffs = "wowsims_balance", field = "balanceDruid" },
   -- wsOptions: the class options of the WoWSims export
   ["PRIEST:Shadow"] = { options = { preShadowform = true }, distance = 20, channelClipDelayMs = 100,
     buffs = "wowsims_spriest", field = "dpsPriest", wsOptions = { preShadowform = true } },
@@ -49,6 +51,11 @@ Runner.BUFFS = {
       .. "Fire, Curses of Recklessness and the Elements, Misery, Blood Frenzy, Mangle, Gift of Arthas, Hunter's Mark, "
       .. "Expose Weakness, Judgements of the Crusader and Wisdom; flask, food, scrolls, Haste Potion, Flame Cap, your own "
       .. "drums, explosives (Engineering). You drop your own totems and Fire Elemental.",
+    tipBalance = "WoWSims' Balance raid setup: Bloodlust, drums, Totem of Wrath, Wrath of Air, Chain of the Twilight "
+      .. "Owl, Eye of the Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane Intellect, Divine Spirit, a Shadow "
+      .. "Priest's mana, Curse of the Elements, Misery, Judgement of Wisdom and the melee debuffs; Flask of Blinding "
+      .. "Light, Blackened Basilisk, Brilliant Wizard Oil, Super Mana Potion, Demonic Rune. You bring your own Moonkin "
+      .. "Aura and Faerie Fire.",
     tipPriest = "WoWSims' Shadow Priest raid setup: Bloodlust, drums, Mana Spring and Wrath of Air, Chain of the Twilight "
       .. "Owl, Eye of the Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane Intellect, Divine Spirit, Curse of "
       .. "the Elements, Improved Shadow Bolt (72% uptime), Judgements of the Crusader and Wisdom, Faerie Fire, Expose "
@@ -261,6 +268,7 @@ Runner.DEFAULT_TALENTS = {
   ["DRUID:Feral (Cat)"] = "-503032132322105301251-05503301",
   ["SHAMAN:Elemental"] = "55003105100213351051--05105301005",
   ["PRIEST:Shadow"] = "500230013--503250510240103051451",
+  ["DRUID:Balance"] = "510022312503135231351--520033",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -709,6 +717,9 @@ Runner.ABILITIES = {
   [25387] = "Mind Flay", [25375] = "Mind Blast", [25372] = "Mind Blast", [25368] = "Shadow Word: Pain",
   [34917] = "Vampiric Touch", [32996] = "Shadow Word: Death", [25446] = "Starshards", [25467] = "Devouring Plague",
   pet_shadowfiend_melee = "Shadowfiend",
+  -- Balance Druids
+  [26986] = "Starfire", [9876] = "Starfire", [26988] = "Moonfire", ["26988:1"] = "Moonfire", [27013] = "Insect Swarm",
+  [26985] = "Wrath", pet_treant_melee = "Treants",
   -- Rogues
   [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
   [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",

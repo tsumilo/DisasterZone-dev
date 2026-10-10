@@ -88,7 +88,8 @@ S.MatchingStatBuffSpells = MatchingStatBuffSpells
 
 -- apl_helpers.go getUnit: the aura's owner (Self by default, or the current target)
 function Rot:SourceUnit(ref)
-  if ref and ref.type == "CurrentTarget" then return self.unit.currentTarget end
+  -- "Target" is the first target, the only one here
+  if ref and (ref.type == "CurrentTarget" or ref.type == "Target") then return self.unit.currentTarget end
   return self.unit
 end
 
@@ -334,6 +335,8 @@ function Rot:Value(node, vars)
     local sp = self.resolveSpell(node.spellCastTime.spellId)
     if not sp then return nil end
     return Num(function() return sp.castTime * u.castSpeed * (sp.castTimeMultiplier or 1) end)
+  elseif node.numberTargets then
+    return Num(function(sim) return #sim.targets end)
   elseif node.currentManaPercent then
     return Num(function() return u.mana / u.stats[S.ST.Mana] end)
   elseif node.currentMana then
@@ -386,7 +389,7 @@ function Rot:Value(node, vars)
   elseif node.dotTickFrequency then
     -- the snapshotted tick period while it runs, else what it would be now (haste changes come with events)
     local sp = self.resolveSpell(node.dotTickFrequency.spellId)
-    if not (sp and (sp.dots or sp.aoeDot)) then return nil end
+    if not (sp and (sp.dots or sp.aoeDot or sp.relatedDotSpell)) then return nil end
     return Num(function()
       local d = sp.aoeDot or sp:Dot(u.currentTarget)
       if d:IsActive() then return d.tickPeriod end
@@ -394,7 +397,7 @@ function Rot:Value(node, vars)
     end)
   elseif node.dotRemainingTime then
     local sp = self.resolveSpell(node.dotRemainingTime.spellId)
-    if not (sp and (sp.dots or sp.aoeDot)) then return nil end
+    if not (sp and (sp.dots or sp.aoeDot or sp.relatedDotSpell)) then return nil end
     local function aura() return (sp.aoeDot or sp:Dot(u.currentTarget)).aura end
     return Num(function(sim) local a = aura(); return a.active and a:RemainingDuration(sim) or 0 end,
       function() local a = aura(); return (a.active and a.expires ~= huge) and -1 or 0 end,
@@ -408,7 +411,7 @@ function Rot:Value(node, vars)
   elseif node.dotIsActive then
     -- ticks and expiries are events (pending actions / aura trackers) that wake the rotation
     local sp = self.resolveSpell(node.dotIsActive.spellId)
-    if not (sp and (sp.dots or sp.aoeDot)) then return nil end
+    if not (sp and (sp.dots or sp.aoeDot or sp.relatedDotSpell)) then return nil end
     return Bool(function()
       local d = sp.aoeDot or sp:Dot(u.currentTarget)
       return d ~= nil and d:IsActive()
@@ -686,6 +689,46 @@ function Rot:Action(node, vars, knownSpell)
   elseif node.strictSequence then
     impl = self:StrictSequence(node.strictSequence, vars)
     if not impl then return nil end
+  elseif node.activateAura then
+    -- apl_actions_misc.go APLActionActivateAura (Moonkin Form before the pull)
+    local a = self.resolveAura(node.activateAura.auraId, self.unit)
+    if not a then return nil end
+    impl = {
+      ready = function(sim) return not a.icd or a.icd.timer.readyAt <= sim.now end,
+      exec = function(sim) if not a.icd or a.icd.timer.readyAt <= sim.now then a:Activate(sim) end end,
+      next = function(sim) return a.icd and Future(a.icd.timer.readyAt, sim.now) or huge end,
+    }
+  elseif node.multidot then
+    -- apl_actions_casting.go APLActionMultidot: (re)cast the DoT on a target where it is missing or runs out
+    -- within maxOverlap (one target here)
+    local c = node.multidot
+    local sp = self.resolveSpell(c.spellId)
+    if not (sp and (sp.dots or sp.aoeDot or sp.relatedDotSpell)) then return nil end
+    if (c.maxDots or 0) < 1 then return nil end
+    local u = self.unit
+    local ov = c.maxOverlap and self:Value(c.maxOverlap, vars)
+    local ovv = ov and ov.v or ZERO
+    local usesGcd = sp.gcd > 0 or S.has(sp.flags, S.F.MCD)
+    impl = {
+      spell = sp,
+      ready = function(sim)
+        local t = u.currentTarget
+        local d = sp:Dot(t)
+        local overlap = ovv(sim)
+        if (not d:IsActive() or d:RemainingDuration(sim) < overlap) and sp:CanCastOrQueue(sim, t) then return true end
+        return false
+      end,
+      exec = function(sim) sp:CastOrQueue(sim, u.currentTarget) end,
+      next = function(sim)
+        local t = CastNextChange(sp, u, sim, usesGcd)
+        local d = sp:Dot(u.currentTarget)
+        if d:IsActive() then
+          local x = Future(d.aura.expires - ovv(sim), sim.now)
+          if x < t then t = x end
+        end
+        return t
+      end,
+    }
   elseif node.waitUntil then
     -- apl_actions_timing.go APLActionWaitUntil: ready while its condition is false; once run it controls the
     -- rotation (nothing else is read) until the condition holds.

@@ -130,6 +130,19 @@ S.BUFF_PRESETS = {
     consumables = { potId = 22838, battleElixirId = 22831, guardianElixirId = 32067, foodId = 27664, mhImbueId = 34340,
       conjuredId = 12662, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
   },
+  -- The WoWSims Balance Druid preset (ui/specs/druid/balance/presets.ts); the druid's own Moonkin Aura comes from his
+  -- form (Druid.lua).
+  wowsims_balance = {
+    raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
+    party = { chainOfTheTwilightOwl = true, draeneiRacialCaster = true, eyeOfTheNight = true, totemOfWrath = 1,
+      wrathOfAirTotem = 2 },
+    individual = { blessingOfKings = true, blessingOfWisdom = 2, shadowPriestDps = 800 },
+    debuffs = { bloodFrenzy = true, curseOfElements = 2, curseOfRecklessness = true, exposeArmor = 2, giftOfArthas = true,
+      huntersMark = 2, improvedSealOfTheCrusader = 2, judgementOfWisdom = true, mangle = true, misery = true,
+      sunderArmor = true },
+    consumables = { conjuredId = 12662, flaskId = 22861, foodId = 27657, mhImbueId = 25122, potId = 22832,
+      drumsId = "LesserDrumsOfBattle" },
+  },
   -- The WoWSims Shadow Priest preset (ui/specs/priest/dps/presets.ts, phase 3 ISB uptime); the priest brings his own
   -- Misery and Shadow Weaving.
   wowsims_spriest = {
