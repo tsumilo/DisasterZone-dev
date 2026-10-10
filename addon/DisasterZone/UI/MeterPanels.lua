@@ -81,7 +81,7 @@ end
 local function Layout()
     local m = ns.DB:GetSetting("meters.layout")
     if type(m) ~= "table" or type(m.stacks) ~= "table" then
-        m = { v = 2, stacks = {} }
+        m = { v = 3, stacks = {} }
         ns.DB:SetSetting("meters.layout", m)
     end
     return m
@@ -129,7 +129,7 @@ function MP:EnsureViews()
 end
 
 function MP:ResetLayout()
-    ns.DB:SetSetting("meters.layout", { v = 2, stacks = {} })
+    ns.DB:SetSetting("meters.layout", { v = 3, stacks = {} })
     self:EnsureViews()
     self:Rebuild()
 end
@@ -370,6 +370,13 @@ end
 function MP:Rebuild()
     if not holder then return end
     local L = Layout()
+    -- (layouts from before the resize fix: a panel left at 1 row by a touch of the corner gets its default back)
+    if (L.v or 1) == 2 then
+        for _, s in ipairs(L.stacks) do
+            for _, p in ipairs(s.panels) do if p.rows == 1 then p.rows = nil end end
+        end
+        L.v = 3
+    end
     local used = {}
     local hw, hh = HolderSize()
     for si, s in ipairs(L.stacks) do
@@ -1150,7 +1157,7 @@ function MP:Draw()
         end
     end
     if (Layout().v or 1) < 2 and holder:IsShown() then
-        Layout().v = 2
+        Layout().v = 2                 -- (and Rebuild's step brings it to 3)
         if migrated then self:Rebuild() end
     end
 end
@@ -1349,7 +1356,10 @@ end
 function MP:StartResize(f)
     if Locked() or not f.layout then return end
     local pf = f.up and f.panels[1] or f.panels[#f.panels]
-    resize = { frame = f, panel = pf and pf.layout, pf = pf, up = f.up }
+    local sc = f:GetEffectiveScale()
+    local _, cy = GetCursorPosition()
+    resize = { frame = f, panel = pf and pf.layout, pf = pf, up = f.up, y0 = cy / sc,
+               rows0 = pf and pf.layout and (pf.layout.rows or DEFAULT_ROWS) or DEFAULT_ROWS }
 end
 
 local function UpdateResize()
@@ -1362,9 +1372,15 @@ local function UpdateResize()
     local w = min(MAX_W, max(MIN_W, cx - (f:GetLeft() or 0)))
     f:SetWidth(w)
     f.layout.w = floor(w + 0.5)
+    -- rows change by how far the corner moved (away from the stack's held edge = more), from the count it had: a
+    -- width-only drag never touches them. (Measured from the panel's own edge, a panel showing no rows, like Threat
+    -- out of combat, went to 1 row the moment the corner was touched; in-game report 2026-10-10.)
     if r.panel and r.pf then
-        local h = (r.up and (cy - (r.pf:GetBottom() or 0)) or ((r.pf:GetTop() or 0) - cy)) - HEAD_H - PAD * 2
-        r.panel.rows = min(MAX_ROWS, max(1, floor((h + ROW_GAP) / (ROW_H + ROW_GAP) + 0.5)))
+        local dy = cy - r.y0
+        if not r.up then dy = -dy end
+        local steps = (dy >= 0 and floor or math.ceil)(dy / (ROW_H + ROW_GAP))
+        local rows = min(MAX_ROWS, max(1, r.rows0 + steps))
+        if steps ~= 0 or r.panel.rows ~= nil then r.panel.rows = rows end
     end
     MP:Draw()
 end

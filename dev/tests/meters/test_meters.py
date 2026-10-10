@@ -748,7 +748,7 @@ def an_older_layout_low_on_the_screen_switches_to_its_bottom_edge_in_place():
     r.cl.eval("ns.DB:SetSetting('meters.layout', { v = 1, stacks = { { x = 900, y = 260, w = 300, panels = { "
               "{ tabs = { { view = 'damage', seg = 'cur' } } } } } } }); ns.MeterPanels:Rebuild()")
     s = r.cl.eval_py("local s = ns.MeterPanels.Layout().stacks[1]; return { s.y, s.b, ns.MeterPanels.Layout().v }")
-    assert s[0] is None and s[1] == 260 - 24 and s[2] == 2, s
+    assert s[0] is None and s[1] == 260 - 24 and s[2] >= 2, s
 
 
 @case
@@ -832,6 +832,36 @@ def per_second_ranks_like_the_totals_by_default():
     r.cl.eval("ns.DB:SetSetting('meters.rate', 'active')")
     act = r.cl.eval("local s = ns.Meter:GetSegment('cur'); for _, a in pairs(s.actors) do if a.n == 'Ret' then return a.act end end")
     assert act >= 13, act                                    # 4.5 s gaps count as active now (cut-off 5 s)
+
+
+@case
+def the_corner_changes_rows_only_by_how_far_it_is_dragged():
+    """Reported 2026-10-10: Threat showed one player in a raid. The stack hangs from its bottom, so its corner is on
+    Threat, which out of combat is just a header: touching the corner set it to 1 row (measured from the panel's own
+    edge). Rows now change by the drag's distance; layouts left at 1 row get their default back."""
+    r = Raid(thr=True)
+    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.tick(0.5)
+    rows = lambda: r.cl.eval("return ns.MeterPanels.Layout().stacks[1].panels[1].rows")
+    drag = """
+        local MP = ns.MeterPanels
+        local f = MP._Stacks()[1]
+        local sc = f:GetEffectiveScale()
+        __MOCK.mouse_down = true
+        __MOCK.cursor = { 500 * sc, 300 * sc }
+        MP:StartResize(f)
+        __MOCK.cursor = { 520 * sc, (300 + %d) * sc }
+        MP:Draw(); ns.MeterPanels._Holder():GetScript('OnUpdate')(ns.MeterPanels._Holder(), 0.02)
+        __MOCK.mouse_down = false
+        MP:EndResize()
+        __MOCK.cursor = nil"""
+    assert r.cl.eval("return ns.MeterPanels._Stacks()[1].up") is True
+    r.cl.eval(drag % 4)                                      # a width drag (4 px up): rows untouched
+    assert rows() is None, rows()
+    r.cl.eval(drag % 61)                                     # three rows' worth upward: 8 -> 11
+    assert rows() == 11, rows()
+    r.cl.eval("local L = ns.MeterPanels.Layout(); L.v = 2; L.stacks[1].panels[1].rows = 1; ns.MeterPanels:Rebuild()")
+    assert rows() is None and r.cl.eval("return ns.MeterPanels.Layout().v") == 3
 
 
 if __name__ == "__main__":
