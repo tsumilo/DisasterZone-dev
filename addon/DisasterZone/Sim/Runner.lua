@@ -12,11 +12,17 @@ ns.SimRunner = Runner
 local floor, max, min, sqrt = math.floor, math.max, math.min, math.sqrt
 
 Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARRIOR:Arms"] = true,
-  ["SHAMAN:Enhancement"] = true }
+  ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
+  ["DRUID:Feral (Cat)"] = true }
 -- what the sim covers, for the texts that say so
-Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors and Enhancement Shamans"
+Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement Shamans, Rogues and Feral Druids"
 -- class file -> the sim's class
-Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman" }
+Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid" }
+-- spec key -> what differs from the class: options, WoWSims' default reaction time (ms) and distance (yards)
+Runner.SPEC_SETTINGS = {
+  ["DRUID:Feral (Cat)"] = { options = { form = "Cat" }, reactionTimeMs = 250, distance = 0, buffs = "wowsims_cat",
+    field = "feralCatDruid" },
+}
 -- WoWSims' class options (dps/presets.ts DefaultOptions)
 Runner.CLASS_OPTIONS = {
   Shaman = { imbueMh = "WindfuryWeapon", imbueOh = "WindfuryWeapon", syncType = "DelayOffhandSwings", shieldProcrate = 0 },
@@ -36,6 +42,17 @@ Runner.BUFFS = {
       .. "Fire, Curses of Recklessness and the Elements, Misery, Blood Frenzy, Mangle, Gift of Arthas, Hunter's Mark, "
       .. "Expose Weakness, Judgements of the Crusader and Wisdom; flask, food, scrolls, Haste Potion, Flame Cap, your own "
       .. "drums, explosives (Engineering). You drop your own totems and Fire Elemental.",
+    tipRogue = "WoWSims' Rogue raid setup: Bloodlust, drums, Windfury and Grace of Air (twisted), Strength of Earth, "
+      .. "Battle Shout, Leader of the Pack, Ferocious Inspiration, Unleashed Rage, Kings and Might, Gift of the Wild, "
+      .. "Sunder Armor, Faerie Fire, Curse of Recklessness, Blood Frenzy, Mangle, Misery, Gift of Arthas, Hunter's Mark, "
+      .. "Expose Weakness, Judgement of the Crusader; Elixirs of Major Agility and Fortitude, Spicy Hot Talbuk, Haste "
+      .. "Potion, Thistle Tea, Deadly Poison on the off hand, explosives (Engineering). You keep up your own Expose Armor.",
+    tipDruid = "WoWSims' Feral raid setup: Bloodlust, drums, Grace of Air (twisted), Strength of Earth, Battle Shout, "
+      .. "Ferocious Inspiration, Unleashed Rage, Kings and Might, Gift of the Wild, Fortitude, Arcane Intellect, Divine "
+      .. "Spirit, Sunder / Expose Armor, Faerie Fire, Curse of Recklessness, Blood Frenzy, Misery, Gift of Arthas, "
+      .. "Hunter's Mark, Expose Weakness, Judgements of the Crusader and Wisdom; Elixirs of Major Agility and Draenic "
+      .. "Wisdom, Grilled Mudfish, scrolls, Haste Potion, Demonic Rune, weightstone, explosives (Engineering). You bring "
+      .. "your own Leader of the Pack; cats don't proc Windfury Totem.",
     tipWarrior = "WoWSims' Warrior raid setup: Bloodlust, drums, Windfury and Grace of Air (twisted), Strength of Earth, "
       .. "Leader of the Pack, Ferocious Inspiration, Braided Eternium Chain, Unleashed Rage, Kings and Might, Gift of the "
       .. "Wild, Fortitude, Sunder / Expose Armor, Faerie Fire, Curse of Recklessness, Blood Frenzy, Mangle, Gift of "
@@ -100,12 +117,33 @@ local function WithoutTotems(cfg)
   return out
 end
 
+-- A Rogue always has poisons on (Deadly Poison on the off hand, WoWSims' default, unless the setup names its own)
+-- and keeps up his own Expose Armor: the group's goes.
+local function RogueOwn(cfg)
+  local out = {}
+  for k, v in pairs(cfg) do out[k] = v end
+  local c = cfg.consumables or {}
+  if (c.mhImbueId or 0) == 0 and (c.ohImbueId or 0) == 0 then
+    local cons = {}
+    for k, v in pairs(c) do cons[k] = v end
+    cons.ohImbueId = 27186
+    out.consumables = cons
+  end
+  local debuffs = {}
+  for k, v in pairs(cfg.debuffs or {}) do if k ~= "exposeArmor" then debuffs[k] = v end end
+  out.debuffs = debuffs
+  return out
+end
+
 function Runner:BaseConfig(key)
   local cls = self:Class()
   if key == "raid10" then return RAID10 end
   if key == "solo" then return SOLO end
   if cls == "WARRIOR" then return S.BUFF_PRESETS.wowsims_warrior end
   if cls == "SHAMAN" then return S.BUFF_PRESETS.wowsims_enh end
+  if cls == "ROGUE" then return S.BUFF_PRESETS.wowsims_rogue end
+  local ss = self.SPEC_SETTINGS[self:SpecKey()]
+  if ss and ss.buffs then return S.BUFF_PRESETS[ss.buffs] end
   return S.BUFF_PRESETS.wowsims_ret
 end
 
@@ -126,6 +164,7 @@ function Runner:BuffConfig(key)
   end
   if self:Class() == "WARRIOR" then cfg = WithoutShout(cfg) end
   if self:Class() == "SHAMAN" then cfg = WithoutTotems(cfg) end
+  if self:Class() == "ROGUE" then cfg = RogueOwn(cfg) end
   return cfg
 end
 
@@ -184,6 +223,11 @@ Runner.DEFAULT_TALENTS = {
   ["WARRIOR:Fury"] = "3400502130201-05050005505012050115",
   ["WARRIOR:Arms"] = "32005011352010500221-0550000500521203",
   ["SHAMAN:Enhancement"] = "03-500502210501133531151-50005301",
+  ["ROGUE:Combat"] = "0053201252-023305200005015002321151",
+  -- no WoWSims preset for these two: standard Mutilate (41/20/0) and Hemorrhage builds, checked against WoWSims
+  ["ROGUE:Assassination"] = "005323105500102521051-003305000054",
+  ["ROGUE:Subtlety"] = "0053201-023305000005015-0500001000301210500050",
+  ["DRUID:Feral (Cat)"] = "-503032132322105301251-05503301",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -195,6 +239,9 @@ local function ParseLink(link)
   id = tonumber(id)
   if not id then return nil end
   local e = { id = id, enchant = tonumber(enchant) or 0, gems = {} }
+  -- item:id:enchant:gem1:gem2:gem3:gem4:suffix: a random suffix ("of the Bandit") is a negative id, as in WoWSims
+  local suffix = tonumber(link:match("item:%d+:%-?%d*:%-?%d*:%-?%d*:%-?%d*:%-?%d*:(%-?%d+)") or "")
+  if suffix and suffix ~= 0 then e.randomSuffix = suffix end
   if GetItemGem then
     for i = 1, 4 do
       local _, gemLink = GetItemGem(link, i)
@@ -237,14 +284,14 @@ function Runner:CopySet(set)
   for sid, e in pairs(set or {}) do
     local g = {}
     for i, v in pairs(e.gems or {}) do g[i] = v end
-    out[sid] = { id = e.id, enchant = e.enchant, gems = g }
+    out[sid] = { id = e.id, enchant = e.enchant, gems = g, randomSuffix = e.randomSuffix }
   end
   return out
 end
 
 function Runner:SameEntry(a, b)
   if not a or not b then return (a == nil) == (b == nil) end
-  if a.id ~= b.id or (a.enchant or 0) ~= (b.enchant or 0) then return false end
+  if a.id ~= b.id or (a.enchant or 0) ~= (b.enchant or 0) or (a.randomSuffix or 0) ~= (b.randomSuffix or 0) then return false end
   for i = 1, 4 do if ((a.gems or {})[i] or 0) ~= ((b.gems or {})[i] or 0) then return false end end
   return true
 end
@@ -394,20 +441,22 @@ end
 function Runner:Scenario(set, settings)
   local gear = {}
   local db = self:DB()
+  local ss = self.SPEC_SETTINGS[self:SpecKey()] or {}
   for sid = 1, 17 do
     local e = set[sid]
     if e and e.id and db.items[e.id] then
-      gear[sid] = { id = e.id, enchant = (e.enchant ~= 0) and e.enchant or nil, gems = e.gems }
+      gear[sid] = { id = e.id, enchant = (e.enchant ~= 0) and e.enchant or nil, gems = e.gems, randomSuffix = e.randomSuffix }
     end
   end
   local buffs = self:BuffConfig(settings.buffs)
   local class = self.CLASS_NAMES[self:Class() or ""] or "Paladin"
   return {
-    race = self:Race(), class = class, classOptions = self.CLASS_OPTIONS[class], talents = settings.talents, gear = gear,
+    race = self:Race(), class = class, classOptions = ss.options or self.CLASS_OPTIONS[class], talents = settings.talents,
+    gear = gear,
     metaActive = self:MetaActive(set),
     buffs = buffs, consumables = buffs.consumables, professions = settings.professions or self:Professions(),
     duration = settings.duration or 180, seed = settings.seed or 101, mobType = settings.mobType or "Mechanical",
-    reactionTimeMs = 0, distance = 5,
+    reactionTimeMs = ss.reactionTimeMs or 0, distance = ss.distance or 5,
   }
 end
 
@@ -620,6 +669,14 @@ Runner.ABILITIES = {
   [25489] = "Flametongue Weapon", windfury_totem = "Windfury Totem",
   pet_fire_elemental_melee = "Fire Elemental", pet_fire_elemental_13339 = "Fire Elemental",
   pet_fire_elemental_12470 = "Fire Elemental", pet_fire_elemental_13376 = "Fire Elemental",
+  -- Rogues
+  [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
+  [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",
+  [26890] = "Instant Poison", ["26890:1"] = "Instant Poison", [27189] = "Wound Poison", ["27189:1"] = "Wound Poison",
+  ["34413:1"] = "Mutilate", ["34413:2"] = "Mutilate", [14278] = "Ghostly Strike",
+  -- Druids
+  [27002] = "Shred", [27008] = "Rip", [24248] = "Ferocious Bite", [33983] = "Mangle", [27003] = "Rake",
+  [27011] = "Faerie Fire",
 }
 
 -- The breakdown: { { name, dps } } merged by name, largest first.
@@ -725,6 +782,8 @@ Runner.WOWSIMS_SPEC = {
     classOptions = { shieldProcrate = 0, imbueMh = "WindfuryWeapon" }, imbueOh = "WindfuryWeapon",
     syncType = "DelayOffhandSwings" } } },
   Paladin = { class = "ClassPaladin", field = "retributionPaladin", options = { options = { classOptions = {} } } },
+  Rogue = { class = "ClassRogue", field = "rogue", options = { options = { classOptions = {} } } },
+  Druid = { class = "ClassDruid", field = "feralCatDruid", options = { options = { classOptions = {} } } },
   Warrior = { class = "ClassWarrior", field = "dpsWarrior", options = { options = { classOptions = {
     queueDelay = 250, startingRage = 50, defaultShout = "WarriorShoutBattle", defaultStance = "WarriorStanceBerserker",
     hasBsT2 = true, stanceSnapshot = true } } } },
@@ -734,12 +793,15 @@ Runner.WOWSIMS_SPEC = {
 function Runner:WoWSimsSettings(set, settings)
   local sc = self:Scenario(set, settings)
   local ws = self.WOWSIMS_SPEC[sc.class] or self.WOWSIMS_SPEC.Paladin
+  local ss = self.SPEC_SETTINGS[self:SpecKey()]
+  if ss and ss.field then ws = { class = ws.class, field = ss.field, options = { options = { classOptions = {} } } } end
   local items = {}
   for sid = 1, 17 do
     local g = sc.gear[sid]
     local it = {}
     if g then
       it.id = g.id
+      if g.randomSuffix and g.randomSuffix ~= 0 then it.randomSuffix = g.randomSuffix end
       if g.enchant and g.enchant ~= 0 then it.enchant = g.enchant end
       local gems, last = {}, 0
       for i = 1, 4 do if g.gems and g.gems[i] and g.gems[i] ~= 0 then last = i end end

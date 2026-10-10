@@ -15,7 +15,7 @@ local function ParseStats(s, sep)
   return t
 end
 
-local items, gems, enchants, consumables = {}, {}, {}, {}
+local items, gems, enchants, consumables, suffixes = {}, {}, {}, {}, {}
 
 local function ParseItem(id)
   local raw = ns.Data and ns.Data.SimItems and ns.Data.SimItems[id]
@@ -25,7 +25,7 @@ local function ParseItem(id)
   for x in head:gmatch("[^,]+") do f[#f + 1] = tonumber(x) end
   local it = {
     id = id, type = f[1], handType = f[2], weaponType = f[3], weaponSpeed = f[4], weaponMin = f[5], weaponMax = f[6],
-    stats = ParseStats(stats), setName = set ~= "" and set or nil, effects = {},
+    randPropPoints = f[7] or 0, stats = ParseStats(stats), setName = set ~= "" and set or nil, effects = {},
   }
   for e in effs:gmatch("[^/]+") do
     local p = {}
@@ -93,11 +93,21 @@ function S.GameDB()
       return p or nil
     end }),
     onUse = (ns.Data and ns.Data.SimOnUse) or {},
+    suffixes = setmetatable({}, { __index = function(t, id)
+      local s = suffixes[id]
+      if s == nil then
+        local r = ns.Data and ns.Data.SimSuffixes and ns.Data.SimSuffixes[id]
+        s = r and { id = id, stats = ParseStats(r) } or false
+        suffixes[id] = s
+      end
+      return s or nil
+    end }),
     consumables = setmetatable({}, { __index = function(t, id)
       local c = consumables[id]
       if c == nil then
         local r = ns.Data and ns.Data.SimConsumables and ns.Data.SimConsumables[id]
-        local ty, st = r and r:match("^(%d+)|(.*)$")
+        local ty, st
+        if r then ty, st = r:match("^(%d+)|(.*)$") end
         c = ty and { id = id, type = tonumber(ty), stats = ParseStats(st) } or false
         consumables[id] = c
       end

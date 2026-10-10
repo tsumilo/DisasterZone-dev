@@ -105,7 +105,7 @@ def main():
             continue
         head = ",".join(fmt_num(x) for x in (it.get("type", 0), it.get("handType", 0), it.get("weaponType", 0),
                                              it.get("weaponSpeed", 0), so.get("weaponDamageMin", 0),
-                                             so.get("weaponDamageMax", 0)))
+                                             so.get("weaponDamageMax", 0), so.get("randPropPoints", 0)))
         effs = []
         for e in it.get("itemEffects", []):
             eso = (e.get("scalingOptions") or {}).get("0", {})
@@ -138,6 +138,13 @@ def main():
     lines.append("}")
     lines.append("ns.Data.SimOnUse = {")
     lines.append("  " + ", ".join("[%d] = true" % i for i in sorted(onuse)))
+    lines.append("}")
+    # random suffixes ("of the Bandit"): their stat allocation, scaled by an item's randPropPoints / 10000
+    lines.append("ns.Data.SimSuffixes = {")
+    for r in sorted(db.get("randomSuffixes", []), key=lambda r: r["id"]):
+        st = {i: v for i, v in enumerate(r.get("stats") or []) if v}
+        if st:
+            lines.append('  [%d] = "%s",' % (r["id"], stats_str(st)))
     lines.append("}")
     # consumables with stats (flasks, elixirs, food, potions): "type|stats" (WS stat numbers)
     lines.append("ns.Data.SimConsumables = {")

@@ -272,4 +272,20 @@ do
   SB["Imbued Netherweave"] = { [3] = stats({ SpellCritRating = 28 }) }
   SB["Netherweave Vestments"] = { [2] = stats({ SpellDamage = 23, HealingPower = 23 }), [4] = stats({ SpellCritRating = 14 }) }
   SB["Arcanoweave Vestments"] = { [3] = stats({ SpellHitRating = 16 }) }
+  -- Warglaives of Azzinoth (items_weapons.go), Rogues and Warriors: 450 haste rating for 10 s (1 PPM on the sword
+  -- hands, 45 s cooldown) and +200 attack power against demons.
+  SB["The Twin Blades of Azzinoth"] = { [2] = function(p, a)
+    if p.class ~= "Rogue" and p.class ~= "Warrior" then return end
+    local buff = p:NewTemporaryStatsAura("The Twin Blades of Azzinoth", { [ST.MeleeHasteRating] = 450 }, 10)
+    S.AttachProcTrigger(a, p, { name = "The Twin Blades of Azzinoth - Trigger", dpm = S.NewPPM(p, 1, S.ProcMaskForTypes(p, 9)),
+      icd = 45, outcome = O.Landed, callback = "hit", handler = function(sim) buff:Activate(sim) end })
+    local function demons(d)
+      for t, at in pairs(p.attackTables) do
+        if t.mobType == "Demon" then at.mobBonusAP = (at.mobBonusAP or 0) + d end
+      end
+    end
+    local og, oe = a.onGain, a.onExpire
+    a.onGain = function(aura, sim) if og then og(aura, sim) end demons(200) end
+    a.onExpire = function(aura, sim) if oe then oe(aura, sim) end demons(-200) end
+  end }
 end

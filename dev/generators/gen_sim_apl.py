@@ -17,6 +17,11 @@ APLS = {
     "WARRIOR:Fury": "ui/specs/warrior/dps/apls/fury.apl.json",
     "WARRIOR:Arms": "ui/specs/warrior/dps/apls/arms.apl.json",
     "SHAMAN:Enhancement": "ui/specs/shaman/enhancement/apls/default.apl.json",
+    # one Rogue list for every build: it checks which of Mutilate / Hemorrhage / Backstab the rogue has
+    "ROGUE:Combat": "ui/specs/rogue/dps/apls/swords.apl.json",
+    "ROGUE:Assassination": "ui/specs/rogue/dps/apls/swords.apl.json",
+    "ROGUE:Subtlety": "ui/specs/rogue/dps/apls/swords.apl.json",
+    "DRUID:Feral (Cat)": "ui/specs/druid/feralcat/apls/default.apl.json",
 }
 
 
@@ -49,11 +54,18 @@ def main():
         "ns.Data = ns.Data or {}",
         "ns.Data.SimAPL = {",
     ]
+    first, aliases = {}, []
     for key, rel in APLS.items():
+        if rel in first:
+            aliases.append((key, first[rel]))  # the same list again: one table, two keys
+            continue
+        first[rel] = key
         with open(os.path.join(WOWSIMS, rel), encoding="utf-8") as f:
             apl = json.load(f)
         lines.append('  ["%s"] = %s,' % (key, lua(apl, "  ")))
     lines.append("}")
+    for key, src in aliases:
+        lines.append('ns.Data.SimAPL["%s"] = ns.Data.SimAPL["%s"]' % (key, src))
     with open(OUT, "wb") as f:
         f.write(("\n".join(lines) + "\n").encode("utf-8"))
     print("wrote", OUT)

@@ -26,7 +26,7 @@ ADDON = os.path.normpath(os.path.join(DEV, "..", "addon", "DisasterZone"))
 if not os.path.isdir(ADDON):
     ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 SIM_FILES = ["Core", "Unit", "Spell", "Attack", "Resources", "Dot", "Pet", "APL", "Character", "Buffs", "Items",
-             "Paladin", "Warrior", "Shaman", "Rogue", "Data", "Setup"]
+             "Paladin", "Warrior", "Shaman", "Rogue", "Druid", "Data", "Setup"]
 DATA_FILES = ["Data/Gems.lua", "Data/SimItems.lua"]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -132,7 +132,7 @@ def build_db(gear):
             "weaponSpeed": it.get("weaponSpeed"), "weaponMin": so.get("weaponDamageMin"), "weaponMax": so.get("weaponDamageMax"),
             "stats": {int(k): v for k, v in (so.get("stats") or {}).items()},
             "sockets": it.get("gemSockets", []), "socketBonus": dense_to_dict(it.get("socketBonus")),
-            "setName": it.get("setName"), "effects": effects,
+            "setName": it.get("setName"), "effects": effects, "randPropPoints": so.get("randPropPoints", 0),
         }
         for gid in spec.get("gems", []):
             g = gems_by_id.get(gid)
@@ -144,8 +144,9 @@ def build_db(gear):
                 enchants[spec["enchant"]] = {"effectId": e["effectId"], "stats": dense_to_dict(e.get("stats"))}
     consumables = {c["id"]: {"id": c["id"], "type": c.get("type", 0), "stats": dense_to_dict(c.get("stats"))}
                    for c in db.get("consumables", [])}
+    suffixes = {r["id"]: {"id": r["id"], "stats": dense_to_dict(r.get("stats"))} for r in db.get("randomSuffixes", [])}
     return {"items": items, "gems": gems, "enchants": enchants, "itemProcs": parse_go_procs(),
-            "onUse": {i: True for i in parse_go_onuse()}, "consumables": consumables}
+            "onUse": {i: True for i in parse_go_onuse()}, "consumables": consumables, "suffixes": suffixes}
 
 
 # ---------------------------------------------------------------------------------------------------------------

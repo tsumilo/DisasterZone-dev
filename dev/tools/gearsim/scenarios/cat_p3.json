@@ -1,0 +1,104 @@
+{
+ "spec": "cat",
+ "race": "NightElf",
+ "talents": "-503032132322105301251-05503301",
+ "gear": [
+  {
+   "id": 8345,
+   "enchant": 3003
+  },
+  {
+   "id": 32260
+  },
+  {
+   "id": 31048,
+   "enchant": 2986,
+   "gems": [
+    32194,
+    32194
+   ]
+  },
+  {
+   "id": 29994,
+   "enchant": 368
+  },
+  {
+   "id": 31042,
+   "enchant": 2661,
+   "gems": [
+    32194,
+    32194,
+    32194
+   ]
+  },
+  {
+   "id": 33881,
+   "enchant": 2647,
+   "gems": [
+    32194
+   ]
+  },
+  {
+   "id": 31034,
+   "enchant": 2564,
+   "gems": [
+    32194
+   ]
+  },
+  {
+   "id": 30106,
+   "gems": [
+    32194,
+    32194
+   ]
+  },
+  {
+   "id": 31044,
+   "enchant": 3012,
+   "gems": [
+    32194
+   ]
+  },
+  {
+   "id": 32366,
+   "enchant": 2939,
+   "gems": [
+    32194,
+    32194
+   ]
+  },
+  {
+   "id": 29301,
+   "enchant": 2931
+  },
+  {
+   "id": 32335,
+   "enchant": 2931
+  },
+  {
+   "id": 30627
+  },
+  {
+   "id": 29383
+  },
+  {
+   "id": 33716,
+   "enchant": 2670
+  },
+  {},
+  {
+   "id": 32387
+  }
+ ],
+ "buffs": "wowsims_default",
+ "consumables": "wowsims_default",
+ "duration": 180,
+ "durationVariation": 0,
+ "mobType": "Mechanical",
+ "iterations": 10000,
+ "seed": 101,
+ "reactionTimeMs": 250,
+ "distanceFromTarget": 0,
+ "profession1": "Engineering",
+ "profession2": "Enchanting"
+}

@@ -1,7 +1,8 @@
 """Item sweep: swap each item into a base scenario, run WoWSims and the Lua sim, flag significant differences.
 
 Usage:
-  python item_sweep.py base_scenario.json --items 28830,29383 | --wowsims-ret-items [--lua-iterations 1000]
+  python item_sweep.py base_scenario.json --items 28830,29383 | --wowsims-ret-items | --wowsims-items rogue/TestRogue
+       [--lua-iterations 1000]
        [--ws-iterations 20000] [--jobs 4] [--out sweep.json]
 
 Uses the dev kit's lupa env for the Lua side (run with dev/luaenv/Scripts/python.exe).
@@ -24,7 +25,12 @@ SLOT_BY_TYPE = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 11:
 
 
 def ret_items():
-    res = open(os.path.join(WOWSIMS, "sim", "paladin", "retribution", "TestRetribution.results"), encoding="utf-8").read()
+    return test_items("paladin/retribution/TestRetribution")
+
+
+def test_items(rel):
+    """The items a WoWSims class test sweeps (sim/<rel>.results AllItems-...)."""
+    res = open(os.path.join(WOWSIMS, "sim", *(rel + ".results").split("/")), encoding="utf-8").read()
     return sorted(set(int(m) for m in re.findall(r'AllItems-[^"]*?-(\d+)"', res)))
 
 
@@ -37,12 +43,20 @@ def scenario_for(base, item):
     slot = SLOT_BY_TYPE.get(item.get("type"))
     if slot is None:
         return None
-    if item.get("type") == 13 and item.get("handType") not in (4,):  # Ret sims a 2H
-        return None
     sc = json.loads(json.dumps(base))
     gear = sc["gear"]
     while len(gear) < 17:
         gear.append({})
+    if item.get("type") == 13:
+        # a dual wielder's base sims one-handers (an off-hand-only one in the off hand), a 2H base only 2H weapons
+        dw = bool((gear[15] or {}).get("id"))
+        hand = item.get("handType")
+        if dw:
+            if hand == 4:
+                return None
+            slot = 15 if hand == 3 else 14
+        elif hand != 4:
+            return None
     gear[slot] = {"id": item["id"]}
     sc["sweepItem"] = item["id"]
     return sc
@@ -63,6 +77,7 @@ def main():
     ap.add_argument("base")
     ap.add_argument("--items")
     ap.add_argument("--wowsims-ret-items", action="store_true")
+    ap.add_argument("--wowsims-items", help="class test whose items to sweep, e.g. rogue/TestRogue")
     ap.add_argument("--lua-iterations", type=int, default=1000)
     ap.add_argument("--ws-iterations", type=int, default=20000)
     ap.add_argument("--jobs", type=int, default=4)
@@ -70,7 +85,10 @@ def main():
     a = ap.parse_args()
     base = json.load(open(a.base, encoding="utf-8"))
     items = item_db()
-    ids = ret_items() if a.wowsims_ret_items else [int(x) for x in a.items.split(",")]
+    if a.wowsims_items:
+        ids = test_items(a.wowsims_items)
+    else:
+        ids = ret_items() if a.wowsims_ret_items else [int(x) for x in a.items.split(",")]
     scs = []
     for i in ids:
         if i not in items:

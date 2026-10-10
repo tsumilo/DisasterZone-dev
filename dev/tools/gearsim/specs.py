@@ -89,6 +89,23 @@ ROGUE_BUFFS = {
                     "conjuredId": 7676, "ohImbueId": 27186},
 }
 
+# ui/specs/druid/feralcat/spec.ts defaults + presets.ts DefaultConsumables
+CAT_BUFFS = {
+    "raid": {"bloodlust": True, "arcaneBrilliance": True, "divineSpirit": IMP, "giftOfTheWild": IMP,
+             "powerWordFortitude": IMP, "shadowProtection": True},
+    "party": {"drums": "LesserDrumsOfBattle", "ferociousInspiration": 2, "battleShout": IMP, "graceOfAirTotem": IMP,
+              "windfuryTotem": IMP, "manaSpringTotem": REG, "strengthOfEarthTotem": IMP, "totemTwisting": True},
+    "individual": {"blessingOfKings": True, "blessingOfMight": IMP, "unleashedRage": True},
+    "debuffs": {
+        "exposeWeaknessUptime": 0.9, "exposeWeaknessHunterAgility": 1080, "bloodFrenzy": True, "exposeArmor": IMP,
+        "huntersMark": IMP, "improvedSealOfTheCrusader": IMP, "judgementOfWisdom": True, "misery": True,
+        "curseOfRecklessness": True, "faerieFire": IMP, "sunderArmor": True, "giftOfArthas": True,
+    },
+    "consumables": {"potId": 22838, "battleElixirId": 22831, "guardianElixirId": 32067, "foodId": 27664,
+                    "mhImbueId": 34340, "conjuredId": 12662, "superSapper": True, "goblinSapper": True,
+                    "scrollAgi": True, "scrollStr": True},
+}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -104,4 +121,7 @@ SPECS = {
             "luaOptions": ENH_LUA_OPTIONS},
     "rogue": {"class": "Rogue", "wsClass": "ClassRogue", "field": "rogue", "options": {"options": {"classOptions": {}}},
               "apl": "ui/specs/rogue/dps/apls/swords.apl.json", "buffs": ROGUE_BUFFS, "luaBuffs": "wowsims_rogue"},
+    "cat": {"class": "Druid", "wsClass": "ClassDruid", "field": "feralCatDruid",
+            "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/druid/feralcat/apls/default.apl.json",
+            "buffs": CAT_BUFFS, "luaBuffs": "wowsims_cat", "luaOptions": {"form": "Cat"}},
 }

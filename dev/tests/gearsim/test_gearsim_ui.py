@@ -366,6 +366,77 @@ ENH_P1 = [29040, 29381, 29043, 24259, 29515, 29517, 29516, 28776, 28741, 28545, 
           28308, 27815]
 
 
+# WoWSims' P1 Combat Rogue preset (ui/specs/rogue/dps/gear_sets/p1.gear.json), no gems or enchants
+ROGUE_P1 = [29044, 24114, 27797, 28672, 29045, 29246, 27531, 29247, 28741, 28545, 28757, 28649, 28830, 29383, 28295,
+            28189, 28772]
+
+
+@r.case
+def combat_rogue_sims():
+    w = new_world()
+    c = Client(w, "Shanks", class_file="ROGUE", race="Human", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Combat") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(ROGUE_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 8")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    assert c.eval("return ns.MainFrame:GetPanel('mybis').simBtn:IsEnabled()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 1200 < res["work"] < 2900 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Melee", "Off-hand melee", "Sinister Strike", "Deadly Poison", "Sword Specialization"):
+        assert want in names, (want, names)
+    # poisons stay on whatever the buffs setting
+    for key in ("raid10", "solo"):
+        cfg = c.eval_py("return ns.SimRunner:BuffConfig(...)", key)
+        assert cfg["consumables"].get("ohImbueId") == 27186, (key, cfg["consumables"])
+    doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                          "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+    assert doc["player"]["class"] == "ClassRogue" and "rogue" in doc["player"], doc["player"].keys()
+    assert doc["player"]["consumables"].get("conjuredId") == 7676, doc["player"]["consumables"]
+    assert_no_lua_errors(w)
+
+
+# WoWSims' P1 Feral preset (ui/specs/druid/feralcat/gear_sets/p1_bis_6p.gear.json), no gems, enchants or suffixes
+CAT_P1 = [8345, 29119, 29100, 28672, 29096, 30685, 28506, 30676, 28741, 28545, 28791, 30834, 21670, 29383, 28658, 0, 29390]
+
+
+@r.case
+def feral_cat_sims():
+    w = new_world()
+    c = Client(w, "Kitty", class_file="DRUID", race="NightElf", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Feral (Cat)") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(CAT_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 1200 < res["work"] < 3200 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Melee", "Shred", "Rip", "Mangle"):
+        assert want in names, (want, names)
+    sc = c.eval_py("return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), { buffs = 'raid25', duration = 180 })")
+    assert sc["reactionTimeMs"] == 250 and sc["classOptions"]["form"] == "Cat", (sc["reactionTimeMs"], sc["classOptions"])
+    doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                          "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+    assert doc["player"]["class"] == "ClassDruid" and "feralCatDruid" in doc["player"], doc["player"].keys()
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()

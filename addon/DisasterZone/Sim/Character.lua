@@ -257,6 +257,14 @@ function S.BuildPlayer(sim, loadout, db)
       p.gear[slot] = { item = item, spec = spec }
       p.gearIds[slot] = spec.id
       add(WSStats(item.stats))
+      -- a random suffix: its stats x the item's random property points / 10000, each floored (database.go)
+      local suf = spec.randomSuffix and spec.randomSuffix ~= 0 and db.suffixes and db.suffixes[spec.randomSuffix]
+      if suf then
+        local rpp = item.randPropPoints or 0
+        local t = {}
+        for k, v in pairs(suf.stats) do t[k] = floor(v * rpp / 10000) end
+        add(WSStats(t))
+      end
       local ench = spec.enchant and db.enchants[spec.enchant]
       if ench then add(WSStats(ench.stats)) end
       local gems = {}

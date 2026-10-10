@@ -515,7 +515,7 @@ function SimPanel:BuffsTooltip(tt, key)
     if b.key == key then
       tt:AddLine(b.text, 1, 0.82, 0)
       local cls = R():Class()
-      tt:AddLine((cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or b.tip, 1, 1, 1, true)
+      tt:AddLine((cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or b.tip, 1, 1, 1, true)
       return
     end
   end

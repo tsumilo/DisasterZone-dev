@@ -173,6 +173,31 @@ end
 
 function AA:NextAttackAt() return min(self.mh.swingAt, self.oh.swingAt) end
 
+-- attack.go SetMH: another weapon in the main hand (a druid's paws), the swing timer kept.
+local WEAPON_FIELDS = { "baseMin", "baseMax", "swingSpeed", "normalizedSpeed", "apPerDps", "twoHand", "weaponType", "handType" }
+function AA:SetMH(weapon)
+  local wa = self.mh
+  for _, k in ipairs(WEAPON_FIELDS) do wa[k] = weapon[k] end
+  wa:UpdateSwingDuration(wa.curSwingSpeed)
+end
+
+-- attack.go EnableMeleeSwing (no ranged swing here): nothing before the pull; in combat a stopped hand starts again.
+function AA:EnableAutoSwing(sim)
+  if not self.autoSwingMelee or sim.isInPrepull then return end
+  local u = self.unit
+  if not u.currentTarget then return end
+  self.mh.swingAt = max(self.mh.swingAt, sim.now, 0)
+  if not self.mh.enabled then
+    self.mh.enabled = true
+    self.mh:AddToSim(sim, u:TotalMeleeHasteMultiplier())
+  end
+  if self.isDualWielding and not self.oh.enabled then
+    self.oh.swingAt = max(self.oh.swingAt, sim.now, 0)
+    self.oh.enabled = true
+    self.oh:AddToSim(sim, u:TotalMeleeHasteMultiplier())
+  end
+end
+
 function AA:DelayMeleeBy(sim, d)
   if d <= 0 then return end
   self.mh.swingAt = self.mh.swingAt + d

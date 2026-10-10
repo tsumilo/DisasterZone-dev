@@ -5383,4 +5383,4553 @@ ns.Data.SimAPL = {
       },
     },
   },
+  ["ROGUE:Combat"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              itemId = 24114,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-5s",
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 13750,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-1s",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                currentEnergy = {},
+              },
+              rhs = {
+                const = {
+                  val = "40",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 13750,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                currentEnergy = {},
+              },
+              rhs = {
+                const = {
+                  val = "30",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              itemId = 7676,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  auraIsActive = {
+                    auraId = {
+                      spellId = 6774,
+                    },
+                  },
+                },
+                {
+                  auraIsActive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 26866,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 13877,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            auraIsActive = {
+              auraId = {
+                spellId = 6774,
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 14177,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  auraIsActive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 26866,
+                      rank = 6,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpEq",
+                    lhs = {
+                      auraNumStacks = {
+                        sourceUnit = {
+                          type = "CurrentTarget",
+                        },
+                        auraId = {
+                          spellId = 25225,
+                          rank = 6,
+                        },
+                        includeReactionTime = true,
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          autocastOtherCooldowns = {},
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Imp EA Talented",
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      variableRef = {
+                        name = "Use Backstab",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      variableRef = {
+                        name = "EA Above Minimum",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpEq",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Cast Expose or Pool",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  ["and"] = {
+                    vals = {
+                      {
+                        auraIsInactive = {
+                          auraId = {
+                            spellId = 6774,
+                            rank = 2,
+                          },
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "Sunders Provided",
+                        },
+                      },
+                      {
+                        auraIsActive = {
+                          sourceUnit = {
+                            type = "CurrentTarget",
+                          },
+                          auraId = {
+                            spellId = 25225,
+                            rank = 6,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["and"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpGe",
+                          lhs = {
+                            currentComboPoints = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "3s",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["not"] = {
+                          val = {
+                            variableRef = {
+                              name = "SnD Above Minimum",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "EA Above Minimum",
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["and"] = {
+                    vals = {
+                      {
+                        auraIsInactive = {
+                          auraId = {
+                            spellId = 6774,
+                            rank = 2,
+                          },
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "EA Above Minimum",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 6774,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  ["not"] = {
+                    val = {
+                      dotIsActive = {
+                        spellId = {
+                          spellId = 26867,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "EA and SnD Safe",
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              variableRef = {
+                                name = "Imp EA Talented",
+                              },
+                            },
+                            {
+                              ["not"] = {
+                                val = {
+                                  variableRef = {
+                                    name = "Spam Shiv",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "3",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        cmp = {
+                          op = "OpEq",
+                          lhs = {
+                            currentComboPoints = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "5",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 26867,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLe",
+                          lhs = {
+                            remainingTime = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "5s",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              variableRef = {
+                                name = "Spam Shiv",
+                              },
+                            },
+                            {
+                              variableRef = {
+                                name = "EA and SnD Safe",
+                              },
+                            },
+                            {
+                              dotIsActive = {
+                                spellId = {
+                                  spellId = 26867,
+                                  rank = 7,
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 26865,
+              rank = 10,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  ["not"] = {
+                    val = {
+                      spellIsKnown = {
+                        spellId = {
+                          spellId = 34413,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        variableRef = {
+                          name = "EA Fall Imminent",
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "Spam Shiv",
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  dotRemainingTime = {
+                                    spellId = {
+                                      spellId = 27187,
+                                      rank = 7,
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "1s",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              auraIsKnown = {
+                                sourceUnit = {
+                                  type = "CurrentTarget",
+                                },
+                                auraId = {
+                                  spellId = 27187,
+                                  rank = 7,
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  auraNumStacks = {
+                                    sourceUnit = {
+                                      type = "CurrentTarget",
+                                    },
+                                    auraId = {
+                                      spellId = 27187,
+                                      rank = 7,
+                                    },
+                                    includeReactionTime = true,
+                                  },
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "5",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              auraIsKnown = {
+                                sourceUnit = {
+                                  type = "CurrentTarget",
+                                },
+                                auraId = {
+                                  spellId = 27187,
+                                  rank = 7,
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "Spam Shiv",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 5938,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "At or Above Pool Threshold",
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 26864,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Use Backstab",
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentComboPoints = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "5",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "At or Above Pool Threshold",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 26863,
+              rank = 10,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  spellIsKnown = {
+                    spellId = {
+                      spellId = 34413,
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpEq",
+                          lhs = {
+                            currentComboPoints = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "4",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        auraIsInactive = {
+                          auraId = {
+                            spellId = 6774,
+                            rank = 2,
+                          },
+                          includeReactionTime = true,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "EA Fall Imminent",
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 5938,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "At or Above Pool Threshold",
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 34413,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  ["not"] = {
+                    val = {
+                      spellIsKnown = {
+                        spellId = {
+                          spellId = 26864,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      spellIsKnown = {
+                        spellId = {
+                          spellId = 34413,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      variableRef = {
+                        name = "Use Backstab",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentComboPoints = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "5",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "At or Above Pool Threshold",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 26862,
+              rank = 10,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              itemId = 23827,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              itemId = 10646,
+            },
+          },
+        },
+      },
+    },
+    groups = {
+      {
+        name = "Cast Expose or Pool",
+        actions = {
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      ["not"] = {
+                        val = {
+                          variableRef = {
+                            name = "EA Above Minimum",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["not"] = {
+                        val = {
+                          variableRef = {
+                            name = "EA Fall Imminent",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["not"] = {
+                        val = {
+                          variableRef = {
+                            name = "At or Above Pool Threshold",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      variableRef = {
+                        name = "SnD Above Minimum",
+                      },
+                    },
+                  },
+                },
+              },
+              waitUntil = {
+                condition = {
+                  ["or"] = {
+                    vals = {
+                      {
+                        variableRef = {
+                          name = "EA Fall Imminent",
+                        },
+                      },
+                      {
+                        variableRef = {
+                          name = "At or Above Pool Threshold",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            action = {
+              castSpell = {
+                spellId = {
+                  spellId = 26866,
+                  rank = 6,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    valueVariables = {
+      {
+        name = "Spam Shiv",
+        value = {
+          const = {
+            val = "false",
+          },
+        },
+      },
+      {
+        name = "Use Backstab",
+        value = {
+          const = {
+            val = "false",
+          },
+        },
+      },
+      {
+        name = "Sunders Provided",
+        value = {
+          auraIsKnown = {
+            sourceUnit = {
+              type = "CurrentTarget",
+            },
+            auraId = {
+              spellId = 25225,
+              rank = 6,
+            },
+          },
+        },
+      },
+      {
+        name = "Imp EA Talented",
+        value = {
+          auraIsKnown = {
+            auraId = {
+              spellId = 14168,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        name = "EA and SnD Safe",
+        value = {
+          ["or"] = {
+            vals = {
+              {
+                ["or"] = {
+                  vals = {
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            ["not"] = {
+                              val = {
+                                variableRef = {
+                                  name = "Spam Shiv",
+                                },
+                              },
+                            },
+                          },
+                          {
+                            ["not"] = {
+                              val = {
+                                variableRef = {
+                                  name = "Imp EA Talented",
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                auraRemainingTime = {
+                                  auraId = {
+                                    spellId = 6774,
+                                    rank = 2,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "6s",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            variableRef = {
+                              name = "Spam Shiv",
+                            },
+                          },
+                          {
+                            ["not"] = {
+                              val = {
+                                variableRef = {
+                                  name = "Imp EA Talented",
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                auraRemainingTime = {
+                                  auraId = {
+                                    spellId = 6774,
+                                    rank = 2,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "1s",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                ["or"] = {
+                  vals = {
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            ["not"] = {
+                              val = {
+                                variableRef = {
+                                  name = "Spam Shiv",
+                                },
+                              },
+                            },
+                          },
+                          {
+                            variableRef = {
+                              name = "Imp EA Talented",
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                auraRemainingTime = {
+                                  sourceUnit = {
+                                    type = "CurrentTarget",
+                                  },
+                                  auraId = {
+                                    spellId = 26866,
+                                    rank = 6,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "18s",
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                auraRemainingTime = {
+                                  auraId = {
+                                    spellId = 6774,
+                                    rank = 2,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "14s",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["and"] = {
+                        vals = {
+                          {
+                            variableRef = {
+                              name = "Spam Shiv",
+                            },
+                          },
+                          {
+                            variableRef = {
+                              name = "Imp EA Talented",
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                auraRemainingTime = {
+                                  sourceUnit = {
+                                    type = "CurrentTarget",
+                                  },
+                                  auraId = {
+                                    spellId = 26866,
+                                    rank = 6,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "12s",
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                auraRemainingTime = {
+                                  auraId = {
+                                    spellId = 6774,
+                                    rank = 2,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "4s",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Shiv Minimum SnD Time",
+        value = {
+          const = {
+            val = "1s",
+          },
+        },
+      },
+      {
+        name = "Minimum SnD Time",
+        value = {
+          const = {
+            val = "10s",
+          },
+        },
+      },
+      {
+        name = "Shiv Minimum EA Time",
+        value = {
+          const = {
+            val = "4s",
+          },
+        },
+      },
+      {
+        name = "Minimum EA Time",
+        value = {
+          const = {
+            val = "15s",
+          },
+        },
+      },
+      {
+        name = "SnD Above Minimum",
+        value = {
+          ["or"] = {
+            vals = {
+              {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          auraRemainingTime = {
+                            auraId = {
+                              spellId = 6774,
+                              rank = 2,
+                            },
+                          },
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Shiv Minimum SnD Time",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      variableRef = {
+                        name = "Spam Shiv",
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          auraRemainingTime = {
+                            auraId = {
+                              spellId = 6774,
+                              rank = 2,
+                            },
+                          },
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Minimum SnD Time",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["not"] = {
+                        val = {
+                          variableRef = {
+                            name = "Spam Shiv",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "EA Above Minimum",
+        value = {
+          ["or"] = {
+            vals = {
+              {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          auraRemainingTime = {
+                            sourceUnit = {
+                              type = "CurrentTarget",
+                            },
+                            auraId = {
+                              spellId = 26866,
+                              rank = 6,
+                            },
+                          },
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Shiv Minimum EA Time",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      variableRef = {
+                        name = "Spam Shiv",
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          auraRemainingTime = {
+                            sourceUnit = {
+                              type = "CurrentTarget",
+                            },
+                            auraId = {
+                              spellId = 26866,
+                              rank = 6,
+                            },
+                          },
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Minimum EA Time",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["not"] = {
+                        val = {
+                          variableRef = {
+                            name = "Spam Shiv",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                ["not"] = {
+                  val = {
+                    variableRef = {
+                      name = "Imp EA Talented",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "EA Fall Imminent",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    auraRemainingTime = {
+                      sourceUnit = {
+                        type = "CurrentTarget",
+                      },
+                      auraId = {
+                        spellId = 26866,
+                        rank = 6,
+                      },
+                    },
+                  },
+                  rhs = {
+                    const = {
+                      val = "6s",
+                    },
+                  },
+                },
+              },
+              {
+                variableRef = {
+                  name = "Imp EA Talented",
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "At or Above Pool Threshold",
+        value = {
+          cmp = {
+            op = "OpGe",
+            lhs = {
+              currentEnergy = {},
+            },
+            rhs = {
+              const = {
+                val = "71",
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  ["DRUID:Feral (Cat)"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 768,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-10s",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpGe",
+              lhs = {
+                currentTime = {},
+              },
+              rhs = {
+                variableRef = {
+                  name = "Bloodlust Time",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 2825,
+              tag = -1,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpGe",
+              lhs = {
+                currentTime = {},
+              },
+              rhs = {
+                const = {
+                  val = "0s",
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Drums",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            auraIsInactive = {
+              sourceUnit = {
+                type = "CurrentTarget",
+              },
+              auraId = {
+                spellId = 26993,
+                rank = 5,
+              },
+              includeReactionTime = true,
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27011,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentMana = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 768,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Rip CP",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      remainingTime = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "10s",
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 27008,
+                      rank = 7,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27008,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentMana = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 768,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 33876,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 33983,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentMana = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 768,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27002,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLt",
+              lhs = {
+                currentEnergy = {},
+              },
+              rhs = {
+                const = {
+                  val = "10",
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Powershifting",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Rip CP",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      remainingTime = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Rip End Threshold",
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 27008,
+                      rank = 7,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpGe",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            spellCurrentCost = {
+                              spellId = {
+                                spellId = 27008,
+                                rank = 7,
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        auraIsActive = {
+                          auraId = {
+                            spellId = 16870,
+                          },
+                          includeReactionTime = true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27008,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Rip CP",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      remainingTime = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Rip End Threshold",
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 27008,
+                      rank = 7,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  ["and"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpGt",
+                          lhs = {
+                            timeToNextEnergyTick = {},
+                          },
+                          rhs = {
+                            variableRef = {
+                              name = "Max Wait Time",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            spellCurrentCost = {
+                              spellId = {
+                                spellId = 27008,
+                                rank = 7,
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        auraIsInactive = {
+                          auraId = {
+                            spellId = 16870,
+                          },
+                          includeReactionTime = true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Powershifting",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 33876,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpGe",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            spellCurrentCost = {
+                              spellId = {
+                                spellId = 33983,
+                                rank = 3,
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        auraIsActive = {
+                          auraId = {
+                            spellId = 16870,
+                          },
+                          includeReactionTime = true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 33983,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpEq",
+                    lhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 33983,
+                          rank = 3,
+                        },
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "35",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      variableRef = {
+                        name = "Rip CP",
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "5",
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    auraId = {
+                      spellId = 16870,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGt",
+                                lhs = {
+                                  timeToNextEnergyTick = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Trick Window",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "2",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  auraRemainingTime = {
+                                    sourceUnit = {
+                                      type = "CurrentTarget",
+                                    },
+                                    auraId = {
+                                      spellId = 27008,
+                                      rank = 7,
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "2s",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  remainingTime = {},
+                                },
+                                rhs = {
+                                  math = {
+                                    op = "OpAdd",
+                                    lhs = {
+                                      variableRef = {
+                                        name = "Rip End Threshold",
+                                      },
+                                    },
+                                    rhs = {
+                                      const = {
+                                        val = "2s",
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "80",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "87",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpLe",
+                                lhs = {
+                                  timeToNextEnergyTick = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "1.0s",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "3",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  auraRemainingTime = {
+                                    sourceUnit = {
+                                      type = "CurrentTarget",
+                                    },
+                                    auraId = {
+                                      spellId = 27008,
+                                      rank = 7,
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "1s",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  remainingTime = {},
+                                },
+                                rhs = {
+                                  math = {
+                                    op = "OpAdd",
+                                    lhs = {
+                                      variableRef = {
+                                        name = "Rip End Threshold",
+                                      },
+                                    },
+                                    rhs = {
+                                      const = {
+                                        val = "1s",
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "45",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "52",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 33983,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Bite Trick CP (Wolfshead)",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              auraIsKnown = {
+                                auraId = {
+                                  spellId = 17768,
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Bite Trick CP (Wolfsheadless)",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              ["not"] = {
+                                val = {
+                                  auraIsKnown = {
+                                    auraId = {
+                                      spellId = 17768,
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Bite Trick Max Energy",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 24248,
+                          rank = 6,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    auraId = {
+                      spellId = 16870,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGt",
+                    lhs = {
+                      timeToNextEnergyTick = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Trick Window",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 24248,
+              rank = 6,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Rip  Trick CP",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              auraIsKnown = {
+                                auraId = {
+                                  spellId = 17768,
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentComboPoints = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Rip  Trick CP",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              ["not"] = {
+                                val = {
+                                  auraIsKnown = {
+                                    auraId = {
+                                      spellId = 17768,
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 27002,
+                          rank = 7,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 27008,
+                          rank = 7,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    auraId = {
+                      spellId = 16870,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGt",
+                    lhs = {
+                      timeToNextEnergyTick = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Trick Window",
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 27008,
+                      rank = 7,
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      remainingTime = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Rip End Threshold",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27008,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        hide = true,
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 33983,
+                          rank = 3,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 27003,
+                          rank = 5,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsInactive = {
+                    auraId = {
+                      spellId = 16870,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGt",
+                    lhs = {
+                      timeToNextEnergyTick = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Trick Window",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27003,
+              rank = 5,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 33876,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            math = {
+                              op = "OpSub",
+                              lhs = {
+                                spellCurrentCost = {
+                                  spellId = {
+                                    spellId = 33983,
+                                    rank = 3,
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "20",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGt",
+                                lhs = {
+                                  timeToNextEnergyTick = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Max Wait Time",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  spellCurrentCost = {
+                                    spellId = {
+                                      spellId = 33983,
+                                      rank = 3,
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              auraIsInactive = {
+                                auraId = {
+                                  spellId = 16870,
+                                },
+                                includeReactionTime = true,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Powershifting",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  auraIsInactive = {
+                    sourceUnit = {
+                      type = "CurrentTarget",
+                    },
+                    auraId = {
+                      spellId = 33876,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 33983,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Bite CP",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "57",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLe",
+                                lhs = {
+                                  timeToNextEnergyTick = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "1.0s",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "77",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGt",
+                                lhs = {
+                                  timeToNextEnergyTick = {},
+                                },
+                                rhs = {
+                                  const = {
+                                    val = "1.0s",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              ["or"] = {
+                                vals = {
+                                  {
+                                    ["and"] = {
+                                      vals = {
+                                        {
+                                          cmp = {
+                                            op = "OpGe",
+                                            lhs = {
+                                              currentEnergy = {},
+                                            },
+                                            rhs = {
+                                              const = {
+                                                val = "15",
+                                              },
+                                            },
+                                          },
+                                        },
+                                        {
+                                          cmp = {
+                                            op = "OpLe",
+                                            lhs = {
+                                              timeToNextEnergyTick = {},
+                                            },
+                                            rhs = {
+                                              const = {
+                                                val = "1.0s",
+                                              },
+                                            },
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                  {
+                                    ["and"] = {
+                                      vals = {
+                                        {
+                                          cmp = {
+                                            op = "OpGe",
+                                            lhs = {
+                                              currentEnergy = {},
+                                            },
+                                            rhs = {
+                                              const = {
+                                                val = "35",
+                                              },
+                                            },
+                                          },
+                                        },
+                                        {
+                                          cmp = {
+                                            op = "OpGt",
+                                            lhs = {
+                                              timeToNextEnergyTick = {},
+                                            },
+                                            rhs = {
+                                              const = {
+                                                val = "1.0s",
+                                              },
+                                            },
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              auraIsActive = {
+                                auraId = {
+                                  spellId = 16870,
+                                },
+                                includeReactionTime = true,
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27002,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Bite CP",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 24248,
+                          rank = 6,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 24248,
+              rank = 6,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentComboPoints = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Bite CP",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "22",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        auraIsInactive = {
+                          sourceUnit = {
+                            type = "CurrentTarget",
+                          },
+                          auraId = {
+                            spellId = 27008,
+                            rank = 7,
+                          },
+                          includeReactionTime = true,
+                        },
+                      },
+                      {
+                        cmp = {
+                          op = "OpGt",
+                          lhs = {
+                            auraRemainingTime = {
+                              sourceUnit = {
+                                type = "CurrentTarget",
+                              },
+                              auraId = {
+                                spellId = 27008,
+                                rank = 7,
+                              },
+                            },
+                          },
+                          rhs = {
+                            timeToNextEnergyTick = {},
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "15",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              auraIsActive = {
+                                sourceUnit = {
+                                  type = "CurrentTarget",
+                                },
+                                auraId = {
+                                  spellId = 27008,
+                                  rank = 7,
+                                },
+                                includeReactionTime = true,
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpLe",
+                                lhs = {
+                                  auraRemainingTime = {
+                                    sourceUnit = {
+                                      type = "CurrentTarget",
+                                    },
+                                    auraId = {
+                                      spellId = 27008,
+                                      rank = 7,
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  timeToNextEnergyTick = {},
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGe",
+                                lhs = {
+                                  math = {
+                                    op = "OpSub",
+                                    lhs = {
+                                      remainingTime = {},
+                                    },
+                                    rhs = {
+                                      auraRemainingTime = {
+                                        sourceUnit = {
+                                          type = "CurrentTarget",
+                                        },
+                                        auraId = {
+                                          spellId = 27008,
+                                          rank = 7,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Rip End Threshold",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  ["not"] = {
+                    val = {
+                      variableRef = {
+                        name = "Rip Next",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "20",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["not"] = {
+                          val = {
+                            variableRef = {
+                              name = "Mangle Next",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Powershifting",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "22",
+                      },
+                    },
+                  },
+                },
+                {
+                  auraIsActive = {
+                    auraId = {
+                      spellId = 16870,
+                    },
+                    includeReactionTime = true,
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27002,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        hide = true,
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "22",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      math = {
+                        op = "OpMul",
+                        lhs = {
+                          const = {
+                            val = "2",
+                          },
+                        },
+                        rhs = {
+                          spellCurrentCost = {
+                            spellId = {
+                              spellId = 33983,
+                              rank = 3,
+                            },
+                          },
+                        },
+                      },
+                    },
+                    rhs = {
+                      math = {
+                        op = "OpAdd",
+                        lhs = {
+                          currentEnergy = {},
+                        },
+                        rhs = {
+                          const = {
+                            val = "20",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      math = {
+                        op = "OpAdd",
+                        lhs = {
+                          spellCurrentCost = {
+                            spellId = {
+                              spellId = 33983,
+                              rank = 3,
+                            },
+                          },
+                        },
+                        rhs = {
+                          const = {
+                            val = "22",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      timeToNextEnergyTick = {},
+                    },
+                    rhs = {
+                      const = {
+                        val = "1.0",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpEq",
+                    lhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 33983,
+                          rank = 3,
+                        },
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "35",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 33983,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 27002,
+                          rank = 7,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27002,
+              rank = 7,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      currentEnergy = {},
+                    },
+                    rhs = {
+                      spellCurrentCost = {
+                        spellId = {
+                          spellId = 33983,
+                          rank = 3,
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      timeToNextEnergyTick = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Trick Window",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 33983,
+              rank = 3,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["or"] = {
+              vals = {
+                {
+                  ["and"] = {
+                    vals = {
+                      {
+                        ["not"] = {
+                          val = {
+                            variableRef = {
+                              name = "Rip Next",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["or"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpLt",
+                                lhs = {
+                                  currentEnergy = {},
+                                },
+                                rhs = {
+                                  math = {
+                                    op = "OpSub",
+                                    lhs = {
+                                      spellCurrentCost = {
+                                        spellId = {
+                                          spellId = 33983,
+                                          rank = 3,
+                                        },
+                                      },
+                                    },
+                                    rhs = {
+                                      const = {
+                                        val = "20",
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              ["not"] = {
+                                val = {
+                                  variableRef = {
+                                    name = "Wait To Mangle",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        cmp = {
+                          op = "OpLt",
+                          lhs = {
+                            currentEnergy = {},
+                          },
+                          rhs = {
+                            const = {
+                              val = "22",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGe",
+                    lhs = {
+                      timeToNextEnergyTick = {},
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Max Wait Time",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          groupReference = {
+            groupName = "Powershifting",
+          },
+        },
+      },
+    },
+    groups = {
+      {
+        name = "Drums",
+        actions = {
+          {
+            action = {
+              castSpell = {
+                spellId = {
+                  spellId = 35476,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              castSpell = {
+                spellId = {
+                  spellId = 35476,
+                  tag = -1,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Engineering",
+        actions = {
+          {
+            action = {
+              castSpell = {
+                spellId = {
+                  itemId = 23827,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              castSpell = {
+                spellId = {
+                  itemId = 10646,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "CD: Trinkets",
+        actions = {
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 28485,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 28485,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 33831,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 33831,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 21670,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 21670,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 29383,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 29383,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 281739,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 281739,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 23041,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 23041,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 28288,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 28288,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 22954,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 22954,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 28041,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 28041,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 28121,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 28121,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 35702,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 35702,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 24128,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 24128,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 29387,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 29387,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 25937,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 25937,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 29776,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 29776,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 32654,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 32654,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                multipleCdUsages = {
+                  baseSpellId = {
+                    spellId = 2825,
+                    tag = -1,
+                  },
+                  targetSpellId = {
+                    itemId = 32658,
+                  },
+                  offset = {
+                    variableRef = {
+                      name = "Bloodlust Time",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 32658,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Powershifting",
+        actions = {
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      gcdIsReady = {},
+                    },
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          currentMana = {},
+                        },
+                        rhs = {
+                          spellCurrentCost = {
+                            spellId = {
+                              spellId = 768,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              groupReference = {
+                groupName = "Engineering",
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                gcdIsReady = {},
+              },
+              groupReference = {
+                groupName = "CD: Trinkets",
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          math = {
+                            op = "OpSub",
+                            lhs = {
+                              maxMana = {},
+                            },
+                            rhs = {
+                              currentMana = {},
+                            },
+                          },
+                        },
+                        rhs = {
+                          const = {
+                            val = "1200",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      gcdIsReady = {},
+                    },
+                    {
+                      selectedConjured = {
+                        conjuredId = {
+                          itemId = 12662,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 12662,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      gcdIsReady = {},
+                    },
+                    {
+                      selectedConjured = {
+                        conjuredId = {
+                          itemId = 22788,
+                        },
+                      },
+                    },
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          currentMana = {},
+                        },
+                        rhs = {
+                          spellCurrentCost = {
+                            spellId = {
+                              spellId = 768,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 22788,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      gcdIsReady = {},
+                    },
+                    {
+                      ["or"] = {
+                        vals = {
+                          {
+                            ["not"] = {
+                              val = {
+                                selectedPotion = {
+                                  potionId = {
+                                    itemId = 22832,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                math = {
+                                  op = "OpSub",
+                                  lhs = {
+                                    maxMana = {},
+                                  },
+                                  rhs = {
+                                    currentMana = {},
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "2300",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["or"] = {
+                        vals = {
+                          {
+                            ["not"] = {
+                              val = {
+                                selectedPotion = {
+                                  potionId = {
+                                    itemId = 31677,
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            cmp = {
+                              op = "OpGe",
+                              lhs = {
+                                math = {
+                                  op = "OpSub",
+                                  lhs = {
+                                    maxMana = {},
+                                  },
+                                  rhs = {
+                                    currentMana = {},
+                                  },
+                                },
+                              },
+                              rhs = {
+                                const = {
+                                  val = "2000",
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["or"] = {
+                        vals = {
+                          {
+                            selectedPotion = {
+                              potionId = {
+                                itemId = 22832,
+                              },
+                            },
+                          },
+                          {
+                            selectedPotion = {
+                              potionId = {
+                                itemId = 31677,
+                              },
+                            },
+                          },
+                          {
+                            ["and"] = {
+                              vals = {
+                                {
+                                  cmp = {
+                                    op = "OpGe",
+                                    lhs = {
+                                      currentMana = {},
+                                    },
+                                    rhs = {
+                                      spellCurrentCost = {
+                                        spellId = {
+                                          spellId = 768,
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                                {
+                                  multipleCdUsages = {
+                                    baseSpellId = {
+                                      spellId = 2825,
+                                      tag = -1,
+                                    },
+                                    targetSpellId = {
+                                      otherId = "OtherActionPotion",
+                                    },
+                                    offset = {
+                                      variableRef = {
+                                        name = "Bloodlust Time",
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  otherId = "OtherActionPotion",
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    gcdTimeToReady = {},
+                  },
+                  rhs = {
+                    const = {
+                      val = "0s",
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  spellId = 768,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    valueVariables = {
+      {
+        name = "Bloodlust Time",
+        value = {
+          const = {
+            val = "5s",
+          },
+        },
+      },
+      {
+        name = "Max Wait Time",
+        value = {
+          const = {
+            val = "1s",
+          },
+        },
+      },
+      {
+        name = "Rip CP",
+        value = {
+          const = {
+            val = "4",
+          },
+        },
+      },
+      {
+        name = "Bite CP",
+        value = {
+          const = {
+            val = "4",
+          },
+        },
+      },
+      {
+        name = "Bite Trick CP (Wolfsheadless)",
+        value = {
+          const = {
+            val = "4",
+          },
+        },
+      },
+      {
+        name = "Bite Trick CP (Wolfshead)",
+        value = {
+          const = {
+            val = "4",
+          },
+        },
+      },
+      {
+        name = "Bite Trick Max Energy",
+        value = {
+          const = {
+            val = "39",
+          },
+        },
+      },
+      {
+        name = "Rip  Trick CP",
+        value = {
+          const = {
+            val = "3",
+          },
+        },
+      },
+      {
+        name = "Trick Window",
+        value = {
+          const = {
+            val = "1.0s",
+          },
+        },
+      },
+      {
+        name = "Bite Energy Cutoff Mod",
+        value = {
+          math = {
+            op = "OpMul",
+            lhs = {
+              const = {
+                val = "20",
+              },
+            },
+            rhs = {
+              cmp = {
+                op = "OpGt",
+                lhs = {
+                  timeToNextEnergyTick = {},
+                },
+                rhs = {
+                  const = {
+                    val = "1.0s",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Rip End Threshold",
+        value = {
+          const = {
+            val = "10s",
+          },
+        },
+      },
+      {
+        name = "Rip Now",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    currentComboPoints = {},
+                  },
+                  rhs = {
+                    variableRef = {
+                      name = "Rip CP",
+                    },
+                  },
+                },
+              },
+              {
+                auraIsInactive = {
+                  sourceUnit = {
+                    type = "CurrentTarget",
+                  },
+                  auraId = {
+                    spellId = 27008,
+                    rank = 7,
+                  },
+                  includeReactionTime = true,
+                },
+              },
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    remainingTime = {},
+                  },
+                  rhs = {
+                    variableRef = {
+                      name = "Rip End Threshold",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Rip Next",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    currentComboPoints = {},
+                  },
+                  rhs = {
+                    variableRef = {
+                      name = "Rip CP",
+                    },
+                  },
+                },
+              },
+              {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    auraRemainingTime = {
+                      sourceUnit = {
+                        type = "CurrentTarget",
+                      },
+                      auraId = {
+                        spellId = 27008,
+                        rank = 7,
+                      },
+                    },
+                  },
+                  rhs = {
+                    timeToNextEnergyTick = {},
+                  },
+                },
+              },
+              {
+                cmp = {
+                  op = "OpGe",
+                  lhs = {
+                    math = {
+                      op = "OpSub",
+                      lhs = {
+                        remainingTime = {},
+                      },
+                      rhs = {
+                        timeToNextEnergyTick = {},
+                      },
+                    },
+                  },
+                  rhs = {
+                    variableRef = {
+                      name = "Rip End Threshold",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Mangle Now",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                ["not"] = {
+                  val = {
+                    variableRef = {
+                      name = "Rip Now",
+                    },
+                  },
+                },
+              },
+              {
+                auraIsInactive = {
+                  sourceUnit = {
+                    type = "CurrentTarget",
+                  },
+                  auraId = {
+                    spellId = 33876,
+                  },
+                  includeReactionTime = true,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Mangle Next",
+        value = {
+          ["and"] = {
+            vals = {
+              {
+                ["not"] = {
+                  val = {
+                    variableRef = {
+                      name = "Rip Next",
+                    },
+                  },
+                },
+              },
+              {
+                cmp = {
+                  op = "OpLe",
+                  lhs = {
+                    auraRemainingTime = {
+                      sourceUnit = {
+                        type = "CurrentTarget",
+                      },
+                      auraId = {
+                        spellId = 33876,
+                      },
+                    },
+                  },
+                  rhs = {
+                    timeToNextEnergyTick = {},
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Wait To Mangle",
+        value = {
+          ["or"] = {
+            vals = {
+              {
+                variableRef = {
+                  name = "Mangle Next",
+                },
+              },
+              {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpLe",
+                        lhs = {
+                          spellCurrentCost = {
+                            spellId = {
+                              spellId = 33983,
+                              rank = 3,
+                            },
+                          },
+                        },
+                        rhs = {
+                          const = {
+                            val = "38",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["not"] = {
+                        val = {
+                          auraIsKnown = {
+                            auraId = {
+                              spellId = 17768,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 }
+ns.Data.SimAPL["ROGUE:Assassination"] = ns.Data.SimAPL["ROGUE:Combat"]
+ns.Data.SimAPL["ROGUE:Subtlety"] = ns.Data.SimAPL["ROGUE:Combat"]

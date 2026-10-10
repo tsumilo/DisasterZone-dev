@@ -242,13 +242,26 @@ function Rot:Value(node, vars)
     local want = node.auraIsActive ~= nil
     if cfg.includeReactionTime then
       local rt = u.reactionTime
-      local function on(sim) return aura.active and sim.now - aura.startTime >= rt end
-      local nf = function(sim)
-        if aura.active then return Future(aura.startTime + rt, sim.now) end
-        return huge
+      if want then
+        -- apl_values_aura.go: active for at least the reaction time
+        return Bool(function(sim) return aura.active and sim.now - aura.startTime >= rt end,
+          function(sim)
+            if aura.active then return Future(aura.startTime + rt, sim.now) end
+            return huge
+          end)
       end
-      if want then return Bool(on, nf) end
-      return Bool(function(sim) return not on(sim) end, nf)
+      -- inactive for at least the reaction time (TimeInactive: one that faded before the pull counts as long gone)
+      return Bool(function(sim)
+          if aura.active then return false end
+          local f = aura.fadeTime or -huge
+          return f < 0 or sim.now - f >= rt
+        end,
+        function(sim)
+          if aura.active then return huge end
+          local f = aura.fadeTime or -huge
+          if f < 0 then return huge end
+          return Future(f + rt, sim.now)
+        end)
     end
     return Bool(function() return aura.active == want end)
   elseif node.auraRemainingTime then
@@ -334,6 +347,23 @@ function Rot:Value(node, vars)
   elseif node.maxEnergy then
     if not u.hasEnergy then return nil end
     return Num(function() return u.maxEnergy end)
+  elseif node.timeToNextEnergyTick then
+    -- energy.go TimeToNextEnergyTick; the tick itself is a task (an event)
+    if not u.hasEnergy then return nil end
+    return Num(function(sim) return max(0, u.nextEnergyTick - sim.now) end,
+      function(sim) return (u.nextEnergyTick > sim.now) and -1 or 0 end,
+      function(sim) return Future(u.nextEnergyTick, sim.now) end)
+  elseif node.maxMana then
+    if not u.hasMana then return nil end
+    return Num(function() return u.stats[S.ST.Mana] end)
+  elseif node.selectedPotion then
+    local id = node.selectedPotion.potionId and node.selectedPotion.potionId.itemId
+    if not id or id == 0 then return nil end
+    return ConstBool(((u.consumables or {}).potId or 0) == id)
+  elseif node.selectedConjured then
+    local id = node.selectedConjured.conjuredId and node.selectedConjured.conjuredId.itemId
+    if not id or id == 0 then return nil end
+    return ConstBool(((u.consumables or {}).conjuredId or 0) == id)
   elseif node.currentComboPoints then
     if not u.hasEnergy then return nil end
     return Num(function() return u.comboPoints end)

@@ -116,6 +116,20 @@ S.BUFF_PRESETS = {
     consumables = { battleElixirId = 22831, guardianElixirId = 32062, foodId = 33872, potId = 22838, conjuredId = 7676,
       ohImbueId = 27186 },
   },
+  -- The WoWSims Feral Cat preset (ui/specs/druid/feralcat/spec.ts defaults, presets.ts consumables): the cat brings his
+  -- own Leader of the Pack and never procs Windfury Totem (Druid.lua).
+  wowsims_cat = {
+    raid = { bloodlust = true, arcaneBrilliance = true, divineSpirit = 2, giftOfTheWild = 2, powerWordFortitude = 2,
+      shadowProtection = true },
+    party = { drums = "LesserDrumsOfBattle", ferociousInspiration = 2, battleShout = 2, graceOfAirTotem = 2,
+      windfuryTotem = 2, manaSpringTotem = 1, strengthOfEarthTotem = 2, totemTwisting = true },
+    individual = { blessingOfKings = true, blessingOfMight = 2, unleashedRage = true },
+    debuffs = { exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1080, bloodFrenzy = true, exposeArmor = 2,
+      huntersMark = 2, improvedSealOfTheCrusader = 2, judgementOfWisdom = true, misery = true,
+      curseOfRecklessness = true, faerieFire = 2, sunderArmor = true, giftOfArthas = true },
+    consumables = { potId = 22838, battleElixirId = 22831, guardianElixirId = 32067, foodId = 27664, mhImbueId = 34340,
+      conjuredId = 12662, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
+  },
   -- The WoWSims Enhancement preset (ui/specs/shaman/enhancement/presets.ts, P1): the shaman drops his own totems and
   -- beats his own drums.
   wowsims_enh = {
@@ -225,7 +239,8 @@ function S.ApplyConsumables(p, c, cfg)
   if c.conjuredId == 12662 then S.DemonicRune(p) end
   if c.conjuredId == 22788 then S.FlameCap(p) end
   if c.conjuredId == 7676 and p.hasEnergy then S.ThistleTea(p) end
-  if c.mhImbueId then S.StaticImbue(p, c.mhImbueId) end
+  -- consumes.go: a main-hand imbue only without Windfury Totem
+  if c.mhImbueId and Tri((cfg and cfg.party or {}).windfuryTotem) == 0 then S.StaticImbue(p, c.mhImbueId) end
   if c.ohImbueId then S.StaticImbue(p, c.ohImbueId) end
   -- drums and explosives share one cooldown timer (consumes.go drumsBombsSharedTimer)
   p.drumsBombsTimer = p.drumsBombsTimer or p:NewTimer()
@@ -574,6 +589,39 @@ function S.ExposeArmorAura(target, comboPoints, talents)
   return a
 end
 
+-- debuffs.go FaerieFireAura: 610 armor, and Improved Faerie Fire's points off the target's chance to be missed; one
+-- aura per target (a druid's own and the raid's are the same debuff), the higher improvement wins.
+function S.FaerieFireAura(target, improvedPoints)
+  local a = target:GetAura("Faerie Fire")
+  if a then
+    local ee = a.exclusive and a.exclusive[1]
+    if ee and ee.priority < improvedPoints then ee.priority = improvedPoints end
+    return a
+  end
+  a = target:RegisterAura({ label = "Faerie Fire", actionId = { spellId = 26993 }, duration = 40 })
+  a:NewExclusiveEffect("FaerieFireAura", true, improvedPoints,
+    function(e, sim)
+      target:AddStatDynamic(sim, ST.Armor, -610)
+      target.ps.ReducedPhysicalHitTakenChance = target.ps.ReducedPhysicalHitTakenChance - e.priority
+    end,
+    function(e, sim)
+      target:AddStatDynamic(sim, ST.Armor, 610)
+      target.ps.ReducedPhysicalHitTakenChance = target.ps.ReducedPhysicalHitTakenChance + e.priority
+    end)
+  return a
+end
+
+-- debuffs.go MangleAura: bleeds x1.3 for 12 s.
+function S.MangleAura(target)
+  local a = target:GetAura("Mangle")
+  if a then return a end
+  a = target:RegisterAura({ label = "Mangle", actionId = { spellId = 33876 }, duration = 12 })
+  a:NewExclusiveEffect("Mangle", true, 1.3,
+    function(e) target.ps.PeriodicPhysicalDamageTakenMultiplier = target.ps.PeriodicPhysicalDamageTakenMultiplier * e.priority end,
+    function(e) target.ps.PeriodicPhysicalDamageTakenMultiplier = target.ps.PeriodicPhysicalDamageTakenMultiplier / e.priority end)
+  return a
+end
+
 function S.BloodFrenzyAura(target, points)
   local a = target:GetAura("Blood Frenzy")
   if a then return a end
@@ -621,21 +669,13 @@ function S.ApplyDebuffs(p, t, d)
     a.onExpire = function() tps.BonusPhysicalDamageTaken = tps.BonusPhysicalDamageTaken - 8 end
     S.MakePermanent(a)
   end
-  if d.mangle then
-    local a = t:GetOrRegisterAura({ label = "Mangle", actionId = { spellId = 33876 }, duration = 12 })
-    a.onGain = function() tps.PeriodicPhysicalDamageTakenMultiplier = tps.PeriodicPhysicalDamageTakenMultiplier * 1.3 end
-    a.onExpire = function() tps.PeriodicPhysicalDamageTakenMultiplier = tps.PeriodicPhysicalDamageTakenMultiplier / 1.3 end
-    S.MakePermanent(a)
-  end
+  if d.mangle then S.MakePermanent(S.MangleAura(t)) end
   if Tri(d.huntersMark) == 2 then
     -- active from 1 ns; nothing happens between 0 and 1 ns that reads attack power
     tps.BonusAttackPower = tps.BonusAttackPower + 110
   end
   if d.curseOfRecklessness then t:AddStat(ST.Armor, -800) end
-  if Tri(d.faerieFire) > 0 then
-    t:AddStat(ST.Armor, -610)
-    if Tri(d.faerieFire) == 2 then tps.ReducedPhysicalHitTakenChance = tps.ReducedPhysicalHitTakenChance - 3 end
-  end
+  if Tri(d.faerieFire) > 0 then S.MakePermanent(S.FaerieFireAura(t, Tri(d.faerieFire) == 2 and 3 or 0)) end
   -- Sunder Armor stacks at 0, 1.5 ... 6 s; Expose Armor replaces it at 10 s (one MajorArmorReduction slot)
   -- (debuffs.go ScheduledAura).
   if Tri(d.exposeArmor) > 0 then

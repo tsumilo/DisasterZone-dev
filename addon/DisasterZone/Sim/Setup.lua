@@ -24,6 +24,7 @@ function S.NewScenario(sc, db, apl)
     reactionTimeMs = sc.reactionTimeMs, distance = sc.distance, professions = sc.professions or { "Engineering", "Blacksmithing" },
   }, db)
   p.currentTarget = target
+  p.consumables = cons
   p.attackTables[target] = S.NewAttackTable(p, target)
   p.attackTables[p] = S.NewPlayerDefenderTable(p, p)
   target.currentTarget = p
@@ -32,17 +33,23 @@ function S.NewScenario(sc, db, apl)
   if cls == "Warrior" then S.SetupWarrior(p, sc.talents or "", sc.classOptions) end
   if cls == "Shaman" then S.SetupShaman(p, sc.talents or "", sc.classOptions) end
   if cls == "Rogue" then S.SetupRogue(p, sc.talents or "", sc.classOptions, cons) end
+  if cls == "Druid" then
+    S.SetupDruid(p, sc.talents or "", sc.classOptions)
+    if p.druid.cat then buffs = S.DruidCatPartyBuffs(p, buffs) end
+  end
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
   if cls == "Warrior" then S.WarriorApplyTalents(p) end
   if cls == "Shaman" then S.ShamanApplyTalents(p) end
   if cls == "Rogue" then S.RogueApplyTalents(p) end
+  if cls == "Druid" then S.DruidApplyTalents(p) end
   S.ApplyBuffs(p, buffs)
   S.ApplyConsumables(p, cons, buffs)
   if cls == "Warrior" then S.WarriorInitialize(p) end
   if cls == "Shaman" then S.ShamanInitialize(p) end
   if cls == "Rogue" then S.RogueInitialize(p) end
+  if cls == "Druid" then S.DruidInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()
