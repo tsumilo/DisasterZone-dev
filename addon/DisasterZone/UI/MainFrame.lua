@@ -15,6 +15,9 @@ local NAV_ICONS = {
     feedback  = { icon = 42, tip = { "Feedback", "Send a bug, an idea or a change to the developer; see what the guild "
                   .. "asked for and where it stands. Ctrl+right-click anything in DisasterZone to start from it." } },
     changelog = { icon = 25, tip = { "What's new", "The changes of every DisasterZone release." } },
+    -- (the developer's only: UI/PerfUI.lua; the bar chart from art pack 6, else the gear)
+    perf      = { icon = ns:HasAssets(6) and 58 or 13, tip = { "Performance", "What DisasterZone costs this client: "
+                  .. "memory, garbage, CPU and who makes it. Only you see this page." } },
     settings  = { icon = 13, tip = { "Settings" } },
 }
 -- Text tabs with a small pill after their label (UI:CreateNavStrip's badge): pages still being tried out.
@@ -608,6 +611,18 @@ local function PrebuildPages()
         C_Timer.After(0.05, step)
     end
     C_Timer.After(0.3, step)
+end
+
+-- Every registered page as the Performance page (UI/PerfUI.lua) lists it: { key, label, panel (nil until built),
+-- build (ms), show (ms, the last), maxShow, shows }. A fresh table each call.
+function MainFrame:GetPageStats()
+    local out = {}
+    for _, def in ipairs(tabList) do
+        local t = timings[def.key] or {}
+        out[#out + 1] = { key = def.key, label = def.label, panel = def.panel, build = t.build, show = t.show,
+                          maxShow = t.maxShow, shows = t.shows or 0 }
+    end
+    return out
 end
 
 function MainFrame:PrintTimings()

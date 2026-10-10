@@ -359,7 +359,10 @@ local function Dispatch(prefix, text, distribution, senderKey, allow, holdDenied
         local Guild = ns.Guild
         if Guild and Guild.MarkOnline then Guild:MarkOnline(senderKey) end
     end
-    if ns.SafeCall then
+    local probe = ns.PerfComm             -- (the developer's Performance page, while it measures: Core/Perf.lua)
+    if probe then
+        probe(msg.t, handler, senderKey, msg, distribution)
+    elseif ns.SafeCall then
         ns.SafeCall(handler, senderKey, msg, distribution)
     else
         xpcall(function() handler(senderKey, msg, distribution) end, geterrorhandler())

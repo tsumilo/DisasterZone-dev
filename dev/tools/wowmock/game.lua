@@ -106,7 +106,8 @@ function GetMouseFoci() return { M.mouse_focus } end
 -- (__MOCK.mouse_down = true: a button is held, e.g. while a test drags a frame)
 function IsMouseButtonDown() return M.mouse_down == true end
 function GetAddOnCPUUsage() return 0 end
-function GetAddOnMemoryUsage() return 0 end
+-- (each mock client is its own Lua state: its whole memory stands in for the addon's, garbage included as in WoW)
+function GetAddOnMemoryUsage() return collectgarbage("count") end
 function UpdateAddOnMemoryUsage() end
 function UpdateAddOnCPUUsage() end
 function RequestTimePlayed() end
@@ -775,6 +776,19 @@ function GetSpellCooldown(id)
   if cd then return cd[1], cd[2], 1 end
   return M.now, M.gcd or 1.5, 1
 end
+-- 2.5.x totems: haveTotem, totemName, startTime, duration, icon; slots 1 fire, 2 earth, 3 water, 4 air.
+-- Tests set M.totems[slot] = { name, start, duration, icon }.
+function GetTotemInfo(slot)
+  local t = M.totems and M.totems[tonumber(slot) or slot]
+  if t then return true, t[1], t[2], t[3], t[4] end
+  return false, "", 0, 0, ""
+end
+-- hasMainHandEnchant, mainHandExpiration (ms), mainHandCharges, mainHandEnchantID, hasOffHandEnchant, ... (M.weapon_enchant)
+function GetWeaponEnchantInfo()
+  local e = M.weapon_enchant or {}
+  return e.mh and true or false, e.mh or 0, 0, e.mhID or 0, e.oh and true or false, e.oh or 0, 0, e.ohID or 0
+end
+function OffhandHasWeapon() return M.offhand_weapon and true or false end
 function UnitAttackSpeed() return M.swing_speed or 2.6, nil end
 -- 2.5.x: minDamage, maxDamage, minOffHand, maxOffHand, physicalBonusPos, physicalBonusNeg, percent
 function UnitDamage() return M.weapon_min or 330, M.weapon_max or 490, 0, 0, 0, 0, 1 end

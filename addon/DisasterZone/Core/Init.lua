@@ -47,13 +47,42 @@ end
 -- xpcall(fn, geterrorhandler(), ...) that also works on plain Lua 5.1, whose xpcall
 -- does not forward extra arguments. The error handler is looked up per call so that
 -- error-catching addons installed later are honoured.
-local function SafeCall(fn, ...)
-    local n = select("#", ...)
-    if n == 0 then
-        return xpcall(fn, ErrorHandler())
+-- Every event and message goes through here, so it makes no garbage: the game's xpcall forwards the arguments
+-- (checked once); on plain 5.1 they wait in a slot per nesting depth (a handler may fire another event), read by
+-- that depth's runner - both made once, the slot emptied after the call. (A table and a closure per call were the
+-- addon's steadiest garbage.)
+local XPCALL_ARGS = select(2, xpcall(function(v) return v end, FallbackErrorHandler, true)) == true
+local SafeCall
+if XPCALL_ARGS then
+    SafeCall = function(fn, ...)
+        return xpcall(fn, ErrorHandler(), ...)
     end
-    local args = { ... }
-    return xpcall(function() return fn(unpack(args, 1, n)) end, ErrorHandler())
+else
+    local depth, slots, runners = 0, {}, {}
+    local function Finish(d, ...)
+        local s = slots[d]
+        for i = 1, s.n do s[i] = nil end
+        s.fn, s.n = nil, 0
+        depth = d - 1
+        return ...
+    end
+    SafeCall = function(fn, ...)
+        local n = select("#", ...)
+        if n == 0 then
+            return xpcall(fn, ErrorHandler())
+        end
+        local d = depth + 1
+        depth = d
+        local s = slots[d]
+        if not s then
+            s = { n = 0 }
+            slots[d] = s
+            runners[d] = function() return s.fn(unpack(s, 1, s.n)) end
+        end
+        s.fn, s.n = fn, n
+        for i = 1, n do s[i] = (select(i, ...)) end
+        return Finish(d, xpcall(runners[d], ErrorHandler()))
+    end
 end
 ns.SafeCall = SafeCall
 
@@ -177,6 +206,7 @@ function ns:RegisterEvent(event, fn)
     for i = 1, #list do newList[i] = list[i] end
     newList[#newList + 1] = fn
     eventHandlers[event] = newList
+    if ns.PerfNote then ns.PerfNote(fn) end      -- (the Performance page: which file registered it)
     return true
 end
 
@@ -195,10 +225,14 @@ function ns:UnregisterEvent(event, fn)
     end
 end
 
+-- ns.PerfProbe (Core/Perf.lua, the developer's Performance page, only while it measures) runs the handlers itself,
+-- timing them and weighing the garbage they make.
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if Boot and Boot.safeMode then return end   -- an in-game update failed to load: the addon stays inert
     local list = eventHandlers[event]
     if not list then return end
+    local probe = ns.PerfProbe
+    if probe then return probe("event", event, list, ...) end
     for i = 1, #list do
         SafeCall(list[i], event, ...)
     end
@@ -271,6 +305,8 @@ local KNOWN_MESSAGES = {
     CURRENCY_CHANGED = true, PRICES_UPDATED = true, AZERO_GUILD_UPDATED = true,
     -- My Log: a pull started / ended (bool); the stored pulls changed (pull id | nil)
     MYLOG_RECORDING = true, MYLOG_CHANGED = true,
+    -- the developer's Performance page (Core/Perf.lua): a memory sample, a cleanup or a measurement came in
+    PERF_UPDATED = true,
     -- the guild map (Core/GuildMap.lua): somebody moved / came / left, or my sharing changed
     GUILDMAP_UPDATED = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
@@ -297,6 +333,7 @@ function ns:On(msg, fn)
     for i = 1, #list do newList[i] = list[i] end
     newList[#newList + 1] = fn
     messageHandlers[msg] = newList
+    if ns.PerfNote then ns.PerfNote(fn) end
 end
 
 function ns:Off(msg, fn)
@@ -313,6 +350,8 @@ function ns:Fire(msg, ...)
     NoteUnknownMessage(msg, "Fire")
     local list = messageHandlers[msg]
     if not list then return end
+    local probe = ns.PerfProbe
+    if probe then return probe("message", msg, list, ...) end
     for i = 1, #list do
         SafeCall(list[i], ...)
     end

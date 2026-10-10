@@ -216,6 +216,36 @@ def blacklist_from_an_older_client_only_adds():
     w.assert_no_errors()
 
 
+@case
+def blacklist_entries_saved_before_versions_do_not_make_officers_resend_forever():
+    """An entry saved before 1.3.3 has no version (v): it is when it was added (at). Sent, it carries v; the same entry
+    hashed as saved and as sent differed, so an officer holding the saved form found "the sender lacks it" in every
+    list and sent the whole list again - two such officers did it to each other for ever (seen in game: a list a
+    second, 6 MB of garbage a minute). Now they settle, and keep the same list."""
+    w, c = world(NAMES)
+    gina, bob = c["Gina"], c["Bob"]
+    t0 = now(gina) - 30 * DAY
+    keys = [K(n) for n in ("Xavier", "Yuri", "Zed", "Quinn", "Paul", "Olaf", "Nils", "Mona", "Lars", "Kim")]
+    for cl in (gina, bob):
+        cl.eval("local keys, t0, by = ... local g = ns.Guild:GetGuildKey() ns.db.raidBlacklist = ns.db.raidBlacklist or {} "
+                "local l = {} for i, k in ipairs(keys) do l[k] = { r = 'old reason ' .. i, by = by, at = t0 + i } end "
+                "ns.db.raidBlacklist[g] = { rev = t0 + 100, by = by, l = l }", keys, t0, K("Gina"))
+        cl.eval("__BLL = 0 local send = ns.Comm.Send ns.Comm.Send = function(self, msg, ...) "
+                "if type(msg) == 'table' and msg.t == 'BLL' then __BLL = __BLL + 1 end return send(self, msg, ...) end")
+    # Bob's list gets one rev newer (as after an edit elsewhere): Gina hears of it and they exchange; then they settle
+    bob.eval("local g = ns.Guild:GetGuildKey() local rec = ns.db.raidBlacklist[g] rec.rev = rec.rev + 1")
+    gina.eval("ns.RaidPlan:OnBlacklistRevSeen(..., ns.RaidPlan:GetBlacklistRev() + 1)", K("Bob"))
+    w.tick(15)
+    sent0 = gina.eval("return __BLL") + bob.eval("return __BLL")
+    w.tick(120)
+    sent = gina.eval("return __BLL") + bob.eval("return __BLL")
+    print("BLL sent", sent0, sent)
+    assert sent - sent0 <= 2, (sent0, sent)
+    for cl in (gina, bob, c["Lee"]):
+        assert bl(cl) == sorted(names(keys)), bl(cl)
+    w.assert_no_errors()
+
+
 # --- 3. deletions outlive Prune -----------------------------------------------------------------------------------
 
 ROOT = "ns.db.raidplan['Casual Disaster-Thunderstrike']"

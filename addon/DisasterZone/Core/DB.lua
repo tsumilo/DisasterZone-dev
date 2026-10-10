@@ -204,11 +204,19 @@ end
 -- Settings access
 ---------------------------------------------------------------------------
 
+-- A dotted path's parts, split once per path and kept (read-only: callers never change them). Settings are read
+-- every frame in places (the meters' OnUpdate), and a new table per read was steady garbage. The paths are a fixed
+-- set, but the cache starts over past 512 so made-up paths cannot grow it.
+local splitCache, splitCount = {}, 0
 local function SplitPath(path)
-    local parts = {}
+    local parts = splitCache[path]
+    if parts then return parts end
+    parts = {}
     for part in tostring(path):gmatch("[^%.]+") do
         parts[#parts + 1] = part
     end
+    if splitCount >= 512 then splitCache, splitCount = {}, 0 end
+    splitCache[path], splitCount = parts, splitCount + 1
     return parts
 end
 

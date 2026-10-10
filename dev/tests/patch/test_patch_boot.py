@@ -292,7 +292,7 @@ def new_and_deleted_files():
         os.remove(os.path.join(root, "Core", "TestOld.lua"))
         write(root, "Core/TestNewA.lua", guard("Core/TestNewA.lua") + "-- test\nlocal name, ns = ...\n"
               + order + "'A:' .. tostring(name) .. ':' .. tostring(ns.Util ~= nil) .. ':' .. tostring(ns.Dungeon ~= nil)\n")
-        toc_add(root, "Core/TestNewA.lua", "Core/Util.lua")           # runs right before Core/Sha256.lua
+        toc_add(root, "Core/TestNewA.lua", "Core/Util.lua")           # runs right before Core/Perf.lua (the file after Core/Util.lua)
         write(root, "Core/TestNewB.lua", guard("Core/TestNewB.lua") + "-- test\nlocal name, ns = ...\n"
               + order + "'B:' .. tostring(ns.AzeroUI ~= nil)\n")
         toc_add(root, "Core/TestNewB.lua", "UI/PatchUI.lua")
@@ -304,7 +304,7 @@ def new_and_deleted_files():
     bundle = make(record, new_dir)
     kinds = {i["path"]: (i["kind"], i.get("before")) for i in bundle["items"]}
     assert kinds["Core/TestOld.lua"][0] == "D"
-    assert kinds["Core/TestNewA.lua"] == ("N", "Core/Sha256.lua"), kinds
+    assert kinds["Core/TestNewA.lua"] == ("N", "Core/Perf.lua"), kinds
     assert kinds["Core/TestNewB.lua"][0] == "N" and kinds["Core/TestNewB.lua"][1].startswith("Games/")
     assert kinds["Core/TestNewZ.lua"] == ("N", ""), kinds
 

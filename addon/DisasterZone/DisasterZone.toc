@@ -28,6 +28,7 @@ Libs\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 # Core
 Core\Init.lua
 Core\Util.lua
+Core\Perf.lua
 Core\Sha256.lua
 Core\Dungeon.lua
 Core\GroupRules.lua
@@ -200,6 +201,7 @@ UI\Changelog.lua
 UI\Feedback.lua
 UI\FeedbackSheet.lua
 UI\Notify.lua
+UI\PerfUI.lua
 UI\NotifySources.lua
 UI\MyLogKit.lua
 UI\MyLogUI.lua

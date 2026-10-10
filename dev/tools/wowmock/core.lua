@@ -113,13 +113,32 @@ function hooksecurefunc(a, b, c)
   end)
 end
 
--- WoW's xpcall forwards extra arguments to the function (Lua 5.2 style); stock 5.1 does not.
+-- WoW's xpcall forwards extra arguments to the function (Lua 5.2 style); stock 5.1 does not. Like the client's (C),
+-- it makes no garbage: the arguments wait in a slot per nesting depth, read by that depth's runner (both made once),
+-- so tests that weigh the addon's garbage (tests/perf) see the addon's, not the mock's.
 local lua_xpcall = xpcall
+local xp_depth, xp_slots, xp_runners = 0, {}, {}
+local function xp_finish(d, ...)
+  local s = xp_slots[d]
+  for i = 1, s.n do s[i] = nil end
+  s.f, s.n = nil, 0
+  xp_depth = d - 1
+  return ...
+end
 _G.xpcall = function(f, handler, ...)
   local n = select("#", ...)
   if n == 0 then return lua_xpcall(f, handler) end
-  local args = { ... }
-  return lua_xpcall(function() return f(unpack(args, 1, n)) end, handler)
+  local d = xp_depth + 1
+  xp_depth = d
+  local s = xp_slots[d]
+  if not s then
+    s = { n = 0 }
+    xp_slots[d] = s
+    xp_runners[d] = function() return s.f(unpack(s, 1, s.n)) end
+  end
+  s.f, s.n = f, n
+  for i = 1, n do s[i] = (select(i, ...)) end
+  return xp_finish(d, lua_xpcall(xp_runners[d], handler))
 end
 
 ---------------------------------------------------------------------------------------------------

@@ -178,6 +178,7 @@ end
 function Util.After(sec, fn)
     sec = tonumber(sec) or 0
     if sec < 0 then sec = 0 end
+    if ns.PerfTimer then fn = ns.PerfTimer(fn) end     -- (the developer's Performance page: Core/Perf.lua)
     C_Timer.After(sec, Protected(fn))
 end
 
@@ -189,6 +190,7 @@ function Util.Debounce(key, sec, fn)
     if sec < 0 then sec = 0 end
     local old = debounceTimers[key]
     if old then old:Cancel() end
+    if ns.PerfTimer then fn = ns.PerfTimer(fn) end
     local timer
     timer = NewTimer(sec, function()
         if debounceTimers[key] == timer then

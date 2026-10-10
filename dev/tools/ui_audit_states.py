@@ -2593,3 +2593,39 @@ STATES += [
                                                 "ns.BlessingsBar:Update(); " + BLESS_HOVER, bar=True)),
 ]
 
+
+# The developer's Performance page (Core/Perf.lua, UI/PerfUI.lua): only Tsumil has it, so a Tsumil client joins the
+# guild (once), takes a few minutes of samples, cleans up once and measures for 5 s before the page opens.
+def perf_view(mode="pages"):
+    def fn(w, c):
+        t = c.get("Tsumil")
+        if t is None:
+            t = Client(w, "Tsumil", guild_rank=0, class_file="PALADIN", preload_lua=c["Gina"].preload_lua)
+            t.load_addon()
+            teach_names(t)
+            c["Tsumil"] = t
+            for _ in range(18):
+                t.eval("__JUNK = {} for i = 1, 4000 do __JUNK[i] = { i } end __JUNK = nil")
+                w.tick(10)
+            t.eval("ns.Perf:CleanUp()")
+            for _ in range(6):
+                t.eval("__JUNK = {} for i = 1, 4000 do __JUNK[i] = { i } end __JUNK = nil")
+                w.tick(10)
+            t.eval("ns.Perf:Measure(5)")
+            for _ in range(4):
+                t.fire("PLAYER_TARGET_CHANGED")
+                t.fire("GROUP_ROSTER_UPDATE")
+                w.tick(1.5)
+        close_all(t)
+        t.slash("/dz perf")
+        w.tick(0.6)
+        if mode == "saved":
+            t.click(t.eval("return ns.PerfUI._panel().holds.tabs.saved"))
+        return t
+    return fn
+
+
+STATES += [
+    ("Performance (Tsumil)", perf_view()),
+    ("Performance - saved data", perf_view("saved")),
+]
