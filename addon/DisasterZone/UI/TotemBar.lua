@@ -112,7 +112,7 @@ end
 
 -- Is the bar for me now: a shaman (the class tool), in a group the setting allows, with totems planned?
 function Bar:Wanted()
-    if not (ns.ClassKit and ns.ClassKit:IsMine("totems")) then return false end
+    if not (ns.ClassKit and ns.ClassKit:IsMine("totems") and ns.ClassKit:IsOn("totems")) then return false end
     local Tm = T()
     local mode = Tm.Setting("bar", "group")
     if mode == "off" then return false end

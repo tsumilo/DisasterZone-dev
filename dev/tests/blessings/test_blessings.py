@@ -200,12 +200,21 @@ for c in (gina, vic):
 w.tick(0.5)
 assert gina.eval("return ns.SettingsUI:KitShown('bless')") is True
 assert vic.eval("return ns.SettingsUI.nav.classtools:IsShown()") is False
-# cards fold: closing one shortens the section
+# cards start closed; opening one lengthens the section
 gina.eval("ns.SettingsUI:SelectSection('classtools')")
-h_open = gina.eval("return ns.SettingsUI.sections.classtools.height")
-gina.eval("for _, c in ipairs(ns.SettingsUI.sections.classtools.cards) do if c.kit.key == 'bless' then "
-          "c.head:Click() end end")
-assert gina.eval("return ns.SettingsUI.sections.classtools.height") < h_open
+BLESS = "for _, c in ipairs(ns.SettingsUI.sections.classtools.cards) do if c.kit.key == 'bless' then %s end end"
+assert gina.eval(BLESS % "return c.body:IsShown()") is False
+h_closed = gina.eval("return ns.SettingsUI.sections.classtools.height")
+gina.eval(BLESS % "c.head:Click()")
+assert gina.eval("return ns.SettingsUI.sections.classtools.height") > h_closed
+# the header switch turns the tool off (no bar) and back on, without opening or closing the card
+gina.eval(BLESS % "c.head.switch:Click()")
+w.tick(0.2)
+assert gina.eval("return ns.ClassKit:IsOn('bless'), ns.BlessingsBar:Wanted(), DisasterZoneBlessBar:IsShown()") == (False, False, False)
+assert gina.eval(BLESS % "return c.body:IsShown(), c.head.sub:GetText()") == (True, "Every Paladin spec · off")
+gina.eval(BLESS % "c.head.switch:Click()")
+w.tick(0.2)
+assert gina.eval("return ns.ClassKit:IsOn('bless') and DisasterZoneBlessBar:IsShown()") is True
 
 # demo mode: the warrior gets every class's tools, a made-up raid in the planner (they lead, four paladins), the
 # buff bar with nothing to cast, and the swing timer swinging on its own; nothing goes on the wire

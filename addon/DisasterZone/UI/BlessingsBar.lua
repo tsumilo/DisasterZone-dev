@@ -120,7 +120,7 @@ end
 
 -- Is the bar for me now: a paladin (the class tool), in a group the setting allows, with an aura or a blessing to give?
 function Bar:Wanted()
-    if not (ns.ClassKit and ns.ClassKit:IsMine("bless")) then return false end
+    if not (ns.ClassKit and ns.ClassKit:IsMine("bless") and ns.ClassKit:IsOn("bless")) then return false end
     local mode = B().Setting("bar", "group")
     if mode == "off" then return false end
     if mode == "raid" and not IsInRaid() then return false end

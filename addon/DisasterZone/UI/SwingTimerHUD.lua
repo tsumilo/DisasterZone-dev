@@ -549,8 +549,7 @@ end
 -- The kit's Settings section (UI/Settings.lua gives every class tool one; this one shows for Retribution only).
 if ns.ClassKit then ns.ClassKit:Extend("swing", { iconPath = "Interface\\Icons\\Spell_Holy_SealOfBlood",
     settings = function(S, sec)
-    S:SwitchSetting(sec, "Swing timer", "Seal twisting for Retribution: when to press Seal of Blood, and what fits between.",
-        "swing.enabled", true, "Only shows on a Retribution Paladin. /dz swing unlock lets you drag it.")
+    -- (on/off is the switch on the card's header: swing.enabled)
     S:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "bar", {
         { value = "bar", text = "Twist bar" }, { value = "lane", text = "Plan lane" }, { value = "both", text = "Both" } })
     S:SwitchSetting(sec, "Show out of combat", "Keep it on screen when you are not fighting.", "swing.idle", false)

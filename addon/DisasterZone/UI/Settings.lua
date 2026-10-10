@@ -1145,9 +1145,10 @@ function SettingsUI:CreatePanel(parent)
 end
 
 -- Class tools (Core/ClassKit.lua): one section, a card per tool of my class: its header (icon, name, who it is for,
--- the tool's own action, a chevron) opens and closes its settings. Tools for my spec start open, the others closed
--- with "not your spec". In demo mode every class's tools show (and work with made-up data). A kit's
--- settings(SettingsUI, body) fills the card with the usual rows (body works as a section of its own) and ends it.
+-- the tool's own action, an on/off switch, a chevron) opens and closes its settings. Every card starts closed (open
+-- state lasts the session); tools for another spec are grey with "not your spec", tools switched off are dimmed. In
+-- demo mode every class's tools show (and work with made-up data). A kit's settings(SettingsUI, body) fills the card
+-- with the usual rows (body works as a section of its own) and ends it.
 local KIT_HEAD_H, KIT_GAP, KIT_INSET = 46, 8, 14
 
 function SettingsUI:HasClassTools()
@@ -1156,11 +1157,9 @@ function SettingsUI:HasClassTools()
     return CK:IsDemo() or #CK:List(CK:MyClass()) > 0
 end
 
-local function KitOpen(key)
-    local v = Get("classtools.open." .. key, nil)
-    if v == nil then return ns.ClassKit:IsMine(key) end
-    return v and true or false
-end
+local kitOpen = {}   -- key -> true while that card is open (this session only)
+
+local function KitOpen(key) return kitOpen[key] and true or false end
 
 local function KitFill(tex, r, g, b, a)
     tex:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -1206,14 +1205,23 @@ function SettingsUI:BuildClassTools(sec)
         head.chev:SetPoint("RIGHT", head, "RIGHT", -12, 0)
         head.chev:SetTexture(ns.UI.ICON_ATLAS)
         head.chev:SetVertexColor(0.75, 0.75, 0.78)
+        local sw = ns.UI:CreateSwitch(head, function() return ns.ClassKit:IsOn(key) end, function(a, b)
+            ns.ClassKit:SetOn(key, Bool(a, b))
+            SettingsUI:LayoutClassTools()
+        end)
+        sw:SetPoint("RIGHT", head, "RIGHT", -36, 0)
+        sw.label = head.title
+        sw:Refresh()
+        head.switch = sw
+        self.refreshers[#self.refreshers + 1] = sw
         if kit.action then
             local btn = ns.UI:CreateSleekButton(head, kit.action.label, kit.action.width or 110, 22,
                 function() kit.action.run() end, "primary")
-            btn:SetPoint("RIGHT", head, "RIGHT", -34, 0)
+            btn:SetPoint("RIGHT", sw, "LEFT", -14, 0)
             head.action = btn
         end
         head:SetScript("OnClick", function()
-            Set("classtools.open." .. key, not KitOpen(key))
+            kitOpen[key] = not KitOpen(key) or nil
             SettingsUI:LayoutClassTools()
         end)
         card.head = head
@@ -1237,25 +1245,27 @@ function SettingsUI:LayoutClassTools()
     if not sec or not sec.cards then return end
     local CK = ns.ClassKit
     local demo, mine = CK:IsDemo(), CK:MyClass()
-    local cls = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[mine or ""]) or mine or ""
     sec.lead:SetText(demo and "Demo mode: every class's tools, with made-up data. Nothing is cast or sent."
-        or ("What DisasterZone adds for " .. (cls ~= "" and (cls .. "s") or "your class") .. "."))
+        or "Tools for your class and spec. Switch one off to hide it; open a card for its settings.")
     local y = sec.top
     local chev = ns.UI:IconCoords(ns.UI.ICON.chevron)
     for _, card in ipairs(sec.cards) do
         local kit = card.kit
         if demo or kit.class == mine then
             local open = KitOpen(kit.key)
-            local forMe = CK:IsMine(kit.key)
+            local forMe, on = CK:IsMine(kit.key), CK:IsOn(kit.key)
             card:ClearAllPoints()
             card:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, -y)
             card:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, -y)
             local bodyH = open and ((card.body.height or 0) + 10) or 0
             card:SetHeight(KIT_HEAD_H + bodyH)
             card.body:SetShown(open)
-            card.head.sub:SetText(CK:ForWhom(kit.key) .. (forMe and "" or " · not your spec"))
-            card.head.title:SetTextColor(forMe and 1 or 0.62, forMe and 1 or 0.62, forMe and 1 or 0.64)
-            card.head.icon:SetDesaturated(not forMe)
+            card.head.sub:SetText(CK:ForWhom(kit.key) .. (forMe and "" or " · not your spec") .. (on and "" or " · off"))
+            local lit = forMe and on
+            card.head.title:SetTextColor(lit and 1 or 0.62, lit and 1 or 0.62, lit and 1 or 0.64)
+            card.head.icon:SetDesaturated(not lit)
+            card.head.icon:SetAlpha(lit and 1 or 0.7)
+            card.head.switch:SetChecked(on)
             if card.head.action then card.head.action:SetShown(forMe) end
             -- the atlas chevron points down; turned up while open
             if open then card.head.chev:SetTexCoord(chev[1], chev[2], chev[4], chev[3])
@@ -1273,7 +1283,7 @@ end
 -- Opens a class tool's card (its key, e.g. "swing", "bless") in Class tools and scrolls to it.
 function SettingsUI:OpenKit(key)
     if not (self.sections and self.sections.classtools) then return end
-    Set("classtools.open." .. key, true)
+    kitOpen[key] = true
     self:SelectSection("classtools")
     self:LayoutClassTools()
     for _, card in ipairs(self.sections.classtools.cards) do

@@ -63,8 +63,8 @@ assert seq[0] == "judge@10.000" and seq[1] == "soc@10.000", seq
 seq = run(seal="soc", next=10.7, last=7.9, speed=2.8).split()
 assert seq[0] == "sob@10.271>10.7", seq
 
-# Settings > Class tools: a card for every paladin; open for the Retribution Paladin, closed ("not your spec") for
-# the Protection one; SelectSection('swing') opens Class tools at the card
+# Settings > Class tools: a card for every paladin, closed at first; "not your spec" for the Protection one;
+# SelectSection('swing') opens Class tools at the card; the header switch is swing.enabled
 for c in (ret, prot):
     c.slash("/dz settings")
 w.tick(0.5)
@@ -72,8 +72,12 @@ assert ret.eval("return ns.SettingsUI:KitShown('swing')") is True
 assert prot.eval("return ns.SettingsUI:KitShown('swing')") is True
 CARD = ("for _, c in ipairs(ns.SettingsUI.sections.classtools.cards) do if c.kit.key == 'swing' then "
         "return c.body:IsShown(), c.head.sub:GetText() end end")
-assert ret.eval(CARD)[0] is True
+assert ret.eval(CARD)[0] is False and "not your spec" not in ret.eval(CARD)[1]
 assert prot.eval(CARD)[0] is False and "not your spec" in prot.eval(CARD)[1]
+ret.eval(CARD.replace("return c.body:IsShown(), c.head.sub:GetText()", "c.head.switch:Click()"))
+assert ret.eval("return ns.DB:GetSetting('swing.enabled'), ns.SwingTimer.active") == (False, False)
+ret.eval(CARD.replace("return c.body:IsShown(), c.head.sub:GetText()", "c.head.switch:Click()"))
+assert ret.eval("return ns.SwingTimer.active") is True
 prot.eval("ns.SettingsUI:SelectSection('swing')")
 assert prot.eval("return ns.SettingsUI:GetSection()") == "classtools"
 assert prot.eval(CARD)[0] is True, "opening a card by its key opens it"

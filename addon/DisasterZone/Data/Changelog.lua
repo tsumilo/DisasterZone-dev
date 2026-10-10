@@ -159,7 +159,8 @@ ns.CHANGELOG = {
           } },
           { heading = "Class tools", lines = {
               "New Settings > Class tools: everything DisasterZone adds for your class, in one place.",
-              "Each tool is a card that opens and closes; tools for your spec start open.",
+              "Each tool is a card that opens and closes for its settings; all start closed.",
+              "A switch on each card turns that tool on or off.",
               "Demo mode shows every class's tools with a made-up raid, to try them anywhere.",
           } },
           { heading = "Notifications", lines = {

@@ -128,6 +128,19 @@ function ClassKit:IsMine(key)
     return false
 end
 
+-- Switched on (Settings > Class tools, the switch on each card): the setting '<key>.enabled', on by default. A kit
+-- that is off shows nothing (no bar, no HUD, no warnings); its planner still opens.
+function ClassKit:IsOn(key)
+    if not kits[key] then return false end
+    local v = ns.DB and ns.DB.GetSetting and ns.DB:GetSetting(key .. ".enabled")
+    if v == nil then return true end
+    return v and true or false
+end
+
+function ClassKit:SetOn(key, on)
+    if kits[key] and ns.DB and ns.DB.SetSetting then ns.DB:SetSetting(key .. ".enabled", on and true or false) end
+end
+
 -- Kits for this character right now, in order.
 function ClassKit:Mine()
     local out = {}
