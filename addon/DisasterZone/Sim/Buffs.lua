@@ -180,6 +180,21 @@ S.BUFF_PRESETS = {
     consumables = { flaskId = 22866, foodId = 27657, conjuredId = 12662, mhImbueId = 25122, potId = 22839,
       explosiveId = 30217, petScrollAgi = true, petScrollStr = true },
   },
+  -- The WoWSims Hunter builds (ui/specs/hunter/dps/builds/phase_N/*.build.json): melee buffs plus the caster ones,
+  -- Hunter's Mark and Expose Weakness from another hunter; the pet gets scrolls and Kibler's Bits.
+  wowsims_hunter = {
+    raid = { arcaneBrilliance = true, powerWordFortitude = 2, shadowProtection = true, divineSpirit = 2, giftOfTheWild = 2,
+      bloodlust = true },
+    party = { ferociousInspiration = 1, leaderOfThePack = 2, braidedEterniumChain = true, graceOfAirTotem = 2,
+      strengthOfEarthTotem = 2, windfuryTotem = 2, totemTwisting = true, battleShout = 2, drums = "LesserDrumsOfBattle" },
+    individual = { blessingOfKings = true, blessingOfWisdom = 2, blessingOfMight = 2, unleashedRage = true },
+    debuffs = { judgementOfWisdom = true, improvedSealOfTheCrusader = 2, misery = true, bloodFrenzy = true,
+      giftOfArthas = true, mangle = true, exposeArmor = 2, faerieFire = 2, sunderArmor = true, curseOfRecklessness = true,
+      huntersMark = 2, exposeWeaknessUptime = 0.9, exposeWeaknessHunterAgility = 1080 },
+    consumables = { potId = 22838, battleElixirId = 22831, guardianElixirId = 22840, foodId = 27659, conjuredId = 12662,
+      explosiveId = 30217, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true,
+      petScrollAgi = true, petScrollStr = true, petFoodId = 33874 },
+  },
   -- The WoWSims Elemental preset (ui/specs/shaman/elemental/presets.ts): the shaman drops his own totems.
   wowsims_ele = {
     raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
@@ -375,6 +390,8 @@ function S.ApplyConsumables(p, c, cfg)
     if not pet.guardian then
       if c.petScrollAgi then pet:AddStat(ST.Agility, 20) end
       if c.petScrollStr then pet:AddStat(ST.Strength, 20) end
+      local pf = c.petFoodId and c.petFoodId ~= 0 and p.db and p.db.consumables and p.db.consumables[c.petFoodId]
+      if pf then pet:AddStats(S.WSStats(pf.stats)) end
     end
   end
   addStats(c.flaskId)
@@ -1057,6 +1074,16 @@ function S.ApplyDebuffs(p, t, d)
     -- active from 1 ns; nothing happens between 0 and 1 ns that reads attack power
     tps.BonusAttackPower = tps.BonusAttackPower + 110
   end
+  -- debuffs.go HuntersMarkAura for ranged attackers: +110 ranged attack power from 1 ns, then 6 stacks of 11 a
+  -- second for 5 s (440 in all)
+  if Tri(d.huntersMark) > 0 and p.autoAttacks and p.autoAttacks.autoSwingRanged then
+    t:RegisterResetEffect(function(sim)
+      sim:Add({ at = 1e-9, prio = 0, fn = function() tps.BonusRangedAttackPower = tps.BonusRangedAttackPower + 110 end })
+      for i = 1, 5 do
+        sim:Add({ at = i, prio = S.PRIO_DOT, fn = function() tps.BonusRangedAttackPower = tps.BonusRangedAttackPower + 66 end })
+      end
+    end)
+  end
   if d.curseOfRecklessness then t:AddStat(ST.Armor, -800) end
   if Tri(d.faerieFire) > 0 then S.MakePermanent(S.FaerieFireAura(t, Tri(d.faerieFire) == 2 and 3 or 0)) end
   -- Sunder Armor stacks at 0, 1.5 ... 6 s; Expose Armor replaces it at 10 s (one MajorArmorReduction slot)
@@ -1088,8 +1115,14 @@ function S.ApplyDebuffs(p, t, d)
     local bonus = floor(d.exposeWeaknessHunterAgility * 0.25)
     local uptime = d.exposeWeaknessUptime
     local a = t:RegisterAura({ label = "Expose Weakness", duration = 7,
-      onGain = function() tps.BonusAttackPower = tps.BonusAttackPower + bonus end,
-      onExpire = function() tps.BonusAttackPower = tps.BonusAttackPower - bonus end })
+      onGain = function()
+        tps.BonusAttackPower = tps.BonusAttackPower + bonus
+        tps.BonusRangedAttackPower = tps.BonusRangedAttackPower + bonus
+      end,
+      onExpire = function()
+        tps.BonusAttackPower = tps.BonusAttackPower - bonus
+        tps.BonusRangedAttackPower = tps.BonusRangedAttackPower - bonus
+      end })
     t:RegisterResetEffect(function(sim)
       sim:Add({ at = 1e-9, prio = 0, fn = function(s)
         if s:Rand() < uptime then s:Rand(); a:Activate(s) end

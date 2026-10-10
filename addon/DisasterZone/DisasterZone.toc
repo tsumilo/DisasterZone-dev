@@ -86,6 +86,7 @@ Sim\Druid.lua
 Sim\Priest.lua
 Sim\Mage.lua
 Sim\Warlock.lua
+Sim\Hunter.lua
 Sim\Data.lua
 Sim\Setup.lua
 Sim\Runner.lua

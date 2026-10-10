@@ -1,0 +1,121 @@
+{
+ "spec": "hunter",
+ "race": "Orc",
+ "talents": "522002005150122431051-0505201205",
+ "buffs": "wowsims_default",
+ "consumables": "wowsims_default",
+ "duration": 180,
+ "durationVariation": 0,
+ "mobType": "Mechanical",
+ "iterations": 10000,
+ "seed": 101,
+ "distanceFromTarget": 7,
+ "reactionTimeMs": 100,
+ "profession1": "Engineering",
+ "profession2": "Blacksmithing",
+ "classOptions": {
+  "quiverBonus": "Speed15",
+  "ammo": "TimelessArrow",
+  "petType": "Ravager",
+  "petUptime": 1
+ },
+ "aplVariables": {
+  "Melee weave": "false"
+ },
+ "gear": [
+  {
+   "id": 32235,
+   "enchant": 3003,
+   "gems": [
+    32409,
+    32194
+   ]
+  },
+  {
+   "id": 32591
+  },
+  {
+   "id": 31006,
+   "enchant": 2717,
+   "gems": [
+    32194,
+    32194
+   ]
+  },
+  {
+   "id": 29994,
+   "enchant": 368
+  },
+  {
+   "id": 31004,
+   "enchant": 2661,
+   "gems": [
+    32194,
+    32226,
+    32226
+   ]
+  },
+  {
+   "id": 32324,
+   "enchant": 1593,
+   "gems": [
+    32222
+   ]
+  },
+  {
+   "id": 31001,
+   "enchant": 2564,
+   "gems": [
+    32194
+   ]
+  },
+  {
+   "id": 30879,
+   "gems": [
+    32194,
+    32194
+   ]
+  },
+  {
+   "id": 31005,
+   "enchant": 3012,
+   "gems": [
+    32194
+   ]
+  },
+  {
+   "id": 32366,
+   "enchant": 2657,
+   "gems": [
+    32194,
+    32222
+   ]
+  },
+  {
+   "id": 29301
+  },
+  {
+   "id": 32497
+  },
+  {
+   "id": 32505
+  },
+  {
+   "id": 28830
+  },
+  {
+   "id": 29993,
+   "enchant": 2670,
+   "gems": [
+    32194,
+    32194,
+    32194
+   ]
+  },
+  {},
+  {
+   "id": 30906,
+   "enchant": 2724
+  }
+ ]
+}

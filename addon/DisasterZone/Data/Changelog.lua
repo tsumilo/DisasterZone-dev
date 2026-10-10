@@ -47,6 +47,7 @@ ns.CHANGELOG = {
               "Balance Druids too: Starfire (downranked when mana runs low), Moonfire, Faerie Fire and Force of Nature.",
               "Mages too: Arcane, Fire and Frost, with mana gems, Evocation, Ignite and the Water Elemental.",
               "Warlocks too: Affliction, Demonology and Destruction, with your curse, Life Tap and your demon or its sacrifice.",
+              "Hunters too: Auto Shot and Steady Shot from range, Kill Command, your pet with its focus and abilities.",
               "More item effects count: Thunderfury, Blinkstrike, The Night Blade, Rod of the Sun King and others.",
               "Swapped-in items get gems that keep your meta gem on; the card warns when a meta is off.",
               "The ... menu copies the exact sim input for WoWSims (Import > JSON), to compare both sims.",

@@ -649,6 +649,47 @@ def warlock_sims():
     assert_no_lua_errors(w)
 
 
+# WoWSims' P1 Beast Mastery build (ui/specs/hunter/dps/builds/phase_1/bm/2h_6p.build.json), no gems or enchants
+HUNTER_P1 = [28275, 29381, 27801, 24259, 28228, 29246, 27474, 28828, 28741, 28545, 28757, 28791, 29383, 28830, 28435, 0,
+             28772]
+
+
+@r.case
+def hunter_sims():
+    w = new_world()
+    c = Client(w, "Arrowz", class_file="HUNTER", race="Orc", guild_rank=3)
+    up(c)
+    settle(w, 5)
+    assert c.eval("return ns.BiS:SetSpec(...)", "Beast Mastery") is True
+    c.equip({INV[i]: iid for i, iid in enumerate(HUNTER_P1) if iid})
+    c.eval("ns.SimRunner.DEFAULT_ITERATIONS = 6")
+    c.eval('ns.MainFrame:Open("mybis")')
+    settle(w, 1)
+    assert c.eval("return ns.SimRunner:IsSupported()") is True
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    res = results(c)
+    assert res and 1500 < res["work"] < 3600 and res["diff"] == 0, res
+    names = c.eval_py("local t = {} for _, a in ipairs(ns.SimRunner:Breakdown(ns.SimPanel._state().results.work)) do "
+                      "t[#t + 1] = a.name end return t")
+    for want in ("Auto Shot", "Steady Shot", "Pet", "Kill Command"):
+        assert want in names, (want, names)
+    assert "Melee" not in names, names
+    for spec in ("Beast Mastery", "Marksmanship", "Survival"):
+        assert c.eval("return ns.BiS:SetSpec(...)", spec) is True
+        assert c.eval("return ns.SimRunner:IsSupported()") is True, spec
+        assert c.eval("return ns.Data.SimAPL[ns.SimRunner:SpecKey()] ~= nil") is True, spec
+        sc = c.eval_py("return ns.SimRunner:Scenario(ns.SimRunner:EquippedSet(), { buffs = 'raid25', duration = 180 })")
+        assert sc["distance"] == 7 and sc["reactionTimeMs"] == 100, (spec, sc["distance"], sc["reactionTimeMs"])
+        assert sc["classOptions"]["petType"] == "Ravager", (spec, sc["classOptions"])
+        doc = __import__("json").loads(c.eval("return ns.SimRunner:WoWSimsSettings(ns.SimRunner:EquippedSet(), "
+                                              "{ buffs = 'raid25', duration = 180, mobType = 'Mechanical' })"))
+        pl = doc["player"]
+        assert pl["class"] == "ClassHunter" and pl["hunter"]["options"]["classOptions"]["ammo"] == "WardensArrow", (spec, pl)
+    assert_no_lua_errors(w)
+
+
 @r.case
 def enhancement_shaman_sims():
     w = new_world()

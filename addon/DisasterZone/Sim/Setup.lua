@@ -44,6 +44,10 @@ function S.NewScenario(sc, db, apl)
     S.SetupWarlock(p, sc.talents or "", sc.classOptions)
     buffs = S.WarlockRaidBuffs(p, buffs)
   end
+  if cls == "Hunter" then
+    S.SetupHunter(p, sc.talents or "", sc.classOptions)
+    buffs = S.HunterRaidBuffs(p, buffs)
+  end
   S.ApplyRacials(p)
   if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
   S.ApplyItemEffects(p, sc, db)
@@ -56,6 +60,7 @@ function S.NewScenario(sc, db, apl)
   if cls == "Priest" then S.PriestApplyTalents(p) end
   if cls == "Mage" then S.MageApplyTalents(p) end
   if cls == "Warlock" then S.WarlockApplyTalents(p) end
+  if cls == "Hunter" then S.HunterApplyTalents(p) end
   p.buffRecord = {}
   S.ApplyBuffs(p, buffs)
   p.buffRecordDone, p.buffRecord = p.buffRecord, nil
@@ -72,6 +77,7 @@ function S.NewScenario(sc, db, apl)
   if cls == "Priest" then S.PriestInitialize(p) end
   if cls == "Mage" then S.MageInitialize(p) end
   if cls == "Warlock" then S.WarlockInitialize(p) end
+  if cls == "Hunter" then S.HunterInitialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()

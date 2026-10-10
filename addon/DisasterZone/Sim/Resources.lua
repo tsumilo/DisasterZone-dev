@@ -152,6 +152,54 @@ function Unit:MultiplyEnergyRegenSpeed(sim, m)
   self.energyRegenMultiplier = self.energyRegenMultiplier * m
 end
 
+-- ---------------------------------------------------------------------------------------------------------------
+-- Focus (focus.go): a hunter pet's resource, 100 at most, 25 every 5 s (Bestial Discipline: more a tick). A pet's
+-- ticks start when it is summoned, at a random point of the first 5 s.
+-- ---------------------------------------------------------------------------------------------------------------
+function Unit:EnableFocusBar(regenMultiplier)
+  self.hasFocus = true
+  self.maxFocus = 100
+  self.focus = 100
+  self.focusPerTick = 25 * (regenMultiplier or 1)
+  self.nextFocusTick = 0
+  self.focusGains = {}
+  local u = self
+  local task = {}
+  function task.RunTask(_, sim)
+    if sim.now < u.nextFocusTick then return u.nextFocusTick end
+    u:AddFocus(sim, u.focusPerTick, "regen")
+    u.nextFocusTick = sim.now + 5
+    return u.nextFocusTick
+  end
+  self.focusTask = task
+  self:RegisterResetEffect(function() u.focus = u.maxFocus end)
+end
+
+function Unit:EnableFocusTicks(sim, startAt)
+  self.focus = self.maxFocus
+  sim:AddTask(self.focusTask)
+  self.nextFocusTick = startAt + sim:Rand() * 5
+  sim:RescheduleTask(self.nextFocusTick)
+end
+
+function Unit:DisableFocusTicks(sim)
+  self.nextFocusTick = math.huge
+  sim:RemoveTask(self.focusTask)
+end
+
+function Unit:AddFocus(sim, amount, metric)
+  if amount < 0 then error("negative focus") end
+  local new = min(self.focus + amount, self.maxFocus)
+  if metric then self.focusGains[metric] = (self.focusGains[metric] or 0) + (new - self.focus) end
+  if sim.log then sim:Log("Gained %.3f focus from %s (%.3f --> %.3f)", amount, tostring(metric), self.focus, new) end
+  self.focus = new
+end
+
+function Unit:SpendFocus(sim, amount)
+  if amount < 0 then error("negative focus spend") end
+  self.focus = self.focus - amount
+end
+
 function Unit:AddComboPoints(sim, n, metric)
   local new = min(self.comboPoints + n, self.maxComboPoints)
   if sim.log then sim:Log("Gained %d combo points from %s (%d --> %d)", n, tostring(metric), self.comboPoints, new) end

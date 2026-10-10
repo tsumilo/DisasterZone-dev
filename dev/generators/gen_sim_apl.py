@@ -32,6 +32,14 @@ APLS = {
     "WARLOCK:Affliction": "ui/specs/warlock/dps/apls/affliction.apl.json",
     "WARLOCK:Demonology": "ui/specs/warlock/dps/apls/demonology.apl.json",
     "WARLOCK:Destruction": "ui/specs/warlock/dps/apls/destruction.apl.json",
+    # one Hunter list for every build, its "Melee weave" switch off (the sim doesn't move)
+    "HUNTER:Beast Mastery": "ui/specs/hunter/dps/apls/default.apl.json",
+    "HUNTER:Marksmanship": "ui/specs/hunter/dps/apls/default.apl.json",
+    "HUNTER:Survival": "ui/specs/hunter/dps/apls/default.apl.json",
+}
+# list -> { value variable: constant } set when generating
+VARIABLES = {
+    "ui/specs/hunter/dps/apls/default.apl.json": {"Melee weave": "false"},
 }
 
 
@@ -72,6 +80,9 @@ def main():
         first[rel] = key
         with open(os.path.join(WOWSIMS, rel), encoding="utf-8") as f:
             apl = json.load(f)
+        for v in apl.get("valueVariables", []):
+            if v["name"] in VARIABLES.get(rel, {}):
+                v["value"] = {"const": {"val": VARIABLES[rel][v["name"]]}}
         lines.append('  ["%s"] = %s,' % (key, lua(apl, "  ")))
     lines.append("}")
     for key, src in aliases:

@@ -211,6 +211,9 @@ function S.Unit_RegisterSpell(unit, cfg)
   elseif sp.energyCost then
     sp.cost = { base = sp.energyCost.cost, flatModifier = 0, percentModifier = 1, additivePercentModifier = 1,
       resource = "energy", refund = sp.energyCost.refund or 0 }
+  elseif sp.focusCost then
+    sp.cost = { base = sp.focusCost.cost, flatModifier = 0, percentModifier = 1, additivePercentModifier = 1,
+      resource = "focus", refund = 0 }
   end
   sp.gcd = sp.gcd or 0
   sp.castTime = sp.castTime or 0
@@ -284,6 +287,7 @@ function Spell:MeetsCost(sim)
   local r = c.resource
   if r == "rage" then return self.unit.rage >= self.curCost end
   if r == "energy" then return self.unit.energy >= self.curCost end
+  if r == "focus" then return self.unit.focus >= self.curCost end
   return self.unit.mana >= self.curCost
 end
 
@@ -383,6 +387,7 @@ function Spell:SpendCost(sim)
     local u = self.unit
     if cost.resource == "rage" then u:SpendRage(sim, c)
     elseif cost.resource == "energy" then u:SpendEnergy(sim, c)
+    elseif cost.resource == "focus" then u:SpendFocus(sim, c)
     else
       u:SpendMana(sim, c)
       if u.metrics and self.metrics then u.metrics:ManaSpend(self.metrics.key, c) end
@@ -543,6 +548,12 @@ end
 function Spell:MeleeAttackPower(target)
   local at = self.unit.attackTables[target]
   return self.unit.stats[ST.AttackPower] + target.ps.BonusAttackPower + (at and at.mobBonusAP or 0)
+end
+
+-- spell_result.go RangedAttackPower
+function Spell:RangedAttackPower(target)
+  local at = self.unit.attackTables[target]
+  return self.unit.stats[ST.RangedAttackPower] + target.ps.BonusRangedAttackPower + (at and at.mobBonusRAP or 0)
 end
 
 function Spell:SpellDamage()
@@ -935,6 +946,13 @@ function OUT.MeleeSpecialBlockAndCrit(spell, sim, r, at)
     return
   end
   if CritSeparateRoll(spell, sim, r, at) then return end
+  r.outcome = O.Hit
+end
+
+-- spell_outcome.go outcomeRangedHit: a miss or a hit (stings)
+function OUT.RangedHit(spell, sim, r, at)
+  local roll = sim:Rand()
+  if roll < MissChance(spell, at, false) then return SetMiss(r, O.Miss) end
   r.outcome = O.Hit
 end
 

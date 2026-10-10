@@ -253,6 +253,38 @@ function Rot:Value(node, vars)
     end)
   elseif node.numberTargets then
     return ConstNum(1)
+  elseif node.unitDistance then
+    -- the unit's distance from the target (moves come with events)
+    return Num(function() return u.distance or 0 end)
+  elseif node.max or node.min then
+    -- apl_values_math.go: the largest / smallest of the values; re-read every poll unless all stand still
+    local isMax = node.max ~= nil
+    local fs = {}
+    for _, v in ipairs((node.max or node.min).vals or {}) do
+      local c = self:Value(v, vars)
+      if c then fs[#fs + 1] = c end
+    end
+    local n = #fs
+    if n == 0 then return nil end
+    if n == 1 then return fs[1] end
+    for i = 1, n do if not fs[i].num then return nil end end
+    return Num(function(sim)
+        local best = fs[1].v(sim)
+        for i = 2, n do
+          local x = fs[i].v(sim)
+          if (isMax and x > best) or (not isMax and x < best) then best = x end
+        end
+        return best
+      end, ZERO,
+      function(sim)
+        local t = huge
+        for i = 1, n do
+          if fs[i].slope(sim) ~= 0 then return sim.now end
+          local x = fs[i].disc(sim)
+          if x < t then t = x end
+        end
+        return t
+      end)
   elseif node.inputDelay then
     return ConstNum(u.reactionTime)
   elseif node.actionGroupUsed then
@@ -309,10 +341,18 @@ function Rot:Value(node, vars)
     end
     return Num(function() return h.stacks end)
   elseif node.autoTimeToNext then
+    -- apl_values_auto_attacks.go: by auto type (none: any hand, the ranged one too)
     local aa = u.autoAttacks
-    return Num(function(sim) return max(0, aa:NextAttackAt() - sim.now) end,
-      function(sim) return (aa:NextAttackAt() > sim.now) and -1 or 0 end,
-      function(sim) return Future(aa:NextAttackAt(), sim.now) end)
+    local t = node.autoTimeToNext.autoType
+    local at
+    if t == "MeleeAuto" then at = function() return aa:NextAttackAt() end
+    elseif t == "MainHandAuto" then at = function() return aa.mh.swingAt end
+    elseif t == "OffHandAuto" then at = function() return aa.oh.swingAt end
+    elseif t == "RangedAuto" then at = function() return aa.ranged.swingAt end
+    else at = function() return min(aa:NextAttackAt(), aa.ranged.swingAt) end end
+    return Num(function(sim) return max(0, at() - sim.now) end,
+      function(sim) return (at() > sim.now) and -1 or 0 end,
+      function(sim) return Future(at(), sim.now) end)
   elseif node.autoTimeSinceLast then
     local aa = u.autoAttacks
     local t = node.autoTimeSinceLast.autoType
@@ -327,6 +367,7 @@ function Rot:Value(node, vars)
     return Num(function()
       if t == "MainHand" then return max(0, aa.mh.curSwingDuration) end
       if t == "OffHand" then return max(0, aa.oh.curSwingDuration) end
+      if t == "Ranged" then return max(0, aa.ranged.curSwingDuration) end
       return 0
     end)
   elseif node.gcdIsReady then
@@ -358,6 +399,7 @@ function Rot:Value(node, vars)
     -- spell.go default castTimeFn: ApplyCastSpeedForSpell (haste changes come with events)
     local sp = self.resolveSpell(node.spellCastTime.spellId)
     if not sp then return nil end
+    if sp.castTimeFn then return Num(function() return sp.castTimeFn(sp) end) end
     return Num(function() return sp.castTime * u.castSpeed * (sp.castTimeMultiplier or 1) end)
   elseif node.numberTargets then
     return Num(function(sim) return #sim.targets end)
@@ -709,6 +751,9 @@ function Rot:Action(node, vars, knownSpell)
       spell = sp,
       kind = "cast",
     }
+  elseif node.move then
+    -- melee weaving (apl_actions_misc.go APLActionMove) isn't simmed: the lists that move only do it when weaving
+    return nil
   elseif node.itemSwap then
     -- no item swap sets in this sim: WoWSims drops the action without one (apl_actions_misc.go)
     return nil

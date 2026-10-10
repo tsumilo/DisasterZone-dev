@@ -297,6 +297,34 @@ local function AddLinear(self, stat, amount)
   return l
 end
 
+-- unit.go processDynamicBonus: a dynamic pet (a hunter's) gets the owner's change at its next heartbeat
+local function PetsPending(self, sim, l, amount, delta)
+  local pets = self.dynamicPets
+  for i = 1, #pets do
+    local pet = pets[i]
+    if pet.enabled then
+      local pend = pet.pendingInheritance
+      if delta then
+        for k = 1, NUM_STATS do pend[k] = pend[k] + delta[k] end
+      else
+        for k = 1, #l, 2 do pend[l[k]] = pend[l[k]] + amount * l[k + 1] end
+      end
+      local pa = pet.heartbeatAction
+      if not pa then
+        pa = { prio = S.PRIO_DOT, fn = function(s) S.PetHeartbeat(pet, s) end }
+        pet.heartbeatAction = pa
+      end
+      if not pa.queuedIn or pa.consumed then
+        local off, iv = sim.petHeartbeatOffset or 0, S.PET_UPDATE_INTERVAL
+        pa.at = iv * (floor((sim.now - off) / iv) + 1) + off
+        pa.queuedIn = true
+        sim:Add(pa)
+      end
+    end
+  end
+end
+S.PET_UPDATE_INTERVAL = 5.25
+
 function Unit:AddStatsDynamic(sim, bonus)
   local swd = self.statsWithoutDeps
   local attr = false
@@ -307,10 +335,12 @@ function Unit:AddStatsDynamic(sim, bonus)
     return
   end
   local regen, mana, mh, sh = false, false, false, false
+  local dp = self.dynamicPets and self.dynamicPets[1]
   for k, v in pairs(bonus) do
     swd[k] = swd[k] + v
     local l = AddLinear(self, k, v)
     regen = regen or l.regen; mana = mana or l.mana; mh = mh or l.mhaste; sh = sh or l.shaste
+    if dp then PetsPending(self, sim, l, v) end
   end
   self:ReactToStatChange(sim, regen, mana, mh, sh)
 end
@@ -323,6 +353,7 @@ function Unit:AddStatDynamic(sim, stat, amount)
     return
   end
   local l = AddLinear(self, stat, amount)
+  if self.dynamicPets and self.dynamicPets[1] then PetsPending(self, sim, l, amount) end
   self:ReactToStatChange(sim, l.regen, l.mana, l.mhaste, l.shaste)
 end
 
@@ -363,6 +394,7 @@ function Unit:DisableDynamicStatDep(sim, dep)
 end
 
 function Unit:ProcessDynamicBonus(sim, b)
+  if self.dynamicPets and self.dynamicPets[1] then PetsPending(self, sim, nil, nil, b) end
   if b[ST.MP5] ~= 0 or b[ST.Intellect] ~= 0 or b[ST.Spirit] ~= 0 then self:UpdateManaRegenRates() end
   if b[ST.Mana] ~= 0 and self.hasMana then
     if self.mana > self.stats[ST.Mana] then self.mana = self.stats[ST.Mana] end
@@ -397,9 +429,84 @@ function Unit:MultiplyMeleeSpeed(sim, amount)
   if self.autoAttacks then self.autoAttacks:UpdateSwingTimers(sim) end
 end
 
+-- unit.go TotalRangedHasteMultiplier (ranged haste rating is melee haste rating here) and the ranged speed effects
+function Unit:TotalRangedHasteMultiplier()
+  local ps = self.ps
+  return ps.AttackSpeedMultiplier * ps.RangedSpeedMultiplier * (1 + self.stats[ST.MeleeHasteRating] / (S.HASTE_RATING_PER_PCT * 100))
+end
+
+function Unit:MultiplyRangedSpeed(sim, amount)
+  self.ps.RangedSpeedMultiplier = self.ps.RangedSpeedMultiplier * amount
+  if self.autoAttacks then self.autoAttacks:UpdateSwingTimers(sim) end
+end
+
+function Unit:MultiplyRangedHaste(sim, amount)
+  self.ps.RangedHasteMultiplier = self.ps.RangedHasteMultiplier * amount
+  self:MultiplyRangedSpeed(sim, amount)
+end
+
 function Unit:MultiplyAttackSpeed(sim, amount)
   self.ps.AttackSpeedMultiplier = self.ps.AttackSpeedMultiplier * amount
   if self.autoAttacks then self.autoAttacks:UpdateSwingTimers(sim) end
+end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Movement (movement.go): along one line, toward or away from the target. A move ends at a whole millisecond; the
+-- auto attacks come in and out of range as the distance changes. Players run 7 yards a second, pets 8.
+-- ---------------------------------------------------------------------------------------------------------------
+function Unit:MovementSpeed()
+  return (self.isPet and 8 or 7) * (self.ps.MovementSpeedMultiplier or 1)
+end
+
+function Unit:MoveTo(range, sim)
+  if range == self.distance then return end
+  self:UpdatePosition(sim, false)
+  local d = range - self.distance
+  local speed = self:MovementSpeed()
+  local t = floor(math.abs(d) / speed * 1000) / 1000
+  local ma = self.movementAction
+  if ma then sim:Cancel(ma) end
+  self.moving = true
+  local u = self
+  ma = { at = sim.now + t, prio = 0, startTime = sim.now, speed = speed * (d < 0 and -1 or 1), src = self.distance,
+    moveDistance = d, fn = function(s) u:FinalizeMovement(s) end }
+  self.movementAction = ma
+  sim:Add(ma)
+end
+
+function Unit:UpdatePosition(sim, isFinal)
+  if not self.moving then return end
+  local ma = self.movementAction
+  local old = self.distance
+  if isFinal and ma.moveDistance ~= 0 then
+    self.distance = ma.src + ma.moveDistance
+  else
+    self.distance = ma.src + (sim.now - ma.startTime) * ma.speed
+  end
+  if old == self.distance then return end
+  local aa = self.autoAttacks
+  if aa then
+    if aa.mh.enabled ~= aa.mh:IsInRange() then
+      if aa.mh:IsInRange() then aa:EnableMeleeSwing(sim) else aa:CancelMeleeSwing(sim) end
+    end
+    if aa.ranged.enabled ~= aa.ranged:IsInRange() then
+      if aa.ranged:IsInRange() then aa:EnableRangedSwing(sim) else aa:CancelRangedSwing(sim) end
+    end
+  end
+end
+
+function Unit:FinalizeMovement(sim)
+  if not self.moving then return end
+  self:UpdatePosition(sim, true)
+  self.moving = false
+  self.movementAction = nil
+end
+
+-- movement.go MultiplyMovementSpeed (a move under way is redone with WoWSims' own formula)
+function Unit:MultiplyMovementSpeed(sim, amount)
+  self.ps.MovementSpeedMultiplier = (self.ps.MovementSpeedMultiplier or 1) * amount
+  local ma = self.movementAction
+  if ma and ma.speed ~= 0 then self:MoveTo(ma.speed * (ma.at - ma.startTime), sim) end
 end
 
 -- Durations rounded to the millisecond, as cast.go does for hasted GCDs and cast times.
@@ -709,6 +816,19 @@ function Aura:AttachMultiplyMeleeSpeed(amount)
   self.onExpire = function(a, sim)
     a.unit:MultiplyMeleeSpeed(sim, 1 / amount)
     if oe then oe(a, sim) end
+  end
+  return self
+end
+
+function Aura:AttachMultiplyRangedHaste(amount)
+  local og, oe = self.onGain, self.onExpire
+  self.onGain = function(a, sim)
+    if og then og(a, sim) end
+    a.unit:MultiplyRangedHaste(sim, amount)
+  end
+  self.onExpire = function(a, sim)
+    if oe then oe(a, sim) end
+    a.unit:MultiplyRangedHaste(sim, 1 / amount)
   end
   return self
 end

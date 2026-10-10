@@ -1,0 +1,550 @@
+{
+ "dps": 2571.798489346745,
+ "dpsStdev": 64.65272144564318,
+ "iterations": 20000,
+ "actions": {
+  "spell:19574": {
+   "dps": 0.0,
+   "casts": 2.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "item:22838": {
+   "dps": 0.0,
+   "casts": 2.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:27014": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:27016": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "OtherActionMove": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "OtherActionAttack:1": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "OtherActionAttack:2": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "OtherActionManaGain": {
+   "dps": 0.0,
+   "casts": 109.9554,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "item:12662": {
+   "dps": 0.0,
+   "casts": 1.43335,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:34026": {
+   "dps": 0.0,
+   "casts": 32.4558,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:3043": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:34120": {
+   "dps": 634.811730689329,
+   "casts": 87.27575,
+   "hits": 87.27575,
+   "crits": 30.2637,
+   "enemy": {
+    "damage": 634.811730689329,
+    "hits": 57.01205,
+    "crits": 30.2637,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "OtherActionShoot": {
+   "dps": 800.5562148498124,
+   "casts": 105.1724,
+   "hits": 105.1724,
+   "crits": 36.39415,
+   "enemy": {
+    "damage": 800.5562148498124,
+    "hits": 68.77825,
+    "crits": 36.39415,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:27044": {
+   "dps": 0.0,
+   "casts": 1.00045,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:33697": {
+   "dps": 0.0,
+   "casts": 2.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "item:28288": {
+   "dps": 0.0,
+   "casts": 2.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:27065": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "item:10646": {
+   "dps": 6.95898665639542,
+   "casts": 1.0,
+   "hits": 1.97935,
+   "crits": 0.1387,
+   "enemy": {
+    "damage": 3.617073404321108,
+    "hits": 0.91455,
+    "crits": 0.0747,
+    "misses": 0.01075,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.12475,
+    "resistedCrits": 0.0108
+   }
+  },
+  "item:23737": {
+   "dps": 3.897739552371046,
+   "casts": 1.0,
+   "hits": 0.99045,
+   "crits": 0.0738,
+   "enemy": {
+    "damage": 3.897739552371046,
+    "hits": 0.91665,
+    "crits": 0.0738,
+    "misses": 0.00955,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.1303,
+    "resistedCrits": 0.01015
+   }
+  },
+  "spell:27019": {
+   "dps": 76.1491723001197,
+   "casts": 11.85285,
+   "hits": 11.85285,
+   "crits": 4.0913,
+   "enemy": {
+    "damage": 76.1491723001197,
+    "hits": 7.76155,
+    "crits": 4.0913,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 1.0657,
+    "resistedCrits": 0.56155
+   }
+  },
+  "item:29383": {
+   "dps": 0.0,
+   "casts": 2.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:35476:-1": {
+   "dps": 0.0,
+   "casts": 2.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "item:23827": {
+   "dps": 15.299618228894406,
+   "casts": 1.0,
+   "hits": 1.97995,
+   "crits": 0.1402,
+   "enemy": {
+    "damage": 7.970377393158837,
+    "hits": 0.91235,
+    "crits": 0.07775,
+    "misses": 0.0099,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.1265,
+    "resistedCrits": 0.01045
+   }
+  },
+  "spell:34074": {
+   "dps": 0.0,
+   "casts": 0.0023,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:27021": {
+   "dps": 109.32167090573402,
+   "casts": 12.9976,
+   "hits": 12.9976,
+   "crits": 4.48615,
+   "enemy": {
+    "damage": 109.32167090573402,
+    "hits": 8.51145,
+    "crits": 4.48615,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "spell:3045": {
+   "dps": 0.0,
+   "casts": 1.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "OtherActionAttack:25584": {
+   "dps": 0.0,
+   "casts": 0.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "pet:spell:27050": {
+   "dps": 19.570992927601438,
+   "casts": 17.01105,
+   "hits": 15.5611,
+   "crits": 3.9306,
+   "enemy": {
+    "damage": 19.570992927601438,
+    "hits": 11.6305,
+    "crits": 3.9306,
+    "misses": 0.3432,
+    "dodges": 1.10675,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "pet:spell:35298": {
+   "dps": 72.719537889135,
+   "casts": 101.3473,
+   "hits": 92.71855,
+   "crits": 23.598,
+   "enemy": {
+    "damage": 72.719537889135,
+    "hits": 69.12055,
+    "crits": 23.598,
+    "misses": 2.03235,
+    "dodges": 6.5964,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "pet:spell:34027": {
+   "dps": 200.2553980897243,
+   "casts": 32.4558,
+   "hits": 29.70305,
+   "crits": 13.4365,
+   "enemy": {
+    "damage": 200.2553980897243,
+    "hits": 16.26655,
+    "crits": 13.4365,
+    "misses": 0.63115,
+    "dodges": 2.1216,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "pet:spell:23110": {
+   "dps": 0.0,
+   "casts": 1.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "pet:OtherActionMove": {
+   "dps": 0.0,
+   "casts": 1.0,
+   "hits": 0.0,
+   "crits": 0.0,
+   "enemy": {
+    "damage": 0.0,
+    "hits": 0.0,
+    "crits": 0.0,
+    "misses": 0.0,
+    "dodges": 0.0,
+    "glances": 0.0,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  },
+  "pet:OtherActionAttack:1": {
+   "dps": 642.9285813454381,
+   "casts": 193.1397,
+   "hits": 130.30515,
+   "crits": 49.02215,
+   "enemy": {
+    "damage": 642.9285813454381,
+    "hits": 81.283,
+    "crits": 49.02215,
+    "misses": 3.871,
+    "dodges": 12.6036,
+    "glances": 46.35995,
+    "resistedHits": 0.0,
+    "resistedCrits": 0.0
+   }
+  }
+ },
+ "resources": {
+  "OtherActionManaRegen:1/ResourceTypeMana": 2867.8811817374376,
+  "OtherActionManaRegen:2/ResourceTypeMana": 77.60000000000002,
+  "OtherActionDamageTaken/ResourceTypeHealth": -1920.8077358057794,
+  "spell:19574/ResourceTypeMana": -676.0,
+  "item:12662/ResourceTypeMana": 1717.101771759848,
+  "spell:27019/ResourceTypeMana": -2382.4106100000768,
+  "spell:27044/ResourceTypeMana": -140.063,
+  "spell:34074/ResourceTypeMana": 0.45570115842117764,
+  "spell:34026/ResourceTypeMana": -2326.686,
+  "spell:27021/ResourceTypeMana": -3149.2989,
+  "spell:3045/ResourceTypeMana": -80.0,
+  "spell:34120/ResourceTypeMana": -8256.319830002532,
+  "spell:27164/ResourceTypeMana": 7990.169583886675
+ }
+}

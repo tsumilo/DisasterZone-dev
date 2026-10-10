@@ -18,7 +18,7 @@ RET_BUFFS = {
     },
     "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "blessingOfMight": IMP, "unleashedRage": True},
     "debuffs": {
-        "misery": True, "curseOfElements": IMP, "improvedSealOfTheCrusader": IMP, "jocRetribution2Pt4": True,
+        "misery": True, "curseOfElements": IMP, "improvedSealOfTheCrusader": IMP, "jocRetribution2pt4": True,
         "judgementOfWisdom": True, "bloodFrenzy": True, "huntersMark": IMP, "curseOfRecklessness": True,
         "sunderArmor": True, "faerieFire": IMP, "exposeArmor": IMP, "exposeWeaknessUptime": 0.9,
         "exposeWeaknessHunterAgility": 1080,
@@ -191,6 +191,25 @@ def _warlock(apl, summon, sacrifice, curse, buffs, lua_buffs):
             "luaOptions": {"armor": "FelArmor", "curse": curse, "summon": summon, "sacrificeSummon": sacrifice}}
 
 
+# ui/specs/hunter/dps/builds/phase_N/*.build.json (all phases share the buffs; ammo varies, set per scenario)
+HUNTER_BUFFS = {
+    "raid": {"arcaneBrilliance": True, "powerWordFortitude": IMP, "shadowProtection": True, "divineSpirit": IMP,
+             "giftOfTheWild": IMP, "bloodlust": True},
+    "party": {"ferociousInspiration": 1, "leaderOfThePack": IMP, "braidedEterniumChain": True, "graceOfAirTotem": IMP,
+              "strengthOfEarthTotem": IMP, "windfuryTotem": IMP, "totemTwisting": True, "battleShout": IMP,
+              "drums": "LesserDrumsOfBattle"},
+    "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "blessingOfMight": IMP, "unleashedRage": True},
+    "debuffs": {"judgementOfWisdom": True, "judgementOfLight": True, "improvedSealOfTheCrusader": IMP, "misery": True,
+                "bloodFrenzy": True, "giftOfArthas": True, "mangle": True, "exposeArmor": IMP, "faerieFire": IMP,
+                "sunderArmor": True, "curseOfRecklessness": True, "huntersMark": IMP, "exposeWeaknessUptime": 0.9,
+                "exposeWeaknessHunterAgility": 1080, "insectSwarm": True},
+    "consumables": {"potId": 22838, "battleElixirId": 22831, "guardianElixirId": 22840, "foodId": 27659,
+                    "conjuredId": 12662, "explosiveId": 30217, "superSapper": True, "goblinSapper": True,
+                    "scrollAgi": True, "scrollStr": True, "petScrollAgi": True, "petScrollStr": True,
+                    "petFoodId": 33874},
+}
+HUNTER_OPTIONS = {"quiverBonus": "Speed15", "ammo": "WardensArrow", "petType": "Ravager", "petUptime": 1}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -226,6 +245,11 @@ SPECS = {
     "demonology": _warlock("demonology", "Succubus", False, "Recklessness", WARLOCK_BUFFS, "wowsims_warlock"),
     "destruction": _warlock("destruction", "Succubus", True, "Recklessness", WARLOCK_BUFFS, "wowsims_warlock"),
     "destrofire": _warlock("destro_fire", "Imp", True, "Recklessness", WARLOCK_FIRE_BUFFS, "wowsims_warlock_fire"),
+    # WoWSims' list with its "Melee weave" switch off (scenarios set aplVariables): the sim doesn't move
+    "hunter": {"class": "Hunter", "wsClass": "ClassHunter", "field": "hunter",
+               "options": {"options": {"classOptions": HUNTER_OPTIONS}},
+               "apl": "ui/specs/hunter/dps/apls/default.apl.json", "buffs": HUNTER_BUFFS, "luaBuffs": "wowsims_hunter",
+               "luaOptions": HUNTER_OPTIONS},
     "balance": {"class": "Druid", "wsClass": "ClassDruid", "field": "balanceDruid",
                 "options": {"options": {"classOptions": {}}},
                 "apl": "ui/specs/druid/balance/apls/default.apl.json", "buffs": BALANCE_BUFFS, "luaBuffs": "wowsims_balance",

@@ -15,13 +15,14 @@ Runner.SPECS = { ["PALADIN:Retribution"] = true, ["WARRIOR:Fury"] = true, ["WARR
   ["SHAMAN:Enhancement"] = true, ["ROGUE:Combat"] = true, ["ROGUE:Assassination"] = true, ["ROGUE:Subtlety"] = true,
   ["DRUID:Feral (Cat)"] = true, ["SHAMAN:Elemental"] = true, ["PRIEST:Shadow"] = true,
   ["DRUID:Balance"] = true, ["MAGE:Arcane"] = true, ["MAGE:Fire"] = true, ["MAGE:Frost"] = true,
-  ["WARLOCK:Affliction"] = true, ["WARLOCK:Demonology"] = true, ["WARLOCK:Destruction"] = true }
+  ["WARLOCK:Affliction"] = true, ["WARLOCK:Demonology"] = true, ["WARLOCK:Destruction"] = true,
+  ["HUNTER:Beast Mastery"] = true, ["HUNTER:Marksmanship"] = true, ["HUNTER:Survival"] = true }
 -- what the sim covers, for the texts that say so
 Runner.COVERED = "Retribution Paladins, Fury / Arms Warriors, Enhancement / Elemental Shamans, Rogues, Feral / "
-  .. "Balance Druids, Shadow Priests, Mages and Warlocks"
+  .. "Balance Druids, Shadow Priests, Mages, Warlocks and Hunters"
 -- class file -> the sim's class
 Runner.CLASS_NAMES = { PALADIN = "Paladin", WARRIOR = "Warrior", SHAMAN = "Shaman", ROGUE = "Rogue", DRUID = "Druid",
-  PRIEST = "Priest", MAGE = "Mage", WARLOCK = "Warlock" }
+  PRIEST = "Priest", MAGE = "Mage", WARLOCK = "Warlock", HUNTER = "Hunter" }
 -- A warlock's demon and curse as in WoWSims' presets: Affliction keeps an Imp and casts Curse of the Elements,
 -- Demonology keeps a Succubus, Destruction sacrifices it when it has Demonic Sacrifice; both of those curse with
 -- Recklessness. Returns the sim's options and the WoWSims export's.
@@ -34,6 +35,14 @@ local function WarlockOptions(spec)
     return { armor = "FelArmor", curse = curse, summon = summon, sacrificeSummon = sacrifice },
       { armor = "FelArmor", curseOptions = curse, summon = summon, sacrificeSummon = sacrifice }
   end
+end
+
+-- A hunter as in WoWSims' builds: Warden's Arrows, a 15% quiver, a ravager out all fight, 7 yards from the target
+-- (the sim keeps him at range: no melee weaving), 100 ms reactions.
+local HUNTER_OPTIONS = { quiverBonus = "Speed15", ammo = "WardensArrow", petType = "Ravager", petUptime = 1 }
+local function Hunter()
+  return { options = HUNTER_OPTIONS, distance = 7, reactionTimeMs = 100, buffs = "wowsims_hunter", field = "hunter",
+    wsOptions = HUNTER_OPTIONS }
 end
 
 -- spec key -> what differs from the class: options (optionsFn: from the talents), WoWSims' default reaction time (ms)
@@ -60,6 +69,9 @@ Runner.SPEC_SETTINGS = {
     field = "warlock" },
   ["WARLOCK:Destruction"] = { optionsFn = WarlockOptions("Destruction"), distance = 20, buffs = "wowsims_warlock",
     field = "warlock" },
+  ["HUNTER:Beast Mastery"] = Hunter(),
+  ["HUNTER:Marksmanship"] = Hunter(),
+  ["HUNTER:Survival"] = Hunter(),
 }
 -- WoWSims' class options (dps/presets.ts DefaultOptions)
 Runner.CLASS_OPTIONS = {
@@ -90,6 +102,12 @@ Runner.BUFFS = {
       .. "the Elements, Improved Shadow Bolt (72% uptime), Judgements of the Crusader and Wisdom, Faerie Fire, Expose "
       .. "Armor; Flask of Pure Death, Blackened Basilisk, Destruction Potion, Demonic Rune. You bring your own Misery, "
       .. "Shadow Weaving, Vampiric Touch and Shadowfiend.",
+    tipHunter = "WoWSims' Hunter raid setup: Bloodlust, drums, Battle Shout, Leader of the Pack, Ferocious Inspiration, "
+      .. "Braided Eternium Chain, Grace of Air (twisted), Strength of Earth, Windfury, Kings, Might, Wisdom, Gift of the "
+      .. "Wild, Fortitude, Arcane Brilliance, Divine Spirit, Shadow Protection, Unleashed Rage, Hunter's Mark, Expose "
+      .. "Weakness and the melee debuffs; Elixirs of Major Agility and Major Mageblood, Warp Burger, Haste Potion, Demonic Rune, "
+      .. "sappers and grenades (Engineering), scrolls and Kibler's Bits for the pet. Your ravager is out all fight; "
+      .. "Warden's Arrows and a 15% quiver; you shoot from range (no melee weaving).",
     tipWarlock = "WoWSims' Warlock raid setup: Bloodlust, drums, Mana Spring, Moonkin Aura, Totem of Wrath and Wrath of "
       .. "Air, Chain of the Twilight Owl, Eye of the Night, Kings and Wisdom, Gift of the Wild, Fortitude, Arcane "
       .. "Brilliance, Divine Spirit, Curse of the Elements, Misery, Shadow Weaving, Improved Shadow Bolt (72% uptime), "
@@ -317,6 +335,10 @@ Runner.DEFAULT_TALENTS = {
   ["WARLOCK:Affliction"] = "05022221112351055003--50500051220001",
   ["WARLOCK:Demonology"] = "01-205003213305010150134-50500251020001",
   ["WARLOCK:Destruction"] = "-20500301332101-50500051220051053105",
+  ["HUNTER:Beast Mastery"] = "522002005150122431051-0505201205",
+  -- no WoWSims preset: a standard 7/41/13 build
+  ["HUNTER:Marksmanship"] = "502-05052512050032531020-000000000003023005",
+  ["HUNTER:Survival"] = "502-0550201205-333200022003223005103",
 }
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -797,6 +819,11 @@ Runner.ABILITIES = {
   [27223] = "Death Coil", [30546] = "Shadowburn", [30912] = "Conflagrate", [30545] = "Soul Fire",
   [30459] = "Searing Pain", [30414] = "Shadowfury", pet_imp_27267 = "Imp", pet_succubus_27274 = "Succubus",
   pet_succubus_melee = "Succubus",
+  -- Hunters
+  shoot = "Auto Shot", [34120] = "Steady Shot", [27021] = "Multi-Shot", [27019] = "Arcane Shot", [27065] = "Aimed Shot",
+  [27016] = "Serpent Sting", [27014] = "Raptor Strike", pet_pet_34027 = "Kill Command", pet_pet_melee = "Pet",
+  pet_pet_27050 = "Pet", pet_pet_27049 = "Pet", pet_pet_35298 = "Pet", pet_pet_27051 = "Pet", pet_pet_25012 = "Pet",
+  pet_pet_35323 = "Pet",
   -- Rogues
   [26862] = "Sinister Strike", [26863] = "Backstab", [26864] = "Hemorrhage", [26865] = "Eviscerate",
   [26867] = "Rupture", [5938] = "Shiv", [27187] = "Deadly Poison", ["27187:1"] = "Deadly Poison",
@@ -913,6 +940,7 @@ Runner.WOWSIMS_SPEC = {
   Rogue = { class = "ClassRogue", field = "rogue", options = { options = { classOptions = {} } } },
   Druid = { class = "ClassDruid", field = "feralCatDruid", options = { options = { classOptions = {} } } },
   Priest = { class = "ClassPriest", field = "dpsPriest", options = { options = { classOptions = { preShadowform = true } } } },
+  Hunter = { class = "ClassHunter", field = "hunter", options = { options = { classOptions = HUNTER_OPTIONS } } },
   Warlock = { class = "ClassWarlock", field = "warlock", options = { options = { classOptions = { armor = "FelArmor",
     curseOptions = "Recklessness", summon = "Succubus", sacrificeSummon = true } } } },
   Mage = { class = "ClassMage", field = "mage", options = { options = { classOptions = {

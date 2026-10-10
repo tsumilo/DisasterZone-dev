@@ -13460,6 +13460,1100 @@ ns.Data.SimAPL = {
       },
     },
   },
+  ["HUNTER:Beast Mastery"] = {
+    type = "TypeAPL",
+    prepullActions = {
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 27044,
+              rank = 8,
+            },
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-20s",
+          },
+        },
+      },
+      {
+        action = {
+          groupReference = {
+            groupName = "Move to starting range",
+          },
+        },
+        doAtValue = {
+          const = {
+            val = "-19s",
+          },
+        },
+      },
+    },
+    priorityList = {
+      {
+        action = {
+          groupReference = {
+            groupName = "Mana management",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpGe",
+              lhs = {
+                currentTime = {},
+              },
+              rhs = {
+                const = {
+                  val = "5s",
+                },
+              },
+            },
+          },
+          autocastOtherCooldowns = {},
+        },
+      },
+      {
+        action = {
+          castSpell = {
+            spellId = {
+              spellId = 34026,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            cmp = {
+              op = "OpLe",
+              lhs = {
+                currentTime = {},
+              },
+              rhs = {
+                const = {
+                  val = "0.5s",
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 34120,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Melee weave",
+            },
+          },
+          groupReference = {
+            groupName = "Weave",
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Use Multi-Shot",
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "Melee weave",
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 34120,
+                          rank = 1,
+                        },
+                      },
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Time until auto with buffer",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 27021,
+                          rank = 6,
+                        },
+                      },
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Time until auto with buffer",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGt",
+                    lhs = {
+                      variableRef = {
+                        name = "Next cycle gap after steady",
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "0.1s",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLt",
+                    lhs = {
+                      variableRef = {
+                        name = "Next cycle gap after steady",
+                      },
+                    },
+                    rhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 27021,
+                          rank = 6,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27021,
+              rank = 6,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Use Arcane Shot",
+                  },
+                },
+                {
+                  variableRef = {
+                    name = "Melee weave",
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 34120,
+                          rank = 1,
+                        },
+                      },
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Time until auto with buffer",
+                      },
+                    },
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpGt",
+                    lhs = {
+                      variableRef = {
+                        name = "Next cycle gap after steady",
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "0.1s",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27019,
+              rank = 9,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 34120,
+                          rank = 1,
+                        },
+                      },
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Time until auto with buffer",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["not"] = {
+                          val = {
+                            variableRef = {
+                              name = "Melee weave",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpLe",
+                                lhs = {
+                                  spellCastTime = {
+                                    spellId = {
+                                      spellId = 34120,
+                                      rank = 1,
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  autoTimeToNext = {
+                                    autoType = "MainHandAuto",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGt",
+                                lhs = {
+                                  unitDistance = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Melee range",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 34120,
+              rank = 1,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            ["and"] = {
+              vals = {
+                {
+                  variableRef = {
+                    name = "Use Multi-Shot",
+                  },
+                },
+                {
+                  cmp = {
+                    op = "OpLe",
+                    lhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 27021,
+                          rank = 6,
+                        },
+                      },
+                    },
+                    rhs = {
+                      variableRef = {
+                        name = "Time until auto with buffer",
+                      },
+                    },
+                  },
+                },
+                {
+                  ["or"] = {
+                    vals = {
+                      {
+                        ["not"] = {
+                          val = {
+                            variableRef = {
+                              name = "Melee weave",
+                            },
+                          },
+                        },
+                      },
+                      {
+                        ["and"] = {
+                          vals = {
+                            {
+                              cmp = {
+                                op = "OpLe",
+                                lhs = {
+                                  spellCastTime = {
+                                    spellId = {
+                                      spellId = 27021,
+                                      rank = 6,
+                                    },
+                                  },
+                                },
+                                rhs = {
+                                  autoTimeToNext = {
+                                    autoType = "MainHandAuto",
+                                  },
+                                },
+                              },
+                            },
+                            {
+                              cmp = {
+                                op = "OpGt",
+                                lhs = {
+                                  unitDistance = {},
+                                },
+                                rhs = {
+                                  variableRef = {
+                                    name = "Melee range",
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27021,
+              rank = 6,
+            },
+          },
+        },
+      },
+      {
+        action = {
+          condition = {
+            variableRef = {
+              name = "Use Arcane Shot",
+            },
+          },
+          castSpell = {
+            spellId = {
+              spellId = 27019,
+              rank = 9,
+            },
+          },
+        },
+      },
+    },
+    groups = {
+      {
+        name = "Mana management",
+        actions = {
+          {
+            hide = true,
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      auraIsInactive = {
+                        auraId = {
+                          spellId = 34074,
+                        },
+                      },
+                    },
+                    {
+                      cmp = {
+                        op = "OpLe",
+                        lhs = {
+                          currentManaPercent = {},
+                        },
+                        rhs = {
+                          math = {
+                            op = "OpAdd",
+                            lhs = {
+                              variableRef = {
+                                name = "Viper start",
+                              },
+                            },
+                            rhs = {
+                              const = {
+                                val = "5%",
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  itemId = 22832,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      auraIsInactive = {
+                        auraId = {
+                          spellId = 34074,
+                        },
+                      },
+                    },
+                    {
+                      cmp = {
+                        op = "OpLt",
+                        lhs = {
+                          currentManaPercent = {},
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Viper start",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  spellId = 34074,
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      auraIsInactive = {
+                        auraId = {
+                          spellId = 27044,
+                          rank = 8,
+                        },
+                      },
+                    },
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          currentManaPercent = {},
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Viper stop",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              castSpell = {
+                spellId = {
+                  spellId = 27044,
+                  rank = 8,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Weave",
+        actions = {
+          {
+            action = {
+              condition = {
+                cmp = {
+                  op = "OpLt",
+                  lhs = {
+                    autoTimeSinceLast = {
+                      autoType = "MainHandAuto",
+                    },
+                  },
+                  rhs = {
+                    variableRef = {
+                      name = "Wait at melee",
+                    },
+                  },
+                },
+              },
+              wait = {
+                duration = {
+                  math = {
+                    op = "OpSub",
+                    lhs = {
+                      variableRef = {
+                        name = "Wait at melee",
+                      },
+                    },
+                    rhs = {
+                      autoTimeSinceLast = {
+                        autoType = "MainHandAuto",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpGe",
+                        lhs = {
+                          autoTimeSinceLast = {
+                            autoType = "MainHandAuto",
+                          },
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Wait at melee",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      cmp = {
+                        op = "OpGt",
+                        lhs = {
+                          autoTimeToNext = {
+                            autoType = "MainHandAuto",
+                          },
+                        },
+                        rhs = {
+                          const = {
+                            val = "0ms",
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              move = {
+                rangeFromTarget = {
+                  variableRef = {
+                    name = "Starting weave distance",
+                  },
+                },
+              },
+            },
+          },
+          {
+            action = {
+              condition = {
+                ["and"] = {
+                  vals = {
+                    {
+                      cmp = {
+                        op = "OpLe",
+                        lhs = {
+                          autoTimeToNext = {
+                            autoType = "MainHandAuto",
+                          },
+                        },
+                        rhs = {
+                          variableRef = {
+                            name = "Move duration",
+                          },
+                        },
+                      },
+                    },
+                    {
+                      ["or"] = {
+                        vals = {
+                          {
+                            ["and"] = {
+                              vals = {
+                                {
+                                  cmp = {
+                                    op = "OpGe",
+                                    lhs = {
+                                      autoTimeToNext = {
+                                        autoType = "RangedAuto",
+                                      },
+                                    },
+                                    rhs = {
+                                      variableRef = {
+                                        name = "Weave ranged threshold",
+                                      },
+                                    },
+                                  },
+                                },
+                                {
+                                  ["or"] = {
+                                    vals = {
+                                      {
+                                        cmp = {
+                                          op = "OpGe",
+                                          lhs = {
+                                            gcdTimeToReady = {},
+                                          },
+                                          rhs = {
+                                            variableRef = {
+                                              name = "Move duration",
+                                            },
+                                          },
+                                        },
+                                      },
+                                      {
+                                        ["and"] = {
+                                          vals = {
+                                            {
+                                              gcdIsReady = {},
+                                            },
+                                            {
+                                              cmp = {
+                                                op = "OpGe",
+                                                lhs = {
+                                                  autoTimeToNext = {
+                                                    autoType = "RangedAuto",
+                                                  },
+                                                },
+                                                rhs = {
+                                                  variableRef = {
+                                                    name = "Weave before cast threshold",
+                                                  },
+                                                },
+                                              },
+                                            },
+                                          },
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                          {
+                            ["and"] = {
+                              vals = {
+                                {
+                                  cmp = {
+                                    op = "OpGt",
+                                    lhs = {
+                                      autoTimeSinceLast = {
+                                        autoType = "MainHandAuto",
+                                      },
+                                    },
+                                    rhs = {
+                                      autoSwingTime = {
+                                        autoType = "MainHand",
+                                      },
+                                    },
+                                  },
+                                },
+                                {
+                                  cmp = {
+                                    op = "OpGe",
+                                    lhs = {
+                                      autoTimeToNext = {
+                                        autoType = "RangedAuto",
+                                      },
+                                    },
+                                    rhs = {
+                                      variableRef = {
+                                        name = "Move duration",
+                                      },
+                                    },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              move = {
+                rangeFromTarget = {
+                  variableRef = {
+                    name = "Melee range",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Move to starting range",
+        actions = {
+          {
+            action = {
+              condition = {
+                variableRef = {
+                  name = "Melee weave",
+                },
+              },
+              move = {
+                rangeFromTarget = {
+                  variableRef = {
+                    name = "Starting weave distance",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    valueVariables = {
+      {
+        name = "Viper start",
+        value = {
+          const = {
+            val = "5%",
+          },
+        },
+      },
+      {
+        name = "Viper stop",
+        value = {
+          const = {
+            val = "25%",
+          },
+        },
+      },
+      {
+        name = "Melee weave",
+        value = {
+          const = {
+            val = "false",
+          },
+        },
+      },
+      {
+        name = "Time to weave",
+        value = {
+          const = {
+            val = "400ms",
+          },
+        },
+      },
+      {
+        name = "Move duration",
+        value = {
+          const = {
+            val = "100ms",
+          },
+        },
+      },
+      {
+        name = "Use Multi-Shot",
+        value = {
+          const = {
+            val = "true",
+          },
+        },
+      },
+      {
+        name = "Use Arcane Shot",
+        value = {
+          const = {
+            val = "true",
+          },
+        },
+      },
+      {
+        name = "Melee range",
+        value = {
+          const = {
+            val = "5.00",
+          },
+        },
+      },
+      {
+        name = "Starting weave distance",
+        value = {
+          math = {
+            op = "OpAdd",
+            lhs = {
+              math = {
+                op = "OpMul",
+                lhs = {
+                  math = {
+                    op = "OpDiv",
+                    lhs = {
+                      variableRef = {
+                        name = "Move duration",
+                      },
+                    },
+                    rhs = {
+                      const = {
+                        val = "1s",
+                      },
+                    },
+                  },
+                },
+                rhs = {
+                  const = {
+                    val = "7",
+                  },
+                },
+              },
+            },
+            rhs = {
+              variableRef = {
+                name = "Melee range",
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Wait at melee",
+        value = {
+          max = {
+            vals = {
+              {
+                inputDelay = {},
+              },
+              {
+                math = {
+                  op = "OpSub",
+                  lhs = {
+                    variableRef = {
+                      name = "Time to weave",
+                    },
+                  },
+                  rhs = {
+                    math = {
+                      op = "OpMul",
+                      lhs = {
+                        variableRef = {
+                          name = "Move duration",
+                        },
+                      },
+                      rhs = {
+                        const = {
+                          val = "2",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Buffer",
+        value = {
+          min = {
+            vals = {
+              {
+                const = {
+                  val = "0.5s",
+                },
+              },
+              {
+                math = {
+                  op = "OpMul",
+                  lhs = {
+                    autoSwingTime = {
+                      autoType = "Ranged",
+                    },
+                  },
+                  rhs = {
+                    const = {
+                      val = "0.25",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Time until auto with buffer",
+        value = {
+          math = {
+            op = "OpAdd",
+            lhs = {
+              autoTimeToNext = {
+                autoType = "RangedAuto",
+              },
+            },
+            rhs = {
+              variableRef = {
+                name = "Buffer",
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Next cycle gap after steady",
+        value = {
+          math = {
+            op = "OpSub",
+            lhs = {
+              math = {
+                op = "OpAdd",
+                lhs = {
+                  math = {
+                    op = "OpSub",
+                    lhs = {
+                      autoTimeToNext = {
+                        autoType = "RangedAuto",
+                      },
+                    },
+                    rhs = {
+                      spellCastTime = {
+                        spellId = {
+                          spellId = 34120,
+                          rank = 1,
+                        },
+                      },
+                    },
+                  },
+                },
+                rhs = {
+                  autoSwingTime = {
+                    autoType = "Ranged",
+                  },
+                },
+              },
+            },
+            rhs = {
+              const = {
+                val = "1.5s",
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Weave ranged threshold",
+        value = {
+          math = {
+            op = "OpAdd",
+            lhs = {
+              variableRef = {
+                name = "Move duration",
+              },
+            },
+            rhs = {
+              spellCastTime = {
+                spellId = {
+                  spellId = 27021,
+                  rank = 6,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        name = "Weave before cast threshold",
+        value = {
+          math = {
+            op = "OpAdd",
+            lhs = {
+              variableRef = {
+                name = "Weave ranged threshold",
+              },
+            },
+            rhs = {
+              spellCastTime = {
+                spellId = {
+                  spellId = 34120,
+                  rank = 1,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 }
 ns.Data.SimAPL["ROGUE:Assassination"] = ns.Data.SimAPL["ROGUE:Combat"]
 ns.Data.SimAPL["ROGUE:Subtlety"] = ns.Data.SimAPL["ROGUE:Combat"]
+ns.Data.SimAPL["HUNTER:Marksmanship"] = ns.Data.SimAPL["HUNTER:Beast Mastery"]
+ns.Data.SimAPL["HUNTER:Survival"] = ns.Data.SimAPL["HUNTER:Beast Mastery"]

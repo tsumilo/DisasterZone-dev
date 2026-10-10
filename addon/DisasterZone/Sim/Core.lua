@@ -342,6 +342,14 @@ function Sim:RunOnce(iteration)
   self.damageTaken = 0
   self.isInPrepull = true
 
+  -- environment.go reset: the pets' heartbeat (stat inheritance) at a random point (drawn only with such pets)
+  local dyn = false
+  for _, u in ipairs(self.units) do
+    for _, pet in ipairs(u.pets or {}) do if pet.dynamic then dyn = true end end
+  end
+  if dyn then
+    self.petHeartbeatOffset = self:PrepullStartTime() - S.PET_UPDATE_INTERVAL + S.PET_UPDATE_INTERVAL * self:Rand()
+  end
   for _, t in ipairs(self.targets) do t:Reset(self) end
   for _, u in ipairs(self.units) do u:Reset(self) end
   self.sleepingPets = {}
@@ -397,7 +405,11 @@ function Sim:InitManaTick()
   pa = { at = self:PrepullStartTime() + 2, prio = S.PRIO_REGEN, fn = function(sim)
     for i = 1, #units do
       local u = units[i]
-      if u.enabled ~= false then u:ManaTick(sim) end
+      if u.enabled ~= false then
+        u:ManaTick(sim)
+        -- agent.go OnManaTick (a hunter's Aspect of the Viper)
+        if u.onManaTick then u.onManaTick(sim) end
+      end
     end
     pa.at = sim.now + 2
     sim:Add(pa)

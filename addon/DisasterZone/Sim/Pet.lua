@@ -75,6 +75,10 @@ function S.NewPet(owner, cfg)
   pet.guardian = cfg.guardian ~= false
   pet.enabledOnStart = cfg.enabledOnStart == true
   pet.sleeps = cfg.sleeps == true
+  -- pet.go IsDynamic: the owner's stat changes reach the pet at its next 5.25 s heartbeat
+  pet.dynamic = cfg.dynamic == true
+  -- StartsAtOwnerDistance: out at the owner's distance (else melee range)
+  if cfg.startsAtOwnerDistance then pet.startDistance = owner.distance end
   for k, v in pairs(cfg.baseStats or {}) do pet:AddStat(ST[k], v) end
   pet:AddStatDependency(ST.Stamina, ST.Health, 10)
   pet:AddStatDependency(ST.Agility, ST.Armor, 2)
@@ -118,6 +122,13 @@ function Unit:EnablePet(sim)
   local bonus = {}
   for k, v in pairs(inh) do bonus[k] = v; self.inherited[k] = (self.inherited[k] or 0) + v end
   self:AddStatsDynamic(sim, bonus)
+  if self.dynamic then
+    o.dynamicPets = o.dynamicPets or {}
+    o.dynamicPets[#o.dynamicPets + 1] = self
+    self.pendingInheritance = S.NewStats()
+    -- a heartbeat left queued by the last fight is gone with its event queue
+    if self.heartbeatAction then self.heartbeatAction.queuedIn = false end
+  end
   if self.hasMana then self.mana = self.stats[ST.Mana] end
   self.enabled = true
   if self.onEnable then self.onEnable(sim, self) end
@@ -128,6 +139,20 @@ function Unit:EnablePet(sim)
     aa.mh.swingAt = max(aa.mh.swingAt, sim.now, 0)
     aa:StartPull(sim)
   end
+  if self.hasFocus then self:EnableFocusTicks(sim, sim.now) end
+end
+
+-- pet.go AddOwnerStats: what the owner gained or lost since the last heartbeat, through the inheritance
+function S.PetHeartbeat(pet, sim)
+  local pend = pet.pendingInheritance
+  pet.pendingInheritance = S.NewStats()
+  if not pet.enabled then return end
+  local change = pet.inherit(pend)
+  local bonus = {}
+  for k, v in pairs(change) do
+    if v ~= 0 then bonus[k] = v; pet.inherited[k] = (pet.inherited[k] or 0) + v end
+  end
+  if next(bonus) then pet:AddStatsDynamic(sim, bonus) end
 end
 
 function Unit:EnablePetWithTimeout(sim, duration)
@@ -144,6 +169,12 @@ function Unit:DisablePet(sim)
   for k, v in pairs(self.inherited) do if v ~= 0 then back[k] = -v end end
   self:AddStatsDynamic(sim, back)
   for k in pairs(self.inherited) do self.inherited[k] = 0 end
+  if self.dynamic then
+    local list = self.owner.dynamicPets or {}
+    for i = #list, 1, -1 do if list[i] == self then table.remove(list, i) end end
+    self.pendingInheritance = S.NewStats()
+  end
+  if self.hasFocus then self:DisableFocusTicks(sim) end
   -- pet.go Disable: OnPetDisable runs with the owner's share gone, before the pet's own auras end
   if self.onDisable then self.onDisable(sim, self) end
   if self.rotationAction.queuedIn and not self.rotationAction.consumed then sim:Cancel(self.rotationAction) end

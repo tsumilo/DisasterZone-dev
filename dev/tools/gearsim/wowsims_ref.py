@@ -61,6 +61,8 @@ def build_request(sc, iterations=None, debug=False):
     spec = sc.get("spec", "ret")
     sp = SPECS[spec]
     field, spec_val, cls = sp["field"], sp["options"], sp["wsClass"]
+    if sc.get("classOptions"):
+        spec_val = {"options": {"classOptions": sc["classOptions"]}}
     buffs = sc.get("buffs", "wowsims_default")
     if buffs == "wowsims_default":
         buffs = sp["buffs"]
