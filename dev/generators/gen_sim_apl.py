@@ -1,6 +1,7 @@
 """Generate Data/SimAPL.lua: WoWSims' rotations (action priority lists) as Lua tables for Sim/APL.lua.
 
 Source: WoWSims TBC (dev/ext/wowsims-tbc, MIT) ui/specs/<class>/<spec>/apls/<name>.apl.json, unchanged.
+WoWSims ships no Fire / Frost Mage list: those two are ours (dev/data/apl), checked in both sims alike.
 Usage: python gen_sim_apl.py
 """
 import json
@@ -25,6 +26,9 @@ APLS = {
     "ROGUE:Assassination": "ui/specs/rogue/dps/apls/swords.apl.json",
     "ROGUE:Subtlety": "ui/specs/rogue/dps/apls/swords.apl.json",
     "DRUID:Feral (Cat)": "ui/specs/druid/feralcat/apls/default.apl.json",
+    "MAGE:Arcane": "ui/specs/mage/dps/apls/arcane.apl.json",
+    "MAGE:Fire": os.path.join(DEV, "data", "apl", "mage_fire.apl.json"),
+    "MAGE:Frost": os.path.join(DEV, "data", "apl", "mage_frost.apl.json"),
 }
 
 

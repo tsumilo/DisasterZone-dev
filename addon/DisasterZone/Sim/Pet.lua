@@ -7,7 +7,8 @@ local _, ns = ...
 local S = ns.GearSim
 local ST = S.ST
 
-local huge, max = math.huge, math.max
+local huge, max, ceil = math.huge, math.max, math.ceil
+local EPS = 1e-9
 
 -- The custom rotation (apl.go DoNextAction with the single CustomRotation action: once per timestamp).
 local PR = {}
@@ -18,6 +19,7 @@ function PR:DoNextAction(sim)
   local u = self.unit
   if not u.enabled then return end
   if u.RotationTimer.readyAt > sim.now then return end
+  u.skipWake = nil
   self.inLoop = true
   if self.lastAt ~= sim.now then
     self.lastAt = sim.now
@@ -25,12 +27,29 @@ function PR:DoNextAction(sim)
   end
   self.inLoop = false
   if u.RotationTimer.readyAt <= sim.now then
-    u:WaitUntil(sim, max(sim.now + u.reactionTime, u.GCD.readyAt))
+    local rt = u.reactionTime
+    local target = max(sim.now + rt, u.GCD.readyAt)
+    -- A pet whose rotation only changes at events (cfg.sleeps) sleeps like an idle APL (APL.lua): to the first poll
+    -- of its 10 ms grid at or after the next aura expiry / execute phase; Sim:Step wakes it after any event.
+    local bound = 0
+    if u.sleeps and not S.NO_SKIP then
+      bound = sim.minTrackerTime
+      if sim.nextExecuteAt < bound then bound = sim.nextExecuteAt end
+    end
+    if bound > target then
+      local wake = target + ceil((bound - target) / rt - EPS) * rt
+      if wake > sim.duration + 1 then wake = sim.duration + 1 end
+      u.skipOrigin, u.skipWake = target, wake
+      u:WaitUntil(sim, wake)
+    else
+      u:WaitUntil(sim, target)
+    end
   end
 end
 
 function PR:Reset()
   self.inLoop = false
+  self.unit.skipWake = nil
   self.lastAt = nil
   self.waitUntil = nil
 end
@@ -55,6 +74,7 @@ function S.NewPet(owner, cfg)
   pet.onEnable = cfg.onEnable
   pet.guardian = cfg.guardian ~= false
   pet.enabledOnStart = cfg.enabledOnStart == true
+  pet.sleeps = cfg.sleeps == true
   for k, v in pairs(cfg.baseStats or {}) do pet:AddStat(ST[k], v) end
   pet:AddStatDependency(ST.Stamina, ST.Health, 10)
   pet:AddStatDependency(ST.Agility, ST.Armor, 2)
@@ -125,6 +145,7 @@ function Unit:DisablePet(sim)
   self:AddStatsDynamic(sim, back)
   for k in pairs(self.inherited) do self.inherited[k] = 0 end
   if self.rotationAction.queuedIn and not self.rotationAction.consumed then sim:Cancel(self.rotationAction) end
+  self.skipWake = nil
   local aa = self.autoAttacks
   if aa then
     aa.mh.enabled, aa.oh.enabled = false, false

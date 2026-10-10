@@ -77,7 +77,8 @@ end
 -- water_elemental.go: a pet with its own mana that casts Waterbolt; a third of the mage's frost spell damage, his
 -- hit rating and spell crit
 function S.MageWaterElemental(p)
-  local pet = S.NewPet(p, { name = "Water Elemental", key = "water_elemental", guardian = false, mana = true,
+  -- sleeps: its one spell can only become castable at an event (cast end, mana gain)
+  local pet = S.NewPet(p, { name = "Water Elemental", key = "water_elemental", guardian = false, mana = true, sleeps = true,
     baseStats = { Health = 1596, Mana = 1893 },
     inherit = function(o)
       return { [ST.Stamina] = o[ST.Stamina] * 0.3, [ST.SpellDamage] = o[ST.FrostDamage] * 0.33,

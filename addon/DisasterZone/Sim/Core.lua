@@ -69,6 +69,7 @@ function S.NewSim(opts)
     minWeaponAttackTime = huge,
     tasks = {},         -- objects with RunTask(sim) -> next time (energy / focus ticks)
     minTaskTime = huge,
+    sleepingPets = {},  -- pets whose rotation sleeps between events (Pet.lua)
     trackers = {},      -- units whose auras expire
     minTrackerTime = huge,
     now = 0,
@@ -273,12 +274,14 @@ function Sim:Step()
   if paAt >= mw and mw <= mt then
     if mw > self.duration then return true end
     self:WakeRotations(mw, huge, nil)
+    if self.sleepingPets[1] then self:WakePets(mw, huge, nil) end
     self:AdvanceWeaponAttacks()
     return false
   end
   if paAt >= mt then
     if mt > self.duration then return true end
     self:WakeRotations(mt, huge, nil)
+    if self.sleepingPets[1] then self:WakePets(mt, huge, nil) end
     self:AdvanceTasks()
     return false
   end
@@ -287,6 +290,7 @@ function Sim:Step()
   if pa.cancelled then return false end
   if paAt > self.duration then return true end
   if not pa.isRotation then self:WakeRotations(paAt, pa.prio, pa) end
+  if self.sleepingPets[1] then self:WakePets(paAt, pa.prio, pa) end
   if paAt > self.now then self:Advance(paAt) end
   if pa.cancelled then return false end
   pa.fn(self)
@@ -300,6 +304,16 @@ function Sim:WakeRotations(at, prio, pa)
     local u = units[i]
     local w = u.skipWake
     if w and at < w then S.WakeSleepingRotation(self, u, at, prio) end
+  end
+end
+
+-- Sleeping pets (Pet.lua cfg.sleeps) wake after any event but their own rotation's, the owner's included.
+function Sim:WakePets(at, prio, pa)
+  local pets = self.sleepingPets
+  for i = 1, #pets do
+    local u = pets[i]
+    local w = u.skipWake
+    if w and at < w and pa ~= u.rotationAction then S.WakeSleepingRotation(self, u, at, prio) end
   end
 end
 
@@ -330,6 +344,12 @@ function Sim:RunOnce(iteration)
 
   for _, t in ipairs(self.targets) do t:Reset(self) end
   for _, u in ipairs(self.units) do u:Reset(self) end
+  self.sleepingPets = {}
+  for _, u in ipairs(self.units) do
+    for _, pet in ipairs(u.pets or {}) do
+      if pet.sleeps then self.sleepingPets[#self.sleepingPets + 1] = pet end
+    end
+  end
   self:InitManaTick()
 
   -- PrePull (sim.go): prepull actions in DoAt order, then the encounter start at 0 with the top priority.
@@ -351,7 +371,12 @@ function Sim:RunOnce(iteration)
   for _, pa in ipairs(self.pending) do
     if pa.cleanUp then pa.cleanUp(self) end
   end
-  for _, u in ipairs(self.units) do u:DoneIteration(self) end
+  -- sim.go: the raid (each player's pets first), then the encounter's targets
+  for _, u in ipairs(self.units) do
+    for _, pet in ipairs(u.pets or {}) do pet:DeactivateAllAuras(self) end
+    u:DoneIteration(self)
+  end
+  for _, t in ipairs(self.targets) do t:DeactivateAllAuras(self) end
 end
 
 function Sim:PrepullStartTime()

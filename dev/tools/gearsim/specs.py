@@ -161,6 +161,36 @@ MAGE_BUFFS = {
                     "potId": 22832, "drumsId": "LesserDrumsOfBattle"},
 }
 
+# ui/specs/warlock/dps/presets.ts (P1 settings, phase 3 ISB / Expose Weakness); the fire build swaps in Flame Cap
+# and Improved Scorch
+WARLOCK_BUFFS = {
+    "raid": {"bloodlust": True, "arcaneBrilliance": True, "giftOfTheWild": IMP, "powerWordFortitude": IMP,
+             "divineSpirit": IMP},
+    "party": {"manaSpringTotem": REG, "moonkinAura": REG, "totemOfWrath": 1, "wrathOfAirTotem": IMP,
+              "eyeOfTheNight": True, "chainOfTheTwilightOwl": True, "drums": "LesserDrumsOfBattle"},
+    "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "shadowPriestDps": 0},
+    "debuffs": {
+        "exposeWeaknessUptime": 0.9, "exposeWeaknessHunterAgility": 1210, "isbUptime": 0.72,
+        "improvedSealOfTheCrusader": IMP, "judgementOfWisdom": True, "misery": True, "shadowWeaving": True,
+        "sunderArmor": True, "screech": True, "faerieFire": IMP, "curseOfRecklessness": True, "shadowEmbrace": True,
+        "curseOfElements": IMP, "bloodFrenzy": True, "giftOfArthas": True, "mangle": True, "exposeArmor": IMP,
+        "huntersMark": IMP,
+    },
+    "consumables": {"flaskId": 22866, "foodId": 27657, "conjuredId": 12662, "mhImbueId": 25122, "potId": 22839,
+                    "explosiveId": 30217, "petScrollAgi": True, "petScrollStr": True},
+}
+WARLOCK_FIRE_BUFFS = dict(WARLOCK_BUFFS, debuffs=dict(WARLOCK_BUFFS["debuffs"], improvedScorch=True),
+                          consumables=dict(WARLOCK_BUFFS["consumables"], conjuredId=22788))
+
+
+def _warlock(apl, summon, sacrifice, curse, buffs, lua_buffs):
+    return {"class": "Warlock", "wsClass": "ClassWarlock", "field": "warlock",
+            "options": {"options": {"classOptions": {"armor": "FelArmor", "curseOptions": curse, "summon": summon,
+                                                     "sacrificeSummon": sacrifice}}},
+            "apl": "ui/specs/warlock/dps/apls/%s.apl.json" % apl, "buffs": buffs, "luaBuffs": lua_buffs,
+            "luaOptions": {"armor": "FelArmor", "curse": curse, "summon": summon, "sacrificeSummon": sacrifice}}
+
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -192,6 +222,10 @@ SPECS = {
               "options": {"options": {"classOptions": {"defaultMageArmor": "MageArmorMoltenArmor"}}},
               "apl": "C:/Users/emilo/CDLoot-dev/dev/data/apl/mage_frost.apl.json", "buffs": MAGE_BUFFS, "luaBuffs": "wowsims_mage",
               "luaOptions": {"defaultMageArmor": "MoltenArmor"}},
+    "affliction": _warlock("affliction", "Imp", False, "Elements", WARLOCK_BUFFS, "wowsims_warlock"),
+    "demonology": _warlock("demonology", "Succubus", False, "Recklessness", WARLOCK_BUFFS, "wowsims_warlock"),
+    "destruction": _warlock("destruction", "Succubus", True, "Recklessness", WARLOCK_BUFFS, "wowsims_warlock"),
+    "destrofire": _warlock("destro_fire", "Imp", True, "Recklessness", WARLOCK_FIRE_BUFFS, "wowsims_warlock_fire"),
     "balance": {"class": "Druid", "wsClass": "ClassDruid", "field": "balanceDruid",
                 "options": {"options": {"classOptions": {}}},
                 "apl": "ui/specs/druid/balance/apls/default.apl.json", "buffs": BALANCE_BUFFS, "luaBuffs": "wowsims_balance",

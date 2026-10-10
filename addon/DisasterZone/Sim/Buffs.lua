@@ -1007,7 +1007,7 @@ function S.ApplyDebuffs(p, t, d)
     if not a then
       a = t:RegisterAura({ label = "ImprovedShadowBolt-5", actionId = { spellId = 17800 }, duration = 12, maxStacks = 4 })
       a:AttachMultiplicativePseudoStatBuff("SchoolDamageTakenMultiplier", 1.2, S.SCHOOL_INDEX[SCHOOL.Shadow])
-      S.ApplyFixedUptimeAura(a, d.isbUptime, a.duration, 1)
+      S.ApplyFixedUptimeAura(a, d.isbUptime, a.duration, 1e-9) -- Go's startTime 1 = 1 ns
     end
   end
   -- Expose Weakness: 90% chance per 7 s window of +agi/4 attack power against the target.
