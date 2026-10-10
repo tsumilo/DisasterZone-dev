@@ -450,8 +450,9 @@ def an_error_in_a_page_build_is_reported_with_its_stack_and_the_run_still_finish
     c.slash("/dz 3d probe loose confirm")
     c.relog(reload=True)
     install_helpers(c)
-    # every tile's edges fail: page 1 cannot build
-    c.eval("ns.UI.AddEdges = function() error('probe test: a broken tile') end")
+    # every tile's edges fail: page 1 cannot build (the window's own edges still draw: UI:CreateWindow uses them too)
+    c.eval("local orig = ns.UI.AddEdges; ns.UI.AddEdges = function(self, f, ...) "
+           "if f and f.cdlName then return orig(self, f, ...) end error('probe test: a broken tile') end")
     w.tick(8)
     st = state(c)
     res = st["results"]

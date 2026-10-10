@@ -178,6 +178,13 @@ ns.CHANGELOG = {
               "Home's chips come from the same list, so Home and the bell always agree.",
               "Several of one kind are one chip on Home (\"3 polls waiting\"); its tooltip lists them.",
           } },
+          { heading = "A new window frame", lines = {
+              "Every DisasterZone window has its own frame now, in place of the grey Blizzard one.",
+              "The main window's header shows the next raid's art, the seal and the guild's line.",
+              "The guild line says who is online and when the next raid starts.",
+              "Small windows get a slim strip of that art, the seal, the title and a flat close X.",
+              "A soft shadow and a gold glint under the header; nothing inside a window moved.",
+          } },
           { heading = "Raids, Gear and Guild menus", lines = {
               "The menus under Raids, Gear and Guild are a spotlight now: the pages on the left.",
               "The page under the mouse shows big on the right, with its art slowly drifting.",
