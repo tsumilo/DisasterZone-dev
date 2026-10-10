@@ -349,6 +349,27 @@ def a_raid_invite_reaches_the_bell_a_pop_up_and_home_then_leaves_once_answered()
 
 
 @case
+def demo_mode_items_never_reach_saved_variables():
+    w, c = solo("Alice")
+    setup(c, news=True)
+    c.slash("/dz demo on")
+    w.tick(1)
+    c.eval("ns.Notify:Post('testNews', { key = 'demo1', title = 'Aldrin did a thing', from = 'Aldrin-Thunderstrike' })")
+    put(c, "d", "Demo waits")
+    assert count(c) >= 1
+    c.slash("/dz demo off")
+    w.tick(1)
+    titles = c.eval_py("local out = {}; for _, it in ipairs(ns.Notify:List()) do out[#out + 1] = it.title end; "
+                       "return out")
+    assert "Aldrin did a thing" not in titles, titles
+    c.relog()
+    w.tick(1)
+    saved = c.eval_py("return DisasterZoneDB.notify") or {}
+    assert "Aldrin" not in repr(saved) and "demo1" not in repr(saved), saved
+    no_errors(w)
+
+
+@case
 def the_minimap_tooltip_lists_what_waits():
     w, c = solo("Alice")
     setup(c)

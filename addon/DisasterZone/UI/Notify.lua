@@ -75,28 +75,9 @@ local function StrH(fs, fallback)
     return (h and h > 0) and h or fallback
 end
 
--- A count: a small pill, dark gold fill and edge, the number in cream. p:SetCount(n) (0 hides it).
-local function CountPill(parent, h)
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetHeight(h)
-    UI():AddPillShape(p, h)
-    p:SetPillColors({ 0.25, 0.19, 0.12, 1 }, { 0.78, 0.57, 0.2, 1 })
-    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    SetFontSize(p.fs, h - 4)
-    p.fs:SetPoint("CENTER", 0.5, 0)
-    p.fs:SetTextColor(1, 0.86, 0.62)
-    function p:SetCount(n)
-        n = tonumber(n) or 0
-        if n <= 0 then
-            self:Hide()
-            return
-        end
-        self.fs:SetText(n > 99 and "99+" or tostring(n))
-        self:SetWidth(max(h, floor((self.fs:GetStringWidth() or 6) + 6 + 0.5)))
-        self:Show()
-    end
-    p:Hide()
-    return p
+-- A count: the addon's count badge (UI:CreateCountBadge). p:SetCount(n) (0 hides it).
+local function CountPill(parent, h, kind)
+    return UI():CreateCountBadge(parent, h, kind)
 end
 NotifyUI.CountPill = CountPill
 
@@ -147,10 +128,9 @@ local function MakeRow(parent)
     r.icon:SetPoint("CENTER")
     r.dot = Dot(r.tile, 7, GOLD)
     r.dot:SetPoint("CENTER", r.tile, "TOPRIGHT", 0, 0)
-    r.stack = CountPill(r.tile, 11)
-    r.stack:SetPillColors({ 0.17, 0.17, 0.19, 1 }, { 0.06, 0.06, 0.07, 1 })
-    r.stack.fs:SetTextColor(0.86, 0.86, 0.86)
-    r.stack:SetPoint("CENTER", r.tile, "BOTTOMRIGHT", 0, 0)
+    r.stack = CountPill(r.tile, 12, "muted")
+    r.stack:SetCutout(UI().DROP_BG[1], UI().DROP_BG[2], UI().DROP_BG[3])
+    r.stack:SetPoint("LEFT", r.tile, "BOTTOMRIGHT", -6, 1)
     r.kicker = FS(r, "GameFontHighlightSmall", 9, DIM)
     r.when = FS(r, "GameFontHighlightSmall", 10, DIM)
     r.when:SetJustifyH("RIGHT")
@@ -364,8 +344,9 @@ function NotifyUI:CreateBell(parent)
     b.icon:SetPoint("CENTER", 0, 1)
     b.icon:SetTexture(UI().ICON_ATLAS)
     b.icon:SetTexCoord(unpack(UI():IconCoords(IconIndex(BELL))))
-    b.count = CountPill(b, 12)
-    b.count:SetPoint("LEFT", b.icon, "TOPRIGHT", -5, -1)
+    b.count = CountPill(b, 14)
+    b.count:SetCutout()
+    b.count:SetPoint("LEFT", b.icon, "TOPRIGHT", -7, -2)
     b.count:SetFrameLevel(b:GetFrameLevel() + 2)
     b.dot = Dot(b, 6, { 0.62, 0.62, 0.65 })
     b.dot:SetPoint("CENTER", b.icon, "TOPRIGHT", -1, -1)
@@ -648,6 +629,8 @@ function NotifyUI:CreatePage(parent)
     p.list = CreateFrame("Frame", nil, p.scroll)
     p.list:SetSize(560, 10)
     p.scroll:SetScrollChild(p.list)
+    -- (the list takes the scroll frame's width once the page is laid out)
+    p.scroll:HookScript("OnSizeChanged", function() NotifyUI:RefreshPage() end)
     p.empty = FS(p, "GameFontHighlight", nil, GREY)
     p.empty:SetPoint("TOPLEFT", RAIL_W + 16, -PAD - 70)
     function p:OnPanelShown() NotifyUI:RefreshPage() end
@@ -794,8 +777,8 @@ local function CreateToast()
     f.icon:SetSize(11, 11)
     f.icon:SetPoint("TOPLEFT", 12, -11)
     f.kicker = FS(f, "GameFontHighlightSmall", 9, GOLD)
-    f.kicker:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
-    f.kicker:SetPoint("RIGHT", f, "RIGHT", -64, 0)
+    f.kicker:SetPoint("TOPLEFT", 29, -11)            -- (both ends on the icon's line)
+    f.kicker:SetPoint("TOPRIGHT", -64, -11)
     f.kicker:SetWordWrap(false)
     f.of = FS(f, "GameFontHighlightSmall", 10, DIM)
     f.of:SetJustifyH("RIGHT")
@@ -973,36 +956,18 @@ end
 -- Counts on the nav strip, the minimap button and its tooltip
 ---------------------------------------------------------------------------
 
-local navPills = {}
-
+-- (the strip's tabs carry their own badge: UI:SetNavCount)
 function NotifyUI:UpdateNav()
     local MF = ns.MainFrame
     if not (MF and MF.GetNavTabs and N()) then return end
     for key, tab in pairs(MF:GetNavTabs()) do
         local n = 0
         for _, pg in ipairs(MF:GetNavPages(key)) do n = n + N():Count({ page = pg }) end
-        local p = navPills[tab]
-        if not p and n > 0 then
-            p = CountPill(tab, 12)
-            p:SetFrameLevel(tab:GetFrameLevel() + 3)
-            navPills[tab] = p
-        end
-        if p then
-            p:ClearAllPoints()
-            local after = tab.chevron or tab.icon or tab:GetFontString()
-            if tab.icon then
-                p:SetPoint("LEFT", after, "TOPRIGHT", -5, -1)
-            else
-                p:SetPoint("BOTTOMLEFT", after, "TOPRIGHT", -1, -6)
-            end
-            p:SetCount(n)
-        end
+        UI():SetNavCount(tab, n)
     end
 end
 
 function NotifyUI:OnTabsBuilt()
-    for _, p in pairs(navPills) do p:Hide() end
-    wipe(navPills)
     self:UpdateNav()
 end
 
@@ -1012,9 +977,10 @@ function NotifyUI:UpdateLauncher()
     local btn = icon and icon.GetMinimapButton and icon:GetMinimapButton("DisasterZone")
     if not btn then return end
     if not launcherPill then
-        launcherPill = CountPill(btn, 12)
+        launcherPill = CountPill(btn, 14)
+        launcherPill:SetCutout(0.05, 0.05, 0.06)
         launcherPill:SetFrameLevel(btn:GetFrameLevel() + 5)
-        launcherPill:SetPoint("CENTER", btn, "TOPRIGHT", -5, -5)
+        launcherPill:SetPoint("LEFT", btn, "TOPRIGHT", -12, -6)
     end
     launcherPill:SetCount(N():Count())
 end

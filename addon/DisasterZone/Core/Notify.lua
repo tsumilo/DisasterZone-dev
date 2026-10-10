@@ -43,9 +43,18 @@ local function IdOf(kind, key) return kind .. "\1" .. tostring(key) end
 
 -- This character's saved part: { seen = {[id]=t}, shown = {[id]=t}, items = {[id]=posted / done item},
 -- base = {[kind]=t (first look)} }.
+-- Demo mode (the fake guild): the feed lives in memory only, so no demo names or ids reach SavedVariables; switching
+-- demo on or off starts the feed afresh (DEMO_TOGGLED below).
+local demoStore
+local function IsDemo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false end
+
 local function Store()
     local db, me = ns.db, Me()
     if not (db and me) then return nil end
+    if IsDemo() then
+        demoStore = demoStore or { seen = {}, shown = {}, items = {}, base = {} }
+        return demoStore
+    end
     db.notify = type(db.notify) == "table" and db.notify or {}
     local s = db.notify[me]
     if type(s) ~= "table" then
@@ -58,14 +67,22 @@ local function Store()
     return s
 end
 
-local function Settings()
+-- settings.notify: { kinds = { [kind] = { popup, sound, chat } }, quietCombat (nil = on), quietOpen, dndUntil }.
+-- Reading never writes (an untouched profile saves nothing); write = true makes the table to change it.
+local EMPTY = { kinds = {} }
+local function Settings(write)
     local st = ns.db and ns.db.settings
     if not st then return nil end
-    st.notify = type(st.notify) == "table" and st.notify or {}
-    local n = st.notify
-    if type(n.kinds) ~= "table" then n.kinds = {} end
-    if n.quietCombat == nil then n.quietCombat = true end
-    return n
+    if type(st.notify) ~= "table" then
+        if not write then return EMPTY end
+        st.notify = {}
+    end
+    if type(st.notify.kinds) ~= "table" then
+        if not write then return { kinds = {}, quietCombat = st.notify.quietCombat, quietOpen = st.notify.quietOpen,
+                                   dndUntil = st.notify.dndUntil } end
+        st.notify.kinds = {}
+    end
+    return st.notify
 end
 Notify.Settings = Settings
 
@@ -116,7 +133,7 @@ function Notify:Wants(kind, what)
 end
 
 function Notify:SetWants(kind, what, on)
-    local n = Settings()
+    local n = Settings(true)
     if not (n and kinds[kind]) then return end
     n.kinds[kind] = type(n.kinds[kind]) == "table" and n.kinds[kind] or {}
     n.kinds[kind][what] = on and true or false
@@ -500,6 +517,15 @@ function Notify:OnLogin()
 end
 
 function Notify:IsLoaded() return loaded end
+
+ns:On("DEMO_TOGGLED", function()
+    demoStore = nil
+    wipe(live)
+    if not loaded then return end
+    Revive()
+    Notify:Refresh()
+    Changed()
+end)
 
 -- (tests) forget everything in memory and load again
 function Notify:Reload()

@@ -73,9 +73,8 @@ local function register()
             return { { text = "Answer", primary = true, fn = function() N:Open(it.id) end } }
         end,
         chip = function(it)
-            local q = it.title or ""
-            if #q > 26 then q = q:sub(1, 24) .. "..." end
-            return { text = "Poll: " .. q, kind = "warn" }
+            return { text = it.from and ("Poll from " .. Short(it.from)) or "Answer a poll", kind = "warn",
+                     icon = { tex = UI().ICON_ATLAS, coords = UI():IconCoords(ns:HasAssets(6) and 55 or 25) } }
         end,
     })
     N:RegisterSource("polls", function()
@@ -236,7 +235,7 @@ local function register()
     -- Loot: an item awarded to me (a roll or the council)
     N:RegisterKind("lootWon", {
         section = "Loot", page = "mybis", icon = 22, color = { 0.64, 0.21, 0.93 },
-        label = "Loot you won", desc = "An item awarded to you by a roll or the Loot Council.",
+        label = "Loot you won", desc = "An item awarded to you, by a roll or by the council.",
         needsYou = false, popup = false, sound = false,
         open = function() openTab("mybis") end,
     })

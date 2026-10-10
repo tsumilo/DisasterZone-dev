@@ -1247,7 +1247,7 @@ function SettingsUI:BuildNotify(sec)
             if field == "quietCombat" then return s.quietCombat ~= false end
             return s[field] and true or false
         end, function(a, b)
-            local s = N and N.Settings()
+            local s = N and N.Settings(true)
             if s then s[field] = Bool(a, b) end
             ns:Fire("SETTINGS_CHANGED", "notify")
         end
@@ -1262,7 +1262,7 @@ function SettingsUI:BuildNotify(sec)
             return s and (tonumber(s.dndUntil) or 0) > time() or false
         end,
         function(a, b)
-            local s = N and N.Settings()
+            local s = N and N.Settings(true)
             if s then s.dndUntil = Bool(a, b) and (time() + 3600) or nil end
         end)
     local kinds = N and N:GetKinds() or {}

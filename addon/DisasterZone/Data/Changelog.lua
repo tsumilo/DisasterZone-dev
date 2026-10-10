@@ -75,6 +75,21 @@ ns.CHANGELOG = {
               "After each fight: twists landed, late and clipped, in Settings and /dz swing report.",
               "/dz swing unlock to move it, /dz swing for your latency and where the numbers come from.",
           } },
+          { heading = "Notifications", lines = {
+              "New bell left of the sync mark: its gold number counts what waits for your answer.",
+              "Click it for what needs you (polls, raids to answer, join requests) and the week's news.",
+              "Answer right there (Yes / No, Accept, Review); handled things leave by themselves.",
+              "All notifications opens a page with every section, and what you handled this week.",
+              "One pop-up look for everything, one at a time, never in combat; Later keeps it.",
+              "Counts show on the tabs, in the menus and on the minimap button; its tooltip lists them.",
+              "Settings > Notifications: per kind, pop-up, sound or a chat line; quiet for an hour.",
+              "Home's chips come from the same list, so Home and the bell always agree.",
+          } },
+          { heading = "Cleaner counts", lines = {
+              "Every count (the bell, the tabs, menus, the minimap button, the waitlist) has one new look.",
+              "A solid gold circle with sharp dark digits, like today's date on the calendar; no thin ring.",
+              "On a tab the count sits right after the name and the tab makes room, so it never bumps the next one.",
+          } },
           { heading = "Disastercraft", lines = {
               "Talent rows: at levels 2, 4, 6, 8 and 10 pick one of three talents, one for each spec.",
               "Rows bring abilities too: Mortal Strike, Bloodthirst, Pyroblast, Ice Barrier, Mind Flay...",
