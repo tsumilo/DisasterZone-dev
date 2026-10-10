@@ -23,15 +23,13 @@ local floor, min, max, pi = math.floor, math.min, math.max, math.pi
 local ROOM = "HellfireRamparts_Entrance"
 local SIZE = 70
 local ENTRANCE_X, ENTRANCE_Y = 40.0, 24.0   -- a few yards in from the instance's entrance (15 is the room's cut south edge)
-local MELEE, AGGRO = 4.5, 16
+local K = ns.PortalKit                 -- (Games/Portal/Kit.lua: your abilities, animations, effects)
+local MELEE, AGGRO = K.MELEE, 16
 local DISPLAY_HUNGERER, DISPLAY_RAVENER = 17052, 17049
 local DISPLAY_TANK, DISPLAY_HEALER = 22931, 22973
-local ANIM_1H, ANIM_2H, ANIM_WOUND, ANIM_CAST = 17, 18, 9, 54
-local FX_BLOOD, FX_CLEAVE, FX_HEAL, FX_PRECAST = 165737, 165798, 166292, 166336
-
--- A one-shot animation (Games/Portal/UI.lua plays it over walking and standing; a new one restarts it).
-local function Anim(sim, u, anim, dur) u.oneShot = { anim = anim, untilT = sim.time + dur } end
-local function Busy(sim, u) return u.oneShot and sim.time < u.oneShot.untilT end
+local ANIM_1H, ANIM_2H, ANIM_WOUND, ANIM_CAST = K.ANIM_1H, K.ANIM_2H, K.ANIM_WOUND, K.ANIM_CAST
+local FX_HEAL, FX_PRECAST = K.FX_HEAL, K.FX_PRECAST
+local Anim, Busy = K.Anim, K.Busy
 
 local DISPLAYS = {
     [DISPLAY_HUNGERER] = { scale = 1, chest = 1.5, head = 2.2, hand = 1.0, name = 2.3 },
@@ -63,8 +61,6 @@ setmetatable(arena, { __index = function(t, k)
     return rawget(t, k)
 end })
 
-local function SpellIcon(id, fallback) return (GetSpellTexture and GetSpellTexture(id)) or ("Interface\\Icons\\" .. fallback) end
-
 local function Scale(sim) return sim.diff.scale or 1 end
 
 local function Party(sim)
@@ -86,33 +82,7 @@ local function Hit(sim, attacker, u, amount)
     end
 end
 
-local abilities = {
-    { id = "strike", key = "1", name = "Heroic Strike", icon = SpellIcon(29707, "Ability_Rogue_Ambush"), gcd = 1.5,
-      range = MELEE + 1, needsTarget = true,
-      tip = "A heavy blow to your target.",
-      use = function(sim, ab, target)
-          Anim(sim, sim.player, ANIM_2H, 0.9)
-          Hit(sim, sim.player, target, sim:Random(650, 800))
-          sim:Fx({ kind = "model", fdid = FX_BLOOD, unit = target, attach = "chest" }, 0.8)
-      end },
-    { id = "cleave", key = "2", name = "Cleave", icon = SpellIcon(25231, "Ability_Warrior_Cleave"), gcd = 1.5,
-      cooldown = 6, tip = "Hits every enemy within 8 yd in front of you.",
-      use = function(sim)
-          local p = sim.player
-          Anim(sim, p, ANIM_2H, 0.9)
-          for _, u in ipairs(sim:UnitsInRange(p.x, p.y, 8, "mob")) do
-              Hit(sim, p, u, sim:Random(380, 460))
-              sim:Fx({ kind = "model", fdid = FX_CLEAVE, unit = u, attach = "chest" }, 0.8)
-          end
-      end },
-    { id = "heal", key = "3", name = "Bandage", icon = SpellIcon(27031, "INV_Misc_Bandage_12"), cooldown = 20,
-      tip = "Heals you for 30% of your health.",
-      use = function(sim)
-          local p = sim.player
-          p.hp = min(p.hpMax, p.hp + floor(p.hpMax * 0.3))
-          sim:Fx({ kind = "model", fdid = FX_HEAL, unit = p }, 1.2)
-      end },
-}
+local abilities = K.Abilities(Hit)
 
 local function Start(sim)
     local p = sim.player
@@ -260,7 +230,7 @@ end
 
 T:RegisterEncounter("ramparts", {
     game = "portal",                     -- listed by the Portal game (Games/Portal/UI.lua), never by the Raid Trainer
-    returnTo = "hub",                    -- a finished run, kept or void, goes back to the Stair of Destiny
+    returnTo = "hub",                    -- a finished run, kept or void, goes back to the tavern
     name = "Hellfire Ramparts",
     desc = "Hellfire Ramparts' entrance in 3D with a fixed camera: you and two party members against the first pack.",
     icon = "Interface\\Icons\\Spell_Fire_FelFlameRing",

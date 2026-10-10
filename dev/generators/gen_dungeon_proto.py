@@ -33,6 +33,24 @@ ROOMS = {
     "hub": dict(key="Portal_StairOfDestiny", ref="Portal:StairOfDestiny", mapid=530, mapdir="Expansion01",
                 box=(-320.0, 948.0, -170.0, 1078.0), spot=(-245.7, 965.0, 84.35), name="The Stair of Destiny",
                 up=8.0, down=40.0),
+    # the hub since 2026-10-10: the Caverns of Time's hall round the great hourglass (Tanaris, map 1), height 0 at
+    # Zaladormu (-8509 / -4356 / -208, under the hourglass); the rock outcrops kept whole (a 12 yd cut left their
+    # hollow tops open), the cave's walls cut 30 yd up; the hourglass and the dragons are models (Games/Portal/Hub.lua), not room faces
+    "cot": dict(key="Portal_CavernsOfTime", ref="Portal:CavernsOfTime", mapid=1, mapdir="Kalimdor",
+                box=(-8620.0, -4460.0, -8380.0, -4160.0), spot=(-8509.0, -4356.0, -208.0), name="Caverns of Time",
+                up=30.0, down=15.0),
+    # the hub since 2026-10-10 (the Caverns of Time looked empty from above): the World's End Tavern in Shattrath's
+    # Lower City (map 530), height 0 = the bar's floor (world -37.1); the walls cut 7 yd up so the follow camera looks
+    # into it as Diablo shows buildings; its furniture (the WMO's M2 doodads) baked in as faces, biggest first
+    # (generators/doodad_faces.py)
+    "tavern": dict(key="Portal_WorldsEndTavern", ref="Portal:WorldsEndTavern", mapid=530, mapdir="Expansion01",
+                   box=(-1785.0, 5116.0, -1721.0, 5180.0), spot=(-1753.0, 5148.0, -37.1),
+                   name="World's End Tavern", up=6.0, down=7.0, doodads=3600, caps=True,
+                   # the furniture, most wanted first (at most this many of each, the nearest the middle)
+                   keep={"DwarvenTableLarge": 3, "DwarvenTableSmall": 4, "RoundTable": 1, "DuskwoodBench": 2,
+                         "GeneralChairLoEnd01": 12, "BE_Rug_Large01": 1, "BE_Rug_MediumRuined01": 1,
+                         "StormwindRug02": 3, "StormwindRug01": 4, "Barrel01": 8,
+                         "Painting14": 1, "BeerKeg02": 1, "BeerKeg01": 1, "StormwindCrate01": 8}),
 }
 
 
@@ -49,6 +67,31 @@ def main():
         R.UP[cfg["ref"]] = cfg["up"]
     if "down" in cfg:
         R.DOWN[cfg["ref"]] = cfg["down"]
+    if cfg.get("doodads"):
+        import doodad_faces as DF
+        gather = R.gather
+
+        def with_doodads(pp):
+            raw, spot, box, coll = gather(pp)
+            zb = spot[2]
+            if cfg.get("posts"):
+                raw = DF.drop_posts(raw, zb + cfg.get("up", 7.0), cfg["posts"])
+            if cfg.get("drop_textures"):             # (the columns the ceiling cut leaves as open boxes)
+                n = len(raw)
+                raw = [f for f in raw if f[0][0] not in cfg["drop_textures"]]
+                print("dropped textures %s: %d faces" % (cfg["drop_textures"], n - len(raw)))
+            raw += DF.faces(cfg["mapdir"], box, zb - cfg.get("down", 4.0), zb + cfg.get("up", 7.0), cfg["doodads"],
+                            keep=cfg.get("keep"))
+            return raw, spot, box, coll
+        R.gather = with_doodads
+    if cfg.get("caps"):
+        import doodad_faces as DF
+        clip = R.clip_faces
+
+        def with_caps(raw, box, zlo, zhi, zb, *a, **kw):
+            faces = clip(raw, box, zlo, zhi, zb, *a, **kw)
+            return faces + DF.caps(faces, zhi)
+        R.clip_faces = with_caps
     r = R.build(p)
     path, size, enc = R.write_room(r)
     print("room: %s (%d faces, %d nodes, %d bytes packed, %d as text)" % (path, len(r["tris"]), len(r["nodes"]), size, enc))

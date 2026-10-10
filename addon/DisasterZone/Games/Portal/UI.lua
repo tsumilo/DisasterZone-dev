@@ -86,11 +86,12 @@ local function FixedCam()
     return e and e.camera or nil
 end
 
--- The way the fixed camera looks (arena angle: 0 east, pi / 2 north; camera.yaw, north by default): the hub looks
--- west at the Dark Portal, a dungeon room north. The keys move on the screen: up is where the camera looks.
+-- The way the fixed camera looks (arena angle: 0 east, pi / 2 north; camera.yaw, north by default), turned by
+-- right-dragging up to camera.turn either way (cam.yawOff; none without camera.turn). The keys move on the screen:
+-- up is where the camera looks.
 local function FixedYaw()
     local f = FixedCam()
-    return f and f.yaw or pi / 2
+    return (f and f.yaw or pi / 2) + (f and f.turn and cam.yawOff or 0)
 end
 
 -- Moving between places (the hub's Portal into a dungeon, a finished run back to the hub): defined with the panel.
@@ -133,7 +134,7 @@ local function SetFocus(on)
     ApplyMove()
 end
 
-local ShowBriefing, ShowResult
+local ShowBriefing, ShowResult, SetHubLevel
 local ResetScene, ResetUnitFrames
 
 local function StartTry(seed)
@@ -141,7 +142,7 @@ local function StartTry(seed)
     if not enc then return end
     if ns.Games:InCombat() then ns:Print("The Portal waits until you leave combat.") return end
     sim = T:NewSim(encId, diffId, seed)
-    if FixedCam() then cam.dist, cam.pitch = FixedCam().dist, FixedCam().pitch end
+    if FixedCam() then cam.dist, cam.pitch, cam.yawOff = FixedCam().dist, FixedCam().pitch, 0 end
     -- the lens: camera.fov for this place (the hub's wide one, for a 270 yd gate), else the view's own 1.1
     local fov = FixedCam() and FixedCam().fov or 1.1
     if v3 and v3.fov ~= fov then
@@ -179,13 +180,21 @@ local function HandleKey(key, down)
         return true
     end
     if sim and sim.enc.interactKey == key then
-        sim:Interact()
+        if sim.enc.interact then sim.enc.interact(sim) else sim:Interact() end
         return true
     end
     return false
 end
 
 local function OnKeyDown(self, key)
+    if key == "ESCAPE" and sim and sim.card and focused then
+        -- an open card (a station's, the ready check) closes first; the ready check's Escape is its Cancel
+        local c = sim.card
+        local cancel = c.station == "ready" and c.buttons and c.buttons[#c.buttons]
+        if cancel and cancel.fn then cancel.fn(sim) else sim.card = nil end
+        pcall(self.SetPropagateKeyboardInput, self, false)
+        return
+    end
     if key == "ESCAPE" then
         -- the first Escape pauses and lets the keyboard go; the next one reaches the client and closes the window
         SetFocus(false)
@@ -1146,7 +1155,14 @@ local function MouseLook()
     local x, y = GetCursorPosition()
     local dx, dy = x - mouse.lastX, y - (mouse.lastY or y)
     mouse.lastX, mouse.lastY = x, y
-    if FixedCam() then return end
+    local fixed = FixedCam()
+    if fixed then
+        if fixed.turn and dx ~= 0 then
+            cam.yawOff = max(-fixed.turn, min(fixed.turn, (cam.yawOff or 0) - dx * 0.006))
+            ApplyMove()                                  -- (the keys follow the screen as it turns)
+        end
+        return
+    end
     if dx ~= 0 then sim:Turn(-dx * 0.006) end
     if dy ~= 0 then cam.pitch = max(0.05, min(1.3, cam.pitch - dy * 0.004)) end      -- drag up: look up
 end
@@ -1666,6 +1682,56 @@ local function DrawHud()
     end
 end
 
+-- A place's card (sim.card = { title, lines, buttons = { { text, fn(sim), disabled } } }: a station's, the ready
+-- check) at the bottom of the view, and the prompt for F (the nearest thing with an .interact in reach, its .verb).
+local CARD_BUTTONS = 4
+local function DrawCard()
+    local c = sim.card
+    local card = R.card
+    if not card then return end
+    if c then
+        card.title:SetText(c.title or "")
+        card.body:SetText(table.concat(c.lines or {}, "\n"))
+        local nb = 0
+        for i = 1, CARD_BUTTONS do
+            local b, d = card.buttons[i], c.buttons and c.buttons[i]
+            if d then
+                nb = i
+                b:SetText(d.text)
+                b.def = d
+                b:SetEnabled(not d.disabled)
+                b:SetAlpha(d.disabled and 0.55 or 1)
+                b:Show()
+            else
+                b.def = nil
+                b:Hide()
+            end
+        end
+        local h = 46 + card.body:GetStringHeight() + (nb > 0 and 34 or 0)
+        card:SetHeight(h)
+        card:Show()
+    else
+        card:Hide()
+    end
+    -- the prompt: what F would use (nothing while a card is open)
+    local best, bestD
+    if not c and sim.state == "run" then
+        local p = sim.player
+        for _, u in ipairs(sim.units) do
+            if u.interact and not u.dead then
+                local d = math.sqrt((p.x - u.x) ^ 2 + (p.y - u.y) ^ 2)
+                if d <= (u.interactRange or T.INTERACT_RANGE) and (not bestD or d < bestD) then best, bestD = u, d end
+            end
+        end
+    end
+    if best then
+        R.prompt:SetText("|cffffd100F|r  " .. (best.verb or "Use") .. " " .. (best.name or ""))
+        R.prompt:Show()
+    else
+        R.prompt:Hide()
+    end
+end
+
 local function Draw(elapsed)
     if not sim then return end
     if scene then Draw3D(elapsed) end
@@ -1674,6 +1740,7 @@ local function Draw(elapsed)
     if not scene then DrawFx() end
     DrawCorpse()
     DrawHud()
+    DrawCard()
 end
 
 local function LayoutArena()
@@ -1834,6 +1901,11 @@ local function OnUpdate(self, elapsed)
         MouseLook()
         sim:Update(elapsed)
         PlaySounds()
+        if sim.wantLevel then                -- (the pedestal's card: the hub's Portal level, the hub goes on)
+            local id = sim.wantLevel
+            sim.wantLevel = nil
+            SetHubLevel(id)
+        end
         if sim.goto then                     -- (walked into the Portal: the next place, at the hub's Portal level)
             GoTo(sim.goto, sim.gotoDiff)
             return
@@ -1896,18 +1968,25 @@ GoTo = function(id, diff)
 end
 
 -- The Portal level: picked on the hub only (in a dungeon the run keeps the level it was entered at), kept per
--- character, and it does not move you: the hub starts again where you stand.
-local function SelectDifficulty(id)
+-- character; the hub goes on as it is (the level only counts when you step through the portal).
+function SetHubLevel(id)
     local enc = Encounter()
     if not enc or enc.id ~= "hub" then return end
     local d = Data()
     if type(d.diff) ~= "table" then d.diff = {} end
-    d.diff.hub = T:GetDifficulty(enc, id).id
-    local p = sim and sim.player
-    local x, y, facing = p and p.x, p and p.y, p and p.facing
-    GoTo("hub", d.diff.hub)
-    if x and sim then sim.player.x, sim.player.y, sim.player.facing = x, y, facing end
+    local diff = T:GetDifficulty(enc, id)
+    d.diff.hub, diffId = diff.id, diff.id
+    if sim and sim.enc == enc then
+        sim.diff = diff
+        sim:Banner(diff.name, 2, 1, 0.82, 0)
+        if sim.card and sim.card.station == "level" and sim.enc.cards and sim.enc.cards.level then
+            sim.enc.cards.level(sim)
+        end
+    end
+    R.difficulty:Refresh()
 end
+
+local function SelectDifficulty(id) SetHubLevel(id) end
 
 function UI:CreatePanel(parent)
     if not Room and R3 and R3.NewRoom then Room = R3.NewRoom("Portal"); ns.PortalRoom = Room end
@@ -1919,7 +1998,7 @@ function UI:CreatePanel(parent)
         return out
     end, function() return encId end, SelectEncounter)
     R.encounter:SetPoint("TOPLEFT", PAD, -PAD)
-    R.encounter:Hide()                    -- (the game always opens on the Stair of Destiny; the Portal picks the rest)
+    R.encounter:Hide()                    -- (the game always opens on the hub, the tavern; its portal picks the rest)
 
     R.difficulty = ns.UI:CreateSleekDropdown(root, 150, function()
         local out, enc = {}, Encounter()
@@ -2028,6 +2107,40 @@ function UI:CreatePanel(parent)
         R.facing:SetColorTexture(1, 1, 1, 0.9)
         R.facing:Hide()
     end
+    R.prompt = hud:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    R.prompt:SetPoint("BOTTOM", view, "BOTTOM", 0, 54)
+    R.prompt:SetShadowColor(0, 0, 0, 1)
+    R.prompt:SetShadowOffset(1, -1)
+    R.prompt:Hide()
+    local card = CreateFrame("Frame", nil, view)
+    card:SetFrameLevel(view:GetFrameLevel() + LV.hud + 2)
+    card:SetSize(420, 120)
+    card:SetPoint("BOTTOM", view, "BOTTOM", 0, 20)
+    card:EnableMouse(true)
+    local cbg = card:CreateTexture(nil, "BACKGROUND")
+    cbg:SetAllPoints()
+    cbg:SetColorTexture(0.06, 0.05, 0.08, 0.92)
+    ns.UI:AddEdges(card)
+    ns.UI:SetEdgeColor(card, 0.55, 0.42, 0.7, 1)
+    card.title = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    card.title:SetPoint("TOPLEFT", 14, -10)
+    card.body = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    card.body:SetPoint("TOPLEFT", 14, -36)
+    card.body:SetPoint("TOPRIGHT", -14, -36)
+    card.body:SetJustifyH("LEFT")
+    card.body:SetSpacing(3)
+    card.buttons = {}
+    for i = 1, CARD_BUTTONS do
+        local b = ns.UI:CreateSleekButton(card, "", 92, 22, function(self)
+            local d = self.def
+            if d and d.fn and sim then d.fn(sim) end
+        end, i == 1 and "primary" or nil)
+        b:SetPoint("BOTTOMLEFT", 14 + (i - 1) * 98, 10)
+        b:Hide()
+        card.buttons[i] = b
+    end
+    card:Hide()
+    R.card = card
     R.error = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     R.error:SetTextColor(1, 0.2, 0.2)
     R.error:SetPoint("BOTTOM", view, "BOTTOM", 0, 26)
@@ -2080,7 +2193,7 @@ function UI:CreatePanel(parent)
     root:SetScript("OnUpdate", OnUpdate)
     root:SetScript("OnSizeChanged", LayoutArena)
     root:SetScript("OnHide", function() SetFocus(false) end)
-    -- opening the game puts you on the Stair of Destiny (the hub), every time
+    -- opening the game puts you in the hub (the World's End Tavern), every time
     root.OnGameShown = function()
         LayoutArena()
         if not sim or sim.enc.id ~= "hub" and sim.state ~= "run" then GoTo("hub") end
@@ -2121,6 +2234,23 @@ UI._Facade = function()
 end
 UI._Mouse = function(look, left) mouse.look, mouse.left = look and true or false, left and true or false ApplyMove() end
 UI._Camera = function() return cam end
+-- The card and the prompt as shown (tests): { title, body, buttons = { text, enabled } } / the prompt's text; false
+-- when hidden.
+UI._Card = function()
+    local card = R.card
+    if not (card and card:IsShown()) then return false end
+    local b = {}
+    for _, btn in ipairs(card.buttons) do
+        if btn:IsShown() then b[#b + 1] = { text = btn:GetText(), enabled = btn:IsEnabled() and true or false } end
+    end
+    return { title = card.title:GetText(), body = card.body:GetText(), buttons = b }
+end
+UI._Prompt = function() return R.prompt and R.prompt:IsShown() and R.prompt:GetText() or false end
+UI._CardClick = function(i)
+    local btn = R.card and R.card.buttons[i]
+    if btn and btn:IsShown() and btn:IsEnabled() and btn.def and btn.def.fn and sim then btn.def.fn(sim) end
+end
+UI._Esc = function() if root then OnKeyDown(root, "ESCAPE") end end
 UI._Fx = function()
     local out = {}
     for fx, a in pairs(fxActors) do
