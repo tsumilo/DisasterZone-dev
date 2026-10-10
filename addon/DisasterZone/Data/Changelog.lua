@@ -8,6 +8,21 @@ local addonName, ns = ...
 ns.CHANGELOG = {
     { version = "1.3.4", date = "9 October 2026", title = "Gear sim, Disastercraft talent rows",
       sections = {
+          { heading = "Damage and threat meters", lines = {
+              "Built-in meters: no need for Details or a threat addon. Off until you turn them on.",
+              "Turn them on in Settings > Meters, or with /dz meter on and /dz threat on.",
+              "Damage, DPS, healing, damage taken, deaths, interrupts, dispels and active time.",
+              "Numbers match Details: the whole hit counts, and DPS is by each player's active time.",
+              "Threat comes from the game itself: the gold line marks where you pull aggro.",
+              "Near your pull point your bar turns red, the screen edges flash and a sound plays.",
+              "Tanks see how close everyone is to pulling, closest first.",
+              "Everything is a panel: + on a header adds one, x closes it, any panel shows any view.",
+              "Unlocked, drag a panel under another to dock it, or onto its header to make a tab.",
+              "Panels are as tall as their rows; drag the corner to set the width and the row count.",
+              "Hover a bar for top abilities. Click it for a full breakdown, or a death recap.",
+              "Your own bar stays in view, and melee shows your weapon's icon.",
+              "Nothing is shared or posted: each player counts their own combat log.",
+          } },
           { heading = "Gear sim", lines = {
               "New Sim button in My BiS: sim your gear and see what a change is worth, in real DPS.",
               "It plays the fight out a thousand times with WoWSims' rotation, buffs and numbers.",

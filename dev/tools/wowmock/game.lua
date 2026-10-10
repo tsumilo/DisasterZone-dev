@@ -98,11 +98,13 @@ function GetScreenWidth() return 1920 end
 function GetScreenHeight() return 1080 end
 function GetPhysicalScreenSize() return 1920, 1080 end
 function GetScreenDPIScale() return 1 end
-function GetCursorPosition() return 960, 540 end
+-- (__MOCK.cursor = { x, y } in screen pixels moves it; default the middle of a 1920x1080 screen)
+function GetCursorPosition() local c = M.cursor; if c then return c[1], c[2] end return 960, 540 end
 -- the frame under the mouse (M.click_player sets WorldFrame, or a unit frame for a click on a raid frame)
 function GetMouseFocus() return M.mouse_focus end
 function GetMouseFoci() return { M.mouse_focus } end
-function IsMouseButtonDown() return false end
+-- (__MOCK.mouse_down = true: a button is held, e.g. while a test drags a frame)
+function IsMouseButtonDown() return M.mouse_down == true end
 function GetAddOnCPUUsage() return 0 end
 function GetAddOnMemoryUsage() return 0 end
 function UpdateAddOnMemoryUsage() end

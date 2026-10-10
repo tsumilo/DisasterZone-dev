@@ -958,12 +958,17 @@ SWING_HUD = ("__MOCK.real_geometry = true; __MOCK.swing_speed = 3.5; "
              "ST:Recent()[i] = { t = 0, kind = k } end; ns.SwingTimerHUD:Update()")
 
 
+MET = ("ns.Demo:SetEnabled(true); ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true); "
+       "ns.MeterPanels:ResetLayout(); ")
+
 STATES = [
     ("Blizzard options panel", st_blizzard_options),
     ("Home", opened("home")),
     # the nav strip's group menus (UI/Menu.lua's page list: title over its line, the open page with the gold bar)
     ("Nav - Guild menu", opened("home", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
                                              "do if t.cdlKey == 'grp:guild' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:guild') end end")),
+    ("Nav - Gear menu", opened("mybis", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
+                                         "do if t.cdlKey == 'grp:gear' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:gear') end end")),
     ("Nav - Raids menu", opened("home", "__MOCK.real_geometry = true; for _, t in ipairs(DisasterZoneMainFrame.Tabs) "
                                            "do if t.cdlKey == 'grp:raids' then t.IsMouseOver = function() return true end; t:Click(); ns.MainFrame:OpenGroupMenu('grp:raids') end end")),
     ("Home - calendar day", opened("home", "local v = ns.RaidPlan:GetRaid(select(4, ...)); "
@@ -1382,6 +1387,29 @@ STATES = [
     ("Swing timer - bar, early swing", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
     ("Swing timer - lane", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "2.0").replace("STYLE", "lane"))),
     ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
+    ("Settings - Meters", opened("settings", "ns.SettingsUI:SelectSection('meters')")),
+    # meters (UI/MeterPanels.lua, UI/MeterDetail.lua) on the demo night
+    ("Meters - panels", opened("home", "ns.MainFrame:Close(); " + MET +
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; "
+        "L.stacks[1].panels[2].tabs[2] = { view = 'healing', seg = 'cur' }; "
+        "L.stacks[2] = { x = 560, y = 560, w = 240, panels = { { tabs = { { view = 'deaths', seg = 'cur' } } }, "
+        "{ tabs = { { view = 'kicks', seg = 'all' } }, rows = 4 } } }; ns.MeterPanels:Rebuild()")),
+    ("Meters - unlocked, tank view", opened("home", "ns.MainFrame:Close(); " + MET +
+        "ns.DB:SetSetting('meters.locked', false); ns.DB:SetSetting('meters.tankView', 'always'); "
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; ns.MeterPanels:Rebuild()")),
+    ("Meters - empty", opened("home", "ns.MainFrame:Close(); ns.DB:SetSetting('meters.dmg', true); "
+        "ns.DB:SetSetting('meters.thr', true); ns.DB:SetSetting('meters.show', 'always'); ns.MeterPanels:ResetLayout(); "
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; ns.MeterPanels:Rebuild()")),
+    ("Meters - breakdown", opened("home", "ns.MainFrame:Close(); " + MET + "ns.MeterDetail:Open('cur', ns.MeterDemo.ME, 'damage')")),
+    ("Meters - breakdown over time", opened("home", "ns.MainFrame:Close(); " + MET + "ns.MeterDetail:Open('cur', ns.MeterDemo.ME, 'damage'); "
+        "ns.MeterDetail:GetState().tab = 'time'; ns.MeterDetail:Draw()")),
+    ("Meters - breakdown targets", opened("home", "ns.MainFrame:Close(); " + MET + "ns.MeterDetail:Open('all', ns.MeterDemo.ME, 'damage'); "
+        "ns.MeterDetail:GetState().tab = 'targets'; ns.MeterDetail:Draw()")),
+    ("Meters - healer breakdown", opened("home", "ns.MainFrame:Close(); " + MET +
+        "local g; for k, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Thunderhoofx' then g = k end end; "
+        "ns.MeterDetail:Open('cur', g, 'healing')")),
+    ("Meters - death recap", opened("home", "ns.MainFrame:Close(); " + MET +
+        "ns.MeterDetail:OpenDeath('cur', ns.Meter:GetSegment('cur').deaths[1])")),
     ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),

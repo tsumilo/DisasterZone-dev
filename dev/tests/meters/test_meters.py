@@ -33,7 +33,7 @@ RAID_GUARD = 0x2114
 OUTSIDER = 0x548
 BOSS_FLAGS = 0xA48
 
-FILES = ["Core/Meter.lua", "Core/Threat.lua", "Core/MeterDemo.lua", "UI/MeterWindow.lua", "UI/ThreatWindow.lua",
+FILES = ["Core/Meter.lua", "Core/Threat.lua", "Core/MeterDemo.lua", "UI/MeterWindow.lua", "UI/MeterPanels.lua",
          "UI/MeterDetail.lua"]
 
 
@@ -127,8 +127,7 @@ def off_by_default_records_nothing():
     r.hit("Gina", 1000)
     r.tick(1)
     assert r.segs() == 0
-    assert not r.cl.eval("local f = _G.DisasterZoneMeter; return f and f:IsShown()")
-    assert not r.cl.eval("local f = _G.DisasterZoneThreat; return f and f:IsShown()")
+    assert not r.cl.eval("local f = _G.DisasterZoneMeters; return f and f:IsShown()")
 
 
 @case
@@ -399,7 +398,7 @@ def a_reload_mid_fight_is_kept_as_cut_short():
 
 
 @case
-def the_window_shows_bars_in_order_and_keeps_mine_in_view():
+def the_panel_shows_bars_in_order_and_keeps_mine_in_view():
     extra = [ExtraMember("P%02d" % i, "ROGUE") for i in range(14)]
     r = Raid(extra=extra)
     r.combat(True)
@@ -407,22 +406,40 @@ def the_window_shows_bars_in_order_and_keeps_mine_in_view():
     for i, m in enumerate(extra):
         r.hit(m.name, 1000 + i * 10)
     r.tick(1)
-    assert r.cl.eval("return _G.DisasterZoneMeter:IsShown()") is True
+    assert r.cl.eval("return _G.DisasterZoneMeters:IsShown()") is True
     info = r.cl.eval_py("""
-        local rows = ns.MeterWindow._Rows()
-        local me = rows[UnitGUID('player')]
-        local top = rows[select(1, ...)]
-        return { me.rank:GetText(), me.pinLine:IsShown(), me.you:IsShown(), me.ty, top.ty, top.rank:GetText() }
+        ns.MeterPanels:Draw()
+        local pf = ns.MeterPanels._Panel('damage')
+        local me = pf.rowsByKey[UnitGUID('player')]
+        local top = pf.rowsByKey[select(1, ...)]
+        local n = 0; for _ in pairs(pf.rowsByKey) do n = n + 1 end
+        return { me.rank:GetText(), me.pinLine:IsShown(), me.you:IsShown(), me.ty, top.ty, top.rank:GetText(), n,
+                 pf:GetHeight(), pf.totV:GetText() }
     """, r.g["P13"])
-    rank, pinned, you, my_y, top_y, top_rank = info
+    rank, pinned, you, my_y, top_y, top_rank, n, h, tot = info
     assert rank == "15" and pinned is True and you is True, info
     assert top_y == 0 and top_rank == "1", info
-    assert my_y < 0 and my_y > -10 * 22, info               # inside the window, on its last row
-    assert r.cl.eval("return _G.DisasterZoneMeter.totValue:GetText()") != "0"
+    assert n == 8 and my_y == -7 * 20, info                 # 8 rows by default, mine on the last
+    assert h == 24 + 3 * 2 + 8 * 19 + 7, info                # as tall as its rows
+    assert tot and tot != "", info
 
 
 @case
-def menus_switch_the_mode_and_the_fight():
+def an_empty_panel_is_just_its_header():
+    r = Raid(thr=True)
+    r.tick(1)
+    info = r.cl.eval_py("""
+        ns.MeterPanels:Draw()
+        local t, d = ns.MeterPanels._Panel('threat'), ns.MeterPanels._Panel('damage')
+        return { t:GetHeight(), t.note.text:GetText(), d:GetHeight(), d.note.text:GetText(), t.pi, d.pi }
+    """)
+    assert info[0] == 24 and info[1] == "no target", info
+    assert info[2] == 24 and info[3] == "no fights yet", info
+    assert info[4] == 1 and info[5] == 2, info                # one stack: Threat over Damage done
+
+
+@case
+def the_view_menu_switches_the_mode_and_the_fight():
     r = Raid()
     r.combat(True, "Victhar")
     r.hit("Gina", 500)
@@ -430,22 +447,25 @@ def menus_switch_the_mode_and_the_fight():
     r.combat(True, "Victhar")
     r.hit("Victhar", 700)
     r.tick(1)
-    r.cl.click(r.cl.eval("return _G.DisasterZoneMeter.head.mode"))
+    r.cl.click(r.cl.eval("return ns.MeterPanels._Panel('damage').mode"))
     menu = r.cl.last_menu()
     labels = [c["text"] for c in menu["children"] if c["kind"] == "radio"]
-    assert len(labels) == 8, labels
-    dps = [t for t in labels if t.endswith("DPS")][0]
-    r.cl.menu_select(dps)
-    assert r.cl.eval("return ns.DB:GetSetting('meters.mode')") == "dps"
-    r.cl.click(r.cl.eval("return _G.DisasterZoneMeter.head.seg"))
-    menu = r.cl.last_menu()
-    fights = [c for c in menu["children"] if c["kind"] == "radio"]
-    assert len(fights) == 3, [c["text"] for c in fights]    # current, the earlier fight, Whole raid
+    assert len(labels) == 9 and labels[-1].endswith("Threat"), labels
+    assert any(c.get("text") == "Fight" for c in menu["children"])
+    r.cl.menu_select([t for t in labels if t.endswith("DPS")][0])
+    assert r.cl.eval("return ns.MeterPanels.Layout().stacks[1].panels[1].tabs[1].view") == "dps"
+    r.cl.eval("local pf = ns.MeterPanels._Panel('dps'); ns.MeterPanels:FightMenu(pf, pf.mode)")
+    fights = [c for c in r.cl.last_menu()["children"] if c["kind"] == "radio"]
+    assert len(fights) == 3, [c["text"] for c in fights]     # current, the earlier fight, Whole raid
     r.cl.menu_select(fights[1]["text"])
-    sel = r.cl.eval("return ns.DB:GetSetting('meters.seg')")
-    assert isinstance(sel, (int, float)), sel
-    r.cl.eval("ns.MeterWindow:Draw()")
-    assert r.cl.eval("return _G.DisasterZoneMeter.head.segText:GetText()") == "Void Reaver"
+    r.cl.eval("ns.MeterPanels:Draw()")
+    note = r.cl.eval("return ns.MeterPanels._Panel('dps').note.text:GetText()")
+    assert note.startswith("Void Reaver"), note               # an older fight is named in the header
+    # a new fight brings the panel back to it
+    r.end_fight()
+    r.combat(True, "Victhar")
+    r.hit("Victhar", 100, dst=r.add, dst_name="Crystalcore Devastator")
+    assert r.cl.eval("return ns.MeterPanels.Layout().stacks[1].panels[1].tabs[1].seg") == "cur"
 
 
 @case
@@ -457,19 +477,112 @@ def a_click_opens_the_breakdown_and_the_recap():
     r.boss_hits("Victhar", 3000)
     r.ev("UNIT_DIED", "", "", 0, r.g["Victhar"], "Victhar", RAID_FLAGS)
     r.tick(1)
-    r.cl.eval("ns.MeterWindow:Draw()")
-    r.cl.click(r.cl.eval("return ns.MeterWindow._Rows()[UnitGUID('player')]"))
+    r.cl.eval("ns.MeterPanels:Draw()")
+    r.cl.click(r.cl.eval("return ns.MeterPanels._Panel('damage').rowsByKey[UnitGUID('player')]"))
     assert r.cl.eval("return _G.DisasterZoneMeterDetail:IsShown()") is True
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.banner.name:GetText()") == "Gina"
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.cards[1].num:GetText()") == "1,400"
     n = r.cl.eval("local n = 0; for _, x in ipairs(_G.DisasterZoneMeterDetail.rows) do if x:IsShown() then n = n + 1 end end; return n")
     assert n == 2
-    r.cl.eval("_G.DisasterZoneMeterDetail:Hide(); ns.DB:SetSetting('meters.mode', 'deaths'); ns.MeterWindow:Draw()")
-    row = r.cl.eval("for k, row in pairs(ns.MeterWindow._Rows()) do if row:IsShown() then return row end end")
+    r.cl.eval("_G.DisasterZoneMeterDetail:Hide(); ns.MeterPanels.Layout().stacks[1].panels[1].tabs[1].view = 'deaths'; ns.MeterPanels:Draw()")
+    row = r.cl.eval("for k, row in pairs(ns.MeterPanels._Panel('deaths').rowsByKey) do if row:IsShown() then return row end end")
     r.cl.click(row)
     assert r.cl.eval("return ns.MeterDetail:GetState().view") == "death"
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.banner.name:GetText()") == "Victhar"
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.evRows[1]:IsShown()") is True
+
+
+def layout(r):
+    return r.cl.eval_py("""
+        local out = {}
+        for i, s in ipairs(ns.MeterPanels.Layout().stacks) do
+            local ps = {}
+            for j, p in ipairs(s.panels) do
+                local ts = {}
+                for k, t in ipairs(p.tabs) do ts[k] = t.view end
+                ps[j] = table.concat(ts, "+")
+            end
+            out[i] = table.concat(ps, "/")
+        end
+        return out""")
+
+
+@case
+def panels_spawn_dock_tab_detach_and_close():
+    r = Raid(thr=True)
+    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.tick(0.5)
+    assert layout(r) == ["threat/damage"]
+    # + : a panel of its own beside the stack
+    r.cl.eval("ns.MeterPanels:Spawn(ns.MeterPanels._Panel('damage'), 'healing')")
+    assert layout(r) == ["threat/damage", "healing"]
+    # dropped at the first stack's bottom edge: it joins the stack (MeterPanels.FindTarget decides; see below)
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        __MOCK.mouse_down = true
+        MP:StartDrag(2)
+        MP._SetTarget({ kind = "below", stack = MP.Layout().stacks[1] })
+        __MOCK.mouse_down = false
+        MP:EndDrag()
+    """)
+    assert layout(r) == ["threat/damage/healing"]
+    # a lower header dragged out: a stack of its own again
+    r.cl.eval("__MOCK.mouse_down = true; ns.MeterPanels:Detach(1, 3)")
+    assert layout(r) == ["threat/damage", "healing"]
+    # dropped on Damage done's header: a tab there
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        MP._SetTarget({ kind = "tab", stack = MP.Layout().stacks[1], panel = MP.Layout().stacks[1].panels[2] })
+        __MOCK.mouse_down = false
+        MP:EndDrag()
+    """)
+    assert layout(r) == ["threat/damage+healing"]
+    tabs = r.cl.eval_py("local pf = ns.MeterPanels._Panel('healing'); return { pf.tabs[1]:IsShown(), pf.tabs[2]:IsShown(), pf.mode:IsShown() }")
+    assert tabs == [True, True, False], tabs
+    # a tab dragged out
+    r.cl.eval("__MOCK.mouse_down = true; ns.MeterPanels:Detach(1, 2, 1); __MOCK.mouse_down = false; ns.MeterPanels:EndDrag()")
+    assert layout(r) == ["threat/healing", "damage"]
+    # x closes a panel; the last one of a stack takes the stack with it
+    r.cl.eval("ns.MeterPanels:Close(ns.MeterPanels._Panel('damage'))")
+    assert layout(r) == ["threat/healing"]
+
+
+@case
+def where_a_dragged_stack_goes():
+    """MeterPanels.FindTarget: over a header = a tab; at a stack's bottom / top edge = into the stack; beside it = lined
+    up; elsewhere nothing. (Frame units: y grows upward, t = top.)"""
+    r = Raid()
+    res = r.cl.eval_py("""
+        local F = ns.MeterPanels.FindTarget
+        local A = { name = "A" }
+        local others = { { A, 100, 500, 300, 120, heads = { { "pA1", 100, 500, 400, 476 }, { "pA2", 100, 440, 400, 416 } } } }
+        local function k(m, cx, cy) local t = F(m, cx, cy, others); return t and (t.kind .. (t.panel and (":" .. t.panel) or "")) or "none" end
+        return {
+            k({ 600, 300, 200, 80 }, 150, 430),     -- cursor over A's second header
+            k({ 110, 372, 300, 80 }, 900, 900),     -- top 8 px under A's bottom (380)
+            k({ 90, 592, 300, 80 }, 900, 900),      -- bottom 8 px over A's top
+            k({ 410, 505, 200, 80 }, 900, 900),     -- beside A's right edge
+            k({ -95, 495, 200, 80 }, 900, 900),     -- beside A's left edge
+            k({ 900, 100, 200, 80 }, 900, 900),     -- far away
+        }""")
+    assert res == ["tab:pA2", "below", "above", "right", "left", "none"], res
+
+
+@case
+def a_meter_turned_off_hides_its_panels_and_brings_them_back():
+    r = Raid(thr=True)
+    r.tick(0.5)
+    assert r.cl.eval("return ns.MeterPanels._Panel('threat') ~= nil") is True
+    r.cl.eval("ns.DB:SetSetting('meters.thr', false)")
+    r.tick(0.5)
+    assert r.cl.eval("return ns.MeterPanels._Panel('threat') == nil") is True
+    assert layout(r) == ["threat/damage"]                     # kept for later
+    r.cl.eval("ns.DB:SetSetting('meters.thr', true)")
+    r.tick(0.5)
+    assert r.cl.eval("return ns.MeterPanels._Panel('threat') ~= nil") is True
+    # the last one closed: turning it off and on gives it a panel again
+    r.cl.eval("ns.MeterPanels:Close(ns.MeterPanels._Panel('threat')); ns.DB:SetSetting('meters.thr', false); ns.DB:SetSetting('meters.thr', true)")
+    assert layout(r) == ["threat/damage"]
 
 
 def threat(r, table):
@@ -500,7 +613,7 @@ def the_threat_table_reads_the_game():
     s = threat(r, {"Gina": (True, 3, 100, 100, 200000), "Victhar": (False, 1, 70, 77, 154000),
                    "Hunt": (False, 1, 80, 104, 208000)})
     assert s["tv"] is True and s["names"] == ["Hunt", "Victhar"], s
-    assert r.cl.eval("return _G.DisasterZoneThreat:IsShown()") is True
+    assert r.cl.eval("return _G.DisasterZoneMeters:IsShown() and ns.MeterPanels._Panel('threat') ~= nil") is True
 
 
 @case
@@ -523,13 +636,13 @@ def demo_mode_fills_both_windows():
     r = Raid(dmg=False, instance=False)
     r.cl.eval("ns.Demo:SetEnabled(true)")
     r.w.tick(1)
-    assert not r.cl.eval("local f = _G.DisasterZoneMeter; return f and f:IsShown()")   # only fills windows that are on
+    assert not r.cl.eval("local f = _G.DisasterZoneMeters; return f and f:IsShown()")   # only fills panels that are on
     r.cl.eval("ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true)")
     r.w.tick(1)
     assert r.cl.eval("return #ns.Meter:Data().segs") == 6
     assert r.cl.eval("return ns.Meter:SegName(ns.Meter:GetSegment('cur'))") == "Void Reaver"
-    assert r.cl.eval("return _G.DisasterZoneMeter and _G.DisasterZoneMeter:IsShown()") is True
-    assert r.cl.eval("return _G.DisasterZoneThreat and _G.DisasterZoneThreat:IsShown()") is True
+    assert r.cl.eval("return _G.DisasterZoneMeters:IsShown()") is True
+    assert r.cl.eval("return ns.MeterPanels._Panel('damage') ~= nil and ns.MeterPanels._Panel('threat') ~= nil") is True
     assert r.cl.eval("return ns.Threat:GetState().pull") == 110
     gina = r.cl.eval_py("for g, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Gina' then return a end end")
     assert gina["d"] == 1190 * 222
@@ -555,9 +668,33 @@ def numbers_match_details_on_a_short_fight():
     assert a["sp"][20424]["a"] == 2900
     dps = r.cl.eval("local s = ns.Meter:GetSegment('cur'); local rows = ns.Meter:Rows(s, 'dps'); return rows[1].v")
     assert 1750 <= dps <= 1900, dps
-    sub = r.cl.eval("ns.MeterWindow:Draw(); return ns.MeterWindow._Rows()[UnitGUID('player')].sub:GetText()")
+    sub = r.cl.eval("ns.MeterPanels:Draw(); return ns.MeterPanels._Panel('damage').rowsByKey[UnitGUID('player')].sub:GetText()")
     assert sub == "%d" % 0 or sub.replace(",", "").isdigit(), sub
     assert 1750 <= int(sub.replace(",", "")) <= 1900, sub
+
+
+@case
+def solo_header_and_bar_agree_and_chart_labels_leave_with_the_chart():
+    """Reported in game 2026-10-10: the header said 696/s while the only bar said 811 (fight time vs active time),
+    and the Over time chart's numbers stayed on the Targets tab."""
+    r = Raid()
+    r.combat(True)
+    r.hit("Gina", 2000)
+    r.tick(2)
+    r.swing("Gina", 1500)
+    r.tick(4)
+    r.hit("Gina", 1445)
+    r.end_fight()
+    info = r.cl.eval_py("""
+        ns.MeterPanels:Draw()
+        local pf = ns.MeterPanels._Panel('damage')
+        return { pf.tot:GetText(), pf.rowsByKey[UnitGUID('player')].sub:GetText() }""")
+    assert info[0] == info[1] + "/s", info
+    r.cl.eval("ns.MeterDetail:Open('cur', UnitGUID('player'), 'damage'); ns.MeterDetail:GetState().tab = 'time'; ns.MeterDetail:Draw()")
+    shown = "local n = 0; for _, l in ipairs(_G.DisasterZoneMeterDetail.chart.pool.ylab or {}) do if l:IsShown() then n = n + 1 end end; return n"
+    assert r.cl.eval(shown) > 0
+    r.cl.eval("ns.MeterDetail:GetState().tab = 'targets'; ns.MeterDetail:Draw()")
+    assert r.cl.eval(shown) == 0
 
 
 if __name__ == "__main__":

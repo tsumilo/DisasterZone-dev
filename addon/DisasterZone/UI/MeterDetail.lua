@@ -157,7 +157,9 @@ local function Build()
     banner.name:SetPoint("TOPLEFT", banner.ringGold, "TOPRIGHT", 14, -8)
     banner.sub = Text(banner, 14, K.DIM)
     banner.sub:SetPoint("TOPLEFT", banner.name, "BOTTOMLEFT", 0, -6)
-    banner.sub:SetWidth(W - 360)
+    banner.sub:SetWidth(W - 150)
+    banner.sub:SetWordWrap(true)
+    banner.sub:SetMaxLines(2)
     -- right: arrows, the fight, close
     local close = CreateFrame("Button", nil, banner, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", banner, "TOPRIGHT", -4, -4)
@@ -278,10 +280,10 @@ local function Build()
 
     -- death recap
     frame.deathChart = Kit.Chart(frame)
-    frame.deathChart:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 4, -BANNER_H - 30)
+    frame.deathChart:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 36, -BANNER_H - 30)
     frame.deathChart:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 4, -BANNER_H - 30)
     frame.deathChart:SetHeight(128)
-    frame.deathChart.fallback = { W - PAD * 2 - 8, 128 }
+    frame.deathChart.fallback = { W - PAD * 2 - 40, 128 }
     frame.deathLabs = {}
     for i = 1, 6 do frame.deathLabs[i] = Text(frame, 12, { 0.55, 0.54, 0.5 }) end
     frame.deathHp = Text(frame, 12, { 0.55, 0.54, 0.5 })
@@ -674,12 +676,6 @@ local function DrawTime(seg, a, mode, dur)
     local chH = (ch:GetHeight() or 0) > 0 and ch:GetHeight() or ch.fallback[2]
     local chW = (ch:GetWidth() or 0) > 0 and ch:GetWidth() or ch.fallback[1]
     for i = 1, 5 do
-        local v = y1 * (i - 1) / 4
-        local lab = frame.yLabs[i]
-        lab:ClearAllPoints()
-        lab:SetPoint("RIGHT", ch, "BOTTOMLEFT", -8, 2 + (chH - 10) * (i - 1) / 4)
-        lab:SetText(i == 1 and "" or K.Int(v))
-        lab:Show()
         local xl = frame.xLabs[i]
         xl:ClearAllPoints()
         xl:SetPoint("TOP", ch, "BOTTOMLEFT", chW * (i - 1) / 4, -6)
@@ -713,6 +709,7 @@ function MD:Draw()
     frame.tabs:Show()
     frame.tabRule:Show()
     frame.tabNote:Show()
+    frame.deathChart:Reset()                  -- (its labels sit on this window: Reset hides them too)
     frame.deathChart:Hide()
     frame.events:Hide()
     frame.events.ScrollBar:Hide()
@@ -721,7 +718,7 @@ function MD:Draw()
     if not a then
         for _, c in ipairs(frame.cards) do c:Hide() end
         frame.tabs:Hide(); frame.tabRule:Hide(); frame.tabNote:Hide()
-        frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide(); frame.chart:Hide(); frame.legend:Hide()
+        frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide(); frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
         for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
         frame.empty:SetText("They were not in this fight.")
         frame.empty:Show()
@@ -772,7 +769,8 @@ function MD:Draw()
     frame.list.ScrollBar:SetShown(isList)
     frame.chart:SetShown(not isList)
     frame.legend:SetShown(not isList)
-    for i = 1, 5 do frame.yLabs[i]:SetShown(not isList); frame.xLabs[i]:SetShown(not isList) end
+    for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:SetShown(not isList) end
+    if isList then frame.chart:Reset() end
     frame.empty:Hide()
     if S.tab == "abilities" then
         frame.list:SetWidth(frame.listW)
@@ -817,15 +815,15 @@ function MD:DrawDeath()
     for _, e in ipairs(d.ev or {}) do
         if e[2] == "d" then took = took + (e[4] or 0) else healed = healed + (e[4] or 0) end
     end
-    b.sub:SetText(strformat("Died at |cffecdfc8%s|r to |cffff8a70%s|r · took |cffecdfc8%s|r in %d s, healing brought back |cffecdfc8%s|r",
-        K.Clock(d.t), d.by and K.SpellName(d.by) or "?", K.Int(took), Meter.RECAP, K.Int(healed)))
+    b.sub:SetText(strformat("Died at |cffecdfc8%s|r to |cffff8a70%s|r · in the last %d s took |cffecdfc8%s|r, healed |cffecdfc8%s|r",
+        K.Clock(d.t), d.by and K.SpellName(d.by) or "?", Meter.RECAP, K.Int(took), K.Int(healed)))
     b.fight:SetText(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "")
     b.step:SetText(idx and (Ordinal(idx) .. " of " .. #deaths) or "")
     b.prev:SetShown(#deaths > 1)
     b.next:SetShown(#deaths > 1)
     for _, c in ipairs(frame.cards) do c:Hide() end
     frame.tabs:Hide(); frame.tabRule:Hide(); frame.tabNote:Hide()
-    frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide(); frame.chart:Hide(); frame.legend:Hide()
+    frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide(); frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
     for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
     frame.empty:Hide()
 

@@ -47,14 +47,13 @@ local DEFAULTS = {
         atlas = { show = "all" },      -- Atlas tab: Show "all" | "class" | "spec" | "os" (off spec)
         raidlog = { keepDays = 365 },  -- Addendum I §49: whole raids older than this are dropped from the raid log
         mylog = { enabled = false, heroics = false, keepWeeks = 12 },  -- My Log (Core/MyLog.lua): opt-in, off
-        -- Meters (Core/Meter.lua, Core/Threat.lua, UI/MeterWindow.lua, UI/ThreatWindow.lua): both opt-in, off.
+        -- Meters (Core/Meter.lua, Core/Threat.lua, UI/MeterPanels.lua): both opt-in, off. layout = the panels (MeterPanels).
         -- dmg / thr = the damage / threat window; show "group" | "always" | "instance"; ooc (out of combat) "fade" |
         -- "hide" | "stay"; keep = fights kept; split "all" (every combat its own fight) | "boss" (trash adds up
         -- between bosses); warn = % of my pull point (0 off); tankView "auto" | "always" | "never"; size "small" |
-        -- "normal" | "large"; mode / seg = what the meter shows; mpos / msize / tpos / tsize = the windows' places
+        -- "normal" | "large"
         meters = { dmg = false, thr = false, show = "group", ooc = "fade", keep = 25, split = "all", warn = 85,
-                   sound = true, flash = true, tankView = "auto", locked = true, size = "normal", mode = "damage",
-                   seg = "cur" },
+                   sound = true, flash = true, tankView = "auto", locked = true, size = "normal" },
         -- Swing timer (Core/SwingTimer.lua, UI/SwingTimerHUD.lua): Retribution only. style "bar" | "lane" | "both";
         -- latencyMs 0 = auto; use.exo / use.cons = the optional fillers (off, as in WoWSims' rotation); consMana =
         -- Consecration only above this mana %; reports / pos are kept here too

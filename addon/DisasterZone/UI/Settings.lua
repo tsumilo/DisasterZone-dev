@@ -318,6 +318,7 @@ local CARD_W, CARD_H, GAP = 196, 58, 10
 local CARD_TIPS = {
     home = "This week's raids and the calendar.", raids = "Raid nights, teams and strategies.",
     council = "Loot decisions and the loot log.", mybis = "Your BiS lists and what's missing.",
+    gearsim = "Compare gear in simulated fights.", consumables = "Flask, food and potions per spec.",
     atlas = "Every drop, set and cost.", members = "Members, professions, recipes.",
     dungeons = "Find a group for a dungeon.", events = "Guild events and cups (beta).",
     games = "Bingo and other guild games.", changelog = "What's new in every release.",
@@ -1654,7 +1655,7 @@ end
 -- dimmed and locked while the window it belongs to is off (the shared ones while both are off).
 function SettingsUI:BuildMeters(sec)
     local sub = self:Subtitle(sec)
-    sub:SetText("Damage and threat in two small windows. They count what your own combat log sees; nothing is shared or posted.")
+    sub:SetText("Damage and threat in panels that dock together. Your own combat log only; nothing is shared or posted.")
     sub:SetTextColor(GREY[1], GREY[2], GREY[3])
     local groups = { dmg = {}, thr = {}, both = {} }
     local function Head(text, icon)
@@ -1706,16 +1707,25 @@ function SettingsUI:BuildMeters(sec)
         "meters.tankView", "auto", { { value = "auto", text = "While I tank" }, { value = "always", text = "Always" },
                                      { value = "never", text = "Never" } }))
 
-    Head("Both windows", nil)
-    Track("both", self:DropdownSetting(sec, "Show them", "When the windows appear on their own.", "meters.show", "group",
+    Head("Panels", nil)
+    Track("both", self:DropdownSetting(sec, "Show them", "When the panels appear on their own.", "meters.show", "group",
         { { value = "group", text = "In a group" }, { value = "instance", text = "In instances" },
           { value = "always", text = "Always" } }))
-    Track("both", self:DropdownSetting(sec, "Out of combat", "What the windows do a few seconds after a fight.",
+    Track("both", self:DropdownSetting(sec, "Out of combat", "What the panels do a few seconds after a fight.",
         "meters.ooc", "fade", { { value = "fade", text = "Fade" }, { value = "hide", text = "Hide" },
                                 { value = "stay", text = "Stay" } }))
-    Track("both", self:SwitchSetting(sec, "Lock windows", "Unlock to move and resize them.", "meters.locked", true))
+    Track("both", self:SwitchSetting(sec, "Lock panels", "Unlock to move, dock and resize them.", "meters.locked", true,
+        "Unlocked, drag a header next to another panel to dock it, or onto its header to make a tab. + on a header adds a panel."))
     Track("both", self:DropdownSetting(sec, "Size", "Bar height and text size together.", "meters.size", "normal",
         { { value = "small", text = "Small" }, { value = "normal", text = "Normal" }, { value = "large", text = "Large" } }))
+    local lrow = self:Row(sec, "Reset layout", "Back to one stack: Threat over Damage done.")
+    local lbtn = ns.UI:CreateButton(lrow, "Reset", 120, 22, function()
+        if ns.MeterPanels then ns.MeterPanels:ResetLayout() end
+    end)
+    lbtn:SetPoint("RIGHT", lrow, "RIGHT", 0, 0)
+    lrow.control = lbtn
+    PlaceText(lrow, 120)
+    Track("both", lbtn, lrow)
     self:EndSection(sec)
 
     self.refreshers[#self.refreshers + 1] = {

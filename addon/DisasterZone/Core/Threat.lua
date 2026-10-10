@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Threat.lua", ...) then return end -- DisasterZone: threat meter.
 -- My group's threat on one enemy, read from the game itself (UnitDetailedThreatSituation, the source ThreatClassic2
--- uses), so the numbers are exact. The window is UI/ThreatWindow.lua. Off until the player turns it on (Settings >
+-- uses), so the numbers are exact. Shown as a Threat panel of UI/MeterPanels.lua. Off until the player turns it on (Settings >
 -- Meters, meters.thr). Nothing is sent: every client asks its own game.
 --
 -- The enemy: my target when I can attack it; with a friendly player targeted, their target; else the first boss
@@ -189,7 +189,7 @@ function Threat:OnLogin()
     ns:RegisterSlash("threat", function(arg)
         arg = (arg or ""):lower()
         if arg == "on" or arg == "off" then ns.DB:SetSetting("meters.thr", arg == "on")
-        elseif ns.ThreatWindow then ns.ThreatWindow:Toggle() end
+        elseif ns.MeterPanels then ns.MeterPanels:Toggle() end
     end, "show or hide the threat meter (on | off)")
     self:Refresh()
 end

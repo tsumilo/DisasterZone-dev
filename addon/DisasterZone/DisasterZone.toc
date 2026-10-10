@@ -203,8 +203,8 @@ UI\MyLogUI.lua
 UI\MyLogTimeline.lua
 UI\MyLogDetail.lua
 UI\MeterWindow.lua
+UI\MeterPanels.lua
 UI\MeterDetail.lua
-UI\ThreatWindow.lua
 UI\SwingTimerHUD.lua
 UI\BlessingsUI.lua
 UI\BlessingsBar.lua

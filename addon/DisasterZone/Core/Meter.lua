@@ -1,7 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return end -- DisasterZone: damage meter recorder.
 -- Counts what the client's combat log sees for everyone in my group, fight by fight: damage done, healing (with
--- overhealing and shields), damage taken, deaths (with a recap), interrupts, dispels and active time. The window is
--- UI/MeterWindow.lua, the breakdown and death recap UI/MeterDetail.lua. Off until the player turns it on (Settings >
+-- overhealing and shields), damage taken, deaths (with a recap), interrupts, dispels and active time. The panels are
+-- UI/MeterPanels.lua, the breakdown and death recap UI/MeterDetail.lua. Off until the player turns it on (Settings >
 -- Meters, meters.dmg). Nothing is ever sent or posted: each client counts its own combat log.
 --
 -- Counting (Details' rules, so the numbers match what raiders are used to; checked in game 2026-10-10):

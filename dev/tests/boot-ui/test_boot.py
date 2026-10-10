@@ -8,6 +8,8 @@ from _common import case, run_all, toc_version, solo, no_errors, World, Client, 
 
 EXPECTED_SETTINGS = {
     "mylog": {"enabled": False, "heroics": False, "keepWeeks": 12},
+    "meters": {"dmg": False, "thr": False, "show": "group", "ooc": "fade", "keep": 25, "split": "all", "warn": 85,
+               "sound": True, "flash": True, "tankView": "auto", "locked": True, "size": "normal"},
     "swing": {"enabled": True, "style": "bar", "locked": True, "idle": False, "scale": 1, "latencyMs": 0,
               "use": {"exo": False, "cons": False}, "consMana": 40, "sound": False,
               "mobType": "Demon"},
