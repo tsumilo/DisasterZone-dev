@@ -1200,17 +1200,17 @@ local function ResultBlock(parent, w)
     local f = CreateFrame("Frame", nil, parent)
     f:SetWidth(w)
     f.l = Text(f, 13, C.white)
-    f.l:SetPoint("TOPLEFT", 0, 0)
+    f.l:SetPoint("TOPLEFT", 0, -3)            -- (room above for the "Your vote" pill: the scroll frame clips)
     f.mine = EUI():CreatePill(f, 16)
     f.c = Text(f, 12, C.white, true)
     f.c:SetJustifyH("RIGHT")
-    f.c:SetPoint("TOPRIGHT", 0, 0)
+    f.c:SetPoint("TOPRIGHT", 0, -3)
     f.pct = Text(f, 11, { 0.66, 0.66, 0.68 }, true)
     f.pct:SetJustifyH("RIGHT")
     f.bar = CreateFrame("Frame", nil, f)
     f.bar:SetHeight(8)
-    f.bar:SetPoint("TOPLEFT", 0, -21)
-    f.bar:SetPoint("TOPRIGHT", 0, -21)
+    f.bar:SetPoint("TOPLEFT", 0, -24)
+    f.bar:SetPoint("TOPRIGHT", 0, -24)
     f.bar.track = Fill(f.bar, { 0.14, 0.14, 0.16, 1 })
     f.bar.fill = f.bar:CreateTexture(nil, "ARTWORK")
     f.bar.fill:SetPoint("TOPLEFT")
@@ -1222,7 +1222,7 @@ local function ResultBlock(parent, w)
         f.bar.fill:SetColorTexture(C.bar[1], C.bar[2], C.bar[3], 1)
     end
     f.names = Text(f, 10, C.dim)
-    f.names:SetPoint("TOPLEFT", 0, -36)
+    f.names:SetPoint("TOPLEFT", 0, -39)
     return f
 end
 
@@ -1448,9 +1448,9 @@ function V.Refresh(v)
             else
                 f.names:Hide()
             end
-            f:SetHeight(36 + h)
+            f:SetHeight(39 + h)
             f:Show()
-            y = y + 36 + h + 14
+            y = y + 39 + h + 14
         end
         if asked and open and p.ch and mine and p.k ~= "yn" then
             v.change:ClearAllPoints()
