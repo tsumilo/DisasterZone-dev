@@ -799,10 +799,11 @@ end
 -- What a paladin's assignment for class ci looks like now: { total, have, missing = { member }, left (lowest
 -- seconds), single = n players on exceptions }. Each member is checked for the blessing that paladin owes them
 -- (their single blessing, else the class's Greater).
-function Blessings:ClassState(name, ci, byClass)
+-- (greater: check that blessing instead of the assigned one, e.g. the bar's own pick when solo)
+function Blessings:ClassState(name, ci, byClass, greater)
     byClass = byClass or self:ByClass()
     local st = { total = 0, have = 0, missing = {}, left = nil, single = 0 }
-    local greater = self:GetAssign(name, ci)
+    greater = greater or self:GetAssign(name, ci)
     for _, m in ipairs(byClass[ci] or {}) do
         local bi = self:GetSingle(name, ci, m.name)
         if bi then st.single = st.single + 1 end

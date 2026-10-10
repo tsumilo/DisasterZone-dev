@@ -113,6 +113,7 @@ function Bar:Wanted()
     local mode = B().Setting("bar", "group")
     if mode == "off" then return false end
     if mode == "raid" and not IsInRaid() then return false end
+    if mode == "always" and not B():InGroup() then return B():Me() ~= nil end   -- (solo: my own class)
     if not B():InGroup() then return false end
     local me = B():Me()
     if not me then return false end
@@ -410,18 +411,36 @@ local function GreaterTarget(members, greaterName, bi)
 end
 
 -- My rows: { ci, bi, members, state, unit, greaterName }, in the planner's class order.
+-- Solo (bar set to "Always"), my own class gets a blessing even when none is assigned: the one my spec wants
+-- (Holy Wisdom, Retribution Might, Protection Kings or Sanctuary), else the first I know.
+local SOLO_PICK = { Holy = { 1, 3, 2 }, Retribution = { 2, 3, 1 }, Protection = { 3, 6, 2, 1 } }
+function Bar:SoloPick()
+    local Bl = B()
+    local me = Bl:Me()
+    for _, bi in ipairs(SOLO_PICK[Bl:SpecOf(me)] or { 3, 2, 1 }) do
+        if Bl:Can(me, bi) then return bi end
+    end
+    for bi = 1, Bl.D.GREATER_MAX do
+        if Bl:Can(me, bi) then return bi end
+    end
+    return nil
+end
+
 function Bar:MyRows()
     local Bl = B()
     local me = Bl:Me()
     local out = {}
     if not me then return out end
     local byClass = Bl:ByClass()
+    local solo = not Bl:InGroup()
+    local _, myClass = UnitClass("player")
     for _, cls in ipairs(Bl.D.DISPLAY) do
         local ci = Bl.CLASS_INDEX[cls]
         local bi = Bl:GetAssign(me, ci)
         local singles = Bl:GetSingles(me)[ci]
+        if solo and not bi and not (singles and next(singles)) and cls == myClass then bi = self:SoloPick() end
         if (bi or (singles and next(singles))) and #byClass[ci] > 0 then
-            local st = Bl:ClassState(me, ci, byClass)
+            local st = Bl:ClassState(me, ci, byClass, bi)
             local gname = bi and Bl:BlessingName(bi, true)
             local t = bi and GreaterTarget(byClass[ci], gname, bi)
             out[#out + 1] = { ci = ci, cls = cls, bi = bi, members = byClass[ci], state = st, unit = t and t.unit,
@@ -920,7 +939,7 @@ if ns.ClassKit then ns.ClassKit:Extend("bless", {
     settings = function(S, sec)
     S:DropdownSetting(sec, "Buff bar", "Your blessings per class: click to cast, hover for the players.",
         "bless.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
-            { value = "off", text = "Off" } })
+            { value = "always", text = "Always (solo too)" }, { value = "off", text = "Off" } })
     S:DropdownSetting(sec, "Bar layout", "A rail of class rings, or a strip of tiles over your action bars.",
         "bless.layout", "vertical", Bar.LAYOUTS)
     local mins = {}

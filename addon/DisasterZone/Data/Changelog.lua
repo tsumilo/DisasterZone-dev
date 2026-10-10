@@ -122,6 +122,7 @@ ns.CHANGELOG = {
               "Rings and lines drain as blessings run out; what to do next glows and says when.",
               "Click a class for its Greater Blessing; hover it for its players, scroll one for a single.",
               "Pick the look in the planner's More menu or Settings > Class tools.",
+              "Set it to Always to keep it solo too: bless yourself with the one your spec wants.",
               "Key binding \"Bless next\" casts whatever is due. /dz bless opens the planner.",
           } },
           { heading = "Class tools", lines = {

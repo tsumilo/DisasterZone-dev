@@ -245,6 +245,19 @@ assert vic.eval("return ns.Blessings.pals.Caelith ~= nil") is True, "the real ra
 gina.eval("ns.Blessings:OnGroupLeft()")
 assert gina.eval("local n = 0; for _ in pairs(ns.Blessings.pals) do n = n + 1 end; return n") == 1
 
+# solo with the bar set to "Always": my own class, with the blessing my spec wants (Holy: Wisdom)
+lone = Client(w, "Lonely", class_file="PALADIN", guild_rank=3, talents=(41, 20, 0))
+lone.load_addon()
+w.tick(1)
+lone.eval("local ids = ...; for _, id in ipairs(ids) do __MOCK.known_spells[id] = true end; ns.Blessings:ScanSelf()",
+          KNOWN["Gina"])
+assert lone.eval("return DisasterZoneBlessBar == nil or not DisasterZoneBlessBar:IsShown()") is True, "not solo by default"
+lone.eval("ns.DB:SetSetting('bless.bar', 'always'); ns.BlessingsBar:Update()")
+w.tick(0.5)
+assert lone.eval("return DisasterZoneBlessBar:IsShown()") is True
+rows = lone.eval_py("local t = {}; for _, r in ipairs(ns.BlessingsBar:MyRows()) do t[#t + 1] = { r.cls, r.bi, r.unit } end; return t")
+assert len(rows) == 1 and txt(rows[0][0]) == "PALADIN" and rows[0][1] == 1 and txt(rows[0][2]) == "player", rows
+
 w.assert_no_errors()
 print(w.report())
 print("ok")
