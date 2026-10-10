@@ -30,7 +30,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 --   seg = { id, kind = "boss" | "trash" | "all", name, enc, kill, pct (boss health % at a wipe), at (server time),
 --           zone, iid, itype (instance type), dur (s), live (being recorded), cut (a /reload ended it),
 --           actors = { [guid] = actor }, foes = { [name] = damage }, deaths = { death, ... } }
---   actor = { n (name), c (class file), s (spec label), d, h, oh, t, k, dp, act (s),
+--   actor = { n (name), c (class file), s (spec label), d, h, oh, t, k, dp, act (s), (a stat's nc: it cannot crit)
 --             sp = { [key] = { n, c, a, ca, g, ga, mx, m = { [missType] = n } } } damage by ability (key: spell id,
 --                  0 = melee, "p<id>" a pet's), pn = { [key] = pet name }, hs = { [key] = { n, c, a, oh, mx, sh } }
 --                  healing by spell (sh: a shield), ts = { [key] = { n, a, src } } taken by ability, tg = { [name] =
@@ -443,7 +443,7 @@ local function Each(fn, ...)
     if all then fn(all, ...) end
 end
 
-local function DoneTo(seg, g, isPet, petName, key, amount, overkill, absorbed, crit, glancing, dstName, now)
+local function DoneTo(seg, g, isPet, petName, key, amount, overkill, absorbed, crit, glancing, dstName, now, noCrit)
     local a = Actor(seg, g)
     amount = amount or 0
     local useful = amount + (absorbed or 0)
@@ -460,6 +460,7 @@ local function DoneTo(seg, g, isPet, petName, key, amount, overkill, absorbed, c
     s.a = s.a + useful
     if crit then s.c = s.c + 1; s.ca = (s.ca or 0) + useful end
     if glancing then s.g = (s.g or 0) + 1; s.ga = (s.ga or 0) + useful end
+    if noCrit then s.nc = true end
     if useful > (s.mx or 0) then s.mx = useful end
     if dstName then
         a.tg[dstName] = (a.tg[dstName] or 0) + useful
@@ -487,7 +488,7 @@ local function MissedBy(seg, g, isPet, petName, key, missType, now)
     Touch(a, now)
 end
 
-local function HealBy(seg, g, isPet, petName, key, eff, over, crit, now, shield)
+local function HealBy(seg, g, isPet, petName, key, eff, over, crit, now, shield, noCrit)
     local a = Actor(seg, g)
     a.h = a.h + eff
     a.oh = a.oh + (over or 0)
@@ -502,6 +503,7 @@ local function HealBy(seg, g, isPet, petName, key, eff, over, crit, now, shield)
     s.a = s.a + eff
     s.oh = s.oh + (over or 0)
     if shield then s.sh = true end
+    if noCrit then s.nc = true end
     if crit then s.c = s.c + 1 end
     if eff > (s.mx or 0) then s.mx = eff end
     if not seg.noTl then
@@ -581,6 +583,20 @@ local SPELL_MISSED = {
     SPELL_MISSED = true, SPELL_PERIODIC_MISSED = true, RANGE_MISSED = true, DAMAGE_SHIELD_MISSED = true,
 }
 local HEAL = { SPELL_HEAL = true, SPELL_PERIODIC_HEAL = true }
+-- Hits that cannot crit in TBC (left out of the crit chance, marked "can't crit"): periodic ticks (DoTs, HoTs, Ignite,
+-- Deep Wounds, channels), damage shields (Retribution Aura, Thorns) and Consecration.
+local NO_CRIT_SUB = { SPELL_PERIODIC_DAMAGE = true, DAMAGE_SHIELD = true, SPELL_PERIODIC_HEAL = true }
+local noCritNames
+local function CannotCrit(sub, spellName)
+    if NO_CRIT_SUB[sub] then return true end
+    if not noCritNames then
+        noCritNames = {}
+        local n = GetSpellInfo and GetSpellInfo(26573)              -- Consecration
+        if n then noCritNames[n] = true end
+    end
+    return spellName ~= nil and noCritNames[spellName] == true
+end
+Meter.CannotCrit = CannotCrit
 local CAST = { SPELL_CAST_SUCCESS = true, SPELL_AURA_APPLIED = true, SPELL_CAST_START = true }
 
 local function IsHostileHit(sub)
@@ -623,7 +639,7 @@ function Meter:OnCombatLog()
         end
     elseif SPELL_DAMAGE[sub] then
         if g and dstOut then
-            Each(DoneTo, g, isPet, petName, a12 or 0, a15, a16, a20, a21, a22, dstName, now)
+            Each(DoneTo, g, isPet, petName, a12 or 0, a15, a16, a20, a21, a22, dstName, now, CannotCrit(sub, a13))
             if not isPet then NoteSpell(g, a13) end
         end
         if toMember then
@@ -652,7 +668,7 @@ function Meter:OnCombatLog()
         local eff = amount - over
         if eff < 0 then eff = 0 end
         if g then
-            Each(HealBy, g, isPet, petName, a12 or 0, eff, over, a18, now)
+            Each(HealBy, g, isPet, petName, a12 or 0, eff, over, a18, now, nil, CannotCrit(sub, a13))
             if not isPet then NoteSpell(g, a13) end
         end
         if toMember and eff > 0 then Push(dstGUID, now, "h", a12 or 0, eff, srcName, over > 0 and over or nil) end

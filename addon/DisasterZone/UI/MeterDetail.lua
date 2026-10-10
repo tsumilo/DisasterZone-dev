@@ -452,7 +452,8 @@ local function Abilities(a, mode, dur)
             local unit = (k == 0 or k == "p0") and "swings" or "hits"
             local crit = s.n > 0 and s.c / s.n * 100 or 0
             list[#list + 1] = { key = k, a = s.a, s = s,
-                sub = strformat("%s · %s", Count(s.n + miss, unit), s.c > 0 and strformat("%.1f%% crit", crit) or "no crits") }
+                sub = strformat("%s · %s", Count(s.n + miss, unit),
+                    s.nc and "can't crit" or (s.c > 0 and strformat("%.1f%% crit", crit) or "no crits")) }
         end
     end
     tsort(list, function(x, y)
@@ -733,11 +734,11 @@ function MD:Draw()
     if mode == "healing" then
         local tot = a.h + a.oh
         local crits, n = 0, 0
-        for _, s in pairs(a.hs or {}) do if not s.sh then crits = crits + (s.c or 0); n = n + s.n end end
+        for _, s in pairs(a.hs or {}) do if not s.sh and not s.nc then crits = crits + (s.c or 0); n = n + s.n end end
         SetCard(c[1], specIcon, K.Fmt(a.h), nil, "Healing done")
         SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / act), idx and Ordinal(idx) or nil, "Healing per second")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_Renew", strformat("%d%%", tot > 0 and floor(a.oh / tot * 100 + 0.5) or 0), nil, "Overhealing")
-        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit, all heals")
+        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance, heals")
     elseif mode == "taken" then
         local big = 0
         for _, s in pairs(a.ts or {}) do big = max(big, s.a / max(1, s.n)) end
@@ -747,11 +748,12 @@ function MD:Draw()
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", K.Int(big), nil, "Average hit, worst ability")
     else
         local crits, n = 0, 0
-        for _, s in pairs(a.sp or {}) do crits = crits + (s.c or 0); n = n + (s.n or 0) end
+        -- (only hits that can crit: periodic ticks, damage shields and Consecration would drag it down)
+        for _, s in pairs(a.sp or {}) do if not s.nc then crits = crits + (s.c or 0); n = n + (s.n or 0) end end
         SetCard(c[1], specIcon, K.Fmt(a.d), nil, "Damage done")
         SetCard(c[2], "Interface\\Icons\\Spell_Nature_BloodLust", K.Int(a.d / act), idx and Ordinal(idx) or nil, "DPS in the raid")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_BlessingOfStrength", K.Pct(min(100, (a.act or 0) / dur * 100)), nil, "Active time")
-        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit, all hits")
+        SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance")
     end
 
     -- tabs: Targets for damage only, Over time not for Whole raid

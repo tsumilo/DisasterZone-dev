@@ -84,6 +84,12 @@ local HEAL = {
     ["PRIEST:Shadow"] = { { 15290, 1, 70, 0 } },
     ["DRUID:Feral (Bear)"] = { { 34299, 1, 180, 0 } },
 }
+-- abilities that cannot crit (ticks, Consecration): Ignite, Corruption, Unstable Affliction, Siphon Life, Rip, Rupture,
+-- Shadow Word: Pain, Mind Flay, Consecration, Lifebloom, Rejuvenation, Renew, Earth Shield, Vampiric Embrace, Leader of
+-- the Pack
+local NO_CRIT = { [12654] = true, [27216] = true, [30405] = true, [30911] = true, [27008] = true, [26867] = true,
+    [25368] = true, [25387] = true, [27173] = true, [33778] = true, [26982] = true, [25222] = true, [379] = true,
+    [15290] = true, [34299] = true }
 local MELEE_SPECS = { Protection = true, ["Feral (Bear)"] = true, Fury = true, Arms = true, Retribution = true,
     Enhancement = true, Combat = true, ["Feral (Cat)"] = true }
 
@@ -139,6 +145,7 @@ local function DmgSpells(spec, total)
         local s = { n = n, c = c, a = a, ca = min(ca, a), mx = floor(avg * critMult * 1.32) }
         if g > 0 then s.g, s.ga = g, min(ga, a - s.ca) end
         if miss > 0 then s.m = { MISS = miss } end
+        if NO_CRIT[key] then s.nc = true end
         if (key == 0 or key == "p0") and n > 20 then s.m = s.m or {}; s.m.DODGE = 1 end
         sp[key] = s
         if pet then pn = pn or {}; pn[key] = pet end
@@ -153,7 +160,7 @@ local function HealSpells(key, total, ohPct)
         local a = floor(total * share + 0.5)
         local n = max(1, floor(a / avg + 0.5))
         hs[id] = { n = n, c = floor(n * crit / 100 + 0.5), a = a, oh = floor(a * ohPct / (100 - ohPct) + 0.5),
-                   mx = floor(avg * 1.9) }
+                   mx = floor(avg * 1.9), nc = NO_CRIT[id] or nil }
     end
     return hs
 end

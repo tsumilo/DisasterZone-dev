@@ -750,5 +750,27 @@ def an_older_layout_low_on_the_screen_switches_to_its_bottom_edge_in_place():
     assert s[0] is None and s[1] == 260 - 24 and s[2] == 2, s
 
 
+@case
+def ticks_that_cannot_crit_stay_out_of_the_crit_chance():
+    """Asked 2026-10-10: Ignite skewed the breakdown's crit card (a fire mage at ~33% showed 18%). Periodic ticks,
+    damage shields and Consecration cannot crit in TBC: marked, and left out of the crit chance."""
+    r = Raid()
+    r.combat(True)
+    for i in range(4):
+        r.hit("Gina", 2000, spell=27070, crit=(i % 2 == 0))                          # Fireball: 2 of 4 crit
+    for _ in range(10):
+        r.hit("Gina", 300, spell=12654, sub="SPELL_PERIODIC_DAMAGE")                 # Ignite ticks
+    r.ev("DAMAGE_SHIELD", r.me, "Gina", ME_FLAGS, r.boss, "Void Reaver", BOSS_FLAGS,
+         27150, "Retribution Aura", 2, 80, -1, 2, None, None, None, False, False, False)
+    r.tick(1)
+    a = r.actor("Gina")
+    assert a["sp"][12654].get("nc") is True and a["sp"][27150].get("nc") is True and not a["sp"][27070].get("nc")
+    r.cl.eval("ns.MeterDetail:Open('cur', UnitGUID('player'), 'damage')")
+    assert r.cl.eval("return _G.DisasterZoneMeterDetail.cards[4].num:GetText()") == "50.0%"
+    subs = r.cl.eval_py("local o = {}; for _, x in ipairs(_G.DisasterZoneMeterDetail.rows) do if x:IsShown() then "
+                        "o[#o + 1] = x.sub:GetText() end end; return o")
+    assert any(s.endswith("can't crit") for s in subs), subs
+
+
 if __name__ == "__main__":
     run_all()
