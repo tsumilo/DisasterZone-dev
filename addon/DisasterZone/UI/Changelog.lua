@@ -2,7 +2,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Changelog.lua", ...) then retur
 -- The Changelog tab (everyone): the releases of Data/Changelog.lua in a list on the left (newest first, with
 -- "Your version", "In testing" and "New" badges) and the notes of the selected release on the right, grouped by
 -- section. Opening the tab marks the installed release as read (settings.changelogSeen), which clears the
--- "What's new" chip on Home.
+-- "What's new" chip on Home. A line that came from the guild's feedback ({ text, fb, by, mt, k }, Core/Feedback.lua)
+-- names who asked for it (more on hover) and glows when it is mine; a release with such lines ends with "Thanks to".
 local addonName, ns = ...
 
 local ChangelogUI = ns:NewModule("ChangelogUI")
@@ -117,8 +118,92 @@ local function NewLine(parent)
     line.fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     line.fs:SetJustifyH("LEFT")
     line.fs:SetWordWrap(true)
+    -- a line that came from the guild's feedback: who asked for it on hover; mine glows
+    line.bg = parent:CreateTexture(nil, "BACKGROUND")
+    line.bg:SetColorTexture(1, 0.82, 0, 0.08)
+    line.bar = parent:CreateTexture(nil, "ARTWORK")
+    line.bar:SetWidth(2)
+    line.bar:SetColorTexture(1, 0.82, 0, 0.9)
+    line.hover = CreateFrame("Frame", nil, parent)
+    line.hover:SetScript("OnEnter", function(self)
+        local data = self.data
+        if type(data) ~= "table" then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        local F = ns.Feedback
+        local names = {}
+        for _, n in ipairs(data.by or {}) do names[#names + 1] = n end
+        GameTooltip:AddLine(#names > 0 and ("Asked for by " .. table.concat(names, ", ")) or "From the guild's feedback",
+            1, 0.82, 0, true)
+        if (tonumber(data.mt) or 0) > 0 then
+            GameTooltip:AddLine(data.mt == 1 and "and 1 more said me too" or ("and " .. data.mt .. " more said me too"),
+                0.8, 0.8, 0.8)
+        end
+        for _, no in ipairs(data.fb or {}) do
+            local item = F and F.GetByNumber and F:GetByNumber(no)
+            if item then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("#" .. no .. "  " .. ns.Util.ShortName(item.author), 0.7, 0.7, 0.7)
+                GameTooltip:AddLine(item.text, 1, 1, 1, true)
+            end
+        end
+        if F and F.LineIsMine and F:LineIsMine(data) then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("You asked for this. Thank you!", 0.45, 0.85, 0.45)
+        end
+        GameTooltip:Show()
+    end)
+    line.hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return line
 end
+
+-- The text of a changelog line (a string, or { text, fb = { numbers }, by = { names }, mt = me-toos, k = kind }), the
+-- credit after it, and whether one of my characters is credited.
+local function LineParts(entry)
+    if type(entry) ~= "table" then return tostring(entry or ""), nil, false end
+    local text = tostring(entry[1] or "")
+    local F = ns.Feedback
+    local credit
+    local names = type(entry.by) == "table" and entry.by or {}
+    if #names > 0 or (tonumber(entry.mt) or 0) > 0 then
+        local info = F and F.KIND_INFO and F.KIND_INFO[entry.k or "idea"]
+        local icon = info and ("|T%d:12:12:0:-1:64:64:5:59:5:59|t "):format(info.icon) or ""
+        local who = #names > 0 and table.concat(names, ", ") or "the guild"
+        if (tonumber(entry.mt) or 0) > 0 then who = who .. " +" .. entry.mt end
+        credit = icon .. "|cffa8a8a8" .. who .. "|r"
+    end
+    local mine = F and F.LineIsMine and F:LineIsMine(entry) or false
+    return text, credit, mine
+end
+ChangelogUI.LineParts = LineParts
+
+-- "Thanks to A, B and C for the bugs and ideas in this release." from an entry's credits, or nil.
+local function ThanksLine(entry)
+    local seen, names = {}, {}
+    for _, section in ipairs(entry.sections or {}) do
+        for _, l in ipairs(section.lines or {}) do
+            if type(l) == "table" and type(l.by) == "table" then
+                for _, n in ipairs(l.by) do
+                    if type(n) == "string" and not seen[n] then seen[n] = true; names[#names + 1] = n end
+                end
+            end
+        end
+    end
+    if #names == 0 then return nil end
+    table.sort(names)
+    local shown = {}
+    for i = 1, math.min(#names, 8) do shown[i] = names[i] end
+    local rest = #names - #shown
+    local list
+    if rest > 0 then
+        list = table.concat(shown, ", ") .. " and " .. rest .. (rest == 1 and " other" or " others")
+    elseif #shown == 1 then
+        list = shown[1]
+    else
+        list = table.concat(shown, ", ", 1, #shown - 1) .. " and " .. shown[#shown]
+    end
+    return "Thanks to " .. list .. " for the bugs and ideas in this release."
+end
+ChangelogUI.ThanksLine = ThanksLine
 
 local function RenderDetail()
     local d = panel.detail
@@ -130,7 +215,8 @@ local function RenderDetail()
     local width = max(200, floor((d.scroll:GetWidth() or 520) - 8))
     child:SetWidth(width)
     for _, h in ipairs(d.headings) do h:Hide() end
-    for _, l in ipairs(d.lines) do l.dot:Hide(); l.fs:Hide() end
+    for _, l in ipairs(d.lines) do l.dot:Hide(); l.fs:Hide(); l.bg:Hide(); l.bar:Hide(); l.hover:Hide() end
+    if d.thanks then d.thanks:Hide(); d.thanksRule:Hide() end
     if not entry then
         d.title:SetText("")
         d.sub:SetText("")
@@ -157,9 +243,12 @@ local function RenderDetail()
         h:SetText(UI():SafeText(section.heading or ""))
         h:Show()
         y = y - 20
-        for _, text in ipairs(section.lines or {}) do
+        for _, raw in ipairs(section.lines or {}) do
             li = li + 1
             local line = Pool(child, d.lines, li, NewLine)
+            local text, credit, mine = LineParts(raw)
+            if credit then text = text .. "   " .. credit end
+            if mine then text = text .. "   |cffffd100you asked for this|r" end
             line.fs:SetWidth(width - 16)
             line.fs:ClearAllPoints()
             line.fs:SetPoint("TOPLEFT", child, "TOPLEFT", 14, y)
@@ -169,8 +258,49 @@ local function RenderDetail()
             line.fs:Show()
             line.dot:Show()
             local hgt = max(14, tonumber(line.fs:GetStringHeight()) or 14)
+            if type(raw) == "table" then
+                line.hover.data = raw
+                line.hover:ClearAllPoints()
+                line.hover:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y + 2)
+                line.hover:SetSize(width, hgt + 4)
+                line.hover:Show()
+            end
+            if mine then
+                line.bg:ClearAllPoints()
+                line.bg:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y + 2)
+                line.bg:SetSize(width, hgt + 4)
+                line.bar:ClearAllPoints()
+                line.bar:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y + 2)
+                line.bar:SetHeight(hgt + 4)
+                line.bg:Show()
+                line.bar:Show()
+            end
             y = y - hgt - 4
         end
+    end
+    local thanks = ThanksLine(entry)
+    if thanks then
+        if not d.thanks then
+            d.thanks = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            d.thanks:SetJustifyH("LEFT")
+            d.thanks:SetWordWrap(true)
+            d.thanks:SetTextColor(0.85, 0.75, 0.45)
+            d.thanksRule = child:CreateTexture(nil, "ARTWORK")
+            d.thanksRule:SetColorTexture(1, 1, 1, 0.12)
+            d.thanksRule:SetHeight(1)
+        end
+        y = y - 10
+        d.thanksRule:ClearAllPoints()
+        d.thanksRule:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
+        d.thanksRule:SetWidth(width)
+        d.thanksRule:Show()
+        y = y - 9
+        d.thanks:SetWidth(width)
+        d.thanks:ClearAllPoints()
+        d.thanks:SetPoint("TOPLEFT", child, "TOPLEFT", 0, y)
+        d.thanks:SetText(thanks)
+        d.thanks:Show()
+        y = y - max(12, tonumber(d.thanks:GetStringHeight()) or 12) - 4
     end
     child:SetHeight(max(10, -y + 8))
     if d.scroll.SetVerticalScroll then d.scroll:SetVerticalScroll(0) end

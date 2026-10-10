@@ -88,7 +88,8 @@ def selecting_a_release_shows_its_sections():
     for section in first["sections"]:
         assert section["heading"] in t, (section["heading"], t)
         for line in section["lines"]:
-            assert line in t, (line, t)
+            text = line[1] if isinstance(line, dict) else line
+            assert any(x == text or x.startswith(text + "   ") for x in t), (text, t)
     no_errors(w)
 
 
@@ -150,6 +151,10 @@ def changelog_data_is_well_formed():
         for s in e["sections"]:
             assert s["heading"] and s["lines"], (e["version"], s)
             for line in s["lines"]:
+                if isinstance(line, dict):      # a line from the guild's feedback: { text, fb, by, mt, k }
+                    assert isinstance(line.get("fb"), dict) or isinstance(line.get("fb"), list), line
+                    assert line.get("k") in ("bug", "idea", "change", "love"), line
+                    line = line[1]
                 assert 0 < len(line) <= 90, (e["version"], line)
     assert data[-1]["version"] == "0.1.0"
     assert c.eval("local v = ...; for _, e in ipairs(ns.CHANGELOG) do if e.version == v then return true end end",

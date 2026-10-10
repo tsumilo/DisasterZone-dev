@@ -34,6 +34,7 @@ local GREY = { 0.62, 0.62, 0.62 }
 
 local SECTIONS = {
     { key = "alerts", label = "Alerts" },
+    { key = "notify", label = "Notifications" },
     { key = "rules", label = "Group loot rules" },
     { key = "rolls", label = "Rolls" },
     { key = "strategy", label = "Strategy boards" },
@@ -1114,6 +1115,7 @@ function SettingsUI:CreatePanel(parent)
     self.sections = {}
     for _, def in ipairs(SECTIONS) do self:NewSection(def) end
     self:BuildAlerts(self.sections.alerts)
+    self:BuildNotify(self.sections.notify)
     self:BuildGroupRules(self.sections.rules)
     self:BuildRolls(self.sections.rolls)
     self:BuildStrategy(self.sections.strategy)
@@ -1227,6 +1229,73 @@ function SettingsUI:BuildAlerts(sec)
             { value = "RAID", text = "Raid" },
             { value = "RAID_WARNING", text = "Raid Warning" },
         }, "Raid Warning needs raid lead or assist; without them announcements go to Raid.")
+    self:EndSection(sec)
+end
+
+-- Notifications (Core/Notify.lua, UI/Notify.lua): the bell keeps everything; these decide what interrupts. One row per
+-- kind the sections registered, three switches each (pop-up, sound, chat line) under the columns' names.
+local NOTIFY_COLS = { { what = "popup", label = "Pop-up" }, { what = "sound", label = "Sound" }, { what = "chat", label = "Chat" } }
+local NOTIFY_COL_W = 58
+
+function SettingsUI:BuildNotify(sec)
+    local N = ns.Notify
+    sec.y = sec.y - 4
+    local function quiet(field)
+        return function()
+            local s = N and N.Settings()
+            if not s then return false end
+            if field == "quietCombat" then return s.quietCombat ~= false end
+            return s[field] and true or false
+        end, function(a, b)
+            local s = N and N.Settings()
+            if s then s[field] = Bool(a, b) end
+            ns:Fire("SETTINGS_CHANGED", "notify")
+        end
+    end
+    local g, st = quiet("quietCombat")
+    self:Switch(sec, "Quiet in combat", "Pop-ups wait until the fight is over (boss fights too).", g, st)
+    g, st = quiet("quietOpen")
+    self:Switch(sec, "Quiet while the window is open", "Only the bell counts up while DisasterZone is open.", g, st)
+    self:Switch(sec, "Pause pop-ups for an hour", "Nothing pops up or plays a sound; the bell still collects.",
+        function()
+            local s = N and N.Settings()
+            return s and (tonumber(s.dndUntil) or 0) > time() or false
+        end,
+        function(a, b)
+            local s = N and N.Settings()
+            if s then s.dndUntil = Bool(a, b) and (time() + 3600) or nil end
+        end)
+    local kinds = N and N:GetKinds() or {}
+    if #kinds == 0 then
+        self:EndSection(sec)
+        return
+    end
+    -- the columns' names over the switches
+    local head = CreateFrame("Frame", nil, sec)
+    head:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
+    head:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
+    head:SetHeight(18)
+    for i, col in ipairs(NOTIFY_COLS) do
+        local fs = NewFS(head, "GameFontHighlightSmall", nil, false)
+        fs:SetTextColor(GREY[1], GREY[2], GREY[3])
+        fs:SetJustifyH("CENTER")
+        fs:SetWidth(NOTIFY_COL_W)
+        fs:SetPoint("RIGHT", head, "RIGHT", -(#NOTIFY_COLS - i) * NOTIFY_COL_W + (NOTIFY_COL_W - SWITCH_W) / 2 - 2, 0)
+        fs:SetText(col.label)
+    end
+    sec.y = sec.y - 28
+    for _, def in ipairs(kinds) do
+        local row = self:Row(sec, def.label, def.desc)
+        for i, col in ipairs(NOTIFY_COLS) do
+            local kind, what = def.kind, col.what
+            local sw = ns.UI:CreateSwitch(row, function() return N:Wants(kind, what) end,
+                function(a, b) N:SetWants(kind, what, Bool(a, b)) end)
+            sw:SetPoint("RIGHT", row, "RIGHT", -(#NOTIFY_COLS - i) * NOTIFY_COL_W, 0)
+            sw.label = row.title
+            self.refreshers[#self.refreshers + 1] = sw
+        end
+        PlaceText(row, #NOTIFY_COLS * NOTIFY_COL_W - (NOTIFY_COL_W - SWITCH_W))
+    end
     self:EndSection(sec)
 end
 

@@ -485,21 +485,6 @@ local function bisDrops(raid)
              tip = tip, onClick = function() openMyBiS(phase) end }
 end
 
--- The highest DisasterZone version seen on a guild member in the last 14 days, when it is newer than mine.
-local function newerVersion()
-    local Sync = ns.Sync
-    if not (Sync and Sync.GetVersions) then return nil end
-    local best
-    local cutoff = Now() - 14 * DAY
-    for _, e in ipairs(Sync:GetVersions()) do
-        if type(e.v) == "string" and (e.lastSeen or 0) >= cutoff and ns.Util.CompareVersions(e.v, ns.version) > 0
-            and (not best or ns.Util.CompareVersions(e.v, best) > 0) then
-            best = e.v
-        end
-    end
-    return best
-end
-
 -- The spec of a sign-up -> tank / healer / melee / ranged (casters count as ranged), nil without a spec.
 local function roleOf(s)
     local specs = s and s.c and ns.SPECS and ns.SPECS[s.c]
@@ -737,24 +722,31 @@ local function fillChip(c, a)
     paintChip(c)
 end
 
-local function roleIcon(role)
-    local l, r, t, b = UI():RoleCoords(role)
-    return { tex = UI().ROLE_TEX, coords = { l, r, t, b } }
+-- The actions that need me now: { text, kind = warn | info | bad | plain, icon, tip = { lines }, onClick }.
+-- The notification center's items that show on Home (Core/Notify.lua, kinds with home = true): what waits for me
+-- first, then the news (what's new, a newer version). A kind's chip(it) gives the chip's look; the text is its short.
+local function feedChips(out)
+    local N = ns.Notify
+    if not (N and N.IsLoaded and N:IsLoaded()) then return end
+    for _, it in ipairs(N:List({ home = true })) do
+        local def = N:GetKind(it.kind) or {}
+        local c = {}
+        if def.chip then
+            local ok, r = pcall(def.chip, it)
+            if ok and type(r) == "table" then c = r end
+        end
+        local tip = { it.title or "" }
+        if it.text and it.text ~= "" then tip[#tip + 1] = it.text end
+        local id = it.id
+        out[#out + 1] = { text = c.text or it.short or it.title or "", kind = c.kind or "plain", icon = c.icon,
+                          tip = c.tip or tip,
+                          onClick = def.open and function() N:Open(id) end or nil }
+    end
 end
 
--- The actions that need me now: { text, kind = warn | info | bad | plain, icon, tip = { lines }, onClick }.
 local function collectActions(ctx)
     local out = {}
-    local rp = RP()
-    for _, v in ipairs(rp and rp.GetUnanswered and rp:GetUnanswered(7) or {}) do
-        out[#out + 1] = {
-            text = "Sign up: " .. date("%a", v.t) .. " " .. shortRaidName(v), kind = "warn",
-            icon = { tex = "Interface\\RaidFrame\\ReadyCheck-Ready", desat = true },
-            tip = { rp:GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. whenText(v.t),
-                    "You're invited and haven't answered." },
-            onClick = function() openRaid(v.id) end,
-        }
-    end
+    feedChips(out)
     local s = ctx.bis
     local star = { tex = UI():Tex("star") }
     if s.filled == 0 then
@@ -766,48 +758,6 @@ local function collectActions(ctx)
         out[#out + 1] = { text = "Phase " .. ctx.phase .. ": " .. plural(empty, "empty slot"), kind = "info", icon = star,
                           tip = { "Fill or disable the empty slots of your Phase " .. ctx.phase .. " list" },
                           onClick = function() openMyBiS(ctx.phase) end }
-    end
-    local R = DR()
-    local mine = R and R:GetMine()
-    local asking = mine and R:GetRequests(mine.id) or {}
-    if #asking > 0 then
-        local first = asking[1]
-        local d = R:GetDungeon(mine.d)
-        local name = (d and d.name or tostring(mine.d)) .. (mine.h and " (Heroic)" or "")
-        local tip = { "Your run: " .. name }
-        for _, r in ipairs(asking) do tip[#tip + 1] = UI():ColoredName(r.key) .. grey(" wants to join") end
-        tip[#tip + 1] = grey("Accept or decline them on the Dungeons tab.")
-        out[#out + 1] = { text = #asking == 1 and (shortName(first.key) .. " wants to join your run")
-                                  or (#asking .. " want to join your run"),
-                          icon = first.r and roleIcon(first.r) or nil, tip = tip,
-                          onClick = function() openRun(mine.id) end }
-    end
-    if R and not mine and R:IsUp() then
-        for _, run in ipairs(R:GetRuns()) do
-            local role = R:IsNow(run) and R:FitsMe(run)
-            if role and not R:GetBlocker(run.d, run.h) and not R:GetAsked(run.id) then
-                local id = run.id
-                local d = R:GetDungeon(run.d)
-                local name = (d and d.name or tostring(run.d)) .. (run.h and " (H)" or "")
-                out[#out + 1] = { text = shortName(run.o) .. " needs a " .. (role == "dps" and "DPS" or role) .. ": " .. name,
-                                  kind = "info", icon = roleIcon(role),
-                                  tip = { name, "You're up for a run and this one needs you." },
-                                  onClick = function() openRun(id) end }
-                break
-            end
-        end
-    end
-    local newer = newerVersion()
-    if newer then
-        out[#out + 1] = { text = "Update DisasterZone (" .. newer .. ")", kind = "bad", icon = { tex = UI().ICON_WARN },
-                          tip = { "A guild member runs DisasterZone " .. newer, "You run " .. tostring(ns.version) } }
-    end
-    local unread = ns.ChangelogUI and ns.ChangelogUI.GetUnread and ns.ChangelogUI:GetUnread()
-    if unread then
-        out[#out + 1] = { text = "What's new in " .. unread.version, kind = "info",
-                          icon = { tex = UI().ICON_ATLAS, coords = UI():IconCoords(UI().ICON.notes) },
-                          tip = { "DisasterZone " .. unread.version .. ": " .. (unread.title or ""), "Open the Changelog" },
-                          onClick = function() ns.ChangelogUI:Open(unread.version) end }
     end
     local BiS = ns.BiS
     local locked, info = false, nil
@@ -2529,6 +2479,9 @@ end
 
 function Dashboard:GetPanel() return panel end
 
+-- A raid's short name as the chips write it ("Sign up: Thu Kara"), for the notification feed.
+function Dashboard:ShortRaidName(v) return shortRaidName(v) end
+
 function Dashboard:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("home", "Home", 0.5, function(parent) return Dashboard:CreatePanel(parent) end)
@@ -2537,7 +2490,7 @@ function Dashboard:OnInit()
         "RAIDPLAN_CHANGED", "MYLIST_CHANGED", "MYLIST_COMMITTED", "OWNED_UPDATED", "LEDGER_UPDATED", "LIST_UPDATED",
         "LISTS_RESET", "CONFIG_UPDATED", "PEERS_UPDATED", "SYNC_STATUS", "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED",
         "GROUP_UPDATED", "ITEMINFO_READY", "DEMO_TOGGLED", "ROSTER_UPDATED", "RAIDLOG_CHANGED", "CHANGELOG_READ",
-        "DUNGEON_RUNS_UPDATED", "EVENTS_UPDATED",
+        "DUNGEON_RUNS_UPDATED", "EVENTS_UPDATED", "NOTIFY_CHANGED",
     }) do
         ns:On(msg, function() Dashboard:RequestRefresh() end)
     end

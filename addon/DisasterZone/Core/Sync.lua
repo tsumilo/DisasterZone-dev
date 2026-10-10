@@ -434,6 +434,9 @@ function Sync:SendHello(force)
     -- 1.3.2: the hash of the guild's events (library, calendar, results, season; Core/Events.lua)
     local Events = ns.Events
     if Events and Events.GetDigestHash then msg.ed = Events:GetDigestHash() end
+    -- 1.3.4: the hash of the guild's polls (Core/Polls.lua)
+    local Polls = ns.Polls
+    if Polls and Polls.GetDigestHash then msg.od = Polls:GetDigestHash() end
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -759,6 +762,8 @@ local function OnHello(sender, msg, dist)
     if Strategy and Strategy.OnHelloDigest then Strategy:OnHelloDigest(sender, msg.sd) end
     local Events = ns.Events
     if Events and Events.OnHelloDigest then Events:OnHelloDigest(sender, msg.ed) end
+    local Polls = ns.Polls
+    if Polls and Polls.OnHelloDigest then Polls:OnHelloDigest(sender, msg.od) end
     local G = ns.Guild
     if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
     if G and G.OnAccountsSeen then G:OnAccountsSeen(sender, msg.av) end

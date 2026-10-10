@@ -255,6 +255,11 @@ local KNOWN_MESSAGES = {
     RAIDINVITE_CHANGED = true, RAIDLOG_CHANGED = true, RAIDPLAN_CHANGED = true, PARTY_INVITE_FAILED = true,
     STRATEGY_CHANGED = true, STRATEGY_DRAFTS_CHANGED = true, STRATEGY_LIVE = true,
     GUESTBOOK_CHANGED = true, LOOT_HELD = true, CHANGELOG_READ = true,
+    -- the guild's feedback (Core/Feedback.lua): (none) records changed; (error) DisasterZone hit a Lua error
+    FEEDBACK_UPDATED = true, FEEDBACK_ERROR = true,
+    -- the notification center (Core/Notify.lua): (none) the feed or its counts changed; (id) something new arrived
+    NOTIFY_CHANGED = true, NOTIFY_NEW = true,
+    POLLS_UPDATED = true, POLL_ANSWERED = true, POLL_ARRIVED = true, POLL_NUDGED = true,
     -- Group Finder + dungeon run invites
     GROUP_FINDER_UPDATED = true, GROUP_FINDER_PROMPT = true, GROUP_FINDER_LEFTOVER = true,
     DUNGEON_RUN_INVITE = true, DUNGEON_RUN_INVITE_GONE = true,

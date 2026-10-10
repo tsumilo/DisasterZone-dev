@@ -22,10 +22,10 @@ local GOLD = { 0.84, 0.69, 0.36 }
 local CREAM = { 0.96, 0.9, 0.72 }
 local BODY = { 0.10, 0.12, 0.16 }
 
--- Each page's atlas icon (UI.ICON_ATLAS); art pack 4 icons have an older stand-in.
+-- Each page's atlas icon (UI.ICON_ATLAS); art pack 4 icons have an older stand-in ({ icon, stand-in, pack = 4 }).
 local PAGE_ICON = {
     home = 30, raids = { 45, 26 }, council = 26, mybis = { 51, 15 }, atlas = 31, members = { 46, 19 },
-    events = { 50, 37 }, games = 21, dungeons = 36, changelog = 25, settings = 13,
+    events = { 50, 37 }, games = 21, dungeons = 36, changelog = 25, settings = 13, polls = { 55, 25, 6 },
 }
 
 local holder, halo, track, label, plus
@@ -82,7 +82,7 @@ end
 
 local function IconIndex(key)
     local i = PAGE_ICON[key] or UI().ICON.more
-    if type(i) == "table" then i = ns:HasAssets(4) and i[1] or i[2] end
+    if type(i) == "table" then i = ns:HasAssets(i[3] or 4) and i[1] or i[2] end
     return i
 end
 

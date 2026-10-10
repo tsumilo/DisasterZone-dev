@@ -156,7 +156,8 @@ def close_all(cl):
                               'DisasterZoneRaidLeader', 'DisasterZoneShareWindow', 'DisasterZoneImportExport',
                               'DisasterZoneRunToast', 'DisasterZoneStrategyShare',
                               'DisasterZoneEventSchedule', 'DisasterZoneEventSubmit', 'DisasterZoneBadgeDesigner',
-                              'DisasterZoneEventSeason', 'DisasterZoneEventConfirm', 'DisasterZoneSimBuffs' }) do
+                              'DisasterZoneEventSeason', 'DisasterZoneEventConfirm', 'DisasterZoneSimBuffs', 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar',
+                              'DisasterZonePollToast' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -396,6 +397,89 @@ def members_seed(w, c):
         w.add_offline_member(name, cls, 3, level=70 if i % 3 else 68)
     team(c["Grumpykat"], "T1: Cat Aggro", ["Saltykim", "Moonwhisper", "Gina"])
     w.tick(200)
+
+
+
+# Guild > Polls (UI/PollsTab.lua): Grumpykat (officer) asks the guild a Pick days poll, a yes / no, a raid pick Gina
+# answered, a one-answer she hasn't and a closed one; Gina (GM) asks the Main team about loot. Everyone answers some.
+POLLS = {}
+
+
+def polls_seed(w, c):
+    if POLLS:
+        return
+    g, k = c["Gina"], c["Grumpykat"]
+    now_days = k.eval("""
+        local t = GetServerTime()
+        local out = {}
+        for _, off in ipairs({ 3, 5, 6, 8, 9 }) do
+          out[#out + 1] = date('%Y-%m-%d', t + off * 86400) .. (off >= 8 and ' 19:30' or ' 20:00')
+        end
+        return table.concat(out, ',')""").split(",")
+
+    def ask(cl, q, kind, o, a, cl_in, rv="vote", ch=True, mx=0):
+        return cl.eval("""
+            local q, kind, o, a, cl, rv, ch, mx = ...
+            return (ns.Polls:Create({ q = q, k = kind, o = o, a = a, cl = GetServerTime() + cl, rv = rv, ch = ch,
+                                      mx = mx }))""", q, kind, o, a, cl_in, rv, ch, mx)
+    POLLS["days"] = ask(k, "Which nights can you raid SSC next week?", "days", now_days, [["g"]], 4 * 86400, "live")
+    POLLS["yn"] = ask(k, "Should we start Thursdays 30 minutes earlier?", "yn", None, [["g"]], 86400 + 3600)
+    POLLS["raid"] = ask(k, "Which raid should we do next Wednesday?", "one",
+                        ["Gruul's Lair", "Magtheridon's Lair", "Karazhan", "A night off"], [["g"]], 2 * 86400)
+    POLLS["night"] = ask(k, "Which night should we move SSC to?", "one",
+                         ["Wednesday", "Thursday", "Sunday", "Keep it on Monday"],
+                         [["t", IDS["team"], False, "Main team"], ["r", "leader"]], 3 * 86400)
+    POLLS["bank"] = ask(k, "Which consumables should the guild bank stock?", "many",
+                        ["Flasks of Supreme Power", "Elixirs of Major Agility", "Super Mana Potions",
+                         "Fel Mana Potions"], [["g"]], 5 * 86400, "close", True, 2)
+    POLLS["closed"] = ask(k, "Bring back the Sunday alt raid?", "yn", None, [["g"]], 3600)
+    POLLS["loot"] = ask(g, "Loot: allow off-spec rolls on tier tokens?", "one",
+                        ["Yes, after main spec", "No, main spec only", "The council decides"],
+                        [["t", IDS["team"], False, "Main team"], ["r", "officer"]], 3 * 86400)
+    w.tick(3)
+    votes = {
+        "Grumpykat": {"days": [1, 1, 1, 2, 1], "raid": [1], "night": [2], "loot": [1], "closed": [1], "yn": [1]},
+        "Victhar": {"days": [1, 0, 1, 1, 1], "raid": [2], "night": [2], "loot": [1], "closed": [2], "yn": [1]},
+        "Shadowmelder": {"days": [1, 0, 1, 2, 1], "raid": [1], "night": [1], "loot": [2], "closed": [1]},
+        "Vaenyria": {"days": [1, 1, 1, 1, 1], "raid": [1], "night": [2], "loot": [1], "yn": [2]},
+        "Thunderhoofx": {"days": [1, 0, 1, 0, 1], "raid": [3], "night": [1], "yn": [1]},
+        "Moonwhisper": {"days": [1, 2, 1, 1, 0], "raid": [1], "night": [3], "loot": [3]},
+        "Lightbringer": {"days": [0, 1, 1, 2, 1], "night": [2]},
+    }
+    for name, vs in votes.items():
+        for key, choice in vs.items():
+            if key in POLLS and POLLS[key]:
+                c[name].eval("ns.Polls:Vote(...)", POLLS[key], choice)
+    g.eval("ns.Polls:Vote(...)", POLLS["raid"], [1])
+    g.eval("ns.Polls:Vote(...)", POLLS["loot"], [1])
+    g.eval("ns.Polls:Vote(...)", POLLS["bank"], [1, 3])
+    w.tick(3)
+    k.eval("ns.Polls:Close(...)", POLLS["closed"])
+    w.tick(3)
+
+
+def polls_view(lua=None, viewer="Gina"):
+    def fn(w, c):
+        polls_seed(w, c)
+        cl = c[viewer]
+        demo_off(w, c)
+        close_all(cl)
+        cl.eval("ns.PollsUI:SetDraft(nil); ns.PollsUI:ShowList('open')")
+        tab(cl, "polls")
+        if lua:
+            w.tick(0.3)
+            cl.eval(lua, *[POLLS.get(x) for x in ("days", "yn", "raid", "night", "bank", "closed", "loot")])
+        return cl
+    return fn
+
+
+def polls_toast(w, c):
+    polls_seed(w, c)
+    g = c["Gina"]
+    demo_off(w, c)
+    close_all(g)
+    g.eval("ns.MainFrame:Close(); ns.PollsUI:ShowToast(ns.Polls:GetPoll(...))", POLLS["yn"])
+    return g
 
 
 def members_view(lua=None):
@@ -1175,6 +1259,25 @@ STATES = [
     ("Dungeons - listing left behind", demo(DR_ME + "ns.MainFrame:Close(); "
                                             "ns.DungeonsUI:OnFinderLeftover({ id = 'x', d = 'Botanica', h = true })")),
     ("Dungeons - empty", opened("dungeons")),
+    # Guild > Polls (UI/PollsTab.lua, polls_seed): the list, closed polls, answering one, my poll's results, a Pick
+    # days poll, the New poll sheet (who votes open; Pick days), the pop-up, a member who isn't asked anything
+    ("Polls", polls_view()),
+    ("Polls - closed", polls_view("ns.PollsUI:ShowList('closed')")),
+    ("Polls - answering", polls_view("local d, yn, raid, night = ...; ns.PollsUI:OpenPoll(night); ns.PollsUI:Pick(2)")),
+    ("Polls - results (asker)", polls_view("local _, _, _, _, _, _, loot = ...; ns.PollsUI:OpenPoll(loot)")),
+    ("Polls - answered, results wait", polls_view("local _, _, _, _, bank = ...; ns.PollsUI:OpenPoll(bank)")),
+    ("Polls - pick days", polls_view("local d = ...; ns.PollsUI:OpenPoll(d); "
+                                     "ns.PollsUI:SetDays({ 1, 0, 1, 2, 1 })")),
+    ("Polls - new poll, who votes", polls_view(
+        "ns.PollsUI:OpenNew(); ns.PollsUI:SetDraft({ q = 'Which consumables should the guild bank stock?', k = 'many', "
+        "o = { 'Flasks of Supreme Power', 'Elixirs of Major Agility', 'Super Mana Potions', 'Fel Mana Potions' }, "
+        "a = { { 't', ns.RaidPlan:GetTeams()[1].id, false, 'Main team' }, { 'r', 'leader' } } }); "
+        "ns.PollsUI:OpenAudience()")),
+    ("Polls - new poll, pick days", polls_view(
+        "ns.PollsUI:OpenNew(); local t = GetServerTime(); local function d(o) return { d = date('%Y-%m-%d', t + o * 86400), "
+        "t = '20:00' } end; ns.PollsUI:SetDraft({ q = 'Which nights can you raid SSC next week?', k = 'days', rv = 'live', "
+        "days = { d(3), d(5), d(6), d(8) }, a = { { 'r', 'leader' }, { 'r', 'officer' }, { 'p', 'Lightbringer-' .. ns.Util.GetPlayerRealm() } } })")),
+    ("Polls - pop-up", polls_toast),
     # the Events tab (UI/EventsTab.lua) on demo mode's events: the live cup on the banner, the week and my season; a
     # planned event's page; last week's results; the library with a card hovered; the season; the review of my own
     # event; the sheets other modules open (host it, send it for review, the badge designer)
@@ -2117,3 +2220,111 @@ def _home_after_qa(w, c):
 
 
 STATES[_HOME_LAST] = (STATES[_HOME_LAST][0], _home_after_qa)
+
+
+# ---------------------------------------------------------------- Feedback (Core/Feedback.lua, UI/Feedback*.lua)
+FB_CLOSE = ("for _, n in ipairs({ 'DisasterZoneFeedbackSheet', 'DisasterZoneFeedbackToast', 'DisasterZoneFeedbackPointer', 'DisasterZoneFeedbackPointerBar', 'DisasterZoneFeedbackPointer' }) "
+            "do local f = _G[n]; if f then f:Hide() end end ")
+FB_PICK = ("local want = ...; for _, v in ipairs(ns.Feedback:List()) do if v.text:find(want, 1, true) then "
+           "ns.FeedbackUI:Select(v.id) end end ")
+
+
+def fb_view(lua=None, demo_on=True, tab="all"):
+    def fn(w, c):
+        g = c["Gina"]
+        close_all(g)
+        g.eval(FB_CLOSE)
+        on = g.eval("return ns.Demo:IsEnabled()")
+        if demo_on and not on:
+            g.slash("/dz demo on")
+            w.tick(1)
+        elif not demo_on and on:
+            g.slash("/dz demo off")
+            w.tick(1)
+        g.eval("ns.FeedbackUI:Open(...)", tab)
+        w.tick(0.3)
+        if lua:
+            g.eval(lua)
+            w.tick(0.3)
+        return g
+    return fn
+
+
+FB_SHEET = ("ns.Feedback.NoteError('Interface/AddOns/DisasterZone/UI/RollFrame.lua:412: attempt to index field "
+            "session (a nil value)', 'stack'); ns.FeedbackSheet:Open({ kind = 'bug', about = 'Roll popup › Need', "
+            "text = 'The roll popup closed when I pulled aggro in phase 2, so I could not roll on the belt' }); "
+            "ns.FeedbackSheet:LayoutSimilar(); ns.MainFrame:Close(); local t = _G.DisasterZoneFeedbackToast; "
+            "if t then t:Hide() end")
+_FB_AT = next(i for i, st in enumerate(STATES) if st[0] == "Home - calendar busy")
+STATES[_FB_AT:_FB_AT] = [
+    ("Feedback - everything (demo)", fb_view(FB_PICK.replace("...", "'roll popup closed'"))),
+    ("Feedback - inbox (demo)", fb_view(tab="inbox")),
+    ("Feedback - yours (demo)", fb_view(tab="mine")),
+    ("Feedback - empty", fb_view(demo_on=False)),
+    ("Feedback - form", fb_view(FB_SHEET)),
+    ("Feedback - sent", fb_view(FB_SHEET + "; ns.FeedbackSheet:Send()")),
+    ("Feedback - answered pop-up", fb_view("ns.FeedbackSheet:Toast({ icon = ns.Feedback.KIND_INFO.change.icon, "
+                                           "color = ns.Feedback.KIND_INFO.change.color, title = 'Caelith answered your "
+                                           "feedback', text = '\"Settings > Swing timer has a Size option.\"', button = "
+                                           "'See it' })")),
+    ("Changelog - feedback credits", fb_view("local e; for _, x in ipairs(ns.CHANGELOG) do if x.version == ns.version "
+                                             "then e = x end end; table.insert(e.sections[1].lines, 1, { 'The roll popup "
+                                             "waits until you leave combat.', fb = { 12 }, by = { 'Gina', 'Grimtusk' }, "
+                                             "mt = 3, k = 'bug' }); table.insert(e.sections[1].lines, 2, { 'Boss tiles "
+                                             "show who still needs a token.', fb = { 14 }, by = { 'Isolde' }, mt = 6, k = "
+                                             "'idea' }); ns.ChangelogUI:Open(ns.version)")),
+]
+
+
+# ---------------------------------------------------------------- Notifications (Core/Notify.lua, UI/Notify.lua)
+# The mockup's feed (art/casc/notify_mockup) posted into the real kinds: what needs Gina and the week's news.
+NOTIFY_SEED = """
+local N, now = ns.Notify, time()
+N:SetWants('polls', 'popup', false); N:SetWants('raidAnswer', 'popup', false); N:SetWants('raidRequests', 'popup', false)
+N:Post('polls', { key = 'audit-p1', title = 'Should we start Thursdays 30 minutes earlier?',
+  text = 'Yes or no · closes tomorrow', from = 'Victhar-Thunderstrike', time = now - 240, needsYou = true })
+N:Post('raidAnswer', { key = 'audit-r1', title = 'Kara full clear + Gruul if time',
+  text = [[Mon 21 Sep · 19:45 · you haven't answered]], time = now - 3600, needsYou = true })
+N:Post('raidRequests', { key = 'audit-q1', n = 3, title = '|cffffffffPugsyhealer|r and 2 more ask to join',
+  text = 'Karazhan · Thu 24 Sep 20:00 · you run this raid', time = now - 720, needsYou = true })
+N:Post('lootWon', { key = 'audit-l1', title = 'You won |cffa335ee[Bladed Shoulderpads of the Merciless]|r',
+  text = 'Awarded by a roll', time = now - 60 })
+N:Post('chessTurn', { key = 'audit-c1', title = 'Saltykim moved: your turn', text = 'Karazhan Chess',
+  from = 'Shadowmelder-Thunderstrike', time = now - 7200, needsYou = false })
+N:Post('runNeedsYou', { key = 'audit-d1', title = 'Frostweaver needs a tank: Shattered Halls (H)',
+  text = [[You're up for a run and this one needs you.]], time = now - 10800 })
+"""
+
+
+def notify_view(lua=None, key="home", window=True):
+    def fn(w, c):
+        g = c["Gina"]
+        demo_off(w, c)
+        close_all(g)
+        g.eval("if ns.NotifyUI and ns.NotifyUI:GetTray() then ns.NotifyUI:CloseTray() end; "
+               "local t = _G.DisasterZoneNotifyToast; if t then t:Hide() end")
+        if not g.eval("return __notifySeeded"):
+            g.eval(NOTIFY_SEED + "; __notifySeeded = true")
+            w.tick(0.5)
+        if window:
+            tab(g, key)
+            w.tick(0.3)
+        if lua:
+            g.eval(lua)
+            w.tick(0.3)
+        return g
+    return fn
+
+
+STATES += [
+    ("Notify - bell", notify_view()),
+    ("Notify - tray", notify_view("ns.NotifyUI:OpenTray('needs')")),
+    ("Notify - tray everything", notify_view("ns.NotifyUI:OpenTray('all')")),
+    ("Notify - page", notify_view("ns.NotifyUI:OpenPage('needs')")),
+    ("Notify - page everything", notify_view("ns.NotifyUI:OpenPage('all')")),
+    ("Notify - pop-up", notify_view("ns.Notify:SetWants('polls', 'popup', true); ns.Notify:Post('polls', { key = "
+                                    "'audit-p2', title = 'Which nights can you raid SSC next week?', text = 'Pick days "
+                                    "· closes Fri 20:00', from = 'Gina-Thunderstrike', needsYou = true })",
+                                    window=False)),
+    ("Settings - Notifications", notify_view("ns.SettingsUI:SelectSection('notify')", key="settings")),
+]

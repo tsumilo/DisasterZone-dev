@@ -513,13 +513,31 @@ def ic_bracket(d, k):
     d.line(_pts(k, [(36, 32), (58, 32)]), fill=255, width=w)
 
 
+# (the polls, art pack 6: 55 a poll, three bars of different lengths)
+def ic_poll(d, k):
+    # a poll (Guild > Polls): three rounded bars, long, longest, short
+    for y, x1 in ((10, 40), (27, 56), (44, 30)):
+        d.rounded_rectangle(_pts(k, [(8, y), (x1, y + 11)]), radius=_w(k, 5), fill=255)
+
+
+# (notifications, art pack 6: 56 a bell)
+def ic_bell(d, k):
+    # the notification bell (the nav strip, UI/Notify.lua): a dome over a flared skirt on a rim, the clapper under it
+    d.ellipse(_pts(k, [(17, 9), (47, 39)]), fill=255)
+    d.polygon(_pts(k, [(17, 24), (47, 24), (51, 44), (13, 44)]), fill=255)
+    d.rounded_rectangle(_pts(k, [(7, 42), (57, 49)]), radius=_w(k, 3), fill=255)
+    d.ellipse(_pts(k, [(28, 3), (36, 11)]), fill=255)
+    d.ellipse(_pts(k, [(25, 51), (39, 60)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
               ic_notes, ic_crown, ic_turn_left, ic_turn_right, ic_top, ic_home, ic_minimap, ic_import,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
               ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar,
-              ic_team, ic_play, ic_pause, ic_skip, ic_flag, ic_trophy, ic_lock, ic_infinity, ic_bracket]
+              ic_team, ic_play, ic_pause, ic_skip, ic_flag, ic_trophy, ic_lock, ic_infinity, ic_bracket,
+              ic_poll, ic_bell]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

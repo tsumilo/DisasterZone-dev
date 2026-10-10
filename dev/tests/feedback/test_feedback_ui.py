@@ -1,0 +1,242 @@
+"""Feedback screens (UI/Feedback.lua, UI/FeedbackSheet.lua, the changelog's credits): the page, demo mode, the form,
+Point at it (a mode that never blocks DisasterZone), the editable About, the staff buttons in the Inbox only, the
+pop-ups.
+
+Run: luaenv\\Scripts\\python.exe tests\\feedback\\test_feedback_ui.py [-k name]
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "boot-ui"))
+
+from _common import case, run_all, strip_codes  # noqa: E402
+from test_feedback import standard, settle, submit, item, K, F  # noqa: E402
+
+SHEET = "ns.FeedbackSheet"
+
+
+def open_page(cl, w, tab=None):
+    cl.eval("ns.FeedbackUI:Open(...)", tab)
+    w.tick(0.3)
+
+
+def rows(cl):
+    return cl.eval_py("""local out = {}
+      for _, d in ipairs(ns.FeedbackUI:GetPanel().list:GetData()) do
+        out[#out + 1] = d.header and ('# ' .. d.header) or d.item.text
+      end
+      return out""") or []
+
+
+@case
+def demo_mode_fills_the_page_and_saves_and_sends_nothing():
+    w, c = standard()
+    settle(w)
+    g = c["Gina"]
+    start = len(w.addon_log)
+    g.slash("/dz demo on")
+    w.tick(1)
+    open_page(g, w)
+    r = rows(g)
+    assert r[0] == "# Open" and "# Done lately" in r and len(r) >= 10, r
+    assert g.eval("return ns.FeedbackUI:GetState().sel ~= nil")
+    # I am staff in demo mode, and one item is mine with an officer's answer: news on Yours
+    assert g.eval("return ns.Feedback:AmIStaff()") is True
+    assert g.eval("return ns.FeedbackUI:NewsCount()") == 1
+    # acting in demo mode: in memory only, nothing on the wire, nothing saved
+    gid = g.eval("for _, v in ipairs(ns.Feedback:List()) do if v.text:find('Sunwell') then return v.id end end")
+    g.eval("%s:Vote(..., true)" % F, gid)
+    id_ = submit(g, "idea", "A demo idea that must never leave this client.")
+    assert "#" in id_, id_
+    w.tick(5)
+    assert [e for e in w.addon_log[start:] if e["prefix"] == "CDLb" and e["sender"] == K("Gina")] == []
+    assert g.eval_py("local s = ns.db.feedback; local n = 0 for _, b in pairs(s or {}) do for _ in pairs(b.r or {}) do "
+                     "n = n + 1 end end return n") == 0
+    assert g.eval("return ns.Feedback:Get(...).no ~= nil", id_), "demo: Tsumil has it after a moment"
+    # off again: the real (empty) feedback, the demo's gone
+    g.slash("/dz demo off")
+    w.tick(1)
+    assert rows(g) == []
+    w.assert_no_errors()
+
+
+@case
+def real_feedback_keeps_arriving_while_demo_mode_is_on():
+    w, c = standard()
+    settle(w)
+    c["Tsumil"].slash("/dz demo on")
+    w.tick(1)
+    id_ = submit(c["Alfa"], "bug", "Something real while Tsumil looks at the demo.")
+    w.tick(5)
+    assert c["Tsumil"].eval_py("return ns.Feedback:Get(...)", id_) is None, "the demo store is what Tsumil sees"
+    c["Tsumil"].slash("/dz demo off")
+    w.tick(3)
+    assert item(c["Tsumil"], id_)["no"] == 1, "it arrived and was numbered all the same"
+    assert item(c["Alfa"], id_)["no"] == 1
+    w.assert_no_errors()
+
+
+@case
+def a_tile_opens_the_form_with_that_kind_and_send_shows_the_tracker():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    open_page(a, w)
+    a.eval("ns.FeedbackUI:GetPanel().banner.tiles.idea:Click()")
+    w.tick(0.2)
+    assert a.eval("return %s:IsOpen()" % SHEET) is True
+    assert a.eval_py("return %s:GetDraft().kind" % SHEET) == "idea"
+    a.eval("%s:GetFrame().edit:SetText('Let me pin pages to the minimap.')" % SHEET)
+    a.eval("%s:Send()" % SHEET)
+    w.tick(0.2)
+    f = "%s:GetFrame()" % SHEET
+    assert a.eval("return %s.done:IsShown()" % f) is True
+    assert a.eval("return %s.done.steps.nodes[2].label:GetText()" % f) == "Tsumil has it"
+    a.eval("%s.done.see:Click()" % f)
+    w.tick(0.3)
+    assert a.eval("return ns.MainFrame:GetSelectedTab()") == "feedback"
+    assert a.eval("return ns.FeedbackUI:GetState().tab") == "mine"
+    w.assert_no_errors()
+
+
+@case
+def point_at_it_lets_you_navigate_and_a_right_click_picks():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    open_page(a, w)
+    a.eval("%s:Open({ kind = 'bug' })" % SHEET)
+    a.eval("%s:StartPointing()" % SHEET)
+    w.tick(0.2)
+    # the form steps aside, nothing covers DisasterZone: navigation works as usual
+    assert a.eval("return %s:IsOpen()" % SHEET) is False
+    assert a.eval("return %s:IsPointing()" % SHEET) is True
+    assert a.eval("return _G.DisasterZoneFeedbackPointer:IsMouseEnabled()") is False
+    assert a.eval("return _G.DisasterZoneFeedbackPointerBar:IsShown()") is True
+    a.eval("ns.MainFrame:Open('changelog')")
+    w.tick(0.2)
+    assert a.eval("return ns.MainFrame:GetSelectedTab()") == "changelog"
+    # the right-click on a frame of the page picks it: the form comes back with About filled
+    a.eval("%s.StopPointing(ns.ChangelogUI and ns.MainFrame:GetPanel('changelog').list.frame)" % SHEET)
+    w.tick(0.2)
+    assert a.eval("return %s:IsOpen()" % SHEET) is True
+    about = a.eval_py("return %s:GetDraft().about" % SHEET)
+    assert about and about.startswith("Changelog"), about
+    assert a.eval("return %s:GetFrame().about:GetText()" % SHEET) == about
+    # Cancel keeps what was there
+    a.eval("%s:StartPointing()" % SHEET)
+    a.eval("_G.DisasterZoneFeedbackPointerBar.cancel:Click()")
+    w.tick(0.1)
+    assert a.eval_py("return %s:GetDraft().about" % SHEET) == about
+    assert a.eval("return %s:IsOpen()" % SHEET) is True
+    w.assert_no_errors()
+
+
+@case
+def about_can_be_typed():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    a.eval("%s:Open({ kind = 'change', about = 'Raids' })" % SHEET)
+    a.eval("""local eb = %s:GetFrame().about
+      eb:SetText('Raids › Sign-ups')
+      local fn = eb:GetScript('OnTextChanged'); fn(eb, true)""" % SHEET)
+    assert a.eval_py("return %s:GetDraft().about" % SHEET) == "Raids › Sign-ups"
+    a.eval("%s:GetFrame().edit:SetText('Show alts in one row.')" % SHEET)
+    a.eval("%s:Send()" % SHEET)
+    w.tick(3)
+    got = c["Tsumil"].eval_py("for _, v in ipairs(ns.Feedback:List()) do if v.text:find('alts') then return v.about end end")
+    assert got == "Raids › Sign-ups", got
+    w.assert_no_errors()
+
+
+@case
+def staff_buttons_only_in_the_inbox_and_the_author_answers_everywhere():
+    w, c = standard()
+    settle(w)
+    id_ = submit(c["Alfa"], "idea", "Show token needs on boss tiles.")
+    w.tick(3)
+    o = c["Olaf"]
+    open_page(o, w, "inbox")
+    o.eval("ns.FeedbackUI:Select(...)", id_)
+    d = "ns.FeedbackUI:GetPanel().detail"
+    assert o.eval("return %s.plan:IsShown() and %s.reply:IsShown()" % (d, d)) is True
+    open_page(o, w, "all")
+    o.eval("ns.FeedbackUI:Select(...)", id_)
+    assert o.eval("return %s.plan:IsShown()" % d) is False
+    assert o.eval("return %s.reply:IsShown()" % d) is False
+    assert o.eval("return %s.status:IsShown()" % d) is True
+    a = c["Alfa"]
+    open_page(a, w, "all")
+    a.eval("ns.FeedbackUI:Select(...)", id_)
+    assert a.eval("return %s.reply:IsShown() and not %s.status:IsShown()" % (d, d)) is True
+    # a raider's own Inbox tab never shows
+    assert a.eval("return ns.FeedbackUI:GetPanel().tabs.inbox:IsShown()") is False
+    w.assert_no_errors()
+
+
+@case
+def news_goes_through_the_notification_center():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    # a Lua error: a feedbackError item with Tell Tsumil
+    a.eval("ns.Feedback.NoteError('Interface/AddOns/DisasterZone/UI/X.lua:1: boom', '')")
+    w.tick(0.5)
+    errs = a.eval_py("local o = {} for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackError' then "
+                     "o[#o + 1] = it.title end end return o")
+    assert errs == ["DisasterZone hit an error"], errs
+    a.eval("local it; for _, x in ipairs(ns.Notify:List()) do if x.kind == 'feedbackError' then it = x end end "
+           "ns.Notify:RunAction(it.id, 1)")
+    w.tick(0.2)
+    assert a.eval_py("return %s:GetDraft().kind" % SHEET) == "bug"
+    a.eval("%s:GetFrame():Hide()" % SHEET)
+    # an officer answers Alfa's item: news until Alfa looks at it on the page
+    id_ = submit(a, "idea", "Sort the loot log by item level.")
+    w.tick(3)
+    c["Olaf"].eval("%s:SetState(..., 'exists', { reply = 'Click the Item column.' })" % F, id_)
+    w.tick(3)
+    a.eval("ns.Notify:Refresh('feedbackAnswer')")
+    w.tick(0.2)
+    ans = a.eval_py("local o = {} for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackAnswer' then "
+                    "o[#o + 1] = { it.key, it.title } end end return o")
+    assert ans == [[id_, "Olaf answered your feedback"]], ans
+    a.eval("ns.FeedbackUI:Open('mine', ...)", id_)
+    w.tick(0.3)
+    a.eval("ns.Notify:Refresh('feedbackAnswer')")
+    w.tick(0.2)
+    assert a.eval("for _, it in ipairs(ns.Notify:List()) do if it.kind == 'feedbackAnswer' then return true end end "
+                  "return false") is False
+    w.assert_no_errors()
+
+
+@case
+def the_changelog_names_who_asked_and_marks_mine():
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    a.eval("""local e
+      for _, x in ipairs(ns.CHANGELOG) do if x.version == ns.version then e = x end end
+      table.insert(e.sections[1].lines, 1, { 'The roll popup waits until you leave combat.', fb = { 12 },
+        by = { 'Alfa', 'Bert' }, mt = 3, k = 'bug' })""")
+    a.eval("ns.ChangelogUI:Open(ns.version)")
+    w.tick(0.3)
+    texts = [strip_codes(t) for t in a.eval_py("""local out = {}
+      local function walk(f)
+        for _, r in ipairs({ f:GetRegions() }) do
+          if r.GetText and r:IsVisible() and r:GetText() then out[#out + 1] = r:GetText() end
+        end
+        for _, ch in ipairs({ f:GetChildren() }) do if ch:IsVisible() then walk(ch) end end
+      end
+      walk(ns.MainFrame:GetPanel('changelog'))
+      return out""")]
+    line = next(t for t in texts if t.startswith("The roll popup waits"))
+    assert "Alfa, Bert +3" in line and "you asked for this" in line, line
+    assert any(t.startswith("Thanks to Alfa and Bert") for t in texts), texts
+    w.assert_no_errors()
+
+
+if __name__ == "__main__":
+    run_all()

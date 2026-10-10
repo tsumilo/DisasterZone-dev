@@ -30,14 +30,16 @@ end
 -- "map" (CDLq) carries where guildmates are (Core/GuildMap.lua): small, and only while somebody looks.
 -- "craft" (CDLx) carries Disastercraft's world: each player's state and the creatures they run, about once a second.
 -- "craftev" (CDLy) carries Disastercraft's combat: casts, hits, heals, auras, deaths, at most about once a second.
+-- "fb" (CDLb) carries the guild's feedback to the developer (Core/Feedback.lua): items, me-toos, replies, statuses.
 local PREFIX = { ctrl = "CDLc", data = "CDLd", alert = "CDLa", game = "CDLg", member = "CDLm",
     live = "CDLl", walk = "CDLw", run = "CDLr", event = "CDLe", eventmsg = "CDLf", map = "CDLq", craft = "CDLx",
-    craftev = "CDLy" }
+    craftev = "CDLy", fb = "CDLb" }
 local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK", member = "BULK", live = "NORMAL",
     walk = "NORMAL", run = "NORMAL", event = "NORMAL", eventmsg = "ALERT", map = "NORMAL", craft = "NORMAL",
-    craftev = "NORMAL" }
+    craftev = "NORMAL", fb = "BULK" }
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
-    CDLw = "walk", CDLr = "run", CDLe = "event", CDLf = "eventmsg", CDLq = "map", CDLx = "craft", CDLy = "craftev" }
+    CDLw = "walk", CDLr = "run", CDLe = "event", CDLf = "eventmsg", CDLq = "map", CDLx = "craft", CDLy = "craftev",
+    CDLb = "fb" }
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
                                  -- strategy boards, see AllowLarge)

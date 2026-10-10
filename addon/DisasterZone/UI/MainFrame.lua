@@ -9,9 +9,11 @@ local FRAME_NAME = "DisasterZoneMainFrame"
 local NAV_H = 28                          -- the navigation strip; every page keeps an 800x580 window's space
 local WIDTH, HEIGHT = 800, 580 + NAV_H
 
--- Pages shown as an icon at the right of the strip (in the pages' order: Changelog, Settings), and pages
+-- Pages shown as an icon at the right of the strip (in the pages' order: Feedback, Changelog, Settings), and pages
 -- without a tab (none at the moment).
 local NAV_ICONS = {
+    feedback  = { icon = 42, tip = { "Feedback", "Tell Tsumil about a bug, an idea or a change; see what the guild "
+                  .. "asked for and where it stands. Ctrl+right-click anything in DisasterZone to start from it." } },
     changelog = { icon = 25, tip = { "What's new", "The changes of every DisasterZone release." } },
     settings  = { icon = 13, tip = { "Settings" } },
 }
@@ -21,7 +23,8 @@ local NAV_BADGES = {
                tip = { "Events (beta)", "New and still being tested: pages and pieces may change from one version "
                    .. "to the next, and a few things may not work yet." } },
 }
-local NAV_HIDDEN = {}
+-- Pages without a place in the strip: Notifications opens from the bell's tray (UI/Notify.lua).
+local NAV_HIDDEN = { notify = true }
 
 -- Pages grouped under one text tab that opens a menu of them (the strip stays the same for every rank). A tab
 -- sits at its own order among the pages'; resting the mouse on it opens the menu, clicking it shows the page used
@@ -29,7 +32,7 @@ local NAV_HIDDEN = {}
 local NAV_GROUPS = {
     { key = "grp:raids", label = "Raids", order = 0.8,  pages = { "raids", "council", "mylog" } },
     { key = "grp:gear",  label = "Gear",  order = 1,    pages = { "mybis", "atlas" } },
-    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "games" } },
+    { key = "grp:guild", label = "Guild", order = 3.58, pages = { "members", "map", "events", "polls", "games" } },
 }
 -- A line under each page in a group's menu (its tooltip).
 local NAV_PAGE_TIPS = {
@@ -41,6 +44,7 @@ local NAV_PAGE_TIPS = {
     members = "The guild's members, professions and recipes.",
     map     = "Where guildmates are right now.",
     events  = "Guild events and cups (beta).",
+    polls   = "Questions from the officers: answer and see results.",
     games   = "Bingo and the other games to play with the guild.",
 }
 local GROUP_OF = {}       -- page key -> group
@@ -56,7 +60,7 @@ local MOVED = {
 
 local tabDefs = {}      -- key -> { key, label, order, createFn, isAvailableFn, panel }
 local tabList = {}      -- defs sorted by order
-local frame, tabs, status, shareBtn
+local frame, tabs, status, shareBtn, bellBtn
 local currentKey
 
 ---------------------------------------------------------------------------
@@ -127,7 +131,13 @@ local function GroupMenu(g, owner)
                     function() SelectPage(key) end)
                 item:SetSubtext(NAV_PAGE_TIPS[key] or "")
                 local badge = NAV_BADGES[key]
-                if badge then item:SetBadge(badge.text, badge.color) end
+                -- (what waits for me on the page: its count, the notification center's)
+                local n = ns.Notify and ns.Notify:IsLoaded() and ns.Notify:Count({ page = key }) or 0
+                if n > 0 then
+                    item:SetBadge(n > 99 and "99+" or tostring(n), { 1, 0.78, 0.4 })
+                elseif badge then
+                    item:SetBadge(badge.text, badge.color)
+                end
             end
         end
     end)
@@ -249,6 +259,12 @@ local function BuildTabs()
         -- (the mark on the icons' rhythm: its centre 32 left of the share icon's, like the icon tabs')
         status:SetPoint("RIGHT", right, shareBtn and "LEFT" or "RIGHT", shareBtn and -10 or 0, 0)
     end
+    -- the notification bell, left of the sync mark (UI/Notify.lua); its counts on the tabs
+    if bellBtn then
+        bellBtn:ClearAllPoints()
+        bellBtn:SetPoint("RIGHT", status or right, "LEFT", status and -6 or -4, 0)
+    end
+    if ns.NotifyUI and ns.NotifyUI.OnTabsBuilt then ns.NotifyUI:OnTabsBuilt() end
 end
 
 function MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn)
@@ -628,6 +644,7 @@ local function EnsureFrame()
     if ns.Share and ns.Share.CreateNavButton then
         shareBtn = ns.Share:CreateNavButton(frame, function() return ns.Share:CurrentRef() end)
     end
+    if ns.NotifyUI and ns.NotifyUI.CreateBell then bellBtn = ns.NotifyUI:CreateBell(frame) end
 
     frame:HookScript("OnShow", function()
         if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_OPEN then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN) end
@@ -659,6 +676,13 @@ end
 
 -- The Share icon of the navigation strip (it shares what the window shows, e.g. the raid whose page is open).
 function MainFrame:GetShareButton() return shareBtn end
+
+-- The strip's tabs by key (a group's tab under its "grp:" key), and the pages a strip key stands for.
+function MainFrame:GetNavTabs() return tabs and tabs.byKey or {} end
+function MainFrame:GetNavPages(navKey)
+    local g = groupByKey[navKey]
+    return g and g.pages or { navKey }
+end
 
 function MainFrame:IsShown()
     return frame ~= nil and frame:IsShown()
@@ -769,6 +793,7 @@ local function LauncherTooltip(tt)
     if status and status ~= "" then
         tt:AddLine(ns.UI:SafeText(status), 1, 1, 1, true)
     end
+    if ns.NotifyUI and ns.NotifyUI.AddTooltipLines then ns.NotifyUI:AddTooltipLines(tt) end
     tt:AddLine(" ")
     tt:AddLine("Left-click: your pinned sections  ·  Right-click: open", 0.6, 0.6, 0.6)
     tt:AddLine("Shift-click: boss drops", 0.6, 0.6, 0.6)

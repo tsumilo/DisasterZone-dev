@@ -1085,6 +1085,8 @@ UI.ICON.calendar, UI.ICON.team = 45, 46
 -- (the events, art pack 4: 47 play, 48 pause, 49 skip ahead, 50 flag, 51 trophy, 52 lock, 53 infinity, 54 a bracket)
 UI.ICON.play, UI.ICON.pause, UI.ICON.skip, UI.ICON.flag = 47, 48, 49, 50
 UI.ICON.trophy, UI.ICON.lock, UI.ICON.infinity, UI.ICON.bracket = 51, 52, 53, 54
+-- (the polls, art pack 6: 55 a poll, three bars; check ns:HasAssets(6) first, else UI.ICON.notes)
+UI.ICON.poll = 55
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }

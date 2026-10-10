@@ -581,7 +581,7 @@ def nav_groups_pages_under_five_tabs():
     w.tick(0.5)
     strip = c.eval_py("local o = {} for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t:IsShown() then "
                       "o[#o + 1] = t.cdlKey end end return o")
-    assert strip == ["home", "grp:raids", "grp:gear", "dungeons", "grp:guild", "changelog", "settings"], strip
+    assert strip == ["home", "grp:raids", "grp:gear", "dungeons", "grp:guild", "feedback", "changelog", "settings"], strip
     tab = "for _, t in ipairs(DisasterZoneMainFrame.Tabs) do if t.cdlKey == ... then return t end end"
     menu = ("local m = ns.UI:GetOpenMenu() local o = {} if m then for _, d in ipairs(m.root.children) do "
             "o[#o + 1] = d.text end end return o")
