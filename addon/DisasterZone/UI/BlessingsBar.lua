@@ -939,7 +939,7 @@ if ns.ClassKit then ns.ClassKit:Extend("bless", {
     settings = function(S, sec)
     S:DropdownSetting(sec, "Buff bar", "Your blessings per class: click to cast, hover for the players.",
         "bless.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
-            { value = "always", text = "Always (solo too)" }, { value = "off", text = "Off" } })
+            { value = "always", text = "Always" }, { value = "off", text = "Off" } })
     S:DropdownSetting(sec, "Bar layout", "A rail of class rings, or a strip of tiles over your action bars.",
         "bless.layout", "vertical", Bar.LAYOUTS)
     local mins = {}
