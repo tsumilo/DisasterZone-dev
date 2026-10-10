@@ -146,12 +146,23 @@ def main():
         if st:
             lines.append('  [%d] = "%s",' % (r["id"], stats_str(st)))
     lines.append("}")
-    # consumables with stats (flasks, elixirs, food, potions): "type|stats" (WS stat numbers)
+    # consumables (flasks, elixirs, food, potions, runes): "type|stats|buffDuration|cooldown|categoryCooldown|categoryId|
+    # effects" (WS stat numbers; durations in seconds; effects "min:spread:resourceType:periodMs:durationMs;...")
+    effects = {e["id"]: e for e in db.get("spellEffects", [])}
     lines.append("ns.Data.SimConsumables = {")
     for c in sorted(db.get("consumables", []), key=lambda c: c["id"]):
         st = {i: v for i, v in enumerate(c.get("stats") or []) if v}
-        if st:
-            lines.append('  [%d] = "%d|%s",' % (c["id"], c.get("type", 0), stats_str(st)))
+        effs = []
+        for eid in c.get("effectIds") or []:
+            e = effects.get(eid)
+            if e and e.get("resourceType"):
+                effs.append("%s:%s:%d:%d:%d" % (fmt_num(e.get("minEffectSize", 0)), fmt_num(e.get("effectSpread", 0)),
+                                                e["resourceType"], e.get("auraPeriodMs", 0), e.get("durationMs", 0)))
+        if st or effs:
+            lines.append('  [%d] = "%d|%s|%s|%s|%s|%s|%s",' % (
+                c["id"], c.get("type", 0), stats_str(st), fmt_num(c.get("buffDuration", 0)),
+                fmt_num(c.get("cooldownDuration", 0)), fmt_num(c.get("categoryCooldownDuration", 0)),
+                c.get("categoryId", 0), ";".join(effs)))
     lines.append("}")
     with open(OUT, "wb") as f:
         f.write(("\n".join(lines) + "\n").encode("utf-8"))

@@ -11,7 +11,7 @@ local has = S.has
 
 local floor, huge, max, min = math.floor, math.huge, math.max, math.min
 
-local F_SHAMAN, F_SHOCK, F_INSTANT = F.Agent1, F.Agent2, F.Agent3
+local F_SHAMAN, F_SHOCK, F_INSTANT, F_FOCUSABLE = F.Agent1, F.Agent2, F.Agent3, F.Agent4
 
 -- proto ShamanTalents order (talents string = Wowhead's)
 local TALENTS = {
@@ -88,6 +88,13 @@ function S.SetupShaman(p, talentsStr, opts)
   local hasMH = aa.mh and aa.mh.swingSpeed and aa.mh.baseMax and aa.mh.baseMax > 0
   if not hasMH then sh.imbueMh = 0 end
   if not aa.isDualWielding then sh.imbueOh = 0 end
+  if opts.elemental then
+    -- elemental.go: no melee swings, no off-hand imbue
+    sh.elemental = true
+    aa.autoSwingMelee = false
+    sh.imbueOh = 0
+    return sh
+  end
 
   -- enhancement.go ApplySyncType: keep the off hand from swinging right after the main hand (Flurry charges)
   local FLURRY_ICD = 0.5
@@ -212,6 +219,32 @@ function S.ShamanApplyTalents(p)
     p:AddStaticMod({ classMask = M.Shock, kind = "Cooldown_Flat", value = -0.2 * T.Reverberation })
   end
   if T.UnrelentingStorm > 0 then p:AddStatDependency(ST.Intellect, ST.MP5, 0.02 * T.UnrelentingStorm) end
+  if T.ElementalMastery > 0 then
+    local masks = M.Fire + M.Frost + M.Nature
+    local em = p:RegisterAura({ label = "Elemental Mastery", actionId = { spellId = 16166 },
+      onCastComplete = function(a, sim, spell) if spell:Matches(masks) then a:Deactivate(sim) end end })
+    em:AttachSpellMod({ kind = "BonusCrit_Percent", value = 100, classMask = masks })
+    em:AttachSpellMod({ kind = "PowerCost_Pct_Add", value = -1, classMask = masks })
+    local spell = p:RegisterSpell({ id = 16166, school = SCHOOL.Nature, defenseType = S.DEF_MAGIC,
+      flags = F.APL + F.NoOnCastComplete + F_INSTANT, cd = 180, applyEffects = function(sim) em:Activate(sim) end })
+    p:AddMajorCooldown({ spell = spell })
+  end
+  if T.LightningMastery > 0 then
+    p:AddStaticMod({ kind = "CastTime_Flat", value = -0.1 * T.LightningMastery, classMask = M.LightningBolt + M.ChainLightning })
+  end
+  sh.overloadChance = 0.04 * T.LightningOverload
+  if T.TotemOfWrath > 0 then
+    -- the cost is 5% of WoWSims' "initial mana", which isn't set yet when the talent is applied: 0
+    local a = p:RegisterAura({ label = "Totem Of Wrath (Self)", actionId = { spellId = 30706 }, duration = 120 })
+    a:AttachStatsBuff({ [ST.SpellCritPercent] = 3, [ST.SpellHitPercent] = 3 })
+    sh.totemOfWrath = p:RegisterSpell({ id = 30706, defenseType = S.DEF_MAGIC, flags = F.APL + F_INSTANT,
+      classMask = M.BasicTotem, manaCost = { flat = 0 }, gcd = 1, relatedSelfBuff = a,
+      applyEffects = function(sim)
+        S.ShamanCancelFireTotems(p, sim)
+        p.totemExpirations.Fire = sim.now + 120
+        a:Activate(sim)
+      end })
+  end
 
   -- Enhancement
   if T.AncestralKnowledge > 0 then p:MultiplyStat(ST.Mana, 1 + 0.01 * T.AncestralKnowledge) end
@@ -448,8 +481,10 @@ local function CancelFireTotems(p, sim)
     if d then d:Deactivate(sim) end
   end
   sh.searingReplaced = true
+  if sh.totemOfWrath then sh.totemOfWrath.relatedSelfBuff:Deactivate(sim) end
   if sh.fireElementalTotem then sh.fireElementalTotem.relatedSelfBuff:Deactivate(sim) end
 end
+S.ShamanCancelFireTotems = CancelFireTotems
 
 function S.ShamanFireTotems(p)
   local sh, T = p.shaman, p.talents
@@ -763,6 +798,53 @@ function S.ShamanItems(p)
         elseif has(spell.classMask, M.LightningBolt) and sim:Proc(0.15) then p:AddMana(sim, 170, "ashtongue") end
       end, triggerImmediately = true })
   end
+  -- lightning totems (items.go): Lightning Bolt / Chain Lightning base damage, Lightning Bolt cost
+  local lightning = M.LightningBolt + M.ChainLightning + M.Overload
+  for id, v in pairs({ [186071] = 10, [32330] = 85, [23199] = 33, [28248] = 55 }) do
+    if equipped(id) then p:AddStaticMod({ classMask = lightning, kind = "BaseDamage_Flat", value = v }) end
+  end
+  if equipped(28066) then p:AddStaticMod({ classMask = M.LightningBolt, kind = "PowerCost_Flat", value = -15 }) end
+  -- Skycall Totem: 15% on Lightning Bolt hits, 100 spell haste rating for 10 s
+  if equipped(33506) then
+    local a = p:NewTemporaryStatsAura("Energized", { [ST.SpellHasteRating] = 100 }, 10)
+    p:MakeProcTriggerAura({ name = "Skycall Totem", callback = "hit", outcome = O.Landed, procChance = 0.15,
+      classMask = M.LightningBolt + M.LightningBoltOverload, handler = function(sim) a:Activate(sim) end })
+  end
+  -- Cyclone Regalia 4: 11% on spell crits, the next spell costs 270 less
+  if p:CouldHaveSetBonus("Cyclone Regalia", 4) then
+    local a = p:RegisterAura({ label = "Energized (Cyclone Regalia)", actionId = { spellId = 37214 }, duration = 15,
+      onCastComplete = function(aura, sim, spell) if spell.classMask ~= 0 then aura:Deactivate(sim) end end })
+    a:AttachSpellMod({ kind = "PowerCost_Flat", value = -270 })
+    p:MakeProcTriggerAura({ name = "Cyclone Regalia", callback = "hit", outcome = O.Crit, procMask = PM.SpellDamage,
+      procChance = 0.11, handler = function(sim) a:Activate(sim) end })
+  end
+  -- Cataclysm Regalia 4: 25% on Lightning Bolt crits, 120 mana
+  if p:CouldHaveSetBonus("Cataclysm Regalia", 4) then
+    p:MakeProcTriggerAura({ name = "Lightning Bolt Discount", callback = "hit", outcome = O.Crit, procChance = 0.25,
+      classMask = M.LightningBolt, handler = function(sim) p:AddMana(sim, 120, "cataclysm_regalia") end })
+  end
+  -- Skyshatter Regalia 2: with all four totems down, 15 mp5, 35 spell crit rating and 45 spell damage (checked every
+  -- 3 s); 4: Lightning Bolt +5%
+  if p:CouldHaveSetBonus("Skyshatter Regalia", 2) then
+    local tm = p:RegisterAura({ label = "Totemic Mastery", actionId = { spellId = 38437 } })
+    tm:AttachStatsBuff({ [ST.MP5] = 15, [ST.SpellCritRating] = 35, [ST.SpellDamage] = 45 })
+    local check = p:RegisterAura({ label = "Totemic Mastery Periodic Check" })
+    local pa
+    check.onGain = function(_, sim)
+      pa = S.StartPeriodicAction(sim, { period = 3, tickImmediately = true, onAction = function(s)
+        local e = p.totemExpirations
+        if math.min(e.Air, e.Earth, e.Fire, e.Water) < s.now then tm:Deactivate(s)
+        elseif not tm.active then tm:Activate(s) end
+      end })
+      pa.cleanUp = function(s) tm:Deactivate(s) end
+    end
+    check.onExpire = function(_, sim) if pa and not pa.cancelled and not pa.consumed then sim:Cancel(pa) end end
+    S.MakePermanent(check)
+  end
+  if p:CouldHaveSetBonus("Skyshatter Regalia", 4) then
+    p:AddStaticMod({ classMask = M.LightningBolt + M.LightningBoltOverload, kind = "DamageDone_Flat", value = 0.05 })
+    local a = S.MakePermanent(p:RegisterAura({ label = "Skyshatter Regalia 4pc", actionId = { spellId = 38436 } }))
+  end
   -- Cyclone Harness: 2 = Strength of Earth +12 (totems), 4 = Stormstrike +30 per weapon
   if p:CouldHaveSetBonus("Cyclone Harness", 4) then
     p:AddStaticMod({ classMask = M.StormstrikeDamage, kind = "BaseDamage_Flat", value = 30 })
@@ -778,8 +860,86 @@ function S.ShamanItems(p)
   end
 end
 
--- shaman.go Initialize + enhancement.go Initialize
+-- ---------------------------------------------------------------------------------------------------------------
+-- Lightning Bolt and Chain Lightning with their overloads (electric_spell.go, lightning_bolt.go, chain_lightning.go),
+-- Water Shield (shields.go)
+-- ---------------------------------------------------------------------------------------------------------------
+local function ElectricSpell(p, cfg, overload)
+  local sh = p.shaman
+  local spell = {
+    id = cfg.id, tag = overload and 6 or 0, school = SCHOOL.Nature, defenseType = S.DEF_MAGIC, procMask = PM.SpellDamage,
+    flags = F_SHAMAN + F_FOCUSABLE + (overload and (F.PassiveSpell + F.Proc) or F.APL),
+    classMask = overload and cfg.overloadMask or cfg.mask,
+    damageMultiplier = overload and 0.5 or 1, bonusCoefficient = cfg.coef, threatMultiplier = overload and 0 or 1,
+  }
+  if not overload then
+    spell.manaCost = { flat = cfg.cost }
+    spell.castTime = cfg.castTime
+    spell.gcd = 1.5
+    spell.modifyCast = function(sim, sp, gcd, castTime)
+      local ct = castTime * p.castSpeed
+      local aa = p.autoAttacks
+      if sim.now + ct > aa:NextAttackAt() then aa:StopMeleeUntil(sim, sim.now + ct) end
+      return gcd, castTime
+    end
+  end
+  return spell
+end
+
+function S.ShamanElectricSpells(p)
+  local sh = p.shaman
+  -- Lightning Bolt (rank 12): travels at 20 yards a second; an overload is cast when it lands
+  local lbOverload
+  local function lb(overload)
+    local cfg = ElectricSpell(p, { id = 25449, mask = M.LightningBolt, overloadMask = M.LightningBoltOverload,
+      cost = 300, castTime = 2.5, coef = 0.7940000295639038 }, overload)
+    cfg.applyEffects = function(sim, target, spell)
+      local r = spell:CalcDamage(sim, target, sim:Roll(571, 652), OUT.MagicHitAndCrit)
+      local travel = p.distance / 20
+      sim:Add({ at = sim.now + travel, prio = 0, fn = function(s)
+        if not overload and S.Landed(r) and s:Proc(sh.overloadChance) then lbOverload:Cast(s, target) end
+        spell:DealDamage(s, r)
+      end })
+    end
+    return p:RegisterSpell(cfg)
+  end
+  lb(false)
+  lbOverload = lb(true)
+
+  -- Chain Lightning (rank 6): one target here; overloads at a third of the chance
+  local clOverload
+  local timer = p:NewTimer()
+  local function cl(overload)
+    local cfg = ElectricSpell(p, { id = 25442, mask = M.ChainLightning, overloadMask = M.ChainLightningOverload,
+      cost = 760, castTime = 2, coef = 0.6510000228881836 }, overload)
+    if not overload then cfg.cd = 6; cfg.cdTimer = timer end
+    local bounce = 0.7 + (p:CouldHaveSetBonus("Tidefury Raiment", 2) and 0.13 or 0)
+    cfg.applyEffects = function(sim, target, spell)
+      local r = spell:CalcDamage(sim, target, sim:Roll(734, 838), OUT.MagicHitAndCrit)
+      spell.damageMultiplier = spell.damageMultiplier * bounce
+      if not overload and S.Landed(r) and sim:Proc(sh.overloadChance / 3) then clOverload:Cast(sim, r.target) end
+      spell:DealDamage(sim, r)
+      spell.damageMultiplier = spell.damageMultiplier / bounce
+    end
+    return p:RegisterSpell(cfg)
+  end
+  cl(false)
+  clOverload = cl(true)
+
+  -- Water Shield: +50 mana per 5 s while it holds (no hits taken here)
+  local ws = p:RegisterAura({ label = "Water Shield", actionId = { spellId = 33736 }, duration = 600, maxStacks = 3 })
+  ws:AttachStatBuff(ST.MP5, 50)
+  p:RegisterSpell({ id = 33736, school = SCHOOL.Nature, defenseType = S.DEF_MAGIC, flags = F.APL + F_INSTANT, gcd = 1.5,
+    relatedSelfBuff = ws,
+    applyEffects = function(sim)
+      ws:Activate(sim)
+      ws:SetStacks(sim, 3)
+    end })
+end
+
+-- shaman.go Initialize + enhancement.go / elemental.go Initialize
 function S.ShamanInitialize(p)
+  S.ShamanElectricSpells(p)
   S.ShamanFireElemental(p)
   S.ShamanFireTotems(p)
   S.ShamanTotems(p)

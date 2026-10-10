@@ -106,6 +106,21 @@ CAT_BUFFS = {
                     "scrollAgi": True, "scrollStr": True},
 }
 
+# ui/specs/shaman/elemental/presets.ts (P1 settings)
+ELE_BUFFS = {
+    "raid": {"bloodlust": True, "arcaneBrilliance": True, "giftOfTheWild": IMP, "powerWordFortitude": IMP,
+             "divineSpirit": IMP},
+    "party": {"moonkinAura": IMP, "chainOfTheTwilightOwl": True, "eyeOfTheNight": True},
+    "individual": {"blessingOfKings": True, "blessingOfWisdom": IMP, "shadowPriestDps": 800},
+    "debuffs": {
+        "bloodFrenzy": True, "curseOfElements": IMP, "curseOfRecklessness": True, "exposeArmor": IMP,
+        "faerieFire": IMP, "giftOfArthas": True, "huntersMark": IMP, "improvedSealOfTheCrusader": IMP,
+        "judgementOfWisdom": True, "mangle": True, "misery": True, "sunderArmor": True,
+    },
+    "consumables": {"conjuredId": 12662, "drumsId": "LesserDrumsOfBattle", "flaskId": 22861, "foodId": 27657,
+                    "mhImbueId": 25122, "potId": 22839},
+}
+
 SPECS = {
     "ret": {"class": "Paladin", "wsClass": "ClassPaladin", "field": "retributionPaladin",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/paladin/retribution/apls/default.apl.json",
@@ -124,4 +139,8 @@ SPECS = {
     "cat": {"class": "Druid", "wsClass": "ClassDruid", "field": "feralCatDruid",
             "options": {"options": {"classOptions": {}}}, "apl": "ui/specs/druid/feralcat/apls/default.apl.json",
             "buffs": CAT_BUFFS, "luaBuffs": "wowsims_cat", "luaOptions": {"form": "Cat"}},
+    "ele": {"class": "Shaman", "wsClass": "ClassShaman", "field": "elementalShaman",
+            "options": {"options": {"classOptions": {"shieldProcrate": 0}}},
+            "apl": "ui/specs/shaman/elemental/apls/default.apl.json", "buffs": ELE_BUFFS, "luaBuffs": "wowsims_ele",
+            "luaOptions": {"elemental": True, "imbueMh": "NoImbue", "imbueOh": "NoImbue", "shieldProcrate": 0}},
 }

@@ -130,6 +130,17 @@ S.BUFF_PRESETS = {
     consumables = { potId = 22838, battleElixirId = 22831, guardianElixirId = 32067, foodId = 27664, mhImbueId = 34340,
       conjuredId = 12662, superSapper = true, goblinSapper = true, scrollAgi = true, scrollStr = true },
   },
+  -- The WoWSims Elemental preset (ui/specs/shaman/elemental/presets.ts): the shaman drops his own totems.
+  wowsims_ele = {
+    raid = { bloodlust = true, arcaneBrilliance = true, giftOfTheWild = 2, powerWordFortitude = 2, divineSpirit = 2 },
+    party = { moonkinAura = 2, chainOfTheTwilightOwl = true, eyeOfTheNight = true },
+    individual = { blessingOfKings = true, blessingOfWisdom = 2, shadowPriestDps = 800 },
+    debuffs = { bloodFrenzy = true, curseOfElements = 2, curseOfRecklessness = true, exposeArmor = 2, faerieFire = 2,
+      giftOfArthas = true, huntersMark = 2, improvedSealOfTheCrusader = 2, judgementOfWisdom = true, mangle = true,
+      misery = true, sunderArmor = true },
+    consumables = { conjuredId = 12662, drumsId = "LesserDrumsOfBattle", flaskId = 22861, foodId = 27657,
+      mhImbueId = 25122, potId = 22839 },
+  },
   -- The WoWSims Enhancement preset (ui/specs/shaman/enhancement/presets.ts, P1): the shaman drops his own totems and
   -- beats his own drums.
   wowsims_enh = {
@@ -146,6 +157,8 @@ S.BUFF_PRESETS = {
 
 
 local function Tri(v) if v == true then return 1 end return v or 0 end
+local ALLIANCE = { Draenei = true, Dwarf = true, Gnome = true, Human = true, NightElf = true }
+local DRAENEI_CASTER = { Mage = true, Priest = true, Shaman = true }
 
 -- Raid + party + individual buffs on the player.
 function S.ApplyBuffs(p, cfg)
@@ -199,7 +212,36 @@ function S.ApplyBuffs(p, cfg)
   end
   if party.trueshotAura then p:AddStat(ST.AttackPower, 125); p:AddStat(ST.RangedAttackPower, 125) end
   if party.braidedEterniumChain and p.gearIds.Neck ~= 24114 then p:AddStat(ST.MeleeCritRating, 28) end
-  if party.draeneiRacialMelee and p.race ~= "BloodElf" and p.race ~= "Draenei" then p:AddStat(ST.PhysicalHitPercent, 1) end
+  local alliance = ALLIANCE[p.race]
+  local ownPresence = p.race == "Draenei" and DRAENEI_CASTER[p.class] and "caster" or (p.race == "Draenei" and "melee") or nil
+  if party.draeneiRacialMelee and alliance and ownPresence ~= "melee" then p:AddStat(ST.PhysicalHitPercent, 1) end
+  if party.draeneiRacialCaster and alliance and ownPresence ~= "caster" then p:AddStat(ST.SpellHitPercent, 1) end
+  -- caster party buffs (buffs.go)
+  if Tri(party.moonkinAura) > 0 then
+    p:AddStat(ST.SpellCritPercent, 5)
+    if Tri(party.moonkinAura) == 2 then p:AddStat(ST.SpellCritRating, 20) end
+  end
+  if party.chainOfTheTwilightOwl and p.gearIds.Neck ~= 24121 then p:AddStat(ST.SpellCritPercent, 2) end
+  if party.eyeOfTheNight and p.gearIds.Neck ~= 24116 then p:AddStat(ST.SpellDamage, 34) end
+  if party.jadePendantOfBlasting then p:AddStat(ST.SpellDamage, 15) end
+  if (party.totemOfWrath or 0) > 0 then
+    p:AddStat(ST.SpellCritPercent, 3 * party.totemOfWrath)
+    p:AddStat(ST.SpellHitPercent, 3 * party.totemOfWrath)
+  end
+  if Tri(party.wrathOfAirTotem) > 0 then
+    -- one Wrath of Air: a shaman's own totem is the same exclusive effect
+    local v = 101 + (Tri(party.wrathOfAirTotem) == 2 and 20 or 0)
+    local a = p:RegisterAura({ label = "Wrath of Air Totem", actionId = { spellId = 3738, tag = -1 } })
+    a:NewExclusiveEffect("WrathOfAirTotemSpellDamageAdd", false, v,
+      function(_, sim) p:AddStatsDynamic(sim, { [ST.SpellDamage] = v, [ST.HealingPower] = v }) end,
+      function(_, sim) p:AddStatsDynamic(sim, { [ST.SpellDamage] = -v, [ST.HealingPower] = -v }) end)
+    S.MakePermanent(a)
+  end
+  if (party.atieshMage or 0) > 0 then p:AddStat(ST.SpellCritRating, 28 * party.atieshMage) end
+  if (party.atieshWarlock or 0) > 0 then p:AddStat(ST.SpellDamage, 33 * party.atieshWarlock) end
+  if (party.atieshDruid or 0) > 0 then p:AddStat(ST.MP5, 11 * party.atieshDruid) end
+  if (party.atieshPriest or 0) > 0 then p:AddStat(ST.HealingPower, 62 * party.atieshPriest) end
+  if (party.manaTideTotems or 0) > 0 and p.hasMana then S.ManaTideTotems(p, party.manaTideTotems) end
 
   -- Individual
   if ind.blessingOfKings then
@@ -212,6 +254,15 @@ function S.ApplyBuffs(p, cfg)
     p:AddStat(ST.RangedAttackPower, ap)
   end
   if ind.unleashedRage then p:MultiplyStat(ST.AttackPower, 1.1) end
+  if (ind.shadowPriestDps or 0) > 0 and p.hasMana then
+    -- buffs.go ShadowPriestDPSManaAura: Vampiric Touch, 5% of the priest's damage per second as mana
+    local gain = ind.shadowPriestDps * 0.05
+    p:RegisterResetEffect(function(sim)
+      S.StartPeriodicAction(sim, { period = 1, onAction = function(s) p:AddMana(s, gain, "vampiric_touch") end })
+    end)
+  end
+  if (ind.innervates or 0) > 0 and p.hasMana then S.Innervates(p, ind.innervates) end
+  if (ind.powerInfusions or 0) > 0 then S.PowerInfusions(p, ind.powerInfusions) end
 
   if raid.bloodlust then S.Bloodlust(p) end
 
@@ -235,7 +286,7 @@ function S.ApplyConsumables(p, c, cfg)
   if c.scrollAgi then sb[ST.Agility] = max(sb[ST.Agility] or 0, 20) end
   if c.scrollStr then sb[ST.Strength] = max(sb[ST.Strength] or 0, 20) end
   for k, v in pairs(sb) do p:AddStat(k, v) end
-  if c.potId == 22838 then S.HastePotion(p) end
+  if c.potId == 22838 then S.HastePotion(p) elseif c.potId and c.potId ~= 0 then S.Potion(p, c.potId) end
   if c.conjuredId == 12662 then S.DemonicRune(p) end
   if c.conjuredId == 22788 then S.FlameCap(p) end
   if c.conjuredId == 7676 and p.hasEnergy then S.ThistleTea(p) end
@@ -355,6 +406,43 @@ function S.HastePotion(p)
   p:AddMajorCooldown({ spell = spell, priority = 0 })
 end
 
+-- consumes.go makePotionActivationSpell: any other combat potion from WoWSims' data, a stat buff and / or a resource
+-- gain; a mana potion waits until its whole gain fits.
+function S.Potion(p, id)
+  local cons = p.db and p.db.consumables and p.db.consumables[id]
+  if not cons then return end
+  local cd = (cons.cooldown or 0) > 0 and cons.cooldown or 120
+  local catCd = (cons.categoryCooldown or 0) > 0 and cons.categoryCooldown or 120
+  local aura
+  if (cons.buffDuration or 0) > 0 then aura = p:NewTemporaryStatsAura("Potion " .. id, S.WSStats(cons.stats), cons.buffDuration) end
+  local gains = cons.gains or {}
+  local spell
+  spell = p:RegisterSpell({ id = "item:" .. id, procMask = PM.Empty, flags = F.Potion + F.APL + F.NoOnCastComplete,
+    cd = cd, sharedCd = cd, sharedCdTimer = p:CategoryTimer("potion"), relatedSelfBuff = aura,
+    applyEffects = function(sim)
+      if aura then aura:Activate(sim) end
+      for _, g in ipairs(gains) do
+        local gain = g.min + sim:Rand() * g.spread
+        if g.resource == 1 and p.hasMana then p:AddMana(sim, gain, "potion")
+        elseif g.resource == 2 and p.hasEnergy then p:AddEnergy(sim, gain, "potion")
+        elseif g.resource == 3 and p.hasRage then p:AddRage(sim, gain, "potion") end
+      end
+      if sim.now < 0 then
+        spell.sharedCdTimer.readyAt = sim.now + catCd
+        p:UpdateMajorCooldowns()
+      end
+    end })
+  p:AddMajorCooldown({ spell = spell, priority = 0, shouldActivate = function()
+    for _, g in ipairs(gains) do
+      if g.resource == 1 then
+        local regen = (p.manaTickCasting or 0) / 2 * 5
+        if p:MaxMana() - (p.mana + regen) < g.min + g.spread then return false end
+      end
+    end
+    return true
+  end })
+end
+
 -- consumes.go registerStaticImbue
 function S.StaticImbue(p, id)
   if id == 29453 or id == 34340 then -- Adamantite Sharpening Stone / Weightstone
@@ -423,6 +511,145 @@ function S.ThistleTea(p)
       end
     end })
   p:AddMajorCooldown({ spell = spell, priority = 0, shouldActivate = function() return p.maxEnergy - p.energy >= 40 end })
+end
+
+-- buffs.go registerExternalConsecutiveCDApproximation: n raid members' cooldowns used one after another.
+local function ExternalCDs(p, cfg, n)
+  local timers = {}
+  for i = 1, n do timers[i] = p:NewTimer() end
+  local shared = p:NewTimer()
+  local nextIndex = 1
+  p:RegisterResetEffect(function() nextIndex = 1 end)
+  local spell = p:RegisterSpell({ id = cfg.id, tag = -1, metricsKey = cfg.metricsKey, procMask = PM.Empty,
+    flags = F.NoOnCastComplete + F.NoMetrics, cd = cfg.auraDuration, cdTimer = shared, relatedSelfBuff = cfg.aura,
+    extraCastCondition = function(sim)
+      if timers[nextIndex].readyAt > sim.now then return false end
+      if cfg.aura.active then return false end
+      return true
+    end,
+    applyEffects = function(sim)
+      cfg.aura:Activate(sim)
+      timers[nextIndex].readyAt = sim.now + cfg.auraCD
+      nextIndex = nextIndex % n + 1
+      if timers[nextIndex].readyAt <= sim.now then
+        shared.readyAt = sim.now + cfg.auraDuration
+      else
+        shared.readyAt = sim.now + (timers[nextIndex].readyAt - sim.now)
+      end
+    end })
+  p:AddMajorCooldown({ spell = spell, shouldActivate = cfg.shouldActivate })
+end
+
+-- Mana Tide Totem: 6% of max mana every 3 s for 12 s; first at 40 s or half the fight.
+function S.ManaTideTotems(p, n)
+  local a = p:RegisterAura({ label = "ManaTideTotem-16190:-1", actionId = { spellId = 16190, tag = -1 }, duration = 12 })
+  a.onGain = function(_, sim)
+    S.StartPeriodicAction(sim, { period = 3, numTicks = 4,
+      onAction = function(s) p:AddMana(s, p:MaxMana() * 0.06, "mana_tide") end })
+  end
+  ExternalCDs(p, { id = 16190, metricsKey = "mana_tide", aura = a, auraDuration = 12, auraCD = 300,
+    shouldActivate = function(sim) return sim.now >= math.min(sim.baseDuration / 2, 40) end }, n)
+end
+
+-- Innervate: spirit regen x5 (all of it while casting) for 20 s, used below 1000 mana (mages: 40%).
+function S.Innervates(p, n)
+  local a = p:RegisterAura({ label = "Innervate-29166:-1", actionId = { spellId = 29166, tag = -1 }, duration = 20,
+    onGain = function()
+      p.ps.ForceFullSpiritRegen = true
+      p.ps.SpiritRegenMultiplier = p.ps.SpiritRegenMultiplier * 5
+      p:UpdateManaRegenRates()
+    end,
+    onExpire = function()
+      p.ps.ForceFullSpiritRegen = false
+      p.ps.SpiritRegenMultiplier = p.ps.SpiritRegenMultiplier / 5
+      p:UpdateManaRegenRates()
+    end })
+  ExternalCDs(p, { id = 29166, metricsKey = "innervate", aura = a, auraDuration = 20, auraCD = 360,
+    shouldActivate = function()
+      local threshold = (p.class == "Mage") and p:MaxMana() * 0.4 or 1000
+      return p.mana <= threshold
+    end }, n)
+end
+
+-- Power Infusion: spells cost 20% less and cast 20% faster for 15 s; not during Bloodlust.
+function S.PowerInfusions(p, n)
+  local a = p:RegisterAura({ label = "PowerInfusion-10060:-1", actionId = { spellId = 10060, tag = -1 }, duration = 15 })
+  a:NewExclusiveEffect("ManaCost", true, -20,
+    function() if p.hasMana then p.ps.SpellCostPercentModifier = p.ps.SpellCostPercentModifier - 20 end end,
+    function() if p.hasMana then p.ps.SpellCostPercentModifier = p.ps.SpellCostPercentModifier + 20 end end)
+  local og, oe = a.onGain, a.onExpire
+  a.onGain = function(aura, sim) if og then og(aura, sim) end p:MultiplyCastSpeed(sim, 1.2) end
+  a.onExpire = function(aura, sim) if oe then oe(aura, sim) end p:MultiplyCastSpeed(sim, 1 / 1.2) end
+  ExternalCDs(p, { id = 10060, metricsKey = "power_infusion", aura = a, auraDuration = 15, auraCD = 180,
+    shouldActivate = function()
+      local bl = p:GetAura("Bloodlust") or p:GetAura("Bloodlust-2825:0")
+      return not (bl and bl.active)
+    end }, n)
+end
+
+-- aura_helpers.go ApplyFixedUptimeAura: a debuff kept up a share of the time by someone else.
+function S.ApplyFixedUptimeAura(aura, uptime, tickLength, startTime)
+  local dur = aura.duration
+  local ticks = dur / tickLength
+  local chance = (uptime == 1) and 1 or (1 - (1 - uptime) ^ (1 / ticks))
+  aura.unit:RegisterResetEffect(function(sim)
+    S.StartPeriodicAction(sim, { period = tickLength, onAction = function(s)
+      if s:Rand() < chance then
+        aura:Activate(s)
+        if (aura.maxStacks or 0) > 0 then aura:AddStack(s) end
+      end
+    end })
+    S.StartPeriodicAction(sim, { period = startTime, numTicks = 1, onAction = function(s)
+      if s:Rand() < uptime then
+        aura.duration = tickLength + (dur - tickLength) * s:Rand()
+        aura:Activate(s)
+        aura.duration = dur
+      end
+    end })
+  end)
+end
+
+-- debuffs.go ScheduledAura: a debuff the raid builds up at the start and keeps up.
+local function ScheduledStacks(aura, period, ticks, tickImmediately)
+  aura.onReset = function(a, sim)
+    a.duration = huge
+    S.StartPeriodicAction(sim, { period = period, numTicks = ticks, tickImmediately = tickImmediately, prio = S.PRIO_DOT,
+      onAction = function(s)
+        a:Activate(s)
+        if a.active then a:AddStack(s) end
+      end })
+  end
+end
+S.ScheduledStacks = ScheduledStacks
+
+-- school x(1 + per stack) on the target, one exclusive effect (Improved Scorch, Shadow Weaving)
+local function StackingSchoolDebuff(target, label, id, duration, school, perStack, category)
+  local a = target:GetAura(label)
+  if a then return a end
+  local ee
+  local i = S.SCHOOL_INDEX[school]
+  local tps = target.ps
+  a = target:RegisterAura({ label = label, actionId = { spellId = id }, duration = duration, maxStacks = 5,
+    onStacksChange = function(_, sim, old, new) ee:SetPriority(sim, 1 + perStack * new) end })
+  ee = a:NewExclusiveEffect(category, false, 1,
+    function(e) tps.SchoolDamageTakenMultiplier[i] = tps.SchoolDamageTakenMultiplier[i] * e.priority end,
+    function(e) tps.SchoolDamageTakenMultiplier[i] = tps.SchoolDamageTakenMultiplier[i] / e.priority end)
+  return a
+end
+function S.ImprovedScorchAura(target) return StackingSchoolDebuff(target, "Improved Scorch", 12873, 30, SCHOOL.Fire, 0.03, "ImprovedScorch") end
+function S.ShadowWeavingAura(target) return StackingSchoolDebuff(target, "Shadow Weaving", 15334, 15, SCHOOL.Shadow, 0.02, "ShadowWeaving") end
+
+-- Winter's Chill: frost crit +2% per stack for the player.
+function S.WintersChillAura(target, p, startingStacks)
+  local a = target:GetAura("Winter's Chill")
+  if a then return a end
+  local mod = p:AddDynamicMod({ kind = "BonusCrit_Percent", value = 0, school = SCHOOL.Frost })
+  return target:RegisterAura({ label = "Winter's Chill", actionId = { spellId = 28595 }, duration = 15, maxStacks = 5,
+    onGain = function(aura, sim) if startingStacks then aura:SetStacks(sim, startingStacks) end end,
+    onStacksChange = function(_, sim, old, new)
+      mod:Activate()
+      mod:UpdateValue(2 * new)
+    end })
 end
 
 function S.Explosives(p, c)
@@ -548,7 +775,9 @@ function S.ApplyRacials(p)
   elseif p.race == "NightElf" then
     p.ps.BaseDodgeChance = (p.ps.BaseDodgeChance or 0) + 0.01
   elseif p.race == "Draenei" then
-    p:AddStat(ST.PhysicalHitPercent, 1)
+    -- racials.go: Heroic Presence for hunters, paladins and warriors, Inspiring Presence for mages, priests and shamans
+    if DRAENEI_CASTER[cls] then p:AddStat(ST.SpellHitPercent, 1)
+    elseif cls == "Hunter" or cls == "Paladin" or cls == "Warrior" then p:AddStat(ST.PhysicalHitPercent, 1) end
   elseif p.race == "Dwarf" then
     local a = p:RegisterAura({ label = "Stoneform", duration = 8 })
     a:AttachMultiplicativePseudoStatBuff("ArmorMultiplier", 1.1)
@@ -694,6 +923,18 @@ function S.ApplyDebuffs(p, t, d)
           aura:Activate(s)
           if aura.active then aura:AddStack(s) end
         end })
+    end
+  end
+  if d.improvedScorch then ScheduledStacks(S.ImprovedScorchAura(t), 1.2, 5, true) end
+  if d.shadowWeaving then ScheduledStacks(S.ShadowWeavingAura(t), 1.5, 5, true) end
+  if d.wintersChill then S.MakePermanent(S.WintersChillAura(t, p, 5)) end
+  if (d.isbUptime or 0) > 0 then
+    -- debuffs.go ImprovedShadowBoltAura: shadow damage x1.2, kept up a share of the time by a warlock
+    local a = t:GetAura("ImprovedShadowBolt-5")
+    if not a then
+      a = t:RegisterAura({ label = "ImprovedShadowBolt-5", actionId = { spellId = 17800 }, duration = 12, maxStacks = 4 })
+      a:AttachMultiplicativePseudoStatBuff("SchoolDamageTakenMultiplier", 1.2, S.SCHOOL_INDEX[SCHOOL.Shadow])
+      S.ApplyFixedUptimeAura(a, d.isbUptime, a.duration, 1)
     end
   end
   -- Expose Weakness: 90% chance per 7 s window of +agi/4 attack power against the target.

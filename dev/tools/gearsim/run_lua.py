@@ -142,7 +142,21 @@ def build_db(gear):
             e = ench_by_id.get(spec["enchant"])
             if e:
                 enchants[spec["enchant"]] = {"effectId": e["effectId"], "stats": dense_to_dict(e.get("stats"))}
-    consumables = {c["id"]: {"id": c["id"], "type": c.get("type", 0), "stats": dense_to_dict(c.get("stats"))}
+    effects = {e["id"]: e for e in db.get("spellEffects", [])}
+
+    def gains(c):
+        out = []
+        for eid in c.get("effectIds") or []:
+            e = effects.get(eid)
+            if e and e.get("resourceType"):
+                out.append({"min": e.get("minEffectSize", 0), "spread": e.get("effectSpread", 0),
+                            "resource": e["resourceType"], "periodMs": e.get("auraPeriodMs", 0),
+                            "durationMs": e.get("durationMs", 0)})
+        return out
+    consumables = {c["id"]: {"id": c["id"], "type": c.get("type", 0), "stats": dense_to_dict(c.get("stats")),
+                             "buffDuration": c.get("buffDuration", 0), "cooldown": c.get("cooldownDuration", 0),
+                             "categoryCooldown": c.get("categoryCooldownDuration", 0),
+                             "categoryId": c.get("categoryId", 0), "gains": gains(c)}
                    for c in db.get("consumables", [])}
     suffixes = {r["id"]: {"id": r["id"], "stats": dense_to_dict(r.get("stats"))} for r in db.get("randomSuffixes", [])}
     return {"items": items, "gems": gems, "enchants": enchants, "itemProcs": parse_go_procs(),

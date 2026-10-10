@@ -106,9 +106,22 @@ function S.GameDB()
       local c = consumables[id]
       if c == nil then
         local r = ns.Data and ns.Data.SimConsumables and ns.Data.SimConsumables[id]
-        local ty, st
-        if r then ty, st = r:match("^(%d+)|(.*)$") end
-        c = ty and { id = id, type = tonumber(ty), stats = ParseStats(st) } or false
+        local f = {}
+        if r then for x in (r .. "|"):gmatch("([^|]*)|") do f[#f + 1] = x end end
+        if f[1] then
+          c = { id = id, type = tonumber(f[1]), stats = ParseStats(f[2]), buffDuration = tonumber(f[3]) or 0,
+            cooldown = tonumber(f[4]) or 0, categoryCooldown = tonumber(f[5]) or 0, categoryId = tonumber(f[6]) or 0,
+            gains = {} }
+          for e in (f[7] or ""):gmatch("[^;]+") do
+            local mn, sp, res, per, dur = e:match("^([%-%d%.]+):([%-%d%.]+):(%d+):(%d+):(%d+)$")
+            if mn then
+              c.gains[#c.gains + 1] = { min = tonumber(mn), spread = tonumber(sp), resource = tonumber(res),
+                periodMs = tonumber(per), durationMs = tonumber(dur) }
+            end
+          end
+        else
+          c = false
+        end
         consumables[id] = c
       end
       return c or nil
