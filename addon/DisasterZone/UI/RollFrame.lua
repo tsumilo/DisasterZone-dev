@@ -30,7 +30,6 @@ local NAME_W = FRAME_W - TEXT_X - 26       -- the item's name runs to the X
 local TEXT_W = FRAME_W - TEXT_X - PAD - ROLL_W - 6 - PASS_W - 12
 local BG = { 0.043, 0.043, 0.051 }
 local PIP_MAX, PIP_SIZE = 5, 7    -- a crafting material: the holdings squares
-local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local TICK = 0.1                 -- countdown bar refresh while a roll is open
 local FADE_AFTER_AWARD = 5       -- seconds the result stays before fading out
 local FADE_AFTER_CANCEL = 3
@@ -361,10 +360,9 @@ function RollFrame:GetFrame()
     f.item = UI:CreateItemButton(f, ICON_SIZE)
     f.item:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -14)
 
-    f.close = UI:CreateIconButton(f, 16, NO_TEX, nil, function() RollFrame:Dismiss() end)
-    f.close.bg:SetAlpha(0)
-    f.close.icon:SetDesaturated(true)
-    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
+    -- (1.3.5: the windows' own flat close X, red under the mouse - the same as the boss drop window's)
+    f.close = UI:CreateCloseButton(f, 18, function() RollFrame:Dismiss() end)
+    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -3, -3)
 
     f.name = Text(f, "GameFontNormal", 13)
     f.name:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -13)
