@@ -1541,13 +1541,44 @@ local function PrizedGate(ses, key, areason, why, retry)
     local present = P:PresentCouncil()
     local need = P:NeededVotes(rec, #present, broken)
     local votes = row and row.votes or 0
-    if need > 0 and votes < need then
-        ns:Print("%s: %s needs %d of the %d council members here to vote for them (%d so far).", ItemText(ses),
-            Util.ShortName(key), need, #present, votes)
+    -- (1.3.5, the user: greyed out, but it can be overridden with a mandatory reason - also when the council's votes
+    -- aren't in yet; the record keeps the reason and how many agreed)
+    if need > 0 and votes < need and not why then
+        if ns.Popup and retry then
+            ses.przRetry = retry
+            ns.Popup:Show("DISASTERZONE_PRIZED_OVERRIDE", ItemText(ses), NameText(key) .. "?\n\n" ..
+                string.format("Only %d of the %d council votes it needs.", votes, need), { id = ses.id, key = key })
+        else
+            ns:Print("%s: %s needs %d of the %d council members here to vote for them (%d so far).", ItemText(ses),
+                Util.ShortName(key), need, #present, votes)
+        end
         return false
     end
-    ses.prized = { ov = broken and P:Broken(check) or nil, why = broken and why or nil, ag = votes, of = #present }
+    local short = need > 0 and votes < need
+    ses.prized = { ov = broken and P:Broken(check) or nil, why = (broken or short) and why or nil, ag = votes,
+                   of = #present }
     return true
+end
+
+-- 1.3.5: could key be awarded session id's prized item as things stand (no side effects; the drop panel greys its
+-- Award with why)? nil when the item isn't prized or the roll is plain, else { ok, broken, fail, votes, need, present }.
+function Roll:PrizedReady(id, key)
+    local ses = self:Get(id)
+    if not ses or ses.plain or type(key) ~= "string" then return nil end
+    local P = ns.Prized
+    local rec = P and P.ForItem and P:ForItem(ses.i)
+    if not rec then return nil end
+    local row
+    for _, r in ipairs(BuildResults(ses)) do
+        if r.key == key then row = r break end
+    end
+    local check = (row and row.prz) or P:Check(rec, key, {})
+    local broken = check.ok == false
+    local present = #P:PresentCouncil()
+    local need = P:NeededVotes(rec, present, broken)
+    local votes = row and row.votes or 0
+    return { ok = not broken and (need == 0 or votes >= need), broken = broken, fail = check.fail, votes = votes,
+             need = need, present = present }
 end
 
 -- Resolved only by a loot message (Addendum C): the item was handed out, but nobody has recorded /

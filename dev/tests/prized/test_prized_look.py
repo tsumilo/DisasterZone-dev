@@ -186,5 +186,47 @@ def in_demo_mode_i_meet_every_prized_rule_others_dont():
     w.tick(1)
     assert c.eval("return ns.Prized:IsPrized(28830)") is False   # (the demo's items are gone with it)
 
+
+@case
+def award_is_greyed_until_allowed_and_an_override_needs_a_reason():
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    assert c.eval_py("local ok, e = ns.Demo:RunScenario('prized'); return { ok = ok, e = e }")["ok"] is True
+    w.tick(9, 0.5)
+    c.eval("local a = ns.Roll:GetActive(); ns.Roll:End(a.id)")
+    w.tick(1)
+    c.eval("ns.DropPanel:Render()")
+    st = c.eval_py("""local b = ns.DropPanel.blocks[1]
+        local g = b.awardRoll.przGate
+        local lit = 0
+        for _, t in ipairs(b.awardRoll.przPips or {}) do if t:IsShown() then lit = lit + 1 end end
+        return { shown = b.awardRoll:IsShown(), ok = g and g.ok, need = g and g.need, votes = g and g.votes,
+                 pips = lit, who = b.suggested and b.suggested.key }""")
+    assert st["shown"] and st["ok"] is False and st["pips"] == st["need"] and st["votes"] < st["need"], st
+    tip = c.eval("return ns.DropPanel:AwardSuggestedTooltip(ns.DropPanel.blocks[1])")
+    assert tip.startswith("Not yet:") and "votes" in tip, tip
+    # the click asks why (an empty reason is refused), then awards
+    c.click(c.eval("return ns.DropPanel.blocks[1].awardRoll"))
+    w.tick(0.3)
+    for p in ("DISASTERZONE_CONFIRM_AWARD",):
+        if p in c.popups():
+            c.accept_popup(p)
+            w.tick(0.3)
+    assert "DISASTERZONE_PRIZED_OVERRIDE" in c.popups(), c.popups()
+    assert "council votes it needs" in c.popup_text("DISASTERZONE_PRIZED_OVERRIDE")
+    sid = c.eval("return ns.DropPanel.blocks[1].rollSession.id")
+    c.eval("ns.Popup:HideAll()")
+    c.eval("ns.Roll:Award(...)", sid, st["who"])          # (no reason: asks again, awards nothing)
+    w.tick(0.3)
+    assert c.eval("return ns.Roll:Get(...).state", sid) != "awarded"
+    c.eval("ns.Popup:HideAll()")
+    c.eval("local id, k = ...; ns.Roll:Award(id, k, 'bis', 'Only Grimtusk raids every week')", sid, st["who"])
+    w.tick(1)
+    for p in ("DISASTERZONE_CONFIRM_AWARD", "DISASTERZONE_GIVE_ITEM"):
+        if p in c.popups():
+            c.accept_popup(p)
+            w.tick(0.5)
+    assert c.eval("return ns.Roll:Get(...).state", sid) == "awarded"
+
 if __name__ == "__main__":
     run_all(globals())

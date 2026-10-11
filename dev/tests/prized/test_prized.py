@@ -223,12 +223,13 @@ def an_award_needs_every_council_member_here_and_goes_to_the_whole_guild():
     r.w.tick(1)
     r["Alice"].eval("ns.Roll:End(...)", sid)
     r.w.tick(1)
-    # one vote of two council members in the raid: refused, nothing recorded
+    # one vote of two council members in the raid: not yet - the override pop-up asks why (1.3.5), nothing recorded
     vote(r["Alice"], sid, "Bob")
     r.w.tick(1)
     r["Alice"].eval("ns.Roll:Award(...)", sid, key("Bob"))
     r.w.tick(0.3)
-    assert r["Alice"].popups() == [], r["Alice"].popups()
+    assert r["Alice"].popups() == ["DISASTERZONE_PRIZED_OVERRIDE"], r["Alice"].popups()
+    r["Alice"].cancel_popup("DISASTERZONE_PRIZED_OVERRIDE")
     assert given(r["Alice"], RUBY_DRAPE) == []
     vote(r["Bob"], sid, "Bob")
     r.w.tick(1)

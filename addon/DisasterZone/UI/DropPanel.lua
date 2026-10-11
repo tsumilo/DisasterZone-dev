@@ -2041,6 +2041,68 @@ function Grid.Head(b, kind, top, rowsH)
     end
 end
 
+-- Why a prized item's award isn't allowed yet: "breaks: 14% attendance, needs 75%", "1 of 3 votes".
+function Grid.GateWhy(g)
+    local parts = {}
+    if g.broken then parts[#parts + 1] = "breaks: " .. tostring(g.fail or "a loot rule") end
+    if (g.need or 0) > 0 and (g.votes or 0) < g.need then parts[#parts + 1] = format("%d of %d votes", g.votes or 0, g.need) end
+    return tconcat(parts, " · ")
+end
+
+-- The gold award while it isn't allowed yet (g = Roll:PrizedReady, nil = no gate): greyed, with a pip per vote it
+-- needs (gold when given) and a warning mark when a rule is broken; it turns gold as soon as it's allowed.
+function Grid.AwardGate(btn, g)
+    if not btn then return end
+    btn.przGate = g
+    if not btn.przPips then
+        if not (g and not g.ok) then return end
+        btn.przPips = {}
+        for i = 1, 6 do
+            local t = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+            t:SetSize(5, 5)
+            btn.przPips[i] = t
+        end
+        btn.przWarn = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    end
+    for _, t in ipairs(btn.przPips) do t:Hide() end
+    btn.przWarn:Hide()
+    local fs = btn.GetFontString and btn:GetFontString()
+    if not (g and not g.ok) then
+        if fs then
+            fs:ClearAllPoints()
+            fs:SetPoint("CENTER", 0, 0)
+        end
+        return
+    end
+    btn:SetKind("secondary")
+    local n = min(6, tonumber(g.need) or 0)
+    local short = n > 0 and (g.votes or 0) < (g.need or 0)
+    local extra = (short and (n * 8 + 4) or 0) + (g.broken and 16 or 0)
+    btn:SetWidth((btn:GetWidth() or 96) + extra)
+    if fs then
+        fs:ClearAllPoints()
+        fs:SetPoint("CENTER", -extra / 2, 0)
+    end
+    local x = -10
+    if short then
+        for i = n, 1, -1 do
+            local t = btn.przPips[i]
+            t:ClearAllPoints()
+            t:SetPoint("RIGHT", btn, "RIGHT", x, 0)
+            if i <= (g.votes or 0) then t:SetColorTexture(1, 0.82, 0, 1) else t:SetColorTexture(1, 1, 1, 0.22) end
+            t:Show()
+            x = x - 8
+        end
+        x = x - 4
+    end
+    if g.broken then
+        btn.przWarn:SetText(WarnIcon(11))
+        btn.przWarn:ClearAllPoints()
+        btn.przWarn:SetPoint("RIGHT", btn, "RIGHT", x, 0)
+        btn.przWarn:Show()
+    end
+end
+
 -- The council's view keeps the vote rail's room (a plain roll and the raiders' view have none).
 function Grid.HasRail(session)
     return IsCouncil() and not PlainMode(nil, session)
@@ -3119,6 +3181,10 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     local primary = gold
     if plain and not rolling and slot == b.rollBtn then primary = b.rollBtn end
     for _, btn in ipairs(b.actionButtons) do btn:SetKind(btn == primary and "primary" or "secondary") end
+    -- 1.3.5: a prized item's award that isn't allowed yet (rules / the council's votes): greyed, with why
+    local gate = gold == b.awardRoll and rolling and b.suggested and HasRoll("PrizedReady")
+        and CallRoll("PrizedReady", session.id, b.suggested.key) or nil
+    Grid.AwardGate(b.awardRoll, gate)
     local buttons = {}
     if slot then buttons[#buttons + 1] = slot end
     if gold then buttons[#buttons + 1] = gold end
@@ -3357,6 +3423,11 @@ end
 function DropPanel:AwardSuggestedTooltip(b)
     local row = b and b.suggested
     if type(row) ~= "table" then return "Nobody has a valid roll or a council vote yet." end
+    local gate = b.awardRoll and b.awardRoll.przGate
+    if gate and not gate.ok then
+        return format("Not yet: %s.\n\nClick to award %s anyway: you write a reason, and everyone sees it in the "
+            .. "item's history.", Grid.GateWhy(gate), ShortName(row.key))
+    end
     local parts = {}
     if row.suggestedBy == "votes" then parts[#parts + 1] = VotesText(row.votes) end
     local n = tonumber(row.roll)
@@ -3399,7 +3470,15 @@ function DropPanel:OpenRollRowMenu(r)
         end
         if canAward then
             local verb = (open and "End roll & award to " or "Award to ") .. ShortName(key)
-            root:CreateButton(verb, function() DropPanel:AwardRoll(id, key) end)
+            local gate = HasRoll("PrizedReady") and CallRoll("PrizedReady", id, key) or nil
+            local blocked = gate and not gate.ok
+            local e = root:CreateButton(blocked and ("|cff8c8c8c" .. verb .. "|r") or verb,
+                function() DropPanel:AwardRoll(id, key) end)
+            if blocked then
+                e:SetSubtext(Grid.GateWhy(gate))
+                e:SetTitleAndTextTooltip("Not yet", Grid.GateWhy(gate) .. ".\n\nClick to award anyway: you write a "
+                    .. "reason everyone sees.")
+            end
             AddReasonSubmenu(root, verb .. " as", function(rk) DropPanel:AwardRoll(id, key, rk) end)
         end
         root:CreateButton("Link item", function() LinkItem(itemID) end)
