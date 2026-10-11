@@ -378,6 +378,10 @@ end
 function AUI:ResultTooltip(tt, r)
     local n = r.night
     tt:AddLine(name(r.key, r.cls))
+    if r.lateCancel then
+        tt:AddLine("Cancelled late: answered Absent " .. ((r.note.at and r.F and r.note.at >= r.F) and "after the start"
+            or "less than 2 hours before the start") .. ".", 1, 0.69, 0.4, true)
+    end
     if r.guest then
         tt:AddLine("Outside the guild: a guest, never counted.", 0.8, 0.8, 0.8, true)
         if r.first then tt:AddLine("In the group " .. clock(r.pieces[1]) .. " – " .. clock(r.pieces[#r.pieces]), 1, 1, 1) end
@@ -412,6 +416,13 @@ function AUI:ResultTooltip(tt, r)
     end
     if r.replacedBy then tt:AddLine(short(r.replacedBy) .. " filled in.", C.fill[1], C.fill[2], C.fill[3]) end
     if r.removed then tt:AddLine("The raid leader removed them: counts as there.", 0.8, 0.8, 0.8, true) end
+    if r.outside and r.outside >= 30 * 60 then
+        tt:AddLine("Outside the instance " .. dur(r.outside) .. " while the raid was inside (in the group, so it counts).",
+            0.8, 0.8, 0.8, true)
+    end
+    if n.facts and n.facts.broke then
+        tt:AddLine("The raid broke up at " .. clock(n.facts.broke) .. ": leaving with it isn't leaving early.", 0.62, 0.62, 0.62, true)
+    end
     if r.mark and r.mark.b then tt:AddLine("The raid leader benched them: counts as there.", 0.8, 0.8, 0.8, true) end
     if r.otherRaid then tt:AddLine("Was in " .. (r.otherRaid.zone or "another guild raid") .. " at the same time: excused.", 0.8, 0.8, 0.8, true) end
     if r.reason then
@@ -803,6 +814,9 @@ function AUI:CreateOverview(parent, width)
                 if s.pending > 0 then GameTooltip:AddLine(s.pending .. " waiting for a review (not counted yet)", C.pending[1], C.pending[2], C.pending[3]) end
                 if s.fills > 0 then GameTooltip:AddLine(("Came to help %d times (%s)"):format(s.fills, dur(s.help)), C.fill[1], C.fill[2], C.fill[3]) end
                 if s.clashes > 0 then GameTooltip:AddLine(s.clashes .. " sign-up(s) clashed with their team raid", 0.8, 0.8, 0.8) end
+                if (s.lateCancels or 0) > 0 then
+                    GameTooltip:AddLine(s.lateCancels .. " late cancel(s): Absent less than 2 hours before the start", 1, 0.69, 0.4)
+                end
                 GameTooltip:AddLine("Click for their raids.", 0.5, 0.5, 0.5)
                 GameTooltip:Show()
             end)
@@ -1169,7 +1183,8 @@ function AUI:CreatePlayerPage(parent, width, opts)
                 or (signed > 0 and "signed up") or (team > 0 and "in a lineup") or "" },
             { "Late", ((s.late and s.late.n) or 0) .. " times", s.late and s.late.n > 0 and (dur(s.late.sec) .. " in all") or "" },
             { "Left early", (s.left or 0) .. " times", (s.excused or 0) > 0 and ((s.excused) .. " excused") or "" },
-            { "No-shows", tostring(s.noShows or 0), (s.fills or 0) > 0 and ("fill-ins: " .. s.fills) or "" },
+            { "No-shows", tostring(s.noShows or 0), (s.lateCancels or 0) > 0 and ("late cancels: " .. s.lateCancels)
+                or ((s.fills or 0) > 0 and ("fill-ins: " .. s.fills) or "") },
         }
         for i, f in ipairs(facts) do
             local c = v.facts[i]
@@ -1277,12 +1292,24 @@ function AUI:CreateMemberAttendance(parent, width)
                 GameTooltip:Show()
             end)
             row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            row.explain = UI():CreateSleekButton(row, "Explain", 70, 20, function(self)
+                local dd = self:GetParent().cdlD
+                if dd and dd.id then AUI:ShowExplain(dd.id, dd.zone, dd.start) end
+            end)
+            row.explain:SetPoint("RIGHT", row, "RIGHT", -52 - 4, 0)
         end
         row.cdlR = d.r
+        row.cdlD = d
         if d.inst then setArt(row.art, d.inst, 34, 20, 0.3) else row.art:Hide() end
         row.raid:SetText((d.zone or "Raid") .. grey("  " .. date("%a %d %b", d.start or Now())))
+        -- (my own raid that didn't go as planned: Explain sends my reason to the officers)
+        row.explain:SetShown(d.explain and true or false)
         row.pill:ClearAllPoints()
-        row.pill:SetPoint("RIGHT", row, "RIGHT", -52, 0)
+        if d.explain then
+            row.pill:SetPoint("RIGHT", row.explain, "LEFT", -8, 0)
+        else
+            row.pill:SetPoint("RIGHT", row, "RIGHT", -52, 0)
+        end
         row.pill:SetKind(d.word, d.kind)
         row.credit:SetText(d.credit)
     end
@@ -1294,6 +1321,8 @@ function AUI:CreateMemberAttendance(parent, width)
     function v:SetPlayer(key)
         local A = Att()
         local rows = {}
+        local G0 = ns.Guild
+        local own = ns.Util.IsMe(key) or (G0 and G0.SameAccount and G0:SameAccount(ns.Util.PlayerKey(), key)) or false
         local pct, counted, s
         if A:CanSeeAll() then
             local hist
@@ -1302,9 +1331,12 @@ function AUI:CreateMemberAttendance(parent, width)
             for _, e in ipairs(hist) do
                 local word, kind = AUI:ResultWord(e.r)
                 local r = e.r
+                local mine = r.kind and own and not r.reason and not r.decision and (r.noShow or r.late > 0 or r.left > 0)
+                    and not r.bench and not r.loose
                 rows[#rows + 1] = { r = r, zone = nightName(e.night), start = e.night.start, inst = instOf(e.night), word = word,
                     kind = kind, credit = not r.kind and (r.help and hex(C.fill, "+" .. dur(r.help)) or grey("-"))
-                        or (r.pending and hex(C.pending, pctText(r))) or pctText(r) }
+                        or (r.pending and hex(C.pending, pctText(r))) or pctText(r),
+                    id = e.night.primary and e.night.primary.id, explain = mine }
             end
             v.src:SetText("")
         else
@@ -1317,8 +1349,9 @@ function AUI:CreateMemberAttendance(parent, width)
                     local word = code == "F" and "Full" or (code:sub(1, 1) == "p" and "Part of it") or CODE_TEXT[code] or code
                     local kind = (code == "F" or code == "B" or code == "H") and "ok" or (code == "E" and "alt")
                         or (code == "-" and "mute") or "warn"
+                    local miss = code == "N" or code == "R" or (code:sub(1, 1) == "p")
                     rows[#rows + 1] = { zone = e.z, start = e.d, word = word, kind = kind,
-                        credit = e.c and (e.c .. "%") or grey("-") }
+                        credit = e.c and (e.c .. "%") or grey("-"), id = e.i, explain = miss and e.i and not e.rs }
                 end
                 v.src:SetText(mine.from and ("from " .. short(mine.from) .. "'s raid log, " .. date("%d %b %H:%M", mine.at or Now())) or "")
             else
@@ -1827,6 +1860,11 @@ function AUI:CreateReviews(parent, width)
         if d.kind == "sec" then return 26 end
         return 24
     end)
+    -- the margins (the GM's): on the page's top line, right; the GM changes them
+    v.rules = newText(v, 11, C.grey, "GameFontHighlightSmall")
+    v.rules:SetJustifyH("RIGHT")
+    v.rulesBtn = UI():CreateSleekButton(v, "Change", 70, 20, function() AUI:OpenRulesDialog() end)
+    v.rulesBtn:SetPoint("TOPRIGHT", 0, -2)
     v.list.frame:SetPoint("TOPLEFT", 0, 0)
     v.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
     v.list.bar:ClearAllPoints()
@@ -1837,6 +1875,13 @@ function AUI:CreateReviews(parent, width)
     function v:Refresh()
         local rv = Att():GetReviews()
         local data = {}
+        local rules = Att():Rules()
+        local G = ns.Guild
+        local gm = G and G.IsGM and G:IsGM(ns.Util.PlayerKey())
+        self.rulesBtn:SetShown(gm and true or false)
+        self.rules:ClearAllPoints()
+        if gm then self.rules:SetPoint("RIGHT", self.rulesBtn, "LEFT", -8, 0) else self.rules:SetPoint("TOPRIGHT", 0, -6) end
+        self.rules:SetText(("On time within %d min · disconnects under %d min don't count"):format(rules.o, rules.d))
         data[#data + 1] = { kind = "sec", text = "WAITING FOR A DECISION   |cff6f6f74doesn't count against anyone until decided|r" }
         if #rv.pending == 0 then
             data[#data + 1] = { kind = "sec", text = "|cff6f6f74Nothing waits for a decision.|r" }
@@ -2308,6 +2353,77 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
     f:Show()
 end
 
+-- The GM: the two margins everyone's attendance is measured by.
+function AUI:OpenRulesDialog()
+    local f = self.rulesDialog
+    if not f then
+        f = CreateFrame("Frame", "DisasterZoneAttendanceRules", UIParent)
+        if UISpecialFrames then tinsert(UISpecialFrames, "DisasterZoneAttendanceRules") end
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetToplevel(true)
+        f:EnableMouse(true)
+        f:SetSize(380, 196)
+        f:SetPoint("CENTER", 0, 80)
+        ns.Popup:SkinPanel(f)
+        f.title:SetText("Attendance margins")
+        f.title:SetPoint("TOPLEFT", 16, -14)
+        f.glint:SetPoint("TOPLEFT", 1, -1)
+        f.glint:SetWidth(378)
+        f.close = UI():CreateCloseButton(f, 20, function() f:Hide() end)
+        f.close:SetPoint("TOPRIGHT", -8, -8)
+        f.hint = newText(f, 11, C.grey, "GameFontHighlightSmall")
+        f.hint:SetPoint("TOPLEFT", 16, -38)
+        f.hint:SetText("Everyone's attendance is measured by these. They reach every member.")
+        local function stepper(y, label, field)
+            local l = newText(f, 12, { 0.9, 0.9, 0.9 })
+            l:SetPoint("TOPLEFT", 16, y)
+            l:SetText(label)
+            local val = newText(f, 13)
+            val:SetJustifyH("CENTER")
+            val:SetWidth(70)
+            val:SetPoint("TOPRIGHT", -44, y + 1)
+            local down = UI():CreateArrowButton(f, false, 18, 18, function()
+                f[field] = max(0, f[field] - 1)
+                f.paint()
+            end)
+            down:SetPoint("RIGHT", val, "LEFT", -2, 0)
+            local up = UI():CreateArrowButton(f, true, 18, 18, function()
+                f[field] = min(60, f[field] + 1)
+                f.paint()
+            end)
+            up:SetPoint("LEFT", val, "RIGHT", 2, 0)
+            return val
+        end
+        f.oVal = stepper(-70, "Arriving this late still counts as on time", "o")
+        f.dVal = stepper(-100, "A disconnect shorter than this doesn't count", "d")
+        function f.paint()
+            f.oVal:SetText(f.o .. " min")
+            f.dVal:SetText(f.d .. " min")
+        end
+        f.ok = UI():CreateSleekButton(f, "Save", 90, 24, function()
+            local ok, err = ns.Guild:SetAttendanceRules(f.o, f.d)
+            if not ok then ns:Print("%s", tostring(err)) else f:Hide() end
+        end, "primary")
+        f.ok:SetPoint("BOTTOMRIGHT", -14, 14)
+        f.cancel = UI():CreateSleekButton(f, "Cancel", 90, 24, function() f:Hide() end)
+        f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
+        self.rulesDialog = f
+    end
+    local r = Att():Rules()
+    f.o, f.d = r.o, r.d
+    f.paint()
+    f:Show()
+end
+
+-- My own reason for a raid that didn't go as planned (from my Members card), days later too.
+function AUI:ShowExplain(recId, zone, start)
+    self:ShowLeftEarly(recId, nil)
+    local f = self.mine
+    f.title:SetText("Tell the officers about " .. (zone or "the raid"))
+    f.d:SetText((start and (date("%a %d %b", start) .. ". ") or "") .. "Your reason goes to the Guild Master, officers and "
+        .. "the guild council; they decide whether it counts.")
+end
+
 -- Demo mode: both prompts on the demo's newest raid (its early leaver, its no-shows), nothing sent.
 function AUI:ShowDemo()
     if not demoOn() then
@@ -2344,6 +2460,14 @@ function AUI:OnInit()
         if e then AUI:ShowLeaderPrompt(recId, e) end
     end)
     ns:On("ATTENDANCE_LEFT_EARLY", function(recId, plannedEnd) AUI:ShowLeftEarly(recId, plannedEnd) end)
+    ns:On("ATTENDANCE_BREAKUP", function()
+        local f = AUI.leader
+        if f and f:IsShown() then
+            f.queue = {}
+            f.key = nil
+            f:Hide()
+        end
+    end)
     ns:On("RAIDLOG_CHANGED", function()
         if AUI.leader and AUI.leader:IsShown() then
             ns.Util.Debounce("att-leader", 1, function()

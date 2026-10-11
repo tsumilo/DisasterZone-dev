@@ -222,7 +222,7 @@ local function register()
                 time = e.night.stop or e.night.start }
         end
         return out
-    end, { "RAIDLOG_CHANGED", "ROSTER_UPDATED" })
+    end, { "ATTENDANCE_REVIEWS_CHANGED" })
 
     -- Dungeon runs: someone wants to join mine (the Dungeons tab's own pop-up stays: no pop-up from here)
     N:RegisterKind("runRequests", {

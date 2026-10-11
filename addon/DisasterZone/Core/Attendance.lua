@@ -43,12 +43,15 @@ local NIGHT_MATCH = 180                 -- minutes: a team night this close to t
 local FORM_MAX = 3600                   -- late counts from when the raid formed, at most this long after the start
 local PAIR_BEFORE, PAIR_AFTER = 5 * 60, 15 * 60   -- a fill-in joining this close to a leave replaces that player
 local TROUBLE_SPREAD = 180              -- server trouble: half the raid gone within this many seconds
-local REVIEW_DAYS = 30                  -- reviews older than this are no longer listed
+local REVIEW_DAYS = 80                  -- waiting reviews stay listed this long (the raid log's sync window)
 local HANDLED_DAYS = 14                 -- decisions listed under Handled for this long
 local CHAT_KEEP = DAY                   -- chat lines kept (memory only)
 local CHAT_PER_PLAYER = 40
 local CHAT_MAX_PLAYERS = 300
 local MAX_PICK = 5
+local LATE_CANCEL = 2 * 3600            -- Absent answered this close to the start (or later) is a late cancel
+local BREAKUP_SLACK = 15 * 60           -- leaving this long before the raid broke up is leaving with it
+local BURST_N, BURST_SEC = 3, 180       -- this many expected players leaving this fast: the raid is breaking up
 local MAX_TEXT = 200
 
 local nightsCache, cacheVer, ver = nil, nil, 0
@@ -69,6 +72,8 @@ end
 local function Bump()
     ver = ver + 1
     nightsCache = nil
+    -- (the notification center looks again a few seconds after changes stop, not on every scan)
+    if Util and Util.Debounce then Util.Debounce("att-reviews", 5, function() ns:Fire("ATTENDANCE_REVIEWS_CHANGED") end) end
 end
 
 ---------------------------------------------------------------------------
@@ -188,9 +193,9 @@ end
 -- Saves the sign-up notes and Absent answers of the expected players (sn): a reason told before the raid.
 function Att:SnapshotNotes(rec)
     local RP = ns.RaidPlan
-    if type(rec) ~= "table" or not rec.pl or not rec.ex or not (RP and RP.GetSignups) then return end
+    if type(rec) ~= "table" or not rec.pl or not (RP and RP.GetSignups) then return end
     local signups = RP:GetSignups(rec.pl) or {}
-    for key in pairs(rec.ex) do
+    for key in pairs(rec.ex or {}) do
         local s = signups[key]
         if not s then
             for _, m in ipairs(Linked(key)) do
@@ -202,6 +207,19 @@ function Att:SnapshotNotes(rec)
             rec.sn = rec.sn or {}
             rec.sn[key] = { n = note ~= "" and note or nil, x = s.st == "X" or nil,
                             at = tonumber(s.at) or tonumber(s.rev) or rec.start }
+        end
+    end
+    -- a late cancel: Absent answered in the 2 hours before the start (or after it), by anyone who answered (a mark,
+    -- never lost attendance: a raid without a team no longer expects them)
+    local v = RP.GetRaid and RP:GetRaid(rec.pl)
+    local start = v and v.t or rec.start
+    for key, s in pairs(signups) do
+        local at = tonumber(s.at) or tonumber(s.rev)
+        if s.st == "X" and at and start and at >= start - LATE_CANCEL and not s.guest then
+            rec.sn = rec.sn or {}
+            local e = rec.sn[key] or { x = true, at = at }
+            e.lc = true
+            rec.sn[key] = e
         end
     end
 end
@@ -484,9 +502,25 @@ local function NightFacts(n, rules)
     local E = F
     local med = arrivals[floor((#arrivals + 1) / 2)]
     if med and med > F + rules.onTime then E = min(med, F + FORM_MAX, T) end
+    -- the raid broke up: half the expected players who came had left before the planned end (everyone goes after the
+    -- last boss while nobody has pressed End raid yet): the expected time ends there
+    local ends = {}
+    for key in pairs(n.ex) do
+        local s = PiecesOf(n, key)
+        if s and s[#s] and s[#s] > F then ends[#ends + 1] = min(s[#s], T) end
+    end
+    tsort(ends)
+    local broke
+    if #ends >= 3 then
+        local b = ends[floor(#ends / 2) + 1]          -- (by this time half of them were gone)
+        if b and b < T - rules.onTime and b > F then
+            broke = b
+            T = b
+        end
+    end
     -- (a raid that ended before its planned start, started early: no planned time to measure; who came is there)
     if T - F < 60 then n.loose = true end
-    n.facts = { ver = ver, F = F, T = T, E = E, trouble = trouble }
+    n.facts = { ver = ver, F = F, T = T, E = E, trouble = trouble, broke = broke }
     return n.facts
 end
 
@@ -498,11 +532,21 @@ function Att:Result(n, key, rules)
     rules = rules or self:Rules()
     local facts = NightFacts(n, rules)
     local F, E, T = facts.F, facts.E, facts.T
-    local r = { key = key, night = n, kind = n.ex[key], F = F, E = E, T = T, decision = n.dc[key], reason = n.rs[key],
-                picked = n.q[key], note = n.sn[key], mark = n.mk[key], cls = n.cls[key] }
+    local dc, q = n.dc[key], n.q[key]
+    if dc and dc.d ~= "x" and dc.d ~= "c" then dc = nil end           -- (taken back)
+    if q and not (q.l and q.l[1]) then q = nil end                     -- (lines cleared)
+    local r = { key = key, night = n, kind = n.ex[key], F = F, E = E, T = T, decision = dc, reason = n.rs[key],
+                picked = q, note = n.sn[key], mark = n.mk[key], cls = n.cls[key] }
     local raw = PiecesOf(n, key)
     local s = Bridge(raw, rules.dc, facts.trouble)
     r.pieces = s
+    local out = 0
+    for _, rec in ipairs(n.recs) do
+        local a = rec.att and rec.att[key]
+        if a and tonumber(a.o) then out = out + a.o end
+    end
+    r.outside = out > 0 and out or nil
+    r.lateCancel = r.note and r.note.lc or nil
     -- clipped to [E, T], with the on-time margin at both ends
     local present, first, last = 0, nil, nil
     for i = 1, #s - 1, 2 do
@@ -519,7 +563,7 @@ function Att:Result(n, key, rules)
         present = present + (first - E)
         first = E
     end
-    if last and T - last <= rules.onTime + RL().PIECE_JOIN then
+    if last and T - last <= rules.onTime + RL().PIECE_JOIN + (facts.broke and BREAKUP_SLACK or 0) then
         present = present + (T - last)
         last = T
     end
@@ -756,7 +800,7 @@ function Att:GetStats(lastN, opts)
         local s = by[key]
         if not s then
             s = { key = key, codes = {}, counted = 0, sum = 0, late = { n = 0, sec = 0 }, left = 0, noShows = 0,
-                  excused = 0, pending = 0, fills = 0, help = 0, clashes = 0, bench = 0 }
+                  excused = 0, pending = 0, fills = 0, help = 0, clashes = 0, bench = 0, lateCancels = 0 }
             by[key] = s
             list[#list + 1] = s
         end
@@ -764,6 +808,12 @@ function Att:GetStats(lastN, opts)
     end
     local rowOf = {}
     for _, item in ipairs(results) do
+        for key, e in pairs(item.night.sn) do
+            if e.lc and InGuild(key) then
+                local s = S(PlayerOf(key))
+                s.lateCancels = s.lateCancels + 1
+            end
+        end
         item.byPlayer = {}
         for key, r in pairs(item.results) do
             if r.kind or r.help or r.clash then
@@ -917,15 +967,13 @@ function Att:Decide(nightKey, key, d, note)
     if d ~= nil and d ~= "x" and d ~= "c" then return false, "unknown decision" end
     note = type(note) == "string" and note:gsub("[%c|]", " "):sub(1, MAX_TEXT) or nil
     rec.dc = rec.dc or {}
-    if d == nil then
-        rec.dc[key] = nil
-        -- (an older decision on another record of the night would come back: clear those too)
-        for _, other in ipairs(n.recs) do
-            if other.dc then other.dc[key] = nil end
-        end
-    else
-        rec.dc[key] = { d = d, by = Me(), at = Now(), n = note ~= "" and note or nil }
+    -- (a decision taken back stays as a newer marker, d = "u": removing it would let any older copy come back)
+    local at = Now()
+    for _, other in ipairs(n.recs) do
+        local old = other.dc and other.dc[key]
+        if old and (old.at or 0) >= at then at = old.at + 1 end
     end
+    rec.dc[key] = { d = d or "u", by = Me(), at = at, n = d and note ~= "" and note or nil }
     Edited(rec)
     return true
 end
@@ -946,8 +994,8 @@ function Att:Pick(nightKey, key, lines)
         if t and t ~= "" and tonumber(l.at) then clean[#clean + 1] = { t = t, ch = l.ch or "Guild", at = floor(l.at) } end
     end
     rec.q = rec.q or {}
+    -- (no lines: kept as an empty, newer pick, so clearing spreads like any change)
     rec.q[key] = { by = Me(), at = Now(), l = clean }
-    if #clean == 0 then rec.q[key] = nil end
     Edited(rec)
     if leader and #clean > 0 then self:BroadcastMark(rec, key, { q = clean }) end
     return true
@@ -1253,16 +1301,19 @@ end
 -- code: "life" | "dc" | "asked" | "other". Returns ok.
 function Att:SendReason(recId, code, note)
     local L = RL()
-    local rec = L and L.GetRaid and L:GetRaid(recId)
-    if type(rec) ~= "table" then return false end
+    local rec = L and L.GetRaid and type(recId) == "string" and L:GetRaid(recId)
+    if type(recId) ~= "string" then return false end
     note = type(note) == "string" and note:gsub("[%c|]", " "):sub(1, MAX_TEXT) or nil
     if note == "" then note = nil end
     code = type(code) == "string" and code:match("^%a+$") and code:sub(1, 16) or nil
     if not (code or note) then return false end
     local me, at = Me(), Now()
-    rec.rs = rec.rs or {}
-    rec.rs[me] = { c = code, n = note, at = at }
-    Edited(rec)
+    -- (a raid I wasn't in, or explained days later: no record here; the raid log readers keep it)
+    if type(rec) == "table" then
+        rec.rs = rec.rs or {}
+        rec.rs[me] = { c = code, n = note, at = at }
+        Edited(rec)
+    end
     local Comm = ns.Comm
     if DemoOn() or not (Comm and Comm.Send) then return true end
     local msg = { t = "ATY", s = recId, c = code, n = note, at = at }
@@ -1341,6 +1392,16 @@ local function OnLeft(recId, key)
     -- (an open raid without a planned end: any leave is before the end)
     local rules = Att:Rules()
     if n.et and Now() >= n.et - rules.onTime then return end
+    -- (several expected players leaving at once: the raid is breaking up, no prompt for each)
+    local now = Now()
+    Att.recentLeaves = Att.recentLeaves or {}
+    local list = Att.recentLeaves
+    list[#list + 1] = now
+    while list[1] and now - list[1] > BURST_SEC do table.remove(list, 1) end
+    if #list >= BURST_N then
+        ns:Fire("ATTENDANCE_BREAKUP", recId)
+        return
+    end
     ns:Fire("ATTENDANCE_PLAYER_LEFT", recId, e, key)
 end
 
@@ -1369,7 +1430,8 @@ local function Compact(key)
         if i > 12 then break end
         local r = e.r
         h[#h + 1] = { d = e.night.start, z = e.night.zone and e.night.zone:sub(1, 40) or nil,
-                      c = r.credit and floor(r.credit * 100 + 0.5) or nil, s = Code(r), k = r.kind or (r.help and "h") }
+                      c = r.credit and floor(r.credit * 100 + 0.5) or nil, s = Code(r), k = r.kind or (r.help and "h"),
+                      i = e.night.primary and e.night.primary.id or nil, rs = r.reason and true or nil }
     end
     return { p = stats and stats.pct or nil, n = stats and stats.counted or 0, h = h, at = Now() }
 end
@@ -1420,7 +1482,8 @@ local function OnAnswer(sender, msg, dist)
         local d = tonumber(e.d)
         if d then
             h[#h + 1] = { d = floor(d), z = Plain(e.z), c = tonumber(e.c) and max(0, min(100, floor(e.c))) or nil,
-                          s = type(e.s) == "string" and e.s:sub(1, 3) or "-", k = type(e.k) == "string" and e.k:sub(1, 1) or nil }
+                          s = type(e.s) == "string" and e.s:sub(1, 3) or "-", k = type(e.k) == "string" and e.k:sub(1, 1) or nil,
+                          i = type(e.i) == "string" and #e.i <= 64 and not e.i:find("[%c|]") and e.i or nil, rs = e.rs == true or nil }
         end
     end
     local st = MineStore(true)

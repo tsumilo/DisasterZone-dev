@@ -314,6 +314,8 @@ local KNOWN_MESSAGES = {
     -- left a raid that expects me before its end; the GM's margins changed; my own attendance arrived
     RAIDLOG_LEFT = true, RAIDLOG_JOINED = true, ATTENDANCE_PLAYER_LEFT = true, ATTENDANCE_LEFT_EARLY = true,
     ATTENDANCE_RULES_CHANGED = true, ATTENDANCE_MINE = true,
+    -- the reviews may have changed (debounced after raid log changes); several expected players left at once
+    ATTENDANCE_REVIEWS_CHANGED = true, ATTENDANCE_BREAKUP = true,
     -- (CONFIG_UPDATED, Addendum E §29: the effective council set, my council status or the phase changed)
 }
 local messageHandlers = {}   -- [msg] = array of fns (copy-on-write, like eventHandlers)

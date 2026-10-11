@@ -181,6 +181,7 @@ local function Scan(rec)
     local now = GetServerTime()
     if not rec.g then rec.g = GuildKey() end
     local inside = NoteZone(rec)
+    local NoteZoneInside = inside
     local roster = Roster()
     NoteGroup(roster)
     rec.att = type(rec.att) == "table" and rec.att or {}
@@ -194,6 +195,13 @@ local function Scan(rec)
         if m.class then a.c = m.class end
         a.l = nil   -- present (again)
         if m.online then AddPresence(a, now, groupSeen[key]) end
+        -- 1.3.5: online in the group but outside the raid's instance while the raid is inside (a soft flag only:
+        -- minutes added per scan, at most one scan's worth at a time)
+        if m.online and rec.zone and NoteZoneInside and m.zone and m.zone ~= rec.zone then
+            local step = math.min(now - (a.ot or now), SCAN_INTERVAL + 10)
+            if step > 0 then a.o = (tonumber(a.o) or 0) + step end
+        end
+        a.ot = now
         if m.online and rec.zone and m.zone == rec.zone then inside = true end
     end
     for key, a in pairs(rec.att) do
@@ -985,14 +993,14 @@ local function AttendanceHash(rec)
     end
     local pieces = {}
     for key, a in pairs(rec.att or {}) do
-        if a.s then pieces[#pieces + 1] = key .. "=" .. table.concat(a.s, ",") end
+        if a.s then pieces[#pieces + 1] = key .. "=" .. table.concat(a.s, ",") .. (a.o and ("o" .. a.o) or "") end
     end
     tsort(pieces)
     local ex = {}
     for key, k in pairs(rec.ex or {}) do ex[#ex + 1] = key .. "=" .. k end
     tsort(ex)
     return Util.Hash({ table.concat(pieces, "|"), table.concat(ex, ","), rec.exAt or 0, rec.ef or 0, rec.et or 0,
-        flat(rec.sn, { "n", "x", "at" }), flat(rec.mk, { "b", "sw", "rm", "od", "by", "at" }),
+        flat(rec.sn, { "n", "x", "at", "lc" }), flat(rec.mk, { "b", "sw", "rm", "od", "by", "at" }),
         flat(rec.rs, { "c", "n", "at" }), flat(rec.dc, { "d", "by", "at", "n" }), flat(rec.q, { "by", "at", "l" }) })
 end
 
@@ -1110,7 +1118,7 @@ local function CleanAttendance(r, out, now)
             out.et = out.ef and IsInt(r.et, out.ef, MAX_TS) and r.et or nil
         end
         out.sn = each(r.sn, function(v)
-            local c = { n = CleanText(v.n, 120), x = v.x == true or nil, at = stamp(v.at) }
+            local c = { n = CleanText(v.n, 120), x = v.x == true or nil, at = stamp(v.at), lc = v.lc == true or nil }
             return (c.n or c.x) and c or nil
         end)
     end
@@ -1128,7 +1136,8 @@ local function CleanAttendance(r, out, now)
     end)
     out.dc = each(r.dc, function(v)
         local at, by = stamp(v.at), key(v.by)
-        if not (at and by and (v.d == "x" or v.d == "c")) then return nil end
+        -- (1.3.5: "u" = a decision taken back, newer than the one it undoes, so the undo spreads too)
+        if not (at and by and (v.d == "x" or v.d == "c" or v.d == "u")) then return nil end
         return { d = v.d, by = by, at = at, n = CleanText(v.n) }
     end)
     out.q = each(r.q, function(v)
@@ -1190,6 +1199,7 @@ local function CleanRecord(r, now)
             c.k = IsInt(a.k, 0, MAX_BOSSES) and a.k or 0
             if a.b == true then c.b = true end
             if IsInt(a.bts, 0, now + FUTURE_SLACK) then c.bts = a.bts end
+            if IsInt(a.o, 1, 86400) then c.o = a.o end   -- 1.3.5: seconds outside the instance
             if type(a.c) == "string" and a.c:find("^%u+$") and #a.c <= 16 then c.c = a.c end
             local s = CleanPieces(a.s)
             if s then c.s = s end
@@ -1315,6 +1325,7 @@ local function MergeRecord(cur, e)
             c.k = math.max(tonumber(c.k) or 0, a.k or 0)
             if not c.c then c.c = a.c end
             if a.s then c.s = JoinPieces(c.s, a.s) end   -- 1.3.5: what any recorder saw them there
+            if a.o and (tonumber(c.o) or 0) < a.o then c.o = a.o end
             local cb, eb = c.bts or 0, a.bts or 0
             if eb > cb or (eb == cb and a.b and not c.b) then c.b, c.bts = a.b, a.bts end
         end
