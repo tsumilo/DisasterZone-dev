@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 
 DEV = os.path.normcase(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ADDON = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
@@ -67,14 +68,33 @@ def sha1_dir(path):
     return hashlib.sha1("\n".join(names).encode("utf-8")).hexdigest()
 
 
+# Files and folder listings are hashed when they are READ (first time), so the record says what the process really
+# saw even if an agent edits the file while the suite runs: the next selection compares against that and reruns the
+# suite then, instead of dropping the whole record (which made every concurrent edit cost a full rerun).
+_seen_files = {}   # key -> sha1 at first read
+_seen_dirs = {}    # key -> sha1 of the listing at first listing
+_busy = False      # our own hashing opens / lists files too: don't record those
+
+
 def _audit(event, args):
+    global _busy
+    if _busy:
+        return
     if event == "open":
         path, mode = args[0], args[1]
         if isinstance(path, (str, bytes)) and (mode is None or ("r" in mode and "+" not in mode)):
             h = sys.modules.get("harness")
             if h is not None and getattr(h, "_READING_CHUNK", False):
                 return
-            _files.add(path if isinstance(path, str) else os.fsdecode(path))
+            p = path if isinstance(path, str) else os.fsdecode(path)
+            _files.add(p)
+            _busy = True
+            try:
+                k = key_of(p)
+                if k and k not in _seen_files and os.path.isfile(p):
+                    _seen_files[k] = sha1_file(p)
+            finally:
+                _busy = False
     elif event in ("os.listdir", "os.scandir"):
         path = args[0]
         if isinstance(path, (str, bytes)):
@@ -86,14 +106,28 @@ def _audit(event, args):
                 if "importlib" in f.f_code.co_filename or f.f_code.co_filename.startswith("<frozen"):
                     return
                 f = f.f_back
-            _dirs.add(path if isinstance(path, str) else os.fsdecode(path))
+            p = path if isinstance(path, str) else os.fsdecode(path)
+            _dirs.add(p)
+            _busy = True
+            try:
+                k = key_of(p)
+                if k and k not in _seen_dirs:
+                    _seen_dirs[k] = sha1_dir(p)
+            finally:
+                _busy = False
+
+
+_T0 = time.time()
 
 
 def _write():
+    global _busy
     out = os.environ.get("DZ_COVER")
     if not out:
         return
-    files, dirs = {}, {}
+    _busy = True
+    files, dirs = dict(_seen_files), dict(_seen_dirs)
+    stale = False
     for m in list(sys.modules.values()):
         f = getattr(m, "__file__", None)
         if f and f.endswith(".py"):
@@ -101,7 +135,13 @@ def _write():
     for p in _files:
         k = key_of(p)
         if k and k not in files and os.path.isfile(p):
+            # never opened while we watched (a module imported from its cached .pyc): hashed only now, so it
+            # proves nothing if it changed after this process started
             files[k] = sha1_file(p)
+            try:
+                stale = stale or os.path.getmtime(p) >= _T0 - 1
+            except OSError:
+                stale = True
     for p in _dirs:
         k = key_of(p)
         if k and k not in dirs:
@@ -109,7 +149,7 @@ def _write():
     h = sys.modules.get("harness")
     lua = dict(getattr(h, "_COVER_FILES", {}) or {})
     funcs = {k: sorted(v) for k, v in (getattr(h, "_COVER_FUNCS", {}) or {}).items()}
-    data = {"files": files, "dirs": dirs, "lua": lua, "funcs": funcs}
+    data = {"files": files, "dirs": dirs, "lua": lua, "funcs": funcs, "stale": stale}
     try:
         tmp = "%s.%d.tmp" % (out, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:

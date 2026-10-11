@@ -1,7 +1,7 @@
 """Self-test of run_all.py's change-based selection (tools/testmap.py) on a throwaway copy of the addon.
 
 Runs two quick suites once to record what they depend on, then edits the copy and checks what --dry-run would run:
-a function only suite A called -> A only; top-level code -> both; a comment, or a function nobody calls yet -> none.
+a function only suite A called -> A only; top-level code with a call -> both; a comment, or a function nobody calls yet -> none.
 Run: luaenv\\Scripts\\python.exe tools\\test_testmap.py   (~30s)
 """
 import json
@@ -63,6 +63,32 @@ end
 """
 
 
+BLOCK = b"""local _, ns = ...
+local S = {}
+S.C = { gold = 1, grey = 2 }
+S.HEX = {}
+for name, c in pairs(S.C) do
+  S.HEX[name] = tostring(c)
+end
+local function hex(n)
+  return S.HEX[n]
+end
+function ns.Gold()
+  return S.C.gold
+end
+if ns.RegisterEvent then
+  ns:RegisterEvent("PLAYER_LOGIN", ns.Gold)
+end
+"""
+GRID = b"""local _, ns = ...
+local EUI = {}
+EUI.PAD, EUI.GAP = 10, 8
+"""
+HEADER = b"""if X and X.Run("UI/Comp/A.lua", ...) then return end -- UI/Comp/A.lua
+local addonName, ns = ...
+"""
+
+
 def unit_changes():
     """testmap.changes() on small sources: which functions of the old version count as changed."""
     import hashlib
@@ -71,7 +97,7 @@ def unit_changes():
     saved = testmap.SRC_DIR, testmap.lua_source, testmap.lua_sha
     try:
         testmap.SRC_DIR = tmp
-        for src in (OUTER, DATA, LOCALS, GLOBAL):
+        for src in (OUTER, DATA, LOCALS, GLOBAL, BLOCK, GRID, HEADER):
             with open(os.path.join(tmp, hashlib.sha1(src).hexdigest() + ".lua"), "wb") as fh:
                 fh.write(src)
         out = []
@@ -91,6 +117,14 @@ def unit_changes():
             ("a constant other top-level code uses", LOCALS, LOCALS.replace(b"LIMIT = 5", b"LIMIT = 6"), "top"),
             ("a new constant nobody uses yet", LOCALS, LOCALS.replace(b"local LIMIT", b"local NEW = 1\nlocal LIMIT"),
              ("funcs", set(), set())),
+            ("a loop that only fills a table", BLOCK, BLOCK.replace(b"tostring(c)", b"tostring(c) .. \"!\""),
+             ("funcs", set(), {("field", "HEX")})),
+            ("a loop that calls into the addon", BLOCK, BLOCK.replace(b"tostring(c)", b"ns.Hex(c)"), "top"),
+            ("an event registration", BLOCK, BLOCK.replace(b"PLAYER_LOGIN", b"PLAYER_ENTERING_WORLD"), "top"),
+            ("two fields set on one line", GRID, GRID.replace(b"10, 8", b"10, 6"),
+             ("funcs", set(), {("field", "PAD"), ("field", "GAP")})),
+            ("a new local named like a word in the header string", HEADER,
+             HEADER + b"local UI = ns.UI\nlocal function f()\n  return UI\nend\n", ("funcs", set(), set())),
             ("an entry of a global table", GLOBAL, GLOBAL.replace(b"id = 1", b"id = 2"),
              ("funcs", set(), {("global", "DZBuild")})),
         ):
@@ -105,9 +139,53 @@ def unit_changes():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def unit_finish():
+    """testmap.finish(): an edit made while a suite ran no longer voids its record; a part that can't prove what it
+    read keeps the previous record."""
+    import testmap
+    tmp = tempfile.mkdtemp(prefix="dz_testmap_finish_")
+    saved = testmap.COV_DIR
+    out = []
+    try:
+        testmap.COV_DIR = tmp
+        base = testmap.cover_base("x__test_y")
+
+        def part(pid, **kw):
+            d = {"files": {"dev:a.py": "1"}, "dirs": {}, "lua": {"UI/A.lua": "9"}, "funcs": {"UI/A.lua": [3]}}
+            d.update(kw)
+            with open("%s.%d.part" % (base, pid), "w") as fh:
+                json.dump(d, fh)
+
+        def record():
+            return testmap.load_record("x__test_y")
+
+        part(1)
+        testmap.finish("x__test_y", 0, time.time() + 100, "ok")  # "started" after every file's mtime: no longer matters
+        r = record()
+        out.append(("a record survives files changed during the run", bool(r) and r["files"] == {"dev:a.py": "1"}, r))
+        part(2, files={"dev:a.py": "2"}, stale=True)
+        testmap.finish("x__test_y", 1, None, "failed")
+        r = record()
+        out.append(("a stale part keeps the previous record", bool(r) and r["rc"] == 0, r and r.get("rc")))
+        part(3, files={"dev:a.py": "3"})
+        part(4, files={"dev:a.py": "4"})
+        testmap.finish("x__test_y", 0, None, "ok")
+        r = record()
+        out.append(("two processes that saw different versions keep it too", bool(r) and r["files"]["dev:a.py"] == "1",
+                    r and r["files"]))
+        part(5, files={"dev:a.py": "5"})
+        testmap.finish("x__test_y", 0, None, "ok")
+        r = record()
+        out.append(("a clean run replaces it", bool(r) and r["files"]["dev:a.py"] == "5", r and r["files"]))
+        return out
+    finally:
+        testmap.COV_DIR = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     failed = []
-    for name, ok, got in unit_changes():
+    for name, ok, got in unit_changes() + unit_finish():
         print("%s unit: %s: %s" % ("PASS" if ok else "FAIL", name, got))
         if not ok:
             failed.append(name)
@@ -168,7 +246,7 @@ def main():
         edit(lines[:line] + [b"  local _dz_testmap_probe = 1"] + lines[line:])
         check("body of %s:%d (only %s calls it)" % (rel, line, a), would_run(), [a])
 
-        edit(lines + [b"do local _dz_testmap_top = 1 end"])
+        edit(lines + [b"do local _dz_testmap_top = GetTime() end"])  # load-time code with a call
         check("top-level code in %s" % rel, would_run(), [a, b])
 
         edit([b"-- a comment"] + lines)
