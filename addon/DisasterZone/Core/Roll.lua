@@ -941,11 +941,15 @@ local function BuildResults(ses)
     local P = ns.Prized
     local przRec = not plain and P and P.ForItem and P:ForItem(ses.i) or nil
     if not plain then
-        local RL, Att = ns.RaidLog, ns.Attendance
+        local RL, Att, Store, G = ns.RaidLog, ns.Attendance, ns.Store, ns.Guild
+        -- longevity (Longest use): phases each player keeps it on their list, up to the GM's last phase counted
+        local LR = G and G.GetLootRules and G:GetLootRules()
+        local lastPhase = LR and LR.w == "o" and Store and Store.Longevity and (tonumber(LR.h) or 4) or nil
         for _, r in ipairs(out) do
             r.att = RL and RL.GetAttendance and (RL:GetAttendance(r.key)) or nil
             local d = Att and Att.GetDryStreak and Att:GetDryStreak(r.key)
             r.dry = d and d.nights or nil
+            if lastPhase then r.longevity = (Store:Longevity(r.key, ses.i, nil, lastPhase)) end
         end
     end
     return Roll:RankRows(out, { plain = plain, mat = mat, prized = przRec })
@@ -954,7 +958,8 @@ end
 -- Orders result rows and marks the suggestion (suggested / suggestedBy / tie / split), in place; returns them.
 -- ctx = { plain = a plain roll, mat = crafting material wants, prized = the item's prized record, rules = the loot rules
 -- (default: the guild's, Guild:GetLootRules) }. Rows need: key, name, roll, invalid, response, inRaid, votes, tier,
--- cantUse, lockChanged, wonCopy, left; att (attendance %) and dry (raids without loot) when the guild uses them.
+-- cantUse, lockChanged, wonCopy, left; att (attendance %), dry (raids without loot) and longevity (phases on the list)
+-- when the guild uses them.
 -- Council > Rules' preview ranks made-up rows with it.
 function Roll:RankRows(out, ctx)
     ctx = ctx or {}
@@ -1018,6 +1023,11 @@ function Roll:RankRows(out, ctx)
         if R.w == "d" and ga == 1 then
             local da, db = tonumber(a.dry) or 0, tonumber(b.dry) or 0
             if da ~= db then return da > db end
+        end
+        -- (longest use: who keeps it on their list for more phases, Store:Longevity, then the roll)
+        if R.w == "o" and ga == 1 then
+            local oa, ob = tonumber(a.longevity) or 0, tonumber(b.longevity) or 0
+            if oa ~= ob then return oa > ob end
         end
         if ga == 1 and a.roll ~= b.roll then return a.roll > b.roll end
         if ga == 2 then
