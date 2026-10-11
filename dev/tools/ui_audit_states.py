@@ -1540,7 +1540,7 @@ STATES = [
                                          "ns.PrizedUI:SetTab('history')", "raids")),
     ("Demo - Loot rules - editing", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830'); "
                                          "ns.PrizedUI:StartEdit()", "raids")),
-    ("Demo - Loot rules - add", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:StartAdd(); "
+    ("Demo - Loot rules - add", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:CancelEdit(); ns.PrizedUI:StartAdd(); "
                                      "ns.PrizedUI:SetAddSearch('warglaive'); ns.PrizedUI:TogglePick(32837); "
                                      "ns.PrizedUI:TogglePick(32838)", "raids")),
     # 1.3.5 time-based attendance (UI/AttendanceUI.lua): a member's page, the reviews, the chat picker, the prompts

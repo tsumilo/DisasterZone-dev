@@ -78,10 +78,11 @@ end
 
 -- An atlas icon (UI.ICON) on a texture; the prized-items icons (art pack 7) fall back to older ones without it.
 local FALLBACK = { prized = "trophy", person = "team", shield = "lock", pair = "infinity", ballot = "poll" }
+local EXTRA_ICON = { pencil = 16 }
 local function iconIndex(name)
     local I = UI().ICON
     if FALLBACK[name] and not (ns.HasAssets and ns:HasAssets(7)) then name = FALLBACK[name] end
-    return I[name] or I.notes
+    return I[name] or EXTRA_ICON[name] or I.notes
 end
 
 local function atlasTex(tex, name, r, g, b, a)
@@ -330,8 +331,7 @@ local function initRow(row, d)
         row.name = newText(row, "GameFontHighlight", 12)
         row.sub = newText(row, "GameFontHighlightSmall", 10)
         row.sub:SetTextColor(0.6, 0.6, 0.63)
-        row.pill = UI():CreateTagPill(row, 18)
-        row.pill:SetPoint("RIGHT", -8, 0)
+        row.pill = UI():CreateTagPill(row, 16)
         row.marks = {}
         for i = 1, 6 do
             local t = row:CreateTexture(nil, "OVERLAY")
@@ -376,30 +376,18 @@ local function initRow(row, d)
     row.name:SetText(recName(rec))
     row.name:SetTextColor(qualityColor(rec.ids[1]))
     row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-    row.sub:SetText(slotText(rec) .. " · " .. (d.place.bossName or d.place.raidName))
+    row.sub:SetText(d.place.bossName or d.place.raidName)
     local room = LIST_W - 18 - iw - 9
-    if canEdit() then
-        -- the rules' icons, right to left in the rules' order
-        local keys = {}
-        for _, rd in ipairs(P().RULES) do
-            if rec.r[rd.key] then keys[#keys + 1] = rd.key end
-        end
-        local n = min(#keys, #row.marks)
-        for i = 1, n do
-            local t = row.marks[i]
-            ruleTex(t, keys[n - i + 1], 0.58, 0.58, 0.62)
-            t:Show()
-        end
-        room = room - n * 16 - 6
-    else
-        local text, kind = standing(rec)
-        if text then
-            row.pill:Set(text, kind)
-            row.pill:Show()
-            room = room - row.pill:GetWidth() - 12
-        end
-    end
     row.name:SetWidth(max(60, room))
+    -- my standing at the right of the second line (the name keeps the whole width)
+    local text, kind = standing(rec)
+    row.pill:ClearAllPoints()
+    row.pill:SetPoint("BOTTOMRIGHT", -8, 5)
+    if text then
+        row.pill:Set(text, kind)
+        row.pill:Show()
+        room = room - row.pill:GetWidth() - 10
+    end
     row.sub:SetWidth(max(60, room))
 end
 
@@ -477,6 +465,18 @@ local function createBanner(dc)
             end)
         end)
     b.moreBtn:SetPoint("TOPRIGHT", -12, -12)
+    b.saveBtn = UI():CreateSleekButton(b, "Save", 64, 22, function() PrizedUI:SaveEdit() end, "primary")
+    b.saveBtn:SetPoint("BOTTOMRIGHT", -12, 11)
+    b.saveBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Save the rules")
+        GameTooltip:AddLine("The guild gets a notification of what changed; the item's history keeps it. A raid "
+            .. "already under way keeps the rules it started with on the drop panel.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b.saveBtn:HookScript("OnLeave", hideTooltip)
+    b.cancelBtn = UI():CreateSleekButton(b, "Cancel", 64, 22, function() PrizedUI:CancelEdit() end)
+    b.cancelBtn:SetPoint("RIGHT", b.saveBtn, "LEFT", -6, 0)
     return b
 end
 
@@ -502,6 +502,8 @@ local function fillBanner(b, rec)
     end
     b.editBtn:SetShown(canEdit() and not editing)
     b.moreBtn:SetShown(canEdit() and editing)
+    b.saveBtn:SetShown(editing)
+    b.cancelBtn:SetShown(editing)
 end
 
 ---------------------------------------------------------------------------
@@ -551,7 +553,7 @@ local function newRule(parent)
     r.pill:SetBase(0.08, 0.08, 0.095)
     r.sub = newText(r, "GameFontHighlightSmall", 10)
     r.sub:SetTextColor(0.56, 0.56, 0.6)
-    r.sub:SetPoint("LEFT", r.pill, "RIGHT", 6, 0)
+    r.sub:SetWordWrap(true)
     -- the queue's names
     r.names = newText(r, "GameFontHighlightSmall", 11)
     r.names:SetWordWrap(true)
@@ -639,13 +641,13 @@ local function fillRule(r, rec, rkey, v, res, editing)
     r.pill:SetShown(not editing or rkey == "vote")
     r.sub:ClearAllPoints()
     if r.pill:IsShown() then
-        r.sub:SetPoint("LEFT", r.pill, "RIGHT", 6, 0)
+        r.sub:SetPoint("TOPLEFT", r.pill, "TOPRIGHT", 6, -2)
     else
         r.sub:SetPoint("TOPLEFT", RULE_X, -y - 2)
     end
     r.sub:SetWidth(textW - (r.pill:IsShown() and (r.pill:GetWidth() + 6) or 0))
     r.sub:SetText(sub or "")
-    y = y + 15 + 8
+    y = y + max(15, (r.sub:GetStringHeight() or 12) + 2) + 8
     -- my standing / the editing controls
     r.modeBtn:SetShown(editing and rkey ~= "vote")
     r.bin:SetShown(editing)
@@ -838,7 +840,7 @@ local function createAddForm(dc)
     end
     f.hint = newText(f, "GameFontHighlightSmall", 10)
     f.hint:SetTextColor(0.55, 0.55, 0.58)
-    f.hint:SetPoint("TOPLEFT", 14, -86 - 6 * 29 - 4)
+    f.hint:SetPoint("TOPLEFT", 14, -90)
     f.tplLabel = newText(f, "GameFontHighlightSmall", 10)
     f.tplLabel:SetTextColor(0.55, 0.55, 0.58)
     f.tplLabel:SetPoint("TOPLEFT", 14, -292)
@@ -847,8 +849,8 @@ local function createAddForm(dc)
     local tw = floor((DETAIL_W - 28 - 8) / 2)
     for i, t in ipairs(P().TEMPLATES) do
         local b = CreateFrame("Button", nil, f)
-        b:SetSize(tw, 52)
-        b:SetPoint("TOPLEFT", 14 + ((i - 1) % 2) * (tw + 8), -306 - floor((i - 1) / 2) * 60)
+        b:SetSize(tw, 64)
+        b:SetPoint("TOPLEFT", 14 + ((i - 1) % 2) * (tw + 8), -306 - floor((i - 1) / 2) * 72)
         b.bg = b:CreateTexture(nil, "BACKGROUND")
         b.bg:SetAllPoints()
         UI():AddEdges(b, "BORDER")
@@ -1075,21 +1077,17 @@ local function fillRules(rec, body)
         body.empty:SetText(editing and "No rules yet: Add rule picks one." or "No rules yet.")
         y = y + 40
     end
-    -- editing: Add rule, Cancel, Save
+    -- editing: Add rule (Save / Cancel are on the banner)
     body.addRule:SetShown(editing)
-    body.save:SetShown(editing)
-    body.undo:SetShown(editing)
+    body.save:Hide()
+    body.undo:Hide()
     body.editNote:SetShown(editing)
     if editing then
         y = y + 12
         body.addRule:ClearAllPoints()
         body.addRule:SetPoint("TOPLEFT", 0, -y)
         body.addRule:SetWidth(floor((body.addRule:GetFontString():GetStringWidth() or 50) + 15 + 24 + 0.5))
-        body.save:ClearAllPoints()
-        body.save:SetPoint("TOPRIGHT", 0, -y)
-        body.undo:ClearAllPoints()
-        body.undo:SetPoint("RIGHT", body.save, "LEFT", -6, 0)
-        y = y + 22 + 12
+        y = y + 22 + 10
         body.editNote:ClearAllPoints()
         body.editNote:SetPoint("TOPLEFT", 0, -y)
         y = y + (body.editNote:GetStringHeight() or 24) + 8
@@ -1227,6 +1225,8 @@ function PrizedUI:RefreshAdd()
             b.check:SetShown(picked[id] and true or false)
         end
     end
+    f.hint:ClearAllPoints()
+    f.hint:SetPoint("TOPLEFT", 14, -86 - #found * 29 - 6)
     local n = #a.picked
     f.hint:SetText(n == 0 and (needle == "" and "Type part of a name: Dragonspine, Warglaive, Thori'dal…" or
         (#found == 0 and "No raid item by that name (or it is prized already)." or "Pick one, or two that share rules."))

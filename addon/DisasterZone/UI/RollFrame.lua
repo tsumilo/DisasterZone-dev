@@ -718,6 +718,7 @@ end
 function RollFrame:DoRoll()
     local id = self.sessionID
     if not id then return end
+    if self.przBlocked then return end
     local s = self:GetSession()
     if s and s.state ~= nil and s.state ~= "open" then
         self:Refresh()
@@ -789,6 +790,34 @@ function RollFrame:RefreshItem()
     for _, t in ipairs(f.pips) do t:Hide() end
     f.wearLabel:ClearAllPoints()
     f.wearLabel:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -54)
+    -- 1.3.5: a prized item (Raids > Loot rules): how I stand against its rules; one I don't meet can't be rolled for
+    self.przBlocked, self.przDecides = false, false
+    local P = ns.Prized
+    local rec = not s.plain and P and P.ForItem and P:ForItem(itemID)
+    if rec then
+        local me = ns.Util.PlayerKey()
+        local c = P:Check(rec, me)
+        self.przDecides = P:CouncilDecides(rec)
+        local how = self.przDecides and "the council decides" or "then the roll"
+        local text
+        if c.ok == false then
+            self.przBlocked = true
+            local res = c.by and c.by[c.failKey]
+            text = Paint("Not this time: ", "warn") .. tostring(c.fail or "a loot rule")
+            if res and res.free then text = text .. Paint(" (free again " .. date("%d %b", res.free) .. ")", "muted") end
+        elseif c.ok == nil then
+            text = Paint("Prized item: ", "warn") .. "the council checks its rules"
+        else
+            text = Paint("You meet all " .. c.required .. " rules", "main") .. Paint(" \194\183 " .. how, "muted")
+        end
+        f.wearLabel:SetText(text)
+        f.wearLabel:SetWidth(TEXT_W)
+        for i = 1, #f.wear do
+            f.wear[i].itemID = nil
+            f.wear[i]:Hide()
+        end
+        return
+    end
 
     local group = ItemSlotGroup(itemID, m)
     local getItem = _G.GetInventoryItemID
@@ -982,6 +1011,9 @@ function RollFrame:Refresh()
             f.status:SetText(own)
         else
             self:SetButtonsShown(true)
+            -- 1.3.5: prized items (RefreshItem worked it out)
+            f.roll:SetText(self.przDecides and "I want it" or "Roll")
+            f.roll:SetEnabled(not self.przBlocked)
             f.status:SetText("")
         end
         self:UpdateTimer()

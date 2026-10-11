@@ -199,7 +199,7 @@ Prized.ATT_PCT = { 50, 60, 70, 75, 80, 85, 90 }
 Prized.ATT_WEEKS = { 2, 4, 6, 8, 12 }
 Prized.CD_WEEKS = { 1, 2, 3, 4, 6, 8, 12 }
 Prized.VOTE_SHARES = {
-    { key = "all", label = "Everyone", long = "every council member in the raid" },
+    { key = "all", label = "Everyone", long = "all council members in the raid" },
     { key = "3q", label = "3 in 4", long = "3 in 4 council members in the raid" },
     { key = "2t", label = "2 in 3", long = "2 in 3 council members in the raid" },
     { key = "half", label = "Most", long = "more than half the council members in the raid" },
@@ -255,8 +255,8 @@ end
 function Prized:RuleText(key, v, rec)
     v = v or {}
     if key == "att" then
-        return strformat("Attended at least %d%% of raid time in the last %s", v.p or 75, Weeks(v.w or 6)),
-            "from the raid log"
+        return strformat("At least %d%% attendance in the last %s", v.p or 75, Weeks(v.w or 6)),
+            "time in the raid, from the raid log"
     elseif key == "rank" then
         return strformat("Rank %s or higher", self:RankName(v.i or 0)), "lower ranks and guests can't get it"
     elseif key == "main" then
@@ -284,7 +284,7 @@ function Prized:RuleText(key, v, rec)
         return "Only players with it on their BiS list", "their main spec list"
     elseif key == "vote" then
         local s = VOTE_SHARE[v.s or "all"] or VOTE_SHARE.all
-        return "The Loot Council decides, no rolls", strformat("%s must agree", s.long)
+        return "The Loot Council decides, no rolls", strformat("%s vote for the winner", s.long)
     end
     return tostring(key), nil
 end
@@ -326,7 +326,7 @@ end
 -- Starting points for a new item: { key, label, desc, rules(ids) }.
 Prized.TEMPLATES = {
     { key = "legendary", label = "Legendary", icon = "prized",
-      desc = "Attendance 80% / 8 wk · Mains only · Guild only · Queue · Pair · Council: everyone",
+      desc = "80% attendance / 8 wk · Mains · Guild only · Queue · Pair · Council: all",
       rules = function(n)
           local r = { att = { m = "r", p = 80, w = 8 }, main = { m = "r" }, guild = { m = "r" },
                       queue = { m = "r", n = {} }, vote = { m = "r", s = "all" } }
@@ -334,7 +334,7 @@ Prized.TEMPLATES = {
           return r
       end },
     { key = "trinket", label = "Top trinket", icon = "order",
-      desc = "Attendance 75% / 6 wk · Rank · Mains · Guild · Cooldown 4 wk · Spec order · Council",
+      desc = "75% attendance / 6 wk · Rank · Mains · Guild · Cooldown · Spec order · Council",
       rules = function()
           return { att = { m = "r", p = 75, w = 6 }, rank = Prized:DefaultRule("rank"), main = { m = "r" },
                    guild = { m = "r" }, cd = { m = "r", w = 4 }, order = { m = "p", g = { {} } },
@@ -886,7 +886,7 @@ local function OneRule(self, rec, rkey, v, key, ctx)
         if last then
             local other = self:ForItem(last.it)
             local name = ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(last.it) or "a prized item"
-            res.value = strformat("%s, %s", name, Util.FormatAgo and Util.FormatAgo(last.at) or "")
+            res.value = name
             res.free = last.at + v.w * WEEK
             res.why = strformat("had %s %s", name, Util.FormatAgo and Util.FormatAgo(last.at) or "")
             res.lastItem = other and other.id or nil
@@ -938,7 +938,7 @@ local function OneRule(self, rec, rkey, v, key, ctx)
             res.prio = mine and 0 or 1
             res.why = not mine and (Util.ShortName(holder) .. " has the other one") or nil
         else
-            res.ok, res.value, res.prio = true, "first one", 1
+            res.ok, res.value, res.prio = true, "None given yet", 1
         end
     elseif rkey == "bis" then
         local on = OnBiSList(rec, key)
@@ -1130,7 +1130,7 @@ function Prized:DescribeChange(old, new)
         elseif a and b then
             local sa, sb = ShortValue(d.key, a), ShortValue(d.key, b)
             if sa ~= sb then
-                parts[#parts + 1] = strformat("%s %s → %s", d.label:lower(), sa or "", sb or "")
+                parts[#parts + 1] = strformat("%s from %s to %s", d.label:lower(), sa or "", sb or "")
             end
             if (a.m or "r") ~= (b.m or "r") then
                 parts[#parts + 1] = strformat("%s now %s", d.label:lower(), b.m == "p" and "priority" or "required")
@@ -1418,9 +1418,9 @@ function Prized:BuildDemo()
                                           t = text })
     end
     for id in pairs(demo.I) do hist(id, "Made a prized item", 10 * WEEK) end
-    hist("28830", "Attendance 70% over 6 weeks → 75% over 6 weeks", 2 * DAY)
+    hist("28830", "Attendance from 70% over 6 weeks to 75% over 6 weeks", 2 * DAY)
     hist("28830", "Added spec order (rogues, hunters, Enhancement shamans and Feral (Cat) druids)", 6 * WEEK, K(1))
-    hist("32837", "Queue " .. Util.ShortName(K(3)) .. ", " .. Util.ShortName(K(5)) .. " → " .. Util.ShortName(me) ..
+    hist("32837", "Queue from " .. Util.ShortName(K(3)) .. ", " .. Util.ShortName(K(5)) .. " to " .. Util.ShortName(me) ..
         ", " .. Util.ShortName(K(3)) .. ", " .. Util.ShortName(K(5)), 4 * DAY)
     itemIndex = nil
     return demo

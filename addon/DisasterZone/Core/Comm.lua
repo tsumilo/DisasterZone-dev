@@ -40,6 +40,7 @@ local PRIORITY = { ctrl = "NORMAL", data = "BULK", alert = "ALERT", game = "BULK
 local CLASS_BY_PREFIX = { CDLc = "ctrl", CDLd = "data", CDLa = "alert", CDLg = "game", CDLm = "member", CDLl = "live",
     CDLw = "walk", CDLr = "run", CDLe = "event", CDLf = "eventmsg", CDLq = "map", CDLx = "craft", CDLy = "craftev",
     CDLb = "fb" }
+Comm.CLASS_BY_PREFIX = CLASS_BY_PREFIX    -- (the Performance page names the prefixes by it)
 
 local MAX_WIRE_LEN = 24000       -- encoded bytes accepted from one message (council: manifests, relays; anyone:
                                  -- strategy boards, see AllowLarge)

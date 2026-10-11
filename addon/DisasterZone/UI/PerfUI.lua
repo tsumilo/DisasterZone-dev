@@ -282,13 +282,14 @@ end
 
 -- A ring gauge drawn with lines (parts from the top, clockwise). g:Set({ { frac, color }, ... }): what the parts
 -- don't cover is the dark track.
-local SEGS = 60
+local SEGS = 90
+local OVERLAP = 0.012                    -- radians each segment reaches past its neighbours (square ends, no notches)
 local function Gauge(parent, r, width)
     local g = CreateFrame("Frame", nil, parent)
     g:SetSize(2 * r + width, 2 * r + width)
     g.lines = {}
     for i = 1, SEGS do
-        local a1, a2 = pi / 2 - (i - 1) / SEGS * 2 * pi, pi / 2 - i / SEGS * 2 * pi
+        local a1, a2 = pi / 2 - (i - 1) / SEGS * 2 * pi + OVERLAP, pi / 2 - i / SEGS * 2 * pi - OVERLAP
         local l = g:CreateLine(nil, "ARTWORK")
         l:SetStartPoint("CENTER", g, r * cos(a1), r * sin(a1))
         l:SetEndPoint("CENTER", g, r * cos(a2), r * sin(a2))
@@ -1169,8 +1170,18 @@ end
 -- Network
 ---------------------------------------------------------------------------
 
-local PREFIX_WHAT = { CDLc = "control", CDLd = "data", CDLa = "announce", CDLg = "guild", CDLm = "meters",
-                      CDLp1 = "updates", CDLp2 = "updates", CDLp3 = "updates", CDLp4 = "updates" }
+-- What a prefix carries, by its class in Core/Comm.lua (Comm.CLASS_BY_PREFIX); CDLp1-4: in-game updates.
+local CLASS_WHAT = { ctrl = "control", data = "data", alert = "alerts", game = "games", member = "member cards",
+                     live = "live strategy boards", walk = "3D walking", run = "dungeon runs", event = "events",
+                     eventmsg = "event messages", map = "guild map", craft = "crafting", craftev = "crafting news",
+                     fb = "feedback" }
+local function PrefixWhat(prefix)
+    local Comm = ns.Comm
+    local cls = Comm and Comm.CLASS_BY_PREFIX and Comm.CLASS_BY_PREFIX[prefix]
+    if cls then return CLASS_WHAT[cls] or cls end
+    if tostring(prefix):match("^CDLp%d$") then return "in-game updates" end
+    return "another addon's"
+end
 
 local function CreateNetwork(p)
     local v = CreateFrame("Frame", nil, p)
@@ -1278,7 +1289,7 @@ local function FillNetwork(p)
         local x = n.prefixes[i]
         if x then
             r.p:SetText(x.prefix)
-            r.what:SetText(PREFIX_WHAT[x.prefix] or "another addon's")
+            r.what:SetText(PrefixWhat(x.prefix))
             local vals = { ("%.1f"):format(x.inN / mins), ("%.1f"):format(x.inB / 1024 / mins), ("%.1f"):format(x.outN / mins),
                            ("%.1f"):format(x.outB / 1024 / mins) }
             for j, fs in ipairs(r.cells) do fs:SetText(vals[j]) end

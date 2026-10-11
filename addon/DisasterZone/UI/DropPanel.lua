@@ -1204,7 +1204,7 @@ function DropPanel:TickRolls()
         local s = b:IsShown() and b.rollSession
         if s and s.state == "open" then
             any = true
-            b.sub:SetText(RollStateText(s, b.rollStats))
+            b.sub:SetText(Grid.PrzSub(b.itemID, RollStateText(s, b.rollStats)))
         end
     end
     if not any then self:StopRollTicker() end
@@ -1395,6 +1395,41 @@ local DRY = { SEGS = 6, SEG_W = 3, SEG_H = 9, GAP = 2,
 DRY.BARS_W = DRY.SEGS * DRY.SEG_W + (DRY.SEGS - 1) * DRY.GAP
 local Dry, Grid = {}, {}
 
+-- 1.3.5 prized items (Core/Prized.lua, Raids > Loot rules): the item's record, a row's rule check, the short word for
+-- the rule that keeps a player out (the row's loot column; the tooltip has it whole), the card's marks.
+Grid.PRZ_SHORT = { att = "attendance", rank = "rank", main = "alt", guild = "guest", cd = "cooldown", order = "spec",
+                   queue = "queue", pair = "pair", bis = "not listed" }
+function Grid.PrzRec(itemID)
+    local P = ns.Prized
+    return P and P.ForItem and P:ForItem(itemID) or nil
+end
+function Grid.PrzCheck(itemID, key, hint)
+    local rec = Grid.PrzRec(itemID)
+    if not rec or type(key) ~= "string" then return nil end
+    return ns.Prized:Check(rec, key, { hint = hint })
+end
+function Grid.PrzTag(c)
+    if not c or c.ok ~= false then return nil end
+    local res = c.by and c.by[c.failKey]
+    if c.failKey == "att" and res and res.num then return Paint(res.num .. "% att", "warn") end
+    return Paint(Grid.PRZ_SHORT[c.failKey] or "rules", "warn")
+end
+-- The card's name with the prized seal, and its second line with the votes the award needs.
+function Grid.PrzName(itemID, text)
+    if not Grid.PrzRec(itemID) or not (ns.UI and ns.UI.AtlasIconText) then return text end
+    local i = (ns.HasAssets and ns:HasAssets(7)) and ns.UI.ICON.prized or ns.UI.ICON.trophy
+    return text .. "  " .. ns.UI:AtlasIconText(i, 11, { 1, 0.6, 0.18 })
+end
+function Grid.PrzSub(itemID, text)
+    local rec = Grid.PrzRec(itemID)
+    if not rec then return text end
+    local P = ns.Prized
+    local n = #P:PresentCouncil()
+    local need = P:NeededVotes(rec, n)
+    local add = need > 0 and format("prized: %d of %d votes", need, n) or "prized"
+    return (text and text ~= "") and (text .. " · " .. add) or add
+end
+
 function Dry.Get(key)
     local Att = ns.Attendance
     if not IsCouncil() or not (Att and Att.GetDryStreak) then return nil end
@@ -1502,6 +1537,10 @@ local function RollRowTooltip(self, tt, vp)
     if type(row) ~= "table" then return end
     local plain = PlainMode(nil, session)
     tt:AddLine(ColoredName(row.key, row.classFile))
+    if row.prz and row.prz.ok == false then
+        tt:AddLine("Prized item: " .. tostring(row.prz.fail or "breaks a loot rule") .. " (an award needs a reason)",
+            1, 0.62, 0.36, true)
+    end
     local specLine = ((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. ClassName(row.classFile)
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
     if not plain then
@@ -2135,9 +2174,11 @@ local function FillRow(r, w, itemID, vp, itemSid)
     else
         SetEquipped(r, WornOfWanter(w, itemSid))
     end
+    local przTag = Grid.PrzTag(Grid.PrzCheck(itemID, w.key, w))
+    if przTag and w.inRaid then status = przTag end
     r.status:SetText(status)
     if status == "" and not w.craft then Dry.Set(r, w.key) end
-    r:SetAlpha(w.inRaid and 1 or 0.55)
+    r:SetAlpha((w.inRaid and not przTag) and 1 or 0.55)
     return ROW_H
 end
 
@@ -2161,6 +2202,10 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     if not plain then Grid.Att(r, row.key) end
     if plain then SetPill(r, nil) else SetPill(r, RollPill(row, vp)) end
     local tag = RollTag(row, session)
+    local przTag = not plain and Grid.PrzTag(row.prz)
+    if przTag and not (type(session) == "table" and session.state == "awarded" and session.winner == row.key) then
+        tag = przTag
+    end
     -- §38: changed their list while the lists were locked (the warning icon in front of the tag)
     if not plain and LockChanged(row) and tag ~= "" and not tag:find("changed", 1, true) then
         tag = WarnIcon(10) .. " " .. tag
@@ -2201,6 +2246,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     elseif not inRaid then
         alpha = 0.6
     end
+    if row.prz and row.prz.ok == false and not winner then alpha = min(alpha, 0.55) end
     r:SetAlpha(alpha)
     return ROW_H
 end
@@ -2709,7 +2755,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.copy = copy
     b.awardEntry = award
     b.button:SetItem(itemID)
-    FitName(b.name, ItemText(itemID), CARD_W - TEXT_X - 10 - 20 - 8)
+    FitName(b.name, Grid.PrzName(itemID, ItemText(itemID)), CARD_W - TEXT_X - 10 - 20 - 8)
 
     local session, mode, queuePos = RollStateFor(itemID, drop, copy)
     local rolling = mode == "roll" and session ~= nil
@@ -2755,7 +2801,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             headKind = "roll"
             y = y + Grid.HEAD_H
         end
-        b.sub:SetText(RollStateText(session, b.rollStats))
+        b.sub:SetText(Grid.PrzSub(itemID, RollStateText(session, b.rollStats)))
         -- "+N more" only when it hides at least two rows.
         local limit = (n > MAX_ROLL_ROWS + 1) and MAX_ROLL_ROWS or n
         for i = 1, limit do
@@ -2799,9 +2845,9 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             y = y + Grid.HEAD_H
         end
         if mode == "queued" then
-            b.sub:SetText(RollStateText(nil, nil, queuePos or 1))
+            b.sub:SetText(Grid.PrzSub(itemID, RollStateText(nil, nil, queuePos or 1)))
         else
-            b.sub:SetText(ItemSubtitle(itemID))
+            b.sub:SetText(Grid.PrzSub(itemID, ItemSubtitle(itemID)))
         end
         local limit = (n > MAX_ROWS + 1) and MAX_ROWS or n
         for i = 1, limit do

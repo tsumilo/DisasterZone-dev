@@ -322,6 +322,30 @@ local function OnCleared(tt)
     matsOn[tt] = nil
 end
 
+-- A prized item's lines: "DisasterZone: prized item", then each rule with a tick or a cross for me (a priority rule
+-- or how it's decided in grey). True when added.
+local CROSS = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:0|t"
+function Tooltip:AddPrized(tt, itemID)
+    local P = ns.Prized
+    local rec = P and P.ForItem and P:ForItem(itemID)
+    if not rec then return false end
+    local c = P:Check(rec, ns.Util.PlayerKey())
+    tt:AddLine(MARK .. ": |cffff9a2eprized item|r (Raids > Loot rules)", 1, 1, 1)
+    for _, res in ipairs(c.rules) do
+        local text = P:RuleText(res.key, rec.r[res.key], rec)
+        if res.info or res.m == "p" then
+            tt:AddLine("  " .. text, GREY, GREY, GREY, true)
+        else
+            local mark = res.ok == true and CHECK or (res.ok == false and CROSS or "  ")
+            local extra = ""
+            if res.ok == false and res.free then extra = format(" (free again %s)", date("%d %b", res.free)) end
+            local col = res.ok == false and { 1, 0.62, 0.36 } or { 0.9, 0.9, 0.9 }
+            tt:AddLine(mark .. " " .. text .. extra, col[1], col[2], col[3], true)
+        end
+    end
+    return true
+end
+
 -- Appends the DisasterZone lines for itemID to a tooltip. Returns true if anything was added.
 function Tooltip:AddLines(tt, itemID)
     if not tt or not itemID or not Setting("tooltip.enabled", true) then return false end
@@ -331,6 +355,8 @@ function Tooltip:AddLines(tt, itemID)
         tt:AddLine(data.own, 1, 1, 1)
         added = true
     end
+    -- 1.3.5: a prized item (Raids > Loot rules): its rules, ticked for me
+    if self:AddPrized(tt, itemID) then added = true end
     local council = data.council
     if council and Setting("tooltip.council", true) and IsCouncil() then
         tt:AddLine(council.header, 1, 1, 1)
