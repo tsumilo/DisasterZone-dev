@@ -104,6 +104,27 @@ def off_by_default_records_nothing():
 
 
 @case
+def talents_read_like_the_class_tools_read_them():
+    """A pull's talent string reads the points the way ClassKit does (2.5.6's C_SpecializationInfo first): a client
+    without the old GetTalentTabInfo alias still records 41/20/0, not 0/0/0."""
+    f = Fight(cls="WARLOCK")
+    f.cl.eval("""
+        local pts = { 41, 20, 0 }
+        C_SpecializationInfo = { GetSpecializationInfo = function(tab)
+            return tab, 'Tab' .. tab, '', 0, nil, nil, pts[tab] or 0, '', 0, true
+        end }
+        GetTalentTabInfo = nil
+    """)
+    assert f.cl.eval("return ns.ClassKit:MyTab()") == 1
+    f.start()
+    f.tick(5)
+    f.end(kill=True)
+    p = f.last()
+    assert p["tal"] == "41/20/0", p["tal"]
+    assert p["spec"] == f.cl.eval("return ns.BiS:DetectSpec()") and p["spec"] != "", p["spec"]
+
+
+@case
 def nothing_is_ever_sent():
     """My Log has no wire code at all: no addon messages, no chat, no Comm / Outbox calls."""
     import harness
