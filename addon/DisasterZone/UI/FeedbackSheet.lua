@@ -608,7 +608,7 @@ function Sheet:Layout()
     for i, cdef in ipairs(chips) do
         local ch = f.withChips[i]
         if not ch then
-            ch = ns.FeedbackUI.NewChip(f.body)
+            ch = ns.FeedbackUI.NewContextPill(f.body)
             ch:SetHeight(20)
             ch:EnableMouse(true)
             ch:SetScript("OnEnter", function(self)
