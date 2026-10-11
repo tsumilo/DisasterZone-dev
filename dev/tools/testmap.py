@@ -521,6 +521,8 @@ def reason(task_name):
     if r is None:
         return "no record yet"
     for key, h in r.get("files", {}).items():
+        if key in rec.INSTRUMENTATION:
+            continue  # (records written before the recorder left itself out)
         if file_sha(key) != h:
             return "%s changed" % key.split(":", 1)[1]
     for key, h in r.get("dirs", {}).items():
