@@ -21,7 +21,8 @@ local spec, rules = ...
 local rows = {}
 for i, s in ipairs(spec) do
     rows[i] = { key = s[1], name = s[1], votes = s[2] or 0, roll = s[3], invalid = false, inRaid = true,
-                response = s[3] and "roll" or (s[7] and "pass" or nil), tier = s[4] or 4, att = s[5], dry = s[6] }
+                response = s[3] and "roll" or (s[7] and "pass" or nil), tier = s[4] or 4, att = s[5], dry = s[6],
+                longevity = s[8], cantUse = s[9] or nil }
 end
 ns.Roll:RankRows(rows, { rules = rules })
 local out = {}
@@ -129,6 +130,33 @@ def only_the_gm_sets_the_rules_and_they_reach_the_guild():
     res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'o', y = 'n', h = 9 }); "
                        "return { ok = ok }")
     assert res["ok"] is False
+
+
+@case
+def a_class_that_cannot_use_it_is_never_suggested_and_sits_with_the_passes():
+    w, c = world()
+    # the user's in-game case: Bracers of the Forgotten Conqueror, one vote each for Kaelyn (a shaman: can't use the
+    # token, rolled 42) and Caelith (no roll); Brakka can't use it either and rolled 99; Dan passed
+    spec = [["Kaelyn", 1, 42, 4, 97, 0, None, None, True], ["Caelith", 1, None, 1, 100, 2],
+            ["Brakka", 0, 99, 4, 88, 0, None, None, True], ["Mira", 0, 30, 4, 90, 1], ["Dan", 0, None, 4, 90, 0, True]]
+    order, sug, rows = rank(c["Bob"], spec)
+    assert sug != "Kaelyn" and not rows["Kaelyn"].get("split"), (order, sug, rows)
+    # Kaelyn's vote doesn't count: Caelith has the only vote that does (no roll), so no split
+    assert not rows["Caelith"].get("split"), rows
+    assert order[-3:] and set(order[-3:]) == {"Kaelyn", "Brakka", "Dan"}, order   # at the bottom with the pass
+    assert order.index("Mira") < order.index("Brakka"), order
+
+
+@case
+def longest_use_first_within_a_list():
+    w, c = world()
+    # name, votes, roll, tier, att, dry, pass, longevity: same list; Ana rolled higher, Bo keeps it longer
+    spec = [["Ana", 0, 90, 1, 100, 0, None, 1], ["Bo", 0, 20, 1, 100, 0, None, 3], ["Cy", 0, 95, 4, 100, 0, None, 4]]
+    order, sug, _ = rank(c["Bob"], spec)
+    assert sug == "Ana", (order, sug)                     # the roll (default)
+    order, sug, _ = rank(c["Bob"], spec, w="o")
+    assert sug == "Bo" and order[:2] == ["Bo", "Ana"], (order, sug)   # longest use inside the BiS list
+    assert order[2] == "Cy"                              # lists first still comes before it
 
 
 # Store:Longevity: phases a pick stays on the list, from the guild's phase up to the last phase counted

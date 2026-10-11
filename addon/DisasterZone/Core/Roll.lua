@@ -726,7 +726,8 @@ end
 
 -- A roll of a player who left the group is shown but never suggested (they cannot get the item).
 local function BaseRowGroup(r)
-    if r.response == "pass" then return 3 end
+    -- (a class that can't use the item sits at the bottom with the passes: never suggested, votes or not)
+    if r.response == "pass" or r.cantUse then return 3 end
     if r.roll and not r.invalid and r.inRaid then return 1 end
     return 2
 end
@@ -949,7 +950,10 @@ local function BuildResults(ses)
             r.att = RL and RL.GetAttendance and (RL:GetAttendance(r.key)) or nil
             local d = Att and Att.GetDryStreak and Att:GetDryStreak(r.key)
             r.dry = d and d.nights or nil
-            if lastPhase then r.longevity = (Store:Longevity(r.key, ses.i, nil, lastPhase)) end
+            if lastPhase then
+                local _
+                r.longevity, _, r.longevityTo = Store:Longevity(r.key, ses.i, nil, lastPhase)
+            end
         end
     end
     return Roll:RankRows(out, { plain = plain, mat = mat, prized = przRec })
@@ -992,7 +996,7 @@ function Roll:RankRows(out, ctx)
     -- Votes that count for the suggestion: for a player still in the group who did not pass (and is not under the
     -- guild's attendance floor).
     local function VoteRank(r)
-        if r.votes > 0 and r.inRaid and r.response ~= "pass" and not r.lowAtt then return r.votes end
+        if r.votes > 0 and r.inRaid and r.response ~= "pass" and not r.lowAtt and not r.cantUse then return r.votes end
         return 0
     end
     local function ValidRoll(r)

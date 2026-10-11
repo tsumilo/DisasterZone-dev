@@ -41,28 +41,36 @@ local STEPS = {
       tip = "Lists first: BiS mains, then BiS alts, then off-spec lists, then everyone else. Roll only: the lists "
           .. "don't matter, the highest roll wins." },
     { key = "w", title = "Then, among them", sub = "who wins inside a list",
-      opts = { { "r", "Highest roll" }, { "d", "Driest first" } },
-      tip = "The highest roll wins, or the player with the most raids since their last item (the roll breaks a "
-          .. "tie). Driest first helps players on a dry streak." },
+      opts = { { "r", "Roll" }, { "d", "Driest" }, { "o", "Longest use" } },
+      tip = "Roll: the highest roll wins. Driest: the player with the most raids since their last item. Longest use: "
+          .. "the player who keeps it on their BiS list for the most phases (counted up to the phase you pick). "
+          .. "The roll breaks a tie." },
     { key = "y", title = "Since loot counts", sub = "raids since their last item",
       opts = { { "n", "Nights there" }, { "a", "Any night" } },
       tip = "The SINCE LOOT column (the dry streak): only nights they were really there for (a boss kill or half "
           .. "the night), or any night they showed up. Offspec, disenchant and guild bank items never end a streak." },
 }
 
+-- 1.3.5 longevity: how far ahead Longest use counts (only shown while it is picked; Guild.LOOT_RULES h)
+STEPS[#STEPS + 1] = { key = "h", only = { "w", "o" }, title = "Longest use counts", sub = "phases on their list, up to",
+    opts = { { 3, "P3" }, { 4, "P4" }, { 5, "P5" } },
+    tip = "How many phases a player keeps the item on their BiS list, from the guild's phase up to this one. With P4, "
+        .. "a pick kept P2-P4 and replaced in P5 counts the same as one kept in P5 too." }
+
 -- The example roll: name, class, spec, tier (1 BiS, 2 Alt, 3 OS, 4 not on a list), attendance %, raids since loot
 -- (really there / came at all), roll (nil = no roll), times rolled, bad range, passed.
+-- (12: the last phase they keep it on their list, from P2: Longest use counts up to the GM's phase)
 local EXAMPLE = {
-    { "Orinel", "WARLOCK", "Destruction", 4, 60, 5, 5, 93 },
-    { "Brakka", "WARRIOR", "Protection", 4, 88, 1, 1 },
-    { "Quillon", "DRUID", "Restoration", 3, 14, 1, 5 },
-    { "Kaelyn", "SHAMAN", "Restoration", 4, 78, 0, 0, 98, 2 },
-    { "Caelith", "PALADIN", "Protection", 3, 100, 1, 1, 27 },
-    { "Mirabel", "MAGE", "Frost", 4, 75, 5, 5, 8 },
-    { "Aldrin", "WARRIOR", "Protection", 2, 100, 3, 3 },
-    { "Isolde", "PRIEST", "Holy", 4, 69, 0, 0, 11, 1, { 1, 50 } },
-    { "Elowen", "HUNTER", "Marksmanship", 4, 100, 0, 0, nil, 1, nil, true },
-    { "Grimtusk", "ROGUE", "Combat", 4, 88, 6, 6, nil, 1, nil, true },
+    { "Orinel", "WARLOCK", "Destruction", 4, 60, 5, 5, 93, nil, nil, nil, 2 },
+    { "Brakka", "WARRIOR", "Protection", 4, 88, 1, 1, nil, nil, nil, nil, 4 },
+    { "Quillon", "DRUID", "Restoration", 3, 14, 1, 5, nil, nil, nil, nil, 3 },
+    { "Kaelyn", "SHAMAN", "Restoration", 4, 78, 0, 0, 98, 2, nil, nil, 3 },
+    { "Caelith", "PALADIN", "Protection", 3, 100, 1, 1, 27, nil, nil, nil, 5 },
+    { "Mirabel", "MAGE", "Frost", 4, 75, 5, 5, 8, nil, nil, nil, 4 },
+    { "Aldrin", "WARRIOR", "Protection", 2, 100, 3, 3, nil, nil, nil, nil, 5 },
+    { "Isolde", "PRIEST", "Holy", 4, 69, 0, 0, 11, 1, { 1, 50 }, nil, 2 },
+    { "Elowen", "HUNTER", "Marksmanship", 4, 100, 0, 0, nil, 1, nil, true, 2 },
+    { "Grimtusk", "ROGUE", "Combat", 4, 88, 6, 6, nil, 1, nil, true, 3 },
 }
 local SCENES = {
     { key = "split", label = "Split vote", votes = { Quillon = 1, Orinel = 1, Brakka = 1 } },
@@ -160,14 +168,15 @@ local function ExampleRows(rules)
     local me = ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey()
     local realm = me and me:match("%-(.+)$") or "Example"   -- (my realm: no "another realm" star on the names)
     for i, p in ipairs(EXAMPLE) do
-        local name, cls, spec, tier, att, dryN, dryA, roll, count, bad, pass = unpack(p, 1, 11)
+        local name, cls, spec, tier, att, dryN, dryA, roll, count, bad, pass, keepTo = unpack(p, 1, 12)
         local dryCount = (rules.y == "a") and dryA or dryN
+        local longevity = keepTo and math.max(0, math.min(keepTo, tonumber(rules.h) or 4) - 2 + 1) or 0
         local key = name .. "-" .. realm
         rows[i] = { key = key, name = name, classFile = cls, spec = spec, tier = tier, os = tier == 3 or nil,
                     which = (tier == 2 and "alt") or (tier <= 3 and "main") or nil, roll = roll,
                     invalid = bad ~= nil, min = bad and bad[1], max = bad and bad[2], count = count or (roll and 1 or 0),
                     response = pass and "pass" or (roll and "roll" or nil), inRaid = true, votes = votes[name] or 0,
-                    voters = {}, att = att, dry = dryCount, equippedList = {},
+                    voters = {}, att = att, dry = dryCount, longevity = longevity, equippedList = {},
                     preview = { att = att, dry = { nights = dryCount, bosses = dryCount * 4, came = dryA } } }
     end
     local R = ns.Roll
@@ -214,6 +223,9 @@ local function WhyText(rows, rules)
             bits[#bits + 1] = ({ "BiS list", "BiS alt list", "off-spec list" })[s.tier] .. ", before players not on a list"
         end
         if rules.w == "d" and (s.dry or 0) > 0 then bits[#bits + 1] = format("%d raids without loot", s.dry) end
+        if rules.w == "o" and (s.longevity or 0) > 0 then
+            bits[#bits + 1] = format("on their list to P%d", 1 + s.longevity)
+        end
         bits[#bits + 1] = "rolled " .. tostring(s.roll)
         return "No votes yet. " .. format(gold, s.name) .. ": " .. tconcat(bits, " · ") .. "."
     end
@@ -403,10 +415,17 @@ local function BuildWinner(v)
         f.seg:SetPoint("RIGHT", f, "RIGHT", 0, 0)
         f.def = st
         d.steps[i] = f
-        y = y - K.STEP_H
+        if not st.only then y = y - K.STEP_H end
     end
+    -- (the line under the steps: everything below hangs from it, and it moves down while an "only" step shows)
+    d.afterY = y
+    d.after = CreateFrame("Frame", nil, d)
+    d.after:SetHeight(1)
+    d.after:SetPoint("TOPLEFT", d, "TOPLEFT", 0, y)
+    d.after:SetPoint("TOPRIGHT", d, "TOPRIGHT", 0, y)
+    local y0 = y
     d.always = Text(d, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    d.always:SetPoint("TOPLEFT", d, "TOPLEFT", 12, y - 6)
+    d.always:SetPoint("TOPLEFT", d.after, "TOPLEFT", 12, y - 6 - y0)
     d.always:SetWidth(W)
     d.always:SetText("Never suggested: a pass, a player who left, a class that can't use it.")
     y = y - 24
@@ -416,14 +435,14 @@ local function BuildWinner(v)
         state.draft = nil
         CouncilRulesUI:Refresh()
     end, "secondary")
-    d.save:SetPoint("TOPRIGHT", d, "TOPRIGHT", -12, y - 2)
+    d.save:SetPoint("TOPRIGHT", d.after, "TOPRIGHT", -12, y - 2 - y0)
     d.undo:SetPoint("RIGHT", d.save, "LEFT", -6, 0)
     d.change = Text(d, "GameFontHighlightSmall", 11)
-    d.change:SetPoint("TOPLEFT", d, "TOPLEFT", 12, y - 6)
+    d.change:SetPoint("TOPLEFT", d.after, "TOPLEFT", 12, y - 6 - y0)
     y = y - 26
     -- Try it: the label and the example's scenarios on their own row
     d.tryLabel = Text(d, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    d.tryLabel:SetPoint("TOPLEFT", d, "TOPLEFT", 12, y - 4)
+    d.tryLabel:SetPoint("TOPLEFT", d.after, "TOPLEFT", 12, y - 4 - y0)
     d.tryLabel:SetText("TRY IT")
     d.scenes = Seg(d, "scene", (function()
         local o = {}
@@ -433,10 +452,10 @@ local function BuildWinner(v)
         state.scene = value
         CouncilRulesUI:Refresh()
     end, 246)
-    d.scenes:SetPoint("TOPRIGHT", d, "TOPRIGHT", -12, y)
+    d.scenes:SetPoint("TOPRIGHT", d.after, "TOPRIGHT", -12, y - y0)
     y = y - 26
     local c = CreateFrame("Frame", nil, d)
-    c:SetPoint("TOPLEFT", d, "TOPLEFT", 6, y)
+    c:SetPoint("TOPLEFT", d.after, "TOPLEFT", 6, y - y0)
     c:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -6, 6)
     Fill(c, CARD_BG)
     Edge(c, EDGE)
@@ -555,7 +574,26 @@ local function FillWinner(v)
     local G = ns.Guild
     local by = G and G.GetLootRulesBy and G:GetLootRulesBy()
     d.who:SetText(edit and "you set these for the guild" or ("set by " .. (by and ns.Util.ShortName(by) or "the Guild Master")))
-    for _, f in ipairs(d.steps) do f.seg:Paint(draft[f.def.key], edit) end
+    local extra = 0
+    for _, f in ipairs(d.steps) do
+        f.seg:Paint(draft[f.def.key], edit)
+        local only = f.def.only
+        if only then
+            local on = draft[only[1]] == only[2]
+            f:SetShown(on)
+            if on then
+                f:ClearAllPoints()
+                f:SetPoint("TOPLEFT", d, "TOPLEFT", 12, d.afterY - extra)
+                extra = extra + K.STEP_H
+            end
+        end
+    end
+    -- (with an extra step the "Never suggested" line makes room for it)
+    d.always:SetShown(extra == 0)
+    local shift = extra > 0 and (extra - 24) or 0
+    d.after:ClearAllPoints()
+    d.after:SetPoint("TOPLEFT", d, "TOPLEFT", 0, d.afterY - shift)
+    d.after:SetPoint("TOPRIGHT", d, "TOPRIGHT", 0, d.afterY - shift)
     d.scenes:Paint(state.scene, true)
     local dirty = edit and not Same(saved, draft)
     d.save:SetShown(dirty)

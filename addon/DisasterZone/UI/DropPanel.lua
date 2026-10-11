@@ -1422,6 +1422,70 @@ function DropPanel.PrzTag(c)
     return Paint(DropPanel.PRZ_SHORT[c.failKey] or "rules", "warn")
 end
 -- The card's name with the prized seal, and its second line with the votes the award needs.
+-- 1.3.5 (prized look mockup, the user picked "ember glow" for the card): a prized item's card is warm - an amber
+-- edge, a faint amber tint, a glow from the inside of the edges, and a slow light that runs along the top edge every
+-- few seconds. on = false puts the card back.
+DropPanel.PRZ_GLOW = { EDGE = { 0.62, 0.34, 0.10, 1 }, TINT = { 1, 0.47, 0.08, 0.05 }, GLOW = { 1, 0.45, 0.08, 0.22 },
+                       DEPTH = 22, STREAK_W = 150, PERIOD = 5, RUN = 2.2 }
+function DropPanel.PrzGlow(b, on)
+    local G = DropPanel.PRZ_GLOW
+    local k = b.przGlow
+    if not k then
+        if not on then return end
+        k = {}
+        k.tint = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+        k.tint:SetAllPoints()
+        k.tint:SetColorTexture(G.TINT[1], G.TINT[2], G.TINT[3], G.TINT[4])
+        local c = G.GLOW
+        local function glow(p1, p2, orient, a1, a2, w, h)
+            local t = b:CreateTexture(nil, "BACKGROUND", nil, 2)
+            t:SetPoint(p1)
+            t:SetPoint(p2)
+            if w then t:SetWidth(w) else t:SetHeight(h) end
+            Gradient(t, orient, c[1], c[2], c[3], a1, a2)
+            return t
+        end
+        -- (VERTICAL: the first colour is the bottom; HORIZONTAL: the left)
+        k.glow = { glow("TOPLEFT", "TOPRIGHT", "VERTICAL", 0, c[4], nil, G.DEPTH),
+                   glow("BOTTOMLEFT", "BOTTOMRIGHT", "VERTICAL", c[4], 0, nil, G.DEPTH),
+                   glow("TOPLEFT", "BOTTOMLEFT", "HORIZONTAL", c[4], 0, G.DEPTH),
+                   glow("TOPRIGHT", "BOTTOMRIGHT", "HORIZONTAL", 0, c[4], G.DEPTH) }
+        -- the light along the top edge: a bright core over a soft halo, run by an OnUpdate while shown
+        k.run = CreateFrame("Frame", nil, b)
+        k.run:SetAllPoints()
+        k.halo = k.run:CreateTexture(nil, "OVERLAY", nil, 1)
+        k.halo:SetSize(G.STREAK_W, 6)
+        k.core = k.run:CreateTexture(nil, "OVERLAY", nil, 2)
+        k.core:SetSize(G.STREAK_W * 0.6, 2)
+        k.halo:SetColorTexture(1, 0.62, 0.20, 0.35)
+        k.core:SetColorTexture(1, 0.88, 0.62, 0.95)
+        k.t = 0
+        k.run:SetScript("OnUpdate", function(self, dt)
+            k.t = (k.t + (dt or 0)) % G.PERIOD
+            local f = k.t / G.RUN
+            if f > 1 then
+                k.halo:SetAlpha(0)
+                k.core:SetAlpha(0)
+                return
+            end
+            local x = f * (CARD_W - G.STREAK_W)
+            local a = math.sin(f * math.pi)          -- fades in and out along the way
+            k.halo:ClearAllPoints()
+            k.halo:SetPoint("CENTER", b, "TOPLEFT", x + G.STREAK_W / 2, 0)
+            k.core:ClearAllPoints()
+            k.core:SetPoint("CENTER", b, "TOPLEFT", x + G.STREAK_W / 2, 0)
+            k.halo:SetAlpha(a)
+            k.core:SetAlpha(a)
+        end)
+        b.przGlow = k
+    end
+    k.tint:SetShown(on)
+    for _, t in ipairs(k.glow) do t:SetShown(on) end
+    k.run:SetShown(on)
+    local e = on and G.EDGE or EDGE
+    ns.UI:SetEdgeColor(b, e[1], e[2], e[3], e[4])
+end
+
 function DropPanel.PrzName(itemID, text)
     if not DropPanel.PrzRec(itemID) or not (ns.UI and ns.UI.AtlasIconText) then return text end
     local i = (ns.HasAssets and ns:HasAssets(7)) and ns.UI.ICON.prized or ns.UI.ICON.trophy
@@ -1587,7 +1651,13 @@ local function RollRowTooltip(self, tt, vp)
         tt:AddLine("Prized item: " .. tostring(row.prz.fail or "breaks a loot rule") .. " (an award needs a reason)",
             1, 0.62, 0.36, true)
     end
-    local specLine = ((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. ClassName(row.classFile)
+    -- 1.3.5 longevity (the guild's "Longest use"): how long they keep it on their list
+    local lg = tonumber(row.longevity)
+    if lg and not plain then
+        tt:AddLine(lg > 0 and format("On their list to P%d (%d phase%s)", tonumber(row.longevityTo) or 0, lg,
+            lg == 1 and "" or "s") or "Not on their list from this phase on", 0.8, 0.8, 0.8)
+    end
+    local specLine =((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. ClassName(row.classFile)
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
     if not plain then
         local tier = tonumber(row.tier) or 4
@@ -2271,7 +2341,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     end
     r.tag:SetText(tag)
     local canVote = not plain and type(session) == "table" and HasRoll("CanVote") and CallRoll("CanVote", session.id)
-        and inRaid and row.response ~= "pass" and true or false
+        and inRaid and row.response ~= "pass" and not row.cantUse and true or false
     r.canVote = canVote
     if Grid.HasRail(session) then Grid.Rail(r, row, canVote) end
     r.voteBtn:SetShown(canVote)
@@ -2306,6 +2376,8 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
         alpha = 0.6
     end
     if row.prz and row.prz.ok == false and not winner then alpha = min(alpha, 0.55) end
+    -- (a class that can't use it: greyed at the bottom, next to the passes)
+    if row.cantUse and not winner then alpha = min(alpha, 0.5) end
     r:SetAlpha(alpha)
     return ROW_H
 end
@@ -2814,6 +2886,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.copy = copy
     b.awardEntry = award
     b.button:SetItem(itemID)
+    DropPanel.PrzGlow(b, DropPanel.PrzRec(itemID) ~= nil)
     FitName(b.name, DropPanel.PrzName(itemID, ItemText(itemID)), CARD_W - TEXT_X - 10 - 20 - 8)
 
     local session, mode, queuePos = RollStateFor(itemID, drop, copy)
