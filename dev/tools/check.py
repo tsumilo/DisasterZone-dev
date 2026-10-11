@@ -4,6 +4,8 @@
 Usage:
     luaenv\\Scripts\\python.exe tools\\check.py [paths...] [--libs] [--rebuild-known] [--strict]
                                                  [--quiet] [--json] [--no-events]
+                                                 [--uniformity | --uniformity-strict | --no-uniformity
+                                                  | --uniformity-update-baseline]
 
 Default target: every .lua file under the DisasterZone addon folder, excluding Libs/ unless --libs.
 Paths may be files or directories (absolute, or relative to the CWD or to the addon folder).
@@ -17,6 +19,13 @@ Output lines (grep-friendly):
     <file>:<line>: WARN DEPRECATED 'name' (<hint>)
     <file>:<line>: WARN NOT IN WOW 'name' (<hint>)
     <file>:<line>: WARN UNKNOWN EVENT 'NAME' (no reference addon uses it; verify it exists on 2.5.x)
+    <file>:<line>: WARN UNIFORMITY <kind>: <n> ...; baseline <m> (lines ...)   (ERROR with --uniformity-strict)
+Uniformity (tools/uniformity.py): per-file counts of literal token colours, local copies of shared helpers, numeric
+SetFont sizes and re-declared raid tables; only a count above tools/uniformity_baseline.json is reported.
+    --uniformity                   print the per-file counts (worst first) instead of checking
+    --uniformity-strict            report counts above the baseline as errors (exit code 1)
+    --uniformity-update-baseline   rewrite the baseline from the scanned files (no paths = the whole addon)
+    --no-uniformity                skip the uniformity check
 Exit code: 1 if any syntax error or global write (or, with --strict, any warning); else 0.
 """
 import argparse
@@ -29,6 +38,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import luabc  # noqa: E402
+import uniformity  # noqa: E402
 
 LIVE_ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 ADDON_DIR = os.environ.get("DISASTERZONE_ADDON_DIR") or LIVE_ADDON_DIR  # (a worktree copy of the addon)
@@ -397,6 +407,24 @@ def check_files(files, known, report, check_events=True):
                            "WARN UNKNOWN EVENT '%s' (no reference addon uses it; verify it exists on 2.5.x)" % ev)
 
 
+def check_uniformity(files, report, strict=False):
+    """Uniformity counts above the baseline -> WARN lines (ERROR when strict). Returns {relpath: counts}."""
+    baseline = uniformity.load_baseline()
+    sev = "ERROR" if strict else "WARN"
+    counts = {}
+    for path in files:
+        r = rel(path)
+        try:
+            hits = uniformity.scan_file(path, r)
+        except OSError:
+            continue
+        counts[r] = uniformity.counts_of(hits)
+        for kind, n, b, kh in uniformity.over_baseline(r, hits, baseline):
+            report.add(r, kh[0][0] if kh else 0, sev, "uniformity", kind,
+                       "%s %s" % (sev, uniformity.describe(kind, n, b, kh)))
+    return counts
+
+
 def collect_targets(paths, include_libs):
     out = []
     if not paths:
@@ -433,32 +461,63 @@ def main(argv=None):
     ap.add_argument("--quiet", "-q", action="store_true", help="only ERROR lines + summary")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--no-events", action="store_true", help="skip the RegisterEvent name check")
+    ug = ap.add_mutually_exclusive_group()
+    ug.add_argument("--no-uniformity", action="store_true", help="skip the uniformity check")
+    ug.add_argument("--uniformity-update-baseline", action="store_true",
+                    help="rewrite tools/uniformity_baseline.json from the scanned files and exit")
+    ap.add_argument("--uniformity", action="store_true",
+                    help="print the per-file uniformity counts (worst first) and exit")
+    ap.add_argument("--uniformity-strict", action="store_true",
+                    help="uniformity counts above the baseline are errors (exit code 1)")
     args = ap.parse_args(argv)
+
+    if args.uniformity or args.uniformity_update_baseline:
+        files = collect_targets(args.paths, args.libs)
+        counts = {rel(f): uniformity.counts_of(uniformity.scan_file(f, rel(f))) for f in files}
+        if args.uniformity_update_baseline:
+            data = uniformity.save_baseline(counts, merge=bool(args.paths))
+            print("uniformity: baseline written for %d file(s) -> %s  totals %s" % (
+                len(counts), uniformity.BASELINE_PATH, data["totals"]))
+            return 0
+        baseline = uniformity.load_baseline()
+        if args.json:
+            print(json.dumps({"counts": counts, "baseline": baseline}, indent=1))
+        else:
+            print(uniformity.table(list(counts.items()), baseline))
+        up = [f for f, c in counts.items() if any(c[k] > baseline.get(f, {}).get(k, 0) for k in uniformity.KINDS)]
+        if up and not args.json:
+            print("-- %d file(s) above the baseline: %s" % (len(up), ", ".join(sorted(up))))
+        return 1 if (args.uniformity_strict and up) else 0
 
     known = load_known(args.rebuild_known)
     files = collect_targets(args.paths, args.libs)
     report = Report()
     check_files(files, known, report, check_events=not args.no_events)
+    ucounts = {}
+    if not args.no_uniformity:
+        ucounts = check_uniformity(files, report, strict=args.uniformity_strict)
     lines = sorted(report.lines, key=lambda x: (x[0], x[1], x[3], x[4]))
     n_syntax = report.count("syntax") + report.count("io")
     n_write = report.count("write")
+    n_uerr = sum(1 for x in lines if x[3] == "uniformity" and x[2] == "ERROR")
     n_warn = sum(1 for x in lines if x[2] == "WARN")
     n_info = sum(1 for x in lines if x[2] == "INFO")
     if args.json:
         print(json.dumps({"files": [rel(f) for f in files],
                           "problems": [{"file": f, "line": ln, "severity": sev, "category": cat, "name": nm, "text": tx}
                                        for f, ln, sev, cat, nm, tx in lines],
-                          "syntax_errors": n_syntax, "global_writes": n_write, "warnings": n_warn}, indent=1))
+                          "syntax_errors": n_syntax, "global_writes": n_write, "warnings": n_warn,
+                          "uniformity_errors": n_uerr, "uniformity": ucounts}, indent=1))
     else:
         for f, ln, sev, cat, nm, tx in lines:
             if args.quiet and sev != "ERROR":
                 continue
             print("%s:%d: %s" % (f, ln, tx))
-        print("-- checked %d file(s): %d syntax error(s), %d global write(s), %d warning(s), %d info [%s]" % (
-            len(files), n_syntax, n_write, n_warn, n_info,
+        print("-- checked %d file(s): %d syntax error(s), %d global write(s), %s%d warning(s), %d info [%s]" % (
+            len(files), n_syntax, n_write, ("%d uniformity error(s), " % n_uerr) if n_uerr else "", n_warn, n_info,
             ", ".join("%s=%d" % (c, report.count(c)) for c in
-                      ("unknown", "field", "deprecated", "notwow", "gwrite", "event", "optdep") if report.count(c))))
-    bad = n_syntax > 0 or n_write > 0 or (args.strict and n_warn > 0)
+                      ("unknown", "field", "deprecated", "notwow", "gwrite", "event", "optdep", "uniformity") if report.count(c))))
+    bad = n_syntax > 0 or n_write > 0 or n_uerr > 0 or (args.strict and n_warn > 0)
     return 1 if bad else 0
 
 

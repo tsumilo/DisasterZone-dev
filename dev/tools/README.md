@@ -15,7 +15,9 @@ directory (`SCRATCH`). The venv originally had no `python.exe`; it was restored 
 
 | File | Purpose |
 |---|---|
-| `check.py` | Syntax check + global read/write analysis via Lua 5.1 bytecode |
+| `check.py` | Syntax check + global read/write analysis via Lua 5.1 bytecode, plus the uniformity guardrail |
+| `uniformity.py` + `uniformity_baseline.json` | Uniformity guardrail used by check.py (section 6); `test_uniformity.py` is its self-test |
+| `look_diff.py` | Before/after comparison of `ui_audit.py --look` renders (section 7) |
 | `luabc.py` | Lua 5.1 compiler wrapper + bytecode parser (used by check.py) |
 | `known_globals.json` | Cache: globals/API fields/events read by 20 installed reference addons (`--rebuild-known`) |
 | `harness.py` | `World` / `Client` simulator (Python side). `python tools\harness.py` = smoke run on real DisasterZone |
@@ -38,6 +40,9 @@ luaenv\Scripts\python.exe tools\check.py -q              # only ERROR lines + su
 luaenv\Scripts\python.exe tools\check.py --strict        # warnings also give exit code 1
 luaenv\Scripts\python.exe tools\check.py --json          # machine readable
 luaenv\Scripts\python.exe tools\check.py --rebuild-known # re-harvest known_globals.json (~10 s)
+luaenv\Scripts\python.exe tools\check.py --uniformity    # per-file uniformity counts, worst first (section 6)
+luaenv\Scripts\python.exe tools\check.py --uniformity-strict  # uniformity counts above the baseline are errors
+luaenv\Scripts\python.exe tools\check.py --no-uniformity # skip the uniformity check
 ```
 
 Output, one problem per line (`file:line: ...`), then a summary line:
@@ -53,8 +58,10 @@ Output, one problem per line (`file:line: ...`), then a summary line:
 | `WARN NOT IN WOW 'io'` | `io`, `require`, `dofile`, `loadfile`, `module`, `package` |
 | `WARN UNKNOWN EVENT 'X'` | `RegisterEvent("X")` string no reference addon registers/compares |
 | `INFO OPTIONAL-DEP GLOBAL 'LBIS'` | global of an OptionalDeps addon (LoonBestInSlot): make sure it is nil-guarded |
+| `WARN UNIFORMITY <kind>: <n> ...; baseline <m> (lines ...)` | a file has more literal token colours / local helper copies / numeric `SetFont` sizes / raid tables than `uniformity_baseline.json` allows (section 6); `ERROR` with `--uniformity-strict` |
 
-Exit code: **1 if any syntax error or global write** (or any warning with `--strict`), else 0.
+Exit code: **1 if any syntax error or global write** (or any warning with `--strict`, or any uniformity count above
+the baseline with `--uniformity-strict`), else 0.
 
 How it works: each file is compiled with `loadstring(src, "@rel/path")` inside lupa, `string.dump`ed, and the
 Lua 5.1 bytecode is parsed in Python (header sizes read from the dump: int 4, size_t 8, Instruction 4, number 8
@@ -316,3 +323,52 @@ Missing API? The run shows `attempt to call ... (a nil value)` in `errors` and t
 `report_missing_globals()`. For a one-off stub use `Client(..., preload_lua="function Foo() return 1 end")`; for a
 real addition edit `wowmock/game.lua` (game APIs), `ui.lua` (UI/templates), `objects.lua` (widget methods) —
 keep plain Lua 5.1 (no `goto`, `//`, `table.unpack`) — and re-run the self-test.
+
+---------------------------------------------------------------------------------------------------------------
+
+## 6. Uniformity guardrail (`uniformity.py`, refactor 1.4 phase 1E)
+
+Every normal `check.py` run also counts, per addon file, code that bypasses the shared design homes (comments and
+string contents are ignored):
+
+| Kind | What is counted | Home (not counted there) |
+|---|---|---|
+| `colour` | literal colour tuples equal to a `ns.Style` token: gold `1, 0.82, 0`, grey `0.62, 0.62, 0.62`, card `0.10, 0.10, 0.12`, edge `0.34, 0.34, 0.38` (any alpha), white hairlines/hovers `1, 1, 1, 0.0x`. Also found inside longer number runs (`Text(f, 10, 1, 0.82, 0)`, a gradient's two colours) | `UI/Style.lua` |
+| `helper` | `local function X(` / `local X = function` for `Text newText Sized Gradient gradient Grad SlotLabel ShortName shortName classOf Hex grey Edge Fill NewCard BuildBanner NewChip Now DemoOn` | (none) |
+| `font` | `SetFont(font, <number literal>...)` | `UI/Style.lua` |
+| `raid` | a table constructor with 3+ raid keys of its own (`[532] =`, `Karazhan =`, `kara =`, ...) or a local named `INST_SHORT RAID_SHORT ART_TOP RAID_ART INST_ART ART_KEY INST_BY_ID` | `Data/Raids.lua`, `Core/ItemDB.lua` |
+
+`uniformity_baseline.json` holds the counts per file (taken on release 1.3.5 + the 1.4 setup: 1,161 colours, 248
+helpers, 47 font sizes, 30 raid tables). Only a count that goes **above** a file's baseline is reported, as
+`WARN UNIFORMITY <kind>: <n> ...; baseline <m> (lines ...)`, so old code is quiet and the numbers can only fall.
+A new file starts at 0.
+
+```
+luaenv\Scripts\python.exe tools\check.py --uniformity                 # table of counts, worst first, with the change vs the baseline
+luaenv\Scripts\python.exe tools\check.py --uniformity UI              # the same for some files/dirs
+luaenv\Scripts\python.exe tools\check.py --uniformity-strict          # counts above the baseline are ERRORs (exit 1)
+luaenv\Scripts\python.exe tools\check.py --uniformity-update-baseline # rewrite the baseline (whole addon; with paths: only those files)
+luaenv\Scripts\python.exe tools\check.py --no-uniformity              # skip it
+luaenv\Scripts\python.exe tools\test_uniformity.py                    # self-test on fixture snippets (~2 s)
+```
+
+It stays warn-only while the refactor migrates pages; the cleanup stage refreshes the baseline after phase 3 and
+switches to `--uniformity-strict`. When a migration lowers a file's counts, refreshing the baseline locks the gain in.
+
+---------------------------------------------------------------------------------------------------------------
+
+## 7. Render before/after (`look_diff.py`)
+
+Compares two folders of `ui_audit.py --look` renders (PNG per view):
+
+```
+luaenv\Scripts\python.exe tools\ui_audit.py <new dir> -k "Raids - |Events - " --look
+python tools\look_diff.py <baseline dir> <new dir> <out dir> [-k "View A|View B"]
+```
+
+For every view in both folders it measures the share of changed pixels and the mean change, writes `<out>/diff.md`
+(worst first; views present on one side only are listed too) and, for each view that changed by more than 0.05 %,
+`<out>/<view>.jpg`: baseline | new | changed pixels in red. `-k` filters by view-name substrings (spaces match the
+underscores in file names). It needs Pillow only (no lupa). Open the JPGs and judge: intended unification is fine;
+missing text, overlaps, clipped or empty areas, wrong layering or broken art are regressions. The refactor's
+baseline renders (all 445 views of release 1.3.5) are in `C:\Users\emilo\DZ-wt\baseline_look`.
