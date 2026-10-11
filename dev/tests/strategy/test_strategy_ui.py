@@ -230,7 +230,8 @@ def raid_leader_fills_and_raiders_see_their_jobs():
     a = board(bob)["assign"]
     assert a == f["a"], a
     # nobody signed up for that raid: the carried names show as missing (red)
-    assert "ff5050" in bob.eval("return T_cell('zn.1.1').fs:GetText()")
+    # (red: 1.4's BAD token)
+    assert bob.eval("return ns.Style.HEX.BAD") in bob.eval("return T_cell('zn.1.1').fs:GetText()")
     w.assert_no_errors()
 
 

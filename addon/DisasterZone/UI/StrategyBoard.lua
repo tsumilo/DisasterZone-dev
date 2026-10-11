@@ -995,7 +995,7 @@ function Board:PresenceText()
     local liveWith, editing, looking = {}, {}, {}
     for _, e in ipairs(pr.live) do
         local p = e.pg and e.pg ~= st.page and st.strat.p[e.pg]
-        liveWith[#liveWith + 1] = presenceName(e.key) .. (p and (" |cff808080(" .. p.n .. ")|r") or "")
+        liveWith[#liveWith + 1] = presenceName(e.key) .. (p and (" " .. Style:Wrap("SUB", "(" .. p.n .. ")")) or "")
     end
     for _, key in ipairs(pr.editing) do editing[#editing + 1] = presenceName(key) end
     for _, key in ipairs(pr.looking) do looking[#looking + 1] = presenceName(key) end
@@ -1003,7 +1003,7 @@ function Board:PresenceText()
     if pr.joining then
         parts[#parts + 1] = ("|cffffd100joining the live board... %d%%|r"):format(pr.joining * 100)
     end
-    if #liveWith > 0 then parts[#parts + 1] = "|cff33ff99live with|r " .. tconcat(liveWith, ", ") end
+    if #liveWith > 0 then parts[#parts + 1] = Style:Wrap("OK", "live with") .. " " .. tconcat(liveWith, ", ") end
     if #editing > 0 then parts[#parts + 1] = tconcat(editing, ", ") .. (#editing == 1 and " is" or " are") .. " editing" end
     if #looking > 0 then parts[#parts + 1] = tconcat(looking, ", ") .. (#looking == 1 and " is" or " are") .. " looking" end
     return #parts > 0 and tconcat(parts, "  \194\183  ") or nil
@@ -1728,16 +1728,16 @@ function Board:SlotTokenText(ref)
     local key = st.assign[ref]
     if key and st.mode ~= "edit" then
         local name = coloredName(key)
-        if st.occ and not memberSet[key] then name = "|cffff5050" .. ns.Util.ShortName(key) .. "|r" end
+        if st.occ and not memberSet[key] then name = Style:Wrap("BAD", ns.Util.ShortName(key)) end
         return name
     end
     local label = slotLabels[ref]
-    if not label then return "|cffff5050?|r" end
+    if not label then return Style:Wrap("BAD", "?") end
     -- no name yet: the job without the table's name, kept short (the tooltip has the rest)
     local sep = label:find(" \194\183 ", 1, true)
     if sep then label = label:sub(sep + 4) end
     if #label > 26 then label = label:sub(1, 24) .. "..." end
-    return "|cffd0d0d0" .. label .. "|r"
+    return Style:Wrap("TEXT", label)
 end
 
 -- A block reference in words: "Tanks · Gathios · Player", "Zones · Zone 1", "Tanks".
@@ -1765,13 +1765,13 @@ end
 -- The text under a linked drawing: editing, the link itself; otherwise the names assigned to it.
 function Board:LinkText(ref)
     if not st.strat then return nil end
-    if st.mode == "edit" then return "|cffb0b0b0-> " .. self:LinkLabel(ref) .. "|r" end
+    if st.mode == "edit" then return Style:Wrap("SUB", "-> " .. self:LinkLabel(ref)) end
     local names = {}
     for _, sl in ipairs(slotsOf(ref)) do
         local key = st.assign[sl.ref]
         if key then
             local name = coloredName(key)
-            if st.occ and not memberSet[key] then name = "|cffff5050" .. ns.Util.ShortName(key) .. "|r" end
+            if st.occ and not memberSet[key] then name = Style:Wrap("BAD", ns.Util.ShortName(key)) end
             names[#names + 1] = name
         end
     end
@@ -2267,7 +2267,7 @@ end
 local function metaText(s)
     if st.sandbox or not s or st.mode == "edit" then return nil end
     local v = raidView()
-    if st.mode == "fill" then return v and ("for |cffd8d8d8" .. raidWhen(v.t) .. "|r") or nil end
+    if st.mode == "fill" then return v and ("for " .. Style:Wrap("TEXT", raidWhen(v.t))) or nil end
     if v then
         local f = S():GetFill(st.occ, st.boss)
         local by = f and f.by and not ns.Util.IsMe(f.by) and f.by
@@ -2277,7 +2277,7 @@ local function metaText(s)
     if owner and ns.Util.IsMe(owner) then
         if not s.rev then return nil end
         local now = GetServerTime and GetServerTime() or time()
-        if now - s.rev < 120 then return "|cff8fe39dSaved just now|r" end
+        if now - s.rev < 120 then return Style:Wrap("OK", "Saved just now") end
         if date("%Y%m%d", s.rev) == date("%Y%m%d", now) then return "Saved " .. date("%H:%M", s.rev) end
         return "Saved " .. (date("%d %b", s.rev):gsub("^0", ""))
     end
@@ -2406,7 +2406,7 @@ function Board:PresenceTooltip(owner)
     GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
     local function line(key, where)
         GameTooltip:AddLine(classIconText(ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key), 13) .. " "
-            .. presenceName(key) .. "  |cff9e9e9e" .. where .. "|r", 1, 1, 1)
+            .. presenceName(key) .. "  " .. Style:Wrap("SUB", where), 1, 1, 1)
     end
     if #pr.live > 0 then
         GameTooltip:AddLine("Live")
