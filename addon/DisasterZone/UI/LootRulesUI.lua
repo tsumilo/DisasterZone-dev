@@ -252,6 +252,8 @@ local function BuildYou(parent)
     end
     p.bis = WRow(b, "Your BiS list", { text = "Open My BiS",
         onClick = function() if ns.MainFrame then ns.MainFrame:Open("mybis") end end })
+    -- TODO(refactor): move into Surfaces (a shared thin progress bar: this track, the dry streak's bars, the
+    -- Assignments tiles' slot bar, the block tabs' have/of bar)
     p.bis.track = p.bis:CreateTexture(nil, "ARTWORK", nil, 0)
     p.bis.track:SetHeight(5)
     p.bis.track:SetColorTexture(S:Color("EDGE_QUIET"))

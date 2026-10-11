@@ -653,7 +653,8 @@ local function createWindow()
         tipButton(b, t.label, t.tip)
         tools.btns[#tools.btns + 1] = b
     end
-    -- the colours: 12 px squares in 18 px cells, the current one ringed gold
+    -- the colours: 12 px squares in 18 px cells, the current one ringed gold (a colour picker of the board's own: no
+    -- shared component draws swatches)
     tools.swatches = {}
     for i = 1, #MapUI().COLORS do
         local sw = CreateFrame("Button", nil, tools)
