@@ -8,6 +8,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tour.lua", ...) then return end
 --       open = function(chapterIndex) end,      -- gets the window ready when the tour starts; false: can't start
 --       alive = function() return bool end,     -- false: the tour ends (its window was closed, ...)
 --       close = function(finished) end,
+--       quiet = true,                           -- no "Tutorial finished" line (a one-step pointer, e.g. Show me)
 --       chapters = { { key = "basics", title = "The basics", enter = function() end, steps = { step, ... } } },
 --   })
 -- A chapter may have its own host / open / alive (it runs on another window, or needs the window in another state)
@@ -516,7 +517,7 @@ function Tour:Stop(finished)
     if cursor then cursor:Hide() end
     if r then
         call(r.def.close, finished and true or false)
-        if finished then ns:Print("Tutorial finished: %s.", r.def.title or r.id) end
+        if finished and not r.def.quiet then ns:Print("Tutorial finished: %s.", r.def.title or r.id) end
     end
 end
 
