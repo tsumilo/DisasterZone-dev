@@ -8,7 +8,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Attendance.lua", ...) then re
 -- who answered Accept; on a raid without a lineup (no team, or the team has none of its size / an empty one) whoever
 -- answered Accept (kind "a"). Unassigned, waitlist, Tentative, Bench and guests are never expected.
 -- The expected time: from the raid's start to the end of the team's raid night that day (ef / et), else to the
--- raid's own length (du), and never past the end of the session. Leaving after the planned end is never early.
+-- end of the session, and never past it. Leaving after the planned end is never early. (No length field on planned
+-- raids: a new raid field changes every member's raid plan hashes, so older clients would resync until updated.)
 --
 -- A night = the records of one planned raid (a restart, Gruul then Mag), else one record. Per player:
 --   credit = time there / time expected, after the margins (the GM's: how late still counts as on time, how long a
@@ -103,11 +104,22 @@ local function Linked(key)
     return Guild and Guild.GetLinkedCharacters and Guild:GetLinkedCharacters(key) or {}
 end
 
+-- The player behind a character: their main (the Members tab's main / alt link), else the character itself.
+local function PlayerOf(key)
+    local P = ns.Professions
+    local m = type(key) == "string" and P and P.GetMain and P:GetMain(key)
+    return (type(m) == "string" and m ~= "") and m or key
+end
+
+-- One player: the guild's account link (each vouches for the other) or the same main on the Members tab.
 local function SameAccount(a, b)
     if a == b then return true end
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
     local Guild = G()
-    return Guild and Guild.SameAccount and Guild:SameAccount(a, b) or false
+    if Guild and Guild.SameAccount and Guild:SameAccount(a, b) then return true end
+    return PlayerOf(a) == PlayerOf(b)
 end
+Att.PlayerOf = function(_, key) return PlayerOf(key) end
 
 local function InGuild(key)
     local Guild = G()
@@ -169,8 +181,7 @@ function Att:Snapshot(rec)
     rec.ex = next(ex) and ex or nil
     rec.exAt = rec.ex and (tonumber(rec.plAt) or Now()) or nil
     rec.ef = rec.ex and v.t or nil
-    local du = tonumber(v.du)
-    rec.et = rec.ex and (nightEnd or (du and du > 0 and v.t + du * 60) or nil) or nil
+    rec.et = rec.ex and nightEnd or nil
     Bump()
 end
 
@@ -254,6 +265,7 @@ local function BuildNight(recs)
     end
     if n.open then n.stop = nil end
     tsort(n.bosses, function(a, b) return (a.ts or 0) < (b.ts or 0) end)
+    n.collapse = true
     -- (a record from before 1.3.5, without a snapshot: whoever came, and who answered Accept, was expected)
     -- (players outside the guild, pugs and guests, are never expected; a raid not linked to a planned raid has no
     -- planned time either: who came counts as there, only an Accept answer that didn't come counts against them)
@@ -269,6 +281,31 @@ local function BuildNight(recs)
     else
         for key in pairs(n.ex) do
             if not InGuild(key) then n.ex[key] = nil end
+        end
+    end
+    -- one player, one place (in-game report 2026-10-11: a main who answered Accept and came on an alt was a
+    -- no-show): of a player's characters the night expects, keep the lineup one, else the main, else the one who
+    -- answered Accept, else the one who came
+    local keys = {}
+    for key in pairs(n.ex) do keys[#keys + 1] = key end
+    tsort(keys)
+    local function score(key)
+        return (n.ex[key] == "l" and 8 or 0) + (PlayerOf(key) == key and 4 or 0) + (n.su[key] == "A" and 2 or 0)
+            + (n.att[key] and 1 or 0)
+    end
+    for i, a in ipairs(keys) do
+        if n.ex[a] then
+            for j = i + 1, #keys do
+                local b = keys[j]
+                if n.ex[b] and SameAccount(a, b) then
+                    if score(b) > score(a) then
+                        n.ex[a] = nil
+                        a = b
+                    else
+                        n.ex[b] = nil
+                    end
+                end
+            end
         end
     end
     return n
@@ -324,7 +361,7 @@ end
 local function PiecesOf(n, key)
     local s = n.att[key]
     for other, os in pairs(n.att) do
-        if other ~= key and not n.ex[other] and SameAccount(key, other) then s = RL():JoinPieces(s, os) end
+        if other ~= key and SameAccount(key, other) then s = RL():JoinPieces(s, os) end
     end
     return s
 end
@@ -662,10 +699,16 @@ function Att:GetStats(lastN, opts)
         end
         return s
     end
+    local rowOf = {}
     for _, item in ipairs(results) do
+        item.byPlayer = {}
         for key, r in pairs(item.results) do
             if r.kind or r.help or r.clash then
-                local s = S(key)
+                local pk = PlayerOf(key)
+                rowOf[key] = pk
+                item.byPlayer[pk] = item.byPlayer[pk] or r
+                if r.kind then item.byPlayer[pk] = r end
+                local s = S(pk)
                 s.cls = s.cls or r.cls
                 if r.clash then s.clashes = s.clashes + 1 end
                 if r.kind then
@@ -694,11 +737,11 @@ function Att:GetStats(lastN, opts)
     local out = {}
     for _, s in ipairs(list) do
         if opts.guests or InGuild(s.key) then
-            for i, item in ipairs(results) do s.codes[i] = Code(item.results[s.key]) end
+            for i, item in ipairs(results) do s.codes[i] = Code(item.byPlayer[s.key] or item.results[s.key]) end
             s.pct = s.counted > 0 and floor(s.sum * 100 / s.counted + 0.5) or nil
             s.lineups = self:LineupsOf(s.key)
             local Guild = G()
-            s.cls = s.cls or (Guild and Guild.GetClass and Guild:GetClass(s.key))
+            s.cls = (Guild and Guild.GetClass and Guild:GetClass(s.key)) or s.cls
             out[#out + 1] = s
         end
     end

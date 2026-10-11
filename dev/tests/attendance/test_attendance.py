@@ -506,5 +506,52 @@ def the_raid_log_pages_decide_and_pick_by_clicks():
     w.assert_no_errors()
 
 
+@case
+def reviewers_get_a_notification_members_dont():
+    w, c = world()
+    bob, tank = c["Bob"], c["Tank"]
+    base = now(bob) - 6 * HOUR
+    for x in (bob, tank):
+        inject(x, base, [{"id": "r1", "pl": "oN", "stop": 200, "ex": {"Tank": "l", "Heal": "l"},
+                          "att": {"Tank": {"s": [0, 200]}, "Heal": {"s": [0, 120]}}}])
+        x.eval("ns.Notify:Refresh('attReview')")
+    w.tick(1)
+    items = lst(bob.eval_py("return ns.Notify:List({ kind = 'attReview' })"))
+    assert len(items) == 1 and items[0]["n"] == 1 and "Heal" in strip_codes(items[0]["title"]), items
+    assert lst(tank.eval_py("return ns.Notify:List({ kind = 'attReview' })")) == []
+    bob.eval("ns.Attendance:Decide('oN', ..., 'c')", K("Heal"))
+    bob.eval("ns.Notify:Refresh('attReview')")
+    w.tick(1)
+    assert lst(bob.eval_py("return ns.Notify:List({ kind = 'attReview' })")) == []
+
+
+@case
+def a_main_who_came_on_an_alt_is_there_and_listed_once():
+    """In-game report 2026-10-11: Grumpykat answered Accept and came on Saltykim (same player): Grumpykat was a
+    no-show and the two had their own rows."""
+    w, c = world()
+    bob = c["Bob"]
+    # Sam is Dps's alt (the Members tab's main / alt link)
+    bob.eval("local alt, main = ...; local P = ns.Professions; local old = P.GetMain; "
+             "P.GetMain = function(self, k) if k == alt then return main end return old(self, k) end", K("Sam"), K("Dps"))
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "stop": 200, "att": {"Tank": {"s": [0, 200]}, "Sam": {"s": [0, 200]}}}])
+    bob.eval("ns.db.raids.r1.su = { [...] = 'A' }; ns.db.raids.r1.pl = 'oA'; ns.db.raids.r1.plAt = 1; "
+             "ns:Fire('RAIDLOG_CHANGED')", K("Dps"))
+    keys = lst(bob.eval_py("local n = ns.Attendance:GetNight('oA'); local o = {}; for _, r in ipairs(ns.Attendance:NightResults(n).expected) do "
+                           "o[#o + 1] = r.key end; return o"))
+    assert sorted(keys) == sorted([K("Tank"), K("Dps")]), keys
+    d = result(bob, "oA", "Dps")
+    assert not d["noShow"] and d["credit"] == 1, d
+    s = stats(bob)
+    assert "Sam" not in s and s["Dps"]["pct"] == 100 and s["Dps"]["noShows"] == 0, sorted(s)
+    assert bob.eval("return (ns.RaidLog:GetAttendance(...))", K("Sam")) == 100     # (asked by the alt: the player's)
+    # a team raid: the lineup character came on the alt
+    inject(bob, base - 86400, [{"id": "r2", "pl": "oB", "stop": 200, "ex": {"Dps": "l", "Tank": "l"},
+                                "att": {"Tank": {"s": [0, 200]}, "Sam": {"s": [5, 200]}}}])
+    d = result(bob, "oB", "Dps")
+    assert d["credit"] >= 0.99 and not d["noShow"], d
+
+
 if __name__ == "__main__":
     run_all(globals())

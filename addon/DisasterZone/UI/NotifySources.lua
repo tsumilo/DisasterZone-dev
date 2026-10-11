@@ -170,6 +170,60 @@ local function register()
         return out
     end, { "RAIDPLAN_CHANGED" })
 
+    -- 1.3.5 attendance reviews (Core/Attendance.lua): early leaves and reasons waiting for the GM, an officer or the
+    -- guild council (one item per raid; no pop-up: a leave during the raid would interrupt the decider's own raid)
+    N:RegisterKind("attReview", {
+        section = "Raids", page = "raids", icon = { 46, 19, 4 }, color = GOLDISH,
+        label = "Attendance reviews", desc = "Someone left a raid early or gave a reason: excuse it or let it count.",
+        needsYou = true, popup = false, sound = false, home = true,
+        kicker = function() return "Attendance" end,
+        open = function()
+            openTab("raids")
+            if ns.RaidsUI and ns.RaidsUI.SetMode then ns.RaidsUI:SetMode("reviews") end
+        end,
+        actions = function(it)
+            return { { text = "Review", primary = true, fn = function() N:Open(it.id) end } }
+        end,
+        chip = function() return { kind = "warn", icon = atlas(UI().ICON.team or 46) } end,
+        chipGroup = function(items)
+            local n = 0
+            for _, it in ipairs(items) do n = n + (it.n or 1) end
+            return { text = n .. " attendance reviews", title = n .. " attendance reviews waiting" }
+        end,
+        openGroup = function()
+            openTab("raids")
+            if ns.RaidsUI and ns.RaidsUI.SetMode then ns.RaidsUI:SetMode("reviews") end
+        end,
+    })
+    N:RegisterSource("attReview", function()
+        local A, out = ns.Attendance, {}
+        if not (A and A.CanReview and A:CanReview()) or (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) then
+            return out
+        end
+        local per, order = {}, {}
+        for _, r in ipairs(A:GetReviews().pending) do
+            local k = r.night.key
+            if not per[k] then
+                per[k] = { night = r.night, keys = {} }
+                order[#order + 1] = k
+            end
+            local list = per[k].keys
+            list[#list + 1] = r.key
+        end
+        for _, k in ipairs(order) do
+            local e = per[k]
+            local n = #e.keys
+            local who = UI():ColoredName(e.keys[1]) or Short(e.keys[1])
+            out[#out + 1] = { key = k, n = n,
+                title = n == 1 and (who .. "'s attendance waits for a decision")
+                    or (who .. " and " .. (n - 1) .. " more wait for a decision"),
+                text = (e.night.zone or "Raid") .. " · " .. date("%a %d %b", e.night.start or Now()),
+                short = n == 1 and ("Review " .. Short(e.keys[1])) or (n .. " attendance reviews"),
+                time = e.night.stop or e.night.start }
+        end
+        return out
+    end, { "RAIDLOG_CHANGED", "ROSTER_UPDATED" })
+
     -- Dungeon runs: someone wants to join mine (the Dungeons tab's own pop-up stays: no pop-up from here)
     N:RegisterKind("runRequests", {
         section = "Dungeons", page = "dungeons", icon = 36, color = { 0.47, 0.83, 0.54 },

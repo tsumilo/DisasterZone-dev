@@ -1208,6 +1208,110 @@ function AUI:CreatePlayerPage(parent, width, opts)
     return v
 end
 
+-- The member card's Attendance tab (UI/Members.lua): the number, the facts in a line, each raid. Reviewers and the
+-- raid log's readers see anyone's; a member sees their own (from a raid log reader when they don't keep the log).
+function AUI:CreateMemberAttendance(parent, width)
+    local v = CreateFrame("Frame", nil, parent)
+    v:SetSize(width, 300)
+    v.big = newText(v, 24, { 1, 0.82, 0.3 }, "GameFontHighlightLarge")
+    v.big:SetPoint("TOPLEFT", 2, -10)
+    v.cap = newText(v, 11, C.grey, "GameFontHighlightSmall")
+    v.cap:SetPoint("LEFT", v.big, "RIGHT", 10, -2)
+    v.facts = newText(v, 11, { 0.86, 0.86, 0.86 }, "GameFontHighlightSmall")
+    v.facts:SetPoint("TOPLEFT", 2, -42)
+    v.facts:SetWidth(width - 4)
+    v.src = newText(v, 10, { 0.5, 0.5, 0.52 }, "GameFontHighlightSmall")
+    v.src:SetJustifyH("RIGHT")
+    v.src:SetPoint("TOPRIGHT", -4, -16)
+    local function initRow(row, d)
+        if not row.cdlInit then
+            row.cdlInit = true
+            row.art = row:CreateTexture(nil, "ARTWORK")
+            row.art:SetSize(34, 20)
+            row.art:SetPoint("LEFT", 0, 0)
+            row.raid = newText(row, 12)
+            row.raid:SetPoint("LEFT", 42, 0)
+            row.pill = pill(row, 16)
+            row.credit = newText(row, 12)
+            row.credit:SetJustifyH("RIGHT")
+            row.credit:SetPoint("RIGHT", -2, 0)
+            row:SetScript("OnEnter", function(self)
+                if not self.cdlR then return end
+                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+                AUI:ResultTooltip(GameTooltip, self.cdlR)
+                GameTooltip:Show()
+            end)
+            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        row.cdlR = d.r
+        if d.inst then setArt(row.art, d.inst, 34, 20, 0.3) else row.art:Hide() end
+        row.raid:SetText((d.zone or "Raid") .. grey("  " .. date("%a %d %b", d.start or Now())))
+        row.pill:ClearAllPoints()
+        row.pill:SetPoint("RIGHT", row, "RIGHT", -52, 0)
+        row.pill:SetKind(d.word, d.kind)
+        row.credit:SetText(d.credit)
+    end
+    v.list = UI():CreateScrollList(v, 26, initRow)
+    v.list.frame:SetPoint("TOPLEFT", 0, -64)
+    v.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
+
+    -- key: the member.
+    function v:SetPlayer(key)
+        local A = Att()
+        local rows = {}
+        local pct, counted, s
+        if A:CanSeeAll() then
+            local hist
+            hist, s = A:GetHistory(key, 12)
+            pct, counted = s and s.pct, s and s.counted or 0
+            for _, e in ipairs(hist) do
+                local word, kind = AUI:ResultWord(e.r)
+                local r = e.r
+                rows[#rows + 1] = { r = r, zone = e.night.zone, start = e.night.start, inst = instOf(e.night), word = word,
+                    kind = kind, credit = not r.kind and (r.help and hex(C.fill, "+" .. dur(r.help)) or grey("-"))
+                        or (r.pending and hex(C.pending, pctText(r))) or pctText(r) }
+            end
+            v.src:SetText("")
+        else
+            local mine = A:GetMine()
+            A:RequestMine()
+            if mine then
+                pct, counted = mine.p, mine.n
+                for _, e in ipairs(mine.h or {}) do
+                    local code = e.s or "-"
+                    local word = code == "F" and "Full" or (code:sub(1, 1) == "p" and "Part of it") or CODE_TEXT[code] or code
+                    local kind = (code == "F" or code == "B" or code == "H") and "ok" or (code == "E" and "alt")
+                        or (code == "-" and "mute") or "warn"
+                    rows[#rows + 1] = { zone = e.z, start = e.d, word = word, kind = kind,
+                        credit = e.c and (e.c .. "%") or grey("-") }
+                end
+                v.src:SetText(mine.from and ("from " .. short(mine.from) .. "'s raid log, " .. date("%d %b %H:%M", mine.at or Now())) or "")
+            else
+                v.src:SetText("")
+            end
+        end
+        v.big:SetText(pct and (pct .. "%") or "-")
+        v.cap:SetText(pct and ("of the expected time · " .. (counted or 0) .. " raids") or "")
+        if s then
+            local parts = {}
+            parts[#parts + 1] = "Late " .. (s.late.n > 0 and (s.late.n .. " (" .. dur(s.late.sec) .. ")") or "0")
+            parts[#parts + 1] = "Left early " .. s.left .. (s.excused > 0 and (" · " .. s.excused .. " excused") or "")
+            parts[#parts + 1] = "No-shows " .. s.noShows
+            if s.fills > 0 then parts[#parts + 1] = "Came to help " .. s.fills end
+            if s.pending > 0 then parts[#parts + 1] = hex(C.pending, s.pending .. " waiting for a review") end
+            v.facts:SetText(tconcat(parts, "   ·   "))
+        else
+            v.facts:SetText("")
+        end
+        self.list:SetEmptyText(A:CanSeeAll() and "No raid expected them yet."
+            or (A:GetMine() and "No raid expected you yet.")
+            or "Your attendance comes from the officers' raid log: it shows here once one of them is online.")
+        self.list:SetData(rows, true)
+        return true
+    end
+    return v
+end
+
 -- The result's word and pill kind: "Full", "Late 42 min", "Left early · excused", "No-show", "Came to help", ...
 function AUI:ResultWord(r)
     if not r.kind then
@@ -1215,6 +1319,7 @@ function AUI:ResultWord(r)
         return "Came to help", "ok"
     end
     if r.loose then return "Came", "ok" end
+    if r.otherRaid and not r.pending then return "Other raid", "alt" end
     local w
     if r.bench then w = "Bench"
     elseif r.removed then w = "Removed by the leader"

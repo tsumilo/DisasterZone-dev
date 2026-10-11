@@ -1501,6 +1501,8 @@ STATES = [
         "local r; for _, x in ipairs(ns.Attendance:GetReviews().pending) do if x.reason then r = x end end; "
         "ns.AttendanceUI:OpenPicker(nil, r or ns.Attendance:GetReviews().pending[1])", "raids")),
     ("Demo - Attendance prompts", demo("ns.AttendanceUI:ShowDemo()", "raids")),
+    ("Demo - Members - member card - attendance", demo("local k = ns.Attendance:GetStats(8)[9].key; "
+        "ns.MembersUI:ShowMember(k); ns.MembersUI:SetCard('att')", "members")),
     # the selected logged raid's tabs (demo mode: raids with kills and awards)
     ("Demo - Raid log - Raids", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('att')", "raids")),
     ("Demo - Raid log - Bosses", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('boss')", "raids")),

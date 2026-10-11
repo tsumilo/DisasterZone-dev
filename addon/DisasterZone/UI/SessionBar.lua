@@ -354,6 +354,14 @@ local function Create()
     f.options.icon:SetPoint("TOPLEFT", 3, -3)
     f.options.icon:SetPoint("BOTTOMRIGHT", -3, 3)
     f.options:SetPoint("RIGHT", f.button, "LEFT", -5, 0)
+    -- 1.3.5: the raid's attendance (UI/AttendanceUI.lua): who left, who is not here yet
+    f.att = UI:CreateTipIconButton(f, 20, UI.ICON.team or 46, "Attendance",
+        "Who left the raid and who is not here yet: tick what they said, swap someone in or leave it to the officers.",
+        function() if ns.AttendanceUI then ns.AttendanceUI:ShowLeaderPrompt() end end)
+    f.att.icon:ClearAllPoints()
+    f.att.icon:SetPoint("TOPLEFT", 3, -3)
+    f.att.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    f.att:SetPoint("RIGHT", f.options, "LEFT", -4, 0)
 
     -- (the idle bar: hide it until the next instance)
     f.close = UI:CreateIconButton(f, 16, NO_TEX, nil, function()
@@ -435,6 +443,7 @@ function SessionBar:Update()
         f.button:SetWidth(70)
         f.button:SetShown(IsAuthority())
         f.options:SetShown(IsAuthority())
+        f.att:SetShown(IsAuthority())
         f.close:Hide()
     else
         f.title:SetText("No raid session")
@@ -445,12 +454,14 @@ function SessionBar:Update()
         f.button:SetWidth(76)
         f.button:Show()
         f.options:Hide()
+        f.att:Hide()
         f.close:Show()
     end
     -- the right side, from the edge: [pill] [gear | x] [button]
     local anchor
     if f.button:IsShown() then anchor = f.button end
     if f.options:IsShown() then anchor = f.options end
+    if f.att:IsShown() then anchor = f.att end
     if f.close:IsShown() then anchor = f.close end
     f.pill:ClearAllPoints()
     if locked then
@@ -463,6 +474,7 @@ function SessionBar:Update()
     local right = 0
     if f.button:IsShown() then right = right + f.button:GetWidth() + 5 end
     if f.options:IsShown() then right = right + f.options:GetWidth() + 5 end
+    if f.att:IsShown() then right = right + f.att:GetWidth() + 4 end
     if f.close:IsShown() then right = right + f.close:GetWidth() + 5 end
     if f.pill:IsShown() then right = right + f.pill:GetWidth() + 8 end
     local left = 11 + (f.title:GetStringWidth() or 60) + 8 + (f.text:GetStringWidth() or 100)

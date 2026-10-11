@@ -793,7 +793,17 @@ local ROW_EXTENT = { prof = 46, group = 22, recipe = 20, head = 32, crafter = RO
                      source = 26, team = ROW_H }
 -- a member's card: Characters / Professions / Equipment
 local CARDS = { { key = "chars", label = "Characters" }, { key = "profs", label = "Professions" },
-                { key = "gear", label = "Equipment" } }
+                { key = "gear", label = "Equipment" }, { key = "att", label = "Attendance" } }
+
+-- 1.3.5: the Attendance card (UI/AttendanceUI.lua): anyone's for the raid log's readers (officers, council, raid
+-- leaders), a member's own for themselves.
+local function canSeeAttendance(key)
+    local A = ns.Attendance
+    if not (A and key) then return false end
+    if A:CanSeeAll() then return true end
+    local G = ns.Guild
+    return ns.Util.IsMe(key) or (G and G.SameAccount and G:SameAccount(ns.Util.PlayerKey(), key)) or false
+end
 
 local function cardWidth()
     local w = panel and panel.right and panel.right:GetWidth() or 0
@@ -1250,6 +1260,7 @@ local function gearRows(key)
 end
 
 local function memberDetailRows(key)
+    if state.card == "att" then return {} end
     if state.card == "chars" then return characterRows(key) end
     if state.card == "gear" then return gearRows(key) end
     return professionRows(key)
@@ -1403,8 +1414,9 @@ local function updateDetail(p)
     right.note:SetPoint("TOPRIGHT", 0, -y)
     local noteH = updateNote(right, member)
     if noteH > 0 then y = y + noteH + 8 end
+    if state.card == "att" and not canSeeAttendance(member) then state.card = "profs" end
     for key, b in pairs(right.cards) do
-        b:SetShown(member ~= nil)
+        b:SetShown(member ~= nil and (key ~= "att" or canSeeAttendance(member)))
         b:SetActive(key == state.card)
     end
     right.cards.chars:ClearAllPoints()
@@ -1418,6 +1430,17 @@ local function updateDetail(p)
     right.list.frame:SetPoint("TOPLEFT", 0, -listTop)
     right.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
     right.list:SetEmptyText("")
+    -- 1.3.5: the Attendance card draws its own list
+    local att = member ~= nil and state.card == "att" and ns.AttendanceUI ~= nil
+    if att and not right.att then right.att = ns.AttendanceUI:CreateMemberAttendance(right, cardWidth()) end
+    if right.att then
+        right.att:ClearAllPoints()
+        right.att:SetPoint("TOPLEFT", 0, -listTop)
+        right.att:SetPoint("BOTTOMRIGHT", 0, 0)
+        right.att:SetShown(att)
+        if att then right.att:SetPlayer(member) end
+    end
+    right.list.frame:SetShown(not att)
     local btn
     local metaX = 56
     if recipe then
@@ -1861,9 +1884,9 @@ function MembersUI:SelectRecipe(spell)
     self:Refresh()
 end
 
--- "chars" | "profs" | "gear": what a member's card shows.
+-- "chars" | "profs" | "gear" | "att" (1.3.5): what a member's card shows.
 function MembersUI:SetCard(card)
-    state.card = (card == "chars" or card == "gear") and card or "profs"
+    state.card = (card == "chars" or card == "gear" or card == "att") and card or "profs"
     self:Refresh()
 end
 
@@ -1904,7 +1927,7 @@ function MembersUI:OnInit()
     end
     local function refresh() MembersUI:RequestRefresh() end
     for _, msg in ipairs({ "PROFESSIONS_UPDATED", "ROSTER_UPDATED", "DEMO_TOGGLED", "OFFICER_NOTES_UPDATED",
-                           "PEERS_UPDATED", "ITEMINFO_READY", "GUILDMAP_UPDATED" }) do
+                           "PEERS_UPDATED", "ITEMINFO_READY", "GUILDMAP_UPDATED", "ATTENDANCE_MINE", "RAIDLOG_CHANGED" }) do
         ns:On(msg, refresh)
     end
     ns:RegisterSlash("members", function() ns.MainFrame:Open("members") end,
