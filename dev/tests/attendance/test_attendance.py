@@ -619,5 +619,106 @@ def the_raid_log_shows_a_combined_run_as_one_card():
     assert not bob.eval("return ns.RaidsUI:GetPanel().sessionBtn:IsShown()")
 
 
+@case
+def an_undo_and_cleared_lines_spread_to_the_other_reviewers():
+    w, c = world()
+    bob, olly = c["Bob"], c["Olly"]
+    base = now(bob) - 6 * HOUR
+    for x in (bob, olly):
+        inject(x, base, [{"id": "r1", "pl": "oU2", "stop": 200, "ex": {"Heal": "l", "Tank": "l"},
+                          "att": {"Heal": {"s": [0, 120]}, "Tank": {"s": [0, 200]}}}])
+    assert bob.eval("return (ns.Attendance:Decide('oU2', ..., 'x'))", K("Heal"))
+    bob.eval("ns.Attendance:Pick('oU2', ..., { { t = 'sorry gtg', ch = 'Raid', at = GetServerTime() } })", K("Heal"))
+    rec = bob.eval_py("return ns.RaidLog:GetRaid('r1')")
+    olly.eval("local r = ...; r.g = nil; ns.RaidLog:MergeRecord(r, select(2, ...))", rec, K("Bob"))
+    assert result(olly, "oU2", "Heal")["excused"]
+    # Bob takes it back and clears the lines: Olly's older copy must not bring them back
+    w.tick(2)
+    assert bob.eval("return (ns.Attendance:Decide('oU2', ..., nil))", K("Heal"))
+    bob.eval("ns.Attendance:Pick('oU2', ..., {})", K("Heal"))
+    olly_rec = olly.eval_py("return ns.RaidLog:GetRaid('r1')")
+    bob.eval("local r = ...; r.g = nil; ns.RaidLog:MergeRecord(r, select(2, ...))", olly_rec, K("Olly"))
+    h = result(bob, "oU2", "Heal")
+    assert not h["excused"] and h.get("decision") is None and h.get("picked") is None and h["pending"], h
+    rec = bob.eval_py("return ns.RaidLog:GetRaid('r1')")
+    olly.eval("local r = ...; r.g = nil; ns.RaidLog:MergeRecord(r, select(2, ...))", rec, K("Bob"))
+    h = result(olly, "oU2", "Heal")
+    assert not h["excused"] and h["pending"], h
+
+
+@case
+def leaving_with_the_raid_breaking_up_is_not_leaving_early():
+    w, c = world()
+    bob = c["Bob"]
+    base = now(bob) - 8 * HOUR
+    # planned to 23:00 (210 min); the last boss died at 150: everyone drops within minutes, the session ran to 200
+    names = ("Tank", "Heal", "Dps", "Kai", "Rita")
+    inject(bob, base, [{"id": "r1", "pl": "oB2", "stop": 200, "et": 210, "ex": {n: "l" for n in names},
+                        "att": {"Tank": {"s": [0, 150]}, "Heal": {"s": [0, 152]}, "Dps": {"s": [0, 141]},
+                                "Kai": {"s": [0, 155]}, "Rita": {"s": [0, 90]}}}])
+    for n in ("Tank", "Heal", "Dps", "Kai"):
+        r = result(bob, "oB2", n)
+        assert r["credit"] >= 0.99 and not r["review"], (n, r["left"], r["credit"])
+    r = result(bob, "oB2", "Rita")                                  # (left an hour before everybody: early)
+    assert r["left"] > 50 * MIN and r["review"], r
+
+
+@case
+def a_late_cancel_is_marked_not_counted():
+    w, c = world()
+    bob = c["Bob"]
+    occ = create(bob, i="kara", t=now(bob) + 3600)
+    w.tick(2)
+    signup(c["Rita"], occ, "A")
+    signup(c["Sam"], occ, "A")
+    w.tick(2)
+    signup(c["Rita"], occ, "X")                                     # an hour before the start
+    w.tick(2)
+    rec = bob.eval_py("local r = { pl = ..., start = GetServerTime() }; ns.Attendance:Snapshot(r); "
+                      "ns.Attendance:SnapshotNotes(r); return r", occ)
+    assert rec["sn"][K("Rita")]["lc"] is True and K("Rita") not in (rec.get("ex") or {}), rec
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "pl": "oL", "stop": 200, "ex": {"Sam": "a"}, "att": {"Sam": {"s": [0, 200]}}}])
+    bob.eval("ns.db.raids.r1.sn = { [...] = { x = true, lc = true, at = GetServerTime() } }; ns:Fire('RAIDLOG_CHANGED')", K("Rita"))
+    s = stats(bob)
+    assert s["Rita"]["lateCancels"] == 1 and s["Rita"].get("pct") is None, s["Rita"]
+
+
+@case
+def a_member_explains_a_raid_they_were_not_in():
+    w, c = world()
+    bob, dps = c["Bob"], c["Dps"]
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "pl": "oX2", "stop": 200, "ex": {"Dps": "l", "Tank": "l"}, "att": {"Tank": {"s": [0, 200]}}}])
+    assert dps.eval("return ns.RaidLog:GetRaid('r1')") is None
+    assert dps.eval("return ns.Attendance:SendReason('r1', 'life', 'sick kid')")
+    w.tick(3)
+    d = result(bob, "oX2", "Dps")
+    assert d["reason"]["n"] == "sick kid" and d["pending"], d
+
+
+@case
+def the_gm_changes_the_margins_from_the_reviews_page():
+    w, c = world()
+    gina, bob = c["Gina"], c["Bob"]
+    gina.slash("/dz raids")
+    w.tick(0.3)
+    gina.eval("ns.RaidsUI:SetMode('reviews')")
+    w.tick(0.3)
+    P = "ns.RaidsUI:GetPanel().reviews"
+    assert "On time within 5 min" in strip_codes(gina.eval("return " + P + ".rules:GetText()"))
+    gina.click(gina.eval("return " + P + ".rulesBtn"))
+    w.tick(0.3)
+    gina.eval("local f = DisasterZoneAttendanceRules; f.o = 10; f.d = 15; f.paint()")
+    gina.click(gina.eval("return DisasterZoneAttendanceRules.ok"))
+    w.tick(3)
+    assert bob.eval_py("return ns.Guild:GetAttendanceRules()") == {"o": 10, "d": 15}
+    bob.slash("/dz raids")
+    w.tick(0.3)
+    bob.eval("ns.RaidsUI:SetMode('reviews')")
+    w.tick(0.3)
+    assert not bob.eval("return " + P + ".rulesBtn:IsShown()")       # (only the GM)
+
+
 if __name__ == "__main__":
     run_all(globals())
