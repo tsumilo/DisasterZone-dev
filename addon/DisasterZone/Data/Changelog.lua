@@ -84,6 +84,8 @@ ns.CHANGELOG = {
               "A prized item's tooltip, anywhere in the game, wears an orange PRIZED ITEM ribbon.",
               "On the boss drop panel a prized item's card glows amber, soft sheens gliding on its edges.",
               "Settings > Demo mode > Demo a roll now includes a prized item, to see how it looks.",
+              "A rolled prized item you don't qualify for: no roll window, a short notice says why.",
+              "The Guild Master can show the roll window anyway: Council > Rules, Prized: not qualified.",
           } },
           { heading = "Loot council: a tidier roll list", lines = {
               "The boss drop's list runs the card's full width: nothing is cut off any more.",

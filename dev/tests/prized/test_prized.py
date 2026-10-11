@@ -196,10 +196,12 @@ def roll_rows_flag_who_breaks_a_rule_and_the_council_decides():
     r = prized_raid(RANK_VOTE)
     sid = start(r)
     click_roll(r, "Bob", 20)
-    # Dave (rank 3) can't roll: his pop-up holds the Roll button
-    assert r["Dave"].eval("return ns.RollFrame.przBlocked") is True
-    assert r["Dave"].eval("return ns.RollFrame.frame.roll:IsEnabled()") is False
-    assert r["Carol"].eval("return ns.RollFrame.frame.roll:GetText()") == "I want it"
+    # Dave (rank 3) can't get it: no roll window for him (1.3.5, the GM's default), a notice says why
+    assert not r["Dave"].eval("return ns.RollFrame.frame ~= nil and ns.RollFrame.frame:IsShown() or false")
+    assert r["Dave"].eval("return #ns.Notify:List({ kind = 'lootNotEligible' })") == 1
+    # (Carol, rank 3, neither; Bob qualifies: the council decides, so his button says "I want it")
+    assert r["Carol"].eval("return #ns.Notify:List({ kind = 'lootNotEligible' })") == 1
+    assert r["Bob"].eval("return ns.RollFrame.frame.roll:GetText()") == "I want it"
     r.w.tick(1)
     res = {x["key"]: x for x in rows(r["Alice"], sid)}
     assert res[key("Bob")]["ok"] is not False, res

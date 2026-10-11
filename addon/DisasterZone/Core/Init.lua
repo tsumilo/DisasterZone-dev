@@ -300,6 +300,10 @@ local KNOWN_MESSAGES = {
     POLLS_UPDATED = true, POLL_ANSWERED = true, POLL_ARRIVED = true, POLL_NUDGED = true,
     -- Core/Prized.lua: prized items (Raids > Loot rules) changed; (recordId, text, by) someone else changed the rules
     PRIZED_UPDATED = true, PRIZED_RULES_CHANGED = true,
+    -- UI/RollFrame.lua: a prized item rolled out that I don't qualify for (session id, item, why, free again)
+    PRIZED_NOT_ELIGIBLE = true,
+    -- Core/Guild.lua: the GM's loot rules (Council > Rules) changed
+    LOOT_RULES_CHANGED = true,
     -- Group Finder + dungeon run invites
     GROUP_FINDER_UPDATED = true, GROUP_FINDER_PROMPT = true, GROUP_FINDER_LEFTOVER = true,
     DUNGEON_RUN_INVITE = true, DUNGEON_RUN_INVITE_GONE = true,

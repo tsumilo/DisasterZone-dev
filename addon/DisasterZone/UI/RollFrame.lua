@@ -630,11 +630,30 @@ function RollFrame:GetSessionID()
     return self.sessionID
 end
 
+-- 1.3.5: a prized item rolled out that I clearly don't qualify for: no roll window (all I could do is pass) unless the
+-- GM's loot rules say to show it (q = "s"); PRIZED_NOT_ELIGIBLE (session id, item, why, free again) tells the
+-- notification center instead. Unknown standing (c.ok == nil): the window as usual.
+function RollFrame:SkipsPrized(session)
+    local P = ns.Prized
+    local itemID = tonumber(session.i)
+    local rec = not session.plain and itemID and P and P.ForItem and P:ForItem(itemID)
+    if not rec then return false end
+    local G = ns.Guild
+    local lr = G and G.GetLootRules and G:GetLootRules()
+    if lr and lr.q == "s" then return false end
+    local c = P:Check(rec, ns.Util.PlayerKey())
+    if not c or c.ok ~= false then return false end
+    local res = c.by and c.by[c.failKey]
+    ns:Fire("PRIZED_NOT_ELIGIBLE", session.id, itemID, tostring(c.fail or "a loot rule"), res and res.free or nil)
+    return true
+end
+
 function RollFrame:OnRollStarted(session)
     if type(session) == "string" then session = CallRoll("Get", session) end
     if type(session) ~= "table" or type(session.id) ~= "string" then return end
     if not Setting("roll.popup", true) or not InRaidOrDemo() then return end
     if session.state ~= nil and session.state ~= "open" then return end
+    if self:SkipsPrized(session) then return end
     self:ShowSession(session)
 end
 

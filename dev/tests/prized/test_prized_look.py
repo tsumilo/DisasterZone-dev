@@ -104,5 +104,67 @@ def demo_a_roll_includes_a_prized_item_beside_the_rolled_one():
     assert rows[0]["rolling"] and not rows[0]["prized"], rows          # the roll runs on the first, plain item
     assert rows[1]["prized"], rows                                     # the prized item right after it
 
+
+NOT_OK = ("ns.Prized.Check = function() return { ok = false, fail = '62% attendance, needs 75%', failKey = 'att', "
+          "by = { att = { free = nil } }, rules = {}, met = 0, required = 4 } end")
+
+
+def roll_dst(c, w):
+    c.eval("""local db = ns.ItemDB
+        for _, raid in ipairs(db:GetRaids()) do for _, boss in ipairs(raid.bosses or {}) do
+            for _, id in ipairs(boss.items or {}) do if id == ... then
+                local ref = db:GetBossRef(raid.key .. ":" .. boss.key)
+                ns.Loot:HandleDrop({ s = "TEST-q" .. GetTime(), b = ref.key, i = { id }, ts = GetServerTime(), test = true },
+                    ns.Util.PlayerKey())
+                return end end end end""", DST)
+    w.tick(1)
+    c.eval("ns.RollFrame:Hide(); ns.DropPanel:StartRoll(...)", DST)
+    w.tick(1)
+
+
+def notices(c):
+    res = c.eval_py("local out = {}; for i, it in ipairs(ns.Notify:List({ kind = 'lootNotEligible' })) do "
+                    "out[i] = { title = it.title, text = it.text } end; return out")
+    return list(res.values()) if isinstance(res, dict) else list(res or [])
+
+
+def roll_window(c):
+    return c.eval("return ns.RollFrame.frame ~= nil and ns.RollFrame.frame:IsShown() or false")
+
+
+@case
+def not_qualified_gets_a_notice_instead_of_the_roll_window():
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    c.eval(NOT_OK)
+    roll_dst(c, w)
+    assert not roll_window(c)
+    n = notices(c)
+    assert n and "being rolled" in n[0]["title"] and "62% attendance" in n[0]["text"], n
+
+
+@case
+def the_gm_can_show_the_roll_window_anyway():
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    c.eval(NOT_OK)
+    rules = c.eval_py("return ns.Guild:GetLootRules()")
+    assert rules["q"] == "h", rules
+    rules["q"] = "s"
+    assert c.eval_py("return (ns.Guild:SetLootRules(...))", rules) is True
+    roll_dst(c, w)
+    assert roll_window(c)
+    assert c.eval("return ns.RollFrame.przBlocked") is True    # (Roll greyed out, as before)
+    assert not notices(c)
+
+
+@case
+def qualified_or_unknown_still_get_the_roll_window():
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    c.eval("ns.Prized.Check = function() return { ok = nil, rules = {}, met = 2, required = 4, by = {} } end")
+    roll_dst(c, w)
+    assert roll_window(c) and not notices(c)
+
 if __name__ == "__main__":
     run_all(globals())

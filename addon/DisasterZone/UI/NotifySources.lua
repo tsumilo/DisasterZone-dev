@@ -335,6 +335,29 @@ local function register()
             if id and ns.CouncilRulesUI then ns.CouncilRulesUI:Select(id) end
         end,
     })
+    -- 1.3.5: a prized item rolled out that I don't qualify for (no roll window: RollFrame:SkipsPrized)
+    N:RegisterKind("lootNotEligible", {
+        section = "Loot", page = "council", icon = (ns.HasAssets and ns:HasAssets(7)) and 60 or 51,
+        color = { 1, 0.6, 0.18 },
+        label = "Prized item you can't get",
+        desc = "A prized item is rolled out and you don't meet its loot rules: why, instead of a roll window.",
+        needsYou = false, popup = true, sound = false,
+        open = function(it)
+            local id = it and it.data and it.data.item and ns.Prized and ns.Prized.ForItem and ns.Prized:ForItem(it.data.item)
+            if id and ns.CouncilUI and ns.CouncilUI.IsAvailable and ns.CouncilUI:IsAvailable() then
+                openTab("council")
+                ns.CouncilUI:SetView("rules")
+                if ns.CouncilRulesUI then ns.CouncilRulesUI:Select(id.id) end
+            end
+        end,
+    })
+    ns:On("PRIZED_NOT_ELIGIBLE", function(sid, itemID, why, free)
+        local name = itemID and UI():ItemText(itemID) or "A prized item"
+        local text = "Not this time: " .. tostring(why or "a loot rule")
+        if tonumber(free) then text = text .. " (free again " .. date("%d %b", free) .. ")" end
+        N:Post("lootNotEligible", { key = tostring(sid), title = name .. " is being rolled", text = text,
+                                    data = { item = itemID } })
+    end)
     ns:On("PRIZED_RULES_CHANGED", function(id, text, by)
         local P = ns.Prized
         local rec = P and P.Get and P:Get(id)
