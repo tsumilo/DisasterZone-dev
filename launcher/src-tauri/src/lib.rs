@@ -95,6 +95,8 @@ fn set_settings(
     keep_backups: Option<usize>,
     check_on_start: Option<bool>,
     source: Option<String>,
+    launch_code: Option<String>,
+    play_command: Option<String>,
 ) -> Result<Settings> {
     let mut s = state::load();
     if let Some(c) = channel {
@@ -111,6 +113,12 @@ fn set_settings(
     }
     if let Some(src) = source {
         s.source = Some(src).filter(|x| !x.trim().is_empty());
+    }
+    if let Some(c) = launch_code {
+        s.launch_code = c.trim().to_string();
+    }
+    if let Some(c) = play_command {
+        s.play_command = c.trim().to_string();
     }
     state::save(&s)?;
     Ok(s)
@@ -216,6 +224,11 @@ fn open_folder(kind: String) -> Result<()> {
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| crate::core::Error::Msg(e.to_string()))
 }
 
+#[tauri::command]
+fn play() -> Result<()> {
+    crate::core::play::play(&state::load())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -230,7 +243,8 @@ pub fn run() {
             update,
             backups,
             restore,
-            open_folder
+            open_folder,
+            play
         ])
         .run(tauri::generate_context!())
         .expect("error while running the DisasterZone launcher");

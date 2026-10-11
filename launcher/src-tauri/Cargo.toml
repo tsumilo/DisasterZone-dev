@@ -20,7 +20,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.10"
 sysinfo = "0.39.6"
-tauri = "2.12.3"
+tauri = { version = "2.12.3", features = [] }
 tauri-plugin-dialog = "2.8.2"
 tauri-plugin-opener = "2.7.1"
 thiserror = "2.0.21"
@@ -34,7 +34,7 @@ codegen-units = 1
 strip = true
 
 [build-dependencies]
-tauri-build = "2.7.2"
+tauri-build = { version = "2.7.2", features = [] }
 
 [target."cfg(windows)".dependencies]
 winreg = "0.56.0"

@@ -26,6 +26,8 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       put a full release (default: the base) where the desktop launcher finds it:
                                       the public releases repository (commit, push, GitHub release with the zip).
                                       --out DIR writes the same tree to a folder instead (no git). See launchlib.py.
+  tools\\release.py launcher-push      copy launcher\\ into the releases repository and push tag launcher-v<version>:
+                                      GitHub Actions builds the Windows / macOS / Linux installers
 
 What an in-game update can carry: changed, new and deleted Lua files that the TOC lists (except Libs\\ and the boot
 files). What it cannot: art, the TOC header, libraries, Core\\Boot.lua, the 3D room data (the load-on-demand addon
@@ -987,6 +989,62 @@ def cmd_publish(args):
         json.dump(log, fh, indent=1)
 
 
+LAUNCHER_SKIP = ("node_modules", "target", "gen")
+
+
+def launcher_version():
+    """The launcher's version; tauri.conf.json, Cargo.toml and package.json must agree."""
+    conf = _load_json(os.path.join(LAUNCHER_DIR, "src-tauri", "tauri.conf.json"), {})
+    pkg = _load_json(os.path.join(LAUNCHER_DIR, "package.json"), {})
+    cargo = read(os.path.join(LAUNCHER_DIR, "src-tauri", "Cargo.toml")).decode("utf-8")
+    m = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.M)
+    versions = {conf.get("version"), pkg.get("version"), m and m.group(1)}
+    if len(versions) != 1:
+        raise ReleaseError("launcher versions disagree (tauri.conf.json, package.json, Cargo.toml): %s"
+                           % ", ".join(sorted(str(v) for v in versions)))
+    return versions.pop()
+
+
+def cmd_launcher_push(args):
+    """Copy the launcher source + its CI workflow into the releases repository and push the tag launcher-v<version>:
+    GitHub Actions builds the installers for Windows, macOS and Linux and publishes them (launcher/ci/launcher.yml)."""
+    conf = _load_json(PUBLISH_CONF, {})
+    repo, clone = args.repo or conf.get("repo"), args.clone or conf.get("clone") or DEFAULT_CLONE
+    if not repo:
+        raise ReleaseError("which GitHub repository? pass --repo owner/name once (it is remembered)")
+    source = read(os.path.join(LAUNCHER_DIR, "source.txt")).decode("utf-8").strip()
+    if "/%s/" % repo not in source:
+        raise ReleaseError("launcher/source.txt (%s) does not point at %s" % (source, repo))
+    version = launcher_version()
+    tag = "launcher-v%s" % version
+    if not os.path.isdir(os.path.join(clone, ".git")):
+        _run([gh_exe(), "repo", "clone", repo, clone])
+    if _run(["git", "rev-parse", "-q", "--verify", "refs/tags/" + tag], cwd=clone, check=False).returncode == 0:
+        raise ReleaseError("%s was already pushed: raise the launcher version (tauri.conf.json, package.json, "
+                           "Cargo.toml) first" % tag)
+    dst = os.path.join(clone, "launcher")
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    for root, dirs, files in os.walk(LAUNCHER_DIR):
+        dirs[:] = [d for d in dirs if d not in LAUNCHER_SKIP]
+        for f in files:
+            src = os.path.join(root, f)
+            target = os.path.join(dst, os.path.relpath(src, LAUNCHER_DIR))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copyfile(src, target)
+    wf = os.path.join(clone, ".github", "workflows", "launcher.yml")
+    os.makedirs(os.path.dirname(wf), exist_ok=True)
+    shutil.copyfile(os.path.join(LAUNCHER_DIR, "ci", "launcher.yml"), wf)
+    _run(["git", "add", "-A"], cwd=clone)
+    if _run(["git", "diff", "--cached", "--quiet"], cwd=clone, check=False).returncode != 0:
+        _run(["git", "commit", "-m", "Launcher %s" % version], cwd=clone)
+    _run(["git", "tag", tag], cwd=clone)
+    _run(["git", "push"], cwd=clone)
+    _run(["git", "push", "origin", tag], cwd=clone)
+    print("launcher %s pushed to %s (tag %s): GitHub Actions now builds the installers" % (version, repo, tag))
+    print("  watch: https://github.com/%s/actions" % repo)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1003,6 +1061,8 @@ def main(argv=None):
     p = sub.add_parser("publish"); p.add_argument("--channel", choices=launchlib.CHANNELS, default="stable")
     p.add_argument("--version"); p.add_argument("--repo"); p.add_argument("--clone"); p.add_argument("--out")
     p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_publish)
+    p = sub.add_parser("launcher-push"); p.add_argument("--repo"); p.add_argument("--clone")
+    p.set_defaults(fn=cmd_launcher_push)
     args = ap.parse_args(argv)
     try:
         args.fn(args)

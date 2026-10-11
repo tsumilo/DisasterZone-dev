@@ -23,6 +23,10 @@ pub struct Settings {
     pub check_on_start: bool,
     /// override of DEFAULT_SOURCE (a URL or a folder)
     pub source: Option<String>,
+    /// Battle.net product code for Play (e.g. "WoWC"): empty = just open Battle.net
+    pub launch_code: String,
+    /// Linux (or any OS): a shell command Play runs instead of Battle.net, e.g. "lutris lutris:rungame/battlenet"
+    pub play_command: String,
 }
 
 impl Default for Settings {
@@ -36,6 +40,8 @@ impl Default for Settings {
             keep_backups: 3,
             check_on_start: true,
             source: None,
+            launch_code: String::new(),
+            play_command: String::new(),
         }
     }
 }
