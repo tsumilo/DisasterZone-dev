@@ -14,7 +14,8 @@ EUI.PIECES = "Interface\\AddOns\\DisasterZone\\Media\\Events\\pieces"
 EUI.MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 EUI.WHITE = "Interface\\Buttons\\WHITE8X8"
 -- (the design values live in ns.Style, UI/Style.lua: these are the same tables, kept for the callers that read them)
-local SC = ns.Style.C
+local S = ns.Style
+local SC = S.C
 EUI.GOLD = SC.GOLD                  -- { 1, 0.82, 0 }
 EUI.YOU = SC.YOU                    -- { 0.4, 0.72, 1 }: "You" everywhere (the board, the standings, the tracker)
 EUI.GREY = SC.SUB                   -- { 0.62, 0.62, 0.62 }
@@ -77,12 +78,9 @@ function EUI:SetArt(tex, key, w, h, cx, cy, fw)
     tex:SetTexCoord(l, r, t, b)
 end
 
+-- (one colour from alpha a1 to a2: UI:Gradient)
 local function Gradient(tex, orient, r, g, b, a1, a2)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2))
-    else
-        tex:SetColorTexture(r, g, b, (a1 + a2) / 2)
-    end
+    return UI():Gradient(tex, orient, { r, g, b, a1 }, { r, g, b, a2 })
 end
 EUI.Gradient = function(_, ...) return Gradient(...) end
 
@@ -130,7 +128,7 @@ function EUI:IsMe(key) return Util() and Util().IsMe(key) or false end
 -- The player's name for lists: "You" in blue for me (unless real), else in their class colour.
 function EUI:Name(key, real)
     if type(key) ~= "string" then return "|cff6f6f74-|r" end
-    if not real and self:IsMe(key) then return "|cff66b8ffYou|r" end
+    if not real and self:IsMe(key) then return S:Wrap("YOU", "You") end
     local L = ns.EventLive
     if key:find("%-Practice$") and L then
         local r, g, b = UI():ClassColor(self:ClassOf(key))
@@ -199,19 +197,15 @@ function EUI:CreateBadge(parent, size)
         self.ring:SetVertexColor(c[1], c[2], c[3])
         self:Show()
     end
-    f:EnableMouse(true)
-    f:SetScript("OnEnter", function(self)
+    UI():AttachTooltip(f, function(self, tip)
         local bd = self.badge
-        if not bd or self.noTip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(bd.n or "Badge", 1, 0.82, 0)
-        if bd.ti and bd.ti ~= "" then GameTooltip:AddLine("Title: " .. bd.ti, 1, 1, 1) end
+        if not bd or self.noTip then return false end
+        tip:AddLine(bd.n or "Badge", S:Color("GOLD"))
+        if bd.ti and bd.ti ~= "" then tip:AddLine("Title: " .. bd.ti, 1, 1, 1) end
         if bd.ev then
-            GameTooltip:AddLine(bd.ev .. (bd.at and (" · " .. date("%d %b", bd.at)) or ""), 0.62, 0.62, 0.62)
+            tip:AddLine(bd.ev .. (bd.at and (" · " .. date("%d %b", bd.at)) or ""), S:Color("SUB"))
         end
-        GameTooltip:Show()
-    end)
-    f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, nil, { anchor = "ANCHOR_TOP" })
     return f
 end
 
@@ -255,8 +249,7 @@ function EUI:CreateProgress(parent)
                 it.check = self:CreateTexture(nil, "OVERLAY")
                 it.check:SetSize(9, 9)
                 it.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-                it.fs = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                it.fs:SetWordWrap(false)
+                it.fs = UI():Text(self, "small")
                 self.items[i] = it
             end
             local state = over and "done" or (cur and (i < cur and "done" or (i == cur and "now" or "next")) or "next")
@@ -370,8 +363,7 @@ function EUI:Day(t) return date("%a %d %b", t) end
 
 -- "in 3 h", "in 2 days", "in 1 day", "now", "2 h ago". (Rounded up to the next unit: no "60 min", "24 h".)
 function EUI:Relative(t)
-    local now = (GetServerTime and GetServerTime()) or time()
-    local d = t - now
+    local d = t - Util().Now()
     local a = math.abs(d)
     if a < 90 then return "now" end
     local s
@@ -725,7 +717,7 @@ function EUI:CreateZoneMap(parent, w, h)
     -- place i: its ring (its size in yards; a fixed small one when the map's yards aren't known) and its name under it
     local LOOK = {
         place = { stroke = EUI.TEAL, fill = { EUI.TEAL[1], EUI.TEAL[2], EUI.TEAL[3], 0.2 }, text = { 1, 1, 1 } },
-        hot = { stroke = { 1, 0.82, 0 }, fill = { 1, 0.82, 0, 0.12 }, text = { 1, 0.82, 0 } },
+        hot = { stroke = SC.GOLD, fill = { 1, 0.82, 0, 0.12 }, text = SC.GOLD },
         dim = { stroke = { 0.62, 0.62, 0.66 }, fill = { 1, 1, 1, 0.06 }, text = { 0.72, 0.72, 0.74 } },
     }
     function m:Place(i, x, y, yd, name, look)
@@ -733,13 +725,7 @@ function EUI:CreateZoneMap(parent, w, h)
         if not c then
             c = EUI:CreateCircle(self.canvas)
             c:SetFrameLevel(self.canvas:GetFrameLevel() + 2)
-            local fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            fs:SetWordWrap(false)
-            local path, _, flags = fs:GetFont()
-            if path then fs:SetFont(path, 10.5, flags) end
-            fs:SetShadowOffset(1, -1)
-            fs:SetShadowColor(0, 0, 0, 1)
-            c.label = fs
+            c.label = UI():Text(c, "small", nil, { shadow = true })
             self.rings[i] = c
         end
         local lk = LOOK[look or "place"] or LOOK.place
@@ -815,10 +801,7 @@ function EUI:CreateZoneMap(parent, w, h)
             z:SetFrameLevel(self.top:GetFrameLevel() + 1)
             UI():AddPillShape(z, 22)
             z:SetPillColors({ 0.055, 0.055, 0.066, 0.78 }, { 0.43, 0.43, 0.47, 0.6 })
-            z.fs = z:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            local path, _, flags = z.fs:GetFont()
-            if path then z.fs:SetFont(path, 11, flags) end
-            z.fs:SetTextColor(0.91, 0.91, 0.91)
+            z.fs = UI():Text(z, "body", { 0.91, 0.91, 0.91 })
             z.fs:SetPoint("CENTER", 0, 0)
             self.zone = z
         end
@@ -850,13 +833,7 @@ function EUI:CreateZoneMap(parent, w, h)
             me.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
             me.arrow:SetSize(20, 20)
             me.arrow:SetPoint("CENTER")
-            me.fs = me:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            local path, _, flags = me.fs:GetFont()
-            if path then me.fs:SetFont(path, 10.5, flags) end
-            me.fs:SetShadowOffset(1, -1)
-            me.fs:SetShadowColor(0, 0, 0, 1)
-            me.fs:SetTextColor(EUI.YOU[1], EUI.YOU[2], EUI.YOU[3])
-            me.fs:SetText("You")
+            me.fs = UI():Text(me, "small", "YOU", { shadow = true, text = "You" })
             me.fs:SetPoint("LEFT", me, "CENTER", 15, 1)
             self.me = me
             -- (it follows me a few times a second while the map shows)
@@ -984,7 +961,7 @@ function EUI:PlaceTip(owner, p, click)
         GameTooltip:AddLine(floor(yd + 0.5) .. " yd from you", EUI.TEAL_LT[1], EUI.TEAL_LT[2], EUI.TEAL_LT[3])
     else
         GameTooltip:AddLine(why == "instance" and "You're in an instance: places are in the open world"
-            or "Too far from here to measure", 0.62, 0.62, 0.62, true)
+            or "Too far from here to measure", SC.SUB[1], SC.SUB[2], SC.SUB[3], true)
     end
     if click then GameTooltip:AddLine("Click: show the way", 0.45, 0.9, 0.55) end
     GameTooltip:Show()
@@ -1026,21 +1003,12 @@ function EUI:CreateTimeLeft(parent, w)
     t.bg:SetColorTexture(0.086, 0.086, 0.106, 0.96)
     UI():AddEdges(t, "BORDER", true)
     UI():SetEdgeColor(t, 0.34, 0.34, 0.38, 0.6)
-    local function text(size, r, g, b, font)
-        local fs = t:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-        fs:SetWordWrap(false)
-        fs:SetJustifyH("LEFT")
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-        fs:SetTextColor(r, g, b)
-        fs:SetShadowOffset(1, -1)
-        fs:SetShadowColor(0, 0, 0, 1)
-        return fs
+    local function text(size, color, font)
+        return UI():Text(t, size, color, { shadow = true, font = font })
     end
-    t.big = text(30, 1, 1, 1)
-    EUI:Narrow(t.big, 30)
+    t.big = text(30, { 1, 1, 1 }, EUI.NARROW_FONT)
     t.big:SetPoint("TOPLEFT", 10, -9)
-    t.of = text(12, 0.62, 0.62, 0.62)
+    t.of = text("emph", "SUB")
     t.of:SetPoint("BOTTOMLEFT", t.big, "BOTTOMRIGHT", 6, 3)
     t.track = t:CreateTexture(nil, "ARTWORK")
     t.track:SetPoint("TOPLEFT", 10, -48)
@@ -1051,13 +1019,10 @@ function EUI:CreateTimeLeft(parent, w)
     t.bar:SetPoint("TOPLEFT", t.track, "TOPLEFT")
     t.bar:SetHeight(3)
     t.bar:SetTexture(EUI.WHITE)
-    Gradient(t.bar, "HORIZONTAL", 1, 0.82, 0, 1, 1)
-    if t.bar.SetGradient and CreateColor then
-        t.bar:SetGradient("HORIZONTAL", CreateColor(0.72, 0.54, 0.06, 1), CreateColor(1, 0.82, 0, 1))
-    end
-    t.l = text(10.5, 0.62, 0.62, 0.62)
+    UI():Gradient(t.bar, "HORIZONTAL", { 0.72, 0.54, 0.06, 1 }, "GOLD")
+    t.l = text("small", "SUB")
     t.l:SetPoint("TOPLEFT", 10, -57)
-    t.r = text(10.5, 0.62, 0.62, 0.62)
+    t.r = text("small", "SUB")
     t.r:SetJustifyH("RIGHT")
     t.r:SetPoint("TOPRIGHT", -10, -57)
     function t:Set(left, total, ltext, rtext)
@@ -1102,10 +1067,8 @@ function EUI:CreateMedal(parent, size)
     f.light = Disc(f, "ARTWORK", 3)
     f.light:SetSize(size * 0.55, size * 0.55)
     f.light:SetPoint("CENTER", -size * 0.15, size * 0.18)
-    f.fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.fs = UI():Text(f, 13, nil, { font = EUI.NARROW_FONT, shadow = false })
     f.fs:SetPoint("CENTER", 0, 0)
-    EUI:Narrow(f.fs, 13)
-    f.fs:SetShadowOffset(0, 0)
     function f:Set(n)
         local m = MEDAL[n]
         if not m then self:Hide() return end
@@ -1119,19 +1082,14 @@ function EUI:CreateMedal(parent, size)
     return f
 end
 
--- An item's icon (a file id or path), or nil while the client doesn't have it.
+-- An item's icon (a file id or path), or nil while the client doesn't have it: UI:ItemIcon without its question
+-- mark (a board row keeps no room for an icon it can't show yet).
 function EUI:ItemIcon(item)
     item = tonumber(item)
     if not item then return nil end
-    if C_Item and C_Item.GetItemIconByID then
-        local ok, icon = pcall(C_Item.GetItemIconByID, item)
-        if ok and icon then return icon end
-    end
-    if GetItemIcon then
-        local ok, icon = pcall(GetItemIcon, item)
-        if ok and icon then return icon end
-    end
-    return nil
+    local ok, icon = pcall(UI().ItemIcon, UI(), item)
+    if not ok or not icon or icon == 134400 then return nil end
+    return icon
 end
 
 -- "0:40 ago", "1 min ago", "3 h ago" for a time `sec` ago.
