@@ -202,7 +202,7 @@ local function Broadcast()
     local ch = GroupChannel()
     if not g or not ch or not ns.Comm then return end
     local who = type(g.who) == "table" and next(g.who) and g.who or nil
-    ns.Comm:Send({ t = "BG", g = g.id, s = g.started, h = HitList(g), w = who, e = g.ended or nil }, ch)
+    ns.Comm:Send({ t = "BG", g = g.id, s = g.started, h = HitList(g), w = who, e = g.ended or nil }, ch, nil, "game")
 end
 
 local function Changed()
@@ -332,7 +332,7 @@ function Bingo:GetAnnounce() return Data().announce end
 function Bingo:RequestState()
     if not IsInGroup() or not ns.Comm then return end
     if not ns.Comm:RateLimit("bingo.query", 10) then return end
-    ns.Comm:Send({ t = "BGQ" }, GroupChannel())
+    ns.Comm:Send({ t = "BGQ" }, GroupChannel(), nil, "game")
 end
 
 ---------------------------------------------------------------------------
