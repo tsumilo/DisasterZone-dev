@@ -14,6 +14,9 @@ local addonName, ns = ...
 
 local CouncilRulesUI = ns:NewModule("CouncilRulesUI")
 
+local UI = ns.UI
+local S = ns.Style
+
 local floor, max, min = math.floor, math.max, math.min
 local format, tconcat = string.format, table.concat
 
@@ -24,7 +27,7 @@ local format, tconcat = string.format, table.concat
 -- (the visual pass, 2026-10-11 "give it some love, same fidelity as other pages": a banner of raid art with the status
 -- and Save & share, icon tiles on the choices, a gold thumb gliding between a line's choices, the example's rows
 -- sliding to their new places when a choice re-ranks them)
-local K = { W = 770, GAP = 8, TABS_H = 28, BAN_H = 76, LEFT_W = 304, STEP_H = 70, SEG_H = 22, CARD_PAD = 12,
+local K = { W = S.INNER_W, GAP = 8, TABS_H = 28, BAN_H = 76, LEFT_W = 304, STEP_H = 70, SEG_H = 22, CARD_PAD = 12,
             PREVIEW_ROWS = 8, ITEM = 30687,    -- (Ravager's Bracers: the example roll's item)
             ICON_X = 34, GLIDE = 0.22, SLIDE = 0.30 }
 K.CHOICE_W = K.LEFT_W - 32                      -- the buttons, across the column (inside its padding and scroll bar)
@@ -34,8 +37,8 @@ local STEP_ICON = { f = "calendar", s = "ballot", l = "bis", w = "trophy", o = "
 local ICON_FALLBACK = { ballot = "poll", stopwatch = "calendar", prized = "trophy" }
 K.RIGHT_X = K.LEFT_W + K.GAP
 K.RIGHT_W = K.W - K.RIGHT_X                     -- 458: the drop panel's rows fit
-local GOLD, GREY, DIM = { 1, 0.82, 0 }, { 0.72, 0.72, 0.75 }, { 0.50, 0.50, 0.53 }
-local CARD_BG, EDGE = { 0.10, 0.10, 0.12, 0.92 }, { 0.34, 0.34, 0.38, 0.5 }
+local ICON_TINT = { 1, 0.86, 0.4 }            -- an atlas icon in a gold ring (the banner's)
+local WHY = { 0.91, 0.85, 0.66 }              -- the line under the example: why the suggestion is who it is
 
 -- The choices, in the order the lines show them (keys of Guild.LOOT_RULES).
 local STEPS = {
@@ -99,8 +102,8 @@ local SCENES = {
 local view                    -- the frame (CouncilRulesUI:Create)
 local state = { page = "winner", sel = nil, scene = "split", draft = nil }
 
-local function UI() return ns.UI end
-
+-- The rows' slide when a choice re-ranks them: one shared driver of eased tweens.
+-- TODO(refactor): move into Widgets (a shared UI:Tween(key, dur, fn, instant))
 local tweens = {}
 local driver
 local function EaseOut(t) return 1 - (1 - t) ^ 3 end
@@ -134,60 +137,21 @@ local function Tween(key, dur, fn, instant)
     driver:SetScript("OnUpdate", StepTweens)
 end
 
-local function AtlasIcon(tex, name, r, g, b)
-    local I = ns.UI.ICON
+local function IconName(name)
+    if ICON_FALLBACK[name] and not (ns.HasAssets and ns:HasAssets(7)) then return ICON_FALLBACK[name] end
+    return name
+end
+
+local function AtlasIcon(tex, name, color)
     if name == "bis" then
         tex:SetTexture(MEDIA .. "Icons\\bis")
         tex:SetTexCoord(0, 1, 0, 1)
     else
-        if ICON_FALLBACK[name] and not (ns.HasAssets and ns:HasAssets(7)) then name = ICON_FALLBACK[name] end
-        tex:SetTexture(ns.UI.ICON_ATLAS)
-        tex:SetTexCoord(unpack(ns.UI:IconCoords(I[name] or I.notes)))
+        local I = UI.ICON
+        tex:SetTexture(UI.ICON_ATLAS)
+        tex:SetTexCoord(unpack(UI:IconCoords(I[IconName(name)] or I.notes)))
     end
-    tex:SetVertexColor(r or 1, g or 1, b or 1)
-end
-
-local function Text(parent, font, size, r, g, b)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if r then fs:SetTextColor(r, g, b) end
-    return fs
-end
-
-local function Fill(frame, c, layer)
-    local t = frame:CreateTexture(nil, layer or "BACKGROUND")
-    t:SetAllPoints()
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-    return t
-end
-
-local function Edge(frame, c)
-    local function line(p1, p2, w, h)
-        local t = frame:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(c[1], c[2], c[3], c[4])
-        t:SetPoint(p1)
-        t:SetPoint(p2)
-        if w then t:SetWidth(w) else t:SetHeight(h) end
-    end
-    line("TOPLEFT", "TOPRIGHT", nil, 1)
-    line("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1)
-    line("TOPLEFT", "BOTTOMLEFT", 1)
-    line("TOPRIGHT", "BOTTOMRIGHT", 1)
-end
-
-local function Tip(frame, title, text)
-    frame:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(title, 1, 0.82, 0)
-        if text then GameTooltip:AddLine(text, 0.85, 0.85, 0.85, true) end
-        GameTooltip:Show()
-    end)
-    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    tex:SetVertexColor(S:Color(color or { 1, 1, 1 }))
 end
 
 local function Rules()
@@ -262,7 +226,7 @@ local function WhyText(rows, rules)
     for _, r in ipairs(rows) do
         if r.split then split[#split + 1] = r end
     end
-    local gold = "|cffffd100%s|r"
+    local gold = S:Hex("GOLD") .. "%s|r"
     if #split > 1 then
         if not s then
             if rules.s == "p" then
@@ -301,78 +265,17 @@ end
 -- Building
 ---------------------------------------------------------------------------
 
--- A row of choices: one framed control of equal parts, the picked one under a gold thumb (faint gold fill, gold edge,
--- white text) that glides to a new pick; the others grey text, a soft wash under the mouse. Read-only (not the GM):
--- the same look, no clicks.
+-- A row of choices (UI:CreateSegments): one framed control of equal parts, the picked one under a gold thumb that
+-- glides to a new pick; the others grey text, a soft wash under the mouse. Read-only (not the GM): the same look, no
+-- clicks (seg:SetEnabled(false)).
 local function Seg(parent, key, opts, onPick, width)
-    local s = CreateFrame("Frame", nil, parent)
-    s.buttons, s.key = {}, key
     width = width or K.CHOICE_W
-    local w = floor(width / #opts)
-    width = w * #opts
-    s:SetSize(width, K.SEG_H)
-    Fill(s, { 0.075, 0.075, 0.085, 0.95 })
-    Edge(s, { 0.30, 0.30, 0.34, 1 })
-    for i = 2, #opts do
-        local t = s:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(0.30, 0.30, 0.34, 0.8)
-        t:SetSize(1, K.SEG_H - 8)
-        t:SetPoint("LEFT", s, "LEFT", (i - 1) * w, 0)
-    end
-    -- the thumb (under the labels)
-    local th = CreateFrame("Frame", nil, s)
-    th:SetSize(w + 1, K.SEG_H)
-    th.fill = th:CreateTexture(nil, "ARTWORK")
-    th.fill:SetAllPoints()
-    th.fill:SetColorTexture(1, 1, 1, 1)
-    if th.fill.SetGradient and CreateColor then
-        th.fill:SetGradient("VERTICAL", CreateColor(0.27, 0.20, 0.03, 0.95), CreateColor(0.42, 0.32, 0.06, 0.95))
-    else
-        th.fill:SetColorTexture(0.34, 0.26, 0.05, 0.95)
-    end
-    Edge(th, { 1, 0.82, 0, 0.95 })
-    th.shine = th:CreateTexture(nil, "OVERLAY")
-    th.shine:SetColorTexture(1, 0.92, 0.6, 0.35)
-    th.shine:SetHeight(1)
-    th.shine:SetPoint("TOPLEFT", 1, -1)
-    th.shine:SetPoint("TOPRIGHT", -1, -1)
-    s.thumb = th
-    for i, o in ipairs(opts) do
-        local b = CreateFrame("Button", nil, s)
-        b:SetSize(w, K.SEG_H)
-        b:SetPoint("LEFT", s, "LEFT", (i - 1) * w, 0)
-        b:SetFrameLevel(th:GetFrameLevel() + 1)
-        local hl = b:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetPoint("TOPLEFT", 1, -1)
-        hl:SetPoint("BOTTOMRIGHT", -1, 1)
-        hl:SetColorTexture(1, 1, 1, 0.06)
-        b.label = Text(b, "GameFontHighlightSmall", 11)
-        b.label:SetPoint("CENTER", b, "CENTER", 0, 0)
-        b.label:SetText(o[2])
-        b.value = o[1]
-        b.index = i
-        b:SetScript("OnClick", function() onPick(key, o[1]) end)
-        s.buttons[i] = b
-    end
-    function s:Paint(value, enabled)
-        local idx
-        for _, b in ipairs(self.buttons) do
-            local on = b.value == value
-            if on then idx = b.index end
-            if on then b.label:SetTextColor(1, 1, 1) else b.label:SetTextColor(0.66, 0.66, 0.70) end
-            b:EnableMouse(enabled and true or false)
-        end
-        self.thumb:SetShown(idx ~= nil)
-        if not idx then return end
-        local to = (idx - 1) * w
-        local from = self.thumbX or to
-        local instant = (self.thumbX == nil) or not self:IsVisible()
-        self.thumbX = to
-        Tween(self, K.GLIDE, function(e)
-            self.thumb:ClearAllPoints()
-            self.thumb:SetPoint("LEFT", self, "LEFT", from + (to - from) * e, 0)
-        end, instant or from == to)
-    end
+    width = floor(width / #opts) * #opts
+    local items = {}
+    for i, o in ipairs(opts) do items[i] = { key = o[1], label = o[2] } end
+    local s = UI:CreateSegments(parent, items, function(value) onPick(key, value) end,
+        { width = width, h = K.SEG_H })
+    s.key = key
     return s
 end
 
@@ -383,110 +286,63 @@ local function Pick(key, value)
     CouncilRulesUI:Refresh()
 end
 
--- The two pages' tabs (small, at the top left) and the top right: Save & share / Undo (the GM's draft), Add item.
+-- The two pages' tabs (small, on the layout's toolbar) and its main action: Add item (Prized items).
 local function BuildTop(v)
-    local UIx = UI()
-    v.tabWinner = UIx:CreateUnderlineTab(v, "Picking the winner", function() CouncilRulesUI:SetPage("winner") end, "small")
-    v.tabWinner:SetPoint("TOPLEFT", v, "TOPLEFT", -4, 0)
-    v.tabPrized = UIx:CreateUnderlineTab(v, "Prized items", function() CouncilRulesUI:SetPage("prized") end, "small")
-    v.tabPrized:SetPoint("LEFT", v.tabWinner, "RIGHT", 6, 0)
-    v.tabLine = v:CreateTexture(nil, "BORDER")
-    v.tabLine:SetColorTexture(1, 1, 1, 0.08)
-    v.tabLine:SetHeight(1)
-    v.tabLine:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -(K.TABS_H - 6))
-    v.tabLine:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, -(K.TABS_H - 6))
-    v.add = UIx:CreateSleekButton(v, "Add item", 84, 20, function()
-        if ns.PrizedUI and ns.PrizedUI.StartAdd then ns.PrizedUI:StartAdd() end
-    end, "primary")
-    v.add:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, 0)
-    Tip(v.add, "Add a prized item", "A drop with stricter loot rules (attendance, rank, a queue...). Raiders see them.")
+    local L = UI:CreateLayout("board", v, { pad = 0, bottom = 0, width = K.W })
+    v.layout = L
+    L.toolbar:SetTabs({ { key = "winner", text = "Picking the winner", small = true },
+        { key = "prized", text = "Prized items", small = true }, selected = "winner" },
+        function(key) CouncilRulesUI:SetPage(key) end)
+    v.tabWinner = L.toolbar:GetTab("winner")
+    v.tabPrized = L.toolbar:GetTab("prized")
+    v.add = L.toolbar:SetPrimary({ text = "Add item", tip = "A drop with stricter loot rules (attendance, rank, a "
+        .. "queue...). Raiders see them.", tipTitle = "Add a prized item", onClick = function()
+            if ns.PrizedUI and ns.PrizedUI.StartAdd then ns.PrizedUI:StartAdd() end
+        end })
+    v.add:Hide()
+    return L.body
+end
+
+-- Undo / Save & share on the banner (the GM's draft).
+local function BannerActions(b, dirty)
+    if dirty then
+        b:SetActions({
+            { text = "Save & share", kind = "primary", width = 100, onClick = function() CouncilRulesUI:Save() end },
+            { text = "Undo", width = 60, onClick = function()
+                state.draft = nil
+                CouncilRulesUI:Refresh()
+            end },
+        })
+    else
+        b:SetActions(nil)
+    end
+    view.save, view.undo = b.actions[1], b.actions[2]
 end
 
 -- Picking the winner: the banner, the choices (left, scrolling) and the example (right).
-local function BuildBanner(page, v)
-    local b = CreateFrame("Frame", nil, page)
+local function BuildBanner(page)
+    local b = UI:CreatePageBanner(page, { size = K.BAN_H, art = "kara", artUnder = true, width = K.W,
+        icon = IconName("ballot"), kicker = "Guild loot rules", title = "Picking the winner", titleColor = "TEXT",
+        sub = "How the drop panel suggests who gets an item" })
+    if b.icon then b.icon.tex:SetVertexColor(S:Color(ICON_TINT)) end
     b:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
     b:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, 0)
-    b:SetHeight(K.BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    local PlanUI = ns.RaidPlanUI
-    if PlanUI and PlanUI.RaidArt then
-        local file, l, r, t, bt = PlanUI:RaidArt("kara", K.W, K.BAN_H, 0.95)
-        if t < 0.29 then t, bt = 0.29, bt + 0.29 - t end
-        b.art:SetTexture(file)
-        b.art:SetTexCoord(l, r, t, bt)
-    else
-        b.art:SetColorTexture(0.1, 0.1, 0.12, 1)
-    end
-    local function shade(layer, orient, a1, a2, w)
-        local t = b:CreateTexture(nil, "BACKGROUND", nil, layer)
-        t:SetPoint("TOPLEFT", b.art)
-        if w then t:SetPoint("BOTTOMLEFT", b.art) t:SetWidth(w) else t:SetPoint("BOTTOMRIGHT", b.art) end
-        t:SetColorTexture(1, 1, 1, 1)
-        if t.SetGradient and CreateColor then
-            t:SetGradient(orient, CreateColor(0.035, 0.035, 0.043, a1), CreateColor(0.035, 0.035, 0.043, a2))
-        else
-            t:SetColorTexture(0.035, 0.035, 0.043, (a1 + a2) / 2)
-        end
-    end
-    shade(2, "VERTICAL", 0.92, 0.35)
-    shade(3, "HORIZONTAL", 0.90, 0, 420)
-    UI():AddEdges(b, "BORDER")
-    -- the face: a gold ring around the ballot box
-    b.disc = b:CreateTexture(nil, "ARTWORK", nil, 0)
-    b.disc:SetTexture(MEDIA .. "Strategy\\disc")
-    b.disc:SetVertexColor(0.05, 0.05, 0.06, 0.95)
-    b.disc:SetSize(50, 50)
-    b.disc:SetPoint("LEFT", b, "LEFT", 14, 0)
-    b.ring = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.ring:SetTexture(MEDIA .. "Events\\ring")
-    b.ring:SetVertexColor(1, 0.82, 0)
-    b.ring:SetSize(54, 54)
-    b.ring:SetPoint("CENTER", b.disc)
-    b.icon = b:CreateTexture(nil, "ARTWORK", nil, 2)
-    b.icon:SetSize(24, 24)
-    b.icon:SetPoint("CENTER", b.disc)
-    AtlasIcon(b.icon, "ballot", 1, 0.86, 0.4)
-    b.kicker = Text(b, "GameFontNormalSmall", 10, 1, 0.82, 0)
-    b.kicker:SetPoint("TOPLEFT", b.disc, "TOPRIGHT", 14, -3)
-    b.kicker:SetText("GUILD LOOT RULES")
-    b.title = Text(b, "GameFontHighlightLarge", 18)
-    b.title:SetPoint("TOPLEFT", b.kicker, "BOTTOMLEFT", 0, -3)
-    b.title:SetText("Picking the winner")
-    b.sub = Text(b, "GameFontHighlightSmall", 11, 0.80, 0.80, 0.83)
-    b.sub:SetPoint("TOPLEFT", b.title, "BOTTOMLEFT", 0, -3)
-    -- the status, Undo / Save & share (the GM's draft)
-    b.pill = UI():CreateTagPill(b, 20)
-    b.pill:SetBase(0.06, 0.06, 0.07)
-    b.pill:SetPoint("TOPRIGHT", b, "TOPRIGHT", -12, -12)
-    v.save = UI():CreateSleekButton(b, "Save & share", 100, 22, function() CouncilRulesUI:Save() end, "primary")
-    v.save:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -12, 12)
-    v.undo = UI():CreateSleekButton(b, "Undo", 60, 22, function()
-        state.draft = nil
-        CouncilRulesUI:Refresh()
-    end, "secondary")
-    v.undo:SetPoint("RIGHT", v.save, "LEFT", -6, 0)
     page.banner = b
 end
 
-local function BuildWinner(v)
-    local page = CreateFrame("Frame", nil, v)
-    page:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -K.TABS_H)
-    page:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+local function BuildWinner(v, host)
+    local page = CreateFrame("Frame", nil, host)
+    page:SetAllPoints(host)
     v.winner = page
-    BuildBanner(page, v)
+    BuildBanner(page)
     local top = K.BAN_H + K.GAP
     -- the choices
-    local left = CreateFrame("Frame", nil, page)
+    local left = UI:CreateCard(page, { tone = "inset" })
     left:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -top)
     left:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 0, 0)
     left:SetWidth(K.LEFT_W)
-    Fill(left, { 0.06, 0.06, 0.07, 0.9 })
-    Edge(left, EDGE)
     page.left = left
-    local sf = UI():CreateScrollFrame(left)
+    local sf = UI:CreateScrollFrame(left)
     sf:SetPoint("TOPLEFT", left, "TOPLEFT", 12, -6)
     sf:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -20, 6)
     local body = CreateFrame("Frame", nil, sf)
@@ -499,36 +355,27 @@ local function BuildWinner(v)
         local f = CreateFrame("Frame", nil, body)
         f:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
         f:SetSize(K.CHOICE_W, K.STEP_H)
-        if i < #STEPS then
-            local line = f:CreateTexture(nil, "BORDER")
-            line:SetColorTexture(1, 1, 1, 0.07)
-            line:SetHeight(1)
-            line:SetPoint("BOTTOMLEFT")
-            line:SetPoint("BOTTOMRIGHT")
-        end
+        if i < #STEPS then UI:Rule(f, { bottom = 0, layer = "BORDER" }) end
         -- the icon tile
         f.box = f:CreateTexture(nil, "BACKGROUND")
         f.box:SetSize(26, 26)
         f.box:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -6)
-        f.box:SetColorTexture(0.10, 0.10, 0.12, 1)
+        f.box:SetColorTexture(S:Color("CARD"))
         local boxEdge = CreateFrame("Frame", nil, f)
         boxEdge:SetAllPoints(f.box)
-        UI():AddEdges(boxEdge, "BORDER")
+        UI:AddEdges(boxEdge, "BORDER")
         f.icon = f:CreateTexture(nil, "ARTWORK")
         f.icon:SetSize(15, 15)
         f.icon:SetPoint("CENTER", f.box)
-        AtlasIcon(f.icon, STEP_ICON[st.key] or "notes", 0.86, 0.86, 0.9)
-        f.title = Text(f, "GameFontHighlight", 13)
+        AtlasIcon(f.icon, STEP_ICON[st.key] or "notes", "TEXT")
+        f.title = UI:Text(f, "title", "TEXT", { text = st.title })
         f.title:SetPoint("TOPLEFT", f, "TOPLEFT", K.ICON_X, -5)
-        f.title:SetText(st.title)
-        f.sub = Text(f, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+        f.sub = UI:Text(f, "sub", nil, { width = K.CHOICE_W - K.ICON_X, text = st.sub })
         f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -3)
-        f.sub:SetWidth(K.CHOICE_W - K.ICON_X)
-        f.sub:SetText(st.sub)
         local hit = CreateFrame("Frame", nil, f)
         hit:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
         hit:SetSize(K.CHOICE_W, 38)
-        Tip(hit, st.title, st.tip)
+        UI:AttachTooltip(hit, st.title, { { st.tip, "TEXT", wrap = true } })
         f.seg = Seg(f, st.key, st.opts, Pick)
         f.seg:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -40)
         f.def = st
@@ -541,46 +388,36 @@ local function BuildWinner(v)
     right:SetPoint("TOPLEFT", page, "TOPLEFT", K.RIGHT_X, -top)
     right:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     page.right = right
-    right.kicker = Text(right, "GameFontNormalSmall", 10, 1, 0.82, 0)
+    right.kicker = UI:Text(right, "small", "GOLD", { text = "TRY IT" })
     right.kicker:SetPoint("TOPLEFT", right, "TOPLEFT", 2, -2)
-    right.kicker:SetText("TRY IT")
-    right.change = Text(right, "GameFontHighlightSmall", 11)
+    right.change = UI:Text(right, "body", nil, { width = K.RIGHT_W - 280 })
     right.change:SetPoint("TOPLEFT", right.kicker, "BOTTOMLEFT", 0, -4)
-    right.change:SetWidth(K.RIGHT_W - 280)
-    right.scenes = Seg(right, "scene", (function()
-        local o = {}
-        for i, sc in ipairs(SCENES) do o[i] = { sc.key, sc.label } end
-        return o
-    end)(), function(_, value)
+    local scenes = {}
+    for i, sc in ipairs(SCENES) do scenes[i] = { sc.key, sc.label } end
+    right.scenes = Seg(right, "scene", scenes, function(_, value)
         state.scene = value
         CouncilRulesUI:Refresh()
     end, 264)
     right.scenes:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, -2)
-    local c = CreateFrame("Frame", nil, right)
+    local c = UI:CreateCard(right, { tone = "card" })
     c:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -32)
     c:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
-    Fill(c, CARD_BG)
-    Edge(c, EDGE)
     c:SetClipsChildren(true)
     page.card = c
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(26, 26)
     c.icon:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD, -8)
     c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    c.name = Text(c, "GameFontNormal", 12)
+    c.name = UI:Text(c, "emph", "GOLD")
     c.name:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 8, 0)
-    c.sub = Text(c, "GameFontHighlightSmall", 11)
+    c.sub = UI:Text(c, "body")
     c.sub:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -3)
     c.rows, c.byKey = {}, {}
-    c.more = Text(c, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    c.why = Text(c, "GameFontHighlight", 12)
-    c.why:SetWordWrap(true)
-    c.why:SetWidth(K.RIGHT_W - 2 * K.CARD_PAD)
-    c.why:SetTextColor(0.91, 0.85, 0.66)
-    c.never = Text(c, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+    c.more = UI:Text(c, "sub")
+    c.why = UI:Text(c, "emph", WHY, { wrap = true, width = K.RIGHT_W - 2 * K.CARD_PAD })
+    c.never = UI:Text(c, "sub", nil, { width = K.RIGHT_W - 2 * K.CARD_PAD,
+        text = "Never suggested: a pass, a player who left, a class that can't use it." })
     c.never:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", K.CARD_PAD, 8)
-    c.never:SetWidth(K.RIGHT_W - 2 * K.CARD_PAD)
-    c.never:SetText("Never suggested: a pass, a player who left, a class that can't use it.")
 end
 
 function CouncilRulesUI:Create(parent)
@@ -592,11 +429,10 @@ function CouncilRulesUI:Create(parent)
     v:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -36)
     v:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 10)
     view = v
-    BuildTop(v)
-    BuildWinner(v)
-    v.prized = CreateFrame("Frame", nil, v)
-    v.prized:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -K.TABS_H)
-    v.prized:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+    local host = BuildTop(v)
+    BuildWinner(v, host)
+    v.prized = CreateFrame("Frame", nil, host)
+    v.prized:SetAllPoints(host)
     for _, m in ipairs({ "LOOT_RULES_CHANGED", "PRIZED_UPDATED", "RAIDLOG_CHANGED", "DEMO_TOGGLED" }) do
         ns:On(m, function() CouncilRulesUI:RequestRefresh() end)
     end
@@ -608,14 +444,9 @@ end
 -- Filling
 ---------------------------------------------------------------------------
 
-local function ItemIcon(itemID)
-    local db = ns.ItemDB
-    return db and db.GetIcon and db:GetIcon(itemID) or 134400
-end
-
 local function MoveMark(r)
     if not r.move then
-        r.move = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        r.move = UI:Text(r, "small")
         r.move:SetPoint("RIGHT", r, "RIGHT", 0, 0)
     end
     return r.move
@@ -627,22 +458,24 @@ local function FillWinner(v)
     local edit = CanEdit()
     local G = ns.Guild
     local by = G and G.GetLootRulesBy and G:GetLootRulesBy()
-    for _, f in ipairs(page.steps) do f.seg:Paint(draft[f.def.key], edit) end
+    for _, f in ipairs(page.steps) do
+        f.seg:Select(draft[f.def.key])
+        if f.seg.enabled ~= edit then f.seg:SetEnabled(edit) end
+    end
     local right = page.right
-    right.scenes:Paint(state.scene, true)
+    right.scenes:Select(state.scene)
     local dirty = edit and not Same(saved, draft)
     -- the banner: who set them, the status, Save & share
     local b = page.banner
-    b.sub:SetText(edit and "How the drop panel suggests who gets an item · you set these for the guild"
+    b:SetSub(edit and "How the drop panel suggests who gets an item · you set these for the guild"
         or ("How the drop panel suggests who gets an item · set by " .. (by and ns.Util.ShortName(by) or "the Guild Master")))
-    v.save:SetShown(dirty)
-    v.undo:SetShown(dirty)
+    BannerActions(b, dirty)
     if dirty then
-        b.pill:Set("Not shared yet", "warn")
+        b:SetPill("warn", "Not shared yet")
     elseif edit then
-        b.pill:Set("Shared with the guild", "ok")
+        b:SetPill("ok", "Shared with the guild")
     else
-        b.pill:Set("Read-only", "mute")
+        b:SetPill("mute", "Read-only")
     end
     -- the example roll, with the draft and with the saved rules (what moved)
     local rows = ExampleRows(draft)
@@ -650,12 +483,12 @@ local function FillWinner(v)
     local basePos = {}
     for i, r in ipairs(base) do basePos[r.key] = i end
     local c = page.card
-    c.icon:SetTexture(ItemIcon(K.ITEM))
-    c.name:SetText((ns.UI and ns.UI.ItemText and ns.UI:ItemText(K.ITEM)) or "Ravager's Bracers")
+    c.icon:SetTexture(UI:ItemIcon(K.ITEM))
+    c.name:SetText(UI:ItemText(K.ITEM) or "Ravager's Bracers")
     local split = 0
     for _, r in ipairs(rows) do if r.split then split = split + 1 end end
-    c.sub:SetText("|cffff9f40Rolls closed|r  |cffb8b8bc·  an example roll|r"
-        .. (split > 1 and format("  |cffffa040·  votes split %d ways|r", split) or ""))
+    c.sub:SetText(S:Wrap("WARN", "Rolls closed") .. "  " .. S:Wrap("SUB", "·  an example roll")
+        .. (split > 1 and ("  " .. S:Wrap("WARN", format("·  votes split %d ways", split))) or ""))
     local DP = ns.DropPanel
     local P = DP and DP.PREVIEW
     local top = 8 + 26 + 8
@@ -694,9 +527,9 @@ local function FillWinner(v)
             local mk = MoveMark(r)
             local dpos = (basePos[row.key] or i) - i
             if dirty and dpos > 0 then
-                mk:SetText("|cff4fd36b+" .. dpos .. "|r")
+                mk:SetText(S:Wrap("OK", "+" .. dpos))
             elseif dirty and dpos < 0 then
-                mk:SetText("|cffff7a6a" .. dpos .. "|r")
+                mk:SetText(S:Wrap("BAD", dpos))
             else
                 mk:SetText("")
             end
@@ -721,10 +554,10 @@ local function FillWinner(v)
         local w, nn = was and was.name or "nobody", now and now.name or "nobody"
         local head = (w == nn) and (nn .. " stays on top") or ("was " .. w .. ", now " .. nn)
         -- (how many moved: the rows' own +/- marks say it)
-        right.change:SetText(format("|cffb7f5c3%s|r", head))
+        right.change:SetText(S:Wrap("OK", head))
     else
-        right.change:SetText(edit and "|cffb8b8bcPick a choice: the rows re-rank.|r"
-            or "|cffb8b8bcThe example uses the guild's rules.|r")
+        right.change:SetText(S:Wrap("SUB", edit and "Pick a choice: the rows re-rank."
+            or "The example uses the guild's rules."))
     end
 end
 
@@ -732,8 +565,7 @@ function CouncilRulesUI:Refresh()
     local v = view
     if not v or not v:IsVisible() then return end
     local winner = state.page ~= "prized"
-    v.tabWinner:SetActive(winner)
-    v.tabPrized:SetActive(not winner)
+    v.layout.toolbar:SelectTab(winner and "winner" or "prized")
     v.winner:SetShown(winner)
     v.prized:SetShown(not winner)
     if winner then
