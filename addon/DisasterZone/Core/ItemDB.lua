@@ -14,7 +14,7 @@ local ItemDB = ns:NewModule("ItemDB")
 local type, pairs, ipairs, next, tonumber, tostring, select = type, pairs, ipairs, next, tonumber, tostring, select
 local strlower, strfind, strmatch, strgsub = string.lower, string.find, string.match, string.gsub
 local tconcat = table.concat
-local floor = math.floor
+local floor, min, max = math.floor, math.min, math.max
 
 local QUESTION_MARK_ICON = 134400
 
@@ -214,6 +214,93 @@ end
 function ItemDB:GetDungeon(dungeonKey)
     BuildIndex()
     return dungeonKey and dungeonByKey[dungeonKey] or nil
+end
+
+---------------------------------------------------------------------------
+-- Raid information (Data/Raids.lua ns.Data.RaidMeta, refactor 1D). Every lookup takes either key form: the item data's
+-- ("HyjalSummit") or the raid planner's ("hyjal"); RaidArt and ItemKeyOf also take an instance id. Both forms stay
+-- valid forever (saved records use both).
+---------------------------------------------------------------------------
+
+local metaIndex   -- { plan = { [planKey] = itemKey }, inst = { [instanceID] = itemKey } }, built on first use
+
+local function MetaIndex()
+    if metaIndex then return metaIndex end
+    metaIndex = { plan = {}, inst = {} }
+    for itemKey, m in pairs(Data().RaidMeta or EMPTY) do
+        if type(m) == "table" then
+            if m.planKey then metaIndex.plan[m.planKey] = itemKey end
+            if m.instanceID then metaIndex.inst[m.instanceID] = itemKey end
+        end
+    end
+    return metaIndex
+end
+
+-- The item data's raid key of `key` (an item key, a plan key or an instance id), or nil.
+function ItemDB:ItemKeyOf(key)
+    if type(key) == "string" then
+        if (Data().RaidMeta or EMPTY)[key] then return key end
+        return MetaIndex().plan[key]
+    elseif type(key) == "number" then
+        return MetaIndex().inst[key]
+    end
+    return nil
+end
+
+-- The raid's meta (ns.Data.RaidMeta entry) and item key, from either key form; nil for anything else.
+function ItemDB:GetRaidMeta(key)
+    local itemKey = self:ItemKeyOf(key)
+    if not itemKey then return nil end
+    return Data().RaidMeta[itemKey], itemKey
+end
+
+-- The raid planner's key of `key` (either form), or nil.
+function ItemDB:PlanKeyOf(key)
+    local m = self:GetRaidMeta(key)
+    return m and m.planKey or nil
+end
+
+-- itemKey, raid (the ns.Data.Raids entry) of an instance map id; nil if it is not a known raid.
+function ItemDB:GetRaidByInstance(instanceID)
+    local itemKey = type(instanceID) == "number" and MetaIndex().inst[instanceID] or nil
+    if not itemKey then return nil end
+    return itemKey, self:GetRaid(itemKey)
+end
+
+-- itemKey, raid of a raid planner key ("kara"); nil for "other" and unknown keys.
+function ItemDB:GetRaidByPlanKey(planKey)
+    local itemKey = type(planKey) == "string" and MetaIndex().plan[planKey] or nil
+    if not itemKey then return nil end
+    return itemKey, self:GetRaid(itemKey)
+end
+
+-- The raid's short name ("Kara", ..., "SWP"), either key form; nil for anything else (callers fall back).
+function ItemDB:RaidShort(key)
+    local m = self:GetRaidMeta(key)
+    return m and m.short or nil
+end
+
+-- A raid's loading screen: file, l, r, t, b. Without w: the whole picture under the logo band. With w x h: the crop a
+-- box of that shape shows (fw = the share of the picture's width, 0.5 by default), centred on the raid's focus.
+-- under: keep the crop under the logo band (true), or only when h < under (a number). Unknown keys get a generic
+-- loading screen (the raid planner's "other").
+function ItemDB:RaidArt(key, w, h, fw, under)
+    local itemKey = self:ItemKeyOf(key)
+    local m = itemKey and Data().RaidMeta[itemKey] or EMPTY
+    if not m.art then m = Data().RaidMetaOther or EMPTY end
+    local a = m.art
+    if not a then return nil end
+    if w == nil then return a[1], a[2], a[3], a[4], a[5] end
+    fw = fw or 0.5
+    local fh = fw * (4 / 3) * (h / w)
+    local l = min(max(a.cx - fw / 2, 0), 1 - fw)
+    local t = min(max(a.cy - fh / 2, 0.02), 0.98 - fh)
+    local b = t + fh
+    local top = m.artTop or 0
+    if under and (under == true or (type(under) == "number" and h < under)) and t < top then
+        t, b = top, b + top - t
+    end
+    return a[1], l, l + fw, t, b
 end
 
 -- Raid and dungeon boss keys ("Karazhan:Prince", "BlackMorass:Aeonus").

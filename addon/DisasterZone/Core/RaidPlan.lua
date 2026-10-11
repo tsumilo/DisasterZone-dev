@@ -102,19 +102,21 @@ local RESTAMP_WAIT = 20             -- after a change of roles
 local RESTAMP_SPREAD = 40           -- up to this many seconds more, by name: one planner usually writes first
 local MAX_RESTAMPS = 10             -- records written again per pass
 
--- §54: the TBC raids (key -> name, default size, instance map id as used by the raid log).
-local INSTANCES = {
-    { key = "kara",  name = "Karazhan",             size = 10, instID = 532 },
-    { key = "gruul", name = "Gruul's Lair",         size = 25, instID = 565 },
-    { key = "mag",   name = "Magtheridon's Lair",   size = 25, instID = 544 },
-    { key = "ssc",   name = "Serpentshrine Cavern", size = 25, instID = 548 },
-    { key = "tk",    name = "Tempest Keep",         size = 25, instID = 550 },
-    { key = "hyjal", name = "Mount Hyjal",          size = 25, instID = 534 },
-    { key = "bt",    name = "Black Temple",         size = 25, instID = 564 },
-    { key = "za",    name = "Zul'Aman",             size = 10, instID = 568 },
-    { key = "swp",   name = "Sunwell Plateau",      size = 25, instID = 580 },
-    { key = "other", name = "Other",                size = 25 },
-}
+-- §54: the TBC raids (key -> name, default size, instance map id as used by the raid log), in the item data's order:
+-- the keys from Data/Raids.lua (planKey), name, size and instance id from Data/Items.lua, then "other". The keys are
+-- saved and sent (raids' i / ix): never change them.
+local INSTANCES = {}
+do
+    local data = ns.Data or {}
+    local meta = data.RaidMeta or {}
+    for _, raid in ipairs(data.Raids or {}) do
+        local m = type(raid) == "table" and meta[raid.key]
+        if m and m.planKey then
+            INSTANCES[#INSTANCES + 1] = { key = m.planKey, name = raid.name, size = raid.size, instID = raid.instanceID }
+        end
+    end
+    INSTANCES[#INSTANCES + 1] = { key = "other", name = "Other", size = 25 }
+end
 local INSTANCE_BY_KEY = {}
 for _, inst in ipairs(INSTANCES) do INSTANCE_BY_KEY[inst.key] = inst end
 
@@ -1232,7 +1234,10 @@ local function ItemHash(root, item)
     return nil
 end
 
--- { [item] = short hash } of everything I hold for my guild (at most MAX_DIGEST_ITEMS).
+-- { [item] = short hash } of everything I hold for my guild (at most MAX_DIGEST_ITEMS: clients drop a bigger digest).
+-- Over the cap, teams and series come first (a guild holds at most MAX_TEAMS + MAX_SERIES of them, tombstones aside),
+-- then the occurrences, the latest first (the oldest are the next to be pruned). The order depends only on the data,
+-- so two clients that hold the same records list the same items.
 function RaidPlan:GetDigest()
     local out = {}
     local root = Root(false)
@@ -1240,13 +1245,22 @@ function RaidPlan:GetDigest()
     local items = {}
     for id in pairs(root.T) do items[#items + 1] = "T:" .. id end
     for id in pairs(root.S) do items[#items + 1] = "S:" .. id end
-    local occ = {}
+    tsort(items)
+    local occ, occs, when = {}, {}, {}
     for id in pairs(root.E) do occ[id] = true end
     for id, u in pairs(root.U) do
         if next(u) then occ[id] = true end
     end
-    for id in pairs(occ) do items[#items + 1] = "O:" .. id end
-    tsort(items)
+    for id in pairs(occ) do
+        occs[#occs + 1] = id
+        local t = OccTime(root, id)
+        when[id] = type(t) == "number" and t or 0
+    end
+    tsort(occs, function(a, b)
+        if when[a] ~= when[b] then return when[a] > when[b] end
+        return a < b
+    end)
+    for _, id in ipairs(occs) do items[#items + 1] = "O:" .. id end
     local n = 0
     for _, item in ipairs(items) do
         local h = ItemHash(root, item)
@@ -1423,6 +1437,13 @@ local function CleanDigest(d)
     return out
 end
 
+Merge.GIVE_RANK = { T = 1, S = 2, O = 3 }
+function Merge.GiveBefore(a, b)
+    local ra, rb = Merge.GIVE_RANK[a:sub(1, 1)] or 4, Merge.GIVE_RANK[b:sub(1, 1)] or 4
+    if ra ~= rb then return ra < rb end
+    return a < b
+end
+
 -- RPD { to, h, d }: an answer to someone's HELLO. Mine: sync with the responder. Someone else's: remember it, so I
 -- don't answer the same round with the same data.
 local function OnDigest(sender, msg, dist)
@@ -1448,7 +1469,8 @@ local function OnDigest(sender, msg, dist)
         if theirs[item] ~= h then give[#give + 1] = item end
     end
     tsort(want)
-    tsort(give)
+    -- (teams and series first: the items go one per message behind a throttle, and occurrences need their series)
+    tsort(give, Merge.GiveBefore)
     if #want > 0 then Send({ t = "RPW", w = want }, "WHISPER", sender, "ctrl") end
     for _, item in ipairs(give) do SendItem(root, item, sender) end
 end
