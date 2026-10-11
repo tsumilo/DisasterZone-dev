@@ -33,7 +33,6 @@ local CARD_H, CARD_GAP = 24, 6
 local CHIP_H, CHIP_GAP, WHO_LINES = 22, 6, 2     -- the Who row: chips, then the search, on at most two lines
 local FIELD_MIN, FIELD_MAX = 180, 240
 local WHO_PANEL_W = 340                          -- the Who search's list
-local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }
 local GOLD = S.C.GOLD_DEEP           -- (D1: the gold of fills and edges)
 local EDITOR_DAYS = 60              -- the calendar reaches this far ahead
 local MAX_LEVEL = 70                -- a new raid asks for this level unless "Level 70 only" is switched off
@@ -53,36 +52,17 @@ local H = {}                        -- this file's helpers (one table)
 
 local function RP() return ns.RaidPlan end
 local function UI() return ns.UI end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now = ns.Util.Now
 local function Print(...) if ns.Print then ns:Print(...) end end
-local function hideTip() GameTooltip:Hide() end
-local function colorize(hex, text) return "|cff" .. hex .. tostring(text) .. "|r" end
-local function grey(text) return colorize("9e9e9e", text) end
 
--- A text's size only (its colour and face stay), snapped to the type scale (D2).
--- TODO(refactor): move into UI:SetTextStyle (a size-only form that keeps the colour).
-local function setSize(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, S:Size(size), flags) end
-end
-
-local function formLabel(parent, label)
-    local fs = UI():Text(parent, "body", "SUB")
-    fs:SetText(label)
-    return fs
-end
-
-local function tipOn(frame, lines, anchor)
-    frame:HookScript("OnEnter", function(self)
+-- A frame's tooltip from a list (or a function(frame) returning one): { title, line, ... } on UI:AttachTooltip.
+function H.tip(frame, lines)
+    UI():AttachTooltip(frame, function(self, tip)
         local l = type(lines) == "function" and lines(self) or lines
-        if l then UI():SetTextTooltip(self, l, anchor or "ANCHOR_TOP") end
-    end)
-    frame:HookScript("OnLeave", hideTip)
-end
-
--- A small arrow button (the date strip's, the time stepper's).
-local function arrowButton(parent, right, w, h, onClick)
-    return UI():CreateArrowButton(parent, right, w, h, onClick)
+        if not l or not l[1] then return false end
+        tip:AddLine(l[1])
+        for i = 2, #l do tip:AddLine(l[i], 1, 1, 1, true) end
+    end, nil, { anchor = "ANCHOR_TOP" })
 end
 
 ---------------------------------------------------------------------------
@@ -404,7 +384,7 @@ function H.whoLine(keep)
         return (#names > 0 and ("Everyone can sign up; %s %s expected."):format(tconcat(names, ", "),
             nTeams == 1 and "is" or "are") or "Every guild member can sign up.") .. level, n
     end
-    if n == 0 then return colorize("ff9933", "Nobody can sign up yet: pick a team or invite players."), n end
+    if n == 0 then return S:Wrap("WARN", "Nobody can sign up yet: pick a team or invite players."), n end
     if f.access == "private" then
         return ("Private: only these %d players see it (%s)."):format(n, tconcat(who, " + ")) .. level, n
     end
@@ -531,10 +511,8 @@ function H.newTile(parent, inst)
     b.shade = b:CreateTexture(nil, "BACKGROUND", nil, 2)
     b.shade:SetPoint("TOPLEFT", 1, -1)
     b.shade:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetPoint("TOPLEFT", 1, -1)
-    b.hl:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.hl:SetColorTexture(1, 1, 1, 0.08)
+    UI():DecorateRow(b)
+    b.hl = b.dzHover
     UI():AddEdges(b, "BORDER")
     b.name = UI():Text(b, "emph", "TEXT")
     b.name:SetPoint("BOTTOMLEFT", 8, 6)
@@ -554,10 +532,10 @@ function H.newTile(parent, inst)
     b.num:SetTextColor(0.1, 0.08, 0.02)
     b.num:SetPoint("CENTER", b.badge, "CENTER", 0, 0)
     b:SetScript("OnClick", function(self) PlanUI:ToggleEditorRaid(self.key) end)
-    b:SetScript("OnEnter", function(self)
+    H.tip(b, function(self)
         local f = sheet.f
         local lines = { inst.key == "other" and "Other" or inst.name }
-        if inst.key ~= "other" then lines[#lines + 1] = grey(inst.size .. "-player raid") end
+        if inst.key ~= "other" then lines[#lines + 1] = S:Wrap("SUB", inst.size .. "-player raid") end
         local n = #f.list
         local at
         for i, key in ipairs(f.list) do if key == self.key then at = i end end
@@ -566,9 +544,8 @@ function H.newTile(parent, inst)
         else
             lines[#lines + 1] = n > 0 and "Click to add it to the night, after the others." or "Click to pick it."
         end
-        UI():SetTextTooltip(self, lines, "ANCHOR_TOP")
+        return lines
     end)
-    b:SetScript("OnLeave", hideTip)
     return b
 end
 
@@ -582,7 +559,7 @@ function H.fillTile(b, w)
     b.art:SetDesaturated(not at and #f.list > 0)
     b.art:SetAlpha(at and 1 or 0.7)
     b.shade:SetColorTexture(0, 0, 0, at and 0.25 or 0.5)
-    if at then UI():SetEdgeColor(b, GOLD[1], GOLD[2], GOLD[3], 1) else UI():SetEdgeColor(b, 0.34, 0.34, 0.38, 0.85) end
+    if at then UI():SetEdgeColor(b, GOLD[1], GOLD[2], GOLD[3], 1) else UI():SetEdgeColor(b, S:Color("EDGE_STRONG")) end
     b.name:SetTextColor(1, 1, 1, at and 1 or 0.85)
     local several = #f.list > 1
     b.badge:SetShown(at ~= nil and several)
@@ -610,7 +587,7 @@ function H.newDay(parent)
         f.y, f.m, f.d = self.y, self.m, self.d
         H.refresh()
     end)
-    tipOn(c, function(self)
+    H.tip(c, function(self)
         local lines = { date("%A %d %B", self.t) }
         for _, l in ipairs(self.raids or {}) do lines[#lines + 1] = l end
         return lines
@@ -637,13 +614,13 @@ end
 
 function H.chipTip(c)
     if c.kind == "team" then
-        return { H.teamLabel(c.entry), H.teamTip(c.entry), grey("Click to take it off.") }
+        return { H.teamLabel(c.entry), H.teamTip(c.entry), S:Wrap("SUB", "Click to take it off.") }
     elseif c.kind == "player" then
-        return { ns.Util.ShortName(c.key), "Invited on top of the teams.", grey("Click to take them off.") }
+        return { ns.Util.ShortName(c.key), "Invited on top of the teams.", S:Wrap("SUB", "Click to take them off.") }
     end
     local lines = { ("%d more"):format(#c.hidden) }
     for _, name in ipairs(c.hidden) do lines[#lines + 1] = name end
-    lines[#lines + 1] = grey("Click to see them in the list.")
+    lines[#lines + 1] = S:Wrap("SUB", "Click to see them in the list.")
     return lines
 end
 
@@ -673,13 +650,12 @@ function H.newChip(parent)
     c:SetScript("OnEnter", function(self)
         self.hovered = true
         H.paintChip(self)
-        UI():SetTextTooltip(self, H.chipTip(self), "ANCHOR_TOP")
     end)
     c:SetScript("OnLeave", function(self)
         self.hovered = false
         H.paintChip(self)
-        hideTip()
     end)
+    H.tip(c, H.chipTip)
     return c
 end
 
@@ -728,7 +704,7 @@ function H.create()
     local p = ns.RaidsUI and ns.RaidsUI.GetPanel and ns.RaidsUI:GetPanel()
     if not p then return nil end
     -- the sheet over the Raids tab (its title row: New raid / Edit raid, close; Escape closes it too)
-    local sh = UI():CreateSheet(p, { cover = true, title = "New raid", bg = SHEET_BG, onClose = function() H.closed() end })
+    local sh = UI():CreateSheet(p, { cover = true, title = "New raid", onClose = function() H.closed() end })
     sheet = sh
     sh:SetFrameLevel(p:GetFrameLevel() + 30)
     sh.f = { list = {}, tm = {}, tl = {}, inv = {}, access = "open" }
@@ -741,25 +717,25 @@ function H.create()
     local function rowFrame(label, h)
         local r = CreateFrame("Frame", nil, sh)
         r:SetHeight(h)
-        r.label = formLabel(r, label)
+        r.label = UI():Text(r, "body", "SUB", { text = label })
         return r
     end
 
     -- When: the week, the month tile (the calendar), the time, Every week
     sh.whenRow = rowFrame("When", DAY_H)
     sh.whenRow.label:SetPoint("LEFT", 0, 0)
-    sh.prevWeek = arrowButton(sh.whenRow, false, 18, DAY_H, function() H.moveStrip(-DAYS) end)
+    sh.prevWeek = UI():CreateArrowButton(sh.whenRow, false, 18, DAY_H, function() H.moveStrip(-DAYS) end)
     sh.prevWeek:SetPoint("LEFT", sh.whenRow, "LEFT", LABEL_W, 0)
-    tipOn(sh.prevWeek, { "A week back" })
+    H.tip(sh.prevWeek, { "A week back" })
     sh.days = {}
     for i = 1, DAYS do
         local c = H.newDay(sh.whenRow)
         c:SetPoint("LEFT", sh.prevWeek, "RIGHT", 2 + (i - 1) * (DAY_W + DAY_GAP), 0)
         sh.days[i] = c
     end
-    sh.nextWeek = arrowButton(sh.whenRow, true, 18, DAY_H, function() H.moveStrip(DAYS) end)
+    sh.nextWeek = UI():CreateArrowButton(sh.whenRow, true, 18, DAY_H, function() H.moveStrip(DAYS) end)
     sh.nextWeek:SetPoint("LEFT", sh.days[DAYS], "RIGHT", 2, 0)
-    tipOn(sh.nextWeek, { "A week on" })
+    H.tip(sh.nextWeek, { "A week on" })
     -- (the calendar button is the date picker's own button: its calendar drops under it)
     sh.datePicker = UI():CreateDatePicker(sh.whenRow, {
         get = function() return sh.f.y, sh.f.m, sh.f.d end,
@@ -833,7 +809,7 @@ function H.create()
         end
         paintIcon(self)
     end
-    tipOn(dp, { "Calendar", ("A day further out (up to %d days ahead); a dot marks the days with a raid."):format(
+    H.tip(dp, { "Calendar", ("A day further out (up to %d days ahead); a dot marks the days with a raid."):format(
         EDITOR_DAYS) })
     -- the time: a stepper, 15 minutes a step (the mouse wheel too)
     local tm = PlanUI:FlatCell(CreateFrame("Frame", nil, sh.whenRow))
@@ -841,21 +817,21 @@ function H.create()
     tm:SetPoint("LEFT", dp, "RIGHT", 12, 0)
     tm:EnableMouseWheel(true)
     tm:SetScript("OnMouseWheel", function(_, delta) H.stepTime(delta > 0 and 1 or -1) end)
-    tm.down = arrowButton(tm, false, 24, DAY_H - 2, function() H.stepTime(-1) end)
+    tm.down = UI():CreateArrowButton(tm, false, 24, DAY_H - 2, function() H.stepTime(-1) end)
     tm.down:SetPoint("LEFT", 1, 0)
-    tm.up = arrowButton(tm, true, 24, DAY_H - 2, function() H.stepTime(1) end)
+    tm.up = UI():CreateArrowButton(tm, true, 24, DAY_H - 2, function() H.stepTime(1) end)
     tm.up:SetPoint("RIGHT", -1, 0)
     tm.fs = UI():Text(tm, "title", "TEXT")
     tm.fs:SetJustifyH("CENTER")
     tm.fs:SetPoint("CENTER", 0, 0)
-    tipOn(tm, { "Time", "Your clock; everybody sees it in theirs. Click the arrows or scroll: 15 minutes a step." })
+    H.tip(tm, { "Time", "Your clock; everybody sees it in theirs. Click the arrows or scroll: 15 minutes a step." })
     sh.timeStep = tm
     sh.weeklyCB = UI():CreateSwitch(sh.whenRow, nil, function(on)
         sh.f.weekly = on
         H.refreshPreview()
     end, "Every week")
     sh.weeklyCB:SetPoint("LEFT", tm, "RIGHT", 16, 0)
-    tipOn(sh.weeklyCB, { "Every week", "A weekly raid: the next two weeks are always planned, and each week can be "
+    H.tip(sh.weeklyCB, { "Every week", "A weekly raid: the next two weeks are always planned, and each week can be "
         .. "changed or cancelled on its own." })
 
     -- Who: what is picked as chips (teams' lineups, then invited players), then one search for both
@@ -889,23 +865,24 @@ function H.create()
     -- Sign-ups: one choice; Level 70 only beside it
     sh.accessRow = rowFrame("Sign-ups", CARD_H)
     sh.accessRow.label:SetPoint("LEFT", 0, 0)
+    local items = {}
+    for i, a in ipairs(ACCESS) do items[i] = { key = a.key, label = a.text } end
+    sh.accessSeg = UI():CreateSegments(sh.accessRow, items, function(key) PlanUI:SetEditorAccess(key) end,
+        { h = CARD_H, selected = "open" })
+    sh.accessSeg:SetPoint("LEFT", sh.accessRow, "LEFT", LABEL_W, 0)
     sh.access = {}
     for i, a in ipairs(ACCESS) do
-        local b = UI():CreateSleekButton(sh.accessRow, a.text, nil, CARD_H, function() PlanUI:SetEditorAccess(a.key) end)
-        setSize(b:GetFontString(), 11)
-        b:SetWidth(floor((b:GetFontString():GetStringWidth() or 60) + 26 + 0.5))
+        local b = sh.accessSeg.buttons[i]
         b.key = a.key
-        if i == 1 then b:SetPoint("LEFT", sh.accessRow, "LEFT", LABEL_W, 0)
-        else b:SetPoint("LEFT", sh.access[i - 1], "RIGHT", -1, 0) end
-        tipOn(b, a.tip)
+        H.tip(b, a.tip)
         sh.access[i] = b
     end
     sh.levelSW = UI():CreateSwitch(sh.accessRow, function() return not sh.f.low end, function(on)
         sh.f.low = not on
         H.refresh()
     end, ("Level %d only"):format(MAX_LEVEL))
-    sh.levelSW:SetPoint("LEFT", sh.access[#sh.access], "RIGHT", 18, 0)
-    tipOn(sh.levelSW, { ("Level %d only"):format(MAX_LEVEL), ("On: only level %d characters can sign up (a lower "
+    sh.levelSW:SetPoint("LEFT", sh.accessSeg, "RIGHT", 18, 0)
+    H.tip(sh.levelSW, { ("Level %d only"):format(MAX_LEVEL), ("On: only level %d characters can sign up (a lower "
         .. "character's answer is not counted). Off: lower characters may join too."):format(MAX_LEVEL) })
 
     -- Details: Title and Note side by side
@@ -1153,7 +1130,7 @@ function H.refresh()
     place(sh.whenRow, DAY_H)
     local whoH = H.layoutWho(inner - LABEL_W)
     place(sh.whoRow, whoH)
-    for _, b in ipairs(sh.access) do b:SetKind(f.access == b.key and "chosen" or "secondary") end
+    sh.accessSeg:Select(f.access)
     sh.levelSW:SetChecked(not f.low)
     place(sh.accessRow, CARD_H)
     local fw = floor((inner - LABEL_W - 8) / 2)
