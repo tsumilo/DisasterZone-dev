@@ -242,7 +242,8 @@ def several_drafts_wait_in_the_list_of_their_boss():
     assert "unsaved changes" in rows[0]["l2"] and "not saved yet" in rows[1]["l2"], rows[:2]
     assert rows[3]["edit"] == "Edit" and "Delete" in rows[3]["more"] and rows[3]["draft"] is False, rows[3]
     # the boss in the list on the left says so too (its count, and the drafts as an orange "+3")
-    assert bob.find_text("1 |cffff9933+3|r"), "the boss row shows its drafts"
+    # (1.4: the orange is the WARN token)
+    assert bob.find_text("1 " + bob.eval("return ns.Style:Wrap('WARN', '+3')")), "the boss row shows its drafts"
     # Continue on a draft's row opens it
     cont = bob.eval(r"""
         local function walk(f)
