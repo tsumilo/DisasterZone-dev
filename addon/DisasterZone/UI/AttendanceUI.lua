@@ -337,7 +337,7 @@ local function codeText(code)
 end
 
 local function pill(parent, h)
-    return ns.EventUI:CreatePill(parent, h or 16)
+    return UI():CreatePill(parent, h or 16)
 end
 
 -- A legend line of squares: code + words.
@@ -490,20 +490,18 @@ function AUI:CreateTimeline(parent, width)
     v.axis = CreateFrame("Frame", nil, v)
     v.axis:SetSize(BAR_W, 22)
     v.axis:SetPoint("TOPLEFT", BAR_X, 0)
-    v.axis.lane = tex(v.axis, "BACKGROUND", { 1, 1, 1 }, 0.08)
-    v.axis.lane:SetPoint("TOPLEFT", 0, -17)
-    v.axis.lane:SetSize(BAR_W, 1)
+    v.axis.lane = UI():Rule(v.axis, { top = 17, layer = "BACKGROUND" })
     v.axis.hours, v.axis.pips = {}, {}
 
     local function initRow(row, d)
         if not row.cdlInit then
             row.cdlInit = true
             row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            row.hl = tex(row, "BACKGROUND", { 1, 1, 1 }, 0.04)
-            row.hl:SetAllPoints()
-            row.hl:Hide()
-            row.sec = UI():Text(row, "small", C.dim)
-            row.sec:SetPoint("LEFT", 0, -2)
+            UI():DecorateRow(row)
+            -- a section of the night (the lineup, who came to help, guests): a caps section header
+            row.sec = UI():CreateSectionHeader(row, "", { style = "caps", rule = false })
+            row.sec:SetPoint("LEFT", -2, -2)
+            row.sec:SetPoint("RIGHT", 0, -2)
             row.icon = row:CreateTexture(nil, "ARTWORK")
             row.icon:SetSize(14, 14)
             row.icon:SetPoint("LEFT", 0, 0)
@@ -516,20 +514,14 @@ function AUI:CreateTimeline(parent, width)
             row.credit = UI():Text(row, "emph", "TEXT")
             row.credit:SetJustifyH("RIGHT")
             row.credit:SetPoint("RIGHT", 0, 0)
-            row:SetScript("OnEnter", function(self)
+            UI():AttachTooltip(row, function(self, tt)
                 local r = self.cdlR
-                if not r then return end
-                self.hl:Show()
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                AUI:ResultTooltip(GameTooltip, r)
-                GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("Click: their attendance. Right-click: " .. (Att():CanReview() and "decide, pick from chat." or "more."),
-                    0.5, 0.5, 0.5, true)
-                GameTooltip:Show()
-            end)
-            row:SetScript("OnLeave", function(self)
-                self.hl:Hide()
-                GameTooltip:Hide()
+                if not r then return false end
+                AUI:ResultTooltip(tt, r)
+                tt:AddLine(" ")
+                local dr, dg, db = S:Color("DIM")
+                tt:AddLine("Click: their attendance. Right-click: " .. (Att():CanReview() and "decide, pick from chat." or "more."),
+                    dr, dg, db, true)
             end)
             row:SetScript("OnClick", function(self, button)
                 local r = self.cdlR
@@ -551,7 +543,8 @@ function AUI:CreateTimeline(parent, width)
         row.pill:Hide()
         row:EnableMouse(not sec)
         if sec then
-            row.sec:SetText(d.sec .. "   |cff6f6f74" .. (d.n or "") .. "|r")
+            row.sec:SetTitle(d.sec)
+            row.sec:SetCount(d.n)
             return
         end
         local r = d.r
@@ -637,14 +630,10 @@ function AUI:CreateTimeline(parent, width)
                 pip.t:SetSize(5, 5)
                 pip.t:SetPoint("CENTER")
                 pip.t:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], 0.9)
-                pip:EnableMouse(true)
-                pip:SetScript("OnEnter", function(self)
-                    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-                    GameTooltip:AddLine(self.boss or "Boss")
-                    GameTooltip:AddLine(self.when or "", 1, 1, 1)
-                    GameTooltip:Show()
-                end)
-                pip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                UI():AttachTooltip(pip, function(self, tt)
+                    tt:AddLine(self.boss or "Boss")
+                    tt:AddLine(self.when or "", 1, 1, 1)
+                end, nil, { anchor = "ANCHOR_TOP" })
                 ax.pips[k] = pip
             end
             pip.boss = b.name or ("Encounter " .. tostring(b.enc))
@@ -696,10 +685,10 @@ function AUI:SummaryText(sum, short)
     local function add(n, word, c)
         if n > 0 then parts[#parts + 1] = hex(c, n .. " " .. word) end
     end
-    add(sum.onTime, "on time", { 0.62, 0.94, 0.69 })
-    add(sum.late, "late", { 1, 0.69, 0.4 })
-    add(sum.left, "left early", { 1, 0.69, 0.4 })
-    add(sum.noShow, sum.noShow == 1 and "no-show" or "no-shows", { 1, 0.5, 0.5 })
+    add(sum.onTime, "on time", S.C.OK)
+    add(sum.late, "late", S.C.WARN)
+    add(sum.left, "left early", S.C.WARN)
+    add(sum.noShow, sum.noShow == 1 and "no-show" or "no-shows", S.C.BAD)
     if not short then
         add(sum.fill, sum.fill == 1 and "fill-in" or "fill-ins", C.fill)
         add(sum.pending or 0, "waiting", C.pending)
@@ -737,9 +726,7 @@ function AUI:CreateOverview(parent, width)
     v.hLeft = head("Left early", 0, 76, true)
     v.hNo = head("No-shows", 0, 64, true)
     v.hPct = head("Attendance", 0, 84, true)
-    v.line = tex(v, "BORDER", { 1, 1, 1 }, 0.1)
-    v.line:SetPoint("TOPLEFT", 0, -16)
-    v.line:SetSize(width, 1)
+    v.line = UI():Rule(v, { top = 16 })
 
     local X = {}
     local function layout(nSq, noLineups)
@@ -770,11 +757,7 @@ function AUI:CreateOverview(parent, width)
         if not row.cdlInit then
             row.cdlInit = true
             row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            row.zebra = tex(row, "BACKGROUND", { 1, 1, 1 }, 0.02)
-            row.zebra:SetAllPoints()
-            row.hl = tex(row, "BACKGROUND", { 1, 1, 1 }, 0.05, 1)
-            row.hl:SetAllPoints()
-            row.hl:Hide()
+            UI():DecorateRow(row, { stripe = true })
             row.icon = row:CreateTexture(nil, "ARTWORK")
             row.icon:SetSize(15, 15)
             row.icon:SetPoint("LEFT", 0, 0)
@@ -785,8 +768,8 @@ function AUI:CreateOverview(parent, width)
             row.extra = UI():Text(row, "small", C.fill)
             row.lineups = UI():Text(row, "body", C.grey)
             row.sq = {}
-            row.late = UI():Text(row, "emph", { 1, 0.69, 0.4 })
-            row.left = UI():Text(row, "emph", { 1, 0.69, 0.4 })
+            row.late = UI():Text(row, "emph", "WARN")
+            row.left = UI():Text(row, "emph", "WARN")
             row.no = UI():Text(row, "emph", C.missed)
             row.pct = UI():Text(row, "emph", "TEXT")
             for _, fs in ipairs({ row.late, row.left, row.no, row.pct }) do fs:SetJustifyH("RIGHT") end
@@ -796,28 +779,21 @@ function AUI:CreateOverview(parent, width)
             row.bar.bg:SetAllPoints()
             row.bar.fill = row.bar:CreateTexture(nil, "ARTWORK")
             row.bar.fill:SetPoint("LEFT")
-            row:SetScript("OnEnter", function(self)
-                self.hl:Show()
+            UI():AttachTooltip(row, function(self, tt)
                 local s = self.cdlS
-                if not s then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(name(s.key, s.cls))
-                if s.lineups then GameTooltip:AddLine("Lineups: " .. s.lineups, 0.8, 0.8, 0.8) end
-                GameTooltip:AddLine(s.pct and (("%d%% over %d raids that expected them"):format(s.pct, s.counted))
+                if not s then return false end
+                tt:AddLine(name(s.key, s.cls))
+                if s.lineups then tt:AddLine("Lineups: " .. s.lineups, S:Color("SUB")) end
+                tt:AddLine(s.pct and (("%d%% over %d raids that expected them"):format(s.pct, s.counted))
                     or "No raid expected them yet.", 1, 1, 1)
-                if s.pending > 0 then GameTooltip:AddLine(s.pending .. " waiting for a review (not counted yet)", C.pending[1], C.pending[2], C.pending[3]) end
-                if s.excused > 0 then GameTooltip:AddLine(s.excused .. " excused (counted as there)", C.excused[1], C.excused[2], C.excused[3]) end
-                if s.fills > 0 then GameTooltip:AddLine(("Came to help %d times (%s)"):format(s.fills, dur(s.help)), C.fill[1], C.fill[2], C.fill[3]) end
-                if s.clashes > 0 then GameTooltip:AddLine(s.clashes .. " sign-up(s) clashed with their team raid", 0.8, 0.8, 0.8) end
+                if s.pending > 0 then tt:AddLine(s.pending .. " waiting for a review (not counted yet)", C.pending[1], C.pending[2], C.pending[3]) end
+                if s.excused > 0 then tt:AddLine(s.excused .. " excused (counted as there)", C.excused[1], C.excused[2], C.excused[3]) end
+                if s.fills > 0 then tt:AddLine(("Came to help %d times (%s)"):format(s.fills, dur(s.help)), C.fill[1], C.fill[2], C.fill[3]) end
+                if s.clashes > 0 then tt:AddLine(s.clashes .. " sign-up(s) clashed with their team raid", S:Color("SUB")) end
                 if (s.lateCancels or 0) > 0 then
-                    GameTooltip:AddLine(s.lateCancels .. " late cancel(s): Absent less than 2 hours before the start", 1, 0.69, 0.4)
+                    tt:AddLine(s.lateCancels .. " late cancel(s): Absent less than 2 hours before the start", S:Color("WARN"))
                 end
-                GameTooltip:AddLine("Click for their raids.", 0.5, 0.5, 0.5)
-                GameTooltip:Show()
-            end)
-            row:SetScript("OnLeave", function(self)
-                self.hl:Hide()
-                GameTooltip:Hide()
+                tt:AddLine("Click for their raids.", S:Color("DIM"))
             end)
             row:SetScript("OnClick", function(self)
                 if self.cdlS and v.onPick then v.onPick(self.cdlS.key) end
@@ -825,7 +801,7 @@ function AUI:CreateOverview(parent, width)
         end
         local s = d.s
         row.cdlS = s
-        row.zebra:SetShown(d.i % 2 == 0)
+        row:SetStripe(d.i)
         UI():ClassIcon(row.icon, classFor(s.key, s.cls))
         row.name:SetText(name(s.key, s.cls))
         local room = (v.noLineups and X.sq or X.lineups) - 22 - 10
@@ -847,17 +823,11 @@ function AUI:CreateOverview(parent, width)
             local sq = row.sq[k]
             if not sq then
                 sq = NewSquare(row, SQ)
-                sq:EnableMouse(true)
-                sq:SetScript("OnEnter", function(self)
-                    row:GetScript("OnEnter")(row)
-                    if self.night then
-                        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-                        GameTooltip:AddLine(nightTitle(self.night))
-                        GameTooltip:AddLine(codeText(self.code), 1, 1, 1)
-                        GameTooltip:Show()
-                    end
-                end)
-                sq:SetScript("OnLeave", function() row:GetScript("OnLeave")(row) end)
+                UI():AttachTooltip(sq, function(self, tt)
+                    if not self.night then return false end
+                    tt:AddLine(nightTitle(self.night))
+                    tt:AddLine(codeText(self.code), 1, 1, 1)
+                end, nil, { anchor = "ANCHOR_TOP" })
                 sq:SetScript("OnMouseUp", function() row:Click() end)
                 row.sq[k] = sq
             end
@@ -878,7 +848,7 @@ function AUI:CreateOverview(parent, width)
         place(row.left, X.left, 76, s.left > 0 and tostring(s.left) or dimText("-"))
         place(row.no, X.no, 64, s.noShows > 0 and tostring(s.noShows) or dimText("-"))
         local pct = s.pct
-        local pc = not pct and C.grey or pct >= 90 and { 0.62, 0.94, 0.69 } or pct >= 75 and { 1, 0.82, 0.3 } or { 1, 0.5, 0.45 }
+        local pc = not pct and C.grey or pct >= 90 and S.C.OK or pct >= 75 and S.C.GOLD or S.C.BAD
         place(row.pct, X.pct, 84, pct and hex(pc, pct .. "%") or dimText("-"))
         row.bar:ClearAllPoints()
         row.bar:SetPoint("RIGHT", row, "LEFT", X.pct + 84 - 44, 0)
@@ -896,29 +866,23 @@ function AUI:CreateOverview(parent, width)
     v.list:SetEmptyText("No raids logged yet.")
     v.legend = AUI:CreateLegend(v)
     v.legend:SetPoint("BOTTOMLEFT", 0, 2)
-    -- how the numbers are counted (the GM's margins, Settings > Attendance), over the legend on the right; the GM's
-    -- "Change" opens that section
-    v.rules = UI():Text(v, "body", C.dim)
-    v.rules:SetJustifyH("RIGHT")
-    v.change = CreateFrame("Button", nil, v)
-    v.change:SetSize(46, 16)
-    v.change:SetPoint("BOTTOMRIGHT", 0, 22)
-    v.change.text = UI():Text(v.change, "body", C.gold)
-    v.change.text:SetPoint("RIGHT")
-    v.change.text:SetText("Change")
-    v.change:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 0.9, 0.5) end)
-    v.change:SetScript("OnLeave", function(self) self.text:SetTextColor(C.gold[1], C.gold[2], C.gold[3]) end)
-    v.change:SetScript("OnClick", function() AUI:OpenRulesSettings() end)
+    -- how the numbers are counted (the GM's margins, Settings > Attendance): a caps section header over the legend,
+    -- the margins at its right; the GM's "Change" (its action) opens that section
+    v.changeAction = { text = "Change", onClick = function() AUI:OpenRulesSettings() end,
+        tip = { "Attendance margins", "Settings > Attendance: on time and disconnect margins." } }
+    v.foot = UI():CreateSectionHeader(v, "Counted with", { style = "caps", right = " ", action = v.changeAction })
+    v.foot:SetPoint("BOTTOMLEFT", 0, 20)
+    v.foot:SetPoint("BOTTOMRIGHT", 0, 20)
+    v.rules = v.foot.right
+    v.change = v.foot.action
 
     function v:Refresh()
         local A = Att()
         local rules = A:Rules()
         local G = ns.Guild
         local gm = G and G.IsGM and G:IsGM(ns.Util.PlayerKey()) or false
-        self.change:SetShown(gm)
-        self.rules:ClearAllPoints()
-        if gm then self.rules:SetPoint("RIGHT", self.change, "LEFT", -10, 0) else self.rules:SetPoint("BOTTOMRIGHT", 0, 24) end
-        self.rules:SetText(("Counted with: on time within %d min · disconnects under %d min don't count"):format(rules.o, rules.d))
+        self.foot:SetAction(gm and self.changeAction or nil)
+        self.foot:SetRight(("on time within %d min · disconnects under %d min don't count"):format(rules.o, rules.d))
         local range = self.state.range
         local rows, nights = A:GetStats(range ~= 0 and range or nil, { guests = self.state.guests })
         local shown = {}
@@ -958,37 +922,33 @@ function AUI:CreatePlayerPage(parent, width, opts)
     b:SetPoint("TOPRIGHT")
     v.banner = b
     b.name = b.title
-    b.big = UI():Text(b, 30, { 1, 0.82, 0.3 }, { justify = "RIGHT" })
+    -- the number: a display numeral (uniformity: the page's one big figure, over the banner's art)
+    b.big = UI():Text(b, 30, "GOLD", { justify = "RIGHT" })
     b.big:SetPoint("BOTTOMRIGHT", -16, 30)
-    b.cap = UI():Text(b, "body", { 0.86, 0.86, 0.86 }, { justify = "RIGHT" })
+    b.cap = UI():Text(b, "body", "TEXT", { justify = "RIGHT" })
     b.cap:SetPoint("BOTTOMRIGHT", -16, 14)
-    -- reviewers: excuse a stretch away
-    b.away = UI():CreateSleekButton(b, "Excuse a period", 120, S.BTN_H, function() AUI:OpenAwayDialog(v.key) end)
-    b.away:SetPoint("TOPRIGHT", -10, -8)
-    -- the away periods set here (this computer), each with Remove (which takes back the raids it excused)
-    b.awayList = UI():CreateSleekMenuButton(b, "Away", 76, function(root)
-        local list = Att():GetAway(v.key)
-        root:CreateTitle("Away periods")
-        for _, p in ipairs(list) do
-            local label = date("%d %b", p.f) .. " – " .. date("%d %b", p.t) .. (p.n and p.n:find(":") and ("  " .. p.n:match(":%s*(.*)$")) or "")
-            local e = root:CreateButton("Remove: " .. label, function() Att():RemoveAway(p) end)
-            e:SetTitleAndTextTooltip("Remove this away period", "Takes back the excuses it gave (set by " .. short(p.by) .. ").")
-        end
-    end, S.BTN_H)
-    b.awayList:SetPoint("RIGHT", b.away, "LEFT", -6, 0)
+    -- reviewers: the banner's tools: excuse a stretch away; the away periods set here (this computer), each with
+    -- Remove (which takes back the raids it excused)
+    b.awayTool = { icon = "calendar", title = "Excuse a period", text = "Excuse every raid of a stretch away "
+        .. "(a holiday, a move): pick the first and the last day.", onClick = function() AUI:OpenAwayDialog(v.key) end }
+    b.awayListTool = { icon = "more", title = "Away periods", text = "The away periods set on this computer.",
+        menu = function(root)
+            local list = Att():GetAway(v.key)
+            root:CreateTitle("Away periods")
+            for _, p in ipairs(list) do
+                local label = date("%d %b", p.f) .. " – " .. date("%d %b", p.t) .. (p.n and p.n:find(":") and ("  " .. p.n:match(":%s*(.*)$")) or "")
+                local e = root:CreateButton("Remove: " .. label, function() Att():RemoveAway(p) end)
+                e:SetTitleAndTextTooltip("Remove this away period", "Takes back the excuses it gave (set by " .. short(p.by) .. ").")
+            end
+        end }
     -- four facts
     local GAP = 8
     local FW = floor((width - 3 * GAP) / 4)
     v.facts = {}
     for i = 1, 4 do
-        local c = CreateFrame("Frame", nil, v)
-        c:SetSize(FW, 54)
+        local c = UI():CreateCard(v, { tone = "card", width = FW, height = 54 })
         c:SetPoint("TOPLEFT", (i - 1) * (FW + GAP), -(BAN_H + 8))
-        c.bg = tex(c, "BACKGROUND", C.card)
-        c.bg:SetAllPoints()
-        UI():AddEdges(c, "BORDER")
-        UI():SetEdgeColor(c, S:Color("EDGE_QUIET"))
-        c.l = UI():Text(c, "small", C.grey)
+        c.l = UI():Text(c, "caps", "SUB")
         c.l:SetPoint("TOPLEFT", 12, -9)
         c.n = UI():Text(c, "page", "TEXT")
         c.n:SetPoint("TOPLEFT", 12, -26)
@@ -997,16 +957,9 @@ function AUI:CreatePlayerPage(parent, width, opts)
         v.facts[i] = c
     end
     -- the last 12 raids as columns
-    local ch = CreateFrame("Frame", nil, v)
-    ch:SetSize(width, 104)
+    local ch = UI():CreateCard(v, { tone = "card", width = width, height = 104, title = "Last 12 raids",
+        titleStyle = "caps" })
     ch:SetPoint("TOPLEFT", 0, -(BAN_H + 8 + 54 + 8))
-    ch.bg = tex(ch, "BACKGROUND", C.card)
-    ch.bg:SetAllPoints()
-    UI():AddEdges(ch, "BORDER")
-    UI():SetEdgeColor(ch, S:Color("EDGE_QUIET"))
-    ch.l = UI():Text(ch, "small", C.grey)
-    ch.l:SetText("LAST 12 RAIDS")
-    ch.l:SetPoint("TOPLEFT", 12, -9)
     ch.cols = {}
     v.chart = ch
     local CW, CG, CHT = 46, 14, 54
@@ -1025,15 +978,11 @@ function AUI:CreatePlayerPage(parent, width, opts)
         col.lb = UI():Text(col, "small", C.dim)
         col.lb:SetJustifyH("CENTER")
         col.lb:SetPoint("BOTTOM", 0, 2)
-        col:EnableMouse(true)
-        col:SetScript("OnEnter", function(self)
-            if not self.night then return end
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(nightTitle(self.night))
-            if self.r then AUI:ResultTooltip(GameTooltip, self.r) else GameTooltip:AddLine("Not expected", 0.8, 0.8, 0.8) end
-            GameTooltip:Show()
-        end)
-        col:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(col, function(self, tt)
+            if not self.night then return false end
+            tt:AddLine(nightTitle(self.night))
+            if self.r then AUI:ResultTooltip(tt, self.r) else tt:AddLine("Not expected", S:Color("SUB")) end
+        end, nil, { anchor = "ANCHOR_TOP" })
         ch.cols[i] = col
     end
     -- the raids, newest first
@@ -1056,9 +1005,7 @@ function AUI:CreatePlayerPage(parent, width, opts)
         if not row.cdlInit then
             row.cdlInit = true
             row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            row.hl = tex(row, "BACKGROUND", { 1, 1, 1 }, 0.04)
-            row.hl:SetAllPoints()
-            row.hl:Hide()
+            UI():DecorateRow(row, { rule = true })
             row.art = row:CreateTexture(nil, "ARTWORK")
             row.art:SetSize(40, 22)
             row.art:SetPoint("LEFT", 0, 0)
@@ -1067,23 +1014,16 @@ function AUI:CreatePlayerPage(parent, width, opts)
             row.when = UI():Text(row, "small", C.grey)
             row.when:SetPoint("BOTTOMLEFT", 48, 5)
             row.why = UI():Text(row, "body", C.grey)
-            row.exp = UI():Text(row, "body", { 0.86, 0.86, 0.86 })
-            row.ing = UI():Text(row, "body", { 0.86, 0.86, 0.86 })
+            row.exp = UI():Text(row, "body", "TEXT")
+            row.ing = UI():Text(row, "body", "TEXT")
             row.pill = pill(row, 16)
             row.credit = UI():Text(row, "emph", "TEXT")
             row.credit:SetJustifyH("RIGHT")
             row.credit:SetPoint("RIGHT", 0, 0)
-            row:SetScript("OnEnter", function(self)
-                self.hl:Show()
-                if not self.cdlR then return end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                AUI:ResultTooltip(GameTooltip, self.cdlR)
-                if Att():CanReview() then GameTooltip:AddLine("Right-click to decide or pick from chat.", 0.5, 0.5, 0.5) end
-                GameTooltip:Show()
-            end)
-            row:SetScript("OnLeave", function(self)
-                self.hl:Hide()
-                GameTooltip:Hide()
+            UI():AttachTooltip(row, function(self, tt)
+                if not self.cdlR then return false end
+                AUI:ResultTooltip(tt, self.cdlR)
+                if Att():CanReview() then tt:AddLine("Right-click to decide or pick from chat.", S:Color("DIM")) end
             end)
             row:SetScript("OnClick", function(self, button)
                 if button == "RightButton" and self.cdlR and Att():CanReview() then AUI:ResultMenu(self, self.cdlR) end
@@ -1160,10 +1100,15 @@ function AUI:CreatePlayerPage(parent, width, opts)
             end
         end
         b:SetSub(sub)
-        b.away:SetShown(A:CanReview() and not remote and not opts.noAway)
+        -- (reviewers: Excuse a period; the away periods' menu when there are any)
+        local tools = {}
         local away = A:CanReview() and not remote and not opts.noAway and A:GetAway(key) or {}
-        b.awayList:SetShown(#away > 0)
-        b.awayList:SetText("Away (" .. #away .. ")")
+        if #away > 0 then
+            b.awayListTool.title = "Away periods (" .. #away .. ")"
+            tools[#tools + 1] = b.awayListTool
+        end
+        if A:CanReview() and not remote and not opts.noAway then tools[#tools + 1] = b.awayTool end
+        b:SetTools(tools)
         local hist, stats, nNights
         if remote then
             hist, stats = {}, { pct = remote.p, counted = remote.n or 0 }
@@ -1267,14 +1212,14 @@ end
 function AUI:CreateMemberAttendance(parent, width)
     local v = CreateFrame("Frame", nil, parent)
     v:SetSize(width, 300)
-    v.big = UI():Text(v, 24, { 1, 0.82, 0.3 })
+    v.big = UI():Text(v, 24, "GOLD")              -- uniformity: a display numeral (the member's one figure)
     v.big:SetPoint("TOPLEFT", 2, -10)
     v.cap = UI():Text(v, "body", C.grey)
     v.cap:SetPoint("LEFT", v.big, "RIGHT", 10, -2)
-    v.facts = UI():Text(v, "body", { 0.86, 0.86, 0.86 })
+    v.facts = UI():Text(v, "body", "TEXT")
     v.facts:SetPoint("TOPLEFT", 2, -42)
     v.facts:SetWidth(width - 4)
-    v.src = UI():Text(v, "small", { 0.5, 0.5, 0.52 })
+    v.src = UI():Text(v, "small", "DIM")
     v.src:SetJustifyH("RIGHT")
     v.src:SetPoint("TOPRIGHT", -4, -16)
     local function initRow(row, d)
@@ -1289,13 +1234,11 @@ function AUI:CreateMemberAttendance(parent, width)
             row.credit = UI():Text(row, "emph", "TEXT")
             row.credit:SetJustifyH("RIGHT")
             row.credit:SetPoint("RIGHT", -2, 0)
-            row:SetScript("OnEnter", function(self)
-                if not self.cdlR then return end
-                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-                AUI:ResultTooltip(GameTooltip, self.cdlR)
-                GameTooltip:Show()
-            end)
-            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            UI():DecorateRow(row, { rule = true })
+            UI():AttachTooltip(row, function(self, tt)
+                if not self.cdlR then return false end
+                AUI:ResultTooltip(tt, self.cdlR)
+            end, nil, { anchor = "ANCHOR_LEFT" })
             row.explain = UI():CreateSleekButton(row, "Explain", 70, 20, function(self)
                 local dd = self:GetParent().cdlD
                 if dd and dd.id then AUI:ShowExplain(dd.id, dd.zone, dd.start) end
@@ -1480,7 +1423,7 @@ function AUI:OpenAwayDialog(key)
         f.prev = UI():CreateArrowButton(bd, false, 16, 16, function() f.shift(-1) end)
         f.prev:SetPoint("RIGHT", f.next, "LEFT", -6, 0)
         for i, w in ipairs({ "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }) do
-            local fs = UI():Text(bd, "caps", { 0.55, 0.55, 0.55 })
+            local fs = UI():Text(bd, "caps", "SUB")
             fs:SetJustifyH("CENTER")
             fs:SetWidth(CW)
             fs:SetPoint("TOPLEFT", x0 + (i - 1) * CW, -46)
@@ -1517,23 +1460,21 @@ function AUI:OpenAwayDialog(key)
                 if not self.day then return end
                 f.hover = self.day
                 if f.choosing then f.paint() end
-                local kind = f.raidDays[self.day]
-                if kind then
-                    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-                    GameTooltip:AddLine(date("%A %d %B", self.day))
-                    GameTooltip:AddLine(kind == "logged" and "A raid they were expected at" or "A raid planned for them", 1, 1, 1)
-                    GameTooltip:Show()
-                end
             end)
             b:SetScript("OnLeave", function()
-                GameTooltip:Hide()
                 f.hover = nil
                 if f.choosing then f.paint() end
             end)
+            UI():AttachTooltip(b, function(self, tt)
+                local kind = self.day and f.raidDays[self.day]
+                if not kind then return false end
+                tt:AddLine(date("%A %d %B", self.day))
+                tt:AddLine(kind == "logged" and "A raid they were expected at" or "A raid planned for them", 1, 1, 1)
+            end, nil, { anchor = "ANCHOR_TOP" })
             f.cells[i] = b
         end
         -- what gets excused, a note, the buttons
-        f.sum = UI():Text(bd, "emph", { 0.9, 0.9, 0.9 })
+        f.sum = UI():Text(bd, "emph", "TEXT")
         f.sum:SetPoint("TOPLEFT", 0, -(64 + 6 * CH + 4))
         f.sum:SetWidth(AWAY.W - 2 * BX)
         f.note = UI():CreateSleekEditBox(bd, AWAY.W - 2 * BX, 24)
@@ -1591,14 +1532,14 @@ function AUI:OpenAwayDialog(key)
                         b.fs:SetTextColor(0.1, 0.08, 0)
                         b.fs:SetShadowColor(0, 0, 0, 0)
                     else
-                        local c = day == today and C.gold or (inside and { 1, 0.93, 0.75 }) or { 0.86, 0.86, 0.86 }
+                        local c = day == today and C.gold or (inside and S.C.GOLD) or S.C.TEXT
                         b.fs:SetTextColor(c[1], c[2], c[3])
                         b.fs:SetShadowColor(0, 0, 0, 1)
                     end
                     local kind = f.raidDays[day]
                     b.dot:SetShown(kind ~= nil and not edge)
                     if kind == "planned" then b.dot:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], 1)
-                    else b.dot:SetVertexColor(0.7, 0.7, 0.72, 1) end
+                    else b.dot:SetVertexColor(S:Color("SUB")) end
                     b:Show()
                 else
                     b.day = nil
@@ -1664,7 +1605,7 @@ function AUI:ReviewLines(r)
     else
         what = ("In the raid %s of %s"):format(dur(r.present), dur(r.expected))
     end
-    out[#out + 1] = { what, { 0.9, 0.9, 0.9 } }
+    out[#out + 1] = { what, S.C.TEXT }
     if r.reason then
         out[#out + 1] = { "Their reason: " .. (REASON[r.reason.c] or "") .. (r.reason.n and ("  \"" .. r.reason.n .. "\"") or "")
             .. "   " .. dimText("sent " .. clock(r.reason.at)), { 1, 0.93, 0.75 } }
@@ -1687,7 +1628,7 @@ function AUI:ReviewLines(r)
             .. ". Not counted as late for them.", C.fill }
     end
     if #picked == 0 and not r.reason and not (r.note and r.note.n) then
-        out[#out + 1] = { "No reason given.", { 0.5, 0.5, 0.52 } }
+        out[#out + 1] = { "No reason given.", S.C.DIM }
     end
     return out
 end
@@ -1701,24 +1642,19 @@ function AUI:CreateReviews(parent, width)
     local function initRow(row, d)
         if not row.cdlInit then
             row.cdlInit = true
-            row.card = CreateFrame("Frame", nil, row)
+            -- a review: a card (the raid's picture with the player's class in its icon tile, the time bar, who and
+            -- what happened, the reasons; Excuse / Counts and the tools at the right)
+            row.card = UI():CreateCard(row, { tone = "card" })
             row.card:SetPoint("TOPLEFT")
             row.card:SetPoint("BOTTOMRIGHT", 0, 8)
-            row.card.bg = tex(row.card, "BACKGROUND", C.card)
-            row.card.bg:SetAllPoints()
-            UI():AddEdges(row.card, "BORDER")
-            UI():SetEdgeColor(row.card, S:Color("EDGE_QUIET"))
             local c = row.card
             c.art = c:CreateTexture(nil, "ARTWORK")
             c.art:SetSize(64, 38)
             c.art:SetPoint("TOPLEFT", 12, -12)
-            c.ring = c:CreateTexture(nil, "OVERLAY", nil, 1)
-            c.ring:SetTexture(ns.EventUI.RING)
-            c.ring:SetSize(28, 28)
-            c.ring:SetPoint("CENTER", c.art, "BOTTOMRIGHT", -2, 2)
-            c.icon = c:CreateTexture(nil, "OVERLAY", nil, 0)
-            c.icon:SetSize(22, 22)
-            c.icon:SetPoint("CENTER", c.ring)
+            c.badge = UI():CreateIconTile(c, 20)
+            c.badge:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT", -5, -5)
+            c.badge:SetFrameLevel(c:GetFrameLevel() + 3)
+            c.icon = c.badge.tex
             c.bar = NewBar(c, 64, 6)
             c.bar:SetPoint("TOPLEFT", 12, -66)
             c.name = UI():Text(c, "title", "TEXT")
@@ -1777,29 +1713,34 @@ function AUI:CreateReviews(parent, width)
             row.h.by = UI():Text(row.h, "body", C.grey)
             row.h.by:SetPoint("LEFT", row.h.pill, "RIGHT", 10, 0)
             row.h.by:SetWidth(floor(width * 0.48) - 100)
-            row.sec = UI():Text(row, "body", C.dim)
-            row.sec:SetPoint("LEFT", 0, -2)
+            row.sec = UI():CreateSectionHeader(row, "", { style = "caps", rule = false })
+            row.sec:SetPoint("LEFT", -2, -2)
+            row.sec:SetPoint("RIGHT", 0, -2)
+            row.none = UI():Text(row, "body", "DIM")
+            row.none:SetPoint("LEFT", 0, 0)
             row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             row:SetScript("OnClick", function(self, button)
                 local r = self.cdlR
                 if not r then return end
                 if button == "RightButton" then AUI:ResultMenu(self, r) else AUI:ShowPlayer(r.key) end
             end)
-            row:SetScript("OnEnter", function(self)
-                if not self.cdlR then return end
-                GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-                AUI:ResultTooltip(GameTooltip, self.cdlR)
-                GameTooltip:Show()
-            end)
-            row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            UI():AttachTooltip(row, function(self, tt)
+                if not self.cdlR then return false end
+                AUI:ResultTooltip(tt, self.cdlR)
+            end, nil, { anchor = "ANCHOR_CURSOR" })
         end
         row.cdlR = d.r
         row.card:SetShown(d.kind == "card")
         row.h:SetShown(d.kind == "handled")
         row.sec:SetShown(d.kind == "sec")
-        row:EnableMouse(d.kind ~= "sec")
+        row.none:SetShown(d.kind == "none")
+        row:EnableMouse(d.kind ~= "sec" and d.kind ~= "none")
         if d.kind == "sec" then
-            row.sec:SetText(d.text)
+            row.sec:SetTitle(d.title)
+            row.sec:SetCount(d.note)
+            return
+        elseif d.kind == "none" then
+            row.none:SetText(d.text)
             return
         end
         local r = d.r
@@ -1818,6 +1759,7 @@ function AUI:CreateReviews(parent, width)
         end
         local c = row.card
         setArt(c.art, r.night, 64, 38, 0.36)
+        c.badge:Show()
         UI():ClassIcon(c.icon, cls)
         c.bar:Set(r.F - 600, r.T + 600, AUI:Segments(r), { r.F, r.T })
         c.name:SetText(name(r.key, cls))
@@ -1858,7 +1800,7 @@ function AUI:CreateReviews(parent, width)
 
     v.list = UI():CreateScrollList(v, 24, initRow, function(d)
         if d.kind == "card" then return cardHeight(d.r) + 8 end
-        if d.kind == "sec" then return 26 end
+        if d.kind == "sec" or d.kind == "none" then return 26 end
         return 24
     end)
     v.list.frame:SetPoint("TOPLEFT", 0, 0)
@@ -1871,13 +1813,15 @@ function AUI:CreateReviews(parent, width)
     function v:Refresh()
         local rv = Att():GetReviews()
         local data = {}
-        data[#data + 1] = { kind = "sec", text = "WAITING FOR A DECISION   |cff6f6f74doesn't count against anyone until decided|r" }
+        data[#data + 1] = { kind = "sec", title = "Waiting for a decision",
+            note = "doesn't count against anyone until decided" }
         if #rv.pending == 0 then
-            data[#data + 1] = { kind = "sec", text = "|cff6f6f74Nothing waits for a decision.|r" }
+            data[#data + 1] = { kind = "none", text = "Nothing waits for a decision." }
         end
         for _, r in ipairs(rv.pending) do data[#data + 1] = { kind = "card", r = r } end
         if #rv.handled > 0 then
-            data[#data + 1] = { kind = "sec", text = "HANDLED   |cff6f6f74last 14 days · change a decision from the player's page|r" }
+            data[#data + 1] = { kind = "sec", title = "Handled",
+                note = "last 14 days · change a decision from the player's page" }
             for _, r in ipairs(rv.handled) do data[#data + 1] = { kind = "handled", r = r } end
         end
         self.list:SetData(data)
@@ -1893,24 +1837,13 @@ end
 local function NewChatRow(parent, w)
     local f = CreateFrame("Button", nil, parent)
     f:SetSize(w, 24)
-    f.bg = tex(f, "BACKGROUND", { 1, 1, 1 }, 0.03)
-    f.bg:SetAllPoints()
-    UI():AddEdges(f, "BORDER")
-    f.box = CreateFrame("Frame", nil, f)
-    f.box:SetSize(12, 12)
-    f.box:SetPoint("LEFT", 8, 0)
-    f.box.bg = tex(f.box, "ARTWORK", { 0.08, 0.08, 0.1 }, 1)
-    f.box.bg:SetAllPoints()
-    UI():AddEdges(f.box, "BORDER")
-    f.tick = f.box:CreateTexture(nil, "OVERLAY", nil, 2)
-    f.tick:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    f.tick:SetSize(18, 18)
-    f.tick:SetPoint("CENTER", 1, 1)
+    UI():DecorateRow(f, { selectable = true, stripe = true })
+    f:SetStripe(true)
     f.tag = UI():Text(f, "body", "TEXT")
-    f.tag:SetPoint("LEFT", 26, 0)
+    f.tag:SetPoint("LEFT", 10, 0)
     f.text = UI():Text(f, "emph", "TEXT")
-    f.text:SetPoint("LEFT", 26 + 112, 0)
-    f.text:SetWidth(w - 26 - 112 - 60)
+    f.text:SetPoint("LEFT", 10 + 112, 0)
+    f.text:SetWidth(w - 10 - 112 - 60)
     f.likely = pill(f, 14)
     f.likely:SetPoint("RIGHT", -6, 0)
     function f:SetLine(l, picked)
@@ -1925,10 +1858,7 @@ local function NewChatRow(parent, w)
     end
     function f:SetPicked(on)
         self.picked = on and true or false
-        self.tick:SetShown(self.picked)
-        self.bg:SetColorTexture(on and 0.17 or 1, on and 0.14 or 1, on and 0.05 or 1, on and 0.95 or 0.03)
-        UI():SetEdgeColor(self, C.gold[1], C.gold[2], C.gold[3], on and 0.75 or 0)
-        UI():SetEdgeColor(self.box, on and C.gold[1] or 0.45, on and C.gold[2] or 0.45, on and C.gold[3] or 0.5, 1)
+        self:SetSelected(self.picked)
     end
     return f
 end
@@ -1955,7 +1885,7 @@ function AUI:OpenPicker(owner, r)
         f.sub = UI():Text(bd, "body", C.grey)
         f.sub:SetPoint("TOPLEFT", 0, 0)
         f.rows = {}
-        f.empty = UI():Text(bd, "emph", { 0.5, 0.5, 0.52 }, { wrap = true, width = W - 2 * UI().SHEET.PAD })
+        f.empty = UI():Text(bd, "emph", "DIM", { wrap = true, width = W - 2 * UI().SHEET.PAD })
         f.empty:SetPoint("TOPLEFT", 0, -26)
         f.use = f.ok
         self.picker = f
@@ -2037,17 +1967,13 @@ local function NotHereYet()
     return out
 end
 
--- An in-raid prompt (the raid leader's, my own): a HUD frame (dragged anywhere, its place not kept; Escape and the X
--- close it) on the dialogs' panel (Popup:SkinPanel: opaque, the gold title and its glint).
+-- An in-raid prompt (the raid leader's, my own): a tool window (UI:CreateWindow: the window's frame and title, its X;
+-- dragged anywhere, its place not kept; Escape closes it) over everything. f.title is the window's title.
 local function Panel(name_, w, h, title)
-    local f = UI():CreateHudFrame(name_, { width = w, height = h, position = false, strata = "DIALOG", toplevel = true,
-        look = "none", close = true, escape = name_ ~= nil })
+    local f = UI():CreateWindow(name_, title, w, h, { noSavePosition = true })
+    f:SetFrameStrata("DIALOG")
     f:Hide()
-    ns.Popup:SkinPanel(f)
-    f.title:SetText(title)
-    f.title:SetPoint("TOPLEFT", 16, -14)
-    f.glint:SetPoint("TOPLEFT", 1, -1)
-    f.glint:SetWidth(w - 2)
+    f.title = f.titleText
     return f
 end
 
@@ -2071,7 +1997,7 @@ function AUI:ShowLeaderPrompt(recId, key)
         f.said = UI():Text(f, "small", C.dim)
         f.said:SetPoint("TOPLEFT", 16, -72)
         f.rows = {}
-        f.none = UI():Text(f, "body", { 0.5, 0.5, 0.52 })
+        f.none = UI():Text(f, "body", "DIM")
         f.none:SetPoint("TOPLEFT", 16, -90)
         f.none:SetWidth(W - 32)
         f.none:SetWordWrap(true)
@@ -2089,8 +2015,7 @@ function AUI:ShowLeaderPrompt(recId, key)
             if not A:LeaderMark(key, "od") then return AUI:MarkFailed() end
             AUI:LeaderNext(key)
         end)
-        f.sep = tex(f, "ARTWORK", { 1, 1, 1 }, 0.08)
-        f.sep:SetSize(W - 32, 1)
+        f.sep = UI():Rule(f, { left = 16, right = 16 })
         f.nh = UI():Text(f, "small", C.dim)
         f.nhList = UI():Text(f, "emph", "TEXT")
         f.nhList:SetWidth(W - 32)
@@ -2227,6 +2152,7 @@ function AUI:LeaderRender()
     if showNH then
         f.sep:ClearAllPoints()
         f.sep:SetPoint("TOPLEFT", 16, y)
+        f.sep:SetPoint("TOPRIGHT", -16, y)
         y = y - 12
         local n = LiveNight()
         f.nh:ClearAllPoints()
@@ -2325,25 +2251,17 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
         f = Panel("DisasterZoneAttendanceLeftEarly", W, 214, "")
         f:ClearAllPoints()
         f:SetPoint("TOP", 0, -180)
-        f.d = UI():Text(f, "emph", { 0.86, 0.86, 0.86 })
+        f.d = UI():Text(f, "emph", "TEXT")
         f.d:SetWordWrap(true)
         f.d:SetWidth(W - 32)
         f.d:SetPoint("TOPLEFT", 16, -42)
-        f.chips = {}
-        local x = 16
-        for _, c in ipairs({ { "life", "Real life" }, { "dc", "Disconnected" }, { "asked", "Asked to leave" },
-                             { "other", "Other" } }) do
-            local w = floor(c[2]:len() * 6.4 + 22)
-            local b = UI():CreateSleekButton(f, c[2], w, 24, function()
-                f.code = c[1]
-                for _, x2 in ipairs(f.chips) do x2:SetKind(x2.code == f.code and "chosen" or "secondary") end
+        -- the reason: one of four (segments)
+        f.reasons = UI():CreateSegments(f, { { key = "life", label = "Real life" }, { key = "dc", label = "Disconnected" },
+            { key = "asked", label = "Asked to leave" }, { key = "other", label = "Other" } }, function(key)
+                f.code = key
                 f.canSend()
-            end)
-            b.code = c[1]
-            b:SetPoint("TOPLEFT", x, -88)
-            x = x + w + 6
-            f.chips[#f.chips + 1] = b
-        end
+            end, { width = W - 32, h = S.BTN_H })
+        f.reasons:SetPoint("TOPLEFT", 16, -88)
         f.eb = UI():CreateSleekEditBox(f, W - 32, 26)
         f.eb:SetPoint("TOPLEFT", 16, -124)
         f.eb:HookScript("OnTextChanged", function() if f.canSend then f.canSend() end end)
@@ -2367,7 +2285,7 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
     local rec = ns.RaidLog and ns.RaidLog:GetRaid(recId)
     f.recId = recId
     f.code = nil
-    for _, x in ipairs(f.chips) do x:SetKind("secondary") end
+    f.reasons:Select(nil)
     f.eb:SetText("")
     f.canSend()
     f.title:SetText("You left " .. ((rec and rec.zone) or "the raid") .. " before the end")
