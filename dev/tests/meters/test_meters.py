@@ -656,6 +656,43 @@ def the_threat_table_reads_the_game():
 
 
 @case
+def threat_polls_that_change_nothing_redraw_nothing():
+    """Performance page 2026-10-11: the threat poll (5 a second, always on) marked every meter panel for a redraw each
+    time, ~5 MB of garbage a minute standing around. Now only a scan that would draw differently tells the panels."""
+    r = Raid(dmg=False, thr=True)
+    r.cl.eval("__TCH = 0; ns.Threat:OnChange(function() __TCH = __TCH + 1 end)")
+    n = lambda: r.cl.eval("return __TCH")
+    r.cl.eval("ns.Threat._Poll()")
+    base = n()
+    for _ in range(5):
+        r.cl.eval("ns.Threat._Poll()")
+    assert n() == base, (n(), base)                                   # nothing to follow: quiet
+    r.combat(True, "Victhar")
+    r.cl.target_npc(r.boss)
+    table = {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 1, 62, 68, 136000)}
+    s = threat(r, table)
+    assert n() == base + 1 and s["names"] == ["Victhar", "Gina"], (n(), s)
+    threat(r, table)
+    threat(r, table)
+    assert n() == base + 1                                            # the same numbers: no redraw
+    s = threat(r, {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 1, 63, 69, 138000)})
+    assert n() == base + 2                                            # a number moved
+    r.cl.eval("ns.DB:SetSetting('meters.warn', 60)")
+    r.cl.eval("ns.Threat._Poll()")
+    assert n() == base + 3 and r.cl.eval("return ns.Threat:GetState().hot") is True   # the warning line moved
+    r.cl.eval("__MOCK.threat = {}")
+    r.cl.eval("ns.Threat._Poll()")
+    assert n() == base + 4 and r.cl.eval("return #ns.Threat:GetState().rows") == 0     # the rows went
+    # tank view flips with no enemy around: the next poll still notices
+    r.cl.eval("ns.Threat.Mob = function() return nil end; ns.Threat._Poll()")
+    k = n()
+    r.cl.eval("ns.DB:SetSetting('meters.tankView', 'always'); ns.Threat._Poll()")
+    assert n() == k + 1 and r.cl.eval("return ns.Threat:GetState().tankView") is True
+    r.cl.eval("ns.Threat._Poll(); ns.Threat._Poll()")
+    assert n() == k + 1
+
+
+@case
 def the_settings_section_dims_what_is_off():
     r = Raid(dmg=False)
     r.cl.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('meters')")

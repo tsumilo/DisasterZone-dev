@@ -161,11 +161,37 @@ local function Warn(st)
     wasHot = hot
 end
 
+-- Would the window draw scans a and b the same? (a poll that changed nothing redraws nothing: five polls a second
+-- each redrew every meter panel, ~5 MB of garbage a minute standing around; Performance page 2026-10-11)
+local ROW_KEYS = { "unit", "guid", "name", "cls", "tank", "raw", "scaled", "value", "me" }
+local function Same(a, b)
+    if a.mob ~= b.mob or a.guid ~= b.guid or a.name ~= b.name or a.combat ~= b.combat or a.pull ~= b.pull
+        or a.hot ~= b.hot or a.tankView ~= b.tankView or #a.rows ~= #b.rows then
+        return false
+    end
+    for i, ra in ipairs(a.rows) do
+        local rb = b.rows[i]
+        for _, k in ipairs(ROW_KEYS) do if ra[k] ~= rb[k] then return false end end
+    end
+    return true
+end
+
 local function Poll()
     if not listening then return end
+    if Threat:IsDemo() then
+        local st = Threat:Scan()
+        Warn(st)
+        Changed()
+        return
+    end
+    -- nothing to follow before or now: the scan would come out the same, so none is made (no tables either)
+    if not state.mob and not Threat:Mob() and state.tankView ~= nil and state.tankView == Threat:TankView(nil) then
+        return
+    end
+    local old = state
     local st = Threat:Scan()
     Warn(st)
-    Changed()
+    if not Same(old, st) then Changed() end
 end
 
 local function Listen(on)

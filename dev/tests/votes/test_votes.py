@@ -38,7 +38,7 @@ def rows_by_key(c, sid):
           local voters = {}
           for j, v in ipairs(r.voters or {}) do voters[j] = v end
           out[i] = { key = r.key, votes = r.votes, voters = voters, suggested = r.suggested, by = r.suggestedBy,
-                     tie = r.tie, tier = r.tier, roll = r.roll, myVote = r.myVote }
+                     tie = r.tie, tier = r.tier, roll = r.roll, myVote = r.myVote, split = r.split }
         end
         return out""", sid) or []:
         out[row["key"]] = row
@@ -258,9 +258,17 @@ def votes_override_roll_suggestion_everywhere():
     w.tick(1)
     rows = rows_by_key(B, sid)
     assert rows[key("Frank")]["votes"] == 1 and rows[key("Dave")]["votes"] == 1
-    # 1-1: tie broken by tier (Dave alt = tier 2, Frank not listed = tier 3)
+    # 1-1 (1.3.5, the guild's loot rules): a split vote, the highest roll among them wins (Frank 99 over Dave 90; the
+    # list tier no longer breaks it)
     k, row = suggested(B, sid)
-    assert k == key("Dave") and not row["tie"], (k, row)
+    assert k == key("Frank") and not row["tie"], (k, row)
+    rows = rows_by_key(B, sid)
+    assert rows[key("Frank")]["split"] and rows[key("Dave")]["split"], rows
+    # the GM's rule "the council picks": nobody is suggested on a split
+    for c in (A, B):
+        c.eval("ns.Guild.GetLootRules = function() return { f = 0, s = 'p', l = 'l', w = 'r', y = 'n' } end")
+    k, row = suggested(B, sid)
+    assert k is None, (k, row)
     w.assert_no_errors()
 
 
@@ -275,8 +283,9 @@ def vote_tie_same_tier_and_no_rolls():
     vote(B, sid, "Erin")
     w.tick(1)
     rows = rows_by_key(A, sid)
-    assert rows[key("Carol")]["tie"] and rows[key("Erin")]["tie"], rows
-    assert sum(1 for x in rows.values() if x["suggested"]) == 1
+    # (1.3.5) a split vote where none of them rolled: no suggestion, the council picks
+    assert rows[key("Carol")]["split"] and rows[key("Erin")]["split"], rows
+    assert sum(1 for x in rows.values() if x["suggested"]) == 0, rows
     w.assert_no_errors()
 
 
