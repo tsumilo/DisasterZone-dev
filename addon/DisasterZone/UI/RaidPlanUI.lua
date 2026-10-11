@@ -31,7 +31,14 @@ local function RP() return ns.RaidPlan end
 local function UI() return ns.UI end
 
 local Now = ns.Util.Now
-local function shortName(key) return ns.Util.ShortName(key) end
+
+-- A Style colour token at its own alpha, as r, g, b, a (for SetColorTexture / SetEdgeColor / SetVertexColor), or as a
+-- table ({ tokenA(...) }) for UI:Gradient.
+-- TODO(refactor): move into ns.Style (S:Alpha(name, a) -> r, g, b, a).
+local function tokenA(name, a)
+    local r, g, b = S:Color(name)
+    return r, g, b, a
+end
 
 -- A player's class: their sign-up's, else the guild roster's.
 local function signupClass(key, s)
@@ -44,7 +51,7 @@ local function colored(key, classFile)
     return UI():ColoredName(key, classFile or signupClass(key))
 end
 
-local function nameLess(a, b) return shortName(a):lower() < shortName(b):lower() end
+local function nameLess(a, b) return ns.Util.ShortName(a):lower() < ns.Util.ShortName(b):lower() end
 
 local function specOf(s)
     local specs = s and s.c and ns.SPECS[s.c]
@@ -101,7 +108,7 @@ local function teamNames(v, plain, keep)
     else
         text = "Everyone"
     end
-    return (locked and not plain) and ("|cffff9933Locked|r: " .. text) or text
+    return (locked and not plain) and (S:Wrap("WARN", "Locked") .. ": " .. text) or text
 end
 
 -- Monday 00:00 of the week of `t`.
@@ -313,12 +320,12 @@ local function signupLines(s, order, total)
     return out
 end
 
-local function cellTooltip(cell)
+-- A player's plate in the bands (UI:AttachTooltip): who, their answer and note, what organizers can do.
+local function cellTooltip(cell, GameTooltip)
     local d = cell.cdlCell
-    if not d then return end
+    if not d then return false end
     if d.open then return PlanUI:OpenSlotTooltip(cell) end   -- (an open slot of the team's comp)
     local s = d.s
-    GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
     GameTooltip:AddLine(colored(d.key, signupClass(d.key, s)))
     local spec = specOf(s)
     local cls = signupClass(d.key, s)
@@ -327,8 +334,8 @@ local function cellTooltip(cell)
         GameTooltip:AddLine("Declined for this raid", 1, 0.33, 0.33)
         if s and s.st and STATUS[s.st] then GameTooltip:AddLine("Had answered " .. STATUS[s.st].label, 0.7, 0.7, 0.7) end
     elseif d.request then
-        GameTooltip:AddLine("Asks to join this raid (outside its teams)", 1, 0.82, 0, true)
-        if s and s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
+        GameTooltip:AddLine(S:Wrap("GOLD", "Asks to join this raid (outside its teams)"), 1, 1, 1, true)
+        if s and s.n then GameTooltip:AddLine(S:Wrap("GOLD", '"' .. s.n .. '"'), 1, 1, 1, true) end
         if state.selected and RP():CanManageRaid(state.selected) then
             GameTooltip:AddLine("Click to approve or deny", 0.5, 0.5, 0.5)
         end
@@ -339,7 +346,7 @@ local function cellTooltip(cell)
         if summary then GameTooltip:AddLine(summary, 0.7, 0.7, 0.7, true) end
     elseif s then
         GameTooltip:AddLine(STATUS[s.st].label, 0.8, 0.8, 0.8)
-        if s.n then GameTooltip:AddLine('"' .. s.n .. '"', 1, 0.82, 0, true) end
+        if s.n then GameTooltip:AddLine(S:Wrap("GOLD", '"' .. s.n .. '"'), 1, 1, 1, true) end
         for _, line in ipairs(signupLines(s, d.order, d.total)) do GameTooltip:AddLine(line, 0.7, 0.7, 0.7) end
     end
     if not d.request and state.selected and RP():CanManageRoster(state.selected) then
@@ -352,7 +359,6 @@ local function cellTooltip(cell)
         local rel = RL.GetReliabilityText and RL:GetReliabilityText(d.key)
         if rel then GameTooltip:AddLine("Sign-ups: " .. rel, 0.7, 0.7, 0.7) end
     end
-    GameTooltip:Show()
 end
 
 -- Right-click on a player of the roster (roster managers): decline, remove the answer, restore, remove a guest; the
@@ -370,7 +376,7 @@ local function rosterMenu(cell)
     if d.request then
         if not RP():CanManageRaid(occ) then return end
         UI():ContextMenu(cell, function(root)
-            root:CreateTitle(shortName(d.key) .. " asks to join")
+            root:CreateTitle(ns.Util.ShortName(d.key) .. " asks to join")
             root:CreateButton("|cff33dd33Approve|r: invite to this raid", function() run(RP().ApproveRequest, d.key) end)
             root:CreateButton("|cffff5555Deny|r", function() run(RP().DeclineSignup, d.key) end)
         end)
@@ -378,7 +384,7 @@ local function rosterMenu(cell)
     end
     if not RP():CanManageRoster(occ) then return end
     UI():ContextMenu(cell, function(root)
-        root:CreateTitle(shortName(d.key))
+        root:CreateTitle(ns.Util.ShortName(d.key))
         if d.guest then
             root:CreateButton("Remove guest", function() run(RP().RemoveGuest, d.key) end)
         elseif d.declined then
@@ -456,13 +462,6 @@ end
 
 -- (melee, ranged and casters share the damage icon)
 local function roleIcon(role, size) return UI():RoleIconText(role, size) end
-
--- A text's size only (its colour and face stay), snapped to the type scale (D2).
--- TODO(refactor): move into UI:SetTextStyle (a size-only form that keeps the colour).
-local function setSize(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, S:Size(size), flags) end
-end
 
 local function panel(f, bg, edge)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
@@ -631,7 +630,7 @@ function UP.whereLine(v, fs, room, short)
     local function line(keep)
         local parts = { where }
         if v.rl then parts[#parts + 1] = colored(v.rl) .. S:Wrap("DIM", " leads")
-        elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
+        elseif v.by then parts[#parts + 1] = "by " .. ns.Util.ShortName(v.by) end
         local teams = teamNames(v, true, keep)
         if teams ~= "Everyone" then
             parts[#parts + 1] = (v.lk and ("|T" .. UI().ICON_LOCK .. ":11:11|t ") or "") .. teams
@@ -670,7 +669,7 @@ function UP.raidTip(row, tip)
     if waiting > 0 then parts[#parts + 1] = waiting .. " no response" end
     tip:AddLine(tconcat(parts, " · "), 1, 1, 1, true)
     if v.no then tip:AddLine(S:Wrap("GOLD", '"' .. v.no .. '"'), 1, 1, 1, true) end
-    if v.by then tip:AddLine("Planned by " .. shortName(v.by), 0.6, 0.6, 0.6) end
+    if v.by then tip:AddLine("Planned by " .. ns.Util.ShortName(v.by), 0.6, 0.6, 0.6) end
     if not v.cancelled then tip:AddLine("You: " .. myStatusText(v), 0.8, 0.8, 0.8) end
     if row.tipMore then tip:AddLine(row.tipMore, 0.6, 0.6, 0.6, true) end
 end
@@ -976,29 +975,14 @@ end
 
 -- A small square button on a request's plate: Approve (the ready check's tick) or Deny (its cross).
 function UP.reqButton(plate, tex, title, fn)
-    local b = CreateFrame("Button", nil, plate)
-    b:SetSize(20, 20)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.bg:SetColorTexture(0, 0, 0, 0.4)
-    UI():AddEdges(b, "BORDER")
-    UI():SetEdgeColor(b, 1, 1, 1, 0.12)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(13, 13)
-    b.icon:SetPoint("CENTER", 0, 0)
-    b.icon:SetTexture(tex)
-    b:SetScript("OnClick", function()
+    local b = UI():CreateIconButton(plate, 20, tex, nil, function()
         local d, occ = plate.cdlCell, state.selected
         if d and occ then fn(d, occ) end
     end)
-    b:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, 1, 0.82, 0, 0.7)
-        UI():SetTextTooltip(self, title, "ANCHOR_TOP")
-    end)
-    b:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, 1, 1, 1, 0.12)
-        hideTooltip()
-    end)
+    b.icon:ClearAllPoints()
+    b.icon:SetSize(13, 13)
+    b.icon:SetPoint("CENTER", 0, 0)
+    UI():AttachTooltip(b, title[1], { title[2] }, { anchor = "ANCHOR_TOP" })
     return b
 end
 
@@ -1009,9 +993,8 @@ function UP.newCell(parent)
     b:SetHeight(UP.TILE_H)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b:SetScript("OnClick", cellRowClick)
-    b:SetScript("OnEnter", function(self) cellTooltip(self) end)
-    b:SetScript("OnLeave", hideTooltip)
     ns.RaidGroupsUI:DecoratePlate(b)
+    UI():AttachTooltip(b, cellTooltip)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
     b.hl:SetColorTexture(S:Color("HOVER"))
@@ -1063,12 +1046,12 @@ function UP.fillCell(b, cell, organizer)
     elseif cell.declined then sub = "declined"
     elseif cell.dim then sub = "no answer yet" end
     -- (a guest: "Guest" in blue before the spec; a narrow plate keeps "Guest" alone)
-    if cell.guest then sub, short = "|cff66ccffGuest|r · " .. sub, "|cff66ccffGuest|r" end
+    if cell.guest then sub, short = S:Wrap("YOU", "Guest") .. " · " .. sub, S:Wrap("YOU", "Guest") end
     G:PaintPlate(b, { kind = "player", c = cls, sp = s and s.sp, name = colored(cell.key, cls), sub = sub,
                       subShort = short, auto = spec == nil, dim = cell.out, edge = isMe(cell.key) and "me" or nil })
     local right = -6
     if cell.request then
-        UI():SetEdgeColor(b, 1, 0.82, 0, 0.55)
+        UI():SetEdgeColor(b, tokenA("GOLD", 0.55))
         if organizer then
             b.yes:Show()
             b.no:Show()
@@ -1169,7 +1152,7 @@ local function rosterModel(v)
         if not signups[key] then out[#out + 1] = key end
     end
     box("Declined", "BAD", out, nameLess)
-    box("To answer", "ff9933", noResponse(v, signups), nameLess, true)
+    box("To answer", "WARN", noResponse(v, signups), nameLess, true)
     return model
 end
 
@@ -1186,16 +1169,12 @@ function UP.newBand(parent, role)
     col.count = UI():Text(col, "body", "TEXT")
     col.count:SetJustifyH("RIGHT")
     col.count:SetPoint("RIGHT", col, "TOPLEFT", UP.GUT_W, -8)
-    col.rule = col:CreateTexture(nil, "BORDER")
-    col.rule:SetColorTexture(1, 1, 1, 0.055)
-    col.rule:SetHeight(1)
-    col.rule:SetPoint("BOTTOMLEFT", col, "TOPLEFT", 0, 6)
-    col.rule:SetPoint("BOTTOMRIGHT", col, "TOPRIGHT", 0, 6)
+    col.rule = UI():Rule(col, { top = -7, layer = "BORDER" })
     -- (requests: a soft gold wash behind the band)
     col.wash = col:CreateTexture(nil, "BACKGROUND")
     col.wash:SetPoint("TOPLEFT", 0, 6)
     col.wash:SetPoint("BOTTOMRIGHT", 0, -6)
-    UI():Gradient(col.wash, "HORIZONTAL", { 1, 0.82, 0, 0.07 }, { 1, 0.82, 0, 0 })
+    UI():Gradient(col.wash, "HORIZONTAL", { tokenA("GOLD", 0.07) }, { tokenA("GOLD", 0) })
     col.wash:Hide()
     col.none = UI():Text(col, "body", "DIM")
     col.none:SetPoint("LEFT", col, "TOPLEFT", UP.GUT + 2, -15)
@@ -1355,7 +1334,7 @@ local function myCharOptions()
     for _, key in ipairs(RP():GetMyCharacters()) do
         if key == cur or (occ and (RP():CanSignUp(occ, key) or RP():CanRequest(occ, key))) then
             local cls = classOfChar(key)
-            out[#out + 1] = { value = key, text = shortName(key) .. (cls and (" (" .. (ns.CLASS_NAMES[cls] or cls) .. ")") or "") }
+            out[#out + 1] = { value = key, text = ns.Util.ShortName(key) .. (cls and (" (" .. (ns.CLASS_NAMES[cls] or cls) .. ")") or "") }
         end
     end
     return out
@@ -1676,7 +1655,7 @@ function PlanUI:InviteRaid()
     else
         local left = {}
         for _, m in ipairs(RP():GetLayoutMembers(v)) do
-            if m.st == "A" and not dr.grp[m.key] then left[#left + 1] = shortName(m.key) end
+            if m.st == "A" and not dr.grp[m.key] then left[#left + 1] = ns.Util.ShortName(m.key) end
         end
         table.sort(left)
         if #left > 0 then
@@ -1701,35 +1680,36 @@ function PlanUI:GetRaidGrid() return upcoming and upcoming.detail.groups.grid en
 
 -- The Groups tab: a bar with the layout's state and its actions (only those that can be taken now), Invite & sort's
 -- progress while it runs, then the group grid (all groups side by side) in a scroll frame.
+-- The Groups tab: its actions on the page's tool row (the raid buffs of who sits in the groups at its left, the
+-- layout's actions, then Invite & sort at the far right), while Invite & sort runs a status line, then the groups.
 local function createRaidGroups(d)
     local g = CreateFrame("Frame", nil, d)
     d.groups = g
 
-    local bar = CreateFrame("Frame", nil, g)
-    bar:SetPoint("TOPLEFT", 0, 0)
-    bar:SetPoint("TOPRIGHT", 0, 0)
-    bar:SetHeight(24)
+    local bar = d.layout.toolbar
     g.bar = bar
     g.buffs = CreateFrame("Frame", nil, bar)
-    g.buffs:SetPoint("LEFT", 0, 0)
+    g.buffs:SetPoint("LEFT", bar, "LEFT", 0, 0)
     g.buffs:SetSize(1, 22)
-    g.autoBtn = UI():CreateSleekButton(bar, "Auto-fill", 70, 22, function() PlanUI:AutoFillRaid() end)
+    g.buffs:Hide()
+    local H = S.BTN_H
+    g.autoBtn = UI():CreateSleekButton(bar, "Auto-fill", 70, H, function() PlanUI:AutoFillRaid() end)
     UI():AttachTooltip(g.autoBtn, "Auto-fill", { "A fresh layout of everyone who accepted: tanks, melee groups with a shaman each, "
         .. "casters, healers." }, { anchor = "ANCHOR_TOP" })
-    g.teamBtn = UI():CreateSleekButton(bar, "From team", 80, 22, function() PlanUI:ResetRaidLayout() end)
+    g.teamBtn = UI():CreateSleekButton(bar, "From team", 80, H, function() PlanUI:ResetRaidLayout() end)
     UI():AttachTooltip(g.teamBtn, "From team", { "Start again from the team's group layout: players keep their team seat, others "
         .. "who accepted fill the seats of team members who didn't." }, { anchor = "ANCHOR_TOP" })
-    g.undoBtn = UI():CreateSleekButton(bar, "Undo", 56, 22, function() PlanUI:UndoRaidLayout() end)
+    g.undoBtn = UI():CreateSleekButton(bar, "Undo", 56, H, function() PlanUI:UndoRaidLayout() end)
     UI():AttachTooltip(g.undoBtn, "Undo", { "Back to the layout as it was saved." }, { anchor = "ANCHOR_TOP" })
-    g.saveBtn = UI():CreateSleekButton(bar, "Save", 56, 22, function() PlanUI:SaveRaidLayout() end)
+    g.saveBtn = UI():CreateSleekButton(bar, "Save", 56, H, function() PlanUI:SaveRaidLayout() end)
     UI():AttachTooltip(g.saveBtn, "Save", { "Keeps this layout for the raid (until then it follows the sign-ups) and shares it "
         .. "with the other organizers." }, { anchor = "ANCHOR_TOP" })
-    g.inviteBtn = UI():CreateSleekButton(bar, "Invite & sort", 100, 22, function() PlanUI:InviteRaid() end, "primary")
+    g.inviteBtn = UI():CreateSleekButton(bar, "Invite & sort", 100, H, function() PlanUI:InviteRaid() end, "primary")
     UI():AttachTooltip(g.inviteBtn, "Invite & sort", { "Invites everyone placed in a group, guests too (an accepted player "
         .. "without a group is not invited), makes the group a raid and moves each player into their group as they "
         .. "join. Players who join later are sorted too, until the raid ends. Missing shows who has not joined and "
         .. "why. Needs the raid leader or an assistant." }, { anchor = "ANCHOR_TOP" })
-    g.resortBtn = UI():CreateSleekButton(bar, "Re-sort", 70, 22, function() PlanUI:ResortRaid() end)
+    g.resortBtn = UI():CreateSleekButton(bar, "Re-sort", 70, H, function() PlanUI:ResortRaid() end)
     UI():AttachTooltip(g.resortBtn, "Re-sort groups", { "Moves everyone in your raid to their planned group now, e.g. after late "
         .. "joiners or a change of plan. Players who aren't planned go to groups 6-8." }, { anchor = "ANCHOR_TOP" })
 
@@ -1751,7 +1731,7 @@ local function createRaidGroups(d)
             if #list == 0 then return end
             root:CreateTitle(("%s (%d)"):format(title, #list))
             for _, key in ipairs(list) do
-                local b = root:CreateButton(shortName(key), function() end)
+                local b = root:CreateButton(ns.Util.ShortName(key), function() end)
                 if b and b.SetEnabled then b:SetEnabled(false) end
             end
         end
@@ -1771,8 +1751,11 @@ local function createRaidGroups(d)
     -- who can't change the groups sees why the actions are not there (it only shows what CanEditGroups decided)
     g.readOnly = UI():CreateNotice(bar, "readonly", "Read only: who runs this raid places players.")
     g.readOnly:SetWidth(290)
-    g.readOnly:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
     g.readOnly:Hide()
+    -- (right to left on the tool row: Invite & sort, Re-sort, Save, Undo, From team, Auto-fill; the notice instead)
+    g.tools = { g.readOnly, g.autoBtn, g.teamBtn, g.undoBtn, g.saveBtn, g.resortBtn, g.inviteBtn }
+    bar:SetFilters(g.tools)
+    for _, b in ipairs(g.tools) do b:Hide() end
     g.scroll = UI():CreateScrollFrame(g)
     g.grid = ns.RaidGroupsUI:CreateGrid(g.scroll, {
         layout = "row",
@@ -1801,7 +1784,7 @@ local function createRaidGroups(d)
         onMenu = function(root, key)
             local v = selectedRaid()
             if not v then return end
-            root:CreateTitle(shortName(key))
+            root:CreateTitle(ns.Util.ShortName(key))
             for grpN = 1, ns.RaidComp:GroupCount(v.sz) do
                 root:CreateButton("Move to group " .. grpN, function()
                     PlanUI:MoveRaidMember(key, grpN)
@@ -1871,27 +1854,19 @@ local function refreshGroups(v)
     g.resortBtn:SetShown(canInvite and IsInRaid() and lead)
     g.saveBtn:SetKind(dirty and "primary" or "secondary")
     g.inviteBtn:SetKind((organizer and dirty) and "secondary" or "primary")
-    local prev
-    for _, b in ipairs({ g.resortBtn, g.inviteBtn, g.saveBtn, g.undoBtn, g.teamBtn, g.autoBtn }) do
-        b:ClearAllPoints()
-        if b:IsShown() then
-            -- (the raid's actions stand apart from the layout's)
-            if prev then b:SetPoint("RIGHT", prev, "LEFT", prev == g.inviteBtn and -12 or -4, 0)
-            else b:SetPoint("RIGHT", g.bar, "RIGHT", 0, 0) end
-            prev = b
-        end
-    end
     -- the buffs take the room the actions (or the read-only notice) leave
     local width = (d:GetWidth() or 0) - 2 * PAD
     if width < 300 then width = 770 end
     g.readOnly:SetShown(not organizer and not canInvite)
-    local used = g.readOnly:IsShown() and (g.readOnly:GetWidth() + 4) or 0
-    for _, b in ipairs({ g.resortBtn, g.inviteBtn, g.saveBtn, g.undoBtn, g.teamBtn, g.autoBtn }) do
-        if b:IsShown() then used = used + b:GetWidth() + (b == g.inviteBtn and 12 or 4) end
+    local used = 0
+    for _, b in ipairs(g.tools) do
+        if b:IsShown() then used = used + b:GetWidth() + 6 end
     end
     g.stripRoom = width - used - 16
     local showBar = not none
+    g.buffs:SetShown(showBar)
     g.bar:SetShown(showBar)
+    g.bar:LayoutRight()
 
     local missing = st and (#st.offline + #st.declined + #st.grouped + #st.pending + #st.unlisted) or 0
     g.run:SetShown(st ~= nil)
@@ -1909,7 +1884,7 @@ local function refreshGroups(v)
         g.runText:SetPoint("LEFT", 1, 0)
         g.runText:SetPoint("RIGHT", missing > 0 and g.missingBtn or g.stopBtn, "LEFT", -12, 0)
     end
-    local top = showBar and 32 or 0
+    local top = 0
     g.run:ClearAllPoints()
     g.run:SetPoint("TOPLEFT", 0, -top)
     g.run:SetPoint("TOPRIGHT", 0, -top)
@@ -2213,7 +2188,7 @@ function PlanUI:CreateUpcoming(parent)
         return lines
     end, { anchor = "ANCHOR_TOP" })
 
-    -- the open tab's tool row (Sign-ups: the counts, Add players; Groups and Assignments have their own in its place)
+    -- the open tab's tool row (Sign-ups: the counts, Add players; the Groups tab: its actions; Assignments has its own)
     local bar = L.toolbar
     d.rosterBar = bar
     d.counts = bar.label
@@ -2229,22 +2204,22 @@ function PlanUI:CreateUpcoming(parent)
 end
 
 -- The page's parts top to bottom: the banner and its tabs (the same on every tab), the open tab's tool row, the open
--- tab (Groups and Assignments draw their own tool row at their top).
+-- tab (the tool row: Sign-ups' and the Groups tab's; Assignments draws its own at its top).
 local function layoutPage(d)
     local L = d.layout
-    d.roster.frame:ClearAllPoints()
-    d.roster.frame:SetAllPoints(L.body)
-    for _, f in ipairs({ d.groups, d.assign }) do
+    for _, f in ipairs({ d.roster.frame, d.groups }) do
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", L.toolbar, "TOPLEFT", 0, 0)
-        f:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
+        f:SetAllPoints(L.body)
     end
+    d.assign:ClearAllPoints()
+    d.assign:SetPoint("TOPLEFT", L.toolbar, "TOPLEFT", 0, 0)
+    d.assign:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
 end
 
 -- The banner's title in the room left of the answers: the banner's size, else a size smaller, else cut with "...".
 function UP.fitTitle(fs, text, room)
     for _, size in ipairs({ S.FONT.hero, S.FONT.page }) do
-        setSize(fs, size)
+        UI():SetTextStyle(fs, size, { fs:GetTextColor() })
         fs:SetWidth(0)
         fs:SetText(text)
         local w = UI():TextWidth(fs)
@@ -2365,7 +2340,13 @@ local function refreshDetail(v)
     local tab = (state.detailTab == "groups" or state.detailTab == "assign") and state.detailTab or "signups"
     for _, region in ipairs({ d.hero, d.tabs }) do region:SetShown(has) end
     if has then d.layout:HideEmpty() else d.layout:ShowEmpty({ glyph = UP.glyph("calendar"), title = "Pick a raid." }) end
-    d.rosterBar:SetShown(has and tab == "signups")
+    -- the tool row: Sign-ups' counts and Add players, or the Groups tab's actions (Assignments has its own)
+    d.rosterBar:SetShown(has and (tab == "signups" or tab == "groups"))
+    if tab ~= "groups" then
+        for _, b in ipairs(d.groups.tools) do b:Hide() end
+        d.groups.buffs:Hide()
+    end
+    if tab ~= "signups" then d.rosterBar:SetText(nil) end
     d.roster.frame:SetShown(has and tab == "signups")
     d.groups:SetShown(has and tab == "groups")
     d.assign:SetShown(has and tab == "assign")
@@ -2373,7 +2354,8 @@ local function refreshDetail(v)
     -- who runs this raid (the raid planners: GM, raid leaders; and the raid's own leader): the ··· menu, Add players
     local a = UP.actions(v)
     d.moreBtn:SetShown(a.leader or a.edit or a.cancel)
-    d.inviteBtn:SetShown(a.invite)
+    d.inviteBtn:SetShown(a.invite and tab == "signups")
+    d.rosterBar:LayoutRight()
     if not has then return end
 
     local width = (d:GetWidth() or 0) - 2 * PAD
@@ -2388,7 +2370,7 @@ local function refreshDetail(v)
     local names = instNames(v)
     local inst = RP():GetInstance(v.i)
     local parts = { (names or (inst and inst.name) or "Raid") .. " · " .. (v.sz or 0) .. "-player" }
-    if v.rl then parts[#parts + 1] = colored(v.rl) .. " leads" elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
+    if v.rl then parts[#parts + 1] = colored(v.rl) .. " leads" elseif v.by then parts[#parts + 1] = "by " .. ns.Util.ShortName(v.by) end
     parts[#parts + 1] = teamNames(v, false, 2)
     if v.weekly then parts[#parts + 1] = "every week" end
     hero:SetSub(tconcat(parts, "   ·   "))
@@ -3020,7 +3002,7 @@ function TV.pickerItems()
         if online or not state.pickOnline or dr.members[key] then
             local sp, c, source = RP():GetMemberSpec(key, { specs = dr.s })
             local cls = c or G:GetClass(key)
-            list[#list + 1] = { key = key, text = shortName(key), classFile = cls, note = others[key] or G:GetRankName(key),
+            list[#list + 1] = { key = key, text = ns.Util.ShortName(key), classFile = cls, note = others[key] or G:GetRankName(key),
                                 dim = not online, role = ns.RaidComp:RoleOf(cls, sp), roleFaint = source == "bis" }
         end
     end
@@ -3034,7 +3016,7 @@ function TV.specMenu(root, key)
     local dr = state.draft
     if not dr or not dr.members[key] then return end
     local _, c = RP():GetMemberSpec(key, { specs = dr.s })
-    root:CreateTitle(shortName(key))
+    root:CreateTitle(ns.Util.ShortName(key))
     local asp, ac, asrc = RP():GetMemberSpec(key)
     local label = asp and ns.RaidComp:SpecLabel(ac, asp)
     local auto = "Automatic"
@@ -3054,7 +3036,7 @@ function TV.waitMenu(root, key)
     local w = dr and TV.waiting(key)
     if not w then return end
     local list = TV.waitMembers()
-    root:CreateTitle(shortName(key) .. " " .. S:Wrap("SUB", "#" .. w.n .. " on the waitlist"))
+    root:CreateTitle(ns.Util.ShortName(key) .. " " .. S:Wrap("SUB", "#" .. w.n .. " on the waitlist"))
     if w.n > 1 then root:CreateButton("Move up", function() RP():MoveWaitlist(dr.id, dr.ln, key, -1) end) end
     if w.n < #list then root:CreateButton("Move down", function() RP():MoveWaitlist(dr.id, dr.ln, key, 1) end) end
     if root.CreateDivider then root:CreateDivider() end
@@ -3084,7 +3066,7 @@ function TV.memberMenu(root, key)
     if not dr then return end
     if not dr.members[key] then return TV.waitMenu(root, key) end
     local _, c = RP():GetMemberSpec(key, { specs = dr.s })
-    root:CreateTitle(shortName(key))
+    root:CreateTitle(ns.Util.ShortName(key))
     root:CreateRadio("Spec: automatic", function() return dr.s[key] == nil end, function() PlanUI:SetDraftSpec(key, nil) end)
     for i, spec in ipairs(c and ns.SPECS[c] or {}) do
         root:CreateRadio("Spec: " .. spec.label, function() return dr.s[key] == i end, function() PlanUI:SetDraftSpec(key, i) end)
@@ -3574,7 +3556,7 @@ function TV.fitName()
     local text = nb:GetText() or ""
     local inset = nb:HasFocus() and 10 or 24
     for _, size in ipairs({ S.FONT.hero, S.FONT.page, S.FONT.title }) do
-        setSize(m, size)
+        UI():SetTextStyle(m, size, { m:GetTextColor() })
         m:SetText(text)
         local w = (m:GetStringWidth() or 0) + 6 + inset + 2
         if w <= TV.NAME_MAX or size == S.FONT.title then
@@ -3972,8 +3954,8 @@ function TV.fillCard(dr, organizer)
         TV.paintName()
     else
         card.title:SetText(dr.name)
-        setSize(card.title, "hero")
-        if (card.title:GetStringWidth() or 0) > TV.LEFT_W then setSize(card.title, "page") end
+        UI():SetTextStyle(card.title, S.FONT.hero, { card.title:GetTextColor() })
+        if (card.title:GetStringWidth() or 0) > TV.LEFT_W then UI():SetTextStyle(card.title, S.FONT.page, { card.title:GetTextColor() }) end
     end
     -- "17 players · You: Group 5 · Holy · changed by Bob, yesterday" (what doesn't fit is left out)
     card.count:SetText(S:Wrap("DIM", n == 0 and "No players yet" or n == 1 and "1 player" or (n .. " players")))
@@ -4517,7 +4499,7 @@ function TV.newWaitRow(p)
         local ok, err = RP():LeaveWaitlist(dr.id, dr.ln)
         if not ok then Print(err or "Could not leave the waitlist.") end
     end)
-    setSize(r.leave:GetFontString(), "body")
+    UI():SetTextStyle(r.leave:GetFontString(), S.FONT.body, { r.leave:GetFontString():GetTextColor() })
     r.leave:SetPoint("RIGHT", r, "RIGHT", -2, 0)
     r:SetScript("OnClick", function(self)
         if self.member and RP():CanManageTeams() then
@@ -4847,7 +4829,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
                 local e = list[i]
                 local right = {}
                 if e.other then right[#right + 1] = e.sp and ns.RaidComp:SpecLabel(e.c, e.sp) or "spec unknown" end
-                if e.of then right[#right + 1] = TV.isMine(e.of) and "your alt" or (shortName(e.of) .. "'s alt") end
+                if e.of then right[#right + 1] = TV.isMine(e.of) and "your alt" or (ns.Util.ShortName(e.of) .. "'s alt") end
                 if e.team then right[#right + 1] = e.team end
                 if e.n then right[#right + 1] = "#" .. e.n .. " in line" end
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), tconcat(right, " · "),
@@ -5457,7 +5439,7 @@ function TV.paintBoardNights(c, tm)
     TV.paintNightsBlock(c.nights, tm.nights, tm.note, false)
     c.nights:ClearAllPoints()
     c.nights:SetPoint("TOPLEFT", c, "TOPLEFT", TV.N.X, -18)
-    if c.nights:IsShown() and (c.t1:GetStringWidth() or 0) > TV.N.X - 18 - 24 then setSize(c.t1, "page") end
+    if c.nights:IsShown() and (c.t1:GetStringWidth() or 0) > TV.N.X - 18 - 24 then UI():SetTextStyle(c.t1, S.FONT.page, { c.t1:GetTextColor() }) end
 end
 
 -- The team's banner (TV.fillCard): the block with the draft's nights; organizers edit them.
@@ -5468,7 +5450,7 @@ function TV.paintHeroNights(dr, organizer)
     card.nights:ClearAllPoints()
     card.nights:SetPoint("TOPLEFT", card, "TOPLEFT", TV.N.X, -14)
     if not organizer and card.nights:IsShown() and (card.title:GetStringWidth() or 0) > TV.N.X - 12 - 28 then
-        setSize(card.title, "page")
+        UI():SetTextStyle(card.title, S.FONT.page, { card.title:GetTextColor() })
     end
     -- (the next raid's button only as wide as its lines, so the two never overlap)
     local nx = card.next
@@ -5634,7 +5616,7 @@ function TV.newNightRow(p)
     r.to:SetPoint("LEFT", r.from, "RIGHT", 20, 0)
     r.opt = UI():CreateSwitch(r, nil, function(on) if r.x then PlanUI:SetDraftNightOptional(r.x.d, on) end end,
         "Optional")
-    setSize(r.opt.label, "emph")
+    UI():SetTextStyle(r.opt.label, S.FONT.emph, { r.opt.label:GetTextColor() })
     r.opt.label:SetTextColor(S:Color("TEXT"))
     r.opt:SetPoint("LEFT", r.to, "RIGHT", 16, 0)
     r.opt:HookScript("OnEnter", function(self)
@@ -5916,8 +5898,8 @@ function TV.fillTeamCard(c, tm, mine, width)
     c.kick:SetPoint("LEFT", c, "TOPLEFT", mine and 30 or 18, -20)
     c.kick:SetText(mine and "YOUR TEAM" or "TEAM")
     c.t1:SetText(tm.name)
-    setSize(c.t1, "hero")
-    if (c.t1:GetStringWidth() or 0) > width - 18 - 260 then setSize(c.t1, "page") end
+    UI():SetTextStyle(c.t1, S.FONT.hero, { c.t1:GetTextColor() })
+    if (c.t1:GetStringWidth() or 0) > width - 18 - 260 then UI():SetTextStyle(c.t1, S.FONT.page, { c.t1:GetTextColor() }) end
     local n = #tm.members
     local nl = #tm.lineups
     local lineups
@@ -6187,7 +6169,7 @@ function TV.benchMenu(chip)
     end
     UI():ContextMenu(chip, function(root)
         local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
-        root:CreateTitle(shortName(key) .. (label and (" " .. S:Wrap("SUB", label)) or ""))
+        root:CreateTitle(ns.Util.ShortName(key) .. (label and (" " .. S:Wrap("SUB", label)) or ""))
         if chip.kind == "unassigned" then
             for g = 1, ns.RaidComp:GroupCount(dr.sz) do
                 root:CreateButton("Move to group " .. g, function()
@@ -6914,7 +6896,7 @@ local function leaderItems()
     for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
         local listed = g.IsListedRaidLeader and g:IsListedRaidLeader(key)
         local council = not listed and g.IsGuildCouncil and g:IsGuildCouncil(key)
-        local e = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+        local e = { key = key, text = ns.Util.ShortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
                     dim = not g:IsOnline(key) }
         local list = listed and lists[1] or (council and lists[2]) or lists[3]
         list[#list + 1] = e
@@ -7062,11 +7044,11 @@ local function invitePickerItems()
     local out, seen = {}, {}
     for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
         seen[key] = true
-        out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+        out[#out + 1] = { key = key, text = ns.Util.ShortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
                           dim = not g:IsOnline(key), fixed = inTeam[key] }
     end
     for key in pairs(inviteSet(v)) do
-        if not seen[key] then out[#out + 1] = { key = key, text = shortName(key), note = "not in the guild", dim = true } end
+        if not seen[key] then out[#out + 1] = { key = key, text = ns.Util.ShortName(key), note = "not in the guild", dim = true } end
     end
     tsort(out, function(a, b) return a.text:lower() < b.text:lower() end)
     return out
@@ -7310,7 +7292,7 @@ function PlanUI:BuildKnownGuestsMenu(root)
             if c then
                 PlanUI:AddGuest(key, c, sp)
             else
-                inviteWin.nameBox:SetText(shortName(key))   -- pick the class, then Add
+                inviteWin.nameBox:SetText(ns.Util.ShortName(key))   -- pick the class, then Add
             end
         end)
     end
@@ -7324,7 +7306,7 @@ function PlanUI:GuessGuestClass(text)
     local name = ns.Util.Trim(text):lower()
     if name == "" then return end
     for _, g in ipairs(self:GetKnownGuests()) do
-        if g.c and shortName(g.key):lower() == name then
+        if g.c and ns.Util.ShortName(g.key):lower() == name then
             w.cls, w.sp = g.c, g.sp
             for _, dd in ipairs({ w.classDD, w.specDD }) do
                 if dd.Refresh then dd:Refresh() end
