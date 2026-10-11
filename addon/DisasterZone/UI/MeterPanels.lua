@@ -166,7 +166,11 @@ local function NewStack()
     grip:SetScript("OnMouseUp", function() MP:EndResize() end)
     f.grip = grip
     f.hint = K.Font(f, K.FRIZ, 12, K.GOLD)
-    f.hint:SetPoint("BOTTOM", f, "TOP", 0, 4)
+    -- (as wide as the stack, wrapping: centred and one line it ran off the screen's edge)
+    f.hint:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 2, 4)
+    f.hint:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -2, 4)
+    f.hint:SetJustifyH("LEFT")
+    f.hint:SetWordWrap(true)
     f.hint:SetText("Drag a header to move or dock · Shift to pull one out · the corner to resize")
     f.hint:Hide()
     f:SetScript("OnMouseUp", function(_, button) if button == "RightButton" and f.panels[1] then MP:PanelMenu(f.panels[1], f) end end)
@@ -196,6 +200,7 @@ end
 local function NewTab(pf)
     local b = CreateFrame("Button", nil, pf.head)
     b:SetHeight(HEAD_H)
+    b:SetHitRectInsets(-6, -6, 0, 0)          -- (the 12 px between tabs is clickable too: an icon-only tab is 13 px)
     b:RegisterForDrag("LeftButton")
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b.icon = K.Tex(b, "ARTWORK", 134400)
@@ -1129,8 +1134,12 @@ local function DrawHead(pf, tab)
         return 2 + 20 + 20 + 5 + tw + vw + 8
     end
     local x = 3
-    for _, b in ipairs(pf.tabs) do
-        if b.dragging then b:SetAlpha(0) else b:Hide() end
+    -- only the tabs not used now are hidden: hiding a shown one each draw (4 a second in a fight) made it flicker
+    -- under the mouse and lose clicks (in-game report 2026-10-11)
+    for n, b in ipairs(pf.tabs) do
+        if #avail < 2 or n > #avail then
+            if b.dragging then b:SetAlpha(0) else b:Hide() end
+        end
     end
     if #avail > 1 then
         pf.mode:Hide()
@@ -1169,7 +1178,7 @@ local function DrawHead(pf, tab)
             b:SetWidth(w)
             b:ClearAllPoints()
             b:SetPoint("LEFT", pf.head, "LEFT", x, 0)
-            b:Show()
+            if not b:IsShown() then b:Show() end
             x = x + w + 12
         end
     else

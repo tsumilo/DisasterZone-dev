@@ -1006,5 +1006,30 @@ def a_real_drag_onto_a_stack_docks_it():
     assert len(layout(r)) == 1 and sorted(layout(r)[0].split("/")) == ["damage", "threat"], layout(r)
 
 
+@case
+def tabs_stay_put_between_draws():
+    """Reported in game 2026-10-11: hovering an icon-only tab flickered its tooltip and clicks to switch tabs barely
+    registered. Every draw hid all tabs and showed them again (a hidden frame loses the mouse and a half-done click).
+    Now a tab in use is never hidden by a draw, and its clickable area reaches into the gap beside it."""
+    r = Raid(thr=True)
+    r.cl.eval("ns.DB:SetSetting('meters.locked', false)")
+    r.tick(0.5)
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        local L = MP.Layout()
+        L.stacks[1].panels[2].tabs[2] = { view = "healing", seg = "cur" }
+        MP:Rebuild()
+        __HIDES = 0
+        local pf = MP._Panel('damage')
+        for _, b in ipairs(pf.tabs) do b:SetScript("OnHide", function() __HIDES = __HIDES + 1 end) end
+        for _ = 1, 5 do MP:Draw() end
+    """)
+    assert r.cl.eval("return __HIDES") == 0
+    assert r.cl.eval_py("local pf = ns.MeterPanels._Panel('damage'); return { pf.tabs[1]:IsShown(), pf.tabs[2]:IsShown() }") == [True, True]
+    # down to one tab: the tabs go, the view button is back
+    r.cl.eval("local MP = ns.MeterPanels; MP.Layout().stacks[1].panels[2].tabs[2] = nil; MP.Layout().stacks[1].panels[2].active = 1; MP:Rebuild()")
+    assert r.cl.eval_py("local pf = ns.MeterPanels._Panel('damage'); return { pf.tabs[1]:IsShown(), pf.mode:IsShown() }") == [False, True]
+
+
 if __name__ == "__main__":
     run_all()
