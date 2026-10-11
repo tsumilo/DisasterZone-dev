@@ -23,7 +23,7 @@ local ROW_H, ROW_GAP = 52, 4
 local KEYS_H = 64
 local CONTENT_H = PAD + BANNER_H + GAP + 6 * ROW_H + 5 * ROW_GAP + GAP + KEYS_H + PAD
 local H = CONTENT_H + 26 + 6
-local CHIP_W, CHIP_ICON = 112, 30
+local CHIP_W, CHIP_ICON = 100, 30          -- 4 chips + Start = the content width (530)
 local GOLD = { 1, 0.82, 0 }
 local SOFTGOLD = { 0.95, 0.74, 0.30 }
 local GREY = { 0.62, 0.62, 0.64 }
@@ -335,9 +335,10 @@ local function NewChip(parent, spell)
     chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
     chip.icon:SetPoint("LEFT", chip, "LEFT", 4, 0)
     chip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- the key cap, the spell's short name under it
     chip.cap = CreateFrame("Frame", nil, chip)
-    chip.cap:SetSize(34, 22)
-    chip.cap:SetPoint("LEFT", chip.icon, "RIGHT", 8, 0)
+    chip.cap:SetSize(34, 18)
+    chip.cap:SetPoint("TOPLEFT", chip.icon, "TOPRIGHT", 7, 0)
     chip.capBg = Fill(chip.cap, "BACKGROUND", 0.16, 0.16, 0.18, 1)
     chip.capBg:SetAllPoints()
     Edge(chip.cap, 0.36, 0.36, 0.4, 1)
@@ -345,12 +346,11 @@ local function NewChip(parent, spell)
     chip.capLip:SetPoint("BOTTOMLEFT")
     chip.capLip:SetPoint("BOTTOMRIGHT")
     chip.capLip:SetHeight(3)
-    chip.key = Text(chip.cap, 12, { 1, 1, 1 })
+    chip.key = Text(chip.cap, 11, { 1, 1, 1 })
     chip.key:SetPoint("CENTER", 0, 1)
     chip.key:SetJustifyH("CENTER")
     chip.what = Text(chip, 9.5, DIM)
-    chip.what:SetPoint("LEFT", chip.cap, "RIGHT", 6, 0)
-    chip.what:SetPoint("RIGHT", chip, "RIGHT", -4, 0)
+    chip.what:SetPoint("BOTTOMLEFT", chip.icon, "BOTTOMRIGHT", 7, 0)
     chip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     chip:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
@@ -403,6 +403,11 @@ local function BuildKeys(c)
         k.chips[i] = chip
     end
     k.start = UI():CreateSleekButton(k, "Start", 104, 38, function() PUI:StartSelected() end, "primary")
+    k.start:HookScript("OnEnter", function(self)
+        Tip(self, "Start", { "The ring shows up where your swing timer sits. 3, 2, 1, then the swings start.",
+            { "Esc stops. Entering combat stops it too.", 0.6, 0.6, 0.62 } })
+    end)
+    k.start:HookScript("OnLeave", function() GameTooltip:Hide() end)
     k.start:SetPoint("BOTTOMRIGHT", k, "BOTTOMRIGHT", 0, 0)
     return k
 end
@@ -410,7 +415,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- The window: result
 -- ---------------------------------------------------------------------------------------------------------------
-local TILE_W, TILE_H = 82, 50
+local TILE_W, TILE_H = 78, 50
 
 local function BuildResult(c)
     local r = CreateFrame("Frame", nil, c)
@@ -464,12 +469,12 @@ local function BuildResult(c)
         r.tiles[i] = t
     end
     r.rulerCap = Text(r, 9.5, GREY)
-    r.rulerCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -196)
+    r.rulerCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -218)
     r.rulerCap:SetText("WHERE YOUR SEAL OF BLOOD LANDED")
     r.ruler = NewRuler(r, W - 10 - 2 * PAD - 32, 20, true)
-    r.ruler:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -212)
+    r.ruler:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -234)
     r.tipCap = Text(r, 9.5, GOLD)
-    r.tipCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -262)
+    r.tipCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -286)
     r.tipCap:SetText("TRY THIS")
     r.tip = Text(r, 12, { 0.92, 0.92, 0.94 })
     r.tip:SetPoint("TOPLEFT", r.tipCap, "BOTTOMLEFT", 0, -5)
@@ -527,7 +532,7 @@ function PUI:ShowResult(res)
         local d = tiles[i]
         if d then
             t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", r, "TOP", x0 + (i - 1) * (TILE_W + 6), -128)
+            t:SetPoint("TOPLEFT", r, "TOP", x0 + (i - 1) * (TILE_W + 6), -150)
             t.num:SetText(d[1])
             t.label:SetText(d[2]:upper())
             local zero = d[1] == "0"
@@ -687,7 +692,7 @@ function PUI:Refresh()
             chip.what:SetTextColor(DIM[1], DIM[2], DIM[3])
         end
         local w = chip.key:GetStringWidth() or 0
-        chip.cap:SetWidth(max(26, w + 14))
+        chip.cap:SetWidth(max(24, min(52, w + 12)))
         if inL and not k and not missing then missing = chip.spell end
     end
     frame.keys.cap:SetText(assigning and ("PRESS THE KEY YOU USE FOR " .. SPELL_LABEL[assigning]:upper() .. " · ESC CANCELS")
@@ -757,7 +762,6 @@ local function BuildOverlay(ring)
     -- the coach card over the ring
     local card = CreateFrame("Frame", nil, o)
     card:SetSize(CARD_W, CARD_H)
-    card:SetPoint("BOTTOM", ring, "TOP", 0, 12)
     local cb = Fill(card, "BACKGROUND", 0.04, 0.04, 0.05, 0.86)
     cb:SetAllPoints()
     Edge(card, 0.2, 0.2, 0.22, 1)
@@ -899,7 +903,17 @@ local function LayoutOverlay(o, L, keyOf)
         chip:SetPoint("TOPLEFT", o.ruler, "BOTTOM", -total / 2 + (i - 1) * 52, -14)
     end
     o.esc:ClearAllPoints()
-    o.esc:SetPoint("TOP", o.ruler, "BOTTOM", 0, -78)
+    o.esc:SetPoint("TOP", o.ruler, "BOTTOM", 0, -76)
+    -- the coach card over the ring, or under the keys when the ring sits too close to the top of the screen
+    local card, ring = o.card, o.ring
+    local top, es = ring:GetTop(), ring:GetEffectiveScale() or 1
+    local screen = UIParent:GetTop() and UIParent:GetTop() * (UIParent:GetEffectiveScale() or 1)
+    card:ClearAllPoints()
+    if top and screen and top * es + (12 + CARD_H + 34) * es > screen then
+        card:SetPoint("TOP", o.esc, "BOTTOM", 0, -10)
+    else
+        card:SetPoint("BOTTOM", ring, "TOP", 0, 12)
+    end
     o.cap = strformat(L.key == "free" and "FREE PLAY" or "LESSON %d · %s", L.n, L.title:upper())
     o.card.cap:SetText(o.cap)
     o.seen = SP().run and SP().run.popSeq or 0

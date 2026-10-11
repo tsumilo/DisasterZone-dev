@@ -1029,20 +1029,38 @@ PRACTICE = (SWING_HUD.replace("ST.state.seal = 'soc'; ST.state.last = GetTime() 
             "local me = UnitName('player') .. '-' .. GetRealmName(); "
             "ns.DB:SetSetting('swing.practice.best', { [me] = { twist = { stars = 3, grade = 0.97, score = 900 }, "
             "command = { stars = 2, grade = 0.86, score = 1100 } } }); ")
-# ... played into lesson 3 by a near-perfect player until the ring sits in the twist window with a word showing
-PRACTICE_PLAY = PRACTICE + (
-    "ns.MainFrame:Close(); local SP, ST = ns.SwingPractice, ns.SwingTimer; SP:Start('strike'); "
-    "local pressed = {}; local swings = 0; "
-    "for i = 1, 4000 do __MOCK.now = __MOCK.now + 0.01; SP:_Advance(); "
-    "  if GetTime() >= SP.run.go then local cur = ST:Current(); local f = cur and cur.plan.steps[1]; "
-    "    if f and f.key ~= 'wait' and f.at <= GetTime() + 0.001 and pressed[f.key] ~= f.at then pressed[f.key] = f.at; "
-    "      if not (f.key == 'sob' and #SP.run.results == 2) then SP:Press(f.key) end end "
-    "    if #SP.run.results >= 4 and f and f.key == 'sob' and f.twist and GetTime() >= f.at + 0.1 then break end end end; "
-    "ns.SwingTimerHUD:Update(); local o = ns.SwingPracticeUI:Overlay(); o.popAt = GetTime() - 0.2; "
-    "o.pop:SetText('Perfect  |cffffd27ax3|r'); o.pop:SetTextColor(1, 0.82, 0.25); o.popSub:SetText(''); "
-    "ns.SwingPracticeUI:UpdateOverlay(o)")
+# ... played into lesson 3 by a near-perfect player (a bot pressing what the ring asks, one twist skipped) until just
+# after the 5th swing, so the word for it shows. (The world ticks: the harness resets the clock to the world's.)
+# The ring sits lower in its frame here only so the render has room for the coach card over it.
+PRACTICE_BOT = (
+    "ns.MainFrame:Close(); local f = DisasterZoneSwingTimer; local SP, ST = ns.SwingPractice, ns.SwingTimer; "
+    "SP:Start('strike'); f:SetHeight(470); f.bar:ClearAllPoints(); f.bar:SetPoint('TOP', f, 'TOP', 0, -150); "
+    "local pressed = {}; local bot = CreateFrame('Frame'); "
+    "bot:SetScript('OnUpdate', function() local run = SP.run; if not run or _G.__pracDone then return end; "
+    "  if GetTime() < run.go then return end; local cur = ST:Current(); local s = cur and cur.plan.steps[1]; "
+    "  if s and s.key ~= 'wait' and s.at <= GetTime() + 0.001 and pressed[s.key] ~= s.at then pressed[s.key] = s.at; "
+    "    if not (s.key == 'sob' and #run.results == 2) then SP:Press(s.key) end end; "
+    "  if #run.results >= 5 and GetTime() >= run.vLast + 0.3 then _G.__pracDone = true end end)")
+
+
+def practice_play(w, c):
+    g = c["Gina"]
+    demo_off(w, c)
+    close_all(g)
+    tab(g, "home")
+    w.tick(0.3)
+    g.eval(PRACTICE)
+    g.fire("SPELLS_CHANGED")
+    g.eval(PRACTICE_BOT)
+    for _ in range(2000):
+        if g.eval("return _G.__pracDone == true"):
+            break
+        w.tick(0.03, step=0.03)
+    return g
+
+
 PRACTICE_RESULT = PRACTICE + (
-    "ns.MainFrame:Close(); local SP = ns.SwingPractice; "
+    "__MOCK.fire('SPELLS_CHANGED'); ns.MainFrame:Close(); local SP = ns.SwingPractice; "
     "local res = { lesson = 'strike', n = 3, title = 'Crusader Strike', score = 1480, ideal = 1650, grade = 0.897, "
     "stars = 2, expected = 10, twists = 8, swings = 10, bestStreak = 5, ghostCs = 6, ghostJudge = 0, done = true, newBest = true, "
     "counts = { twist = 8, perfect = 6, early = 1, late = 0, miss = 0, clip = 1, nocmd = 0, cs = 5, judge = 0 }, "
@@ -1513,8 +1531,9 @@ STATES = [
     ("Swing timer - both, in the zone", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Swing timer - bar, early swing", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
     ("Swing timer - lane", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "2.0").replace("STYLE", "lane"))),
-    ("Swing practice - lessons", opened("home", PRACTICE + "ns.MainFrame:Close(); ns.SwingPracticeUI:Open()")),
-    ("Swing practice - in play", opened("home", PRACTICE_PLAY)),
+    ("Swing practice - lessons", opened("home", PRACTICE + "__MOCK.fire('SPELLS_CHANGED'); ns.MainFrame:Close(); "
+                                        "ns.SwingPracticeUI:Open()")),
+    ("Swing practice - in play", practice_play),
     ("Swing practice - result", opened("home", PRACTICE_RESULT)),
     ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
     ("Settings - Meters", opened("settings", "ns.SettingsUI:SelectSection('meters')")),

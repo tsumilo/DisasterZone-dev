@@ -143,8 +143,17 @@ ns.CHANGELOG = {
               "The class sits on the top-right corner, the red count of who is missing it top-left.",
               "No more \"5 missing\" chip: the red count says it. The chip only shows the time left.",
           } },
-          { heading = "Swing timer", lines = {
-              "The ring's colors meet in clean flat edges, no rounded ends, and the fill ends in a flat line.",
+          { heading = "Swing timer: twist practice", lines = {
+              "Learn twisting step by step: Practice on the swing timer's card or /dz swing practice.",
+              "Five short lessons, each adding one thing: twist, Command, Strike, Judgement, Bloodlust.",
+              "You press your own keys, read from your action bars. Nothing is cast, no target needed.",
+              "Your latency is added, so the timing you learn is the timing of a real fight.",
+              "A coach over the ring says what to press next, with your key on it.",
+              "After each swing: Perfect, Twist, Early 62 ms, Late, Missed or Blocked by a cooldown.",
+              "The ruler under the ring shows where each Seal of Blood landed against the window.",
+              "Up to 3 stars per lesson, scored against a perfect run on the same swings.",
+              "A star opens the next lesson. Free play runs the full rotation as long as you like.",
+              "The ring's colors now meet in flat edges, and the fill ends in a flat line.",
           } },
           { heading = "My BiS: Epic, Rare or Uncommon gems", lines = {
               { "Suggest > Gems and enchants: pick Epic, Rare or Uncommon gems for your list.", fb = { 4 }, by = { "Släy" }, k = "idea" },
