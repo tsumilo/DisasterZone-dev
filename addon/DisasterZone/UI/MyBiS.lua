@@ -1124,6 +1124,25 @@ local function BuildSuggestMenu(root)
     if ns.Gems and ns.Gems:GuideFor(ns.BiS:GetListView(ListArg())) then
         if root.CreateDivider then root:CreateDivider() end
         root:CreateTitle("Gems and enchants")
+        -- the gems' quality (Epic = the best there is): the fills below find the strongest gems of it
+        local list = ListArg()
+        for _, q in ipairs({ 4, 3, 2 }) do
+            if ns.Gems:QualityOut(q, phase) then
+                local r, g, bl = ns.UI:QualityColor(q)
+                local radio = root:CreateRadio(("|cff%02x%02x%02x%s gems|r"):format(floor(r * 255), floor(g * 255),
+                    floor(bl * 255), ns.Gems.QUALITY_WORDS[q]),
+                    function() return ns.Gems:GetQuality(list) == q end,
+                    function() ns.Gems:SetQuality(q, list) end)
+                if radio and radio.SetTooltip then
+                    radio:SetTooltip(function(tt)
+                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", 1, 0.82, 0)
+                        tt:AddLine(q == 4 and "The best gems for your spec." or ("The strongest " .. ns.Gems.QUALITY_WORDS[q]:lower()
+                            .. " gems for your spec, for when the best ones cost too much. The meta gem still gets "
+                            .. "its colours."), 1, 1, 1, true)
+                    end)
+                end
+            end
+        end
         local b = root:CreateButton(("Fill empty sockets and enchants (%s)"):format(PL(phase)), function()
             local n = ns.Gems:FillPhase(phase, ListArg(), false)
             if n == 0 then ns:Print("Every socket and enchant of %s is already chosen.", PL(phase)) end

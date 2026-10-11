@@ -534,4 +534,105 @@ def filling_a_phase_keeps_the_meta_gem_active():
     w.assert_no_errors()
 
 
+CRIMSON = 32195         # Teardrop Crimson Spinel (epic red, P3)
+GARNET = 23094          # Teardrop Blood Garnet (uncommon red)
+TANZANITE = 30603       # Royal Tanzanite (unique epic purple, P1)
+CROWN = 28193           # Mana-Etched Crown: red + meta
+
+
+def gem_qualities(c, ph):
+    """The phase's gems: { meta, meta active, best non-meta quality, non-meta count, the setups }."""
+    return c.eval_py("""local ph = ...
+        local G, view = ns.Gems, ns.BiS:GetListView()
+        local counts, meta, top, n = G:ColorCounts(view, ph), nil, 0, 0
+        for sid = 1, 17 do
+          local id = ns.BiS:GetSlot(ph, sid)
+          if id then
+            local _, g = G:GetSetup(view, id)
+            for _, x in pairs(g) do
+              local gem = G:Gem(x)
+              if gem and gem.color == 'M' then meta = x elseif gem then
+                n = n + 1
+                if gem.quality > top then top = gem.quality end
+              end
+            end
+          end
+        end
+        local ge = {}
+        for k, v in pairs(ns.BiS:GetData().ge or {}) do ge[#ge + 1] = k .. '=' .. v end
+        table.sort(ge)
+        return { meta or 0, (G:MetaState(meta or 0, counts)) and true or false, top, n, table.concat(ge, ' ') }""", ph)
+
+
+@r.case
+def gem_quality_epic_rare_uncommon():
+    """Feedback #4: Suggest keeps to Rare / Uncommon gems (my choice per list), the engine finds the strongest gems of
+    that quality and the meta gem still gets its colours; the editor's switch shows one quality's gems."""
+    w, c = solo()
+    # the same cut at a lower quality: plain (not unique), out in the phase; a meta gem stays
+    def at(gem, q, ph):
+        return c.eval("return ns.Gems:AtQuality(...)", gem, q, ph)
+    assert at(CRIMSON, 3, 3) == RUBY and at(CRIMSON, 2, 3) == GARNET and at(RUBY, 4, 1) == RUBY
+    assert at(TANZANITE, 3, 1) == NIGHTSEYE and at(INSIGHTFUL, 2, 1) == INSIGHTFUL
+    # my choice per list, never synced; Epic = no limit
+    assert c.eval("return ns.Gems:GetQuality()") == 4
+    c.eval("ns.Gems:SetQuality(2)")
+    assert c.eval("return ns.Gems:GetQuality()") == 2 and c.eval("return ns.Gems:GetQuality('os')") == 4
+    c.eval("ns.Gems:SetQuality(4)")
+    assert c.eval("return ns.db.gemQuality[ns.Util.PlayerKey()]") is None
+    # filling at each quality: nothing better than it, the meta active; each quality gives other gems
+    for ph in (1, 3):
+        c.eval("local ph = ... ns.BiS:ApplyTemplate(ph, ns.Loon:GetTemplate('PALADIN', 'Holy', ph), true)", ph)
+        seen = set()
+        for q in (4, 3, 2):
+            c.eval("ns.Gems:FillPhase(...)", ph, None, True, q)
+            meta, active, top, n, setups = gem_qualities(c, ph)
+            assert n > 0 and top <= q and meta and active is True, (ph, q, meta, active, top, n)
+            if ph == 3 or q == 2:                  # (P1's best gems are rare already: Epic = Rare there)
+                assert setups not in seen, (ph, q)
+            seen.add(setups)
+        # the stored choice is what the plain fill uses
+        c.eval("ns.Gems:SetQuality(3)")
+        c.eval("ns.Gems:FillPhase(...)", ph, None, True)
+        assert gem_qualities(c, ph)[2] == 3, ph
+        c.eval("ns.Gems:SetQuality(4)")
+    # the editor: the switch starts on the socket's gem (an empty one: Suggest's gem there), Uncommon shows uncommon
+    # gems only, a search looks through all of them, a meta socket has no switch
+    c.eval("ns.BiS:SetSlot(1, 7, 'main', ...)", GLOVES)
+    c.eval("ns.BiS:SetGemSetup(..., 0, { select(2, ...), 0 })", GLOVES, RUBY)
+    c.eval("ns.BiS:SetSlot(1, 1, 'main', ...)", CROWN)
+    c.eval("ns.MyBiS:SetPhase(1, true)")
+    c.eval("ns.MainFrame:Open('mybis')")
+    settle(w, 1)
+    c.eval("ns.MyBiS:Refresh()")
+    open_on = ("local sid = ... T_TILE = nil local function walk(f) if f.strip and f.sid == sid and f.mainID then "
+               "T_TILE = f end for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end end walk(UIParent) "
+               "ns.GemEditor:Open(T_TILE, T_TILE.mainID, 1)")
+    c.eval(open_on, 7)
+    settle(w, 0.2)
+    st = c.eval_py("local f, s = ns.GemEditor:GetFrame() return { s.target, s.quality, f.quality[1]:IsShown() }")
+    assert st == ["s2", 3, True], st
+    c.eval("T_UNC = ns.GemEditor:GetFrame().quality[3]")
+    c.click("T_UNC")
+    settle(w, 0.2)
+    qs = c.eval_py("local f = ns.GemEditor:GetFrame() local o = {} for _, b in ipairs(f.choices) do "
+                   "if b:IsShown() then o[#o + 1] = ns.Gems:Gem(b.id).quality end end return o")
+    assert qs and set(qs) == {2}, qs
+    c.eval("local f, s = ns.GemEditor:GetFrame() s.target = 's1' ns.GemEditor:Refresh()")
+    assert c.eval("local _, s = ns.GemEditor:GetFrame() return s.quality") == 3     # the ruby in it
+    c.eval("T_SEARCH = ns.GemEditor:GetFrame().search")
+    c.type_text("T_SEARCH", "crimson spinel")
+    settle(w, 0.5)
+    ids = c.eval_py("local f = ns.GemEditor:GetFrame() local o = {} for _, b in ipairs(f.choices) do "
+                    "if b:IsShown() then o[#o + 1] = b.id end end return o")
+    assert CRIMSON in ids, ids
+    c.eval("ns.GemEditor:Close()")
+    c.eval(open_on, 1)
+    settle(w, 0.2)
+    c.eval("local f, s = ns.GemEditor:GetFrame() s.target = 's2' ns.GemEditor:Refresh()")
+    meta = c.eval_py("local f, s = ns.GemEditor:GetFrame() return { ns.Gems:Sockets(s.itemID)[2], f.quality[1]:IsShown() }")
+    assert meta == ["M", False], meta
+    w.assert_no_errors()
+
+
 r.run()

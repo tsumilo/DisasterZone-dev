@@ -91,6 +91,8 @@ local DEFAULTS = {
     raidplanSpec = {}, -- [charKey] = spec index last used for a raid sign-up (personal, never synced)
     mybisPreRaid = {}, -- [charKey] = true: My BiS was left on the Pre-raid list and reopens there (UI/MyBiS.lua),
                        -- never synced
+    gemQuality = {},   -- [charKey] / [charKey .. ":os"] = 3 or 2: Suggest's gems are Rare / Uncommon at most (nil =
+                       -- Epic; Core/Gems.lua), never synced
     strategyDraft = {},-- [charKey] = { [draftId] = unsaved work on the strategy board } (UI/StrategyBoard.lua),
                        -- never synced
     tours = {},        -- [tourId] = { seen = true, done = { [chapterKey] = true } } (UI/Tour.lua), never synced

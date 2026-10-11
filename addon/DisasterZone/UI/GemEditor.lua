@@ -1,10 +1,11 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/GemEditor.lua", ...) then return end -- DisasterZone UI/GemEditor.lua
 -- ns.GemEditor: the gems and enchant of one BiS pick, in a flat panel beside its My BiS tile (the tile's strip opens
 -- it). Top to bottom: the item; a row per socket (the gem in a socket-coloured edge, or the empty socket); the socket
--- bonus (green while every socket holds a gem of its colour, else what it still needs) and a meta gem's rule; the
--- choices for the picked row (the spec's suggestions first - "Best", "No bonus" when the guide's top gem skips it -
--- then every other gem of that colour, or every enchant that fits; a search box looks through all of them); the
--- enchant row; Clear and Use suggested.
+-- bonus (green while every socket holds a gem of its colour, else what it still needs) and a meta gem's rule; an
+-- Epic | Rare | Uncommon switch (a gem socket but the meta's: the choices are that quality's gems; it starts on the
+-- quality of the gem in the socket, else the list's from the Suggest menu); the choices for the picked row (the spec's
+-- suggestions first - "Best", "No bonus" when the guide's top gem skips it - then every other gem of that colour, or
+-- every enchant that fits; a search box looks through all of them); the enchant row; Clear and Use suggested.
 -- A choice is stored at once (BiS:SetGemSetup) and the next empty socket is picked. Right-click a row: empty it.
 -- A click outside, Escape, the page hiding or another tile's strip closes / moves it.
 local addonName, ns = ...
@@ -14,9 +15,11 @@ ns.GemEditor = GemEditor
 
 local floor, min, max = math.floor, math.min, math.max
 
-local W = 280
+local W = 322
 local PAD = 10
 local ROW_H, CHOICE_H = 30, 28
+local SWITCH_H = 24
+local QUALITIES = { 4, 3, 2 }   -- the switch, left to right
 local CHIP, CHOICE_CHIP = 22, 18
 local VISIBLE_CHOICES = 6
 local GOLD = { 1, 0.82, 0 }
@@ -26,7 +29,7 @@ local DIM = { 0.45, 0.45, 0.48 }
 local ENCHANT_NAME = { 0.12, 1, 0 }
 
 local frame
-local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), search
+local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), search, quality (2..4) + qFor (its row)
 
 local function G() return ns.Gems end
 local function UI() return ns.UI end
@@ -271,6 +274,34 @@ local function Build()
     f.enchantRow.target = "e"
     f.bonus = Text(f, "GameFontHighlightSmall")
 
+    -- the quality switch: three joined cells, the picked one gold
+    f.quality = {}
+    local cellW = floor((W - 2 * PAD + 2) / 3)
+    for i, q in ipairs(QUALITIES) do
+        local b = CreateFrame("Button", nil, f)
+        b:SetSize(i == 3 and (W - 2 * PAD + 2 - 2 * cellW) or cellW, SWITCH_H)
+        b.fill = Fill(b)
+        U:AddEdges(b, "BORDER")
+        b.label = Text(b, "GameFontHighlightSmall", "CENTER")
+        b.label:SetPoint("CENTER", 0, 0)
+        b.label:SetText(G().QUALITY_WORDS[q])
+        b.q = q
+        b:SetScript("OnEnter", function(self)
+            self.hovered = true
+            GemEditor:PaintQuality()
+        end)
+        b:SetScript("OnLeave", function(self)
+            self.hovered = false
+            GemEditor:PaintQuality()
+        end)
+        b:SetScript("OnClick", function(self)
+            state.quality = self.q
+            state.offset = 0
+            GemEditor:Refresh()
+        end)
+        f.quality[i] = b
+    end
+
     -- the choices
     f.search = U:CreateSearchBox(f, W - 2 * PAD, function(text)
         state.search = (text and text ~= "") and text:lower() or nil
@@ -309,7 +340,8 @@ local function Build()
     end)
     f.suggest = U:CreateSleekButton(f, "Use suggested", 120, 22, function()
         local used = G():UsedUniques(View(), state.phase, state.itemID)
-        local enchant, gems = G():Suggest(state.itemID, state.sid, Guide(), state.phase, Profs(), used)
+        local enchant, gems = G():WithQuality(G():GetQuality(state.list), G().Suggest, G(), state.itemID, state.sid,
+            Guide(), state.phase, Profs(), used)
         ns.BiS:SetGemSetup(state.itemID, enchant, gems, state.list)
         GemEditor:Refresh()
     end, "primary")
@@ -394,10 +426,19 @@ local function Choices()
         if g.jc then return "Jewelcrafter" end
         return nil
     end
+    -- the switch's quality (a meta socket: every quality, they come in one)
+    local quality = socket ~= "M" and state.quality or nil
+    local function ofQuality(id)
+        return not quality or Gm:Gem(id).quality == quality
+    end
     if not search then
         local used = Gm:UsedUniques(View(), state.phase, state.itemID)
-        for _, c in ipairs(Gm:SocketChoices(state.itemID, tonumber(state.target:sub(2)), gd, state.phase, Profs(), used)) do
-            if c.best then add("gem", c.id, "Best", GOLD) else add("gem", c.id, tag(c.id), DIM) end
+        local list = Gm:WithQuality(quality, Gm.SocketChoices, Gm, state.itemID, tonumber(state.target:sub(2)), gd,
+            state.phase, Profs(), used)
+        for _, c in ipairs(list) do
+            if ofQuality(c.id) then
+                if c.best then add("gem", c.id, "Best", GOLD) else add("gem", c.id, tag(c.id), DIM) end
+            end
         end
     end
     -- the rest: every gem that fits (a search: every gem), the most worth to the spec first
@@ -406,7 +447,7 @@ local function Choices()
         local g = Gm:Gem(id)
         local fitsKind = (socket == "M") == (g.color == "M")
         if (search and matches(g)) or (not search and fitsKind and Gm:Fits(id, socket) and g.phase <= phaseCap
-            and g.quality >= 2) then
+            and g.quality >= 2 and ofQuality(id)) then
             rest[#rest + 1] = id
         end
     end
@@ -471,6 +512,54 @@ function GemEditor:PaintChoices()
         f.thumb:Show()
     else
         f.thumb:Hide()
+    end
+end
+
+-- The quality the switch starts on for the picked row: the gem's in the socket, else the one Suggest would put there
+-- (at the list's quality from the Suggest menu); one the phase has no gems of yet steps down.
+local function StartQuality(gems)
+    local Gm = G()
+    local index = tonumber((state.target or ""):sub(2)) or 0
+    local g = Gm:Gem(gems[index])
+    if not (g and g.color ~= "M") then
+        local cap = Gm:GetQuality(state.list)
+        local used = Gm:UsedUniques(View(), state.phase, state.itemID)
+        local list = Gm:WithQuality(cap, Gm.SocketChoices, Gm, state.itemID, index, Gm:GuideData(Guide(), state.phase),
+            state.phase, Profs(), used)
+        g = list[1] and list[1].best and Gm:Gem(list[1].id)
+        if not g then g = { quality = cap } end
+    end
+    local q = g.quality
+    q = max(2, min(4, q))
+    while q > 2 and not G():QualityOut(q, state.phase) do q = q - 1 end
+    return q
+end
+
+function GemEditor:PaintQuality()
+    local f = frame
+    if not f then return end
+    local U = UI()
+    for _, b in ipairs(f.quality) do
+        local out = G():QualityOut(b.q, state.phase)
+        local r, g, bl = U:QualityColor(b.q)
+        b:SetEnabled(out)
+        if state.quality == b.q then
+            b.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.14)
+            U:SetEdgeColor(b, GOLD[1], GOLD[2], GOLD[3], 0.9)
+            b.label:SetTextColor(r, g, bl)
+            b:SetFrameLevel(f:GetFrameLevel() + 3)    -- (its gold edge over the neighbours' shared one)
+        else
+            local hot = out and b.hovered
+            b.fill:SetColorTexture(1, 1, 1, hot and 0.07 or (out and 0.03 or 0.01))
+            U:SetEdgeColor(b, hot and 0.5 or 0.28, hot and 0.5 or 0.28, hot and 0.54 or 0.31, 1)
+            if out then
+                local k = hot and 1 or 0.8
+                b.label:SetTextColor(r * k, g * k, bl * k)
+            else
+                b.label:SetTextColor(DIM[1], DIM[2], DIM[3])
+            end
+            b:SetFrameLevel(f:GetFrameLevel() + 2)
+        end
     end
 end
 
@@ -547,6 +636,24 @@ function GemEditor:Refresh()
         y = y - 20
     end
 
+    -- the quality switch (a gem socket but the meta's; another row picked starts it again)
+    if state.qFor ~= state.target then state.quality, state.qFor = nil, state.target end
+    local socket = state.target ~= "e" and sockets[tonumber((state.target or ""):sub(2)) or 0]
+    if socket and socket ~= "M" then
+        state.quality = state.quality or StartQuality(gems)
+        local x = PAD
+        for _, b in ipairs(f.quality) do
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+            x = x + b:GetWidth() - 1
+            b:Show()
+        end
+        self:PaintQuality()
+        y = y - SWITCH_H - 8
+    else
+        for _, b in ipairs(f.quality) do b:Hide() end
+    end
+
     -- the choices
     local guide = Guide()
     f.search:ClearAllPoints()
@@ -614,6 +721,7 @@ function GemEditor:Open(tile, itemID, phase, list)
     if state.tile and state.tile ~= tile and state.tile.editBorder then state.tile.editBorder:Hide() end
     state.tile, state.sid, state.itemID, state.phase, state.list = tile, tile.sid, itemID, phase, list
     state.search, state.offset = nil, 0
+    state.quality, state.qFor = nil, nil
     f.search:SetText("")
     state.target = (#Gm:Sockets(itemID) > 0) and "s1" or "e"
     state.target = NextEmpty(state.target, true)

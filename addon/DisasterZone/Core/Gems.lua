@@ -7,6 +7,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Gems.lua", ...) then return e
 -- yellow, purple red and blue, green yellow and blue, prismatic as all; a meta socket takes only a meta gem), a meta
 -- gem is active while the gems worn meet its rule (counted over the phase's main picks), and ring enchants need the
 -- wearer's Enchanting (any enchant that names a profession needs it).
+-- Gem quality: Suggest can keep to Rare or Uncommon gems (my choice per list, db.gemQuality); the same engine then
+-- runs on candidates no better than that, so the strongest gems AT that quality win and the meta still gets its colours.
 local addonName, ns = ...
 
 local Gems = ns:NewModule("Gems")
@@ -126,8 +128,11 @@ function Gems:HasSockets(itemID)
 end
 
 -- Forgets the cached data (tests swap ns.Data).
+local cutIndex   -- [colour .. cut word] = { [quality] = { ids } } (Gems:AtQuality)
+
 function Gems:ClearCache()
     gemCache, enchantCache, socketCache = {}, {}, {}
+    cutIndex = nil
 end
 
 -- Every gem id (sorted by quality, best first, then name).
@@ -461,8 +466,28 @@ local function Allowed(self, g, phase, profs)
     return g and g.phase <= max(1, phase or 1) and (not g.jc or (profs and profs.Jewelcrafting))
 end
 
+local qualityCap   -- while set (2 / 3, Gems:WithQuality): no candidate better than that
+
+-- The guide's gems at the quality cap: each one's cut at that quality (or the best below it there is).
+local function CappedGuide(self, gd, phase)
+    local out = { gems = {}, sim = {}, enchants = gd.enchants, meta = gd.meta, w = gd.w }
+    for _, k in ipairs({ "gems", "sim" }) do
+        local seen = {}
+        for _, id in ipairs(gd[k] or {}) do
+            local d = self:AtQuality(id, qualityCap, phase)
+            if d and not seen[d] then
+                seen[d] = true
+                out[k][#out[k] + 1] = d
+            end
+        end
+    end
+    return out
+end
+
 -- The non-meta gems to suggest from, best first: the sims', else the guide's, else every gem of a usable quality.
+-- Under a quality cap: the sims' gems at that quality, and nothing better.
 function Gems:Candidates(gd, phase, profs)
+    if qualityCap then gd = CappedGuide(self, gd, phase) end
     local out, seen = {}, {}
     local function add(list, uniqueToo)
         for _, id in ipairs(list) do
@@ -499,6 +524,13 @@ function Gems:Candidates(gd, phase, profs)
             if r[2] >= 2 then all[#all + 1] = id end
         end
         add(all, false)
+    end
+    if qualityCap then
+        local kept = {}
+        for _, id in ipairs(out) do
+            if self:Gem(id).quality <= qualityCap then kept[#kept + 1] = id end
+        end
+        out = kept
     end
     local w = gd.w
     tsort(out, function(a, b)
@@ -778,9 +810,14 @@ function Gems:MeetMetaRule(setups, free, gd, phase, profs)
 end
 
 -- Fills the gems and enchants of a phase's picks of my own list from the suggestions: only sockets and enchants that
--- are still empty (overwrite: every pick's whole setup). Returns the number of items changed, false while locked, or
--- nil when the list has no guide.
-function Gems:FillPhase(phase, list, overwrite)
+-- are still empty (overwrite: every pick's whole setup), with gems of the list's quality (quality: another, 2..4).
+-- Returns the number of items changed, false while locked, or nil when the list has no guide.
+local FillPhaseNow
+function Gems:FillPhase(phase, list, overwrite, quality)
+    return self:WithQuality(quality or self:GetQuality(list), FillPhaseNow, self, phase, list, overwrite)
+end
+
+function FillPhaseNow(self, phase, list, overwrite)
     local BiS = ns.BiS
     if not BiS then return nil end
     local view = BiS:GetListView(list)
@@ -815,6 +852,92 @@ function Gems:FillPhase(phase, list, overwrite)
     -- then the set as a whole: enough gems of each colour for the meta gem
     self:MeetMetaRule(setups, free, self:GuideData(guide, phase), phase, profs)
     return BiS:SetGemSetups(setups, list)
+end
+
+---------------------------------------------------------------------------
+-- Gem quality: Epic, Rare or Uncommon (feedback #4)
+---------------------------------------------------------------------------
+
+Gems.QUALITY_WORDS = { [2] = "Uncommon", [3] = "Rare", [4] = "Epic" }
+
+local function CutWord(name) return name and name:match("^(%S+)") end
+
+-- The same cut ("Teardrop", "Bold") in the gem's colour at quality q, else the best quality below q that has it:
+-- a plain one (not unique, not Jewelcrafter only) that is out in the phase. The gem itself when it is no better
+-- than q, or a meta gem (they come in one quality); nil when the cut has no version that cheap.
+function Gems:AtQuality(id, q, phase)
+    local g = self:Gem(id)
+    q = tonumber(q) or 4
+    if not g or g.color == "M" or g.quality <= q then return g and g.id or nil end
+    if not cutIndex then
+        cutIndex = {}
+        for gid in pairs(Data().Gems or {}) do
+            local x = self:Gem(gid)
+            if x and x.color ~= "M" and not x.unique and not x.jc then
+                local key = x.color .. (CutWord(x.name) or "")
+                local byQ = cutIndex[key] or {}
+                cutIndex[key] = byQ
+                byQ[x.quality] = byQ[x.quality] or {}
+                local list = byQ[x.quality]
+                list[#list + 1] = gid
+            end
+        end
+        for _, byQ in pairs(cutIndex) do
+            for _, list in pairs(byQ) do tsort(list) end
+        end
+    end
+    local byQ = cutIndex[g.color .. (CutWord(g.name) or "")]
+    if not byQ then return nil end
+    for k = q, 2, -1 do
+        for _, gid in ipairs(byQ[k] or {}) do
+            if self:Gem(gid).phase <= max(1, phase or 1) then return gid end
+        end
+    end
+    return nil
+end
+
+-- Runs fn(...) with the suggestions kept to quality q at most (2 Uncommon, 3 Rare; 4 / nil = no limit).
+function Gems:WithQuality(q, fn, ...)
+    q = tonumber(q)
+    if not q or q >= 4 then return fn(...) end
+    local was = qualityCap
+    qualityCap = q
+    local function pack(...) return { n = select("#", ...), ... } end
+    local res = pack(pcall(fn, ...))
+    qualityCap = was
+    if not res[1] then error(res[2], 0) end
+    return unpack(res, 2, res.n)
+end
+
+-- Some gem of quality q (no meta) is out in the phase.
+function Gems:QualityOut(q, phase)
+    for id in pairs(Data().Gems or {}) do
+        local g = self:Gem(id)
+        if g.quality == q and g.color ~= "M" and g.phase <= max(1, phase or 1) then return true end
+    end
+    return false
+end
+
+local function QualitySlot(list)
+    local key = ns.loggedIn and ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey()
+    local db = ns.db
+    if not (key and db) then return nil, nil end
+    if type(db.gemQuality) ~= "table" then db.gemQuality = {} end
+    return db.gemQuality, key .. (list == "os" and ":os" or "")
+end
+
+-- The quality Suggest's gems keep to for my list (4 Epic = no limit, 3 Rare, 2 Uncommon).
+function Gems:GetQuality(list)
+    local t, key = QualitySlot(list)
+    local q = t and tonumber(t[key])
+    return (q == 2 or q == 3) and q or 4
+end
+
+function Gems:SetQuality(q, list)
+    local t, key = QualitySlot(list)
+    if not t then return end
+    q = tonumber(q)
+    t[key] = (q == 2 or q == 3) and q or nil
 end
 
 ---------------------------------------------------------------------------

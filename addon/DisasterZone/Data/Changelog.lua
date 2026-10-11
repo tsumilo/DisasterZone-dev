@@ -30,6 +30,11 @@ ns.CHANGELOG = {
               "The class sits on the top-right corner, the red count of who is missing it top-left.",
               "No more \"5 missing\" chip: the red count says it. The chip only shows the time left.",
           } },
+          { heading = "My BiS: Epic, Rare or Uncommon gems", lines = {
+              { "Suggest > Gems and enchants: pick Epic, Rare or Uncommon gems for your list.", fb = { 4 }, by = { "Släy" }, k = "idea" },
+              "The fill then finds the strongest gems of that quality, and your meta gem keeps its colours.",
+              "The gem editor has an Epic | Rare | Uncommon switch: the choices show that quality's gems.",
+          } },
       } },
     { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",
       sections = {
