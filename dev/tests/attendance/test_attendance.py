@@ -553,5 +553,27 @@ def a_main_who_came_on_an_alt_is_there_and_listed_once():
     assert d["credit"] >= 0.99 and not d["noShow"], d
 
 
+@case
+def the_guest_book_shows_a_combined_run_as_one_night():
+    """In-game report 2026-10-11: a Gruul + Mag run logged as two raids showed as two rows, and the planned raid as
+    the guest's Next raid after it had happened."""
+    w, c = world()
+    bob = c["Bob"]
+    occ = create(bob, i="gruul", ix=["mag"], t=now(bob) - 3000, ti="Spark run")
+    w.tick(2)
+    assert bob.eval_py("local ok, e = ns.RaidPlan:AddGuest(..., 'Pugone', 'SHAMAN'); return { ok = ok, e = e }", occ)["ok"] is True
+    w.tick(2)
+    base = now(bob) - 3000
+    inject(bob, base, [{"id": "g1", "pl": occ, "stop": 60, "zone": "Gruul's Lair", "att": {"Tank": {"s": [0, 60]}}},
+                       {"id": "g2", "pl": occ, "start": 70, "ef": 0, "stop": 120, "zone": "Magtheridon's Lair",
+                        "att": {"Tank": {"s": [70, 120]}}}])
+    bob.eval("for _, id in ipairs({ 'g1', 'g2' }) do ns.db.raids[id].su = { [...] = 'A' } end; ns:Fire('RAIDLOG_CHANGED'); "
+             "if ns.GuestBook.Invalidate then ns.GuestBook:Invalidate() end", K("Pugone"))
+    e = bob.eval_py("return ns.GuestBook:GetEntry(...)", K("Pugone"))
+    zones = lst(e["zones"])
+    assert len(zones) == 1 and zones[0]["noShow"] and "Spark run" in zones[0]["zone"], zones
+    assert e["noShows"] == 1 and not e.get("next"), e
+
+
 if __name__ == "__main__":
     run_all(globals())

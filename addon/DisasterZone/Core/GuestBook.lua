@@ -466,34 +466,75 @@ local function Build()
         t = tonumber(t)
         if t and (not e.act or t > e.act) then e.act = t end
     end
+    -- 1.3.5: the logged raids of one planned raid are one night (a Gruul + Mag run logged as two raids, a restart):
+    -- one row, the planned raid's name, its kills and bosses added up; a guest counts once for it
     local RL = ns.RaidLog
+    local R0 = RP()
+    local nights, byNight, logged = {}, {}, {}
     for _, rec in ipairs(RL and RL.GetRaids and RL:GetRaids() or {}) do
-        local at = tonumber(rec.start) or 0
-        local inst = InstOf(rec)
-        for key, a in pairs(type(rec.att) == "table" and rec.att or {}) do
+        local nk = rec.pl or rec.id
+        local n = byNight[nk]
+        if not n then
+            n = { recs = {}, pl = rec.pl }
+            byNight[nk] = n
+            nights[#nights + 1] = n
+        end
+        n.recs[#n.recs + 1] = rec
+        if rec.pl then logged[rec.pl] = true end
+    end
+    for _, n in ipairs(nights) do
+        local first = n.recs[#n.recs]
+        local at, inst, zones, bosses = tonumber(first.start) or 0, nil, {}, 0
+        local att, su, ids = {}, {}, {}
+        for _, rec in ipairs(n.recs) do
+            at = math.min(at, tonumber(rec.start) or at)
+            inst = inst or InstOf(rec)
+            bosses = bosses + #(rec.bosses or {})
+            ids[#ids + 1] = rec.id or ""
+            if rec.zone then
+                local dup = false
+                for _, z in ipairs(zones) do if z == rec.zone then dup = true end end
+                if not dup then zones[#zones + 1] = rec.zone end
+            end
+            for key, a in pairs(type(rec.att) == "table" and rec.att or {}) do
+                local c = att[key]
+                if not c then
+                    c = { k = 0 }
+                    att[key] = c
+                end
+                c.k = c.k + (type(a) == "table" and tonumber(a.k) or 0)
+                if type(a) == "table" then
+                    c.c = c.c or (type(a.c) == "string" and a.c or nil)
+                    if a.b then c.b = true end
+                end
+            end
+            for key, st in pairs(type(rec.su) == "table" and rec.su or {}) do su[key] = su[key] or st end
+        end
+        local v = n.pl and R0 and R0.GetRaid and R0:GetRaid(n.pl)
+        local zone = (v and R0:GetRaidName(v)) or (#zones > 1 and table.concat(zones, " + ")) or zones[1]
+        for key, a in pairs(att) do
             if IsOutsider(key) then
                 local e = E(key)
                 Touch(e, at)
                 e.raids = e.raids + 1
-                e.recIds[rec.id or ""] = true
-                local k = type(a) == "table" and tonumber(a.k) or 0
-                e.kills = e.kills + k
+                for _, id in ipairs(ids) do e.recIds[id] = true end
+                e.kills = e.kills + a.k
                 if not e.last or at > e.last then
                     e.last = at
-                    if type(a) == "table" and type(a.c) == "string" then e.c = a.c end
+                    if a.c then e.c = a.c end
                 end
                 if not e.first or at < e.first then e.first = at end
-                if not e.c and type(a) == "table" and type(a.c) == "string" then e.c = a.c end
-                e.zones[#e.zones + 1] = { id = rec.id, at = at, zone = rec.zone, inst = inst, kills = k,
-                                          bosses = #(rec.bosses or {}), bench = type(a) == "table" and a.b and true or nil }
+                if not e.c and a.c then e.c = a.c end
+                e.zones[#e.zones + 1] = { id = first.id, at = at, zone = zone, inst = inst, kills = a.k,
+                                          bosses = bosses, bench = a.b }
             end
         end
-        for key, st in pairs(type(rec.su) == "table" and rec.su or {}) do
-            if st == "A" and not (rec.att and rec.att[key]) and IsOutsider(key) then
+        for key, st in pairs(su) do
+            if st == "A" and not att[key] and IsOutsider(key) then
                 local e = E(key)
                 Touch(e, at)
                 e.noShows = e.noShows + 1
-                e.zones[#e.zones + 1] = { id = rec.id, at = at, zone = rec.zone, inst = inst, noShow = true }
+                e.zones[#e.zones + 1] = { id = first.id, at = at, zone = zone, inst = inst, noShow = true }
             end
         end
     end
@@ -507,7 +548,8 @@ local function Build()
                     local e = E(key)
                     Touch(e, g.at)
                     e.c = e.c or g.c
-                    if v.t >= now - NEXT_RAID_SLACK and (not e.next or v.t < e.next.t) then
+                    -- (1.3.5: a raid already logged is not their next one, however recent)
+                    if v.t >= now - NEXT_RAID_SLACK and not logged[v.id] and (not e.next or v.t < e.next.t) then
                         e.next = { id = v.id, t = v.t, name = R:GetRaidName(v),
                                    inst = R.GetRaidInstances and R:GetRaidInstances(v)[1] or v.i }
                     end

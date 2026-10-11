@@ -1153,6 +1153,12 @@ function RaidsUI:SetMode(mode, range)
     self:Refresh()
 end
 
+-- 1.3.5: the Attendance view lists players outside the guild (pugs) too.
+function RaidsUI:SetShowGuests(on)
+    state.showGuests = on and true or false
+    self:Refresh()
+end
+
 -- 1.3.5: a member's attendance page (Raid log > Attendance).
 function RaidsUI:ShowAttendancePlayer(key)
     state.view, state.mode, state.player = "log", "players", key

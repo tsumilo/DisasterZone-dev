@@ -1020,6 +1020,17 @@ STATES = [
                                    "return f end for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) "
                                    "if r then return r end end end local t = find(UIParent); "
                                    "ns.GemEditor:Open(t, t.mainID, 1)")),
+    # gem quality (feedback #4): P3 filled with Uncommon gems, the editor on the head (the switch on Uncommon, the meta
+    # still active); the Suggest menu with Epic / Rare / Uncommon
+    ("My BiS - gem editor uncommon", opened("mybis", "ns.MyBiS:ApplySuggestion(3, true); ns.MyBiS:SetPhase(3, true); "
+        "ns.Gems:FillPhase(3, nil, true, 2); ns.MyBiS:Refresh(); local function find(f) if f.strip and f.sid == 1 "
+        "and f.mainID then return f end for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) "
+        "if r then return r end end end local t = find(UIParent); ns.GemEditor:Open(t, t.mainID, 3)")),
+    ("My BiS - Suggest menu", opened("mybis", "ns.MyBiS:ApplySuggestion(3, true); ns.MyBiS:SetPhase(3, true); "
+        "__MOCK.real_geometry = true; local function find(f) local fs = f.GetFontString and f:GetFontString() "
+        "if fs and fs:GetText() == 'Suggest' and f:IsVisible() then return f end "
+        "for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) if r then return r end end end "
+        "find(UIParent):Click()")),
     # the addon's own menu (UI/Menu.lua): More under its button, the Copy submenu open (real geometry: the menu is
     # placed from where its button really is; close_all turns it off again)
     ("My BiS - More menu", opened("mybis", "__MOCK.real_geometry = true; "

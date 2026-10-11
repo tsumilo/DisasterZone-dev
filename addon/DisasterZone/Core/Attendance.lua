@@ -602,6 +602,7 @@ function Att:Results(nights, rules)
         local map = {}
         for _, r in ipairs(res.expected) do map[r.key] = r end
         for _, r in ipairs(res.helpers) do map[r.key] = r end
+        for _, r in ipairs(res.guests) do map[r.key] = r end        -- (listed only when guests are asked for)
         list[i] = { night = n, results = map }
     end
     for i, a in ipairs(list) do

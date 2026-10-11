@@ -549,13 +549,13 @@ def guests_are_left_out_of_the_players_list():
     w.tick(0.5)
 
     def names():
-        # (the column titles sit above the list; a guest's row has the GUEST tag)
-        rows = bob.eval_py("return %s.players:GetData()" % P) or []
-        return [strip_codes(r["cols"][0]) + (" (guest)" if r.get("guest") else "") for r in rows]
-    assert "Pug (guest)" not in names() and "Bob" in names(), names()
-    bob.click(bob.eval("return %s.guestsToggle" % P))
+        # (1.3.5: the Attendance view's rows; "Show guests" is in its range menu)
+        return bob.eval_py("local out = {}; for _, d in ipairs(%s.overview.list.data) do out[#out + 1] = "
+                           "ns.Util.ShortName(d.s.key) end; return out" % P) or []
+    assert "Pug" not in names() and "Bob" in names(), names()
+    bob.eval("ns.RaidsUI:SetShowGuests(true)")
     w.tick(0.5)
-    assert "Pug (guest)" in names(), names()
+    assert "Pug" in names(), names()
     w.assert_no_errors()
 
 
