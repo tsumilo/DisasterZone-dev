@@ -621,6 +621,8 @@ end
 -- A chip on the Who row: what is picked. kind "team" = a team's lineup (gold, the team icon, how many it invites),
 -- "player" = an invited player (their class colour), both with an x (a click takes it off); "more" = "+3 more", the
 -- chips that don't fit in two lines (a click opens the search, where they are ticked).
+-- TODO(refactor): move into UI:CreateChip (a removable chip: an x at its end, a count after the name, the team / player
+-- / "+N more" looks).
 local CHIP_LOOK = {
     team   = { fill = { 0.15, 0.12, 0.04, 1 }, edge = { 0.52, 0.42, 0.12, 1 }, hover = { GOLD[1], GOLD[2], GOLD[3], 1 } },
     player = { fill = { 0.11, 0.11, 0.13, 1 }, edge = { 0.24, 0.24, 0.28, 1 }, hover = { 0.45, 0.45, 0.5, 1 } },

@@ -3641,6 +3641,8 @@ function PlanUI:CreateTeams(parent)
     d:SetAllPoints()
     t.detail = d
 
+    -- TODO(refactor): move into UI:CreatePageBanner and the Detail layout (an editable title field, the raid nights
+    -- block and the next raid on the right, the lineup tabs with the waitlist icon on its foot); kept hand-built.
     -- the team's banner: its theme's loading screen across it, dark under the name (left) and the next raid (right),
     -- its foot fading into the lineup tabs
     local card = CreateFrame("Frame", nil, d)
