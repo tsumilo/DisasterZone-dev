@@ -2174,7 +2174,6 @@ function PlanUI:CreateUpcoming(parent)
         bannerLayout(self)
         local room = (self:GetWidth() > 1 and self:GetWidth() or UP.W) - (self.textX or 14) - UP.ANS_W
         if self.titleText then UP.fitTitle(self.title, self.titleText, room) end
-        self.sub:SetWidth(max(20, room))
     end
     -- the raid's own note (only when it has one): two lines at most, all of it in the tooltip
     local nl = CreateFrame("Frame", nil, hero)
@@ -2503,7 +2502,7 @@ local function refreshDetail(v)
         ns.StrategiesUI:RefreshRaid(v)
         return
     end
-    d.counts:SetText(UP.countsText(v))
+    d.rosterBar:SetText(UP.countsText(v))
     refreshRoster(d, v, width)
 end
 
