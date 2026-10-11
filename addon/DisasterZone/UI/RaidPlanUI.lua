@@ -769,6 +769,10 @@ function UP.fillShare(m, have, of)
     m:SetWidth(max(1, ceil(m.barW + 8 + UI():TextWidth(m.n))))
 end
 
+-- A banner whose right side holds the page's own blocks: its title keeps clear of them (rightW(banner) px from the
+-- right edge), a size smaller before it is cut.
+-- TODO(refactor): move into UI:CreatePageBanner (opts.rightW: room kept free at the right of the text; a title that
+-- steps down a size before it is cut)
 function UP.reserveRight(b, rightW)
     local layout = b.Layout
     function b:Layout()
@@ -4261,6 +4265,11 @@ function TV.paintWaitlistIcon(dr, organizer)
     return true
 end
 
+-- A dropdown panel of the Teams view (the waitlist, the raid nights editor, the comp's steppers): a top-level frame
+-- (it takes the window's scale when it opens) on the dropdowns' surface with a soft shadow; a click anywhere else
+-- closes it (passThrough: that click still reaches what it was on: the comp's steppers, opened from a band's +).
+-- TODO(refactor): move into UI/Comp/Overlays.lua (UI:CreatePopover: a panel that drops from its owner and closes on a
+-- click elsewhere; the Teams view's three dropdowns are its first users)
 function UP.popover(w, h, strata, passThrough)
     local p = CreateFrame("Frame", nil, UIParent)
     p:SetFrameStrata(strata or "DIALOG")
@@ -5287,11 +5296,7 @@ function TV.newNightRow(p)
     local N = TV.N
     local r = CreateFrame("Frame", nil, p)
     r:SetSize(N.PANEL_W - 28, N.ROW_H)
-    r.rule = r:CreateTexture(nil, "BORDER")
-    r.rule:SetPoint("TOPLEFT", 0, 0)
-    r.rule:SetPoint("TOPRIGHT", 0, 0)
-    r.rule:SetHeight(1)
-    r.rule:SetColorTexture(S:Color("HAIRLINE"))
+    r.rule = UI():Rule(r, { layer = "BORDER" })
     r.day = UI():Text(r, "title", "TEXT")
     r.day:SetPoint("LEFT", r, "LEFT", 0, 0)
     r.from = TV.newStepper(r, 84, function(dir) if r.x then PlanUI:StepDraftNight(r.x.d, "s", dir) end end)
@@ -5609,6 +5614,10 @@ function TV.fillTeamCard(c, tm, mine, width)
         c:Layout()
     else
         c:SetData({ art = th, title = tm.name, sub = sub, pill = mine and { "bis", "Your team" } or nil })
+        -- (the next raid over its share; "None planned" alone on the row's middle)
+        c.r2:ClearAllPoints()
+        if v then c.r2:SetPoint("TOPRIGHT", c.right, "TOPRIGHT", 0, -9)
+        else c.r2:SetPoint("RIGHT", c.right, "RIGHT", 0, 0) end
         TV.paintNightsBlock(c.nights, tm.nights, tm.note, false)
         c:SetRightWidth(190 + (c.nights:IsShown() and c.nights:GetWidth() + 16 or 0))
     end

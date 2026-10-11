@@ -706,7 +706,8 @@ function H.create()
     -- the sheet over the Raids tab (its title row: New raid / Edit raid, close; Escape closes it too)
     local sh = UI():CreateSheet(p, { cover = true, title = "New raid", onClose = function() H.closed() end })
     sheet = sh
-    sh:SetFrameLevel(p:GetFrameLevel() + 30)
+    -- (over everything of the Raids tab: the Teams view's grid nests deep)
+    sh:SetFrameLevel(p:GetFrameLevel() + 100)
     sh.f = { list = {}, tm = {}, tl = {}, inv = {}, access = "open" }
     UI():AttachTooltip(sh.close, "Close", { "Nothing is saved." }, { anchor = "ANCHOR_LEFT" })
 
