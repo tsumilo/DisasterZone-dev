@@ -10,12 +10,11 @@ local _, ns = ...
 local SimPanel = {}
 ns.SimPanel = SimPanel
 
+local S = ns.Style
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 
-local GOLD = { 0.89, 0.70, 0.24 }
-local GREEN = { 0.31, 0.83, 0.42 }
-local RED = { 0.88, 0.38, 0.31 }
-local GREY = { 0.56, 0.56, 0.59 }
+local GOLD, GOLD_DEEP = S.C.GOLD, S.C.GOLD_DEEP   -- "Changed" (text) / the changed slots' edge (D1)
+local GREEN, RED, GREY = S.C.OK, S.C.BAD, S.C.SUB
 SimPanel.PICK_ITERATIONS = 300
 SimPanel.MAX_PICK_RUN = 30
 
@@ -242,7 +241,7 @@ function SimPanel:MarkDoll(doll)
       tile.simMark:SetPoint("BOTTOM", tile, "BOTTOM", 0, 0)
       if tile.side == "R" then tile.simMark:SetPoint("RIGHT", tile, "RIGHT", 0, 0)
       else tile.simMark:SetPoint("LEFT", tile, "LEFT", 0, 0) end
-      tile.simMark:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+      tile.simMark:SetColorTexture(GOLD_DEEP[1], GOLD_DEEP[2], GOLD_DEEP[3], 1)
     end
     tile.simMark:SetShown(state.active and changed[sid] and true or false)
   end
@@ -260,6 +259,7 @@ SimPanel.Settings = Settings
 -- The card's settings for a run (the consumables view sims with them too).
 function SimPanel:RunSettings() return RunSettings() end
 
+-- (milliseconds on the session clock: how long a run takes; not Util.Now's server seconds)
 local function Now() return debugprofilestop and debugprofilestop() or ((GetTime and GetTime() or 0) * 1000) end
 
 function SimPanel:Run()
@@ -584,7 +584,7 @@ function SimPanel:BuildSettingsMenu(root)
   local w = self:SettingWords()
   root:CreateTitle("Settings")
   local function sub(label, value, key)
-    local e = root:CreateButton(label .. "  |cff8f8f95" .. value .. "|r")
+    local e = root:CreateButton(label .. "  " .. S:Wrap("SUB", value))
     self:BuildSettingMenu(e, key)
   end
   sub("Compare with", w.target, "target")
@@ -645,7 +645,7 @@ function SimPanel:BuildBuffsMenu(root)
     end
   end
   root:CreateDivider()
-  root:CreateButton("|cffe2b33e+|r  New preset...", function() edit(nil) end)
+  root:CreateButton(S:Wrap("GOLD", "+") .. "  New preset...", function() edit(nil) end)
 end
 
 -- What a buffs setting holds, for a tooltip.
@@ -706,7 +706,7 @@ local pstate = { sid = nil, results = nil, ranked = nil, running = false, status
 local PAIR = { [11] = 12, [12] = 11, [13] = 14, [14] = 13 }
 local SID_MH, SID_OH = 15, 16
 
-local function SlotLabel(sid) return ns.SLOTS and ns.SLOTS[sid] and ns.SLOTS[sid].label or ("Slot " .. sid) end
+local SlotLabel = ns.SlotLabel
 
 local function IsTwoHander(itemID)
   return itemID and ns.ItemDB and ns.ItemDB.GetEquipLoc and ns.ItemDB:GetEquipLoc(itemID) == "INVTYPE_2HWEAPON"
@@ -1031,11 +1031,9 @@ function SimPanel:ShowExport(what, text)
     local f = UI:CreateWindow("DisasterZoneSimExport", "WoWSims settings", 460, 300, { noSavePosition = true })
     f:SetPoint("CENTER")
     local c = f.content or f
-    f.help = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.help = UI:Text(c, "small", "TEXT", { wrap = true })
     f.help:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -8)
     f.help:SetPoint("RIGHT", c, "RIGHT", -8, 0)
-    f.help:SetJustifyH("LEFT")
-    f.help:SetWordWrap(true)
     local sf = ns.UI:CreateScrollFrame(c)
     sf:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -52)
     sf:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -28, 8)

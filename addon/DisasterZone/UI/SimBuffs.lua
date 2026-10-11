@@ -13,7 +13,7 @@ local UI, S = ns.UI, ns.Style
 local floor, max = math.floor, math.max
 
 local GOLD = S.C.GOLD_DEEP        -- the tiles' gold edge and dot (D1: fills and edges)
-local WIDTH = 492
+local WIDTH = 522        -- (wide enough for a tile's line on the type scale: "click if someone brings it")
 local COLS, TILE_H, GAP, PADX = 3, 30, 4, 8
 local GOLD_HEX = S:Hex("GOLD")    -- "set by you" in the tiles' lines
 
