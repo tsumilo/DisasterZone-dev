@@ -11,12 +11,6 @@ local addonName, ns = ...
 local Reminder = ns:NewModule("StrategyReminder")
 
 local Style = ns.Style
--- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
-local function tone(name, a)
-    local c = Style.C[name]
-    if a then return c[1], c[2], c[3], a end
-    return c[1], c[2], c[3]
-end
 
 local floor, max, min, abs, sin = math.floor, math.max, math.min, math.abs, math.sin
 local tconcat = table.concat
@@ -24,7 +18,7 @@ local tconcat = table.concat
 local WIDTH = 270
 local ROW_H = 20
 local CHIP_H = 16
-local PAD = 8
+local PAD = Style.IN
 local NAME = "DisasterZoneStrategyReminder"
 
 local OK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t"
@@ -399,18 +393,22 @@ end
 
 local frame
 
-local STATE_COLOR = {
-    next = { 0.55, 0.55, 0.55 }, engaged = { 0.25, 0.85, 0.35 }, killed = { 0.25, 0.85, 0.35 },
-    wipe = { 0.85, 0.3, 0.25 }, practice = { 1, 0.6, 0.15 },
-}
+-- The header's state as a pill (UI:CreatePill kinds).
+local STATE_PILL = { next = "mute", engaged = "ok", killed = "ok", wipe = "live", practice = "warn" }
 
 local function NewRow(f)
     local r = CreateFrame("Frame", nil, f)
     r:SetHeight(ROW_H)
     r:EnableMouse(false)
+    -- (a row's wash: my turn green, an alert red)
     r.hl = r:CreateTexture(nil, "BACKGROUND")
     r.hl:SetAllPoints()
     r.hl:Hide()
+    -- a raid section's caption (UI:CreateSectionHeader "caps")
+    r.head = ns.UI:CreateSectionHeader(r, "", { style = "caps" })
+    r.head:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+    r.head:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
+    r.head:Hide()
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(16, 16)
     r.icon:SetPoint("TOPLEFT", 0, -2)
@@ -427,15 +425,12 @@ local function NewRow(f)
     return r
 end
 
+-- A name in a rotation: a pill (whose turn: gold; a backup: purple; the rest quiet).
 local function Chip(row, i)
     local ch = row.chips[i]
     if ch then return ch end
-    ch = CreateFrame("Frame", nil, row)
-    ch:SetHeight(CHIP_H)
-    ch.bg = ch:CreateTexture(nil, "BACKGROUND")
-    ch.bg:SetAllPoints()
-    ch.fs = ns.UI:Text(ch, "small", "TEXT")
-    ch.fs:SetPoint("CENTER")
+    ch = ns.UI:CreatePill(row, CHIP_H)
+    ch:SetBase(Style:Color("HUD_BG"))
     row.chips[i] = ch
     return ch
 end
@@ -459,13 +454,9 @@ local function Create()
     h.fs:SetPoint("LEFT", h.portrait, "RIGHT", 6, 0)
     h.fs:SetJustifyH("LEFT")
     h.fs:SetWordWrap(false)
-    h.tag = CreateFrame("Frame", nil, h)
-    h.tag:SetHeight(14)
+    h.tag = ns.UI:CreatePill(h, 16)
+    h.tag:SetBase(Style:Color("HUD_BG"))
     h.tag:SetPoint("RIGHT", 0, 0)
-    h.tag.bg = h.tag:CreateTexture(nil, "BACKGROUND")
-    h.tag.bg:SetAllPoints()
-    h.tag.fs = ns.UI:Text(h.tag, "small", "TEXT")
-    h.tag.fs:SetPoint("CENTER")
     h.fs:SetPoint("RIGHT", h.tag, "LEFT", -8, 0)
     f:SetDragHandle(h)
     f:EnableMouse(false)            -- click-through body
@@ -489,23 +480,21 @@ local function Create()
         if d and d.hint then
             GameTooltip:AddLine("Reminders and raid marks come from the planned raid's strategies, so there are none until "
                 .. "this raid is linked to its planned raid. Raid leaders and the guild council link it in the Raid log.",
-                1, 0.6, 0.2, true)
-            GameTooltip:AddLine("Drag to move.", 0.8, 0.8, 0.8, true)
+                Style.C.WARN[1], Style.C.WARN[2], Style.C.WARN[3], true)
+            GameTooltip:AddLine("Drag to move.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3], true)
         else
             if d and not d.linked and not d.practice then
-                GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.", 1, 0.6, 0.2, true)
+                GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.",
+                    Style.C.WARN[1], Style.C.WARN[2], Style.C.WARN[3], true)
             end
-            GameTooltip:AddLine("Click to open the board; drag to move.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Click to open the board; drag to move.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3],
+                true)
         end
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.header = h
-    f.sep = f:CreateTexture(nil, "ARTWORK")
-    f.sep:SetHeight(1)
-    f.sep:SetPoint("TOPLEFT", PAD, -PAD - 26)
-    f.sep:SetPoint("TOPRIGHT", -PAD, -PAD - 26)
-    f.sep:SetColorTexture(1, 1, 1, 0.12)
+    f.sep = ns.UI:Rule(f, { top = PAD + 26, left = PAD, right = PAD })
     f.rows = {}
     local acc = 0
     f:SetScript("OnUpdate", function(self, elapsed)
@@ -521,7 +510,8 @@ local function Create()
         end
         if self.alert then
             local p = 0.5 + 0.5 * abs(sin(GetTime() * 6))
-            ns.UI:SetEdgeColor(self, 1, 0.25 + 0.2 * p, 0.2, 0.6 + 0.4 * p)
+            local br, bg, bb = Style:Color("BAD")
+            ns.UI:SetEdgeColor(self, br, bg + 0.2 * p, bb, 0.6 + 0.4 * p)
         end
         if acc >= 0.25 then
             acc = 0
@@ -548,24 +538,19 @@ local function Layout(f, d)
         r:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
         r:SetWidth(inner)
         r.hl:Hide()
+        r.head:Hide()
         r.sub:Hide()
         for _, ch in ipairs(r.chips) do ch:Hide() end
         r.text:ClearAllPoints()
         if it.kind == "header" then
-            -- the raid section: a small caption with a divider
-            r:SetHeight(16)
+            -- the raid section: a caps section header
+            r:SetHeight(18)
             r.icon:Hide()
-            r.text:SetFontObject("GameFontNormalSmall")
-            r.text:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
-            r.text:SetText(it.text)
+            r.text:SetText("")
             r.status:SetText("")
-            r.hl:SetColorTexture(tone("HAIRLINE", 0.08))
-            r.hl:ClearAllPoints()
-            r.hl:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 1)
-            r.hl:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 1)
-            r.hl:SetHeight(1)
-            r.hl:Show()
-            y = y - 18
+            r.head:SetTitle(it.text)
+            r.head:Show()
+            y = y - 20
         else
             r:SetHeight(ROW_H)
             r.hl:ClearAllPoints()
@@ -578,18 +563,16 @@ local function Layout(f, d)
                 r.icon:Hide()
                 r.text:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
             end
-            r.text:SetFontObject(it.overview and "GameFontHighlightSmall" or "GameFontHighlight")
+            ns.UI:SetTextStyle(r.text, it.overview and "body" or "emph", "TEXT")
             r.text:SetPoint("RIGHT", r.status, "LEFT", -6, 0)
             r.text:SetWordWrap(false)
             r.text:SetText(it.text)
             r.status:SetText(it.status or "")
             local room = inner - (it.icon and 22 or 0) - (r.status:GetStringWidth() or 0) - 8
             local wraps = (r.text:GetStringWidth() or 0) > room
-            if it.alert then
-                r.hl:SetColorTexture(0.9, 0.15, 0.1, 0.25)
-                r.hl:Show()
-            elseif it.myTurn then
-                r.hl:SetColorTexture(0.2, 0.9, 0.3, 0.12)
+            if it.alert or it.myTurn then
+                local cr, cg, cb = Style:Color(it.alert and "BAD" or "OK")
+                r.hl:SetColorTexture(cr, cg, cb, it.alert and 0.25 or 0.12)
                 r.hl:Show()
             end
             local h = ROW_H
@@ -620,19 +603,11 @@ local function Layout(f, d)
                     local label = c.text
                     if c.cd and c.cd > 0 and not c.dead then label = label .. Style:Wrap("SUB", " " .. floor(c.cd + 0.5)) end
                     if c.backup and i > 1 and not it.chips[i - 1].backup then x = x + 6 end
-                    ch.fs:SetText(label)
-                    local w = (ch.fs:GetStringWidth() or 30) + 12
+                    ch:Set(label, (c.current and (it.alert and "live" or "bis")) or (c.backup and "os") or "mute")
+                    local w = ch:GetWidth() or 30
                     if x + w > inner then break end
-                    ch:SetWidth(w)
                     ch:ClearAllPoints()
                     ch:SetPoint("TOPLEFT", r, "TOPLEFT", x, -(ROW_H + 1))
-                    if c.current then
-                        ch.bg:SetColorTexture(tone("GOLD", it.alert and 0.55 or 0.3))
-                    elseif c.backup then
-                        ch.bg:SetColorTexture(0.6, 0.45, 1, 0.14)
-                    else
-                        ch.bg:SetColorTexture(tone("HAIRLINE", 0.06))
-                    end
                     ch:Show()
                     x = x + w + 4
                 end
@@ -669,10 +644,7 @@ function Reminder:Refresh()
     end
     h.fs:SetText(d.title)
     local tag = d.practice and "practice" or d.state
-    local col = STATE_COLOR[tag] or STATE_COLOR.next
-    h.tag.fs:SetText(tag:upper())
-    h.tag:SetWidth((h.tag.fs:GetStringWidth() or 40) + 10)
-    h.tag.bg:SetColorTexture(col[1], col[2], col[3], 0.35)
+    h.tag:SetPill(STATE_PILL[tag] or "mute", tag:upper())
     Layout(f, d)
     local alert = false
     for _, it in ipairs(d.items) do
