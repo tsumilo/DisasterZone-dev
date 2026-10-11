@@ -1,15 +1,18 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Dashboard.lua", ...) then return end -- DisasterZone: UI/Dashboard.lua
--- The "Home" tab: the page the main window opens on. Only what needs attention now, top to bottom:
---   the greeting and a strip of action chips (unanswered raids, an empty BiS phase, players asking to join my run or a
---     run that needs me, a newer DisasterZone, what's new, the BiS lock);
---   the raids of the coming week as a banner carousel with their loading screens, like the Raids board: the date, who
---     leads, the answers by role and my answer in its corner; under it the raid's note, my BiS picks that can drop
---     there and, for the council and the raid organizers, what isn't ready yet. It slides to the next raid every few
---     seconds (not while the mouse is on it); a strip of bars and two arrows pick one. While a raid session runs, the
+-- The "Home" tab: the page the main window opens on. A Board page (UI:CreateLayout "board"); only what needs
+-- attention now, top to bottom:
+--   the toolbar: the greeting and the action chips (UI:CreateChip: unanswered raids, an empty BiS phase, players
+--     asking to join my run or a run that needs me, a newer DisasterZone, what's new, the BiS lock);
+--   the board's hero: the raids of the coming week as a carousel of page banners (UI:CreatePageBanner, the Raids
+--     board's hero): when, the raid, who leads, the answers by role, my answer as its pill, Accept / Tentative as its
+--     actions and "···" as its tool; on its foot the raid's note, my BiS picks that can drop there and, for the
+--     council and the raid organizers, what isn't ready yet. It slides to the next raid every few seconds (not while
+--     the mouse is on it); a strip of bars and two arrows at its top right pick one. While a raid session runs, the
 --     raid in progress instead;
---   a month calendar of the planned and logged raids, the dungeon runs listed for later and the guild's own events
---     (the Events tab, purple dots), the picked day's events and the raids coming up beside it;
---   recent loot (the council: everyone's; a raider: their own).
+--   the body: a card with the month calendar of the planned and logged raids, the dungeon runs listed for later and
+--     the guild's own events (the Events tab, purple dots), the picked day's events and the raids coming up beside it
+--     (art rows under section headers);
+--   the side card: recent loot (the council: everyone's; a raider: their own).
 -- Every block opens the tab with the details. Read-only apart from the answer buttons. The online count is in the
 -- sync icon's tooltip (UI/MainFrame.lua).
 local addonName, ns = ...
@@ -18,6 +21,7 @@ local Dashboard = ns:NewModule("Dashboard")
 
 local floor, max, min = math.floor, math.max, math.min
 local tsort, tconcat = table.sort, table.concat
+local S = ns.Style
 
 local HOUR, DAY = 3600, 86400
 local CURRENT_FOR = 6 * HOUR       -- a raid counts as "next" until this long after it started (Raids tab: same)
@@ -26,71 +30,53 @@ local WEEK_DAYS = 7                 -- the banner flips through the raids of tod
 local FLIP_EVERY = 8                -- seconds a raid stays on the banner before the next one slides in
 local FLIP_TIME = 0.6               -- the slide from one raid to the next
 
--- One grid for the page (its content area is 790 x 548): PAD at the sides and the bottom, GAP between blocks.
-local PAGE_H = 548
-local PAD, GAP = 10, 8
-local INNER_W = 790 - 2 * PAD                    -- 770
-local HELLO_Y, HELLO_H = 6, 26
-local BANNER_Y = HELLO_Y + HELLO_H + GAP         -- 40
-local BANNER_H, FOOT_H = 164, 46                 -- the banner never changes height; its foot is part of it
-local LOWER_Y = BANNER_Y + BANNER_H + GAP        -- 212
-local LOWER_H = PAGE_H - LOWER_Y - PAD           -- 326: the calendar and the loot reach the page's bottom
-local CAL_W = 470
-local LOOT_W = INNER_W - CAL_W - GAP             -- 292
-local HEAD_H = 28                                -- a box's title row
-local IN = 12                                    -- the padding inside the banner
-local DATE_W = 64                                -- the banner's date column; its texts start at DATE_W + 13
-local CELL_W, CELL_H = 29, 44                    -- a calendar day (at most: the month's weeks share the height)
-local GRID_X, GRID_Y = 10, HEAD_H + 8 + 16       -- the first week (under the weekday letters)
-local RULE_X = GRID_X + 7 * CELL_W + 10          -- 223: the line between the month and the day's list
-local AGENDA_X = RULE_X + 12                     -- 235
+-- The page is a Board (S.PAGE_W x S.PAGE_H): the toolbar row, the hero (a page banner and its foot), then the
+-- calendar card in the body and the loot in the side card, down to the page's bottom.
+local INNER_W = S.INNER_W                        -- 770
+local FOOT_H = 46                                -- the hero's foot (note, BiS / readiness line), when it has lines
+local BANNER_H = S.BANNER.hero + FOOT_H          -- 174: the hero never changes height; its foot is part of it
+local LOOT_W = 280                               -- the side card
+local CAL_W = INNER_W - LOOT_W - S.GAP           -- 482: the body
+local LOWER_H = S.PAGE_H - 36 - BANNER_H - S.GAP - 4   -- 326: the cards' height before the first layout
+local HEAD_H = 28                                -- a card's section header (24, from 4 down) and its hairline
+local BX = 14                                    -- the banner's inner margin (UI:CreatePageBanner's)
+local CELL_W, CELL_H = 28, 44                    -- a calendar day (at most: the month's weeks share the height)
+local GRID_X, GRID_Y = S.IN, HEAD_H + 8 + 16     -- the first week (under the weekday letters)
+local RULE_X = GRID_X + 7 * CELL_W + S.IN        -- 212: the line between the month and the day's list
+local AGENDA_X = RULE_X + S.IN                   -- 220
+local AGENDA_W = CAL_W - AGENDA_X - S.IN         -- 254
 local DISC, DISC_Y = 24, 15                      -- today's / the picked day's disc, its centre under the cell's top
 local DISC_TEX = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local THUMB_W, THUMB_H = 46, 32
-local ROW_GAP = 6
-local LOOT_ROW_H = 36
-local CHIP_H = 22
+local ROW_GAP = 2
 local MAX_DOTS = 3
 local CAL_BACK = 365 * DAY          -- the raid log keeps raids a year
 local CAL_AHEAD = 180 * DAY         -- raids are planned at most 180 days ahead
 
-local PANEL_BG = { 0.08, 0.08, 0.095, 0.9 }
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
-local INK = { 0.035, 0.035, 0.043 }              -- the banner's shades
-
+-- The answers: their words and colours (ns.Style tokens), and the banner pill's kind for my answer.
 local STATUS = {
-    A = { label = "Accepted", button = "Accept", color = "4fd36b" },
-    T = { label = "Tentative", button = "Tentative", color = "ffd84a" },
-    B = { label = "Bench", button = "Bench", color = "99bbff" },
-    X = { label = "Absent", button = "Absent", color = "ff6b5e" },
+    A = { label = "Accepted", button = "Accept", color = "OK" },
+    T = { label = "Tentative", button = "Tentative", color = "GOLD" },
+    B = { label = "Bench", button = "Bench", color = "YOU" },
+    X = { label = "Absent", button = "Absent", color = "BAD" },
 }
 local STATUS_ORDER = { "A", "T", "B", "X" }
--- the dots and the status words of the calendar
-local C_NEED, C_OPEN, C_PAST, C_RUN, C_LOCK = "ff8c1a", "d8d8d8", "8a8a8e", "66b8ff", "8a8a90"
-local C_EVENT = "b98cff"           -- the guild's own events (the Events tab)
+-- the dots and the status words of the calendar (Style tokens; the guild's own events in the Events tab's purple)
+local C_NEED, C_OPEN, C_PAST, C_RUN, C_LOCK = "WARN", "TEXT", "SUB", "YOU", "SUB"
+local C_EVENT = { 0.73, 0.55, 1 }  -- uniformity: the Events tab's purple (no Style token)
 
-local SHORT_NAME = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
-                     za = "ZA", swp = "SWP" }
 local PILL_ICON = {
     A = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12|t",
     T = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:12|t",
     X = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12|t",
 }
--- my answer as the Raids board's pill shows it: fill r, g, b, edge alpha, edge r, g, b, text
-local ANSWER_PILL = {
-    A = { 0.16, 0.43, 0.22, 0.35, 0.35, 0.86, 0.47, "b7f5c3" }, T = { 0.47, 0.39, 0.08, 0.35, 1, 0.82, 0, "ffe680" },
-    B = { 0.20, 0.27, 0.45, 0.35, 0.6, 0.73, 1, "c4d6ff" }, X = { 0.45, 0.10, 0.10, 0.35, 1, 0.33, 0.33, "ffb0b0" },
-    R = { 0.47, 0.39, 0.08, 0.35, 1, 0.82, 0, "ffe680" },
-}
+-- my answer as the banner's pill (the Raids board's kinds and words)
+local ANSWER_KIND = { A = "ok", T = "warn", B = "alt", X = "live", R = "review" }
 local ANSWER_TEXT = { A = "Accepted", T = "Tentative", B = "Bench", X = "Absent", R = "Asked to join" }
-local ANSWER_ICON = { A = "Interface\\RaidFrame\\ReadyCheck-Ready", T = "Interface\\RaidFrame\\ReadyCheck-Waiting",
-                      X = "Interface\\RaidFrame\\ReadyCheck-NotReady" }
 local HEROIC_ICON = "|TInterface\\LFGFrame\\UI-LFG-ICON-HEROIC:14:11:0:0:32:32:0:16:0:20|t"
 
 local REASON = {
-    bis = { "BiS", "ffd100" }, alt = { "Alt", "8fc8ff" }, up = { "Upgrade", "e0e0e0" }, os = { "Offspec", "c9a6ff" },
-    de = { "Disenchanted", "9e9e9e" }, bank = { "Guild bank", "9e9e9e" },
+    bis = { "BiS", "GOLD" }, alt = { "Alt", "YOU" }, up = { "Upgrade", "TEXT" }, os = { "Offspec", C_EVENT },
+    de = { "Disenchanted", "SUB" }, bank = { "Guild bank", "SUB" },
 }
 
 local panel
@@ -100,15 +86,16 @@ local function UI() return ns.UI end
 local function RP() return ns.RaidPlan end
 local function DR() return ns.DungeonRuns end
 local function EV() return ns.Events end
-local function Now() return GetServerTime() end
+local Now = ns.Util.Now
 local function Me() return ns.Util.PlayerKey() end
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
-local function grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
-local function colorize(hex, text) return "|cff" .. hex .. tostring(text) .. "|r" end
-
-local function hexRGB(hex)
-    return tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255
+local function nameOf(key) return ns.Util.ShortName(key) or tostring(key) end
+-- text in a Style token's colour, or in a { r, g, b } (the events' purple)
+local function tint(c, text)
+    if type(c) == "table" then return UI():Colorize(tostring(text), c) end
+    return S:Wrap(c, text)
 end
+local function dim(text) return S:Wrap("SUB", text) end
+
 local function plural(n, word) return n .. " " .. word .. (n == 1 and "" or "s") end
 
 local function isCouncil()
@@ -188,93 +175,26 @@ local function agoText(ts)
 end
 
 ---------------------------------------------------------------------------
--- Small widgets
+-- Tooltips: a frame's lines in its .tip field (a list, or a function returning one), shown by UI:AttachTooltip
+-- (the first line gold, the rest white)
 ---------------------------------------------------------------------------
 
-local function text(parent, size, font, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
+local function tipFromField(self)
+    local lines = self.tip
+    if type(lines) == "function" then lines = lines() end
+    if type(lines) ~= "table" then return false end
+    UI():SetTextTooltip(self, lines, self.tipAnchor)
 end
 
-local function setSize(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
+local function attachTip(f, anchor)
+    f.tipAnchor = anchor
+    UI():AttachTooltip(f, tipFromField, nil, { anchor = anchor })
+    return f
 end
-
--- The width of a text on one line, whatever the width of its region.
-local function strW(fs)
-    return (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 0
-end
-
-local function gradient(tex, orient, c, a1, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then tex:SetGradient(orient, CreateColor(c[1], c[2], c[3], a1), CreateColor(c[1], c[2], c[3], a2)) end
-end
-
--- A flat box: dark fill, 1px edges.
-local function flatBox(f, bg, edge)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    bg = bg or PANEL_BG
-    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-    UI():AddEdges(f, "BORDER")
-    edge = edge or EDGE
-    UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
-end
-
--- The atlas chevron (it points down) turned to point "left" or "right".
-local function chevron(tex, dir)
-    local c = UI():IconCoords(UI().ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
-    tex:SetTexture(UI().ICON_ATLAS)
-    if dir == "left" then tex:SetTexCoord(l, b, r, b, l, t, r, t) else tex:SetTexCoord(r, t, l, t, r, b, l, b) end
-end
-
-local function hideTip() GameTooltip:Hide() end
 
 local function showTip(owner, lines, anchor)
     if type(lines) == "function" then lines = lines() end
     if lines then UI():SetTextTooltip(owner, lines, anchor) end
-end
-
--- A text link with a chevron ("Loot log >"): grey, gold on hover.
-local function newLink(parent, label, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(18)
-    b.fs = text(b, 11, "GameFontHighlightSmall")
-    b.fs:SetPoint("LEFT", 0, 0)
-    b.chev = b:CreateTexture(nil, "ARTWORK")
-    b.chev:SetSize(9, 9)
-    b.chev:SetPoint("LEFT", b.fs, "RIGHT", 3, 0)
-    chevron(b.chev, "right")
-    local function paint(self, on)
-        local c = on and { 1, 0.82, 0 } or { 0.74, 0.74, 0.74 }
-        self.fs:SetTextColor(c[1], c[2], c[3])
-        self.chev:SetVertexColor(c[1], c[2], c[3])
-    end
-    function b:SetLabel(t)
-        self.fs:SetText(t or "")
-        self:SetWidth(floor(strW(self.fs) + (self.chev:IsShown() and 12 or 0)))
-    end
-    b:SetScript("OnEnter", function(self)
-        paint(self, true)
-        if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end
-    end)
-    b:SetScript("OnLeave", function(self)
-        paint(self, false)
-        hideTip()
-    end)
-    b:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-    b.onClick = onClick
-    b:SetLabel(label)
-    paint(b, false)
-    return b
 end
 
 ---------------------------------------------------------------------------
@@ -473,13 +393,13 @@ local function bisDrops(raid)
     local tip = { "Your Phase " .. phase .. " BiS picks that can drop in " .. tconcat(names, " or ") }
     for i, d in ipairs(drops) do
         if i > 15 then
-            tip[#tip + 1] = grey("+" .. (#drops - 15) .. " more")
+            tip[#tip + 1] = dim("+" .. (#drops - 15) .. " more")
             break
         end
-        tip[#tip + 1] = UI():ItemText(d.itemID) .. (d.which == "alt" and grey(" (alt)") or "")
-            .. grey(" - " .. d.boss .. (d.via == "token" and " (token)" or ""))
+        tip[#tip + 1] = UI():ItemText(d.itemID) .. (d.which == "alt" and dim(" (alt)") or "")
+            .. dim(" - " .. d.boss .. (d.via == "token" and " (token)" or ""))
     end
-    tip[#tip + 1] = grey("Click to open My BiS")
+    tip[#tip + 1] = dim("Click to open My BiS")
     return { text = (#drops == 1 and "1 of your P%d picks can drop here" or (#drops .. " of your P%d picks can drop here"))
                         :format(phase),
              tip = tip, onClick = function() openMyBiS(phase) end }
@@ -564,7 +484,7 @@ local function answerState(v)
     if mine and STATUS[mine.st] then return STATUS[mine.st].label, STATUS[mine.st].color end
     if v.t < Now() - CURRENT_FOR then return "No answer", C_PAST end
     local kind, block = myState(v)
-    if kind == "R" then return "Asked to join", "ffd100" end
+    if kind == "R" then return "Asked to join", "GOLD" end
     local words = blockWords(v, block)
     if words and block == "lock" and rp:CanRequest(v, myChar(v)) then words = "Ask to join" end
     if words then return words, C_LOCK end
@@ -577,16 +497,16 @@ end
 local function shortRaidName(v)
     if v.ti and #v.ti <= 14 then return v.ti end
     if type(v.ix) == "table" and v.ix[1] then return ns.RaidComp:ShortRaidName(v) end
-    return SHORT_NAME[v.i] or RP():GetRaidName(v)
+    return ns.ItemDB:RaidShort(v.i) or RP():GetRaidName(v)
 end
 
 -- My answer as a pill marker: a ready-check icon, "!" when I'm invited and haven't answered.
 local function myMarker(v)
     local rp = RP()
     local mine = rp:GetMySignup(v.id)
-    if mine then return PILL_ICON[mine.st] or colorize(STATUS.B.color, "B") end
+    if mine then return PILL_ICON[mine.st] or tint(STATUS.B.color, "B") end
     local inv = rp:GetInvited(v)
-    if inv and inv[Me() or ""] then return colorize(C_NEED, "!") end
+    if inv and inv[Me() or ""] then return tint(C_NEED, "!") end
     return nil
 end
 
@@ -656,70 +576,9 @@ local function namesLine(list)
             names[#names + 1] = "+" .. (#list - 15) .. " more"
             break
         end
-        names[#names + 1] = shortName(key)
+        names[#names + 1] = nameOf(key)
     end
     return tconcat(names, ", ")
-end
-
----------------------------------------------------------------------------
--- The greeting and the action chips
----------------------------------------------------------------------------
-
-local CHIP_STYLE = {
-    plain = { edge = { 0.43, 0.43, 0.47, 0.6 }, text = { 0.91, 0.91, 0.91 } },
-    warn  = { edge = { 1, 0.55, 0.10, 0.7 }, text = { 1, 0.82, 0.65 } },
-    info  = { edge = { 0.40, 0.72, 1, 0.55 }, text = { 0.81, 0.91, 1 } },
-    bad   = { edge = { 0.89, 0.36, 0.31, 0.85 }, text = { 1, 0.82, 0.78 } },
-}
-
-local function paintChip(c)
-    local hover = c.hovered and c.onClick
-    local f = hover and { 0.18, 0.18, 0.21, 0.95 } or CARD_BG
-    local s = CHIP_STYLE[c.kind] or CHIP_STYLE.plain
-    c:SetPillColors(f, s.edge)
-end
-
-local function newChip(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(CHIP_H)
-    UI():AddPillShape(c, CHIP_H)
-    c.icon = c:CreateTexture(nil, "ARTWORK")
-    c.icon:SetSize(13, 13)
-    c.icon:SetPoint("LEFT", 7, 0)
-    c.text = text(c, 11, "GameFontHighlightSmall")
-    c:SetScript("OnEnter", function(self)
-        self.hovered = true
-        paintChip(self)
-        if self.tip then showTip(self, self.tip, "ANCHOR_BOTTOM") end
-    end)
-    c:SetScript("OnLeave", function(self)
-        self.hovered = false
-        paintChip(self)
-        hideTip()
-    end)
-    c:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-    return c
-end
-
-local function fillChip(c, a)
-    c.kind, c.tip, c.onClick = a.kind or "plain", a.tip, a.onClick
-    local s = CHIP_STYLE[c.kind] or CHIP_STYLE.plain
-    local ic = a.icon
-    c.icon:SetShown(ic ~= nil)
-    c.text:ClearAllPoints()
-    if ic then
-        c.icon:SetTexture(ic.tex)
-        if ic.coords then c.icon:SetTexCoord(ic.coords[1], ic.coords[2], ic.coords[3], ic.coords[4])
-        else c.icon:SetTexCoord(0, 1, 0, 1) end
-        c.icon:SetDesaturated(ic.desat and true or false)
-        c.text:SetPoint("LEFT", c.icon, "RIGHT", 5, 0)
-    else
-        c.text:SetPoint("LEFT", 10, 0)
-    end
-    c.text:SetText(a.text)
-    c.text:SetTextColor(s.text[1], s.text[2], s.text[3])
-    c:SetWidth(floor((ic and (7 + 13 + 5) or 10) + strW(c.text) + 10))
-    paintChip(c)
 end
 
 -- The actions that need me now: { text, kind = warn | info | bad | plain, icon, tip = { lines }, onClick }.
@@ -748,12 +607,12 @@ local function groupChip(N, def, items)
     local tip = { g.title or def.label }
     for i, it in ipairs(items) do
         if i > GROUP_TIP_MAX then
-            tip[#tip + 1] = "|cff9e9e9e+" .. (#items - GROUP_TIP_MAX) .. " more|r"
+            tip[#tip + 1] = dim("+" .. (#items - GROUP_TIP_MAX) .. " more")
             break
         end
-        tip[#tip + 1] = (it.title or it.short or "") .. (it.from and ("|cff9e9e9e  " .. shortName(it.from) .. "|r") or "")
+        tip[#tip + 1] = (it.title or it.short or "") .. (it.from and dim("  " .. nameOf(it.from)) or "")
     end
-    tip[#tip + 1] = "|cff9e9e9eClick to see them all.|r"
+    tip[#tip + 1] = dim("Click to see them all.")
     local onClick
     if def.openGroup or def.page then
         onClick = function()
@@ -819,7 +678,7 @@ local function collectActions(ctx)
     local locked, info = false, nil
     if BiS and BiS.IsLocked then locked, info = BiS:IsLocked() end
     if locked then
-        local by = type(info) == "table" and info.by and shortName(info.by) or nil
+        local by = type(info) == "table" and info.by and nameOf(info.by) or nil
         out[#out + 1] = { text = "BiS lists locked", icon = { tex = UI().ICON_LOCK },
                           tip = { "BiS lists are locked for this raid" .. (by and (" by " .. by) or ""),
                                   "Changes wait until the raid leader unlocks them." } }
@@ -834,13 +693,51 @@ local function greetingText()
     return "Good " .. part .. ", "
 end
 
--- The greeting leads the strip; the chips follow it, else "All caught up" sits right.
+---------------------------------------------------------------------------
+-- The toolbar: the greeting, then the action chips (UI:CreateChip)
+---------------------------------------------------------------------------
+
+-- A chip's look by the action's kind: the board header's chip ("you") with the kind's edge and text.
+-- TODO(refactor): move into UI.CHIP_LOOK (UI/Comp/Controls.lua): kinds plain / warn / info / bad.
+local CHIP_LOOK = {}
+do
+    local you = UI().CHIP_LOOK.you
+    local function look(edge, a, text)
+        local r, g, b = S:Color(edge)
+        return { h = you.h, fill = you.fill, edge = { r, g, b, a }, text = text, x = you.x, pad = you.pad }
+    end
+    CHIP_LOOK.plain = look("EDGE_STRONG", 0.7, S.C.TEXT)
+    CHIP_LOOK.warn = look("WARN", 0.7, { 1, 0.82, 0.65 })
+    CHIP_LOOK.info = look("YOU", 0.55, { 0.81, 0.91, 1 })
+    CHIP_LOOK.bad = look("BAD", 0.85, { 1, 0.82, 0.78 })
+end
+
+local function newChip(parent)
+    local c = UI():CreateChip(parent, { kind = "you", onClick = function(self) if self.onAction then self.onAction() end end })
+    c.text = c.fs
+    return attachTip(c, "ANCHOR_BOTTOM")
+end
+
+local function fillChip(c, a)
+    c.kind, c.tip, c.onAction = a.kind or "plain", a.tip, a.onClick
+    c.look = CHIP_LOOK[c.kind] or CHIP_LOOK.plain
+    local ic = a.icon
+    c:SetIcon(ic and ic.tex or nil)
+    c:Set(a.text)
+    if ic then
+        local tc = ic.coords
+        if tc then c.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) else c.icon:SetTexCoord(0, 1, 0, 1) end
+        c.icon:SetDesaturated(ic.desat and true or false)
+    end
+end
+
+-- The greeting leads the toolbar; the chips follow it while they fit (the rest behind "+N more").
 local function layoutChips(list)
     panel.greeting:SetText(greetingText())
     local _, classFile = UnitClass("player")
     panel.greetName:SetText(UnitName("player") or "")
     panel.greetName:SetTextColor(UI():ClassColor(classFile))
-    local x = floor(strW(panel.greeting) + strW(panel.greetName) + 14)
+    local x = floor(UI():TextWidth(panel.greeting) + UI():TextWidth(panel.greetName) + 14)
     local shown = 0
     for i, a in ipairs(list) do
         local c = panel.chips[i]
@@ -862,114 +759,50 @@ local function layoutChips(list)
             c:Hide()
         end
     end
-    for i = #list + 1, #panel.chips do panel.chips[i]:Hide() end
+    UI():HideFrom(panel.chips, #list + 1)
     local hidden = #list - shown
     if hidden > 0 then
         local lines = { "More to do" }
         for i = shown + 1, #list do lines[#lines + 1] = list[i].text end
-        panel.moreChips:SetLabel("+" .. hidden .. " more")
+        panel.moreChips:Set("+" .. hidden .. " more")
         panel.moreChips.tip = lines
         panel.moreChips:ClearAllPoints()
-        panel.moreChips:SetPoint("LEFT", panel.hello, "LEFT", x + 2, 0)
+        panel.moreChips:SetPoint("LEFT", panel.hello, "LEFT", x, 0)
         panel.moreChips:Show()
     else
         panel.moreChips:Hide()
     end
-    panel.allSet:SetShown(false)          -- (nothing to do says itself: no line for it)
 end
 
-local function createHello(p)
-    local h = CreateFrame("Frame", nil, p)
-    h:SetPoint("TOPLEFT", PAD, -HELLO_Y)
-    h:SetSize(INNER_W, HELLO_H)
+-- (in the layout's toolbar row: the row's middle is 17 px down)
+local function createHello(p, toolbar)
+    local h = CreateFrame("Frame", nil, toolbar)
+    h:SetPoint("LEFT", toolbar, "TOPLEFT", S.PAD, -UI().LAYOUT.ROW_MID)
+    h:SetSize(INNER_W, 26)
     p.hello = h
-    p.greeting = text(h, 14, "GameFontHighlight")
-    p.greeting:SetTextColor(0.91, 0.91, 0.91)
+    p.greeting = UI():Text(h, "title", "TEXT")
     p.greeting:SetPoint("LEFT", 0, 0)
-    p.greetName = text(h, 14, "GameFontHighlight")
+    p.greetName = UI():Text(h, "title")
     p.greetName:SetPoint("LEFT", p.greeting, "RIGHT", 0, 0)
-    p.allSet = CreateFrame("Frame", nil, h)
-    p.allSet:SetSize(110, 18)
-    p.allSet:SetPoint("RIGHT", 0, 0)
-    p.allSet.icon = p.allSet:CreateTexture(nil, "ARTWORK")
-    p.allSet.icon:SetSize(13, 13)
-    p.allSet.icon:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
-    p.allSet.fs = text(p.allSet, 11, "GameFontHighlightSmall")
-    p.allSet.fs:SetTextColor(0.62, 0.62, 0.62)
-    p.allSet.fs:SetPoint("RIGHT", 0, 0)
-    p.allSet.fs:SetText("All caught up")
-    p.allSet.icon:SetPoint("RIGHT", p.allSet.fs, "LEFT", -5, 0)
-    p.moreChips = newLink(h, "+1 more")
-    p.moreChips.chev:Hide()
+    p.moreChips = attachTip(UI():CreateChip(h, { kind = "track" }), "ANCHOR_BOTTOM")
     p.moreChips:Hide()
     p.chips = {}
 end
 
 ---------------------------------------------------------------------------
--- The banner: the raids of the coming week, one at a time (or the raid in progress, or nothing planned). Two faces
--- take turns inside a clipping frame: the next raid is drawn on the hidden one, which slides in as the other slides
--- out.
+-- The hero: the raids of the coming week, one at a time (or the raid in progress, or nothing planned). The board's
+-- hero frame holds two faces, each a page banner (UI:CreatePageBanner), that take turns inside a clipping frame:
+-- the next raid is drawn on the hidden one, which slides in as the other slides out.
 ---------------------------------------------------------------------------
 
--- The raid's loading screen cropped for the banner (from the Raids board).
-local function setArt(tex, inst, w, h, fw)
-    local PUI = ns.RaidPlanUI
-    local file, l, r, t, b
-    if PUI and PUI.RaidArt then file, l, r, t, b = PUI:RaidArt(inst or "other", w, h, fw) end
-    if file then
-        tex:SetTexture(file)
-        tex:SetTexCoord(l, r, t, b)
-        tex:Show()
-    else
-        tex:Hide()
-    end
-end
-
--- My answer's pill (as on the Raids board): p:Set(kind, sub)
-local function newAnswerPill(parent)
-    local p = CreateFrame("Button", nil, parent)
-    p:SetHeight(24)
-    UI():AddPillShape(p, 24)
-    p.icon = p:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(14, 14)
-    p.icon:SetPoint("LEFT", 8, 0)
-    p.text = text(p, 12, "GameFontHighlight")
-    p.sub = text(parent, 11, "GameFontHighlightSmall")
-    p.sub:SetTextColor(0.62, 0.62, 0.62)
-    p.sub:SetJustifyH("RIGHT")
-    p.sub:SetPoint("TOPRIGHT", p, "BOTTOMRIGHT", -4, -3)
-    function p:Set(kind, sub)
-        local c = ANSWER_PILL[kind] or ANSWER_PILL.R
-        self:SetPillColors({ c[1], c[2], c[3], 0.95 }, { c[5], c[6], c[7], c[4] + 0.3 })
-        self.text:SetText("|cff" .. c[8] .. (ANSWER_TEXT[kind] or "") .. "|r")
-        local icon = ANSWER_ICON[kind]
-        self.icon:SetShown(icon ~= nil)
-        self.text:ClearAllPoints()
-        if icon then
-            self.icon:SetTexture(icon)
-            self.text:SetPoint("LEFT", self.icon, "RIGHT", 5, 0)
-        else
-            self.text:SetPoint("LEFT", 11, 0)
-        end
-        self:SetWidth(floor((icon and (8 + 14 + 5) or 11) + strW(self.text) + 11))
-        self.sub:SetText(sub or "")
-        self.sub:SetShown(sub ~= nil)
-    end
-    function p:SetPillShown(on)
-        self:SetShown(on)
-        if not on then self.sub:Hide() end
-    end
-    return p
-end
-
--- Every answer (mine ticked) and the way to the raid's page: the banner's ... button and my answer's pill. The
+-- Every answer (mine ticked) and the way to the raid's page: the banner's ··· tool and my answer's pill. The
 -- banner holds still while the menu is open.
 local openMenu
 local function answerMenu(owner, v, current)
     openMenu = UI():ContextMenu(owner, function(root)
         root:CreateTitle(RP():GetRaidName(v))
         for _, st in ipairs(STATUS_ORDER) do
-            local label = (current == st and ("|cff33ff33" .. STATUS[st].button .. " (yours)|r")) or STATUS[st].button
+            local label = (current == st and S:Wrap("OK", STATUS[st].button .. " (yours)")) or STATUS[st].button
             root:CreateButton(label, function() answer(v.id, st) end)
         end
         if root.CreateDivider then root:CreateDivider() end
@@ -981,167 +814,108 @@ end
 
 local fillFace, refreshBanner     -- (below: the faces' contents)
 
--- One face of the banner (the banner's size, so its texts sit where the banner's would): the art, the texts, my
--- answer and the foot. A click on it is the banner's.
-local function createFace(holder)
-    local b = CreateFrame("Frame", nil, holder.clip)
-    b:SetSize(INNER_W, BANNER_H)
-    local ban = CreateFrame("Frame", nil, b)
-    ban:SetPoint("TOPLEFT", 0, 0)
-    ban:SetPoint("TOPRIGHT", 0, 0)
-    ban:SetHeight(BANNER_H - FOOT_H)
-    b.ban = ban
-    -- the art (inside the banner's 1px edges), shaded so the texts read on any loading screen
-    b.art = ban:CreateTexture(nil, "BACKGROUND", nil, 0)
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 0)
-    b.shadeLow = ban:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.shadeLow:SetPoint("BOTTOMLEFT", b.art)
-    b.shadeLow:SetPoint("BOTTOMRIGHT", b.art)
-    gradient(b.shadeLow, "VERTICAL", INK, 0.95, 0.5)
-    b.shadeHigh = ban:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.shadeHigh:SetPoint("TOPLEFT", b.art)
-    b.shadeHigh:SetPoint("TOPRIGHT", b.art)
-    b.shadeHigh:SetPoint("BOTTOM", b.shadeLow, "TOP")
-    gradient(b.shadeHigh, "VERTICAL", INK, 0.5, 0.15)
-    b.shadeLeft = ban:CreateTexture(nil, "BACKGROUND", nil, 2)
-    b.shadeLeft:SetPoint("TOPLEFT", b.art)
-    b.shadeLeft:SetPoint("BOTTOMLEFT", b.art)
-    b.shadeLeft:SetWidth(floor(INNER_W * 0.6))
-    gradient(b.shadeLeft, "HORIZONTAL", INK, 0.8, 0)
-
-    -- the top row: what it is (the carousel's strip is the banner's, over it), the countdown
-    b.kick = text(ban, 10, "GameFontNormalSmall")
-    b.kick:SetPoint("TOPLEFT", IN, -12)
-    b.cd = CreateFrame("Frame", nil, ban)
-    b.cd:SetHeight(19)
-    b.cd:SetPoint("TOPRIGHT", -IN, -8)
-    UI():AddPillShape(b.cd, 19)
-    b.cd:SetPillColors({ INK[1], INK[2], INK[3], 0.6 }, { 1, 0.82, 0, 0.35 })
-    b.cd.fs = text(b.cd, 11, "GameFontNormalSmall")
-    b.cd.fs:SetPoint("CENTER", 0, 0)
-
-    -- the date column, then the raid: title, who / what, the answers by role
-    b.tm = text(ban, 11, "GameFontHighlightSmall")
-    b.tm:SetTextColor(0.81, 0.81, 0.81)
-    b.tm:SetJustifyH("CENTER")
-    b.tm:SetPoint("BOTTOM", ban, "BOTTOMLEFT", DATE_W / 2, IN)
-    b.dn = text(ban, 26, "GameFontHighlightLarge")
-    b.dn:SetJustifyH("CENTER")
-    b.dn:SetPoint("BOTTOM", b.tm, "TOP", 0, 0)
-    b.wd = text(ban, 10, "GameFontNormalSmall")
-    b.wd:SetJustifyH("CENTER")
-    b.wd:SetPoint("BOTTOM", b.dn, "TOP", 0, 1)
-    b.div = ban:CreateTexture(nil, "ARTWORK")
-    b.div:SetColorTexture(1, 1, 1, 0.14)
-    b.div:SetSize(1, 54)
-    b.div:SetPoint("BOTTOMLEFT", DATE_W, IN)
-    b.meter = text(ban, 11, "GameFontHighlightSmall")
-    b.meterHit = CreateFrame("Button", nil, ban)
-    b.meterHit:SetPoint("TOPLEFT", b.meter, "TOPLEFT", 0, 2)
-    b.meterHit:SetPoint("BOTTOMRIGHT", b.meter, "BOTTOMRIGHT", 0, -2)
-    b.meterHit:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_BOTTOM") end end)
-    b.meterHit:SetScript("OnLeave", hideTip)
-    b.meterHit:SetScript("OnClick", function() holder:Click() end)
-    b.meta = text(ban, 11, "GameFontHighlightSmall")
-    b.meta:SetTextColor(0.82, 0.82, 0.82)
-    b.meta:SetPoint("BOTTOMLEFT", b.meter, "TOPLEFT", 0, 6)
-    b.title = text(ban, 17, "GameFontHighlightLarge")
-    b.title:SetPoint("BOTTOMLEFT", b.meta, "TOPLEFT", 0, 4)
-
-    -- my answer, bottom right: Accept / Tentative / ..., my answer's pill, Ask to join, or why I can't
-    b.more = UI():CreateTipIconButton(ban, 26, UI().ICON.more, "More answers", "Bench or Absent, or open the raid.")
-    b.more:SetPoint("BOTTOMRIGHT", -IN, IN)
-    b.tentative = UI():CreateSleekButton(ban, STATUS.T.button, 80, 26, nil)
-    b.tentative:SetPoint("RIGHT", b.more, "LEFT", -4, 0)
-    b.accept = UI():CreateSleekButton(ban, STATUS.A.button, 70, 26, nil, "primary")
-    b.accept:SetPoint("RIGHT", b.tentative, "LEFT", -4, 0)
-    b.ask = UI():CreateSleekButton(ban, "Ask to join", 100, 26, nil, "primary")
-    b.ask:SetPoint("BOTTOMRIGHT", -IN, IN)
-    b.action = UI():CreateSleekButton(ban, "", 100, 26, nil)
-    b.action:SetPoint("BOTTOMRIGHT", -IN, IN)
-    b.pill = newAnswerPill(ban)
-    b.why = CreateFrame("Frame", nil, ban)
-    b.why:SetHeight(18)
-    b.why:SetPoint("BOTTOMRIGHT", -IN, IN + 4)
-    b.why.fs = text(b.why, 12, "GameFontHighlight")
-    b.why.fs:SetTextColor(0.74, 0.74, 0.74)
-    b.why.fs:SetPoint("RIGHT", 0, 0)
-    b.why:EnableMouse(true)
-    b.why:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
-    b.why:SetScript("OnLeave", hideTip)
-
-    -- the foot: the raid's note; my BiS picks that drop there (left), the readiness or the lock (right)
-    b.footLine = b:CreateTexture(nil, "ARTWORK")
-    b.footLine:SetColorTexture(1, 1, 1, 0.06)
-    b.footLine:SetHeight(1)
-    b.note = text(b, 11, "GameFontHighlightSmall")
-    b.note:SetTextColor(0.74, 0.74, 0.74)
-    b.bis = CreateFrame("Button", nil, b)
-    b.bis:SetHeight(16)
-    b.bis.star = b.bis:CreateTexture(nil, "ARTWORK")
-    b.bis.star:SetSize(12, 12)
-    b.bis.star:SetPoint("LEFT", 0, 0)
-    b.bis.star:SetTexture(UI():Tex("star"))
-    b.bis.fs = text(b.bis, 11, "GameFontNormalSmall")
-    b.bis.fs:SetPoint("LEFT", b.bis.star, "RIGHT", 5, 0)
-    b.bis.chev = b.bis:CreateTexture(nil, "ARTWORK")
-    b.bis.chev:SetSize(9, 9)
-    b.bis.chev:SetPoint("LEFT", b.bis.fs, "RIGHT", 4, 0)
-    chevron(b.bis.chev, "right")
-    b.bis.chev:SetVertexColor(1, 0.82, 0)
-    b.bis:SetScript("OnEnter", function(self)
-        self.fs:SetTextColor(1, 1, 1)
-        if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end
-    end)
-    b.bis:SetScript("OnLeave", function(self)
-        self.fs:SetTextColor(1, 0.82, 0)
-        hideTip()
-    end)
-    b.bis:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-    b.ready = CreateFrame("Button", nil, b)
-    b.ready:SetHeight(16)
-    b.ready.fs = text(b.ready, 11, "GameFontHighlightSmall")
-    b.ready.fs:SetJustifyH("RIGHT")
-    b.ready.fs:SetPoint("RIGHT", 0, 0)
-    b.ready.icon = b.ready:CreateTexture(nil, "ARTWORK")
-    b.ready.icon:SetSize(13, 13)
-    b.ready.icon:SetPoint("RIGHT", b.ready.fs, "LEFT", -5, 0)
-    b.ready:SetScript("OnEnter", function(self) if self.tip then showTip(self, self.tip, "ANCHOR_TOP") end end)
-    b.ready:SetScript("OnLeave", hideTip)
-    b.ready:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-    return b
+-- The face's actions (UI:CreatePageBanner's, the first at the far right) under the names the face keeps for them
+-- (face.accept / .tentative / .ask / .action: the shown button, else a hidden stand-in).
+local ACTION_NAMES = { "accept", "tentative", "ask", "action" }
+local function setActions(f, list, names)
+    f:SetActions(list)
+    for _, n in ipairs(ACTION_NAMES) do f[n] = f.none end
+    local w = 0
+    for i, n in ipairs(names or {}) do
+        local b = f.actions[i]
+        if b then
+            f[n] = b
+            w = w + b:GetWidth() + (i > 1 and 6 or 0)
+        end
+    end
+    return w
 end
 
--- The carousel's strip (top left, over the faces): a bar per raid, the shown one long with the time to the next
--- slide filling it in gold, and an arrow on each side. A bar or an arrow slides to that raid.
+-- One face of the hero (the hero's size): a page banner with my answer's pill, the answers by role at its bottom
+-- left and its foot (the note; my BiS picks that drop there, the readiness or the lock). A click on it is the hero's.
+local function createFace(holder)
+    local f = UI():CreatePageBanner(holder.clip, { size = BANNER_H, footH = 0, artFw = 1, kickerColor = "SUB",
+        width = INNER_W })
+    f:SetSize(INNER_W, BANNER_H)
+    f.meta = f.sub
+    f.none = CreateFrame("Button", nil, f)
+    f.none:Hide()
+    for _, n in ipairs(ACTION_NAMES) do f[n] = f.none end
+    -- the ··· tool: more answers (made once, shown while I can answer)
+    f.moreTools = { { icon = "more", title = "More answers", text = "Bench or Absent, or open the raid.",
+                      onClick = function(btn) if f.menuFn then f.menuFn(btn) end end } }
+    f:SetTools(f.moreTools)
+    f.more = f.tools[1]
+    f:SetTools(nil)
+    -- my answer: the banner's pill (a click changes it), the spec it is for after it
+    f.pill.text = f.pill.fs
+    f.pill.sub = UI():Text(f, "small", "SUB")
+    f.pill.sub:SetPoint("LEFT", f.pill, "RIGHT", 6, 0)
+    f.pill:EnableMouse(true)
+    f.pill:SetScript("OnMouseUp", function(self) if f.pillMenu then f.pillMenu(self) end end)
+    UI():AttachTooltip(f.pill, "Your answer", "Click to change it.", { anchor = "ANCHOR_TOP" })
+    -- why I can't answer (bottom right, where the actions would be)
+    f.why = attachTip(CreateFrame("Frame", nil, f), "ANCHOR_TOP")
+    f.why:SetHeight(18)
+    f.why.fs = UI():Text(f.why, "emph", "SUB")
+    f.why.fs:SetPoint("RIGHT", 0, 0)
+    -- the answers by role (bottom left, on the actions' row)
+    f.meter = UI():Text(f, "body")
+    f.meterHit = attachTip(CreateFrame("Button", nil, f), "ANCHOR_BOTTOM")
+    f.meterHit:SetPoint("TOPLEFT", f.meter, "TOPLEFT", 0, 2)
+    f.meterHit:SetPoint("BOTTOMRIGHT", f.meter, "BOTTOMRIGHT", 0, -2)
+    f.meterHit:SetScript("OnClick", function() if f.onClick then f.onClick() end end)
+
+    -- the foot: the raid's note; my BiS picks that drop there (left), the readiness or the lock (right)
+    local foot = f.foot
+    foot.rule = UI():Rule(foot, { top = 0, alpha = 0.06 })
+    f.note = UI():Text(foot, "body", "SUB")
+    f.bis = attachTip(CreateFrame("Button", nil, foot), "ANCHOR_TOP")
+    f.bis:SetHeight(16)
+    f.bis.star = f.bis:CreateTexture(nil, "ARTWORK")
+    f.bis.star:SetSize(12, 12)
+    f.bis.star:SetPoint("LEFT", 0, 0)
+    f.bis.star:SetTexture(UI():Tex("star"))
+    f.bis.fs = UI():Text(f.bis, "body", "GOLD")
+    f.bis.fs:SetPoint("LEFT", f.bis.star, "RIGHT", 5, 0)
+    f.bis.chev = f.bis:CreateTexture(nil, "ARTWORK")
+    f.bis.chev:SetSize(9, 9)
+    f.bis.chev:SetPoint("RIGHT", f.bis, "RIGHT", 0, 0)
+    UI():SetChevron(f.bis.chev, true)
+    f.bis.chev:SetVertexColor(S:Color("GOLD"))
+    f.bis:HookScript("OnEnter", function(self) self.fs:SetTextColor(S:Color("TEXT")) end)
+    f.bis:HookScript("OnLeave", function(self) self.fs:SetTextColor(S:Color("GOLD")) end)
+    f.bis:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    f.ready = attachTip(CreateFrame("Button", nil, foot), "ANCHOR_TOP")
+    f.ready:SetHeight(16)
+    f.ready.fs = UI():Text(f.ready, "body", "SUB", { justify = "RIGHT" })
+    f.ready.fs:SetPoint("RIGHT", 0, 0)
+    f.ready.icon = f.ready:CreateTexture(nil, "ARTWORK")
+    f.ready.icon:SetSize(13, 13)
+    f.ready.icon:SetPoint("LEFT", f.ready, "LEFT", 0, 0)
+    f.ready:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    return f
+end
+
+-- The carousel's strip (top right, left of the ··· tool, over the faces): a bar per raid, the shown one long with
+-- the time to the next slide filling it in gold, and an arrow on each side. A bar or an arrow slides to that raid.
 local BAR_W, BAR_ON, BAR_GAP, BAR_H = 14, 32, 5, 2
-local STRIP_X = IN - 5               -- the left arrow's glyph lines up with the texts below
+local STRIP_RIGHT = 12 + 22 + 8      -- clear of the banner's ··· tool (EDGE_X 12, a 22 px tool)
 
 local function stripArrow(holder, dir)
-    local a = CreateFrame("Button", nil, holder.strip)
-    a:SetSize(18, 18)
-    a.icon = a:CreateTexture(nil, "ARTWORK")
-    a.icon:SetSize(9, 9)
-    a.icon:SetPoint("CENTER")
-    chevron(a.icon, dir)
-    a.icon:SetVertexColor(0.80, 0.80, 0.80)
-    a:SetScript("OnClick", function() holder:Flip(holder.at + (dir == "left" and -1 or 1), dir == "left" and -1 or 1) end)
-    a:SetScript("OnEnter", function(self)
-        self.icon:SetVertexColor(1, 0.82, 0)
+    local right = dir == "right"
+    local a = UI():CreateArrowButton(holder.strip, right, 18, 18, function()
+        holder:Flip(holder.at + (right and 1 or -1), right and 1 or -1)
+    end)
+    a.tip = function()
         local list = holder.ctx and holder.ctx.slides or {}
         local n = #list
-        local v = n > 0 and list[((holder.at or 1) - 1 + (dir == "left" and -1 or 1)) % n + 1]
-        if v then
-            showTip(self, { dir == "left" and "Previous raid" or "Next raid",
-                            RP():GetRaidName(v) .. grey(" · " .. shortDay(v.t) .. date(" %H:%M", v.t)) }, "ANCHOR_TOP")
-        end
-    end)
-    a:SetScript("OnLeave", function(self)
-        self.icon:SetVertexColor(0.80, 0.80, 0.80)
-        hideTip()
-    end)
-    return a
+        local v = n > 0 and list[((holder.at or 1) - 1 + (right and 1 or -1)) % n + 1]
+        if not v then return nil end
+        return { right and "Next raid" or "Previous raid",
+                 RP():GetRaidName(v) .. dim(" · " .. shortDay(v.t) .. date(" %H:%M", v.t)) }
+    end
+    return attachTip(a, "ANCHOR_TOP")
 end
 
 local function stripBar(holder, i)
@@ -1154,29 +928,29 @@ local function stripBar(holder, i)
     s.fill = s:CreateTexture(nil, "OVERLAY")
     s.fill:SetHeight(BAR_H)
     s.fill:SetPoint("LEFT", 0, 0)
-    s.fill:SetColorTexture(1, 0.82, 0, 0.95)
+    s.fill:SetColorTexture(S:Color("GOLD"))
     s:SetScript("OnClick", function() holder:Flip(i) end)
     s:SetScript("OnEnter", function(self)
         self.hot = true
         holder:PaintStrip()
-        local v = holder.ctx and holder.ctx.slides[i]
-        if v then
-            local tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. countdown(v.t) }
-            local marker = myMarker(v)
-            if marker then
-                local mine = RP():GetMySignup(v.id)
-                tip[#tip + 1] = marker .. " " .. (mine and (ANSWER_TEXT[mine.st] or "") or "Answer needed")
-            end
-            tip[#tip + 1] = grey(i == holder.at and "Shown now" or "Click to show this raid")
-            showTip(self, tip, "ANCHOR_TOP")
-        end
     end)
     s:SetScript("OnLeave", function(self)
         self.hot = nil
         holder:PaintStrip()
-        hideTip()
     end)
-    return s
+    s.tip = function()
+        local v = holder.ctx and holder.ctx.slides[i]
+        if not v then return nil end
+        local tip = { RP():GetRaidName(v), date("%a %d %b %H:%M", v.t) .. " · " .. countdown(v.t) }
+        local marker = myMarker(v)
+        if marker then
+            local mine = RP():GetMySignup(v.id)
+            tip[#tip + 1] = marker .. " " .. (mine and (ANSWER_TEXT[mine.st] or "") or "Answer needed")
+        end
+        tip[#tip + 1] = dim(i == holder.at and "Shown now" or "Click to show this raid")
+        return tip
+    end
+    return attachTip(s, "ANCHOR_TOP")
 end
 
 -- easeInOutCubic: a slow start, a glide, a soft landing.
@@ -1186,17 +960,20 @@ local function ease(x)
     return 1 - y * y * y / 2
 end
 
-local function createBanner(p)
-    local b = CreateFrame("Button", nil, p)
-    b:SetPoint("TOPLEFT", PAD, -BANNER_Y)
-    b:SetSize(INNER_W, BANNER_H)
-    b:RegisterForClicks("LeftButtonUp")
-    flatBox(b, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.7 })
+-- The hover look: the shown face's edge in gold while it leads somewhere.
+local function paintHover(b, on)
+    local f = b.face
+    if on and f.onClick then UI():SetEdgeColor(f, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.55)
+    else UI():SetEdgeColor(f, S:Color("EDGE")) end
+end
+
+-- b: the board's hero frame (the layout's banner), made the carousel.
+local function setupBanner(p, b)
     p.banner = b
-    -- the faces slide inside the banner's 1px edges
+    b:EnableMouse(true)
+    -- the faces slide inside the hero
     b.clip = CreateFrame("Frame", nil, b)
-    b.clip:SetPoint("TOPLEFT", 1, -1)
-    b.clip:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.clip:SetAllPoints()
     b.clip:SetClipsChildren(true)
     b.faces = { createFace(b), createFace(b) }
     b.face = b.faces[1]
@@ -1206,7 +983,7 @@ local function createBanner(p)
     b.strip = CreateFrame("Frame", nil, b)
     b.strip:SetFrameLevel(b:GetFrameLevel() + 20)
     b.strip:SetHeight(18)
-    b.strip:SetPoint("LEFT", b, "TOPLEFT", STRIP_X, -17)
+    b.strip:SetPoint("RIGHT", b, "TOPRIGHT", -STRIP_RIGHT, -20)
     b.strip:Hide()
     b.prev = stripArrow(b, "left")
     b.prev:SetPoint("LEFT", 0, 0)
@@ -1216,7 +993,7 @@ local function createBanner(p)
     -- a face at x (0 = in place, -INNER_W = gone to the left)
     function b:PlaceFace(f, x)
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", self.clip, "TOPLEFT", floor(x + 0.5) - 1, 1)
+        f:SetPoint("TOPLEFT", self.clip, "TOPLEFT", floor(x + 0.5), 0)
     end
 
     -- The bars: their widths (the shown one long; during a slide the old one shrinks as the new one grows) and the
@@ -1277,6 +1054,7 @@ local function createBanner(p)
         into:Show()
         self.anim = { from = from, into = into, dir = dir, t = 0, fromAt = self.at }
         self.face, self.at, self.shownId, self.hold = into, to, list[to].id, 0
+        UI():SetEdgeColor(from, S:Color("EDGE"))
         self:PaintStrip()
     end
 
@@ -1310,177 +1088,154 @@ local function createBanner(p)
         self.hold = self.hold + (elapsed or 0)
         if self.hold >= FLIP_EVERY then self:Flip(self.at + 1, 1) else self:PaintFill() end
     end)
-    b:SetScript("OnEnter", function(self)
-        if self.face.onClick then UI():SetEdgeColor(self, 1, 0.82, 0, 0.55) end
+    b:SetScript("OnEnter", function(self) paintHover(self, true) end)
+    b:SetScript("OnLeave", function(self) paintHover(self, false) end)
+    b:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and self.face.onClick then self.face.onClick() end
     end)
-    b:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], 0.7) end)
-    b:SetScript("OnClick", function(self) if self.face.onClick then self.face.onClick() end end)
 end
 
--- Places the foot's lines (note: 0..2 lines, f2 = the BiS / readiness line) and sizes the art part above it; the
--- banner keeps its height either way.
-local function layoutFoot(b, noteLines, hasF2)
+-- Sizes the face's foot for its lines (note: 0..2 lines; f2 = the BiS / readiness line) and places them; the face
+-- keeps its height either way (the art fades into the page under the foot). Returns the foot's height.
+local function layoutFoot(f, noteLines, hasF2)
     local lines = noteLines + (hasF2 and 1 or 0)
     local footH = lines == 0 and 0 or max(FOOT_H, 16 + lines * 14 + (lines - 1) * 4)
-    local banH = BANNER_H - footH
-    b.ban:SetHeight(banH)
-    b.shadeLow:SetHeight(floor((banH - 1) * 0.62))
-    b.footLine:SetShown(footH > 0)
-    b.footLine:ClearAllPoints()
-    b.footLine:SetPoint("TOPLEFT", 1, -banH)
-    b.footLine:SetPoint("TOPRIGHT", -1, -banH)
+    f.opts.footH = footH
+    f.foot:SetHeight(max(1, footH))
+    f.foot:SetShown(footH > 0)
     -- the lines, centred in the foot
     local used = lines > 0 and (noteLines * 14 + (hasF2 and 14 or 0) + (lines - 1) * 4) or 0
-    local y = banH + floor((footH - used) / 2)
-    b.note:ClearAllPoints()
-    b.note:SetPoint("TOPLEFT", IN, -y)
-    b.note:SetPoint("TOPRIGHT", -IN, -y)
+    local y = floor((footH - used) / 2)
+    f.note:ClearAllPoints()
+    f.note:SetPoint("TOPLEFT", f.foot, "TOPLEFT", BX, -y)
+    f.note:SetPoint("TOPRIGHT", f.foot, "TOPRIGHT", -BX, -y)
     if noteLines > 0 then y = y + noteLines * 14 + 4 end
-    b.bis:ClearAllPoints()
-    b.bis:SetPoint("LEFT", b, "TOPLEFT", IN, -(y + 7))
-    b.ready:ClearAllPoints()
-    b.ready:SetPoint("RIGHT", b, "TOPRIGHT", -IN, -(y + 7))
-    return banH
+    f.bis:ClearAllPoints()
+    f.bis:SetPoint("LEFT", f.foot, "TOPLEFT", BX, -(y + 7))
+    f.ready:ClearAllPoints()
+    f.ready:SetPoint("RIGHT", f.foot, "TOPRIGHT", -BX, -(y + 7))
+    f:Layout()
+    return footH
 end
 
--- The note line: one line at 11, else at 10, else two lines (a note is at most 120 characters).
-local function fitNote(b, note)
-    local fs = b.note
+-- The note line: one line in the body size, else smaller, else two lines (a note is at most 120 characters).
+local function fitNote(f, note)
+    local fs = f.note
     fs:SetText('"' .. note .. '"')
     if fs.SetMaxLines then fs:SetMaxLines(1) end
-    for _, size in ipairs({ 11, 10 }) do
-        setSize(fs, size)
+    for _, style in ipairs({ "body", "small" }) do
+        UI():SetTextStyle(fs, style, "SUB")
         fs:SetWordWrap(false)
-        if strW(fs) <= INNER_W - 2 * IN then return 1 end
+        if UI():TextWidth(fs) <= INNER_W - 2 * BX then return 1 end
     end
     fs:SetWordWrap(true)
     if fs.SetMaxLines then fs:SetMaxLines(2) end
     return 2
 end
 
--- The texts' left edge: beside the date column, or at the banner's padding without one.
-local function placeTexts(b, withDate)
-    for _, fs in ipairs({ b.wd, b.dn, b.tm, b.div }) do fs:SetShown(withDate) end
-    b.meter:ClearAllPoints()
-    b.meter:SetPoint("BOTTOMLEFT", withDate and (DATE_W + 13) or IN, IN + 1)
+-- The answers line beside the actions (aw = their width), on the actions' row above the foot.
+local function placeMeter(f, footH, aw)
+    f.meter:ClearAllPoints()
+    f.meter:SetPoint("LEFT", f, "BOTTOMLEFT", BX, footH + 12 + floor(S.BTN_H / 2))
+    f.meter:SetWidth(max(40, INNER_W - 2 * BX - aw - 16))
+    f.why:ClearAllPoints()
+    f.why:SetPoint("RIGHT", f, "BOTTOMRIGHT", -12, footH + 12 + floor(S.BTN_H / 2))
 end
 
--- Fits the title / meta / meter beside the answer area (aw = its width).
-local function textWidth(b, withDate, aw)
-    local w = INNER_W - (withDate and (DATE_W + 13) or IN) - IN - aw - 16
-    for _, fs in ipairs({ b.title, b.meta, b.meter }) do fs:SetWidth(w) end
-    return w
-end
-
-local function hideAnswer(b)
-    for _, w in ipairs({ b.accept, b.tentative, b.more, b.ask, b.action, b.why }) do w:Hide() end
-    b.pill:SetPillShown(false)
+local function hideAnswer(f)
+    setActions(f, nil)
+    f:SetTools(nil)
+    f:SetPill(nil)
+    f.pill.sub:Hide()
+    f.why:Hide()
+    f.menuFn, f.pillMenu = nil, nil
 end
 
 -- The foot's right side: the readiness of the next raid (organizers), what's missing first.
-local function fillReadiness(b, v, ctx, room)
-    local items, coming = readiness(v, ctx)
-    local r = b.ready
+local function fillReadiness(f, v, ctx, room)
+    local items = readiness(v, ctx)
+    local r = f.ready
     local tip = { "Is the raid ready?" }
     if #items == 0 then
         -- ready: nothing to say
         r:Hide()
         return
-    else
-        r.icon:SetTexture(UI().ICON_WARN)
-        local shown = items[1].text
-        local n = 1
-        for i = 2, #items do
-            local cand = shown .. " · " .. items[i].text
-            local rest = #items - i
-            r.fs:SetText(cand .. (rest > 0 and (" · +" .. rest .. " more") or ""))
-            if strW(r.fs) > room - 18 then break end
-            shown, n = cand, i
-        end
-        local rest = #items - n
-        r.fs:SetText(shown .. (rest > 0 and (" · +" .. rest .. " more") or ""))
-        r.fs:SetTextColor(0.80, 0.80, 0.80)          -- (the warning icon says it; the words stay calm)
-        for _, it in ipairs(items) do
-            tip[#tip + 1] = { it.text, 1, 0.55, 0.1 }
-            tip[#tip + 1] = namesLine(it.names)
-        end
     end
-    tip[#tip + 1] = grey("Click to open the raid's sign-ups")
+    r.icon:SetTexture(UI().ICON_WARN)
+    local shown = items[1].text
+    local n = 1
+    for i = 2, #items do
+        local cand = shown .. " · " .. items[i].text
+        local rest = #items - i
+        r.fs:SetText(cand .. (rest > 0 and (" · +" .. rest .. " more") or ""))
+        if UI():TextWidth(r.fs) > room - 18 then break end
+        shown, n = cand, i
+    end
+    local rest = #items - n
+    r.fs:SetText(shown .. (rest > 0 and (" · +" .. rest .. " more") or ""))
+    r.fs:SetTextColor(S:Color("TEXT"))          -- (the warning icon says it; the words stay calm)
+    for _, it in ipairs(items) do
+        tip[#tip + 1] = { it.text, S:Color("WARN") }
+        tip[#tip + 1] = namesLine(it.names)
+    end
+    tip[#tip + 1] = dim("Click to open the raid's sign-ups")
     r.tip = tip
     r.onClick = function() openRaid(v.id) end
-    r:SetWidth(floor(strW(r.fs) + 18))
+    r:SetWidth(floor(UI():TextWidth(r.fs) + 18))
     r:Show()
 end
 
-local function fillBisLine(b, drops)
-    local f = b.bis
+local function fillBisLine(f, drops)
+    local b = f.bis
     if not drops then
-        f:Hide()
+        b:Hide()
         return 0
     end
-    f.fs:SetText(drops.text)
-    f.fs:SetTextColor(1, 0.82, 0)
-    f.tip, f.onClick = drops.tip, drops.onClick
-    local w = floor(12 + 5 + strW(f.fs) + 4 + 9)
-    f:SetWidth(w)
-    f:Show()
+    b.fs:SetText(drops.text)
+    b.fs:SetTextColor(S:Color("GOLD"))
+    b.tip, b.onClick = drops.tip, drops.onClick
+    local w = floor(12 + 5 + UI():TextWidth(b.fs) + 4 + 9)
+    b:SetWidth(w)
+    b:Show()
     return w
 end
 
-local function fillNone(b)
+local function fillNone(f)
     local planner = RP() and RP().CanOrganize and RP():CanOrganize()
-    setArt(b.art, "other", INNER_W - 2, BANNER_H - 1, 1)
-    b.art:SetDesaturated(true)
-    b.art:SetAlpha(0.6)
-    b.kick:SetText("")
-    b.cd:Hide()
-    placeTexts(b, false)
-    b.title:SetText("Nothing planned")
-    b.meta:SetText(planner and "Plan the next one: it shows here for everyone."
-                   or "The Guild Master and the raid leaders plan raids.")
-    b.meter:SetText("")
-    b.meterHit.tip = nil
+    f.art:SetAlpha(0.6)
+    f:SetArt("other", true)
+    f:SetKicker(nil)
+    f:SetTitle("Nothing planned")
+    f:SetSub(planner and "Plan the next one: it shows here for everyone."
+             or "The Guild Master and the raid leaders plan raids.")
+    f.meter:SetText("")
+    f.meterHit.tip = nil
     local aw = 0
     if planner then
-        b.action:SetText("Plan a raid")
-        b.action:SetKind("primary")
-        b.action:SetWidth(100)
-        b.action:SetScript("OnClick", function()
+        aw = setActions(f, { { text = "Plan a raid", kind = "primary", width = 100, onClick = function()
             openRaid(nil)
             if ns.RaidPlanUI and ns.RaidPlanUI.OpenEditor then ns.RaidPlanUI:OpenEditor() end
-        end)
-        b.action:Show()
-        aw = 100
+        end } }, { "action" })
     end
-    textWidth(b, false, aw)
-    b.onClick = nil
-    b.note:SetText("")
-    b.bis:Hide()
-    b.ready:Hide()
-    layoutFoot(b, 0, false)
+    f.onClick = nil
+    f.note:SetText("")
+    f.bis:Hide()
+    f.ready:Hide()
+    placeMeter(f, layoutFoot(f, 0, false), aw)
 end
 
-local function fillSession(b, ctx)
+local function fillSession(f, ctx)
     local s = ctx.session
     local rp = RP()
     local planned = s.rp and rp and rp.GetRaid and rp:GetRaid(s.rp) or nil
     local instID = currentInstID()
     local inst = planned and planned.i or instKeyOf(instID)
-    b.art:SetDesaturated(false)
-    b.art:SetAlpha(1)
-    b.kick:SetText(colorize("8fe39d", "RAID IN PROGRESS"))
+    f.art:SetAlpha(1)
     local at = tonumber(s.at)
-    b.cd.fs:SetText(at and ("started " .. duration(Now() - at) .. " ago") or "in progress")
-    b.cd:SetWidth(floor(strW(b.cd.fs) + 18))
-    b.cd:Show()
-    placeTexts(b, at ~= nil)
-    if at then
-        b.wd:SetText(date("%a", at):upper())
-        b.dn:SetText(tonumber(date("%d", at)))
-        b.tm:SetText(date("%H:%M", at))
-    end
+    f:SetKicker(S:Wrap("OK", "Raid in progress") .. "    "
+        .. (at and ("started " .. duration(Now() - at) .. " ago  ·  " .. date("%a %d %b · %H:%M", at)) or "in progress"))
     local zone = GetInstanceInfo and (GetInstanceInfo()) or nil
-    b.title:SetText(planned and rp:GetRaidName(planned) or zone or "Raid")
+    f:SetTitle(planned and rp:GetRaidName(planned) or zone or "Raid")
     -- who leads it, the loot handed out so far (mine too)
     local parts = {}
     if s.by then parts[#parts + 1] = UI():ColoredName(s.by) .. " leads" end
@@ -1495,7 +1250,7 @@ local function fillSession(b, ctx)
         end
         parts[#parts + 1] = plural(n, "item") .. " awarded" .. (mine > 0 and (" · " .. mine .. " to you") or "")
     end
-    b.meta:SetText(tconcat(parts, " · "))
+    f:SetSub(tconcat(parts, " · "))
     -- the bosses down so far
     local RL = ns.RaidLog
     local rec = RL and RL.GetCurrentID and RL.GetRaid and RL:GetRaid(RL:GetCurrentID() or s.id)
@@ -1503,69 +1258,60 @@ local function fillSession(b, ctx)
     local total = RL and RL.GetBossTotal and RL:GetRecordBossTotal(rec, instID)
     local down = kills and (total and ("%d of %d bosses down"):format(kills, total)
                             or ((kills == 1 and "1 boss" or (kills .. " bosses")) .. " down"))
-    b.meter:SetText(down or "")
-    b.meterHit.tip = nil
-    hideAnswer(b)
+    f.meter:SetText(down or "")
+    f.meterHit.tip = nil
+    hideAnswer(f)
     local aw = 0
-    local council = isCouncil()
-    if council then
-        b.action:SetText("Loot log")
-        b.action:SetKind("secondary")
-        b.action:SetWidth(90)
-        b.action:SetScript("OnClick", function() openTab("loot") end)
-        b.action:Show()
-        aw = 90
+    if isCouncil() then
+        aw = setActions(f, { { text = "Loot log", width = 90, onClick = function() openTab("loot") end } }, { "action" })
     end
-    textWidth(b, at ~= nil, aw)
-    b.onClick = function() if planned then openRaid(planned.id) else openRaid(nil) end end
+    f.onClick = function() if planned then openRaid(planned.id) else openRaid(nil) end end
     -- the foot: what of my list can drop here; the BiS lock
-    b.note:SetText("")
-    local bisW = fillBisLine(b, bisDrops(currentItemRaid() or (planned and itemRaidFor(planned))))
+    f.note:SetText("")
+    local bisW = fillBisLine(f, bisDrops(currentItemRaid() or (planned and itemRaidFor(planned))))
     local Lock = UI().GetBiSLock and UI():GetBiSLock()
     if Lock then
-        b.ready.icon:SetTexture(UI().ICON_LOCK)
-        b.ready.fs:SetText("BiS lists locked")
-        b.ready.fs:SetTextColor(0.74, 0.74, 0.74)
-        b.ready.tip = { "BiS lists are locked for this raid", "Changes wait until the raid leader unlocks them." }
-        b.ready.onClick = nil
-        b.ready:SetWidth(floor(strW(b.ready.fs) + 18))
-        b.ready:Show()
+        f.ready.icon:SetTexture(UI().ICON_LOCK)
+        f.ready.fs:SetText("BiS lists locked")
+        f.ready.fs:SetTextColor(S:Color("SUB"))
+        f.ready.tip = { "BiS lists are locked for this raid", "Changes wait until the raid leader unlocks them." }
+        f.ready.onClick = nil
+        f.ready:SetWidth(floor(UI():TextWidth(f.ready.fs) + 18))
+        f.ready:Show()
     else
-        b.ready:Hide()
+        f.ready:Hide()
     end
-    local banH = layoutFoot(b, 0, bisW > 0 or Lock ~= nil)
-    setArt(b.art, inst, INNER_W - 2, banH - 1, 1)
+    f:SetArt(inst or "other", false)
+    placeMeter(f, layoutFoot(f, 0, bisW > 0 or Lock ~= nil), aw)
 end
 
-local function fillRaid(b, ctx)
+-- "IN 13 MIN    MON 21 SEP · 16:28": the hero's kicker (the Raids board's).
+local function raidKicker(v)
+    return S:Wrap("GOLD", countdown(v.t)) .. "    " .. date("%a ", v.t) .. tonumber(date("%d", v.t))
+        .. date(" %b · %H:%M", v.t)
+end
+
+local function fillRaid(f, ctx)
     local v = ctx.raid
     local rp = RP()
     local note = v.no and v.no ~= "" and v.no or nil
     local readyFor = canSeeReadiness()
     local drops = bisDrops(itemRaidFor(v))
     local hasF2 = drops ~= nil or readyFor
-    -- the foot first (the art's height depends on it)
-    local noteLines = note and fitNote(b, note) or 0
-    if not note then b.note:SetText("") end
-    local banH = layoutFoot(b, noteLines, hasF2)
-    setArt(b.art, v.i, INNER_W - 2, banH - 1, 1)
-    b.art:SetDesaturated(false)
-    b.art:SetAlpha(1)
-    b.kick:SetText("")
-    b.cd.fs:SetText(countdown(v.t))
-    b.cd:SetWidth(floor(strW(b.cd.fs) + 18))
-    b.cd:Show()
-    placeTexts(b, true)
-    b.wd:SetText(date("%a", v.t):upper())
-    b.dn:SetText(tonumber(date("%d", v.t)))
-    b.tm:SetText(date("%H:%M", v.t))
-    b.title:SetText(rp:GetRaidName(v))
+    -- the foot first
+    local noteLines = note and fitNote(f, note) or 0
+    if not note then f.note:SetText("") end
+    local footH = layoutFoot(f, noteLines, hasF2)
+    f.art:SetAlpha(1)
+    f:SetArt(v.i, false)
+    f:SetKicker(raidKicker(v))
+    f:SetTitle(rp:GetRaidName(v))
 
     -- my answer
-    hideAnswer(b)
+    hideAnswer(f)
     local kind, block, canAnswer, canAsk, mine = myState(v)
     local id = v.id
-    local aw
+    local aw = 0
     if STATUS[kind] or kind == "R" then
         local sub
         if kind == "R" then
@@ -1573,41 +1319,29 @@ local function fillRaid(b, ctx)
         elseif mine and mine.sp and mine.c and ns.SPECS[mine.c] and ns.SPECS[mine.c][mine.sp] then
             sub = "as " .. ns.SPECS[mine.c][mine.sp].label
         end
-        b.pill:Set(kind, sub)
-        b.pill:ClearAllPoints()
-        b.pill:SetPoint("BOTTOMRIGHT", -IN, sub and (IN + 14) or (IN + 1))
-        b.pill:SetPillShown(true)
-        b.pill:SetScript("OnClick", function(self) answerMenu(self, v, kind) end)
-        b.pill:SetScript("OnEnter", function(self)
-            showTip(self, { "Your answer", "Click to change it." }, "ANCHOR_TOP")
-        end)
-        b.pill:SetScript("OnLeave", hideTip)
-        aw = max(b.pill:GetWidth(), sub and (strW(b.pill.sub) + 4) or 0)
+        f:SetPill(ANSWER_KIND[kind] or "review", ANSWER_TEXT[kind] or "")
+        f.pill.sub:SetText(sub or "")
+        f.pill.sub:SetShown(sub ~= nil)
+        f.pillMenu = function(owner) answerMenu(owner, v, kind) end
     elseif canAsk then
-        b.ask:SetScript("OnClick", function() answer(id, "A") end)
-        b.ask:SetScript("OnEnter", function(self)
-            showTip(self, { "Ask to join", "Locked to its teams: whoever runs it approves or declines." }, "ANCHOR_TOP")
-        end)
-        b.ask:SetScript("OnLeave", hideTip)
-        b.ask:Show()
-        aw = b.ask:GetWidth()
+        aw = setActions(f, { { text = "Ask to join", kind = "primary", width = 100, onClick = function() answer(id, "A") end,
+            tip = { "Ask to join", "Locked to its teams: whoever runs it approves or declines." } } }, { "ask" })
     elseif canAnswer then
-        b.accept:SetScript("OnClick", function() answer(id, "A") end)
-        b.tentative:SetScript("OnClick", function() answer(id, "T") end)
-        b.more:SetScript("OnClick", function(self) answerMenu(self, v, nil) end)
-        b.accept:Show()
-        b.tentative:Show()
-        b.more:Show()
-        aw = b.accept:GetWidth() + b.tentative:GetWidth() + b.more:GetWidth() + 8
+        aw = setActions(f, { { text = STATUS.A.button, kind = "primary", onClick = function() answer(id, "A") end },
+                             { text = STATUS.T.button, onClick = function() answer(id, "T") end } },
+            { "accept", "tentative" })
+        f:SetTools(f.moreTools)
+        f.menuFn = function(owner) answerMenu(owner, v, nil) end
     else
         local words, why = blockWords(v, block)
-        b.why.fs:SetText(words or "")
-        b.why.tip = why and { "You can't answer", why } or nil
-        b.why:SetWidth(floor(strW(b.why.fs) + 2))
-        b.why:SetShown(words ~= nil)
-        aw = words and b.why:GetWidth() or 0
+        f.why.fs:SetText(words or "")
+        f.why.tip = why and { "You can't answer", why } or nil
+        f.why:SetWidth(floor(UI():TextWidth(f.why.fs) + 2))
+        f.why:SetShown(words ~= nil)
+        aw = words and f.why:GetWidth() or 0
     end
-    local tw = textWidth(b, true, aw)
+    placeMeter(f, footH, aw)
+    local tw = INNER_W - 2 * BX - 16
 
     -- who / what: the instance (under a custom title), size, who leads, the teams; for who runs it, the requests
     local parts = {}
@@ -1623,60 +1357,59 @@ local function fillRaid(b, ctx)
     if teams then parts[#parts + 1] = { teams, 5 } end
     if v.weekly then parts[#parts + 1] = { "weekly", 2 } end
     local nReq = (v.lk and rp:CanManageRaid(v)) and #rp:GetRequests(v.id) or 0
-    if nReq > 0 then parts[#parts + 1] = { colorize("ffd100", plural(nReq, "request")), 10 } end
+    if nReq > 0 then parts[#parts + 1] = { S:Wrap("GOLD", plural(nReq, "request")), 10 } end
     local function metaText()
         local out = {}
         for _, p in ipairs(parts) do out[#out + 1] = p[1] end
         return tconcat(out, " · ")
     end
-    b.meta:SetText(metaText())
-    while #parts > 1 and strW(b.meta) > tw do
+    while #parts > 1 and UI():TextWidth(metaText(), "body") > tw do
         local low, at = 99, nil
         for i, p in ipairs(parts) do
             if p[2] < low then low, at = p[2], i end
         end
         table.remove(parts, at)
-        b.meta:SetText(metaText())
     end
+    f:SetSub(metaText())
 
     -- the accepted by role and how full it is (the tooltip has every answer and who hasn't answered)
     local _, counts, roles, noAnswer = signupCounts(v)
     local size = v.sz or 25
     if counts.A == 0 and counts.T == 0 then
-        b.meter:SetText(grey("No answers yet"))
+        f.meter:SetText(dim("No answers yet"))
     else
         local function ri(role) return UI():RoleIconText(role, 13) end
         local total = ("%d of %d"):format(counts.A, size)
-        b.meter:SetText(("%s %d    %s %d    %s %d      %s"):format(ri("tank"), roles.tank, ri("healer"), roles.healer,
+        f.meter:SetText(("%s %d    %s %d    %s %d      %s"):format(ri("tank"), roles.tank, ri("healer"), roles.healer,
             ri("dps"), roles.melee + roles.ranged + roles.nospec,
-            (counts.A >= size and colorize("8fe39d", total) or grey(total))
-            .. (counts.T > 0 and grey(" · " .. counts.T .. " tentative") or "")))
+            (counts.A >= size and S:Wrap("OK", total) or dim(total))
+            .. (counts.T > 0 and dim(" · " .. counts.T .. " tentative") or "")))
     end
     local tip = { "Answers" }
     local roleParts = {}
     for _, r in ipairs({ { "tank", "tank" }, { "healer", "healer" }, { "melee", "melee" }, { "ranged", "ranged" } }) do
         if roles[r[1]] > 0 then roleParts[#roleParts + 1] = plural(roles[r[1]], r[2]) end
     end
-    tip[#tip + 1] = colorize(STATUS.A.color, counts.A .. " accepted") .. (#roleParts > 0 and grey(": " .. tconcat(roleParts, ", ")) or "")
-    if roles.nospec > 0 then tip[#tip + 1] = colorize(C_NEED, roles.nospec .. " accepted without a spec") end
+    tip[#tip + 1] = tint(STATUS.A.color, counts.A .. " accepted") .. (#roleParts > 0 and dim(": " .. tconcat(roleParts, ", ")) or "")
+    if roles.nospec > 0 then tip[#tip + 1] = tint(C_NEED, roles.nospec .. " accepted without a spec") end
     local others = {}
     for _, st in ipairs({ "T", "B", "X" }) do
-        if counts[st] > 0 then others[#others + 1] = colorize(STATUS[st].color, counts[st] .. " " .. STATUS[st].label:lower()) end
+        if counts[st] > 0 then others[#others + 1] = tint(STATUS[st].color, counts[st] .. " " .. STATUS[st].label:lower()) end
     end
-    if #others > 0 then tip[#tip + 1] = tconcat(others, grey(" · ")) end
+    if #others > 0 then tip[#tip + 1] = tconcat(others, dim(" · ")) end
     if #noAnswer > 0 then
-        tip[#tip + 1] = colorize(C_NEED, #noAnswer .. " invited, no response")
+        tip[#tip + 1] = tint(C_NEED, #noAnswer .. " invited, no response")
         tip[#tip + 1] = namesLine(noAnswer)
     end
-    b.meterHit.tip = tip
-    b.onClick = function() openRaid(id) end
+    f.meterHit.tip = tip
+    f.onClick = function() openRaid(id) end
 
     -- the foot's second line: my BiS picks (left), the readiness (right, organizers)
-    local bisW = fillBisLine(b, drops)
+    local bisW = fillBisLine(f, drops)
     if readyFor then
-        fillReadiness(b, v, ctx, INNER_W - 2 * IN - (bisW > 0 and (bisW + 24) or 0))
+        fillReadiness(f, v, ctx, INNER_W - 2 * BX - (bisW > 0 and (bisW + 24) or 0))
     else
-        b.ready:Hide()
+        f.ready:Hide()
     end
 end
 
@@ -1721,7 +1454,7 @@ function refreshBanner(b, ctx)
         if f ~= b.face then f:Hide() end
     end
     b:LayoutStrip()
-    UI():SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], 0.7)
+    paintHover(b, b:IsMouseOver())
 end
 
 ---------------------------------------------------------------------------
@@ -1766,7 +1499,7 @@ end
 -- A dungeon run's status: mine, I'm in, else the places still open ("needs healer, 2 DPS" / "full").
 local function runState(run)
     local R = DR()
-    if run.o == Me() then return "your run", "ffd100" end
+    if run.o == Me() then return "your run", "GOLD" end
     if R:IsInRun(run) then return "you're in", STATUS.A.color end
     local open, parts = R:GetOpenRoles(run), {}
     for _, role in ipairs(R.ROLES) do
@@ -1790,7 +1523,7 @@ local function occState(o)
     if st == "cancelled" then return "cancelled", C_PAST end
     if st == "done" then
         local r = E:GetResult(o.id)
-        return (r and r.champ) and ("won by " .. shortName(r.champ)) or "over", C_PAST
+        return (r and r.champ) and ("won by " .. nameOf(r.champ)) or "over", C_PAST
     end
     if st == "missed" then return "didn't run", C_PAST end
     if E:IsSignedUp(o.id) then return "you're signed up", C_EVENT end
@@ -1861,7 +1594,7 @@ end
 local function eventTip(ev)
     if ev.run then
         local tip = ns.DungeonsUI and ns.DungeonsUI.GetRunTip and ns.DungeonsUI:GetRunTip(ev.run) or { ev.name }
-        tip[#tip + 1] = grey("Click to open it in the Dungeons tab")
+        tip[#tip + 1] = dim("Click to open it in the Dungeons tab")
         return tip
     end
     if ev.occ then
@@ -1870,14 +1603,14 @@ local function eventTip(ev)
         local when = date("%A %d %B %H:%M", o.at)
         if o.at >= Now() then when = when .. " · " .. whenText(o.at) end
         tip[#tip + 1] = when
-        local sub = { "hosted by " .. shortName(E:HostOf(o) or "?") }
+        local sub = { "hosted by " .. nameOf(E:HostOf(o) or "?") }
         if o.where and o.where ~= "" then sub[#sub + 1] = o.where end
         if o.ranked then sub[#sub + 1] = "ranked" end
-        tip[#tip + 1] = grey(tconcat(sub, " · "))
+        tip[#tip + 1] = dim(tconcat(sub, " · "))
         local label, color = occState(o)
-        tip[#tip + 1] = colorize(color, label)
-        if o.note and o.note ~= "" then tip[#tip + 1] = grey("\"" .. o.note .. "\"") end
-        tip[#tip + 1] = grey("Click to open it in the Events tab")
+        tip[#tip + 1] = tint(color, label)
+        if o.note and o.note ~= "" then tip[#tip + 1] = dim("\"" .. o.note .. "\"") end
+        tip[#tip + 1] = dim("Click to open it in the Events tab")
         return tip
     end
     local v, rec = ev.v, ev.rec
@@ -1890,19 +1623,19 @@ local function eventTip(ev)
         local teams = teamsText(v)
         if teams then sub[#sub + 1] = teams end
         if v.weekly then sub[#sub + 1] = "weekly" end
-        tip[#tip + 1] = grey(tconcat(sub, " · "))
+        tip[#tip + 1] = dim(tconcat(sub, " · "))
         if v.cancelled then
-            tip[#tip + 1] = colorize("ff5555", "Cancelled")
+            tip[#tip + 1] = tint("BAD", "Cancelled")
         else
             local _, counts = signupCounts(v)
-            local parts = { colorize(STATUS.A.color, counts.A .. " accepted") }
-            if counts.T > 0 then parts[#parts + 1] = colorize(STATUS.T.color, counts.T .. " tentative") end
-            if counts.B > 0 then parts[#parts + 1] = colorize(STATUS.B.color, counts.B .. " bench") end
+            local parts = { tint(STATUS.A.color, counts.A .. " accepted") }
+            if counts.T > 0 then parts[#parts + 1] = tint(STATUS.T.color, counts.T .. " tentative") end
+            if counts.B > 0 then parts[#parts + 1] = tint(STATUS.B.color, counts.B .. " bench") end
             tip[#tip + 1] = tconcat(parts, " · ")
             local label, color = answerState(v)
-            tip[#tip + 1] = "Your answer: " .. colorize(color, label)
+            tip[#tip + 1] = "Your answer: " .. tint(color, label)
         end
-        if v.no and v.no ~= "" then tip[#tip + 1] = grey("\"" .. v.no .. "\"") end
+        if v.no and v.no ~= "" then tip[#tip + 1] = dim("\"" .. v.no .. "\"") end
     elseif rec then
         tip[#tip + 1] = date("%A %d %B %H:%M", rec.start)
     end
@@ -1916,15 +1649,15 @@ local function eventTip(ev)
         if #mine > 0 then
             tip[#tip + 1] = "Your loot:"
             for i, t in ipairs(mine) do
-                if i > 8 then tip[#tip + 1] = grey("+" .. (#mine - 8) .. " more") break end
+                if i > 8 then tip[#tip + 1] = dim("+" .. (#mine - 8) .. " more") break end
                 tip[#tip + 1] = "  " .. t
             end
         end
     end
     if rec and seesRaidLog() then
-        tip[#tip + 1] = grey("Click to open it in the Raid log")
+        tip[#tip + 1] = dim("Click to open it in the Raid log")
     elseif v then
-        tip[#tip + 1] = grey("Click to open it in the Raids tab")
+        tip[#tip + 1] = dim("Click to open it in the Raids tab")
     end
     return tip
 end
@@ -1957,28 +1690,20 @@ local function eventLines(ev, withDay)
     if withDay then when = shortDay(ev.t) .. " · " .. when end
     if ev.run then
         return ev.name .. (ev.run.h and (" " .. HEROIC_ICON) or ""),
-               grey(when .. " · " .. shortName(ev.run.o) .. " · ") .. colorize(color, label)
+               dim(when .. " · " .. nameOf(ev.run.o) .. " · ") .. tint(color, label)
     end
     if ev.occ then
-        local host = shortName(EV():HostOf(ev.occ) or "?")
-        return label == "cancelled" and grey(ev.name) or ev.name,
-               grey(when .. " · " .. host .. " · ") .. colorize(color, label)
+        local host = nameOf(EV():HostOf(ev.occ) or "?")
+        return label == "cancelled" and dim(ev.name) or ev.name,
+               dim(when .. " · " .. host .. " · ") .. tint(color, label)
     end
     local name = ev.name
-    if ev.v and ev.v.cancelled then name = grey(name) end
-    local status = colorize(color, label)
+    if ev.v and ev.v.cancelled then name = dim(name) end
+    local status = tint(color, label)
     if ev.rec and not running(ev.rec) then
-        status = grey(label .. " · " .. duration(endOf(ev.rec) - ev.rec.start))
+        status = dim(label .. " · " .. duration(endOf(ev.rec) - ev.rec.start))
     end
-    return name, grey(when .. " · ") .. status
-end
-
-local function Row_OnEnter(self)
-    if self.itemID then
-        UI():SetItemTooltip(self, self.itemID)
-    elseif self.tip then
-        showTip(self, self.tip)
-    end
+    return name, dim(when .. " · ") .. status
 end
 
 local function Row_OnClick(self)
@@ -1986,68 +1711,55 @@ local function Row_OnClick(self)
     if self.onClick then self.onClick() end
 end
 
+-- An agenda row: the shared art row (the event's place as its picture), or a line alone ("Nothing planned.",
+-- "+3 more"). r.l1 / r.l2 = its two lines, r.thumb = its picture.
 local function newAgendaRow(card)
-    local r = CreateFrame("Button", nil, card)
-    r:SetHeight(THUMB_H)
-    r.thumb = r:CreateTexture(nil, "ARTWORK", nil, 0)
-    r.thumb:SetSize(THUMB_W, THUMB_H)
-    r.thumb:SetPoint("LEFT", 0, 0)
-    r.fade = r:CreateTexture(nil, "ARTWORK", nil, 1)
-    r.fade:SetPoint("TOPRIGHT", r.thumb, "TOPRIGHT")
-    r.fade:SetPoint("BOTTOMRIGHT", r.thumb, "BOTTOMRIGHT")
-    r.fade:SetWidth(floor(THUMB_W * 0.45))
-    gradient(r.fade, "HORIZONTAL", PANEL_BG, 0, 1)
-    r.l1 = text(r, 12, "GameFontHighlight")
-    r.l2 = text(r, 11, "GameFontHighlightSmall")
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.06)
-    r:SetScript("OnEnter", Row_OnEnter)
-    r:SetScript("OnLeave", hideTip)
-    r:SetScript("OnClick", Row_OnClick)
-    return r
-end
-
--- Sets a text that may take a second line (never "..."); true when it does. The wrap is set before the text: the
--- game keeps the layout it made when the text was set.
-local function setLines(fs, s, width)
-    fs:SetWidth(width)
-    fs:SetWordWrap(true)
-    if fs.SetMaxLines then fs:SetMaxLines(2) end
-    fs:SetText(s or "")
-    return strW(fs) > width
-end
-
--- Fills an agenda row: { l1, l2, ev (its art), tip, onClick, past }; returns its height. A line too long for the row
--- takes two (the row grows).
-local function fillAgendaRow(r, d, width)
-    local thumb = d.ev and true or false
-    local x = thumb and (THUMB_W + 8) or 0
-    local textW = width - x
-    r.thumb:SetShown(thumb)
-    r.fade:SetShown(thumb)
-    if thumb then
-        local file, l, rr, t, b = eventArt(d.ev, THUMB_W, THUMB_H)
-        if file then
-            r.thumb:SetTexture(file)
-            r.thumb:SetTexCoord(l, rr, t, b)
-        else
-            r.thumb:SetColorTexture(0.15, 0.15, 0.17, 1)
+    local r = UI():CreateArtRow(card, { width = AGENDA_W })
+    r.l1, r.l2, r.thumb = r.title, r.sub, r.art.tex
+    -- (a status too long for the narrow column takes a second line instead of being cut)
+    -- TODO(refactor): move into UI:CreateArtRow (opts.wrapSub: the second line wraps to two lines)
+    local fit = r.FitTitle
+    function r:FitTitle()
+        fit(self)
+        self.sub:SetWordWrap(self.wrapSub and true or false)
+        if self.sub.SetMaxLines then self.sub:SetMaxLines(self.wrapSub and 2 or 1) end
+        if self.wrapSub then
+            self.sub:SetWidth(max(20, (self:GetWidth() or 0) - self.textX - 8))
+            self.sub:SetText(self.subText or "")
         end
-        r.thumb:SetDesaturated(d.past and true or false)
-        r.thumb:SetAlpha(d.past and 0.6 or 1)
     end
-    local tall = setLines(r.l1, d.l1, textW)
-    local tall2 = setLines(r.l2, d.l2, textW)
-    local hasL2 = (d.l2 or "") ~= ""
-    local textH = (tall and 30 or 15) + (hasL2 and (tall2 and 28 or 14) or 0)
-    local h = max(thumb and THUMB_H or 15, textH)
-    -- (a size of its own: a frame anchored by one corner has none, and the game draws nothing of it)
-    r:SetSize(width, h)
-    r.l1:ClearAllPoints()
-    r.l1:SetPoint("TOPLEFT", x, -floor((h - textH) / 2))
-    r.l2:ClearAllPoints()
-    r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -1)
+    r:SetScript("OnClick", Row_OnClick)
+    return attachTip(r, "ANCHOR_RIGHT")
+end
+
+-- Fills an agenda row: { l1, l2, ev (its art), tip, onClick, past }; returns its height.
+local function fillAgendaRow(r, d, width)
+    local ev = d.ev
+    local textX = ev and (r.art:GetWidth() + 2 + 14) or 2
+    r.wrapSub = ev ~= nil and (d.l2 or "") ~= "" and UI():TextWidth(d.l2, "body") > width - textX - 8
+    r:SetWidth(width)
+    r:SetData({ art = ev and function(tex, w, h)
+                    local file, l, rr, t, b = eventArt(ev, w, h)
+                    if file then
+                        tex:SetTexture(file)
+                        tex:SetTexCoord(l, rr, t, b)
+                    else
+                        tex:SetColorTexture(S:Color("INSET"))
+                    end
+                end or nil,
+                title = d.l1 or "", sub = (d.l2 or "") ~= "" and d.l2 or nil })
+    r.art:SetShown(ev ~= nil)
+    r.art.tex:SetDesaturated(d.past and true or false)
+    r.art:SetAlpha(d.past and 0.6 or 1)
+    local h = ev and (S.ROW.art + (r.wrapSub and 12 or 0)) or S.ROW.compact
+    r:SetHeight(h)
+    r.textX = textX
+    if not ev then
+        -- (a line alone starts at the row's left)
+        r.title:ClearAllPoints()
+        r.title:SetPoint("LEFT", r, "LEFT", 2, 0)
+    end
+    r:FitTitle()
     r.tip, r.onClick = d.tip, d.onClick
     r:EnableMouse((d.tip or d.onClick) and true or false)
     return h
@@ -2071,7 +1783,7 @@ local function layoutRows(card, pool, items, y, bottom, width, more)
         end
         local h = fillAgendaRow(r, d, width)
         local last = false
-        if i < #items and more and y + h + ROW_GAP + THUMB_H > bottom then
+        if i < #items and more and y + h + ROW_GAP + S.ROW.art > bottom then
             -- no room for another row after this one: this one says what else there is
             h = fillAgendaRow(r, more(i), width)
             last = true
@@ -2098,7 +1810,7 @@ local function refreshCalendar(card, ctx)
     local ty, tm = dayOf(now)
     local y, m = cal.y or ty, cal.m or tm
     local picked = cal.day or today
-    card.title:SetText(date("%B %Y", noon(y, m, 1)))
+    card.head:SetTitle(date("%B %Y", noon(y, m, 1)))
     -- the 6 weeks around the month, Monday first
     local lead = (date("*t", noon(y, m, 1)).wday + 5) % 7
     local from = midnight(y, m, 1 - lead)
@@ -2110,7 +1822,6 @@ local function refreshCalendar(card, ctx)
     local days = tonumber(date("%d", midnight(y, m + 1, 1) - 1))
     local weeks = math.ceil((lead + days) / 7)
     local rowH = min(CELL_H, floor((H - GRID_Y - 10) / weeks))
-    local pr, pg, pb = hexRGB(C_PAST)
     for i, c in ipairs(card.cells) do
         local row = floor((i - 1) / 7)
         c:ClearAllPoints()
@@ -2124,13 +1835,12 @@ local function refreshCalendar(card, ctx)
         local inMonth = cm == m
         -- today: a gold disc; the picked day: a soft one
         if key == today then
-            c.disc:SetVertexColor(1, 0.82, 0, 1)
+            c.disc:SetVertexColor(S:Color("GOLD"))
             c.num:SetTextColor(0.09, 0.07, 0.02)
             c.num:SetShadowOffset(0, 0)
         else
             c.disc:SetVertexColor(1, 1, 1, 0.14)
-            local shade = (key == picked and 1) or (inMonth and 0.86) or 0.3
-            c.num:SetTextColor(shade, shade, shade)
+            c.num:SetTextColor(S:Color((key == picked or inMonth) and "TEXT" or "DIM"))
             c.num:SetShadowOffset(1, -1)
         end
         c.disc:SetShown(key == today or key == picked)
@@ -2140,9 +1850,10 @@ local function refreshCalendar(card, ctx)
             if j <= n then
                 if inMonth then
                     local _, color = eventState(list[j])
-                    dot:SetVertexColor(hexRGB(color))
+                    dot:SetVertexColor(S:Color(color))
                 else
-                    dot:SetVertexColor(pr, pg, pb, 0.6)
+                    local r, g, b = S:Color(C_PAST)
+                    dot:SetVertexColor(r, g, b, 0.6)
                 end
                 dot:ClearAllPoints()
                 dot:SetPoint("CENTER", c, "TOP", (j - (n + 1) / 2) * 7, -(DISC_Y + DISC / 2 + 5))
@@ -2158,8 +1869,8 @@ local function refreshCalendar(card, ctx)
     card.nextMonth:SetShown(midnight(y, m + 1, 1) <= now + CAL_AHEAD)
     card.todayBtn:SetShown(picked ~= today or y ~= ty or m ~= tm)
 
-    local bottom = H - 10
-    local width = CAL_W - AGENDA_X - 10
+    local bottom = H - S.IN
+    local width = AGENDA_W
 
     -- the raids coming up (not the banner's week, not the picked day's): what the old Later raids card listed
     local onBanner = {}
@@ -2175,7 +1886,7 @@ local function refreshCalendar(card, ctx)
     end
 
     -- the picked day
-    card.dayTitle:SetText(dayTitle(picked))
+    card.dayHead:SetTitle(dayTitle(picked))
     local items = {}
     for _, ev in ipairs(byDay[picked] or {}) do
         local l1, l2 = eventLines(ev)
@@ -2184,101 +1895,76 @@ local function refreshCalendar(card, ctx)
                               tip = eventTip(ev), onClick = eventClick(ev) }
     end
     if #items == 0 then
-        items[1] = { l1 = grey(picked < today and "Nothing that day." or "Nothing planned.") }
+        items[1] = { l1 = dim(picked < today and "Nothing that day." or "Nothing planned.") }
     end
-    -- the day's rows leave room for the coming-up title and one raid under it
-    local dayBottom = bottom - (#coming > 0 and (8 + 14 + 6 + THUMB_H) or 0)
-    local yy = layoutRows(card, card.agenda, items, GRID_Y + 2, dayBottom, width, function(i)
+    -- the day's rows leave room for the coming-up header and one raid under it
+    local headY = HEAD_H + 6
+    local dayBottom = bottom - (#coming > 0 and (S.GAP + 18 + 4 + S.ROW.art) or 0)
+    local yy = layoutRows(card, card.agenda, items, headY + 24 + 4, dayBottom, width, function(i)
         local names = { "More that day" }
         for j = i, #items do names[#names + 1] = items[j].plain or "" end
-        return { l1 = grey("+" .. (#items - i + 1) .. " more"), tip = names }
+        return { l1 = dim("+" .. (#items - i + 1) .. " more"), tip = names }
     end)
 
-    -- what's coming (a link to the rest on its title's row when they don't all fit)
-    card.comingTitle:SetShown(#coming > 0)
-    local titleY = yy - ROW_GAP + 10
+    -- what's coming (its header links to the rest when they don't all fit)
+    local ch = card.comingHead
+    ch:SetShown(#coming > 0)
+    local titleY = yy - ROW_GAP + S.GAP
     if #coming > 0 then
-        card.comingTitle:ClearAllPoints()
-        card.comingTitle:SetPoint("TOPLEFT", AGENDA_X, -titleY)
-        yy = titleY + 14 + 6
+        ch:ClearAllPoints()
+        ch:SetPoint("TOPLEFT", card, "TOPLEFT", AGENDA_X, -titleY)
+        yy = titleY + 18 + 4
     end
     local _, usedComing = layoutRows(card, card.coming, coming, yy, bottom, width, nil)
     local hidden = #coming - usedComing
     if #coming > 0 and hidden > 0 then
         local lines = { "Also coming" }
         for i = usedComing + 1, #coming do lines[#lines + 1] = coming[i].plain end
-        lines[#lines + 1] = grey("Click to open the Raids tab")
-        card.comingMore:SetLabel(hidden .. " more")
+        lines[#lines + 1] = dim("Click to open the Raids tab")
+        ch:SetAction({ text = hidden .. " more", onClick = function() openRaid(nil) end })
+        card.comingMore = ch.action
         card.comingMore.tip = lines
-        card.comingMore:ClearAllPoints()
-        card.comingMore:SetPoint("RIGHT", card, "TOPRIGHT", -10, -(titleY + 6))
-        card.comingMore:Show()
+        attachTip(card.comingMore, "ANCHOR_TOP")
     else
-        card.comingMore:Hide()
+        ch:SetAction(nil)
+        card.comingMore = nil
     end
 end
 
-local function createCalendar(p)
-    local cc = CreateFrame("Frame", nil, p)
-    cc:SetPoint("TOPLEFT", PAD, -LOWER_Y)
-    cc:SetPoint("BOTTOMLEFT", PAD, PAD)
-    cc:SetWidth(CAL_W)
-    flatBox(cc)
+local function createCalendar(p, body)
+    local cc = UI():CreateCard(body, { pad = 0 })
+    cc:SetAllPoints(body)
     p.calCard = cc
     cc.agenda, cc.coming = {}, {}
-    cc.title = text(cc, 13, "GameFontNormal")
-    cc.title:SetPoint("LEFT", cc, "TOPLEFT", 10, -HEAD_H / 2)
-    local rule = cc:CreateTexture(nil, "ARTWORK")
-    rule:SetColorTexture(1, 1, 1, 0.07)
-    rule:SetHeight(1)
-    rule:SetPoint("TOPLEFT", 1, -HEAD_H)
-    rule:SetPoint("TOPRIGHT", -1, -HEAD_H)
-    -- the months: flat chevrons, gold on hover
-    local function arrow(dir, delta)
-        local b = CreateFrame("Button", nil, cc)
-        b:SetSize(20, 20)
-        b.icon = b:CreateTexture(nil, "ARTWORK")
-        b.icon:SetSize(10, 10)
-        b.icon:SetPoint("CENTER")
-        chevron(b.icon, dir)
-        b.icon:SetVertexColor(0.74, 0.74, 0.74)
-        b:SetScript("OnClick", function()
+    -- the month and its arrows (and the way back to today)
+    cc.head = UI():CreateSectionHeader(cc, "", { style = "title" })
+    cc.head:SetPoint("TOPLEFT", S.IN, -4)
+    cc.head:SetPoint("TOPRIGHT", -S.IN, -4)
+    cc.title = cc.head.title
+    local function month(delta)
+        return function()
             local ty, tm = dayOf(Now())
             local t = date("*t", noon(cal.y or ty, (cal.m or tm) + delta, 1))
             cal.y, cal.m = t.year, t.month
             Dashboard:Refresh()
-        end)
-        b:SetScript("OnEnter", function(self)
-            self.icon:SetVertexColor(1, 0.82, 0)
-            showTip(self, { delta < 0 and "Previous month" or "Next month" }, "ANCHOR_TOP")
-        end)
-        b:SetScript("OnLeave", function(self)
-            self.icon:SetVertexColor(0.74, 0.74, 0.74)
-            hideTip()
-        end)
-        return b
+        end
     end
-    cc.nextMonth = arrow("right", 1)
-    cc.nextMonth:SetPoint("RIGHT", cc, "TOPRIGHT", -6, -HEAD_H / 2)
-    cc.prevMonth = arrow("left", -1)
-    cc.prevMonth:SetPoint("RIGHT", cc, "TOPRIGHT", -6 - 20 - 2, -HEAD_H / 2)
-    cc.todayBtn = newLink(cc, "Today", function()
+    cc.nextMonth = UI():CreateArrowButton(cc.head, true, 20, 20, month(1))
+    cc.nextMonth:SetPoint("RIGHT", cc.head, "RIGHT", 0, 1)
+    UI():AttachTooltip(cc.nextMonth, "Next month", nil, { anchor = "ANCHOR_TOP" })
+    cc.prevMonth = UI():CreateArrowButton(cc.head, false, 20, 20, month(-1))
+    cc.prevMonth:SetPoint("RIGHT", cc.nextMonth, "LEFT", -2, 0)
+    UI():AttachTooltip(cc.prevMonth, "Previous month", nil, { anchor = "ANCHOR_TOP" })
+    cc.todayBtn = UI():CreateBackLink(cc.head, "Today", function()
         cal = {}
         Dashboard:Refresh()
     end)
-    cc.todayBtn.chev:Hide()
-    cc.todayBtn:SetPoint("RIGHT", cc, "TOPRIGHT", -6 - 42 - 10, -HEAD_H / 2)
-    local line = cc:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(1, 1, 1, 0.06)
-    line:SetWidth(1)
-    line:SetPoint("TOPLEFT", RULE_X, -(HEAD_H + 10))
-    line:SetPoint("BOTTOMLEFT", RULE_X, 10)
+    cc.todayBtn:SetPoint("RIGHT", cc.prevMonth, "LEFT", -10, 0)
+    -- the line between the month and the day's list
+    UI():Rule(cc, { vertical = true, left = RULE_X, top = HEAD_H + 10, bottom = S.PAD })
     for i, letter in ipairs(WEEKDAYS) do
-        local fs = text(cc, 10, "GameFontHighlightSmall")
-        fs:SetTextColor(0.5, 0.5, 0.5)
+        local fs = UI():Text(cc, "small", "DIM", { justify = "CENTER", width = CELL_W })
         fs:SetPoint("TOPLEFT", GRID_X + (i - 1) * CELL_W, -(HEAD_H + 8))
-        fs:SetWidth(CELL_W)
-        fs:SetJustifyH("CENTER")
         fs:SetText(letter)
     end
     cc.cells = {}
@@ -2295,10 +1981,8 @@ local function createCalendar(p)
         hl:SetTexture(DISC_TEX)
         hl:SetSize(DISC, DISC)
         hl:SetPoint("CENTER", c, "TOP", 0, -DISC_Y)
-        hl:SetVertexColor(1, 1, 1, 0.08)
-        c.num = text(c, 12, "GameFontHighlight")
-        c.num:SetJustifyH("CENTER")
-        c.num:SetShadowOffset(1, -1)
+        hl:SetVertexColor(S:Color("HOVER"))
+        c.num = UI():Text(c, "emph", "TEXT", { justify = "CENTER", shadow = true })
         c.num:SetPoint("CENTER", c, "TOP", 0, -DISC_Y)
         c.dots = {}
         for j = 1, MAX_DOTS do
@@ -2309,68 +1993,61 @@ local function createCalendar(p)
             c.dots[j] = dot
         end
         c:SetScript("OnClick", function(self) if self.key then showDay(self.key) end end)
-        c:SetScript("OnEnter", function(self)
-            if not (self.events and #self.events > 0) then return end
-            local lines = { dayTitle(self.key) }
-            for _, ev in ipairs(self.events) do
+        c.tip = function()
+            if not (c.events and #c.events > 0) then return nil end
+            local lines = { dayTitle(c.key) }
+            for _, ev in ipairs(c.events) do
                 local label, color = eventState(ev)
-                lines[#lines + 1] = date("%H:%M ", ev.t) .. ev.name .. " · " .. colorize(color, label)
+                lines[#lines + 1] = date("%H:%M ", ev.t) .. ev.name .. " · " .. tint(color, label)
             end
-            showTip(self, lines)
-        end)
-        c:SetScript("OnLeave", hideTip)
+            return lines
+        end
+        attachTip(c, "ANCHOR_RIGHT")
         cc.cells[i] = c
     end
-    cc.dayTitle = text(cc, 12, "GameFontHighlight")
-    cc.dayTitle:SetPoint("TOPLEFT", AGENDA_X, -(HEAD_H + 7))
-    cc.comingTitle = text(cc, 11, "GameFontHighlightSmall")
-    cc.comingTitle:SetTextColor(0.62, 0.62, 0.62)
-    cc.comingTitle:SetText("Coming up")
-    cc.comingMore = newLink(cc, "1 more", function() openRaid(nil) end)
+    -- the picked day, then the raids coming up
+    cc.dayHead = UI():CreateSectionHeader(cc, "", { style = "title", width = AGENDA_W })
+    cc.dayHead:SetPoint("TOPLEFT", AGENDA_X, -(HEAD_H + 6))
+    cc.dayTitle = cc.dayHead.title
+    cc.comingHead = UI():CreateSectionHeader(cc, "Coming up", { style = "caps", width = AGENDA_W })
+    cc.comingHead:Hide()
 end
 
 ---------------------------------------------------------------------------
--- Loot: the newest awards (the council: everyone's, with the way to the Loot log; a raider: their own)
+-- Loot: the newest awards (the council: everyone's, with the way to the Loot log; a raider: their own), in the
+-- board's side card
 ---------------------------------------------------------------------------
+
+local LOOT_ROW_H = S.ROW.rich
+local LOOT_ICON = 26
 
 local function newLootRow(card)
     local r = CreateFrame("Button", nil, card)
     r:SetHeight(LOOT_ROW_H)
-    r.iconFrame = CreateFrame("Frame", nil, r)
-    r.iconFrame:SetSize(26, 26)
-    r.iconFrame:SetPoint("LEFT", 10, 0)
-    r.icon = r.iconFrame:CreateTexture(nil, "ARTWORK")
-    r.icon:SetAllPoints()
-    r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    UI():AddEdges(r.iconFrame, "OVERLAY")
-    r.l1 = text(r, 12, "GameFontHighlight")
-    r.l1:SetPoint("TOPLEFT", 10 + 26 + 9, -4)
-    r.l1:SetPoint("RIGHT", -10, 0)
-    r.l2 = text(r, 11, "GameFontHighlightSmall")
-    r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -2)
-    r.ago = text(r, 11, "GameFontHighlightSmall")
-    r.ago:SetTextColor(0.62, 0.62, 0.62)
-    r.ago:SetJustifyH("RIGHT")
-    r.ago:SetPoint("TOPRIGHT", r.l1, "BOTTOMRIGHT", 0, -2)
+    UI():DecorateRow(r, { rule = true })
+    r.iconFrame = UI():CreateIconTile(r, LOOT_ICON)
+    r.iconFrame:SetPoint("LEFT", S.IN + 2, 0)
+    r.icon = r.iconFrame.tex
+    r.l1 = UI():Text(r, "emph")
+    r.l1:SetPoint("TOPLEFT", S.IN + 2 + LOOT_ICON + 9, -4)
+    r.l1:SetPoint("RIGHT", -S.IN, 0)
+    r.l2 = UI():Text(r, "body")
+    r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -3)
+    r.ago = UI():Text(r, "body", "SUB", { justify = "RIGHT" })
+    r.ago:SetPoint("TOPRIGHT", r.l1, "BOTTOMRIGHT", 0, -3)
     r.l2:SetPoint("RIGHT", r.ago, "LEFT", -6, 0)
-    r.rule = r:CreateTexture(nil, "ARTWORK")
-    r.rule:SetColorTexture(1, 1, 1, 0.045)
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("BOTTOMLEFT", 1, 0)
-    r.rule:SetPoint("BOTTOMRIGHT", -1, 0)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.06)
-    r:SetScript("OnEnter", Row_OnEnter)
-    r:SetScript("OnLeave", hideTip)
+    r.rule = r.dzRule
     r:SetScript("OnClick", Row_OnClick)
+    r:SetScript("OnEnter", function(self) if self.itemID then UI():SetItemTooltip(self, self.itemID) end end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return r
 end
 
 local function refreshLoot(card)
     local L = ns.Ledger
     local council = isCouncil() or isDemo()
-    card.link:SetShown(council)
+    card.head:SetAction(council and { text = "Loot log", onClick = function() openTab("loot") end } or nil)
+    card.link = card.head.action
     local entries = {}
     if L then
         if council then
@@ -2379,10 +2056,10 @@ local function refreshLoot(card)
             entries = L:GetEntries({ player = Me() })
         end
     end
-    card.title:SetText(council and "Recent loot" or "Your loot")
+    card.head:SetTitle(council and "Recent loot" or "Your loot")
     local H = card:GetHeight()
     if not H or H < 100 then H = LOWER_H end
-    local fit = floor((H - HEAD_H - 1) / LOOT_ROW_H)
+    local fit = floor((H - HEAD_H - 4) / LOOT_ROW_H)
     local n = min(#entries, fit)
     for i = 1, max(n, #card.rows) do
         local r = card.rows[i]
@@ -2393,32 +2070,31 @@ local function refreshLoot(card)
                 card.rows[i] = r
             end
             r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", 0, -(HEAD_H + 1 + (i - 1) * LOOT_ROW_H))
-            r:SetPoint("TOPRIGHT", 0, -(HEAD_H + 1 + (i - 1) * LOOT_ROW_H))
-            local icon = ns.ItemDB and ns.ItemDB:GetIcon(e.i)
-            r.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            r:SetPoint("TOPLEFT", 0, -(HEAD_H + 2 + (i - 1) * LOOT_ROW_H))
+            r:SetPoint("TOPRIGHT", 0, -(HEAD_H + 2 + (i - 1) * LOOT_ROW_H))
+            r.icon:SetTexture(UI():ItemIcon(e.i))
             local q = ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(e.i)
             local qr, qg, qb = UI():QualityColor(q)
-            UI():SetEdgeColor(r.iconFrame, qr, qg, qb, q and 0.85 or 0.4)
+            r.iconFrame.outer:SetColorTexture(qr, qg, qb, q and 0.85 or 0.4)
             r.l1:SetText(UI():ItemText(e.i))
-            setSize(r.l1, 12)
-            if strW(r.l1) > LOOT_W - 45 - 10 then setSize(r.l1, 11) end
+            UI():SetTextStyle(r.l1, "emph")
+            if UI():TextWidth(r.l1) > LOOT_W - 45 - 10 then UI():SetTextStyle(r.l1, "body") end
             -- who (the council) or where from (my own), and why; a disenchant / bank award says only that
             local reason = e.r and REASON[e.r]
-            local why = reason and colorize(reason[2], reason[1]) or nil
+            local why = reason and tint(reason[2], reason[1]) or nil
             local l2
             if reason and (e.r == "de" or e.r == "bank") then
                 l2 = why
             elseif council then
-                l2 = ((e.w == Me()) and colorize(STATUS.A.color, "You") or UI():ColoredName(e.w))
-                    .. (why and (grey(" · ") .. why) or "")
+                l2 = ((e.w == Me()) and tint(STATUS.A.color, "You") or UI():ColoredName(e.w))
+                    .. (why and (dim(" · ") .. why) or "")
             else
                 local ref = ns.ItemDB and ns.ItemDB.GetBossRef and ns.ItemDB:GetBossRef(e.b)
                 local boss = ref and ref.boss and (ref.boss.isTrash and "Trash" or ref.boss.name)
                 local parts = {}
                 if why then parts[#parts + 1] = why end
-                if boss then parts[#parts + 1] = grey(boss) end
-                l2 = tconcat(parts, grey(" · "))
+                if boss then parts[#parts + 1] = dim(boss) end
+                l2 = tconcat(parts, dim(" · "))
             end
             r.l2:SetText(l2 or "")
             r.ago:SetText(agoText(e.ts))
@@ -2430,30 +2106,22 @@ local function refreshLoot(card)
             r.itemID = nil
         end
     end
+    card.empty:SetContent({ glyph = UI().ICON.bag, title = council and "No awards yet" or "No loot yet",
+                            text = council and "No awards recorded yet." or "No loot awarded to you yet." })
     card.empty:SetShown(n == 0)
-    card.empty:SetText(council and "No awards recorded yet." or "No loot awarded to you yet.")
 end
 
-local function createLoot(p)
-    local lc = CreateFrame("Frame", nil, p)
-    lc:SetPoint("TOPRIGHT", -PAD, -LOWER_Y)
-    lc:SetPoint("BOTTOMRIGHT", -PAD, PAD)
-    lc:SetWidth(LOOT_W)
-    flatBox(lc)
+local function createLoot(p, side)
+    local lc = side
     p.lootCard = lc
     lc.rows = {}
-    lc.title = text(lc, 13, "GameFontNormal")
-    lc.title:SetPoint("LEFT", lc, "TOPLEFT", 10, -HEAD_H / 2)
-    local rule = lc:CreateTexture(nil, "ARTWORK")
-    rule:SetColorTexture(1, 1, 1, 0.07)
-    rule:SetHeight(1)
-    rule:SetPoint("TOPLEFT", 1, -HEAD_H)
-    rule:SetPoint("TOPRIGHT", -1, -HEAD_H)
-    lc.link = newLink(lc, "Loot log", function() openTab("loot") end)
-    lc.link:SetPoint("RIGHT", lc, "TOPRIGHT", -10, -HEAD_H / 2)
-    lc.empty = text(lc, 12, "GameFontHighlight")
-    lc.empty:SetTextColor(0.55, 0.55, 0.55)
-    lc.empty:SetPoint("TOPLEFT", 10, -(HEAD_H + 12))
+    lc.head = UI():CreateSectionHeader(lc, "Recent loot", { style = "title" })
+    lc.head:SetPoint("TOPLEFT", S.IN, -4)
+    lc.head:SetPoint("TOPRIGHT", -S.IN, -4)
+    lc.title = lc.head.title
+    lc.empty = UI():CreateEmptyState(lc, { compact = true, glyph = UI().ICON.bag })
+    lc.empty:SetBoxWidth(LOOT_W - 40)
+    lc.empty:SetPoint("TOP", lc, "TOP", 0, -(HEAD_H + 40))
 end
 
 ---------------------------------------------------------------------------
@@ -2487,6 +2155,7 @@ local function buildContext()
     return ctx
 end
 
+
 function Dashboard:Refresh()
     if not panel or not panel:IsVisible() then
         if panel then panel.dirty = true end
@@ -2510,17 +2179,21 @@ function Dashboard:RequestRefresh()
     ns.Util.Debounce("dashboard-refresh", 0.15, function() Dashboard:Refresh() end)
 end
 
+-- The page: a Board (UI:CreateLayout "board"): the greeting and chips in its toolbar, the carousel as its hero, the
+-- calendar in its body and the loot in its side card.
 function Dashboard:CreatePanel(parent)
     if panel then return panel end
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
     panel = p
     p.elapsed, p.dirty = 0, true
-    createHello(p)
-    createBanner(p)
-    createCalendar(p)
-    createLoot(p)
-    -- the lower boxes stretch to the page's bottom: their rows need the real height
+    local L = UI():CreateLayout("board", p, { hero = { size = BANNER_H }, side = LOOT_W })
+    p.layout = L
+    createHello(p, L.toolbar)
+    setupBanner(p, L.banner)
+    createCalendar(p, L.body)
+    createLoot(p, L.side)
+    -- the cards stretch to the page's bottom: their rows need the real height
     p:SetScript("OnSizeChanged", function() Dashboard:RequestRefresh() end)
     p:SetScript("OnShow", function(self)
         if self.dirty then Dashboard:RequestRefresh() end
@@ -2544,7 +2217,8 @@ function Dashboard:Countdown(t) return countdown(t) end
 
 function Dashboard:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("home", "Home", 0.5, function(parent) return Dashboard:CreatePanel(parent) end)
+        ns.MainFrame:RegisterTab("home", "Home", 0.5, function(parent) return Dashboard:CreatePanel(parent) end, nil,
+            { layout = "board" })
     end
     for _, msg in ipairs({
         "RAIDPLAN_CHANGED", "MYLIST_CHANGED", "MYLIST_COMMITTED", "OWNED_UPDATED", "LEDGER_UPDATED", "LIST_UPDATED",
