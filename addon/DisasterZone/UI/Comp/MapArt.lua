@@ -104,6 +104,6 @@ function MapArt.Yards(mapID)
         h = sqrt((x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0))
         if h <= 1 then h = nil end
     end
-    if h then yardCache[map] = { w, h } end          -- (a half answer is asked again next time)
+    yardCache[map] = { w, h }                        -- (as the map sheet's own cache did: a width-only answer too)
     return w, h
 end
