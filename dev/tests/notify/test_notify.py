@@ -311,7 +311,7 @@ def the_notifications_page_has_sections_and_the_handled_list():
     rail = c.eval_py("""
       local out = {}
       for _, b in ipairs(ns.NotifyUI:GetPage().items) do
-        if b:IsShown() then out[#out + 1] = b.fs:GetText() .. '|' .. (b.n:GetText() or '') end
+        if b:IsShown() then out[#out + 1] = b.text:GetText() .. '|' .. (b.count:GetText() or '') end
       end
       return out""")
     assert "Needs you|1" in rail and "Tests|1" in rail and "Handled|1" in rail, rail
