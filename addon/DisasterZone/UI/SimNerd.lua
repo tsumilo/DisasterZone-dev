@@ -9,6 +9,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SimNerd.lua", ...) then return 
 --   Stats & weights  the stats the fight starts with (buffs in), stat weights on demand (extra paired sims)
 --   The run          fights, seed, time, cache, engine, rotation, talents; the best, worst and most typical fight
 -- The numbers come from the sim's metrics (Sim/Character.lua: watched only, never acting on a roll).
+-- A detail page (UI:CreateLayout "detail": strip banner with the back link and Export, the tabs on its foot); the key
+-- numbers on UI:CreateCard, every box a card with a caps section header, tables on the shared row look
+-- (UI:DecorateRow), icons in UI:CreateIconTile. Drawn here: only the charts (histogram, curves, bars, time lines).
 local addonName, ns = ...
 
 local Nerd = {}
@@ -126,11 +129,10 @@ local function KeyName(key)
   return name or tostring(key)
 end
 
+-- an icon in the shared icon tile (UI:CreateIconTile: trimmed, a black frame)
 local function IconTex(parent, size, path)
-  local t = parent:CreateTexture(nil, "ARTWORK")
-  t:SetSize(size, size)
-  t:SetTexture(path or QUESTION)
-  t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  local t = UI:CreateIconTile(parent, size)
+  t.tex:SetTexture(path or QUESTION)
   return t
 end
 

@@ -11,6 +11,11 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SimStage.lua", ...) then return
 --     (UI/SimNerd.lua) and a chip with the settings. The dial stays the button: a click runs again.
 --   Changed: a slot changed since the run: the numbers fade back, the ticks grey, "Run again" in the dial.
 -- Every move eases (the mock's cubic-bezier(.22,.8,.24,1)); one OnUpdate on the stage drives them while it shows.
+-- Shared parts: UI:Text on the type scale, ns.Style tokens, UI:CreateChip (settings), UI:CreateBackLink (Recent
+-- runs), UI:CreateNotice (a spec the sim doesn't cover), UI:CreateSleekButton (Nerd stats). The stage fills the body
+-- of My BiS's Gear sim view (its toolbar is My BiS's). What stays drawn here is the page's own art, not page
+-- structure: the dial (ticks, disc, glow), the settings sentence's underlined words, the running-average line and the
+-- two compare bars (Kit.CmpBar, shared with Recent runs).
 local addonName, ns = ...
 
 local Stage = {}
@@ -1187,14 +1192,18 @@ function Stage:Show(on)
     FinishTweens()
     stage:Hide()
     self.mode = nil
+    self.covered = nil
     if doll then
+      if self.dollCovered then doll:Show() end
       doll:SetAlpha(1)
       for _, tile in pairs(doll.tiles or {}) do tile:SetAlpha(1) end
     end
+    self.dollCovered = nil
     if ns.SimNerd then ns.SimNerd:Close(true) end
     if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
     return
   end
+  if self.covered then return end       -- (under Nerd stats / Recent runs: Cover(false) brings it back)
   local first = not stage:IsShown()
   stage:Show()
   self:Sync(not first)
@@ -1202,6 +1211,11 @@ end
 
 -- Brings the page to what SimPanel's state says (animated unless it just opened).
 function Stage:Sync(animate)
+  -- (a run starting under Nerd stats / Recent runs: they close and the page shows it)
+  if stage and self.covered and Wanted() == "run" then
+    if ns.SimNerd then ns.SimNerd:Close(true) end
+    if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
+  end
   if not stage or not stage:IsShown() then return end
   local want = Wanted()
   if not want then return end
@@ -1231,8 +1245,9 @@ function Stage:Sync(animate)
 end
 
 -- Nerd stats / Recent runs open over the page (on) or closed at once (off): they have no fill of their own (the
--- window's background shows through), so the page's own pieces and the doll go out of sight under them. Their frames
--- sit beside the stage (Stage:OverlayParent), not in it.
+-- window's background shows through), so the page's own pieces and the doll go out of sight under them (hidden, at
+-- alpha 0 for the fade back) and come back as the page's state wants them. Their frames sit beside the stage
+-- (Stage:OverlayParent), not in it.
 function Stage:OverlayParent() return stage and stage:GetParent() end
 
 -- Their frame level: over the page's body, the stage (the dial is a button) and the doll's tiles, so nothing of the
@@ -1247,7 +1262,28 @@ end
 function Stage:Cover(on)
   if not stage then return end
   stage:SetAlpha(on and 0 or 1)
-  if doll and doll:IsShown() then doll:SetAlpha(on and 0 or 1) end
+  if on then
+    if not self.covered and stage:IsShown() then
+      self.covered = true
+      stage:Hide()
+      if doll and doll:IsShown() then
+        doll:SetAlpha(0)
+        doll:Hide()
+        self.dollCovered = true
+      end
+    end
+    return
+  end
+  local was, dollWas = self.covered, self.dollCovered
+  self.covered, self.dollCovered = nil, nil
+  if doll and (dollWas or doll:IsShown()) then doll:SetAlpha(1) end
+  if not was or not P():IsActive() then
+    if dollWas and doll then doll:Show() end
+    return
+  end
+  stage:Show()
+  if dollWas and doll and (self.mode == "done" or self.mode == "stale") then doll:Show() end
+  self:Sync(false)
 end
 
 -- Back from Nerd stats: the result page fades in like a page of the main window.
