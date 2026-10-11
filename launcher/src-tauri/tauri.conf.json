@@ -19,7 +19,8 @@
         "center": true,
         "decorations": false,
         "transparent": false,
-        "shadow": true
+        "shadow": true,
+        "visible": false
       }
     ],
     "security": {
@@ -47,7 +48,7 @@
         "https://github.com/tsumilo/DisasterZone-releases/releases/download/launcher-latest/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "quiet"
       }
     }
   }

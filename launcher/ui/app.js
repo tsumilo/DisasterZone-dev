@@ -408,6 +408,11 @@ function renderSettings() {
   }
   $("keep").textContent = s.keepBackups;
   $("set-check").setAttribute("aria-checked", String(!!s.checkOnStart));
+  $("set-tray").setAttribute("aria-checked", String(!!s.tray));
+  $("set-auto").setAttribute("aria-checked", String(!!s.autoInstall));
+  $("set-autostart").setAttribute("aria-checked", String(!!s.autostart));
+  $("row-auto").classList.toggle("off", !s.tray);           // (both need tray mode)
+  $("row-autostart").classList.toggle("off", !s.tray);
   for (const [id, key] of [["set-code", "launchCode"], ["set-cmd", "playCommand"], ["set-source", "source"]]) {
     const f = $(id);
     if (document.activeElement !== f) f.value = s[key] || "";
@@ -422,6 +427,9 @@ function wireSettings() {
   $("keep-minus").onclick = () => saveSettings({ keepBackups: Math.max(1, status.settings.keepBackups - 1) });
   $("keep-plus").onclick = () => saveSettings({ keepBackups: Math.min(10, status.settings.keepBackups + 1) });
   $("set-check").onclick = () => saveSettings({ checkOnStart: !status.settings.checkOnStart });
+  $("set-tray").onclick = () => saveSettings({ tray: !status.settings.tray });
+  $("set-auto").onclick = () => { if (status.settings.tray) saveSettings({ autoInstall: !status.settings.autoInstall }); };
+  $("set-autostart").onclick = () => { if (status.settings.tray) saveSettings({ autostart: !status.settings.autostart }); };
   const field = (id, key, recheck) => {
     const f = $(id);
     const save = () => { if ((status.settings[key] || "") !== f.value.trim()) saveSettings({ [key]: f.value }, recheck); };
@@ -480,6 +488,8 @@ async function start() {
   $("btn-play").onclick = play;
   wireSettings();
   await api.listen("progress", (e) => { if (working) showProgress(e.payload); });
+  // the tray's background check installed something or found a new release
+  await api.listen("state-changed", () => { if (!working) refreshAll(); });
   try {
     await loadStatus();
   } catch (e) {
@@ -502,7 +512,7 @@ start();
 
 function demoApi() {
   const settings = { wowRoot: "C:\\World of Warcraft", flavor: "_anniversary_", channel: "stable", seenSeq: {}, hold: false,
-    keepBackups: 3, checkOnStart: true, source: null, launchCode: "", playCommand: "" };
+    keepBackups: 3, checkOnStart: true, source: null, launchCode: "", playCommand: "", tray: false, autoInstall: false, autostart: false };
   let installed = { present: true, version: "1.3.4", build: "f2965f70f965709b", assetPack: 7, dev: false, linked: false, rooms: true };
   const backups = [{ id: "20261009-201544-1.3.3", version: "1.3.3", build: "f60fe8911a371447", time: "", reason: "update", savedVariables: 3 }];
   // the real changelog of the last releases (demo-notes.json, from the published 1.3.5 manifest)
@@ -516,7 +526,7 @@ function demoApi() {
       switch (cmd) {
         case "status": return { settings: { ...settings }, installs: [{ root: settings.wowRoot, flavors: ["_anniversary_", "_classic_era_", "_retail_"] }],
           installed: { ...installed }, flavorDir: settings.wowRoot + "\\" + settings.flavor, wowRunning: false, launcherVersion: "0.1.0",
-          source: "https://raw.githubusercontent.com/OWNER/DisasterZone-releases/main/" };
+          source: "https://raw.githubusercontent.com/tsumilo/DisasterZone-releases/main/" };
         case "check": {
           await notesReady;
           const up = installed.version === "1.3.5";
