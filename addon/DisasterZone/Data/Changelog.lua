@@ -90,6 +90,7 @@ ns.CHANGELOG = {
           } },
           { heading = "Lighter on memory", lines = {
               "Every event and addon message makes less garbage, so DisasterZone's memory climbs slower.",
+              "With the threat meter on, the meters no longer redraw five times a second when nothing changed.",
               "Settings > About: a Performance page shows DisasterZone's memory and CPU (off by default).",
           } },
       } },
