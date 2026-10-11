@@ -196,14 +196,14 @@ local function rebuildMembers()
     for _, m in ipairs(memberList) do memberSet[m.key] = m end
 end
 
-local function classOf(key)
+local function memberClass(key)
     local m = memberSet[key]
     if m and m.c then return m.c end
     return ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key) or nil
 end
 
 local function coloredName(key)
-    return UI():ColoredName(key, classOf(key))
+    return UI():ColoredName(key, memberClass(key))
 end
 
 local function countOf(key)
@@ -299,7 +299,7 @@ local function createPoolChip(parent)
         Board:RefreshPool()
     end)
     c:SetScript("OnDragStart", function(self)
-        showGhost(coloredName(self.key), classOf(self.key))
+        showGhost(coloredName(self.key), memberClass(self.key))
         st.dragging = self.key
         -- (its place in the list empties while it is carried)
         self:SetAlpha(0)
@@ -557,7 +557,7 @@ local function createWindow()
         prompt = promptFn,
         bossRef = function() return st.strat and st.strat.b end,
         -- the 3D view: a player marker's ring is its player's class colour; "My spot" stands on mine
-        slotClass = function(ref) local key = st.assign[ref] return key and st.mode ~= "edit" and classOf(key) or nil end,
+        slotClass = function(ref) local key = st.assign[ref] return key and st.mode ~= "edit" and memberClass(key) or nil end,
         mySlots = function()
             local me, out = ns.Util.PlayerKey(), {}
             for ref, key in pairs(st.assign) do if key == me then out[ref] = true end end
@@ -592,7 +592,7 @@ local function createWindow()
         strat = function() return st.strat end,
         assigned = function(ref) return st.assign[ref] end,
         memberInfo = function(key)
-            return { c = classOf(key), missing = st.occ ~= nil and memberSet[key] == nil }
+            return { c = memberClass(key), missing = st.occ ~= nil and memberSet[key] == nil }
         end,
         isDup = function(ref) return dups[ref] == true end,
         isMine = function(ref) return st.occ ~= nil and st.mode == "view" and st.assign[ref] == ns.Util.PlayerKey() end,
