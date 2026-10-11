@@ -83,7 +83,7 @@ ns.CHANGELOG = {
               "The Council's Drops button is gone: /dz drops and Shift-click the minimap button.",
               "A prized item's tooltip, anywhere in the game, wears an orange PRIZED ITEM ribbon.",
               "On the boss drop panel a prized item's card glows amber, soft sheens gliding on its edges.",
-              "Settings > Demo mode > Demo a roll now includes a prized item, to see how it looks.",
+              "Settings > Demo mode > Demo a roll rolls a prized item; in demo mode you meet its rules.",
               "A rolled prized item you don't qualify for: no roll window, a short notice says why.",
               "The Guild Master can show the roll window anyway: Council > Rules, Prized: not qualified.",
           } },

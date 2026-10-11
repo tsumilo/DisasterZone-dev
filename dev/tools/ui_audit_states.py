@@ -1531,7 +1531,7 @@ STATES = [
                                             "council")),
     # longevity (Longest use, counted up to P4): the "count up to" line shows and the example re-ranks
     ("Demo - Council - rules longest use", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner'); "
-                                                "ns.CouncilRulesUI:SetScene('none'); ns.CouncilRulesUI:SetChoice('w', 'o')",
+                                                "ns.CouncilRulesUI:SetScene('none'); ns.CouncilRulesUI:SetChoice('o', 4)",
                                                 "council")),
     ("Demo - Council - rules no votes", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner'); "
                                              "ns.CouncilRulesUI:SetScene('none')", "council")),
