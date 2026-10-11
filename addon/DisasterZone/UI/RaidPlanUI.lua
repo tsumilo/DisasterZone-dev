@@ -494,6 +494,12 @@ local UP = {
 }
 for k, v in pairs(BAND) do UP[k] = v end            -- (Sign-ups as the Comp view's role bands)
 
+-- An atlas glyph for an empty state: art pack 4's calendar / team, else the notes glyph (an older art set).
+function UP.glyph(name)
+    local I = UI().ICON
+    return (ns:HasAssets(4) and I[name]) or I.notes
+end
+
 -- (melee, ranged and casters share the damage icon)
 local function roleIcon(role, size) return UI():RoleIconText(role, size) end
 
@@ -518,14 +524,6 @@ local function panel(f, bg, edge)
     UI():AddEdges(f, "BORDER")
     edge = edge or EDGE
     UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
-end
-
--- The atlas chevron (it points down) turned to point left: the back link's arrow.
-local function leftChevron(tex)
-    local c = UI():IconCoords(UI().ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
-    tex:SetTexture(UI().ICON_ATLAS)
-    tex:SetTexCoord(l, b, r, b, l, t, r, t)
 end
 
 -- "today", "tomorrow", "in 3 days", "next week", "2 weeks ago".
@@ -1210,8 +1208,8 @@ local function createRoster(d)
     sf:SetScrollChild(content)
     local r = { frame = sf, content = content, cols = {}, boxes = {} }
     for i = 1, #COLS do r.cols[i] = UP.newBand(content, COLS[i].key) end
-    r.empty = content:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    r.empty:SetText("No answers yet: players show here by role as they answer.")
+    r.empty = UI():CreateEmptyState(content, { glyph = UP.glyph("team"), title = "No answers yet",
+        text = "Players show here by role as they answer." })
     function r:ForEachGroup(fn)
         for _, col in ipairs(self.cols) do fn(col) end
         for _, bx in ipairs(self.boxes) do if bx:IsShown() then fn(bx) end end
@@ -1293,7 +1291,7 @@ local function refreshRoster(d, v, width)
     r.empty:SetShown(not any)
     r.empty:ClearAllPoints()
     r.empty:SetPoint("TOP", r.content, "TOP", 0, -40)
-    if not any then r.content:SetHeight(80) end
+    if not any then r.content:SetHeight(40 + r.empty:GetHeight() + 10) end
 end
 
 ---------------------------------------------------------------------------
@@ -1745,10 +1743,14 @@ local function createRaidGroups(d)
     end, 22)
     g.missingBtn:SetPoint("RIGHT", g.stopBtn, "LEFT", -6, 0)
 
-    g.empty = UI():Text(g, "emph", "DIM")
-    g.empty:SetJustifyH("CENTER")
+    g.empty = UI():CreateEmptyState(g, { glyph = UP.glyph("team"), title = "Nobody to place yet",
+        text = "The groups fill as players accept." })
     g.empty:SetPoint("TOP", 0, -40)
-    g.empty:SetText("Nobody to place yet: the groups fill as players accept.")
+    -- who can't change the groups sees why the actions are not there (it only shows what CanEditGroups decided)
+    g.readOnly = UI():CreateNotice(bar, "readonly", "Read only: who runs this raid places players.")
+    g.readOnly:SetWidth(290)
+    g.readOnly:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    g.readOnly:Hide()
     g.scroll = UI():CreateScrollFrame(g)
     g.grid = ns.RaidGroupsUI:CreateGrid(g.scroll, {
         layout = "row",
@@ -1857,10 +1859,11 @@ local function refreshGroups(v)
             prev = b
         end
     end
-    -- the buffs take the room the actions leave
+    -- the buffs take the room the actions (or the read-only notice) leave
     local width = (d:GetWidth() or 0) - 2 * PAD
     if width < 300 then width = 770 end
-    local used = 0
+    g.readOnly:SetShown(not organizer and not canInvite)
+    local used = g.readOnly:IsShown() and (g.readOnly:GetWidth() + 4) or 0
     for _, b in ipairs({ g.resortBtn, g.inviteBtn, g.saveBtn, g.undoBtn, g.teamBtn, g.autoBtn }) do
         if b:IsShown() then used = used + b:GetWidth() + (b == g.inviteBtn and 12 or 4) end
     end
@@ -2110,7 +2113,7 @@ function PlanUI:CreateUpcoming(parent)
         -- (the empty state's words: its first line is the title, the rest the text under it)
         SetEmptyText = function(_, text)
             local title, rest = tostring(text or ""):match("^([^\n]*)\n?(.*)$")
-            board.emptyOpts = { glyph = UI().ICON.calendar, title = title, text = rest ~= "" and rest or nil, y = 74 }
+            board.emptyOpts = { glyph = UP.glyph("calendar"), title = title, text = rest ~= "" and rest or nil, y = 74 }
         end,
     }
 
@@ -2439,7 +2442,7 @@ local function refreshDetail(v)
     local has = v ~= nil
     local tab = (state.detailTab == "groups" or state.detailTab == "assign") and state.detailTab or "signups"
     for _, region in ipairs({ d.hero, d.tabs }) do region:SetShown(has) end
-    if has then d.layout:HideEmpty() else d.layout:ShowEmpty({ glyph = UI().ICON.calendar, title = "Pick a raid." }) end
+    if has then d.layout:HideEmpty() else d.layout:ShowEmpty({ glyph = UP.glyph("calendar"), title = "Pick a raid." }) end
     d.rosterBar:SetShown(has and tab == "signups")
     d.roster.frame:SetShown(has and tab == "signups")
     d.groups:SetShown(has and tab == "groups")
@@ -3655,27 +3658,8 @@ function PlanUI:CreateTeams(parent)
     UI():Gradient(card.fadeB, "VERTICAL", { TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 1 }, { TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 0 })
 
     -- the way back to the board
-    local back = CreateFrame("Button", nil, card)
-    back:SetSize(80, 14)
+    local back = UI():CreateBackLink(card, "All teams", function() PlanUI:ShowTeamBoard() end)
     back:SetPoint("TOPLEFT", 16, -11)
-    back.icon = back:CreateTexture(nil, "ARTWORK")
-    back.icon:SetSize(10, 10)
-    back.icon:SetPoint("LEFT", 0, 0)
-    leftChevron(back.icon)
-    back.icon:SetVertexColor(0.65, 0.65, 0.65)
-    back.fs = UI():Text(back, "small", "GOLD")
-    back.fs:SetPoint("LEFT", back.icon, "RIGHT", 4, 0)
-    back.fs:SetText("ALL TEAMS")
-    back.fs:SetTextColor(S:Color("SUB"))
-    back:SetScript("OnEnter", function(self)
-        self.fs:SetTextColor(S:Color("GOLD"))
-        self.icon:SetVertexColor(S:Color("GOLD"))
-    end)
-    back:SetScript("OnLeave", function(self)
-        self.fs:SetTextColor(S:Color("SUB"))
-        self.icon:SetVertexColor(0.65, 0.65, 0.65)
-    end)
-    back:SetScript("OnClick", function() PlanUI:ShowTeamBoard() end)
     d.back = back
 
     local colW = TV.LEFT_W
@@ -3843,6 +3827,12 @@ function PlanUI:CreateTeams(parent)
     d.views = CreateFrame("Frame", nil, d)
     d.views:SetSize(TV.W, TV.TB_H)
     d.views:Hide()
+    -- everyone else sees the team read-only: the toolbar says so where the organizers' actions are (it only shows
+    -- what CanManageTeams decided)
+    d.readOnly = UI():CreateNotice(d.views, "readonly", "Read only: the Guild Master and the guild council change teams.")
+    d.readOnly:SetWidth(380)
+    d.readOnly:SetPoint("RIGHT", d.views, "RIGHT", 0, 0)
+    d.readOnly:Hide()
 
     d.scroll = UI():CreateScrollFrame(d)
     d.buffs = CreateFrame("Frame", nil, d)
@@ -4263,6 +4253,7 @@ function PlanUI:RefreshTeams()
         state.teamTab = tab
     end
     d.views:Show()
+    d.readOnly:SetShown(not organizer)
     d.tabComp:SetShown(compTab)
     d.tabGroups:SetActive(tab == "groups")
     d.tabComp:SetActive(tab == "comp")
@@ -4347,6 +4338,7 @@ function TV.layoutTool(kind)
     elseif shown and d.startBtn:IsShown() then
         place(d.startBtn, 12)
     end
+    if d.readOnly:IsShown() then used = used + d.readOnly:GetWidth() end
     d.stripRoom = TV.W - left - used - (used > 0 and 12 or 0)
     local strip = kind == "groups" and d.buffs or d.compStrip
     strip:ClearAllPoints()
