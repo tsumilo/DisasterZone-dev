@@ -51,6 +51,8 @@ local ICON = {
     copy = 17,          -- (UI.ICON_ATLAS index: two sheets)
 }
 -- TODO(refactor): move into Data/Raids.lua (ns.Data.RaidMeta[key].icon: the raid's LFG icon)
+-- uniformity: RaidMeta has no LFG icon field yet and Data/Raids.lua is not this page's to change; the one raid table
+-- left here is these icons (names, art and short names come from ItemDB).
 local RAID_ICON = {
     Karazhan = 136343, GruulsLair = 136337, MagtheridonsLair = 136340, SerpentshrineCavern = 136356,
     TempestKeep = 136362, HyjalSummit = 136341, BlackTemple = 136328, ZulAman = 136367, SunwellPlateau = 136361,
@@ -874,6 +876,8 @@ local function SpecTabWidth(t, open)
         + (tonumber(t.tag:GetStringWidth()) or 24) + 4 + 0.5)
 end
 
+-- TODO(refactor): move into the layout toolbar's tabs (an icon tab that opens to its name and a tag, a menu on
+-- right-click): no shared tab has an icon and an eased width yet.
 local function CreateSpecTab(parent)
     local t = CreateFrame("Button", nil, parent)
     t:SetHeight(BAR_H)
@@ -1375,6 +1379,8 @@ local function CreateCard(parent, w, h)
     c.count = UI:Text(c, "emph", "TEXT", { justify = "CENTER" })
     c.count:SetPoint("TOP", c, "TOP", 0, -4)
     c.title = c.count                       -- (older callers)
+    -- TODO(refactor): move into a shared progress bar (a 3 px track and fill; the Shopping list's materials and
+    -- Consumables' run have the same bar)
     c.track = c:CreateTexture(nil, "ARTWORK")
     c.track:SetSize(BAR_W, 3)
     c.track:SetPoint("TOP", c.count, "BOTTOM", 0, -7)
@@ -1598,15 +1604,6 @@ local function PhaseButtonTooltip(button, tt)
         end
         tt:AddLine(text, ns.UI:Color("main"))
     end
-end
-
--- A label offset inside a sleek button (the phase buttons make room for the guild phase's star); the pressed look
--- keeps it.
-local function SetLabelOffset(b, x)
-    local fs = b:GetFontString()
-    b.labelX = x
-    fs:ClearAllPoints()
-    fs:SetPoint("CENTER", x, 0)
 end
 
 local function UpdatePhaseButtons()

@@ -76,6 +76,7 @@ local function Tint(text, c) return UI():Colorize(text, c) end
 -- Text boxes (a flat field with a scroll frame around a multi-line edit box)
 ---------------------------------------------------------------------------
 
+-- TODO(refactor): move into a shared multi-line text area (UI:CreateSleekEditBox is one line).
 local function CreateTextBox(parent, height)
     local ui = UI()
     local holder = CreateFrame("Frame", nil, parent)

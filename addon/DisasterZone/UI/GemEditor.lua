@@ -194,6 +194,8 @@ local function EventValid(event)
     return true
 end
 
+-- TODO(refactor): move into a popover component (the dropdowns' surface, hung beside an anchor, closed by a click
+-- outside or Escape): UI:CreateSheet is a window-sized sheet.
 local function Build()
     if frame then return frame end
     local U = UI()

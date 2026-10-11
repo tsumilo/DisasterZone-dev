@@ -309,6 +309,8 @@ local function Paint(f, c) f:SetColorTexture(c[1], c[2], c[3], c[4]) end
 
 -- The quiet look (page): a fill that fades toward the model when the slot holds a pick, nothing when it is empty or
 -- disabled; under the mouse a light fill and edges.
+-- TODO(refactor): move into UI:CreateCard (a Button card: the tiles take clicks and dropped items, and a centre tile
+-- fades both ways) - the numbers are the card's quiet tone.
 local function PaintQuiet(tile, hov)
     local a = (hov and 0.16) or (tile.filled and 0.11) or 0
     local fade = tile.side == "R" and { 0.25, 1 } or (tile.side == "C" and { 1, 1 } or { 1, 0.25 })
