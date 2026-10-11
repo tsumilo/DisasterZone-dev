@@ -7,7 +7,8 @@ local addonName, ns = ...
 local NotifySources = ns:NewModule("NotifySources")
 
 local DAY = 86400
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local S = ns.Style
+local function Now() return ns.Util.Now() end
 local function UI() return ns.UI end
 local function Short(key) return ns.Util and ns.Util.ShortName and ns.Util.ShortName(key) or tostring(key) end
 local function Me() return ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() end
@@ -57,7 +58,7 @@ local function register()
 
     -- Polls (Core/Polls.lua; the page is UI/PollsTab.lua's Guild > Polls)
     N:RegisterKind("polls", {
-        section = "Polls", page = "polls", icon = { 55, 25, 6 }, color = { 1, 0.82, 0 },
+        section = "Polls", page = "polls", icon = { 55, 25, 6 }, color = S.C.GOLD,
         label = "Polls waiting for you", desc = "A question from the officers or the council that asks you.",
         needsYou = true, popup = true, sound = true, home = true,
         open = function(it)
@@ -245,8 +246,8 @@ local function register()
         local name = (d and d.name or tostring(mine.d)) .. (mine.h and " (Heroic)" or "")
         local first = asking[1]
         local tip = { "Your run: " .. name }
-        for _, r in ipairs(asking) do tip[#tip + 1] = (UI():ColoredName(r.key) or Short(r.key)) .. "|cff9e9e9e wants to join|r" end
-        tip[#tip + 1] = "|cff9e9e9eAccept or decline them on the Dungeons tab.|r"
+        for _, r in ipairs(asking) do tip[#tip + 1] = (UI():ColoredName(r.key) or Short(r.key)) .. S:Wrap("SUB", " wants to join") end
+        tip[#tip + 1] = S:Wrap("SUB", "Accept or decline them on the Dungeons tab.")
         out[1] = { key = mine.id, n = #asking, data = { r = first.r, tip = tip },
             title = #asking == 1 and (Short(first.key) .. " wants to join your run") or (#asking .. " want to join your run"),
             text = name .. " · accept or decline them on the Dungeons tab" }

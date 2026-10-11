@@ -1,11 +1,12 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/TooltipSkin.lua", ...) then return end -- DisasterZone: UI/TooltipSkin.lua
 -- The addon's tooltip look. Every tooltip the addon opens (GameTooltip owned through our code, plus the compare
--- tooltips beside it) wears the dropdowns' panel (UI.DROP_BG with its 1px UI.DROP_EDGE) instead of Blizzard's frame,
+-- tooltips beside it) wears the dropdowns' panel (S.C.DROP_BG with its 1px S.C.DROP_EDGE) instead of Blizzard's frame,
 -- and fades in and out like a drop does (UI.DROP_TIME). A refresh (shown again at once for the same owner) does not
 -- fade. Tooltips other addons or Blizzard open stay as they are.
 local addonName, ns = ...
 
 local UI = ns.UI
+local S = ns.Style
 local GameTooltip = GameTooltip
 local GetTime = GetTime
 
@@ -19,14 +20,11 @@ end
 local function Build(tt)
     if tt.dzTip then return tt.dzTip end
     local k = { edges = {} }
-    local bg, edge = UI.DROP_BG or { 0.06, 0.06, 0.07, 0.98 }, UI.DROP_EDGE or { 0.34, 0.34, 0.38, 1 }
-    k.bg = tt:CreateTexture(nil, "BACKGROUND", nil, -8)
-    k.bg:SetAllPoints(tt)
-    k.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    k.bg = UI:Fill(tt, "DROP_BG", "BACKGROUND", -8)
     for i, pts in ipairs({ { "TOPLEFT", "TOPRIGHT", "h" }, { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
                            { "TOPLEFT", "BOTTOMLEFT", "v" }, { "TOPRIGHT", "BOTTOMRIGHT", "v" } }) do
         local e = tt:CreateTexture(nil, "BACKGROUND", nil, 5)
-        e:SetColorTexture(edge[1], edge[2], edge[3], edge[4])
+        e:SetColorTexture(S:Color("DROP_EDGE"))
         e:SetPoint(pts[1]); e:SetPoint(pts[2])
         if pts[3] == "h" then e:SetHeight(1) else e:SetWidth(1) end
         k.edges[i] = e
