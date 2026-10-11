@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Core/CombatLog.lua", ...) then return end -- DisasterZone Core/CombatLog.lua
+-- one combat-log reader shared by Meters, My Log and the swing timer (refactor phase 4).
+local addonName, ns = ...

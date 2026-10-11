@@ -102,6 +102,7 @@ Core\PatchKey.lua
 Core\Patch.lua
 Core\Ledger.lua
 Core\RaidLog.lua
+Core\CombatLog.lua
 Core\MyLog.lua
 Core\MyLogDemo.lua
 Core\Meter.lua
