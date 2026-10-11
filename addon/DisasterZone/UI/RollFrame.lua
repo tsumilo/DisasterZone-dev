@@ -697,9 +697,70 @@ function RollFrame:OnRollUpdated(id)
     end
 end
 
+-- 1.3.5 (the user: "a bit more exciting"): a prized item's roll window wears the prized look - the PRIZED ITEM ribbon
+-- of its tooltip (Tooltip.Ribbon), the amber glow and sheens of its drop panel card (DropPanel.PrzGlow), a warm flash
+-- when it opens and a soft glow breathing behind the Roll / I want it button. fresh: a new roll (flash + sound).
+local PZ = { FLASH = 0.7, PULSE = 1.6 }
+function RollFrame:SetPrizedLook(on, fresh)
+    local f = self.frame
+    if not f then return end
+    local DP, TT = ns.DropPanel, ns.Tooltip
+    if DP and DP.PrzGlow and (on or f.przGlow) then DP.PrzGlow(f, on, FRAME_W, { 1, 0.82, 0, 0.55 }) end
+    if on and TT and TT.Ribbon and not f.dzPrized then TT.Ribbon.Build(f) end
+    if f.dzPrized then f.dzPrized:SetShown(on and true or false) end
+    if not f.przFx then
+        if not on then return end
+        local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
+        local fx = CreateFrame("Frame", nil, f)
+        fx:SetAllPoints()
+        fx:SetFrameLevel(f:GetFrameLevel() + 1)
+        fx.flash = fx:CreateTexture(nil, "OVERLAY", nil, 3)
+        fx.flash:SetAllPoints()
+        fx.flash:SetColorTexture(1, 0.62, 0.2, 1)
+        fx.flash:SetBlendMode("ADD")
+        fx.flash:SetAlpha(0)
+        fx.pulse = f:CreateTexture(nil, "BACKGROUND", nil, 3)
+        fx.pulse:SetTexture(SOFT)
+        fx.pulse:SetBlendMode("ADD")
+        fx.pulse:SetVertexColor(1, 0.7, 0.2, 1)
+        fx.pulse:SetPoint("CENTER", f.roll, "CENTER", 0, 0)
+        fx.pulse:SetSize(ROLL_W + 46, BTN_H + 30)
+        fx.t, fx.flashT = 0, nil
+        fx:SetScript("OnUpdate", function(self, dt)
+            self.t = self.t + (dt or 0)
+            if self.flashT then
+                self.flashT = self.flashT + (dt or 0)
+                local k = self.flashT / PZ.FLASH
+                if k >= 1 then
+                    self.flash:SetAlpha(0)
+                    self.flashT = nil
+                else
+                    self.flash:SetAlpha(0.45 * (1 - k) * (1 - k))
+                end
+            end
+            -- the button's glow breathes while I may still answer
+            local can = f.roll:IsShown() and f.roll:IsEnabled()
+            self.pulseOn = can
+            self.pulse:SetShown(can)
+            if can then self.pulse:SetAlpha(0.28 + 0.22 * math.sin(self.t / PZ.PULSE * 2 * math.pi)) end
+        end)
+        f.przFx = fx
+    end
+    local fx = f.przFx
+    fx:SetShown(on and true or false)
+    fx.pulse:SetShown(on and f.roll:IsShown() and f.roll:IsEnabled() and true or false)
+    if on and fresh then
+        fx.flashT = 0
+        local kit, play = _G.SOUNDKIT, _G.PlaySound
+        local snd = kit and (kit.UI_EPICLOOT_TOAST or kit.UI_LEGENDARY_LOOT_TOAST or kit.READY_CHECK)
+        if snd and play then pcall(play, snd) end
+    end
+end
+
 function RollFrame:ShowSession(session)
     if type(session) ~= "table" or type(session.id) ~= "string" then return end
     local f = self:GetFrame()
+    local fresh = session.id ~= self.sessionID
     if session.id ~= self.sessionID then self.wonShown = false end
     self.sessionID = session.id
     self.session = session
@@ -709,6 +770,9 @@ function RollFrame:ShowSession(session)
     f:Raise()
     self:RefreshItem()
     self:Refresh()
+    local P = ns.Prized
+    local prized = not session.plain and P and P.ForItem and P:ForItem(tonumber(session.i)) ~= nil
+    self:SetPrizedLook(prized and true or false, fresh)
 end
 
 function RollFrame:Hide()
@@ -828,7 +892,7 @@ function RollFrame:RefreshItem()
         elseif c.ok == nil then
             text = Paint("Prized item: ", "warn") .. "the council checks its rules"
         else
-            text = Paint("You meet all " .. c.required .. " loot rules", "main")
+            text = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t " .. Paint("You meet all " .. c.required .. " loot rules", "main")
         end
         f.wearLabel:SetText(text)
         f.wearLabel:SetWidth(TEXT_W)

@@ -1427,9 +1427,11 @@ end
 -- its top and bottom edges every few seconds. on = false puts the card back.
 DropPanel.PRZ_GLOW = { EDGE = { 0.62, 0.34, 0.10, 1 }, TINT = { 1, 0.47, 0.08, 0.05 }, GLOW = { 1, 0.45, 0.08, 0.22 },
                        DEPTH = 22, PERIOD = 6, RUN = 3.2, SHEEN_L = 170, SHEEN_T = 30 }
-function DropPanel.PrzGlow(b, on)
+-- (w: the frame's width, default the card's; offEdge: its edge colour when the glow is off, default the card's)
+function DropPanel.PrzGlow(b, on, w, offEdge)
     local G = DropPanel.PRZ_GLOW
     local k = b.przGlow
+    b.przGlowW = w or b.przGlowW or CARD_W
     if not k then
         if not on then return end
         k = {}
@@ -1487,7 +1489,7 @@ function DropPanel.PrzGlow(b, on)
                 place(k.bot, 0, 0, 0)
                 return
             end
-            local w = CARD_W
+            local w = b.przGlowW or CARD_W
             local h = (b.GetHeight and b:GetHeight() or 0)
             if h < 40 then h = 160 end
             local m = G.SHEEN_L * 0.5 + 10             -- (stays clear of the corners)
@@ -1500,7 +1502,7 @@ function DropPanel.PrzGlow(b, on)
     k.tint:SetShown(on)
     for _, t in ipairs(k.glow) do t:SetShown(on) end
     k.run:SetShown(on)
-    local e = on and G.EDGE or EDGE
+    local e = on and G.EDGE or offEdge or EDGE
     ns.UI:SetEdgeColor(b, e[1], e[2], e[3], e[4])
 end
 
