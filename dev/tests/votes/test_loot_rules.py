@@ -141,5 +141,76 @@ def dry_streak_counts_only_nights_they_were_really_there():
     assert d["nights"] == 3, d
 
 
+
+def example(cl):
+    res = cl.eval_py("local rows, why = ns.CouncilRulesUI:GetExample(); return { rows = rows, why = why }")
+    rows = list(res["rows"].values()) if isinstance(res["rows"], dict) else list(res["rows"])
+    sug = [r["name"] for r in rows if r["suggested"]]
+    return (sug[0] if sug else None), rows, res["why"]
+
+
+@case
+def council_rules_view_reranks_the_example_and_the_gm_saves():
+    w, c = world()
+    gina, bob = c["Gina"], c["Bob"]
+    gina.eval("ns.MainFrame:Open('council'); ns.CouncilUI:SetView('rules')")
+    w.tick(1)
+    assert gina.eval("return DisasterZoneCouncilRules ~= nil and DisasterZoneCouncilRules:IsShown()")
+    sug, rows, why = example(gina)
+    assert sug == "Orinel" and "the only one of them who rolled" in why, (sug, why)
+    gina.eval("ns.CouncilRulesUI:SetChoice('s', 'p')")
+    sug, rows, why = example(gina)
+    assert sug is None and "council picks" in why, (sug, why)
+    draft, dirty = gina.eval_py("local d, x = ns.CouncilRulesUI:GetDraft(); return { d = d, x = x }").values()         if False else (None, None)
+    res = gina.eval_py("local d, x = ns.CouncilRulesUI:GetDraft(); return { d = d, x = x }")
+    assert res["x"] is True and res["d"]["s"] == "p", res
+    # nothing is shared until Save & share
+    assert bob.eval_py("return ns.Guild:GetLootRules()")["s"] == "r"
+    assert gina.eval("return (ns.CouncilRulesUI:Save())") is True
+    w.tick(5)
+    assert bob.eval_py("return ns.Guild:GetLootRules()")["s"] == "p"
+    res = gina.eval_py("local d, x = ns.CouncilRulesUI:GetDraft(); return { d = d, x = x }")
+    assert res["x"] is False, res
+
+
+@case
+def council_members_see_the_rules_read_only():
+    w, c = world()
+    bob = c["Bob"]
+    bob.eval("ns.MainFrame:Open('council'); ns.CouncilUI:SetView('rules')")
+    w.tick(1)
+    bob.eval("ns.CouncilRulesUI:SetChoice('f', 75)")
+    res = bob.eval_py("local d, x = ns.CouncilRulesUI:GetDraft(); return { d = d, x = x }")
+    assert res["x"] is False and res["d"]["f"] == 0, res
+
+
+@case
+def the_drop_panel_marks_a_split_and_the_floor():
+    w, c = world()
+    gina = c["Gina"]
+    gina.slash("/dz demo on")
+    w.tick(2)
+    gina.eval("ns.Guild:SetLootRules({ f = 101 })")   # (junk: refused)
+    assert gina.eval("return (ns.Guild:SetLootRules({ f = 75, s = 'p', l = 'l', w = 'r', y = 'n' }))") is True
+    gina.eval("ns.Loot:SimulateDrop()")
+    w.tick(1)
+    gina.eval("local b = ns.DropPanel.blocks[1]; ns.DropPanel:StartRoll(b.itemID)")
+    w.tick(12, 1)
+    gina.eval("ns.DropPanel:Render()")
+    out = gina.eval_py("""
+        local out = {}
+        for _, r in ipairs(ns.DropPanel.blocks[1].rows) do
+            if r:IsShown() and r.rollRow and r.data then
+                out[#out + 1] = { low = r.data.lowAtt and true or false, tag = r.tag:GetText() or "",
+                                  sug = r.data.suggested or false }
+            end
+        end
+        return out""")
+    out = list(out.values()) if isinstance(out, dict) else list(out or [])
+    lows = [r for r in out if r["low"]]
+    for r in lows:
+        assert "under 75%" in r["tag"] and not r["sug"], r
+
+
 if __name__ == "__main__":
     run_all(globals())

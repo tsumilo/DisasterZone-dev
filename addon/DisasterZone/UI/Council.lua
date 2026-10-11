@@ -30,7 +30,7 @@ local K = {
                    { key = "dps", label = "Damage dealers" } },
     ROLE_GROUP = { tank = "tank", healer = "healer", melee = "dps", caster = "dps", ranged = "dps" },
     PRESENCE_COLOR = { raid = { 0.24, 0.81, 0.36 }, online = { 0.91, 0.77, 0.23 }, offline = { 0.42, 0.42, 0.45 } },
-    VIEW_LABEL = { roster = "Roster", items = "Items", log = "Loot log", council = "Loot council" },
+    VIEW_LABEL = { roster = "Roster", items = "Items", log = "Loot log", council = "Loot council", rules = "Rules" },
     -- raid names that don't fit a tree strip
     RAID_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
                    za = "ZA", swp = "Sunwell" },
@@ -3284,6 +3284,8 @@ local function createToolbar(p)
         { key = "log", label = K.VIEW_LABEL.log, tip = "Every item handed out: search, void or restore, add an award." },
         { key = "council", label = K.VIEW_LABEL.council,
           tip = "Who is on the Loot Council. The Guild Master picks the guild council; a raid leader can add council members for their own raid." },
+        { key = "rules", label = K.VIEW_LABEL.rules,
+          tip = "How the winner is picked (the Guild Master's rules, with an example that re-ranks as you change them) and the prized items." },
     }
     local prev
     for _, info in ipairs(views) do
@@ -3310,16 +3312,7 @@ local function createToolbar(p)
     end)
     p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -6)
 
-    -- Opens the boss drop panel (one Escape closes it together with the loot window).
-    p.dropsBtn = UI:CreateButton(p, "Drops", 60, 22, function()
-        if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
-    end)
-    p.dropsBtn:SetPoint("RIGHT", p.search, "LEFT", -GAP, 0)
-    p.dropsBtn:SetScript("OnEnter", function(self)
-        V.tip(self, "Drops", "Open the boss drop panel with tonight's drops (also /dz drops, or Shift-click the "
-            .. "minimap button).")
-    end)
-    p.dropsBtn:SetScript("OnLeave", hideTooltip)
+    -- (1.3.5: no Drops button here; /dz drops, Shift-click on the minimap button and the session bar open it)
 
     -- the button shows "P1"; the menu says which phase is the guild's (or the group's)
     p.phaseDD = UI:CreateDropdown(p, 60, phaseOptions, currentPhase, function(value)
@@ -3335,7 +3328,7 @@ local function createToolbar(p)
         self:SetText("P" .. currentPhase())
     end
     p.phaseDD:Refresh()
-    p.phaseDD:SetPoint("RIGHT", p.dropsBtn, "LEFT", -GAP, 0)
+    p.phaseDD:SetPoint("RIGHT", p.search, "LEFT", -GAP, 0)
     p.phaseLabel = V.text(p, "GameFontHighlightSmall", 11)
     p.phaseLabel:SetTextColor(0.62, 0.62, 0.62)
     p.phaseLabel:SetPoint("RIGHT", p.phaseDD, "LEFT", -6, 0)
@@ -3522,15 +3515,19 @@ function CouncilUI:Refresh(resetScroll, keepTreeScroll)
 
     -- The Loot Log and Loot Council views have their own controls: the phase / search / filters don't apply to them.
     local council, log = state.view == "council", state.view == "log"
+    local rules = state.view == "rules" and ns.CouncilRulesUI ~= nil
     if council and not panel.councilView then
         panel.councilView = CouncilView.create(panel)
     end
+    -- 1.3.5: Council > Rules (UI/CouncilRules.lua)
+    if rules and not panel.rulesView then panel.rulesView = ns.CouncilRulesUI:Create(panel) end
+    if panel.rulesView then panel.rulesView:SetShown(rules) end
     if log and not panel.logView and ns.LootLogUI then
         panel.logView = ns.LootLogUI:CreatePanel(panel)
     end
     if panel.councilView then panel.councilView:SetShown(council) end
     if panel.logView then panel.logView:SetShown(log) end
-    local own = council or log
+    local own = council or log or rules
     panel.phaseLabel:SetShown(not own)
     panel.phaseDD:SetShown(not own)
     panel.search:SetShown(not own)
@@ -3542,6 +3539,7 @@ function CouncilUI:Refresh(resetScroll, keepTreeScroll)
         panel.footer:Hide()
         Chrome.update()
         if council then CouncilView.refresh() end
+        if rules then ns.CouncilRulesUI:Refresh() end
         return
     end
 
@@ -3609,7 +3607,8 @@ function CouncilUI:IsAvailable()
 end
 
 function CouncilUI:SetView(view)
-    if view ~= "roster" and view ~= "items" and view ~= "member" and view ~= "log" and view ~= "council" then return end
+    if view ~= "roster" and view ~= "items" and view ~= "member" and view ~= "log" and view ~= "council"
+        and view ~= "rules" then return end
     state.view = view
     if panel then
         panel.dirty = true

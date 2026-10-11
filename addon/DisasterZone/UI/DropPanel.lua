@@ -170,7 +170,10 @@ end
 local function ColoredName(key, classFile)
     classFile = classFile or ClassOf(key)
     -- players outside the guild (pugs) are marked: they roll and can be awarded like everyone else
-    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key, classFile) .. ns.UI:GuestTag(key) end
+    if ns.UI and ns.UI.ColoredName then
+        if Dry.preview and Dry.preview[key] then return ns.UI:ColoredName(key, classFile) end   -- (the example roll)
+        return ns.UI:ColoredName(key, classFile) .. ns.UI:GuestTag(key)
+    end
     return ShortName(key)
 end
 
@@ -1452,12 +1455,13 @@ function Dry.Floor()
 end
 
 -- "⚠ under 50%" in the loot column of a player under the floor (council only); true when shown.
-function Dry.SetLow(r, key, att)
-    local f = Dry.Floor()
+function Dry.SetLow(r, key, att, floorPct)
+    local f = tonumber(floorPct) or Dry.Floor()
     if f <= 0 or not IsCouncil() then return false end
     if att == nil then
         local RL = ns.RaidLog
-        att = key and RL and RL.GetAttendance and (RL:GetAttendance(key)) or nil
+        local pv = key and Dry.preview[key]
+        if pv then att = pv.att else att = key and RL and RL.GetAttendance and (RL:GetAttendance(key)) or nil end
     end
     if not (tonumber(att) and att < f) then return false end
     r.dry:Hide()
@@ -1466,7 +1470,12 @@ function Dry.SetLow(r, key, att)
     return true
 end
 
+-- Council > Rules' preview card (DropPanel:FillPreviewRow): made-up players' attendance and dry streaks by key.
+Dry.preview = {}
+
 function Dry.Get(key)
+    local pv = key and Dry.preview[key]
+    if pv then return pv.dry end
     local Att = ns.Attendance
     if not IsCouncil() or not (Att and Att.GetDryStreak) then return nil end
     return Att:GetDryStreak(key)
@@ -1631,7 +1640,8 @@ local function RollRowTooltip(self, tt, vp)
     if not plain then Dry.AddLines(tt, row.key) end
     if row.lowAtt then
         local w = Color("warn")
-        tt:AddLine(format("Under the guild's attendance floor (%d%%): never suggested", Dry.Floor()), w[1], w[2], w[3], true)
+        tt:AddLine(format("Under the guild's attendance floor (%d%%): never suggested", tonumber(row.lowAtt) or Dry.Floor()),
+            w[1], w[2], w[3], true)
     end
     if row.split and not row.suggested then
         local w = Color("warn")
@@ -1850,7 +1860,9 @@ end
 -- The attendance % (council data; empty without a logged raid): green from 90, grey from 75, amber below.
 function Grid.Att(r, key)
     local RL = ns.RaidLog
-    local p = key and IsCouncil() and RL and RL.GetAttendance and RL:GetAttendance(key)
+    local pv = key and Dry.preview[key]
+    local p
+    if pv then p = pv.att else p = key and IsCouncil() and RL and RL.GetAttendance and RL:GetAttendance(key) end
     if not p then
         r.att:SetText("")
         return
@@ -1895,7 +1907,7 @@ function Grid.Head(b, kind, top, rowsH)
             local fs = h.fs[i]
             if not fs then
                 fs = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-                Sized(fs, 8)
+                Sized(fs, 9)
                 fs:SetWordWrap(false)
                 h.fs[i] = fs
             end
@@ -1905,7 +1917,7 @@ function Grid.Head(b, kind, top, rowsH)
                 fs:SetWidth(t[3] + (t[1] == "VOTE" and 12 or 0))
                 fs:SetJustifyH(t[4])
                 fs:SetText(t[1])
-                fs:SetTextColor(0.48, 0.48, 0.52)
+                fs:SetTextColor(0.62, 0.62, 0.66)
                 fs:Show()
             end
         end
@@ -2273,7 +2285,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
         end
     else
         SetEquipped(r, WornOfRow(row, itemSid))
-        if tag == "" and not plain and not (row.lowAtt and Dry.SetLow(r, row.key, row.att)) then Dry.Set(r, row.key) end
+        if tag == "" and not plain and not (row.lowAtt and Dry.SetLow(r, row.key, row.att, row.lowAtt)) then Dry.Set(r, row.key) end
     end
     -- (a bad range needs more room than "x2": it takes the first worn icon's place when there is only one)
     r.note:SetWidth(r.eqs[1]:IsShown() and COL.note[2] or (ROW_W - EQ_SIZE - 2 - COL.note[1]))
@@ -4173,4 +4185,30 @@ function DropPanel:HookLootFrame()
         ns:RegisterEvent("LOOT_SLOT_CLEARED", later)
     end
     ns:RegisterEvent("LOOT_CLOSED", function() DropPanel:ClearLootButtons() end)
+end
+
+---------------------------------------------------------------------------
+-- Council > Rules' preview card (UI/CouncilRules.lua): the drop panel's own roll rows on made-up results
+---------------------------------------------------------------------------
+DropPanel.PREVIEW = { ROW_H = ROW_H, ROW_W = ROW_W, HEAD_H = Grid.HEAD_H, CARD_PAD = CARD_PAD }
+
+-- A roll row on parent (hover shows the usual tooltip; clicks do nothing).
+function DropPanel:NewPreviewRow(parent)
+    local r = self:NewRow(parent)
+    r:SetScript("OnClick", nil)
+    r.voteBtn:EnableMouse(false)
+    return r
+end
+
+-- Fills r with a Roll:RankRows row. row.preview = { att = %, dry = { nights, bosses, came, last } } stands in for the
+-- raid log and the Loot Log; session = { state = "open" | "closed" }.
+function DropPanel:FillPreviewRow(r, row, session, itemID)
+    if row.preview then Dry.preview[row.key] = row.preview end
+    row.equippedList = row.equippedList or {}
+    return FillRollRow(r, row, session, itemID, ViewPhase(), FirstSlotOfItem(itemID))
+end
+
+-- The column titles and dividers over preview rows (top: their y in b, rowsH: the rows' height).
+function DropPanel:PreviewHead(b, top, rowsH)
+    Grid.Head(b, "roll", top, rowsH)
 end

@@ -1151,7 +1151,7 @@ def search_dropdown_drops_focus_when_it_closes():
 # esc-closes-drop-panel-no-reopen
 # ================================================================================================================
 @R.case
-def drops_button_and_shift_click_reopen_the_drop_panel():
+def drops_slash_reopens_the_drop_panel():
     r = Raid()
     w = r.w
     A = r["Alice"]
@@ -1159,11 +1159,8 @@ def drops_button_and_shift_click_reopen_the_drop_panel():
     w.tick(2)
     A.close_loot()
     A.eval("ns.DropPanel:Hide()")
-    A.slash("/dz council")
-    w.tick(0.5)
-    btn = A.eval(FIND_FIELD, "dropsBtn")
-    assert btn is not None
-    A.click(btn)
+    # (1.3.5: the Council's Drops button is gone; /dz drops and Shift-click on the minimap button stay)
+    A.slash("/dz drops")
     w.tick(0.2)
     assert A.eval("return ns.DropPanel.frame:IsShown()")
     w.assert_no_errors()

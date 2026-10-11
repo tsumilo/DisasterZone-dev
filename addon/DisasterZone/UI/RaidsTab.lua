@@ -681,12 +681,8 @@ local function updateToolbar(p)
     p.stratBtn:SetActive(state.view == "strategies")
     p.guestsBtn:SetShown(canRoster())
     p.guestsBtn:SetActive(state.view == "guests")
-    -- 1.3.5: the prized items' loot rules, for everyone
-    p.rulesBtn:ClearAllPoints()
-    p.rulesBtn:SetPoint("LEFT", p.guestsBtn:IsShown() and p.guestsBtn or p.stratBtn, "RIGHT", 4, 0)
-    p.rulesBtn:SetActive(state.view == "rules")
     p.logBtn:ClearAllPoints()
-    p.logBtn:SetPoint("LEFT", p.rulesBtn, "RIGHT", 4, 0)
+    p.logBtn:SetPoint("LEFT", p.guestsBtn:IsShown() and p.guestsBtn or p.stratBtn, "RIGHT", 4, 0)
     p.logBtn:SetShown(isCouncil())
     p.logBtn:SetActive(log)
     p.logSep:SetShown(log)
@@ -723,10 +719,6 @@ local function updateToolbar(p)
     local organizer = canOrganize()
     local RP = ns.RaidPlan
     p.newRaidBtn:SetShown(organizer and state.view == "upcoming")
-    local Pz = ns.Prized
-    p.addPrizedBtn:SetShown(state.view == "rules" and Pz and Pz.CanEdit and Pz:CanEdit() and true or false)
-    p.addPrizedBtn:ClearAllPoints()
-    if auth then p.addPrizedBtn:SetPoint("RIGHT", p.sessionBtn, "LEFT", -6, 0) else p.addPrizedBtn:SetPoint("TOPRIGHT", -10, -6) end
     -- (no teams yet: the Teams view's empty card has the New team button)
     p.newTeamBtn:SetShown(canTeams() and state.view == "teams" and RP ~= nil and #RP:GetTeams() > 0)
     for _, b in ipairs({ p.newRaidBtn, p.newTeamBtn }) do
@@ -973,19 +965,9 @@ function RaidsUI:CreatePanel(parent)
     -- leaders
     p.guestsBtn = UI:CreateUnderlineTab(p, "Guests", function() RaidsUI:SetView("guests") end)
     p.guestsBtn:SetPoint("LEFT", p.stratBtn, "RIGHT", 4, 0)
-    -- 1.3.5: Loot rules (the prized items, UI/PrizedUI.lua), for everyone
-    p.rulesBtn = UI:CreateUnderlineTab(p, "Loot rules", function() RaidsUI:SetView("rules") end)
-    p.rulesBtn:SetPoint("LEFT", p.guestsBtn, "RIGHT", 4, 0)
-    p.rulesBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Loot rules")
-        GameTooltip:AddLine("The prized items: the few drops with stricter loot rules, and how you stand against "
-            .. "them.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    p.rulesBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    -- (1.3.5: the prized items' Loot rules view moved to Council > Rules, UI/CouncilRules.lua)
     p.logBtn = UI:CreateUnderlineTab(p, "Raid log", function() RaidsUI:SetView("log") end)
-    p.logBtn:SetPoint("LEFT", p.rulesBtn, "RIGHT", 4, 0)
+    p.logBtn:SetPoint("LEFT", p.guestsBtn, "RIGHT", 4, 0)
 
     p.logSep = p:CreateTexture(nil, "ARTWORK")
     p.logSep:SetColorTexture(1, 1, 1, 0.15)
@@ -1045,14 +1027,6 @@ function RaidsUI:CreatePanel(parent)
     p.sessionBtn:SetPoint("TOPRIGHT", -10, -6)
     p.newRaidBtn = UI:CreateSleekButton(p, "New raid", 90, 22, function() ns.RaidPlanUI:OpenEditor() end, "primary")
     p.newTeamBtn = UI:CreateSleekButton(p, "New team", 90, 22, function() ns.RaidPlanUI:NewTeam() end)
-    p.addPrizedBtn = UI:CreateSleekButton(p, "Add item", 84, 22, function() ns.PrizedUI:StartAdd() end, "primary")
-    p.addPrizedBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Add a prized item")
-        GameTooltip:AddLine("Pick a raid item that gets stricter loot rules.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    p.addPrizedBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     -- Addendum J §62: who the raid leaders are (everyone can look; the GM edits)
     p.leadersBtn = UI:CreateTipIconButton(p, 22, UI.ICON.crown, "Raid leaders", "Who plans and leads raids. "
         .. "Everyone can look; officers and the Guild Master change the list.", function() ns.RaidLeadersUI:Open() end)
@@ -1070,9 +1044,6 @@ function RaidsUI:CreatePanel(parent)
     p.guests = ns.GuestBookUI:CreateView(p)
     p.guests:SetPoint("TOPLEFT", 0, -36)
     p.guests:SetPoint("BOTTOMRIGHT", 0, 4)
-    p.rules = ns.PrizedUI:CreateView(p)
-    p.rules:SetPoint("TOPLEFT", 0, -36)
-    p.rules:SetPoint("BOTTOMRIGHT", 0, 4)
 
     createLogRaids(p)
     createLogPlayers(p)
@@ -1175,8 +1146,6 @@ function RaidsUI:Refresh()
     panel.teams:SetShown(state.view == "teams")
     panel.strategies:SetShown(state.view == "strategies")
     panel.guests:SetShown(state.view == "guests")
-    -- (the Loot rules view can be mounted on another page: only hide it while it is ours)
-    if state.view ~= "rules" and panel.rules:GetParent() == panel then panel.rules:Hide() end
     local raidsMode = state.mode == "raids"
     panel.raidList.frame:SetShown(log and raidsMode)
     panel.logDetail:SetShown(log and raidsMode)
@@ -1187,8 +1156,6 @@ function RaidsUI:Refresh()
         ns.StrategiesUI:RefreshLibrary()
     elseif state.view == "guests" then
         ns.GuestBookUI:Refresh()
-    elseif state.view == "rules" then
-        ns.PrizedUI:Mount(panel, { y = -36, bottom = 4 })
     elseif not log then
         ns.RaidPlanUI:Refresh()
     elseif raidsMode then
@@ -1255,10 +1222,15 @@ function RaidsUI:SetLogTab(tab)
     self:Refresh()
 end
 
--- "upcoming" | "teams" | "strategies" | "guests" (roster managers) | "rules" (Loot rules) | "log" (the log is council
--- only).
+-- "upcoming" | "teams" | "strategies" | "guests" (roster managers) | "log" (the log is council only). ("rules", the old
+-- Loot rules view, opens Council > Rules.)
 function RaidsUI:SetView(view)
-    if view ~= "teams" and view ~= "log" and view ~= "strategies" and view ~= "guests" and view ~= "rules" then
+    if view == "rules" then
+        if ns.MainFrame then ns.MainFrame:Open("council") end
+        if ns.CouncilUI then ns.CouncilUI:SetView("rules") end
+        return
+    end
+    if view ~= "teams" and view ~= "log" and view ~= "strategies" and view ~= "guests" then
         view = "upcoming"
     end
     -- leaving Teams with unsaved changes asks first (Save / Discard / Cancel)

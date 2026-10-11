@@ -322,17 +322,17 @@ local function register()
                             data = { item = itemID } })
     end)
 
-    -- 1.3.5: the GM / guild council changed a prized item's loot rules (Raids > Loot rules)
+    -- 1.3.5: the GM / guild council changed a prized item's loot rules (Council > Rules)
     N:RegisterKind("lootRules", {
-        section = "Loot", page = "raids", icon = (ns.HasAssets and ns:HasAssets(7)) and 60 or 51,
+        section = "Loot", page = "council", icon = (ns.HasAssets and ns:HasAssets(7)) and 60 or 51,
         color = { 1, 0.6, 0.18 },
         label = "Loot rules changed", desc = "The Guild Master or the guild council changed a prized item's loot rules.",
         needsYou = false, popup = false, sound = false,
         open = function(it)
-            openTab("raids")
-            if ns.RaidsUI then ns.RaidsUI:SetView("rules") end
+            openTab("council")
+            if ns.CouncilUI then ns.CouncilUI:SetView("rules") end
             local id = it and it.data and it.data.id
-            if id and ns.PrizedUI then ns.PrizedUI:Select(id) end
+            if id and ns.CouncilRulesUI then ns.CouncilRulesUI:Select(id) end
         end,
     })
     ns:On("PRIZED_RULES_CHANGED", function(id, text, by)

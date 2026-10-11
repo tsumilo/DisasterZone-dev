@@ -318,10 +318,10 @@ def log_is_a_council_view_and_old_loot_opens_land_on_it():
     open_log(c)
     shown = lambda expr: c.eval("return (%s):IsVisible()" % expr)
     cp, lp = "DisasterZoneCouncilPanel", "DisasterZoneLootLogPanel"
-    # the log's own search takes the Council search's place; phase and filters go, Drops stays
+    # the log's own search takes the Council search's place; phase and filters go (1.3.5: no Drops button)
     assert shown(lp) and shown(lp + ".search") and shown(lp + ".addBtn")
     assert not shown(cp + ".search") and not shown(cp + ".phaseDD") and not shown(cp + ".row2")
-    assert shown(cp + ".dropsBtn") and shown(cp + ".viewButtons.log")
+    assert shown(cp + ".viewButtons.log")
     assert c.eval("return %s.viewButtons.log.active" % cp) is True
     assert len(log_rows(c)) == 1
     assert c.eval("return ns.Share:CurrentRef()") == "loot"

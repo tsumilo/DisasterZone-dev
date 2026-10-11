@@ -965,7 +965,7 @@ function Roll:RankRows(out, ctx)
     -- the attendance floor: below it a player is listed but never suggested
     local floorPct = tonumber(R.f) or 0
     for _, r in ipairs(out) do
-        r.lowAtt = (floorPct > 0 and tonumber(r.att) and r.att < floorPct) or nil
+        r.lowAtt = (floorPct > 0 and tonumber(r.att) and r.att < floorPct) and floorPct or nil   -- (the floor)
         r.split = nil
     end
     local function RowGroup(r)

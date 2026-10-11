@@ -970,6 +970,49 @@ function Store:OnInit()
     ns:On("GROUP_RULES_CHANGED", function() SchedulePurge() end)
 end
 
+-- 1.3.5 loot rules, longevity: for how many phases `key` keeps the item on their main-spec list (main or alt pick, the
+-- token or upgrade counts), from fromPhase (default: the guild's phase) up to lastPhase (the GM's "count up to"; P5
+-- by default). Consecutive: the first phase whose slot holds something else ends it; a phase where the slot has no pick
+-- yet (not filled in) is skipped without counting. So with lastPhase 4, a P2-P4 pick replaced in P5 and one kept in P5
+-- both give 3. Returns n, the first and the last phase counted (n = 0: nil, nil).
+function Store:Longevity(key, itemID, fromPhase, lastPhase)
+    itemID = tonumber(itemID)
+    if not itemID or type(key) ~= "string" then return 0 end
+    EnsureIndex()
+    local Guild = ns.Guild
+    fromPhase = tonumber(fromPhase) or (Guild and Guild.GetViewPhase and Guild:GetViewPhase()) or 1
+    lastPhase = math.min(tonumber(lastPhase) or MaxPhase(), MaxPhase())
+    local listed, sids = {}, {}
+    for _, wanted in ipairs(ExpandDrop(itemID)) do
+        for _, row in ipairs(index[wanted] or {}) do
+            if row.key == key and not row.os then
+                listed[row.phase] = true
+                sids[row.sid] = true
+            end
+        end
+    end
+    local rec = self:Get(key)
+    local ph = type(rec) == "table" and type(rec.data) == "table" and type(rec.data.ph) == "table" and rec.data.ph or {}
+    local n, first, last = 0, nil, nil
+    for phase = fromPhase, lastPhase do
+        if listed[phase] then
+            n = n + 1
+            first = first or phase
+            last = phase
+        else
+            -- something else in the slot ends it; an empty slot (not filled in for that phase yet) doesn't
+            local other = false
+            local slots = ph[phase]
+            for sid in pairs(sids) do
+                local e = type(slots) == "table" and slots[sid]
+                if type(e) == "table" and ((tonumber(e[1]) or 0) > 0 or (tonumber(e[2]) or 0) > 0) then other = true end
+            end
+            if other then break end
+        end
+    end
+    return n, first, last
+end
+
 function Store:OnLogin()
     loginAt = GetTime()
     SchedulePurge(PURGE_LOGIN_GRACE)   -- (copies from a raid that ended while I was offline; the group shows up first)

@@ -84,7 +84,6 @@ local VIEWS = {
         local out = { { key = "upcoming", label = "Upcoming" }, { key = "teams", label = "Teams" },
                       { key = "strategies", label = "Strategies" } }
         if RP and RP.CanManageRoster and RP:CanManageRoster() then out[#out + 1] = { key = "guests", label = "Guests" } end
-        out[#out + 1] = { key = "rules", label = "Loot rules" }
         local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
         if demo or (G and G.AmIRaidLogMember and G:AmIRaidLogMember()) then
             out[#out + 1] = { key = "log", label = "Raid log" }
@@ -96,7 +95,8 @@ local VIEWS = {
         local C = ns.CouncilUI
         local cur = C and C.GetView and C:GetView()
         local out = { { key = "roster", label = "Roster" }, { key = "items", label = "Items" },
-                      { key = "log", label = "Loot log" }, { key = "council", label = "Loot council" } }
+                      { key = "log", label = "Loot log" }, { key = "council", label = "Loot council" },
+                      { key = "rules", label = "Rules" } }
         for _, v in ipairs(out) do v.on = v.key == cur end
         return out
     end,
