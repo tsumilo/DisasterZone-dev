@@ -84,6 +84,7 @@ local VIEWS = {
         local out = { { key = "upcoming", label = "Upcoming" }, { key = "teams", label = "Teams" },
                       { key = "strategies", label = "Strategies" } }
         if RP and RP.CanManageRoster and RP:CanManageRoster() then out[#out + 1] = { key = "guests", label = "Guests" } end
+        out[#out + 1] = { key = "rules", label = "Loot rules" }
         local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
         if demo or (G and G.AmIRaidLogMember and G:AmIRaidLogMember()) then
             out[#out + 1] = { key = "log", label = "Raid log" }

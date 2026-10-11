@@ -1533,6 +1533,16 @@ STATES = [
     ("Council - roster - raid leader", st_council_roster_lock),
     ("Council - Loot council - officer", st_council_officer),
     ("Demo - Raid log - Players", demo("ns.RaidsUI:SetMode('players')", "raids")),
+    # 1.3.5 prized items (Raids > Loot rules, UI/PrizedUI.lua) on the demo guild's made-up items
+    ("Demo - Loot rules", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830')", "raids")),
+    ("Demo - Loot rules - Warglaives", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('32837')", "raids")),
+    ("Demo - Loot rules - history", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830'); "
+                                         "ns.PrizedUI:SetTab('history')", "raids")),
+    ("Demo - Loot rules - editing", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830'); "
+                                         "ns.PrizedUI:StartEdit()", "raids")),
+    ("Demo - Loot rules - add", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:StartAdd(); "
+                                     "ns.PrizedUI:SetAddSearch('warglaive'); ns.PrizedUI:TogglePick(32837); "
+                                     "ns.PrizedUI:TogglePick(32838)", "raids")),
     # 1.3.5 time-based attendance (UI/AttendanceUI.lua): a member's page, the reviews, the chat picker, the prompts
     ("Demo - Raid log - Attendance player", demo("ns.RaidsUI:SetMode('players'); "
         "local s = ns.Attendance:GetStats(8); local k; for _, r in ipairs(s) do if r.pending > 0 then k = r.key end end; "
