@@ -72,10 +72,14 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
   read (its test file, helpers, harness, mock, generators, the TOC) and the addon functions its clients called.
   `run_all.py` skips a suite when nothing of that changed since its last run. An edit inside a function reruns
   the suites that called it (for a nested function, only the suites that called that function). An edit to a data
-  table (`ns.Data.X = {...}`, `ns.CHANGELOG`) reruns the suites that called a function reading `X`. Other
-  top-level code (outside every function) reruns every suite that loaded the file. Comments, blank lines and a
-  new function nobody calls yet rerun nothing. A suite that failed and whose inputs did not change is listed as
-  failed again, with its old output, without being rerun.
+  table (`ns.Data.X = {...}`, `ns.CHANGELOG`, also `a.X, a.Y = 1, 2`) reruns the suites that called a function
+  reading `X`; so does a top-level `for`/`while`/`do`/`if` block that only fills tables (`S.HEX[k] = ...`).
+  Other top-level code (outside every function: event registrations, calls into the addon or the game) reruns
+  every suite that loaded the file, so keep load-time code to table set-up where you can. Comments, blank lines
+  and a new function nobody calls yet rerun nothing. A suite that failed and whose inputs did not change is listed
+  as failed again, with its old output, without being rerun.
+  Files are hashed when a suite reads them, so editing while suites run is fine: a suite that read the old version
+  simply runs again next time (its record is kept).
   Use `--all` before a release, or when something outside the repo changed (date-dependent code, the Python
   install). `tools\test_testmap.py` checks the selection itself.
 - **Bytecode cache.** The harness compiles each addon file once (`dev\.luacache\`). Clients after that load the

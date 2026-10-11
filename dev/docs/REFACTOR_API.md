@@ -129,3 +129,13 @@ UI:CreateLayout(kind, parent, opts) -> layout        kind "board"|"listdetail"|"
 ns.MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn, opts)   opts { layout = kind } (optional)
 ```
 Every page and window ends up on one of the five layouts. Main action: one height (S.BTN_H), far right of the toolbar.
+
+## Testing notes (added 11 Oct, applies to every agent)
+- The machine is shared: at most 3 agents run at once and `dz.sh` caps each test run at 3 suites (DZ_TEST_SLOTS).
+  Don't raise it, and don't start several run_all.py at once.
+- Test selection is smarter now (commits 1b85163, 5d62b78): files are hashed when a suite reads them, so you can keep
+  editing while suites run (no more "no record yet" full reruns); a top-level for/do/if block that only fills tables,
+  and `a.X, a.Y = ...`, count like data-table changes. Top-level code that registers events or calls into the addon
+  still reruns every suite that loads the file: keep such code in functions (e.g. an init function called from one
+  place) where the design allows.
+- During work run run_all.py (selection) or single suites; the integrators run the broad checks.
