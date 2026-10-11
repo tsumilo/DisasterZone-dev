@@ -1423,10 +1423,10 @@ function DropPanel.PrzTag(c)
 end
 -- The card's name with the prized seal, and its second line with the votes the award needs.
 -- 1.3.5 (prized look mockup, the user picked "ember glow" for the card): a prized item's card is warm - an amber
--- edge, a faint amber tint, a glow from the inside of the edges, and a slow light that runs along the top edge every
--- few seconds. on = false puts the card back.
+-- edge, a faint amber tint, a glow from the inside of the edges, and a soft sheen (a blurred light) that travels
+-- round the card's edge. on = false puts the card back.
 DropPanel.PRZ_GLOW = { EDGE = { 0.62, 0.34, 0.10, 1 }, TINT = { 1, 0.47, 0.08, 0.05 }, GLOW = { 1, 0.45, 0.08, 0.22 },
-                       DEPTH = 22, STREAK_W = 150, PERIOD = 5, RUN = 2.2 }
+                       DEPTH = 22, PERIOD = 7, SHEEN_L = 170, SHEEN_T = 34 }
 function DropPanel.PrzGlow(b, on)
     local G = DropPanel.PRZ_GLOW
     local k = b.przGlow
@@ -1450,30 +1450,47 @@ function DropPanel.PrzGlow(b, on)
                    glow("BOTTOMLEFT", "BOTTOMRIGHT", "VERTICAL", c[4], 0, nil, G.DEPTH),
                    glow("TOPLEFT", "BOTTOMLEFT", "HORIZONTAL", c[4], 0, G.DEPTH),
                    glow("TOPRIGHT", "BOTTOMRIGHT", "HORIZONTAL", 0, c[4], G.DEPTH) }
-        -- the light along the top edge: a bright core over a soft halo, run by an OnUpdate while shown
+        -- the sheen: a soft, blurred light (SoftGlow, added on top) that travels around the card's edge - a wide amber
+        -- halo with a brighter core, stretched along the edge it is on, fading in and out as it goes round
         k.run = CreateFrame("Frame", nil, b)
         k.run:SetAllPoints()
-        k.halo = k.run:CreateTexture(nil, "OVERLAY", nil, 1)
-        k.halo:SetSize(G.STREAK_W, 6)
-        k.core = k.run:CreateTexture(nil, "OVERLAY", nil, 2)
-        k.core:SetSize(G.STREAK_W * 0.6, 2)
-        k.halo:SetColorTexture(1, 0.62, 0.20, 0.35)
-        k.core:SetColorTexture(1, 0.88, 0.62, 0.95)
+        local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
+        local function soft(layer, sub, r, g, bl, a)
+            local t = k.run:CreateTexture(nil, layer, nil, sub)
+            t:SetTexture(SOFT)
+            t:SetBlendMode("ADD")
+            t:SetVertexColor(r, g, bl, a)
+            return t
+        end
+        k.halo = soft("OVERLAY", 1, 1, 0.55, 0.15, 0.55)
+        k.core = soft("OVERLAY", 2, 1, 0.86, 0.55, 0.85)
         k.t = 0
         k.run:SetScript("OnUpdate", function(self, dt)
             k.t = (k.t + (dt or 0)) % G.PERIOD
-            local f = k.t / G.RUN
-            if f > 1 then
-                k.halo:SetAlpha(0)
-                k.core:SetAlpha(0)
-                return
+            local w = CARD_W
+            local h = (b.GetHeight and b:GetHeight() or 0)
+            if h < 40 then h = 160 end
+            -- the way round: top (left to right), right (down), bottom (right to left), left (up)
+            local d = (k.t / G.PERIOD) * 2 * (w + h)
+            local x, y, along
+            if d < w then x, y, along = d, 0, "h"
+            elseif d < w + h then x, y, along = w, -(d - w), "v"
+            elseif d < 2 * w + h then x, y, along = w - (d - w - h), -h, "h"
+            else x, y, along = 0, -(h - (d - 2 * w - h)), "v" end
+            local L, T = G.SHEEN_L, G.SHEEN_T
+            if along == "h" then
+                k.halo:SetSize(L, T)
+                k.core:SetSize(L * 0.45, T * 0.35)
+            else
+                k.halo:SetSize(T, L * 0.6)
+                k.core:SetSize(T * 0.35, L * 0.27)
             end
-            local x = f * (CARD_W - G.STREAK_W)
-            local a = math.sin(f * math.pi)          -- fades in and out along the way
             k.halo:ClearAllPoints()
-            k.halo:SetPoint("CENTER", b, "TOPLEFT", x + G.STREAK_W / 2, 0)
+            k.halo:SetPoint("CENTER", b, "TOPLEFT", x, y)
             k.core:ClearAllPoints()
-            k.core:SetPoint("CENTER", b, "TOPLEFT", x + G.STREAK_W / 2, 0)
+            k.core:SetPoint("CENTER", b, "TOPLEFT", x, y)
+            -- (breathes a little on its way: brighter along the long edges)
+            local a = 0.75 + 0.25 * math.sin(k.t / G.PERIOD * 4 * math.pi)
             k.halo:SetAlpha(a)
             k.core:SetAlpha(a)
         end)

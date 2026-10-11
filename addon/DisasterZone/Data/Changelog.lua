@@ -82,7 +82,7 @@ ns.CHANGELOG = {
               "The drop panel marks a split vote and shows who is under the attendance floor.",
               "The Council's Drops button is gone: /dz drops and Shift-click the minimap button.",
               "A prized item's tooltip, anywhere in the game, wears an orange PRIZED ITEM ribbon.",
-              "On the boss drop panel a prized item's card glows amber, a light running along its edge.",
+              "On the boss drop panel a prized item's card glows amber, a soft sheen circling its edge.",
               "Settings > Demo mode > Demo a roll now includes a prized item, to see how it looks.",
           } },
           { heading = "Loot council: a tidier roll list", lines = {
