@@ -89,6 +89,7 @@ Sim\Warlock.lua
 Sim\Hunter.lua
 Sim\Data.lua
 Sim\Setup.lua
+Sim\History.lua
 Sim\Runner.lua
 Sim\BuffPresets.lua
 
@@ -171,6 +172,7 @@ UI\GemEditor.lua
 UI\SimPanel.lua
 UI\SimStage.lua
 UI\SimNerd.lua
+UI\SimHistory.lua
 UI\SimBuffs.lua
 UI\KitView.lua
 UI\MyBiS.lua
@@ -193,6 +195,7 @@ UI\StrategiesView.lua
 UI\StrategyReminder.lua
 UI\AttendanceUI.lua
 UI\PrizedUI.lua
+UI\LootRulesUI.lua
 UI\CouncilRules.lua
 UI\RaidsTab.lua
 UI\DungeonsTab.lua

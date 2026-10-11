@@ -53,6 +53,7 @@ local function Count(n) return tostring(floor(tonumber(n) or 0)) end
 local INFO = {
     raids   = { art = 131826, cx = 0.40, icon = "calendar", accent = { 1, 0.82, 0 } },
     council = { art = 131849, cx = 0.22, icon = "crown", accent = { 0.77, 0.55, 1 } },
+    lootrules = { art = 131826, cx = 0.40, icon = "ballot", accent = { 1, 0.82, 0 } },
     mylog   = { art = 131842, cx = 0.42, icon = "practice", accent = { 0.37, 0.82, 1 } },
     mybis   = { art = 131846, cx = 0.50, icon = "bag", accent = { 1, 0.82, 0 } },
     gearsim = { art = 131873, cx = 0.55, icon = "chart", accent = { 1, 0.55, 0.25 } },
@@ -73,6 +74,8 @@ local function IconIndex(name)
     if not (ns.HasAssets and ns:HasAssets(6)) then
         name = ({ poll = "notes", chart = "notes", flask = "bag" })[name] or name
     end
+    -- (art pack 7: the ballot box of Raids > Loot rules)
+    if name == "ballot" and not (ns.HasAssets and ns:HasAssets(7)) then name = (ns.HasAssets and ns:HasAssets(6)) and "poll" or "notes" end
     return I[name] or I.notes
 end
 
@@ -99,6 +102,12 @@ local VIEWS = {
                       { key = "rules", label = "Rules" } }
         for _, v in ipairs(out) do v.on = v.key == cur end
         return out
+    end,
+    lootrules = function()
+        local L = ns.LootRulesUI
+        local cur = L and L.GetView and L:GetView()
+        return { { key = "decided", label = "How it's decided", on = cur == "decided" },
+                 { key = "prized", label = "Prized items", on = cur == "prized" } }
     end,
     members = function()
         local M = ns.MembersUI
@@ -131,6 +140,7 @@ local VIEWS = {
 local OPEN_VIEW = {
     raids = function(v) ns.RaidsUI:SetView(v) end,
     council = function(v) ns.CouncilUI:SetView(v) end,
+    lootrules = function(v) ns.LootRulesUI:SetView(v) end,
     members = function(v) ns.MembersUI:SetMode(v) end,
     events = function(v) ns.EventsUI:SetView(v) end,
     atlas = function() ns.AtlasUI:OpenShop() end,
@@ -165,7 +175,7 @@ FACTS.raids = function()
     if not (RP and RP.GetRaids) then return end
     local now = Now()
     for _, v in ipairs(RP:GetRaids(now - 3 * 3600)) do
-        if not v.cancelled then
+        if not v.cancelled and not (RP.IsRaidHidden and RP:IsRaidHidden(v)) then
             local out = { { Relative(v.t), RaidShort(v) } }
             local acc = 0
             for _, s in pairs(RP:GetSignups(v.id) or {}) do
@@ -191,6 +201,24 @@ FACTS.council = function()
         end
         out[#out + 1] = { Count(k), "awarded in 7 days" }
     end
+    return out
+end
+
+-- Raids > Loot rules: the prized items (and how many I qualify for), the guild's order before votes.
+FACTS.lootrules = function()
+    local out = {}
+    local P = ns.Prized
+    local items = P and P.GetItems and P:GetItems() or {}
+    if #items > 0 then
+        local ok, me = 0, ns.Util.PlayerKey()
+        for _, it in ipairs(items) do
+            if P:Check(it, me).ok == true then ok = ok + 1 end
+        end
+        out[#out + 1] = { Count(#items), Plural(#items, "prized item", "prized items") .. ", " .. ok .. " you qualify for" }
+    end
+    local G = ns.Guild
+    local R = G and G.GetLootRules and G:GetLootRules()
+    if R then out[#out + 1] = { R.l ~= "r" and "Lists" or "Roll", R.l ~= "r" and "first, then the roll" or "decides before votes" } end
     return out
 end
 

@@ -276,9 +276,9 @@ local function CleanReason(r)
 end
 
 -- The reason's rules (ns.AWARD_REASON); an unknown or missing reason counts and owns like a normal award.
+-- (counts: also only gear, ns.AwardCounts: a bag or a recipe is not loot received)
 local function ReasonCounts(e)
-    local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
-    return not r or r.counts
+    return ns.AwardCounts(e)
 end
 
 local function ReasonOwns(e)

@@ -2,7 +2,7 @@
 GetDryStreak, UI/DropPanel.lua Dry).
 
 Covers: raids counted only after the last item (and only those the player came to, not benched; the night running now
-never), boss kills added up, no item on record, offspec / disenchant / guild bank / dungeon awards not ending a streak,
+never), boss kills added up, no item on record, offspec / disenchant / guild bank / dungeon awards and non-gear (bags, recipes, mounts) not ending a streak,
 an item on an account-linked character ending it (a one-sided main claim does not), the guild council only (members
 and raid-scope council see nothing), the cache following new awards, and the drop panel's meter + tooltip lines.
 
@@ -72,10 +72,10 @@ def nights(cl, specs):
     cl.eval(INJECT, fixed)
 
 
-def award(cl, name, days_ago, reason=None, dg=None, sid=None):
+def award(cl, name, days_ago, reason=None, dg=None, sid=None, item=ITEM):
     e = cl.eval_py("local sid, i, w, ts, dg, r = ...; "
                    "return ns.Ledger:RecordRollAward(sid, i, w, '', nil, nil, ts, false, dg, r)",
-                   sid or ("s-%s-%s" % (name, days_ago)), ITEM, K(name), now(cl) - int(days_ago * DAY), dg, reason)
+                   sid or ("s-%s-%s-%s" % (name, days_ago, item)), item, K(name), now(cl) - int(days_ago * DAY), dg, reason)
     assert e, "award not recorded"
     return e
 
@@ -144,6 +144,30 @@ def offspec_disenchant_bank_and_dungeon_loot_do_not_end_it():
     assert d["nights"] == 4 and d["bosses"] == 3 + 5 + 2 + 6, d    # n11, n7, n4, n1 since the award 12 days ago
     award(bob, "Tank", 0.5, reason="up", sid="real")
     assert dry(bob, "Tank")["nights"] == 0   # (the cache follows the new award)
+
+
+@case
+def only_gear_ends_it():
+    """A bag (Pit Lord's Satchel), a raid pattern and a mount are not loot received: no streak ends, "won N" and the
+    raid log's items leave them out. A tier token and Magtheridon's Head turn into gear: they count."""
+    w, c = world()
+    bob = c["Bob"]
+    nights(bob, FIVE)
+    award(bob, "Tank", 12)
+    since = now(bob) - 13 * DAY
+    for item in (34845, 30280, 32458):        # Pit Lord's Satchel, Pattern: Belt of Blasting, Ashes of Al'ar
+        award(bob, "Tank", 3, item=item)
+    d = dry(bob, "Tank")
+    assert d["nights"] == 4 and d["last"]["i"] == ITEM, d
+    assert bob.eval("return ns.Ledger:CountSince(...)", K("Tank"), since) == 1
+    assert bob.eval("return ns.ItemDB:IsGear(34845) == false and ns.ItemDB:IsGear(30280) == false "
+                    "and ns.ItemDB:IsGear(28789) and ns.ItemDB:IsGear(29753) and ns.ItemDB:IsGear(32385)")
+    award(bob, "Tank", 2, item=29753)          # Chestguard of the Fallen Defender (token)
+    d = dry(bob, "Tank")
+    assert d["nights"] == 1 and d["last"]["i"] == 29753, d
+    award(bob, "Tank", 0.5, item=32385)        # Magtheridon's Head
+    assert dry(bob, "Tank")["nights"] == 0
+    assert bob.eval("return ns.Ledger:CountSince(...)", K("Tank"), since) == 3
 
 
 @case

@@ -891,13 +891,32 @@ SIM_P1 = {1: 29073, 2: 28745, 3: 29075, 15: 24259, 5: 29071, 9: 28795, 10: 30644
           11: 28757, 12: 30834, 13: 29383, 14: 28830, 16: 28429, 18: 27484}
 
 
-def sim_mode(run=True, stale=False, picker=False, meta_off=False, running=False, nerd=None):
+def sim_mode(run=True, stale=False, picker=False, meta_off=False, running=False, nerd=None, history=None):
     """My BiS in Sim mode (UI/SimPanel.lua): Gina in WoWSims' P1 Ret gear, Hourglass in the Working set's Trinket 1,
-    a short run against My gear; stale = a slot changed after the run; picker = Trinket 1's picker after Best."""
+    a short run against My gear; stale = a slot changed after the run; picker = Trinket 1's picker after Best;
+    history = Recent runs (UI/SimHistory.lua) after two earlier runs (Abacus, then two trinkets swapped): "two" = the
+    newest two compared, "one" = the newest alone, "link" = the result page with its Recent runs link."""
     def fn(w, c):
         g = opened("mybis", "ns.BiS:SetSpec('Retribution'); ns.MyBiS:SetPhase(1, true)")(w, c)
         g.equip(SIM_P1)
         g.set_bags({(0, 1): 28034, (0, 2): 28288})
+        if history:
+            g.eval("ns.SimRunner.DEFAULT_ITERATIONS = 60; ns.SimPanel:ResetTo(ns.SimRunner:EquippedSet()); "
+                   "local t1, t2; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 13 then t1 = i end "
+                   "if s.invSlot == 14 then t2 = i end end; "
+                   "ns.SimPanel:SetWorkingSlot(t1, ns.SimRunner:FillEntry(28288, t1)); ns.SimPanel:Run()")
+            for _ in range(400):
+                if not g.eval("return ns.SimRunner:IsRunning()"):
+                    break
+                w.tick(0.05, 0.05)
+            g.eval("local t1, t2; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 13 then t1 = i end "
+                   "if s.invSlot == 14 then t2 = i end end; "
+                   "ns.SimPanel:SetWorkingSlot(t2, ns.SimRunner:FillEntry(28034, t2)); ns.SimPanel:Run()")
+            for _ in range(400):
+                if not g.eval("return ns.SimRunner:IsRunning()"):
+                    break
+                w.tick(0.05, 0.05)
+            w.tick(3, 0.05)
         g.eval("ns.SimRunner.DEFAULT_ITERATIONS = 60; ns.SimPanel.PICK_ITERATIONS = 20; "
                "ns.SimPanel:ResetTo(ns.SimRunner:EquippedSet()); "
                "local sid; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 13 then sid = i end end; "
@@ -944,6 +963,17 @@ def sim_mode(run=True, stale=False, picker=False, meta_off=False, running=False,
                         break
                     w.tick(0.05, 0.05)
             g.eval("ns.SimNerd:Open('%s')" % nerd)
+            w.tick(0.8, 0.05)
+        if history == "gems":
+            g.eval("local sid; for i, s in ipairs(ns.SLOTS) do if s.invSlot == 1 then sid = i end end "
+                   "T_TILE = nil local function walk(f) if f.strip and f.sid == sid and f.mainID then T_TILE = f end "
+                   "for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end end walk(UIParent) "
+                   "ns.SimPanel:OpenGems(sid, T_TILE) local f = ns.GemEditor:GetFrame() f.choices[1]:Click()")
+            w.tick(0.5, 0.05)
+        if history in ("one", "two"):
+            g.eval("ns.SimHistoryUI:Open()")
+            if history == "one":
+                g.eval("ns.SimHistoryUI:Pick(ns.SimHistoryUI._picked()[2])")
             w.tick(0.8, 0.05)
         w.tick(0.3)
         return g
@@ -999,8 +1029,8 @@ def st_blizzard_options(w, c):
     g = c["Gina"]
     demo_off(w, c)
     close_all(g)
-    g.eval("local f = DisasterZoneBlizzardOptions; f:SetParent(UIParent); f:ClearAllPoints(); "
-           "f:SetPoint('CENTER'); f:SetSize(860, 640); f:Hide(); f:Show()")
+    g.eval("__MOCK.real_geometry = true; local f = DisasterZoneBlizzardOptions; f:SetParent(UIParent); f:ClearAllPoints(); "
+           "f:SetPoint('CENTER'); f:SetSize(680, 600); f:Hide(); f:Show()")   # measured in game 2026-10-11
     w.tick(0.8)
     return g
 
@@ -1171,6 +1201,10 @@ STATES = [
     ("My BiS - Sim nerd run", sim_mode(nerd="run")),
     ("My BiS - Sim meta off", sim_mode(meta_off=True)),
     ("My BiS - Sim picker", sim_mode(picker=True)),
+    ("My BiS - Sim recent runs", sim_mode(history="two")),
+    ("My BiS - Sim recent runs one", sim_mode(history="one")),
+    ("My BiS - Sim results recent link", sim_mode(history="link")),
+    ("My BiS - Sim gem editor", sim_mode(history="gems")),
     ("My BiS - Consumables", kit_view()),
     ("My BiS - Consumables simmed", kit_view(run=True)),
     ("My BiS - Consumables healer", kit_view(spec="Holy")),
@@ -1583,6 +1617,9 @@ STATES = [
     ("Meters - death recap", opened("home", "ns.MainFrame:Close(); " + MET +
         "ns.MeterDetail:OpenDeath('cur', ns.Meter:GetSegment('cur').deaths[1])")),
     ("Settings - Loot Council", opened("settings", "ns.SettingsUI:SelectSection('council')")),
+    ("Settings - Attendance", opened("settings", "ns.SettingsUI:SelectSection('attendance')")),
+    ("Settings - Attendance (member)", opened("settings", "ns.Guild.IsGM = function() return false end; "
+        "ns.SettingsUI:SelectSection('attendance'); ns.SettingsUI:Refresh()")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
     ("Changelog", opened("changelog")),
@@ -1609,6 +1646,19 @@ STATES = [
     ("Demo - Council - rules longest use", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner'); "
                                                 "ns.CouncilRulesUI:SetScene('none'); ns.CouncilRulesUI:SetChoice('o', 4)",
                                                 "council")),
+    # 1.3.5 Raids > Loot rules (everyone, read-only): how it's decided, the prized items gallery, an item
+    ("Demo - Loot rules page - decided", demo("ns.LootRulesUI:SetView('decided')", "lootrules")),
+    ("Demo - Loot rules page - decided longest use", demo("ns.Guild:SetLootRules({ f = 50, s = 'r', l = 'l', w = 'd', "
+                                                          "y = 'n', o = 4 }); ns.LootRulesUI:SetView('decided')", "lootrules")),
+    ("Demo - Loot rules page - prized", demo("ns.LootRulesUI:SetView('prized')", "lootrules")),
+    ("Demo - Loot rules page - item", demo("ns.LootRulesUI:OpenItem('32505')", "lootrules")),
+    ("Loot rules page - raider", opened("lootrules", "ns.LootRulesUI:SetView('decided')")),
+    # the worst case for Where you stand: the dry streak, longest use and a list with 1 slot picked (16 empty)
+    ("Demo - Loot rules page - 1 picked", demo(
+        "ns.Guild:SetLootRules({ f = 50, s = 'r', l = 'l', w = 'd', y = 'n', o = 4 }); "
+        "local ph = ns.Guild:GetViewPhase() or 1; "
+        "for _, sl in ipairs(ns.SLOTS) do ns.BiS:ClearSlot(ph, sl.id) end; "
+        "ns.BiS:SetSlot(ph, 1, 'main', 29011); ns.BiS:Commit(); ns.LootRulesUI:SetView('decided')", "lootrules")),
     ("Demo - Council - rules no votes", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner'); "
                                              "ns.CouncilRulesUI:SetScene('none')", "council")),
     ("Demo - Council - rules prized", demo("ns.CouncilUI:SetView('rules'); "
@@ -1664,6 +1714,12 @@ STATES = [
     ("Demo - Raid log - Raids", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('att')", "raids")),
     ("Demo - Raid log - Bosses", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('boss')", "raids")),
     ("Demo - Raid log - Awards", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('award')", "raids")),
+    # a night of two logged raids (the demo's Thu 17 Gruul + Mag joined by one planned-raid link): split art, "Gruul + Mag"
+    ("Demo - Raid log - combined night", demo("for _, r in ipairs(ns.RaidLog:GetRaids()) do "
+        "if date('%d', r.start) == '17' then r.pl = 'demo-combo' end end; "
+        "ns:Fire('RAIDLOG_CHANGED'); ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('att'); "
+        "for _, x in ipairs(ns.Attendance:GetNights()) do if x.pl == 'demo-combo' then "
+        "ns.RaidsUI:Select(ns.Attendance:NightView(x).id) end end", "raids")),
     ("Demo - Start raid window", demo("ns.SessionBar:OpenStart()")),
     ("Demo - test drop panel", demo("ns.Loot:SimulateDrop()")),
     # the roll rows makeover (1.3.5, layout B): a full demo raid rolling, the council's view

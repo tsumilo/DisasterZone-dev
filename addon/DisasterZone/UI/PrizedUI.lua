@@ -512,9 +512,10 @@ end
 
 local rulePool, rulesUsed = {}, 0
 
-local function newRule(parent)
+local function newRule(parent, width)
     local r = CreateFrame("Frame", nil, parent)
-    r:SetWidth(DETAIL_W - 16)
+    r.cdlW = width or (DETAIL_W - 16)
+    r:SetWidth(r.cdlW)
     r.box = r:CreateTexture(nil, "BACKGROUND")
     r.box:SetSize(26, 26)
     r.box:SetPoint("TOPLEFT", 0, -8)
@@ -601,7 +602,7 @@ local function fillRule(r, rec, rkey, v, res, editing)
     ruleTex(r.icon, rkey, 0.82, 0.82, 0.85)
     local text, sub = Pz:RuleText(rkey, v, rec)
     local rightW = editing and EDIT_W or ((res and (res.value or res.ok ~= nil)) and RIGHT_W or 0)
-    local textW = DETAIL_W - 16 - RULE_X - rightW - 8
+    local textW = (r.cdlW or (DETAIL_W - 16)) - RULE_X - rightW - 8
     r.text:SetWidth(textW)
     r.text:SetText(text)
     r.text:SetTextColor(0.94, 0.94, 0.94)
@@ -705,9 +706,10 @@ local function section(parent, text)
     return s
 end
 
-local function newHistRow(parent)
+local function newHistRow(parent, width)
     local r = CreateFrame("Frame", nil, parent)
-    r:SetWidth(DETAIL_W - 16)
+    r.cdlW = width or (DETAIL_W - 16)
+    r:SetWidth(r.cdlW)
     r.box = r:CreateTexture(nil, "BACKGROUND")
     r.box:SetSize(26, 26)
     r.box:SetPoint("TOPLEFT", 0, -8)
@@ -743,7 +745,7 @@ end
 
 local function fillHist(r, e)
     local Pz = P()
-    local w = DETAIL_W - 16 - RULE_X - 90
+    local w = (r.cdlW or (DETAIL_W - 16)) - RULE_X - 90
     r.title:SetWidth(w)
     r.sub:SetWidth(w)
     local h = e.rec
@@ -957,12 +959,28 @@ function PrizedUI:CreateView(parent)
     v.scroll, v.body = sf, body
     body.rulesHead = section(body, "RULES")
     body.qualHead = section(body, "QUALIFY TODAY")
+    -- (class icons with the player's name on hover; the count lists every qualifier on hover)
+    local function qualTip(self)
+        if not self.lines then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        for _, l in ipairs(self.lines) do GameTooltip:AddLine(l[1], l[2], l[3], l[4]) end
+        GameTooltip:Show()
+    end
     body.stack = {}
     for i = 1, 12 do
-        local t = body:CreateTexture(nil, "ARTWORK")
+        local t = CreateFrame("Frame", nil, body)
         t:SetSize(20, 20)
+        t.tex = t:CreateTexture(nil, "ARTWORK")
+        t.tex:SetAllPoints()
+        t:EnableMouse(true)
+        t:SetScript("OnEnter", qualTip)
+        t:SetScript("OnLeave", hideTooltip)
         body.stack[i] = t
     end
+    body.qualHit = CreateFrame("Frame", nil, body)
+    body.qualHit:EnableMouse(true)
+    body.qualHit:SetScript("OnEnter", qualTip)
+    body.qualHit:SetScript("OnLeave", hideTooltip)
     body.qualText = newText(body, "GameFontHighlight", 12)
     body.qualSub = newText(body, "GameFontHighlightSmall", 11)
     body.qualSub:SetTextColor(0.72, 0.72, 0.75)
@@ -1120,17 +1138,37 @@ local function fillRules(rec, body)
     local showQual = ok ~= nil and n > 0
     body.qualHead:SetShown(showQual)
     body.qualText:SetShown(showQual)
-    body.qualSub:SetShown(showQual)
+    body.qualHit:SetShown(showQual)
     for _, t in ipairs(body.stack) do t:Hide() end
+    -- (the names line only when the priority rules give a real order among the first few; with no priority
+    -- rules, or all tied, the sort is by name, so the line would claim an order that isn't there)
+    local ordered = false
+    if showQual then
+        for i = 1, min(#ok, 5) - 1 do
+            if P():Before(ok[i].c, ok[i + 1].c) ~= nil then ordered = true break end
+        end
+    end
+    local showSub = showQual and (#ok == 0 or ordered)
+    body.qualSub:SetShown(showSub)
     if showQual then
         y = y + 10
         body.qualHead:SetPoint("TOPLEFT", 0, -y)
         y = y + 26
+        local function tipName(i)
+            local key = ok[i].key
+            local c = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)
+            local cc = c and RAID_CLASS_COLORS and RAID_CLASS_COLORS[c]
+            local r, g, b = 1, 1, 1
+            if cc then r, g, b = cc.r, cc.g, cc.b end
+            return (ordered and (i .. ". ") or "") .. shortName(key), r, g, b, c
+        end
         local x = 0
         for i = 1, min(#ok, #body.stack) do
             local t = body.stack[i]
-            local c = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(ok[i].key)
-            if c then UI():ClassIcon(t, c) end
+            local name, r, g, b, c = tipName(i)
+            UI():ClassIcon(t.tex, c)
+            t.lines = { { name, r, g, b } }
+            if ordered then t.lines[2] = { "In priority order for this item", 0.72, 0.72, 0.75 } end
             t:ClearAllPoints()
             t:SetPoint("TOPLEFT", x, -y)
             t:Show()
@@ -1139,14 +1177,28 @@ local function fillRules(rec, body)
         body.qualText:ClearAllPoints()
         body.qualText:SetPoint("TOPLEFT", x + (x > 0 and 8 or 0), -y - 3)
         body.qualText:SetText(format("%d of %d raiders", #ok, n))
-        local names = {}
-        for i = 1, min(#ok, 4) do names[#names + 1] = shortName(ok[i].key) end
-        body.qualSub:ClearAllPoints()
-        body.qualSub:SetPoint("TOPLEFT", 0, -y - 26)
-        body.qualSub:SetWidth(DETAIL_W - 16)
-        body.qualSub:SetText(#ok > 0 and ("First: " .. tconcat(names, ", ") .. (#ok > 4 and "…" or "")) or
-            "Nobody meets every rule right now.")
-        y = y + 44
+        local lines = { { #ok > 0 and (ordered and "Qualify, next in line first" or "Qualify today") or
+            "Nobody qualifies today", 1, 0.82, 0 } }
+        for i = 1, #ok do
+            local name, r, g, b = tipName(i)
+            lines[#lines + 1] = { name, r, g, b }
+        end
+        body.qualHit.lines = lines
+        body.qualHit:ClearAllPoints()
+        body.qualHit:SetPoint("TOPLEFT", body.qualText, "TOPLEFT", -2, 2)
+        body.qualHit:SetSize((body.qualText:GetStringWidth() or 80) + 4, 18)
+        if showSub then
+            local names = {}
+            for i = 1, min(#ok, 4) do names[#names + 1] = shortName(ok[i].key) end
+            body.qualSub:ClearAllPoints()
+            body.qualSub:SetPoint("TOPLEFT", 0, -y - 26)
+            body.qualSub:SetWidth(DETAIL_W - 16)
+            body.qualSub:SetText(#ok > 0 and ("Next in line: " .. tconcat(names, ", ") .. (#ok > 4 and "…" or "")) or
+                "Nobody meets every rule right now.")
+            y = y + 44
+        else
+            y = y + 24
+        end
     end
     -- who set the rules
     local last = Pz:LastChange(rec.id)
@@ -1173,7 +1225,7 @@ end
 local function fillHistory(rec, body)
     for _, r in ipairs(rulePool) do r:Hide() end
     for _, r in ipairs(histPool) do r:Hide() end
-    for _, k in ipairs({ "rulesHead", "qualHead", "qualText", "qualSub", "foot", "footIcon", "histLink", "addRule",
+    for _, k in ipairs({ "rulesHead", "qualHead", "qualText", "qualHit", "qualSub", "foot", "footIcon", "histLink", "addRule",
                          "save", "undo", "editNote" }) do
         body[k]:Hide()
     end
@@ -1636,3 +1688,17 @@ function PrizedUI:OnInit()
         }
     end
 end
+
+-- (1.3.5, Raids > Loot rules for everyone, UI/LootRulesUI.lua: the same pieces at other widths)
+PrizedUI.NewRuleRow = function(_, parent, width) return newRule(parent, width) end
+-- Fills a rule row for rec's rule key with my standing (res from Prized:Check); returns its height.
+PrizedUI.FillRuleRow = function(_, r, rec, key, res) return fillRule(r, rec, key, rec.r[key], res, false) end
+PrizedUI.NewHistRow = function(_, parent, width) return newHistRow(parent, width) end
+PrizedUI.FillHistRow = function(_, r, e) return fillHist(r, e) end
+PrizedUI.NewItemIcons = function(_, parent, size, n) return newItemIcons(parent, size, n) end
+PrizedUI.SetItemIcons = function(_, icons, rec, overlap) return setItemIcons(icons, rec, overlap) end
+PrizedUI.SetArt = function(_, tex, raidKey, w, h, fw) return setArt(tex, raidKey, w, h, fw) end
+PrizedUI.Standing = function(_, rec) return standing(rec) end
+PrizedUI.RecName = function(_, rec) return recName(rec) end
+PrizedUI.SlotText = function(_, rec) return slotText(rec) end
+PrizedUI.RuleIcon = function(_, tex, key, r, g, b) return ruleTex(tex, key, r, g, b) end

@@ -320,6 +320,16 @@ ns.AWARD_REASONS = {
 ns.AWARD_REASON = {}
 for _, r in ipairs(ns.AWARD_REASONS) do ns.AWARD_REASON[r.key] = r end
 
+-- 1.3.5: a Loot Log entry counts as loot received ("won N", dry streaks, items received) when its reason counts and
+-- the item is gear (ItemDB:IsGear): a bag, a recipe, a mount or materials never do. Unknown items count.
+function ns.AwardCounts(e)
+    if type(e) ~= "table" then return false end
+    local r = e.r and ns.AWARD_REASON[e.r]
+    if r and not r.counts then return false end
+    local I = ns.ItemDB
+    return not (I and I.IsGear and I:IsGear(e.i) == false)
+end
+
 -- Label of a reason key ("BiS"), or nil for no / an unknown reason.
 function ns.ReasonLabel(key)
     local r = type(key) == "string" and ns.AWARD_REASON[key]

@@ -595,15 +595,60 @@ function RaidLog:GetBossTotal(instID)
     return bossTotals[instID] or nil
 end
 
--- Loot Log entries of a raid (not voided, not dungeon loot), newest first: tagged with its id, or untagged ones
--- made while it ran.
--- How many bosses a record's night has: linked to a planned raid of several instances (1.3.2, e.g. Gruul + Mag), all
--- of theirs; else those of the instance it was recorded in (instID: where I stand, for the live session's bar). nil =
--- unknown.
+-- The instance a boss belongs to (encounter id -> instance id, from the item database).
+local encInst
+local function EncounterInstance(enc)
+    if not encInst then
+        local map, any = {}, false
+        for _, raid in ipairs(ns.ItemDB and ns.ItemDB.GetRaids and ns.ItemDB:GetRaids() or {}) do
+            for _, b in ipairs(raid.bosses or {}) do
+                local e = tonumber(b.encounterID)
+                if e and raid.instanceID and not map[e] then
+                    map[e] = raid.instanceID
+                    any = true
+                end
+            end
+        end
+        if not any then return nil end   -- (the item database not there yet: ask again later)
+        encInst = map
+    end
+    return encInst[tonumber(enc) or 0]
+end
+
+-- The instances a record (or a night of several, Attendance:NightView) covered, in the night's order: { key, ... }
+-- (the raid plan's keys, each once). Where its logs were recorded, then where its bosses died, then the linked planned
+-- raid's instances. Empty when none is known.
+function RaidLog:GetRecordInstances(rec)
+    local out, seen = {}, {}
+    local RP = ns.RaidPlan
+    if type(rec) ~= "table" or not (RP and RP.GetInstances) then return out end
+    local byID = {}
+    for _, inst in ipairs(RP:GetInstances()) do
+        if inst.instID then byID[inst.instID] = inst.key end
+    end
+    local function add(key)
+        if key and not seen[key] then
+            seen[key] = true
+            out[#out + 1] = key
+        end
+    end
+    local recs = rec.night and rec.night.recs
+    if type(recs) == "table" then
+        for i = #recs, 1, -1 do add(byID[tonumber(recs[i].instID) or 0]) end   -- (newest first: oldest first here)
+    end
+    add(byID[tonumber(rec.instID) or 0])
+    for _, b in ipairs(type(rec.bosses) == "table" and rec.bosses or {}) do add(byID[EncounterInstance(b.enc) or 0]) end
+    local v = rec.pl and RP.GetRaid and RP:GetRaid(rec.pl)
+    for _, key in ipairs(v and RP.GetRaidInstances and RP:GetRaidInstances(v) or {}) do add(key) end
+    return out
+end
+
+-- How many bosses a record's night has: several instances (logged in, killed in, or the linked planned raid's, 1.3.2,
+-- e.g. Gruul + Mag), all of theirs; else those of the instance it was recorded in (instID: where I stand, for the live
+-- session's bar). nil = unknown.
 function RaidLog:GetRecordBossTotal(rec, instID)
     local RP = ns.RaidPlan
-    local v = type(rec) == "table" and rec.pl and RP and RP.GetRaid and RP:GetRaid(rec.pl)
-    local keys = v and RP.GetRaidInstances and RP:GetRaidInstances(v) or {}
+    local keys = self:GetRecordInstances(rec)
     if #keys > 1 then
         local n = 0
         for _, key in ipairs(keys) do
@@ -615,6 +660,8 @@ function RaidLog:GetRecordBossTotal(rec, instID)
     return self:GetBossTotal(instID or (type(rec) == "table" and rec.instID))
 end
 
+-- Loot Log entries of a raid (not voided, not dungeon loot), newest first: tagged with its id, or untagged ones
+-- made while it ran.
 function RaidLog:GetAwards(rec)
     local out = {}
     if type(rec) == "table" and rec.demoAwards then
@@ -780,8 +827,7 @@ function RaidLog:GetPlayerStats(lastN)
         end
         for _, e in ipairs(self:GetAwards(rec)) do
             if not e.vd then
-                local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
-                if not r or r.counts then
+                if ns.AwardCounts(e) then
                     local s = S(e.w)
                     s.items = s.items + 1
                     if not s.lastItem or e.ts > s.lastItem.ts then s.lastItem = e end

@@ -236,6 +236,9 @@ local function addEntryLines(tt, e)
         tt:AddDoubleLine("Reason", label .. (reasonCounts(e) and "" or grey(" (not counted as loot won)")),
             0.8, 0.8, 0.8, 1, 1, 1)
     end
+    if reasonCounts(e) and not ns.AwardCounts(e) then
+        tt:AddLine(grey("Not gear: not counted as loot won"))
+    end
     local where = bossName(e.b, true)
     if where then tt:AddDoubleLine("Boss", where, 0.8, 0.8, 0.8, 1, 1, 1) end
     if isDungeonEntry(e) then tt:AddLine("5-man dungeon loot (dungeon mode)", 0.6, 0.6, 0.6) end

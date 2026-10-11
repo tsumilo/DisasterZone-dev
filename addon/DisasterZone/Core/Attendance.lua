@@ -983,8 +983,9 @@ end
 ---------------------------------------------------------------------------
 
 -- The player = the character with its account links (each character vouches for the other, as for attendance): an
--- item on any of them ends the streak, a night on any of them counts. Loot = Loot Log awards that count as loot received (not offspec / disenchant / guild
--- bank, not 5-man dungeon loot). Counted: the closed nights they came to (not benched) that started after that award,
+-- item on any of them ends the streak, a night on any of them counts. Loot = Loot Log awards that count as loot
+-- received (ns.AwardCounts: not offspec / disenchant / guild bank, not 5-man dungeon loot, only gear: a bag or a
+-- recipe does not end it). Counted: the closed nights they came to (not benched) that started after that award,
 -- and the boss kills they were there for in those nights. The night running now is not counted.
 -- The guild's loot rules (Council > Rules, y) say what a night is: "n" (default) only nights they were really there for
 -- (a boss kill, or half the night), "a" any night they showed up.
@@ -1027,8 +1028,7 @@ function Att:GetDryStreak(key)
     local last
     for k in pairs(chars) do
         for _, e in ipairs(Ledger and Ledger.GetEntries and Ledger:GetEntries({ player = k, excludeDungeon = true }) or {}) do
-            local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
-            if not r or r.counts then
+            if ns.AwardCounts(e) then
                 if not last or e.ts > last.ts then last = e end
                 break   -- (newest first)
             end
@@ -1038,8 +1038,7 @@ function Att:GetDryStreak(key)
     for _, n in ipairs(DemoOn() and nights or {}) do
         for _, rec in ipairs(n.recs or {}) do
             for _, e in ipairs(rec.demoAwards or {}) do
-                local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
-                if chars[e.w] and (not r or r.counts) and (not last or e.ts > last.ts) then last = e end
+                if chars[e.w] and ns.AwardCounts(e) and (not last or e.ts > last.ts) then last = e end
             end
         end
     end

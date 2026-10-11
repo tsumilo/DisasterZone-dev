@@ -735,6 +735,23 @@ function ItemDB:GetEquipLoc(itemID)
     return cached or nil
 end
 
+local GEAR_CLASSES = { [2] = true, [4] = true }   -- weapon, armor
+local NOT_GEAR_LOC = { INVTYPE_BODY = true, INVTYPE_TABARD = true, INVTYPE_BAG = true, INVTYPE_QUIVER = true,
+                       INVTYPE_AMMO = true }
+
+-- 1.3.5: gear = a weapon or armor worn in a real slot (not a shirt / tabard), or a tier token / quest item that turns
+-- into gear (Data.Tokens: Magtheridon's Head, Verdant Sphere, ...). Bags, recipes, mounts, materials: false.
+-- nil when the client does not know the item.
+function ItemDB:IsGear(itemID)
+    itemID = tonumber(itemID)
+    if not itemID or itemID ~= itemID then return nil end
+    if self:IsToken(itemID) then return true end
+    local id, _, _, loc, _, classID = InstantInfo(itemID)
+    if id == nil then return nil end
+    return (GEAR_CLASSES[tonumber(classID)] and type(loc) == "string" and not NON_EQUIP[loc] and not NOT_GEAR_LOC[loc])
+        and true or false
+end
+
 -- Array of sids the item can go into (a new array each call).
 function ItemDB:GetSlotsForItem(itemID)
     local out = {}

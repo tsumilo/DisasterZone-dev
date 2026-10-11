@@ -324,15 +324,21 @@ local function register()
 
     -- 1.3.5: the GM / guild council changed a prized item's loot rules (Council > Rules)
     N:RegisterKind("lootRules", {
-        section = "Loot", page = "council", icon = (ns.HasAssets and ns:HasAssets(7)) and 60 or 51,
+        section = "Loot", page = "lootrules", icon = (ns.HasAssets and ns:HasAssets(7)) and 60 or 51,
         color = { 1, 0.6, 0.18 },
         label = "Loot rules changed", desc = "The Guild Master or the guild council changed a prized item's loot rules.",
         needsYou = false, popup = false, sound = false,
         open = function(it)
-            openTab("council")
-            if ns.CouncilUI then ns.CouncilUI:SetView("rules") end
             local id = it and it.data and it.data.id
-            if id and ns.CouncilRulesUI then ns.CouncilRulesUI:Select(id) end
+            -- (the council edits them in Council > Rules; everyone reads them in Raids > Loot rules)
+            if ns.CouncilUI and ns.CouncilUI.IsAvailable and ns.CouncilUI:IsAvailable() then
+                openTab("council")
+                ns.CouncilUI:SetView("rules")
+                if id and ns.CouncilRulesUI then ns.CouncilRulesUI:Select(id) end
+            elseif ns.LootRulesUI then
+                openTab("lootrules")
+                ns.LootRulesUI:OpenItem(id)
+            end
         end,
     })
     -- 1.3.5: a prized item rolled out that I don't qualify for (no roll window: RollFrame:SkipsPrized)
@@ -348,6 +354,9 @@ local function register()
                 openTab("council")
                 ns.CouncilUI:SetView("rules")
                 if ns.CouncilRulesUI then ns.CouncilRulesUI:Select(id.id) end
+            elseif id and ns.LootRulesUI then
+                openTab("lootrules")
+                ns.LootRulesUI:OpenItem(id.id)
             end
         end,
     })

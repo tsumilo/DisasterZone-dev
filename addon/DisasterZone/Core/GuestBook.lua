@@ -561,8 +561,7 @@ local function Build()
     local L = ns.Ledger
     for _, it in ipairs(L and L.GetEntries and L:GetEntries({ excludeDungeon = true }) or {}) do
         if type(it.w) == "string" and IsOutsider(it.w) then
-            local r = ns.AWARD_REASON and it.r and ns.AWARD_REASON[it.r]
-            if not r or r.counts then
+            if ns.AwardCounts(it) then
                 local e = E(it.w)
                 Touch(e, it.ts)
                 e.items = e.items + 1
