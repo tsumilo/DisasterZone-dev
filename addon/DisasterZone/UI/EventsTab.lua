@@ -3677,50 +3677,52 @@ end
 ---------------------------------------------------------------------------
 
 local Lib = {}
-local LIB_BAR_Y, GRID_Y, CARD_H = 44, 80, 146
+local CARD_H = 146
 local FILTERS = { { key = "guild", label = "Guild" }, { key = "mine", label = "Mine" }, { key = "ranked", label = "Ranked" } }
 
+-- 1.4: the Library is a Board page (UI:CreateLayout "board"): its filter row (the search, Guild / Mine / Ranked as
+-- UI:CreateSegments) over a grid of event cards (UI:CreateCard with the event's art at the top); New event and
+-- Examples are the tab toolbar's.
 function Lib.Create(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    v.search = UI():CreateSearchBox(v, 220, function(text)
+    v.layout = UI():CreateLayout("board", v, { toolbar = false, top = UI().LAYOUT.TOP })
+    local body = v.layout.body
+    v.search = UI():CreateSearchBox(body, 220, function(text)
         state.q = text or ""
         EventsUI:Refresh()
     end, "Search events")
-    v.search:SetHeight(24)
-    v.search:SetPoint("TOPLEFT", PAD, -(LIB_BAR_Y + 1))
+    v.search:SetHeight(S.BTN_H)
+    v.search:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    v.seg = UI():CreateSegments(body, FILTERS, function(key)
+        state.lib = key
+        EventsUI:Refresh()
+    end, { h = S.BTN_H, selected = state.lib })
+    v.seg:SetPoint("LEFT", v.search, "RIGHT", GAP * 2, 0)
+    -- (the filters' buttons by key: the tests and the tour click them)
     v.filters = {}
-    local prev
-    for _, fdef in ipairs(FILTERS) do
-        local key = fdef.key
-        local t = UI():CreateUnderlineTab(v, fdef.label, function()
-            state.lib = key
-            EventsUI:Refresh()
-        end)
-        if prev then t:SetPoint("LEFT", prev, "RIGHT", 4, 0) else t:SetPoint("LEFT", v.search, "RIGHT", 16, 0) end
-        t.label = fdef.label
-        v.filters[key] = t
-        prev = t
-    end
+    for i, fdef in ipairs(FILTERS) do v.filters[fdef.key] = v.seg.buttons[i] end
     -- (New event and, beside it, Examples: the page's toolbar's, shown on the Library)
     v.new, v.examples = p.newBtn, p.libExBtn
-    v.scroll = UI():CreateScrollFrame(v)
-    v.scroll:SetPoint("TOPLEFT", PAD, -GRID_Y)
-    v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    v.scroll = UI():CreateScrollFrame(body)
+    v.scroll:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -(S.BTN_H + S.GAP + 4))
+    v.scroll:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
     v.content = CreateFrame("Frame", nil, v.scroll)
     v.content:SetSize(700, 10)
     v.scroll:SetScrollChild(v.content)
     v.cards = {}
-    v.empty = UI():CreateEmptyState(v, { glyph = UI().ICON.calendar })
-    v.empty:SetPoint("TOP", v, "TOP", 0, -130)
+    v.empty = UI():CreateEmptyState(body, { glyph = UI().ICON.calendar })
+    v.empty:SetPoint("TOP", body, "TOP", 0, -(S.BTN_H + 60))
     v.empty:Hide()
     return v
 end
 
+-- A card under the mouse (or picked by the audit's hover): its edge lit, its actions in place of its kind chips.
 local function CardHover(c, on)
     c.hovered = on or nil
     local hot = on or state.hover == (c.def and c.def.id)
-    UI():SetEdgeColor(c, hot and 1 or 0.34, hot and 0.82 or 0.34, hot and 0 or 0.38, hot and 0.55 or 0.55)
+    c:SetTone("card")
+    if hot then UI():SetEdgeColor(c, S:Color("EDGE_FOCUS")) end
     for _, m in ipairs(c.minis) do m:SetShown(not hot and m.used) end
     c.acts:SetShown(hot and true or false)
 end
@@ -3730,11 +3732,10 @@ local function CardLeave(c)
     CardHover(c, false)
 end
 
+-- An event card: UI:CreateCard, the event's art along its top (shaded into the card), its review pill, its icon tile,
+-- name, creator and runs, the kind chips; on hover Host / Copy / Edit / Share / Remove. A click opens it in the builder.
 function Lib.NewCard(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetSize(250, CARD_H)
-    Fill(c, CARD)
-    Edges(c, S.C.EDGE)
+    local c = UI():CreateCard(parent, { tone = "card", width = 250, height = CARD_H })
     c.artF = CreateFrame("Frame", nil, c)
     c.artF:SetPoint("TOPLEFT", 1, -1)
     c.artF:SetPoint("TOPRIGHT", -1, -1)
@@ -3743,18 +3744,18 @@ function Lib.NewCard(parent)
     c.art:SetAllPoints()
     EUI():AddShade(c.artF, "card")
     c.pill = H.Pill(c.artF, 16)
-    c.pill:SetPoint("TOPRIGHT", -8, -8)
-    c.icon = H.Icon(c, 32, { 1, 1, 1, 0.12 })
-    c.icon:SetPoint("TOPLEFT", 10, -44)
+    c.pill:SetPoint("TOPRIGHT", -S.IN, -S.IN)
+    c.icon = H.Icon(c, 32)
+    c.icon:SetPoint("TOPLEFT", S.PAD, -44)
     c.icon:SetFrameLevel(c.artF:GetFrameLevel() + 3)
-    c.n = Text(c, 13, C.white)
-    c.n:SetPoint("TOPLEFT", 10, -80)
-    c.a = Text(c, 11, C.grey)
+    c.n = Text(c, "title", C.white)
+    c.n:SetPoint("TOPLEFT", S.PAD, -84)
+    c.a = Text(c, "body", C.grey)
     c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -4)
     c.minis = {}
     c.acts = CreateFrame("Frame", nil, c)
     c.acts:SetSize(186, 22)
-    c.acts:SetPoint("BOTTOMRIGHT", -8, 8)
+    c.acts:SetPoint("BOTTOMRIGHT", -S.IN, S.IN)
     c.acts:SetFrameLevel(c:GetFrameLevel() + 4)
     c.share = A.ShareButton(c.acts, 22, function() return c.def and A.DefRef(c.def.id) end, "Share this event")
     c.edit = H.IconButton(c.acts, 22, 16, "Edit", "Opens it in the builder to change it.", function()
@@ -3772,9 +3773,12 @@ function Lib.NewCard(parent)
         if b then b:HookScript("OnLeave", function() CardLeave(c) end) end
     end
     c.acts:Hide()
+    c:EnableMouse(true)
     c:SetScript("OnEnter", function(self) CardHover(self, true) end)
     c:SetScript("OnLeave", function(self) CardLeave(self) end)
-    c:SetScript("OnClick", function(self) if self.def then A.Builder(self.def) end end)
+    c:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and self.def and self:IsMouseOver() then A.Builder(self.def) end
+    end)
     return c
 end
 
@@ -3787,14 +3791,14 @@ function Lib.FillCard(c, d, w)
     if text then c.pill:SetKind(text, kind) end
     c.icon:Set(d.icon)
     -- the name: smaller when it is long, else two lines (from the icon's foot, the creator's line close under them)
-    local _, _, lines = FitText(c.n, d.name or "Event", w - 20, { 13, 12, 11, 10 })
+    local _, _, lines = FitText(c.n, d.name or "Event", w - 2 * S.PAD, { 13, 12, 11, 10 })
     c.n:ClearAllPoints()
     c.a:ClearAllPoints()
     if lines == 1 then
-        c.n:SetPoint("TOPLEFT", 10, -80)
+        c.n:SetPoint("TOPLEFT", S.PAD, -84)
         c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -4)
     else
-        c.n:SetPoint("TOPLEFT", 10, -76)
+        c.n:SetPoint("TOPLEFT", S.PAD, -80)
         c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -1)
     end
     local n = Ev():RunCount(d.id)
@@ -3803,17 +3807,15 @@ function Lib.FillCard(c, d, w)
     -- what kind of event it is: its smart blocks and definitions (Sign-up, Matches, Tags, Places, Asks ...), as many
     -- as the card's width takes (the least telling go first)
     for _, m in ipairs(c.minis) do m.used = nil end
-    H.LayKinds(c.minis, c, d, w - 20, function(list)
-        local x = 10
+    H.LayKinds(c.minis, c, d, w - 2 * S.PAD, function(list)
+        local x = S.PAD
         for _, m in ipairs(list) do
             m:ClearAllPoints()
-            m:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", x, 10)
+            m:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", x, S.PAD)
             m.used = true
             x = x + m:GetWidth() + 4
         end
     end, true)
-
-
     -- the actions on hover: Host, Copy, Edit (mine), Share
     local anchor
     local function place(b, on)
@@ -3863,14 +3865,14 @@ end
 function Lib.Fill(v)
     local list, nGuild, nMine, nRanked = Lib.List()
     local counts = { guild = nGuild, mine = nMine, ranked = nRanked }
-    for key, t in pairs(v.filters) do
-        t:SetLabel(t.label .. "  |cff7a7a7e" .. counts[key] .. "|r")
-        t:SetActive(state.lib == key)
+    for _, fdef in ipairs(FILTERS) do
+        v.seg:SetLabel(fdef.key, fdef.label .. "  " .. S:Wrap("DIM", counts[fdef.key]))
     end
-    local W0 = H.W() - 2 * PAD
+    v.seg:Select(state.lib)
+    local W0 = v.layout.bodyW
     local rows = ceil(#list / 3)
     local need = rows * CARD_H + max(0, rows - 1) * GAP
-    local avail = H.Hgt() - GRID_Y - 10
+    local avail = H.BodyH(v.layout, 0) - (S.BTN_H + S.GAP + 4)
     local cw = need > avail and (W0 - 12) or W0
     v.scroll:SetWidth(cw)
     v.content:SetWidth(cw)
@@ -3901,154 +3903,132 @@ end
 ---------------------------------------------------------------------------
 
 local Sea = {}
-local SIDE_W, SHEAD_H, TROW_H = 236, 86, 31
--- the table's columns: x (from the row's left), width, justify
+local SIDE_W, TROW_H = 250, S.ROW.list
+-- the table's columns: x (from the row's left), width
 local COL = { rk = { 8, 34 }, pl = { 42, 146 }, ev = { 188, 54 }, wins = { 242, 54 }, bd = { 296, 118 }, pts = { 414, 66 },
               tr = { 480, 34 } }
 local TABLE_W = 522
 -- (the number columns hang from the row's right edge: a scroll bar takes the room from the players' column)
 local function FromRight(key) return COL[key][1] + COL[key][2] - TABLE_W end
+local COL_TITLES = { { "rk", "#" }, { "pl", "Player" }, { "ev", "Events" }, { "wins", "Wins" }, { "bd", "Badges" },
+    { "pts", "Points" } }
 
+-- 1.4: the Season is a Board page (UI:CreateLayout "board"): the season as its hero banner (the arena's art, its
+-- name, days and the three numbers, the ··· to set it), the standings as a table under the shared column titles in
+-- its body, me and the ranked events in its side card.
+-- TODO(refactor): move into UI:CreatePageBanner (numbers at the banner's bottom right: the season's days left,
+-- ranked events, players)
 function Sea.Create(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    v.main = CreateFrame("Frame", nil, v)
-    v.main:SetPoint("TOPLEFT", PAD, -44)
-    v.main:SetPoint("BOTTOMLEFT", PAD, 10)
-    v.main:SetWidth(522)
-    -- the header: the season over the arena's art
-    local hd = CreateFrame("Frame", nil, v.main)
-    hd:SetPoint("TOPLEFT")
-    hd:SetPoint("TOPRIGHT")
-    hd:SetHeight(SHEAD_H)
-    hd.art = hd:CreateTexture(nil, "BACKGROUND")
-    hd.art:SetPoint("TOPLEFT", 1, -1)
-    hd.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    hd.shade = hd:CreateTexture(nil, "BORDER")
-    hd.shade:SetAllPoints()
-    Grad(hd.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.3 })
-    Edges(hd, PEDGE, "ARTWORK")
-    hd.t = Text(hd, 19, C.white)
-    hd.t:SetPoint("BOTTOMLEFT", hd, "LEFT", 14, 2)
-    hd.t2 = Text(hd, 11, C.soft)
-    hd.t2:SetPoint("TOPLEFT", hd, "LEFT", 14, -5)
+    v.layout = UI():CreateLayout("board", v, { toolbar = false, top = UI().LAYOUT.TOP, hero = { size = "hero" },
+        side = SIDE_W })
+    local L = v.layout
+    local hd = L.banner
+    hd.t, hd.t2 = hd.title, hd.sub
     hd.stats = {}
     for i = 1, 3 do
         local s = CreateFrame("Frame", nil, hd)
         s:SetSize(70, 40)
-        s.b = Text(s, 20, C.white, true)
-        s.b:SetJustifyH("LEFT")
+        s.b = Text(s, 21, C.white, true)
         s.b:SetPoint("TOPLEFT", 0, 0)
-        s.l = Text(s, 11, { 0.66, 0.66, 0.68 })
+        s.l = Text(s, "body", C.soft)
         s.l:SetPoint("TOPLEFT", s.b, "BOTTOMLEFT", 0, -2)
         hd.stats[i] = s
     end
-    hd.more = H.IconButton(hd, 22, "more", "The season", "Rename it, or set its first and last day.", function(self)
-        H.Menu(self, { { icon = "calendar", text = "Season", tip = "Renames the season or sets its first and last "
-            .. "day. Only ranked events between them count.", fn = function() EventsUI:OpenSeasonSheet() end } })
-    end)
-    hd.more:SetPoint("TOPRIGHT", -8, -8)
+    hd.toolList = { { icon = "more", title = "The season", text = "Rename it, or set its first and last day.",
+        onClick = function(self)
+            H.Menu(self, { { icon = "calendar", text = "Season", tip = "Renames the season or sets its first and last "
+                .. "day. Only ranked events between them count.", fn = function() EventsUI:OpenSeasonSheet() end } })
+        end } }
+    hd:SetTools(hd.toolList)
+    hd.more = hd.tools[1]
     v.head = hd
-    -- the table
-    v.th = CreateFrame("Frame", nil, v.main)
-    v.th:SetPoint("TOPLEFT", 0, -(SHEAD_H + 8))
-    v.th:SetSize(TABLE_W, 24)
-    v.th.line = UI():Rule(v.th, { bottom = 0, alpha = 0.09 })
+    v.main = L.body
+    -- the table: the column titles, the rows
+    v.th = UI():CreateColumnHeader(L.body, 24)
+    v.th:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
+    v.th:SetPoint("TOPRIGHT", L.body, "TOPRIGHT", 0, 0)
+    v.th.line = UI():Rule(v.th, { bottom = 0 })
     v.th.cols = {}
-    for key, label in pairs({ rk = "#", pl = "Player", ev = "Events", wins = "Wins", bd = "Badges", pts = "Points" }) do
-        local fs = Text(v.th, 11, C.grey)
-        local col = COL[key]
-        if key == "rk" or key == "pl" then
-            fs:SetPoint("LEFT", v.th, "LEFT", col[1], 0)
-        else
-            fs:SetJustifyH("RIGHT")
-            fs:SetPoint("RIGHT", v.th, "RIGHT", FromRight(key) - (key == "bd" and 2 or 0), 0)
-        end
-        fs:SetText(label)
-        v.th.cols[key] = fs
+    for _, ct in ipairs(COL_TITLES) do
+        local key = ct[1]
+        v.th.cols[key] = v.th:AddColumn(ct[2], COL[key][1], COL[key][2], {
+            justify = (key == "rk" or key == "pl") and "LEFT" or "RIGHT" })
     end
-    v.scroll = UI():CreateScrollFrame(v.main)
-    v.scroll:SetPoint("TOPLEFT", 0, -(SHEAD_H + 8 + 24))
-    v.scroll:SetPoint("BOTTOMLEFT", 0, 0)
+    v.scroll = UI():CreateScrollFrame(L.body)
+    v.scroll:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, -24)
+    v.scroll:SetPoint("BOTTOMLEFT", L.body, "BOTTOMLEFT", 0, 0)
     v.content = CreateFrame("Frame", nil, v.scroll)
     v.content:SetSize(522, 10)
     v.scroll:SetScrollChild(v.content)
     v.rows = {}
-    v.none = Text(v.main, 11, C.grey)
-    v.none:SetPoint("TOPLEFT", 8, -(SHEAD_H + 8 + 24 + 14))
-    -- the side: me, the ranked events
-    v.side = CreateFrame("Frame", nil, v)
-    v.side:SetPoint("TOPRIGHT", -PAD, -44)
-    v.side:SetPoint("BOTTOMRIGHT", -PAD, 10)
-    v.side:SetWidth(SIDE_W)
-    v.you = H.Box(v.side, true)
-    v.you:SetPoint("TOPLEFT")
-    v.you:SetPoint("TOPRIGHT")
+    v.none = UI():CreateEmptyState(L.body, { compact = true, glyph = UI().ICON.trophy,
+        text = "No ranked event has paid out this season yet." })
+    v.none:SetPoint("TOP", L.body, "TOP", 0, -60)
+    v.none:Hide()
+    -- the side card: me (my title to pick at the right of its header), then the ranked events
+    local side = L.side
+    v.side = side
+    v.you = CreateFrame("Frame", nil, side)
+    v.you:SetPoint("TOPLEFT", 0, 0)
+    v.you:SetPoint("TOPRIGHT", 0, 0)
     v.you:SetHeight(128)
-    v.you.ht:SetText("You")
-    v.you.hr:Hide()
-    v.you.title = CreateFrame("Button", nil, v.you)
-    v.you.title:SetHeight(18)
-    v.you.title:SetPoint("TOPRIGHT", -8, -5)
-    v.you.title.fs = Text(v.you.title, 11, C.desc)
-    v.you.title.fs:SetJustifyH("RIGHT")
-    v.you.title.fs:SetPoint("RIGHT", -14, 0)
-    v.you.title.chev = v.you.title:CreateTexture(nil, "ARTWORK")
-    v.you.title.chev:SetSize(10, 10)
-    v.you.title.chev:SetPoint("RIGHT", 0, 0)
-    v.you.title.chev:SetTexture(UI().ICON_ATLAS)
-    UI():SetChevronUp(v.you.title.chev, false)
-    v.you.title.chev:SetVertexColor(S:Color("GOLD"))
-    v.you.title:SetScript("OnClick", function(self) Sea.TitleMenu(self) end)
-    UI():AttachTooltip(v.you.title, "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges "
-        .. "gave you these.", { anchor = "ANCHOR_TOP" })
+    v.you.head = H.Sect(v.you)
+    v.you.head:SetPoint("TOPLEFT", S.IN, -4)
+    v.you.head:SetPoint("TOPRIGHT", -S.IN, -4)
+    v.you.head:Set("You")
+    v.you.ht = v.you.head.title
+    v.you.head:SetAction({ text = "No title", menu = function(root) Sea.TitleItems(root) end,
+        tip = { "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges gave you these." } })
+    v.you.title = v.you.head.action
+    v.you.title.fs = v.you.title.fs or v.you.title.label
     v.you.rk = Text(v.you, 30, C.white, true)
     v.you.rk:SetPoint("TOPLEFT", 24, -42)
-    v.you.hash = Text(v.you, 16, C.grey, true)
+    v.you.hash = Text(v.you, 17, C.grey, true)
     v.you.hash:SetPoint("BOTTOMRIGHT", v.you.rk, "BOTTOMLEFT", -1, 3)
     v.you.hash:SetText("#")
-    v.you.pt = Text(v.you, 13, C.white)
+    v.you.pt = Text(v.you, "title", C.white)
     v.you.pt:SetPoint("TOPLEFT", v.you.rk, "TOPRIGHT", 12, -2)
-    v.you.pt2 = Text(v.you, 11, C.grey)
+    v.you.pt2 = Text(v.you, "body", C.grey)
     v.you.badges = {}
-    v.ev = H.Box(v.side, true)
-    v.ev:SetPoint("TOPLEFT", v.you, "BOTTOMLEFT", 0, -GAP)
-    v.ev:SetPoint("BOTTOMRIGHT")
-    v.ev.ht:SetText("Ranked events")
-    v.ev.hr:Hide()
+    v.ev = CreateFrame("Frame", nil, side)
+    v.ev:SetPoint("TOPLEFT", v.you, "BOTTOMLEFT", 0, 0)
+    v.ev:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
+    v.ev.head = H.Sect(v.ev)
+    v.ev.head:SetPoint("TOPLEFT", S.IN, 0)
+    v.ev.head:SetPoint("TOPRIGHT", -S.IN, 0)
+    v.ev.head:Set("Ranked events")
+    v.ev.ht = v.ev.head.title
     v.ev.rows = {}
-    v.ev.foot = Text(v.ev, 11, C.grey)
-    v.ev.none = Text(v.ev, 11, C.grey)
-    v.ev.none:SetPoint("TOPLEFT", 10, -40)
+    v.ev.foot = Text(v.ev, "body", C.grey)
+    v.ev.none = Text(v.ev, "body", C.grey)
+    v.ev.none:SetPoint("TOPLEFT", S.IN + 2, -34)
     return v
 end
 
 function Sea.NewRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(522, TROW_H)
-    r.bg = Fill(r, C.youWash)
-    r.bar = Line(r, C.youBar)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.bar:SetWidth(2)
-    r.line = UI():Rule(r, { bottom = 0, alpha = 0.035 })
-    r.rk = Text(r, 14, C.label, true)
+    UI():DecorateRow(r, { selectable = true, rule = true })
+    r.bg, r.bar, r.line = r.dzSelFill, r.dzSelBar, r.dzRule
+    r.rk = Text(r, "title", C.label, true)
     r.rk:SetPoint("LEFT", COL.rk[1], 0)
-    r.face = H.Face(r, 20)
+    r.face = H.Face(r, 18)
     r.face:SetPoint("LEFT", COL.pl[1], 0)
-    r.n = Text(r, 12, C.white)
+    r.n = Text(r, "emph", C.white)
     r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
-    r.ti = Text(r, 11, { 0.55, 0.55, 0.58 })
+    r.ti = Text(r, "body", C.dim)
     r.ti:SetPoint("LEFT", r.n, "RIGHT", 7, 0)
-    local function num(key, size, c)
-        local fs = Text(r, size, c, true)
+    local function num(key, style, c)
+        local fs = Text(r, style, c, true)
         fs:SetJustifyH("RIGHT")
         fs:SetPoint("RIGHT", r, "RIGHT", FromRight(key), 0)
         return fs
     end
-    r.ev = num("ev", 13, C.label)
-    r.wins = num("wins", 13, C.label)
-    r.pts = num("pts", 14, C.white)
+    r.ev = num("ev", "title", C.label)
+    r.wins = num("wins", "title", C.label)
+    r.pts = num("pts", "title", C.white)
     r.badges = {}
     for i = 1, 3 do
         r.badges[i] = H.Badge(r, 13)
@@ -4057,7 +4037,7 @@ function Sea.NewRow(parent)
     r.trI = r:CreateTexture(nil, "ARTWORK")
     r.trI:SetSize(9, 9)
     r.trI:SetTexture(UI().ICON_ATLAS)
-    r.tr = Text(r, 11, C.dim)
+    r.tr = Text(r, "body", C.dim)
     r.tr:SetJustifyH("RIGHT")
     r.tr:SetPoint("RIGHT", r, "RIGHT", FromRight("tr"), 0)
     r.trI:SetPoint("RIGHT", r.tr, "LEFT", -1, 0)
@@ -4081,46 +4061,39 @@ function Sea.Trends(season, rows)
     return out
 end
 
-function Sea.TitleMenu(owner)
+-- My title's choices (the You header's link drops them).
+function Sea.TitleItems(root)
     local me = Me()
     local titles = Ev():TitlesOf(me)
     local cur = Ev():GetTitle(me)
-    UI():ContextMenu(owner, function(root)
-        if root.CreateTitle then root:CreateTitle("Your title") end
-        for _, ti in ipairs(titles) do
-            root:CreateRadio(ti, function() return cur == ti end, function()
-                Ev():SetTitle(ti)
-                EventsUI:RequestRefresh()
-            end)
-        end
-        root:CreateRadio("No title", function() return cur == nil end, function()
-            Ev():SetTitle("")
+    if root.CreateTitle then root:CreateTitle("Your title") end
+    for _, ti in ipairs(titles) do
+        root:CreateRadio(ti, function() return cur == ti end, function()
+            Ev():SetTitle(ti)
             EventsUI:RequestRefresh()
         end)
+    end
+    root:CreateRadio("No title", function() return cur == nil end, function()
+        Ev():SetTitle("")
+        EventsUI:RequestRefresh()
     end)
 end
 
-function Sea.Fill(v)
-    local W0 = H.W() - 2 * PAD
-    local mw = W0 - SIDE_W - 12
-    v.main:SetWidth(mw)
-    local season = Ev():GetSeason()
-    local rows = Ev():Standings(season)
-    local results = {}
-    for _, r in ipairs(Ev():GetResults(season.from, season.to)) do
-        if r.ranked and not r.cancel then results[#results + 1] = r end
-    end
-    -- the header
+-- The banner: the season's name, its days, the three numbers at its bottom right.
+function Sea.FillHead(v, season, results, rows)
     local hd = v.head
-    EUI():SetArt(hd.art, "blades", mw - 2, SHEAD_H - 2, nil, 0.62, 0.9)
-    hd.t2:SetText(date("%d %b", season.from):gsub("^0", "") .. " - " .. date("%d %b", season.to):gsub("^0", "")
+    local L = v.layout
+    local w = L.innerW
+    hd.building = true
+    hd:SetArt(H.BannerArt("blades", w, S.BANNER.hero, 0.62))
+    hd:SetSub(date("%d %b", season.from):gsub("^0", "") .. " - " .. date("%d %b", season.to):gsub("^0", "")
         .. " · ranked events only")
     local left = max(0, ceil((season.to - Now()) / DAY))
     local stats = { { left, left == 1 and "day left" or "days left" }, { #results, #results == 1 and "ranked event" or
         "ranked events" }, { #rows, #rows == 1 and "player" or "players" } }
     local canSet = Ev():CanModerate(Me())
-    hd.more:SetShown(canSet)
-    local x = mw - 14 - (canSet and 28 or 0)
+    if canSet then hd:SetTools(hd.toolList) else hd:SetTools(nil) end
+    local x = -14
     for i = 3, 1, -1 do
         local s = hd.stats[i]
         s.b:SetText(stats[i][1])
@@ -4128,27 +4101,46 @@ function Sea.Fill(v)
         local sw = max(SW(s.b), SW(s.l))
         s:SetWidth(ceil(sw) + 2)
         s:ClearAllPoints()
-        s:SetPoint("RIGHT", hd, "LEFT", x, -4)
+        s:SetPoint("BOTTOMRIGHT", hd, "BOTTOMRIGHT", x, 12)
         x = x - (ceil(sw) + 2) - 22
     end
-    -- the season's name in the room the numbers leave (smaller, else two lines)
-    FitText(hd.t, season.n or "Season", x + 22 - 14 - 12, { 19, 16 })
+    hd:SetTitle(season.n or "Season")
+    hd.building = nil
+    hd:Layout()
+end
+
+function Sea.Fill(v)
+    local L = v.layout
+    local mw = L.bodyW
+    local season = Ev():GetSeason()
+    local rows = Ev():Standings(season)
+    local results = {}
+    for _, r in ipairs(Ev():GetResults(season.from, season.to)) do
+        if r.ranked and not r.cancel then results[#results + 1] = r end
+    end
+    Sea.FillHead(v, season, results, rows)
     -- the table
     local trends = Sea.Trends(season, rows)
     local need = #rows * TROW_H
-    local avail = H.Hgt() - 44 - 10 - (SHEAD_H + 8 + 24)
+    local avail = H.BodyH(L) - 24
     local cw = need > avail and (mw - 12) or mw
     v.scroll:SetWidth(cw)
     v.content:SetWidth(cw)
-    v.th:SetWidth(cw)
+    -- (the number columns' titles over their numbers: from the table's right edge)
+    for _, ct in ipairs(COL_TITLES) do
+        local key = ct[1]
+        if key ~= "rk" and key ~= "pl" then
+            local b = v.th.cols[key]
+            b:ClearAllPoints()
+            b:SetPoint("RIGHT", v.th, "LEFT", cw + FromRight(key) - (key == "bd" and 2 or 0), 0)
+        end
+    end
     for i, x2 in ipairs(rows) do
         local r = Pool(v.rows, i, function() return Sea.NewRow(v.content) end)
         r:SetWidth(cw)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -(i - 1) * TROW_H)
-        local isMe = x2.key == Me()
-        r.bg:SetShown(isMe)
-        r.bar:SetShown(isMe)
+        r:SetSelected(x2.key == Me())
         r.rk:SetText(x2.rank)
         Color(r.rk, x2.rank <= 3 and C.gold or C.label)
         r.face:Set(x2.key)
@@ -4166,11 +4158,11 @@ function Sea.Fill(v)
         end
         local t = trends[x2.key]
         if t and t ~= 0 then
+            local c = t > 0 and C.green or C.red
             r.tr:SetText(tostring(t > 0 and t or -t))
-            Color(r.tr, t > 0 and C.green or C.red)
+            Color(r.tr, c)
             r.trI:Show()
             UI():SetChevronUp(r.trI, t > 0)
-            local c = t > 0 and C.green or C.red
             r.trI:SetVertexColor(c[1], c[2], c[3])
         else
             r.tr:SetText("–")
@@ -4182,15 +4174,18 @@ function Sea.Fill(v)
     HideFrom(v.rows, #rows + 1)
     v.content:SetHeight(max(1, need))
     v.none:SetShown(#rows == 0)
-    v.none:SetText("No ranked event has paid out this season yet.")
     -- me
     local you = v.you
     local mine, above, below = W.MyStanding(rows)
     local titles = Ev():TitlesOf(Me())
-    you.title:SetShown(#titles > 0)
     local cur = Ev():GetTitle(Me())
-    you.title.fs:SetText(cur or "No title")
-    you.title:SetWidth(ceil(SW(you.title.fs) + 16))
+    if #titles > 0 then
+        you.head:SetAction({ text = cur or "No title", menu = function(root) Sea.TitleItems(root) end,
+            tip = { "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges gave you these." } })
+    else
+        you.head:SetAction(nil)
+    end
+    you.title:SetShown(#titles > 0)
     if mine then
         you.rk:SetText(mine.rank)
         you.pt:SetText(mine.pts .. (mine.pts == 1 and " point" or " points"))
@@ -4207,7 +4202,7 @@ function Sea.Fill(v)
     you.pt2:SetPoint("TOPLEFT", you.pt, "BOTTOMLEFT", 0, -3)
     Wrap(you.pt2, you.pt2Text, SIDE_W - 90, 11)
     local badges = Ev():BadgesOf(Me())
-    local bx = 12
+    local bx = S.IN
     for i = 1, 6 do
         local bd = Pool(you.badges, i, function() return H.Badge(you, 19) end)
         if badges[i] then
@@ -4220,15 +4215,17 @@ function Sea.Fill(v)
         end
     end
     you:SetHeight(#badges > 0 and 128 or 96)
-    -- the ranked events, newest first
+    -- the ranked events, newest first (as many as fit over the card's foot)
     local ev = v.ev
-    local maxRows = floor((H.Hgt() - 44 - 10 - you:GetHeight() - GAP - 28 - 50) / 44)
+    local sideH = H.BodyH(L)
+    local maxRows = floor((sideH - you:GetHeight() - 28 - 56) / S.ROW.art)
     for i = 1, max(#results, #ev.rows) do
         local row = Pool(ev.rows, i, function() return Sea.NewEventRow(ev) end)
         local r = results[i]
         if r and i <= maxRows then
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", ev, "TOPLEFT", 1, -(32 + (i - 1) * 44))
+            row:SetPoint("TOPLEFT", ev, "TOPLEFT", 1, -(28 + (i - 1) * S.ROW.art))
+            row:SetPoint("TOPRIGHT", ev, "TOPRIGHT", -1, -(28 + (i - 1) * S.ROW.art))
             Sea.FillEventRow(row, r)
             row:Show()
         else
@@ -4238,59 +4235,29 @@ function Sea.Fill(v)
     ev.none:SetShown(#results == 0)
     ev.none:SetText("None this season yet.")
     ev.foot:ClearAllPoints()
-    ev.foot:SetPoint("BOTTOMLEFT", ev, "BOTTOMLEFT", 10, 10)
+    ev.foot:SetPoint("BOTTOMLEFT", ev, "BOTTOMLEFT", S.IN, S.IN)
     Wrap(ev.foot, "Only ranked events count: placings, badges and matches won, as each event's pieces say.",
-        SIDE_W - 20, 11)
+        SIDE_W - 2 * S.IN, 11)
 end
 
+-- A ranked event that paid out: UI:CreateArtRow (its art, name, day and my place; my points at the right).
 function Sea.NewEventRow(parent)
-    local r = CreateFrame("Button", nil, parent)
-    r:SetSize(SIDE_W - 2, 44)
-    UI():DecorateRow(r)
+    local r = UI():CreateArtRow(parent, { onClick = function(self) if self.id then EventsUI:OpenEvent(self.id) end end })
+    r.n, r.l2, r.p = r.title, r.sub, r.rightText
     r.hl = r.dzHover
-    r.art = CreateFrame("Frame", nil, r)
-    r.art:SetSize(46, 30)
-    r.art:SetPoint("LEFT", 9, 0)
-    r.art.outer = Fill(r.art, C.black, "BACKGROUND")
-    r.art.outer:ClearAllPoints()
-    r.art.outer:SetPoint("TOPLEFT", -1, 1)
-    r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
-    r.art.tex = r.art:CreateTexture(nil, "ARTWORK")
-    r.art.tex:SetAllPoints()
-    r.n = Text(r, 12, C.white)
-    r.n:SetPoint("BOTTOMLEFT", r.art, "RIGHT", 9, 1)
-    r.l2 = Text(r, 11, C.grey)
-    r.l2:SetPoint("TOPLEFT", r.art, "RIGHT", 9, -2)
-    r.p = Text(r, 13, C.pts, true)
-    r.p:SetJustifyH("RIGHT")
-    r.p:SetPoint("RIGHT", -10, 0)
-    r:SetScript("OnClick", function(self) if self.id then EventsUI:OpenEvent(self.id) end end)
     return r
 end
 
 function Sea.FillEventRow(row, r)
     row.id = r.id
-    EUI():SetArt(row.art.tex, r.art, 46, 30, nil, nil, 0.6)
     local me = Me()
     local mine, n = W.MyPlace(r)
     local place = (n == 1 and "you won") or (n and W.Ord(n)) or (mine and "played") or (r.points[me] and "played")
         or "not in it"
-
-    row.l2:SetText(date("%a ", r.at) .. date("%d %b", r.at) .. " · " .. place)
     local p = r.points[me]
-    row.p:SetText(p and ("+" .. p) or "-")
+    row:SetData({ art = r.art, icon = r.icon, title = r.name or "Event",
+        sub = date("%a ", r.at) .. date("%d %b", r.at) .. " · " .. place, right = p and ("+" .. p) or "-" })
     Color(row.p, p and C.pts or C.dim)
-    -- the name left of my points: smaller, else two lines (the date line under them)
-    local _, _, lines = FitText(row.n, r.name or "Event", SIDE_W - 2 - 64 - NatW(row.p) - 10 - 8, { 12, 11 })
-    row.n:ClearAllPoints()
-    row.l2:ClearAllPoints()
-    if lines == 1 then
-        row.n:SetPoint("BOTTOMLEFT", row.art, "RIGHT", 9, 1)
-        row.l2:SetPoint("TOPLEFT", row.art, "RIGHT", 9, -2)
-    else
-        row.n:SetPoint("TOPLEFT", row, "TOPLEFT", 64, -2)
-        row.l2:SetPoint("TOPLEFT", row.n, "BOTTOMLEFT", 0, -1)
-    end
 end
 
 ---------------------------------------------------------------------------
@@ -4298,7 +4265,7 @@ end
 ---------------------------------------------------------------------------
 
 local Rv = {}
-local QL_W, QROW_H, RVCOL_W, DIFF_MAX = 240, 46, 250, 4
+local QL_W, RVCOL_W, DIFF_MAX = 280, 250, 4
 local DIFF_LOOK = { add = { 0.35, 0.86, 0.47 }, del = { 0.89, 0.36, 0.31 }, chg = C.gold }
 
 -- A piece in words, its blanks filled ("best of 3 ...", "give badge Giant slayer to Biggest upset").
@@ -4350,55 +4317,40 @@ function W.PieceText(p, def, depth)
 end
 
 
+-- 1.4: the Review is a List + detail page (UI:CreateLayout "listdetail"): Waiting / Decided as art rows under
+-- counted section headers in its list; the picked event opens with a banner (D3: its art, icon, name and state pill,
+-- who sent it; Mark ranked as the main action, Send back beside it, the eye to look inside as its tool), then what
+-- changed, the note and my reply, what it gives, the checks and the last decision.
 function Rv.Create(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    v.ql = CreateFrame("Frame", nil, v)
-    v.ql:SetPoint("TOPLEFT", PAD, -44)
-    v.ql:SetPoint("BOTTOMLEFT", PAD, 10)
-    v.ql:SetWidth(QL_W)
+    v.layout = UI():CreateLayout("listdetail", v, { toolbar = false, top = UI().LAYOUT.TOP, listWidth = QL_W,
+        banner = { size = "tool", titleColor = C.white } })
+    local L = v.layout
+    v.ql = L.list
     v.wsect = H.Sect(v.ql)
     v.dsect = H.Sect(v.ql)
     v.qrows = {}
-    v.qnone = Text(v.ql, 11, C.grey)
-    v.qd = CreateFrame("Frame", nil, v)
-    v.qd:SetPoint("TOPLEFT", PAD + QL_W + GAP, -44)
-    v.qd:SetPoint("BOTTOMRIGHT", -PAD, 10)
-    -- the picked event's header: its art, name, who sent it; the eye, Send back, Mark ranked
-    local hd = CreateFrame("Frame", nil, v.qd)
-    hd:SetPoint("TOPLEFT")
-    hd:SetPoint("TOPRIGHT")
-    hd:SetHeight(70)
-    hd.art = hd:CreateTexture(nil, "BACKGROUND")
-    hd.art:SetPoint("TOPLEFT", 1, -1)
-    hd.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    hd.shade = hd:CreateTexture(nil, "BORDER")
-    hd.shade:SetAllPoints()
-    Grad(hd.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.35 })
-    Edges(hd, PEDGE, "ARTWORK")
-    hd.icon = H.Icon(hd, 38)
-    hd.icon:SetPoint("LEFT", 12, 0)
-    hd.t = Text(hd, 15, C.white)
-    hd.t:SetPoint("BOTTOMLEFT", hd.icon, "RIGHT", 11, 1)
-    hd.pill = H.Pill(hd, 16)
-    hd.pill:SetPoint("LEFT", hd.t, "RIGHT", 8, 0)
-    hd.t2 = Text(hd, 11, C.soft)
-    hd.t2:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -4)
-    hd.rank = H.Button(hd, "Mark ranked", nil, 26, "primary", function() Rv.Decide(v, true) end)
-    H.Fit(hd.rank, 90, 30)
-    hd.rank:SetPoint("RIGHT", -12, 0)
-    hd.back = H.Button(hd, "Send back", nil, 26, "secondary", function() Rv.Decide(v, false) end)
-    H.Fit(hd.back, 80, 30)
-    hd.back:SetPoint("RIGHT", hd.rank, "LEFT", -6, 0)
-    hd.eye = H.IconButton(hd, 26, "eye", "Look inside", "Opens it in the builder, read only: every piece, every "
-        .. "stage.", function() if v.def then A.Builder(v.def) end end)
-    v.head = hd
+    v.qnone = Text(v.ql, "body", C.grey)
+    v.qd = L.body
+    -- the picked event's banner: its art, icon, name and pill, who sent it; Mark ranked / Send back; the eye
+    local ban = L.banner
+    v.ban = ban
+    ban:SetTools({ { icon = "eye", title = "Look inside", text = "Opens it in the builder, read only: every piece, "
+        .. "every stage.", onClick = function() if v.def then A.Builder(v.def) end end } })
+    -- (its buttons made once: v.head.rank / .back are the banner's two actions, v.head.eye its tool)
+    ban:SetActions({ { text = "Mark ranked" }, { text = "Send back" } })
+    v.head = { rank = ban.btnPool[1], back = ban.btnPool[2], eye = ban.tools[1], t = ban.title, t2 = ban.sub,
+        pill = ban.pill, banner = ban }
+    v.rankAction = { text = "Mark ranked", kind = "primary", onClick = function() Rv.Decide(v, true) end }
+    v.backAction = { text = "Send back", onClick = function() Rv.Decide(v, false) end }
+    ban:SetActions(nil)
     -- what changed since the ranked version, piece by piece
     v.csect = H.Sect(v.qd)
-    v.csect:SetPoint("TOPLEFT", 0, -78)
-    v.csect:SetPoint("TOPRIGHT", 0, -78)
+    v.csect:SetPoint("TOPLEFT", 0, 0)
+    v.csect:SetPoint("TOPRIGHT", 0, 0)
     v.dscroll = UI():CreateScrollFrame(v.qd)
-    v.dscroll:SetPoint("TOPLEFT", 0, -106)
+    v.dscroll:SetPoint("TOPLEFT", 0, -28)
     v.dcontent = CreateFrame("Frame", nil, v.dscroll)
     v.dcontent:SetSize(400, 10)
     v.dscroll:SetScrollChild(v.dcontent)
@@ -4409,18 +4361,13 @@ function Rv.Create(p)
     v.nsect = H.Sect(v.left)
     v.nsect:SetPoint("TOPLEFT")
     v.nsect:SetPoint("TOPRIGHT")
-    v.note = CreateFrame("Frame", nil, v.left)
+    v.note = UI():CreateCard(v.left, { tone = "inset" })
     v.note:SetPoint("TOPLEFT", 0, -28)
     v.note:SetPoint("TOPRIGHT", 0, -28)
-    Fill(v.note, { 1, 1, 1, 0.035 })
-    v.note.bar = Line(v.note, { 1, 0.82, 0, 0.6 })
-    v.note.bar:SetPoint("TOPLEFT")
-    v.note.bar:SetPoint("BOTTOMLEFT")
-    v.note.bar:SetWidth(2)
-    v.note.fs = Text(v.note, 11, { 0.93, 0.93, 0.93 })
-    v.note.fs:SetPoint("TOPLEFT", 10, -7)
+    v.note.fs = Text(v.note, "body", C.text)
+    v.note.fs:SetPoint("TOPLEFT", S.IN + 2, -7)
     v.rsect = H.Sect(v.left)
-    v.reply = UI():CreateSleekEditBox(v.left, 200, 26, "GameFontHighlightSmall")
+    v.reply = UI():CreateSleekEditBox(v.left, 200, S.BTN_H + 2, "GameFontHighlightSmall")
     v.reply:SetMaxLetters(200)
     v.reply:SetScript("OnTextChanged", function(self)
         if (self:GetText() or "") ~= "" and v.rsect.r:IsShown() then v.rsect.r:Hide() end
@@ -4437,45 +4384,34 @@ function Rv.Create(p)
     v.checks.icon = v.checks:CreateTexture(nil, "ARTWORK")
     v.checks.icon:SetSize(13, 13)
     v.checks.icon:SetPoint("LEFT", 2, 0)
-    v.checks.fs = Text(v.checks, 12, C.label)
+    v.checks.fs = Text(v.checks, "emph", C.label)
     v.checks.fs:SetPoint("LEFT", 22, 0)
-    v.checks.r = Text(v.checks, 11, C.grey)
+    v.checks.r = Text(v.checks, "body", C.grey)
     v.checks.r:SetJustifyH("RIGHT")
     v.checks.r:SetPoint("RIGHT", 0, 0)
     v.lsect = H.Sect(v.right)
-    v.last = Text(v.right, 11, C.label)
-    v.lastR = Text(v.right, 11, C.grey)
+    v.last = Text(v.right, "body", C.label)
+    v.lastR = Text(v.right, "body", C.grey)
     v.lastR:SetJustifyH("RIGHT")
-    v.lastNote = Text(v.right, 11, C.grey)
-    v.empty = UI():CreateEmptyState(v.qd, { glyph = UI().ICON.trophy, title = "Nothing to review",
+    v.lastNote = Text(v.right, "body", C.grey)
+    v.empty = UI():CreateEmptyState(L.detail, { glyph = UI().ICON.trophy, title = "Nothing to review",
         text = "Events sent in for review show up here." })
-    v.empty:SetPoint("TOP", v.qd, "TOP", 0, -90)
+    v.empty:SetPoint("TOP", L.detail, "TOP", 0, -90)
     return v
 end
 
+-- A row of Waiting / Decided: UI:CreateArtRow (the event's art and icon, its name, new or changed / who decided);
+-- its mark (ranked, sent back) at the right, the bin in its place on hover for who may clear it.
 function Rv.NewQRow(parent)
-    local r = CreateFrame("Button", nil, parent)
-    r:SetSize(QL_W, QROW_H)
-    r.sel = Fill(r, S.C.SELECT)
-    r.bar = Line(r, S.C.SELECT_BAR)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.bar:SetWidth(3)
-    UI():DecorateRow(r)
-    r.hl = r.dzHover
-    r.icon = H.Icon(r, 28)
-    r.icon:SetPoint("LEFT", 10, 0)
-    r.l1 = Text(r, 12, C.white)
-    r.l1:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 9, 1)
-    r.l2 = Text(r, 11, C.grey)
-    r.l2:SetPoint("TOPLEFT", r.icon, "RIGHT", 9, -2)
-    r.mark = r:CreateTexture(nil, "ARTWORK")
-    r.mark:SetSize(14, 14)
-    r.mark:SetPoint("RIGHT", -10, 0)
-    r:SetScript("OnClick", function(self)
+    local r = UI():CreateArtRow(parent, { selectable = true, onClick = function(self)
         state.review = self.id
         EventsUI:Refresh()
-    end)
+    end })
+    r.l1, r.l2 = r.title, r.sub
+    r.sel, r.bar, r.hl = r.dzSelFill, r.dzSelBar, r.dzHover
+    r.mark = r.right:CreateTexture(nil, "ARTWORK")
+    r.mark:SetSize(14, 14)
+    r.mark:SetPoint("RIGHT", -2, 0)
     -- the bin, on hover, where the mark is (r.remove; its tooltip: r.del.tipText)
     r.del = UI():CreateRemoveButton(r, "Remove")
     r.del:SetPoint("RIGHT", -8, 0)
@@ -4871,8 +4807,7 @@ function Rv.Decide(v, ok)
 end
 
 function Rv.Fill(v)
-    local W0 = H.W() - 2 * PAD
-    local qw = W0 - QL_W - GAP
+    local qw = v.layout.detailW
     local queue = Ev():GetReviewQueue()
     local decided = Ev():GetDecided(4)
     -- the pick: kept while it is listed, else the first waiting / decided
@@ -4886,7 +4821,8 @@ function Rv.Fill(v)
     v.wsect:ClearAllPoints()
     v.wsect:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 0, 0)
     v.wsect:SetWidth(QL_W)
-    v.wsect:Set("Waiting", tostring(#queue))
+    v.wsect:Set("Waiting")
+    v.wsect:SetCount(#queue)
     local y, ri = 28, 0
     local function qrow(d, l2, mark, markColor, remove, tip)
         ri = ri + 1
@@ -4895,26 +4831,13 @@ function Rv.Fill(v)
         r.remove, r.hasMark = remove, mark ~= nil
         r.del.tipText = tip
         r.del:Hide()
+        r:SetWidth(QL_W)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 0, -y)
-        r.icon:Set(d.icon)
-        -- the name: smaller when long, else on two lines (the row grows)
-        local _, _, lines = FitText(r.l1, d.name or "Event", QL_W - 47 - ((mark or remove) and 26 or 6), { 12, 11 })
-        local rh = lines == 1 and QROW_H or (QROW_H + 14)
-        r:SetHeight(rh)
-        r.l1:ClearAllPoints()
-        r.l2:ClearAllPoints()
-        if lines == 1 then
-            r.l1:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 9, 1)
-            r.l2:SetPoint("TOPLEFT", r.icon, "RIGHT", 9, -2)
-        else
-            r.l1:SetPoint("TOPLEFT", r, "TOPLEFT", 47, -6)
-            r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -2)
-        end
-        r.l2:SetText(l2)
-        local on = state.review == d.id
-        r.sel:SetShown(on)
-        r.bar:SetShown(on)
+        -- (room for the mark; the bin takes the mark's place, over the name's end, while the mouse is on the row)
+        r:SetRightWidth(mark and 22 or 6)
+        r:SetData({ art = d.art, icon = d.icon or QUESTION, title = d.name or "Event", sub = l2,
+            selected = state.review == d.id })
         if mark then
             r.mark:SetTexture(mark)
             r.mark:SetDesaturated(markColor ~= nil)
@@ -4924,7 +4847,7 @@ function Rv.Fill(v)
             r.mark:Hide()
         end
         r:Show()
-        y = y + rh
+        y = y + S.ROW.art
     end
     local canRemove = W.CanRemove()
     for _, d in ipairs(queue) do
@@ -4943,6 +4866,7 @@ function Rv.Fill(v)
         v.dsect:SetPoint("TOPLEFT", v.ql, "TOPLEFT", 0, -y)
         v.dsect:SetWidth(QL_W)
         v.dsect:Set("Decided")
+        v.dsect:SetCount(#decided)
         y = y + 28
         for _, x in ipairs(decided) do
             local words = x.k.ok and "ranked by " or "sent back by "
@@ -4959,7 +4883,8 @@ function Rv.Fill(v)
     local d = state.review and Ev():GetDef(state.review)
     v.def = d
     local showDetail = d ~= nil
-    for _, f in ipairs({ v.head, v.csect, v.dscroll, v.left, v.right }) do f:SetShown(showDetail) end
+    v.ban:SetShown(showDetail)
+    v.qd:SetShown(showDetail)
     v.empty:SetShown(not showDetail)
     -- (the diff list's scroll bar and its "nothing changed" are the view's: they go with it)
     if v.nochange then v.nochange:SetShown(false) end
@@ -4972,38 +4897,25 @@ function Rv.Fill(v)
     if not d then return end
     local rs = Ev():ReviewState(d)
     local waiting = rs == "review"
-    local hd = v.head
-    EUI():SetArt(hd.art, d.art, qw - 2, 68, nil, 0.6, 0.9)
-    hd.icon:Set(d.icon)
+    -- the banner: the event's art, icon, name and pill, who sent it and when; Mark ranked / Send back while it waits
+    local ban = v.ban
+    ban.building = true
+    ban:SetArt(H.BannerArt(d.art, qw, S.BANNER.tool, 0.6))
+    ban:SetIcon(d.icon or QUESTION)
     if waiting then
-        hd.pill:SetKind(W.NewOrChanged(d), "warn")
+        ban:SetPill("warn", W.NewOrChanged(d))
     else
         local text, kind = EUI():ReviewPill(rs)
-        hd.pill:SetKind(text or "Draft", kind or "draft")
+        ban:SetPill(kind or "draft", text or "Draft")
     end
-    -- the name and its pill fit between the icon and the buttons: a smaller size, else the pill under it (and the
-    -- name, when it still doesn't fit, on two lines)
-    local acts = waiting and (26 + 6 + hd.back:GetWidth() + 6 + hd.rank:GetWidth()) or 26
-    local room = qw - 12 - 38 - 11 - acts - 12 - 10
-    hd.pill:ClearAllPoints()
-    hd.t2:ClearAllPoints()
-    local tw = FitText(hd.t, d.name or "Event", room - 8 - hd.pill:GetWidth(), { 15, 13 }, false)
-    if tw then
-        hd.pill:SetPoint("LEFT", hd.t, "LEFT", tw + 8, 0)
-        hd.t2:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -4)
-    else
-        FitText(hd.t, d.name or "Event", room, 13)
-        hd.pill:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -3)
-        hd.t2:SetPoint("LEFT", hd.pill, "RIGHT", 7, 0)
-    end
+    ban:SetTitle(d.name or "Event")
     local sentAt = d.review and d.review.at or d.at
     local when = date("%Y%m%d", sentAt or 0) == date("%Y%m%d", Now()) and ("today " .. W.Clock(sentAt))
         or (W.Day(sentAt) .. " " .. W.Clock(sentAt))
-    hd.t2:SetText("From " .. Name(d.by) .. grey(" · " .. when))
-    hd.rank:SetShown(waiting)
-    hd.back:SetShown(waiting)
-    hd.eye:ClearAllPoints()
-    if waiting then hd.eye:SetPoint("RIGHT", hd.back, "LEFT", -6, 0) else hd.eye:SetPoint("RIGHT", -12, 0) end
+    ban:SetSub("From " .. Name(d.by) .. grey(" · " .. when))
+    ban:SetActions(waiting and { v.rankAction, v.backAction } or nil)
+    ban.building = nil
+    ban:Layout()
     -- the changes
     local changes, label, right, snap = Rv.Changes(d)
     v.csect:Set(label, right)
@@ -5050,7 +4962,7 @@ function Rv.Fill(v)
     local k = Ev():GetReview(d.id)
     local rightH = 28 + max(28, givesH) + 6 + 22 + (k and (10 + 28 + 22 + (k.note and 18 or 0)) or 0)
     local leftH = 28 + 46 + 10 + (waiting and 56 or 0)
-    local room = (H.Hgt() - 44 - 10) - 106 - 8 - max(rightH, leftH)
+    local room = H.BodyH(v.layout, S.BANNER.tool) - 28 - 8 - max(rightH, leftH)
     local shownH, shown = 0, 0
     for i = 1, min(#changes, DIFF_MAX) do
         if i > 1 and shownH + heights[i] + 3 > room then break end
@@ -5074,11 +4986,11 @@ function Rv.Fill(v)
     v.dscroll.ScrollBar:Update()
     v.nochange = v.nochange or Text(v.qd, 11, C.grey)
     v.nochange:ClearAllPoints()
-    v.nochange:SetPoint("TOPLEFT", v.qd, "TOPLEFT", 2, -110)
+    v.nochange:SetPoint("TOPLEFT", v.qd, "TOPLEFT", 2, -32)
     v.nochange:SetText("Nothing changed in its pieces.")
     v.nochange:SetShown(#changes == 0)
     -- the columns under them
-    local top = 106 + (#changes == 0 and 24 or shownH) + 8
+    local top = 28 + (#changes == 0 and 24 or shownH) + 8
     local lw = qw - RVCOL_W - 12
     v.left:ClearAllPoints()
     v.left:SetPoint("TOPLEFT", v.qd, "TOPLEFT", 0, -top)
