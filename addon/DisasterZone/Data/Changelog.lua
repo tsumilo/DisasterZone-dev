@@ -112,6 +112,7 @@ ns.CHANGELOG = {
               "Scenarios: split vote, popular but absent, dry streak, longest use, wrong class, more.",
               "Each one says in chat what to look at and which Council > Rules choice changes it.",
               "Also from chat: /dz demo list, then /dz demo <name> (for example /dz demo split).",
+              "Pressing Roll throws a die: it tumbles, the numbers flicker, your roll lands with a glow.",
               "A rolled prized item you don't qualify for: no roll window, a short notice says why.",
               "The Guild Master can show the roll window anyway: Council > Rules, Prized: not qualified.",
           } },
