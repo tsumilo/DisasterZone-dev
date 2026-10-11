@@ -1423,10 +1423,10 @@ function DropPanel.PrzTag(c)
 end
 -- The card's name with the prized seal, and its second line with the votes the award needs.
 -- 1.3.5 (prized look mockup, the user picked "ember glow" for the card): a prized item's card is warm - an amber
--- edge, a faint amber tint, a glow from the inside of the edges, and a soft sheen (a blurred light) that travels
--- round the card's edge. on = false puts the card back.
+-- edge, a faint amber tint, a glow from the inside of the edges, and two soft sheens (blurred lights) gliding along
+-- its top and bottom edges every few seconds. on = false puts the card back.
 DropPanel.PRZ_GLOW = { EDGE = { 0.62, 0.34, 0.10, 1 }, TINT = { 1, 0.47, 0.08, 0.05 }, GLOW = { 1, 0.45, 0.08, 0.22 },
-                       DEPTH = 22, PERIOD = 7, SHEEN_L = 170, SHEEN_T = 34 }
+                       DEPTH = 22, PERIOD = 6, RUN = 3.2, SHEEN_L = 170, SHEEN_T = 30 }
 function DropPanel.PrzGlow(b, on)
     local G = DropPanel.PRZ_GLOW
     local k = b.przGlow
@@ -1462,37 +1462,38 @@ function DropPanel.PrzGlow(b, on)
             t:SetVertexColor(r, g, bl, a)
             return t
         end
-        k.halo = soft("OVERLAY", 1, 1, 0.55, 0.15, 0.55)
-        k.core = soft("OVERLAY", 2, 1, 0.86, 0.55, 0.85)
+        -- (1.3.5, after the user's look in game: a light turning the corners looked bad) two sheens glide along the long
+        -- edges, the top one left to right, the bottom one back, each fading in and out well before a corner
+        k.top = { soft("OVERLAY", 1, 1, 0.55, 0.15, 0.6), soft("OVERLAY", 2, 1, 0.86, 0.55, 0.9) }
+        k.bot = { soft("OVERLAY", 1, 1, 0.55, 0.15, 0.45), soft("OVERLAY", 2, 1, 0.86, 0.55, 0.7) }
+        for _, pair in ipairs({ k.top, k.bot }) do
+            pair[1]:SetSize(G.SHEEN_L, G.SHEEN_T)
+            pair[2]:SetSize(G.SHEEN_L * 0.45, G.SHEEN_T * 0.35)
+        end
+        k.halo, k.core = k.top[1], k.top[2]   -- (the names the tests read)
         k.t = 0
+        local function place(pair, x, y, a)
+            for _, t in ipairs(pair) do
+                t:ClearAllPoints()
+                t:SetPoint("CENTER", b, "TOPLEFT", x, y)
+                t:SetAlpha(a)
+            end
+        end
         k.run:SetScript("OnUpdate", function(self, dt)
             k.t = (k.t + (dt or 0)) % G.PERIOD
+            local f = k.t / G.RUN                      -- 0..1 while the sheens run, then a rest
+            if f > 1 then
+                place(k.top, 0, 0, 0)
+                place(k.bot, 0, 0, 0)
+                return
+            end
             local w = CARD_W
             local h = (b.GetHeight and b:GetHeight() or 0)
             if h < 40 then h = 160 end
-            -- the way round: top (left to right), right (down), bottom (right to left), left (up)
-            local d = (k.t / G.PERIOD) * 2 * (w + h)
-            local x, y, along
-            if d < w then x, y, along = d, 0, "h"
-            elseif d < w + h then x, y, along = w, -(d - w), "v"
-            elseif d < 2 * w + h then x, y, along = w - (d - w - h), -h, "h"
-            else x, y, along = 0, -(h - (d - 2 * w - h)), "v" end
-            local L, T = G.SHEEN_L, G.SHEEN_T
-            if along == "h" then
-                k.halo:SetSize(L, T)
-                k.core:SetSize(L * 0.45, T * 0.35)
-            else
-                k.halo:SetSize(T, L * 0.6)
-                k.core:SetSize(T * 0.35, L * 0.27)
-            end
-            k.halo:ClearAllPoints()
-            k.halo:SetPoint("CENTER", b, "TOPLEFT", x, y)
-            k.core:ClearAllPoints()
-            k.core:SetPoint("CENTER", b, "TOPLEFT", x, y)
-            -- (breathes a little on its way: brighter along the long edges)
-            local a = 0.75 + 0.25 * math.sin(k.t / G.PERIOD * 4 * math.pi)
-            k.halo:SetAlpha(a)
-            k.core:SetAlpha(a)
+            local m = G.SHEEN_L * 0.5 + 10             -- (stays clear of the corners)
+            local a = math.sin(f * math.pi)            -- fades in, peaks in the middle, fades out
+            place(k.top, m + f * (w - 2 * m), 0, a)
+            place(k.bot, w - m - f * (w - 2 * m), -h, a * 0.8)
         end)
         b.przGlow = k
     end
