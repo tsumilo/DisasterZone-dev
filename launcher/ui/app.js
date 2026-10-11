@@ -110,7 +110,7 @@ function renderChrome() {
   const s = status.settings;
   const parts = ["Launcher", FLAVOR_NAMES[s.flavor] || s.flavor];
   if (s.channel !== "stable") parts.push(s.channel);
-  if (DEMO) parts.push("demo");
+  if (DEMO && !location.search.includes("shot")) parts.push("demo");   // (?shot: README screenshots)
   $("kicker").textContent = parts.join(" · ");
   $("foot-path").textContent = status.flavorDir || "No game folder: pick it in Settings";
   $("foot-ver").textContent = "Launcher " + status.launcherVersion;
@@ -490,6 +490,7 @@ async function start() {
   else renderHero();
   renderBackups();
   checkLauncherUpdate();
+  if (DEMO) { const tab = new URLSearchParams(location.search).get("tab"); if (tab) showTab(tab); }
   setInterval(() => { if (!working && !checking) runCheck(); }, RECHECK_MS);
 }
 
@@ -502,22 +503,11 @@ start();
 function demoApi() {
   const settings = { wowRoot: "C:\\World of Warcraft", flavor: "_anniversary_", channel: "stable", seenSeq: {}, hold: false,
     keepBackups: 3, checkOnStart: true, source: null, launchCode: "", playCommand: "" };
-  let installed = { present: true, version: "1.3.5", build: "7b7ab65a16911ed4", assetPack: 7, dev: false, linked: false, rooms: true };
-  const backups = [{ id: "20261009-201544-1.3.3", version: "1.3.3", build: "f60f", time: "", reason: "update", savedVariables: 3 }];
-  const notes = { changelog: [
-    { version: "1.3.6", date: "14 October 2026", title: "The launcher, and quicker raid sign-ups", sections: [
-      { heading: "DisasterZone Launcher", kind: "new", area: "other", lead: "Install and update the addon with one click.", lines: [
-        "A desktop launcher for Windows, macOS and Linux keeps the addon up to date.",
-        "It downloads only the files that changed, and keeps backups you can go back to.",
-        { text: "Officers: beta testers can switch to the Beta channel in Settings.", for: "officers" }] },
-      { heading: "Raids: sign up from the reminder", kind: "changed", area: "raids", lead: "Accept or decline straight from the pop-up.", lines: ["The raid reminder has Accept and Decline buttons."] },
-      { heading: "Loot rolls", kind: "fixed", area: "loot", lead: "Rolls no longer close early when the master looter reloads.", lines: ["Fixed a roll window closing after a /reload."] },
-    ] },
-    { version: "1.3.5", date: "11 October 2026", title: "Raid nights, loot rules for everyone and a Welcome tour", sections: [
-      { heading: "Raids: raid nights", kind: "new", area: "raids", lead: "See a team's raid nights before you join it.", lines: ["Teams can say which nights they raid."] },
-      { heading: "Welcome tour", kind: "new", area: "other", lead: "A short tour of the addon, made for the roles you hold.", lines: ["New: a Welcome tour on the real window."] },
-    ] },
-  ] };
+  let installed = { present: true, version: "1.3.4", build: "f2965f70f965709b", assetPack: 7, dev: false, linked: false, rooms: true };
+  const backups = [{ id: "20261009-201544-1.3.3", version: "1.3.3", build: "f60fe8911a371447", time: "", reason: "update", savedVariables: 3 }];
+  // the real changelog of the last releases (demo-notes.json, from the published 1.3.5 manifest)
+  const notes = { changelog: [] };
+  const notesReady = fetch("demo-notes.json").then((r) => r.json()).then((n) => { notes.changelog = n.changelog; }).catch(() => {});
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   let progressFn = null;
   return {
@@ -528,8 +518,9 @@ function demoApi() {
           installed: { ...installed }, flavorDir: settings.wowRoot + "\\" + settings.flavor, wowRunning: false, launcherVersion: "0.1.0",
           source: "https://raw.githubusercontent.com/OWNER/DisasterZone-releases/main/" };
         case "check": {
-          const up = installed.version === "1.3.6";
-          return { version: "1.3.6", build: "9a1c", seq: 2, channel: settings.channel, assetPack: 7, published: "2026-10-14T18:00:00Z",
+          await notesReady;
+          const up = installed.version === "1.3.5";
+          return { version: "1.3.5", build: "7b7ab65a16911ed4", seq: 1, channel: settings.channel, assetPack: 7, published: "2026-10-11T23:50:00Z",
             notes, files: 473, changed: up ? 0 : 23, removed: up ? 0 : 1, downloadBytes: up ? 0 : 412000, upToDate: up, older: false,
             hold: settings.hold, zipUrl: null };
         }
@@ -539,9 +530,9 @@ function demoApi() {
           progressFn && progressFn({ payload: { step: "swap", done: 0, total: 1 } });
           await wait(300);
           backups.unshift({ id: "20261014-190000-" + installed.version, version: installed.version, reason: "update", savedVariables: 3 });
-          installed = { ...installed, version: "1.3.6", build: "9a1c" };
+          installed = { ...installed, version: "1.3.5", build: "7b7ab65a16911ed4" };
           settings.hold = false;
-          return { version: "1.3.6", downloaded: 412000, changed: 23, removed: 1, backup: backups[0].id };
+          return { version: "1.3.5", downloaded: 412000, changed: 23, removed: 1, backup: backups[0].id };
         }
         case "backups": return backups.slice();
         case "restore": { const b = backups.find((x) => x.id === args.id); installed = { ...installed, version: b.version, build: b.build }; settings.hold = true; return null; }

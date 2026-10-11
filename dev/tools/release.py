@@ -975,6 +975,8 @@ def cmd_publish(args):
                    "--title", "DisasterZone %s" % version, "--notes", title or "DisasterZone %s" % version]
             if args.channel == "beta":
                 cmd.append("--prerelease")
+            # the repository's "latest release" stays the launcher (the README's download buttons point there)
+            cmd.append("--latest=false")
             _run(cmd)
             print("  GitHub release %s created with %s" % (tag, zip_name))
         print("  pushed to %s: launchers on %s see it within a few minutes" % (repo, args.channel))
