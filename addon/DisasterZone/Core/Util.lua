@@ -98,9 +98,10 @@ function Util.TypedPlayerKey(text, known)
     return Util.CapitalizeName(name) .. "-" .. realm
 end
 
--- Strips "-<own realm>"; foreign realms are kept.
-function Util.ShortName(key)
+-- Strips "-<own realm>"; foreign realms are kept. anyRealm (the games' behaviour): strips every realm.
+function Util.ShortName(key, anyRealm)
     if type(key) ~= "string" then return "" end
+    if anyRealm then return strmatch(key, "^[^%-]+") or key end
     local own = Util.GetPlayerRealm()
     if own ~= "" then
         local suffix = "-" .. own
@@ -420,6 +421,57 @@ end
 
 local function Now()
     return (GetServerTime and GetServerTime()) or time()
+end
+
+---------------------------------------------------------------------------
+-- Small shared helpers (1.4: the one copy of what many modules defined locally)
+---------------------------------------------------------------------------
+
+-- The server time in seconds (GetServerTime, else time()): what saved and synced stamps use. (Modules that time
+-- things on the session clock, GetTime, keep their own Now: the meters, My Log, the Azeromon net code.)
+Util.Now = Now
+
+-- n is a whole number, within lo..hi when they are given (either may be nil = no bound). NaN never is; an infinity
+-- only passes without the bound on its side.
+function Util.IsInt(n, lo, hi)
+    return type(n) == "number" and n == floor(n) and (lo == nil or n >= lo) and (hi == nil or n <= hi)
+end
+
+-- True while demo mode (Core/Demo.lua) is on; always a boolean.
+function Util.DemoOn()
+    local Demo = ns.Demo
+    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
+end
+
+-- A delay in [0, spread) that differs per character and per `key` but is the same every time for both: drawn from
+-- my name, not from math.random (rolls and the games share that sequence, and taking numbers out of turn would
+-- shift everyone else's). spread defaults to 1 (a fraction).
+function Util.Jitter(key, spread)
+    local h = Util.Adler32((Util.PlayerKey() or "?") .. tostring(key or ""))
+    return (h % 1000) / 1000 * (tonumber(spread) or 1)
+end
+
+local RNG_MOD = 2147483647
+
+-- A small seeded generator (Park-Miller "minimal standard": every product stays under 2^46, so plain doubles keep
+-- it exact on every client), independent of math.random. rng.Next() -> (0, 1); rng.Int(n) -> 1..n;
+-- rng.Range(lo, hi) -> lo..hi. The same seed gives the same numbers everywhere (Demo's NewRng).
+function Util.NewRng(seed)
+    local n = tonumber(seed) or 1
+    if n ~= n or n == math.huge or n == -math.huge then n = 1 end
+    local state = (floor(n) % (RNG_MOD - 1)) + 1
+    local rng = {}
+    function rng.Next()
+        state = (state * 16807) % RNG_MOD
+        return state / RNG_MOD
+    end
+    function rng.Int(k)
+        return 1 + floor(rng.Next() * k)
+    end
+    function rng.Range(lo, hi)
+        return lo + floor(rng.Next() * (hi - lo + 1))
+    end
+    return rng
 end
 
 function Util.FormatAgo(ts)

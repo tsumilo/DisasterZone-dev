@@ -100,6 +100,13 @@ for sid = 1, ns.NUM_SLOTS do
     end
 end
 
+-- A slot's label ("Head", "Ring 1", "Ranged / Relic"); "Slot N" for a sid that is not a slot (a number given as
+-- text works too).
+function ns.SlotLabel(sid)
+    local s = ns.SLOTS[sid] or ns.SLOTS[tonumber(sid) or 0]
+    return s and s.label or ("Slot " .. tostring(sid))
+end
+
 -- Human-readable equip location labels (Picker subtitles etc.).
 ns.INVTYPE_LABELS = {
     INVTYPE_HEAD = "Head", INVTYPE_NECK = "Neck", INVTYPE_SHOULDER = "Shoulder",
@@ -184,6 +191,18 @@ ns.CLASS_NAMES = {
     SHAMAN = "Shaman", MAGE = "Mage", WARLOCK = "Warlock", DRUID = "Druid",
 }
 
+-- A class file's name: the client's localized name when `localized` (LOCALIZED_CLASS_NAMES_MALE), else English
+-- (ns.CLASS_NAMES); an unknown class file comes back capitalized ("DEATHKNIGHT" -> "Deathknight"). nil for nil / "".
+function ns.ClassName(classFile, localized)
+    if type(classFile) ~= "string" or classFile == "" then return nil end
+    if localized then
+        local names = LOCALIZED_CLASS_NAMES_MALE
+        local loc = type(names) == "table" and names[classFile]
+        if type(loc) == "string" and loc ~= "" then return loc end
+    end
+    return ns.CLASS_NAMES[classFile] or (classFile:sub(1, 1) .. classFile:sub(2):lower())
+end
+
 ns.SPECS = {
     WARRIOR = {
         { label = "Arms", tab = 1, role = "melee" },
@@ -233,6 +252,49 @@ ns.SPECS = {
     },
 }
 
+-- Spec icons (each spec's .icon, a full texture path), by class and spec label (the table RaidComp:SpecIcon uses).
+do
+    local SPEC_ICONS = {
+        WARRIOR = { Arms = "Ability_Warrior_SavageBlow", Fury = "Ability_Warrior_InnerRage",
+                    Protection = "Ability_Warrior_DefensiveStance" },
+        PALADIN = { Holy = "Spell_Holy_HolyBolt", Protection = "Spell_Holy_DevotionAura",
+                    Retribution = "Spell_Holy_AuraOfLight" },
+        HUNTER = { ["Beast Mastery"] = "Ability_Hunter_BeastTaming", Marksmanship = "Ability_Marksmanship",
+                   Survival = "Ability_Hunter_SwiftStrike" },
+        ROGUE = { Assassination = "Ability_Rogue_Eviscerate", Combat = "Ability_BackStab", Subtlety = "Ability_Stealth" },
+        PRIEST = { Discipline = "Spell_Holy_WordFortitude", Holy = "Spell_Holy_HolyBolt",
+                   Shadow = "Spell_Shadow_ShadowWordPain" },
+        SHAMAN = { Elemental = "Spell_Nature_Lightning", Enhancement = "Spell_Nature_LightningShield",
+                   Restoration = "Spell_Nature_MagicImmunity" },
+        MAGE = { Arcane = "Spell_Holy_MagicalSentry", Fire = "Spell_Fire_FireBolt02", Frost = "Spell_Frost_FrostBolt02" },
+        WARLOCK = { Affliction = "Spell_Shadow_DeathCoil", Demonology = "Spell_Shadow_Metamorphosis",
+                    Destruction = "Spell_Shadow_RainOfFire" },
+        DRUID = { Balance = "Spell_Nature_StarFall", ["Feral (Cat)"] = "Ability_Druid_CatForm",
+                  ["Feral (Bear)"] = "Ability_Racial_BearForm", Restoration = "Spell_Nature_HealingTouch" },
+    }
+    for classFile, specs in pairs(ns.SPECS) do
+        local icons = SPEC_ICONS[classFile] or {}
+        for _, spec in ipairs(specs) do
+            local name = icons[spec.label]
+            spec.icon = name and ("Interface\\Icons\\" .. name) or nil
+        end
+    end
+end
+
+-- A spec's icon path by class file and spec index (or spec label); nil when unknown.
+function ns.SpecIcon(classFile, spec)
+    local specs = classFile and ns.SPECS[classFile]
+    if not specs then return nil end
+    if type(spec) == "number" then
+        local s = specs[spec]
+        return s and s.icon or nil
+    end
+    for i = 1, #specs do
+        if specs[i].label == spec then return specs[i].icon end
+    end
+    return nil
+end
+
 function ns.GetSpecRole(classFile, specLabel)
     local specs = classFile and ns.SPECS[classFile]
     if not specs or not specLabel then return nil end
@@ -244,6 +306,32 @@ end
 
 ns.ROLES = { "tank", "healer", "melee", "caster", "ranged" }
 ns.ROLE_LABELS = { tank = "Tank", healer = "Healer", melee = "Melee", caster = "Caster", ranged = "Ranged" }
+
+---------------------------------------------------------------------------
+-- Professions: id = the skill line id (the same on every locale), English name, in Core/Professions.lua's order
+---------------------------------------------------------------------------
+
+ns.PROFESSIONS = {
+    { id = 171, name = "Alchemy",        primary = true },
+    { id = 164, name = "Blacksmithing",  primary = true },
+    { id = 333, name = "Enchanting",     primary = true },
+    { id = 202, name = "Engineering",    primary = true },
+    { id = 755, name = "Jewelcrafting",  primary = true },
+    { id = 165, name = "Leatherworking", primary = true },
+    { id = 197, name = "Tailoring",      primary = true },
+    { id = 186, name = "Mining",         primary = true },
+    { id = 182, name = "Herbalism",      primary = true },
+    { id = 393, name = "Skinning",       primary = true },
+    { id = 185, name = "Cooking" },
+    { id = 129, name = "First Aid" },
+    { id = 356, name = "Fishing" },
+}
+ns.PROFESSION_IDS = {}     -- [English name] = skill line id
+ns.PROFESSION_NAMES = {}   -- [skill line id] = English name
+for _, p in ipairs(ns.PROFESSIONS) do
+    ns.PROFESSION_IDS[p.name] = p.id
+    ns.PROFESSION_NAMES[p.id] = p.name
+end
 
 ---------------------------------------------------------------------------
 -- Proficiencies at level 70 in TBC (§4.4)
