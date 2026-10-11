@@ -588,6 +588,12 @@ function View:RefreshLibrary()
     local d = lib.detail
     d.newBtn:SetShown(S():CanBuild())
     placeActions(d)
+    -- (who can't build - outside a guild: a read-only notice over the board, as New strategy is left out)
+    if S():CanBuild() then
+        lib.layout:HideNotice()
+    else
+        lib.layout:ShowNotice("readonly", "Strategies are built inside a guild: you can look at them, not build or copy.")
+    end
     -- never looked at the tutorial: offer it (once per session, until it is started or turned down)
     if S():CanBuild() then ns.Tour:Offer("strategy", function() return d.tourBtn end) end
     -- (my drafts first, then the strategies; grouped by raid in the raids' order, each group under its header)

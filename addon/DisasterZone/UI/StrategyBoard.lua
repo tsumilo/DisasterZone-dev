@@ -2297,6 +2297,10 @@ local function stateOf(pr)
     end
     if st.mode == "edit" and st.stale then return "warn", "Newer version by " .. ns.Util.ShortName(st.stale), "stale" end
     if st.dirty and (st.mode == "edit" or st.mode == "fill") then return "warn", "Unsaved", "unsaved" end
+    -- (1.4: reading a strategy I can neither change nor assign: say so instead of only leaving the buttons out)
+    if st.mode == "view" and st.strat and not canEditStrat(st.strat) and not (st.occ and canAssign()) then
+        return "mute", "Read only", "readonly"
+    end
     return nil
 end
 
@@ -2312,6 +2316,10 @@ function Board:StateTooltip(owner)
         GameTooltip:AddLine("Joining a live board")
         GameTooltip:AddLine("Someone is editing this strategy: your board becomes theirs, and your changes and theirs "
             .. "show at once on both.", 1, 1, 1, true)
+    elseif why == "readonly" then
+        GameTooltip:AddLine("Read only")
+        GameTooltip:AddLine("Its owner, the guild members they invited, the GM and the guild council change this "
+            .. "strategy. Copy (the ... menu) makes one that is yours.", 1, 1, 1, true)
     elseif why == "stale" then
         local cur = st.strat and st.strat.id and S():GetStrategy(st.strat.id)
         GameTooltip:AddLine("Newer version by " .. ns.Util.ShortName(st.stale))

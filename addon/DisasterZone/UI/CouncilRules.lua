@@ -393,7 +393,7 @@ local function BuildWinner(v, host)
     right.head:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -2)
     right.head:SetPoint("RIGHT", right.scenes, "LEFT", -S.GAP, 0)
     right.kicker = right.head.title
-    right.change = UI:Text(right, "body", nil, { width = K.RIGHT_W - 280 })
+    right.change = UI:Text(right, "body", nil, { width = K.RIGHT_W - 4 })
     right.change:SetPoint("TOPLEFT", right.head, "BOTTOMLEFT", 2, 0)
     local c = UI:CreateCard(right, { tone = "card" })
     c:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -38)
@@ -469,7 +469,7 @@ local function FillWinner(v)
     elseif edit then
         b:SetPill("ok", "Shared with the guild")
     else
-        b:SetPill("mute", "Read-only")
+        b:SetPill("mute", nil)
     end
     -- the example roll, with the draft and with the saved rules (what moved)
     local rows = ExampleRows(draft)
@@ -564,8 +564,16 @@ function CouncilRulesUI:Refresh()
     v.prized:SetShown(not winner)
     if winner then
         v.add:Hide()
+        -- (who can't change them: a read-only notice over the page, as the choices take no clicks)
+        if CanEdit() then
+            v.layout:HideNotice()
+        else
+            v.layout:ShowNotice("readonly", "Only the Guild Master changes the loot rules: you see them as they are, "
+                .. "and the example uses them.")
+        end
         FillWinner(v)
     else
+        v.layout:HideNotice()
         local P = ns.Prized
         v.add:SetShown(P and P.CanEdit and P:CanEdit() or false)
         local PU = ns.PrizedUI
