@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Comp/Overlays.lua", ...) then return end -- DisasterZone UI/Comp/Overlays.lua
+-- overlays: sheet, toast, HUD frame (refactor phase 2).
+local addonName, ns = ...

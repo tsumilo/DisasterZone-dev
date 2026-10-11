@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Comp/PageParts.lua", ...) then return end -- DisasterZone UI/Comp/PageParts.lua
+-- page parts: banner, back link, section header (refactor phase 2).
+local addonName, ns = ...

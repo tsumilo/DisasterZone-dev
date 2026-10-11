@@ -37,7 +37,8 @@ from _common import (case, run_all, no_errors, World, Client, ExtraMember, insta
 import lr_common as lr  # noqa: E402
 
 REALM = "Thunderstrike"
-ADDON_DIR = os.path.normpath(r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone")
+ADDON_DIR = os.path.normpath(os.environ.get("DISASTERZONE_ADDON_DIR")
+                             or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone")
 
 
 def K(name):

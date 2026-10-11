@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/ClassBar.lua", ...) then return end -- DisasterZone UI/ClassBar.lua
+-- the class tool bar shared by the Blessings and Totem bars (refactor phase 4).
+local addonName, ns = ...

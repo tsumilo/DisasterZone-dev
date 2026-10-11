@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Comp/MapArt.lua", ...) then return end -- DisasterZone UI/Comp/MapArt.lua
+-- map art tiles, shared by the strategy map, event zone map and guild map (refactor phase 2).
+local addonName, ns = ...

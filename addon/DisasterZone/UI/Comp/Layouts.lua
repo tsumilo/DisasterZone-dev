@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Comp/Layouts.lua", ...) then return end -- DisasterZone UI/Comp/Layouts.lua
+-- page layouts: Board, List + detail, Detail page, Side menu, Tool window (refactor phase 3).
+local addonName, ns = ...

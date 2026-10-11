@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Raids.lua", ...) then return end -- DisasterZone Data/Raids.lua
+-- Raid meta table (short names, planner keys, art, map ids): one home for raid information (refactor 1D).
+local addonName, ns = ...

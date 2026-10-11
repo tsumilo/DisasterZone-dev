@@ -4,7 +4,7 @@ Usage: python xref.py [--calls] [--missing] [--msgs] [--settings] [--comm] [--sl
 """
 import os, re, sys, json, collections
 
-ADDON = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
+ADDON = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
 TOC_ORDER = []
 for line in open(os.path.join(ADDON, "DisasterZone.toc"), encoding="utf-8"):
     line = line.strip()

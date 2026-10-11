@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Core/DigestSync.lua", ...) then return end -- DisasterZone Core/DigestSync.lua
+-- shared digest / want / give sync engine, set up per module (refactor phase 5).
+local addonName, ns = ...

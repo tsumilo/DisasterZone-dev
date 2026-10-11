@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Comp/Controls.lua", ...) then return end -- DisasterZone UI/Comp/Controls.lua
+-- controls: pill, chip, segments, side menu (refactor phase 2).
+local addonName, ns = ...

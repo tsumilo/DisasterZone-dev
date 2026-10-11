@@ -34,6 +34,7 @@ Core\Dungeon.lua
 Core\GroupRules.lua
 Core\Constants.lua
 Data\Items.lua
+Data\Raids.lua
 Data\Dungeons.lua
 Data\Sources.lua
 Data\ItemClasses.lua
@@ -64,6 +65,7 @@ Core\Store.lua
 Core\Notify.lua
 Core\Comm.lua
 Core\Sync.lua
+Core\DigestSync.lua
 Core\Professions.lua
 
 # Gear sim: a Lua port of WoWSims TBC (Sim\Core.lua explains)
@@ -108,6 +110,7 @@ Core\MeterDemo.lua
 Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\SwingPractice.lua
+Core\ClassPlanner.lua
 Core\Blessings.lua
 Core\Totems.lua
 Core\RaidNights.lua
@@ -154,10 +157,18 @@ Render3D\Probe.lua
 Render3D\Standins.lua
 
 # UI
+UI\Style.lua
 UI\Widgets.lua
 UI\Popup.lua
 UI\Menu.lua
 UI\TooltipSkin.lua
+UI\Comp\PageParts.lua
+UI\Comp\Surfaces.lua
+UI\Comp\Controls.lua
+UI\Comp\Overlays.lua
+UI\Comp\Themes.lua
+UI\Comp\MapArt.lua
+UI\Comp\Layouts.lua
 UI\Share.lua
 UI\ShareWindow.lua
 UI\Tour.lua
@@ -231,8 +242,10 @@ UI\MeterPanels.lua
 UI\MeterDetail.lua
 UI\SwingTimerHUD.lua
 UI\SwingPracticeUI.lua
+UI\PlannerWindow.lua
 UI\BlessingsUI.lua
 UI\BarFace.lua
+UI\ClassBar.lua
 UI\BlessingsBar.lua
 UI\TotemsUI.lua
 UI\TotemBar.lua

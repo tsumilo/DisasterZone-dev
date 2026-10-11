@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Style.lua", ...) then return end -- DisasterZone UI/Style.lua
+-- design values: colours, type scale, spacing, row and banner sizes (refactor 1A).
+local addonName, ns = ...

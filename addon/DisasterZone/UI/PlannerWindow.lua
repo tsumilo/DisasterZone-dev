@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PlannerWindow.lua", ...) then return end -- DisasterZone UI/PlannerWindow.lua
+-- the class planner window shared by Blessings and Totems (refactor phase 4).
+local addonName, ns = ...

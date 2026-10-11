@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Comp/Themes.lua", ...) then return end -- DisasterZone UI/Comp/Themes.lua
+-- theme registry and theme tile picker (meters, class bars) (refactor phase 2).
+local addonName, ns = ...

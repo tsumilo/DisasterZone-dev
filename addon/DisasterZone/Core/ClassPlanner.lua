@@ -1,0 +1,3 @@
+if DisasterZoneBoot and DisasterZoneBoot.Run("Core/ClassPlanner.lua", ...) then return end -- DisasterZone Core/ClassPlanner.lua
+-- shared core of the class planners (Blessings, Totems) (refactor phase 4).
+local addonName, ns = ...

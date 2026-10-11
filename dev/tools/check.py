@@ -30,8 +30,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import luabc  # noqa: E402
 
-ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
-ADDONS_ROOT = os.path.dirname(ADDON_DIR)
+LIVE_ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZone"
+ADDON_DIR = os.environ.get("DISASTERZONE_ADDON_DIR") or LIVE_ADDON_DIR  # (a worktree copy of the addon)
+ADDONS_ROOT = os.path.dirname(LIVE_ADDON_DIR)  # the reference addons live next to the real one
 KNOWN_PATH = os.path.join(HERE, "known_globals.json")
 
 # Reference addons that target this client; their global READS form the known-globals set.
