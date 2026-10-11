@@ -10,6 +10,10 @@ local NAV_H = 28                          -- the navigation strip, along the foo
 local HEAD_H = 60                         -- the header (UI:CreateWindow's, made tall): the seal, the guild's line, the strip
 -- (every page keeps the space it had under the old 26 px title bar + the strip: 790 x 548)
 local WIDTH, HEIGHT = 800, 580 + HEAD_H + 1 - 27
+-- (the page area every page gets: the window's content frame, 5 px in from its sides and its foot (UI:CreateWindow),
+-- under the header's rule: ns.Style's PAGE_W / PAGE_H / INNER_W, which the pages and UI:CreateLayout read)
+ns.Style.PAGE_W, ns.Style.PAGE_H = WIDTH - 2 * 5, HEIGHT - (HEAD_H + 1) - 5
+ns.Style.INNER_W = ns.Style.PAGE_W - 2 * ns.Style.PAD
 
 -- Pages shown as an icon at the right of the strip (in the pages' order: Feedback, Changelog, Settings), and pages
 -- without a tab (none at the moment).
@@ -282,7 +286,9 @@ local function BuildTabs()
     if ns.NotifyUI and ns.NotifyUI.OnTabsBuilt then ns.NotifyUI:OnTabsBuilt() end
 end
 
-function MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn)
+-- opts (optional): { layout = "board" | "listdetail" | "detail" | "rail" | "tool" } - the page's layout kind (UI/Comp/
+-- Layouts.lua), kept on the tab (MainFrame:GetTabLayout); a page without one works as before.
+function MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn, opts)
     if type(key) ~= "string" then return end
     local def = tabDefs[key]
     if not def then
@@ -294,12 +300,20 @@ function MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn)
     def.order = tonumber(order) or (#tabList * 10)
     def.createFn = createFn
     def.isAvailableFn = isAvailableFn
+    def.opts = type(opts) == "table" and opts or nil
+    def.layout = def.opts and def.opts.layout or nil
     SortTabs()
     if frame then
         BuildTabs()
         self:RefreshTabs()
         if currentKey and tabs then SelectPage(currentKey) end
     end
+end
+
+-- The layout kind a tab registered with (opts.layout), or nil.
+function MainFrame:GetTabLayout(key)
+    local def = tabDefs[key]
+    return def and def.layout or nil
 end
 
 ---------------------------------------------------------------------------

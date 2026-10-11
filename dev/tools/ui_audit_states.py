@@ -160,7 +160,8 @@ def close_all(cl):
                               'DisasterZonePollToast', 'DisasterZoneNotifyToast', 'DisasterZoneNotifyTray',
                               'DisasterZoneTotems', 'DisasterZoneTotemBar', 'DisasterZoneTotemRange',
                               'DisasterZoneAttendanceLeader', 'DisasterZoneAttendanceLeftEarly',
-                              'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway' }) do
+                              'DisasterZoneAttendancePicker', 'DisasterZoneAttendanceAway',
+                              'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
@@ -3041,4 +3042,14 @@ STATES += [
     ("Performance - network", perf_view("network")),
     ("Performance - cpu", perf_view("cpu")),
     ("Window - empty body (mock backdrop)", perf_view("empty")),
+]
+
+
+# The component gallery (refactor 1.4): every shared component and every page layout in a plain window
+# (dev/tools/ui_gallery.py).
+from ui_gallery import gallery  # noqa: E402
+
+STATES += [
+    ("Gallery - components", gallery("components")),
+    ("Gallery - layouts", gallery("layouts")),
 ]
