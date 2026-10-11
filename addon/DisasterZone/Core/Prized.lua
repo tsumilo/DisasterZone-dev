@@ -997,6 +997,16 @@ function Prized:Check(rec, key, ctx)
         end
     end
     if out.ok == true and unknown then out.ok = nil end
+    -- (1.3.5, the user: in demo mode I count as meeting every rule, to see what rolling for a prized item is like;
+    -- res.demo marks the rules the demo waved through)
+    if DemoOn() and Util.IsMe(key) and out.ok ~= true then
+        for _, res in ipairs(out.rules) do
+            if not res.info and res.m == "r" and res.ok ~= true then
+                res.ok, res.demo = true, true
+            end
+        end
+        out.ok, out.fail, out.failKey, out.met = true, nil, nil, out.required
+    end
     -- the sort: the pair's holder, the queue, the spec order, then on the BiS list, then attendance (higher first)
     local by = {}
     for _, res in ipairs(out.rules) do by[res.key] = res end

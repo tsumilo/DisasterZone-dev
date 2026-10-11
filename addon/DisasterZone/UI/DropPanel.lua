@@ -1212,7 +1212,7 @@ function DropPanel:TickRolls()
         local s = b:IsShown() and b.rollSession
         if s and s.state == "open" then
             any = true
-            b.sub:SetText(DropPanel.PrzSub(b.itemID, RollStateText(s, b.rollStats)))
+            b.sub:SetText(DropPanel.PrzSub(b.itemID, RollStateText(s, b.rollStats), true))
         end
     end
     if not any then self:StopRollTicker() end
@@ -1509,9 +1509,12 @@ function DropPanel.PrzName(itemID, text)
     local i = (ns.HasAssets and ns:HasAssets(7)) and ns.UI.ICON.prized or ns.UI.ICON.trophy
     return text .. "  " .. ns.UI:AtlasIconText(i, 11, { 1, 0.6, 0.18 })
 end
-function DropPanel.PrzSub(itemID, text)
+-- rolling: the subtitle says the roll's state; the council count goes into its votes ("1 of 3 votes",
+-- Dry.VotesLine) instead of a "prized: needs ..." that would be cut off.
+function DropPanel.PrzSub(itemID, text, rolling)
     local rec = DropPanel.PrzRec(itemID)
     if not rec then return text end
+    if rolling then return text end
     local P = ns.Prized
     local n = #P:PresentCouncil()
     local need = P:NeededVotes(rec, n)
@@ -1524,6 +1527,11 @@ end
 function Dry.VotesLine(stats)
     if (stats.split or 0) > 1 then
         return Paint(format("  ·  votes split %d ways", stats.split) .. (stats.picked and "" or ": pick one"), "warn")
+    end
+    if stats.need then
+        -- (a prized item: the council's votes so far against how many must agree; gold once enough agree)
+        local v = tonumber(stats.votes) or 0
+        return Paint(format("  ·  %d of %d votes", v, stats.need), v >= stats.need and "main" or "muted")
     end
     if (stats.votes or 0) > 0 then return Paint("  ·  " .. VotesText(stats.votes), "muted") end
     return ""
@@ -2940,6 +2948,12 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         b.results = results
         local rolled, passed, tie, votes, split, picked = RollCounts(results)
         b.rollStats = { rolled = rolled, passed = passed, tie = tie, votes = votes, split = split, picked = picked }
+        -- (a prized item the council decides: how many of them must agree, shown with the votes)
+        local przRec = DropPanel.PrzRec(itemID)
+        if przRec and ns.Prized.NeededVotes then
+            local need = ns.Prized:NeededVotes(przRec, #ns.Prized:PresentCouncil())
+            if need > 0 then b.rollStats.need = need end
+        end
         for _, row in ipairs(results) do
             if row.suggested then
                 b.suggested = row
@@ -2951,7 +2965,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             headKind = "roll"
             y = y + Grid.HEAD_H
         end
-        b.sub:SetText(DropPanel.PrzSub(itemID, RollStateText(session, b.rollStats)))
+        b.sub:SetText(DropPanel.PrzSub(itemID, RollStateText(session, b.rollStats), true))
         -- "+N more" only when it hides at least two rows.
         local limit = (n > MAX_ROLL_ROWS + 1) and MAX_ROLL_ROWS or n
         for i = 1, limit do

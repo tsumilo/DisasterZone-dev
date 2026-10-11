@@ -85,7 +85,7 @@ def prized_card_glows_amber_in_the_drop_panel():
 
 
 @case
-def demo_a_roll_includes_a_prized_item_beside_the_rolled_one():
+def demo_a_roll_rolls_a_prized_item_i_qualify_for():
     w, c = solo("Alice", guild_rank=0, tick=4)
     c.eval("ns.SettingsUI:DemoRoll()")
     w.tick(2)
@@ -101,8 +101,11 @@ def demo_a_roll_includes_a_prized_item_beside_the_rolled_one():
     rows = list(res.values()) if isinstance(res, dict) else list(res or [])
     prized = [r for r in rows if r["prized"]]
     assert prized and all(r["glow"] for r in prized), rows
-    assert rows[0]["rolling"] and not rows[0]["prized"], rows          # the roll runs on the first, plain item
-    assert rows[1]["prized"], rows                                     # the prized item right after it
+    assert rows[0]["rolling"] and rows[0]["prized"], rows              # the demo rolls the prized item, first
+    # in demo mode I meet its rules: the roll window, not the notice
+    assert c.eval("return ns.RollFrame.frame ~= nil and ns.RollFrame.frame:IsShown() or false")
+    assert c.eval("return ns.RollFrame.przBlocked") is False
+    assert "meet all" in (c.eval("return ns.RollFrame.frame.wearLabel:GetText()") or "")
 
 
 NOT_OK = ("ns.Prized.Check = function() return { ok = false, fail = '62% attendance, needs 75%', failKey = 'att', "
@@ -165,6 +168,23 @@ def qualified_or_unknown_still_get_the_roll_window():
     c.eval("ns.Prized.Check = function() return { ok = nil, rules = {}, met = 2, required = 4, by = {} } end")
     roll_dst(c, w)
     assert roll_window(c) and not notices(c)
+
+
+@case
+def in_demo_mode_i_meet_every_prized_rule_others_dont():
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    res = c.eval_py("""local out = {}
+        for _, rec in ipairs(ns.Prized:GetItems()) do
+            local me = ns.Prized:Check(rec, ns.Util.PlayerKey())
+            out[#out + 1] = { ok = me.ok, met = me.met, required = me.required }
+        end
+        return out""")
+    rows = list(res.values()) if isinstance(res, dict) else list(res or [])
+    assert rows and all(r["ok"] is True and r["met"] == r["required"] for r in rows), rows
+    c.slash("/dz demo off")
+    w.tick(1)
+    assert c.eval("return ns.Prized:IsPrized(28830)") is False   # (the demo's items are gone with it)
 
 if __name__ == "__main__":
     run_all(globals())

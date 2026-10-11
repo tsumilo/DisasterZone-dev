@@ -1775,8 +1775,8 @@ function SettingsUI:BuildDemo(sec)
     local demoRoll = ns.UI:CreateButton(sec, "Demo a roll", nil, 22, function() SettingsUI:DemoRoll() end)
     demoRoll:SetPoint("LEFT", sim, "RIGHT", 8, 0)
     AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode, simulates a boss drop and starts a roll on its first item: "
-        .. "you get the Roll / Pass popup and fake raiders roll in the drop panel. The drop includes a prized item. "
-        .. "Nothing is sent.")
+        .. "you get the Roll / Pass popup and fake raiders roll in the drop panel. It rolls a prized item, and in "
+        .. "demo mode you meet its rules. Nothing is sent.")
     local recent = ns.UI:CreateButton(sec, "Recent drops", nil, 22, function()
         if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
     end)
@@ -1833,7 +1833,7 @@ function SettingsUI:DemoRoll()
     end
     local L = ns.Loot
     if not (L and L.SimulateDrop and L.GetHistory) then return end
-    L:SimulateDrop({ prized = true })   -- (1.3.5: a prized item beside the rolled one, in its amber card)
+    L:SimulateDrop({ prized = true })   -- (1.3.5: the roll is on a prized item; in demo mode I meet its rules)
     local hist = L:GetHistory()
     local drop = type(hist) == "table" and hist[#hist]
     if type(drop) ~= "table" or not drop.test or type(drop.i) ~= "table" or not tonumber(drop.i[1]) then return end

@@ -942,7 +942,7 @@ function Loot:SimulateDungeonDrop()
 end
 
 -- opts (optional): { prized = true }: in demo mode, a boss that drops a prized item (Core/Prized.lua), with that item
--- second in the drop (the demo roll rolls the first one, the prized card shows beside it). 1.3.5, "Demo a roll".
+-- first in the drop (the demo roll rolls it: in demo mode I meet its rules). 1.3.5, "Demo a roll".
 function Loot:SimulateDrop(opts)
     if DungeonLootContext() and self:SimulateDungeonDrop() then return end
     local P = ns.Prized
@@ -1022,7 +1022,7 @@ function Loot:SimulateDrop(opts)
     end
     if #ids == 0 then ids[1] = pick.boss.items[1] end
     if przPick then
-        -- the prized item second (or alone): the first item is the one the demo rolls
+        -- the prized item first: the demo rolls it (the rest of the drop can be rolled from the panel)
         local out = {}
         for _, id in ipairs(ids) do
             if id ~= przPick.prized and #out < 3 then out[#out + 1] = id end
@@ -1035,7 +1035,7 @@ function Loot:SimulateDrop(opts)
                 end
             end
         end
-        table.insert(out, math.min(2, #out + 1), przPick.prized)
+        table.insert(out, 1, przPick.prized)
         ids = out
     end
 
