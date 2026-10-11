@@ -747,7 +747,11 @@ end
 -- Pull context: spec, role, talents, item level, boss health
 ---------------------------------------------------------------------------
 
+-- Points spent in a talent tab, read as the class tools read them (Core/ClassKit.lua: 2.5.6's
+-- C_SpecializationInfo first, the old GetTalentTabInfo alias as the fallback); 0 when unknown.
 local function TabPoints(tab)
+    local CK = ns.ClassKit
+    if CK and CK.TabPoints then return CK.TabPoints(tab) or 0 end
     if not GetTalentTabInfo then return 0 end
     local r1, _, r3, _, r5 = GetTalentTabInfo(tab)
     local p = (type(r1) == "string") and tonumber(r3) or tonumber(r5)

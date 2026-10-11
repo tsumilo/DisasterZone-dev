@@ -766,6 +766,47 @@ def a_model_stands_on_its_spot_however_it_turns():
 
 
 @case
+def actor_boxes_in_the_vector_form_read_like_six_numbers():
+    # The client documents GetActiveBoundingBox / GetMaxBoundingBox as two vectors (min, max) and answers six numbers
+    # in practice: the board reads both alike - the model's own occluder box, /dz 3d centre and the view's centring
+    # shift (UI/StrategyMap3D.lua, Render3D/View.lua).
+    w, c, bob = boot(LURKER)
+    go3d(w, bob)
+    tick(w, 0.5)
+    BB = MODEL + "local a = T3.v().actors[e] return a.bb and { a.bb.r, a.bb.z0, a.bb.z1, a.bb.x0, a.bb.y1 } or false"
+    six = bob.eval_py(BB)
+    assert six, "the model's box was never read"
+    bob.slash("/dz 3d centre active")
+    tick(w, 0.1)
+    ctr6 = bob.eval_py(MODEL + "local a = T3.v().actors[e] return a.ctr and { a.ctr[1], a.ctr[2] } or false")
+    assert ctr6, "no centre from the six-number box"
+    bob.eval(MODEL + """local a = T3.v().actors[e]
+        local function vec(x, y, z) return { GetXYZ = function() return x, y, z end } end
+        for _, name in ipairs({ 'GetActiveBoundingBox', 'GetMaxBoundingBox' }) do
+            local real = a[name]
+            a[name] = function(self)
+                local x0, y0, z0, x1, y1, z1 = real(self)
+                return vec(x0, y0, z0), vec(x1, y1, z1)
+            end
+        end
+        a.bb, a.ctr, a.ctrMode = nil, nil, nil
+        T3.cv():Render()""")
+    tick(w, 0.2)
+    assert bob.eval_py(BB) == six, (bob.eval_py(BB), six)
+    ctr = bob.eval_py(MODEL + "local a = T3.v().actors[e] return a.ctr and { a.ctr[1], a.ctr[2] } or false")
+    assert ctr == ctr6, (ctr, ctr6)
+    bob.slash("/dz 3d centre off")
+    # the view's shift for a model the client centres on its box
+    shift = bob.eval_py("""
+        local function vec(x, y, z) return { x = x, y = y, z = z } end
+        local fake = { IsUsingCenterForOrigin = function() return true, true end,
+                       GetActiveBoundingBox = function() return vec(-2, -4, 0), vec(4, 2, 3) end }
+        return { T3.v().view:CentreShift(fake, 1, 0) }""")
+    assert abs(shift[0] - 1) < 1e-9 and abs(shift[1] + 1) < 1e-9, shift
+    no_errors(w)
+
+
+@case
 def a_model_turns_and_sizes_with_its_knobs_and_keeps_it():
     w, c, bob = boot()
     go3d(w, bob)

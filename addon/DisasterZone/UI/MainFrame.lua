@@ -688,7 +688,7 @@ local function EnsureFrame()
     frame.seal:SetSize(46, 46)
     frame.seal:ClearAllPoints()
     frame.seal:SetPoint("TOPLEFT", frame, "TOPLEFT", 11, -7)
-    local RADIAL = "Interface\AddOns\DisasterZone\Media\MyBiS\Radial"
+    local RADIAL = "Interface\\AddOns\\DisasterZone\\Media\\MyBiS\\Radial"
     local halo = frame:CreateTexture(nil, "BORDER")
     halo:SetTexture(RADIAL)
     halo:SetVertexColor(1, 0.82, 0, 0.2)

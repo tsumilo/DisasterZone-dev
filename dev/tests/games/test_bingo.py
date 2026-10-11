@@ -255,6 +255,34 @@ def reload_resumes_the_game():
 
 
 @case
+def bingo_sends_on_the_game_channel():
+    # Bingo's state (BG) and its question (BGQ) go out on the minigame prefix (CDLg) like the other games, never on
+    # the council's control prefix (CDLc); receivers dispatch on the message type, so older clients still hear them.
+    w, c = raid()
+    spy = ("_G.__bgsent = {} local send = ns.Comm.Send "
+           "ns.Comm.Send = function(self, msg, dist, target, class) "
+           "if type(msg) == 'table' and (msg.t == 'BG' or msg.t == 'BGQ') then "
+           "table.insert(_G.__bgsent, msg.t .. '=' .. tostring(class)) end "
+           "return send(self, msg, dist, target, class) end")
+    for n in ("Lee", "Sam"):
+        c[n].eval(spy)
+    log0 = len(w.addon_log)
+    c["Lee"].slash("/dz bingo start")
+    w.tick(2)
+    c["Lee"].eval("ns.Bingo:Hit('wipe')")
+    w.tick(11)      # (a question at most every 10 s: Sam may have asked when the raid formed)
+    c["Sam"].eval("_G.__bgsent = {} ns.Bingo:RequestState()")
+    w.tick(3)
+    lee = c["Lee"].eval_py("return _G.__bgsent")
+    sam = c["Sam"].eval_py("return _G.__bgsent")
+    assert lee and all(x == "BG=game" for x in lee), lee
+    assert sam == ["BGQ=game"], sam
+    assert any(e["prefix"] == "CDLg" for e in w.addon_log[log0:] if e["sender"] == c["Lee"].full_name)
+    assert "wipe" in hits(c["Sam"])
+    no_errors(w)
+
+
+@case
 def bingo_ignores_loot_and_council_messages():
     w, c = raid()
     c["Lee"].slash("/dz bingo start")
