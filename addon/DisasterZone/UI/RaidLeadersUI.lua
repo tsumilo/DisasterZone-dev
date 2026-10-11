@@ -1,11 +1,12 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidLeadersUI.lua", ...) then return end -- DisasterZone: UI/RaidLeadersUI.lua
--- The raid leaders window (Addendum J §62), opened from the Raids tab's Teams view. Everyone sees who is on the list;
--- the Guild Master edits it (search picker, Save & share). Raid leaders plan raids, build teams and groups, invite
--- and see the raid log without items; they get no loot council access.
+-- The raid leaders window (Addendum J §62), opened from the Raids tab's Teams view; 1.4: on the tool layout. Everyone
+-- sees who is on the list; the Guild Master edits it (search picker, Save & share). Raid leaders plan raids, build
+-- teams and groups, invite and see the raid log without items; they get no loot council access.
 local addonName, ns = ...
 
 local LeadersUI = ns:NewModule("RaidLeadersUI")
 
+local S = ns.Style
 local tsort = table.sort
 
 local win
@@ -13,7 +14,7 @@ local draft          -- { [key] = true } while the GM edits; nil = follow the sh
 
 local function G() return ns.Guild end
 
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
+local function short(key) return ns.Util.ShortName(key) or tostring(key) end
 
 local function canEdit()
     local g = G()
@@ -40,21 +41,23 @@ local function pickerItems()
     local g = G()
     local out = {}
     for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
-        out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+        out[#out + 1] = { key = key, text = short(key), classFile = g:GetClass(key), note = g:GetRankName(key),
                           dim = not g:IsOnline(key) }
     end
-    tsort(out, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)
+    tsort(out, function(a, b) return short(a.key):lower() < short(b.key):lower() end)
     return out
 end
 
 local function initRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        row.fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local UI = ns.UI
+        UI:DecorateRow(row, { rule = true })
+        row.fs = UI:Text(row, "body", "TEXT")
         row.fs:SetPoint("LEFT", 6, 0)
-        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.note = UI:Text(row, "small", "DIM")
         row.note:SetPoint("LEFT", 150, 0)
-        row.remove = ns.UI:CreateRemoveButton(row, "Take off the raid leaders")
+        row.remove = UI:CreateRemoveButton(row, "Take off the raid leaders")
         row.remove:SetPoint("RIGHT", -4, 0)
         row.remove:SetScript("OnClick", function(self)
             local data = self:GetParent().__cdlData
@@ -64,49 +67,48 @@ local function initRow(row, d)
     local g = G()
     row.fs:SetText(ns.UI:ColoredName(d.key))
     local note = g and g.GetRankName and g:GetRankName(d.key) or ""
-    if g and g.IsGuildCouncil and g:IsGuildCouncil(d.key) then note = note .. "  |cffffd100(also loot council)|r" end
-    if g and g.IsGM and g:IsGM(d.key) then note = note .. "  |cffffd100(Guild Master)|r" end
+    if g and g.IsGuildCouncil and g:IsGuildCouncil(d.key) then note = note .. "  " .. S:Wrap("GOLD", "(also loot council)") end
+    if g and g.IsGM and g:IsGM(d.key) then note = note .. "  " .. S:Wrap("GOLD", "(Guild Master)") end
     row.note:SetText(note)
     row.remove:SetShown(canEdit())
 end
 
+-- The window's content on the tool layout: a strip banner (who the raid leaders are, how many), the explanation, the
+-- picker (officers and the GM), the list, then Save & share / Revert; a read-only notice for everyone else.
 local function create()
     local UI = ns.UI
     local w = UI:CreateWindow("DisasterZoneRaidLeaders", "Raid leaders", 380, 400)
     win = w
     local c = w.content
-    w.info = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.info:SetPoint("TOPLEFT", 10, -8)
-    w.info:SetPoint("RIGHT", -10, 0)
-    w.info:SetJustifyH("LEFT")
+    local L = UI:CreateLayout("tool", c, { width = 370, banner = { size = "strip", icon = "crown",
+        title = "Who plans and leads raids" } })
+    w.layout = L
+    local body = L.body
+    w.info = UI:Text(body, "small", "SUB", { wrap = true })
+    w.info:SetPoint("TOPLEFT", 0, 0)
+    w.info:SetPoint("RIGHT", 0, 0)
     w.info:SetText("Raid leaders plan raids, build teams and groups, use Invite & sort and see the raid log "
         .. "(attendance, bench, no-shows; not the items). They get no loot council access: no BiS lists, drop panel, "
         .. "votes or Loot Log. With nobody on the list, only the Guild Master plans raids.")
-    w.picker = UI:CreateSearchDropdown(c, 240, {
+    w.picker = UI:CreateSearchDropdown(body, 240, {
         placeholder = "Add guild members...",
         emptyText = "No matching guild members.",
         getItems = pickerItems,
         isChecked = function(key) return current()[key] and true or false end,
         onToggle = function(key) LeadersUI:Toggle(key) end,
     })
-    w.picker.frame:SetPoint("TOPLEFT", 6, -76)
-    w.status = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.status:SetPoint("TOPLEFT", 10, -104)
-    w.status:SetPoint("RIGHT", -10, 0)
-    w.status:SetJustifyH("LEFT")
-    w.list = UI:CreateScrollList(c, 22, initRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -122)
-    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 40)
-    w.save = UI:CreateButton(c, "Save & share", 110, 22, function() LeadersUI:Save() end)
-    w.save:SetPoint("BOTTOMLEFT", 8, 8)
-    w.revert = UI:CreateButton(c, "Revert", 70, 22, function()
+    w.picker.frame:SetPoint("TOPLEFT", -4, -62)
+    w.status = w.layout.banner.sub
+    w.list = UI:CreateScrollList(body, S.ROW.compact, initRow)
+    w.list.frame:SetPoint("TOPLEFT", -6, -92)
+    w.list.frame:SetPoint("BOTTOMRIGHT", 6, 32)
+    w.save = UI:CreateSleekButton(body, "Save & share", 110, S.BTN_H, function() LeadersUI:Save() end, "primary")
+    w.save:SetPoint("BOTTOMRIGHT", 0, 0)
+    w.revert = UI:CreateSleekButton(body, "Revert", 70, S.BTN_H, function()
         draft = nil
         LeadersUI:Refresh()
     end)
-    w.revert:SetPoint("LEFT", w.save, "RIGHT", 6, 0)
-    w.foot = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    w.foot:SetPoint("BOTTOMLEFT", 10, 12)
-    w.foot:SetText("Only officers and the Guild Master can change this list.")
+    w.revert:SetPoint("RIGHT", w.save, "LEFT", -6, 0)
     w:Hide()
     return w
 end
@@ -153,18 +155,25 @@ function LeadersUI:Refresh()
     local set = current()
     local keys = {}
     for key in pairs(set) do keys[#keys + 1] = key end
-    tsort(keys, function(a, b) return shortName(a):lower() < shortName(b):lower() end)
+    tsort(keys, function(a, b) return short(a):lower() < short(b):lower() end)
     local rows = {}
     for _, key in ipairs(keys) do rows[#rows + 1] = { key = key } end
     win.picker.frame:SetShown(edit)
     win.save:SetShown(edit)
     win.revert:SetShown(edit)
-    win.foot:SetShown(not edit)
+    -- (everyone looks; only officers and the Guild Master change it: a read-only notice says so)
+    if edit then
+        win.layout:HideNotice()
+    else
+        win.layout:ShowNotice("readonly", "Only officers and the Guild Master can change this list.")
+    end
     local dirty = draft ~= nil and not sameSet(draft, shared())
     win.save:SetEnabled(dirty)
     win.revert:SetEnabled(dirty)
-    win.status:SetText((dirty and "|cffff9933Unsaved changes|r · " or "") .. #keys .. " raid leader" .. (#keys == 1 and "" or "s"))
-    win.list:SetEmptyText(edit and "Nobody yet. Add guild members with the search box." or "No raid leaders picked yet.")
+    win.layout.banner:SetSub((dirty and S:Wrap("WARN", "Unsaved changes") .. " · " or "") .. #keys .. " raid leader"
+        .. (#keys == 1 and "" or "s"))
+    win.list:SetEmptyState({ glyph = ns.UI.ICON.crown, text = edit and "Nobody yet. Add guild members with the search box."
+        or "No raid leaders picked yet." })
     win.list:SetData(rows)
     if win.picker.IsOpen and win.picker:IsOpen() then win.picker:RefreshRows() end
 end
