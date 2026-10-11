@@ -46,14 +46,15 @@ local function Pct(v) return ("%.1f%%"):format(v * 100) end
 local function Signed1(v) return (v >= 0 and "+" or "\226\136\146") .. ("%.1f"):format(abs(v)) end
 local function Time(t) return ("%d:%02d"):format(floor(t / 60), floor(t % 60)) end
 
--- A line of text: a style name or a size of the type scale (UI:Text), left-aligned unless told.
-local function Text(parent, size, color, justify, font)
-  local fs = K.Text(parent, size, color, justify or "LEFT", font)
-  fs:SetShadowColor(0, 0, 0, 0.7)
-  return fs
-end
+-- UI:Text's options for the pages' lines (S.STYLE names or sizes on the type scale): left / right / centred, the
+-- numerals in the narrow number font; all with the shared drop shadow.
+local T_L = { justify = "LEFT", shadow = true }
+local T_R = { justify = "RIGHT", shadow = true }
+local T_LN = { justify = "LEFT", font = NUM, shadow = true }
+local T_RN = { justify = "RIGHT", font = NUM, shadow = true }
+local T_CN = { justify = "CENTER", font = NUM, shadow = true }
 
-local Cap, Tex, Put = K.Cap, K.Tex, K.Put
+local Tex, Put = K.Tex, K.Put
 local HEX = { SUB = S:Hex("SUB"), DIM = S:Hex("DIM"), OK = S:Hex("OK"), TEXT = S:Hex("TEXT") }   -- |cff codes
 
 local function Line(parent, layer, c, thick, a)
@@ -211,7 +212,7 @@ local function Create()
   local body = Body()
   if not body then return end
   clip = CreateFrame("Frame", nil, ns.SimStage:OverlayParent() or body)
-  clip:SetFrameLevel(body:GetFrameLevel() + 30)
+  clip:SetFrameLevel(ns.SimStage:OverlayLevel(body))
   if clip.SetClipsChildren then clip:SetClipsChildren(true) end
   clip:Hide()
   root = CreateFrame("Frame", nil, clip)
@@ -351,20 +352,20 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Pieces the pages share
 -- ---------------------------------------------------------------------------------------------------------------
+-- The page's key numbers: a row of cards (UI:CreateCard), each a caps caption, the number and its unit.
+local KPI_H = 52
 local function Kpis(pg, list)
-  local gap = 6
+  local gap = S.GAP
   local w = (W - (#list - 1) * gap) / #list
   for i, k in ipairs(list) do
-    local f = CreateFrame("Frame", nil, pg)
-    f:SetSize(w, 50)
+    local f = UI:CreateCard(pg, { width = w, height = KPI_H })
     Put(f, pg, (i - 1) * (w + gap), 0)
-    UI:Fill(f, "CARD")
-    Put(Cap(f, k[1]), f, 10, 8)
-    local v = Put(Text(f, 19, k[4] or C.text, "LEFT", NUM), f, 10, 22)
+    Put(UI:Text(f, "caps", nil, { text = k[1], shadow = true }), f, S.PAD, 9)
+    local v = Put(UI:Text(f, "hero", k[4] or C.text, T_LN), f, S.PAD, 23)
     v:SetText(k[2])
     if k[3] then
-      local s = Text(f, 11, C.dim, "LEFT", NUM)
-      s:SetPoint("BOTTOMLEFT", v, "BOTTOMRIGHT", 4, 1)
+      local s = UI:Text(f, "body", C.dim, T_LN)
+      s:SetPoint("BOTTOMLEFT", v, "BOTTOMRIGHT", 5, 1)
       s:SetText(k[3])
     end
   end
@@ -382,7 +383,7 @@ local function Bar(parent, x, y, w, h, frac, c, gradient)
 end
 
 local function Num(parent, x, y, text, size, color, justify)
-  local fs = Text(parent, size or 12, color or C.text, justify or "RIGHT", NUM)
+  local fs = UI:Text(parent, size or "emph", color or C.text, (justify or "RIGHT") == "RIGHT" and T_RN or T_LN)
   if (justify or "RIGHT") == "RIGHT" then
     fs:SetPoint("TOPRIGHT", parent, "TOPLEFT", x, -y)
   else
@@ -393,13 +394,13 @@ local function Num(parent, x, y, text, size, color, justify)
 end
 
 local function Label(parent, x, y, text, size, color)
-  local fs = Put(Text(parent, size or 11, color or C.sub), parent, x, y)
+  local fs = Put(UI:Text(parent, size or 11, color or C.sub, T_L), parent, x, y)
   fs:SetText(text)
   return fs
 end
 
 local function Para(parent, x, y, w, text)
-  local fs = Put(Text(parent, 10, C.label), parent, x, y)
+  local fs = Put(UI:Text(parent, 10, C.label, T_L), parent, x, y)
   fs:SetWidth(w)
   fs:SetWordWrap(true)
   fs:SetSpacing(3)
@@ -436,14 +437,14 @@ function Build.overview(pg)
   lg:SetSize(200, 12)
   lg:SetPoint("TOPRIGHT", box, "TOPRIGHT", -10, -8)
   local s1 = Tex(lg, "ARTWORK", C.gold2); s1:SetSize(9, 9)
-  local l1 = Text(lg, 10, C.label, "LEFT"); l1:SetText("Working set")
+  local l1 = UI:Text(lg, 10, C.label, T_L); l1:SetText("Working set")
   local s2 = lg:CreateTexture(nil, "ARTWORK"); s2:SetSize(9, 9)
   if UI.AddEdges then
     local hold = CreateFrame("Frame", nil, lg); hold:SetSize(9, 9)
     UI:AddEdges(hold, "ARTWORK"); UI:SetEdgeColor(hold, C.ref[1], C.ref[2], C.ref[3], 1)
     s2 = hold
   end
-  local l2 = Text(lg, 10, C.label, "LEFT"); l2:SetText(P():TargetText(res.target))
+  local l2 = UI:Text(lg, 10, C.label, T_L); l2:SetText(P():TargetText(res.target))
   l2:SetPoint("RIGHT", lg, "RIGHT", 0, 0)
   s2:SetPoint("RIGHT", l2, "LEFT", -5, 0)
   l1:SetPoint("RIGHT", s2, "LEFT", -12, 0)
@@ -496,7 +497,7 @@ function Build.overview(pg)
   local base = Put(Tex(box, "ARTWORK", { 0.227, 0.227, 0.259 }), box, GX, GY + GH)
   base:SetSize(GW, 1)
   for v = lo, hi, stepTick do
-    local fs = Text(box, 10, C.axis, "CENTER", NUM)
+    local fs = UI:Text(box, 10, C.axis, T_CN)
     fs:SetPoint("TOP", box, "TOPLEFT", GX + (v - lo) / (hi - lo) * GW, -(GY + GH + 5))
     fs:SetText(Fmt(v))
   end
@@ -526,7 +527,7 @@ function Build.overview(pg)
       local x = CX0 + i / n * CW
       local y = Y(means[i])
       local band = cb:CreateTexture(nil, "BACKGROUND", nil, 2)
-      band:SetColorTexture(1, 0.82, 0, 0.12)
+      band:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 0.12)
       local top, bot = Y(means[i] + cis[i]), Y(means[i] - cis[i])
       Put(band, cb, lx or CX0, top)
       band:SetSize(max(0.6, x - (lx or CX0) + 0.3), max(1, bot - top))
@@ -545,7 +546,7 @@ function Build.overview(pg)
   local cbase = Put(Tex(cb, "ARTWORK", { 0.227, 0.227, 0.259 }), cb, CX0, GY + GH)
   cbase:SetSize(CW, 1)
   for k = 0, 5 do
-    local fs = Text(cb, 10, C.axis, "CENTER", NUM)
+    local fs = UI:Text(cb, 10, C.axis, T_CN)
     fs:SetPoint("TOP", cb, "TOPLEFT", CX0 + k / 5 * CW, -(GY + GH + 5))
     fs:SetText(Fmt(k / 5 * n))
   end
@@ -633,10 +634,11 @@ function Build.abilities(pg)
   local hdr = CreateFrame("Frame", nil, pg)
   hdr:SetSize(W, 18)
   Put(hdr, pg, 0, 0)
-  Put(Cap(hdr, "Ability"), hdr, 28, 3)
+  UI:DecorateRow(hdr, { hover = false, rule = true })
+  Put(UI:Text(hdr, "caps", nil, { text = "Ability", shadow = true }), hdr, 28, 3)
   local vsName = P():TargetText(d.res.target) == "My gear" and "vs gear" or "vs BiS"
   for _, c in ipairs(COLS) do
-    local fs = Text(hdr, 9.5, C.dim, "RIGHT")
+    local fs = UI:Text(hdr, "caps", nil, T_R)
     fs:SetPoint("TOPRIGHT", hdr, "TOPLEFT", c[2], -3)
     fs:SetText((c[1] == "vs gear" and vsName or c[1]):upper())
   end
@@ -648,10 +650,9 @@ function Build.abilities(pg)
     local row = CreateFrame("Frame", nil, pg)
     row:SetSize(W, 27)
     Put(row, pg, 0, y)
-    local rule = Put(Tex(row, "BACKGROUND", { 0.133, 0.133, 0.153 }), row, 0, 0)
-    rule:SetSize(W, 1)
+    UI:DecorateRow(row, { rule = true })
     local ic = Put(IconTex(row, 19, r.icon), row, 2, 4)
-    local nm = Put(Text(row, 11, C.text), row, 28, 5)
+    local nm = Put(UI:Text(row, 11, C.text, T_L), row, 28, 5)
     nm:SetText(r.name)
     nm:SetWidth(210)
     local sh = Put(Tex(row, "ARTWORK", C.gold2, 0.8), row, 28, 20)
@@ -677,9 +678,7 @@ function Build.abilities(pg)
   local tot = CreateFrame("Frame", nil, pg)
   tot:SetSize(W, 22)
   Put(tot, pg, 0, ty)
-  local rule = Put(Tex(tot, "BACKGROUND", { 0.227, 0.227, 0.259 }), tot, 0, 0)
-  rule:SetSize(W, 1)
-  Put(Text(tot, 11, C.gold), tot, 28, 5):SetText(#d.rows > shown and ("Total  " .. HEX.SUB .. "(%d more below 0.1%%)|r"):format(#d.rows - shown) or "Total")
+  Put(UI:Text(tot, 11, C.gold, T_L), tot, 28, 5):SetText(#d.rows > shown and ("Total  " .. HEX.SUB .. "(%d more below 0.1%%)|r"):format(#d.rows - shown) or "Total")
   Num(tot, COLS[1][2], 6, Fmt1(d.total), 12)
   Num(tot, COLS[2][2], 6, "100%", 12)
   local diff = d.res.diff
@@ -694,7 +693,7 @@ function Build.abilities(pg)
   local axis = Put(Tex(box, "ARTWORK", { 0.18, 0.18, 0.208 }), box, X0, 90)
   axis:SetSize(XW, 1)
   for t = 0, 20, 5 do
-    local fs = Text(box, 10, C.axis, "CENTER", NUM)
+    local fs = UI:Text(box, 10, C.axis, T_CN)
     fs:SetPoint("TOP", box, "TOPLEFT", sx(t), -96)
     fs:SetText(("0:%02d"):format(t))
   end
@@ -714,7 +713,7 @@ function Build.abilities(pg)
           local ic = Put(IconTex(box, 22, KeyIcon(key, { spellId = c.spellId })), box, x, 28 + lane * 28)
           if c.crit then
             local ring = box:CreateTexture(nil, "OVERLAY")
-            ring:SetColorTexture(1, 0.82, 0, 1)
+            ring:SetColorTexture(S:Color("GOLD"))
             ring:SetPoint("TOPLEFT", ic, "TOPLEFT", -2, 2)
             ring:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 2, -2)
             ring:SetDrawLayer("BORDER")
@@ -843,7 +842,7 @@ function Build.buffs(pg)
   for s = 0, dur, dur >= 240 and 60 or 30 do
     local g = Put(Tex(T, "BACKGROUND", { 0.125, 0.125, 0.145 }, 1), T, sx(s), 34)
     g:SetSize(1, nl * 40 + 6)
-    local fs = Text(T, 10, C.axis, "CENTER", NUM)
+    local fs = UI:Text(T, 10, C.axis, T_CN)
     fs:SetPoint("TOP", T, "TOPLEFT", sx(s), -(44 + nl * 40))
     fs:SetText(Time(s))
   end
@@ -899,7 +898,7 @@ function Build.mana(pg)
     { "Ends with", Fmt(last), ("%d%%"):format(floor(last / max(1, cv.max) * 100 + 0.5)) },
   })
   local b = Box(pg, 0, 60, 518, PH - 60, "Mana over the fight")
-  local lg = Text(b, 10, C.label, "RIGHT")
+  local lg = UI:Text(b, 10, C.label, T_R)
   lg:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -8)
   lg:SetText("|cff5f9bffaverage|r   |cff3d5f99middle 80% of fights|r")
   local GX, GY, GW, GH = 42, 34, 460, PH - 60 - 70
@@ -909,12 +908,12 @@ function Build.mana(pg)
   for m = 0, mx, mx > 6000 and 2000 or 1000 do
     local g = Put(Tex(b, "BACKGROUND", { 0.125, 0.125, 0.145 }), b, GX, sy(m))
     g:SetSize(GW, 1)
-    local fs = Text(b, 10, C.axis, "RIGHT", NUM)
+    local fs = UI:Text(b, 10, C.axis, T_RN)
     fs:SetPoint("RIGHT", b, "TOPLEFT", GX - 6, -sy(m))
     fs:SetText(m == 0 and "0" or (("%gk"):format(m / 1000)))
   end
   for t = 0, dur, dur >= 240 and 60 or 30 do
-    local fs = Text(b, 10, C.axis, "CENTER", NUM)
+    local fs = UI:Text(b, 10, C.axis, T_CN)
     fs:SetPoint("TOP", b, "TOPLEFT", sx(t), -(GY + GH + 4))
     fs:SetText(Time(t))
   end
@@ -952,7 +951,9 @@ function Build.mana(pg)
     return #list
   end
   rows(d.work.mana, 32, C.blue, ManaName)
-  Put(Cap(r, "Where it goes"), r, 10, 156)
+  local goes = UI:CreateSectionHeader(r, "Where it goes", { style = "caps" })
+  goes:SetPoint("TOPLEFT", r, "TOPLEFT", 8, -152)
+  goes:SetPoint("TOPRIGHT", r, "TOPRIGHT", -8, -152)
   rows(d.work.manaSpent, 178, { 0.541, 0.541, 0.573 }, KeyName)
 end
 
@@ -1046,10 +1047,11 @@ function Build.stats(pg)
   rows[#rows + 1] = { "Talents", own and "yours" or "the standard build" }
   for i, r in ipairs(rows) do
     local y = 30 + (i - 1) * 21
-    local rule = Put(Tex(L, "ARTWORK", { 0.125, 0.125, 0.145 }), L, 12, y + 20)
-    rule:SetSize(352, 1)
+    local row = Put(CreateFrame("Frame", nil, L), L, 12, y)
+    row:SetSize(352, 21)
+    UI:DecorateRow(row, { rule = true })
     Label(L, 12, y + 4, r[1], 11, C.dim)
-    local fs = Text(L, 12, C.text, "RIGHT", NUM)
+    local fs = UI:Text(L, 12, C.text, T_RN)
     fs:SetPoint("TOPRIGHT", L, "TOPLEFT", 364, -(y + 3))
     fs:SetText(r[2])
   end
@@ -1118,10 +1120,11 @@ function Build.run(pg)
   }
   for i, r in ipairs(rows) do
     local y = 30 + (i - 1) * 21
-    local rule = Put(Tex(L, "ARTWORK", { 0.125, 0.125, 0.145 }), L, 12, y + 20)
-    rule:SetSize(352, 1)
+    local row = Put(CreateFrame("Frame", nil, L), L, 12, y)
+    row:SetSize(352, 21)
+    UI:DecorateRow(row, { rule = true })
     Label(L, 12, y + 4, r[1], 11, C.dim)
-    local fs = Text(L, 11, C.text, "RIGHT", NUM)
+    local fs = UI:Text(L, 11, C.text, T_RN)
     fs:SetPoint("TOPRIGHT", L, "TOPLEFT", 364, -(y + 3))
     fs:SetText(r[2])
   end

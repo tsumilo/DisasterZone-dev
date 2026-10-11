@@ -260,7 +260,7 @@ SimPanel.Settings = Settings
 function SimPanel:RunSettings() return RunSettings() end
 
 -- (milliseconds on the session clock: how long a run takes; not Util.Now's server seconds)
-local function Now() return debugprofilestop and debugprofilestop() or ((GetTime and GetTime() or 0) * 1000) end
+local function ClockMs() return debugprofilestop and debugprofilestop() or ((GetTime and GetTime() or 0) * 1000) end
 
 function SimPanel:Run()
   if state.running then
@@ -273,7 +273,7 @@ function SimPanel:Run()
   local fights = Settings().fights
   state.running = true
   state.progress, state.paused, state.total = 0, false, fights
-  local info = { started = Now(), frames = 0, pausedEver = false, fights = fights }
+  local info = { started = ClockMs(), frames = 0, pausedEver = false, fights = fights }
   state.info = info
   state.staleWhy = nil
   -- (what the run sims, as it starts: for the run's line in Recent runs)
@@ -298,7 +298,7 @@ function SimPanel:Run()
         ns:Print("The gear sim stopped: %s", tostring(e))
       else
         local d, se = res.diff("work", "ref")
-        info.ms = Now() - info.started
+        info.ms = ClockMs() - info.started
         info.cached = res.cached
         info.stored = res.stored
         info.settings = RunSettings()
@@ -488,25 +488,25 @@ end
 
 SimPanel.WordTip = {
   working = function(tt)
-    tt:AddLine("Working set", 1, 0.82, 0)
+    tt:AddLine("Working set", S:Color("GOLD"))
     tt:AddLine("The gear the sim tries: your own to start with. After a run its slots show on both sides; click one "
       .. "to try another item.", 1, 1, 1, true)
   end,
   target = function(tt)
-    tt:AddLine("Compared with", 1, 0.82, 0)
+    tt:AddLine("Compared with", S:Color("GOLD"))
     tt:AddLine("Both sets fight the same fights, roll for roll, so the difference is the gear alone.", 1, 1, 1, true)
   end,
   fights = function(tt)
-    tt:AddLine("Fights", 1, 0.82, 0)
+    tt:AddLine("Fights", S:Color("GOLD"))
     tt:AddLine("More fights pin the average down closer (the \194\177 shrinks) but take longer.", 1, 1, 1, true)
   end,
   duration = function(tt)
-    tt:AddLine("Fight length", 1, 0.82, 0)
+    tt:AddLine("Fight length", S:Color("GOLD"))
     tt:AddLine("Longer fights spread cooldowns, drums and potions thinner over the fight.", 1, 1, 1, true)
   end,
   mob = function(tt)
     local _, m = MobText(Settings().mobType)
-    tt:AddLine("Boss type", 1, 0.82, 0)
+    tt:AddLine("Boss type", S:Color("GOLD"))
     tt:AddLine(m and m.tip or "", 1, 1, 1, true)
   end,
   buffs = function(tt) SimPanel:BuffsTooltip(tt, Settings().buffs) end,
@@ -572,7 +572,7 @@ function SimPanel:BuildSettingMenu(root, key)
     local function pick(v) SetSetting("mobType", v); SettingChanged(); return close end
     for _, m in ipairs(R().MOB_TYPES) do
       local e = root:CreateRadio(m.text, isSel, pick, m.key)
-      e:SetTooltip(function(tt) tt:AddLine(m.text, 1, 0.82, 0) tt:AddLine(m.tip, 1, 1, 1, true) end)
+      e:SetTooltip(function(tt) tt:AddLine(m.text, S:Color("GOLD")) tt:AddLine(m.tip, 1, 1, 1, true) end)
     end
   elseif key == "buffs" then
     self:BuildBuffsMenu(root)
@@ -652,7 +652,7 @@ end
 function SimPanel:BuffsTooltip(tt, key)
   for _, b in ipairs(R().BUFFS) do
     if b.key == key then
-      tt:AddLine(b.text, 1, 0.82, 0)
+      tt:AddLine(b.text, S:Color("GOLD"))
       local cls = R():Class()
       tt:AddLine((R():Spec() == "Elemental" and b.tipElemental) or (R():Spec() == "Balance" and b.tipBalance) or (cls == "WARRIOR" and b.tipWarrior) or (cls == "SHAMAN" and b.tipShaman) or (cls == "ROGUE" and b.tipRogue) or (cls == "DRUID" and b.tipDruid) or (cls == "PRIEST" and b.tipPriest) or (cls == "MAGE" and b.tipMage) or (cls == "WARLOCK" and b.tipWarlock) or (cls == "HUNTER" and b.tipHunter) or b.tip, 1, 1, 1, true)
       return
@@ -663,11 +663,11 @@ function SimPanel:BuffsTooltip(tt, key)
   local cfg, info, name = nil, nil, nil
   if SB then cfg, info, name = SB:Resolve(key, cls, R():BaseConfig("raid25")) end
   if not cfg then
-    tt:AddLine("25-man buffs", 1, 0.82, 0)
+    tt:AddLine("25-man buffs", S:Color("GOLD"))
     tt:AddLine("The preset or team you picked is gone; the sim uses WoWSims' 25-man setup.", 1, 1, 1, true)
     return
   end
-  tt:AddLine(name, 1, 0.82, 0)
+  tt:AddLine(name, S:Color("GOLD"))
   if info then
     local where = info.group and ("You're in group " .. info.group .. ".") or "You're in no group of this lineup yet: no party buffs."
     tt:AddLine("Follows who is placed in this team lineup. " .. where, 1, 1, 1, true)
@@ -899,7 +899,7 @@ local function NewHost()
     text = function() return pstate.running and "Cancel" or "Best for this slot" end,
     onClick = RunBest,
     tooltip = function(tt)
-      tt:AddLine("Best for this slot", 1, 0.82, 0)
+      tt:AddLine("Best for this slot", S:Color("GOLD"))
       tt:AddLine(("Sims the first %d items listed here in this slot, with the rest of the Working set as it is, and "
         .. "ranks them against the slot's item. The filters and the search choose which."):format(SimPanel.MAX_PICK_RUN),
         1, 1, 1, true)
@@ -1023,25 +1023,33 @@ function SimPanel:BuildMoreEntries(root, entry, GOLDC)
   end)
 end
 
--- A window with the export text selected for Ctrl+C.
+-- A window with the export text selected for Ctrl+C: a tool window (UI:CreateLayout "tool"): its strip banner says
+-- which set and where it goes, the body holds how to import it and the text.
 local exportWin
+local EXPORT_W, EXPORT_H = 460, 330
 function SimPanel:ShowExport(what, text)
   local UI = ns.UI
   if not exportWin then
-    local f = UI:CreateWindow("DisasterZoneSimExport", "WoWSims settings", 460, 300, { noSavePosition = true })
+    local f = UI:CreateWindow("DisasterZoneSimExport", "WoWSims settings", EXPORT_W, EXPORT_H, { noSavePosition = true })
     f:SetPoint("CENTER")
     local c = f.content or f
-    f.help = UI:Text(c, "small", "TEXT", { wrap = true })
-    f.help:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -8)
-    f.help:SetPoint("RIGHT", c, "RIGHT", -8, 0)
-    local sf = ns.UI:CreateScrollFrame(c)
-    sf:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -52)
-    sf:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -28, 8)
+    local L = UI:CreateLayout("tool", c, { width = EXPORT_W - 10,
+      banner = { size = "strip", title = "Working set", sub = "wowsims.com/tbc  \194\183  Import > JSON" } })
+    f.layout, f.banner = L, L.banner
+    f.help = UI:Text(L.body, "small", "SUB", { wrap = true })
+    f.help:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
+    f.help:SetPoint("RIGHT", L.body, "RIGHT", 0, 0)
+    local well = UI:CreateCard(L.body, { tone = "inset" })
+    well:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, -40)
+    well:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
+    local sf = ns.UI:CreateScrollFrame(well)
+    sf:SetPoint("TOPLEFT", well, "TOPLEFT", S.IN, -S.IN)
+    sf:SetPoint("BOTTOMRIGHT", well, "BOTTOMRIGHT", -24, S.IN)
     local eb = CreateFrame("EditBox", nil, sf)
     eb:SetMultiLine(true)
     eb:SetAutoFocus(false)
     eb:SetFontObject("ChatFontSmall")
-    eb:SetWidth(400)
+    eb:SetWidth(EXPORT_W - 10 - 2 * S.PAD - S.IN - 24)
     eb:SetScript("OnEscapePressed", function() f:Hide() end)
     eb:SetScript("OnTextChanged", function(self, user) if user then self:SetText(f.text or "") self:HighlightText() end end)
     sf:SetScrollChild(eb)
@@ -1049,6 +1057,7 @@ function SimPanel:ShowExport(what, text)
     exportWin = f
   end
   exportWin.text = text
+  exportWin.banner:SetTitle(what)
   exportWin.help:SetText(("%s: on wowsims.com/tbc open your spec's sim, click Import > JSON and paste (Ctrl+C copies "
     .. "it, it is selected). WoWSims then sims the same gear, talents, buffs, boss and rotation as this sim."):format(what))
   exportWin.box:SetText(text)

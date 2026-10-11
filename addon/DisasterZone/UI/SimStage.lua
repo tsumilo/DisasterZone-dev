@@ -64,13 +64,11 @@ local function Spaced(s)
 end
 Stage.Spaced = Spaced
 
--- One line of text (UI:Text: a S.STYLE name or a size on the type scale; display numerals past S.FONT_DISPLAY keep
--- their size) with the stage's soft drop shadow.
-local function Text(parent, size, color, justify, font, layer)
-  local fs = UI:Text(parent, size, color, { layer = layer, justify = justify or "CENTER", font = font, shadow = true })
-  fs:SetShadowColor(0, 0, 0, 0.75)
-  return fs
-end
+-- UI:Text's options for the stage's lines (S.STYLE names; display numerals past S.FONT_DISPLAY keep their size):
+-- centred, left, right-aligned numerals; all with the shared drop shadow.
+local T_C = { justify = "CENTER", shadow = true }
+local T_L = { justify = "LEFT", shadow = true }
+local T_RN = { justify = "RIGHT", font = NUMFONT, shadow = true }
 
 -- A tooltip's gold title line.
 local function TipTitle(tt, text) tt:AddLine(text, C.gold[1], C.gold[2], C.gold[3]) end
@@ -123,7 +121,7 @@ local function VerdictLine(fs, kind, se, better, worse)
 end
 
 -- The pieces Nerd stats and Recent runs (UI/SimNerd.lua, UI/SimHistory.lua) draw with, as the stage does.
-local Kit = { C = C, Text = Text, TipTitle = TipTitle, BarFill = BarFill, Verdict = Verdict, PctText = PctText,
+local Kit = { C = C, TipTitle = TipTitle, BarFill = BarFill, Verdict = Verdict, PctText = PctText,
   VerdictLine = VerdictLine, NUM = NUMFONT }
 Stage.Kit = Kit
 
@@ -140,13 +138,6 @@ function Kit.Put(region, parent, x, y, point)
   region:ClearAllPoints()
   region:SetPoint(point or "TOPLEFT", parent, "TOPLEFT", x, -y)
   return region
-end
-
--- A small caps caption (the shared caps style).
-function Kit.Cap(parent, text)
-  local fs = UI:Text(parent, "caps", nil, { shadow = true })
-  fs:SetText(tostring(text or ""):upper())
-  return fs
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -293,22 +284,22 @@ local function CreateSigil(parent)
   s.spec:SetSize(48, 48)
   s.spec:SetPoint("CENTER", s.specRing)
 
-  s.runText = Text(s, "title", C.gold)
+  s.runText = UI:Text(s, "title", C.gold, T_C)
   s.runText:SetPoint("TOP", s, "TOP", 0, -112)
   s.runText:SetShadowColor(0, 0, 0, 1)
-  s.runSub = Text(s, "caps", C.cap)
+  s.runSub = UI:Text(s, "caps", C.cap, T_C)
   s.runSub:SetPoint("TOP", s.runText, "BOTTOM", 0, -4)
 
   -- running and after: the caption, the number, the line under it
-  s.k = Text(s, "caps", C.cap)
+  s.k = UI:Text(s, "caps", C.cap, T_C)
   s.k:SetPoint("TOP", s, "TOP", 0, -76)
-  s.n = Text(s, 34, C.text)
+  s.n = UI:Text(s, 34, C.text, T_C)
   s.n:SetPoint("TOP", s.k, "BOTTOM", 0, -2)
   s.n:SetShadowOffset(0, -2)
   s.n:SetShadowColor(0, 0, 0, 0.6)
-  s.pm = Text(s, "small", C.dim)
+  s.pm = UI:Text(s, "small", C.dim, T_C)
   s.pm:SetPoint("TOP", s.n, "BOTTOM", 0, -1)
-  s.again = Text(s, "body", C.gold)
+  s.again = UI:Text(s, "body", C.gold, T_C)
   s.again:SetPoint("TOP", s, "TOP", 0, -146)
   s.again:SetText("|TInterface\\Buttons\\UI-RefreshButton:12:12:0:0|t Run again")
 
@@ -358,7 +349,7 @@ local function PaintTicks(lit, grey, flashing)
       local x0, y0, x1, y1 = TickPoints(idx, idx % 6 == 0)
       g:SetStartPoint("CENTER", s, x0, y0)
       g:SetEndPoint("CENTER", s, x1, y1)
-      g:SetVertexColor(1, 0.82, 0, (1 - (head - idx) / 8) * 0.9)
+      g:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], (1 - (head - idx) / 8) * 0.9)
       g:SetAlpha(1)
     else
       g:SetAlpha(0)
@@ -395,7 +386,7 @@ local function WordButton(f, i)
   if b then return b end
   b = CreateFrame("Button", nil, f)
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  b.fs = Text(b, SENT_SIZE, C.word, "LEFT")
+  b.fs = UI:Text(b, SENT_SIZE, C.word, T_L)
   b.fs:SetPoint("LEFT", b, "LEFT", 0, 0)
   b.dashes = {}
   b:SetScript("OnEnter", function(self)
@@ -421,7 +412,7 @@ end
 local function PieceText(f, i)
   local fs = f.pieces[i]
   if not fs then
-    fs = Text(f, SENT_SIZE, C.sentence, "LEFT")
+    fs = UI:Text(f, SENT_SIZE, C.sentence, T_L)
     f.pieces[i] = fs
   end
   return fs
@@ -517,10 +508,10 @@ local function CreateSpark(parent)
     b:Hide()
     f.band[i] = b
   end
-  f.cap = Text(f, "caps", C.dim, "LEFT")
+  f.cap = UI:Text(f, "caps", C.dim, T_L)
   f.cap:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
   f.cap:SetText(Spaced("Running average"))
-  f.count = Text(f, "small", C.dim, "RIGHT", NUMFONT)
+  f.count = UI:Text(f, "small", C.dim, T_RN)
   f.count:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
   return f
 end
@@ -589,24 +580,33 @@ local function Reveal(f, y, x)
   return f
 end
 
-local function CreateCmpBar(parent, labelColor, fill)
+-- A comparison bar (the stage's two, Recent runs' card): the label on the left, the DPS on the right, a 6 px track
+-- with the fill under them (gold: the gradient). f:SetFrac(frac [, e]) sizes the fill (e: an eased share of it).
+local function CreateCmpBar(parent, labelColor, fill, w)
+  w = w or 206
   local f = CreateFrame("Frame", nil, parent)
-  f:SetSize(206, 30)
-  f.l = Text(f, "small", labelColor, "LEFT")
+  f:SetSize(w, 30)
+  f.w = w
+  f.l = UI:Text(f, "small", labelColor, T_L)
   f.l:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-  f.v = Text(f, "body", C.text, "RIGHT", NUMFONT)
+  f.v = UI:Text(f, "body", C.text, T_RN)
   f.v:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 1)
   f.t = f:CreateTexture(nil, "ARTWORK")
   f.t:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -16)
-  f.t:SetSize(206, 6)
+  f.t:SetSize(w, 6)
   f.t:SetColorTexture(C.track[1], C.track[2], C.track[3], 1)
   f.f = f:CreateTexture(nil, "ARTWORK", nil, 1)
   f.f:SetPoint("TOPLEFT", f.t, "TOPLEFT", 0, 0)
   f.f:SetSize(1, 6)
   BarFill(f.f, fill == "gold")
   f.frac = 0
+  function f:SetFrac(frac, e)
+    if frac then self.frac = frac end
+    self.f:SetWidth(max(1, self.w * max(0, min(1, self.frac)) * (e or 1)))
+  end
   return f
 end
+Kit.CmpBar = CreateCmpBar
 
 -- The settings chip under the result (UI:CreateChip): the cog and the settings in a few words; a click drops the
 -- settings menu.
@@ -648,36 +648,18 @@ local function CreateNerdButton(parent)
   return b
 end
 
--- "RECENT RUNS  4 >" under the sentence (before a run) or the chip (after one): opens UI/SimHistory.lua. Grey, gold
--- under the mouse (the back link's colours).
+-- "RECENT RUNS  4 >" under the sentence (before a run) or the chip (after one): opens UI/SimHistory.lua. The shared
+-- back link (UI:CreateBackLink: grey caps, gold under the mouse) with its chevron after the words, pointing on.
 local function CreateRecentLink(parent)
-  local b = CreateFrame("Button", nil, parent)
-  b:SetSize(160, 16)
-  b.fs = Text(b, "small", C.sentence)
-  b.fs:SetShadowOffset(0, 0)
-  b.icon = b:CreateTexture(nil, "ARTWORK")
-  b.icon:SetSize(9, 9)
+  local b = UI:CreateBackLink(parent, "Recent runs", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
+  b.text:ClearAllPoints()
+  b.text:SetPoint("LEFT", b, "LEFT", 0, 0)
+  b.icon:ClearAllPoints()
+  b.icon:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
   UI:SetChevron(b.icon, true)
-  local function paint(on)
-    local r, g, bl = S:Color(on and "GOLD" or "SUB")
-    b.fs:SetTextColor(r, g, bl)
-    b.icon:SetVertexColor(r, g, bl, 1)
-  end
-  paint(false)
-  function b:SetCount(n)
-    self.fs:SetText(Spaced("Recent runs") .. "   " .. tostring(n))
-    local w = UI:TextWidth(self.fs) + 13
-    self:SetWidth(floor(w + 0.5))
-    self.fs:ClearAllPoints()
-    self.fs:SetPoint("LEFT", self, "LEFT", 0, 0)
-    self.icon:ClearAllPoints()
-    self.icon:SetPoint("LEFT", self.fs, "RIGHT", 4, 0)
-  end
-  b:SetScript("OnEnter", function() paint(true) end)
-  b:SetScript("OnLeave", function() paint(false) end)
+  function b:SetCount(n) self:SetText(("Recent runs   %d"):format(n)) end
   UI:AttachTooltip(b, "Recent runs", { "Your last runs on this character: open one again (nothing is simmed) or compare "
     .. "two." }, { anchor = "ANCHOR_BOTTOM" })
-  b:SetScript("OnClick", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
   b:Hide()
   return b
 end
@@ -731,10 +713,12 @@ function Stage:Create(body, dollFrame)
 
   stage.sentence = CreateSentence(stage)
   At(stage.sentence, 40, 322)
-  stage.note = Text(stage, "emph", C.sentence)
-  stage.note:SetWidth(560)
-  stage.note:SetWordWrap(true)
-  At(stage.note, 105, 326)
+  -- (a spec the sim doesn't cover: says so in the shared info notice; stage.note is its text)
+  stage.notice = UI:CreateNotice(stage, "info", "")
+  stage.notice:SetWidth(560)
+  At(stage.notice, 105, 326)
+  stage.notice:Hide()
+  stage.note = stage.notice.text
 
   stage.spark = CreateSpark(stage)
   At(stage.spark, 235, 314)
@@ -749,24 +733,24 @@ function Stage:Create(body, dollFrame)
 
   stage.delta = Reveal(CreateFrame("Frame", nil, stage), 256, 270)
   stage.delta:SetSize(230, 22)
-  stage.delta.a = Text(stage.delta, "page", C.green, "LEFT")
-  stage.delta.b = Text(stage.delta, "title", C.green, "LEFT")
+  stage.delta.a = UI:Text(stage.delta, "page", C.green, T_L)
+  stage.delta.b = UI:Text(stage.delta, "title", C.green, T_L)
   At(stage.delta, 270, 256)
   res[#res + 1] = stage.delta
 
   stage.verdict = Reveal(CreateFrame("Frame", nil, stage), 280, 270)
   stage.verdict:SetSize(230, 16)
-  stage.verdict.fs = Text(stage.verdict, "small", C.okText)
+  stage.verdict.fs = UI:Text(stage.verdict, "small", C.okText, T_C)
   stage.verdict.fs:SetPoint("TOP", stage.verdict, "TOP", 0, 0)
   At(stage.verdict, 270, 280)
   res[#res + 1] = stage.verdict
 
-  stage.staleNote = Text(stage, "small", C.stale)
+  stage.staleNote = UI:Text(stage, "small", C.stale, T_C)
   stage.staleNote:SetPoint("TOP", stage, "TOPLEFT", CX, -280)
   stage.staleNote:SetText("Working set changed  \194\183  click the circle")
   stage.staleNote:Hide()
 
-  stage.meta = Text(stage, "caps", C.warn)
+  stage.meta = UI:Text(stage, "caps", C.warn, T_C)
   stage.meta:SetPoint("TOP", stage, "TOPLEFT", CX, -298)
   stage.meta:SetWidth(230)
 
@@ -1030,7 +1014,7 @@ end
 
 local function PaintBars(e)
   for _, f in ipairs({ stage.cmpRef, stage.cmpWork }) do
-    f.f:SetWidth(max(1, 206 * max(0, min(1, f.frac)) * (e or 1)))
+    f:SetFrac(nil, e)
   end
 end
 
@@ -1067,11 +1051,11 @@ function Stage:Apply(mode, animate)
     SigilTo("centre", animate and from ~= nil)
     ArtShown(0.55, animate)
     SentenceShown(mode == "idle", animate)
-    stage.note:SetShown(mode == "unsupported")
     if mode == "unsupported" then
-      stage.note:SetText(("The gear sim covers %s for now. Pick such a spec in the tabs above to sim it.")
+      stage.notice:SetNotice("info", ("The gear sim covers %s for now. Pick such a spec in the tabs above to sim it.")
         :format(R().COVERED))
     end
+    stage.notice:SetShown(mode == "unsupported")
     SparkShown(false, animate)
     StaleLook(false)
     stage.meta:Hide()
@@ -1079,7 +1063,7 @@ function Stage:Apply(mode, animate)
   elseif mode == "run" then
     if ns.SimNerd then ns.SimNerd:Close(true) end
     if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
-    stage.note:Hide()
+    stage.notice:Hide()
     sigil.k:SetText(Spaced("Simulating"))
     sigil.n:SetText("\226\128\148")
     sigil.pm:SetText("")
@@ -1093,7 +1077,7 @@ function Stage:Apply(mode, animate)
     stage.meta:Hide()
     PaintTicks(0)
   else -- done / stale
-    stage.note:Hide()
+    stage.notice:Hide()
     self:RefreshSettings()
     FillResults()
     local entering = from ~= "done" and from ~= "stale"
@@ -1250,6 +1234,15 @@ end
 -- window's background shows through), so the page's own pieces and the doll go out of sight under them. Their frames
 -- sit beside the stage (Stage:OverlayParent), not in it.
 function Stage:OverlayParent() return stage and stage:GetParent() end
+
+-- Their frame level: over the page's body, the stage (the dial is a button) and the doll's tiles, so nothing of the
+-- page under them takes the mouse.
+function Stage:OverlayLevel(body)
+  local l = body and body:GetFrameLevel() or 0
+  if stage then l = max(l, stage:GetFrameLevel() + 10) end
+  if doll then l = max(l, doll:GetFrameLevel() + 10) end
+  return l + 30
+end
 
 function Stage:Cover(on)
   if not stage then return end

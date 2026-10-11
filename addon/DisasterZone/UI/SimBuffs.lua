@@ -139,7 +139,7 @@ local function PaintTile(f)
     UI:SetEdgeColor(f, S:Color("EDGE"))
   end
   f.dot:SetShown(changed and true or false)
-  f.hl:SetShown(f.hovered and not Shouts(t) or false)
+  f.dzHover:SetAlpha(Shouts(t) and 0 or 1)      -- (a buff the class brings itself can't be clicked)
 end
 
 -- A tile's tooltip (UI:AttachTooltip): what it does, its state now, who brings it in the lineup, the clicks.
@@ -206,13 +206,11 @@ local function NewTile(parent)
   local f = CreateFrame("Button", nil, parent)
   f:SetHeight(TILE_H)
   f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  -- the card's surface and edge (UI:CreateCard's tone "card" on the button itself: a child card would cover the
+  -- button's hover) and the shared row hover
   f.bg = UI:Fill(f, "CARD")
   UI:AddEdges(f, "BORDER")
-  f.hl = f:CreateTexture(nil, "ARTWORK")
-  f.hl:SetPoint("TOPLEFT", 1, -1)
-  f.hl:SetPoint("BOTTOMRIGHT", -1, 1)
-  f.hl:SetColorTexture(S:Color("SELECT"))
-  f.hl:Hide()
+  UI:DecorateRow(f, { hover = true })
   f.icon = f:CreateTexture(nil, "ARTWORK")
   f.icon:SetSize(22, 22)
   f.icon:SetPoint("LEFT", 4, 0)
@@ -228,14 +226,8 @@ local function NewTile(parent)
   f.dot:SetPoint("TOPRIGHT", -3, -3)
   f.dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
   f.dot:Hide()
-  f:SetScript("OnEnter", function(self)
-    self.hovered = true
-    PaintTile(self)
-  end)
-  f:SetScript("OnLeave", function(self)
-    self.hovered = false
-    PaintTile(self)
-  end)
+  f:SetScript("OnEnter", function(self) self.hovered = true end)
+  f:SetScript("OnLeave", function(self) self.hovered = false end)
   UI:AttachTooltip(f, FillTileTip)
   f:SetScript("OnClick", ClickTile)
   return f
@@ -298,14 +290,13 @@ local function EnsureWindow()
   win.chips = {}
   local prev
   for _, ch in ipairs(CHIPS) do
-    local b = UI:CreateSleekButton(row, ch.text, 58, 20, function() StartFrom(ch.key) end, "secondary")
-    b:GetFontString():SetFontObject("GameFontHighlightSmall")
-    if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("LEFT", lbl, "RIGHT", 10, 0) end
+    local b = UI:CreateChip(row, { text = ch.text, onClick = function() StartFrom(ch.key) end })
+    if prev then b:SetPoint("LEFT", prev, "RIGHT", 6, 0) else b:SetPoint("LEFT", lbl, "RIGHT", 10, 0) end
     b.key = ch.key
     win.chips[#win.chips + 1] = b
     prev = b
   end
-  win.team = UI:CreateSleekMenuButton(row, "Team", 150, function(root)
+  local function teamMenu(root)
     local lineups = SB():MyLineups()
     if #lineups == 0 then
       local e = root:CreateButton("You're on no team's roster yet", function() end)
@@ -317,10 +308,9 @@ local function EnsureWindow()
       root:CreateRadio(l.name, function() return draft.kind == "team" and draft.teamId == l.teamId and draft.ln == l.ln end,
         function() FollowTeam(l) end, l.key)
     end
-  end, 20)
-  win.team:SetPoint("LEFT", prev, "RIGHT", 4, 0)
-  win.team:SetWidth(120)
-  win.teamAfter = prev
+  end
+  win.team = UI:CreateChip(row, { text = "Team", onClick = function(self) UI:ContextMenu(self, teamMenu) end })
+  win.team:SetPoint("LEFT", prev, "RIGHT", 6, 0)
   UI:AttachTooltip(win.team, "Team", { "Follow a lineup of a team you're on: your group's party buffs, the raid's buffs "
     .. "and the boss debuffs come from the specs placed there, and change with it." }, { anchor = "ANCHOR_TOP" })
 
@@ -455,14 +445,9 @@ function SimBuffsUI:Refresh()
   Compute()
   local custom = draft.kind == "custom"
   win:SetWindowTitle("Buffs \194\183 " .. ((draft.name and draft.name ~= "") and draft.name or "New preset"))
-  for _, b in ipairs(win.chips) do
-    local on = custom and draft.from == b.key
-    b:SetKind(on and "primary" or "secondary")
-  end
-  win.team:SetText("Team")
-  win.team:SetKind(custom and "secondary" or "primary")
-  local cr, pr = win.content:GetRight(), win.teamAfter:GetRight()
-  if cr and pr then win.team:SetWidth(max(80, floor(cr - pr - 4 - PADX))) end
+  for _, b in ipairs(win.chips) do b:SetSelected(custom and draft.from == b.key) end
+  win.team:Set("Team")
+  win.team:SetSelected(not custom)
   local L, bn, cb = win.layout, win.banner, win.openBox
   local info = view.info
   if custom then
