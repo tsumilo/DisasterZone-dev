@@ -1201,5 +1201,40 @@ def the_fight_list_is_short_bosses_as_rows_trash_as_squares():
     assert r.cl.eval("return ns.MeterPanels._FightList():IsShown()") is False
 
 
+@case
+def a_threat_bar_is_as_long_as_its_number():
+    """Reported in game 2026-10-11: the tank at 100% looked like ~60%: the bars ran to 135% on one scale. Now the track
+    is 0-100% (the tank's bar is full, 68% fills 68%), a short pull zone after it runs from 100% to my pull point and
+    ends in the gold line; my row has the gold edge; the header says "You 68%  · pull at 110%"."""
+    r = Raid(dmg=False, thr=True)
+    r.cl.eval("ns.DB:SetSetting('meters.tankView', 'never')")
+    r.combat(True, "Victhar")
+    r.cl.target_npc(r.boss)
+    threat(r, {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 1, 62, 68, 136000),
+               "Hunt": (False, 2, 95, 105, 210000)})
+    r.tick(0.5)
+    r.cl.eval("ns.MeterPanels:Draw()")
+    got = r.cl.eval_py("""
+        local pf = ns.MeterPanels._Panel('threat')
+        local o = { track = 0, tot = pf.totV:GetText() .. " " .. pf.tot:GetText() }
+        for _, row in pairs(pf.trowsByKey) do
+            local n = row.name:GetText()
+            o[n] = row.tw
+            o[n .. "_me"] = row.you:IsShown()
+            o.track = row.track:GetWidth()
+        end
+        local _, _, _, x = pf.pull:GetPoint()
+        o.line = x + 1
+        o.tankLine = pf.tankLine:IsShown()
+        return o""")
+    W = got["track"]
+    assert abs(got["Victhar"] - W) < 0.01, got                              # the tank: a full bar
+    assert abs(got["Gina"] - 0.68 * W) < 0.5, got                           # 68%: 68% of the track
+    assert W < got["Hunt"] <= W + 26, got                                    # past 100%: into the pull zone
+    assert got["Gina_me"] is True and got["Victhar_me"] is False, got       # my row: the gold edge
+    assert got["tankLine"] is False, got                                     # one line, the gold one
+    assert got["tot"].startswith("You 68%") and "pull at 110%" in got["tot"], got
+
+
 if __name__ == "__main__":
     run_all()

@@ -41,7 +41,11 @@ local FADED, FADE_AFTER = 0.38, 3
 local EASE = 0.09
 local ENTER_DUR, ENTER_STAGGER = 0.36, 0.024   -- a view switch: each bar grows in this long, one row after another
 local SCALES = { small = 0.9, normal = 1, large = 1.15 }
-local THREAT_SCALE = 135          -- threat bars run from 0 to 135% of the tank's threat
+-- Threat bars: the track is 0 to 100% of the tank's threat, so a bar is as long as its number (the tank's is full);
+-- after it a short pull zone runs from 100% to my pull point (110% melee, 130% ranged), ending in the gold line.
+-- (Before: one scale to 135%, so the tank's 100% filled three quarters of the track and looked like ~60%; in-game
+-- report 2026-10-11.)
+local PULL_ZONE_W = 26
 local T_NAME_W, T_VALUE_W = 96, 34
 local ICON_W = ROW_H + 1          -- a row's icon: square, the row's full height, flush left, then a 1 px divider
 local T_TRACK_L = ICON_W + 5 + T_NAME_W + 5
@@ -1183,6 +1187,10 @@ local function NewThreatRow(pf)
     row.value:SetJustifyH("RIGHT")
     Halo(row.name, row)
     Halo(row.value, row)
+    row.you = K.Tex(row, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
+    row.you:SetPoint("TOPLEFT")
+    row.you:SetPoint("BOTTOMLEFT")
+    row.you:SetWidth(2)
     row.track = K.Tex(row, "BACKGROUND", K.WHITE, 1, 1, 1, 0.05)
     row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, -4)
     row.track:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -T_TRACK_R, 4)
@@ -1207,8 +1215,9 @@ local function DrawThreat(pf)
         pf.totV:SetText("tanking")
         pf.tot:SetText("")
     elseif #view > 0 and me then
-        pf.totV:SetText((st.hot and "|cffff8a70" or "") .. floor(me.raw + 0.5) .. "%" .. (st.hot and "|r" or ""))
-        pf.tot:SetText(strformat("pull %d%%", st.pull or 110))
+        -- "You 68%  · pull at 110%": how much room I have (was "68% pull 110%")
+        pf.totV:SetText("You " .. (st.hot and "|cffff8a70" or "") .. floor(me.raw + 0.5) .. "%" .. (st.hot and "|r" or ""))
+        pf.tot:SetText(strformat("\194\183 pull at %d%%", st.pull or 110))
     else
         pf.totV:SetText("")
         pf.tot:SetText("")
@@ -1217,6 +1226,15 @@ local function DrawThreat(pf)
     local rowsW = (pf.rows:GetWidth() or 0)
     if rowsW <= 0 then rowsW = PanelWidth(pf) - PAD * 2 end
     local trackW = max(10, rowsW - T_TRACK_L - T_TRACK_R)
+    -- where a share lands: 0-100% on the track, past 100% into the pull zone (none in tank view: nobody passes the
+    -- tank there, or they would be tanking)
+    local pullAt = max(101, st.pull or 110)
+    local zoneW = (st.tankView or not me) and 0 or min(PULL_ZONE_W, floor(trackW * 0.2))
+    local mainW = trackW - zoneW
+    local function X(v)
+        if v <= 100 or zoneW == 0 then return mainW * min(1, max(0, v) / 100) end
+        return mainW + zoneW * min(1, (v - 100) / (pullAt - 100))
+    end
     local list = Window(pf, view, V, function(r) return r.me end)
     Thumb(pf, #view, V)
     local seen = {}
@@ -1235,14 +1253,18 @@ local function DrawThreat(pf)
         SetRowIcon(row.icon, r.cls, Meter:SpecOf(r.name))
         SetT(row.name, r.name or "?")
         if r.me then row.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else row.name:SetTextColor(cr, cg, cb) end
+        row.you:SetShown(r.me and true or false)
+        row.track:ClearAllPoints()                    -- (the track: 0-100%; the pull zone after it is drawn once)
+        row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, -4)
+        row.track:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", T_TRACK_L, 4)
+        row.track:SetWidth(max(1, mainW))
         local share = st.tankView and r.scaled or r.raw
         -- (in tank view the one holding aggro is the 100% reference, in their colour, not a warning)
         local hot = (st.tankView and r.scaled >= warn and not r.tank) or (r.me and st.hot)
         if hot then row.fill:SetVertexColor(1, 0.35, 0.24, 0.9) else row.fill:SetVertexColor(cr, cg, cb, 0.8) end
         SetT(row.value, floor(share + 0.5) .. "%")
         if hot then row.value:SetTextColor(1, 0.54, 0.44) else row.value:SetTextColor(1, 1, 1) end
-        local frac = st.tankView and min(1, share / 100) or min(1, share / THREAT_SCALE)
-        row.tw = max(1, frac * trackW)
+        row.tw = max(1, X(share))
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
         if fresh then row.anim = nil; row:SetAlpha(1) end
         if pf.switched then Enter(row, i)
@@ -1261,19 +1283,17 @@ local function DrawThreat(pf)
     -- the pull line, the tank line, the warning stretch
     local h = V * (ROW_H + ROW_GAP) - ROW_GAP
     local on = V > 0
-    local lineX = st.tankView and (T_TRACK_L + trackW) or (T_TRACK_L + trackW * min(1, (st.pull or 110) / THREAT_SCALE))
+    local lineX = T_TRACK_L + mainW + zoneW
     pf.pull:SetShown(on and (st.tankView or me ~= nil))
     pf.pull:ClearAllPoints()
     pf.pull:SetPoint("TOPLEFT", pf.rows, "TOPLEFT", lineX - 1, 1)
     pf.pull:SetHeight(h + 2)
-    pf.tankLine:SetShown(on and not st.tankView)
-    pf.tankLine:ClearAllPoints()
-    pf.tankLine:SetPoint("TOPLEFT", pf.rows, "TOPLEFT", T_TRACK_L + trackW * (100 / THREAT_SCALE), 1)
-    pf.tankLine:SetHeight(h + 2)
+    pf.tankLine:Hide()                                -- (the track's end is the tank's 100%)
     local zoneOn = on and not st.tankView and me ~= nil and warn > 0
     pf.zone:SetShown(zoneOn)
     if zoneOn then
-        local z0 = T_TRACK_L + trackW * min(1, (st.pull or 110) * warn / 100 / THREAT_SCALE)
+        -- the red stretch starts where the warning does (warn% of my pull point) and runs to the pull line
+        local z0 = T_TRACK_L + X(pullAt * warn / 100)
         pf.zone:ClearAllPoints()
         pf.zone:SetPoint("TOPLEFT", pf.rows, "TOPLEFT", z0, 0)
         pf.zone:SetSize(max(1, lineX - z0), h)
