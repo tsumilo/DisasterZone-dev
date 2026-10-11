@@ -40,9 +40,10 @@ local BANNER_H = 46                         -- the boss banner (the raid's loadi
 local FOOTER_H = GAP + 22 + 8               -- Announce all / Roll all / the lock button
 local ICON_SIZE = 32
 local TEXT_X = CARD_PAD + ICON_SIZE + 10    -- the item's name, its rows and its actions line up here
-local ROW_W = CARD_W - TEXT_X - CARD_PAD
+local LIST_X = CARD_PAD                     -- 1.3.5: the rows (and the actions under them) run the card's full width
+local ROW_W = CARD_W - 2 * CARD_PAD
 local ITEM_HEAD_H = 10 + ICON_SIZE + 6      -- the rows start here
-local ROW_H, ACTION_H = 20, 22
+local ROW_H, ACTION_H = 22, 22
 local ROLL_ROW_H = ROW_H
 local SLOT_W = 70                           -- the roll button's slot: Roll / End roll / Re-roll / Cancel
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
@@ -74,12 +75,16 @@ local FALLBACK_COLORS = {
     offspec  = { 0.72, 0.60, 0.92 },
 }
 
--- Row columns {x, width} from the row's left edge (= TEXT_X in the card; rows are ROW_W = 362 px wide, the two
--- "currently wearing" icons take the last 30). A class circle with a presence dot, the name ("Shadowmelder" ~78 px at
--- 11 px needs 81), the spec ("Marksmanship" needs 74), the BiS / Alt / OS pill (up to "Alt P3"), then a status ("not in
--- raid", "won 1") or, for a roll, a tag ("tie", "can't use"), the council's votes (a check and the count) and the roll.
-local COL = { name = { 20, 84 }, spec = { 108, 74 }, pill = 186, status = { 234, 94 }, tag = { 234, 50 },
-              votes = { 286, 18 }, roll = { 306, 24 } }
+-- Row columns {x, width} from the row's left edge (1.3.5, the roll rows makeover: layout B of the mockup, the user's
+-- pick 2026-10-11). Rows run the card's full width (LIST_X, ROW_W = 404 px; the two "currently wearing" icons take the
+-- last 30). On the loot council's view a vote rail comes first (rail: a square with the votes; the click votes) and
+-- keeps its room on the BiS rows too, so every card's class circles line up (cls = x without / with the rail; the
+-- user dropped an attendance ring around them: the tooltip says it). From the spec on the columns are the same in
+-- every row: the spec ("Marksmanship" needs 74), the BiS / Alt / OS pill (up to "Alt P3"), the
+-- loot column (the dry streak bars, or a word: "won 1", "tie", "can't use"; BiS rows: status, "not in raid"), then on
+-- roll rows the roll as a meter, the roll, and a small note ("x2" for a repeated roll, the range of a bad one).
+local COL = { rail = 16, cls = { 4, 22 }, name = 18, spec = { 126, 75 }, pill = 203, status = { 253, 111 },
+              loot = { 253, 45 }, meter = { 300, 24 }, roll = { 326, 30 }, note = { 358, 14 } }
 local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
 -- A crafting material (Materials): the holdings squares at a row's right end, the craft's header line, and the
@@ -1352,16 +1357,6 @@ local function RollCell(row, session)
     return Paint("no roll", "muted")
 end
 
--- Vote column: a check + the count (gold when my vote is among them); a faint "vote" prompt on rows I may vote for.
-local function VoteCell(row, canVote)
-    local n = tonumber(row.votes) or 0
-    if n > 0 then
-        local t = VOTE_ICON .. tostring(n)
-        return row.myVote and Paint(t, "main") or ("|cffffffff" .. t .. "|r")
-    end
-    return ""
-end
-
 -- Addendum I §51: "Attendance 92% (7/8 raids)" from the raid log, when any raid is logged.
 -- A crafting material: the craft they want it for, how many they hold (and where that number comes from).
 function Mat.AddCraftLines(tt, w, itemID)
@@ -1397,7 +1392,7 @@ local DRY = { SEGS = 6, SEG_W = 3, SEG_H = 9, GAP = 2,
               LEVELS = { { 2, { 0.55, 0.55, 0.55 } }, { 4, { 0.93, 0.80, 0.45 } }, { 6, { 1.00, 0.58, 0.22 } },
                          { math.huge, { 1.00, 0.36, 0.18 } } } }
 DRY.BARS_W = DRY.SEGS * DRY.SEG_W + (DRY.SEGS - 1) * DRY.GAP
-local Dry = {}
+local Dry, Grid = {}, {}
 
 function Dry.Get(key)
     local Att = ns.Attendance
@@ -1753,6 +1748,85 @@ local function NewEquippedButton(r)
     return e
 end
 
+-- The row grid's pieces (1.3.5 makeover): the vote rail and the roll meter.
+-- (Grid is declared with Dry: the file is near Lua's 200-locals limit.)
+Grid.PLAIN, Grid.GOLD, Grid.WIN, Grid.BAD = { 0.85, 0.85, 0.88 }, { 1, 0.82, 0 }, { 0.3, 0.9, 0.4 }, { 1, 0.3, 0.3 }
+
+-- The council's view keeps the vote rail's room (a plain roll and the raiders' view have none).
+function Grid.HasRail(session)
+    return IsCouncil() and not PlainMode(nil, session)
+end
+
+-- The class circle and the name after it (right of the rail, or at the row's start); the name runs up to the spec.
+function Grid.Place(r, rail)
+    local x = rail and COL.cls[2] or COL.cls[1]
+    r.cls:ClearAllPoints()
+    r.cls:SetPoint("LEFT", r, "LEFT", x, 0)
+    r.name:ClearAllPoints()
+    r.name:SetPoint("LEFT", r, "LEFT", x + COL.name, 0)
+    r.name:SetWidth(COL.spec[1] - 2 - x - COL.name)
+end
+
+-- The vote rail's square: the count (gold with my vote among them), a faint check where I may vote and nobody has,
+-- nothing where I can't vote and nobody did (row nil hides it).
+function Grid.Rail(r, row, canVote)
+    local n = row and tonumber(row.votes) or 0
+    if not row or (n == 0 and not canVote) then
+        r.vEdge:Hide()
+        r.vBox:Hide()
+        r.votes:SetText("")
+        r.voteHint:Hide()
+        return
+    end
+    r.vEdge:Show()
+    if n > 0 then
+        if row.myVote then r.vBox:SetColorTexture(0.55, 0.44, 0.05, 1) else r.vBox:SetColorTexture(0.16, 0.16, 0.18, 1) end
+        r.votes:SetText("|cffffffff" .. n .. "|r")
+        r.voteHint:Hide()
+    else
+        r.vBox:SetColorTexture(0.08, 0.08, 0.09, 1)
+        r.votes:SetText("")
+        r.voteHint:Show()
+    end
+    r.vBox:Show()
+end
+
+-- The roll as a meter (1-100): gold for the suggested roller, green for the winner, red for a bad range; no track for
+-- a pass.
+function Grid.Meter(r, row, session)
+    local n = tonumber(row.roll)
+    if row.response == "pass" and not n then return end
+    r.meter:Show()
+    if not n or n <= 0 then return end
+    local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key
+    local c = (row.invalid and Grid.BAD) or (winner and Grid.WIN) or (row.suggested and Grid.GOLD) or Grid.PLAIN
+    r.meterFill:SetColorTexture(c[1], c[2], c[3], 0.9)
+    r.meterFill:SetWidth(max(2, COL.meter[2] * min(n, 100) / 100))
+    r.meterFill:Show()
+end
+
+-- The roll alone (red for a bad range); a repeated roll / the range go in the note after it.
+function Grid.RollText(row, session)
+    local n = tonumber(row.roll)
+    if n then return row.invalid and Paint(tostring(n), "bad") or ("|cffffffff" .. tostring(n) .. "|r") end
+    if row.response == "pass" then return Paint("pass", "muted") end
+    if type(session) == "table" and session.state == "open" then return "" end   -- still rolling (the row is dimmed)
+    return Paint("-", "muted")   -- (did not roll: the tooltip says so)
+end
+
+-- "x2" (rolled twice: the first roll counts) or the range of a bad roll ("1-50"; "!" when the note is narrow).
+function Grid.RollNote(row, session, narrow)
+    if tonumber(row.roll) and row.invalid then
+        local rr = type(session) == "table" and type(session.rolls) == "table" and session.rolls[row.key]
+        local lo = tonumber(row.min) or (type(rr) == "table" and tonumber(rr.min))
+        local hi = tonumber(row.max) or (type(rr) == "table" and tonumber(rr.max))
+        return Paint((lo and hi and not narrow) and format("%d-%d", lo, hi) or "!", "bad")
+    end
+    local c = tonumber(row.count) or 1
+    if c > 1 then return Paint("x" .. c, "muted") end
+    return ""
+end
+
 function DropPanel:NewRow(b)
     local UI = ns.UI
     local r = CreateFrame("Button", nil, b)
@@ -1786,20 +1860,33 @@ function DropPanel:NewRow(b)
     r.dot:SetTexture(DISC)
     r.dot:SetSize(6, 6)
     r.dot:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
-    r.name = NewFS(r, "GameFontHighlightSmall", COL.name, 11)
+    r.name = NewFS(r, "GameFontHighlightSmall", { COL.cls[1] + COL.name, 90 }, 11)
     r.spec = NewFS(r, "GameFontDisableSmall", COL.spec)
     r.pill = UI:CreateTagPill(r, 16)
     r.pill:SetPoint("LEFT", r, "LEFT", COL.pill, 0)
     r.pill:Hide()
     r.badge = r.pill.fs      -- the pill's text: "BiS", "Alt P2", "OS"
     r.status = NewFS(r, "GameFontDisableSmall", COL.status)
-    r.tag = NewFS(r, "GameFontNormalSmall", COL.tag)
-    -- ADDENDUM G: the vote column; clicking it votes for the row's player (or takes my vote back).
-    r.votes = NewFS(r, "GameFontHighlightSmall", COL.votes)
-    r.votes:SetJustifyH("RIGHT")
+    r.tag = NewFS(r, "GameFontNormalSmall", COL.loot, 10)
+    -- ADDENDUM G: the vote rail (a square at the row's start: the count, gold with my vote in it); clicking it votes
+    -- for the row's player (or takes my vote back).
+    r.vEdge = r:CreateTexture(nil, "BACKGROUND", nil, 2)
+    r.vEdge:SetSize(COL.rail + 2, COL.rail + 2)
+    r.vEdge:SetPoint("LEFT", r, "LEFT", -1, 0)
+    r.vEdge:SetColorTexture(1, 1, 1, 0.22)
+    r.vEdge:Hide()
+    r.vBox = r:CreateTexture(nil, "BORDER", nil, 1)
+    r.vBox:SetSize(COL.rail, COL.rail)
+    r.vBox:SetPoint("CENTER", r.vEdge, "CENTER", 0, 0)
+    r.vBox:Hide()
+    r.votes = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.votes:SetPoint("CENTER", r.vBox, "CENTER", 0, 0)
+    r.votes:SetWidth(COL.rail)
+    r.votes:SetJustifyH("CENTER")
+    r.votes:SetWordWrap(false)
     r.voteBtn = CreateFrame("Button", nil, r)
-    r.voteBtn:SetPoint("LEFT", r, "LEFT", COL.votes[1] - 2, 0)
-    r.voteBtn:SetSize(COL.votes[2] + 4, ROW_H)
+    r.voteBtn:SetPoint("CENTER", r.vBox, "CENTER", 0, 0)
+    r.voteBtn:SetSize(COL.rail + 6, ROW_H)
     r.voteBtn:SetScript("OnClick", function(btn) DropPanel:ToggleVote(btn:GetParent()) end)
     r.voteBtn:SetScript("OnEnter", function(btn) RowOnEnter(btn:GetParent()) end)
     r.voteBtn:SetScript("OnLeave", HideTooltip)
@@ -1807,21 +1894,32 @@ function DropPanel:NewRow(b)
     -- a dim check where I may vote and nobody has yet (the click votes)
     r.voteHint = r:CreateTexture(nil, "ARTWORK")
     r.voteHint:SetSize(11, 11)
-    r.voteHint:SetPoint("RIGHT", r, "LEFT", COL.votes[1] + COL.votes[2], 0)
+    r.voteHint:SetPoint("CENTER", r.vBox, "CENTER", 0, 0)
     r.voteHint:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
     r.voteHint:SetDesaturated(true)
     r.voteHint:SetAlpha(0.35)
     r.voteHint:Hide()
+    -- the roll: a meter (a track and its fill, 1-100), the number, a small note after it
+    r.meter = r:CreateTexture(nil, "ARTWORK", nil, 0)
+    r.meter:SetSize(COL.meter[2], 4)
+    r.meter:SetPoint("LEFT", r, "LEFT", COL.meter[1], 0)
+    r.meter:SetColorTexture(1, 1, 1, 0.06)
+    r.meter:Hide()
+    r.meterFill = r:CreateTexture(nil, "ARTWORK", nil, 1)
+    r.meterFill:SetHeight(4)
+    r.meterFill:SetPoint("LEFT", r.meter, "LEFT", 0, 0)
+    r.meterFill:Hide()
     r.roll = NewFS(r, "NumberFontNormal", COL.roll, 13)
     r.roll:SetJustifyH("RIGHT")
-    r.moreText = NewFS(r, "GameFontDisableSmall", { COL.name[1], 200 }, 11)
+    r.note = NewFS(r, "GameFontDisableSmall", COL.note, 9)
+    r.moreText = NewFS(r, "GameFontDisableSmall", { COL.cls[1], 200 }, 11)
     -- Two right-aligned "currently wearing" icons (paired slots show both, ADDENDUM A §18).
     r.eqs = { NewEquippedButton(r), NewEquippedButton(r) }
     r.eqs[2]:SetPoint("RIGHT", r, "RIGHT", 0, 0)
     r.eqs[1]:SetPoint("RIGHT", r.eqs[2], "LEFT", -2, 0)
     r.eq = r.eqs[2]   -- v0.1 field name (single icon); a lone item sits in the right-hand column
     r.pips = Mat.NewPips(r)
-    Dry.New(r, COL.status[1])
+    Dry.New(r, COL.loot[1])
     r:SetScript("OnEnter", RowOnEnter)
     r:SetScript("OnLeave", HideTooltip)
     r:SetScript("OnClick", RowOnClick)
@@ -1903,12 +2001,15 @@ local function SetRowMode(r, mode)
     r.dry:Hide()
     r.tag:SetShown(roll)
     r.tag:SetText("")
-    r.votes:SetShown(roll and IsCouncil())
-    r.voteHint:Hide()
+    Grid.Rail(r, nil)
     if not roll then
         r.voteBtn:Hide()
         r.canVote = nil
     end
+    r.meter:Hide()
+    r.meterFill:Hide()
+    r.note:SetShown(roll)
+    r.note:SetText("")
     r.roll:SetShown(roll)
     r.moreText:SetShown(more)
     if more then SetEquipped(r, {}) end
@@ -1929,6 +2030,7 @@ local function FillRow(r, w, itemID, vp, itemSid)
     SetRowMode(r, "normal")
     r.data, r.itemID, r.more, r.moreKind, r.session, r.itemSid = w, itemID, nil, nil, nil, itemSid
     r.matOthers = nil
+    Grid.Place(r, Grid.HasRail(nil))
     SetPresence(r, w.inRaid and "raid" or (w.online and "online" or "offline"))
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, w.classFile) end
     r.name:SetText(ColoredName(w.key, w.classFile))
@@ -1973,6 +2075,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, classFile) end
     -- A plain roll (1.3): no BiS pill, no votes, no lock markers.
     local plain = PlainMode(nil, session)
+    Grid.Place(r, Grid.HasRail(session))
     -- a pug: the name alone (the column is narrow), "guest" where their spec would be (we never have it)
     local guest = ns.UI and ns.UI.IsGuest and ns.UI:IsGuest(row.key)
     r.name:SetText(guest and ns.UI:ColoredName(row.key, classFile) or ColoredName(row.key, classFile))
@@ -1988,11 +2091,10 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     local canVote = not plain and type(session) == "table" and HasRoll("CanVote") and CallRoll("CanVote", session.id)
         and inRaid and row.response ~= "pass" and true or false
     r.canVote = canVote
-    r.votes:SetText(VoteCell(row, canVote))
-    r.votes:SetShown(not plain and IsCouncil())
+    if Grid.HasRail(session) then Grid.Rail(r, row, canVote) end
     r.voteBtn:SetShown(canVote)
-    r.voteHint:SetShown(canVote and (tonumber(row.votes) or 0) == 0)
-    r.roll:SetText(RollCell(row, session))
+    Grid.Meter(r, row, session)
+    r.roll:SetText(Grid.RollText(row, session))
     if row.need then
         -- a crafting material: what they hold of it toward their craft ("1/2", gold when this one completes it)
         SetEquipped(r, {})
@@ -2004,6 +2106,9 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
         SetEquipped(r, WornOfRow(row, itemSid))
         if tag == "" and not plain then Dry.Set(r, row.key, true) end
     end
+    -- (a bad range needs more room than "x2": it takes the first worn icon's place when there is only one)
+    r.note:SetWidth(r.eqs[1]:IsShown() and COL.note[2] or (ROW_W - EQ_SIZE - 2 - COL.note[1]))
+    r.note:SetText(Grid.RollNote(row, session, r.eqs[1]:IsShown()))
 
     local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key
     if winner then
@@ -2026,6 +2131,8 @@ end
 local function FillMoreRow(r, rest, kind, session)
     SetRowMode(r, "more")
     r.data, r.more, r.moreKind, r.session, r.matOthers = nil, rest, kind, session, nil
+    r.moreText:ClearAllPoints()
+    r.moreText:SetPoint("LEFT", r, "LEFT", Grid.HasRail(session) and COL.cls[2] or COL.cls[1], 0)
     r.moreText:SetText(format("+%d more", #rest))
     r:SetAlpha(1)
     return ROW_H
@@ -2159,7 +2266,7 @@ end
 
 local function PlaceRow(r, b, y)
     r:ClearAllPoints()
-    r:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -y)
+    r:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X, -y)
     r:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -y)
     r:Show()
 end
@@ -2170,7 +2277,7 @@ local function LayoutActions(b, y, buttons)
         btn:Hide()
         btn:ClearAllPoints()
     end
-    local x = TEXT_X
+    local x = LIST_X
     for _, btn in ipairs(buttons) do
         btn:SetPoint("TOPLEFT", b, "TOPLEFT", x, -y)
         btn:Show()
@@ -2433,7 +2540,7 @@ function DropPanel:FillMade(b, itemID, winnerKey, award, vp, y)
     m.name:SetWidth(max(40, min(nameRoom, (m.name:GetStringWidth() or 0) + 2)))
     m.hit:SetWidth(max(40, 25 + (m.name:GetStringWidth() or 0)))
     m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -y)
+    m:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X, -y)
     m:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -y)
     m:Show()
     return y + MAT.MADE_H
@@ -2659,7 +2766,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     if n == 0 and not winnerKey and noneText then
         b.none:SetText(noneText)
         b.none:ClearAllPoints()
-        b.none:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -(y + 4))
+        b.none:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X, -(y + 4))
         b.none:Show()
         y = y + ROW_H
         anyRows = true

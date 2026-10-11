@@ -739,6 +739,34 @@ def st_material(stage):
     return fn
 
 
+def st_demo_roll(w, c):
+    """The demo raid rolling on Ravager's Bracers (Alt / OS wanters), 12 s in: passes, a double roll, a bad range,
+    the demo council's votes; the council's view (vote rail, attendance rings, dry streaks, roll meters)."""
+    g = c["Gina"]
+    close_all(g)
+    if not g.eval("return ns.Demo:IsEnabled()"):
+        g.slash("/dz demo on")
+        w.tick(1)
+    g.eval("""
+        local db = ns.ItemDB
+        for _, raid in ipairs(db:GetRaids()) do for _, boss in ipairs(raid.bosses or {}) do
+            for _, id in ipairs(boss.items or {}) do
+                if db:GetName(id) == "Ravager's Bracers" then
+                    local ref = db:GetBossRef(raid.key .. ":" .. boss.key)
+                    ns.Loot:HandleDrop({ s = "TEST-roll-rows", b = ref.key, i = { id }, ts = GetServerTime(),
+                        test = true }, ns.Util.PlayerKey())
+                    return
+                end
+            end
+        end end""")
+    w.tick(1)
+    g.eval("local b = ns.DropPanel.blocks[1]; ns.DropPanel:StartRoll(b.itemID)")
+    w.tick(12, 1)
+    g.eval("local f = _G.DisasterZoneRollFrame; if f then f:Hide() end")
+    g.eval("local f = ns.DropPanel.frame; if f then f:ClearAllPoints(); f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 40, -60) end")
+    return g
+
+
 def st_settings_in_raid(section):
     """Settings on Gina's screen while Grumpykat leads the raid (his loot rules: 45 s rolls, rares, phase P2)."""
     def fn(w, c):
@@ -1523,6 +1551,8 @@ STATES = [
     ("Demo - Raid log - Awards", demo("ns.RaidsUI:SetMode('raids'); ns.RaidsUI:SetLogTab('award')", "raids")),
     ("Demo - Start raid window", demo("ns.SessionBar:OpenStart()")),
     ("Demo - test drop panel", demo("ns.Loot:SimulateDrop()")),
+    # the roll rows makeover (1.3.5, layout B): a full demo raid rolling, the council's view
+    ("Demo - drop panel rolling", st_demo_roll),
     # in Grumpykat's raid: the group loot rules are his (read-only values, "Set by"), the raid's council
     ("Raid - Settings - Group loot rules (raider)", st_settings_in_raid("rules")),
     ("Raid - Settings - Loot Council (raider)", st_settings_in_raid("council")),

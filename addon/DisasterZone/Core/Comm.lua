@@ -166,6 +166,15 @@ local function SendText(class, text, distribution, target)
         { class = class, total = #text, sent = 0 })
     Comm.stats.sent = Comm.stats.sent + 1
     Comm.stats.bytesSent = Comm.stats.bytesSent + #text
+    local net = ns.PerfNet              -- (the developer's Performance page: Core/Perf.lua)
+    if net then net("out", PREFIX[class], #text, target or distribution) end
+end
+
+-- Bytes handed to ChatThrottleLib and not on the wire yet, all classes together (the Performance page).
+function Comm:Backlog()
+    local n = 0
+    for _, v in pairs(backlog) do n = n + v end
+    return n
 end
 
 -- Checks the distribution and resolves the whisper target. Returns ok, target.
@@ -420,6 +429,8 @@ function Comm:OnCommReceived(prefix, text, distribution, sender)
     local senderKey = Util.NormalizeName(sender)
     if not senderKey or Util.IsMe(senderKey) then return end
     Comm.stats.recv = Comm.stats.recv + 1
+    local net = ns.PerfNet
+    if net then net("in", prefix, #text, senderKey) end
     if #text < 2 or #text > MAX_WIRE_LEN then
         Comm.stats.dropped = Comm.stats.dropped + 1
         ns:Debug("Comm: empty or oversized message from %s dropped", senderKey)

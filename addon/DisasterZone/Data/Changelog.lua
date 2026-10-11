@@ -46,6 +46,13 @@ ns.CHANGELOG = {
               "Only the guild council sees it: they hold the whole Loot Log.",
               "Fixed: hovering a player on the boss drop panel could throw a Lua error.",
           } },
+          { heading = "Loot council: a tidier roll list", lines = {
+              "The boss drop's list runs the card's full width: nothing is cut off any more.",
+              "Votes sit in a square at the start of each row: the count, gold when yours is in.",
+              "Click the square to vote for that player, click again to take your vote back.",
+              "Each roll has a small bar, so the high rolls stand out; a bad range shows in red.",
+              "A second roll shows as x2 next to the first one, which is the one that counts.",
+          } },
           { heading = "One look everywhere", lines = {
               "Questions and confirmations are the addon's own dialogs now, not the game's red ones.",
               "They open over the window they belong to, with a title, and Escape closes them.",

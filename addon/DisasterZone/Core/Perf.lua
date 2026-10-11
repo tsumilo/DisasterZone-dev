@@ -16,6 +16,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Perf.lua", ...) then return e
 --    rest of the growth.
 --  * What holds memory: widgets and build time of every page built (UI/MainFrame.lua GetPageStats) and the size of
 --    each saved variable's sections (an estimate: 56 bytes a table, 40 an entry, 25 + length a string).
+--  * Next to the other addons: every loaded addon's memory and CPU, as the game counts them.
+--  * Network: addon messages in and out per prefix and per player (Core/Comm.lua hands them to ns.PerfNet), the
+--    session and the last full minute; ChatThrottleLib's state.
+--  * The session: when it started, the build, an in-game update, the 3D rooms addon.
 local addonName, ns = ...
 
 -- (a plain table, not a module: this file loads early, before the modules whose lifecycle order matters; the page,
@@ -75,7 +79,13 @@ local function Record(key, what, ms, kb)
     end
     r.calls = r.calls + 1
     r.ms = r.ms + ms
-    if kb >= 0 then r.kb = r.kb + kb else r.gc = r.gc + 1 end
+    if ms > (r.maxMs or 0) then r.maxMs = ms end
+    if kb >= 0 then
+        r.kb = r.kb + kb
+        if kb > (r.maxKb or 0) then r.maxKb = kb end
+    else
+        r.gc = r.gc + 1
+    end
     return r
 end
 
@@ -250,6 +260,7 @@ if isDev then
         if noteOf[fn] == nil then noteOf[fn] = Where() or false end
     end
     ns.PerfTimer = TimerProbe
+    ns.PerfNet = function(...) return Perf._Net(...) end
     Perf.hooked = HookSetScript()
 end
 
@@ -314,6 +325,18 @@ function Perf:FinishMeasure(onDone)
         if a.kb ~= b.kb then return a.kb > b.kb end
         return a.ms > b.ms
     end)
+    -- a message type I both get and send back at least every 5 s while measuring: a sync loop, maybe
+    local got, sent = {}, {}
+    for _, row in ipairs(rows) do
+        local t = tostring(row.key):match("^Core/Comm%.lua  message (%S+)$")
+        if t then got[t] = row end
+        local s2 = tostring(row.key):match("^Core/Comm%.lua  send (%S+) ")
+        if s2 then sent[s2] = (sent[s2] or 0) + row.calls end
+    end
+    for t, row in pairs(got) do
+        local every = r.seconds / 5
+        if row.calls >= every and (sent[t] or 0) >= every then row.loop = true row.sent = sent[t] end
+    end
     local result = { seconds = r.seconds, grew = grew, rows = rows, attributed = attributed, at = now() }
     Perf.last = result
     ns:Fire("PERF_UPDATED")
@@ -324,17 +347,30 @@ end
 -- Memory over time, cleanups, CPU
 ---------------------------------------------------------------------------
 
-local samples = {}               -- { t, kb } oldest first
+local samples = {}               -- { t, kb, cpu } oldest first (cpu: the profiler's recent average, ms)
 Perf.samples = samples
+local stats = { peak = 0, cleanups = 0, lastCleanAt = nil, started = now() }
+Perf.stats = stats
 
-local function Push(kb)
-    samples[#samples + 1] = { t = now(), kb = kb }
+local function Push(kb, cpu)
+    local last = samples[#samples]
+    if last and kb < last.kb then         -- (a drop: the game cleaned up)
+        stats.cleanups = stats.cleanups + 1
+        stats.lastCleanAt = now()
+        last.drop = true
+    end
+    if kb > stats.peak then stats.peak = kb end
+    samples[#samples + 1] = { t = now(), kb = kb, cpu = cpu }
     if #samples > KEEP then table.remove(samples, 1) end
 end
 
+local NetRoll                    -- (the network section, below: its per-minute windows turn here)
+
 function Perf:Sample()
     local kb = AddOnUsage()
-    Push(kb)
+    local cpu = Perf:CPU()
+    Push(kb, cpu and cpu.recent or nil)
+    if NetRoll then NetRoll() end
     ns:Fire("PERF_UPDATED")
     return kb
 end
@@ -345,7 +381,9 @@ function Perf:CleanUp()
     collectgarbage("collect")
     local after = AddOnUsage()
     Perf.clean = { t = now(), before = before, after = after }
-    Push(after)
+    local cpu = Perf:CPU()
+    Push(after, cpu and cpu.recent or nil)
+    stats.cleanups = stats.cleanups - 1        -- (ours, not the game's: not counted as one of its cleanups)
     ns:Fire("PERF_UPDATED")
     return before, after
 end
@@ -368,30 +406,202 @@ function Perf:GarbageRate()
     return grew / span * 60
 end
 
--- Blizzard's addon profiler (ms; nil without it). -> { recent, session, peak, share (0..1 of the game's frame time,
--- when the client says), off (the profiler is turned off) } or nil.
-function Perf:CPU()
+-- Blizzard's addon profiler (C_AddOnProfiler; its metrics by name, each optional). nil without it.
+local function Profiler()
     local P = C_AddOnProfiler
     local E = Enum and Enum.AddOnProfilerMetric
     if not (type(P) == "table" and type(P.GetAddOnMetric) == "function" and type(E) == "table") then return nil end
+    return P, E
+end
+local function Metric(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    return ok and tonumber(v) or nil
+end
+local OVER = { 1, 5, 10, 50, 100 }
+
+-- DisasterZone's CPU (ms): { recent, session, boss (in encounters), peak, share (0..1 of the game's frame time, when
+-- the client says), over = { { ms, frames }, ... } (frames that took longer than ms), off (the profiler is off) }, or
+-- nil without the profiler. name: another addon's instead.
+function Perf:CPU(name)
+    local P, E = Profiler()
+    if not P then return nil end
     if type(P.IsEnabled) == "function" then
         local ok, on = pcall(P.IsEnabled)
         if ok and on == false then return { off = true } end
     end
-    local function metric(fn, ...)
-        if type(fn) ~= "function" then return nil end
-        local ok, v = pcall(fn, ...)
-        return ok and tonumber(v) or nil
-    end
+    name = name or addonName
     local out = {
-        recent = E.RecentAverageTime and metric(P.GetAddOnMetric, addonName, E.RecentAverageTime),
-        session = E.SessionAverageTime and metric(P.GetAddOnMetric, addonName, E.SessionAverageTime),
-        peak = E.PeakTime and metric(P.GetAddOnMetric, addonName, E.PeakTime),
+        recent = E.RecentAverageTime and Metric(P.GetAddOnMetric, name, E.RecentAverageTime),
+        session = E.SessionAverageTime and Metric(P.GetAddOnMetric, name, E.SessionAverageTime),
+        boss = E.EncounterAverageTime and Metric(P.GetAddOnMetric, name, E.EncounterAverageTime),
+        peak = E.PeakTime and Metric(P.GetAddOnMetric, name, E.PeakTime),
     }
-    local app = E.RecentAverageTime and metric(P.GetApplicationMetric, E.RecentAverageTime)
+    local app = E.RecentAverageTime and Metric(P.GetApplicationMetric, E.RecentAverageTime)
     if out.recent and app and app > 0 then out.share = out.recent / app end
+    out.over = {}
+    for _, ms in ipairs(OVER) do
+        local key = E["CountTimeOver" .. ms .. "Ms"]
+        local n = key and Metric(P.GetAddOnMetric, name, key)
+        if n then out.over[#out.over + 1] = { ms = ms, n = n } end
+    end
     return out
 end
+
+-- The frame rate now (frames a second), or nil.
+function Perf:FPS() return GetFramerate and GetFramerate() or nil end
+
+---------------------------------------------------------------------------
+-- Next to the other addons
+---------------------------------------------------------------------------
+
+local function AddOnApi(name) return (C_AddOns and C_AddOns[name]) or _G[name] end
+
+-- Every loaded addon: { name, title, icon (texture path, atlas or nil), kb (as the last sample read it), cpu (ms,
+-- the profiler's recent average, or nil), me (DisasterZone) }, the most memory first; and the total KB of them all.
+function Perf:Addons()
+    local num = AddOnApi("GetNumAddOns")
+    local info, loaded = AddOnApi("GetAddOnInfo"), AddOnApi("IsAddOnLoaded")
+    local meta = AddOnApi("GetAddOnMetadata")
+    local mem = GetAddOnMemoryUsage
+    local out, total = {}, 0
+    if not (num and info and loaded and mem) then return out, 0 end
+    local P, E = Profiler()
+    for i = 1, num() or 0 do
+        local name, title = info(i)
+        if name and loaded(name) then
+            local kb = mem(i) or 0
+            total = total + kb
+            local a = { name = name, title = title, kb = kb, me = name == addonName }
+            if meta then
+                local ok, icon = pcall(meta, name, "IconTexture")
+                a.icon = ok and icon or nil
+                if not a.icon then
+                    local ok2, atlas = pcall(meta, name, "IconAtlas")
+                    a.atlas = ok2 and atlas or nil
+                end
+            end
+            if P and E.RecentAverageTime then a.cpu = Metric(P.GetAddOnMetric, name, E.RecentAverageTime) end
+            out[#out + 1] = a
+        end
+    end
+    table.sort(out, function(x, y)
+        if x.kb ~= y.kb then return x.kb > y.kb end
+        return x.name < y.name
+    end)
+    return out, total
+end
+
+-- The session: { started (GetTime), version, build, update ("#n v" while an in-game update runs, else nil),
+-- rooms = { loaded, kb } (the load-on-demand 3D room data) }.
+function Perf:Session()
+    local boot = ns.Boot
+    local applied = boot and boot.applied
+    local build = type(DisasterZoneBuild) == "table" and DisasterZoneBuild.id or (boot and boot.buildId) or "dev"
+    local r3 = ns.Render3D
+    local roomsName = r3 and r3.DATA_ADDON or "DisasterZone_Rooms"
+    local loaded = AddOnApi("IsAddOnLoaded")
+    local isIn = loaded and loaded(roomsName) and true or false
+    return {
+        started = stats.started, version = ns.version or "?", build = tostring(build),
+        update = applied and ("#%s %s"):format(tostring(applied.seq), tostring(applied.version or "")) or nil,
+        rooms = { loaded = isIn, kb = isIn and GetAddOnMemoryUsage and GetAddOnMemoryUsage(roomsName) or nil },
+    }
+end
+
+---------------------------------------------------------------------------
+-- Network: addon messages in and out (Core/Comm.lua hands them to ns.PerfNet, the developer's client only)
+---------------------------------------------------------------------------
+
+-- Counted per prefix and per player: the whole session, and minute by minute (the last full minute is what the page
+-- shows as "a minute"). No tables are made per message: counts go into tables made once per prefix / player.
+local net = { total = { inN = 0, inB = 0, outN = 0, outB = 0 }, prefix = {}, who = {}, cur = {}, last = nil,
+              windowAt = now() }
+Perf.net = net
+
+local function Bucket(t, key)
+    local b = t[key]
+    if not b then
+        b = { inN = 0, inB = 0, outN = 0, outB = 0 }
+        t[key] = b
+    end
+    return b
+end
+
+-- dir "in" | "out"; who: the sender, or the channel / whisper target.
+local function PerfNet(dir, prefix, bytes, who)
+    bytes = tonumber(bytes) or 0
+    local n, b = dir == "in" and "inN" or "outN", dir == "in" and "inB" or "outB"
+    local tot = net.total
+    tot[n], tot[b] = tot[n] + 1, tot[b] + bytes
+    local p = Bucket(net.prefix, tostring(prefix))
+    p[n], p[b] = p[n] + 1, p[b] + bytes
+    local cur = net.cur
+    local cp = Bucket(cur, "p:" .. tostring(prefix))
+    cp[n], cp[b] = cp[n] + 1, cp[b] + bytes
+    if who then
+        local w = Bucket(net.who, tostring(who))
+        w[n], w[b] = w[n] + 1, w[b] + bytes
+        local cw = Bucket(cur, "w:" .. tostring(who))
+        cw[n], cw[b] = cw[n] + 1, cw[b] + bytes
+    end
+end
+Perf._Net = PerfNet
+
+-- Every 60 s: the minute that just ended becomes "the last minute".
+NetRoll = function()
+    if now() - net.windowAt < 60 then return end
+    net.last = { span = now() - net.windowAt, b = net.cur }
+    net.cur, net.windowAt = {}, now()
+end
+
+-- The last full minute (or the one running, before the first ends): { span (s), prefixes = { { prefix, inN, inB,
+-- outN, outB } } (most traffic first), senders = { { who, inN, inB } } (most messages first) }.
+function Perf:Network()
+    local src = net.last or { span = max(1, now() - net.windowAt), b = net.cur }
+    local out = { span = src.span, prefixes = {}, senders = {} }
+    for key, b in pairs(src.b) do
+        local kind, name = key:sub(1, 2), key:sub(3)
+        if kind == "p:" then
+            out.prefixes[#out.prefixes + 1] = { prefix = name, inN = b.inN, inB = b.inB, outN = b.outN, outB = b.outB }
+        elseif b.inN > 0 then
+            out.senders[#out.senders + 1] = { who = name, inN = b.inN, inB = b.inB }
+        end
+    end
+    table.sort(out.prefixes, function(x, y)
+        local tx, ty = x.inB + x.outB, y.inB + y.outB
+        if tx ~= ty then return tx > ty end
+        return x.prefix < y.prefix
+    end)
+    table.sort(out.senders, function(x, y)
+        if x.inN ~= y.inN then return x.inN > y.inN end
+        return x.who < y.who
+    end)
+    return out
+end
+
+-- ChatThrottleLib (the copy at work, whoever loaded it): { avail (bytes it may send now), max (bytes a second),
+-- queueing (messages wait) } or nil; and Comm's own: bytes handed over and not sent yet, messages dropped.
+function Perf:Throttle()
+    local ctl = ChatThrottleLib
+    local out = {}
+    if type(ctl) == "table" then
+        out.avail = tonumber(ctl.avail)
+        out.max = tonumber(ctl.MAX_CPS)
+        out.queueing = ctl.bQueueing and true or false
+        out.version = tonumber(ctl.version)
+    end
+    local Comm = ns.Comm
+    if Comm then
+        out.dropped = Comm.stats and Comm.stats.dropped or 0
+        out.backlog = Comm.Backlog and Comm:Backlog() or nil
+    end
+    return out
+end
+
+-- The bundled ChatThrottleLib's version (Libs/AceComm-3.0/ChatThrottleLib.lua): equal to the copy at work's when
+-- DisasterZone's copy (or the same version) is the one sending.
+Perf.ctlOwnVersion = type(ChatThrottleLib) == "table" and tonumber(ChatThrottleLib.version) or nil
 
 ---------------------------------------------------------------------------
 -- What holds memory
