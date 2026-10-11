@@ -16,21 +16,29 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Atlas.lua", ...) then return en
 -- One spacing grid: PAD at the page's sides, GAP between the columns, IN inside rows and cards. The item list's scroll
 -- bar sits in the page's right margin, the sources' over their right padding, the pages' takes room while they scroll.
 -- Model: Core/Atlas.lua (ns.Atlas).
+-- 1.4: a List + detail page in its 3-column form (UI:CreateLayout "listdetail" with a nav column): the toolbar holds
+-- the search (left) and the Show / slot filters (right); nav = the sources, list = the source's pages, detail = the
+-- items; the currency bar sits in the layout's bottom margin. While my lists are locked a notice says so (the +
+-- buttons are gone, as before).
 local addonName, ns = ...
 
 local AtlasUI = {}
 ns.AtlasUI = AtlasUI
 
+local S = ns.Style
+local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pages share)
+
 local ipairs, pairs, type, tonumber, tostring = ipairs, pairs, type, tonumber, tostring
 local floor, ceil, max = math.floor, math.ceil, math.max
 
-local PAD, GAP, IN = 10, 8, 8
-local TOP_Y, CTRL_H = 8, 22                       -- the search / filter row
-local COLS_Y = TOP_Y + CTRL_H + GAP               -- where the three columns start
+local PAD, GAP, IN = S.PAD, S.GAP, S.IN
+local CTRL_H = 22                                 -- the search / filter row (on the toolbar's row)
+local COLS_Y = ns.UI.LAYOUT.TOP                   -- where the three columns start (under the toolbar)
 local LEFT_W, MID_W = 180, 182
-local RIGHT_W = 790 - 2 * PAD - LEFT_W - MID_W - 2 * GAP   -- 392: sizes before the first layout (fixed window)
+local RIGHT_W = S.INNER_W - LEFT_W - MID_W - 2 * GAP   -- 392: sizes before the first layout (fixed window)
 local BAR_H = 30                                  -- the currency bar along the bottom
-local BODY_H = 548 - COLS_Y - PAD - BAR_H - GAP   -- 466
+local BOTTOM = PAD + BAR_H + GAP                  -- the layout's bottom margin: the currency bar's place
+local BODY_H = S.PAGE_H - COLS_Y - BOTTOM         -- 464
 local SLOT_W = 148                                -- the slot filter; Show takes the rest of the item column
 local BANNER_H, ART_FW = 72, 0.5                  -- the source's banner; the share of the loading screen it shows
 local HEAD_H = 26                                 -- a column's title row (one line; taller when its note goes under)
@@ -48,19 +56,17 @@ local MAX_SHOWN = 300                             -- search results drawn at mos
 local DOT = "  ·  "
 local SHOP = "shop"                               -- state.cat of the shopping list (UI/AtlasShop.lua)
 local CLASS_WEAPON, CLASS_ARMOR = 2, 4            -- Enum.ItemClass
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
-local ROW_TEXT = { 0.86, 0.86, 0.86 }
-local GOLD_HEX = "|cffffd100"
+local CARD_BG = S.C.CARD
+local ROW_TEXT = S.C.TEXT
+local GOLD_HEX = S:Hex("GOLD")
 
 -- English names of a weapon / armor subclass, one item's worth ("Main Hand · Dagger", not "Daggers").
 local WEAPON_KIND = { [0] = "Axe", [1] = "Axe", [2] = "Bow", [3] = "Gun", [4] = "Mace", [5] = "Mace", [6] = "Polearm",
                       [7] = "Sword", [8] = "Sword", [10] = "Staff", [13] = "Fist Weapon", [15] = "Dagger",
                       [16] = "Thrown", [18] = "Crossbow", [19] = "Wand", [20] = "Fishing Pole" }
 local ARMOR_KIND = { [6] = "Shield", [7] = "Libram", [8] = "Idol", [9] = "Totem" }
-local STANDINGS = { "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted" }
 
-local panel, searchBox, showDD, slotDD, srcList, pageList, itemList
+local panel, layout, searchBox, showDD, slotDD, srcList, pageList, itemList
 local banner, midHead, itemHead, diffNormal, diffHeroic, curBar
 local state = {
     cat = nil, src = nil, page = nil, heroic = false,
@@ -108,15 +114,12 @@ local function IsCouncil()
 end
 
 local function GuildPhase()
-    local p = ns.Guild and ns.Guild.GetGuildPhase and tonumber(ns.Guild:GetGuildPhase())
-    if p and p >= 1 and p <= (ns.MAX_PHASE or 5) then return math.floor(p) end
+    local p = GearUI.GuildPhase()
+    if p and p >= 1 and p <= (ns.MAX_PHASE or 5) then return p end
     return nil
 end
 
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or ("Slot " .. tostring(sid))
-end
+local SlotLabel = ns.SlotLabel
 
 local function Colorize(text, key)
     return ns.UI:Colorize(text, ns.COLORS and ns.COLORS[key])
@@ -177,7 +180,7 @@ local function NameText(id)
     if name then
         return "|c" .. ns.UI:ColorHex(ns.UI:QualityColor(quality)) .. name .. "|r"
     end
-    return "|cffb0b0b0" .. (A:GetShippedName(id) or "Loading...") .. "|r"
+    return S:Wrap("SUB", A:GetShippedName(id) or "Loading...")
 end
 
 local function Wanted(id)
@@ -203,47 +206,23 @@ local function RefreshMarks()
 end
 
 ---------------------------------------------------------------------------
--- Text: fonts and widths
+-- Text: styles and widths (every text is drawn and measured in a ns.Style text style: UI:Text / UI:TextWidth)
 ---------------------------------------------------------------------------
 
-local function SetFontSize(fs, font, size)
-    fs:SetFontObject(font)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-end
-
-local function NewText(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font)
-    SetFontSize(fs, font, size)
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    return fs
-end
-
--- Width of a text in a font (a hidden FontString): rows whose text needs more get two lines instead of cutting a
--- name off.
-local measureFS
-local function TextWidth(text, font, size)
-    if not measureFS then
-        measureFS = (panel or UIParent):CreateFontString(nil, "OVERLAY", font)
-        measureFS:Hide()
-    end
-    SetFontSize(measureFS, font, size)
-    measureFS:SetText(text or "")
-    return (measureFS:GetStringWidth() or 0) + 1
+-- Width of a text in a style: rows whose text needs more get two lines instead of cutting a name off.
+local function TextWidth(text, style)
+    return ns.UI:TextWidth(text or "", style) + 1
 end
 
 -- The same for a text with colour codes and |T icons (an icon is as wide as the line is high).
-local function CodedWidth(text, font, size)
+local function CodedWidth(text, style)
     local icons = 0
     local s = tostring(text or ""):gsub("|T.-|t", function()
         icons = icons + 1
         return ""
     end)
     s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return TextWidth(s, font, size) + icons * ((size or 12) + 2)
+    return TextWidth(s, style) + icons * (S:Size(style) + 2)
 end
 
 local function StarText(size)
@@ -261,13 +240,9 @@ local function SetChevron(tex, down)
     end
 end
 
-local function Gradient(tex, r, g, b, bottom, top)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient("VERTICAL", CreateColor(r, g, b, bottom), CreateColor(r, g, b, top))
-    else
-        tex:SetColorTexture(r, g, b, (bottom + top) / 2)
-    end
+-- A colour fading from `bottom` (alpha at the foot) to `top` (UI:Gradient, vertical).
+local function Fade(tex, r, g, b, bottom, top)
+    ns.UI:Gradient(tex, "VERTICAL", { r, g, b, bottom }, { r, g, b, top })
 end
 
 ---------------------------------------------------------------------------
@@ -275,8 +250,8 @@ end
 ---------------------------------------------------------------------------
 
 local CHIP_ICON, CHIP_GAP, MAX_CONTEXT = 16, 1, 4
-local CHIP_FONT = 12
-local RED_HEX, GREEN_HEX, YELLOW_HEX = "|cffff5a4f", "|cff4fd36b", "|cffffd100"
+local CHIP_FONT, CHIP_STYLE = 12, "emph"
+local RED_HEX, GREEN_HEX, YELLOW_HEX = S:Hex("BAD"), S:Hex("OK"), S:Hex("GOLD")
 local barKeys = {}       -- the bar's currencies after the pinned ones: what the list shown pays with
 local hoverRow           -- the item row whose cost the bar shows
 
@@ -299,7 +274,7 @@ end
 local function AddCostLines(tt, parts, from)
     local C = Cur()
     tt:AddLine(" ")
-    tt:AddLine("Cost", 1, 0.82, 0)
+    tt:AddLine("Cost", S:Color("GOLD"))
     for _, c in ipairs((C:Check(parts))) do
         local left = (c.key == C.MONEY and "" or (C:IconMarkup(c.key, 14) .. " ")) .. AmountName(C, c.key, c.n)
         local right
@@ -317,19 +292,17 @@ local function AddCostLines(tt, parts, from)
     end
 end
 
-local function ChipTooltip(chip)
+local function ChipTooltip(chip, tt)
     local C, key = Cur(), chip.key
-    if not (C and key) then return end
-    GameTooltip:SetOwner(chip, "ANCHOR_TOP")
-    GameTooltip:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), 1, 0.82, 0)
+    if not (C and key) then return false end
+    tt:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), S:Color("GOLD"))
     local total, bags = C:Have(key)
-    GameTooltip:AddDoubleLine("You have", C:AmountText(key, total, 12), 0.8, 0.8, 0.8, 1, 1, 1)
+    tt:AddDoubleLine("You have", C:AmountText(key, total, 12), 0.8, 0.8, 0.8, 1, 1, 1)
     if total > bags then
-        GameTooltip:AddDoubleLine("Of that in your bank", C:AmountText(key, total - bags, 12), 0.8, 0.8, 0.8, 1, 1, 1)
+        tt:AddDoubleLine("Of that in your bank", C:AmountText(key, total - bags, 12), 0.8, 0.8, 0.8, 1, 1, 1)
     end
     local most = C:Max(key)
-    if most then GameTooltip:AddDoubleLine("The most you can hold", C:Number(most), 0.8, 0.8, 0.8, 1, 1, 1) end
-    GameTooltip:Show()
+    if most then tt:AddDoubleLine("The most you can hold", C:Number(most), 0.8, 0.8, 0.8, 1, 1, 1) end
 end
 
 local function CreateChip(parent)
@@ -346,7 +319,8 @@ local function CreateChip(parent)
     chip.line:Hide()
     local hl = chip:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    Gradient(hl, 1, 1, 1, 0.06, 0)
+    local wr, wg, wb = S:Color("HOVER")      -- (white: a lift that fades up)
+    Fade(hl, wr, wg, wb, 0.06, 0)
     -- the icon in a thin dark frame, like an item slot
     chip.frame = chip:CreateTexture(nil, "BORDER")
     chip.frame:SetSize(CHIP_ICON + 2, CHIP_ICON + 2)
@@ -355,16 +329,14 @@ local function CreateChip(parent)
     chip.icon = chip:CreateTexture(nil, "ARTWORK")
     chip.icon:SetSize(CHIP_ICON, CHIP_ICON)
     chip.icon:SetPoint("CENTER", chip.frame, "CENTER", 0, 0)
-    chip.amount = NewText(chip, "GameFontHighlightSmall", CHIP_FONT)
-    chip.amount:SetTextColor(0.93, 0.9, 0.82)
+    chip.amount = ns.UI:Text(chip, CHIP_STYLE, { 0.93, 0.9, 0.82 })
     chip.amount:SetPoint("LEFT", chip.frame, "RIGHT", 6, 0)
     -- a faint rule on the chip's right: the gap to the next one
     chip.sep = chip:CreateTexture(nil, "ARTWORK")
     chip.sep:SetSize(1, BAR_H - 14)
     chip.sep:SetPoint("LEFT", chip, "RIGHT", 0, 0)
-    chip.sep:SetColorTexture(1, 1, 1, 0.07)
-    chip:SetScript("OnEnter", ChipTooltip)
-    chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    chip.sep:SetColorTexture(S:Color("HAIRLINE"))
+    ns.UI:AttachTooltip(chip, ChipTooltip, nil, { anchor = "ANCHOR_TOP" })
     return chip
 end
 
@@ -383,9 +355,8 @@ local function BarShowCost(d)
             chip.bg:SetColorTexture(1, 1, 1, 0)
             chip.line:Hide()
         else
-            local r, g, b = 0.3, 0.85, 0.4
-            if c.short > 0 then r, g, b = 1, 0.35, 0.3 end
-            Gradient(chip.bg, r, g, b, 0.16, 0)
+            local r, g, b = S:Color(c.short > 0 and "BAD" or "OK")
+            Fade(chip.bg, r, g, b, 0.16, 0)
             chip.line:SetColorTexture(r, g, b, 0.85)
             chip.line:Show()
         end
@@ -438,7 +409,7 @@ local function LayoutBar()
         end
         -- the rule between pinned and context currencies stands in for the chip's own
         chip.sep:SetShown(i ~= pinned and i ~= #keys)
-        local w = (money and 8 or (7 + CHIP_ICON + 2 + 6)) + ceil(CodedWidth(text, "GameFontHighlightSmall", CHIP_FONT)) + 12
+        local w = (money and 8 or (7 + CHIP_ICON + 2 + 6)) + ceil(CodedWidth(text, CHIP_STYLE)) + 12
         chip:ClearAllPoints()
         chip:SetPoint("LEFT", curBar, "LEFT", x, 0)
         chip:SetWidth(w)
@@ -495,7 +466,7 @@ local function SetTotal(items)
     local parts = {}
     for i, k in ipairs(order) do parts[i] = { key = k, n = sum[k] } end
     local amounts = C:CostText(parts, 12)
-    return "|cff9a9aa0" .. (owned > 0 and "Still to buy" or "Set") .. "|r  " .. amounts, amounts
+    return S:Wrap("SUB", owned > 0 and "Still to buy" or "Set") .. "  " .. amounts, amounts
 end
 
 -- A set page (one class's sets, a header per set): each header gets its set's total (row.cost / row.costShort);
@@ -525,17 +496,13 @@ local function CreateCurrencyBar(parent)
     -- no box: a dark shade fading up into the panel under one hairline, gold in the middle and gone at the ends
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints()
-    Gradient(bar.bg, CARD_BG[1] * 0.6, CARD_BG[2] * 0.6, CARD_BG[3] * 0.6, 0.85, 0.35)
+    Fade(bar.bg, CARD_BG[1] * 0.6, CARD_BG[2] * 0.6, CARD_BG[3] * 0.6, 0.85, 0.35)
     local function hairline(l, r, a0, a1)
         local t = bar:CreateTexture(nil, "BORDER")
         t:SetHeight(1)
         t:SetPoint("TOPLEFT", bar, l, 0, 0)
         t:SetPoint("TOPRIGHT", bar, r, 0, 0)
-        t:SetColorTexture(1, 0.82, 0.35, (a0 + a1) / 2)
-        if t.SetGradient and CreateColor then
-            t:SetColorTexture(1, 1, 1, 1)
-            t:SetGradient("HORIZONTAL", CreateColor(1, 0.82, 0.35, a0), CreateColor(1, 0.82, 0.35, a1))
-        end
+        ns.UI:Gradient(t, "HORIZONTAL", { 1, 0.82, 0.35, a0 }, { 1, 0.82, 0.35, a1 })
     end
     hairline("TOPLEFT", "TOP", 0, 0.35)
     hairline("TOP", "TOPRIGHT", 0.35, 0)
@@ -625,33 +592,21 @@ end
 
 local function SetupListRow(row)
     row.cdl = true
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
-    row.sel = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.sel:SetAllPoints()
-    row.sel:SetColorTexture(1, 0.82, 0, 0.10)
-    row.selBar = row:CreateTexture(nil, "ARTWORK")
-    row.selBar:SetWidth(2)
-    row.selBar:SetPoint("TOPLEFT")
-    row.selBar:SetPoint("BOTTOMLEFT")
-    row.selBar:SetColorTexture(1, 0.82, 0, 0.9)
+    ns.UI:DecorateRow(row, { selectable = true })   -- (hover, and the picked look: row:SetSelected)
     row.chev = row:CreateTexture(nil, "ARTWORK")
     row.chev:SetSize(10, 10)
     row.chev:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
     row.chev:SetTexture(ns.UI.ICON_ATLAS)
     row.chev:SetVertexColor(0.55, 0.55, 0.58)
-    row.label = NewText(row, "GameFontHighlight", 11)
+    row.label = ns.UI:Text(row, "body", "TEXT")
     if row.label.SetMaxLines then row.label:SetMaxLines(2) end
-    row.tag = NewText(row, "GameFontDisableSmall", 10)
-    row.tag:SetJustifyH("RIGHT")
+    row.tag = ns.UI:Text(row, "small", "DIM", { justify = "RIGHT" })
     row.tag:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
     row:RegisterForClicks("LeftButtonUp")
 end
 
 local function SetRowSelected(row, on)
-    row.sel:SetShown(on)
-    row.selBar:SetShown(on)
+    row:SetSelected(on)
     if on then
         row.label:SetTextColor(1, 1, 1)
     else
@@ -684,7 +639,7 @@ local function InitShopRow(row)
     local on = not IsSearching() and state.cat == SHOP
     row.bag:Show()
     row.chev:Hide()
-    SetFontSize(row.label, "GameFontNormal", 12)
+    ns.UI:SetTextStyle(row.label, "emph", "GOLD")
     row.label:SetWordWrap(false)
     row.label:SetPoint("LEFT", row, "LEFT", IN + 20, 0)
     row.label:SetWidth(rowW.src - IN - 20 - SRC_R - TAG_W)
@@ -693,10 +648,9 @@ local function InitShopRow(row)
     row.tag:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
     row.tag:SetWidth(TAG_W + 6)
     row.tag:SetText(n > 0 and ("|cffcfcfcf" .. n .. "|r") or "")
-    row.sel:SetShown(on)
-    row.selBar:SetShown(on)
+    row:SetSelected(on)
     if n > 0 or on then
-        row.label:SetTextColor(1, 0.82, 0)
+        row.label:SetTextColor(S:Color("GOLD"))
         row.bag:SetVertexColor(on and 1 or 0.9, on and 0.82 or 0.9, on and 0 or 0.9)
     else
         row.label:SetTextColor(0.55, 0.55, 0.58)
@@ -721,18 +675,16 @@ local function InitSourceRow(row, d)
     row.tag:ClearAllPoints()
     row.tag:SetPoint("RIGHT", row, "RIGHT", -SRC_R, 0)
     if cat then
-        SetFontSize(row.label, "GameFontNormal", 12)
+        ns.UI:SetTextStyle(row.label, "emph", "GOLD")
         row.label:SetWordWrap(false)
         row.label:SetPoint("LEFT", row, "LEFT", IN, 0)
         row.label:SetWidth(w - IN - SRC_R - 14)
         row.label:SetText(d.cat.name)
         SetChevron(row.chev, d.expanded)
         row.tag:SetText("")
-        row.sel:Hide()
-        row.selBar:Hide()
-        row.label:SetTextColor(1, 0.82, 0)
+        row:SetSelected(false)
     else
-        SetFontSize(row.label, "GameFontHighlight", 11)
+        ns.UI:SetTextStyle(row.label, "body", "TEXT")
         row.label:SetWordWrap(true)
         row.label:SetPoint("LEFT", row, "LEFT", SRC_X, 0)
         row.label:SetWidth(w - SRC_X - SRC_R - (PhaseTag(d.src) and TAG_W or 0))
@@ -752,24 +704,21 @@ local function InitSourceRow(row, d)
     end)
 end
 
-local function PageTooltip(row)
+local function PageTooltip(row, tt)
     local d = row.__cdlData
     local n = d and d.type == "page" and PickCount(d.page) or 0
-    if n <= 0 then return end
-    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(d.page.name or "?")
-    GameTooltip:AddLine(n == 1 and "1 item here is on your BiS list" or (n .. " items here are on your BiS list"), 1, 1, 1)
-    GameTooltip:Show()
+    if n <= 0 then return false end
+    tt:AddLine(d.page.name or "?", S:Color("GOLD"))
+    tt:AddLine(n == 1 and "1 item here is on your BiS list" or (n .. " items here are on your BiS list"), 1, 1, 1)
 end
 
 local function InitPageRow(row, d)
     if not row.cdl then
         SetupListRow(row)
-        row:SetScript("OnEnter", PageTooltip)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        ns.UI:AttachTooltip(row, PageTooltip)
     end
     row.chev:Hide()
-    SetFontSize(row.label, "GameFontHighlight", 11)
+    ns.UI:SetTextStyle(row.label, "body", "TEXT")
     row.label:SetWordWrap(true)
     row.label:ClearAllPoints()
     row.label:SetPoint("LEFT", row, "LEFT", IN, 0)
@@ -805,12 +754,12 @@ local function SourceExtent(d)
     if d.type == "cat" then return ROW_CAT end
     if d.type == "shop" then return ROW_CAT end
     local w = rowW.src - SRC_X - SRC_R - (PhaseTag(d.src) and TAG_W or 0)
-    return TextWidth(d.src.name, "GameFontHighlight", 11) > w and ROW_TWO or ROW_SRC
+    return TextWidth(d.src.name, "body") > w and ROW_TWO or ROW_SRC
 end
 
 local function PageExtent(d)
     local w = rowW.page - 2 * IN - COUNT_W
-    return TextWidth(d.type == "facet" and d.name or d.page.name, "GameFontHighlight", 11) > w and ROW_TWO or ROW_PAGE
+    return TextWidth(d.type == "facet" and d.name or d.page.name, "body") > w and ROW_TWO or ROW_PAGE
 end
 
 ---------------------------------------------------------------------------
@@ -911,12 +860,12 @@ local function Layout(d)
         -- a set's header: its total at the right (the amounts alone when the words don't fit), the name on two
         -- lines rather than cut
         local avail = rowW.item - 2 * IN
-        local tw = TextWidth(d.text or "", "GameFontNormal", 12)
+        local tw = TextWidth(d.text or "", "emph")
         lay.cost = d.cost
-        local cw = d.cost and (ceil(CodedWidth(d.cost, "GameFontHighlightSmall", 10)) + 12) or 0
+        local cw = d.cost and (ceil(CodedWidth(d.cost, "small")) + 12) or 0
         if cw > 0 and tw + cw > avail and d.costShort then
             lay.cost = d.costShort
-            cw = ceil(CodedWidth(d.costShort, "GameFontHighlightSmall", 10)) + 12
+            cw = ceil(CodedWidth(d.costShort, "small")) + 12
         end
         lay.costW = cw
         lay.headW = avail - cw
@@ -934,15 +883,15 @@ local function Layout(d)
     lay.textX = lay.iconX + lay.icon + 9
     lay.lines = RightLines(d)
     local rw = 0
-    for _, l in ipairs(lay.lines) do rw = max(rw, CodedWidth(l, "GameFontHighlightSmall", 10)) end
+    for _, l in ipairs(lay.lines) do rw = max(rw, CodedWidth(l, "small")) end
     lay.rightW = rw > 0 and (ceil(rw) + 2) or 0
     lay.canAdd = CanAdd(id)
     lay.canShop = ns.Shop ~= nil and ns.Shop:CanAdd(id)
     lay.textW = rowW.item - lay.textX - IN - (lay.canAdd and (PLUS + 8) or 0) - (lay.canShop and (PLUS + 6) or 0)
         - (rw > 0 and (lay.rightW + 10) or 0)
     lay.sub = SubText(d)
-    lay.nameLines = CodedWidth(NameText(id), "GameFontHighlight", 12) > lay.textW and 2 or 1
-    lay.subLines = (lay.sub == "" and 0) or (TextWidth(lay.sub, "GameFontDisableSmall", 10) > lay.textW and 2) or 1
+    lay.nameLines = CodedWidth(NameText(id), "emph") > lay.textW and 2 or 1
+    lay.subLines = (lay.sub == "" and 0) or (TextWidth(lay.sub, "small") > lay.textW and 2) or 1
     lay.h = 8 + lay.nameLines * NAME_LH + max(lay.subLines, 1) * SUB_LH - (d.via and 2 or 0)
     return lay
 end
@@ -970,7 +919,8 @@ local function RowTooltip(row)
             AddCostLines(tt, parts, from)
         elseif d.x then
             tt:AddLine(" ")
-            tt:AddLine(d.x, 1, 0.82, 0, true)
+            local gr, gg, gb = S:Color("GOLD")
+            tt:AddLine(d.x, gr, gg, gb, true)
         end
         if d.loc then
             tt:AddLine(" ")
@@ -1059,26 +1009,19 @@ local function SetupItemRow(row)
     local UI = ns.UI
     row.cdl = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    -- (the hover look is drawn by SetRowHover: the + and bag buttons keep it while the cursor is on them)
     row.hover = row:CreateTexture(nil, "BACKGROUND", nil, 0)
     row.hover:SetAllPoints()
-    row.hover:SetColorTexture(1, 1, 1, 0.05)
+    row.hover:SetColorTexture(S:Color("HOVER"))
     row.hover:Hide()
-    row.sel = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.sel:SetAllPoints()
-    row.sel:SetColorTexture(1, 0.82, 0, 0.12)
-    row.selBar = row:CreateTexture(nil, "ARTWORK")
-    row.selBar:SetWidth(2)
-    row.selBar:SetPoint("TOPLEFT")
-    row.selBar:SetPoint("BOTTOMLEFT")
-    row.selBar:SetColorTexture(1, 0.82, 0, 0.9)
+    UI:DecorateRow(row, { hover = false, selectable = true })   -- (a search result jumped to: row:SetSelected)
 
     -- section headers (a set per spec) and the "showing the first ..." note
-    row.header = NewText(row, "GameFontNormal", 12)
+    row.header = UI:Text(row, "emph", "GOLD")
     row.header:SetPoint("LEFT", row, "LEFT", IN, 0)
     if row.header.SetMaxLines then row.header:SetMaxLines(2) end
     -- a set header's total, at the right on the name's last line
-    row.headCost = NewText(row, "GameFontHighlightSmall", 10)
-    row.headCost:SetJustifyH("RIGHT")
+    row.headCost = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
     row.headCost:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -IN, 8)
     row.headCost:Hide()
 
@@ -1087,18 +1030,16 @@ local function SetupItemRow(row)
     -- the guide line from an item down to what it gives / comes from (the indented rows under it)
     row.guide = row:CreateTexture(nil, "ARTWORK")
     row.guide:SetWidth(2)
-    row.guide:SetColorTexture(1, 0.82, 0, 0.55)
+    local gr, gg, gb = S:Color("GOLD")
+    row.guide:SetColorTexture(gr, gg, gb, 0.55)
 
-    row.name = NewText(row, "GameFontHighlight", 12)
+    row.name = UI:Text(row, "emph", "TEXT")
     if row.name.SetMaxLines then row.name:SetMaxLines(2) end
-    row.sub = NewText(row, "GameFontDisableSmall", 10)
-    row.sub:SetTextColor(0.62, 0.62, 0.62)
+    row.sub = UI:Text(row, "small", "SUB")
     if row.sub.SetMaxLines then row.sub:SetMaxLines(2) end
     -- the right: one or two lines (cost / skill, my marks, the council's count)
-    row.mark = NewText(row, "GameFontHighlightSmall", 10)
-    row.mark:SetJustifyH("RIGHT")
-    row.mark2 = NewText(row, "GameFontHighlightSmall", 10)
-    row.mark2:SetJustifyH("RIGHT")
+    row.mark = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
+    row.mark2 = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
 
     -- the + (hover): add to my BiS list
     local plus = UI:CreateSleekButton(row, "", PLUS, PLUS, function(self) ShowAddMenu(self, row.__cdlData) end)
@@ -1110,17 +1051,11 @@ local function SetupItemRow(row)
         t:SetColorTexture(0.92, 0.92, 0.92, 1)
         plus[i == 1 and "barH" or "barV"] = t
     end
-    plus:SetScript("OnEnter", function(self)
-        SetRowHover(row, true)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Add to your BiS list")
-        GameTooltip:AddLine("Pick the phase, then best or alt.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
+    plus:SetScript("OnEnter", function() SetRowHover(row, true) end)
     plus:SetScript("OnLeave", function()
-        GameTooltip:Hide()
         if not row:IsMouseOver() then SetRowHover(row, false) end
     end)
+    UI:AttachTooltip(plus, "Add to your BiS list", "Pick the phase, then best or alt.")
     plus:Hide()
     row.plus = plus
 
@@ -1167,17 +1102,16 @@ local function InitItemRow(row, d)
     row.header:SetShown(not item)
     if not item then
         row.guide:Hide()
-        row.sel:Hide()
-        row.selBar:Hide()
+        row:SetSelected(false)
         SetRowHover(row, false)
         row.header:ClearAllPoints()
         if d.type == "more" then
-            SetFontSize(row.header, "GameFontDisableSmall", 10)
+            ns.UI:SetTextStyle(row.header, "small", "DIM")
             row.header:SetWordWrap(true)
             row.header:SetPoint("LEFT", row, "LEFT", IN, 0)
             row.header:SetWidth(rowW.item - 2 * IN)
         else
-            SetFontSize(row.header, "GameFontNormal", 12)
+            ns.UI:SetTextStyle(row.header, "emph", "GOLD")
             row.header:SetWordWrap((lay.headLines or 1) > 1)
             row.header:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", IN, 7)
             row.header:SetWidth(lay.headW or (rowW.item - 2 * IN))
@@ -1227,9 +1161,7 @@ local function InitItemRow(row, d)
     row.mark:SetText(lay.lines[1] or "")
     row.mark2:SetWidth(max(lay.rightW, 1))
     row.mark2:SetText(lay.lines[2] or "")
-    local on = state.selected ~= nil and id == state.selected
-    row.sel:SetShown(on)
-    row.selBar:SetShown(on)
+    row:SetSelected(state.selected ~= nil and id == state.selected)
     SetRowHover(row, row:IsMouseOver() and true or false)
 end
 
@@ -1259,7 +1191,7 @@ local function AddPhaseChoices(sub, targets, phase, list, later)
                 local main, alt = BiS:GetSlot(phase, sid, list)
                 local cur = which == "main" and main or alt
                 local text = prefix .. (which == "main" and "As best" or "As alt")
-                if cur == t.itemID then text = text .. "  |cff808080(already)|r" end
+                if cur == t.itemID then text = text .. "  " .. S:Wrap("DIM", "(already)") end
                 local b = sub:CreateButton(text, function()
                     local n = A:AddToBiS(t.itemID, sid, which, phase, list, later)
                     if n > 0 then
@@ -1287,7 +1219,7 @@ local function AddPhaseEntries(sub, targets, list)
     for _, p in ipairs(ns.LIST_PHASES or { 1, 2, 3, 4, 5 }) do
         local info = ns.PHASE_INFO and ns.PHASE_INFO[p]
         local label = info and info.name or ("Phase " .. p)
-        if p == now then label = label .. "  |cff808080(now)|r" end
+        if p == now then label = label .. "  " .. S:Wrap("DIM", "(now)") end
         local onList = false
         for _, t in ipairs(targets) do
             local mk = marks[t.itemID]
@@ -1304,7 +1236,7 @@ local function AddPhaseEntries(sub, targets, list)
         local later = sub:CreateButton(("Phase %d and later"):format(from))
         if later.SetTooltip then
             later:SetTooltip(function(tooltip)
-                tooltip:AddLine(("Phase %d and later"):format(from), 1, 0.82, 0)
+                tooltip:AddLine(("Phase %d and later"):format(from), S:Color("GOLD"))
                 tooltip:AddLine(("Sets it in P%d, and in every later phase where that place is still empty."):format(from), 1, 1, 1, true)
             end)
         end
@@ -1393,8 +1325,9 @@ end
 ---------------------------------------------------------------------------
 
 local function ColH()
+    -- (a layout region has a 1 x 1 placeholder size until the client lays it out)
     local h = panel and panel.body and panel.body:GetHeight()
-    return (h and h > 0) and h or BODY_H
+    return (h and h > 1) and h or BODY_H
 end
 
 -- A list's rows fill its column. Its scroll bar: "margin" = in the page's right margin, 4 right of the rows (the
@@ -1461,7 +1394,6 @@ local function VisiblePages(src)
 end
 
 -- The loading screen behind a raid's or dungeon's banner: file, l, r, t, b (nil for other sources).
-local raidInst   -- [instance map id] = the raid planner's key (its loading-screen crop)
 local function BannerArt(src, w, h)
     if type(src) ~= "table" then return nil end
     if src.kind == "dungeon" then
@@ -1470,16 +1402,9 @@ local function BannerArt(src, w, h)
         return nil
     end
     if src.kind ~= "raid" then return nil end
-    local PlanUI = ns.RaidPlanUI
-    if not (PlanUI and PlanUI.RaidArt) then return nil end
-    if not raidInst then
-        raidInst = {}
-        local RP = ns.RaidPlan
-        for _, inst in ipairs((RP and RP.GetInstances and RP:GetInstances()) or {}) do
-            if inst.instID then raidInst[inst.instID] = inst.key end
-        end
-    end
-    return PlanUI:RaidArt(raidInst[src.instanceID or 0] or "other", w, h, ART_FW)
+    local DB = ns.ItemDB
+    local key = DB and DB.GetRaidByInstance and DB:GetRaidByInstance(src.instanceID or 0)
+    return DB:RaidArt(key or "other", w, h, ART_FW)
 end
 
 -- "10 players", "You're Revered" (a faction: its pages are the standings). The phase is beside the source already.
@@ -1489,7 +1414,7 @@ local function SourceSub(src)
     if src.factionID and GetFactionInfoByID then
         local name, _, standing = GetFactionInfoByID(src.factionID)
         standing = tonumber(standing)
-        local label = standing and (_G["FACTION_STANDING_LABEL" .. standing] or STANDINGS[standing])
+        local label = standing and GearUI.StandingName(standing)
         if name and type(label) == "string" and label ~= "" then sub[#sub + 1] = "You're " .. label end
     end
     return table.concat(sub, DOT)
@@ -1502,7 +1427,7 @@ local function FillBanner(src, subText, file, l, r, t, b)
     local title = src.name or ""
     bn.title:SetText(title)
     bn.title:SetWidth(w)
-    bn.title:SetWordWrap(TextWidth(title, "GameFontHighlight", 14) > w)
+    bn.title:SetWordWrap(TextWidth(title, "title") > w)
     bn.sub:SetText(subText)
     bn.sub:SetWidth(w)
     bn.sub:SetShown(subText ~= "")
@@ -1525,8 +1450,8 @@ local function FillHead(h, width, title, note)
     h.count:SetText(note)
     h.count:SetShown(note ~= "")
     local inner = width - 2 * IN
-    local nw = note ~= "" and CodedWidth(note, "GameFontDisableSmall", 10) or 0
-    local tw = TextWidth(title, "GameFontNormal", 14)
+    local nw = note ~= "" and CodedWidth(note, "small") or 0
+    local tw = TextWidth(title, "title")
     local one = tw + (nw > 0 and (nw + 12) or 0) <= inner
     h.title:ClearAllPoints()
     h.count:ClearAllPoints()
@@ -1698,6 +1623,29 @@ function SearchResults()
     return searchCache
 end
 
+-- The item list's empty state: the illustrated one (title + text) and, under it, the same text as the plain line.
+local function ItemsEmpty(title, text)
+    itemList:SetEmptyText(text)
+    local same = text == title or text == title .. "."
+    itemList:SetEmptyState({ glyph = ns.UI.ICON.notes, title = title, text = (not same) and text or nil })
+end
+
+-- While my BiS lists are locked (§38) a notice above the columns says why the + buttons are gone (display only:
+-- CanAdd / the menus decide as before).
+local lockNoticeOn = false
+local function UpdateLockNotice()
+    if not layout then return end
+    if listLocked then
+        local _, info = ns.UI:IsMyListLocked()
+        layout:ShowNotice("locked", "BiS lists are locked by " .. ns.UI:LockByText(info)
+            .. " during the raid: you can browse, but not add to your list.")
+        lockNoticeOn = true
+    elseif lockNoticeOn then
+        layout:HideNotice()
+        lockNoticeOn = false
+    end
+end
+
 function AtlasUI:RefreshItems(resetScroll)
     if not itemList then return end
     if ShowingShop() then
@@ -1714,8 +1662,9 @@ function AtlasUI:RefreshItems(resetScroll)
     wantCache = {}
     layCache = {}
     listLocked = ns.UI:IsMyListLocked() and true or false
+    UpdateLockNotice()
     local w = panel.right and panel.right:GetWidth()
-    rowW.item = (w and w > 0) and w or RIGHT_W
+    rowW.item = (w and w > 1) and w or (layout and layout.detailW) or RIGHT_W
     local rows, count = {}, 0
     local title, sub = "", ""
     if IsSearching() then
@@ -1737,7 +1686,7 @@ function AtlasUI:RefreshItems(resetScroll)
         end
         -- (the counts are beside "Found in")
         title = facetName or "All results"
-        itemList:SetEmptyText(Filtered()
+        ItemsEmpty("No matches", Filtered()
             and "Nothing matches with these filters. Try Show: All items, or Any slot."
             or "No item has that name.")
     else
@@ -1756,11 +1705,11 @@ function AtlasUI:RefreshItems(resetScroll)
             local total = src.kind == "sets" and SetTotals(rows)
             if total then note[#note + 1] = total end
             sub = table.concat(note, DOT)
-            itemList:SetEmptyText(Filtered()
+            ItemsEmpty("Nothing here", Filtered()
                 and "Nothing here passes the filters. Try Show: All items, or Any slot."
                 or "Nothing here.")
         else
-            itemList:SetEmptyText("Pick a source on the left.")
+            ItemsEmpty("Pick a source", "Pick a source on the left.")
         end
     end
     local headH = (title ~= "") and FillHead(itemHead, rowW.item, title, sub) or 0
@@ -1876,44 +1825,42 @@ end
 -- Panel
 ---------------------------------------------------------------------------
 
+-- The source's banner (a raid's or dungeon's loading screen, its name and sub line over the dark bottom).
+-- TODO(refactor): move into UI:CreatePageBanner (a column-wide "card" size: 72 high, a 2-line title, the art's crop
+-- given as file + coords) - the page banner's sizes are the page's, too tall for a 182 px column.
 local function CreateBanner(parent)
     local UI = ns.UI
     local b = CreateFrame("Frame", nil, parent)
     b:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     b:SetSize(MID_W, BANNER_H)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
+    b.bg = UI:Fill(b, "CARD")
     b.art = b:CreateTexture(nil, "ARTWORK", nil, 0)
     b.art:SetPoint("TOPLEFT", 1, -1)
     b.art:SetPoint("BOTTOMRIGHT", -1, 1)
     -- dark at the bottom (under the name), the art showing above
     b.shade = b:CreateTexture(nil, "ARTWORK", nil, 1)
     b.shade:SetAllPoints(b.art)
-    Gradient(b.shade, 0.035, 0.035, 0.043, 0.92, 0.2)
+    Fade(b.shade, 0.035, 0.035, 0.043, 0.92, 0.2)
     UI:AddEdges(b, "BORDER")
-    UI:SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
-    b.sub = NewText(b, "GameFontHighlightSmall", 10)
-    b.sub:SetTextColor(0.8, 0.8, 0.8)
+    UI:SetEdgeColor(b, S:Color("EDGE"))
+    b.sub = UI:Text(b, "small", { 0.8, 0.8, 0.8 })
     b.sub:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", IN, 8)
-    b.title = NewText(b, "GameFontHighlight", 14)
+    b.title = UI:Text(b, "title", "TEXT")
     if b.title.SetMaxLines then b.title:SetMaxLines(2) end
     return b
 end
 
+-- A column's title row: the title (gold), a quiet note, a rule under it (FillHead lays it out).
+-- (UI:CreateSectionHeader has the look but not the note that goes under a long title: FillHead keeps that.)
 local function CreateHead(parent)
+    local UI = ns.UI
     local h = CreateFrame("Frame", nil, parent)
     h:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     h:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
     h:SetHeight(HEAD_H)
-    h.title = NewText(h, "GameFontNormal", 14)
-    h.count = NewText(h, "GameFontDisableSmall", 10)
-    h.count:SetJustifyH("RIGHT")
-    h.rule = h:CreateTexture(nil, "ARTWORK")
-    h.rule:SetHeight(1)
-    h.rule:SetPoint("BOTTOMLEFT")
-    h.rule:SetPoint("BOTTOMRIGHT")
-    h.rule:SetColorTexture(1, 1, 1, 0.12)
+    h.title = UI:Text(h, "title", "GOLD")
+    h.count = UI:Text(h, "small", "DIM", { justify = "RIGHT" })
+    h.rule = UI:Rule(h, { bottom = 0, alpha = 0.12 })
     h:Hide()
     return h
 end
@@ -1923,9 +1870,14 @@ function AtlasUI:CreatePanel(parent)
     local UI = ns.UI
     panel = CreateFrame("Frame", nil, parent)
     panel:SetAllPoints(parent)
+    -- (List + detail, 3 columns: nav = the sources, list = the pages, detail = the items)
+    layout = UI:CreateLayout("listdetail", panel, { navWidth = LEFT_W, listWidth = MID_W, banner = false,
+                                                    bottom = BOTTOM })
+    panel.layout = layout
+    local bar = layout.toolbar
 
-    -- top row: the search over the first two columns, the filters over the item column
-    searchBox = UI:CreateSearchBox(panel, LEFT_W + GAP + MID_W, function(text)
+    -- the toolbar: the search over the first two columns, the filters over the item column
+    searchBox = UI:CreateSearchBox(bar, LEFT_W + GAP + MID_W, function(text)
         state.search = text or ""
         state.selected = nil
         state.facet = nil
@@ -1934,63 +1886,44 @@ function AtlasUI:CreatePanel(parent)
         AtlasUI:RefreshItems(true)
     end, "Search every item by name")
     searchBox:SetHeight(CTRL_H)
-    searchBox:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -TOP_Y)
+    searchBox:SetPoint("LEFT", bar, "TOPLEFT", PAD, -UI.LAYOUT.ROW_MID)
     searchBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 
-    slotDD = UI:CreateSleekDropdown(panel, SLOT_W, SlotOptions, function() return state.slot end, function(v)
+    slotDD = UI:CreateSleekDropdown(bar, SLOT_W, SlotOptions, function() return state.slot end, function(v)
         state.slot = v
         AtlasUI:RefreshPages()
         AtlasUI:RefreshItems(true)
     end)
     slotDD:SetHeight(CTRL_H)
-    slotDD:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PAD, -TOP_Y)
 
-    showDD = UI:CreateSleekDropdown(panel, RIGHT_W - SLOT_W - GAP, function() return Atlas():GetShowOptions() end,
-        ShowMode, function(v)
+    showDD = UI:CreateSleekDropdown(bar, RIGHT_W - SLOT_W - UI.LAYOUT.CTRL_GAP,
+        function() return Atlas():GetShowOptions() end, ShowMode, function(v)
             SetShowMode(v)
             AtlasUI:RefreshPages()
             AtlasUI:RefreshItems(true)
         end)
     showDD:SetHeight(CTRL_H)
-    showDD:SetPoint("RIGHT", slotDD, "LEFT", -GAP, 0)
+    bar:SetFilters({ showDD, slotDD })
     -- "Show" inside the dropdown, in front of the choice
-    local showLabel = NewText(showDD, "GameFontDisableSmall", 10)
-    showLabel:SetText("Show")
+    local showLabel = UI:Text(showDD, "small", "DIM", { text = "Show" })
     showLabel:SetPoint("LEFT", showDD, "LEFT", 8, 0)
     local fs = showDD:GetFontString()
     if fs then
         fs:ClearAllPoints()
-        fs:SetPoint("LEFT", showDD, "LEFT", 8 + ceil(TextWidth("Show", "GameFontDisableSmall", 10)) + 6, 0)
+        fs:SetPoint("LEFT", showDD, "LEFT", 8 + ceil(TextWidth("Show", "small")) + 6, 0)
         fs:SetPoint("RIGHT", showDD, "RIGHT", -20, 0)
     end
 
-    -- the columns, the currency bar under them
-    local body = CreateFrame("Frame", nil, panel)
-    body:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, -COLS_Y)
-    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD + BAR_H + GAP)
-    panel.body = body
+    -- the columns (the layout's), the currency bar under them (in the layout's bottom margin)
+    panel.body = layout.content
 
     curBar = CreateCurrencyBar(panel)
     curBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PAD, PAD)
     curBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD)
     panel.currencyBar = curBar
 
-    local left = CreateFrame("Frame", nil, body)
-    left:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
-    left:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
-    left:SetWidth(LEFT_W)
-    panel.left = left
-
-    local mid = CreateFrame("Frame", nil, body)
-    mid:SetPoint("TOPLEFT", left, "TOPRIGHT", GAP, 0)
-    mid:SetPoint("BOTTOMLEFT", left, "BOTTOMRIGHT", GAP, 0)
-    mid:SetWidth(MID_W)
-    panel.mid = mid
-
-    local right = CreateFrame("Frame", nil, body)
-    right:SetPoint("TOPLEFT", mid, "TOPRIGHT", GAP, 0)
-    right:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
-    panel.right = right
+    local left, mid, right = layout.nav, layout.list, layout.detail
+    panel.left, panel.mid, panel.right = left, mid, right
 
     srcList = UI:CreateScrollList(left, ROW_SRC, InitSourceRow, SourceExtent)
     srcList.frame:SetAllPoints(left)
@@ -2026,9 +1959,8 @@ function AtlasUI:CreatePanel(parent)
 
     -- the shopping list: the other two columns while it's picked
     if ns.AtlasShopUI then
-        ns.AtlasShopUI:Create({ NewText = NewText, TextWidth = TextWidth, CodedWidth = CodedWidth,
-                                CreateHead = CreateHead, FillHead = FillHead, NameText = NameText, HEAD_H = HEAD_H },
-            mid, right)
+        ns.AtlasShopUI:Create({ TextWidth = TextWidth, CodedWidth = CodedWidth, CreateHead = CreateHead,
+                                FillHead = FillHead, NameText = NameText, HEAD_H = HEAD_H }, mid, right)
     end
 
     panel:SetScript("OnShow", function(self)
@@ -2096,7 +2028,8 @@ end
 ---------------------------------------------------------------------------
 
 if ns.MainFrame and ns.MainFrame.RegisterTab then
-    ns.MainFrame:RegisterTab("atlas", "Atlas", 1.5, function(parent) return AtlasUI:CreatePanel(parent) end)
+    ns.MainFrame:RegisterTab("atlas", "Atlas", 1.5, function(parent) return AtlasUI:CreatePanel(parent) end, nil,
+        { layout = "listdetail" })
 end
 
 -- The item list (and the star counts beside the pages) a moment later; facets = the search's "Found in" too.

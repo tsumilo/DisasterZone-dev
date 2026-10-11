@@ -6,24 +6,26 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/AtlasShop.lua", ...) then retur
 -- their materials (what my bags and bank hold of what they need, the missing ones first) and, with Auctionator, what
 -- the rest costs. A member's group has a Whisper button that types the ask with the item links.
 -- UI/Atlas.lua creates it (ShopUI:Create) with its own text helpers and shows / hides it (ShowIn / Hide).
+-- (1.4: the Atlas's List + detail layout; the rows' shared looks, text styles and tokens.)
 local addonName, ns = ...
 
 local ShopUI = {}
 ns.AtlasShopUI = ShopUI
 
+local Style = ns.Style            -- (S is the shopping list model in this file's functions)
+
 local ipairs, type, tonumber, tostring = ipairs, type, tonumber, tostring
 local floor, max, min = math.floor, math.max, math.min
 local tconcat = table.concat
 
-local IN = 8
+local IN = Style.IN
 local ROW_GROUP, ROW_ITEM, ROW_SECT, ROW_MAT, ROW_MAT2, ROW_COST = 22, 34, 32, 24, 34, 30
 local ICON, MAT_ICON, CLASS_ICON = 26, 18, 16
 local BTN, NUM_W = 20, 26
 local BAR_SPACE = 10
 local MAX_NAMES = 3
-local GREY = { 0.62, 0.62, 0.62 }
 local DIM = { 0.55, 0.55, 0.58 }
-local GREEN_HEX, GREY_HEX, OFF_HEX = "|cff4fd36b", "|cff8d8d93", "|cff8d8d93"
+local GREEN_HEX, GREY_HEX, OFF_HEX = Style:Hex("OK"), Style:Hex("SUB"), Style:Hex("SUB")
 local EMPTY_TEXT = "Nothing here yet. Hover a craft in the Atlas and click its bag."
 local BOP_TEXT = "Binds when picked up: only its crafter can wear it"
 local NOBODY_TEXT = "Nobody in the guild knows this craft yet"
@@ -31,17 +33,13 @@ local NOBODY_SHORT = "No guild crafter yet"       -- (the row's second line; the
 local LEFT_OUT_TEXT = "Not in materials"
 local HOVER_W = 130   -- what the hover buttons (eye, - n +, bin) take at a craft row's right
 
-local H              -- the Atlas's helpers: NewText, TextWidth, CreateHead, FillHead, NameText, HEAD_H
+local H              -- the Atlas's helpers: TextWidth, CodedWidth, CreateHead, FillHead, NameText, HEAD_H
 local mid, right, midHead, groupList, head, list
 local state = { group = "all" }   -- "all", "you", "nobody", "bop" or a member's key
 local shown = false
 
 local function Shop() return ns.Shop end
 local function UI() return ns.UI end
-
-local function Hex(c)
-    return ("|cff%02x%02x%02x"):format(floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5), floor(c[3] * 255 + 0.5))
-end
 
 local function StepText(d)
     if d <= 0 then return "As made" end
@@ -102,17 +100,7 @@ end
 
 local function SetupGroupRow(row)
     row.cdl = true
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
-    row.sel = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.sel:SetAllPoints()
-    row.sel:SetColorTexture(1, 0.82, 0, 0.10)
-    row.selBar = row:CreateTexture(nil, "ARTWORK")
-    row.selBar:SetWidth(2)
-    row.selBar:SetPoint("TOPLEFT")
-    row.selBar:SetPoint("BOTTOMLEFT")
-    row.selBar:SetColorTexture(1, 0.82, 0, 0.9)
+    UI():DecorateRow(row, { selectable = true })   -- (hover, and the picked look: row:SetSelected)
     row.class = row:CreateTexture(nil, "ARTWORK")
     row.class:SetSize(CLASS_ICON, CLASS_ICON)
     row.class:SetPoint("LEFT", row, "LEFT", IN, 0)
@@ -121,11 +109,9 @@ local function SetupGroupRow(row)
     row.dot:SetPoint("BOTTOMRIGHT", row.class, "BOTTOMRIGHT", 2, -2)
     row.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
     row.dot:SetVertexColor(0.24, 0.81, 0.36)
-    row.count = H.NewText(row, "GameFontDisableSmall", 10)
-    row.count:SetJustifyH("RIGHT")
+    row.count = UI():Text(row, "small", "DIM", { justify = "RIGHT", width = 24 })
     row.count:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
-    row.count:SetWidth(24)
-    row.label = H.NewText(row, "GameFontHighlight", 11)
+    row.label = UI():Text(row, "body", "TEXT")
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", function(self)
         local d = self.__cdlData
@@ -148,9 +134,7 @@ local function InitGroupRow(row, d)
     local c = d.dim and DIM or { 0.92, 0.92, 0.92 }
     row.label:SetTextColor(c[1], c[2], c[3])
     row.count:SetText(d.count and tostring(d.count) or "")
-    local on = state.group == d.id
-    row.sel:SetShown(on)
-    row.selBar:SetShown(on)
+    row:SetSelected(state.group == d.id)
 end
 
 ---------------------------------------------------------------------------
@@ -220,7 +204,8 @@ local function ItemTooltipLines(tt, d)
                 or (OFF_HEX .. (ns.Util.ShortName(c.key) or c.key) .. " (offline)|r")
         end
         if #names > 0 then
-            tt:AddLine("Made by " .. tconcat(names, ", "), 1, 0.82, 0, true)
+            local gr, gg, gb = Style:Color("GOLD")
+            tt:AddLine("Made by " .. tconcat(names, ", "), gr, gg, gb, true)
         else
             tt:AddLine(NOBODY_TEXT .. ".", 0.7, 0.7, 0.7, true)
         end
@@ -273,23 +258,22 @@ local function SetupRow(row)
     local U = UI()
     row.cdl = true
     row:RegisterForClicks("LeftButtonUp")
+    -- (the hover look is drawn by SetHover: the row's buttons keep it while the cursor is on them)
     row.hover = row:CreateTexture(nil, "BACKGROUND")
     row.hover:SetAllPoints()
-    row.hover:SetColorTexture(1, 1, 1, 0.05)
+    row.hover:SetColorTexture(Style:Color("HOVER"))
     row.hover:Hide()
     row.rule = row:CreateTexture(nil, "ARTWORK")
     row.rule:SetHeight(1)
-    row.rule:SetColorTexture(1, 1, 1, 0.07)
+    row.rule:SetColorTexture(Style:Color("HAIRLINE"))
 
     row.icon = U:CreateItemButton(row, ICON)
     row.icon:EnableMouse(false)   -- the row handles hover and clicks
-    row.name = H.NewText(row, "GameFontHighlight", 12)
-    row.sub = H.NewText(row, "GameFontDisableSmall", 10)
-    row.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
+    row.name = U:Text(row, "emph", "TEXT")
+    row.sub = U:Text(row, "small", "SUB")
     row.step = U:CreateLinkDropdown(row, { font = "GameFontDisableSmall", size = 10, color = { 0.82, 0.82, 0.82 },
                                            chevSize = 9, height = 14, build = function(root) BuildStepMenu(root, row) end })
-    row.amt = H.NewText(row, "GameFontHighlight", 12)
-    row.amt:SetJustifyH("RIGHT")
+    row.amt = U:Text(row, "emph", "TEXT", { justify = "RIGHT" })
     row.amt:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
 
     -- on hover: - n + and the bin
@@ -301,9 +285,7 @@ local function SetupRow(row)
     end)
     row.plusBtn = U:CreateSleekButton(row, "+", BTN, BTN, function() Step(row, 1) end)
     row.plusBtn:SetPoint("RIGHT", row.bin, "LEFT", -6, 0)
-    row.num = H.NewText(row, "GameFontHighlight", 12)
-    row.num:SetJustifyH("CENTER")
-    row.num:SetWidth(NUM_W)
+    row.num = U:Text(row, "emph", "TEXT", { justify = "CENTER", width = NUM_W })
     row.num:SetPoint("RIGHT", row.plusBtn, "LEFT", 0, 0)
     row.minusBtn = U:CreateSleekButton(row, "-", BTN, BTN, function() Step(row, -1) end)
     row.minusBtn:SetPoint("RIGHT", row.num, "LEFT", 0, 0)
@@ -318,13 +300,12 @@ local function SetupRow(row)
     end
 
     -- a material's count, a section's title and bar, the cost's value
-    row.have = H.NewText(row, "GameFontHighlightSmall", 11)
-    row.have:SetJustifyH("RIGHT")
+    row.have = U:Text(row, "body", "TEXT", { justify = "RIGHT" })
     row.have:SetPoint("RIGHT", row, "RIGHT", -IN, 0)
-    row.title = H.NewText(row, "GameFontNormal", 12)
+    row.title = U:Text(row, "emph", "GOLD")
     row.barBg = row:CreateTexture(nil, "ARTWORK")
     row.barBg:SetHeight(3)
-    row.barBg:SetColorTexture(1, 1, 1, 0.07)
+    row.barBg:SetColorTexture(Style:Color("HAIRLINE"))
     row.barFill = row:CreateTexture(nil, "ARTWORK", nil, 1)
     row.barFill:SetHeight(3)
     row.barFill:SetColorTexture(0.24, 0.81, 0.36, 0.9)
@@ -340,7 +321,7 @@ local function SetupRow(row)
             MatTooltip(self)
         elseif d.type == "cost" and d.unpriced > 0 then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine("Auctionator's last scan")
+            GameTooltip:AddLine("Auctionator's last scan", Style:Color("GOLD"))
             GameTooltip:AddLine(("%d of the missing materials have no price there yet."):format(d.unpriced), 1, 1, 1, true)
             GameTooltip:Show()
         end
@@ -412,7 +393,7 @@ local function InitItem(row, d)
         room = room - (row.step:GetWidth() or 0)
     end
     -- (a long line ends in "..." before the step dropdown and the buttons on the right)
-    row.sub:SetWidth(max(1, min(room, H.CodedWidth(row.sub:GetText(), "GameFontDisableSmall", 10))))
+    row.sub:SetWidth(max(1, min(room, H.CodedWidth(row.sub:GetText(), "small"))))
     if step then
         row.step:ClearAllPoints()
         row.step:SetPoint("LEFT", row.sub, who ~= "" and "RIGHT" or "LEFT", 0, 0)
@@ -537,15 +518,11 @@ local function CreateTitle(parent)
     h:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
     h:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
     h:SetHeight(H.HEAD_H)
-    h.title = H.NewText(h, "GameFontNormal", 14)
+    h.title = U:Text(h, "title", "GOLD")
     h.title:SetPoint("LEFT", h, "LEFT", IN, 0)
-    h.sub = H.NewText(h, "GameFontDisableSmall", 10)
+    h.sub = U:Text(h, "small", "DIM")
     h.sub:SetPoint("LEFT", h.title, "RIGHT", 8, -1)
-    h.rule = h:CreateTexture(nil, "ARTWORK")
-    h.rule:SetHeight(1)
-    h.rule:SetPoint("BOTTOMLEFT")
-    h.rule:SetPoint("BOTTOMRIGHT")
-    h.rule:SetColorTexture(1, 1, 1, 0.12)
+    h.rule = U:Rule(h, { bottom = 0, alpha = 0.12 })
     h.whisper = U:CreateSleekButton(h, U:AtlasIconText(U.ICON.whisper, 12) .. " Whisper", 86, 20, function()
         local g = FindGroup(ShopUI.groups, state.group)
         if g then Shop():Whisper(g) end
@@ -657,6 +634,9 @@ function ShopUI:Refresh(resetScroll)
         if cost and cost > 0 then rows[#rows + 1] = { type = "cost", copper = cost, unpriced = unpriced } end
     end
     list:SetEmptyText(#entries == 0 and EMPTY_TEXT or "")
+    -- (empty: the illustrated state in the column; the plain text stays set for whoever reads it)
+    list:SetEmptyState(#entries == 0 and { glyph = UI().ICON.bag, title = "Your shopping list is empty",
+                                           text = "Hover a craft in the Atlas and click its bag." } or nil)
     list:SetData(rows, resetScroll)
 end
 
@@ -688,7 +668,7 @@ function ShopUI:AddTooltip(owner, id)
     local S = Shop()
     if not S then return end
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Add to shopping list")
+    GameTooltip:AddLine("Add to shopping list", Style:Color("GOLD"))
     local who
     if S:CanMake(id) then
         who = "You can make it."
@@ -742,7 +722,7 @@ end
 -- Frames
 ---------------------------------------------------------------------------
 
--- helpers: { NewText, TextWidth, CodedWidth, CreateHead, FillHead, NameText, HEAD_H }; midFrame / rightFrame: the
+-- helpers: { TextWidth, CodedWidth (text, style), CreateHead, FillHead, NameText, HEAD_H }; midFrame / rightFrame: the
 -- Atlas's middle and right columns.
 function ShopUI:Create(helpers, midFrame, rightFrame)
     if list then return end
