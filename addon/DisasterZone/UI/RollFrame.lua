@@ -271,6 +271,7 @@ function RollFrame:OnInit()
     ns:On("OWNED_UPDATED", function() RollFrame:RefreshItem() end)
     ns:On("MYLIST_CHANGED", function() RollFrame:RefreshItem() end)
     ns:On("MATERIALS_UPDATED", function() RollFrame:RefreshItem() end)
+    ns:On("PRIZED_UPDATED", function() RollFrame:RefreshItem() end)
     ns:On("SETTINGS_CHANGED", function(key)
         if key == "roll.popup" and not Setting("roll.popup", true) then RollFrame:Hide() end
     end)
@@ -751,6 +752,7 @@ function RollFrame:RefreshItem()
     if not f or not f:IsShown() or type(s) ~= "table" then return end
     local itemID = tonumber(s.i)
     if not itemID then return end
+    self.przBlocked, self.przDecides = false, false
     f.item:SetItem(itemID)
     f.item:SetState(nil)
     FitName(f.name, ItemText(itemID), NAME_W)
@@ -798,7 +800,6 @@ function RollFrame:RefreshItem()
         local me = ns.Util.PlayerKey()
         local c = P:Check(rec, me)
         self.przDecides = P:CouncilDecides(rec)
-        local how = self.przDecides and "the council decides" or "then the roll"
         local text
         if c.ok == false then
             self.przBlocked = true
@@ -808,10 +809,11 @@ function RollFrame:RefreshItem()
         elseif c.ok == nil then
             text = Paint("Prized item: ", "warn") .. "the council checks its rules"
         else
-            text = Paint("You meet all " .. c.required .. " rules", "main") .. Paint(" \194\183 " .. how, "muted")
+            text = Paint("You meet all " .. c.required .. " loot rules", "main")
         end
         f.wearLabel:SetText(text)
         f.wearLabel:SetWidth(TEXT_W)
+        if f.roll:IsShown() then f.roll:SetEnabled(not self.przBlocked) end
         for i = 1, #f.wear do
             f.wear[i].itemID = nil
             f.wear[i]:Hide()

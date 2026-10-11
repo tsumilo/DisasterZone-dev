@@ -699,6 +699,9 @@ function Ledger:Void(id, voided)
     if type(e) ~= "table" then return false end
     local value = voided and true or nil
     if e.vd == value then return false end
+    -- 1.3.5: a voided award of a prized item leaves its public history (and its cooldown / queue / pair rules)
+    local P = ns.Prized
+    if value and P and P.IsPrized and P:IsPrized(e.i) and P.VoidGiven then P:VoidGiven(e.i, e.w, e.ts) end
     return SetVoid(AutoCluster(db, e, CurrentGuildKey(), demo), value, demo)
 end
 

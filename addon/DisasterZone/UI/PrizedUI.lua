@@ -470,8 +470,8 @@ local function createBanner(dc)
     b.saveBtn:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("Save the rules")
-        GameTooltip:AddLine("The guild gets a notification of what changed; the item's history keeps it. A raid "
-            .. "already under way keeps the rules it started with on the drop panel.", 1, 1, 1, true)
+        GameTooltip:AddLine("The guild gets a notification of what changed; the item's history keeps it. The new "
+            .. "rules count at once, also on a drop panel that is open now.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     b.saveBtn:HookScript("OnLeave", hideTooltip)
@@ -990,8 +990,8 @@ function PrizedUI:CreateView(parent)
     body.editNote:SetTextColor(0.56, 0.56, 0.6)
     body.editNote:SetWordWrap(true)
     body.editNote:SetWidth(DETAIL_W - 16)
-    body.editNote:SetText("Saving tells the guild what changed and adds it to the item's history. A raid already "
-        .. "under way keeps the rules it started with on the drop panel.")
+    body.editNote:SetText("Saving tells the guild what changed and adds it to the item's history. The new rules "
+        .. "count at once.")
     body.empty = newText(body, "GameFontDisable", 12)
     body.empty:SetWordWrap(true)
     body.empty:SetWidth(DETAIL_W - 40)
@@ -1004,6 +1004,28 @@ function PrizedUI:CreateView(parent)
 
     v.add = createAddForm(dc)
     v:SetScript("OnShow", function() PrizedUI:Refresh() end)
+    return v
+end
+
+-- Puts the one view into `parent` (another page can host it: Raids > Council > Rules), filling it.
+-- opts: { list = false (only the picked item's detail, at the left edge), x, y, right, bottom (insets) }.
+-- The Raids tab mounts it back when its Loot rules view shows.
+function PrizedUI:Mount(parent, opts)
+    opts = opts or {}
+    local v = self:CreateView(parent)
+    if v:GetParent() ~= parent then v:SetParent(parent) end
+    v:ClearAllPoints()
+    v:SetPoint("TOPLEFT", parent, "TOPLEFT", opts.x or 0, opts.y or 0)
+    v:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", opts.right or 0, opts.bottom or 0)
+    local list = opts.list ~= false
+    state.noList = not list
+    v.left:SetShown(list)
+    v.detail:ClearAllPoints()
+    local x = list and (PAD + LIST_W + GAP) or 0
+    v.detail:SetPoint("TOPLEFT", x, 0)
+    v.detail:SetPoint("BOTTOMLEFT", x, 6)
+    v:Show()
+    self:Refresh()
     return v
 end
 

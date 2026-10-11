@@ -322,6 +322,27 @@ local function register()
                             data = { item = itemID } })
     end)
 
+    -- 1.3.5: the GM / guild council changed a prized item's loot rules (Raids > Loot rules)
+    N:RegisterKind("lootRules", {
+        section = "Loot", page = "raids", icon = (ns.HasAssets and ns:HasAssets(7)) and 60 or 51,
+        color = { 1, 0.6, 0.18 },
+        label = "Loot rules changed", desc = "The Guild Master or the guild council changed a prized item's loot rules.",
+        needsYou = false, popup = false, sound = false,
+        open = function(it)
+            openTab("raids")
+            if ns.RaidsUI then ns.RaidsUI:SetView("rules") end
+            local id = it and it.data and it.data.id
+            if id and ns.PrizedUI then ns.PrizedUI:Select(id) end
+        end,
+    })
+    ns:On("PRIZED_RULES_CHANGED", function(id, text, by)
+        local P = ns.Prized
+        local rec = P and P.Get and P:Get(id)
+        if not rec then return end
+        N:Post("lootRules", { key = id .. ":" .. tostring(text):sub(1, 40), title = "Loot rules: " .. P:Name(rec),
+                              text = text, from = by, data = { id = id } })
+    end)
+
     -- What's new in the release I run (until its notes are read)
     N:RegisterKind("whatsNew", {
         section = "DisasterZone", icon = 25, color = { 0.81, 0.91, 1 },

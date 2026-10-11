@@ -725,7 +725,7 @@ local function WonTonight(key)
 end
 
 -- A roll of a player who left the group is shown but never suggested (they cannot get the item).
-local function RowGroup(r)
+local function BaseRowGroup(r)
     if r.response == "pass" then return 3 end
     if r.roll and not r.invalid and r.inRaid then return 1 end
     return 2
@@ -937,10 +937,45 @@ local function BuildResults(ses)
         out[#out + 1] = r
     end
 
+    -- 1.3.5: a prized item (Core/Prized.lua) and the guild's loot rules (Council > Rules) order the rows: Roll:RankRows.
+    local P = ns.Prized
+    local przRec = not plain and P and P.ForItem and P:ForItem(ses.i) or nil
+    if not plain then
+        local RL, Att = ns.RaidLog, ns.Attendance
+        for _, r in ipairs(out) do
+            r.att = RL and RL.GetAttendance and (RL:GetAttendance(r.key)) or nil
+            local d = Att and Att.GetDryStreak and Att:GetDryStreak(r.key)
+            r.dry = d and d.nights or nil
+        end
+    end
+    return Roll:RankRows(out, { plain = plain, mat = mat, prized = przRec })
+end
+
+-- Orders result rows and marks the suggestion (suggested / suggestedBy / tie / split), in place; returns them.
+-- ctx = { plain = a plain roll, mat = crafting material wants, prized = the item's prized record, rules = the loot rules
+-- (default: the guild's, Guild:GetLootRules) }. Rows need: key, name, roll, invalid, response, inRaid, votes, tier,
+-- cantUse, lockChanged, wonCopy, left; att (attendance %) and dry (raids without loot) when the guild uses them.
+-- Council > Rules' preview ranks made-up rows with it.
+function Roll:RankRows(out, ctx)
+    ctx = ctx or {}
+    local plain, mat = ctx.plain, ctx.mat
+    local G = ns.Guild
+    local R = ctx.rules or (G and G.GetLootRules and G:GetLootRules()) or { f = 0, s = "r", l = "l", w = "r", y = "n" }
+    if plain then R = { f = 0, s = "r", l = "l", w = "r", y = "n" } end
+    -- the attendance floor: below it a player is listed but never suggested
+    local floorPct = tonumber(R.f) or 0
+    for _, r in ipairs(out) do
+        r.lowAtt = (floorPct > 0 and tonumber(r.att) and r.att < floorPct) or nil
+        r.split = nil
+    end
+    local function RowGroup(r)
+        if r.lowAtt and r.response ~= "pass" then return 2 end
+        return BaseRowGroup(r)
+    end
     -- 1.3.5: a prized item (Core/Prized.lua): each row says how the player stands against its loot rules (r.prz);
     -- the players who meet them come first, in the rules' priority order.
     local P = ns.Prized
-    local przRec = not plain and P and P.ForItem and P:ForItem(ses.i) or nil
+    local przRec = ctx.prized
     if przRec then
         local present = {}
         for _, r in ipairs(out) do
@@ -949,9 +984,10 @@ local function BuildResults(ses)
         for _, r in ipairs(out) do r.prz = P:Check(przRec, r.key, { present = present, hint = r }) end
     end
 
-    -- Votes that count for the suggestion: for a player still in the group who did not pass.
+    -- Votes that count for the suggestion: for a player still in the group who did not pass (and is not under the
+    -- guild's attendance floor).
     local function VoteRank(r)
-        if r.votes > 0 and r.inRaid and r.response ~= "pass" then return r.votes end
+        if r.votes > 0 and r.inRaid and r.response ~= "pass" and not r.lowAtt then return r.votes end
         return 0
     end
     local function ValidRoll(r)
@@ -962,11 +998,11 @@ local function BuildResults(ses)
             local first = P:Before(a.prz, b.prz)
             if first ~= nil then return first end
         end
-        -- Voted players first (most votes; then BiS tier, a valid roll, the higher roll).
+        -- Voted players first (most votes; then whoever rolled, the higher roll: 1.3.5, the list tier no longer
+        -- breaks a split vote, so a player who did not roll never wins one quietly).
         local va, vb = VoteRank(a), VoteRank(b)
         if va ~= vb then return va > vb end
         if va > 0 then
-            if a.tier ~= b.tier then return a.tier < b.tier end
             local ra, rb = ValidRoll(a), ValidRoll(b)
             if (ra ~= nil) ~= (rb ~= nil) then return ra ~= nil end
             if ra and ra ~= rb then return ra > rb end
@@ -977,7 +1013,12 @@ local function BuildResults(ses)
             local la, lb = a.left or MAT_NONE, b.left or MAT_NONE
             if la ~= lb then return la < lb end
         end
-        if a.tier ~= b.tier then return a.tier < b.tier end
+        -- (the guild's loot rules: lists first or the roll only, then the highest roll or the driest first)
+        if R.l ~= "r" and a.tier ~= b.tier then return a.tier < b.tier end
+        if R.w == "d" and ga == 1 then
+            local da, db = tonumber(a.dry) or 0, tonumber(b.dry) or 0
+            if da ~= db then return da > db end
+        end
         if ga == 1 and a.roll ~= b.roll then return a.roll > b.roll end
         if ga == 2 then
             local ia, ib = a.roll ~= nil, b.roll ~= nil   -- out-of-range rolls before "no roll"
@@ -992,7 +1033,8 @@ local function BuildResults(ses)
     -- another copy (they stay listed; the council can still award them by hand). If only such players
     -- rolled, there is no suggestion.
     local function Suggestible(r)
-        return not r.lockChanged and not r.cantUse and not r.wonCopy and not (r.prz and r.prz.ok == false)
+        return not r.lockChanged and not r.cantUse and not r.wonCopy and not r.lowAtt
+            and not (r.prz and r.prz.ok == false)
     end
     -- A prized item: the most-voted player who meets the rules; when the council decides (its vote rule), never a
     -- roll (no votes yet: no suggestion).
@@ -1010,16 +1052,36 @@ local function BuildResults(ses)
     end
     -- Addendum G: once a council member voted, the vote decides: the most-voted player still in the group who did
     -- not pass (the council chose them knowingly, so the roll rules above don't apply); ties as sorted above.
+    -- 1.3.5: a split vote (several players with the most votes) is marked r.split; the guild's rules say whether the
+    -- highest roll among them is suggested (whoever did not roll never is) or the council picks one (no suggestion).
     local top = out[1]
     if przRec then top = nil end
     if top and VoteRank(top) > 0 then
-        top.suggested = true
-        top.suggestedBy = "votes"
-        local tied = {}
+        local most = VoteRank(top)
+        local split = {}
         for _, r in ipairs(out) do
-            if VoteRank(r) == top.votes and r.tier == top.tier and ValidRoll(r) == ValidRoll(top) then
-                tied[#tied + 1] = r
+            if VoteRank(r) == most then split[#split + 1] = r end
+        end
+        if #split == 1 then
+            top.suggested = true
+            top.suggestedBy = "votes"
+            return out
+        end
+        for _, r in ipairs(split) do r.split = true end
+        if R.s == "p" then return out end
+        local pick
+        for _, r in ipairs(split) do
+            if ValidRoll(r) then
+                pick = r
+                break
             end
+        end
+        if not pick then return out end   -- (none of them rolled: the council picks)
+        pick.suggested = true
+        pick.suggestedBy = "votes"
+        local tied = {}
+        for _, r in ipairs(split) do
+            if ValidRoll(r) == ValidRoll(pick) then tied[#tied + 1] = r end
         end
         if #tied > 1 then
             for _, r in ipairs(tied) do r.tie = true end

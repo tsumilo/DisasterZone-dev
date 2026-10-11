@@ -986,7 +986,10 @@ end
 -- item on any of them ends the streak, a night on any of them counts. Loot = Loot Log awards that count as loot received (not offspec / disenchant / guild
 -- bank, not 5-man dungeon loot). Counted: the closed nights they came to (not benched) that started after that award,
 -- and the boss kills they were there for in those nights. The night running now is not counted.
--- Returns { nights, bosses, last = the award entry (nil: none on record), first = the oldest night counted } or nil:
+-- The guild's loot rules (Council > Rules, y) say what a night is: "n" (default) only nights they were really there for
+-- (a boss kill, or half the night), "a" any night they showed up.
+-- Returns { nights, bosses, came = nights they showed up at all, last = the award entry (nil: none on record),
+-- first = the oldest night counted } or nil:
 -- no closed night logged, or I don't hold the whole Loot Log (only the guild council does; demo mode: the demo's).
 -- Cached until the raid log or the Loot Log changes.
 local dryCache = {}
@@ -1002,8 +1005,11 @@ function Att:GetDryStreak(key)
     if not key or not self:CanSeeDryStreaks() then return nil end
     local Ledger = ns.Ledger
     local token = Ledger and Ledger.GetViewToken and Ledger:GetViewToken()
-    if dryCache.ver ~= ver or dryCache.demo ~= DemoOn() or dryCache.token ~= token then
-        dryCache = { ver = ver, demo = DemoOn(), token = token, by = {} }
+    local Guild = G()
+    local lr = Guild and Guild.GetLootRules and Guild:GetLootRules()
+    local any = lr and lr.y == "a"
+    if dryCache.ver ~= ver or dryCache.demo ~= DemoOn() or dryCache.token ~= token or dryCache.any ~= any then
+        dryCache = { ver = ver, demo = DemoOn(), token = token, any = any, by = {} }
     end
     local c = dryCache.by[key]
     if c ~= nil then return c or nil end
@@ -1034,22 +1040,29 @@ function Att:GetDryStreak(key)
         end
     end
     local since = last and last.ts or 0
-    local out = { nights = 0, bosses = 0, last = last }
+    local out = { nights = 0, bosses = 0, came = 0, last = last }
     for _, n in ipairs(nights) do   -- (newest first)
         if (n.start or 0) <= since then break end
-        local came, kills = false, 0
+        local came, kills, there, long = false, 0, 0, 0
         for _, rec in ipairs(n.recs or {}) do
-            local most = 0
+            local most, best = 0, 0
             for k in pairs(chars) do
                 local a = rec.att and rec.att[k]
                 if type(a) == "table" and not a.b then
                     came = true
                     most = max(most, tonumber(a.k) or 0)
+                    local t, s = 0, CopyPieces(a, rec)
+                    for i = 1, #(s or {}) - 1, 2 do t = t + max(0, (s[i + 1] or 0) - (s[i] or 0)) end
+                    best = max(best, t)
                 end
             end
             kills = kills + most
+            there = there + best
+            long = long + max(0, (rec.stop or rec.start or 0) - (rec.start or 0))
         end
-        if came then
+        if came then out.came = out.came + 1 end
+        -- (really there: a boss kill, or half the night)
+        if came and (any or kills > 0 or (long > 0 and there * 2 >= long)) then
             out.nights = out.nights + 1
             out.bosses = out.bosses + kills
             out.first = n

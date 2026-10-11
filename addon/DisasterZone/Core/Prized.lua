@@ -588,14 +588,16 @@ end
 
 local function Index()
     if itemIndex then return itemIndex end
-    itemIndex = {}
+    -- (State first: building the demo resets the index)
     local st = State()
+    local idx = {}
     for id, rec in pairs(st and st.I or {}) do
         if not rec.del then
-            for _, n in ipairs(rec.ids) do itemIndex[n] = id end
+            for _, n in ipairs(rec.ids) do idx[n] = id end
         end
     end
-    return itemIndex
+    itemIndex = idx
+    return idx
 end
 
 -- The prized record an item ID belongs to (either of a pair), or nil.

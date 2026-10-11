@@ -612,6 +612,10 @@ def raid_with_session(w, c, features):
 
 
 DROPS = []
+# (st_drop's item_lua) the first P1 head, made a prized item by Gina (the GM) before it drops
+PRIZED_ITEM = ("local id = ns.ItemDB:GetCandidates(1, { maxPhase = 1 })[1].itemID; "
+               "if not ns.Prized:ForItem(id) then ns.Prized:Add({ id }, { rank = { m = 'r', i = 1 }, "
+               "main = { m = 'r' }, cd = { m = 'r', w = 4 }, vote = { s = 'all' } }) end; return id")
 
 
 def st_drop(features, roll=False, viewer="Gina", then=None, item_lua=None):
@@ -1585,6 +1589,12 @@ STATES = [
     # Gina's own P1 head (the longest head name) rolled: her popup's BiS pill
     ("Raid - roll popup (BiS)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
                                         item_lua="return (ns.BiS:GetSlot(1, 1))")),
+    # 1.3.5 prized items: the head is prized (rank Officer or higher, the council decides); pugs and lower ranks
+    # break a rule
+    ("Raid - drop panel (prized, rolling)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
+        item_lua=PRIZED_ITEM)),
+    ("Raid - roll popup (prized, blocked)", st_drop({"loot": True, "rolls": True, "lock": False}, roll=True,
+        viewer="Victhar", item_lua=PRIZED_ITEM)),
     ("Raid - drop panel (material)", st_material("panel")),
     ("Raid - drop panel (material, rolling)", st_material("rolling")),
     ("Raid - roll popup (material)", st_material("popup")),

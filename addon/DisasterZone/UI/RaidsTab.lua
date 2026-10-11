@@ -1175,7 +1175,8 @@ function RaidsUI:Refresh()
     panel.teams:SetShown(state.view == "teams")
     panel.strategies:SetShown(state.view == "strategies")
     panel.guests:SetShown(state.view == "guests")
-    panel.rules:SetShown(state.view == "rules")
+    -- (the Loot rules view can be mounted on another page: only hide it while it is ours)
+    if state.view ~= "rules" and panel.rules:GetParent() == panel then panel.rules:Hide() end
     local raidsMode = state.mode == "raids"
     panel.raidList.frame:SetShown(log and raidsMode)
     panel.logDetail:SetShown(log and raidsMode)
@@ -1187,7 +1188,7 @@ function RaidsUI:Refresh()
     elseif state.view == "guests" then
         ns.GuestBookUI:Refresh()
     elseif state.view == "rules" then
-        ns.PrizedUI:Refresh()
+        ns.PrizedUI:Mount(panel, { y = -36, bottom = 4 })
     elseif not log then
         ns.RaidPlanUI:Refresh()
     elseif raidsMode then

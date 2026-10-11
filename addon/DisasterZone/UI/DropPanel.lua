@@ -93,6 +93,7 @@ local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 local MAT = { PIP_MAX = 5, PIP_SIZE = 7, MAT_GROUPS = 5, MAT_PER_GROUP = 3, MADE_H = 22 }
 MAT.PIPS_W = 22 + MAT.PIP_MAX * (MAT.PIP_SIZE + 2)
 local Mat = {}   -- the material helpers (functions; one local keeps the file under Lua's 200 locals)
+local Dry, Grid = {}, {}   -- 1.3.5: the dry streak and the row grid helpers (same reason)
 
 local SLOT_GROUP_FALLBACK = {
     [11] = { 11, 12 }, [12] = { 11, 12 }, [13] = { 13, 14 }, [14] = { 13, 14 }, [15] = { 15, 16 }, [16] = { 15, 16 },
@@ -639,10 +640,14 @@ local function TierWord(row)
 end
 
 local function RollCounts(results)
-    local rolled, passed, votes = 0, 0, 0
-    local tie = false
+    local rolled, passed, votes, split = 0, 0, 0, 0
+    local tie, picked = false, false
     for _, r in ipairs(results) do
         if type(r) == "table" then
+            if r.split then
+                split = split + 1
+                if r.suggested then picked = true end
+            end
             if r.response == "pass" and not tonumber(r.roll) then
                 passed = passed + 1
             elseif tonumber(r.roll) then
@@ -652,7 +657,7 @@ local function RollCounts(results)
             votes = votes + (tonumber(r.votes) or 0)
         end
     end
-    return rolled, passed, tie, votes
+    return rolled, passed, tie, votes, split, picked
 end
 
 local function VotesText(n)
@@ -710,7 +715,7 @@ local function RollStateText(session, stats, queuePos)
         local left = RollTimeLeft(session)
         local head = left > 0 and ("Rolling  ·  " .. FormatLeft(left) .. " left") or "Rolling  ·  closing now"
         local t = Paint(head, "main") .. Paint(format("  ·  %d rolled, %d passed", stats.rolled or 0, stats.passed or 0), "muted")
-        if (stats.votes or 0) > 0 then t = t .. Paint("  ·  " .. VotesText(stats.votes), "muted") end
+        t = t .. Dry.VotesLine(stats)
         return t
     elseif st == "awarded" then
         local t = Paint("Awarded to ", "obtained") .. ColoredName(session.winner)
@@ -732,7 +737,7 @@ local function RollStateText(session, stats, queuePos)
     local t = Paint("Rolls closed", "warn") .. Paint(format("  ·  %d rolled", stats.rolled or 0), "muted")
     local holder = HolderOf(session)
     if holder then t = t .. Paint("  ·  held by ", "muted") .. ColoredName(holder) end
-    if (stats.votes or 0) > 0 then t = t .. Paint("  ·  " .. VotesText(stats.votes), "muted") end
+    t = t .. Dry.VotesLine(stats)
     if stats.tie then t = t .. Paint("  ·  tie", "warn") end
     return t
 end
@@ -755,7 +760,7 @@ function DropPanel:OnInit()
     end
     for _, msg in ipairs({ "LEDGER_UPDATED", "LIST_UPDATED", "LISTS_RESET", "GROUP_UPDATED",
                            "OWNED_UPDATED", "MYLIST_CHANGED", "SETTINGS_CHANGED", "MATERIALS_UPDATED",
-                           "PROFESSIONS_UPDATED" }) do
+                           "PROFESSIONS_UPDATED", "PRIZED_UPDATED" }) do
         ns:On(msg, dataChanged)
     end
     ns:On("ITEMINFO_READY", function()
@@ -1204,7 +1209,7 @@ function DropPanel:TickRolls()
         local s = b:IsShown() and b.rollSession
         if s and s.state == "open" then
             any = true
-            b.sub:SetText(Grid.PrzSub(b.itemID, RollStateText(s, b.rollStats)))
+            b.sub:SetText(DropPanel.PrzSub(b.itemID, RollStateText(s, b.rollStats)))
         end
     end
     if not any then self:StopRollTicker() end
@@ -1393,41 +1398,72 @@ local DRY = { SEGS = 6, SEG_W = 3, SEG_H = 9, GAP = 2,
               LEVELS = { { 2, { 0.55, 0.55, 0.55 } }, { 4, { 0.93, 0.80, 0.45 } }, { 6, { 1.00, 0.58, 0.22 } },
                          { math.huge, { 1.00, 0.36, 0.18 } } } }
 DRY.BARS_W = DRY.SEGS * DRY.SEG_W + (DRY.SEGS - 1) * DRY.GAP
-local Dry, Grid = {}, {}
 
 -- 1.3.5 prized items (Core/Prized.lua, Raids > Loot rules): the item's record, a row's rule check, the short word for
 -- the rule that keeps a player out (the row's loot column; the tooltip has it whole), the card's marks.
-Grid.PRZ_SHORT = { att = "attendance", rank = "rank", main = "alt", guild = "guest", cd = "cooldown", order = "spec",
+DropPanel.PRZ_SHORT = { att = "attendance", rank = "rank", main = "alt", guild = "guest", cd = "cooldown", order = "spec",
                    queue = "queue", pair = "pair", bis = "not listed" }
-function Grid.PrzRec(itemID)
+function DropPanel.PrzRec(itemID)
     local P = ns.Prized
     return P and P.ForItem and P:ForItem(itemID) or nil
 end
-function Grid.PrzCheck(itemID, key, hint)
-    local rec = Grid.PrzRec(itemID)
+function DropPanel.PrzCheck(itemID, key, hint)
+    local rec = DropPanel.PrzRec(itemID)
     if not rec or type(key) ~= "string" then return nil end
     return ns.Prized:Check(rec, key, { hint = hint })
 end
-function Grid.PrzTag(c)
+function DropPanel.PrzTag(c)
     if not c or c.ok ~= false then return nil end
     local res = c.by and c.by[c.failKey]
     if c.failKey == "att" and res and res.num then return Paint(res.num .. "% att", "warn") end
-    return Paint(Grid.PRZ_SHORT[c.failKey] or "rules", "warn")
+    return Paint(DropPanel.PRZ_SHORT[c.failKey] or "rules", "warn")
 end
 -- The card's name with the prized seal, and its second line with the votes the award needs.
-function Grid.PrzName(itemID, text)
-    if not Grid.PrzRec(itemID) or not (ns.UI and ns.UI.AtlasIconText) then return text end
+function DropPanel.PrzName(itemID, text)
+    if not DropPanel.PrzRec(itemID) or not (ns.UI and ns.UI.AtlasIconText) then return text end
     local i = (ns.HasAssets and ns:HasAssets(7)) and ns.UI.ICON.prized or ns.UI.ICON.trophy
     return text .. "  " .. ns.UI:AtlasIconText(i, 11, { 1, 0.6, 0.18 })
 end
-function Grid.PrzSub(itemID, text)
-    local rec = Grid.PrzRec(itemID)
+function DropPanel.PrzSub(itemID, text)
+    local rec = DropPanel.PrzRec(itemID)
     if not rec then return text end
     local P = ns.Prized
     local n = #P:PresentCouncil()
     local need = P:NeededVotes(rec, n)
-    local add = need > 0 and format("prized: %d of %d votes", need, n) or "prized"
+    local add = need > 0 and format("prized: needs %d of %d council", need, n) or "prized"
     return (text and text ~= "") and (text .. " · " .. add) or add
+end
+
+-- "  ·  3 votes", or on a split vote (Roll: several players with the most votes, r.split) "  ·  votes split 3 ways"
+-- and, when nobody is suggested (the guild's rules: the council picks, or none of them rolled), ": pick one".
+function Dry.VotesLine(stats)
+    if (stats.split or 0) > 1 then
+        return Paint(format("  ·  votes split %d ways", stats.split) .. (stats.picked and "" or ": pick one"), "warn")
+    end
+    if (stats.votes or 0) > 0 then return Paint("  ·  " .. VotesText(stats.votes), "muted") end
+    return ""
+end
+
+-- The guild's attendance floor (Council > Rules), 0 = off.
+function Dry.Floor()
+    local G = ns.Guild
+    local lr = G and G.GetLootRules and G:GetLootRules()
+    return lr and tonumber(lr.f) or 0
+end
+
+-- "⚠ under 50%" in the loot column of a player under the floor (council only); true when shown.
+function Dry.SetLow(r, key, att)
+    local f = Dry.Floor()
+    if f <= 0 or not IsCouncil() then return false end
+    if att == nil then
+        local RL = ns.RaidLog
+        att = key and RL and RL.GetAttendance and (RL:GetAttendance(key)) or nil
+    end
+    if not (tonumber(att) and att < f) then return false end
+    r.dry:Hide()
+    r.tag:SetText(WarnIcon(10) .. " " .. Paint(format("under %d%%", f), "warn"))
+    r.tag:Show()
+    return true
 end
 
 function Dry.Get(key)
@@ -1456,7 +1492,8 @@ function Dry.AddLines(tt, key)
         local days = floor(max(0, GetServerTime() - (tonumber(d.last.ts) or 0)) / 86400)
         local ago = days == 0 and "today" or (days == 1 and "yesterday" or format("%d days ago", days))
         tt:AddLine(format("Last item %s%s: %s", ago, who, ItemText(d.last.i)), c[1], c[2], c[3], true)
-        tt:AddLine(format("Since then: %s, %d bosses", Dry.Raids(d.nights), d.bosses), c[1], c[2], c[3])
+        local came = (tonumber(d.came) or d.nights) > d.nights and format(" (came to %d)", d.came) or ""
+        tt:AddLine(format("Since then: there for %s, %d bosses%s", Dry.Raids(d.nights), d.bosses, came), c[1], c[2], c[3])
     else
         tt:AddLine(format("No item on record in %s (%d bosses)", Dry.Raids(d.nights), d.bosses), c[1], c[2], c[3])
     end
@@ -1592,6 +1629,14 @@ local function RollRowTooltip(self, tt, vp)
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then tt:AddLine(format("Won %d item(s) tonight", won), 0.7, 0.7, 0.7) end
     if not plain then Dry.AddLines(tt, row.key) end
+    if row.lowAtt then
+        local w = Color("warn")
+        tt:AddLine(format("Under the guild's attendance floor (%d%%): never suggested", Dry.Floor()), w[1], w[2], w[3], true)
+    end
+    if row.split and not row.suggested then
+        local w = Color("warn")
+        tt:AddLine("Votes split: tied for the most votes", w[1], w[2], w[3])
+    end
     AddAttendanceLine(tt, row.key)
     if row.wonCopy then
         tt:AddLine("Won another copy of this item from this drop: not suggested", Color("warn")[1], Color("warn")[2], Color("warn")[3])
@@ -1915,6 +1960,8 @@ function Grid.Rail(r, row, canVote)
     end
     r.vEdge:Show()
     r.votes:Show()
+    -- (a split vote: the tied players' squares get an amber edge)
+    if row.split then r.vEdge:SetColorTexture(1, 0.62, 0.2, 0.95) else r.vEdge:SetColorTexture(1, 1, 1, 0.22) end
     if n > 0 then
         if row.myVote then r.vBox:SetColorTexture(0.55, 0.44, 0.05, 1) else r.vBox:SetColorTexture(0.16, 0.16, 0.18, 1) end
         r.votes:SetText("|cffffffff" .. n .. "|r")
@@ -2174,10 +2221,10 @@ local function FillRow(r, w, itemID, vp, itemSid)
     else
         SetEquipped(r, WornOfWanter(w, itemSid))
     end
-    local przTag = Grid.PrzTag(Grid.PrzCheck(itemID, w.key, w))
+    local przTag = DropPanel.PrzTag(DropPanel.PrzCheck(itemID, w.key, w))
     if przTag and w.inRaid then status = przTag end
     r.status:SetText(status)
-    if status == "" and not w.craft then Dry.Set(r, w.key) end
+    if status == "" and not w.craft and not Dry.SetLow(r, w.key) then Dry.Set(r, w.key) end
     r:SetAlpha((w.inRaid and not przTag) and 1 or 0.55)
     return ROW_H
 end
@@ -2202,7 +2249,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     if not plain then Grid.Att(r, row.key) end
     if plain then SetPill(r, nil) else SetPill(r, RollPill(row, vp)) end
     local tag = RollTag(row, session)
-    local przTag = not plain and Grid.PrzTag(row.prz)
+    local przTag = not plain and DropPanel.PrzTag(row.prz)
     if przTag and not (type(session) == "table" and session.state == "awarded" and session.winner == row.key) then
         tag = przTag
     end
@@ -2226,7 +2273,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
         end
     else
         SetEquipped(r, WornOfRow(row, itemSid))
-        if tag == "" and not plain then Dry.Set(r, row.key) end
+        if tag == "" and not plain and not (row.lowAtt and Dry.SetLow(r, row.key, row.att)) then Dry.Set(r, row.key) end
     end
     -- (a bad range needs more room than "x2": it takes the first worn icon's place when there is only one)
     r.note:SetWidth(r.eqs[1]:IsShown() and COL.note[2] or (ROW_W - EQ_SIZE - 2 - COL.note[1]))
@@ -2755,7 +2802,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.copy = copy
     b.awardEntry = award
     b.button:SetItem(itemID)
-    FitName(b.name, Grid.PrzName(itemID, ItemText(itemID)), CARD_W - TEXT_X - 10 - 20 - 8)
+    FitName(b.name, DropPanel.PrzName(itemID, ItemText(itemID)), CARD_W - TEXT_X - 10 - 20 - 8)
 
     local session, mode, queuePos = RollStateFor(itemID, drop, copy)
     local rolling = mode == "roll" and session ~= nil
@@ -2788,8 +2835,8 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             end
         end
         b.results = results
-        local rolled, passed, tie, votes = RollCounts(results)
-        b.rollStats = { rolled = rolled, passed = passed, tie = tie, votes = votes }
+        local rolled, passed, tie, votes, split, picked = RollCounts(results)
+        b.rollStats = { rolled = rolled, passed = passed, tie = tie, votes = votes, split = split, picked = picked }
         for _, row in ipairs(results) do
             if row.suggested then
                 b.suggested = row
@@ -2801,7 +2848,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             headKind = "roll"
             y = y + Grid.HEAD_H
         end
-        b.sub:SetText(Grid.PrzSub(itemID, RollStateText(session, b.rollStats)))
+        b.sub:SetText(DropPanel.PrzSub(itemID, RollStateText(session, b.rollStats)))
         -- "+N more" only when it hides at least two rows.
         local limit = (n > MAX_ROLL_ROWS + 1) and MAX_ROLL_ROWS or n
         for i = 1, limit do
@@ -2845,9 +2892,9 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             y = y + Grid.HEAD_H
         end
         if mode == "queued" then
-            b.sub:SetText(Grid.PrzSub(itemID, RollStateText(nil, nil, queuePos or 1)))
+            b.sub:SetText(DropPanel.PrzSub(itemID, RollStateText(nil, nil, queuePos or 1)))
         else
-            b.sub:SetText(Grid.PrzSub(itemID, ItemSubtitle(itemID)))
+            b.sub:SetText(DropPanel.PrzSub(itemID, ItemSubtitle(itemID)))
         end
         local limit = (n > MAX_ROWS + 1) and MAX_ROWS or n
         for i = 1, limit do

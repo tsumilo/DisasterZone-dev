@@ -1509,10 +1509,31 @@ local function CleanRules(ar)
     return { o = o, d = d }
 end
 
+-- 1.3.5: the loot rules (Council > Rules, the GM's) travel the same way: lr = { f = attendance floor % (0 = off),
+-- s = when votes split ("r" the highest roll among them, "p" the council picks), l = before any vote ("l" lists first,
+-- "r" the roll only), w = then ("r" the highest roll, "d" the driest first), y = what a dry streak counts ("n" nights
+-- they were really there, "a" any night they came) }.
+Guild.LOOT_RULES = { f = 0, s = "r", l = "l", w = "r", y = "n" }
+local LOOT_CHOICES = { s = { r = true, p = true }, l = { l = true, r = true }, w = { r = true, d = true },
+                       y = { n = true, a = true } }
+local function CleanLootRules(lr)
+    if type(lr) ~= "table" then return nil end
+    local f = tonumber(lr.f)
+    if not IsInt(f, 0, 100) then return nil end
+    local out = { f = f }
+    for k, set in pairs(LOOT_CHOICES) do
+        if not set[lr[k]] then return nil end
+        out[k] = lr[k]
+    end
+    return out
+end
+Guild.CleanLootRules = function(_, lr) return CleanLootRules(lr) end
+
 local function SendRLL(target)
     local rec = LeadersRec(false)
     if not rec or rec.rev == 0 then return false end
-    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar), arb = rec.arBy }
+    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar), arb = rec.arBy,
+                  lr = CleanLootRules(rec.lr), lrb = rec.lrBy }
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     return Send(msg, "GUILD", nil, "ctrl")
 end
@@ -1552,8 +1573,12 @@ local function OnRaidLeaders(sender, msg, dist)
     local ar = CleanRules(msg.ar)
     local arBy = msg.arb ~= nil and WireKey(msg.arb) or nil
     if ar and (Guild:IsGM(sender) or (arBy and Guild:IsGM(arBy))) then rec.ar, rec.arBy = ar, arBy or sender end
+    local lr = CleanLootRules(msg.lr)
+    local lrBy = msg.lrb ~= nil and WireKey(msg.lrb) or nil
+    if lr and (Guild:IsGM(sender) or (lrBy and Guild:IsGM(lrBy))) then rec.lr, rec.lrBy = lr, lrBy or sender end
     Recompute()
     ns:Fire("ATTENDANCE_RULES_CHANGED")
+    ns:Fire("LOOT_RULES_CHANGED")
 end
 
 -- 1.3.5: the attendance rules { o = on-time minutes, d = disconnect minutes } (the GM's, else 5 and 10).
@@ -1578,6 +1603,50 @@ function Guild:SetAttendanceRules(o, d)
     rec.by = rec.by or Util.PlayerKey()
     SendRLL()
     ns:Fire("ATTENDANCE_RULES_CHANGED")
+    return true
+end
+
+-- 1.3.5: the loot rules (the GM's, else Guild.LOOT_RULES). Demo mode: a copy the demo can change (never sent).
+local demoLootRules
+function Guild:GetLootRules()
+    if DemoOn() and demoLootRules then return demoLootRules end
+    local rec = LeadersRec(false)
+    local lr = rec and CleanLootRules(rec.lr)
+    if lr then return lr end
+    local d = {}
+    for k, v in pairs(Guild.LOOT_RULES) do d[k] = v end
+    return d
+end
+
+-- Who changed them last (key) or nil.
+function Guild:GetLootRulesBy()
+    local rec = LeadersRec(false)
+    return rec and rec.lrBy or nil
+end
+
+function Guild:CanEditLootRules()
+    return DemoOn() or Guild:IsGM(Util.PlayerKey()) or false
+end
+
+-- The GM only (demo mode: anyone, on a copy): sets the loot rules and shares them. Returns ok, err.
+function Guild:SetLootRules(lr)
+    lr = CleanLootRules(lr)
+    if not lr then return false, "not a valid set of loot rules" end
+    if DemoOn() then
+        demoLootRules = lr
+        ns:Fire("LOOT_RULES_CHANGED")
+        return true
+    end
+    if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end
+    if not ready then return false, "the guild roster has not loaded yet" end
+    if not Guild:IsGM(Util.PlayerKey()) then return false, "only the Guild Master sets the loot rules" end
+    local rec = LeadersRec(true)
+    if not rec then return false, "your guild is not known yet" end
+    rec.rev = max(floor(Now()), rec.rev + 1)
+    rec.lr, rec.lrBy = lr, Util.PlayerKey()
+    rec.by = rec.by or Util.PlayerKey()
+    SendRLL()
+    ns:Fire("LOOT_RULES_CHANGED")
     return true
 end
 
