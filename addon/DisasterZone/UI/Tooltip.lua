@@ -1,6 +1,7 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tooltip.lua", ...) then return end -- DisasterZone UI/Tooltip.lua
 -- Adds DisasterZone lines to item tooltips: your own BiS status for everyone and, for the Loot Council,
 -- who wants the item (SPEC §12.9). Uses HookScript("OnTooltipSetItem"); TooltipDataProcessor is retail-only.
+-- 1.3.5: compact by default (one line each for my BiS, a prized item's rules and the wanters); Shift shows it all.
 -- Player tooltips get the player's title and season from the guild's events (Core/Events.lua).
 local addonName, ns = ...
 
@@ -13,15 +14,26 @@ local tconcat = table.concat
 local floor, max, min = math.floor, math.max, math.min
 local ipairs, pairs, type, tonumber, tostring = ipairs, pairs, type, tonumber, tostring
 
-local MARK = "|cffff8000DisasterZone|r"       -- every DisasterZone line starts with this; also the dedupe marker
+local MARK = "|cffff8000DisasterZone|r"       -- player tooltips' events line
+-- Item tooltips: every DisasterZone line starts with the small seal instead of the word (1.3.5: three orange
+-- "DisasterZone" words made the block wide and loud). Its path is the dedupe marker.
+local SEAL_MARK = "DisasterZone\\Media\\Launcher\\seal"
 -- Texture escapes instead of star / check glyphs: the default WoW fonts do not contain them.
 local STAR = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:0|t"
 local CHECK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
+local CROSS = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:0|t"
 local GREY = 0.55
+local GREYC = { GREY, GREY, GREY }
+local WHITE = { 1, 1, 1 }
+local WARN = { 1, 0.62, 0.36 }
 local CACHE_TTL = 2
 local CACHE_MAX = 300
+local NAMES_CHARS = 40                          -- the compact wanters line: names up to about this many letters
 local TOOLTIPS = { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2",
                    "ItemRefShoppingTooltip1", "ItemRefShoppingTooltip2" }
+-- the comparison tooltips Shift opens stay compact: the full block is for the item looked at
+local COMPARE = { ShoppingTooltip1 = true, ShoppingTooltip2 = true, ItemRefShoppingTooltip1 = true,
+                  ItemRefShoppingTooltip2 = true }
 local VIA_TEXT = ns.VIA_TEXT or { token = "via token", upgrade = "via Sunmote upgrade", arena = "via token exchange" }
 
 local FALLBACK_COLORS = {
@@ -33,7 +45,7 @@ local FALLBACK_COLORS = {
 
 local cache, cacheSize = {}, 0
 local hooked = {}                               -- [tooltip] = true
-local truncated = setmetatable({}, { __mode = "k" })  -- [tooltip] = { entries, start, line } for Shift-expand
+local blocks = setmetatable({}, { __mode = "k" })     -- [tooltip] = { first, n, id }: a compact block Shift expands
 local matsOn = setmetatable({}, { __mode = "k" })     -- [tooltip] = the line of its "Materials" header
 local mats = { n = 1, level = 0 }                     -- the id shown, its amount and breakdown steps
 local MATS_MAX = 999
@@ -52,6 +64,15 @@ local function Paint(text, key)
     local c = Color(key)
     return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
         floor(c[3] * 255 + 0.5), text)
+end
+
+local function Seal()
+    return "|TInterface\\AddOns\\DisasterZone\\Media\\Launcher\\seal" ..
+        ((ns.HasAssets and ns:HasAssets(4)) and "_mm" or "") .. ":0|t "
+end
+
+local function ShiftDown()
+    return (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) and true or false
 end
 
 local function Setting(path, default)
@@ -90,7 +111,7 @@ local function ItemText(itemID)
     return (ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(itemID)) or ("item " .. tostring(itemID))
 end
 
--- "Wearing: A, B" for a wanter: both items of a ring / trinket / weapon pair (ADDENDUM A §18).
+-- "wears A, B" for a wanter: both items of a ring / trinket / weapon pair (ADDENDUM A §18).
 -- Uses Store:GetWanters' equippedList, else the single `equipped` item. nil when nothing is worn.
 local function WearingText(w)
     local list = w.equippedList
@@ -101,7 +122,7 @@ local function WearingText(w)
         if id and id > 0 and #parts < 2 then parts[#parts + 1] = ItemText(id) end
     end
     if #parts == 0 then return nil end
-    return "Wearing: " .. tconcat(parts, ", ")
+    return "wears " .. tconcat(parts, ", ")
 end
 
 local function ClearCache()
@@ -118,30 +139,54 @@ local function PhaseText(p)
     return "P" .. tostring(p)
 end
 
+-- Sorted phases as short text: three or more raid phases in a row become a range ("Pre-raid, P1–P4", "P1, P3").
+local function PhaseList(list)
+    local out, i = {}, 1
+    while i <= #list do
+        local j = i
+        while j < #list and list[i] > 0 and list[j + 1] == list[j] + 1 do j = j + 1 end
+        if j - i >= 2 then
+            out[#out + 1] = PhaseText(list[i]) .. "–" .. PhaseText(list[j])
+        else
+            j = i
+            out[#out + 1] = PhaseText(list[i])
+        end
+        i = j + 1
+    end
+    return tconcat(out, ", ")
+end
+
+-- "★ Your BiS P1–P4 · Trinket 1": one line, every phase the item is listed in (main pick unless it says alt).
 local function BuildOwn(itemID)
     if not (ns.BiS and ns.BiS.MatchItem) then return nil end
     -- My Pre-raid list counts here (and only here: loot alerts and the roll popup stay on the raid phases).
     local matches = ns.BiS:MatchItem(itemID, { preRaid = true })
     if type(matches) ~= "table" or type(matches[1]) ~= "table" then return nil end
     local m = matches[1]
-    local phase = tonumber(m.phase) or 0
-    local label = PhaseText(phase)
-    local text
     local anyOS = false
+    local phases, seen = {}, {}
     for _, x in ipairs(matches) do
-        if type(x) == "table" and x.os then anyOS = true end
+        if type(x) == "table" then
+            if x.os then anyOS = true end
+            local p = (x.os and true or false) == (m.os and true or false) and tonumber(x.phase)
+            if p and not seen[p] then
+                seen[p] = true
+                phases[#phases + 1] = p
+            end
+        end
     end
+    table.sort(phases)
+    local label, slot = PhaseList(phases), SlotLabel(m.sid)
+    local text
     if m.os then
         -- Only on my off-spec list (Addendum H; MatchItem lists main-spec matches first).
         local sp = ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
-        text = MARK .. " " .. Paint(format("Your %s off-spec %s%s - %s", label, m.which == "alt" and "alt" or "BiS",
-            sp ~= "" and (" (" .. sp .. ")") or "", SlotLabel(m.sid)), "offspec")
+        text = Seal() .. Paint(format("Your off-spec %s %s%s · %s", m.which == "alt" and "alt" or "BiS", label,
+            sp ~= "" and (" (" .. sp .. ")") or "", slot), "offspec")
     elseif m.which == "alt" then
-        text = MARK .. " " .. Paint(format("Your %s alt - %s", label, SlotLabel(m.sid)), "alt")
-    elseif phase == 0 then
-        text = MARK .. " " .. STAR .. " " .. Paint(format("Your %s BiS - %s", label, SlotLabel(m.sid)), "main")
+        text = Seal() .. Paint(format("Your alt %s · %s", label, slot), "alt")
     else
-        text = MARK .. " " .. STAR .. " " .. Paint(format("Your %s BiS (main) - %s", label, SlotLabel(m.sid)), "main")
+        text = Seal() .. STAR .. " " .. Paint(format("Your BiS %s · %s", label, slot), "main")
     end
     if m.via then
         local via = VIA_TEXT[m.via] or "via token"
@@ -151,20 +196,13 @@ local function BuildOwn(itemID)
         text = text .. Paint(" (" .. via .. ")", "muted")
     end
     if m.obtained then text = text .. " " .. CHECK .. Paint("obtained", "obtained") end
-
-    -- Other phases this item is also listed in.
-    local extra, seen = {}, { [phase] = true }
-    for i = 2, #matches do
-        local x = matches[i]
-        local p = type(x) == "table" and (x.os and true or false) == (m.os and true or false) and tonumber(x.phase)
-        if p and not seen[p] then
-            seen[p] = true
-            extra[#extra + 1] = PhaseText(p)
-        end
-    end
-    if #extra > 0 then text = text .. Paint("  also " .. tconcat(extra, ", "), "muted") end
-    if anyOS and not m.os then text = text .. Paint("  + off spec", "offspec") end
+    if anyOS and not m.os then text = text .. Paint(" · + off spec", "offspec") end
     return text
+end
+
+local function MaxNames()
+    local n = tonumber(Setting("tooltip.maxNames", 5)) or 5
+    return max(1, min(40, floor(n)))
 end
 
 local function BuildCouncil(itemID)
@@ -193,11 +231,31 @@ local function BuildCouncil(itemID)
         if w.inRaid then inRaid = inRaid + 1 end
         if w.which ~= "alt" then mains = mains + 1 end
     end
-    -- The same count as the drop panel / Items view ("N want"); alt picks are not BiS, so the mains are named.
-    local header = format("%s: wanted by %d (%d in raid)", MARK, #needers, inRaid)
+    local hasIt = #have > 0 and Paint(format(" · %d %s it", #have, #have == 1 and "has" or "have"), "muted") or ""
+    local offSpec = #offs > 0 and Paint(format(" · +%d off spec", #offs), "offspec") or ""
+    local here = inRaid > 0 and (" · " .. Paint(format("%d here", inRaid), "main")) or ""
+
+    -- Compact (no Shift): "14 want · 3 here: A, B, C +11" on one line, names class coloured, those in the raid first
+    -- (GetWanters' order). The same count as the drop panel / Items view ("N want").
+    local compact
+    if #needers > 0 then
+        local names, used, limit = {}, 0, MaxNames()
+        for _, w in ipairs(needers) do
+            local short = (ns.Util and ns.Util.ShortName and ns.Util.ShortName(w.key)) or w.key
+            if #names >= limit or (#names > 0 and used + #short + 2 > NAMES_CHARS) then break end
+            names[#names + 1] = ColoredName(w.key, w.classFile)
+            used = used + #short + 2
+        end
+        compact = Seal() .. format("%d want", #needers) .. here .. ": " .. tconcat(names, ", ")
+        if #needers > #names then compact = compact .. Paint(format(" +%d", #needers - #names), "muted") end
+    else
+        compact = Seal() .. Paint("Nobody needs it", "muted") .. hasIt .. offSpec
+    end
+
+    -- Full (Shift): the counts, then one line per player. Alt picks are not BiS, so the mains are counted.
+    local header = Seal() .. format("Wanted by %d", #needers)
     if mains < #needers then header = header .. format(" · %d BiS", mains) end
-    if #have > 0 then header = header .. Paint(format(", %d obtained", #have), "muted") end
-    if #offs > 0 then header = header .. Paint(format(" +%d off spec", #offs), "offspec") end
+    header = header .. here .. hasIt .. offSpec
 
     local entries = {}
     local function add(w)
@@ -221,15 +279,16 @@ local function BuildCouncil(itemID)
         end
         -- What they wear now matters only for players who still need the item.
         local wear = not w.obtained and WearingText(w) or nil
-        entries[#entries + 1] = { left = left, right = right, wear = wear and ("      " .. wear) or nil }
+        if wear then right = right ~= "" and (right .. " · " .. wear) or wear end
+        entries[#entries + 1] = { left = left, right = right }
     end
     for _, w in ipairs(needers) do add(w) end
     for _, w in ipairs(have) do add(w) end
     for _, w in ipairs(offs) do add(w) end
-    return { header = header, entries = entries }
+    return { compact = compact, header = header, entries = entries }
 end
 
--- "DisasterZone: made by A, B +3" for an item a guild member can craft (Core/Professions.lua), online crafters first.
+-- "Made by A, B +3" for an item a guild member can craft (Core/Professions.lua), online crafters first.
 local MAX_CRAFTERS = 4
 local function CraftedBy(itemID)
     local Prof = ns.Professions
@@ -257,7 +316,7 @@ local function CraftedBy(itemID)
             if #names < MAX_CRAFTERS then names[#names + 1] = name end
         end
     end
-    local text = MARK .. ": made by " .. tconcat(names, ", ")
+    local text = Seal() .. "Made by " .. tconcat(names, ", ")
     if total > #names then text = text .. Paint(format(" +%d", total - #names), "muted") end
     return text
 end
@@ -285,14 +344,9 @@ local function HasMarker(tt)
     for i = 1, tt:NumLines() do
         local fs = _G[name .. "TextLeft" .. i]
         local text = fs and fs:GetText()
-        if text and text:find(MARK, 1, true) then return true end
+        if text and text:find(SEAL_MARK, 1, true) then return true end
     end
     return false
-end
-
-local function MaxNames()
-    local n = tonumber(Setting("tooltip.maxNames", 5)) or 5
-    return max(1, min(40, floor(n)))
 end
 
 -- Does tt show a materials block now? (Its header line is checked: a tooltip can be re-set without a clear event.)
@@ -318,71 +372,124 @@ local function OnSetItem(tt)
 end
 
 local function OnCleared(tt)
-    truncated[tt] = nil
+    blocks[tt] = nil
     matsOn[tt] = nil
 end
 
--- A prized item's lines: "DisasterZone: prized item", then each rule with a tick or a cross for me (a priority rule
--- or how it's decided in grey). True when added.
-local CROSS = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:0|t"
-function Tooltip:AddPrized(tt, itemID)
+-- Why I miss a prized item's rule, short: "62% attendance, needs 75%", "cooldown until 14 Oct".
+local function FailText(res, v)
+    v = v or {}
+    if res.key == "att" then
+        if res.num and res.value ~= "no raids" then return format("%s attendance, needs %d%%", res.value, v.p or 0) end
+        return format("no raids in the last %d weeks", v.w or 0)
+    elseif res.key == "cd" and res.free then
+        return "cooldown until " .. date("%d %b", res.free)   -- which item it was: the Shift lines
+    elseif res.key == "bis" then
+        return "not on your BiS list"
+    elseif res.key == "guild" then
+        return "guild members only"
+    end
+    return res.why or res.label or res.key
+end
+
+-- A prized item's lines (Raids > Loot rules) into out. Compact: one line, "Prized · ✓ you qualify · council decides",
+-- or only the first rule I miss ("✗ 62% attendance, needs 75% +1"). Full (Shift): each rule on its own line with a
+-- tick or a cross for me, priority rules in grey. True when the item is prized.
+local function PrizedLines(itemID, full, out)
     local P = ns.Prized
     local rec = P and P.ForItem and P:ForItem(itemID)
     if not rec then return false end
     local c = P:Check(rec, ns.Util.PlayerKey())
-    tt:AddLine(MARK .. ": |cffff9a2eprized item|r (Raids > Loot rules)", 1, 1, 1)
-    for _, res in ipairs(c.rules) do
-        local text = P:RuleText(res.key, rec.r[res.key], rec)
-        if res.info or res.m == "p" then
-            tt:AddLine("  " .. text, GREY, GREY, GREY, true)
+    local head = Seal() .. "|cffff9a2ePrized|r"
+    local vote = rec.r and rec.r.vote
+    if full then
+        out[#out + 1] = { l = head .. (vote and Paint(" · the Loot Council decides, no rolls", "muted") or "") }
+        for _, res in ipairs(c.rules) do
+            if not res.info then
+                local text = P:RuleText(res.key, rec.r[res.key], rec)
+                if res.m == "p" then
+                    out[#out + 1] = { l = "  " .. text, c = GREYC }
+                else
+                    local mark = res.ok == true and CHECK or (res.ok == false and CROSS or "  ")
+                    local extra = ""
+                    if res.ok == false and res.free then extra = format(" (free again %s)", date("%d %b", res.free)) end
+                    out[#out + 1] = { l = mark .. " " .. text .. extra, c = res.ok == false and WARN or { 0.9, 0.9, 0.9 } }
+                end
+            end
+        end
+        return true
+    end
+    local status
+    if c.required > 0 then
+        if c.ok == true then
+            status = CHECK .. " " .. Paint("you qualify", "obtained")
         else
-            local mark = res.ok == true and CHECK or (res.ok == false and CROSS or "  ")
-            local extra = ""
-            if res.ok == false and res.free then extra = format(" (free again %s)", date("%d %b", res.free)) end
-            local col = res.ok == false and { 1, 0.62, 0.36 } or { 0.9, 0.9, 0.9 }
-            tt:AddLine(mark .. " " .. text .. extra, col[1], col[2], col[3], true)
+            local fails, unknown = {}, nil
+            for _, res in ipairs(c.rules) do
+                if not res.info and res.m == "r" then
+                    if res.ok == false then fails[#fails + 1] = res
+                    elseif res.ok == nil and not unknown then unknown = res end
+                end
+            end
+            if #fails > 0 then
+                local f = fails[1]
+                status = CROSS .. " " .. format("|cff%02x%02x%02x%s|r", floor(WARN[1] * 255), floor(WARN[2] * 255),
+                    floor(WARN[3] * 255), FailText(f, rec.r[f.key]))
+                if #fails > 1 then status = status .. Paint(format(" +%d", #fails - 1), "muted") end
+            elseif unknown then
+                status = Paint(format("%d of %d rules met, %s unknown", c.met, c.required,
+                    (unknown.label or unknown.key):lower()), "muted")
+            end
         end
     end
+    out[#out + 1] = { l = head .. (status and (" · " .. status) or "") ..
+        (vote and Paint(" · council decides", "muted") or "") }
     return true
+end
+
+-- The DisasterZone lines for itemID as { l = left, r = right, c = left colour }: compact, or full while Shift is
+-- held. Also true when the full block would show more than the compact one.
+function Tooltip:BlockLines(itemID, full)
+    local data = GetData(itemID)
+    local out = {}
+    if data.own then out[#out + 1] = { l = data.own } end
+    local more = PrizedLines(itemID, full, out)
+    local council = data.council
+    if council and Setting("tooltip.council", true) and IsCouncil() then
+        more = true
+        if full then
+            out[#out + 1] = { l = council.header }
+            for _, e in ipairs(council.entries) do out[#out + 1] = { l = e.left, r = e.right } end
+        else
+            out[#out + 1] = { l = council.compact }
+        end
+    end
+    -- (the Members tab lists the crafters itself)
+    local crafted = not Tooltip.skipCrafters and CraftedBy(itemID)
+    if crafted then out[#out + 1] = { l = crafted } end
+    return out, more
+end
+
+local function Emit(tt, x)
+    local c = x.c or WHITE
+    if x.r then
+        tt:AddDoubleLine(x.l, x.r, c[1], c[2], c[3], GREY, GREY, GREY)
+    else
+        tt:AddLine(x.l, c[1], c[2], c[3])
+    end
 end
 
 -- Appends the DisasterZone lines for itemID to a tooltip. Returns true if anything was added.
 function Tooltip:AddLines(tt, itemID)
     if not tt or not itemID or not Setting("tooltip.enabled", true) then return false end
-    local data = GetData(itemID)
-    local added = false
-    if data.own then
-        tt:AddLine(data.own, 1, 1, 1)
-        added = true
-    end
-    -- 1.3.5: a prized item (Raids > Loot rules): its rules, ticked for me
-    if self:AddPrized(tt, itemID) then added = true end
-    local council = data.council
-    if council and Setting("tooltip.council", true) and IsCouncil() then
-        tt:AddLine(council.header, 1, 1, 1)
-        local entries = council.entries
-        local n = #entries
-        local limit = n
-        local shift = _G.IsShiftKeyDown and _G.IsShiftKeyDown()
-        if not shift and n > MaxNames() then limit = MaxNames() end
-        for i = 1, limit do
-            tt:AddDoubleLine(entries[i].left, entries[i].right, 1, 1, 1, GREY, GREY, GREY)
-            -- "Wearing: ..." only while Shift is held: under every name it doubled the block and widened every
-            -- bag / AH / chat-link tooltip.
-            if shift and entries[i].wear then tt:AddLine(entries[i].wear, GREY, GREY, GREY) end
-        end
-        if limit < n then
-            tt:AddLine(format("  +%d more (hold Shift)", n - limit), GREY, GREY, GREY)
-            truncated[tt] = { entries = entries, start = limit + 1, line = tt:NumLines() }
-        end
-        added = true
-    end
-    -- (the Members tab lists the crafters itself)
-    local crafted = not Tooltip.skipCrafters and CraftedBy(itemID)
-    if crafted then
-        tt:AddLine(crafted, 1, 1, 1, true)
-        added = true
-    end
+    local name = tt.GetName and tt:GetName()
+    local full = ShiftDown() and not COMPARE[name or ""]
+    local lines, more = self:BlockLines(itemID, full)
+    local first = tt:NumLines() + 1
+    for _, x in ipairs(lines) do Emit(tt, x) end
+    blocks[tt] = (more and not full and #lines > 0 and not COMPARE[name or ""])
+        and { first = first, n = #lines, id = itemID } or nil
+    local added = #lines > 0
     -- (an Atlas / Members row puts the materials under its own lines)
     if not Tooltip.noMats and (tt == _G.GameTooltip or tt == _G.ItemRefTooltip) then
         self:AddMaterials(tt, itemID)
@@ -395,10 +502,6 @@ end
 ---------------------------------------------------------------------------
 -- Materials (Shift): what the craft making an item needs, times an amount the mouse wheel sets over a list row
 ---------------------------------------------------------------------------
-local function ShiftDown()
-    return (_G.IsShiftKeyDown and _G.IsShiftKeyDown()) and true or false
-end
-
 local function ReagentText(id)
     local icon = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)) or (_G.GetItemIcon and _G.GetItemIcon(id))
     local name, quality
@@ -545,31 +648,39 @@ local function MaterialsShift(down)
     end
 end
 
--- Shift pressed while a truncated tooltip is shown: turn the "+K more" line into the next name
--- and append the rest (the tooltip itself is not re-set, so other addons' lines stay intact).
-local function ExpandTruncated()
-    for tt, more in pairs(truncated) do
-        truncated[tt] = nil
+-- Shift pressed while a compact block is shown: its lines become the full block's first lines and the rest is
+-- appended (the tooltip itself is not re-set, so other addons' lines stay intact). That needs the block to be the
+-- tooltip's last lines; when another addon added lines under it, the owner redraws the tooltip if it can (bag
+-- buttons do so by themselves every 0.2 s).
+local function ExpandBlocks()
+    for tt, b in pairs(blocks) do
+        blocks[tt] = nil
         local name = tt.GetName and tt:GetName()
-        local first = more.entries[more.start]
-        if name and first and tt:IsShown() and more.line <= tt:NumLines() then
-            local left = _G[name .. "TextLeft" .. more.line]
-            local right = _G[name .. "TextRight" .. more.line]
-            if left and left:GetText() and left:GetText():find("more (hold Shift)", 1, true) then
-                left:SetText(first.left)
-                left:SetTextColor(1, 1, 1)
-                if right then
-                    right:SetText(first.right)
-                    right:SetTextColor(GREY, GREY, GREY)
-                    right:Show()
-                end
-                if first.wear then tt:AddLine(first.wear, GREY, GREY, GREY) end
-                for i = more.start + 1, #more.entries do
-                    local e = more.entries[i]
-                    tt:AddDoubleLine(e.left, e.right, 1, 1, 1, GREY, GREY, GREY)
-                    if e.wear then tt:AddLine(e.wear, GREY, GREY, GREY) end
+        if name and tt:IsShown() then
+            local left1 = _G[name .. "TextLeft" .. b.first]
+            local text = left1 and left1:GetText()
+            local lines = Tooltip:BlockLines(b.id, true)
+            if b.first + b.n - 1 == tt:NumLines() and text and text:find(SEAL_MARK, 1, true) and #lines >= b.n then
+                for i, x in ipairs(lines) do
+                    if i <= b.n then
+                        local left = _G[name .. "TextLeft" .. (b.first + i - 1)]
+                        local right = _G[name .. "TextRight" .. (b.first + i - 1)]
+                        local c = x.c or WHITE
+                        left:SetText(x.l)
+                        left:SetTextColor(c[1], c[2], c[3])
+                        if right then
+                            right:SetText(x.r or "")
+                            right:SetTextColor(GREY, GREY, GREY)
+                            if x.r then right:Show() else right:Hide() end
+                        end
+                    else
+                        Emit(tt, x)
+                    end
                 end
                 tt:Show()
+            else
+                local owner = tt.GetOwner and tt:GetOwner()
+                if owner and type(owner.UpdateTooltip) == "function" then pcall(owner.UpdateTooltip, owner) end
             end
         end
     end
@@ -636,8 +747,8 @@ function Tooltip:OnLogin()
     ns:RegisterEvent("MODIFIER_STATE_CHANGED", function(_, key, down)
         if key == "LSHIFT" or key == "RSHIFT" then
             down = down == 1 or down == true
+            if down then ExpandBlocks() end   -- first: the materials go under the full block
             MaterialsShift(down)
-            if down then ExpandTruncated() end
         end
     end)
 end

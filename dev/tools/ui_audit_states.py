@@ -187,7 +187,8 @@ def close_all(cl):
       __MOCK.real_geometry = nil
       local rf = _G.DisasterZoneRollFrame; if rf and rf.Hide then rf:Hide() end
       if ns.Popup then ns.Popup:HideAll() end
-      if GameTooltip then GameTooltip:Hide() end""")
+      if GameTooltip then GameTooltip:Hide() end
+      if __MOCK.mods and __MOCK.mods.shift then __MOCK.set_modifiers() end""")
 
 
 def tab(cl, key):
@@ -1015,6 +1016,11 @@ SWING_HUD = ("__MOCK.real_geometry = true; __MOCK.swing_speed = 3.5; "
              "ST:Recent()[i] = { t = 0, kind = k } end; ns.SwingTimerHUD:Update()")
 
 
+TIP_ITEM = ("local it = ns.Prized:GetItems()[1]; local id = it and it.ids[1] or 32385; "
+            "local sid = ns.ItemDB:GetSlotsForItem(id)[1]; if sid then ns.BiS:SetSlot(1, sid, 'main', id) end; "
+            "ns.Tooltip:Invalidate(); GameTooltip:SetOwner(UIParent, 'ANCHOR_NONE'); GameTooltip:ClearAllPoints(); "
+            "GameTooltip:SetPoint('CENTER', UIParent, 'CENTER'); GameTooltip:SetItemByID(id)")
+
 MET = ("ns.Demo:SetEnabled(true); ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true); "
        "ns.MeterPanels:ResetLayout(); ")
 
@@ -1459,6 +1465,9 @@ STATES = [
     ("Settings - Rolls", opened("settings", "ns.SettingsUI:SelectSection('rolls')")),
     ("Settings - Strategy boards", opened("settings", "ns.SettingsUI:SelectSection('strategy')")),
     ("Settings - Tooltips", opened("settings", "ns.SettingsUI:SelectSection('tooltips')")),
+    # 1.3.5 compact item tooltip (UI/Tooltip.lua): demo's first prized item, on Gina's BiS list; then with Shift held
+    ("Tooltip - item compact", demo(TIP_ITEM)),
+    ("Tooltip - item Shift", demo("__MOCK.set_modifiers(true); " + TIP_ITEM)),
     ("Settings - Swing timer", opened("settings", "ns.SettingsUI:SelectSection('swing')")),
     ("Swing timer - both, in the zone", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Swing timer - bar, early swing", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
@@ -1515,6 +1524,16 @@ STATES = [
     ("Demo - Council - member", demo("ns.CouncilUI:ShowMember('Aldrin-Thunderstrike')", "council")),
     ("Demo - Council - loot council", demo("ns.CouncilUI:ShowCouncil()", "council")),
     ("Demo - Council - loot log", demo("ns.CouncilUI:ShowLog()", "council")),
+    # 1.3.5 Council > Rules: the GM's loot rules with the example roll, a draft that changes the order, a prized item
+    ("Demo - Council - rules", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner')", "council")),
+    ("Demo - Council - rules changed", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner'); "
+                                            "ns.CouncilRulesUI:SetChoice('f', 50); ns.CouncilRulesUI:SetChoice('s', 'p')",
+                                            "council")),
+    ("Demo - Council - rules no votes", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('winner'); "
+                                             "ns.CouncilRulesUI:SetScene('none')", "council")),
+    ("Demo - Council - rules prized", demo("ns.CouncilUI:SetView('rules'); "
+                                           "local it = ns.Prized:GetItems()[1]; ns.CouncilRulesUI:Select(it and it.id)",
+                                           "council")),
     # the Council restyle (2026-10-05): a boss many want (chips on two lines, "+N"), the unfolded "nobody wants"
     # items, a member page with awards, the guild card with unsaved edits, the raid card of a raid leader
     ("Demo - Council - items busy", demo("ns.CouncilUI:ShowBoss('Karazhan:Aran')", "council")),
@@ -1537,16 +1556,16 @@ STATES = [
     ("Council - roster - raid leader", st_council_roster_lock),
     ("Council - Loot council - officer", st_council_officer),
     ("Demo - Raid log - Players", demo("ns.RaidsUI:SetMode('players')", "raids")),
-    # 1.3.5 prized items (Raids > Loot rules, UI/PrizedUI.lua) on the demo guild's made-up items
-    ("Demo - Loot rules", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830')", "raids")),
-    ("Demo - Loot rules - Warglaives", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('32837')", "raids")),
-    ("Demo - Loot rules - history", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830'); "
-                                         "ns.PrizedUI:SetTab('history')", "raids")),
-    ("Demo - Loot rules - editing", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:Select('28830'); "
-                                         "ns.PrizedUI:StartEdit()", "raids")),
-    ("Demo - Loot rules - add", demo("ns.RaidsUI:SetView('rules'); ns.PrizedUI:CancelEdit(); ns.PrizedUI:StartAdd(); "
+    # 1.3.5 prized items (Council > Rules, UI/PrizedUI.lua in UI/CouncilRules.lua) on the demo guild's made-up items
+    ("Demo - Loot rules", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('28830')", "council")),
+    ("Demo - Loot rules - Warglaives", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('32837')", "council")),
+    ("Demo - Loot rules - history", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('28830'); "
+                                         "ns.PrizedUI:SetTab('history')", "council")),
+    ("Demo - Loot rules - editing", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('28830'); "
+                                         "ns.PrizedUI:StartEdit()", "council")),
+    ("Demo - Loot rules - add", demo("ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select('prized'); ns.PrizedUI:CancelEdit(); ns.PrizedUI:StartAdd(); "
                                      "ns.PrizedUI:SetAddSearch('warglaive'); ns.PrizedUI:TogglePick(32837); "
-                                     "ns.PrizedUI:TogglePick(32838)", "raids")),
+                                     "ns.PrizedUI:TogglePick(32838)", "council")),
     # 1.3.5 time-based attendance (UI/AttendanceUI.lua): a member's page, the reviews, the chat picker, the prompts
     ("Demo - Raid log - Attendance player", demo("ns.RaidsUI:SetMode('players'); "
         "local s = ns.Attendance:GetStats(8); local k; for _, r in ipairs(s) do if r.pending > 0 then k = r.key end end; "

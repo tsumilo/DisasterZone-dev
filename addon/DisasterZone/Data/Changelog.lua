@@ -51,7 +51,14 @@ ns.CHANGELOG = {
               "The council decides prized items: the award needs its votes from the council in the raid.",
               "Giving it against a rule asks why; the reason shows in the loot log and the History.",
               "Your roll pop-up says if you meet the rules; if not, why and when you can again.",
-              "Item tooltips list a prized item's rules, ticked for you.",
+              "Item tooltips say in one line if you qualify for a prized item, or which rule you miss.",
+          } },
+          { heading = "Shorter item tooltips", lines = {
+              "The addon adds a few short lines to item tooltips now, each marked with the small DZ seal.",
+              "Your BiS line names every phase at once: Your BiS P1–P4 · Trinket 1.",
+              "Loot council: who wants it fits on one line, players in the raid first.",
+              "Hold Shift for everything: each prized rule ticked, every player with what they wear now.",
+              "Shift works on a tooltip that is already open too. Comparison tooltips stay short.",
           } },
           { heading = "Loot council: who is on a dry streak", lines = {
               "When loot drops, each player shows how many raids they came to since their last item.",

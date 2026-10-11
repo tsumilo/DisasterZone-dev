@@ -385,9 +385,9 @@ def council_view_drop_matching_and_alerts_stay_on_raid_phases():
         == [2]
     # my tooltip shows the Pre-raid pick
     lines = [l for l, _ in R.show_tooltip_item(head) if l and "Your" in l]
-    assert any("Your Pre-raid BiS - Head" in l for l in lines), lines
+    assert any("Your BiS Pre-raid · Head" in l for l in lines), lines
     lines = [l for l, _ in R.show_tooltip_item(ring) if l and "Your" in l]
-    assert any("Your P2 BiS (main) - Ring 1" in l and "also Pre-raid" in l for l in lines), lines
+    assert any("Your BiS Pre-raid, P2 · Ring 1" in l for l in lines), lines
     assert not [l for l, _ in R.show_tooltip_item(other) if l and "Your" in l]
     w.assert_no_errors()
 

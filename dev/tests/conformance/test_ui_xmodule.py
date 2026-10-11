@@ -50,7 +50,7 @@ w.tick(0.5)
 
 # tooltips (own + council lines)
 lines = alice.show_tooltip_item(28822)
-check("council tooltip lines present in demo", any("wanted by" in (l or "") for l, _ in lines), lines[-4:])
+check("council tooltip lines present in demo", any(" want" in (l or "") and "seal_mm:" in (l or "") for l, _ in lines), lines[-4:])
 
 # drop panel + roll in demo
 alice.slash("/dz test")

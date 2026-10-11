@@ -220,7 +220,7 @@ def personal_alerts_for_off_spec_items():
     assert strip_codes(st["title"]) == "On your off-spec list (Protection)", st
     assert any("is on your off-spec list (Protection)" in strip_codes(l) for l in printed_lines(C))
     rows = C.show_tooltip_item(MINDBLADE)
-    assert any("Your P1 off-spec BiS (Protection) - Main Hand" in strip_codes(l or "") for l, _ in rows), rows
+    assert any("Your off-spec BiS P1 (Protection) · Main Hand" in strip_codes(l or "") for l, _ in rows), rows
     # the setting turns them off
     C.close_loot()
     C.eval("ns.DB:SetSetting('alerts.offspec', false) ns.DropPanel.recentAlerts = {} ns.DropPanel:DismissToast()")

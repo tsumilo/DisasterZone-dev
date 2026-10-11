@@ -492,10 +492,10 @@ def my_own_unread_professions_get_a_hint():
 def item_tooltips_name_the_crafters():
     w, g, a, b = ui_world()
     lines = [left for left, _ in b.show_tooltip_item(22851)]
-    made = [x for x in lines if x and "made by" in x]
+    made = [x for x in lines if x and "seal_mm:" in x and "Made by" in x]
     assert len(made) == 1 and "Alfa" in made[0] and "Gina" in made[0], lines
     lines = [left for left, _ in b.show_tooltip_item(28822)]       # nobody makes this
-    assert not [x for x in lines if x and "made by" in x], lines
+    assert not [x for x in lines if x and "Made by" in x], lines
     # hovering a recipe in the tab: the item, then who makes it (once)
     b.eval("ns.MembersUI:SetMode('recipes')")
     b.eval("""
@@ -507,7 +507,7 @@ def item_tooltips_name_the_crafters():
       local out = {}
       for i = 1, GameTooltip:NumLines() do out[#out + 1] = _G["GameTooltipTextLeft" .. i]:GetText() or "" end
       return out""")
-    assert any("Made by 2 in the guild" in x for x in text) and not any("made by" in x for x in text), text
+    assert any("Made by 2 in the guild" in x for x in text) and not any("seal_mm:" in x for x in text), text
     w.assert_no_errors()
 
 

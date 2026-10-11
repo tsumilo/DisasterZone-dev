@@ -173,7 +173,7 @@ def tooltip_hook_cost():
       local ids = ...
       T_time(#ids, function(i) GameTooltip:SetItemByID(ids[i]) end)""", ids)
     lines = c.show_tooltip_item(32385)
-    assert any("wanted by" in (l or "") for l, _ in lines), lines
+    assert any(" want" in (l or "") and "seal_mm:" in (l or "") for l, _ in lines), lines
     over_unc, over_c = max(0.0, uncached - base), max(0.0, cached - base)
     print("    tooltip (council, 61 lists): plain %.3f ms, +DisasterZone uncached %.3f ms, cached %.3f ms per SetItemByID"
           % (base, over_unc, over_c))
