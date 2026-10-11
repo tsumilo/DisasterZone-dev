@@ -162,15 +162,16 @@ local function whisper(key)
 end
 AUI.Whisper = whisper
 
+-- A note and two actions (buttons = { first, second }): onButton(1 | 2, text). Escape, the X and Cancel do nothing
+-- (Cancel is button2, the dialog's cancel; the second action is button3).
 local function textPrompt(title, body, buttons, onButton)
     local P = ns.Popup
     if not P then return end
     P.dialogs.DISASTERZONE_ATT_NOTE = {
-        title = title, text = body, button1 = buttons[1], button2 = buttons[2], button3 = buttons[3],
+        title = title, text = body, button1 = buttons[1], button2 = "Cancel", button3 = buttons[2],
         hasEditBox = true, maxLetters = 200, hideOnEscape = true,
         OnAccept = function(d) onButton(1, d.editBox:GetText()) end,
-        OnCancel = function(d, _, reason) if reason == "clicked" and buttons[3] then onButton(2, d.editBox:GetText()) end end,
-        OnAlt = function(d) onButton(buttons[3] and 3 or 2, d.editBox:GetText()) end,
+        OnAlt = function(d) onButton(2, d.editBox:GetText()) end,
     }
     P:Show("DISASTERZONE_ATT_NOTE")
 end
@@ -463,7 +464,7 @@ function AUI:ResultMenu(owner, r, extra)
             if not r.decision or r.decision.d ~= "c" then root:CreateButton("Counts", function() decide("c") end) end
             root:CreateButton("Decide with a note...", function()
                 textPrompt("Attendance: " .. short(r.key), "Excuse or count it, with a note the others see.",
-                    { "Excuse", "Counts", "Cancel" }, function(i, text)
+                    { "Excuse", "Counts" }, function(i, text)
                         if i == 1 then decide("x", text) elseif i == 2 then decide("c", text) end
                     end)
             end)
@@ -579,6 +580,9 @@ function AUI:CreateTimeline(parent, width)
             row.pill:SetKind(p[1], p[2])
             row.pill:Show()
         end
+        local nameRoom = 150 - 20 - (p and (row.pill:GetWidth() + 8) or 0)
+        fit(row.name, { name(r.key, r.cls), name(short(r.key):sub(1, 10), r.cls) }, nameRoom)
+        row.name:SetWidth(min(nameRoom, (row.name:GetStringWidth() or nameRoom) + 2))
         row.bar:Set(d.lo, d.hi, AUI:Segments(r), { r.F, r.T })
         local text
         if r.guest then
@@ -710,6 +714,7 @@ function AUI:SummaryText(sum)
     add(sum.left, "left early", { 1, 0.69, 0.4 })
     add(sum.noShow, sum.noShow == 1 and "no-show" or "no-shows", { 1, 0.5, 0.5 })
     add(sum.fill, sum.fill == 1 and "fill-in" or "fill-ins", C.fill)
+    add(sum.pending or 0, "waiting", C.pending)
     if #parts == 0 then return nil end
     return tconcat(parts, "   ")
 end
@@ -812,6 +817,7 @@ function AUI:CreateOverview(parent, width)
                 GameTooltip:AddLine(s.pct and (("%d%% over %d raids that expected them"):format(s.pct, s.counted))
                     or "No raid expected them yet.", 1, 1, 1)
                 if s.pending > 0 then GameTooltip:AddLine(s.pending .. " waiting for a review (not counted yet)", C.pending[1], C.pending[2], C.pending[3]) end
+                if s.excused > 0 then GameTooltip:AddLine(s.excused .. " excused (counted as there)", C.excused[1], C.excused[2], C.excused[3]) end
                 if s.fills > 0 then GameTooltip:AddLine(("Came to help %d times (%s)"):format(s.fills, dur(s.help)), C.fill[1], C.fill[2], C.fill[3]) end
                 if s.clashes > 0 then GameTooltip:AddLine(s.clashes .. " sign-up(s) clashed with their team raid", 0.8, 0.8, 0.8) end
                 if (s.lateCancels or 0) > 0 then
@@ -833,12 +839,16 @@ function AUI:CreateOverview(parent, width)
         row.zebra:SetShown(d.i % 2 == 0)
         UI():ClassIcon(row.icon, classOf(s.key, s.cls))
         row.name:SetText(name(s.key, s.cls))
+        local room = (v.noLineups and X.sq or X.lineups) - 22 - 10
+        row.name:SetWidth(min(room, (row.name:GetStringWidth() or room) + 2))
         row.dot:ClearAllPoints()
         row.dot:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
         row.dot:SetShown(s.pending > 0)
         row.extra:ClearAllPoints()
         row.extra:SetPoint("LEFT", row.name, "RIGHT", s.pending > 0 and 16 or 8, 0)
         row.extra:SetText(s.fills > 0 and ("+" .. s.fills .. (s.fills == 1 and " fill-in" or " fill-ins")) or "")
+        -- (only where it fits before the next column)
+        row.extra:SetShown(22 + (row.name:GetWidth() or 0) + 24 + (row.extra:GetStringWidth() or 0) <= room + 22)
         row.lineups:ClearAllPoints()
         row.lineups:SetPoint("LEFT", X.lineups, 0)
         row.lineups:SetText(s.lineups or grey("-"))
@@ -875,11 +885,7 @@ function AUI:CreateOverview(parent, width)
             fs:SetText(text)
         end
         place(row.late, X.late, 62, s.late.n > 0 and dur(s.late.sec) or grey("-"))
-        local leftText = s.left > 0 and tostring(s.left) or nil
-        if s.excused > 0 then
-            leftText = (leftText and (leftText .. "  ") or "") .. hex(C.excused, s.excused .. " excused")
-        end
-        place(row.left, X.left, 76, leftText or grey("-"))
+        place(row.left, X.left, 76, s.left > 0 and tostring(s.left) or grey("-"))
         place(row.no, X.no, 64, s.noShows > 0 and tostring(s.noShows) or grey("-"))
         local pct = s.pct
         local pc = not pct and C.grey or pct >= 90 and { 0.62, 0.94, 0.69 } or pct >= 75 and { 1, 0.82, 0.3 } or { 1, 0.5, 0.45 }
@@ -918,6 +924,8 @@ function AUI:CreateOverview(parent, width)
                 data[#data + 1] = { s = s, i = #data + 1, nights = shown }
             end
         end
+        self.list:SetEmptyText(#nights == 0 and "No raids logged yet."
+            or (lu and "Nobody in that lineup was expected or came.") or "Nobody was expected or came.")
         self.list:SetData(data)
         return #data, #nights
     end
@@ -980,6 +988,17 @@ function AUI:CreatePlayerPage(parent, width, opts)
     -- reviewers: excuse a stretch away
     b.away = UI():CreateSleekButton(b, "Excuse a period", 120, 22, function() AUI:OpenAwayDialog(v.key) end)
     b.away:SetPoint("TOPRIGHT", -10, -8)
+    -- the away periods set here (this computer), each with Remove (which takes back the raids it excused)
+    b.awayList = UI():CreateSleekMenuButton(b, "Away", 76, function(root)
+        local list = Att():GetAway(v.key)
+        root:CreateTitle("Away periods")
+        for _, p in ipairs(list) do
+            local label = date("%d %b", p.f) .. " – " .. date("%d %b", p.t) .. (p.n and p.n:find(":") and ("  " .. p.n:match(":%s*(.*)$")) or "")
+            local e = root:CreateButton("Remove: " .. label, function() Att():RemoveAway(p) end)
+            e:SetTitleAndTextTooltip("Remove this away period", "Takes back the excuses it gave (set by " .. short(p.by) .. ").")
+        end
+    end, 22)
+    b.awayList:SetPoint("RIGHT", b.away, "LEFT", -6, 0)
     -- four facts
     local GAP = 8
     local FW = floor((width - 3 * GAP) / 4)
@@ -1106,9 +1125,12 @@ function AUI:CreatePlayerPage(parent, width, opts)
             fs:SetPoint("LEFT", v.colX[key], 0)
             fs:SetText(text)
         end
-        local why = r.clash and "Signed up · team raid instead" or (r.kind == "l" and (d.lineup or "Lineup"))
+        local why = r.clash and "Team raid instead" or (r.kind == "l" and (d.lineup or "Lineup"))
             or (r.kind == "a" and "Signed up") or (r.help and "Came to help") or "-"
         at(row.why, "Why expected", why)
+        local whyRoom = v.colX["Expected"] - v.colX["Why expected"] - 10
+        fit(row.why, { why, (why:gsub("^[^·]+·%s*", "")), "Lineup" }, whyRoom)
+        row.why:SetWidth(whyRoom)
         at(row.exp, "Expected", r.kind and (clock(r.F) .. " – " .. clock(r.T)) or "-")
         at(row.ing, "In the group", (r.first and r.last) and (clock(r.first) .. " – " .. clock(r.last))
             or (r.noShow and grey("not there") or "-"))
@@ -1162,6 +1184,9 @@ function AUI:CreatePlayerPage(parent, width, opts)
         end
         b.sub:SetText(sub)
         b.away:SetShown(A:CanReview() and not remote and not opts.noAway)
+        local away = A:CanReview() and not remote and not opts.noAway and A:GetAway(key) or {}
+        b.awayList:SetShown(#away > 0)
+        b.awayList:SetText("Away (" .. #away .. ")")
         local hist, stats, nNights
         if remote then
             hist, stats = {}, { pct = remote.p, counted = remote.n or 0 }
@@ -1179,10 +1204,11 @@ function AUI:CreatePlayerPage(parent, width, opts)
             if e.r.kind == "l" then team = team + 1 elseif e.r.kind == "a" then signed = signed + 1 end
         end
         local facts = {
-            { "Expected", (s.counted or 0) .. " raids", (team > 0 and signed > 0) and (team .. " lineup · " .. signed .. " sign-up")
+            { "Expected", (s.counted or 0) .. " raids", (s.excused or 0) > 0 and (s.excused .. " excused")
+                or (team > 0 and signed > 0) and (team .. " lineup · " .. signed .. " sign-up")
                 or (signed > 0 and "signed up") or (team > 0 and "in a lineup") or "" },
             { "Late", ((s.late and s.late.n) or 0) .. " times", s.late and s.late.n > 0 and (dur(s.late.sec) .. " in all") or "" },
-            { "Left early", (s.left or 0) .. " times", (s.excused or 0) > 0 and ((s.excused) .. " excused") or "" },
+            { "Left early", (s.left or 0) .. " times", "" },
             { "No-shows", tostring(s.noShows or 0), (s.lateCancels or 0) > 0 and ("late cancels: " .. s.lateCancels)
                 or ((s.fills or 0) > 0 and ("fill-ins: " .. s.fills) or "") },
         }
@@ -1301,7 +1327,10 @@ function AUI:CreateMemberAttendance(parent, width)
         row.cdlR = d.r
         row.cdlD = d
         if d.inst then setArt(row.art, d.inst, 34, 20, 0.3) else row.art:Hide() end
-        row.raid:SetText((d.zone or "Raid") .. grey("  " .. date("%a %d %b", d.start or Now())))
+        local room = width - 42 - 52 - 140 - (d.explain and 78 or 0)
+        fit(row.raid, { (d.zone or "Raid") .. grey("  " .. date("%a %d %b", d.start or Now())),
+                        shortZone(d.zone) .. grey("  " .. date("%d %b", d.start or Now())) }, room)
+        row.raid:SetWidth(room)
         -- (my own raid that didn't go as planned: Explain sends my reason to the officers)
         row.explain:SetShown(d.explain and true or false)
         row.pill:ClearAllPoints()
@@ -1390,7 +1419,7 @@ function AUI:ResultWord(r)
     if r.otherRaid and not r.pending then return "Other raid", "alt" end
     local w
     if r.bench then w = "Bench"
-    elseif r.removed then w = "Removed by the leader"
+    elseif r.removed then w = "Removed"
     elseif r.otherRaid then w = "In another raid"
     elseif r.noShow then w = (r.note and r.note.x) and "Absent · told us" or "No-show"
     elseif r.left > 0 then w = "Left early"
@@ -1563,7 +1592,8 @@ function AUI:OpenAwayDialog(key)
             if not f.choosing or day < f.from then
                 f.from, f.to, f.choosing = day, day, true
             else
-                f.to = min(day, f.from + (AWAY.MAX_DAYS - 1) * 86400)
+                local fd = date("*t", f.from)
+                f.to = min(day, time({ year = fd.year, month = fd.month, day = fd.day + AWAY.MAX_DAYS - 1, hour = 0 }))
                 f.choosing = false
             end
             f.paint()
@@ -1608,7 +1638,7 @@ function AUI:OpenAwayDialog(key)
                 end
             end
             -- what gets excused
-            local days = floor((to - f.from) / 86400 + 0.5) + 1
+            local days = floor((to - f.from) / 86400 + 0.5) + 1      -- (rounded: a clock change moves it an hour)
             local _, r = awayRaids(f.key, f.from, to)
             local raids = r.logged + r.planned
             local span = f.from == to and date("%a %d %b", f.from)
@@ -1623,7 +1653,8 @@ function AUI:OpenAwayDialog(key)
     f.key = key
     f.title:SetText("Away: " .. short(key))
     local today = dayStart(Now())
-    f.from, f.to, f.choosing, f.hover = today, today + 6 * 86400, false, nil
+    local td = date("*t", today)
+    f.from, f.to, f.choosing, f.hover = today, time({ year = td.year, month = td.month, day = td.day + 6, hour = 0 }), false, nil
     local t = date("*t", today)
     f.y, f.m = t.year, t.month
     f.raidDays = awayRaids(key)
@@ -1746,7 +1777,7 @@ function AUI:CreateReviews(parent, width)
                     local r = row.cdlR
                     if not r then return end
                     textPrompt("Attendance: " .. short(r.key), "Excuse or count it, with a note the others see.",
-                        { "Excuse", "Counts", "Cancel" }, function(i, text)
+                        { "Excuse", "Counts" }, function(i, text)
                             if i == 1 then Att():Decide(r.night.key, r.key, "x", text)
                             elseif i == 2 then Att():Decide(r.night.key, r.key, "c", text) end
                         end)
@@ -1809,6 +1840,7 @@ function AUI:CreateReviews(parent, width)
             UI():ClassIcon(row.h.icon, cls)
             local word = AUI:ResultWord(r)
             word = word:gsub(" · excused$", ""):gsub(" · review$", "")
+            row.h.text:SetWidth(floor(width * 0.52) - 30)
             row.h.text:SetText(name(r.key, cls) .. grey("  ·  " .. word .. "  ·  " .. shortZone(nightName(r.night)) .. " "
                 .. date("%a %d %b", r.night.start or Now())))
             local ex = r.decision.d == "x"
@@ -1826,6 +1858,7 @@ function AUI:CreateReviews(parent, width)
         c.pill2:SetShown(r.note ~= nil)
         if r.note then c.pill2:SetKind(r.note.x and "Answered Absent" or "Told us before", "ok") end
         local label = AUI:LineupLabel(r.night)
+        c.where:SetWidth(width - 96 - 240)
         c.where:SetText(nightName(r.night) .. " · " .. date("%a %d %b", r.night.start or Now())
             .. (label and (" · " .. label) or ""))
         local lines = AUI:ReviewLines(r)
@@ -1992,17 +2025,24 @@ function AUI:OpenPicker(owner, r)
     f.sub:SetText(r.left > 0 and not r.noShow and "Messages your game saw, 15 minutes before they left to 30 after"
         or "Messages your game saw, from the day before the raid to the day after")
     local lines = A:GetChat(r.key, from, to)
-    -- the newest 10, oldest first
+    -- the newest 10, oldest first; the lines kept already are listed even when this game never heard them
     while #lines > 10 do table.remove(lines, 1) end
-    local kept = {}
-    for _, l in ipairs(r.picked and r.picked.l or {}) do kept[l.t .. "@" .. l.at] = true end
-    local anyKept = next(kept) ~= nil
-    local function updateUse()
+    local kept, seen = {}, {}
+    for _, l in ipairs(lines) do seen[l.t .. "@" .. l.at] = true end
+    for _, l in ipairs(r.picked and r.picked.l or {}) do
+        local k = l.t .. "@" .. l.at
+        kept[k] = true
+        if not seen[k] then lines[#lines + 1] = { t = l.t, ch = l.ch, at = l.at } end
+    end
+    tsort(lines, function(a, b) return a.at < b.at end)
+    f.anyKept = next(kept) ~= nil
+    function f.updateUse()
         local n = 0
         for _, row in ipairs(f.rows) do if row:IsShown() and row.picked then n = n + 1 end end
-        f.use:SetText(n == 0 and (anyKept and "Clear" or "Use") or (n == 1 and "Use 1 line" or ("Use " .. n .. " lines")))
-        f.use:SetEnabled(n > 0 or anyKept)
+        f.use:SetText(n == 0 and (f.anyKept and "Clear" or "Use") or (n == 1 and "Use 1 line" or ("Use " .. n .. " lines")))
+        f.use:SetEnabled(n > 0 or f.anyKept)
     end
+    local ticked = 0
     for i, l in ipairs(lines) do
         local row = f.rows[i]
         if not row then
@@ -2013,13 +2053,15 @@ function AUI:OpenPicker(owner, r)
                 for _, x in ipairs(f.rows) do if x:IsShown() and x.picked then n = n + 1 end end
                 if not self.picked and n >= 5 then return end
                 self:SetPicked(not self.picked)
-                updateUse()
+                f.updateUse()
             end)
             f.rows[i] = row
         end
+        -- (likely lines ticked for you, at most 5, never a whisper: that one is yours to share)
         local picked = kept[l.t .. "@" .. l.at]
-        if not anyKept then picked = l.likely end
-        row:SetLine(l, picked)
+        if not f.anyKept then picked = l.likely and l.ch ~= "Whisper" and ticked < 5 end
+        if picked then ticked = ticked + 1 end
+        row:SetLine(l, picked and true or false)
         row:Show()
     end
     for i = #lines + 1, #f.rows do f.rows[i]:Hide() end
@@ -2027,13 +2069,11 @@ function AUI:OpenPicker(owner, r)
     f.empty:SetText("Your game heard nothing from them in that time. Only what your own client saw is listed: "
         .. "ask a raid member who was there, or add a note to your decision.")
     f:SetHeight(54 + max(1, #lines) * 28 + (#lines == 0 and 30 or 0) + 54)
-    updateUse()
+    f.updateUse()
+    -- (over the Raid log, not on a list row: rows are reused as the list scrolls)
     f:ClearAllPoints()
-    if owner and owner.GetCenter and owner:GetCenter() then
-        f:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", 0, 4)
-    else
-        f:SetPoint("CENTER", 0, 60)
-    end
+    local panel = ns.RaidsUI and ns.RaidsUI.GetPanel and ns.RaidsUI:GetPanel()
+    if panel and panel:IsVisible() then f:SetPoint("TOP", panel, "TOP", 0, -60) else f:SetPoint("CENTER", 0, 60) end
     f:Show()
     return f
 end
@@ -2080,7 +2120,10 @@ local function Panel(name_, w, h, title)
     return f
 end
 
--- The raid leader's attendance panel: who left (newest first, their chat lines to tick), and who is not here yet.
+-- The raid leader's attendance panel: who left (oldest first: a leaver arriving while another is shown waits its
+-- turn, so ticks are never lost), their chat lines to tick (whispers never ticked for you), and who is not here yet.
+-- Lines are kept only through a button (Swap in, I benched them, Officers decide), never by closing the panel;
+-- closing keeps the queue (the session bar's button brings it back). It waits out combat.
 function AUI:ShowLeaderPrompt(recId, key)
     local A = Att()
     local W = 420
@@ -2098,15 +2141,21 @@ function AUI:ShowLeaderPrompt(recId, key)
         f.rows = {}
         f.none = newText(f, 11, { 0.5, 0.5, 0.52 }, "GameFontHighlightSmall")
         f.none:SetPoint("TOPLEFT", 16, -90)
+        f.none:SetWidth(W - 32)
+        f.none:SetWordWrap(true)
         f.swap = UI():CreateSleekButton(f, "Swap in...", 108, 24, function(self) AUI:SwapMenu(self, f.key) end, "primary")
         f.bench = UI():CreateSleekButton(f, "I benched them", 116, 24, function()
-            A:LeaderMark(f.key, "b")
-            AUI:LeaderNext()
+            local key = f.key
+            if not key then return end
+            if not A:LeaderMark(key, "b") then return AUI:MarkFailed() end
+            AUI:LeaderNext(key)
         end)
         f.od = UI():CreateSleekButton(f, "Officers decide", 112, 24, function()
-            AUI:LeaderKeep()
-            A:LeaderMark(f.key, "od")
-            AUI:LeaderNext()
+            local key = f.key
+            if not key then return end
+            AUI:LeaderKeep(key)
+            if not A:LeaderMark(key, "od") then return AUI:MarkFailed() end
+            AUI:LeaderNext(key)
         end)
         f.sep = tex(f, "ARTWORK", { 1, 1, 1 }, 0.08)
         f.sep:SetSize(W - 32, 1)
@@ -2120,45 +2169,63 @@ function AUI:ShowLeaderPrompt(recId, key)
             if first then whisper(first.key) end
         end)
         f.whisper:SetPoint("BOTTOMRIGHT", -14, 14)
-        f:SetScript("OnHide", function()
-            AUI:LeaderKeep()
-            f.queue = {}
-        end)
         f.queue = {}
         self.leader = f
     end
     if key then
-        for i = #f.queue, 1, -1 do if f.queue[i] == key then table.remove(f.queue, i) end end
-        f.queue[#f.queue + 1] = key
-        f.recId = recId
+        for _, k in ipairs(f.queue) do
+            if k == key then key = nil break end
+        end
+        if key then f.queue[#f.queue + 1] = key end
+        f.recId = recId or f.recId
+    end
+    -- (a pull is no time for a panel: after combat)
+    if (InCombatLockdown and InCombatLockdown()) or (UnitAffectingCombat and UnitAffectingCombat("player")) then
+        self.leaderAfterCombat = true
+        return
+    end
+    -- (the one shown stays: a new leaver only updates the count)
+    if f:IsShown() and f.key and f.key == f.queue[1] then
+        self:LeaderCount()
+        return
     end
     self:LeaderRender()
     f:Show()
 end
 
--- Keeps the ticked lines of the player shown as their reason (the leader's pick goes to every recorder).
-function AUI:LeaderKeep()
+function AUI:MarkFailed()
+    ns:Print("only the raid's leader can mark this, while the raid session runs.")
+end
+
+-- "(2 more)" after the name, without touching the ticks.
+function AUI:LeaderCount()
     local f = self.leader
-    if not (f and f.key and f.lines) then return end
+    if not (f and f.key and f.whoText) then return end
+    f.who:SetText(f.whoText .. (#f.queue > 1 and grey("   (" .. (#f.queue - 1) .. " more)") or ""))
+end
+
+-- Keeps the ticked lines of `key` as their reason (only while their lines are shown).
+function AUI:LeaderKeep(key)
+    local f = self.leader
+    if not (f and key and f.key == key and f.lines) then return end
     local lines = {}
     for _, row in ipairs(f.rows) do
         if row:IsShown() and row.picked then lines[#lines + 1] = row.line end
     end
     if #lines > 0 then
         local n = LiveNight()
-        if n then Att():Pick(n.key, f.key, lines) end
+        if n then Att():Pick(n.key, key, lines) end
     end
-    f.lines = nil
 end
 
-function AUI:LeaderNext()
+-- `key` is done: take them off the queue and show the next one (or close when nothing is left).
+function AUI:LeaderNext(key)
     local f = self.leader
     if not f then return end
-    f.lines = nil
-    if f.key then
-        for i = #f.queue, 1, -1 do if f.queue[i] == f.key then table.remove(f.queue, i) end end
-    end
-    if #f.queue == 0 and not (f.notHere and #f.notHere > 0) then f:Hide() return end
+    for i = #f.queue, 1, -1 do if f.queue[i] == key then table.remove(f.queue, i) end end
+    if f.key == key then f.key, f.lines = nil, nil end
+    if not f:IsShown() then return end
+    if #f.queue == 0 and #NotHereYet() == 0 then f:Hide() return end
     self:LeaderRender()
 end
 
@@ -2167,8 +2234,9 @@ function AUI:LeaderRender()
     if not f then return end
     local A = Att()
     local W = 420
-    local key = f.queue[#f.queue]
+    local key = f.queue[1]
     f.key = key
+    f.lines = nil
     local y = -46
     local left = key ~= nil
     for _, x in ipairs({ f.icon, f.who, f.said, f.swap, f.bench, f.od }) do x:SetShown(left) end
@@ -2179,8 +2247,8 @@ function AUI:LeaderRender()
         local r = n and A:Result(n, key)
         UI():ClassIcon(f.icon, classOf(key))
         local lastOut = r and r.last or Now()
-        f.who:SetText(name(key) .. " left the raid" .. grey("  " .. clock(lastOut))
-            .. (#f.queue > 1 and grey("   (" .. (#f.queue - 1) .. " more)") or ""))
+        f.whoText = name(key) .. " left the raid" .. grey("  " .. clock(lastOut))
+        self:LeaderCount()
         f.said:SetText("THEY SAID   |cff6f6f74tick the lines to keep as the reason|r")
         local lines = A:GetChat(key, lastOut - 15 * 60, max(Now(), lastOut + 30 * 60))
         while #lines > 4 do table.remove(lines, 1) end
@@ -2195,12 +2263,15 @@ function AUI:LeaderRender()
             end
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 16, y)
-            row:SetLine(l, l.likely)
+            -- (a whisper is private: only you tick it)
+            row:SetLine(l, l.likely and l.ch ~= "Whisper")
             row:Show()
             y = y - 26
         end
         if #lines == 0 then
             f.none:SetText("Nothing yet in raid chat or whispers. Lines they send now show up here.")
+            f.none:ClearAllPoints()
+            f.none:SetPoint("TOPLEFT", 16, y)
             f.none:Show()
             y = y - 20
         end
@@ -2253,52 +2324,61 @@ function AUI:LeaderRender()
         f.none:Show()
         y = -70
     else
-        f.title:SetText("Attendance · " .. ((LiveNight() or {}).zone or "the raid"))
+        local n = LiveNight()
+        f.title:SetText("Attendance · " .. (n and nightName(n) or "the raid"))
     end
     f:SetHeight(-y + (showNH and 44 or 14))
 end
 
--- Swap in...: raid members who weren't expected (mark them), or online guild members to invite in their place.
+-- Swap in...: guild members in the raid who weren't expected (mark them), or online guild members at level 70 to
+-- invite in their place (sorted by name; pugs and offline players left out).
 function AUI:SwapMenu(owner, out)
+    if not out then return end
     local A = Att()
+    local G = ns.Guild
+    local function inGuild(key) return demoOn() or (G and G.IsInGuild and G:IsInGuild(key, true)) end
     UI():ContextMenu(owner, function(root)
         root:CreateTitle("Who replaces " .. short(out) .. "?")
         local n = LiveNight()
-        local inRaid = {}
+        local inRaid, here = {}, {}
         for i = 1, (GetNumGroupMembers() or 0) do
-            local nm = GetRaidRosterInfo(i)
+            local nm, _, _, _, _, _, _, online = GetRaidRosterInfo(i)
             local key = type(nm) == "string" and ns.Util.NormalizeName(nm)
-            if key then inRaid[key] = true end
-        end
-        local any = false
-        for key in pairs(inRaid) do
-            if n and not A:ExpectedKey(n, key) and not ns.Util.IsMe(key) then
-                any = true
-                root:CreateButton(name(key) .. grey("  in the raid"), function()
-                    A:LeaderMark(key, "sw", out)
-                    AUI:LeaderKeep()
-                    AUI:LeaderNext()
-                end)
+            if key then
+                inRaid[key] = true
+                if online and n and not A:ExpectedKey(n, key) and not ns.Util.IsMe(key) and inGuild(key) then
+                    here[#here + 1] = key
+                end
             end
         end
-        local G = ns.Guild
+        tsort(here)
+        for _, key in ipairs(here) do
+            root:CreateButton(name(key) .. grey("  in the raid"), function()
+                AUI:LeaderKeep(out)
+                if not A:LeaderMark(key, "sw", out) then return AUI:MarkFailed() end
+                AUI:LeaderNext(out)
+            end)
+        end
         local online = {}
         for _, key in ipairs(G and G.GetOnlineMembers and G:GetOnlineMembers() or {}) do
-            if not inRaid[key] and not ns.Util.IsMe(key) then online[#online + 1] = key end
+            local m = G.GetMember and G:GetMember(key)
+            local level = m and tonumber(m.level)
+            if not inRaid[key] and not ns.Util.IsMe(key) and (not level or level >= 70) then online[#online + 1] = key end
         end
+        tsort(online)
         if #online > 0 then
-            if any then root:CreateDivider() end
+            if #here > 0 then root:CreateDivider() end
             root:CreateTitle("Invite")
             local sub = root
             if #online > 12 then sub = root:CreateButton("Online guild members") end
             for _, key in ipairs(online) do
                 sub:CreateButton(name(key), function()
+                    AUI:LeaderKeep(out)
                     A:InviteFor(key, out)
-                    AUI:LeaderKeep()
-                    AUI:LeaderNext()
+                    AUI:LeaderNext(out)
                 end)
             end
-        elseif not any then
+        elseif #here == 0 then
             root:CreateTitle("Nobody to swap in")
         end
     end)
@@ -2324,6 +2404,7 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
             local b = UI():CreateSleekButton(f, c[2], w, 24, function()
                 f.code = c[1]
                 for _, x2 in ipairs(f.chips) do x2:SetKind(x2.code == f.code and "chosen" or "secondary") end
+                f.canSend()
             end)
             b.code = c[1]
             b:SetPoint("TOPLEFT", x, -88)
@@ -2332,11 +2413,19 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
         end
         f.eb = UI():CreateSleekEditBox(f, W - 32, 26)
         f.eb:SetPoint("TOPLEFT", 16, -124)
+        f.eb:HookScript("OnTextChanged", function() if f.canSend then f.canSend() end end)
         UI():SetEditPlaceholder(f.eb, "A few words for the officers (optional)")
         f.send = UI():CreateSleekButton(f, "Send", 90, 24, function()
-            if A:SendReason(f.recId, f.code, f.eb:GetText()) then ns:Print("your reason was sent to the officers.") end
+            if A:SendReason(f.recId, f.code, f.eb:GetText()) then
+                ns:Print(demoOn() and "demo: nothing was sent." or "your reason was sent to the officers.")
+            end
             f:Hide()
         end, "primary")
+        -- (a reason first: a chip or a few words)
+        function f.canSend()
+            local text = f.eb:GetText() or ""
+            f.send:SetEnabled(f.code ~= nil or text:match("%S") ~= nil)
+        end
         f.send:SetPoint("BOTTOMRIGHT", -14, 14)
         f.later = UI():CreateSleekButton(f, "Not now", 90, 24, function() f:Hide() end)
         f.later:SetPoint("RIGHT", f.send, "LEFT", -6, 0)
@@ -2347,6 +2436,7 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
     f.code = nil
     for _, x in ipairs(f.chips) do x:SetKind("secondary") end
     f.eb:SetText("")
+    f.canSend()
     f.title:SetText("You left " .. ((rec and rec.zone) or "the raid") .. " before the end")
     f.d:SetText((plannedEnd and ("The raid runs until " .. clock(plannedEnd) .. ". ") or "The raid is still going. ")
         .. "Tell the officers why; they decide whether it counts.")
@@ -2424,6 +2514,13 @@ function AUI:ShowExplain(recId, zone, start)
         .. "the guild council; they decide whether it counts.")
 end
 
+-- The picker and the dialogs belong to the window: they close with it.
+function AUI:CloseFloating()
+    for _, f in ipairs({ self.picker, self.awayDialog, self.rulesDialog }) do
+        if f and f:IsShown() then f:Hide() end
+    end
+end
+
 -- Demo mode: both prompts on the demo's newest raid (its early leaver, its no-shows), nothing sent.
 function AUI:ShowDemo()
     if not demoOn() then
@@ -2475,14 +2572,49 @@ function AUI:OnInit()
             end)
         end
     end)
+    -- a leaver who comes back is off the list
+    ns:On("RAIDLOG_JOINED", function(_, key)
+        local f = AUI.leader
+        if not (f and f.queue) then return end
+        local n = Att():GetLiveNight()
+        local e = n and Att():ExpectedKey(n, key) or key
+        for _, k in ipairs(f.queue) do
+            if k == e then return AUI:LeaderNext(e) end
+        end
+    end)
+    -- the session ended, or I no longer lead it: the panel and its queue go
+    ns:On("GROUP_RULES_CHANGED", function()
+        local f = AUI.leader
+        local GR = ns.GroupRules
+        if f and not (GR and GR:GetSession() and GR:IsAuthority()) and not (AUI.demoNight and demoOn()) then
+            f.queue, f.key, f.lines = {}, nil, nil
+            AUI.leaderAfterCombat = nil
+            f:Hide()
+        end
+    end)
+    ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+        if AUI.leaderAfterCombat then
+            AUI.leaderAfterCombat = nil
+            local f = AUI.leader
+            if f and #f.queue > 0 then
+                AUI:LeaderRender()
+                f:Show()
+            end
+        end
+    end)
     ns:RegisterSlash("attendance", function(rest)
         if (rest or ""):match("^%s*demo") then return AUI:ShowDemo() end
         local A = Att()
         if A:GetLiveNight() and ns.GroupRules and ns.GroupRules:IsAuthority() then
             AUI:ShowLeaderPrompt()
-        elseif ns.MainFrame and ns.RaidsUI and ns.RaidsUI.SetMode then
+        elseif A:CanSeeAll() and ns.MainFrame and ns.RaidsUI and ns.RaidsUI.SetMode then
             ns.MainFrame:Open("raids")
             ns.RaidsUI:SetMode("players")
+        elseif ns.MainFrame and ns.MembersUI then
+            -- (a member: their own, on their Members card)
+            ns.MainFrame:Open("members")
+            ns.MembersUI:ShowMember(ns.Util.PlayerKey())
+            ns.MembersUI:SetCard("att")
         end
-    end, "the raid's attendance (raid leader), else the Raid log's Attendance page; demo: both prompts in demo mode")
+    end, "your attendance (the raid's for its leader; the Raid log's Attendance page for officers); demo: both prompts")
 end

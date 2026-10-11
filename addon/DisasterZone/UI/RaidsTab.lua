@@ -596,6 +596,9 @@ local function fillLink(p, rec)
     local text = linkText(rec)
     local btn = p.linkBtn
     btn:SetText(text)
+    -- (1.3.5: only those who may link raids get the picker: the raid leaders and the guild council, not demo)
+    local G = ns.Guild
+    btn:SetEnabled(not demoOn() and G and G.AmIRaidLogMember and G:AmIRaidLogMember() and true or false)
     local fs = btn:GetFontString()
     fs:ClearAllPoints()
     fs:SetPoint("LEFT", 8, 0)
@@ -876,14 +879,25 @@ local function createLogRaids(p)
     p.timeline:SetPoint("TOPLEFT", 0, -top)
     p.timeline:SetPoint("BOTTOMRIGHT", 0, 0)
     p.timeline.menuExtra = function(root, r)
-        local rec = state.selected and RL():GetRaid(state.selected)
+        local view = p.selView
         local G = ns.Guild
-        if not (rec and (demoOn() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember()))) then return end
-        local a = rec.att and rec.att[r.key]
-        if a and a.b then
-            root:CreateButton("Remove bench mark", function() RL():SetBench(rec.id, r.key, false) end)
+        if not (view and (demoOn() or (G and G.AmIRaidLogMember and G:AmIRaidLogMember()))) then return end
+        -- (a night logged as several raids: the log that holds the player, else the newest)
+        local holder, benched
+        for _, id in ipairs(view.ids or { view.id }) do
+            local rec = RL():GetRaid(id)
+            local a = rec and rec.att and rec.att[r.key]
+            if a then
+                holder = holder or rec
+                if a.b then holder, benched = rec, true end
+            end
+        end
+        holder = holder or RL():GetRaid(view.id)
+        if not holder then return end
+        if benched then
+            root:CreateButton("Remove bench mark", function() RL():SetBench(holder.id, r.key, false) end)
         else
-            root:CreateButton("Mark as bench / standby", function() RL():SetBench(rec.id, r.key, true) end)
+            root:CreateButton("Mark as bench / standby", function() RL():SetBench(holder.id, r.key, true) end)
         end
     end
 end
@@ -1038,6 +1052,8 @@ function RaidsUI:CreatePanel(parent)
         self.shownAt = GetTime()
         RaidsUI:Refresh()
     end)
+    -- 1.3.5: the attendance picker and dialogs close with the page
+    p:SetScript("OnHide", function() if ns.AttendanceUI then ns.AttendanceUI:CloseFloating() end end)
     function p:OnPanelShown()
         if self.shownAt ~= GetTime() then RaidsUI:Refresh() end
     end

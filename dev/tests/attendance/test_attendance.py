@@ -301,7 +301,10 @@ def reviews_reasons_and_picked_chat_lines():
     assert bob.eval_py("local ok = ns.Attendance:Pick(..., select(2, ...), select(3, ...)); return ok", occ, K("Heal"),
                        [{"t": l["t"], "ch": l["ch"], "at": l["at"]} for l in lines])
     w.tick(3)
+    # (the raid gets the raid chat line; the whisper stays with the leader, who picked it)
     q = rec(tank, rid)["q"][K("Heal")]
+    assert [l["t"] for l in lst(q["l"])] == ["sorry guys power is flickering"], q
+    q = rec(bob, rid)["q"][K("Heal")]
     assert [l["t"] for l in lst(q["l"])] == ["sorry guys power is flickering", "power went out :( back sunday"], q
     # the leader's mark: Bob benched Dps for a fight (full credit), every recorder has it
     assert bob.eval("return ns.Attendance:LeaderMark(...)", K("Dps"), "b")
@@ -320,7 +323,9 @@ def reviews_reasons_and_picked_chat_lines():
     merged = olly.eval_py("local r = ns.RaidLog:GetRaid(...); local copy = {}; for k, v in pairs(r) do copy[k] = v end; "
                           "copy.dc = { [select(2, ...)] = { d = 'x', by = select(2, ...), at = GetServerTime() } }; "
                           "copy.g = nil; ns.RaidLog:MergeRecord(copy, select(2, ...)); return ns.RaidLog:GetRaid(...).dc", rid, K("Heal"))
-    assert not merged or K("Heal") not in merged, merged
+    # (kept in the copy so the logs converge, but a decision by someone who isn't a reviewer never counts)
+    h = result(olly, occ, "Heal")
+    assert not h["excused"] and h.get("decision") is None and h["pending"], h
 
 
 @case
@@ -541,9 +546,12 @@ def a_main_who_came_on_an_alt_is_there_and_listed_once():
     no-show and the two had their own rows."""
     w, c = world()
     bob = c["Bob"]
-    # Sam is Dps's alt (the Members tab's main / alt link)
+    # Sam is Dps's alt: the Members tab's main / alt link, and the two vouch for each other (guild accounts)
     bob.eval("local alt, main = ...; local P = ns.Professions; local old = P.GetMain; "
-             "P.GetMain = function(self, k) if k == alt then return main end return old(self, k) end", K("Sam"), K("Dps"))
+             "P.GetMain = function(self, k) if k == alt then return main end return old(self, k) end; "
+             "local G = ns.Guild; local olds = G.SameAccount; G.SameAccount = function(self, a, b) "
+             "if (a == alt and b == main) or (a == main and b == alt) then return true end return olds(self, a, b) end",
+             K("Sam"), K("Dps"))
     base = now(bob) - 6 * HOUR
     inject(bob, base, [{"id": "r1", "stop": 200, "att": {"Tank": {"s": [0, 200]}, "Sam": {"s": [0, 200]}}}])
     bob.eval("ns.db.raids.r1.su = { [...] = 'A' }; ns.db.raids.r1.pl = 'oA'; ns.db.raids.r1.plAt = 1; "
@@ -718,6 +726,124 @@ def the_gm_changes_the_margins_from_the_reviews_page():
     bob.eval("ns.RaidsUI:SetMode('reviews')")
     w.tick(0.3)
     assert not bob.eval("return " + P + ".rulesBtn:IsShown()")       # (only the GM)
+
+
+@case
+def a_one_sided_main_link_gives_no_credit():
+    """Review 2026-10-11: a character naming someone as its main (no vouch back) must not hand them its time."""
+    w, c = world()
+    bob = c["Bob"]
+    bob.eval("local alt, main = ...; local P = ns.Professions; local old = P.GetMain; "
+             "P.GetMain = function(self, k) if k == alt then return main end return old(self, k) end", K("Sam"), K("Dps"))
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "pl": "oS", "stop": 200, "ex": {"Dps": "l", "Tank": "l"},
+                        "att": {"Tank": {"s": [0, 200]}, "Sam": {"s": [0, 200]}}}])
+    d = result(bob, "oS", "Dps")
+    assert d["noShow"] and d["credit"] == 0, d
+
+
+@case
+def review_round_two_time_math():
+    """Review 2026-10-11: the gap between two logs, an early start, a raid ended before its planned start."""
+    w, c = world()
+    bob = c["Bob"]
+    base = now(bob) - 8 * HOUR
+    # two logs 0-50 and 95-150 of one planned raid: Tank only in the first, Heal only in the second
+    inject(bob, base, [{"id": "a1", "pl": "oG", "stop": 50, "ex": {"Tank": "l", "Heal": "l", "Kai": "l"},
+                        "att": {"Tank": {"s": [0, 50]}, "Kai": {"s": [0, 50]}}},
+                       {"id": "a2", "pl": "oG", "start": 95, "ef": 0, "stop": 150, "ex": {"Tank": "l", "Heal": "l", "Kai": "l"},
+                        "att": {"Heal": {"s": [95, 150]}, "Kai": {"s": [95, 150]}}}])
+    t, h, k = (result(bob, "oG", n) for n in ("Tank", "Heal", "Kai"))
+    assert abs(t["credit"] - 50 / 105) < 0.03 and t["left"] > 50 * MIN, t        # (not 50/150)
+    assert abs(h["credit"] - 55 / 105) < 0.03 and h["late"] > 45 * MIN, h
+    assert k["credit"] >= 0.99 and k["away"] == 0, k
+    # an early start: planned at 60, the raid ran 0-70; there 0-58 counts
+    inject(bob, base - 86400, [{"id": "e1", "pl": "oE2", "start": 0, "ef": 60, "stop": 70, "ex": {"Tank": "l", "Heal": "l"},
+                                "att": {"Tank": {"s": [0, 58]}}}])
+    t = result(bob, "oE2", "Tank")
+    assert not t["noShow"] and t["credit"] >= 0.99, t
+    # ended before its planned start: who came is there and it counts; an Accept who never came is a no-show
+    inject(bob, base - 2 * 86400, [{"id": "q1", "pl": "oQ", "start": 0, "ef": 120, "stop": 30, "ex": {"Tank": "a", "Heal": "a"},
+                                    "att": {"Tank": {"s": [0, 30]}}}])
+    t, h = result(bob, "oQ", "Tank"), result(bob, "oQ", "Heal")
+    assert t["counts"] and t["credit"] == 1, t
+    assert h["counts"] and h["credit"] == 0 and h["noShow"], h
+
+
+@case
+def review_round_two_sync_and_rules():
+    w, c = world()
+    gina, bob, olly = c["Gina"], c["Bob"], c["Olly"]
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "pl": "oR", "stop": 200, "ex": {"Tank": "l"}, "att": {"Tank": {"s": [0, 200]}}}])
+    bob.eval("ns.db.raids.r1.dc = { [...] = { d = 'x', by = ..., at = GetServerTime() } }", K("Bob"))
+    # older clients get the digest they compare (no v key); 1.3.5 clients the full one
+    hello = bob.eval_py("local m; local old = ns.Comm.Send; ns.Comm.Send = function(self, msg, ...) if msg.t == 'H' then m = msg end "
+                        "return old(self, msg, ...) end; ns.Sync:SendHello(true); ns.Comm.Send = old; return m and { rd = m.rd, rd2 = m.rd2 }")
+    assert hello and "v" not in (hello.get("rd") or {}) and (hello.get("rd2") or {}).get("v") == 2, hello
+    # the margins: an officer's list never changes them, a list without them keeps them
+    assert gina.eval("return (ns.Guild:SetAttendanceRules(12, 20))")
+    w.tick(3)
+    assert bob.eval_py("return ns.Guild:GetAttendanceRules()") == {"o": 12, "d": 20}
+    olly.eval("local r = ns.db.raidLeaders[ns.Guild:GetGuildKey()]; ns.Comm:Send({ t = 'RLL', rev = r.rev + 5, "
+              "m = { ... }, by = ..., ar = { o = 1, d = 1 } }, 'GUILD', nil, 'ctrl')", K("Bob"), K("Olly"))
+    w.tick(3)
+    assert bob.eval_py("return ns.Guild:GetAttendanceRules()") == {"o": 12, "d": 20}
+    olly.eval("local r = ns.db.raidLeaders[ns.Guild:GetGuildKey()]; ns.Comm:Send({ t = 'RLL', rev = r.rev + 10, "
+              "m = { ... }, by = ... }, 'GUILD', nil, 'ctrl')", K("Bob"), K("Olly"))
+    w.tick(3)
+    assert bob.eval_py("return ns.Guild:GetAttendanceRules()") == {"o": 12, "d": 20}
+
+
+@case
+def review_round_two_reasons_and_away():
+    w, c = world()
+    bob, dps = c["Bob"], c["Dps"]
+    # a reason for a raid this reader doesn't have yet waits, and lands when the record arrives
+    assert dps.eval("return ns.Attendance:SendReason('later1', 'life', 'car broke down')")
+    w.tick(3)
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "later1", "pl": "oH", "stop": 200, "ex": {"Dps": "l", "Tank": "l"}, "att": {"Tank": {"s": [0, 200]}}}])
+    w.tick(5)
+    d = result(bob, "oH", "Dps")
+    assert d["reason"] and d["reason"]["n"] == "car broke down", d
+    # removing an away period takes back what it excused
+    res = bob.eval_py("local ok, n = ns.Attendance:ExcusePeriod(..., GetServerTime() - 86400, GetServerTime()); return { ok = ok, n = n }",
+                      K("Dps"))
+    assert res["ok"] and res["n"] == 1, res
+    assert result(bob, "oH", "Dps")["excused"]
+    bob.eval("ns.Attendance:RemoveAway(ns.Attendance:GetAway(...)[1])", K("Dps"))
+    w.tick(1)
+    assert not result(bob, "oH", "Dps")["excused"]
+
+
+@case
+def review_round_two_dialogs():
+    w, c = world()
+    bob = c["Bob"]
+    base = now(bob) - 6 * HOUR
+    inject(bob, base, [{"id": "r1", "pl": "oD2", "stop": 200, "ex": {"Heal": "l", "Tank": "l"},
+                        "att": {"Heal": {"s": [0, 120]}, "Tank": {"s": [0, 200]}}}])
+    bob.eval("ns.Attendance:NoteChat(..., 'Whisper', 'sorry gtg kid sick', select(2, ...)); "
+             "ns.Attendance:NoteChat(..., 'Raid', 'gtg sorry', select(2, ...) + 5)", K("Heal"), base + 119 * 60)
+    bob.slash("/dz raids")
+    w.tick(0.3)
+    # Escape on "Decide with a note" decides nothing
+    bob.eval("local n = ns.Attendance:GetNight('oD2'); local r = ns.Attendance:Result(n, ...); "
+             "ns.AttendanceUI:ResultMenu(UIParent, r)", K("Heal"))
+    bob.eval("local root = ns.UI:GetOpenMenu(); for _, d in ipairs(root and root.root and root.root.children or {}) do "
+             "if d.text == 'Decide with a note...' and d.callback then d.callback() end end")
+    w.tick(0.3)
+    assert bob.eval("return ns.Popup:Visible('DISASTERZONE_ATT_NOTE') and true or false"), "the note dialog"
+    bob.eval("ns.Popup:EscapePressed()")
+    w.tick(0.3)
+    assert not bob.eval("return ns.Popup:Visible('DISASTERZONE_ATT_NOTE') and true or false")
+    assert result(bob, "oD2", "Heal").get("decision") is None
+    # the picker never ticks a whisper for you
+    bob.eval("local n = ns.Attendance:GetNight('oD2'); ns.AttendanceUI:OpenPicker(nil, ns.Attendance:Result(n, ...))", K("Heal"))
+    rows = lst(bob.eval_py("local out = {}; for _, r in ipairs(DisasterZoneAttendancePicker.rows) do if r:IsShown() then "
+                           "out[#out + 1] = { ch = r.line.ch, picked = r.picked } end end; return out"))
+    assert {(r["ch"], r["picked"]) for r in rows} == {("Whisper", False), ("Raid", True)}, rows
 
 
 if __name__ == "__main__":

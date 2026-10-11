@@ -1512,7 +1512,7 @@ end
 local function SendRLL(target)
     local rec = LeadersRec(false)
     if not rec or rec.rev == 0 then return false end
-    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar) }
+    local msg = { t = "RLL", rev = rec.rev, m = SetToArray(rec.m), by = rec.by, ar = CleanRules(rec.ar), arb = rec.arBy }
     if target then return Send(msg, "WHISPER", target, "ctrl") end
     return Send(msg, "GUILD", nil, "ctrl")
 end
@@ -1548,7 +1548,10 @@ local function OnRaidLeaders(sender, msg, dist)
         if a <= b then return end                      -- the same (or the smaller) list: keep mine
     end
     rec.rev, rec.m, rec.by = msg.rev, set, by
-    rec.ar = CleanRules(msg.ar)
+    -- (the margins are the GM's: from anyone else, or a list without them, the ones I have stay)
+    local ar = CleanRules(msg.ar)
+    local arBy = msg.arb ~= nil and WireKey(msg.arb) or nil
+    if ar and (Guild:IsGM(sender) or (arBy and Guild:IsGM(arBy))) then rec.ar, rec.arBy = ar, arBy or sender end
     Recompute()
     ns:Fire("ATTENDANCE_RULES_CHANGED")
 end
@@ -1571,7 +1574,7 @@ function Guild:SetAttendanceRules(o, d)
     local rec = LeadersRec(true)
     if not rec then return false, "your guild is not known yet" end
     rec.rev = max(floor(Now()), rec.rev + 1)
-    rec.ar = ar
+    rec.ar, rec.arBy = ar, Util.PlayerKey()
     rec.by = rec.by or Util.PlayerKey()
     SendRLL()
     ns:Fire("ATTENDANCE_RULES_CHANGED")

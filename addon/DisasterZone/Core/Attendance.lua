@@ -109,20 +109,22 @@ local function Linked(key)
     return Guild and Guild.GetLinkedCharacters and Guild:GetLinkedCharacters(key) or {}
 end
 
--- The player behind a character: their main (the Members tab's main / alt link), else the character itself.
-local function PlayerOf(key)
-    local P = ns.Professions
-    local m = type(key) == "string" and P and P.GetMain and P:GetMain(key)
-    return (type(m) == "string" and m ~= "") and m or key
-end
-
--- One player: the guild's account link (each vouches for the other) or the same main on the Members tab.
+-- One player: the guild's account link, where each character vouches for the other (one character naming another
+-- as its main is not enough: it would hand that player its time).
 local function SameAccount(a, b)
     if a == b then return true end
     if type(a) ~= "string" or type(b) ~= "string" then return false end
     local Guild = G()
-    if Guild and Guild.SameAccount and Guild:SameAccount(a, b) then return true end
-    return PlayerOf(a) == PlayerOf(b)
+    return Guild and Guild.SameAccount and Guild:SameAccount(a, b) or false
+end
+
+-- The player behind a character, for listing them once: their main (the Members tab's main / alt link) when the two
+-- are linked both ways, else the character itself.
+local function PlayerOf(key)
+    local P = ns.Professions
+    local m = type(key) == "string" and P and P.GetMain and P:GetMain(key)
+    if type(m) == "string" and m ~= "" and m ~= key and SameAccount(key, m) then return m end
+    return key
 end
 Att.PlayerOf = function(_, key) return PlayerOf(key) end
 
@@ -273,11 +275,15 @@ local function BuildNight(recs)
             end
             exAt = rec.exAt or 0
         end
-        for key, st in pairs(rec.su or {}) do n.su[key] = st end
+        for key, st in pairs(rec.su or {}) do n.su[key] = n.su[key] or st end
         Newest(n.sn, rec.sn)
         Newest(n.mk, rec.mk)
         Newest(n.rs, rec.rs)
-        Newest(n.dc, rec.dc)
+        -- (a decision counts only when a reviewer made it: GM, officer, guild council)
+        for key, v in pairs(rec.dc or {}) do
+            local c = n.dc[key]
+            if type(v) == "table" and Att:CanReview(v.by) and (not c or (v.at or 0) > (c.at or 0)) then n.dc[key] = v end
+        end
         Newest(n.q, rec.q)
         for _, b in ipairs(rec.bosses or {}) do n.bosses[#n.bosses + 1] = b end
     end
@@ -447,15 +453,30 @@ local function Bridge(s, dc, trouble)
 end
 
 -- Night-wide: server trouble windows ({ { from, to } }) and when the raid formed (half the expected players there).
+-- Time with the stretches nobody logged taken out (gaps = { { from, to } }, sorted): t minus the gap time before it.
+local function Compress(t, gaps)
+    if not t then return nil end
+    local out = t
+    for _, g in ipairs(gaps or {}) do
+        if g[1] < t then out = out - (min(t, g[2]) - g[1]) end
+    end
+    return out
+end
+
 local function NightFacts(n, rules)
     if n.facts and n.facts.ver == ver then return n.facts end
     local F, T = Window(n)
-    -- server trouble: gaps that half the players present started within TROUBLE_SPREAD of each other
+    local planEnd = T
+    -- server trouble: half the players present gone within TROUBLE_SPREAD of each other (players, not gaps)
     local gaps, players = {}, 0
     for _, s in pairs(n.att) do
-        players = players + 1
+        local any = false
+        for i = 1, #s - 1, 2 do
+            if s[i + 1] > F and s[i] < T then any = true break end
+        end
+        if any then players = players + 1 end
         for i = 2, #s - 2, 2 do
-            if s[i] >= F and s[i] <= T and s[i + 1] - s[i] > rules.dc then gaps[#gaps + 1] = { s[i], s[i + 1] } end
+            if s[i] >= F and s[i] <= T and s[i + 1] - s[i] > rules.dc then gaps[#gaps + 1] = { s[i], s[i + 1], s } end
         end
     end
     tsort(gaps, function(a, b) return a[1] < b[1] end)
@@ -464,7 +485,10 @@ local function NightFacts(n, rules)
     while i <= #gaps do
         local j = i
         while j + 1 <= #gaps and gaps[j + 1][1] - gaps[i][1] <= TROUBLE_SPREAD do j = j + 1 end
-        local count = j - i + 1
+        local who = {}
+        for k = i, j do who[gaps[k][3]] = true end
+        local count = 0
+        for _ in pairs(who) do count = count + 1 end
         if count >= 3 and count * 2 >= players then
             -- (until the last of them was back, at most an hour)
             local back = gaps[i][2]
@@ -475,15 +499,17 @@ local function NightFacts(n, rules)
             i = i + 1
         end
     end
-    -- a night logged as several raids (Mag, then Gruul): nobody was recorded between them, so that time never counts
-    local spans = {}
+    -- a night logged as several raids (Mag, then Gruul): nobody was recorded between them, so that time is taken out
+    -- of the night (neither there nor missed)
+    local spans, logGaps = {}, {}
     for _, rec in ipairs(n.recs) do
         if rec.start then spans[#spans + 1] = { rec.start, rec.stop or Now() } end
     end
     tsort(spans, function(a, b) return a[1] < b[1] end)
+    local reach = spans[1] and spans[1][2]
     for k = 2, #spans do
-        local gapFrom, gapTo = spans[k - 1][2], spans[k][1]
-        if gapTo > gapFrom then trouble[#trouble + 1] = { gapFrom, gapTo } end
+        if spans[k][1] > reach then logGaps[#logGaps + 1] = { reach, spans[k][1] } end
+        reach = max(reach, spans[k][2])
     end
     -- when the raid formed: the median first arrival of the expected players who came
     local arrivals = {}
@@ -502,8 +528,8 @@ local function NightFacts(n, rules)
     local E = F
     local med = arrivals[floor((#arrivals + 1) / 2)]
     if med and med > F + rules.onTime then E = min(med, F + FORM_MAX, T) end
-    -- the raid broke up: half the expected players who came had left before the planned end (everyone goes after the
-    -- last boss while nobody has pressed End raid yet): the expected time ends there
+    -- the raid broke up: in the second half of the planned time, half the expected players who came had left (everyone
+    -- goes after the last boss while nobody has pressed End raid yet): the expected time ends there
     local ends = {}
     for key in pairs(n.ex) do
         local s = PiecesOf(n, key)
@@ -511,23 +537,28 @@ local function NightFacts(n, rules)
     end
     tsort(ends)
     local broke
-    if #ends >= 3 then
+    if #ends >= 3 and not n.open then
         local b = ends[floor(#ends / 2) + 1]          -- (by this time half of them were gone)
-        if b and b < T - rules.onTime and b > F then
+        if b and b < T - rules.onTime and b > F + (planEnd - F) / 2 then
             broke = b
             T = b
+            E = min(E, T)
         end
     end
-    -- (a raid that ended before its planned start, started early: no planned time to measure; who came is there)
+    -- a raid that started before its planned time: being there from its start counts (late still counts from the
+    -- planned start)
+    local S0 = (n.start and n.start < F) and n.start or F
+    -- (a raid that ended before its planned start: no planned time to measure; who came is there)
     if T - F < 60 then n.loose = true end
-    n.facts = { ver = ver, F = F, T = T, E = E, trouble = trouble, broke = broke }
+    n.facts = { ver = ver, F = F, T = T, E = E, S0 = S0, trouble = trouble, gaps = logGaps, broke = broke }
     return n.facts
 end
 
 -- A player's result for a night:
 -- { key, kind ("l" | "a" | nil), F, E, T, expected (seconds), present, late, left, away, noShow, first, last,
 --   pieces (bridged, for drawing), credit (0..1), bench, removed, excused, counts, pending, review, decision,
---   reason, picked, note, mark, help (seconds, fill-ins), forKey / replacedBy }
+--   reason, picked, note, mark, help (seconds, fill-ins), forKey / replacedBy, outside, lateCancel, loose }
+-- Durations leave out the time nobody logged (between two logs of one night).
 function Att:Result(n, key, rules)
     rules = rules or self:Rules()
     local facts = NightFacts(n, rules)
@@ -547,28 +578,40 @@ function Att:Result(n, key, rules)
     end
     r.outside = out > 0 and out or nil
     r.lateCancel = r.note and r.note.lc or nil
+    -- the measuring is done with the unlogged stretches taken out
+    local G = facts.gaps
+    local cs = {}
+    for i = 1, #s - 1, 2 do
+        local a, b = Compress(s[i], G), Compress(s[i + 1], G)
+        if b > a then cs[#cs + 1], cs[#cs + 2] = a, b end
+    end
+    cs = Bridge(cs, rules.dc, nil)
+    local cE, cT, cS0, cF = Compress(E, G), Compress(T, G), Compress(facts.S0, G), Compress(F, G)
     -- clipped to [E, T], with the on-time margin at both ends
     local present, first, last = 0, nil, nil
-    for i = 1, #s - 1, 2 do
-        local f, t = max(s[i], E), min(s[i + 1], T)
+    for i = 1, #cs - 1, 2 do
+        local f, t = max(cs[i], cE), min(cs[i + 1], cT)
         if t > f then
             first = first or f
             last = t
             present = present + (t - f)
         end
     end
-    local span = max(0, T - E)
+    local span = max(0, cT - cE)
     r.expected = span
-    if first and first - E <= rules.onTime then
-        present = present + (first - E)
-        first = E
-    end
-    if last and T - last <= rules.onTime + RL().PIECE_JOIN + (facts.broke and BREAKUP_SLACK or 0) then
-        present = present + (T - last)
-        last = T
+    local lateOk = first and first - cE <= rules.onTime
+    local leftOk = last and cT - last <= rules.onTime + RL().PIECE_JOIN + (facts.broke and BREAKUP_SLACK or 0)
+    if lateOk then present = present + (first - cE) end
+    if leftOk then present = present + (cT - last) end
+    -- (an early start: there before the planned time counts too)
+    if cS0 < cF then
+        for i = 1, #cs - 1, 2 do
+            local f, t = max(cs[i], cS0), min(cs[i + 1], cF)
+            if t > f then present = present + (t - f) end
+        end
     end
     present = min(present, span)
-    r.present, r.first, r.last = present, first, last
+    r.present = present
     r.noShow = present <= 0
     if n.loose then
         -- (no planned time: there at all during the session is there)
@@ -579,14 +622,24 @@ function Att:Result(n, key, rules)
         end
         r.noShow = not seen
     end
-    r.late = first and max(0, first - E) or 0
-    r.left = last and max(0, T - last) or 0
+    r.late = (first and not lateOk) and max(0, first - cE) or 0
+    r.left = (last and not leftOk) and max(0, cT - last) or 0
     r.away = max(0, span - present - r.late - r.left)
+    -- the times shown: the real ones (when they came, when they went), at the window's edges when on time
+    for i = 1, #s - 1, 2 do
+        local f, t = max(s[i], E), min(s[i + 1], T)
+        if t > f then
+            r.first = r.first or f
+            r.last = t
+        end
+    end
+    if r.first and r.late == 0 then r.first = E end
+    if r.last and r.left == 0 then r.last = T end
     if not r.kind then
         -- not expected: a fill-in when they were there during the window
         local help = 0
-        for i = 1, #s - 1, 2 do
-            local f, t = max(s[i], F), min(s[i + 1], T)
+        for i = 1, #cs - 1, 2 do
+            local f, t = max(cs[i], cF), min(cs[i + 1], cT)
             if t > f then help = help + (t - f) end
         end
         r.help = help > 0 and help or nil
@@ -595,7 +648,8 @@ function Att:Result(n, key, rules)
     local mk = r.mark
     r.bench = n.bench[key] or (mk and mk.b) or false
     r.removed = mk and mk.rm or false
-    local told = r.note and (r.note.x or (r.note.n and (r.late > 0 or r.noShow or r.left > 0)))
+    -- (told before: an Absent answer or a sign-up note, when they were late, left or didn't come)
+    local told = r.note and (r.note.x or r.note.n) and (r.late > 0 or r.noShow or r.left > 0)
     -- (a raid logged before 1.3.5 opens no review for an early leave: only for a reason someone gave)
     local leftEarly = r.left > 0 and not r.noShow and not n.legacy
     r.review = (not r.bench and not r.removed) and (leftEarly or r.reason ~= nil or r.picked ~= nil
@@ -604,11 +658,15 @@ function Att:Result(n, key, rules)
     local d = r.decision and r.decision.d
     r.excused = d == "x"
     r.pending = r.review and not d
-    if n.loose and not r.noShow then
-        r.loose = true
-        r.credit = 1
+    if n.loose then
+        -- (no planned time: who came is there; only an Accept answer that never came is a no-show)
+        r.loose = not r.noShow
         r.review = r.reason ~= nil or r.picked ~= nil or (mk and mk.od) or false
         r.pending = r.review and not d
+        r.credit = (r.excused or r.bench or not r.noShow) and 1 or 0
+        r.late, r.left, r.away = 0, 0, 0
+        r.counts = not r.pending
+        return r
     elseif r.bench or r.removed or r.excused then
         r.credit = 1
     elseif span > 0 then
@@ -640,6 +698,11 @@ function Att:NightResults(n, rules)
             local alt = false
             for e in pairs(n.ex) do
                 if SameAccount(e, key) then alt = true break end
+            end
+            if not alt then
+                for _, h in ipairs(out.helpers) do
+                    if SameAccount(h.key, key) then alt = true break end
+                end
             end
             if not alt then
                 local r = self:Result(n, key, rules)
@@ -719,6 +782,11 @@ function Att:Results(nights, rules)
                 if Fa < Tb and Fb < Ta then
                     for key, ra in pairs(a.results) do
                         local rb = b.results[key]
+                        if not rb then
+                            for other, x in pairs(b.results) do
+                                if SameAccount(other, key) then rb = x break end
+                            end
+                        end
                         if rb then
                             if ra.kind == "a" and rb.kind == "l" then
                                 ra.clash, ra.kind, ra.counts, ra.pending, ra.review = b.night, nil, false, false, false
@@ -905,9 +973,90 @@ function Att:GetHistory(key, lastN)
     end
     local stats
     for _, s in ipairs(self:GetStats(lastN, { guests = true })) do
-        if s.key == key then stats = s break end
+        if s.key == key or s.key == PlayerOf(key) or SameAccount(s.key, key) then stats = s break end
     end
     return out, stats, #nights
+end
+
+---------------------------------------------------------------------------
+-- Dry streak (1.3.5, the drop panel): how long a player has gone without loot
+---------------------------------------------------------------------------
+
+-- The player = the character with its account links (each character vouches for the other, as for attendance): an
+-- item on any of them ends the streak, a night on any of them counts. Loot = Loot Log awards that count as loot received (not offspec / disenchant / guild
+-- bank, not 5-man dungeon loot). Counted: the closed nights they came to (not benched) that started after that award,
+-- and the boss kills they were there for in those nights. The night running now is not counted.
+-- Returns { nights, bosses, last = the award entry (nil: none on record), first = the oldest night counted } or nil:
+-- no closed night logged, or I don't hold the whole Loot Log (only the guild council does; demo mode: the demo's).
+-- Cached until the raid log or the Loot Log changes.
+local dryCache = {}
+
+function Att:CanSeeDryStreaks()
+    if DemoOn() then return true end
+    local Guild, me = G(), Me()
+    return (me and Guild and Guild.IsGuildCouncil and Guild:IsGuildCouncil(me)) and true or false
+end
+
+function Att:GetDryStreak(key)
+    key = Util.NormalizeName(key)
+    if not key or not self:CanSeeDryStreaks() then return nil end
+    local Ledger = ns.Ledger
+    local token = Ledger and Ledger.GetViewToken and Ledger:GetViewToken()
+    if dryCache.ver ~= ver or dryCache.demo ~= DemoOn() or dryCache.token ~= token then
+        dryCache = { ver = ver, demo = DemoOn(), token = token, by = {} }
+    end
+    local c = dryCache.by[key]
+    if c ~= nil then return c or nil end
+    local nights = self:ClosedNights()
+    if #nights == 0 then
+        dryCache.by[key] = false
+        return nil
+    end
+    local chars = { [key] = true }
+    for _, k in ipairs(Linked(key)) do chars[k] = true end
+    local last
+    for k in pairs(chars) do
+        for _, e in ipairs(Ledger and Ledger.GetEntries and Ledger:GetEntries({ player = k, excludeDungeon = true }) or {}) do
+            local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
+            if not r or r.counts then
+                if not last or e.ts > last.ts then last = e end
+                break   -- (newest first)
+            end
+        end
+    end
+    -- (the demo's raids carry their awards along, Demo.lua)
+    for _, n in ipairs(DemoOn() and nights or {}) do
+        for _, rec in ipairs(n.recs or {}) do
+            for _, e in ipairs(rec.demoAwards or {}) do
+                local r = ns.AWARD_REASON and e.r and ns.AWARD_REASON[e.r]
+                if chars[e.w] and (not r or r.counts) and (not last or e.ts > last.ts) then last = e end
+            end
+        end
+    end
+    local since = last and last.ts or 0
+    local out = { nights = 0, bosses = 0, last = last }
+    for _, n in ipairs(nights) do   -- (newest first)
+        if (n.start or 0) <= since then break end
+        local came, kills = false, 0
+        for _, rec in ipairs(n.recs or {}) do
+            local most = 0
+            for k in pairs(chars) do
+                local a = rec.att and rec.att[k]
+                if type(a) == "table" and not a.b then
+                    came = true
+                    most = max(most, tonumber(a.k) or 0)
+                end
+            end
+            kills = kills + most
+        end
+        if came then
+            out.nights = out.nights + 1
+            out.bosses = out.bosses + kills
+            out.first = n
+        end
+    end
+    dryCache.by[key] = out
+    return out
 end
 
 ---------------------------------------------------------------------------
@@ -916,12 +1065,14 @@ end
 
 -- { pending = { r... }, handled = { r... } } over the last REVIEW_DAYS (decisions of the last HANDLED_DAYS under
 -- handled), newest night first. Each r has .night.
+local reviewsCache
 function Att:GetReviews()
+    if reviewsCache and reviewsCache.ver == ver then return reviewsCache.data end
     local rules = self:Rules()
     local since = Now() - REVIEW_DAYS * DAY
     local nights = {}
     for _, n in ipairs(self:GetNights()) do
-        if (n.start or 0) >= since then nights[#nights + 1] = n end
+        if (n.start or 0) >= since and not n.open then nights[#nights + 1] = n end
     end
     local pending, handled = {}, {}
     for _, item in ipairs(self:Results(nights, rules)) do
@@ -937,7 +1088,8 @@ function Att:GetReviews()
         end
     end
     tsort(handled, function(a, b) return (a.decision.at or 0) > (b.decision.at or 0) end)
-    return { pending = pending, handled = handled }
+    reviewsCache = { ver = ver, data = { pending = pending, handled = handled } }
+    return reviewsCache.data
 end
 
 -- How many reviews wait for a decision (for the reviewers' count badges).
@@ -997,7 +1149,13 @@ function Att:Pick(nightKey, key, lines)
     -- (no lines: kept as an empty, newer pick, so clearing spreads like any change)
     rec.q[key] = { by = Me(), at = Now(), l = clean }
     Edited(rec)
-    if leader and #clean > 0 then self:BroadcastMark(rec, key, { q = clean }) end
+    if leader and #clean > 0 then
+        local public = {}
+        for _, l in ipairs(clean) do
+            if l.ch ~= "Whisper" then public[#public + 1] = l end
+        end
+        if #public > 0 then self:BroadcastMark(rec, key, { q = public, at = rec.q[key].at - 1 }) end
+    end
     return true
 end
 
@@ -1005,7 +1163,9 @@ end
 -- Away periods: excuse every raid of a stretch in one go
 ---------------------------------------------------------------------------
 
+local demoAway = {}
 local function AwayList(create)
+    if DemoOn() then return demoAway end
     local db = ns.db
     local Guild = G()
     local g = Guild and Guild.GetGuildKey and Guild:GetGuildKey()
@@ -1071,6 +1231,17 @@ function Att:RemoveAway(p)
     for i, x in ipairs(list or {}) do
         if x == p then
             table.remove(list, i)
+            -- (the excuses it gave are taken back: a newer "u" marker, so that spreads too)
+            for _, n in ipairs(self:GetNights()) do
+                for key, e in pairs(n.dc) do
+                    if e.d == "x" and e.n == p.n and e.by == p.by and (key == p.k or SameAccount(key, p.k)) then
+                        local rec = n.primary
+                        rec.dc = rec.dc or {}
+                        rec.dc[key] = { d = "u", by = Me(), at = max(Now(), (e.at or 0) + 1) }
+                        Edited(rec)
+                    end
+                end
+            end
             Bump()
             return true
         end
@@ -1195,7 +1366,7 @@ end
 -- Expected players not in the group (yet), once the start + on-time margin has passed: { r... } with r.inGroup false.
 function Att:GetNotHereYet()
     local n = self:GetLiveNight()
-    if not n then return {} end
+    if not n or n.loose then return {} end
     local rules = self:Rules()
     local facts = NightFacts(n, rules)
     if Now() < facts.F + rules.onTime then return {} end
@@ -1233,7 +1404,13 @@ function Att:LeaderMark(key, what, arg)
     elseif what == "sw" and type(arg) == "string" then m.sw = arg
     else return false end
     local old = rec.mk and rec.mk[key]
-    if old and old.at == m.at then m.at = m.at + 1 end
+    if old then
+        if old.at and old.at >= m.at then m.at = old.at + 1 end
+        m.b = m.b or old.b
+        m.rm = m.rm or old.rm
+        m.od = m.od or old.od
+        m.sw = m.sw or old.sw
+    end
     rec.mk = rec.mk or {}
     rec.mk[key] = m
     Edited(rec)
@@ -1285,8 +1462,9 @@ end
 -- The leader invites a guild member to replace `out` (Swap in...): the mark lands when they join.
 function Att:InviteFor(key, out)
     if type(key) ~= "string" or type(out) ~= "string" then return false end
+    if DemoOn() then return true end
     pendingSwap[key] = out
-    if not DemoOn() and InviteUnit then InviteUnit(Util.ShortName(key) or key) end
+    if InviteUnit then InviteUnit(Util.ShortName(key) or key) end
     return true
 end
 
@@ -1339,19 +1517,76 @@ local function OnReason(sender, msg, dist)
     local key = Util.NormalizeName(sender)
     local L = RL()
     local rec = key and L and L.GetRaid and type(msg.s) == "string" and L:GetRaid(msg.s)
-    if type(rec) ~= "table" or rec.demo then return end
     local Comm = ns.Comm
-    if Comm and Comm.RateLimit and not Comm:RateLimit("ATY:" .. key, 10) then return end
+    if not key or (Comm and Comm.RateLimit and not Comm:RateLimit("ATY:" .. key, 10)) then return end
     local at = tonumber(msg.at)
     if not at or at > Now() + 300 then return end
     local note = type(msg.n) == "string" and Plain(msg.n) or nil
     local code = type(msg.c) == "string" and msg.c:match("^%a+$") and msg.c:sub(1, 16) or nil
     if not (code or note) then return end
+    if type(rec) ~= "table" then
+        if type(msg.s) == "string" and #msg.s <= 64 and not msg.s:find("[%c|]") and Att:CanSeeAll() then
+            Att:HoldReason(msg.s, key, { c = code, n = note, at = floor(at) })
+        end
+        return
+    end
+    if rec.demo then return end
     local old = rec.rs and rec.rs[key]
     if old and (old.at or 0) >= at then return end
     rec.rs = rec.rs or {}
     rec.rs[key] = { c = code, n = note, at = floor(at) }
     Edited(rec)
+end
+
+-- Reasons for raids not in my log yet: db.attHeld[guild][recId][key] = { c, n, at, held }, kept 7 days, put on the
+-- record when it arrives (the raid log sync, a later raid log digest).
+local function HeldStore(create)
+    local db = ns.db
+    local Guild = G()
+    local g = Guild and Guild.GetGuildKey and Guild:GetGuildKey()
+    if not db or not g then return nil end
+    if type(db.attHeld) ~= "table" then
+        if not create then return nil end
+        db.attHeld = {}
+    end
+    if create and type(db.attHeld[g]) ~= "table" then db.attHeld[g] = {} end
+    return db.attHeld[g]
+end
+
+function Att:HoldReason(recId, key, rs)
+    local st = HeldStore(true)
+    if not st then return end
+    local n = 0
+    for _ in pairs(st) do n = n + 1 end
+    if n >= 50 and not st[recId] then return end
+    st[recId] = st[recId] or {}
+    rs.held = Now()
+    st[recId][key] = rs
+end
+
+local function ApplyHeld()
+    local st = HeldStore(false)
+    if not st then return end
+    local L = RL()
+    for recId, list in pairs(st) do
+        local rec = L and L.GetRaid and L:GetRaid(recId)
+        if type(rec) == "table" then
+            for key, rs in pairs(list) do
+                local old = rec.rs and rec.rs[key]
+                if not old or (old.at or 0) < rs.at then
+                    rec.rs = rec.rs or {}
+                    rec.rs[key] = { c = rs.c, n = rs.n, at = rs.at }
+                    Edited(rec)
+                end
+            end
+            st[recId] = nil
+        else
+            for key, rs in pairs(list) do
+                if Now() - (rs.held or 0) > 7 * DAY then list[key] = nil end
+            end
+            if not next(list) then st[recId] = nil end
+        end
+    end
 end
 
 -- I leave the group myself (Leave Group) during a raid that expects me, before its planned end: ask why.
@@ -1385,6 +1620,7 @@ local function OnLeft(recId, key)
     if not (GR and GR.IsAuthority and GR:IsAuthority()) then return end
     Bump()
     local n = Att:GetLiveNight()
+    if not n or n.loose then return end
     local e = Att:ExpectedKey(n, key)
     if not e then return end
     local r = Att:Result(n, e)
@@ -1429,7 +1665,13 @@ local function Compact(key)
     for i, e in ipairs(hist) do
         if i > 12 then break end
         local r = e.r
-        h[#h + 1] = { d = e.night.start, z = e.night.zone and e.night.zone:sub(1, 40) or nil,
+        local zone = e.night.zone
+        if #e.night.recs > 1 and e.night.pl then
+            local RP = ns.RaidPlan
+            local v = RP and RP.GetRaid and RP:GetRaid(e.night.pl)
+            if v then zone = RP:GetRaidName(v) end
+        end
+        h[#h + 1] = { d = e.night.start, z = zone and zone:sub(1, 40) or nil,
                       c = r.credit and floor(r.credit * 100 + 0.5) or nil, s = Code(r), k = r.kind or (r.help and "h"),
                       i = e.night.primary and e.night.primary.id or nil, rs = r.reason and true or nil }
     end
@@ -1451,14 +1693,26 @@ function Att:RequestMine()
     if st.asked and Now() - st.asked < 300 then return false end
     local Guild, Comm = G(), ns.Comm
     if not (Guild and Comm and Comm.Send) then return false end
+    local readers = {}
     for _, key in ipairs(Guild:GetOnlineMembers() or {}) do
-        if not Util.IsMe(key) and self:CanSeeAll(key) then
-            st.asked = Now()
-            Comm:Send({ t = "ATQ" }, "WHISPER", key, "ctrl")
-            return true
-        end
+        if not Util.IsMe(key) and self:CanSeeAll(key) then readers[#readers + 1] = key end
     end
-    return false
+    if #readers == 0 then return false end
+    st.asked = Now()
+    -- (one at a time; the next one when no answer came in 10 seconds: an older DisasterZone doesn't answer)
+    local asked = Now()
+    local function ask(k)
+        local key = readers[k]
+        if not key then return end
+        Comm:Send({ t = "ATQ" }, "WHISPER", key, "ctrl")
+        Util.After(10, function()
+            local cur = MineStore(false)
+            local got = cur and cur.data and (cur.data.at or 0) >= asked
+            if not got then ask(k + 1) end
+        end)
+    end
+    ask(1)
+    return true
 end
 
 local function OnAsk(sender, msg, dist)
@@ -1499,7 +1753,7 @@ end
 
 function Att:OnInit()
     for _, m in ipairs({ "RAIDLOG_CHANGED", "DEMO_TOGGLED", "ATTENDANCE_RULES_CHANGED", "ROSTER_UPDATED",
-                         "RAIDPLAN_CHANGED" }) do
+                         "RAIDPLAN_CHANGED", "PROFESSIONS_UPDATED" }) do
         ns:On(m, Bump)
     end
     ns:On("RAIDLOG_LEFT", OnLeft)
@@ -1507,7 +1761,12 @@ function Att:OnInit()
         Bump()
         OnJoined(...)
     end)
-    ns:On("RAIDLOG_CHANGED", function() Util.Debounce("att-away", 3, ApplyAllAway) end)
+    ns:On("RAIDLOG_CHANGED", function()
+        Util.Debounce("att-away", 3, function()
+            ApplyAllAway()
+            ApplyHeld()
+        end)
+    end)
     for event in pairs(CHAT_EVENTS) do ns:RegisterEvent(event, OnChat) end
     if ns.Comm and ns.Comm.Register then
         ns.Comm:Register("ATM", OnMark)

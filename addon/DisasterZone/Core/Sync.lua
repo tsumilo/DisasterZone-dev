@@ -172,7 +172,14 @@ local function LedgerDigest()
 end
 
 -- Addendum I §50: the raid log's digest rides along with the ledger's.
+-- (1.3.5: rd stays what older clients compare, without the attendance fields; rd2 has them)
 local function RaidDigest()
+    local RL = ns.RaidLog
+    if RL and RL.GetDigest then return RL:GetDigest(true) end
+    return nil
+end
+
+local function RaidDigest2()
     local RL = ns.RaidLog
     if RL and RL.GetDigest then return RL:GetDigest() end
     return nil
@@ -417,8 +424,11 @@ function Sync:SendHello(force)
         msg.mh = ns.Store and ns.Store.GetManifestHashes and ns.Store:GetManifestHashes(msg.m) or nil
         msg.ld = LedgerDigest()
         msg.rd = RaidDigest()
+        msg.rd2 = RaidDigest2()
     elseif (Guild.AmIRaidLogReader and Guild:AmIRaidLogReader()) or (Guild.AmIRaidLogMember and Guild:AmIRaidLogMember()) then
-        msg.rd = RaidDigest()   -- 1.3.5: the attendance reviewers (officers) too   -- Addendum J §62: raid leaders exchange the raid log (never lists or the award log)
+        -- Addendum J §62: raid leaders exchange the raid log (never lists or the award log); 1.3.5: officers too
+        msg.rd = RaidDigest()
+        msg.rd2 = RaidDigest2()
     end
     if Guild.GetRaidLeadersRev then msg.rlr = Guild:GetRaidLeadersRev() end   -- Addendum J §62
     if Guild.GetAccountsHash then msg.av = Guild:GetAccountsHash() end        -- accounts (Guild.lua)
@@ -461,7 +471,7 @@ end
 
 local function SendManifest(target, query)
     if not AmCouncil() or not ns.Store then return false end
-    local msg = { t = "M", m = ns.Store:GetManifest(), ld = LedgerDigest(), rd = RaidDigest() }
+    local msg = { t = "M", m = ns.Store:GetManifest(), ld = LedgerDigest(), rd = RaidDigest(), rd2 = RaidDigest2() }
     if query then msg.q = true end   -- DisasterZone extension: "please answer with your manifest"
     return Send(msg, "WHISPER", target, "ctrl")
 end
@@ -786,7 +796,7 @@ local function OnHello(sender, msg, dist)
         local me = Util.PlayerKey()
         CheckOwnAgainst(sender, manifest and me and manifest[me] or 0, true, OwnHashIn(msg.mh))
         if amCouncil and FullPair(sender) and RateLimit("Hm:" .. session, REPLY_RATE) then
-            local digest, rdigest = msg.ld, msg.rd
+            local digest, rdigest = msg.ld, msg.rd2 or msg.rd
             Util.RandomDelay(1, 5, function()
                 SendManifest(sender, false)
                 Sync:PullFrom(sender, manifest)
@@ -799,7 +809,7 @@ local function OnHello(sender, msg, dist)
     -- Addendum J §62: a raid planner pair where one side isn't guild council: the raid log only.
     local RL = ns.RaidLog
     if type(msg.rd) == "table" and not (msg.c and FullPair(sender)) and RL and RL.OnPlannerHello then
-        RL:OnPlannerHello(sender, msg.rd)
+        RL:OnPlannerHello(sender, type(msg.rd2) == "table" and msg.rd2 or msg.rd)
     end
 end
 
@@ -829,7 +839,7 @@ local function OnManifest(sender, msg, dist)
     if not FullPair(sender) then return end   -- raid-scope council: own lists only
     Sync:PullFrom(sender, manifest)
     LedgerSync(sender, msg.ld)
-    RaidSync(sender, msg.rd)
+    RaidSync(sender, type(msg.rd2) == "table" and msg.rd2 or msg.rd)
     if msg.q and RateLimit("Mq:" .. sender, 60) then
         Util.RandomDelay(1, 4, function() SendManifest(sender, false) end)
     end

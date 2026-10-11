@@ -1381,11 +1381,92 @@ end
 local function AddAttendanceLine(tt, key)
     if not IsCouncil() then return end   -- other raiders' attendance is council data
     local RL = ns.RaidLog
-    local pct, a, n = RL and RL.GetAttendance and RL:GetAttendance(key)
+    if not (RL and RL.GetAttendance) then return end
+    local pct, a, n = RL:GetAttendance(key)   -- (not after an `and`: that keeps only the first value)
     -- (1.3.5: time-based, over the raids that expected them)
     if pct then
         tt:AddLine(format("Attendance %d%% (expected at %d of the last %d raids)", pct, a, n), 0.7, 0.7, 0.7)
     end
+end
+
+-- Dry streak (1.3.5, Attendance:GetDryStreak): the raids a player came to since their last item, as a row of bars
+-- that warm up from grey to ember (one bar per raid, DRY.SEGS at most) and "4 raids"; the tooltip names the item.
+-- Council only, and only for the guild council (the only ones holding the whole Loot Log).
+local DRY = { SEGS = 6, SEG_W = 3, SEG_H = 9, GAP = 2,
+              -- raids without loot -> colour: 0-1 quiet, 2-3 warming, 4-5 dry, 6+ very dry
+              LEVELS = { { 2, { 0.55, 0.55, 0.55 } }, { 4, { 0.93, 0.80, 0.45 } }, { 6, { 1.00, 0.58, 0.22 } },
+                         { math.huge, { 1.00, 0.36, 0.18 } } } }
+DRY.BARS_W = DRY.SEGS * DRY.SEG_W + (DRY.SEGS - 1) * DRY.GAP
+local Dry = {}
+
+function Dry.Get(key)
+    local Att = ns.Attendance
+    if not IsCouncil() or not (Att and Att.GetDryStreak) then return nil end
+    return Att:GetDryStreak(key)
+end
+
+function Dry.Color(nights)
+    for _, l in ipairs(DRY.LEVELS) do
+        if nights < l[1] then return l[2] end
+    end
+    return DRY.LEVELS[#DRY.LEVELS][2]
+end
+
+function Dry.Raids(n)
+    return format("%d %s", n, n == 1 and "raid" or "raids")
+end
+
+function Dry.AddLines(tt, key)
+    local d = Dry.Get(key)
+    if not d then return end
+    local c = Dry.Color(d.nights)
+    local who = d.last and d.last.w ~= key and (" on " .. ShortName(d.last.w)) or ""
+    if d.last then
+        local days = floor(max(0, GetServerTime() - (tonumber(d.last.ts) or 0)) / 86400)
+        local ago = days == 0 and "today" or (days == 1 and "yesterday" or format("%d days ago", days))
+        tt:AddLine(format("Last item %s%s: %s", ago, who, ItemText(d.last.i)), c[1], c[2], c[3], true)
+        tt:AddLine(format("Since then: %s, %d bosses", Dry.Raids(d.nights), d.bosses), c[1], c[2], c[3])
+    else
+        tt:AddLine(format("No item on record in %s (%d bosses)", Dry.Raids(d.nights), d.bosses), c[1], c[2], c[3])
+    end
+end
+
+-- The bars + "4 raids" (compact: the number alone) at x of a row, hidden until Dry.Set.
+function Dry.New(r, x)
+    local f = CreateFrame("Frame", nil, r)
+    f:SetSize(94, ROW_H)
+    f:SetPoint("LEFT", r, "LEFT", x, 0)
+    f.segs = {}
+    for i = 1, DRY.SEGS do
+        local t = f:CreateTexture(nil, "ARTWORK")
+        t:SetSize(DRY.SEG_W, DRY.SEG_H)
+        t:SetPoint("LEFT", f, "LEFT", (i - 1) * (DRY.SEG_W + DRY.GAP), 0)
+        f.segs[i] = t
+    end
+    f.fs = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.fs:SetPoint("LEFT", f, "LEFT", DRY.BARS_W + 5, 0)
+    f.fs:SetJustifyH("LEFT")
+    f.fs:SetWordWrap(false)
+    f:Hide()
+    r.dry = f
+end
+
+-- Shows the row's player's streak; false (hidden) when there is none to show.
+function Dry.Set(r, key, compact)
+    local f = r.dry
+    local d = key and Dry.Get(key)
+    if not d then
+        f:Hide()
+        return false
+    end
+    local c = Dry.Color(d.nights)
+    for i, t in ipairs(f.segs) do
+        if i <= d.nights then t:SetColorTexture(c[1], c[2], c[3], 0.95) else t:SetColorTexture(1, 1, 1, 0.1) end
+    end
+    f.fs:SetText(compact and tostring(d.nights) or Dry.Raids(d.nights))
+    f.fs:SetTextColor(c[1], c[2], c[3])
+    f:Show()
+    return true
 end
 
 local function RollTag(row, session)
@@ -1475,6 +1556,7 @@ local function RollRowTooltip(self, tt, vp)
     if row.craft then Mat.AddCraftLines(tt, row, self.itemID) end
     local won = tonumber(row.wonTonight) or 0
     if won > 0 then tt:AddLine(format("Won %d item(s) tonight", won), 0.7, 0.7, 0.7) end
+    if not plain then Dry.AddLines(tt, row.key) end
     AddAttendanceLine(tt, row.key)
     if row.wonCopy then
         tt:AddLine("Won another copy of this item from this drop: not suggested", Color("warn")[1], Color("warn")[2], Color("warn")[3])
@@ -1561,6 +1643,7 @@ local function RowOnEnter(self)
     if (tonumber(w.wonTonight) or 0) > 0 then
         tt:AddLine(format("Won %d item(s) tonight", w.wonTonight), 0.7, 0.7, 0.7)
     end
+    Dry.AddLines(tt, w.key)
     AddAttendanceLine(tt, w.key)
     if w.awarded then tt:AddLine("Already awarded this item", Color("warn")[1], Color("warn")[2], Color("warn")[3]) end
     if w.cantUse then tt:AddLine("Their class cannot use this item", Color("bad")[1], Color("bad")[2], Color("bad")[3]) end
@@ -1738,6 +1821,7 @@ function DropPanel:NewRow(b)
     r.eqs[1]:SetPoint("RIGHT", r.eqs[2], "LEFT", -2, 0)
     r.eq = r.eqs[2]   -- v0.1 field name (single icon); a lone item sits in the right-hand column
     r.pips = Mat.NewPips(r)
+    Dry.New(r, COL.status[1])
     r:SetScript("OnEnter", RowOnEnter)
     r:SetScript("OnLeave", HideTooltip)
     r:SetScript("OnClick", RowOnClick)
@@ -1816,6 +1900,7 @@ local function SetRowMode(r, mode)
     r.status:SetText("")
     r.status:SetWidth(COL.status[2])
     r.pips:Hide()
+    r.dry:Hide()
     r.tag:SetShown(roll)
     r.tag:SetText("")
     r.votes:SetShown(roll and IsCouncil())
@@ -1872,6 +1957,7 @@ local function FillRow(r, w, itemID, vp, itemSid)
         SetEquipped(r, WornOfWanter(w, itemSid))
     end
     r.status:SetText(status)
+    if status == "" and not w.craft then Dry.Set(r, w.key) end
     r:SetAlpha(w.inRaid and 1 or 0.55)
     return ROW_H
 end
@@ -1916,6 +2002,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
         end
     else
         SetEquipped(r, WornOfRow(row, itemSid))
+        if tag == "" and not plain then Dry.Set(r, row.key, true) end
     end
 
     local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key

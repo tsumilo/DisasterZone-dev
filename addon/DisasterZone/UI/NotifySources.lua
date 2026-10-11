@@ -217,7 +217,8 @@ local function register()
             out[#out + 1] = { key = k, n = n,
                 title = n == 1 and (who .. "'s attendance waits for a decision")
                     or (who .. " and " .. (n - 1) .. " more wait for a decision"),
-                text = (e.night.zone or "Raid") .. " · " .. date("%a %d %b", e.night.start or Now()),
+                text = ((ns.AttendanceUI and ns.AttendanceUI:NightName(e.night)) or e.night.zone or "Raid") .. " · "
+                    .. date("%a %d %b", e.night.start or Now()),
                 short = n == 1 and ("Review " .. Short(e.keys[1])) or (n .. " attendance reviews"),
                 time = e.night.stop or e.night.start }
         end

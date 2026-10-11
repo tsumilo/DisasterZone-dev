@@ -1131,8 +1131,9 @@ local function CleanAttendance(r, out, now)
     out.rs = each(r.rs, function(v)
         local at = stamp(v.at)
         local c = type(v.c) == "string" and #v.c <= 16 and v.c:find("^%a+$") and v.c or nil
-        if not at or not (c or v.n) then return nil end
-        return { c = c, n = CleanText(v.n), at = at }
+        local n = CleanText(v.n)
+        if not at or not (c or n) then return nil end
+        return { c = c, n = n, at = at }
     end)
     out.dc = each(r.dc, function(v)
         local at, by = stamp(v.at), key(v.by)
@@ -1335,9 +1336,10 @@ local function MergeRecord(cur, e)
     local Att = ns.Attendance
     for _, field in ipairs({ "mk", "rs", "dc", "q" }) do
         for key, v in pairs(e[field] or {}) do
-            local ok = field ~= "dc" or not (Att and Att.CanReview) or Att:CanReview(v.by)
+            -- (every copy keeps the same entries, so the logs converge; a decision counts only when its author is a
+            -- reviewer, Attendance checks that when reading)
             local c = cur[field] and cur[field][key]
-            if ok and (not c or v.at > (c.at or 0) or (v.at == c.at and (v.by or "") > (c.by or ""))) then
+            if not c or v.at > (c.at or 0) or (v.at == c.at and (v.by or "") > (c.by or "")) then
                 cur[field] = cur[field] or {}
                 cur[field][key] = v
             end
@@ -1408,6 +1410,17 @@ function RaidLog:MergeRecord(r, fromKey)
         Changed(e)
         return true
     end
+    -- 1.3.5: officers read and pass on the raid log, but linking a raid, bench marks and the raid leader's marks stay
+    -- with the raid log members: from an officer who isn't one, those parts of my copy stand
+    if not IsPlanner(fromKey) then
+        e.pl, e.plAt, e.su = cur.pl, cur.plAt, cur.su
+        e.ex, e.exAt, e.ef, e.et, e.sn = cur.ex, cur.exAt, cur.ef, cur.et, cur.sn
+        e.mk = cur.mk
+        for key, a in pairs(e.att) do
+            local c = cur.att and cur.att[key]
+            a.b, a.bts = c and c.b or nil, c and c.bts or nil
+        end
+    end
     local changed = MergeRecord(cur, e)
     if changed then Changed(cur) end
     return changed
@@ -1470,12 +1483,15 @@ end
 -- RLD {rd, q}: a council member finished a raid and offers its digest (q = "answer with yours").
 local function OnRaidDigest(sender, msg, dist)
     if dist ~= "WHISPER" or DemoOn() or not IsGuildCouncilPair(sender) or type(msg) ~= "table" then return end
-    if type(msg.rd) ~= "table" then return end
-    RaidLog:SyncFromDigest(sender, msg.rd)
+    local digest = type(msg.rd2) == "table" and msg.rd2 or msg.rd   -- (1.3.5: rd2 = with the attendance fields)
+    if type(digest) ~= "table" then return end
+    RaidLog:SyncFromDigest(sender, digest)
     if msg.q then
         local Comm = ns.Comm
         if Comm and Comm.RateLimit and not Comm:RateLimit("RLDq:" .. sender, 30) then return end
-        Util.RandomDelay(1, 4, function() SendTo({ t = "RLD", rd = RaidLog:GetDigest() }, sender, "ctrl") end)
+        Util.RandomDelay(1, 4, function()
+            SendTo({ t = "RLD", rd = RaidLog:GetDigest(true), rd2 = RaidLog:GetDigest() }, sender, "ctrl")
+        end)
     end
 end
 
@@ -1502,7 +1518,7 @@ function RaidLog:OfferDigest()
                 targets[#targets + 1] = key
             end
         end
-        local msg = { t = "RLD", rd = RaidLog:GetDigest(), q = true }
+        local msg = { t = "RLD", rd = RaidLog:GetDigest(true), rd2 = RaidLog:GetDigest(), q = true }
         for _, key in ipairs(targets) do
             if IsReader(key) then SendTo(msg, key, "ctrl") end
         end
@@ -1517,7 +1533,7 @@ function RaidLog:OnPlannerHello(sender, digest)
     if Comm and Comm.RateLimit and not Comm:RateLimit("RLH:" .. sender, 20) then return end
     Util.RandomDelay(1, 5, function()
         RaidLog:SyncFromDigest(sender, digest)
-        SendTo({ t = "RLD", rd = RaidLog:GetDigest() }, sender, "ctrl")
+        SendTo({ t = "RLD", rd = RaidLog:GetDigest(true), rd2 = RaidLog:GetDigest() }, sender, "ctrl")
     end)
 end
 

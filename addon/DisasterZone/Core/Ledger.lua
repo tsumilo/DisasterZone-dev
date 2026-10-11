@@ -883,6 +883,11 @@ function Ledger:GetEntries(filter)
     return out
 end
 
+-- 1.3.5: a token that is a new table whenever the log changes (Attendance's dry streaks cache against it).
+function Ledger:GetViewToken()
+    return GetView()
+end
+
 function Ledger:HasAward(key, wantedItemID)
     if not key or not wantedItemID then return false end
     local set = GetView().awarded[key]
