@@ -40,8 +40,8 @@ local BAR_H = 30                                  -- the currency bar along the 
 local BOTTOM = PAD + BAR_H + GAP                  -- the layout's bottom margin: the currency bar's place
 local BODY_H = S.PAGE_H - COLS_Y - BOTTOM         -- 464
 local SLOT_W = 148                                -- the slot filter; Show takes the rest of the item column
-local BANNER_H, ART_FW = 72, 0.5                  -- the source's banner; the share of the loading screen it shows
-local HEAD_H = 26                                 -- a column's title row (one line; taller when its note goes under)
+local BANNER_H, ART_FW = S.BANNER.tool, 0.95      -- the detail's banner (D3); the share of a loading screen it shows
+local HEAD_H = 24                                 -- the pages column's section header (UI:CreateSectionHeader "title")
 local TABS_H = 18                                 -- Normal / Heroic under a dungeon's banner
 local ROW_CAT, ROW_SRC, ROW_PAGE, ROW_TWO = 26, 23, 22, 34
 local ROW_ITEM, ROW_SECTION, ROW_MORE = 34, 28, 36
@@ -67,7 +67,7 @@ local WEAPON_KIND = { [0] = "Axe", [1] = "Axe", [2] = "Bow", [3] = "Gun", [4] = 
 local ARMOR_KIND = { [6] = "Shield", [7] = "Libram", [8] = "Idol", [9] = "Totem" }
 
 local panel, layout, searchBox, showDD, slotDD, srcList, pageList, itemList
-local banner, midHead, itemHead, diffNormal, diffHeroic, curBar
+local banner, midHead, diffNormal, diffHeroic, curBar
 local state = {
     cat = nil, src = nil, page = nil, heroic = false,
     expanded = nil,      -- the category folded open in the left column
@@ -229,14 +229,13 @@ local function StarText(size)
     return "|T" .. ns.UI:Tex("star") .. ":" .. size .. ":" .. size .. "|t"
 end
 
--- The chevron of the atlas icons (it points down), pointing down or right.
+-- A category's chevron: the atlas chevron pointing down (open) or right (UI:SetChevron).
 local function SetChevron(tex, down)
-    local c = ns.UI:IconCoords(ns.UI.ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
     if down then
-        tex:SetTexCoord(l, r, t, b)
+        tex:SetTexture(ns.UI.ICON_ATLAS)
+        tex:SetTexCoord(unpack(ns.UI:IconCoords(ns.UI.ICON.chevron)))
     else
-        tex:SetTexCoord(r, t, l, t, r, b, l, b)
+        ns.UI:SetChevron(tex, true)
     end
 end
 
@@ -305,6 +304,9 @@ local function ChipTooltip(chip, tt)
     if most then tt:AddDoubleLine("The most you can hold", C:Number(most), 0.8, 0.8, 0.8, 1, 1, 1) end
 end
 
+-- One currency on the bar: its icon in a slot frame, the amount, lit by a hovered item's cost.
+-- TODO(refactor): move into a currency strip component (UI:CreateCurrencyBar: chips that light up with a cost) - no
+-- shared component draws an amount strip; UI:CreateChip is a toggle chip.
 local function CreateChip(parent)
     local chip = CreateFrame("Button", nil, parent)
     chip:SetHeight(BAR_H - 6)
@@ -490,6 +492,7 @@ local function SetTotals(rows)
     return (SetTotal(pageItems))
 end
 
+-- TODO(refactor): move into the currency strip component (see CreateChip above).
 local function CreateCurrencyBar(parent)
     local bar = CreateFrame("Frame", nil, parent)
     bar:SetHeight(BAR_H)
@@ -982,7 +985,7 @@ end
 local function SetRowHover(row, on)
     local lay = row.lay
     local item = lay and lay.textX ~= nil
-    row.hover:SetShown(on and item or false)
+    row:SetHover(on and item or false)
     -- the currency bar shows the hovered item's cost (a row being drawn while another is hovered leaves it)
     if on and item then
         hoverRow = row
@@ -1009,12 +1012,9 @@ local function SetupItemRow(row)
     local UI = ns.UI
     row.cdl = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    -- (the hover look is drawn by SetRowHover: the + and bag buttons keep it while the cursor is on them)
-    row.hover = row:CreateTexture(nil, "BACKGROUND", nil, 0)
-    row.hover:SetAllPoints()
-    row.hover:SetColorTexture(S:Color("HOVER"))
-    row.hover:Hide()
-    UI:DecorateRow(row, { hover = false, selectable = true })   -- (a search result jumped to: row:SetSelected)
+    -- the shared row looks: hover (SetRowHover holds it while the + and bag buttons are under the cursor) and the
+    -- picked look (a search result jumped to: row:SetSelected)
+    UI:DecorateRow(row, { selectable = true })
 
     -- section headers (a set per spec) and the "showing the first ..." note
     row.header = UI:Text(row, "emph", "GOLD")
@@ -1100,6 +1100,7 @@ local function InitItemRow(row, d)
     row.mark:SetShown(item and #lay.lines > 0)
     row.mark2:SetShown(item and #lay.lines > 1)
     row.header:SetShown(not item)
+    row.dzHover:SetShown(item)          -- (headers and notes take no hover)
     if not item then
         row.guide:Hide()
         row:SetSelected(false)
@@ -1393,18 +1394,20 @@ local function VisiblePages(src)
     return out
 end
 
--- The loading screen behind a raid's or dungeon's banner: file, l, r, t, b (nil for other sources).
+-- The art behind the detail's banner: a raid's key (the banner crops its loading screen), a dungeon zone's loading
+-- screen as { file, l, r, t, b }, or nil (other sources: the banner's plain card).
 local function BannerArt(src, w, h)
     if type(src) ~= "table" then return nil end
     if src.kind == "dungeon" then
         local R = ns.DungeonRuns
-        if R and R.GetArt then return R:GetArt(src.key, w, h, ART_FW) end
-        return nil
+        local file, l, r, t, b
+        if R and R.GetArt then file, l, r, t, b = R:GetArt(src.key, w, h, ART_FW) end
+        return file and { file, l, r, t, b } or nil
     end
     if src.kind ~= "raid" then return nil end
     local DB = ns.ItemDB
     local key = DB and DB.GetRaidByInstance and DB:GetRaidByInstance(src.instanceID or 0)
-    return DB:RaidArt(key or "other", w, h, ART_FW)
+    return key or "other"
 end
 
 -- "10 players", "You're Revered" (a faction: its pages are the standings). The phase is beside the source already.
@@ -1420,63 +1423,29 @@ local function SourceSub(src)
     return table.concat(sub, DOT)
 end
 
--- A raid's or dungeon's banner: its loading screen, the name and the sub line over the dark bottom.
-local function FillBanner(src, subText, file, l, r, t, b)
-    local bn = banner
-    local w = MID_W - 2 * IN
-    local title = src.name or ""
-    bn.title:SetText(title)
-    bn.title:SetWidth(w)
-    bn.title:SetWordWrap(TextWidth(title, "title") > w)
-    bn.sub:SetText(subText)
-    bn.sub:SetWidth(w)
-    bn.sub:SetShown(subText ~= "")
-    bn.title:ClearAllPoints()
-    if subText ~= "" then
-        bn.title:SetPoint("BOTTOMLEFT", bn.sub, "TOPLEFT", 0, 2)
-    else
-        bn.title:SetPoint("BOTTOMLEFT", bn, "BOTTOMLEFT", IN, 9)
+-- The detail's banner (D3: UI:CreatePageBanner, tool size): the page's name under its source as the kicker, the
+-- notes as its sub line, over the source's loading screen (a raid or dungeon) or the plain card. No title: hidden.
+-- Returns where the item list starts under it.
+local function FillBanner(kicker, title, sub, art)
+    if not title or title == "" then
+        banner:Hide()
+        return 0
     end
-    bn.art:SetTexture(file)
-    bn.art:SetTexCoord(l, r, t, b)
-    bn:Show()
+    banner:SetArt(art)
+    banner:SetKicker(kicker)
+    banner:SetTitle(title)
+    banner:SetSub((sub and sub ~= "") and sub or nil)
+    banner:Show()
+    return BANNER_H + GAP
 end
 
--- A column's title row (gold, a rule under it): the title on the left, a grey note on the right, or under the title
--- when both don't fit (a title too long for one line takes two). Returns its height.
-local function FillHead(h, width, title, note)
-    title, note = title or "", note or ""
-    h.title:SetText(title)
-    h.count:SetText(note)
-    h.count:SetShown(note ~= "")
-    local inner = width - 2 * IN
-    local nw = note ~= "" and CodedWidth(note, "small") or 0
-    local tw = TextWidth(title, "title")
-    local one = tw + (nw > 0 and (nw + 12) or 0) <= inner
-    h.title:ClearAllPoints()
-    h.count:ClearAllPoints()
-    local height
-    if one then
-        h.title:SetPoint("LEFT", h, "LEFT", IN, 0)
-        h.title:SetWidth(inner - (nw > 0 and (nw + 12) or 0))
-        h.title:SetWordWrap(false)
-        h.count:SetPoint("RIGHT", h, "RIGHT", -IN, 0)
-        h.count:SetWidth(ceil(nw) + 2)
-        h.count:SetJustifyH("RIGHT")
-        height = HEAD_H
-    else
-        local lines = tw > inner and 2 or 1
-        h.title:SetPoint("TOPLEFT", h, "TOPLEFT", IN, -6)
-        h.title:SetWidth(inner)
-        h.title:SetWordWrap(lines > 1)
-        h.count:SetPoint("TOPLEFT", h, "TOPLEFT", IN, -(6 + lines * 16 + 2))
-        h.count:SetWidth(inner)
-        h.count:SetJustifyH("LEFT")
-        height = 6 + lines * 16 + (nw > 0 and 14 or 0) + 6
-    end
-    h:SetHeight(height)
+-- The pages column's section header (UI:CreateSectionHeader): the title cut to the column. Returns where the column's
+-- content starts under it.
+local function FillHead(h, title)
+    h:SetTitle(title or "")
+    ns.UI:FitText(h.title, title or "", MID_W - 4)
     h:Show()
-    return height
+    return HEAD_H + 4
 end
 
 local function PlacePageList(top)
@@ -1497,7 +1466,6 @@ function AtlasUI:RefreshPages()
     local A = Atlas()
     RefreshMarks()
     if ShowingShop() then
-        banner:Hide()
         midHead:Hide()
         diffNormal:Hide()
         diffHeroic:Hide()
@@ -1512,10 +1480,9 @@ function AtlasUI:RefreshPages()
         if res.facets[1].count > 0 then
             for _, f in ipairs(res.facets) do rows[#rows + 1] = { type = "facet", key = f.key, name = f.name, count = f.count } end
         end
-        banner:Hide()
         diffNormal:Hide()
         diffHeroic:Hide()
-        local top = FillHead(midHead, MID_W, "Found in", nil) + 4
+        local top = FillHead(midHead, "Found in")
         pageList:SetEmptyText(#rows == 0 and "No matches" or "")
         pageList.frame:Show()
         FillList(pageList, "page", rows, MID_W, PlacePageList(top), PageExtent, true)
@@ -1535,17 +1502,10 @@ function AtlasUI:RefreshPages()
             state.selected = nil
         end
     end
-    -- a raid or dungeon: its loading screen as a banner; anything else: a title row like the item column's
+    -- the source's name over its pages (its art and sub line are the detail's banner)
     local top = 0
-    local file, l, r, t, b = BannerArt(src, MID_W - 2, BANNER_H - 2)
-    banner:Hide()
     midHead:Hide()
-    if file then
-        FillBanner(src, SourceSub(src), file, l, r, t, b)
-        top = BANNER_H + 6
-    elseif src then
-        top = FillHead(midHead, MID_W, src.name, SourceSub(src)) + 4
-    end
+    if src then top = FillHead(midHead, src.name) end
     local heroic = A:HasHeroic(src)
     diffNormal:SetShown(heroic)
     diffHeroic:SetShown(heroic)
@@ -1649,7 +1609,7 @@ end
 function AtlasUI:RefreshItems(resetScroll)
     if not itemList then return end
     if ShowingShop() then
-        itemHead:Hide()
+        banner:Hide()
         itemList.frame:Hide()
         ns.AtlasShopUI:Refresh(resetScroll)
         barKeys = {}
@@ -1666,7 +1626,7 @@ function AtlasUI:RefreshItems(resetScroll)
     local w = panel.right and panel.right:GetWidth()
     rowW.item = (w and w > 1) and w or (layout and layout.detailW) or RIGHT_W
     local rows, count = {}, 0
-    local title, sub = "", ""
+    local title, sub, kicker, art = "", "", nil, nil
     if IsSearching() then
         local res = SearchResults()
         local facetName
@@ -1686,6 +1646,8 @@ function AtlasUI:RefreshItems(resetScroll)
         end
         -- (the counts are beside "Found in")
         title = facetName or "All results"
+        kicker = "Search"
+        sub = '"' .. state.search .. '"'
         ItemsEmpty("No matches", Filtered()
             and "Nothing matches with these filters. Try Show: All items, or Any slot."
             or "No item has that name.")
@@ -1699,7 +1661,11 @@ function AtlasUI:RefreshItems(resetScroll)
             -- the page's name (Normal / Heroic shows beside the pages); a note only for what isn't visible: a set
             -- page's own name under its set title, a page of a later phase than its source, what the set costs
             title = page.title or page.name or ""
+            kicker = src.name
+            art = BannerArt(src, rowW.item - 2, BANNER_H - 2)
             local note = {}
+            local where = SourceSub(src)
+            if where ~= "" then note[#note + 1] = where end
             if page.phase and page.phase ~= (src.phase or 1) then note[#note + 1] = "Phase " .. page.phase end
             if page.title and page.name then note[#note + 1] = page.name end
             local total = src.kind == "sets" and SetTotals(rows)
@@ -1712,8 +1678,7 @@ function AtlasUI:RefreshItems(resetScroll)
             ItemsEmpty("Pick a source", "Pick a source on the left.")
         end
     end
-    local headH = (title ~= "") and FillHead(itemHead, rowW.item, title, sub) or 0
-    itemHead:SetShown(title ~= "")
+    local headH = FillBanner(kicker, title, sub, art)
     itemList.frame:ClearAllPoints()
     itemList.frame:SetPoint("TOPLEFT", panel.right, "TOPLEFT", 0, -headH)
     itemList.frame:SetPoint("BOTTOMRIGHT", panel.right, "BOTTOMRIGHT", 0, 0)
@@ -1825,46 +1790,7 @@ end
 -- Panel
 ---------------------------------------------------------------------------
 
--- The source's banner (a raid's or dungeon's loading screen, its name and sub line over the dark bottom).
--- TODO(refactor): move into UI:CreatePageBanner (a column-wide "card" size: 72 high, a 2-line title, the art's crop
--- given as file + coords) - the page banner's sizes are the page's, too tall for a 182 px column.
-local function CreateBanner(parent)
-    local UI = ns.UI
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
-    b:SetSize(MID_W, BANNER_H)
-    b.bg = UI:Fill(b, "CARD")
-    b.art = b:CreateTexture(nil, "ARTWORK", nil, 0)
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    -- dark at the bottom (under the name), the art showing above
-    b.shade = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.shade:SetAllPoints(b.art)
-    Fade(b.shade, 0.035, 0.035, 0.043, 0.92, 0.2)
-    UI:AddEdges(b, "BORDER")
-    UI:SetEdgeColor(b, S:Color("EDGE"))
-    b.sub = UI:Text(b, "small", { 0.8, 0.8, 0.8 })
-    b.sub:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", IN, 8)
-    b.title = UI:Text(b, "title", "TEXT")
-    if b.title.SetMaxLines then b.title:SetMaxLines(2) end
-    return b
-end
-
--- A column's title row: the title (gold), a quiet note, a rule under it (FillHead lays it out).
--- (UI:CreateSectionHeader has the look but not the note that goes under a long title: FillHead keeps that.)
-local function CreateHead(parent)
-    local UI = ns.UI
-    local h = CreateFrame("Frame", nil, parent)
-    h:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 0)
-    h:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 0)
-    h:SetHeight(HEAD_H)
-    h.title = UI:Text(h, "title", "GOLD")
-    h.count = UI:Text(h, "small", "DIM", { justify = "RIGHT" })
-    h.rule = UI:Rule(h, { bottom = 0, alpha = 0.12 })
-    h:Hide()
-    return h
-end
-
+-- (the detail's banner and the pages column's header are the shared ones: FillBanner / FillHead fill them)
 function AtlasUI:CreatePanel(parent)
     if panel then return panel end
     local UI = ns.UI
@@ -1929,8 +1855,10 @@ function AtlasUI:CreatePanel(parent)
     srcList.frame:SetAllPoints(left)
     PlaceBox(srcList, false, "over")
 
-    banner = CreateBanner(mid)
-    midHead = CreateHead(mid)
+    midHead = UI:CreateSectionHeader(mid, "", { style = "title" })
+    midHead:SetPoint("TOPLEFT", mid, "TOPLEFT", 0, 0)
+    midHead:SetPoint("TOPRIGHT", mid, "TOPRIGHT", 0, 0)
+    midHead:Hide()
 
     diffNormal = UI:CreateUnderlineTab(mid, "Normal", function()
         state.heroic = false
@@ -1951,16 +1879,21 @@ function AtlasUI:CreatePanel(parent)
     pageList.frame:SetPoint("BOTTOMRIGHT", mid, "BOTTOMRIGHT", 0, 0)
     PlaceBox(pageList, false, nil)
 
-    itemHead = CreateHead(right)
+    -- D3: the detail opens with a banner (the page, its source's art)
+    banner = UI:CreatePageBanner(right, { size = "tool", width = RIGHT_W, artFw = ART_FW })
+    banner:SetPoint("TOPLEFT", right, "TOPLEFT", 0, 0)
+    banner:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, 0)
+    banner:Hide()
+    panel.banner = banner
     itemList = UI:CreateScrollList(right, ROW_ITEM, InitItemRow, ItemExtent)
-    itemList.frame:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -HEAD_H)
+    itemList.frame:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -(BANNER_H + GAP))
     itemList.frame:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
     PlaceBox(itemList, true, "margin")
 
     -- the shopping list: the other two columns while it's picked
     if ns.AtlasShopUI then
-        ns.AtlasShopUI:Create({ TextWidth = TextWidth, CodedWidth = CodedWidth, CreateHead = CreateHead,
-                                FillHead = FillHead, NameText = NameText, HEAD_H = HEAD_H }, mid, right)
+        ns.AtlasShopUI:Create({ TextWidth = TextWidth, CodedWidth = CodedWidth, NameText = NameText, HEAD_H = HEAD_H,
+                                BANNER_H = BANNER_H, DETAIL_W = layout.detailW or RIGHT_W }, mid, right)
     end
 
     panel:SetScript("OnShow", function(self)
