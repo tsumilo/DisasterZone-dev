@@ -220,6 +220,43 @@ assert vic.eval("local s = ns.TotemBar:Button('el3').state; return s and #s.miss
 vic.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('totems')")
 w.tick(0.3)
 assert vic.eval("return ns.SettingsUI:KitShown('totems')") is True
+# themes (UI/BarFace.lua): the totem cells follow the account's theme, the same size and gap on both axes; a click
+# on a Settings tile sets it for both bars
+THEMES = """
+    local F, out = ns.BarFace, {}
+    for _, t in ipairs(F.THEMES) do
+        for _, lay in ipairs({ 'vertical', 'horizontal' }) do
+            ns.DB:SetSetting('totems.layout', lay)
+            ns.DB:SetSetting('classbar.theme', t.key)
+            ns.TotemBar:Update()
+            local a, b = DisasterZoneTotem_el1, DisasterZoneTotem_el2
+            local _, _, _, x1, y1 = a:GetPoint(1)
+            local _, _, _, x2, y2 = b:GetPoint(1)
+            local w, h = a:GetSize()
+            local step = lay == 'vertical' and (y1 - y2) or (x2 - x1)
+            out[#out + 1] = (w == t.W and h == t.H and step == (lay == 'vertical' and t.H or t.W) + t.GAP
+                and a.face.theme.key == t.key and DisasterZoneTotem_hero.face.theme.key == t.key) and 'ok'
+                or (t.key .. ' ' .. lay .. ' ' .. w .. 'x' .. h .. ' step ' .. step)
+        end
+    end
+    return out
+"""
+assert all(txt(x) == "ok" for x in vic.eval_py(THEMES)), vic.eval_py(THEMES)
+TILE = """
+    local hit
+    local function walk(f)
+        if hit then return end
+        if f.key == 'gilded' and f.preview and f:IsVisible() then hit = f return end
+        for _, c in ipairs({ f:GetChildren() }) do walk(c) end
+    end
+    ns.SettingsUI:OpenKit('totems')
+    walk(UIParent)
+    if not hit then return 'no tile' end
+    hit:Click()
+    return { ns.DB:GetSetting('classbar.theme'), DisasterZoneTotem_el1.face.theme.key }
+"""
+assert [txt(x) for x in vic.eval_py(TILE)] == ["gilded", "gilded"], vic.eval_py(TILE)
+vic.eval("ns.DB:SetSetting('classbar.theme', 'halo'); ns.DB:SetSetting('totems.layout', 'vertical')")
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)

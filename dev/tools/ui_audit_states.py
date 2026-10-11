@@ -2620,7 +2620,7 @@ for _, m in ipairs(R) do if m.name == 'Lightbringer' or m.name == 'Caelith' then
 """
 
 
-def bless_view(lead="Gina", lua=None, bar=False):
+def bless_view(lead="Gina", lua=None, bar=False, theme="halo"):
     def fn(w, c):
         g = c["Gina"]
         demo_off(w, c)
@@ -2631,6 +2631,7 @@ def bless_view(lead="Gina", lua=None, bar=False):
                     leader=g)
         w.tick(1)
         g.eval("ns.DB:SetSetting('bless.bar', ...); ns.DB:SetSetting('bless.layout', 'vertical')", "group" if bar else "off")
+        g.eval("ns.DB:SetSetting('classbar.theme', ...)", theme)
         g.eval(BLESS_SEED, lead)
         if not bar:
             g.eval("ns.BlessingsUI:Open(); ns.BlessingsUI:Refresh()")
@@ -2741,6 +2742,26 @@ STATES += [
                                                 "ns.BlessingsBar:Update(); " + BLESS_HOVER, bar=True)),
 ]
 
+
+# Class tool bar themes (UI/BarFace.lua): every theme on both bars, rail and strip (the same cells; only the axis turns)
+for _t in ("halo", "sigil", "slate", "gilded", "pips"):
+    STATES += [
+        ("Bar themes - %s blessings rail" % _t, bless_view("Gina", bar=True, theme=_t)),
+        ("Bar themes - %s blessings strip" % _t, bless_view("Gina", "ns.DB:SetSetting('bless.layout', 'horizontal'); "
+                                                           "ns.BlessingsBar:Update()", bar=True, theme=_t)),
+        ("Bar themes - %s totems rail" % _t, demo("ns.MainFrame:Close(); ns.TotemsUI:Close(); "
+                                                  "ns.DB:SetSetting('classbar.theme', '%s'); "
+                                                  "ns.DB:SetSetting('totems.layout', 'vertical'); " % _t
+                                                  + TOTEM_TWIST + "; ns.TotemBar:Update()")),
+        ("Bar themes - %s totems strip" % _t, demo("ns.MainFrame:Close(); ns.TotemsUI:Close(); "
+                                                   "ns.DB:SetSetting('classbar.theme', '%s'); "
+                                                   "ns.DB:SetSetting('totems.layout', 'horizontal'); " % _t
+                                                   + TOTEM_TWIST + "; ns.TotemBar:Update()")),
+    ]
+STATES += [
+    ("Bar themes - settings card", demo("ns.DB:SetSetting('classbar.theme', 'halo'); ns.DB:SetSetting('totems.layout', "
+                                        "'vertical'); ns.SettingsUI:OpenKit('bless')", key="settings")),
+]
 
 # The developer's Performance page (Core/Perf.lua, UI/PerfUI.lua): only Tsumil has it, so a Tsumil client joins the
 # guild (once), takes a few minutes of samples (garbage piling up, the game cleaning up), cleans up once and measures

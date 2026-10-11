@@ -287,10 +287,13 @@ HOVER = """
 hv = vic.eval_py(HOVER)
 assert 0 < hv[0] < 1 and hv[1] == 1 and hv[2] == 0, hv
 # the rings are never re-anchored while nothing moves (re-anchoring a cooldown ring redraws it: a blink a second)
+# (first the motion settles: the next class lifts out of the line in both layouts, which is meant to move it)
+vic.eval("ns.BlessingsBar:Update()")
 vic.eval("""
     _G.__moves = 0
     for i = 1, 20 do
         local r = _G['DisasterZoneBlessRow' .. i]
+        if r and r.face.motion then for k = 1, 80 do ns.BlessingsBar.Step(r.face, 0.05) end end
         if r and r:IsShown() then
             for _, fr in ipairs({ r.face.cd, r.face }) do
                 local old = fr.ClearAllPoints
@@ -303,6 +306,43 @@ for _ in range(3):
     vic.eval("ns.BlessingsBar:Update()")
     w.tick(1)
 assert vic.eval("return _G.__moves") == 0, vic.eval("return _G.__moves")
+# themes (UI/BarFace.lua): every theme, rail and strip: the same face, cell size and gap; only the axis turns
+THEMES = """
+    local F, out = ns.BarFace, {}
+    for _, t in ipairs(F.THEMES) do
+        for _, lay in ipairs({ 'vertical', 'horizontal' }) do
+            ns.DB:SetSetting('bless.layout', lay)
+            ns.DB:SetSetting('classbar.theme', t.key)
+            ns.BlessingsBar:Update()
+            local r1, r2 = DisasterZoneBlessRow1, DisasterZoneBlessRow2
+            local w, h = r1:GetSize()
+            local _, _, _, x1, y1 = r1:GetPoint(1)
+            local _, _, _, x2, y2 = r2:GetPoint(1)
+            local step = lay == 'vertical' and (y1 - y2) or (x2 - x1)
+            local along = lay == 'vertical' and (x2 - x1) or (y1 - y2)
+            out[#out + 1] = { key = t.key, lay = lay, w = w, h = h, step = step, along = along, W = t.W, H = t.H,
+                GAP = t.GAP, face = r1.face.theme.key, axis = r1.face.axis, aura = DisasterZoneBlessAura.face.theme.key,
+                sym = DisasterZoneBlessBar.sym.face.theme.key }
+        end
+    end
+    F:SetPreview('gilded')
+    out.preview = DisasterZoneBlessRow1.face.theme.key
+    F:SetPreview(nil)
+    out.after = DisasterZoneBlessRow1.face.theme.key
+    ns.DB:SetSetting('bless.layout', 'vertical'); ns.DB:SetSetting('classbar.theme', 'halo'); ns.BlessingsBar:Update()
+    return out
+"""
+th = vic.eval_py(THEMES)
+cells = [th[i] for i in sorted(k for k in th if isinstance(k, int))]
+assert len(cells) == 10, cells
+for c in cells:
+    key, lay = txt(c["key"]), txt(c["lay"])
+    assert (c["w"], c["h"]) == (c["W"], c["H"]), c
+    assert c["step"] == (c["H"] if lay == "vertical" else c["W"]) + c["GAP"], c
+    assert c["along"] == 0, c                                # one straight line
+    assert txt(c["face"]) == key and txt(c["aura"]) == key and txt(c["sym"]) == key, c
+    assert txt(c["axis"]) == ("v" if lay == "vertical" else "h"), c
+assert txt(th["preview"]) == "gilded" and txt(th["after"]) == "pips", th   # (a hovered tile; the setting is pips)
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)

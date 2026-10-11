@@ -1,18 +1,15 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/TotemBar.lua", ...) then return end -- DisasterZone: totem bar.
 -- The shaman's totem bar for the Totem planner (Core/Totems.lua), shown in a party or raid when I have totems
--- planned. It is the Blessings bar's sibling (UI/BlessingsBar.lua): the same sizes, header, motion and two layouts
--- (setting totems.layout, also in the planner's More menu):
---   "vertical"   Rail: a slim column of round totem icons. A ring around each drains as my totem runs out (the
---                game's cooldown swipe: nothing ticks); the second totem (twist partner or a boss's next phase) in
---                the corner; a red count of party members out of its range; the one thing to do glows and names
---                itself on the left ("Windfury · drop now"). Top: Heroism (gold ring = ready), its plan under it,
---                Mana Tide beside it.
---   "horizontal" Strip: a tray of totem tiles with a hairline in the element's colour that shrinks with the time
---                left; the tile to do next lifts with a gold chip. Heroism and Mana Tide on the left.
+-- planned. It is the Blessings bar's sibling (UI/BlessingsBar.lua): the same faces, themes, motion and two layouts
+-- (setting totems.layout, also in the planner's More menu): "vertical" (Rail, a column) and "horizontal" (Strip, a
+-- row) - the same cells in both, only the axis turns (UI/BarFace.lua, setting classbar.theme). First Heroism (gold =
+-- ready, a dark swipe while it cools down) and Mana Tide, a divider, then my totems: the icon, the time left draining
+-- (ring, swipe or bar by theme: calm, red when short), the second totem (twist partner or a boss's next phase) in the
+-- corner, a red count of party members out of its range; Earth Shield with its charges, the weapon imbues. The one
+-- thing to do lifts out of the line (up in the strip, left in the rail) in gold with a chip ("drop now").
 -- The twisting shaman's Air ring is Windfury on the party's weapons (10 s after a drop), not the totem. One thing at a
 -- time is named: twist due, Earth Shield low or missing, a totem about to end in combat, a missing imbue.
--- No panel behind it (only a faint one while unlocked, to drag it by). The faces ease with the Blessings bar's own
--- motion (BlessingsBar.Aim): hot looks fade in and out, the strip's tile lifts, a bloom when it is done.
+-- No panel behind it (only a faint one while unlocked, to drag it by).
 -- Clicks: a totem casts the planned one (twisting: Windfury and its partner in turn); right-click casts the second.
 -- Every cast is a secure button set out of combat (WoW forbids changing them in a fight): in combat the bar keeps
 -- its spells, and catches up when the fight ends. Hover a totem with someone out of range for who.
@@ -23,23 +20,17 @@ local Bar = ns:NewModule("TotemBar")
 local floor, max, min = math.floor, math.max, math.min
 local strformat = string.format
 
-local RING = "Interface\\AddOns\\DisasterZone\\Media\\Blessings\\ring"
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
 local WHITE8 = "Interface\\Buttons\\WHITE8X8"
 local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
-local GOLD = { 1, 0.82, 0 }
-local RED = { 0.91, 0.38, 0.3 }
 local GLASS = { 0.047, 0.047, 0.059, 0.78 }
 
--- the Blessings bar's geometry: rail (vertical) and strip (horizontal)
-local R_S, R_GAP, R_PAD, R_HEAD = 28, 9, 9, 50
-local S_T, S_GAP, S_PAD, S_SIDE = 30, 6, 12, 44
 local POP_W, POP_ROW = 186, 21
 local KINDS = { "el1", "el2", "el3", "el4", "es", "mh", "oh" }
 
 local function T() return ns.Totems end
 local function UI() return ns.UI end
-local function Motion() return ns.BlessingsBar end
+local function Face() return ns.BarFace end
 
 local frame, pop
 local rows = {}                             -- by kind (KINDS)
@@ -67,23 +58,6 @@ local function Edge(f, r, g, b, a)
     UI():SetEdgeColor(f, r, g, b, a)
 end
 
-local function SetRoundIcon(tex, path)
-    if tex.roundPath == path then return end
-    tex.roundPath = path
-    tex:SetTexture(path)
-    tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    if SetPortraitToTexture and type(path) == "string" then
-        tex:SetTexCoord(0, 1, 0, 1)
-        SetPortraitToTexture(tex, path)
-    end
-end
-
-local function SetSquareIcon(tex, path)
-    tex.roundPath = nil
-    tex:SetTexture(path)
-    tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-end
-
 -- (presses and releases: the client's "cast on key down" makes the secure template act on the press)
 local function Secure(parent, name)
     local b = CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
@@ -101,14 +75,6 @@ local function Layout()
     return T().Setting("layout", "vertical") == "horizontal" and "horizontal" or "vertical"
 end
 Bar.Layout = Layout
-
-local function MissingBadge(parent)
-    local b = UI():CreateCountBadge(parent, 12)
-    for _, t in ipairs(b.body or {}) do t:SetVertexColor(RED[1], RED[2], RED[3], 1) end
-    if b.fs then b.fs:SetTextColor(1, 1, 1) end
-    if b.SetCutout then b:SetCutout(GLASS[1], GLASS[2], GLASS[3]) end
-    return b
-end
 
 -- Is the bar for me now: a shaman (the class tool), in a group the setting allows, with totems planned?
 function Bar:Wanted()
@@ -155,102 +121,32 @@ local function RestorePos()
     end
 end
 
--- One totem (or Earth Shield, an imbue): a secure button; its looks sit on a face with the Blessings bar's parts, so
--- BlessingsBar.Aim can move it.
+-- One totem (or Earth Shield, an imbue): a secure button; its looks sit on a face (UI/BarFace.lua).
 local function NewRow(kind)
     local r = Secure(frame, "DisasterZoneTotem_" .. kind)
-    r:SetSize(R_S, R_S)
+    r:SetSize(34, 34)
     r.kind = kind
-    local face = CreateFrame("Frame", nil, r)
-    face:SetSize(R_S, R_S)
-    face:SetPoint("CENTER")
-    r.face = face
-    face.glow = face:CreateTexture(nil, "BACKGROUND")
-    face.glow:SetTexture(SOFT)
-    face.glow:SetPoint("CENTER")
-    face.glow:SetVertexColor(1, 0.78, 0.16, 0.55)
-    face.glow:SetAlpha(0)
-    face.bloom = face:CreateTexture(nil, "OVERLAY", nil, 2)
-    face.bloom:SetPoint("CENTER")
-    face.bloom:SetBlendMode("ADD")
-    face.bloom:Hide()
-    face.halo = face:CreateTexture(nil, "BACKGROUND", nil, 1)
-    face.halo:SetTexture(SOFT)
-    face.halo:SetPoint("CENTER")
-    face.halo:SetBlendMode("ADD")
-    face.halo:SetVertexColor(1, 1, 1)
-    face.halo:SetAlpha(0)
-    -- rail: the track, the draining ring, the round icon (the Blessings rail's class circle)
-    face.track = face:CreateTexture(nil, "BORDER")
-    face.track:SetTexture(RING)
-    face.track:SetVertexColor(1, 1, 1, 0.12)
-    face.cd = CreateFrame("Cooldown", nil, face, "CooldownFrameTemplate")
-    face.cd:SetFrameLevel(face:GetFrameLevel() + 1)
-    if face.cd.SetSwipeTexture then face.cd:SetSwipeTexture(RING) end
-    if face.cd.SetDrawEdge then face.cd:SetDrawEdge(false) end
-    if face.cd.SetDrawBling then face.cd:SetDrawBling(false) end
-    if face.cd.SetHideCountdownNumbers then face.cd:SetHideCountdownNumbers(true) end
-    if face.cd.SetUseCircularEdge then face.cd:SetUseCircularEdge(true) end
-    face.cd:EnableMouse(false)
-    face.top = CreateFrame("Frame", nil, face)
-    face.top:SetAllPoints()
-    face.top:SetFrameLevel(face:GetFrameLevel() + 3)
-    face.cls = face.top:CreateTexture(nil, "ARTWORK")
-    -- strip: the totem tile and its hairline
-    face.tile = face:CreateTexture(nil, "ARTWORK")
-    face.tile:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    face.tileEdge = CreateFrame("Frame", nil, face)
-    face.line = Fill(face:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.1)
-    face.lineFill = face:CreateTexture(nil, "OVERLAY")
-    face.lineFill:SetTexture(WHITE8)
-    face.sheen = face:CreateTexture(nil, "ARTWORK", nil, 3)
-    face.sheen:SetTexture(WHITE8)
-    face.sheen:SetBlendMode("ADD")
-    face.sheen:SetVertexColor(1, 1, 1)
-    face.sheen:SetAlpha(0)
-    -- both: the second totem in the corner, the out-of-range count, Earth Shield's charges
-    face.corner = face.top:CreateTexture(nil, "OVERLAY")
-    face.corner:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    face.cornerBox = CreateFrame("Frame", nil, face.top)
-    face.miss = MissingBadge(face.top)
-    face.miss:SetFrameLevel(face.top:GetFrameLevel() + 2)
-    face.count = UI():CreateCountBadge(face.top, 12)
-    face.count:SetFrameLevel(face.top:GetFrameLevel() + 2)
-    face.label = CreateFrame("Frame", nil, face)
-    face.label:SetHeight(16)
-    face.label.bg = Fill(face.label:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], 0.9)
-    face.label.bg:SetAllPoints()
-    face.label.text = Text(face.label, 10, { 1, 0.9, 0.55 })
-    face.label.text:SetPoint("CENTER", 0, 0)
-    face.label:Hide()
+    r.face = Face():New(r)
     r:HookScript("OnEnter", function(self) Bar:Hover(self, true) end)
     r:HookScript("OnLeave", function(self) Bar:Hover(self, false) end)
     rows[kind] = r
     return r
 end
 
--- A small round header icon (Heroism, Mana Tide): secure, with a ring (the Blessings bar's aura / Righteous Fury).
-local function HeaderIcon(name, size)
+-- A header cell (Heroism, Mana Tide): secure, the same face as the totems.
+local function HeaderIcon(name)
     local b = Secure(frame, name)
-    b:SetSize(size, size)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetAllPoints()
-    b.ring = b:CreateTexture(nil, "OVERLAY")
-    b.ring:SetTexture(RING)
-    b.ring:SetPoint("TOPLEFT", -2, 2)
-    b.ring:SetPoint("BOTTOMRIGHT", 2, -2)
-    b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
-    b.cd:SetAllPoints()
-    if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(true) end
-    if b.cd.SetDrawEdge then b.cd:SetDrawEdge(false) end
-    b.cd:EnableMouse(false)
+    b:SetSize(34, 34)
+    b.face = Face():New(b)
+    b:HookScript("OnEnter", function(self) Face():Hover(self.face, true) end)
+    b:HookScript("OnLeave", function(self) Face():Hover(self.face, false) end)
     b:SetAttribute("type", "spell")
     return b
 end
 
 local function Build()
     frame = CreateFrame("Frame", "DisasterZoneTotemBar", UIParent)
-    frame:SetSize(R_S + 2 * R_PAD, 100)
+    frame:SetSize(50, 100)
     frame:SetFrameStrata("MEDIUM")
     frame:SetClampedToScreen(true)
     frame.bg = Fill(frame:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], GLASS[4])
@@ -271,17 +167,14 @@ local function Build()
         SavePos()
     end)
 
-    local hero = HeaderIcon("DisasterZoneTotem_hero", 20)
+    local hero = HeaderIcon("DisasterZoneTotem_hero")
     hero:HookScript("OnEnter", function(self) Bar:HeaderTip(self, "hero") end)
     hero:HookScript("OnLeave", function() GameTooltip:Hide() end)
     frame.hero = hero
-    local tide = HeaderIcon("DisasterZoneTotem_tide", 16)
+    local tide = HeaderIcon("DisasterZoneTotem_tide")
     tide:HookScript("OnEnter", function(self) Bar:HeaderTip(self, "tide") end)
     tide:HookScript("OnLeave", function() GameTooltip:Hide() end)
     frame.tide = tide
-    -- the Heroism plan under it ("Pull"), like the Blessings rail's Symbols count
-    frame.plan = Text(frame, 10, { 0.81, 0.81, 0.84 }, "GameFontHighlightSmall")
-    frame.div1 = Fill(frame:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.08)
     for _, kind in ipairs(KINDS) do NewRow(kind) end
 
     pop = CreateFrame("Frame", "DisasterZoneTotemRange", UIParent)
@@ -457,115 +350,15 @@ local function SetAttributes(b, p)
     end
 end
 
-local function PlaceRail(list)
-    frame.hero:ClearAllPoints()
-    frame.hero:SetPoint("TOP", frame, "TOP", frame.tide:IsShown() and -8 or 0, -8)
-    frame.tide:ClearAllPoints()
-    frame.tide:SetPoint("LEFT", frame.hero, "RIGHT", 3, 0)
-    frame.plan:ClearAllPoints()
-    frame.plan:SetPoint("TOP", frame, "TOP", 0, -32)
-    frame.plan:Show()
-    frame.div1:ClearAllPoints()
-    frame.div1:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -(R_HEAD - 5))
-    frame.div1:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -(R_HEAD - 5))
-    frame.div1:SetHeight(1)
-    frame.div1:Show()
-    for i, p in ipairs(list) do
-        local row = rows[p.kind]
-        row:ClearAllPoints()
-        row:SetSize(R_S, R_S)
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", R_PAD, -(R_HEAD + (i - 1) * (R_S + R_GAP)))
-        local f = row.face
-        f.row, f.layout = row, "vertical"
-        f.bloom:SetTexture(RING)
-        f.bloom:SetVertexColor(1, 0.86, 0.4)
-        f:SetSize(R_S, R_S)
-        f.glow:SetSize(R_S * 2.4, R_S * 2.4)
-        f.track:ClearAllPoints()
-        f.track:SetPoint("TOPLEFT", -3, 3)
-        f.track:SetPoint("BOTTOMRIGHT", 3, -3)
-        f.cd:ClearAllPoints()
-        f.cd:SetPoint("TOPLEFT", -3, 3)
-        f.cd:SetPoint("BOTTOMRIGHT", 3, -3)
-        f.cls:ClearAllPoints()
-        f.cls:SetPoint("TOPLEFT", 2, -2)
-        f.cls:SetPoint("BOTTOMRIGHT", -2, 2)
-        f.corner:ClearAllPoints()
-        f.corner:SetSize(12, 12)
-        f.corner:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 3, -3)
-        f.cornerBox:ClearAllPoints()
-        f.cornerBox:SetPoint("TOPLEFT", f.corner, "TOPLEFT", -1, 1)
-        f.cornerBox:SetPoint("BOTTOMRIGHT", f.corner, "BOTTOMRIGHT", 1, -1)
-        Edge(f.cornerBox, GLASS[1], GLASS[2], GLASS[3], 1)
-        f.miss:ClearAllPoints()
-        f.miss:SetPoint("CENTER", f, "TOPLEFT", 1, -1)
-        f.count:ClearAllPoints()
-        f.count:SetPoint("CENTER", f, "BOTTOMRIGHT", 0, 1)
-        f.track:Show()
-        f.cd:Show()
-        f.cls:Show()
-        f.tile:Hide()
-        f.tileEdge:Hide()
-        f.line:Hide()
-        f.lineFill:Hide()
+-- The cells in order: the header that is shown (Heroism, Mana Tide), then the totems.
+local function Place(list, axis, theme)
+    local cells = {}
+    for _, b in ipairs({ frame.hero, frame.tide }) do
+        if b:IsShown() then cells[#cells + 1] = b end
     end
-    frame:SetSize(R_S + 2 * R_PAD, R_HEAD + #list * (R_S + R_GAP) + 2)
-end
-
-local function PlaceStrip(list)
-    local n = #list
-    frame:SetSize(n * (S_T + S_GAP) - S_GAP + S_PAD + S_SIDE + 8, S_T + 18)
-    frame.hero:ClearAllPoints()
-    frame.hero:SetPoint("LEFT", frame, "LEFT", 13, 1)
-    frame.tide:ClearAllPoints()
-    frame.tide:SetPoint("TOPLEFT", frame.hero, "BOTTOMRIGHT", -6, 6)
-    frame.plan:Hide()
-    frame.div1:ClearAllPoints()
-    frame.div1:SetPoint("LEFT", frame, "LEFT", S_SIDE, 0)
-    frame.div1:SetSize(1, S_T - 4)
-    frame.div1:Show()
-    for i, p in ipairs(list) do
-        local row = rows[p.kind]
-        row:ClearAllPoints()
-        row:SetSize(S_T, S_T)
-        row:SetPoint("LEFT", frame, "LEFT", S_SIDE + 8 + (i - 1) * (S_T + S_GAP), 2)
-        local f = row.face
-        f.row, f.layout = row, "horizontal"
-        f.bloom:SetTexture(SOFT)
-        f.bloom:SetVertexColor(1, 0.9, 0.55)
-        f:SetSize(S_T, S_T)
-        f.glow:SetSize(S_T * 2.2, S_T * 2.2)
-        f.tile:ClearAllPoints()
-        f.tile:SetAllPoints()
-        f.tileEdge:ClearAllPoints()
-        f.tileEdge:SetPoint("TOPLEFT", -1, 1)
-        f.tileEdge:SetPoint("BOTTOMRIGHT", 1, -1)
-        f.corner:ClearAllPoints()
-        f.corner:SetSize(14, 14)
-        f.corner:SetPoint("TOPRIGHT", f, "TOPRIGHT", 4, 4)
-        f.cornerBox:ClearAllPoints()
-        f.cornerBox:SetPoint("TOPLEFT", f.corner, "TOPLEFT", -1, 1)
-        f.cornerBox:SetPoint("BOTTOMRIGHT", f.corner, "BOTTOMRIGHT", 1, -1)
-        Edge(f.cornerBox, GLASS[1], GLASS[2], GLASS[3], 1)
-        f.line:ClearAllPoints()
-        f.line:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 2, -4)
-        f.line:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", -2, -4)
-        f.line:SetHeight(2)
-        f.lineFill:ClearAllPoints()
-        f.lineFill:SetPoint("TOPLEFT", f.line, "TOPLEFT")
-        f.lineFill:SetHeight(2)
-        f.miss:ClearAllPoints()
-        f.miss:SetPoint("CENTER", f, "TOPLEFT", 0, 0)
-        f.count:ClearAllPoints()
-        f.count:SetPoint("CENTER", f, "BOTTOMRIGHT", 0, 1)
-        f.track:Hide()
-        f.cd:Hide()
-        f.cls:Hide()
-        f.tile:Show()
-        f.tileEdge:Show()
-        f.line:Show()
-        f.lineFill:Show()
-    end
+    local nHead = #cells
+    for _, p in ipairs(list) do cells[#cells + 1] = rows[p.kind] end
+    Face():Place(frame, cells, nHead, axis, theme)
 end
 
 -- No panel: icons and text float on the world. While unlocked a faint panel shows what to drag.
@@ -618,11 +411,20 @@ function Bar:Update()
     local heroId, heroIcon = Tm:HeroSpell()
     frame.hero.spellId = heroId
     frame.hero:SetAttribute("spell", (not Tm:IsDemo()) and Tm:HeroName() or nil)
-    SetRoundIcon(frame.hero.icon, heroIcon)
+    frame.hero.iconPath = heroIcon
     frame.tide:SetShown(list.tide)
     frame.tide:SetAttribute("spell", (list.tide and not Tm:IsDemo()) and Tm:TotemName(3, 3) or nil)
-    SetRoundIcon(frame.tide.icon, Tm:TotemIcon(3, 3))
-    if Layout() == "horizontal" then PlaceStrip(list) else PlaceRail(list) end
+    frame.tide.iconPath = Tm:TotemIcon(3, 3)
+    -- (placed again only when the layout, the theme or the cells change: re-anchoring a cooldown ring redraws it)
+    local theme = Face():Theme()
+    local axis = Layout() == "horizontal" and "h" or "v"
+    local kinds = {}
+    for _, p in ipairs(list) do kinds[#kinds + 1] = p.kind end
+    local sig = strformat("%s:%s:%s:%s", axis, theme.key, list.tide and "t" or "", table.concat(kinds, ","))
+    if frame.placed ~= sig then
+        frame.placed = sig
+        Place(list, axis, theme)
+    end
     frame.list = list
     ApplyChrome()
     frame:Show()
@@ -632,20 +434,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Looks (safe in combat)
 -- ---------------------------------------------------------------------------------------------------------------
-local function SetSwipe(cd, start, total)
-    if start and total and total > 0 then
-        local s = floor(start * 2 + 0.5) / 2
-        if cd.cdStart ~= s or cd.cdDur ~= total then
-            cd.cdStart, cd.cdDur = s, total
-            cd:SetCooldown(s, total)
-        end
-    elseif cd.cdStart then
-        cd.cdStart, cd.cdDur = nil, nil
-        if cd.Clear then cd:Clear() else cd:SetCooldown(0, 0) end
-    end
-end
-
--- What a row shows: icon, corner icon, fraction left (0..1), start + total for the swipe, element colour.
+-- What a row shows: icon, corner icon, fraction left (0..1), start + total for the swipe, short (runs out soon).
 local function RowState(p)
     local Tm = T()
     local now = GetTime()
@@ -665,6 +454,7 @@ local function RowState(p)
         elseif start then
             local left = max(0, start + dur - now)
             st.frac, st.start, st.total = left / dur, start, dur
+            st.short = left < 10
         end
     elseif p.kind == "es" then
         st.icon = Tm.D.EARTH_SHIELD_ICON
@@ -673,11 +463,15 @@ local function RowState(p)
         st.count = n
         st.down = n > 0
         if n > 0 then st.frac = n / Tm.D.EARTH_SHIELD_CHARGES end
+        st.short = n > 0 and n <= (tonumber(Tm.Setting("esWarn", 2)) or 2)
     elseif p.imbue then
         st.icon = p.imbue.icon
         local left = ImbueLeft(p.hand)
         st.down = left ~= nil
-        if left then st.frac, st.start, st.total = min(1, left / 1800), now - (1800 - left), 1800 end
+        if left then
+            st.frac, st.start, st.total = min(1, left / 1800), now - (1800 - left), 1800
+            st.short = left < 300
+        end
     end
     return st
 end
@@ -685,19 +479,16 @@ end
 function Bar:UpdateLooks()
     if not frame or not frame:IsShown() or not frame.list then return end
     local Tm = T()
-    local layout = Layout()
+    local F = Face()
     local list = frame.list
     local urgent = self:Urgent(list)
     local now = GetTime()
-    -- header: Heroism (gold ring = ready; on cooldown the swipe runs and the ring greys), Mana Tide the same
+    -- header: Heroism (gold = ready; on cooldown it greys and a dark swipe runs over it), Mana Tide the same
     local start, dur = SpellCooldown(frame.hero.spellId or 0)
     if Tm:IsDemo() then start, dur = nil, nil end
-    SetSwipe(frame.hero.cd, start, dur)
-    frame.hero.icon:SetDesaturated(start ~= nil)
-    if start then frame.hero.ring:SetVertexColor(0.6, 0.6, 0.62, 0.5)
-    else frame.hero.ring:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1) end
-    local hk = Tm:GetHero(Tm:Me())
-    for _, x in ipairs(Tm.D.HERO_WHEN) do if x.key == hk then frame.plan:SetText(x.text) end end
+    F:Set(frame.hero.face, { icon = frame.hero.iconPath, desat = start ~= nil, tone = start and "dim" or "on",
+        cdStart = start, cdDur = dur })
+    F.Aim(frame.hero.face, F:Targets(frame.hero.face, false))
     if frame.tide:IsShown() then
         local ts, td = SpellCooldown(Tm:Totem(3, 3).id)
         if Tm:IsDemo() then
@@ -705,66 +496,33 @@ function Bar:UpdateLooks()
             if ds and ds.manaTide then ts, td = ds.manaTide() end
         end
         local ready = not (ts and ts + td > now)
-        SetSwipe(frame.tide.cd, (not ready) and ts or nil, td)
-        frame.tide.icon:SetDesaturated(not ready)
-        if ready then frame.tide.ring:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
-        else frame.tide.ring:SetVertexColor(0.6, 0.6, 0.62, 0.5) end
+        F:Set(frame.tide.face, { icon = frame.tide.iconPath, desat = not ready, tone = ready and "on" or "dim",
+            cdStart = (not ready) and ts or nil, cdDur = td })
+        F.Aim(frame.tide.face, F:Targets(frame.tide.face, false))
     end
     local roster
-    local M = Motion()
     for _, p in ipairs(list) do
         local row = rows[p.kind]
         local f = row.face
         local st = RowState(p)
         local isNext = urgent and urgent.kind == p.kind
-        local reach = st.down and 1 or 0.55
-        f.classRGB = { st.color[1], st.color[2], st.color[3] }
-        f.glow:Show()
-        f.corner:SetShown(st.corner ~= nil)
-        f.cornerBox:SetShown(st.corner ~= nil)
-        if st.corner then f.corner:SetTexture(st.corner) end
-        f.count:SetCount(st.count or 0)
         -- the party out of range of my totem
+        local missing = 0
         if p.el and st.down and Tm:InGroup() and Tm.Setting("range", true) then
             roster = roster or Tm:Roster()
             row.state = Tm:PartyState(Tm:Me(), p.el, p.main, roster)
-            f.miss:SetCount(#row.state.missing)
+            missing = #row.state.missing
         else
             row.state = nil
-            f.miss:SetCount(0)
         end
-        if layout == "horizontal" then
-            SetSquareIcon(f.tile, st.icon)
-            f.tile:SetAlpha(reach)
-            f.tile:SetDesaturated(not st.down)
-            if isNext then
-                f.label.text:SetText(urgent.short)
-                f.label.text:SetTextColor(0.1, 0.08, 0.01)
-                f.label.bg:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
-                Edge(f.label, GOLD[1], GOLD[2], GOLD[3], 1)
-            end
-        else
-            SetRoundIcon(f.cls, st.icon)
-            f.cls:SetAlpha(reach)
-            f.cls:SetDesaturated(not st.down)
-            SetSwipe(f.cd, st.start, st.total)
-            if isNext then
-                f.label.text:SetText(urgent.text)
-                f.label.text:SetTextColor(1, 0.9, 0.55)
-                f.label.bg:SetVertexColor(GLASS[1], GLASS[2], GLASS[3], 0.92)
-                Edge(f.label, GOLD[1], GOLD[2], GOLD[3], 0.55)
-            end
-        end
-        if isNext then f.label:SetWidth((f.label.text:GetStringWidth() or 40) + 16) end
-        -- motion (the Blessings bar's): ease toward the new look; bloom when the urgent thing is done
+        local look = { icon = st.icon, cornerIcon = st.corner, missing = missing, alpha = st.down and 1 or 0.55,
+            desat = not st.down, start = st.start, total = st.total, frac = (not st.start) and (st.frac or 0) or nil,
+            num = (st.count and st.count > 0) and tostring(st.count) or nil, short = st.short,
+            chip = isNext and urgent.short or nil }
+        F:Set(f, look)
+        -- motion: ease toward the new look; bloom when the urgent thing is done
         local done = f.wasHot and not isNext
-        if M and M.Aim then
-            M.Aim(f, { hot = isNext and 1 or 0, lift = (isNext and layout == "horizontal") and 7 or 0,
-                line = st.frac or 0, hover = f.hoverOn and 1 or 0 }, done and f.motion ~= nil)
-        else
-            f.label:SetShown(isNext and true or false)
-            f.glow:SetAlpha(isNext and 0.55 or 0)
-        end
+        F.Aim(f, F:Targets(f, isNext), done and f.motion ~= nil)
         f.wasHot = isNext and true or false
     end
     if pop and pop:IsShown() and pop.button then self:FillPop(pop.button) end
@@ -824,15 +582,7 @@ end
 
 function Bar:Hover(b, on)
     local Tm = T()
-    local f = b.face
-    f.hoverOn = on and true or false
-    local M = Motion()
-    if f.motion and M and M.Aim then
-        local t = {}
-        for k, v in pairs(f.motion.tgt) do t[k] = v end
-        t.hover = on and 1 or 0
-        M.Aim(f, t)
-    end
+    Face():Hover(b.face, on)
     if not on then
         GameTooltip:Hide()
         if pop then pop:Hide() end
@@ -907,7 +657,7 @@ function Bar:OnLogin()
         if unit == "player" then Bar:UpdateLooks() end
     end)
     ns:On("SETTINGS_CHANGED", function(path)
-        if type(path) == "string" and path:find("^totems") and path ~= "totems.pos" then
+        if type(path) == "string" and (path:find("^totems") or path == "classbar.theme") and path ~= "totems.pos" then
             if frame and path == "totems.locked" and not InCombatLockdown() then RestorePos() end
             Bar:Update()
         end
@@ -932,8 +682,9 @@ if ns.ClassKit then ns.ClassKit:Extend("totems", {
     S:DropdownSetting(sec, "Totem bar", "Your planned totems: click to drop, right-click for the second one.",
         "totems.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
             { value = "always", text = "Always" }, { value = "off", text = "Off" } })
-    S:DropdownSetting(sec, "Bar layout", "A rail of totem rings, or a strip of tiles over your action bars.",
+    S:DropdownSetting(sec, "Bar layout", "A column at the side or a row over your action bars: the same cells.",
         "totems.layout", "vertical", Bar.LAYOUTS)
+    if ns.BarFace then ns.BarFace:SettingsRow(S, sec) end
     local D = ns.ClassData.SHAMAN
     S:DropdownSetting(sec, "Twist Windfury with", "Enhancement: the totem dropped between Windfury drops.",
         "totems.twistWith", 2, { { value = 2, text = D.TOTEMS[4][2].short }, { value = 3, text = D.TOTEMS[4][3].short },

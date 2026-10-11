@@ -1,20 +1,15 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then return end -- DisasterZone: blessings bar.
 -- The paladin's buff bar for the Blessings planner (Core/Blessings.lua), shown in a party or raid when I have an aura
--- or a blessing to give. Two layouts (settings bless.layout, also in the planner's More menu; mockup
--- dev/art/casc/pally_mockup/build_bar.py):
---   "vertical"   Rail: a slim column of class circles. A ring around each drains as my blessing on the class runs
---                out (the game's cooldown swipe: nothing ticks); my blessing for them in the corner; a red count of
---                who is missing it; the class to do next glows and names itself on the left ("Priests · Wisdom ·
---                1m"). Top: my aura (gold ring = on), Righteous Fury for Protection, Symbols of Kings.
---   "horizontal" Strip: a tray of round blessing buttons (a ring around each drains as the blessing runs out:
---                calm, red when short; the class circle top-right on a black outline; the red missing count
---                top-left); the one to do next lifts with a gold ring, and its time on a gold chip when nobody
---                is missing it (mockup build_round.py). Aura on the
---                left, Symbols on the right.
+-- or a blessing to give. Two layouts (settings bless.layout, also in the planner's More menu): "vertical" (Rail, a
+-- column) and "horizontal" (Strip, a row) - the same cells in both, only the axis turns. The cells are the theme's
+-- faces (UI/BarFace.lua, setting classbar.theme; mockup dev/art/casc/bar_themes/build_themes.py): first my aura (gold
+-- = on), Righteous Fury for Protection and Symbols of Kings (its count), a divider, then a cell per class: the
+-- blessing's icon, the time left draining (ring, swipe or bar by theme: calm, red when short), the class in the
+-- corner, a red count of who is missing it. The class to do next lifts out of the line (up in the strip, left in the
+-- rail) in gold, with its time on a chip when nobody is missing it.
 -- No panel behind it (only a faint one while unlocked, to drag it by).
--- Motion: the urgent look eases in and out (the strip's button lifts and settles, the chip / label fades and drifts,
--- gold blends back to calm), and a class that was missing or running out blooms once when
--- it is blessed again. All of it on the faces (not secure), so it runs in combat too.
+-- Motion (BarFace): the next look eases in and out, and a class that was missing or running out blooms once when it
+-- is blessed again. All of it on the faces (not secure), so it runs in combat too.
 -- Click a class: the next thing it needs, in order: the Greater (someone on it is missing it or it runs short; it goes
 -- first, it overwrites single blessings), then each exception's single blessing, one per click; nothing due: the
 -- Greater again. Right-click a class for its players (nothing pops up on hover): click = recast their own blessing
@@ -29,24 +24,16 @@ local Bar = ns:NewModule("BlessingsBar")
 local floor, max, min = math.floor, math.max, math.min
 local strformat = string.format
 
-local RING = "Interface\\AddOns\\DisasterZone\\Media\\Blessings\\ring"
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
 local WHITE8 = "Interface\\Buttons\\WHITE8X8"
-local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
-local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local GOLD = { 1, 0.82, 0 }
-local RED = { 0.91, 0.38, 0.3 }
-local CALM = { 0.91, 0.89, 0.82, 0.75 }      -- a ring with time to spare
+local CALM = { 0.91, 0.89, 0.82, 0.75 }
 local GLASS = { 0.047, 0.047, 0.059, 0.78 }
 
--- geometry: rail (vertical) and strip (horizontal)
-local R_S, R_GAP, R_PAD, R_HEAD = 28, 9, 9, 50
-local S_T, S_GAP, S_PAD, S_SIDE = 30, 12, 12, 44
-local S_RING, S_CORNER = 17, 12           -- strip: the ring's radius; the corner circles sit on it at 45 degrees
 local POP_W, POP_ROW = 172, 22
 
 local function B() return ns.Blessings end
 local function UI() return ns.UI end
+local function Face() return ns.BarFace end
 
 local frame, rows, pop, nextBtn
 local dirty = false
@@ -72,18 +59,6 @@ end
 local function Edge(f, r, g, b, a)
     if not f.edges then UI():AddEdges(f) end
     UI():SetEdgeColor(f, r, g, b, a)
-end
-
--- A round icon the way the game makes portraits round (a mask on an icon came out in stripes on this client).
-local function SetRoundIcon(tex, path)
-    if tex.roundPath == path then return end
-    tex.roundPath = path
-    tex:SetTexture(path)
-    tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    if SetPortraitToTexture and type(path) == "string" then
-        tex:SetTexCoord(0, 1, 0, 1)
-        SetPortraitToTexture(tex, path)
-    end
 end
 
 -- A secure button that casts on a click. It takes the press and the release: with "cast on key down" on (the
@@ -112,15 +87,6 @@ local function Layout()
     return B().Setting("layout", "vertical") == "horizontal" and "horizontal" or "vertical"
 end
 Bar.Layout = Layout
-
--- A small red count of who is missing it (the gold count badge, red: someone needs you).
-local function MissingBadge(parent)
-    local b = UI():CreateCountBadge(parent, 12)
-    for _, t in ipairs(b.body or {}) do t:SetVertexColor(RED[1], RED[2], RED[3], 1) end
-    if b.fs then b.fs:SetTextColor(1, 1, 1) end
-    if b.SetCutout then b:SetCutout(GLASS[1], GLASS[2], GLASS[3]) end
-    return b
-end
 
 -- Is the bar for me now: a paladin (the class tool), in a group the setting allows, with an aura or a blessing to give?
 function Bar:Wanted()
@@ -167,10 +133,10 @@ local function RestorePos()
     end
 end
 
--- One class: a secure button; its looks sit on a face (moved for the strip's lift without touching the button).
+-- One class: a secure button; its looks sit on a face (BarFace: it moves for the lift without touching the button).
 local function NewRow(i)
     local r = Secure(frame, "DisasterZoneBlessRow" .. i)
-    r:SetSize(R_S, R_S)
+    r:SetSize(34, 34)
     r:SetAttribute("type1", "spell")
     r:SetScript("PreClick", function(self)
         if InCombatLockdown() or not self.data then return end
@@ -179,66 +145,7 @@ local function NewRow(i)
         self:SetAttribute("spell1", spell)
         self:SetAttribute("unit1", unit)
     end)
-    local face = CreateFrame("Frame", nil, r)
-    face:SetSize(R_S, R_S)
-    face:SetPoint("CENTER")
-    r.face = face
-    face.glow = face:CreateTexture(nil, "BACKGROUND")
-    face.glow:SetTexture(SOFT)
-    face.glow:SetPoint("CENTER")
-    face.glow:SetVertexColor(1, 0.78, 0.16, 0.55)
-    face.glow:SetAlpha(0)
-    -- the bloom when a class is blessed again: a ring (rail) or a soft light (strip) that opens and fades
-    face.bloom = face:CreateTexture(nil, "OVERLAY", nil, 2)
-    face.bloom:SetPoint("CENTER")
-    face.bloom:SetBlendMode("ADD")
-    face.bloom:Hide()
-    -- hover: a faint white halo behind the circle
-    face.halo = face:CreateTexture(nil, "BACKGROUND", nil, 1)
-    face.halo:SetTexture(SOFT)
-    face.halo:SetPoint("CENTER")
-    face.halo:SetBlendMode("ADD")
-    face.halo:SetVertexColor(1, 1, 1)
-    face.halo:SetAlpha(0)
-    -- rail: the track, the draining ring (a cooldown swipe), the class circle
-    face.track = face:CreateTexture(nil, "BORDER")
-    face.track:SetTexture(RING)
-    face.track:SetVertexColor(1, 1, 1, 0.12)
-    face.cd = CreateFrame("Cooldown", nil, face, "CooldownFrameTemplate")
-    face.cd:SetFrameLevel(face:GetFrameLevel() + 1)
-    if face.cd.SetSwipeTexture then face.cd:SetSwipeTexture(RING) end
-    if face.cd.SetDrawEdge then face.cd:SetDrawEdge(false) end
-    if face.cd.SetDrawBling then face.cd:SetDrawBling(false) end
-    if face.cd.SetHideCountdownNumbers then face.cd:SetHideCountdownNumbers(true) end
-    if face.cd.SetUseCircularEdge then face.cd:SetUseCircularEdge(true) end
-    face.cd:EnableMouse(false)
-    face.top = CreateFrame("Frame", nil, face)
-    face.top:SetAllPoints()
-    face.top:SetFrameLevel(face:GetFrameLevel() + 3)
-    face.cls = face.top:CreateTexture(nil, "ARTWORK")
-    face.cls:SetTexture(CIRCLES)
-    -- strip: a black disc under the ring (its edges) and the round blessing icon inside it
-    face.disc = face:CreateTexture(nil, "BORDER", nil, -1)
-    face.disc:SetTexture(DISC)
-    face.disc:SetVertexColor(0, 0, 0, 1)
-    face.tile = face:CreateTexture(nil, "ARTWORK")
-    -- both: my blessing in the corner (rail) / the class in the corner on a black disc (strip), the missing count
-    face.cornerBg = face.top:CreateTexture(nil, "OVERLAY", nil, -1)
-    face.cornerBg:SetTexture(DISC)
-    face.cornerBg:SetVertexColor(0, 0, 0, 1)
-    face.corner = face.top:CreateTexture(nil, "OVERLAY")
-    face.corner:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    face.cornerBox = CreateFrame("Frame", nil, face.top)
-    face.miss = MissingBadge(face.top)
-    face.miss:SetFrameLevel(face.top:GetFrameLevel() + 2)
-    -- the urgent class: a label (rail, on the left) or a gold chip (strip, above)
-    face.label = CreateFrame("Frame", nil, face)
-    face.label:SetHeight(16)
-    face.label.bg = Fill(face.label:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], 0.9)
-    face.label.bg:SetAllPoints()
-    face.label.text = Text(face.label, 10, { 1, 0.9, 0.55 })
-    face.label.text:SetPoint("CENTER", 0, 0)
-    face.label:Hide()
+    r.face = Face():New(r)
     r:HookScript("OnEnter", function(self) Bar:Hover(self, true) end)
     r:HookScript("OnLeave", function(self) Bar:Hover(self, false) end)
     r:SetScript("PostClick", function(self, button, down)
@@ -285,15 +192,13 @@ local function NewPopRow(i)
     return p
 end
 
-local function HeaderIcon(name, size)
+-- A header cell (aura, Righteous Fury): secure, the same face as the classes.
+local function HeaderIcon(name)
     local b = Secure(frame, name)
-    b:SetSize(size, size)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetAllPoints()
-    b.ring = b:CreateTexture(nil, "OVERLAY")
-    b.ring:SetTexture(RING)
-    b.ring:SetPoint("TOPLEFT", -2, 2)
-    b.ring:SetPoint("BOTTOMRIGHT", 2, -2)
+    b:SetSize(34, 34)
+    b.face = Face():New(b)
+    b:HookScript("OnEnter", function(self) Face():Hover(self.face, true) end)
+    b:HookScript("OnLeave", function(self) Face():Hover(self.face, false) end)
     b:SetAttribute("type", "spell")
     b:SetAttribute("unit", "player")
     return b
@@ -301,7 +206,7 @@ end
 
 local function Build()
     frame = CreateFrame("Frame", "DisasterZoneBlessBar", UIParent)
-    frame:SetSize(R_S + 2 * R_PAD, 100)
+    frame:SetSize(50, 100)
     frame:SetFrameStrata("MEDIUM")
     frame:SetClampedToScreen(true)
     frame.bg = Fill(frame:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], GLASS[4])
@@ -322,7 +227,7 @@ local function Build()
         SavePos()
     end)
 
-    local aura = HeaderIcon("DisasterZoneBlessAura", 20)
+    local aura = HeaderIcon("DisasterZoneBlessAura")
     aura:HookScript("OnEnter", function(self)
         local ai = B():GetAura(B():Me())
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
@@ -333,8 +238,7 @@ local function Build()
     aura:HookScript("OnLeave", function() GameTooltip:Hide() end)
     frame.aura = aura
 
-    local rf = HeaderIcon("DisasterZoneBlessRF", 16)
-    SetRoundIcon(rf.icon, B().D.RF_ICON)
+    local rf = HeaderIcon("DisasterZoneBlessRF")
     rf:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine(GetSpellInfo(B().D.RIGHTEOUS_FURY) or "Righteous Fury")
@@ -344,28 +248,24 @@ local function Build()
     rf:HookScript("OnLeave", function() GameTooltip:Hide() end)
     frame.rf = rf
 
-    -- Symbols of Kings: the count (the strip shows the reagent's icon too); a click opens the planner
+    -- Symbols of Kings: the reagent with its count; a click opens the planner
     local sym = CreateFrame("Button", nil, frame)
-    sym:SetSize(36, 14)
-    sym.icon = sym:CreateTexture(nil, "ARTWORK")
-    sym.icon:SetSize(14, 14)
-    sym.icon:SetTexture(B().D.SYMBOL_ICON)
-    sym.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    sym.n = Text(sym, 10, { 0.81, 0.81, 0.84 }, "GameFontHighlightSmall")
+    sym:SetSize(34, 34)
+    sym.face = Face():New(sym)
     sym:SetScript("OnClick", function() if ns.BlessingsUI then ns.BlessingsUI:Toggle() end end)
     sym:SetScript("OnEnter", function(self)
+        Face():Hover(self.face, true)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine(strformat("%s Symbols of Kings", self.n:GetText() or "0"))
+        GameTooltip:AddLine(strformat("%s Symbols of Kings", self.count or 0))
         GameTooltip:AddLine("Click: the Blessings planner", 0.85, 0.85, 0.85)
         if not B().Setting("locked", true) then GameTooltip:AddLine("Drag the bar to move it.", 0.6, 0.6, 0.6) end
         GameTooltip:Show()
     end)
-    sym:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    sym:SetScript("OnLeave", function(self)
+        Face():Hover(self.face, false)
+        GameTooltip:Hide()
+    end)
     frame.sym = sym
-
-    -- dividers (strip)
-    frame.div1 = Fill(frame:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.08)
-    frame.div2 = Fill(frame:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.08)
 
     -- the next blessing to cast (the key binding clicks it)
     nextBtn = Secure(frame, "DisasterZoneBlessNext")
@@ -582,138 +482,15 @@ function Bar:NextCast()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Layout (out of combat: it moves secure buttons)
+-- Motion and layout: the faces' (UI/BarFace.lua). Aim / Step stay here for the tests.
 -- ---------------------------------------------------------------------------------------------------------------
--- ---------------------------------------------------------------------------------------------------------------
--- Motion: each face eases its "hot" (urgent) look, its lift and its hover toward targets (an exponential
--- approach: quick at first, settling softly), and plays a bloom when a class is blessed again.
--- ---------------------------------------------------------------------------------------------------------------
-local exp, abs = math.exp, math.abs
-local TAU = { hot = 0.11, lift = 0.09, hover = 0.07 }
-local BLOOM_TAU = 0.3
-
-local function Mix(a, b, t) return a + (b - a) * t end
-
--- Places and colours what moves, from the face's current values.
-local function ApplyMotion(f)
-    local m = f.motion
-    if not m or not f.row then return end
-    local hot, lift = m.cur.hot or 0, m.cur.lift or 0
-    local hover = m.cur.hover or 0
-    -- (re-anchored only when it moves: re-anchoring the face redraws its cooldown ring, a blink every second)
-    local y = lift + (f.layout == "horizontal" and 2 * hover or 0)
-    if f.atY ~= y or f.atRow ~= f.row then
-        f.atY, f.atRow = y, f.row
-        f:ClearAllPoints()
-        f:SetPoint("CENTER", f.row, "CENTER", 0, y)
-    end
-    f.glow:SetAlpha(0.55 * hot)
-    f.label:SetAlpha(hot)
-    f.label:SetShown(hot > 0.01 and not f.labelOff)
-    f.label:ClearAllPoints()
-    if f.layout == "horizontal" then
-        f.label:SetPoint("BOTTOM", f, "TOP", 0, 8 - (1 - hot) * 5)
-        -- hover: the icon grows a little and a faint halo shows behind it
-        local g = 2 - hover
-        f.tile:ClearAllPoints()
-        f.tile:SetPoint("TOPLEFT", g, -g)
-        f.tile:SetPoint("BOTTOMRIGHT", -g, g)
-        f.halo:SetSize(S_T * 2, S_T * 2)
-        f.halo:SetAlpha(0.16 * hover)
-        f.halo:SetShown(hover > 0.01)
-        -- the ring: calm, red when it runs short, gold when it is the one to do next (its track goes dark gold)
-        local base = f.short and RED or CALM
-        if f.cd.SetSwipeColor then
-            f.cd:SetSwipeColor(Mix(base[1], GOLD[1], hot), Mix(base[2], GOLD[2], hot), Mix(base[3], GOLD[3], hot),
-                Mix(base[4] or 1, 1, hot))
-        end
-        f.track:SetVertexColor(Mix(0.08, 0.47, hot), Mix(0.08, 0.38, hot), Mix(0.09, 0.04, hot), 0.85 + 0.15 * hover)
-    else
-        f.label:SetPoint("RIGHT", f, "LEFT", -12 - (1 - hot) * 8, 0)
-        -- hover: the circle grows a little, a faint halo behind it, the ring's track brightens
-        local g = 2 - 1.5 * hover
-        f.cls:ClearAllPoints()
-        f.cls:SetPoint("TOPLEFT", g, -g)
-        f.cls:SetPoint("BOTTOMRIGHT", -g, g)
-        f.halo:SetSize(R_S * 2, R_S * 2)
-        f.halo:SetAlpha(0.16 * hover)
-        f.halo:SetShown(hover > 0.01)
-        f.track:SetVertexColor(1, 1, 1, 0.12 + 0.2 * hover)
-        if f.cd.SetSwipeColor then
-            f.cd:SetSwipeColor(Mix(CALM[1], GOLD[1], hot), Mix(CALM[2], GOLD[2], hot), Mix(CALM[3], GOLD[3], hot),
-                Mix(CALM[4], 1, hot))
-        end
-    end
-    local b = m.bloom
-    if b and b > 0.01 then
-        local base = f.layout == "horizontal" and 2 * S_RING + 2 or R_S + 6
-        local size = base * (1 + 0.65 * (1 - b))
-        f.bloom:SetSize(size, size)
-        f.bloom:SetAlpha(0.85 * b)
-        f.bloom:Show()
-    else
-        f.bloom:Hide()
-    end
-end
-
-local function Step(f, dt)
-    local m = f.motion
-    local settled = true
-    for k, target in pairs(m.tgt) do
-        local v = m.cur[k] or target
-        v = v + (target - v) * (1 - exp(-dt / (TAU[k] or 0.12)))
-        if abs(v - target) < 0.003 then v = target else settled = false end
-        m.cur[k] = v
-    end
-    if m.bloom then
-        m.bloom = m.bloom * exp(-dt / BLOOM_TAU)
-        if m.bloom < 0.01 then m.bloom = nil else settled = false end
-    end
-    ApplyMotion(f)
-    return settled
-end
-
-local function Run(f)
-    if f.moving then return end
-    f.moving = true
-    f:SetScript("OnUpdate", function(self, elapsed)
-        if Step(self, min(elapsed or 0, 0.1)) then
-            self.moving = false
-            self:SetScript("OnUpdate", nil)
-        end
-    end)
-end
-
--- New targets for a face (hot 0..1, lift px, line 0..1); bloom: play the "blessed again" bloom. The first targets
--- are taken as they are (no motion when the bar first shows).
-local function Aim(f, tgt, bloom)
-    local m = f.motion
-    if not m then
-        f.motion = { cur = {}, tgt = tgt }
-        for k, v in pairs(tgt) do f.motion.cur[k] = v end
-        ApplyMotion(f)
-        return
-    end
-    m.tgt = tgt
-    if bloom then m.bloom = 1 end
-    local moving = m.bloom ~= nil
-    for k, v in pairs(tgt) do
-        if abs((m.cur[k] or v) - v) > 0.003 then moving = true end
-    end
-    if moving then Run(f) else ApplyMotion(f) end
-end
-Bar.Aim, Bar.Step = Aim, Step
+local function Aim(f, tgt, bloom) return Face().Aim(f, tgt, bloom) end
+Bar.Aim = Aim
+Bar.Step = function(f, dt) return Face().Step(f, dt) end
 
 -- The mouse over a class: its face eases into the hover look (and back when it leaves). Nothing pops up.
 function Bar:Hover(row, on)
-    local f = row.face
-    f.hoverOn = on and true or false
-    local m = f.motion
-    if not m then return end
-    local t = {}
-    for k, v in pairs(m.tgt) do t[k] = v end
-    t.hover = on and 1 or 0
-    Aim(f, t)
+    Face():Hover(row.face, on)
 end
 
 -- No panel: the circles, tiles and text float on the world. While unlocked a faint panel shows what to drag.
@@ -723,135 +500,17 @@ local function ApplyChrome()
     frame.shadow:SetShown(unlocked)
     for _, e in ipairs(frame.edges or {}) do e:SetShown(unlocked) end
     frame:EnableMouse(unlocked)
-    if not unlocked then
-        frame.div1:Hide()
-        frame.div2:Hide()
-    end
 end
 
-local function PlaceRail(list)
-    local x = R_PAD
-    frame.aura:ClearAllPoints()
-    frame.aura:SetPoint("TOP", frame, "TOP", 0, -8)
-    frame.rf:ClearAllPoints()
-    frame.rf:SetPoint("LEFT", frame.aura, "RIGHT", 3, 0)
-    frame.sym:ClearAllPoints()
-    frame.sym:SetPoint("TOP", frame, "TOP", 0, -32)
-    frame.sym.icon:Hide()
-    frame.sym.n:ClearAllPoints()
-    frame.sym.n:SetPoint("CENTER", frame.sym, "CENTER", 0, 0)
-    frame.div1:ClearAllPoints()
-    frame.div1:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -(R_HEAD - 5))
-    frame.div1:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -(R_HEAD - 5))
-    frame.div1:SetHeight(1)
-    frame.div2:Hide()
-    frame.div1:Show()
-    for i = 1, #list do
-        local row = rows[i]
-        row:ClearAllPoints()
-        row:SetSize(R_S, R_S)
-        row:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -(R_HEAD + (i - 1) * (R_S + R_GAP)))
-        local f = row.face
-        f.row, f.layout = row, "vertical"
-        f.bloom:SetTexture(RING)
-        f.bloom:SetVertexColor(1, 0.86, 0.4)
-        f:SetSize(R_S, R_S)
-        f.glow:SetSize(R_S * 2.4, R_S * 2.4)
-        f.track:ClearAllPoints()
-        f.track:SetPoint("TOPLEFT", -3, 3)
-        f.track:SetPoint("BOTTOMRIGHT", 3, -3)
-        f.cd:ClearAllPoints()
-        f.cd:SetPoint("TOPLEFT", -3, 3)
-        f.cd:SetPoint("BOTTOMRIGHT", 3, -3)
-        f.cls:ClearAllPoints()
-        f.cls:SetPoint("TOPLEFT", 2, -2)
-        f.cls:SetPoint("BOTTOMRIGHT", -2, 2)
-        f.corner:ClearAllPoints()
-        f.corner:SetSize(12, 12)
-        f.corner:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 3, -3)
-        f.cornerBox:ClearAllPoints()
-        f.cornerBox:SetPoint("TOPLEFT", f.corner, "TOPLEFT", -1, 1)
-        f.cornerBox:SetPoint("BOTTOMRIGHT", f.corner, "BOTTOMRIGHT", 1, -1)
-        Edge(f.cornerBox, GLASS[1], GLASS[2], GLASS[3], 1)
-        f.cornerBox:Show()
-        f.miss:ClearAllPoints()
-        f.miss:SetPoint("CENTER", f, "TOPLEFT", 1, -1)
-        f.label:ClearAllPoints()
-        f.label:SetPoint("RIGHT", f, "LEFT", -12, 0)
-        f.track:Show()
-        f.cd:Show()
-        f.cls:Show()
-        f.tile:Hide()
-        f.disc:Hide()
-        f.cornerBg:Hide()
+-- The cells in order: the header that is shown (aura, Righteous Fury, Symbols), then the classes.
+local function Place(list, axis, theme)
+    local cells = {}
+    for _, b in ipairs({ frame.aura, frame.rf, frame.sym }) do
+        if b:IsShown() then cells[#cells + 1] = b end
     end
-    frame:SetSize(R_S + 2 * R_PAD, R_HEAD + #list * (R_S + R_GAP) + 2)
-end
-
-local function PlaceStrip(list)
-    local n = #list
-    local w = n * (S_T + S_GAP) - S_GAP + 2 * S_PAD + 2 * S_SIDE
-    frame:SetSize(w, S_T + 18)
-    frame.aura:ClearAllPoints()
-    frame.aura:SetPoint("LEFT", frame, "LEFT", 13, 1)
-    frame.rf:ClearAllPoints()
-    frame.rf:SetPoint("TOPLEFT", frame.aura, "BOTTOMRIGHT", -6, 6)
-    frame.div1:ClearAllPoints()
-    frame.div1:SetPoint("LEFT", frame, "LEFT", S_SIDE, 0)
-    frame.div1:SetSize(1, S_T - 4)
-    frame.div2:ClearAllPoints()
-    frame.div2:SetPoint("RIGHT", frame, "RIGHT", -S_SIDE, 0)
-    frame.div2:SetSize(1, S_T - 4)
-    frame.div1:Show()
-    frame.div2:Show()
-    frame.sym:ClearAllPoints()
-    frame.sym:SetPoint("RIGHT", frame, "RIGHT", -6, 1)
-    frame.sym.icon:Show()
-    frame.sym.icon:ClearAllPoints()
-    frame.sym.icon:SetPoint("LEFT", frame.sym, "LEFT", 0, 0)
-    frame.sym.n:ClearAllPoints()
-    frame.sym.n:SetPoint("LEFT", frame.sym.icon, "RIGHT", 3, 0)
-    for i = 1, n do
-        local row = rows[i]
-        row:ClearAllPoints()
-        row:SetSize(S_T, S_T)
-        row:SetPoint("LEFT", frame, "LEFT", S_SIDE + 8 + (i - 1) * (S_T + S_GAP), 2)
-        local f = row.face
-        f.row, f.layout = row, "horizontal"
-        f.bloom:SetTexture(RING)
-        f.bloom:SetVertexColor(1, 0.86, 0.4)
-        f:SetSize(S_T, S_T)
-        f.glow:SetSize(S_T * 2.4, S_T * 2.4)
-        -- a round button: the black disc (1 px past the ring), the ring draining around the icon
-        local ring = S_RING - S_T / 2
-        f.disc:ClearAllPoints()
-        f.disc:SetPoint("TOPLEFT", -ring - 1, ring + 1)
-        f.disc:SetPoint("BOTTOMRIGHT", ring + 1, -ring - 1)
-        f.track:ClearAllPoints()
-        f.track:SetPoint("TOPLEFT", -ring, ring)
-        f.track:SetPoint("BOTTOMRIGHT", ring, -ring)
-        f.cd:ClearAllPoints()
-        f.cd:SetPoint("TOPLEFT", -ring, ring)
-        f.cd:SetPoint("BOTTOMRIGHT", ring, -ring)
-        -- the class circle top-right on a thicker black outline, the missing count top-left
-        f.corner:ClearAllPoints()
-        f.corner:SetSize(13, 13)
-        f.corner:SetPoint("CENTER", f, "CENTER", S_CORNER, S_CORNER)
-        f.cornerBg:ClearAllPoints()
-        f.cornerBg:SetSize(17, 17)
-        f.cornerBg:SetPoint("CENTER", f.corner, "CENTER")
-        f.cornerBox:Hide()
-        f.miss:ClearAllPoints()
-        f.miss:SetPoint("CENTER", f, "CENTER", -S_CORNER, S_CORNER)
-        f.label:ClearAllPoints()
-        f.label:SetPoint("BOTTOM", f, "TOP", 0, 8)
-        f.disc:Show()
-        f.cornerBg:Show()
-        f.track:Show()
-        f.cd:Show()
-        f.cls:Hide()
-        f.tile:Show()
-    end
+    local nHead = #cells
+    for i = 1, #list do cells[#cells + 1] = rows[i] end
+    Face():Place(frame, cells, nHead, axis, theme)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -905,13 +564,15 @@ function Bar:Update()
             rows[i]:Hide()
             rows[i].data = nil
         end
-        -- (placed again only when the layout or the number of classes changes: re-anchoring the cooldown rings every
+        -- (placed again only when the layout, the theme or the cells change: re-anchoring the cooldown rings every
         -- second made them blink in game)
-        local sig = layout .. ":" .. #list
+        local theme = Face():Theme()
+        local axis = layout == "horizontal" and "h" or "v"
+        local sig = strformat("%s:%s:%d:%s%s", axis, theme.key, #list, frame.aura:IsShown() and "a" or "",
+            frame.rf:IsShown() and "r" or "")
         if frame.placed ~= sig then
             frame.placed = sig
-            if layout == "horizontal" then PlaceStrip(list) else PlaceRail(list) end
-            for _, row in ipairs(rows) do row.face.atY = nil end
+            Place(list, axis, theme)
         end
         ApplyChrome()
         frame:Show()
@@ -922,7 +583,6 @@ function Bar:Update()
     frame:SetAlpha(combat and 0.75 or 1)
     local ai = Bl:GetAura(me)
     if ai then
-        SetRoundIcon(frame.aura.icon, Bl:AuraIcon(ai))
         local on = Bl:IsDemo()
         for i = 1, 40 do
             local name, _, _, _, _, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
@@ -930,8 +590,9 @@ function Bar:Update()
             if id and Bl.AURA_BY_ID[id] == ai then on = true break end
         end
         frame.aura.on = on
-        frame.aura.icon:SetDesaturated(not on)
-        frame.aura.ring:SetVertexColor(on and 1 or 0.91, on and 0.82 or 0.38, on and 0 or 0.3, on and 1 or 0.9)
+        -- gold = on; red = it should be on
+        Face():Set(frame.aura.face, { icon = Bl:AuraIcon(ai), desat = not on, tone = on and "on" or "warn" })
+        Aim(frame.aura.face, Face():Targets(frame.aura.face, false))
     end
     if frame.rf:IsShown() then
         local on = false
@@ -942,15 +603,17 @@ function Bar:Update()
             if id == Bl.D.RIGHTEOUS_FURY or (rfName and name == rfName) then on = true break end
         end
         frame.rf.on = on
-        frame.rf.icon:SetDesaturated(not on)
-        frame.rf.ring:SetVertexColor(on and 1 or 0.6, on and 0.82 or 0.6, on and 0 or 0.62, on and 1 or 0.5)
+        Face():Set(frame.rf.face, { icon = Bl.D.RF_ICON, desat = not on, tone = on and "on" or "dim" })
+        Aim(frame.rf.face, Face():Targets(frame.rf.face, false))
     end
     local p = me and Bl.pals[me]
     local n = GetItemCount and GetItemCount(Bl.D.SYMBOL_OF_KINGS) or (p and p.symbols) or 0
     if Bl:IsDemo() and p and p.symbols then n = p.symbols end
-    frame.sym.n:SetText(n)
+    frame.sym.count = n
     local low = n < (tonumber(Bl.Setting("symbols", 20)) or 20)
-    frame.sym.n:SetTextColor(low and 1 or 0.81, low and 0.48 or 0.81, low and 0.42 or 0.84)
+    Face():Set(frame.sym.face, { icon = Bl.D.SYMBOL_ICON, num = tostring(n), tone = low and "warn" or nil,
+        numColor = low and { 1, 0.55, 0.47 } or nil })
+    Aim(frame.sym.face, Face():Targets(frame.sym.face, false))
 
     local now = GetTime()
     local total = Bl.D.GDURATION
@@ -961,59 +624,20 @@ function Bar:Update()
             local f = row.face
             local st = r.state
             local isNext = urgent and urgent.ci == r.ci
-            local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[r.cls]
-            f.miss:SetCount(#st.missing)
-            f.glow:Show()
-            local reach = r.unit and 1 or 0.5
+            local look = { icon = r.icon, cornerClass = r.cls, missing = #st.missing, alpha = r.unit and 1 or 0.5,
+                short = st.left ~= nil and st.left < warn }
             if st.left and st.left > 0 then
-                -- (started total - left ago: the swipe shows what is left and drains on its own)
-                local start = floor((now - (total - st.left)) * 2 + 0.5) / 2
-                if f.cd.cdStart ~= start then
-                    f.cd.cdStart = start
-                    f.cd:SetCooldown(start, total)
-                end
-            elseif f.cd.cdStart then
-                f.cd.cdStart = nil
-                if f.cd.Clear then f.cd:Clear() else f.cd:SetCooldown(0, 0) end
-            end
-            if layout == "horizontal" then
-                SetRoundIcon(f.tile, r.icon)
-                f.tile:SetAlpha(reach)
-                f.cd:SetAlpha(reach)
-                f.short = st.left ~= nil and st.left < warn
-                f.corner:SetTexture(CIRCLES)
-                if c then f.corner:SetTexCoord(c[1], c[2], c[3], c[4]) end
-                -- the red badge already counts who is missing: the chip only says when it runs out
-                f.labelOff = #st.missing > 0
-                if isNext then
-                    f.label.text:SetText(Minutes(st.left))
-                    f.label.text:SetTextColor(0.1, 0.08, 0.01)
-                    f.label.bg:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
-                    Edge(f.label, GOLD[1], GOLD[2], GOLD[3], 1)
-                end
+                -- (started total - left ago: the swipe / bar shows what is left and drains on its own)
+                look.start, look.total = now - (total - st.left), total
             else
-                f.labelOff, f.short = nil, nil
-                f.cd:SetAlpha(1)
-                f.cls:SetTexture(CIRCLES)
-                if c then f.cls:SetTexCoord(c[1], c[2], c[3], c[4]) end
-                f.cls:SetAlpha(reach)
-                f.corner:SetTexture(r.icon)
-                f.corner:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-                if isNext then
-                    local what = r.bi and Bl.D.BLESSINGS[r.bi].short or "Single blessings"
-                    local when = #st.missing > 0 and strformat("%d missing", #st.missing) or Minutes(st.left)
-                    f.label.text:SetText(strformat("%s · %s · %s", Plural(r.cls), what, when))
-                    f.label.text:SetTextColor(1, 0.9, 0.55)
-                    f.label.bg:SetVertexColor(GLASS[1], GLASS[2], GLASS[3], 0.92)
-                    Edge(f.label, GOLD[1], GOLD[2], GOLD[3], 0.55)
-                end
+                look.frac = 0
             end
-            if isNext then f.label:SetWidth((f.label.text:GetStringWidth() or 40) + 16) end
-            -- motion: ease toward the new look; bloom when it was urgent or missing and no longer is
+            -- the red count already says who is missing: the chip only says when it runs out
+            if isNext and #st.missing == 0 then look.chip = Minutes(st.left) end
+            Face():Set(f, look)
+            -- motion: ease toward the new look; bloom when it was next or missing and no longer is
             local blessed = (f.wasHot and not isNext) or ((f.wasMissing or 0) > #st.missing)
-            Aim(f, { hot = isNext and 1 or 0, lift = (isNext and layout == "horizontal") and 7 or 0,
-                hover = f.hoverOn and 1 or 0 },
-                blessed and f.motion ~= nil)
+            Aim(f, Face():Targets(f, isNext), blessed and f.motion ~= nil)
             f.wasHot, f.wasMissing = isNext and true or false, #st.missing
         end
     end
@@ -1171,7 +795,7 @@ function Bar:OnLogin()
         if frame then frame:SetAlpha(0.75) end
     end)
     ns:On("SETTINGS_CHANGED", function(path)
-        if type(path) == "string" and path:find("^bless") and path ~= "bless.pos" then
+        if type(path) == "string" and (path:find("^bless") or path == "classbar.theme") and path ~= "bless.pos" then
             if frame and path == "bless.locked" and not InCombatLockdown() then RestorePos() end
             Bar:Update()
         end
@@ -1192,8 +816,9 @@ if ns.ClassKit then ns.ClassKit:Extend("bless", {
     S:DropdownSetting(sec, "Buff bar", "Your blessings per class: click to cast, right-click for the players.",
         "bless.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
             { value = "always", text = "Always" }, { value = "off", text = "Off" } })
-    S:DropdownSetting(sec, "Bar layout", "A rail of class rings, or a strip of round blessings over your action bars.",
+    S:DropdownSetting(sec, "Bar layout", "A column at the side or a row over your action bars: the same cells.",
         "bless.layout", "vertical", Bar.LAYOUTS)
+    if ns.BarFace then ns.BarFace:SettingsRow(S, sec) end
     local mins = {}
     for _, n in ipairs({ 2, 3, 5, 8, 10 }) do mins[#mins + 1] = { value = n, text = n .. " minutes" } end
     S:DropdownSetting(sec, "Running out", "The bar and the planner warn this long before a blessing ends.",
