@@ -39,7 +39,8 @@ local ENTER_DUR, ENTER_STAGGER = 0.36, 0.024   -- a view switch: each bar grows 
 local SCALES = { small = 0.9, normal = 1, large = 1.15 }
 local THREAT_SCALE = 135          -- threat bars run from 0 to 135% of the tank's threat
 local T_NAME_W, T_VALUE_W = 96, 34
-local T_TRACK_L = 3 + 15 + 5 + T_NAME_W + 5
+local ICON_W = ROW_H + 1          -- a row's icon: square, the row's full height, flush left, then a 1 px divider
+local T_TRACK_L = ICON_W + 5 + T_NAME_W + 5
 local T_TRACK_R = 6 + T_VALUE_W + 5
 local LOW_HEALTH = "Interface\\FullScreenTextures\\LowHealth"
 
@@ -745,6 +746,63 @@ local function RowClick(row, button)
     else ns.MeterDetail:Open(tab.seg or "cur", r.g, mode) end
 end
 
+-- A soft dark halo under a bar's text, under the usual 1 px shadow: white on a pale bar (priests, rogues) was hard
+-- to read (asked 2026-10-11). Four faint black copies of the text, 1 px left / right / up / down, in the SAME font:
+-- an OUTLINE copy (the first try) is wider than the plain text and drifted off it. SetT sets them all (the copies
+-- without colour codes, or they would tint them).
+local HALO = { { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 } }
+local function Halo(fs, parent)
+    local font, size, flags = fs:GetFont()
+    fs.halo = {}
+    for i, o in ipairs(HALO) do
+        local h = parent:CreateFontString(nil, "ARTWORK", nil, 7)
+        h:SetFont(font or K.FRIZ, size or 12, flags or "")
+        h:SetTextColor(0, 0, 0, 0.36)
+        h:SetShadowOffset(0, 0)
+        h:SetJustifyH(fs:GetJustifyH() or "LEFT")
+        h:SetWordWrap(false)
+        h:SetPoint("TOPLEFT", fs, "TOPLEFT", o[1], o[2])
+        h:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", o[1], o[2])
+        fs.halo[i] = h
+    end
+end
+local function SetT(fs, t)
+    fs:SetText(t)
+    if fs.halo then
+        local plain = t and (t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) or ""
+        for _, h in ipairs(fs.halo) do h:SetText(plain) end
+    end
+end
+
+-- A row's icon: the spec's (zoomed past its baked-in border), else the class's square icon (the round class icons
+-- next to square spec icons looked uneven; asked 2026-10-11).
+local CLASS_SQUARE = "Interface\\WorldStateFrame\\Icons-Classes"
+local function SetRowIcon(tex, cls, spec)
+    local path = K.SpecIcon(cls, spec)
+    local c = cls and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[cls]
+    if path then
+        tex:SetTexture(path)
+        tex:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+    elseif c then
+        local ix, iy = (c[2] - c[1]) * 0.08, (c[4] - c[3]) * 0.08
+        tex:SetTexture(CLASS_SQUARE)
+        tex:SetTexCoord(c[1] + ix, c[2] - ix, c[3] + iy, c[4] - iy)
+    else
+        tex:SetTexture(134400)
+        tex:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+    end
+    tex:Show()
+end
+local function RowIcon(row)
+    row.icon = K.Tex(row, "ARTWORK", 134400)
+    row.icon:SetSize(ROW_H, ROW_H)
+    row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.iconLine = K.Tex(row, "ARTWORK", K.WHITE, 0, 0, 0, 0.85, 1)
+    row.iconLine:SetPoint("TOPLEFT", row.icon, "TOPRIGHT")
+    row.iconLine:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT")
+    row.iconLine:SetWidth(1)
+end
+
 local function NewRow(pf)
     local row = CreateFrame("Button", nil, pf.rows)
     row:SetHeight(ROW_H)
@@ -753,8 +811,8 @@ local function NewRow(pf)
     row.bg = K.Tex(row, "BACKGROUND", K.WHITE, 1, 1, 1, 0.03)
     row.bg:SetAllPoints()
     row.fill = K.Tex(row, "BORDER", K.WHITE)
-    row.fill:SetPoint("TOPLEFT")
-    row.fill:SetPoint("BOTTOMLEFT")
+    row.fill:SetPoint("TOPLEFT", ICON_W, 0)
+    row.fill:SetPoint("BOTTOMLEFT", ICON_W, 0)
     row.foot = K.Tex(row, "BORDER", K.WHITE, 0, 0, 0, 0.35, 1)
     row.foot:SetPoint("BOTTOMLEFT", row.fill, "BOTTOMLEFT")
     row.foot:SetPoint("BOTTOMRIGHT", row.fill, "BOTTOMRIGHT")
@@ -762,7 +820,7 @@ local function NewRow(pf)
     row.ext = K.Tex(row, "BORDER", K.WHITE)
     row.ext:SetPoint("TOPLEFT", row.fill, "TOPRIGHT")
     row.ext:SetPoint("BOTTOMLEFT", row.fill, "BOTTOMRIGHT")
-    row.you = K.Tex(row, "ARTWORK", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
+    row.you = K.Tex(row, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
     row.you:SetPoint("TOPLEFT")
     row.you:SetPoint("BOTTOMLEFT")
     row.you:SetWidth(2)
@@ -777,9 +835,7 @@ local function NewRow(pf)
     row.rank:SetWidth(13)
     row.rank:SetJustifyH("RIGHT")
     row.rank:Hide()                   -- (no list numbers: the bars' order says it; my pinned bar names its place)
-    row.icon = K.Tex(row, "ARTWORK", 134400)
-    row.icon:SetSize(15, 15)
-    row.icon:SetPoint("LEFT", row, "LEFT", 4, 0)
+    RowIcon(row)
     row.value = K.Font(row, K.NARROW, 13.5, { 1, 1, 1 })
     row.sub = K.Font(row, K.NARROW, 12, { 0.93, 0.91, 0.85, 0.72 })
     row.sub:SetPoint("RIGHT", row, "RIGHT", -6, 0)
@@ -791,6 +847,10 @@ local function NewRow(pf)
     row.skull:SetSize(11, 11)
     row.name = K.Font(row, K.FRIZ, 12, { 1, 1, 1 })
     row.name:SetJustifyH("LEFT")
+    Halo(row.name, row)
+    row.value:SetJustifyH("RIGHT")
+    Halo(row.value, row)
+    Halo(row.sub, row)
     row:SetScript("OnEnter", ShowRowTip)
     row:SetScript("OnLeave", HideRowTip)
     row:SetScript("OnClick", RowClick)
@@ -815,7 +875,7 @@ local function PlaceRight(row, hasSub, hasKb)
         row.kb:Hide()
     end
     row.name:ClearAllPoints()
-    row.name:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+    row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
     row.name:SetPoint("RIGHT", hasKb and row.kb or row.value, "LEFT", -16, 0)
 end
 
@@ -944,6 +1004,7 @@ local function DrawMeter(pf, tab)
     if topV <= 0 then topV = 1 end
     local rowW = (pf.rows:GetWidth() or 0)
     if rowW <= 0 then rowW = PanelWidth(pf) - PAD * 2 end
+    rowW = max(10, rowW - ICON_W)                    -- (the bar starts right of the icon)
     local valueFn = VALUE[mode] or VALUE.damage
     local seen = {}
     for i = 1, #order do
@@ -963,12 +1024,12 @@ local function DrawMeter(pf, tab)
         local cr, cg, cb = K.ClassColor(a.c)
         row.fill:SetVertexColor(cr, cg, cb, 0.74)
         row.ext:SetVertexColor(cr, cg, cb, 0.28)
-        K.SetPlayerIcon(row.icon, a.c, a.s)
+        SetRowIcon(row.icon, a.c, a.s)
         -- my bar pinned below the fold says where I really am ("10th"), the others need no number
-        row.name:SetText(r.pinned and strformat("%s  |cffa29d90%s|r", a.n or "?", K.Ordinal(r.rank)) or (a.n or "?"))
+        SetT(row.name, r.pinned and strformat("%s  |cffa29d90%s|r", a.n or "?", K.Ordinal(r.rank)) or (a.n or "?"))
         local v1, v2 = valueFn(r, dur, seg)
-        row.value:SetText(v1)
-        row.sub:SetText(v2 or "")
+        SetT(row.value, v1)
+        SetT(row.sub, v2 or "")
         local kbKey = r.d and r.d.by or (mode == "kicks" and TopKey(a.ks)) or (mode == "dispels" and TopKey(a.ds)) or nil
         if kbKey then row.kb:SetTexture(K.SpellIcon(kbKey, a)) end
         PlaceRight(row, v2 ~= nil, kbKey ~= nil)
@@ -1024,17 +1085,17 @@ end
 local function NewThreatRow(pf)
     local row = CreateFrame("Frame", nil, pf.rows)
     row:SetHeight(ROW_H)
-    row.icon = K.Tex(row, "ARTWORK", 134400)
-    row.icon:SetSize(15, 15)
-    row.icon:SetPoint("LEFT", row, "LEFT", 3, 0)
+    RowIcon(row)
     row.name = K.Font(row, K.FRIZ, 12, { 1, 1, 1 })
-    row.name:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
+    row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
     row.name:SetWidth(T_NAME_W)
     row.name:SetJustifyH("LEFT")
     row.value = K.Font(row, K.NARROW, 13, { 1, 1, 1 })
     row.value:SetPoint("RIGHT", row, "RIGHT", -6, 0)
     row.value:SetWidth(T_VALUE_W)
     row.value:SetJustifyH("RIGHT")
+    Halo(row.name, row)
+    Halo(row.value, row)
     row.track = K.Tex(row, "BACKGROUND", K.WHITE, 1, 1, 1, 0.05)
     row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, -4)
     row.track:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -T_TRACK_R, 4)
@@ -1084,13 +1145,13 @@ local function DrawThreat(pf)
             fresh = true
         end
         local cr, cg, cb = K.ClassColor(r.cls)
-        K.SetPlayerIcon(row.icon, r.cls, Meter:SpecOf(r.name))
-        row.name:SetText(r.name or "?")
+        SetRowIcon(row.icon, r.cls, Meter:SpecOf(r.name))
+        SetT(row.name, r.name or "?")
         if r.me then row.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else row.name:SetTextColor(cr, cg, cb) end
         local share = st.tankView and r.scaled or r.raw
         local hot = (st.tankView and r.scaled >= warn) or (r.me and st.hot)
         if hot then row.fill:SetVertexColor(1, 0.35, 0.24, 0.9) else row.fill:SetVertexColor(cr, cg, cb, 0.8) end
-        row.value:SetText(floor(share + 0.5) .. "%")
+        SetT(row.value, floor(share + 0.5) .. "%")
         if hot then row.value:SetTextColor(1, 0.54, 0.44) else row.value:SetTextColor(1, 1, 1) end
         local frac = st.tankView and min(1, share / 100) or min(1, share / THREAT_SCALE)
         row.tw = max(1, frac * trackW)

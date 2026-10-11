@@ -232,7 +232,7 @@ for _, o in ipairs(M.all_objects) do
       text = o:GetText() or ""
     end
     local r = rows[o]
-    local c = st.color
+    local c = (kind == "FontString" and st.tcolor) or st.color
     lines[#lines + 1] = table.concat({
       "R", st.seq, kind, seq(st.parent), st.w or "", st.h or "", st.all_points and 1 or 0, st.scale or 1,
       table.concat(pts, ";"), clean(text), font, size, wrap, maxl, jh, jv, st.src or "", st.strata or "",
@@ -777,9 +777,15 @@ def audit(regs, uiparent):
         if hid:
             texts = [t for t in texts if t[0] not in hid]
             findings = [f for f in findings if f["seq"] not in hid]
-    # overlaps between texts of the same window
+    # overlaps between texts of the same window (a faint black copy of a text is its soft shadow, not a label:
+    # MeterPanels' halo, four of them under each bar text)
+    def shadow_copy(r):
+        c = r.get("color")
+        return r["kind"] == "FontString" and bool(c) and len(c) >= 4 and c[0] == 0 and c[1] == 0 and c[2] == 0 and c[3] <= 0.5
     by_win = {}
     for item in texts:
+        if shadow_copy(item[1]):
+            continue
         by_win.setdefault(lay.window(item[0]), []).append(item)
     for win, items in by_win.items():
         for i in range(len(items)):
