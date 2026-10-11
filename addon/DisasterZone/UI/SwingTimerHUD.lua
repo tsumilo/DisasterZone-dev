@@ -1,5 +1,5 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SwingTimerHUD.lua", ...) then return end -- DisasterZone: swing timer HUD.
--- The on-screen part of Core/SwingTimer.lua. The swing is a ring of dots around the next press: gold fills
+-- The on-screen part of Core/SwingTimer.lua. The swing is a ring of flat strokes around the next press: gold fills
 -- clockwise from 12 o'clock, the twist window orange, the server's window dim red; it flashes when a swing lands
 -- and glows while the twist is open. Notes from the earlier bar layout:
 --   queue   NEXT: the next press large in a gold frame (its name and what to do), the three after it smaller,
@@ -153,21 +153,28 @@ local function Build()
     ring.well = Tex(ring, "BACKGROUND", DISC, 0, 0, 0, 0.55, -6)
     ring.well:SetPoint("CENTER")
     ring.well:SetSize(RING_R * 2 + 12, RING_R * 2 + 12)
+    -- the band is 200 short radial strokes, not discs, so where one color meets the next the edge is cut flat
+    -- (discs left a round cap at every color change and at the fill's end)
     ring.dots = {}
+    local thick = 2 * math.pi * (RING_R + DOT / 2) / DOTS + 0.7   -- a little overlap: no gaps on the outer edge
     for i = 1, DOTS do
         local f = (i - 0.5) / DOTS
         local a = math.pi / 2 - 2 * math.pi * f
-        local d = Tex(ring, "ARTWORK", DISC)
-        d:SetSize(DOT, DOT)
-        d:SetPoint("CENTER", ring, "CENTER", RING_R * math.cos(a), RING_R * math.sin(a))
+        local c, s = math.cos(a), math.sin(a)
+        local d = ring:CreateLine(nil, "ARTWORK")
+        d:SetColorTexture(1, 1, 1, 1)
+        d:SetThickness(thick)
+        d:SetStartPoint("CENTER", ring, (RING_R - DOT / 2) * c, (RING_R - DOT / 2) * s)
+        d:SetEndPoint("CENTER", ring, (RING_R + DOT / 2) * c, (RING_R + DOT / 2) * s)
         d.f = f
         ring.dots[i] = d
     end
     ring.head = Tex(ring, "OVERLAY", SOFT, 1, 0.92, 0.66, 0.9)
     ring.head:SetBlendMode("ADD")
     ring.head:SetSize(DOT * 5, DOT * 5)
-    ring.tip = Tex(ring, "OVERLAY", DISC, 1, 1, 1, 1, 1)
-    ring.tip:SetSize(DOT, DOT)
+    ring.tip = ring:CreateLine(nil, "OVERLAY", nil, 1)   -- a flat bright edge where the fill ends
+    ring.tip:SetColorTexture(1, 1, 1, 1)
+    ring.tip:SetThickness(2)
     ring.flash = Tex(ring, "BACKGROUND", SOFT, 1, 0.86, 0.5, 0, 2)
     ring.flash:SetBlendMode("ADD")
     ring.flash:SetPoint("CENTER")
@@ -403,8 +410,9 @@ function HUD:Update()
     local hx, hy = RING_R * math.cos(a), RING_R * math.sin(a)
     ring.head:ClearAllPoints()
     ring.head:SetPoint("CENTER", ring, "CENTER", hx, hy)
-    ring.tip:ClearAllPoints()
-    ring.tip:SetPoint("CENTER", ring, "CENTER", hx, hy)
+    local c, s = math.cos(a), math.sin(a)
+    ring.tip:SetStartPoint("CENTER", ring, (RING_R - DOT / 2) * c, (RING_R - DOT / 2) * s)
+    ring.tip:SetEndPoint("CENTER", ring, (RING_R + DOT / 2) * c, (RING_R + DOT / 2) * s)
     ring.head:Show()
     ring.tip:Show()
     if inZone and wantsTwist then

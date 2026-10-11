@@ -137,6 +137,9 @@ ns.CHANGELOG = {
               "The class sits on the top-right corner, the red count of who is missing it top-left.",
               "No more \"5 missing\" chip: the red count says it. The chip only shows the time left.",
           } },
+          { heading = "Swing timer", lines = {
+              "The ring's colors meet in clean flat edges, no rounded ends, and the fill ends in a flat line.",
+          } },
           { heading = "My BiS: Epic, Rare or Uncommon gems", lines = {
               { "Suggest > Gems and enchants: pick Epic, Rare or Uncommon gems for your list.", fb = { 4 }, by = { "Släy" }, k = "idea" },
               "The fill finds the strongest gems of that quality; your meta gem keeps its colours.",
