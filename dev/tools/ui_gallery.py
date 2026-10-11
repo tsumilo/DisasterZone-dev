@@ -51,7 +51,7 @@ local chips = {
   { text = "Tank" , rgb = { 0.4, 0.72, 1 } },
   { text = "Healer", rgb = { 0.3, 0.9, 0.4 }, selected = true },
   { text = "Kara", icon = "Interface\\Icons\\INV_Misc_Key_07" },
-  { text = "Victhar", key = "Victhar" },
+  { text = "Me (class)", key = ns.Util.PlayerKey() },
   { text = "You", kind = "you" },
   { text = "Click me", onClick = function() end },
 }
