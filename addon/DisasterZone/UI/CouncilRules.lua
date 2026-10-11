@@ -27,18 +27,17 @@ local format, tconcat = string.format, table.concat
 -- (the visual pass, 2026-10-11 "give it some love, same fidelity as other pages": a banner of raid art with the status
 -- and Save & share, icon tiles on the choices, a gold thumb gliding between a line's choices, the example's rows
 -- sliding to their new places when a choice re-ranks them)
-local K = { W = S.INNER_W, GAP = 8, TABS_H = 28, BAN_H = 76, LEFT_W = 304, STEP_H = 70, SEG_H = 22, CARD_PAD = 12,
+local K = { W = S.INNER_W, GAP = S.GAP, TABS_H = 28, BAN_H = S.BANNER.tool, LEFT_W = 304, STEP_H = 70, SEG_H = 22,
+            CARD_PAD = S.PAD,
             PREVIEW_ROWS = 8, ITEM = 30687,    -- (Ravager's Bracers: the example roll's item)
             ICON_X = 34, GLIDE = 0.22, SLIDE = 0.30 }
 K.CHOICE_W = K.LEFT_W - 32                      -- the buttons, across the column (inside its padding and scroll bar)
-local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
+local BIS_ICON = "Interface\\AddOns\\DisasterZone\\Media\\Icons\\bis"
 -- each line's icon (UI.ICON names; the art pack 7 ones fall back without it)
 local STEP_ICON = { f = "calendar", s = "ballot", l = "bis", w = "trophy", o = "stopwatch", y = "team", q = "prized" }
 local ICON_FALLBACK = { ballot = "poll", stopwatch = "calendar", prized = "trophy" }
 K.RIGHT_X = K.LEFT_W + K.GAP
 K.RIGHT_W = K.W - K.RIGHT_X                     -- 458: the drop panel's rows fit
-local ICON_TINT = { 1, 0.86, 0.4 }            -- an atlas icon in a gold ring (the banner's)
-local WHY = { 0.91, 0.85, 0.66 }              -- the line under the example: why the suggestion is who it is
 
 -- The choices, in the order the lines show them (keys of Guild.LOOT_RULES).
 local STEPS = {
@@ -142,16 +141,17 @@ local function IconName(name)
     return name
 end
 
-local function AtlasIcon(tex, name, color)
+-- A choice's icon on its tile (UI:CreateIconTile): the atlas glyph (the BiS one is its own texture), light grey.
+local function StepIcon(tile, name)
     if name == "bis" then
-        tex:SetTexture(MEDIA .. "Icons\\bis")
-        tex:SetTexCoord(0, 1, 0, 1)
+        tile:Set(BIS_ICON)
+        tile.tex:SetTexCoord(0, 1, 0, 1)
     else
         local I = UI.ICON
-        tex:SetTexture(UI.ICON_ATLAS)
-        tex:SetTexCoord(unpack(UI:IconCoords(I[IconName(name)] or I.notes)))
+        tile:Set(UI.ICON_ATLAS)
+        tile.tex:SetTexCoord(unpack(UI:IconCoords(I[IconName(name)] or I.notes)))
     end
-    tex:SetVertexColor(S:Color(color or { 1, 1, 1 }))
+    tile.tex:SetVertexColor(S:Color("TEXT"))
 end
 
 local function Rules()
@@ -265,19 +265,15 @@ end
 -- Building
 ---------------------------------------------------------------------------
 
--- A row of choices (UI:CreateSegments): one framed control of equal parts, the picked one under a gold thumb that
--- glides to a new pick; the others grey text, a soft wash under the mouse. Read-only (not the GM): the same look, no
--- clicks (seg:SetEnabled(false)).
-local function Seg(parent, key, opts, onPick, width)
-    width = width or K.CHOICE_W
-    width = floor(width / #opts) * #opts
+-- A line's choices as UI:CreateSegments takes them ({ value, label } pairs -> items), and its width in equal parts.
+-- (The segments: one framed control, the picked one under a gold thumb that glides to a new pick. Read-only - not the
+-- GM - the same look without clicks: seg:SetEnabled(false).)
+local function ChoiceItems(opts)
     local items = {}
     for i, o in ipairs(opts) do items[i] = { key = o[1], label = o[2] } end
-    local s = UI:CreateSegments(parent, items, function(value) onPick(key, value) end,
-        { width = width, h = K.SEG_H })
-    s.key = key
-    return s
+    return items
 end
+local function ChoiceW(width, n) return floor(width / n) * n end
 
 local function Pick(key, value)
     if not CanEdit() then return end
@@ -323,10 +319,10 @@ end
 
 -- Picking the winner: the banner, the choices (left, scrolling) and the example (right).
 local function RulesBanner(page)
-    local b = UI:CreatePageBanner(page, { size = K.BAN_H, art = "kara", artUnder = true, width = K.W,
+    local b = UI:CreatePageBanner(page, { size = "tool", art = "kara", artUnder = true, width = K.W,
         icon = IconName("ballot"), kicker = "Guild loot rules", title = "Picking the winner", titleColor = "TEXT",
         sub = "How the drop panel suggests who gets an item" })
-    if b.icon then b.icon.tex:SetVertexColor(S:Color(ICON_TINT)) end
+    if b.icon then b.icon.tex:SetVertexColor(S:Color("GOLD")) end
     b:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
     b:SetPoint("TOPRIGHT", page, "TOPRIGHT", 0, 0)
     page.banner = b
@@ -359,17 +355,9 @@ local function BuildWinner(v, host)
         f:SetSize(K.CHOICE_W, K.STEP_H)
         if i < #STEPS then UI:Rule(f, { bottom = 0, layer = "BORDER" }) end
         -- the icon tile
-        f.box = f:CreateTexture(nil, "BACKGROUND")
-        f.box:SetSize(26, 26)
-        f.box:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -6)
-        f.box:SetColorTexture(S:Color("CARD"))
-        local boxEdge = CreateFrame("Frame", nil, f)
-        boxEdge:SetAllPoints(f.box)
-        UI:AddEdges(boxEdge, "BORDER")
-        f.icon = f:CreateTexture(nil, "ARTWORK")
-        f.icon:SetSize(15, 15)
-        f.icon:SetPoint("CENTER", f.box)
-        AtlasIcon(f.icon, STEP_ICON[st.key] or "notes", "TEXT")
+        f.icon = UI:CreateIconTile(f, 24)
+        f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -7)
+        StepIcon(f.icon, STEP_ICON[st.key] or "notes")
         f.title = UI:Text(f, "title", "TEXT", { text = st.title })
         f.title:SetPoint("TOPLEFT", f, "TOPLEFT", K.ICON_X, -5)
         f.sub = UI:Text(f, "sub", nil, { width = K.CHOICE_W - K.ICON_X, text = st.sub })
@@ -378,7 +366,9 @@ local function BuildWinner(v, host)
         hit:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
         hit:SetSize(K.CHOICE_W, 38)
         UI:AttachTooltip(hit, st.title, { { st.tip, "TEXT", wrap = true } })
-        f.seg = Seg(f, st.key, st.opts, Pick)
+        f.seg = UI:CreateSegments(f, ChoiceItems(st.opts), function(value) Pick(st.key, value) end,
+            { width = ChoiceW(K.CHOICE_W, #st.opts), h = K.SEG_H })
+        f.seg.key = st.key
         f.seg:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -40)
         f.def = st
         page.steps[i] = f
@@ -390,33 +380,35 @@ local function BuildWinner(v, host)
     right:SetPoint("TOPLEFT", page, "TOPLEFT", K.RIGHT_X, -top)
     right:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     page.right = right
-    right.kicker = UI:Text(right, "small", "GOLD", { text = "TRY IT" })
-    right.kicker:SetPoint("TOPLEFT", right, "TOPLEFT", 2, -2)
-    right.change = UI:Text(right, "body", nil, { width = K.RIGHT_W - 280 })
-    right.change:SetPoint("TOPLEFT", right.kicker, "BOTTOMLEFT", 0, -4)
+    -- "Try it" (a caps section header; the example's scenarios at its right), what the draft changes under it
     local scenes = {}
     for i, sc in ipairs(SCENES) do scenes[i] = { sc.key, sc.label } end
-    right.scenes = Seg(right, "scene", scenes, function(_, value)
+    right.scenes = UI:CreateSegments(right, ChoiceItems(scenes), function(value)
         state.scene = value
         CouncilRulesUI:Refresh()
-    end, 264)
-    right.scenes:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, -2)
+    end, { width = ChoiceW(264, #scenes), h = K.SEG_H })
+    right.scenes.key = "scene"
+    right.scenes:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, 0)
+    right.head = UI:CreateSectionHeader(right, "Try it", { style = "caps" })
+    right.head:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -2)
+    right.head:SetPoint("RIGHT", right.scenes, "LEFT", -S.GAP, 0)
+    right.kicker = right.head.title
+    right.change = UI:Text(right, "body", nil, { width = K.RIGHT_W - 280 })
+    right.change:SetPoint("TOPLEFT", right.head, "BOTTOMLEFT", 2, 0)
     local c = UI:CreateCard(right, { tone = "card" })
-    c:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -32)
+    c:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -38)
     c:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
     c:SetClipsChildren(true)
     page.card = c
-    c.icon = c:CreateTexture(nil, "ARTWORK")
-    c.icon:SetSize(26, 26)
+    c.icon = UI:CreateIconTile(c, 26)
     c.icon:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD, -8)
-    c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     c.name = UI:Text(c, "emph", "GOLD")
     c.name:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 8, 0)
     c.sub = UI:Text(c, "body")
     c.sub:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -3)
     c.rows, c.byKey = {}, {}
     c.more = UI:Text(c, "sub")
-    c.why = UI:Text(c, "emph", WHY, { wrap = true, width = K.RIGHT_W - 2 * K.CARD_PAD })
+    c.why = UI:Text(c, "emph", "TEXT", { wrap = true, width = K.RIGHT_W - 2 * K.CARD_PAD })
     c.never = UI:Text(c, "sub", nil, { width = K.RIGHT_W - 2 * K.CARD_PAD,
         text = "Never suggested: a pass, a player who left, a class that can't use it." })
     c.never:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", K.CARD_PAD, 8)
@@ -485,7 +477,7 @@ local function FillWinner(v)
     local basePos = {}
     for i, r in ipairs(base) do basePos[r.key] = i end
     local c = page.card
-    c.icon:SetTexture(UI:ItemIcon(K.ITEM))
+    c.icon:Set(UI:ItemIcon(K.ITEM))
     c.name:SetText(UI:ItemText(K.ITEM) or "Ravager's Bracers")
     local split = 0
     for _, r in ipairs(rows) do if r.split then split = split + 1 end end
