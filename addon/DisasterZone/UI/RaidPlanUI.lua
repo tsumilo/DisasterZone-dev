@@ -594,6 +594,8 @@ end
 
 -- The answer pill (my answer, my request, cancelled): a flat tag in the answer's colour with a dot. p:Set(kind, text,
 -- sub); sub is a line under it (the banner's), nil for none.
+-- TODO(refactor): move into UI:CreatePill (a clickable pill with a status dot, a line under it, and the answer kinds
+-- A / T / B / X / R / N as looks); UI:CreatePill is a plain Frame without them today.
 local function newPill(parent)
     local p = CreateFrame("Button", nil, parent)
     p:SetHeight(20)
@@ -2023,15 +2025,11 @@ function UP.newAnswer(parent, st)
         end
     end
     b:SetScript("OnClick", function(self) PlanUI:Answer(self.st) end)
-    b:SetScript("OnEnter", function(self)
-        if self.chosen and self.since then
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine("Your answer")
-            GameTooltip:AddLine("Since " .. self.since, 1, 1, 1)
-            GameTooltip:Show()
-        end
-    end)
-    b:SetScript("OnLeave", hideTooltip)
+    UI():AttachTooltip(b, function(self, tip)
+        if not (self.chosen and self.since) then return false end
+        tip:AddLine("Your answer")
+        tip:AddLine("Since " .. self.since, 1, 1, 1)
+    end, nil, { anchor = "ANCHOR_TOP" })
     b:Paint()
     return b
 end
@@ -3721,15 +3719,12 @@ function PlanUI:CreateTeams(parent)
     you.dot:SetVertexColor(S:Color("GOLD"))
     you.fs = UI():Text(you, "body", "TEXT")
     you.fs:SetPoint("LEFT", you.dot, "RIGHT", 6, 0)
-    you:SetScript("OnEnter", function(self)
-        if not self.tip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    UI():AttachTooltip(you, function(self, tip)
+        if not self.tip then return false end
         for i, line in ipairs(self.tip) do
-            if i == 1 then GameTooltip:AddLine(line) else GameTooltip:AddLine(line, 1, 1, 1, true) end
+            if i == 1 then tip:AddLine(line) else tip:AddLine(line, 1, 1, 1, true) end
         end
-        GameTooltip:Show()
-    end)
-    you:SetScript("OnLeave", hideTooltip)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
     card.you = you
     card.changed = UI():Text(l2, "body", "TEXT")
 
@@ -4578,20 +4573,17 @@ function TV.newWaitRow(p)
             UI():ContextMenu(self, function(root) TV.waitMenu(root, key) end)
         end
     end)
-    r:SetScript("OnEnter", function(self)
+    UI():AttachTooltip(r, function(self, tip)
         local w = self.member
-        if not w then return end
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine(colored(w.key, w.c) .. (TV.isMine(w.key) and " |cff9e9e9e(you)|r" or ""))
-        GameTooltip:AddLine((w.sp and ns.RaidComp:SlotName(w.c, w.sp)) or "Spec unknown", 1, 1, 1)
-        for _, line in ipairs(w.info or {}) do GameTooltip:AddLine(line, 0.75, 0.75, 0.75, true) end
+        if not w then return false end
+        tip:AddLine(colored(w.key, w.c) .. (TV.isMine(w.key) and " |cff9e9e9e(you)|r" or ""))
+        tip:AddLine((w.sp and ns.RaidComp:SlotName(w.c, w.sp)) or "Spec unknown", 1, 1, 1)
+        for _, line in ipairs(w.info or {}) do tip:AddLine(line, 0.75, 0.75, 0.75, true) end
         if RP():CanManageTeams() then
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Drag into a group (or onto an open Comp slot) to put them on the roster.", 0.6, 0.6, 0.6, true)
+            tip:AddLine(" ")
+            tip:AddLine("Drag into a group (or onto an open Comp slot) to put them on the roster.", 0.6, 0.6, 0.6, true)
         end
-        GameTooltip:Show()
-    end)
-    r:SetScript("OnLeave", hideTooltip)
+    end, nil, { anchor = "ANCHOR_LEFT" })
     r:RegisterForDrag("LeftButton")
     r:SetScript("OnDragStart", function(self) TV.waitDragStart(self) end)
     r:SetScript("OnDragStop", function() ns.RaidGroupsUI:EndCardDrag() end)
@@ -5121,15 +5113,12 @@ function TV.newLineupTab(parent)
             PlanUI:SelectLineup(i)
         end
     end)
-    c:SetScript("OnEnter", function(self)
-        if not self.tip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    UI():AttachTooltip(c, function(self, tip)
+        if not self.tip then return false end
         for k, line in ipairs(self.tip) do
-            GameTooltip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, k > 1)
+            tip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, k > 1)
         end
-        GameTooltip:Show()
-    end)
-    c:SetScript("OnLeave", hideTooltip)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
     return c
 end
 
@@ -5907,15 +5896,16 @@ function TV.createBoard(t)
     b:SetAllPoints()
     b:Hide()
     t.board = b
-    b.scroll = UI():CreateScrollFrame(b)
-    b.scroll:SetPoint("TOPLEFT", b, "TOPLEFT", PAD, 0)
-    b.scroll:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -PAD, 0)
+    -- the Board layout (RaidsTab's toolbar above it): the teams' banners in its body
+    b.layout = UI():CreateLayout("board", b, { toolbar = false, bottom = 0 })
+    b.scroll = UI():CreateScrollFrame(b.layout.body)
+    b.scroll:SetAllPoints(b.layout.body)
     b.content = CreateFrame("Frame", nil, b.scroll)
     b.content:SetSize(TV.W, 10)
     b.scroll:SetScrollChild(b.content)
     b.cards, b.heads = {}, {}
     for i = 1, 2 do
-        local h = UI():Text(b.content, "small", "SUB")
+        local h = UI():Text(b.content, "caps", "SUB")
         b.heads[i] = h
     end
 end
