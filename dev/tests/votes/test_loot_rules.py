@@ -30,7 +30,7 @@ for i, r in ipairs(rows) do
 end
 return out
 """
-RULES = {"f": 0, "s": "r", "l": "l", "w": "r", "y": "n"}
+RULES = {"f": 0, "s": "r", "l": "l", "w": "r", "y": "n", "h": 4}
 
 
 def rank(cl, spec, **over):
@@ -112,12 +112,51 @@ def only_the_gm_sets_the_rules_and_they_reach_the_guild():
                        "return { ok = ok, e = e }")
     assert res["ok"] is True, res
     w.tick(5)
-    want = {"f": 60, "s": "p", "l": "r", "w": "d", "y": "a"}
+    want = {"f": 60, "s": "p", "l": "r", "w": "d", "y": "a", "h": 4}
     for x in (bob, tank):
         assert x.eval_py("return ns.Guild:GetLootRules()") == want, x.name
     # junk is refused
     res = gina.eval_py("local ok, e = ns.Guild:SetLootRules({ f = 300, s = 'x' }); return { ok = ok }")
     assert res["ok"] is False
+    # longevity: Longest use, counted up to P5; a "count up to" outside P3-P5 is junk
+    res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'o', y = 'n', h = 5 }); "
+                       "return { ok = ok }")
+    assert res["ok"] is True, res
+    w.tick(5)
+    for x in (bob, tank):
+        got = x.eval_py("return ns.Guild:GetLootRules()")
+        assert got["w"] == "o" and got["h"] == 5, (x.name, got)
+    res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'o', y = 'n', h = 9 }); "
+                       "return { ok = ok }")
+    assert res["ok"] is False
+
+
+# Store:Longevity: phases a pick stays on the list, from the guild's phase up to the last phase counted
+LONGEVITY = r"""
+local picks = ...
+for _, p in ipairs(picks) do ns.BiS:SetSlot(p[1], 11, "main", p[2]) end
+ns.BiS:Commit()
+local me = ns.Util.PlayerKey()
+local out = {}
+for i, q in ipairs({ { 2, 4 }, { 2, 5 }, { 3, 5 } }) do
+    out[i] = (ns.Store:Longevity(me, 28763, q[1], q[2]))
+end
+return out
+"""
+
+
+@case
+def longevity_counts_the_phases_a_pick_stays():
+    w, c = world()
+    bob = c["Bob"]
+    # P2-P4 the Jade Ring, replaced in P5 by another ring
+    assert bob.eval_py(LONGEVITY, [[2, 28763], [3, 28763], [4, 28763], [5, 28757]]) in ([3, 3, 2], {1: 3, 2: 3, 3: 2})
+    w2, c2 = world()
+    # kept in P5: the same up to P4, one more up to P5
+    assert c2["Bob"].eval_py(LONGEVITY, [[2, 28763], [3, 28763], [4, 28763], [5, 28763]]) in ([3, 4, 3], {1: 3, 2: 4, 3: 3})
+    w3, c3 = world()
+    # P3 not filled in yet: skipped (doesn't count, doesn't end it)
+    assert c3["Bob"].eval_py(LONGEVITY, [[2, 28763], [4, 28763]]) in ([2, 2, 1], {1: 2, 2: 2, 3: 1})
 
 
 @case

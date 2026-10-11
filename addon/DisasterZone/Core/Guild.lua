@@ -1513,8 +1513,10 @@ end
 -- s = when votes split ("r" the highest roll among them, "p" the council picks), l = before any vote ("l" lists first,
 -- "r" the roll only), w = then ("r" the highest roll, "d" the driest first), y = what a dry streak counts ("n" nights
 -- they were really there, "a" any night they came) }.
-Guild.LOOT_RULES = { f = 0, s = "r", l = "l", w = "r", y = "n" }
-local LOOT_CHOICES = { s = { r = true, p = true }, l = { l = true, r = true }, w = { r = true, d = true },
+-- (w "o", 1.3.5 longevity: "Longest use" orders by how many phases the player keeps the item on their list, Store:Longevity;
+-- h = the last phase counted, 3-5: with 4, a P2-P4 pick replaced in P5 weighs the same as one kept in P5.)
+Guild.LOOT_RULES = { f = 0, s = "r", l = "l", w = "r", y = "n", h = 4 }
+local LOOT_CHOICES = { s = { r = true, p = true }, l = { l = true, r = true }, w = { r = true, d = true, o = true },
                        y = { n = true, a = true } }
 local function CleanLootRules(lr)
     if type(lr) ~= "table" then return nil end
@@ -1525,6 +1527,10 @@ local function CleanLootRules(lr)
         if not set[lr[k]] then return nil end
         out[k] = lr[k]
     end
+    -- (rules saved before h existed count up to P4)
+    local h = lr.h == nil and 4 or tonumber(lr.h)
+    if not IsInt(h, 3, 5) then return nil end
+    out.h = h
     return out
 end
 Guild.CleanLootRules = function(_, lr) return CleanLootRules(lr) end
