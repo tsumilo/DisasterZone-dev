@@ -7,10 +7,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Picker.lua", ...) then return e
 -- A host (the gear sim's Working set, UI/SimPanel.lua) can borrow it: picks go to the host instead of the BiS list,
 -- the host adds sections at the top, numbers per row and a button at the bottom (Picker:Open(..., host)). A host
 -- with only = true (My BiS > Consumables, UI/KitView.lua) lists its own sections alone: no gear, no gear filters.
+-- 1.4: a flyout tool window (no banner: the current pick heads it, the filters are its tool row); shared text styles,
+-- Style tokens and the Gear pages' helpers (ns.GearUI).
 local addonName, ns = ...
 
 local Picker = {}
 ns.Picker = Picker
+
+local S = ns.Style
+local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pages share)
 
 local WIDTH, HEIGHT = 360, 560
 local ROW_ITEM, ROW_RAID, ROW_BOSS = 34, 20, 18
@@ -73,10 +78,7 @@ local function FilterPhase()
 end
 
 -- "Pre-raid" / "P2": the list being edited.
-local function PhaseText(p)
-    if ns.PhaseLabel then return ns.PhaseLabel(p) end
-    return "P" .. tostring(p)
-end
+local PhaseText = GearUI.PL
 
 local function MyClass()
     local data = ns.BiS and ns.BiS.GetData and ns.BiS:GetData()
@@ -89,10 +91,7 @@ local function SlotInfo(sid)
     return ns.SLOTS and ns.SLOTS[sid] or nil
 end
 
-local function SlotLabel(sid)
-    local s = SlotInfo(sid)
-    return s and s.label or ("Slot " .. tostring(sid))
-end
+local SlotLabel = ns.SlotLabel
 
 local function SlotShort(sid)
     local s = SlotInfo(sid)
@@ -151,10 +150,7 @@ local function LockedMessage(info)
     end
 end
 
-local function ListLocked()
-    if not (ns.UI and ns.UI.IsMyListLocked) then return false, nil end
-    return ns.UI:IsMyListLocked()
-end
+local ListLocked = GearUI.ListLocked
 
 ---------------------------------------------------------------------------
 -- Sources (session + settings.pickerSources)
@@ -479,50 +475,42 @@ local function SetupRow(row)
     row.cdl = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
+    local gr, gg, gb = S:Color("GOLD")
     row.bg = row:CreateTexture(nil, "BACKGROUND")
     row.bg:SetAllPoints()
-    row.bg:SetColorTexture(1, 0.82, 0, 0.08)
+    row.bg:SetColorTexture(gr, gg, gb, 0.08)
 
     row.sel = row:CreateTexture(nil, "BACKGROUND", nil, 1)
     row.sel:SetAllPoints()
     row.sel:SetTexture(UI:Tex("rowHilight"))
     row.sel:SetBlendMode("ADD")
-    row.sel:SetVertexColor(1, 0.82, 0, 0.6)
+    row.sel:SetVertexColor(gr, gg, gb, 0.6)
 
     row:SetHighlightTexture(UI:Tex("rowHilight"), "ADD")
 
-    row.header = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.header:SetJustifyH("LEFT")
-    row.header:SetWordWrap(false)
+    row.header = UI:Text(row, "emph", "GOLD")
 
-    row.count = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    row.count = UI:Text(row, "small", "DIM", { justify = "RIGHT" })
     row.count:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.count:SetJustifyH("RIGHT")
 
     row.icon = UI:CreateItemButton(row, 28)
     row.icon:SetPoint("LEFT", row, "LEFT", 16, 0)
     row.icon.onClick = function(btn) Pick(btn.itemID) end
     row.icon.onReceiveItem = OnDropItem
 
-    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.name = UI:Text(row, "small", "TEXT")
     row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -2)
     row.name:SetPoint("RIGHT", row, "RIGHT", -74, 0)
-    row.name:SetJustifyH("LEFT")
-    row.name:SetWordWrap(false)
 
-    row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    row.sub = UI:Text(row, "small", "DIM")
     row.sub:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 2)
     row.sub:SetPoint("RIGHT", row, "RIGHT", -74, 0)
-    row.sub:SetJustifyH("LEFT")
-    row.sub:SetWordWrap(false)
 
-    row.mark1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.mark1 = UI:Text(row, "small", "GOLD", { justify = "RIGHT" })
     row.mark1:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -5)
-    row.mark1:SetJustifyH("RIGHT")
 
-    row.mark2 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.mark2 = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
     row.mark2:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 5)
-    row.mark2:SetJustifyH("RIGHT")
 
     row:SetScript("OnClick", function(self)
         if self.__cdlDropTime and self.__cdlDropTime == GetTime() then return end
@@ -554,14 +542,14 @@ local function InitRow(row, d)
         row.header:ClearAllPoints()
         if d.type == "raid" then
             row.bg:Show()
-            row.header:SetFontObject("GameFontNormal")
+            UI:SetTextStyle(row.header, "emph", "GOLD")
             row.header:SetPoint("LEFT", row, "LEFT", 6, 0)
             row.header:SetText(d.name or "?")
             row.count:SetText(d.count and (d.count .. (d.count == 1 and " item" or " items")) or "")
             row.count:Show()
         else
             row.bg:Hide()
-            row.header:SetFontObject("GameFontHighlightSmall")
+            UI:SetTextStyle(row.header, "small", "TEXT")
             row.header:SetPoint("LEFT", row, "LEFT", 14, 0)
             row.header:SetText(d.name or "?")
             row.count:Hide()
@@ -601,8 +589,7 @@ local function InitRow(row, d)
     local classes = ns.ItemDB and ns.ItemDB.GetItemClasses and ns.ItemDB:GetItemClasses(id)
     if classes then
         local names = {}
-        local loc = _G.LOCALIZED_CLASS_NAMES_MALE
-        for i, cf in ipairs(classes) do names[i] = (type(loc) == "table" and loc[cf]) or cf end
+        for i, cf in ipairs(classes) do names[i] = ns.ClassName(cf, true) or cf end
         local tag = table.concat(names, ", ")
         subText = (subText ~= "") and (subText .. "  ·  " .. tag) or tag
     end
@@ -614,12 +601,12 @@ local function InitRow(row, d)
     if hv then
         -- the host's numbers (the sim's change and DPS) take the marks' place
         row.mark1:SetText(hd or "")
-        if hcol then row.mark1:SetTextColor(hcol[1], hcol[2], hcol[3]) else row.mark1:SetTextColor(1, 0.82, 0) end
+        if hcol then row.mark1:SetTextColor(hcol[1], hcol[2], hcol[3]) else row.mark1:SetTextColor(S:Color("GOLD")) end
         row.mark1:Show()
     elseif mark then
         local text = mark.which == "alt" and "Alt" or "Main"
         if mark.sid and mark.sid ~= state.sid then text = text .. " (" .. SlotShort(mark.sid) .. ")" end
-        row.mark1:SetTextColor(1, 0.82, 0)
+        row.mark1:SetTextColor(S:Color("GOLD"))
         row.mark1:SetText(UI:Colorize(text, ns.COLORS and ns.COLORS[mark.which == "alt" and "alt" or "main"]))
         row.mark1:Show()
     else
@@ -803,7 +790,7 @@ local function UpdateCurrent()
         current.sub:SetText(src or "Other source")
         current.clear:Enable()
     else
-        current.name:SetText("|cff808080Nothing chosen yet|r")
+        current.name:SetText(S:Wrap("DIM", "Nothing chosen yet"))
         if state.host then
             current.sub:SetText(("%s is empty in the Working set"):format(SlotLabel(state.sid)))
         else
@@ -854,16 +841,12 @@ local function EnsureWindow()
         if list then list:Refresh() end
     end)
     current.clear:SetPoint("RIGHT", current, "RIGHT", 0, 0)
-    current.name = current:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    current.name = UI:Text(current, "emph", "TEXT")
     current.name:SetPoint("TOPLEFT", current.btn, "TOPRIGHT", 8, -1)
     current.name:SetPoint("RIGHT", current.clear, "LEFT", -6, 0)
-    current.name:SetJustifyH("LEFT")
-    current.name:SetWordWrap(false)
-    current.sub = current:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    current.sub = UI:Text(current, "small", "DIM")
     current.sub:SetPoint("BOTTOMLEFT", current.btn, "BOTTOMRIGHT", 8, 1)
     current.sub:SetPoint("RIGHT", current.clear, "LEFT", -6, 0)
-    current.sub:SetJustifyH("LEFT")
-    current.sub:SetWordWrap(false)
 
     -- filters
     searchBox = UI:CreateSearchBox(c, WIDTH - 40, function(text)
@@ -909,11 +892,9 @@ local function EnsureWindow()
     list:SetEmptyText(EMPTY_TEXT)
     list.emptyText:SetWordWrap(true)
 
-    hint = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint = UI:Text(c, "small", "DIM", { wrap = true, text = HINT_TEXT })
     hint:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 6, 6)
     hint:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -6, 6)
-    hint:SetJustifyH("LEFT")
-    hint:SetText(HINT_TEXT)
 
     -- a host's button and status line (in the hint's place)
     hostBar = CreateFrame("Frame", nil, c)
@@ -925,19 +906,14 @@ local function EnsureWindow()
         UpdateHostBar()
     end)
     hostBar.btn:SetPoint("LEFT", hostBar, "LEFT", 0, 0)
-    hostBar.btn:HookScript("OnEnter", function(self)
+    UI:AttachTooltip(hostBar.btn, function(_, tt)
         local b = state.host and state.host.button
-        if not (b and b.tooltip) then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        b.tooltip(GameTooltip)
-        GameTooltip:Show()
-    end)
-    hostBar.btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    hostBar.status = hostBar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        if not (b and b.tooltip) then return false end
+        b.tooltip(tt)
+    end, nil, { anchor = "ANCHOR_TOP" })
+    hostBar.status = UI:Text(hostBar, "small", "DIM", { wrap = true })
     hostBar.status:SetPoint("LEFT", hostBar.btn, "RIGHT", 8, 0)
     hostBar.status:SetPoint("RIGHT", hostBar, "RIGHT", 0, 0)
-    hostBar.status:SetJustifyH("LEFT")
-    hostBar.status:SetWordWrap(true)
     hostBar.status:SetMaxLines(2)
     hostBar:Hide()
 

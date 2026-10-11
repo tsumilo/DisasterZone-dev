@@ -10,10 +10,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/GemEditor.lua", ...) then retur
 -- The Gear sim page opens it with a host (its Working set's slot: ns.SimPanel:GemHost): the setup is read from and
 -- stored into that, and the host's view (the page's record) stands in for the list.
 -- A click outside, Escape, the page hiding or another tile's strip closes / moves it.
+-- 1.4: a popover on the dropdowns' surface (no page layout: it hangs beside its tile); shared text styles, Style
+-- tokens, the quality switch is UI:CreateSegments (f.quality = its buttons), tooltips through UI:AttachTooltip.
 local addonName, ns = ...
 
 local GemEditor = {}
 ns.GemEditor = GemEditor
+
+local S = ns.Style
 
 local floor, min, max = math.floor, math.min, math.max
 
@@ -24,10 +28,10 @@ local SWITCH_H = 24
 local QUALITIES = { 4, 3, 2 }   -- the switch, left to right
 local CHIP, CHOICE_CHIP = 22, 18
 local VISIBLE_CHOICES = 6
-local GOLD = { 1, 0.82, 0 }
-local GREEN = { 0.3, 0.9, 0.3 }
-local GREY = { 0.62, 0.62, 0.65 }
-local DIM = { 0.45, 0.45, 0.48 }
+local GOLD = S.C.GOLD
+local GREEN = S.C.OK
+local GREY = S.C.SUB
+local DIM = S.C.DIM
 local ENCHANT_NAME = { 0.12, 1, 0 }
 
 local frame
@@ -37,17 +41,9 @@ local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), sear
 local function G() return ns.Gems end
 local function UI() return ns.UI end
 
-local function Text(parent, font, justify)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
-    fs:SetJustifyH(justify or "LEFT")
-    fs:SetWordWrap(false)
-    return fs
-end
-
-local function Fill(f, layer)
-    local t = f:CreateTexture(nil, layer or "BACKGROUND")
-    t:SetAllPoints()
-    return t
+-- (a texture over all of f, coloured later: the rows paint their own fill)
+local function Wash(f)
+    return UI():Fill(f, { 1, 1, 1, 0 })
 end
 
 local function View()
@@ -117,15 +113,12 @@ end
 local function CreateChip(parent, size)
     local c = CreateFrame("Frame", nil, parent)
     c:SetSize(size, size)
-    c.bg = Fill(c)
-    c.bg:SetColorTexture(0.05, 0.05, 0.06, 1)
+    c.bg = UI():Fill(c, { 0.05, 0.05, 0.06, 1 })
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetPoint("TOPLEFT", 1, -1)
     c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.plus = Text(c, "GameFontHighlight", "CENTER")
+    c.plus = UI():Text(c, "emph", { 0.6, 0.6, 0.64 }, { justify = "CENTER", text = "+" })
     c.plus:SetPoint("CENTER", 0, 0)
-    c.plus:SetText("+")
-    c.plus:SetTextColor(0.6, 0.6, 0.64)
     UI():AddEdges(c, "OVERLAY")
     return c
 end
@@ -143,31 +136,28 @@ local function CreateRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(W - 2 * PAD, ROW_H)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.fill = Fill(r)
-    r.fill:SetColorTexture(1, 1, 1, 0)
+    r.fill = Wash(r)
     UI():AddEdges(r, "BORDER")
     UI():SetEdgeColor(r, 0, 0, 0, 0)
     r.chip = CreateChip(r, CHIP)
     r.chip:SetPoint("LEFT", r, "LEFT", 4, 0)
-    r.name = Text(r, "GameFontHighlight")
+    r.name = UI():Text(r, "emph", "TEXT")
     r.name:SetPoint("TOPLEFT", r, "TOPLEFT", CHIP + 12, -3)
     r.name:SetPoint("TOPRIGHT", r, "TOPRIGHT", -4, -3)
-    r.effect = Text(r, "GameFontHighlightSmall")
+    r.effect = UI():Text(r, "small", "TEXT")
     r.effect:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", CHIP + 12, 3)
     r.effect:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -4, 3)
     r:SetScript("OnEnter", function(self)
         self.hovered = true
         GemEditor:PaintRow(self)
-        if self.tip then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            self.tip(GameTooltip)
-            GameTooltip:Show()
-        end
     end)
     r:SetScript("OnLeave", function(self)
         self.hovered = false
         GemEditor:PaintRow(self)
-        GameTooltip:Hide()
+    end)
+    UI():AttachTooltip(r, function(self, tt)
+        if not self.tip then return false end
+        self.tip(tt)
     end)
     r:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
@@ -189,7 +179,7 @@ function GemEditor:PaintRow(r)
         r.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.1)
         UI():SetEdgeColor(r, GOLD[1], GOLD[2], GOLD[3], 0.9)
     elseif r.hovered then
-        r.fill:SetColorTexture(1, 1, 1, 0.06)
+        r.fill:SetColorTexture(S:Color("HOVER"))
         UI():SetEdgeColor(r, 0.5, 0.5, 0.54, 0.6)
     else
         r.fill:SetColorTexture(1, 1, 1, 0)
@@ -201,35 +191,34 @@ end
 local function CreateChoice(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(W - 2 * PAD - 8, CHOICE_H)
-    r.fill = Fill(r)
-    r.fill:SetColorTexture(1, 1, 1, 0)
+    r.fill = Wash(r)
     r.chip = CreateChip(r, CHOICE_CHIP)
     r.chip:SetPoint("LEFT", r, "LEFT", 3, 0)
-    r.tag = Text(r, "GameFontHighlightSmall", "RIGHT")
+    r.tag = UI():Text(r, "small", "TEXT", { justify = "RIGHT" })
     r.tag:SetPoint("TOPRIGHT", r, "TOPRIGHT", -4, -3)     -- (on the name's line: the effect gets the whole width)
-    r.name = Text(r, "GameFontHighlightSmall")
+    r.name = UI():Text(r, "small", "TEXT")
     r.name:SetPoint("TOPLEFT", r, "TOPLEFT", CHOICE_CHIP + 9, -3)
-    r.effect = Text(r, "GameFontHighlightSmall")
+    r.effect = UI():Text(r, "small", "TEXT")
     r.effect:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", CHOICE_CHIP + 9, 3)
     r:SetScript("OnEnter", function(self)
         self.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.12)
-        if self.kind == "gem" then
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetItemByID(self.id)
-            GameTooltip:Show()
-        elseif self.kind == "enchant" then
-            local e = G():Enchant(self.id)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(e.name, ENCHANT_NAME[1], ENCHANT_NAME[2], ENCHANT_NAME[3])
-            if e.text and e.text ~= "" then GameTooltip:AddLine(e.text, 1, 1, 1, true) end
-            local src = G():SourceWords("enchant", e.id)
-            if src then GameTooltip:AddLine(src, GREY[1], GREY[2], GREY[3]) end
-            GameTooltip:Show()
-        end
     end)
     r:SetScript("OnLeave", function(self)
         self.fill:SetColorTexture(1, 1, 1, self.current and 0.07 or 0)
-        GameTooltip:Hide()
+    end)
+    -- (a gem: the game's item tooltip; an enchant: its name, what it gives and where it comes from)
+    UI():AttachTooltip(r, function(self, tt)
+        if self.kind == "gem" then
+            tt:SetItemByID(self.id)
+        elseif self.kind == "enchant" then
+            local e = G():Enchant(self.id)
+            tt:AddLine(e.name, ENCHANT_NAME[1], ENCHANT_NAME[2], ENCHANT_NAME[3])
+            if e.text and e.text ~= "" then tt:AddLine(e.text, 1, 1, 1, true) end
+            local src = G():SourceWords("enchant", e.id)
+            if src then tt:AddLine(src, GREY[1], GREY[2], GREY[3]) end
+        else
+            return false
+        end
     end)
     r:SetScript("OnClick", function(self)
         local target = state.target
@@ -261,23 +250,19 @@ local function Build()
     f:EnableMouse(true)
     f:SetWidth(W)
     f:Hide()
-    f.bg = Fill(f)
-    f.bg:SetColorTexture(U.DROP_BG[1], U.DROP_BG[2], U.DROP_BG[3], U.DROP_BG[4])
+    f.bg = U:Fill(f, "DROP_BG")
     U:AddEdges(f, "BORDER")
-    U:SetEdgeColor(f, U.DROP_EDGE[1], U.DROP_EDGE[2], U.DROP_EDGE[3], U.DROP_EDGE[4])
+    U:SetEdgeColor(f, S:Color("DROP_EDGE"))
 
     -- the item
     f.item = U:CreateItemButton(f, 28)
     f.item:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD)
-    f.title = Text(f, "GameFontHighlight")
+    f.title = U:Text(f, "emph", "TEXT")
     f.title:SetPoint("TOPLEFT", f.item, "TOPRIGHT", 8, -1)
     f.title:SetPoint("RIGHT", f, "RIGHT", -PAD, 0)
-    f.sub = Text(f, "GameFontHighlightSmall")
+    f.sub = U:Text(f, "small", "SUB")
     f.sub:SetPoint("BOTTOMLEFT", f.item, "BOTTOMRIGHT", 8, 1)
-    f.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
-    f.line1 = f:CreateTexture(nil, "ARTWORK")
-    f.line1:SetHeight(1)
-    f.line1:SetColorTexture(1, 1, 1, 0.1)
+    f.line1 = U:Rule(f, { alpha = 0.1 })
 
     f.rows = {}
     for i = 1, 4 do
@@ -286,35 +271,21 @@ local function Build()
     end
     f.enchantRow = CreateRow(f)
     f.enchantRow.target = "e"
-    f.bonus = Text(f, "GameFontHighlightSmall")
+    f.bonus = U:Text(f, "small", "TEXT")
 
-    -- the quality switch: three joined cells, the picked one gold
-    f.quality = {}
-    local cellW = floor((W - 2 * PAD + 2) / 3)
+    -- the quality switch: Epic | Rare | Uncommon in the quality colours (UI:CreateSegments); f.quality = its buttons
+    local items = {}
     for i, q in ipairs(QUALITIES) do
-        local b = CreateFrame("Button", nil, f)
-        b:SetSize(i == 3 and (W - 2 * PAD + 2 - 2 * cellW) or cellW, SWITCH_H)
-        b.fill = Fill(b)
-        U:AddEdges(b, "BORDER")
-        b.label = Text(b, "GameFontHighlightSmall", "CENTER")
-        b.label:SetPoint("CENTER", 0, 0)
-        b.label:SetText(G().QUALITY_WORDS[q])
-        b.q = q
-        b:SetScript("OnEnter", function(self)
-            self.hovered = true
-            GemEditor:PaintQuality()
-        end)
-        b:SetScript("OnLeave", function(self)
-            self.hovered = false
-            GemEditor:PaintQuality()
-        end)
-        b:SetScript("OnClick", function(self)
-            state.quality = self.q
-            state.offset = 0
-            GemEditor:Refresh()
-        end)
-        f.quality[i] = b
+        local r, g, b = U:QualityColor(q)
+        items[i] = { key = q, label = G().QUALITY_WORDS[q], color = { r, g, b } }
     end
+    f.qualitySeg = U:CreateSegments(f, items, function(q)
+        state.quality = q
+        state.offset = 0
+        GemEditor:Refresh()
+    end, { width = W - 2 * PAD, h = SWITCH_H, textSize = "small" })
+    f.quality = f.qualitySeg.buttons
+    for i, q in ipairs(QUALITIES) do f.quality[i].q = q end
 
     -- the choices
     f.search = U:CreateSearchBox(f, W - 2 * PAD, function(text)
@@ -339,11 +310,9 @@ local function Build()
     f.thumb = f.list:CreateTexture(nil, "OVERLAY")
     f.thumb:SetWidth(3)
     f.thumb:SetColorTexture(1, 1, 1, 0.22)
-    f.none = Text(f.list, "GameFontDisableSmall")
+    f.none = U:Text(f.list, "small", "DIM")
     f.none:SetPoint("TOPLEFT", f.list, "TOPLEFT", 4, -6)
-    f.line2 = f:CreateTexture(nil, "ARTWORK")
-    f.line2:SetHeight(1)
-    f.line2:SetColorTexture(1, 1, 1, 0.1)
+    f.line2 = U:Rule(f, { alpha = 0.1 })
 
     -- the buttons
     f.clear = U:CreateSleekButton(f, "Clear", 70, 22, function()
@@ -549,32 +518,13 @@ local function StartQuality(gems)
     return q
 end
 
+-- The switch: a quality the phase has no gems of yet can't be picked; the row's quality is the pick.
 function GemEditor:PaintQuality()
     local f = frame
     if not f then return end
-    local U = UI()
-    for _, b in ipairs(f.quality) do
-        local out = G():QualityOut(b.q, state.phase)
-        local r, g, bl = U:QualityColor(b.q)
-        b:SetEnabled(out)
-        if state.quality == b.q then
-            b.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.14)
-            U:SetEdgeColor(b, GOLD[1], GOLD[2], GOLD[3], 0.9)
-            b.label:SetTextColor(r, g, bl)
-            b:SetFrameLevel(f:GetFrameLevel() + 3)    -- (its gold edge over the neighbours' shared one)
-        else
-            local hot = out and b.hovered
-            b.fill:SetColorTexture(1, 1, 1, hot and 0.07 or (out and 0.03 or 0.01))
-            U:SetEdgeColor(b, hot and 0.5 or 0.28, hot and 0.5 or 0.28, hot and 0.54 or 0.31, 1)
-            if out then
-                local k = hot and 1 or 0.8
-                b.label:SetTextColor(r * k, g * k, bl * k)
-            else
-                b.label:SetTextColor(DIM[1], DIM[2], DIM[3])
-            end
-            b:SetFrameLevel(f:GetFrameLevel() + 2)
-        end
-    end
+    local seg = f.qualitySeg
+    for _, q in ipairs(QUALITIES) do seg:SetItemEnabled(q, G():QualityOut(q, state.phase) and true or false) end
+    seg:Select(state.quality)
 end
 
 -- Lays out and paints everything from the stored setup.
@@ -611,7 +561,7 @@ function GemEditor:Refresh()
                 local line = g.text or ""
                 if g.color == "M" then
                     local active, words = Gm:MetaState(g.id, counts)
-                    if words and not active then line = "|cffe6735aNeeds " .. words .. "|r" end
+                    if words and not active then line = S:Wrap("WARN", "Needs " .. words) end
                 end
                 row.effect:SetText(line)
                 row.effect:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
@@ -655,16 +605,15 @@ function GemEditor:Refresh()
     local socket = state.target ~= "e" and sockets[tonumber((state.target or ""):sub(2)) or 0]
     if socket and socket ~= "M" then
         state.quality = state.quality or StartQuality(gems)
-        local x = PAD
-        for _, b in ipairs(f.quality) do
-            b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
-            x = x + b:GetWidth() - 1
-            b:Show()
-        end
+        f.qualitySeg:ClearAllPoints()
+        f.qualitySeg:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
+        f.qualitySeg:Show()
+        for _, b in ipairs(f.quality) do b:Show() end
         self:PaintQuality()
         y = y - SWITCH_H - 8
     else
+        -- (the buttons too: they say whether the switch is there)
+        f.qualitySeg:Hide()
         for _, b in ipairs(f.quality) do b:Hide() end
     end
 
