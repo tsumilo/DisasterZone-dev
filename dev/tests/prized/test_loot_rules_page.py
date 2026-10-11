@@ -24,7 +24,7 @@ local out = {}
 for i, s in ipairs(p.decided.path.steps) do
   if s:IsShown() then
     local chips = {}
-    for j = 1, s.pills.used do chips[j] = s.pills.list[j].fs:GetText() end
+    for j = 1, s.pills:Active() do chips[j] = s.pills.items[j].fs:GetText() end
     out[#out + 1] = { title = s.title:GetText(), text = s.text:GetText(), chips = chips }
   end
 end
