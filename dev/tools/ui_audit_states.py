@@ -2702,11 +2702,33 @@ STATES += [
 # The developer's Performance page (Core/Perf.lua, UI/PerfUI.lua): only Tsumil has it, so a Tsumil client joins the
 # guild (once), takes a few minutes of samples (garbage piling up, the game cleaning up), cleans up once and measures
 # for 5 s while events fire before the page opens on a tab.
+# (the mock has no addon profiler: a made-up one for the Tsumil client, so the CPU views have numbers to show)
+PERF_PROFILER = """
+Enum = Enum or {}
+Enum.AddOnProfilerMetric = { SessionAverageTime = 0, RecentAverageTime = 1, EncounterAverageTime = 2, LastTime = 3,
+  PeakTime = 4, CountTimeOver1Ms = 5, CountTimeOver5Ms = 6, CountTimeOver10Ms = 7, CountTimeOver50Ms = 8,
+  CountTimeOver100Ms = 9 }
+local V = { [0] = 0.41, [1] = 0.66, [2] = 0.92, [3] = 0.5, [4] = 38.2, [5] = 214, [6] = 12, [7] = 4, [8] = 1, [9] = 0 }
+C_AddOnProfiler = { IsEnabled = function() return true end,
+  GetAddOnMetric = function(name, m) local v = V[m] or 0 if m == 1 then v = v + 0.1 * math.sin(GetTime() / 30) end return v end,
+  GetApplicationMetric = function(m) return 16.6 end }
+"""
+# addon messages over the last minutes (made up): guild data and control traffic, a few players
+PERF_TRAFFIC = ("for i = 1, 20 do ns.PerfNet('in', 'CDLd', 480, 'Victhar-Thunderstrike') end "
+                "for i = 1, 9 do ns.PerfNet('in', 'CDLd', 300, 'Grumpykat-Thunderstrike') end "
+                "for i = 1, 14 do ns.PerfNet('in', 'CDLc', 60, 'Shadowmelder-Thunderstrike') end "
+                "for i = 1, 6 do ns.PerfNet('in', 'CDLc', 60, 'Vaenyria-Thunderstrike') end "
+                "for i = 1, 4 do ns.PerfNet('in', 'CDLa', 120, 'Moonwhisper-Thunderstrike') end "
+                "for i = 1, 5 do ns.PerfNet('out', 'CDLd', 11000, 'GUILD') end "
+                "for i = 1, 3 do ns.PerfNet('out', 'CDLc', 60, 'GUILD') end")
+
+
 def perf_view(mode="overview"):
     def fn(w, c):
         t = c.get("Tsumil")
         if t is None:
-            t = Client(w, "Tsumil", guild_rank=0, class_file="PALADIN", preload_lua=c["Gina"].preload_lua)
+            t = Client(w, "Tsumil", guild_rank=0, class_file="PALADIN",
+                       preload_lua=(c["Gina"].preload_lua or "") + PERF_PROFILER)
             t.load_addon()
             teach_names(t)
             c["Tsumil"] = t
@@ -2718,6 +2740,7 @@ def perf_view(mode="overview"):
             t.eval("__JUNK = nil ns.Perf:CleanUp()")
             for _ in range(6):
                 t.eval("__JUNK = __JUNK or {} for i = 1, 3000 do __JUNK[#__JUNK + 1] = { i } end")
+                t.eval(PERF_TRAFFIC)
                 w.tick(10)
             t.eval("ns.Perf:Measure(5)")
             for _ in range(4):

@@ -78,15 +78,14 @@ local FALLBACK_COLORS = {
 -- Row columns {x, width} from the row's left edge (1.3.5, the roll rows makeover: layout B of the mockup, the user's
 -- pick 2026-10-11). Rows run the card's full width (LIST_X, ROW_W = 404 px; the two "currently wearing" icons take the
 -- last 30). On the loot council's view a vote rail comes first (rail: a square with the votes; the click votes) and
--- keeps its room on the BiS rows too, so every card's class circles line up (cls = x without / with the rail; the
--- user dropped an attendance ring around them). From the spec on the columns are the same in every row: the spec
--- in its short form (Grid.SHORT: "Prot", "Resto", "MM"; the tooltip has it in full), the BiS / Alt / OS pill (up to
--- "Alt P3"), the attendance % (council only), the loot column (the dry streak bars, or a word: "won 1", "tie", "can't use"; BiS rows: status, "not in raid"), then on
--- roll rows the roll and a small note ("x2" for a repeated roll, the range of a bad one). (A roll meter was tried and
--- dropped: next to the dry streak bars it read as part of them.)
+-- keeps its room on the BiS rows too, so every card's class circles line up (cls = x without / with the rail). From
+-- the spec on, the columns are the same in every row: the spec in its short form (Grid.SHORT: "Prot", "Resto", "MM";
+-- the tooltip has it in full), the BiS / Alt / OS pill (up to "Alt P3"), the attendance % (council only), the loot
+-- column (the dry streak bars, or a word: "won 1", "tie", "can't use"; BiS rows: "not in raid"), then on roll rows
+-- the roll and a small note ("x2" for a repeated roll, the range of a bad one). Tried and dropped (user): a ring of
+-- attendance dots around the class circle, and a roll meter (next to the dry streak bars it read as part of them).
 local COL = { rail = 16, cls = { 4, 22 }, name = 18, spec = { 124, 44 }, pill = 170, att = { 220, 28 },
-              status = { 253, 111 },
-              loot = { 253, 80 }, roll = { 326, 30 }, note = { 358, 14 } }
+              status = { 253, 111 }, loot = { 253, 80 }, roll = { 326, 30 }, note = { 358, 14 } }
 local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
 -- A crafting material (Materials): the holdings squares at a row's right end, the craft's header line, and the
@@ -1782,6 +1781,76 @@ function Grid.Att(r, key)
     end
 end
 
+-- Column titles over a card's rows (1.3.5): small grey caps over the columns that need a word, a hairline under them;
+-- and / or faint dividers between the column groups. DropPanel.headStyle = "titles" | "dividers" | "both" (mockup).
+Grid.HEAD_H = 13
+function Grid.HeadH()
+    return (DropPanel.headStyle == "dividers") and 0 or Grid.HEAD_H
+end
+Grid.TITLES = {
+    roll = { { "VOTE", 0, COL.rail, "CENTER" }, { "ATT", COL.att[1], COL.att[2], "RIGHT" },
+             { "SINCE LOOT", COL.loot[1], 70, "LEFT" }, { "ROLL", COL.roll[1], COL.roll[2], "RIGHT" } },
+    list = { { "ATT", COL.att[1], COL.att[2], "RIGHT" }, { "SINCE LOOT", COL.loot[1], 70, "LEFT" } },
+}
+Grid.DIVIDERS = { roll = { COL.att[1] - 2, COL.loot[1] - 3, COL.roll[1] - 2 }, list = { COL.att[1] - 2, COL.loot[1] - 3 } }
+
+-- kind: "roll" / "list" / nil (hides them); top: the titles' y in the card; rowsH: the rows' height (dividers).
+function Grid.Head(b, kind, top, rowsH)
+    local h = b.colHead
+    if not h then
+        h = { fs = {}, divs = {} }
+        h.line = b:CreateTexture(nil, "ARTWORK")
+        h.line:SetColorTexture(1, 1, 1, 0.07)
+        h.line:SetHeight(1)
+        b.colHead = h
+    end
+    for _, fs in ipairs(h.fs) do fs:Hide() end
+    for _, d in ipairs(h.divs) do d:Hide() end
+    h.line:Hide()
+    if not kind then return end
+    local style = DropPanel.headStyle or "titles"
+    local railX = Grid.HasRail(b.rollSession) and 0 or nil
+    if style ~= "dividers" then
+        for i, t in ipairs(Grid.TITLES[kind]) do
+            local fs = h.fs[i]
+            if not fs then
+                fs = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                Sized(fs, 8)
+                fs:SetWordWrap(false)
+                h.fs[i] = fs
+            end
+            if t[1] ~= "VOTE" or railX then
+                fs:ClearAllPoints()
+                fs:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X + t[2] + (t[1] == "VOTE" and -6 or 0), -(top + 1))
+                fs:SetWidth(t[3] + (t[1] == "VOTE" and 12 or 0))
+                fs:SetJustifyH(t[4])
+                fs:SetText(t[1])
+                fs:SetTextColor(0.48, 0.48, 0.52)
+                fs:Show()
+            end
+        end
+        h.line:ClearAllPoints()
+        h.line:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X - 4, -(top + Grid.HEAD_H - 3))
+        h.line:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD + 4, -(top + Grid.HEAD_H - 3))
+        h.line:Show()
+    end
+    if style ~= "titles" and rowsH > 0 then
+        for i, x in ipairs(Grid.DIVIDERS[kind]) do
+            local d = h.divs[i]
+            if not d then
+                d = b:CreateTexture(nil, "ARTWORK")
+                d:SetWidth(1)
+                h.divs[i] = d
+            end
+            d:SetColorTexture(1, 1, 1, 0.06)
+            d:ClearAllPoints()
+            d:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X + x, -(top + Grid.HeadH() + 3))
+            d:SetHeight(rowsH - 6)
+            d:Show()
+        end
+    end
+end
+
 -- The council's view keeps the vote rail's room (a plain roll and the raiders' view have none).
 function Grid.HasRail(session)
     return IsCouncil() and not PlainMode(nil, session)
@@ -1805,10 +1874,12 @@ function Grid.Rail(r, row, canVote)
         r.vEdge:Hide()
         r.vBox:Hide()
         r.votes:SetText("")
+        r.votes:Hide()
         r.voteHint:Hide()
         return
     end
     r.vEdge:Show()
+    r.votes:Show()
     if n > 0 then
         if row.myVote then r.vBox:SetColorTexture(0.55, 0.44, 0.05, 1) else r.vBox:SetColorTexture(0.16, 0.16, 0.18, 1) end
         r.votes:SetText("|cffffffff" .. n .. "|r")
@@ -2664,6 +2735,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.matBest = nil
 
     local y, rowIdx, n, headIdx = ITEM_HEAD_H, 0, 0, 0
+    local headKind   -- the column titles over the rows: "roll" / "list" (nil: none)
     local noneText = (not plain) and "Nobody has this on their BiS list" or nil
     if rolling then
         local results = {}
@@ -2683,6 +2755,10 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             end
         end
         n = #results
+        if n > 0 and not plain then
+            headKind = "roll"
+            y = y + Grid.HeadH()
+        end
         b.sub:SetText(RollStateText(session, b.rollStats))
         -- "+N more" only when it hides at least two rows.
         local limit = (n > MAX_ROLL_ROWS + 1) and MAX_ROLL_ROWS or n
@@ -2708,7 +2784,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             -- size): incoming rolls must not move End roll / Award (or the panel) under the cursor.
             local groupN = tonumber((_G.GetNumGroupMembers and _G.GetNumGroupMembers())) or 0
             local reserve = min(MAX_ROLL_ROWS + 1, max(1, groupN))
-            b.reservedY = ITEM_HEAD_H + reserve * ROLL_ROW_H
+            b.reservedY = ITEM_HEAD_H + (headKind and Grid.HeadH() or 0) + reserve * ROLL_ROW_H
         else
             b.reservedY = nil
         end
@@ -2722,6 +2798,10 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     else
         b.reservedY = nil
         n = #wanters
+        if n > 0 and IsCouncil() then
+            headKind = "list"
+            y = y + Grid.HeadH()
+        end
         if mode == "queued" then
             b.sub:SetText(RollStateText(nil, nil, queuePos or 1))
         else
@@ -2748,6 +2828,8 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     -- An awarded item folds its rolls / wanters away (they take a lot of room once it is dealt with); the
     -- "Show rolls" link on its second line opens them again.
     local folded = winnerKey ~= nil and n > 0 and not self:IsUnfolded(itemID, copy)
+    if folded then headKind = nil end
+    Grid.Head(b, headKind, ITEM_HEAD_H, rowIdx > 0 and (y - ITEM_HEAD_H - Grid.HeadH()) or 0)
     if folded then
         rowIdx, headIdx, y = 0, 0, ITEM_HEAD_H
         b.reservedY = nil

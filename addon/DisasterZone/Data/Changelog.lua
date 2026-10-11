@@ -50,8 +50,9 @@ ns.CHANGELOG = {
               "The boss drop's list runs the card's full width: nothing is cut off any more.",
               "Votes sit in a square at the start of each row: the count, gold when yours is in.",
               "Click the square to vote for that player, click again to take your vote back.",
-              "Each roll has a small bar, so the high rolls stand out; a bad range shows in red.",
-              "A second roll shows as x2 next to the first one, which is the one that counts.",
+              "Each player's attendance % has its own column: green from 90%, amber under 75%.",
+              "Specs show the way raiders say them (Prot, Resto, MM); hover a player for the full name.",
+              "A second roll shows as x2 after the first one, which counts. A bad range shows in red.",
           } },
           { heading = "One look everywhere", lines = {
               "Questions and confirmations are the addon's own dialogs now, not the game's red ones.",
@@ -69,6 +70,9 @@ ns.CHANGELOG = {
               { "Suggest > Gems and enchants: pick Epic, Rare or Uncommon gems for your list.", fb = { 4 }, by = { "Släy" }, k = "idea" },
               "The fill then finds the strongest gems of that quality, and your meta gem keeps its colours.",
               "The gem editor has an Epic | Rare | Uncommon switch: the choices show that quality's gems.",
+          } },
+          { heading = "Lighter on memory", lines = {
+              "Every event and addon message makes less garbage, so DisasterZone's memory climbs slower.",
           } },
       } },
     { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",

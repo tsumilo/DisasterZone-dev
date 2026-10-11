@@ -779,10 +779,10 @@ local function FillOverview(p)
     if me and total > 0 then
         local share = me.kb / total
         s.share:SetText(("%d%%"):format(floor(share * 100 + 0.5)))
-        s.shareText:SetText(cpuTotal > 0 and myCpu and ("of every addon's memory · %d%% of their CPU"):format(
-            floor(myCpu / cpuTotal * 100 + 0.5)) or "of every addon's memory")
+        s.shareText:SetText("of all addons' memory")
         s.shareBar:Set(share, C.blue)
-        s.rankText:SetText(("%s memory%s of your addons"):format(Nth(mine), myCpu and (", " .. Nth(cpuRank) .. " CPU") or ""))
+        local cpuPart = (cpuTotal > 0 and myCpu) and ("%d%% of their CPU · "):format(floor(myCpu / cpuTotal * 100 + 0.5)) or ""
+        s.rankText:SetText(("%s%s memory%s"):format(cpuPart, Nth(mine), myCpu and (", " .. Nth(cpuRank) .. " CPU") or ""))
     else
         s.share:SetText("")
         s.shareText:SetText("")
@@ -929,9 +929,11 @@ local function FillSide(s, x, rows, r)
     s.fromHead:SetText(#list > 0 and (isSend and "To" or "From") or "")
     s.sentHead:SetText(#list > 0 and (isSend and "sent" or "got") or "")
     s.revHead:SetText(#list > 0 and "rev" or "")
+    local shown = 0
     for i, row in ipairs(s.who) do
         local e = list[i]
         if e then
+            shown = i
             local isMe = ns.Util and ns.Util.IsMe and ns.Util.IsMe(e.who)
             row.me:SetShown(isMe and true or false)
             if e.who:find("-", 1, true) then row.face:SetClassOf(e.who) else row.face:SetIcon(ICON("INV_Letter_02")) end
@@ -943,7 +945,19 @@ local function FillSide(s, x, rows, r)
             row:Hide()
         end
     end
-    -- a sync loop, or what the handler did
+    -- a sync loop, or what the handler did: under the last sender (or the stats), then what I send back under it
+    local y = shown > 0 and (-122 - shown * 27 - 12) or -106
+    s.loop:ClearAllPoints()
+    s.loop:SetPoint("TOPLEFT", 12, y)
+    s.loopText:ClearAllPoints()
+    s.loopText:SetPoint("TOPLEFT", 12, x.loop and (y - 22) or y)
+    local by = (x.loop and (y - 22) or y) - 58
+    s.rule2:ClearAllPoints()
+    s.rule2:SetPoint("TOPLEFT", 12, by)
+    s.rule2:SetPoint("TOPRIGHT", -12, by)
+    s.backHead:SetPoint("TOPLEFT", 12, by - 8)
+    s.back:SetPoint("TOPLEFT", 12, by - 26)
+    s.back2:SetPoint("TOPLEFT", 12, by - 46)
     local msg = x.name:match("^message (%S+)$")
     if x.loop then
         s.loop:SetKind("sync loop?", "live")
