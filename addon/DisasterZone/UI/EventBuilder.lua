@@ -86,6 +86,7 @@ local function Resize(fs, size)
     return fs
 end
 
+-- A tooltip shown from code (a click on a built-in definition says why it can't change; the definitions' rows).
 local function Tip(owner, title, text)
     GameTooltip:SetOwner(owner, "ANCHOR_TOP")
     GameTooltip:AddLine(title)
@@ -410,6 +411,7 @@ local function IconButton(parent, icon, title, text, onClick)
 end
 
 -- A filter of the tool row that groups the buttons around it: a 1 px hairline (the row's gap on each side).
+-- TODO(refactor): move into the layout toolbar (Toolbar:SetFilters taking a separator item)
 local function RowSeparator(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(1, 18)
@@ -861,9 +863,7 @@ local function RenderTop()
         end
         bn:SetSub(sub)
         local pText, pKind
-        if practice then
-            pText, pKind = "Practice", "live"
-        elseif Ev():GetDef(d.id) then
+        if not practice and Ev():GetDef(d.id) then
             pText, pKind = EUI():ReviewPill(Ev():ReviewState(Ev():GetDef(d.id)))
         end
         bn:SetPill(pKind, pText)
@@ -912,12 +912,6 @@ local function RenderTop()
     top.redo.icon:SetAlpha(#S.redo > 0 and 1 or 0.35)
     top.undo.tipText = #S.undo > 0 and "Ctrl-Z" or "Ctrl-Z · nothing to undo yet"
     top.redo.tipText = #S.redo > 0 and "Ctrl-Y" or "Ctrl-Y · nothing to redo"
-    -- someone else's event: said above the palette and the canvas (the controls stay; a click says why too)
-    if S.readOnly and not practice then
-        ui.layout:ShowNotice("readonly", "This is " .. EUI():Plain(d.by) .. "'s event: you can look and practise. Make a copy to change it.")
-    else
-        ui.layout:HideNotice()
-    end
 end
 
 ---------------------------------------------------------------------------
@@ -1405,6 +1399,7 @@ CreateCanvas = function(body)
     zc:SetSize(130, St.BTN_H)
     zc:SetPoint("BOTTOMRIGHT", cv, "BOTTOMRIGHT", -10, 10)
     zc:SetFrameLevel(cv:GetFrameLevel() + 900)
+    -- TODO(refactor): a shared zoom control (the canvas', the map sheet's, the strategy board's)
     local function zb(icon, x, w, fn, tip)
         local b = CreateFrame("Button", nil, zc)
         b:SetSize(w, St.BTN_H)
@@ -1830,6 +1825,23 @@ function Builder:RenderStatus()
     end
     if ui.overview then ui.overview:Show() end
     st:Show()
+    -- someone else's event: the status is the read-only notice (the controls stay; a click on one says why too)
+    local ro = S.readOnly and #probs == 0
+    st.icon:SetShown(not ro)
+    st.fs:SetShown(not ro)
+    if st.ro then st.ro:SetShown(ro) end
+    if ro then
+        local text = "By " .. EUI():Plain(Def().by) .. ": make a copy to change it"
+        if not st.ro then
+            st.ro = UI():CreateNotice(st, "readonly", text)
+            st.ro:SetAllPoints()
+        end
+        st.ro:SetNotice("readonly", text)
+        st.ro:SetAllPoints()
+        UI():SetEdgeColor(st, Col("YOU", 0.5))
+        st:SetWidth(28 + UI():TextWidth(st.ro.text) + 12)
+        return
+    end
     if #probs > 0 then
         local word = #probs == 1 and "1 piece needs a fix" or (#probs .. " pieces need a fix")
         local first = probs[1]
@@ -1839,10 +1851,6 @@ function Builder:RenderStatus()
         st.icon:SetTexture(UI().ICON_WARN)
         st.icon:SetTexCoord(0, 1, 0, 1)
         UI():SetEdgeColor(st, Col("WARN", 0.6))
-    elseif S.readOnly then
-        -- (someone else's event: the read-only notice over the body says so)
-        st:Hide()
-        return
     else
         -- every piece is set: practise it first (a practice run to its end of exactly this event), then host it
         local d = Def()
@@ -5886,16 +5894,13 @@ function QSheet:Create()
     f.x = f.close                -- (its close cross: changes not kept)
     f.x:SetScript("OnClick", function() QSheet:Close() end)
     UI():AttachTooltip(f.x, "Close", "Changes not kept: Done keeps them.", C.tipTop)
-    -- the column heads (under the sheet's header rule)
-    local function head(text, x, right)
-        local h = UI():Text(f, "small", "SUB")
-        h:SetText(text)
-        if right then h:SetPoint("RIGHT", f, "TOPRIGHT", -12, -52) else h:SetPoint("LEFT", f, "TOPLEFT", x, -52) end
-        return h
-    end
-    head("Question", QCOL.q)
-    head("Right answers", QCOL.a)
-    head("Points", 0, true)
+    -- the column titles (under the sheet's header rule)
+    f.cols = UI():CreateColumnHeader(f, 18)
+    f.cols:SetPoint("LEFT", f, "TOPLEFT", 0, -52)
+    f.cols:SetPoint("RIGHT", f, "TOPRIGHT", 0, -52)
+    f.cols:AddColumn("Question", QCOL.q, 120)
+    f.cols:AddColumn("Right answers", QCOL.a, 120)
+    f.cols:AddColumn("Points", QS_W - 12 - 60, 60, { justify = "RIGHT" })
     UI():Rule(f, { top = 64, left = 1, right = 1 })
     f.scroll = UI():CreateScrollFrame(f)
     f.scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -64)

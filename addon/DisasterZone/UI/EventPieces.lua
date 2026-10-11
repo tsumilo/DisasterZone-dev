@@ -212,7 +212,7 @@ end
 
 -- (a vertical gradient over a shape of the atlas: UI:Gradient would swap the shape for a flat texture)
 -- TODO(refactor): move into UI:Gradient (an option that keeps the texture under the gradient)
-local function Grad(t, top, bottom)
+local function ShapeGradient(t, top, bottom)
     if t.SetGradient and CreateColor then
         t:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], 1), CreateColor(top[1], top[2], top[3], 1))
     else
@@ -224,7 +224,7 @@ local function Mix(a, b, k) return { a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[
 
 -- The part of a top -> bottom fill between ya and yb of a shape h high.
 local function GradSpan(t, top, bottom, ya, yb, h)
-    Grad(t, Mix(top, bottom, ya / h), Mix(top, bottom, yb / h))
+    ShapeGradient(t, Mix(top, bottom, ya / h), Mix(top, bottom, yb / h))
 end
 
 -- A round shape over the whole w x h of f (a value, a well, a chip): its two ends and its middle, filled (top, bottom:
@@ -273,8 +273,8 @@ local function Round(k, f, w, h, top, bottom, edge, ea)
 end
 
 -- A hexagon (yes / no) over f's w x h: its pointed ends (stretched when taller) and its middle. Textures 1-7.
-local function Hex(k, f, w, h, top, bottom, edge, ea)
-    local function fill(t) if bottom then Grad(t, top, bottom) else Paint(t, top) end end
+local function Hexagon(k, f, w, h, top, bottom, edge, ea)
+    local function fill(t) if bottom then ShapeGradient(t, top, bottom) else Paint(t, top) end end
     local L, R = k.tex(1, "BACKGROUND", 1), k.tex(2, "BACKGROUND", 1)
     Shape(L, "hexL"); Shape(R, "hexR")
     L:SetSize(10, h); R:SetSize(10, h)
@@ -300,7 +300,7 @@ local function Body(k, f, n, x, y, w, h, f2, f1, e, opts)
     local body = k.tex(n, "BACKGROUND", 1)
     body:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
     body:SetSize(w, h)
-    Grad(body, f2, f1)
+    ShapeGradient(body, f2, f1)
     local hl = k.tex(n + 1, "BACKGROUND", 2)
     hl:SetPoint("TOPLEFT", f, "TOPLEFT", x + 1, -y - 1)
     hl:SetSize(max(1, w - 2), 1)
@@ -676,7 +676,7 @@ local function BuildBlank(ctx, parent, piece, slot, a, v)
         local cat = pd and Bk.CAT[pd.cat]
         local pe = cat and cat.e
         local ec = hot and HOT or (required and NEED.edge) or { (pe or edge)[1], (pe or edge)[2], (pe or edge)[3], 0.75 }
-        Hex(k, f, w, h, fill, nil, ec)
+        Hexagon(k, f, w, h, fill, nil, ec)
     elseif box then
         local mid = k.tex(1, "BACKGROUND", 1)
         mid:SetAllPoints()
@@ -966,7 +966,7 @@ local function BuildValue(ctx, parent, p, pd)
     f:SetSize(w, h)
     local ec = liveOn and LIVE.edge or c.e
     if hex then
-        Hex(k, f, w, h, c.f2, c.f, ec, 0.85)
+        Hexagon(k, f, w, h, c.f2, c.f, ec, 0.85)
     else
         Round(k, f, w, h, c.f2, c.f, ec, 0.85)
     end
