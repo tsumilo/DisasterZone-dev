@@ -108,8 +108,36 @@ local function setArt(t, n, w, h, fw)
 end
 AUI.SetArt = setArt
 
+-- A night's name: the planned raid's when it was logged as several raids (Gruul + Mag), else its zone.
+local function nightName(n)
+    if n.recs and #n.recs > 1 and n.pl then
+        local RP = ns.RaidPlan
+        local v = RP and RP.GetRaid and RP:GetRaid(n.pl)
+        if v then return RP:GetRaidName(v) end
+        local zones = {}
+        for i = #n.recs, 1, -1 do
+            local z = n.recs[i].zone
+            if z and zones[#zones] ~= z then zones[#zones + 1] = z end
+        end
+        return tconcat(zones, " + ")
+    end
+    return n.zone or "Raid"
+end
+AUI.NightName = function(_, n) return nightName(n) end
+
+-- "Serpentshrine Cavern" for "Coilfang: Serpentshrine Cavern" (a tight column).
+local function shortZone(z) return (tostring(z or "Raid"):gsub("^[^:]+:%s*", "")) end
+
+-- The first of the texts that fits in `room` (else the last).
+local function fit(fs, variants, room)
+    for i, t in ipairs(variants) do
+        fs:SetText(t)
+        if i == #variants or (fs:GetStringWidth() or 0) <= room then return end
+    end
+end
+
 local function nightTitle(n)
-    return (n.zone or "Raid") .. "  " .. grey(date("%a %d %b", n.start or Now()))
+    return nightName(n) .. "  " .. grey(date("%a %d %b", n.start or Now()))
 end
 
 -- What the planned raid of a night was: "T1 · Main", "Raid without a team", or nil (not linked).
@@ -1025,7 +1053,9 @@ function AUI:CreatePlayerPage(parent, width, opts)
             row.art:SetSize(40, 22)
             row.art:SetPoint("LEFT", 0, 0)
             row.raid = newText(row, 12)
-            row.raid:SetPoint("LEFT", 48, 0)
+            row.raid:SetPoint("TOPLEFT", 48, -4)
+            row.when = newText(row, 10, C.grey, "GameFontHighlightSmall")
+            row.when:SetPoint("BOTTOMLEFT", 48, 5)
             row.why = newText(row, 11, C.grey, "GameFontHighlightSmall")
             row.exp = newText(row, 11, { 0.86, 0.86, 0.86 }, "GameFontHighlightSmall")
             row.ing = newText(row, 11, { 0.86, 0.86, 0.86 }, "GameFontHighlightSmall")
@@ -1052,7 +1082,11 @@ function AUI:CreatePlayerPage(parent, width, opts)
         local r, n = d.r, d.night
         row.cdlR = r
         setArt(row.art, n, 40, 22, 0.3)
-        row.raid:SetText((n.zone or "Raid") .. grey("  " .. date("%a %d %b", n.start or Now())))
+        local room = v.colX["Why expected"] - 48 - 10
+        local full = nightName(n)
+        fit(row.raid, { full, shortZone(full) }, room)
+        row.raid:SetWidth(room)
+        row.when:SetText(date("%a %d %b", n.start or Now()))
         local function at(fs, key, text)
             fs:ClearAllPoints()
             fs:SetPoint("LEFT", v.colX[key], 0)
@@ -1074,7 +1108,7 @@ function AUI:CreatePlayerPage(parent, width, opts)
         else credit = pctText(r) end
         row.credit:SetText(credit)
     end
-    v.list = UI():CreateScrollList(v, 28, initRow)
+    v.list = UI():CreateScrollList(v, 36, initRow)
     v.list.frame:SetPoint("TOPLEFT", 0, -(TOP + 18))
     v.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
     v.list.bar:ClearAllPoints()
@@ -1268,7 +1302,7 @@ function AUI:CreateMemberAttendance(parent, width)
             for _, e in ipairs(hist) do
                 local word, kind = AUI:ResultWord(e.r)
                 local r = e.r
-                rows[#rows + 1] = { r = r, zone = e.night.zone, start = e.night.start, inst = instOf(e.night), word = word,
+                rows[#rows + 1] = { r = r, zone = nightName(e.night), start = e.night.start, inst = instOf(e.night), word = word,
                     kind = kind, credit = not r.kind and (r.help and hex(C.fill, "+" .. dur(r.help)) or grey("-"))
                         or (r.pending and hex(C.pending, pctText(r))) or pctText(r) }
             end
@@ -1337,59 +1371,146 @@ function AUI:ResultWord(r)
     return w, "warn"
 end
 
--- Reviewers: excuse every raid of a stretch (from / to days, a note).
+-- Reviewers: excuse every raid of a stretch. The polls' calendar look (UI/PollsTab.lua): a month of days, click the
+-- first day and then the last, the days between lit; a dot marks a day with a raid for them (grey: logged, gold:
+-- planned), and a line under says what gets excused.
+local AWAY = { CELL_W = 44, CELL_H = 30, W = 392, MAX_DAYS = 120 }
+
+local function dayStart(t)
+    local d = date("*t", t)
+    return time({ year = d.year, month = d.month, day = d.day, hour = 0 })
+end
+
+-- The days (day start -> "logged" | "planned") with a raid for `key` in the month shown, and the raids in [from, to].
+local function awayRaids(key, from, to)
+    local A = Att()
+    local days, inRange = {}, { logged = 0, planned = 0 }
+    for _, n in ipairs(A:GetNights()) do
+        if A:ExpectedKey(n, key) and n.start then
+            local d = dayStart(n.start)
+            days[d] = "logged"
+            if from and d >= from and d <= to then inRange.logged = inRange.logged + 1 end
+        end
+    end
+    local RP = ns.RaidPlan
+    local G = ns.Guild
+    for _, v in ipairs(RP and RP.GetRaids and RP:GetRaids(Now() - 3600, Now() + 90 * 86400) or {}) do
+        if not v.cancelled then
+            local inv = RP:GetInvited(v)
+            local s = RP:GetSignups(v.id)
+            local me = (inv and inv[key]) or (s[key] and s[key].st == "A")
+            if not me then
+                for _, m in ipairs(G and G.GetLinkedCharacters and G:GetLinkedCharacters(key) or {}) do
+                    if (inv and inv[m]) or (s[m] and s[m].st == "A") then me = true break end
+                end
+            end
+            if me then
+                local d = dayStart(v.t)
+                if not days[d] then
+                    days[d] = "planned"
+                    if from and d >= from and d <= to then inRange.planned = inRange.planned + 1 end
+                end
+            end
+        end
+    end
+    return days, inRange
+end
+
 function AUI:OpenAwayDialog(key)
     if not key then return end
     local f = self.awayDialog
+    local CW, CH = AWAY.CELL_W, AWAY.CELL_H
     if not f then
         f = CreateFrame("Frame", "DisasterZoneAttendanceAway", UIParent)
         if UISpecialFrames then tinsert(UISpecialFrames, "DisasterZoneAttendanceAway") end
         f:SetFrameStrata("FULLSCREEN_DIALOG")
         f:SetToplevel(true)
-        f:SetSize(380, 200)
-        f:SetPoint("CENTER", 0, 80)
+        f:SetClampedToScreen(true)
         f:EnableMouse(true)
+        f:SetSize(AWAY.W, 104 + 6 * CH + 26 + 24 + 52)
+        f:SetPoint("CENTER", 0, 60)
         ns.Popup:SkinPanel(f)
         f.title:SetPoint("TOPLEFT", 16, -14)
         f.glint:SetPoint("TOPLEFT", 1, -1)
-        f.glint:SetWidth(378)
+        f.glint:SetWidth(AWAY.W - 2)
         f.close = UI():CreateCloseButton(f, 20, function() f:Hide() end)
         f.close:SetPoint("TOPRIGHT", -8, -8)
         f.hint = newText(f, 11, C.grey, "GameFontHighlightSmall")
         f.hint:SetPoint("TOPLEFT", 16, -38)
-        f.hint:SetWidth(348)
-        f.hint:SetWordWrap(true)
-        f.hint:SetText("Every raid of these days that expected them is excused, also raids logged later.")
-        f.fromL = newText(f, 11, C.grey, "GameFontHighlightSmall")
-        f.fromL:SetText("From")
-        f.fromL:SetPoint("TOPLEFT", 16, -72)
-        local function ymd(t)
-            local d = date("*t", t)
-            return d.year, d.month, d.day
+        f.hint:SetText("Click the first day away, then the last.")
+        -- the month: name, arrows, weekday letters, the days
+        local gridW = 7 * CW
+        local x0 = floor((AWAY.W - gridW) / 2)
+        f.month = newText(f, 13)
+        f.month:SetPoint("TOPLEFT", x0, -62)
+        f.next = UI():CreateArrowButton(f, true, 16, 16, function() f.shift(1) end)
+        f.next:SetPoint("TOPRIGHT", -x0, -60)
+        f.prev = UI():CreateArrowButton(f, false, 16, 16, function() f.shift(-1) end)
+        f.prev:SetPoint("RIGHT", f.next, "LEFT", -6, 0)
+        for i, w in ipairs({ "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }) do
+            local fs = newText(f, 9, { 0.55, 0.55, 0.55 }, "GameFontHighlightSmall")
+            fs:SetJustifyH("CENTER")
+            fs:SetWidth(CW)
+            fs:SetPoint("TOPLEFT", x0 + (i - 1) * CW, -86)
+            fs:SetText(w)
         end
-        local function day(y, m, d) return time({ year = y, month = m, day = d, hour = 0 }) end
-        f.from = UI():CreateDatePicker(f, { width = 150, get = function() return ymd(f.fromT) end,
-            set = function(y, m, d)
-                f.fromT = day(y, m, d)
-                if f.toT < f.fromT then f.toT = f.fromT; f.to:Refresh() end
-            end })
-        f.from:SetPoint("TOPLEFT", 16, -88)
-        f.toL = newText(f, 11, C.grey, "GameFontHighlightSmall")
-        f.toL:SetText("To")
-        f.toL:SetPoint("TOPLEFT", 200, -72)
-        f.to = UI():CreateDatePicker(f, { width = 150, get = function() return ymd(f.toT) end,
-            set = function(y, m, d) f.toT = day(y, m, d) end,
-            minDate = function() return ymd(f.fromT) end })
-        f.to:SetPoint("TOPLEFT", 200, -88)
-        f.note = UI():CreateSleekEditBox(f, 348, 24)
-        f.note:SetPoint("TOPLEFT", 16, -120)
+        f.cells = {}
+        for i = 1, 42 do
+            local b = CreateFrame("Button", nil, f)
+            b:SetSize(CW, CH)
+            b:SetPoint("TOPLEFT", x0 + ((i - 1) % 7) * CW, -(100 + floor((i - 1) / 7) * CH))
+            b.band = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+            b.band:SetPoint("TOPLEFT", 0, -3)
+            b.band:SetPoint("BOTTOMRIGHT", 0, 3)
+            b.band:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 0.16)
+            b.disc = b:CreateTexture(nil, "ARTWORK")
+            b.disc:SetTexture(ns.EventUI.MASK)
+            b.disc:SetSize(25, 25)
+            b.disc:SetPoint("CENTER")
+            b.disc:SetVertexColor(C.gold[1], C.gold[2], C.gold[3])
+            b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+            b.hl:SetTexture(ns.EventUI.MASK)
+            b.hl:SetSize(25, 25)
+            b.hl:SetPoint("CENTER")
+            b.hl:SetVertexColor(1, 1, 1, 0.1)
+            b.fs = newText(b, 11)
+            b.fs:SetJustifyH("CENTER")
+            b.fs:SetPoint("CENTER", 0, 1)
+            b.dot = b:CreateTexture(nil, "OVERLAY")
+            b.dot:SetTexture(ns.EventUI.MASK)
+            b.dot:SetSize(4, 4)
+            b.dot:SetPoint("BOTTOM", 0, 3)
+            b:SetScript("OnClick", function(self) if self.day then f.pick(self.day) end end)
+            b:SetScript("OnEnter", function(self)
+                if not self.day then return end
+                f.hover = self.day
+                if f.choosing then f.paint() end
+                local kind = f.raidDays[self.day]
+                if kind then
+                    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                    GameTooltip:AddLine(date("%A %d %B", self.day))
+                    GameTooltip:AddLine(kind == "logged" and "A raid they were expected at" or "A raid planned for them", 1, 1, 1)
+                    GameTooltip:Show()
+                end
+            end)
+            b:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+                f.hover = nil
+                if f.choosing then f.paint() end
+            end)
+            f.cells[i] = b
+        end
+        -- what gets excused, a note, the buttons
+        f.sum = newText(f, 12, { 0.9, 0.9, 0.9 })
+        f.sum:SetPoint("TOPLEFT", 16, -(104 + 6 * CH + 4))
+        f.sum:SetWidth(AWAY.W - 32)
+        f.note = UI():CreateSleekEditBox(f, AWAY.W - 32, 24)
+        f.note:SetPoint("TOPLEFT", 16, -(104 + 6 * CH + 26))
         UI():SetEditPlaceholder(f.note, "A note (holiday, moving, ...)")
         f.ok = UI():CreateSleekButton(f, "Excuse", 96, 24, function()
-            local from = f.fromT
-            local to = f.toT
-            local ok, res = Att():ExcusePeriod(f.key, from, to, f.note:GetText())
+            local ok, res = Att():ExcusePeriod(f.key, f.from, f.to, f.note:GetText())
             if ok then
-                ns:Print("excused %s from %d raid(s).", short(f.key), res or 0)
+                ns:Print("excused %s from %d raid(s); raids logged later in those days are excused too.", short(f.key), res or 0)
                 f:Hide()
             else
                 ns:Print("%s", tostring(res))
@@ -1398,16 +1519,83 @@ function AUI:OpenAwayDialog(key)
         f.ok:SetPoint("BOTTOMRIGHT", -14, 14)
         f.cancel = UI():CreateSleekButton(f, "Cancel", 90, 24, function() f:Hide() end)
         f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
+
+        function f.shift(delta)
+            local y, m = f.y, f.m + delta
+            if m < 1 then y, m = y - 1, 12 elseif m > 12 then y, m = y + 1, 1 end
+            f.y, f.m = y, m
+            f.paint()
+        end
+        function f.pick(day)
+            if not f.choosing or day < f.from then
+                f.from, f.to, f.choosing = day, day, true
+            else
+                f.to = min(day, f.from + (AWAY.MAX_DAYS - 1) * 86400)
+                f.choosing = false
+            end
+            f.paint()
+        end
+        function f.paint()
+            local first = time({ year = f.y, month = f.m, day = 1, hour = 0 })
+            local wd = (tonumber(date("%w", first)) + 6) % 7          -- Monday first
+            local dim = tonumber(date("%d", time({ year = f.y, month = f.m + 1, day = 0, hour = 12 })))
+            f.month:SetText(date("%B %Y", first))
+            local to = f.to
+            if f.choosing and f.hover and f.hover > f.from then to = f.hover end
+            local today = dayStart(Now())
+            for i, b in ipairs(f.cells) do
+                local dd = i - wd
+                if dd >= 1 and dd <= dim then
+                    local day = time({ year = f.y, month = f.m, day = dd, hour = 0 })
+                    b.day = day
+                    b.fs:SetText(tostring(dd))
+                    local edge = day == f.from or day == to
+                    local inside = f.from and day >= f.from and day <= to
+                    b.disc:SetShown(edge)
+                    b.band:SetShown(inside and not (f.from == to))
+                    b.band:ClearAllPoints()
+                    b.band:SetPoint("TOPLEFT", day == f.from and floor(CW / 2) or 0, -3)
+                    b.band:SetPoint("BOTTOMRIGHT", day == to and -floor(CW / 2) or 0, 3)
+                    if edge then
+                        b.fs:SetTextColor(0.1, 0.08, 0)
+                        b.fs:SetShadowColor(0, 0, 0, 0)
+                    else
+                        local c = day == today and C.gold or (inside and { 1, 0.93, 0.75 }) or { 0.86, 0.86, 0.86 }
+                        b.fs:SetTextColor(c[1], c[2], c[3])
+                        b.fs:SetShadowColor(0, 0, 0, 1)
+                    end
+                    local kind = f.raidDays[day]
+                    b.dot:SetShown(kind ~= nil and not edge)
+                    if kind == "planned" then b.dot:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], 1)
+                    else b.dot:SetVertexColor(0.7, 0.7, 0.72, 1) end
+                    b:Show()
+                else
+                    b.day = nil
+                    b:Hide()
+                end
+            end
+            -- what gets excused
+            local days = floor((to - f.from) / 86400 + 0.5) + 1
+            local _, r = awayRaids(f.key, f.from, to)
+            local raids = r.logged + r.planned
+            local span = f.from == to and date("%a %d %b", f.from)
+                or (date("%a %d %b", f.from) .. " – " .. date("%a %d %b", to))
+            local tail = raids == 0 and grey("no raid for them in those days yet")
+                or ((r.logged > 0 and (r.logged .. " logged") or "") .. ((r.logged > 0 and r.planned > 0) and ", " or "")
+                    .. (r.planned > 0 and (r.planned .. " planned") or "") .. (raids == 1 and " raid" or " raids"))
+            f.sum:SetText(span .. grey("  ·  " .. days .. (days == 1 and " day" or " days") .. "  ·  ") .. tail)
+        end
         self.awayDialog = f
     end
     f.key = key
     f.title:SetText("Away: " .. short(key))
-    local today = date("*t", Now())
-    f.fromT = time({ year = today.year, month = today.month, day = today.day, hour = 0 })
-    f.toT = f.fromT + 6 * 86400
-    f.from:Refresh()
-    f.to:Refresh()
+    local today = dayStart(Now())
+    f.from, f.to, f.choosing, f.hover = today, today + 6 * 86400, false, nil
+    local t = date("*t", today)
+    f.y, f.m = t.year, t.month
+    f.raidDays = awayRaids(key)
     f.note:SetText("")
+    f.paint()
     f:Show()
 end
 
@@ -1588,7 +1776,7 @@ function AUI:CreateReviews(parent, width)
             UI():ClassIcon(row.h.icon, cls)
             local word = AUI:ResultWord(r)
             word = word:gsub(" · excused$", ""):gsub(" · review$", "")
-            row.h.text:SetText(name(r.key, cls) .. grey("  ·  " .. word .. "  ·  " .. (r.night.zone or "Raid") .. " "
+            row.h.text:SetText(name(r.key, cls) .. grey("  ·  " .. word .. "  ·  " .. shortZone(nightName(r.night)) .. " "
                 .. date("%a %d %b", r.night.start or Now())))
             local ex = r.decision.d == "x"
             row.h.pill:SetKind(ex and "Excused" or "Counts", ex and "ok" or "mute")
@@ -1605,7 +1793,7 @@ function AUI:CreateReviews(parent, width)
         c.pill2:SetShown(r.note ~= nil)
         if r.note then c.pill2:SetKind(r.note.x and "Answered Absent" or "Told us before", "ok") end
         local label = AUI:LineupLabel(r.night)
-        c.where:SetText((r.night.zone or "Raid") .. " · " .. date("%a %d %b", r.night.start or Now())
+        c.where:SetText(nightName(r.night) .. " · " .. date("%a %d %b", r.night.start or Now())
             .. (label and (" · " .. label) or ""))
         local lines = AUI:ReviewLines(r)
         for i, l in ipairs(lines) do

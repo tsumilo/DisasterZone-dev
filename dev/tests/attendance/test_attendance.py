@@ -341,6 +341,16 @@ def away_periods_excuse_every_raid_in_them():
     s = stats(bob)["Tank"]
     assert s["excused"] == 2 and s["noShows"] == 1 and s["pct"] == 67, s
     assert not tank.eval("return (ns.Attendance:ExcusePeriod(...))", K("Tank"), base, base + 86400)
+    # the dialog: click the first day, then the last, Excuse
+    inject(bob, base - 20 * 86400, [{"id": "r9", "pl": "o9", "stop": 180, "ex": {"Heal": "l"}, "att": {}}])
+    bob.eval("ns.AttendanceUI:OpenAwayDialog(...)", K("Heal"))
+    bob.eval("local f = DisasterZoneAttendanceAway; local d = date('*t', ...); local day = time({ year = d.year, "
+             "month = d.month, day = d.day, hour = 0 }); f.pick(day - 86400); f.pick(day + 86400)", base - 20 * 86400)
+    assert "1 logged raid" in strip_codes(bob.eval("return DisasterZoneAttendanceAway.sum:GetText()"))
+    bob.click(bob.eval("return DisasterZoneAttendanceAway.ok"))
+    w.tick(0.5)
+    assert result(bob, "o9", "Heal")["excused"]
+    assert not bob.eval("return DisasterZoneAttendanceAway:IsShown()")
 
 
 @case

@@ -1512,6 +1512,9 @@ STATES = [
         "local r; for _, x in ipairs(ns.Attendance:GetReviews().pending) do if x.reason then r = x end end; "
         "ns.AttendanceUI:OpenPicker(nil, r or ns.Attendance:GetReviews().pending[1])", "raids")),
     ("Demo - Attendance prompts", demo("ns.AttendanceUI:ShowDemo()", "raids")),
+    ("Demo - Attendance away period", demo("ns.RaidsUI:SetMode('players'); local k = ns.Attendance:GetStats(8)[3].key; "
+        "ns.RaidsUI:ShowAttendancePlayer(k); ns.AttendanceUI:OpenAwayDialog(k); "
+        "local f = DisasterZoneAttendanceAway; f.pick(f.from - 3 * 86400); f.pick(f.from + 9 * 86400)", "raids")),
     ("Demo - Members - member card - attendance", demo("local k = ns.Attendance:GetStats(8)[9].key; "
         "ns.MembersUI:ShowMember(k); ns.MembersUI:SetCard('att')", "members")),
     # the selected logged raid's tabs (demo mode: raids with kills and awards)
