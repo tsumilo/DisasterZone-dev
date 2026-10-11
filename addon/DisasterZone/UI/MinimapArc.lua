@@ -26,7 +26,7 @@ local BODY = { 0.10, 0.12, 0.16 }
 local PAGE_ICON = {
     home = 30, raids = { 45, 26 }, council = 26, mybis = { 51, 15 }, atlas = 31, members = { 46, 19 },
     events = { 50, 37 }, games = 21, dungeons = 36, changelog = 25, settings = 13, polls = { 55, 25, 6 },
-    gearsim = { 58, 25, 6 }, consumables = { 57, 40, 6 },
+    gearsim = { 58, 25, 6 }, consumables = { 57, 40, 6 }, blessings = 25, totems = 25,
 }
 
 local holder, halo, track, label, plus
@@ -132,7 +132,11 @@ local function PickMenu(owner)
     UI():ContextMenu(owner, function(root)
         local list = Arc:GetPins()
         root:CreateTitle(("Pinned sections (%d of %d)"):format(#list, MAX_PINS))
-        for _, key in ipairs(ns.MainFrame:GetShownPages()) do
+        local keys = {}
+        for _, key in ipairs(ns.MainFrame:GetShownPages()) do keys[#keys + 1] = key end
+        -- (my class's planners too: a pin opens its window)
+        for _, key in ipairs(ns.MainFrame.GetShownTools and ns.MainFrame:GetShownTools() or {}) do keys[#keys + 1] = key end
+        for _, key in ipairs(keys) do
             local on = Arc:IsPinned(key)
             local item = root:CreateCheckbox(UI():AtlasIconText(IconIndex(key), 14)
                     .. "  " .. (ns.MainFrame:GetPageLabel(key) or key),

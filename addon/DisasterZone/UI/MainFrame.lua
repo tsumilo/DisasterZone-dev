@@ -54,6 +54,23 @@ local NAV_PAGE_TIPS = {
     polls   = "Questions from the officers: answer and see results.",
     games   = "Bingo and the other games to play with the guild.",
 }
+-- Class tools with a window of their own (their planners): a minimap pin for the classes they are for
+-- (ClassKit:IsMine; demo mode: every class). Not in the nav menus (the user, 2026-10-11). A pin opens the window.
+local NAV_TOOLS = {
+    { key = "blessings", kit = "bless", label = "Blessings",
+      tip = "Pally Power: which paladin blesses which class, and the auras.",
+      open = function() if ns.BlessingsUI then ns.BlessingsUI:Open() end end },
+    { key = "totems", kit = "totems", label = "Totems",
+      tip = "ShamanPower: each shaman's totems, Heroism and Earth Shield.",
+      open = function() if ns.TotemsUI then ns.TotemsUI:Open() end end },
+}
+local TOOL = {}
+for _, t in ipairs(NAV_TOOLS) do TOOL[t.key] = t end
+
+local function ToolAvailable(t)
+    return t ~= nil and ns.ClassKit ~= nil and ns.ClassKit:IsMine(t.kit) and true or false
+end
+
 local GROUP_OF = {}       -- page key -> group
 for _, g in ipairs(NAV_GROUPS) do
     for _, key in ipairs(g.pages) do GROUP_OF[key] = g end
@@ -779,6 +796,11 @@ function MainFrame:OpenGroupMenu(navKey)
 end
 
 function MainFrame:Open(key)
+    -- a planner (a minimap pin): its own window
+    if TOOL[key] then
+        if ToolAvailable(TOOL[key]) then TOOL[key].open() end
+        return
+    end
     EnsureFrame()
     self:RefreshTabs()
     key = key or DefaultKey()
@@ -823,15 +845,27 @@ end
 
 -- A page's tab label (nil for an unknown key), and whether the window offers it now.
 function MainFrame:GetPageLabel(key)
+    if TOOL[key] then return TOOL[key].label end
     return tabDefs[key] and tabDefs[key].label or nil
+end
+
+-- The planners my class has (keys, for the minimap's pins): { key, ... }.
+function MainFrame:GetShownTools()
+    local out = {}
+    for _, t in ipairs(NAV_TOOLS) do
+        if ToolAvailable(t) then out[#out + 1] = t.key end
+    end
+    return out
 end
 
 -- A page's one-line description (its line in a group's menu), nil for a page without one.
 function MainFrame:GetPageTip(key)
+    if TOOL[key] then return TOOL[key].tip end
     return NAV_PAGE_TIPS[key]
 end
 
 function MainFrame:IsPageShown(key)
+    if TOOL[key] then return ToolAvailable(TOOL[key]) end
     return tabDefs[key] ~= nil and not NAV_HIDDEN[key] and IsAvailable(tabDefs[key])
 end
 

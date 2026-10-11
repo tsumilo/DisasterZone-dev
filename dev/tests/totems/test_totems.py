@@ -257,11 +257,55 @@ TILE = """
 """
 assert [txt(x) for x in vic.eval_py(TILE)] == ["gilded", "gilded"], vic.eval_py(TILE)
 vic.eval("ns.DB:SetSetting('classbar.theme', 'halo'); ns.DB:SetSetting('totems.layout', 'vertical')")
+# the bar's first cell opens the planner (a plain button: it never casts); a minimap pin's key opens the window; the
+# Raids menu does not list the planners (the user didn't want them there)
+PLAN = """
+    ns.TotemBar:Update()
+    local f = ns.TotemBar:GetFrame()
+    local p, h = f.plan, DisasterZoneTotem_hero
+    local _, _, _, _, py = p:GetPoint(1)
+    local _, _, _, _, hy = h:GetPoint(1)
+    ns.TotemsUI:Close()
+    p:Click()
+    local opened = ns.TotemsUI:IsShown()
+    ns.TotemsUI:Close()
+    ns.MainFrame:Open('totems')
+    local pinned = ns.TotemsUI:IsShown()
+    ns.TotemsUI:Close()
+    ns.MainFrame:Open('home')
+    ns.MainFrame:OpenGroupMenu('grp:raids')
+    local pages = ns.NavMenu:GetPages()
+    ns.NavMenu:Close()
+    return { first = py > hy, secure = p.GetAttribute ~= nil and p:GetAttribute('type') or false, opened = opened,
+             pinned = pinned, pages = pages, label = ns.MainFrame:GetPageLabel('blessings') }
+"""
+pl = vic.eval_py(PLAN)
+assert pl["first"] is True and pl["secure"] in (False, None) and pl["opened"] is True and pl["pinned"] is True, pl
+pages = [txt(x) for x in pl["pages"]]
+assert "Blessings" not in pages and "Totems" not in pages and pages, pages
+assert txt(pl["label"]) == "Blessings", pl
 assert len(texts(vic)) == before, texts(vic)[before:]
 vic.slash("/dz demo off")
 w.tick(1)
 assert vic.eval("return ns.Totems.shamans.Khaadun ~= nil") is True, "the real raid's shamans are back"
 assert vic.eval("return DisasterZoneTotemBar:IsShown()") is False
+# outside demo mode only my class's planner can be pinned: a warrior none (its pin does nothing), a shaman Totems
+MENU = """
+    ns.MainFrame:Open('home')
+    ns.MainFrame:OpenGroupMenu('grp:raids')
+    local pages = ns.NavMenu:GetPages()
+    ns.NavMenu:Close()
+    ns.MainFrame:Open('totems')
+    local shown = ns.TotemsUI ~= nil and ns.TotemsUI:IsShown() or false
+    if ns.TotemsUI then ns.TotemsUI:Close() end
+    return { pages = pages, shown = shown, tools = ns.MainFrame:GetShownTools() }
+"""
+m = vic.eval_py(MENU)
+assert not any(txt(x) in ("Blessings", "Totems") for x in m["pages"]) and m["shown"] is False and not m["tools"], m
+m = kha.eval_py(MENU)
+pages = [txt(x) for x in m["pages"]]
+assert "Totems" not in pages and "Blessings" not in pages and m["shown"] is True, m
+assert [txt(x) for x in m["tools"]] == ["totems"], m
 
 w.assert_no_errors()
 print(w.report())

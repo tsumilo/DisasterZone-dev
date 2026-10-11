@@ -2,8 +2,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then re
 -- The paladin's buff bar for the Blessings planner (Core/Blessings.lua), shown in a party or raid when I have an aura
 -- or a blessing to give. Two layouts (settings bless.layout, also in the planner's More menu): "vertical" (Rail, a
 -- column) and "horizontal" (Strip, a row) - the same cells in both, only the axis turns. The cells are the theme's
--- faces (UI/BarFace.lua, setting classbar.theme; mockup dev/art/casc/bar_themes/build_themes.py): first my aura (gold
--- = on), Righteous Fury for Protection and Symbols of Kings (its count), a divider, then a cell per class: the
+-- faces (UI/BarFace.lua, setting classbar.theme; mockup dev/art/casc/bar_themes/build_themes.py): first the planner
+-- (a click opens it; it never casts), my aura (gold = on), Righteous Fury for Protection and Symbols of Kings (its
+-- count), a divider, then a cell per class: the
 -- blessing's icon, the time left draining (ring, swipe or bar by theme: calm, red when short), the class in the
 -- corner, a red count of who is missing it. The class to do next lifts out of the line (up in the strip, left in the
 -- rail) in gold, with its time on a chip when nobody is missing it.
@@ -248,16 +249,19 @@ local function Build()
     rf:HookScript("OnLeave", function() GameTooltip:Hide() end)
     frame.rf = rf
 
-    -- Symbols of Kings: the reagent with its count; a click opens the planner
+    -- the planner (the bar's first cell)
+    frame.plan = Face():PlannerCell(frame, "Blessings planner", function()
+        if ns.BlessingsUI then ns.BlessingsUI:Toggle() end
+    end)
+
+    -- Symbols of Kings: the reagent with its count
     local sym = CreateFrame("Button", nil, frame)
     sym:SetSize(34, 34)
     sym.face = Face():New(sym)
-    sym:SetScript("OnClick", function() if ns.BlessingsUI then ns.BlessingsUI:Toggle() end end)
     sym:SetScript("OnEnter", function(self)
         Face():Hover(self.face, true)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine(strformat("%s Symbols of Kings", self.count or 0))
-        GameTooltip:AddLine("Click: the Blessings planner", 0.85, 0.85, 0.85)
         if not B().Setting("locked", true) then GameTooltip:AddLine("Drag the bar to move it.", 0.6, 0.6, 0.6) end
         GameTooltip:Show()
     end)
@@ -502,10 +506,10 @@ local function ApplyChrome()
     frame:EnableMouse(unlocked)
 end
 
--- The cells in order: the header that is shown (aura, Righteous Fury, Symbols), then the classes.
+-- The cells in order: the planner, the header that is shown (aura, Righteous Fury, Symbols), then the classes.
 local function Place(list, axis, theme)
     local cells = {}
-    for _, b in ipairs({ frame.aura, frame.rf, frame.sym }) do
+    for _, b in ipairs({ frame.plan, frame.aura, frame.rf, frame.sym }) do
         if b:IsShown() then cells[#cells + 1] = b end
     end
     local nHead = #cells
@@ -610,6 +614,7 @@ function Bar:Update()
     local n = GetItemCount and GetItemCount(Bl.D.SYMBOL_OF_KINGS) or (p and p.symbols) or 0
     if Bl:IsDemo() and p and p.symbols then n = p.symbols end
     frame.sym.count = n
+    Face():ShowPlanner(frame.plan)
     local low = n < (tonumber(Bl.Setting("symbols", 20)) or 20)
     Face():Set(frame.sym.face, { icon = Bl.D.SYMBOL_ICON, num = tostring(n), tone = low and "warn" or nil,
         numColor = low and { 1, 0.55, 0.47 } or nil })

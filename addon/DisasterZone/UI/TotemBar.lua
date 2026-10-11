@@ -2,8 +2,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/TotemBar.lua", ...) then return
 -- The shaman's totem bar for the Totem planner (Core/Totems.lua), shown in a party or raid when I have totems
 -- planned. It is the Blessings bar's sibling (UI/BlessingsBar.lua): the same faces, themes, motion and two layouts
 -- (setting totems.layout, also in the planner's More menu): "vertical" (Rail, a column) and "horizontal" (Strip, a
--- row) - the same cells in both, only the axis turns (UI/BarFace.lua, setting classbar.theme). First Heroism (gold =
--- ready, a dark swipe while it cools down) and Mana Tide, a divider, then my totems: the icon, the time left draining
+-- row) - the same cells in both, only the axis turns (UI/BarFace.lua, setting classbar.theme). First the planner (a
+-- click opens it; it never casts), Heroism (gold = ready, a dark swipe while it cools down) and Mana Tide, a divider,
+-- then my totems: the icon, the time left draining
 -- (ring, swipe or bar by theme: calm, red when short), the second totem (twist partner or a boss's next phase) in the
 -- corner, a red count of party members out of its range; Earth Shield with its charges, the weapon imbues. The one
 -- thing to do lifts out of the line (up in the strip, left in the rail) in gold with a chip ("drop now").
@@ -167,6 +168,10 @@ local function Build()
         SavePos()
     end)
 
+    -- the planner (the bar's first cell)
+    frame.plan = Face():PlannerCell(frame, "Totem planner", function()
+        if ns.TotemsUI then ns.TotemsUI:Toggle() end
+    end)
     local hero = HeaderIcon("DisasterZoneTotem_hero")
     hero:HookScript("OnEnter", function(self) Bar:HeaderTip(self, "hero") end)
     hero:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -350,10 +355,10 @@ local function SetAttributes(b, p)
     end
 end
 
--- The cells in order: the header that is shown (Heroism, Mana Tide), then the totems.
+-- The cells in order: the planner, the header that is shown (Heroism, Mana Tide), then the totems.
 local function Place(list, axis, theme)
     local cells = {}
-    for _, b in ipairs({ frame.hero, frame.tide }) do
+    for _, b in ipairs({ frame.plan, frame.hero, frame.tide }) do
         if b:IsShown() then cells[#cells + 1] = b end
     end
     local nHead = #cells
@@ -486,6 +491,7 @@ function Bar:UpdateLooks()
     -- header: Heroism (gold = ready; on cooldown it greys and a dark swipe runs over it), Mana Tide the same
     local start, dur = SpellCooldown(frame.hero.spellId or 0)
     if Tm:IsDemo() then start, dur = nil, nil end
+    F:ShowPlanner(frame.plan)
     F:Set(frame.hero.face, { icon = frame.hero.iconPath, desat = start ~= nil, tone = start and "dim" or "on",
         cdStart = start, cdDur = dur })
     F.Aim(frame.hero.face, F:Targets(frame.hero.face, false))

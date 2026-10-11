@@ -61,6 +61,9 @@ ns.CHANGELOG = {
               "The column shows each blessing with the class in its corner, like the row did.",
               "Your aura, Righteous Fury, Symbols of Kings, Heroism and Mana Tide come first, then a line.",
               "What to do next lifts out of the bar toward its note: up in the row, left in the column.",
+              "The bar's first button opens its planner. It never casts anything.",
+              "Symbols of Kings only shows your count now: open the planner with the first button.",
+              "Pin your class's planner to the minimap button: + on the arc, then Blessings or Totems.",
           } },
           { heading = "Themes for the meters", lines = {
               "Pick a look for your damage and threat meters: Flat, Halo, Sigil, Slate, Gilded or Pips.",

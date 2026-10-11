@@ -77,6 +77,7 @@ local function Mix(a, b, t) return a + (b - a) * t end
 local function SetRoundIcon(tex, path)
     if tex.iconKey == "r" .. tostring(path) then return end
     tex.iconKey = "r" .. tostring(path)
+    tex:SetVertexColor(1, 1, 1, 1)
     tex:SetTexture(path)
     tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     if SetPortraitToTexture and type(path) == "string" then
@@ -89,6 +90,7 @@ Face.SetRoundIcon = SetRoundIcon
 local function SetSquareIcon(tex, path)
     if tex.iconKey == "s" .. tostring(path) then return end
     tex.iconKey = "s" .. tostring(path)
+    tex:SetVertexColor(1, 1, 1, 1)
     tex:SetTexture(path)
     tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 end
@@ -161,6 +163,10 @@ function Face:New(row)
     if f.cd.SetUseCircularEdge then f.cd:SetUseCircularEdge(true) end
     f.cd:SetFrameLevel(f:GetFrameLevel() + 1)
     f.icon = f:CreateTexture(nil, "ARTWORK")
+    -- a flat atlas icon (UI.ICON) on a dark face instead of a spell's icon: the cells that open something
+    f.glyph = f:CreateTexture(nil, "ARTWORK", nil, 2)
+    f.glyph:SetVertexColor(0.96, 0.9, 0.72, 0.85)
+    f.glyph:Hide()
     -- a dark swipe over the icon: sigil's spent time, a header's cooldown
     f.cdDark = Cooldown(f)
     f.cdDark:SetFrameLevel(f:GetFrameLevel() + 2)
@@ -283,6 +289,10 @@ function Face:Skin(f, t, axis)
         Centered(f.icon, f, f.iconSize)
     end
     f.cdDark:SetAllPoints(f.icon)
+    local gs = floor(((key == "slate" and H - 10) or (key == "pips" and W - 2) or f.iconSize) * 0.62)
+    f.glyph:ClearAllPoints()
+    f.glyph:SetPoint("CENTER", f.icon, "CENTER")
+    f.glyph:SetSize(gs, gs)
     if f.cdDark.SetSwipeTexture then f.cdDark:SetSwipeTexture(t.round and DISC or WHITE8) end
     if key == "slate" or key == "pips" then
         f.barFill:ClearAllPoints()
@@ -329,14 +339,29 @@ end
 -- What a face shows. st = { icon, desat, alpha (out of reach: lower), cornerClass = "MAGE" | cornerIcon = path,
 -- missing = n, num = text, numColor = { r, g, b }, start, total (the time left runs on its own), frac (0..1, when
 -- there is no clock, e.g. Earth Shield's charges), short (red), tone = "on" (gold: on / ready) | "warn" (red) |
--- "dim" (cooling down: cdStart, cdDur), chip = text (shown while it is the next one) }.
+-- "dim" (cooling down: cdStart, cdDur), chip = text (shown while it is the next one), glyph = a UI.ICON index drawn
+-- flat on a dark face in place of the icon }.
 function Face:Set(f, st)
     st = st or {}
     f.st = st
     local t = f.theme or Face.BY_KEY[Face.DEFAULT]
     local key = t.key
-    if st.icon then
-        if t.round then SetRoundIcon(f.icon, st.icon) else SetSquareIcon(f.icon, st.icon) end
+    if st.glyph then
+        if f.icon.iconKey ~= "glyph" .. tostring(t.round) then
+            f.icon.iconKey = "glyph" .. tostring(t.round)
+            f.icon:SetTexture(t.round and DISC or WHITE8)
+            f.icon:SetTexCoord(0, 1, 0, 1)
+        end
+        f.icon:SetVertexColor(0.09, 0.09, 0.11, 1)
+        local c = UI():IconCoords(st.glyph)
+        f.glyph:SetTexture(UI().ICON_ATLAS)
+        f.glyph:SetTexCoord(c[1], c[2], c[3], c[4])
+        f.glyph:Show()
+    else
+        f.glyph:Hide()
+        if st.icon then
+            if t.round then SetRoundIcon(f.icon, st.icon) else SetSquareIcon(f.icon, st.icon) end
+        end
     end
     f.icon:SetDesaturated(st.desat and true or false)
     f.icon:SetAlpha(st.alpha or 1)
@@ -403,7 +428,10 @@ function Face:Set(f, st)
         if timed then frac = max(0, min(1, (st.start + st.total - GetTime()) / st.total)) end
         if st.tone == "on" then frac = 1 end
         f.frac = frac
-        if frac == nil and not st.tone then
+        -- (no clock and no state, e.g. the planner, Symbols: no bar at all, not an empty one)
+        local none = frac == nil and not st.tone
+        f.barBg:SetShown(not none)
+        if none then
             f.barFill:Hide()
         else
             f.barFill:SetWidth(max(0.5, f.barW * ((frac and frac > 0) and frac or 1)))
@@ -454,6 +482,7 @@ function Face.Apply(f)
     f.glow:SetShown(t.glow > 0)
     f.halo:SetAlpha(0.16 * hover)
     f.halo:SetShown(hover > 0.01)
+    f.glyph:SetAlpha(0.8 + 0.2 * hover)
     -- the chip
     f.label:SetAlpha(hot)
     f.label:SetShown(hot > 0.01 and not f.labelOff)
@@ -576,6 +605,34 @@ function Face:Hover(f, on)
     for k, v in pairs(m.tgt) do t[k] = v end
     t.hover = on and 1 or 0
     Face.Aim(f, t)
+end
+
+-- The first cell of a class tool bar: opens its planner (never casts: a plain button, the flat notes icon). title =
+-- "Blessings planner" ...; open() opens it. The bar places it with its header and calls Face:ShowPlanner(b) on update.
+function Face:PlannerCell(parent, title, open)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(34, 34)
+    b:RegisterForClicks("LeftButtonUp")
+    b.face = self:New(b)
+    b.isPlanner = true
+    b:SetScript("OnClick", function() open() end)
+    b:SetScript("OnEnter", function(self)
+        Face:Hover(self.face, true)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine(title)
+        GameTooltip:AddLine("Click: open it", 0.85, 0.85, 0.85)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function(self)
+        Face:Hover(self.face, false)
+        GameTooltip:Hide()
+    end)
+    return b
+end
+
+function Face:ShowPlanner(b)
+    self:Set(b.face, { glyph = UI().ICON.notes })
+    Face.Aim(b.face, self:Targets(b.face, false))
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
