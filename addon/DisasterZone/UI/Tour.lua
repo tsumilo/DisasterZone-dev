@@ -13,7 +13,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tour.lua", ...) then return end
 --   })
 -- A chapter may have its own host / open / alive (it runs on another window, or needs the window in another state)
 -- and a group = "..." (a heading in the chapter menu, shown where it changes). open and enter run whenever the tour
--- comes into the chapter, from either side.
+-- comes into the chapter, from either side. More (1.3.5, the Welcome tour):
+--       who = function() return bool end,     -- false: the chapter is left out for this player (another role's part)
+--       demo = true,                          -- demo mode is on while the chapter runs (made-up data, nothing sent)
+--       color = { r, g, b }, icon = atlas index,  -- the chapter's colour and icon (the box's kicker, the tour bar)
+-- def.bar = true: a bar along the foot of the host shows the chapters (done, where I am) with Parts and Exit.
+-- def.boxInside = true: the box stays inside the host (beside what is lit when there is room, else bottom right).
+-- Tour:Start(id, chapter, opts): opts.only = { [chapter key] = true } runs only those chapters; opts.peek = true
+-- runs a chapter whatever its who says (looking at another role's part, always on demo data); opts.resume = true
+-- starts the chapter at the step it was left on.
 --   step = {
 --       title = "...", text = "..." | function(ctx),
 --       anchor = function(ctx) return frame, ... end,   -- what is lit (several: the box around them all); no anchor:
@@ -36,7 +44,7 @@ local addonName, ns = ...
 
 local Tour = ns:NewModule("Tour")
 
-local max, min = math.max, math.min
+local max, min, floor = math.max, math.min, math.floor
 
 local BOX_W = 330
 local PAD = 4               -- the lit area is this much larger than the control
@@ -45,6 +53,8 @@ local DIM = 0.62
 local CHECK_EVERY = 0.15    -- seconds between two looks at done() and at where the control is
 local ADVANCE_AFTER = 0.9   -- a step that was done stays this long ("Done!") before the next one
 local GHOST_CYCLE = 2.6
+local BAR_H = 26            -- the tour bar (def.bar)
+local CHECK = "|TInterface\\RAIDFRAME\\ReadyCheck-Ready:11|t "
 
 local function UI() return ns.UI end
 
@@ -52,7 +62,7 @@ local tours, order = {}, {}
 local run                   -- the tour running: { id, def, ci, si, step, ctx, doneAt, t0, moved, review }
 local offer                 -- the "take the tour?" box: { id, def, anchor }
 local offered = {}          -- [id] = offered this session
-local ov, box, cursor
+local ov, box, cursor, bar
 
 ---------------------------------------------------------------------------
 -- Saved progress
@@ -68,6 +78,7 @@ local function saved(id)
         db.tours[id] = t
     end
     if type(t.done) ~= "table" then t.done = {} end
+    if type(t.at) ~= "table" then t.at = {} end
     return t
 end
 
@@ -78,7 +89,7 @@ end
 
 function Tour:Get(id) return tours[id] end
 
--- { seen = was started or turned down, done = { [chapter key] = true } }
+-- { seen = was started or turned down, done = { [chapter key] = true }, at = { [chapter key] = step left on } }
 function Tour:Progress(id) return saved(id) end
 
 function Tour:IsRunning(id)
@@ -232,6 +243,27 @@ local function ensureFrames()
     cursor.labelBg:SetColorTexture(0, 0, 0, 0.8)
     cursor:Hide()
 
+    -- the tour bar (def.bar): a chip per chapter of this run (done / where I am / to come; a click goes there),
+    -- the chapter menu and Exit, along the foot of the host
+    bar = CreateFrame("Frame", "DisasterZoneTourBar", ov)
+    bar:SetFrameLevel(ov:GetFrameLevel() + 20)
+    bar:SetHeight(BAR_H)
+    bar:EnableMouse(true)
+    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+    bar.bg:SetAllPoints()
+    bar.bg:SetColorTexture(0.07, 0.066, 0.06, 0.97)
+    UI():AddEdges(bar)
+    UI():SetEdgeColor(bar, 0.56, 0.45, 0.13, 1)
+    bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    bar.label:SetPoint("LEFT", 10, 0)
+    bar.chips = {}
+    bar.exit = UI():CreateSleekButton(bar, "Exit", 44, 18, function() Tour:Stop() end)
+    bar.exit:SetPoint("RIGHT", -4, 0)
+    tip(bar.exit, "End the tour", "Where you stopped is remembered: Settings > Tutorials goes on from there.")
+    bar.parts = UI():CreateSleekButton(bar, "Parts", 50, 18, function(self) if run then Tour:Menu(self, run.id) end end)
+    bar.parts:SetPoint("RIGHT", bar.exit, "LEFT", -4, 0)
+    bar:Hide()
+
     local acc = 0
     ov:SetScript("OnUpdate", function(_, elapsed)
         Tour:Animate()
@@ -249,18 +281,25 @@ end
 ---------------------------------------------------------------------------
 
 -- The box beside the lit area (l, b, w, h), on the side asked for when it fits there; nil: the middle of the host.
-local function placeBox(l, b, w, h, side, hl, hb, hw, hh)
+-- inside (def.boxInside): the box stays inside the host (above the tour bar), else anywhere on the screen.
+local function placeBox(l, b, w, h, side, hl, hb, hw, hh, inside)
     local sw, sh = screen()
+    -- the area the box may use: x0..x1, y0..y1
+    local x0, y0, x1, y1 = 0, 0, sw, sh
+    if inside then
+        x0, x1, y1 = hl + 6, hl + hw - 6, hb + hh - 6
+        y0 = hb + ((bar and bar:IsShown()) and (BAR_H + 14) or 6)
+    end
     local bw, bh = box:GetWidth() or BOX_W, box:GetHeight() or 120
     local x, y
     if not l then
         x, y = hl + (hw - bw) / 2, hb + (hh - bh) / 2
     else
         local fits = {
-            right = l + w + MARGIN + bw <= sw,
-            left = l - MARGIN - bw >= 0,
-            bottom = b - MARGIN - bh >= 0,
-            top = b + h + MARGIN + bh <= sh,
+            right = l + w + MARGIN + bw <= x1,
+            left = l - MARGIN - bw >= x0,
+            bottom = b - MARGIN - bh >= y0,
+            top = b + h + MARGIN + bh <= y1,
         }
         local pick
         for _, s in ipairs({ side or "right", "right", "left", "bottom", "top" }) do
@@ -273,9 +312,10 @@ local function placeBox(l, b, w, h, side, hl, hb, hw, hh)
         elseif pick == "left" then x, y = l - MARGIN - bw, b + h - bh
         elseif pick == "bottom" then x, y = l, b - MARGIN - bh
         elseif pick == "top" then x, y = l, b + h + MARGIN
+        elseif inside then x, y = x1 - bw - MARGIN, y0 + MARGIN    -- no room around it: the host's bottom right
         else x, y = l + w - bw - MARGIN, b + MARGIN end     -- no room around it: inside, bottom right
     end
-    x, y = max(4, min(sw - bw - 4, x)), max(4, min(sh - bh - 4, y))
+    x, y = max(x0 + 4, min(x1 - bw - 4, x)), max(y0 + 4, min(y1 - bh - 4, y))
     box:ClearAllPoints()
     box:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
 end
@@ -326,12 +366,16 @@ local function layout()
         put(ov.dim[1], hl, hb, hw, hh)
         for i = 2, 4 do ov.dim[i]:Hide() end
     end
+    if bar and bar:IsShown() then
+        bar:ClearAllPoints()
+        bar:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", hl + hw / 2, hb + 8)
+    end
     if not (run and run.moved) then
         if anchor and not l then
             -- the bottom of the host, out of the way
-            placeBox(hl + (hw - BOX_W) / 2, hb + 40, BOX_W, 0, "bottom", hl, hb, hw, hh)
+            placeBox(hl + (hw - BOX_W) / 2, hb + 40, BOX_W, 0, "bottom", hl, hb, hw, hh, view.def.boxInside)
         else
-            placeBox(l, b, w, h, offer and "bottom" or run.step.side, hl, hb, hw, hh)
+            placeBox(l, b, w, h, offer and "bottom" or run.step.side, hl, hb, hw, hh, view.def.boxInside)
         end
     end
 end
@@ -339,7 +383,7 @@ end
 -- The texts and buttons of the box.
 local function paint()
     if not box then return end
-    local chapter, title, text, hint, count, nextText, backText, primary
+    local chapter, title, text, hint, count, nextText, backText, primary, color
     if offer then
         chapter, title = "TUTORIAL", offer.def.offerTitle or ("New to the " .. (offer.def.title or "this window") .. "?")
         text = offer.def.offerText or "Take the guided tour."
@@ -347,24 +391,32 @@ local function paint()
     elseif run then
         local def, step = run.def, run.step
         local ch = def.chapters[run.ci]
-        chapter = ((def.title or "") .. "  \194\183  " .. (ch.title or "")):upper()
+        if ch.color then
+            -- a part of a tour with a bar: the part in its colour (the tour's name is on the bar)
+            color = ch.color
+            chapter = (ch.title or ""):upper() .. (run.peek and "  \194\183  A LOOK AROUND" or "")
+            count = ("Step %d of %d"):format(run.si, #ch.steps)
+        else
+            chapter = ((def.title or "") .. "  \194\183  " .. (ch.title or "")):upper()
+            count = ("%d / %d"):format(run.si, #ch.steps)
+        end
         title = step.title or ""
         text = type(step.text) == "function" and call(step.text, run.ctx) or step.text or ""
-        count = ("%d / %d"):format(run.si, #ch.steps)
-        local lastStep, lastChapter = run.si == #ch.steps, run.ci == #def.chapters
+        local lastStep, lastChapter = run.si == #ch.steps, not Tour:HasAfter(run.ci)
         if step.done and not run.doneAt and not run.review then
             hint = step.hint and ("|cffffd100Your turn:|r " .. step.hint) or nil
             nextText, primary = "Skip step", false
         else
             if run.doneAt then hint = "|cff33ff99Done!|r" end
-            nextText = lastStep and (lastChapter and "Finish" or "Next chapter") or "Next"
+            nextText = lastStep and (lastChapter and "Finish" or (def.bar and "Next part" or "Next chapter")) or "Next"
             primary = true
         end
-        if run.si > 1 or run.ci > 1 then backText = "Back" end
+        if run.si > 1 or Tour:HasBefore(run.ci) then backText = "Back" end
     else
         return
     end
     box.chapter:SetText(chapter or "")
+    if color then box.chapter:SetTextColor(color[1], color[2], color[3]) else box.chapter:SetTextColor(0.5, 0.5, 0.5) end
     box.title:SetText(title or "")
     box.text:SetText(text or "")
     box.hint:SetText(hint or "")
@@ -378,6 +430,7 @@ local function paint()
     local height = 26 + (box.title:GetStringHeight() or 16) + 8 + (box.text:GetStringHeight() or 14)
     if hint then height = height + 10 + (box.hint:GetStringHeight() or 14) end
     box:SetHeight(height + 16 + 22 + 10)
+    Tour:PaintBar()
     layout()
 end
 
@@ -446,6 +499,30 @@ local function chapterIndex(def, chapter)
     return nil
 end
 
+-- Is a chapter part of this run? Not when the run picked others (opts.only), or it is another role's (who) and the
+-- run isn't a look around (peek).
+local function included(r, ci)
+    local ch = r.def.chapters[ci]
+    if not ch then return false end
+    if r.only and not r.only[ch.key] then return false end
+    if ch.who and not r.peek and call(ch.who) ~= true then return false end
+    return true
+end
+
+-- Demo mode while a chapter needs it (ch.demo, or a look around): switched on by the tour, off again when the tour
+-- leaves for a chapter without it or ends. Demo mode the member switched on themselves is left alone.
+local function demoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false end
+local function setDemo(r, want)
+    if not (ns.Demo and ns.Demo.SetEnabled) then return end
+    if want and not demoOn() then
+        ns.Demo:SetEnabled(true)
+        r.demoBy = true
+    elseif not want and r.demoBy then
+        r.demoBy = nil
+        if demoOn() then ns.Demo:SetEnabled(false) end
+    end
+end
+
 -- Goes to a step. dir (1 / -1): where to go on from a step that is left out. Coming into a chapter gets its window
 -- ready first; when that fails the tour ends.
 local function go(ci, si, dir)
@@ -454,59 +531,175 @@ local function go(ci, si, dir)
     while true do
         local ch = def.chapters[ci]
         if not ch then return Tour:Stop(dir > 0) end
-        if run.opened ~= ci then
+        if not included(run, ci) then
+            -- another role's part, or not picked: on to the next (Back before the first: stay)
+            if dir < 0 and not Tour:HasBefore(ci) then return paint() end
+            ci, si = ci + dir, dir > 0 and 1 or "last"
+        elseif run.opened ~= ci then
+            setDemo(run, ch.demo or run.peek)
             local open = ch.open or def.open
             if open and call(open, ci) ~= true then return Tour:Stop() end
             if not run then return end
             run.opened = ci
             call(ch.enter)
         end
-        if si == "last" then si = #ch.steps end
-        local step = ch.steps[si]
-        if step and not (step.skip and call(step.skip) == true) then
-            run.ci, run.si, run.step, run.ctx = ci, si, step, {}
-            run.doneAt, run.moved, run.t0 = nil, nil, GetTime() or 0
-            call(step.enter, run.ctx)
-            -- done already (Back to it, or the member did it before it came up): it reads as a plain step and waits
-            -- for Next, instead of going straight on again
-            run.review = step.done ~= nil and call(step.done, run.ctx) == true
-            return paint()
-        end
-        -- left out, or past the chapter's end
-        si = si + dir
-        if si > #ch.steps then
-            saved(run.id).done[ch.key] = true
-            ci, si = ci + 1, 1
-        elseif si < 1 then
-            if ci == 1 then return end      -- nothing before it: stay
-            ci, si = ci - 1, "last"
+        if run.opened == ci then
+            if si == "last" then si = #ch.steps end
+            local step = ch.steps[si]
+            if step and not (step.skip and call(step.skip) == true) then
+                run.ci, run.si, run.step, run.ctx = ci, si, step, {}
+                run.doneAt, run.moved, run.t0 = nil, nil, GetTime() or 0
+                call(step.enter, run.ctx)
+                -- done already (Back to it, or the member did it before it came up): it reads as a plain step and
+                -- waits for Next, instead of going straight on again
+                run.review = step.done ~= nil and call(step.done, run.ctx) == true
+                return paint()
+            end
+            -- left out, or past the chapter's end
+            si = si + dir
+            if si > #ch.steps then
+                local p = saved(run.id)
+                if not run.peek then p.done[ch.key] = true end
+                p.at[ch.key] = nil
+                ci, si = ci + 1, 1
+            elseif si < 1 then
+                if not Tour:HasBefore(ci) then return paint() end     -- nothing before it: stay
+                ci, si = ci - 1, "last"
+            end
         end
     end
 end
 
--- Starts a tour at a chapter (its index or key; nil: the first one not finished yet, else the first).
-function Tour:Start(id, chapter)
+-- Is there a chapter of the running tour before chapter ci (one this run includes)?
+function Tour:HasBefore(ci)
+    if not run then return false end
+    for i = (ci or run.ci) - 1, 1, -1 do
+        if included(run, i) then return true end
+    end
+    return false
+end
+
+-- Is there a chapter of the running tour after chapter ci (one this run includes)?
+function Tour:HasAfter(ci)
+    if not run then return false end
+    for i = (ci or run.ci) + 1, #run.def.chapters do
+        if included(run, i) then return true end
+    end
+    return false
+end
+
+-- The chapters this run includes, in order (index list): the bar's chips, the Parts menu.
+local function includedList(r)
+    local out = {}
+    for i in ipairs(r.def.chapters) do
+        if included(r, i) then out[#out + 1] = i end
+    end
+    return out
+end
+
+-- The tour bar's chips: done (green, a tick), where I am (its colour, the step), to come (grey).
+function Tour:PaintBar()
+    if not bar then return end
+    if not (run and run.def.bar) then
+        bar:Hide()
+        return
+    end
+    local def, done = run.def, saved(run.id).done
+    bar.label:SetText(((def.title or "") .. (run.peek and " \194\183 a look around" or "")):upper())
+    local x = 10 + (bar.label:GetStringWidth() or 80) + 10
+    local list = includedList(run)
+    for n, ci in ipairs(list) do
+        local ch = def.chapters[ci]
+        local c = bar.chips[n]
+        if not c then
+            c = CreateFrame("Button", nil, bar)
+            c:SetHeight(18)
+            c.bg = c:CreateTexture(nil, "BACKGROUND")
+            c.bg:SetAllPoints()
+            UI():AddEdges(c)
+            c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            c.fs:SetPoint("CENTER")
+            c:SetScript("OnClick", function(self) Tour:Jump(self.ci) end)
+            tip(c, "Go to this part", "From its first step.")
+            bar.chips[n] = c
+        end
+        c.ci = ci
+        local col = ch.color or { 1, 0.82, 0 }
+        local label = ch.title or ch.key
+        if ci == run.ci then
+            c.fs:SetText(label .. "  |cffe6e6e6" .. run.si .. "/" .. #ch.steps .. "|r")
+            c.fs:SetTextColor(col[1], col[2], col[3])
+            c.bg:SetColorTexture(col[1] * 0.18, col[2] * 0.18, col[3] * 0.18, 1)
+            UI():SetEdgeColor(c, col[1], col[2], col[3], 0.9)
+        elseif done[ch.key] and not run.peek then
+            c.fs:SetText(CHECK .. label)
+            c.fs:SetTextColor(0.72, 0.96, 0.76)
+            c.bg:SetColorTexture(0.086, 0.19, 0.11, 1)
+            UI():SetEdgeColor(c, 0.18, 0.42, 0.23, 1)
+        else
+            c.fs:SetText(label)
+            c.fs:SetTextColor(0.55, 0.55, 0.57)
+            c.bg:SetColorTexture(0.09, 0.09, 0.1, 1)
+            UI():SetEdgeColor(c, 0.19, 0.19, 0.21, 1)
+        end
+        c:SetWidth(floor((c.fs:GetStringWidth() or 40) + 18))
+        c:ClearAllPoints()
+        c:SetPoint("LEFT", bar, "LEFT", x, 0)
+        c:Show()
+        x = x + c:GetWidth() + 5
+    end
+    for n = #list + 1, #bar.chips do bar.chips[n]:Hide() end
+    bar:SetWidth(x + 6 + 50 + 4 + 44 + 4)
+    bar:Show()
+end
+
+-- Goes to another chapter of the running tour (the bar's chips), at its first step.
+function Tour:Jump(ci)
+    if not run or not included(run, ci) or ci == run.ci then return end
+    local r = run
+    if r.si > 1 then saved(r.id).at[r.def.chapters[r.ci].key] = r.si end
+    go(ci, 1, 1)
+end
+
+-- Starts a tour at a chapter (its index or key; nil: the first one not finished yet, else the first). opts: see the
+-- top of the file (only, peek, resume).
+function Tour:Start(id, chapter, opts)
     local def = tours[id]
     if not def then return false end
     if run then self:Stop() end
     offer = nil
+    opts = type(opts) == "table" and opts or {}
     local progress = saved(id)
+    local r = { id = id, def = def, only = opts.only, peek = opts.peek and true or nil }
     local ci = chapterIndex(def, chapter)
+    if ci and not included(r, ci) then return false end
     if not ci then
-        ci = 1
         for i, ch in ipairs(def.chapters) do
-            if not progress.done[ch.key] then
+            if included(r, i) and not progress.done[ch.key] then
                 ci = i
                 break
             end
         end
+        if not ci then
+            for i in ipairs(def.chapters) do
+                if included(r, i) then
+                    ci = i
+                    break
+                end
+            end
+        end
     end
+    if not ci then return false end
+    local si = 1
+    local at = opts.resume and progress.at[def.chapters[ci].key]
+    if at and def.chapters[ci].steps[at] then si = at end
     ensureFrames()
-    run = { id = id, def = def }
-    go(ci, 1)
+    run = r
+    go(ci, si)
     if not run then return false end
     progress.seen = true
     ov:Show()
+    paint()
     return true
 end
 
@@ -515,9 +708,17 @@ function Tour:Stop(finished)
     run, offer = nil, nil
     if ov then ov:Hide() end
     if cursor then cursor:Hide() end
+    if bar then bar:Hide() end
     if r then
+        -- where an unfinished part was left (Settings > Tutorials goes on from there)
+        local ch = r.ci and r.def.chapters[r.ci]
+        if ch and not finished and not r.peek then
+            saved(r.id).at[ch.key] = r.si > 1 and r.si or nil
+        end
+        setDemo(r, false)
         call(r.def.close, finished and true or false)
         if finished and not r.def.quiet then ns:Print("Tutorial finished: %s.", r.def.title or r.id) end
+        ns:Fire("TOUR_CHANGED", r.id)
     end
 end
 
@@ -535,7 +736,7 @@ function Tour:Back()
         return
     end
     if not run then return end
-    if run.si > 1 or run.ci > 1 then go(run.ci, run.si - 1, -1) end
+    if run.si > 1 or self:HasBefore(run.ci) then go(run.ci, run.si - 1, -1) end
 end
 
 -- Looks at the step: has the member done it, is its window still there, has the control moved.
@@ -585,19 +786,27 @@ function Tour:BuildMenu(root, id)
     local def = tours[id]
     if not def then return end
     local done = saved(id).done
-    local group
+    -- the running tour's own chapters (its picks, a look around); else the ones for my roles
+    local r = (run and run.id == id) and run or { def = def }
+    local group, n = nil, 0
     for i, ch in ipairs(def.chapters) do
-        if ch.group and ch.group ~= group then
-            group = ch.group
-            root:CreateTitle("|cff808080" .. (def.menuGroups and def.menuGroups[group] or group) .. "|r")
+        if included(r, i) then
+            if ch.group and ch.group ~= group then
+                group = ch.group
+                root:CreateTitle("|cff808080" .. (def.menuGroups and def.menuGroups[group] or group) .. "|r")
+            end
+            n = n + 1
+            local label = ("%d. %s%s"):format(n, ch.title, done[ch.key] and "  |cff33ff99done|r" or "")
+            if r == run then
+                root:CreateButton(label, function() Tour:Jump(i) end)
+            else
+                root:CreateButton(label, function() Tour:Start(id, i) end)
+            end
         end
-        root:CreateButton(("%d. %s%s"):format(i, ch.title, done[ch.key] and "  |cff33ff99done|r" or ""), function()
-            Tour:Start(id, i)
-        end)
     end
     if run and run.id == id then
         root:CreateDivider()
-        root:CreateButton("End the tutorial", function() Tour:Stop() end)
+        root:CreateButton(def.bar and "End the tour" or "End the tutorial", function() Tour:Stop() end)
     end
 end
 
@@ -605,9 +814,16 @@ function Tour:Menu(owner, id)
     local def = tours[id]
     if not def then return end
     UI():ContextMenu(owner, function(root)
-        root:CreateTitle((def.title or id) .. " tutorial")
+        root:CreateTitle(def.menuTitle or ((def.title or id) .. " tutorial"))
         Tour:BuildMenu(root, id)
     end)
+end
+
+-- Would this chapter run for me now (not another role's)? id, chapter key.
+function Tour:IsForMe(id, key)
+    local def = tours[id]
+    local ci = def and chapterIndex(def, key)
+    return ci ~= nil and included({ def = def }, ci)
 end
 
 -- What is on the screen (for tests): nil when nothing is.
@@ -615,8 +831,11 @@ function Tour:GetState()
     if offer then return { offer = offer.id } end
     if not run then return nil end
     local ch = run.def.chapters[run.ci]
+    local parts = {}
+    for _, i in ipairs(includedList(run)) do parts[#parts + 1] = run.def.chapters[i].key end
     return { id = run.id, chapter = ch.key, ci = run.ci, si = run.si, steps = #ch.steps, title = run.step.title,
              interactive = run.step.done ~= nil, done = run.doneAt ~= nil, review = run.review == true,
              lit = run.step.anchor ~= nil and unionRect(call(run.step.anchor, run.ctx)) ~= nil,
-             anchored = run.step.anchor ~= nil }
+             anchored = run.step.anchor ~= nil, parts = parts, peek = run.peek == true,
+             demo = run.demoBy == true, bar = bar ~= nil and bar:IsShown() }
 end

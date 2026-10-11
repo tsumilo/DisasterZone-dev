@@ -167,6 +167,13 @@ def close_all(cl):
       if ns.SwingPractice and ns.SwingPractice.run then pcall(ns.SwingPractice.Stop, ns.SwingPractice, 'closed') end
       if DisasterZoneSwingPractice then DisasterZoneSwingPractice:Hide() end
       if ns.NavMenu and ns.NavMenu.Close then pcall(ns.NavMenu.Close, ns.NavMenu) end
+      if ns.Tour and ns.Tour.IsRunning and ns.Tour:IsRunning() then pcall(ns.Tour.Stop, ns.Tour) end
+      for o in pairs(__tourRects or {}) do
+        o.GetLeft, o.GetBottom, o.GetWidth, o.GetHeight = nil, nil, nil, nil
+      end
+      __tourRects = nil
+      if DisasterZoneWelcomeOffer then DisasterZoneWelcomeOffer:Hide() end
+      if ns.WelcomeTour then ns.WelcomeTour.Progress().seen = true end
       if ns.EventBuilder and ns.EventBuilder.StopPractice then pcall(ns.EventBuilder.StopPractice, ns.EventBuilder) end
       if ns.EventLive and ns.EventLive.StopPractice then pcall(ns.EventLive.StopPractice, ns.EventLive) end
       if ns.EventTracker and ns.EventTracker.Hide then pcall(ns.EventTracker.Hide, ns.EventTracker) end
@@ -276,6 +283,45 @@ def opened(key, lua=None):
         if lua:
             w.tick(0.3)
             g.eval(lua, *[IDS.get(k) for k in ("occ", "strat", "team", "ssc")])
+        return g
+    return fn
+
+
+def tour_view(key, lua):
+    """A tutorial step (UI/Tour.lua) on Gina's window: the mock's frames have no real positions (GetLeft is 0), so
+    the audit's own layout is handed to the frames on screen (GetLeft / GetBottom / GetWidth / GetHeight, cleared again
+    by close_all) and the tour looks again: its dimming, gold frame, box and bar land where the game puts them."""
+    def fn(w, c):
+        import ui_audit as A
+        g = opened(key, lua)(w, c)
+        w.tick(0.5)
+        regs, ui = A.capture(g)
+        lay = A.Layout(regs, ui)
+        out = []
+        for seq, r in regs.items():
+            if r["kind"] in ("FontString", "Texture", "MaskTexture") or not r["vis"]:
+                continue
+            rc = lay.rect(seq)
+            if rc:
+                out.append("%d,%.2f,%.2f,%.2f,%.2f" % ((seq,) + tuple(rc)))
+        g.eval("""
+          local M, data = __MOCK, ...
+          local by = {}
+          for _, o in ipairs(M.all_objects) do local st = M.OBJ[o]; if st then by[st.seq] = o end end
+          __tourRects = {}
+          for seq, l, b, w, h in data:gmatch("(%d+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+)") do
+            local o = by[tonumber(seq)]
+            if o then
+              l, b, w, h = tonumber(l), tonumber(b), tonumber(w), tonumber(h)
+              o.GetLeft = function() return l end
+              o.GetBottom = function() return b end
+              o.GetWidth = function() return w end
+              o.GetHeight = function() return h end
+              __tourRects[o] = true
+            end
+          end
+          ns.Tour:Tick()""", ";".join(out))
+        w.tick(0.2)
         return g
     return fn
 
@@ -1622,6 +1668,17 @@ STATES = [
         "ns.SettingsUI:SelectSection('attendance'); ns.SettingsUI:Refresh()")),
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
+    # the Welcome tour (UI/WelcomeTour.lua, Data/Tours/Welcome.lua): the one-time offer as the GM (every part), a
+    # step of Everyone on Home, a council step on demo data, the GM's last step (the set-up checklist), Settings >
+    # Tutorials
+    ("Welcome - offer", opened("home", "ns.WelcomeTour:OpenOffer()")),
+    ("Welcome - Everyone step", tour_view("home", "ns.WelcomeTour:Start(nil); ns.Tour:Next()")),
+    ("Welcome - menus step", tour_view("home", "ns.WelcomeTour:Start(nil); for i = 1, 4 do ns.Tour:Next() end")),
+    ("Welcome - council step", tour_view("home", "ns.WelcomeTour:StartPart('council'); ns.Tour:Next()")),
+    ("Welcome - leader step", tour_view("home", "ns.WelcomeTour:StartPart('leader')")),
+    ("Welcome - GM checklist", tour_view("home", "ns.WelcomeTour:StartPart('gm'); "
+                                         "for i = 1, 4 do ns.Tour:Next() end")),
+    ("Settings - Tutorials", opened("settings", "ns.SettingsUI:SelectSection('tutorials')")),
     ("Changelog", opened("changelog")),
     ("Changelog - since your last visit", opened("changelog", "ns.ChangelogUI.ResetSession(); "
                                           "ns.db.settings.changelogSeen = '1.3.1'; ns.ChangelogUI:Select('since')")),

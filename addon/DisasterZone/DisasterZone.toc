@@ -162,6 +162,8 @@ UI\Share.lua
 UI\ShareWindow.lua
 UI\Tour.lua
 Data\Tours\Strategy.lua
+Data\Tours\Welcome.lua
+UI\WelcomeTour.lua
 UI\DatePicker.lua
 UI\MainFrame.lua
 UI\NavMenu.lua

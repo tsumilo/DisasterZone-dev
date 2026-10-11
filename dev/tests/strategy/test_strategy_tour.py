@@ -500,7 +500,8 @@ def back_and_the_chapter_menu():
     # the progress survives a reload
     bob.relog()
     w.tick(1)
-    assert bob.eval_py("return %s:Progress('strategy')" % T) == {"seen": True, "done": {"basics": True}}
+    p = bob.eval_py("local p = %s:Progress('strategy'); return { seen = p.seen, done = p.done }" % T)
+    assert p == {"seen": True, "done": {"basics": True}}, p
     w.assert_no_errors()
 
 

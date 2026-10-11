@@ -47,6 +47,8 @@ local SECTIONS = {
     { key = "council", label = "Loot Council" },
     -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
     { key = "attendance", label = "Attendance" },
+    -- the Welcome tour's parts, the strategy board's tutorial, the GM's set-up checklist (UI/WelcomeTour.lua)
+    { key = "tutorials", label = "Tutorials" },
     { key = "demo", label = "Demo mode" },
     { key = "about", label = "About" },
 }
@@ -283,7 +285,8 @@ function SettingsUI:OnInit()
     local function changed() SettingsUI:RequestRefresh() end
     for _, msg in ipairs({ "SETTINGS_CHANGED", "CONFIG_UPDATED", "ROSTER_UPDATED", "PEERS_UPDATED",
                            "DEMO_TOGGLED", "SYNC_STATUS", "DUNGEON_MODE_CHANGED", "GROUP_UPDATED",
-                           "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED", "ATTENDANCE_RULES_CHANGED" }) do
+                           "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED", "ATTENDANCE_RULES_CHANGED",
+                           "TOUR_CHANGED", "LOOT_RULES_CHANGED", "RAIDPLAN_CHANGED" }) do
         ns:On(msg, changed)
     end
 end
@@ -1185,6 +1188,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
     self:BuildAttendance(self.sections.attendance)
+    self:BuildTutorials(self.sections.tutorials)
     self:BuildDemo(self.sections.demo)
     self:BuildAbout(self.sections.about)
 
@@ -1833,6 +1837,153 @@ function SettingsUI:BuildMeters(sec)
     }
 end
 
+-- Tutorials (1.3.5): the Welcome tour's parts for my roles (done / where I stopped / not started, with Start, Go on
+-- or Again), a look at the other roles' parts on demo data, the strategy board's tutorial, new-role offers on or off,
+-- and for the Guild Master the set-up checklist (each open item opens its page). Rows are made once and laid out
+-- again on every refresh (my roles can change).
+local TUT_BTN_W = 86
+
+function SettingsUI:BuildTutorials(sec)
+    local W = ns.WelcomeTour
+    sec.y = sec.y - 4
+    local sub = self:Subtitle(sec)
+    sub:SetText("Short tours on the real windows. Nothing you do in one is sent to the guild.")
+    sec.top = sec.y
+    local t = { parts = {}, setup = {} }
+    self.tut = t
+    local function rowWithButton(title, label, onClick)
+        local row = self:Row(sec, title, " ")
+        local b = ns.UI:CreateButton(row, label, TUT_BTN_W, 22, onClick)
+        b:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.btn = b
+        PlaceText(row, TUT_BTN_W)
+        return row
+    end
+    for _, key in ipairs(W and W.ORDER or {}) do
+        t.parts[key] = rowWithButton(W.PARTS[key].label, "Start", function()
+            if ns.WelcomeTour then ns.WelcomeTour:StartPart(key) end
+        end)
+    end
+    t.peek = rowWithButton("Other roles", "Look around", function(b) SettingsUI:OpenTourPeekMenu(b) end)
+    t.strategy = rowWithButton("Strategy board", "Open", function()
+        local T = ns.Tour
+        if not (T and T:Start("strategy")) then ns:Print("Open Raids > Strategies to start the strategy board's tutorial.") end
+    end)
+    local _, offers = self:Switch(sec, "Offer a part when I get a new role",
+        "Once per role: when you become an officer, a raid leader or join the guild council.",
+        function() return ns.WelcomeTour and ns.WelcomeTour:RoleOffersOn() or false end,
+        function(a, b) if ns.WelcomeTour then ns.WelcomeTour:SetRoleOffers(Bool(a, b)) end end)
+    t.offers = offers
+    -- the GM's checklist
+    t.setupHead = self:Row(sec, "Set up your guild", " ")
+    t.setupHead.title:SetTextColor(1, 0.82, 0)
+    local hide = ns.UI:CreateSwitch(t.setupHead,
+        function() return not (ns.WelcomeTour and ns.WelcomeTour:IsSetupHidden()) end,
+        function(a, b) if ns.WelcomeTour then ns.WelcomeTour:SetSetupHidden(not Bool(a, b)) end end)
+    hide:SetPoint("RIGHT", t.setupHead, "RIGHT", 0, 0)
+    t.setupHead.control = hide
+    self.refreshers[#self.refreshers + 1] = hide
+    PlaceText(t.setupHead, SWITCH_W)
+    AddTooltip(hide, "On Home", "A chip on Home says how much is left, until it is all done.")
+    for i = 1, 5 do
+        t.setup[i] = rowWithButton("", "Open", function(b)
+            local it = b:GetParent().item
+            if it and it.open then it.open() end
+        end)
+    end
+    self:EndSection(sec)
+end
+
+-- Scrolls Settings > Tutorials so the GM's checklist is in view (the Welcome tour's last GM step); returns the rows.
+function SettingsUI:ShowSetupChecklist()
+    self:SelectSection("tutorials")
+    self:Refresh()
+    local t = self.tut
+    if not (t and t.setupHead and t.setupHead:IsShown()) then return nil end
+    if self.scroll and t.setupHead.y then self.scroll:SetVerticalScroll(max(0, -t.setupHead.y - 8)) end
+    return t.setupHead, t.setup
+end
+
+-- The other roles' parts, to look at on demo data.
+function SettingsUI:OpenTourPeekMenu(owner)
+    local W = ns.WelcomeTour
+    if not W then return end
+    local mine = W:Roles()
+    ns.UI:ContextMenu(owner, function(root)
+        root:CreateTitle("A look around, on demo data")
+        for _, key in ipairs(W.ORDER) do
+            if not mine[key] then
+                root:CreateButton(W.PARTS[key].label, function() W:StartPart(key, true) end)
+            end
+        end
+    end)
+end
+
+function SettingsUI:RefreshTutorials()
+    local t, sec, W = self.tut, self.sections and self.sections.tutorials, ns.WelcomeTour
+    if not (t and sec and W) then return end
+    local y = sec.top
+    local function put(row, on)
+        row:SetShown(on)
+        if not on then return end
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, y)
+        row:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, y)
+        row.y = y
+        if row.line then row.line:Show() end
+        y = y - ROW_H
+    end
+    local mine, others = W:Roles(), 0
+    for _, key in ipairs(W.ORDER) do
+        local row = t.parts[key]
+        local state, n, steps = W:PartState(key)
+        if state == "done" then
+            row.desc:SetText("|cff5fe07aDone|r" .. Grey(" · " .. steps .. " steps"))
+            row.btn:SetText("Again")
+        elseif state == "at" then
+            row.desc:SetText(format("|cffffd100Step %d of %d|r", n, steps) .. Grey(" · " .. W.PARTS[key].line))
+            row.btn:SetText("Go on")
+        else
+            row.desc:SetText(Grey(W.PARTS[key].line))
+            row.btn:SetText("Start")
+        end
+        local c = W.PARTS[key].color
+        row.title:SetTextColor(c[1], c[2], c[3])
+        put(row, mine[key] == true)
+        if not mine[key] then others = others + 1 end
+    end
+    t.peek.desc:SetText(Grey("What the other roles see and do, on demo data. Nothing changes."))
+    put(t.peek, others > 0)
+    local S, p = ns.Tour, ns.Tour and ns.Tour:Progress("strategy")
+    local def = S and S:Get("strategy")
+    local total, done = def and #def.chapters or 0, 0
+    for _ in pairs(p and p.done or {}) do done = done + 1 end
+    t.strategy.desc:SetText(Grey(format("%d chapters on a practice board: drawing, the room in 3D, jobs, reading a plan"
+        .. " · %d done", total, done)))
+    put(t.strategy, def ~= nil)
+    put(t.offers, true)
+    local gm = mine.gm == true
+    local list = gm and W:Checklist() or {}
+    local n = 0
+    for _, it in ipairs(list) do if it.done then n = n + 1 end end
+    t.setupHead.desc:SetText(Grey(format("%d of %d done · shown on Home until then", n, #list)))
+    y = y - 10
+    put(t.setupHead, gm)
+    for i, row in ipairs(t.setup) do
+        local it = list[i]
+        row.item = it
+        if it then
+            row.title:SetText((it.done and "|TInterface\\RAIDFRAME\\ReadyCheck-Ready:14|t " or "") .. it.label)
+            row.title:SetTextColor(it.done and 0.62 or 1, it.done and 0.62 or 1, it.done and 0.62 or 1)
+            row.desc:SetText(Grey(it.sub or ""))
+            row.btn:SetShown(not it.done)
+            row.btn:SetText(it.where or "Open")
+        end
+        put(row, it ~= nil)
+    end
+    sec.height = -y + 8
+end
+
 function SettingsUI:BuildDemo(sec)
     sec.y = sec.y - 4
     self:Switch(sec, "Demo data", "Fake guild members and a raid to try the council views solo. Never saved or sent.",
@@ -2452,5 +2603,6 @@ function SettingsUI:Refresh()
     self:RefreshDungeon()
     self:RefreshCouncil()
     self:RefreshAttendance()
+    self:RefreshTutorials()
     self:FitChild()
 end

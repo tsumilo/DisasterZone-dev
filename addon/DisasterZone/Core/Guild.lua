@@ -1606,6 +1606,12 @@ function Guild:GetAttendanceRules()
     return ar or { o = Guild.ATTENDANCE_RULES.o, d = Guild.ATTENDANCE_RULES.d }
 end
 
+-- Who set the attendance rules last (key), or nil while they are the defaults (the GM's set-up checklist).
+function Guild:GetAttendanceRulesBy()
+    local rec = LeadersRec(false)
+    return rec and rec.ar and rec.arBy or nil
+end
+
 -- The GM only: sets the attendance rules (minutes, 0..60) and shares them with the raid leaders list. Returns ok, err.
 function Guild:SetAttendanceRules(o, d)
     if not ns.loggedIn or not IsInGuild() then return false, "not in a guild" end

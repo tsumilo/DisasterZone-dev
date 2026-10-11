@@ -80,6 +80,7 @@ def fill_store(c, occ, key):
 @case
 def long_names_fit_every_view():
     w, (g,) = guild(["Gina"], tick=3, metrics=True)
+    g.eval("ns.WelcomeTour.Progress().seen = true")      # no Welcome tour offer over the views
     long_lua = """d.name = '%s'
         for _, bd in pairs(d.badges) do bd.n = 'Giant slayer of the Ring of Blood' end
         for i, s in ipairs(d.stages) do s.name = 'Stage with a long name ' .. i end""" % LONG
