@@ -10,7 +10,8 @@ changed since its last run (a failed suite with unchanged inputs is reported fai
   - an addon Lua file changed (diffed against the exact version the suite ran, kept in dev/.testmap/src/<sha1>.lua)
     in the own code of a function the suite called (a change inside a nested function counts for that function, not
     the one around it); in a data table `ns.X.Name = {...}` and the suite called a function that reads `.Name`; or
-    in other top-level code (runs every suite that loaded the file). Comment-only and blank lines don't count. A
+    in other top-level code (runs every suite that loaded the file; a top-level for/while/do/if block that only fills
+    tables counts like a data-table change of the fields it writes). Comment-only and blank lines don't count. A
     function that is only added changes nothing by itself: what calls it changed too, or the test that calls it.
 
 Not seen by the selection: the date and time, randomness, environment variables and files outside dev/ and the addon
@@ -91,19 +92,27 @@ def cached_result(task_name):
 
 def finish(task_name, rc, started=None, summary="", fails=(), out=""):
     """Merges the parts the suite's processes wrote into its record, with the exit code and its result lines (a suite
-    that failed and whose inputs did not change is reported from these instead of run again). A file it read that
-    changed while it ran (another agent's edit) leaves it without a record, so it runs again next time."""
+    that failed and whose inputs did not change is reported from these instead of run again). Files and listings are
+    hashed when the suite first read them (tools/testmap_rec.py), so an edit made while it ran (another agent's) is
+    just a change the next selection sees. Only a run that cannot prove what it read (a process flagged its part
+    stale, or two processes saw different versions of one file) keeps the previous record instead: still a true
+    account of the run before, and the inputs differ from it, so the suite runs again next time."""
     base = cover_base(task_name)
     data = {"files": {}, "dirs": {}, "lua": {}, "funcs": {}}
     parts = sorted(glob.glob(base + ".*.part"))
+    stale = False
     for p in parts:
         try:
             with open(p, encoding="utf-8") as fh:
                 d = json.load(fh)
         except (OSError, ValueError):
             continue
+        stale = stale or bool(d.get("stale"))
         for k in ("files", "dirs", "lua"):
-            data[k].update(d.get(k) or {})
+            for key, h in (d.get(k) or {}).items():
+                if key in data[k] and data[k][key] != h:
+                    stale = True
+                data[k][key] = h
         for rel, lines in (d.get("funcs") or {}).items():
             data["funcs"][rel] = sorted(set(data["funcs"].get(rel, [])) | set(lines))
     for p in parts:
@@ -111,17 +120,9 @@ def finish(task_name, rc, started=None, summary="", fails=(), out=""):
             os.remove(p)
         except OSError:
             pass
-    stale = False
-    if started is not None:
-        for key in list(data["files"]) + list(data["dirs"]):
-            try:
-                if os.path.getmtime(rec.path_of(key)) >= started - 1:
-                    stale = True
-                    break
-            except OSError:
-                stale = True
-                break
-    if not parts or stale or rc == -1:  # wrote nothing, ran on a moving target or timed out: runs next time
+    if stale and rc != -1:
+        return
+    if not parts or stale or rc == -1:  # wrote nothing or timed out: runs next time
         try:
             os.remove(base)
         except OSError:
@@ -242,7 +243,18 @@ def changes(old_sha, rel):
             d = _defined_name(lines, k)
             text = lines[k].strip()[:80].decode("utf-8", "replace")
             if d is None:
-                return ("top", k + 1, text)
+                eff = _block_effects(lines, k)
+                if eff is None:
+                    return ("top", k + 1, text)
+                # a top-level loop / do / if block that only fills tables: like a data-table change of what it writes
+                fields, others = eff
+                names.update(("field", n) for n in fields)
+                for n in others:
+                    if _is_file_local(lines, n):
+                        local_at.setdefault(n, (k + 1, text))
+                    else:
+                        names.add(("global", n))
+                return None
             if d[0] != "local":
                 names.update((d[0], n) for n in d[1])
             else:
@@ -288,6 +300,143 @@ def changes(old_sha, rel):
 
 
 _ASSIGN = re.compile(rb"^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s*=[^=]")
+_FIELD_PATH = rb"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+"
+_MULTI = re.compile(rb"^(" + _FIELD_PATH + rb"(?:\s*,\s*" + _FIELD_PATH + rb")+)\s*=[^=]")  # `a.X, a.Y = 1, 2`
+
+
+def _strip(line, keep_strings=False):
+    """line without its comment, and with string contents removed unless keep_strings (quotes stay)."""
+    out, i, n, q = bytearray(), 0, len(line), None
+    while i < n:
+        c = line[i:i + 1]
+        if q:
+            if c == b"\\":
+                if keep_strings:
+                    out += line[i:i + 2]
+                i += 2
+                continue
+            if c == q:
+                q = None
+                out += c
+            elif keep_strings:
+                out += c
+            i += 1
+            continue
+        if c in (b'"', b"'"):
+            q = c
+            out += c
+        elif line[i:i + 2] == b"--":
+            break
+        else:
+            out += c
+        i += 1
+    return bytes(out)
+
+
+_KEYWORDS = {b"if", b"elseif", b"while", b"for", b"and", b"or", b"not", b"return", b"function", b"local", b"until",
+             b"in", b"then", b"do", b"end", b"else", b"repeat"}
+# calls a top-level block may make and still count as "only fills tables": no side effects outside their arguments
+_PURE = {b"pairs", b"ipairs", b"next", b"type", b"tostring", b"tonumber", b"select", b"unpack", b"rawget",
+         b"rawequal", b"assert", b"format", b"floor", b"ceil", b"min", b"max", b"abs", b"sqrt", b"strsub",
+         b"strlower", b"strupper", b"strlen", b"strfind", b"strmatch", b"gsub", b"strrep", b"strbyte", b"strchar",
+         b"tconcat", b"table.concat", b"table.getn"}
+_PURE_PREFIX = (b"math.", b"string.", b"bit.")
+_PURE_METHODS = {b"format", b"gsub", b"sub", b"upper", b"lower", b"match", b"find", b"len", b"rep", b"byte",
+                 b"gmatch"}
+# calls that change only the table given as their first argument
+_MUTATE_ARG = {b"table.insert", b"tinsert", b"table.remove", b"tremove", b"table.sort", b"sort", b"wipe",
+               b"setmetatable", b"rawset"}
+_CALL = re.compile(rb"([A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*)\s*\(")
+_TARGET = re.compile(rb"(?<![\w.:\]])([A-Za-z_][A-Za-z0-9_]*)((?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]]*\])*)\s*=(?!=)")
+_OPENERS = re.compile(rb"\b(do|if|function|repeat)\b")
+_CLOSERS = re.compile(rb"\b(end|until)\b")
+_HEADER = re.compile(rb"^(for|while|do|if)\b")
+
+
+def _block_effects(lines, k):
+    """For a change on line k inside a top-level `for`/`while`/`do`/`if` block that only fills tables: (fields written,
+    other names written). None when line k is not in such a block, or the block calls anything that could have other
+    effects (a function of the addon or the game, a frame method ...): then it counts as top-level code."""
+    start = None
+    for i in range(k, -1, -1):
+        line = lines[i]
+        s = line.strip()
+        if not s or s.startswith(b"--"):
+            continue
+        if line[:1] in (b" ", b"\t") or line.startswith((b"}", b")", b"]")):
+            continue
+        if re.match(rb"(else|elseif)\b", line) or (i == k and re.match(rb"end\b", line)):
+            continue
+        if _HEADER.match(line):
+            start = i
+        break
+    if start is None:
+        return None
+    depth, end = 0, None
+    for i in range(start, len(lines)):
+        t = _strip(lines[i])
+        depth += len(_OPENERS.findall(t)) - len(_CLOSERS.findall(t))
+        if depth <= 0:
+            end = i
+            break
+    if end is None or end < k:
+        return None
+    text = b"\n".join(_strip(lines[i]) for i in range(start, end + 1))
+    if re.search(rb"[\)\]]\s*\(", text) or re.search(rb"\bfunction\b", text):
+        return None  # a call through an expression, or a function made at load time: can't tell what it does
+    declared = set()
+    for m in re.finditer(rb"\blocal\s+([A-Za-z_][\w\s,]*)", text):
+        declared.update(x.strip() for x in m.group(1).split(b",") if x.strip())
+    for m in re.finditer(rb"\bfor\s+([A-Za-z_][\w\s,]*?)\s*(?:=|\bin\b)", text):
+        declared.update(x.strip() for x in m.group(1).split(b",") if x.strip())
+    fields, others = set(), set()
+
+    def write(root, path):
+        named = re.findall(rb"\.([A-Za-z_][A-Za-z0-9_]*)", path)
+        if root in declared:
+            return not path  # writing into a table through a block local: can't tell which table
+        if named:
+            # every field on the way: `UI.TAG_LOOK.live = x` is also read as TAG_LOOK[kind]
+            fields.update(f.decode("ascii") for f in named)
+        else:
+            others.add(root.decode("ascii"))
+        return True
+
+    for m in _CALL.finditer(text):
+        name = m.group(1)
+        if name in _KEYWORDS:
+            continue
+        if b":" in name:
+            if name.rsplit(b":", 1)[1] in _PURE_METHODS:
+                continue
+            return None
+        if name in _PURE or name.startswith(_PURE_PREFIX):
+            continue
+        if name in _MUTATE_ARG:
+            arg = re.match(rb"\s*([A-Za-z_][A-Za-z0-9_]*)((?:\.[A-Za-z_][A-Za-z0-9_]*)*)", text[m.end():])
+            if not arg or not write(arg.group(1), arg.group(2)):
+                return None
+            continue
+        return None
+    # table constructors don't write anything: drop their contents before looking for assignments
+    flat = text
+    while True:
+        nxt = re.sub(rb"\{[^{}]*\}", b"{}", flat)
+        if nxt == flat:
+            break
+        flat = nxt
+    for m in _TARGET.finditer(flat):
+        root, path = m.group(1), m.group(2)
+        if root in _KEYWORDS:
+            continue
+        if not write(root, path):
+            return None
+    return fields, others
+
+
+def _is_file_local(lines, name):
+    pat = re.compile(rb"^local\s+(?!function\b)[\w\s,]*\b" + re.escape(name.encode()) + rb"\b")
+    return any(pat.match(l) for l in lines)
 _GLOBAL = re.compile(rb"^([A-Za-z_][A-Za-z0-9_]*)\s*=[^=]")
 _LOCAL = re.compile(rb"^local\s+(?!function\b)([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*(?:=|$|--)")
 
@@ -303,6 +452,9 @@ def _defined_name(lines, k):
             continue  # blank or comment
         if line[:1] in (b" ", b"\t") or line.startswith((b"}", b")", b"]")):
             continue  # inside a statement that starts further up
+        m = _MULTI.match(line)
+        if m:
+            return "field", tuple(t.strip().rsplit(b".", 1)[1].decode("ascii") for t in m.group(1).split(b","))
         m = _ASSIGN.match(line)
         if m:
             return "field", (m.group(1).rsplit(b".", 1)[1].decode("ascii"),)
@@ -342,7 +494,8 @@ def mentions(sha, scope, name):
             lines = src.split(b"\n")
             own = _owners(ranges, len(lines))
             for i, line in enumerate(lines):
-                if pat.search(line) and not line.lstrip().startswith(b"--"):
+                # a field is read as `.name` or `["name"]` (keep strings); a local only as code (not in "a string")
+                if pat.search(_strip(line, keep_strings=(scope == "field"))):
                     if own[i + 1]:
                         funcs.add(own[i + 1])
                     else:
