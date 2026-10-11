@@ -89,11 +89,24 @@ function H.Width(fs)
 end
 
 -- Sets the text, a size smaller each time it does not fit width (down to minSize). True when it fits.
+-- (The sizes are the type scale's; a minSize under the scale's smallest step is still tried as it is, last: a dense
+-- bracket's names shrink to the room rather than being cut.)
 function H.Fit(fs, text, width, size, minSize)
     fs:SetText(text or "")
     size = size or 12
-    for s = size, minSize or size, -1 do
-        H.Sized(fs, s)
+    minSize = minSize or size
+    local last
+    for s = size, minSize, -1 do
+        local snapped = S:Size(s)
+        if snapped ~= last then
+            last = snapped
+            H.Sized(fs, s)
+            if H.Width(fs) <= width then return true end
+        end
+    end
+    if minSize < S:Size(minSize) then
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, minSize, flags) end
         if H.Width(fs) <= width then return true end
     end
     return false
