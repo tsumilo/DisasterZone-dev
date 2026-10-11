@@ -119,7 +119,6 @@ local function weekStart(t)
     return time(d)
 end
 
-local function hideTooltip() GameTooltip:Hide() end
 
 -- guests = how many of the accepted are guests
 local function counts(occId)
@@ -411,8 +410,6 @@ end
 
 local PAD, GAP = S.PAD, S.GAP
 local CARD_H = S.BANNER.hero         -- the board's hero (the New raid sheet's preview is one)
-local CARD_BG, EDGE = S.C.CARD, S.C.EDGE
-local PANEL_BG = { 0.08, 0.08, 0.095, 0.9 }
 -- The role bands of the raid page's Sign-ups and of a team's Comp view (one grid): the gutter (role, count, pips),
 -- five tiles a row after it. BAND.tileX(W, c) = column c's x in a band W wide; BAND.pip(col, j, per) = the gutter's
 -- pip j (made on first use) placed `per` to a row; BAND.endPips(col, n, per) hides the rest and sets col.pipsH.
@@ -462,16 +459,6 @@ end
 
 -- (melee, ranged and casters share the damage icon)
 local function roleIcon(role, size) return UI():RoleIconText(role, size) end
-
-local function panel(f, bg, edge)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    bg = bg or PANEL_BG
-    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-    UI():AddEdges(f, "BORDER")
-    edge = edge or EDGE
-    UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
-end
 
 -- "today", "tomorrow", "in 3 days", "next week", "2 weeks ago".
 local function relDay(t)
@@ -736,7 +723,7 @@ function UP.newMeter(parent, rolesW, barW)
     m.roles:SetPoint("LEFT", m, "LEFT", 0, 0)
     m.bar = CreateFrame("Frame", nil, m)
     m.bar:SetSize(barW, 3)
-    m.bar:SetPoint("LEFT", m, "LEFT", rolesW + 10, 0)
+    m.bar:SetPoint("LEFT", m, "LEFT", rolesW > 0 and (rolesW + 10) or 0, 0)
     m.track = UI():Fill(m.bar, { 1, 1, 1, 0.14 }, "ARTWORK")
     m.fill = UI():Fill(m.bar, "OK", "ARTWORK", 1)
     m.fill:ClearAllPoints()
@@ -769,6 +756,26 @@ function UP.fillMeter(m, v)
         w = UI():TextWidth(m.roles)
     end
     m:SetWidth(max(1, ceil(w)))
+end
+
+-- The share of a meter alone (no roles): have / of with the bar.
+function UP.fillShare(m, have, of)
+    m.n:SetText(S:Wrap("TEXT", have) .. S:Wrap("DIM", "/" .. of))
+    local share = of > 0 and min(1, have / of) or 0
+    m.fill:SetShown(share > 0)
+    m.fill:SetWidth(max(1, floor(m.barW * share + 0.5)))
+    m.bar:Show()
+    m.n:Show()
+    m:SetWidth(max(1, ceil(m.barW + 8 + UI():TextWidth(m.n))))
+end
+
+function UP.reserveRight(b, rightW)
+    local layout = b.Layout
+    function b:Layout()
+        layout(self)
+        local room = (self:GetWidth() > 1 and self:GetWidth() or UP.W) - (self.textX or 14) - rightW(self)
+        if self.titleText and self.title:IsShown() then UP.fitTitle(self.title, self.titleText, room) end
+    end
 end
 
 -- The board's hero: the next raid as the page banner (UI:CreatePageBanner): its loading screen (a raid of two
@@ -910,31 +917,6 @@ function UP.fillCard(c, v, width, preview)
     c:SetRightWidth(rightW)
 end
 
--- The art cards' backdrop (a team on the Teams board, the team page's banner): a dark base (base, default UP.SHADE),
--- the loading screen a little dimmed (c.art, all points), dark under the text at the left (c.fadeL, fadeW wide) easing
--- off, then darker again towards the right edge (c.fadeR, to alpha rightA).
-UP.SHADE = { 0.055, 0.055, 0.067 }
-function UP.artBackdrop(c, fadeW, rightA, base, leftA, midA)
-    local sh = UP.SHADE
-    base = base or sh
-    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
-    c.bg:SetAllPoints()
-    c.bg:SetColorTexture(base[1], base[2], base[3], 1)
-    c.art = c:CreateTexture(nil, "BACKGROUND", nil, 2)
-    c.art:SetAllPoints()
-    c.art:SetVertexColor(0.85, 0.85, 0.85)
-    c.fadeL = c:CreateTexture(nil, "BACKGROUND", nil, 3)
-    c.fadeL:SetPoint("TOPLEFT", 0, 0)
-    c.fadeL:SetPoint("BOTTOMLEFT", 0, 0)
-    c.fadeL:SetWidth(fadeW)
-    midA = midA or 0.28
-    UI():Gradient(c.fadeL, "HORIZONTAL", { sh[1], sh[2], sh[3], leftA or 0.96 }, { sh[1], sh[2], sh[3], midA })
-    c.fadeR = c:CreateTexture(nil, "BACKGROUND", nil, 3)
-    c.fadeR:SetPoint("TOPLEFT", c.fadeL, "TOPRIGHT", 0, 0)
-    c.fadeR:SetPoint("BOTTOMRIGHT", 0, 0)
-    UI():Gradient(c.fadeR, "HORIZONTAL", { sh[1], sh[2], sh[3], midA }, { sh[1], sh[2], sh[3], rightA })
-end
-
 -- For other pages: the board's hero for a raid (the New raid sheet's preview; a click opens the raid's page on the
 -- Raids tab), the hide entries of a raid's menu (Home), a raid's loading screen cropped for a w x h box (file, l, r, t,
 -- b; fw = the share of the screen's width shown).
@@ -995,9 +977,8 @@ function UP.newCell(parent)
     b:SetScript("OnClick", cellRowClick)
     ns.RaidGroupsUI:DecoratePlate(b)
     UI():AttachTooltip(b, cellTooltip)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(S:Color("HOVER"))
+    UI():DecorateRow(b)
+    b.hl = b.dzHover
     b.fs = b.pName                 -- (the name: tests and tools read it here)
     b.mark = b:CreateTexture(nil, "OVERLAY")
     b.mark:SetSize(12, 12)
@@ -2049,6 +2030,7 @@ function PlanUI:CreateUpcoming(parent)
     d.moreBtn = hero.tools[1]
     d.tabSignups, d.tabGroups, d.tabAssign = L.tabs:GetTab("signups"), L.tabs:GetTab("groups"), L.tabs:GetTab("assign")
     -- (the answer side: dark under my answer, as the left is under the facts)
+    -- TODO(refactor): move into UI:CreatePageBanner (opts.shadeRight: the shade on the right too, under page content)
     hero.fadeR = hero:CreateTexture(nil, "BORDER", nil, 2)
     hero.fadeR:SetPoint("TOPRIGHT", -1, -1)
     hero.fadeR:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -2056,15 +2038,8 @@ function PlanUI:CreateUpcoming(parent)
     UI():Gradient(hero.fadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0 }, { 0.055, 0.055, 0.067, 0.8 })
     -- the facts: the banner's kicker (when, the countdown in gold), title (the name) and sub line (where / by / for)
     -- in the room left of my answer, then the raid's note
-    -- TODO(refactor): move into UI:CreatePageBanner (opts.rightW: room kept free at the right of the text; a title
-    -- that steps down a size before it is cut)
     d.kick, d.title, d.sub2 = hero.kicker, hero.title, hero.sub
-    local bannerLayout = hero.Layout
-    function hero:Layout()
-        bannerLayout(self)
-        local room = (self:GetWidth() > 1 and self:GetWidth() or UP.W) - (self.textX or 14) - UP.ANS_W
-        if self.titleText then UP.fitTitle(self.title, self.titleText, room) end
-    end
+    UP.reserveRight(hero, function() return UP.ANS_W end)
     -- the raid's own note (only when it has one): two lines at most, all of it in the tooltip
     local nl = CreateFrame("Frame", nil, hero)
     d.noteLine = nl
@@ -2170,7 +2145,7 @@ function PlanUI:CreateUpcoming(parent)
     UI():SetEditPlaceholder(u.noteBox, "e.g. late 20 min")
     d.noteLink:SetScript("OnClick", function()
         local box = upcoming.noteBox
-        hideTooltip()
+        UI():HideTooltip()
         box:Show()
         layoutMine(d)
         box:SetFocus()
@@ -2581,13 +2556,9 @@ function PlanUI:GetDetailTab() return state.detailTab end
 
 local TV = {                -- the Teams view's sizes and helpers (one local: this file is near Lua's 200 locals)
     W = 770,                -- the width inside PAD (the Raids views are 790 wide; GetWidth is 0 before a layout)
-    CHIP_H = 22, CARD_H = 104, TOOL_H = 22, BAR_H = 26,
-    LT_H = 34, LT_MIN = 150,  -- the lineup tabs on the banner's foot: height, a tab's least width
-    TB_H = 26,
-    LEFT_W = 450,           -- the banner's left side (the name and the line under it); the next raid has the rest              -- the toolbar: Groups | Comp on the left, the view's actions on the right
-    BANNER_H = 92,          -- a team on the board
-    QUIET = { 0.105, 0.105, 0.12, 0.9 },   -- the panels of the groups and comp columns (no frames)
-    LT_BG = { 0.085, 0.085, 0.1 },          -- the lineup tabs' strip, and the banner's foot fading into it
+    CHIP_H = 22,
+    LEFT_W = 450,           -- the banner's left side (the name and the line under it); the next raid has the rest
+    LT_BG = S.C.SURFACE_WINDOW,             -- (the waitlist badge's ring: the strip under the lineup tabs)
     COL2 = 400,             -- the card's right column (the raids that invite the team): x, and its width 358
     COL2_W = 358,
     NAME_MIN = 140, NAME_MAX = 300,        -- (300: the raid nights' block starts at 326)
@@ -2596,10 +2567,8 @@ local TV = {                -- the Teams view's sizes and helpers (one local: th
     MAX = 40,               -- members a team holds (RaidPlan's MAX_TEAM_MEMBERS)
     MAX_LINEUPS = 10,       -- lineups a team holds (RaidPlan's Lineup.MAX)
     NEW_NAME = "New team",
-    -- the empty card's picture: five groups of class circles
-    MINI = { { "WARRIOR", "PALADIN", "DRUID", "SHAMAN", "ROGUE" }, { "ROGUE", "DRUID", "SHAMAN", "PALADIN", "WARRIOR" },
-             { "WARLOCK", "PRIEST", "SHAMAN", "DRUID", "MAGE" }, { "MAGE", "MAGE", "HUNTER", "HUNTER", "WARLOCK" },
-             { "PALADIN", "PRIEST", "SHAMAN", "PRIEST", "DRUID" } },
+    EMPTY_TEXT = "A team is the list of players who raid together: who plays which spec and who goes in which group. "
+        .. "Raids can be opened to a team, and the raid's groups then start from the team's layout.",
 }
 
 for k, v in pairs(BAND) do TV[k] = v end            -- (the Comp view's role bands)
@@ -2877,18 +2846,16 @@ function TV.raids(id)
     return out
 end
 
--- "+n more" on the card's raids: every raid that invites the team, one per line.
-function TV.raidsTooltip(self)
+-- The raids that invite the team (the next raid's "+n more"; UI:AttachTooltip).
+function TV.raidsTooltip(self, tip)
     local raids = self.raids
-    if not raids or #raids == 0 then return end
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Invited to")
+    if not raids or #raids == 0 then return false end
+    tip:AddLine("Invited to")
     for _, v in ipairs(raids) do
-        GameTooltip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, 0.7, 0.7, 0.7)
+        tip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, tokenA("SUB"))
     end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Click a raid to open it.", 0.6, 0.6, 0.6)
-    GameTooltip:Show()
+    tip:AddLine(" ")
+    tip:AddLine("Click a raid to open it.", 0.6, 0.6, 0.6)
 end
 
 -- Is the member key (or another character of that player) in the set?
@@ -3533,30 +3500,14 @@ TV.ANSWER = { A = { "OK", "Interface\\RaidFrame\\ReadyCheck-Ready" },
                       T = { "GOLD", "Interface\\RaidFrame\\ReadyCheck-Waiting" }, B = { "YOU" },
                       X = { "BAD", "Interface\\RaidFrame\\ReadyCheck-NotReady" }, R = { "GOLD" } }
 
--- The card's left column, stacked: line 1 (the name), line 2 (the roster), line 3 (me, who changed it). Rows that
--- hold nothing fold away; the card grows if a row is added.
-function TV.layoutCard()
-    local card = teamsView.card
-    local y, last = 30, 0
-    for _, row in ipairs(card.rows) do
-        if row:IsShown() then
-            row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -y)
-            last = y + row:GetHeight()
-            y = last + (row.gapBelow or 4)
-        end
-    end
-    card:SetHeight(max(TV.CARD_H, last + 10))
-end
-
--- The name field grows with the name (140-250 px); a name too long for that drops to a smaller font, never cut.
+-- The name field grows with the name (140-300 px); a name too long for that drops to a smaller font, never cut.
 function TV.fitName()
     local nb = teamsView.nameBox
     local m = nb.measure
     local text = nb:GetText() or ""
     local inset = nb:HasFocus() and 10 or 24
     for _, size in ipairs({ S.FONT.hero, S.FONT.page, S.FONT.title }) do
-        UI():SetTextStyle(m, size, { m:GetTextColor() })
+        UI():SetTextStyle(m, size)
         m:SetText(text)
         local w = (m:GetStringWidth() or 0) + 6 + inset + 2
         if w <= TV.NAME_MAX or size == S.FONT.title then
@@ -3571,6 +3522,11 @@ function TV.fitName()
     end
 end
 
+-- The team's page on the Detail layout: the team's banner (UI:CreatePageBanner: its theme's loading screen, back to
+-- the board, the name (organizers: a field), the roster line, the raid nights block, the next raid on the right, the
+-- ··· tool), its lineups as block tabs on the banner's foot (+ New lineup and the waitlist at the strip's right end),
+-- the tool row (Groups | Comp as its tabs, the raid buffs, the view's actions, Undo, Save at the far right), then the
+-- groups and Unassigned, or the comp. Every team as the Teams board (TV.createBoard) until one is opened.
 function PlanUI:CreateTeams(parent)
     local t = CreateFrame("Frame", nil, parent)
     teamsView = t
@@ -3578,50 +3534,35 @@ function PlanUI:CreateTeams(parent)
     local d = CreateFrame("Frame", nil, t)
     d:SetAllPoints()
     t.detail = d
-
-    -- TODO(refactor): move into UI:CreatePageBanner and the Detail layout (an editable title field, the raid nights
-    -- block and the next raid on the right, the lineup tabs with the waitlist icon on its foot); kept hand-built.
-    -- the team's banner: its theme's loading screen across it, dark under the name (left) and the next raid (right),
-    -- its foot fading into the lineup tabs
-    local card = CreateFrame("Frame", nil, d)
-    card:SetSize(TV.W, TV.CARD_H)
+    local L = UI():CreateLayout("detail", d, {
+        banner = { art = "kara", subColor = "SUB",
+                   tools = { { icon = "more", title = "Team actions", text = "Theme, Copy, Clear groups, LF message or Delete.",
+                               onClick = function(self) TV.moreMenu(self) end } } },
+        back = { text = "All teams", onClick = function() PlanUI:ShowTeamBoard() end },
+        tabStyle = "block",
+    })
+    d.layout = L
+    local card = L.banner
     t.card = card
-    UP.artBackdrop(card, floor(TV.W * 0.62), 0.78, TV.LT_BG, 0.97, 0.3)
-    card.fadeB = card:CreateTexture(nil, "BACKGROUND", nil, 4)
-    card.fadeB:SetPoint("BOTTOMLEFT", 0, 0)
-    card.fadeB:SetPoint("BOTTOMRIGHT", 0, 0)
-    card.fadeB:SetHeight(44)
-    UI():Gradient(card.fadeB, "VERTICAL", { TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 1 }, { TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 0 })
-
-    -- the way back to the board
-    local back = UI():CreateBackLink(card, "All teams", function() PlanUI:ShowTeamBoard() end)
-    back:SetPoint("TOPLEFT", 16, -11)
-    d.back = back
-
-    local colW = TV.LEFT_W
-    local l1, l2 = CreateFrame("Frame", nil, card), CreateFrame("Frame", nil, card)
-    l1:SetSize(colW, 26)
-    l1.gapBelow = 6
-    l2:SetSize(colW, 14)
-    card.l1, card.l2 = l1, l2
-    card.rows = { l1, l2 }
-
-    -- line 1: the name as plain text; for organizers a field whose frame and pencil only show on hover or while typing
-    card.title = UI():Text(l1, "hero", "TEXT")
-    card.title:SetPoint("LEFT", l1, "LEFT", 0, 0)
-    t.nameBox = UI():CreateSleekEditBox(l1, TV.NAME_MIN, 28, "GameFontHighlightLarge")
+    d.back, d.moreBtn = card.back, card.tools[1]
+    card.count = card.sub
+    -- the name: the banner's title; for organizers a field in its place whose frame and pencil only show on hover or
+    -- while typing (the title keeps its line, blank, so the banner's lines keep their places)
+    -- TODO(refactor): move into UI:CreatePageBanner (an editable title)
+    t.nameBox = UI():CreateSleekEditBox(card, TV.NAME_MIN, 28, "GameFontHighlightLarge")
     t.nameBox:SetTextInsets(6, 24, 0, 0)
     t.nameBox:SetMaxLetters(32)
-    t.nameBox:SetPoint("LEFT", l1, "LEFT", -6, 0)
-    t.nameBox.measure = UI():Text(l1, "hero", "TEXT")
-    t.nameBox.measure:SetPoint("LEFT", l1, "LEFT", 0, 0)
+    t.nameBox:SetPoint("LEFT", card.title, "LEFT", -6, 0)
+    t.nameBox:SetFrameLevel(card:GetFrameLevel() + 4)
+    t.nameBox.measure = UI():Text(card, "hero", "TEXT")
+    t.nameBox.measure:SetPoint("LEFT", card.title, "LEFT", 0, 0)
     t.nameBox.measure:Hide()
     t.nameBox.pencil = t.nameBox:CreateTexture(nil, "ARTWORK")
     t.nameBox.pencil:SetSize(12, 12)
     t.nameBox.pencil:SetPoint("RIGHT", -7, 0)
     t.nameBox.pencil:SetTexture(UI().ICON_ATLAS)
     t.nameBox.pencil:SetTexCoord(unpack(UI():IconCoords(16)))
-    t.nameBox.pencil:SetVertexColor(0.7, 0.7, 0.7)
+    t.nameBox.pencil:SetVertexColor(S:Color("SUB"))
     t.nameBox:SetScript("OnTextChanged", function()
         TV.fitName()
         PlanUI:RefreshTeamButtons()
@@ -3645,18 +3586,11 @@ function PlanUI:CreateTeams(parent)
         TV.paintName()
     end)
 
-    -- line 2: the roster · where I play in the open lineup · who changed it last
-    card.count = UI():Text(l2, "body", "TEXT")
-    card.count:SetPoint("LEFT", l2, "LEFT", 0, 0)
-    local you = CreateFrame("Button", nil, l2)
+    -- the roster line (the banner's sub line) · where I play in the open lineup · who changed it last
+    local you = CreateFrame("Button", nil, card)
     you:SetHeight(14)
-    you.dot = you:CreateTexture(nil, "ARTWORK")
-    you.dot:SetSize(6, 6)
-    you.dot:SetPoint("LEFT", 0, 0)
-    you.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    you.dot:SetVertexColor(S:Color("GOLD"))
-    you.fs = UI():Text(you, "body", "TEXT")
-    you.fs:SetPoint("LEFT", you.dot, "RIGHT", 6, 0)
+    you.fs = UI():Text(you, "body", "YOU")
+    you.fs:SetPoint("LEFT", you, "LEFT", 0, 0)
     UI():AttachTooltip(you, function(self, tip)
         if not self.tip then return false end
         for i, line in ipairs(self.tip) do
@@ -3664,36 +3598,26 @@ function PlanUI:CreateTeams(parent)
         end
     end, nil, { anchor = "ANCHOR_BOTTOM" })
     card.you = you
-    card.changed = UI():Text(l2, "body", "TEXT")
-
-    -- the team's ... (organizers): Theme, Copy, Clear groups, LF message, Delete
-    d.moreBtn = UI():CreateTipIconButton(card, 22, UI().ICON.more, "Team actions",
-        "Theme, Copy, Clear groups, LF message or Delete.", function(self) TV.moreMenu(self) end)
-    d.moreBtn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -9)
+    card.changed = UI():Text(card, "body", "SUB")
 
     -- the right: the next raid that invites the team (a click opens it), "+n more" for the others
     local nx = CreateFrame("Button", nil, card)
     nx:SetSize(TV.COL2_W, 54)
     card.next = nx
-    nx.label = UI():Text(nx, "small", "SUB")
-    nx.label:SetJustifyH("RIGHT")
+    nx.label = UI():Text(nx, "caps", "SUB", { justify = "RIGHT", text = "Next raid" })
     nx.label:SetPoint("TOPRIGHT", nx, "TOPRIGHT", 0, 0)
-    nx.label:SetText("NEXT RAID")
     nx.lock = nx:CreateTexture(nil, "ARTWORK")
     nx.lock:SetSize(11, 11)
     nx.lock:SetTexture(UI().ICON_LOCK)
     nx.lock:SetPoint("TOPRIGHT", nx, "TOPRIGHT", 0, -18)
-    nx.line = UI():Text(nx, "title", "TEXT")
-    nx.line:SetJustifyH("RIGHT")
+    nx.line = UI():Text(nx, "title", "TEXT", { justify = "RIGHT" })
     nx.extra = CreateFrame("Button", nil, nx)
     nx.extra:SetHeight(14)
     nx.extra:SetPoint("TOPRIGHT", nx, "TOPRIGHT", 0, -36)
     nx.extra.fs = UI():Text(nx.extra, "body", "SUB")
     nx.extra.fs:SetPoint("RIGHT", 0, 0)
-    nx.extra:SetScript("OnEnter", TV.raidsTooltip)
-    nx.extra:SetScript("OnLeave", hideTooltip)
-    nx.sub = UI():Text(nx, "body", "TEXT")
-    nx.sub:SetJustifyH("RIGHT")
+    UI():AttachTooltip(nx.extra, TV.raidsTooltip, nil, { anchor = "ANCHOR_BOTTOM" })
+    nx.sub = UI():Text(nx, "body", "TEXT", { justify = "RIGHT" })
     nx.icon = nx:CreateTexture(nil, "ARTWORK")
     nx.icon:SetSize(12, 12)
     nx.tipMore = "Its groups start from this team's groups."
@@ -3709,13 +3633,28 @@ function PlanUI:CreateTeams(parent)
     -- no raid invites it yet (or it isn't saved): what a team is for, in its place
     card.note = UI():Text(card, "body", "TEXT", { wrap = true, width = 300, justify = "RIGHT" })
     card.note:SetSpacing(3)
+    -- the title keeps clear of the raid nights block (organizers: their field never runs under it)
+    UP.reserveRight(card, function(self)
+        local nb = self.nights
+        if nb and nb:IsShown() then return (self:GetWidth() > 1 and self:GetWidth() or TV.W) - TV.N.X + 24 end
+        return (self.next and self.next:IsShown()) and (self.next:GetWidth() + 48) or 300
+    end)
 
-    -- the banner's foot: the lineups as tabs (TV.layoutLineupTabs)
+    -- the banner's foot: the lineups as the page's block tabs (TV.layoutLineupTabs)
     TV.createLineupTabs(d)
 
-    -- the tool row (organizers): Add members and Auto-fill; "Changed, not saved", Undo and Save once something changed
-    local tool = CreateFrame("Frame", nil, d)
-    tool:SetSize(TV.W, TV.TOOL_H)
+    -- the tool row: Groups | Comp as its tabs, the raid buffs after them; the view's actions (organizers: Add members
+    -- and Auto-fill, or Start from), Undo, and Save as the main action while something changed
+    local bar = L.toolbar
+    d.views = bar
+    bar:SetTabs({
+        { key = "groups", text = "Groups", tip = "Raids that invite this team start from these groups." },
+        { key = "comp", text = "Comp", tip = "The specs this lineup should bring. Its open slots show on its tab and in "
+            .. "the Sign-ups of raids that invite the team." },
+    }, function(key) TV.setTab(key) end)
+    d.tabGroups, d.tabComp = bar:GetTab("groups"), bar:GetTab("comp")
+    local tool = CreateFrame("Frame", nil, bar)
+    tool:SetSize(10, S.BTN_H)
     d.tool = tool
     t.picker = UI():CreateSearchDropdown(tool, 200, {
         placeholder = "Add members",
@@ -3744,27 +3683,24 @@ function PlanUI:CreateTeams(parent)
         self.panel:Raise()
         return pickerOpen(self, ...)
     end
-    d.autoBtn = UI():CreateSleekButton(tool, "Auto-fill", 70, 22, function() PlanUI:AutoFillDraft() end)
+    d.autoBtn = UI():CreateSleekButton(tool, "Auto-fill", 70, S.BTN_H, function() PlanUI:AutoFillDraft() end)
     UI():AttachTooltip(d.autoBtn, "Auto-fill groups", { "A starting layout: tanks, melee groups with a shaman each, casters, "
         .. "healers. Adjust it by dragging, then Save." }, { anchor = "ANCHOR_TOP" })
-    d.saveBtn = UI():CreateSleekButton(tool, "Save", 56, 22, function() PlanUI:SaveTeam() end, "primary")
-    d.revertBtn = UI():CreateSleekButton(tool, "Undo", 56, 22, function() PlanUI:RevertTeam() end)
-    d.status = UI():Text(tool, "body", "WARN")
-
-    -- the toolbar: Groups | Comp on the left (TV.createComp), the open view's actions on the right (d.tool, laid out by
-    -- TV.layoutTool)
-    d.views = CreateFrame("Frame", nil, d)
-    d.views:SetSize(TV.W, TV.TB_H)
-    d.views:Hide()
-    -- everyone else sees the team read-only: the toolbar says so where the organizers' actions are (it only shows
+    d.revertBtn = UI():CreateSleekButton(bar, "Undo", 56, S.BTN_H, function() PlanUI:RevertTeam() end)
+    d.status = UI():Text(bar, "body", "WARN")
+    d.status:Hide()
+    -- everyone else sees the team read-only: the tool row says so where the organizers' actions are (it only shows
     -- what CanManageTeams decided)
-    d.readOnly = UI():CreateNotice(d.views, "readonly", "Read only: the Guild Master and the council change teams.")
+    d.readOnly = UI():CreateNotice(bar, "readonly", "Read only: the Guild Master and the council change teams.")
     d.readOnly:SetWidth(360)
-    d.readOnly:SetPoint("RIGHT", d.views, "RIGHT", 0, 0)
     d.readOnly:Hide()
+    bar:SetFilters({ d.readOnly, tool, d.revertBtn })
+    d.saveBtn = bar:SetPrimary({ text = "Save", onClick = function() PlanUI:SaveTeam() end })
+    d.saveBtn:Hide()
 
     d.scroll = UI():CreateScrollFrame(d)
-    d.buffs = CreateFrame("Frame", nil, d)
+    d.scroll:SetAllPoints(L.body)
+    d.buffs = CreateFrame("Frame", nil, bar)
     t.grid = ns.RaidGroupsUI:CreateGrid(d.scroll, {
         layout = "row",
         getSize = function() return state.draft and state.draft.sz or 25 end,
@@ -3784,7 +3720,7 @@ function PlanUI:CreateTeams(parent)
         -- spot. Neither counts for the comp, its slots or the raid buffs.
         poolLabel = "Unassigned",
         poolTip = { "Unassigned", "On the roster, but in none of this lineup's groups: they don't count for its comp. "
-            .. "Drag them into a group." },
+            .. "Drag them into groups." },
         poolEmpty = function()
             local dr = state.draft
             return (dr and not next(dr.members)) and "Add members with the search above: they land here, then drag "
@@ -3800,52 +3736,19 @@ function PlanUI:CreateTeams(parent)
     })
     t.grid.frame:SetWidth(TV.W)
     d.scroll:SetScrollChild(t.grid.frame)
-    -- the raid buffs of who sits in the groups: in the toolbar, after Groups | Comp (anchored by TV.layoutTool)
-    d.buffs:SetParent(d.views)
+    -- the raid buffs of who sits in the groups: on the tool row, after Groups | Comp (anchored by TV.layoutTool)
     d.buffs:SetSize(1, 20)
-    -- the target comp: the Groups | Comp tabs, the Comp view
+    -- the target comp: the Comp view
     TV.createComp(t, d)
-    -- every team as a banner (the view opens on it)
+    -- every team as the board (the view opens on it)
     TV.createBoard(t)
 
-    -- no teams yet: one card that says what a team is for (organizers: its New team is the only one)
-    local e = CreateFrame("Frame", nil, t)
-    e:SetSize(490, 227)
-    e:SetPoint("TOP", t, "TOP", 0, -70)
-    panel(e, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.6 })
+    -- no teams yet: the empty state says what a team is for (organizers: its New team is the only one)
+    local e = UI():CreateEmptyState(t, { glyph = UP.glyph("team"), title = "No teams yet", text = TV.EMPTY_TEXT,
+        action = { text = "New team", kind = "primary", onClick = function() PlanUI:NewTeam() end } })
+    e:SetPoint("TOP", t, "TOP", 0, -60)
+    e.newBtn = e.btn
     t.empty = e
-    for g, classes in ipairs(TV.MINI) do
-        local m = CreateFrame("Frame", nil, e)
-        m:SetSize(74, 42)
-        m:SetPoint("TOPLEFT", e, "TOPLEFT", 44 + (g - 1) * 82, -22)
-        panel(m)
-        m:SetAlpha(0.6)
-        m.title = UI():Text(m, "small", "GOLD")
-        m.title:SetPoint("TOP", m, "TOP", 0, -8)
-        m.title:SetText("Group " .. g)
-        for i, cls in ipairs(classes) do
-            local dot = m:CreateTexture(nil, "ARTWORK")
-            dot:SetSize(10, 10)
-            dot:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 8 + (i - 1) * 12, 8)
-            UI():ClassIcon(dot, cls)
-        end
-    end
-    e.title = UI():Text(e, "page", "TEXT")
-    e.title:SetJustifyH("CENTER")
-    e.title:SetPoint("TOP", e, "TOP", 0, -82)
-    e.title:SetText("No teams yet")
-    e.body = UI():Text(e, "emph", "SUB", { wrap = true, width = 438, justify = "CENTER" })
-    e.body:SetSpacing(3)
-    e.body:SetPoint("TOP", e.title, "BOTTOM", 0, -8)
-    e.body:SetText("A team is the list of players who raid together: who plays which spec and who goes in which "
-        .. "group. Raids can be opened to a team, and the raid's groups then start from the team's layout.")
-    e.who = UI():Text(e, "emph", "TEXT")
-    e.who:SetJustifyH("CENTER")
-    e.who:SetTextColor(S:Color("TEXT"))
-    e.who:SetPoint("TOP", e.body, "BOTTOM", 0, -12)
-    e.who:SetText("Teams are made by the Guild Master and the guild council.")
-    e.newBtn = UI():CreateSleekButton(e, "New team", 110, 26, function() PlanUI:NewTeam() end, "primary")
-    e.newBtn:SetPoint("TOP", e.body, "BOTTOM", 0, -16)
 
     -- leaving with unsaved changes another way (another tab, the window closed): ask now, Cancel comes back here
     t:SetScript("OnHide", function()
@@ -3940,25 +3843,32 @@ function TV.raidStatus(v, team, organizer)
     return S:Wrap("DIM", blockWords(v, block, false) or ""), nil
 end
 
--- The banner: its art, the name, the line under it (the roster, me, who changed it), the next raid on the right.
+-- The banner: its art, the name, the line under it (the roster, me, who changed it), the raid nights, the next raid on
+-- the right.
 function TV.fillCard(dr, organizer)
     local t = teamsView
-    local card = t.card
+    local card, d = t.card, t.detail
     local saved = dr.id and RP():GetTeam(dr.id) or nil
     local n = TV.count(dr.members)
-    -- the name
+    local raids = saved and TV.raids(saved.id) or {}
+    local v = raids[1]
+    card.building = true
+    d.moreBtn:SetShown(organizer)
+    -- the art: the team's theme (else its next raid's)
+    local th = TV.themeOf(dr.th, v, dr.id)
+    card.th = th
+    card:SetArt(th)
+    -- the name (organizers: the field in the title's place; the title keeps its line, blank)
+    card:SetTitle(organizer and " " or (dr.name ~= "" and dr.name or TV.NEW_NAME))
     t.nameBox:SetShown(organizer)
-    card.title:SetShown(not organizer)
     if organizer then
         TV.fitName()
         TV.paintName()
-    else
-        card.title:SetText(dr.name)
-        UI():SetTextStyle(card.title, S.FONT.hero, { card.title:GetTextColor() })
-        if (card.title:GetStringWidth() or 0) > TV.LEFT_W then UI():SetTextStyle(card.title, S.FONT.page, { card.title:GetTextColor() }) end
     end
     -- "17 players · You: Group 5 · Holy · changed by Bob, yesterday" (what doesn't fit is left out)
-    card.count:SetText(S:Wrap("DIM", n == 0 and "No players yet" or n == 1 and "1 player" or (n .. " players")))
+    card:SetSub(S:Wrap("DIM", n == 0 and "No players yet" or n == 1 and "1 player" or (n .. " players")))
+    card.building = nil
+    card:Layout()
     local mine = not organizer and TV.myKey(dr.members) or nil
     local waiting = not organizer and not mine and TV.waiting(ns.Util.PlayerKey()) or nil
     local you = card.you
@@ -3984,30 +3894,27 @@ function TV.fillCard(dr, organizer)
         you.fs:SetText("You: " .. lineup .. "#" .. waiting.n .. " on the waitlist")
         you.tip = { "Waitlist", "You're waiting for a spot: not on the roster yet, so not invited to the team's raids." }
     end
-    you:SetWidth(floor(6 + 6 + (you.fs:GetStringWidth() or 100) + 0.5))
+    local countW = UI():TextWidth(card.sub)
+    you:SetWidth(floor((you.fs:GetStringWidth() or 100) + 0.5))
     you:ClearAllPoints()
-    you:SetPoint("LEFT", card.count, "RIGHT", 10, 0)
+    you:SetPoint("LEFT", card.sub, "LEFT", countW + 10, 0)
     local changed = saved and TV.changed(saved, true) or nil
     -- (an organizer's unsaved edits: said here, in orange, instead of who changed it last)
     if organizer and TV.dirty() then changed = S:Wrap("WARN", dr.id and "changed, not saved" or "new team, not saved") end
     card.changed:ClearAllPoints()
     if you:IsShown() then card.changed:SetPoint("LEFT", you.fs, "RIGHT", 8, 0)
-    else card.changed:SetPoint("LEFT", card.count, "RIGHT", 8, 0) end
+    else card.changed:SetPoint("LEFT", card.sub, "LEFT", countW + 8, 0) end
     card.changed:SetText(changed and (S:Wrap("DIM", "·  ") .. changed) or "")
-    local used = (card.count:GetStringWidth() or 0) + (you:IsShown() and (10 + you:GetWidth()) or 0)
+    local used = countW + (you:IsShown() and (10 + you:GetWidth()) or 0)
     -- (left of the raid nights when the banner shows them: organizers always, else a team with nights)
     local room = (organizer or (dr.nights and #dr.nights > 0)) and (TV.N.X - 36) or TV.LEFT_W
     if used + 8 + (card.changed:GetStringWidth() or 0) > room then card.changed:SetText("") end
-    TV.layoutCard()
 
     -- the right: the next raid, or what a team is for
-    local raids = saved and TV.raids(saved.id) or {}
-    local v = raids[1]
     local nx = card.next
-    local d = t.detail
-    d.moreBtn:SetShown(organizer)
+    local right = organizer and 48 or 14
     nx:ClearAllPoints()
-    nx:SetPoint("TOPRIGHT", card, "TOPRIGHT", d.moreBtn:IsShown() and -40 or -16, -14)
+    nx:SetPoint("TOPRIGHT", card, "TOPRIGHT", -right, -14)
     nx:SetShown(v ~= nil)
     if v then
         nx.__cdlData = { v = v }
@@ -4050,14 +3957,8 @@ function TV.fillCard(dr, organizer)
                 "Raid leaders pick it when they plan a raid" .. (organizer and " (New raid › Teams)." or ".")))
         end
         card.note:ClearAllPoints()
-        card.note:SetPoint("TOPRIGHT", card, "TOPRIGHT", d.moreBtn:IsShown() and -40 or -16, -16)
+        card.note:SetPoint("TOPRIGHT", card, "TOPRIGHT", -right, -16)
     end
-    -- the art: the team's theme (else its next raid's)
-    local th = TV.themeOf(dr.th, v, dr.id)
-    card.th = th
-    local file, l, r, tt, b = ns.ItemDB:RaidArt(th, TV.W, TV.CARD_H, 0.95)
-    card.art:SetTexture(file)
-    card.art:SetTexCoord(l, r, tt, b)
     TV.paintHeroNights(dr, organizer)
 end
 
@@ -4087,6 +3988,7 @@ function TV.themeMenu(root)
     end
 end
 
+-- The tool row's actions: Save while something changed (the main action, far right) with Undo (Cancel for a new team).
 function PlanUI:RefreshTeamButtons()
     if not teamsView then return end
     local d = teamsView.detail
@@ -4102,6 +4004,7 @@ function PlanUI:RefreshTeamButtons()
     d.revertBtn:SetText(new and "Cancel" or "Undo")
     d.revertBtn:SetWidth(new and 64 or 56)
     d.status:SetText(new and "New team, not saved" or "Changed, not saved")
+    d.views:LayoutRight()
 end
 
 function PlanUI:RefreshTeams()
@@ -4142,20 +4045,17 @@ function PlanUI:RefreshTeams()
     else
         TV.askedToolbar = nil
     end
-    -- the board (every team as a banner) until a team is opened; no teams: the empty card
+    -- the board (every team) until a team is opened; no teams: the empty state
     local board = state.board ~= false and not state.newTeam and dr ~= nil
     t.board:SetShown(board)
     d:SetShown(dr ~= nil and not board)
     t.empty:SetShown(dr == nil)
     if not dr then
         d.steps:Hide()
-        local e = t.empty
-        e.newBtn:SetShown(organizer)
-        e.who:SetShown(not organizer)
-        local bodyH = e.body:GetStringHeight() or 0
-        if bodyH < 20 then bodyH = 51 end
-        e:SetHeight(floor(82 + (e.title:GetStringHeight() or 20) + 8 + bodyH
-            + (organizer and (16 + 26) or (12 + (e.who:GetStringHeight() or 16))) + 24 + 0.5))
+        t.empty:SetContent({ glyph = UP.glyph("team"), title = "No teams yet",
+            text = TV.EMPTY_TEXT .. (organizer and "" or ("\n\n" .. "Teams are made by the Guild Master and the guild council.")),
+            action = organizer and { text = "New team", kind = "primary", onClick = function() PlanUI:NewTeam() end } or nil })
+        t.empty.newBtn = t.empty.btn or t.empty.newBtn
         return
     end
     if board then
@@ -4181,38 +4081,27 @@ function PlanUI:RefreshTeams()
         tab = "groups"
         state.teamTab = tab
     end
-    d.views:Show()
+    local bar = d.views
     d.readOnly:SetShown(not organizer)
-    d.tabComp:SetShown(compTab)
-    d.tabGroups:SetActive(tab == "groups")
-    d.tabComp:SetActive(tab == "comp")
-    d.tabComp:SetLabel(m and ("Comp  " .. S:Wrap("SUB", m.filled .. "/" .. m.total)) or "Comp")
-    TV.layoutSeg()
+    bar:SetTabShown("comp", compTab)
+    bar:SetTabLabel("comp", m and ("Comp  " .. S:Wrap("SUB", m.filled .. "/" .. m.total)) or "Comp")
+    bar:SelectTab(tab)
 
-    -- top to bottom: the banner, the lineup tabs on its foot, the toolbar (Groups | Comp, the view's actions), then
-    -- the groups and the bench, or the comp
+    -- the banner, the lineup tabs on its foot, the tool row, then the groups and Unassigned, or the comp
     TV.fillCard(dr, organizer)
-    t.card:ClearAllPoints()
-    t.card:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, 0)
-    local y = TV.CARD_H
-    TV.layoutLineupTabs(dr, organizer, m, y)
-    y = y + TV.LT_H + 10
-    d.views:ClearAllPoints()
-    d.views:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
-    y = y + TV.TB_H + 10
+    TV.layoutLineupTabs(dr, organizer, m)
     local groups = tab == "groups"
     d.scroll:SetShown(groups)
     if not groups then
         d.compEmpty:Hide()
         self:RefreshTeamButtons()
-        TV.layoutComp(y, organizer, dr, m)
+        TV.layoutComp(organizer, dr, m)
         TV.fillSteps()
         if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Close() end
         return
     end
     d.startBtn:Hide()
     d.compStrip:Hide()
-    d.compBar:Hide()
     d.compScroll:Hide()
     d.compEmpty:Hide()
     d.steps:Hide()
@@ -4221,59 +4110,59 @@ function PlanUI:RefreshTeams()
     d.autoBtn:SetShown(organizer and next(dr.members) ~= nil)
     self:RefreshTeamButtons()
     TV.layoutTool("groups")
-    d.scroll:ClearAllPoints()
-    d.scroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
-    d.scroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
     t.grid.frame:SetWidth(TV.W)
     t.grid:Refresh()
     t.grid.frame:SetHeight(t.grid:GetContentHeight() + 6)
     if t.picker.IsOpen and t.picker:IsOpen() then t.picker:Refresh(true) end
 end
 
--- The toolbar's right end, right to left: Save and Undo (while something changed), then the view's own actions:
--- Groups: Auto-fill and Add members; Comp: Start from and the raid buffs. "Changed, not saved" sits after the switch.
--- The raid buffs sit after the switch (d.buffs on Groups, d.compStrip on Comp); d.stripRoom = the width left them.
--- While something is unsaved the search field narrows (200 down to 120) so every raid buff still fits at 14 px.
+-- The tool row's own group (d.tool, one of its filters), right to left: Groups: Auto-fill and Add members; Comp:
+-- Start from. The raid buffs sit after the tabs (d.buffs on Groups, d.compStrip on Comp); d.stripRoom = the width left
+-- them. While something is unsaved the search field narrows (200 down to 120) so every raid buff still fits at 14 px.
 function TV.layoutTool(kind)
     local t, d = teamsView, teamsView.detail
-    local tool = d.tool
-    tool:ClearAllPoints()
-    tool:SetPoint("LEFT", d.views, "LEFT", 0, 0)
-    d.status:ClearAllPoints()
-    d.status:SetPoint("LEFT", d.seg, "RIGHT", 14, 0)
+    local bar, tool = d.views, d.tool
     local anchor
     local used = 0
-    local function place(f, gap, w)
+    local function place(f, w)
         f:ClearAllPoints()
-        if anchor then f:SetPoint("RIGHT", anchor, "LEFT", -gap, 0)
+        if anchor then f:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
         else f:SetPoint("RIGHT", tool, "RIGHT", 0, 0) end
+        used = used + (anchor and 6 or 0) + (w or f:GetWidth() or 0)
         anchor = f
-        used = used + (anchor and gap or 0) + (w or f:GetWidth() or 0)
     end
     local shown = tool:IsShown()
-    if shown and d.saveBtn:IsShown() then
-        place(d.saveBtn, 0)
-        place(d.revertBtn, 4)
+    local tabsW = 0
+    for _, b in ipairs(bar.tabButtons or {}) do
+        if b:IsShown() then tabsW = tabsW + (b:GetWidth() or 0) + 4 end
     end
-    local left = d.seg:GetWidth() + 16
+    local left = tabsW + 16
+    local others = (d.saveBtn:IsShown() and (d.saveBtn:GetWidth() + 6) or 0)
+        + (d.revertBtn:IsShown() and (d.revertBtn:GetWidth() + 6) or 0)
     if kind == "groups" then
-        if shown and d.autoBtn:IsShown() then place(d.autoBtn, 12) end
+        if shown and d.autoBtn:IsShown() then place(d.autoBtn) end
         if shown and t.picker.frame:IsShown() then
             local w = 200
-            if d.saveBtn:IsShown() then w = max(120, min(200, TV.W - left - used - 8 - 12 - #ns.RaidComp:BuffStates({}, {}) * 16)) end
+            if d.saveBtn:IsShown() then
+                w = max(120, min(200, TV.W - left - used - others - 8 - 12 - #ns.RaidComp:BuffStates({}, {}) * 16))
+            end
             t.picker.frame:SetWidth(w)
-            place(t.picker.frame, 8, w)
+            place(t.picker.frame, w)
         end
     elseif shown and d.startBtn:IsShown() then
-        place(d.startBtn, 12)
+        place(d.startBtn)
     end
-    if d.readOnly:IsShown() then used = used + d.readOnly:GetWidth() end
-    d.stripRoom = TV.W - left - used - (used > 0 and 12 or 0)
+    tool:SetWidth(max(1, used))
+    if used == 0 then tool:Hide() end
+    used = used + others + (tool:IsShown() and 6 or 0)
+    if d.readOnly:IsShown() then used = used + d.readOnly:GetWidth() + 6 end
+    d.stripRoom = TV.W - left - used - 12
     local strip = kind == "groups" and d.buffs or d.compStrip
     strip:ClearAllPoints()
-    strip:SetPoint("LEFT", d.seg, "RIGHT", 16, 0)
+    strip:SetPoint("LEFT", bar.lastTab or bar, "RIGHT", 16, 0)
     -- (both sit in the same place: only the open view's)
     d.buffs:SetShown(kind == "groups")
+    bar:LayoutRight()
 end
 
 function TV.inMembers(team, key)
@@ -4295,119 +4184,56 @@ end
 
 TV.WL = { ICON_W = 44, W = 316, ROW = 40, PLATE_W = 168, HEAD = 40 }
 
+-- The waitlist: an icon button at the right end of the lineup tabs (the team icon and a gold count badge), and the
+-- dropdown it opens (TV.fillWaitlist).
 function TV.createWaitlist(d)
-    local row = d.lc
-    local b = CreateFrame("Button", nil, row)
-    b:SetSize(TV.WL.ICON_W, TV.LT_H)
-    b:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
-    b.bg = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.bg:SetAllPoints()
-    b.bg:SetColorTexture(0.125, 0.125, 0.145, 1)
-    b.sep = b:CreateTexture(nil, "BORDER")
-    b.sep:SetPoint("TOPLEFT", 0, 0)
-    b.sep:SetPoint("BOTTOMLEFT", 0, 0)
-    b.sep:SetWidth(1)
-    b.sep:SetColorTexture(1, 1, 1, 0.06)
-    b.under = b:CreateTexture(nil, "ARTWORK", nil, 3)
-    b.under:SetPoint("BOTTOMLEFT", 0, 0)
-    b.under:SetPoint("BOTTOMRIGHT", 0, 0)
-    b.under:SetHeight(2)
-    b.under:SetColorTexture(S:Color("GOLD"))
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(S:Color("HOVER"))
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(18, 18)
-    b.icon:SetPoint("CENTER", -2, 0)
+    local strip = d.lc
+    local icon, coords
     if ns:HasAssets(4) then
-        b.icon:SetTexture(UI().ICON_ATLAS)
-        b.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.team)))
+        icon, coords = UI().ICON_ATLAS, UI():IconCoords(UI().ICON.team)
     else
-        b.icon:SetTexture("Interface\\Icons\\INV_Misc_GroupNeedMore")
-        b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        icon, coords = "Interface\\Icons\\INV_Misc_GroupNeedMore", { 0.08, 0.92, 0.08, 0.92 }
     end
+    local b = UI():CreateIconButton(strip, 26, icon, coords, function() TV.toggleWaitlist() end)
     -- the badge: the count badge, ringed in the strip's colour; it flashes when the count grows
     local g = UI():CreateCountBadge(b, 14)
     g:SetCutout(TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3])
-    g:SetPoint("LEFT", b, "CENTER", 4, 7)
+    g:SetPoint("CENTER", b, "TOPRIGHT", -2, -2)
     g:SetFrameLevel(b:GetFrameLevel() + 3)
     b.badge = g
-    b:SetScript("OnClick", function() TV.toggleWaitlist() end)
-    b:SetScript("OnEnter", function(self)
-        self.icon:SetAlpha(1)
-        if d.wl:IsShown() then return end
+    UI():AttachTooltip(b, function(self, tip)
+        if d.wl:IsShown() then return false end
         local dr = state.draft
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("Waitlist")
+        tip:AddLine("Waitlist")
         local n = self.n or 0
-        GameTooltip:AddLine((n == 0 and "Nobody is waiting" or n == 1 and "1 player is waiting" or (n .. " players are waiting"))
+        tip:AddLine((n == 0 and "Nobody is waiting" or n == 1 and "1 player is waiting" or (n .. " players are waiting"))
             .. " for a spot in " .. (dr and TV.lineupName(dr, dr.li) or "this lineup") .. ".", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function(self)
-        TV.paintWaitlistIcon()
-        hideTooltip()
-    end)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
+    b:HookScript("OnLeave", function() TV.paintWaitlistIcon() end)
     d.wlBtn = b
 
-    -- the dropdown: a top-level panel (it takes the window's scale when it opens), a catcher behind it closes it
-    local p = CreateFrame("Frame", nil, UIParent)
-    p:SetFrameStrata("DIALOG")
-    p:SetToplevel(true)
-    p:SetClampedToScreen(true)
-    p:EnableMouse(true)
-    p:SetSize(TV.WL.W, 120)
-    for i, o in ipairs({ { 0, -10, 0.35 }, { 0, -3, 0.45 } }) do
-        local sh = p:CreateTexture(nil, "BACKGROUND", nil, -8 + i)
-        sh:SetPoint("TOPLEFT", -3 - o[1], 1 + o[2] / 3)
-        sh:SetPoint("BOTTOMRIGHT", 3 + o[1], o[2])
-        sh:SetColorTexture(0, 0, 0, o[3])
-    end
-    p.bg = p:CreateTexture(nil, "BACKGROUND", nil, 0)
-    p.bg:SetAllPoints()
-    p.bg:SetColorTexture(S:Color("SURFACE_WINDOW"))
-    UI():AddEdges(p, "BORDER")
-    UI():SetEdgeColor(p, 1, 1, 1, 0.11)
-    p.title = UI():Text(p, "small", "SUB")
-    p.title:SetPoint("LEFT", p, "TOPLEFT", 12, -20)
-    p.count = UI():Text(p, "body", "SUB")
-    p.count:SetJustifyH("RIGHT")
-    p.count:SetPoint("RIGHT", p, "TOPRIGHT", -12, -20)
+    -- the dropdown (UP.popover): who waits, the raid nights, Join
+    local p = UP.popover(TV.WL.W, 120, "DIALOG")
+    p.head = UI():CreateSectionHeader(p, "Waitlist", { style = "caps" })
+    p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -12)
+    p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -12)
+    p.title, p.count = p.head.title, p.head.right
     p.rows = {}
-    p.empty = UI():Text(p, "emph", "TEXT")
-    p.empty:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -TV.WL.HEAD - 4)
-    p.empty:SetText("Nobody is waiting for a spot yet.")
-    p.emptySub = UI():Text(p, "body", "DIM")
-    p.emptySub:SetPoint("TOPLEFT", p.empty, "BOTTOMLEFT", 0, -6)
-    p.emptySub:SetWidth(TV.WL.W - 24)
-    p.emptySub:SetJustifyH("LEFT")
-    p.emptySub:SetWordWrap(true)
-    p.emptySub:SetSpacing(2)
-    p.emptySub:SetText("Players who aren't on the roster can put themselves in line here; organizers drag them in.")
-    p.rule = p:CreateTexture(nil, "BORDER")
-    p.rule:SetHeight(1)
-    p.rule:SetColorTexture(1, 1, 1, 0.06)
+    p.empty = UI():CreateEmptyState(p, { glyph = UP.glyph("team"), compact = true, title = "Nobody is waiting for a spot yet.",
+        text = "Players who aren't on the roster can put themselves in line here; organizers drag them in." })
+    p.empty:SetBoxWidth(TV.WL.W - 24)
+    p.empty:SetPoint("TOP", p, "TOP", 0, -TV.WL.HEAD)
+    p.rule = UI():Rule(p, { layer = "BORDER" })
     p.foot = UI():Text(p, "body", "DIM")
     -- Join (not on the roster): the spec I'd play, then the button
     p.play = UI():Text(p, "emph", "SUB")
     p.play:SetText("Play")
     p.spec = UI():CreateSleekMenuButton(p, "", 104, function(root) TV.waitSpecMenu(root) end)
-    p.join = UI():CreateSleekButton(p, "Join the waitlist", 124, 22, function() TV.joinWaitlist() end, "primary")
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetAllPoints(UIParent)
-    catcher:SetFrameStrata("DIALOG")
-    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
-    catcher:RegisterForClicks("AnyUp")
-    catcher:SetScript("OnClick", function() p:Hide() end)
-    catcher:Hide()
-    p.catcher = catcher
-    p:SetScript("OnShow", function() catcher:Show() end)
-    p:SetScript("OnHide", function()
-        catcher:Hide()
+    p.join = UI():CreateSleekButton(p, "Join the waitlist", 124, S.BTN_H, function() TV.joinWaitlist() end, "primary")
+    p:HookScript("OnHide", function()
         p:SetAlpha(1)
         TV.paintWaitlistIcon()
     end)
-    p:Hide()
     d.wl = p
 end
 
@@ -4425,10 +4251,7 @@ function TV.paintWaitlistIcon(dr, organizer)
     b:SetShown(show)
     b.n = n
     if not show then return false end
-    local open = d.wl:IsShown()
-    b.bg:SetShown(open)
-    b.under:SetShown(open)
-    b.icon:SetAlpha((open or b:IsMouseOver()) and 1 or (n > 0 and 0.78 or 0.32))
+    b:SetActive(d.wl:IsShown())
     b.badge:SetCount(n)
     -- someone new in line since I last looked at this lineup: the badge glows once
     local key = dr.id .. ":" .. dr.ln
@@ -4436,6 +4259,43 @@ function TV.paintWaitlistIcon(dr, organizer)
     if TV.wlSeen[key] and n > TV.wlSeen[key] then TV.glowBadge() end
     TV.wlSeen[key] = n
     return true
+end
+
+function UP.popover(w, h, strata, passThrough)
+    local p = CreateFrame("Frame", nil, UIParent)
+    p:SetFrameStrata(strata or "DIALOG")
+    p:SetToplevel(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:SetSize(w, h)
+    UI():SoftShadow(p, 12, 0.45, -4, 2)
+    p.bg = UI():Fill(p, "DROP_BG")
+    UI():AddEdges(p, "BORDER")
+    UI():SetEdgeColor(p, S:Color("DROP_EDGE"))
+    p:Hide()
+    if passThrough then
+        p:SetScript("OnShow", function(self)
+            if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
+                self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+            end
+        end)
+        p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
+        p:SetScript("OnEvent", function(self)
+            if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
+        end)
+        return p
+    end
+    local catcher = CreateFrame("Button", nil, UIParent)
+    catcher:SetAllPoints(UIParent)
+    catcher:SetFrameStrata(strata or "DIALOG")
+    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
+    catcher:RegisterForClicks("AnyUp")
+    catcher:SetScript("OnClick", function() p:Hide() end)
+    catcher:Hide()
+    p.catcher = catcher
+    p:SetScript("OnShow", function() catcher:Show() end)
+    p:SetScript("OnHide", function() catcher:Hide() end)
+    return p
 end
 
 function TV.notOnRoster(dr)
@@ -4460,7 +4320,7 @@ function TV.toggleWaitlist()
         p:SetPoint("TOPRIGHT", d.wlBtn, "BOTTOMRIGHT", dx, -6 + dy)
     end)
     TV.paintWaitlistIcon()
-    hideTooltip()
+    UI():HideTooltip()
 end
 
 -- "12 min", "5 h", "2 days" since t.
@@ -4476,19 +4336,14 @@ function TV.newWaitRow(p)
     local r = CreateFrame("Button", nil, p)
     r:SetSize(TV.WL.W - 16, TV.WL.ROW - 4)
     r:RegisterForClicks("RightButtonUp")
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(S:Color("QUIET"))
-    r.n = UI():Text(r, "body", "DIM")
-    r.n:SetJustifyH("RIGHT")
-    r.n:SetWidth(14)
+    UI():DecorateRow(r)
+    r.n = UI():Text(r, "body", "DIM", { justify = "RIGHT", width = 14 })
     r.n:SetPoint("LEFT", r, "LEFT", 2, 0)
     r.plate = CreateFrame("Frame", nil, r)
     r.plate:SetSize(TV.WL.PLATE_W, 32)
     r.plate:SetPoint("LEFT", r, "LEFT", 24, 0)
     ns.RaidGroupsUI:DecoratePlate(r.plate)
-    r.time = UI():Text(r, "body", "DIM")
-    r.time:SetJustifyH("RIGHT")
+    r.time = UI():Text(r, "body", "DIM", { justify = "RIGHT" })
     r.more = UI():CreateTipIconButton(r, 20, UI().ICON.more, "More", nil, function(self)
         local key = r.member and r.member.key
         if key then UI():ContextMenu(self, function(root) TV.waitMenu(root, key) end) end
@@ -4499,7 +4354,6 @@ function TV.newWaitRow(p)
         local ok, err = RP():LeaveWaitlist(dr.id, dr.ln)
         if not ok then Print(err or "Could not leave the waitlist.") end
     end)
-    UI():SetTextStyle(r.leave:GetFontString(), S.FONT.body, { r.leave:GetFontString():GetTextColor() })
     r.leave:SetPoint("RIGHT", r, "RIGHT", -2, 0)
     r:SetScript("OnClick", function(self)
         if self.member and RP():CanManageTeams() then
@@ -4510,7 +4364,7 @@ function TV.newWaitRow(p)
     UI():AttachTooltip(r, function(self, tip)
         local w = self.member
         if not w then return false end
-        tip:AddLine(colored(w.key, w.c) .. (TV.isMine(w.key) and " |cff9e9e9e(you)|r" or ""))
+        tip:AddLine(colored(w.key, w.c) .. (TV.isMine(w.key) and (" " .. S:Wrap("SUB", "(you)")) or ""))
         tip:AddLine((w.sp and ns.RaidComp:SlotName(w.c, w.sp)) or "Spec unknown", 1, 1, 1)
         for _, line in ipairs(w.info or {}) do tip:AddLine(line, 0.75, 0.75, 0.75, true) end
         if RP():CanManageTeams() then
@@ -4531,8 +4385,8 @@ function TV.fillWaitlist()
     local organizer = RP():CanManageTeams()
     local me = ns.Util.PlayerKey()
     local list = TV.waitMembers()
-    p.title:SetText("WAITLIST" .. S:Wrap("DIM", "  ·  " .. TV.lineupName(dr, dr.li)))
-    p.count:SetText(#list > 0 and (#list .. " waiting") or "")
+    p.head:SetTitle("Waitlist  ·  " .. TV.lineupName(dr, dr.li))
+    p.head:SetRight(#list > 0 and (#list .. " waiting") or nil)
     local mine = false
     for i, w in ipairs(list) do
         local r = p.rows[i] or TV.newWaitRow(p)
@@ -4561,8 +4415,7 @@ function TV.fillWaitlist()
     end
     local y = TV.WL.HEAD + #list * TV.WL.ROW
     p.empty:SetShown(#list == 0)
-    p.emptySub:SetShown(#list == 0)
-    if #list == 0 then y = TV.WL.HEAD + 4 + (p.empty:GetStringHeight() or 14) + 6 + max(14, p.emptySub:GetStringHeight() or 28) + 8 end
+    if #list == 0 then y = TV.WL.HEAD + (p.empty:GetHeight() or 80) + 8 end
     -- the foot: Join for someone not on the roster and not in line yet; else a line on how it works
     local canJoin = TV.notOnRoster(dr) and not mine
     y = TV.wlNights(p, dr, y)
@@ -4814,7 +4667,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
             end
         end
     end
-    GameTooltip:AddLine("Open" .. (#brings > 0 and (" · brings " .. tconcat(brings, ", ")) or ""), 0.62, 0.62, 0.62, true)
+    GameTooltip:AddLine(S:Wrap("SUB", "Open" .. (#brings > 0 and (" · brings " .. tconcat(brings, ", ")) or "")), 1, 1, 1, true)
     local cf = RP():CanFill(TV.ref(dr), c, sp)
     local any = false
     for _, grp in ipairs({ { "Unassigned", cf.unassigned }, { "Waitlist", cf.waitlist },
@@ -4824,7 +4677,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], 1, 0.82, 0)
+            GameTooltip:AddLine(grp[1], tokenA("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = {}
@@ -4833,7 +4686,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
                 if e.team then right[#right + 1] = e.team end
                 if e.n then right[#right + 1] = "#" .. e.n .. " in line" end
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), tconcat(right, " · "),
-                    1, 1, 1, 0.62, 0.62, 0.62)
+                    1, 1, 1, tokenA("SUB"))
             end
             if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
         end
@@ -4856,9 +4709,7 @@ function TV.createMeter(parent)
         UI():SetRoleIcon(ic, role)
         f.icons[i] = ic
     end
-    f:EnableMouse(true)
-    f:SetScript("OnEnter", TV.meterTooltip)
-    f:SetScript("OnLeave", hideTooltip)
+    UI():AttachTooltip(f, TV.meterTooltip, nil, { anchor = "ANCHOR_BOTTOMLEFT" })
     return f
 end
 
@@ -4870,7 +4721,7 @@ function TV.square(f, i)
         s.o:SetSize(8, 8)
         s.i:SetSize(6, 6)
         s.i:SetPoint("CENTER", s.o, "CENTER", 0, 0)
-        s.i:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], 1)
+        s.i:SetColorTexture(S.C.CARD[1], S.C.CARD[2], S.C.CARD[3], 1)
         f.sq[i] = s
     end
     return s
@@ -4909,7 +4760,7 @@ function TV.fillMeter(f, m)
                         s.o:SetColorTexture(r, g, b, 1)
                         s.i:Hide()
                     else
-                        s.o:SetColorTexture(1, 0.82, 0, 0.9)
+                        s.o:SetColorTexture(tokenA("GOLD", 0.9))
                         s.i:Show()
                     end
                     s.o:Show()
@@ -4926,10 +4777,9 @@ function TV.fillMeter(f, m)
     f:SetWidth(max(1, x))
 end
 
-function TV.meterTooltip(self)
+function TV.meterTooltip(self, GameTooltip)
     local m = self.match
-    if not m or not m.total then return end
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+    if not m or not m.total then return false end
     GameTooltip:AddLine("Target comp")
     for _, role in ipairs(ns.RaidComp.COLUMNS) do
         local col = m.columns[role] or {}
@@ -4937,12 +4787,10 @@ function TV.meterTooltip(self)
             local f = 0
             for _, sl in ipairs(col) do if sl.member then f = f + 1 end end
             local full = f == #col
-            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, full and 0.56 or 1,
-                full and 0.89 or 1, full and 0.62 or 1)
+            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, S:Color(full and "OK" or "TEXT"))
         end
     end
     GameTooltip:AddLine(("%d of %d slots filled"):format(m.filled, m.total), 0.6, 0.6, 0.6)
-    GameTooltip:Show()
 end
 
 ---------------------------------------------------------------------------
@@ -4950,110 +4798,38 @@ end
 -- edge; organizers end the row with "+". Too many for the row: the open one keeps its tab, the rest go into "+n".
 ---------------------------------------------------------------------------
 
+-- The lineup tabs' strip: the page's block tabs (TV.layoutLineupTabs fills them), and at its right end "+N" (the
+-- lineups that don't fit), + (New lineup, organizers) and the waitlist.
 function TV.createLineupTabs(d)
-    local row = CreateFrame("Frame", nil, d)
-    row:SetSize(TV.W, TV.LT_H)
-    row.bg = row:CreateTexture(nil, "BACKGROUND")
-    row.bg:SetAllPoints()
-    row.bg:SetColorTexture(TV.LT_BG[1], TV.LT_BG[2], TV.LT_BG[3], 1)
-    row.rule = row:CreateTexture(nil, "BORDER")
-    row.rule:SetPoint("BOTTOMLEFT", 0, 0)
-    row.rule:SetPoint("BOTTOMRIGHT", 0, 0)
-    row.rule:SetHeight(1)
-    row.rule:SetColorTexture(1, 1, 1, 0.08)
-    d.lc = row
+    local strip = d.layout.tabs
+    d.lc = strip
     d.lcards = {}
-    local function plain(text, onMenu, tip)
-        local b = CreateFrame("Button", nil, row)
-        b:SetSize(36, TV.LT_H)
-        b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(S:Color("HOVER"))
-        b.fs = UI():Text(b, "title", "SUB")
-        b.fs:SetPoint("CENTER", 0, 0)
-        b.fs:SetText(text)
-        b:SetScript("OnClick", function(self) UI():ContextMenu(self, onMenu) end)
-        b:SetScript("OnEnter", function(self)
-            self.fs:SetTextColor(S:Color("GOLD"))
-            if tip then
-                GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-                GameTooltip:AddLine(tip[1])
-                GameTooltip:AddLine(tip[2], 1, 1, 1, true)
-                GameTooltip:Show()
-            end
+    d.lcAdd = UI():CreateTipIconButton(strip, 22, UI().ICON.plus, "New lineup", "Another 10- or 25-player setup of this "
+        .. "roster (e.g. Kara A and Kara B), with its own groups, specs, target comp and waitlist.", function(self)
+            UI():ContextMenu(self, function(root)
+                root:CreateTitle("New lineup")
+                root:CreateButton("10-man", function() PlanUI:AddLineup(10) end)
+                root:CreateButton("25-man", function() PlanUI:AddLineup(25) end)
+            end)
         end)
-        b:SetScript("OnLeave", function(self)
-            self.fs:SetTextColor(S:Color("SUB"))
-            hideTooltip()
-        end)
-        return b
-    end
-    d.lcAdd = plain("+", function(root)
-        root:CreateTitle("New lineup")
-        root:CreateButton("10-man", function() PlanUI:AddLineup(10) end)
-        root:CreateButton("25-man", function() PlanUI:AddLineup(25) end)
-    end, { "New lineup", "Another 10- or 25-player setup of this roster (e.g. Kara A and Kara B), with its own groups, "
-        .. "specs, target comp and waitlist." })
-    d.lcMore = plain("", function(root)
+    d.lcMore = UI():CreateSleekMenuButton(strip, "", 44, function(root)
         for _, e in ipairs(d.lcMore.rest or {}) do
             root:CreateButton((e.mine and S:Wrap("GOLD", "• ") or "") .. e.name, function() PlanUI:SelectLineup(e.i) end)
         end
-    end)
-    d.lcMore.fs:SetFontObject("GameFontHighlightSmall")
+    end, 22)
     TV.createWaitlist(d)
 end
 
-function TV.newLineupTab(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(TV.LT_H)
-    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
-    c.bg:SetAllPoints()
-    c.bg:SetColorTexture(0.125, 0.125, 0.145, 1)
-    c.top = c:CreateTexture(nil, "ARTWORK", nil, 3)
-    c.top:SetPoint("TOPLEFT", 0, 0)
-    c.top:SetPoint("TOPRIGHT", 0, 0)
-    c.top:SetHeight(2)
-    c.top:SetColorTexture(S:Color("GOLD"))
-    c.sep = c:CreateTexture(nil, "BORDER")
-    c.sep:SetPoint("TOPRIGHT", 0, 0)
-    c.sep:SetPoint("BOTTOMRIGHT", 0, 0)
-    c.sep:SetWidth(1)
-    c.sep:SetColorTexture(1, 1, 1, 0.06)
-    c.hl = c:CreateTexture(nil, "HIGHLIGHT")
-    c.hl:SetAllPoints()
-    c.hl:SetColorTexture(1, 1, 1, 0.04)
-    c.dot = c:CreateTexture(nil, "ARTWORK")
-    c.dot:SetSize(6, 6)
-    c.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    c.dot:SetVertexColor(S:Color("GOLD"))
-    c.dot:SetPoint("LEFT", 14, 0)
-    c.name = UI():Text(c, "title", "TEXT")
-    c.size = UI():Text(c, "small", "SUB")
-    c.size:SetPoint("LEFT", c.name, "RIGHT", 5, 0)
-    c.count = UI():Text(c, "emph", "TEXT")
-    c.count:SetJustifyH("RIGHT")
-    c.count:SetPoint("RIGHT", -16, 0)
-    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 2)
-    c.fill:SetPoint("BOTTOMLEFT", 0, 0)
-    c.fill:SetHeight(2)
-    c:SetScript("OnClick", function(self, button)
-        local i = self.i
-        if not i then return end
-        local organizer = RP():CanManageTeams()
-        if button == "RightButton" or (organizer and i == state.draft.li) then
-            if organizer then TV.lineupMenu(self, i) end
-        else
-            PlanUI:SelectLineup(i)
-        end
-    end)
-    UI():AttachTooltip(c, function(self, tip)
-        if not self.tip then return false end
-        for k, line in ipairs(self.tip) do
-            tip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, k > 1)
-        end
-    end, nil, { anchor = "ANCHOR_BOTTOM" })
-    return c
+-- A lineup's block tab: a click opens it (organizers: a click on the open one, or a right-click, drops its menu).
+function TV.lineupTabClick(self, button)
+    local i = self.key
+    if type(i) ~= "number" then return end
+    local organizer = RP():CanManageTeams()
+    if button == "RightButton" or (organizer and i == state.draft.li) then
+        if organizer then TV.lineupMenu(self, i) end
+    else
+        PlanUI:SelectLineup(i)
+    end
 end
 
 -- Lineup i of the draft as RaidPlan reads it (the open one: the draft's working copy).
@@ -5085,150 +4861,106 @@ function TV.lineupFacts(dr, i, m)
     return f
 end
 
-function TV.layoutLineupTabs(dr, organizer, m, y)
+-- The lineups as the strip's block tabs: each one's name (a gold dot: I'm in its groups), its size when the name
+-- doesn't say it, filled / of (its comp's slots, else its groups against its size) with the bar along its foot; the
+-- open one always shown, the rest while they fit (else "+N" drops the others).
+function TV.layoutLineupTabs(dr, organizer, m)
     local d = teamsView.detail
-    local row = d.lc
+    local strip = d.lc
     local wl = TV.paintWaitlistIcon(dr, organizer)
-    row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
     local n = #dr.lineups
     local add = organizer and n < TV.MAX_LINEUPS
     local me = TV.myKey(dr.members)
-    -- each tab as wide as its words (at least LT_MIN); the open one always shown, the rest while they fit
-    local tabs = {}
+    local items, facts = { selected = dr.li }, {}
     for i = 1, n do
-        local c = d.lcards[i] or TV.newLineupTab(row)
-        d.lcards[i] = c
         local l = dr.lineups[i]
         local f = TV.lineupFacts(dr, i, i == dr.li and m or nil)
-        local chosen = i == dr.li
-        c.i, c.chosen = i, chosen
+        facts[i] = f
         local g = me and l.grp and l.grp[me]
-        local mine = type(g) == "number" and g >= 1 and g <= ns.RaidComp:GroupCount(l.sz)
-        c.mine = mine
-        c.dot:SetShown(mine and true or false)
-        c.name:ClearAllPoints()
-        c.name:SetPoint("LEFT", c, "LEFT", mine and 27 or 14, 0)
-        c.name:SetText(TV.lineupName(dr, i))
-        c.name:SetTextColor(chosen and 1 or 0.66, chosen and 1 or 0.66, chosen and 1 or 0.66)
+        f.mine = type(g) == "number" and g >= 1 and g <= ns.RaidComp:GroupCount(l.sz)
         -- (a named lineup says its size, unless its name already does: "Thursday 25")
-        c.size:SetText((l.name and not l.name:find(tostring(l.sz), 1, true)) and tostring(l.sz) or "")
-        local full = f.have >= f.of and f.of > 0
-        c.count:SetText((full and S:Wrap("OK", f.have) or (chosen and S:Wrap("TEXT", f.have) or S:Wrap("SUB", f.have)))
-            .. S:Wrap("DIM", "/" .. f.of))
-        c.bg:SetShown(chosen)
-        c.top:SetShown(chosen)
-        local w = (mine and 27 or 14) + (c.name:GetStringWidth() or 40)
-            + (c.size:GetText() ~= "" and (5 + (c.size:GetStringWidth() or 12)) or 0)
-            + 20 + (c.count:GetStringWidth() or 30) + 16
-        w = max(TV.LT_MIN, floor(w + 0.5))
-        c:SetWidth(w)
-        c.share = f.of > 0 and min(1, f.have / f.of) or 0
-        c.fill:SetShown(c.share > 0)
-        c.fill:SetWidth(max(1, floor(w * c.share + 0.5)))
-        if full then c.fill:SetColorTexture(0.56, 0.89, 0.62, chosen and 1 or 0.5)
-        else c.fill:SetColorTexture(1, 0.82, 0, chosen and 1 or 0.35) end
-        -- the tooltip: its size, who is in its groups, everything still open
-        local tip = { { TV.lineupName(dr, i) }, { l.sz .. "-player lineup · " .. f.inGroups .. " in its groups", 0.8, 0.8, 0.8 } }
-        if mine then tip[#tip + 1] = { "You're in its groups.", 1, 0.82, 0 } end
-        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", 1, 0.6, 0.2 } end
-        if f.open then
-            tip[#tip + 1] = { "Still open:", 1, 0.82, 0 }
-            for _, o in ipairs(f.open) do
-                tip[#tip + 1] = { TV.specIconText(o.c, o.sp, 14) .. " " .. o.name .. (o.n > 1 and (" ×" .. o.n) or "") }
-            end
-        end
-        tip[#tip + 1] = { chosen and (organizer and "Open. Click for Rename, Size, Copy or Delete." or "Open below.")
-            or (organizer and "Click to open it; right-click for Rename, Size, Copy or Delete." or "Click to open it."),
-            0.6, 0.6, 0.6 }
-        c.tip = tip
-        tabs[i] = w
+        local size = (l.name and not l.name:find(tostring(l.sz), 1, true)) and ("  " .. S:Wrap("SUB", l.sz)) or ""
+        items[i] = { key = i, text = (f.mine and S:Wrap("GOLD", "•") .. "  " or "") .. TV.lineupName(dr, i) .. size,
+                     count = { f.have, f.of } }
     end
-    local room = TV.W - (add and 36 or 0) - (wl and TV.WL.ICON_W or 0)
-    local total = 0
-    for i = 1, n do total = total + tabs[i] end
-    local shown = {}
-    if total <= room then
-        for i = 1, n do shown[i] = true end
-    else
-        local used = tabs[dr.li] + 44
-        shown[dr.li] = true
-        for i = 1, n do
-            if i ~= dr.li and used + tabs[i] <= room then
-                shown[i] = true
-                used = used + tabs[i]
-            end
-        end
-    end
-    local x, rest = 0, {}
-    for i = 1, n do
-        local c = d.lcards[i]
-        if shown[i] then
-            c:ClearAllPoints()
-            c:SetPoint("TOPLEFT", row, "TOPLEFT", x, 0)
-            c:Show()
-            x = x + tabs[i]
-        else
-            c:Hide()
-            rest[#rest + 1] = { i = i, name = TV.lineupName(dr, i), mine = c.mine }
-        end
-    end
-    for i = n + 1, #d.lcards do d.lcards[i]:Hide() end
-    d.lcMore.rest = rest
-    d.lcMore:SetShown(#rest > 0)
-    if #rest > 0 then
-        d.lcMore.fs:SetText("+" .. #rest)
-        d.lcMore:SetWidth(44)
-        d.lcMore:ClearAllPoints()
-        d.lcMore:SetPoint("TOPLEFT", row, "TOPLEFT", x, 0)
-        x = x + 44
+    strip:SetTabs(items)
+    -- the right end: the waitlist, + New lineup, "+N"
+    local x = 0
+    if wl then
+        d.wlBtn:ClearAllPoints()
+        d.wlBtn:SetPoint("RIGHT", strip, "RIGHT", -6, 0)
+        x = x + d.wlBtn:GetWidth() + 10
     end
     d.lcAdd:SetShown(add)
     if add then
         d.lcAdd:ClearAllPoints()
-        d.lcAdd:SetPoint("TOPLEFT", row, "TOPLEFT", x, 0)
+        d.lcAdd:SetPoint("RIGHT", strip, "RIGHT", -(6 + x), 0)
+        x = x + 22 + 8
+    end
+    local room = TV.W - x - 8
+    local total = 0
+    for i = 1, n do
+        local c = strip:GetTab(i)
+        c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        c:SetScript("OnClick", TV.lineupTabClick)
+        local l, f = dr.lineups[i], facts[i]
+        c.i, c.chosen, c.mine, c.lineupName = i, i == dr.li, f.mine and true or false, TV.lineupName(dr, i)
+        -- the tooltip: its size, who is in its groups, everything still open
+        local tip = { { TV.lineupName(dr, i) }, { l.sz .. "-player lineup · " .. f.inGroups .. " in its groups", 0.8, 0.8, 0.8 } }
+        if f.mine then tip[#tip + 1] = { "You're in its groups.", tokenA("GOLD") } end
+        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", tokenA("WARN") } end
+        if f.open then
+            tip[#tip + 1] = { "Still open:", tokenA("GOLD") }
+            for _, o in ipairs(f.open) do
+                tip[#tip + 1] = { TV.specIconText(o.c, o.sp, 14) .. " " .. o.name .. (o.n > 1 and (" ×" .. o.n) or "") }
+            end
+        end
+        tip[#tip + 1] = { c.chosen and (organizer and "Open. Click for Rename, Size, Copy or Delete." or "Open below.")
+            or (organizer and "Click to open it; right-click for Rename, Size, Copy or Delete." or "Click to open it."),
+            0.6, 0.6, 0.6 }
+        c.tipLines = tip
+        UI():AttachTooltip(c, function(self, tt)
+            if not self.tipLines then return false end
+            for k, line in ipairs(self.tipLines) do
+                tt:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, k > 1)
+            end
+        end, nil, { anchor = "ANCHOR_BOTTOM" })
+        d.lcards[i] = c
+        total = total + c:GetWidth()
+    end
+    for i = n + 1, #d.lcards do d.lcards[i] = nil end
+    -- the ones that don't fit: the open one stays, the others while there is room
+    local rest = {}
+    if total > room then
+        local used = strip:GetTab(dr.li):GetWidth() + 52
+        for i = 1, n do
+            local c = strip:GetTab(i)
+            if i ~= dr.li and used + c:GetWidth() <= room then
+                used = used + c:GetWidth()
+            elseif i ~= dr.li then
+                strip:SetTabShown(i, false)
+                rest[#rest + 1] = { i = i, name = TV.lineupName(dr, i), mine = c.mine }
+            end
+        end
+    end
+    d.lcMore.rest = rest
+    d.lcMore:SetShown(#rest > 0)
+    if #rest > 0 then
+        d.lcMore:SetText("+" .. #rest)
+        d.lcMore:ClearAllPoints()
+        d.lcMore:SetPoint("LEFT", strip.lastTab, "RIGHT", 8, 0)
     end
 end
 
--- The Groups | Comp switch: as wide as its words, Comp only while it shows.
-function TV.layoutSeg()
-    local d = teamsView.detail
-    d.tabGroups:ClearAllPoints()
-    d.tabGroups:SetPoint("LEFT", d.seg, "LEFT", 2, 0)
-    local w = 2 + d.tabGroups:GetWidth()
-    if d.tabComp:IsShown() then
-        d.tabComp:ClearAllPoints()
-        d.tabComp:SetPoint("LEFT", d.tabGroups, "RIGHT", 0, 0)
-        w = w + d.tabComp:GetWidth()
-    end
-    d.seg:SetWidth(w + 2)
-    -- the thumb under the open tab (TV.animateTab slides it there instead while it runs)
-    local comp = d.tabComp:IsShown() and d.tabComp.active
-    local tx = comp and (2 + d.tabGroups:GetWidth()) or 2
-    local tw = comp and d.tabComp:GetWidth() or d.tabGroups:GetWidth()
-    d.seg.thumb.tx, d.seg.thumb.tw = tx, tw
-    if not TV.anim then TV.placeThumb(tx, tw) end
-end
+-- Groups <-> Comp: the new view fades in and glides the last few px into place from the side of its tab (Comp from
+-- the right, Groups from the left), with the tool row's strip and actions fading in with it. Eased out; a switch
+-- during the motion starts from where things are.
+TV.ANIM = { VIEW = 0.28, SHIFT = 14 }
 
-function TV.placeThumb(x, w)
-    local th = teamsView.detail.seg.thumb
-    th.x, th.w = x, w
-    th:ClearAllPoints()
-    th:SetPoint("LEFT", th:GetParent(), "LEFT", x, 0)
-    th:SetWidth(max(1, w))
-end
-
--- Groups <-> Comp: the thumb slides to the new tab while the new view fades in and glides the last few px into
--- place from the side of its tab (Comp from the right, Groups from the left), with the toolbar's strip and actions
--- fading in with it. Eased out; a switch during the motion starts from where things are.
-TV.ANIM = { THUMB = 0.22, VIEW = 0.28, SHIFT = 14 }
-
--- fx, fw = where the thumb was before the switch (the refresh has already put it under the new tab).
-function TV.animateTab(key, fx, fw)
+function TV.animateTab(key)
     local d = teamsView and teamsView.detail
     if not (d and d:IsVisible()) then return end
-    local th = d.seg.thumb
-    local a = { t = 0, fx = fx or th.x, fw = fw or th.w, dir = key == "comp" and 1 or -1, fades = {}, shifts = {} }
+    local a = { t = 0, dir = key == "comp" and 1 or -1, fades = {}, shifts = {} }
     local function fade(f)
         if f and f:IsShown() then a.fades[#a.fades + 1] = f end
     end
@@ -5260,18 +4992,15 @@ function TV.stepAnim(elapsed)
     local a = TV.anim
     if not a then return end
     a.t = a.t + (elapsed or 0)
-    local function ease(x) x = min(1, max(0, x)) return 1 - (1 - x) ^ 3 end
-    local th = teamsView.detail.seg.thumb
-    local e1 = ease(a.t / TV.ANIM.THUMB)
-    TV.placeThumb(a.fx + ((th.tx or a.fx) - a.fx) * e1, a.fw + ((th.tw or a.fw) - a.fw) * e1)
-    local e2 = ease(a.t / TV.ANIM.VIEW)
-    for _, f in ipairs(a.fades) do f:SetAlpha(e2) end
-    local dx = a.dir * TV.ANIM.SHIFT * (1 - e2)
+    local x = min(1, max(0, a.t / TV.ANIM.VIEW))
+    local e = 1 - (1 - x) ^ 3
+    for _, f in ipairs(a.fades) do f:SetAlpha(e) end
+    local dx = a.dir * TV.ANIM.SHIFT * (1 - e)
     for _, s in ipairs(a.shifts) do
         s.f:ClearAllPoints()
         for _, pt in ipairs(s.pts) do s.f:SetPoint(pt[1], pt[2], pt[3], (pt[4] or 0) + dx, pt[5] or 0) end
     end
-    if a.t >= max(TV.ANIM.THUMB, TV.ANIM.VIEW) then TV.endAnim() end
+    if a.t >= TV.ANIM.VIEW then TV.endAnim() end
 end
 
 function TV.endAnim()
@@ -5284,8 +5013,6 @@ function TV.endAnim()
         s.f:ClearAllPoints()
         for _, pt in ipairs(s.pts) do s.f:SetPoint(pt[1], pt[2], pt[3], pt[4] or 0, pt[5] or 0) end
     end
-    local th = teamsView.detail.seg.thumb
-    if th.tx then TV.placeThumb(th.tx, th.tw) end
 end
 
 ---------------------------------------------------------------------------
@@ -5305,23 +5032,21 @@ TV.N = {
 
 local function Nights() return ns.RaidNights end
 
--- The tooltip: each night with its hours, the optional ones said, the note, the clock.
-function TV.nightsTooltip(owner, list, note, editable)
+-- The nights' tooltip: each night with its hours, the optional ones said, the note, the clock.
+function TV.nightsTooltip(tip, list, note, editable)
     local RN = Nights()
-    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Raid nights")
+    tip:AddLine("Raid nights")
     for _, x in ipairs(RN:LocalList(list)) do
-        GameTooltip:AddDoubleLine(RN.DAYS[x.d] .. (x.o and S:Wrap("SUB", "  optional") or ""),
+        tip:AddDoubleLine(RN.DAYS[x.d] .. (x.o and S:Wrap("SUB", "  optional") or ""),
             RN:Clock(x.s) .. " – " .. RN:Clock(x.e), 1, 1, 1, 1, 1, 1)
     end
     if note then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("\"" .. note .. "\"", 0.85, 0.85, 0.85, true)
+        tip:AddLine(" ")
+        tip:AddLine("\"" .. note .. "\"", 0.85, 0.85, 0.85, true)
     end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("In your clock. Optional nights: come if you can.", 0.6, 0.6, 0.6, true)
-    if editable then GameTooltip:AddLine("Click to change them.", 0.6, 0.6, 0.6, true) end
-    GameTooltip:Show()
+    tip:AddLine(" ")
+    tip:AddLine("In your clock. Optional nights: come if you can.", 0.6, 0.6, 0.6, true)
+    if editable then tip:AddLine("Click to change them.", 0.6, 0.6, 0.6, true) end
 end
 
 -- The week strip: M T W T F S S, a raid night lit (core: gold fill and edge; optional: a hollow gold edge).
@@ -5355,29 +5080,31 @@ function TV.paintWeekStrip(f, list)
     for i, c in ipairs(f.cells) do
         local x = by[i]
         if x and not x.o then
-            c.bg:SetColorTexture(1, 0.82, 0, 0.22)
-            UI():SetEdgeColor(c, 1, 0.82, 0, 0.9)
-            c.fs:SetTextColor(1, 0.86, 0.2)
+            c.bg:SetColorTexture(tokenA("GOLD", 0.22))
+            UI():SetEdgeColor(c, tokenA("GOLD", 0.9))
+            c.fs:SetTextColor(S:Color("GOLD"))
         elseif x then
-            c.bg:SetColorTexture(1, 0.82, 0, 0.03)
-            UI():SetEdgeColor(c, 1, 0.82, 0, 0.42)
-            c.fs:SetTextColor(0.86, 0.74, 0.4)
+            c.bg:SetColorTexture(tokenA("GOLD", 0.03))
+            UI():SetEdgeColor(c, tokenA("GOLD", 0.42))
+            c.fs:SetTextColor(tokenA("GOLD", 0.75))
         else
             c.bg:SetColorTexture(0, 0, 0, 0.32)
-            UI():SetEdgeColor(c, 1, 1, 1, 0.07)
+            UI():SetEdgeColor(c, S:Color("HAIRLINE"))
             c.fs:SetTextColor(S:Color("DIM"))
         end
     end
 end
 
--- A banner's block: RAID NIGHTS, the strip, the hours. Editable (organizers, on the team's banner): a gold kicker and
--- a pencil on hover, a click opens the editor; without nights "+ Set raid nights".
-function TV.newNightsBlock(parent)
+-- A block of raid nights: RAID NIGHTS, the strip, the hours (compact: the strip over the hours, for a board's row).
+-- Editable (organizers, on the team's banner): a gold kicker and a pencil on hover, a click opens the editor; without
+-- nights "+ Set raid nights".
+function TV.newNightsBlock(parent, compact)
     local b = CreateFrame("Button", nil, parent)
-    b:SetSize(160, 52)
-    b.kick = UI():Text(b, "small", "SUB")
+    b:SetSize(160, compact and 34 or 52)
+    b.compact = compact
+    b.kick = UI():Text(b, "caps", "SUB", { text = "Raid nights" })
     b.kick:SetPoint("TOPLEFT", 0, 0)
-    b.kick:SetText("RAID NIGHTS")
+    b.kick:SetShown(not compact)
     b.pen = b:CreateTexture(nil, "ARTWORK")
     b.pen:SetSize(10, 10)
     b.pen:SetTexture(UI().ICON_ATLAS)
@@ -5386,9 +5113,9 @@ function TV.newNightsBlock(parent)
     b.pen:SetPoint("LEFT", b.kick, "RIGHT", 5, 0)
     b.pen:Hide()
     b.strip = TV.newWeekStrip(b)
-    b.strip:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -15)
+    b.strip:SetPoint("TOPLEFT", b, "TOPLEFT", 0, compact and 0 or -15)
     b.times = UI():Text(b, "body", "TEXT")
-    b.times:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -41)
+    b.times:SetPoint("TOPLEFT", b, "TOPLEFT", 0, compact and -23 or -41)
     b.add = UI():Text(b, "title", "TEXT")
     b.add:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -17)
     b.add:SetText(S:Wrap("GOLD", "+") .. "  Set raid nights")
@@ -5400,13 +5127,15 @@ function TV.newNightsBlock(parent)
             self.kick:SetTextColor(S:Color("GOLD"))
             self.pen:Show()
         end
-        if self.list and #self.list > 0 then TV.nightsTooltip(self, self.list, self.note, self.editable) end
     end)
     b:SetScript("OnLeave", function(self)
         self.kick:SetTextColor(S:Color("SUB"))
         self.pen:Hide()
-        hideTooltip()
     end)
+    UI():AttachTooltip(b, function(self, tip)
+        if not (self.list and #self.list > 0) then return false end
+        TV.nightsTooltip(tip, self.list, self.note, self.editable)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
     b:SetScript("OnClick", function(self) if self.editable then TV.openNights(self) end end)
     return b
 end
@@ -5426,20 +5155,11 @@ function TV.paintNightsBlock(b, list, note, editable)
         b.times:SetText(S:Wrap("TEXT", times) .. (opt and S:Wrap("DIM", "  ·  " .. opt) or ""))
     end
     -- (as wide as what it says: it never reaches under the next raid on its right)
-    local w = (b.kick:GetStringWidth() or 70) + 18
+    local w = b.compact and 0 or (UI():TextWidth(b.kick) + 18)
     if has then w = max(w, b.strip:GetWidth(), b.times:GetStringWidth() or 0)
     else w = max(w, b.add:GetStringWidth() or 0, b.addSub:GetStringWidth() or 0) end
     b:SetWidth(ceil(w + 2))
     b:SetShown(has or editable)
-end
-
--- A board banner (TV.fillTeamCard): the block at N.X, the name kept left of it.
-function TV.paintBoardNights(c, tm)
-    c.nights = c.nights or TV.newNightsBlock(c)
-    TV.paintNightsBlock(c.nights, tm.nights, tm.note, false)
-    c.nights:ClearAllPoints()
-    c.nights:SetPoint("TOPLEFT", c, "TOPLEFT", TV.N.X, -18)
-    if c.nights:IsShown() and (c.t1:GetStringWidth() or 0) > TV.N.X - 18 - 24 then UI():SetTextStyle(c.t1, S.FONT.page, { c.t1:GetTextColor() }) end
 end
 
 -- The team's banner (TV.fillCard): the block with the draft's nights; organizers edit them.
@@ -5448,10 +5168,7 @@ function TV.paintHeroNights(dr, organizer)
     card.nights = card.nights or TV.newNightsBlock(card)
     TV.paintNightsBlock(card.nights, dr.nights, dr.note, organizer)
     card.nights:ClearAllPoints()
-    card.nights:SetPoint("TOPLEFT", card, "TOPLEFT", TV.N.X, -14)
-    if not organizer and card.nights:IsShown() and (card.title:GetStringWidth() or 0) > TV.N.X - 12 - 28 then
-        UI():SetTextStyle(card.title, S.FONT.page, { card.title:GetTextColor() })
-    end
+    card.nights:SetPoint("TOPLEFT", card, "TOPLEFT", TV.N.X, -16)
     -- (the next raid's button only as wide as its lines, so the two never overlap)
     local nx = card.next
     if nx:IsShown() then
@@ -5461,9 +5178,10 @@ function TV.paintHeroNights(dr, organizer)
         nx:SetWidth(ceil(max(lw, sw, nx.label:GetStringWidth() or 0) + 2))
     end
     -- (and "No raid invites this team yet" in the room right of the block, on more lines)
-    local right = teamsView.detail.moreBtn:IsShown() and 40 or 16
+    local right = teamsView.detail.moreBtn:IsShown() and 48 or 16
     local room = card.nights:IsShown() and (TV.W - right - (TV.N.X + card.nights:GetWidth() + 24)) or 300
     card.note:SetWidth(floor(max(150, min(300, room))))
+    card:Layout()
     TV.fillNightsPanel()
 end
 
@@ -5474,6 +5192,8 @@ end
 
 -- A flat cell (the raid nights editor's, the New raid sheet's days and time): a fill and 1px edges; c:Paint(picked,
 -- dim) gives it the picked look (a gold edge, a warm fill) or a fainter edge.
+-- TODO(refactor): move into UI/Comp/Controls.lua (UI:CreateCell: a flat pickable cell, the day / time tiles of the New
+-- raid sheet and the raid nights editor)
 PlanUI.CELL = { BG = { 0.08, 0.08, 0.09, 0.95 }, EDGE = { 0.20, 0.20, 0.23, 1 }, PICKED_BG = { 0.17, 0.14, 0.05, 0.95 } }
 
 function PlanUI:FlatCell(f)
@@ -5512,30 +5232,11 @@ end
 
 function TV.createNightsPanel()
     local N = TV.N
-    local p = CreateFrame("Frame", nil, UIParent)
-    p:SetFrameStrata("DIALOG")
-    p:SetToplevel(true)
-    p:SetClampedToScreen(true)
-    p:EnableMouse(true)
-    p:SetSize(N.PANEL_W, 200)
-    for i, o in ipairs({ { 0, -10, 0.35 }, { 0, -3, 0.45 } }) do
-        local sh = p:CreateTexture(nil, "BACKGROUND", nil, -8 + i)
-        sh:SetPoint("TOPLEFT", -3 - o[1], 1 + o[2] / 3)
-        sh:SetPoint("BOTTOMRIGHT", 3 + o[1], o[2])
-        sh:SetColorTexture(0, 0, 0, o[3])
-    end
-    p.bg = p:CreateTexture(nil, "BACKGROUND", nil, 0)
-    p.bg:SetAllPoints()
-    p.bg:SetColorTexture(S:Color("SURFACE_WINDOW"))
-    UI():AddEdges(p, "BORDER")
-    UI():SetEdgeColor(p, 1, 1, 1, 0.11)
-    p.title = UI():Text(p, "small", "SUB")
-    p.title:SetPoint("LEFT", p, "TOPLEFT", 14, -20)
-    p.title:SetText("RAID NIGHTS")
-    p.clock = UI():Text(p, "body", "DIM")
-    p.clock:SetJustifyH("RIGHT")
-    p.clock:SetPoint("RIGHT", p, "TOPRIGHT", -14, -20)
-    p.clock:SetText("Times in your clock")
+    local p = UP.popover(N.PANEL_W, 200, "DIALOG")
+    p.head = UI():CreateSectionHeader(p, "Raid nights", { style = "caps", right = "Times in your clock", rule = false })
+    p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -12)
+    p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -14, -12)
+    p.title, p.clock = p.head.title, p.head.right
     -- the days: a tile each, picked = a raid night
     local inner = N.PANEL_W - 28
     local tw = floor((inner - 6 * 3) / 7)
@@ -5544,8 +5245,7 @@ function TV.createNightsPanel()
         local t = PlanUI:FlatCell(CreateFrame("Button", nil, p))
         t:SetSize(tw, N.TILE_H)
         t:SetPoint("TOPLEFT", p, "TOPLEFT", 14 + (i - 1) * (tw + 3), -36)
-        t.fs = UI():Text(t, "emph", "TEXT")
-        t.fs:SetJustifyH("CENTER")
+        t.fs = UI():Text(t, "emph", "TEXT", { justify = "CENTER" })
         t.fs:SetPoint("CENTER", 0, 0)
         t.fs:SetText(Nights().SHORT[i])
         t.d = i
@@ -5570,28 +5270,15 @@ function TV.createNightsPanel()
         PlanUI:RefreshTeamButtons()
     end)
     UI():SetEditPlaceholder(p.note, "Note (optional): \"online 15 min before invites\"")
-    p.rule = p:CreateTexture(nil, "BORDER")
-    p.rule:SetHeight(1)
-    p.rule:SetColorTexture(1, 1, 1, 0.06)
+    p.rule = UI():Rule(p, { layer = "BORDER" })
     p.foot = UI():Text(p, "body", "DIM")
     p.foot:SetText("Saved with the team: Save, or Undo")
-    p.done = UI():CreateSleekButton(p, "Done", 64, 22, function() p:Hide() end, "primary")
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetAllPoints(UIParent)
-    catcher:SetFrameStrata("DIALOG")
-    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
-    catcher:RegisterForClicks("AnyUp")
-    catcher:SetScript("OnClick", function() p:Hide() end)
-    catcher:Hide()
-    p.catcher = catcher
-    p:SetScript("OnShow", function() catcher:Show() end)
-    p:SetScript("OnHide", function()
-        catcher:Hide()
+    p.done = UI():CreateSleekButton(p, "Done", 64, S.BTN_H, function() p:Hide() end, "primary")
+    p:HookScript("OnHide", function()
         p.note:ClearFocus()
         -- (the block shows the note in its tooltip; the banner says "changed, not saved")
         if teamsView and teamsView:IsShown() then PlanUI:RefreshTeams() end
     end)
-    p:Hide()
     teamsView.nightsPanel = p
     return p
 end
@@ -5619,11 +5306,8 @@ function TV.newNightRow(p)
     UI():SetTextStyle(r.opt.label, S.FONT.emph, { r.opt.label:GetTextColor() })
     r.opt.label:SetTextColor(S:Color("TEXT"))
     r.opt:SetPoint("LEFT", r.to, "RIGHT", 16, 0)
-    r.opt:HookScript("OnEnter", function(self)
-        UI():SetTextTooltip(self, { "Optional", "A night players come to when they can; the others are core nights." },
-            "ANCHOR_TOP")
-    end)
-    r.opt:HookScript("OnLeave", hideTooltip)
+    UI():AttachTooltip(r.opt, "Optional", { "A night players come to when they can; the others are core nights." },
+        { anchor = "ANCHOR_TOP" })
     return r
 end
 
@@ -5688,7 +5372,7 @@ function TV.openNights(owner)
     p:SetScale((teamsView:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
     p:Show()
     TV.fillNightsPanel()
-    hideTooltip()
+    UI():HideTooltip()
     UI():DropIn(p, function(dx, dy)
         p:ClearAllPoints()
         p:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", -14 + dx, -8 + dy)
@@ -5780,20 +5464,16 @@ function PlanUI:GetNightsEditor() return teamsView and teamsView.nightsPanel end
 -- The waitlist panel (someone not on the roster): the nights above Join, so they know what they sign up for.
 ---------------------------------------------------------------------------
 
+-- The waitlist's raid nights (for who isn't on the roster): RAID NIGHTS and the week strip, the days and hours, the note.
 function TV.wlNights(p, dr, y)
     local list = dr.nights
     local show = list ~= nil and #list > 0 and TV.notOnRoster(dr)
     if not p.nt then
         local f = CreateFrame("Frame", nil, p)
         f:SetSize(TV.WL.W - 24, 60)
-        f.rule = f:CreateTexture(nil, "BORDER")
-        f.rule:SetPoint("TOPLEFT", 0, 0)
-        f.rule:SetPoint("TOPRIGHT", 0, 0)
-        f.rule:SetHeight(1)
-        f.rule:SetColorTexture(1, 1, 1, 0.06)
-        f.kick = UI():Text(f, "small", "SUB")
+        f.rule = UI():Rule(f, { layer = "BORDER" })
+        f.kick = UI():Text(f, "caps", "SUB", { text = "Raid nights" })
         f.kick:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -16)
-        f.kick:SetText("RAID NIGHTS")
         f.strip = TV.newWeekStrip(f)
         f.strip:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -11)
         f.days = UI():Text(f, "title", "TEXT")
@@ -5825,81 +5505,75 @@ end
 -- left; the next raid and how full it is on the right). Mine first, under "Your teams"; a click opens one.
 ---------------------------------------------------------------------------
 
+-- The Teams board: the Board layout (RaidsTab's toolbar above it). My first team (else the first) as its hero banner,
+-- the others as art rows under "Your teams" / "Other teams"; a click opens one.
 function TV.createBoard(t)
     local b = CreateFrame("Frame", nil, t)
     b:SetAllPoints()
     b:Hide()
     t.board = b
-    -- the Board layout (RaidsTab's toolbar above it): the teams' banners in its body
-    b.layout = UI():CreateLayout("board", b, { toolbar = false, bottom = 0 })
+    b.layout = UI():CreateLayout("board", b, { toolbar = false, bottom = 0,
+        hero = { size = "hero", art = "kara", kickerColor = "SUB", subColor = "SUB" } })
+    b.hero = TV.makeTeamHero(b.layout.banner)
     b.scroll = UI():CreateScrollFrame(b.layout.body)
     b.scroll:SetAllPoints(b.layout.body)
     b.content = CreateFrame("Frame", nil, b.scroll)
     b.content:SetSize(TV.W, 10)
     b.scroll:SetScrollChild(b.content)
-    b.cards, b.heads = {}, {}
-    for i = 1, 2 do
-        local h = UI():Text(b.content, "caps", "SUB")
-        b.heads[i] = h
-    end
+    b.cards, b.heads = { b.hero }, {}
 end
 
-function TV.newTeamCard(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(TV.BANNER_H)
-    UP.artBackdrop(c, floor(TV.W * 0.6), 0.72)
-    UI():AddEdges(c, "BORDER")
-    UI():SetEdgeColor(c, 1, 1, 1, 0.07)
-    c.dot = c:CreateTexture(nil, "ARTWORK")
-    c.dot:SetSize(6, 6)
-    c.dot:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-    c.dot:SetVertexColor(S:Color("GOLD"))
-    c.dot:SetPoint("TOPLEFT", 18, -20)
-    c.kick = UI():Text(c, "small", "SUB")
-    c.t1 = UI():Text(c, "hero", "TEXT")
-    c.t1:SetPoint("TOPLEFT", 18, -33)
-    c.t2 = UI():Text(c, "body", "SUB")
-    c.t2:SetPoint("TOPLEFT", 18, -63)
-    -- the next raid, on the right
-    c.r1 = UI():Text(c, "small", "SUB")
-    c.r1:SetJustifyH("RIGHT")
-    c.r1:SetPoint("TOPRIGHT", -18, -18)
-    c.r1:SetText("NEXT RAID")
-    c.r2 = UI():Text(c, "title", "TEXT")
-    c.r2:SetJustifyH("RIGHT")
-    c.r2:SetPoint("TOPRIGHT", -18, -35)
-    c.r3 = UI():Text(c, "body", "TEXT")
-    c.r3:SetJustifyH("RIGHT")
-    c.r3:SetPoint("TOPRIGHT", -18, -58)
-    c.track = c:CreateTexture(nil, "ARTWORK")
-    c.track:SetSize(110, 3)
-    c.track:SetColorTexture(1, 1, 1, 0.14)
-    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 1)
-    c.fill:SetHeight(3)
-    c.fill:SetPoint("LEFT", c.track, "LEFT", 0, 0)
-    c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, 1, 0.82, 0, 0.55) end)
-    c:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, 1, 1, 1, 0.07) end)
-    c:SetScript("OnClick", function(self) if self.id then PlanUI:SelectTeam(self.id) end end)
+-- The next raid of a team on the board: when and where, and who of the team accepted (a share bar).
+function TV.newNextBlock(c, parent)
+    c.r1 = UI():Text(parent, "caps", "SUB", { justify = "RIGHT", text = "Next raid" })
+    c.r2 = UI():Text(parent, "title", "TEXT", { justify = "RIGHT" })
+    c.share = UP.newMeter(parent, 0, 110)
+    c.r3 = c.share.n
+end
+
+-- The board's hero: a team as the page banner (UI:CreatePageBanner): whose team, the name, the roster and lineups on
+-- the left, its raid nights in the middle, its next raid on the right.
+function TV.makeTeamHero(c)
+    c.isHero = true
+    c.kick, c.t1, c.t2 = c.kicker, c.title, c.sub
+    TV.newNextBlock(c, c)
+    c.r1:SetPoint("TOPRIGHT", c, "TOPRIGHT", -14, -16)
+    c.r2:SetPoint("TOPRIGHT", c, "TOPRIGHT", -14, -32)
+    c.share:SetPoint("TOPRIGHT", c, "TOPRIGHT", -14, -54)
+    c.nights = TV.newNightsBlock(c)
+    c.nights:SetPoint("TOPLEFT", c, "TOPLEFT", TV.N.X, -16)
+    c:EnableMouse(true)
+    c:SetScript("OnMouseUp", function(self) if self.id then PlanUI:SelectTeam(self.id) end end)
+    UP.reserveRight(c, function(self)
+        if self.nights:IsShown() then return (self:GetWidth() > 1 and self:GetWidth() or TV.W) - TV.N.X + 24 end
+        return max(UI():TextWidth(self.r2) + 40, 160)
+    end)
     return c
 end
 
+-- A team on the board's list: the art row (its theme, the name, the roster and lineups), its raid nights and its next
+-- raid at the right.
+function TV.newTeamCard(parent)
+    local c = UI():CreateArtRow(parent, { onClick = function(self) if self.id then PlanUI:SelectTeam(self.id) end end })
+    c.t1, c.t2 = c.title, c.sub
+    local r = c.right
+    TV.newNextBlock(c, r)
+    c.r1:Hide()
+    c.r2:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, -9)
+    c.share:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, -27)
+    c.nights = TV.newNightsBlock(r, true)
+    c.nights:SetPoint("TOPRIGHT", r, "TOPRIGHT", -190, -8)
+    return c
+end
+
+-- Fills the hero or a row with team tm (mine: I'm on it).
 function TV.fillTeamCard(c, tm, mine, width)
-    c.id = tm.id
+    c.id, c.mine = tm.id, mine and true or false
     c:SetWidth(width)
     local raids = TV.raids(tm.id)
     local v = raids[1]
     local th = TV.themeOf(tm.theme, v, tm.id)
     c.th = th
-    local file, l, r, tt, bb = ns.ItemDB:RaidArt(th, width, TV.BANNER_H, 0.95)
-    c.art:SetTexture(file)
-    c.art:SetTexCoord(l, r, tt, bb)
-    c.dot:SetShown(mine)
-    c.kick:ClearAllPoints()
-    c.kick:SetPoint("LEFT", c, "TOPLEFT", mine and 30 or 18, -20)
-    c.kick:SetText(mine and "YOUR TEAM" or "TEAM")
-    c.t1:SetText(tm.name)
-    UI():SetTextStyle(c.t1, S.FONT.hero, { c.t1:GetTextColor() })
-    if (c.t1:GetStringWidth() or 0) > width - 18 - 260 then UI():SetTextStyle(c.t1, S.FONT.page, { c.t1:GetTextColor() }) end
     local n = #tm.members
     local nl = #tm.lineups
     local lineups
@@ -5909,31 +5583,35 @@ function TV.fillTeamCard(c, tm, mine, width)
     else
         lineups = nl .. " lineups"
     end
-    c.t2:SetText((n == 1 and "1 player" or (n .. " players")) .. "   ·   " .. lineups)
+    local sub = (n == 1 and "1 player" or (n .. " players")) .. "   ·   " .. lineups
+    -- the next raid: when and where, who of the team accepted
     if v then
         local insts = RP():GetRaidInstances(v)
         local inst = RP():GetInstance(v.i)
         local name = #insts > 1 and instNames(v, true) or (inst and inst.name) or "Raid"
         c.r2:SetText(S:Wrap("GOLD", TV.day(v.t):upper()) .. "   " .. name)
-        if (c.r2:GetStringWidth() or 0) > 250 and #insts <= 1 and ns.ItemDB:RaidShort(v.i) then
+        if (c.r2:GetStringWidth() or 0) > (c.isHero and 250 or 170) and #insts <= 1 and ns.ItemDB:RaidShort(v.i) then
             c.r2:SetText(S:Wrap("GOLD", TV.day(v.t):upper()) .. "   " .. ns.ItemDB:RaidShort(v.i))
         end
         local acc, of = TV.accepted(v, tm)
-        c.r3:SetText(S:Wrap("TEXT", acc) .. S:Wrap("DIM", "/" .. of))
-        c.track:ClearAllPoints()
-        c.track:SetPoint("RIGHT", c.r3, "LEFT", -8, 0)
-        c.track:Show()
-        local share = of > 0 and min(1, acc / of) or 0
-        c.fill:SetShown(share > 0)
-        c.fill:SetWidth(max(1, floor(110 * share + 0.5)))
-        c.fill:SetColorTexture(0.56, 0.89, 0.62, 1)
+        UP.fillShare(c.share, acc, of)
+        c.share:Show()
     else
         c.r2:SetText(S:Wrap("DIM", "None planned"))
-        c.r3:SetText("")
-        c.track:Hide()
-        c.fill:Hide()
+        c.share:Hide()
     end
-    TV.paintBoardNights(c, tm)
+    if c.isHero then
+        c:SetArt(th)
+        c:SetKicker(mine and "Your team" or "Team")
+        c:SetTitle(tm.name)
+        c:SetSub(sub)
+        TV.paintNightsBlock(c.nights, tm.nights, tm.note, false)
+        c:Layout()
+    else
+        c:SetData({ art = th, title = tm.name, sub = sub, pill = mine and { "bis", "Your team" } or nil })
+        TV.paintNightsBlock(c.nights, tm.nights, tm.note, false)
+        c:SetRightWidth(190 + (c.nights:IsShown() and c.nights:GetWidth() + 16 or 0))
+    end
     c:Show()
 end
 
@@ -5943,17 +5621,28 @@ function TV.fillBoard(teams)
     for _, tm in ipairs(teams) do
         if TV.myKey(tm.members) then mineList[#mineList + 1] = tm else others[#others + 1] = tm end
     end
+    -- the hero: my first team, else the first; then the sections (a section left empty by the hero has no header)
+    local hero = mineList[1] or others[1]
+    TV.fillTeamCard(b.hero, hero, mineList[1] ~= nil, TV.W)
     local sections = {}
-    if #mineList > 0 then sections[#sections + 1] = { "YOUR TEAMS", mineList, true } end
-    if #others > 0 then sections[#sections + 1] = { #mineList > 0 and "OTHER TEAMS" or "TEAMS", others, false } end
-    local y, k = 0, 0
+    local rest = {}
+    for i = 2, #mineList do rest[#rest + 1] = mineList[i] end
+    if #rest > 0 then sections[#sections + 1] = { "Your teams", rest, true } end
+    local orest = {}
+    for _, tm in ipairs(others) do if tm ~= hero then orest[#orest + 1] = tm end end
+    if #orest > 0 then sections[#sections + 1] = { #mineList > 0 and "Other teams" or "Teams", orest, false } end
+    local y, k = 0, 1
     for si, sec in ipairs(sections) do
-        local h = b.heads[si]
+        local h = b.heads[si] or UI():CreateSectionHeader(b.content, sec[1], { style = "title" })
+        b.heads[si] = h
+        h:SetTitle(sec[1])
+        h:SetCount(#sec[2])
+        if si > 1 then y = y + 2 * GAP end
         h:ClearAllPoints()
-        h:SetPoint("TOPLEFT", b.content, "TOPLEFT", 2, -(y + 8))
-        h:SetText(sec[1])
+        h:SetPoint("TOPLEFT", b.content, "TOPLEFT", 0, -y)
+        h:SetPoint("TOPRIGHT", b.content, "TOPRIGHT", 0, -y)
         h:Show()
-        y = y + 24
+        y = y + h:GetHeight() + 2
         for _, tm in ipairs(sec[2]) do
             k = k + 1
             local c = b.cards[k] or TV.newTeamCard(b.content)
@@ -5961,9 +5650,8 @@ function TV.fillBoard(teams)
             TV.fillTeamCard(c, tm, sec[3], TV.W)
             c:ClearAllPoints()
             c:SetPoint("TOPLEFT", b.content, "TOPLEFT", 0, -y)
-            y = y + TV.BANNER_H + GAP
+            y = y + S.ROW.art
         end
-        y = y + 4
     end
     for i = #sections + 1, #b.heads do b.heads[i]:Hide() end
     for i = k + 1, #b.cards do b.cards[i]:Hide() end
@@ -5996,26 +5684,8 @@ function TV.setTab(key)
     if teamsView then teamsView.detail.steps:Hide() end
     -- (a motion still running ends first: the refresh lays the views out where they belong)
     if TV.anim then TV.endAnim() end
-    local th = teamsView and teamsView.detail.seg.thumb
-    local fx, fw = th and th.x, th and th.w
     PlanUI:RefreshTeams()
-    if prev ~= state.teamTab then TV.animateTab(state.teamTab, fx, fw) end
-end
-
--- A "+" or "-" drawn on a small sleek button.
-function TV.glyph(b, plus)
-    local h = b:CreateTexture(nil, "OVERLAY")
-    h:SetSize(8, 2)
-    h:SetPoint("CENTER", 0, 0)
-    h:SetColorTexture(0.9, 0.9, 0.9, 1)
-    if plus then
-        local v = b:CreateTexture(nil, "OVERLAY")
-        v:SetSize(2, 8)
-        v:SetPoint("CENTER", 0, 0)
-        v:SetColorTexture(0.9, 0.9, 0.9, 1)
-    end
-    b:SetScript("OnMouseDown", nil)
-    b:SetScript("OnMouseUp", nil)
+    if prev ~= state.teamTab then TV.animateTab(state.teamTab) end
 end
 
 -- Start from: "Standard 25  3 tanks · 6 healers · 7 melee · 9 ranged".
@@ -6062,14 +5732,10 @@ function TV.newSlotRow(col)
     ns.RaidGroupsUI:DecoratePlate(b)
     b.fs = b.pName
     -- (my own slot, for a member: kept for the shared checks; the plate's gold rim shows it)
-    b.me = b:CreateTexture(nil, "BACKGROUND")
-    b.me:SetAllPoints()
-    b.me:SetColorTexture(1, 0.82, 0, 0)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.045)
-    b:SetScript("OnEnter", TV.slotTooltip)
-    b:SetScript("OnLeave", hideTooltip)
+    b.me = UI():Fill(b, { tokenA("GOLD", 0) })
+    UI():DecorateRow(b)
+    b.hl = b.dzHover
+    UI():AttachTooltip(b, TV.slotTooltip)
     b:SetScript("OnClick", function(self)
         if RP():CanManageTeams() and self.role then TV.openSteps(self.role, self) end
     end)
@@ -6094,16 +5760,15 @@ function TV.fillSlotRow(b, slot, organizer, mine)
     b:Show()
 end
 
-function TV.slotTooltip(self)
+function TV.slotTooltip(self, GameTooltip)
     local slot = self.slot
-    if not slot then return end
+    if not slot then return false end
     local organizer = RP():CanManageTeams()
     if not slot.member then
         TV.canFillTooltip(self, slot.c, slot.sp)
     else
         local m = slot.member
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and " |cff9e9e9e(you)|r" or ""))
+        GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and (" " .. S:Wrap("SUB", "(you)")) or ""))
         GameTooltip:AddLine(slot.name, 1, 1, 1)
         local src = m.source == "team" and "Spec set in the team" or m.source == "bis" and "Spec from their BiS list"
             or m.source == "signup" and "Spec from their last sign-up" or nil
@@ -6118,7 +5783,6 @@ function TV.slotTooltip(self)
         end
         GameTooltip:AddLine("Click to change this role's slots.", 0.6, 0.6, 0.6, true)
     end
-    GameTooltip:Show()
 end
 
 -- A chip under the comp's columns (chip.kind: "unassigned", "waitlist" or "beyond" the comp): class circle, name,
@@ -6129,14 +5793,12 @@ function TV.newBenchChip(parent)
     b:RegisterForClicks("LeftButtonUp")
     ns.RaidGroupsUI:DecoratePlate(b)
     b.fs = b.pName
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.045)
-    b:SetScript("OnEnter", function(self)
+    UI():DecorateRow(b)
+    b.hl = b.dzHover
+    UI():AttachTooltip(b, function(self, GameTooltip)
         local m = self.member
-        if not m then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and " |cff9e9e9e(you)|r" or ""))
+        if not m then return false end
+        GameTooltip:AddLine(colored(m.key, m.c) .. (TV.isMine(m.key) and (" " .. S:Wrap("SUB", "(you)")) or ""))
         local label = m.sp and ns.RaidComp:SlotName(m.c, m.sp)
         GameTooltip:AddLine(label or ((ns.RaidComp:ClassName(m.c) or "") .. " · spec unknown"), 1, 1, 1)
         local kind = self.kind
@@ -6150,9 +5812,7 @@ function TV.newBenchChip(parent)
                 or "Drag onto an open slot to play its spec, or click to add a slot or change the spec.",
                 0.6, 0.6, 0.6, true)
         end
-        GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", hideTooltip)
+    end, nil, { anchor = "ANCHOR_TOP" })
     b:SetScript("OnClick", function(self) TV.benchMenu(self) end)
     b:RegisterForDrag("LeftButton")
     b:SetScript("OnDragStart", function(self) TV.compDragStart(self) end)
@@ -6191,22 +5851,8 @@ function TV.benchMenu(chip)
     end)
 end
 
--- The steppers: every spec of a role with − n +, one click per slot; + hides once the comp is as big as the team.
 function TV.createSteps(d)
-    -- (a top-level frame like a menu: the window's scale is taken on when it opens)
-    local p = CreateFrame("Frame", nil, UIParent)
-    p:SetFrameStrata("FULLSCREEN_DIALOG")
-    p:SetToplevel(true)
-    p:SetClampedToScreen(true)
-    p:EnableMouse(true)
-    p:SetSize(252, 100)
-    -- (the panel every dropdown drops, UI.DROP_*)
-    local bg, edge = UI().DROP_BG, UI().DROP_EDGE
-    p.bg = p:CreateTexture(nil, "BACKGROUND")
-    p.bg:SetAllPoints()
-    p.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-    UI():AddEdges(p, "BORDER")
-    UI():SetEdgeColor(p, edge[1], edge[2], edge[3], edge[4])
+    local p = UP.popover(252, 100, "FULLSCREEN_DIALOG", true)
     p.role = p:CreateTexture(nil, "ARTWORK")
     p.role:SetSize(14, 14)
     p.role:SetTexture(UI().ROLE_TEX)
@@ -6214,24 +5860,9 @@ function TV.createSteps(d)
     p.title = UI():Text(p, "emph", "GOLD")
     p.title:SetPoint("LEFT", p.role, "RIGHT", 6, 0)
     p.rows = {}
-    p.line = p:CreateTexture(nil, "BORDER")
-    p.line:SetColorTexture(1, 1, 1, 0.08)
-    p.line:SetHeight(1)
-    p.line:SetPoint("BOTTOMLEFT", 8, 28)
-    p.line:SetPoint("BOTTOMRIGHT", -8, 28)
+    p.line = UI():Rule(p, { bottom = 28, left = 8, right = 8, layer = "BORDER" })
     p.foot = UI():Text(p, "body", "TEXT")
     p.foot:SetPoint("BOTTOMLEFT", 10, 9)
-    p:Hide()
-    -- a click anywhere else closes it
-    p:SetScript("OnShow", function(self)
-        if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
-            self:RegisterEvent("GLOBAL_MOUSE_DOWN")
-        end
-    end)
-    p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
-    p:SetScript("OnEvent", function(self)
-        if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
-    end)
     d.steps = p
 end
 
@@ -6252,16 +5883,12 @@ function TV.newStepRow(p)
         ns.RaidComp:SetCount(dr.cp, r.c, r.sp, n)
         PlanUI:RefreshTeams()
     end
-    r.plus = UI():CreateSleekButton(r, "", 18, 18, function() step(1) end)
+    r.plus = UI():CreateSleekButton(r, "+", 18, 18, function() step(1) end)
     r.plus:SetPoint("RIGHT", r, "RIGHT", 0, 0)
-    TV.glyph(r.plus, true)
-    r.n = UI():Text(r, "emph", "TEXT")
-    r.n:SetJustifyH("CENTER")
-    r.n:SetWidth(18)
+    r.n = UI():Text(r, "emph", "TEXT", { justify = "CENTER", width = 18 })
     r.n:SetPoint("RIGHT", r.plus, "LEFT", -4, 0)
-    r.minus = UI():CreateSleekButton(r, "", 18, 18, function() step(-1) end)
+    r.minus = UI():CreateSleekButton(r, "–", 18, 18, function() step(-1) end)
     r.minus:SetPoint("RIGHT", r.n, "LEFT", -4, 0)
-    TV.glyph(r.minus, false)
     return r
 end
 
@@ -6323,76 +5950,12 @@ function TV.fillSteps()
     p:SetHeight(30 + #specs * 22 + 8 + 28)
 end
 
--- The frames of the comp (CreateTeams calls it): the tabs, Start from and the strip in the tool row, the members'
--- strip row, the columns, the bench, the steppers, the empty card.
 function TV.createComp(t, d)
-    -- the switch: Groups | Comp in one dark well, the open one lit
-    local seg = CreateFrame("Frame", nil, d.views)
-    seg:SetHeight(TV.TB_H)
-    seg:SetPoint("LEFT", d.views, "LEFT", 0, 0)
-    seg.bg = seg:CreateTexture(nil, "BACKGROUND")
-    seg.bg:SetAllPoints()
-    seg.bg:SetColorTexture(0, 0, 0, 0.35)
-    UI():AddEdges(seg, "BORDER")
-    UI():SetEdgeColor(seg, 1, 1, 1, 0.07)
-    d.seg = seg
-    -- the lit part: one thumb under the tabs that slides to the open one (TV.layoutSeg, TV.animateTab)
-    local thumb = CreateFrame("Frame", nil, seg)
-    thumb:SetHeight(TV.TB_H - 4)
-    thumb:SetFrameLevel(seg:GetFrameLevel() + 1)
-    thumb.bg = thumb:CreateTexture(nil, "BACKGROUND")
-    thumb.bg:SetAllPoints()
-    thumb.bg:SetColorTexture(0.165, 0.165, 0.19, 1)
-    UI():AddEdges(thumb, "BORDER")
-    UI():SetEdgeColor(thumb, 1, 1, 1, 0.1)
-    thumb.x, thumb.w = 2, 60
-    seg.thumb = thumb
-    local function tab(label, key)
-        local b = CreateFrame("Button", nil, seg)
-        b:SetHeight(TV.TB_H - 4)
-        b.key = key
-        b.bg = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-        b.bg:SetAllPoints()
-        b.bg:SetColorTexture(0.165, 0.165, 0.19, 1)
-        UI():AddEdges(b, "BORDER")
-        UI():SetEdgeColor(b, 1, 1, 1, 0.1)
-        b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(S:Color("HOVER"))
-        local fs = UI():Text(b, "emph", "TEXT")
-        fs:SetPoint("CENTER", 0, 0)
-        b:SetFontString(fs)
-        b.fs = fs
-        b:SetScript("OnClick", function() TV.setTab(key) end)
-        b:SetFrameLevel(seg:GetFrameLevel() + 3)
-        b.bg:Hide()
-        for _, e in ipairs(b.edges or {}) do e:Hide() end
-        function b:SetActive(on)
-            -- (the seg's thumb lights the open one: the tab only brightens its text)
-            self.active = on and true or false
-            self.fs:SetTextColor(on and 1 or 0.62, on and 1 or 0.62, on and 1 or 0.62)
-        end
-        function b:SetLabel(text)
-            self:SetText(text)
-            self:SetWidth(floor((self.fs:GetStringWidth() or 40) + 26 + 0.5))
-        end
-        b:SetLabel(label)
-        b:SetActive(false)
-        return b
-    end
-    d.tabGroups = tab("Groups", "groups")
-    UI():AttachTooltip(d.tabGroups, "Groups", { "Raids that invite this team start from these groups." }, { anchor = "ANCHOR_TOP" })
-    d.tabComp = tab("Comp", "comp")
-    UI():AttachTooltip(d.tabComp, "Target comp", { "The specs this lineup should bring. Its open slots show on its tab and in "
-        .. "the Sign-ups of raids that invite the team." }, { anchor = "ANCHOR_TOP" })
-
-    d.startBtn = UI():CreateSleekMenuButton(d.tool, "Start from", 104, function(root) TV.startMenu(root) end)
+    d.startBtn = UI():CreateSleekMenuButton(d.tool, "Start from", 104, function(root) TV.startMenu(root) end, S.BTN_H)
     UI():AttachTooltip(d.startBtn, "Start from", { "Begins the comp again: a preset, the team as it is, or another team's comp." }, { anchor = "ANCHOR_TOP" })
 
-    -- the comp's raid buffs: in the tool row (organizers) or a row of their own (members)
-    d.compBar = CreateFrame("Frame", nil, d)
-    d.compBar:SetSize(TV.W, TV.BAR_H)
-    d.compStrip = CreateFrame("Frame", nil, d)
+    -- the comp's raid buffs: on the tool row, after the tabs
+    d.compStrip = CreateFrame("Frame", nil, d.views)
     d.compStrip:SetSize(1, 22)
     d.compStrip.icons = {}
     for i = 1, 20 do
@@ -6404,6 +5967,7 @@ function TV.createComp(t, d)
     end
 
     d.compScroll = UI():CreateScrollFrame(d)
+    d.compScroll:SetAllPoints(d.layout.body)
     local cc = CreateFrame("Frame", nil, d.compScroll)
     cc:SetSize(TV.W, 10)
     d.compScroll:SetScrollChild(cc)
@@ -6420,20 +5984,17 @@ function TV.createComp(t, d)
         col.title = UI():Text(col, "emph", "TEXT")
         col.title:SetPoint("LEFT", col.role, "RIGHT", 6, 0)
         col.title:SetText(TV.ROLE_LABEL[role])
-        col.count = UI():Text(col, "body", "TEXT")
-        col.count:SetJustifyH("RIGHT")
+        col.count = UI():Text(col, "body", "TEXT", { justify = "RIGHT" })
         col.count:SetPoint("RIGHT", col, "TOPLEFT", TV.GUT_W, -8)
         -- (organizers, while the comp has room: + opens the steppers, after the pips)
-        col.add = UI():CreateSleekButton(col, "", 16, 16, function(self) TV.openSteps(role, self) end)
+        col.add = UI():CreateTipIconButton(col, 16, UI().ICON.plus, TV.ROLE_LABEL[role], "How many of each spec the comp "
+            .. "wants.", function(self) TV.openSteps(role, self) end)
+        col.add.icon:ClearAllPoints()
+        col.add.icon:SetPoint("TOPLEFT", 3, -3)
+        col.add.icon:SetPoint("BOTTOMRIGHT", -3, 3)
         col.add:SetPoint("TOPRIGHT", col, "TOPLEFT", TV.GUT_W, -19)
-        TV.glyph(col.add, true)
-        UI():AttachTooltip(col.add, TV.ROLE_LABEL[role], { "How many of each spec the comp wants." }, { anchor = "ANCHOR_TOP" })
-        -- (between the bands: a faint rule)
-        col.rule = col:CreateTexture(nil, "BORDER")
-        col.rule:SetColorTexture(1, 1, 1, 0.055)
-        col.rule:SetHeight(1)
-        col.rule:SetPoint("BOTTOMLEFT", col, "TOPLEFT", 0, 6)
-        col.rule:SetPoint("BOTTOMRIGHT", col, "TOPRIGHT", 0, 6)
+        -- (between the bands: the hairline)
+        col.rule = UI():Rule(col, { top = -7, layer = "BORDER" })
         col.pips = {}
         col.pipsH = 0
         col.none = UI():Text(col, "body", "DIM")
@@ -6450,23 +6011,10 @@ function TV.createComp(t, d)
         p.label:SetHeight(30)
         p.label:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
         -- (in the gutter: a long label takes two lines)
-        p.label.fs = UI():Text(p.label, "emph", "SUB")
+        p.label.fs = UI():Text(p.label, "emph", "SUB", { wrap = true, width = TV.GUT_W })
         p.label.fs:SetPoint("TOPLEFT", 0, -1)
-        p.label.fs:SetWidth(TV.GUT_W)
-        p.label.fs:SetJustifyH("LEFT")
-        p.label.fs:SetWordWrap(true)
-        p.label:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(label)
-            GameTooltip:AddLine(tip, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        p.label:SetScript("OnLeave", hideTooltip)
-        p.rule = p:CreateTexture(nil, "BORDER")
-        p.rule:SetColorTexture(1, 1, 1, 0.055)
-        p.rule:SetHeight(1)
-        p.rule:SetPoint("BOTTOMLEFT", p, "TOPLEFT", 0, 6)
-        p.rule:SetPoint("BOTTOMRIGHT", p, "TOPRIGHT", 0, 6)
+        UI():AttachTooltip(p.label, label, { tip }, { anchor = "ANCHOR_TOP" })
+        p.rule = UI():Rule(p, { top = -7, layer = "BORDER" })
         p.chips = {}
         p:Hide()
         return p
@@ -6479,9 +6027,8 @@ function TV.createComp(t, d)
     TV.createSteps(d)
 
     -- no comp yet (organizers): one card, three ways to start
-    local e = CreateFrame("Frame", nil, d)
+    local e = UI():CreateCard(d, { tone = "card" })
     e:SetSize(560, 230)
-    panel(e, CARD_BG, { EDGE[1], EDGE[2], EDGE[3], 0.6 })
     d.compEmpty = e
     e.meter = TV.createMeter(e)
     e.meter:EnableMouse(false)
@@ -6493,8 +6040,7 @@ function TV.createComp(t, d)
     end
     TV.fillMeter(e.meter, pic)
     e.meter.match = nil
-    e.title = UI():Text(e, "page", "TEXT")
-    e.title:SetJustifyH("CENTER")
+    e.title = UI():Text(e, "page", "TEXT", { justify = "CENTER" })
     e.title:SetPoint("TOP", e, "TOP", 0, -60)
     e.title:SetText("No target comp yet")
     e.body = UI():Text(e, "emph", "SUB", { wrap = true, width = 500, justify = "CENTER" })
@@ -6502,20 +6048,16 @@ function TV.createComp(t, d)
     e.body:SetPoint("TOP", e.title, "BOTTOM", 0, -10)
     e.body:SetText("Draft the specs this team should bring. The spots still open show on the team card, and in the "
         .. "Sign-ups of raids that invite the team.")
-    e.from = UI():Text(e, "body", "SUB")
-    e.from:SetJustifyH("CENTER")
+    e.from = UI():Text(e, "caps", "SUB", { justify = "CENTER", text = "Start from" })
     e.from:SetPoint("TOP", e.body, "BOTTOM", 0, -18)
-    e.from:SetText("Start from")
     e.tiles = {}
     for i = 1, 3 do
         local b = UI():CreateSleekButton(e, "", 164, 46, function(self) if self.start then TV.startFrom(self.start) end end)
         b:SetScript("OnMouseDown", nil)
         b:SetScript("OnMouseUp", nil)
-        b.t1 = UI():Text(b, "title", "TEXT")
-        b.t1:SetJustifyH("CENTER")
+        b.t1 = UI():Text(b, "title", "TEXT", { justify = "CENTER" })
         b.t1:SetPoint("TOP", b, "TOP", 0, -9)
-        b.t2 = UI():Text(b, "small", "SUB")
-        b.t2:SetJustifyH("CENTER")
+        b.t2 = UI():Text(b, "small", "SUB", { justify = "CENTER" })
         b.t2:SetPoint("TOP", b.t1, "BOTTOM", 0, -4)
         e.tiles[i] = b
     end
@@ -6766,18 +6308,17 @@ function TV.fillChipPanel(p, list, kind, y)
     return h
 end
 
--- The Comp tab below the tabs: the row on top (organizers: Start from, the strip, Undo / Save; members: the
--- strip), then the columns and the bench, or (no comp yet, organizers) the empty card. Returns nothing.
-function TV.layoutComp(y, organizer, dr, m)
+-- The Comp tab: the tool row (organizers: Start from; everyone: the comp's raid buffs after the tabs), then the bands
+-- and who no slot takes, or (no comp yet, organizers) the empty card.
+function TV.layoutComp(organizer, dr, m)
     local t, d = teamsView, teamsView.detail
-    d.tool:Show()
     t.picker.frame:Hide()
     d.autoBtn:Hide()
-    d.compBar:Hide()
     d.startBtn:SetShown(organizer and m ~= nil)
+    d.tool:SetShown(d.startBtn:IsShown())
     d.compStrip:SetShown(m ~= nil)
     if m then
-        -- the raid buffs the comp brings, after the switch: as large as the room left there allows (18 down to 14)
+        -- the raid buffs the comp brings, after the tabs: as large as the room left there allows (18 down to 14)
         TV.layoutTool("comp")
         local room = d.stripRoom or 300
         local states = TV.states or {}
@@ -6797,20 +6338,16 @@ function TV.layoutComp(y, organizer, dr, m)
         d.compStrip:SetSize(max(1, n * (size + 2) - 2), size)
     end
     TV.layoutTool("comp")
-    d.tool:SetShown(m ~= nil or d.saveBtn:IsShown())
     d.compEmpty:SetShown(organizer and m == nil)
     d.compScroll:SetShown(m ~= nil)
     if not m then
         if organizer then
             TV.fillCompEmpty(dr)
             d.compEmpty:ClearAllPoints()
-            d.compEmpty:SetPoint("TOP", d, "TOP", 0, -(y + 6))
+            d.compEmpty:SetPoint("TOP", d.layout.body, "TOP", 0, -6)
         end
         return
     end
-    d.compScroll:ClearAllPoints()
-    d.compScroll:SetPoint("TOPLEFT", d, "TOPLEFT", PAD, -y)
-    d.compScroll:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -PAD, 0)
     TV.fillCompView(m, organizer)
 end
 
@@ -6830,7 +6367,7 @@ function PlanUI:OpenSlotTooltip(row)
     if not cell then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(TV.specIconText(cell.c, cell.sp, 16) .. " " .. tostring(cell.name or "?"), 1, 1, 1)
-    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", 0.62, 0.62, 0.62)
+    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", tokenA("SUB"))
     local cf = RP():RaidCanFill(cell.occ, cell.c, cell.sp)
     local any = false
     for _, grp in ipairs({ { "Not answered yet", cf.unanswered, "on the team" }, { "In the guild", cf.guild } }) do
@@ -6838,12 +6375,12 @@ function PlanUI:OpenSlotTooltip(row)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], 1, 0.82, 0)
+            GameTooltip:AddLine(grp[1], tokenA("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = grp[3] or (e.st == "B" and "on the bench") or ""
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), right,
-                    1, 1, 1, 0.62, 0.62, 0.62)
+                    1, 1, 1, tokenA("SUB"))
             end
             if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
         end
@@ -6873,14 +6410,6 @@ function PlanUI:GetCompSteps() return teamsView and teamsView.detail.steps end
 ---------------------------------------------------------------------------
 -- New / Edit raid: UI/RaidSheet.lua (a sheet over the Raids tab; PlanUI:OpenEditor / GetEditor)
 ---------------------------------------------------------------------------
-
--- A form label of the windows below.
-local function row(parent, label, y)
-    local fs = UI():Text(parent, "small", "GOLD")
-    fs:SetPoint("TOPLEFT", 12, y)
-    fs:SetText(label)
-    return fs
-end
 
 ---------------------------------------------------------------------------
 -- Raid leader window (the GM and the raid leaders): who leads one raid. That leader runs it with the GM and the raid
@@ -6929,21 +6458,35 @@ local function leaderSave(scope)
     return true
 end
 
+-- The window on the tool layout: the raid as a strip banner (its loading screen, its name and night), the tool row
+-- (No leader, Every week for a weekly raid, Save as the main action), then what a raid leader does, the picker and
+-- who leads.
 local function createLeader()
-    local w = UI():CreateWindow("DisasterZoneRaidLeader", "Raid leader", 380, 220)
+    local w = UI():CreateWindow("DisasterZoneRaidLeader", "Raid leader", 400, 270)
     leaderWin = w
     local c = w.content
-    w.info = UI():Text(c, "emph", "TEXT")
-    w.info:SetPoint("TOPLEFT", 12, -10)
-    w.info:SetPoint("RIGHT", -12, 0)
-    w.help = UI():Text(c, "small", "DIM", { wrap = true })
-    w.help:SetPoint("TOPLEFT", 12, -30)
-    w.help:SetPoint("RIGHT", -12, 0)
-    w.help:SetJustifyH("LEFT")
+    local L = UI():CreateLayout("tool", c, { width = 390, toolbar = true,
+        banner = { size = "strip", art = "kara", subColor = "SUB" } })
+    w.layout = L
+    local body, bar = L.body, L.toolbar
+    w.info = L.banner.title
+    w.noneBtn = UI():CreateSleekButton(bar, "No leader", 80, S.BTN_H, function()
+        w.pick = false
+        w.err:SetText("")
+        refreshLeaderPick()
+    end)
+    w.saveAllBtn = UI():CreateSleekButton(bar, "Every week", 100, S.BTN_H, function() leaderSave("series") end)
+    bar:SetFilters({ w.noneBtn, w.saveAllBtn })
+    w.saveBtn = bar:SetPrimary({ text = "Save", width = 110, onClick = function() leaderSave("one") end })
+    w.help = UI():Text(body, "small", "SUB", { wrap = true })
+    w.help:SetPoint("TOPLEFT", 0, 0)
+    w.help:SetPoint("RIGHT", 0, 0)
     w.help:SetText("The raid leader runs this raid with the Guild Master and the raid leaders, even when not on the "
         .. "list. Only they and the Guild Master pick its strategies and assign players.")
-    row(c, "Leader", -82)
-    w.picker = UI():CreateSearchDropdown(c, 190, {
+    w.head = UI():CreateSectionHeader(body, "Leader", { style = "caps" })
+    w.head:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -40)
+    w.head:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -40)
+    w.picker = UI():CreateSearchDropdown(body, 240, {
         placeholder = "Find a guild member...",
         emptyText = "No matching guild members.",
         getItems = leaderItems,
@@ -6955,26 +6498,13 @@ local function createLeader()
             if w.picker.Close then w.picker:Close() end
         end,
     })
-    w.picker.frame:SetPoint("TOPLEFT", 80, -76)
-    w.noneBtn = UI():CreateSleekButton(c, "No leader", 76, 22, function()
-        w.pick = false
-        w.err:SetText("")
-        refreshLeaderPick()
-    end)
-    w.noneBtn:SetPoint("LEFT", w.picker.frame, "RIGHT", 6, 0)
-    w.pickText = UI():Text(c, "small", "TEXT")
-    w.pickText:SetPoint("TOPLEFT", 82, -106)
-    w.pickText:SetPoint("RIGHT", -12, 0)
-
-    w.err = UI():Text(c, "small", "BAD", { wrap = true })
-    w.err:SetPoint("BOTTOMLEFT", 12, 40)
-    w.err:SetPoint("RIGHT", -12, 0)
-    w.saveBtn = UI():CreateSleekButton(c, "Save", 110, 22, function() leaderSave("one") end, "primary")
-    w.saveBtn:SetPoint("BOTTOMRIGHT", -10, 10)
-    w.saveAllBtn = UI():CreateSleekButton(c, "Every week", 100, 22, function() leaderSave("series") end)
-    w.saveAllBtn:SetPoint("RIGHT", w.saveBtn, "LEFT", -6, 0)
-    w.closeBtn = UI():CreateSleekButton(c, "Close", 70, 22, function() w:Hide() end)
-    w.closeBtn:SetPoint("BOTTOMLEFT", 10, 10)
+    w.picker.frame:SetPoint("TOPLEFT", body, "TOPLEFT", -4, -64)
+    w.pickText = UI():Text(body, "body", "TEXT")
+    w.pickText:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -96)
+    w.pickText:SetPoint("RIGHT", 0, 0)
+    w.err = UI():Text(body, "small", "BAD", { wrap = true })
+    w.err:SetPoint("TOPLEFT", w.pickText, "BOTTOMLEFT", 0, -8)
+    w.err:SetPoint("RIGHT", 0, 0)
     w:Hide()
     return w
 end
@@ -6991,9 +6521,14 @@ function PlanUI:OpenLeader(occId)
     local w = leaderWin
     w.occ, w.pick = v.id, v.rl or false
     w.err:SetText("")
-    w.info:SetText(raidTitle(v) .. "  " .. S:Wrap("DIM", fmtDay(v.t) .. " " .. fmtTime(v.t)))
+    local b = w.layout.banner
+    b:SetArt(RP():GetRaidInstances(v)[1] or v.i)
+    b:SetTitle(raidTitle(v))
+    b:SetSub(fmtDay(v.t) .. " " .. fmtTime(v.t))
     w.saveBtn:SetText(v.weekly and "This week only" or "Save")
+    w.saveBtn:SetWidth(v.weekly and 120 or 110)
     w.saveAllBtn:SetShown(v.weekly)
+    w.layout.toolbar:LayoutRight()
     if w.picker.Close then w.picker:Close() end
     refreshLeaderPick()
     w:Show()
@@ -7089,54 +6624,53 @@ local function initInviteRow(row, d)
     row.remove:SetShown(d.guest or (inviteWin ~= nil and inviteWin.occ ~= nil and RP():CanManageRaid(inviteWin.occ)))
 end
 
--- One input row at a time: the "Guild member" tab shows the member search, the "Guest" tab the guest's name, class
--- and spec. What each tab is for is in its tooltip, not on the window.
+-- The Add players window on the tool layout: the raid as a strip banner, the tool row (Guild member | Guest as its
+-- tabs when there is a choice; Known players for guests), then one input row (the member search, or a guest's name,
+-- class and spec with Add), a status line and who is added. What each tab is for is in its tooltip.
 local function createInvites()
-    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Add players", 400, 400)
+    local w = UI():CreateWindow("DisasterZoneRaidInvites", "Add players", 420, 420)
     inviteWin = w
     local c = w.content
     w.mode = "member"
-    w.info = UI():Text(c, "emph", "GOLD")
-    w.info:SetPoint("TOPLEFT", 10, -8)
-    w.info:SetPoint("RIGHT", -10, 0)
-
-    local function tab(label, mode)
-        return UI():CreateUnderlineTab(c, label, function()
-            w.mode = mode
-            w.err:SetText("")
-            PlanUI:RefreshInvites()
-        end)
-    end
-    w.memberTab = tab("Guild member", "member")
-    w.memberTab:SetPoint("TOPLEFT", 4, -32)
-    UI():AttachTooltip(w.memberTab, "Guild member", { "Invite guild members outside the raid's teams. On a locked raid they are "
-        .. "the only ones besides the teams who can sign up and see it." }, { anchor = "ANCHOR_TOP" })
-    w.guestTab = tab("Guest", "guest")
-    w.guestTab:SetPoint("LEFT", w.memberTab, "RIGHT", 4, 0)
-    UI():AttachTooltip(w.guestTab, "Guest", { "Add a player who is not in the guild by character name. A guest counts as "
-        .. "accepted, can be placed in a group and is invited with the raid." }, { anchor = "ANCHOR_TOP" })
+    local L = UI():CreateLayout("tool", c, { width = 410, toolbar = true,
+        banner = { size = "strip", art = "kara", subColor = "SUB" } })
+    w.layout = L
+    local body, bar = L.body, L.toolbar
+    w.info = L.banner.title
+    bar:SetTabs({
+        { key = "member", text = "Guild member", tip = "Invite guild members outside the raid's teams. On a locked raid "
+            .. "they are the only ones besides the teams who can sign up and see it." },
+        { key = "guest", text = "Guest", tip = "Add a player who is not in the guild by character name. A guest counts "
+            .. "as accepted, can be placed in a group and is invited with the raid." },
+    }, function(key)
+        w.mode = key
+        w.err:SetText("")
+        PlanUI:RefreshInvites()
+    end)
+    w.memberTab, w.guestTab = bar:GetTab("member"), bar:GetTab("guest")
     -- 1.3: one click for a player we know (the guest book, my group, my target), with their class and spec
-    w.knownBtn = UI():CreateSleekMenuButton(c, "Known players", 120, function(root) PlanUI:BuildKnownGuestsMenu(root) end)
-    w.knownBtn:SetPoint("TOPRIGHT", -8, -32)
-    UI():AttachTooltip(w.knownBtn, "Known players", { "Players outside the guild from the guest book, your group and your target. "
-        .. "Pick one to add them with the class and spec last seen." }, { anchor = "ANCHOR_TOP" })
+    w.knownBtn = UI():CreateSleekMenuButton(bar, "Known players", 120, function(root) PlanUI:BuildKnownGuestsMenu(root) end,
+        S.BTN_H)
+    UI():AttachTooltip(w.knownBtn, "Known players", { "Players outside the guild from the guest book, your group and your "
+        .. "target. Pick one to add them with the class and spec last seen." }, { anchor = "ANCHOR_TOP" })
+    bar:SetFilters({ w.knownBtn })
 
     -- guild members (raid planners)
-    w.picker = UI():CreateSearchDropdown(c, 340, {
+    w.picker = UI():CreateSearchDropdown(body, 340, {
         placeholder = "Search guild members...",
         emptyText = "No matching guild members.",
         getItems = invitePickerItems,
         isChecked = function(key) return inviteSet(inviteRaid())[key] and true or false end,
         onToggle = function(key) PlanUI:ToggleInvite(key) end,
     })
-    w.picker.frame:SetPoint("TOPLEFT", 6, -60)
+    w.picker.frame:SetPoint("TOPLEFT", body, "TOPLEFT", -4, 0)
 
     -- guests (roster managers): name, class, spec
-    w.nameBox = UI():CreateSleekEditBox(c)
-    w.nameBox:SetSize(116, 20)
+    w.nameBox = UI():CreateSleekEditBox(body)
+    w.nameBox:SetSize(130, 22)
     w.nameBox:SetAutoFocus(false)
     w.nameBox:SetMaxLetters(48)
-    w.nameBox:SetPoint("TOPLEFT", 14, -62)
+    w.nameBox:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
     w.nameBox:SetScript("OnEnterPressed", function() PlanUI:AddGuest() end)
     w.nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     w.nameHint = UI():Text(w.nameBox, "small", "DIM")
@@ -7146,27 +6680,27 @@ local function createInvites()
         w.nameHint:SetShown(self:GetText() == "")
         PlanUI:GuessGuestClass(self:GetText())
     end)
-    w.classDD = UI():CreateSleekDropdown(c, 84, classOptions, function() return w.cls end, function(val)
+    w.classDD = UI():CreateSleekDropdown(body, 84, classOptions, function() return w.cls end, function(val)
         w.cls, w.sp = val, nil
         if w.specDD.Refresh then w.specDD:Refresh() end
     end)
     w.classDD:SetPoint("LEFT", w.nameBox, "RIGHT", 6, 0)
     w.classDD:SetDefaultText("Class")
-    w.specDD = UI():CreateSleekDropdown(c, 84, guestSpecOptions, function() return w.sp end, function(val) w.sp = val end)
-    w.specDD:SetPoint("LEFT", w.classDD, "RIGHT", 3, 0)
+    w.specDD = UI():CreateSleekDropdown(body, 84, guestSpecOptions, function() return w.sp end, function(val) w.sp = val end)
+    w.specDD:SetPoint("LEFT", w.classDD, "RIGHT", 4, 0)
     w.specDD:SetDefaultText("Spec")
-    w.addBtn = UI():CreateSleekButton(c, "Add", 44, 22, function() PlanUI:AddGuest() end, "primary")
-    w.addBtn:SetPoint("LEFT", w.specDD, "RIGHT", 4, 0)
+    w.addBtn = UI():CreateSleekButton(body, "Add", 52, 22, function() PlanUI:AddGuest() end, "primary")
+    w.addBtn:SetPoint("LEFT", w.specDD, "RIGHT", 6, 0)
 
-    w.err = UI():Text(c, "small", "BAD", { wrap = true })
-    w.err:SetPoint("TOPLEFT", 12, -88)
-    w.err:SetPoint("RIGHT", -10, 0)
-    w.status = UI():Text(c, "small", "DIM")
-    w.status:SetPoint("TOPLEFT", 10, -88)
-    w.list = UI():CreateScrollList(c, 22, initInviteRow)
-    w.list.frame:SetPoint("TOPLEFT", 4, -104)
-    w.list.frame:SetPoint("BOTTOMRIGHT", -4, 8)
-    w.list:SetEmptyText("Nobody added yet.")
+    w.err = UI():Text(body, "small", "BAD", { wrap = true })
+    w.err:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -32)
+    w.err:SetPoint("RIGHT", 0, 0)
+    w.status = UI():Text(body, "small", "DIM")
+    w.status:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -32)
+    w.list = UI():CreateScrollList(body, S.ROW.compact, initInviteRow)
+    w.list.frame:SetPoint("TOPLEFT", body, "TOPLEFT", -6, -48)
+    w.list.frame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 6, 0)
+    w.list:SetEmptyState({ glyph = UP.glyph("team"), title = "Nobody added yet.", compact = true })
     w:Hide()
     return w
 end
@@ -7334,14 +6868,17 @@ function PlanUI:RefreshInvites()
     end
     local planner, manager = RP():CanManageRaid(v), RP():CanManageRoster(v)
     local w = inviteWin
-    w.info:SetText(raidTitle(v) .. "  " .. S:Wrap("DIM", fmtDay(v.t) .. " " .. fmtTime(v.t)))
+    local b = w.layout.banner
+    b:SetArt(RP():GetRaidInstances(v)[1] or v.i)
+    b:SetTitle(raidTitle(v))
+    b:SetSub(fmtDay(v.t) .. " " .. fmtTime(v.t))
     -- the tabs only when there is a choice
     if not planner then w.mode = "guest" elseif not manager then w.mode = "member" end
     local guestMode = w.mode == "guest"
-    w.memberTab:SetShown(planner and manager)
-    w.guestTab:SetShown(planner and manager)
-    w.memberTab:SetActive(not guestMode)
-    w.guestTab:SetActive(guestMode)
+    local bar = w.layout.toolbar
+    bar:SetTabShown("member", planner and manager)
+    bar:SetTabShown("guest", planner and manager)
+    bar:SelectTab(w.mode)
     w.picker.frame:SetShown(not guestMode)
     if guestMode and w.picker.Close then w.picker:Close() end
     for _, region in ipairs({ w.nameBox, w.classDD, w.specDD, w.addBtn, w.knownBtn }) do region:SetShown(guestMode) end
@@ -7351,27 +6888,27 @@ function PlanUI:RefreshInvites()
     for _, key in ipairs(v.inv or {}) do
         rows[#rows + 1] = { key = key, note = g and g.GetRankName and g:GetRankName(key) or "" }
     end
-    tsort(rows, function(a, b) return nameLess(a.key, b.key) end)
+    tsort(rows, function(a, c) return nameLess(a.key, c.key) end)
     local invited = #rows
     -- guests after the guild members: "Guest · Combat Rogue"
     local guests = {}
     for key, gu in pairs(RP():GetGuests(v)) do
         local spec = ns.SPECS[gu.c] and gu.sp and ns.SPECS[gu.c][gu.sp]
         guests[#guests + 1] = { key = key, c = gu.c, guest = true,
-            note = "|cff66ccffGuest|r · " .. ((spec and spec.label .. " ") or "") .. (ns.CLASS_NAMES[gu.c] or "") }
+            note = S:Wrap("YOU", "Guest") .. " · " .. ((spec and spec.label .. " ") or "") .. (ns.ClassName(gu.c) or "") }
     end
-    tsort(guests, function(a, b) return nameLess(a.key, b.key) end)
+    tsort(guests, function(a, c) return nameLess(a.key, c.key) end)
     for _, d in ipairs(guests) do rows[#rows + 1] = d end
     -- "2 invited · 1 guest" (nothing while the list is empty, or while an error is shown in its place)
     local parts = {}
     if invited > 0 then parts[#parts + 1] = invited .. " invited" end
     if #guests > 0 then parts[#parts + 1] = #guests .. (#guests == 1 and " guest" or " guests") end
-    inviteWin.status:SetText((inviteWin.err:GetText() or "") == "" and tconcat(parts, " · ") or "")
-    inviteWin.list:SetData(rows)
-    for _, dd in ipairs({ inviteWin.classDD, inviteWin.specDD }) do
+    w.status:SetText((w.err:GetText() or "") == "" and tconcat(parts, " · ") or "")
+    w.list:SetData(rows)
+    for _, dd in ipairs({ w.classDD, w.specDD }) do
         if dd.Refresh then dd:Refresh() end
     end
-    if inviteWin.picker.IsOpen and inviteWin.picker:IsOpen() then inviteWin.picker:RefreshRows() end
+    if w.picker.IsOpen and w.picker:IsOpen() then w.picker:RefreshRows() end
 end
 
 ---------------------------------------------------------------------------

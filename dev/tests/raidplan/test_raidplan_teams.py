@@ -59,7 +59,7 @@ def menu_pick(cl, word):
 def board(cl):
     """The board's team banners shown, in order: [(name, mine)]."""
     rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.board.cards) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.t1:GetText(), c.dot:IsShown() } end end; return out" % TV) or []
+                      "{ c.t1:GetText(), c.mine } end end; return out" % TV) or []
     return [tuple(r) for r in (rows.values() if isinstance(rows, dict) else rows)]
 
 
@@ -71,7 +71,7 @@ def board_card(cl, name):
 def lineup_chips(cl):
     """The lineup cards shown: [(name, chosen, mine)]."""
     rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lcards) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.name:GetText(), c.chosen, c.dot:IsShown() } end end; return out" % D) or []
+                      "{ c.lineupName, c.chosen, c.mine } end end; return out" % D) or []
     return [tuple(r) for r in (rows.values() if isinstance(rows, dict) else rows)]
 
 
@@ -99,7 +99,9 @@ def chips_card_and_my_team_first():
     open_teams(w, rita, board=True)
     assert rita.eval("return ns.RaidPlanUI:IsTeamBoard()") is True and not shown(rita, D)
     assert board(rita) == [("Main team", True), ("Alt team", False)], board(rita)
-    assert text_of(rita, TV + ".board.heads[1]") == "YOUR TEAMS" and text_of(rita, TV + ".board.cards[1].kick") == "YOUR TEAM"
+    # (1.4: my team is the board's hero banner; the other teams are rows under their section header)
+    assert text_of(rita, TV + ".board.cards[1].kick") == "YOUR TEAM"
+    assert text_of(rita, TV + ".board.heads[1].title") == "Other teams"
     main = board_card(rita, "Main team")
     assert rita.eval("return %s.board.cards[1].th" % TV) == "ssc"                    # (no theme: its next raid's)
     assert text_of(rita, TV + ".board.cards[1].r2").endswith("Serpentshrine Cavern")

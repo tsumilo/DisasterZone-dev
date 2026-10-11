@@ -135,7 +135,7 @@ def shown(cl, expr):
 
 def lineup_chips(cl):
     rows = cl.eval_py("local out = {}; for _, c in ipairs(%s.lcards) do if c:IsShown() then out[#out + 1] = "
-                      "{ c.name:GetText(), c.chosen } end end; return out" % D) or []
+                      "{ c.lineupName, c.chosen } end end; return out" % D) or []
     return [tuple(r) for r in lst(rows)]
 
 
@@ -504,7 +504,7 @@ def the_teams_page_lineups_and_waitlist():
     assert waitlist(rita, tid, ka) == []
     assert bob.eval("return ns.RaidPlanUI:GetLineupIndex()") == 3            # (the new one stays open)
     # the lineup menu: a click on the open chip
-    chip = bob.eval("for _, c in ipairs(%s.lcards) do if c:IsShown() and c.name:GetText() == 'Kara B' then return c end end"
+    chip = bob.eval("for _, c in ipairs(%s.lcards) do if c:IsShown() and c.lineupName == 'Kara B' then return c end end"
                     % D)
     bob.click(chip)
     entries = [strip_codes(e.get("text") or "").strip() for e in bob.last_menu()["children"] if e.get("text")]

@@ -10,6 +10,7 @@ local addonName, ns = ...
 
 local GroupsUI = ns:NewModule("RaidGroupsUI")
 local S = ns.Style
+local GR, GG, GB = S:Color("GOLD")      -- (the gold of the rims and washes, at their own alphas)
 
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tsort, tconcat = table.sort, table.concat
@@ -30,7 +31,6 @@ local BUFF_ROW = 18                      -- a party buff icon and its gap
 -- party buffs it gets on one line, then five seats: players as plates, empty seats as wells (the comp's open slots
 -- waiting in them as ghosts, opts.getGhosts); the unassigned players and the waitlist as plates on the groups'
 -- columns under them (10-man: the unassigned beside the two groups)
-local QUIET_BG = { 0.105, 0.105, 0.12, 0.9 }
 local PLATE_H, PLATE_GAP = 34, 4
 local QUIET_HEAD = 24
 local QUIET_BOX_H = QUIET_HEAD + SLOTS * PLATE_H + (SLOTS - 1) * PLATE_GAP
@@ -40,20 +40,9 @@ local ghost          -- the frame following the cursor while dragging
 local function Comp() return ns.RaidComp end
 local function UI() return ns.UI end
 
--- A flat panel: dark fill and 1px edges (the Dungeons tab's cards).
-local function flatPanel(f, a)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(0.08, 0.08, 0.095, a or 0.92)
-    UI():AddEdges(f, "BORDER")
-    UI():SetEdgeColor(f, S:Color("EDGE"))
-end
-
 local function iconText(path, size)
     return path and ("|T" .. path .. ":" .. (size or 12) .. "|t") or ""
 end
-
-local function hideTooltip() GameTooltip:Hide() end
 
 ---------------------------------------------------------------------------
 -- Plates (the quiet look, and the Teams page's Comp view): a player is a plate like a raid frame (a class tint from
@@ -83,7 +72,7 @@ local function decoratePlate(b)
     b.pTop:SetPoint("TOPLEFT", 0, 0)
     b.pTop:SetPoint("TOPRIGHT", 0, 0)
     b.pTop:SetHeight(1)
-    b.pTop:SetColorTexture(1, 1, 1, 0.06)
+    b.pTop:SetColorTexture(S:Color("HAIRLINE"))
     b.pBot = b:CreateTexture(nil, "BORDER")
     b.pBot:SetPoint("BOTTOMLEFT", 0, 0)
     b.pBot:SetPoint("BOTTOMRIGHT", 0, 0)
@@ -177,12 +166,12 @@ local function paintPlate(b, p)
     b.pPlus:SetShown(kind == "empty" and p.plus == true)
     -- the rim: mine / picked / where a dragged player came from; a ghost's in its class colour; a well's faint
     b.pLit:SetShown(p.edge == "picked")
-    b.pLit:SetColorTexture(1, 0.82, 0, 0.12)
-    if p.edge == "me" then UI():SetEdgeColor(b, 1, 0.82, 0, 0.75)
-    elseif p.edge == "picked" then UI():SetEdgeColor(b, 1, 0.82, 0, 0.9)
-    elseif p.edge == "from" then UI():SetEdgeColor(b, 1, 0.82, 0, 0.3)
+    b.pLit:SetColorTexture(GR, GG, GB, 0.12)
+    if p.edge == "me" then UI():SetEdgeColor(b, GR, GG, GB, 0.75)
+    elseif p.edge == "picked" then UI():SetEdgeColor(b, GR, GG, GB, 0.9)
+    elseif p.edge == "from" then UI():SetEdgeColor(b, GR, GG, GB, 0.3)
     elseif kind == "ghost" then UI():SetEdgeColor(b, r, g, bl, 0.16)
-    elseif kind == "empty" then UI():SetEdgeColor(b, 1, 1, 1, 0.035)
+    elseif kind == "empty" then UI():SetEdgeColor(b, S:Color("QUIET"))
     else UI():SetEdgeColor(b, 0, 0, 0, 0) end
 end
 
@@ -245,7 +234,7 @@ local function chipTooltip(chip)
         GameTooltip:AddLine(" ")
         for _, line in ipairs(brings) do GameTooltip:AddLine(line, 0.85, 0.85, 0.85) end
     end
-    if m.extra then GameTooltip:AddLine(m.extra, 1, 0.82, 0, true) end
+    if m.extra then GameTooltip:AddLine(m.extra, GR, GG, GB, true) end
     for _, line in ipairs(m.info or {}) do GameTooltip:AddLine(line, 0.75, 0.75, 0.75, true) end
     if grid and grid.opts.isEditable() then
         GameTooltip:AddLine(" ")
@@ -288,25 +277,25 @@ local function createChip(parent, grid)
     hl:SetColorTexture(S:Color("HOVER"))
     chip.picked = chip:CreateTexture(nil, "BACKGROUND")
     chip.picked:SetAllPoints()
-    chip.picked:SetColorTexture(1, 0.82, 0, 0.25)
+    chip.picked:SetColorTexture(GR, GG, GB, 0.25)
     chip.picked:Hide()
     -- an empty seat is a faint fill, for who can drop a player there (the group's "4/5" already counts them)
     chip.seat = chip:CreateTexture(nil, "BACKGROUND")
     chip.seat:SetPoint("TOPLEFT", 0, -1)
     chip.seat:SetPoint("BOTTOMRIGHT", 0, 1)
-    chip.seat:SetColorTexture(1, 1, 1, 0.035)
+    chip.seat:SetColorTexture(S:Color("QUIET"))
     chip.seat:Hide()
     if grid.opts.quiet then
         chip.seat:ClearAllPoints()
         chip.seat:SetPoint("LEFT", 3, 0)
         chip.seat:SetPoint("RIGHT", -3, 0)
         chip.seat:SetHeight(1)
-        chip.seat:SetColorTexture(1, 1, 1, 0.08)
+        chip.seat:SetColorTexture(S:Color("HAIRLINE"))
     end
     -- my own chip in a read-only grid (opts.isMe): a gold wash and a 2px gold bar in the box's margin
     chip.me = chip:CreateTexture(nil, "BACKGROUND")
     chip.me:SetAllPoints()
-    chip.me:SetColorTexture(1, 0.82, 0, 0.12)
+    chip.me:SetColorTexture(GR, GG, GB, 0.12)
     chip.me:Hide()
     chip.meBar = chip:CreateTexture(nil, "BORDER")
     chip.meBar:SetPoint("TOPLEFT", chip, "TOPLEFT", -4, -2)
@@ -322,7 +311,7 @@ local function createChip(parent, grid)
     rb.hl:SetAllPoints()
     rb.hl:SetColorTexture(1, 1, 1, 0.12)
     UI():AddEdges(rb, "BORDER")
-    UI():SetEdgeColor(rb, 1, 0.82, 0, 0.6)
+    UI():SetEdgeColor(rb, GR, GG, GB, 0.6)
     local function lit(on)
         rb.hl:SetShown(on)
         for _, e in ipairs(rb.edges) do e:SetShown(on) end
@@ -335,7 +324,7 @@ local function createChip(parent, grid)
     rb:RegisterForClicks("LeftButtonUp")
     rb:RegisterForDrag("LeftButton")
     rb:SetScript("OnEnter", function() lit(true); chipTooltip(chip) end)
-    rb:SetScript("OnLeave", function() lit(false); hideTooltip() end)
+    rb:SetScript("OnLeave", function() lit(false); UI():HideTooltip() end)
     rb:SetScript("OnClick", function()
         local g = chip.grid
         if chip.key and g.opts.onRoleClick and g.opts.isEditable() then g.opts.onRoleClick(chip.key, rb) end
@@ -358,7 +347,7 @@ local function createChip(parent, grid)
         hl:ClearAllPoints()
         hl:SetPoint("TOPLEFT", 0, 0)
         hl:SetPoint("BOTTOMRIGHT", 0, 0)
-        hl:SetColorTexture(1, 1, 1, 0.045)
+        hl:SetColorTexture(S:Color("HOVER"))
         rb:ClearAllPoints()
         rb:SetSize(26, 26)
         rb:SetPoint("CENTER", chip.pIconBg, "CENTER", 0, 0)
@@ -372,7 +361,7 @@ local function createChip(parent, grid)
         elseif self.ghost and o.ghostTooltip and not self.grid.picked then o.ghostTooltip(self, self.ghost)
         else emptyTooltip(self) end
     end)
-    chip:SetScript("OnLeave", hideTooltip)
+    chip:SetScript("OnLeave", UI().HideTooltip)
     chip:SetScript("OnClick", function(self, button) self.grid:OnChipClick(self, button) end)
     chip:SetScript("OnDragStart", function(self) self.grid:BeginDrag(self) end)
     chip:SetScript("OnDragStop", function(self) self.grid:EndDrag(self) end)
@@ -493,10 +482,10 @@ local function createBuffIcon(parent, size)
     b.count:SetPoint("BOTTOMRIGHT", 0, 1)
     -- planned (a target comp's open slot would bring it): a gold outline
     UI():AddEdges(b, "OVERLAY")
-    UI():SetEdgeColor(b, 1, 0.82, 0, 0.9)
+    UI():SetEdgeColor(b, GR, GG, GB, 0.9)
     for _, e in ipairs(b.edges) do e:Hide() end
     b:SetScript("OnEnter", buffTooltip)
-    b:SetScript("OnLeave", hideTooltip)
+    b:SetScript("OnLeave", UI().HideTooltip)
     return b
 end
 
@@ -575,7 +564,11 @@ function GroupsUI:CreateGrid(parent, opts)
     for g = 1, 8 do
         local box = CreateFrame("Button", nil, f)
         box:SetSize(BOX_W, BOX_H)
-        flatPanel(box)
+        -- (its card: UI:CreateCard under the box's content; the box's bg / edges are the card's)
+        box.card = UI():CreateCard(box, { tone = "card" })
+        box.card:SetAllPoints(box)
+        box.card:SetFrameLevel(box:GetFrameLevel())
+        box.bg, box.edges = box.card.bg, box.card.edges
         box.group = g
         box.title = UI():Text(box, "emph", "GOLD")
         box.title:SetPoint("TOPLEFT", 8, -7)
@@ -649,11 +642,11 @@ function GroupsUI:CreateGrid(parent, opts)
         swap:SetScript("OnLeave", function(self)
             if opts.quiet then
                 box.title:SetTextColor(S:Color("SUB"))
-                hideTooltip()
+                UI():HideTooltip()
                 return
             end
             if not grid.swapFrom then self.fs:SetText("|cff8c8c8cswap|r") end
-            hideTooltip()
+            UI():HideTooltip()
         end)
         box.swap = swap
         if opts.quiet then
@@ -719,11 +712,11 @@ function GroupsUI:CreateGrid(parent, opts)
     -- Pool of members without a group
     local pool = CreateFrame("Button", nil, f)
     grid.pool = pool
-    flatPanel(pool, 0.6)
-    if opts.quiet then
-        pool.bg:SetColorTexture(QUIET_BG[1], QUIET_BG[2], QUIET_BG[3], QUIET_BG[4])
-        UI():SetEdgeColor(pool, 0, 0, 0, 0)
-    end
+    pool.card = UI():CreateCard(pool, { tone = opts.quiet and "card" or "inset" })
+    pool.card:SetAllPoints(pool)
+    pool.card:SetFrameLevel(pool:GetFrameLevel())
+    pool.bg, pool.edges = pool.card.bg, pool.card.edges
+    if opts.quiet then UI():SetEdgeColor(pool, 0, 0, 0, 0) end
     pool:RegisterForClicks("LeftButtonUp")
     pool:SetScript("OnClick", function() grid:OnPoolClick() end)
     pool.label = UI():Text(pool, "small", "SUB")
@@ -752,11 +745,11 @@ function GroupsUI:CreateGrid(parent, opts)
     if opts.waitlist and opts.layout == "row" then
         local w = CreateFrame("Frame", nil, f)
         grid.wait = w
-        flatPanel(w, 0.6)
-        if opts.quiet then
-            w.bg:SetColorTexture(QUIET_BG[1], QUIET_BG[2], QUIET_BG[3], QUIET_BG[4])
-            UI():SetEdgeColor(w, 0, 0, 0, 0)
-        end
+        w.card = UI():CreateCard(w, { tone = opts.quiet and "card" or "inset" })
+        w.card:SetAllPoints(w)
+        w.card:SetFrameLevel(w:GetFrameLevel())
+        w.bg, w.edges = w.card.bg, w.card.edges
+        if opts.quiet then UI():SetEdgeColor(w, 0, 0, 0, 0) end
         w:EnableMouse(true)
         w.label = UI():Text(w, "small", "SUB")
         w.label:SetPoint("TOPLEFT", 8, -7)
@@ -937,8 +930,8 @@ function Grid:Refresh()
             end
             if self.opts.quiet then UI():SetEdgeColor(box, 0, 0, 0, 0)
             elseif self.swapFrom == g then UI():SetEdgeColor(box, 0.2, 1, 0.2, 0.9)
-            elseif self.picked or self.swapFrom then UI():SetEdgeColor(box, 1, 0.82, 0, 0.75)
-            else UI():SetEdgeColor(box, 0.34, 0.34, 0.38, 0.5) end
+            elseif self.picked or self.swapFrom then UI():SetEdgeColor(box, GR, GG, GB, 0.75)
+            else UI():SetEdgeColor(box, S:Color("EDGE")) end
         end
     end
 
@@ -1091,10 +1084,18 @@ end
 -- One bench block (the unassigned or the waitlist) at (x, y), w wide: its header, then its plates or the well with
 -- `emptyText`; pad = the inset (a panel beside the groups) or 0. Returns its height.
 local function benchBlock(self, host, list, label, hint, emptyText, x, y, w, cols, pad, y0)
-    UI():SetTextStyle(host.label, "small", "SUB")
-    host.label:SetText(label .. "  |cff8c8c8c" .. #list .. "|r")
-    host.label:ClearAllPoints()
-    host.label:SetPoint("LEFT", host, "TOPLEFT", pad + 1, -(pad + 9))
+    -- its header: the caps section header (the count after the title, the hint at its right end)
+    if not host.head then
+        host.head = UI():CreateSectionHeader(host, label, { style = "caps" })
+        host.label:Hide()
+        host.label = host.head.title
+    end
+    host.head:SetTitle(label)
+    host.head:SetCount(#list)
+    host.head:SetRight((hint ~= nil and #list > 0) and hint or nil)
+    host.head:ClearAllPoints()
+    host.head:SetPoint("TOPLEFT", host, "TOPLEFT", pad, -pad)
+    host.head:SetPoint("TOPRIGHT", host, "TOPRIGHT", -pad, -pad)
     local iw = w - 2 * pad
     local cw = (iw - (cols - 1) * ROW_GAP) / cols
     local colX = self.colX
@@ -1116,11 +1117,7 @@ local function benchBlock(self, host, list, label, hint, emptyText, x, y, w, col
         d.fs:SetText(emptyText)
         hgt = PLATE_H
     end
-    host.empty:ClearAllPoints()
-    host.empty:SetPoint("RIGHT", host, "TOPRIGHT", -pad - 1, -(pad + 9))
-    host.empty:SetJustifyH("RIGHT")
-    host.empty:SetText(hint or "")
-    host.empty:SetShown(hint ~= nil and #list > 0)
+    host.empty:Hide()
     host:ClearAllPoints()
     host:SetPoint("TOPLEFT", self.frame, "TOPLEFT", x, -y)
     local h = pad + y0 + hgt + pad
@@ -1142,8 +1139,8 @@ function Grid:LayoutBench(pool, waiting, n, boxH)
     p:SetShown(show)
     -- (beside the groups: a faint panel; under them: no panel, the plates line up with the groups)
     if beside then
-        p.bg:SetColorTexture(1, 1, 1, 0.02)
-        UI():SetEdgeColor(p, 1, 1, 1, 0.035)
+        p.bg:SetColorTexture(S:Color("STRIPE"))
+        UI():SetEdgeColor(p, S:Color("QUIET"))
     else
         p.bg:SetColorTexture(0, 0, 0, 0)
         UI():SetEdgeColor(p, 0, 0, 0, 0)
@@ -1289,7 +1286,7 @@ local function ensureGhost()
     ghost.bg:SetAllPoints()
     ghost.bg:SetColorTexture(0.14, 0.14, 0.16, 0.97)
     UI():AddEdges(ghost, "BORDER")
-    UI():SetEdgeColor(ghost, 1, 0.82, 0, 0.85)
+    UI():SetEdgeColor(ghost, GR, GG, GB, 0.85)
     ghost.cls = ghost:CreateTexture(nil, "ARTWORK")
     ghost.cls:SetSize(16, 16)
     ghost.cls:SetPoint("LEFT", 4, 0)
@@ -1403,8 +1400,8 @@ function Grid:ShowDropMarker(t)
         m.fill:SetColorTexture(1, 0.25, 0.25, 0.06)
         UI():SetEdgeColor(m, 1, 0.3, 0.3, 0.8)
     else
-        m.fill:SetColorTexture(1, 0.82, 0, t.chip and (self.opts.quiet and 0.1 or 0.14) or 0.05)
-        UI():SetEdgeColor(m, 1, 0.82, 0, 0.85)
+        m.fill:SetColorTexture(GR, GG, GB, t.chip and (self.opts.quiet and 0.1 or 0.14) or 0.05)
+        UI():SetEdgeColor(m, GR, GG, GB, 0.85)
     end
     m:Show()
 end
@@ -1451,7 +1448,7 @@ local function liftCard(grid, chip, quiet)
     if quiet then
         paintPlate(g, playerPlate(m or { key = chip.key }))
         g.pBase:SetColorTexture(0.137, 0.137, 0.16, 1)
-        UI():SetEdgeColor(g, 1, 0.82, 0, 0.9)
+        UI():SetEdgeColor(g, GR, GG, GB, 0.9)
         g.tip:Hide()
     else
         UI():ClassIcon(g.cls, m and m.c)
@@ -1558,8 +1555,8 @@ local function cardMark(t)
     m:SetAllPoints(f)
     m:SetFrameLevel(f:GetFrameLevel() + 5)
     if t.ok then
-        m.fill:SetColorTexture(1, 0.82, 0, 0.1)
-        UI():SetEdgeColor(m, 1, 0.82, 0, 0.85)
+        m.fill:SetColorTexture(GR, GG, GB, 0.1)
+        UI():SetEdgeColor(m, GR, GG, GB, 0.85)
     else
         m.fill:SetColorTexture(1, 0.25, 0.25, 0.06)
         UI():SetEdgeColor(m, 1, 0.3, 0.3, 0.8)
@@ -1580,7 +1577,7 @@ function GroupsUI:StartCardDrag(src, plate, opts)
         f.dx, f.dy = (src:GetLeft() or cx) - cx, (src:GetTop() or cy) - cy
         paintPlate(f, plate)
         f.pBase:SetColorTexture(0.137, 0.137, 0.16, 1)
-        UI():SetEdgeColor(f, 1, 0.82, 0, 0.9)
+        UI():SetEdgeColor(f, GR, GG, GB, 0.9)
         f.tip:Hide()
         return f
     end)
