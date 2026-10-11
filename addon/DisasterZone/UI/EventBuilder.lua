@@ -50,11 +50,17 @@ local C = {
     white = { 1, 1, 1 },
     cross = { 0.66, 0.66, 0.68 },                 -- a close cross / an x at rest (white under the mouse)
     tipTop = { anchor = "ANCHOR_TOP" },           -- (UI:AttachTooltip's opts: the builder's tips sit above)
+    binRed = { 1, 0.55, 0.5 },                    -- a menu's delete line: its bin and its words
     cardLo = { 0.102, 0.102, 0.122, 1 }, cardHi = { 0.145, 0.145, 0.172, 1 }, cardLoClear = { 0.102, 0.102, 0.122, 0 },
     sheetLo = { 0.078, 0.078, 0.094, 1 }, sheetHi = { 0.11, 0.11, 0.129, 1 },     -- the sheets' slate (UI:CreateSheet's)
     panelEdge = { 0.47, 0.47, 0.51, 0.75 },                                       -- and their edge
     practiceTint = { 0.05, 0.33, 0.29, 0.35 }, practiceClear = { 0.05, 0.33, 0.29, 0 },
 }
+
+-- A menu's delete line ("Delete", "Delete the question"): the bin and the words in the menus' red.
+function C.DeleteText(word)
+    return "|cffff8d80" .. UI():AtlasIconText(12, 12, C.binRed) .. " " .. word .. "|r"
+end
 
 local S = {}        -- the builder's state (Builder:GetState)
 local win            -- the window
@@ -409,8 +415,8 @@ end
 CreateTop = function(banner)
     local top = banner
     ui.top = top
-    -- the practice tint (over the banner's plain card)
-    top.tint = top:CreateTexture(nil, "BACKGROUND", nil, 4)
+    -- the practice tint (over the banner's plain card and its shade)
+    top.tint = top:CreateTexture(nil, "BORDER", nil, 4)
     top.tint:SetAllPoints()
     UI():Gradient(top.tint, "HORIZONTAL", C.practiceTint, C.practiceClear)
     top.tint:Hide()
@@ -471,7 +477,7 @@ CreateTop = function(banner)
     top.crumb.icon = top.crumb:CreateTexture(nil, "ARTWORK")
     top.crumb.icon:SetSize(18, 18)
     top.crumb.name = UI():Text(top.crumb, "emph", "GOLD")
-    top.crumb.pill = EUI():CreatePill(top.crumb, 16)
+    top.crumb.pill = UI():CreatePill(top.crumb, 16)
     local backBtn = CreateFrame("Button", nil, top.crumb)
     backBtn:SetAllPoints(top.crumb.back)
     backBtn:SetScript("OnClick", function() Builder:CloseInside() end)
@@ -1214,7 +1220,7 @@ function Builder:RenderPalette()
         it.draw = nil
         it:Hide()
     end
-    for _, h in ipairs(pal.heads) do h:Hide() end
+    UI():HideFrom(pal.heads)
     local y, n, nh = 2, 0, 0
     local d = Def()
     pal.rowOf, pal.rowY = {}, {}
@@ -1692,7 +1698,7 @@ local function ReleaseCanvas()
         if EP():IsDrawn(kid) and not (S.drag and S.drag.frame == kid) then EP():Release(kid) end
     end
     for _, card in pairs(ui.cards) do card:Hide() end
-    for _, n in ipairs(ui.notes) do n:Hide() end
+    UI():HideFrom(ui.notes)
 end
 
 local OnPiece, OnBlank, OnHover   -- (below)
@@ -1818,7 +1824,7 @@ end
 -- The overview: every script / block of this view as a small coloured box, the visible part in gold.
 function Builder:RenderOverview()
     local ov = ui.overview
-    for _, b in ipairs(ov.boxes) do b:Hide() end
+    UI():HideFrom(ov.boxes)
     local items = {}
     local minX, minY, maxX, maxY = 0, 0, 760, 580
     for s, f in pairs(ui.scripts) do
@@ -2136,14 +2142,15 @@ CreateCard = function(bid)
             end
             y = y + 27
         end
-        for i = #list + 1, #self.rows do self.rows[i]:Hide() end
+        UI():HideFrom(self.rows, #list + 1)
         -- won by the pieces: what that means
         self.note = self.note or UI():Text(self, "small", C.white)
         if b.kind == "bracket" and B():SmartSetting(b, "win") == "pieces" then
             self.note:SetWordWrap(true)
             self.note:SetWidth(318 - 80 - 12)
             self.note:SetTextColor(Col("SUB"))
-            self.note:SetText("Duels don't count. A match ends when a piece says |cffffd100award the match to|r.")
+            self.note:SetText("Duels don't count. A match ends when a piece says "
+                .. St:Wrap("GOLD", "award the match to") .. ".")
             self.note:ClearAllPoints()
             self.note:SetPoint("TOPLEFT", self, "TOPLEFT", 80, -(y - 2))
             self.note:Show()
@@ -2195,7 +2202,7 @@ CreateCard = function(bid)
             end)
             x = x + w + 4
         end
-        for i = #sm.gives + 1, #self.chips do self.chips[i]:Hide() end
+        UI():HideFrom(self.chips, #sm.gives + 1)
         y = y + (row + 1) * 22 + 6
         self:SetHeight(y)
     end
@@ -2892,7 +2899,7 @@ function Builder:FillPicker(query)
         r.draw = nil
         r:Hide()
     end
-    for _, h in ipairs(p.heads) do h:Hide() end
+    UI():HideFrom(p.heads)
     local t = pk.a.t
     local d = Def()
     local list
@@ -3414,7 +3421,7 @@ function Builder:StageMenu(owner, id)
         end
         if #d.stages > 1 then
             root:CreateDivider()
-            local del = root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete|r", function()
+            local del = root:CreateButton(C.DeleteText("Delete"), function()
                 local before = Snapshot()
                 tremove(d.stages, i)
                 -- its scripts and blocks go with it
@@ -3461,7 +3468,7 @@ function Builder:PieceMenu(owner, piece)
             Builder:AddNote(loc.script.x + 260, loc.script.y)
         end)
         root:CreateDivider()
-        root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete|r", function()
+        root:CreateButton(C.DeleteText("Delete"), function()
             local before = Snapshot()
             -- the piece goes; what was under it stays where it was
             local rest = (not IsValue(piece)) and piece.n or nil
@@ -3493,7 +3500,7 @@ function Builder:BlockMenu(owner, bid)
             end)
         end
         root:CreateDivider()
-        root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete|r", function()
+        root:CreateButton(C.DeleteText("Delete"), function()
             local before = Snapshot()
             d.blocks[bid] = nil
             DropBlockNotes(d, bid)
@@ -3989,7 +3996,7 @@ function Builder:MoreMenu(owner)
         root:CreateButton(UI():AtlasIconText(17, 12) .. " Copy", function() Builder:MakeCopy() end)
         if Ev():GetDef(d.id) and (Ev():IsMine(d) or Ev():CanModerate(Me())) then
             root:CreateDivider()
-            root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete|r", function()
+            root:CreateButton(C.DeleteText("Delete"), function()
                 Builder:Delete()
             end)
         end
@@ -4742,7 +4749,7 @@ function Builder:RenderPractice()
             b:Hide()
         end
     end
-    for i = #st.entrants + 1, #dp.dummies do dp.dummies[i]:Hide() end
+    UI():HideFrom(dp.dummies, #st.entrants + 1)
     -- the log: the latest five lines
     local lines = S.log or {}
     local n = #lines
@@ -5003,7 +5010,7 @@ function Defs:RowMenu(owner, kind, id)
         root:CreateTitle(e.n)
         root:CreateButton(UI():AtlasIconText(16, 12) .. " Change it", function() Defs:RowClick(kind, id, owner) end)
         root:CreateDivider()
-        root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete|r", function()
+        root:CreateButton(C.DeleteText("Delete"), function()
             Defs:Delete(kind, id)
         end)
     end)
@@ -5131,7 +5138,7 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
     box.add:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     function box:Set(list)
         self.list = list or {}
-        for _, c in ipairs(self.chips) do c:Hide() end
+        UI():HideFrom(self.chips)
         local x, y = 0, 0
         local rowH = 20
         for i, s in ipairs(self.list) do
@@ -6141,7 +6148,7 @@ function QSheet:Row(i)
         if button == "RightButton" then
             if not CanEditDefs() then return end
             UI():ContextMenu(self, function(root)
-                root:CreateButton("|cffff8d80" .. UI():AtlasIconText(12, 12, { 1, 0.55, 0.5 }) .. " Delete the question|r", function()
+                root:CreateButton(C.DeleteText("Delete the question"), function()
                     tremove(QSheet.cur.items, self.index)
                     QSheet.cur.sel = nil
                     QSheet:Render()
@@ -6160,7 +6167,7 @@ end
 
 -- Read-only answer chips in a row (wrapping in their column).
 local function AnswerChips(r, list, width)
-    for _, c in ipairs(r.chips) do c:Hide() end
+    UI():HideFrom(r.chips)
     local x, y = 0, 0
     for i, s in ipairs(list) do
         local c = r.chips[i]
@@ -6188,7 +6195,7 @@ end
 function QSheet:Render()
     local f, cur = ui.qsheet, self.cur
     if not (f and cur) then return end
-    for _, r in ipairs(f.rows) do r:Hide() end
+    UI():HideFrom(f.rows)
     local y = 0
     for i, it in ipairs(cur.items) do
         local r = self:Row(i)
@@ -6207,7 +6214,7 @@ function QSheet:Render()
         local h
         if on then
             if not r.qe:HasFocus() then r.qe:SetText(it.q or "") end
-            for _, c in ipairs(r.chips) do c:Hide() end
+            UI():HideFrom(r.chips)
             r.box:Set(it.a)
             r.pts:SetText(tostring(it.pts or 1))
             h = max(38, r.box.h + 16)
@@ -6499,10 +6506,10 @@ function MapSheet.NewView(parent, w, h)
         end
     end)
     function v:Done()
-        for i = self.nc + 1, #self.circles do self.circles[i]:Hide() end
-        for i = self.nl + 1, #self.lines do self.lines[i]:Hide() end
-        for i = self.nt + 1, #self.texs do self.texs[i]:Hide() end
-        for i = self.nf + 1, #self.fonts do self.fonts[i]:Hide() end
+        UI():HideFrom(self.circles, self.nc + 1)
+        UI():HideFrom(self.lines, self.nl + 1)
+        UI():HideFrom(self.texs, self.nt + 1)
+        UI():HideFrom(self.fonts, self.nf + 1)
     end
     return v
 end
