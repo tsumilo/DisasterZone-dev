@@ -1721,6 +1721,29 @@ function SettingsUI:BuildMeters(sec)
         "meters.tankView", "auto", { { value = "auto", text = "While I tank" }, { value = "always", text = "Always" },
                                      { value = "never", text = "Never" } }))
 
+    -- the look (UI/MeterTheme.lua): a theme, then overrides on top of it
+    Head("Look", nil)
+    if ns.MeterTheme then
+        local strip, trow = ns.MeterTheme:SettingsTiles(self, sec)
+        Track("both", nil, trow)
+        Track("both", nil, strip)
+    end
+    Track("both", self:DropdownSetting(sec, "Bar colour", "What colours the bars.", "meters.barColor", "class",
+        { { value = "class", text = "Class colour" }, { value = "role", text = "Role colour" },
+          { value = "one", text = "One colour" } }))
+    Track("both", self:DropdownSetting(sec, "Icons", "The picture in front of each name.", "meters.icons", "theme",
+        { { value = "theme", text = "Theme default" }, { value = "spec", text = "Spec" }, { value = "class", text = "Class" },
+          { value = "none", text = "None" } }))
+    Track("both", self:DropdownSetting(sec, "Rows", "Bar height; the theme sets its own.", "meters.rowSize", "theme",
+        { { value = "compact", text = "Compact" }, { value = "theme", text = "Theme default" }, { value = "roomy", text = "Roomy" } }))
+    Track("both", self:DropdownSetting(sec, "Numbers", "How amounts are written.", "meters.numbers", "short",
+        { { value = "short", text = "380.1k" }, { value = "full", text = "380,112" }, { value = "round", text = "380k" } }))
+    Track("both", self:DropdownSetting(sec, "Background", "How dark the panels are behind the bars.", "meters.bg", "theme",
+        { { value = "theme", text = "Theme default" }, { value = 0, text = "None" }, { value = 25, text = "25%" },
+          { value = 50, text = "50%" }, { value = 75, text = "75%" }, { value = 90, text = "90%" } }))
+    Track("both", self:DropdownSetting(sec, "Size", "Bar height and text size together.", "meters.size", "normal",
+        { { value = "small", text = "Small" }, { value = "normal", text = "Normal" }, { value = "large", text = "Large" } }))
+
     Head("Panels", nil)
     Track("both", self:DropdownSetting(sec, "Show them", "When the panels appear on their own.", "meters.show", "group",
         { { value = "group", text = "In a group" }, { value = "instance", text = "In instances" },
@@ -1730,8 +1753,6 @@ function SettingsUI:BuildMeters(sec)
                                 { value = "stay", text = "Stay" } }))
     Track("both", self:SwitchSetting(sec, "Lock panels", "Unlock to move, dock and resize them.", "meters.locked", true,
         "Unlocked, drag a header next to another panel to dock it, or onto its header to make a tab. + on a header adds a panel."))
-    Track("both", self:DropdownSetting(sec, "Size", "Bar height and text size together.", "meters.size", "normal",
-        { { value = "small", text = "Small" }, { value = "normal", text = "Normal" }, { value = "large", text = "Large" } }))
     local lrow = self:Row(sec, "Reset layout", "Back to one stack: Threat over Damage done.")
     local lbtn = ns.UI:CreateButton(lrow, "Reset", 120, 22, function()
         if ns.MeterPanels then ns.MeterPanels:ResetLayout() end

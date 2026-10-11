@@ -785,6 +785,8 @@ def _draw_text(img, r, lk, rc, clip_px, lay, A, box):
                     j = e
             else:
                 put(x, y, ln, cols[starts[i]] if (cols and ln and starts[i] < len(cols)) else col)
+    if clip_px and (clip_px[2] <= clip_px[0] or clip_px[3] <= clip_px[1]):
+        return                                        # (clipped away whole)
     if clip_px:
         mask = Image.new("L", img.size, 0)
         ImageDraw.Draw(mask).rectangle((clip_px[0], clip_px[1], clip_px[2] - 1, clip_px[3] - 1), fill=255)

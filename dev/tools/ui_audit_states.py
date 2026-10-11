@@ -1023,6 +1023,11 @@ TIP_ITEM = ("local it = ns.Prized:GetItems()[1]; local id = it and it.ids[1] or 
 
 MET = ("ns.Demo:SetEnabled(true); ns.DB:SetSetting('meters.dmg', true); ns.DB:SetSetting('meters.thr', true); "
        "ns.MeterPanels:ResetLayout(); ")
+# (the class tool bars off, so a meter render shows only the meters)
+METQ = ("ns.DB:SetSetting('meters.ooc', 'stay'); for _, k in ipairs({ 'bless', 'totems', 'swing' }) do pcall(function() ns.ClassKit:SetOn(k, false) end) end; ")
+# (an invisible named frame around the first stack: ui_look crops a render to named windows)
+METBOX = ("local s1 = ns.MeterPanels._Stacks()[1]; local bx = _G.AuditMeterBox or CreateFrame('Frame', 'AuditMeterBox', UIParent); "
+          "bx:ClearAllPoints(); bx:SetPoint('TOPLEFT', s1, 'TOPLEFT', -24, 24); bx:SetPoint('BOTTOMRIGHT', s1, 'BOTTOMRIGHT', 24, -24); bx:Show()")
 
 STATES = [
     ("Blizzard options panel", st_blizzard_options),
@@ -1474,12 +1479,25 @@ STATES = [
     ("Swing timer - lane", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "2.0").replace("STYLE", "lane"))),
     ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
     ("Settings - Meters", opened("settings", "ns.SettingsUI:SelectSection('meters')")),
+    ("Settings - Meters look", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.SettingsUI:SelectSection('meters'); "
+        "local sc = ns.SettingsUI.scroll; local ch = sc:GetScrollChild(); ch:ClearAllPoints(); ch:SetPoint('TOPLEFT', sc, 'TOPLEFT', 0, 560)")),
     # meters (UI/MeterPanels.lua, UI/MeterDetail.lua) on the demo night
     ("Meters - panels", opened("home", "ns.MainFrame:Close(); " + MET +
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; "
         "L.stacks[1].panels[2].tabs[2] = { view = 'healing', seg = 'cur' }; "
         "L.stacks[2] = { x = 560, y = 560, w = 240, panels = { { tabs = { { view = 'deaths', seg = 'cur' } } }, "
         "{ tabs = { { view = 'kicks', seg = 'all' } }, rows = 4 } } }; ns.MeterPanels:Rebuild()")),
+    # meter themes (UI/MeterTheme.lua): one stack, Threat over Damage done, each theme; then the overrides
+] + [("Meters - theme " + _k, opened("home", "ns.MainFrame:Close(); " + MET + METQ +
+        "ns.DB:SetSetting('meters.theme', '" + _k + "'); "
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y, L.stacks[1].w = 560, 620, 280; "
+        "ns.MeterPanels:Rebuild(); " + METBOX)) for _k in ("flat", "halo", "sigil", "slate", "gilded", "pips")] + [
+    ("Meters - theme overrides", opened("home", "ns.MainFrame:Close(); " + MET + METQ +
+        "ns.DB:SetSetting('meters.theme', 'halo'); ns.DB:SetSetting('meters.barColor', 'role'); "
+        "ns.DB:SetSetting('meters.icons', 'class'); ns.DB:SetSetting('meters.rowSize', 'roomy'); "
+        "ns.DB:SetSetting('meters.numbers', 'full'); ns.DB:SetSetting('meters.bg', 90); "
+        "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y, L.stacks[1].w = 560, 620, 280; "
+        "ns.MeterPanels:Rebuild(); " + METBOX)),
     ("Meters - unlocked, tank view", opened("home", "ns.MainFrame:Close(); " + MET +
         "ns.DB:SetSetting('meters.locked', false); ns.DB:SetSetting('meters.tankView', 'always'); "
         "local L = ns.MeterPanels.Layout(); L.stacks[1].x, L.stacks[1].y = 900, 560; ns.MeterPanels:Rebuild()")),

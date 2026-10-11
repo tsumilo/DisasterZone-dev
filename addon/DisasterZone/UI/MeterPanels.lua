@@ -22,6 +22,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterPanels.lua", ...) then ret
 -- left hides) and come back when it is turned on again; turning a meter on adds a panel for it when there is none.
 -- Bars: flat class colour, my bar with a gold edge and kept in view (below the fold it takes the last row with its
 -- real rank). Hover: top abilities; click: the breakdown (UI/MeterDetail.lua), in Deaths the death recap.
+-- Looks: UI/MeterTheme.lua (meters.theme and its overrides) sets the sizes below (ApplyMetrics) and skins the stacks,
+-- panels and rows; a row made under another look restyles when it is next drawn (row.styleKey).
 local addonName, ns = ...
 
 local MP = ns:NewModule("MeterPanels")
@@ -31,8 +33,11 @@ local pairs, ipairs, type, tonumber, tostring, next = pairs, ipairs, type, tonum
 local strformat = string.format
 local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 
+-- (sizes: the theme's, set by ApplyMetrics; these are Flat's)
 local HEAD_H, ROW_H, ROW_GAP, PAD = 24, 19, 1, 3
 local FL_H = 18                   -- a meter panel's fight line, under its header (the user's pick A, 2026-10-11)
+local BAR_L, BAR_RES, NAME_L, VAL_R = 20, 0, 25, 6   -- a bar's left edge, the room kept for its ends, text places
+local M                           -- the look in use (MeterTheme:Metrics)
 local BOSS_C = { 1, 0.71, 0.27 }
 local DEFAULT_W, MIN_W, MAX_W = 300, 170, 640
 local DEFAULT_ROWS, MAX_ROWS = 8, 40
@@ -50,6 +55,16 @@ local T_NAME_W, T_VALUE_W = 96, 34
 local ICON_W = ROW_H + 1          -- a row's icon: square, the row's full height, flush left, then a 1 px divider
 local T_TRACK_L = ICON_W + 5 + T_NAME_W + 5
 local T_TRACK_R = 6 + T_VALUE_W + 5
+
+-- The sizes of the look in use (UI/MeterTheme.lua).
+local function ApplyMetrics()
+    M = ns.MeterTheme:Metrics()
+    HEAD_H, ROW_H, ROW_GAP, PAD, FL_H = M.head, M.row, M.gap, M.pad, M.fl
+    ICON_W, BAR_L, BAR_RES, NAME_L, VAL_R, T_NAME_W = M.iconW, M.barL, M.barRes, M.nameL, M.valR, M.nameW
+    T_TRACK_L = NAME_L + T_NAME_W + 5
+    T_TRACK_R = VAL_R + T_VALUE_W + 5
+    return M
+end
 local LOW_HEALTH = "Interface\\FullScreenTextures\\LowHealth"
 
 -- The views a panel can show (meter modes, then Threat)
@@ -605,10 +620,25 @@ function MP:ApplyLook()
     if not holder then return end
     holder:SetScale(SCALES[Setting("size", "normal")] or 1)
     local locked = Locked()
+    ApplyMetrics()
     for _, f in ipairs(stackFrames) do
         f.grip:SetShown(not locked)
-        if locked then f:SetEdge(1, 1, 1, 0) else f:SetEdge(1, 0.82, 0, 0.45) end
+        ns.MeterTheme:SkinStack(f, M, locked)
     end
+    for _, pf in ipairs(allPanels) do
+        if pf.styleKey ~= M.key then
+            ns.MeterTheme:SkinPanel(pf, M)
+            pf.flShown = nil                  -- (the rows' place under the header / fight line: set again on the draw)
+            pf.peak = nil
+        end
+    end
+end
+
+-- Another look (a theme picked or pointed at in Settings, an override): skin everything again and redraw.
+function MP:Restyle()
+    if not holder then return end
+    self:ApplyLook()
+    self:Draw()
 end
 
 ---------------------------------------------------------------------------
@@ -866,25 +896,7 @@ local function SetT(fs, t)
     end
 end
 
--- A row's icon: the spec's (zoomed past its baked-in border), else the class's square icon (the round class icons
--- next to square spec icons looked uneven; asked 2026-10-11).
-local CLASS_SQUARE = "Interface\\WorldStateFrame\\Icons-Classes"
-local function SetRowIcon(tex, cls, spec)
-    local path = K.SpecIcon(cls, spec)
-    local c = cls and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[cls]
-    if path then
-        tex:SetTexture(path)
-        tex:SetTexCoord(0.12, 0.88, 0.12, 0.88)
-    elseif c then
-        local ix, iy = (c[2] - c[1]) * 0.08, (c[4] - c[3]) * 0.08
-        tex:SetTexture(CLASS_SQUARE)
-        tex:SetTexCoord(c[1] + ix, c[2] - ix, c[3] + iy, c[4] - iy)
-    else
-        tex:SetTexture(134400)
-        tex:SetTexCoord(0.12, 0.88, 0.12, 0.88)
-    end
-    tex:Show()
-end
+-- A row's icon (set by MeterTheme:SetIcon: spec, else the class's square icon, or the theme's round / framed one).
 local function RowIcon(row)
     row.icon = K.Tex(row, "ARTWORK", 134400)
     row.icon:SetSize(ROW_H, ROW_H)
@@ -930,7 +942,6 @@ local function NewRow(pf)
     RowIcon(row)
     row.value = K.Font(row, K.NARROW, 13.5, { 1, 1, 1 })
     row.sub = K.Font(row, K.NARROW, 12, { 0.93, 0.91, 0.85, 0.72 })
-    row.sub:SetPoint("RIGHT", row, "RIGHT", -6, 0)
     row.sub:SetJustifyH("RIGHT")
     row.kb = K.Tex(row, "ARTWORK", 134400)
     row.kb:SetSize(14, 14)
@@ -946,18 +957,21 @@ local function NewRow(pf)
     row:SetScript("OnEnter", ShowRowTip)
     row:SetScript("OnLeave", HideRowTip)
     row:SetScript("OnClick", RowClick)
+    ns.MeterTheme:SkinRow(row, M or ApplyMetrics())
     return row
 end
 
 local function PlaceRight(row, hasSub, hasKb)
     row.value:ClearAllPoints()
+    row.sub:ClearAllPoints()
+    row.sub:SetPoint("RIGHT", row, "RIGHT", -VAL_R, 0)
     if hasSub then
         row.sub:Show()
-        row.sub:SetWidth(max(40, row.sub:GetStringWidth() + 2))
+        row.sub:SetWidth(max(M.t.small and 30 or 40, row.sub:GetStringWidth() + 2))
         row.value:SetPoint("RIGHT", row.sub, "LEFT", -6, 0)
     else
         row.sub:Hide()
-        row.value:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        row.value:SetPoint("RIGHT", row, "RIGHT", -VAL_R, 0)
     end
     row.kb:ClearAllPoints()
     if hasKb then
@@ -967,16 +981,18 @@ local function PlaceRight(row, hasSub, hasKb)
         row.kb:Hide()
     end
     row.name:ClearAllPoints()
-    row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+    row.name:SetPoint("LEFT", row, "LEFT", NAME_L, 0)
     row.name:SetPoint("RIGHT", hasKb and row.kb or row.value, "LEFT", -16, 0)
 end
 
 -- (per second: Meter:RateTime, the fight's length or the player's active time; taken by the fight's length)
+local function Num(v) return ns.MeterTheme:Num(v) end   -- (amounts in the chosen format: 380.1k, 380,112 or 380k)
+local RATE_SUB = { damage = true, healing = true, taken = true }   -- (the per-second column a dense look drops)
 local VALUE = {
-    damage = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:RateTime(seg, r.a)) end,
-    dps = function(r) return K.Int(r.v), K.Fmt(r.a.d) end,
-    healing = function(r, dur, seg) return K.Fmt(r.v), K.Int(r.v / Meter:RateTime(seg, r.a)) end,
-    taken = function(r, dur) return K.Fmt(r.v), K.Int(r.v / dur) end,
+    damage = function(r, dur, seg) return Num(r.v), K.Int(r.v / Meter:RateTime(seg, r.a)) end,
+    dps = function(r) return K.Int(r.v), Num(r.a.d) end,
+    healing = function(r, dur, seg) return Num(r.v), K.Int(r.v / Meter:RateTime(seg, r.a)) end,
+    taken = function(r, dur) return Num(r.v), K.Int(r.v / dur) end,
     deaths = function(r) return K.Clock(r.v), nil end,
     kicks = function(r) return tostring(r.v), nil end,
     dispels = function(r) return tostring(r.v), nil end,
@@ -997,7 +1013,7 @@ local function TotalText(mode, rows, total, dur, seg)
         for _, r in ipairs(rows) do s = s + (r.a[field] or 0) / Meter:RateTime(seg, r.a) end
         return s
     end
-    if mode == "damage" then return K.Fmt(total), K.Int(perSecond("d")) .. "/s" end
+    if mode == "damage" then return Num(total), K.Int(perSecond("d")) .. "/s" end
     if mode == "dps" then
         local s = 0
         for _, r in ipairs(rows) do s = s + r.v end
@@ -1006,9 +1022,9 @@ local function TotalText(mode, rows, total, dur, seg)
     if mode == "healing" then
         local oh = 0
         for _, r in ipairs(rows) do oh = oh + (r.ext or 0) end
-        return K.Fmt(total), (total + oh) > 0 and strformat("%d%% over", floor(oh / (total + oh) * 100 + 0.5)) or ""
+        return Num(total), (total + oh) > 0 and strformat("%d%% over", floor(oh / (total + oh) * 100 + 0.5)) or ""
     end
-    if mode == "taken" then return K.Fmt(total), K.Int(total / dur) .. "/s" end
+    if mode == "taken" then return Num(total), K.Int(total / dur) .. "/s" end
     if mode == "deaths" then return tostring(total), total == 1 and "death" or "deaths" end
     if mode == "kicks" then return tostring(total), "" end
     if mode == "dispels" then return tostring(total), "" end
@@ -1095,7 +1111,7 @@ local function DrawMeter(pf, tab)
     if topV <= 0 then topV = 1 end
     local rowW = (pf.rows:GetWidth() or 0)
     if rowW <= 0 then rowW = PanelWidth(pf) - PAD * 2 end
-    rowW = max(10, rowW - ICON_W)                    -- (the bar starts right of the icon)
+    rowW = max(10, rowW - BAR_L - BAR_RES)           -- (the bar starts right of the icon; a look's bar ends take room)
     local valueFn = VALUE[mode] or VALUE.damage
     local seen = {}
     for i = 1, #order do
@@ -1110,15 +1126,18 @@ local function DrawMeter(pf, tab)
             row.y = nil
             fresh = true
         end
+        if row.styleKey ~= M.key then ns.MeterTheme:SkinRow(row, M) end
         row.data = r
         local a = r.a
-        local cr, cg, cb = K.ClassColor(a.c)
-        row.fill:SetVertexColor(cr, cg, cb, 0.74)
-        row.ext:SetVertexColor(cr, cg, cb, 0.28)
-        SetRowIcon(row.icon, a.c, a.s)
+        row.cls = a.c
+        local cr, cg, cb = ns.MeterTheme:BarColor(a.c, a.s)
+        ns.MeterTheme:Paint(row, M, cr, cg, cb, r.me)
+        ns.MeterTheme:SetIcon(row, a.c, a.s, M)
+        if M.t.rank then row.rank:SetText(r.rank) end
         -- my bar pinned below the fold says where I really am ("10th"), the others need no number
-        SetT(row.name, r.pinned and strformat("%s  |cffa29d90%s|r", a.n or "?", K.Ordinal(r.rank)) or (a.n or "?"))
+        SetT(row.name, (r.pinned and not M.t.rank) and strformat("%s  |cffa29d90%s|r", a.n or "?", K.Ordinal(r.rank)) or (a.n or "?"))
         local v1, v2 = valueFn(r, dur, seg)
+        if not M.t.rate and RATE_SUB[mode] then v2 = nil end
         SetT(row.value, v1)
         SetT(row.sub, v2 or "")
         local kbKey = r.d and r.d.by or (mode == "kicks" and TopKey(a.ks)) or (mode == "dispels" and TopKey(a.ds)) or nil
@@ -1131,7 +1150,6 @@ local function DrawMeter(pf, tab)
             row.skull:ClearAllPoints()
             row.skull:SetPoint("LEFT", row.name, "LEFT", min(row.name:GetStringWidth() + 4, max(10, (row.name:GetWidth() or 100) + 2)), 0)
         end
-        row.you:SetShown(r.me and true or false)
         row.pinLine:SetShown(r.pinned and true or false)
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
         row.tw = max(1, (mode == "deaths") and rowW or (r.v / topV * rowW))
@@ -1173,6 +1191,16 @@ end
 -- Threat rows
 ---------------------------------------------------------------------------
 
+-- A threat row in the look in use: the theme's parts, then the name's place (its column ends where the track starts).
+local function StyleThreatRow(row)
+    ns.MeterTheme:SkinRow(row, M, true)
+    row.name:ClearAllPoints()
+    row.name:SetPoint("LEFT", row, "LEFT", NAME_L, 0)
+    row.name:SetWidth(T_NAME_W)
+    row.value:ClearAllPoints()
+    row.value:SetPoint("RIGHT", row, "RIGHT", -VAL_R, 0)
+end
+
 local function NewThreatRow(pf)
     local row = CreateFrame("Frame", nil, pf.rows)
     row:SetHeight(ROW_H)
@@ -1197,6 +1225,7 @@ local function NewThreatRow(pf)
     row.fill = K.Tex(row, "BORDER", K.WHITE)
     row.fill:SetPoint("TOPLEFT", row.track, "TOPLEFT")
     row.fill:SetPoint("BOTTOMLEFT", row.track, "BOTTOMLEFT")
+    StyleThreatRow(row)
     return row
 end
 
@@ -1249,19 +1278,25 @@ local function DrawThreat(pf)
             pf.trowsByKey[key] = row
             fresh = true
         end
-        local cr, cg, cb = K.ClassColor(r.cls)
-        SetRowIcon(row.icon, r.cls, Meter:SpecOf(r.name))
+        if row.styleKey ~= M.key then StyleThreatRow(row) end
+        local spec = Meter:SpecOf(r.name)
+        local cr, cg, cb = ns.MeterTheme:BarColor(r.cls, spec)
+        row.cls = r.cls
+        ns.MeterTheme:SetIcon(row, r.cls, spec, M)
+        ns.MeterTheme:Me(row, M, r.me)
+        if M.t.rank then row.rank:SetText(i + (pf.offset or 0)) end
         SetT(row.name, r.name or "?")
-        if r.me then row.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else row.name:SetTextColor(cr, cg, cb) end
+        local nr, ng, nb = K.ClassColor(r.cls)
+        if r.me then row.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else row.name:SetTextColor(nr, ng, nb) end
         row.you:SetShown(r.me and true or false)
         row.track:ClearAllPoints()                    -- (the track: 0-100%; the pull zone after it is drawn once)
-        row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, -4)
-        row.track:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", T_TRACK_L, 4)
+        row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, row.trackTop or -4)
+        row.track:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", T_TRACK_L, row.trackBot or 4)
         row.track:SetWidth(max(1, mainW))
         local share = st.tankView and r.scaled or r.raw
         -- (in tank view the one holding aggro is the 100% reference, in their colour, not a warning)
         local hot = (st.tankView and r.scaled >= warn and not r.tank) or (r.me and st.hot)
-        if hot then row.fill:SetVertexColor(1, 0.35, 0.24, 0.9) else row.fill:SetVertexColor(cr, cg, cb, 0.8) end
+        if hot then row.fill:SetVertexColor(1, 0.35, 0.24, 0.9) else row.fill:SetVertexColor(cr, cg, cb, M.t.bar == "hair" and 1 or 0.8) end
         SetT(row.value, floor(share + 0.5) .. "%")
         if hot then row.value:SetTextColor(1, 0.54, 0.44) else row.value:SetTextColor(1, 1, 1) end
         row.tw = max(1, X(share))
@@ -1333,7 +1368,7 @@ local function DrawHead(pf, tab)
         for _, ti in ipairs(avail) do
             local info = ViewInfo(p.tabs[ti].view)
             pf.measure = pf.measure or K.Font(pf.head, K.FRIZ, 12, K.DIM)
-            pf.measure:SetText(info.label)
+            pf.measure:SetText(ns.MeterTheme:Label(info.label))
             local lw = 13 + 5 + pf.measure:GetStringWidth()
             full = full + lw + 12
             compact = compact + ((ti == shown) and lw or 13) + 12
@@ -1352,8 +1387,9 @@ local function DrawHead(pf, tab)
             local info = ViewInfo(p.tabs[ti].view)
             local on = ti == shown
             b.index = ti
+            b:SetHeight(HEAD_H)
             b.icon:SetTexture(info.icon)
-            b.text:SetText((iconsOnly and not on) and "" or info.label)
+            b.text:SetText((iconsOnly and not on) and "" or ns.MeterTheme:Label(info.label))
             if on then b.text:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else b.text:SetTextColor(K.DIM[1], K.DIM[2], K.DIM[3]) end
             b.line:SetShown(on)
             b.icon:SetAlpha(on and 1 or 0.75)
@@ -1369,8 +1405,8 @@ local function DrawHead(pf, tab)
         local info = ViewInfo(tab.view)
         pf.mode:Show()
         pf.mode.icon:SetTexture(info.icon)
-        pf.mode.text:SetText(info.label)
-        local w = 4 + 14 + 6 + pf.mode.text:GetStringWidth() + 5 + 9 + 5
+        pf.mode.text:SetText(ns.MeterTheme:Label(info.label))
+        local w = (M.t.noHeadIcon and 5 or (4 + 14 + 6)) + pf.mode.text:GetStringWidth() + 5 + 9 + 5
         pf.mode:SetWidth(w)
         x = 3 + w + 4
     end
@@ -1430,6 +1466,7 @@ end
 function MP:Draw()
     if not holder or not holder:IsShown() then dirty = true return end
     dirty = false
+    if not M then ApplyMetrics() end
     local fight = (Meter:GetLive() ~= nil) or (UnitAffectingCombat and UnitAffectingCombat("player")) or false
     local migrated = false
     lastDraw = GetTime()
@@ -1443,6 +1480,7 @@ function MP:Draw()
                 pf.switched = pf.drawn and pf.viewKey ~= nil and pf.viewKey ~= viewKey or false
                 if pf.switched then pf.peak, pf.offset = nil, 0 end   -- (the new view's own height, from its top)
                 pf.viewKey = viewKey
+                if pf.styleKey ~= M.key then ns.MeterTheme:SkinPanel(pf, M); pf.flShown = nil end
                 pf:ClearAllPoints()
                 pf:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -y)
                 pf:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -y)

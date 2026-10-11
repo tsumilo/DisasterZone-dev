@@ -53,6 +53,22 @@ ns.CHANGELOG = {
               "Your roll pop-up says if you meet the rules; if not, why and when you can again.",
               "Item tooltips say in one line if you qualify for a prized item, or which rule you miss.",
           } },
+          { heading = "Themes for the Blessings and Totem bars", lines = {
+              "Pick a look for your class tool bars: Halo, Sigil, Slate, Gilded or Pips.",
+              "Settings > Class tools > Blessings or Totems > Theme. Point at a theme to try it on your bar.",
+              "One theme for all your characters: your paladin's and your shaman's bars match.",
+              "The column and the row now look exactly alike: the same buttons, sizes and spacing.",
+              "The column shows each blessing with the class in its corner, like the row did.",
+              "Your aura, Righteous Fury, Symbols of Kings, Heroism and Mana Tide come first, then a line.",
+              "What to do next lifts out of the bar toward its note: up in the row, left in the column.",
+          } },
+          { heading = "Themes for the meters", lines = {
+              "Pick a look for your damage and threat meters: Flat, Halo, Sigil, Slate, Gilded or Pips.",
+              "Settings > Meters > Look > Theme. Point at a theme to try it on your panels.",
+              "Bar colour by class, by role or one colour for all.",
+              "Icons by spec, by class or none; compact or roomy rows; how much background shows.",
+              "Numbers as 380.1k, 380,112 or 380k.",
+          } },
           { heading = "Shorter item tooltips", lines = {
               "The addon adds a few short lines to item tooltips now, each marked with the small DZ seal.",
               "Your BiS line names every phase at once: Your BiS P1–P4 · Trinket 1.",

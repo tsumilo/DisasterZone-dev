@@ -809,6 +809,7 @@ function RollFrame:DoRoll()
         return
     end
     RememberResponse(self, id, "roll")
+    if s then self:DiceRolling(s, true) end
     if ns.Roll and ns.Roll.RespondRoll then
         CallRoll("RespondRoll", id)
     elseif _G.RandomRoll then
@@ -987,10 +988,254 @@ end
 
 function RollFrame:SetButtonsShown(shown)
     local f = self.frame
-    f.roll:SetShown(shown)
-    f.pass:SetShown(shown)
-    f.status:SetShown(not shown)
+    if shown then self:HideDice() end
+    -- (while the dice come in, the buttons fade out on their own: StepDice hides them)
+    local fading = not shown and f.dice and f.dice.out
+    if not fading then
+        f.roll:SetShown(shown)
+        f.pass:SetShown(shown)
+    end
+    f.status:SetShown(not shown and not self:DiceShowing())
 end
+
+---------------------------------------------------------------------------
+-- 1.3.5 the dice (the user: "a cool dice animation when you press roll, with super elegant transitions"): pressing
+-- Roll fades the buttons out as a die pops in where they were; it tumbles (spinning, a little bounce) while numbers
+-- flicker; when my roll arrives (after at least DICE.MIN) the flicker slows, the number lands with a pop and a soft
+-- glow (gold, red for a roll that doesn't count) and the die settles. "You rolled" / "Highest so far!" beside it.
+-- Opening the window on a roll already made shows it settled, without the show.
+---------------------------------------------------------------------------
+local DICE = { TEX = "Interface\\Buttons\\UI-GroupLoot-Dice-Up", SIZE = 24, OUT = 0.18, IN = 0.22, MIN = 0.75,
+               SLOW = 0.4, POP = 0.32, GLOW = 0.6, SPIN = 13, FLICK = 0.055 }
+local SOFT_GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
+
+local function EaseOut(k) return 1 - (1 - k) * (1 - k) end
+local function EaseBack(k)   -- overshoots a little, then settles
+    local c = 1.7
+    k = k - 1
+    return 1 + (c + 1) * k * k * k + c * k * k
+end
+
+function RollFrame:GetDice()
+    local f = self.frame
+    if f.dice then return f.dice end
+    local d = CreateFrame("Frame", nil, f)
+    d:SetSize(ROLL_W + 6 + PASS_W + 20, BTN_H + 8)
+    d:SetPoint("RIGHT", f, "TOPRIGHT", -PAD, -MID_Y + 1)
+    d:SetFrameLevel(f:GetFrameLevel() + 3)
+    d.glow = d:CreateTexture(nil, "BACKGROUND")
+    d.glow:SetTexture(SOFT_GLOW)
+    d.glow:SetBlendMode("ADD")
+    d.glow:SetAlpha(0)
+    d.num = CreateFrame("Frame", nil, d)
+    d.num:SetSize(44, 30)
+    d.num:SetPoint("RIGHT", d, "RIGHT", 0, 0)
+    d.text = d.num:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+    local path, _, flags = d.text:GetFont()
+    if path then d.text:SetFont(path, 22, flags) end
+    d.text:SetPoint("RIGHT", d.num, "RIGHT", 0, 0)
+    d.text:SetJustifyH("RIGHT")
+    d.glow:SetPoint("CENTER", d.text, "CENTER", 0, 0)
+    d.die = d:CreateTexture(nil, "ARTWORK")
+    d.die:SetTexture(DICE.TEX)
+    d.die:SetSize(DICE.SIZE, DICE.SIZE)
+    d.die:SetPoint("RIGHT", d.num, "LEFT", -4, 0)
+    d.caption = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cp, _, cf = d.caption:GetFont()
+    if cp then d.caption:SetFont(cp, 11, cf) end
+    d.caption:SetPoint("RIGHT", d.die, "LEFT", -6, 0)
+    d.caption:SetJustifyH("RIGHT")
+    d.caption:SetTextColor(0.62, 0.62, 0.62)
+    d:Hide()
+    d:SetScript("OnUpdate", function(_, dt) RollFrame:StepDice(dt or 0) end)
+    f.dice = d
+    return d
+end
+
+local function SetDieAngle(d, a)
+    if d.die.SetRotation then d.die:SetRotation(a) end
+end
+
+-- Shows the die for my roll in session s: animated = I just pressed Roll here (the whole show), else settled.
+function RollFrame:DiceRolling(s, animated)
+    local f, d = self.frame, self:GetDice()
+    if d.sid == s.id and d.phase ~= nil then return end
+    d.sid, d.phase, d.t, d.flickT, d.final, d.landT = s.id, "tumble", 0, 0, nil, nil
+    d.animated = animated and true or false
+    d.angle = 0
+    d.text:SetText(tostring(math.random(100)))
+    d.text:SetTextColor(0.85, 0.85, 0.88)
+    d.caption:SetText(Paint("Rolling...", "muted"))
+    d.glow:SetAlpha(0)
+    d.die:SetVertexColor(1, 1, 1)
+    d.num:SetScale(1)
+    d:Show()
+    if animated then
+        d:SetAlpha(0)
+        f.roll:Show()
+        f.pass:Show()
+        d.out = 0
+    else
+        d:SetAlpha(1)
+        d.out = nil
+    end
+end
+
+-- My roll arrived: land on n (bad = it doesn't count; best = the highest so far).
+function RollFrame:DiceLand(s, n, bad, best)
+    local d = self:GetDice()
+    if d.sid ~= s.id or d.phase == nil then
+        self:DiceRolling(s, false)
+    end
+    if d.final == n and d.phase ~= "tumble" then
+        -- (someone rolled higher since: the caption follows)
+        if d.phase == "done" and d.best ~= best then
+            d.best = best
+            self:DiceSettle()
+        end
+        return
+    end
+    d.final, d.bad, d.best = n, bad, best
+    if not d.animated then
+        d.phase = "done"
+        self:DiceSettle()
+        return
+    end
+    if d.phase == "tumble" then d.landWait = true end
+end
+
+function RollFrame:DiceSettle()
+    local d = self.frame.dice
+    d.text:SetText(tostring(d.final))
+    if d.bad then d.text:SetTextColor(1, 0.35, 0.35) else d.text:SetTextColor(1, 0.85, 0.25) end
+    d.die:SetVertexColor(d.bad and 1 or 1, d.bad and 0.55 or 0.85, d.bad and 0.55 or 0.4)
+    SetDieAngle(d, 0)
+    d.num:SetScale(1)
+    d.glow:SetAlpha(0)
+    d:SetAlpha(1)
+    local cap = d.bad and Paint("Not counted", "bad") or (d.best and Paint("Highest so far!", "obtained")
+        or Paint("You rolled", "muted"))
+    d.caption:SetText(cap)
+end
+
+-- The dice for my answer in s: kind "pending" (I pressed Roll, no number yet) / "rolled" / other (none).
+function RollFrame:DiceFor(s, me, kind)
+    if kind == "pending" then
+        local d = self.frame.dice
+        if not (d and d.sid == s.id and d.phase) then self:DiceRolling(s, false) end
+        return
+    end
+    if kind ~= "rolled" then
+        self:HideDice()
+        return
+    end
+    local r = me and type(s.rolls) == "table" and s.rolls[me]
+    local n = type(r) == "table" and tonumber(r.roll)
+    if not n then return end
+    local best = not r.invalid
+    for k, o in pairs(type(s.rolls) == "table" and s.rolls or {}) do
+        if k ~= me and type(o) == "table" and not o.invalid and (tonumber(o.roll) or 0) >= n then best = false end
+    end
+    self:DiceLand(s, n, r.invalid and true or false, best)
+end
+
+function RollFrame:HideDice()
+    local f = self.frame
+    local d = f and f.dice
+    if not d then return end
+    d:Hide()
+    d.phase, d.sid, d.out = nil, nil, nil
+    f.roll:SetAlpha(1)
+    f.pass:SetAlpha(1)
+end
+
+function RollFrame:DiceShowing()
+    local d = self.frame and self.frame.dice
+    return d and d:IsShown() and d.phase ~= nil or false
+end
+
+function RollFrame:StepDice(dt)
+    local f = self.frame
+    local d = f.dice
+    if not d or not d.phase then return end
+    d.t = d.t + dt
+    -- the buttons fade and slide away, the die comes in
+    if d.out then
+        d.out = d.out + dt
+        local k = math.min(1, d.out / DICE.OUT)
+        f.roll:SetAlpha(1 - k)
+        f.pass:SetAlpha(1 - k)
+        local kin = math.max(0, math.min(1, (d.out - DICE.OUT * 0.4) / DICE.IN))
+        d:SetAlpha(EaseOut(kin))
+        d.num:SetScale(0.6 + 0.4 * EaseOut(kin))
+        if k >= 1 and kin >= 1 then
+            f.roll:Hide()
+            f.pass:Hide()
+            f.roll:SetAlpha(1)
+            f.pass:SetAlpha(1)
+            d.out = nil
+        end
+    end
+    if d.phase == "tumble" then
+        d.angle = d.angle + DICE.SPIN * dt
+        SetDieAngle(d, d.angle)
+        d.die:ClearAllPoints()
+        d.die:SetPoint("RIGHT", d.num, "LEFT", -4, math.abs(math.sin(d.t * 9)) * 3)
+        d.flickT = d.flickT + dt
+        if d.flickT >= DICE.FLICK then
+            d.flickT = 0
+            d.text:SetText(tostring(math.random(100)))
+        end
+        if d.landWait and d.t >= DICE.MIN then
+            d.landWait, d.phase, d.landT, d.spin0 = nil, "land", 0, DICE.SPIN
+        end
+    elseif d.phase == "land" then
+        d.landT = d.landT + dt
+        local k = d.landT
+        if k < DICE.SLOW then
+            -- the flicker slows, the die winds down
+            local q = k / DICE.SLOW
+            d.angle = d.angle + DICE.SPIN * (1 - q) * (1 - q) * dt
+            SetDieAngle(d, d.angle)
+            d.flickT = d.flickT + dt
+            if d.flickT >= DICE.FLICK + q * 0.16 then
+                d.flickT = 0
+                d.text:SetText(tostring(math.random(100)))
+            end
+        else
+            local p = k - DICE.SLOW
+            if not d.popped then
+                d.popped = true
+                d.text:SetText(tostring(d.final))
+                if d.bad then d.text:SetTextColor(1, 0.35, 0.35) else d.text:SetTextColor(1, 1, 1) end
+                d.caption:SetText(d.bad and Paint("Not counted", "bad")
+                    or (d.best and Paint("Highest so far!", "obtained") or Paint("You rolled", "muted")))
+                d.glow:SetVertexColor(d.bad and 1 or 1, d.bad and 0.3 or 0.75, d.bad and 0.3 or 0.2)
+                local kit, play = _G.SOUNDKIT, _G.PlaySound
+                local snd = kit and (kit.UI_BONUS_LOOT_ROLL_END or kit.IG_QUEST_LIST_COMPLETE)
+                if snd and play then pcall(play, snd) end
+            end
+            local kp = math.min(1, p / DICE.POP)
+            d.num:SetScale(1.6 - 0.6 * EaseBack(kp))
+            -- white flash easing to gold
+            if not d.bad then d.text:SetTextColor(1, 1 - 0.15 * kp, 1 - 0.75 * kp) end
+            local kg = math.min(1, p / DICE.GLOW)
+            d.glow:SetSize(30 + 70 * EaseOut(kg), 20 + 40 * EaseOut(kg))
+            d.glow:SetAlpha(0.85 * (1 - kg))
+            -- the die settles upright
+            local target = math.floor(d.angle / (2 * math.pi) + 0.5) * 2 * math.pi
+            d.angle = d.angle + (target - d.angle) * math.min(1, dt * 10)
+            SetDieAngle(d, d.angle)
+            d.die:ClearAllPoints()
+            d.die:SetPoint("RIGHT", d.num, "LEFT", -4, 0)
+            if kp >= 1 and kg >= 1 then
+                d.phase, d.popped = "done", nil
+                self:DiceSettle()
+            end
+        end
+    end
+end
+
 
 function RollFrame:UpdateTimer()
     local f = self.frame
@@ -1052,6 +1297,7 @@ function RollFrame:Refresh()
 
     if state == "awarded" then
         self:StopTicker()
+        self:HideDice()
         self:SetButtonsShown(false)
         f.bar:Hide()
         f.timeText:SetText("")
@@ -1071,6 +1317,7 @@ function RollFrame:Refresh()
         self:ScheduleFade(FADE_AFTER_AWARD, "awarded")
     elseif state == "cancelled" then
         self:StopTicker()
+        self:HideDice()
         self:SetButtonsShown(false)
         f.bar:Hide()
         f.timeText:SetText("")
@@ -1082,6 +1329,9 @@ function RollFrame:Refresh()
         f.bar:Hide()
         f.timeText:SetText("")
         local own, kind = OwnResult(s, me, response)
+        -- (rolls closed: the dice step aside for the result line)
+        self:HideDice()
+        self:SetButtonsShown(false)
         if own and kind ~= "pending" then
             f.status:SetText(own .. Paint(" - rolls closed", "muted"))
         else
@@ -1090,8 +1340,9 @@ function RollFrame:Refresh()
         self:ScheduleFade(LINGER_AFTER_CLOSE, "closed")
     else
         f.bar:Show()
-        local own = OwnResult(s, me, response)
+        local own, kind = OwnResult(s, me, response)
         if own then
+            self:DiceFor(s, me, kind)
             self:SetButtonsShown(false)
             f.status:SetText(own)
         else

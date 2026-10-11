@@ -220,6 +220,7 @@ UI\MyLogUI.lua
 UI\MyLogTimeline.lua
 UI\MyLogDetail.lua
 UI\MeterWindow.lua
+UI\MeterTheme.lua
 UI\MeterPanels.lua
 UI\MeterDetail.lua
 UI\SwingTimerHUD.lua

@@ -29,39 +29,39 @@ local GOLD = { 1, 0.82, 0 }
 
 -- head / fl / row / gap / pad: heights and spacing; icon: square | round | framed | small | none; bar: flat | pill |
 -- lit | hair | gilt; bg: the stack's fill (rgb + alpha); edge: its 1 px edge while locked; headBg: { bottom, top }
--- (a gradient) or one colour; headLine: a line under the header; title: font size and case; name / value / sub:
+-- (a gradient) or one colour; headLine: a line under the header; title: font size and case; nameSize / value / sub:
 -- text sizes (nameFont NARROW for the dense theme); fillA: the bar's opacity; trackInset: a threat bar's top/bottom
 -- inset; rank: list numbers; rate: the per-second column.
 MT.THEMES = {
     { key = "flat", name = "Flat", tip = "Today's look: full-height class bars and a square spec icon.",
       head = 24, fl = 18, row = 19, gap = 1, pad = 3, icon = "square", bar = "flat",
       bg = { 0.039, 0.039, 0.051, 0.66 }, edge = { 1, 1, 1, 0 }, headBg = { 1, 1, 1, 0.035 }, flBg = 0.28,
-      title = 12.5, name = 12, value = 13.5, sub = 12, fillA = 0.74, trackInset = 4, rate = true },
+      title = 12.5, nameSize = 12, value = 13.5, sub = 12, fillA = 0.74, trackInset = 4, rate = true },
     { key = "halo", name = "Halo", tip = "Round spec icons in a class ring, rounded bars with a soft fade.",
       head = 24, fl = 18, row = 18, gap = 3, pad = 5, icon = "round", bar = "pill",
       bg = { 0.031, 0.031, 0.043, 0.56 }, edge = { 1, 1, 1, 0 }, headBg = { 1, 1, 1, 0 }, flBg = 0.18,
-      titleColor = { 0.96, 0.86, 0.56 }, title = 12.5, name = 12, value = 13, sub = 11.5, fillA = 0.9, trackInset = 5,
+      titleColor = { 0.96, 0.86, 0.56 }, title = 12.5, nameSize = 12, value = 13, sub = 11.5, fillA = 0.9, trackInset = 5,
       rate = true },
     { key = "sigil", name = "Sigil", tip = "Framed square icons and solid bars with a lit top edge, like action buttons.",
       head = 24, fl = 18, row = 19, gap = 2, pad = 4, icon = "framed", bar = "lit",
       bg = { 0.035, 0.035, 0.043, 0.82 }, edge = { 1, 1, 1, 0.07 },
       headBg = { { 0.078, 0.078, 0.09, 1 }, { 0.145, 0.145, 0.17, 1 } }, headLine = { 0, 0, 0, 1 }, flBg = 0.45,
-      upper = true, title = 10.5, name = 12, value = 13.5, sub = 12, fillA = 0.9, trackInset = 4, rate = true },
+      upper = true, title = 10.5, nameSize = 12, value = 13.5, sub = 12, fillA = 1, trackInset = 4, rate = true },
     { key = "slate", name = "Slate", tip = "No filled bars: names in class colour and a thin line for the share. Calmest.",
       head = 24, fl = 18, row = 20, gap = 0, pad = 2, icon = "small", bar = "hair",
       bg = { 0.051, 0.051, 0.067, 0.78 }, edge = { 1, 1, 1, 0.08 }, headBg = { 1, 1, 1, 0 },
       headLine = { 1, 1, 1, 0.06 }, flBg = 0.2, noHeadIcon = true, titleColor = { 0.91, 0.89, 0.82 },
-      title = 12, name = 12, value = 13, sub = 12, fillA = 1, trackInset = 0, nameClass = true, rate = true },
+      title = 12, nameSize = 12, value = 13, sub = 12, fillA = 1, trackInset = 0, nameClass = true, rate = true },
     { key = "gilded", name = "Gilded", tip = "A gold-trimmed frame, textured bars and gold-rimmed icons. Most 'WoW'.",
       head = 26, fl = 18, row = 19, gap = 2, pad = 5, icon = "framed", bar = "gilt", corners = true,
       bg = { 0.071, 0.055, 0.027, 0.88 }, edge = { 0.43, 0.33, 0.13, 1 },
       headBg = { { 0.106, 0.078, 0.031, 1 }, { 0.231, 0.169, 0.059, 1 } }, headLine = { 0.54, 0.42, 0.15, 1 },
-      flBg = 0.3, frameC = { 0.66, 0.51, 0.17 }, titleColor = { 1, 0.84, 0.42 }, title = 13, name = 12, value = 13.5,
-      sub = 12, fillA = 0.95, trackInset = 3, rate = true },
+      flBg = 0.3, frameC = { 0.66, 0.51, 0.17 }, titleColor = { 1, 0.84, 0.42 }, title = 13, nameSize = 12, value = 13.5,
+      sub = 12, fillA = 1, trackInset = 3, rate = true },
     { key = "pips", name = "Pips", tip = "Dense: small rows, rank numbers, no icons. For a crowded screen.",
       head = 18, fl = 15, row = 13, gap = 1, pad = 2, icon = "none", bar = "flat",
       bg = { 0, 0, 0, 0.5 }, edge = { 1, 1, 1, 0 }, headBg = { 1, 1, 1, 0.03 }, flBg = 0.25,
-      title = 10.5, name = 10.5, nameFont = NARROW, value = 11, sub = 10, fillA = 0.55, trackInset = 3, rank = true,
+      title = 10.5, nameSize = 10.5, nameFont = NARROW, value = 11, sub = 10, fillA = 0.55, trackInset = 3, rank = true,
       rate = false, small = true },
 }
 MT.BY_KEY = {}
@@ -368,7 +368,7 @@ function MT:SkinRow(row, m, threat)
     end
     -- text
     local nameFont = t.nameFont or FRIZ
-    SetSize(row.name, nameFont, t.name)
+    SetSize(row.name, nameFont, t.nameSize)
     SetSize(row.value, NARROW, t.value)
     if row.sub then SetSize(row.sub, NARROW, t.sub) end
     if not row.rank then
@@ -526,7 +526,7 @@ function MT:Me(row, m, me)
     if row.back and (t.bar == "lit" or t.bar == "gilt") then
         if me then row.back:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1) else row.back:SetVertexColor(0, 0, 0, 1) end
     end
-    if row.tcapL and t.bar == "pill" then
+    if row.bg and t.bar == "pill" then              -- (threat rows have no pill track)
         local a = me and 0.16 or 0.035
         local r, g, b = me and GOLD[1] or 1, me and GOLD[2] or 1, me and GOLD[3] or 1
         row.bg:SetVertexColor(r, g, b, a)

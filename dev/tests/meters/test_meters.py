@@ -1273,5 +1273,110 @@ def a_threat_bar_is_as_long_as_its_number():
     assert got["tot"].startswith("You 68%") and "pull at 110%" in got["tot"], got
 
 
+def themed(r, theme, **over):
+    """Set a meter theme (and overrides), draw, and read the damage panel's rows."""
+    r.cl.eval("ns.DB:SetSetting('meters.theme', ...)", theme)
+    for k, v in over.items():
+        r.cl.eval("ns.DB:SetSetting('meters.' .. select(1, ...), select(2, ...))", k, v)
+    r.tick(0.2)
+    return r.cl.eval_py("""
+        ns.MeterPanels:Draw()
+        local pf = ns.MeterPanels._Panel('damage')
+        local o = { h = pf:GetHeight(), head = pf.head:GetHeight(), label = pf.mode.text:GetText(), rows = {} }
+        for g, row in pairs(pf.rowsByKey) do
+            local fr, fg, fb, fa = row.fill:GetVertexColor()
+            local nr, ng, nb = row.name:GetTextColor()
+            o.rows[row.data.a.n] = { h = row:GetHeight(), icon = row.icon:IsShown(), rank = row.rank:IsShown() and row.rank:GetText(),
+                sub = row.sub:IsShown(), value = row.value:GetText(), fill = { fr, fg, fb, fa }, name = { nr, ng, nb },
+                you = row.you:IsShown(), caps = row.capR and row.capR:IsShown() or false }
+        end
+        local s1 = ns.MeterPanels._Stacks()[1]
+        local _, _, _, a = s1.fill:GetVertexColor()
+        o.bg = a
+        o.corners = s1.corners and s1.corners[1][1]:IsShown() or false
+        return o""")
+
+
+def fight_for_themes():
+    r = Raid()
+    r.combat(True)
+    r.hit("Gina", 380112)
+    r.hit("Victhar", 200000)
+    r.hit("Hunt", 120000)
+    r.tick(1)
+    return r
+
+
+@case
+def every_meter_theme_draws_its_own_rows():
+    """Settings > Meters > Look (UI/MeterTheme.lua): each theme sets its row height, icon, bar and text; the panel is as
+    tall as the theme's header, fight line and rows; a theme change restyles the rows already made."""
+    r = fight_for_themes()
+    heights = r.cl.eval_py("local o = {}; for _, t in ipairs(ns.MeterTheme.THEMES) do o[t.key] = { t.row, t.head, t.fl, t.gap, t.pad } end; return o")
+    for key, (row_h, head, fl, gap, pad) in heights.items():
+        got = themed(r, key)
+        n = len(got["rows"])
+        assert n == 3, (key, got)
+        assert all(x["h"] == row_h for x in got["rows"].values()), (key, got)
+        assert got["head"] == head, (key, got)
+        assert got["h"] == head + fl + pad * 2 + n * row_h + (n - 1) * gap, (key, got)
+        gina = got["rows"]["Gina"]
+        if key == "pips":                                     # dense: rank numbers, no icons, no per-second column
+            assert gina["rank"] == "1" and gina["icon"] is False and gina["sub"] is False, got
+        else:
+            assert gina["icon"] is True and gina["rank"] is False and gina["sub"] is True, (key, got)
+        assert gina["caps"] is (key == "halo"), (key, got)    # the pill's round ends
+        assert gina["you"] is (key in ("flat", "pips")), (key, got)   # (the others mark my row their own way)
+        if key == "slate":                                    # names in class colour
+            assert abs(gina["name"][0] - 0.96) < 0.01 and abs(gina["name"][1] - 0.55) < 0.01, got
+        if key == "sigil":
+            assert got["label"] == "DAMAGE DONE", got
+        else:
+            assert got["label"] == "Damage done", (key, got)
+        assert got["corners"] is (key == "gilded"), (key, got)
+
+
+@case
+def meter_overrides_sit_on_top_of_the_theme():
+    r = fight_for_themes()
+    base = themed(r, "flat")
+    assert base["rows"]["Gina"]["value"] == "380.1k", base
+    got = themed(r, "flat", numbers="full", barColor="one", icons="none", rowSize="roomy", bg=50)
+    gina = got["rows"]["Gina"]
+    assert gina["value"] == "380,112", got
+    assert gina["icon"] is False and gina["h"] == 22, got
+    fills = {tuple(round(c, 2) for c in x["fill"][:3]) for x in got["rows"].values()}
+    assert len(fills) == 1, got                               # one colour for everyone
+    assert abs(got["bg"] - 0.5) < 0.01, got
+    got = themed(r, "flat", numbers="round", barColor="role", icons="theme", rowSize="theme", bg="theme")
+    assert got["rows"]["Gina"]["value"] == "380k" and got["rows"]["Gina"]["icon"] is True, got
+    assert abs(got["bg"] - 0.66) < 0.01, got
+    # role colours: Victhar (Protection) a tank, Hunt damage
+    r.cl.eval("for _, a in pairs(ns.Meter:GetSegment('cur').actors) do if a.n == 'Victhar' then a.s = 'Protection' end end")
+    got = themed(r, "flat")
+    assert got["rows"]["Victhar"]["fill"][2] > got["rows"]["Victhar"]["fill"][0], got     # blue
+    assert got["rows"]["Hunt"]["fill"][0] > got["rows"]["Hunt"]["fill"][2], got           # red
+
+
+@case
+def pointing_at_a_theme_tile_previews_it_on_the_panels():
+    r = fight_for_themes()
+    themed(r, "flat")
+    r.cl.eval("ns.MainFrame:Open('settings'); ns.SettingsUI:SelectSection('meters')")
+    r.tick(0.3)
+    names = r.cl.eval_py("""local o = {}
+        for _, t in ipairs(ns.MeterTheme.THEMES) do o[#o + 1] = t.name end; return o""")
+    assert names == ["Flat", "Halo", "Sigil", "Slate", "Gilded", "Pips"], names
+    for n in names:
+        assert r.cl.find_text(n), n                            # a tile per theme, named
+    h = r.cl.eval("""ns.MeterTheme:SetPreview('pips'); ns.MeterPanels:Draw()
+        local pf = ns.MeterPanels._Panel('damage'); local _, row = next(pf.rowsByKey); return row:GetHeight()""")
+    assert h == 13, h
+    h = r.cl.eval("""ns.MeterTheme:SetPreview(nil); ns.MeterPanels:Draw()
+        local pf = ns.MeterPanels._Panel('damage'); local _, row = next(pf.rowsByKey); return row:GetHeight()""")
+    assert h == 19, h
+    assert r.cl.eval("return ns.DB:GetSetting('meters.theme')") == "flat"
+
+
 if __name__ == "__main__":
     run_all()
