@@ -248,7 +248,7 @@ def qualify_today_names_a_line_only_when_there_is_an_order():
     # DST has a priority rule (the spec order): the line names who is next
     assert visible_texts(c, "Next in line: ")
     # hovering the count lists every qualifier, numbered
-    c.eval("local r = ...; local h = r:GetParent().qualHit; h:GetScript('OnEnter')(h)", count[0])
+    c.eval("local r = ...; local h = r:GetParent().qualHit; __MOCK.call_script(h, 'OnEnter')", count[0])
     lines = tip_lines(c)
     lines = list(lines.values()) if isinstance(lines, dict) else list(lines or [])
     assert lines and lines[0].startswith("Qualify") and len(lines) > 1 and lines[1].startswith("1. "), lines
@@ -260,7 +260,7 @@ def qualify_today_names_a_line_only_when_there_is_an_order():
     w.tick(1)
     assert visible_texts(c, " raiders")
     assert not visible_texts(c, "Next in line: ") and not visible_texts(c, "First: ")
-    c.eval("local r = ...; local h = r:GetParent().qualHit; h:GetScript('OnEnter')(h)", visible_texts(c, " raiders")[0])
+    c.eval("local r = ...; local h = r:GetParent().qualHit; __MOCK.call_script(h, 'OnEnter')", visible_texts(c, " raiders")[0])
     lines = tip_lines(c)
     lines = list(lines.values()) if isinstance(lines, dict) else list(lines or [])
     assert lines and lines[0] == "Qualify today" and not lines[1].startswith("1. "), lines
