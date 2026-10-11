@@ -445,8 +445,6 @@ local PAD, GAP = 10, 8
 local CARD_H = 92                    -- a raid on the board: a banner of its loading screen (the Teams board's height)
 local FILTER_ROW = 22
 local SECTION_H = 30
-local HERO_H = 128                   -- the raid's banner (the same on every tab); its tabs sit on its foot
-local TABS_H = 34
 local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
 local PANEL_BG = { 0.08, 0.08, 0.095, 0.9 }
 local EDGE = { 0.34, 0.34, 0.38, 0.5 }
@@ -492,14 +490,9 @@ end
 -- (one local: this file is near Lua's 200 locals).
 local UP = {
     W = 770,                 -- the width inside PAD (GetWidth is 0 before a layout)
-    LT_BG = { 0.085, 0.085, 0.1 },   -- the tabs' strip, and the banner's foot fading into it
-    TB_H = 26,               -- the open tab's tool row, under the tabs
-    TAB_MIN = 170,           -- a page tab's least width
     ANS_W = 330,             -- the banner's answer side (the title never runs under it)
 }
 for k, v in pairs(BAND) do UP[k] = v end            -- (Sign-ups as the Comp view's role bands)
-UP.TB_Y = HERO_H + TABS_H + 10                   -- the tool row's top
-UP.BODY_Y = UP.TB_Y + UP.TB_H + 8                -- where a tab's content starts
 
 -- (melee, ranged and casters share the damage icon)
 local function roleIcon(role, size) return UI():RoleIconText(role, size) end
@@ -2040,82 +2033,6 @@ function UP.newAnswer(parent, st)
     return b
 end
 
--- A tab on the banner's foot (the Teams lineup tab's look): the name, a count on the right, a bar along the bottom;
--- the open one lit with a gold top edge. t:SetActive(on), t:SetCount(have, of).
-function UP.newPageTab(parent, label, key, tip)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(TABS_H)
-    c.key = key
-    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
-    c.bg:SetAllPoints()
-    c.bg:SetColorTexture(0.125, 0.125, 0.145, 1)
-    c.top = c:CreateTexture(nil, "ARTWORK", nil, 3)
-    c.top:SetPoint("TOPLEFT", 0, 0)
-    c.top:SetPoint("TOPRIGHT", 0, 0)
-    c.top:SetHeight(2)
-    c.top:SetColorTexture(S:Color("GOLD"))
-    c.sep = c:CreateTexture(nil, "BORDER")
-    c.sep:SetPoint("TOPRIGHT", 0, 0)
-    c.sep:SetPoint("BOTTOMRIGHT", 0, 0)
-    c.sep:SetWidth(1)
-    c.sep:SetColorTexture(1, 1, 1, 0.06)
-    c.hl = c:CreateTexture(nil, "HIGHLIGHT")
-    c.hl:SetAllPoints()
-    c.hl:SetColorTexture(1, 1, 1, 0.04)
-    c.name = UI():Text(c, "title", "TEXT")
-    c.name:SetPoint("LEFT", 14, 0)
-    c.name:SetText(label)
-    c.count = UI():Text(c, "emph", "TEXT")
-    c.count:SetJustifyH("RIGHT")
-    c.count:SetPoint("RIGHT", -16, 0)
-    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 2)
-    c.fill:SetPoint("BOTTOMLEFT", 0, 0)
-    c.fill:SetHeight(2)
-    c:SetScript("OnClick", function(self)
-        state.detailTab = self.key
-        PlanUI:RefreshUpcoming()
-    end)
-    c:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine(label)
-        GameTooltip:AddLine(tip, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    c:SetScript("OnLeave", hideTooltip)
-    function c:SetActive(on)
-        self.active = on and true or false
-        self.bg:SetShown(self.active)
-        self.top:SetShown(self.active)
-        local g = self.active and 1 or 0.66
-        self.name:SetTextColor(g, g, g)
-        self:Paint()
-    end
-    function c:SetCount(have, of)
-        self.have, self.of = have, of
-        self:Paint()
-    end
-    function c:Paint()
-        local have, of = self.have, self.of
-        local full = of and of > 0 and have >= of
-        if have and of then
-            self.count:SetText((full and colorize("8fe39d", have) or (self.active and colorize("ffffff", have)
-                or colorize("bdbdbd", have))) .. colorize("808080", "/" .. of))
-        else
-            self.count:SetText("")
-        end
-        local w = max(UP.TAB_MIN, floor(14 + (self.name:GetStringWidth() or 60) + 24 + (self.count:GetStringWidth() or 30)
-            + 16 + 0.5))
-        self:SetWidth(w)
-        local share = (have and of and of > 0) and min(1, have / of) or 0
-        self.fill:SetShown(share > 0)
-        self.fill:SetWidth(max(1, floor(w * share + 0.5)))
-        if full then self.fill:SetColorTexture(0.56, 0.89, 0.62, self.active and 1 or 0.5)
-        else self.fill:SetColorTexture(1, 0.82, 0, self.active and 1 or 0.35) end
-    end
-    c:SetActive(false)
-    return c
-end
-
 -- What I may do to the raid on the page: { leader, edit, cancel, invite } (the banner's ··· menu; Add players is on the
 -- Sign-ups tab).
 function UP.actions(v)
@@ -2159,6 +2076,8 @@ function PlanUI:CreateUpcoming(parent)
     local board = CreateFrame("Frame", nil, u)
     board:SetAllPoints(u)
     u.board = board
+    -- the Board layout (RaidsTab's toolbar above it): the cards in its body, the empty state over it
+    board.layout = UI():CreateLayout("board", board, { toolbar = false })
     -- the filters (which raid, and when), on the first section header's row
     u.whenDD = UI():CreateSleekDropdown(board, 112, function() return UP.whenOptions() end,
         function() return state.filterWhen end, function(val)
@@ -2172,101 +2091,81 @@ function PlanUI:CreateUpcoming(parent)
             PlanUI:RefreshUpcoming()
         end)
     u.raidDD:SetPoint("RIGHT", u.whenDD, "LEFT", -6, 0)
-    board.scroll = UI():CreateScrollFrame(board)
-    board.scroll:SetPoint("TOPLEFT", PAD, -(FILTER_ROW + 6))
-    board.scroll:SetPoint("BOTTOMRIGHT", -PAD, 4)
+    board.scroll = UI():CreateScrollFrame(board.layout.body)
+    board.scroll:SetPoint("TOPLEFT", 0, -(FILTER_ROW + 6))
+    board.scroll:SetPoint("BOTTOMRIGHT", 0, 0)
     board.content = CreateFrame("Frame", nil, board.scroll)
     board.content:SetSize(700, 10)
     board.scroll:SetScrollChild(board.content)
     board.cards, board.heads = {}, {}
     -- (the section headers: small grey capitals, the Teams board's)
-    board.firstHead = UI():Text(board, "small", "SUB")
-    board.firstHead:SetPoint("LEFT", board, "TOPLEFT", PAD + 1, -FILTER_ROW / 2)
-    board.empty = board:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    board.empty:SetPoint("TOP", 0, -100)
-    board.empty:SetJustifyH("CENTER")
+    board.firstHead = UI():Text(board.layout.body, "caps", "SUB")
+    board.firstHead:SetPoint("LEFT", board.layout.body, "TOPLEFT", 1, -FILTER_ROW / 2)
     -- the list's old handles (tools and tests): rows = the shown cards, data = the board's rows
     u.list = {
         box = { ForEachFrame = function(_, fn)
             for _, c in ipairs(board.cards) do if c:IsShown() then fn(c) end end
         end },
         GetData = function() return board.rows or {} end,
-        SetEmptyText = function(_, text) board.empty:SetText(text or "") end,
+        -- (the empty state's words: its first line is the title, the rest the text under it)
+        SetEmptyText = function(_, text)
+            local title, rest = tostring(text or ""):match("^([^\n]*)\n?(.*)$")
+            board.emptyOpts = { glyph = UI().ICON.calendar, title = title, text = rest ~= "" and rest or nil, y = 74 }
+        end,
     }
 
     ---------------------------------------------------------------- the raid's page
     local d = CreateFrame("Frame", nil, u)
     d:SetAllPoints(u)
     u.detail = d
-    d.empty = d:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    d.empty:SetPoint("TOP", 0, -60)
-    d.empty:SetText("Pick a raid.")
 
-    -- the banner (every tab), the Teams banner's look: the raid's loading screen, dark under its facts (left) and my
-    -- answer (right), its foot fading into the tabs
-    local hero = CreateFrame("Frame", nil, d)
-    hero:SetPoint("TOPLEFT", PAD, 0)
-    hero:SetPoint("TOPRIGHT", -PAD, 0)
-    hero:SetHeight(HERO_H)
-    d.hero = hero
-    hero.bg = hero:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hero.bg:SetAllPoints()
-    hero.bg:SetColorTexture(UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 1)
-    hero.art = hero:CreateTexture(nil, "BACKGROUND", nil, 2)
-    hero.art:SetAllPoints()
-    hero.art:SetVertexColor(0.85, 0.85, 0.85)
-    hero.fadeL = hero:CreateTexture(nil, "BACKGROUND", nil, 3)
-    hero.fadeL:SetPoint("TOPLEFT", 0, 0)
-    hero.fadeL:SetPoint("BOTTOMLEFT", 0, 0)
-    hero.fadeL:SetWidth(470)
-    UI():Gradient(hero.fadeL, "HORIZONTAL", { 0.055, 0.055, 0.067, 0.97 }, { 0.055, 0.055, 0.067, 0.3 })
-    hero.fadeR = hero:CreateTexture(nil, "BACKGROUND", nil, 3)
-    hero.fadeR:SetPoint("TOPLEFT", hero.fadeL, "TOPRIGHT", 0, 0)
-    hero.fadeR:SetPoint("BOTTOMRIGHT", 0, 0)
-    UI():Gradient(hero.fadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0.3 }, { 0.055, 0.055, 0.067, 0.82 })
-    hero.fadeB = hero:CreateTexture(nil, "BACKGROUND", nil, 4)
-    hero.fadeB:SetPoint("BOTTOMLEFT", 0, 0)
-    hero.fadeB:SetPoint("BOTTOMRIGHT", 0, 0)
-    hero.fadeB:SetHeight(44)
-    UI():Gradient(hero.fadeB, "VERTICAL", { UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 1 }, { UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 0 })
-
-    -- its top row: back to the board; the raid's actions in one ··· menu (who may run them)
-    d.back = CreateFrame("Button", nil, hero)
-    d.back:SetSize(80, 14)
-    d.back:SetPoint("TOPLEFT", 16, -11)
-    d.back.icon = d.back:CreateTexture(nil, "ARTWORK")
-    d.back.icon:SetSize(10, 10)
-    d.back.icon:SetPoint("LEFT", 0, 0)
-    leftChevron(d.back.icon)
-    d.back.text = UI():Text(d.back, "small", "GOLD")
-    d.back.text:SetPoint("LEFT", d.back.icon, "RIGHT", 4, 0)
-    d.back.text:SetText("ALL RAIDS")
-    local function backColor(self, on)
-        local r, g, b = 0.65, 0.65, 0.65
-        if on then r, g, b = 1, 0.82, 0 end
-        self.text:SetTextColor(r, g, b)
-        self.icon:SetVertexColor(r, g, b)
+    -- the Detail page layout: the banner (the raid's loading screen; back to the board, the raid's ··· menu, its facts
+    -- on the left and my answer on the right), Sign-ups / Groups / Assignments as block tabs under it (Addendum K:
+    -- the raid's strategy boards, who does what on each boss), the open tab's tool row, then the tab
+    local L = UI():CreateLayout("detail", d, {
+        banner = { art = "kara", kickerColor = "SUB", subColor = "SUB",
+                   tools = { { icon = "more", title = "Raid actions", text = "Raid leader, Edit, Cancel or Delete.",
+                               onClick = function(self) UP.actionsMenu(self) end } } },
+        back = { text = "All raids", onClick = function() PlanUI:ShowBoard() end },
+        tabStyle = "block",
+        tabs = {
+            { key = "signups", text = "Sign-ups", tip = "Who answered, by role." },
+            { key = "groups", text = "Groups", tip = "Who goes in which group: who accepted, placed." },
+            { key = "assign", text = "Assignments", tip = "Each boss's strategy and who does what on it: the bosses "
+                .. "whose slots are all filled." },
+        },
+        onTab = function(key)
+            state.detailTab = key
+            PlanUI:RefreshUpcoming()
+        end,
+    })
+    d.layout = L
+    local hero = L.banner
+    d.hero, d.tabs, d.back = hero, L.tabs, hero.back
+    d.moreBtn = hero.tools[1]
+    d.tabSignups, d.tabGroups, d.tabAssign = L.tabs:GetTab("signups"), L.tabs:GetTab("groups"), L.tabs:GetTab("assign")
+    -- (the answer side: dark under my answer, as the left is under the facts)
+    hero.fadeR = hero:CreateTexture(nil, "BORDER", nil, 2)
+    hero.fadeR:SetPoint("TOPRIGHT", -1, -1)
+    hero.fadeR:SetPoint("BOTTOMRIGHT", -1, 1)
+    hero.fadeR:SetWidth(UP.ANS_W + 40)
+    UI():Gradient(hero.fadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0 }, { 0.055, 0.055, 0.067, 0.8 })
+    -- the facts: the banner's kicker (when, the countdown in gold), title (the name) and sub line (where / by / for)
+    -- in the room left of my answer, then the raid's note
+    -- TODO(refactor): move into UI:CreatePageBanner (opts.rightW: room kept free at the right of the text; a title
+    -- that steps down a size before it is cut)
+    d.kick, d.title, d.sub2 = hero.kicker, hero.title, hero.sub
+    local bannerLayout = hero.Layout
+    function hero:Layout()
+        bannerLayout(self)
+        local room = (self:GetWidth() > 1 and self:GetWidth() or UP.W) - (self.textX or 14) - UP.ANS_W
+        if self.titleText then UP.fitTitle(self.title, self.titleText, room) end
+        self.sub:SetWidth(max(20, room))
     end
-    backColor(d.back, false)
-    d.back:SetScript("OnEnter", function(self) backColor(self, true) end)
-    d.back:SetScript("OnLeave", function(self) backColor(self, false) end)
-    d.back:SetScript("OnClick", function() PlanUI:ShowBoard() end)
-    d.moreBtn = UI():CreateTipIconButton(hero, 22, UI().ICON.more, "Raid actions", "Raid leader, Edit, Cancel or "
-        .. "Delete.", function(self) UP.actionsMenu(self) end)
-    function d.moreBtn:OpenMenu() UP.actionsMenu(self) end
-    d.moreBtn:SetPoint("TOPRIGHT", -10, -9)
-
-    -- the facts, top to bottom: when (the countdown in gold), the name, where / by / for, the raid's note
-    d.kick = UI():Text(hero, "small", "SUB")
-    d.kick:SetPoint("TOPLEFT", 16, -31)
-    d.title = UI():Text(hero, 22, "TEXT")
-    d.title:SetPoint("TOPLEFT", d.kick, "BOTTOMLEFT", 0, -6)
-    d.sub2 = UI():Text(hero, "body", "SUB")
-    d.sub2:SetPoint("TOPLEFT", d.title, "BOTTOMLEFT", 0, -7)
     -- the raid's own note (only when it has one): two lines at most, all of it in the tooltip
     local nl = CreateFrame("Frame", nil, hero)
     d.noteLine = nl
-    nl:SetPoint("TOPLEFT", d.sub2, "BOTTOMLEFT", 0, -7)
+    nl:SetPoint("TOPLEFT", d.sub2, "BOTTOMLEFT", 0, -8)
     nl:SetSize(400, 14)
     nl.icon = nl:CreateTexture(nil, "ARTWORK")
     nl.icon:SetSize(11, 11)
@@ -2277,15 +2176,11 @@ function PlanUI:CreateUpcoming(parent)
     nl.fs = UI():Text(nl, "body", "SUB", { wrap = true })
     nl.fs:SetPoint("TOPLEFT", nl.icon, "TOPRIGHT", 6, 0)
     nl.fs:SetMaxLines(2)
-    nl:EnableMouse(true)
-    nl:SetScript("OnEnter", function(self)
-        if not self.note then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("The raid's note")
-        GameTooltip:AddLine(self.note, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    nl:SetScript("OnLeave", hideTooltip)
+    UI():AttachTooltip(nl, function(self, tip)
+        if not self.note then return false end
+        tip:AddLine("The raid's note")
+        tip:AddLine(self.note, 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
 
     -- my answer, on the right: a kicker ("YOUR ANSWER", or what a request means), the four answers as one switch (mine
     -- lit in its colour), under them my spec, character and note. Who can't answer sees why instead (and their
@@ -2394,40 +2289,14 @@ function PlanUI:CreateUpcoming(parent)
         hideTooltip()
     end)
 
-    -- Sign-ups / Groups / Assignments (Addendum K: the raid's strategy boards, who does what on each boss) as tabs on
-    -- the banner's foot, like a team's lineups: the name, how far along it is, a bar along the bottom
-    local tabs = CreateFrame("Frame", nil, d)
-    tabs:SetHeight(TABS_H)
-    tabs:SetPoint("TOPLEFT", PAD, -HERO_H)
-    tabs:SetPoint("TOPRIGHT", -PAD, -HERO_H)
-    tabs.bg = tabs:CreateTexture(nil, "BACKGROUND")
-    tabs.bg:SetAllPoints()
-    tabs.bg:SetColorTexture(UP.LT_BG[1], UP.LT_BG[2], UP.LT_BG[3], 1)
-    tabs.rule = tabs:CreateTexture(nil, "BORDER")
-    tabs.rule:SetPoint("BOTTOMLEFT", 0, 0)
-    tabs.rule:SetPoint("BOTTOMRIGHT", 0, 0)
-    tabs.rule:SetHeight(1)
-    tabs.rule:SetColorTexture(1, 1, 1, 0.08)
-    d.tabs = tabs
-    d.tabSignups = UP.newPageTab(tabs, "Sign-ups", "signups", "Who answered, by role.")
-    d.tabGroups = UP.newPageTab(tabs, "Groups", "groups", "Who goes in which group: who accepted, placed.")
-    d.tabAssign = UP.newPageTab(tabs, "Assignments", "assign", "Each boss's strategy and who does what on it: the "
-        .. "bosses whose slots are all filled.")
-
-    -- the open tab's tool row (Sign-ups: the counts, Add players; Groups and Assignments have their own)
-    local bar = CreateFrame("Frame", nil, d)
-    bar:SetHeight(UP.TB_H)
-    bar:SetPoint("TOPLEFT", PAD, -UP.TB_Y)
-    bar:SetPoint("TOPRIGHT", -PAD, -UP.TB_Y)
+    -- the open tab's tool row (Sign-ups: the counts, Add players; Groups and Assignments have their own in its place)
+    local bar = L.toolbar
     d.rosterBar = bar
-    d.counts = UI():Text(bar, "body", "SUB")
-    d.counts:SetPoint("LEFT", 0, 0)
-    d.inviteBtn = UI():CreateSleekButton(bar, UI():AtlasIconText(19, 13) .. "  Add players", 110, 22, function()
-        if state.selected then PlanUI:OpenInvites(state.selected) end
-    end)
-    d.inviteBtn:SetPoint("RIGHT", 0, 0)
-    UI():AttachTooltip(d.inviteBtn, "Add players", { "Guild members outside the raid's teams (on a locked raid they are the only "
-        .. "ones besides the teams), and guests: players who are not in the guild, added by name." }, { anchor = "ANCHOR_TOP" })
+    d.counts = bar.label
+    d.inviteBtn = bar:SetPrimary({ text = "Add players", icon = 19, kind = "secondary", width = 110,
+        onClick = function() if state.selected then PlanUI:OpenInvites(state.selected) end end,
+        tip = { "Guild members outside the raid's teams (on a locked raid they are the only ones besides the teams), "
+            .. "and guests: players who are not in the guild, added by name." } })
 
     createRoster(d)
     createRaidGroups(d)
@@ -2438,27 +2307,30 @@ end
 -- The page's parts top to bottom: the banner and its tabs (the same on every tab), the open tab's tool row, the open
 -- tab (Groups and Assignments draw their own tool row at their top).
 local function layoutPage(d)
+    local L = d.layout
     d.roster.frame:ClearAllPoints()
-    d.roster.frame:SetPoint("TOPLEFT", PAD, -UP.BODY_Y)
-    d.roster.frame:SetPoint("BOTTOMRIGHT", -PAD, 4)
+    d.roster.frame:SetAllPoints(L.body)
     for _, f in ipairs({ d.groups, d.assign }) do
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", PAD, -UP.TB_Y)
-        f:SetPoint("BOTTOMRIGHT", -PAD, 4)
+        f:SetPoint("TOPLEFT", L.toolbar, "TOPLEFT", 0, 0)
+        f:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
     end
 end
 
--- The title in the room left of the answers: 22, else 19, else 16 (wrapping to two lines at worst), never cut.
-local function fitTitle(fs, text, room)
-    fs:SetWordWrap(false)
-    fs:SetWidth(0)
-    for _, size in ipairs({ 22, S.FONT.hero, S.FONT.page }) do
+-- The banner's title in the room left of the answers: the banner's size, else a size smaller, else cut with "...".
+function UP.fitTitle(fs, text, room)
+    for _, size in ipairs({ S.FONT.hero, S.FONT.page }) do
         setSize(fs, size)
+        fs:SetWidth(0)
         fs:SetText(text)
-        if (fs:GetStringWidth() or 0) <= room then return end
+        local w = UI():TextWidth(fs)
+        if w <= room then
+            fs:SetWidth(floor(w + 1))
+            return
+        end
     end
-    fs:SetWidth(room)
-    fs:SetWordWrap(true)
+    fs:SetWidth(max(20, room))
+    UI():FitText(fs, text, room)
 end
 
 -- My answer on the banner: the answers I can give (mine lit), my spec / character / note, or why I can't answer.
@@ -2535,22 +2407,17 @@ end
 -- places, left to right.
 function UP.layoutTabs(d, v)
     local c = counts(v.id)
-    d.tabSignups:SetCount(c.A, v.sz or 0)
+    local tabs = d.tabs
+    tabs:SetTabCount("signups", { c.A, v.sz or 0 })
     local dr = raidDraft(v)
     local placed, total = 0, 0
     for _, m in ipairs(raidMembers()) do
         total = total + 1
         if dr.grp[m.key] then placed = placed + 1 end
     end
-    if total > 0 then d.tabGroups:SetCount(placed, total) else d.tabGroups:SetCount(nil, nil) end
+    tabs:SetTabCount("groups", total > 0 and { placed, total } or nil)
     local sum = ns.StrategiesUI.RaidSummary and ns.StrategiesUI:RaidSummary(v)
-    if sum and sum.bosses > 0 then d.tabAssign:SetCount(sum.ready, sum.bosses) else d.tabAssign:SetCount(nil, nil) end
-    local x = 0
-    for _, t in ipairs({ d.tabSignups, d.tabGroups, d.tabAssign }) do
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", d.tabs, "TOPLEFT", x, 0)
-        x = x + t:GetWidth()
-    end
+    tabs:SetTabCount("assign", (sum and sum.bosses > 0) and { sum.ready, sum.bosses } or nil)
 end
 
 -- Sign-ups' tool row: what the bands don't add up at a glance ("18 accepted · 1 tentative · 4 absent · 2 to answer").
@@ -2572,14 +2439,12 @@ local function refreshDetail(v)
     local has = v ~= nil
     local tab = (state.detailTab == "groups" or state.detailTab == "assign") and state.detailTab or "signups"
     for _, region in ipairs({ d.hero, d.tabs }) do region:SetShown(has) end
-    d.empty:SetShown(not has)
+    if has then d.layout:HideEmpty() else d.layout:ShowEmpty({ glyph = UI().ICON.calendar, title = "Pick a raid." }) end
     d.rosterBar:SetShown(has and tab == "signups")
     d.roster.frame:SetShown(has and tab == "signups")
     d.groups:SetShown(has and tab == "groups")
     d.assign:SetShown(has and tab == "assign")
-    d.tabSignups:SetActive(tab == "signups")
-    d.tabGroups:SetActive(tab == "groups")
-    d.tabAssign:SetActive(tab == "assign")
+    d.tabs:SelectTab(tab)
     -- who runs this raid (the raid planners: GM, raid leaders; and the raid's own leader): the ··· menu, Add players
     local a = UP.actions(v)
     d.moreBtn:SetShown(a.leader or a.edit or a.cancel)
@@ -2589,13 +2454,11 @@ local function refreshDetail(v)
     local width = (d:GetWidth() or 0) - 2 * PAD
     if width < 300 then width = 770 end
     UP.W = width
-    local file, l, r, t, b = artCoords(v.i, width, HERO_H, 0.95)
-    d.hero.art:SetTexture(file)
-    d.hero.art:SetTexCoord(l, r, t, b)
-    d.hero.art:SetDesaturated(v.cancelled and true or false)
-    d.hero.fadeL:SetWidth(floor(width * 0.62))
-    d.kick:SetText(UP.kicker(v))
-    fitTitle(d.title, RP():GetRaidName(v), width - 16 - UP.ANS_W)
+    local hero = d.hero
+    hero.building = true                                 -- (one layout for all of it, below)
+    hero:SetArt(v.i, v.cancelled and true or false)
+    hero:SetKicker(UP.kicker(v))
+    hero:SetTitle(RP():GetRaidName(v))
     -- where, how many; who leads it (or made it); who it is for
     local names = instNames(v)
     local inst = RP():GetInstance(v.i)
@@ -2603,12 +2466,14 @@ local function refreshDetail(v)
     if v.rl then parts[#parts + 1] = colored(v.rl) .. " leads" elseif v.by then parts[#parts + 1] = "by " .. shortName(v.by) end
     parts[#parts + 1] = teamNames(v, false, 2)
     if v.weekly then parts[#parts + 1] = "every week" end
-    d.sub2:SetText(tconcat(parts, "   ·   "))
+    hero:SetSub(tconcat(parts, "   ·   "))
+    hero.building = nil
+    hero:Layout()
     local nl = d.noteLine
     nl.note = (v.no and v.no ~= "") and v.no or nil
     nl:SetShown(nl.note ~= nil)
     if nl.note then
-        local w = width - 16 - UP.ANS_W - 10
+        local w = width - (hero.textX or 14) - UP.ANS_W - 10
         nl.fs:SetWidth(w - 17)
         nl.fs:SetText(nl.note)
         nl:SetSize(w, max(14, floor((nl.fs:GetStringHeight() or 13) + 1.5)))
@@ -2642,8 +2507,7 @@ local function refreshBoard(rows)
                 board.firstHead:SetText(d.header:upper())
             else
                 hi = hi + 1
-                local h = board.heads[hi] or UI():Text(board.content, "small", "GOLD")
-                h:SetTextColor(S:Color("SUB"))
+                local h = board.heads[hi] or UI():Text(board.content, "caps", "SUB")
                 board.heads[hi] = h
                 h:SetText(d.header:upper())
                 h:ClearAllPoints()
@@ -2668,7 +2532,7 @@ local function refreshBoard(rows)
     end
     for i = hi + 1, #board.heads do board.heads[i]:Hide() end
     board.content:SetHeight(max(1, y - GAP))
-    board.empty:SetShown(ci == 0)
+    if ci == 0 then board.layout:ShowEmpty(board.emptyOpts) else board.layout:HideEmpty() end
 end
 
 function PlanUI:RefreshUpcoming()
