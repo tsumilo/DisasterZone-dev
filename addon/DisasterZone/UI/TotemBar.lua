@@ -115,7 +115,7 @@ local function RestorePos()
     if type(p) == "table" and p[1] then
         frame:SetPoint(p[1], UIParent, p[2] or p[1], p[3] or 0, p[4] or 0)
     elseif Layout() == "horizontal" then
-        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 205)
+        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 240)
     else
         frame:SetPoint("RIGHT", UIParent, "RIGHT", -420, 40)
     end
