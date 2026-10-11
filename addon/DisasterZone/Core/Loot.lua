@@ -941,8 +941,12 @@ function Loot:SimulateDungeonDrop()
     return true
 end
 
-function Loot:SimulateDrop()
+-- opts (optional): { prized = true }: in demo mode, a boss that drops a prized item (Core/Prized.lua), with that item
+-- second in the drop (the demo roll rolls the first one, the prized card shows beside it). 1.3.5, "Demo a roll".
+function Loot:SimulateDrop(opts)
     if DungeonLootContext() and self:SimulateDungeonDrop() then return end
+    local P = ns.Prized
+    local wantPrized = type(opts) == "table" and opts.prized and DemoOn() and P and P.ForItem
     local db = ns.ItemDB
     local raids = db and db:GetRaids()
     if type(raids) ~= "table" then
@@ -969,6 +973,33 @@ function Loot:SimulateDrop()
         end
     end
     local pool = #withWanted > 0 and withWanted or all
+    -- (a prized item wanted: the bosses that drop one, any raid of the phase or else of any phase)
+    local przPick
+    if wantPrized then
+        local function scan(onlyPhase)
+            local out = {}
+            for _, raid in ipairs(raids) do
+                if (not onlyPhase or raid.phase == phase) and type(raid.bosses) == "table" then
+                    for _, boss in ipairs(raid.bosses) do
+                        local ref = not boss.isTrash and type(boss.items) == "table" and db:GetBossRef(raid.key .. ":" .. boss.key)
+                        for _, id in ipairs(ref and boss.items or {}) do
+                            if P:ForItem(id) then
+                                out[#out + 1] = { ref = ref, boss = boss, raid = raid, wanted = {}, prized = id }
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            return out
+        end
+        local list = scan(true)
+        if #list == 0 then list = scan(false) end
+        if #list > 0 then
+            przPick = list[math.random(#list)]
+            pool = { przPick }
+        end
+    end
     if #pool == 0 then
         ns:Print("No boss found for phase %d.", tonumber(phase) or 0)
         return
@@ -990,6 +1021,23 @@ function Loot:SimulateDrop()
         ids[#ids + 1] = id
     end
     if #ids == 0 then ids[1] = pick.boss.items[1] end
+    if przPick then
+        -- the prized item second (or alone): the first item is the one the demo rolls
+        local out = {}
+        for _, id in ipairs(ids) do
+            if id ~= przPick.prized and #out < 3 then out[#out + 1] = id end
+        end
+        if #out == 0 then
+            for _, id in ipairs(pick.boss.items) do
+                if id ~= przPick.prized and (IsToken(id) or db:GetEquipLoc(id)) then
+                    out[1] = id
+                    break
+                end
+            end
+        end
+        table.insert(out, math.min(2, #out + 1), przPick.prized)
+        ids = out
+    end
 
     local names = {}
     for k, id in ipairs(ids) do

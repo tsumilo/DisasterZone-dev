@@ -83,5 +83,26 @@ def prized_card_glows_amber_in_the_drop_panel():
     assert c.eval("return ns.DropPanel.blocks[1].przGlow.tint:IsShown()") is False
 
 
+
+@case
+def demo_a_roll_includes_a_prized_item_beside_the_rolled_one():
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    c.eval("ns.SettingsUI:DemoRoll()")
+    w.tick(2)
+    res = c.eval_py("""local out = {}
+        for i, b in ipairs(ns.DropPanel.blocks or {}) do
+            if b:IsShown() and b.itemID then
+                out[#out + 1] = { item = b.itemID, prized = ns.Prized:ForItem(b.itemID) ~= nil,
+                                  glow = b.przGlow ~= nil and b.przGlow.tint:IsShown() or false,
+                                  rolling = b.rollSession ~= nil }
+            end
+        end
+        return out""")
+    rows = list(res.values()) if isinstance(res, dict) else list(res or [])
+    prized = [r for r in rows if r["prized"]]
+    assert prized and all(r["glow"] for r in prized), rows
+    assert rows[0]["rolling"] and not rows[0]["prized"], rows          # the roll runs on the first, plain item
+    assert rows[1]["prized"], rows                                     # the prized item right after it
+
 if __name__ == "__main__":
     run_all(globals())
