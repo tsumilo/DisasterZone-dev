@@ -66,16 +66,9 @@ local function EUI() return ns.EventUI end
 local function Ev() return ns.Events end
 local function Live() return ns.EventLive end
 local function B() return ns.EventBlocks end
-local function Now() return ns.Util.Now() end
 local function Me() return ns.Util.PlayerKey() end
-local function DemoOn() return ns.Util.DemoOn() end
 local function IsMe(key) return type(key) == "string" and ns.Util.IsMe(key) or false end
 
-local function Hex(c, s)
-    return ("|cff%02x%02x%02x%s|r"):format(floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5), floor(c[3] * 255 + 0.5),
-        tostring(s))
-end
-local function grey(s) return S:Wrap("SUB", s) end
 local function Tip(owner, lines, anchor)
     UI():SetTextTooltip(owner, lines, anchor or "ANCHOR_TOP")
 end
@@ -83,11 +76,13 @@ local function HideTip() GameTooltip:Hide() end
 local function Name(key) return EUI():Name(key) end
 
 ---------------------------------------------------------------------------
--- Small pieces: texts, fills, edges, gradients, glyphs, buttons, faces, chips
--- (1.4: the page's old widget kit "H" is thin aliases on the shared UI now: UI:Text / UI:SetTextStyle on the type
--- scale (sizes snap, D2), UI:Fill, UI:Gradient, UI:TextWidth, UI:HideFrom, UI:CreateSectionHeader, UI:CreateCard,
--- UI:CreatePill, UI:CreateBackLink, ns.Style tokens. H stays as one local table of helpers because the file is near
--- the client's 200-locals limit and has ~900 call sites; what the shared parts do not cover yet is marked TODO.)
+-- Small pieces: text fitting, edges, glyphs, buttons, faces, pills, headers
+-- (1.4: the page's old widget kit "H" is retired onto the shared UI: texts are UI:Text on the type scale (sizes snap,
+-- D2), fills UI:Fill, gradients UI:Gradient, colours ns.Style tokens (S:Color / S:Wrap), times ns.Util.Now. What stays
+-- in H is page logic (the fitting of names that are never cut, the page's geometry, the event menus) and thin aliases
+-- of shared parts (UI:CreateSectionHeader, UI:CreatePill, UI:CreateIconTile, UI:CreateSleekButton ...), kept as one
+-- local table because the file is near the client's 200-locals limit and has many call sites; what the shared parts
+-- do not cover yet is marked TODO(refactor).)
 ---------------------------------------------------------------------------
 
 local H = {}
@@ -114,20 +109,18 @@ function H.BodyH(L, bannerH)
 end
 
 -- A text's size changed, keeping its font face and colour: the size snaps to the type scale (S:Size, D2).
-local function Sized(fs, size, path)
+-- TODO(refactor): move into UI:SetTextStyle (a size change that keeps the text's face and colour)
+-- A token's colour at another alpha ({ r, g, b, a }: for a glow, a light, a ring).
+function H.Alpha(name, a)
+    local r, g, b = S:Color(name)
+    return { r, g, b, a }
+end
+
+function H.Resize(fs, size)
     local p, _, flags = fs:GetFont()
-    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", S:Size(size or "emph"), flags or "")
+    fs:SetFont(p or S.FONT_NUM, S:Size(size or "emph"), flags or "")
     return fs
 end
-H.Sized = Sized
-
--- A one-line text (left, no wrap): UI:Text at a size of the scale. num: the narrow number font.
-local function Text(parent, size, color, num, layer)
-    return UI():Text(parent, size or "emph", color or C.white, { layer = layer, font = num and NUM_FONT or nil })
-end
-H.Text = Text
-
-local function Color(fs, c) fs:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
 
 -- A wrapped text w wide: sets it and returns its height (the client's own, at least what the text's width says).
 local function Wrap(fs, text, w, size)
@@ -169,7 +162,7 @@ local function FitText(fs, text, w, sizes, wrap)
     fs:SetWidth(w)
     for _, size in ipairs(sizes) do
         local s = S:Size(size)
-        Sized(fs, s)
+        H.Resize(fs, s)
         fs:SetText(text or "")
         local tw = NatW(fs)
         if tw <= w + 0.5 then
@@ -179,21 +172,15 @@ local function FitText(fs, text, w, sizes, wrap)
     end
     if wrap == false then return nil end
     local s = S:Size(sizes[#sizes])
-    Sized(fs, s)
+    H.Resize(fs, s)
     return w, Wrap(fs, text, w, s), 2
 end
 H.NatW, H.FitText = NatW, FitText
-
-local function Fill(f, c, layer, sub) return UI():Fill(f, c, layer, sub) end
 
 local function Edges(f, c, layer)
     UI():AddEdges(f, layer or "BORDER")
     UI():SetEdgeColor(f, S:Color(c))
 end
-
--- A two-colour gradient: a = left / bottom, b = right / top ({ r, g, b, a }).
-local function Grad(tex, orient, a, b) return UI():Gradient(tex, orient, a, b) end
-H.Grad = Grad
 
 -- A coloured texture the caller anchors (a hairline, a bar); UI:Rule when it runs along a whole edge.
 local function Line(parent, c, layer)
@@ -229,12 +216,12 @@ end
 function H.Icon(parent, size, edge)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
-    f.outer = Fill(f, C.black, "BACKGROUND")
+    f.outer = UI():Fill(f, C.black, "BACKGROUND")
     f.outer:ClearAllPoints()
     f.outer:SetPoint("TOPLEFT", -1, 1)
     f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
     if edge then
-        f.ring = Fill(f, edge, "BACKGROUND", -1)
+        f.ring = UI():Fill(f, edge, "BACKGROUND", -1)
         f.ring:ClearAllPoints()
         f.ring:SetPoint("TOPLEFT", -2, 2)
         f.ring:SetPoint("BOTTOMRIGHT", 2, -2)
@@ -290,7 +277,7 @@ end
 function H.Button(parent, text, w, h, kind, onClick, glyph)
     local b = UI():CreateSleekButton(parent, text, w, h, onClick, kind)
     local fs = b:GetFontString()
-    if (h or 22) <= 22 then Sized(fs, 11) end
+    if (h or 22) <= 22 then H.Resize(fs, 11) end
     if glyph then
         b.glyph = b:CreateTexture(nil, "OVERLAY")
         b.glyph:SetSize(12, 12)
@@ -366,7 +353,7 @@ function H.Chip(parent, h)
     c.face = H.Face(c, 14)
     c.face:SetPoint("LEFT", 6, 0)
     c.face:Hide()
-    c.fs = Text(c, 11, C.chip)
+    c.fs = UI():Text(c, "body", C.chip)
     c:EnableMouse(true)
     H.TipFromField(c)
     -- (tint: the glyph's colour; a dot, DISC, is a tag's: smaller)
@@ -389,7 +376,7 @@ function H.Chip(parent, h)
             self.glyph:Hide()
         end
         self.fs:SetText(text or "")
-        Color(self.fs, color or C.chip)
+        self.fs:SetTextColor(S:Color(color or C.chip))
         self.fs:ClearAllPoints()
         self.fs:SetPoint("LEFT", x, 0)
         self:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, edge or { 1, 1, 1, 0.2 })
@@ -446,9 +433,9 @@ end
 function H.Box(parent, head)
     local b = UI():CreateCard(parent, { tone = "card" })
     if head then
-        b.ht = Text(b, "title", C.gold)
+        b.ht = UI():Text(b, "title", C.gold)
         b.ht:SetPoint("TOPLEFT", 10, -8)
-        b.hr = Text(b, 11, C.desc)
+        b.hr = UI():Text(b, "body", C.desc)
         b.hr:SetJustifyH("RIGHT")
         b.hr:SetPoint("TOPRIGHT", -10, -9)
         b.hline = UI():Rule(b, { top = 28, left = 1, right = 1 })
@@ -525,7 +512,7 @@ function W.Day(t) return t and (date("%a ", t) .. date("%d %b", t)) or "" end
 
 -- "Today", "Tomorrow", "Sat" (this week) or "Sat 10 Oct".
 function W.DayWord(t)
-    local now = Now()
+    local now = ns.Util.Now()
     if date("%Y%m%d", t) == date("%Y%m%d", now) then return "Today" end
     if date("%Y%m%d", t) == date("%Y%m%d", now + DAY) then return "Tomorrow" end
     if t > now and t - now < 6 * DAY then return date("%a", t) end
@@ -725,7 +712,7 @@ end
 -- passed) or "full". (A sign-up that closes at the start stays open while the host is late: the run takes who is in.)
 function W.CanJoin(o)
     local closes = Ev():ClosesAt(o)
-    if closes and closes < o.at and closes <= Now() then return false, "closed" end
+    if closes and closes < o.at and closes <= ns.Util.Now() then return false, "closed" end
     local spots = W.Spots(o.def)
     if spots and #Ev():GetSignups(o.id) >= spots then return false, "full" end
     return true
@@ -1010,7 +997,7 @@ end
 -- The time a live run's shown timer has left (the event's board shows it): "14 min left", "40 sec left" (nil: none,
 -- or paused).
 function W.TimeLeft(st)
-    local now = Now()
+    local now = ns.Util.Now()
     if type(st) ~= "table" or st.paused or type(st.shown) ~= "table" then return nil end
     for _, t in ipairs(type(st.timers) == "table" and st.timers or {}) do
         if type(t) == "table" and not t.p and t.n and st.shown[t.n] and tonumber(t.at) and t.at > now then
@@ -1024,7 +1011,7 @@ end
 -- A demo result as the mockups show it (the core's demo results leave the night's details out): made-up moments,
 -- the last four and the numbers, kept on the demo record (demo mode only, never sent).
 function W.DemoDress(r)
-    if not (DemoOn() and r and not r.dressed) then return r end
+    if not (ns.Util.DemoOn() and r and not r.dressed) then return r end
     r.dressed = true
     -- (the demo's cup results are of its Friday duel cup; its derby comes with its own moments and Fish table)
     if not r.dk then
@@ -1072,7 +1059,7 @@ end
 
 -- Every demo result dressed (once): the library's run counts and the rows see them as the pages do.
 function W.DressAll()
-    if not DemoOn() then return end
+    if not ns.Util.DemoOn() then return end
     for _, r in ipairs(Ev():GetResults()) do W.DemoDress(r) end
 end
 
@@ -1435,7 +1422,7 @@ function H.EventBanner(b)
     b.meter = CreateFrame("Frame", nil, b)
     b.meter:SetSize(300, 22)
     b.meter.faces = {}
-    b.meter.fs = Text(b.meter, "body", C.label)
+    b.meter.fs = UI():Text(b.meter, "body", C.label)
     b.meter.track = b.meter:CreateTexture(nil, "ARTWORK")
     b.meter.track:SetColorTexture(1, 1, 1, 0.12)
     b.meter.track:SetSize(120, 4)
@@ -1452,10 +1439,10 @@ function H.EventBanner(b)
         c:Hide()
     end
     b.chip = b.chipYou
-    b.note = Text(b, "body", C.grey)
+    b.note = UI():Text(b, "body", C.grey)
     b.note:SetJustifyH("RIGHT")
     b.note:Hide()
-    b.why = Text(b, "body", C.grey)
+    b.why = UI():Text(b, "body", C.grey)
     b.why:SetJustifyH("RIGHT")
     b.why:Hide()
     -- the actions (the banner's own buttons; a hidden spare per slot while it is empty)
@@ -1753,7 +1740,7 @@ function Up.FillOcc(r, o)
             right = why == "full" and "Full" or "Sign-up closed"
         end
     end
-    r:SetData({ art = d.art, icon = d.icon or QUESTION, title = d.name or "Event", sub = tconcat(parts, grey(" · ")),
+    r:SetData({ art = d.art, icon = d.icon or QUESTION, title = d.name or "Event", sub = tconcat(parts, S:Wrap("SUB", " · ")),
         pill = o.ranked and { "rank", "Ranked" } or nil, right = right })
     Up.RowRight(r)
 end
@@ -1776,7 +1763,7 @@ function Up.FillResult(r, res)
     r.del.tipText = "Removes its results for everyone, with the season points and badges they gave."
     Up.RowButton(r, "Results", "secondary", function() EventsUI:OpenEvent(res.id) end)
     r:SetData({ art = res.art, icon = res.icon or QUESTION, title = res.name or "Event",
-        sub = tconcat(parts, grey(" · ")) })
+        sub = tconcat(parts, S:Wrap("SUB", " · ")) })
     Up.RowRight(r)
 end
 
@@ -1801,7 +1788,7 @@ function Up.PickHero()
         local o = Ev():GetOcc(id)
         if o and Ev():OccState(o) == "live" then return o, "live" end
     end
-    local now = Now()
+    local now = ns.Util.Now()
     for _, o in ipairs(Ev():GetOccurrences(now - 6 * 3600, now + 30 * DAY)) do
         if Ev():OccState(o) == "planned" then return o, "planned" end
     end
@@ -1889,7 +1876,7 @@ function Up.FillHero(v, w)
         local open = W.OpenSignup(d)
         H.SetProg(b, d, open, (open and can) and "open" or nil)
         local closes = Ev():ClosesAt(o)
-        if closes and closes > Now() then
+        if closes and closes > ns.Util.Now() then
             H.BannerChip(b, "track", "Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or
                 (W.DayWord(closes) .. " ")) .. W.Clock(closes))
         end
@@ -1910,7 +1897,7 @@ end
 
 -- The week below the banner: this week, later, the last results (each a section with its count).
 function Up.FillList(v, heroId, listW)
-    local now = Now()
+    local now = ns.Util.Now()
     local planned, later = {}, {}
     for _, o in ipairs(Ev():GetOccurrences(now - 6 * 3600, now + 30 * DAY)) do
         local st = Ev():OccState(o)
@@ -2000,14 +1987,14 @@ function Up.CreateSeason(v, s)
     s.head:SetPoint("TOPLEFT", S.IN, -4)
     s.head:SetPoint("TOPRIGHT", -S.IN, -4)
     s.ht, s.hr = s.head.title, s.head.right
-    s.rk = Text(s, 30, C.white, true)
+    s.rk = UI():Text(s, 30, C.white, { font = NUM_FONT })
     s.rk:SetPoint("TOPLEFT", 24, -42)
-    s.hash = Text(s, 17, C.grey, true)
+    s.hash = UI():Text(s, "page", C.grey, { font = NUM_FONT })
     s.hash:SetPoint("BOTTOMRIGHT", s.rk, "BOTTOMLEFT", -1, 3)
     s.hash:SetText("#")
-    s.pt = Text(s, "title", C.white)
+    s.pt = UI():Text(s, "title", C.white)
     s.pt:SetPoint("TOPLEFT", s.rk, "TOPRIGHT", 12, -3)
-    s.pt2 = Text(s, "body", C.grey)
+    s.pt2 = UI():Text(s, "body", C.grey)
     s.pt2:SetPoint("TOPLEFT", s.pt, "BOTTOMLEFT", 0, -3)
     s.track = s:CreateTexture(nil, "ARTWORK")
     s.track:SetColorTexture(1, 1, 1, 0.12)
@@ -2018,7 +2005,7 @@ function Up.CreateSeason(v, s)
     s.fill:SetHeight(4)
     UI():Gradient(s.fill, "HORIZONTAL", S.C.GOLD_DEEP, "GOLD")
     s.badges = {}
-    s.bcount = Text(s, "body", C.grey)
+    s.bcount = UI():Text(s, "body", C.grey)
     s.sect = H.Sect(s)
     s.sect:SetPoint("TOPLEFT", S.IN, -128)
     s.sect:SetPoint("TOPRIGHT", -S.IN, -128)
@@ -2030,19 +2017,19 @@ function Up.CreateSeason(v, s)
         r:SetPoint("TOPLEFT", 1, -156 - (i - 1) * S.ROW.list)
         UI():DecorateRow(r, { selectable = true })
         r.bg, r.bar = r.dzSelFill, r.dzSelBar
-        r.p = Text(r, "title", C.grey, true)
+        r.p = UI():Text(r, "title", C.grey, { font = NUM_FONT })
         r.p:SetJustifyH("RIGHT")
         r.p:SetPoint("RIGHT", r, "LEFT", 26, 0)
         r.face = H.Face(r, 18)
         r.face:SetPoint("LEFT", 34, 0)
-        r.n = Text(r, "emph", C.white)
+        r.n = UI():Text(r, "emph", C.white)
         r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
-        r.v = Text(r, "title", C.chip, true)
+        r.v = UI():Text(r, "title", C.chip, { font = NUM_FONT })
         r.v:SetJustifyH("RIGHT")
         r.v:SetPoint("RIGHT", -S.IN, 0)
         s.rows[i] = r
     end
-    s.none = Text(s, "body", C.grey)
+    s.none = UI():Text(s, "body", C.grey)
     s.none:SetPoint("TOPLEFT", S.IN + 2, -160)
     return s
 end
@@ -2066,7 +2053,7 @@ end
 
 function Up.FillSeason(s)
     local season = Ev():GetSeason()
-    local left = max(0, ceil((season.to - Now()) / DAY))
+    local left = max(0, ceil((season.to - ns.Util.Now()) / DAY))
     -- (a long season name is cut; the days left go when it still doesn't fit: the Season page says them)
     local room = SEASON_W - 2 * S.IN - 4
     local days = left == 1 and "1 day left" or (left .. " days left")
@@ -2237,7 +2224,7 @@ local PLACE_C = { 0.34, 0.84, 0.94 }    -- Places' colour (EventBlocks' pc edge)
 function Pg.NewRule(parent)
     local c = CreateFrame("Frame", nil, parent)
     c:SetHeight(18)
-    Fill(c, { 1, 1, 1, 0.035 })
+    UI():Fill(c, "QUIET")
     Edges(c, { 1, 1, 1, 0.1 })
     c.glyph = c:CreateTexture(nil, "ARTWORK")
     c.glyph:SetSize(11, 11)
@@ -2247,9 +2234,9 @@ function Pg.NewRule(parent)
     c.box = CreateFrame("Frame", nil, c)
     c.box:SetSize(13, 9)
     c.box:SetPoint("LEFT", 6, 0)
-    Fill(c.box, { 0.22, 0.22, 0.25, 1 })
+    UI():Fill(c.box, { 0.22, 0.22, 0.25, 1 })
     Edges(c.box, { 1, 1, 1, 0.5 })
-    c.fs = Text(c, 11, C.meta)
+    c.fs = UI():Text(c, "body", C.meta)
     c.fs:SetPoint("LEFT", 23, 0)
     c:EnableMouse(true)
     H.TipFromField(c)
@@ -2336,13 +2323,13 @@ end
 function Pg.NewStage(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(400, 60)
-    r.glow = Disc(r, 33, { 1, 0.82, 0, 0.18 }, "BACKGROUND", 0)
+    r.glow = Disc(r, 33, H.Alpha("GOLD", 0.18), "BACKGROUND", 0)
     r.glow:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
     r.ring = Disc(r, 23, { 0.44, 0.44, 0.46, 1 }, "BACKGROUND", 1)
     r.ring:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
     r.hole = Disc(r, 21, { 0.07, 0.07, 0.08, 1 }, "BACKGROUND", 2)
     r.hole:SetPoint("CENTER", r.ring, "CENTER")
-    r.nb = Text(r, 12, C.chip)
+    r.nb = UI():Text(r, "emph", C.chip)
     r.nb:SetJustifyH("CENTER")
     r.nb:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
     r.check = r:CreateTexture(nil, "ARTWORK")
@@ -2352,12 +2339,12 @@ function Pg.NewStage(parent)
     r.check:SetVertexColor(0.45, 0.9, 0.55)
     r.vline = Line(r, { 1, 1, 1, 0.12 }, "BACKGROUND")
     r.vline:SetWidth(1)
-    r.t1 = Text(r, 13, C.white)
+    r.t1 = UI():Text(r, "title", C.white)
     r.t1:SetPoint("TOPLEFT", 35, -9)
-    r.when = Text(r, 11, C.grey)
+    r.when = UI():Text(r, "body", C.grey)
     r.when:SetJustifyH("RIGHT")
     r.when:SetPoint("TOPRIGHT", 0, -11)
-    r.t2 = Text(r, 11, C.desc)
+    r.t2 = UI():Text(r, "body", C.desc)
     r.t2:SetPoint("TOPLEFT", 35, -28)
     r.rules = {}
     return r
@@ -2441,11 +2428,11 @@ function Pg.NewReward(parent)
     c.big:SetPoint("TOP", 0, -6)
     c.small = H.Badge(c, 36)
     c.small:SetPoint("TOP", 0, -6)
-    c.place = Text(c, 10, C.grey)
+    c.place = UI():Text(c, "small", C.grey)
     c.place:SetJustifyH("CENTER")
-    c.n = Text(c, 12, C.white)
+    c.n = UI():Text(c, "emph", C.white)
     c.n:SetJustifyH("CENTER")
-    c.s = Text(c, 11, { 0.88, 0.77, 0.42 })
+    c.s = UI():Text(c, "body", { 0.88, 0.77, 0.42 })
     c.s:SetJustifyH("CENTER")
     return c
 end
@@ -2468,7 +2455,7 @@ function Pg.FillReward(c, rw, d, cellW, cols, labelH)
     ph = max(ph, labelH or 0)
     c.place:ClearAllPoints()
     c.place:SetPoint("TOP", badge, "BOTTOM", 0, -7)
-    Sized(c.n, four and 11 or 12)
+    H.Resize(c.n, four and 11 or 12)
     local nh = Wrap(c.n, rw.b.n or "Badge", cellW - 6, four and 11 or 12)
     c.n:ClearAllPoints()
     c.n:SetPoint("TOP", badge, "BOTTOM", 0, -(7 + ph + 3))
@@ -2487,9 +2474,9 @@ function Pg.NewEntrant(parent)
     e:SetSize(138, 24)
     e.face = H.Face(e, 17)
     e.face:SetPoint("LEFT", 0, 0)
-    e.n = Text(e, 11, C.white)
+    e.n = UI():Text(e, "body", C.white)
     e.n:SetPoint("LEFT", e.face, "RIGHT", 7, 0)
-    e.sd = Text(e, 11, C.dim, true)
+    e.sd = UI():Text(e, "body", C.dim, { font = NUM_FONT })
     e.sd:SetJustifyH("RIGHT")
     e.sd:SetPoint("RIGHT", 0, 0)
     return e
@@ -2665,7 +2652,7 @@ function Pg.FillBody(v, o, keys, st)
         c:Show()
         if col == cols - 1 or i == nr then ry = ry + rowH[row] end
     end
-    v.noRewards = v.noRewards or Text(v.content, 11, C.grey)
+    v.noRewards = v.noRewards or UI():Text(v.content, "body", C.grey)
     v.noRewards:SetShown(nr == 0)
     v.noRewards:ClearAllPoints()
     v.noRewards:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + 2, -32)
@@ -2722,7 +2709,7 @@ function Pg.FillBody(v, o, keys, st)
                 e.sd:SetShown(right ~= nil)
             else
                 e.face:SetEmpty()
-                e.n:SetText(Hex(C.open, "Open seat"))
+                e.n:SetText(S:Wrap("DIM", "Open seat"))
                 e.sd:Hide()
             end
             e:Show()
@@ -2731,7 +2718,7 @@ function Pg.FillBody(v, o, keys, st)
         end
     end
     if seats == 0 then
-        v.noEnt = v.noEnt or Text(v.content, 11, C.grey)
+        v.noEnt = v.noEnt or UI():Text(v.content, "body", C.grey)
         v.noEnt:ClearAllPoints()
         v.noEnt:SetPoint("TOPLEFT", v.content, "TOPLEFT", rx + 2, -(ey + 32))
         v.noEnt:SetText(occState == "planned" and "Nobody yet." or "Nobody signed up.")
@@ -2798,7 +2785,7 @@ function Pg.FillBanner(v, o, keys, st)
         end
     elseif occState == "planned" then
         local closes = Ev():ClosesAt(o)
-        if closes and closes > Now() then
+        if closes and closes > ns.Util.Now() then
             H.BannerChip(b, "track", "Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or
                 (W.DayWord(closes) .. " ")) .. W.Clock(closes))
         end
@@ -2919,19 +2906,19 @@ function Pg.CreateResults(v)
         p.blk.fill = p.blk:CreateTexture(nil, "BACKGROUND")
         p.blk.fill:SetAllPoints()
         local c = def[4]
-        Grad(p.blk.fill, "VERTICAL", { c[1], c[2], c[3], 0.03 }, { c[1], c[2], c[3], i == 2 and 0.22 or 0.19 })
+        UI():Gradient(p.blk.fill, "VERTICAL", { c[1], c[2], c[3], 0.03 }, { c[1], c[2], c[3], i == 2 and 0.22 or 0.19 })
         p.blk.top = Line(p.blk, { c[1], c[2], c[3], 0.75 })
         p.blk.top:SetHeight(1)
         p.blk.top:SetPoint("TOPLEFT")
         p.blk.top:SetPoint("TOPRIGHT")
-        p.blk.n = Text(p.blk, 22, i == 2 and C.pts or { 1, 1, 1, 0.85 }, true)
+        p.blk.n = UI():Text(p.blk, 22, i == 2 and C.pts or { 1, 1, 1, 0.85 }, { font = NUM_FONT })
         p.blk.n:SetJustifyH("CENTER")
         p.blk.n:SetPoint("TOP", 0, -8)
         p.blk.n:SetText(i == 2 and "1" or (i == 1 and "2" or "3"))
-        p.sb = Text(p, 11, C.grey)
+        p.sb = UI():Text(p, "body", C.grey)
         p.sb:SetJustifyH("CENTER")
         p.sb:SetPoint("BOTTOM", p.blk, "TOP", 0, 8)
-        p.nm = Text(p, 13, C.white)
+        p.nm = UI():Text(p, "title", C.white)
         p.nm:SetJustifyH("CENTER")
         p.nm:SetPoint("BOTTOM", p.sb, "TOP", 0, 2)
         p.face = H.Face(p, def[2])
@@ -2940,11 +2927,11 @@ function Pg.CreateResults(v)
         if i == 2 then
             p.glows = {}
             for g = 1, 3 do
-                local t = Disc(p.face, def[2] + 6 + g * 7, { 1, 0.82, 0, 0.16 - g * 0.04 }, "BACKGROUND", -g)
+                local t = Disc(p.face, def[2] + 6 + g * 7, H.Alpha("GOLD", 0.16 - g * 0.04), "BACKGROUND", -g)
                 t:SetPoint("CENTER")
                 p.glows[g] = t
             end
-            p.gold = Disc(p.face, def[2] + 6, { 1, 0.82, 0, 0.92 }, "BACKGROUND", 0)
+            p.gold = Disc(p.face, def[2] + 6, H.Alpha("GOLD", 0.92), "BACKGROUND", 0)
             p.gold:SetPoint("CENTER")
         end
         f.peds[i] = p
@@ -2991,7 +2978,7 @@ function Pg.CreateResults(v)
     f.tagSect:SetPoint("TOPLEFT")
     f.tagSect:SetPoint("TOPRIGHT")
     f.tagRows = {}
-    f.nobody = Text(f, 11, C.grey)
+    f.nobody = UI():Text(f, "body", C.grey)
     return f
 end
 
@@ -3003,11 +2990,11 @@ function Pg.NewAward(parent)
     r.badge:SetPoint("LEFT", -1, 0)
     r.face = H.Face(r, 30)
     r.face:SetPoint("LEFT", 4, 0)
-    r.l1 = Text(r, 12, C.white)
+    r.l1 = UI():Text(r, "emph", C.white)
     r.l1:SetPoint("BOTTOMLEFT", r, "LEFT", 50, 1)
-    r.l2 = Text(r, 11, C.grey)
+    r.l2 = UI():Text(r, "body", C.grey)
     r.l2:SetPoint("TOPLEFT", r, "LEFT", 50, -2)
-    r.pts = Text(r, 14, C.pts, true)
+    r.pts = UI():Text(r, 14, C.pts, { font = NUM_FONT })
     r.pts:SetJustifyH("RIGHT")
     r.pts:SetPoint("RIGHT", -2, 0)
     return r
@@ -3020,9 +3007,9 @@ function Pg.NewMoment(parent)
     m.icon:SetSize(16, 16)
     m.icon:SetPoint("TOPLEFT", 0, 0)
     m.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    m.fs = Text(m, 11, C.meta)
+    m.fs = UI():Text(m, "body", C.meta)
     m.fs:SetPoint("TOPLEFT", 24, 0)
-    m.t2 = Text(m, 10, C.dim)
+    m.t2 = UI():Text(m, "small", C.dim)
     return m
 end
 
@@ -3031,9 +3018,9 @@ local MATCH_W = 136
 function Pg.NewMatch(parent)
     local m = CreateFrame("Frame", nil, parent)
     m:SetSize(MATCH_W, 39)
-    Fill(m, { 0.086, 0.086, 0.106, 0.96 })
-    Edges(m, { 0.34, 0.34, 0.38, 0.6 })
-    m.sep = Line(m, { 1, 1, 1, 0.06 })
+    UI():Fill(m, { 0.086, 0.086, 0.106, 0.96 })
+    Edges(m, "EDGE")
+    m.sep = Line(m, "HAIRLINE")
     m.sep:SetHeight(1)
     m.sep:SetPoint("LEFT", 1, 0)
     m.sep:SetPoint("RIGHT", -1, 0)
@@ -3042,14 +3029,14 @@ function Pg.NewMatch(parent)
         local p = CreateFrame("Frame", nil, m)
         p:SetSize(MATCH_W, 19)
         p:SetPoint("TOPLEFT", 0, -(i - 1) * 20)
-        p.sd = Text(p, 10, { 0.37, 0.37, 0.4 }, true)
+        p.sd = UI():Text(p, "small", { 0.37, 0.37, 0.4 }, { font = NUM_FONT })
         p.sd:SetJustifyH("RIGHT")
         p.sd:SetPoint("RIGHT", p, "LEFT", 15, 0)
         p.face = H.Face(p, 13)
         p.face:SetPoint("LEFT", 19, 0)
-        p.n = Text(p, 11, C.grey)
+        p.n = UI():Text(p, "body", C.grey)
         p.n:SetPoint("LEFT", p.face, "RIGHT", 5, 0)
-        p.sc = Text(p, 12, { 0.47, 0.47, 0.49 }, true)
+        p.sc = UI():Text(p, "emph", { 0.47, 0.47, 0.49 }, { font = NUM_FONT })
         p.sc:SetJustifyH("RIGHT")
         p.sc:SetPoint("RIGHT", -6, 0)
         m.p[i] = p
@@ -3066,8 +3053,8 @@ function Pg.NewMatch(parent)
                 p.face:Set(key, not won)
                 p.face.noTip = false
                 -- (a long name: a size or two smaller between the face and the score; else in the face's place)
-                local text = IsMe(key) and Hex(won and { 0.62, 0.82, 1 } or { 0.45, 0.6, 0.75 }, "You")
-                    or Hex(won and C.white or C.grey, EUI():Plain(key))
+                local text = IsMe(key) and S:Wrap(won and "YOU" or "SUB", "You")
+                    or S:Wrap(won and "TEXT" or "SUB", EUI():Plain(key))
                 if not FitText(p.n, text, MATCH_W - 37 - 18, { 11, 10, 9 }, false) then
                     p.face:Hide()
                     p.n:ClearAllPoints()
@@ -3076,10 +3063,10 @@ function Pg.NewMatch(parent)
                 end
             else
                 p.face:SetEmpty()
-                FitText(p.n, Hex({ 0.31, 0.31, 0.33 }, "-"), MATCH_W - 37 - 18, 11)
+                FitText(p.n, S:Wrap("DIM", "-"), MATCH_W - 37 - 18, 11)
             end
             p.sc:SetText(i == 1 and (x.wa or 0) or (x.wb or 0))
-            Color(p.sc, won and C.white or { 0.47, 0.47, 0.49 })
+            p.sc:SetTextColor(S:Color(won and C.white or { 0.47, 0.47, 0.49 }))
         end
         self:Show()
     end
@@ -3095,7 +3082,7 @@ function Pg.NewTable(parent)
     t.sect:SetPoint("TOPLEFT")
     t.sect:SetPoint("TOPRIGHT")
     t.rows = {}
-    t.none = Text(t, 11, C.grey)
+    t.none = UI():Text(t, "body", C.grey)
     t.none:SetPoint("TOPLEFT", 2, -34)
     t.none:SetText("Nobody scored.")
     return t
@@ -3104,20 +3091,20 @@ end
 function Pg.NewTableRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(240, TROW_RH)
-    r.bg = Fill(r, C.youWash)
+    r.bg = UI():Fill(r, C.youWash)
     r.bar = Line(r, C.youBar)
     r.bar:SetPoint("TOPLEFT")
     r.bar:SetPoint("BOTTOMLEFT")
     r.bar:SetWidth(2)
     r.line = UI():Rule(r, { bottom = 0, alpha = 0.035 })
-    r.rk = Text(r, 12, C.grey, true)
+    r.rk = UI():Text(r, "emph", C.grey, { font = NUM_FONT })
     r.rk:SetJustifyH("RIGHT")
     r.rk:SetPoint("RIGHT", r, "LEFT", 22, 0)
     r.face = H.Face(r, 16)
     r.face:SetPoint("LEFT", 30, 0)
-    r.n = Text(r, 11, C.white)
+    r.n = UI():Text(r, "body", C.white)
     r.n:SetPoint("LEFT", r.face, "RIGHT", 7, 0)
-    r.v = Text(r, 13, { 0.93, 0.93, 0.93 }, true)
+    r.v = UI():Text(r, "title", { 0.93, 0.93, 0.93 }, { font = NUM_FONT })
     r.v:SetJustifyH("RIGHT")
     r.v:SetPoint("RIGHT", -6, 0)
     return r
@@ -3140,7 +3127,7 @@ function Pg.FillTable(t, s, w)
             r.bg:SetShown(mine)
             r.bar:SetShown(mine)
             r.rk:SetText(x.place)
-            Color(r.rk, x.place <= 3 and C.gold or C.grey)
+            r.rk:SetTextColor(S:Color(x.place <= 3 and C.gold or C.grey))
             r.face:Set(x.key)
             r.v:SetText(W.ScoreText(s, x.n))
             -- (a long name: a point smaller between the face and the number; never cut)
@@ -3165,12 +3152,12 @@ function Pg.NewTagRow(parent)
     r:SetSize(300, TAG_RH)
     r.dot = Disc(r, 9, C.white, "ARTWORK")
     r.dot:SetPoint("CENTER", r, "LEFT", 6, 0)
-    r.n = Text(r, 12, C.white)
+    r.n = UI():Text(r, "emph", C.white)
     r.n:SetPoint("LEFT", 18, 0)
-    r.c = Text(r, 11, C.grey)
+    r.c = UI():Text(r, "body", C.grey)
     r.c:SetPoint("LEFT", r.n, "RIGHT", 8, 0)
     r.faces = {}
-    r.more = Text(r, 11, C.grey)
+    r.more = UI():Text(r, "body", C.grey)
     return r
 end
 
@@ -3485,7 +3472,7 @@ function Pg.FillResults(v, r, o)
                 a.pts:SetText(x.pts and ("+" .. x.pts) or "")
                 -- (a long badge name: smaller, else two lines over the second)
                 local room = AW_W - 50 - (x.pts and (NatW(a.pts) + 10) or 4)
-                local _, _, lines = FitText(a.l1, x.title .. grey(" · ") .. Name(x.key), room, { 12, 11 })
+                local _, _, lines = FitText(a.l1, x.title .. S:Wrap("SUB", " · ") .. Name(x.key), room, { 12, 11 })
                 a.l1:ClearAllPoints()
                 a.l2:ClearAllPoints()
                 if lines == 1 then
@@ -3556,9 +3543,9 @@ function Pg.FillResults(v, r, o)
                 local row = Pool(f.nums, i, function()
                     local x = CreateFrame("Frame", nil, f.num)
                     x:SetSize(150, 22)
-                    x.l = Text(x, 11, C.label)
+                    x.l = UI():Text(x, "body", C.label)
                     x.l:SetPoint("LEFT", 0, 0)
-                    x.v = Text(x, 13, C.white, true)
+                    x.v = UI():Text(x, "title", C.white, { font = NUM_FONT })
                     x.v:SetJustifyH("RIGHT")
                     x.v:SetPoint("RIGHT", -2, 0)
                     return x
@@ -3748,9 +3735,9 @@ function Lib.NewCard(parent)
     c.icon = H.Icon(c, 32)
     c.icon:SetPoint("TOPLEFT", S.PAD, -44)
     c.icon:SetFrameLevel(c.artF:GetFrameLevel() + 3)
-    c.n = Text(c, "title", C.white)
+    c.n = UI():Text(c, "title", C.white)
     c.n:SetPoint("TOPLEFT", S.PAD, -84)
-    c.a = Text(c, "body", C.grey)
+    c.a = UI():Text(c, "body", C.grey)
     c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -4)
     c.minis = {}
     c.acts = CreateFrame("Frame", nil, c)
@@ -3803,7 +3790,7 @@ function Lib.FillCard(c, d, w)
     end
     local n = Ev():RunCount(d.id)
     local ran = n == 0 and "not run yet" or (n == 1 and "ran once" or (n == 2 and "ran twice" or ("ran " .. n .. " times")))
-    c.a:SetText(Name(d.by) .. grey(" · " .. ran))
+    c.a:SetText(Name(d.by) .. S:Wrap("SUB", " · " .. ran))
     -- what kind of event it is: its smart blocks and definitions (Sign-up, Matches, Tags, Places, Asks ...), as many
     -- as the card's width takes (the least telling go first)
     for _, m in ipairs(c.minis) do m.used = nil end
@@ -3930,9 +3917,9 @@ function Sea.Create(p)
     for i = 1, 3 do
         local s = CreateFrame("Frame", nil, hd)
         s:SetSize(70, 40)
-        s.b = Text(s, 21, C.white, true)
+        s.b = UI():Text(s, 21, C.white, { font = NUM_FONT })
         s.b:SetPoint("TOPLEFT", 0, 0)
-        s.l = Text(s, "body", C.soft)
+        s.l = UI():Text(s, "body", C.soft)
         s.l:SetPoint("TOPLEFT", s.b, "BOTTOMLEFT", 0, -2)
         hd.stats[i] = s
     end
@@ -3983,14 +3970,14 @@ function Sea.Create(p)
         tip = { "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges gave you these." } })
     v.you.title = v.you.head.action
     v.you.title.fs = v.you.title.fs or v.you.title.label
-    v.you.rk = Text(v.you, 30, C.white, true)
+    v.you.rk = UI():Text(v.you, 30, C.white, { font = NUM_FONT })
     v.you.rk:SetPoint("TOPLEFT", 24, -42)
-    v.you.hash = Text(v.you, 17, C.grey, true)
+    v.you.hash = UI():Text(v.you, "page", C.grey, { font = NUM_FONT })
     v.you.hash:SetPoint("BOTTOMRIGHT", v.you.rk, "BOTTOMLEFT", -1, 3)
     v.you.hash:SetText("#")
-    v.you.pt = Text(v.you, "title", C.white)
+    v.you.pt = UI():Text(v.you, "title", C.white)
     v.you.pt:SetPoint("TOPLEFT", v.you.rk, "TOPRIGHT", 12, -2)
-    v.you.pt2 = Text(v.you, "body", C.grey)
+    v.you.pt2 = UI():Text(v.you, "body", C.grey)
     v.you.badges = {}
     v.ev = CreateFrame("Frame", nil, side)
     v.ev:SetPoint("TOPLEFT", v.you, "BOTTOMLEFT", 0, 0)
@@ -4001,8 +3988,8 @@ function Sea.Create(p)
     v.ev.head:Set("Ranked events")
     v.ev.ht = v.ev.head.title
     v.ev.rows = {}
-    v.ev.foot = Text(v.ev, "body", C.grey)
-    v.ev.none = Text(v.ev, "body", C.grey)
+    v.ev.foot = UI():Text(v.ev, "body", C.grey)
+    v.ev.none = UI():Text(v.ev, "body", C.grey)
     v.ev.none:SetPoint("TOPLEFT", S.IN + 2, -34)
     return v
 end
@@ -4012,16 +3999,16 @@ function Sea.NewRow(parent)
     r:SetSize(522, TROW_H)
     UI():DecorateRow(r, { selectable = true, rule = true })
     r.bg, r.bar, r.line = r.dzSelFill, r.dzSelBar, r.dzRule
-    r.rk = Text(r, "title", C.label, true)
+    r.rk = UI():Text(r, "title", C.label, { font = NUM_FONT })
     r.rk:SetPoint("LEFT", COL.rk[1], 0)
     r.face = H.Face(r, 18)
     r.face:SetPoint("LEFT", COL.pl[1], 0)
-    r.n = Text(r, "emph", C.white)
+    r.n = UI():Text(r, "emph", C.white)
     r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
-    r.ti = Text(r, "body", C.dim)
+    r.ti = UI():Text(r, "body", C.dim)
     r.ti:SetPoint("LEFT", r.n, "RIGHT", 7, 0)
     local function num(key, style, c)
-        local fs = Text(r, style, c, true)
+        local fs = UI():Text(r, style, c, { font = NUM_FONT })
         fs:SetJustifyH("RIGHT")
         fs:SetPoint("RIGHT", r, "RIGHT", FromRight(key), 0)
         return fs
@@ -4037,7 +4024,7 @@ function Sea.NewRow(parent)
     r.trI = r:CreateTexture(nil, "ARTWORK")
     r.trI:SetSize(9, 9)
     r.trI:SetTexture(UI().ICON_ATLAS)
-    r.tr = Text(r, "body", C.dim)
+    r.tr = UI():Text(r, "body", C.dim)
     r.tr:SetJustifyH("RIGHT")
     r.tr:SetPoint("RIGHT", r, "RIGHT", FromRight("tr"), 0)
     r.trI:SetPoint("RIGHT", r.tr, "LEFT", -1, 0)
@@ -4088,7 +4075,7 @@ function Sea.FillHead(v, season, results, rows)
     hd:SetArt(H.BannerArt("blades", w, S.BANNER.hero, 0.62))
     hd:SetSub(date("%d %b", season.from):gsub("^0", "") .. " - " .. date("%d %b", season.to):gsub("^0", "")
         .. " · ranked events only")
-    local left = max(0, ceil((season.to - Now()) / DAY))
+    local left = max(0, ceil((season.to - ns.Util.Now()) / DAY))
     local stats = { { left, left == 1 and "day left" or "days left" }, { #results, #results == 1 and "ranked event" or
         "ranked events" }, { #rows, #rows == 1 and "player" or "players" } }
     local canSet = Ev():CanModerate(Me())
@@ -4142,7 +4129,7 @@ function Sea.Fill(v)
         r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -(i - 1) * TROW_H)
         r:SetSelected(x2.key == Me())
         r.rk:SetText(x2.rank)
-        Color(r.rk, x2.rank <= 3 and C.gold or C.label)
+        r.rk:SetTextColor(S:Color(x2.rank <= 3 and C.gold or C.label))
         r.face:Set(x2.key)
         r.n:SetText(Name(x2.key))
         local ti = Ev():GetTitle(x2.key)
@@ -4160,13 +4147,13 @@ function Sea.Fill(v)
         if t and t ~= 0 then
             local c = t > 0 and C.green or C.red
             r.tr:SetText(tostring(t > 0 and t or -t))
-            Color(r.tr, c)
+            r.tr:SetTextColor(S:Color(c))
             r.trI:Show()
             UI():SetChevronUp(r.trI, t > 0)
             r.trI:SetVertexColor(c[1], c[2], c[3])
         else
             r.tr:SetText("–")
-            Color(r.tr, C.dim)
+            r.tr:SetTextColor(S:Color(C.dim))
             r.trI:Hide()
         end
         r:Show()
@@ -4257,7 +4244,7 @@ function Sea.FillEventRow(row, r)
     local p = r.points[me]
     row:SetData({ art = r.art, icon = r.icon, title = r.name or "Event",
         sub = date("%a ", r.at) .. date("%d %b", r.at) .. " · " .. place, right = p and ("+" .. p) or "-" })
-    Color(row.p, p and C.pts or C.dim)
+    row.p:SetTextColor(S:Color(p and C.pts or C.dim))
 end
 
 ---------------------------------------------------------------------------
@@ -4331,7 +4318,7 @@ function Rv.Create(p)
     v.wsect = H.Sect(v.ql)
     v.dsect = H.Sect(v.ql)
     v.qrows = {}
-    v.qnone = Text(v.ql, "body", C.grey)
+    v.qnone = UI():Text(v.ql, "body", C.grey)
     v.qd = L.body
     -- the picked event's banner: its art, icon, name and pill, who sent it; Mark ranked / Send back; the eye
     local ban = L.banner
@@ -4364,7 +4351,7 @@ function Rv.Create(p)
     v.note = UI():CreateCard(v.left, { tone = "inset" })
     v.note:SetPoint("TOPLEFT", 0, -28)
     v.note:SetPoint("TOPRIGHT", 0, -28)
-    v.note.fs = Text(v.note, "body", C.text)
+    v.note.fs = UI():Text(v.note, "body", C.text)
     v.note.fs:SetPoint("TOPLEFT", S.IN + 2, -7)
     v.rsect = H.Sect(v.left)
     v.reply = UI():CreateSleekEditBox(v.left, 200, S.BTN_H + 2, "GameFontHighlightSmall")
@@ -4384,16 +4371,16 @@ function Rv.Create(p)
     v.checks.icon = v.checks:CreateTexture(nil, "ARTWORK")
     v.checks.icon:SetSize(13, 13)
     v.checks.icon:SetPoint("LEFT", 2, 0)
-    v.checks.fs = Text(v.checks, "emph", C.label)
+    v.checks.fs = UI():Text(v.checks, "emph", C.label)
     v.checks.fs:SetPoint("LEFT", 22, 0)
-    v.checks.r = Text(v.checks, "body", C.grey)
+    v.checks.r = UI():Text(v.checks, "body", C.grey)
     v.checks.r:SetJustifyH("RIGHT")
     v.checks.r:SetPoint("RIGHT", 0, 0)
     v.lsect = H.Sect(v.right)
-    v.last = Text(v.right, "body", C.label)
-    v.lastR = Text(v.right, "body", C.grey)
+    v.last = UI():Text(v.right, "body", C.label)
+    v.lastR = UI():Text(v.right, "body", C.grey)
     v.lastR:SetJustifyH("RIGHT")
-    v.lastNote = Text(v.right, "body", C.grey)
+    v.lastNote = UI():Text(v.right, "body", C.grey)
     v.empty = UI():CreateEmptyState(L.detail, { glyph = UI().ICON.trophy, title = "Nothing to review",
         text = "Events sent in for review show up here." })
     v.empty:SetPoint("TOP", L.detail, "TOP", 0, -90)
@@ -4435,7 +4422,7 @@ end
 -- "18:02" today, "Thu" this week, "02 Oct" before.
 function W.Ago(t)
     if not t then return "" end
-    local now = Now()
+    local now = ns.Util.Now()
     if date("%Y%m%d", t) == date("%Y%m%d", now) then return W.Clock(t) end
     if now - t < 6 * DAY then return date("%a", t) end
     return date("%d %b", t)
@@ -4450,14 +4437,14 @@ end
 function Rv.NewDiff(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(400, 34)
-    r.bg = Fill(r, { 1, 1, 1, 0.05 })
+    r.bg = UI():Fill(r, "HOVER")
     r.bar = Line(r, { 1, 1, 1, 1 })
     r.bar:SetPoint("TOPLEFT")
     r.bar:SetPoint("BOTTOMLEFT")
     r.bar:SetWidth(2)
-    r.stage = Text(r, 10, C.grey)
+    r.stage = UI():Text(r, "small", C.grey)
     r.stage:SetPoint("LEFT", 9, 0)
-    r.fs = Text(r, 11, C.white)
+    r.fs = UI():Text(r, "body", C.white)
     r.fs:SetPoint("LEFT", 62, 0)
     r.dot = Disc(r, 8, C.white, "ARTWORK")
     r.dot:Hide()
@@ -4718,10 +4705,10 @@ function Rv.NewGive(parent)
     x.glyph = x:CreateTexture(nil, "ARTWORK")
     x.glyph:SetSize(15, 15)
     x.glyph:SetPoint("CENTER", x, "LEFT", 12, 0)
-    x.n = Text(x, 12, C.white)
-    x.l2 = Text(x, 10, C.grey)
+    x.n = UI():Text(x, "emph", C.white)
+    x.l2 = UI():Text(x, "small", C.grey)
     x.pill = H.Pill(x, 16)
-    x.r = Text(x, 11, C.grey)
+    x.r = UI():Text(x, "body", C.grey)
     x.r:SetJustifyH("RIGHT")
     x.r:SetPoint("RIGHT", 0, 0)
     return x
@@ -4792,7 +4779,7 @@ function Rv.Decide(v, ok)
     if not d then return end
     local note = ns.Util.Trim(v.reply:GetText() or "")
     if not ok and note == "" then
-        v.rsect.r:SetText(Hex(C.orange, "say why first"))
+        v.rsect.r:SetText(S:Wrap("WARN", "say why first"))
         v.rsect.r:Show()
         v.reply:SetFocus()
         return
@@ -4851,7 +4838,7 @@ function Rv.Fill(v)
     end
     local canRemove = W.CanRemove()
     for _, d in ipairs(queue) do
-        qrow(d, W.NewOrChanged(d) .. grey(" · ") .. Name(d.by) .. grey(" · " .. W.Ago(d.review and d.review.at)), nil, nil,
+        qrow(d, W.NewOrChanged(d) .. S:Wrap("SUB", " · ") .. Name(d.by) .. S:Wrap("SUB", " · " .. W.Ago(d.review and d.review.at)), nil, nil,
             (canRemove and Ev().DismissReview) and function() A.DismissReview(d) end or nil,
             "Takes it off the list without deciding: it can be sent in again.")
     end
@@ -4870,7 +4857,7 @@ function Rv.Fill(v)
         y = y + 28
         for _, x in ipairs(decided) do
             local words = x.k.ok and "ranked by " or "sent back by "
-            qrow(x.d, grey(words) .. Name(x.k.by) .. (x.k.ok and grey(" · " .. W.Ago(x.k.rev)) or ""),
+            qrow(x.d, S:Wrap("SUB", words) .. Name(x.k.by) .. (x.k.ok and S:Wrap("SUB", " · " .. W.Ago(x.k.rev)) or ""),
                 x.k.ok and CHECK or NOTREADY, (not x.k.ok) and { 0.7, 0.7, 0.7 } or nil,
                 (canRemove and Ev().HideDecision) and function() A.HideDecision(x.d) end or nil,
                 "Clears it from this list. The decision stays: a ranked event stays ranked.")
@@ -4910,9 +4897,9 @@ function Rv.Fill(v)
     end
     ban:SetTitle(d.name or "Event")
     local sentAt = d.review and d.review.at or d.at
-    local when = date("%Y%m%d", sentAt or 0) == date("%Y%m%d", Now()) and ("today " .. W.Clock(sentAt))
+    local when = date("%Y%m%d", sentAt or 0) == date("%Y%m%d", ns.Util.Now()) and ("today " .. W.Clock(sentAt))
         or (W.Day(sentAt) .. " " .. W.Clock(sentAt))
-    ban:SetSub("From " .. Name(d.by) .. grey(" · " .. when))
+    ban:SetSub("From " .. Name(d.by) .. S:Wrap("SUB", " · " .. when))
     ban:SetActions(waiting and { v.rankAction, v.backAction } or nil)
     ban.building = nil
     ban:Layout()
@@ -4923,7 +4910,7 @@ function Rv.Fill(v)
     local dy = 0
     local heights = {}
     -- one stage column for every row: as wide as its longest word (two lines past 110)
-    v.meas = v.meas or Text(v.qd, 10, C.grey)
+    v.meas = v.meas or UI():Text(v.qd, "small", C.grey)
     v.meas:Hide()
     local colX = 62
     for _, ch in ipairs(changes) do
@@ -4984,7 +4971,7 @@ function Rv.Fill(v)
     v.dscroll:SetSize(cw, max(1, shownH))
     v.dcontent:SetSize(cw, max(1, dy))
     v.dscroll.ScrollBar:Update()
-    v.nochange = v.nochange or Text(v.qd, 11, C.grey)
+    v.nochange = v.nochange or UI():Text(v.qd, "body", C.grey)
     v.nochange:ClearAllPoints()
     v.nochange:SetPoint("TOPLEFT", v.qd, "TOPLEFT", 2, -32)
     v.nochange:SetText("Nothing changed in its pieces.")
@@ -5003,7 +4990,7 @@ function Rv.Fill(v)
     v.nsect:SetShown(waiting or note ~= nil)
     local nh = 0
     if waiting or note then
-        nh = Wrap(v.note.fs, note or Hex(C.grey, "No note."), lw - 20, 11) + 14
+        nh = Wrap(v.note.fs, note or S:Wrap("SUB", "No note."), lw - 20, 11) + 14
         v.note:SetHeight(nh)
         v.note:Show()
     else
@@ -5025,7 +5012,7 @@ function Rv.Fill(v)
     v.gsect:Set("Rewards it gives")
     local gy = 28 + givesH
     if #gives == 0 then
-        v.noGive = v.noGive or Text(v.right, 11, C.grey)
+        v.noGive = v.noGive or UI():Text(v.right, "body", C.grey)
         v.noGive:ClearAllPoints()
         v.noGive:SetPoint("TOPLEFT", v.right, "TOPLEFT", 2, -32)
         v.noGive:SetText("No badges, no season points.")
@@ -5043,10 +5030,10 @@ function Rv.Fill(v)
         .. " checks passed"))
     if practiced then
         v.checks.r:SetText(type(practiced) == "number" and ("practice run " .. W.Ago(practiced)) or "practice run")
-        Color(v.checks.r, C.grey)
+        v.checks.r:SetTextColor(S:Color(C.grey))
     else
         v.checks.r:SetText("no practice run")
-        Color(v.checks.r, C.orange)
+        v.checks.r:SetTextColor(S:Color(C.orange))
     end
     -- the last decision on it
     local k = Ev():GetReview(d.id)
@@ -5109,7 +5096,7 @@ end
 
 -- A form label (grey) at the sheet's left.
 local function FormLabel(parent, text, x, y)
-    local fs = Text(parent, 11, C.grey)
+    local fs = UI():Text(parent, "body", C.grey)
     fs:SetPoint("TOPLEFT", x, y)
     fs:SetText(text)
     return fs
@@ -5131,7 +5118,7 @@ local function Chevron(parent, dir)
     b:SetSize(22, 22)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.07)
+    b.hl:SetColorTexture(S:Color("HOVER"))
     b.lines = {}
     for i = 1, 2 do
         local l = b:CreateLine(nil, "ARTWORK")
@@ -5154,9 +5141,9 @@ end
 function H.Stepper(parent, width, onStep, tip)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(width, 26)
-    Fill(f, CARD)
+    UI():Fill(f, CARD)
     Edges(f, S.C.EDGE_STRONG)
-    f.text = Text(f, 12, C.white)
+    f.text = UI():Text(f, "emph", C.white)
     f.text:SetJustifyH("CENTER")
     f.text:SetPoint("CENTER", 0, 0)
     f.prev = Chevron(f, -1)
@@ -5187,7 +5174,7 @@ end
 -- Day / time (the local clock): day 0 = today.
 local DAYS_AHEAD = 13
 local function NowMinutes()
-    local t = date("*t", Now())
+    local t = date("*t", ns.Util.Now())
     return t.hour * 60 + t.min
 end
 local function MinMinutes(day)
@@ -5195,11 +5182,11 @@ local function MinMinutes(day)
     return ceil((NowMinutes() + 15) / 15) * 15
 end
 local function DayTime(day, mins)
-    local t = date("*t", Now())
+    local t = date("*t", ns.Util.Now())
     return time({ year = t.year, month = t.month, day = t.day + day, hour = floor(mins / 60), min = mins % 60, sec = 0 })
 end
 local function DayOf(at)
-    local t, n = date("*t", at), date("*t", Now())
+    local t, n = date("*t", at), date("*t", ns.Util.Now())
     return floor((time({ year = t.year, month = t.month, day = t.day, hour = 12 })
         - time({ year = n.year, month = n.month, day = n.day, hour = 12 })) / DAY + 0.5), t.hour * 60 + t.min
 end
@@ -5226,15 +5213,15 @@ local function SheetStrip(f, y, w)
     s.art:SetPoint("BOTTOMRIGHT", -1, 1)
     s.shade = s:CreateTexture(nil, "BORDER")
     s.shade:SetAllPoints()
-    Grad(s.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.35 })
+    UI():Gradient(s.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.35 })
     Edges(s, PEDGE, "ARTWORK")
     s.icon = H.Icon(s, 32)
     s.icon:SetPoint("LEFT", 12, 0)
-    s.n = Text(s, 13, C.white)
+    s.n = UI():Text(s, "title", C.white)
     s.n:SetPoint("BOTTOMLEFT", s.icon, "RIGHT", 10, 1)
     s.pill = H.Pill(s, 16)
     s.pill:SetPoint("LEFT", s.n, "RIGHT", 8, 0)
-    s.l2 = Text(s, 11, { 0.78, 0.78, 0.78 })
+    s.l2 = UI():Text(s, "body", { 0.78, 0.78, 0.78 })
     s.l2:SetPoint("TOPLEFT", s.icon, "RIGHT", 10, -3)
     function s:Set(d)
         EUI():SetArt(self.art, d.art, w - 2, 54, nil, 0.6, 0.9)
@@ -5302,7 +5289,7 @@ function Sh.Schedule()
     f.info.glyph = f.info:CreateTexture(nil, "ARTWORK")
     f.info.glyph:SetSize(12, 12)
     f.info.glyph:SetPoint("TOPLEFT", 0, -1)
-    f.info.fs = Text(f.info, 11, C.grey)
+    f.info.fs = UI():Text(f.info, "body", C.grey)
     f.info.fs:SetPoint("TOPLEFT", 18, 0)
     f.foot:SetText("Everyone sees it on Upcoming")
     f.ok:SetScript("OnClick", function() Sh.SubmitSchedule() end)
@@ -5356,7 +5343,7 @@ function Sh.RefreshSchedule()
         text = "It has no sign-up: whoever is there when you start it plays."
     end
     if s.occ then text = "Everyone who signed up stays in. " .. text:gsub(" You're in it too.*$", "") end
-    H.Glyph(f.info.glyph, "clock", { 0.62, 0.62, 0.62, 0.85 })
+    H.Glyph(f.info.glyph, "clock", H.Alpha("SUB", 0.85))
     Wrap(f.info.fs, text, 354, 11)
 end
 
@@ -5470,9 +5457,9 @@ function Sh.Submit()
     f.title:SetText("Send for review")
     f.icon = H.Icon(f, 32)
     f.icon:SetPoint("TOPLEFT", 14, -52)
-    f.n = Text(f, 13, C.white)
+    f.n = UI():Text(f, "title", C.white)
     f.n:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -2)
-    f.l2 = Text(f, 11, C.grey)
+    f.l2 = UI():Text(f, "body", C.grey)
     f.l2:SetPoint("TOPLEFT", f.n, "BOTTOMLEFT", 0, -4)
     f.csect = H.Sect(f)
     f.csect:SetPoint("TOPLEFT", 14, -92)
@@ -5487,9 +5474,9 @@ function Sh.Submit()
         r.icon = r:CreateTexture(nil, "ARTWORK")
         r.icon:SetSize(13, 13)
         r.icon:SetPoint("LEFT", 2, 0)
-        r.fs = Text(r, 12, C.label)
+        r.fs = UI():Text(r, "emph", C.label)
         r.fs:SetPoint("LEFT", 24, 0)
-        r.r = Text(r, 11, C.grey)
+        r.r = UI():Text(r, "body", C.grey)
         r.r:SetJustifyH("RIGHT")
         r.r:SetPoint("RIGHT", 0, 0)
         f.rows[i] = r
@@ -5579,7 +5566,7 @@ function EventsUI:OpenSubmit(defId)
         local x = rows[i]
         r.icon:SetTexture(x[1] and READY or WARN)
         r.fs:SetText(x[2])
-        Color(r.fs, x[1] and C.label or { 1, 0.78, 0.55 })
+        r.fs:SetTextColor(S:Color(x[1] and C.label or { 1, 0.78, 0.55 }))
         r.r:SetText(x[3] or "")
     end
     f.note:SetText(d.review and d.review.note or "")
@@ -5631,42 +5618,42 @@ function Sh.Badge()
     pv.light:SetPoint("TOPLEFT")
     pv.light:SetPoint("TOPRIGHT")
     pv.light:SetHeight(260)
-    Grad(pv.light, "VERTICAL", { 1, 0.82, 0, 0 }, { 1, 0.82, 0, 0.05 })
+    UI():Gradient(pv.light, "VERTICAL", H.Alpha("GOLD", 0), H.Alpha("GOLD", 0.05))
     pv.glows = {}
     for i, size in ipairs({ 140, 118, 100 }) do
-        local t = Disc(pv, size, { 1, 0.82, 0, 0.045 }, "BACKGROUND", i)
+        local t = Disc(pv, size, H.Alpha("GOLD", 0.045), "BACKGROUND", i)
         t:SetPoint("CENTER", pv, "TOP", 0, -70)
         pv.glows[i] = t
     end
-    pv.line = Line(f, { 1, 1, 1, 0.06 })
+    pv.line = Line(f, "HAIRLINE")
     pv.line:SetWidth(1)
     pv.line:SetPoint("TOPLEFT", pv, "TOPRIGHT", 0, 0)
     pv.line:SetPoint("BOTTOMLEFT", pv, "BOTTOMRIGHT", 0, 0)
     pv.badge = H.Badge(pv, 72)
     pv.badge:SetPoint("TOP", 0, -24)
     pv.badge.noTip = true
-    pv.n = Text(pv, 15, C.white)
+    pv.n = UI():Text(pv, 15, C.white)
     pv.n:SetJustifyH("CENTER")
     pv.n:SetPoint("TOP", pv.badge, "BOTTOM", 0, -14)
-    pv.ti = Text(pv, 11, C.gold)
+    pv.ti = UI():Text(pv, "body", C.gold)
     pv.ti:SetJustifyH("CENTER")
     pv.ti:SetPoint("TOP", pv.n, "BOTTOM", 0, -5)
     local tt = CreateFrame("Frame", nil, pv)
     tt:SetSize(196, 92)
     tt:SetPoint("TOP", pv.badge, "BOTTOM", 0, -64)
-    Fill(tt, { 0.03, 0.03, 0.047, 0.96 })
+    UI():Fill(tt, { 0.03, 0.03, 0.047, 0.96 })
     Edges(tt, { 0.59, 0.59, 0.67, 0.85 })
-    tt.l1 = Text(tt, 12, C.white)
+    tt.l1 = UI():Text(tt, "emph", C.white)
     tt.l1:SetPoint("TOPLEFT", 10, -9)
-    tt.l2 = Text(tt, 12, { 0.66, 0.66, 0.66 })
+    tt.l2 = UI():Text(tt, "emph", { 0.66, 0.66, 0.66 })
     tt.l2:SetPoint("TOPLEFT", tt.l1, "BOTTOMLEFT", 0, -3)
     tt.sep = Line(tt, { 1, 1, 1, 0.12 })
     tt.sep:SetHeight(1)
     tt.sep:SetPoint("TOPLEFT", 10, -45)
     tt.sep:SetPoint("TOPRIGHT", -10, -45)
-    tt.l3 = Text(tt, 12, C.gold)
+    tt.l3 = UI():Text(tt, "emph", C.gold)
     tt.l3:SetPoint("TOPLEFT", 10, -53)
-    tt.l4 = Text(tt, 11, { 0.66, 0.66, 0.66 })
+    tt.l4 = UI():Text(tt, "body", { 0.66, 0.66, 0.66 })
     tt.l4:SetPoint("TOPLEFT", tt.l3, "BOTTOMLEFT", 0, -3)
     pv.tt = tt
     f.pv = pv
@@ -5698,7 +5685,7 @@ function Sh.Badge()
         local sw = CreateFrame("Button", nil, f)
         sw:SetSize(31, 31)
         sw:SetPoint("TOPLEFT", FX + (i - 1) * 38, -341)
-        sw.sel = Disc(sw, 33, { 1, 0.82, 0, 0.9 }, "BACKGROUND", 1)
+        sw.sel = Disc(sw, 33, H.Alpha("GOLD_DEEP", 0.9), "BACKGROUND", 1)
         sw.sel:SetPoint("CENTER")
         sw.hole = Disc(sw, 31, { 0.09, 0.09, 0.11, 1 }, "BACKGROUND", 2)
         sw.hole:SetPoint("CENTER")
@@ -5726,7 +5713,7 @@ function Sh.Badge()
         if f.s then f.s.ti = self:GetText() end
         Sh.RefreshBadge()
     end)
-    f.hint = Text(f, 11, C.grey)
+    f.hint = UI():Text(f, "body", C.grey)
     f.hint:SetPoint("TOPLEFT", FX, -420)
     Wrap(f.hint, "Shown after the name on tooltips. Players pick the one they show on the Season page.", FW, 11)
     f.footIcon:Show()
@@ -5768,16 +5755,16 @@ function Sh.RefreshBadge()
     local bd = { n = W.CleanText(s.n), i = s.i, f = s.f, ti = s.tiOn and W.CleanText(s.ti) or nil }
     local pv = f.pv
     pv.badge:SetBadge({ n = bd.n, i = bd.i, f = bd.f })
-    local _, nh = FitText(pv.n, bd.n ~= "" and bd.n or Hex(C.dim, "Badge name"), 220, { 15, 13 })
+    local _, nh = FitText(pv.n, bd.n ~= "" and bd.n or S:Wrap("DIM", "Badge name"), 220, { 15, 13 })
     pv.ti:SetText((bd.ti and bd.ti ~= "") and ("\"" .. bd.ti .. "\"") or "")
     local me = Me()
     local who = EUI():Plain(me)
-    pv.tt.l1:SetText(who .. ((bd.ti and bd.ti ~= "") and (" " .. Hex(C.gold, bd.ti)) or ""))
+    pv.tt.l1:SetText(who .. ((bd.ti and bd.ti ~= "") and (" " .. S:Wrap("GOLD", bd.ti)) or ""))
     local race = UnitRace and UnitRace("player") or ""
     local cls = UnitClass and UnitClass("player") or ""
     pv.tt.l2:SetText(("Level %d %s %s"):format(UnitLevel and UnitLevel("player") or 70, race or "", cls or ""))
     pv.tt.l3:SetText(bd.n ~= "" and bd.n or "Badge name")
-    pv.tt.l4:SetText((s.def and s.def.name or "Event") .. " · " .. date("%d %b", Now()))
+    pv.tt.l4:SetText((s.def and s.def.name or "Event") .. " · " .. date("%d %b", ns.Util.Now()))
     -- (the tooltip as the game draws one: as wide as its longest line, up to the panel's; a longer line wraps)
     local tt = pv.tt
     local need = 176
@@ -5806,11 +5793,11 @@ function Sh.RefreshBadge()
         local c = Pool(f.cells, i, function()
             local b = CreateFrame("Button", nil, f)
             b:SetSize(ICON_SIZE, ICON_SIZE)
-            b.sel = Fill(b, S.C.GOLD, "BACKGROUND")
+            b.sel = UI():Fill(b, S.C.GOLD, "BACKGROUND")
             b.sel:ClearAllPoints()
             b.sel:SetPoint("TOPLEFT", -2, 2)
             b.sel:SetPoint("BOTTOMRIGHT", 2, -2)
-            b.edge = Fill(b, C.black, "BACKGROUND", 1)
+            b.edge = UI():Fill(b, C.black, "BACKGROUND", 1)
             b.edge:ClearAllPoints()
             b.edge:SetPoint("TOPLEFT", -1, 1)
             b.edge:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -5839,7 +5826,7 @@ function Sh.RefreshBadge()
             c:Hide()
         end
     end
-    f.noIcon = f.noIcon or Text(f, 11, C.grey)
+    f.noIcon = f.noIcon or UI():Text(f, "body", C.grey)
     f.noIcon:ClearAllPoints()
     f.noIcon:SetPoint("TOPLEFT", f, "TOPLEFT", f.gridX + 2, f.gridY - 6)
     f.noIcon:SetText("No icon matches that word.")
@@ -5931,7 +5918,7 @@ function Sh.Season()
         Sh.RefreshSeason()
     end, tip)
     f.to:SetPoint("TOPLEFT", FX, -127)
-    f.info = Text(f, 11, C.grey)
+    f.info = UI():Text(f, "body", C.grey)
     f.info:SetPoint("TOPLEFT", FX, -166)
     f.foot:SetText("Ranked events in it count")
     f.ok:SetText("Save")
@@ -5947,7 +5934,7 @@ function Sh.Season()
         local to = time({ year = tonumber(date("%Y", s.to)), month = tonumber(date("%m", s.to)),
             day = tonumber(date("%d", s.to)), hour = 23, min = 59, sec = 59 })
         -- (the standings only ever show the season today is in: one that isn't wouldn't show)
-        if from > Now() or to < Now() then
+        if from > ns.Util.Now() or to < ns.Util.Now() then
             f:Error("Pick days that take in today.")
             return
         end
@@ -5990,7 +5977,7 @@ end
 function Sh.Confirm()
     if sheets.confirm then return sheets.confirm end
     local f = Sh.New("confirm", "DisasterZoneEventConfirm", 420, 200)
-    f.text = Text(f, 12, C.text)
+    f.text = UI():Text(f, "emph", C.text)
     f.text:SetPoint("TOPLEFT", 14, -56)
     f.reasonLabel = FormLabel(f, "Why", 14, -112)
     f.reason = Field(f, 344, 26, 80, "Not enough players")
@@ -6253,7 +6240,7 @@ function EventsUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("events", "Events", 3.57,
             function(parent) return EventsUI:CreatePanel(parent) end,
-            function() return (IsInGuild() or DemoOn()) and true or false end, { layout = "board" })
+            function() return (IsInGuild() or ns.Util.DemoOn()) and true or false end, { layout = "board" })
     end
     local function refresh() EventsUI:RequestRefresh() end
     for _, msg in ipairs({ "EVENTS_UPDATED", "DEMO_TOGGLED", "CONFIG_UPDATED", "ROSTER_UPDATED" }) do
