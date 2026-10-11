@@ -33,6 +33,12 @@ local NASSIGN_PER_MSG = 5
 Blessings.PREFIX = PREFIX
 Blessings.D = D
 
+-- A blessing (n = NGREATER / NBLESS) or aura (NAURA) number as one: 1..n, else nil. Pally Power messages carry plain
+-- numbers, and a bad one (or a newer Pally Power's, with more blessings) must not reach D.BLESSINGS[bi] (Report).
+local function Valid(i, n)
+    return (type(i) == "number" and i >= 1 and i <= n and i == floor(i)) and i or nil
+end
+
 local CLASS_INDEX = {}           -- class token -> Pally Power index
 for i, c in ipairs(D.CLASSES) do CLASS_INDEX[c] = i end
 Blessings.CLASS_INDEX = CLASS_INDEX
@@ -416,14 +422,12 @@ end
 function Blessings:GetAssign(name, ci)
     local s = DB()
     local row = s and s.assign[name]
-    local bi = row and row[ci]
-    return (bi and bi > 0) and bi or nil
+    return Valid(row and row[ci], NGREATER)
 end
 
 function Blessings:GetAura(name)
     local s = DB()
-    local ai = s and s.aura[name]
-    return (ai and ai > 0) and ai or nil
+    return Valid(s and s.aura[name], NAURA)
 end
 
 -- name's single blessings: { [ci] = { [target] = bi } } (read only: none is one shared empty table, so the buff bar's
@@ -436,8 +440,7 @@ end
 
 function Blessings:GetSingle(name, ci, target)
     local row = self:GetSingles(name)[ci]
-    local bi = row and row[target]
-    return (bi and bi > 0) and bi or nil
+    return Valid(row and row[target], NBLESS)
 end
 
 -- Every exception: { { pal, ci, target, bi }, ... } for the paladins known, sorted by target.
@@ -449,7 +452,7 @@ function Blessings:Exceptions()
         if self.pals[pal] then
             for ci, targets in pairs(byClass) do
                 for target, bi in pairs(targets) do
-                    if bi and bi > 0 then out[#out + 1] = { pal = pal, ci = ci, target = target, bi = bi } end
+                    if Valid(bi, NBLESS) then out[#out + 1] = { pal = pal, ci = ci, target = target, bi = bi } end
                 end
             end
         end
@@ -1055,8 +1058,7 @@ HANDLERS.SELF = function(sender, msg)
     s.assign[sender] = {}
     for ci = 1, NCLASS do
         local c = strsub(cls, ci, ci)
-        local bi = tonumber(c)
-        s.assign[sender][ci] = (bi and bi > 0) and bi or nil
+        s.assign[sender][ci] = Valid(tonumber(c), NGREATER)
     end
     Changed()
 end
@@ -1071,7 +1073,7 @@ HANDLERS.ASELF = function(sender, msg)
         local r, t = strsub(nums, i * 2 - 1, i * 2 - 1), strsub(nums, i * 2, i * 2)
         if r ~= "n" then p.aura[i] = { tonumber(r, 16) or 1, tonumber(t) or 0 } end
     end
-    SetAuraRaw(sender, tonumber(ai) or 0)
+    SetAuraRaw(sender, Valid(tonumber(ai), NAURA) or 0)
     Changed()
 end
 
@@ -1079,6 +1081,7 @@ HANDLERS.ASSIGN = function(sender, msg)
     local name, ci, bi = strmatch(msg, "^ASSIGN (.*) (.*) (.*)")
     ci, bi = tonumber(ci), tonumber(bi)
     if not (ci and bi and D.CLASSES[ci]) or not MayEdit(sender, name) then return end
+    if bi ~= 0 and not Valid(bi, NGREATER) then return end     -- (0 clears; out of range: ignored)
     SetAssignRaw(name, ci, bi)
     Changed()
 end
@@ -1087,6 +1090,7 @@ HANDLERS.MASSIGN = function(sender, msg)
     local name, bi = strmatch(msg, "^MASSIGN (.*) (.*)")
     bi = tonumber(bi)
     if not bi or not MayEdit(sender, name) then return end
+    if bi ~= 0 and not Valid(bi, NGREATER) then return end
     for ci = 1, NCLASS do SetAssignRaw(name, ci, bi) end
     Changed()
 end
@@ -1094,7 +1098,10 @@ end
 HANDLERS.PASSIGN = function(sender, msg)
     local name, cls = strmatch(msg, "^PASSIGN (.*)@([0-9n]*)")
     if not name or not MayEdit(sender, name) then return end
-    for ci = 1, NCLASS do SetAssignRaw(name, ci, tonumber(strsub(cls, ci, ci)) or 0) end
+    for ci = 1, NCLASS do
+        local bi = tonumber(strsub(cls, ci, ci)) or 0               -- ("n" or nothing: none)
+        if bi == 0 or Valid(bi, NGREATER) then SetAssignRaw(name, ci, bi) end
+    end
     Changed()
 end
 
@@ -1102,7 +1109,7 @@ HANDLERS.NASSIGN = function(sender, msg)
     for name, ci, target, bi in gmatch(strsub(msg, 9), "([^@]*) ([^@]*) ([^@]*) ([^@]*)") do
         if not MayEdit(sender, name) then return end      -- (Pally Power stops at the first refused entry too)
         ci, bi = tonumber(ci), tonumber(bi)
-        if ci and bi and D.CLASSES[ci] then SetSingleRaw(name, ci, target, bi) end
+        if ci and bi and D.CLASSES[ci] and (bi == 0 or Valid(bi, NBLESS)) then SetSingleRaw(name, ci, target, bi) end
     end
     Changed()
 end
@@ -1111,6 +1118,7 @@ HANDLERS.AASSIGN = function(sender, msg)
     local name, ai = strmatch(msg, "^AASSIGN (.*) (.*)")
     ai = tonumber(ai)
     if not ai or not MayEdit(sender, name) then return end
+    if ai ~= 0 and not Valid(ai, NAURA) then return end
     SetAuraRaw(name, ai)
     Changed()
 end
