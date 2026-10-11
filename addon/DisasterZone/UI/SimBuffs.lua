@@ -9,13 +9,13 @@ local _, ns = ...
 local SimBuffsUI = {}
 ns.SimBuffsUI = SimBuffsUI
 
+local UI, S = ns.UI, ns.Style
 local floor, max = math.floor, math.max
 
-local GOLD = { 0.89, 0.70, 0.24 }
-local GREY = { 0.56, 0.56, 0.59 }
+local GOLD = S.C.GOLD_DEEP        -- the tiles' gold edge and dot (D1: fills and edges)
 local WIDTH = 492
 local COLS, TILE_H, GAP, PADX = 3, 30, 4, 8
-local GOLD_HEX = "|cffe2b33e"
+local GOLD_HEX = S:Hex("GOLD")    -- "set by you" in the tiles' lines
 
 local win, draft, view
 local tiles, headers = {}, {}
@@ -81,10 +81,8 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 local function TileIcon(t)
   if t.item then
-    local icon
-    if C_Item and C_Item.GetItemIconByID then icon = C_Item.GetItemIconByID(t.item) end
-    if not icon and GetItemIcon then icon = GetItemIcon(t.item) end
-    if icon then return icon end
+    local icon = UI:ItemIcon(t.item)
+    if icon and icon ~= 134400 then return icon end    -- (not UI:ItemIcon's question mark: the tile's own icon then)
   end
   return "Interface\\Icons\\" .. t.icon
 end
@@ -135,37 +133,48 @@ local function PaintTile(f)
   local line, dim, open, changed = TileLine(t, v)
   f.sub:SetText(line or "")
   f:SetAlpha(dim and 0.45 or 1)
-  local e = (open and GOLD) or { 0.2, 0.2, 0.23 }
-  ns.UI:SetEdgeColor(f, e[1], e[2], e[3], open and 0.9 or 1)
+  if open then
+    UI:SetEdgeColor(f, GOLD[1], GOLD[2], GOLD[3], 0.9)
+  else
+    UI:SetEdgeColor(f, S:Color("EDGE"))
+  end
   f.dot:SetShown(changed and true or false)
   f.hl:SetShown(f.hovered and not Shouts(t) or false)
 end
 
-local function TileTooltip(f)
+-- A tile's tooltip (UI:AttachTooltip): what it does, its state now, who brings it in the lineup, the clicks.
+local function FillTileTip(f, tt)
   local t = f.tile
-  local S = SB()
-  local v = S:Get(view.cfg, t)
-  GameTooltip:SetOwner(f, "ANCHOR_RIGHT")
-  GameTooltip:AddLine(t.name, 1, 0.82, 0)
-  if t.tip then GameTooltip:AddLine(t.tip, 1, 1, 1, true) end
+  if not (t and view) then return false end
+  local B = SB()
+  local v = B:Get(view.cfg, t)
+  local gr, gg, gb = S:Color("GOLD")
+  tt:AddLine(t.name, gr, gg, gb)
+  if t.tip then tt:AddLine(t.tip, 1, 1, 1, true) end
   if Shouts(t) then
-    GameTooltip:AddLine(Own(t)[2], 1, 1, 1, true)
-    GameTooltip:Show()
+    tt:AddLine(Own(t)[2], 1, 1, 1, true)
     return
   end
-  GameTooltip:AddLine("Now: " .. S:StateText(t, v), 0.8, 0.8, 0.8)
+  tt:AddLine("Now: " .. B:StateText(t, v), 0.8, 0.8, 0.8)
   local ti = view.info and view.info.tiles[t.key]
   if ti and t.sec ~= "mine" then
-    local who = S:WhoText(ti.who, 6)
-    if who ~= "" then GameTooltip:AddLine("From the lineup: " .. who, 1, 1, 1, true) end
+    local who = B:WhoText(ti.who, 6)
+    if who ~= "" then tt:AddLine("From the lineup: " .. who, 1, 1, 1, true) end
     if ti.changed then
-      GameTooltip:AddLine(("The lineup says %s; you set it. Click until it matches to follow the lineup again.")
-        :format(S:StateText(t, ti.inferred or 0)), 0.89, 0.70, 0.24, true)
+      tt:AddLine(("The lineup says %s; you set it. Click until it matches to follow the lineup again.")
+        :format(B:StateText(t, ti.inferred or 0)), gr, gg, gb, true)
     end
   end
   local names = {}
-  for i = 0, S:StateCount(t) - 1 do names[#names + 1] = S:StateText(t, i) end
-  GameTooltip:AddLine("Click: " .. table.concat(names, " > ") .. ". Right-click: back.", GREY[1], GREY[2], GREY[3], true)
+  for i = 0, B:StateCount(t) - 1 do names[#names + 1] = B:StateText(t, i) end
+  local sr, sg, sb = S:Color("SUB")
+  tt:AddLine("Click: " .. table.concat(names, " > ") .. ". Right-click: back.", sr, sg, sb, true)
+end
+
+-- (the tooltip again after a click changed the tile under the mouse)
+local function TileTooltip(f)
+  GameTooltip:SetOwner(f, "ANCHOR_RIGHT")
+  if FillTileTip(f, GameTooltip) == false then GameTooltip:Hide() return end
   GameTooltip:Show()
 end
 
@@ -194,36 +203,26 @@ local function ClickTile(f, button)
 end
 
 local function NewTile(parent)
-  local UI = ns.UI
   local f = CreateFrame("Button", nil, parent)
   f:SetHeight(TILE_H)
   f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  f.bg = f:CreateTexture(nil, "BACKGROUND")
-  f.bg:SetAllPoints()
-  f.bg:SetColorTexture(0.105, 0.105, 0.125, 1)
+  f.bg = UI:Fill(f, "CARD")
   UI:AddEdges(f, "BORDER")
   f.hl = f:CreateTexture(nil, "ARTWORK")
   f.hl:SetPoint("TOPLEFT", 1, -1)
   f.hl:SetPoint("BOTTOMRIGHT", -1, 1)
-  f.hl:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.1)
+  f.hl:SetColorTexture(S:Color("SELECT"))
   f.hl:Hide()
   f.icon = f:CreateTexture(nil, "ARTWORK")
   f.icon:SetSize(22, 22)
   f.icon:SetPoint("LEFT", 4, 0)
   f.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-  f.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  f.name = UI:Text(f, "small", "TEXT")
   f.name:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 5, 0)
   f.name:SetPoint("RIGHT", f, "RIGHT", -4, 0)
-  f.name:SetJustifyH("LEFT")
-  f.name:SetWordWrap(false)
-  f.sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  local path, _, flags = f.sub:GetFont()
-  f.sub:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 8.5, flags or "")
-  f.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
+  f.sub = UI:Text(f, "caps", "SUB")
   f.sub:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", 5, 0)
   f.sub:SetPoint("RIGHT", f, "RIGHT", -4, 0)
-  f.sub:SetJustifyH("LEFT")
-  f.sub:SetWordWrap(false)
   f.dot = f:CreateTexture(nil, "OVERLAY")
   f.dot:SetSize(4, 4)
   f.dot:SetPoint("TOPRIGHT", -3, -3)
@@ -232,13 +231,12 @@ local function NewTile(parent)
   f:SetScript("OnEnter", function(self)
     self.hovered = true
     PaintTile(self)
-    TileTooltip(self)
   end)
   f:SetScript("OnLeave", function(self)
     self.hovered = false
     PaintTile(self)
-    GameTooltip:Hide()
   end)
+  UI:AttachTooltip(f, FillTileTip)
   f:SetScript("OnClick", ClickTile)
   return f
 end
@@ -246,17 +244,6 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Window
 -- ---------------------------------------------------------------------------------------------------------------
-local function Text(parent, size, color, justify)
-  local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  if size then
-    local path, _, flags = fs:GetFont()
-    fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, flags or "")
-  end
-  if color then fs:SetTextColor(color[1], color[2], color[3]) end
-  fs:SetJustifyH(justify or "LEFT")
-  return fs
-end
-
 local function Position()
   win:ClearAllPoints()
   local main = ns.MainFrame and ns.MainFrame:IsShown() and ns.MainFrame:GetFrame() or nil
@@ -293,26 +280,32 @@ end
 
 local function EnsureWindow()
   if win then return win end
-  local UI = ns.UI
   win = UI:CreateWindow("DisasterZoneSimBuffs", "Buffs", WIDTH, 608, { noSavePosition = true })
   win:Hide()
   local c = win.content
 
+  -- a tool window (UI:CreateLayout "tool"): the banner says what the draft follows, the tool row where it starts
+  -- from, an info notice how the tiles work; the tiles and the footer fill the body
+  local L = UI:CreateLayout("tool", c, { width = WIDTH - 10, pad = PADX, bottom = 0, toolbar = true,
+    banner = { size = "strip", title = "Your preset" } })
+  win.layout = L
+  local row = L.toolbar
+
   -- Start from
-  local lbl = Text(c, 10, GREY)
-  lbl:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -10)
+  local lbl = UI:Text(row, "small", "SUB")
+  lbl:SetPoint("LEFT", row, "LEFT", 0, 0)
   lbl:SetText("Start from")
   win.chips = {}
   local prev
   for _, ch in ipairs(CHIPS) do
-    local b = UI:CreateSleekButton(c, ch.text, 58, 20, function() StartFrom(ch.key) end, "secondary")
+    local b = UI:CreateSleekButton(row, ch.text, 58, 20, function() StartFrom(ch.key) end, "secondary")
     b:GetFontString():SetFontObject("GameFontHighlightSmall")
     if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("LEFT", lbl, "RIGHT", 10, 0) end
     b.key = ch.key
     win.chips[#win.chips + 1] = b
     prev = b
   end
-  win.team = UI:CreateSleekMenuButton(c, "Team", 150, function(root)
+  win.team = UI:CreateSleekMenuButton(row, "Team", 150, function(root)
     local lineups = SB():MyLineups()
     if #lineups == 0 then
       local e = root:CreateButton("You're on no team's roster yet", function() end)
@@ -328,63 +321,42 @@ local function EnsureWindow()
   win.team:SetPoint("LEFT", prev, "RIGHT", 4, 0)
   win.team:SetWidth(120)
   win.teamAfter = prev
-  win.team:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Team", 1, 0.82, 0)
-    GameTooltip:AddLine("Follow a lineup of a team you're on: your group's party buffs, the raid's buffs and the boss "
-      .. "debuffs come from the specs placed there, and change with it.", 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  win.team:HookScript("OnLeave", function() GameTooltip:Hide() end)
+  UI:AttachTooltip(win.team, "Team", { "Follow a lineup of a team you're on: your group's party buffs, the raid's buffs "
+    .. "and the boss debuffs come from the specs placed there, and change with it." }, { anchor = "ANCHOR_TOP" })
 
-  -- the banner: what the draft follows
-  local bn = CreateFrame("Frame", nil, c)
-  bn:SetPoint("TOPLEFT", c, "TOPLEFT", PADX, -38)
-  bn:SetPoint("TOPRIGHT", c, "TOPRIGHT", -PADX, -38)
-  bn:SetHeight(48)
-  bn.bg = bn:CreateTexture(nil, "BACKGROUND")
-  bn.bg:SetAllPoints()
-  bn.bg:SetColorTexture(0.1, 0.1, 0.12, 1)
-  bn.bar = bn:CreateTexture(nil, "ARTWORK")
-  bn.bar:SetPoint("TOPLEFT")
-  bn.bar:SetPoint("BOTTOMLEFT")
-  bn.bar:SetWidth(3)
-  bn.bar:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-  bn.a = Text(bn, 11, { 0.95, 0.95, 0.95 })
-  bn.a:SetPoint("TOPLEFT", bn, "TOPLEFT", 10, -6)
-  bn.a:SetPoint("RIGHT", bn, "RIGHT", -8, 0)
-  bn.a:SetWordWrap(false)
-  bn.b = Text(bn, 9, GREY)
-  bn.b:SetPoint("TOPLEFT", bn.a, "BOTTOMLEFT", 0, -3)
-  bn.b:SetPoint("RIGHT", bn, "RIGHT", -8, 0)
-  bn.b:SetWordWrap(true)
-  bn.cb = UI:CreateCheckbox(bn, "", function() return draft and draft.kind == "team" and draft.st.open ~= false end,
+  -- the banner: what the draft follows (its title and sub line, set by Refresh); a team's open comp slots on a
+  -- checkbox at the top of the body
+  win.banner = L.banner
+  local cb = UI:CreateCheckbox(L.body, "", function() return draft and draft.kind == "team" and draft.st.open ~= false end,
     function(v)
       if draft.kind ~= "team" then return end
       draft.st.open = v and true or false
       draft.dirty = true
       SimBuffsUI:Refresh()
     end)
-  bn.cb:SetPoint("BOTTOMLEFT", bn, "BOTTOMLEFT", 4, 0)
-  win.banner = bn
+  cb:SetPoint("TOPLEFT", L.body, "TOPLEFT", -4, 2)
+  win.openBox = cb
 
   -- the tiles
   local sf = UI:CreateScrollFrame(c)
-  sf:SetPoint("TOPLEFT", bn, "BOTTOMLEFT", 0, -4)
+  sf:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
   sf:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -PADX - 8, 52)
+  win.scrollTop = function(y)
+    sf:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, -y)
+  end
   local body = CreateFrame("Frame", nil, sf)
   body:SetSize(WIDTH - 2 * PADX - 30, 10)
   sf:SetScrollChild(body)
   win.scroll, win.body = sf, body
 
   -- footer
-  win.note = Text(c, 9, { 0.48, 0.48, 0.5 }, "RIGHT")
+  win.note = UI:Text(c, "caps", "DIM", { justify = "RIGHT" })
   win.note:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -PADX, 36)
-  win.save = UI:CreateSleekButton(c, "Save", 76, 24, function() SimBuffsUI:Save() end, "primary")
+  win.save = UI:CreateSleekButton(c, "Save", 76, S.BTN_H, function() SimBuffsUI:Save() end, "primary")
   win.save:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -PADX, 6)
-  win.del = UI:CreateSleekButton(c, "Delete", 76, 24, function() SimBuffsUI:Delete() end, "secondary")
+  win.del = UI:CreateSleekButton(c, "Delete", 76, S.BTN_H, function() SimBuffsUI:Delete() end, "secondary")
   win.del:SetPoint("RIGHT", win.save, "LEFT", -6, 0)
-  win.name = UI:CreateSleekEditBox(c, 200, 24)
+  win.name = UI:CreateSleekEditBox(c, 200, S.BTN_H)
   win.name:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", PADX, 6)
   win.name:SetPoint("RIGHT", win.del, "LEFT", -8, 0)
   win.name:SetMaxLetters(SB().MAX_NAME)
@@ -410,12 +382,8 @@ end
 local function Header(i)
   local h = headers[i]
   if not h then
-    h = CreateFrame("Frame", nil, win.body)
+    h = UI:CreateSectionHeader(win.body, "", { style = "caps" })
     h:SetHeight(18)
-    h.l = Text(h, 9, GREY)
-    h.l:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", 0, 3)
-    h.r = Text(h, 9, { 0.43, 0.43, 0.46 }, "RIGHT")
-    h.r:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", 0, 3)
     headers[i] = h
   end
   return h
@@ -440,8 +408,8 @@ function SimBuffsUI:Layout()
       if sec.key == "group" and view.info then
         title = view.info.group and (title .. " \194\183 GROUP " .. view.info.group) or (title .. " \194\183 NO GROUP YET")
       end
-      h.l:SetText(title)
-      h.r:SetText(hint)
+      h:SetTitle(title)
+      h:SetRight(hint)
       h:Show()
       y = y + 18
       for i, t in ipairs(list) do
@@ -495,28 +463,27 @@ function SimBuffsUI:Refresh()
   win.team:SetKind(custom and "secondary" or "primary")
   local cr, pr = win.content:GetRight(), win.teamAfter:GetRight()
   if cr and pr then win.team:SetWidth(max(80, floor(cr - pr - 4 - PADX))) end
-  local bn = win.banner
+  local L, bn, cb = win.layout, win.banner, win.openBox
   local info = view.info
   if custom then
-    bn.a:SetText(draft.id and "Your preset" or "A new preset")
-    bn.b:SetText("Click a buff to switch it off, on or improved; right-click goes back. Saved presets show in the "
-      .. "card's buffs list for all your characters.")
-    bn.cb:Hide()
+    bn:SetTitle(draft.id and "Your preset" or "A new preset")
+    bn:SetSub(nil)
+    L:ShowNotice("info", "Click a buff to switch it off, on or improved; right-click goes back. Saved presets show in "
+      .. "the card's buffs list for all your characters.")
+    cb:Hide()
   else
-    local where = info and info.group and ("you're in |cffffffffgroup " .. info.group .. "|r")
-      or "you're in no group yet: no party buffs"
-    bn.a:SetText("Follows |cffffffff" .. draft.name .. "|r \194\183 " .. where)
-    bn.b:SetText("Who is placed in the lineup today; changes to the team show up here by themselves. Click a buff "
-      .. "to switch it off, on or improved.")
+    bn:SetTitle("Follows " .. draft.name)
+    bn:SetSub(info and info.group and ("You're in group " .. info.group) or "You're in no group yet: no party buffs")
+    L:ShowNotice("info", "Who is placed in the lineup today; changes to the team show up here by themselves. Click a "
+      .. "buff to switch it off, on or improved.")
     local open = info and info.openCount or 0
-    bn.cb:SetShown(open > 0)
+    cb:SetShown(open > 0)
     if open > 0 then
-      bn.cb:SetChecked(draft.st.open ~= false)
-      bn.cb:SetLabel(("Count the comp's open slots (%d) as filled"):format(open))
+      cb:SetChecked(draft.st.open ~= false)
+      cb:SetLabel(("Count the comp's open slots (%d) as filled"):format(open))
     end
   end
-  bn:SetHeight(bn.cb:IsShown() and 62 or 46)
-  if bn.cb:IsShown() then bn.b:SetPoint("RIGHT", bn, "RIGHT", -8, 0) end
+  win.scrollTop(cb:IsShown() and 28 or 0)
   win.name:SetText(draft.name or "")
   if custom then win.name:Enable() else win.name:Disable() end
   win.name:SetAlpha(custom and 1 or 0.6)
