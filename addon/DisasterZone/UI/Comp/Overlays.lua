@@ -171,7 +171,11 @@ function H.NewToast(i)
         end
         if left <= 0 then UI:HideToast(self, "timeout") end
     end)
-    t:SetScript("OnHide", function(self) H.ToastGone(self) end)
+    -- (hidden with the whole UI, Alt+Z: it is still shown, keeps its place in the stack and its time waits)
+    t:SetScript("OnHide", function(self)
+        if self:IsShown() then return end
+        H.ToastGone(self)
+    end)
     t:Hide()
     toastFrames[i] = t
     return t
@@ -757,7 +761,8 @@ function UI:CreateHudFrame(name, opts)
     elseif look == "card" then
         f.bg = UI:Fill(f, T.BG, "BACKGROUND")
         UI:AddEdges(f, "BORDER")
-        UI:SetEdgeColor(f, 1, 0.82, 0, 0.55)
+        local r, g, b = S:Color("GOLD")
+        UI:SetEdgeColor(f, r, g, b, 0.55)
     end
     if opts.movable ~= false then
         f:SetMovable(true)
