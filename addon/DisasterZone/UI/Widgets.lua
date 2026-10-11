@@ -89,6 +89,308 @@ function UI:Color(key)
     return 1, 1, 1
 end
 
+---------------------------------------------------------------------------
+-- Primitives (refactor 1B): the pieces every page builds from, on the values of ns.Style (UI/Style.lua).
+--   UI:Text / UI:SetTextStyle   a text in a named style (S.STYLE) or a legacy size (snapped to the scale, D2)
+--   UI:Fill / UI:Gradient       a flat or a gradient fill; UI:Rule the 1 px hairline
+--   UI:FitText / UI:TextWidth   cut a text to a width with "..."; a text's width on one line
+--   UI:AttachTooltip            a frame's tooltip, filled when the mouse comes
+--   UI:Pool / UI:HideFrom       reused rows
+-- (items, model camera and window positions further down: UI:ItemIcon ..., UI:FitModelCamera, UI:SavePosition)
+---------------------------------------------------------------------------
+
+local S = ns.Style
+
+-- The client's text font (GameFontHighlight's, so other locales keep their glyphs).
+local function TextFont()
+    local fo = _G.GameFontHighlight
+    local path = fo and fo.GetFont and fo:GetFont()
+    return path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+end
+
+-- fs in a style: a S.STYLE name (its size, font and colour) or a number (a legacy size: snapped to the scale, the
+-- text keeps its font face). color: a token name or { r, g, b [, a] } (default: the style's). flags / font: optional
+-- overrides of the style's font flags / font path.
+function UI:SetTextStyle(fs, style, color, flags, font)
+    if not fs then return end
+    local st = S.STYLE[style]
+    local size, path
+    if st then
+        size, path = st.size, font or st.font or TextFont()
+    else
+        size = S:Size(style)
+        path = font or fs:GetFont() or TextFont()
+    end
+    fs:SetFont(path, size, flags or (st and st.flags) or "")
+    if st and st.spacing then fs:SetSpacing(st.spacing) end
+    local c = color or (st and st.color) or "TEXT"
+    fs:SetTextColor(S:Color(c))
+    return fs
+end
+
+-- A new FontString: one line, left-aligned, in `style` (see UI:SetTextStyle) and `color`.
+-- opts: { layer ("OVERLAY"), sublevel, justify ("LEFT"), wrap (false), width, shadow (true: the game's 1px drop,
+-- false: none, nil: the template's), flags, font, text (upper-cased for a caps style) }.
+function UI:Text(parent, style, color, opts)
+    opts = opts or {}
+    local fs = parent:CreateFontString(nil, opts.layer or "OVERLAY", "GameFontHighlight")
+    if opts.sublevel then fs:SetDrawLayer(opts.layer or "OVERLAY", opts.sublevel) end
+    fs:SetJustifyH(opts.justify or "LEFT")
+    fs:SetWordWrap(opts.wrap and true or false)
+    if opts.width then fs:SetWidth(opts.width) end
+    UI:SetTextStyle(fs, style or "body", color, opts.flags, opts.font)
+    if opts.shadow == false then
+        fs:SetShadowOffset(0, 0)
+    elseif opts.shadow then
+        fs:SetShadowColor(0, 0, 0, 1)
+        fs:SetShadowOffset(1, -1)
+    end
+    if opts.text ~= nil then
+        local st = S.STYLE[style]
+        local text = tostring(opts.text)
+        fs:SetText((st and st.caps) and text:upper() or text)
+    end
+    return fs
+end
+
+-- A texture filling parent, in a colour (a token name or { r, g, b [, a] }; default the card's). layer: "BACKGROUND".
+function UI:Fill(parent, color, layer, sublevel)
+    local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sublevel)
+    t:SetAllPoints(parent)
+    t:SetColorTexture(S:Color(color or "CARD"))
+    return t
+end
+
+local gradA = CreateColor and CreateColor(0, 0, 0, 0)   -- (reused: SetGradient copies the values)
+local gradB = CreateColor and CreateColor(0, 0, 0, 0)
+
+-- (the gradient in numbers, on a texture that is already white: the per-frame eases of the buttons call this)
+local function GradientRGBA(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
+    if gradA and tex.SetGradient then
+        gradA:SetRGBA(r1, g1, b1, a1)
+        gradB:SetRGBA(r2, g2, b2, a2)
+        tex:SetGradient(orient, gradA, gradB)
+    else
+        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
+    end
+end
+
+-- tex filled with a gradient from c1 to c2 (token names or { r, g, b [, a] }): "HORIZONTAL" runs left to right,
+-- "VERTICAL" bottom to top. The texture is set white first (a gradient tints the texture under it).
+function UI:Gradient(tex, orient, c1, c2)
+    if not tex then return end
+    tex:SetColorTexture(1, 1, 1, 1)
+    local r1, g1, b1, a1 = S:Color(c1)
+    local r2, g2, b2, a2 = S:Color(c2)
+    GradientRGBA(tex, orient or "VERTICAL", r1, g1, b1, a1, r2, g2, b2, a2)
+    return tex
+end
+
+-- A 1 px hairline across parent (S.C.HAIRLINE). opts: { color, alpha, layer ("ARTWORK"), sublevel, size (1),
+-- vertical, left / right (insets of a horizontal rule; a vertical one sits at left, or at right when given),
+-- top / bottom (a horizontal rule hangs top px down, or sits bottom px up when given; insets of a vertical one) }.
+function UI:Rule(parent, opts)
+    opts = opts or {}
+    local t = parent:CreateTexture(nil, opts.layer or "ARTWORK", nil, opts.sublevel)
+    local r, g, b, a = S:Color(opts.color or "HAIRLINE")
+    t:SetColorTexture(r, g, b, opts.alpha or a)
+    local size = opts.size or 1
+    local l, rt, top, bot = opts.left or 0, opts.right or 0, opts.top or 0, opts.bottom or 0
+    if opts.vertical then
+        t:SetWidth(size)
+        local side = opts.right and "RIGHT" or "LEFT"
+        local x = opts.right and -rt or l
+        t:SetPoint("TOP" .. side, parent, "TOP" .. side, x, -top)
+        t:SetPoint("BOTTOM" .. side, parent, "BOTTOM" .. side, x, bot)
+    else
+        t:SetHeight(size)
+        if opts.bottom then
+            t:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", l, bot)
+            t:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -rt, bot)
+        else
+            t:SetPoint("TOPLEFT", parent, "TOPLEFT", l, -top)
+            t:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -rt, -top)
+        end
+    end
+    return t
+end
+
+local function StringWidth(fs)
+    return (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 0
+end
+
+-- A text's whole width on one line. text: a FontString (its current text and font), or a string measured in `style`
+-- (a S.STYLE name or a size; default "body").
+local measureFs
+function UI:TextWidth(text, style)
+    if type(text) == "table" then
+        return text.GetStringWidth and StringWidth(text) or 0
+    end
+    if not measureFs then
+        measureFs = UIParent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        measureFs:SetWordWrap(false)
+        measureFs:Hide()
+    end
+    UI:SetTextStyle(measureFs, style or "body")
+    measureFs:SetText(text == nil and "" or tostring(text))
+    return StringWidth(measureFs)
+end
+
+-- The pieces of a text that are cut whole: a colour code, a link's head and tail, an inline texture, "||", one UTF-8
+-- character.
+local function TextUnits(text)
+    local units, i, n = {}, 1, #text
+    while i <= n do
+        local j
+        if text:sub(i, i) == "|" then
+            local k = text:sub(i + 1, i + 1)
+            if k == "c" then
+                j = i + 9
+            elseif k == "T" or k == "H" or k == "A" then
+                j = (text:find("|" .. (k == "H" and "h" or k:lower()), i + 2, true) or n) + 1
+            else
+                j = i + 1                                       -- |r, |h, ||, |n
+            end
+        else
+            local byte = text:byte(i)
+            j = i + ((byte >= 240 and 3) or (byte >= 224 and 2) or (byte >= 192 and 1) or 0)
+        end
+        units[#units + 1] = text:sub(i, j)
+        i = j + 1
+    end
+    return units
+end
+
+-- Sets fs to text, cut with "..." to fit maxWidth (default: fs's width). Returns true when it had to cut.
+function UI:FitText(fs, text, maxWidth)
+    text = text == nil and "" or tostring(text)
+    fs:SetText(text)
+    maxWidth = maxWidth or fs:GetWidth()
+    if not maxWidth or maxWidth <= 0 or StringWidth(fs) <= maxWidth then return false end
+    local units = TextUnits(text)
+    local function Cut(count)
+        local parts, colour, link = {}, false, false
+        for u = 1, count do
+            local p = units[u]
+            parts[u] = p
+            local k = p:sub(1, 2)
+            if k == "|c" then colour = true elseif k == "|r" then colour = false
+            elseif k == "|H" then link = true elseif k == "|h" then link = false end
+        end
+        return table.concat(parts) .. "..." .. (link and "|h" or "") .. (colour and "|r" or "")
+    end
+    local lo, hi = 0, #units - 1                                -- the most units that fit with the dots
+    while lo < hi do
+        local mid = floor((lo + hi + 1) / 2)
+        fs:SetText(Cut(mid))
+        if StringWidth(fs) <= maxWidth then lo = mid else hi = mid - 1 end
+    end
+    fs:SetText(Cut(lo))
+    return true
+end
+
+-- The tooltip of a frame that has one (UI:AttachTooltip).
+local function TipOnEnter(self)
+    local d = self.cdlTip
+    if not d then return end
+    local opts = d.opts or {}
+    GameTooltip:SetOwner(opts.owner or self, opts.anchor or "ANCHOR_RIGHT")
+    if type(d.title) == "function" then
+        if d.title(self, GameTooltip) == false then
+            GameTooltip:Hide()
+            return
+        end
+    elseif d.title ~= nil and d.title ~= "" then
+        GameTooltip:AddLine(d.title, S:Color("GOLD"))
+    end
+    local lines = d.lines
+    if type(lines) == "function" then lines = lines(self) end
+    if type(lines) ~= "table" then lines = lines ~= nil and { lines } or {} end
+    for _, line in ipairs(lines) do
+        if type(line) == "table" then
+            if type(line[2]) == "string" or type(line[2]) == "table" then
+                local r, g, b = S:Color(line[2])
+                GameTooltip:AddLine(line[1], r, g, b, line.wrap)
+            else
+                GameTooltip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, line.wrap)
+            end
+        else
+            GameTooltip:AddLine(tostring(line), 1, 1, 1, true)
+        end
+    end
+    if GameTooltip:NumLines() > 0 then GameTooltip:Show() else GameTooltip:Hide() end
+end
+
+local function TipOnLeave(self)
+    if self.cdlTip then GameTooltip:Hide() end
+end
+
+-- Gives frame a tooltip, built each time the mouse comes: title (gold), then lines. title may be a
+-- function(frame, tooltip) that fills the tooltip itself (return false: none this time); lines: a list of strings
+-- (white, wrapped) and { text, r, g, b, wrap = } / { text, "TOKEN" } entries, a single string, or a function(frame)
+-- returning such a list. opts: { anchor ("ANCHOR_RIGHT"), owner (frame) }. Calling it again replaces the content;
+-- nil title and lines remove it. The hooks wrap the frame's own OnEnter / OnLeave: attach after setting those (a later
+-- SetScript drops every hook, in the game too). The frame is made to take the mouse.
+function UI:AttachTooltip(frame, title, lines, opts)
+    if not frame then return end
+    if title == nil and lines == nil then
+        frame.cdlTip = nil
+        return frame
+    end
+    frame.cdlTip = { title = title, lines = lines, opts = opts }
+    if not frame.cdlTipHooked then
+        frame.cdlTipHooked = true
+        if frame.EnableMouse and frame.IsMouseEnabled and not frame:IsMouseEnabled() then frame:EnableMouse(true) end
+        frame:HookScript("OnEnter", TipOnEnter)
+        frame:HookScript("OnLeave", TipOnLeave)
+    end
+    return frame
+end
+
+-- A pool of reused frames (rows, chips ...): create(parent, i) makes one when the pool runs short; reset(item)
+-- (optional) runs on each released item. pool:Acquire() -> item, i (shown); pool:ReleaseAll() hides every item;
+-- pool:Each(fn) calls fn(item, i) for the acquired ones; pool:Active() = how many are acquired; pool.items = all made.
+local PoolMethods = {}
+PoolMethods.__index = PoolMethods
+function PoolMethods:Acquire()
+    local i = self.n + 1
+    self.n = i
+    local item = self.items[i]
+    if not item then
+        item = self.create(self.parent, i)
+        self.items[i] = item
+    end
+    item:Show()
+    return item, i
+end
+function PoolMethods:ReleaseAll()
+    local items, reset = self.items, self.reset
+    for i = 1, #items do
+        items[i]:Hide()
+        if reset and i <= self.n then reset(items[i]) end
+    end
+    self.n = 0
+end
+function PoolMethods:Each(fn)
+    for i = 1, self.n do fn(self.items[i], i) end
+end
+function PoolMethods:Active()
+    return self.n
+end
+
+function UI:Pool(parent, create, reset)
+    return setmetatable({ parent = parent, create = create, reset = reset, items = {}, n = 0 }, PoolMethods)
+end
+
+-- Hides list[first], list[first + 1] ... list[#list] (the rows a refresh did not use).
+function UI:HideFrom(list, first)
+    if type(list) ~= "table" then return end
+    for i = first or 1, #list do
+        local f = list[i]
+        if f and f.Hide then f:Hide() end
+    end
+end
+
 local function GetLink(itemID)
     if not itemID then return nil end
     local link
@@ -306,6 +608,27 @@ function UI:ItemText(itemID)
     return "|c" .. Hex(self:QualityColor(quality)) .. name .. "|r", false
 end
 
+-- An item's name (plain), or nil while it loads (the load is requested).
+function UI:ItemName(itemID)
+    local name = ItemNameQuality(itemID)
+    return name
+end
+
+-- An item's icon (a file id), the question mark (134400) while unknown.
+function UI:ItemIcon(itemID)
+    if ns.ItemDB and ns.ItemDB.GetIcon then
+        return ns.ItemDB:GetIcon(itemID) or QUESTION_MARK_ICON
+    end
+    local id = tonumber(itemID)
+    local icon = id and C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)
+    return icon or QUESTION_MARK_ICON
+end
+
+-- What a message names an item by: its link, else its name, else nil (still loading).
+function UI:ItemLabel(itemID)
+    return GetLink(itemID) or self:ItemName(itemID)
+end
+
 local emptySlotCache = {}
 function UI:EmptySlotTexture(sid)
     if not sid then return Tex("slotBg") end
@@ -409,26 +732,43 @@ end
 -- Windows & panels
 ---------------------------------------------------------------------------
 
-local function SavePosition(f)
-    local name = f.cdlName
-    if not name or f.noSavePosition or not (ns.db and ns.db.settings) then return end
+-- The one window-position store: ns.db.settings.windows[key] = { point, relPoint, x, y } (x, y whole pixels, relative
+-- to UIParent). key defaults to f.cdlName (UI:CreateWindow's name); a frame with f.noSavePosition keeps none.
+-- UI:SavePosition(f, key) -> true when saved.
+function UI:SavePosition(f, key)
+    key = key or f.cdlName
+    if not key or f.noSavePosition or not (ns.db and ns.db.settings) then return false end
     local point, _, relPoint, x, y = f:GetPoint(1)
-    if not point then return end
-    ns.db.settings.windows = ns.db.settings.windows or {}
-    ns.db.settings.windows[name] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
+    if not point then return false end
+    if type(ns.db.settings.windows) ~= "table" then ns.db.settings.windows = {} end
+    ns.db.settings.windows[key] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
+    return true
 end
 
-function UI:RestorePosition(f)
-    f:ClearAllPoints()
-    local name = f.cdlName
+-- The saved position of key ({ point, relPoint, x, y }), or nil.
+function UI:SavedPosition(key)
     local windows = ns.db and ns.db.settings and ns.db.settings.windows
-    local pos = name and not f.noSavePosition and type(windows) == "table" and windows[name]
-    if type(pos) == "table" and type(pos[1]) == "string" then
+    local pos = key and type(windows) == "table" and windows[key]
+    if type(pos) == "table" and type(pos[1]) == "string" then return pos end
+    return nil
+end
+
+-- Puts f where it was saved (key defaults to f.cdlName); without a saved position at the default: the SetPoint
+-- arguments after key (e.g. "TOP", UIParent, "TOP", 0, -120), else the screen's centre. Returns true when a saved
+-- position was used.
+function UI:RestorePosition(f, key, ...)
+    f:ClearAllPoints()
+    key = key or f.cdlName
+    local pos = not f.noSavePosition and self:SavedPosition(key)
+    if pos then
         local ok = pcall(f.SetPoint, f, pos[1], UIParent, pos[2] or pos[1], tonumber(pos[3]) or 0, tonumber(pos[4]) or 0)
-        if ok then return end
+        if ok then return true end
         f:ClearAllPoints()
     end
+    if select("#", ...) > 0 and pcall(f.SetPoint, f, ...) then return false end
+    f:ClearAllPoints()
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    return false
 end
 
 -- A soft shadow round frame f: a 9-slice of the radial texture's falloff (its quarters are the round corners, its
@@ -486,7 +826,7 @@ end
 -- the bottom, 27 from the top), so no window's layout moves. The main window grows its header (UI/MainFrame.lua).
 ---------------------------------------------------------------------------
 
-UI.WIN_BG = { 0.078, 0.078, 0.09 }
+UI.WIN_BG = S.C.SURFACE_WINDOW         -- { 0.078, 0.078, 0.09 }
 UI.WIN_HEAD = 26                     -- the header strip; the gold rule under it, the content 1 px further down
 local WIN_EDGE = { 0.23, 0.23, 0.25 }
 local WIN_RULE = { 0.17, 0.17, 0.19 }                 -- the rule's ends; its middle is gold
@@ -502,17 +842,6 @@ local GRAINS = {
     marble = { "Interface\\FrameGeneral\\UI-Background-Marble", 0.053 },
 }
 UI.WIN_FINISH = { light = 0.06, grain = "rock", amount = 0.3 }
-
--- (a texture filled with a gradient from colour c1 at alpha a1 to c2 at a2; orient "HORIZONTAL" runs left to right,
--- "VERTICAL" bottom to top)
-local function GradientFill(tex, orient, c1, a1, c2, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(c1[1], c1[2], c1[3], a1), CreateColor(c2[1], c2[2], c2[3], a2))
-    else
-        tex:SetColorTexture(c1[1], c1[2], c1[3], (a1 + a2) / 2)
-    end
-end
 
 -- The next raid (a RaidPlan view, the soonest not cancelled from 6 hours ago on), or nil; looked up at most once a
 -- minute (every window's header and the main window's line ask on show).
@@ -626,7 +955,7 @@ function UI:CreateWindow(name, title, width, height, opts)
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        SavePosition(self)
+        UI:SavePosition(self)
     end)
     if name and UISpecialFrames then
         tinsert(UISpecialFrames, name)
@@ -667,14 +996,15 @@ function UI:CreateWindow(name, title, width, height, opts)
     local shadeL = f:CreateTexture(nil, "BACKGROUND", nil, -4)
     shadeL:SetPoint("TOPLEFT", head)
     shadeL:SetPoint("BOTTOMRIGHT", head, "BOTTOM")
-    GradientFill(shadeL, "HORIZONTAL", UI.WIN_BG, 0.92, UI.WIN_BG, 0.55)
+    local slate = UI.WIN_BG
+    UI:Gradient(shadeL, "HORIZONTAL", { slate[1], slate[2], slate[3], 0.92 }, { slate[1], slate[2], slate[3], 0.55 })
     local shadeR = f:CreateTexture(nil, "BACKGROUND", nil, -4)
     shadeR:SetPoint("TOPLEFT", head, "TOP")
     shadeR:SetPoint("BOTTOMRIGHT", head)
-    GradientFill(shadeR, "HORIZONTAL", UI.WIN_BG, 0.55, UI.WIN_BG, 0.35)
+    UI:Gradient(shadeR, "HORIZONTAL", { slate[1], slate[2], slate[3], 0.55 }, { slate[1], slate[2], slate[3], 0.35 })
     local shadeV = f:CreateTexture(nil, "BACKGROUND", nil, -3)
     shadeV:SetAllPoints(head)
-    GradientFill(shadeV, "VERTICAL", UI.WIN_BG, 0.75, UI.WIN_BG, 0)
+    UI:Gradient(shadeV, "VERTICAL", { slate[1], slate[2], slate[3], 0.75 }, { slate[1], slate[2], slate[3], 0 })
 
     -- the body's finish: the stone grain over the whole slate (the header's art covers it up there), the light
     -- under the header
@@ -693,7 +1023,7 @@ function UI:CreateWindow(name, title, width, height, opts)
         local light = f:CreateTexture(nil, "BACKGROUND", nil, -6)
         light:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
         light:SetPoint("BOTTOMRIGHT", f, "RIGHT", -1, 0)
-        GradientFill(light, "VERTICAL", { 1, 1, 1 }, 0, { 1, 1, 1 }, fin.light)
+        UI:Gradient(light, "VERTICAL", { 1, 1, 1, 0 }, { 1, 1, 1, fin.light })
     end
 
     -- the gold glint under the header: the edge's grey at both ends, gold in the middle
@@ -703,11 +1033,11 @@ function UI:CreateWindow(name, title, width, height, opts)
     local ruleL = f:CreateTexture(nil, "ARTWORK")
     ruleL:SetPoint("TOPLEFT", rule)
     ruleL:SetPoint("BOTTOMRIGHT", rule, "BOTTOM")
-    GradientFill(ruleL, "HORIZONTAL", WIN_RULE, 1, WIN_GOLD, 0.55)
+    UI:Gradient(ruleL, "HORIZONTAL", WIN_RULE, { WIN_GOLD[1], WIN_GOLD[2], WIN_GOLD[3], 0.55 })
     local ruleR = f:CreateTexture(nil, "ARTWORK")
     ruleR:SetPoint("TOPLEFT", rule, "TOP")
     ruleR:SetPoint("BOTTOMRIGHT", rule)
-    GradientFill(ruleR, "HORIZONTAL", WIN_GOLD, 0.55, WIN_RULE, 1)
+    UI:Gradient(ruleR, "HORIZONTAL", { WIN_GOLD[1], WIN_GOLD[2], WIN_GOLD[3], 0.55 }, WIN_RULE)
 
     -- the seal, the title, the close X
     local seal = f:CreateTexture(nil, "ARTWORK")
@@ -755,37 +1085,14 @@ local PANEL_BACKDROP = {
 -- small status pills.
 ---------------------------------------------------------------------------
 
-UI.HUD_BG = { 0.04, 0.04, 0.05, 0.82 }
-UI.HUD_BORDER = { 0.4, 0.4, 0.4, 0.9 }
+UI.HUD_BG = S.C.HUD_BG                -- { 0.04, 0.04, 0.05, 0.82 }
+UI.HUD_BORDER = S.C.HUD_EDGE          -- { 0.4, 0.4, 0.4, 0.9 }
 
 function UI:StyleHud(f)
     if not f.SetBackdrop then return end
     f:SetBackdrop(PANEL_BACKDROP)
     f:SetBackdropColor(unpack(UI.HUD_BG))
     f:SetBackdropBorderColor(unpack(UI.HUD_BORDER))
-end
-
--- A flat button: tinted background, brighter on hover. tint = { r, g, b } (default grey).
-function UI:CreateFlatButton(parent, text, width, height, onClick, tint)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(width or 70, height or 18)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.12)
-    local fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetPoint("CENTER")
-    b:SetFontString(fs)
-    b:SetText(text or "")
-    function b:SetTint(t)
-        t = t or { 0.6, 0.6, 0.6 }
-        self.bg:SetColorTexture(t[1], t[2], t[3], 0.35)
-    end
-    b:SetTint(tint)
-    b:RegisterForClicks("LeftButtonUp")
-    if onClick then b:SetScript("OnClick", onClick) end
-    return b
 end
 
 ---------------------------------------------------------------------------
@@ -825,12 +1132,12 @@ for _, s in pairs(SLEEK) do
 end
 SLEEK.active = SLEEK.chosen   -- the older name of "chosen"
 UI.SLEEK = SLEEK
-local LIT_EDGE = { 1, 0.82, 0, 0.75 }   -- a field being typed in / a dropdown while its list is open
+local LIT_EDGE = S.C.EDGE_FOCUS         -- { 1, 0.82, 0, 0.75 }: a field being typed in / a dropdown while its list is open
 
 -- What drops from a dropdown (every menu, the calendar, the search lists): a near-black panel with a 1px edge, 4px
 -- under its dropdown, dropping in (UI:DropIn).
-UI.DROP_BG = { 0.06, 0.06, 0.07, 0.98 }
-UI.DROP_EDGE = { 0.34, 0.34, 0.38, 1 }
+UI.DROP_BG = S.C.DROP_BG               -- { 0.06, 0.06, 0.07, 0.98 }
+UI.DROP_EDGE = S.C.DROP_EDGE           -- { 0.34, 0.34, 0.38, 1 }
 UI.DROP_GAP = 4
 UI.DROP_FALL, UI.DROP_TIME = 6, 0.14     -- the drop-in: px it moves, seconds
 
@@ -980,18 +1287,7 @@ local SHEEN_TIME = 0.5      -- seconds: the light's way across
 local NV = 13               -- a look: fill top rgba, fill bottom rgba, edge rgba, shine alpha
 local easing = {}           -- skinned frame -> its look state, while it is on its way to its target
 local skinDriver = CreateFrame("Frame")
-local gradA = CreateColor and CreateColor(0, 0, 0, 0)   -- (reused: SetGradient copies the values)
-local gradB = CreateColor and CreateColor(0, 0, 0, 0)
-
-local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    if gradA and tex.SetGradient then
-        gradA:SetRGBA(r1, g1, b1, a1)
-        gradB:SetRGBA(r2, g2, b2, a2)
-        tex:SetGradient(orient, gradA, gradB)
-    else
-        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
-    end
-end
+local Gradient = GradientRGBA   -- (UI:Gradient's numbers-only core: the skins' textures are white already)
 
 local function ApplyLook(f, v)
     Gradient(f.bg, "VERTICAL", v[5], v[6], v[7], v[8], v[1], v[2], v[3], v[4])   -- (bottom colour first)
@@ -1785,23 +2081,6 @@ function UI:SetTabCount(tab, n, kind)
     tab:SetLabel(tab:GetText())                                     -- (width + underline follow)
 end
 
--- A small status pill ("ENGAGED", "BIS LOCKED"): pill:Set(text, { r, g, b }).
-function UI:CreatePill(parent)
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetHeight(14)
-    p.bg = p:CreateTexture(nil, "BACKGROUND")
-    p.bg:SetAllPoints()
-    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.fs:SetPoint("CENTER")
-    function p:Set(text, color)
-        color = color or { 0.55, 0.55, 0.55 }
-        self.fs:SetText(text or "")
-        self:SetWidth((self.fs:GetStringWidth() or 40) + 10)
-        self.bg:SetColorTexture(color[1], color[2], color[3], 0.35)
-    end
-    return p
-end
-
 -- A rounded pill look for frame f, h high (a 1px edge and a fill, drawn from half discs and a bar that don't overlap,
 -- so a see-through fill stays even): f:SetPillColors(fill, edge) with { r, g, b, a } each. The caller sizes f (its
 -- height = h) and puts its own texts / icons on it.
@@ -1842,7 +2121,7 @@ UI.COUNT_LOOK = {
     alert = { fill = { 1, 0.82, 0 },          text = { 0.09, 0.07, 0.01 } },
     muted = { fill = { 0.30, 0.30, 0.33 },    text = { 0.93, 0.93, 0.93 } },
 }
-UI.COUNT_SURFACE = { 0.078, 0.078, 0.09 }   -- the main window's fill, the default cutout
+UI.COUNT_SURFACE = S.C.SURFACE_WINDOW   -- { 0.078, 0.078, 0.09 }: the main window's fill, the default cutout
 local COUNT_DIGITS = "Fonts\\ARIALN.TTF"
 
 -- The count badge's digits on any text (a number drawn on a gold disc of its own): narrow, no shadow; h = the disc's
@@ -2938,8 +3217,8 @@ local SD_FOOTER_H = 22
 local SD_CHECK_MARK = "Interface\\Buttons\\UI-CheckBox-Check"
 local SD_SEARCH_ICON = "Interface\\Common\\UI-Searchbox-Icon"
 local SD_CLEAR_ICON = "Interface\\FriendsFrame\\ClearBroadcastIcon"
-local SD_EDGE = { 0.34, 0.34, 0.38, 0.9 }
-local SD_EDGE_FOCUS = { 1, 0.82, 0, 0.75 }
+local SD_EDGE = S.C.EDGE_STRONG              -- { 0.34, 0.34, 0.38, 0.9 }
+local SD_EDGE_FOCUS = S.C.EDGE_FOCUS         -- { 1, 0.82, 0, 0.75 }
 
 local function SDTrim(s)
     if type(s) ~= "string" then return "" end
@@ -4010,6 +4289,11 @@ local function FitModelCamera(m)
     pcall(m.SetCamDistanceScale, m, m.camScale or 1)
     pcall(m.SetPosition, m, 0, 0, 0)
     pcall(m.SetFacing, m, m.facing or 0)
+end
+
+-- A model's full-body camera, fitted to its frame again (after SetUnit / TryOn / a model change).
+function UI:FitModelCamera(m)
+    if m then FitModelCamera(m) end
 end
 
 local function IsWearable(itemID)
