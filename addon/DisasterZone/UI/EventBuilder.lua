@@ -19,7 +19,8 @@ local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 
 local WIN_NAME = "DisasterZoneEventBuilder"
 local WIN_W, WIN_H = 1040, 660
-local TOP_H = 44
+local TOP_H = 44                -- the top bar: the tool window's banner (UI:CreateLayout "tool")
+local BODY_H = WIN_H - 31 - TOP_H     -- the palette and canvas under it
 local PAL_W, CAT_W = 266, 60
 local LOG_H = 118
 local SNAP = 22                 -- content units a dragged piece snaps from
@@ -37,7 +38,23 @@ local function L() return ns.EventLive end
 local function Util() return ns.Util end
 local function Copy(v) return ns.EventBlocks.Copy(v) end
 local function Me() return ns.Util.PlayerKey() end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local St = ns.Style  -- (the design values: colours, the type scale; `S` is the builder's state here)
+-- r, g, b, a of a ns.Style colour, with another alpha when given.
+-- TODO(refactor): move into ns.Style (S:Color with an alpha override)
+local function Col(name, a)
+    local r, g, b, ta = St:Color(name)
+    return r, g, b, a or ta
+end
+-- The builder's own shades (not design tokens): read-only, some are passed to shared parts.
+local C = {
+    white = { 1, 1, 1 },
+    cross = { 0.66, 0.66, 0.68 },                 -- a close cross / an x at rest (white under the mouse)
+    tipTop = { anchor = "ANCHOR_TOP" },           -- (UI:AttachTooltip's opts: the builder's tips sit above)
+    cardLo = { 0.102, 0.102, 0.122, 1 }, cardHi = { 0.145, 0.145, 0.172, 1 }, cardLoClear = { 0.102, 0.102, 0.122, 0 },
+    sheetLo = { 0.078, 0.078, 0.094, 1 }, sheetHi = { 0.11, 0.11, 0.129, 1 },     -- the sheets' slate (UI:CreateSheet's)
+    panelEdge = { 0.47, 0.47, 0.51, 0.75 },                                       -- and their edge
+    practiceTint = { 0.05, 0.33, 0.29, 0.35 }, practiceClear = { 0.05, 0.33, 0.29, 0 },
+}
 
 local S = {}        -- the builder's state (Builder:GetState)
 local win            -- the window
@@ -46,17 +63,11 @@ local ui = {}        -- its parts
 local Defs, MapSheet, QSheet = {}, {}, {}
 Builder.Defs, Builder.MapSheet, Builder.QSheet = Defs, MapSheet, QSheet   -- (the tests and the audit drive them)
 
-local function Sized(fs, size)
+-- A text's size on the type scale (D2: half sizes snap), keeping its font face and colour (a field, a pill's name
+-- that shrinks to fit). TODO(refactor): move into UI:SetTextStyle (a size change that keeps the colour)
+local function Resize(fs, size)
     local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
-    return fs
-end
-
-local function Text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
+    if path then fs:SetFont(path, St:Size(size), flags or "") end
     return fs
 end
 
@@ -67,15 +78,10 @@ local function Tip(owner, title, text)
     GameTooltip:Show()
 end
 
--- A text's whole width on one line (GetStringWidth stops at a width the string was given on this client).
-local function TextW(fs)
-    if fs.GetUnboundedStringWidth then return fs:GetUnboundedStringWidth() or 0 end
-    return fs:GetStringWidth() or 0
-end
-
 -- Typed words as the library keeps them (Core/Events.lua cleans the same way when it saves): no "|" (the game reads
 -- it as a code) or control characters, at most maxLen bytes (not in the middle of a letter).
 local MAX_TEXT, MAX_NAME = 200, 24
+local CONFIRM = "DISASTERZONE_CONFIRM_eventBuilder"     -- (ns.Popup:Confirm's dialog for key "eventBuilder")
 local function Clean(text, maxLen)
     text = ns.Util.Trim((tostring(text or ""):gsub("[%c|]", "")))
     if maxLen and #text > maxLen then
@@ -145,7 +151,7 @@ end
 
 local function NewId(prefix)
     S.idn = (S.idn or 0) + 1
-    return (prefix or "s") .. string.format("%x", Now() % 1048576) .. S.idn
+    return (prefix or "s") .. string.format("%x", Util().Now() % 1048576) .. S.idn
 end
 
 -- (the definitions too: a tag's colour or a place's size changes how the event runs)
@@ -214,7 +220,7 @@ function Builder:CloseFloating()
     if QSheet.Close then QSheet:Close() end
     if MapSheet.Close then MapSheet:Close() end
     if Defs.HideCard then Defs:HideCard() end
-    if ui.confirm then ui.confirm:Hide() end
+    if Builder:ConfirmUp() then ns.Popup:Hide(CONFIRM) end
 end
 
 function Builder:Undo() Swap(S.undo, S.redo) end
@@ -321,7 +327,7 @@ end
 
 local function Divider(parent, vertical)
     local t = parent:CreateTexture(nil, "BORDER")
-    t:SetColorTexture(1, 1, 1, 0.12)
+    t:SetColorTexture(Col("HAIRLINE", 0.12))
     if vertical then t:SetWidth(1) else t:SetHeight(1) end
     return t
 end
@@ -333,11 +339,15 @@ local function CreateWindow()
     win:SetFrameStrata("HIGH")
     local c = win.content
     c:SetClipsChildren(true)
-    ui.body = CreateFrame("Frame", nil, c)
-    ui.body:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -TOP_H)
+    -- the tool window's layout: its banner is the top bar (the event, the stages, the actions; the main action far
+    -- right); the palette and the canvas fill its body, flush under the bar (an editor: the canvas keeps every pixel
+    -- of its height, so a stage opens at the zoom it always did)
+    ui.layout = UI():CreateLayout("tool", c, { width = WIN_W - 12, pad = 0, bottom = 0, banner = { size = TOP_H } })
+    ui.body = CreateFrame("Frame", nil, ui.layout.body)
+    ui.body:SetPoint("TOPLEFT", ui.layout.banner, "BOTTOMLEFT", 0, 0)
     ui.body:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 0)
-    ui.body:SetSize(WIN_W - 12, WIN_H - 31 - TOP_H)
-    CreateTop(c)
+    ui.body:SetSize(WIN_W - 12, BODY_H)
+    CreateTop(ui.layout.banner)
     CreatePalette(ui.body)
     CreateCanvas(ui.body)
     CreatePractice(ui.body)
@@ -358,10 +368,10 @@ local function CreateWindow()
         elseif key == "ESCAPE" and ui.picker and ui.picker:IsShown() then
             self:SetPropagateKeyboardInput(false)
             Builder:ClosePicker()
-        elseif key == "ESCAPE" and ((ui.confirm and ui.confirm:IsShown()) or (ui.msheet and ui.msheet:IsShown())
+        elseif key == "ESCAPE" and (Builder:ConfirmUp() or (ui.msheet and ui.msheet:IsShown())
             or (ui.qsheet and ui.qsheet:IsShown()) or (ui.dpop and ui.dpop:IsShown())) then
             self:SetPropagateKeyboardInput(false)
-            if ui.confirm and ui.confirm:IsShown() then ui.confirm:Hide()
+            if Builder:ConfirmUp() then ns.Popup:Hide(CONFIRM)
             elseif ui.msheet and ui.msheet:IsShown() then MapSheet:Close()
             elseif ui.qsheet and ui.qsheet:IsShown() then QSheet:Close()
             else Defs:Close() end
@@ -395,20 +405,14 @@ local function IconButton(parent, icon, title, text, onClick, size)
     return b
 end
 
-CreateTop = function(c)
-    local top = CreateFrame("Frame", nil, c)
-    top:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
-    top:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
-    top:SetHeight(TOP_H)
+-- The top bar is the layout's banner (a plain one: the event's own controls sit on it).
+CreateTop = function(banner)
+    local top = banner
     ui.top = top
-    local line = Divider(top)
-    line:SetPoint("BOTTOMLEFT")
-    line:SetPoint("BOTTOMRIGHT")
-    -- the practice tint
-    top.tint = top:CreateTexture(nil, "BACKGROUND")
+    -- the practice tint (over the banner's plain card)
+    top.tint = top:CreateTexture(nil, "BACKGROUND", nil, 4)
     top.tint:SetAllPoints()
-    top.tint:SetTexture(WHITE)
-    EUI():Gradient(top.tint, "HORIZONTAL", 0.05, 0.33, 0.29, 0.35, 0)
+    UI():Gradient(top.tint, "HORIZONTAL", C.practiceTint, C.practiceClear)
     top.tint:Hide()
     -- the event: icon, name (a field that reads as text), pencil
     local icon = CreateFrame("Button", nil, top)
@@ -419,13 +423,12 @@ CreateTop = function(c)
     icon.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     EUI():Edge(icon, 0, 0, 0, 1)
     icon:SetScript("OnClick", function(self) Builder:IconMenu(self) end)
-    icon:SetScript("OnEnter", function(self) Tip(self, "Event icon", "Click to pick another one.") end)
-    icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(icon, "Event icon", "Click to pick another one.", C.tipTop)
     top.icon = icon
     local name = CreateFrame("EditBox", nil, top)
     name:SetAutoFocus(false)
     name:SetFontObject("GameFontHighlight")
-    Sized(name, 13)
+    Resize(name, 13)
     name:SetSize(170, 24)
     name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
     name:SetMaxLetters(40)
@@ -459,16 +462,15 @@ CreateTop = function(c)
     -- the crumb (inside a smart block) and the practice controls share the strip's place
     top.crumb = CreateFrame("Frame", nil, top)
     top.crumb:SetSize(300, 24)
-    top.crumb.back = Text(top.crumb, "GameFontHighlight", 12)
+    top.crumb.back = UI():Text(top.crumb, "emph", { 0.74, 0.74, 0.74 })
     top.crumb.back:SetPoint("LEFT", top.crumb, "LEFT", 0, 0)
-    top.crumb.back:SetTextColor(0.74, 0.74, 0.74)
     top.crumb.chev = top.crumb:CreateTexture(nil, "ARTWORK")
     top.crumb.chev:SetSize(10, 10)
     UI():SetChevron(top.crumb.chev, true)
-    top.crumb.chev:SetVertexColor(0.44, 0.44, 0.46)
+    top.crumb.chev:SetVertexColor(Col("DIM"))
     top.crumb.icon = top.crumb:CreateTexture(nil, "ARTWORK")
     top.crumb.icon:SetSize(18, 18)
-    top.crumb.name = Text(top.crumb, "GameFontNormal", 12)
+    top.crumb.name = UI():Text(top.crumb, "emph", "GOLD")
     top.crumb.pill = EUI():CreatePill(top.crumb, 16)
     local backBtn = CreateFrame("Button", nil, top.crumb)
     backBtn:SetAllPoints(top.crumb.back)
@@ -517,10 +519,9 @@ CreateTop = function(c)
     pr.tag.dot:SetSize(7, 7)
     pr.tag.dot:SetVertexColor(0.31, 0.84, 0.73)
     pr.tag.dot:SetPoint("LEFT", pr.tag, "LEFT", 10, 0)
-    pr.tag.fs = Text(pr.tag, "GameFontHighlight", 12)
+    pr.tag.fs = UI():Text(pr.tag, "emph", { 0.92, 1, 0.97 })
     pr.tag.fs:SetPoint("LEFT", pr.tag.dot, "RIGHT", 7, 0)
     pr.tag.fs:SetText("Practice run")
-    pr.tag.fs:SetTextColor(0.92, 1, 0.97)
     pr.pause = IconButton(pr, UI().ICON.pause or 48, "Pause", "Stops the practice clock (timers wait).", function()
         local _, p = L():GetPractice()
         L():SetPracticePaused(not (p and p.paused))
@@ -569,12 +570,12 @@ local function Pill(list, parent, i)
     p.disc:SetTexture(EUI().MASK)
     p.disc:SetSize(17, 17)
     p.disc:SetPoint("LEFT", p, "LEFT", 4, 0)
-    p.num = Text(p, "GameFontHighlightSmall", 10)
+    p.num = UI():Text(p, "small", C.white)
     p.num:SetJustifyH("CENTER")
     p.num:SetPoint("CENTER", p.disc, "CENTER", 0, 0)
     p.icon = p:CreateTexture(nil, "ARTWORK", nil, 2)
     p.icon:SetSize(15, 15)
-    p.fs = Text(p, "GameFontHighlight", 12)
+    p.fs = UI():Text(p, "emph", C.white)
     p.dot = p:CreateTexture(nil, "OVERLAY")
     p.dot:SetTexture(EUI().MASK)
     p.dot:SetSize(6, 6)
@@ -585,16 +586,19 @@ local function Pill(list, parent, i)
     p.arrow:SetVertexColor(0.31, 0.31, 0.33)
     p:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     -- (a stage shown by its number only says its name here)
-    p:SetScript("OnEnter", function(self) if self.tipTitle then Tip(self, self.tipTitle, self.tipText) end end)
-    p:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(p, function(self, tt)
+        if not self.tipTitle then return false end
+        tt:AddLine(self.tipTitle, unpack(St.C.GOLD))
+        if self.tipText then tt:AddLine(self.tipText, 1, 1, 1, true) end
+    end, nil, C.tipTop)
     list[i] = p
     return p
 end
 
 local function PaintPill(p, kind)
     if kind == "on" then
-        p:SetPillColors({ 0.42, 0.30, 0.04, 0.6 }, { 1, 0.82, 0, 0.85 })
-        p.disc:SetVertexColor(1, 0.82, 0)
+        p:SetPillColors({ 0.42, 0.30, 0.04, 0.6 }, { Col("GOLD", 0.85) })
+        p.disc:SetVertexColor(Col("GOLD"))
         p.num:SetTextColor(0.16, 0.11, 0)
         p.fs:SetTextColor(1, 0.95, 0.8)
     elseif kind == "live" then
@@ -609,7 +613,7 @@ local function PaintPill(p, kind)
         p.fs:SetTextColor(0.6, 0.6, 0.63)
     else
         p:SetPillColors({ 0.06, 0.06, 0.07, 0.5 }, { 1, 1, 1, 0.14 })
-        p.disc:SetVertexColor(1, 1, 1, 0.08)
+        p.disc:SetVertexColor(Col("HAIRLINE", 0.08))
         p.num:SetTextColor(0.87, 0.87, 0.87)
         p.fs:SetTextColor(0.74, 0.74, 0.74)
     end
@@ -659,12 +663,12 @@ local function LayoutStrip(strip, pills, practice, room)
             end
             local open = i == openIdx
             local num = small[i] and true or false
-            Sized(p.fs, open and size or 12)
+            Resize(p.fs, open and size or 12)
             p.fs:SetText(st.name)
             p.fs:ClearAllPoints()
             p.fs:SetPoint("LEFT", p.disc, "RIGHT", 6, 0)
             p.fs:SetShown(not num)
-            local w = num and 25 or (4 + 17 + 6 + TextW(p.fs) + 10)
+            local w = num and 25 or (4 + 17 + 6 + UI():TextWidth(p.fs) + 10)
             p.dot:ClearAllPoints()
             if problems[st.id] and not practice then
                 p.dot:Show()
@@ -758,13 +762,13 @@ local function LayoutStrip(strip, pills, practice, room)
             alw.icon:SetPoint("LEFT", alw, "LEFT", 9, 0)
             alw.icon:SetSize(15, 15)
             EUI():Glyph(alw.icon, UI().ICON.infinity or 53, 0.81, 0.81, 0.81)
-            Sized(alw.fs, on and size or 12)
+            Resize(alw.fs, on and size or 12)
             alw.fs:SetText("Always")
             alw.fs:ClearAllPoints()
             alw.fs:SetPoint("LEFT", alw.icon, "RIGHT", 5, 0)
             alw.fs:SetShown(not sign)
             PaintPill(alw, on and "on" or "")
-            local aw = sign and 33 or (9 + 15 + 5 + TextW(alw.fs) + 10)
+            local aw = sign and 33 or (9 + 15 + 5 + UI():TextWidth(alw.fs) + 10)
             alw:SetWidth(aw)
             alw.sep = alw.sep or Divider(strip, true)
             alw.sep:SetHeight(20)
@@ -822,18 +826,18 @@ local function RenderTop()
     if not top.name:HasFocus() then top.name:SetText(d.name or "") end
     -- a field sized to its text (a long name in a smaller font, and wider when it must: the field shows all of it;
     -- the stage strip makes room)
-    local probe = top.probe or Text(top, "GameFontHighlight", 13)
+    local probe = top.probe or UI():Text(top, "title", C.white)
     top.probe = probe
     probe:SetText(d.name or "")
     probe:Hide()
     local size = 13
-    Sized(probe, size)
-    while size > 10 and TextW(probe) + 6 > 220 do
+    Resize(probe, size)
+    while size > 10 and UI():TextWidth(probe) + 6 > 220 do
         size = size - 1
-        Sized(probe, size)
+        Resize(probe, size)
     end
-    Sized(top.name, size)
-    local nw = min(300, max(40, TextW(probe) + 6))
+    Resize(top.name, size)
+    local nw = min(300, max(40, UI():TextWidth(probe) + 6))
     top.name:SetWidth(nw)
     top.pencil:ClearAllPoints()
     top.pencil:SetPoint("LEFT", top.name, "RIGHT", 2, 0)
@@ -942,7 +946,7 @@ CreatePalette = function(body)
     -- the categories: a coloured circle and the word under it
     pal.cats = {}
     local catLine = pal:CreateTexture(nil, "BORDER")
-    catLine:SetColorTexture(1, 1, 1, 0.06)
+    catLine:SetColorTexture(Col("HAIRLINE", 0.06))
     catLine:SetPoint("TOPLEFT", pal, "TOPLEFT", CAT_W, 0)
     catLine:SetPoint("BOTTOMLEFT", pal, "BOTTOMLEFT", CAT_W, 0)
     catLine:SetWidth(1)
@@ -952,9 +956,9 @@ CreatePalette = function(body)
         b:SetPoint("TOPLEFT", pal, "TOPLEFT", 0, -4 - (i - 1) * 47)
         b.hl = b:CreateTexture(nil, "BACKGROUND")
         b.hl:SetAllPoints()
-        b.hl:SetColorTexture(1, 1, 1, 0.05)
+        b.hl:SetColorTexture(Col("HOVER"))
         b.bar = b:CreateTexture(nil, "ARTWORK")
-        b.bar:SetColorTexture(1, 0.82, 0)
+        b.bar:SetColorTexture(Col("GOLD"))
         b.bar:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -6)
         b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 6)
         b.bar:SetWidth(2)
@@ -973,7 +977,7 @@ CreatePalette = function(body)
         b.ring:SetSize(17, 17)
         b.ring:SetPoint("CENTER", b.dot, "CENTER", 0, 0)
         b.ring:SetVertexColor(c.e[1], c.e[2], c.e[3])
-        b.fs = Text(b, "GameFontHighlightSmall", 9.5)
+        b.fs = UI():Text(b, 9.5, C.white)
         b.fs:SetJustifyH("CENTER")
         b.fs:SetPoint("TOP", b.dot, "BOTTOM", 0, -5)
         b.fs:SetText(c.label)
@@ -1014,10 +1018,9 @@ CreatePalette = function(body)
     pal.trash:SetAllPoints()
     pal.trash:SetColorTexture(0.6, 0.12, 0.1, 0.18)
     pal.trash:Hide()
-    pal.trashFs = Text(pal, "GameFontHighlight", 12)
+    pal.trashFs = UI():Text(pal, "emph", { 1, 0.85, 0.82 })
     pal.trashFs:SetPoint("CENTER", pal, "CENTER", 0, 0)
     pal.trashFs:SetText("Drop here to take it away")
-    pal.trashFs:SetTextColor(1, 0.85, 0.82)
     pal.trashFs:Hide()
 end
 
@@ -1167,21 +1170,20 @@ local function DefRowParts(it)
     if it.nm then return end
     it.sel = it:CreateTexture(nil, "BACKGROUND", nil, 1)
     it.sel:SetAllPoints()
-    it.sel:SetColorTexture(1, 0.82, 0, 0.10)
+    it.sel:SetColorTexture(Col("SELECT"))
     it.bar = it:CreateTexture(nil, "ARTWORK")
-    it.bar:SetColorTexture(1, 0.82, 0)
+    it.bar:SetColorTexture(Col("GOLD"))
     it.bar:SetPoint("TOPLEFT")
     it.bar:SetPoint("BOTTOMLEFT")
     it.bar:SetWidth(2)
     it.hov = it:CreateTexture(nil, "HIGHLIGHT")
     it.hov:SetAllPoints()
-    it.hov:SetColorTexture(1, 1, 1, 0.04)
+    it.hov:SetColorTexture(Col("HAIRLINE", 0.04))
     it.sw = it:CreateTexture(nil, "ARTWORK", nil, 1)
     it.sw2 = it:CreateTexture(nil, "ARTWORK", nil, 2)
     it.sw3 = it:CreateTexture(nil, "ARTWORK", nil, 3)
-    it.nm = Text(it, "GameFontHighlight", 11.5)
-    it.sb = Text(it, "GameFontHighlightSmall", 10)
-    it.sb:SetTextColor(0.62, 0.62, 0.62)
+    it.nm = UI():Text(it, "body", C.white)
+    it.sb = UI():Text(it, "small", "SUB")
     it.pen = it:CreateTexture(nil, "ARTWORK")
     it.pen:SetSize(11, 11)
     it.pen:SetPoint("RIGHT", it, "RIGHT", -6, 0)
@@ -1220,7 +1222,7 @@ function Builder:RenderPalette()
         nh = nh + 1
         local h = pal.heads[nh]
         if not h then
-            h = Text(child, "GameFontNormal", 11)
+            h = UI():Text(child, "body", "GOLD")
             pal.heads[nh] = h
         end
         if gi > 1 then y = y + 6 end
@@ -1236,9 +1238,8 @@ function Builder:RenderPalette()
             if not it then
                 it = CreateFrame("Button", nil, child)
                 it:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-                it.fs = Text(it, "GameFontHighlight", 11)
-                it.desc = Text(it, "GameFontHighlightSmall", 10)
-                it.desc:SetTextColor(0.55, 0.55, 0.58)
+                it.fs = UI():Text(it, "body", C.white)
+                it.desc = UI():Text(it, "small", { 0.55, 0.55, 0.58 })
                 it.ic = it:CreateTexture(nil, "ARTWORK")
                 it.ic:SetSize(16, 16)
                 it.ic:SetPoint("LEFT", it, "LEFT", 8, 0)
@@ -1294,9 +1295,9 @@ function Builder:RenderPalette()
                 end
                 it.fs:SetPoint("LEFT", it, "LEFT", x, 0)
                 it.fs:Show()
-                UI():SetEdgeColor(it, 0.34, 0.34, 0.38, 0.9)
-                it.bg:SetColorTexture(0.1, 0.1, 0.12, 0.92)
-                it:SetSize(min(PAL_LIST_W, x + TextW(it.fs) + 12), 24)
+                UI():SetEdgeColor(it, Col("EDGE_STRONG"))
+                it.bg:SetColorTexture(Col("CARD"))
+                it:SetSize(min(PAL_LIST_W, x + UI():TextWidth(it.fs) + 12), 24)
                 h = 24
                 it:SetScript("OnClick", function(self, button)
                     if button ~= "LeftButton" then return end
@@ -1342,10 +1343,9 @@ function Builder:RenderPalette()
     end
     -- a search that finds nothing says so (the list would be empty)
     if not pal.none then
-        pal.none = Text(child, "GameFontHighlightSmall", 11)
+        pal.none = UI():Text(child, "body", "SUB")
         pal.none:SetWordWrap(true)
         pal.none:SetWidth(PAL_W - CAT_W - 26)
-        pal.none:SetTextColor(0.62, 0.62, 0.62)
         pal.none:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -4)
     end
     if nh == 0 then
@@ -1367,7 +1367,7 @@ CreateCanvas = function(body)
     local cv = CreateFrame("Frame", nil, body)
     cv:SetPoint("TOPLEFT", body, "TOPLEFT", PAL_W, 0)
     cv:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
-    cv:SetSize(WIN_W - 12 - PAL_W, WIN_H - 31 - TOP_H)
+    cv:SetSize(WIN_W - 12 - PAL_W, BODY_H)
     cv:SetClipsChildren(true)
     cv:EnableMouse(true)
     cv:EnableMouseWheel(true)
@@ -1414,7 +1414,7 @@ CreateCanvas = function(body)
     -- a blank that would take the dragged value
     ui.slotHl = CreateFrame("Frame", nil, content)
     UI():AddEdges(ui.slotHl, "OVERLAY")
-    UI():SetEdgeColor(ui.slotHl, 1, 0.82, 0, 0.95)
+    UI():SetEdgeColor(ui.slotHl, Col("GOLD", 0.95))
     ui.slotHl:Hide()
     -- the ribbon (inside a smart block)
     local rb = CreateFrame("Frame", nil, cv)
@@ -1430,11 +1430,10 @@ CreateCanvas = function(body)
     rb.icon:SetSize(26, 26)
     rb.icon:SetPoint("LEFT", rb, "LEFT", 12, 0)
     rb.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    rb.t1 = Text(rb, "GameFontHighlight", 12)
+    rb.t1 = UI():Text(rb, "emph", C.white)
     rb.t1:SetPoint("TOPLEFT", rb.icon, "TOPRIGHT", 10, 1)
-    rb.t2 = Text(rb, "GameFontHighlightSmall", 10.5)
+    rb.t2 = UI():Text(rb, "small", { 0.74, 0.71, 0.6 })
     rb.t2:SetPoint("TOPLEFT", rb.t1, "BOTTOMLEFT", 0, -3)
-    rb.t2:SetTextColor(0.74, 0.71, 0.6)
     rb.btn = UI():CreateSleekButton(rb, "Make my own copy", 150, 24, function() Builder:CopyInner() end, "primary")
     rb.btn:SetPoint("RIGHT", rb, "RIGHT", -8, 0)
     rb:Hide()
@@ -1445,17 +1444,16 @@ CreateCanvas = function(body)
     em:SetPoint("CENTER", cv, "CENTER", 0, 10)
     em.bg = em:CreateTexture(nil, "BACKGROUND")
     em.bg:SetAllPoints()
-    em.bg:SetColorTexture(1, 1, 1, 0.02)
+    em.bg:SetColorTexture(Col("HAIRLINE", 0.02))
     EUI():Edge(em, 1, 1, 1, 0.14)
-    em.t = Text(em, "GameFontHighlight", 14)
+    em.t = UI():Text(em, "title", C.white)
     em.t:SetJustifyH("CENTER")
     em.t:SetPoint("TOP", em, "TOP", 0, -108)
-    em.t2 = Text(em, "GameFontHighlightSmall", 11.5)
+    em.t2 = UI():Text(em, "body", "SUB")
     em.t2:SetJustifyH("CENTER")
     em.t2:SetWordWrap(true)
     em.t2:SetWidth(270)
     em.t2:SetPoint("TOP", em.t, "BOTTOM", 0, -6)
-    em.t2:SetTextColor(0.62, 0.62, 0.62)
     em:Hide()
     ui.empty = em
     -- bottom right: the overview of the canvas and the zoom
@@ -1466,7 +1464,7 @@ CreateCanvas = function(body)
     zc.bg = zc:CreateTexture(nil, "BACKGROUND")
     zc.bg:SetAllPoints()
     zc.bg:SetColorTexture(0.055, 0.055, 0.067, 0.94)
-    EUI():Edge(zc, 0.34, 0.34, 0.38, 0.9)
+    EUI():Edge(zc, Col("EDGE_STRONG"))
     local function zb(icon, x, w, fn, tip)
         local b = CreateFrame("Button", nil, zc)
         b:SetSize(w, 24)
@@ -1477,12 +1475,9 @@ CreateCanvas = function(body)
         if icon then EUI():Glyph(b.t, icon, 0.81, 0.81, 0.81) end
         local hl = b:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0.06)
+        hl:SetColorTexture(Col("HAIRLINE", 0.06))
         b:SetScript("OnClick", fn)
-        if tip then
-            b:SetScript("OnEnter", function(self) Tip(self, tip) end)
-            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        end
+        if tip then UI():AttachTooltip(b, tip, nil, C.tipTop) end
         return b
     end
     zc.minus = zb(nil, 0, 26, function() Builder:Zoom(-1) end, "Zoom out")
@@ -1492,7 +1487,7 @@ CreateCanvas = function(body)
     -- the percentage: a click goes back to 100%
     zc.reset = zb(nil, 26, 50, function() Builder:ZoomTo(1) end, "Back to 100%")
     zc.reset.t:Hide()
-    zc.pct = Text(zc.reset, "GameFontHighlight", 12)
+    zc.pct = UI():Text(zc.reset, "emph", C.white)
     zc.pct:SetJustifyH("CENTER")
     zc.pct:SetPoint("CENTER", zc.reset, "CENTER", 0, 0)
     zc.plus = zb(UI().ICON.plus or 39, 76, 26, function() Builder:Zoom(1) end, "Zoom in")
@@ -1505,14 +1500,14 @@ CreateCanvas = function(body)
     ov.bg = ov:CreateTexture(nil, "BACKGROUND")
     ov.bg:SetAllPoints()
     ov.bg:SetColorTexture(0.055, 0.055, 0.067, 0.92)
-    EUI():Edge(ov, 0.34, 0.34, 0.38, 0.45)
+    EUI():Edge(ov, Col("EDGE_QUIET"))
     ov:SetClipsChildren(true)
     ov.boxes = {}
     ov.vp = CreateFrame("Frame", nil, ov)
-    EUI():Edge(ov.vp, 1, 0.82, 0, 0.85)
+    EUI():Edge(ov.vp, Col("GOLD", 0.85))
     ov.vp.bg = ov.vp:CreateTexture(nil, "BACKGROUND")
     ov.vp.bg:SetAllPoints()
-    ov.vp.bg:SetColorTexture(1, 0.82, 0, 0.05)
+    ov.vp.bg:SetColorTexture(Col("GOLD", 0.05))
     ov:SetScript("OnClick", function(self) Builder:OverviewClick(self) end)
     ui.overview = ov
     -- bottom: the problems pill (or ready)
@@ -1527,7 +1522,7 @@ CreateCanvas = function(body)
     st.icon = st:CreateTexture(nil, "ARTWORK")
     st.icon:SetSize(13, 13)
     st.icon:SetPoint("LEFT", st, "LEFT", 8, 0)
-    st.fs = Text(st, "GameFontHighlight", 11)
+    st.fs = UI():Text(st, "body", C.white)
     st.fs:SetPoint("LEFT", st.icon, "RIGHT", 7, 0)
     st:SetScript("OnClick", function() Builder:JumpToProblem() end)
     ui.status = st
@@ -1549,7 +1544,7 @@ end
 -- The canvas' size (its own units).
 local function CanvasSize()
     local w, h = ui.cv:GetWidth() or 0, ui.cv:GetHeight() or 0
-    if w <= 1 or h <= 1 then w, h = WIN_W - 12 - PAL_W, WIN_H - 31 - TOP_H end
+    if w <= 1 or h <= 1 then w, h = WIN_W - 12 - PAL_W, BODY_H end
     return w, h
 end
 
@@ -1841,8 +1836,8 @@ function Builder:RenderOverview()
         maxX, maxY = max(maxX, it.x + it.w), max(maxY, it.y + it.h)
     end
     local v = View()
-    local vw, vh = (ui.cv:GetWidth() or 762) / v.z, (ui.cv:GetHeight() or 585) / v.z
-    if vw <= 1 then vw, vh = 762 / v.z, 585 / v.z end
+    local vw, vh = (ui.cv:GetWidth() or (WIN_W - 12 - PAL_W)) / v.z, (ui.cv:GetHeight() or BODY_H) / v.z
+    if vw <= 1 then vw, vh = (WIN_W - 12 - PAL_W) / v.z, BODY_H / v.z end
     local vx, vy = -v.x / v.z, -v.y / v.z
     minX, minY = min(minX, vx), min(minY, vy)
     maxX, maxY = max(maxX, vx + vw), max(maxY, vy + vh)
@@ -1905,7 +1900,7 @@ function Builder:RenderStatus()
         st.fs:SetText("By " .. EUI():Plain(Def().by) .. ": make a copy to change it")
         st.fs:SetTextColor(0.8, 0.8, 0.82)
         EUI():Glyph(st.icon, UI().ICON.lock or 52, 0.91, 0.77, 0.35)
-        UI():SetEdgeColor(st, 0.34, 0.34, 0.38, 0.9)
+        UI():SetEdgeColor(st, Col("EDGE_STRONG"))
     else
         -- every piece is set: practise it first (a practice run to its end of exactly this event), then host it
         local d = Def()
@@ -1965,38 +1960,31 @@ CreateCard = function(bid)
     card:EnableMouse(true)
     card.bg = card:CreateTexture(nil, "BACKGROUND")
     card.bg:SetAllPoints()
-    card.bg:SetTexture(WHITE)
-    if card.bg.SetGradient and CreateColor then
-        card.bg:SetGradient("VERTICAL", CreateColor(0.102, 0.102, 0.122, 1), CreateColor(0.145, 0.145, 0.172, 1))
-    else
-        card.bg:SetColorTexture(0.12, 0.12, 0.145, 1)
-    end
+    UI():Gradient(card.bg, "VERTICAL", C.cardLo, C.cardHi)
     EUI():Edge(card, 0.84, 0.68, 0.26, 0.72)
     card.icon = card:CreateTexture(nil, "ARTWORK")
     card.icon:SetSize(26, 26)
     card.icon:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -8)
     card.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    card.name = Text(card, "GameFontNormal", 13)
+    card.name = UI():Text(card, "title", "GOLD")
     card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 9, -1)
-    card.kind = Text(card, "GameFontHighlightSmall", 10)
+    card.kind = UI():Text(card, "small", { 0.55, 0.55, 0.58 })
     card.kind:SetPoint("TOPLEFT", card.name, "BOTTOMLEFT", 0, -1)
-    card.kind:SetTextColor(0.55, 0.55, 0.58)
     card.kind:SetText("smart block")
     card.open = UI():CreateSleekButton(card, "Open", 52, 22, function(self) Builder:OpenInside(self:GetParent().bid) end)
     card.open:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -10)
     card.head = card:CreateTexture(nil, "BORDER")
-    card.head:SetColorTexture(1, 1, 1, 0.07)
+    card.head:SetColorTexture(Col("HAIRLINE"))
     card.head:SetHeight(1)
     card.head:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -42)
     card.head:SetPoint("TOPRIGHT", card, "TOPRIGHT", -1, -42)
     card.rows = {}
     card.chips = {}
     card.foot = card:CreateTexture(nil, "BORDER")
-    card.foot:SetColorTexture(1, 1, 1, 0.06)
+    card.foot:SetColorTexture(Col("HAIRLINE", 0.06))
     card.foot:SetHeight(1)
-    card.givesLab = Text(card, "GameFontHighlightSmall", 10)
+    card.givesLab = UI():Text(card, "small", { 0.55, 0.55, 0.58 })
     card.givesLab:SetText("Gives")
-    card.givesLab:SetTextColor(0.55, 0.55, 0.58)
     -- dragged by its head; right-click for its menu
     card:SetScript("OnMouseDown", function(self, button)
         if button == "LeftButton" and CanEdit() then
@@ -2073,13 +2061,10 @@ CreateCard = function(bid)
             if not row then
                 row = CreateFrame("Frame", nil, self)
                 row:SetSize(298, 27)
-                row.lab = Text(row, "GameFontHighlightSmall", 11)
-                row.lab:SetTextColor(0.62, 0.62, 0.62)
+                row.lab = UI():Text(row, "body", "SUB")
                 row.lab:SetPoint("LEFT", row, "LEFT", 0, 0)
-                row.mid = Text(row, "GameFontHighlightSmall", 11)
-                row.mid:SetTextColor(0.62, 0.62, 0.62)
-                row.words = Text(row, "GameFontHighlightSmall", 11)
-                row.words:SetTextColor(0.85, 0.85, 0.85)
+                row.mid = UI():Text(row, "body", "SUB")
+                row.words = UI():Text(row, "body", { 0.85, 0.85, 0.85 })
                 self.rows[i] = row
             end
             row:ClearAllPoints()
@@ -2105,12 +2090,12 @@ CreateCard = function(bid)
                         pl.ic:SetSize(13, 13)
                         pl.ic:SetPoint("LEFT", pl, "LEFT", 5, 0)
                         pl.ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                        pl.fs = Text(pl, "GameFontHighlight", 11)
+                        pl.fs = UI():Text(pl, "body", C.white)
                         pl.fs:SetPoint("LEFT", pl, "LEFT", 21, 0)
                     end
                     pl.ic:SetTexture(B().SMART.signup.icon)
                     pl.fs:SetText(B():BlockLabel(d, su) .. " list")
-                    pl:SetWidth(21 + TextW(pl.fs) + 9)
+                    pl:SetWidth(21 + UI():TextWidth(pl.fs) + 9)
                     pl:ClearAllPoints()
                     pl:SetPoint("LEFT", row, "LEFT", 70, 0)
                     pl:Show()
@@ -2146,18 +2131,18 @@ CreateCard = function(bid)
                     row.mid:ClearAllPoints()
                     row.mid:SetPoint("LEFT", first, "RIGHT", 8, 0)
                     row.mid:Show()
-                    dd(row, "dd2", "fbo", 70 + first:GetWidth() + 8 + TextW(row.mid) + 8)
+                    dd(row, "dd2", "fbo", 70 + first:GetWidth() + 8 + UI():TextWidth(row.mid) + 8)
                 end
             end
             y = y + 27
         end
         for i = #list + 1, #self.rows do self.rows[i]:Hide() end
         -- won by the pieces: what that means
-        self.note = self.note or Text(self, "GameFontHighlightSmall", 10.5)
+        self.note = self.note or UI():Text(self, "small", C.white)
         if b.kind == "bracket" and B():SmartSetting(b, "win") == "pieces" then
             self.note:SetWordWrap(true)
             self.note:SetWidth(318 - 80 - 12)
-            self.note:SetTextColor(0.62, 0.62, 0.62)
+            self.note:SetTextColor(Col("SUB"))
             self.note:SetText("Duels don't count. A match ends when a piece says |cffffd100award the match to|r.")
             self.note:ClearAllPoints()
             self.note:SetPoint("TOPLEFT", self, "TOPLEFT", 80, -(y - 2))
@@ -2184,10 +2169,9 @@ CreateCard = function(bid)
                 chip = CreateFrame("Button", nil, self)
                 chip:SetHeight(17)
                 UI():AddPillShape(chip, 17)
-                chip.fs = Text(chip, "GameFontHighlightSmall", 10)
+                chip.fs = UI():Text(chip, "small", C.white)
                 chip.fs:SetPoint("CENTER")
-                chip:SetScript("OnEnter", function(c) Tip(c, "Drag it onto the canvas", "for its \"when\" piece.") end)
-                chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                UI():AttachTooltip(chip, "Drag it onto the canvas", "for its \"when\" piece.", C.tipTop)
                 self.chips[i] = chip
             end
             chip:SetPillColors({ ev.f[1], ev.f[2], ev.f[3], 1 }, { ev.e[1], ev.e[2], ev.e[3], 0.85 })
@@ -2723,11 +2707,10 @@ local function CreatePicker()
     p.bg = p:CreateTexture(nil, "BACKGROUND")
     p.bg:SetAllPoints()
     p.bg:SetColorTexture(0.047, 0.047, 0.059, 1)
-    EUI():Edge(p, 0.47, 0.47, 0.51, 0.75)
-    p.title = Text(p, "GameFontNormal", 12)
+    EUI():Edge(p, unpack(C.panelEdge))
+    p.title = UI():Text(p, "emph", "GOLD")
     p.title:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -10)
-    p.sub = Text(p, "GameFontHighlightSmall", 10)
-    p.sub:SetTextColor(0.62, 0.62, 0.62)
+    p.sub = UI():Text(p, "small", "SUB")
     p.sub:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -11)
     p.field = UI():CreateSleekEditBox(p, 228, 22)
     p.field:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -30)
@@ -2742,8 +2725,7 @@ local function CreatePicker()
     p.search:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -30)
     p.rows = {}
     p.heads = {}
-    p.foot = Text(p, "GameFontHighlightSmall", 10.5)
-    p.foot:SetTextColor(0.55, 0.55, 0.58)
+    p.foot = UI():Text(p, "small", { 0.55, 0.55, 0.58 })
     p.foot:SetWordWrap(true)
     p.foot:SetWidth(228)
     p.clear = UI():CreateSleekButton(p, "Empty it", 70, 20, function() Builder:PickClear() end)
@@ -2944,7 +2926,7 @@ function Builder:FillPicker(query)
             if c.section ~= section then
                 section = c.section
                 nh = nh + 1
-                local h = p.heads[nh] or Text(p, "GameFontHighlightSmall", 10)
+                local h = p.heads[nh] or UI():Text(p, "small", C.white)
                 p.heads[nh] = h
                 h:SetTextColor(0.55, 0.55, 0.58)
                 h:SetText(section)
@@ -2960,19 +2942,18 @@ function Builder:FillPicker(query)
                 r:SetSize(240, 25)
                 r.hl = r:CreateTexture(nil, "BACKGROUND")
                 r.hl:SetAllPoints()
-                r.hl:SetColorTexture(1, 0.82, 0, 0.12)
+                r.hl:SetColorTexture(Col("GOLD", 0.12))
                 r.hl:Hide()
                 r.on = r:CreateTexture(nil, "BACKGROUND", nil, 1)
                 r.on:SetAllPoints()
-                r.on:SetColorTexture(1, 0.82, 0, 0.10)
-                r.desc = Text(r, "GameFontHighlightSmall", 10.5)
-                r.desc:SetTextColor(0.62, 0.62, 0.62)
+                r.on:SetColorTexture(Col("SELECT"))
+                r.desc = UI():Text(r, "small", "SUB")
                 r.desc:SetJustifyH("RIGHT")
                 r.desc:SetPoint("RIGHT", r, "RIGHT", -6, 0)
                 r.icon = r:CreateTexture(nil, "ARTWORK")
                 r.icon:SetSize(13, 13)
                 r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
-                r.label = Text(r, "GameFontHighlight", 11.5)
+                r.label = UI():Text(r, "body", C.white)
                 r:SetScript("OnEnter", function(self) self.hl:Show() end)
                 r:SetScript("OnLeave", function(self) self.hl:Hide() end)
                 p.rows[n] = r
@@ -3031,7 +3012,7 @@ function Builder:FillPicker(query)
     elseif t == "creature" then hint = "Empty: any creature. The name as the game shows it."
     else hint = "Or drag a round piece into the blank." end
     p.foot:SetText(hint)
-    y = y + max(18, floor((TextW(p.foot) / 228) + 1) * 14)
+    y = y + max(18, floor((UI():TextWidth(p.foot) / 228) + 1) * 14)
     if pk.piece.a[pk.slot] ~= nil then
         p.clear:ClearAllPoints()
         p.clear:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 2))
@@ -3315,20 +3296,18 @@ function Builder:AskName(title, current, onDone, maxLen, check)
         f:SetFrameStrata("DIALOG")
         f:SetSize(280, 92)
         f:EnableMouse(true)
-        f.bg = f:CreateTexture(nil, "BACKGROUND")
-        f.bg:SetAllPoints()
-        f.bg:SetColorTexture(0.075, 0.075, 0.09, 0.985)
-        EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
-        f.title = Text(f, "GameFontNormal", 13)
+        -- the dialogs' panel (ns.Popup's look); its title on the type scale
+        ns.Popup:SkinPanel(f)
+        UI():SetTextStyle(f.title, "title", "GOLD")
         f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -12)
+        f.glint:Hide()
         f.field = UI():CreateSleekEditBox(f, 256, 24)
         f.field:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -32)
         f.ok = UI():CreateSleekButton(f, "Done", 70, 22, function() f:Done() end, "primary")
         f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 10)
         f.cancel = UI():CreateSleekButton(f, "Cancel", 70, 22, function() f:Hide() end)
         f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
-        f.err = Text(f, "GameFontHighlightSmall", 10.5)
-        f.err:SetTextColor(1, 0.54, 0.48)
+        f.err = UI():Text(f, "small", { 1, 0.54, 0.48 })
         f.err:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 21)
         f.field:SetScript("OnEnterPressed", function() f:Done() end)
         f.field:SetScript("OnEscapePressed", function() f:Hide() end)
@@ -3799,15 +3778,14 @@ function Builder:RenderStartFrom(show)
         sf.box = CreateFrame("Frame", nil, sf)
         sf.box.bg = sf.box:CreateTexture(nil, "BACKGROUND")
         sf.box.bg:SetAllPoints()
-        sf.box.bg:SetColorTexture(1, 1, 1, 0.02)
+        sf.box.bg:SetColorTexture(Col("HAIRLINE", 0.02))
         EUI():Edge(sf.box, 1, 1, 1, 0.14)
-        sf.t = Text(sf, "GameFontHighlight", 15)
+        sf.t = UI():Text(sf, "title", C.white)
         sf.t:SetJustifyH("CENTER")
         sf.t:SetText("Start from an example")
-        sf.t2 = Text(sf, "GameFontHighlightSmall", 11.5)
+        sf.t2 = UI():Text(sf, "body", "SUB")
         sf.t2:SetJustifyH("CENTER")
         sf.t2:SetWordWrap(true)
-        sf.t2:SetTextColor(0.62, 0.62, 0.62)
         sf.cards = {}
         ui.start = sf
         -- (the examples' words and art, once: their events are made when one is picked)
@@ -3840,8 +3818,7 @@ function Builder:RenderStartFrom(show)
             c.fade:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT")
             c.fade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
             c.fade:SetHeight(33)
-            c.fade:SetTexture(WHITE)
-            EUI():Gradient(c.fade, "VERTICAL", 0.102, 0.102, 0.122, 1, 0)
+            UI():Gradient(c.fade, "VERTICAL", C.cardLo, C.cardLoClear)
             c.iconE = c:CreateTexture(nil, "ARTWORK", nil, 1)
             c.iconE:SetColorTexture(0, 0, 0, 1)
             c.iconE:SetSize(30, 30)
@@ -3850,31 +3827,30 @@ function Builder:RenderStartFrom(show)
             c.icon:SetSize(28, 28)
             c.icon:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -26)
             c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            c.n = Text(c, "GameFontHighlight", 12)
+            c.n = UI():Text(c, "emph", C.white)
             c.n:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -58)
-            c.a = Text(c, "GameFontHighlightSmall", 10)
-            c.a:SetTextColor(0.62, 0.62, 0.62)
+            c.a = UI():Text(c, "small", "SUB")
             c.a:SetWordWrap(true)
             c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -2)
             UI():AddEdges(c)
-            c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, 1, 0.82, 0, 0.6) end)
-            c:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, 0.34, 0.34, 0.38, 0.55) end)
+            c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, Col("GOLD", 0.6)) end)
+            c:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, Col("EDGE")) end)
             c:SetScript("OnClick", function(self) Builder:UseExample(self.key) end)
             sf.cards[i] = c
         end
         c.key = e.key
         c:SetSize(cardW, cardH)
-        UI():SetEdgeColor(c, 0.34, 0.34, 0.38, 0.55)
+        UI():SetEdgeColor(c, Col("EDGE"))
         EUI():SetArt(c.art, e.art, cardW - 2, 44, nil, nil, 0.6)
         c.icon:SetTexture(e.icon)
         -- a long name a little smaller, and on two lines if it must (never cut)
-        Sized(c.n, 12)
+        Resize(c.n, 12)
         c.n:SetWordWrap(false)
         c.n:SetWidth(cardW - 20)
         c.n:SetText(e.name)
-        if TextW(c.n) > cardW - 20 then
-            Sized(c.n, 11)
-            if TextW(c.n) > cardW - 20 then c.n:SetWordWrap(true) end
+        if UI():TextWidth(c.n) > cardW - 20 then
+            Resize(c.n, 11)
+            if UI():TextWidth(c.n) > cardW - 20 then c.n:SetWordWrap(true) end
             c.n:SetText(e.name)
         end
         c.a:SetWidth(cardW - 20)
@@ -4004,7 +3980,7 @@ function Builder:MoreMenu(owner)
             end)
             if review.SetTooltip then
                 review:SetTooltip(function(tt)
-                    tt:AddLine("Send for review", 1, 0.82, 0)
+                    tt:AddLine("Send for review", unpack(St.C.GOLD))
                     tt:AddLine("The GM, officers or the guild council can mark it ranked: then its badges and season points count.",
                         1, 1, 1, true)
                 end)
@@ -4068,7 +4044,7 @@ function Builder:Host()
     if UIx and UIx.OpenSchedule then
         UIx:OpenSchedule(d.id)
     else
-        local occ = Ev():Schedule(d.id, Now() + 3600)
+        local occ = Ev():Schedule(d.id, Util().Now() + 3600)
         if occ then ns:Print("%s is on the calendar in an hour.", d.name) end
     end
 end
@@ -4134,7 +4110,7 @@ function Builder:NotePracticed(d)
     local db = ns.db
     if not db or not d.id then return end
     db.eventPracticed = db.eventPracticed or {}
-    db.eventPracticed[d.id] = { h = ContentHash(d), at = Now() }
+    db.eventPracticed[d.id] = { h = ContentHash(d), at = Util().Now() }
 end
 
 function Builder:StartPractice(again)
@@ -4194,7 +4170,7 @@ function Builder:GlowScript(f, at)
             return
         end
         UI():SetEdgeColor(self, 1, 0.92, 0.6, a)
-        UI():SetEdgeColor(self.soft, 1, 0.82, 0, a * 0.35)
+        UI():SetEdgeColor(self.soft, Col("GOLD", a * 0.35))
     end)
 end
 
@@ -4246,6 +4222,13 @@ local function UsedFacts(d)
     return used
 end
 
+-- A section header of the practice panel with its words at y (its rule 18 under them, 10 in from each side).
+local function PlaceHead(dp, h, y)
+    h:ClearAllPoints()
+    h:SetPoint("TOPLEFT", dp, "TOPLEFT", 8, -(y - 6))
+    h:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -8, -(y - 6))
+end
+
 CreatePractice = function(body)
     -- the dummies panel (in the palette's place)
     local dp = CreateFrame("Frame", nil, body)
@@ -4260,46 +4243,34 @@ CreatePractice = function(body)
     line:SetPoint("BOTTOMRIGHT")
     dp:Hide()
     ui.dp = dp
-    local function head(text, y, right)
-        local h = Text(dp, "GameFontNormal", 12)
-        h:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
-        h:SetText(text)
-        local r = Text(dp, "GameFontHighlightSmall", 10.5)
-        r:SetTextColor(0.62, 0.62, 0.62)
-        r:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 1))
-        r:SetText(right or "")
-        local ln = dp:CreateTexture(nil, "BORDER")
-        ln:SetColorTexture(1, 1, 1, 0.08)
-        ln:SetHeight(1)
-        ln:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -(y + 18))
-        ln:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 18))
-        return h, r, ln
+    -- the panel's sections: UI:CreateSectionHeader (gold title, a grey text at the right, a hairline under it)
+    local function head(text, right)
+        return UI():CreateSectionHeader(dp, text, { right = right })
     end
-    dp.h1, dp.h1r, dp.h1ln = head("Playing now", 8)
+    dp.h1 = head("Playing now")
+    PlaceHead(dp, dp.h1, 8)
     dp.matches = {}
     for i = 1, 4 do
         local m = CreateFrame("Frame", nil, dp)
         m:SetSize(PAL_W - 20, 54)
         m.bg = m:CreateTexture(nil, "BACKGROUND")
         m.bg:SetAllPoints()
-        m.bg:SetColorTexture(1, 1, 1, 0.03)
+        m.bg:SetColorTexture(Col("QUIET"))
         UI():AddEdges(m)
         m.c1 = m:CreateTexture(nil, "ARTWORK")
         m.c1:SetSize(16, 16)
         m.c1:SetPoint("TOPLEFT", m, "TOPLEFT", 8, -7)
-        m.n1 = Text(m, "GameFontHighlight", 11.5)
+        m.n1 = UI():Text(m, "body", C.white)
         m.n1:SetPoint("LEFT", m.c1, "RIGHT", 5, 0)
-        m.vs = Text(m, "GameFontHighlightSmall", 10.5)
+        m.vs = UI():Text(m, "small", "SUB")
         m.vs:SetText("vs")
-        m.vs:SetTextColor(0.62, 0.62, 0.62)
         m.vs:SetPoint("LEFT", m.n1, "RIGHT", 6, 0)
         m.c2 = m:CreateTexture(nil, "ARTWORK")
         m.c2:SetSize(16, 16)
         m.c2:SetPoint("LEFT", m.vs, "RIGHT", 6, 0)
-        m.n2 = Text(m, "GameFontHighlight", 11.5)
+        m.n2 = UI():Text(m, "body", C.white)
         m.n2:SetPoint("LEFT", m.c2, "RIGHT", 5, 0)
-        m.sc = Text(m, "GameFontHighlightSmall", 10.5)
-        m.sc:SetTextColor(0.62, 0.62, 0.62)
+        m.sc = UI():Text(m, "small", "SUB")
         m.sc:SetPoint("TOPRIGHT", m, "TOPRIGHT", -8, -9)
         m.b1 = UI():CreateSleekButton(m, "", 116, 20, function(self) local mm = self:GetParent(); L():PracticeDuel(mm.a, mm.b) end)
         m.b1:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 6, 6)
@@ -4308,23 +4279,17 @@ CreatePractice = function(body)
         m:Hide()
         dp.matches[i] = m
     end
-    dp.none = Text(dp, "GameFontHighlightSmall", 11)
-    dp.none:SetTextColor(0.62, 0.62, 0.62)
+    dp.none = UI():Text(dp, "body", "SUB")
     dp.none:SetWordWrap(true)
     dp.none:SetWidth(PAL_W - 20)
-    dp.h2 = Text(dp, "GameFontNormal", 12)
-    dp.h2:SetText("Make something happen")
-    dp.h2ln = dp:CreateTexture(nil, "BORDER")
-    dp.h2ln:SetColorTexture(1, 1, 1, 0.08)
-    dp.h2ln:SetHeight(1)
+    dp.h2 = head("Make something happen")
     S.happen = S.happen or { kind = "duel" }
     -- a WC3-style sentence: [what happens], then who, to whom, where ... and Do it
     dp.kind = UI():CreateSleekMenuButton(dp, "", PAL_W - 20, function(root) Builder:FactMenu(root) end, 22)
     dp.params = {}
     for i = 1, 4 do
         local r = {}
-        r.lab = Text(dp, "GameFontHighlightSmall", 11)
-        r.lab:SetTextColor(0.82, 0.82, 0.82)
+        r.lab = UI():Text(dp, "body", { 0.82, 0.82, 0.82 })
         r.dd = UI():CreateSleekMenuButton(dp, "", 128, function(root) Builder:ParamMenu(root, i) end, 21)
         r.eb = UI():CreateSleekEditBox(dp, 128, 21, "GameFontHighlightSmall")
         r.eb:SetMaxLetters(40)
@@ -4340,14 +4305,7 @@ CreatePractice = function(body)
         dp.params[i] = r
     end
     dp.doit = UI():CreateSleekButton(dp, "Do it", 54, 21, function() Builder:Happen() end)
-    dp.h3 = Text(dp, "GameFontNormal", 12)
-    dp.h3:SetText("Dummies")
-    dp.h3r = Text(dp, "GameFontHighlightSmall", 10.5)
-    dp.h3r:SetTextColor(0.62, 0.62, 0.62)
-    dp.h3r:SetText("click to take one offline")
-    dp.h3ln = dp:CreateTexture(nil, "BORDER")
-    dp.h3ln:SetColorTexture(1, 1, 1, 0.08)
-    dp.h3ln:SetHeight(1)
+    dp.h3 = head("Dummies", "click to take one offline")
     dp.dummies = {}
     -- the log (over the canvas' bottom)
     local lg = CreateFrame("Frame", nil, body)
@@ -4361,11 +4319,10 @@ CreatePractice = function(body)
     local top = Divider(lg)
     top:SetPoint("TOPLEFT")
     top:SetPoint("TOPRIGHT")
-    lg.h = Text(lg, "GameFontNormal", 11.5)
+    lg.h = UI():Text(lg, "body", "GOLD")
     lg.h:SetText("Practice log")
     lg.h:SetPoint("TOPLEFT", lg, "TOPLEFT", 12, -7)
-    lg.r = Text(lg, "GameFontHighlightSmall", 10.5)
-    lg.r:SetTextColor(0.62, 0.62, 0.62)
+    lg.r = UI():Text(lg, "small", "SUB")
     lg.r:SetPoint("TOPRIGHT", lg, "TOPRIGHT", -12, -8)
     lg.lines = {}
     for i = 1, 5 do
@@ -4375,17 +4332,15 @@ CreatePractice = function(body)
         l:SetPoint("TOPRIGHT", lg, "TOPRIGHT", 0, -26 - (i - 1) * 18)
         l.bg = l:CreateTexture(nil, "BACKGROUND")
         l.bg:SetAllPoints()
-        l.bg:SetColorTexture(1, 0.82, 0, 0.07)
-        l.tm = Text(l, "GameFontHighlightSmall", 11)
-        l.tm:SetTextColor(0.44, 0.44, 0.46)
+        l.bg:SetColorTexture(Col("GOLD", 0.07))
+        l.tm = UI():Text(l, "body", "DIM")
         l.tm:SetPoint("LEFT", l, "LEFT", 12, 0)
         l.dot = l:CreateTexture(nil, "ARTWORK")
         l.dot:SetTexture(EUI().MASK)
         l.dot:SetSize(7, 7)
         l.dot:SetPoint("LEFT", l, "LEFT", 74, 0)
-        l.fs = Text(l, "GameFontHighlightSmall", 11)
+        l.fs = UI():Text(l, "body", { 0.82, 0.82, 0.82 })
         l.fs:SetPoint("LEFT", l.dot, "RIGHT", 9, 0)
-        l.fs:SetTextColor(0.82, 0.82, 0.82)
         lg.lines[i] = l
     end
     lg:Hide()
@@ -4612,7 +4567,7 @@ local function RenderFact(dp, run, y)
     -- a short fact reads as a sentence ("[a duel ends] winner [Dummy 7]" / "loser [Dummy 2] [Do it]"); a long one
     -- takes the whole width, its parts in rows under it
     local right = PAL_W - 10
-    local kw = max(108, floor(TextW(dp.kind:GetFontString()) + 30 + 0.5))
+    local kw = max(108, floor(UI():TextWidth(dp.kind:GetFontString()) + 30 + 0.5))
     dp.kind:ClearAllPoints()
     dp.kind:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
     dp.doit:ClearAllPoints()
@@ -4620,7 +4575,7 @@ local function RenderFact(dp, run, y)
         dp.kind:SetWidth(kw)
         local x, rowY = 10 + kw + 6, y
         for i, it in ipairs(rows) do
-            local lw = TextW(it.lab)
+            local lw = UI():TextWidth(it.lab)
             if i > 1 or x + lw + 6 + 84 > right then x, rowY = 10, rowY + 28 end
             it.lab:ClearAllPoints()
             it.lab:SetPoint("LEFT", dp, "TOPLEFT", x, -(rowY + 11))
@@ -4675,9 +4630,7 @@ function Builder:RenderPractice()
         end
     end
     dp.h1:SetShown(bk ~= nil)
-    dp.h1r:SetShown(bk ~= nil)
-    dp.h1ln:SetShown(bk ~= nil)
-    dp.h1r:SetText(bk and EUI():StageSub(run.def, st) or "")
+    dp.h1:SetRight(bk and EUI():StageSub(run.def, st) or nil)
     local y = bk and 32 or 8
     for i, box in ipairs(dp.matches) do
         local m = playing[i]
@@ -4718,25 +4671,15 @@ function Builder:RenderPractice()
         dp.none:Hide()
     end
     if bk then y = y + 6 end
-    dp.h2:ClearAllPoints()
-    dp.h2:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
-    dp.h2ln:ClearAllPoints()
-    dp.h2ln:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -(y + 18))
-    dp.h2ln:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 18))
+    PlaceHead(dp, dp.h2, y)
     y = y + 26
     S.happen = S.happen or { kind = "duel" }
     y = RenderFact(dp, run, y)
     -- the dummies (and the tags they have, as dots)
-    dp.h3:ClearAllPoints()
-    dp.h3:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
-    dp.h3r:ClearAllPoints()
-    dp.h3r:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 1))
-    dp.h3ln:ClearAllPoints()
-    dp.h3ln:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -(y + 18))
-    dp.h3ln:SetPoint("TOPRIGHT", dp, "TOPRIGHT", -10, -(y + 18))
+    PlaceHead(dp, dp.h3, y)
     y = y + 26
     local room = dp:GetHeight() or 0
-    if room < 50 then room = WIN_H - 31 - TOP_H end
+    if room < 50 then room = BODY_H end
     local tagList = Defs:Ordered(run.def, "tags")
     for i, key in ipairs(st.entrants) do
         local b = dp.dummies[i]
@@ -4746,10 +4689,9 @@ function Builder:RenderPractice()
             b.c = b:CreateTexture(nil, "ARTWORK")
             b.c:SetSize(15, 15)
             b.c:SetPoint("LEFT", b, "LEFT", 0, 0)
-            b.fs = Text(b, "GameFontHighlightSmall", 11)
+            b.fs = UI():Text(b, "body", C.white)
             b.fs:SetPoint("LEFT", b.c, "RIGHT", 6, 0)
-            b.off = Text(b, "GameFontHighlightSmall", 10)
-            b.off:SetTextColor(0.44, 0.44, 0.46)
+            b.off = UI():Text(b, "small", "DIM")
             b.off:SetPoint("RIGHT", b, "RIGHT", -4, 0)
             b.off:SetText("offline")
             b.dots = {}
@@ -4757,8 +4699,11 @@ function Builder:RenderPractice()
                 local _, pp = L():GetPractice()
                 L():PracticeOffline(self.key, not (pp and pp.off[self.key]))
             end)
-            b:SetScript("OnEnter", function(self) if self.tagTip then Tip(self, EUI():Plain(self.key), self.tagTip) end end)
-            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            UI():AttachTooltip(b, function(self, tt)
+                if not self.tagTip then return false end
+                tt:AddLine(EUI():Plain(self.key), unpack(St.C.GOLD))
+                tt:AddLine(self.tagTip, 1, 1, 1, true)
+            end, nil, C.tipTop)
             dp.dummies[i] = b
         end
         b.key = key
@@ -4839,37 +4784,17 @@ Defs.ICON = { num = "INV_Misc_PunchCards_Yellow", time = "INV_Misc_PocketWatch_0
     ask = "INV_Misc_Ticket_Darkmoon_01" }
 Defs.TEAL = { 0.34, 0.84, 0.94 }
 
-local function VGrad(t, top, bottom)
-    t:SetTexture(WHITE)
-    if t.SetGradient and CreateColor then
-        t:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], bottom[4] or 1),
-            CreateColor(top[1], top[2], top[3], top[4] or 1))
-    else
-        t:SetVertexColor((top[1] + bottom[1]) / 2, (top[2] + bottom[2]) / 2, (top[3] + bottom[3]) / 2, top[4] or 1)
-    end
-end
-
 local function Plural(n, one, many) return n .. " " .. (n == 1 and one or many) end
 
--- The window dimmed under a sheet (the map, the questions), and the clicks on it caught.
-function Defs.Dim(on)
-    local d = ui.dim
-    if not d then
-        if not on then return end
-        d = CreateFrame("Frame", nil, win)
-        d:SetFrameStrata("FULLSCREEN")
-        d:SetFrameLevel(2)
-        d:SetPoint("TOPLEFT", win.content or win, "TOPLEFT", 0, 0)
-        d:SetPoint("BOTTOMRIGHT", win.content or win, "BOTTOMRIGHT", 0, 0)
-        d:EnableMouse(true)
-        d:EnableMouseWheel(true)
-        d:SetScript("OnMouseWheel", function() end)
-        d.t = d:CreateTexture(nil, "BACKGROUND")
-        d.t:SetAllPoints()
-        d.t:SetColorTexture(0, 0, 0, 0.6)
-        ui.dim = d
+-- The builder's sheets (the map, the questions): UI:CreateSheet over the window, dimmed under it. The dim also takes
+-- the mouse wheel (the canvas under it must not zoom). TODO(refactor): move into UI:CreateSheet (its dim eats the wheel)
+function Defs.Sheet(opts)
+    local f = UI():CreateSheet(win, opts)
+    if f.dim then
+        f.dim:EnableMouseWheel(true)
+        f.dim:SetScript("OnMouseWheel", function() end)
     end
-    d:SetShown(on or QSheet.cur ~= nil or MapSheet.cur ~= nil)
+    return f
 end
 
 -- A definition's one line in the palette ("everyone sees it", "lower wins · a time", "Halaa · 600 yd").
@@ -5025,7 +4950,7 @@ function Defs:AddRow(it, kind)
     it.fs:ClearAllPoints()
     it.fs:SetPoint("LEFT", it, "LEFT", 25, 0)
     it.fs:Show()
-    local w = 25 + TextW(it.fs) + 10
+    local w = 25 + UI():TextWidth(it.fs) + 10
     if kind == "places" then
         it.caret:ClearAllPoints()
         it.caret:SetPoint("LEFT", it, "LEFT", w - 4, 0)
@@ -5033,8 +4958,8 @@ function Defs:AddRow(it, kind)
         it.caret:Show()
         w = w + 12
     end
-    UI():SetEdgeColor(it, 0.34, 0.34, 0.38, 0.9)
-    it.bg:SetColorTexture(0.1, 0.1, 0.12, 0.92)
+    UI():SetEdgeColor(it, Col("EDGE_STRONG"))
+    it.bg:SetColorTexture(Col("CARD"))
     it:SetSize(floor(w + 0.5), 24)
     it.kind = kind
     it:SetScript("OnClick", function(self, button)
@@ -5127,43 +5052,16 @@ function Defs:Delete(kind, id, confirmed)
 end
 
 -- A yes / no box over the window (a delete that pieces would feel): text, the danger button's word, fn on yes.
+-- (ns.Popup:Confirm: the dialogs' look; ui.confirm is the dialog while it is up)
 function Builder:Confirm(title, text, okText, fn)
+    ui.confirm = ns.Popup:Confirm({ title = title, text = text or "", ok = okText or "Delete", danger = true,
+        key = "eventBuilder", onAccept = function() if fn then fn() end end })
+end
+
+-- The builder's confirm while it is up (nil: none; the dialog's frame may serve another dialog later).
+function Builder:ConfirmUp()
     local f = ui.confirm
-    if not f then
-        f = CreateFrame("Frame", "DisasterZoneEventBuilderConfirm", win)
-        f:SetFrameStrata("FULLSCREEN_DIALOG")
-        f:SetSize(300, 100)
-        f:EnableMouse(true)
-        f.bg = f:CreateTexture(nil, "BACKGROUND")
-        f.bg:SetAllPoints()
-        f.bg:SetColorTexture(0.075, 0.075, 0.09, 0.985)
-        EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
-        f.title = Text(f, "GameFontNormal", 13)
-        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -12)
-        f.text = Text(f, "GameFontHighlightSmall", 11)
-        f.text:SetWordWrap(true)
-        f.text:SetWidth(276)
-        f.text:SetTextColor(0.82, 0.82, 0.84)
-        f.text:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -7)
-        f.ok = UI():CreateSleekButton(f, "Delete", 70, 22, function()
-            f:Hide()
-            if f.fn then f.fn() end
-        end, "danger")
-        f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 10)
-        f.cancel = UI():CreateSleekButton(f, "Cancel", 70, 22, function() f:Hide() end)
-        f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
-        ui.confirm = f
-    end
-    f.title:SetText(title)
-    f.text:SetText(text or "")
-    f.ok:SetText(okText or "Delete")
-    f.ok:SetWidth(TextW(f.ok:GetFontString()) + 26)
-    f.fn = fn
-    f:SetHeight(12 + 16 + 7 + max(14, floor((f.text:GetStringHeight() or 14) + 0.5)) + 14 + 22 + 10)
-    f:ClearAllPoints()
-    f:SetPoint("CENTER", win, "CENTER", 0, 60)
-    f:Show()
-    f:Raise()
+    return (f and f:IsShown() and f.which == CONFIRM) and f or nil
 end
 
 ---------------------------------------------------------------------------
@@ -5179,37 +5077,20 @@ local CAPS = { num = { 5, 10, 20, 50, 100, 1000 }, time = { 60, 300, 600, 1800, 
 local function FormRow(form, label, h)
     local r = CreateFrame("Frame", nil, form)
     r:SetSize(POP_W - 24, h or 24)
-    r.lab = Text(r, "GameFontHighlightSmall", 11)
-    r.lab:SetTextColor(0.62, 0.62, 0.62)
+    r.lab = UI():Text(r, "body", "SUB")
     r.lab:SetPoint("LEFT", r, "TOPLEFT", 0, -12)
     r.lab:SetText(label or "")
     form.rows[#form.rows + 1] = r
     return r
 end
 
--- Buttons side by side, one chosen (Higher / Lower ...): seg:Set(value).
+-- Buttons side by side, one chosen (Higher / Lower ...): UI:CreateSegments (seg:Set(value)); choices { { value,
+-- label } ... }. Someone else's event: the click says why, the pick stays.
 local function Segmented(parent, choices, onPick)
-    local seg = CreateFrame("Frame", nil, parent)
-    seg:SetSize(10, 22)
-    seg.buttons = {}
-    local x = 0
-    for i, c in ipairs(choices) do
-        local b = UI():CreateSleekButton(seg, c[2], 40, 22, function()
-            if not CanEditDefs() then Builder:SayReadOnly() return end
-            onPick(c[1])
-        end)
-        Sized(b:GetFontString(), 11.5)
-        b:SetWidth(floor(TextW(b:GetFontString()) + 18 + 0.5))
-        b:SetPoint("LEFT", seg, "LEFT", x, 0)
-        x = x + b:GetWidth() - 1
-        b.value = c[1]
-        seg.buttons[i] = b
-    end
-    seg:SetWidth(x + 1)
-    function seg:Set(v)
-        for _, b in ipairs(self.buttons) do b:SetKind(b.value == v and "chosen" or "secondary") end
-    end
-    return seg
+    return UI():CreateSegments(parent, choices, function(v)
+        if not CanEditDefs() then Builder:SayReadOnly() return false end
+        onPick(v)
+    end, { pad = 9 })
 end
 
 -- A switch with its words after it.
@@ -5218,8 +5099,7 @@ local function SwitchWords(parent, onSet)
         if not CanEditDefs() then Builder:SayReadOnly() return end
         onSet(on)
     end)
-    sw.words = Text(parent, "GameFontHighlightSmall", 11)
-    sw.words:SetTextColor(0.62, 0.62, 0.62)
+    sw.words = UI():Text(parent, "body", "SUB")
     sw.words:SetPoint("LEFT", sw, "RIGHT", 8, 0)
     return sw
 end
@@ -5260,11 +5140,10 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
                 c = CreateFrame("Button", nil, self)
                 c:SetHeight(20)
                 UI():AddPillShape(c, 20)
-                c.fs = Text(c, "GameFontHighlightSmall", 11)
+                c.fs = UI():Text(c, "body", C.white)
                 c.fs:SetPoint("LEFT", c, "LEFT", 8, 0)
-                c.x = Text(c, "GameFontHighlightSmall", 12)
+                c.x = UI():Text(c, "emph", { 0.75, 0.75, 0.78 })
                 c.x:SetText("\195\151")
-                c.x:SetTextColor(0.75, 0.75, 0.78)
                 c.x:SetPoint("RIGHT", c, "RIGHT", -7, 1)
                 c:SetScript("OnEnter", function(cc) cc.x:SetTextColor(1, 1, 1) end)
                 c:SetScript("OnLeave", function(cc) cc.x:SetTextColor(0.75, 0.75, 0.78) end)
@@ -5278,12 +5157,12 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
             c.index = i
             c:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 1, 1, 1, 0.22 })
             c.fs:SetWordWrap(false)
-            Sized(c.fs, 11)
+            Resize(c.fs, 11)
             c.fs:SetText(s)
             -- (a long one: smaller, then on two lines in a taller chip; never past the box)
             local room = width - 8 - 6 - 9 - 7
-            if TextW(c.fs) > room then Sized(c.fs, 10) end
-            local tall = TextW(c.fs) > room
+            if UI():TextWidth(c.fs) > room then Resize(c.fs, 10) end
+            local tall = UI():TextWidth(c.fs) > room
             local ch = tall and 32 or 20
             if tall then
                 if not c.tall then
@@ -5297,13 +5176,13 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
                 c.fs:SetWidth(room)
                 c.fs:SetText(s)
             else
-                c.fs:SetWidth(max(1, TextW(c.fs) + 2))
+                c.fs:SetWidth(max(1, UI():TextWidth(c.fs) + 2))
             end
             if c.tall then c.tall:SetShown(tall) end
             for _, t in ipairs(c.pillEdge or {}) do t:SetShown(not tall) end
             for _, t in ipairs(c.pillFill or {}) do t:SetShown(not tall) end
             c:SetHeight(ch)
-            local w = tall and width or min(width, 8 + TextW(c.fs) + 6 + 9 + 7)
+            local w = tall and width or min(width, 8 + UI():TextWidth(c.fs) + 6 + 9 + 7)
             c:SetWidth(w)
             if x > 0 and x + w > width then x, y = 0, y + rowH + 4 end
             c:ClearAllPoints()
@@ -5332,13 +5211,13 @@ local function CreatePop()
     f:EnableMouse(true)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
-    VGrad(f.bg, { 0.11, 0.11, 0.129, 1 }, { 0.078, 0.078, 0.094, 1 })
-    EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
+    UI():Gradient(f.bg, "VERTICAL", C.sheetLo, C.sheetHi)
+    EUI():Edge(f, unpack(C.panelEdge))
     -- the pointer at its row (a turned square, half of it out of the left side)
     f.ptrE = f:CreateTexture(nil, "BORDER", nil, 1)
     f.ptrE:SetTexture(WHITE)
     f.ptrE:SetSize(12, 12)
-    f.ptrE:SetVertexColor(0.47, 0.47, 0.51, 0.75)
+    f.ptrE:SetVertexColor(unpack(C.panelEdge))
     f.ptr = f:CreateTexture(nil, "BORDER", nil, 2)
     f.ptr:SetTexture(WHITE)
     f.ptr:SetSize(10, 10)
@@ -5346,28 +5225,19 @@ local function CreatePop()
     for _, t in ipairs({ f.ptr, f.ptrE }) do
         if t.SetRotation then t:SetRotation(math.pi / 4) end
     end
-    f.title = Text(f, "GameFontNormal", 13)
+    f.title = UI():Text(f, "title", "GOLD")
     f.title:SetPoint("LEFT", f, "TOPLEFT", 12, -18)
-    f.kind = Text(f, "GameFontHighlightSmall", 10.5)
-    f.kind:SetTextColor(0.62, 0.62, 0.62)
+    f.kind = UI():Text(f, "small", "SUB")
     f.kind:SetPoint("BOTTOMLEFT", f.title, "BOTTOMRIGHT", 8, 0)
-    f.x = CreateFrame("Button", nil, f)
-    f.x:SetSize(20, 20)
+    f.x = UI():CreateCloseButton(f, 20, function() Defs:Close() end)
     f.x:SetPoint("RIGHT", f, "TOPRIGHT", -8, -18)
-    f.x.fs = Text(f.x, "GameFontHighlight", 16)
-    f.x.fs:SetText("\195\151")
-    f.x.fs:SetPoint("CENTER", 0, 1)
-    f.x.fs:SetTextColor(0.66, 0.66, 0.68)
-    f.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1) end)
-    f.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68) end)
-    f.x:SetScript("OnClick", function() Defs:Close() end)
     f.hd = f:CreateTexture(nil, "BORDER")
-    f.hd:SetColorTexture(1, 1, 1, 0.07)
+    f.hd:SetColorTexture(Col("HAIRLINE"))
     f.hd:SetHeight(1)
     f.hd:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -36)
     f.hd:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -36)
     f.fd = f:CreateTexture(nil, "BORDER")
-    f.fd:SetColorTexture(1, 1, 1, 0.07)
+    f.fd:SetColorTexture(Col("HAIRLINE"))
     f.fd:SetHeight(1)
     f.fd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 40)
     f.fd:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 40)
@@ -5376,11 +5246,9 @@ local function CreatePop()
     f.bin = UI():CreateTipIconButton(f, 22, UI().ICON.trash, "Delete it", "Pieces that use it will each need another.",
         function() if Defs.cur and Defs.cur.id then Defs:Delete(Defs.cur.kind, Defs.cur.id) end end)
     f.bin:SetPoint("RIGHT", f.save, "LEFT", -6, 0)
-    f.foot = Text(f, "GameFontHighlightSmall", 10.5)
-    f.foot:SetTextColor(0.62, 0.62, 0.62)
+    f.foot = UI():Text(f, "small", "SUB")
     f.foot:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 20)
-    f.err = Text(f, "GameFontHighlightSmall", 10.5)
-    f.err:SetTextColor(1, 0.54, 0.48)
+    f.err = UI():Text(f, "small", { 1, 0.54, 0.48 })
     f.err:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 20)
     f.forms = {}
     f:SetScript("OnHide", function() if Defs.cur and not Defs.cur.hold then Defs.cur = nil; Builder:RenderPalette() end end)
@@ -5419,8 +5287,7 @@ local function TagForm(f)
         b.fill:SetPoint("CENTER")
         b.fill:SetVertexColor(c[3][1], c[3][2], c[3][3])
         b.key = c[1]
-        b:SetScript("OnEnter", function(self) Tip(self, c[2]) end)
-        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(b, c[2], nil, C.tipTop)
         b:SetScript("OnClick", function(self)
             if not CanEditDefs() then Builder:SayReadOnly() return end
             w().c = self.key
@@ -5447,10 +5314,9 @@ local function TagForm(f)
     form.chip.dot:SetTexture(EUI().MASK)
     form.chip.dot:SetSize(7, 7)
     form.chip.dot:SetPoint("LEFT", form.chip, "LEFT", 8, 0)
-    form.chip.fs = Text(form.chip, "GameFontHighlight", 11)
+    form.chip.fs = UI():Text(form.chip, "body", C.white)
     form.chip.fs:SetPoint("LEFT", form.chip, "LEFT", 20, 0)
-    form.where = Text(r, "GameFontHighlightSmall", 11)
-    form.where:SetTextColor(0.62, 0.62, 0.62)
+    form.where = UI():Text(r, "body", "SUB")
     form.where:SetText("board, tracker")
     function form:Fill()
         local x = w()
@@ -5459,7 +5325,7 @@ local function TagForm(f)
         local col = B():TagColor(x.c)
         self.chip.dot:SetVertexColor(col[1], col[2], col[3])
         self.chip.fs:SetText(x.n ~= "" and x.n or "Tag")
-        self.chip:SetWidth(20 + TextW(self.chip.fs) + 9)
+        self.chip:SetWidth(20 + UI():TextWidth(self.chip.fs) + 9)
         self.where:ClearAllPoints()
         self.where:SetPoint("LEFT", self.chip, "RIGHT", 7, 0)
     end
@@ -5538,10 +5404,10 @@ local function AskForm(f)
         local b = CreateFrame("Button", nil, r)
         b:SetHeight(22)
         UI():AddPillShape(b, 22)
-        b.fs = Text(b, "GameFontHighlightSmall", 11)
+        b.fs = UI():Text(b, "body", C.white)
         b.fs:SetPoint("CENTER")
         b.fs:SetText(k[2])
-        b:SetWidth(TextW(b.fs) + 18)
+        b:SetWidth(UI():TextWidth(b.fs) + 18)
         b.key = k[1]
         b:SetScript("OnClick", function(self)
             if not CanEditDefs() then Builder:SayReadOnly() return end
@@ -5619,7 +5485,7 @@ local function AskForm(f)
                 b:SetPillColors({ 0.66, 0.28, 0.42, 0.55 }, { 1, 0.67, 0.77, 0.9 })
                 b.fs:SetTextColor(1, 1, 1)
             else
-                b:SetPillColors({ 0.055, 0.055, 0.067, 0.9 }, { 0.34, 0.34, 0.38, 0.9 })
+                b:SetPillColors({ 0.055, 0.055, 0.067, 0.9 }, St.C.EDGE_STRONG)
                 b.fs:SetTextColor(0.82, 0.82, 0.82)
             end
         end
@@ -5684,8 +5550,7 @@ local function ListForm(f)
         Defs:Layout()
     end, "Add a text")
     form.texts:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
-    form.qline = Text(r, "GameFontHighlightSmall", 11)
-    form.qline:SetTextColor(0.82, 0.82, 0.82)
+    form.qline = UI():Text(r, "body", { 0.82, 0.82, 0.82 })
     form.qline:SetPoint("LEFT", r, "LEFT", 0, 0)
     form.qbtn = UI():CreateSleekButton(r, "Edit questions", 110, 22, function() Defs:EditQuestions() end)
     form.qbtn:SetPoint("RIGHT", r, "RIGHT", 0, 0)
@@ -5704,7 +5569,7 @@ local function ListForm(f)
     form.addPlace.plus:SetPoint("LEFT", form.addPlace, "LEFT", 9, 0)
     form.addPlace:GetFontString():ClearAllPoints()
     form.addPlace:GetFontString():SetPoint("LEFT", form.addPlace.plus, "RIGHT", 6, 0)
-    form.addPlace:SetWidth(9 + 10 + 6 + TextW(form.addPlace:GetFontString()) + 10)
+    form.addPlace:SetWidth(9 + 10 + 6 + UI():TextWidth(form.addPlace:GetFontString()) + 10)
     form.onMap = UI():CreateSleekButton(r, "Pick on the map", 120, 22, function()
         if not CanEditDefs() then Builder:SayReadOnly() return end
         Defs:ListNewPlace(false)
@@ -5715,7 +5580,7 @@ local function ListForm(f)
     form.onMap.icon:SetPoint("LEFT", form.onMap, "LEFT", 9, 0)
     form.onMap:GetFontString():ClearAllPoints()
     form.onMap:GetFontString():SetPoint("LEFT", form.onMap.icon, "RIGHT", 6, 0)
-    form.onMap:SetWidth(9 + 11 + 6 + TextW(form.onMap:GetFontString()) + 10)
+    form.onMap:SetWidth(9 + 11 + 6 + UI():TextWidth(form.onMap:GetFontString()) + 10)
     form.onMap:SetPoint("LEFT", form.addPlace, "RIGHT", 6, 0)
     -- moving a place in the route: its grip dragged up or down
     form:SetScript("OnUpdate", function(self)
@@ -5741,7 +5606,7 @@ local function ListForm(f)
         local to = max(1, min(n + 1, floor(rel / 24 + 0.5) + 1))
         dr.to = to
         self.line = self.line or self.child:CreateTexture(nil, "OVERLAY")
-        self.line:SetColorTexture(1, 0.82, 0, 0.9)
+        self.line:SetColorTexture(Col("GOLD", 0.9))
         self.line:SetHeight(2)
         self.line:ClearAllPoints()
         self.line:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -((to - 1) * 24) + 1)
@@ -5764,8 +5629,7 @@ local function ListForm(f)
             t:SetSize(2, 2)
             t:SetPoint("TOPLEFT", it.grip, "TOPLEFT", 3 + ((d - 1) % 2) * 4, -6 - floor((d - 1) / 2) * 4)
         end
-        it.grip:SetScript("OnEnter", function(g) Tip(g, "Drag to move it", "up or down the list.") end)
-        it.grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(it.grip, "Drag to move it", "up or down the list.", C.tipTop)
         it.grip:SetScript("OnMouseDown", function(g, button)
             if button ~= "LeftButton" then return end
             if not CanEditDefs() then Builder:SayReadOnly() return end
@@ -5775,19 +5639,19 @@ local function ListForm(f)
         it.disc:SetTexture(EUI().MASK)
         it.disc:SetSize(16, 16)
         it.disc:SetPoint("LEFT", it, "LEFT", 19, 0)
-        it.num = Text(it, "GameFontHighlightSmall", 9.5)
+        it.num = UI():Text(it, 9.5, C.white)
         it.num:SetJustifyH("CENTER")
         it.num:SetPoint("CENTER", it.disc, "CENTER", 0, 0)
         it.num:SetShadowOffset(0, 0)
         it.x = CreateFrame("Button", nil, it)
         it.x:SetSize(16, 16)
         it.x:SetPoint("RIGHT", it, "RIGHT", -2, 0)
-        it.x.fs = Text(it.x, "GameFontHighlightSmall", 12)
+        it.x.fs = UI():Text(it.x, "emph", C.cross)
         it.x.fs:SetText("\195\151")
         it.x.fs:SetPoint("CENTER", 0, 1)
-        it.x.fs:SetTextColor(0.66, 0.66, 0.68)
-        it.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1); Tip(b, "Take it off the list") end)
-        it.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68); GameTooltip:Hide() end)
+        it.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1) end)
+        it.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(unpack(C.cross)) end)
+        UI():AttachTooltip(it.x, "Take it off the list", nil, C.tipTop)
         it.x:SetScript("OnClick", function(b)
             if not CanEditDefs() then Builder:SayReadOnly() return end
             tremove(w().items, b:GetParent().index)
@@ -5833,7 +5697,7 @@ local function ListForm(f)
                 local ends = n >= 2 and i == n
                 it.num:SetText(ends and "F" or i)
                 if ends then
-                    it.disc:SetVertexColor(1, 0.82, 0)
+                    it.disc:SetVertexColor(Col("GOLD"))
                     it.num:SetTextColor(0.16, 0.11, 0)
                 else
                     it.disc:SetVertexColor(Defs.TEAL[1], Defs.TEAL[2], Defs.TEAL[3])
@@ -5966,7 +5830,7 @@ function Defs:Layout()
     local key = (cur.id and (cur.kind .. ":" .. tostring(cur.id))) or ("add:" .. cur.kind)
     local ry = pal and pal.rowY and pal.rowY[key]
     local palH = pal and pal:GetHeight() or 0
-    if palH < 100 then palH = WIN_H - 31 - TOP_H end
+    if palH < 100 then palH = BODY_H end
     f:ClearAllPoints()
     if not ry then
         f:SetPoint("TOPLEFT", pal, "TOPRIGHT", 12, -8)
@@ -6111,16 +5975,13 @@ end
 local QS_W = 988
 local QCOL = { n = 12, q = 40, a = 380, p = QS_W - 12 - 52 }     -- the columns' x
 
+-- (a UI:CreateSheet over the builder, dimmed under it: its header holds the list's icon and name, its foot the note,
+-- Done and Add question)
 function QSheet:Create()
-    local f = CreateFrame("Frame", "DisasterZoneEventQuestions", win)
-    f:SetFrameStrata("FULLSCREEN")
-    f:SetFrameLevel(20)
-    f:SetSize(QS_W, 460)
-    f:EnableMouse(true)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    VGrad(f.bg, { 0.11, 0.11, 0.129, 1 }, { 0.078, 0.078, 0.094, 1 })
-    EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
+    local f = Defs.Sheet({ name = "DisasterZoneEventQuestions", width = QS_W, height = 460,
+        ok = { text = "Done", width = 64, onClick = function() QSheet:Done() end }, cancel = false,
+        foot = "Answers count however they're spelled: capitals and spaces don't matter" })
+    f.done, f.note = f.ok, f.foot
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(20, 20)
     f.icon:SetPoint("LEFT", f, "TOPLEFT", 12, -20)
@@ -6129,7 +5990,7 @@ function QSheet:Create()
     f.name = CreateFrame("EditBox", nil, f)
     f.name:SetAutoFocus(false)
     f.name:SetFontObject("GameFontNormal")
-    Sized(f.name, 14)
+    Resize(f.name, 14)
     f.name:SetSize(200, 24)
     f.name:SetPoint("LEFT", f.icon, "RIGHT", 9, 0)
     f.name:SetMaxLetters(MAX_NAME)
@@ -6137,33 +5998,23 @@ function QSheet:Create()
     f.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     f.name:SetScript("OnTextChanged", function() QSheet:FitName() end)
     UI():AttachRestLabel(f.name)
-    f.probe = Text(f, "GameFontNormal", 14)
+    f.probe = UI():Text(f, "title", "GOLD")
     f.probe:Hide()
-    f.sub = Text(f, "GameFontHighlightSmall", 11)
-    f.sub:SetTextColor(0.62, 0.62, 0.62)
-    f.x = CreateFrame("Button", nil, f)
-    f.x:SetSize(20, 20)
-    f.x:SetPoint("RIGHT", f, "TOPRIGHT", -10, -20)
-    f.x.fs = Text(f.x, "GameFontHighlight", 17)
-    f.x.fs:SetText("\195\151")
-    f.x.fs:SetPoint("CENTER", 0, 1)
-    f.x.fs:SetTextColor(0.66, 0.66, 0.68)
-    f.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1); Tip(b, "Close", "Changes not kept: Done keeps them.") end)
-    f.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68); GameTooltip:Hide() end)
+    f.sub = UI():Text(f, "body", "SUB")
+    f.x = f.close                -- (its close cross: changes not kept)
     f.x:SetScript("OnClick", function() QSheet:Close() end)
+    UI():AttachTooltip(f.x, "Close", "Changes not kept: Done keeps them.", C.tipTop)
     local function rule(y)
         local t = f:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, 0.07)
+        t:SetColorTexture(Col("HAIRLINE"))
         t:SetHeight(1)
         t:SetPoint("TOPLEFT", f, "TOPLEFT", 1, y)
         t:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, y)
         return t
     end
-    rule(-40)
-    -- the column heads
+    -- the column heads (under the sheet's header rule)
     local function head(text, x, right)
-        local h = Text(f, "GameFontHighlightSmall", 10.5)
-        h:SetTextColor(0.62, 0.62, 0.62)
+        local h = UI():Text(f, "small", "SUB")
         h:SetText(text)
         if right then h:SetPoint("RIGHT", f, "TOPRIGHT", -12, -52) else h:SetPoint("LEFT", f, "TOPLEFT", x, -52) end
         return h
@@ -6180,35 +6031,22 @@ function QSheet:Create()
     f.child:SetSize(QS_W - 6, 10)
     f.scroll:SetScrollChild(f.child)
     f.rows = {}
-    f.foot = rule(-1)
-    f.foot:ClearAllPoints()
-    f.foot:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 46)
-    f.foot:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 46)
-    f.note = Text(f, "GameFontHighlightSmall", 11)
-    f.note:SetTextColor(0.62, 0.62, 0.62)
-    f.note:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 23)
-    f.note:SetText("Answers count however they're spelled: capitals and spaces don't matter")
-    f.done = UI():CreateSleekButton(f, "Done", 64, 24, function() QSheet:Done() end, "primary")
-    f.done:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 11)
-    f.add = UI():CreateSleekButton(f, "Add question", 120, 24, function() QSheet:AddQuestion() end)
+    f.add = UI():CreateSleekButton(f, "Add question", 120, 26, function() QSheet:AddQuestion() end)
     f.add.plus = f.add:CreateTexture(nil, "ARTWORK")
     f.add.plus:SetSize(10, 10)
     EUI():Glyph(f.add.plus, UI().ICON.plus or 39, 0.9, 0.9, 0.9)
     f.add.plus:SetPoint("LEFT", f.add, "LEFT", 11, 0)
     f.add:GetFontString():ClearAllPoints()
     f.add:GetFontString():SetPoint("LEFT", f.add.plus, "RIGHT", 7, 0)
-    f.add:SetWidth(11 + 10 + 7 + TextW(f.add:GetFontString()) + 12)
+    f.add:SetWidth(11 + 10 + 7 + UI():TextWidth(f.add:GetFontString()) + 12)
     f.add:SetPoint("RIGHT", f.done, "LEFT", -6, 0)
-    f.err = Text(f, "GameFontHighlightSmall", 11)
-    f.err:SetTextColor(1, 0.54, 0.48)
+    -- (the sheet's error line, left of Add question)
+    f.err:ClearAllPoints()
     f.err:SetPoint("RIGHT", f.add, "LEFT", -12, 0)
-    f:SetScript("OnShow", function() Defs.Dim(true) end)
-    f:SetScript("OnHide", function()
+    f:HookScript("OnHide", function()
         QSheet.cur = nil
-        Defs.Dim(false)
         if win and win:IsShown() then Builder:RenderPalette() end
     end)
-    f:Hide()
     ui.qsheet = f
     return f
 end
@@ -6228,12 +6066,10 @@ function QSheet:Open(lid)
     f.icon:SetTexture(d.icon or "Interface\\Icons\\INV_Misc_Book_11")
     f.name:SetText(l.n or "")
     self:FitName()
-    f.err:SetText("")
     f.add:SetShown(CanEditDefs())
-    f:ClearAllPoints()
-    f:SetPoint("TOP", win.content or win, "TOP", 0, -20)
-    f:Show()
-    f:Raise()
+    f:Open()
+    f.err:SetText("")
+    f.err:Show()
     if #items == 0 and CanEditDefs() then self:AddQuestion() else self:Render() end
     Builder:RenderPalette()
 end
@@ -6241,7 +6077,6 @@ end
 function QSheet:Close()
     self.cur = nil
     if ui.qsheet then ui.qsheet:Hide() end
-    Defs.Dim(false)
 end
 
 -- A question row: its number, the question, its answers as chips, its points. The one picked is edited in place.
@@ -6254,24 +6089,24 @@ function QSheet:Row(i)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     r.sel = r:CreateTexture(nil, "BACKGROUND")
     r.sel:SetAllPoints()
-    r.sel:SetColorTexture(1, 0.82, 0, 0.08)
+    r.sel:SetColorTexture(Col("GOLD", 0.08))
     r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetColorTexture(1, 0.82, 0)
+    r.bar:SetColorTexture(Col("GOLD"))
     r.bar:SetWidth(2)
     r.bar:SetPoint("TOPLEFT")
     r.bar:SetPoint("BOTTOMLEFT")
     r.rule = r:CreateTexture(nil, "BORDER")
-    r.rule:SetColorTexture(1, 1, 1, 0.05)
+    r.rule:SetColorTexture(Col("HOVER"))
     r.rule:SetHeight(1)
     r.rule:SetPoint("BOTTOMLEFT")
     r.rule:SetPoint("BOTTOMRIGHT")
     r.hov = r:CreateTexture(nil, "HIGHLIGHT")
     r.hov:SetAllPoints()
-    r.hov:SetColorTexture(1, 1, 1, 0.03)
-    r.n = Text(r, "GameFontHighlightSmall", 12)
+    r.hov:SetColorTexture(Col("QUIET"))
+    r.n = UI():Text(r, "emph", C.white)
     r.n:SetJustifyH("RIGHT")
     r.n:SetWidth(18)
-    r.q = Text(r, "GameFontHighlight", 11.5)
+    r.q = UI():Text(r, "body", C.white)
     r.q:SetWordWrap(true)
     r.q:SetWidth(QCOL.a - QCOL.q - 16)
     r.qe = UI():CreateSleekEditBox(r, QCOL.a - QCOL.q - 14, 24)
@@ -6282,9 +6117,8 @@ function QSheet:Row(i)
     r.qe:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     r.qe:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     r.chips = {}
-    r.p = Text(r, "GameFontHighlight", 13)
+    r.p = UI():Text(r, "title", { 1, 0.88, 0.54 })
     r.p:SetJustifyH("RIGHT")
-    r.p:SetTextColor(1, 0.88, 0.54)
     r.pts = UI():CreateSleekMenuButton(r, "1", 46, function(root)
         for n = 1, 5 do
             root:CreateRadio(tostring(n), function() return (QSheet.cur.items[r.index].pts or 1) == n end, function()
@@ -6334,14 +6168,13 @@ local function AnswerChips(r, list, width)
             c = CreateFrame("Frame", nil, r)
             c:SetHeight(19)
             UI():AddPillShape(c, 19)
-            c:SetPillColors({ 1, 1, 1, 0.04 }, { 1, 1, 1, 0.14 })
-            c.fs = Text(c, "GameFontHighlightSmall", 10.5)
-            c.fs:SetTextColor(0.85, 0.85, 0.85)
+            c:SetPillColors({ Col("HAIRLINE", 0.04) }, { 1, 1, 1, 0.14 })
+            c.fs = UI():Text(c, "small", { 0.85, 0.85, 0.85 })
             c.fs:SetPoint("LEFT", c, "LEFT", 8, 0)
             r.chips[i] = c
         end
         c.fs:SetText(s)
-        local w = min(width, TextW(c.fs) + 16)
+        local w = min(width, UI():TextWidth(c.fs) + 16)
         c:SetWidth(w)
         if x > 0 and x + w > width then x, y = 0, y + 23 end
         c:ClearAllPoints()
@@ -6422,7 +6255,7 @@ function QSheet:FitName()
     local f = ui.qsheet
     if not f then return end
     f.probe:SetText(f.name:GetText() or "")
-    f.name:SetWidth(min(300, max(40, TextW(f.probe) + 8)))
+    f.name:SetWidth(min(300, max(40, UI():TextWidth(f.probe) + 8)))
 end
 
 function QSheet:AddQuestion()
@@ -6479,7 +6312,7 @@ end
 -- Places on a map: a zone's art from the game (C_Map's tiles), places as rings at their size, me as an arrow
 ---------------------------------------------------------------------------
 
-local GOLD3 = { 1, 0.82, 0 }
+local GOLD3 = St.C.GOLD      -- (read-only: the shared token)
 local MS_W, MS_H = 848, 542            -- the map sheet
 local MAP_W, MAP_H = 576, 384          -- its map (a zone's 1002 x 668 art fits it at 1x)
 local ZOOMS_MAP = { 1, 1.5, 2, 3, 4, 6 }
@@ -6534,12 +6367,11 @@ function MapSheet.NewView(parent, w, h)
     v.ov:SetAllPoints()
     v.ov:SetFrameLevel(v.canvas:GetFrameLevel() + 4)
     v.circles, v.lines, v.texs, v.fonts = {}, {}, {}, {}
-    v.msg = Text(v.ov, "GameFontHighlight", 12)
+    v.msg = UI():Text(v.ov, "emph", { 0.85, 0.85, 0.85 })
     v.msg:SetWordWrap(true)
     v.msg:SetWidth(w - 60)
     v.msg:SetJustifyH("CENTER")
     v.msg:SetPoint("CENTER")
-    v.msg:SetTextColor(0.85, 0.85, 0.85)
     v.msg:Hide()
     -- map point cx, cy (0..1) in the middle, zoom z (1: the whole zone)
     function v:Set(map, cx, cy, z)
@@ -6618,7 +6450,7 @@ function MapSheet.NewView(parent, w, h)
         self.nf = self.nf + 1
         local fs = self.fonts[self.nf]
         if not fs then
-            fs = Text(self.ov, "GameFontHighlightSmall", 10.5)
+            fs = UI():Text(self.ov, "small", C.white)
             fs:SetShadowOffset(1, -1)
             fs:SetShadowColor(0, 0, 0, 1)
             self.fonts[self.nf] = fs
@@ -6705,7 +6537,7 @@ function MapSheet.DrawPlaces(v, edit)
     local function name(text, px, py, r, c)
         if not text or text == "" then return end
         local fs = v:Label(text, px, py + r + 10, c)
-        local tw = TextW(fs)
+        local tw = UI():TextWidth(fs)
         local y = py + r + 10
         if y + 7 > v.H then y = py - r - 10 end
         -- (a place whose name has no room on the map: its card on hover says it)
@@ -6724,7 +6556,7 @@ function MapSheet.DrawPlaces(v, edit)
         local r = max(6, (tonumber(edit.r) or 30) * per)
         -- (its own name over its ring: the handle is at its right)
         local fs = v:Label(edit.n, px, py - r - 11, GOLD3)
-        local tw = TextW(fs)
+        local tw = UI():TextWidth(fs)
         local x = max(tw / 2 + 4, min(v.W - tw / 2 - 4, px))
         local y = (py - r - 11 < 8) and (py + r + 11) or (py - r - 11)
         fs:ClearAllPoints()
@@ -6794,38 +6626,19 @@ local function PosToSize(p)
     return floor(r / 5 + 0.5) * 5
 end
 
+-- (a UI:CreateSheet over the builder, dimmed under it: the zone and the map on the left, the place's name, size and
+-- where on the right; its foot says where places work, with Delete, Cancel and Save place)
 function MapSheet:Create()
-    local f = CreateFrame("Frame", "DisasterZoneEventMapSheet", win)
-    f:SetFrameStrata("FULLSCREEN")
-    f:SetFrameLevel(20)
-    f:SetSize(MS_W, MS_H)
-    f:EnableMouse(true)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    VGrad(f.bg, { 0.11, 0.11, 0.129, 1 }, { 0.078, 0.078, 0.094, 1 })
-    EUI():Edge(f, 0.47, 0.47, 0.51, 0.75)
-    f.title = Text(f, "GameFontNormal", 14)
-    f.title:SetPoint("LEFT", f, "TOPLEFT", 12, -20)
-    f.x = CreateFrame("Button", nil, f)
-    f.x:SetSize(20, 20)
-    f.x:SetPoint("RIGHT", f, "TOPRIGHT", -10, -20)
-    f.x.fs = Text(f.x, "GameFontHighlight", 17)
-    f.x.fs:SetText("\195\151")
-    f.x.fs:SetPoint("CENTER", 0, 1)
-    f.x.fs:SetTextColor(0.66, 0.66, 0.68)
-    f.x:SetScript("OnEnter", function(b) b.fs:SetTextColor(1, 1, 1) end)
-    f.x:SetScript("OnLeave", function(b) b.fs:SetTextColor(0.66, 0.66, 0.68) end)
+    local f = Defs.Sheet({ name = "DisasterZoneEventMapSheet", width = MS_W, height = MS_H,
+        title = "Pick on the map", ok = { text = "Save place", width = 92, onClick = function() MapSheet:Save() end },
+        cancel = "Cancel", foot = "Places work in the open world, not in dungeons" })
+    f.x, f.save, f.note = f.close, f.ok, f.foot
     f.x:SetScript("OnClick", function() MapSheet:Close() end)
-    local hd = f:CreateTexture(nil, "BORDER")
-    hd:SetColorTexture(1, 1, 1, 0.07)
-    hd:SetHeight(1)
-    hd:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -40)
-    hd:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -40)
+    f.cancel:SetScript("OnClick", function() MapSheet:Close() end)
     -- the zone, and what the map does
     f.zone = UI():CreateSleekMenuButton(f, "", 186, function(root) MapSheet:ZoneMenu(root) end, 24)
     f.zone:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -52)
-    f.hint = Text(f, "GameFontHighlightSmall", 11)
-    f.hint:SetTextColor(0.62, 0.62, 0.62)
+    f.hint = UI():Text(f, "body", "SUB")
     f.hint:SetPoint("LEFT", f.zone, "RIGHT", 12, 0)
     f.hint:SetText("Click to move the place, drag its ring to size it")
     -- the map
@@ -6843,7 +6656,7 @@ function MapSheet:Create()
     zc.bg = zc:CreateTexture(nil, "BACKGROUND")
     zc.bg:SetAllPoints()
     zc.bg:SetColorTexture(0.055, 0.055, 0.067, 0.94)
-    EUI():Edge(zc, 0.34, 0.34, 0.38, 0.9)
+    EUI():Edge(zc, Col("EDGE_STRONG"))
     local function zb(y, plus, fn, tip)
         local b = CreateFrame("Button", nil, zc)
         b:SetSize(24, 24)
@@ -6860,16 +6673,15 @@ function MapSheet:Create()
         end
         local hl = b:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0.06)
+        hl:SetColorTexture(Col("HAIRLINE", 0.06))
         b:SetScript("OnClick", fn)
-        b:SetScript("OnEnter", function(self) Tip(self, tip) end)
-        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(b, tip, nil, C.tipTop)
         return b
     end
     zc.plus = zb(0, true, function() MapSheet:Zoom(1) end, "Zoom in")
     zc.minus = zb(24, false, function() MapSheet:Zoom(-1) end, "Zoom out")
     local zl = zc:CreateTexture(nil, "BORDER")
-    zl:SetColorTexture(1, 1, 1, 0.08)
+    zl:SetColorTexture(Col("HAIRLINE", 0.08))
     zl:SetHeight(1)
     zl:SetPoint("LEFT", zc, "TOPLEFT", 1, -24)
     zl:SetPoint("RIGHT", zc, "TOPRIGHT", -1, -24)
@@ -6878,8 +6690,7 @@ function MapSheet:Create()
     local sx = 12 + MAP_W + 48
     local sw = MS_W - sx - 12
     local function lab(text, y)
-        local l = Text(f, "GameFontHighlightSmall", 11)
-        l:SetTextColor(0.62, 0.62, 0.62)
+        local l = UI():Text(f, "body", "SUB")
         l:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -y)
         l:SetText(text)
         return l
@@ -6895,7 +6706,7 @@ function MapSheet:Create()
     f.name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     f.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     lab("Size", 146)
-    f.size = Text(f, "GameFontHighlight", 12)
+    f.size = UI():Text(f, "emph", C.white)
     f.size:SetPoint("TOPRIGHT", f, "TOPLEFT", sx + sw, -145)
     f.slider = CreateFrame("Frame", nil, f)
     f.slider:SetSize(sw, 16)
@@ -6907,7 +6718,7 @@ function MapSheet:Create()
     f.slider.track:SetPoint("LEFT", f.slider, "LEFT", 0, 0)
     f.slider.track:SetPoint("RIGHT", f.slider, "RIGHT", 0, 0)
     f.slider.fill = f.slider:CreateTexture(nil, "ARTWORK")
-    f.slider.fill:SetColorTexture(1, 0.82, 0, 1)
+    f.slider.fill:SetColorTexture(Col("GOLD"))
     f.slider.fill:SetHeight(2)
     f.slider.fill:SetPoint("LEFT", f.slider, "LEFT", 0, 0)
     f.slider.knobE = f.slider:CreateTexture(nil, "OVERLAY", nil, 1)
@@ -6931,12 +6742,11 @@ function MapSheet:Create()
         MapSheet:SetSize(PosToSize((x - l) / s:GetWidth()))
     end)
     lab("Where", 176)
-    f.where = Text(f, "GameFontHighlight", 12)
+    f.where = UI():Text(f, "emph", C.white)
     f.where:SetWordWrap(true)
     f.where:SetWidth(sw)
     f.where:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -192)
-    f.coords = Text(f, "GameFontHighlightSmall", 10.5)
-    f.coords:SetTextColor(0.62, 0.62, 0.62)
+    f.coords = UI():Text(f, "small", "SUB")
     f.coords:SetPoint("TOPLEFT", f.where, "BOTTOMLEFT", 0, -2)
     f.stand = UI():CreateSleekButton(f, "Set from where I stand", sw, 24, function() MapSheet:StandHere() end)
     f.stand:SetPoint("TOPLEFT", f.coords, "BOTTOMLEFT", 0, -14)
@@ -6947,41 +6757,25 @@ function MapSheet:Create()
     sfs:ClearAllPoints()
     sfs:SetPoint("CENTER", f.stand, "CENTER", 9, 0)
     f.stand.icon:SetPoint("RIGHT", sfs, "LEFT", -7, 0)
-    f.err = Text(f, "GameFontHighlightSmall", 11)
-    f.err:SetTextColor(1, 0.54, 0.48)
-    f.err:SetWordWrap(true)
-    f.err:SetWidth(sw)
+    -- (why it can't be saved: under the place's controls, where the eye is; the sheet's own error line stays unused)
+    f.err = UI():Text(f, "body", "WARN", { wrap = true, width = sw })
     f.err:SetPoint("TOPLEFT", f.stand, "BOTTOMLEFT", 0, -10)
-    -- the foot
-    local fd = f:CreateTexture(nil, "BORDER")
-    fd:SetColorTexture(1, 1, 1, 0.07)
-    fd:SetHeight(1)
-    fd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 46)
-    fd:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 46)
+    -- the foot: a pin before the sheet's note; Delete beside Cancel
     f.pin = f:CreateTexture(nil, "ARTWORK")
     f.pin:SetSize(12, 12)
-    EUI():Glyph(f.pin, 7, 0.62, 0.62, 0.62)
+    EUI():Glyph(f.pin, 7, unpack(St.C.SUB))
     f.pin:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 23)
-    f.note = Text(f, "GameFontHighlightSmall", 11)
-    f.note:SetTextColor(0.62, 0.62, 0.62)
+    f.note:ClearAllPoints()
     f.note:SetPoint("LEFT", f.pin, "RIGHT", 7, 0)
-    f.note:SetText("Places work in the open world, not in dungeons")
-    f.save = UI():CreateSleekButton(f, "Save place", 92, 24, function() MapSheet:Save() end, "primary")
-    f.save:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 11)
-    f.cancel = UI():CreateSleekButton(f, "Cancel", 74, 24, function() MapSheet:Close() end)
-    f.cancel:SetPoint("RIGHT", f.save, "LEFT", -6, 0)
-    f.bin = UI():CreateTipIconButton(f, 24, UI().ICON.trash, "Delete the place", "Pieces that use it will each need another.",
+    f.bin = UI():CreateTipIconButton(f, 26, UI().ICON.trash, "Delete the place", "Pieces that use it will each need another.",
         function() if MapSheet.cur and MapSheet.cur.pid then Defs:Delete("places", MapSheet.cur.pid) end end)
     f.bin:SetPoint("RIGHT", f.cancel, "LEFT", -6, 0)
-    f:SetScript("OnShow", function() Defs.Dim(true) end)
-    f:SetScript("OnHide", function()
+    f:HookScript("OnHide", function()
         local cur = MapSheet.cur
         MapSheet.cur = nil
-        Defs.Dim(false)
         if cur and cur.onClosed then cur.onClosed() end
         if win and win:IsShown() then Builder:RenderPalette() end
     end)
-    f:Hide()
     ui.msheet = f
     return f
 end
@@ -7037,16 +6831,14 @@ function MapSheet:Open(opts)
         for _, z in ipairs(ZOOMS_MAP) do if frac * z < 0.35 then cur.vz = z end end
         cur.vz = min(cur.vz, 3)
     end
-    f.title:SetText("Pick on the map")
+    f:SetTitle("Pick on the map")
     f.name:SetText(cur.n or "")
-    f.err:SetText("")
     f.save:SetShown(CanEditDefs())
     f.bin:SetShown(CanEditDefs() and cur.pid ~= nil)
     f.stand:SetShown(CanEditDefs())
-    f:ClearAllPoints()
-    f:SetPoint("TOP", win.content or win, "TOP", 0, -40)
-    f:Show()
-    f:Raise()
+    f:Open()
+    f.err:SetText("")
+    f.err:Show()
     self:Draw()
     Builder:RenderPalette()
 end
@@ -7055,7 +6847,6 @@ function MapSheet:Close(quiet)
     local cur = self.cur
     self.cur = nil
     if ui.msheet then ui.msheet:Hide() end
-    Defs.Dim(false)
     if cur and cur.onClosed then cur.onClosed() end
 end
 
@@ -7283,15 +7074,13 @@ function Defs:ShowCard(pid, anchor)
         c.bg = c:CreateTexture(nil, "BACKGROUND")
         c.bg:SetAllPoints()
         c.bg:SetColorTexture(0.047, 0.047, 0.059, 0.98)
-        EUI():Edge(c, 0.47, 0.47, 0.51, 0.75)
+        EUI():Edge(c, unpack(C.panelEdge))
         c.view = MapSheet.NewView(c, CARD_W, CARD_MAP_H)
         c.view:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
-        c.line = Text(c, "GameFontHighlightSmall", 11)
-        c.line:SetTextColor(0.62, 0.62, 0.62)
-        c.m = Text(c, "GameFontHighlightSmall", 11)
+        c.line = UI():Text(c, "body", "SUB")
+        c.m = UI():Text(c, "body", { 0.81, 0.81, 0.81 })
         c.m:SetWordWrap(true)
         c.m:SetWidth(CARD_W - 20)
-        c.m:SetTextColor(0.81, 0.81, 0.81)
         ui.pcard = c
     end
     local v = c.view
