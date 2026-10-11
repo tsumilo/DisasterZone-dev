@@ -632,6 +632,21 @@ def gem_quality_epic_rare_uncommon():
     c.eval("local f, s = ns.GemEditor:GetFrame() s.target = 's2' ns.GemEditor:Refresh()")
     meta = c.eval_py("local f, s = ns.GemEditor:GetFrame() return { ns.Gems:Sockets(s.itemID)[2], f.quality[1]:IsShown() }")
     assert meta == ["M", False], meta
+    c.eval("ns.GemEditor:Close()")
+    # the Suggest menu: picking a quality is a setting, the menu stays open on it
+    c.eval("""T_SUGGEST = nil local function walk(f) local fs = f.GetFontString and f:GetFontString()
+              if fs and fs:GetText() == 'Suggest' and f:IsVisible() then T_SUGGEST = f end
+              for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end end walk(UIParent)""")
+    c.click("T_SUGGEST")
+    settle(w, 0.2)
+    c.eval("""T_ROW = nil for _, r in ipairs(ns.UI:GetMenuFrames()[1].rows) do
+              if r:IsShown() and (r.fs:GetText() or ''):find('Rare gems', 1, true) then T_ROW = r end end""")
+    c.click("T_ROW")
+    settle(w, 0.2)
+    assert c.eval("return ns.Gems:GetQuality()") == 3
+    assert c.eval("local m = ns.UI:GetMenuFrames()[1] return m and m:IsShown() or false") is True
+    assert c.eval("return ns.UI:GetMenuFrames()[1].rows[1]:IsShown()") is True
+    c.eval("ns.UI:CloseMenus() ns.Gems:SetQuality(4)")
     w.assert_no_errors()
 
 

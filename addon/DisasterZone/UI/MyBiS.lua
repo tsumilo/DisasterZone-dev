@@ -1132,7 +1132,10 @@ local function BuildSuggestMenu(root)
                 local radio = root:CreateRadio(("|cff%02x%02x%02x%s gems|r"):format(floor(r * 255), floor(g * 255),
                     floor(bl * 255), ns.Gems.QUALITY_WORDS[q]),
                     function() return ns.Gems:GetQuality(list) == q end,
-                    function() ns.Gems:SetQuality(q, list) end)
+                    function()
+                        ns.Gems:SetQuality(q, list)
+                        return (MenuResponse and MenuResponse.Refresh) or 2    -- a setting: the menu stays open
+                    end)
                 if radio and radio.SetTooltip then
                     radio:SetTooltip(function(tt)
                         tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", 1, 0.82, 0)
