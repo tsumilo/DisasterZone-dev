@@ -2694,6 +2694,8 @@ def perf_view(mode="pages"):
         w.tick(0.6)
         if mode == "saved":
             t.click(t.eval("return ns.PerfUI._panel().holds.tabs.saved"))
+        elif mode == "empty":                     # (the window with an empty body: a backdrop for page mockups)
+            t.eval("ns.PerfUI._panel():Hide()")
         return t
     return fn
 
@@ -2701,4 +2703,5 @@ def perf_view(mode="pages"):
 STATES += [
     ("Performance (Tsumil)", perf_view()),
     ("Performance - saved data", perf_view("saved")),
+    ("Window - empty body (mock backdrop)", perf_view("empty")),
 ]

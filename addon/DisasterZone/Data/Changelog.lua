@@ -37,6 +37,15 @@ ns.CHANGELOG = {
               "Your own attendance is on your Members card (Attendance tab).",
               "Officers now see the Raid log's attendance. Loot handed out stays with the loot council.",
           } },
+          { heading = "Loot council: who is on a dry streak", lines = {
+              "When loot drops, each player shows how many raids they came to since their last item.",
+              "The bars warm up from grey to gold, orange and red: the driest players stand out.",
+              "Hover a player for the item they got last, how many days ago and the bosses since.",
+              "An item on any of their characters counts. Offspec, disenchant and bank loot don't.",
+              "Raids they were benched for or skipped don't count, and neither does tonight's.",
+              "Only the guild council sees it: they hold the whole Loot Log.",
+              "Fixed: hovering a player on the boss drop panel could throw a Lua error.",
+          } },
           { heading = "One look everywhere", lines = {
               "Questions and confirmations are the addon's own dialogs now, not the game's red ones.",
               "They open over the window they belong to, with a title, and Escape closes them.",
