@@ -19,6 +19,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RaidSheet.lua", ...) then retur
 local addonName, ns = ...
 
 local PlanUI = ns.RaidPlanUI       -- (UI/RaidPlanUI.lua's module: this file adds OpenEditor / GetEditor to it)
+local S = ns.Style
 
 local floor, max, min = math.floor, math.max, math.min
 local tsort, tconcat = table.sort, table.concat
@@ -33,13 +34,9 @@ local CHIP_H, CHIP_GAP, WHO_LINES = 22, 6, 2     -- the Who row: chips, then the
 local FIELD_MIN, FIELD_MAX = 180, 240
 local WHO_PANEL_W = 340                          -- the Who search's list
 local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }
-local CELL_BG = { 0.08, 0.08, 0.09, 0.95 }
-local EDGE = { 0.20, 0.20, 0.23, 1 }
-local PICKED_BG = { 0.17, 0.14, 0.05, 0.95 }
-local GOLD = { 0.91, 0.73, 0.14 }
+local GOLD = S.C.GOLD_DEEP           -- (D1: the gold of fills and edges)
 local EDITOR_DAYS = 60              -- the calendar reaches this far ahead
 local MAX_LEVEL = 70                -- a new raid asks for this level unless "Level 70 only" is switched off
-local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local ACCESS = {
     { key = "open", text = "Everyone", tip = { "Everyone", "Every guild member can sign up; the teams only say who is "
@@ -52,7 +49,7 @@ local ACCESS = {
 }
 
 local sheet                         -- the frame, made on first use
-local S = {}                        -- this file's helpers (one table)
+local H = {}                        -- this file's helpers (one table)
 
 local function RP() return ns.RaidPlan end
 local function UI() return ns.UI end
@@ -62,25 +59,15 @@ local function hideTip() GameTooltip:Hide() end
 local function colorize(hex, text) return "|cff" .. hex .. tostring(text) .. "|r" end
 local function grey(text) return colorize("9e9e9e", text) end
 
-local function text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
+-- A text's size only (its colour and face stay), snapped to the type scale (D2).
+-- TODO(refactor): move into UI:SetTextStyle (a size-only form that keeps the colour).
 local function setSize(fs, size)
     local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
+    if path then fs:SetFont(path, S:Size(size), flags) end
 end
 
 local function formLabel(parent, label)
-    local fs = text(parent, "GameFontHighlightSmall", 11)
-    fs:SetTextColor(0.56, 0.56, 0.58)
+    local fs = UI():Text(parent, "body", "SUB")
     fs:SetText(label)
     return fs
 end
@@ -91,24 +78,6 @@ local function tipOn(frame, lines, anchor)
         if l then UI():SetTextTooltip(self, l, anchor or "ANCHOR_TOP") end
     end)
     frame:HookScript("OnLeave", hideTip)
-end
-
--- A flat cell: a fill and 1px edges; c:Paint(picked) gives it the picked look (gold edge, warm fill).
-local function flatCell(f)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    UI():AddEdges(f, "BORDER")
-    function f:Paint(picked, dim)
-        local bg = picked and PICKED_BG or CELL_BG
-        self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-        if picked then UI():SetEdgeColor(self, GOLD[1], GOLD[2], GOLD[3], 1)
-        else UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], dim and 0.6 or 1) end
-    end
-    f:Paint(false)
-    local hl = f:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
-    return f
 end
 
 -- A small arrow button (the date strip's, the time stepper's).
@@ -122,7 +91,7 @@ end
 -- their lineup; inv; access ("open" | "locked" | "private") with lk / pv as saved; low = lower characters may sign up.
 ---------------------------------------------------------------------------
 
-function S.sync()
+function H.sync()
     local f = sheet.f
     f.i = f.list[1]
     f.ix = {}
@@ -141,13 +110,13 @@ function S.sync()
 end
 
 -- Server time of the picked day + hour + minute (local wall clock).
-function S.time()
+function H.time()
     local f = sheet.f
     return time({ year = f.y, month = f.m, day = f.d, hour = f.hour, min = f.min, sec = 0 })
 end
 
 -- Noon of a day n days from today, and that day's { y, m, d }.
-function S.dayAt(n)
+function H.dayAt(n)
     local d = date("*t", Now())
     local t = time({ year = d.year, month = d.month, day = d.day + n, hour = 12, min = 0, sec = 0 })
     local x = date("*t", t)
@@ -155,7 +124,7 @@ function S.dayAt(n)
 end
 
 -- How many days from today the picked day is.
-function S.pickedOffset()
+function H.pickedOffset()
     local f = sheet.f
     local d = date("*t", Now())
     local t0 = time({ year = d.year, month = d.month, day = d.day, hour = 12, min = 0, sec = 0 })
@@ -164,7 +133,7 @@ function S.pickedOffset()
 end
 
 -- The days that can be picked: today (or the edited raid's own day, if earlier) .. EDITOR_DAYS ahead.
-function S.minOffset()
+function H.minOffset()
     if not sheet.minT then return 0 end
     local d = date("*t", Now())
     local t0 = time({ year = d.year, month = d.month, day = d.day, hour = 12, min = 0, sec = 0 })
@@ -174,7 +143,7 @@ function S.minOffset()
 end
 
 -- The raids planned on a day ("20:00  Karazhan" lines), the edited one left out; nil for none.
-function S.raidsOn(y, m, d)
+function H.raidsOn(y, m, d)
     local from = time({ year = y, month = m, day = d, hour = 0, min = 0, sec = 0 })
     local to = time({ year = y, month = m, day = d + 1, hour = 0, min = 0, sec = 0 }) - 1
     local lines = {}
@@ -187,7 +156,7 @@ function S.raidsOn(y, m, d)
 end
 
 -- A team's lineups of the raid's size (GetTeam lineups).
-function S.sizeLineups(t)
+function H.sizeLineups(t)
     local out = {}
     for _, l in ipairs(t.lineups) do
         if l.size == sheet.f.sz then out[#out + 1] = l end
@@ -197,8 +166,8 @@ end
 
 -- The lineup a picked team gives the raid: the one chosen (tl), else its first of the raid's size; and how many it has
 -- of that size.
-function S.pickedLineup(t)
-    local list = S.sizeLineups(t)
+function H.pickedLineup(t)
+    local list = H.sizeLineups(t)
     for _, l in ipairs(list) do
         if l.id == sheet.f.tl[t.id] then return l, #list end
     end
@@ -208,7 +177,7 @@ end
 -- The players a team invites through lineup l (those in its groups); the roster without a lineup of the raid's size,
 -- or when it has nobody in its groups yet (RaidPlan:GetRaidTeamPlayers). Returns the keys and whether it is the
 -- roster.
-function S.players(t, l)
+function H.players(t, l)
     local out = {}
     if l then
         local n = ns.RaidComp:GroupCount(sheet.f.sz)
@@ -223,14 +192,14 @@ end
 
 -- The team cards: { value = team id or "team:lineup", name, what (the lineup, or "roster"), n, team, lineup, roster,
 -- chosen }. A team with several lineups of the raid's size gets one per lineup; one without any invites its roster.
-function S.teamCards()
+function H.teamCards()
     local f = sheet.f
     local out = {}
     for _, t in ipairs(RP():GetTeams()) do
-        local list = S.sizeLineups(t)
+        local list = H.sizeLineups(t)
         local function add(l, value)
-            local players, roster = S.players(t, l)
-            local picked = S.pickedLineup(t)
+            local players, roster = H.players(t, l)
+            local picked = H.pickedLineup(t)
             out[#out + 1] = { value = value, team = t, lineup = l, roster = roster, n = #players, name = t.name,
                               what = (roster and "roster") or ((#t.lineups > 1) and RP():LineupName(t, l)) or nil,
                               chosen = f.tm[t.id] and (#list < 2 or (picked and l and picked.id == l.id)) or false }
@@ -245,37 +214,37 @@ function S.teamCards()
 end
 
 -- Whether a team card's value (team id or "team:lineup") is picked: the team, and that lineup of it.
-function S.teamPicked(value)
+function H.teamPicked(value)
     local id, ln = tostring(value):match("^([^:]+):?(.*)$")
     if not id or id == "" or not sheet.f.tm[id] then return false end
     if ln == "" then return true end
     local t = RP():GetTeam(id)
-    local picked = t and S.pickedLineup(t)
+    local picked = t and H.pickedLineup(t)
     return (picked and picked.id == ln) and true or false
 end
 
 -- A team picked or taken off (a team row in the Who search, a chip): with that lineup.
-function S.toggleTeam(value)
+function H.toggleTeam(value)
     local f = sheet.f
     local id, ln = tostring(value):match("^([^:]+):?(.*)$")
     if not id or id == "" then return end
-    local on = S.teamPicked(value)
+    local on = H.teamPicked(value)
     if on then
         f.tm[id], f.tl[id] = nil, nil
     else
         f.tm[id] = true
         f.tl[id] = ln ~= "" and ln or nil
     end
-    S.refresh()
+    H.refresh()
 end
 
 -- The guild members to invite on top of the teams (the players a picked team invites are in already).
-function S.inviteItems()
+function H.inviteItems()
     local g = ns.Guild
     local inTeam = {}
     for _, t in ipairs(RP():GetTeams()) do
         if sheet.f.tm[t.id] then
-            for _, key in ipairs((S.players(t, (S.pickedLineup(t))))) do inTeam[key] = t.name end
+            for _, key in ipairs((H.players(t, (H.pickedLineup(t))))) do inTeam[key] = t.name end
         end
     end
     local out, seen = {}, {}
@@ -293,7 +262,7 @@ function S.inviteItems()
     return out
 end
 
-function S.inviteList()
+function H.inviteList()
     local list = {}
     for key in pairs(sheet.f.inv) do list[#list + 1] = key end
     tsort(list)
@@ -303,7 +272,7 @@ end
 -- The team cards (values) picked for these raids lately: planned raids with any of the night's instances, two weeks
 -- back to two weeks ahead, the nearest first; the lineup they used when it is one of this size. At most RECENT_MAX.
 local RECENT_MAX = 3
-function S.recentTeams(cards)
+function H.recentTeams(cards)
     local f = sheet.f
     local want = {}
     for _, key in ipairs(f.list) do want[key] = true end
@@ -342,35 +311,35 @@ function S.recentTeams(cards)
 end
 
 -- The team icon (art pack 4), as a search row's icon = { file, l, r, t, b }.
-function S.teamIcon()
+function H.teamIcon()
     if not ns:HasAssets(4) then return nil end
     local c = UI():IconCoords(UI().ICON.team)
     return { UI().ICON_ATLAS, c[1], c[2], c[3], c[4] }
 end
 
-function S.teamLabel(c) return c.name .. (c.what and (" · " .. c.what) or "") end
+function H.teamLabel(c) return c.name .. (c.what and (" · " .. c.what) or "") end
 
-function S.teamTip(c)
+function H.teamTip(c)
     return c.roster and "No lineup of this size with players in its groups: the whole roster is invited."
         or ("The %d players in this lineup's groups are invited; its groups and comp are the raid's."):format(c.n)
 end
 
 -- The Who search, one list: the teams picked for these raids lately, the other teams (a row per lineup of the raid's
 -- size, or the roster), then the guild's players (those a picked team brings already are ticked and fixed).
-function S.whoItems()
+function H.whoItems()
     local f = sheet.f
     local out = {}
-    local cards = S.teamCards()
+    local cards = H.teamCards()
     local byValue = {}
     for _, c in ipairs(cards) do byValue[c.value] = c end
-    local icon = S.teamIcon()
+    local icon = H.teamIcon()
     local function add(c)
-        local label = S.teamLabel(c)
+        local label = H.teamLabel(c)
         out[#out + 1] = { key = "team:" .. c.value, team = true, value = c.value, text = label,
                           search = "team " .. (c.what or ""), note = c.n == 1 and "1 player" or (c.n .. " players"),
-                          icon = icon, iconColor = GOLD, color = "ffeeeeee", tip = { label, S.teamTip(c) } }
+                          icon = icon, iconColor = GOLD, color = "ffeeeeee", tip = { label, H.teamTip(c) } }
     end
-    local recent = S.recentTeams(cards)
+    local recent = H.recentTeams(cards)
     local done = {}
     if #recent > 0 then
         local inst = #f.list == 1 and RP():GetInstance(f.list[1])
@@ -389,7 +358,7 @@ function S.whoItems()
         out[#out + 1] = { header = #recent > 0 and "Other teams" or "Teams" }
         for _, c in ipairs(rest) do add(c) end
     end
-    local players = S.inviteItems()
+    local players = H.inviteItems()
     if #players > 0 then
         out[#out + 1] = { header = "Players" }
         for _, e in ipairs(players) do
@@ -402,13 +371,13 @@ end
 
 -- Who can sign up, in one line, and how many players the teams and the invites take. keep: name that many teams,
 -- then "and N more teams" (0: "9 teams"); nil names them all.
-function S.whoLine(keep)
+function H.whoLine(keep)
     local f = sheet.f
     local set, names = {}, {}
-    for _, c in ipairs(S.teamCards()) do
+    for _, c in ipairs(H.teamCards()) do
         if c.chosen then
             names[#names + 1] = c.name .. (c.what and (" · " .. c.what) or "")
-            for _, key in ipairs((S.players(c.team, c.lineup))) do set[key] = true end
+            for _, key in ipairs((H.players(c.team, c.lineup))) do set[key] = true end
         end
     end
     local nInv = 0
@@ -443,15 +412,15 @@ function S.whoLine(keep)
 end
 
 -- What the form saves: { i, ix, sz, t, tm, tl, lk, pv, inv, ml, ti, no }.
-function S.fields()
+function H.fields()
     local f = sheet.f
-    S.sync()
+    H.sync()
     local tm, tl = {}, {}
     for _, t in ipairs(RP():GetTeams()) do
         if f.tm[t.id] then
             tm[#tm + 1] = t.id
             -- (a team with more than one lineup of the raid's size names the one it gives)
-            local l, count = S.pickedLineup(t)
+            local l, count = H.pickedLineup(t)
             if l and count > 1 then tl[t.id] = l.id end
         end
     end
@@ -460,15 +429,15 @@ function S.fields()
         return s ~= "" and s or false
     end
     return {
-        i = f.i, ix = f.ix, sz = f.sz, t = S.time(), tm = tm, tl = tl, lk = f.lk and true or false,
-        pv = f.pv and true or false, inv = S.inviteList(), ml = f.low and 0 or MAX_LEVEL,
+        i = f.i, ix = f.ix, sz = f.sz, t = H.time(), tm = tm, tl = tl, lk = f.lk and true or false,
+        pv = f.pv and true or false, inv = H.inviteList(), ml = f.low and 0 or MAX_LEVEL,
         ti = opt(sheet.titleBox), no = opt(sheet.noteBox),
     }
 end
 
 -- An edit sends only what changed: an override of one weekly raid that repeated every field would pin them, and later
 -- "every week" edits would no longer reach it.
-function S.changed(fields, v)
+function H.changed(fields, v)
     local out = {}
     for _, k in ipairs({ "i", "sz", "t" }) do
         if fields[k] ~= v[k] then out[k] = fields[k] end
@@ -500,30 +469,30 @@ function S.changed(fields, v)
     return out
 end
 
-function S.setError(msg)
+function H.setError(msg)
     sheet.errText = msg
-    S.refreshFooter()
+    H.refreshFooter()
 end
 
 -- Create / Save / This week only ("one") / Every week ("series").
-function S.save(scope)
-    local fields = S.fields()
+function H.save(scope)
+    local fields = H.fields()
     if not fields.i then
-        S.setError("Pick a raid above.")
+        H.setError("Pick a raid above.")
         return false
     end
     if fields.lk and #fields.tm == 0 and #fields.inv == 0 then
-        S.setError("A raid for its teams needs a team or invited players.")
+        H.setError("A raid for its teams needs a team or invited players.")
         return false
     end
     local ok, res
     if sheet.occ then
         local v = RP():GetRaid(sheet.occ)
         if not v then
-            S.setError("This raid no longer exists.")
+            H.setError("This raid no longer exists.")
             return false
         end
-        fields = S.changed(fields, v)
+        fields = H.changed(fields, v)
         if not next(fields) then
             PlanUI:CloseEditor()
             return true
@@ -538,7 +507,7 @@ function S.save(scope)
         ok, res = RP():CreateRaid(fields)
     end
     if not ok then
-        S.setError(res or "Could not save the raid.")
+        H.setError(res or "Could not save the raid.")
         return false
     end
     local created = not sheet.occ and res
@@ -552,7 +521,7 @@ end
 ---------------------------------------------------------------------------
 
 -- A raid tile: its loading screen, the name, the default size, and (picked, with others) its place in the night.
-function S.newTile(parent, inst)
+function H.newTile(parent, inst)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(TILE_H)
     b.key = inst.key
@@ -567,19 +536,19 @@ function S.newTile(parent, inst)
     b.hl:SetPoint("BOTTOMRIGHT", -1, 1)
     b.hl:SetColorTexture(1, 1, 1, 0.08)
     UI():AddEdges(b, "BORDER")
-    b.name = text(b, "GameFontHighlight", 12)
+    b.name = UI():Text(b, "emph", "TEXT")
     b.name:SetPoint("BOTTOMLEFT", 8, 6)
     b.name:SetText(inst.key == "other" and "Other" or inst.key == "ssc" and "Serpentshrine" or inst.name)
-    b.size = text(b, "GameFontHighlightSmall", 10)
-    b.size:SetTextColor(0.75, 0.75, 0.75)
+    b.size = UI():Text(b, "small", "TEXT")
+    b.size:SetTextColor(S:Color("SUB"))
     b.size:SetPoint("BOTTOMRIGHT", -7, 7)
     b.size:SetText(inst.key == "other" and "" or tostring(inst.size))
     b.badge = b:CreateTexture(nil, "OVERLAY", nil, 1)
     b.badge:SetTexture(DISC)
     b.badge:SetSize(16, 16)
     b.badge:SetPoint("TOPLEFT", 5, -5)
-    b.badge:SetVertexColor(1, 0.82, 0)
-    b.num = text(b, "GameFontHighlightSmall", 10, "OVERLAY")
+    b.badge:SetVertexColor(S:Color("GOLD"))
+    b.num = UI():Text(b, "small", "TEXT", { layer = "OVERLAY" })
     UI():SetCountFont(b.num, 16)
     b.num:SetJustifyH("CENTER")
     b.num:SetTextColor(0.1, 0.08, 0.02)
@@ -603,7 +572,7 @@ function S.newTile(parent, inst)
     return b
 end
 
-function S.fillTile(b, w)
+function H.fillTile(b, w)
     local f = sheet.f
     local at
     for i, key in ipairs(f.list) do if key == b.key then at = i end end
@@ -622,13 +591,13 @@ function S.fillTile(b, w)
 end
 
 -- A day of the date strip: the weekday ("TODAY") over the day; a dot when a raid is planned that day.
-function S.newDay(parent)
-    local c = flatCell(CreateFrame("Button", nil, parent))
+function H.newDay(parent)
+    local c = PlanUI:FlatCell(CreateFrame("Button", nil, parent))
     c:SetSize(DAY_W, DAY_H)
-    c.wd = text(c, "GameFontHighlightSmall", 9)
+    c.wd = UI():Text(c, "caps", "TEXT")
     c.wd:SetJustifyH("CENTER")
     c.wd:SetPoint("TOP", 0, -7)
-    c.dn = text(c, "GameFontHighlight", 14)
+    c.dn = UI():Text(c, "title", "TEXT")
     c.dn:SetJustifyH("CENTER")
     c.dn:SetPoint("TOP", c.wd, "BOTTOM", 0, -2)
     c.dot = c:CreateTexture(nil, "OVERLAY")
@@ -639,7 +608,7 @@ function S.newDay(parent)
     c:SetScript("OnClick", function(self)
         local f = sheet.f
         f.y, f.m, f.d = self.y, self.m, self.d
-        S.refresh()
+        H.refresh()
     end)
     tipOn(c, function(self)
         local lines = { date("%A %d %B", self.t) }
@@ -658,15 +627,15 @@ local CHIP_LOOK = {
     more   = { fill = { 0.09, 0.09, 0.10, 1 }, edge = { 0.24, 0.24, 0.28, 1 }, hover = { 0.45, 0.45, 0.5, 1 } },
 }
 
-function S.paintChip(c)
+function H.paintChip(c)
     local look = CHIP_LOOK[c.kind] or CHIP_LOOK.player
     c:SetPillColors(look.fill, c.hovered and look.hover or look.edge)
-    if c.hovered then c.x:SetTextColor(1, 0.45, 0.45) else c.x:SetTextColor(0.55, 0.55, 0.58) end
+    if c.hovered then c.x:SetTextColor(1, 0.45, 0.45) else c.x:SetTextColor(S:Color("SUB")) end
 end
 
-function S.chipTip(c)
+function H.chipTip(c)
     if c.kind == "team" then
-        return { S.teamLabel(c.entry), S.teamTip(c.entry), grey("Click to take it off.") }
+        return { H.teamLabel(c.entry), H.teamTip(c.entry), grey("Click to take it off.") }
     elseif c.kind == "player" then
         return { ns.Util.ShortName(c.key), "Invited on top of the teams.", grey("Click to take them off.") }
     end
@@ -676,47 +645,47 @@ function S.chipTip(c)
     return lines
 end
 
-function S.newChip(parent)
+function H.newChip(parent)
     local c = CreateFrame("Button", nil, parent)
     c:SetHeight(CHIP_H)
     UI():AddPillShape(c, CHIP_H)
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(14, 14)
     c.icon:SetPoint("LEFT", 8, 0)
-    c.name = text(c, "GameFontHighlightSmall", 11)
-    c.count = text(c, "GameFontHighlightSmall", 10)
+    c.name = UI():Text(c, "body", "TEXT")
+    c.count = UI():Text(c, "small", "TEXT")
     c.count:SetTextColor(0.80, 0.68, 0.38)
-    c.x = text(c, "GameFontHighlightSmall", 11)
+    c.x = UI():Text(c, "body", "TEXT")
     c.x:SetText("x")
     c.x:SetPoint("RIGHT", -9, 0)
     c:SetScript("OnClick", function(self)
         if self.kind == "team" then
-            S.toggleTeam(self.entry.value)
+            H.toggleTeam(self.entry.value)
         elseif self.kind == "player" then
             sheet.f.inv[self.key] = nil
-            S.refresh()
+            H.refresh()
         elseif not sheet.invPicker:IsOpen() then
             sheet.invPicker:Toggle()
         end
     end)
     c:SetScript("OnEnter", function(self)
         self.hovered = true
-        S.paintChip(self)
-        UI():SetTextTooltip(self, S.chipTip(self), "ANCHOR_TOP")
+        H.paintChip(self)
+        UI():SetTextTooltip(self, H.chipTip(self), "ANCHOR_TOP")
     end)
     c:SetScript("OnLeave", function(self)
         self.hovered = false
-        S.paintChip(self)
+        H.paintChip(self)
         hideTip()
     end)
     return c
 end
 
 -- Fills a chip (item = { kind, entry (a team card) | key (a player) | hidden (names) }) and sizes it to its text.
-function S.fillChip(c, item)
+function H.fillChip(c, item)
     c.kind, c.entry, c.key, c.hidden = item.kind, item.entry, item.key, item.hidden
     local x = 10
-    local icon = item.kind == "team" and S.teamIcon()
+    local icon = item.kind == "team" and H.teamIcon()
     if icon then
         c.icon:SetTexture(icon[1])
         c.icon:SetTexCoord(icon[2], icon[3], icon[4], icon[5])
@@ -729,7 +698,7 @@ function S.fillChip(c, item)
     c.name:ClearAllPoints()
     c.name:SetPoint("LEFT", c, "LEFT", x, 0)
     if item.kind == "team" then
-        c.name:SetText(S.teamLabel(item.entry))
+        c.name:SetText(H.teamLabel(item.entry))
         c.name:SetTextColor(1, 0.88, 0.54)
     elseif item.kind == "player" then
         local g = ns.Guild
@@ -750,33 +719,22 @@ function S.fillChip(c, item)
     c.x:SetShown(item.kind ~= "more")
     if item.kind ~= "more" then x = x + 8 + (c.x:GetStringWidth() or 6) + 9 else x = x + 10 end
     c:SetWidth(floor(x + 0.5))
-    S.paintChip(c)
+    H.paintChip(c)
 end
 
-function S.create()
+function H.create()
     local p = ns.RaidsUI and ns.RaidsUI.GetPanel and ns.RaidsUI:GetPanel()
     if not p then return nil end
-    local sh = CreateFrame("Frame", nil, p)
+    -- the sheet over the Raids tab (its title row: New raid / Edit raid, close; Escape closes it too)
+    local sh = UI():CreateSheet(p, { cover = true, title = "New raid", bg = SHEET_BG, onClose = function() H.closed() end })
     sheet = sh
-    sh:SetAllPoints(p)
     sh:SetFrameLevel(p:GetFrameLevel() + 30)
-    sh:EnableMouse(true)
-    sh.bg = sh:CreateTexture(nil, "BACKGROUND")
-    sh.bg:SetAllPoints()
-    sh.bg:SetColorTexture(SHEET_BG[1], SHEET_BG[2], SHEET_BG[3], SHEET_BG[4])
     sh.f = { list = {}, tm = {}, tl = {}, inv = {}, access = "open" }
-
-    -- the title row: New raid / Edit raid, close
-    sh.title = text(sh, "GameFontNormal", 15)
-    sh.title:SetPoint("TOPLEFT", PAD, -14)
-    sh.close = UI():CreateIconButton(sh, 24, NO_TEX, nil, function() PlanUI:CloseEditor() end)
-    sh.close.icon:SetDesaturated(true)
-    sh.close:SetPoint("TOPRIGHT", -PAD, -9)
-    tipOn(sh.close, { "Close", "Nothing is saved." }, "ANCHOR_LEFT")
+    UI():AttachTooltip(sh.close, "Close", { "Nothing is saved." }, { anchor = "ANCHOR_LEFT" })
 
     -- the raids
     sh.tiles = {}
-    for _, inst in ipairs(RP():GetInstances()) do sh.tiles[#sh.tiles + 1] = S.newTile(sh, inst) end
+    for _, inst in ipairs(RP():GetInstances()) do sh.tiles[#sh.tiles + 1] = H.newTile(sh, inst) end
 
     local function rowFrame(label, h)
         local r = CreateFrame("Frame", nil, sh)
@@ -788,16 +746,16 @@ function S.create()
     -- When: the week, the month tile (the calendar), the time, Every week
     sh.whenRow = rowFrame("When", DAY_H)
     sh.whenRow.label:SetPoint("LEFT", 0, 0)
-    sh.prevWeek = arrowButton(sh.whenRow, false, 18, DAY_H, function() S.moveStrip(-DAYS) end)
+    sh.prevWeek = arrowButton(sh.whenRow, false, 18, DAY_H, function() H.moveStrip(-DAYS) end)
     sh.prevWeek:SetPoint("LEFT", sh.whenRow, "LEFT", LABEL_W, 0)
     tipOn(sh.prevWeek, { "A week back" })
     sh.days = {}
     for i = 1, DAYS do
-        local c = S.newDay(sh.whenRow)
+        local c = H.newDay(sh.whenRow)
         c:SetPoint("LEFT", sh.prevWeek, "RIGHT", 2 + (i - 1) * (DAY_W + DAY_GAP), 0)
         sh.days[i] = c
     end
-    sh.nextWeek = arrowButton(sh.whenRow, true, 18, DAY_H, function() S.moveStrip(DAYS) end)
+    sh.nextWeek = arrowButton(sh.whenRow, true, 18, DAY_H, function() H.moveStrip(DAYS) end)
     sh.nextWeek:SetPoint("LEFT", sh.days[DAYS], "RIGHT", 2, 0)
     tipOn(sh.nextWeek, { "A week on" })
     -- (the calendar button is the date picker's own button: its calendar drops under it)
@@ -806,18 +764,18 @@ function S.create()
         set = function(y, m, d)
             sh.f.y, sh.f.m, sh.f.d = y, m, d
             sh.stripStart = nil
-            S.refresh()
+            H.refresh()
         end,
         minDate = function()
-            local _, y, m, d = S.dayAt(S.minOffset())
+            local _, y, m, d = H.dayAt(H.minOffset())
             return y, m, d
         end,
         maxDate = function()
-            local _, y, m, d = S.dayAt(EDITOR_DAYS)
+            local _, y, m, d = H.dayAt(EDITOR_DAYS)
             return y, m, d
         end,
         mark = function(y, m, d)
-            local lines = S.raidsOn(y, m, d)
+            local lines = H.raidsOn(y, m, d)
             return lines and tconcat(lines, "\n") or nil
         end,
         width = 44,
@@ -835,7 +793,7 @@ function S.create()
         dp.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.calendar)))
     else
         -- (an older art set has no calendar icon: the month and a chevron)
-        dp.month = text(dp, "GameFontNormalSmall", 10)
+        dp.month = UI():Text(dp, "small", "GOLD")
         dp.month:SetJustifyH("CENTER")
         dp.month:SetPoint("TOP", 0, -8)
         dp.chev = dp:CreateTexture(nil, "OVERLAY")
@@ -876,23 +834,23 @@ function S.create()
     tipOn(dp, { "Calendar", ("A day further out (up to %d days ahead); a dot marks the days with a raid."):format(
         EDITOR_DAYS) })
     -- the time: a stepper, 15 minutes a step (the mouse wheel too)
-    local tm = flatCell(CreateFrame("Frame", nil, sh.whenRow))
+    local tm = PlanUI:FlatCell(CreateFrame("Frame", nil, sh.whenRow))
     tm:SetSize(104, DAY_H)
     tm:SetPoint("LEFT", dp, "RIGHT", 12, 0)
     tm:EnableMouseWheel(true)
-    tm:SetScript("OnMouseWheel", function(_, delta) S.stepTime(delta > 0 and 1 or -1) end)
-    tm.down = arrowButton(tm, false, 24, DAY_H - 2, function() S.stepTime(-1) end)
+    tm:SetScript("OnMouseWheel", function(_, delta) H.stepTime(delta > 0 and 1 or -1) end)
+    tm.down = arrowButton(tm, false, 24, DAY_H - 2, function() H.stepTime(-1) end)
     tm.down:SetPoint("LEFT", 1, 0)
-    tm.up = arrowButton(tm, true, 24, DAY_H - 2, function() S.stepTime(1) end)
+    tm.up = arrowButton(tm, true, 24, DAY_H - 2, function() H.stepTime(1) end)
     tm.up:SetPoint("RIGHT", -1, 0)
-    tm.fs = text(tm, "GameFontHighlight", 15)
+    tm.fs = UI():Text(tm, "title", "TEXT")
     tm.fs:SetJustifyH("CENTER")
     tm.fs:SetPoint("CENTER", 0, 0)
     tipOn(tm, { "Time", "Your clock; everybody sees it in theirs. Click the arrows or scroll: 15 minutes a step." })
     sh.timeStep = tm
     sh.weeklyCB = UI():CreateSwitch(sh.whenRow, nil, function(on)
         sh.f.weekly = on
-        S.refreshPreview()
+        H.refreshPreview()
     end, "Every week")
     sh.weeklyCB:SetPoint("LEFT", tm, "RIGHT", 16, 0)
     tipOn(sh.weeklyCB, { "Every week", "A weekly raid: the next two weeks are always planned, and each week can be "
@@ -902,23 +860,23 @@ function S.create()
     sh.whoRow = rowFrame("Who", CHIP_H)
     sh.whoRow.label:SetPoint("TOPLEFT", 0, -5)
     sh.chips = {}
-    sh.moreChip = S.newChip(sh.whoRow)
+    sh.moreChip = H.newChip(sh.whoRow)
     sh.invPicker = UI():CreateSearchDropdown(sh.whoRow, FIELD_MAX, {
         placeholder = "Add a team or players",
         emptyText = "No matching teams or guild members.",
         panelWidth = WHO_PANEL_W,
         maxRows = 12,
-        getItems = S.whoItems,
+        getItems = H.whoItems,
         isChecked = function(key, e)
-            if e and e.team then return S.teamPicked(e.value) end
+            if e and e.team then return H.teamPicked(e.value) end
             return sh.f.inv[key] and true or false
         end,
         onToggle = function(key, e)
             if e and e.team then
-                S.toggleTeam(e.value)
+                H.toggleTeam(e.value)
             else
                 sh.f.inv[key] = not sh.f.inv[key] or nil
-                S.refresh()
+                H.refresh()
             end
             -- (a team brings its players: they are ticked and fixed now)
             if e and e.team and sh.invPicker:IsOpen() then sh.invPicker:Refresh(true) end
@@ -942,7 +900,7 @@ function S.create()
     end
     sh.levelSW = UI():CreateSwitch(sh.accessRow, function() return not sh.f.low end, function(on)
         sh.f.low = not on
-        S.refresh()
+        H.refresh()
     end, ("Level %d only"):format(MAX_LEVEL))
     sh.levelSW:SetPoint("LEFT", sh.access[#sh.access], "RIGHT", 18, 0)
     tipOn(sh.levelSW, { ("Level %d only"):format(MAX_LEVEL), ("On: only level %d characters can sign up (a lower "
@@ -959,7 +917,7 @@ function S.create()
     sh.noteBox:SetPoint("LEFT", sh.titleBox, "RIGHT", 8, 0)
     for _, eb in ipairs({ sh.titleBox, sh.noteBox }) do
         eb:SetAutoFocus(false)
-        eb:HookScript("OnTextChanged", function() S.refreshPreview() end)
+        eb:HookScript("OnTextChanged", function() H.refreshPreview() end)
         eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     end
@@ -969,45 +927,45 @@ function S.create()
     -- the preview and the footer
     sh.preview = PlanUI:CreateRaidCard(sh)
     sh.preview:EnableMouse(false)
-    sh.pick = text(sh, "GameFontHighlightSmall", 12)
-    sh.pick:SetTextColor(0.62, 0.62, 0.62)
+    sh.pick = UI():Text(sh, "emph", "TEXT")
+    sh.pick:SetTextColor(S:Color("SUB"))
     sh.pick:SetText("Pick a raid above.")
-    sh.who = text(sh, "GameFontHighlightSmall", 11)
+    sh.who = UI():Text(sh, "body", "TEXT")
     sh.who:SetTextColor(0.78, 0.78, 0.78)
-    sh.err = text(sh, "GameFontHighlightSmall", 11)
-    sh.err:SetTextColor(1, 0.55, 0.1)
-    sh.weeklyInfo = text(sh, "GameFontHighlightSmall", 11)
-    sh.weeklyInfo:SetTextColor(0.5, 0.5, 0.5)
+    UI():SetTextStyle(sh.err, "body", "WARN")                -- (the sheet's own error line, placed by H.refresh)
+    sh.err:SetJustifyH("LEFT")
+    sh.weeklyInfo = UI():Text(sh, "body", "TEXT")
+    sh.weeklyInfo:SetTextColor(S:Color("DIM"))
     sh.weeklyInfo:SetText("A weekly raid: save this week only, or every week.")
-    sh.saveBtn = UI():CreateSleekButton(sh, "Create raid", 120, 26, function() S.save("one") end, "primary")
-    sh.saveAllBtn = UI():CreateSleekButton(sh, "Every week", 100, 26, function() S.save("series") end)
+    sh.saveBtn = UI():CreateSleekButton(sh, "Create raid", 120, 26, function() H.save("one") end, "primary")
+    sh.saveAllBtn = UI():CreateSleekButton(sh, "Every week", 100, 26, function() H.save("series") end)
     sh.cancelBtn = UI():CreateSleekButton(sh, "Cancel", 80, 26, function() PlanUI:CloseEditor() end)
     sh:Hide()
     return sh
 end
 
 -- The date strip: a week from sheet.stripStart (days from today), within the days that can be picked.
-function S.moveStrip(delta)
-    local lo, hi = S.minOffset(), EDITOR_DAYS - DAYS + 1
+function H.moveStrip(delta)
+    local lo, hi = H.minOffset(), EDITOR_DAYS - DAYS + 1
     sheet.stripStart = max(lo, min(hi, (sheet.stripStart or 0) + delta))
-    S.refresh()
+    H.refresh()
 end
 
-function S.stepTime(dir)
+function H.stepTime(dir)
     local f = sheet.f
     local mins = max(0, min(23 * 60 + 45, f.hour * 60 + f.min + dir * 15))
     f.hour, f.min = floor(mins / 60), mins % 60
-    S.refresh()
+    H.refresh()
 end
 
 ---------------------------------------------------------------------------
 -- Layout
 ---------------------------------------------------------------------------
 
-function S.layoutWhen()
+function H.layoutWhen()
     local sh, f = sheet, sheet.f
-    local lo, hi = S.minOffset(), EDITOR_DAYS
-    local picked = S.pickedOffset()
+    local lo, hi = H.minOffset(), EDITOR_DAYS
+    local picked = H.pickedOffset()
     -- (the week moves with the arrows on its own; it comes to the picked day only when that day changes, e.g. from
     -- the calendar, and is out of sight: then it starts the day before it)
     local start = sh.stripStart
@@ -1016,17 +974,17 @@ function S.layoutWhen()
     sh.stripStart, sh.stripPicked = start, picked
     for i, c in ipairs(sh.days) do
         local n = start + i - 1
-        local t, y, m, d = S.dayAt(n)
+        local t, y, m, d = H.dayAt(n)
         c.t, c.y, c.m, c.d = t, y, m, d
         local on = n == picked
         local ok = n >= lo and n <= hi
         c:Paint(on, not ok)
         c:SetEnabled(ok)
         c.wd:SetText(n == 0 and "TODAY" or date("%a", t):upper())
-        if on then c.wd:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else c.wd:SetTextColor(0.56, 0.56, 0.58) end
+        if on then c.wd:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else c.wd:SetTextColor(S:Color("SUB")) end
         c.dn:SetText(d)
         c.dn:SetAlpha(ok and 1 or 0.35)
-        c.raids = S.raidsOn(y, m, d)
+        c.raids = H.raidsOn(y, m, d)
         c.dot:SetShown(c.raids ~= nil)
     end
     sh.prevWeek:SetEnabled(start > lo)
@@ -1038,18 +996,18 @@ end
 -- The Who row: the chips (the teams' lineups, then the invited players), then the search, which takes the rest of
 -- its line (FIELD_MIN .. FIELD_MAX). At most WHO_LINES lines: the chips that don't fit go into "+N more". Returns the
 -- row's height.
-function S.layoutWho(w)
+function H.layoutWho(w)
     local sh = sheet
     local items = {}
-    for _, e in ipairs(S.teamCards()) do
+    for _, e in ipairs(H.teamCards()) do
         if e.chosen then items[#items + 1] = { kind = "team", entry = e } end
     end
-    for _, key in ipairs(S.inviteList()) do items[#items + 1] = { kind = "player", key = key } end
+    for _, key in ipairs(H.inviteList()) do items[#items + 1] = { kind = "player", key = key } end
     local widths = {}
     for i, item in ipairs(items) do
-        local c = sh.chips[i] or S.newChip(sh.whoRow)
+        local c = sh.chips[i] or H.newChip(sh.whoRow)
         sh.chips[i] = c
-        S.fillChip(c, item)
+        H.fillChip(c, item)
         widths[i] = c:GetWidth()
     end
     for i = #items + 1, #sh.chips do sh.chips[i]:Hide() end
@@ -1057,7 +1015,7 @@ function S.layoutWho(w)
         local out = {}
         for i = k + 1, #items do
             local it = items[i]
-            out[#out + 1] = it.kind == "team" and S.teamLabel(it.entry) or ns.Util.ShortName(it.key)
+            out[#out + 1] = it.kind == "team" and H.teamLabel(it.entry) or ns.Util.ShortName(it.key)
         end
         return out
     end
@@ -1075,7 +1033,7 @@ function S.layoutWho(w)
             if not put(widths[i]) then return nil end
         end
         if k < #items then
-            S.fillChip(sh.moreChip, { kind = "more", hidden = hiddenNames(k) })
+            H.fillChip(sh.moreChip, { kind = "more", hidden = hiddenNames(k) })
             if not put(sh.moreChip:GetWidth()) then return nil end
         end
         if not put(FIELD_MIN) then return nil end
@@ -1123,15 +1081,15 @@ function S.layoutWho(w)
     return lines * CHIP_H + (lines - 1) * CHIP_GAP
 end
 
-function S.refreshPreview()
+function H.refreshPreview()
     local sh = sheet
     if not sh or not sh:IsShown() then return end
     local f = sh.f
-    S.sync()
+    H.sync()
     sh.preview:SetShown(f.i ~= nil)
     sh.pick:SetShown(f.i == nil)
     if not f.i then return end
-    local fields = S.fields()
+    local fields = H.fields()
     local v = { id = "preview", t = fields.t, i = f.i, ix = f.ix, sz = f.sz, tm = fields.tm, tl = fields.tl,
                 lk = fields.lk, pv = fields.pv, inv = fields.inv, ti = fields.ti or nil, no = fields.no or nil,
                 ml = fields.ml > 0 and fields.ml or nil, by = ns.Util.PlayerKey(),
@@ -1148,25 +1106,25 @@ function S.refreshPreview()
     if sh.preview.pill and sh.preview.pill.sub then sh.preview.pill.sub:Hide() end
 end
 
-function S.refreshFooter()
+function H.refreshFooter()
     local sh = sheet
     sh.err:SetText(sh.errText or "")
     sh.err:SetShown(sh.errText ~= nil)
     -- (many teams: as many named as fit the line)
     for _, keep in ipairs({ false, 2, 1, 0 }) do
-        sh.who:SetText((S.whoLine(keep or nil)))
+        sh.who:SetText((H.whoLine(keep or nil)))
         local tw = sh.who.GetUnboundedStringWidth and sh.who:GetUnboundedStringWidth() or sh.who:GetStringWidth()
         if (tw or 0) <= (sh.who:GetWidth() or 0) then break end
     end
     sh.who:SetShown(sh.errText == nil)
 end
 
-function S.refresh()
+function H.refresh()
     local sh = sheet
     if not sh or not sh:IsShown() then return end
     local f = sh.f
     sh.errText = nil
-    S.sync()
+    H.sync()
     local p = sh:GetParent()
     local W = p and p:GetWidth() or 0
     if W < 400 or W > 790 then W = 790 end
@@ -1181,7 +1139,7 @@ function S.refresh()
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD + col * (tw + TILE_GAP), -(y + row * (TILE_H + TILE_GAP)))
         b:SetWidth(tw)
-        S.fillTile(b, tw)
+        H.fillTile(b, tw)
     end
     y = y + 2 * TILE_H + TILE_GAP + 18
 
@@ -1192,10 +1150,10 @@ function S.refresh()
         r:SetSize(inner, h)
         y = y + h + ROW_GAP
     end
-    S.layoutWhen()
+    H.layoutWhen()
     sh.weeklyCB:SetShown(sh.occ == nil)
     place(sh.whenRow, DAY_H)
-    local whoH = S.layoutWho(inner - LABEL_W)
+    local whoH = H.layoutWho(inner - LABEL_W)
     place(sh.whoRow, whoH)
     for _, b in ipairs(sh.access) do b:SetKind(f.access == b.key and "chosen" or "secondary") end
     sh.levelSW:SetChecked(not f.low)
@@ -1233,8 +1191,8 @@ function S.refresh()
     local footW = inner - 120 - 6 - 80 - (series and (100 + 6) or 0) - 16
     sh.who:SetWidth(footW)
     sh.err:SetWidth(footW)
-    S.refreshFooter()
-    S.refreshPreview()
+    H.refreshFooter()
+    H.refreshPreview()
 end
 
 ---------------------------------------------------------------------------
@@ -1256,7 +1214,7 @@ function PlanUI:OpenEditor(occId)
         and ns.RaidsUI:GetPanel():IsVisible()) then
         ns.MainFrame:Open("raids")
     end
-    if not sheet and not S.create() then return end
+    if not sheet and not H.create() then return end
     local v = occId and RPm:GetRaid(occId)
     sheet.occ = v and v.id or nil
     sheet.errText = nil
@@ -1303,19 +1261,28 @@ function PlanUI:OpenEditor(occId)
         end
     end
     sheet:Show()
-    S.refresh()
+    H.refresh()
+end
+
+-- (the open lists and fields close with the sheet)
+function H.closePickers()
+    if sheet.invPicker.Close then sheet.invPicker:Close() end
+    for _, eb in ipairs({ sheet.titleBox, sheet.noteBox }) do eb:ClearFocus() end
+    if sheet.datePicker.Close then sheet.datePicker:Close() end
+end
+
+-- The sheet went (Cancel, its X, Escape, a save): the page under it comes back.
+function H.closed()
+    H.closePickers()
+    for _, child in ipairs(sheet.under or {}) do child:Show() end
+    sheet.under = nil
+    if ns.RaidsUI and ns.RaidsUI.Refresh then ns.RaidsUI:Refresh() end
 end
 
 function PlanUI:CloseEditor()
     if not sheet then return end
-    if sheet.invPicker.Close then sheet.invPicker:Close() end
-    for _, eb in ipairs({ sheet.titleBox, sheet.noteBox }) do eb:ClearFocus() end
-    if sheet.datePicker.Close then sheet.datePicker:Close() end
-    if not sheet:IsShown() then return end
-    sheet:Hide()
-    for _, child in ipairs(sheet.under or {}) do child:Show() end
-    sheet.under = nil
-    if ns.RaidsUI and ns.RaidsUI.Refresh then ns.RaidsUI:Refresh() end
+    H.closePickers()
+    if sheet:IsShown() then sheet:Hide() end
 end
 
 -- The sheet (tests, the audit): its fields are sheet.f.
@@ -1331,46 +1298,46 @@ function PlanUI:ToggleEditorRaid(key)
     for i, k in ipairs(f.list) do
         if k == key then
             table.remove(f.list, i)
-            S.refresh()
+            H.refresh()
             return
         end
     end
     f.list[#f.list + 1] = key
-    S.refresh()
+    H.refresh()
 end
 
 -- "open" | "locked" | "private"
 function PlanUI:SetEditorAccess(kind)
     if not sheet then return end
     sheet.f.access = (kind == "locked" or kind == "private") and kind or "open"
-    S.refresh()
+    H.refresh()
 end
 
 -- A team card by its value (team id, or "team:lineup").
-function PlanUI:PickEditorTeam(value) S.toggleTeam(value) end
+function PlanUI:PickEditorTeam(value) H.toggleTeam(value) end
 
 -- A day of the strip (days from today) / a step of the time (-1 / 1), for tests.
 function PlanUI:PickEditorDay(n)
     if not sheet then return end
-    local _, y, m, d = S.dayAt(n)
+    local _, y, m, d = H.dayAt(n)
     sheet.f.y, sheet.f.m, sheet.f.d = y, m, d
-    S.refresh()
+    H.refresh()
 end
 
-function PlanUI:StepEditorTime(dir) if sheet then S.stepTime(dir) end end
+function PlanUI:StepEditorTime(dir) if sheet then H.stepTime(dir) end end
 
-function PlanUI:SaveEditor(scope) return S.save(scope or "one") end
+function PlanUI:SaveEditor(scope) return H.save(scope or "one") end
 
 -- Keeps the sheet in step with the plans (a team or raid synced in while it is open).
 ns:On("RAIDPLAN_CHANGED", function()
     if sheet and sheet:IsShown() then
         if sheet.occ and not RP():GetRaid(sheet.occ) then
             sheet.errText = "This raid no longer exists."
-            S.refreshFooter()
+            H.refreshFooter()
             return
         end
         local err = sheet.errText
-        S.refresh()
-        if err then S.setError(err) end
+        H.refresh()
+        if err then H.setError(err) end
     end
 end)
