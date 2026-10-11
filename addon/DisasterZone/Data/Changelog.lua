@@ -55,11 +55,11 @@ ns.CHANGELOG = {
           } },
           { heading = "Themes for the Blessings and Totem bars", lines = {
               "Pick a look for your class tool bars: Halo, Sigil, Slate, Gilded or Pips.",
-              "Settings > Class tools > Blessings or Totems > Theme. Point at a theme to try it on your bar.",
+              "Settings > Class tools > Blessings or Totems > Theme. Point at one to try it on your bar.",
               "One theme for all your characters: your paladin's and your shaman's bars match.",
               "The column and the row now look exactly alike: the same buttons, sizes and spacing.",
               "The column shows each blessing with the class in its corner, like the row did.",
-              "Your aura, Righteous Fury, Symbols of Kings, Heroism and Mana Tide come first, then a line.",
+              "Your aura, Righteous Fury, Symbols, Heroism and Mana Tide come first, then a thin line.",
               "What to do next lifts out of the bar toward its note: up in the row, left in the column.",
               "The bar's first button opens its planner. It never casts anything.",
               "Symbols of Kings only shows your count now: open the planner with the first button.",
