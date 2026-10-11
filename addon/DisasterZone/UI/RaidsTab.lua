@@ -314,7 +314,7 @@ local function initColRow(row, d)
         row.icon:SetPoint("LEFT", 0, 0)
         row.cols = {}
         for i = 1, 5 do row.cols[i] = UI:Text(row, "emph", "TEXT") end
-        row.tag = UI:Text(row, "caps", { 0.4, 0.8, 1 })
+        row.tag = UI:Text(row, "caps", "YOU")
         row.tag:SetText("GUEST")
         row.pill = UI:CreatePill(row)
         row:SetScript("OnClick", H.RowClick)
@@ -372,32 +372,31 @@ local function initColRow(row, d)
     row.cdlMenu = d.menu
 end
 
--- The column titles over a table (gold, a hairline under them).
+-- The column titles over a table (UI:CreateColumnHeader; numbers' titles right-aligned like them), a hairline under
+-- them: one header per column set, made on first use.
 function H.NewHead(parent)
-    local UI = ns.UI
     local h = CreateFrame("Frame", nil, parent)
     h:SetHeight(HEAD_H)
-    h.line = UI:Rule(h, { bottom = 0, alpha = 0.08, layer = "BACKGROUND" })
-    h.cols = {}
-    for i = 1, 5 do h.cols[i] = UI:Text(h, "body", "GOLD") end
-    -- (titles over numbers are right-aligned like them; a title over an icon column starts where the icon does)
+    h.line = ns.UI:Rule(h, { bottom = 0, layer = "BACKGROUND" })
+    h.sets = {}
     function h:SetPlace(L)
-        for i, fs in ipairs(self.cols) do
+        local sig = { L.key }
+        for i = 1, 5 do
             local c = L[i]
-            fs:SetShown(c ~= nil)
-            if c then
-                fs:ClearAllPoints()
-                if c.r then
-                    fs:SetJustifyH("RIGHT")
-                    fs:SetPoint("RIGHT", self, "LEFT", c.x + c.w, 1)
-                else
-                    fs:SetJustifyH("LEFT")
-                    fs:SetPoint("LEFT", c.x, 1)
-                end
-                fs:SetText(c.title)
-                if c.r then fs:SetWidth(max(c.w, ceil(fs:GetStringWidth() or 0))) else fs:SetWidth(0) end
-            end
+            if c then sig[#sig + 1] = i .. ":" .. floor(c.x) .. ":" .. floor(c.w) end
         end
+        local key = tconcat(sig, ",")
+        if not self.sets[key] then
+            local set = ns.UI:CreateColumnHeader(self, HEAD_H)
+            set:SetPoint("TOPLEFT", 0, 1)
+            set:SetPoint("TOPRIGHT", 0, 1)
+            for i = 1, 5 do
+                local c = L[i]
+                if c then set:AddColumn(c.title, c.x, c.w, { justify = c.r and "RIGHT" or "LEFT" }) end
+            end
+            self.sets[key] = set
+        end
+        for k, set in pairs(self.sets) do set:SetShown(k == key) end
     end
     return h
 end
@@ -691,7 +690,7 @@ function H.CreateLogRaids(p)
     local UI = ns.UI
     local L = UI:CreateLayout("listdetail", p, {
         toolbar = false, top = TOP, listWidth = LOG_W,
-        banner = { size = "tool", titleColor = { 1, 1, 1 } },
+        banner = { size = "hero" },
         tabs = { { key = "att", text = "Attendance" }, { key = "boss", text = "Bosses" }, { key = "award", text = "Awards" } },
         onTab = function(key)
             state.tab = key

@@ -561,6 +561,7 @@ function AUI:CreateTimeline(parent, width)
             row.pill:Show()
         end
         local nameRoom = 150 - 20 - (p and (row.pill:GetWidth() + 8) or 0)
+        row.name:SetWidth(0)              -- (a reused row: measure the name unbounded, not at the last name's width)
         fit(row.name, { name(r.key, r.cls), name(short(r.key):sub(1, 10), r.cls) }, nameRoom)
         row.name:SetWidth(min(nameRoom, (row.name:GetStringWidth() or nameRoom) + 2))
         row.bar:Set(d.lo, d.hi, AUI:Segments(r), { r.F, r.T })
