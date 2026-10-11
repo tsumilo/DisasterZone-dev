@@ -703,7 +703,7 @@ function AUI:CreateTimeline(parent, width)
 end
 
 -- "7 on time   1 late   1 left early   1 no-show   1 fill-in" (coloured), or nil.
-function AUI:SummaryText(sum)
+function AUI:SummaryText(sum, short)
     if not sum then return nil end
     local parts = {}
     local function add(n, word, c)
@@ -713,8 +713,10 @@ function AUI:SummaryText(sum)
     add(sum.late, "late", { 1, 0.69, 0.4 })
     add(sum.left, "left early", { 1, 0.69, 0.4 })
     add(sum.noShow, sum.noShow == 1 and "no-show" or "no-shows", { 1, 0.5, 0.5 })
-    add(sum.fill, sum.fill == 1 and "fill-in" or "fill-ins", C.fill)
-    add(sum.pending or 0, "waiting", C.pending)
+    if not short then
+        add(sum.fill, sum.fill == 1 and "fill-in" or "fill-ins", C.fill)
+        add(sum.pending or 0, "waiting", C.pending)
+    end
     if #parts == 0 then return nil end
     return tconcat(parts, "   ")
 end
@@ -1898,7 +1900,7 @@ function AUI:CreateReviews(parent, width)
     v.rules:SetJustifyH("RIGHT")
     v.rulesBtn = UI():CreateSleekButton(v, "Change", 70, 20, function() AUI:OpenRulesDialog() end)
     v.rulesBtn:SetPoint("TOPRIGHT", 0, -2)
-    v.list.frame:SetPoint("TOPLEFT", 0, 0)
+    v.list.frame:SetPoint("TOPLEFT", 0, -26)
     v.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
     v.list.bar:ClearAllPoints()
     v.list.bar:SetPoint("TOPLEFT", v.list.box, "TOPRIGHT", 4, 0)

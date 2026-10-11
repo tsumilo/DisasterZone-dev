@@ -1123,7 +1123,7 @@ local function refreshLogRaids(p)
                 local room = DETAIL_W - p.linkBtn:GetWidth() - 16
                 line.noShow = nil
                 line:SetShown(true)
-                fitText(line.fs, { text }, room)
+                fitText(line.fs, { text, AUI():SummaryText(sum, true) or text }, room - 56)   -- (coloured text measures narrow)
                 line.fs:SetWidth(room)
                 line:SetWidth(room)
             end
