@@ -428,7 +428,9 @@ def blizzard_settings_entry_opens_the_tab():
     assert c.eval("return ns.SettingsUI.category ~= nil") is True
     canvas = c.frame("DisasterZoneBlizzardOptions")
     assert canvas is not None
-    btn = c.eval("return T_button(DisasterZoneBlizzardOptions, 'Open DisasterZone settings')")
+    c.eval("DisasterZoneBlizzardOptions:Hide(); DisasterZoneBlizzardOptions:Show()")   # built on its first show
+    w.tick(0.2)
+    btn = c.eval("return T_button(DisasterZoneBlizzardOptions, 'Settings')")
     c.click(btn)
     w.tick(0.3)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
