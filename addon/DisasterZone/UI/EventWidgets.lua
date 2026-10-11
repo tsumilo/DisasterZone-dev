@@ -260,7 +260,8 @@ function EUI:CreateProgress(parent)
                 it.line:SetPoint("LEFT", self, "LEFT", x + pad, 0)
                 it.line:SetWidth((prevNamed or named) and 26 or 12)
                 local prevDone = over or (cur and i - 1 < cur)
-                if prevDone then it.line:SetColorTexture(0.35, 0.86, 0.47, 0.55) else it.line:SetColorTexture(1, 1, 1, 0.18) end
+                local lc = prevDone and SC.OK or SC.TEXT
+                it.line:SetColorTexture(lc[1], lc[2], lc[3], prevDone and 0.55 or 0.18)
                 it.line:Show()
                 x = x + ((prevNamed or named) and 40 or 20)
             else
@@ -277,10 +278,10 @@ function EUI:CreateProgress(parent)
             it.check:SetPoint("CENTER", it.ring, "CENTER", 0, 0)
             if state == "done" then
                 it.dot:SetSize(12, 12)
-                it.dot:SetVertexColor(0.24, 0.71, 0.35, 0.3)
-                it.ring:SetVertexColor(0.35, 0.86, 0.47)
+                it.dot:SetVertexColor(SC.OK[1], SC.OK[2], SC.OK[3], 0.3)
+                it.ring:SetVertexColor(SC.OK[1], SC.OK[2], SC.OK[3])
                 it.check:Show()
-                it.fs:SetTextColor(0.84, 0.84, 0.84)
+                it.fs:SetTextColor(S:Color("TEXT"))
             elseif state == "now" then
                 it.dot:SetSize(5, 5)
                 it.dot:SetVertexColor(SC.GOLD[1], SC.GOLD[2], SC.GOLD[3], 1)
@@ -290,9 +291,9 @@ function EUI:CreateProgress(parent)
             else
                 it.dot:SetSize(12, 12)
                 it.dot:SetVertexColor(0, 0, 0, 0)
-                it.ring:SetVertexColor(0.44, 0.44, 0.46)
+                it.ring:SetVertexColor(SC.DIM[1], SC.DIM[2], SC.DIM[3])
                 it.check:Hide()
-                it.fs:SetTextColor(0.66, 0.66, 0.68)
+                it.fs:SetTextColor(S:Color("SUB"))
             end
             local text = s.name
             if state == "now" and sub and sub ~= "" then text = text .. " |cffb8a66a· " .. sub .. "|r" end
@@ -407,8 +408,10 @@ local cos, sin, pi, sqrt, ceil = math.cos, math.sin, math.pi, math.sqrt, math.ce
 
 -- The numbers' narrow font (Arial Narrow, no outline: the mockups' clocks, scores and ranks).
 EUI.NARROW_FONT = "Fonts\\ARIALN.TTF"
+-- (UI:SetTextStyle with ns.Style's number font, S.FONT_NUM: the size on the type scale, the colour kept)
 function EUI:Narrow(fs, size)
-    fs:SetFont(EUI.NARROW_FONT, size or 13, "")
+    local r, g, b, a = fs:GetTextColor()
+    UI():SetTextStyle(fs, size or 13, { r or 1, g or 1, b or 1, a or 1 }, "", S.FONT_NUM)
     return fs
 end
 
@@ -696,7 +699,7 @@ function EUI:CreateZoneMap(parent, w, h)
                 local t = self.grid[n] or self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
                 self.grid[n] = t
                 t:ClearAllPoints()
-                t:SetColorTexture(1, 1, 1, 0.04)
+                t:SetColorTexture(SC.HAIRLINE[1], SC.HAIRLINE[2], SC.HAIRLINE[3], 0.04)
                 t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", x, 0)
                 t:SetSize(1, self.h)
                 t:Show()
@@ -706,7 +709,7 @@ function EUI:CreateZoneMap(parent, w, h)
                 local t = self.grid[n] or self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
                 self.grid[n] = t
                 t:ClearAllPoints()
-                t:SetColorTexture(1, 1, 1, 0.04)
+                t:SetColorTexture(SC.HAIRLINE[1], SC.HAIRLINE[2], SC.HAIRLINE[3], 0.04)
                 t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", 0, -y)
                 t:SetSize(self.w, 1)
                 t:Show()
@@ -717,7 +720,7 @@ function EUI:CreateZoneMap(parent, w, h)
     local LOOK = {
         place = { stroke = EUI.TEAL, fill = { EUI.TEAL[1], EUI.TEAL[2], EUI.TEAL[3], 0.2 }, text = { 1, 1, 1 } },
         hot = { stroke = SC.GOLD, fill = { SC.GOLD[1], SC.GOLD[2], SC.GOLD[3], 0.12 }, text = SC.GOLD },
-        dim = { stroke = { 0.62, 0.62, 0.66 }, fill = { 1, 1, 1, 0.06 }, text = { 0.72, 0.72, 0.74 } },
+        dim = { stroke = SC.SUB, fill = { SC.HAIRLINE[1], SC.HAIRLINE[2], SC.HAIRLINE[3], 0.06 }, text = SC.TEXT },
     }
     function m:Place(i, x, y, yd, name, look)
         local c = self.rings[i]

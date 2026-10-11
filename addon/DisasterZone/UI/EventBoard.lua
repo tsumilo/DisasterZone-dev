@@ -24,7 +24,6 @@ local function E() return ns.EventEngine end
 local function B() return ns.EventBlocks end
 local function Ev() return ns.Events end
 local function Me() return ns.Util.PlayerKey() end
-local function DemoOn() return ns.Util.DemoOn() end
 local function ServerNow() return ns.Util.Now() end
 local S = ns.Style
 
@@ -464,7 +463,7 @@ end
 -- I run this event while it's on (the host's controls); never in demo mode or for the practice run.
 function Board:IsHost()
     local occ = state.occ
-    if not occ or occ == "practice" or DemoOn() or not L():IsHostOf(occ) then return false end
+    if not occ or occ == "practice" or ns.Util.DemoOn() or not L():IsHostOf(occ) then return false end
     local st = L():GetState(occ)
     return (st and st.phase == "live") and true or false
 end
@@ -678,7 +677,7 @@ end
 
 function Board:ShareRef()
     local occ = state.occ
-    if not occ or occ == "practice" or DemoOn() or not ns.Share then return nil end
+    if not occ or occ == "practice" or ns.Util.DemoOn() or not ns.Share then return nil end
     local ref = "event:" .. occ
     if ns.Share:Describe(ref) then return ref end
     if ns.Share:Describe("events") then return "events" end
@@ -3764,7 +3763,7 @@ local function BuildDemo(e)
 end
 
 DemoKinds = function(occ)
-    if type(occ) ~= "string" or not occ:find("^kdemo%-") or not DemoOn() then return nil end
+    if type(occ) ~= "string" or not occ:find("^kdemo%-") or not ns.Util.DemoOn() then return nil end
     local d = demoRuns[occ]
     if d and d.st and GetTime() - (d.at or 0) < 900 then return d end
     for _, e in ipairs(Board.DEMO) do
@@ -3782,7 +3781,7 @@ Board.DemoKinds = function(_, occ) return DemoKinds(occ) end
 
 -- Demo mode: one of the part 2 boards (Board.DEMO's keys).
 function Board:OpenDemo(key)
-    if not DemoOn() then return false end
+    if not ns.Util.DemoOn() then return false end
     return self:Open(key)
 end
 
@@ -4170,7 +4169,7 @@ function Board:HeaderMenu(owner)
             end)
         end
         -- demo mode: the other kinds of board (made up here, nothing is sent)
-        if DemoOn() then
+        if ns.Util.DemoOn() then
             local sub = rootDesc:CreateButton(Glyph(UI().ICON.eye) .. "Other boards")
             sub:SetTitleAndTextTooltip("Other boards", "Demo mode: how the board looks for other kinds of events.")
             sub:CreateRadio("Friday duel cup", function() return state.occ == "odemo1" end, function() Board:Open("odemo1") end)
@@ -4280,7 +4279,7 @@ function Board:Open(occId)
     if L() and L().Watch then L():Watch(occId) end
     -- (demo mode: the tracker shows the demo cup once its board was looked at)
     local T = ns.EventTracker
-    if DemoOn() and T and (occId == "odemo1" or DemoKinds(occId)) and (not T.demoSeen or T.demoOcc ~= occId) then
+    if ns.Util.DemoOn() and T and (occId == "odemo1" or DemoKinds(occId)) and (not T.demoSeen or T.demoOcc ~= occId) then
         T.demoSeen, T.demoOcc = true, occId
         if T.Later then T:Later() end
     end

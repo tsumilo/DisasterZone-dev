@@ -103,7 +103,6 @@ local function Bracket(occ, st)
     return def and st and E():BracketOf(def, st) or nil, def
 end
 
-local function DemoOn() return ns.Util.DemoOn() end
 
 -- A run's state and def (the board's reader: live runs, practice, demo mode's boards).
 local function StateOf(occ)
@@ -131,7 +130,7 @@ function T:MyEvent()
     local me = Me()
     -- demo mode's live cup (or the board last looked at): only once its board was opened (switching demo mode on puts
     -- nothing in the world)
-    if DemoOn() then
+    if ns.Util.DemoOn() then
         if not self.demoSeen then return nil end
         local occ = self.demoOcc or "odemo1"
         local st, def = StateOf(occ)
@@ -726,7 +725,7 @@ local MEET_BEFORE, MEET_AFTER = 30 * 60, 60 * 60
 -- The planned event the tracker shows: one I'm in (or host) starting within 30 min (an hour late at most) with a
 -- place to meet, else one I asked the way to (Show the way). occ, o.
 function T:Upcoming()
-    if DemoOn() then return nil end
+    if ns.Util.DemoOn() then return nil end
     local ev, me = Ev(), Me()
     if not (ev and ev.GetOccurrences) then return nil end
     local now = ServerNow()
@@ -1816,7 +1815,7 @@ function T:OpenAsks()
             if not a.answered then out[#out + 1] = { occ = occ, st = st, def = def, a = a } end
         end
     end
-    if not DemoOn() then
+    if not ns.Util.DemoOn() then
         for _, occ in ipairs(L():GetLiveList() or {}) do add(occ) end
     end
     if L().GetPractice and L():GetPractice() then add("practice") end
