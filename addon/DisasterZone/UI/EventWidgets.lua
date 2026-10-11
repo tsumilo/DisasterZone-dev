@@ -614,24 +614,12 @@ function EUI:CreateZoneMap(parent, w, h)
         map = tonumber(map)
         self.map, self.L, self.files = map, nil, nil
         self.ydW, self.ydH = nil, nil
-        if map and C_Map and C_Map.GetMapArtLayers and C_Map.GetMapArtLayerTextures then
-            local ok, layers = pcall(C_Map.GetMapArtLayers, map)
-            local L = ok and type(layers) == "table" and layers[1] or nil
-            if L and (L.layerWidth or 0) > 0 and (L.tileWidth or 0) > 0 then
-                local ok2, files = pcall(C_Map.GetMapArtLayerTextures, map, 1)
-                if ok2 and type(files) == "table" and #files > 0 then self.L, self.files = L, files end
-            end
-        end
-        local S = ns.EventSensors
-        if map and S and S.World then
-            local c0, x0, y0 = S.World(map, 0, 0)
-            local c1, x1, y1 = S.World(map, 1, 0)
-            local c2, x2, y2 = S.World(map, 0, 1)
-            if c0 and c1 and c2 then
-                self.ydW = sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2)
-                self.ydH = sqrt((x2 - x0) ^ 2 + (y2 - y0) ^ 2)
-                if self.ydW <= 0 or self.ydH <= 0 then self.ydW, self.ydH = nil, nil end
-            end
+        if map then
+            local L = ns.MapArt.Layer(map)
+            local files = L and ns.MapArt.Files(map)
+            if files then self.L, self.files = L, files end
+            local ydW, ydH = ns.MapArt.Yards(map)
+            if ydW and ydH then self.ydW, self.ydH = ydW, ydH end
         end
         return self.L ~= nil
     end
@@ -681,34 +669,10 @@ function EUI:CreateZoneMap(parent, w, h)
         for _, t in ipairs(self.grid) do t:Hide() end
         local L, files = self.L, self.files
         if L and files then
-            local cols = ceil(L.layerWidth / L.tileWidth)
-            local rows = ceil(L.layerHeight / L.tileHeight)
-            local tw, th = L.tileWidth * self.s, L.tileHeight * self.s
             local ox, oy = -self.x0 * L.layerWidth * self.s, -self.y0 * L.layerHeight * self.s
-            local n = 0
-            for r = 1, rows do
-                for c = 1, cols do
-                    local file = files[(r - 1) * cols + c]
-                    local x, y = ox + (c - 1) * tw, oy + (r - 1) * th
-                    -- (only the tiles the view shows)
-                    if file and x < self.w and y < self.h and x + tw > 0 and y + th > 0 then
-                        n = n + 1
-                        local t = self.tiles[n]
-                        if not t then
-                            t = self.canvas:CreateTexture(nil, "BACKGROUND", nil, -7)
-                            self.tiles[n] = t
-                        end
-                        t:SetDrawLayer("BACKGROUND", -7)
-                        t:ClearAllPoints()
-                        t:SetTexture(file)
-                        t:SetTexCoord(0, 1, 0, 1)
-                        t:SetSize(tw, th)
-                        t:SetPoint("TOPLEFT", self.canvas, "TOPLEFT", x, -y)
-                        t:SetVertexColor(0.52, 0.5, 0.47, 1)
-                        t:Show()
-                    end
-                end
-            end
+            -- (only the tiles the view shows)
+            local n = ns.MapArt.Tiles(self.tiles, self.canvas, L, files, ox, oy, self.s,
+                { layer = { "BACKGROUND", -7 }, setLayer = true, color = { 0.52, 0.5, 0.47, 1 }, view = { self.w, self.h } })
             -- the explored parts on top (the player's own discovery, as the world map draws them)
             local E = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
             local ok, ex = false, nil

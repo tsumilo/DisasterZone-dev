@@ -47,15 +47,15 @@ Face.THEMES = {
     { key = "pips", name = "Pips", tip = "Small and dense: little icons with a bar beneath and a class dot.",
       W = 24, H = 28, GAP = 4, corner = { 9, 12 }, cs = 8, miss = { -10, 12 }, glow = 0, num = 9, dot = true },
 }
-Face.BY_KEY = {}
-for _, t in ipairs(Face.THEMES) do Face.BY_KEY[t.key] = t end
 Face.DEFAULT = "halo"
+-- (one registry with the meter themes: UI/Comp/Themes.lua; a hovered tile previews on the bars)
+Face.BY_KEY = ns.Themes:Define("classbar", Face.THEMES, Face.DEFAULT, { setting = "classbar.theme",
+    onPreview = function() Face:Refresh() end }).byKey
 local PAD, LIFT = 8, 6
 
 -- The theme in use (a hovered tile in Settings previews another one).
 function Face:Theme()
-    local key = self.preview or (ns.DB and ns.DB:GetSetting("classbar.theme")) or Face.DEFAULT
-    return Face.BY_KEY[key] or Face.BY_KEY[Face.DEFAULT]
+    return ns.Themes:Current("classbar")
 end
 
 local function UI() return ns.UI end
@@ -690,7 +690,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Settings: the theme picker (a tile per theme with a live preview: three cells of the strip)
 -- ---------------------------------------------------------------------------------------------------------------
-local TILE_W, TILE_H, TILE_GAP = 96, 66, 8
+local TILE_W, TILE_H = 96, 66
 local PREVIEW = {
     { icon = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings", cornerClass = "WARRIOR", frac = 0.86 },
     { icon = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings", cornerClass = "MAGE", frac = 0, missing = 2 },
@@ -705,12 +705,11 @@ function Face:Refresh()
 end
 
 function Face:SetPreview(key)
-    if self.preview == key then return end
-    self.preview = key
-    self:Refresh()
+    ns.Themes:SetPreview("classbar", key)
 end
 
 local function FillPreview(holder, t)
+    holder.cells = holder.cells or {}
     holder:SetSize(3 * t.W + 2 * t.GAP, t.H)
     for i, p in ipairs(PREVIEW) do
         local cell = holder.cells[i]
@@ -734,73 +733,20 @@ local function FillPreview(holder, t)
     holder:SetScale(s)
 end
 
+-- A tile's sample: three cells of the strip, centred above the name.
+local function PaintTile(tile, t)
+    FillPreview(tile.preview, t)
+    local s = tile.preview:GetScale() or 1
+    local pw = (3 * t.W + 2 * t.GAP) * s
+    tile.preview:ClearAllPoints()
+    tile.preview:SetPoint("TOPLEFT", tile, "TOPLEFT", ((TILE_W - pw) / 2) / s, -((TILE_H - 18 - t.H * s) / 2 + 2) / s)
+end
+
 -- One row in a class tool's Settings card: "Theme" and a tile per theme under it.
 function Face:SettingsRow(S, sec)
-    local row = S:Row(sec, "Theme", "One look for every class tool bar on this account; the rail and the strip share it.")
-    row.line:Hide()
-    local strip = CreateFrame("Frame", nil, sec)
-    strip:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y + 4)
-    strip:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y + 4)
-    strip:SetHeight(TILE_H + 14)
-    strip.tiles = {}
-    for i, t in ipairs(Face.THEMES) do
-        local tile = CreateFrame("Button", nil, strip)
-        tile:SetSize(TILE_W, TILE_H)
-        tile:SetPoint("TOPLEFT", strip, "TOPLEFT", (i - 1) * (TILE_W + TILE_GAP), 0)
-        tile.bg = Fill(tile:CreateTexture(nil, "BACKGROUND"), 0.05, 0.05, 0.063, 1)
-        tile.bg:SetAllPoints()
-        Edge(tile, 0.17, 0.17, 0.2, 1)
-        tile.hl = Fill(tile:CreateTexture(nil, "HIGHLIGHT"), 1, 1, 1, 0.03)
-        tile.hl:SetAllPoints()
-        tile.name = tile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        tile.name:SetPoint("BOTTOM", tile, "BOTTOM", 0, 6)
-        tile.name:SetText(t.name)
-        tile.preview = CreateFrame("Frame", nil, tile)
-        tile.preview.cells = {}
-        FillPreview(tile.preview, t)
-        local s = tile.preview:GetScale() or 1
-        local pw = (3 * t.W + 2 * t.GAP) * s
-        tile.preview:ClearAllPoints()
-        tile.preview:SetPoint("TOPLEFT", tile, "TOPLEFT", ((TILE_W - pw) / 2) / s, -((TILE_H - 18 - t.H * s) / 2 + 2) / s)
-        tile.key = t.key
-        tile:SetScript("OnClick", function()
-            Face.preview = nil
-            ns.DB:SetSetting("classbar.theme", t.key)
-            strip:Refresh()
-            Face:Refresh()
-        end)
-        tile:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(t.name)
-            GameTooltip:AddLine(t.tip, 0.85, 0.85, 0.85, true)
-            GameTooltip:AddLine("Your bar shows it while you point at it.", 0.6, 0.6, 0.6, true)
-            GameTooltip:Show()
-            Face:SetPreview(t.key)
-        end)
-        tile:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-            Face:SetPreview(nil)
-        end)
-        strip.tiles[i] = tile
-    end
-    function strip:Refresh()
-        local cur = Face:Theme().key
-        if Face.preview then cur = (ns.DB and ns.DB:GetSetting("classbar.theme")) or Face.DEFAULT end
-        for _, tile in ipairs(self.tiles) do
-            local on = tile.key == cur
-            Edge(tile, on and GOLD[1] or 0.17, on and GOLD[2] or 0.17, on and GOLD[3] or 0.2, 1)
-            tile.name:SetTextColor(on and GOLD[1] or 0.85, on and GOLD[2] or 0.82, on and GOLD[3] or 0.75)
-        end
-    end
-    strip:Refresh()
-    S.refreshers[#S.refreshers + 1] = strip
-    sec.y = sec.y - (TILE_H + 14)
-    -- a rule under the tiles, like every row's
-    local line = strip:CreateTexture(nil, "BORDER")
-    line:SetColorTexture(1, 1, 1, 0.06)
-    line:SetHeight(1)
-    line:SetPoint("BOTTOMLEFT")
-    line:SetPoint("BOTTOMRIGHT")
-    sec.rows[#sec.rows + 1] = { line = line }
+    local strip = ns.Themes:SettingsRow(S, sec, "classbar", "Theme",
+        "One look for every class tool bar on this account; the rail and the strip share it.",
+        { tileW = TILE_W, tileH = TILE_H, gap = 8, nameY = 6, paint = PaintTile,
+          hint = "Your bar shows it while you point at it.", onPick = function() Face:Refresh() end })
     return strip
 end

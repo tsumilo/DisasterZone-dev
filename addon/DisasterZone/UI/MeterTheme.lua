@@ -64,9 +64,11 @@ MT.THEMES = {
       title = 10.5, nameSize = 10.5, nameFont = NARROW, value = 11, sub = 10, fillA = 0.55, trackInset = 3, rank = true,
       rate = false, small = true },
 }
-MT.BY_KEY = {}
-for _, t in ipairs(MT.THEMES) do MT.BY_KEY[t.key] = t end
 MT.DEFAULT = "flat"
+-- (one registry with the class tool bars' themes: UI/Comp/Themes.lua; a hovered tile previews on the panels)
+MT.BY_KEY = ns.Themes:Define("meters", MT.THEMES, MT.DEFAULT, { setting = "meters.theme", onPreview = function()
+    if ns.MeterPanels and ns.MeterPanels.Restyle then ns.MeterPanels:Restyle() end
+end }).byKey
 
 local function Setting(path, default)
     local v = ns.DB and ns.DB:GetSetting("meters." .. path)
@@ -76,20 +78,17 @@ end
 
 -- The theme in use (a hovered tile in Settings previews another one).
 function MT:Theme()
-    local key = self.preview or Setting("theme", MT.DEFAULT)
-    return MT.BY_KEY[key] or MT.BY_KEY[MT.DEFAULT]
+    return ns.Themes:Current("meters")
 end
 
 function MT:SetPreview(key)
-    if self.preview == key then return end
-    self.preview = key
-    if ns.MeterPanels and ns.MeterPanels.Restyle then ns.MeterPanels:Restyle() end
+    ns.Themes:SetPreview("meters", key)
 end
 
 -- The sizes the panel code lays out with (the theme's, the row override on top). A key that changes when any of it
--- does, so rows made earlier know to restyle.
-function MT:Metrics()
-    local t = self:Theme()
+-- does, so rows made earlier know to restyle. t: another theme's (a tile's sample), else the one in use.
+function MT:Metrics(t)
+    t = t or self:Theme()
     local size = Setting("rowSize", "theme")
     local row = t.row + ((size == "compact") and -3 or (size == "roomy") and 3 or 0)
     row = max(11, row)
@@ -549,7 +548,7 @@ end
 -- Settings > Meters > Look: a tile per theme (a little panel drawn in it), hover previews it on the panels
 ---------------------------------------------------------------------------
 
-local TILE_W, TILE_H, TILE_GAP = 84, 74, 6
+local TILE_W, TILE_H = 84, 74
 local PREVIEW = { { "Quentrell", "HUNTER", "Beast Mastery", 1 }, { "Tsumil", "WARRIOR", "Fury", 0.87, true },
                   { "Dreadhex", "WARLOCK", "Destruction", 0.74 } }
 
@@ -575,10 +574,7 @@ local function PreviewRow(parent)
 end
 
 local function FillPreview(holder, t)
-    local saved = MT.preview
-    MT.preview = t.key                -- (Metrics reads the theme in use; the overrides apply as on the panels)
-    local m = MT:Metrics()
-    MT.preview = saved
+    local m = MT:Metrics(t)           -- (the overrides apply as on the panels)
     local W = 150
     holder:SetSize(W, 60)
     holder.bg = holder.bg or Tex(holder, "BACKGROUND", -6)
@@ -627,75 +623,11 @@ end
 
 -- The theme picker: a tile per theme. Returns the strip (Refresh redraws the tiles).
 function MT:SettingsTiles(S, sec)
-    local row = S:Row(sec, "Theme", "How every meter panel looks. Point at a theme to try it on your panels.")
-    row.line:Hide()
-    local strip = CreateFrame("Frame", nil, sec)
-    strip:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y + 4)
-    strip:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y + 4)
-    strip:SetHeight(TILE_H + 14)
-    strip.tiles = {}
-    for i, t in ipairs(MT.THEMES) do
-        local tile = CreateFrame("Button", nil, strip)
-        tile:SetSize(TILE_W, TILE_H)
-        tile:SetPoint("TOPLEFT", strip, "TOPLEFT", (i - 1) * (TILE_W + TILE_GAP), 0)
-        if tile.SetClipsChildren then tile:SetClipsChildren(true) end
-        tile.bg = Tex(tile, "BACKGROUND", -8)
-        tile.bg:SetVertexColor(0.05, 0.05, 0.063, 1)
-        tile.bg:SetAllPoints()
-        ns.UI:AddEdges(tile)
-        tile.hl = Tex(tile, "HIGHLIGHT", 0)
-        tile.hl:SetVertexColor(1, 1, 1, 0.03)
-        tile.hl:SetAllPoints()
-        tile.band = Tex(tile, "OVERLAY", 0)
-        tile.band:SetVertexColor(0.05, 0.05, 0.063, 1)
-        tile.band:SetPoint("BOTTOMLEFT", 1, 1)
-        tile.band:SetPoint("BOTTOMRIGHT", -1, 1)
-        tile.band:SetHeight(17)
-        tile.name = tile:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        tile.name:SetPoint("BOTTOM", tile, "BOTTOM", 0, 5)
-        tile.name:SetText(t.name)
-        tile.preview = CreateFrame("Frame", nil, tile)
-        tile.preview:SetPoint("TOPLEFT", tile, "TOPLEFT", 4, -4)
-        tile.key = t.key
-        tile.theme = t
-        tile:SetScript("OnClick", function()
-            MT.preview = nil
-            ns.DB:SetSetting("meters.theme", t.key)
-            strip:Refresh()
-        end)
-        tile:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(t.name)
-            GameTooltip:AddLine(t.tip, 0.85, 0.85, 0.85, true)
-            GameTooltip:AddLine("Your panels show it while you point at it (turn on demo data to try it alone).",
-                0.6, 0.6, 0.6, true)
-            GameTooltip:Show()
-            MT:SetPreview(t.key)
-        end)
-        tile:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-            MT:SetPreview(nil)
-        end)
-        strip.tiles[i] = tile
-    end
-    function strip:Refresh()
-        local cur = Setting("theme", MT.DEFAULT)
-        for _, tile in ipairs(self.tiles) do
-            FillPreview(tile.preview, tile.theme)
-            local on = tile.key == cur
-            ns.UI:SetEdgeColor(tile, on and GOLD[1] or 0.17, on and GOLD[2] or 0.17, on and GOLD[3] or 0.2, 1)
-            tile.name:SetTextColor(on and GOLD[1] or 0.85, on and GOLD[2] or 0.82, on and GOLD[3] or 0.75)
-        end
-    end
-    strip:Refresh()
-    S.refreshers[#S.refreshers + 1] = strip
-    sec.y = sec.y - (TILE_H + 14)
-    local line = strip:CreateTexture(nil, "BORDER")
-    line:SetColorTexture(1, 1, 1, 0.06)
-    line:SetHeight(1)
-    line:SetPoint("BOTTOMLEFT")
-    line:SetPoint("BOTTOMRIGHT")
-    sec.rows[#sec.rows + 1] = { line = line }
+    local strip, row = ns.Themes:SettingsRow(S, sec, "meters", "Theme",
+        "How every meter panel looks. Point at a theme to try it on your panels.",
+        { tileW = TILE_W, tileH = TILE_H, gap = 6, clip = true, band = true, nameY = 5, previewAt = { 4, -4 },
+          hint = "Your panels show it while you point at it (turn on demo data to try it alone).",
+          paint = function(tile, t) FillPreview(tile.preview, t) end })
     return strip, row
 end
 

@@ -12,7 +12,7 @@ local addonName, ns = ...
 
 local MapUI = ns:NewModule("StrategyMapUI")
 
-local floor, max, min, abs, sqrt, ceil = math.floor, math.max, math.min, math.abs, math.sqrt, math.ceil
+local floor, max, min, abs, sqrt = math.floor, math.max, math.min, math.abs, math.sqrt
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 
@@ -401,11 +401,8 @@ end
 
 local function ArtLayer(mapID)
     if SHIPPED_BY_ID[mapID] then return SHIPPED_LAYER end
-    if not (C_Map and C_Map.GetMapArtLayers) or type(mapID) ~= "number" or mapID <= 0 then return nil end
-    local ok, layers = pcall(C_Map.GetMapArtLayers, mapID)
-    local L = ok and type(layers) == "table" and layers[1] or nil
-    if L and (L.layerWidth or 0) > 0 and (L.tileWidth or 0) > 0 then return L end
-    return nil
+    if type(mapID) ~= "number" then return nil end
+    return ns.MapArt.Layer(mapID)
 end
 
 local function raidOfName(name)
@@ -928,7 +925,7 @@ function Canvas:RenderBackground()
         local base = "Interface\\AddOns\\DisasterZone\\Media\\Maps\\" .. shipped.file
         textures = { base .. "_a", base .. "_b" }
     else
-        textures = L and C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(page.m, 1)
+        textures = L and ns.MapArt.Files(page.m)
     end
     if not (L and type(textures) == "table" and #textures > 0) then
         -- a blank grid every 100 units
@@ -960,35 +957,9 @@ function Canvas:RenderBackground()
     local cx = (page.vx or 500) / 1000 * L.layerWidth
     local cy = (page.vy or 500) / 1000 * L.layerHeight
     local ox, oy = self.w / 2 - cx * sc, self.h / 2 - cy * sc
-    local cols = ceil(L.layerWidth / L.tileWidth)
-    local rows = ceil(L.layerHeight / L.tileHeight)
-    local tw, th = L.tileWidth * sc, L.tileHeight * sc
-    local n = 0
-    for r = 1, rows do
-        for c = 1, cols do
-            local file = textures[(r - 1) * cols + c]
-            if file then
-                n = n + 1
-                local t = self.tiles[n]
-                if not t then
-                    t = self.art:CreateTexture(nil, "BACKGROUND", nil, -7)
-                    self.tiles[n] = t
-                end
-                t:ClearAllPoints()
-                t:SetTexture(file)
-                if L.shipped and r == 2 then
-                    local rows = L.layerHeight - L.tileHeight
-                    t:SetTexCoord(0, 1, 0, rows / 256)
-                    t:SetSize(tw, rows * sc)
-                else
-                    t:SetTexCoord(0, 1, 0, 1)
-                    t:SetSize(tw, th)
-                end
-                t:SetPoint("TOPLEFT", self.art, "TOPLEFT", ox + (c - 1) * tw, -(oy + (r - 1) * th))
-                t:Show()
-            end
-        end
-    end
+    -- (the shipped floors' second row is a 256 px file holding the rest of the layer)
+    ns.MapArt.Tiles(self.tiles, self.art, L, textures, ox, oy, sc,
+        { layer = { "BACKGROUND", -7 }, lastRowFile = L.shipped and 256 or nil })
 end
 
 ---------------------------------------------------------------------------

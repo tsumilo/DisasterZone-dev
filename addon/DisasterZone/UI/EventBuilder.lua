@@ -6484,38 +6484,14 @@ local MS_W, MS_H = 848, 542            -- the map sheet
 local MAP_W, MAP_H = 576, 384          -- its map (a zone's 1002 x 668 art fits it at 1x)
 local ZOOMS_MAP = { 1, 1.5, 2, 3, 4, 6 }
 
--- A map's art layer (its size and tiles), or nil where the game doesn't say.
+-- A map's art layer (its size and tiles), or nil where the game doesn't say (UI/Comp/MapArt.lua).
 function MapSheet.Layer(map)
-    if not (C_Map and C_Map.GetMapArtLayers) or not tonumber(map) then return nil end
-    local ok, layers = pcall(C_Map.GetMapArtLayers, tonumber(map))
-    local L = ok and type(layers) == "table" and layers[1] or nil
-    if L and (L.layerWidth or 0) > 0 and (L.tileWidth or 0) > 0 and (L.tileHeight or 0) > 0 then return L end
-    return nil
+    return ns.MapArt.Layer(map)
 end
 
-
 -- A map's size in yards (its whole width), from where its corners are in the world; nil where unknown.
-local yardCache = {}
 function MapSheet.Yards(map)
-    map = tonumber(map)
-    if not map then return nil end
-    if yardCache[map] then return yardCache[map] end
-    local function world(x, y)
-        local Sn = ns.EventSensors
-        if Sn and Sn.World then return Sn.World(map, x, y) end
-        if not (C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return nil end
-        local ok, cont, v = pcall(C_Map.GetWorldPosFromMapPos, map, CreateVector2D(x, y))
-        if not ok or not cont or type(v) ~= "table" or not v.GetXY then return nil end
-        local wx, wy = v:GetXY()
-        return cont, wx, wy
-    end
-    local c1, ax, ay = world(0, 0)
-    local c2, bx, by = world(1, 0)
-    if not (c1 and c2) or c1 ~= c2 then return nil end
-    local w = sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
-    if w <= 1 then return nil end
-    yardCache[map] = w
-    return w
+    return (ns.MapArt.Yards(map))
 end
 
 function MapSheet.MapName(map)

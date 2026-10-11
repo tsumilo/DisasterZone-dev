@@ -132,15 +132,8 @@ end
 local function DrawArt(v, map, W, H)
     v.tiles = v.tiles or {}
     for _, t in ipairs(v.tiles) do t:Hide() end
-    local L, files
-    if C_Map and C_Map.GetMapArtLayers and C_Map.GetMapArtLayerTextures then
-        local ok, layers = pcall(C_Map.GetMapArtLayers, map)
-        L = ok and type(layers) == "table" and layers[1] or nil
-        if L then
-            local ok2, f = pcall(C_Map.GetMapArtLayerTextures, map, 1)
-            files = ok2 and type(f) == "table" and f or nil
-        end
-    end
+    local L = ns.MapArt.Layer(map)
+    local files = L and ns.MapArt.Files(map)
     local LW, LH = (L and L.layerWidth) or 1002, (L and L.layerHeight) or 668
     local TW, TH = (L and L.tileWidth) or 256, (L and L.tileHeight) or 256
     -- the whole map fits (nothing at its edges cut off); the room above / below it shows the same art larger and
@@ -152,24 +145,10 @@ local function DrawArt(v, map, W, H)
     v.place = function(x, y) return x0 + x * LW * s, y0 + y * LH * s end
     v.toMap = function(px, py) return (px - x0) / (LW * s), (py - y0) / (LH * s) end
     v.artW, v.artH, v.x0, v.y0 = LW * s, LH * s, x0, y0
-    if not files or #files == 0 then return false end
-    local cols = math.ceil(LW / TW)
+    if not files then return false end
     v.back = v.back or {}
     for _, t in ipairs(v.back) do t:Hide() end
-    for i, file in ipairs(files) do
-        local c, r = (i - 1) % cols, floor((i - 1) / cols)
-        local b = v.back[i]
-        if not b then
-            b = v:CreateTexture(nil, "BACKGROUND", nil, -2)
-            v.back[i] = b
-        end
-        b:SetTexture(file)
-        b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", v, "TOPLEFT", bx0 + c * TW * bs, -(by0 + r * TH * bs))
-        b:SetSize(TW * bs, TH * bs)
-        b:SetVertexColor(0.24, 0.23, 0.22)
-        b:Show()
-    end
+    ns.MapArt.Tiles(v.back, v, L, files, bx0, by0, bs, { layer = { "BACKGROUND", -2 }, color = { 0.24, 0.23, 0.22 } })
     -- (the fitted art's top and bottom edges fade into the dimmed copy)
     v.edgeT = v.edgeT or v:CreateTexture(nil, "BACKGROUND", nil, 3)
     v.edgeB = v.edgeB or v:CreateTexture(nil, "BACKGROUND", nil, 3)
@@ -187,20 +166,7 @@ local function DrawArt(v, map, W, H)
         end
         e:SetShown(y0 > 1)
     end
-    for i, file in ipairs(files) do
-        local t = v.tiles[i]
-        if not t then
-            t = v:CreateTexture(nil, "BACKGROUND")
-            v.tiles[i] = t
-        end
-        local c, r = (i - 1) % cols, floor((i - 1) / cols)
-        t:SetTexture(file)
-        t:ClearAllPoints()
-        t:SetPoint("TOPLEFT", v, "TOPLEFT", x0 + c * TW * s, -(y0 + r * TH * s))
-        t:SetSize(TW * s, TH * s)
-        t:SetVertexColor(0.9, 0.88, 0.84)
-        t:Show()
-    end
+    ns.MapArt.Tiles(v.tiles, v, L, files, x0, y0, s, { layer = { "BACKGROUND" }, color = { 0.9, 0.88, 0.84 } })
     -- every explored area on top, as if I had been everywhere (the base art alone is the unexplored map), laid out
     -- like Blizzard's MapExplorationDataProvider: 256px tiles row by row, the last row / column cut to the area
     v.over = v.over or {}
