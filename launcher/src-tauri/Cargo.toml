@@ -1,6 +1,6 @@
 [package]
 name = "dz-launcher"
-version = "0.1.0"
+version = "0.2.0"
 description = "DisasterZone Launcher: installs and updates the DisasterZone addon"
 edition = "2021"
 publish = false
