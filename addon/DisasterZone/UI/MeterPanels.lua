@@ -1920,9 +1920,385 @@ function MP:ViewMenu(pf, owner)
     end)
 end
 
-function MP:FightMenu(pf, owner)
-    ns.UI:ContextMenu(owner, function(root) FightEntries(root, pf) end)
+---------------------------------------------------------------------------
+-- The fight list (the fight line's name opens it; the user's pick C of the fight list mockup, 2026-10-11)
+---------------------------------------------------------------------------
+-- Newest first, by zone: the whole raid on top, then each zone's bosses as rows (Encounter Journal picture, Kill /
+-- Wipe 38% / Live, length) and each run of trash between them as one row of squares, one per pull, oldest to newest
+-- (hover: the enemy, length and time; click: that fight). A night of 25 fights fits in a dozen lines. The list is as
+-- wide as its longest row (never a cut-off name), opens under the line (over it when the panel is low on the
+-- screen), scrolls past FLIST_MAX_H, and closes on a pick, a click elsewhere or Escape. Own frame: the dropdown
+-- menus (UI/Menu.lua) have no row of squares; it borrows their colours and edges.
+local FLIST_PAD, FLIST_ROW, FLIST_ZONE, FLIST_DOT, FLIST_GAP = 4, 24, 18, 12, 3
+local FLIST_MIN_W, FLIST_MAX_W, FLIST_MAX_H = 240, 380, 440
+local FLIST_IX, FLIST_TX = 6, 42           -- the picture column, then the text
+local WHOLE_C = { 0.61, 0.76, 1 }
+local flist
+
+local function BossArt(seg)
+    local key = seg.name and ns.MyLog and ns.MyLog.BossDataKey and ns.MyLog:BossDataKey(seg.name)
+    return key and ns.Data and ns.Data.BossJournal and ns.Data.BossJournal[key]
 end
+
+local function ListTime(seg) return (seg.at and date) and date("%H:%M", seg.at) or nil end
+
+local function NewListRow(f)
+    local r = CreateFrame("Button", nil, f.canvas)
+    r:RegisterForClicks("LeftButtonUp")
+    r.hl = K.Tex(r, "HIGHLIGHT", K.WHITE, 1, 1, 1, 0.06)
+    r.hl:SetAllPoints()
+    r.sel = K.Tex(r, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
+    r.sel:SetPoint("TOPLEFT", 0, -5)
+    r.sel:SetPoint("BOTTOMLEFT", 0, 5)
+    r.sel:SetWidth(2)
+    r.pic = K.Tex(r, "ARTWORK", K.WHITE)
+    r.bars = {}
+    for i, hgt in ipairs({ 6, 12, 9 }) do
+        local t = K.Tex(r, "ARTWORK", K.WHITE, WHOLE_C[1], WHOLE_C[2], WHOLE_C[3], 1)
+        t:SetSize(4, hgt)
+        r.bars[i] = t
+    end
+    r.name = K.Font(r, K.FRIZ, 12, K.INK)
+    r.small = K.Font(r, K.NARROW, 11.5, K.DIM)
+    r.len = K.Font(r, K.NARROW, 12, K.DIM)
+    r.len:SetJustifyH("RIGHT")
+    r.status = K.Font(r, K.NARROW, 11.5, K.DIM)
+    r.line = K.Tex(r, "ARTWORK", K.WHITE, 1, 1, 1, 0.08)
+    r.dots = {}
+    r:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
+    return r
+end
+
+local function NewDot(r)
+    local d = CreateFrame("Button", nil, r)
+    d:SetSize(FLIST_DOT, FLIST_DOT)
+    d:RegisterForClicks("LeftButtonUp")
+    d.fill = K.Tex(d, "ARTWORK", K.WHITE, 1, 1, 1, 0.16)
+    d.fill:SetAllPoints()
+    d:SetScript("OnEnter", function(self)
+        if not self.on then self.fill:SetVertexColor(1, 1, 1, 0.45) end
+        local seg = self.seg
+        if not seg then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -4)
+        local t = ListTime(seg)
+        GameTooltip:AddDoubleLine(Meter:SegName(seg), K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""),
+            1, 1, 1, 0.64, 0.62, 0.56)
+        if seg.live then GameTooltip:AddLine("Live", 1, 0.49, 0.43) end
+        GameTooltip:Show()
+    end)
+    d:SetScript("OnLeave", function(self)
+        if not self.on then self.fill:SetVertexColor(1, 1, 1, 0.16) end
+        GameTooltip:Hide()
+    end)
+    d:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
+    return d
+end
+
+local function ListFrame()
+    if flist then return flist end
+    local UI = ns.UI
+    local f = CreateFrame("Frame", "DisasterZoneFightList", UIParent)
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetToplevel(true)
+    f:SetClampedToScreen(true)
+    f:EnableMouse(true)
+    f:EnableMouseWheel(true)
+    f:Hide()
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    local bg, edge = UI.DROP_BG or { 0.08, 0.07, 0.09, 0.97 }, UI.DROP_EDGE or { 0.23, 0.2, 0.25, 1 }
+    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4] or 1)
+    if UI.AddEdges then
+        UI:AddEdges(f, "BORDER")
+        UI:SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4] or 1)
+    end
+    f.clip = CreateFrame("Frame", nil, f)
+    f.clip:SetPoint("TOPLEFT", FLIST_PAD, -FLIST_PAD)
+    f.clip:SetPoint("BOTTOMRIGHT", -FLIST_PAD, FLIST_PAD)
+    if f.clip.SetClipsChildren then f.clip:SetClipsChildren(true) end
+    f.canvas = CreateFrame("Frame", nil, f.clip)
+    f.canvas:SetSize(1, 1)
+    f.thumb = K.Tex(f, "OVERLAY", K.WHITE, 1, 1, 1, 0.22)
+    f.thumb:SetWidth(2)
+    f.thumb:Hide()
+    f.rows, f.offset = {}, 0
+    f:SetScript("OnMouseWheel", function(self, delta)
+        if (self.contentH or 0) <= (self.viewH or 0) then return end
+        self.offset = max(0, min(self.contentH - self.viewH, self.offset - delta * FLIST_ROW * 2))
+        MP:PlaceList()
+    end)
+    f:SetScript("OnShow", function(self)
+        self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+        if not InCombatLockdown() then
+            self:EnableKeyboard(true)
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+    f:SetScript("OnHide", function(self)
+        self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
+        if not InCombatLockdown() then self:EnableKeyboard(false) end
+        GameTooltip:Hide()
+    end)
+    f:SetScript("OnKeyDown", function(self, key)
+        if key ~= "ESCAPE" then return end
+        if not InCombatLockdown() then self:SetPropagateKeyboardInput(false) end
+        self:Hide()
+    end)
+    -- a press anywhere else closes it (a press on the name that opened it: its click closes it, MP:FightMenu)
+    f:SetScript("OnEvent", function(self)
+        if self:IsMouseOver() then return end
+        local o = self.owner
+        if o and o:IsVisible() and o:IsMouseOver() then return end
+        self:Hide()
+    end)
+    flist = f
+    return f
+end
+
+function MP:PlaceList()
+    local f = flist
+    if not f then return end
+    f.canvas:ClearAllPoints()
+    f.canvas:SetPoint("TOPLEFT", f.clip, "TOPLEFT", 0, f.offset)
+    local scrolls = f.contentH > f.viewH
+    f.thumb:SetShown(scrolls)
+    if scrolls then
+        local h = f.viewH
+        f.thumb:ClearAllPoints()
+        f.thumb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -FLIST_PAD - floor(h * f.offset / f.contentH + 0.5))
+        f.thumb:SetHeight(max(10, h * h / f.contentH))
+    end
+end
+
+function MP:PickFromList(key)
+    local f = flist
+    if not f or not f.pf then return end
+    local pf = f.pf
+    f:Hide()
+    self:SetFight(pf, key)
+end
+
+-- The list's lines: { kind = "whole" | "zone" | "boss" | "trash", seg | text | pulls }.
+local function ListLines()
+    local fights, all = Meter:GetFights()           -- (newest first)
+    local lines = {}
+    if all then
+        lines[#lines + 1] = { kind = "whole", seg = all }
+        lines[#lines + 1] = { kind = "sep" }
+    end
+    local zone
+    for i, seg in ipairs(fights) do
+        local z = seg.zone or "Unknown place"
+        if z ~= zone then
+            zone = z
+            lines[#lines + 1] = { kind = "zone", text = z }
+        end
+        local key = (i == 1) and "cur" or seg.id
+        if seg.kind == "boss" then
+            lines[#lines + 1] = { kind = "boss", seg = seg, key = key }
+        else
+            local last = lines[#lines]
+            if not (last and last.kind == "trash") then
+                last = { kind = "trash", pulls = {} }
+                lines[#lines + 1] = last
+            end
+            tinsert(last.pulls, 1, { seg = seg, key = key })      -- (oldest first, left to right)
+        end
+    end
+    return lines
+end
+
+local function FillList(f, pf)
+    local tab = MP:TabOf(pf)
+    local selKey = tab.seg or "cur"
+    local lines = ListLines()
+    for _, r in ipairs(f.rows) do r:Hide() end
+    -- the width: the widest row's needs
+    local measure = f.measure or K.Font(f, K.FRIZ, 12, K.INK)
+    f.measure = measure
+    measure:Hide()
+    local narrow = f.measureN or K.Font(f, K.NARROW, 12, K.DIM)
+    f.measureN = narrow
+    narrow:Hide()
+    local function W(fs, t) fs:SetText(t or ""); return fs:GetStringWidth() or 0 end
+    local function status(seg)
+        if seg.live then return "Live", { 1, 0.49, 0.43 } end
+        if seg.kind ~= "boss" then return nil end
+        if seg.kill then return "Kill", { 0.48, 0.85, 0.56 } end
+        return seg.pct and strformat("Wipe %d%%", floor(seg.pct + 0.5)) or "Wipe", { 1, 0.49, 0.43 }
+    end
+    local need = FLIST_MIN_W
+    for _, ln in ipairs(lines) do
+        if ln.kind == "whole" or ln.kind == "boss" then
+            local st = status(ln.seg)
+            local w = FLIST_TX + W(measure, Meter:SegName(ln.seg)) + 10 + (st and (W(narrow, st) + 8) or 0) + 34 + 8
+            need = max(need, w)
+        end
+    end
+    local width = min(FLIST_MAX_W, math.ceil(need)) + FLIST_PAD * 2
+    local inner = width - FLIST_PAD * 2
+    local y, n = 0, 0
+    local function Row()
+        n = n + 1
+        local r = f.rows[n]
+        if not r then r = NewListRow(f); f.rows[n] = r end
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", f.canvas, "TOPLEFT", 0, -y)
+        r:SetWidth(inner)
+        r.sel_key = nil
+        r:EnableMouse(true)
+        r.hl:SetShown(true)
+        r.sel:Hide()
+        r.pic:Hide()
+        for _, t in ipairs(r.bars) do t:Hide() end
+        for _, d in ipairs(r.dots) do d:Hide() end
+        r.name:SetText(""); r.small:SetText(""); r.len:SetText(""); r.status:SetText("")
+        r.name:SetTextColor(K.INK[1], K.INK[2], K.INK[3])
+        r.line:Hide()
+        r:Show()
+        return r
+    end
+    local function Right(r, seg, st, stc)
+        r.len:ClearAllPoints()
+        r.len:SetPoint("RIGHT", r, "RIGHT", -8, 0)
+        r.len:SetText(K.Clock(Meter:Duration(seg)))
+        r.status:ClearAllPoints()
+        r.status:SetPoint("RIGHT", r.len, "LEFT", -8, 0)
+        r.status:SetText(st or "")
+        if stc then r.status:SetTextColor(stc[1], stc[2], stc[3]) end
+    end
+    for _, ln in ipairs(lines) do
+        if ln.kind == "sep" then
+            local r = Row()
+            r:SetHeight(9)
+            r:EnableMouse(false)
+            r.line:ClearAllPoints()
+            r.line:SetPoint("LEFT", r, "LEFT", 2, 0)
+            r.line:SetPoint("RIGHT", r, "RIGHT", -2, 0)
+            r.line:SetHeight(1)
+            r.line:Show()
+            y = y + 9
+        elseif ln.kind == "zone" then
+            local r = Row()
+            r:SetHeight(FLIST_ZONE)
+            r:EnableMouse(false)
+            r.small:ClearAllPoints()
+            r.small:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 8, 3)
+            r.small:SetText(strupper and strupper(ln.text) or ln.text)
+            r.line:ClearAllPoints()
+            r.line:SetPoint("LEFT", r.small, "RIGHT", 8, 0)
+            r.line:SetPoint("RIGHT", r, "RIGHT", -8, 0)
+            r.line:SetHeight(1)
+            r.line:Show()
+            y = y + FLIST_ZONE
+        elseif ln.kind == "whole" or ln.kind == "boss" then
+            local r = Row()
+            r:SetHeight(FLIST_ROW)
+            local seg = ln.seg
+            local key = ln.kind == "whole" and "all" or ln.key
+            r.sel_key = key
+            local on = key == selKey
+            r.sel:SetShown(on)
+            r.name:ClearAllPoints()
+            r.name:SetPoint("LEFT", r, "LEFT", FLIST_TX, 0)
+            r.name:SetText(Meter:SegName(seg))
+            if on then r.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) end
+            if ln.kind == "whole" then
+                for i, t in ipairs(r.bars) do
+                    t:ClearAllPoints()
+                    t:SetPoint("BOTTOMLEFT", r, "LEFT", FLIST_IX + 8 + (i - 1) * 5, -6)
+                    t:Show()
+                end
+                local since = ListTime(seg)
+                Right(r, seg)
+                if since then
+                    r.small:ClearAllPoints()
+                    r.small:SetPoint("LEFT", r.name, "RIGHT", 6, 0)
+                    r.small:SetText("since " .. since)
+                    if FLIST_TX + r.name:GetStringWidth() + 6 + r.small:GetStringWidth() + 8 + 42 > inner then r.small:SetText("") end
+                end
+            else
+                local fid = BossArt(seg)
+                r.pic:ClearAllPoints()
+                r.pic:SetPoint("LEFT", r, "LEFT", FLIST_IX, 0)
+                if fid then
+                    r.pic:SetTexture(fid)
+                    r.pic:SetTexCoord(0, 1, 0.06, 0.94)
+                    r.pic:SetSize(28, 14)
+                    r.pic:SetVertexColor(1, 1, 1, 1)
+                else
+                    r.pic:SetTexture(K.SKULL)
+                    r.pic:SetTexCoord(0, 1, 0, 1)
+                    r.pic:SetSize(14, 14)
+                    r.pic:SetVertexColor(1, 0.71, 0.27, 0.9)
+                end
+                r.pic:Show()
+                local st, stc = status(seg)
+                Right(r, seg, st, stc)
+            end
+            y = y + FLIST_ROW
+        elseif ln.kind == "trash" then
+            local r = Row()
+            r:EnableMouse(false)
+            r.hl:SetShown(false)
+            local avail = inner - FLIST_TX - 50
+            local per = max(1, floor((avail + FLIST_GAP) / (FLIST_DOT + FLIST_GAP)))
+            local nLines = math.ceil(#ln.pulls / per)
+            local h = max(FLIST_ROW, nLines * (FLIST_DOT + FLIST_GAP) - FLIST_GAP + 10)
+            r:SetHeight(h)
+            r.pic:ClearAllPoints()
+            r.pic:SetPoint("TOPLEFT", r, "TOPLEFT", FLIST_IX + 7, -floor((FLIST_ROW - 14) / 2))
+            r.pic:SetTexture(K.SKULL)
+            r.pic:SetTexCoord(0, 1, 0, 1)
+            r.pic:SetSize(14, 14)
+            r.pic:SetVertexColor(1, 1, 1, 0.45)
+            r.pic:Show()
+            local total = 0
+            for i, pull in ipairs(ln.pulls) do
+                local d = r.dots[i]
+                if not d then d = NewDot(r); r.dots[i] = d end
+                local col, row = (i - 1) % per, floor((i - 1) / per)
+                d:ClearAllPoints()
+                d:SetPoint("TOPLEFT", r, "TOPLEFT", FLIST_TX + col * (FLIST_DOT + FLIST_GAP), -5 - row * (FLIST_DOT + FLIST_GAP))
+                d.seg, d.sel_key = pull.seg, pull.key
+                d.on = pull.key == selKey
+                if d.on then d.fill:SetVertexColor(K.GOLD[1], K.GOLD[2], K.GOLD[3], 1) else d.fill:SetVertexColor(1, 1, 1, 0.16) end
+                d:Show()
+                total = total + Meter:Duration(pull.seg)
+            end
+            r.len:ClearAllPoints()
+            r.len:SetPoint("TOPRIGHT", r, "TOPRIGHT", -8, -6)
+            r.len:SetText(K.Clock(total))
+            y = y + h
+        end
+    end
+    f.contentH = y
+    f.viewH = min(y, FLIST_MAX_H)
+    f.offset = 0
+    f:SetSize(width, f.viewH + FLIST_PAD * 2)
+    f.canvas:SetSize(inner, max(1, y))
+    MP:PlaceList()
+end
+
+-- The fight line's name: the list under it (over it when the panel is low on the screen); a second click closes it.
+function MP:FightMenu(pf, owner)
+    local f = ListFrame()
+    if f:IsShown() and f.owner == owner then f:Hide() return end
+    ns.UI:CloseMenus()
+    GameTooltip:Hide()
+    f.pf, f.owner = pf, owner
+    f:SetScale((owner:GetEffectiveScale() or 1) / (UIParent:GetEffectiveScale() or 1))
+    FillList(f, pf)
+    f:ClearAllPoints()
+    local bottom = (owner:GetBottom() or 0) * owner:GetEffectiveScale() / f:GetEffectiveScale()
+    if bottom - f:GetHeight() - 2 < 0 then
+        f:SetPoint("BOTTOM", owner, "TOP", 0, 2)
+    else
+        f:SetPoint("TOP", owner, "BOTTOM", 0, -2)
+    end
+    f:Show()
+end
+MP._FightList = function() return flist end
 
 -- + : a new panel beside this stack.
 function MP:SpawnMenu(pf, owner)

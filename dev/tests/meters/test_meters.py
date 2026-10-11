@@ -454,10 +454,10 @@ def the_view_menu_switches_the_mode_and_the_fight():
     assert any(c.get("text") == "Fight" for c in menu["children"])
     r.cl.menu_select([t for t in labels if t.endswith("DPS")][0])
     assert r.cl.eval("return ns.MeterPanels.Layout().stacks[1].panels[1].tabs[1].view") == "dps"
-    r.cl.eval("local pf = ns.MeterPanels._Panel('dps'); ns.MeterPanels:FightMenu(pf, pf.mode)")
-    fights = [c for c in r.cl.last_menu()["children"] if c["kind"] == "radio"]
-    assert len(fights) == 3, [c["text"] for c in fights]     # current, the earlier fight, Whole raid
-    r.cl.menu_select(fights[1]["text"])
+    r.cl.eval("local pf = ns.MeterPanels._Panel('dps'); ns.MeterPanels:FightMenu(pf, pf.fl.lab)")
+    keys = r.cl.eval_py(LIST_KEYS)
+    assert len(keys) == 3, keys                               # Whole raid, then both fights
+    r.cl.eval(PICK_OLDER)
     r.cl.eval("ns.MeterPanels:Draw()")
     name = r.cl.eval("return ns.MeterPanels._Panel('dps').fl.name:GetText()")
     assert name.startswith("Void Reaver"), name               # an older fight is named in the fight line
@@ -490,6 +490,28 @@ def a_click_opens_the_breakdown_and_the_recap():
     assert r.cl.eval("return ns.MeterDetail:GetState().view") == "death"
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.banner.name:GetText()") == "Victhar"
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.evRows[1]:IsShown()") is True
+
+
+# the fight list's clickable things, top to bottom: "row:<key>" (whole raid, bosses) and "dot:<key>" (trash pulls)
+LIST_KEYS = """
+    local f = ns.MeterPanels._FightList()
+    local o = {}
+    for _, row in ipairs(f.rows) do
+        if row:IsShown() then
+            if row.sel_key then o[#o + 1] = "row:" .. tostring(row.sel_key) end
+            for _, d in ipairs(row.dots) do if d:IsShown() then o[#o + 1] = "dot:" .. tostring(d.sel_key) end end
+        end
+    end
+    return o"""
+# clicks the first fight in the list that is neither the current one nor the whole raid
+PICK_OLDER = """
+    local f = ns.MeterPanels._FightList()
+    for _, row in ipairs(f.rows) do
+        if row:IsShown() then
+            if row.sel_key and row.sel_key ~= "cur" and row.sel_key ~= "all" then row:Click() return end
+            for _, d in ipairs(row.dots) do if d:IsShown() and d.sel_key ~= "cur" then d:Click() return end end
+        end
+    end"""
 
 
 def layout(r):
@@ -1107,6 +1129,58 @@ def the_fight_line_steps_through_fights_for_the_whole_panel():
     r.cl.eval("local fl = ns.MeterPanels._Panel('damage').fl; fl.prev:Click()")
     r.cl.eval("local L = ns.MeterPanels.Layout(); L.stacks[1].w = 170; ns.MeterPanels:Rebuild()")
     assert r.cl.eval("return ns.MeterPanels._Panel('damage').fl.name:GetText()") in ("Fight 2", "Crystalcore Devastator")
+
+
+@case
+def the_fight_list_is_short_bosses_as_rows_trash_as_squares():
+    """Asked 2026-10-11 (the user's pick C of the fight list mockup): the list was one line per pull, 25 lines on a
+    night of trash. Now: the whole raid on top, a heading per zone, bosses as rows with Kill / Wipe, and each run of
+    trash between them as one row of squares (oldest to newest). A pick shows that fight and closes the list."""
+    r = Raid()
+    for _ in range(3):                                       # three trash pulls
+        r.combat(True, "Victhar")
+        r.hit("Gina", 300, dst=r.add, dst_name="Crystalcore Devastator")
+        r.tick(3)
+        r.end_fight()
+    r.tick(5)
+    r.cl.fire("ENCOUNTER_START", 731, "Void Reaver", 4, 25)  # a wipe, then a kill
+    r.hit("Gina", 1000)
+    r.cl.eval("__MOCK.target_npc = nil")
+    r.cl.fire("ENCOUNTER_END", 731, "Void Reaver", 4, 25, 0)
+    r.tick(5)
+    r.cl.fire("ENCOUNTER_START", 731, "Void Reaver", 4, 25)
+    r.hit("Gina", 1000)
+    r.cl.fire("ENCOUNTER_END", 731, "Void Reaver", 4, 25, 1)
+    r.tick(5)
+    r.combat(True, "Victhar")                                # trash again, now
+    r.hit("Gina", 300, dst=r.add, dst_name="Crystalcore Devastator")
+    r.end_fight()
+    r.tick(1)
+    r.cl.eval("local pf = ns.MeterPanels._Panel('damage'); pf.fl.lab:Click()")
+    assert r.cl.eval("return ns.MeterPanels._FightList():IsShown()") is True
+    keys = r.cl.eval_py(LIST_KEYS)
+    assert keys[0] == "row:all" and keys[1] == "dot:cur", keys                # whole raid; the newest trash run
+    assert [k.split(":")[0] for k in keys[2:]] == ["row", "row", "dot", "dot", "dot"], keys
+    lines = r.cl.eval_py("""
+        local f = ns.MeterPanels._FightList()
+        local o = {}
+        for _, row in ipairs(f.rows) do
+            if row:IsShown() then o[#o + 1] = (row.name:GetText() or "") .. "|" .. (row.status:GetText() or "") .. "|" .. (row.small:GetText() or "") end
+        end
+        return o""")
+    shown = len(lines)
+    assert shown <= 8, lines                                  # 7 fights + whole raid in 7 lines (+ separator)
+    assert any(l.startswith("Void Reaver|Kill") for l in lines) and any(l.startswith("Void Reaver|Wipe") for l in lines), lines
+    # a square: that pull, and the list closes
+    r.cl.eval(PICK_OLDER)
+    assert r.cl.eval("return ns.MeterPanels._FightList():IsShown()") is False
+    seg = r.cl.eval("return ns.MeterPanels._Panel('damage').layout.tabs[1].seg")
+    assert seg not in ("cur", "all"), seg
+    # a second click on the name closes it again; Escape too
+    r.cl.eval("local pf = ns.MeterPanels._Panel('damage'); pf.fl.lab:Click(); pf.fl.lab:Click()")
+    assert r.cl.eval("return ns.MeterPanels._FightList():IsShown()") is False
+    r.cl.eval("local pf = ns.MeterPanels._Panel('damage'); pf.fl.lab:Click(); local f = ns.MeterPanels._FightList(); f:GetScript('OnKeyDown')(f, 'ESCAPE')")
+    assert r.cl.eval("return ns.MeterPanels._FightList():IsShown()") is False
 
 
 if __name__ == "__main__":
