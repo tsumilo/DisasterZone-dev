@@ -100,7 +100,7 @@ end
 
 local function Paint(target, c)
     local r, g, b = S:Color(c)
-    if target.SetTextColor then target:SetTextColor(r, g, b) else target:SetVertexColor(r, g, b) end
+    if target:GetObjectType() == "FontString" then target:SetTextColor(r, g, b) else target:SetVertexColor(r, g, b) end
 end
 
 -- An atlas icon (a UI.ICON name or index below 1000) on tex; a texture path / file id, or { path, l, r, t, b }.
