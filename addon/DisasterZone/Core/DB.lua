@@ -308,3 +308,36 @@ function DB:GetEffective(path)
     end
     return DB:GetSetting(path)
 end
+
+---------------------------------------------------------------------------
+-- Per-guild saved tables
+---------------------------------------------------------------------------
+
+-- This guild's saved table for `key`: ns.db[key][guild key] (e.g. DB:GuildBucket("events", true) is
+-- db.events["Guild Name-Realm"]). create: make db[key] and the guild's table when missing (or not tables); without
+-- it a missing one gives nil and nothing is written. nil (even with create) before the saved variables are loaded or
+-- while the guild key is unknown (not in a guild, or the guild name not yet known after a login). guildKey
+-- (optional) names another bucket than the current guild's. Returns the table and the guild key it belongs to.
+function DB:GuildBucket(key, create, guildKey)
+    local db = ns.db
+    if type(db) ~= "table" or key == nil then return nil end
+    local g = guildKey
+    if g == nil then
+        local Guild = ns.Guild
+        g = Guild and Guild.GetGuildKey and Guild:GetGuildKey() or nil
+    end
+    if type(g) ~= "string" or g == "" then return nil end
+    local root = db[key]
+    if type(root) ~= "table" then
+        if not create then return nil end
+        root = {}
+        db[key] = root
+    end
+    local b = root[g]
+    if type(b) ~= "table" then
+        if not create then return nil end
+        b = {}
+        root[g] = b
+    end
+    return b, g
+end
