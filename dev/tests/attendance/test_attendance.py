@@ -596,7 +596,13 @@ def the_raid_log_shows_a_combined_run_as_one_card():
     assert len(mine) == 1 and "Spark run" in mine[0]["zone"], rows
     assert bob.eval("return ns.RaidsUI:GetPanel().banner.title:GetText()").startswith("Spark run")
     t = result(bob, occ, "Tank")
-    assert t["credit"] >= 0.99 and t["away"] <= 600, t                    # the 10 minutes between the two: a gap
+    assert t["credit"] >= 0.99 and t["away"] == 0, t                      # (nothing was logged between the two)
+    # a longer break between the two logs (nobody recorded) never counts against anyone
+    inject(bob, base - 86400, [{"id": "m2", "pl": "oGap", "stop": 50, "ex": {"Tank": "l"}, "att": {"Tank": {"s": [0, 50]}}},
+                               {"id": "g2", "pl": "oGap", "start": 95, "ef": 0, "stop": 150, "ex": {"Tank": "l"},
+                                "att": {"Tank": {"s": [95, 150]}}}])
+    t2 = result(bob, "oGap", "Tank")
+    assert t2["credit"] >= 0.99 and t2["away"] == 0, t2
     # the session button stays off the Attendance page (its filters need the row)
     bob.eval("ns.RaidsUI:SetMode('players')")
     w.tick(0.3)

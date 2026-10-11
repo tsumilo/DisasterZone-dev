@@ -457,6 +457,16 @@ local function NightFacts(n, rules)
             i = i + 1
         end
     end
+    -- a night logged as several raids (Mag, then Gruul): nobody was recorded between them, so that time never counts
+    local spans = {}
+    for _, rec in ipairs(n.recs) do
+        if rec.start then spans[#spans + 1] = { rec.start, rec.stop or Now() } end
+    end
+    tsort(spans, function(a, b) return a[1] < b[1] end)
+    for k = 2, #spans do
+        local gapFrom, gapTo = spans[k - 1][2], spans[k][1]
+        if gapTo > gapFrom then trouble[#trouble + 1] = { gapFrom, gapTo } end
+    end
     -- when the raid formed: the median first arrival of the expected players who came
     local arrivals = {}
     for key in pairs(n.ex) do
