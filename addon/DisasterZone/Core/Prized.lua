@@ -326,15 +326,15 @@ end
 -- Starting points for a new item: { key, label, desc, rules(ids) }.
 Prized.TEMPLATES = {
     { key = "legendary", label = "Legendary", icon = "prized",
-      desc = "80% attendance / 8 wk · Mains · Guild only · Queue · Pair · Council: all",
+      desc = "80% / 8 wk · Mains · Guild · Queue · Pair · Council",
       rules = function(n)
           local r = { att = { m = "r", p = 80, w = 8 }, main = { m = "r" }, guild = { m = "r" },
                       queue = { m = "r", n = {} }, vote = { m = "r", s = "all" } }
           if n > 1 then r.pair = { m = "r" } end
           return r
       end },
-    { key = "trinket", label = "Top trinket", icon = "order",
-      desc = "75% attendance / 6 wk · Rank · Mains · Guild · Cooldown · Spec order · Council",
+    { key = "trinket", label = "Top trinket", icon = "poll",
+      desc = "75% / 6 wk · Rank · Mains · Cooldown · Spec order",
       rules = function()
           return { att = { m = "r", p = 75, w = 6 }, rank = Prized:DefaultRule("rank"), main = { m = "r" },
                    guild = { m = "r" }, cd = { m = "r", w = 4 }, order = { m = "p", g = { {} } },
