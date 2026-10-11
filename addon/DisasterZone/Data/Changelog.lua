@@ -110,7 +110,7 @@ ns.CHANGELOG = {
           } },
           { heading = "Lighter on memory", lines = {
               "Every event and addon message makes less garbage, so DisasterZone's memory climbs slower.",
-              "With the threat meter on, the meters don't redraw five times a second when nothing changed.",
+              "With the threat meter on, meters don't redraw five times a second when nothing changed.",
               "The swing timer shown out of combat no longer repaints its ring every frame.",
               "Settings > About: a Performance page shows DisasterZone's memory and CPU (off by default).",
           } },
