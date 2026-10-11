@@ -131,8 +131,9 @@ TRACKER = """
     o.cardText = fr.card and fr.card.text:GetText() or nil
     o.ask = fr.ask and fr.ask:IsShown() or false
     o.wait = fr.wait and fr.wait:IsShown() or false
-    o.toast = fr.toast and fr.toast:IsShown() and fr.toast.t:GetText() or false
-    o.toastLine = fr.toast and fr.toast:IsShown() and fr.toast.l:GetText() or false
+    -- (the game toast is a UI:Toast: its title, and the score line under how it was decided in its text)
+    o.toast = fr.toast and fr.toast:IsShown() and fr.toast.title:GetText() or false
+    o.toastLine = fr.toast and fr.toast:IsShown() and (fr.toast.text:GetText() or ""):match(string.char(10) .. "(.*)$") or false
     return o"""
 
 
