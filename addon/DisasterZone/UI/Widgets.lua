@@ -2952,7 +2952,17 @@ function UI:CreateScrollList(parent, rowHeight, initRow, extentFn)
     function list:SetData(array, resetScroll)
         self.data = type(array) == "table" and array or {}
         self.box:SetDataProvider(CreateDataProvider(self.data), not resetScroll)
-        self.emptyText:SetShown(#self.data == 0 and (self.emptyText:GetText() or "") ~= "")
+        self:UpdateEmpty()
+    end
+
+    -- The empty look while the list has no rows: the illustrated state (SetEmptyState) when one is set, else the
+    -- plain text (SetEmptyText) when it has one.
+    function list:UpdateEmpty()
+        local none = #self.data == 0
+        local state = self.emptyState
+        local stateOn = none and state ~= nil and self.emptyStateOn == true
+        if state then state:SetShown(stateOn) end
+        self.emptyText:SetShown(none and not stateOn and (self.emptyText:GetText() or "") ~= "")
     end
 
     -- Re-runs initRow on every visible row (e.g. after item info arrived).
@@ -2970,7 +2980,35 @@ function UI:CreateScrollList(parent, rowHeight, initRow, extentFn)
 
     function list:SetEmptyText(text)
         self.emptyText:SetText(text or "")
-        self.emptyText:SetShown(#self.data == 0 and (text or "") ~= "")
+        self:UpdateEmpty()
+    end
+
+    -- An illustrated empty state (UI:CreateEmptyState, compact by default) in place of the plain empty text while the
+    -- list has no rows: opts { icon / glyph, title, text, action = { text, onClick }, compact (true), width }.
+    -- nil takes it away (the plain text, if any, shows again). list.emptyState is the frame (made on first use).
+    function list:SetEmptyState(opts)
+        if opts == nil then
+            self.emptyStateOn = false
+            self:UpdateEmpty()
+            return
+        end
+        local o = {}
+        for k, v in pairs(opts) do o[k] = v end
+        if o.compact == nil then o.compact = true end
+        local fw = self.frame:GetWidth() or 0
+        if not o.width and fw > 0 then o.width = math.min(360, math.max(160, fw - 56)) end
+        if not self.emptyState then
+            self.emptyState = UI:CreateEmptyState(self.frame, o)
+            self.emptyState:SetPoint("TOP", self.frame, "TOP", -10, -24)
+            self.emptyState:SetFrameLevel(self.box:GetFrameLevel() + 5)
+        elseif o.width then
+            self.emptyState.content = o
+            self.emptyState:SetBoxWidth(o.width)
+        else
+            self.emptyState:SetContent(o)
+        end
+        self.emptyStateOn = true
+        self:UpdateEmpty()
     end
 
     function list:ScrollToTop()
