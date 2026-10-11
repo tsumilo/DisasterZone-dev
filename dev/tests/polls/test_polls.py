@@ -276,7 +276,7 @@ def the_sheet_posts_and_the_banner_answers_yes_or_no():
         ns.PollsUI:ShowList("open")
         local v = ns.PollsUI:GetPanel().list
         local shown = v.hero:IsShown() and v.hero.pid
-        local yes = v.hero.seg.opts[1]
+        local yes = v.hero.seg.buttons[1]
         local text = yes.fs:GetText()
         yes:Click()
         return { shown = shown, text = text, waiting = ns.Polls:WaitingCount() }""")
@@ -284,7 +284,7 @@ def the_sheet_posts_and_the_banner_answers_yes_or_no():
     w.tick(5)
     assert results(g, ok["poll"])["counts"] == [1, 0]
     # on the poll's page the answer bar shows the pick and No changes it
-    c.eval("ns.MainFrame:Open('polls'); ns.PollsUI:OpenPoll(...); ns.PollsUI:GetPanel().poll.ban.seg.opts[2]:Click()",
+    c.eval("ns.MainFrame:Open('polls'); ns.PollsUI:OpenPoll(...); ns.PollsUI:GetPanel().poll.ban.seg.buttons[2]:Click()",
            ok["poll"])
     w.tick(5)
     assert results(g, ok["poll"])["counts"] == [1, 1]

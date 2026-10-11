@@ -22,11 +22,12 @@ local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tsort, tconcat = table.sort, table.concat
 local type, pairs, ipairs, tostring, tonumber = type, pairs, ipairs, tostring, tonumber
 
+-- (ns.Style is St here: S is the new poll sheet's table)
+local St = ns.Style
 local DAY = 86400
-local PAD, GAP = 10, 8
-local PAGE_W, PAGE_H = 790, 548
-local NUM_FONT = "Fonts\\ARIALN.TTF"
-local WHITE = "Interface\\Buttons\\WHITE8X8"
+local PAD, GAP = St.PAD, St.GAP
+local PAGE_W, PAGE_H = St.PAGE_W, St.PAGE_H
+local NUM_FONT = St.FONT_NUM
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
 local CHECK_GLYPH = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\check"
@@ -40,16 +41,17 @@ local NAME_COL = 150                 -- Pick days: the names column
 local CELL_GAP = 4
 local MAX_LIST_ROWS = 60
 
+-- The colours: ns.Style tokens, plus this page's own shades (read-only: several are shared tables).
 local C = {
-    gold = { 1, 0.82, 0 }, white = { 1, 1, 1 }, text = { 0.88, 0.88, 0.88 }, grey = { 0.62, 0.62, 0.62 },
+    gold = St.C.GOLD, white = { 1, 1, 1 }, text = St.C.TEXT, grey = St.C.SUB,
     dim = { 0.55, 0.55, 0.57 }, faint = { 0.33, 0.33, 0.35 }, green = { 0.47, 0.83, 0.54 }, red = { 1, 0.45, 0.4 },
     can = { 0.12, 0.23, 0.14, 1 }, canEdge = { 0.18, 0.42, 0.23, 1 }, maybe = { 0.23, 0.2, 0.09, 1 },
     maybeEdge = { 0.48, 0.39, 0.13, 1 }, no = { 0.09, 0.09, 0.11, 1 }, noEdge = { 0.14, 0.14, 0.16, 1 },
     bar = { 0.82, 0.64, 0.03 }, track = { 0.16, 0.16, 0.18 }, pick = { 0.15, 0.14, 0.08, 1 },
     pickEdge = { 0.54, 0.45, 0.13, 1 }, row = { 0.09, 0.09, 0.11, 1 }, rowEdge = { 0.17, 0.17, 0.2, 1 },
+    meta = { 0.82, 0.82, 0.82 }, light = { 0.86, 0.86, 0.86 }, desc = { 0.74, 0.74, 0.74 },
+    warm = { 0.95, 0.85, 0.54 }, chip = { 0.91, 0.91, 0.91 }, black = { 0, 0, 0, 1 },
 }
-local CARD = { 0.075, 0.075, 0.09, 1 }
-local CARD_EDGE = { 0.19, 0.19, 0.22, 1 }
 
 local panel
 local state = { view = "list", tab = "open", poll = nil, pick = {}, days = nil, changing = false, draft = nil }
@@ -57,7 +59,7 @@ local state = { view = "list", tab = "open", poll = nil, pick = {}, days = nil, 
 local function UI() return ns.UI end
 local function EUI() return ns.EventUI end
 local function P() return ns.Polls end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local function Now() return ns.Util.Now() end
 local function Me() return ns.Util.PlayerKey() end
 local function IsMe(key) return type(key) == "string" and ns.Util.IsMe(key) or false end
 
@@ -75,46 +77,40 @@ local function Plural(n, one, many) return n == 1 and ("1 " .. one) or (n .. " "
 local function PollIcon() return ns:HasAssets(6) and UI().ICON.poll or UI().ICON.notes end
 
 ---------------------------------------------------------------------------
--- Small pieces
+-- Small pieces (1.4: this was a near-verbatim copy of the Events tab's kit; now thin aliases on the shared UI:
+-- UI:Text on the type scale (sizes snap, D2), UI:Fill, UI:TextWidth, UI:HideFrom, UI:CreateSectionHeader,
+-- UI:CreateBackLink, UI:CreateSegments, UI:AttachTooltip and ns.Style tokens)
 ---------------------------------------------------------------------------
 
+-- A text's size changed, keeping its font face and colour: the size snaps to the type scale.
 local function Sized(fs, size, path)
     local p, _, flags = fs:GetFont()
-    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", size, flags or "")
+    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", St:Size(size or "emph"), flags or "")
     return fs
 end
 
+-- A one-line text (left, no wrap): UI:Text at a size of the scale. num: the narrow number font.
 local function Text(parent, size, color, num, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    Sized(fs, size or 12, num and NUM_FONT or nil)
-    local c = color or C.white
-    fs:SetTextColor(c[1], c[2], c[3], c[4] or 1)
-    return fs
+    return UI():Text(parent, size or "emph", color or C.white, { layer = layer, font = num and NUM_FONT or nil })
 end
 
 local function Color(fs, c) fs:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
 
-local function Fill(f, c, layer, sub)
-    local t = f:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
-    t:SetAllPoints()
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-    return t
-end
+local function Fill(f, c, layer, sub) return UI():Fill(f, c, layer, sub) end
 
 local function Edges(f, c, layer)
     UI():AddEdges(f, layer or "BORDER")
-    UI():SetEdgeColor(f, c[1], c[2], c[3], c[4] or 1)
+    UI():SetEdgeColor(f, St:Color(c))
 end
 
+-- A coloured texture the caller anchors (a hairline, a bar); UI:Rule when it runs along a whole edge.
 local function Line(parent, c, layer)
     local t = parent:CreateTexture(nil, layer or "ARTWORK")
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+    t:SetColorTexture(St:Color(c or "HAIRLINE"))
     return t
 end
 
-local function TextW(fs) return EUI():TextWidth(fs) end
+local function TextW(fs) return UI():TextWidth(fs) end
 
 -- A wrapped text w wide: returns its height.
 local function Wrap(fs, text, w, size)
@@ -131,7 +127,7 @@ local function Wrap(fs, text, w, size)
 end
 
 local function Glyph(tex, idx, c)
-    c = c or { 1, 1, 1 }
+    c = c or C.white
     if type(idx) == "string" then
         tex:SetTexture(idx)
         tex:SetTexCoord(0, 1, 0, 1)
@@ -165,51 +161,22 @@ local function FitButton(b, minW)
     return b:GetWidth()
 end
 
--- A section title over a hairline (the Events list's).
+-- A section title over a hairline (UI:CreateSectionHeader, "title"): s:Set(title, right); s.t / s.r / s.line.
+local function SectSet(self, t, r)
+    self:SetTitle(t or "")
+    self:SetRight(r)
+    self:Show()
+end
 local function Sect(parent)
-    local s = CreateFrame("Frame", nil, parent)
-    s:SetSize(100, 24)
-    s.t = Text(s, 12, C.gold)
-    s.t:SetPoint("BOTTOMLEFT", 2, 7)
-    s.r = Text(s, 10, C.dim)
-    s.r:SetJustifyH("RIGHT")
-    s.r:SetPoint("BOTTOMRIGHT", -2, 7)
-    s.line = Line(s, { 1, 1, 1, 0.08 })
-    s.line:SetHeight(1)
-    s.line:SetPoint("BOTTOMLEFT")
-    s.line:SetPoint("BOTTOMRIGHT")
-    function s:Set(t, r)
-        self.t:SetText(t or "")
-        self.r:SetText(r or "")
-        self:Show()
-    end
+    local s = UI():CreateSectionHeader(parent, "", { style = "title", width = 100 })
+    s.t, s.r, s.line = s.title, s.right, s.rule
+    s.Set = SectSet
     return s
 end
 
--- The back link of the Raids page ("< ALL RAIDS"): back to the list.
+-- The way back to the list ("< ALL POLLS"): UI:CreateBackLink.
 local function BackLink(parent)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(80, 14)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(10, 10)
-    b.icon:SetPoint("LEFT", 0, 0)
-    UI():SetChevron(b.icon, false)
-    b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    b.text:SetJustifyH("LEFT")
-    Sized(b.text, 10)
-    b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
-    b.text:SetText("ALL POLLS")
-    local function paint(self, on)
-        local r, g, bl = 0.65, 0.65, 0.65
-        if on then r, g, bl = 1, 0.82, 0 end
-        self.text:SetTextColor(r, g, bl)
-        self.icon:SetVertexColor(r, g, bl)
-    end
-    paint(b, false)
-    b:SetScript("OnEnter", function(self) paint(self, true) end)
-    b:SetScript("OnLeave", function(self) paint(self, false) end)
-    b:SetScript("OnClick", function() PollsUI:ShowList() end)
-    return b
+    return UI():CreateBackLink(parent, "All polls", function() PollsUI:ShowList() end)
 end
 
 -- A class circle of a member.
@@ -235,11 +202,10 @@ local function Pool(list, i, make)
     return x
 end
 
-local function HideFrom(list, i)
-    for j = i, #list do list[j]:Hide() end
-end
+local function HideFrom(list, i) UI():HideFrom(list, i) end
 
 -- A rounded chip (the poll page's targets, the sheet's picks).
+-- TODO(refactor): move into UI:CreateChip (a count after the name, a remove x, the gold "on" look of a picked one).
 local function Chip(parent, h, removable)
     h = h or 17
     local c = CreateFrame("Button", nil, parent)
@@ -265,12 +231,12 @@ local function Chip(parent, h, removable)
             EUI():SetClass(self.glyph, face)
             self.glyph:SetVertexColor(1, 1, 1, 1)
         elseif glyph then
-            Glyph(self.glyph, glyph, on and { 0.95, 0.85, 0.54 } or { 0.74, 0.74, 0.74 })
+            Glyph(self.glyph, glyph, on and C.warm or C.desc)
         end
         self.glyph:SetShown(glyph ~= nil or face ~= nil)
         if on then
             self:SetPillColors({ 0.18, 0.15, 0.09, 1 }, { 0.54, 0.45, 0.13, 1 })
-            Color(self.fs, { 0.95, 0.85, 0.54 })
+            Color(self.fs, C.warm)
         else
             self:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 0.23, 0.23, 0.26, 1 })
             Color(self.fs, C.text)
@@ -404,8 +370,7 @@ local BAN_LIST_H, BAN_PAGE_H = 132, 150
 local KIND_ICON = { one = "Interface\\Icons\\INV_Scroll_03", many = "Interface\\Icons\\INV_Misc_Note_05",
                     yn = "Interface\\Icons\\INV_Misc_Coin_01", days = "Interface\\Icons\\INV_Misc_PocketWatch_01" }
 local THEMES = { "kara", "gruul", "mag", "ssc", "tk", "hyjal", "bt", "za", "swp" }
-local FACE_RING = { 0, 0, 0, 1 }
-local SEG_ON, SEG_ON_EDGE = { 0.11, 0.33, 0.14, 1 }, { 0.26, 0.74, 0.31, 1 }
+local FACE_RING = C.black
 
 -- A poll's art: the theme of the first team it asks, else one picked from its id (so it stays put).
 local function ArtKey(p)
@@ -444,7 +409,7 @@ end
 local function IconTile(parent, size, ring)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
-    f.outer = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND")
+    f.outer = Fill(f, C.black, "BACKGROUND")
     f.outer:ClearAllPoints()
     f.outer:SetPoint("TOPLEFT", -1, 1)
     f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -477,18 +442,15 @@ local function RingFace(parent, size)
         EUI():SetClass(self.tex, key)
         self:Show()
     end
-    f:EnableMouse(true)
-    f:SetScript("OnEnter", function(self)
-        if not self.key then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(EUI():Name(self.key, true))
-        GameTooltip:Show()
-    end)
-    f:SetScript("OnLeave", HideTip)
+    UI():AttachTooltip(f, function(self, tt)
+        if not self.key then return false end
+        tt:AddLine(EUI():Name(self.key, true))
+    end, nil, { anchor = "ANCHOR_TOP" })
     return f
 end
 
 -- A pill on the art: a glyph and a few words.
+-- TODO(refactor): move into UI:CreateChip (the dark chip over art with an atlas glyph; the Events banner's too).
 local function ArtChip(parent)
     local c = CreateFrame("Frame", nil, parent)
     c:SetHeight(22)
@@ -497,57 +459,35 @@ local function ArtChip(parent)
     c.glyph = c:CreateTexture(nil, "ARTWORK")
     c.glyph:SetSize(12, 12)
     c.glyph:SetPoint("LEFT", 9, 0)
-    c.fs = Text(c, 11, { 0.91, 0.91, 0.91 })
+    c.fs = Text(c, 11, C.chip)
     c.fs:SetPoint("LEFT", c.glyph, "RIGHT", 6, 0)
     function c:Set(text, glyph, color)
         self.fs:SetText(text)
-        Glyph(self.glyph, glyph or UI().ICON.calendar, color or { 0.86, 0.86, 0.86 })
+        Glyph(self.glyph, glyph or UI().ICON.calendar, color or C.light)
         self:SetWidth(ceil(9 + 12 + 6 + TextW(self.fs) + 11))
         self:Show()
     end
     return c
 end
 
--- The answer bar (the raid page's Accept / Tentative): a dark band, the picked answer green.
+-- The answer bar (the raid page's Accept / Tentative): UI:CreateSegments in the green answer look.
+-- s:Set(labels, picked, onPick, minW) (picked: an index or nil); s.buttons[i] (.fs = its label) are the answers.
+local function SegSet(self, labels, picked, onPick, minW)
+    self.onPick = onPick
+    self.opts.minW = minW or 64
+    self.opts.pad = 15
+    local items = {}
+    for i, label in ipairs(labels) do items[i] = { key = i, label = label } end
+    local x = self:SetItems(items)
+    for _, b in ipairs(self.buttons) do b.fs = b.label end
+    self:Select(picked)
+    self:Show()
+    return x
+end
 local function SegBar(parent, h)
-    local s = CreateFrame("Frame", nil, parent)
-    s:SetHeight(h or 24)
-    s.bg = Fill(s, { 0.07, 0.08, 0.09, 0.82 })
-    s.opts = {}
-    function s:Set(labels, picked, onPick, minW)
-        local x = 0
-        for i, label in ipairs(labels) do
-            local b = self.opts[i]
-            if not b then
-                b = CreateFrame("Button", nil, self)
-                b.fill = Fill(b, SEG_ON, "BACKGROUND", 1)
-                UI():AddEdges(b, "BORDER")
-                b.fs = Text(b, 12, C.text)
-                b.fs:SetJustifyH("CENTER")
-                b.fs:SetPoint("CENTER", 0, 0)
-                b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-                b.hl:SetAllPoints()
-                b.hl:SetColorTexture(1, 1, 1, 0.05)
-                self.opts[i] = b
-            end
-            b.fs:SetText(label)
-            local w = max(minW or 64, ceil(TextW(b.fs) + 30))
-            b:SetSize(w, self:GetHeight())
-            b:ClearAllPoints()
-            b:SetPoint("LEFT", self, "LEFT", x, 0)
-            local on = picked == i
-            b.fill:SetShown(on)
-            UI():SetEdgeColor(b, SEG_ON_EDGE[1], SEG_ON_EDGE[2], SEG_ON_EDGE[3], on and 1 or 0)
-            Color(b.fs, on and C.white or { 0.82, 0.82, 0.82 })
-            b:SetScript("OnClick", function() if onPick then onPick(i) end end)
-            b:Show()
-            x = x + w
-        end
-        for i = #labels + 1, #self.opts do self.opts[i]:Hide() end
-        self:SetWidth(x)
-        self:Show()
-        return x
-    end
+    local s
+    s = UI():CreateSegments(parent, {}, function(i) if s.onPick then s.onPick(i) end end, { h = h or 24, accent = "OK" })
+    s.Set = SegSet
     return s
 end
 
@@ -570,17 +510,17 @@ local function Banner(parent, h, page)
     b.icon:SetPoint("TOPLEFT", 14, -top)
     b.q = Text(b, 19, C.white)
     b.q:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 12, -2)
-    b.pill = EUI():CreatePill(b, 17)
-    b.meta = Text(b, 11, { 0.86, 0.86, 0.86 })
+    b.pill = UI():CreatePill(b, 17)
+    b.meta = Text(b, 11, C.light)
     b.meta:SetPoint("TOPLEFT", b.q, "BOTTOMLEFT", 0, -6)
     b.faces = {}
-    b.count = Text(b, 11, { 0.86, 0.86, 0.86 })
+    b.count = Text(b, 11, C.light)
     b.bar = Bar(b, 4, C.green)
     b.bar:SetWidth(120)
     b.chip = ArtChip(b)
     b.btn = Button(b, "Answer", 70, 25, "primary")
     b.seg = SegBar(b, 25)
-    b.segLab = Text(b, 9, { 0.86, 0.86, 0.86 })
+    b.segLab = Text(b, "caps", C.light)
     b.segLab:SetText("YOUR ANSWER")
     b.more = UI():CreateTipIconButton(b, 22, UI().ICON.more, "More", "Close, extend or remove the poll.", function(self)
         local p = P():GetPoll(self:GetParent().pid)
@@ -698,20 +638,25 @@ local L = {}
 local CARD_W = 282
 local LROW_H = 50
 
+-- A frame whose tooltip is its .tip field at the time ({ title, line ... }; nil: none), above it.
+local function FieldTip(self, tt)
+    local lines = self.tip
+    if not lines then return false end
+    for i, line in ipairs(lines) do
+        if i == 1 then tt:AddLine(line, St:Color("GOLD")) else tt:AddLine(line, 1, 1, 1, true) end
+    end
+end
+
 function L.NewRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetHeight(LROW_H)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.03)
-    r.line = Line(r, { 1, 1, 1, 0.045 })
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
+    UI():DecorateRow(r, { rule = true })
+    r.hl, r.line = r.dzHover, r.dzRule
+    UI():AttachTooltip(r, FieldTip, nil, { anchor = "ANCHOR_TOP" })
     r.art = CreateFrame("Frame", nil, r)
     r.art:SetSize(64, 38)
     r.art:SetPoint("LEFT", 2, 0)
-    r.art.outer = Fill(r.art, { 0, 0, 0, 1 }, "BACKGROUND")
+    r.art.outer = Fill(r.art, C.black, "BACKGROUND")
     r.art.outer:ClearAllPoints()
     r.art.outer:SetPoint("TOPLEFT", -1, 1)
     r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -723,7 +668,7 @@ function L.NewRow(parent)
     r.dot = r.art:CreateTexture(nil, "OVERLAY")
     r.dot:SetTexture(DISC)
     r.dot:SetSize(8, 8)
-    r.dot:SetVertexColor(1, 0.82, 0)
+    r.dot:SetVertexColor(St:Color("GOLD"))
     r.dot:SetPoint("CENTER", r.art, "TOPRIGHT", 0, 0)
     r.title = Text(r, 12, C.white)
     r.title:SetPoint("TOPLEFT", 80, -10)
@@ -734,9 +679,9 @@ function L.NewRow(parent)
     r.more = UI():CreateTipIconButton(r, 20, UI().ICON.more, "More", nil, function() end)
     r.mini = CreateFrame("Frame", nil, r)
     r.mini:SetSize(110, 20)
-    r.mini.l = Text(r.mini, 10, { 0.82, 0.82, 0.82 })
+    r.mini.l = Text(r.mini, 10, C.meta)
     r.mini.l:SetPoint("TOPLEFT")
-    r.mini.r = Text(r.mini, 10, { 0.82, 0.82, 0.82 }, true)
+    r.mini.r = Text(r.mini, 10, C.meta, true)
     r.mini.r:SetJustifyH("RIGHT")
     r.mini.r:SetPoint("TOPRIGHT")
     r.mini.bar = Bar(r.mini, 4)
@@ -874,24 +819,20 @@ function L.Fill(r, p, sec, w)
         r.meta:Hide()
         r.tip = { p.q, r.metaVariants[1] }
     end
-    r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    r:SetScript("OnLeave", HideTip)
     r:Show()
 end
 
 -- The card at the right: the polls that closed lately, with what won.
 function L.BuildCard(v)
-    local c = CreateFrame("Frame", nil, v)
+    local c = UI():CreateCard(v, { tone = "card" })
     c:SetWidth(CARD_W)
-    Fill(c, CARD)
-    Edges(c, CARD_EDGE)
     c.title = Text(c, 13, C.gold)
     c.title:SetPoint("TOPLEFT", 12, -12)
     c.title:SetText("Closed lately")
     c.all = CreateFrame("Button", nil, c)
     c.all:SetSize(40, 16)
     c.all:SetPoint("TOPRIGHT", -10, -11)
-    c.all.fs = Text(c.all, 11, { 0.82, 0.82, 0.82 })
+    c.all.fs = Text(c.all, 11, C.meta)
     c.all.fs:SetJustifyH("RIGHT")
     c.all.fs:SetPoint("RIGHT", -12, 0)
     c.all.fs:SetText("All")
@@ -900,12 +841,9 @@ function L.BuildCard(v)
     c.all.chev:SetPoint("RIGHT", 0, 0)
     c.all.chev:SetTexture(UI().ICON_ATLAS)
     UI():SetChevron(c.all.chev, true)
-    c.all.chev:SetVertexColor(0.82, 0.82, 0.82)
+    c.all.chev:SetVertexColor(St:Color(C.meta))
     c.all:SetScript("OnClick", function() PollsUI:ShowList("closed") end)
-    c.rule = Line(c, { 1, 1, 1, 0.08 })
-    c.rule:SetHeight(1)
-    c.rule:SetPoint("TOPLEFT", 10, -36)
-    c.rule:SetPoint("TOPRIGHT", -10, -36)
+    c.rule = UI():Rule(c, { top = 36, left = 10, right = 10, alpha = 0.08 })
     c.items = {}
     c.empty = Text(c, 11, C.dim)
     c.empty:SetPoint("TOPLEFT", 12, -48)
@@ -928,7 +866,7 @@ function L.FillCard(v, closed)
             f.q:SetPoint("TOPLEFT", 32, 0)
             f.w = Text(f, 10, C.gold)
             f.w:SetPoint("TOPLEFT", f.q, "BOTTOMLEFT", 0, -4)
-            f.pct = Text(f, 10, { 0.82, 0.82, 0.82 }, true)
+            f.pct = Text(f, 10, C.meta, true)
             f.pct:SetJustifyH("RIGHT")
             f.pct:SetPoint("TOPRIGHT", 0, -15)
             f.bar = Bar(f, 3)
@@ -964,13 +902,16 @@ function L.FillCard(v, closed)
     c:SetHeight(n == 0 and 76 or (y + 4))
 end
 
+-- 1.4: the list is a Board page (UI:CreateLayout): the toolbar holds Open / Closed and the main action New poll;
+-- the banner and the sections sit under it as before.
 function L.Build(v)
-    v.tabOpen = UI():CreateUnderlineTab(v, "Open", function() PollsUI:ShowList("open") end, "page")
-    v.tabOpen:SetPoint("TOPLEFT", PAD - 4, -6)
-    v.tabClosed = UI():CreateUnderlineTab(v, "Closed", function() PollsUI:ShowList("closed") end, "page")
-    v.tabClosed:SetPoint("LEFT", v.tabOpen, "RIGHT", 4, 0)
-    v.new = Button(v, "New poll", 104, 24, "primary", function() PollsUI:OpenNew() end, UI().ICON.plus)
-    v.new:SetPoint("TOPRIGHT", -PAD, -7)
+    v.layout = UI():CreateLayout("board", v)
+    local bar = v.layout.toolbar
+    v.toolbar = bar
+    bar:SetTabs({ { key = "open", text = "Open" }, { key = "closed", text = "Closed" } },
+        function(key) PollsUI:ShowList(key) end)
+    v.tabOpen, v.tabClosed = bar:GetTab("open"), bar:GetTab("closed")
+    v.new = bar:SetPrimary({ text = "New poll", icon = UI().ICON.plus, width = 104, onClick = function() PollsUI:OpenNew() end })
     v.hero = Banner(v, BAN_LIST_H, false)
     v.hero:SetPoint("TOPLEFT", PAD, -(TABS_H + 6))
     v.hero:SetPoint("TOPRIGHT", -PAD, -(TABS_H + 6))
@@ -979,16 +920,16 @@ function L.Build(v)
     v.content:SetSize(PAGE_W - 2 * PAD, 10)
     v.scroll:SetScrollChild(v.content)
     v.heads, v.rows = {}, {}
-    v.empty = Text(v.content, 11, C.dim)
+    v.empty = UI():CreateEmptyState(v, { glyph = PollIcon() })
+    v.empty:Hide()
     L.BuildCard(v)
 end
 
 function L.Refresh(v)
     local Pl = P()
     local polls = Pl:GetPolls()
-    UI():SetTabCount(v.tabOpen, Pl:WaitingCount())
-    v.tabOpen:SetActive(state.tab == "open")
-    v.tabClosed:SetActive(state.tab == "closed")
+    v.toolbar:SetTabCount("open", Pl:WaitingCount())
+    v.toolbar:SelectTab(state.tab)
     v.new:SetShown(Pl:AmIAsker())
     local wait, done, mine, closed = {}, {}, {}, {}
     for _, p in ipairs(polls) do
@@ -1064,14 +1005,15 @@ function L.Refresh(v)
     HideFrom(v.rows, ri + 1)
     v.empty:Hide()
     if ri == 0 and not hero then
-        v.empty:ClearAllPoints()
-        v.empty:SetPoint("TOPLEFT", v.content, "TOPLEFT", 2, -8)
-        if state.tab == "open" then
-            v.empty:SetText(Pl:AmIAsker() and "No open polls. Ask the guild something: it reaches the people you pick."
+        -- (an illustrated empty state over the list's column: the card may stand at the right)
+        local open = state.tab == "open"
+        v.empty:SetContent({ glyph = PollIcon(), title = open and "No open polls" or "No closed polls",
+            text = open and (Pl:AmIAsker() and "Ask the guild something: it reaches the people you pick."
                 or "No polls for you right now. When the officers ask you something, it shows up here.")
-        else
-            v.empty:SetText("No closed polls yet.")
-        end
+                or "No closed polls yet." })
+        v.empty:SetBoxWidth(min(430, listW - 40))
+        v.empty:ClearAllPoints()
+        v.empty:SetPoint("TOP", v.scroll, "TOP", 0, -50)
         v.empty:Show()
         y = 30
     end
@@ -1139,10 +1081,10 @@ local function AnswerRow(parent, w)
     b:SetSize(w, ANS_H)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
-    b.bg:SetTexture(WHITE)
+    b.bg:SetColorTexture(1, 1, 1, 1)
     Edges(b, C.rowEdge)
     b.bar = b:CreateTexture(nil, "ARTWORK")
-    b.bar:SetColorTexture(1, 0.82, 0, 1)
+    b.bar:SetColorTexture(St:Color("GOLD"))
     b.bar:SetPoint("TOPLEFT", 0, 0)
     b.bar:SetPoint("BOTTOMLEFT", 0, 0)
     b.bar:SetWidth(3)
@@ -1158,7 +1100,7 @@ local function AnswerRow(parent, w)
     b.dot:SetTexture(DISC)
     b.dot:SetSize(7, 7)
     b.dot:SetPoint("CENTER", b.ring)
-    b.dot:SetVertexColor(1, 0.82, 0)
+    b.dot:SetVertexColor(St:Color("GOLD"))
     b.box = b:CreateTexture(nil, "ARTWORK", nil, 1)
     b.box:SetSize(13, 13)
     b.box:SetPoint("LEFT", 12, 0)
@@ -1166,7 +1108,7 @@ local function AnswerRow(parent, w)
     b.check:SetTexture(CHECK)
     b.check:SetSize(19, 19)
     b.check:SetPoint("CENTER", b.box, "CENTER", 1, 0)
-    b.check:SetVertexColor(1, 0.82, 0)
+    b.check:SetVertexColor(St:Color("GOLD"))
     b.fs = Text(b, 12, C.text)
     b.fs:SetPoint("LEFT", 36, 0)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
@@ -1183,18 +1125,14 @@ local function AnswerRow(parent, w)
         self.check:SetShown(multi and on)
         self.bar:SetShown(on)
         if on then
-            if self.bg.SetGradient and CreateColor then
-                self.bg:SetGradient("HORIZONTAL", CreateColor(0.24, 0.2, 0.08, 1), CreateColor(0.12, 0.11, 0.07, 1))
-            end
+            UI():Gradient(self.bg, "HORIZONTAL", { 0.24, 0.2, 0.08, 1 }, { 0.12, 0.11, 0.07, 1 })
             UI():SetEdgeColor(self, C.pickEdge[1], C.pickEdge[2], C.pickEdge[3], 1)
             Color(self.fs, C.white)
-            self.ring:SetVertexColor(1, 0.82, 0, 1)
+            self.ring:SetVertexColor(St:Color("GOLD"))
             self.hole:SetVertexColor(0.2, 0.17, 0.08, 1)
             self.box:SetColorTexture(0.24, 0.2, 0.08, 1)
         else
-            if self.bg.SetGradient and CreateColor then
-                self.bg:SetGradient("HORIZONTAL", CreateColor(0.12, 0.12, 0.14, 1), CreateColor(0.085, 0.085, 0.1, 1))
-            end
+            UI():Gradient(self.bg, "HORIZONTAL", { 0.12, 0.12, 0.14, 1 }, { 0.085, 0.085, 0.1, 1 })
             UI():SetEdgeColor(self, C.rowEdge[1], C.rowEdge[2], C.rowEdge[3], 1)
             Color(self.fs, C.text)
             self.ring:SetVertexColor(0.42, 0.42, 0.45, 1)
@@ -1225,12 +1163,7 @@ local function ResultBlock(parent, w)
     f.bar.fill = f.bar:CreateTexture(nil, "ARTWORK")
     f.bar.fill:SetPoint("TOPLEFT")
     f.bar.fill:SetPoint("BOTTOMLEFT")
-    f.bar.fill:SetTexture(WHITE)
-    if f.bar.fill.SetGradient and CreateColor then
-        f.bar.fill:SetGradient("HORIZONTAL", CreateColor(0.72, 0.53, 0.04, 1), CreateColor(1, 0.82, 0.25, 1))
-    else
-        f.bar.fill:SetColorTexture(C.bar[1], C.bar[2], C.bar[3], 1)
-    end
+    UI():Gradient(f.bar.fill, "HORIZONTAL", { 0.72, 0.53, 0.04, 1 }, { 1, 0.82, 0.25, 1 })
     f.names = Text(f, 10, C.dim)
     f.names:SetPoint("TOPLEFT", 0, -39)
     return f
@@ -1258,11 +1191,12 @@ local function PersonRow(parent)
     r.waitHole:SetSize(7, 7)
     r.waitHole:SetPoint("CENTER", r.wait)
     r.waitHole:SetVertexColor(0.08, 0.08, 0.09, 1)
-    r:EnableMouse(true)
-    r:SetScript("OnEnter", function(self)
-        if self.tipText then Tip(self, self.tipText) end
-    end)
-    r:SetScript("OnLeave", HideTip)
+    UI():AttachTooltip(r, function(self, tt)
+        if not self.tipText then return false end
+        for i, line in ipairs(self.tipText) do
+            if i == 1 then tt:AddLine(line, St:Color("GOLD")) else tt:AddLine(line, 1, 1, 1, true) end
+        end
+    end, nil, { anchor = "ANCHOR_TOP" })
     return r
 end
 
@@ -1891,7 +1825,7 @@ function S.Post()
 end
 
 local function Label(parent, text)
-    local fs = Text(parent, 11, { 0.62, 0.62, 0.62 })
+    local fs = Text(parent, 11, C.grey)
     fs:SetText(text)
     return fs
 end
@@ -2089,18 +2023,15 @@ function S.Build(v)
     v.count:SetSize(rw, 18)
     v.count.faces = {}
     v.count.fs = Text(v.count, 10, C.grey)
-    v.count:SetScript("OnEnter", function(self)
+    UI():AttachTooltip(v.count, function(_, tt)
         local keys = S.Asked()
-        if #keys == 0 then return end
+        if #keys == 0 then return false end
         local names = {}
         for i = 1, min(#keys, 30) do names[#names + 1] = Name(keys[i]) end
         if #keys > 30 then names[#names + 1] = Hex(C.dim, "and " .. (#keys - 30) .. " more") end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(Plural(#keys, "person", "people") .. " will be asked")
-        GameTooltip:AddLine(tconcat(names, ", "), 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    v.count:SetScript("OnLeave", HideTip)
+        tt:AddLine(Plural(#keys, "person", "people") .. " will be asked")
+        tt:AddLine(tconcat(names, ", "), 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_TOP" })
     v.pvSect = Sect(R0)
     v.pvBan = Banner(R0, 104, false)
     v.preview = CreateFrame("Frame", nil, R0)
@@ -2146,7 +2077,7 @@ function S.BuildCalendar(parent)
         b.disc:SetTexture(DISC)
         b.disc:SetSize(23, 23)
         b.disc:SetPoint("CENTER")
-        b.disc:SetVertexColor(1, 0.82, 0)
+        b.disc:SetVertexColor(St:Color("GOLD"))
         b.fs = Text(b, 11, C.text, true)
         b.fs:SetJustifyH("CENTER")
         b.fs:SetPoint("CENTER", 0, 0)
@@ -2250,7 +2181,7 @@ function S.AudienceItems()
         else
             local co = UI():IconCoords(ICONS[o.kind] or UI().ICON.team)
             e.icon = { UI().ICON_ATLAS, co[1], co[2], co[3], co[4] }
-            e.iconColor = o.kind == "g" and { 1, 0.82, 0 } or { 0.74, 0.74, 0.74 }
+            e.iconColor = o.kind == "g" and C.gold or C.desc
             e.text = o.kind == "lineup" and ("   " .. o.name) or o.name
             e.search = (o.team or "") .. " " .. o.name
             e.color = o.kind == "lineup" and "ffb0b0b4" or "ffe5e5e5"
@@ -2276,8 +2207,7 @@ function S.RefreshAudience(v)
         ch:ClearAllPoints()
         ch:SetPoint("TOPLEFT", v.chipBox, "TOPLEFT", x, -y)
         ch:SetScript("OnClick", function() S.ToggleTarget(t) end)
-        ch:SetScript("OnEnter", function(self) Tip(self, { P():TargetName(t), "Click to take it off." }) end)
-        ch:SetScript("OnLeave", HideTip)
+        UI():AttachTooltip(ch, P():TargetName(t), "Click to take it off.", { anchor = "ANCHOR_TOP" })
         x = x + w + 4
     end
     HideFrom(v.chips, #d.a + 1)
@@ -2876,7 +2806,7 @@ end
 function PollsUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("polls", "Polls", 3.575, function(parent) return PollsUI:CreatePanel(parent) end,
-            function() return IsInGuild() or (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) end)
+            function() return IsInGuild() or ns.Util.DemoOn() end, { layout = "board" })
     end
     ns:On("POLLS_UPDATED", function()
         if panel and panel:IsVisible() then PollsUI:Refresh() end
