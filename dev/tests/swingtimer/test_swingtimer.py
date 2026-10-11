@@ -84,6 +84,26 @@ assert prot.eval(CARD)[0] is True, "opening a card by its key opens it"
 
 # not swinging: the HUD rests (no plan), so nothing moves out of combat
 assert ret.eval("ns.SwingTimer.state.last = nil; return ns.SwingTimer:Current() == nil") is True
+# resting is drawn once, not every frame (the 200 dots were the top CPU handler idle; Performance page 2026-10-11),
+# but a new seal still shows and a swing in between brings the full rest look back
+r = ret.eval_py("""
+    local ST, HUD, f = ns.SwingTimer, ns.SwingTimerHUD, DisasterZoneSwingTimer
+    ST.state.last = nil; ST.state.seal = 'soc'
+    HUD:Update()
+    local d = f.bar.dots[1]
+    local orig, n = d.SetVertexColor, 0
+    d.SetVertexColor = function(self, ...) n = n + 1 return orig(self, ...) end
+    HUD:Update(); HUD:Update()
+    local idle = n
+    ST.state.seal = 'sob'; HUD:Update()
+    local sealIcon = f.seal.icon:GetTexture() == ST.ICONS.sob
+    ST.state.last = GetTime(); ST:MarkDirty(); HUD:Update()
+    local live = f.bar:GetAlpha()
+    ST.state.last = nil; HUD:Update()
+    d.SetVertexColor = orig
+    return { idle = idle, afterSeal = n, sealIcon = sealIcon, live = live, rest = f.bar:GetAlpha() }
+""")
+assert r["idle"] == 0 and r["sealIcon"] is True and r["live"] == 1 and abs(r["rest"] - 0.35) < 0.01, r
 # swinging: there is a press to show
 assert ret.eval("local ST = ns.SwingTimer; ST.state.last = GetTime(); ST.state.seal = 'soc'; ST:MarkDirty(); "
                 "local c = ST:Current(); return c ~= nil and #c.plan.steps > 0") is True

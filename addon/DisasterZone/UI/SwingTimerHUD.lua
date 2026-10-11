@@ -41,6 +41,7 @@ local ST                         -- ns.SwingTimer
 local frame
 local zoneWasOpen
 local lastNext, flashAt, shownKey, shownAt, lastExtra = nil, nil, nil, 0, nil
+local rested, restWeapon, restSeal = false, nil, nil   -- (Rest's look is on, for this weapon and seal)
 
 local function Get(path, default) return ST.Get(path, default) end
 
@@ -303,6 +304,7 @@ local function Short(key)
 end
 
 function HUD:Layout()
+    rested = false
     local style = Get("style", "bar")
     frame:SetScale(tonumber(Get("scale", 1)) or 1)
     local showBar, showLane = style ~= "lane", style ~= "bar"
@@ -325,7 +327,13 @@ function HUD:UpdateVisibility()
 end
 
 -- Resting: auto attack is not running, so there is nothing to time. A faint empty ring, the rest hidden.
+-- (drawn once, then again only when the weapon or the seal changes: repainting the 200 dots every idle frame was
+-- the addon's top CPU handler out of combat; Performance page 2026-10-11)
 local function Rest()
+    local weapon = GetInventoryItemTexture("player", 16) or ST.ICONS.wait
+    local seal = ST.state.seal
+    if rested and weapon == restWeapon and seal == restSeal then return end
+    rested, restWeapon, restSeal = true, weapon, seal
     local ring = frame.bar
     frame.lane:Hide()
     ring:SetAlpha(0.35)
@@ -335,13 +343,12 @@ local function Rest()
     ring.glow:SetAlpha(0)
     ring.flash:SetAlpha(0)
     frame.big:SetScale(1)
-    frame.big.icon:SetTexture(GetInventoryItemTexture("player", 16) or ST.ICONS.wait)
+    frame.big.icon:SetTexture(weapon)
     frame.big.icon:SetDesaturated(true)
     frame.big.shade:SetAlpha(0)
     frame.big.name:SetText("")
     frame.big.hint:SetText("")
     for _, s in ipairs(frame.small) do s:Hide() end
-    local seal = ST.state.seal
     frame.seal:SetShown(seal ~= nil)
     if seal then frame.seal.icon:SetTexture(ST.ICONS[seal]); frame.seal.text:SetText("") end
     lastNext, shownKey = nil, nil
@@ -353,6 +360,7 @@ function HUD:Update()
     local now = GetTime()
     local ok, cur = pcall(ST.Current, ST)
     if not ok or not cur then Rest() return end
+    rested = false
     local snap, steps = cur.snap, cur.plan.steps
     local speed, nxt = snap.speed, ST:NextSwing(now)
     local elapsed = max(0, speed - (nxt - now))
