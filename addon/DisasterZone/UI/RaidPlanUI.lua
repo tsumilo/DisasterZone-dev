@@ -3829,8 +3829,8 @@ function PlanUI:CreateTeams(parent)
     d.views:Hide()
     -- everyone else sees the team read-only: the toolbar says so where the organizers' actions are (it only shows
     -- what CanManageTeams decided)
-    d.readOnly = UI():CreateNotice(d.views, "readonly", "Read only: the Guild Master and the guild council change teams.")
-    d.readOnly:SetWidth(380)
+    d.readOnly = UI():CreateNotice(d.views, "readonly", "Read only: the Guild Master and the council change teams.")
+    d.readOnly:SetWidth(360)
     d.readOnly:SetPoint("RIGHT", d.views, "RIGHT", 0, 0)
     d.readOnly:Hide()
 
