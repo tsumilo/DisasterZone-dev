@@ -72,6 +72,8 @@ local function pctText(r)
     return floor(r.credit * 100 + 0.5) .. "%"
 end
 
+-- uniformity: a flat colour of the attendance charts (the time bars, the squares, the 12-raid columns, the calendar's
+-- range): data visualisation in the attendance palette C, not a surface; every panel, row and card is a shared one.
 local function tex(parent, layer, c, a, sub)
     local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
     t:SetColorTexture(c[1], c[2], c[3], a or c[4] or 1)
@@ -1438,7 +1440,8 @@ function AUI:OpenAwayDialog(key)
             b.band = b:CreateTexture(nil, "BACKGROUND", nil, 1)
             b.band:SetPoint("TOPLEFT", 0, -3)
             b.band:SetPoint("BOTTOMRIGHT", 0, 3)
-            b.band:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 0.16)
+            b.band:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 0.16)   -- uniformity: the picked days' range
+            -- TODO(refactor): move into UI/DatePicker.lua (a range of days)
             b.disc = b:CreateTexture(nil, "ARTWORK")
             b.disc:SetTexture(ns.EventUI.MASK)
             b.disc:SetSize(25, 25)

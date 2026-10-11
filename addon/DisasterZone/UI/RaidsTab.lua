@@ -178,7 +178,7 @@ function H.SecondArt(host, base, layer, sub)
         host.dzArt2 = host:CreateTexture(nil, layer, nil, sub)
         host.dzArt2:SetPoint("TOPLEFT", base, "TOPRIGHT")
         host.dzArtLine = host:CreateTexture(nil, layer, nil, sub + 1)
-        host.dzArtLine:SetColorTexture(0, 0, 0, 0.6)
+        host.dzArtLine:SetColorTexture(0, 0, 0, 0.6)       -- uniformity: the seam between two raids' pictures
         host.dzArtLine:SetWidth(2)
         host.dzArtLine:SetPoint("TOPLEFT", host.dzArt2, "TOPLEFT", -1, 0)
         host.dzArtLine:SetPoint("BOTTOMLEFT", host.dzArt2, "BOTTOMLEFT", -1, 0)
