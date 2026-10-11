@@ -13,15 +13,17 @@ EUI.RING = "Interface\\AddOns\\DisasterZone\\Media\\Events\\ring"
 EUI.PIECES = "Interface\\AddOns\\DisasterZone\\Media\\Events\\pieces"
 EUI.MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 EUI.WHITE = "Interface\\Buttons\\WHITE8X8"
-EUI.GOLD = { 1, 0.82, 0 }
-EUI.YOU = { 0.4, 0.72, 1 }          -- "You" everywhere (the board, the standings, the tracker)
-EUI.GREY = { 0.62, 0.62, 0.62 }
-EUI.DIM = { 0.44, 0.44, 0.46 }
-EUI.TEXT = { 0.88, 0.88, 0.88 }
-EUI.LIVE = { 1, 0.35, 0.27 }
-EUI.CARD = { 0.10, 0.10, 0.12, 0.92 }
-EUI.EDGE = { 0.34, 0.34, 0.38, 0.55 }
-EUI.PAD, EUI.GAP = 10, 8            -- the page grid (UI style: one spacing grid per page)
+-- (the design values live in ns.Style, UI/Style.lua: these are the same tables, kept for the callers that read them)
+local SC = ns.Style.C
+EUI.GOLD = SC.GOLD                  -- { 1, 0.82, 0 }
+EUI.YOU = SC.YOU                    -- { 0.4, 0.72, 1 }: "You" everywhere (the board, the standings, the tracker)
+EUI.GREY = SC.SUB                   -- { 0.62, 0.62, 0.62 }
+EUI.DIM = SC.DIM                    -- { 0.44, 0.44, 0.46 }
+EUI.TEXT = SC.TEXT                  -- { 0.88, 0.88, 0.88 }
+EUI.LIVE = SC.LIVE                  -- { 1, 0.35, 0.27 }
+EUI.CARD = SC.CARD                  -- { 0.10, 0.10, 0.12, 0.92 }
+EUI.EDGE = SC.EDGE                  -- { 0.34, 0.34, 0.38, 0.55 }
+EUI.PAD, EUI.GAP = ns.Style.PAD, ns.Style.GAP   -- 10, 8: the page grid (UI style: one spacing grid per page)
 
 local function UI() return ns.UI end
 local function B() return ns.EventBlocks end
@@ -341,12 +343,6 @@ function EUI:CreateProgress(parent)
         return x
     end
     return p
-end
-
--- A text's whole width on one line (GetStringWidth stops at a width the string was given on this client).
-function EUI:TextWidth(fs)
-    if fs.GetUnboundedStringWidth then return fs:GetUnboundedStringWidth() or 0 end
-    return fs:GetStringWidth() or 0
 end
 
 -- What a live run's current stage is doing: "quarterfinals", "round 2 of 4", "signing up" (or nil).
@@ -977,9 +973,10 @@ end
 -- Where a place is (the event's places): its zone, coordinates, the way from me
 ---------------------------------------------------------------------------
 
--- A text's width (unbounded: what it needs on one line).
+-- A text's whole width on one line (unbounded: GetStringWidth stops at a width the string was given on this client).
+-- (UI:TextWidth does the measuring; this one name stays for the events' callers)
 function EUI:TextWidth(fs)
-    return (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth()) or fs:GetStringWidth() or 0
+    return UI():TextWidth(fs)
 end
 
 function EUI:MapName(map)
