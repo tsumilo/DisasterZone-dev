@@ -288,7 +288,9 @@ end
 
 -- The two pages' tabs (small, on the layout's toolbar) and its main action: Add item (Prized items).
 local function BuildTop(v)
-    local L = UI:CreateLayout("board", v, { pad = 0, bottom = 0, width = K.W })
+    -- (top -8: the toolbar row is 36 high, the pages start where they did under the 28 px tabs row - the prized
+    -- items' add sheet needs all of that height)
+    local L = UI:CreateLayout("board", v, { pad = 0, top = -(36 - K.TABS_H), bottom = 0, width = K.W })
     v.layout = L
     L.toolbar:SetTabs({ { key = "winner", text = "Picking the winner", small = true },
         { key = "prized", text = "Prized items", small = true }, selected = "winner" },
