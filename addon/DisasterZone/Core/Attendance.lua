@@ -332,6 +332,47 @@ function Att:GetNights()
     return out
 end
 
+-- A night as one record for the Raid log (one card for a Gruul + Mag run logged as two raids): the newest record's
+-- id, ids = every record's, the planned raid's name when there are several, the kills, attendance (kills added up),
+-- sign-ups and awards of them all. Treat as read-only.
+function Att:NightView(n)
+    if #n.recs == 1 then return n.recs[1] end
+    local first, last = n.recs[#n.recs], n.recs[1]
+    local v = { id = n.primary.id, ids = {}, start = n.start, stop = n.stop, pl = n.pl, plAt = n.primary.plAt,
+                by = first.by, endedBy = last.endedBy, autoEnded = last.autoEnded, instID = first.instID,
+                bosses = n.bosses, att = {}, su = next(n.su) and n.su or nil, demo = n.demo, night = n }
+    local zones = {}
+    for i = #n.recs, 1, -1 do
+        local rec = n.recs[i]
+        v.ids[#v.ids + 1] = rec.id
+        if rec.zone then
+            local dup = false
+            for _, z in ipairs(zones) do if z == rec.zone then dup = true end end
+            if not dup then zones[#zones + 1] = rec.zone end
+        end
+        for key, a in pairs(rec.att or {}) do
+            local c = v.att[key]
+            if not c then
+                c = { k = 0 }
+                v.att[key] = c
+            end
+            c.k = c.k + (tonumber(a.k) or 0)
+            c.c = c.c or a.c
+            if a.b then c.b, c.bts = true, a.bts end
+            if a.j and (not c.j or a.j < c.j) then c.j = a.j end
+            if a.l and (not c.l or a.l > c.l) then c.l = a.l end
+        end
+        if rec.demoAwards then
+            v.demoAwards = v.demoAwards or {}
+            for _, e in ipairs(rec.demoAwards) do v.demoAwards[#v.demoAwards + 1] = e end
+        end
+    end
+    local RP = ns.RaidPlan
+    local plan = n.pl and RP and RP.GetRaid and RP:GetRaid(n.pl)
+    v.zone = (plan and RP:GetRaidName(plan)) or tconcat(zones, " + ")
+    return v
+end
+
 function Att:GetNight(key)
     for _, n in ipairs(self:GetNights()) do
         if n.key == key then return n end

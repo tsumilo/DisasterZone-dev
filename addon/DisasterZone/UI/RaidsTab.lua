@@ -464,10 +464,12 @@ local function planMenu(root, rec)
     local function set(occ)
         local GR = ns.GroupRules
         local s = GR and GR:GetSession()
-        if s and s.id == rec.id and GR:IsAuthority() then
-            ns.RaidLink:SetLink(occ)
-        else
-            RL():SetPlanned(rec.id, occ)
+        for _, id in ipairs(rec.ids or { rec.id }) do
+            if s and s.id == id and GR:IsAuthority() then
+                ns.RaidLink:SetLink(occ)
+            else
+                RL():SetPlanned(id, occ)
+            end
         end
     end
     root:CreateTitle("Planned raid")
@@ -699,6 +701,9 @@ local function updateToolbar(p)
     p.lineupBtn:SetText(state.lineup and state.lineup.label or "All lineups")
     local GR = ns.GroupRules
     local auth = IsInRaid() and GR and GR:IsAuthority()
+    -- (1.3.5: not on the Raid log's Attendance and Reviews pages, which need the row for their filters; the
+    -- session bar has Start / End raid too)
+    if log and state.mode ~= "raids" then auth = false end
     p.sessionBtn:SetShown(auth and true or false)
     p.sessionBtn:SetText(GR and GR:GetSession() and "End raid" or "Start raid")
     -- the Players view's filters at the right of the row (left of Start / End raid)
@@ -786,14 +791,18 @@ local function createLogRaids(p)
     p.deleteLogBtn = UI:CreateTipIconButton(b, 22, 12, "Delete this raid from the log",
         "Removes the logged raid for every raid planner: its boss kills and attendance no longer count. Awards stay "
         .. "in the Loot Log. This can't be undone.", function()
-        local rec = state.selected and RL():GetRaid(state.selected)
+        local rec = p.selView
         if not rec then return end
+        local ids = rec.ids or { rec.id }
         ns.RaidPlanUI:Confirm(("Delete the logged raid %s (%s)?\n\nIts boss kills and attendance are removed for "
             .. "everyone. Awards stay in the Loot Log. This can't be undone."):format(rec.zone or "Raid",
-            fmtTime(rec.start, "%a %d %b")), function()
-            local ok, err = RL():Delete(rec.id)
-            if not ok then ns:Print("%s", err or "Could not delete the raid.") end
-        end)
+            fmtTime(rec.start, "%a %d %b")) .. (#ids > 1 and ("\n\nIt was logged as " .. #ids .. " raids: all are deleted.") or ""),
+            function()
+                for _, id in ipairs(ids) do
+                    local ok, err = RL():Delete(id)
+                    if not ok then ns:Print("%s", err or "Could not delete the raid.") end
+                end
+            end)
     end)
     p.deleteLogBtn:SetPoint("TOPRIGHT", -10, -8)
 
@@ -1037,10 +1046,22 @@ function RaidsUI:CreatePanel(parent)
 end
 
 local function refreshLogRaids(p)
-    local raids = RL():GetRaids()
+    -- 1.3.5: one card per night (a planned raid's logged raids together: a Gruul + Mag run, a restart)
+    local raids = {}
+    local A = Att()
+    if A and A.GetNights then
+        for _, n in ipairs(A:GetNights()) do raids[#raids + 1] = A:NightView(n) end
+    else
+        raids = RL():GetRaids()
+    end
     local found = false
     for _, rec in ipairs(raids) do
-        if rec.id == state.selected then found = true end
+        for _, id in ipairs(rec.ids or { rec.id }) do
+            if id == state.selected then
+                found = true
+                state.selected = rec.id
+            end
+        end
     end
     if not found then state.selected = raids[1] and raids[1].id or nil end
     -- (a day with more than one logged raid: their cards say the time)
@@ -1054,7 +1075,11 @@ local function refreshLogRaids(p)
         rows[#rows + 1] = { rec = rec, sameDay = perDay[fmtTime(rec.start, "%Y%m%d")] > 1 }
     end
     p.raidList:SetData(rows)
-    local sel = state.selected and RL():GetRaid(state.selected)
+    local sel
+    for _, rec in ipairs(raids) do
+        if rec.id == state.selected then sel = rec end
+    end
+    p.selView = sel
     p.logEmpty:SetShown(#raids == 0)
     p.raidList.frame:SetShown(#raids > 0)
     p.logDetail:SetShown(sel ~= nil)

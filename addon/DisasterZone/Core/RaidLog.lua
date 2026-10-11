@@ -617,8 +617,11 @@ function RaidLog:GetAwards(rec)
     local Ledger = ns.Ledger
     if type(rec) ~= "table" or not (Ledger and Ledger.GetEntries) then return out end
     local from, to = rec.start or 0, rec.stop or GetServerTime()
+    -- (1.3.5: a night of several logged raids, Attendance:NightView: the awards of each)
+    local ids = {}
+    for _, id in ipairs(rec.ids or { rec.id }) do ids[id] = true end
     for _, e in ipairs(Ledger:GetEntries({ excludeDungeon = true }) or {}) do
-        if e.rid == rec.id or (e.rid == nil and e.ts >= from and e.ts <= to) then out[#out + 1] = e end
+        if (e.rid and ids[e.rid]) or (e.rid == nil and e.ts >= from and e.ts <= to) then out[#out + 1] = e end
     end
     return out
 end

@@ -368,7 +368,8 @@ function AUI:ResultTooltip(tt, r)
     local why = r.kind == "l" and "In the raid's lineup" or "Answered Accept"
     tt:AddLine(why .. " · expected " .. clock(r.F) .. " – " .. clock(r.T), 0.8, 0.8, 0.8)
     if r.loose then
-        tt:AddLine("Not linked to a planned raid, so there is no planned time: they came, so it counts as there.",
+        tt:AddLine(n.pl and "Logged before attendance tracking, so there is no planned time: they came, so it counts as there."
+            or "Not linked to a planned raid, so there is no planned time: they came, so it counts as there.",
             0.62, 0.62, 0.62, true)
     elseif r.E > r.F then
         tt:AddLine("The raid formed at " .. clock(r.E) .. ": late counts from then.", 0.62, 0.62, 0.62, true)
@@ -629,8 +630,8 @@ function AUI:CreateTimeline(parent, width)
         local sum = { onTime = 0, late = 0, left = 0, noShow = 0, fill = 0, pending = 0 }
         if #res.expected > 0 then
             local head = n.legacy and "WHO CAME" or (label and label:upper()) or "EXPECTED"
-            rows[#rows + 1] = { sec = head, n = n.legacy and "not linked to a planned raid: who came counts as there"
-                or (#res.expected .. " expected") }
+            rows[#rows + 1] = { sec = head, n = n.legacy and (n.pl and "logged before attendance tracking: who came counts as there"
+                or "not linked to a planned raid: who came counts as there") or (#res.expected .. " expected") }
             for _, r in ipairs(res.expected) do
                 rows[#rows + 1] = { r = r, lo = lo, hi = hi }
                 if r.pending then sum.pending = sum.pending + 1 end
