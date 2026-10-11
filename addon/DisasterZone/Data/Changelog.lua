@@ -9,7 +9,7 @@ ns.CHANGELOG = {
     { version = "1.3.5", date = "10 October 2026", title = "Raid nights for teams",
       sections = {
           { heading = "Raids: raid nights", area = "raids", kind = "new", hi = true, open = "teams", art = "kara",
-            lead = "See which nights a team raids, and the hours, before you join it.", lines = {
+            lead = "See a team's raid nights before you join it.", lines = {
               "Teams can say which nights they raid: see when you're expected before you join.",
               "Every team banner shows its week, the raid nights lit gold, and the hours under it.",
               "A hollow gold day is an optional night: come if you can.",
@@ -26,7 +26,7 @@ ns.CHANGELOG = {
               "Changed your mind? The time filter's Hidden view shows them again.",
           } },
           { heading = "Raids: attendance counts the time you were there", area = "raids", kind = "changed", hi = true, open = "members", art = "mag",
-            lead = "Your % is the share of the expected time you were there, not just if you came.", lines = {
+            lead = "Counts the time you were there, not just if you came.", lines = {
               "Attendance is the share of the expected time you were there, not just whether you came.",
               "A team raid expects its own lineup: a 10-man player is never missing from the 25.",
               "A raid without a team expects whoever answered Accept. Pugs and guests are never counted.",
@@ -64,6 +64,17 @@ ns.CHANGELOG = {
               "Your roll pop-up says if you meet the rules; if not, why and when you can again.",
               "Item tooltips say in one line if you qualify for a prized item, or which rule you miss.",
               "Qualify today: hover the icons or the count for names; Next in line only with priority rules.",
+          } },
+          { heading = "What's new, easier to read", area = "look", kind = "changed", hi = true, art = "tk",
+            lead = "Highlights first, one line per section, Show me.", lines = {
+              "The Changelog reads in three layers: highlight cards, one line per section, the lines.",
+              "Click a section to open it. Show me opens the page it is about and points at what changed.",
+              "Missed a few versions? Since your last visit merges them into one page.",
+              "Just for me folds away what is only for the loot council, officers or other classes.",
+              "Chips filter by area (Raids, Loot, Gear...); the search finds a word in every version.",
+              "From your feedback: everything you asked for that shipped, next to your own words.",
+              "Home's What's new chip opens a short pop-up of the highlights.",
+              "Tick Open by itself after an update to get that pop-up once per new version.",
           } },
           { heading = "Themes for the Blessings and Totem bars", area = "class", kind = "new", ["for"] = "PALADIN SHAMAN", open = "settings/classtools",
             lines = {
@@ -107,7 +118,7 @@ ns.CHANGELOG = {
               "Fixed: hovering a player on the boss drop panel could throw a Lua error.",
           } },
           { heading = "Raids > Loot rules, for everyone", area = "loot", kind = "new", hi = true, open = "lootrules", art = "bt",
-            lead = "How the winner is picked, the prized items, and where you stand on each.", lines = {
+            lead = "How the winner is picked, and where you stand.", lines = {
               "Every member can read the guild's loot rules now: Raids > Loot rules, or /dz lootrules.",
               "How it's decided: four steps on a gold path, from who can be suggested to the roll.",
               "The steps follow the Guild Master's choices: the floor, a split vote, longest use.",
@@ -227,7 +238,7 @@ ns.CHANGELOG = {
     { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",
       sections = {
           { heading = "Damage and threat meters", area = "gear", kind = "new", hi = true, open = "settings/meters", art = "tk",
-            lines = {
+            lead = "Built-in damage and threat meters, opt-in.", lines = {
               "Built-in meters: no need for Details or a threat addon. Off until you turn them on.",
               "Turn them on in Settings > Meters, or with /dz meter on and /dz threat on.",
               "Damage, DPS, healing, damage taken, deaths, interrupts, dispels and active time.",
@@ -242,7 +253,8 @@ ns.CHANGELOG = {
               "Your own bar stays in view, and melee shows your weapon's icon.",
               "Nothing is shared or posted: each player counts their own combat log.",
           } },
-          { heading = "Gear sim", area = "gear", kind = "new", hi = true, open = "gearsim", art = "gruul", lines = {
+          { heading = "Gear sim", area = "gear", kind = "new", hi = true, open = "gearsim", art = "gruul",
+            lead = "What a gear change is worth, in real DPS.", lines = {
               "New Gear sim page (Gear menu): sim your gear and see what a change is worth, in real DPS.",
               "It plays the fight out a thousand times with WoWSims' rotation, buffs and numbers.",
               "The doll becomes your Working set: it starts as the gear you wear.",
@@ -288,7 +300,8 @@ ns.CHANGELOG = {
               "Click a pick to choose your own in the item picker: flasks, elixirs, food, potions...",
               "Right-click a pick to drop it from the prog or farm kit, or go back to the guide's pick.",
           } },
-          { heading = "Feedback", area = "guild", kind = "new", hi = true, open = "feedback", art = "ssc", lines = {
+          { heading = "Feedback", area = "guild", kind = "new", hi = true, open = "feedback", art = "ssc",
+            lead = "Send the developer a bug, an idea or a change.", lines = {
               "New speech bubble next to What's new: send feedback on a bug, an idea or a change.",
               "Pick Something broke, I have an idea, Change something or I love this, and say it.",
               "It reaches the developer even while offline: whoever is online carries it.",
@@ -442,7 +455,8 @@ ns.CHANGELOG = {
       } },
     { version = "1.3.3", date = "9 October 2026", title = "My Log, Teams and Karazhan Chess",
       sections = {
-          { heading = "My Log (opt-in)", area = "gear", kind = "new", hi = true, open = "mylog", art = "ssc", lines = {
+          { heading = "My Log (opt-in)", area = "gear", kind = "new", hi = true, open = "mylog", art = "hyjal",
+            lead = "Record your own play in every boss pull. Opt-in.", lines = {
               "New in Settings > My Log: record your own play in every raid boss pull. Off by default.",
               "Saved on your PC only and never sent: nobody else can see it, the loot council included.",
               "It records damage, healing, shields, damage taken, avoidance, casts, buffs and deaths.",
@@ -474,7 +488,8 @@ ns.CHANGELOG = {
               "Marked squares take your dauber's ink and its marker; completed lines turn gold.",
               "The race, the latest squares and the season sit beside the card, your dauber under them.",
           } },
-          { heading = "Karazhan Chess", area = "games", kind = "new", hi = true, open = "games", art = "kara", lines = {
+          { heading = "Karazhan Chess", area = "games", kind = "new", hi = true, open = "games", art = "kara",
+            lead = "Chess on Medivh's own board, in 3D.", lines = {
               "New game in Guild > Games: chess on Medivh's own board in the Gamesman's Hall, in 3D.",
               "The pieces are the event's creatures at their real sizes; the Echo of Medivh looks on.",
               "Pieces walk to their square; a capture is a blow and a fall. Right-drag turns the camera.",
@@ -494,7 +509,7 @@ ns.CHANGELOG = {
               "/dz chess opens it.",
           } },
           { heading = "Teams, redesigned", area = "raids", kind = "changed", hi = true, open = "teams", art = "bt",
-            lines = {
+            lead = "Every team as a banner, its lineups as tabs.", lines = {
               "Raids > Teams opens on a board: every team as a banner, yours first, with its next raid.",
               "Each team has a theme: pick the raid whose painting is its banner (... > Theme).",
               "A team's lineups are tabs on its banner, each with how full it is.",
@@ -583,7 +598,8 @@ ns.CHANGELOG = {
               "A new DisasterZone page in Options > AddOns: open any section, or right-click to pin it.",
               "Its banner: your next raid's painting with embers, a countdown, who's online, your BiS.",
           } },
-          { heading = "Events", area = "guild", kind = "new", hi = true, open = "events", art = "za", lines = {
+          { heading = "Events", area = "guild", kind = "new", hi = true, open = "events", art = "za",
+            lead = "The guild's own events: duel cups, races, contests.", lines = {
               "A new tab, Events: the guild's own events, like duel cups, races, hunts and contests.",
               "It wears a small BETA tag for now: still being tested, so things may change or break.",
               "Build one in the event builder: snap pieces together like a puzzle, no code.",
@@ -637,7 +653,7 @@ ns.CHANGELOG = {
               "Pugs show their class on everyone's board; whispers with item links read cleanly.",
           } },
           { heading = "Raids: team lineups and waitlists", area = "raids", kind = "new", hi = true, open = "teams", art = "ssc",
-            lines = {
+            lead = "One roster, many lineups, and a waitlist.", lines = {
               "A team keeps one roster and any number of lineups: e.g. two 25s and three Kara 10s.",
               "Each lineup has its own groups, specs and target comp: pick one with the chips.",
               "+ Lineup adds a 10- or 25-man one; click the open one's chip to rename, copy or delete.",
@@ -712,7 +728,7 @@ ns.CHANGELOG = {
               "Prices are your realm's own: every vendor you open teaches the addon its prices.",
           } },
           { heading = "My BiS: gems and enchants", area = "gear", kind = "new", hi = true, open = "mybis", art = "gruul",
-            lines = {
+            lead = "Sockets, gems and enchants on your BiS picks.", lines = {
               "Every pick shows its sockets and enchant as small icons next to where it drops.",
               "Click them to choose: each socket in its colour, the socket bonus, and the enchant.",
               "Suggestions use WoWSims' gems and enchants for your spec, ranked by its stat weights.",
@@ -732,7 +748,7 @@ ns.CHANGELOG = {
     { version = "1.3.1", date = "6 October 2026", title = "Dungeons tab, ask to join locked raids",
       sections = {
           { heading = "Dungeons: the guild's own LFG", area = "guild", kind = "new", hi = true, open = "dungeons", art = "za",
-            lines = {
+            lead = "List a 5-man run or join one, inside the guild.", lines = {
               "New Dungeons tab: list a 5-man run or join one, all inside the guild.",
               "I'm up for a run: the guild sees you're free, and you get a ping when a run needs you.",
               "Every run shows its open places; the one that wants your role glows. Join asks the leader.",
@@ -743,7 +759,7 @@ ns.CHANGELOG = {
               "Share your run in chat with the share icon; later runs show on the Home calendar.",
           } },
           { heading = "Raids, redesigned", area = "raids", kind = "changed", hi = true, open = "raids", art = "kara",
-            lines = {
+            lead = "Every raid as a card: answer right on it.", lines = {
               "Upcoming: every raid is a card with its loading screen; answer right on the card.",
               "A raid's page: a banner with the facts and your answer, then its tabs.",
               "Your spec, character and note sit under your answer; the raid's note under the banner.",
@@ -777,7 +793,7 @@ ns.CHANGELOG = {
               "Council items: raids with their art, who wants what as name chips, unwanted items folded.",
           } },
           { heading = "Ask to join a locked raid", area = "raids", kind = "new", hi = true, open = "raids", art = "tk",
-            lines = {
+            lead = "See locked raids and ask to join them.", lines = {
               "Raids locked to a team are now listed for the whole guild, with their roster.",
               "Outside the team? Pick an answer to ask to join; your note goes with it.",
               "Who runs the raid sees Requests to join under the roster: click a name to approve or deny.",
@@ -853,7 +869,7 @@ ns.CHANGELOG = {
               "Or a WoWSims Bulk list of your main and alt picks, or a Wowhead gear planner link.",
           } },
           { heading = "Atlas: browse all the loot", area = "gear", kind = "new", hi = true, open = "atlas", art = "gruul",
-            lines = {
+            lead = "All the loot: raids, dungeons, vendors, more.", lines = {
               "A new Atlas tab for everyone: raids, dungeons, crafting, reputation, PvP, vendors, more.",
               "Pick a source on the left and a boss or list in the middle; its items show on the right.",
               "Dungeons switch between Normal and Heroic. Crafting lists every recipe, enchants too.",
@@ -899,7 +915,7 @@ ns.CHANGELOG = {
               "Home greets you by name; with nothing to do it says \"All caught up\".",
           } },
           { heading = "Strategy boards in 3D", area = "raids", kind = "new", hi = true, open = "strategies", art = "bt",
-            lines = {
+            lead = "Strategy boards in the boss's own room, in 3D.", lines = {
               "2D / 3D above the map: the page in the boss' own room, as the game draws it.",
               "Every raid boss has a room, Karazhan to the Sunwell, cut from the game's own maps.",
               "Outdoor fights (Hyjal, the Sunwell's courtyards) show the ground with its hills.",
@@ -936,7 +952,7 @@ ns.CHANGELOG = {
               "Stop any time: finished chapters are remembered, and the Tutorial button lists them all.",
           } },
           { heading = "Guests (players outside the guild)", area = "raids", kind = "new", hi = true, ["for"] = "officers leaders", art = "kara",
-            lines = {
+            lead = "Add pugs to a raid as guests.", lines = {
               "Add players (icon at the top right of a raid): add a pug by name, with class and spec.",
               "A guest counts as accepted, can be placed in a group and is invited with the raid.",
               "For the Guild Master, officers and the raid leaders (no longer the guild council).",

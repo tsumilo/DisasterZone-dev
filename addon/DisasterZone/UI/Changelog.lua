@@ -340,6 +340,8 @@ ChangelogUI.Norm = function() return Norm() end
 ChangelogUI.View = View
 ChangelogUI.IsForMe = IsForMe
 ChangelogUI.ResetRoles = function() roles = nil end
+ChangelogUI.ResetIndex = function() index = nil end
+ChangelogUI.ResetSession = function() seenBefore = nil end     -- (tests, renders: as if the tab wasn't opened yet)
 
 ---------------------------------------------------------------------------
 -- Show me: open the page a section is about and light its new part
@@ -365,6 +367,15 @@ local function Route(open)
         return true
     end
     return false
+end
+
+-- Is open a place Route knows (a page, a share-link page, a settings section)? For the data's tests.
+function ChangelogUI.RouteKnown(open)
+    if type(open) ~= "string" then return false end
+    local page, sub = strmatch(open, "^(%a+)/(%a+)$")
+    if page then return page == "settings" and sub ~= nil end
+    if ns.Share and ns.Share.PAGES and ns.Share.PAGES[open] then return true end
+    return ns.MainFrame ~= nil and ns.MainFrame:GetPageLabel(open) ~= nil
 end
 
 local function HideBackBar()
@@ -412,7 +423,7 @@ local function ShowBackBar(sec, view)
     backbar.text:SetText("From What's new: |cffffffff" .. UI():SafeText(sec.title) .. "|r")
     backbar:SetWidth(floor((backbar.text:GetStringWidth() or 120) + 9 + 12 + 6 + 10 + 50 + 4 + 16 + 10))
     backbar:ClearAllPoints()
-    backbar:SetPoint("TOP", host, "TOP", 0, -76)
+    backbar:SetPoint("BOTTOM", host, "BOTTOM", 0, 10)
     backbar.tab = ns.MainFrame:GetSelectedTab()
     backbar.t = 0
     backbar:Show()
@@ -444,12 +455,13 @@ function ChangelogUI:ShowMe(sec)
     if #more > 0 then text = text .. "\n\n" .. tconcat(more, "\n") end
     local spot = sec.spot and spots[sec.spot]
     T:Register("whatsnew", {
-        title = "What's new", quiet = true, nosave = true,
+        title = "What's new", quiet = true,
         host = function() return ns.MainFrame:GetFrame() end,
         alive = function() return ns.MainFrame:GetSelectedTab() ~= nil end,
-        chapters = { { key = "show", title = sec.title, steps = { {
-            title = sec.title, text = text, hint = "New in " .. sec.version,
-            anchor = spot and function() return spot() end or nil, side = "left",
+        chapters = { { key = "show", title = "New in " .. sec.version, steps = { {
+            title = sec.title, text = text, side = "left",
+            -- no spot (or not on screen): nothing is dimmed, the box waits at the bottom of the window
+            anchor = function() return spot and spot() or nil end,
         } } } },
     })
     T:Start("whatsnew")
@@ -794,6 +806,8 @@ local function NewRow(parent)
     r.tag = Text(r, "GameFontDisableSmall")
     r.you = UI():CreateTagPill(r, 13)
     r.lead = Text(r, "GameFontDisableSmall")
+    r.lead:SetWordWrap(true)
+    r.lead:SetJustifyV("TOP")
     r.lead:SetPoint("TOPLEFT", r, "TOPLEFT", 40, -22)
     r.count = Text(r, "GameFontHighlight")
     r.count:SetTextColor(0.74, 0.74, 0.76)
@@ -884,11 +898,16 @@ local function FillRow(r, sec, v, w, opts)
     else
         r.you:Hide()
     end
-    r.lead:SetWidth(max(60, w - 40 - right))
+    local lw = max(60, w - 40 - right)
+    r.lead:SetWidth(lw)
     r.lead:SetText(UI():SafeText(v.lead))
-    local h = L.ROW_H
+    local showLead = not open or (sec.lead ~= nil and not (v.lines[1] and v.lines[1].text == sec.lead))
+    r.lead:SetShown(showLead)
+    local head = showLead and (L.ROW_H + min(WrapH(r.lead, lw, 12), 24) - 12) or 26
+    r.hl:SetHeight(head)
+    local h = head
     if open then
-        local y = LayLines(r, r.lines, v.lines, 44, -L.ROW_H - 6, w - 44 - 14)
+        local y = LayLines(r, r.lines, v.lines, 44, -head - 6, w - 44 - 14)
         h = -y + 4
     else
         for _, l in ipairs(r.lines) do HideLine(l) end
@@ -920,13 +939,11 @@ local function NewCard(parent)
     c.ver = UI():CreateTagPill(c, 14)
     c.ver:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -6)
     c.title = Text(c, "GameFontHighlight", 12)
+    c.title:SetWordWrap(true)
     c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -84)
-    c.title:SetPoint("RIGHT", c, "RIGHT", -8, 0)
     c.pitch = Text(c, "GameFontDisableSmall")
     c.pitch:SetWordWrap(true)
-    c.pitch:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -3)
-    c.pitch:SetPoint("RIGHT", c, "RIGHT", -8, 0)
-    if c.pitch.SetMaxLines then c.pitch:SetMaxLines(2) end
+    c.pitch:SetJustifyV("TOP")
     c.go = UI():CreateSleekButton(c, "Show me", 70, 18, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end,
         "primary")
     c.go:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 9, 8)
@@ -952,8 +969,16 @@ local function FillCard(c, sec, v, w, showVer)
     else
         c.ver:Hide()
     end
+    local tw = w - 17
+    c.title:SetWidth(tw)
     c.title:SetText(UI():SafeText(sec.title))
+    local th = WrapH(c.title, tw, 14)
+    c.pitch:SetWidth(tw)
     c.pitch:SetText(UI():SafeText(v.lead))
+    c.pitch:ClearAllPoints()
+    c.pitch:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -84 - th - 3)
+    local ph = WrapH(c.pitch, tw, 12)
+    c.need = 84 + th + 3 + ph + 10 + 18 + 8
     c.go:SetShown(sec.open ~= nil)
     c.area:SetText(AreaIcon(sec.area, 10, { 0.55, 0.55, 0.57 }) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
     local on = st.card == sec.id
@@ -1199,12 +1224,16 @@ local function PutCards(y, w, items, showVer)
     local n = min(#items, 4)
     if n == 0 then return y end
     local cw = floor((w - (n - 1) * 7) / n)
+    local cards, ch = {}, L.CARD_H
     for i = 1, n do
         local c = Take("cards", NewCard)
         c:SetPoint("TOPLEFT", panel.child, "TOPLEFT", (i - 1) * (cw + 7), y)
         FillCard(c, items[i].sec, items[i].v, cw, showVer)
+        cards[i] = c
+        ch = max(ch, c.need or 0)
     end
-    y = y - L.CARD_H - 8
+    for _, c in ipairs(cards) do c:SetHeight(ch) end
+    y = y - ch - 8
     for i = 1, n do
         if st.card == items[i].sec.id then
             y = PutRow(y, w, items[i].sec, items[i].v, { open = true, version = showVer, isCard = true }) - 8
@@ -1477,7 +1506,7 @@ local function FeedbackView(w)
         c.head:SetText(head)
         local leftW = floor(w * 0.38)
         c.quote:SetWidth(leftW - 20)
-        c.quote:SetText(item and ("“" .. UI():SafeText(item.text or "") .. "”") or "|cff8c8c91Your words aren't here yet.|r")
+        c.quote:SetText(item and ("“" .. UI():SafeText(item.text or "") .. "”") or "|cff8c8c91Your words haven't reached this character yet.|r")
         local qh = min(WrapH(c.quote, leftW - 20, 13), 13 * 5)
         local votes = item and tonumber(item.voteCount) or (type(raw) == "table" and tonumber(raw.mt)) or 0
         c.metoo:SetText(votes > 0 and (votes == 1 and "1 more said me too" or (votes .. " more said me too"))
@@ -1583,23 +1612,73 @@ local function FillChips(counts, total)
         if (counts[a] or 0) > 0 then list[#list + 1] = { a, AREAS[a][1], counts[a] } end
     end
     if st.area and not counts[st.area] then st.area = nil end
-    local x = 0
-    local maxX = (panel.toolbar:GetWidth() or 560) - 150
-    for i, d in ipairs(list) do
-        local c = Pool(panel.chips, i, function() return NewChip(panel.toolbar) end)
-        c.area = d[1]
-        c.on = st.area == d[1]
+    local tw = tonumber(panel.toolbar:GetWidth()) or 0
+    local maxX = (tw > 100 and tw or 560) - 150
+    local function fill(c, d)
         c.fs:SetText(d[2])
         c.n:SetText(tostring(d[3]))
         local w = floor((c.fs:GetStringWidth() or 30) + 4 + (c.n:GetStringWidth() or 10) + 18)
         c:SetWidth(w)
-        c:ClearAllPoints()
-        c:SetPoint("LEFT", panel.toolbar, "LEFT", x, 0)
-        c:Paint()
-        c:SetShown(x + w <= maxX or i == 1)
-        x = x + w + 5
+        return w
+    end
+    -- the chips that fit; the rest go into a More chip's menu (the picked one shows on it)
+    local x, shown, over = 0, 0, {}
+    for i, d in ipairs(list) do
+        local c = Pool(panel.chips, i, function() return NewChip(panel.toolbar) end)
+        c.area = d[1]
+        c.on = st.area == d[1]
+        local w = fill(c, d)
+        local room = maxX - ((i < #list) and 64 or 0)
+        if i == 1 or (#over == 0 and x + w <= room) then
+            c:ClearAllPoints()
+            c:SetPoint("LEFT", panel.toolbar, "LEFT", x, 0)
+            c:Paint()
+            c:Show()
+            x = x + w + 5
+            shown = i
+        else
+            c:Hide()
+            over[#over + 1] = d
+        end
     end
     for i = #list + 1, #panel.chips do panel.chips[i]:Hide() end
+    local more = panel.moreChip
+    if #over == 0 then
+        if more then more:Hide() end
+        return
+    end
+    if not more then
+        more = NewChip(panel.toolbar)
+        more.chev = more:CreateTexture(nil, "ARTWORK")
+        more.chev:SetSize(8, 8)
+        more.chev:SetPoint("LEFT", more.n, "RIGHT", 4, 0)
+        UI():SetChevron(more.chev, false)
+        more.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
+        more:SetScript("OnClick", function(self)
+            UI():ContextMenu(self, function(root)
+                for _, d in ipairs(self.over or {}) do
+                    root:CreateRadio(d[2] .. "  |cff8c8c91" .. d[3] .. "|r", function() return st.area == d[1] end,
+                        function()
+                            st.area = d[1]
+                            st.card = nil
+                            ChangelogUI:Render()
+                        end)
+                end
+            end)
+        end)
+        panel.moreChip = more
+    end
+    more.over = over
+    local pick
+    for _, d in ipairs(over) do if d[1] == st.area then pick = d end end
+    more.on = pick ~= nil
+    local w = fill(more, pick or { nil, "More", #over })
+    more:SetWidth(w + 12)
+    more:ClearAllPoints()
+    more:SetPoint("LEFT", panel.toolbar, "LEFT", x, 0)
+    more:Paint()
+    more.chev:SetVertexColor(0.7, 0.7, 0.72)
+    more:Show()
 end
 
 ---------------------------------------------------------------------------
@@ -1634,7 +1713,7 @@ local function Groups()
     older.label = tconcat(older.series, " · ")
     if #earlier.items > 0 then
         local lo, hi = earlier.items[#earlier.items].version, earlier.items[1].version
-        earlier.label = ("EARLIER · %s – %s"):format(lo:match("^%d+%.%d+") or lo, hi:match("^%d+%.%d+") or hi)
+        earlier.label = ("%s – %s"):format(lo:match("^%d+%.%d+") or lo, hi:match("^%d+%.%d+") or hi)
     end
     local out = { first }
     if #older.items > 0 then out[#out + 1] = older end
@@ -1708,7 +1787,7 @@ local function NewVRow(parent)
     r.title:SetWordWrap(true)
     r.title:SetJustifyV("TOP")
     r.title:SetPoint("TOPLEFT", 10, -L.VROW_PAD - 16)
-    if r.title.SetMaxLines then r.title:SetMaxLines(2) end
+    if r.title.SetMaxLines then r.title:SetMaxLines(3) end
     r:SetScript("OnClick", function(self) ChangelogUI:Select(self.view) end)
     return r
 end
@@ -1756,8 +1835,8 @@ function ChangelogUI:RenderList()
         for i = 1, #p.list do p.list[i]:Hide() end
         p.used = 0
     end
-    local w = max(120, floor((panel.vscroll:GetWidth() or (L.LIST_W - 22))))
-    if w < 50 then w = L.LIST_W - 22 end
+    local w = floor(tonumber(panel.vscroll:GetWidth()) or 0)
+    if w < 120 then w = L.LIST_W - 22 end
     panel.vchild:SetWidth(w)
     local y = 0
     local searching = st.query ~= ""
@@ -1870,7 +1949,7 @@ function ChangelogUI:RenderList()
                     end
                     r.title:SetWidth(w - 18)
                     r.title:SetText(UI():SafeText(ne.title or ""))
-                    local th = min(WrapH(r.title, w - 18, 11), 22)
+                    local th = min(WrapH(r.title, w - 18, 12), 36)
                     local h = L.VROW_PAD + 16 + th + L.VROW_PAD + 2
                     r:SetHeight(h)
                     r:Show()
@@ -1947,7 +2026,7 @@ function ChangelogUI:Render(keepScroll)
             dates = " · " .. (d1 == d2 and d1 or (d1 .. " to " .. d2))
         end
         SetBanner("WHILE YOU WERE AWAY", ("%d new versions since you last looked"):format(#unread),
-            ("%s%s · %d changes for you"):format(vtext, dates, g.total),
+            ("%s%s · %d sections for you"):format(vtext, dates, g.total),
             function(t) PaintOutland(t, 560, L.BAN_H) end, UI().ICON.notes)
         FillChips(g.counts, g.total)
     else
@@ -2109,6 +2188,189 @@ function ChangelogUI:CreatePanel(parent)
         ChangelogUI:Refresh()
     end
     return p
+end
+
+---------------------------------------------------------------------------
+-- Home's What's new: a short pop-up of the highlights over the dimmed window
+---------------------------------------------------------------------------
+
+local POP_W, POP_TOP, POP_ROW = 450, 95, 48
+
+-- What the pop-up shows: the unread releases (saved state; else the installed one) and up to four sections for me.
+local function PopupItems()
+    local list = ChangelogUI:GetUnreadList()
+    if #list == 0 then
+        local e = LatestReleased()
+        if e then list = { e } end
+    end
+    local items, total, rest = {}, 0, {}
+    for _, e in ipairs(list) do
+        local ne = Norm().by[e.version]
+        for _, sec in ipairs(ne and ne.sections or {}) do
+            local v = View(sec)
+            if v.mine and not sec.isFix then
+                total = total + 1
+                if sec.hi and #items < 4 then
+                    items[#items + 1] = { sec = sec, v = v }
+                elseif not sec.hi then
+                    rest[#rest + 1] = { sec = sec, v = v }
+                end
+            end
+        end
+    end
+    if #items == 0 then      -- no highlights: the first sections
+        for i = 1, min(4, #rest) do items[i] = rest[i] end
+    end
+    return list, items, total
+end
+
+local function NewPopRow(parent)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetHeight(POP_ROW)
+    r.rule = Tex(r, "BORDER", 0.11, 0.11, 0.13, 1)
+    r.rule:SetHeight(1)
+    r.rule:SetPoint("TOPLEFT")
+    r.rule:SetPoint("TOPRIGHT")
+    r.face = Face(r, 32)
+    r.face:SetPoint("LEFT", 15, 0)
+    r.title = Text(r, "GameFontHighlight", 12)
+    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 58, -10)
+    r.ver = Text(r, "GameFontDisableSmall")
+    r.ver:SetPoint("LEFT", r.title, "RIGHT", 6, 0)
+    r.pitch = Text(r, "GameFontDisableSmall")
+    r.pitch:SetWordWrap(true)
+    r.pitch:SetJustifyV("TOP")
+    r.pitch:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -4)
+    r.go = UI():CreateSleekButton(r, "Show me", 70, 20, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end)
+    r.go:SetPoint("RIGHT", r, "RIGHT", -15, 0)
+    return r
+end
+
+local function BuildPopup()
+    local host = ns.MainFrame and ns.MainFrame:GetFrame()
+    if not host then return nil end
+    local o = CreateFrame("Button", nil, host)
+    o:SetAllPoints(host)
+    o:SetFrameStrata("DIALOG")
+    o:EnableMouse(true)
+    o.dim = Tex(o, "BACKGROUND", 0, 0, 0, 0.62)
+    o.dim:SetAllPoints()
+    local f = CreateFrame("Frame", nil, o)
+    f:SetWidth(POP_W)
+    f:SetPoint("TOP", o, "TOP", 0, -105)
+    f:EnableMouse(true)
+    f.bg = Tex(f, "BACKGROUND", 0.05, 0.05, 0.063, 1)
+    f.bg:SetAllPoints()
+    UI():AddEdges(f)
+    UI():SetEdgeColor(f, 0.56, 0.45, 0.13, 1)
+    o.box = f
+    local top = CreateFrame("Frame", nil, f)
+    top:SetPoint("TOPLEFT", 1, -1)
+    top:SetPoint("TOPRIGHT", -1, -1)
+    top:SetHeight(POP_TOP)
+    top.art = top:CreateTexture(nil, "BACKGROUND")
+    top.art:SetAllPoints()
+    Shade(top)
+    f.top = top
+    f.kicker = Text(top, "GameFontNormalSmall")
+    f.kicker:SetPoint("BOTTOMLEFT", top, "BOTTOMLEFT", 15, 44)
+    f.title = Text(top, "GameFontHighlightLarge", 15)
+    f.title:SetPoint("TOPLEFT", f.kicker, "BOTTOMLEFT", 0, -4)
+    f.sub = Text(top, "GameFontHighlightSmall")
+    f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -4)
+    f.close = UI():CreateCloseButton(f, 18, function() o:Hide() end)
+    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
+    f.rows = {}
+    f.read = UI():CreateSleekButton(f, "Read everything", 120, 22, function()
+        o:Hide()
+        local list = PopupItems()
+        ChangelogUI:Open(#list >= 2 and "since" or (list[1] and list[1].version))
+    end, "primary")
+    f.later = UI():CreateSleekButton(f, "Later", 60, 22, function() o:Hide() end)
+    f.later:SetPoint("LEFT", f.read, "RIGHT", 7, 0)
+    f.auto = UI():CreateCheckbox(f, "Open by itself after an update",
+        function() local s = Settings(); return s and s.changelogPopup == true end,
+        function(on) local s = Settings(); if s then s.changelogPopup = on and true or false end end)
+    o:EnableKeyboard(true)
+    o:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            if not InCombatLockdown() then self:SetPropagateKeyboardInput(false) end
+            self:Hide()
+        elseif not InCombatLockdown() then
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+    o:SetScript("OnClick", function(self) self:Hide() end)
+    return o
+end
+
+-- Opens the pop-up (over the main window, which it opens if needed). false when there is nothing to show: then the
+-- tab opens instead.
+function ChangelogUI:OpenPopup()
+    local list, items, total = PopupItems()
+    if #items == 0 then
+        self:Open(list[1] and list[1].version)
+        return false
+    end
+    if ns.MainFrame and ns.MainFrame:GetSelectedTab() == nil then ns.MainFrame:Open() end
+    local o = ns.ChangelogPopup or BuildPopup()
+    if not o then return false end
+    ns.ChangelogPopup = o
+    local f = o.box
+    PaintOutland(f.top.art, POP_W, POP_TOP)
+    f.kicker:SetText(#list >= 2 and "WHAT'S NEW SINCE YOU LAST LOOKED"
+        or ("WHAT'S NEW IN " .. (list[1] and list[1].version or "")))
+    f.title:SetText(#list >= 2 and ("%d versions, %d changes for you"):format(#list, total)
+        or UI():SafeText(list[1] and list[1].title or ""))
+    f.sub:SetText(#items == 1 and "The one you'll notice first:" or ("The %s you'll notice first:"):format(
+        ({ "one", "two", "three", "four" })[#items] or tostring(#items)))
+    local y = -POP_TOP - 1
+    for i, it in ipairs(items) do
+        local r = Pool(f.rows, i, function() return NewPopRow(f) end)
+        r.sec = it.sec
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", f, "TOPLEFT", 1, y)
+        r:SetPoint("RIGHT", f, "RIGHT", -1, 0)
+        r.face:SetIcon(AreaAtlas(it.sec.area))
+        r.title:SetText(UI():SafeText(it.sec.title))
+        r.ver:SetText(#list >= 2 and it.sec.version or "")
+        r.pitch:SetWidth(POP_W - 58 - 100)
+        r.pitch:SetText(UI():SafeText(it.v.lead))
+        local rh = max(POP_ROW, 10 + 14 + 4 + min(WrapH(r.pitch, POP_W - 158, 12), 24) + 10)
+        r:SetHeight(rh)
+        r.go:SetShown(it.sec.open ~= nil)
+        r:Show()
+        y = y - rh
+    end
+    for i = #items + 1, #f.rows do f.rows[i]:Hide() end
+    f.read:ClearAllPoints()
+    f.read:SetPoint("TOPLEFT", f, "TOPLEFT", 15, y - 12)
+    f.auto:ClearAllPoints()
+    f.auto:SetPoint("TOPRIGHT", f, "TOPRIGHT", -175, y - 11)
+    local s = Settings()
+    f.auto:SetChecked(s and s.changelogPopup == true)
+    f:SetHeight(-y + 12 + 22 + 14)
+    o:Show()
+    o:Raise()
+    return true
+end
+
+function ChangelogUI:ClosePopup()
+    if ns.ChangelogPopup then ns.ChangelogPopup:Hide() end
+end
+
+function ChangelogUI:OnLogin()
+    -- opt-in: after an update the pop-up opens by itself, once, out of combat
+    local s = Settings()
+    if not (s and s.changelogPopup == true and self:GetUnread()) then return end
+    local function try(n)
+        if InCombatLockdown() then
+            if n < 20 then C_Timer.After(15, function() try(n + 1) end) end
+            return
+        end
+        if self:GetUnread() then self:OpenPopup() end
+    end
+    C_Timer.After(8, function() try(0) end)
 end
 
 function ChangelogUI:OnInit()

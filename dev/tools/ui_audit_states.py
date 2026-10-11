@@ -1623,6 +1623,25 @@ STATES = [
     ("Settings - Demo mode", opened("settings", "ns.SettingsUI:SelectSection('demo')")),
     ("Settings - About", opened("settings", "ns.SettingsUI:SelectSection('about')")),
     ("Changelog", opened("changelog")),
+    ("Changelog - since your last visit", opened("changelog", "ns.ChangelogUI.ResetSession(); "
+                                          "ns.db.settings.changelogSeen = '1.3.1'; ns.ChangelogUI:Select('since')")),
+    ("Changelog - sections opened", opened("changelog", "ns.ChangelogUI:Select(ns.version); "
+                                    "local st = ns.ChangelogUI:GetState(); local n = 0; "
+                                    "for _, s in ipairs(ns.ChangelogUI.Norm().by[ns.version].sections) do "
+                                    "if not s.hi and n < 2 then st.open[s.id] = true; n = n + 1 end end; "
+                                    "ns.ChangelogUI:Render()")),
+    ("Changelog - search", opened("changelog", "local p = ns.MainFrame:GetPanel('changelog'); "
+                           "p.search:SetText('attendance'); ns.ChangelogUI:SetSearch('attendance')")),
+    ("Changelog - from your feedback", opened("changelog", "local e; for _, x in ipairs(ns.CHANGELOG) do "
+                                       "if x.version == ns.version then e = x end end; table.insert(e.sections[1].lines, "
+                                       "{ 'Built-in meters: no need for Details or a threat addon.', fb = { 3 }, "
+                                       "by = { 'Gina' }, k = 'idea' }); ns.ChangelogUI.ResetIndex(); "
+                                       "ns.ChangelogUI:Select('feedback')")),
+    ("Changelog - newest version", opened("changelog", "ns.ChangelogUI:Select(ns.CHANGELOG[1].version)")),
+    ("Changelog - pop-up", opened("home", "ns.ChangelogUI.ResetSession(); ns.db.settings.changelogSeen = '1.3.1'; "
+                           "ns.ChangelogUI:OpenPopup()")),
+    ("Changelog - show me", opened("changelog", "for _, s in ipairs(ns.ChangelogUI.Norm().by[ns.version].sections) do "
+                            "if s.open == 'gearsim' then ns.ChangelogUI:ShowMe(s) break end end")),
     ("My Log: off", opened("mylog")),
     ("My Log: runs", opened("mylog", MYLOG_SEED)),
     ("My Log: healing", opened("mylog", MYLOG_SEED + " ns.MyLogUI:SetView('healing')")),

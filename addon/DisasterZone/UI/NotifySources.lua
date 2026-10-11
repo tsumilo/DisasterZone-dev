@@ -380,15 +380,21 @@ local function register()
         section = "DisasterZone", icon = 25, color = { 0.81, 0.91, 1 },
         label = "What's new", desc = "The notes of a new DisasterZone release.",
         needsYou = false, popup = false, sound = false, home = true,
-        open = function(it) if ns.ChangelogUI then ns.ChangelogUI:Open(it.key) end end,
+        -- a short pop-up of the highlights (Read everything opens the tab)
+        open = function(it)
+            local C = ns.ChangelogUI
+            if not C then return end
+            if C.OpenPopup then C:OpenPopup() else C:Open(it.key) end
+        end,
         chip = function() return { kind = "info", icon = atlas(UI().ICON.notes) } end,
     })
     N:RegisterSource("whatsNew", function()
         local C = ns.ChangelogUI
         local e = C and C.GetUnread and C:GetUnread()
         if not e then return {} end
-        return { { key = e.version, title = "What's new in " .. e.version, text = e.title,
-                   short = "What's new in " .. e.version } }
+        local n = C.GetUnreadList and #C:GetUnreadList() or 1
+        local title = n > 1 and ("What's new · %d versions"):format(n) or ("What's new in " .. e.version)
+        return { { key = e.version, title = title, text = e.title, short = title } }
     end, { "CHANGELOG_READ" })
 
     -- A guild member runs a newer DisasterZone

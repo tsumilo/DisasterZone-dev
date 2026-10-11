@@ -123,7 +123,7 @@ def point_at_it_lets_you_navigate_and_a_right_click_picks():
     w.tick(0.2)
     assert a.eval("return ns.MainFrame:GetSelectedTab()") == "changelog"
     # the right-click on a frame of the page picks it: the form comes back with About filled
-    a.eval("%s.StopPointing(ns.ChangelogUI and ns.MainFrame:GetPanel('changelog').list.frame)" % SHEET)
+    a.eval("%s.StopPointing(ns.ChangelogUI and ns.MainFrame:GetPanel('changelog').list)" % SHEET)
     w.tick(0.2)
     assert a.eval("return %s:IsOpen()" % SHEET) is True
     about = a.eval_py("return %s:GetDraft().about" % SHEET)
@@ -224,9 +224,16 @@ def the_changelog_names_who_asked_and_marks_mine():
     a.eval("""local e
       for _, x in ipairs(ns.CHANGELOG) do if x.version == ns.version then e = x end end
       table.insert(e.sections[1].lines, 1, { 'The roll popup waits until you leave combat.', fb = { 12 },
-        by = { 'Alfa', 'Bert' }, mt = 3, k = 'bug' })""")
+        by = { 'Alfa', 'Bert' }, mt = 3, k = 'bug' })
+      ns.ChangelogUI.ResetIndex()""")
     a.eval("ns.ChangelogUI:Open(ns.version)")
     w.tick(0.3)
+    # the credited line's section opened (sections are folded to one line)
+    a.eval("""local st = ns.ChangelogUI:GetState()
+      for _, s in ipairs(ns.ChangelogUI.Norm().by[ns.version].sections) do st.open[s.id] = true; st.card = s.id end
+      st.card = ns.ChangelogUI.Norm().by[ns.version].sections[1].id
+      ns.ChangelogUI:Render()""")
+    w.tick(0.1)
     texts = [strip_codes(t) for t in a.eval_py("""local out = {}
       local function walk(f)
         for _, r in ipairs({ f:GetRegions() }) do
