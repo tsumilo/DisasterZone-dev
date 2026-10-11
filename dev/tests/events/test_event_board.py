@@ -243,7 +243,7 @@ def the_tracker_shows_for_an_entrant_and_goes_when_the_event_ends():
         assert lab in labels, (lab, labels)
     menu_pick(host, "End the event")
     assert host.eval("return ns.EventBoard:GetWindow().confirm:IsShown()")
-    host.eval("ns.EventBoard:GetWindow().confirm.sheet.yes:Click()")
+    host.eval("ns.EventBoard:GetWindow().confirm.ok:Click()")   # (the confirm is a UI:CreateSheet: its OK)
     w.tick(5)
     assert host.eval("return ns.EventLive:GetState(...).phase", occ) == "done"
     for n in ("Bert", "Cora", "Gina"):
