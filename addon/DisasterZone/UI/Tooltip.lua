@@ -373,19 +373,115 @@ local function HasMaterials(tt)
     return false
 end
 
+local Ribbon   -- (the prized ribbon, below)
+
 local function OnSetItem(tt)
     if not tt.GetItem then return end
     local _, link = tt:GetItem()
     if type(link) ~= "string" then return end
     local itemID = tonumber(link:match("item:(%d+)"))
     if not itemID or itemID <= 0 then return end
+    Ribbon.Show(tt, itemID)
     if HasMarker(tt) or HasMaterials(tt) then return end   -- hooks can fire more than once per tooltip
     Tooltip:AddLines(tt, itemID)
 end
 
+-- 1.3.5 (prized look mockup, the user picked "ribbon on top"): a prized item's tooltip, anywhere in the game, gets an
+-- orange PRIZED ITEM ribbon above it (the seal, the words) and an orange edge. Hidden when the tooltip clears or hides.
+Ribbon = { H = 18, EDGE = { 0.79, 0.42, 0.08, 1 } }
+
+function Ribbon.Build(tt)
+    local k = CreateFrame("Frame", nil, tt)
+    k:SetFrameLevel((tt:GetFrameLevel() or 1) + 5)
+    k:SetPoint("TOPLEFT", tt, "TOPLEFT", 0, 0)
+    k:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", 0, 0)
+    -- the ribbon sits on the tooltip's top edge, as wide as the tooltip
+    local band = CreateFrame("Frame", nil, k)
+    band:SetPoint("BOTTOMLEFT", tt, "TOPLEFT", 0, 0)
+    band:SetPoint("BOTTOMRIGHT", tt, "TOPRIGHT", 0, 0)
+    band:SetHeight(Ribbon.H)
+    local mk = _G.CreateColor
+    -- dark ends, bright in the middle (two halves), inside the outline
+    local B = 2
+    local function half(left)
+        local t = band:CreateTexture(nil, "ARTWORK")
+        if left then
+            t:SetPoint("TOPLEFT", band, "TOPLEFT", B, -B)
+            t:SetPoint("BOTTOMRIGHT", band, "BOTTOM", 0, 0)
+        else
+            t:SetPoint("TOPLEFT", band, "TOP", 0, -B)
+            t:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", -B, 0)
+        end
+        t:SetColorTexture(1, 1, 1, 1)
+        local dark, bright = { 0.52, 0.25, 0.04, 1 }, { 1, 0.56, 0.14, 1 }
+        local a, b = dark, bright
+        if not left then a, b = bright, dark end
+        if t.SetGradient and mk then t:SetGradient("HORIZONTAL", mk(a[1], a[2], a[3], a[4]), mk(b[1], b[2], b[3], b[4]))
+        else t:SetColorTexture(0.85, 0.45, 0.10, 1) end
+        return t
+    end
+    band.l, band.r = half(true), half(false)
+    band.text = band:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local path, _, flags = band.text:GetFont()
+    if path then band.text:SetFont(path, 10, flags) end
+    band.text:SetShadowOffset(0, 0)
+    band.text:SetTextColor(0.12, 0.06, 0.01)
+    band.text:SetText("P R I Z E D   I T E M")
+    band.text:SetPoint("CENTER", band, "CENTER", 8, -1)
+    -- the prized icon (the addon's icon atlas: a white glyph, tinted dark brown on the ribbon)
+    band.icon = band:CreateTexture(nil, "OVERLAY")
+    band.icon:SetSize(13, 13)
+    local UI = ns.UI
+    local idx = UI and UI.ICON and ((ns.HasAssets and ns:HasAssets(7)) and UI.ICON.prized or UI.ICON.trophy)
+    if idx and UI.IconCoords then
+        local c = UI:IconCoords(idx)
+        band.icon:SetTexture(UI.ICON_ATLAS)
+        band.icon:SetTexCoord(c[1], c[2], c[3], c[4])
+    end
+    band.icon:SetVertexColor(0.16, 0.08, 0.01)
+    band.icon:SetPoint("RIGHT", band.text, "LEFT", -5, 0)
+    k.band = band
+    -- one orange outline around the ribbon and the tooltip together (the same left / right lines for both)
+    k.edges = {}
+    local c = Ribbon.EDGE
+    local function edge(p1, rel1, p2, rel2, w, h)
+        local e = k:CreateTexture(nil, "OVERLAY")
+        e:SetColorTexture(c[1], c[2], c[3], c[4])
+        e:SetPoint(p1, rel1, p1)
+        e:SetPoint(p2, rel2, p2)
+        if w then e:SetWidth(w) else e:SetHeight(h) end
+        k.edges[#k.edges + 1] = e
+    end
+    edge("TOPLEFT", band, "TOPRIGHT", band, nil, B)          -- the ribbon's top
+    edge("BOTTOMLEFT", tt, "BOTTOMRIGHT", tt, nil, B)        -- the tooltip's bottom
+    edge("TOPLEFT", band, "BOTTOMLEFT", tt, B)               -- left, ribbon to bottom
+    edge("TOPRIGHT", band, "BOTTOMRIGHT", tt, B)             -- right
+    tt.dzPrized = k
+    return k
+end
+
+function Ribbon.Show(tt, itemID)
+    local P = ns.Prized
+    local on = itemID and P and P.ForItem and P:ForItem(itemID) ~= nil
+    local k = tt.dzPrized
+    if not on then
+        if k then k:Hide() end
+        return false
+    end
+    k = k or Ribbon.Build(tt)
+    k:Show()
+    return true
+end
+
+function Ribbon.Hide(tt)
+    if tt.dzPrized then tt.dzPrized:Hide() end
+end
+Tooltip.Ribbon = Ribbon
+
 local function OnCleared(tt)
     blocks[tt] = nil
     matsOn[tt] = nil
+    Ribbon.Hide(tt)
 end
 
 -- Why I miss a prized item's rule, short: "62% attendance, needs 75%", "cooldown until 14 Oct".
@@ -706,6 +802,7 @@ function Tooltip:HookTooltip(tt)
     if not tt.HasScript or tt:HasScript("OnTooltipCleared") then
         tt:HookScript("OnTooltipCleared", OnCleared)
     end
+    tt:HookScript("OnHide", Ribbon.Hide)
     return true
 end
 
