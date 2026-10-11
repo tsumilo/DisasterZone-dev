@@ -24,8 +24,9 @@ local function E() return ns.EventEngine end
 local function B() return ns.EventBlocks end
 local function Ev() return ns.Events end
 local function Me() return ns.Util.PlayerKey() end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
-local function ServerNow() return (GetServerTime and GetServerTime()) or time() end
+local function DemoOn() return ns.Util.DemoOn() end
+local function ServerNow() return ns.Util.Now() end
+local S = ns.Style
 
 local WIN_W, WIN_H = 800, 608
 local CW, CH = 790, 576            -- the window's inside (UI:CreateWindow's content: 5 in, 27 under the top)
@@ -44,13 +45,13 @@ local WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
 local BG = { 0.043, 0.043, 0.051 }               -- the board's floor
 local CARD_BG = { 0.086, 0.086, 0.106, 0.96 }
-local CARD_EDGE = { 0.34, 0.34, 0.38, 0.6 }
+local CARD_EDGE = { S.C.EDGE[1], S.C.EDGE[2], S.C.EDGE[3], 0.6 }
 local LIVE_EDGE = { 1, 0.38, 0.29, 0.85 }
 local NEXT_EDGE = { 0.4, 0.72, 1, 0.75 }
-local RED = { 1, 0.35, 0.27 }
-local GOLD = { 1, 0.82, 0 }
-local GREY = { 0.62, 0.62, 0.62 }
-local DIM = { 0.44, 0.44, 0.46 }
+local RED = S.C.LIVE                             -- (ns.Style tokens: shared tables, read-only)
+local GOLD = S.C.GOLD
+local GREY = S.C.SUB
+local DIM = S.C.DIM
 local YOU_ROW = { 0.62, 0.82, 1 }
 local TBD = { 0.40, 0.40, 0.43 }
 
@@ -64,26 +65,27 @@ local state = { occ = nil }
 local H = {}
 Board.H = H
 
+-- The text keeps its face and flags at a size of the type scale (ns.Style: S:Size snaps 10.5 -> 10 ...).
 function H.Sized(fs, size)
     local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
+    if path then fs:SetFont(path, S:Size(size), flags) end
     return fs
 end
 
--- A one-line text in a game font (shadowed like the game's), sized and coloured.
+-- (the colour a 1.3 game font gave a text when the caller named none)
+local FONT_COLOR = { GameFontNormal = S.C.GOLD, GameFontNormalLarge = S.C.GOLD, GameFontNormalHuge = S.C.GOLD,
+    default = { 1, 1, 1 } }
+
+-- A one-line text (UI:Text: the game font's face and shadow), sized on the type scale and coloured. font: the game
+-- font it used to be made from (only its colour still counts when r is nil).
 function H.Text(parent, font, size, r, g, b, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then H.Sized(fs, size) end
-    if r then fs:SetTextColor(r, g, b) end
-    return fs
+    return UI():Text(parent, size or "emph", r and { r, g, b } or FONT_COLOR[font or "default"] or FONT_COLOR.default,
+        { layer = layer })
 end
 
--- A text's whole width on one line (GetStringWidth stops at a width the string was given).
+-- A text's whole width on one line (UI:TextWidth).
 function H.Width(fs)
-    if fs.GetUnboundedStringWidth then return fs:GetUnboundedStringWidth() or 0 end
-    return fs:GetStringWidth() or 0
+    return UI():TextWidth(fs)
 end
 
 -- Sets the text, a size smaller each time it does not fit width (down to minSize). True when it fits.
@@ -126,7 +128,7 @@ function H.FitAny(fs, list, width, size, minSize, shrink)
 end
 
 function H.Hex(c) return ("|cff%02x%02x%02x"):format(floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5), floor(c[3] * 255 + 0.5)) end
-function H.Grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
+function H.Grey(text) return S:Wrap("SUB", tostring(text)) end
 
 function H.Disc(parent, layer, sub, size, r, g, b, a)
     local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
@@ -305,11 +307,11 @@ function H.ColorNames(text, keys)
         local n = EUI():Plain(k)
         if type(n) == "string" and #n >= 3 and not done[n] and not n:find("[%%%[%]%^%$%(%)%.%*%+%-%?]") then
             done[n] = true
-            local colored = ns.Util.IsMe(k) and "|cff66b8ff" .. n .. "|r" or EUI():Name(k, true)
+            local colored = ns.Util.IsMe(k) and S:Wrap("YOU", n) or EUI():Name(k, true)
             text = text:gsub("%f[%w]" .. n .. "%f[^%w]", colored)
         end
     end
-    text = text:gsub("^You%f[^%w]", "|cff66b8ffYou|r")
+    text = text:gsub("^You%f[^%w]", S:Wrap("YOU", "You"))
     return text
 end
 
@@ -323,7 +325,7 @@ function H.NewPips(parent, size, gap, alpha)
         for i = 1, n do
             local d = self.dots[i]
             if not d then
-                d = { ring = self:CreateTexture(nil, "ARTWORK", nil, 1), fill = H.Disc(self, "ARTWORK", 2, size, 1, 0.82, 0, 1) }
+                d = { ring = self:CreateTexture(nil, "ARTWORK", nil, 1), fill = H.Disc(self, "ARTWORK", 2, size, GOLD[1], GOLD[2], GOLD[3], 1) }
                 d.ring:SetTexture(RING)
                 d.ring:SetSize(size + 1, size + 1)
                 d.ring:SetVertexColor(1, 1, 1, alpha or 0.32)
@@ -363,7 +365,7 @@ function H.NewRing(parent, size)
     local dot = max(2.4, size * 0.094)
     for i = 1, n do
         local a = (i - 0.5) / n * 2 * math.pi
-        local t = H.Disc(f, "ARTWORK", 1, dot, 1, 0.82, 0, 1)
+        local t = H.Disc(f, "ARTWORK", 1, dot, GOLD[1], GOLD[2], GOLD[3], 1)
         t:SetPoint("CENTER", f, "CENTER", math.sin(a) * rad, math.cos(a) * rad)
         f.arc[i] = t
     end
@@ -385,7 +387,9 @@ function H.NewRing(parent, size)
     return f
 end
 
--- A rounded pill: Live (a red dot), Practice (teal), Paused, Ended, Now.
+-- A rounded pill: Live (a red dot), Practice (teal), Paused, Ended, Now. The pill is UI:CreatePill's; its looks are
+-- the board's own: TODO(refactor): move into UI:CreatePill (UI/Comp/Controls.lua), which lacks the practice / paused
+-- looks, a per-look tint strength and the live look's red dot with its glow.
 local PILL = {
     live = { text = { 1, 0.77, 0.72 }, tint = { 0.9, 0.16, 0.1 }, a = 0.22, edge = { 1, 0.38, 0.29, 0.8 }, dot = true },
     practice = { text = { 0.62, 0.95, 0.86 }, tint = { 0.24, 0.82, 0.68 }, a = 0.14, edge = { 0.37, 0.88, 0.76, 0.6 } },
@@ -393,13 +397,10 @@ local PILL = {
     ended = { text = { 0.74, 0.74, 0.74 }, tint = { 1, 1, 1 }, a = 0.05, edge = { 1, 1, 1, 0.22 } },
 }
 function H.NewPill(parent, h, base)
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetSize(30, h)
-    UI():AddPillShape(p, h)
+    local p = UI():CreatePill(parent, h)
     p.base = base or BG
-    p.glow = H.Disc(p, "ARTWORK", 0, 12, 1, 0.35, 0.27, 0.3)
-    p.dot = H.Disc(p, "ARTWORK", 1, 6, 1, 0.35, 0.27, 1)
-    p.fs = H.Text(p, "GameFontHighlightSmall", 10)
+    p.glow = H.Disc(p, "ARTWORK", 0, 12, RED[1], RED[2], RED[3], 0.3)
+    p.dot = H.Disc(p, "ARTWORK", 1, 6, RED[1], RED[2], RED[3], 1)
     function p:SetKind(text, kind)
         local d = PILL[kind] or PILL.ended
         local b, t = self.base, d.tint
@@ -559,21 +560,23 @@ local function CreateWindow()
     root.bg:SetColorTexture(BG[1], BG[2], BG[3], 1)
 
     ------------------------------------------------------------------ header
-    local hdr = CreateFrame("Frame", nil, root)
-    hdr:SetPoint("TOPLEFT")
-    hdr:SetPoint("TOPRIGHT")
-    hdr:SetHeight(HDR_H)
+    -- A tool window (UI:CreateLayout "tool", edge to edge): its banner is the header with the event's art (the board's
+    -- pill, title, progress and chips sit on it), its body (8 under the banner, 10 over the foot) holds the bracket and
+    -- the rail, which are placed in root's coordinates (the same numbers: BR_Y = HDR_H + S.GAP).
+    local lay = UI():CreateLayout("tool", root, { pad = 0, width = CW, banner = { size = HDR_H } })
+    f.layout = lay
+    local hdr = CreateFrame("Frame", nil, lay.banner)
+    hdr:SetAllPoints(lay.banner)
     f.hdr = hdr
-    hdr.art = hdr:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hdr.art:SetAllPoints()
-    EUI():AddShade(hdr)
+    hdr.banner = lay.banner
+    hdr.art = lay.banner.art
     -- the bottom melts into the board
     hdr.melt = hdr:CreateTexture(nil, "BORDER", nil, 3)
     hdr.melt:SetPoint("BOTTOMLEFT")
     hdr.melt:SetPoint("BOTTOMRIGHT")
     hdr.melt:SetHeight(26)
     hdr.melt:SetTexture(WHITE)
-    EUI():Gradient(hdr.melt, "VERTICAL", BG[1], BG[2], BG[3], 1, 0)
+    UI():Gradient(hdr.melt, "VERTICAL", { BG[1], BG[2], BG[3], 1 }, { BG[1], BG[2], BG[3], 0 })
 
     hdr.pill = H.NewPill(hdr, 16, { 0.05, 0.05, 0.06 })
     hdr.pill:SetPoint("LEFT", hdr, "TOPLEFT", 14, -23)
@@ -609,15 +612,11 @@ local function CreateWindow()
     chip.dot = H.Disc(chip, "ARTWORK", 2, 8, 1, 1, 1, 1)
     chip.dot:SetPoint("CENTER", chip.dotEdge)
     chip:SetPoint("RIGHT", hdr, "BOTTOMRIGHT", -12, 23)
-    chip:EnableMouse(true)
-    chip:SetScript("OnEnter", function(self)
-        if not self.tip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:AddLine(self.tip[1])
-        if self.tip[2] then GameTooltip:AddLine(self.tip[2], 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(chip, function(self, tip)
+        if not self.tip then return false end
+        tip:AddLine(self.tip[1])
+        if self.tip[2] then tip:AddLine(self.tip[2], 1, 1, 1, true) end
+    end, nil, { anchor = "ANCHOR_BOTTOMLEFT" })
     hdr.chip = chip
 
     ------------------------------------------------------------------ host bar
@@ -634,12 +633,12 @@ local function CreateWindow()
         t:SetPoint(p .. "LEFT")
         t:SetPoint(p .. "RIGHT")
         t:SetHeight(1)
-        t:SetColorTexture(1, 0.82, 0, 0.3)
+        t:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.3)
         hb["line" .. i] = t
     end
     hb.crown = hb:CreateTexture(nil, "ARTWORK")
     hb.crown:SetSize(14, 14)
-    EUI():Glyph(hb.crown, UI().ICON.crown, 1, 0.82, 0)
+    EUI():Glyph(hb.crown, UI().ICON.crown, GOLD[1], GOLD[2], GOLD[3])
     hb.crown:SetPoint("LEFT", 12, 0)
     hb.t = H.Text(hb, "GameFontHighlight", 11.5, 1, 0.95, 0.8)
     hb.t:SetPoint("LEFT", hb.crown, "RIGHT", 6, 0)
@@ -657,15 +656,12 @@ local function CreateWindow()
     hb.pause.icon = hb.pause:CreateTexture(nil, "ARTWORK")
     hb.pause.icon:SetSize(12, 12)
     hb.pause.icon:SetPoint("RIGHT", pfs, "LEFT", -6, 0)
-    hb.pause:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    UI():AttachTooltip(hb.pause, function(_, tip)
         local paused = L():IsPaused(state.occ)
-        GameTooltip:AddLine(paused and "Resume" or "Pause")
-        GameTooltip:AddLine(paused and "The clocks and timers go on from where they stopped."
+        tip:AddLine(paused and "Resume" or "Pause")
+        tip:AddLine(paused and "The clocks and timers go on from where they stopped."
             or "Stops the event's clocks and timers (no-shows too) until you resume. Duels still count.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    hb.pause:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end, nil, { anchor = "ANCHOR_TOP" })
     hb:Hide()
     f.hostbar = hb
 
@@ -678,9 +674,9 @@ local function CreateWindow()
     -- the champion's slot over the final
     local ch = CreateFrame("Frame", nil, br)
     ch:SetSize(112, 96)
-    ch.halo = H.Disc(ch, "BACKGROUND", 0, 60, 1, 0.82, 0, 0.05)
+    ch.halo = H.Disc(ch, "BACKGROUND", 0, 60, GOLD[1], GOLD[2], GOLD[3], 0.05)
     ch.halo:SetPoint("TOP", 0, 4)
-    ch.outer = H.Disc(ch, "BACKGROUND", 1, 52, 1, 0.82, 0, 0.4)
+    ch.outer = H.Disc(ch, "BACKGROUND", 1, 52, GOLD[1], GOLD[2], GOLD[3], 0.4)
     ch.outer:SetPoint("TOP", 0, 0)
     ch.inner = H.Disc(ch, "BACKGROUND", 2, 50, BG[1], BG[2], BG[3], 1)
     ch.inner:SetPoint("CENTER", ch.outer)
@@ -713,11 +709,7 @@ local function CreateWindow()
     d:SetFrameLevel(root:GetFrameLevel() + 20)
     d.bg = d:CreateTexture(nil, "BACKGROUND")
     d.bg:SetAllPoints()
-    d.bg:SetTexture(WHITE)
-    EUI():Gradient(d.bg, "VERTICAL", 0.09, 0.078, 0.055, 1, 1)
-    if d.bg.SetGradient and CreateColor then
-        d.bg:SetGradient("VERTICAL", CreateColor(0.09, 0.078, 0.055, 1), CreateColor(0.122, 0.102, 0.071, 1))
-    end
+    UI():Gradient(d.bg, "VERTICAL", { 0.09, 0.078, 0.055, 1 }, { 0.122, 0.102, 0.071, 1 })
     UI():AddEdges(d, "BORDER", true)
     UI():SetEdgeColor(d, 1, 0.55, 0.1, 0.7)
     -- a soft shadow: what lies close around the card dims
@@ -823,7 +815,7 @@ end
 
 local function RefreshHeader(occ, st, def, bk)
     local hdr = win.hdr
-    EUI():SetArt(hdr.art, def and def.art, CW, HDR_H, 0.5, 0.6, 0.98)
+    hdr.banner:SetArt({ EUI():ArtCoords(def and def.art, CW, HDR_H, 0.5, 0.6, 0.98) })
     local name = def and def.name or "Event"
     win:SetWindowTitle(name)
     -- the pill: Practice, Ended, Paused, Live
@@ -931,39 +923,39 @@ local function NewRow(c)
     return r
 end
 
-local function CardTip(self)
+-- (the tooltips below are UI:AttachTooltip fillers: it owns and shows the tooltip; false = none this time)
+local function CardTip(self, tip)
     local m, bk = self.m, self.bk
-    if not m or not bk then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    if not m or not bk then return false end
     local bo = H.BoOf(bk, m)
     local title = (bk.fmt == "robin") and ("Round " .. m.r) or H.MatchLabel(bk, m)
     if m.final then title = "The final" end
-    GameTooltip:AddLine(title .. "  |cff9e9e9e· best of " .. bo .. "|r")
+    tip:AddLine(title .. "  " .. S:Wrap("SUB", "· best of " .. bo))
     for _, side in ipairs({ "a", "b" }) do
         local k = m[side]
         if type(k) == "string" then
-            GameTooltip:AddDoubleLine(H.Name(k), (m.st == "play" or m.st == "done") and tostring(side == "a" and m.wa or m.wb) or "",
+            tip:AddDoubleLine(H.Name(k), (m.st == "play" or m.st == "done") and tostring(side == "a" and m.wa or m.wb) or "",
                 1, 1, 1, 1, 1, 1)
         end
     end
     local occ = state.occ
     if m.st == "play" then
-        GameTooltip:AddLine("Playing for " .. H.Clock(H.Now(occ) - (m.t or H.Now(occ))) .. ", game " .. ((m.g or 0) + 1),
+        tip:AddLine("Playing for " .. H.Clock(H.Now(occ) - (m.t or H.Now(occ))) .. ", game " .. ((m.g or 0) + 1),
             1, 0.55, 0.5)
     elseif m.st == "done" then
         local loser = H.Opp(m, m.win)
         local how = m.wo and " (walkover)" or ""
         if m.te and m.t then how = how .. " in " .. H.Clock(m.te - m.t) end
-        GameTooltip:AddLine(H.Plain(m.win) .. " won" .. (loser and (" against " .. H.Plain(loser)) or "") .. how, 0.62, 0.62, 0.62, true)
+        tip:AddLine(H.Plain(m.win) .. " won" .. (loser and (" against " .. H.Plain(loser)) or "") .. how,
+            GREY[1], GREY[2], GREY[3], true)
     elseif m.st == "bye" then
-        GameTooltip:AddLine("A bye: " .. H.Plain(m.win) .. " goes through.", 0.62, 0.62, 0.62)
+        tip:AddLine("A bye: " .. H.Plain(m.win) .. " goes through.", GREY[1], GREY[2], GREY[3])
     else
-        GameTooltip:AddLine("Not started yet", 0.62, 0.62, 0.62)
+        tip:AddLine("Not started yet", GREY[1], GREY[2], GREY[3])
     end
     if Board:IsHost() and (m.st == "play" or m.st == "wait") and m.a and m.b then
-        GameTooltip:AddLine("Click: decide this match", 1, 0.82, 0)
+        tip:AddLine("Click: decide this match", GOLD[1], GOLD[2], GOLD[3])
     end
-    GameTooltip:Show()
 end
 
 function NewCard(parent)
@@ -992,8 +984,7 @@ function NewCard(parent)
     c.dotRing:SetPoint("CENTER", c, "TOPRIGHT", 0, 0)
     c.dot = H.Disc(c, "OVERLAY", 2, 8, RED[1], RED[2], RED[3], 1)
     c.dot:SetPoint("CENTER", c, "TOPRIGHT", 0, 0)
-    c:SetScript("OnEnter", CardTip)
-    c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(c, CardTip)
     c:SetScript("OnMouseUp", function(self, button)
         if button ~= "LeftButton" then return end
         local m = self.m
@@ -1127,9 +1118,7 @@ local function Head(i)
     return fs
 end
 
-local function HideFrom(list, n)
-    for i = n, #list do list[i]:Hide() end
-end
+local function HideFrom(list, n) UI():HideFrom(list, n) end
 
 -- When the champion should be known: "about 22:00" (the matches left at the pace so far).
 local function Eta(bk, now)
@@ -1272,16 +1261,16 @@ function Board:DrawTree(bk, st, height)
     champ:SetPoint("TOP", br, "TOPLEFT", X(R) + cw / 2, -max(16, floor(fy - chh / 2 - 100 + 0.5)))
     local won = bk.done and bk.champ
     if won then
-        EUI():Glyph(champ.cup, UI().ICON.trophy, 1, 0.82, 0, 1)
-        champ.outer:SetVertexColor(1, 0.82, 0, 0.85)
-        champ.halo:SetVertexColor(1, 0.82, 0, 0.12)
+        EUI():Glyph(champ.cup, UI().ICON.trophy, GOLD[1], GOLD[2], GOLD[3], 1)
+        champ.outer:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.85)
+        champ.halo:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.12)
         champ.t:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
         champ.t:SetText("CHAMPION")
         H.Fit(champ.n, H.Name(bk.champ), 150, 12, 10)
     else
         EUI():Glyph(champ.cup, UI().ICON.trophy, 0.75, 0.75, 0.75, 0.45)
-        champ.outer:SetVertexColor(1, 0.82, 0, 0.4)
-        champ.halo:SetVertexColor(1, 0.82, 0, 0.05)
+        champ.outer:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.4)
+        champ.halo:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.05)
         champ.t:SetTextColor(GREY[1], GREY[2], GREY[3])
         champ.t:SetText("CHAMPION")
         local eta = st.phase == "live" and Eta(bk, H.Now(state.occ))
@@ -1356,14 +1345,10 @@ local function RobinRow(i)
         r.d:SetJustifyH("RIGHT")
         r.d:SetPoint("RIGHT", r, "RIGHT", -8, 0)
         -- ("+12 more": who they are)
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", function(self)
-            if not self.rest then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            for _, k in ipairs(self.rest) do GameTooltip:AddLine(H.Name(k)) end
-            GameTooltip:Show()
+        UI():AttachTooltip(r, function(self, tip)
+            if not self.rest then return false end
+            for _, k in ipairs(self.rest) do tip:AddLine(H.Name(k)) end
         end)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
         br.rows[i] = r
     end
     r.rest = nil
@@ -1503,7 +1488,7 @@ function Board:DrawPlayers(st, def, height, note)
     local fs = Head(1)
     fs:ClearAllPoints()
     fs:SetPoint("TOPLEFT", br, "TOPLEFT", 2, 0)
-    fs:SetText((open and "SIGNED UP" or "PLAYERS") .. "  |cff9e9e9e" .. #list .. "|r")
+    fs:SetText((open and "SIGNED UP" or "PLAYERS") .. "  " .. S:Wrap("SUB", #list))
     H.Sized(fs, 10)
     fs:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     fs:Show()
@@ -1603,8 +1588,7 @@ local function NowCard(i)
         c.clock = H.Text(c, "GameFontHighlightSmall", 10.5, 1, 0.71, 0.66)
         c.clock:SetJustifyH("RIGHT")
         c.clock:SetPoint("BOTTOMRIGHT", -10, 9)
-        c:SetScript("OnEnter", CardTip)
-        c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(c, CardTip)
         rail.nows[i] = c
     end
     return c
@@ -1682,7 +1666,7 @@ local function PodiumRow(i)
     return r
 end
 
-local PLACE_COLOR = { { 1, 0.82, 0 }, { 0.86, 0.89, 0.95 }, { 0.86, 0.56, 0.32 } }
+local PLACE_COLOR = { { GOLD[1], GOLD[2], GOLD[3] }, { 0.86, 0.89, 0.95 }, { 0.86, 0.56, 0.32 } }
 
 local function ElapsedOf(st, m, occ)
     local now = H.Now(occ)
@@ -1748,7 +1732,7 @@ function Board:DrawRail(occ, st, def, bk, height)
         end
         y = y + 4
     end
-    for i = nnow + 1, #rail.nows do rail.nows[i]:Hide() end
+    UI():HideFrom(rail.nows, nnow + 1)
     ------------------------------------------------ the result (the bracket is done)
     local npod = 0
     if bk and bk.done and bk.champ then
@@ -1891,8 +1875,8 @@ function Board:DrawRail(occ, st, def, bk, height)
             r:Show()
         end
     end
-    for i = nm + 1, #rail.moms do rail.moms[i]:Hide() end
-    for i = nhead + 1, #rail.heads do rail.heads[i]:Hide() end
+    UI():HideFrom(rail.moms, nm + 1)
+    UI():HideFrom(rail.heads, nhead + 1)
 end
 
 -- The clocks of the matches being played (once a second).
@@ -1925,7 +1909,7 @@ local MAP_H, MAP_MIN = 250, 150
 local COL_ROW, LB_ROW, RACE_ROW = 26, 42, 37
 local SECRET = "Where players are stays secret"
 local TEAL = { 0.337, 0.839, 0.941 }
-local MEDAL_TEXT = { { 1, 0.82, 0 }, { 0.875, 0.894, 0.925 }, { 0.91, 0.64, 0.416 } }
+local MEDAL_TEXT = { { GOLD[1], GOLD[2], GOLD[3] }, { 0.875, 0.894, 0.925 }, { 0.91, 0.64, 0.416 } }
 
 local function EachPiece(def, fn)
     B():EachScript(def, function(s) B():Walk(s.top, fn) end)
@@ -2162,12 +2146,10 @@ local function NewBand(r)
     r.bar:SetColorTexture(0.4, 0.72, 1, 1)
 end
 
-local function NameTip(self)
-    if not self.key then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(H.Name(self.key))
-    for _, l in ipairs(self.tip or {}) do GameTooltip:AddLine(l, 0.85, 0.85, 0.85, true) end
-    GameTooltip:Show()
+local function NameTip(self, tip)
+    if not self.key then return false end
+    tip:AddLine(H.Name(self.key))
+    for _, l in ipairs(self.tip or {}) do tip:AddLine(l, 0.85, 0.85, 0.85, true) end
 end
 
 ---------------------------------------------------------------------------
@@ -2192,15 +2174,8 @@ local function KV()
     sc.fs:SetText(SECRET)
     sc:SetWidth(floor(8 + 12 + 6 + H.Width(sc.fs) + 10 + 0.5))
     sc:SetPoint("TOPLEFT", kv.map, "TOPLEFT", 10, -9)
-    sc:EnableMouse(true)
-    sc:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-        GameTooltip:AddLine(SECRET)
-        GameTooltip:AddLine("The map shows the event's places. Where the players are isn't sent to anyone; only the host's "
-            .. "addon uses it, for the pieces that need it.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    sc:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(sc, SECRET, { "The map shows the event's places. Where the players are isn't sent to anyone; "
+        .. "only the host's addon uses it, for the pieces that need it." }, { anchor = "ANCHOR_BOTTOMRIGHT" })
     kv.secret = sc
     kv.route = { lines = {}, cps = {}, dots = {} }
     kv.cols, kv.lbRows, kv.raceRows, kv.tabs = {}, {}, {}, {}
@@ -2341,9 +2316,7 @@ local function Checkpoint(i)
         c.edge:SetPoint("CENTER")
         c.disc = H.Disc(c, "ARTWORK", 2, 17, TEAL[1], TEAL[2], TEAL[3], 1)
         c.disc:SetPoint("CENTER")
-        c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        EUI():Narrow(c.fs, 10)
-        c.fs:SetShadowOffset(0, 0)
+        c.fs = UI():Text(c, 10, { 1, 1, 1 }, { font = EUI().NARROW_FONT, shadow = false })
         c.fs:SetPoint("CENTER", 0.5, 0)
         c.flag = c:CreateTexture(nil, "OVERLAY")
         c.flag:SetSize(11, 11)
@@ -2388,9 +2361,7 @@ local function RouteDot(i)
         d.edge:SetPoint("CENTER")
         d.disc = H.Disc(d, "ARTWORK", 3, 9, 1, 1, 1, 1)
         d.disc:SetPoint("CENTER")
-        d:EnableMouse(true)
-        d:SetScript("OnEnter", NameTip)
-        d:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(d, NameTip)
         r.dots[i] = d
     end
     return d
@@ -2442,18 +2413,11 @@ local function ColRow(c, i)
         r.val:SetPoint("RIGHT", -6, 0)
         r.more = H.Text(r, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
         r.more:SetPoint("LEFT", 8, 0)
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", function(self)
-            if self.rest then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(self.restTitle or "More")
-                for _, k in ipairs(self.rest) do GameTooltip:AddLine(H.Name(k)) end
-                GameTooltip:Show()
-            else
-                NameTip(self)
-            end
+        UI():AttachTooltip(r, function(self, tip)
+            if not self.rest then return NameTip(self, tip) end
+            tip:AddLine(self.restTitle or "More")
+            for _, k in ipairs(self.rest) do tip:AddLine(H.Name(k)) end
         end)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
         c.rows[i] = r
     end
     return r
@@ -2636,7 +2600,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         c:Show()
         end
     end
-    for i = n + 1, #win.kv.cols do win.kv.cols[i]:Hide() end
+    UI():HideFrom(win.kv.cols, n + 1)
 end
 
 ---------------------------------------------------------------------------
@@ -2652,7 +2616,7 @@ local function LbRow(i)
         NewBand(r)
         r.top = r:CreateTexture(nil, "BACKGROUND", nil, 0)
         r.top:SetAllPoints()
-        r.top:SetColorTexture(1, 0.82, 0, 0.035)
+        r.top:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.035)
         r.line = r:CreateTexture(nil, "BORDER")
         r.line:SetPoint("BOTTOMLEFT")
         r.line:SetPoint("BOTTOMRIGHT")
@@ -2684,16 +2648,9 @@ local function LbRow(i)
         r.track:SetColorTexture(1, 1, 1, 0.07)
         r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
         r.fill:SetHeight(4)
-        r.fill:SetTexture(WHITE)
-        if r.fill.SetGradient and CreateColor then
-            r.fill:SetGradient("HORIZONTAL", CreateColor(0.18, 0.5, 0.66, 1), CreateColor(0.42, 0.78, 0.94, 1))
-        else
-            r.fill:SetColorTexture(0.42, 0.78, 0.94, 1)
-        end
+        UI():Gradient(r.fill, "HORIZONTAL", { 0.18, 0.5, 0.66, 1 }, { 0.42, 0.78, 0.94, 1 })
         r.chip = EUI():CreateChip(r, "track")
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", NameTip)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(r, NameTip)
         kv.lbRows[i] = r
     end
     return r
@@ -2799,7 +2756,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
             t:SetActive(false)
             t:Show()
         end
-        for i = n + 1, #kv.tabs do kv.tabs[i]:Hide() end
+        UI():HideFrom(kv.tabs, n + 1)
         y, h = y + 24, h - 24
     else
         for _, t in ipairs(kv.tabs) do t:Hide() end
@@ -2980,7 +2937,7 @@ local function RaceRow(i)
         r.flag = r:CreateTexture(nil, "ARTWORK")
         r.flag:SetSize(12, 12)
         r.flag:SetPoint("LEFT", r.segs, "RIGHT", 4, 0)
-        EUI():Glyph(r.flag, UI().ICON.flag, 1, 0.82, 0)
+        EUI():Glyph(r.flag, UI().ICON.flag, GOLD[1], GOLD[2], GOLD[3])
         r.time = H.Text(r, "GameFontHighlight", 13, 1, 1, 1)
         EUI():Narrow(r.time, 13)
         r.time:SetJustifyH("RIGHT")
@@ -2991,9 +2948,14 @@ local function RaceRow(i)
         r.outfs = H.Text(r, "GameFontHighlightSmall", 10.5, 1, 0.54, 0.48)
         r.outfs:SetJustifyH("RIGHT")
         r.outfs:SetPoint("RIGHT", -8, 0)
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", NameTip)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(r, function(self, tip)
+            local rest = self.rest
+            if not rest then return NameTip(self, tip) end
+            for j, k in ipairs(rest) do
+                if j > 30 then tip:AddLine("and " .. (#rest - 30) .. " more", GREY[1], GREY[2], GREY[3]) break end
+                tip:AddLine(H.Name(k))
+            end
+        end)
         kv.raceRows[i] = r
     end
     return r
@@ -3116,8 +3078,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
         r:SetWidth(w)
-        r.key = e.key
-        r:SetScript("OnEnter", NameTip)
+        r.key, r.rest = e.key, nil
         r.cls:Show()
         r.name:SetTextColor(1, 1, 1)
         r.tip = { e.fin and ("Finished" .. (e.score and (" in " .. ScoreText(def, sc and sc.id, e.score)) or ""))
@@ -3187,7 +3148,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
                     cell.a = H.Text(sp, "GameFontHighlightSmall", 9.5, 0.47, 0.47, 0.49)
                     cell.b = H.Text(sp, "GameFontHighlight", 12, 0.91, 0.91, 0.91)
                     EUI():Narrow(cell.b, 12)
-                    cell.c = H.Text(sp, "GameFontHighlight", 11, 0.62, 0.62, 0.62)
+                    cell.c = H.Text(sp, "GameFontHighlight", 11, GREY[1], GREY[2], GREY[3])
                     EUI():Narrow(cell.c, 11)
                     for _, t in ipairs({ cell.a, cell.b, cell.c }) do t:SetJustifyH("CENTER") end
                     sp.cells[c] = cell
@@ -3211,7 +3172,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
                             cell.c:SetText(Signed(d))
                             if d > 0 then cell.c:SetTextColor(1, 0.54, 0.48)
                             elseif d < 0 then cell.c:SetTextColor(0.44, 0.88, 0.54)
-                            else cell.c:SetTextColor(0.62, 0.62, 0.62) end
+                            else cell.c:SetTextColor(GREY[1], GREY[2], GREY[3]) end
                         elseif j == e.done + 1 and not e.fin then
                             cell.a:SetTextColor(EUI().TEAL_LT[1], EUI().TEAL_LT[2], EUI().TEAL_LT[3])
                             cell.b:SetText("next")
@@ -3256,17 +3217,10 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r.time:SetText("")
         r.gap:SetText("")
         r.outfs:SetText("")
-        r:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            for i, k in ipairs(rest) do
-                if i > 30 then GameTooltip:AddLine("and " .. (#rest - 30) .. " more", 0.62, 0.62, 0.62) break end
-                GameTooltip:AddLine(H.Name(k))
-            end
-            GameTooltip:Show()
-        end)
+        r.rest = rest
         r:Show()
     end
-    for i = used + 1, #kv.raceRows do kv.raceRows[i]:Hide() end
+    UI():HideFrom(kv.raceRows, used + 1)
     return racers, lead
 end
 
@@ -3332,7 +3286,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             s = s + 10
         end
     end
-    for i = nl + 1, #kv.route.lines do kv.route.lines[i]:Hide() end
+    UI():HideFrom(kv.route.lines, nl + 1)
     -- the places: the start's flag (also the finish of a loop), numbers for the rest; my next one glows
     local me = Me()
     local myNext
@@ -3366,7 +3320,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             if flag then
                 c.disc:SetSize(19, 19)
                 c.edge:SetSize(22, 22)
-                c.disc:SetVertexColor(1, 0.82, 0, 1)
+                c.disc:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
                 c.fs:SetText("")
                 c.flag:Show()
             else
@@ -3390,7 +3344,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             c:Show()
         end
     end
-    for i = nc + 1, #kv.route.cps do kv.route.cps[i]:Hide() end
+    UI():HideFrom(kv.route.cps, nc + 1)
     -- the racers on their leg: how far along by the time since their last place against the leader's for that leg
     local now = RunNow(occ, st) - (st.t0 or 0)
     local nd = 0
@@ -3444,7 +3398,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             end
         end
     end
-    for i = nd + 1, #kv.route.dots do kv.route.dots[i]:Hide() end
+    UI():HideFrom(kv.route.dots, nd + 1)
     m:Show()
 end
 
@@ -3598,7 +3552,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         c:Show()
         cy = cy + c:GetHeight() + 10
     end
-    for i = ntime + 1, #rail.times do rail.times[i]:Hide() end
+    UI():HideFrom(rail.times, ntime + 1)
     -- the prizes (when there is room for them and two moments)
     local prizes = PrizeHow(def)
     local moms = {}
@@ -3629,7 +3583,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
             end
             local how, place = e.how, e.place
             if #who > 0 then
-                how = H.Name(who[1]) .. (#who > 1 and ("|cff9e9e9e +" .. (#who - 1) .. "|r") or "")
+                how = H.Name(who[1]) .. (#who > 1 and S:Wrap("SUB", " +" .. (#who - 1)) or "")
                 place = false
             end
             r.how:SetText(how or "")
@@ -3637,8 +3591,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
                 EUI():Narrow(r.how, 13)
                 r.how:SetTextColor(1, 0.88, 0.54)
             else
-                r.how:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10.5, "")
-                r.how:SetTextColor(GREY[1], GREY[2], GREY[3])
+                UI():SetTextStyle(r.how, "small", "SUB")
             end
             -- name and how on one line; on two when they don't both fit
             local hw = how and (H.Width(r.how) + 8) or 0
@@ -3691,16 +3644,16 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         local top = RailText(rail, nt, 11.5, 1, 1, 1)
         top:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
         if tally[1] then
-            H.Fit(top, label(tally[1].v) .. "|cff9e9e9e · " .. tally[1].n .. " of " .. total .. "|r", w, 11.5, 9.5)
+            H.Fit(top, label(tally[1].v) .. S:Wrap("SUB", " · " .. tally[1].n .. " of " .. total), w, 11.5, 9.5)
         else
-            top:SetText("|cff9e9e9eNobody answered|r")
+            top:SetText(S:Wrap("SUB", "Nobody answered"))
         end
         cy = cy + 18
         for i = 2, min(4, #tally) do
             nt = nt + 1
             local fs = RailText(rail, nt, 10.5, 0.82, 0.82, 0.82)
             fs:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
-            H.Fit(fs, label(tally[i].v) .. "|cff9e9e9e · " .. tally[i].n .. "|r", w, 10.5, 9)
+            H.Fit(fs, label(tally[i].v) .. S:Wrap("SUB", " · " .. tally[i].n), w, 10.5, 9)
             cy = cy + 18
         end
         cy = cy + 10
@@ -3756,8 +3709,8 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         drawResult()
         drawMoments(h)
     end
-    for i = nprize + 1, #rail.prizes do rail.prizes[i]:Hide() end
-    for i = nmom + 1, #rail.moms do rail.moms[i]:Hide() end
+    UI():HideFrom(rail.prizes, nprize + 1)
+    UI():HideFrom(rail.moms, nmom + 1)
     rail:Show()
 end
 

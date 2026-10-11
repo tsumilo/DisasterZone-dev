@@ -78,11 +78,10 @@ function EUI:SetArt(tex, key, w, h, cx, cy, fw)
     tex:SetTexCoord(l, r, t, b)
 end
 
--- (one colour from alpha a1 to a2: UI:Gradient)
-local function Gradient(tex, orient, r, g, b, a1, a2)
+-- EUI:Gradient(tex, orient, r, g, b, a1, a2): one colour from alpha a1 to a2 (the old call shape of UI:Gradient).
+function EUI:Gradient(tex, orient, r, g, b, a1, a2)
     return UI():Gradient(tex, orient, { r, g, b, a1 }, { r, g, b, a2 })
 end
-EUI.Gradient = function(_, ...) return Gradient(...) end
 
 -- The banner's shade over its art (left to right, bottom to top), so white text reads on any art. kind "card": only
 -- the bottom (a library card's art fading into the card).
@@ -94,11 +93,11 @@ function EUI:AddShade(f, kind)
     d:SetTexture(EUI.WHITE)
     d:SetAllPoints()
     if kind == "card" then
-        Gradient(t, "VERTICAL", 0.10, 0.10, 0.12, 1, 0)
+        EUI:Gradient(t, "VERTICAL", SC.CARD[1], SC.CARD[2], SC.CARD[3], 1, 0)
         d:Hide()
     else
-        Gradient(t, "HORIZONTAL", 0.035, 0.035, 0.043, 0.92, 0.12)
-        Gradient(d, "VERTICAL", 0.035, 0.035, 0.043, 0.9, 0)
+        EUI:Gradient(t, "HORIZONTAL", 0.035, 0.035, 0.043, 0.92, 0.12)
+        EUI:Gradient(d, "VERTICAL", 0.035, 0.035, 0.043, 0.9, 0)
     end
     f.shade = { t, d }
     return t, d
@@ -284,8 +283,8 @@ function EUI:CreateProgress(parent)
                 it.fs:SetTextColor(0.84, 0.84, 0.84)
             elseif state == "now" then
                 it.dot:SetSize(5, 5)
-                it.dot:SetVertexColor(1, 0.82, 0, 1)
-                it.ring:SetVertexColor(1, 0.82, 0)
+                it.dot:SetVertexColor(SC.GOLD[1], SC.GOLD[2], SC.GOLD[3], 1)
+                it.ring:SetVertexColor(SC.GOLD[1], SC.GOLD[2], SC.GOLD[3])
                 it.check:Hide()
                 it.fs:SetTextColor(1, 0.95, 0.8)
             else
@@ -569,12 +568,12 @@ function EUI:CreateZoneMap(parent, w, h)
             t:SetPoint(side .. "LEFT")
             t:SetPoint(side .. "RIGHT")
             t:SetHeight(26)
-            Gradient(t, "VERTICAL", 0, 0, 0, side == "TOP" and 0 or 0.32, side == "TOP" and 0.32 or 0)
+            EUI:Gradient(t, "VERTICAL", 0, 0, 0, side == "TOP" and 0 or 0.32, side == "TOP" and 0.32 or 0)
         else
             t:SetPoint("TOP" .. side)
             t:SetPoint("BOTTOM" .. side)
             t:SetWidth(26)
-            Gradient(t, "HORIZONTAL", 0, 0, 0, side == "LEFT" and 0.32 or 0, side == "LEFT" and 0 or 0.32)
+            EUI:Gradient(t, "HORIZONTAL", 0, 0, 0, side == "LEFT" and 0.32 or 0, side == "LEFT" and 0 or 0.32)
         end
         m.vig[i] = t
     end
@@ -717,7 +716,7 @@ function EUI:CreateZoneMap(parent, w, h)
     -- place i: its ring (its size in yards; a fixed small one when the map's yards aren't known) and its name under it
     local LOOK = {
         place = { stroke = EUI.TEAL, fill = { EUI.TEAL[1], EUI.TEAL[2], EUI.TEAL[3], 0.2 }, text = { 1, 1, 1 } },
-        hot = { stroke = SC.GOLD, fill = { 1, 0.82, 0, 0.12 }, text = SC.GOLD },
+        hot = { stroke = SC.GOLD, fill = { SC.GOLD[1], SC.GOLD[2], SC.GOLD[3], 0.12 }, text = SC.GOLD },
         dim = { stroke = { 0.62, 0.62, 0.66 }, fill = { 1, 1, 1, 0.06 }, text = { 0.72, 0.72, 0.74 } },
     }
     function m:Place(i, x, y, yd, name, look)
@@ -1002,7 +1001,7 @@ function EUI:CreateTimeLeft(parent, w)
     t.bg:SetAllPoints()
     t.bg:SetColorTexture(0.086, 0.086, 0.106, 0.96)
     UI():AddEdges(t, "BORDER", true)
-    UI():SetEdgeColor(t, 0.34, 0.34, 0.38, 0.6)
+    UI():SetEdgeColor(t, SC.EDGE[1], SC.EDGE[2], SC.EDGE[3], 0.6)
     local function text(size, color, font)
         return UI():Text(t, size, color, { shadow = true, font = font })
     end
