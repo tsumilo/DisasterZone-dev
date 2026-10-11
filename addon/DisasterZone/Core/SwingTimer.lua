@@ -206,6 +206,7 @@ local UNDEAD_DEMON = { Demon = true, Undead = true, ["Dämon"] = true, ["Untoter
 -- The rotation's input, from the live client.
 function SwingTimer:Snapshot(now)
     now = now or GetTime()
+    if self.practice and self.practice.run then return self.practice:Snapshot(now) end
     state.speed = MainSpeed()
     local nxt, sp = self:NextSwing(now)
     local mana, manaMax = UnitPower("player", 0) or 0, UnitPowerMax("player", 0) or 1
@@ -288,6 +289,7 @@ end
 -- Is auto attack running? No swing seen for 1.6 swings = idle: the HUD rests instead of guessing.
 function SwingTimer:IsSwinging(now)
     now = now or GetTime()
+    if self.practice then return true end      -- twist practice (Core/SwingPractice.lua) runs the swings
     if not state.last then return false end
     return now - state.last < state.speed * 1.6
 end
@@ -410,11 +412,12 @@ function SwingTimer:OnLogin()
     myGUID = UnitGUID("player")
     state.speed = MainSpeed()
     ScanSeals()
+    -- (while twist practice runs, the real swings, seals and casts are ignored: practice owns the state)
     ns:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED", function()
-        if SwingTimer.active then OnCombatLog() end
+        if SwingTimer.active and not SwingTimer.practice then OnCombatLog() end
     end)
     ns:RegisterEvent("UNIT_AURA", function(_, unit)
-        if unit ~= "player" or not SwingTimer.active then return end
+        if unit ~= "player" or not SwingTimer.active or SwingTimer.practice then return end
         local before = state.seal
         ScanSeals()
         if before ~= state.seal then SwingTimer:MarkDirty() end
@@ -424,18 +427,18 @@ function SwingTimer:OnLogin()
         end
     end)
     ns:RegisterEvent("UNIT_SPELLCAST_SENT", function(_, unit, _, _, spellArg)
-        if unit ~= "player" or not SwingTimer.active then return end
+        if unit ~= "player" or not SwingTimer.active or SwingTimer.practice then return end
         local name = type(spellArg) == "number" and GetSpellInfo(spellArg) or spellArg
         if name then sentAt[name] = GetTime() end
     end)
     ns:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit)
-        if unit ~= "player" or not SwingTimer.active then return end
+        if unit ~= "player" or not SwingTimer.active or SwingTimer.practice then return end
         local now = GetTime()
         SwingTimer:MarkDirty()
         if GcdLeft(now) > 0 then state.gcdStart = now - (GCD - GcdLeft(now)) end
     end)
     ns:RegisterEvent("UNIT_ATTACK_SPEED", function(_, unit)
-        if unit ~= "player" then return end
+        if unit ~= "player" or SwingTimer.practice then return end
         -- haste mid-swing scales what is left of the swing
         local old, new = state.speed, MainSpeed()
         if state.last and old > 0 and new ~= old then
@@ -454,7 +457,9 @@ function SwingTimer:OnLogin()
     ns:On("CLASSKIT_CHANGED", function() SwingTimer:Refresh() end)
     ns:RegisterEvent("SPELLS_CHANGED", function() for k in pairs(names) do names[k] = nil end end)
     ns:On("SETTINGS_CHANGED", function(path)
-        if type(path) == "string" and path:find("^swing") then SwingTimer:Refresh() end
+        if type(path) == "string" and path:find("^swing") and not path:find("^swing%.practice") then
+            SwingTimer:Refresh()
+        end
     end)
     self:Refresh()
 end
@@ -487,14 +492,15 @@ end
 
 function SwingTimer:IsDemo() return ns.ClassKit:IsDemo() end
 
+-- (twist practice keeps it on while it runs, even when the swing timer itself is off)
 function SwingTimer:Refresh()
-    self.active = self:IsEnabled() and self:IsRet()
-    DemoSwings(self.active and self:IsDemo())
+    self.active = self:IsRet() and (self:IsEnabled() or self.practice ~= nil)
+    DemoSwings(self.active and self:IsDemo() and not self.practice)
     ns:Fire("SWING_STATE", self.active)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Slash: /dz swing [on | off | unlock | lock | report]
+-- Slash: /dz swing [on | off | unlock | lock | report | practice]
 -- ---------------------------------------------------------------------------------------------------------------
 ns:RegisterSlash("swing", function(rest)
     rest = (rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -504,6 +510,8 @@ ns:RegisterSlash("swing", function(rest)
     elseif rest == "unlock" or rest == "lock" then
         ns.DB:SetSetting("swing.locked", rest == "lock")
         ns:Print(rest == "lock" and "Swing timer locked." or "Swing timer unlocked: drag it where you want it, then /dz swing lock.")
+    elseif rest == "practice" then
+        if ns.SwingPracticeUI then ns.SwingPracticeUI:Open() end
     elseif rest == "report" then
         local r = SwingTimer:Reports()[1]
         if not r then ns:Print("No fight recorded yet.") return end
@@ -516,6 +524,6 @@ ns:RegisterSlash("swing", function(rest)
         ns:Print("Swing timer is %s%s. Latency: world %s ms, measured %s ms, using %d ms.",
             SwingTimer:IsEnabled() and "on" or "off", SwingTimer.active and "" or " (not Retribution)",
             tostring(world or "?"), tostring(meas or "-"), floor((used or 0) * 1000 + 0.5))
-        ns:Print("/dz swing on | off | unlock | lock | report")
+        ns:Print("/dz swing on | off | unlock | lock | report | practice")
     end
-end, "Swing timer for twisting Retribution Paladins (on | off | unlock | lock | report)")
+end, "Swing timer for twisting Retribution Paladins (on | off | unlock | lock | report | practice)")

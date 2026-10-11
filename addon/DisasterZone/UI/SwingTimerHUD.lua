@@ -312,7 +312,7 @@ end
 
 function HUD:Layout()
     rested = false
-    local style = Get("style", "bar")
+    local style = ST.practice and "bar" or Get("style", "bar")   -- practice puts its own parts under the ring
     frame:SetScale(tonumber(Get("scale", 1)) or 1)
     local showBar, showLane = style ~= "lane", style ~= "bar"
     frame.bar:SetShown(showBar)
@@ -321,14 +321,17 @@ function HUD:Layout()
     else frame.lane:SetPoint("TOP", frame, "TOP", 0, -20) end
     frame.laneWanted = showLane
     local locked = Get("locked", true)
-    frame.mover:SetShown(not locked)
-    frame.moverText:SetShown(not locked)
-    frame:EnableMouse(not locked)
+    frame.mover:SetShown(not locked and not ST.practice)
+    frame.moverText:SetShown(not locked and not ST.practice)
+    frame:EnableMouse(not locked and not ST.practice)
 end
+
+-- The ring's frame (twist practice puts its parts around it).
+function HUD:Ring() return frame and frame.bar end
 
 function HUD:UpdateVisibility()
     if not frame then return end
-    local show = ST.active and (not Get("locked", true) or Get("idle", false) or InCombatLockdown()
+    local show = ST.active and (ST.practice or not Get("locked", true) or Get("idle", false) or InCombatLockdown()
         or UnitAffectingCombat("player") or ST:IsDemo())
     frame:SetShown(show and true or false)
 end
@@ -553,8 +556,9 @@ function HUD:OnLogin()
     ns:On("SWING_STATE", function() HUD:Refresh() end)
     ns:On("SETTINGS_CHANGED", function(path)
         if type(path) == "string" and path:find("^swing") and path ~= "swing.reports" and path ~= "swing.values"
-            and path ~= "swing.pos" then HUD:Refresh() end
+            and path ~= "swing.pos" and not path:find("^swing%.practice") then HUD:Refresh() end
     end)
+    ns:On("SWING_PRACTICE", function() HUD:Refresh() end)
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function() HUD:UpdateVisibility() end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
         if C_Timer then C_Timer.After(1.5, function() HUD:UpdateVisibility() end) else HUD:UpdateVisibility() end
@@ -564,6 +568,7 @@ end
 
 -- The kit's Settings section (UI/Settings.lua gives every class tool one; this one shows for Retribution only).
 if ns.ClassKit then ns.ClassKit:Extend("swing", { iconPath = "Interface\\Icons\\Spell_Holy_SealOfBlood",
+    action = { label = "Practice", width = 90, run = function() if ns.SwingPracticeUI then ns.SwingPracticeUI:Open() end end },
     settings = function(S, sec)
     -- (on/off is the switch on the card's header: swing.enabled)
     S:DropdownSetting(sec, "Look", "The twist bar, the plan lane (the next 7 seconds) or both.", "swing.style", "bar", {
