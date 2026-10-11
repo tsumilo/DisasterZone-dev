@@ -1100,12 +1100,8 @@ function H.refreshPreview()
         local cur = RP():GetRaid(sh.occ)
         if cur then v.id, v.rl, v.rlb, v.by, v.cancelled = cur.id, cur.rl, cur.rlb, cur.by, cur.cancelled end
     end
-    PlanUI:FillRaidCard(sh.preview, v, sh.previewW or 770)
-    -- (no answers in a preview)
-    for _, k in ipairs({ "accept", "tentative", "more", "ask", "pill", "why" }) do
-        if sh.preview[k] then sh.preview[k]:Hide() end
-    end
-    if sh.preview.pill and sh.preview.pill.sub then sh.preview.pill.sub:Hide() end
+    -- (the board's hero for it, without answers)
+    PlanUI:FillRaidCard(sh.preview, v, sh.previewW or 770, true)
 end
 
 function H.refreshFooter()
