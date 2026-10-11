@@ -248,8 +248,9 @@ def undo_redo_and_the_drawings_count():
         return strip_codes(bob.eval("return %s:GetText()" % fs)), round(r, 2), round(g, 2)
     assert count(59) is None
     assert count(60) == ("60 of 80 drawings", 0.62, 0.62)
-    assert count(72) == ("72 of 80 drawings", 1.0, 0.6)
-    assert count(80) == ("P1 is full: 80 drawings", 1.0, 0.42)
+    # (1.4: the orange and the red are the WARN and BAD tokens)
+    assert count(72) == ("72 of 80 drawings", 1.0, 0.55)
+    assert count(80) == ("P1 is full: 80 drawings", 1.0, 0.3)
     # a drawing tool says why it does nothing; select still works
     bob.click(bob.eval("return %s.tools.btns[3]" % W))
     assert bob.eval("return %s.canvas.tool" % W) == "select"
@@ -309,7 +310,7 @@ def jobs_chips_in_raids_links_and_the_players_on_the_panel():
     assert sorted(names) == sorted([K("Hana"), K("Lee"), K("Gina"), K("Sam")]), names
     h = bob.eval("return %s.pool.h" % W)
     pt = bob.eval_py("local _, _, _, x, y = %s.blocks.scroll:GetPoint(1); return { x, y }" % W)
-    assert pt == [858, -(84 + h + 8)], (pt, h)
+    assert pt == [858, -(94 + h + 8)], (pt, h)     # (1.4: the map at y 94, under the tool layout's strip banner)
     # a drag onto a slot lands there; the chip fades once placed
     bob.eval("%s.blocks.SlotUnderCursor = function() return 'zn.1.1' end" % W)
     chip = bob.eval("for _, ch in ipairs(%s.pool.chips) do if ch.key == ... then return ch end end" % W, K("Hana"))

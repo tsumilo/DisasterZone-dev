@@ -18,37 +18,28 @@ local addonName, ns = ...
 local Board = ns:NewModule("StrategyBoard")
 
 local Style = ns.Style
--- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
-local function tone(name, a)
-    local c = Style.C[name]
-    if a then return c[1], c[2], c[3], a end
-    return c[1], c[2], c[3]
-end
 
 local floor, max, min = math.floor, math.max, math.min
 local tinsert, tremove, tsort, tconcat = table.insert, table.remove, table.sort, table.concat
 
--- One grid, in the window's content (1330 x 688): PAD at the sides, GAP between blocks. The header card on top, the
--- page tabs under it on one rule, then the map and the panel of jobs side by side down to the dock's bottom; the
--- dock (the tools, your jobs, the raid's actions, the 2D / 3D switch) under the map. The map is the same size in
--- every mode: nothing moves when Edit or Assign players is clicked.
-local WIN_W, WIN_H = 1340, 720
+-- One grid, in the window's content (1330 x 698), on the tool layout (UI:CreateLayout "tool": PAD at the sides, GAP
+-- between blocks). Its strip banner on top (the boss, the strategy, its state, the actions), the page tabs under it on
+-- one rule, then the map and the panel of jobs side by side down to the dock's bottom; the dock (the tools, your
+-- jobs, the raid's actions, the 2D / 3D switch) under the map. The map is the same size in every mode: nothing moves
+-- when Edit or Assign players is clicked.
+local WIN_W, WIN_H = 1340, 730
 local CONTENT_W, CONTENT_H = WIN_W - 10, WIN_H - 32   -- (UI:CreateWindow's content: 5 in from the sides, 27 / 5)
-local PAD, GAP = 10, 8
-local HDR_Y, HDR_H = 10, 36
+local PAD, GAP = Style.PAD, Style.GAP
+local HDR_Y, HDR_H = PAD, Style.BANNER.strip          -- the tool layout's banner: (10, 10), 46 high
 local HDR_W = CONTENT_W - 2 * PAD                     -- 1310
-local TABS_X, TABS_Y, TABS_H = 14, 54, 22
-local RULE_Y = TABS_Y + TABS_H                        -- 76
-local MAP_Y, MAP_W = RULE_Y + GAP, 840                -- the map: 840 x 559 at (10, 84)
+local TABS_X, TABS_Y, TABS_H = 14, HDR_Y + HDR_H + GAP, 22   -- 64: where the tool layout's body starts
+local RULE_Y = TABS_Y + TABS_H                        -- 86
+local MAP_Y, MAP_W = RULE_Y + GAP, 840                -- the map: 840 x 559 at (10, 94)
 local DOCK_H = 26
 local DOCK_Y = CONTENT_H - 11 - DOCK_H                -- 651: the dock ends where the panel ends
 local PANEL_X = PAD + MAP_W + GAP                     -- 858
 local PANEL_W = PAD + HDR_W - PANEL_X                 -- 462: to the header's right edge
 local PANEL_H = DOCK_Y + DOCK_H - MAP_Y               -- 593
-local ART_W = 760                                     -- the raid's loading screen on the header's right
-local HDR_BG = { 0.08, 0.08, 0.095, 0.9 }
-local HDR_EDGE = { tone("EDGE", 0.5) }
-local CARD_BG = { tone("CARD", 0.92) }
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
@@ -80,19 +71,6 @@ local SHORTCUTS = {
               { "Home", "the whole room" }, { "Double-click", "look there" } } },
 }
 
--- The flat panel look (the raid page's): a fill and 1px edges.
-local function panelLook(f, bg, edge)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    bg = bg or HDR_BG
-    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-    UI():AddEdges(f, "BORDER")
-    edge = edge or HDR_EDGE
-    UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
-end
-
-local function hexOf(r, g, b) return ("%02x%02x%02x"):format(floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(b * 255 + 0.5)) end
-
 -- "Wed 15 · 20:00" (a raid's day and time).
 local function raidWhen(t)
     return (date("%a %d", t):gsub(" 0", " ")) .. " \194\183 " .. date("%H:%M", t)
@@ -101,8 +79,8 @@ end
 -- A menu entry: an atlas icon (or the room of one, so the words line up) and one word or two; red: Delete.
 local MENU_SPACER = "|TInterface\\Common\\spacer:12:12|t"
 local function menuEntry(icon, text, red)
-    local i = icon and UI():AtlasIconText(icon, 12, red and { 1, 0.55, 0.55 } or nil) or MENU_SPACER
-    return i .. "  " .. (red and ("|cffff8a8a" .. text .. "|r") or text)
+    local i = icon and UI():AtlasIconText(icon, 12, red and Style.C.BAD or nil) or MENU_SPACER
+    return i .. "  " .. (red and Style:Wrap("BAD", text) or text)
 end
 
 local win
@@ -267,19 +245,13 @@ local function tipButton(b, title, text)
     UI():AttachTooltip(b, title, text and { { text, 1, 1, 1, wrap = true } } or nil, { anchor = "ANCHOR_TOP" })
 end
 
--- What follows the mouse while something is dragged onto the tables or the map: a player (a chip with the class
--- circle, its place in the list empties) or a slot ("Show ... on the map").
+-- What follows the mouse while something is dragged onto the tables or the map: a player (the shared chip with the
+-- class circle, its place in the list empties) or a slot ("Show ... on the map"); gold-edged, on top of everything.
 local ghost
 local function ensureGhost()
     if ghost then return ghost end
-    ghost = CreateFrame("Frame", nil, UIParent)
-    ghost:SetSize(120, 20)
+    ghost = UI():CreateChip(UIParent, { kind = "you", selected = true })
     ghost:SetFrameStrata("TOOLTIP")
-    panelLook(ghost, { 0.14, 0.14, 0.16, 0.97 }, { tone("GOLD", 0.85) })
-    ghost.icon = ghost:CreateTexture(nil, "ARTWORK")
-    ghost.icon:SetSize(13, 13)
-    ghost.icon:SetPoint("LEFT", 5, 0)
-    ghost.fs = UI():Text(ghost, "body", "TEXT")
     ghost:SetScript("OnUpdate", function(self)
         local x, y = GetCursorPosition()
         local s = UIParent:GetEffectiveScale()
@@ -298,16 +270,9 @@ end
 -- The ghost with a text (and a class circle in front of it when classFile is given).
 local function showGhost(text, classFile)
     local g = ensureGhost()
-    g.fs:ClearAllPoints()
-    if classFile then
-        UI():ClassIcon(g.icon, classFile)
-        g.fs:SetPoint("LEFT", g.icon, "RIGHT", 5, 0)
-    else
-        g.icon:Hide()
-        g.fs:SetPoint("LEFT", 8, 0)
-    end
-    g.fs:SetText(text)
-    g:SetWidth(floor((classFile and 23 or 8) + (g.fs:GetStringWidth() or 60) + 8 + 0.5))
+    g:SetIcon(classFile and TOOL_ATLAS or nil)      -- (a placeholder: ClassIcon paints it)
+    g:Set(text)
+    if classFile then UI():ClassIcon(g.icon, classFile) end
     g:Show()
     return g
 end
@@ -318,22 +283,15 @@ local ROSTER_ROW = 19
 local function createPoolChip(parent)
     local c = CreateFrame("Button", nil, parent)
     c:SetHeight(ROSTER_ROW)
+    -- (the shared row looks: the hover; picked, the gold wash and bar)
+    UI():DecorateRow(c, { selectable = true })
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(13, 13)
-    c.icon:SetPoint("LEFT", 2, 0)
+    c.icon:SetPoint("LEFT", 4, 0)
     c.fs = UI():Text(c, "body", "TEXT")
     c.fs:SetPoint("LEFT", c.icon, "RIGHT", 5, 0)
-    c.count = UI():Text(c, 9, "TEXT")
-    c.count:SetShadowOffset(1, -1)
+    c.count = UI():Text(c, "caps", "TEXT", { shadow = true })
     c.count:SetPoint("BOTTOMRIGHT", c.icon, "BOTTOMRIGHT", 3, -2)
-    c.picked = c:CreateTexture(nil, "BACKGROUND")
-    c.picked:SetAllPoints()
-    c.picked:SetColorTexture(tone("GOLD", 0.14))
-    UI():AddEdges(c, "BORDER")
-    UI():SetEdgeColor(c, tone("GOLD", 0))
-    local hl = c:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(tone("HAIRLINE", 0.06))
     c:RegisterForDrag("LeftButton")
     c:RegisterForClicks("LeftButtonUp")
     c:SetScript("OnClick", function(self)
@@ -360,92 +318,61 @@ local function createPoolChip(parent)
         if m then
             local label = ns.RaidComp and ns.RaidComp:SpecLabel(m.c, m.sp)
             GameTooltip:AddLine((label and (label .. " ") or "") .. (ns.CLASS_NAMES[m.c] or ""), 1, 1, 1)
-            if m.st == "T" then GameTooltip:AddLine("Tentative", tone("GOLD"))
-            elseif m.st == "B" then GameTooltip:AddLine("Bench", tone("GOLD"))
-            elseif m.inRaid then GameTooltip:AddLine("In your raid, no sign-up", 0.7, 0.7, 0.7) end
+            if m.st == "T" then GameTooltip:AddLine("Tentative", Style:Color("GOLD"))
+            elseif m.st == "B" then GameTooltip:AddLine("Bench", Style:Color("GOLD"))
+            elseif m.inRaid then GameTooltip:AddLine("In your raid, no sign-up", Style:Color("SUB")) end
         end
         for _, s in ipairs(S():GetPlayerSlots(st.strat, st.assign, self.key)) do
-            GameTooltip:AddLine(s.label, 0.85, 0.85, 0.85)
+            GameTooltip:AddLine(s.label, Style:Color("TEXT"))
         end
-        GameTooltip:AddLine("Drag onto a slot, or click and then click a slot.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Drag onto a slot, or click and then click a slot.", Style.C.SUB[1], Style.C.SUB[2],
+            Style.C.SUB[3], true)
         GameTooltip:Show()
     end)
     c:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return c
 end
 
--- A label in the dock's left end ("YOUR JOBS", "IN RAIDS"): small gold capitals.
-local function dockLabel(parent, text)
-    local fs = UI():Text(parent, "small", "GOLD")
-    fs:SetText(text)
-    fs:SetPoint("LEFT", parent, "LEFT", 0, 0)
-    return fs
-end
-
--- A flat chip in the dock (a job of mine, a raid that uses the strategy): icon, text, a grey note; it says what it
--- opens in its tooltip.
+-- A chip in the dock (UI:CreateChip): a job of mine (gold: picked look), a raid that uses the strategy; an icon, the
+-- text (a raid's day in gold before it), a grey note after it, a chevron for a link. It says what it opens in its
+-- tooltip. b:Set(iconKey, pre, text, note, chevron); b.fs, b.note, b.chev.
 local function dockChip(parent, gold)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(DOCK_H)
-    if gold then
-        panelLook(b, { tone("GOLD", 0.08) }, { tone("GOLD", 0.35) })
-    else
-        panelLook(b, { tone("HAIRLINE", 0.04) }, { tone("EDGE", 0.6) })
-    end
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(16, 16)
-    b.icon:SetPoint("LEFT", 6, 0)
-    b.pre = UI():Text(b, "small", "GOLD")                  -- (a raid's day, in gold)
-    b.fs = UI():Text(b, "body", "TEXT")
+    local b = UI():CreateChip(parent, { kind = gold and "you" or "track", selected = gold, onClick = function() end })
     b.note = UI():Text(b, "small", "SUB")
     b.chev = b:CreateTexture(nil, "ARTWORK")
     b.chev:SetSize(9, 9)
-    b.chev:SetTexture(TOOL_ATLAS)
-    -- the atlas chevron points down: turned to point right
-    local cc = atlasCoords(UI().ICON.chevron)
-    b.chev:SetTexCoord(cc[1], cc[3], cc[2], cc[3], cc[1], cc[4], cc[2], cc[4])
-    b.chev:SetVertexColor(0.8, 0.8, 0.8, 0.7)
-    local hl = b:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(tone("HAIRLINE", 0.06))
-    b:RegisterForClicks("LeftButtonUp")
-    -- icon (texture key or nil), pre (gold small text or nil), text, note (grey or nil), chevron: lays it out
+    UI():SetChevron(b.chev, true)
+    b.chev:SetVertexColor(Style:Color("SUB"))
+    local chipSet = b.Set
     function b:Set(iconKey, pre, text, note, chevron)
-        local x = 10
-        if iconKey then
-            MapUI():SetIcon(self.icon, iconKey)
-            self.icon:Show()
-            x = 6 + 16 + 6
-        else
-            self.icon:Hide()
-        end
-        self.pre:SetShown(pre ~= nil)
-        if pre then
-            self.pre:SetText(pre)
-            self.pre:ClearAllPoints()
-            self.pre:SetPoint("LEFT", x, 0)
-            x = x + floor((self.pre:GetStringWidth() or 30) + 0.5) + 6
-        end
-        self.fs:SetText(text or "")
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", x, 0)
-        x = x + floor((self.fs:GetStringWidth() or 40) + 0.5)
+        self:SetIcon(iconKey and TOOL_ATLAS or nil)
+        chipSet(self, (pre and (Style:Wrap("GOLD", pre) .. "  ") or "") .. (text or ""))
+        if iconKey then MapUI():SetIcon(self.icon, iconKey) end
+        local w = self:GetWidth() or 40
+        local last = self.fs
         self.note:SetShown(note ~= nil)
         if note then
             self.note:SetText(note)
             self.note:ClearAllPoints()
-            self.note:SetPoint("LEFT", x + 6, 0)
-            x = x + 6 + floor((self.note:GetStringWidth() or 20) + 0.5)
+            self.note:SetPoint("LEFT", self.fs, "RIGHT", 6, 0)
+            w = w + 6 + floor(UI():TextWidth(self.note) + 0.5)
+            last = self.note
         end
         self.chev:SetShown(chevron and true or false)
         if chevron then
             self.chev:ClearAllPoints()
-            self.chev:SetPoint("LEFT", x + 6, 0)
-            x = x + 6 + 9
+            self.chev:SetPoint("LEFT", last, "RIGHT", 5, 0)
+            w = w + 5 + 9
         end
-        self:SetWidth(x + 10)
+        self:SetWidth(w)
     end
     return b
+end
+
+-- (a dock chip's hover look, kept when its tooltip scripts are set)
+local function chipHover(self, on)
+    self.hovered = on
+    if self.Paint then self:Paint() end
 end
 
 -- The rename field that takes a name's place (the strategy's in the header, a page's on its tab): Enter or a click
@@ -492,29 +419,13 @@ local function createWindow()
     win = f
 
     ---------------------------------------------------------------------------------------------- the header
-    -- a card 36 high: the boss, the strategy's name, a line about it and its state on the left; the actions on the
-    -- right; the raid's loading screen fading in behind the right part
-    local hdr = CreateFrame("Frame", nil, c)
-    hdr:SetPoint("TOPLEFT", c, "TOPLEFT", PAD, -HDR_Y)
-    hdr:SetSize(HDR_W, HDR_H)
-    panelLook(hdr)
+    -- the tool layout's strip banner (the raid's loading screen under the banners' shade): the boss, the strategy's
+    -- name, a line about it and its state on the left; the actions on the right (Board:RefreshHeader lays them out)
+    local L = UI():CreateLayout("tool", c, { width = CONTENT_W, bottom = 0,
+        banner = { size = "strip", width = HDR_W, artFw = 0.72 } })
+    f.layout = L
+    local hdr = L.banner
     f.header = hdr
-    hdr.art = hdr:CreateTexture(nil, "BACKGROUND", nil, 2)
-    hdr.art:SetPoint("TOPRIGHT", -1, -1)
-    hdr.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    hdr.art:SetWidth(ART_W)
-    hdr.art:SetVertexColor(tone("SUB"))
-    local fadeW = floor(ART_W * 0.45)
-    hdr.fade = hdr:CreateTexture(nil, "BACKGROUND", nil, 3)
-    hdr.fade:SetPoint("TOPLEFT", hdr.art, "TOPLEFT")
-    hdr.fade:SetPoint("BOTTOMLEFT", hdr.art, "BOTTOMLEFT")
-    hdr.fade:SetWidth(fadeW)
-    local hb = HDR_BG
-    UI():Gradient(hdr.fade, "HORIZONTAL", { hb[1], hb[2], hb[3], 1 }, { hb[1], hb[2], hb[3], 0.15 })
-    hdr.fade2 = hdr:CreateTexture(nil, "BACKGROUND", nil, 3)
-    hdr.fade2:SetPoint("TOPLEFT", hdr.fade, "TOPRIGHT")
-    hdr.fade2:SetPoint("BOTTOMRIGHT", hdr.art, "BOTTOMRIGHT")
-    UI():Gradient(hdr.fade2, "HORIZONTAL", { hb[1], hb[2], hb[3], 0.15 }, { hb[1], hb[2], hb[3], 0 })
 
     f.bossFs = UI():Text(hdr, "title", "GOLD")
     f.title = UI():Text(hdr, "page", "TEXT")
@@ -523,19 +434,19 @@ local function createWindow()
     f.pencil:SetSize(12, 12)
     f.pencil:SetTexture(TOOL_ATLAS)
     f.pencil:SetTexCoord(unpack(atlasCoords(16)))
-    f.pencil:SetVertexColor(0.6, 0.6, 0.6, 0.55)
+    f.pencil:SetVertexColor(Style:Color("DIM"))
     f.titleBtn = CreateFrame("Button", nil, hdr)
     f.titleBtn:SetPoint("TOPLEFT", f.title, "TOPLEFT", -4, 4)
     f.titleBtn:SetPoint("BOTTOMRIGHT", f.pencil, "BOTTOMRIGHT", 4, -4)
     f.titleBtn:SetScript("OnClick", function() Board:RenameStrategy() end)
     f.titleBtn:SetScript("OnEnter", function(self)
-        f.pencil:SetVertexColor(tone("GOLD", 1))
+        f.pencil:SetVertexColor(Style:Color("GOLD"))
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
         GameTooltip:AddLine("Rename")
         GameTooltip:Show()
     end)
     f.titleBtn:SetScript("OnLeave", function()
-        f.pencil:SetVertexColor(0.6, 0.6, 0.6, 0.55)
+        f.pencil:SetVertexColor(Style:Color("DIM"))
         GameTooltip:Hide()
     end)
     f.titleEdit = inlineEdit(hdr, 24, 16, S().MAX_NAME_LEN)
@@ -551,27 +462,28 @@ local function createWindow()
     f.metaBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- one state at a time: Unsaved, Joining ...'s board, Newer version by ..., Practice
     f.stateTag = UI():CreateTagPill(hdr, 16)
-    f.stateTag:SetBase(HDR_BG[1], HDR_BG[2], HDR_BG[3])
+    f.stateTag:SetBase(Style:Color("SURFACE_WINDOW"))
     f.stateTag:EnableMouse(true)
     f.stateTag:SetScript("OnEnter", function(self) Board:StateTooltip(self) end)
     f.stateTag:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- the actions, laid out right to left in Board:RefreshHeader: the text buttons (the main one gold), then the icons
-    f.saveBtn = UI():CreateSleekButton(hdr, "Save", 72, 24, function() Board:Save() end, "primary")
-    f.cancelBtn = UI():CreateSleekButton(hdr, "Discard", nil, 24, function() Board:Discard() end)
-    f.doneBtn = UI():CreateSleekButton(hdr, "Done", nil, 24, function() Board:CancelChanges() end, "primary")
+    local BH = Style.BTN_H
+    f.saveBtn = UI():CreateSleekButton(hdr, "Save", 72, BH, function() Board:Save() end, "primary")
+    f.cancelBtn = UI():CreateSleekButton(hdr, "Discard", nil, BH, function() Board:Discard() end)
+    f.doneBtn = UI():CreateSleekButton(hdr, "Done", nil, BH, function() Board:CancelChanges() end, "primary")
     tipButton(f.doneBtn, "Done", "Nothing is changed: back to reading the board.")
-    f.editBtn = UI():CreateSleekButton(hdr, "Edit", 64, 24, function() Board:SetMode("edit") end, "primary")
+    f.editBtn = UI():CreateSleekButton(hdr, "Edit", 64, BH, function() Board:SetMode("edit") end, "primary")
     tipButton(f.editBtn, "Edit", "Draw on the map, change the jobs and pages. Changes reach everyone when you Save.")
-    f.fillBtn = UI():CreateSleekButton(hdr, "Assign players", nil, 24, function() Board:SetMode("fill") end, "primary")
+    f.fillBtn = UI():CreateSleekButton(hdr, "Assign players", nil, BH, function() Board:SetMode("fill") end, "primary")
     tipButton(f.fillBtn, "Assign players", "Put this raid's players into the slots.")
-    f.moreBtn = UI():CreateTipIconButton(hdr, 24, UI().ICON.more, "More", nil, function(self) Board:OpenMore(self) end)
+    f.moreBtn = UI():CreateTipIconButton(hdr, BH, UI().ICON.more, "More", nil, function(self) Board:OpenMore(self) end)
     -- a link for the chat (UI/Share.lua): a raid's board for this boss (with its names), else the strategy
-    f.shareBtn = ns.Share:CreateButton(hdr, 24, function()
+    f.shareBtn = ns.Share:CreateButton(hdr, BH, function()
         if st.occ and st.boss then return ns.Share:BoardRef(st.occ, st.boss) end
         return st.strat and st.strat.id and ns.Share:StrategyRef(st.strat.id) or nil
     end, "Share this board")
-    f.helpBtn = UI():CreateTipIconButton(hdr, 24, 11, "Help", nil, function(self) Board:OpenHelp(self) end)
+    f.helpBtn = UI():CreateTipIconButton(hdr, BH, 11, "Help", nil, function(self) Board:OpenHelp(self) end)
     -- who else has it open: a green Live and their class circles (a reader's faded); the tooltip says who is where
     local live = CreateFrame("Frame", nil, hdr)
     live:SetHeight(24)
@@ -579,10 +491,9 @@ local function createWindow()
     live.dot = live:CreateTexture(nil, "ARTWORK")
     live.dot:SetSize(6, 6)
     live.dot:SetTexture(MapUI().TEX.disc)
-    live.dot:SetVertexColor(0.35, 0.86, 0.47, 1)
+    live.dot:SetVertexColor(Style:Color("OK"))
     live.dot:SetPoint("LEFT", 0, 0)
-    live.fs = UI():Text(live, "body", "TEXT")
-    live.fs:SetTextColor(0.62, 0.94, 0.69)
+    live.fs = UI():Text(live, "body", "OK")
     live.fs:SetText("Live")
     live.fs:SetPoint("LEFT", live.dot, "RIGHT", 6, 0)
     live.faces = {}
@@ -603,11 +514,8 @@ local function createWindow()
     end
     tipButton(f.addPage, "Add a page", "For another phase of the fight. It starts with the same map.")
     f.tabEdit = inlineEdit(c, 20, 12, S().MAX_PAGE_NAME)
-    f.rule = c:CreateTexture(nil, "ARTWORK")
-    f.rule:SetPoint("TOPLEFT", c, "TOPLEFT", PAD, -RULE_Y)
-    f.rule:SetSize(HDR_W, 1)
-    f.rule:SetColorTexture(1, 1, 1, 0.12)
-    f.mapBtn = UI():CreateLinkDropdown(c, { icon = 31, iconSize = 12, size = 11.5, color = { 0.77, 0.77, 0.77 },
+    f.rule = UI():Rule(c, { top = RULE_Y, left = PAD, right = PAD })
+    f.mapBtn = UI():CreateLinkDropdown(c, { icon = 31, iconSize = 12, size = Style.FONT.body, color = Style.C.TEXT,
         height = TABS_H, build = function(root) Board:MapMenu(root) end, title = "This page's map",
         tip = "The floors of the raid, with who is fought on each; Other raids has the rest." })
     f.mapBtn:SetPoint("RIGHT", c, "TOPLEFT", PAD + MAP_W, -(TABS_Y + TABS_H / 2))
@@ -663,22 +571,19 @@ local function createWindow()
     border:SetPoint("TOPLEFT", f.canvas.frame, "TOPLEFT", -1, 1)
     border:SetPoint("BOTTOMRIGHT", f.canvas.frame, "BOTTOMRIGHT", 1, -1)
     UI():AddEdges(border, "OVERLAY")
-    UI():SetEdgeColor(border, tone("EDGE", 0.65))
+    UI():SetEdgeColor(border, Style:Color("EDGE"))
     border:SetFrameLevel(f.canvas.frame:GetFrameLevel() + 1100)
     border:EnableMouse(false)
 
     ---------------------------------------------------------------------------------------------- the panel
     -- assigning: the raid's players on the panel's top (Board:RefreshPool), the tables under them
-    local pool = CreateFrame("Frame", nil, c)
+    local pool = UI():CreateCard(c, { tone = "card" })
     pool:SetPoint("TOPLEFT", c, "TOPLEFT", PANEL_X, -MAP_Y)
     pool:SetSize(PANEL_W, 60)
-    panelLook(pool, CARD_BG, { tone("EDGE", 0.35) })
     pool.chips, pool.heads = {}, {}
-    pool.empty = UI():Text(pool, "body", "TEXT")
-    pool.empty:SetTextColor(0.54, 0.54, 0.54)
+    pool.empty = UI():Text(pool, "body", "SUB", { wrap = true })
     pool.empty:SetPoint("TOPLEFT", 12, -10)
     pool.empty:SetPoint("RIGHT", pool, "RIGHT", -12, 0)
-    pool.empty:SetWordWrap(true)
     pool.empty:SetText("Nobody has signed up for this raid yet, and you are not in a raid group.")
     f.pool = pool
     f.blocks = ns.StrategyBlocksUI:Create(c, {
@@ -774,7 +679,7 @@ local function createWindow()
             t:SetPoint(a[1], sw, a[1], a[2], a[3])
             t:SetPoint(a[4], sw, a[4], a[5], a[6])
             if a[7] == "h" then t:SetHeight(2) else t:SetWidth(2) end
-            t:SetColorTexture(tone("GOLD", 0.95))
+            t:SetColorTexture(Style:Color("GOLD"))
             sw.ring[k] = t
         end
         tipButton(sw, MapUI().COLORS[i][4] or "Colour", "For new drawings, and the selected one.")
@@ -831,26 +736,28 @@ local function createWindow()
     -- reading a raid's board: my jobs, a click goes to the page and lights the row and its drawing
     local jobs = CreateFrame("Frame", nil, dock)
     jobs:SetAllPoints()
-    jobs.label = dockLabel(jobs, "YOUR JOBS")
+    jobs.label = UI():Text(jobs, "small", "GOLD", { text = "YOUR JOBS" })
+    jobs.label:SetPoint("LEFT", jobs, "LEFT", 0, 0)
     jobs.chips = {}
     f.jobs = jobs
     -- reading a strategy on its own: the raids coming up that use it, as links to their boards
     local inRaids = CreateFrame("Frame", nil, dock)
     inRaids:SetAllPoints()
-    inRaids.label = dockLabel(inRaids, "IN RAIDS")
+    inRaids.label = UI():Text(inRaids, "small", "GOLD", { text = "IN RAIDS" })
+    inRaids.label:SetPoint("LEFT", inRaids, "LEFT", 0, 0)
     inRaids.chips = {}
     f.inRaids = inRaids
     -- assigning: the actions on the names (the pool's buttons)
     local fillBar = CreateFrame("Frame", nil, dock)
     fillBar:SetAllPoints()
     f.fillBar = fillBar
-    pool.carryBtn = UI():CreateSleekButton(fillBar, "Carry over", nil, DOCK_H, function() Board:CarryOver() end)
+    pool.carryBtn = UI():CreateSleekButton(fillBar, "Carry over", nil, Style.BTN_H, function() Board:CarryOver() end)
     tipButton(pool.carryBtn, "Carry over", "Start from the names of the last raid that used this strategy. Players "
         .. "who aren't in this raid are shown in red.")
-    pool.suggestBtn = UI():CreateSleekButton(fillBar, "Suggest fill", nil, DOCK_H, function() Board:Suggest() end)
+    pool.suggestBtn = UI():CreateSleekButton(fillBar, "Suggest fill", nil, Style.BTN_H, function() Board:Suggest() end)
     tipButton(pool.suggestBtn, "Suggest fill", "Fills the empty slots that are limited to a class or role with "
         .. "players who fit, spreading the jobs. Slots open to anyone stay for you.")
-    pool.clearBtn = UI():CreateSleekButton(fillBar, "Clear all", nil, DOCK_H, function() Board:ClearAll() end)
+    pool.clearBtn = UI():CreateSleekButton(fillBar, "Clear all", nil, Style.BTN_H, function() Board:ClearAll() end)
     tipButton(pool.clearBtn, "Clear all", "Empties every slot.")
 
     -- the page on the 2D map or in the boss' room in 3D (UI/StrategyMap3D.lua): one page, the same drawings
@@ -1077,7 +984,9 @@ end
 
 local function presenceName(key)
     local r, g, b = Collab():ColorOf(key)
-    return "|cff" .. hexOf(r, g, b) .. ns.Util.ShortName(key) .. "|r"
+    -- uniformity: the member's own live colour (data-driven)
+    return ("|cff%02x%02x%02x"):format(floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(b * 255 + 0.5))
+        .. ns.Util.ShortName(key) .. "|r"
 end
 
 -- The same in a line ("live with A, B (P3)  ·  C is editing  ·  D is looking"), or nil: the Live tooltip's words.
@@ -1749,7 +1658,7 @@ function Board:PageMenu(owner, i)
             end)
             if dup and dup.SetTooltip then
                 dup:SetTooltip(function(tt)
-                    tt:AddLine("Duplicate", tone("GOLD"))
+                    tt:AddLine("Duplicate", Style:Color("GOLD"))
                     tt:AddLine("A new page with the same map and drawings. The tables stay on this one: the drawings "
                         .. "keep showing their names.", 1, 1, 1, true)
                 end)
@@ -1876,7 +1785,7 @@ function Board:LinkText(ref)
 end
 
 function Board:LinkTooltip(ref, tt)
-    tt:AddLine(self:LinkLabel(ref), tone("GOLD"))
+    tt:AddLine(self:LinkLabel(ref), Style:Color("GOLD"))
     local any = false
     for _, sl in ipairs(slotsOf(ref)) do
         local key = st.assign[sl.ref]
@@ -2095,10 +2004,10 @@ function Board:RefreshCount()
     local fs = win.countFs
     if n >= limit then
         fs:SetText(("%s is full: %d drawings"):format(p.n, limit))
-        fs:SetTextColor(1, 0.42, 0.42)
+        fs:SetTextColor(Style:Color("BAD"))
     else
         fs:SetText(("%d of %d drawings"):format(n, limit))
-        if n >= floor(limit * 0.9) then fs:SetTextColor(1, 0.6, 0.2) else fs:SetTextColor(tone("SUB")) end
+        fs:SetTextColor(Style:Color(n >= floor(limit * 0.9) and "WARN" or "SUB"))
     end
     win.countBtn:SetWidth(floor((fs:GetStringWidth() or 100) + 0.5))
 end
@@ -2181,11 +2090,7 @@ function Board:RefreshPool()
             h.fs = UI():Text(h, "body", "GOLD")
             h.fs:SetPoint("LEFT", h.icon, "RIGHT", 5, 0)
             h.fs:SetText(c[2])
-            h.line = h:CreateTexture(nil, "ARTWORK")
-            h.line:SetPoint("BOTTOMLEFT")
-            h.line:SetPoint("BOTTOMRIGHT")
-            h.line:SetHeight(1)
-            h.line:SetColorTexture(tone("HAIRLINE", 0.08))
+            h.line = UI():Rule(h, { bottom = 0 })
             h:SetPoint("TOPLEFT", pool, "TOPLEFT", 10 + (i - 1) * (ROSTER_COL_W + GAP), -6)
             pool.heads[i] = h
         end
@@ -2208,17 +2113,15 @@ function Board:RefreshPool()
             chip:SetWidth(ROSTER_COL_W)
             UI():ClassIcon(chip.icon, m.c)
             local name = coloredName(m.key)
-            if m.st == "T" or m.st == "B" then name = name .. " |cff8a8a8a" .. m.st .. "|r" end
+            if m.st == "T" or m.st == "B" then name = name .. " " .. Style:Wrap("SUB", m.st) end
             chip.fs:SetText(name)
             -- never cut: a long name takes a size smaller
-            local path, _, flags = chip.fs:GetFont()
-            if path then chip.fs:SetFont(path, Style:Size("body"), flags) end
-            if (chip.fs:GetStringWidth() or 0) > ROSTER_COL_W - 22 and path then chip.fs:SetFont(path, Style:Size("caps"), flags) end
+            UI():SetTextStyle(chip.fs, "body")
+            if (chip.fs:GetStringWidth() or 0) > ROSTER_COL_W - 22 then UI():SetTextStyle(chip.fs, "caps", "TEXT") end
             local jobs = countOf(m.key)
             chip.count:SetText(jobs > 1 and tostring(jobs) or "")
             local picked = st.picked == m.key
-            chip.picked:SetShown(picked)
-            UI():SetEdgeColor(chip, tone("GOLD", picked and 0.7 or 0))
+            chip:SetSelected(picked)
             chip:SetAlpha(st.dragging == m.key and 0 or ((jobs > 0 and not picked) and 0.5 or 1))
             chip:Show()
         end
@@ -2239,9 +2142,9 @@ function Board:RefreshPool()
     for ref in pairs(dups) do if st.assign[ref] then twice[st.assign[ref]] = true end end
     local nTwice = 0
     for _ in pairs(twice) do nTwice = nTwice + 1 end
-    local text = (filled == total and total > 0) and ("|cff8fe39d%d of %d slots filled|r"):format(filled, total)
-        or ("|cffffffff%d|r of %d slots filled"):format(filled, total)
-    if nTwice > 0 then text = text .. "  \194\183  |cffff9933" .. nTwice .. " twice|r" end
+    local text = (filled == total and total > 0) and Style:Wrap("OK", ("%d of %d slots filled"):format(filled, total))
+        or (Style:Wrap("TEXT", filled) .. (" of %d slots filled"):format(total))
+    if nTwice > 0 then text = text .. "  \194\183  " .. Style:Wrap("WARN", nTwice .. " twice") end
     win.slotsFs:SetText(text)
 end
 
@@ -2257,7 +2160,7 @@ local function createTab(i)
     b.chev:SetSize(9, 9)
     b.chev:SetTexture(TOOL_ATLAS)
     b.chev:SetTexCoord(unpack(atlasCoords(UI().ICON.chevron)))
-    b.chev:SetVertexColor(tone("GOLD"))
+    b.chev:SetVertexColor(Style:Color("GOLD"))
     b.chev:SetPoint("LEFT", b:GetFontString(), "RIGHT", 4, -1)
     b.dots = {}
     b:SetScript("OnClick", function(self, button)
@@ -2528,9 +2431,8 @@ function Board:RefreshHeader()
     local s, mode = st.strat, st.mode
     local hdr = win.header
     local bossRef = st.boss or (s and s.b)
-    local file, l, r, t, b = ns.RaidPlanUI:RaidArt(raidInst(), ART_W, HDR_H - 2, 0.72)
-    hdr.art:SetTexture(file)
-    hdr.art:SetTexCoord(l, r, t, b)
+    local inst = raidInst()
+    if hdr.artKey ~= inst then hdr:SetArt(inst ~= "other" and inst or nil) end
     win.bossFs:SetText(S():GetBossName(bossRef))
     local assigner = canAssign() or st.sandbox == true
     -- the right side, right to left: the text buttons (the main one gold), then the icons, then who is here
@@ -2728,9 +2630,7 @@ function Board:RefreshDock()
         -- (no job of mine: one quiet line instead of the label)
         jobs.label:SetText(#mine > 0 and "YOUR JOBS" or (any and "No job for you on this board" or
             "No names for this raid yet"))
-        local path, _, flags = jobs.label:GetFont()
-        if path then jobs.label:SetFont(path, Style:Size(#mine > 0 and "small" or 11.5), flags) end
-        if #mine > 0 then jobs.label:SetTextColor(tone("GOLD")) else jobs.label:SetTextColor(0.54, 0.54, 0.54) end
+        UI():SetTextStyle(jobs.label, #mine > 0 and "small" or "body", #mine > 0 and "GOLD" or "SUB")
         local x = floor((jobs.label:GetStringWidth() or 60) + 0.5) + 10
         local chips = dockChips(jobs, #mine, true)
         local shown = 0
@@ -2761,6 +2661,7 @@ function Board:RefreshDock()
             if i > shown then c:Hide() end
             c:SetScript("OnClick", function(self) if self.ref then Board:ShowJob(self.ref) end end)
             c:SetScript("OnEnter", function(self)
+                chipHover(self, true)
                 GameTooltip:SetOwner(self, "ANCHOR_TOP")
                 if self.rest then
                     for _, sl in ipairs(self.rest) do
@@ -2772,7 +2673,10 @@ function Board:RefreshDock()
                 end
                 GameTooltip:Show()
             end)
-            c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            c:SetScript("OnLeave", function(self)
+                chipHover(self, false)
+                GameTooltip:Hide()
+            end)
         end
         return
     end
@@ -2793,13 +2697,17 @@ function Board:RefreshDock()
         c:SetPoint("LEFT", inRaids, "LEFT", x, 0)
         c:SetScript("OnClick", function(self) Board:OpenRaid(self.occ, s.b) end)
         c:SetScript("OnEnter", function(self)
+            chipHover(self, true)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:AddLine(ns.RaidPlan:GetRaidName(v))
             GameTooltip:AddLine(date("%A %d %B, %H:%M", v.t), 1, 1, 1)
             GameTooltip:AddLine("Opens the raid's board with its names.", 0.6, 0.6, 0.6, true)
             GameTooltip:Show()
         end)
-        c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        c:SetScript("OnLeave", function(self)
+            chipHover(self, false)
+            GameTooltip:Hide()
+        end)
         c:Show()
         x = x + w + 6
         shown = i
@@ -2876,7 +2784,7 @@ function Board:MoreMenu(root)
         end)
         if am and am.SetTooltip then
             am:SetTooltip(function(tt)
-                tt:AddLine("Auto-mark", tone("GOLD"))
+                tt:AddLine("Auto-mark", Style:Color("GOLD"))
                 tt:AddLine("In the raid, the raid leader's DisasterZone puts the raid marks shown on the boss portraits "
                     .. "on the mobs as their nameplates appear.", 1, 1, 1, true)
             end)
@@ -2931,60 +2839,35 @@ end
 ---------------------------------------------------------------------------
 
 local KEY_ROW, KEY_COL = 21, 118
-local function keycap(parent, text)
-    local k = CreateFrame("Frame", nil, parent)
-    panelLook(k, { 0.15, 0.15, 0.17, 1 }, { 1, 1, 1, 0.22 })
-    k.fs = UI():Text(k, "small", "TEXT")
-    k.fs:SetPoint("CENTER", 0, 0)
-    k.fs:SetText(text)
-    k:SetSize(floor((k.fs:GetStringWidth() or 20) + 10 + 0.5), 16)
-    return k
-end
 
 local function createKeys()
-    -- (on UIParent like the prompt: over the board and everything drawn on its map)
+    -- (on UIParent like the prompt: over the board and everything drawn on its map) a card with its title, the
+    -- window's close X, caps headers over the groups and the keys as pills
     local k = CreateFrame("Frame", "DisasterZoneStrategyKeys", UIParent)
     k:SetFrameStrata("FULLSCREEN_DIALOG")
     k:SetToplevel(true)
     k:EnableMouse(true)
-    panelLook(k, { 0.06, 0.06, 0.07, 1 }, { 0.45, 0.45, 0.5, 1 })
-    k.title = UI():Text(k, "title", "TEXT")
-    k.title:SetPoint("TOPLEFT", 14, -13)
-    k.title:SetText("Keyboard and mouse")
-    k.close = CreateFrame("Button", nil, k)
-    k.close:SetSize(16, 16)
+    k.card = UI():CreateCard(k, { tone = "card", title = "Keyboard and mouse", pad = 14 })
+    k.card:SetAllPoints()
+    k.card.bg:SetColorTexture(Style:Color("SURFACE_WINDOW"))      -- (opaque: over the map and the panel)
+    k.title = k.card.title
+    k.close = UI():CreateCloseButton(k, 16, function() k:Hide() end)
     k.close:SetPoint("TOPRIGHT", -10, -10)
-    k.close.lines = {}
-    for _, d in ipairs({ { -5, -5, 5, 5 }, { -5, 5, 5, -5 } }) do
-        local l = k.close:CreateLine(nil, "ARTWORK")
-        l:SetThickness(1.5)
-        l:SetColorTexture(0.87, 0.87, 0.87, 0.6)
-        l:SetStartPoint("CENTER", k.close, d[1], d[2])
-        l:SetEndPoint("CENTER", k.close, d[3], d[4])
-        k.close.lines[#k.close.lines + 1] = l
-    end
-    k.close:SetScript("OnEnter", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(1, 1, 1, 1) end end)
-    k.close:SetScript("OnLeave", function(self)
-        for _, l in ipairs(self.lines) do l:SetColorTexture(0.87, 0.87, 0.87, 0.6) end
-    end)
-    k.close:SetScript("OnClick", function() k:Hide() end)
     local colW = floor((612 - 28 - 22) / 2)
     local function column(groups, x)
         local y = 13 + 16 + 4
         for _, g in ipairs(groups) do
-            local h = UI():Text(k, "small", "GOLD")
-            h:SetPoint("TOPLEFT", x, -(y + 8))
-            h:SetText(g[1]:upper())
+            local h = UI():CreateSectionHeader(k, g[1], { style = "caps", width = colW })
+            h:SetPoint("TOPLEFT", x, -(y + 6))
             y = y + 8 + 13 + 3
             for _, row in ipairs(g[2]) do
                 local kx = 0
                 for part in row[1]:gmatch("[^|]+") do
-                    local cap = keycap(k, part)
+                    local cap = UI():CreatePill(k, "mute", part)
                     cap:SetPoint("LEFT", k, "TOPLEFT", x + kx, -(y + KEY_ROW / 2))
                     kx = kx + (cap:GetWidth() or 30) + 3
                 end
-                local d = UI():Text(k, "body", "TEXT")
-                d:SetTextColor(0.84, 0.84, 0.84)
+                local d = UI():Text(k.card, "body", "TEXT")
                 d:SetPoint("LEFT", k, "TOPLEFT", x + KEY_COL + 8, -(y + KEY_ROW / 2))
                 d:SetText(row[2])
                 y = y + KEY_ROW
