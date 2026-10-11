@@ -294,6 +294,30 @@ M.known_spells = {}   -- [spellID] = true (tests: __MOCK.known_spells[28675] = t
 function IsSpellKnown(id) return M.known_spells[tonumber(id)] and true or false end
 function IsPlayerSpell(id) return M.known_spells[tonumber(id)] and true or false end
 
+-- Key bindings and action bars (2.5.x shapes). M.bindings = { { "ACTIONBUTTON3", "3" [, key2] }, ... } in binding
+-- order; M.actions[slot] = { "spell", spellID } | { "macro", macroIndex }; M.macros[index] = { name, spellID }.
+M.bindings, M.actions, M.macros = {}, {}, {}
+function GetNumBindings() return #M.bindings end
+-- command, category, key1, key2
+function GetBinding(i)
+  local b = M.bindings[tonumber(i) or 0]
+  if not b then return nil end
+  return b[1], "ACTIONBAR", b[2], b[3]
+end
+-- actionType, id, subType
+function GetActionInfo(slot)
+  local a = M.actions[tonumber(slot) or 0]
+  if not a then return nil end
+  return a[1], a[2], a[1] == "spell" and "spell" or nil
+end
+function GetActionBarPage() return M.action_page or 1 end
+function GetMacroIndexByName(name)
+  for i, m in pairs(M.macros) do if m[1] == name then return i end end
+  return 0
+end
+-- (2.5.x returns the spell's ID)
+function GetMacroSpell(i) local m = M.macros[tonumber(i) or 0]; return m and m[2] or nil end
+
 -- Professions: the skill list and the two profession windows (trade skill; craft = Enchanting on 2.5.x).
 -- M.skills = { { name = "Professions", header = true [, collapsed = true] }, { name = "Alchemy", rank = 375, max = 375 }, ... }
 -- M.tradeskill / M.craft = { name = "Alchemy", rank = 375, max = 375 [, linked = "Name"],
@@ -403,7 +427,7 @@ M.cvars = { nameplateShowEnemies = "1", autoLootDefault = "0", lootUnderMouse = 
   scriptErrors = "1", taintLog = "0", chatStyle = "classic", portal = "EU", textLocale = "enUS", audioLocale = "enUS",
   useUiScale = "0", uiScale = "1", showToastWindow = "1", autoSelfCast = "1", nameplateShowEnemies = "1",
   UberTooltips = "1", alwaysCompareItems = "0", colorblindMode = "0", profanityFilter = "0", nameplateShowFriends = "0",
-  nameplateShowAll = "0" }
+  nameplateShowAll = "0", SpellQueueWindow = "400" }
 local CVAR_DEFAULTS = { nameplateShowFriends = "0", nameplateShowEnemies = "1", nameplateShowAll = "0" }
 function GetCVar(name)
   local v = M.cvars[name]

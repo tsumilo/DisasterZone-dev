@@ -251,6 +251,9 @@ local KNOWN_MESSAGES = {
     -- Core/SwingTimer.lua: SWING_STATE (active) on/off for this character, SWING_VALUES the sim's damage values,
     -- SWING_REPORT (report) a fight ended
     SWING_STATE = true, SWING_VALUES = true, SWING_REPORT = true,
+    -- Core/SwingPractice.lua: SWING_PRACTICE ("start", lesson | "stop", reason, result), SWING_PRACTICE_KEYS (keys
+    -- changed), SWING_PRACTICE_CAST (spell) a practice press went off, SWING_PRACTICE_SWING (kind) a swing graded
+    SWING_PRACTICE = true, SWING_PRACTICE_KEYS = true, SWING_PRACTICE_CAST = true, SWING_PRACTICE_SWING = true,
     -- Core/ClassKit.lua: the player's spec may have changed (class tools re-check ClassKit:IsMine)
     CLASSKIT_CHANGED = true,
     -- Core/Blessings.lua: the blessings plan, a paladin, or who has which blessing changed

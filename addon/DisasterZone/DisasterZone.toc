@@ -106,6 +106,7 @@ Core\Threat.lua
 Core\MeterDemo.lua
 Core\ClassKit.lua
 Core\SwingTimer.lua
+Core\SwingPractice.lua
 Core\Blessings.lua
 Core\Totems.lua
 Core\RaidNights.lua
@@ -224,6 +225,7 @@ UI\MeterTheme.lua
 UI\MeterPanels.lua
 UI\MeterDetail.lua
 UI\SwingTimerHUD.lua
+UI\SwingPracticeUI.lua
 UI\BlessingsUI.lua
 UI\BarFace.lua
 UI\BlessingsBar.lua

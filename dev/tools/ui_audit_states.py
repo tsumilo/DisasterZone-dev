@@ -164,6 +164,8 @@ def close_all(cl):
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
+      if ns.SwingPractice and ns.SwingPractice.run then pcall(ns.SwingPractice.Stop, ns.SwingPractice, 'closed') end
+      if DisasterZoneSwingPractice then DisasterZoneSwingPractice:Hide() end
       if ns.NavMenu and ns.NavMenu.Close then pcall(ns.NavMenu.Close, ns.NavMenu) end
       if ns.EventBuilder and ns.EventBuilder.StopPractice then pcall(ns.EventBuilder.StopPractice, ns.EventBuilder) end
       if ns.EventLive and ns.EventLive.StopPractice then pcall(ns.EventLive.StopPractice, ns.EventLive) end
@@ -1016,6 +1018,40 @@ SWING_HUD = ("__MOCK.real_geometry = true; __MOCK.swing_speed = 3.5; "
              "ST:Recent()[i] = { t = 0, kind = k } end; ns.SwingTimerHUD:Update()")
 
 
+# Twist practice: Gina as a Ret paladin with keys on her bars, some lessons done.
+PRACTICE = (SWING_HUD.replace("ST.state.seal = 'soc'; ST.state.last = GetTime() - %s; ST.state.sealExpires = GetTime() + 22; ", "")
+            .replace("ns.SwingTimerHUD:Update()", "")
+            .replace("ns.DB:SetSetting('swing.idle', true); ", "").replace("STYLE", "bar") +
+            "__MOCK.swing_speed = 3.6; __MOCK.actions[2] = { 'spell', 20375 }; __MOCK.actions[3] = { 'spell', 31892 }; "
+            "__MOCK.actions[1] = { 'spell', 35395 }; __MOCK.actions[4] = { 'spell', 20271 }; "
+            "__MOCK.bindings = { { 'ACTIONBUTTON1', '1' }, { 'ACTIONBUTTON2', '2' }, { 'ACTIONBUTTON3', '3' }, "
+            "{ 'ACTIONBUTTON4', 'SHIFT-E' } }; "
+            "local me = UnitName('player') .. '-' .. GetRealmName(); "
+            "ns.DB:SetSetting('swing.practice.best', { [me] = { twist = { stars = 3, grade = 0.97, score = 900 }, "
+            "command = { stars = 2, grade = 0.86, score = 1100 } } }); ")
+# ... played into lesson 3 by a near-perfect player until the ring sits in the twist window with a word showing
+PRACTICE_PLAY = PRACTICE + (
+    "ns.MainFrame:Close(); local SP, ST = ns.SwingPractice, ns.SwingTimer; SP:Start('strike'); "
+    "local pressed = {}; local swings = 0; "
+    "for i = 1, 4000 do __MOCK.now = __MOCK.now + 0.01; SP:_Advance(); "
+    "  if GetTime() >= SP.run.go then local cur = ST:Current(); local f = cur and cur.plan.steps[1]; "
+    "    if f and f.key ~= 'wait' and f.at <= GetTime() + 0.001 and pressed[f.key] ~= f.at then pressed[f.key] = f.at; "
+    "      if not (f.key == 'sob' and #SP.run.results == 2) then SP:Press(f.key) end end "
+    "    if #SP.run.results >= 4 and f and f.key == 'sob' and f.twist and GetTime() >= f.at + 0.1 then break end end end; "
+    "ns.SwingTimerHUD:Update(); local o = ns.SwingPracticeUI:Overlay(); o.popAt = GetTime() - 0.2; "
+    "o.pop:SetText('Perfect  |cffffd27ax3|r'); o.pop:SetTextColor(1, 0.82, 0.25); o.popSub:SetText(''); "
+    "ns.SwingPracticeUI:UpdateOverlay(o)")
+PRACTICE_RESULT = PRACTICE + (
+    "ns.MainFrame:Close(); local SP = ns.SwingPractice; "
+    "local res = { lesson = 'strike', n = 3, title = 'Crusader Strike', score = 1480, ideal = 1650, grade = 0.897, "
+    "stars = 2, expected = 10, twists = 8, swings = 10, bestStreak = 5, ghostCs = 6, ghostJudge = 0, done = true, newBest = true, "
+    "counts = { twist = 8, perfect = 6, early = 1, late = 0, miss = 0, clip = 1, nocmd = 0, cs = 5, judge = 0 }, "
+    "offsets = { { d = -0.31, kind = 'perfect' }, { d = -0.22, kind = 'perfect' }, { d = -0.55, kind = 'early' }, "
+    "{ d = -0.27, kind = 'perfect' }, { d = -0.03, kind = 'twist' }, { d = -0.18, kind = 'perfect' }, "
+    "{ d = -0.36, kind = 'twist' }, { d = -0.25, kind = 'perfect' }, { d = -0.29, kind = 'perfect' } } }; "
+    "ns.SwingPracticeUI:ShowResult(res); local r = DisasterZoneSwingPractice.content and nil; "
+    "__MOCK.now = __MOCK.now + 2; ns.SwingPracticeUI:AnimateResult(ns.SwingPracticeUI:Frame().result)")
+
 TIP_ITEM = ("local it = ns.Prized:GetItems()[1]; local id = it and it.ids[1] or 32385; "
             "local sid = ns.ItemDB:GetSlotsForItem(id)[1]; if sid then ns.BiS:SetSlot(1, sid, 'main', id) end; "
             "ns.Tooltip:Invalidate(); GameTooltip:SetOwner(UIParent, 'ANCHOR_NONE'); GameTooltip:ClearAllPoints(); "
@@ -1477,6 +1513,9 @@ STATES = [
     ("Swing timer - both, in the zone", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Swing timer - bar, early swing", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
     ("Swing timer - lane", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "2.0").replace("STYLE", "lane"))),
+    ("Swing practice - lessons", opened("home", PRACTICE + "ns.MainFrame:Close(); ns.SwingPracticeUI:Open()")),
+    ("Swing practice - in play", opened("home", PRACTICE_PLAY)),
+    ("Swing practice - result", opened("home", PRACTICE_RESULT)),
     ("Settings - Window", opened("settings", "ns.SettingsUI:SelectSection('window')")),
     ("Settings - Meters", opened("settings", "ns.SettingsUI:SelectSection('meters')")),
     ("Settings - Meters look", opened("settings", "ns.DB:SetSetting('meters.dmg', true); ns.SettingsUI:SelectSection('meters'); "
