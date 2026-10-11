@@ -379,7 +379,7 @@ function Seg:Paint(instant)
     local th = self.thumb
     th:SetShown(sel ~= nil)
     local r, g, bl = S:Color(self.accent)
-    if th.SetPillColors then
+    if self.look == "pill" then          -- (not th.SetPillColors: the harness answers any Set* method)
         th:SetPillColors({ 0.04 + r * 0.13, 0.04 + g * 0.13, 0.05 + bl * 0.13, 1 }, { r, g, bl, 0.4 })
     else
         UI:Gradient(th.fill, "VERTICAL", { r * 0.27, g * 0.25, bl * 0.25 + 0.03, 0.95 },
