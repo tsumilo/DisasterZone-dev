@@ -21,6 +21,23 @@ local floor, abs, min, max, sqrt = math.floor, math.abs, math.min, math.max, mat
 local sin, cos, pi = math.sin, math.cos, math.pi
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 
+-- An actor's box (GetActiveBoundingBox / GetMaxBoundingBox, fn) as pcall's answer with six numbers: the client gives six
+-- numbers in practice, two vectors by the docs (min, max), read both ways (as Games/Trainer/UI.lua and
+-- Render3D/Probe.lua do). Phase 4 of the 1.4 refactor moves this to one shared reader.
+local function BoxVec(v)
+    if v.GetXYZ then return v:GetXYZ() end
+    return v.x, v.y, v.z
+end
+local function ActorBox(a, fn)
+    local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
+    if ok and type(x0) == "table" and type(y0) == "table" then
+        local lo, hi = x0, y0
+        ok, x0, y0, z0 = pcall(BoxVec, lo)
+        if ok then ok, x1, y1, z1 = pcall(BoxVec, hi) end
+    end
+    return ok, x0, y0, z0, x1, y1, z1
+end
+
 local ROOM_REF = "Karazhan:Chess"
 local O = { x = 31.170034, y = 6.880391 }     -- a1's middle, room yards
 local COL = { x = 4.4, y = 3.49 }             -- one file to the right (white's view)
@@ -584,7 +601,7 @@ function View:Occluders()
     local function add(a, id)
         if not a or not a.x then return end
         if not a.bb and a.loadedOnce and a.GetActiveBoundingBox then
-            local ok, x0, y0, z0, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
+            local ok, x0, y0, z0, x1, y1, z1 = ActorBox(a, a.GetActiveBoundingBox)
             if ok and type(z1) == "number" and z1 > (z0 or 0) then
                 a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z1 = z1 }
             end

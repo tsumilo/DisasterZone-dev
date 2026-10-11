@@ -15,6 +15,23 @@ ns.Render3D = R3
 
 local cos, sin, abs = math.cos, math.sin, math.abs
 
+-- An actor's box (GetActiveBoundingBox / GetMaxBoundingBox, fn) as pcall's answer with six numbers: the client gives six
+-- numbers in practice, two vectors by the docs (min, max), read both ways (as Games/Trainer/UI.lua and
+-- Render3D/Probe.lua do). Phase 4 of the 1.4 refactor moves this to one shared reader.
+local function BoxVec(v)
+    if v.GetXYZ then return v:GetXYZ() end
+    return v.x, v.y, v.z
+end
+local function ActorBox(a, fn)
+    local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
+    if ok and type(x0) == "table" and type(y0) == "table" then
+        local lo, hi = x0, y0
+        ok, x0, y0, z0 = pcall(BoxVec, lo)
+        if ok then ok, x1, y1, z1 = pcall(BoxVec, hi) end
+    end
+    return ok, x0, y0, z0, x1, y1, z1
+end
+
 -- Frame levels above the parent's own. The room's cluster frames take room0 .. room0 + 199 (Room.lua), all under the
 -- single ModelScene; the copies of the room that hide the models sit just above it (copy0 ..); plates and labels
 -- above all that, then whatever the caller lays over the view (arena, hud, focus, overlay: the trainer's).
@@ -256,7 +273,7 @@ function View:CentreShift(a, scale, facing)
     if not (a and a.IsUsingCenterForOrigin) then return 0, 0 end
     local ok, ux, uy = pcall(a.IsUsingCenterForOrigin, a)
     if not ok or not (ux or uy) then return 0, 0 end
-    local okb, x0, y0, _, x1, y1 = pcall(a.GetActiveBoundingBox, a)
+    local okb, x0, y0, _, x1, y1 = ActorBox(a, a.GetActiveBoundingBox)
     if not okb or type(x1) ~= "number" or type(y1) ~= "number" then return 0, 0 end
     local cx, cy = ux and (x0 + x1) / 2 * scale or 0, uy and (y0 + y1) / 2 * scale or 0
     local c, s = cos(facing), sin(facing)                -- (the model keeps its handedness: a plain turn)

@@ -32,6 +32,23 @@ local function MapUI() return ns.StrategyMapUI end
 local function UI() return ns.UI end
 local function SO() return ns.StrategyObjects end
 
+-- An actor's box (GetActiveBoundingBox / GetMaxBoundingBox, fn) as pcall's answer with six numbers: the client gives six
+-- numbers in practice, two vectors by the docs (min, max), read both ways (as Games/Trainer/UI.lua and
+-- Render3D/Probe.lua do). Phase 4 of the 1.4 refactor moves this to one shared reader.
+local function BoxVec(v)
+    if v.GetXYZ then return v:GetXYZ() end
+    return v.x, v.y, v.z
+end
+local function ActorBox(a, fn)
+    local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
+    if ok and type(x0) == "table" and type(y0) == "table" then
+        local lo, hi = x0, y0
+        ok, x0, y0, z0 = pcall(BoxVec, lo)
+        if ok then ok, x1, y1, z1 = pcall(BoxVec, hi) end
+    end
+    return ok, x0, y0, z0, x1, y1, z1
+end
+
 -- Frame levels above the 3D frame's own (Render3D/View.lua puts the room, the scene and the plate frame there): the
 -- room's cluster frames take room0 .. scene - 1 (more than the trainer's: Gorefiend's Vigil needs over 200), the
 -- copies over the models copy0 .. copy0 + 31, the plates plates + 1 .. plates + CHIP_LEVELS (the nearest highest);
@@ -910,7 +927,7 @@ function V:DrawModels()
                     -- holds every animation and is far too big, Kil'jaeden's +-48 yd)
                     local fn = (not g.parts and a.GetActiveBoundingBox) or a.GetMaxBoundingBox or a.GetActiveBoundingBox
                     local ok, x0, y0, z0, x1, y1, z1 = false, nil, nil, nil, nil, nil, nil
-                    if fn then ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a) end
+                    if fn then ok, x0, y0, z0, x1, y1, z1 = ActorBox(a, fn) end
                     if ok and type(z1) == "number" and type(z0) == "number" and z1 > z0 and x1 > x0 then
                         a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z0 = min(0, z0), z1 = z1,
                             x0 = x0, y0 = y0, x1 = x1, y1 = y1 }
@@ -1591,7 +1608,7 @@ function V:ModelCentre(a, display)
             local use = mode
             local fn = (use == "max") and a.GetMaxBoundingBox or a.GetActiveBoundingBox
             local ok, x0, y0, _, x1, y1 = false, nil, nil, nil, nil, nil
-            if fn then ok, x0, y0, _, x1, y1 = pcall(fn, a) end
+            if fn then ok, x0, y0, _, x1, y1 = ActorBox(a, fn) end
             if ok and type(x1) == "number" and type(y1) == "number" and x1 > x0 then
                 a.ctr, a.ctrMode, a.ctrUsed = { (x0 + x1) / 2, (y0 + y1) / 2 }, mode, use
             end
@@ -1616,7 +1633,7 @@ function M3:Report()
         local g = v:Geo(e)
         local function box(fn)
             if not fn then return "-" end
-            local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
+            local ok, x0, y0, z0, x1, y1, z1 = ActorBox(a, fn)
             if not ok or type(x0) ~= "number" then return "-" end
             return string.format("%.2f %.2f %.2f / %.2f %.2f %.2f", x0, y0, z0, x1, y1, z1)
         end

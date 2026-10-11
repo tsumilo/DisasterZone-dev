@@ -483,6 +483,36 @@ def the_hall_in_3d_puts_every_square_on_the_floor_and_shows_a_capture():
 
 
 @case
+def a_pieces_box_in_the_vector_form_reads_like_six_numbers():
+    # The client documents GetActiveBoundingBox as two vectors (min, max) and answers six numbers in practice: a
+    # piece's occluder box (Games/Chess/Board3D.lua View:Occluders) is read from either.
+    import harness  # noqa: E402
+    old = harness.LOAD_ROOMS
+    harness.LOAD_ROOMS = True
+    try:
+        w, c = boot()
+        c.eval("ns.MainFrame:Open('games') ns.GamesUI:Select('chess')")
+        w.tick(1)
+        assert c.eval_py("return ns.ChessUI:_State()")["has3d"] is True
+        bb = c.eval_py("""
+            local B = ns.ChessUI._Board3D()
+            local function vec(x, y, z) return { GetXYZ = function() return x, y, z end } end
+            local function six() return -1, -2, 0, 0.5, 1.5, 3 end
+            local function two() return vec(-1, -2, 0), vec(0.5, 1.5, 3) end
+            local out = {}
+            for i, fn in ipairs({ six, two }) do
+                local a = { x = 1, y = 1, z = 0, scale = 1, loadedOnce = true, GetActiveBoundingBox = fn }
+                B.Occluders({ occ = {}, actors = { a }, anims = {} })
+                out[i] = a.bb and { a.bb.r, a.bb.z1 } or false
+            end
+            return out""")
+        assert bb[0] == [2, 3] and bb[1] == bb[0], bb
+        no_errors(w)
+    finally:
+        harness.LOAD_ROOMS = old
+
+
+@case
 def the_hub_has_a_chess_poster_with_what_waits_for_you():
     w, c = boot()
     c.eval("ns.MainFrame:Open('games')")
