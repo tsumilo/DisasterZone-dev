@@ -18,7 +18,7 @@ local floor, min, max, sqrt, cos, sin, pi, abs = math.floor, math.min, math.max,
     math.abs
 local type, pairs, ipairs, tostring = type, pairs, ipairs, tostring
 
-local SIDE_W = 200             -- the list on the right (the art stops at its edge)
+local SIDE_W = 220             -- the list on the right (the art stops at its edge)
 local GLIDE = 2.0               -- s a guildmate's dot takes to glide to where they were last heard (about the stream's
                                -- rate, so a walker moves steadily instead of hopping)
 local CLUSTER_PX = 16          -- dots closer than this on a continent are one crowd
@@ -39,7 +39,12 @@ local function SetSkull(tex, raid)
     end
 end
 local GOLD = S.C.GOLD
-local PAGE_BG = { 0.055, 0.055, 0.067 }   -- the list's strip, the crumb and the region tag (the map's own slate)
+local ROW_X = 10                -- the list's rows: their text inset
+local LIST_BAR = 10             -- the side card's scroll bar lane
+local LIST_W = SIDE_W - 2 * S.IN - LIST_BAR   -- the list's rows
+local FOOT_H = 20               -- the quiet line under the list ("9 online aren't sharing")
+local ASK_W, ASK_H = 420, 312   -- the card that asks first
+local ASK_OPT_Y, OPT_H = 44, 44 -- its two ways to share (from its body's top)
 
 local panel
 local state = { cont = 1945, zone = nil, hot = nil }
@@ -47,10 +52,8 @@ local GM = function() return ns.GuildMap end
 
 local function UI() return ns.UI end
 
--- A text over the map art: on the type scale (UI:Text), with the game's 1 px shadow.
-local function Text(parent, style, color, layer)
-    return UI():Text(parent, style or "small", color, { layer = layer, shadow = true })
-end
+-- (a text over the map art: the game's 1 px shadow)
+local ON_ART = { shadow = true }
 
 local function Disc(parent, layer, size, r, g, b, a, sub)
     local t = parent:CreateTexture(nil, layer, nil, sub)
@@ -322,7 +325,7 @@ local function NewPin(v)
     b.outer:SetPoint("CENTER")
     b.mid = Disc(b, "ARTWORK", 21, 0.05, 0.05, 0.06, 0.96, 5)
     b.mid:SetPoint("CENTER")
-    b.count = Text(b, "emph", "TEXT")
+    b.count = UI():Text(b, "emph", "TEXT", ON_ART)
     b.count:SetPoint("CENTER", 0.5, 0)
     b.skull = b:CreateTexture(nil, "OVERLAY")
     b.skull:SetTexture(SKULL)
@@ -337,11 +340,11 @@ local function NewPin(v)
     b.badgeEdge:SetPoint("CENTER")
     b.badge = Disc(b.badgeFrame, "ARTWORK", 15, GOLD[1], GOLD[2], GOLD[3], 1, 1)
     b.badge:SetPoint("CENTER")
-    b.badgeText = Text(b.badgeFrame, "small")
+    b.badgeText = UI():Text(b.badgeFrame, "small", nil, ON_ART)
     b.badgeText:SetTextColor(0.08, 0.08, 0.08)
     UI():SetCountFont(b.badgeText, 15)
     b.badgeText:SetPoint("CENTER", 0.5, 0)
-    b.under = Text(b, "small", { 0.94, 0.9, 0.78 })
+    b.under = UI():Text(b, "small", { 0.94, 0.9, 0.78 }, ON_ART)
     b.under:SetPoint("TOP", b, "BOTTOM", 0, -2)
     -- me: the game's arrow in a thin gold ring, a fainter one around it
     b.halo = Disc(b, "BACKGROUND", 30, GOLD[1], GOLD[2], GOLD[3], 0.1, 2)
@@ -351,7 +354,7 @@ local function NewPin(v)
     b.arrow:SetSize(24, 24)
     b.arrow:SetPoint("CENTER")
     -- a name by the dot (in a zone)
-    b.label = Text(b, "body")
+    b.label = UI():Text(b, "body", nil, ON_ART)
     b:SetScript("OnEnter", function(self)
         PinTooltip(self)
         local d = self.data
@@ -477,26 +480,20 @@ end
 -- The list on the right
 ---------------------------------------------------------------------------
 
--- A zone's row in the list (UI:Pool): the gold bar while its pins are hovered, a hairline above (not on the first),
--- a skull for an instance, the name and count, an instance's zone, the people.
+-- A zone's row in the list (UI:Pool): the shared row looks (the hover; the picked look while its pins are hovered; a
+-- hairline under it), a skull for an instance, the name and count, an instance's zone, the people.
 local function NewListRow(parent)
     local r = CreateFrame("Button", nil, parent)
-    UI():DecorateRow(r, {})
-    r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetColorTexture(S:Color("SELECT_BAR"))
-    r.bar:SetWidth(2)
-    r.bar:SetPoint("TOPLEFT", 0, -7)
-    r.bar:SetPoint("BOTTOMLEFT", 0, 8)
-    r.line = UI():Rule(r, { left = 10, alpha = 0.06 })
+    UI():DecorateRow(r, { selectable = true, rule = true })
     r.icon = r:CreateTexture(nil, "OVERLAY")
     r.icon:SetTexture(SKULL)
     r.icon:SetTexCoord(0, 0.5, 0, 0.5)
     r.icon:SetSize(13, 13)
-    r.icon:SetPoint("TOPLEFT", 10, -7)
-    r.name = Text(r, "emph", "TEXT")
-    r.count = Text(r, "body", "SUB")
-    r.count:SetPoint("TOPRIGHT", 0, -7)
-    r.sub = Text(r, "small", "DIM")
+    r.icon:SetPoint("TOPLEFT", ROW_X, -7)
+    r.name = UI():Text(r, "emph", "TEXT", ON_ART)
+    r.count = UI():Text(r, "body", "SUB", ON_ART)
+    r.count:SetPoint("TOPRIGHT", -4, -7)
+    r.sub = UI():Text(r, "small", "DIM", ON_ART)
     r.people = UI():Text(r, "body", "TEXT", { wrap = true, shadow = true })
     r.people:SetJustifyV("TOP")
     r.people:SetSpacing(2)
@@ -510,76 +507,75 @@ end
 -- The page
 ---------------------------------------------------------------------------
 
--- The art's room: the view less the list.
+-- The art's room: the map card (the board's body).
 local function ViewSize(p)
-    local W, H = p.view:GetWidth() or 0, p.view:GetHeight() or 0
-    if W < 100 then W = 790 end
-    if H < 100 then H = 516 end   -- (the page is about 790 x 550 under the nav strip)
-    return W - SIDE_W, H
+    local W, H = p.art:GetWidth() or 0, p.art:GetHeight() or 0
+    if W < 100 then W = S.INNER_W - SIDE_W - S.GAP - 2 end
+    if H < 100 then H = S.PAGE_H - UI().LAYOUT.TOP - UI().LAYOUT.BOTTOM - 2 end
+    return W, H
 end
 
-local function OptionRow(card, mode, title, desc, y)
-    local r = CreateFrame("Button", nil, card)
-    r:SetHeight(44)
-    r:SetPoint("TOPLEFT", 22, -y)
-    r:SetPoint("TOPRIGHT", -22, -y)
-    r.bg = UI():Fill(r, "QUIET")
-    UI():AddEdges(r, "BORDER")
+-- One way to share on the asking card: a row with the shared looks (picked: the gold wash and bar), a radio dot, the
+-- title and what it means.
+local function OptionRow(parent, mode, title, desc, y)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetHeight(OPT_H)
+    r:SetPoint("TOPLEFT", 0, -y)
+    r:SetPoint("TOPRIGHT", 0, -y)
+    UI():DecorateRow(r, { selectable = true, rule = true })
     r.dot = Disc(r, "ARTWORK", 13, 0.47, 0.47, 0.5, 1)
     r.dot:SetPoint("LEFT", 12, 0)
     r.dotIn = Disc(r, "ARTWORK", 10, 0.1, 0.1, 0.11, 1, 1)
     r.dotIn:SetPoint("CENTER", r.dot)
     r.pick = Disc(r, "ARTWORK", 6, GOLD[1], GOLD[2], GOLD[3], 1, 2)
     r.pick:SetPoint("CENTER", r.dot)
-    r.title = Text(r, "emph", "TEXT")
+    r.title = UI():Text(r, "emph", "TEXT", ON_ART)
     r.title:SetPoint("TOPLEFT", 36, -8)
     r.title:SetText(title)
-    r.desc = Text(r, "small", "SUB")
+    r.desc = UI():Text(r, "small", "SUB", ON_ART)
     r.desc:SetPoint("TOPLEFT", 36, -25)
     r.desc:SetText(desc)
     r.mode = mode
     r:SetScript("OnClick", function()
-        card.choice = mode
+        parent.card.choice = mode
         GuildMapUI:PaintCard()
     end)
     return r
 end
 
-local function CreateCard(p)
-    local veil = CreateFrame("Frame", nil, p.view)
-    veil:SetAllPoints()
-    veil:SetFrameLevel(p.view:GetFrameLevel() + 30)
+-- Not sharing: the map dims under a card that asks first, a tool window's layout (UI:CreateLayout "tool": its banner
+-- asks, the body has the two ways to share and Share as its action).
+local function CreateAskCard(p, over)
+    local veil = CreateFrame("Frame", nil, p)
+    veil:SetAllPoints(over)
+    veil:SetFrameLevel(p:GetFrameLevel() + 30)
     veil:EnableMouse(true)
     veil.bg = UI():Fill(veil, { 0.04, 0.04, 0.05, 0.72 })
-    -- the card asking first: the dropdowns' solid slate with a strong edge (it floats over the dimmed map)
-    local card = CreateFrame("Frame", nil, veil)
-    card:SetSize(400, 262)
+    local card = UI():CreateCard(veil, { tone = "card", pad = 0 })
+    card:SetSize(ASK_W, ASK_H)
     card:SetPoint("CENTER")
-    card.bg = UI():Fill(card, "DROP_BG")
-    UI():AddEdges(card, "BORDER")
-    UI():SetEdgeColor(card, S:Color("EDGE_STRONG"))
-    card.kick = Text(card, "caps", "GOLD")
-    card.kick:SetPoint("TOPLEFT", 22, -20)
-    card.kick:SetText("GUILD MAP")
-    card.title = Text(card, "page", "TEXT")
-    card.title:SetPoint("TOPLEFT", 22, -36)
-    card.title:SetText("Show your guild where you are?")
-    card.text = UI():Text(card, "body", "SUB", { wrap = true, shadow = true })
-    card.text:SetPoint("TOPLEFT", 22, -60)
-    card.text:SetPoint("RIGHT", -22, 0)
+    local L = UI():CreateLayout("tool", card.body, { width = ASK_W, banner = { kicker = "Guild map",
+        title = "Show your guild where you are?", icon = 7 } })
+    card.layout = L
+    local body = L.body
+    body.card = card
+    card.text = UI():Text(body, "body", "SUB", { wrap = true, shadow = true })
+    card.text:SetPoint("TOPLEFT", 0, 0)
+    card.text:SetPoint("RIGHT", 0, 0)
+    card.text:SetJustifyH("LEFT")
     card.text:SetText("Only guildmates who share see each other. Pick how much of you they see; the eye at the top "
         .. "right changes it any time.")
     card.opts = {
-        OptionRow(card, "zone", "Zone only", "\"In Nagrand\". No dot, no exact spot.", 98),
-        OptionRow(card, "exact", "Exact spot", "A dot that moves with you, every few seconds.", 148),
+        OptionRow(body, "zone", "Zone only", "\"In Nagrand\". No dot, no exact spot.", ASK_OPT_Y),
+        OptionRow(body, "exact", "Exact spot", "A dot that moves with you, every few seconds.", ASK_OPT_Y + OPT_H + 6),
     }
-    card.note = Text(card, "small", "DIM")
-    card.note:SetPoint("BOTTOMLEFT", 22, 24)
+    card.note = UI():Text(body, "small", "DIM", ON_ART)
+    card.note:SetPoint("BOTTOMLEFT", 0, 6)
     card.note:SetText("Always hidden in battlegrounds and arenas.")
-    card.share = UI():CreateSleekButton(card, "Share", 84, S.BTN_H, function()
+    card.share = UI():CreateSleekButton(body, "Share", 84, S.BTN_H, function()
         GM():SetShare(card.choice or "exact")
     end, "primary")
-    card.share:SetPoint("BOTTOMRIGHT", -22, 18)
+    card.share:SetPoint("BOTTOMRIGHT", 0, 0)
     card.choice = "exact"
     p.veil, p.card = veil, card
 end
@@ -589,8 +585,7 @@ function GuildMapUI:PaintCard()
     if not card then return end
     for _, r in ipairs(card.opts) do
         local on = r.mode == card.choice
-        r.bg:SetColorTexture(on and GOLD[1] or 1, on and GOLD[2] or 1, on and GOLD[3] or 1, on and 0.06 or 0.03)
-        UI():SetEdgeColor(r, on and GOLD[1] or 1, on and GOLD[2] or 1, on and GOLD[3] or 1, on and 0.45 or 0.06)
+        r:SetSelected(on)
         r.dot:SetVertexColor(on and GOLD[1] or 0.47, on and GOLD[2] or 0.47, on and GOLD[3] or 0.5, 1)
         r.pick:SetShown(on)
     end
@@ -620,8 +615,8 @@ function GuildMapUI:CreatePanel(parent)
     p:SetAllPoints(parent)
     panel = p
     -- a Board page: the toolbar (the continent tabs, the eye as its filter, the world map dots in its more menu); the
-    -- map under it runs to the page's edges (full bleed: the body's margins are not used)
-    local L = UI():CreateLayout("board", p, { bottom = 0 })
+    -- map in an inset card as the board's body, the people by zone in its side card
+    local L = UI():CreateLayout("board", p, { side = SIDE_W })
     p.layout = L
     local bar = L.toolbar
     local items, byKey = {}, {}
@@ -641,32 +636,22 @@ function GuildMapUI:CreatePanel(parent)
     p.more = bar:SetMore(MoreMenu)
     p.eye = UI():CreateTipIconButton(bar, S.BTN_H, UI().ICON.eye, "Sharing", nil, function(self) ShareMenu(self) end)
     bar:SetFilters({ p.eye })
-    L.content:Hide()
 
-    -- the map: the art (left of the list, clipped to it), its region highlight, the pins; the list on the right
-    local view = CreateFrame("Frame", nil, p)
-    view:SetPoint("TOPLEFT", L, "TOPLEFT", 0, -L.y0)
-    view:SetPoint("BOTTOMRIGHT", L, "BOTTOMRIGHT", 0, 0)
-    p.view = view
-    local art = CreateFrame("Frame", nil, view)
-    art:SetPoint("TOPLEFT")
-    art:SetPoint("BOTTOMRIGHT", -SIDE_W, 0)
+    -- the map: the art (clipped to its card), its region highlight, the pins
+    local mapCard = UI():CreateCard(L.body, { tone = "inset", pad = 1 })
+    mapCard:SetAllPoints(L.body)
+    p.view = mapCard
+    local art = CreateFrame("Frame", nil, mapCard.body)
+    art:SetAllPoints(mapCard.body)
     if art.SetClipsChildren then art:SetClipsChildren(true) end
     art:EnableMouse(true)
     p.art = art
-    p.solid = view:CreateTexture(nil, "BACKGROUND")
-    p.solid:SetColorTexture(PAGE_BG[1], PAGE_BG[2], PAGE_BG[3], 1)
-    p.solid:SetPoint("TOPLEFT", art, "TOPRIGHT")
-    p.solid:SetPoint("BOTTOMRIGHT")
-    p.sideEdge = UI():Rule(view, { vertical = true, layer = "BORDER" })
-    p.sideEdge:ClearAllPoints()
-    p.sideEdge:SetPoint("TOPLEFT", p.solid, "TOPLEFT")
-    p.sideEdge:SetPoint("BOTTOMLEFT", p.solid, "BOTTOMLEFT")
     -- the region under the cursor: the game's own highlight art, and its name
     p.hl = art:CreateTexture(nil, "BORDER")
     p.hl:SetBlendMode("ADD")
     p.hl:SetAlpha(0.45)
     p.hl:Hide()
+    -- (the art fades into the card at its edges, as the game's map frame does)
     p.vig = {}
     for i, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
         local t = art:CreateTexture(nil, "ARTWORK")
@@ -687,15 +672,11 @@ function GuildMapUI:CreatePanel(parent)
     p.pinLayer = CreateFrame("Frame", nil, art)
     p.pinLayer:SetAllPoints()
     p.pinLayer:SetFrameLevel(art:GetFrameLevel() + 2)
-    p.tag = CreateFrame("Frame", nil, art)
-    p.tag:SetHeight(22)
+    -- the hovered region's name (and how many are in it): a chip at the top of the map
+    p.tag = UI():CreateChip(art, { kind = "track" })
     p.tag:SetPoint("TOP", 0, -10)
     p.tag:SetFrameLevel(art:GetFrameLevel() + 20)
-    p.tag.bg = UI():Fill(p.tag, { PAGE_BG[1], PAGE_BG[2], PAGE_BG[3], 0.86 })
-    UI():AddEdges(p.tag, "BORDER")
-    UI():SetEdgeColor(p.tag, 1, 1, 1, 0.09)
-    p.tag.text = Text(p.tag, "emph", "TEXT")
-    p.tag.text:SetPoint("CENTER", 0, 0)
+    p.tag.text = p.tag.fs
     p.tag:Hide()
     art:SetScript("OnUpdate", function(self, elapsed)
         self.look = (self.look or 0) + (elapsed or 0)
@@ -711,43 +692,29 @@ function GuildMapUI:CreatePanel(parent)
             GuildMapUI:ShowZone(state.region)
         end
     end)
-    p.crumb = CreateFrame("Button", nil, art)
-    p.crumb:SetHeight(24)
-    p.crumb:SetPoint("TOPLEFT", 12, -10)
+    -- in a zone, the way up (continent › zone › here) as a chip at the top left: a click goes up one step
+    p.crumb = UI():CreateChip(art, { kind = "track", onClick = function() GuildMapUI:ZoomOut() end })
+    p.crumb:SetPoint("TOPLEFT", 10, -10)
     p.crumb:SetFrameLevel(art:GetFrameLevel() + 20)
-    p.crumb.bg = UI():Fill(p.crumb, { PAGE_BG[1], PAGE_BG[2], PAGE_BG[3], 0.88 })
-    UI():AddEdges(p.crumb, "BORDER")
-    UI():SetEdgeColor(p.crumb, 1, 1, 1, 0.09)
-    p.crumb.chev = p.crumb:CreateTexture(nil, "ARTWORK")
-    p.crumb.chev:SetSize(10, 10)
-    p.crumb.chev:SetPoint("LEFT", 8, 0)
-    UI():SetChevron(p.crumb.chev, false)
-    p.crumb.chev:SetVertexColor(S:Color("SUB"))
-    p.crumb.text = Text(p.crumb, "emph", "TEXT")
-    p.crumb.text:SetPoint("LEFT", 22, 0)
-    p.crumb:SetScript("OnClick", function() GuildMapUI:ZoomOut() end)
+    p.crumb.text = p.crumb.fs
+    UI():AttachTooltip(p.crumb, "Up one step", "Right-click the map does the same.")
 
-    -- the list: a scroll frame over the solid strip (its bar inside the strip's right margin)
-    p.list = UI():CreateScrollFrame(view)
-    p.list:SetPoint("TOPRIGHT", -14, -10)
-    p.list:SetPoint("BOTTOMRIGHT", -14, 30)
-    p.list:SetWidth(SIDE_W - 14)
-    p.list:SetFrameLevel(view:GetFrameLevel() + 10)
+    -- the list: a scroll frame in the side card (its bar in the card's right margin), the quiet line under it
+    local side = L.side.body
+    p.list = UI():CreateScrollFrame(side)
+    p.list:SetPoint("TOPLEFT", side, "TOPLEFT", 0, 0)
+    p.list:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", -LIST_BAR, FOOT_H)
     p.listChild = CreateFrame("Frame", nil, p.list)
-    p.listChild:SetSize(SIDE_W - 14, 10)
+    p.listChild:SetSize(LIST_W, 10)
     p.list:SetScrollChild(p.listChild)
     p.rowPool = UI():Pool(p.listChild, NewListRow)
     p.rows = p.rowPool.items
-    p.foot = Text(view, "small", "DIM")
-    p.foot:SetPoint("BOTTOMRIGHT", -14, 12)
-    p.foot:SetWidth(SIDE_W - 28)
-    -- nobody here: the shared empty state, small, at the top of the list
-    p.empty = UI():CreateEmptyState(view, { compact = true, glyph = UI().ICON.team, width = SIDE_W - 30 })
-    p.empty:SetPoint("TOP", p.list, "TOP", 0, -24)
-    p.empty:SetFrameLevel(p.list:GetFrameLevel() + 2)
-    p.empty:Hide()
+    p.foot = UI():Text(side, "small", "DIM", ON_ART)
+    p.foot:SetPoint("BOTTOMLEFT", side, "BOTTOMLEFT", ROW_X, 2)
+    p.foot:SetWidth(LIST_W - ROW_X)
 
-    CreateCard(p)
+    -- not sharing: the card that asks first, over the map and the list
+    CreateAskCard(p, L.content)
     self:PaintCard()
 
     p:SetScript("OnShow", function()
@@ -755,7 +722,6 @@ function GuildMapUI:CreatePanel(parent)
         GuildMapUI:Refresh()
     end)
     p:SetScript("OnHide", function() GM():SetViewing(false) end)
-    -- my arrow turns and walks with me; the rest follows GUILDMAP_UPDATED (and a slow look for the "ago"s)
     -- every frame: my arrow walks and turns with me, the others glide; news redraws the map at most every 0.25 s,
     -- and it is looked at again every 2 s anyway (the "ago"s, demo walkers)
     p.lastDraw = 0
@@ -868,8 +834,7 @@ function GuildMapUI:HoverRegion(on)
         local info = Info(m)
         if m == region or (info and info.parentMapID == region) then n = n + 1 end
     end
-    p.tag.text:SetText((name or "") .. (n > 0 and ("  " .. S:Wrap("DIM", "·") .. "  " .. S:Wrap("GOLD", n)) or ""))
-    p.tag:SetWidth(floor((p.tag.text:GetStringWidth() or 100) + 24))
+    p.tag:Set((name or "") .. (n > 0 and ("  " .. S:Wrap("DIM", "·") .. "  " .. S:Wrap("GOLD", n)) or ""))
     p.tag:Show()
 end
 
@@ -1151,8 +1116,7 @@ function GuildMapUI:Refresh()
         end
         table.insert(chain, 1, G:GetMapName(state.cont) or "")
         for i = 1, #chain - 1 do chain[i] = S:Wrap("SUB", chain[i]) end
-        p.crumb.text:SetText(table.concat(chain, "  " .. S:Wrap("DIM", "›") .. "  "))
-        p.crumb:SetWidth(floor((p.crumb.text:GetStringWidth() or 120) + 34))
+        p.crumb:Set(table.concat(chain, "  " .. S:Wrap("DIM", "›") .. "  "))
     end
     self:PaintList()
     local n = G:CountNotSharing()
@@ -1203,7 +1167,7 @@ function GuildMapUI:PaintList()
     local p = panel
     if not p then return end
     local y = 0
-    local w = SIDE_W - 14
+    local w = LIST_W
     p.rowPool:ReleaseAll()
     for i, z in ipairs(p.zones or {}) do
         local r = p.rowPool:Acquire()
@@ -1211,12 +1175,11 @@ function GuildMapUI:PaintList()
         r:SetPoint("TOPLEFT", p.listChild, "TOPLEFT", 0, -y)
         r:SetWidth(w)
         r.zoom = z.zoom
-        r.line:SetShown(i > 1)
-        r.bar:SetShown(state.hot == z.key)
+        r:SetSelected(state.hot == z.key)
         r.icon:SetShown(z.inst)
         if z.inst then SetSkull(r.icon, z.raid) end
         r.name:ClearAllPoints()
-        r.name:SetPoint("TOPLEFT", z.inst and 28 or 10, -7)
+        r.name:SetPoint("TOPLEFT", z.inst and (ROW_X + 18) or ROW_X, -7)
         r.name:SetPoint("RIGHT", r.count, "LEFT", -6, 0)
         r.name:SetText(z.name)
         r.count:SetText(#z.keys)
@@ -1224,7 +1187,7 @@ function GuildMapUI:PaintList()
         r.sub:SetShown(z.sub ~= nil)
         if z.sub then
             r.sub:ClearAllPoints()
-            r.sub:SetPoint("TOPLEFT", 10, -23)
+            r.sub:SetPoint("TOPLEFT", ROW_X, -23)
             r.sub:SetText(z.sub)
             top = 38
         end
@@ -1239,21 +1202,27 @@ function GuildMapUI:PaintList()
             end
         end
         r.people:ClearAllPoints()
-        r.people:SetPoint("TOPLEFT", 10, -top)
-        r.people:SetWidth(w - 10)
+        r.people:SetPoint("TOPLEFT", ROW_X, -top)
+        r.people:SetWidth(w - ROW_X - 4)
         r.people:SetText(table.concat(names, "   "))
         local ph = r.people:GetStringHeight() or 14
         if ph < 12 then ph = 14 end
-        local h = top + ph + 9
+        local h = top + ph + 11
         r:SetHeight(h)
         y = y + h
     end
     p.listChild:SetHeight(max(y, 10))
-    local none = #(p.zones or {}) == 0
-    p.empty:SetShown(none and GM():IsSharing())
-    if none then
-        p.empty:SetContent({ glyph = UI().ICON.team, title = "Nobody here",
-            text = state.zone and "Nobody here right now." or "Nobody who shares is on this continent right now." })
+    -- nobody here: the shared empty state in the side card
+    local none = #(p.zones or {}) == 0 and GM():IsSharing()
+    local text = none and (state.zone and "Nobody here right now." or "Nobody who shares is on this continent right now.")
+    if text ~= p.emptyText then
+        p.emptyText = text
+        if text then
+            p.layout:ShowEmpty({ region = "side", glyph = UI().ICON.team, title = "Nobody here", text = text, y = 24,
+                width = SIDE_W - 30 })
+        else
+            p.layout:HideEmpty()
+        end
     end
 end
 
