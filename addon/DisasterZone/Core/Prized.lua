@@ -999,6 +999,12 @@ function Prized:Check(rec, key, ctx)
     if out.ok == true and unknown then out.ok = nil end
     -- (1.3.5, the user: in demo mode I count as meeting every rule, to see what rolling for a prized item is like;
     -- res.demo marks the rules the demo waved through)
+    -- (a demo scenario where I don't qualify: a failed attendance rule)
+    if DemoOn() and Util.IsMe(key) and ns.Demo.MeFailsPrized and ns.Demo:MeFailsPrized() then
+        out.ok, out.fail, out.failKey = false, "62% attendance, needs 75%", "att"
+        out.by = out.by or {}
+        return out
+    end
     if DemoOn() and Util.IsMe(key) and out.ok ~= true then
         for _, res in ipairs(out.rules) do
             if not res.info and res.m == "r" and res.ok ~= true then

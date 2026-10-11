@@ -978,6 +978,10 @@ end
 function Store:Longevity(key, itemID, fromPhase, lastPhase)
     itemID = tonumber(itemID)
     if not itemID or type(key) ~= "string" then return 0 end
+    -- (a demo scenario's staged longest use, Core/DemoScenarios.lua)
+    local D = ns.Demo
+    local staged = D and D.Override and D:Override(key, "long")
+    if staged then return staged, 2, 1 + staged end
     EnsureIndex()
     local Guild = ns.Guild
     fromPhase = tonumber(fromPhase) or (Guild and Guild.GetViewPhase and Guild:GetViewPhase()) or 1

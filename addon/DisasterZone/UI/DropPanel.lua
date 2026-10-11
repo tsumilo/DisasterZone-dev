@@ -763,7 +763,7 @@ function DropPanel:OnInit()
     end
     for _, msg in ipairs({ "LEDGER_UPDATED", "LIST_UPDATED", "LISTS_RESET", "GROUP_UPDATED",
                            "OWNED_UPDATED", "MYLIST_CHANGED", "SETTINGS_CHANGED", "MATERIALS_UPDATED",
-                           "PROFESSIONS_UPDATED", "PRIZED_UPDATED" }) do
+                           "PROFESSIONS_UPDATED", "PRIZED_UPDATED", "LOOT_RULES_CHANGED" }) do
         ns:On(msg, dataChanged)
     end
     ns:On("ITEMINFO_READY", function()

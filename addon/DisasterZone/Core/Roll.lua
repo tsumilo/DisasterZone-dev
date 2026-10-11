@@ -870,6 +870,14 @@ local function BuildResults(ses)
         if InGroupFor(ses, cand) then Row(cand) end
     end
 
+    -- (1.3.5: a demo scenario lists its cast only, Core/DemoScenarios.lua)
+    if ses.demoCast then
+        local kept = {}
+        for _, key in ipairs(order) do
+            if ses.demoCast[key] then kept[#kept + 1] = key end
+        end
+        order = kept
+    end
     local out = {}
     for _, key in ipairs(order) do
         local r = rows[key]

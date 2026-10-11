@@ -553,6 +553,9 @@ function Demo:SimulateRolls(session)
     if not enabled or not generated or type(session) ~= "table" or not Roll then return 0 end
     local id, itemID = session.id, tonumber(session.i)
     if type(id) ~= "string" or not itemID then return 0 end
+    -- (1.3.5: a staged scenario waiting for this roll plays its own script, Core/DemoScenarios.lua)
+    local staged = self.RunScenarioRolls and self:RunScenarioRolls(session)
+    if staged then return staged end
 
     local rng = NewRng(SEED + itemID * 7919 + (tonumber(session.c) or 1) * 104729)
     local me = Util.PlayerKey()
@@ -661,6 +664,12 @@ end
 
 ns:RegisterSlash("demo", function(rest)
     local arg = type(rest) == "string" and rest:lower() or ""
+    arg = arg:gsub("^%s+", ""):gsub("%s+$", "")
+    -- (1.3.5: /dz demo <scenario>, /dz demo list)
+    if arg ~= "" and arg ~= "on" and arg ~= "off" and arg ~= "1" and arg ~= "0" and Demo.ScenarioSlash
+        and Demo:ScenarioSlash(arg) then
+        return
+    end
     local want
     if arg == "on" or arg == "1" then
         want = true

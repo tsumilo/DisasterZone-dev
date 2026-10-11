@@ -5,7 +5,7 @@ the Blizzard Settings entry.
 
 Run: luaenv\\Scripts\\python.exe tests\\boot-ui\\test_settings.py
 """
-from _common import (case, run_all, toc_version, solo, no_errors, World, Client, install_helpers, menu_texts, printed_since,
+from _common import (menu_pick, menu_labels, case, run_all, toc_version, solo, no_errors, World, Client, install_helpers, menu_texts, printed_since,
                      strip_codes, tt_lines, gm_pick, GUILD_INFO_SPY, guild_info_calls)
 
 CHECKS = [
@@ -268,7 +268,12 @@ def demo_simulate_and_demo_roll_buttons():
     c.click(cb)
     w.tick(0.3)
     assert c.eval("return ns.Demo:IsEnabled()") is False
+    # (1.3.5: Demo a roll is a menu - a random prized drop or a loot rules scenario)
     c.click(c.eval("return T_button(T_settings(), 'Demo a roll')"))
+    w.tick(0.2)
+    labels = menu_labels(c)
+    assert "Random prized drop" in labels and "Split vote" in labels, labels
+    menu_pick(c, "Random prized drop")
     w.tick(0.5)
     assert c.eval("return ns.Demo:IsEnabled()") is True
     assert c.eval("return ns.Roll:GetActive() ~= nil") is True

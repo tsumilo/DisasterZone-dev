@@ -1772,11 +1772,11 @@ function SettingsUI:BuildDemo(sec)
     Put(sim, sec, 0, y)
     AddTooltip(sim, "Simulate a boss drop", "Opens the drop panel with a made-up boss drop. In demo mode, click Roll "
         .. "on any of its items to watch a roll.")
-    local demoRoll = ns.UI:CreateButton(sec, "Demo a roll", nil, 22, function() SettingsUI:DemoRoll() end)
+    local demoRoll
+    demoRoll = ns.UI:CreateButton(sec, "Demo a roll", nil, 22, function() SettingsUI:OpenDemoRollMenu(demoRoll) end)
     demoRoll:SetPoint("LEFT", sim, "RIGHT", 8, 0)
-    AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode, simulates a boss drop and starts a roll on its first item: "
-        .. "you get the Roll / Pass popup and fake raiders roll in the drop panel. It rolls a prized item, and in "
-        .. "demo mode you meet its rules. Nothing is sent.")
+    AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode and starts a roll the demo raid answers: a random prized "
+        .. "drop, or a scenario that shows one of the guild's loot rules (also /dz demo <name>). Nothing is sent.")
     local recent = ns.UI:CreateButton(sec, "Recent drops", nil, 22, function()
         if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
     end)
@@ -1820,8 +1820,26 @@ function SettingsUI:BuildAbout(sec)
     self:EndSection(sec)
 end
 
+-- 1.3.5: the Demo a roll menu - a random prized drop, or one of the scenarios (Core/DemoScenarios.lua).
+function SettingsUI:OpenDemoRollMenu(owner)
+    local D = ns.Demo
+    ns.UI:ContextMenu(owner, function(root)
+        root:CreateButton("Random prized drop", function() SettingsUI:DemoRoll() end)
+        root:CreateDivider()
+        root:CreateTitle("Loot rules scenarios")
+        for _, def in ipairs(D and D.SCENARIOS or {}) do
+            local b = root:CreateButton(def.label, function()
+                local ok, err = D:RunScenario(def.key)
+                if not ok then ns:Print("Demo scenario not started: %s", tostring(err)) end
+            end)
+            b:SetTitleAndTextTooltip(def.label, def.desc)
+        end
+    end)
+end
+
 -- "Demo a roll": demo mode on, a simulated drop, and a local roll on its first item.
 function SettingsUI:DemoRoll()
+    if ns.Demo and ns.Demo.ClearScenario then ns.Demo:ClearScenario() end
     local D = ns.Demo
     if not (D and D.IsEnabled and D.SetEnabled) then return end
     if not D:IsEnabled() then D:SetEnabled(true) end

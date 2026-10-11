@@ -141,6 +141,7 @@ Core\Codec.lua
 Core\BiSImport.lua
 Core\BiSExport.lua
 Core\Demo.lua
+Core\DemoScenarios.lua
 
 # 3D rooms (Blizzard's own meshes, drawn in the UI): shared by the strategy board and the Raid Trainer
 Render3D\Room.lua
@@ -223,6 +224,7 @@ UI\MeterPanels.lua
 UI\MeterDetail.lua
 UI\SwingTimerHUD.lua
 UI\BlessingsUI.lua
+UI\BarFace.lua
 UI\BlessingsBar.lua
 UI\TotemsUI.lua
 UI\TotemBar.lua

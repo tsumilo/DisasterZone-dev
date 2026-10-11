@@ -809,6 +809,10 @@ function RaidLog:GetAttendance(key, lastN)
     key = Util.NormalizeName(key)
     lastN = lastN or 8
     if not key then return nil end
+    -- (a demo scenario's staged attendance, Core/DemoScenarios.lua)
+    local D = ns.Demo
+    local staged = D and D.Override and D:Override(key, "att")
+    if staged then return staged, lastN, lastN end
     local Att = ns.Attendance
     if Att and Att.GetSummary then
         local s, n = Att:GetSummary(key, lastN)

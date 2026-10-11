@@ -1003,6 +1003,10 @@ end
 function Att:GetDryStreak(key)
     key = Util.NormalizeName(key)
     if not key or not self:CanSeeDryStreaks() then return nil end
+    -- (a demo scenario's staged streak, Core/DemoScenarios.lua)
+    local D = ns.Demo
+    local staged = D and D.Override and D:Override(key, "dry")
+    if staged then return { nights = staged, bosses = staged * 4, came = staged } end
     local Ledger = ns.Ledger
     local token = Ledger and Ledger.GetViewToken and Ledger:GetViewToken()
     local Guild = G()
