@@ -6,15 +6,18 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DungeonsTab.lua", ...) then ret
 -- preview that is exactly the card the guild will see. A small pop-up pings me when a run needs me while I'm up for
 -- one, and the leader when somebody asks to join; a run's party invite is a pop-up too. The eye on my run lists it
 -- in Blizzard's Group Finder (it looks around while listed) and the players from outside the guild show up under it.
+-- 1.4: a Board page (UI:CreateLayout): the toolbar holds "I'm up for a run" and the main action List a run; section
+-- headers, the shared empty state, the sheet on UI:CreateSheet (a cover over the page), the pop-up on UI:Toast, the
+-- shared role icons, pills and text styles, colours from ns.Style.
 local addonName, ns = ...
 
 local DungeonsUI = ns:NewModule("DungeonsUI")
+local S = ns.Style
 
 local floor, max, min = math.floor, math.max, math.min
 local tsort, tconcat = table.sort, table.concat
 
-local PAD = 10
-local TOP_H = 34                 -- the "I'm up for a run" bar
+local PAD = S.PAD
 local STRIP_H = 30               -- the members up for a run
 local CARD_H = 72
 local ART_W = 180
@@ -23,6 +26,7 @@ local SLOT, SLOT_GAP = 30, 5
 local ACT_W = 92
 local GAP = 6
 local SECTION_H = 26
+local TOAST_KEY = "dz-dungeon-run"   -- the run pop-up's UI:Toast key (one at a time)
 local REQ_H = 30
 local ROW_H, ROW_GAP = 50, 6     -- the sheet's complex rows
 local TILE_W, TILE_H, TILE_GAP = 136, 34, 6
@@ -30,22 +34,17 @@ local TOAST_W, TOAST_H, TOAST_ART = 440, 76, 112
 local TOAST_FOR = 25
 
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local ROLE_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
 local HEROIC_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-HEROIC"
 local STAR_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Icons\\bis"
 local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local STAR = "|T" .. STAR_TEX .. ":11:11:0:0|t"
-local ROLE_TOKEN = { tank = "TANK", healer = "HEALER", dps = "DAMAGER" }
-local ROLE_COORDS = {   -- GetTexCoordsForRole's (a 256x256 texture of 67x67 cells), for a client without it
-    TANK = { 0, 67 / 256, 67 / 256, 134 / 256 }, HEALER = { 67 / 256, 134 / 256, 0, 67 / 256 },
-    DAMAGER = { 67 / 256, 134 / 256, 67 / 256, 134 / 256 },
-}
 local ROLE_NAME = { tank = "tank", healer = "healer", dps = "DPS" }
 
-local GOLD = { 1, 0.82, 0 }
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
-local MINE_BG = { 0.13, 0.12, 0.08, 0.94 }
+local GOLD = S.C.GOLD
+local CARD_BG = S.C.CARD
+local MINE_BG = { 0.13, 0.12, 0.08, 0.94 }   -- my own run's card: a warm lift
 local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }
+local OFF_BG = { 0.055, 0.055, 0.067 }      -- a sheet tile's well
 
 local panel, toast
 local state = { sheet = nil, invited = {} }
@@ -58,46 +57,21 @@ local function R() return ns.DungeonRuns end
 local function UI() return ns.UI end
 local function Now() return (GetServerTime and GetServerTime()) or time() end
 local function Me() return ns.Util.PlayerKey() end
-local function grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
-local function gold(text) return "|cffffd100" .. tostring(text) .. "|r" end
-local function orange(text) return "|cffff8c1a" .. tostring(text) .. "|r" end
+local function grey(text) return S:Wrap("SUB", text) end
+local function gold(text) return S:Wrap("GOLD", text) end
+local function orange(text) return S:Wrap("WARN", text) end
 local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
+-- The run pop-up on screen (UI:Toast under TOAST_KEY), or nil.
+local function RunToast() return UI():GetToast(TOAST_KEY) end
 
-local function Sized(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
-    return fs
+-- A text on the type scale (UI:Text: a style name, or a size that snaps to the scale).
+local function Text(parent, style, color, layer)
+    return UI():Text(parent, style or "emph", color, layer and { layer = layer } or nil)
 end
 
-local function Text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
-    return fs
-end
-
-local function RoleCoords(role)
-    local token = ROLE_TOKEN[role] or "DAMAGER"
-    if GetTexCoordsForRole then
-        local l, r, t, b = GetTexCoordsForRole(token)
-        if l then return l, r, t, b end
-    end
-    local c = ROLE_COORDS[token]
-    return c[1], c[2], c[3], c[4]
-end
-
-local function SetRole(tex, role)
-    tex:SetTexture(ROLE_TEX)
-    tex:SetTexCoord(RoleCoords(role))
-end
-
-local function RoleIconText(role, size)
-    local l, r, t, b = RoleCoords(role)
-    size = size or 13
-    return ("|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t"):format(ROLE_TEX, size, size, floor(l * 256 + 0.5),
-        floor(r * 256 + 0.5), floor(t * 256 + 0.5), floor(b * 256 + 0.5))
-end
+-- The role icons (tank / healer / DPS): the shared ones.
+local function SetRole(tex, role) UI():SetRoleIcon(tex, role) end
+local function RoleIconText(role, size) return UI():RoleIconText(role, size) end
 
 local function Disc(parent, layer, sub, size, c)
     local t = parent:CreateTexture(nil, layer, nil, sub)
@@ -107,14 +81,14 @@ local function Disc(parent, layer, sub, size, c)
     return t
 end
 
--- A text that fits: the full name, else the short one, else the short one a size smaller.
+-- A text that fits: the full name, else the short one, else the short one a step smaller (sizes snap to the scale).
 local function FitText(fs, full, short, width, size)
-    Sized(fs, size)
+    UI():SetTextStyle(fs, size, "TEXT")
     fs:SetText(full)
     if (fs:GetStringWidth() or 0) <= width or not short then return end
     fs:SetText(short)
     if (fs:GetStringWidth() or 0) <= width then return end
-    Sized(fs, size - 2)
+    UI():SetTextStyle(fs, S:Size(size) - 1, "TEXT")
 end
 
 local function ItemLinkText(itemID)
@@ -183,30 +157,6 @@ local function RedrawHoveredTip()
     if onEnter then onEnter(owner) end
 end
 
--- A rounded pill (edge + fill) drawn from discs and a bar: f:SetPillColors(fill, edge).
-local function AddPill(f, h)
-    local function part(layer, sub, inset)
-        local l = f:CreateTexture(nil, layer, nil, sub)
-        l:SetTexture(DISC)
-        l:SetSize(h - 2 * inset, h - 2 * inset)
-        l:SetPoint("LEFT", inset, 0)
-        local r = f:CreateTexture(nil, layer, nil, sub)
-        r:SetTexture(DISC)
-        r:SetSize(h - 2 * inset, h - 2 * inset)
-        r:SetPoint("RIGHT", -inset, 0)
-        local m = f:CreateTexture(nil, layer, nil, sub)
-        m:SetColorTexture(1, 1, 1, 1)
-        m:SetPoint("TOPLEFT", f, "TOPLEFT", h / 2, -inset)
-        m:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -h / 2, inset)
-        return { l, r, m }
-    end
-    f.pillEdge = part("BACKGROUND", 1, 0)
-    f.pillFill = part("BACKGROUND", 2, 1)
-    function f:SetPillColors(fill, edge)
-        for _, t in ipairs(self.pillFill) do t:SetVertexColor(fill[1], fill[2], fill[3], fill[4] or 1) end
-        for _, t in ipairs(self.pillEdge) do t:SetVertexColor(edge[1], edge[2], edge[3], edge[4] or 1) end
-    end
-end
 
 ---------------------------------------------------------------------------
 -- Slots: a class circle with a role badge, or an empty ring with the role it wants (gold when it wants me)
@@ -297,7 +247,7 @@ local function FillSlot(s, d, wants, dim)
         SetRole(s.role, d.role)
         s.fill:SetVertexColor(0.07, 0.07, 0.08, 1)
         if wants then
-            s.ring:SetVertexColor(1, 0.82, 0, 0.75)
+            s.ring:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.75)
             s.role:SetVertexColor(1, 1, 1)
             s.role:SetDesaturated(false)
             s.role:SetAlpha(1)
@@ -317,7 +267,7 @@ local function FillSlot(s, d, wants, dim)
         if not d.class then s.class:Hide() end
         s.badge:Show()
         SetRole(s.badge, d.role)
-        s.ring:SetVertexColor(d.you and 1 or 0, d.you and 0.82 or 0, 0, d.you and 0.9 or 1)
+        s.ring:SetVertexColor(d.you and GOLD[1] or 0, d.you and GOLD[2] or 0, d.you and GOLD[3] or 0, d.you and 0.9 or 1)
         local spec = R():GetSpecLabel(d.key)
         local line = R().ROLE_LABEL[d.role] .. (spec and (" · " .. spec) or "")
         s.tip = { UI():ColoredName(d.key, d.class), line, d.owner and grey("Leads the run") or nil }
@@ -334,8 +284,7 @@ end
 
 local function NewCard(parent)
     local c = CreateFrame("Button", nil, parent)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
-    c.bg:SetAllPoints()
+    c.bg = UI():Fill(c, "CARD")
     UI():AddEdges(c, "BORDER")
     c.art = c:CreateTexture(nil, "ARTWORK", nil, 0)
     c.art:SetPoint("TOPLEFT", 1, -1)
@@ -347,10 +296,10 @@ local function NewCard(parent)
     c.skull:SetTexture(HEROIC_TEX)
     c.skull:SetTexCoord(0, 0.5, 0, 0.625)
     c.skull:SetSize(11, 14)
-    c.heroic = Text(c, "GameFontNormalSmall")
+    c.heroic = Text(c, "small", "GOLD")
     c.heroic:SetText("Heroic")
     c.heroic:SetPoint("LEFT", c.skull, "RIGHT", 2, 0)
-    c.t1 = Text(c, "GameFontHighlight", 15)
+    c.t1 = Text(c, 15, "TEXT")
     c.notes = CreateFrame("Frame", nil, c)
     c.notes:SetSize(14, 14)
     c.notes.icon = c.notes:CreateTexture(nil, "OVERLAY")
@@ -363,9 +312,8 @@ local function NewCard(parent)
         if self.note then Tip(self, { "Note", self.note }, "ANCHOR_TOP") end
     end)
     c.notes:SetScript("OnLeave", HideTip)
-    c.t2 = Text(c, "GameFontHighlightSmall", 11)
-    c.t2:SetTextColor(0.62, 0.62, 0.62)
-    c.t3 = Text(c, "GameFontHighlightSmall", 11)
+    c.t2 = Text(c, "body", "SUB")
+    c.t3 = Text(c, "body", "TEXT")
     c.hint = CreateFrame("Frame", nil, c)            -- the BiS item's tooltip
     c.hint:SetPoint("TOPLEFT", c.t3, "TOPLEFT")
     c.hint:SetPoint("BOTTOMRIGHT", c.t3, "BOTTOMRIGHT")
@@ -376,7 +324,7 @@ local function NewCard(parent)
     c.hint:SetScript("OnLeave", HideTip)
     c.slots = {}
     for i = 1, 5 do c.slots[i] = NewSlot(c, SLOT) end
-    c.btn = NewButton(c, "", 80, 26, "primary")
+    c.btn = NewButton(c, "", 80, S.BTN_H, "primary")
     c.more = UI():CreateTipIconButton(c, 26, UI().ICON.more, "Your run", "Edit it, post it in the LookingForGroup "
         .. "channel, or take it off the board.")
     if ns.Share and ns.Share.CreateButton then
@@ -405,16 +353,12 @@ local function SetArt(c, key, w, h, bg)
     c.fade:SetPoint("TOPRIGHT", c.art, "TOPRIGHT")
     c.fade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
     c.fade:SetWidth(floor(w * 0.42))
-    if c.fade.SetGradient and CreateColor then
-        c.fade:SetGradient("HORIZONTAL", CreateColor(bg[1], bg[2], bg[3], 0), CreateColor(bg[1], bg[2], bg[3], 1))
-    end
+    UI():Gradient(c.fade, "HORIZONTAL", { bg[1], bg[2], bg[3], 0 }, { bg[1], bg[2], bg[3], 1 })
     c.shade:ClearAllPoints()
     c.shade:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT")
     c.shade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
     c.shade:SetHeight(26)
-    if c.shade.SetGradient and CreateColor then
-        c.shade:SetGradient("VERTICAL", CreateColor(0, 0, 0, 0.75), CreateColor(0, 0, 0, 0))
-    end
+    UI():Gradient(c.shade, "VERTICAL", { 0, 0, 0, 0.75 }, { 0, 0, 0, 0 })
 end
 
 -- What a card's tooltip says: the dungeon, the leader, when, the party, the note.
@@ -474,34 +418,19 @@ end
 local function NewReqRow(c)
     local r = CreateFrame("Frame", nil, c)
     r:SetHeight(REQ_H)
-    r.line = r:CreateTexture(nil, "BORDER")
-    r.line:SetColorTexture(1, 1, 1, 0.07)
-    r.line:SetHeight(1)
-    r.line:SetPoint("TOPLEFT")
-    r.line:SetPoint("TOPRIGHT")
+    r.line = UI():Rule(r, { layer = "BORDER" })
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(22, 22)
     r.icon:SetPoint("LEFT", 0, 0)
-    r.name = Text(r, "GameFontHighlight", 12)
+    r.name = Text(r, "emph", "TEXT")
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
-    r.spec = Text(r, "GameFontHighlightSmall", 11)
-    r.spec:SetTextColor(0.62, 0.62, 0.62)
+    r.spec = Text(r, "body", "SUB")
     r.spec:SetPoint("LEFT", r.name, "RIGHT", 7, 0)
-    r.tag = CreateFrame("Frame", nil, r)
-    r.tag:SetHeight(16)
-    AddPill(r.tag, 16)
-    r.tag:SetPillColors({ 0.16, 0.13, 0.03, 1 }, { 1, 0.82, 0, 0.45 })
-    r.tag.text = Text(r.tag, "GameFontNormalSmall", 10)
-    r.tag.text:SetPoint("CENTER", 0, 0)
-    r.tag.text:SetText(STAR .. " BiS here")
-    r.tag:SetWidth((r.tag.text:GetStringWidth() or 50) + 14)
+    r.tag = UI():CreatePill(r, "bis", STAR .. " BiS here")
     r.tag:SetPoint("LEFT", r.spec, "RIGHT", 9, 0)
-    r.tag:EnableMouse(true)
-    r.tag:SetScript("OnEnter", function(self)
-        Tip(self, { "BiS here", "Something on " .. (self.who or "their") .. " BiS list drops in this dungeon." },
-            "ANCHOR_TOP")
-    end)
-    r.tag:SetScript("OnLeave", HideTip)
+    UI():AttachTooltip(r.tag, "BiS here", function(self)
+        return { "Something on " .. (self.who or "their") .. " BiS list drops in this dungeon." }
+    end, { anchor = "ANCHOR_TOP" })
     r.no = UI():CreateIconButton(r, 22, NO_TEX, nil, function(self) if self.onClick then self.onClick() end end)
     r.no.icon:ClearAllPoints()
     r.no.icon:SetPoint("TOPLEFT", 4, -4)
@@ -513,23 +442,24 @@ local function NewReqRow(c)
     r.no:SetScript("OnLeave", HideTip)
     r.yes = NewButton(r, "Accept", 70, 22, "primary", function(self) if self.onClick then self.onClick() end end)
     r.yes:SetPoint("RIGHT", r.no, "LEFT", -5, 0)
-    r.state = Text(r, "GameFontHighlightSmall", 11)
+    r.state = Text(r, "body", "TEXT")
     r.state:SetPoint("RIGHT", r.no, "LEFT", -10, 0)
     return r
 end
 
 -- A person chip: class circle, name in class colour, role icons. Width fits the content.
+-- TODO(refactor): move into UI:CreateChip (a 24 px person chip with a trailing text after the name: the role icons)
 local function NewChip(parent)
     local f = CreateFrame("Button", nil, parent)
     f:SetHeight(24)
-    AddPill(f, 24)
-    f:SetPillColors({ 0.10, 0.10, 0.12, 0.92 }, { 0.34, 0.34, 0.38, 0.6 })
+    UI():AddPillShape(f, 24)
+    f:SetPillColors(S.C.CARD, S.C.EDGE_STRONG)
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(20, 20)
     f.icon:SetPoint("LEFT", 2, 0)
-    f.name = Text(f, "GameFontHighlight", 12)
+    f.name = Text(f, "emph", "TEXT")
     f.name:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
-    f.roles = Text(f, "GameFontHighlightSmall")
+    f.roles = Text(f, "small", "TEXT")
     f.roles:SetPoint("LEFT", f.name, "RIGHT", 4, 0)
     f:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
     f:SetScript("OnLeave", HideTip)
@@ -667,22 +597,16 @@ end
 local function NewPugRow(c)
     local r = CreateFrame("Button", nil, c)
     r:SetHeight(REQ_H)
-    r.line = r:CreateTexture(nil, "BORDER")
-    r.line:SetColorTexture(1, 1, 1, 0.07)
-    r.line:SetHeight(1)
-    r.line:SetPoint("TOPLEFT")
-    r.line:SetPoint("TOPRIGHT")
+    r.line = UI():Rule(r, { layer = "BORDER" })
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(22, 22)
     r.icon:SetPoint("LEFT", 0, 0)
-    r.name = Text(r, "GameFontHighlight", 12)
+    r.name = Text(r, "emph", "TEXT")
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
-    r.info = Text(r, "GameFontHighlightSmall", 11)
+    r.info = Text(r, "body", "SUB")
     r.info:SetPoint("LEFT", r.name, "RIGHT", 7, 0)
-    r.info:SetTextColor(0.62, 0.62, 0.62)
-    r.text = Text(r, "GameFontHighlightSmall", 11)
+    r.text = Text(r, "body", "TEXT")
     r.text:SetPoint("LEFT", r.info, "RIGHT", 8, 0)
-    r.text:SetTextColor(0.78, 0.78, 0.78)
     r.no = UI():CreateIconButton(r, 22, NO_TEX, nil, function(self) if self.onClick then self.onClick() end end)
     r.no.icon:ClearAllPoints()
     r.no.icon:SetPoint("TOPLEFT", 4, -4)
@@ -694,7 +618,7 @@ local function NewPugRow(c)
     r.say:SetPoint("RIGHT", r.no, "LEFT", -4, 0)
     r.yes = NewButton(r, "Invite", 62, 22, "secondary", function(self) if self.onClick then self.onClick() end end)
     r.yes:SetPoint("RIGHT", r.say, "LEFT", -5, 0)
-    r.state = Text(r, "GameFontHighlightSmall", 11)
+    r.state = Text(r, "body", "TEXT")
     r.state:SetPoint("RIGHT", r.say, "LEFT", -10, 0)
     r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
     r:SetScript("OnLeave", HideTip)
@@ -807,15 +731,15 @@ local function FillCard(c, run, opts)
     local actW = compact and 0 or ACT_W
     local bg = mine and MINE_BG or CARD_BG
     c:SetWidth(w)
-    c.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    c.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4] or 1)
     local focused = not compact and state.focus == run.id and GetTime() < (state.focusUntil or 0)
     if focused then
         UI():SetEdgeColor(c, 1, 0.9, 0.4, 1)
-        c.bg:SetColorTexture(bg[1] + 0.07, bg[2] + 0.06, bg[3] + 0.02, bg[4])
+        c.bg:SetColorTexture(bg[1] + 0.07, bg[2] + 0.06, bg[3] + 0.02, bg[4] or 1)
     elseif mine then
-        UI():SetEdgeColor(c, 1, 0.82, 0, 0.75)
+        UI():SetEdgeColor(c, GOLD[1], GOLD[2], GOLD[3], 0.75)
     else
-        UI():SetEdgeColor(c, 0.34, 0.34, 0.38, 0.55)
+        UI():SetEdgeColor(c, S:Color("EDGE"))
     end
     SetArt(c, run.d, artW, CARD_H - 2, bg)
     c.skull:ClearAllPoints()
@@ -857,7 +781,7 @@ local function FillCard(c, run, opts)
     local textX = artW + 4
     local textW = slotsRight - slotsW - 12 - textX
     local full, short = DungeonName(run)
-    FitText(c.t1, full, short, textW - (run.no and 20 or 0), compact and 14 or 15)
+    FitText(c.t1, full, short, textW - (run.no and 20 or 0), compact and "emph" or 15)
     c.t1:SetTextColor(dim and 0.55 or 1, dim and 0.55 or 1, dim and 0.55 or 1)
     -- no leader on my own card, nor in the sheet's narrow preview (it's me; "Tomorrow 21:00" needs the room)
     local leader = run.o == Me() and "" or (UI():ColoredName(run.o) .. grey(" · "))
@@ -870,7 +794,7 @@ local function FillCard(c, run, opts)
     c.hint.itemID = itemID
     c.hint.extra = items and #items > 1 and function(tt)
         tt:AddLine(" ")
-        tt:AddLine("Also drops your BiS:", 1, 0.82, 0)
+        tt:AddLine("Also drops your BiS:", S:Color("GOLD"))
         for i = 2, #items do tt:AddLine(ItemLinkText(items[i])) end
     end or nil
     c.hint:SetShown(itemID ~= nil)
@@ -1017,13 +941,8 @@ local function FillCard(c, run, opts)
             if not r then
                 r = CreateFrame("Frame", nil, c)
                 r:SetHeight(REQ_H)
-                r.line = r:CreateTexture(nil, "BORDER")
-                r.line:SetColorTexture(1, 1, 1, 0.07)
-                r.line:SetHeight(1)
-                r.line:SetPoint("TOPLEFT")
-                r.line:SetPoint("TOPRIGHT")
-                r.label = Text(r, "GameFontHighlightSmall", 11)
-                r.label:SetTextColor(0.62, 0.62, 0.62)
+                r.line = UI():Rule(r, { layer = "BORDER" })
+                r.label = Text(r, "body", "SUB")
                 r.label:SetPoint("LEFT", 0, 0)
                 r.label:SetText("Up for a run")
                 r.chips, r.invites, r.busy = {}, {}, {}
@@ -1041,7 +960,7 @@ local function FillCard(c, run, opts)
                     if not chip then
                         chip = NewChip(r)
                         inv = NewButton(r, "Invite", 56, 22, "secondary")
-                        busy = Text(r, "GameFontHighlightSmall", 11)
+                        busy = Text(r, "body", "TEXT")
                         busy:SetText(grey("In a group"))
                         r.chips[i], r.invites[i], r.busy[i] = chip, inv, busy
                     end
@@ -1149,18 +1068,20 @@ local function UpTip(owner)
     Tip(owner, lines, "ANCHOR_BOTTOMLEFT")
 end
 
+-- "I'm up for a run" (the switch, its words, my roles) on the toolbar's left; List a run is its main action.
 local function CreateTop(p)
-    local top = CreateFrame("Frame", nil, p)
-    top:SetPoint("TOPLEFT", PAD, -6)
-    top:SetPoint("TOPRIGHT", -PAD, -6)
-    top:SetHeight(TOP_H - 4)
+    local bar = p.layout.toolbar
+    local top = CreateFrame("Frame", nil, bar)
+    top:SetPoint("LEFT", bar, "TOPLEFT", PAD, -UI().LAYOUT.ROW_MID)
+    top:SetPoint("RIGHT", bar, "TOPRIGHT", -PAD - 130, -UI().LAYOUT.ROW_MID)
+    top:SetHeight(30)
     p.top = top
     top.switch = NewSwitch(top, function() R():SetUp(not R():IsUp()) end)
     top.switch:SetPoint("LEFT", 0, 0)
     top.switch:HookScript("OnEnter", UpTip)
     top.switch:HookScript("OnLeave", HideTip)
     top.label = CreateFrame("Button", nil, top)
-    top.label.text = Text(top.label, "GameFontHighlight", 13)
+    top.label.text = Text(top.label, "title", "TEXT")
     top.label.text:SetPoint("LEFT")
     top.label.text:SetText("I'm up for a run")
     top.label:SetSize((top.label.text:GetStringWidth() or 100) + 4, 20)
@@ -1172,14 +1093,13 @@ local function CreateTop(p)
     for _, role in ipairs(R().ROLES) do
         top.roles[role] = NewRoleChip(top, role, function(self) R():SetMyRole(role, not self.on) end)
     end
-    top.list = NewButton(top, "List a run", 110, 28, "primary", function() DungeonsUI:OpenSheet() end)
-    top.list:SetPoint("RIGHT", 0, 0)
+    top.list = bar:SetPrimary({ text = "List a run", width = 110, onClick = function() DungeonsUI:OpenSheet() end })
 end
 
 local function UpdateTop(p)
     local top = p.top
     top.switch:SetOn(R():IsUp())
-    top.label.text:SetTextColor(R():IsUp() and 1 or 0.62, R():IsUp() and 1 or 0.62, R():IsUp() and 1 or 0.62)
+    top.label.text:SetTextColor(S:Color(R():IsUp() and "TEXT" or "SUB"))
     local mine = R():GetMyRoles()
     local x = top.label:GetWidth() + 9 + 34 + 12
     for _, role in ipairs(R().ROLES) do top.roles[role]:Hide() end
@@ -1237,25 +1157,24 @@ local function UpdateStrip(p, width)
 end
 
 local function CreateStrip(p)
-    local strip = CreateFrame("Frame", nil, p)
+    local strip = CreateFrame("Frame", nil, p.layout.body)
     strip:SetHeight(STRIP_H)
     p.strip = strip
-    strip.label = Text(strip, "GameFontHighlightSmall", 11)
-    strip.label:SetTextColor(0.62, 0.62, 0.62)
+    strip.label = Text(strip, "body", "SUB")
     strip.label:SetPoint("LEFT", 0, 0)
     strip.label:SetText("Up for a run")
     strip.more = CreateFrame("Frame", nil, strip)
     strip.more:SetHeight(20)
-    strip.more.text = Text(strip.more, "GameFontHighlightSmall", 11)
-    strip.more.text:SetTextColor(0.62, 0.62, 0.62)
+    strip.more.text = Text(strip.more, "body", "SUB")
     strip.more.text:SetPoint("LEFT", 4, 0)
     strip.more:EnableMouse(true)
     strip.more:SetScript("OnEnter", function(self) Tip(self, self.tip or {}, "ANCHOR_TOP") end)
     strip.more:SetScript("OnLeave", HideTip)
 end
 
+-- The i-th section header (UI:CreateSectionHeader: the title, the day after it in grey).
 local function SectionHeader(p, i)
-    p.headers[i] = p.headers[i] or Text(p.content, "GameFontNormal", 13)
+    p.headers[i] = p.headers[i] or UI():CreateSectionHeader(p.content, "", { style = "title" })
     return p.headers[i]
 end
 
@@ -1301,13 +1220,14 @@ function DungeonsUI:Refresh()
     local mine, now, later = Sections()
     -- the bar and the strip are for finding a run: my own run takes their place
     p.top:SetShown(mine == nil)
-    local y = -6
+    local body = p.layout.body
+    local y = 0
     if mine == nil then
+        p.layout.toolbar:SetPrimary({ text = "List a run", width = 110, onClick = function() DungeonsUI:OpenSheet() end })
         UpdateTop(p)
-        y = -(TOP_H + 4)
         p.strip:ClearAllPoints()
-        p.strip:SetPoint("TOPLEFT", PAD, y)
-        p.strip:SetPoint("TOPRIGHT", -PAD, y)
+        p.strip:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y)
+        p.strip:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, y)
         if UpdateStrip(p, width - 2 * PAD) then
             p.strip:Show()
             y = y - STRIP_H - 2
@@ -1315,23 +1235,26 @@ function DungeonsUI:Refresh()
             p.strip:Hide()
         end
     else
+        p.layout.toolbar:SetPrimary(nil)
         p.strip:Hide()
     end
     p.scroll:ClearAllPoints()
-    p.scroll:SetPoint("TOPLEFT", PAD, y - 2)
-    p.scroll:SetPoint("BOTTOMRIGHT", -PAD - 16, 6)
+    p.scroll:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y - 2)
+    p.scroll:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -16, 2)
     local cw = width - 2 * PAD - 16
     p.content:SetWidth(cw)
 
     local cy, hi, ci = 0, 0, 0
     local function header(text, sub)
         hi = hi + 1
-        local fs = SectionHeader(p, hi)
-        fs:SetText(text .. (sub and ("  " .. grey(sub)) or ""))
-        fs:ClearAllPoints()
-        fs:SetPoint("TOPLEFT", p.content, "TOPLEFT", 0, -cy - 6)
-        fs:Show()
-        cy = cy + SECTION_H
+        local h = SectionHeader(p, hi)
+        h:SetTitle(text)
+        h:SetCount(sub)
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", p.content, "TOPLEFT", 0, -cy)
+        h:SetPoint("TOPRIGHT", p.content, "TOPRIGHT", 0, -cy)
+        h:Show()
+        cy = cy + SECTION_H + 2
     end
     local function card(run, opts)
         ci = ci + 1
@@ -1375,9 +1298,11 @@ function DungeonsUI:Refresh()
     local empty = mine == nil and #now == 0 and #later == 0
     p.empty:SetShown(empty)
     if empty then
-        p.empty.title:SetText("No runs listed right now.")
-        p.empty.sub:SetText(R():IsUp() and "You'll get a ping as soon as a run needs one of your roles."
-            or "List one, or switch on \"I'm up for a run\" to get a ping when a run needs you.")
+        p.empty:ClearAllPoints()
+        p.empty:SetPoint("TOP", body, "TOP", 0, y - 80)
+        p.empty:SetContent({ glyph = UI().ICON.team, title = "No runs listed right now.",
+            text = R():IsUp() and "You'll get a ping as soon as a run needs one of your roles."
+                or "List one, or switch on \"I'm up for a run\" to get a ping when a run needs you." })
     end
 end
 
@@ -1389,9 +1314,10 @@ function DungeonsUI:RequestRefresh()
         end)
     end
     -- a ping or a request goes with its run (an invite, or the Group Finder's word on an ended run, doesn't)
-    if toast and toast:IsShown() and toast.run and toast.mode == nil then
-        local run = R():GetRun(toast.run)
-        if not run then toast:Hide() end
+    local t = RunToast()
+    if t and t.run and t.mode == nil then
+        local run = R():GetRun(t.run)
+        if not run then UI():HideToast(t) end
     end
 end
 
@@ -1449,7 +1375,7 @@ function DungeonsUI:OpenMineMenu(owner)
             local b = root:CreateButton(Ui:AtlasIconText(icon, 14, color or GOLD) .. "  " .. text, fn)
             if b and b.SetTooltip then
                 b:SetTooltip(function(tt)
-                    tt:AddLine(text, 1, 0.82, 0)
+                    tt:AddLine(text, S:Color("GOLD"))
                     tt:AddLine(tip, 1, 1, 1, true)
                 end)
             end
@@ -1485,22 +1411,18 @@ function DungeonsUI:CreatePanel(parent)
     local p = CreateFrame("Frame", "DisasterZoneDungeonsPanel", parent)
     p:SetAllPoints(parent)
     panel = p
+    -- a Board page: the toolbar ("I'm up for a run", List a run), then the members up for a run and the runs by
+    -- section in the body
+    p.layout = UI():CreateLayout("board", p, { bottom = 6 })
     p.headers, p.cards = {}, {}
     CreateTop(p)
     CreateStrip(p)
-    p.scroll = UI():CreateScrollFrame(p)
+    p.scroll = UI():CreateScrollFrame(p.layout.body)
     p.content = CreateFrame("Frame", nil, p.scroll)
     p.content:SetSize(760, 10)
     p.scroll:SetScrollChild(p.content)
-    p.empty = CreateFrame("Frame", nil, p)
-    p.empty:SetPoint("TOPLEFT", 0, -120)
-    p.empty:SetPoint("TOPRIGHT", 0, -120)
-    p.empty:SetHeight(60)
-    p.empty.title = p.empty:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    p.empty.title:SetPoint("TOP", 0, 0)
-    p.empty.sub = p.empty:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.empty.sub:SetPoint("TOP", p.empty.title, "BOTTOM", 0, -8)
-    p.empty.sub:SetTextColor(0.62, 0.62, 0.62)
+    p.empty = UI():CreateEmptyState(p.layout.body, { glyph = UI().ICON.team, title = "No runs listed right now." })
+    p.empty:SetFrameLevel(p.scroll:GetFrameLevel() + 5)
     p.empty:Hide()
     p:SetScript("OnShow", function() DungeonsUI:Refresh() end)
     p.OnPanelShown = function() DungeonsUI:Refresh() end
@@ -1586,7 +1508,7 @@ local function Chevron(parent, dir)
     for i = 1, 2 do
         local l = b:CreateLine(nil, "ARTWORK")
         l:SetThickness(2)
-        l:SetColorTexture(1, 0.82, 0, 1)
+        l:SetColorTexture(S:Color("GOLD"))
         b.lines[i] = l
     end
     local x = dir < 0 and 3 or -3
@@ -1604,12 +1526,10 @@ end
 local function NewStepper(parent, width, onStep, tip)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(width, 24)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    f.bg = UI():Fill(f, "CARD")
     UI():AddEdges(f)
-    UI():SetEdgeColor(f, 0.34, 0.34, 0.38, 0.9)
-    f.text = Text(f, "GameFontHighlight", 12)
+    UI():SetEdgeColor(f, S:Color("EDGE_STRONG"))
+    f.text = Text(f, "emph", "TEXT")
     f.text:SetPoint("CENTER", 0, 0)
     f.text:SetJustifyH("CENTER")
     f.prev = Chevron(f, -1)
@@ -1622,11 +1542,11 @@ local function NewStepper(parent, width, onStep, tip)
     f:EnableMouseWheel(true)
     f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
     f:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, 1, 0.82, 0, 0.6)
+        UI():SetEdgeColor(self, GOLD[1], GOLD[2], GOLD[3], 0.6)
         Tip(self, tip, "ANCHOR_TOP")
     end)
     f:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9)
+        UI():SetEdgeColor(self, S:Color("EDGE_STRONG"))
         HideTip()
     end)
     function f:Set(text, canPrev, canNext)
@@ -1644,16 +1564,15 @@ local function NewTile(parent)
     t.bg = t:CreateTexture(nil, "BACKGROUND")
     t.bg:SetAllPoints()
     UI():AddEdges(t, "BORDER")
-    t.name = Text(t, "GameFontHighlight", 12)
+    t.name = Text(t, "emph", "TEXT")
     t.name:SetPoint("LEFT", 10, 0)
-    t.count = Text(t, "GameFontNormalSmall", 12)
+    t.count = Text(t, "emph", "GOLD")
     t.count:SetPoint("RIGHT", -9, 0)
     t.star = t:CreateTexture(nil, "OVERLAY")
     t.star:SetTexture(STAR_TEX)
     t.star:SetSize(11, 11)
     t.star:SetPoint("RIGHT", t.count, "LEFT", -2, 0)
-    t.saved = Text(t, "GameFontHighlightSmall", 10)
-    t.saved:SetTextColor(0.62, 0.62, 0.62)
+    t.saved = Text(t, "small", "SUB")
     t.saved:SetPoint("RIGHT", -8, 0)
     t.saved:SetText("Saved")
     t.lock = t:CreateTexture(nil, "OVERLAY")
@@ -1666,10 +1585,9 @@ local function NewTile(parent)
     t.daily:SetFrameLevel(t:GetFrameLevel() + 2)
     t.daily.bg = t.daily:CreateTexture(nil, "BACKGROUND")
     t.daily.bg:SetAllPoints()
-    t.daily.bg:SetColorTexture(1, 0.82, 0, 1)
-    t.daily.text = Text(t.daily, "GameFontNormalSmall", 8)
+    t.daily.bg:SetColorTexture(S:Color("GOLD"))
+    t.daily.text = Text(t.daily, "caps", { 0.1, 0.08, 0 })
     t.daily.text:SetPoint("CENTER", 0, 0)
-    t.daily.text:SetTextColor(0.1, 0.08, 0)
     t.daily.text:SetText("DAILY")
     t.daily:SetWidth((t.daily.text:GetStringWidth() or 26) + 8)
     t.liveTip = true
@@ -1739,17 +1657,14 @@ local function NewComplexRow(parent)
     r.shadeR:SetColorTexture(1, 1, 1, 1)
     r.shadeR:SetPoint("TOPLEFT", r.shadeL, "TOPRIGHT")
     r.shadeR:SetPoint("BOTTOMRIGHT")
-    if r.shadeR.SetGradient and CreateColor then
-        r.shadeR:SetGradient("HORIZONTAL", CreateColor(0.035, 0.035, 0.043, 0.8), CreateColor(0.035, 0.035, 0.043, 0.4))
-    end
+    UI():Gradient(r.shadeR, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.8 }, { 0.035, 0.035, 0.043, 0.4 })
     UI():AddEdges(r, "BORDER")
-    UI():SetEdgeColor(r, 0.34, 0.34, 0.38, 0.5)
+    UI():SetEdgeColor(r, S:Color("EDGE_QUIET"))
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(30, 30)
     r.icon:SetPoint("LEFT", 9, 0)
-    r.name = Text(r, "GameFontNormal", 12)
-    r.why = Text(r, "GameFontHighlightSmall", 10)
-    r.why:SetTextColor(1, 0.55, 0.1)
+    r.name = Text(r, "emph", "GOLD")
+    r.why = Text(r, "small", "WARN")
     r.whyHit = CreateFrame("Frame", nil, r)
     r.whyHit:SetPoint("TOPLEFT", r.why, "TOPLEFT")
     r.whyHit:SetPoint("BOTTOMRIGHT", r.why, "BOTTOMRIGHT")
@@ -1769,22 +1684,16 @@ local function SheetSelect(key)
 end
 
 local function FormLabel(parent, text)
-    local fs = Text(parent, "GameFontHighlightSmall", 11)
-    fs:SetTextColor(0.62, 0.62, 0.62)
+    local fs = Text(parent, "body", "SUB")
     fs:SetText(text)
     return fs
 end
 
 local function CreateSheet(p)
-    local sh = CreateFrame("Frame", nil, p)
-    sh:SetAllPoints(p)
-    sh:SetFrameLevel(p:GetFrameLevel() + 20)
-    sh:EnableMouse(true)
-    sh.bg = sh:CreateTexture(nil, "BACKGROUND")
-    sh.bg:SetAllPoints()
-    sh.bg:SetColorTexture(SHEET_BG[1], SHEET_BG[2], SHEET_BG[3], SHEET_BG[4])
-    sh.title = Text(sh, "GameFontNormal", 15)
-    sh.title:SetPoint("TOPLEFT", PAD, -12)
+    -- the shared sheet as a cover over the page (its title, its close X; Escape closes it too)
+    local sh = UI():CreateSheet(p, { cover = true, bg = SHEET_BG, rule = false, onClose = function()
+        if state.sheet then DungeonsUI:CloseSheet() end
+    end })
     sh.normal = NewButton(sh, "Normal", 82, 24, "secondary", function()
         state.sheet.h = false
         state.sheet.err = nil
@@ -1800,11 +1709,7 @@ local function CreateSheet(p)
     sh.heroic.skull:SetTexCoord(0, 0.5, 0, 0.625)
     sh.heroic.skull:SetSize(10, 13)
     sh.heroic.skull:SetPoint("RIGHT", sh.heroic:GetFontString(), "LEFT", -3, 0)
-    sh.close = UI():CreateIconButton(sh, 24, NO_TEX, nil, function() DungeonsUI:CloseSheet() end)
-    sh.close.icon:SetDesaturated(true)
-    sh.close:SetPoint("TOPRIGHT", -PAD, -9)
-    sh.close:SetScript("OnEnter", function(self) Tip(self, { "Close", "Nothing is listed." }, "ANCHOR_LEFT") end)
-    sh.close:SetScript("OnLeave", HideTip)
+    UI():AttachTooltip(sh.close, "Close", "Nothing is listed.", { anchor = "ANCHOR_LEFT" })
     sh.rows = {}
 
     -- the form: When, (At), Note, You go as; its rows anchored once inside sh.form
@@ -1856,6 +1761,7 @@ local function CreateSheet(p)
     sh.note = UI():CreateSleekEditBox(sh.noteRow, FORM_W, 24, "GameFontHighlightSmall")
     sh.note:SetPoint("LEFT", FORM_LABEL_W, 0)
     sh.note:SetMaxLetters(R().NOTE_MAX)
+    sh.fields[#sh.fields + 1] = sh.note
     sh.note:SetScript("OnTextChanged", function(self)
         if state.sheet then state.sheet.no = self:GetText() end
         DungeonsUI:RefreshSheetPreview()
@@ -1896,7 +1802,7 @@ local function CreateSheet(p)
     sh.gf:SetScript("OnEnter", gfTip)
     sh.gf:SetScript("OnLeave", HideTip)
     sh.gfText = CreateFrame("Button", nil, sh.gfRow)
-    sh.gfText.text = Text(sh.gfText, "GameFontHighlightSmall", 12)
+    sh.gfText.text = Text(sh.gfText, "emph", "TEXT")
     sh.gfText.text:SetPoint("LEFT")
     sh.gfText:SetPoint("LEFT", sh.gf, "RIGHT", 8, 0)
     sh.gfText:SetScript("OnClick", flip)
@@ -1907,11 +1813,9 @@ local function CreateSheet(p)
     sh.previewLabel = FormLabel(sh, "Preview")
     sh.preview = NewCard(sh)
     sh.preview:EnableMouse(false)
-    sh.pick = Text(sh, "GameFontHighlightSmall", 12)
-    sh.pick:SetTextColor(0.62, 0.62, 0.62)
+    sh.pick = Text(sh, "emph", "SUB")
     sh.pick:SetText("Pick a dungeon above.")
-    sh.err = Text(sh, "GameFontHighlightSmall", 11)
-    sh.err:SetTextColor(1, 0.55, 0.1)
+    sh.err:ClearAllPoints()
     sh.go = NewButton(sh, "List run", 130, 28, "primary", function() DungeonsUI:SubmitSheet() end)
     sh:Hide()
     p.sheet = sh
@@ -1991,16 +1895,16 @@ local function SheetRows(sh, s, width)
             local sel = s.d == info.key
             local off = block ~= nil
             if off then
-                tile.bg:SetColorTexture(0.055, 0.055, 0.067, 0.7)
-                UI():SetEdgeColor(tile, 0.34, 0.34, 0.38, 0.45)
-                tile.name:SetTextColor(0.47, 0.47, 0.49)
+                tile.bg:SetColorTexture(OFF_BG[1], OFF_BG[2], OFF_BG[3], 0.7)
+                UI():SetEdgeColor(tile, S:Color("EDGE_QUIET"))
+                tile.name:SetTextColor(S:Color("DIM"))
             elseif sel then
                 tile.bg:SetColorTexture(0.27, 0.23, 0.09, 0.92)
-                UI():SetEdgeColor(tile, 1, 0.82, 0, 0.9)
+                UI():SetEdgeColor(tile, GOLD[1], GOLD[2], GOLD[3], 0.9)
                 tile.name:SetTextColor(1, 1, 1)
             else
-                tile.bg:SetColorTexture(0.055, 0.055, 0.067, 0.86)
-                UI():SetEdgeColor(tile, 0.34, 0.34, 0.38, 0.85)
+                tile.bg:SetColorTexture(OFF_BG[1], OFF_BG[2], OFF_BG[3], 0.86)
+                UI():SetEdgeColor(tile, S:Color("EDGE_STRONG"))
                 tile.name:SetTextColor(1, 1, 1)
             end
             local saved = kind == "saved"
@@ -2073,7 +1977,7 @@ function DungeonsUI:RefreshSheet()
     sh.gfRow:SetShown(GF ~= nil and GF:IsAvailable())
     sh.gf:SetOn(s.gf)
     sh.gfText.text:SetText(later and "List it in the Group Finder when it starts" or "Also list it in the Group Finder")
-    sh.gfText.text:SetTextColor(s.gf and 1 or 0.62, s.gf and 1 or 0.62, s.gf and 1 or 0.62)
+    sh.gfText.text:SetTextColor(S:Color(s.gf and "TEXT" or "SUB"))
     sh.gfText:SetSize((sh.gfText.text:GetStringWidth() or 200) + 2, 20)
 
     local px = PAD + FORM_LABEL_W + FORM_W + 24
@@ -2131,7 +2035,7 @@ function DungeonsUI:OpenSheet(edit)
     state.sheet = s
     local sh = panel.sheet or CreateSheet(panel)
     sh.note:SetText(s.no or "")
-    sh:Show()
+    sh:Open()
     self:RefreshSheet()
 end
 
@@ -2139,7 +2043,7 @@ function DungeonsUI:CloseSheet()
     state.sheet = nil
     if panel and panel.sheet then
         panel.sheet.note:ClearFocus()
-        panel.sheet:Hide()
+        panel.sheet:Close()
     end
     self:Refresh()
 end
@@ -2172,118 +2076,68 @@ end
 -- The pop-up: a run needs me / somebody asks to join my run
 ---------------------------------------------------------------------------
 
-local function CreateToast()
-    local t = CreateFrame("Button", "DisasterZoneRunToast", UIParent)
-    t:SetSize(TOAST_W, TOAST_H)
-    t:SetPoint("TOP", UIParent, "TOP", 0, -120)
-    t:SetFrameStrata("DIALOG")
-    t:SetClampedToScreen(true)
-    t.bg = t:CreateTexture(nil, "BACKGROUND")
-    t.bg:SetAllPoints()
-    t.bg:SetColorTexture(0.043, 0.043, 0.051, 0.95)
-    UI():AddEdges(t, "BORDER")
-    UI():SetEdgeColor(t, 1, 0.82, 0, 0.55)
-    t.art = t:CreateTexture(nil, "ARTWORK", nil, 0)
-    t.art:SetPoint("TOPLEFT", 1, -1)
-    t.fade = t:CreateTexture(nil, "ARTWORK", nil, 2)
-    t.fade:SetColorTexture(1, 1, 1, 1)
-    t.shade = t:CreateTexture(nil, "ARTWORK", nil, 1)
-    t.shade:SetColorTexture(1, 1, 1, 1)
-    t.skull = t:CreateTexture(nil, "OVERLAY")
-    t.skull:SetTexture(HEROIC_TEX)
-    t.skull:SetTexCoord(0, 0.5, 0, 0.625)
-    t.skull:SetSize(11, 14)
-    t.skull:SetPoint("BOTTOMLEFT", t.art, "BOTTOMLEFT", 7, 7)
-    t.heroic = Text(t, "GameFontNormalSmall")
-    t.heroic:SetText("Heroic")
-    t.heroic:SetPoint("LEFT", t.skull, "RIGHT", 2, 0)
-    t.t1 = Text(t, "GameFontHighlight", 13)
-    t.t1:SetPoint("TOPLEFT", TOAST_ART + 4, -12)
-    t.t2 = Text(t, "GameFontHighlightSmall", 11)
-    t.t2:SetPoint("TOPLEFT", t.t1, "BOTTOMLEFT", 0, -3)
-    t.t3 = Text(t, "GameFontHighlightSmall", 11)
-    t.t3:SetPoint("TOPLEFT", t.t2, "BOTTOMLEFT", 0, -3)
-    t.btn = NewButton(t, "Join", 70, 26, "primary")
-    t.btn:SetPoint("RIGHT", -14, 0)
-    -- the cross: closes the pop-up; on a party invite it declines (the invite is the pop-up's whole point)
-    t.x = UI():CreateIconButton(t, 16, NO_TEX, nil, function()
-        if t.mode == "invite" then R():AnswerInvite(false) end
-        t:Hide()
-    end)
-    t.x.bg:SetAlpha(0)
-    t.x.icon:SetDesaturated(true)
-    t.x:SetPoint("TOPRIGHT", -3, -3)
-    t.x:SetScript("OnEnter", function(self)
-        if t.mode == "invite" then Tip(self, { "Decline", "Says no to the party invite." }, "ANCHOR_TOP") end
-    end)
-    t.x:SetScript("OnLeave", HideTip)
-    t:SetScript("OnClick", function()
-        if ns.MainFrame then ns.MainFrame:Open("dungeons") end
-        if t.mode ~= "invite" then t:Hide() end
-    end)
-    t:SetScript("OnUpdate", function(self, dt)
-        if self.mode == "invite" then return end   -- an invite stays until it is answered or runs out
-        self.left = (self.left or TOAST_FOR) - dt
-        if self.left <= 0 then self:Hide() end
-    end)
-    t:SetScript("OnEnter", function(self) self.left = max(self.left or 0, 8) end)
-    t:Hide()
-    return t
-end
-
 local function Chime()
     if PlaySound and SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE then PlaySound(SOUNDKIT.IG_PLAYER_INVITE) end
 end
 
+-- The heroic skull and its word over the pop-up's art (in the toast's slot for a caller's own pieces).
+local function ToastHeroic(t, heroic)
+    local slot = t.slot
+    if not slot.dzRunSkull then
+        slot.dzRunSkull = slot:CreateTexture(nil, "OVERLAY")
+        slot.dzRunSkull:SetTexture(HEROIC_TEX)
+        slot.dzRunSkull:SetTexCoord(0, 0.5, 0, 0.625)
+        slot.dzRunSkull:SetSize(11, 14)
+        slot.dzRunSkull:SetPoint("BOTTOMLEFT", t, "BOTTOMLEFT", 8, 8)
+        slot.dzRunHeroic = Text(slot, "small", "GOLD")
+        slot.dzRunHeroic:SetText("Heroic")
+        slot.dzRunHeroic:SetPoint("LEFT", slot.dzRunSkull, "RIGHT", 2, 0)
+    end
+    slot.dzRunSkull:SetShown(heroic)
+    slot.dzRunHeroic:SetShown(heroic)
+end
+
+-- The pop-up (UI:Toast): the dungeon's art, its name over the line l2 and the hint l3, one button.
 -- mode: "invite" (a party invite: no countdown, the cross declines, no chime: Blizzard's invite sound already played)
+-- Fields kept for the callers and the harness: t.run, t.mode, t.btn (the button), t.x (the cross), t.t2 (l2's text).
 local function ShowToast(run, l2, l3, btnText, onClick, mode)
     -- a party invite waiting for its answer is never pushed out by a ping
-    if mode ~= "invite" and toast and toast:IsShown() and toast.mode == "invite" then
+    local shown = RunToast()
+    if mode ~= "invite" and shown and shown.mode == "invite" then
         Chime()
         return
     end
-    toast = toast or CreateToast()
-    local t = toast
-    t.mode = mode
     local file, l, r, tt, b = R():GetArt(run.d, TOAST_ART, TOAST_H - 2)
-    t.art:SetSize(TOAST_ART, TOAST_H - 2)
-    if file then
-        t.art:SetTexture(file)
-        t.art:SetTexCoord(l, r, tt, b)
-    end
-    t.fade:ClearAllPoints()
-    t.fade:SetPoint("TOPRIGHT", t.art, "TOPRIGHT")
-    t.fade:SetPoint("BOTTOMRIGHT", t.art, "BOTTOMRIGHT")
-    t.fade:SetWidth(floor(TOAST_ART * 0.45))
-    if t.fade.SetGradient and CreateColor then
-        t.fade:SetGradient("HORIZONTAL", CreateColor(0.043, 0.043, 0.051, 0), CreateColor(0.043, 0.043, 0.051, 1))
-    end
-    t.shade:ClearAllPoints()
-    t.shade:SetPoint("BOTTOMLEFT", t.art, "BOTTOMLEFT")
-    t.shade:SetPoint("BOTTOMRIGHT", t.art, "BOTTOMRIGHT")
-    t.shade:SetHeight(26)
-    if t.shade.SetGradient and CreateColor then
-        t.shade:SetGradient("VERTICAL", CreateColor(0, 0, 0, 0.75), CreateColor(0, 0, 0, 0))
-    end
-    t.skull:SetShown(run.h and true or false)
-    t.heroic:SetShown(run.h and true or false)
-    local textW = TOAST_W - TOAST_ART - 4 - 100
     local full, short = DungeonName(run)
-    FitText(t.t1, full, short, textW, 13)
-    t.t2:SetText(l2 or "")
-    t.t3:SetText(l3 or "")
-    t.t3:SetShown(l3 ~= nil)
-    for _, fs in ipairs({ t.t2, t.t3 }) do fs:SetWidth(textW) end
-    t.t1:ClearAllPoints()
-    t.t1:SetPoint("TOPLEFT", TOAST_ART + 4, l3 and -12 or -20)
-    t.btn:SetText(btnText)
-    t.btn:SetScript("OnClick", function()
-        onClick()
-        t:Hide()
-    end)
-    t.run = run.id
-    t.left = TOAST_FOR
-    t:Show()
+    local t = UI():Toast({
+        key = TOAST_KEY,
+        kind = "info",
+        width = TOAST_W,
+        art = file and { file, l, r, tt, b } or nil,
+        artWidth = TOAST_ART,
+        kicker = (UI():TextWidth(full, "caps") > TOAST_W - TOAST_ART - 130 and short) or full,
+        title = l2 or "",
+        text = l3,
+        lines = 2,
+        duration = mode == "invite" and 0 or TOAST_FOR,
+        buttons = { { text = btnText, kind = "primary", onClick = function() onClick() end } },
+        -- a click on the pop-up opens the tab (an invite stays: it is the invite)
+        onClick = function()
+            if ns.MainFrame then ns.MainFrame:Open("dungeons") end
+            return mode == "invite"
+        end,
+        -- the cross: closes the pop-up; on a party invite it declines (the invite is the pop-up's whole point)
+        onClose = function(_, reason)
+            if reason == "close" and mode == "invite" then R():AnswerInvite(false) end
+        end,
+    })
+    if not t then return end
+    toast = t
+    t.mode, t.run = mode, run.id
+    t.btn, t.x, t.t2 = t.btns[1], t.close, t.title
+    UI():AttachTooltip(t.close, mode == "invite" and "Decline" or nil,
+        mode == "invite" and "Says no to the party invite." or nil, { anchor = "ANCHOR_TOP" })
+    ToastHeroic(t, run.h and true or false)
     if mode ~= "invite" then Chime() end
 end
 
@@ -2335,7 +2189,8 @@ function DungeonsUI:OnInvite(id, from)
 end
 
 function DungeonsUI:OnInviteGone()
-    if toast and toast:IsShown() and toast.mode == "invite" then toast:Hide() end
+    local t = RunToast()
+    if t and t.mode == "invite" then UI():HideToast(t) end
     self:RequestRefresh()
 end
 
@@ -2369,7 +2224,13 @@ end
 
 -- For the harness / UI audit.
 function DungeonsUI:GetPanel() return panel end
-function DungeonsUI:GetToast() return toast end
+function DungeonsUI:GetToast()
+    -- (the shared toast frames are reused: only the one showing my run's pop-up is mine)
+    local t = RunToast()
+    if t then return t end
+    if toast and not toast:IsShown() then return toast end
+    return nil
+end
 function DungeonsUI:GetSheetState() return state.sheet end
 function DungeonsUI:SetSheet(fields)
     for k, v in pairs(fields or {}) do state.sheet[k] = v end
@@ -2380,7 +2241,8 @@ function DungeonsUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("dungeons", "Dungeons", 3.55,
             function(parent) return DungeonsUI:CreatePanel(parent) end,
-            function() return (IsInGuild() or (ns.Demo and ns.Demo:IsEnabled())) and true or false end)
+            function() return (IsInGuild() or (ns.Demo and ns.Demo:IsEnabled())) and true or false end,
+            { layout = "board" })
     end
     local function refresh() DungeonsUI:RequestRefresh() end
     for _, msg in ipairs({ "DUNGEON_RUNS_UPDATED", "ROSTER_UPDATED", "GROUP_UPDATED", "ITEMINFO_READY",
