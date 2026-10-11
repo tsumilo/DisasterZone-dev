@@ -45,18 +45,14 @@ local STAR = "Interface\\COMMON\\ReputationStar"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
--- The colours: ns.Style tokens, plus this page's own shades (read-only: several are shared tables).
+-- The colours: ns.Style tokens (read-only: shared tables), plus white for names over art and black for the icon
+-- tiles' edges. pts: the season points' warm gold (the gold the badges are drawn in).
 local C = {
-    gold = S.C.GOLD, white = { 1, 1, 1 }, text = S.C.TEXT, grey = S.C.SUB,
-    dim = S.C.DIM, meta = { 0.82, 0.82, 0.82 }, desc = { 0.74, 0.74, 0.74 }, soft = { 0.81, 0.81, 0.81 },
-    blue = S.C.YOU, pts = { 1, 0.88, 0.54 }, green = { 0.44, 0.88, 0.54 }, red = { 1, 0.54, 0.48 },
-    orange = S.C.WARN, open = { 0.34, 0.34, 0.36 }, kick = S.C.GOLD,
-    label = { 0.85, 0.85, 0.85 }, chip = { 0.91, 0.91, 0.91 }, black = { 0, 0, 0, 1 },
-    youEdge = { 0.4, 0.72, 1, 0.75 }, youText = { 0.84, 0.92, 1 }, youWash = { 0.4, 0.72, 1, 0.08 },
-    youBar = { 0.4, 0.72, 1, 1 }, shade = { 0.035, 0.035, 0.043, 0.95 },
+    gold = S.C.GOLD, white = { 1, 1, 1 }, text = S.C.TEXT, grey = S.C.SUB, dim = S.C.DIM,
+    meta = S.C.TEXT, desc = S.C.TEXT, soft = S.C.TEXT, label = S.C.TEXT, chip = S.C.TEXT,
+    pts = { 1, 0.88, 0.54 }, green = S.C.OK, red = S.C.BAD, orange = S.C.WARN, black = { 0, 0, 0, 1 },
 }
 local CARD = S.C.CARD
-local PEDGE = S.C.EDGE_QUIET
 
 local panel
 local state = { view = "upcoming", occ = nil, lib = "guild", q = "", hover = nil, review = nil, scroll = {} }
@@ -212,28 +208,17 @@ function H.Glyph(tex, g, c)
     EUI():Glyph(tex, idx, c[1], c[2], c[3], c[4] or 1)
 end
 
--- An icon texture (an event's icon) with its 1px dark edge and an outer light (gold for a banner's).
-function H.Icon(parent, size, edge)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.outer = UI():Fill(f, C.black, "BACKGROUND")
-    f.outer:ClearAllPoints()
-    f.outer:SetPoint("TOPLEFT", -1, 1)
-    f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
-    if edge then
-        f.ring = UI():Fill(f, edge, "BACKGROUND", -1)
-        f.ring:ClearAllPoints()
-        f.ring:SetPoint("TOPLEFT", -2, 2)
-        f.ring:SetPoint("BOTTOMRIGHT", 2, -2)
-    end
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    f.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    function f:Set(path) self.tex:SetTexture(path or QUESTION) end
+-- An event's icon in the shared icon tile (UI:CreateIconTile: the icon with its border cut, a 1 px black edge);
+-- f:Set(path) shows the question mark for none.
+function H.Icon(parent, size)
+    local f = UI():CreateIconTile(parent, size)
+    local set = f.Set
+    function f:Set(path) set(self, path or QUESTION) end
     return f
 end
 
--- A class circle (the guild's round class icons) with a dark ring; f:Set(key), f:SetEmpty() (an open seat).
+-- The events' class circle: the guild's round class icons (EventWidgets' art) in a dark ring; f:Set(key),
+-- f:SetEmpty() (an open seat). TODO(refactor): move into a shared avatar (a player's class circle)
 function H.Face(parent, size)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
@@ -337,61 +322,6 @@ end
 -- The icon buttons at the right of a banner / a card.
 function H.IconButton(parent, size, icon, title, text, onClick)
     return UI():CreateTipIconButton(parent, size, UI().ICON[icon] or icon, title, text, onClick)
-end
-
--- A rounded chip on a banner: an optional glyph / face, a text. c:Set(text, glyph, edge), c:SetFace(key).
--- TODO(refactor): move into UI:CreateChip (a class face instead of the icon, a tinted glyph, an edge colour per call).
-function H.Chip(parent, h)
-    h = h or 22
-    local c = CreateFrame("Frame", nil, parent)
-    c:SetSize(60, h)
-    UI():AddPillShape(c, h)
-    c:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, { 1, 1, 1, 0.2 })
-    c.glyph = c:CreateTexture(nil, "ARTWORK")
-    c.glyph:SetSize(12, 12)
-    c.glyph:SetPoint("LEFT", 8, 0)
-    c.face = H.Face(c, 14)
-    c.face:SetPoint("LEFT", 6, 0)
-    c.face:Hide()
-    c.fs = UI():Text(c, "body", C.chip)
-    c:EnableMouse(true)
-    H.TipFromField(c)
-    -- (tint: the glyph's colour; a dot, DISC, is a tag's: smaller)
-    function c:Set(text, glyph, edge, color, tint)
-        self.face:Hide()
-        local x = 10
-        self.glyph:SetSize(12, 12)
-        if glyph then
-            if type(glyph) == "string" and glyph:find("\\") then
-                self.glyph:SetTexture(glyph)
-                self.glyph:SetTexCoord(0, 1, 0, 1)
-                self.glyph:SetVertexColor(tint and tint[1] or 1, tint and tint[2] or 1, tint and tint[3] or 1, 1)
-                if glyph == DISC then self.glyph:SetSize(9, 9) end
-            else
-                H.Glyph(self.glyph, glyph, { 0.85, 0.85, 0.85, 0.85 })
-            end
-            self.glyph:Show()
-            x = 8 + 12 + 6
-        else
-            self.glyph:Hide()
-        end
-        self.fs:SetText(text or "")
-        self.fs:SetTextColor(S:Color(color or C.chip))
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", x, 0)
-        self:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, edge or { 1, 1, 1, 0.2 })
-        self:SetWidth(ceil(x + SW(self.fs) + 11))
-        self:Show()
-    end
-    function c:SetFace(key)
-        self.glyph:Hide()
-        self.face:Set(key)
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", 6 + 14 + 6, 0)
-        self:SetWidth(ceil(26 + SW(self.fs) + 11))
-    end
-    c:Hide()
-    return c
 end
 
 -- A small rounded chip with an icon (a smart block on a library card): UI:CreatePill (p:Set(text, look, icon)).
@@ -2220,6 +2150,7 @@ end
 
 -- A rule of a stage ("best of 3", "5 min no-show"): a small flat chip with its glyph. look: nil (the glyph g), or
 -- { dot = rgb } (a tag: its colour), { ring = rgb } (a place), { box = true } (a button: a small button's shape).
+-- TODO(refactor): move into UI:CreateChip (a square look; an atlas glyph, a ring or a button's shape in front)
 local PLACE_C = { 0.34, 0.84, 0.94 }    -- Places' colour (EventBlocks' pc edge)
 function Pg.NewRule(parent)
     local c = CreateFrame("Frame", nil, parent)
@@ -2985,7 +2916,8 @@ end
 function Pg.NewAward(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(AW_W, 44)
-    r.line = UI():Rule(r, { bottom = 0, alpha = 0.05 })
+    UI():DecorateRow(r, { rule = true })
+    r.line = r.dzRule
     r.badge = H.Badge(r, 30)
     r.badge:SetPoint("LEFT", -1, 0)
     r.face = H.Face(r, 30)
@@ -3016,10 +2948,7 @@ end
 -- A match box of the last four: two players (seed, face, name, games won), the winner lit.
 local MATCH_W = 136
 function Pg.NewMatch(parent)
-    local m = CreateFrame("Frame", nil, parent)
-    m:SetSize(MATCH_W, 39)
-    UI():Fill(m, { 0.086, 0.086, 0.106, 0.96 })
-    Edges(m, "EDGE")
+    local m = UI():CreateCard(parent, { tone = "card", width = MATCH_W, height = 39 })
     m.sep = Line(m, "HAIRLINE")
     m.sep:SetHeight(1)
     m.sep:SetPoint("LEFT", 1, 0)
@@ -3091,12 +3020,8 @@ end
 function Pg.NewTableRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(240, TROW_RH)
-    r.bg = UI():Fill(r, C.youWash)
-    r.bar = Line(r, C.youBar)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.bar:SetWidth(2)
-    r.line = UI():Rule(r, { bottom = 0, alpha = 0.035 })
+    UI():DecorateRow(r, { selectable = true, rule = true })
+    r.bg, r.bar, r.line = r.dzSelFill, r.dzSelBar, r.dzRule
     r.rk = UI():Text(r, "emph", C.grey, { font = NUM_FONT })
     r.rk:SetJustifyH("RIGHT")
     r.rk:SetPoint("RIGHT", r, "LEFT", 22, 0)
@@ -3123,9 +3048,7 @@ function Pg.FillTable(t, s, w)
             r:SetWidth(w)
             r:ClearAllPoints()
             r:SetPoint("TOPLEFT", t, "TOPLEFT", 0, -y)
-            local mine = IsMe(x.key)
-            r.bg:SetShown(mine)
-            r.bar:SetShown(mine)
+            r:SetSelected(IsMe(x.key))
             r.rk:SetText(x.place)
             r.rk:SetTextColor(S:Color(x.place <= 3 and C.gold or C.grey))
             r.face:Set(x.key)
@@ -5113,6 +5036,8 @@ local function Field(f, w, h, maxLetters, hint)
 end
 
 -- A flat stepper (the Dungeons tab's "Later" picker): a value between two gold chevrons; they and the wheel step it.
+-- (the day / time helpers below and this stepper are copied in UI/DungeonsTab.lua: kept local here for now)
+-- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua) with the day / time helpers
 local function Chevron(parent, dir)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(22, 22)
@@ -5203,43 +5128,31 @@ local function DayText(day)
     return date("%a ", t) .. tonumber(date("%d", t)) .. date(" %b", t)
 end
 
--- The event strip at the top of a sheet: art, icon, name + pill, a second line.
+-- The event strip at the top of a sheet: a strip page banner (UI:CreatePageBanner, 56 high: the event's art, icon,
+-- name with its review pill, a second line). s:Set(d) says what it is; s:SetEvent(d, sub) any second line.
 local function SheetStrip(f, y, w)
-    local s = CreateFrame("Frame", nil, f)
+    local s = UI():CreatePageBanner(f, { size = 56, width = w })
     s:SetPoint("TOPLEFT", 12, y)
     s:SetSize(w, 56)
-    s.art = s:CreateTexture(nil, "BACKGROUND")
-    s.art:SetPoint("TOPLEFT", 1, -1)
-    s.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    s.shade = s:CreateTexture(nil, "BORDER")
-    s.shade:SetAllPoints()
-    UI():Gradient(s.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.35 })
-    Edges(s, PEDGE, "ARTWORK")
-    s.icon = H.Icon(s, 32)
-    s.icon:SetPoint("LEFT", 12, 0)
-    s.n = UI():Text(s, "title", C.white)
-    s.n:SetPoint("BOTTOMLEFT", s.icon, "RIGHT", 10, 1)
-    s.pill = H.Pill(s, 16)
-    s.pill:SetPoint("LEFT", s.n, "RIGHT", 8, 0)
-    s.l2 = UI():Text(s, "body", { 0.78, 0.78, 0.78 })
-    s.l2:SetPoint("TOPLEFT", s.icon, "RIGHT", 10, -3)
-    function s:Set(d)
-        EUI():SetArt(self.art, d.art, w - 2, 54, nil, 0.6, 0.9)
-        self.icon:Set(d.icon)
+    function s:SetEvent(d, sub)
+        self.building = true
+        self:SetArt(H.BannerArt(d.art, w, 56, 0.6))
+        self:SetIcon(d.icon or QUESTION)
         local text, kind = EUI():ReviewPill(Ev():ReviewState(d))
-        self.pill:SetShown(text ~= nil)
-        if text then self.pill:SetKind(text, kind) end
-        local tw = FitText(self.n, d.name or "Event", w - 54 - 12 - (text and (self.pill:GetWidth() + 8) or 0),
-            { 13, 12, 11 })
-        self.pill:ClearAllPoints()
-        self.pill:SetPoint("LEFT", self.n, "LEFT", tw + 8, 0)
+        self:SetPill(kind, text)
+        self:SetTitle(d.name or "Event")
+        self:SetSub(sub)
+        self.building = nil
+        self:Layout()
+    end
+    function s:Set(d)
         local parts = {}
         for _, k in ipairs(B():Kinds(d)) do parts[#parts + 1] = B().SMART[k].label end
         local spots = W.Spots(d)
         if spots then parts[#parts + 1] = spots .. " spots" end
         local n = #(d.stages or {})
         parts[#parts + 1] = n .. (n == 1 and " stage" or " stages")
-        self.l2:SetText(tconcat(parts, " · "))
+        self:SetEvent(d, tconcat(parts, " · "))
     end
     return s
 end
@@ -5453,24 +5366,19 @@ end
 
 function Sh.Submit()
     if sheets.submit then return sheets.submit end
-    local f = Sh.New("submit", "DisasterZoneEventSubmit", 560, 332)
+    local f = Sh.New("submit", "DisasterZoneEventSubmit", 560, 352)
     f.title:SetText("Send for review")
-    f.icon = H.Icon(f, 32)
-    f.icon:SetPoint("TOPLEFT", 14, -52)
-    f.n = UI():Text(f, "title", C.white)
-    f.n:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -2)
-    f.l2 = UI():Text(f, "body", C.grey)
-    f.l2:SetPoint("TOPLEFT", f.n, "BOTTOMLEFT", 0, -4)
+    f.strip = SheetStrip(f, -52, 536)
     f.csect = H.Sect(f)
-    f.csect:SetPoint("TOPLEFT", 14, -92)
-    f.csect:SetPoint("TOPRIGHT", -14, -92)
+    f.csect:SetPoint("TOPLEFT", 14, -114)
+    f.csect:SetPoint("TOPRIGHT", -14, -114)
     f.csect:Set("Checks")
     f.rows = {}
     for i = 1, 4 do
         local r = CreateFrame("Frame", nil, f)
         r:SetHeight(22)
-        r:SetPoint("TOPLEFT", 14, -(120 + (i - 1) * 22))
-        r:SetPoint("TOPRIGHT", -14, -(120 + (i - 1) * 22))
+        r:SetPoint("TOPLEFT", 14, -(142 + (i - 1) * 22))
+        r:SetPoint("TOPRIGHT", -14, -(142 + (i - 1) * 22))
         r.icon = r:CreateTexture(nil, "ARTWORK")
         r.icon:SetSize(13, 13)
         r.icon:SetPoint("LEFT", 2, 0)
@@ -5482,11 +5390,11 @@ function Sh.Submit()
         f.rows[i] = r
     end
     f.nsect = H.Sect(f)
-    f.nsect:SetPoint("TOPLEFT", 14, -214)
-    f.nsect:SetPoint("TOPRIGHT", -14, -214)
+    f.nsect:SetPoint("TOPLEFT", 14, -236)
+    f.nsect:SetPoint("TOPRIGHT", -14, -236)
     f.nsect:Set("Note for the reviewers")
     f.note = Field(f, 532, 26, 200, "What's new, what to look at")
-    f.note:SetPoint("TOPLEFT", 14, -244)
+    f.note:SetPoint("TOPLEFT", 14, -266)
     f.foot:SetText("Goes to the GM, officers and the guild council")
     f.ok:SetText("Send for review")
     H.Fit(f.ok, 110, 30)
@@ -5532,8 +5440,6 @@ function EventsUI:OpenSubmit(defId)
     end
     local f = Sh.Submit()
     f.def = d
-    f.icon:Set(d.icon)
-    f.n:SetText(d.name or "Event")
     local snap = Ev():RankedSnapshot(d.id)
     local nb, newB, titles = 0, 0, 0
     for id, bd in pairs(d.badges or {}) do
@@ -5546,7 +5452,7 @@ function EventsUI:OpenSubmit(defId)
         nb == 0 and "no badges" or (nb .. (nb == 1 and " badge" or " badges") .. ((snap and newB > 0) and (" (" .. newB
         .. " new)") or "")) }
     if titles > 0 then parts[#parts + 1] = titles .. (titles == 1 and " title" or " titles") end
-    f.l2:SetText(tconcat(parts, " · "))
+    f.strip:SetEvent(d, tconcat(parts, " · "))
     local _, _, practiced, blanks, cap = W.Checks(d)
     local probs = #B():Problems(d)
     local grants = W.Grants(d)
