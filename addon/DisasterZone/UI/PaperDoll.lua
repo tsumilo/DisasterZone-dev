@@ -58,6 +58,32 @@ function GearUI.HasOffSpec()
     return ns.BiS and ns.BiS.HasOffSpec and ns.BiS:HasOffSpec() or false
 end
 
+-- A gem socket / enchant chip (the doll's strip, the gem editor's rows): an icon in a 1 px edge of the socket's colour
+-- on the inset well, or a quiet "+" while empty. plusStyle: the "+"'s text style ("small"). The chip is a slot's
+-- small icon well, not a UI:CreateChip toggle; GearUI.PaintSocketChip paints it.
+function GearUI.CreateSocketChip(parent, size, plusStyle)
+    local c = CreateFrame("Frame", nil, parent)
+    c:SetSize(size, size)
+    c.bg = ns.UI:Fill(c, "INSET")
+    c.icon = c:CreateTexture(nil, "ARTWORK")
+    c.icon:SetPoint("TOPLEFT", 1, -1)
+    c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+    c.plus = ns.UI:Text(c, plusStyle or "small", { 0.6, 0.6, 0.64 }, { justify = "CENTER", text = "+" })
+    c.plus:SetPoint("CENTER", 0, 0)
+    ns.UI:AddEdges(c, "OVERLAY")
+    return c
+end
+
+-- icon (nil: none), edge { r, g, b[, a] }, crop (an item / spell icon: trim its border), plus (show the "+").
+function GearUI.PaintSocketChip(c, icon, edge, crop, plus)
+    c.icon:SetTexture(icon)
+    c.icon:SetShown(icon ~= nil)
+    if crop then c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) else c.icon:SetTexCoord(0, 1, 0, 1) end
+    c.plus:SetShown(plus and true or false)
+    ns.UI:SetEdgeColor(c, edge[1], edge[2], edge[3], edge[4] or 1)
+    c:Show()
+end
+
 -- Layouts (opts.layout):
 --   default  the Council member view (fits a ~774 x 430 area, its own summary in the centre): 260 x 42 tiles on a
 --            46px pitch, one-line names, the weapon row centred
@@ -330,27 +356,8 @@ local function GemColor(letter)
     return c or { 0.6, 0.6, 0.6 }
 end
 
-local function CreateChip(strip, size)
-    local c = CreateFrame("Frame", nil, strip)
-    c:SetSize(size, size)
-    c.bg = ns.UI:Fill(c, "INSET")
-    c.icon = c:CreateTexture(nil, "ARTWORK")
-    c.icon:SetPoint("TOPLEFT", 1, -1)
-    c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.plus = ns.UI:Text(c, "small", { 0.6, 0.6, 0.64 }, { text = "+" })
-    c.plus:SetPoint("CENTER", 0, 0)
-    ns.UI:AddEdges(c, "OVERLAY")
-    return c
-end
-
-local function SetChip(c, icon, edge, crop)
-    c.icon:SetTexture(icon)
-    c.icon:SetShown(icon ~= nil)
-    if crop then c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) else c.icon:SetTexCoord(0, 1, 0, 1) end
-    c.plus:Hide()
-    ns.UI:SetEdgeColor(c, edge[1], edge[2], edge[3], edge[4] or 1)
-    c:Show()
-end
+local CreateChip = GearUI.CreateSocketChip
+local function SetChip(c, icon, edge, crop) GearUI.PaintSocketChip(c, icon, edge, crop, false) end
 
 -- The strip's tooltip, laid out like the game's own: the item as the title, then a line per gem and the enchant
 -- (icon and name on the left, what it gives on the right, soft), the socket bonus as a line of its own (dim until

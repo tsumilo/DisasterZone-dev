@@ -4,9 +4,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/KitView.lua", ...) then return 
 -- line. A card is quiet: the name, what it does (or its DPS once the gear sim ran it) and a check when my bags hold a
 -- night's worth; the rest (counts, who makes it, what it costs) is in its tooltip, and the bag button for the
 -- shopping list shows under the mouse. The bar at the bottom adds up both kits and fills the shopping list.
--- 1.4: the body of the My BiS panel's Board layout on the Consumables page; shared text styles (on the type scale),
--- Style tokens (D1: gold text, the deep gold for the edges and fills), tooltips through UI:AttachTooltip and the
--- illustrated empty state.
+-- 1.4: the body of the My BiS panel's Board layout on the Consumables page: a caps section header over the two
+-- columns, the cards are UI:CreateCard's quiet tone, the kit's status (DPS, the bags) on a card along the body's foot,
+-- and the page's actions on the layout's toolbar (Add prog kit = its main action at the far right, Add farm kit
+-- beside it); shared text styles, Style tokens, tooltips through UI:AttachTooltip and the illustrated empty state.
 local _, ns = ...
 
 local KitView = {}
@@ -22,13 +23,12 @@ local AMBER = S.C.WARN
 local GREY = S.C.SUB
 local SOFT = { 0.72, 0.72, 0.75 }
 local WHITE = S.C.TEXT
-local BAR_BG = { 0.085, 0.085, 0.1, 0.96 }
 
 local TILE_W, TILE_H, GAP, MID_X, MID_W = 262, 56, 6, 270, 230
 local HEAD_H = 18
 local ROWS = 6
 local KITBAR_H = 58
-local BAR_X, PIPS_X = 10, 290   -- the bar spans the page: its contents start at the cards' edge (My BiS's PAD)
+local BAR_X, PIPS_X = 0, 290    -- (the status card's contents from its left edge)
 local READY_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
 local state = { active = false }
@@ -153,9 +153,11 @@ local function CardTooltip(c, tt)
   tt:AddLine("Click: choose another  \194\183  Right-click: more", 0.5, 0.5, 0.52)
 end
 
--- The bag button shows under the mouse (on the card or its icons) while the shopping list can take something.
+-- The bag button shows under the mouse (on the card or its icons) while the shopping list can take something; the
+-- quiet card lifts a little.
 local function ShowBag(c, on)
   c.bag:SetShown(on and c.canList and true or false)
+  if c.SetHovered then c:SetHovered(on) end
 end
 
 local function Hovered(c)
@@ -291,18 +293,12 @@ end
 
 local function CreateCard(parent, side)
   local UI = ns.UI
-  local c = CreateFrame("Frame", nil, parent)
-  c:SetSize(TILE_W, TILE_H)
+  local right = side == "R"
+  -- (UI:CreateCard's quiet tone: a lift fading toward the middle, like My BiS's doll)
+  local c = UI:CreateCard(parent, { tone = "quiet", fade = right and "right" or "left", width = TILE_W, height = TILE_H })
   c:EnableMouse(true)
   c.side = side
-  local right = side == "R"
-  c.bg = c:CreateTexture(nil, "BACKGROUND")
-  c.bg:SetAllPoints()
-  -- (the quiet tile look of My BiS's doll: a lift fading toward the middle)
-  local a = 0.11
-  local far, near = { 0.55, 0.55, 0.62, a }, { 0.55, 0.55, 0.62, a * 0.25 }
-  if right then UI:Gradient(c.bg, "HORIZONTAL", near, far) else UI:Gradient(c.bg, "HORIZONTAL", far, near) end
-  -- the best picks: a gold edge on the outer side
+  -- the best picks: a gold accent bar on the outer side (the selected rows' bar)
   c.edge = c:CreateTexture(nil, "BORDER")
   c.edge:SetWidth(2)
   c.edge:SetPoint("TOP", c, "TOP", 0, 0)
@@ -482,12 +478,11 @@ function KitView:Create(parent, page)
   v:Hide()
   view = v
 
-  v.hBest = Label(v, "caps", GOLD)
-  v.hBest:SetPoint("TOPLEFT", v, "TOPLEFT", 1, -2)
-  v.hBest:SetText("PROG NIGHTS")
-  v.hBudget = Label(v, "caps", GREY, "RIGHT")
-  v.hBudget:SetPoint("TOPRIGHT", v, "TOPRIGHT", -1, -2)
-  v.hBudget:SetText("FARM NIGHTS")
+  -- the columns: prog nights on the left, farm nights on the right (one caps section header across)
+  v.head = UI:CreateSectionHeader(v, "Prog nights", { style = "caps", right = UI:CapsText("Farm nights") })
+  v.head:SetPoint("TOPLEFT", v, "TOPLEFT", -1, 0)
+  v.head:SetPoint("TOPRIGHT", v, "TOPRIGHT", 1, 0)
+  v.hBest, v.hBudget = v.head.title, v.head.right
 
   v.rows = {}
   for i = 1, ROWS do
@@ -508,17 +503,13 @@ function KitView:Create(parent, page)
   v.emptyState:Hide()
   v.empty = v.emptyState.text
 
-  -- the kit bar
-  local bar = CreateFrame("Frame", nil, v)
-  bar:SetPoint("BOTTOMLEFT", page or v, "BOTTOMLEFT", 0, 0)
-  bar:SetPoint("BOTTOMRIGHT", page or v, "BOTTOMRIGHT", 0, 0)
+  -- the kit's status along the body's foot: a card (UI:CreateCard); its actions are the toolbar's
+  local bar = UI:CreateCard(v, { tone = "card" })
+  bar:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 0, 0)
+  bar:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
   bar:SetHeight(KITBAR_H)
   v.bar = bar
-  UI:Fill(bar, BAR_BG)
-  local top = bar:CreateTexture(nil, "ARTWORK")
-  top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT")
-  top:SetHeight(2)
-  top:SetColorTexture(GOLD_EDGE[1], GOLD_EDGE[2], GOLD_EDGE[3], 0.9)
+  v.toolbar = page and page.layout and page.layout.toolbar
 
   bar.prog = KitBlock(bar, "PROG KIT", GOLD)
   bar.prog:SetPoint("LEFT", bar, "LEFT", BAR_X + 8, 0)
@@ -577,16 +568,18 @@ function KitView:Create(parent, page)
     end
   end, nil, { anchor = "ANCHOR_TOP" })
 
-  bar.addProg = UI:CreateSleekButton(bar, "Add prog kit", 124, 26, function() KitView:AddKit("best") end, "primary")
-  bar.addProg:SetPoint("RIGHT", bar, "RIGHT", -BAR_X - 8, 0)
-  bar.addFarm = UI:CreateSleekButton(bar, "Add farm kit", 124, 26, function() KitView:AddKit("budget") end)
-  bar.addFarm:SetPoint("RIGHT", bar.addProg, "LEFT", -6, 0)
-  for _, b in ipairs({ bar.addProg, bar.addFarm }) do
-    UI:AttachTooltip(b, function(self, tt)
-      local side = self == bar.addProg and "best" or "budget"
+  -- the page's actions on the toolbar: Add prog kit is its main action (UpdateBar: toolbar:SetPrimary), Add farm kit
+  -- one of its filters (My BiS hands it to the toolbar: KitView:GetToolbarButtons)
+  bar.addFarm = UI:CreateSleekButton(v.toolbar or bar, "Add farm kit", 124, S.BTN_H,
+    function() KitView:AddKit("budget") end)
+  bar.addFarm:Hide()
+  if not v.toolbar then bar.addFarm:SetPoint("RIGHT", bar, "RIGHT", -8, 0) end
+  local function kitTip(self, tt)
+      local prog = self ~= bar.addFarm
+      local side = prog and "best" or "budget"
       local Kt = K()
       local sum = Kt:Summary(Kt:Get(), side)
-      tt:AddLine(self == bar.addProg and "Add the prog kit" or "Add the farm kit", S:Color("GOLD"))
+      tt:AddLine(prog and "Add the prog kit" or "Add the farm kit", S:Color("GOLD"))
       if sum.listCount > 0 then
         tt:AddLine("Puts what your bags lack for a night on your shopping list (Atlas):", 1, 1, 1, true)
         for id, n in pairs(sum.toList) do tt:AddDoubleLine(Kt:Name(id), tostring(n), 1, 1, 1, 0.7, 0.7, 0.7) end
@@ -597,17 +590,35 @@ function KitView:Create(parent, page)
         tt:AddLine("No craft makes the rest (scrolls, runes): the auction house.", 0.6, 0.6, 0.62, true)
       end
       if sum.cost then tt:AddLine("About " .. Money(sum.cost) .. " a night (Auctionator).", 0.6, 0.6, 0.62) end
-    end, nil, { anchor = "ANCHOR_TOP" })
   end
+  v.kitTip = kitTip
+  UI:AttachTooltip(bar.addFarm, kitTip, nil, { anchor = "ANCHOR_BOTTOM" })
 
   v:SetScript("OnShow", function() KitView:Update() end)
   return v
+end
+
+-- The toolbar's filters the Consumables page adds (My BiS puts them on its layout's toolbar).
+function KitView:GetToolbarButtons()
+  return view and { view.bar.addFarm } or {}
+end
+
+-- The page's toolbar actions: shown with the kit (on = true), else taken away.
+local function ToolbarActions(on)
+  local bar, tb = view.bar, view.toolbar
+  bar.addFarm:SetShown(on and true or false)
+  if not tb then return end
+  if not on then
+    if tb.primary and tb.primary:IsShown() and tb.primary.dzKit then tb:SetPrimary(nil) end
+    return
+  end
 end
 
 function KitView:Show(on)
   if not view then return end
   if not on then self:ClosePicker() end
   view:SetShown(on and true or false)
+  if not on then ToolbarActions(false) end
   if on then self:Update() end
 end
 
@@ -675,11 +686,19 @@ function KitView:UpdateBar()
   bar.bags:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + n * 12 + (n > 0 and 6 or 0), 0)
   bar.bags:SetText(prog.ready == prog.slots and prog.slots > 0 and Col("Ready for tonight", GREEN)
     or ("%d of %d in your bags"):format(prog.ready, prog.slots))
-  bar.addProg:SetText(prog.listCount > 0 and ("Add prog kit \194\183 " .. prog.listCount) or "Add prog kit")
+  -- the toolbar: Add prog kit (the main action, gold while it has something to add), Add farm kit beside it
+  local progText = prog.listCount > 0 and ("Add prog kit \194\183 " .. prog.listCount) or "Add prog kit"
+  local tb = view.toolbar
+  if tb then
+    bar.addProg = tb:SetPrimary({ text = progText, kind = prog.listCount > 0 and "primary" or "secondary",
+                                  enabled = prog.listCount > 0, width = 124,
+                                  onClick = function() KitView:AddKit("best") end })
+    bar.addProg.dzKit = true
+    ns.UI:AttachTooltip(bar.addProg, view.kitTip, nil, { anchor = "ANCHOR_BOTTOM" })
+  end
+  ToolbarActions(true)
   bar.addFarm:SetText(farm.listCount > 0 and ("Add farm kit \194\183 " .. farm.listCount) or "Add farm kit")
-  bar.addProg:SetEnabled(prog.listCount > 0)
   bar.addFarm:SetEnabled(farm.listCount > 0)
-  if bar.addProg.SetKind then bar.addProg:SetKind(prog.listCount > 0 and "primary" or "secondary") end
 end
 
 function KitView:Update()
@@ -691,6 +710,8 @@ function KitView:Update()
   if not rows then
     for _, r in ipairs(view.rows) do r.best:Hide(); r.budget:Hide(); r.spine:Hide() end
     view.bar:Hide()
+    view.head:Hide()
+    ToolbarActions(false)
     view.emptyState:SetContent({ glyph = ns:HasAssets(6) and ns.UI.ICON.flask or ns.UI.ICON.bag,
       title = spec == "" and "Pick your spec" or "No consumables list yet",
       text = spec == "" and "Pick your spec in the spec tabs above to see its consumables."
@@ -700,6 +721,7 @@ function KitView:Update()
   end
   view.emptyState:Hide()
   view.bar:Show()
+  view.head:Show()
   local res = Kt:Results(key)
   for i, r in ipairs(view.rows) do
     local row = rows[i]
@@ -740,7 +762,7 @@ function KitView:Snapshot()
   local pips = 0
   for _, pip in ipairs(bar.pips) do if pip:IsShown() then pips = pips + 1 end end
   out.bar = { pips = pips, sim = bar.sim:IsShown(), progShown = bar.prog:IsShown(), prog = Plain(bar.prog.big:GetText()),
-    farm = Plain(bar.farm.big:GetText()), bags = Plain(bar.bags:GetText()), addProg = Plain(bar.addProg:GetText()),
+    farm = Plain(bar.farm.big:GetText()), bags = Plain(bar.bags:GetText()), addProg = bar.addProg and Plain(bar.addProg:GetText()) or nil,
     addFarm = Plain(bar.addFarm:GetText()) }
   return out
 end

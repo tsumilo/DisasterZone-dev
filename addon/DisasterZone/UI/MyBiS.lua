@@ -29,9 +29,7 @@ local floor, min, max = math.floor, math.min, math.max
 
 local NUM_SLOTS = 17
 
-local PAD = S.PAD
 local BAR_H = S.BTN_H                    -- the toolbar's controls (the doll: 770 x 496 under it, UI/PaperDoll.lua)
-local SEG_W, SEG_STAR_W = 34, 46         -- a phase button (with the guild phase's star)
 local SUGGEST_W = 84
 local ROW_H, MAX_ROWS = 18, 4             -- the centre's still-to-get rows
 local LIST_COL_W = 172                    -- their width
@@ -39,7 +37,7 @@ local BAR_W = 140
 local PLATFORM_W, PLATFORM_Y = 180, 14    -- the pedestal under the model (texture centre above the model place's bottom)
 
 local GOLD = S.C.GOLD
-local RED = { 0.92, 0.38, 0.32 }
+local RED = S.C.BAD                      -- (Clear in the More menu)
 
 -- Icons (file IDs from the installed client; Interface\Icons and Interface\LFGFrame).
 local ICON = {
@@ -1395,17 +1393,18 @@ local function CreateCard(parent, w, h)
     -- what is still to get, at the bottom: a few rows on one width, centred
     local listH = 16 + (MAX_ROWS + 1) * ROW_H
     c.listTop = h - listH
-    c.listHead = UI:Text(c, "caps", "SUB", { justify = "CENTER", text = "Still to get" })
+    c.listHead = UI:CreateSectionHeader(c, "Still to get", { style = "caps", width = LIST_COL_W })
     c.rows = {}
     for i = 1, MAX_ROWS + 1 do
         c.rows[i] = CreateRow(c)
         c.rows[i]:Hide()
     end
-    -- instead of the rows: nothing picked yet / everything obtained
-    c.note1 = UI:Text(c, "emph", "TEXT", { justify = "CENTER", width = w })
-    c.note2 = UI:Text(c, "small", "DIM", { justify = "CENTER", width = w - 16, wrap = true })
-    if c.note2.SetMaxLines then c.note2:SetMaxLines(2) end
-    c.note2:SetPoint("TOP", c.note1, "BOTTOM", 0, -4)
+    -- instead of the rows: nothing picked yet / everything obtained (the shared empty state, compact; note1 / note2
+    -- are its title and text)
+    c.empty = UI:CreateEmptyState(c, { compact = true, width = w - 16 })
+    c.empty:SetPoint("BOTTOM", c, "BOTTOM", 0, 0)
+    c.empty:Hide()
+    c.note1, c.note2 = c.empty.title, c.empty.text
 
     -- The model draws in a frame larger than its place (and above the slot tiles) so a long weapon reaches over the
     -- columns; the camera backs off by the same ratio so the character keeps its size. It takes no mouse: the drag
@@ -1494,7 +1493,7 @@ local function ShowRows(groups)
     local x0 = floor((card.w - LIST_COL_W) / 2 + 0.5)
     local top = card.h - n * ROW_H
     card.listHead:ClearAllPoints()
-    card.listHead:SetPoint("BOTTOM", card, "TOP", 0, -(top - 6))
+    card.listHead:SetPoint("BOTTOMLEFT", card, "TOPLEFT", x0, -(top - 2))
     card.listHead:SetShown(n > 0)
     for i, row in ipairs(card.rows) do
         local g = shown[i]
@@ -1534,28 +1533,31 @@ local function UpdateCard(phase)
 
     local groups = info.groups
     local locked = ListLocked()
+    card.empty:Hide()
     card.note1:SetText("")
     card.note2:SetText("")
-    card.note1:ClearAllPoints()
-    card.note1:SetPoint("TOP", card, "TOP", 0, -(card.h - 44))
     if #groups > 0 then
         ShowRows(groups)
     else
         ShowRows({})
         local _, label = PhaseName(phase)
+        local es = {}
         if info.filled == 0 then
-            card.note1:SetText("Nothing picked for " .. label .. " yet")
+            es.glyph = ns.UI.ICON.notes
+            es.title = "Nothing picked for " .. label .. " yet"
             if not locked then
                 local loon = ns.Loon and ns.Loon.IsAvailable and ns.Loon:IsAvailable()
-                card.note2:SetText(loon and "Click a slot to choose, or let Suggest fill the list."
-                    or "Click a slot to choose an item.")
+                es.text = loon and "Click a slot to choose, or let Suggest fill the list." or "Click a slot to choose an item."
             end
         else
-            card.note1:SetText(Green(info.filled == 1 and "Your pick is obtained" or "Every pick is obtained"))
+            es.icon = ns.UI:Tex("check")
+            es.title = Green(info.filled == 1 and "Your pick is obtained" or "Every pick is obtained")
             if info.empty > 0 then
-                card.note2:SetText(info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet"))
+                es.text = info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet")
             end
         end
+        card.empty:SetContent(es)
+        card.empty:Show()
     end
     card:Dress(phase)
 end
@@ -1618,8 +1620,8 @@ local function UpdatePhaseButtons()
         b:SetWidth(floor((tonumber(fs:GetStringWidth()) or 14) + 16 + (marked and 13 or 0) + 0.5))
         fs:ClearAllPoints()
         fs:SetPoint("CENTER", marked and -6 or 0, 1)
-        b:SetActive(b.phase == phase)
     end
+    bar:SelectTab(phase)
 end
 
 -- §38: the lock pill in Suggest's place ("Locked by Lee"; why, in its tooltip). chip.title = its text (tests).
@@ -1648,26 +1650,36 @@ end
 local function CreateTopBar(p, toolbar)
     local UI = ns.UI
     bar = toolbar
-    local rowY = -(UI.LAYOUT.ROW_MID + BAR_H / 2)       -- the bottom of the row's controls
 
-    -- the phases (from PhaseEntries: a Pre-raid entry would come first)
-    for i, e in ipairs(PhaseEntries()) do
-        local phase = e.phase
-        local b = UI:CreateUnderlineTab(bar, e.label, function() MyBiS:SetPhase(phase, true) end, "page")
-        b.phase, b.label = phase, e.label
+    -- the toolbar's tabs: the phases (from PhaseEntries: the Pre-raid entry comes first), then the page's own tab that
+    -- Gear sim and Consumables show in the phases' place (LayoutBar)
+    local entries = PhaseEntries()
+    local items = {}
+    for i, e in ipairs(entries) do items[i] = { key = e.phase, text = e.label } end
+    items[#items + 1] = { key = "page", text = "" }
+    bar:SetTabs(items, function(key)
+        if key ~= "page" then MyBiS:SetPhase(key, true) end
+    end)
+    for i, e in ipairs(entries) do
+        local b = bar:GetTab(e.phase)
+        b.phase, b.label = e.phase, e.label
+        -- the guild's (or the group's) phase: a star after the label
         b.marker = b:CreateTexture(nil, "OVERLAY")
         b.marker:SetTexture(UI:Tex("star"))
         b.marker:SetSize(10, 10)
         b.marker:SetPoint("LEFT", b:GetFontString(), "RIGHT", 3, 0)
         b.marker:Hide()
-        if i == 1 then b:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", PAD - 4, rowY)
-        else b:SetPoint("LEFT", phaseButtons[i - 1], "RIGHT", 2, 0) end
         UI:AttachTooltip(b, PhaseButtonTooltip, nil, { anchor = "ANCHOR_BOTTOM" })
         phaseButtons[i] = b
     end
+    -- the Gear sim / Consumables pages' tab (the nav strip says only "Gear"); pageTitle.text = its label (tests)
+    pageTitle = bar:GetTab("page")
+    pageTitle.text = pageTitle:GetFontString()
+    bar:SetTabShown("page", false)
+    p.pageTitle = pageTitle
 
     -- Addendum H: the spec tabs (which list the tab shows, both specs, a menu to change them); LayoutBar moves them
-    CreateSpecRow(bar):SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 22, 0)
+    CreateSpecRow(bar):SetPoint("LEFT", bar.lastTab, "RIGHT", 22, 0)
 
     -- More: the toolbar's "···" (its tip follows the page: LayoutBar)
     moreBtn = bar:SetMore(BuildMoreMenu, "Import a BiS list from another site, export yours to WoWSims or Wowhead, "
@@ -1683,45 +1695,21 @@ local function CreateTopBar(p, toolbar)
     -- §38: while my list is locked the chip takes Suggest's place
     lockChip = CreateLockChip(bar)
     bar:SetFilters({ lockChip, suggestBtn })
-
-    -- the Gear sim / Consumables pages' title in the phases' place (the nav strip says only "Gear")
-    pageTitle = CreateFrame("Frame", nil, bar)
-    pageTitle:SetSize(120, BAR_H)
-    pageTitle:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", PAD, rowY)
-    pageTitle.icon = pageTitle:CreateTexture(nil, "ARTWORK")
-    pageTitle.icon:SetSize(16, 16)
-    pageTitle.icon:SetPoint("LEFT", 2, 0)
-    pageTitle.icon:SetTexture(UI.ICON_ATLAS)
-    pageTitle.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
-    pageTitle.text = UI:Text(pageTitle, "emph", "TEXT")
-    pageTitle.text:SetPoint("LEFT", pageTitle.icon, "RIGHT", 7, 0)
-    pageTitle:Hide()
-    p.pageTitle = pageTitle
 end
 
--- The top bar for a view: the phases (My BiS) or the page's title (Gear sim, Consumables) on the left, then the spec
--- tabs; More on the right except on Consumables (Suggest / the lock chip are My BiS's, Refresh shows them).
-local TITLES = {
-    sim = { text = "Gear sim", icon = "chart", standIn = "notes" },
-    kit = { text = "Consumables", icon = "flask", standIn = "bag" },
-}
+-- The top bar for a view: the phase tabs (My BiS) or the page's own tab (Gear sim, Consumables) on the left, then the
+-- spec tabs; More on the right except on Consumables (Suggest / the lock chip are My BiS's, Refresh shows them).
+local TITLES = { sim = "Gear sim", kit = "Consumables" }
 local function LayoutBar(view)
-    local UI = ns.UI
     local t = TITLES[view]
-    for _, b in ipairs(phaseButtons) do b:SetShown(not t) end
-    specRow:ClearAllPoints()
+    for _, b in ipairs(phaseButtons) do bar:SetTabShown(b.phase, not t) end
+    bar:SetTabShown("page", t ~= nil)
     if t then
-        local icon = ns:HasAssets(6) and UI.ICON[t.icon] or UI.ICON[t.standIn]
-        local c = UI:IconCoords(icon)
-        pageTitle.icon:SetTexCoord(c[1], c[2], c[3], c[4])
-        pageTitle.text:SetText(t.text)
-        pageTitle:SetWidth(floor(2 + 16 + 7 + (tonumber(pageTitle.text:GetStringWidth()) or 70) + 0.5))
-        pageTitle:Show()
-        specRow:SetPoint("LEFT", pageTitle, "RIGHT", 22, 0)
-    else
-        pageTitle:Hide()
-        specRow:SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 22, 0)
+        bar:SetTabLabel("page", t)
+        bar:SelectTab("page")
     end
+    specRow:ClearAllPoints()
+    specRow:SetPoint("LEFT", bar.lastTab, "RIGHT", 22, 0)
     moreBtn:SetShown(view ~= "kit")
     if view == "sim" then
         moreBtn.tipText = "Start the Working set over from the gear you wear or a BiS phase, or export a set to WoWSims."
@@ -1787,7 +1775,13 @@ function MyBiS:CreatePanel(parent)
     card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
     card.lockBanner = lockChip
     if ns.SimPanel then simCard = ns.SimPanel:CreateCard(body, doll) end
-    if ns.KitView then kitView = ns.KitView:Create(body, panel) end
+    if ns.KitView then
+        kitView = ns.KitView:Create(body, panel)
+        -- (Consumables' Add farm kit sits with the filters; Add prog kit is the toolbar's main action while it shows)
+        local filters = { lockChip, suggestBtn }
+        for _, b in ipairs(ns.KitView:GetToolbarButtons()) do filters[#filters + 1] = b end
+        layout.toolbar:SetFilters(filters)
+    end
 
     panel:SetScript("OnShow", function(self)
         if self.dirty then MyBiS:Refresh() end

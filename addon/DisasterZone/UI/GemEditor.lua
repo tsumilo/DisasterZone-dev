@@ -10,8 +10,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/GemEditor.lua", ...) then retur
 -- The Gear sim page opens it with a host (its Working set's slot: ns.SimPanel:GemHost): the setup is read from and
 -- stored into that, and the host's view (the page's record) stands in for the list.
 -- A click outside, Escape, the page hiding or another tile's strip closes / moves it.
--- 1.4: a popover on the dropdowns' surface (no page layout: it hangs beside its tile); shared text styles, Style
--- tokens, the quality switch is UI:CreateSegments (f.quality = its buttons), tooltips through UI:AttachTooltip.
+-- 1.4: a popover on the dropdowns' surface (no page layout: it hangs beside its tile); its rows have the shared row
+-- looks (UI:DecorateRow: hover, the picked row / the current choice selected), the socket chips are ns.GearUI's (the
+-- doll's), shared text styles, Style tokens, the quality switch is UI:CreateSegments (f.quality = its buttons),
+-- tooltips through UI:AttachTooltip.
 local addonName, ns = ...
 
 local GemEditor = {}
@@ -40,11 +42,6 @@ local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), sear
 
 local function G() return ns.Gems end
 local function UI() return ns.UI end
-
--- (a texture over all of f, coloured later: the rows paint their own fill)
-local function Wash(f)
-    return UI():Fill(f, { 1, 1, 1, 0 })
-end
 
 local function View()
     if state.host then return state.host.view() end
@@ -110,35 +107,16 @@ end
 -- Rows
 ---------------------------------------------------------------------------
 
-local function CreateChip(parent, size)
-    local c = CreateFrame("Frame", nil, parent)
-    c:SetSize(size, size)
-    c.bg = UI():Fill(c, { 0.05, 0.05, 0.06, 1 })
-    c.icon = c:CreateTexture(nil, "ARTWORK")
-    c.icon:SetPoint("TOPLEFT", 1, -1)
-    c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.plus = UI():Text(c, "emph", { 0.6, 0.6, 0.64 }, { justify = "CENTER", text = "+" })
-    c.plus:SetPoint("CENTER", 0, 0)
-    UI():AddEdges(c, "OVERLAY")
-    return c
-end
+-- (the socket chips: the doll's, ns.GearUI)
+local function CreateChip(parent, size) return ns.GearUI.CreateSocketChip(parent, size, "emph") end
+local function PaintChip(c, icon, edge, crop, plus) ns.GearUI.PaintSocketChip(c, icon, edge, crop, plus) end
 
-local function PaintChip(c, icon, edge, crop, plus)
-    c.icon:SetTexture(icon)
-    c.icon:SetShown(icon ~= nil)
-    if crop then c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) else c.icon:SetTexCoord(0, 1, 0, 1) end
-    c.plus:SetShown(plus and true or false)
-    UI():SetEdgeColor(c, edge[1], edge[2], edge[3], edge[4] or 1)
-end
-
--- A socket / enchant row: chip, name, effect line; gold edges while it is the picked row.
+-- A socket / enchant row: chip, name, effect line; the shared row looks (the picked row selected).
 local function CreateRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(W - 2 * PAD, ROW_H)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.fill = Wash(r)
-    UI():AddEdges(r, "BORDER")
-    UI():SetEdgeColor(r, 0, 0, 0, 0)
+    UI():DecorateRow(r, { selectable = true })
     r.chip = CreateChip(r, CHIP)
     r.chip:SetPoint("LEFT", r, "LEFT", 4, 0)
     r.name = UI():Text(r, "emph", "TEXT")
@@ -147,14 +125,6 @@ local function CreateRow(parent)
     r.effect = UI():Text(r, "small", "TEXT")
     r.effect:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", CHIP + 12, 3)
     r.effect:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -4, 3)
-    r:SetScript("OnEnter", function(self)
-        self.hovered = true
-        GemEditor:PaintRow(self)
-    end)
-    r:SetScript("OnLeave", function(self)
-        self.hovered = false
-        GemEditor:PaintRow(self)
-    end)
     UI():AttachTooltip(r, function(self, tt)
         if not self.tip then return false end
         self.tip(tt)
@@ -174,24 +144,14 @@ local function CreateRow(parent)
 end
 
 function GemEditor:PaintRow(r)
-    local picked = state.target == r.target
-    if picked then
-        r.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.1)
-        UI():SetEdgeColor(r, GOLD[1], GOLD[2], GOLD[3], 0.9)
-    elseif r.hovered then
-        r.fill:SetColorTexture(S:Color("HOVER"))
-        UI():SetEdgeColor(r, 0.5, 0.5, 0.54, 0.6)
-    else
-        r.fill:SetColorTexture(1, 1, 1, 0)
-        UI():SetEdgeColor(r, 0, 0, 0, 0)
-    end
+    r:SetSelected(state.target == r.target)
 end
 
 -- A choice row: icon, name (quality / enchant green), effect, a tag on the right ("Best", "No bonus", a source).
 local function CreateChoice(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(W - 2 * PAD - 8, CHOICE_H)
-    r.fill = Wash(r)
+    UI():DecorateRow(r, { selectable = true })   -- (the current choice: selected)
     r.chip = CreateChip(r, CHOICE_CHIP)
     r.chip:SetPoint("LEFT", r, "LEFT", 3, 0)
     r.tag = UI():Text(r, "small", "TEXT", { justify = "RIGHT" })
@@ -200,12 +160,6 @@ local function CreateChoice(parent)
     r.name:SetPoint("TOPLEFT", r, "TOPLEFT", CHOICE_CHIP + 9, -3)
     r.effect = UI():Text(r, "small", "TEXT")
     r.effect:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", CHOICE_CHIP + 9, 3)
-    r:SetScript("OnEnter", function(self)
-        self.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.12)
-    end)
-    r:SetScript("OnLeave", function(self)
-        self.fill:SetColorTexture(1, 1, 1, self.current and 0.07 or 0)
-    end)
     -- (a gem: the game's item tooltip; an enchant: its name, what it gives and where it comes from)
     UI():AttachTooltip(r, function(self, tt)
         if self.kind == "gem" then
@@ -477,7 +431,7 @@ function GemEditor:PaintChoices()
             local fullW = row:GetWidth() - (CHOICE_CHIP + 9) - 4
             row.name:SetWidth(fullW - (c.tag and ((row.tag:GetStringWidth() or 0) + 6) or 0))
             row.effect:SetWidth(fullW)
-            row.fill:SetColorTexture(1, 1, 1, row.current and 0.07 or 0)
+            row:SetSelected(row.current)
             row:Show()
         else
             row:Hide()

@@ -9,8 +9,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/ImportExport.lua", ...) then re
 -- (Core/BiSExport.lua), in a box that is selected for Ctrl+C.
 -- Big pastes (a guild's That's My BiS export can be hundreds of KB): the box shows only the start (SetMaxBytes) and
 -- the whole text is collected from OnChar, as WeakAuras does, so the client doesn't stall on it.
--- 1.4: shared text styles, Style tokens, tooltips through UI:AttachTooltip and a "locked" notice on the Import tab
--- while the lists are locked (Fill / Replace are disabled then, as before); the Gear pages' helpers (ns.GearUI).
+-- 1.4: a tool window (UI:CreateWindow + UI:CreateLayout "tool"): the banner says which tab is open and what it does,
+-- the tool row holds the Import / Export tabs; each tab's actions stay at its foot. Shared text styles, Style tokens,
+-- section headers, segments (Export: what and for), tooltips through UI:AttachTooltip and a "locked" notice on the
+-- Import tab while the lists are locked (Fill / Replace are disabled then, as before); ns.GearUI's helpers.
 local addonName, ns = ...
 
 local Win = ns:NewModule("ImportExport")
@@ -21,7 +23,7 @@ local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pag
 local type, tostring, tonumber, ipairs, pairs = type, tostring, tonumber, ipairs, pairs
 local tconcat = table.concat
 
-local W, H = 640, 560
+local W, H = 640, 670
 local MAX_SHOWN = 16000
 local ROW_H, HEADER_ROW_H = 32, 20
 local NUM_SLOTS = 17
@@ -340,30 +342,27 @@ local function CreateImportPane(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
 
-    p.hint = ui:Text(p, "small", "TEXT", { wrap = true })
-    p.hint:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -4)
-    p.hint:SetPoint("RIGHT", p, "RIGHT", -150, 0)
-    p.hint:SetText("Paste a list from That's My BiS, Sixty Upgrades, WoWSims, a Wowhead gear planner link, or "
-        .. "item links. Nothing changes until you click Fill or Replace.")
-
-    p.where = CreateFrame("Button", nil, p)
-    p.where:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -4)
-    p.where.fs = ui:Text(p.where, "small", "GOLD", { text = "Where do I copy it?" })
-    p.where.fs:SetPoint("RIGHT")
-    p.where:SetSize((p.where.fs:GetStringWidth() or 110) + 4, 16)
-    ui:AttachTooltip(p.where, function(_, tt)
-        local gr, gg, gb = S:Color("GOLD")
-        tt:AddLine("Where to copy it", gr, gg, gb)
-        for _, l in ipairs(WHERE_LINES) do
-            tt:AddLine(" ")
-            tt:AddLine(l[1], gr, gg, gb)
-            tt:AddLine(l[2], 1, 1, 1, true)
-        end
-    end, nil, { anchor = "ANCHOR_BOTTOMRIGHT" })
+    -- (what to paste is the banner's sub line; where to copy it, the header's link)
+    p.head = ui:CreateSectionHeader(p, "Paste a list", { style = "caps",
+        right = "Nothing changes until you click Fill or Replace.", action = {
+        text = "Where do I copy it?",
+        tip = { function(_, tt)
+            local gr, gg, gb = S:Color("GOLD")
+            tt:AddLine("Where to copy it", gr, gg, gb)
+            for _, l in ipairs(WHERE_LINES) do
+                tt:AddLine(" ")
+                tt:AddLine(l[1], gr, gg, gb)
+                tt:AddLine(l[2], 1, 1, 1, true)
+            end
+        end },
+    } })
+    p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 4, 0)
+    p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, 0)
+    p.where = p.head.action
 
     p.box = CreateTextBox(p, 90)
-    p.box:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -34)
-    p.box:SetPoint("TOPRIGHT", p, "TOPRIGHT", -6, -34)
+    p.box:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -24)
+    p.box:SetPoint("TOPRIGHT", p, "TOPRIGHT", -6, -24)
     local eb = p.box.eb
     eb:SetMaxBytes(MAX_SHOWN)
     eb:SetScript("OnChar", function(_, c)
@@ -412,7 +411,7 @@ local function CreateImportPane(parent)
     p.status:SetJustifyV("TOP")
 
     -- where it goes: [character] Into [P1] [Main spec]
-    local rowY = -166
+    local rowY = -156
     p.rowY = rowY
     p.charBtn = ui:CreateSleekMenuButton(p, "", 170, BuildCharacterMenu)
     p.charBtn:SetPoint("TOPLEFT", p, "TOPLEFT", 6, rowY)
@@ -632,17 +631,17 @@ local function CreateExportPane(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
 
+    -- what: Current gear | BiS list (UI:CreateSegments), then the phase and list of a BiS list
     p.whatLabel = ui:Text(p, "small", "GOLD", { width = 44, text = "Export" })
     p.whatLabel:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -10)
-    p.gearBtn = ui:CreateButton(p, "Current gear", 104, 22, function() Win:SetExport("gear") end)
-    p.gearBtn:SetPoint("LEFT", p.whatLabel, "RIGHT", 4, 0)
-    p.bisBtn = ui:CreateButton(p, "BiS list", 80, 22, function() Win:SetExport("bis") end)
-    p.bisBtn:SetPoint("LEFT", p.gearBtn, "RIGHT", 4, 0)
+    p.what = ui:CreateSegments(p, { { key = "gear", label = "Current gear" }, { key = "bis", label = "BiS list" } },
+        function(key) Win:SetExport(key) end, { h = 22 })
+    p.what:SetPoint("LEFT", p.whatLabel, "RIGHT", 4, 0)
     p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.exPhase end, function(v)
         state.exPhase = tonumber(v) or 1
         Win:RefreshExport()
     end)
-    p.phaseDD:SetPoint("LEFT", p.bisBtn, "RIGHT", 10, 0)
+    p.phaseDD:SetPoint("LEFT", p.what, "RIGHT", 10, 0)
     p.listDD = ui:CreateDropdown(p, 110, function()
         return { { value = "ms", text = "Main spec" }, { value = "os", text = "Off spec" } }
     end, function() return state.exList end, function(v)
@@ -651,17 +650,13 @@ local function CreateExportPane(parent)
     end)
     p.listDD:SetPoint("LEFT", p.phaseDD, "RIGHT", 6, 0)
 
+    -- for: WoWSims | WoWSims Bulk | Wowhead link (UI:CreateSegments)
     p.forLabel = ui:Text(p, "small", "GOLD", { width = 44, text = "For" })
     p.forLabel:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -40)
-    p.formatBtns = {}
-    local prev
-    for _, f in ipairs(FORMATS) do
-        local b = ui:CreateButton(p, f.label, nil, 22, function() Win:SetExport(nil, f.key) end)
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("LEFT", p.forLabel, "RIGHT", 4, 0) end
-        b.key = f.key
-        p.formatBtns[#p.formatBtns + 1] = b
-        prev = b
-    end
+    local formats = {}
+    for i, f in ipairs(FORMATS) do formats[i] = { key = f.key, label = f.label } end
+    p.format = ui:CreateSegments(p, formats, function(key) Win:SetExport(nil, key) end, { h = 22 })
+    p.format:SetPoint("LEFT", p.forLabel, "RIGHT", 4, 0)
 
     p.help = ui:Text(p, "small", "TEXT", { wrap = true })
     p.help:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -68)
@@ -708,14 +703,13 @@ function Win:RefreshExport()
     if not (win and win.export) then return end
     local p = win.export
     local bis = state.what == "bis"
-    p.gearBtn:SetKind(bis and "secondary" or "chosen")
-    p.bisBtn:SetKind(bis and "chosen" or "secondary")
+    p.what:Select(state.what)
     if state.exList == "os" and not HasOffSpec() then state.exList = "ms" end
     p.phaseDD:SetShown(bis)
     p.listDD:SetShown(bis and HasOffSpec())
     p.phaseDD:Refresh()
     p.listDD:Refresh()
-    for _, b in ipairs(p.formatBtns) do b:SetKind(b.key == state.format and "chosen" or "secondary") end
+    p.format:Select(state.format)
     local text, help = ExportText()
     p.text = text
     p.help:SetText(help or "")
@@ -737,22 +731,23 @@ end
 -- Window
 ---------------------------------------------------------------------------
 
+-- The banner of each tab: what it does.
+local PANE_INFO = {
+    import = { icon = "import", title = "Import", sub = "From That's My BiS, Sixty Upgrades, WoWSims, a Wowhead gear "
+        .. "planner link, or item links." },
+    export = { icon = "export", title = "Export", sub = "Your gear or a BiS phase for WoWSims or Wowhead." },
+}
+
 local function Create()
     local ui = UI()
     win = ui:CreateWindow("DisasterZoneImportExport", "Import / Export BiS list", W, H)
-    local c = win.content
-    win.tabs = {}
-    local prev
-    for _, t in ipairs({ { "import", "Import" }, { "export", "Export" } }) do
-        local b = ui:CreateUnderlineTab(c, t[2], function() Win:SetTab(t[1]) end)
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", c, "TOPLEFT", 6, -2) end
-        b.key = t[1]
-        win.tabs[#win.tabs + 1] = b
-        prev = b
-    end
-    local body = CreateFrame("Frame", nil, c)
-    body:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -28)
-    body:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 0)
+    -- (a tool window: the banner, the tabs on the tool row, the open tab's pane as the body)
+    local layout = ui:CreateLayout("tool", win.content, { width = W - 10, toolbar = true,
+                                                         banner = { icon = ui.ICON.import, kicker = "BiS list" } })
+    win.layout, win.banner = layout, layout.banner
+    win.tabs = layout.toolbar:SetTabs({ { key = "import", text = "Import" }, { key = "export", text = "Export" } },
+        function(key) Win:SetTab(key) end)
+    local body = layout.body
     win.body = body
     win.import = CreateImportPane(body)
     win.export = CreateExportPane(body)
@@ -766,7 +761,12 @@ end
 function Win:SetTab(tab)
     state.tab = (tab == "export") and "export" or "import"
     if not win then return end
-    for _, b in ipairs(win.tabs) do b:SetActive(b.key == state.tab) end
+    win.layout.toolbar:SelectTab(state.tab)
+    local bn, ui = win.banner, UI()
+    local info = PANE_INFO[state.tab]
+    bn:SetIcon(ui.ICON[info.icon])
+    bn:SetTitle(info.title)
+    bn:SetSub(info.sub)
     win.import:SetShown(state.tab == "import")
     win.export:SetShown(state.tab == "export")
     if state.tab == "import" then self:RefreshImport() else self:RefreshExport() end
