@@ -545,6 +545,18 @@ def ic_chart(d, k):
     d.rounded_rectangle(_pts(k, [(5, 55), (60, 60)]), radius=_w(k, 2), fill=255)
 
 
+# (the Performance page, art pack 7: 59 a stopwatch (Measure 30 s))
+def ic_stopwatch(d, k):
+    # a stopwatch: the crown and its stem on top, a side button, the dial as a ring, one hand from the middle
+    d.rounded_rectangle(_pts(k, [(25, 2), (39, 8)]), radius=_w(k, 2), fill=255)
+    d.rectangle(_pts(k, [(29, 7), (35, 14)]), fill=255)
+    d.polygon(_pts(k, [(47, 12), (53, 6), (59, 12), (53, 18)]), fill=255)
+    d.ellipse(_pts(k, [(9, 13), (55, 59)]), outline=255, width=_w(k, 6))
+    d.line(_pts(k, [(32, 36), (32, 22)]), fill=255, width=_w(k, 5))
+    d.line(_pts(k, [(32, 36), (41, 41)]), fill=255, width=_w(k, 5))
+    d.ellipse(_pts(k, [(28, 32), (36, 40)]), fill=255)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
@@ -552,7 +564,7 @@ TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
               ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar,
               ic_team, ic_play, ic_pause, ic_skip, ic_flag, ic_trophy, ic_lock, ic_infinity, ic_bracket,
-              ic_poll, ic_bell, ic_flask, ic_chart]
+              ic_poll, ic_bell, ic_flask, ic_chart, ic_stopwatch]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

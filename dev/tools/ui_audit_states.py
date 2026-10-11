@@ -2700,8 +2700,9 @@ STATES += [
 
 
 # The developer's Performance page (Core/Perf.lua, UI/PerfUI.lua): only Tsumil has it, so a Tsumil client joins the
-# guild (once), takes a few minutes of samples, cleans up once and measures for 5 s before the page opens.
-def perf_view(mode="pages"):
+# guild (once), takes a few minutes of samples (garbage piling up, the game cleaning up), cleans up once and measures
+# for 5 s while events fire before the page opens on a tab.
+def perf_view(mode="overview"):
     def fn(w, c):
         t = c.get("Tsumil")
         if t is None:
@@ -2709,31 +2710,40 @@ def perf_view(mode="pages"):
             t.load_addon()
             teach_names(t)
             c["Tsumil"] = t
-            for _ in range(18):
-                t.eval("__JUNK = {} for i = 1, 4000 do __JUNK[i] = { i } end __JUNK = nil")
+            for i in range(18):
+                t.eval("__JUNK = __JUNK or {} for i = 1, 4000 do __JUNK[#__JUNK + 1] = { i } end")
+                if i % 6 == 5:
+                    t.eval("__JUNK = nil collectgarbage('collect')")
                 w.tick(10)
-            t.eval("ns.Perf:CleanUp()")
+            t.eval("__JUNK = nil ns.Perf:CleanUp()")
             for _ in range(6):
-                t.eval("__JUNK = {} for i = 1, 4000 do __JUNK[i] = { i } end __JUNK = nil")
+                t.eval("__JUNK = __JUNK or {} for i = 1, 3000 do __JUNK[#__JUNK + 1] = { i } end")
                 w.tick(10)
             t.eval("ns.Perf:Measure(5)")
             for _ in range(4):
                 t.fire("PLAYER_TARGET_CHANGED")
                 t.fire("GROUP_ROSTER_UPDATE")
+                t.eval("ns.PerfComm('BLL', function() local x = {} for i = 1, 200 do x[i] = { i } end end, "
+                       "'Victhar-Thunderstrike', { t = 'BLL', rev = 1791642530 }, 'GUILD') "
+                       "ns.Comm:Send({ t = 'BLL', rev = 1791642531 }, 'GUILD', nil, 'data')")
                 w.tick(1.5)
         close_all(t)
         t.slash("/dz perf")
         w.tick(0.6)
-        if mode == "saved":
-            t.click(t.eval("return ns.PerfUI._panel().holds.tabs.saved"))
-        elif mode == "empty":                     # (the window with an empty body: a backdrop for page mockups)
+        if mode == "empty":                     # (the window with an empty body: a backdrop for page mockups)
             t.eval("ns.PerfUI._panel():Hide()")
+        else:
+            t.click(t.eval("return ns.PerfUI._panel().tabs.%s" % mode))
+            w.tick(0.2)
         return t
     return fn
 
 
 STATES += [
-    ("Performance (Tsumil)", perf_view()),
-    ("Performance - saved data", perf_view("saved")),
+    ("Performance (Tsumil)", perf_view("overview")),
+    ("Performance - garbage", perf_view("garbage")),
+    ("Performance - memory", perf_view("memory")),
+    ("Performance - network", perf_view("network")),
+    ("Performance - cpu", perf_view("cpu")),
     ("Window - empty body (mock backdrop)", perf_view("empty")),
 ]

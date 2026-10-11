@@ -79,12 +79,14 @@ local FALLBACK_COLORS = {
 -- pick 2026-10-11). Rows run the card's full width (LIST_X, ROW_W = 404 px; the two "currently wearing" icons take the
 -- last 30). On the loot council's view a vote rail comes first (rail: a square with the votes; the click votes) and
 -- keeps its room on the BiS rows too, so every card's class circles line up (cls = x without / with the rail; the
--- user dropped an attendance ring around them: the tooltip says it). From the spec on the columns are the same in
--- every row: the spec ("Marksmanship" needs 74), the BiS / Alt / OS pill (up to "Alt P3"), the
--- loot column (the dry streak bars, or a word: "won 1", "tie", "can't use"; BiS rows: status, "not in raid"), then on
--- roll rows the roll as a meter, the roll, and a small note ("x2" for a repeated roll, the range of a bad one).
-local COL = { rail = 16, cls = { 4, 22 }, name = 18, spec = { 126, 75 }, pill = 203, status = { 253, 111 },
-              loot = { 253, 45 }, meter = { 300, 24 }, roll = { 326, 30 }, note = { 358, 14 } }
+-- user dropped an attendance ring around them). From the spec on the columns are the same in every row: the spec
+-- in its short form (Grid.SHORT: "Prot", "Resto", "MM"; the tooltip has it in full), the BiS / Alt / OS pill (up to
+-- "Alt P3"), the attendance % (council only), the loot column (the dry streak bars, or a word: "won 1", "tie", "can't use"; BiS rows: status, "not in raid"), then on
+-- roll rows the roll and a small note ("x2" for a repeated roll, the range of a bad one). (A roll meter was tried and
+-- dropped: next to the dry streak bars it read as part of them.)
+local COL = { rail = 16, cls = { 4, 22 }, name = 18, spec = { 124, 44 }, pill = 170, att = { 220, 28 },
+              status = { 253, 111 },
+              loot = { 253, 80 }, roll = { 326, 30 }, note = { 358, 14 } }
 local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
 -- A crafting material (Materials): the holdings squares at a row's right end, the craft's header line, and the
@@ -1748,9 +1750,37 @@ local function NewEquippedButton(r)
     return e
 end
 
--- The row grid's pieces (1.3.5 makeover): the vote rail and the roll meter.
+-- The row grid's pieces (1.3.5 makeover): short spec names, the attendance %, the vote rail, the roll cells.
 -- (Grid is declared with Dry: the file is near Lua's 200-locals limit.)
-Grid.PLAIN, Grid.GOLD, Grid.WIN, Grid.BAD = { 0.85, 0.85, 0.88 }, { 1, 0.82, 0 }, { 0.3, 0.9, 0.4 }, { 1, 0.3, 0.3 }
+
+-- Spec names as raiders say them (the column is narrow; the row's tooltip has the full name).
+Grid.SHORT = { ["Protection"] = "Prot", ["Retribution"] = "Ret", ["Beast Mastery"] = "BM", ["Marksmanship"] = "MM",
+               ["Survival"] = "Surv", ["Assassination"] = "Assa", ["Subtlety"] = "Sub", ["Discipline"] = "Disc",
+               ["Elemental"] = "Ele", ["Enhancement"] = "Enh", ["Restoration"] = "Resto", ["Affliction"] = "Affli",
+               ["Demonology"] = "Demo", ["Destruction"] = "Destro", ["Feral (Cat)"] = "Cat", ["Feral (Bear)"] = "Bear",
+               ["Feral"] = "Feral", ["Balance"] = "Boomy" }
+function Grid.Spec(spec)
+    if type(spec) ~= "string" then return "" end
+    return Grid.SHORT[spec] or spec
+end
+
+-- The attendance % (council data; empty without a logged raid): green from 90, grey from 75, amber below.
+function Grid.Att(r, key)
+    local RL = ns.RaidLog
+    local p = key and IsCouncil() and RL and RL.GetAttendance and RL:GetAttendance(key)
+    if not p then
+        r.att:SetText("")
+        return
+    end
+    r.att:SetText(format("%d%%", p))
+    if p >= 90 then
+        r.att:SetTextColor(0.42, 0.86, 0.52)
+    elseif p >= 75 then
+        r.att:SetTextColor(0.80, 0.80, 0.82)
+    else
+        r.att:SetTextColor(0.92, 0.62, 0.36)
+    end
+end
 
 -- The council's view keeps the vote rail's room (a plain roll and the raiders' view have none).
 function Grid.HasRail(session)
@@ -1789,20 +1819,6 @@ function Grid.Rail(r, row, canVote)
         r.voteHint:Show()
     end
     r.vBox:Show()
-end
-
--- The roll as a meter (1-100): gold for the suggested roller, green for the winner, red for a bad range; no track for
--- a pass.
-function Grid.Meter(r, row, session)
-    local n = tonumber(row.roll)
-    if row.response == "pass" and not n then return end
-    r.meter:Show()
-    if not n or n <= 0 then return end
-    local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key
-    local c = (row.invalid and Grid.BAD) or (winner and Grid.WIN) or (row.suggested and Grid.GOLD) or Grid.PLAIN
-    r.meterFill:SetColorTexture(c[1], c[2], c[3], 0.9)
-    r.meterFill:SetWidth(max(2, COL.meter[2] * min(n, 100) / 100))
-    r.meterFill:Show()
 end
 
 -- The roll alone (red for a bad range); a repeated roll / the range go in the note after it.
@@ -1866,6 +1882,8 @@ function DropPanel:NewRow(b)
     r.pill:SetPoint("LEFT", r, "LEFT", COL.pill, 0)
     r.pill:Hide()
     r.badge = r.pill.fs      -- the pill's text: "BiS", "Alt P2", "OS"
+    r.att = NewFS(r, "GameFontHighlightSmall", COL.att, 10)
+    r.att:SetJustifyH("RIGHT")
     r.status = NewFS(r, "GameFontDisableSmall", COL.status)
     r.tag = NewFS(r, "GameFontNormalSmall", COL.loot, 10)
     -- ADDENDUM G: the vote rail (a square at the row's start: the count, gold with my vote in it); clicking it votes
@@ -1899,16 +1917,7 @@ function DropPanel:NewRow(b)
     r.voteHint:SetDesaturated(true)
     r.voteHint:SetAlpha(0.35)
     r.voteHint:Hide()
-    -- the roll: a meter (a track and its fill, 1-100), the number, a small note after it
-    r.meter = r:CreateTexture(nil, "ARTWORK", nil, 0)
-    r.meter:SetSize(COL.meter[2], 4)
-    r.meter:SetPoint("LEFT", r, "LEFT", COL.meter[1], 0)
-    r.meter:SetColorTexture(1, 1, 1, 0.06)
-    r.meter:Hide()
-    r.meterFill = r:CreateTexture(nil, "ARTWORK", nil, 1)
-    r.meterFill:SetHeight(4)
-    r.meterFill:SetPoint("LEFT", r.meter, "LEFT", 0, 0)
-    r.meterFill:Hide()
+    -- the roll, and a small note after it
     r.roll = NewFS(r, "NumberFontNormal", COL.roll, 13)
     r.roll:SetJustifyH("RIGHT")
     r.note = NewFS(r, "GameFontDisableSmall", COL.note, 9)
@@ -2002,12 +2011,12 @@ local function SetRowMode(r, mode)
     r.tag:SetShown(roll)
     r.tag:SetText("")
     Grid.Rail(r, nil)
+    r.att:SetShown(not more)
+    r.att:SetText("")
     if not roll then
         r.voteBtn:Hide()
         r.canVote = nil
     end
-    r.meter:Hide()
-    r.meterFill:Hide()
     r.note:SetShown(roll)
     r.note:SetText("")
     r.roll:SetShown(roll)
@@ -2034,7 +2043,8 @@ local function FillRow(r, w, itemID, vp, itemSid)
     SetPresence(r, w.inRaid and "raid" or (w.online and "online" or "offline"))
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, w.classFile) end
     r.name:SetText(ColoredName(w.key, w.classFile))
-    r.spec:SetText(type(w.spec) == "string" and w.spec or "")
+    r.spec:SetText(Grid.Spec(w.spec))
+    Grid.Att(r, w.key)
     SetPill(r, WanterPill(w, vp))
     local status = ""
     if w.cantUse then
@@ -2080,7 +2090,8 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     local guest = ns.UI and ns.UI.IsGuest and ns.UI:IsGuest(row.key)
     r.name:SetText(guest and ns.UI:ColoredName(row.key, classFile) or ColoredName(row.key, classFile))
     local spec = type(row.spec) == "string" and row.spec or ""
-    r.spec:SetText((guest and spec == "") and "|cff66ccffguest|r" or spec)
+    r.spec:SetText((guest and spec == "") and "|cff66ccffguest|r" or Grid.Spec(spec))
+    if not plain then Grid.Att(r, row.key) end
     if plain then SetPill(r, nil) else SetPill(r, RollPill(row, vp)) end
     local tag = RollTag(row, session)
     -- §38: changed their list while the lists were locked (the warning icon in front of the tag)
@@ -2093,7 +2104,6 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     r.canVote = canVote
     if Grid.HasRail(session) then Grid.Rail(r, row, canVote) end
     r.voteBtn:SetShown(canVote)
-    Grid.Meter(r, row, session)
     r.roll:SetText(Grid.RollText(row, session))
     if row.need then
         -- a crafting material: what they hold of it toward their craft ("1/2", gold when this one completes it)
@@ -2104,7 +2114,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
         end
     else
         SetEquipped(r, WornOfRow(row, itemSid))
-        if tag == "" and not plain then Dry.Set(r, row.key, true) end
+        if tag == "" and not plain then Dry.Set(r, row.key) end
     end
     -- (a bad range needs more room than "x2": it takes the first worn icon's place when there is only one)
     r.note:SetWidth(r.eqs[1]:IsShown() and COL.note[2] or (ROW_W - EQ_SIZE - 2 - COL.note[1]))

@@ -1357,6 +1357,8 @@ UI.ICON.trophy, UI.ICON.lock, UI.ICON.infinity, UI.ICON.bracket = 51, 52, 53, 54
 UI.ICON.poll = 55
 -- (the Gear menu's pages, art pack 6: 57 a flask (Consumables), 58 a bar chart (Gear sim); else bag / notes)
 UI.ICON.flask, UI.ICON.chart = 57, 58
+-- (the Performance page, art pack 7: 59 a stopwatch (Measure 30 s); check ns:HasAssets(7) first, else UI.ICON.play)
+UI.ICON.stopwatch = 59
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }

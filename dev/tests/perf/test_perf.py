@@ -153,31 +153,84 @@ def what_holds_memory_pages_and_saved_data():
     no_errors(w)
 
 
+P = "ns.PerfUI._panel()"
+
+
+def shown_rows(c, path):
+    return c.eval("local n = 0 for _, r in ipairs(%s.%s) do if r:IsShown() then n = n + 1 end end return n" % (P, path))
+
+
 @case
-def the_page_shows_tiles_chart_and_tables_and_measures_from_its_button():
+def the_page_has_a_banner_five_tabs_and_measures_from_its_button():
     w, c = dev()
     c.slash("/dz perf")
     w.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "perf"
-    tiles = c.eval_py("local f = ns.PerfUI._panel() return { f.tUse.value:GetText(), f.tNow.value:GetText(), "
-                      "f.tRate.sub:GetText(), f.tCpu.value:GetText() }")
-    assert tiles[0] == "?" and tiles[1].endswith("MB") and tiles[2] and tiles[3], tiles
-    c.click(c.eval("return ns.PerfUI._panel().clean"))
-    assert c.eval("return ns.PerfUI._panel().tUse.value:GetText()").endswith("MB")
-    assert c.eval("local n = 0 for _, b in ipairs(ns.PerfUI._panel().chart.bars) do if b:IsShown() then n = n + 1 end "
-                  "end return n") >= 1
-    c.click(c.eval("return ns.PerfUI._panel().measure.button"))
+    # the banner: now (no cleanup yet), the session line, the chips; the buttons carry the addon's own icons
+    assert c.eval("return %s.banner.bigUnit:GetText()" % P) == "MB now"
+    assert c.eval("return %s.banner.kick:GetText()" % P).startswith("SESSION ")
+    assert "3D rooms not loaded" in c.eval("return %s.banner.chips[4].fs:GetText()" % P)
+    assert "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools" in c.eval("return %s.measure:GetText()" % P)
+    assert "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools" in c.eval("return %s.clean:GetText()" % P)
+    # Overview: the chart has columns, the addons card has my row (blue)
+    assert c.eval("local n = 0 for _, b in ipairs(%s.views.overview.hourBox.chart.cols) do if b:IsShown() then "
+                  "n = n + 1 end end return n" % P) >= 1
+    assert c.eval("local s = %s.views.overview.addons for _, r in ipairs(s.rows) do if r:IsShown() and "
+                  "r.name:GetText() == 'DisasterZone' then return r.me:IsShown() end end" % P) is True
+    c.click(c.eval("return %s.clean" % P))
+    assert c.eval("return %s.banner.bigUnit:GetText()" % P) == "MB in use"
+    # the Memory / CPU switch of the chart
+    c.click(c.eval("return %s.views.overview.hourBox.tabs.cpu" % P))
+    assert c.eval("return ns.PerfUI._state.chart") == "cpu"
+    assert c.eval("return %s.views.overview.hourBox.chart.empty:IsShown()" % P) is True   # (the mock: no profiler)
+    # Measure: the Garbage tab, rows, a side card
+    c.click(c.eval("return %s.measure" % P))
     assert c.eval("return (ns.Perf:IsMeasuring())") is True
-    assert "Measuring" in c.eval("return ns.PerfUI._panel().measure.button:GetText()")
+    assert c.eval("return ns.PerfUI._state.tab") == "garbage"
+    assert "Measuring" in c.eval("return %s.measure:GetText()" % P)
+    c.fire("PLAYER_TARGET_CHANGED")
     w.tick(31)
     assert c.eval("return (ns.Perf:IsMeasuring())") is False
-    assert "grew" in strip_codes(c.eval("return ns.PerfUI._panel().measure.summary:GetText()"))
-    assert c.eval("return #ns.PerfUI._panel().measure.list:GetData()") >= 1
-    c.click(c.eval("return ns.PerfUI._panel().holds.tabs.saved"))
-    assert c.eval("return ns.PerfUI._panel().holds.head.columns[1].label:GetText()") == "Section"
-    assert c.eval("return #ns.PerfUI._panel().holds.list:GetData()") >= 1
-    c.click(c.eval("return ns.PerfUI._panel().holds.tabs.pages"))
-    assert c.eval("return ns.PerfUI._panel().holds.head.columns[1].label:GetText()") == "Page"
+    assert shown_rows(c, "views.garbage.list.rows") >= 1
+    assert "measured" in c.eval("return %s.views.garbage.list.note:GetText()" % P)
+    assert c.eval("return %s.views.garbage.side.ht:GetText()" % P) not in ("", "Nothing picked")
+    c.click(c.eval("return %s.views.garbage.list.group" % P))
+    assert c.eval("return ns.PerfUI._state.byFile") is True
+    assert c.eval("return %s.views.garbage.list.heads[0]:GetText()" % P) == "File"
+    # the other tabs fill without errors
+    for tab in ("memory", "network", "cpu", "overview"):
+        c.click(c.eval("return %s.tabs.%s" % (P, tab)))
+        assert c.eval("return %s.views.%s:IsShown()" % (P, tab)) is True, tab
+    assert shown_rows(c, "views.memory.pages.rows") >= 1
+    assert shown_rows(c, "views.memory.saved.rows") >= 1
+    no_errors(w)
+
+
+@case
+def addons_network_windows_and_the_sync_loop_flag():
+    w, c = dev()
+    a = c.eval_py("local a, total = ns.Perf:Addons() return { n = #a, me = a[1] and a[1].me, total = total }")
+    assert a["n"] >= 1 and a["me"] is True and a["total"] > 0, a
+    # addon messages: counted per prefix and sender, a minute window that turns over
+    c.eval("ns.PerfNet('in', 'CDLd', 300, 'Victhar-Thunderstrike') ns.PerfNet('in', 'CDLd', 200, 'Victhar-Thunderstrike') "
+           "ns.PerfNet('out', 'CDLc', 50, 'GUILD')")
+    n = c.eval_py("return ns.Perf:Network()")
+    pre = {p["prefix"]: p for p in n["prefixes"]}
+    assert pre["CDLd"]["inN"] == 2 and pre["CDLd"]["inB"] == 500, pre
+    assert n["senders"][0]["who"] == "Victhar-Thunderstrike" and n["senders"][0]["inN"] == 2, n["senders"]
+    w.tick(61)
+    assert c.eval("return ns.Perf.net.last ~= nil")
+    # a message type that goes both ways often: flagged
+    c.eval("ns.Perf:Measure(10)")
+    for _ in range(10):
+        c.eval("ns.PerfComm('BLL', function() end, 'Victhar-Thunderstrike', { t = 'BLL', rev = 5 }, 'GUILD') "
+               "ns.Comm:Send({ t = 'BLL', rev = 6 }, 'GUILD', nil, 'data')")
+        w.tick(1)
+    w.tick(1)
+    rows = c.eval_py("local out = {} for i, r in ipairs(ns.Perf.last.rows) do out[i] = r end return out")
+    bll = [r for r in rows if r["key"] == "Core/Comm.lua  message BLL"]
+    assert bll and bll[0].get("loop") is True, rows
+    assert all(not r.get("loop") for r in rows if r["key"] != "Core/Comm.lua  message BLL")
     no_errors(w)
 
 

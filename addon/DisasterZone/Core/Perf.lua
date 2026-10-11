@@ -36,7 +36,7 @@ local type, tostring, tonumber, pairs, ipairs, next, select = type, tostring, to
 local max = math.max
 local gcount = function() return collectgarbage("count") end
 local clock = debugprofilestop or function() return 0 end
-local now = GetTime or function() return 0 end
+local function now() return GetTime and GetTime() or 0 end   -- (looked up each time: a test clock may replace it)
 
 local isDev = (UnitName and UnitName("player")) == DEV
 Perf.DEV = DEV
@@ -550,7 +550,7 @@ Perf._Net = PerfNet
 
 -- Every 60 s: the minute that just ended becomes "the last minute".
 NetRoll = function()
-    if now() - net.windowAt < 60 then return end
+    if now() - net.windowAt < 59.5 then return end      -- (the sixth sample of 10 s: a hair under 60)
     net.last = { span = now() - net.windowAt, b = net.cur }
     net.cur, net.windowAt = {}, now()
 end
