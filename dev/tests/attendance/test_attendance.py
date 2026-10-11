@@ -706,26 +706,38 @@ def a_member_explains_a_raid_they_were_not_in():
 
 
 @case
-def the_gm_changes_the_margins_from_the_reviews_page():
+def the_gm_changes_the_margins_in_settings():
+    """2026-10-11: the margins moved off the Reviews page: Settings > Attendance (GM steps them, everyone reads them);
+    the Attendance view says how it counts, the GM's Change opens that section."""
     w, c = world()
     gina, bob = c["Gina"], c["Bob"]
     gina.slash("/dz raids")
     w.tick(0.3)
-    gina.eval("ns.RaidsUI:SetMode('reviews')")
+    gina.eval("ns.RaidsUI:SetMode('players')")
     w.tick(0.3)
-    P = "ns.RaidsUI:GetPanel().reviews"
-    assert "On time within 5 min" in strip_codes(gina.eval("return " + P + ".rules:GetText()"))
-    gina.click(gina.eval("return " + P + ".rulesBtn"))
+    P = "ns.RaidsUI:GetPanel().overview"
+    assert "on time within 5 min" in strip_codes(gina.eval("return " + P + ".rules:GetText()"))
+    gina.click(gina.eval("return " + P + ".change"))
     w.tick(0.3)
-    gina.eval("local f = DisasterZoneAttendanceRules; f.o = 10; f.d = 15; f.paint()")
-    gina.click(gina.eval("return DisasterZoneAttendanceRules.ok"))
-    w.tick(3)
+    assert gina.eval("return ns.SettingsUI:GetSection()") == "attendance"
+    S = "ns.SettingsUI.att.steppers"
+    for _ in range(5):
+        gina.click(gina.eval("return " + S + ".o.next"))
+    for _ in range(5):
+        gina.click(gina.eval("return " + S + ".d.next"))
+    assert strip_codes(gina.eval("return " + S + ".o.text:GetText()")) == "10 min"
+    w.tick(3)                                                         # (one save, a moment after the last step)
     assert bob.eval_py("return ns.Guild:GetAttendanceRules()") == {"o": 10, "d": 15}
+    bob.eval("ns.MainFrame:Open('settings')")
+    w.tick(0.3)
+    bob.eval("ns.SettingsUI:SelectSection('attendance'); ns.SettingsUI:Refresh()")
+    assert not bob.eval("return " + S + ".o:IsShown()")              # (only the GM steps them)
+    assert "10 min" in strip_codes(bob.eval("return ns.SettingsUI.att.rows[1].value:GetText()"))
     bob.slash("/dz raids")
     w.tick(0.3)
-    bob.eval("ns.RaidsUI:SetMode('reviews')")
+    bob.eval("ns.RaidsUI:SetMode('players')")
     w.tick(0.3)
-    assert not bob.eval("return " + P + ".rulesBtn:IsShown()")       # (only the GM)
+    assert not bob.eval("return " + P + ".change:IsShown()")
 
 
 @case

@@ -331,13 +331,13 @@ end
 -- Data
 ---------------------------------------------------------------------------
 
--- The raids from now on (and the ones that started at most 6 hours ago), not cancelled, soonest first.
+-- The raids from now on (and the ones that started at most 6 hours ago), not cancelled or hidden, soonest first.
 local function nextRaids()
     local out = {}
     local rp = RP()
     if not (rp and rp.GetRaids) then return out end
     for _, v in ipairs(rp:GetRaids(Now() - CURRENT_FOR)) do
-        if not v.cancelled then out[#out + 1] = v end
+        if not v.cancelled and not (rp.IsRaidHidden and rp:IsRaidHidden(v)) then out[#out + 1] = v end
     end
     return out
 end
@@ -973,6 +973,8 @@ local function answerMenu(owner, v, current)
             root:CreateButton(label, function() answer(v.id, st) end)
         end
         if root.CreateDivider then root:CreateDivider() end
+        local PUI = ns.RaidPlanUI
+        if PUI and PUI.AddHideEntries then PUI:AddHideEntries(root, v) end
         root:CreateButton("Open the raid", function() openRaid(v.id) end)
     end)
 end

@@ -842,6 +842,7 @@ function AUI:CreateOverview(parent, width)
         UI():ClassIcon(row.icon, classOf(s.key, s.cls))
         row.name:SetText(name(s.key, s.cls))
         local room = (v.noLineups and X.sq or X.lineups) - 22 - 10
+        row.name:SetWidth(0)              -- (a reused row: measure the name unbounded, not at the last name's width)
         row.name:SetWidth(min(room, (row.name:GetStringWidth() or room) + 2))
         row.dot:ClearAllPoints()
         row.dot:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
@@ -901,16 +902,36 @@ function AUI:CreateOverview(parent, width)
 
     v.list = UI():CreateScrollList(v, 22, initRow)
     v.list.frame:SetPoint("TOPLEFT", 0, -20)
-    v.list.frame:SetPoint("BOTTOMRIGHT", 20, 22)
+    v.list.frame:SetPoint("BOTTOMRIGHT", 20, 42)
     v.list.bar:ClearAllPoints()
     v.list.bar:SetPoint("TOPLEFT", v.list.box, "TOPRIGHT", 4, 0)
     v.list.bar:SetPoint("BOTTOMLEFT", v.list.box, "BOTTOMRIGHT", 4, 0)
     v.list:SetEmptyText("No raids logged yet.")
     v.legend = AUI:CreateLegend(v)
     v.legend:SetPoint("BOTTOMLEFT", 0, 2)
+    -- how the numbers are counted (the GM's margins, Settings > Attendance), over the legend on the right; the GM's
+    -- "Change" opens that section
+    v.rules = newText(v, 11, C.dim, "GameFontHighlightSmall")
+    v.rules:SetJustifyH("RIGHT")
+    v.change = CreateFrame("Button", nil, v)
+    v.change:SetSize(46, 16)
+    v.change:SetPoint("BOTTOMRIGHT", 0, 22)
+    v.change.text = newText(v.change, 11, C.gold, "GameFontNormalSmall")
+    v.change.text:SetPoint("RIGHT")
+    v.change.text:SetText("Change")
+    v.change:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 0.9, 0.5) end)
+    v.change:SetScript("OnLeave", function(self) self.text:SetTextColor(C.gold[1], C.gold[2], C.gold[3]) end)
+    v.change:SetScript("OnClick", function() AUI:OpenRulesSettings() end)
 
     function v:Refresh()
         local A = Att()
+        local rules = A:Rules()
+        local G = ns.Guild
+        local gm = G and G.IsGM and G:IsGM(ns.Util.PlayerKey()) or false
+        self.change:SetShown(gm)
+        self.rules:ClearAllPoints()
+        if gm then self.rules:SetPoint("RIGHT", self.change, "LEFT", -10, 0) else self.rules:SetPoint("BOTTOMRIGHT", 0, 24) end
+        self.rules:SetText(("Counted with: on time within %d min · disconnects under %d min don't count"):format(rules.o, rules.d))
         local range = self.state.range
         local rows, nights = A:GetStats(range ~= 0 and range or nil, { guests = self.state.guests })
         local shown = {}
@@ -1895,12 +1916,7 @@ function AUI:CreateReviews(parent, width)
         if d.kind == "sec" then return 26 end
         return 24
     end)
-    -- the margins (the GM's): on the page's top line, right; the GM changes them
-    v.rules = newText(v, 11, C.grey, "GameFontHighlightSmall")
-    v.rules:SetJustifyH("RIGHT")
-    v.rulesBtn = UI():CreateSleekButton(v, "Change", 70, 20, function() AUI:OpenRulesDialog() end)
-    v.rulesBtn:SetPoint("TOPRIGHT", 0, -2)
-    v.list.frame:SetPoint("TOPLEFT", 0, -26)
+    v.list.frame:SetPoint("TOPLEFT", 0, 0)
     v.list.frame:SetPoint("BOTTOMRIGHT", 20, 0)
     v.list.bar:ClearAllPoints()
     v.list.bar:SetPoint("TOPLEFT", v.list.box, "TOPRIGHT", 4, 0)
@@ -1910,13 +1926,6 @@ function AUI:CreateReviews(parent, width)
     function v:Refresh()
         local rv = Att():GetReviews()
         local data = {}
-        local rules = Att():Rules()
-        local G = ns.Guild
-        local gm = G and G.IsGM and G:IsGM(ns.Util.PlayerKey())
-        self.rulesBtn:SetShown(gm and true or false)
-        self.rules:ClearAllPoints()
-        if gm then self.rules:SetPoint("RIGHT", self.rulesBtn, "LEFT", -8, 0) else self.rules:SetPoint("TOPRIGHT", 0, -6) end
-        self.rules:SetText(("On time within %d min · disconnects under %d min don't count"):format(rules.o, rules.d))
         data[#data + 1] = { kind = "sec", text = "WAITING FOR A DECISION   |cff6f6f74doesn't count against anyone until decided|r" }
         if #rv.pending == 0 then
             data[#data + 1] = { kind = "sec", text = "|cff6f6f74Nothing waits for a decision.|r" }
@@ -2445,66 +2454,12 @@ function AUI:ShowLeftEarly(recId, plannedEnd)
     f:Show()
 end
 
--- The GM: the two margins everyone's attendance is measured by.
-function AUI:OpenRulesDialog()
-    local f = self.rulesDialog
-    if not f then
-        f = CreateFrame("Frame", "DisasterZoneAttendanceRules", UIParent)
-        if UISpecialFrames then tinsert(UISpecialFrames, "DisasterZoneAttendanceRules") end
-        f:SetFrameStrata("FULLSCREEN_DIALOG")
-        f:SetToplevel(true)
-        f:EnableMouse(true)
-        f:SetSize(380, 196)
-        f:SetPoint("CENTER", 0, 80)
-        ns.Popup:SkinPanel(f)
-        f.title:SetText("Attendance margins")
-        f.title:SetPoint("TOPLEFT", 16, -14)
-        f.glint:SetPoint("TOPLEFT", 1, -1)
-        f.glint:SetWidth(378)
-        f.close = UI():CreateCloseButton(f, 20, function() f:Hide() end)
-        f.close:SetPoint("TOPRIGHT", -8, -8)
-        f.hint = newText(f, 11, C.grey, "GameFontHighlightSmall")
-        f.hint:SetPoint("TOPLEFT", 16, -38)
-        f.hint:SetText("Everyone's attendance is measured by these. They reach every member.")
-        local function stepper(y, label, field)
-            local l = newText(f, 12, { 0.9, 0.9, 0.9 })
-            l:SetPoint("TOPLEFT", 16, y)
-            l:SetText(label)
-            local val = newText(f, 13)
-            val:SetJustifyH("CENTER")
-            val:SetWidth(70)
-            val:SetPoint("TOPRIGHT", -44, y + 1)
-            local down = UI():CreateArrowButton(f, false, 18, 18, function()
-                f[field] = max(0, f[field] - 1)
-                f.paint()
-            end)
-            down:SetPoint("RIGHT", val, "LEFT", -2, 0)
-            local up = UI():CreateArrowButton(f, true, 18, 18, function()
-                f[field] = min(60, f[field] + 1)
-                f.paint()
-            end)
-            up:SetPoint("LEFT", val, "RIGHT", 2, 0)
-            return val
-        end
-        f.oVal = stepper(-70, "Arriving this late still counts as on time", "o")
-        f.dVal = stepper(-100, "A disconnect shorter than this doesn't count", "d")
-        function f.paint()
-            f.oVal:SetText(f.o .. " min")
-            f.dVal:SetText(f.d .. " min")
-        end
-        f.ok = UI():CreateSleekButton(f, "Save", 90, 24, function()
-            local ok, err = ns.Guild:SetAttendanceRules(f.o, f.d)
-            if not ok then ns:Print("%s", tostring(err)) else f:Hide() end
-        end, "primary")
-        f.ok:SetPoint("BOTTOMRIGHT", -14, 14)
-        f.cancel = UI():CreateSleekButton(f, "Cancel", 90, 24, function() f:Hide() end)
-        f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
-        self.rulesDialog = f
-    end
-    local r = Att():Rules()
-    f.o, f.d = r.o, r.d
-    f.paint()
-    f:Show()
+-- The margins everyone's attendance is measured by live in Settings > Attendance (the GM changes them there).
+function AUI:OpenRulesSettings()
+    if not ns.MainFrame then return end
+    ns.MainFrame:Open("settings")
+    local S = ns.SettingsUI
+    if S and S.SelectSection then S:SelectSection("attendance") end
 end
 
 -- My own reason for a raid that didn't go as planned (from my Members card), days later too.
@@ -2518,7 +2473,7 @@ end
 
 -- The picker and the dialogs belong to the window: they close with it.
 function AUI:CloseFloating()
-    for _, f in ipairs({ self.picker, self.awayDialog, self.rulesDialog }) do
+    for _, f in ipairs({ self.picker, self.awayDialog }) do
         if f and f:IsShown() then f:Hide() end
     end
 end

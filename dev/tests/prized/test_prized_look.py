@@ -10,7 +10,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "boot-ui"))
 
-from _common import case, run_all, solo  # noqa: E402
+from _common import case, run_all, solo, visible_texts  # noqa: E402
 
 DST = 28830   # Dragonspine Trophy: prized in demo mode
 OTHER = 28830 + 1
@@ -227,6 +227,44 @@ def award_is_greyed_until_allowed_and_an_override_needs_a_reason():
             c.accept_popup(p)
             w.tick(0.5)
     assert c.eval("return ns.Roll:Get(...).state", sid) == "awarded"
+
+def tip_lines(c):
+    return c.eval_py("""local out = {}
+        for i = 1, GameTooltip:NumLines() do local fs = _G['GameTooltipTextLeft' .. i]; out[i] = fs and fs:GetText() end
+        return out""")
+
+
+@case
+def qualify_today_names_a_line_only_when_there_is_an_order():
+    # (2026-10-11, the user: "First: Amaria, Dyrma..." read as an order but was only alphabetical)
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    c.eval("ns.MainFrame:Open('council'); ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select(...)",
+           c.eval("return ns.Prized:ForItem(...).id", DST))
+    w.tick(1)
+    count = visible_texts(c, " raiders")
+    assert count, "the Qualify today count should show"
+    assert not visible_texts(c, "First: ")
+    # DST has a priority rule (the spec order): the line names who is next
+    assert visible_texts(c, "Next in line: ")
+    # hovering the count lists every qualifier, numbered
+    c.eval("local r = ...; local h = r:GetParent().qualHit; h:GetScript('OnEnter')(h)", count[0])
+    lines = tip_lines(c)
+    lines = list(lines.values()) if isinstance(lines, dict) else list(lines or [])
+    assert lines and lines[0].startswith("Qualify") and len(lines) > 1 and lines[1].startswith("1. "), lines
+    c.eval("GameTooltip:Hide()")
+    # no priority rules: everyone ties, so no names line (the icons + count stay; names are on hover)
+    c.eval("""local rec = ns.Prized:ForItem(...)
+        for k, v in pairs(rec.r) do if k ~= 'vote' and (v.m or 'r') == 'p' then rec.r[k] = nil end end
+        ns.PrizedUI:Refresh()""", DST)
+    w.tick(1)
+    assert visible_texts(c, " raiders")
+    assert not visible_texts(c, "Next in line: ") and not visible_texts(c, "First: ")
+    c.eval("local r = ...; local h = r:GetParent().qualHit; h:GetScript('OnEnter')(h)", visible_texts(c, " raiders")[0])
+    lines = tip_lines(c)
+    lines = list(lines.values()) if isinstance(lines, dict) else list(lines or [])
+    assert lines and lines[0] == "Qualify today" and not lines[1].startswith("1. "), lines
+
 
 if __name__ == "__main__":
     run_all(globals())

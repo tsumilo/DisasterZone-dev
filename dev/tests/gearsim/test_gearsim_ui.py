@@ -107,6 +107,12 @@ def trinket_swap_marks_changed_and_shows_difference():
     assert_no_lua_errors(w)
 
 
+def same_result(a, b):
+    """The same numbers; a set from Recent runs keeps its fights to hundredths, so its error may differ a hair."""
+    return (a["work"] == b["work"] and a["ref"] == b["ref"] and a["diff"] == b["diff"]
+            and abs(a["se"] - b["se"]) < 1e-3 and a["stale"] == b["stale"])
+
+
 def count_fights(c):
     c.eval("""
       local Sim = ns.GearSim.SimMT
@@ -144,8 +150,16 @@ def simmed_sets_are_not_simmed_again():
     assert c.eval("return DZ_TEST_FIGHTS") == n
     res = results(c)
     assert res["ref"] == first["ref"] and res["diff"] != 0, res
-    # the result is the one a fresh sim gives: same seed, same scenario
+    # the memory cache gone: both sets come from Recent runs (Sim/History.lua), only their first fights re-simmed
     c.eval("ns.SimRunner:ClearCache()")
+    count_fights(c)
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+    chk = c.eval("return ns.SimHistory.CHECK_FIGHTS")
+    assert c.eval("return DZ_TEST_FIGHTS") == 2 * chk
+    assert same_result(results(c), res), (results(c), res)
+    # Recent runs cleared too: the result is the one a fresh sim gives (same seed, same scenario)
+    c.eval("ns.SimRunner:ClearCache()  ns.SimHistory:Clear()")
     count_fights(c)
     c.eval("ns.SimPanel:Run()")
     run_until_done(w, c)
@@ -761,6 +775,220 @@ def reset_and_reload_keep_working_set():
     assert c.eval("return ns.SimPanel:Working()[...].id", sid) == DRAGONSPINE
     assert_no_lua_errors(w)
 
+
+# ---------------------------------------------------------------------------------------------------------------
+# Recent runs (Sim/History.lua, UI/SimHistory.lua)
+# ---------------------------------------------------------------------------------------------------------------
+def swap_trinket(c, item):
+    sid = sid_of(c, 14)
+    c.eval("local sid, id = ... ns.SimPanel:SetWorkingSlot(sid, ns.SimRunner:FillEntry(id, sid))  ns.MyBiS:Refresh()",
+           sid, item)
+
+
+def sim(w, c):
+    c.eval("ns.SimPanel:Run()")
+    run_until_done(w, c)
+
+
+def runs(c):
+    return c.eval_py("""
+      local out = {}
+      for i, r in ipairs(ns.SimHistory:Runs()) do
+        out[i] = { id = r.id, dps = r.dps, diff = r.diff, target = r.target, n = r.n, spec = r.spec }
+      end
+      return out""")
+
+
+def stored_results(c):
+    return c.eval("local n = 0 for _, t in pairs(ns.db.simRuns or {}) do for _ in pairs(t.results) do n = n + 1 end end "
+                  "return n")
+
+
+@r.case
+def runs_are_kept_and_reused_after_a_relog():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    n = c.eval("return ns.SimRunner.DEFAULT_ITERATIONS")
+    sim(w, c)                          # My gear against My gear
+    swap_trinket(c, HOURGLASS)
+    sim(w, c)                          # Hourglass against My gear
+    first = results(c)
+    got = runs(c)
+    assert len(got) == 2 and got[0]["diff"] == first["diff"] and got[0]["n"] == n, got
+    seed = c.eval("return ns.SimRunner:SessionSeed()")
+    c.relog()
+    settle(w, 3)
+    c.equip(P1)
+    c.eval('ns.SimRunner.DEFAULT_ITERATIONS = 12  ns.MainFrame:Open("mybis")  ns.SimPanel:SetActive(true)  '
+           'ns.MyBiS:Refresh()')
+    settle(w, 0.5)
+    assert c.eval("return ns.SimRunner:SessionSeed()") == seed
+    assert len(runs(c)) == 2
+    assert c.eval("local w = ns.SimHistory:Summaries(ns.SimHistory:Runs()[1]) return #w.iterDps") == n
+    # the same Working set again: both sets were stored, only their first fights are simmed to check them
+    count_fights(c)
+    sim(w, c)
+    chk = c.eval("return ns.SimHistory.CHECK_FIGHTS")
+    assert c.eval("return DZ_TEST_FIGHTS") == 2 * chk, c.eval("return DZ_TEST_FIGHTS")
+    assert same_result(results(c), first), (results(c), first)
+    assert len(runs(c)) == 2           # the same run moved to the top, not a third
+    assert_no_lua_errors(w)
+
+
+@r.case
+def a_sim_that_changed_sims_a_stored_set_again():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    n = c.eval("return ns.SimRunner.DEFAULT_ITERATIONS")
+    sim(w, c)
+    first = results(c)
+    # as if an update changed the numbers: the stored first fights no longer match what the sim gives now
+    c.eval("""
+      for _, t in pairs(ns.db.simRuns) do
+        for _, e in pairs(t.results) do e.it = ns.SimHistory.PackList({ 1, 2, 3 }) .. e.it:sub(13) end
+      end
+      ns.SimRunner:ClearCache()  collectgarbage("collect")""")
+    count_fights(c)
+    sim(w, c)
+    chk = c.eval("return ns.SimHistory.CHECK_FIGHTS")
+    assert c.eval("return DZ_TEST_FIGHTS") == chk + n, c.eval("return DZ_TEST_FIGHTS")
+    assert results(c) == first, (results(c), first)
+    assert_no_lua_errors(w)
+
+
+@r.case
+def recent_runs_keep_the_last_ones_only():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()  ns.SimHistory.MAX_RUNS = 3")
+    for fights in (4, 5, 6, 7):
+        c.eval("ns.SimPanel.SetFightsAndRun(...)", fights)
+        run_until_done(w, c)
+    got = runs(c)
+    assert [g["n"] for g in got] == [7, 6, 5], got
+    assert stored_results(c) == 3      # one set per run (My gear against itself); the 4-fight one went with its run
+    # the 5-fight run again: no fights, and it moves to the top
+    count_fights(c)
+    c.eval("ns.SimPanel.SetFightsAndRun(5)")
+    run_until_done(w, c)
+    assert c.eval("return DZ_TEST_FIGHTS") == 0
+    assert [g["n"] for g in runs(c)] == [5, 7, 6]
+    c.eval("ns.SimHistory:Remove(...)", runs(c)[1]["id"])
+    assert [g["n"] for g in runs(c)] == [5, 6] and stored_results(c) == 2
+    assert_no_lua_errors(w)
+
+
+@r.case
+def open_an_earlier_run_sims_nothing():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    sid = sid_of(c, 14)
+    swap_trinket(c, HOURGLASS)
+    sim(w, c)
+    hourglass = results(c)
+    c.eval("ns.SimPanel:ResetTo(ns.SimRunner:EquippedSet())")
+    sim(w, c)
+    ids = [g["id"] for g in runs(c)]
+    assert len(ids) == 2
+    count_fights(c)
+    assert c.eval("return ns.SimPanel:OpenRun(...)", ids[1]) is True
+    settle(w, 0.5)
+    assert c.eval("return DZ_TEST_FIGHTS") == 0
+    assert c.eval("return ns.SimPanel:Working()[...].id", sid) == HOURGLASS
+    assert same_result(results(c), hourglass), (results(c), hourglass)
+    # My gear changed since: the run still shows, out of date, and says why
+    gear = dict(P1)
+    gear[14] = HOURGLASS
+    c.equip(gear)
+    assert c.eval("return ns.SimPanel:OpenRun(...)", ids[1]) is True
+    assert results(c)["stale"] is True
+    assert c.eval("return ns.SimPanel._state().staleWhy") == "Changed since this run"
+    # another spec's run stays shut
+    c.eval("ns.BiS:SetSpec('Holy')")
+    assert c.eval("return ns.SimPanel:OpenRun(...)", ids[0]) is False
+    assert_no_lua_errors(w)
+
+
+@r.case
+def compare_with_an_earlier_run():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    swap_trinket(c, HOURGLASS)
+    sim(w, c)
+    hourglass = results(c)
+    rid = runs(c)[0]["id"]
+    c.eval("ns.SimPanel:ResetTo(ns.SimRunner:EquippedSet())  ns.SimPanel._state().target = 'run:' .. ...", rid)
+    assert c.eval("return ns.SimPanel:TargetText()").endswith(" run")
+    count_fights(c)
+    sim(w, c)
+    # both sets were simmed before (the run's Working set and My gear): nothing to sim, the other way round
+    assert c.eval("return DZ_TEST_FIGHTS") == 0
+    res = results(c)
+    assert res["diff"] == -hourglass["diff"], (res, hourglass)
+    assert runs(c)[0]["target"] == "run:%d" % rid
+    assert_no_lua_errors(w)
+
+
+@r.case
+def recent_runs_page_picks_and_opens():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    sim(w, c)
+    swap_trinket(c, HOURGLASS)
+    sim(w, c)
+    ids = [g["id"] for g in runs(c)]
+    c.eval("ns.SimHistoryUI:Open()")
+    settle(w, 0.3)
+    assert c.eval("return ns.SimHistoryUI:IsOpen()") is True
+    assert c.eval_py("return ns.SimHistoryUI._picked()") == ids        # the two newest, compared
+    assert c.eval("return ns.SimStage._frame():GetAlpha()") == 0      # the page under it is out of sight
+    assert c.eval("return ns.SimHistoryUI._rows()[1].what:GetText()") not in (None, "")
+    c.eval("ns.SimHistoryUI:Pick(...)", ids[1])
+    assert c.eval_py("return ns.SimHistoryUI._picked()") == [ids[0]]
+    c.eval("ns.SimHistoryUI:OpenRun(...)", ids[1])
+    settle(w, 0.5)
+    assert c.eval("return ns.SimHistoryUI:IsOpen()") is False
+    assert results(c)["diff"] == 0
+    c.eval("ns.SimHistoryUI:Open()  ns.SimHistoryUI:Remove(...)", ids[1])
+    assert len(runs(c)) == 1
+    c.eval("ns.SimHistoryUI:Close(true)")
+    assert c.eval("return ns.SimStage._frame():GetAlpha()") == 1
+    assert_no_lua_errors(w)
+
+
+@r.case
+def gems_and_enchant_of_the_working_set():
+    w, c = solo()
+    c.eval("ns.SimPanel:Toggle()  ns.MyBiS:Refresh()")
+    sim(w, c)
+    settle(w, 3)          # (the doll shows once the result has moved in)
+    head = sid_of(c, 1)
+    assert c.eval("return #ns.Gems:Sockets(ns.SimPanel:Working()[...].id)", head) > 0
+    # the strip's click opens the gem editor on the Working set's slot
+    c.eval("local sid = ... T_TILE = nil local function walk(f) if f.strip and f.sid == sid and f.mainID then "
+           "T_TILE = f end for _, ch in ipairs({ f:GetChildren() }) do walk(ch) end end walk(UIParent) "
+           "ns.SimPanel:OpenGems(sid, T_TILE)", head)
+    settle(w, 0.2)
+    assert c.eval("return ns.GemEditor:IsShown() and ns.GemEditor:HasHost()") is True
+    # a gem picked in the first socket: the slot is changed, the result out of date, the editor still open
+    c.eval("local f = ns.GemEditor:GetFrame() f.choices[1]:Click()")
+    settle(w, 0.2)
+    gem = c.eval("return ns.SimPanel:Working()[...].gems[1]", head)
+    assert gem and gem > 0, gem
+    assert c.eval("return ns.SimPanel:Changed()[...] == true", head) is True
+    assert results(c)["stale"] is True
+    assert c.eval("return ns.GemEditor:IsShown()") is True
+    # the enchant row and Clear
+    c.eval("local f = ns.GemEditor:GetFrame() f.enchantRow:Click()  f.choices[1]:Click()")
+    assert c.eval("return ns.SimPanel:Working()[...].enchant", head) > 0
+    sim(w, c)
+    res = results(c)
+    assert res["diff"] != 0 and res["stale"] is False, res
+    c.eval("local f = ns.GemEditor:GetFrame() f.clear:Click()")
+    assert c.eval("local e = ns.SimPanel:Working()[...] return e.enchant == 0 and next(e.gems) == nil", head) is True
+    # the BiS list's own setup was never touched
+    assert c.eval("local _, g = ns.Gems:GetSetup(ns.BiS:GetListView(), ns.SimPanel:Working()[...].id) "
+                  "return next(g) == nil", head) is True
+    assert_no_lua_errors(w)
 
 if __name__ == "__main__":
     r.run()

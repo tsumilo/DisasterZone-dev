@@ -244,8 +244,11 @@ local function filtered()
     return state.filterRaid ~= "all" or state.filterWhen ~= "all"
 end
 
--- Does the raid pass the list's filters (which raid, and when)?
+-- Does the raid pass the list's filters (which raid, and when)? Raids I hid show only in the "Hidden" view.
 local function passesFilter(v, now, ws)
+    local hiddenView = state.filterWhen == "hidden"
+    if (RP():IsRaidHidden(v) ~= nil) ~= hiddenView then return false end
+    if hiddenView and v.t < now - 6 * 3600 then return false end
     if state.filterRaid ~= "all" then
         -- (a raid of several instances shows under each of them)
         local hit = false
@@ -632,15 +635,56 @@ local function specLabelOf(s)
     return spec and spec.label or nil
 end
 
--- The answers menu of a card's ... button / pill: every answer, the current one ticked.
-local function answerMenu(owner, v, current)
+-- The raids I hid that are still ahead (the "Hidden" view's count).
+function UP.hiddenCount()
+    local n, now = 0, Now()
+    for _, v in ipairs(RP():GetRaids(now - 6 * 3600)) do
+        if RP():IsRaidHidden(v) then n = n + 1 end
+    end
+    return n
+end
+
+-- The "when" filter: the times, and "Hidden (n)" while I hid any raid.
+function UP.whenOptions()
+    local n = UP.hiddenCount()
+    if n == 0 then return WHEN_OPTIONS end
+    local out = {}
+    for i, opt in ipairs(WHEN_OPTIONS) do out[i] = opt end
+    out[#out + 1] = { value = "hidden", text = "Hidden (" .. n .. ")" }
+    return out
+end
+
+-- Hide a raid from my board (only on my account: nobody is told) or show it again; a weekly raid hides one week or
+-- every week. Hiding leaves its page for the board.
+function UP.hideEntries(root, v)
+    local function set(on, scope)
+        if on and state.page == "raid" and state.selected == v.id then state.page = "board" end
+        RP():SetRaidHidden(v, on, scope)
+        if on then Print(("Hid %s from your board. The when filter's Hidden view shows it again."):format(raidTitle(v))) end
+    end
+    if RP():IsRaidHidden(v) then
+        root:CreateButton("Show on my board again", function() set(false) end)
+    elseif v.sid then
+        root:CreateButton("Hide this week", function() set(true, "one") end)
+        root:CreateButton("Hide every week", function() set(true, "series") end)
+    else
+        root:CreateButton("Hide from my board", function() set(true, "one") end)
+    end
+end
+
+-- The answers menu of a card's ... button / pill: every answer, the current one ticked (none when I can't answer);
+-- hiding the raid, opening it.
+local function answerMenu(owner, v, current, noAnswers)
     UI():ContextMenu(owner, function(root)
         root:CreateTitle(raidTitle(v))
-        for _, st in ipairs(STATUS_ORDER) do
-            local label = (current == st and "|cff33ff33" .. STATUS[st].button .. " (yours)|r") or STATUS[st].button
-            root:CreateButton(label, function() PlanUI:Answer(st, v.id) end)
+        if not noAnswers then
+            for _, st in ipairs(STATUS_ORDER) do
+                local label = (current == st and "|cff33ff33" .. STATUS[st].button .. " (yours)|r") or STATUS[st].button
+                root:CreateButton(label, function() PlanUI:Answer(st, v.id) end)
+            end
+            if root.CreateDivider then root:CreateDivider() end
         end
-        if root.CreateDivider then root:CreateDivider() end
+        UP.hideEntries(root, v)
         root:CreateButton("Open the raid", function() PlanUI:SelectRaid(v.id) end)
     end)
 end
@@ -652,7 +696,7 @@ end
 local function newRaidCard(parent)
     local c = CreateFrame("Button", nil, parent)
     c:SetHeight(CARD_H)
-    c:RegisterForClicks("LeftButtonUp")
+    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 1)
     c.bg:SetAllPoints()
     c.bg:SetColorTexture(0.055, 0.055, 0.067, 1)
@@ -692,18 +736,18 @@ local function newRaidCard(parent)
     c.t2:SetTextColor(0.66, 0.66, 0.66)
     c.t2:SetPoint("TOPLEFT", 18, -64)
     -- the right, on top: my answer
-    c.more = UI():CreateTipIconButton(c, 22, UI().ICON.more, "More answers", "Bench or Absent, or open the raid.")
+    c.more = UI():CreateTipIconButton(c, 22, UI().ICON.more, "More", "Other answers, hide it from your board, or open the raid.")
     c.more:SetPoint("TOPRIGHT", -18, -15)
     c.tentative = UI():CreateSleekButton(c, "Tentative", 76, 22, nil)
     c.tentative:SetPoint("RIGHT", c.more, "LEFT", -4, 0)
     c.accept = UI():CreateSleekButton(c, "Accept", 64, 22, nil, "primary")
     c.accept:SetPoint("RIGHT", c.tentative, "LEFT", -4, 0)
     c.ask = UI():CreateSleekButton(c, "Ask to join", 90, 22, nil)
-    c.ask:SetPoint("TOPRIGHT", -18, -15)
+    c.ask:SetPoint("RIGHT", c.more, "LEFT", -4, 0)
     c.why = textOf(c, "GameFontHighlightSmall", 11)
     c.why:SetTextColor(0.62, 0.62, 0.62)
     c.why:SetJustifyH("RIGHT")
-    c.why:SetPoint("RIGHT", c, "TOPRIGHT", -18, -26)
+    c.why:SetPoint("RIGHT", c.more, "LEFT", -8, 0)
     c.pill = newPill(c)
     c.pill:SetPoint("TOPRIGHT", -18, -16)
     -- the right, under it: who accepted by role, and how full it is
@@ -728,9 +772,14 @@ local function newRaidCard(parent)
         UI():SetEdgeColor(self, 1, 1, 1, 0.07)
         hideTooltip()
     end)
-    c:SetScript("OnClick", function(self)
+    c:SetScript("OnClick", function(self, button)
         local d = self.__cdlData
-        if d and d.v then PlanUI:SelectRaid(d.v.id) end
+        if not (d and d.v) then return end
+        if button == "RightButton" then
+            if self.menuFor then self.menuFor(self) end
+        else
+            PlanUI:SelectRaid(d.v.id)
+        end
     end)
     return c
 end
@@ -852,10 +901,10 @@ local function fillRaidCard(c, v, width)
     elseif kind == "N" and canAsk then
         c.ask:SetScript("OnClick", function() PlanUI:Answer("A", id) end)
         c.ask:Show()
+        c.more:Show()
     elseif kind == "N" and canAnswer then
         c.accept:SetScript("OnClick", function() PlanUI:Answer("A", id) end)
         c.tentative:SetScript("OnClick", function() PlanUI:Answer("T", id) end)
-        c.more:SetScript("OnClick", function(self) answerMenu(self, v, nil) end)
         c.accept:Show()
         c.tentative:Show()
         c.more:Show()
@@ -863,12 +912,18 @@ local function fillRaidCard(c, v, width)
         local words = blockWords(v, block, RP():CanManageRaid(v))
         c.why:SetText(words or "")
         c.why:SetShown(words ~= nil)
+        c.more:Show()
     end
+    -- ··· (and a right-click anywhere on the card): the answers I can give, hiding the raid, opening it
+    local answers = canAnswer and (STATUS[kind] or (kind == "N" and not canAsk)) and true or false
+    c.menuFor = function(owner) answerMenu(owner, v, STATUS[kind] and kind or nil, not answers) end
+    c.more:SetScript("OnClick", function(self) c.menuFor(self) end)
 end
 
 -- For other pages (Home): a raid card as the board draws it (a click opens the raid's page on the Raids tab), and a
 -- raid's loading screen cropped for a w x h box (file, l, r, t, b; fw = the share of the screen's width shown).
 function PlanUI:CreateRaidCard(parent) return newRaidCard(parent) end
+function PlanUI:AddHideEntries(root, v) UP.hideEntries(root, v) end
 function PlanUI:FillRaidCard(card, v, width) fillRaidCard(card, v, width) end
 function PlanUI:RaidArt(inst, w, h, fw) return artCoords(inst, w, h, fw) end
 function PlanUI:RaidCardHeight() return CARD_H end
@@ -2130,7 +2185,7 @@ function PlanUI:CreateUpcoming(parent)
     board:SetAllPoints(u)
     u.board = board
     -- the filters (which raid, and when), on the first section header's row
-    u.whenDD = UI():CreateSleekDropdown(board, 112, function() return WHEN_OPTIONS end,
+    u.whenDD = UI():CreateSleekDropdown(board, 112, function() return UP.whenOptions() end,
         function() return state.filterWhen end, function(val)
             state.filterWhen = val
             PlanUI:RefreshUpcoming()
@@ -2653,6 +2708,8 @@ end
 
 function PlanUI:RefreshUpcoming()
     if not upcoming or not upcoming:IsVisible() then return end
+    -- (the Hidden view once nothing is hidden any more: back to every raid)
+    if state.filterWhen == "hidden" and UP.hiddenCount() == 0 then state.filterWhen = "all" end
     local rows = raidRows()
     upcoming.board.rows = rows
     local found = false
@@ -2667,7 +2724,8 @@ function PlanUI:RefreshUpcoming()
     end
     if upcoming.raidDD.Refresh then upcoming.raidDD:Refresh() end
     if upcoming.whenDD.Refresh then upcoming.whenDD:Refresh() end
-    upcoming.list:SetEmptyText(filtered() and "No raids match the filters."
+    upcoming.list:SetEmptyText(state.filterWhen == "hidden" and "No hidden raids match the filters."
+        or filtered() and "No raids match the filters."
         or RP():CanOrganize() and "No raids planned yet.\nClick New raid to plan one."
         or "No raids planned yet.\nThe Guild Master and the raid leaders plan raids here.")
     local onPage = state.page == "raid"

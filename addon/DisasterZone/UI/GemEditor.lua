@@ -7,6 +7,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/GemEditor.lua", ...) then retur
 -- suggestions first - "Best", "No bonus" when the guide's top gem skips it - then every other gem of that colour, or
 -- every enchant that fits; a search box looks through all of them); the enchant row; Clear and Use suggested.
 -- A choice is stored at once (BiS:SetGemSetup) and the next empty socket is picked. Right-click a row: empty it.
+-- The Gear sim page opens it with a host (its Working set's slot: ns.SimPanel:GemHost): the setup is read from and
+-- stored into that, and the host's view (the page's record) stands in for the list.
 -- A click outside, Escape, the page hiding or another tile's strip closes / moves it.
 local addonName, ns = ...
 
@@ -29,7 +31,8 @@ local DIM = { 0.45, 0.45, 0.48 }
 local ENCHANT_NAME = { 0.12, 1, 0 }
 
 local frame
-local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), search, quality (2..4) + qFor (its row)
+local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), search, quality (2..4) + qFor (its row),
+                   -- host ({ view(), get() -> enchant, gems, set(enchant, gems) }; nil = the BiS list)
 
 local function G() return ns.Gems end
 local function UI() return ns.UI end
@@ -48,12 +51,23 @@ local function Fill(f, layer)
 end
 
 local function View()
+    if state.host then return state.host.view() end
     local BiS = ns.BiS
     return BiS and BiS:GetListView(state.list) or nil
 end
 
 local function Setup()
+    if state.host then return state.host.get() end
     return G():GetSetup(View(), state.itemID)
+end
+
+-- Stores a whole setup (nil, nil = clear it) where it lives: the host, else the BiS list.
+local function Write(enchant, gems)
+    if state.host then
+        state.host.set(enchant, gems)
+    else
+        ns.BiS:SetGemSetup(state.itemID, enchant, gems, state.list)
+    end
 end
 
 local function Profs()
@@ -75,7 +89,7 @@ local function Store(target, value)
     else
         out[tonumber(target:sub(2))] = value
     end
-    ns.BiS:SetGemSetup(state.itemID, enchant, out, state.list)
+    Write(enchant, out)
 end
 
 -- The next row that is still empty after `target` (from target itself when inclusive; sockets in order, then the
@@ -333,7 +347,7 @@ local function Build()
 
     -- the buttons
     f.clear = U:CreateSleekButton(f, "Clear", 70, 22, function()
-        ns.BiS:SetGemSetup(state.itemID, nil, nil, state.list)
+        Write(nil, nil)
         state.target = "s1"
         if #G():Sockets(state.itemID) == 0 then state.target = "e" end
         GemEditor:Refresh()
@@ -342,7 +356,7 @@ local function Build()
         local used = G():UsedUniques(View(), state.phase, state.itemID)
         local enchant, gems = G():WithQuality(G():GetQuality(state.list), G().Suggest, G(), state.itemID, state.sid,
             Guide(), state.phase, Profs(), used)
-        ns.BiS:SetGemSetup(state.itemID, enchant, gems, state.list)
+        Write(enchant, gems)
         GemEditor:Refresh()
     end, "primary")
     f.clear:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PAD, PAD)
@@ -709,8 +723,9 @@ function GemEditor:Refresh()
 end
 
 -- Opens the editor for the main pick of tile (a My BiS tile) in phase / list. Anchored beside the tile, toward the
--- page's middle. Opening it for the tile it is already on closes it.
-function GemEditor:Open(tile, itemID, phase, list)
+-- page's middle. Opening it for the tile it is already on closes it. host: where the setup lives instead of the list
+-- (the Gear sim's Working set).
+function GemEditor:Open(tile, itemID, phase, list, host)
     local Gm = G()
     if not (tile and itemID and Gm) then return end
     local f = Build()
@@ -720,6 +735,7 @@ function GemEditor:Open(tile, itemID, phase, list)
     end
     if state.tile and state.tile ~= tile and state.tile.editBorder then state.tile.editBorder:Hide() end
     state.tile, state.sid, state.itemID, state.phase, state.list = tile, tile.sid, itemID, phase, list
+    state.host = host
     state.search, state.offset = nil, 0
     state.quality, state.qFor = nil, nil
     f.search:SetText("")
@@ -744,6 +760,11 @@ end
 
 function GemEditor:IsShown()
     return frame and frame:IsShown() or false
+end
+
+-- Is it open on a host (the Gear sim's Working set) rather than the BiS list?
+function GemEditor:HasHost()
+    return self:IsShown() and state.host ~= nil
 end
 
 -- (tests) the panel and its state

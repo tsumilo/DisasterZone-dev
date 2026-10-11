@@ -22,7 +22,7 @@ local addonName, ns = ...
 
 local Bar = ns:NewModule("BlessingsBar")
 
-local floor, max, min = math.floor, math.max, math.min
+local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local strformat = string.format
 
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
@@ -38,6 +38,7 @@ local function Face() return ns.BarFace end
 
 local frame, rows, pop, nextBtn
 local dirty = false
+local stale = true      -- something the every-second look can't see changed (a pet, a name, a level): update in full
 
 local function Text(parent, size, color, font)
     local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
@@ -332,12 +333,13 @@ local function Build()
         end
     end)
 
+    -- once a second a look that makes no garbage; the full update only when it finds a change (Bar:Tick)
     local acc = 0
     frame:SetScript("OnUpdate", function(_, elapsed)
         acc = acc + (elapsed or 0)
         if acc >= 1 then
             acc = 0
-            Bar:Update()
+            Bar:Tick()
         end
     end)
     RestorePos()
@@ -520,11 +522,57 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Update
 -- ---------------------------------------------------------------------------------------------------------------
+-- Is my aura (ai) on me? (The demo's always is.)
+local function AuraOn(Bl, ai)
+    if Bl:IsDemo() then return true end
+    for i = 1, 40 do
+        local name, _, _, _, _, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
+        if not name then break end
+        if id and Bl.AURA_BY_ID[id] == ai then return true end
+    end
+    return false
+end
+
+local function RfOn(Bl)
+    local rfName = GetSpellInfo(Bl.D.RIGHTEOUS_FURY)
+    for i = 1, 40 do
+        local name, _, _, _, _, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
+        if not name then break end
+        if id == Bl.D.RIGHTEOUS_FURY or (rfName and name == rfName) then return true end
+    end
+    return false
+end
+
+local function SymbolCount(Bl, me)
+    local p = me and Bl.pals[me]
+    local n = GetItemCount and GetItemCount(Bl.D.SYMBOL_OF_KINGS) or (p and p.symbols) or 0
+    if Bl:IsDemo() and p and p.symbols then n = p.symbols end
+    return n
+end
+
+-- When member m's blessing from me (their single, else the row's Greater) runs out, on GetTime()'s clock; 0 when they
+-- have none, or are offline or dead (ClassState counts them as having it).
+local function Expiry(Bl, singles, r, m, now)
+    local sbi = singles and singles[m.name]
+    local bi = (sbi and sbi > 0) and sbi or r.bi
+    if not bi or not m.online or m.dead then return 0 end
+    local left = Bl:BuffLeft(m.unit, bi)
+    return left and (now + left) or 0
+end
+
+-- The chip's text as a number (Minutes: whole minutes, under one whole seconds), to see it change without a string.
+local function ChipKey(left)
+    if not left then return -1 end
+    if left >= 60 then return floor(left / 60) end
+    return 100000 + floor(left)
+end
+
 function Bar:Update()
     if not frame then
         if not self:Wanted() then return end
         Build()
     end
+    stale = false
     local combat = InCombatLockdown()
     if not self:Wanted() then
         if combat then dirty = true return end
@@ -587,32 +635,19 @@ function Bar:Update()
     frame:SetAlpha(combat and 0.75 or 1)
     local ai = Bl:GetAura(me)
     if ai then
-        local on = Bl:IsDemo()
-        for i = 1, 40 do
-            local name, _, _, _, _, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
-            if not name then break end
-            if id and Bl.AURA_BY_ID[id] == ai then on = true break end
-        end
+        local on = AuraOn(Bl, ai)
         frame.aura.on = on
         -- gold = on; red = it should be on
         Face():Set(frame.aura.face, { icon = Bl:AuraIcon(ai), desat = not on, tone = on and "on" or "warn" })
         Aim(frame.aura.face, Face():Targets(frame.aura.face, false))
     end
     if frame.rf:IsShown() then
-        local on = false
-        local rfName = GetSpellInfo(Bl.D.RIGHTEOUS_FURY)
-        for i = 1, 40 do
-            local name, _, _, _, _, _, _, _, _, id = UnitAura("player", i, "HELPFUL")
-            if not name then break end
-            if id == Bl.D.RIGHTEOUS_FURY or (rfName and name == rfName) then on = true break end
-        end
+        local on = RfOn(Bl)
         frame.rf.on = on
         Face():Set(frame.rf.face, { icon = Bl.D.RF_ICON, desat = not on, tone = on and "on" or "dim" })
         Aim(frame.rf.face, Face():Targets(frame.rf.face, false))
     end
-    local p = me and Bl.pals[me]
-    local n = GetItemCount and GetItemCount(Bl.D.SYMBOL_OF_KINGS) or (p and p.symbols) or 0
-    if Bl:IsDemo() and p and p.symbols then n = p.symbols end
+    local n = SymbolCount(Bl, me)
     frame.sym.count = n
     Face():ShowPlanner(frame.plan)
     local low = n < (tonumber(Bl.Setting("symbols", 20)) or 20)
@@ -623,9 +658,16 @@ function Bar:Update()
     local now = GetTime()
     local total = Bl.D.GDURATION
     local warn = (tonumber(Bl.Setting("warnMin", 5)) or 5) * 60
+    local singlesAll = Bl:GetSingles(me)
     for _, row in ipairs(rows) do
         local r = row.data
         if r and row:IsShown() then
+            -- (in a fight the rows keep their places and casts, but show their class as it is now)
+            if combat then
+                for _, x in ipairs(list) do
+                    if x.ci == r.ci then r = x; row.data = x; break end
+                end
+            end
             local f = row.face
             local st = r.state
             local isNext = urgent and urgent.ci == r.ci
@@ -644,7 +686,63 @@ function Bar:Update()
             local blessed = (f.wasHot and not isNext) or ((f.wasMissing or 0) > #st.missing)
             Aim(f, Face():Targets(f, isNext), blessed and f.motion ~= nil)
             f.wasHot, f.wasMissing = isNext and true or false, #st.missing
+            -- what the every-second look compares (NeedsUpdate)
+            local singles, exp = singlesAll[r.ci], {}
+            for i, m in ipairs(r.members) do exp[i] = Expiry(Bl, singles, r, m, now) end
+            r.exp, r.short, r.chipKey = exp, look.short, look.chip and ChipKey(st.left) or nil
         end
+    end
+    if pop and pop:IsShown() and pop.row and pop.row.data then self:FillPop(pop.row) end
+end
+
+-- The every-second look (it makes no tables): does the bar show something that is no longer so? A blessing given,
+-- refreshed or gone, someone offline or dead (or back), the Greater's target out of range or another one in range,
+-- a class running short, the next class's chip a minute on (under one: a second), my aura or Righteous Fury on or
+-- off, Symbols used. The plan, the roster, settings and fights come as events (OnLogin) and update at once.
+function Bar:NeedsUpdate()
+    if stale or not frame or not rows then return true end
+    local Bl = B()
+    local me = Bl:Me()
+    if not me then return true end
+    local ai = Bl:GetAura(me)
+    if ai and AuraOn(Bl, ai) ~= (frame.aura.on or false) then return true end
+    if frame.rf:IsShown() and RfOn(Bl) ~= (frame.rf.on or false) then return true end
+    if SymbolCount(Bl, me) ~= frame.sym.count then return true end
+    local now = GetTime()
+    local warn = (tonumber(Bl.Setting("warnMin", 5)) or 5) * 60
+    local singlesAll = Bl:GetSingles(me)
+    for _, row in ipairs(rows) do
+        local r = row.data
+        if r and row:IsShown() then
+            if not r.exp then return true end
+            local singles, first = singlesAll[r.ci], nil
+            for i, m in ipairs(r.members) do
+                if not m.demo and ((UnitIsConnected(m.unit) and true or false) ~= m.online
+                    or (UnitIsDeadOrGhost(m.unit) and true or false) ~= m.dead) then
+                    return true
+                end
+                local e, was = Expiry(Bl, singles, r, m, now), r.exp[i] or 0
+                if (e == 0) ~= (was == 0) or abs(e - was) > 0.5 then return true end
+                if e > 0 and (not first or e < first) then first = e end
+            end
+            local left = first and (first - now)
+            if (left ~= nil and left < warn) ~= (r.short and true or false) then return true end
+            if r.chipKey and ChipKey(left) ~= r.chipKey then return true end
+            if r.bi then
+                local t = GreaterTarget(r.members, r.greaterName, r.bi)
+                if (t and t.unit) ~= r.unit then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- Once a second: the full update when something changed, else only what runs on the clock (the slate and pips
+-- themes' time bars, the open players list's times).
+function Bar:Tick()
+    if self:NeedsUpdate() then return self:Update() end
+    for _, row in ipairs(rows) do
+        if row.data and row:IsShown() then Face():Drain(row.face) end
     end
     if pop and pop:IsShown() and pop.row and pop.row.data then self:FillPop(pop.row) end
 end
@@ -792,6 +890,17 @@ function Bar:OnLogin()
     ns:On("BLESSINGS_CHANGED", function() Bar:Update() end)
     ns:On("CLASSKIT_CHANGED", function() Bar:Update() end)
     ns:On("GROUP_UPDATED", function() Bar:Update() end)
+    -- what the every-second look can't see: a pet summoned or gone, a name or level known late, talents
+    local function GroupUnit(unit)
+        return type(unit) == "string" and (unit == "player" or unit == "pet" or unit:find("^party") ~= nil
+            or unit:find("^raid") ~= nil)
+    end
+    for _, ev in ipairs({ "UNIT_PET", "UNIT_NAME_UPDATE", "UNIT_LEVEL" }) do
+        ns:RegisterEvent(ev, function(_, unit) if GroupUnit(unit) then stale = true end end)
+    end
+    for _, ev in ipairs({ "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE" }) do
+        ns:RegisterEvent(ev, function() stale = true end)
+    end
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() Bar:Update() end)
     ns:RegisterEvent("PLAYER_REGEN_DISABLED", function()
         if pop and pop:IsShown() then

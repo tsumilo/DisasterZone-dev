@@ -426,10 +426,12 @@ function Blessings:GetAura(name)
     return (ai and ai > 0) and ai or nil
 end
 
--- name's single blessings: { [ci] = { [target] = bi } } (read only)
+-- name's single blessings: { [ci] = { [target] = bi } } (read only: none is one shared empty table, so the buff bar's
+-- every-second look makes no garbage)
+local NO_SINGLES = {}
 function Blessings:GetSingles(name)
     local s = DB()
-    return s and s.single[name] or {}
+    return s and s.single[name] or NO_SINGLES
 end
 
 function Blessings:GetSingle(name, ci, target)

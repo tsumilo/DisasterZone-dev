@@ -237,7 +237,7 @@ local function Create()
   if clip then return end
   local body = Body()
   if not body then return end
-  clip = CreateFrame("Frame", nil, body)
+  clip = CreateFrame("Frame", nil, ns.SimStage:OverlayParent() or body)
   clip:SetFrameLevel(body:GetFrameLevel() + 30)
   if clip.SetClipsChildren then clip:SetClipsChildren(true) end
   clip:Hide()
@@ -245,8 +245,6 @@ local function Create()
   root:SetSize(W, H)
   root:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
   root:EnableMouse(true)
-  local bg = Tex(root, "BACKGROUND", { 0.078, 0.078, 0.09 })
-  bg:SetAllPoints()
 
   -- the back link every page has ("< ALL POLLS", "< ALL RAIDS"): the atlas chevron and small capitals
   local back = CreateFrame("Button", nil, root)
@@ -349,9 +347,11 @@ local function Reveal(on)
   clip.inset = on and 0 or nil
   if on then
     clip:Show()
+    ns.SimStage:Cover(true)
     Nerd.FadeIn(clip)
   else
     clip:Hide()
+    ns.SimStage:Cover(false)
     if ns.SimStage.FadePage then ns.SimStage:FadePage() else Nerd.FadeIn(body) end
   end
 end
@@ -377,6 +377,7 @@ function Nerd:Close(instant)
   if not clip or not clip:IsShown() then return end
   if instant then
     clip:Hide()
+    ns.SimStage:Cover(false)
     return
   end
   Reveal(false)
@@ -1161,7 +1162,11 @@ function Build.run(pg)
   local L = Box(pg, 0, 0, 376, PH, "This run")
   local talents, own = R():Talents()
   local cached = {}
-  for k in pairs(info.cached or {}) do cached[#cached + 1] = k == "work" and "Working set" or P():TargetText(d.res.target) end
+  for k in pairs(info.cached or {}) do
+    local name = k == "work" and "Working set" or P():TargetText(d.res.target)
+    if info.stored and info.stored[k] then name = name .. " (saved)" end
+    cached[#cached + 1] = name
+  end
   local simmed = info.simmed or (d.n * 2)
   local rows = {
     { "Fights", ("%s \195\151 2 sets"):format(Fmt(d.n)) },
@@ -1211,7 +1216,8 @@ function Build.run(pg)
     Num(card, 350, 10, Fmt(p[3]), 18, C.text)
   end
   Para(Rb, 12, 236, 362, "Fight 1 is the one the Abilities and Buffs pages draw cast by cast. More fights pin the average "
-    .. "down closer; the result cache keeps sets you simmed before, so a rerun of the same gear is free.")
+    .. "down closer; sets you simmed before are kept (those of your last 10 runs between sessions too), so a rerun of the "
+    .. "same gear is free.")
   local b1 = ns.UI:CreateSleekButton(Rb, "Export to WoWSims", 140, 22, function()
     local Sim = P()
     Sim:ShowExport("Working set", R():WoWSimsSettings(Sim:Working(), Sim:RunSettings()))

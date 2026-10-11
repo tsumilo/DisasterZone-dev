@@ -1866,8 +1866,12 @@ function MyBiS:CreatePanel(parent)
         onSlotClick = OnSlotClick,
         onSlotReceiveItem = OnSlotReceiveItem,
         onGemsClick = function(sid, tile)
-            if ns.SimPanel and ns.SimPanel:IsActive() then return end
-            if tile.mainID and ns.GemEditor then ns.GemEditor:Open(tile, tile.mainID, CurrentPhase(), ListArg()) end
+            if not (tile.mainID and ns.GemEditor) then return end
+            if ns.SimPanel and ns.SimPanel:IsActive() then
+                ns.SimPanel:OpenGems(sid, tile)
+                return
+            end
+            ns.GemEditor:Open(tile, tile.mainID, CurrentPhase(), ListArg())
         end,
     })
     card = CreateCard(doll.center, doll.centerWidth or 252, doll.centerHeight or 440)
@@ -1943,7 +1947,9 @@ function MyBiS:Refresh()
         suggestBtn:Hide()
         lockChip:Hide()
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not Sim:IsPickerOpen() then ns.Picker:Close() end
-        if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
+        -- (the gem editor stays open on the Working set: its own changes repaint the page)
+        local GE = ns.GemEditor
+        if GE and GE:IsShown() and not GE:HasHost() then GE:Close() end
         if doll.SetLocked then doll:SetLocked(false) end
         doll:Update(Sim:Record(), phase, Sim:Ctx(SlotSourceText))
         Sim:MarkDoll(doll)

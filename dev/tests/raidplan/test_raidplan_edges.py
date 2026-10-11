@@ -246,6 +246,41 @@ def blacklist_entries_saved_before_versions_do_not_make_officers_resend_forever(
     w.assert_no_errors()
 
 
+@case
+def blacklist_as_saved_in_game_settles():
+    """The guild's list as saved in game on 2026-10-11 (three entries without v, three with): the case above settled
+    only because its entries happened to hash the converging way; these did not (Fazerblue and Tsumil sent each other
+    the list every 2.5 s, 4.4 MB of garbage a minute)."""
+    w, c = world(NAMES)
+    gina, bob = c["Gina"], c["Bob"]
+    w.server_time0 += 1791720000 - now(gina)     # (the entries' own times: the hashes depend on every field)
+    vi, rs = "Victhar-Thunderstrike", "Thunderstrike"
+    l = {
+        "Jerkmage-" + rs: {"at": 1791405185, "r": "RQ after first wipe", "by": "Minimerlins-" + rs},
+        "Strygnar-" + rs: {"at": 1791323897, "v": 1791323897, "by": vi, "r": "didnt properly finish the conversation we had."},
+        "Kelepso-" + rs: {"at": 1791273568, "v": 1791273568, "by": vi, "r": "Preoccupied with checking logs"},
+        "Bôômey-" + rs: {"at": 1791273465, "r": "Overly Concerned with GS", "by": vi},
+        "Tyrastraz-" + rs: {"at": 1791325625, "r": "didnt say hello. just asked a question and stopped talking.", "by": vi},
+        "Gregicz-" + rs: {"at": 1791671434, "r": "Rushing the pace", "by": "Tsumil-" + rs, "v": 1791671457},
+    }
+    for cl in (gina, bob):
+        cl.eval("local l, by = ... local g = ns.Guild:GetGuildKey() ns.db.raidBlacklist = ns.db.raidBlacklist or {} "
+                "ns.db.raidBlacklist[g] = { rev = 1791717768, by = by, l = l, x = {} }", l, K("Gina"))
+        cl.eval("__BLL = 0 local send = ns.Comm.Send ns.Comm.Send = function(self, msg, ...) "
+                "if type(msg) == 'table' and msg.t == 'BLL' then __BLL = __BLL + 1 end return send(self, msg, ...) end")
+    bob.eval("local g = ns.Guild:GetGuildKey() local rec = ns.db.raidBlacklist[g] rec.rev = rec.rev + 1")
+    gina.eval("ns.RaidPlan:OnBlacklistRevSeen(..., ns.RaidPlan:GetBlacklistRev() + 1)", K("Bob"))
+    w.tick(60)          # (the answers to members without the list, the share after logging in)
+    sent0 = gina.eval("return __BLL") + bob.eval("return __BLL")
+    w.tick(120)
+    sent = gina.eval("return __BLL") + bob.eval("return __BLL")
+    print("BLL sent", sent0, sent)
+    assert sent - sent0 == 0, (sent0, sent)
+    for cl in (gina, bob, c["Lee"]):
+        assert len(bl(cl)) == len(l), bl(cl)
+    w.assert_no_errors()
+
+
 # --- 3. deletions outlive Prune -----------------------------------------------------------------------------------
 
 ROOT = "ns.db.raidplan['Casual Disaster-Thunderstrike']"

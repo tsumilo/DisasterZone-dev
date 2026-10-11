@@ -776,11 +776,17 @@ function UnitCreatureType() return nil end
 function UnitClassification() return "normal" end
 -- Player auras / casts / power for My Log scenarios: __MOCK.player_auras = { { name, spellId }, ... },
 -- __MOCK.casting / __MOCK.channel = { name, startMS, endMS, spellId }, __MOCK.player_power = { cur, max }
+-- Anyone's buffs: __MOCK.unit_auras[name] = { { name, spellId, duration, expirationTime }, ... } (GetTime() clock;
+-- 0 = no duration), for any unit token that names them.
 function UnitAura(unit, i, filter)
   local list = unit == "player" and M.player_auras
+  if not list and M.unit_auras then
+    local m = unit_rec(unit)
+    list = m and M.unit_auras[m.name]
+  end
   local a = list and list[i]
   if not a then return nil end
-  return a[1], 136243, 0, nil, 0, 0, "player", false, false, a[2]
+  return a[1], 136243, 0, nil, a[3] or 0, a[4] or 0, "player", false, false, a[2]
 end
 function UnitBuff() return nil end
 function UnitDebuff() return nil end

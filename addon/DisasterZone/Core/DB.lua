@@ -97,6 +97,7 @@ local DEFAULTS = {
                        -- never synced
     tours = {},        -- [tourId] = { seen = true, done = { [chapterKey] = true } } (UI/Tour.lua), never synced
     shopping = {},     -- [charKey] = { { id, n, d }, ... } the Atlas shopping list (Core/ShoppingList.lua), never synced
+    simRuns = {},      -- [charKey] = the gear sim's last runs, their results and the seed (Sim/History.lua), never synced
     prices = {},       -- [itemID] = "cost|time" what a vendor asked (Core/Currency.lua), account wide, never synced
     blessings = {},    -- paladin blessings (Core/Blessings.lua), account wide as Pally Power's: assign / single / aura
                        -- by paladin name (Pally Power's wire names), presets; synced with Pally Power's protocol

@@ -1,6 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Settings.lua", ...) then return end -- DisasterZone UI/Settings.lua
 -- "Settings" tab: the sections in a nav on the left (Alerts, Group loot rules, Rolls, Strategy boards, Tooltips,
--- Window, Loot Council, Demo mode, About), one section at a time on the right. Every option is a row: its name, a
+-- Window, Loot Council, Attendance, Demo mode, About), one section at a time on the right. Every option is a row: its name, a
 -- one-line explanation and a switch (UI:CreateSwitch) or a dropdown. Group loot rules (ADDENDUM D §26/§27) that come
 -- from someone else show their values as plain text under "Set by X"; the raid leader's "Lock BiS lists"
 -- (ADDENDUM F §38); the read-only Loot Council summary with "Edit council..." (ADDENDUM E §30); a Blizzard Settings
@@ -45,6 +45,8 @@ local SECTIONS = {
     { key = "classtools", label = "Class tools", visible = function() return SettingsUI:HasClassTools() end },
     { key = "window", label = "Window" },
     { key = "council", label = "Loot Council" },
+    -- the GM's attendance margins (Guild:SetAttendanceRules): everyone sees them, the GM changes them
+    { key = "attendance", label = "Attendance" },
     { key = "demo", label = "Demo mode" },
     { key = "about", label = "About" },
 }
@@ -281,7 +283,7 @@ function SettingsUI:OnInit()
     local function changed() SettingsUI:RequestRefresh() end
     for _, msg in ipairs({ "SETTINGS_CHANGED", "CONFIG_UPDATED", "ROSTER_UPDATED", "PEERS_UPDATED",
                            "DEMO_TOGGLED", "SYNC_STATUS", "DUNGEON_MODE_CHANGED", "GROUP_UPDATED",
-                           "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED" }) do
+                           "GROUP_RULES_CHANGED", "BIS_LOCK_CHANGED", "MYLOG_CHANGED", "ATTENDANCE_RULES_CHANGED" }) do
         ns:On(msg, changed)
     end
 end
@@ -313,16 +315,22 @@ end
 local GOLD, CREAM = { 0.84, 0.69, 0.36 }, { 0.96, 0.9, 0.72 }
 local DISC = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\disc"
 local RING = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\ring"
-local CARD_W, CARD_H, GAP = 196, 58, 10
--- One short line per card (the window's own page tips are too long for a card).
+-- Cards: CARD_H with the title over a one-line tip, CARD_H_SMALL with the title alone (when the panel is too short
+-- for the tall ones); the page's full tip is always in the card's tooltip.
+local CARD_W, CARD_H, CARD_H_SMALL, GAP = 196, 44, 32, 6
+-- One short line per card, short enough for one line at three columns (the window's page tips are too long).
 local CARD_TIPS = {
-    home = "This week's raids and the calendar.", raids = "Raid nights, teams and strategies.",
-    council = "Loot decisions and the loot log.", mybis = "Your BiS lists and what's missing.",
-    gearsim = "Compare gear in simulated fights.", consumables = "Flask, food and potions per spec.",
-    atlas = "Every drop, set and cost.", members = "Members, professions, recipes.",
-    dungeons = "Find a group for a dungeon.", events = "Guild events and cups (beta).",
-    games = "Bingo and other guild games.", changelog = "What's new in every release.",
-    settings = "Alerts, the minimap and more.",
+    home = "Raids this week, calendar.", raids = "Raid nights, teams, plans.",
+    council = "Loot decisions and log.", lootrules = "How loot gets decided.",
+    mylog = "Your pulls, run by run.", mybis = "BiS lists, what's missing.",
+    gearsim = "Gear compared in fights.", consumables = "Flasks, food, potions.",
+    atlas = "Every drop, set and cost.", members = "Members and professions.",
+    map = "Where guildmates are.", dungeons = "Find a dungeon group.",
+    events = "Guild events and cups.", polls = "Officers' questions.",
+    games = "Bingo and guild games.", feedback = "Bugs, ideas and changes.",
+    changelog = "What's new each release.", perf = "What DisasterZone costs.",
+    settings = "Alerts, minimap and more.", blessings = "Who blesses which class.",
+    totems = "Each shaman's totems.",
 }
 
 local function Fill(tex, r, g, b, a) tex:SetColorTexture(r, g, b, a) return tex end
@@ -367,29 +375,43 @@ local function NewCard(parent, key)
     c.bar:SetWidth(2)
     c.disc = c:CreateTexture(nil, "ARTWORK")
     c.disc:SetTexture(DISC)
-    c.disc:SetSize(34, 34)
-    c.disc:SetPoint("LEFT", 12, 0)
+    c.disc:SetPoint("LEFT", 10, 0)
     c.disc:SetVertexColor(0.13, 0.11, 0.18)
     c.ring = c:CreateTexture(nil, "ARTWORK", nil, 1)
     c.ring:SetTexture(RING)
     c.ring:SetAllPoints(c.disc)
     c.icon = c:CreateTexture(nil, "OVERLAY")
-    c.icon:SetSize(18, 18)
     c.icon:SetPoint("CENTER", c.disc)
     local i = Arc and Arc.GetPageIcon and Arc:GetPageIcon(key) or UI.ICON.more
     local tc = UI:IconCoords(i)
     c.icon:SetTexture(UI.ICON_ATLAS)
     c.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
     c.title = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    c.title:SetPoint("TOPLEFT", c.disc, "TOPRIGHT", 10, -1)
+    c.title:SetJustifyH("LEFT")
+    c.title:SetWordWrap(false)
     c.title:SetText(ns.MainFrame:GetPageLabel(key) or key)
     c.tip = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.tip:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -3)
-    c.tip:SetPoint("RIGHT", c, "RIGHT", -10, 0)
     c.tip:SetJustifyH("LEFT")
-    c.tip:SetJustifyV("TOP")
-    c.tip:SetHeight(26)
+    c.tip:SetWordWrap(false)
     c.tip:SetText(CARD_TIPS[key] or ns.MainFrame:GetPageTip(key) or "")
+    -- w x h: the tip shows under the title when the card is tall and the tip fits on one line, else the title sits
+    -- alone in the middle
+    function c:Layout(w, h)
+        self:SetSize(w, h)
+        local d = h >= CARD_H and 30 or 22
+        self.disc:SetSize(d, d)
+        self.icon:SetSize(d >= 30 and 16 or 13, d >= 30 and 16 or 13)
+        local room = w - (10 + d + 10) - 14
+        local tw = (self.tip.GetUnboundedStringWidth or self.tip.GetStringWidth)(self.tip) or 0
+        local withTip = h >= CARD_H and tw > 0 and tw <= room
+        self.title:ClearAllPoints()
+        self.title:SetPoint(withTip and "BOTTOMLEFT" or "LEFT", self.disc, "RIGHT", 10, withTip and 1 or 0)
+        self.title:SetWidth(room)
+        self.tip:ClearAllPoints()
+        self.tip:SetPoint("TOPLEFT", self.disc, "RIGHT", 10, -2)
+        self.tip:SetWidth(room)
+        self.tip:SetShown(withTip)
+    end
     c.pin = c:CreateTexture(nil, "OVERLAY")         -- on the minimap arc
     c.pin:SetTexture(DISC)
     c.pin:SetSize(6, 6)
@@ -400,6 +422,8 @@ local function NewCard(parent, key)
         self.over = true
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(ns.MainFrame:GetPageLabel(self.key) or self.key, 1, 1, 1)
+        local tip = ns.MainFrame:GetPageTip(self.key) or CARD_TIPS[self.key]
+        if type(tip) == "string" and tip ~= "" then GameTooltip:AddLine(tip, CREAM[1], CREAM[2], CREAM[3], true) end
         GameTooltip:AddLine("Click: open it", 0.7, 0.7, 0.7)
         if Arc then
             GameTooltip:AddLine(Arc:IsPinned(self.key) and "Right-click: unpin from the minimap"
@@ -755,6 +779,20 @@ local function RefreshHero(p)
         p.factBis:SetText(G .. "BiS|r  no list yet")
         p.bisBar:Hide()
     end
+    -- the line stays inside the band: too long, it drops the raid's day and time, then the BiS bar, then the countdown
+    local hw = p.hero:GetWidth() or 0
+    if hw <= 0 then hw = (p.hero:GetParent():GetWidth() or 0) - 24 end
+    local room = hw - 172 - 14
+    local function lineW()
+        return p.factRaid:GetStringWidth() + 21 + p.factOnline:GetStringWidth() + 21 + p.factBis:GetStringWidth()
+            + (p.bisBar:IsShown() and 62 or 0)
+    end
+    if v and room > 0 and lineW() > room then
+        local name = ns.RaidPlan.GetRaidName and ns.RaidPlan:GetRaidName(v) or "Raid"
+        p.factRaid:SetText(G .. "Next raid|r  " .. name .. "  ·  " .. Countdown(v.t - time()))
+        if lineW() > room then p.bisBar:Hide() end
+        if lineW() > room then p.factRaid:SetText(G .. "Next raid|r  " .. name) end
+    end
     p.intro()
 end
 
@@ -766,7 +804,7 @@ local function BuildBlizzardPanel(canvas)
 
     -- the cards
     local head = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    head:SetPoint("TOPLEFT", hero, "BOTTOMLEFT", 2, -18)
+    head:SetPoint("TOPLEFT", hero, "BOTTOMLEFT", 2, -14)
     head:SetText("Jump to")
     head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     local sub = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -777,7 +815,7 @@ local function BuildBlizzardPanel(canvas)
     rule:SetPoint("RIGHT", hero, "RIGHT", 0, 0)
     rule:SetHeight(1)
     p.grid = CreateFrame("Frame", nil, canvas)
-    p.grid:SetPoint("TOPLEFT", head, "BOTTOMLEFT", -2, -10)
+    p.grid:SetPoint("TOPLEFT", head, "BOTTOMLEFT", -2, -8)
     p.grid:SetPoint("RIGHT", hero, "RIGHT")
     p.grid:SetHeight(1)
     p.cards = {}
@@ -823,16 +861,32 @@ local function RefreshBlizzardPanel(canvas, p)
     local keys = ns.MainFrame:GetShownPages()
     local gw = p.grid:GetWidth() or 0
     if gw < CARD_W then gw = math.max((canvas:GetWidth() or 0) - 24, 3 * CARD_W + 2 * GAP) end
-    local cols = math.max(1, math.floor((gw + GAP) / (CARD_W + GAP)))
+    -- the room between the "Jump to" line and the footer (12 + 34, then a gap)
+    local ch, top, gridTop = canvas:GetHeight() or 0, canvas:GetTop(), p.grid:GetTop()
+    local off = (top and gridTop) and (top - gridTop) or 0
+    if off <= 0 or off >= ch then off = 12 + HERO_H + 36 end
+    local avail = ch - off - 54
+    -- the first layout that fits: tall cards, tall cards in one more column (if they stay wide enough), small
+    -- cards, small cards in one more column; the last one when none does
+    local base = math.max(1, math.floor((gw + GAP) / (CARD_W + GAP)))
+    local cols, h
+    for _, try in ipairs({ { base, CARD_H }, { base + 1, CARD_H }, { base, CARD_H_SMALL }, { base + 1, CARD_H_SMALL } }) do
+        local n, th = try[1], try[2]
+        local rows = math.ceil(#keys / n)
+        if (gw - (n - 1) * GAP) / n >= CARD_W * 0.8 or n == base then
+            cols, h = n, th
+            if rows * th + (rows - 1) * GAP <= avail then break end
+        end
+    end
     local w = (gw - (cols - 1) * GAP) / cols
     for _, c in pairs(p.cards) do c:Hide() end
     for i, key in ipairs(keys) do
         local c = p.cards[key] or NewCard(p.grid, key)
         p.cards[key] = c
         local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
-        c:SetWidth(w)
+        c:Layout(w, h)
         c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", p.grid, "TOPLEFT", col * (w + GAP), -row * (CARD_H + GAP))
+        c:SetPoint("TOPLEFT", p.grid, "TOPLEFT", col * (w + GAP), -row * (h + GAP))
         c.settled = false
         c:SetAlpha(0)
         c.fade = 0.35 + (i - 1) * 0.03                    -- the cards appear one after another
@@ -1130,6 +1184,7 @@ function SettingsUI:CreatePanel(parent)
     self:BuildClassTools(self.sections.classtools)
     self:BuildWindow(self.sections.window)
     self:BuildCouncil(self.sections.council)
+    self:BuildAttendance(self.sections.attendance)
     self:BuildDemo(self.sections.demo)
     self:BuildAbout(self.sections.about)
 
@@ -2265,6 +2320,107 @@ function SettingsUI:RefreshCouncil()
 end
 
 ---------------------------------------------------------------------------
+-- Attendance: the GM's two margins everyone's attendance is measured by (Guild:SetAttendanceRules, shared with
+-- every member). The GM steps them (saved a moment after the last step: one message, not one per click); everyone
+-- else sees the values as text.
+---------------------------------------------------------------------------
+local ATT_ROWS = {
+    { field = "o", title = "On time", desc = "Arriving this many minutes late still counts as on time" },
+    { field = "d", title = "Short disconnects", desc = "A disconnect shorter than this doesn't count against anyone" },
+}
+local ATT_MAX = 60
+local STEP_W = 110
+
+-- A value between two chevrons in a flat box; the mouse wheel steps it too.
+local function NewStepper(parent, onStep)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(STEP_W, 24)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    f.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    ns.UI:AddEdges(f)
+    ns.UI:SetEdgeColor(f, 0.34, 0.34, 0.38, 0.9)
+    f.text = NewFS(f, "GameFontHighlight", nil, false)
+    f.text:SetPoint("CENTER")
+    f.prev = ns.UI:CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
+    f.prev:SetPoint("LEFT", 1, 0)
+    f.next = ns.UI:CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
+    f.next:SetPoint("RIGHT", -1, 0)
+    f:EnableMouse(true)
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
+    f:SetScript("OnEnter", function(self) ns.UI:SetEdgeColor(self, 1, 0.82, 0, 0.6) end)
+    f:SetScript("OnLeave", function(self) ns.UI:SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9) end)
+    function f:Set(n)
+        self.text:SetText(n .. " min")
+        self.prev:SetEnabled(n > 0)
+        self.next:SetEnabled(n < ATT_MAX)
+    end
+    return f
+end
+
+local function CanSetAttendance()
+    local G = ns.Guild
+    return G and G.IsGM and ns.Util and G:IsGM(ns.Util.PlayerKey()) and true or false
+end
+
+function SettingsUI:BuildAttendance(sec)
+    self.att = sec
+    sec.status = self:Subtitle(sec)
+    sec.y = sec.y - 6
+    sec.steppers = {}
+    for _, r in ipairs(ATT_ROWS) do
+        local row = self:Row(sec, r.title, r.desc)
+        local st = NewStepper(row, function(dir) SettingsUI:StepAttendance(r.field, dir) end)
+        st:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+        row.control = st
+        AddValueText(row)
+        PlaceText(row, STEP_W)
+        sec.steppers[r.field] = st
+        sec.rows[#sec.rows].field = r.field
+    end
+    self:EndSection(sec)
+end
+
+-- The GM's step: shown at once, saved (and sent) a moment after the last one.
+function SettingsUI:StepAttendance(field, dir)
+    if not CanSetAttendance() then return end
+    local cur = self.attDraft or ns.Guild:GetAttendanceRules()
+    local d = { o = cur.o, d = cur.d }
+    d[field] = math.min(ATT_MAX, max(0, (tonumber(d[field]) or 0) + dir))
+    self.attDraft = d
+    self:RefreshAttendance()
+    ns.Util.Debounce("settings-attendance", 0.8, function()
+        local draft = SettingsUI.attDraft
+        SettingsUI.attDraft = nil
+        if not draft then return end
+        local ok, err = ns.Guild:SetAttendanceRules(draft.o, draft.d)
+        if not ok then ns:Print("%s", tostring(err)) end
+        SettingsUI:RefreshAttendance()
+    end)
+end
+
+function SettingsUI:RefreshAttendance()
+    local sec = self.att
+    if not sec then return end
+    local G = ns.Guild
+    local rules = self.attDraft or (G and G.GetAttendanceRules and G:GetAttendanceRules()) or { o = 5, d = 10 }
+    local gm = CanSetAttendance()
+    if not _G.IsInGuild() then
+        sec.status:SetText(Grey("Attendance needs a guild."))
+    elseif gm then
+        sec.status:SetText("You set these as Guild Master." .. Grey(" They reach every member."))
+    else
+        sec.status:SetText(Grey("Set by the Guild Master for the whole guild."))
+    end
+    for _, row in ipairs(sec.rows) do
+        local n = tonumber(rules[row.field]) or 0
+        row.control:Set(n)
+        SetReadOnly(row, not gm, n .. " min")
+    end
+end
+
+---------------------------------------------------------------------------
 -- Refresh
 ---------------------------------------------------------------------------
 function SettingsUI:RequestRefresh()
@@ -2295,5 +2451,6 @@ function SettingsUI:Refresh()
     self:RefreshAbout()
     self:RefreshDungeon()
     self:RefreshCouncil()
+    self:RefreshAttendance()
     self:FitChild()
 end

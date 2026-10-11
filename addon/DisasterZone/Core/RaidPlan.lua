@@ -1903,6 +1903,11 @@ local function OnBlacklist(sender, msg, dist)
     local rec = BlacklistRec(true)
     if not rec then return end
     if type(rec.x) ~= "table" then rec.x = {} end
+    -- an entry saved before 1.3.3 gets its version written in (sent, it carries v = at): compared as saved, it
+    -- differed from the same entry sent, and two officers holding it sent each other the list for ever
+    for _, e in pairs(rec.l) do
+        if type(e) == "table" and e.v == nil and Merge.EntryRev(e) > 0 then e.v = Merge.EntryRev(e) end
+    end
     local limit = Now() + FUTURE_SLACK
     local changed = false
     -- removals first: a marker beats an entry as old or older
@@ -1915,12 +1920,12 @@ local function OnBlacklist(sender, msg, dist)
     for k, e in pairs(l) do
         local v = Merge.EntryRev(e)
         if v == 0 and not full then v = 1 end
+        if v > 0 then e.v = v end           -- (the same shape as mine before the two are hashed)
         local cur = rec.l[k]
         local cv = Merge.EntryRev(cur)
         if v <= limit and v > (rec.x[k] or 0)
             and (not cur or v > cv or (v == cv and Util.Hash(e) > Util.Hash(cur)))
             and (cur or CountTable(rec.l) < MAX_BLACKLIST) then
-            e.v = v > 0 and v or nil
             rec.l[k] = e
             changed = true
         end
@@ -2566,10 +2571,65 @@ function RaidPlan:GetUnanswered(days)
     for _, v in ipairs(self:GetRaids(now, now + (tonumber(days) or 7) * DAY)) do
         if not v.cancelled then
             local inv = self:GetInvited(v)
-            if inv and InSet(inv, me) and not self:GetMySignup(v.id) and self:CanSignUp(v, me) then out[#out + 1] = v end
+            if inv and InSet(inv, me) and not self:GetMySignup(v.id) and self:CanSignUp(v, me)
+                and not self:IsRaidHidden(v) then
+                out[#out + 1] = v
+            end
         end
     end
     return out
+end
+
+-- 1.3.5: raids I hid from my board (another team's raid I won't go to). Only on this account (db.raidplanHidden), never
+-- shared: { [occId] = true } for one raid, { ["s:" .. sid] = true } for every week of a weekly raid. A hidden raid
+-- leaves the board (its "Hidden" view lists them), the Home banner and the reminders; its page still opens.
+local function HiddenSet(make)
+    local db = ns.db
+    if not db then return nil end
+    if type(db.raidplanHidden) ~= "table" then
+        if not make then return nil end
+        db.raidplanHidden = {}
+    end
+    return db.raidplanHidden
+end
+
+-- Hidden, and how: "one" (this raid) | "series" (every week of it) | nil.
+function RaidPlan:IsRaidHidden(occId)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    local set = v and HiddenSet(false)
+    if not set then return nil end
+    if v.sid and set["s:" .. v.sid] then return "series" end
+    if set[v.id] then return "one" end
+    return nil
+end
+
+-- Hides (scope "one" | "series": every week of a weekly raid) or shows again (on = false: both) a raid on my board.
+-- Drops what no longer exists (a raid deleted, over, a weekly raid that ended).
+function RaidPlan:SetRaidHidden(occId, on, scope)
+    local v = type(occId) == "table" and occId or self:GetRaid(occId)
+    local set = v and HiddenSet(on)
+    if not set then return false end
+    if on then
+        if scope == "series" and v.sid then set["s:" .. v.sid] = true else set[v.id] = true end
+    else
+        set[v.id] = nil
+        if v.sid then set["s:" .. v.sid] = nil end
+    end
+    local now = Now()
+    local root = Root(false)
+    for key in pairs(set) do
+        local sid = type(key) == "string" and key:match("^s:(.+)$")
+        if sid then
+            local s = root and root.S[sid]
+            if not s or s.x then set[key] = nil end
+        else
+            local r = self:GetRaid(key)
+            if not r or r.t < now - SIGNUP_CLOSE then set[key] = nil end
+        end
+    end
+    if not next(set) then ns.db.raidplanHidden = nil end
+    Changed()
+    return true
 end
 
 -- The class of one of my player's characters: mine from the game, another one's from the guild roster.

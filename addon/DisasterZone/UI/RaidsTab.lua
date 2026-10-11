@@ -183,18 +183,42 @@ local function instOf(rec)
     return "other"
 end
 
-local function setArt(tex, rec, w, h, fw)
-    local PlanUI = ns.RaidPlanUI
-    if not (PlanUI and PlanUI.RaidArt) then
-        tex:Hide()
-        return
-    end
-    local file, l, r, t, b = PlanUI:RaidArt(instOf(rec), w, h, fw)
+-- The instances a logged raid covered (a night of Mag + Gruul: both), else the one it was recorded in.
+local function instsOf(rec)
+    local keys = RL().GetRecordInstances and RL():GetRecordInstances(rec) or {}
+    if #keys == 0 then keys = { instOf(rec) } end
+    return keys
+end
+
+local function paintArt(tex, key, w, h, fw)
+    local file, l, r, t, b = ns.RaidPlanUI:RaidArt(key, w, h, fw)
     -- (a small crop stays under the game's logo at the top of the screen)
     if h < 60 and t < ART_TOP then t, b = ART_TOP, b + ART_TOP - t end
     tex:SetTexture(file)
     tex:SetTexCoord(l, r, t, b)
     tex:Show()
+end
+
+-- tex: the art (w x h); several instances: the first two side by side (tex2 the right half, line between them, like
+-- the Upcoming cards). Returns the texture whose right edge ends the art.
+local function setArt(tex, rec, w, h, fw, tex2, line)
+    local PlanUI = ns.RaidPlanUI
+    if not (PlanUI and PlanUI.RaidArt) then
+        tex:Hide()
+        if tex2 then tex2:Hide() line:Hide() end
+        return tex
+    end
+    local keys = instsOf(rec)
+    local two = tex2 and #keys > 1
+    local aw = two and floor(w / 2) or w
+    tex:SetWidth(aw)
+    paintArt(tex, keys[1], aw, h, fw * aw / w)
+    if tex2 then
+        tex2:SetShown(two)
+        line:SetShown(two)
+        if two then paintArt(tex2, keys[2], w - aw, h, fw * (w - aw) / w) end
+    end
+    return two and tex2 or tex
 end
 
 local function killsText(rec)
@@ -232,9 +256,15 @@ local function initRaidRow(row, d)
         row.art = card:CreateTexture(nil, "ARTWORK", nil, 0)
         row.art:SetPoint("TOPLEFT")
         row.art:SetSize(THUMB_W, CARD_H)
+        row.art2 = card:CreateTexture(nil, "ARTWORK", nil, 0)
+        row.art2:SetPoint("TOPLEFT", row.art, "TOPRIGHT")
+        row.art2:SetSize(THUMB_W - floor(THUMB_W / 2), CARD_H)
+        row.artLine = card:CreateTexture(nil, "ARTWORK", nil, 2)
+        row.artLine:SetColorTexture(0, 0, 0, 0.6)
+        row.artLine:SetWidth(2)
+        row.artLine:SetPoint("TOPLEFT", row.art2, "TOPLEFT", -1, 0)
+        row.artLine:SetPoint("BOTTOMLEFT", row.art2, "BOTTOMLEFT", -1, 0)
         row.fade = card:CreateTexture(nil, "ARTWORK", nil, 1)
-        row.fade:SetPoint("TOPRIGHT", row.art, "TOPRIGHT")
-        row.fade:SetPoint("BOTTOMRIGHT", row.art, "BOTTOMRIGHT")
         row.fade:SetWidth(20)
         row.l1 = newText(card, "GameFontHighlight", 13)
         row.l1:SetPoint("TOPLEFT", THUMB_W + 10, -8)
@@ -262,7 +292,10 @@ local function initRaidRow(row, d)
     row.card.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
     gradient(row.fade, "HORIZONTAL", bg[1], bg[2], bg[3], 0, 1)
     lightCard(row, false)
-    setArt(row.art, rec, THUMB_W, CARD_H, 0.36)
+    local edge = setArt(row.art, rec, THUMB_W, CARD_H, 0.36, row.art2, row.artLine)
+    row.fade:ClearAllPoints()
+    row.fade:SetPoint("TOPRIGHT", edge, "TOPRIGHT")
+    row.fade:SetPoint("BOTTOMRIGHT", edge, "BOTTOMRIGHT")
     -- a raid still going / ended when the group broke up
     if not rec.stop then row.tag:SetText("|cff33ff33live|r")
     elseif rec.autoEnded then row.tag:SetText(grey("auto-ended"))
@@ -271,8 +304,12 @@ local function initRaidRow(row, d)
     row.time:SetText(d.sameDay and fmtTime(rec.start) or "")
     local room = LOG_W - THUMB_W - 10 - 10 - (row.tag:GetText() ~= "" and ((row.tag:GetStringWidth() or 0) + 6) or 0)
         - (d.sameDay and ((row.time:GetStringWidth() or 0) + 8) or 0)
+    -- its name (a night's planned raid or its zones), else the instances' short names: "Mag + Gruul", never one of them
     local zone = rec.zone or "Raid"
-    fitText(row.l1, { zone, INST_SHORT[instOf(rec)] or zone }, room)
+    local shorts = {}
+    for i, key in ipairs(instsOf(rec)) do shorts[i] = INST_SHORT[key] or zone end
+    local short = #shorts > 1 and tconcat(shorts, " + ") or (shorts[1] or zone)
+    fitText(row.l1, { zone, short }, room)
     -- the day, the kills
     local kills = killsText(rec)
     local day = fmtTime(rec.start, "%a ") .. tonumber(fmtTime(rec.start, "%d")) .. fmtTime(rec.start, " %b")
@@ -559,7 +596,7 @@ end
 -- The selected raid's banner: its art, the raid and whether it is still going, when / how long / who started it.
 local function fillBanner(p, rec)
     local b = p.banner
-    setArt(b.art, rec, DETAIL_W, BAN_H, 0.98)
+    setArt(b.art, rec, DETAIL_W - 2, BAN_H - 2, 0.98, b.art2, b.artLine)
     local tag
     if not rec.stop then tag = { "in progress", 0.2, 1, 0.2 }
     elseif rec.autoEnded then tag = { "auto-ended", 0.6, 0.6, 0.6 } end
@@ -765,9 +802,22 @@ local function createLogRaids(p)
     p.banner = b
     b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
     b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.art:SetPoint("BOTTOMLEFT", 1, 1)
+    b.art:SetWidth(DETAIL_W - 2)
+    -- (a night of several instances: the second one's art on the right half, Upcoming cards' look)
+    b.art2 = b:CreateTexture(nil, "BACKGROUND", nil, 0)
+    b.art2:SetPoint("TOPLEFT", b.art, "TOPRIGHT")
+    b.art2:SetPoint("BOTTOMRIGHT", -1, 1)
+    b.art2:Hide()
+    b.artLine = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    b.artLine:SetColorTexture(0, 0, 0, 0.6)
+    b.artLine:SetWidth(2)
+    b.artLine:SetPoint("TOPLEFT", b.art2, "TOPLEFT", -1, 0)
+    b.artLine:SetPoint("BOTTOMLEFT", b.art2, "BOTTOMLEFT", -1, 0)
+    b.artLine:Hide()
     b.shadeB = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.shadeB:SetAllPoints(b.art)
+    b.shadeB:SetPoint("TOPLEFT", 1, -1)
+    b.shadeB:SetPoint("BOTTOMRIGHT", -1, 1)
     gradient(b.shadeB, "VERTICAL", 0.035, 0.035, 0.043, 0.92, 0.15)
     b.shadeL = b:CreateTexture(nil, "BACKGROUND", nil, 2)
     b.shadeL:SetPoint("TOPLEFT", b.art)

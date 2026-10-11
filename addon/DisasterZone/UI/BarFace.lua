@@ -443,6 +443,20 @@ function Face:Set(f, st)
     f.labelOff = st.chip == nil
 end
 
+-- A bar theme's time bar (slate, pips: a width, not a cooldown that runs on its own) drawn again from the clock, for
+-- a bar that ticks without a new look each second.
+function Face:Drain(f)
+    local st = f.st
+    local t = f.theme or Face.BY_KEY[Face.DEFAULT]
+    if not st or (t.key ~= "slate" and t.key ~= "pips") then return end
+    if not (st.start and st.total and st.total > 0) or st.tone == "on" or f.frac == nil then return end
+    local frac = max(0, min(1, (st.start + st.total - GetTime()) / st.total))
+    if frac == f.frac then return end
+    f.frac = frac
+    f.barFill:SetWidth(max(0.5, f.barW * ((frac > 0) and frac or 1)))
+    if frac <= 0 then Face.Apply(f) end         -- (run out: the red empty bar)
+end
+
 -- The state's colour before the "next" gold is mixed in.
 local function Base(f)
     local st = f.st or {}

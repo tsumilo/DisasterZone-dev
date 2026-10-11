@@ -22,7 +22,8 @@ SimPanel.MAX_PICK_RUN = 30
 local state = {
   active = false,
   working = nil,       -- gear set (ns.SimRunner sets)
-  target = "gear",     -- what the Working set is compared to: "gear" | phase number (My BiS)
+  target = "gear",     -- what the Working set is compared to: "gear" | phase number (My BiS) | "run:<id>" (an
+                       -- earlier run's Working set, ns.SimHistory)
   results = nil,       -- the last run: { work = summary, ref = summary, diff, se, at }
   stale = true,
   running = false,
@@ -82,14 +83,40 @@ function SimPanel:Working()
   return state.working
 end
 
+-- The earlier run a target names ("run:<id>"), nil for the others or a run no longer in the list.
+local function TargetRun(t)
+  local id = type(t) == "string" and tonumber(t:match("^run:(%d+)$"))
+  return id and ns.SimHistory and ns.SimHistory:Get(id) or nil
+end
+
 function SimPanel:TargetSet()
   if state.target == "gear" then return R():EquippedSet() end
+  local run = TargetRun(state.target)
+  if run then return R():CopySet(run.work) end
+  if type(state.target) == "string" then state.target = "gear" return R():EquippedSet() end
   return R():BiSSet(tonumber(state.target) or Phase(), List())
+end
+
+-- When a run was: "14:32" today ("today 14:32" long), "Tue 14:32" this week, "3 Oct" before.
+function SimPanel.RunWhen(at, long)
+  at = tonumber(at) or 0
+  local now = time and time() or at
+  local d = date and date("*t", at)
+  if not d then return "" end
+  local today = date("*t", now)
+  local hm = ("%d:%02d"):format(d.hour, d.min)
+  if d.year == today.year and d.yday == today.yday then return long and ("today " .. hm) or hm end
+  if now - at < 6 * 86400 then return date("%a", at) .. " " .. hm end
+  return ("%d %s"):format(d.day, date("%b", at))
 end
 
 function SimPanel:TargetText(t)
   t = t or state.target
   if t == "gear" then return "My gear" end
+  if type(t) == "string" and t:match("^run:") then
+    local run = TargetRun(t)
+    return run and ("My " .. SimPanel.RunWhen(run.at) .. " run") or "An earlier run"
+  end
   return "My BiS " .. (ns.PhaseLabel and ns.PhaseLabel(tonumber(t)) or ("P" .. tostring(t)))
 end
 
@@ -101,14 +128,14 @@ function SimPanel:SetWorkingSlot(sid, entry)
     w[16] = nil
   end
   SaveWorking()
-  state.stale = true
+  state.stale, state.staleWhy = true, nil
   if ns.MyBiS then ns.MyBiS:Refresh() end
 end
 
 function SimPanel:ResetTo(set)
   state.working = R():CopySet(set)
   SaveWorking()
-  state.stale = true
+  state.stale, state.staleWhy = true, nil
   if ns.MyBiS then ns.MyBiS:Refresh() end
 end
 
@@ -146,7 +173,7 @@ function SimPanel:GetBuffs() return Settings().buffs end
 
 function SimPanel:SetBuffs(key)
   SetSetting("buffs", key)
-  state.stale = true
+  state.stale, state.staleWhy = true, nil
   self:UpdateCard()
 end
 
@@ -248,7 +275,11 @@ function SimPanel:Run()
   state.progress, state.paused, state.total = 0, false, fights
   local info = { started = Now(), frames = 0, pausedEver = false, fights = fights }
   state.info = info
-  local ok, err = R():Start({ { key = "work", set = self:Working() }, { key = "ref", set = self:TargetSet() } }, {
+  state.staleWhy = nil
+  -- (what the run sims, as it starts: for the run's line in Recent runs)
+  local work, ref, target = R():CopySet(self:Working()), self:TargetSet(), state.target
+  local settings = RunSettings()
+  local ok, err = R():Start({ { key = "work", set = work }, { key = "ref", set = ref } }, {
     iterations = fights,
     settings = RunSettings(),
     onProgress = function(done, total, paused)
@@ -269,8 +300,11 @@ function SimPanel:Run()
         local d, se = res.diff("work", "ref")
         info.ms = Now() - info.started
         info.cached = res.cached
+        info.stored = res.stored
         info.settings = RunSettings()
-        state.results = { work = res.work, ref = res.ref, diff = d, se = se, target = state.target, info = info }
+        state.results = { work = res.work, ref = res.ref, diff = d, se = se, target = target, info = info,
+          targetText = self:TargetText(target) }
+        state.results.runId = self:SaveRun(work, ref, target, settings, fights, res, d, se)
         state.stale = false
         state.serial = state.serial + 1
         -- (a run that ended while the page was out of sight shows its result at once, no sweep)
@@ -287,10 +321,103 @@ function SimPanel:Run()
   self:UpdateCard()
 end
 
+-- ---------------------------------------------------------------------------------------------------------------
+-- Recent runs (Sim/History.lua keeps them; UI/SimHistory.lua shows them)
+-- ---------------------------------------------------------------------------------------------------------------
+function SimPanel:SaveRun(work, ref, target, settings, fights, res, d, se)
+  local H = ns.SimHistory
+  if not (H and res.keys and res.keys.work and res.keys.ref) then return nil end
+  local set = {}
+  for k, v in pairs(settings or {}) do set[k] = v end
+  set.fights = fights
+  local run = H:Add({
+    spec = R():SpecKey(), specName = R():Spec(), target = target, targetText = self:TargetText(target),
+    settings = set, buffsText = (R():BuffName(set.buffs)), work = work, ref = R():CopySet(ref),
+    workKey = res.keys.work, refKey = res.keys.ref, workSum = res.work, refSum = res.ref, diff = d, se = se,
+    seed = R():SessionSeed(),
+  })
+  if ns.SimHistoryUI and ns.SimHistoryUI.Refresh then ns.SimHistoryUI:Refresh() end
+  return run and run.id
+end
+
+-- A run's settings as the runner takes them (talents: today's).
+function SimPanel:RunSettingsOf(run)
+  local s = run.settings or {}
+  return { buffs = s.buffs, duration = s.duration, mobType = s.mobType, talents = (R():Talents()), seed = R():SessionSeed() }
+end
+
+-- Would the run sim the same today (the same sets, settings, talents and buffs)? Then its numbers are today's.
+function SimPanel:RunIsCurrent(run)
+  local H = ns.SimHistory
+  if not (H and run) or run.spec ~= R():SpecKey() then return false end
+  local ok, same = pcall(function()
+    local st = self:RunSettingsOf(run)
+    local n = run.settings and run.settings.fights or Settings().fights
+    local w = R():CacheKey(R():Scenario(run.work, st), n)
+    local r = R():CacheKey(R():Scenario(self:TargetSet(), st), n)
+    return (w and r and H.Hash(w) == run.w and H.Hash(r) == run.r) and true or false
+  end)
+  return ok and same or false
+end
+
+-- Opens an earlier run on the page: its Working set, what it was compared with and its settings come back, and its
+-- result shows at once (stored: nothing is simmed). Something that changed since (My gear, talents, a buff preset)
+-- makes it out of date, like a changed slot: the circle sims it again.
+function SimPanel:OpenRun(id)
+  local H = ns.SimHistory
+  local run = H and H:Get(id)
+  if not run or run.spec ~= R():SpecKey() or state.running then return false end
+  local work, ref = H:Summaries(run)
+  if not work then return false end
+  state.working = R():CopySet(run.work)
+  SaveWorking()
+  local s = run.settings or {}
+  for _, k in ipairs({ "buffs", "duration", "mobType", "fights" }) do
+    if s[k] ~= nil then SetSetting(k, s[k]) end
+  end
+  local target = run.target
+  if type(target) == "string" and target ~= "gear" and not TargetRun(target) then target = "gear" end
+  state.target = target
+  local info = { fights = s.fights, settings = { buffs = s.buffs, duration = s.duration, mobType = s.mobType,
+    talents = s.talents }, cached = { work = true, ref = true }, stored = { work = true, ref = true }, opened = run.at }
+  state.results = { work = work, ref = ref, diff = run.diff, se = run.se, target = target, info = info,
+    targetText = run.targetText, runId = run.id }
+  state.stale = not self:RunIsCurrent(run)
+  state.staleWhy = state.stale and "Changed since this run" or nil
+  state.serial = state.serial + 1
+  state.doneSeen = false
+  if ns.MyBiS then ns.MyBiS:Refresh() end
+  self:UpdateCard()
+  return true
+end
+
+-- What a run tried, in a few words: the item it changed ("Hourglass of the Unraveller"), "3 changes", "Same gear".
+function SimPanel:RunChanges(run)
+  local out = {}
+  for sid = 1, 19 do
+    local a, b = run.work and run.work[sid], run.ref and run.ref[sid]
+    if not R():SameEntry(a, b) then out[#out + 1] = { sid = sid, id = a and a.id, was = b and b.id } end
+  end
+  return out
+end
+
+function SimPanel:RunChangeText(run)
+  local ch = self:RunChanges(run)
+  if #ch == 0 then return "Same gear" end
+  if #ch == 1 then
+    local id = ch[1].id or ch[1].was
+    local name = id and ns.ItemDB and ns.ItemDB:GetName(id)
+    if not ch[1].id then return "Empty " .. ((ns.SLOTS and ns.SLOTS[ch[1].sid] and ns.SLOTS[ch[1].sid].label) or "slot") end
+    if name then return name end
+    return "1 change"
+  end
+  return #ch .. " changes"
+end
+
 -- Nerd stats' "Run 3,000 fights": that many fights from now on, and a run at once.
 function SimPanel.SetFightsAndRun(n)
   SetSetting("fights", n)
-  state.stale = true
+  state.stale, state.staleWhy = true, nil
   if ns.SimNerd then ns.SimNerd:Close() end
   if not state.running then SimPanel:Run() end
 end
@@ -386,7 +513,7 @@ SimPanel.WordTip = {
 }
 
 local function SettingChanged()
-  state.stale = true
+  state.stale, state.staleWhy = true, nil
   SimPanel:UpdateCard()
 end
 
@@ -403,14 +530,28 @@ function SimPanel:BuildSettingMenu(root, key)
     root:CreateTitle("Compare with")
     local function isSel(v) return tostring(state.target) == v end
     local function pick(v)
-      state.target = (v == "gear") and "gear" or tonumber(v)
-      state.stale = true
+      state.target = (v == "gear" or v:match("^run:")) and v or tonumber(v)
+      state.stale, state.staleWhy = true, nil
       if ns.MyBiS then ns.MyBiS:Refresh() end
       self:UpdateCard()
       return close
     end
     root:CreateRadio("My gear", isSel, pick, "gear")
     for p = 0, (ns.MAX_PHASE or 5) do root:CreateRadio(self:TargetText(p), isSel, pick, tostring(p)) end
+    -- earlier runs of this spec: their Working sets
+    local runs = {}
+    for _, run in ipairs(ns.SimHistory and ns.SimHistory:Runs() or {}) do
+      if run.spec == R():SpecKey() then runs[#runs + 1] = run end
+    end
+    if #runs > 0 then
+      local sub = root:CreateButton("An earlier run")
+      sub:CreateTitle("An earlier run's Working set")
+      for _, run in ipairs(runs) do
+        local e = sub:CreateRadio(("%s  \194\183  %s"):format(SimPanel.RunWhen(run.at, true), self:RunChangeText(run)),
+          isSel, pick, "run:" .. run.id)
+        if e.SetHint then e:SetHint(Fmt(run.dps or 0) .. " DPS") end
+      end
+    end
   elseif key == "fights" then
     root:CreateTitle("Fights")
     local function isSel(v) return Settings().fights == v end
@@ -811,8 +952,40 @@ function SimPanel:OnSlotClick(sid, which, mouseButton, tile, parent)
     if bis then
       root:CreateButton("Use My BiS item", function() self:SetWorkingSlot(sid, R():FillEntryFromBiS(bis, Phase(), List(), sid)) end)
     end
-    if self:Working()[sid] then root:CreateButton("Empty slot", function() self:SetWorkingSlot(sid, nil) end) end
+    local cur = self:Working()[sid]
+    if cur and ns.Gems and (#ns.Gems:Sockets(cur.id) > 0 or ns.Gems:CanEnchant(cur.id, ns.Gems:ProfessionSet())) then
+      root:CreateButton("Gems and enchant...", function() self:OpenGems(sid, tile) end)
+    end
+    if cur then root:CreateButton("Empty slot", function() self:SetWorkingSlot(sid, nil) end) end
   end)
+end
+
+-- The gem editor (UI/GemEditor.lua) on a Working set slot: the slot's gems and enchant, changed in place (the slot
+-- shows as changed, the result goes out of date).
+function SimPanel:GemHost(sid)
+  return {
+    view = function() return self:Record().data end,
+    get = function()
+      local e = self:Working()[sid]
+      local gems = {}
+      for i = 1, 4 do gems[i] = e and e.gems and e.gems[i] or 0 end
+      return e and e.enchant or 0, gems
+    end,
+    set = function(enchant, gems)
+      local e = self:Working()[sid]
+      if not e then return end
+      local g = {}
+      for i, v in pairs(gems or {}) do if v and v ~= 0 then g[i] = v end end
+      self:SetWorkingSlot(sid, { id = e.id, enchant = enchant or 0, gems = g, randomSuffix = e.randomSuffix })
+    end,
+  }
+end
+
+function SimPanel:OpenGems(sid, tile)
+  local e = self:Working()[sid]
+  if not (e and ns.GemEditor) then return end
+  if tile and not tile.sid then tile.sid = sid end
+  ns.GemEditor:Open(tile, e.id, Phase(), List(), self:GemHost(sid))
 end
 
 function SimPanel:OnSlotReceiveItem(sid, itemID)
@@ -833,6 +1006,11 @@ function SimPanel:BuildMoreEntries(root, entry, GOLDC)
   local label = "My BiS " .. (ns.PhaseLabel and ns.PhaseLabel(p) or ("P" .. p))
   entry(ns.UI.ICON.copy or 1, label, GOLDC, "Starts the Working set over from " .. label .. " (its gems and enchants).",
     function() self:ResetTo(R():BiSSet(p, List())) end)
+  local runs = ns.SimHistory and #ns.SimHistory:Runs() or 0
+  if runs > 0 then
+    entry(ns.UI.ICON.stopwatch or 59, "Recent runs", GOLDC, "Your last runs on this character: open one again (nothing "
+      .. "is simmed) or compare two.", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
+  end
   if root.CreateDivider then root:CreateDivider() end
   local tip = "Everything this sim uses (gear, gems, enchants, race, talents, professions, buffs, consumables, boss "
     .. "and rotation) as WoWSims settings: on wowsims.com/tbc open your spec's sim, Import > JSON, paste. Both sims "

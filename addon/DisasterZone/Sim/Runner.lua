@@ -581,12 +581,14 @@ end
 
 -- Finished sets, so a set is never simmed twice: iteration i of a set depends only on its scenario, the seed and i
 -- (Sim:RunOnce seeds every iteration), so the same scenario, seed and fight count give exactly the same result.
--- One seed per session keeps that true from run to run; the least recently used go first past CACHE_SIZE.
+-- One seed per character (kept: Sim/History.lua) keeps that true from run to run and session to session; the least
+-- recently used go first past CACHE_SIZE. Sets from earlier sessions come from ns.SimHistory (checked first, see Start).
 Runner.CACHE_SIZE = 40
 Runner.cache, Runner.cacheOrder = {}, {}
 
 function Runner:SessionSeed()
-  self.seed = self.seed or floor((GetTime and GetTime() or os.time()) * 1000) % 1000000
+  self.seed = self.seed or (ns.SimHistory and ns.SimHistory:Seed())
+    or floor((GetTime and GetTime() or os.time()) * 1000) % 1000000
   return self.seed
 end
 
@@ -652,7 +654,9 @@ end
 
 -- jobs: { { key = any, set = gear set, cons = consumables (optional) }, ... }; opts: { iterations, settings, onProgress(done, total, paused),
 -- onDone(results), onCancel() }. results[key] = summary (S.Summarize) + iterDps; results.pairs(a, b) -> mean diff, stderr.
--- Sets simmed before (same scenario, seed and fight count) and sets listed twice are not simmed again.
+-- Sets simmed before (same scenario, seed and fight count) and sets listed twice are not simmed again. A set stored
+-- by an earlier session (ns.SimHistory) re-sims its first fights on a sim of its own first: the stored result counts
+-- only when they come out the same (else this version sims differently, and the set is simmed in full).
 function Runner:Start(jobs, opts)
   self:Cancel()
   local settings = opts.settings or {}
@@ -660,13 +664,15 @@ function Runner:Start(jobs, opts)
   local apl = ns.Data and ns.Data.SimAPL and ns.Data.SimAPL[self:SpecKey()]
   if not apl then return false, "No rotation for this spec yet." end
   local n = opts.iterations or self.DEFAULT_ITERATIONS
-  local all, sims, byCache = {}, {}, {}
+  local all, sims, checks, byCache = {}, {}, {}, {}
+  local H = ns.SimHistory
+  local checkN = min(n, H and H.CHECK_FIGHTS or 0)
   local okAll, err = pcall(function()
     for i, job in ipairs(jobs) do
       local scenario = self:Scenario(job.set, settings, job.cons)
       if job.bonus then scenario.bonusStats = job.bonus end
       local ck = self:CacheKey(scenario, n)
-      local r = { key = job.key, cacheKey = ck }
+      local r = { key = job.key, cacheKey = ck, scenario = scenario }
       all[i] = r
       local hit = self:CacheGet(ck)
       if hit then
@@ -674,20 +680,64 @@ function Runner:Start(jobs, opts)
       elseif ck and byCache[ck] then
         r.same = byCache[ck]
       else
-        r.sim, r.p = S.NewScenario(scenario, self:DB(), apl)
-        sims[#sims + 1] = r
+        local stored = H and checkN > 0 and H:Lookup(ck)
+        if stored then
+          r.stored = stored
+          checks[#checks + 1] = r
+        else
+          r.sim, r.p = S.NewScenario(scenario, self:DB(), apl)
+          sims[#sims + 1] = r
+        end
         if ck then byCache[ck] = r end
       end
     end
   end)
   if not okAll then return false, tostring(err) end
-  local run = { jobs = all, sims = sims, n = n, done = 0, opts = opts, cancelled = false, nextJob = 1, nextIter = 1 }
+  local run = { jobs = all, sims = sims, n = n, done = 0, opts = opts, cancelled = false, nextJob = 1, nextIter = 1,
+    checks = checks, nextCheck = 1 }
   self.run = run
-  local total = n * #sims
+  local total = n * #sims + checkN * #checks
   local frame = self.frame or CreateFrame("Frame")
   self.frame = frame
+  -- a stored set's first fights on a sim of its own: the same numbers -> its stored result; else a full sim
+  local function Check(r)
+    local sim, p = S.NewScenario(r.scenario, self:DB(), apl)
+    for i = 1, checkN do sim:RunOnce(i) end
+    run.done = run.done + checkN
+    if H.SameStart(r.stored.iterDps, p.metrics.iterDps, checkN) then
+      r.summary = r.stored
+      self:CachePut(r.cacheKey, r.stored)
+    else
+      H:Drop(r.cacheKey)
+      r.stored = nil
+      r.sim, r.p = S.NewScenario(r.scenario, self:DB(), apl)
+      sims[#sims + 1] = r
+      total = total + n
+    end
+  end
   frame:SetScript("OnUpdate", function()
     if run.cancelled then frame:SetScript("OnUpdate", nil) return end
+    if run.nextCheck <= #checks then
+      if InCombat() then
+        if opts.onProgress then opts.onProgress(run.done, total, true) end
+        return
+      end
+      local t0 = clock()
+      local ok, e = pcall(function()
+        repeat
+          Check(checks[run.nextCheck])
+          run.nextCheck = run.nextCheck + 1
+        until run.nextCheck > #checks or clock() - t0 >= self.FRAME_BUDGET_MS
+      end)
+      if not ok then
+        frame:SetScript("OnUpdate", nil)
+        self.run = nil
+        if opts.onDone then opts.onDone(nil, tostring(e)) end
+        return
+      end
+      if opts.onProgress then opts.onProgress(run.done, total, false) end
+      if run.nextCheck <= #checks then return end
+    end
     if #sims > 0 and run.nextIter <= n then
       if InCombat() then
         if opts.onProgress then opts.onProgress(run.done, total, true) end
@@ -758,10 +808,13 @@ function Runner:Results(runs)
       self:CachePut(r.cacheKey, s)
     end
   end
-  out.cached = {}
+  out.cached, out.stored = {}, {}
   for _, r in ipairs(runs) do
     out[r.key] = r.summary or r.same.summary
     if not r.sim then out.cached[r.key] = true end
+    if r.stored or (r.same and r.same.stored) or (r.summary and r.summary.stored) then out.stored[r.key] = true end
+    out.keys = out.keys or {}
+    out.keys[r.key] = r.cacheKey
   end
   out.diff = function(a, b)
     local A, B = out[a], out[b]
@@ -774,6 +827,9 @@ function Runner:Results(runs)
     end
     local mean = sum / n
     local var = max(0, sq / n - mean * mean)
+    -- (the same difference from the sets' own means: exact for a set stored by Sim/History.lua too, whose fights
+    -- are kept to hundredths)
+    if #A.iterDps == n and #B.iterDps == n and A.dps and B.dps then mean = A.dps - B.dps end
     return mean, sqrt(var / max(1, n - 1))
   end
   return out

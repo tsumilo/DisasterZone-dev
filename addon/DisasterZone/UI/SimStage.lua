@@ -641,6 +641,43 @@ local function CreateNerdButton(parent)
   return b
 end
 
+-- "RECENT RUNS  4 >" under the sentence (before a run) or the chip (after one): opens UI/SimHistory.lua.
+local function CreateRecentLink(parent)
+  local b = CreateFrame("Button", nil, parent)
+  b:SetSize(160, 16)
+  b.fs = Text(b, 10, C.sentence)
+  b.fs:SetShadowOffset(0, 0)
+  b.icon = b:CreateTexture(nil, "ARTWORK")
+  b.icon:SetSize(9, 9)
+  ns.UI:SetChevron(b.icon, true)
+  local function paint(on)
+    local c = on and C.gold or { 0.65, 0.65, 0.65 }
+    b.fs:SetTextColor(c[1], c[2], c[3])
+    b.icon:SetVertexColor(c[1], c[2], c[3], 1)
+  end
+  paint(false)
+  function b:SetCount(n)
+    self.fs:SetText(Spaced("Recent runs") .. "   " .. tostring(n))
+    local w = (tonumber(self.fs:GetStringWidth()) or 120) + 13
+    self:SetWidth(floor(w + 0.5))
+    self.fs:ClearAllPoints()
+    self.fs:SetPoint("LEFT", self, "LEFT", 0, 0)
+    self.icon:ClearAllPoints()
+    self.icon:SetPoint("LEFT", self.fs, "RIGHT", 4, 0)
+  end
+  b:SetScript("OnEnter", function(self)
+    paint(true)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Recent runs", 1, 0.82, 0)
+    GameTooltip:AddLine("Your last runs on this character: open one again (nothing is simmed) or compare two.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() paint(false) GameTooltip:Hide() end)
+  b:SetScript("OnClick", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
+  b:Hide()
+  return b
+end
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- Building the stage
 -- ---------------------------------------------------------------------------------------------------------------
@@ -738,6 +775,8 @@ function Stage:Create(body, dollFrame)
   res[#res + 1] = stage.chip
   stage.res = res
   for _, f in ipairs(res) do f:SetAlpha(0); f:Hide() end
+
+  stage.recent = CreateRecentLink(stage)
 
   stage:SetScript("OnUpdate", function(_, dt) Stage:OnUpdate(dt) end)
   stage:SetScript("OnHide", function() FinishTweens() end)
@@ -938,6 +977,24 @@ local function Inside(mode)
   end
 end
 
+-- The Recent runs link: before a run under the sentence, after one under the chip; not while a run goes or with
+-- nothing to show.
+local RECENT_Y = { idle = 404, done = 396, stale = 396 }
+local function RecentShown(mode, animate)
+  local f = stage.recent
+  local n = ns.SimHistory and #ns.SimHistory:Runs() or 0
+  local y = RECENT_Y[mode]
+  if not y or n == 0 then
+    Fade("recent", f, false, animate, 0.2)
+    return
+  end
+  f:SetCount(n)
+  At(f, CX - floor(f:GetWidth() / 2 + 0.5), y)
+  if not f:IsShown() then
+    Fade("recent", f, true, animate, 0.4)
+  end
+end
+
 -- the result's numbers into the column and the dial
 local function FillResults()
   local Sim = P()
@@ -996,6 +1053,9 @@ local function StaleLook(on)
     if f:IsShown() then f:SetAlpha(a) end
   end
   stage.verdict:SetShown(not on and stage.cmpRef:IsShown())
+  if on then
+    stage.staleNote:SetText((P()._state().staleWhy or "Working set changed") .. "  \194\183  click the circle")
+  end
   stage.staleNote:SetShown(on)
   stage.meta:SetShown(not on)
 end
@@ -1031,6 +1091,7 @@ function Stage:Apply(mode, animate)
     PaintTicks(0)
   elseif mode == "run" then
     if ns.SimNerd then ns.SimNerd:Close(true) end
+    if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
     stage.note:Hide()
     sigil.k:SetText(Spaced("Simulating"))
     sigil.n:SetText("\226\128\148")
@@ -1067,6 +1128,7 @@ function Stage:Apply(mode, animate)
     PaintTicks(TICKS, mode == "stale")
     StaleLook(mode == "stale")
   end
+  RecentShown(mode, animate)
   if self.hovering then self:SetHover(true) end
 end
 
@@ -1159,6 +1221,7 @@ function Stage:Show(on)
       for _, tile in pairs(doll.tiles or {}) do tile:SetAlpha(1) end
     end
     if ns.SimNerd then ns.SimNerd:Close(true) end
+    if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
     return
   end
   local first = not stage:IsShown()
@@ -1188,10 +1251,23 @@ function Stage:Sync(animate)
   if want == cur then
     if want == "done" or want == "stale" then FillResults(); PaintBars(1); self:RefreshSettings() end
     if want == "idle" then self:RefreshSettings() end
+    if want == "done" or want == "stale" then StaleLook(want == "stale") end
+    RecentShown(want, false)
     if (want == "idle" or want == "run" or want == "unsupported") and doll and not tweens.doll then doll:Hide() end
     return
   end
   self:Apply(want, animate and cur ~= nil)
+end
+
+-- Nerd stats / Recent runs open over the page (on) or closed at once (off): they have no fill of their own (the
+-- window's background shows through), so the page's own pieces and the doll go out of sight under them. Their frames
+-- sit beside the stage (Stage:OverlayParent), not in it.
+function Stage:OverlayParent() return stage and stage:GetParent() end
+
+function Stage:Cover(on)
+  if not stage then return end
+  stage:SetAlpha(on and 0 or 1)
+  if doll and doll:IsShown() then doll:SetAlpha(on and 0 or 1) end
 end
 
 -- Back from Nerd stats: the result page fades in like a page of the main window.
