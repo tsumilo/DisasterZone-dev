@@ -16,21 +16,21 @@ ns.SimNerd = Nerd
 
 local floor, max, min, abs, sqrt = math.floor, math.max, math.min, math.abs, math.sqrt
 
-local FONT = (GameFontNormal and GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
-local NUM = "Fonts\\ARIALN.TTF"
+local UI, S = ns.UI, ns.Style
+local K = ns.SimStage.Kit        -- the stage's shared pieces (UI/SimStage.lua): palette, text, bars
+local NUM = K.NUM
 local W, H = 770, 496
-local TOP = 76            -- the pages start here (under the header and the tabs)
+-- the pages start under the banner and its tabs (the detail layout: strip banner, tabs strip, a gap)
+local TOP = S.BANNER.strip + UI.LAYOUT.TABS_H + S.GAP
 local PH = H - TOP        -- a page's height
 
-local C = {
-  gold = { 1, 0.82, 0 }, gold2 = { 0.886, 0.702, 0.243 }, light = { 1, 0.953, 0.69 },
-  text = { 0.925, 0.925, 0.925 }, sub = { 0.863, 0.863, 0.863 }, dim = { 0.561, 0.561, 0.584 },
-  axis = { 0.49, 0.49, 0.522 }, label = { 0.659, 0.659, 0.682 },
-  green = { 0.31, 0.83, 0.42 }, red = { 0.88, 0.38, 0.31 }, grey = { 0.49, 0.49, 0.51 },
-  card = { 0.106, 0.106, 0.122 }, box = { 0.094, 0.094, 0.11 }, edge = { 0.137, 0.137, 0.157 },
-  track = { 0.137, 0.137, 0.157 }, line = { 0.149, 0.149, 0.173 },
-  blue = { 0.373, 0.608, 1 }, ref = { 0.722, 0.722, 0.753 },
-}
+-- The page's palette: the stage's (ns.Style tokens for text and verdicts) and the charts' own tones.
+local C = setmetatable({
+  light = { 1, 0.953, 0.69 }, sub = S.C.TEXT, axis = S.C.DIM, label = K.C.sentence,
+  track = { 0.137, 0.137, 0.157 }, line = { 0.149, 0.149, 0.173 }, base = { 0.227, 0.227, 0.259 },
+  rule = { 0.125, 0.125, 0.145 }, blue = { 0.373, 0.608, 1 }, ref = { 0.722, 0.722, 0.753 },
+  rest = { 0.416, 0.416, 0.447 },
+}, { __index = K.C })
 -- melee swing outcomes
 local OUT = { { "Miss", { 0.416, 0.416, 0.447 } }, { "Dodge", { 0.541, 0.541, 0.573 } }, { "Glancing", { 0.365, 0.498, 0.69 } },
   { "Crit", { 1, 0.843, 0.353 } }, { "Hit", { 0.788, 0.651, 0.251 } } }
@@ -46,34 +46,15 @@ local function Pct(v) return ("%.1f%%"):format(v * 100) end
 local function Signed1(v) return (v >= 0 and "+" or "\226\136\146") .. ("%.1f"):format(abs(v)) end
 local function Time(t) return ("%d:%02d"):format(floor(t / 60), floor(t % 60)) end
 
+-- A line of text: a style name or a size of the type scale (UI:Text), left-aligned unless told.
 local function Text(parent, size, color, justify, font)
-  local fs = parent:CreateFontString(nil, "OVERLAY")
-  fs:SetFont(font or FONT, size, "")
-  fs:SetShadowOffset(1, -1)
+  local fs = K.Text(parent, size, color, justify or "LEFT", font)
   fs:SetShadowColor(0, 0, 0, 0.7)
-  if color then fs:SetTextColor(color[1], color[2], color[3]) end
-  fs:SetJustifyH(justify or "LEFT")
-  fs:SetWordWrap(false)
   return fs
 end
 
-local function Cap(parent, text)
-  local fs = Text(parent, 8.5, C.dim)
-  fs:SetText(ns.SimStage.Spaced(text))
-  return fs
-end
-
-local function Tex(parent, layer, c, a)
-  local t = parent:CreateTexture(nil, layer or "ARTWORK")
-  t:SetColorTexture(c[1], c[2], c[3], a or 1)
-  return t
-end
-
-local function Put(region, parent, x, y, point)
-  region:ClearAllPoints()
-  region:SetPoint(point or "TOPLEFT", parent, "TOPLEFT", x, -y)
-  return region
-end
+local Cap, Tex, Put = K.Cap, K.Tex, K.Put
+local HEX = { SUB = S:Hex("SUB"), DIM = S:Hex("DIM"), OK = S:Hex("OK"), TEXT = S:Hex("TEXT") }   -- |cff codes
 
 local function Line(parent, layer, c, thick, a)
   local l = parent:CreateLine(nil, layer or "ARTWORK")
@@ -88,23 +69,13 @@ local function LineAt(l, parent, x0, y0, x1, y1)
   l:Show()
 end
 
--- a page's box: dark fill, 1 px edge, a spaced caption and an optional note on the right
+-- a page's box: a card (UI:CreateCard) with a caps section header (its title and an optional note on the right)
 local function Box(parent, x, y, w, h, title, note)
-  local b = CreateFrame("Frame", nil, parent)
-  b:SetSize(w, h)
+  local b = UI:CreateCard(parent, { width = w, height = h })
   Put(b, parent, x, y)
-  local bg = Tex(b, "BACKGROUND", C.box)
-  bg:SetAllPoints()
-  if ns.UI.AddEdges then
-    ns.UI:AddEdges(b, "BORDER")
-    ns.UI:SetEdgeColor(b, C.edge[1], C.edge[2], C.edge[3], 1)
-  end
-  b.title = Put(Cap(b, title), b, 10, 9)
-  if note then
-    b.note = Text(b, 9.5, C.dim, "RIGHT")
-    b.note:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -8)
-    b.note:SetText(note)
-  end
+  b.head = UI:CreateSectionHeader(b, title, { style = "caps", right = note })
+  b.head:SetPoint("TOPLEFT", b, "TOPLEFT", 8, -4)
+  b.head:SetPoint("TOPRIGHT", b, "TOPRIGHT", -8, -4)
   return b
 end
 
@@ -122,10 +93,11 @@ local function SpellIcon(id)
   if C_Spell and C_Spell.GetSpellTexture then return C_Spell.GetSpellTexture(id) end
   return GetSpellTexture and GetSpellTexture(id) or nil
 end
+-- an item's icon, nil while unknown (UI:ItemIcon's question mark: the callers try other icons first)
 local function ItemIcon(id)
-  if not id then return nil end
-  if C_Item and C_Item.GetItemIconByID then return C_Item.GetItemIconByID(id) end
-  return GetItemIcon and GetItemIcon(id) or nil
+  local icon = id and UI:ItemIcon(id)
+  if icon == 134400 then return nil end
+  return icon
 end
 local function KeyIcon(key, a)
   if KEY_ICON[key] then return KEY_ICON[key] end
@@ -149,7 +121,7 @@ local function KeyName(key)
   local id = tonumber(key) or (type(key) == "string" and tonumber(key:match("^(%d+):")))
   if id and GetSpellInfo then name = GetSpellInfo(id) end
   local item = type(key) == "string" and tonumber(key:match("^item:(%d+)"))
-  if not name and item and GetItemInfo then name = GetItemInfo(item) end
+  if not name and item then name = UI:ItemName(item) end
   return name or tostring(key)
 end
 
@@ -224,12 +196,13 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- The frame
 -- ---------------------------------------------------------------------------------------------------------------
-local clip, root, pages, tabs, current
+local clip, root, pages, layout, current
 
 local function Body() return ns.SimStage and ns.SimStage._frame() end
 
-local TABS = { { "overview", "Overview" }, { "abilities", "Abilities" }, { "buffs", "Buffs & procs" },
-  { "mana", "Mana" }, { "stats", "Stats & weights" }, { "run", "The run" } }
+local TABS = { { key = "overview", text = "Overview" }, { key = "abilities", text = "Abilities" },
+  { key = "buffs", text = "Buffs & procs" }, { key = "mana", text = "Mana" }, { key = "stats", text = "Stats & weights" },
+  { key = "run", text = "The run" } }
 
 local Build = {}
 
@@ -246,53 +219,20 @@ local function Create()
   root:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
   root:EnableMouse(true)
 
-  -- the back link every page has ("< ALL POLLS", "< ALL RAIDS"): the atlas chevron and small capitals
-  local back = CreateFrame("Button", nil, root)
-  back:SetSize(80, 14)
-  Put(back, root, 0, 0)
-  back.icon = back:CreateTexture(nil, "ARTWORK")
-  back.icon:SetSize(10, 10)
-  back.icon:SetPoint("LEFT", 0, 0)
-  ns.UI:SetChevron(back.icon, false)
-  back.fs = back:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  back.fs:SetFont((back.fs:GetFont()), 10, "")
-  back.fs:SetJustifyH("LEFT")
-  back.fs:SetPoint("LEFT", back.icon, "RIGHT", 4, 0)
-  back.fs:SetText("RESULTS")
-  local function paint(self, on)
-    local r, g, bl = 0.65, 0.65, 0.65
-    if on then r, g, bl = 1, 0.82, 0 end
-    self.fs:SetTextColor(r, g, bl)
-    self.icon:SetVertexColor(r, g, bl)
-  end
-  paint(back, false)
-  back:SetScript("OnEnter", function(self) paint(self, true) end)
-  back:SetScript("OnLeave", function(self) paint(self, false) end)
-  back:SetScript("OnClick", function() Nerd:Close() end)
-  root.title = Put(Text(root, 17, C.gold), root, 0, 17)
-  root.title:SetText("Nerd stats")
-  root.sub = Text(root, 10.5, C.dim)
-  root.sub:SetPoint("BOTTOMLEFT", root.title, "BOTTOMRIGHT", 14, 2)
-  root.sub:SetPoint("RIGHT", root, "RIGHT", -156, 0)
-  root.export = ns.UI:CreateSleekButton(root, "Export to WoWSims", 140, 22, function()
-    local Sim = P()
-    Sim:ShowExport("Working set", R():WoWSimsSettings(Sim:Working(), Sim:RunSettings()))
-  end, "secondary")
-  root.export:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, -12)
-
-  tabs = {}
-  local x = 0
-  for i, t in ipairs(TABS) do
-    local b = ns.UI:CreateUnderlineTab(root, t[2], function() Nerd:Show(t[1]) end, "page")
-    b:SetPoint("TOPLEFT", root, "TOPLEFT", x - 4, -42)
-    x = x + (b:GetWidth() or 80) + 14
-    b.key = t[1]
-    tabs[i] = b
-  end
-  local rule = Tex(root, "ARTWORK", C.line)
-  rule:SetHeight(1)
-  rule:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -66)
-  rule:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, -66)
+  -- a detail page (UI:CreateLayout): the strip banner with the way back, the title, the run in a line and the export;
+  -- the pages' tabs on its foot; the page under them
+  layout = UI:CreateLayout("detail", root, { width = W, pad = 0, bottom = 0, toolbar = false, tabStyle = "underline",
+    banner = { size = "strip", title = "Nerd stats", titleColor = "GOLD", width = W, actions = {
+      { text = "Export to WoWSims", width = 140, onClick = function()
+        local Sim = P()
+        Sim:ShowExport("Working set", R():WoWSimsSettings(Sim:Working(), Sim:RunSettings()))
+      end } } },
+    back = { text = "Results", onClick = function() Nerd:Close() end },
+    tabs = TABS, onTab = function(key) Nerd:Show(key) end })
+  root.layout = layout
+  root.banner = layout.banner
+  root.sub = layout.banner.sub
+  root.export = layout.banner.actions[1]
   pages = {}
   Nerd.root = root
 end
@@ -300,7 +240,7 @@ end
 local function Page(key)
   local pg = pages[key]
   if not pg then
-    pg = CreateFrame("Frame", nil, root)
+    pg = CreateFrame("Frame", nil, layout.body)
     pg:SetSize(W, PH)
     pg:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -TOP)
     pages[key] = pg
@@ -394,11 +334,10 @@ end
 function Nerd:Show(key)
   if not root then return end
   current = key
-  for _, b in ipairs(tabs) do b:SetActive(b.key == key) end
+  layout.tabs:SelectTab(key)
   for k, pg in pairs(pages) do pg:SetShown(k == key) end
   local w = data.res.info and data.res.info.settings or P():RunSettings()
-  local words = P():SettingWords()
-  root.sub:SetText(("%s fights \195\151 2 sets  \194\183  %s  \194\183  Lv 73 %s")
+  layout.banner:SetSub(("%s fights \195\151 2 sets  \194\183  %s  \194\183  Lv 73 %s")
     :format(Fmt(data.n), Time(w.duration or 180), w.mobType or "Mechanical"))
   local pg = pages[key]
   if not pg or pg.res ~= data.res or pg.dirty then
@@ -419,8 +358,7 @@ local function Kpis(pg, list)
     local f = CreateFrame("Frame", nil, pg)
     f:SetSize(w, 50)
     Put(f, pg, (i - 1) * (w + gap), 0)
-    local bg = Tex(f, "BACKGROUND", C.card)
-    bg:SetAllPoints()
+    UI:Fill(f, "CARD")
     Put(Cap(f, k[1]), f, 10, 8)
     local v = Put(Text(f, 19, k[4] or C.text, "LEFT", NUM), f, 10, 22)
     v:SetText(k[2])
@@ -437,14 +375,9 @@ local function Bar(parent, x, y, w, h, frac, c, gradient)
   local t = Put(Tex(parent, "ARTWORK", C.track), parent, x, y)
   t:SetSize(w, h)
   local f = parent:CreateTexture(nil, "ARTWORK", nil, 1)
-  f:SetColorTexture(1, 1, 1, 1)
   Put(f, parent, x, y)
   f:SetSize(max(1, w * max(0, min(1, frac))), h)
-  if gradient and f.SetGradient and CreateColor then
-    f:SetGradient("HORIZONTAL", CreateColor(0.604, 0.455, 0.125, 1), CreateColor(1, 0.843, 0.353, 1))
-  else
-    f:SetVertexColor(c[1], c[2], c[3], 1)
-  end
+  K.BarFill(f, gradient, c)
   return t, f
 end
 
@@ -498,16 +431,16 @@ function Build.overview(pg)
   })
 
   -- DPS per fight: the Working set's bars, the target's outline
-  local box = Box(pg, 0, 60, 470, 206, "DPS per fight")
+  local box = Box(pg, 0, 60, 470, 198, "DPS per fight")
   local lg = CreateFrame("Frame", nil, box)
   lg:SetSize(200, 12)
   lg:SetPoint("TOPRIGHT", box, "TOPRIGHT", -10, -8)
   local s1 = Tex(lg, "ARTWORK", C.gold2); s1:SetSize(9, 9)
   local l1 = Text(lg, 10, C.label, "LEFT"); l1:SetText("Working set")
   local s2 = lg:CreateTexture(nil, "ARTWORK"); s2:SetSize(9, 9)
-  if ns.UI.AddEdges then
+  if UI.AddEdges then
     local hold = CreateFrame("Frame", nil, lg); hold:SetSize(9, 9)
-    ns.UI:AddEdges(hold, "ARTWORK"); ns.UI:SetEdgeColor(hold, C.ref[1], C.ref[2], C.ref[3], 1)
+    UI:AddEdges(hold, "ARTWORK"); UI:SetEdgeColor(hold, C.ref[1], C.ref[2], C.ref[3], 1)
     s2 = hold
   end
   local l2 = Text(lg, 10, C.label, "LEFT"); l2:SetText(P():TargetText(res.target))
@@ -559,7 +492,7 @@ function Build.overview(pg)
   LineAt(Line(box, "OVERLAY", C.ref, 1.2), box, px, py, GX + GW, GY + GH)
   local mxX = GX + (d.work.dps - lo) / (hi - lo) * GW
   Dashed(box, mxX, GY - 4, GY + GH, C.light)
-  Num(box, mxX + 4, GY - 4, Fmt(d.work.dps), 10.5, C.light, "LEFT")
+  Num(box, mxX + 4, GY - 4, Fmt(d.work.dps), 10, C.light, "LEFT")
   local base = Put(Tex(box, "ARTWORK", { 0.227, 0.227, 0.259 }), box, GX, GY + GH)
   base:SetSize(GW, 1)
   for v = lo, hi, stepTick do
@@ -569,7 +502,7 @@ function Build.overview(pg)
   end
 
   -- the average as fights finish
-  local cb = Box(pg, 478, 60, 292, 206, "Average as fights finish")
+  local cb = Box(pg, 478, 60, 292, 198, "Average as fights finish")
   local CX0, CW = 12, 268
   local n = #a
   if n > 1 then
@@ -618,14 +551,14 @@ function Build.overview(pg)
   end
 
   -- swing outcomes (melee) or the top spell's
-  local ob = Box(pg, 0, 274, 470, 142, "Melee swing outcomes", "boss level 73  \194\183  from behind")
+  local ob = Box(pg, 0, 266, 470, PH - 266, "Melee swing outcomes", "boss level 73  \194\183  from behind")
   local melee
   for _, r in ipairs(d.rows) do if r.melee then melee = r end end
   if not melee then
     melee = d.rows[1]
     if melee then
-      ob.title:SetText(ns.SimStage.Spaced("Outcomes  \194\183  " .. melee.name))
-      ob.note:SetText("")
+      ob.head:SetTitle("Outcomes  \194\183  " .. melee.name)
+      ob.head:SetRight(nil)
     end
   end
   if melee then
@@ -658,8 +591,8 @@ function Build.overview(pg)
         local need = max(0, cap - hit)
         text = ("Miss %s  \194\183  Dodge %s  \226\128\148  %s, expertise %d (dodge %s left). Glancing blows hit for 75%%.")
           :format(Pct(vals[1]), Pct(vals[2]),
-            need > 0.05 and ("|cffe6e6e6%.1f%% hit (%d rating) to the cap|r"):format(need, floor(need * 15.77 + 0.5))
-              or "|cff4fd36bhit capped|r", exp, Pct(vals[2]))
+            need > 0.05 and (HEX.TEXT .. "%.1f%% hit (%d rating) to the cap|r"):format(need, floor(need * 15.77 + 0.5))
+              or HEX.OK .. "hit capped|r", exp, Pct(vals[2]))
       else
         text = ("%s of %s casts land as crits; %s miss."):format(Pct(vals[4]), Fmt(melee.casts), Pct(vals[1]))
       end
@@ -668,7 +601,7 @@ function Build.overview(pg)
   end
 
   -- damage by source: the top four and the rest
-  local sb = Box(pg, 478, 274, 292, 142, "Damage by source")
+  local sb = Box(pg, 478, 266, 292, PH - 266, "Damage by source")
   local total = max(1, d.total)
   local other = total
   for i = 1, min(4, #d.rows) do
@@ -677,13 +610,13 @@ function Build.overview(pg)
     local y = 32 + (i - 1) * 21
     Label(sb, 12, y, r.name, 11)
     Bar(sb, 132, y + 5, 106, 6, r.dps / total / 0.5, C.gold2, i <= 2)
-    Num(sb, 280, y - 1, Pct(r.dps / total), 12.5)
+    Num(sb, 280, y - 1, Pct(r.dps / total), 12)
   end
   if #d.rows > 4 then
     local y = 32 + 4 * 21
     Label(sb, 12, y, "Everything else", 11, C.label)
     Bar(sb, 132, y + 5, 106, 6, other / total / 0.5, { 0.416, 0.416, 0.447 })
-    Num(sb, 280, y - 1, Pct(other / total), 12.5)
+    Num(sb, 280, y - 1, Pct(other / total), 12)
   end
 end
 
@@ -703,7 +636,7 @@ function Build.abilities(pg)
   Put(Cap(hdr, "Ability"), hdr, 28, 3)
   local vsName = P():TargetText(d.res.target) == "My gear" and "vs gear" or "vs BiS"
   for _, c in ipairs(COLS) do
-    local fs = Text(hdr, 8, C.dim, "RIGHT")
+    local fs = Text(hdr, 9.5, C.dim, "RIGHT")
     fs:SetPoint("TOPRIGHT", hdr, "TOPLEFT", c[2], -3)
     fs:SetText((c[1] == "vs gear" and vsName or c[1]):upper())
   end
@@ -718,7 +651,7 @@ function Build.abilities(pg)
     local rule = Put(Tex(row, "BACKGROUND", { 0.133, 0.133, 0.153 }), row, 0, 0)
     rule:SetSize(W, 1)
     local ic = Put(IconTex(row, 19, r.icon), row, 2, 4)
-    local nm = Put(Text(row, 11.5, C.text), row, 28, 5)
+    local nm = Put(Text(row, 11, C.text), row, 28, 5)
     nm:SetText(r.name)
     nm:SetWidth(210)
     local sh = Put(Tex(row, "ARTWORK", C.gold2, 0.8), row, 28, 20)
@@ -746,14 +679,14 @@ function Build.abilities(pg)
   Put(tot, pg, 0, ty)
   local rule = Put(Tex(tot, "BACKGROUND", { 0.227, 0.227, 0.259 }), tot, 0, 0)
   rule:SetSize(W, 1)
-  Put(Text(tot, 11.5, C.gold), tot, 28, 5):SetText(#d.rows > shown and ("Total  |cff8f8f95(%d more below 0.1%%)|r"):format(#d.rows - shown) or "Total")
+  Put(Text(tot, 11, C.gold), tot, 28, 5):SetText(#d.rows > shown and ("Total  " .. HEX.SUB .. "(%d more below 0.1%%)|r"):format(#d.rows - shown) or "Total")
   Num(tot, COLS[1][2], 6, Fmt1(d.total), 12)
   Num(tot, COLS[2][2], 6, "100%", 12)
   local diff = d.res.diff
   Num(tot, COLS[3][2], 6, Signed1(diff), 12, abs(diff) < 2 * d.res.se and C.grey or (diff > 0 and C.green or C.red))
 
   -- the first 20 seconds of fight 1
-  local box = Box(pg, 0, 296, W, 120, "The first 20 seconds of fight 1", "every cast in order  \194\183  gold edge = crit")
+  local box = Box(pg, 0, PH - 120, W, 120, "The first 20 seconds of fight 1", "every cast in order  \194\183  gold edge = crit")
   local X0, XW = 64, 690
   local function sx(t) return X0 + t / 20 * XW end
   Label(box, 12, 33, "GCD", 9.5, C.axis)
@@ -797,7 +730,7 @@ end
 -- Buffs & procs
 -- ---------------------------------------------------------------------------------------------------------------
 local function ItemName(itemId)
-  local name = GetItemInfo and GetItemInfo(itemId)
+  local name = UI:ItemName(itemId)
   if (not name or name == "") and ns.ItemDB and ns.ItemDB.GetName then name = ns.ItemDB:GetName(itemId) end
   return (name ~= "") and name or nil
 end
@@ -873,7 +806,7 @@ function Build.buffs(pg)
   end
   table.sort(list, function(x, y) return x.a.uptime > y.a.uptime end)
   local L = Box(pg, 0, 0, 376, PH, "Uptime", "share of the fight")
-  if #list == 0 then Label(L, 12, 34, "No procs or cooldowns in this fight.", 10.5, C.label) end
+  if #list == 0 then Label(L, 12, 34, "No procs or cooldowns in this fight.", 10, C.label) end
   for i = 1, min(12, #list) do
     local it = list[i]
     local y = 30 + (i - 1) * 29
@@ -882,9 +815,9 @@ function Build.buffs(pg)
     nm:SetWidth(150)
     local g = it.a.gains
     local sub = g >= 1.95 and ("%.1f a fight"):format(g) or (g >= 0.95 and "once a fight" or ("%d%% of fights"):format(floor(g * 100 + 0.5)))
-    Label(L, 38, y + 15, sub, 9, C.dim)
+    Label(L, 38, y + 15, sub, 9.5, C.dim)
     Bar(L, 188, y + 9, 134, 7, it.a.uptime, C.gold2, it.a.uptime < 0.999)
-    Num(L, 366, y + 4, Pct(it.a.uptime), 12.5)
+    Num(L, 366, y + 4, Pct(it.a.uptime), 12)
   end
 
   -- fight 1: when each went up
@@ -931,7 +864,7 @@ function Build.buffs(pg)
       seg:SetSize(max(3, sx(sg.to) - sx(sg.from)), 12)
     end
   end
-  if nl == 0 then Label(T, 12, 34, "Nothing came and went in fight 1.", 10.5, C.label) end
+  if nl == 0 then Label(T, 12, 34, "Nothing came and went in fight 1.", 10, C.label) end
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -1011,7 +944,7 @@ function Build.mana(pg)
     table.sort(list, function(a, b2) return a.v > b2.v end)
     for i = 1, min(5, #list) do
       local y = y0 + (i - 1) * 22
-      local nm = Label(r, 10, y, names(list[i].k), 10.5, C.sub)
+      local nm = Label(r, 10, y, names(list[i].k), 10, C.sub)
       nm:SetWidth(118)
       Bar(r, 132, y + 5, 64, 6, list[i].v / total, col)
       Num(r, 234, y - 1, ("%d%%"):format(floor(list[i].v / total * 100 + 0.5)), 12)
@@ -1098,13 +1031,13 @@ function Build.stats(pg)
   local function v(k) return st[ST[k]] or 0 end
   if caster then
     rows = { { "Intellect", Fmt(v("Intellect")) }, { "Spirit", Fmt(v("Spirit")) }, { "Spell power", Fmt(v("SpellDamage")) },
-      { "Spell crit", ("%.1f%%"):format(v("SpellCritPercent")) }, { "Spell hit", ("%.1f%%  |cff7d7d85(cap 16%%)|r"):format(v("SpellHitPercent")) },
+      { "Spell crit", ("%.1f%%"):format(v("SpellCritPercent")) }, { "Spell hit", ("%.1f%%  " .. HEX.DIM .. "(cap 16%%)|r"):format(v("SpellHitPercent")) },
       { "Spell haste rating", Fmt(v("SpellHasteRating")) }, { "Mana", Fmt(v("Mana")) }, { "MP5", Fmt(v("MP5")) } }
   else
     local exp = floor(v("ExpertiseRating") / (ns.GearSim and ns.GearSim.EXPERTISE_PER_QUARTER or 3.94))
     rows = { { "Strength", Fmt(v("Strength")) }, { "Agility", Fmt(v("Agility")) }, { "Attack power", Fmt(v("AttackPower")) },
-      { "Melee crit", ("%.1f%%"):format(v("PhysicalCritPercent")) }, { "Melee hit", ("%.1f%%  |cff7d7d85(cap 9%%)|r"):format(v("PhysicalHitPercent")) },
-      { "Expertise", ("%d  |cff7d7d85(\226\136\146%.2f%% dodge)|r"):format(exp, exp * 0.25) },
+      { "Melee crit", ("%.1f%%"):format(v("PhysicalCritPercent")) }, { "Melee hit", ("%.1f%%  " .. HEX.DIM .. "(cap 9%%)|r"):format(v("PhysicalHitPercent")) },
+      { "Expertise", ("%d  " .. HEX.DIM .. "(\226\136\146%.2f%% dodge)|r"):format(exp, exp * 0.25) },
       { "Melee haste rating", Fmt(v("MeleeHasteRating")) }, { "Armor penetration", Fmt(v("ArmorPenetration")) } }
     if v("Mana") > 0 then rows[#rows + 1] = { "Spell power", Fmt(v("SpellDamage")) }; rows[#rows + 1] = { "Mana", Fmt(v("Mana")) } end
   end
@@ -1116,7 +1049,7 @@ function Build.stats(pg)
     local rule = Put(Tex(L, "ARTWORK", { 0.125, 0.125, 0.145 }), L, 12, y + 20)
     rule:SetSize(352, 1)
     Label(L, 12, y + 4, r[1], 11, C.dim)
-    local fs = Text(L, 12.5, C.text, "RIGHT", NUM)
+    local fs = Text(L, 12, C.text, "RIGHT", NUM)
     fs:SetPoint("TOPRIGHT", L, "TOPLEFT", 364, -(y + 3))
     fs:SetText(r[2])
   end
@@ -1132,7 +1065,7 @@ function Build.stats(pg)
       Label(Rb, 12, y, w.name, 11, C.sub)
       local note = ("%s DPS per 10"):format(("%.1f"):format(w.per * 10))
       if w.stat:match("HitRating") then note = note .. "  \194\183  until the cap" end
-      Label(Rb, 12, y + 14, note, 9, C.dim)
+      Label(Rb, 12, y + 14, note, 9.5, C.dim)
       Bar(Rb, 150, y + 5, 170, 8, (w.per / norm) / top, C.gold2, true)
       Num(Rb, 374, y + 1, ("%.2f"):format(w.per / norm), 13)
     end
@@ -1144,7 +1077,7 @@ function Build.stats(pg)
       .. "the set simmed once as it is and once per stat with a little more of it, on the same rolls.")
   end
   local n = #WEIGHTS[WeightKind()]
-  pg.weightsBtn = ns.UI:CreateSleekButton(Rb, weights.running and "Stop" or (res and "Recalculate" or "Calculate"), 110, 22,
+  pg.weightsBtn = UI:CreateSleekButton(Rb, weights.running and "Stop" or (res and "Recalculate" or "Calculate"), 110, S.BTN_H,
     function() Nerd:CalcWeights() end, "primary")
   Put(pg.weightsBtn, Rb, 12, PH - 44)
   pg.weightsNote = Label(Rb, 132, PH - 40, "", 10, C.dim)
@@ -1188,7 +1121,7 @@ function Build.run(pg)
     local rule = Put(Tex(L, "ARTWORK", { 0.125, 0.125, 0.145 }), L, 12, y + 20)
     rule:SetSize(352, 1)
     Label(L, 12, y + 4, r[1], 11, C.dim)
-    local fs = Text(L, 11.5, C.text, "RIGHT", NUM)
+    local fs = Text(L, 11, C.text, "RIGHT", NUM)
     fs:SetPoint("TOPRIGHT", L, "TOPLEFT", 364, -(y + 3))
     fs:SetText(r[2])
   end
@@ -1207,24 +1140,22 @@ function Build.run(pg)
   }
   for i, p in ipairs(picks) do
     local y = 32 + (i - 1) * 64
-    local card = CreateFrame("Frame", nil, Rb)
-    card:SetSize(362, 56)
+    local card = UI:CreateCard(Rb, { tone = "inset", width = 362, height = 56 })
     Put(card, Rb, 12, y)
-    Tex(card, "BACKGROUND", { 0.114, 0.114, 0.133 }):SetAllPoints()
-    Label(card, 12, 9, ("%s  |cff7d7d85#%d|r"):format(p[1], p[2]), 12, C.text)
+    Label(card, 12, 9, ("%s  " .. HEX.DIM .. "#%d|r"):format(p[1], p[2]), 12, C.text)
     Label(card, 12, 29, p[4], 10, C.label)
-    Num(card, 350, 10, Fmt(p[3]), 18, C.text)
+    Num(card, 350, 10, Fmt(p[3]), 17, C.text)
   end
   Para(Rb, 12, 236, 362, "Fight 1 is the one the Abilities and Buffs pages draw cast by cast. More fights pin the average "
     .. "down closer; sets you simmed before are kept (those of your last 10 runs between sessions too), so a rerun of the "
     .. "same gear is free.")
-  local b1 = ns.UI:CreateSleekButton(Rb, "Export to WoWSims", 140, 22, function()
+  local b1 = UI:CreateSleekButton(Rb, "Export to WoWSims", 140, S.BTN_H, function()
     local Sim = P()
     Sim:ShowExport("Working set", R():WoWSimsSettings(Sim:Working(), Sim:RunSettings()))
   end, "secondary")
   Put(b1, Rb, 12, 300)
   local precise = P().FIGHTS[#P().FIGHTS].n
-  local b2 = ns.UI:CreateSleekButton(Rb, ("Run %s fights"):format(Fmt(precise)), 124, 22, function()
+  local b2 = UI:CreateSleekButton(Rb, ("Run %s fights"):format(Fmt(precise)), 124, S.BTN_H, function()
     P().SetFightsAndRun(precise)
   end, "secondary")
   b2:SetPoint("LEFT", b1, "RIGHT", 8, 0)
