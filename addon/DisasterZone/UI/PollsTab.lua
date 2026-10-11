@@ -63,8 +63,6 @@ local function IsMe(key) return type(key) == "string" and ns.Util.IsMe(key) or f
 -- A word in white among grey ones (a pick, a count, a time).
 local function white(s) return "|cffffffff" .. tostring(s) .. "|r" end
 local function Name(key) return EUI():Name(key) end
-local function Tip(owner, lines) UI():SetTextTooltip(owner, lines, "ANCHOR_TOP") end
-local function HideTip() GameTooltip:Hide() end
 local function Plural(n, one, many) return n == 1 and ("1 " .. one) or (n .. " " .. (many or (one .. "s"))) end
 
 -- The poll icon (art pack 6), else the notes icon.
@@ -259,12 +257,6 @@ end
 ---------------------------------------------------------------------------
 
 local KIND_WORD = { one = "One answer", many = "Several answers", yn = "Yes or no", days = "Pick days" }
-
-local function KindGlyph(kind)
-    if kind == "days" then return UI().ICON.calendar end
-    if kind == "yn" then return CHECK_GLYPH end
-    return PollIcon()
-end
 
 -- "today 20:00", "tomorrow", "Sun 20:00", "Fri 17 Oct"
 local function When(t, withTime)
