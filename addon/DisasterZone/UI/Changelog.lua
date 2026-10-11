@@ -118,7 +118,11 @@ local function NewLine(parent)
     line.fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     line.fs:SetJustifyH("LEFT")
     line.fs:SetWordWrap(true)
-    -- a line that came from the guild's feedback: who asked for it on hover; mine glows
+    -- a line that came from the guild's feedback: its credit (kind icon + names) in a column on the right, so it never
+    -- wraps away from its icon; who asked for it on hover; mine glows
+    line.credit = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    line.credit:SetJustifyH("RIGHT")
+    line.credit:SetWordWrap(false)
     line.bg = parent:CreateTexture(nil, "BACKGROUND")
     line.bg:SetColorTexture(1, 0.82, 0, 0.08)
     line.bar = parent:CreateTexture(nil, "ARTWORK")
@@ -176,14 +180,24 @@ local function LineParts(entry)
 end
 ChangelogUI.LineParts = LineParts
 
--- "Thanks to A, B and C for the bugs and ideas in this release." from an entry's credits, or nil.
+-- "Thanks to A and B for the ideas behind 3 of these changes." from an entry's credits (only the credited lines are
+-- theirs, so it says how many: one release of many changes is not all theirs), or nil.
 local function ThanksLine(entry)
     local seen, names = {}, {}
+    local lines, bugs = 0, 0
     for _, section in ipairs(entry.sections or {}) do
         for _, l in ipairs(section.lines or {}) do
             if type(l) == "table" and type(l.by) == "table" then
+                local any = false
                 for _, n in ipairs(l.by) do
-                    if type(n) == "string" and not seen[n] then seen[n] = true; names[#names + 1] = n end
+                    if type(n) == "string" then
+                        any = true
+                        if not seen[n] then seen[n] = true; names[#names + 1] = n end
+                    end
+                end
+                if any then
+                    lines = lines + 1
+                    if l.k == "bug" then bugs = bugs + 1 end
                 end
             end
         end
@@ -201,7 +215,16 @@ local function ThanksLine(entry)
     else
         list = table.concat(shown, ", ", 1, #shown - 1) .. " and " .. shown[#shown]
     end
-    return "Thanks to " .. list .. " for the bugs and ideas in this release."
+    local what
+    if bugs == lines then
+        what = lines == 1 and "the bug report behind" or "the bug reports behind"
+    elseif bugs == 0 then
+        what = lines == 1 and "the idea behind" or "the ideas behind"
+    else
+        what = "the bug reports and ideas behind"
+    end
+    local count = lines == 1 and "one of these changes" or (lines .. " of these changes")
+    return "Thanks to " .. list .. " for " .. what .. " " .. count .. "."
 end
 ChangelogUI.ThanksLine = ThanksLine
 
@@ -215,7 +238,7 @@ local function RenderDetail()
     local width = max(200, floor((d.scroll:GetWidth() or 520) - 8))
     child:SetWidth(width)
     for _, h in ipairs(d.headings) do h:Hide() end
-    for _, l in ipairs(d.lines) do l.dot:Hide(); l.fs:Hide(); l.bg:Hide(); l.bar:Hide(); l.hover:Hide() end
+    for _, l in ipairs(d.lines) do l.dot:Hide(); l.fs:Hide(); l.credit:Hide(); l.bg:Hide(); l.bar:Hide(); l.hover:Hide() end
     if d.thanks then d.thanks:Hide(); d.thanksRule:Hide() end
     if not entry then
         d.title:SetText("")
@@ -247,9 +270,31 @@ local function RenderDetail()
             li = li + 1
             local line = Pool(child, d.lines, li, NewLine)
             local text, credit, mine = LineParts(raw)
-            if credit then text = text .. "   " .. credit end
-            if mine then text = text .. "   |cffffd100you asked for this|r" end
-            line.fs:SetWidth(width - 16)
+            if mine then
+                local you = "|cffffd100you asked for this|r"
+                if credit then credit = credit .. "   " .. you else text = text .. "   " .. you end
+            end
+            -- the credit: right after the text when both fit on one row, else at the right edge with the text
+            -- wrapping beside it
+            local creditW = 0
+            if credit then
+                line.credit:SetText(UI():SafeText(credit))
+                local cw = (tonumber(line.credit:GetStringWidth()) or 0) + 1
+                line.fs:SetWidth(width - 16)
+                line.fs:SetText(UI():SafeText(text))
+                local tw = tonumber(line.fs.GetUnboundedStringWidth and line.fs:GetUnboundedStringWidth()
+                    or line.fs:GetStringWidth()) or 0
+                line.credit:SetWidth(cw)
+                line.credit:ClearAllPoints()
+                if tw + 18 + cw <= width - 16 then
+                    line.credit:SetPoint("TOPLEFT", child, "TOPLEFT", 14 + tw + 18, y - 1)
+                else
+                    line.credit:SetPoint("TOPRIGHT", child, "TOPLEFT", width - 4, y - 1)
+                    creditW = cw + 14
+                end
+                line.credit:Show()
+            end
+            line.fs:SetWidth(width - 16 - creditW)
             line.fs:ClearAllPoints()
             line.fs:SetPoint("TOPLEFT", child, "TOPLEFT", 14, y)
             line.fs:SetText(UI():SafeText(text))

@@ -237,8 +237,26 @@ def the_changelog_names_who_asked_and_marks_mine():
       walk(ns.MainFrame:GetPanel('changelog'))
       return out""")]
     line = next(t for t in texts if t.startswith("The roll popup waits"))
-    assert "Alfa, Bert +3" in line and "you asked for this" in line, line
-    assert any(t.startswith("Thanks to Alfa and Bert") for t in texts), texts
+    assert line == "The roll popup waits until you leave combat.", line     # the credit is its own text
+    assert any(t.strip() == "Alfa, Bert +3   you asked for this" for t in texts), texts
+    # the footer says which changes are theirs, not the whole release
+    assert "Thanks to Alfa and Bert for the bug report behind one of these changes." in texts, texts
+    w.assert_no_errors()
+
+
+@case
+def the_thanks_line_counts_the_credited_changes():
+    w, c = standard()
+    a = c["Alfa"]
+    def thanks(lines):
+        return a.eval("return ns.ChangelogUI.ThanksLine({ sections = { { lines = { " + lines + " } } } })")
+    assert thanks("'plain'") is None
+    assert thanks("'plain', { 'x', by = { 'Släy' }, k = 'idea' }") == \
+        "Thanks to Släy for the idea behind one of these changes."
+    assert thanks("{ 'x', by = { 'Bert' }, k = 'idea' }, { 'y', by = { 'Alfa' }, k = 'change' }") == \
+        "Thanks to Alfa and Bert for the ideas behind 2 of these changes."
+    assert thanks("{ 'x', by = { 'Bert' }, k = 'bug' }, { 'y', by = { 'Bert' }, k = 'idea' }, 'z'") == \
+        "Thanks to Bert for the bug reports and ideas behind 2 of these changes."
     w.assert_no_errors()
 
 
