@@ -103,6 +103,15 @@ function H.Hgt()
     if not h or h < 300 then h = PAGE_H end
     return floor(h)
 end
+-- A layout's body height (before the first layout pass: what the page's height leaves under the toolbar, a banner
+-- of bannerH and the gap).
+function H.BodyH(L, bannerH)
+    local h = L.body and L.body:GetHeight() or 0
+    if not h or h < 50 then
+        h = H.Hgt() - UI().LAYOUT.TOP - (bannerH or S.BANNER.hero) - GAP - UI().LAYOUT.BOTTOM
+    end
+    return floor(h)
+end
 
 -- A text's size changed, keeping its font face and colour: the size snaps to the type scale (S:Size, D2).
 local function Sized(fs, size, path)
@@ -1278,115 +1287,226 @@ end
 -- The banner (Upcoming's hero, an event's page, its results)
 ---------------------------------------------------------------------------
 
--- TODO(refactor): move into UI:CreatePageBanner (its stage line / entrants meter at the bottom left, the kind chips
--- left of the tools, the chip and the three button slots of the bottom row, the Share results text tool).
-function H.NewBanner(parent, height)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(height)
-    b.bh = height
-    b.art = b:CreateTexture(nil, "BACKGROUND")
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    EUI():AddShade(b)
-    Edges(b, PEDGE, "ARTWORK")
-    -- the top row: the back link / the Live pill and the kicker; share and More at the right
-    b.back = UI():CreateBackLink(b, "Events", function() EventsUI:Back() end)
-    b.back:SetPoint("TOPLEFT", 12, -12)
-    b.live = H.Pill(b, 16)
-    b.live:SetPoint("TOPLEFT", 14, -12)
-    b.live:SetKind("Live", "live")
-    b.kick = Text(b, 11, C.kick)
-    b.more = H.IconButton(b, 22, "more", "More", "What else you can do with this event.", nil)
-    b.more:SetPoint("TOPRIGHT", -12, -9)
-    b.share = A.ShareButton(b, 22, function() return b.ref end, "Share this event")
-    if b.share then b.share:SetPoint("RIGHT", b.more, "LEFT", -6, 0) end
-    b.shareText = H.Button(b, "Share results", nil, 22, "secondary", function(self)
-        local ref = b.ref
-        if not ref then return end
-        if IsShiftKeyDown() and ns.Share and ns.Share.PutInChat then
-            ns.Share:PutInChat(ref)
-        elseif ns.ShareWindow and ns.ShareWindow.Open then
-            ns.ShareWindow:Open(ref, self)
+-- 1.4: the event banner IS the shared page banner (UI:CreatePageBanner, "hero": its art under the one shade, the ringed
+-- icon, kicker / title / sub stack, the ··· tool at the top right, the actions at S.BTN_H at the bottom right, the
+-- back link). What an event adds is laid out after the banner's own layout (H.BannerLayout): the Live pill and a
+-- second pill after the title, the share button and the kind chips left of the tools, the stage line or the
+-- entrants' meter at the bottom left, a chip / note / why left of the actions.
+-- TODO(refactor): move into UI:CreatePageBanner (more than one pill after the title; a slot at the bottom left;
+-- frames kept left of the tools and of the actions; a chip beside the actions)
+
+local BAN = { X = 14, EDGE = 12, CHIP_GAP = 8, ACT_Y = 12 }
+
+-- (the art of an event's banner: its loading screen cropped to the banner, as the shared banner takes a crop)
+function H.BannerArt(key, w, h, cy)
+    return { EUI():ArtCoords(key, max(1, w - 2), max(1, h - 2), 0.55, cy or 0.62, 0.98) }
+end
+
+-- A chip of the bottom row: "you" (my match, my tag, my place: the board's blue chip) or "track" (when the sign-up
+-- closes, what to fix). b.chip is the one shown (or the last one, hidden).
+function H.BannerChip(b, kind, text, o)
+    o = o or {}
+    local c = kind == "you" and b.chipYou or b.chipInfo
+    local other = kind == "you" and b.chipInfo or b.chipYou
+    other:Hide()
+    c:SetIcon(o.icon)
+    c:Set(text, o.rgb, o.key)
+    c.key, c.tip = o.key, o.tip
+    c:Show()
+    b.chip = c
+end
+
+function H.BannerChipsOff(b)
+    b.chipYou:Hide()
+    b.chipInfo:Hide()
+    b.chip = b.chipYou
+end
+
+-- The banner's actions: btn (the main one, at the far right), btn2, btn3 (b.acts[slot] = { text, kind, fn, tip }).
+-- b.btn / b.btn2 / b.btn3 are the banner's buttons that show them (a hidden spare when a slot is empty).
+function H.BannerAction(b, slot, text, kind, fn, tip)
+    b.acts[slot] = text and { text = text, kind = kind or "secondary", onClick = fn, tip = tip } or nil
+end
+
+function H.BannerActionsOff(b)
+    b.acts = {}
+end
+
+function H.CommitActions(b)
+    local list, slots = {}, {}
+    for _, slot in ipairs({ "btn", "btn2", "btn3", "shareText" }) do
+        if b.acts[slot] then
+            list[#list + 1] = b.acts[slot]
+            slots[#list] = slot
         end
-    end, 18)
-    UI():AttachTooltip(b.shareText, "Share results", { "Posts a link to these results in chat: the podium, the awards, "
-        .. "the night.", { "Shift-click: into your chat box", "SUB" } }, { anchor = "ANCHOR_TOP" })
-    b.shareText:Hide()
-    -- the middle: the icon, the title with its pills, the meta line
-    b.icon = H.Icon(b, 44, { S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.55 })
-    b.icon:SetPoint("TOPLEFT", 14, -40)
-    b.title = Text(b, 22, C.white)
-    b.title:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 12, -2)
-    b.pills = { H.Pill(b, 16), H.Pill(b, 16) }
-    b.meta = Text(b, 11, C.meta)
-    b.meta:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", 12, 4)
-    -- the bottom row: the stages (or the entrants' meter), a chip, the buttons
+    end
+    b:SetActions(list)
+    for _, slot in ipairs({ "btn", "btn2", "btn3", "shareText" }) do b[slot] = b.spare[slot] end
+    for i, slot in pairs(slots) do b[slot] = b.actions[i] end
+end
+
+-- The share button and the kind chips left of the tools; the pills after the title; the bottom row.
+function H.BannerLayout(b)
+    b:BaseLayout()
+    if not b.acts then return end
+    local W = b:GetWidth()
+    if not W or W <= 1 then W = b.opts.width or S.INNER_W end
+    -- the top right: [kinds] [share] [tools]
+    local anchor = b.tools[#b.tools]
+    local iconsW = 0
+    for i, t in ipairs(b.tools) do iconsW = iconsW + t:GetWidth() + (i > 1 and 4 or 0) end
+    if b.share and b.share:IsShown() then
+        b.share:ClearAllPoints()
+        if anchor then
+            b.share:SetPoint("RIGHT", anchor, "LEFT", -4, 0)
+        else
+            b.share:SetPoint("TOPRIGHT", b, "TOPRIGHT", -BAN.EDGE, -9)
+        end
+        anchor = b.share
+        iconsW = iconsW + (iconsW > 0 and 4 or 0) + b.share:GetWidth()
+    end
+    b.iconsLeft, b.iconsW = anchor, iconsW
+    H.BannerKinds(b, b.kindsDef, W)
+    -- the pills after the title: [Live] [pill] [pill2], the title cut to the room they leave
+    local pills = {}
+    for _, p in ipairs({ b.live, b.pill, b.pill2 }) do if p:IsShown() then pills[#pills + 1] = p end end
+    if #pills > 0 and b.titleText then
+        local pw = 0
+        for _, p in ipairs(pills) do pw = pw + p:GetWidth() + 10 end
+        local room = max(40, W - (b.textX or BAN.X) - (iconsW > 0 and (iconsW + BAN.EDGE + 8) or 16) - pw)
+        UI():FitText(b.title, b.titleText, room)
+        b.title:SetWidth(floor(min(UI():TextWidth(b.title), room) + 1))
+        local prev = b.title
+        for _, p in ipairs(pills) do
+            p:ClearAllPoints()
+            p:SetPoint("LEFT", prev, "RIGHT", 10, 0)
+            prev = p
+        end
+    end
+    -- the bottom row: [prog | meter] ... [why] [note] [chip] [actions]
+    local left = b.actions[#b.actions]
+    local used = 0
+    for i, a in ipairs(b.actions) do used = used + a:GetWidth() + (i > 1 and 6 or 0) end
+    for _, f in ipairs({ b.chip, b.note, b.why }) do
+        if f:IsShown() then
+            f:ClearAllPoints()
+            if left then
+                f:SetPoint("RIGHT", left, "LEFT", -BAN.CHIP_GAP, 0)
+            else
+                f:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -BAN.X, (f == b.why and b.whyLines == 2) and 12 or 18)
+            end
+            used = used + (left and BAN.CHIP_GAP or 0) + ((f.GetObjectType and f:GetObjectType() == "FontString")
+                and NatW(f) or f:GetWidth())
+            left = f
+        end
+    end
+    b.prog:ClearAllPoints()
+    b.prog:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", BAN.X, BAN.ACT_Y + 5)
+    b.meter:ClearAllPoints()
+    b.meter:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", BAN.X, BAN.ACT_Y + 1)
+    if b.prog:IsShown() and b.progArgs then
+        local a = b.progArgs
+        b.prog:SetMaxWidth(max(60, W - BAN.X - BAN.EDGE - used - 16))
+        b.prog:Set(a[1], a[2], a[3], a[4])
+    end
+end
+
+-- Makes page banner b an event banner (see above). Its extras: b.live, b.pill2 (pills), b.share, b.kinds (the kind
+-- chips), b.prog / b.meter (the bottom left), b.chip (b.chipYou / b.chipInfo), b.note, b.why, the actions b.btn /
+-- b.btn2 / b.btn3 / b.shareText (H.BannerAction + H.CommitActions), b.more (its ··· tool: b.onMore(button)).
+-- Fields of the shared banner under their old names: b.kick (kicker), b.meta (sub), b.title, b.icon, b.back.
+function H.EventBanner(b)
+    b.kick, b.meta, b.bh = b.kicker, b.sub, b.m.h
+    b.BaseLayout = b.Layout
+    b.Layout = H.BannerLayout
+    b.live = H.Pill(b, 16)
+    b.live:SetKind("Live", "live")
+    b.live:Hide()
+    b.pill2 = H.Pill(b, 16)
+    b.pill2:Hide()
+    b.toolList = { { icon = "more", title = "More", text = "What else you can do with this event.",
+        onClick = function(self) if b.onMore then b.onMore(self) end end } }
+    b:SetTools(b.toolList)
+    b.more = b.tools[1]
+    b.share = A.ShareButton(b, 22, function() return b.ref end, "Share this event")
+    b.kinds = {}
+    -- the bottom left: the stages (or the entrants' meter)
     b.prog = EUI():CreateProgress(b)
-    b.prog:SetPoint("BOTTOMLEFT", 14, 18)
     b.meter = CreateFrame("Frame", nil, b)
     b.meter:SetSize(300, 22)
-    b.meter:SetPoint("BOTTOMLEFT", 14, 14)
     b.meter.faces = {}
-    b.meter.fs = Text(b.meter, 11, C.label)
+    b.meter.fs = Text(b.meter, "body", C.label)
     b.meter.track = b.meter:CreateTexture(nil, "ARTWORK")
     b.meter.track:SetColorTexture(1, 1, 1, 0.12)
     b.meter.track:SetSize(120, 4)
     b.meter.fill = b.meter:CreateTexture(nil, "ARTWORK", nil, 1)
     b.meter.fill:SetHeight(4)
-    Grad(b.meter.fill, "HORIZONTAL", { 0.18, 0.6, 0.3, 1 }, { 0.44, 0.88, 0.54, 1 })
+    UI():Gradient(b.meter.fill, "HORIZONTAL", { 0.18, 0.6, 0.3, 1 }, "OK")
     b.meter:Hide()
-    b.btn = H.Button(b, "", 78, 26, "primary")
-    b.btn:SetPoint("BOTTOMRIGHT", -12, 12)
-    b.btn.glyph = b.btn:CreateTexture(nil, "OVERLAY")
-    b.btn.glyph:SetSize(12, 12)
-    b.btn2 = H.Button(b, "", 70, 26, "secondary")
-    b.btn2.glyph = b.btn2:CreateTexture(nil, "OVERLAY")
-    b.btn2.glyph:SetSize(12, 12)
-    -- (a third: "Show the way" on an event's page with a meeting place)
-    b.btn3 = H.Button(b, "", 70, 26, "secondary")
-    b.btn3.glyph = b.btn3:CreateTexture(nil, "OVERLAY")
-    b.btn3.glyph:SetSize(12, 12)
-    H.TipFromField(b.btn3)
-    b.btn3:Hide()
-    b.chip = H.Chip(b, 22)
-    b.note = Text(b, 11, C.grey)
+    -- left of the actions: a chip, a note, why it was called off
+    b.chipYou = UI():CreateChip(b, { kind = "you" })
+    b.chipInfo = UI():CreateChip(b, { kind = "track" })
+    for _, c in ipairs({ b.chipYou, b.chipInfo }) do
+        c:EnableMouse(true)
+        H.TipFromField(c)
+        c:Hide()
+    end
+    b.chip = b.chipYou
+    b.note = Text(b, "body", C.grey)
     b.note:SetJustifyH("RIGHT")
-    -- why it was called off (at the bottom right, on two lines when it is long: H.BannerWhy)
-    b.why = Text(b, 11, C.grey)
+    b.note:Hide()
+    b.why = Text(b, "body", C.grey)
     b.why:SetJustifyH("RIGHT")
     b.why:Hide()
+    -- the actions (the banner's own buttons; a hidden spare per slot while it is empty)
+    b.acts, b.spare = {}, {}
+    for _, slot in ipairs({ "btn", "btn2", "btn3", "shareText" }) do
+        local s = UI():CreateSleekButton(b, "", 60, S.BTN_H, nil, "secondary")
+        s:Hide()
+        b.spare[slot] = s
+        b[slot] = s
+    end
     return b
 end
 
--- The banner's art, icon, title (+ pills) and meta. pills: { { text, kind } ... }. The name takes the room the pills
--- leave (a smaller size when it is long; never cut).
-function H.BannerHead(b, w, art, icon, name, pills, meta, cy)
-    EUI():SetArt(b.art, art, w - 2, b.bh - 2, 0.55, cy or 0.62, 0.98)
-    b.icon:Set(icon)
-    local pw = 0
-    for i, p in ipairs(b.pills) do
-        local d = pills and pills[i]
-        if d then
-            p:SetKind(d[1], d[2])
-            p:Show()
-            pw = pw + 10 + p:GetWidth()
-        else
-            p:Hide()
-        end
-    end
-    local tw = FitText(b.title, name or "", w - 70 - 12 - pw, { 22, 19, 16 })
-    local prev
-    for _, p in ipairs(b.pills) do
-        if p:IsShown() then
-            p:ClearAllPoints()
-            if prev then p:SetPoint("LEFT", prev, "RIGHT", 10, 0) else p:SetPoint("LEFT", b.title, "LEFT", tw + 10, 0) end
-            prev = p
-        end
-    end
-    FitText(b.meta, meta or "", w - 70 - 12, { 11, 10 })
+-- A new event banner on parent (the event page's own; Upcoming's is its board layout's hero).
+function H.NewBanner(parent, back)
+    local b = UI():CreatePageBanner(parent, { size = "hero", back = back })
+    return H.EventBanner(b)
 end
 
--- The stage line of a banner (it gives up its names when the bottom row's right side leaves it short: H.BannerRight).
+-- Fills one banner in one go (its setters lay it out once, at the end: H.EndBanner).
+function H.BeginBanner(b)
+    b.building = true
+    H.BannerActionsOff(b)
+    H.BannerChipsOff(b)
+    b.note:Hide()
+    b.why:Hide()
+    b.meter:Hide()
+    b.live:Hide()
+    b.progArgs = nil
+end
+
+function H.EndBanner(b)
+    H.CommitActions(b)
+    b.building = nil
+    b:Layout()
+end
+
+-- The banner's art, icon, title (+ pills) and meta. pills: { { text, kind } ... } after the title (b.live comes
+-- before them when it shows).
+function H.BannerHead(b, w, art, icon, name, pills, meta, cy)
+    b:SetArt(H.BannerArt(art, w, b.bh, cy or 0.62))
+    b:SetIcon(icon or QUESTION)
+    local p1, p2 = pills and pills[1], pills and pills[2]
+    if p1 then b:SetPill(p1[2], p1[1]) else b:SetPill(nil, nil) end
+    b.pill2:SetShown(p2 ~= nil)
+    if p2 then b.pill2:SetKind(p2[1], p2[2]) end
+    b:SetTitle(name or "")
+    b:SetSub(meta or "")
+end
+
+-- The stage line of a banner (it gives up its names when the bottom row's right side leaves it short).
 function H.SetProg(b, def, st, sub, done)
     b.progArgs = { def, st, sub, done }
     b.prog:SetMaxWidth(nil)
@@ -1405,83 +1525,11 @@ function H.BannerWhy(b, text, maxW)
     b.why:Show()
 end
 
--- A banner button: text, kind, glyph (atlas key / texture) and its click (minW: the narrowest it gets, 70).
-function H.BannerButton(btn, text, kind, glyph, fn, minW)
-    if not text then
-        btn:Hide()
-        return
-    end
-    btn:SetText(text)
-    btn:SetKind(kind)
-    H.SetButtonGlyph(btn, glyph)
-    H.Fit(btn, minW or 70, minW and 28 or 30)
-    btn:SetScript("OnClick", fn)
-    btn:Show()
-end
-
--- Lays out the bottom row's right side: [why] [note] [chip] [btn3] [btn2] [btn]; the stage line at the left gets the room
--- they leave (w: the banner's width).
-function H.BannerRight(b, w)
-    local anchor = b
-    local first = true
-    local used = 0
-    local function place(f)
-        f:ClearAllPoints()
-        if first then
-            f:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -12, 12)
-            first = false
-        elseif f == b.chip or f == b.note or f == b.why then
-            f:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
-        else
-            f:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
-        end
-        anchor = f
-    end
-    for _, f in ipairs({ b.btn, b.btn2, b.btn3, b.chip, b.note, b.why }) do
-        if f:IsShown() then
-            used = used + ((f == b.note) and NatW(f) or f:GetWidth()) + 8
-            if (f == b.note or f == b.why) and first then
-                f:ClearAllPoints()
-                f:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -14, (f == b.why and b.whyLines == 2) and 12 or 19)
-                first, anchor = false, f
-            else
-                place(f)
-            end
-        end
-    end
-    if b.prog:IsShown() and b.progArgs then
-        local a = b.progArgs
-        b.prog:SetMaxWidth(max(60, (w or (H.W() - 2 * PAD)) - 14 - 12 - used - 16))
-        b.prog:Set(a[1], a[2], a[3], a[4])
-    end
-end
-
--- The top row's right side: [Share results] [share] [more].
-function H.BannerIcons(b, showMore, ref, shareResults)
+-- The top row's right side: share (when the event has a share link) and More.
+function H.BannerIcons(b, showMore, ref)
     b.ref = ref
-    b.more:SetShown(showMore)
-    local anchor = showMore and b.more or nil
-    local used = showMore and b.more:GetWidth() or 0
-    local function after(f)
-        f:ClearAllPoints()
-        if anchor then f:SetPoint("RIGHT", anchor, "LEFT", -6, 0) else f:SetPoint("TOPRIGHT", b, "TOPRIGHT", -12, -9) end
-        used = used + (anchor and 6 or 0) + f:GetWidth()
-        anchor = f
-    end
-    if shareResults and ref then
-        if b.share then b.share:Hide() end
-        H.Fit(b.shareText, 60, 24)
-        b.shareText:Show()
-        after(b.shareText)
-    else
-        b.shareText:Hide()
-        if b.share then
-            b.share:SetShown(ref ~= nil)
-            if ref then after(b.share) end
-        end
-    end
-    -- (the kind chips go left of them: H.BannerKinds)
-    b.iconsLeft, b.iconsW = anchor, used
+    if showMore then b:SetTools(b.toolList) else b:SetTools(nil) end
+    if b.share then b.share:SetShown(ref ~= nil) end
 end
 
 -- A kind chip (Sign-up, Matches, Tags, Places ...): a small pill with its icon; hovering says what it means.
@@ -1525,19 +1573,17 @@ function H.LayKinds(pool, parent, def, room, place, noTip)
     return total()
 end
 
--- The banner's kind chips, at the top right left of its icons, in the room the top row's left side (the back link,
--- the Live pill and its kicker) leaves.
+-- The banner's kind chips, at the top right left of its icons, in the room the kicker (or the back link) leaves.
 function H.BannerKinds(b, def, w)
-    b.kinds = b.kinds or {}
     if type(def) ~= "table" then
         HideFrom(b.kinds, 1)
         return
     end
-    local left = 14
-    if b.back:IsShown() then left = 12 + b.back:GetWidth() end
-    if b.kick:IsShown() then left = (b.live:IsShown() and (14 + b.live:GetWidth() + 8) or 14) + NatW(b.kick) end
+    local left = b.textX or BAN.X
+    if b.kicker:IsShown() then left = left + NatW(b.kicker) end
+    if b.back and b.back:IsShown() then left = max(left, BAN.X + b.back:GetWidth()) end
     local iconsW = b.iconsW or 0
-    local room = w - left - 24 - 12 - iconsW - (iconsW > 0 and 8 or 0)
+    local room = w - left - 24 - BAN.EDGE - iconsW - (iconsW > 0 and 8 or 0)
     H.LayKinds(b.kinds, b, def, room, function(list)
         local anchor = b.iconsLeft
         -- (from the right: the last first, so they read in their order)
@@ -1547,7 +1593,7 @@ function H.BannerKinds(b, def, w)
             if anchor then
                 m:SetPoint("RIGHT", anchor, "LEFT", anchor == b.iconsLeft and -8 or -4, 0)
             else
-                m:SetPoint("RIGHT", b, "TOPRIGHT", -12, -20)
+                m:SetPoint("RIGHT", b, "TOPRIGHT", -BAN.EDGE, -20)
             end
             m:Show()
             anchor = m
@@ -1599,73 +1645,47 @@ end
 ---------------------------------------------------------------------------
 
 local Up = {}
-local HERO_Y, HERO_H, LIST_Y, SEASON_W = 44, 156, 210, 254
-local ROW_H, ROW_TX = 50, 134   -- (ROW_TX: where a row's words start, right of its art)
+-- 1.4: Upcoming is a Board page (UI:CreateLayout "board"): the event banner as its hero, the week as art rows
+-- (UI:CreateArtRow) under section headers in its body, my season in its side card.
+local SEASON_W = (ns.UI.LAYOUT and ns.UI.LAYOUT.SIDE_W) or 250   -- (the board's side card)
 
 function Up.Create(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    v.hero = H.NewBanner(v, HERO_H)
-    v.hero:SetPoint("TOPLEFT", PAD, -HERO_Y)
-    v.hero:SetPoint("TOPRIGHT", -PAD, -HERO_Y)
-    v.hero.back:Hide()
-    v.hero:SetScript("OnClick", function(self) if self.occId then EventsUI:OpenEvent(self.occId) end end)
-    v.hero.more:SetScript("OnClick", function(self)
+    v.layout = UI():CreateLayout("board", v, { toolbar = false, top = UI().LAYOUT.TOP, hero = { size = "hero" },
+        side = SEASON_W })
+    local L = v.layout
+    v.hero = H.EventBanner(L.banner)
+    -- (a click on the banner opens the event, as a click on a row does)
+    v.hero:EnableMouse(true)
+    v.hero:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and self.occId and self:IsMouseOver() then EventsUI:OpenEvent(self.occId) end
+    end)
+    v.hero.onMore = function(self)
         local o = v.hero.occId and Ev():GetOcc(v.hero.occId)
         if o then A.OccMenu(self, o) end
-    end)
-    v.scroll = UI():CreateScrollFrame(v)
-    v.scroll:SetPoint("TOPLEFT", PAD, -LIST_Y)
-    v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    end
+    v.scroll = UI():CreateScrollFrame(L.body)
+    v.scroll:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
+    v.scroll:SetPoint("BOTTOMLEFT", L.body, "BOTTOMLEFT", 0, 0)
     v.content = CreateFrame("Frame", nil, v.scroll)
     v.content:SetSize(400, 10)
     v.scroll:SetScrollChild(v.content)
     v.heads, v.rows = {}, {}
-    v.empty = Text(v.content, 11, C.grey)
-    v.empty:SetPoint("TOPLEFT", 2, -34)
-    v.card = Up.CreateSeason(v)
+    v.empty = UI():CreateEmptyState(v.content, { compact = true, glyph = UI().ICON.calendar })
+    v.empty:Hide()
+    v.card = Up.CreateSeason(v, L.side)
     return v
 end
 
+-- A row of the week: UI:CreateArtRow (the event's art and icon, its name with the Ranked pill, what it is / how
+-- full / when / who hosts), one action at the right (Join, Joined, Watch, Results) or why there is none.
 function Up.NewRow(parent)
-    local r = CreateFrame("Button", nil, parent)
-    r:SetHeight(ROW_H)
-    UI():DecorateRow(r, { rule = true })
-    r.hl, r.line = r.dzHover, r.dzRule
-    r.wd = Text(r, 10, C.gold)
-    r.wd:SetJustifyH("CENTER")
-    r.wd:SetPoint("TOP", r, "TOPLEFT", 23, -10)
-    r.dn = Text(r, 18, C.white, true)
-    r.dn:SetJustifyH("CENTER")
-    r.dn:SetPoint("TOP", r.wd, "BOTTOM", 0, -1)
-    r.art = CreateFrame("Frame", nil, r)
-    r.art:SetSize(64, 38)
-    r.art:SetPoint("LEFT", 56, 0)
-    r.art.outer = Fill(r.art, C.black, "BACKGROUND")
-    r.art.outer:ClearAllPoints()
-    r.art.outer:SetPoint("TOPLEFT", -1, 1)
-    r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
-    r.art.tex = r.art:CreateTexture(nil, "ARTWORK")
-    r.art.tex:SetAllPoints()
-    Edges(r.art, { 1, 1, 1, 0.08 }, "OVERLAY")
-    r.icon = H.Icon(r, 20)
-    r.icon:SetPoint("BOTTOMLEFT", r.art, "BOTTOMLEFT", -6, -5)
-    r.icon:SetFrameLevel(r.art:GetFrameLevel() + 2)
-    r.l1 = Text(r, 12, C.white)
-    r.l1:SetPoint("BOTTOMLEFT", r.art, "RIGHT", 14, 1)
-    r.pill = H.Pill(r, 16)
-    r.pill:SetPoint("LEFT", r.l1, "RIGHT", 7, 0)
-    r.l2 = Text(r, 11, C.grey)
-    r.l2:SetPoint("TOPLEFT", r.art, "RIGHT", 14, -3)
-    r.btn = H.Button(r, "Join", 60, 26, "secondary")
-    r.btn.glyph = r.btn:CreateTexture(nil, "OVERLAY")
-    r.btn.glyph:SetSize(12, 12)
-    r.btn:SetPoint("RIGHT", -6, 0)
+    local r = UI():CreateArtRow(parent, { onClick = function(self) if self.occId then EventsUI:OpenEvent(self.occId) end end })
+    r.l1, r.l2, r.when = r.title, r.sub, r.rightText
+    r.btn = H.Button(r.right, "Join", 60, S.BTN_H, "secondary")
+    r.btn:SetPoint("RIGHT", r.right, "RIGHT", 0, 0)
     H.TipFromField(r.btn)
-    r.when = Text(r, 11, C.grey)
-    r.when:SetJustifyH("RIGHT")
-    r.when:SetPoint("RIGHT", -8, 0)
-    r:SetScript("OnClick", function(self) if self.occId then EventsUI:OpenEvent(self.occId) end end)
     -- the bin, on hover, for who may take it off (r.remove; its tooltip: r.del.tipText)
     r.del = UI():CreateRemoveButton(r, "Remove")
     r.del:Hide()
@@ -1676,110 +1696,88 @@ function Up.NewRow(parent)
     return r
 end
 
--- The row's name in the room its action (and the Ranked pill) leave: a point smaller, else two lines (the second line
--- then goes under them). r.cw: the row's width.
-function Up.RowName(r, name)
-    local right = r.btn:IsShown() and (r.btn:GetWidth() + 6) or (r.when:IsShown() and (NatW(r.when) + 8)) or 0
-    -- (the bin's place, left of the action, is kept free whether it shows or not)
-    r.del:ClearAllPoints()
-    r.del:SetPoint("RIGHT", r, "RIGHT", -(right + 4), 0)
-    if not r.remove then r.del:Hide() end
-    if r.remove then right = right + 4 + 18 end
-    local pw = r.pill:IsShown() and (r.pill:GetWidth() + 7) or 0
-    local room = (r.cw or 400) - ROW_TX - right - 10 - pw
-    local tw, _, lines = FitText(r.l1, name, room, { 12, 11 })
-    r.l1:ClearAllPoints()
-    r.l2:ClearAllPoints()
-    if lines == 1 then
-        r.l1:SetPoint("BOTTOMLEFT", r.art, "RIGHT", 14, 1)
-        r.l2:SetPoint("TOPLEFT", r.art, "RIGHT", 14, -3)
-    else
-        r.l1:SetPoint("TOPLEFT", r, "TOPLEFT", ROW_TX, -3)
-        r.l2:SetPoint("TOPLEFT", r.l1, "BOTTOMLEFT", 0, -2)
+-- The row's action button: text, kind, click (nil text: none).
+function Up.RowButton(r, text, kind, fn, tip)
+    r.btn.tip = tip
+    if not text then
+        r.btn:Hide()
+        return
     end
-    r.pill:ClearAllPoints()
-    r.pill:SetPoint("LEFT", r.l1, "LEFT", tw + 7, 0)
+    r.btn:SetText(text)
+    r.btn:SetKind(kind or "secondary")
+    H.Fit(r.btn, 56, 26)
+    r.btn:SetScript("OnClick", fn)
+    r.btn:Show()
 end
 
--- A calendar event's row: when, the art, its name, what it is / how full / when / who hosts, one action.
+-- The room the row's right side takes (its action or its words, the bin left of them), kept clear of the title.
+function Up.RowRight(r)
+    local right = r.btn:IsShown() and r.btn:GetWidth() or 0
+    r.del:ClearAllPoints()
+    r.del:SetPoint("RIGHT", r, "RIGHT", -(8 + right + 6), 0)
+    if not r.remove then r.del:Hide() end
+    r:SetRightWidth(8 + right + (r.remove and (6 + 18) or 0) + 6)
+end
+
+-- A calendar event's row: the art, its name, when / what it is / how full / who hosts, one action.
 function Up.FillOcc(r, o)
     local d = o.def
     r.occId = o.id
-    r.wd:SetText(string.upper(date("%a", o.at)))
-    r.dn:SetText(date("%d", o.at))
-    EUI():SetArt(r.art.tex, d.art, 64, 38, nil, nil, 0.6)
-    r.icon:Set(d.icon)
-    Color(r.l1, C.white)
-    r.pill:SetShown(o.ranked and true or false)
-    if o.ranked then r.pill:SetKind("Ranked", "rank") end
     local spots = W.Spots(d)
     local n = #Ev():GetSignups(o.id)
     local st = Ev():OccState(o)
-    local parts = { W.Kind(d), spots and (n .. " of " .. spots .. " " .. W.Noun(d, spots)) or (n .. " " .. W.Noun(d, n)), W.Clock(o.at),
-        Name(Ev():HostOf(o)) }
+    -- (its day: the row's own words now, where the date stood in a column of its own before 1.4)
+    local parts = { W.Kind(d), spots and (n .. " of " .. spots .. " " .. W.Noun(d, spots)) or (n .. " " .. W.Noun(d, n)),
+        date("%a %d", o.at) .. " " .. W.Clock(o.at), Name(Ev():HostOf(o)) }
     if st == "live" then
         local keys = W.Entrants(o)
         parts[2] = #keys .. " " .. W.Noun(d, #keys)
     end
-    r.l2:SetText(tconcat(parts, grey(" · ")))
-    Color(r.l2, C.grey)
-    r.btn:Hide()
-    r.when:Hide()
     r.remove = W.CanRemoveOcc(o) and function() A.RemoveOcc(o.id) end or nil
     r.del.tipText = "Takes it off the calendar for everyone."
     local signed = Ev():IsSignedUp(o.id)
-    r.btn:SetHeight(26)
-    r.btn.tip = nil
+    local right
     if st == "live" then
-        H.BannerButton(r.btn, "Watch", "secondary", "eye", function() A.Watch(o.id) end, 56)
+        Up.RowButton(r, "Watch", "secondary", function() A.Watch(o.id) end)
     elseif st == "cancelled" then
-        r.when:SetText("Cancelled")
-        r.when:Show()
+        Up.RowButton(r, nil)
+        right = "Cancelled"
     elseif signed then
-        H.BannerButton(r.btn, "Joined", "chosen", CHECK, function() A.Join(o.id, false) end, 56)
-        r.btn.glyph:SetSize(14, 14)
-        r.btn.tip = { "You're in", "Click to leave." }
+        Up.RowButton(r, "Joined", "chosen", function() A.Join(o.id, false) end, { "You're in", "Click to leave." })
     else
         local can, why = W.CanJoin(o)
         if can then
-            H.BannerButton(r.btn, "Join", "secondary", nil, function() A.Join(o.id, true) end, 56)
-            r.btn.tip = nil
+            Up.RowButton(r, "Join", "secondary", function() A.Join(o.id, true) end)
         else
-            r.when:SetText(why == "full" and "Full" or "Sign-up closed")
-            r.when:Show()
+            Up.RowButton(r, nil)
+            right = why == "full" and "Full" or "Sign-up closed"
         end
     end
-    Up.RowName(r, d.name or "Event")
+    r:SetData({ art = d.art, icon = d.icon or QUESTION, title = d.name or "Event", sub = tconcat(parts, grey(" · ")),
+        pill = o.ranked and { "rank", "Ranked" } or nil, right = right })
+    Up.RowRight(r)
 end
 
 -- A past event's row: its winner, my place, how many took part; Results.
 function Up.FillResult(r, res)
     r.occId = res.id
-    r.wd:SetText(string.upper(date("%a", res.at)))
-    r.dn:SetText(date("%d", res.at))
-    EUI():SetArt(r.art.tex, res.art, 64, 38, nil, nil, 0.6)
-    r.icon:Set(res.icon)
-    Color(r.l1, C.soft)
-    r.pill:Hide()
     local parts = {}
     local champ = W.Placings(res)
     if res.cancel then
-        parts[1] = "Cancelled"
+        parts[#parts + 1] = "Cancelled"
     elseif champ then
-        parts[1] = "Won by " .. Name(champ)
+        parts[#parts + 1] = "Won by " .. Name(champ)
     end
     local mine = W.MyPlace(res)
     if mine then parts[#parts + 1] = mine end
     if (res.n or 0) > 0 then parts[#parts + 1] = res.n .. " " .. W.Noun(W.DefOfResult(res), res.n) end
-    r.l2:SetText(tconcat(parts, grey(" · ")))
-    Color(r.l2, C.grey)
-    r.when:Hide()
+    parts[#parts + 1] = date("%a %d", res.at)
     r.remove = W.CanRemove() and function() A.RemoveResult(res.id) end or nil
     r.del.tipText = "Removes its results for everyone, with the season points and badges they gave."
-    H.BannerButton(r.btn, "Results", "secondary", nil, function() EventsUI:OpenEvent(res.id) end, 56)
-    r.btn:SetHeight(22)
-    r.btn.tip = nil
-    Up.RowName(r, res.name or "Event")
+    Up.RowButton(r, "Results", "secondary", function() EventsUI:OpenEvent(res.id) end)
+    r:SetData({ art = res.art, icon = res.icon or QUESTION, title = res.name or "Event",
+        sub = tconcat(parts, grey(" · ")) })
+    Up.RowRight(r)
 end
 
 -- A live event's chip for me, when it has no Matches: my tag that I see ("You: Hiders", its colour), else my place
@@ -1816,22 +1814,17 @@ function Up.FillHero(v, w)
     local b = v.hero
     local x, kind = Up.PickHero()
     b.occId = nil
-    b.chip:Hide()
-    b.btn2:Hide()
-    b.note:Hide()
-    b.why:Hide()
-    b.meter:Hide()
+    H.BeginBanner(b)
     local me = Me()
     if kind == "empty" then
         H.BannerHead(b, w, "nagrand", "Interface\\Icons\\Ability_DualWield", "Nothing on the calendar", nil,
             "Pick an event in the Library and host it, or build one of your own.")
-        b.live:Hide()
-        b.kick:Hide()
+        b:SetKicker(nil)
         b.prog:Hide()
+        b.kindsDef = nil
         H.BannerIcons(b, false, nil)
-        H.BannerKinds(b, nil, w)
-        H.BannerButton(b.btn, "Library", "primary", nil, function() EventsUI:SetView("library") end)
-        H.BannerRight(b, w)
+        H.BannerAction(b, "btn", "Library", "primary", function() EventsUI:SetView("library") end)
+        H.EndBanner(b)
         return nil
     end
     if kind == "done" then
@@ -1845,20 +1838,16 @@ function Up.FillHero(v, w)
         if r.hosts and r.hosts[1] then meta[#meta + 1] = "hosted by " .. Name(r.hosts[1]) end
         H.BannerHead(b, w, r.art, r.icon, r.name, { { r.cancel and "Cancelled" or ("Ended " .. W.Clock(r.t1)), "ended" } },
             tconcat(meta, " · "))
-        b.live:Hide()
-        b.kick:SetText(string.upper(W.DayWord(r.at)))
-        b.kick:ClearAllPoints()
-        b.kick:SetPoint("TOPLEFT", 14, -14)
-        b.kick:Show()
+        b:SetKicker(W.DayWord(r.at))
         if o then
             H.SetProg(b, o.def, nil, nil, true)
         else
             b.prog:Hide()
         end
         H.BannerIcons(b, false, A.OccRef(r.id))
-        H.BannerKinds(b, (o and o.def) or W.DefOfResult(r), w)
-        H.BannerButton(b.btn, "Results", "primary", nil, function() EventsUI:OpenEvent(r.id) end)
-        H.BannerRight(b, w)
+        b.kindsDef = (o and o.def) or W.DefOfResult(r)
+        H.BannerAction(b, "btn", "Results", "primary", function() EventsUI:OpenEvent(r.id) end)
+        H.EndBanner(b)
         return r.id
     end
     local o = x
@@ -1874,10 +1863,7 @@ function Up.FillHero(v, w)
         meta[#meta + 1] = "hosted by " .. Name(host)
         H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.66)
         b.live:Show()
-        b.kick:SetText(W.Kicker(d, st))
-        b.kick:ClearAllPoints()
-        b.kick:SetPoint("LEFT", b.live, "RIGHT", 8, 0)
-        b.kick:Show()
+        b:SetKicker(W.Kicker(d, st))
         H.SetProg(b, d, st, EUI():StageSub(d, st))
         -- my match: who I meet and when; else my tag ("You: Hiders") or my place by its first score ("You're 3rd")
         local m = Live():MyMatch(o.id)
@@ -1885,18 +1871,12 @@ function Up.FillHero(v, w)
             local opp = (m.a == me) and m.b or m.a
             local words = m.st == "play" and "You're on now" or "You're up next"
             if opp then words = words .. ", vs " .. Name(opp) end
-            b.chip:Set(words, nil, C.youEdge, C.youText)
-            if opp then b.chip:SetFace(opp) end
-            b.chip:Show()
+            H.BannerChip(b, "you", words, { key = opp })
         else
             local words, tint, face = W.MyLiveChip(o.id)
-            if words then
-                b.chip:Set(words, tint and DISC or nil, C.youEdge, C.youText, tint)
-                if face then b.chip:SetFace(Me()) end
-                b.chip:Show()
-            end
+            if words then H.BannerChip(b, "you", words, { rgb = tint, key = face and Me() or nil }) end
         end
-        H.BannerButton(b.btn, "Watch", "primary", "eye", function() A.Watch(o.id) end)
+        H.BannerAction(b, "btn", "Watch", "primary", function() A.Watch(o.id) end)
     else
         local spots = W.Spots(d)
         local n = #Ev():GetSignups(o.id)
@@ -1904,37 +1884,31 @@ function Up.FillHero(v, w)
         if where then meta[#meta + 1] = where end
         meta[#meta + 1] = "hosted by " .. Name(host)
         H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.66)
-        b.live:Hide()
-        b.kick:SetText(string.upper(W.DayWord(o.at) .. " " .. W.Clock(o.at) .. " · " .. EUI():Relative(o.at)))
-        b.kick:ClearAllPoints()
-        b.kick:SetPoint("TOPLEFT", 14, -14)
-        b.kick:Show()
+        b:SetKicker(W.DayWord(o.at) .. " " .. W.Clock(o.at) .. " · " .. EUI():Relative(o.at))
         local can, why = W.CanJoin(o)
         local open = W.OpenSignup(d)
         H.SetProg(b, d, open, (open and can) and "open" or nil)
         local closes = Ev():ClosesAt(o)
         if closes and closes > Now() then
-            b.chip:Set("Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or (W.DayWord(closes) .. " "))
-                .. W.Clock(closes), "clock")
+            H.BannerChip(b, "track", "Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or
+                (W.DayWord(closes) .. " ")) .. W.Clock(closes))
         end
         if Ev():IsSignedUp(o.id) then
-            H.BannerButton(b.btn, "Joined", "chosen", CHECK, function() A.Join(o.id, false) end)
-            b.btn.glyph:SetSize(14, 14)
+            H.BannerAction(b, "btn", "Joined", "chosen", function() A.Join(o.id, false) end)
         elseif not can then
-            b.btn:Hide()
             b.note:SetText(why == "full" and "Full" or "Sign-up closed")
             b.note:Show()
         else
-            H.BannerButton(b.btn, "Join", "primary", nil, function() A.Join(o.id, true) end)
+            H.BannerAction(b, "btn", "Join", "primary", function() A.Join(o.id, true) end)
         end
     end
     H.BannerIcons(b, true, A.OccRef(o.id))
-    H.BannerKinds(b, d, w)
-    H.BannerRight(b, w)
+    b.kindsDef = d
+    H.EndBanner(b)
     return o.id
 end
 
--- The week below the banner: this week, later, the last results.
+-- The week below the banner: this week, later, the last results (each a section with its count).
 function Up.FillList(v, heroId, listW)
     local now = Now()
     local planned, later = {}, {}
@@ -1951,22 +1925,24 @@ function Up.FillList(v, heroId, listW)
         end
     end
     -- the rows' height first: is there a scroll bar?
+    local ROW_H, HEAD_H = S.ROW.art, 24 + 4
     local n = #planned + #later + #recent + #older
     local heads = (#planned > 0 and 1 or 0) + (#later > 0 and 1 or 0) + (#recent > 0 and 1 or 0) + (#older > 0 and 1 or 0)
-    local total = n * ROW_H + heads * 28 + (heads > 1 and (heads - 1) * 8 or 0)
-    local avail = H.Hgt() - LIST_Y - 10
+    local total = n * ROW_H + heads * HEAD_H + (heads > 1 and (heads - 1) * GAP or 0)
+    local avail = H.BodyH(v.layout)
     local cw = total > avail and (listW - 12) or listW
     v.scroll:SetWidth(cw)
     v.content:SetWidth(cw)
     local y, hi, ri = 0, 0, 0
-    local function head(text)
+    local function head(text, count)
         hi = hi + 1
         local s = Pool(v.heads, hi, function() return H.Sect(v.content) end)
         s:SetWidth(cw)
         s:ClearAllPoints()
-        s:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -(y + (hi > 1 and 8 or 0)))
+        s:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -(y + (hi > 1 and GAP or 0)))
         s:Set(text)
-        y = y + 24 + 4 + (hi > 1 and 8 or 0)
+        s:SetCount(count)
+        y = y + HEAD_H + (hi > 1 and GAP or 0)
     end
     local function row(fill, x)
         ri = ri + 1
@@ -1975,24 +1951,24 @@ function Up.FillList(v, heroId, listW)
         r.cw = cw
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
-        fill(r, x)
         r:Show()
+        fill(r, x)
         y = y + ROW_H
     end
     if #planned > 0 then
-        head("This week")
+        head("This week", #planned)
         for _, o in ipairs(planned) do row(Up.FillOcc, o) end
     end
     if #later > 0 then
-        head("Later")
+        head("Later", #later)
         for _, o in ipairs(later) do row(Up.FillOcc, o) end
     end
     if #recent > 0 then
-        head("Last week")
+        head("Last week", #recent)
         for _, r in ipairs(recent) do row(Up.FillResult, r) end
     end
     if #older > 0 then
-        head("Earlier")
+        head("Earlier", #older)
         for _, r in ipairs(older) do row(Up.FillResult, r) end
     end
     HideFrom(v.heads, hi + 1)
@@ -2003,68 +1979,71 @@ function Up.FillList(v, heroId, listW)
         s:ClearAllPoints()
         s:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, 0)
         s:Set("This week")
-        v.empty:SetText("Nothing else on the calendar this week.")
+        s:SetCount(nil)
+        v.empty:SetContent({ glyph = UI().ICON.calendar, text = "Nothing else on the calendar this week." })
+        v.empty:SetBoxWidth(min(360, cw - 40))
+        v.empty:ClearAllPoints()
+        v.empty:SetPoint("TOP", v.content, "TOP", 0, -(HEAD_H + 16))
         v.empty:Show()
-        y = 60
+        y = HEAD_H + 16 + v.empty:GetHeight()
     else
         v.empty:Hide()
     end
     v.content:SetHeight(max(1, y))
 end
 
--- My season (the card at the right): rank, points, who is just above, badges, the top five.
-function Up.CreateSeason(v)
-    local s = H.Box(v, true)
-    s:SetPoint("TOPRIGHT", -PAD, -LIST_Y)
-    s:SetPoint("BOTTOMRIGHT", -PAD, 10)
-    s:SetWidth(SEASON_W)
+-- My season (the board's side card): the season and its days left, rank, points, who is just above, badges, the
+-- top five.
+function Up.CreateSeason(v, s)
+    local inner = SEASON_W - 2 * S.IN
+    s.head = H.Sect(s)
+    s.head:SetPoint("TOPLEFT", S.IN, -4)
+    s.head:SetPoint("TOPRIGHT", -S.IN, -4)
+    s.ht, s.hr = s.head.title, s.head.right
     s.rk = Text(s, 30, C.white, true)
     s.rk:SetPoint("TOPLEFT", 24, -42)
-    s.hash = Text(s, 16, C.grey, true)
+    s.hash = Text(s, 17, C.grey, true)
     s.hash:SetPoint("BOTTOMRIGHT", s.rk, "BOTTOMLEFT", -1, 3)
     s.hash:SetText("#")
-    s.pt = Text(s, 13, C.white)
+    s.pt = Text(s, "title", C.white)
     s.pt:SetPoint("TOPLEFT", s.rk, "TOPRIGHT", 12, -3)
-    s.pt2 = Text(s, 11, C.grey)
+    s.pt2 = Text(s, "body", C.grey)
     s.pt2:SetPoint("TOPLEFT", s.pt, "BOTTOMLEFT", 0, -3)
     s.track = s:CreateTexture(nil, "ARTWORK")
-    s.track:SetColorTexture(1, 1, 1, 0.08)
-    s.track:SetPoint("TOPLEFT", 12, -86)
-    s.track:SetSize(SEASON_W - 24, 4)
+    s.track:SetColorTexture(1, 1, 1, 0.12)
+    s.track:SetPoint("TOPLEFT", S.IN, -86)
+    s.track:SetSize(inner, 4)
     s.fill = s:CreateTexture(nil, "ARTWORK", nil, 1)
     s.fill:SetPoint("TOPLEFT", s.track, "TOPLEFT")
     s.fill:SetHeight(4)
-    Grad(s.fill, "HORIZONTAL", { 0.72, 0.54, 0.06, 1 }, S.C.GOLD)
+    UI():Gradient(s.fill, "HORIZONTAL", S.C.GOLD_DEEP, "GOLD")
     s.badges = {}
-    s.bcount = Text(s, 11, C.grey)
+    s.bcount = Text(s, "body", C.grey)
     s.sect = H.Sect(s)
-    s.sect:SetPoint("TOPLEFT", 10, -128)
-    s.sect:SetPoint("TOPRIGHT", -10, -128)
+    s.sect:SetPoint("TOPLEFT", S.IN, -128)
+    s.sect:SetPoint("TOPRIGHT", -S.IN, -128)
     s.all = H.Link(s.sect, "All", function() EventsUI:SetView("season") end)
     s.rows = {}
     for i = 1, 5 do
         local r = CreateFrame("Frame", nil, s)
-        r:SetSize(SEASON_W - 12, 26)
-        r:SetPoint("TOPLEFT", 6, -156 - (i - 1) * 26)
-        r.bg = Fill(r, C.youWash)
-        r.bar = Line(r, C.youBar)
-        r.bar:SetPoint("TOPLEFT")
-        r.bar:SetPoint("BOTTOMLEFT")
-        r.bar:SetWidth(2)
-        r.p = Text(r, 13, C.grey, true)
+        r:SetSize(SEASON_W - 2, S.ROW.list)
+        r:SetPoint("TOPLEFT", 1, -156 - (i - 1) * S.ROW.list)
+        UI():DecorateRow(r, { selectable = true })
+        r.bg, r.bar = r.dzSelFill, r.dzSelBar
+        r.p = Text(r, "title", C.grey, true)
         r.p:SetJustifyH("RIGHT")
-        r.p:SetPoint("RIGHT", r, "LEFT", 22, 0)
+        r.p:SetPoint("RIGHT", r, "LEFT", 26, 0)
         r.face = H.Face(r, 18)
-        r.face:SetPoint("LEFT", 30, 0)
-        r.n = Text(r, 12, C.white)
+        r.face:SetPoint("LEFT", 34, 0)
+        r.n = Text(r, "emph", C.white)
         r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
-        r.v = Text(r, 13, C.chip, true)
+        r.v = Text(r, "title", C.chip, true)
         r.v:SetJustifyH("RIGHT")
-        r.v:SetPoint("RIGHT", -6, 0)
+        r.v:SetPoint("RIGHT", -S.IN, 0)
         s.rows[i] = r
     end
-    s.none = Text(s, 11, C.grey)
-    s.none:SetPoint("TOPLEFT", 12, -160)
+    s.none = Text(s, "body", C.grey)
+    s.none:SetPoint("TOPLEFT", S.IN + 2, -160)
     return s
 end
 
@@ -2088,14 +2067,13 @@ end
 function Up.FillSeason(s)
     local season = Ev():GetSeason()
     local left = max(0, ceil((season.to - Now()) / DAY))
-    s.hr:SetText(left == 1 and "1 day left" or (left .. " days left"))
-    -- (a long season name: smaller; the days left go when it still doesn't fit: the Season page says them)
-    local room = SEASON_W - 20
-    s.hr:Show()
-    if not FitText(s.ht, season.n or "Season", room - NatW(s.hr) - 10, { 13, 12, 11 }, false) then
-        s.hr:Hide()
-        FitText(s.ht, season.n or "Season", room, { 13, 12, 11 })
-    end
+    -- (a long season name is cut; the days left go when it still doesn't fit: the Season page says them)
+    local room = SEASON_W - 2 * S.IN - 4
+    local days = left == 1 and "1 day left" or (left .. " days left")
+    local name = season.n or "Season"
+    local fits = UI():TextWidth(name, "emph") + UI():TextWidth(days, "body") + 10 <= room
+    s.head:Set(name, fits and days or nil)
+    if not fits then UI():FitText(s.ht, name, room) end
     local rows = Ev():Standings(season)
     local mine, above, below = W.MyStanding(rows)
     if mine then
@@ -2109,7 +2087,7 @@ function Up.FillSeason(s)
             s.pt2:SetText("the only one on the board")
         end
         local frac = above and above.pts > 0 and min(1, mine.pts / above.pts) or 1
-        s.fill:SetWidth(max(1, (SEASON_W - 24) * frac))
+        s.fill:SetWidth(max(1, (SEASON_W - 2 * S.IN) * frac))
         s.fill:Show()
     else
         s.rk:SetText("-")
@@ -2118,7 +2096,7 @@ function Up.FillSeason(s)
         s.fill:Hide()
     end
     local badges = Ev():BadgesOf(Me())
-    local x = 12
+    local x = S.IN
     for i = 1, 5 do
         local bd = Pool(s.badges, i, function() return H.Badge(s, 19) end)
         if badges[i] then
@@ -2131,7 +2109,7 @@ function Up.FillSeason(s)
         end
     end
     s.bcount:ClearAllPoints()
-    s.bcount:SetPoint("TOPLEFT", s, "TOPLEFT", #badges > 0 and (x + 2) or 12, -106)
+    s.bcount:SetPoint("TOPLEFT", s, "TOPLEFT", #badges > 0 and (x + 2) or S.IN, -106)
     s.bcount:SetText(#badges == 0 and "No badges yet" or (#badges == 1 and "1 badge" or (#badges .. " badges")))
     s.sect:Set("Standings")
     -- the top five, me in it (in the fifth place when I'm further down)
@@ -2141,9 +2119,7 @@ function Up.FillSeason(s)
     for i, r in ipairs(s.rows) do
         local x2 = list[i]
         if x2 then
-            local isMe = x2.key == Me()
-            r.bg:SetShown(isMe)
-            r.bar:SetShown(isMe)
+            r:SetSelected(x2.key == Me())
             r.p:SetText(x2.rank)
             r.face:Set(x2.key)
             r.n:SetText(Name(x2.key))
@@ -2158,9 +2134,10 @@ function Up.FillSeason(s)
 end
 
 function Up.Fill(v)
-    local w = H.W() - 2 * PAD
+    local L = v.layout
+    local w = L.innerW
     local heroId = Up.FillHero(v, w)
-    Up.FillList(v, heroId, w - SEASON_W - GAP)
+    Up.FillList(v, heroId, L.bodyW)
     Up.FillSeason(v.card)
 end
 
@@ -2169,28 +2146,30 @@ end
 ---------------------------------------------------------------------------
 
 local Pg = {}
-local BAN_Y, BAN_H, BODY_Y, RIGHT_W, COL_GAP = 10, 150, 168, 286, 16
+local RIGHT_W, COL_GAP = 286, 16
 
+-- 1.4: an event's page (and its results) is a Detail page (UI:CreateLayout "detail") under the tab's toolbar: the
+-- event banner with the way back, then the body (no tabs: the strip stays hidden).
 function Pg.Create(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    v.ban = H.NewBanner(v, BAN_H)
-    v.ban:SetPoint("TOPLEFT", PAD, -BAN_Y)
-    v.ban:SetPoint("TOPRIGHT", -PAD, -BAN_Y)
-    v.ban.live:Hide()
-    v.ban.kick:Hide()
-    v.ban:EnableMouse(false)
-    v.ban.more:SetScript("OnClick", function(self)
+    v.layout = UI():CreateLayout("detail", v, { toolbar = false, top = UI().LAYOUT.TOP, banner = { size = "hero" },
+        back = { text = "Events", onClick = function() EventsUI:Back() end } })
+    local L = v.layout
+    L.tabs:Hide()
+    L:Layout()
+    v.ban = H.EventBanner(L.banner)
+    v.ban.onMore = function(self)
         local o = state.occ and Ev():GetOcc(state.occ)
         if v.mode == "results" then
             Pg.ResultsMenu(self, state.occ)
         elseif o then
             A.OccMenu(self, o)
         end
-    end)
-    v.scroll = UI():CreateScrollFrame(v)
-    v.scroll:SetPoint("TOPLEFT", PAD, -BODY_Y)
-    v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
+    end
+    v.scroll = UI():CreateScrollFrame(L.body)
+    v.scroll:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
+    v.scroll:SetPoint("BOTTOMLEFT", L.body, "BOTTOMLEFT", 0, 0)
     v.content = CreateFrame("Frame", nil, v.scroll)
     v.content:SetSize(700, 10)
     v.scroll:SetScrollChild(v.content)
@@ -2579,7 +2558,7 @@ end
 -- The page's body for a calendar event (not over): the stages left, the rewards and the entrants right.
 function Pg.FillBody(v, o, keys, st)
     local d = o.def
-    local W0 = H.W() - 2 * PAD
+    local W0 = v.layout.bodyW
     local desc = B():Describe(d, { closesAt = Ev():ClosesAt(o) })
     for _, s in ipairs(desc) do s.chips = Pg.Chips(d, s) end
     -- what runs the whole event (the builder's Always): a row of its own after the stages, when it does something
@@ -2625,7 +2604,7 @@ function Pg.FillBody(v, o, keys, st)
     local wh = Pg.Places(d, Ev():MeetOf(o))
     local whereH = wh and (28 + WHERE_H + 8) or 0
     local rightH = 28 + rh + 8 + whereH + 28 + max(24, entH)
-    local avail = H.Hgt() - BODY_Y - 10
+    local avail = H.BodyH(v.layout)
     -- the left column's height needs its width: measure with the full width first
     local lw = W0 - RIGHT_W - COL_GAP
     local cw = W0
@@ -2767,7 +2746,7 @@ end
 function Pg.FillBanner(v, o, keys, st)
     local b = v.ban
     local d = o.def
-    local w = H.W() - 2 * PAD
+    local w = v.layout.innerW
     local occState = Ev():OccState(o)
     local host = Ev():HostOf(o)
     local me = Me()
@@ -2799,20 +2778,12 @@ function Pg.FillBanner(v, o, keys, st)
     meta[#meta + 1] = "hosted by " .. Name(host)
     local k = o.ranked and Ev():GetReview(o.dk)
     if k and k.ok then meta[#meta + 1] = "reviewed by " .. Name(k.by) end
+    H.BeginBanner(b)
     H.BannerHead(b, w, d.art, d.icon, d.name, pills, tconcat(meta, " · "), 0.58)
-    b.back:Show()
     H.BannerIcons(b, true, A.OccRef(o.id))
-    H.BannerKinds(b, d, w)
-
-    b.chip:Hide()
-    b.note:Hide()
-    b.why:Hide()
-    b.btn:Hide()
-    b.btn2:Hide()
-    b.btn3:Hide()
+    b.kindsDef = d
     local spots = W.Spots(d)
     if occState == "live" then
-        b.meter:Hide()
         H.SetProg(b, d, st, EUI():StageSub(d, st))
     else
         b.prog:Hide()
@@ -2821,33 +2792,31 @@ function Pg.FillBanner(v, o, keys, st)
     local signed = Ev():IsSignedUp(o.id)
     local full = spots and #Ev():GetSignups(o.id) >= spots
     if occState == "live" then
-        H.BannerButton(b.btn, "Watch", "primary", "eye", function() A.Watch(o.id) end)
+        H.BannerAction(b, "btn", "Watch", "primary", function() A.Watch(o.id) end)
         if Pg.LiveSignupOpen(st) and not signed and not full then
-            H.BannerButton(b.btn2, "Join", "secondary", nil, function() A.Join(o.id, true) end)
+            H.BannerAction(b, "btn2", "Join", "secondary", function() A.Join(o.id, true) end)
         end
     elseif occState == "planned" then
         local closes = Ev():ClosesAt(o)
         if closes and closes > Now() then
-            b.chip:Set("Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or (W.DayWord(closes) .. " "))
-                .. W.Clock(closes), "clock")
+            H.BannerChip(b, "track", "Sign-up closes " .. (W.DayWord(closes) == "Today" and "" or
+                (W.DayWord(closes) .. " ")) .. W.Clock(closes))
         end
-        b.chip.tip = nil
         local starting = false
         if host == me then
             local ok, why = Live():CanStart(o.id)
             if ok then
-                H.BannerButton(b.btn, "Start", "primary", "play", function() Pg.Start(o.id) end)
+                H.BannerAction(b, "btn", "Start", "primary", function() Pg.Start(o.id) end)
                 starting = true
             elseif why and why:find("pieces") then
-                b.chip:Set("Fix it in the builder", WARN, { 1, 0.55, 0.1, 0.6 }, { 1, 0.78, 0.55 })
-                b.chip.tip = { "It can't start yet", why }
+                H.BannerChip(b, "track", "Fix it in the builder", { icon = WARN, tip = { "It can't start yet", why } })
             end
         end
         -- Start is the host's main action; everyone else's is Join (or Leave, once in)
-        local target = starting and b.btn2 or b.btn
+        local target = starting and "btn2" or "btn"
         local can, why = W.CanJoin(o)
         if signed then
-            H.BannerButton(target, "Leave", "secondary", nil, function() A.Join(o.id, false) end)
+            H.BannerAction(b, target, "Leave", "secondary", function() A.Join(o.id, false) end)
         elseif why == "full" then
             b.note:SetText("Full: " .. spots .. " of " .. spots)
             b.note:Show()
@@ -2855,7 +2824,7 @@ function Pg.FillBanner(v, o, keys, st)
             b.note:SetText("Sign-up closed")
             b.note:Show()
         else
-            H.BannerButton(target, "Join", starting and "secondary" or "primary", nil, function() A.Join(o.id, true) end)
+            H.BannerAction(b, target, "Join", starting and "secondary" or "primary", function() A.Join(o.id, true) end)
         end
     elseif occState == "missed" then
         b.note:SetText("It didn't run")
@@ -2865,11 +2834,11 @@ function Pg.FillBanner(v, o, keys, st)
     end
     -- the way to where everyone meets (the tracker's arrow and the minimap's ring, for me only)
     if mp and (occState == "planned" or occState == "live") then
-        H.BannerButton(b.btn3, "Show the way", "secondary", nil, function() EUI():ShowTheWay(o.id, meetId, d) end)
-        b.btn3.tip = { "Show the way", "An arrow under your minimap and a ring on it point you to " .. (mp.n or "the place")
-            .. ", where everyone meets. Only you see it." }
+        H.BannerAction(b, "btn3", "Show the way", "secondary", function() EUI():ShowTheWay(o.id, meetId, d) end,
+            { "Show the way", "An arrow under your minimap and a ring on it point you to " .. (mp.n or "the place")
+            .. ", where everyone meets. Only you see it." })
     end
-    H.BannerRight(b, w)
+    H.EndBanner(b)
 end
 
 -- Is a live run's sign-up still open (one its host closes)?
@@ -2928,13 +2897,14 @@ local TABLE_MIN, MOM_MIN = 220, 250
 
 function Pg.CreateResults(v)
     -- (its own scroll frame: long score tables scroll; its bar is the page's, as the event page's)
-    v.rscroll = UI():CreateScrollFrame(v)
-    v.rscroll:SetPoint("TOPLEFT", PAD, -BODY_Y)
-    v.rscroll:SetPoint("BOTTOMLEFT", PAD, 10)
-    v.rscroll:SetWidth(PAGE_W - 2 * PAD)
+    local L = v.layout
+    v.rscroll = UI():CreateScrollFrame(L.body)
+    v.rscroll:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
+    v.rscroll:SetPoint("BOTTOMLEFT", L.body, "BOTTOMLEFT", 0, 0)
+    v.rscroll:SetWidth(L.bodyW)
     v.rscroll:Hide()
     local f = CreateFrame("Frame", nil, v.rscroll)
-    f:SetSize(PAGE_W - 2 * PAD, PAGE_H - BODY_Y - 10)
+    f:SetSize(L.bodyW, H.BodyH(L))
     v.rscroll:SetScrollChild(f)
     f.stand = CreateFrame("Frame", nil, f)
     f.stand:SetPoint("TOPLEFT", 0, 0)
@@ -3360,7 +3330,7 @@ end
 function Pg.FillResults(v, r, o)
     local f = v.res
     local b = v.ban
-    local w = H.W() - 2 * PAD
+    local w = v.layout.bodyW
     local def = (o and o.def) or W.DefOfResult(r)
     local host = (r.hosts and r.hosts[1]) or r.by
     local meta = { W.Day(r.at) }
@@ -3368,16 +3338,24 @@ function Pg.FillResults(v, r, o)
     if r.t1 and r.t1 > r.at then meta[#meta + 1] = W.Span(r.t1 - r.at) end
     meta[#meta + 1] = "hosted by " .. Name(host)
     local pills = { { r.cancel and "Cancelled" or ("Ended " .. W.Clock(r.t1 or r.at)), "ended" } }
+    H.BeginBanner(b)
     H.BannerHead(b, w, r.art, r.icon, r.name, pills, tconcat(meta, " · "), 0.6)
-    b.back:Show()
     local canMore = (Live() and Live():GetState(r.id)) or W.CanRemove()
-    H.BannerIcons(b, canMore and true or false, A.OccRef(r.id), true)
-    H.BannerKinds(b, def, w)
-    b.chip:Hide()
-    b.note:Hide()
-    b.btn:Hide()
-    b.btn2:Hide()
-    b.meter:Hide()
+    -- (no share icon here: Share results is the page's action)
+    H.BannerIcons(b, canMore and true or false, nil)
+    local ref = A.OccRef(r.id)
+    b.ref = ref
+    if ref then
+        H.BannerAction(b, "shareText", "Share results", "secondary", function(self)
+            if IsShiftKeyDown() and ns.Share and ns.Share.PutInChat then
+                ns.Share:PutInChat(ref)
+            elseif ns.ShareWindow and ns.ShareWindow.Open then
+                ns.ShareWindow:Open(ref, self)
+            end
+        end, { "Share results", { "Posts a link to these results in chat: the podium, the awards, the night.",
+            { "Shift-click: into your chat box", "SUB" } } })
+    end
+    b.kindsDef = def
     if def then
         H.SetProg(b, def, nil, nil, true)
     else
@@ -3385,7 +3363,7 @@ function Pg.FillResults(v, r, o)
     end
     -- why it was called off (the pill already says it was)
     H.BannerWhy(b, r.cancel ~= "Cancelled" and r.cancel or nil, floor(w * 0.45))
-    H.BannerRight(b, w)
+    H.EndBanner(b)
     -- what it has: Matches (the podium from them, the last four), else the placings of its first score on the board
     -- (the run's own: EventEngine's Result); the tables of its scores; who had each tag at the end
     local matches = (def and W.Has(def, "bracket")) or #(r.last4 or {}) > 0
@@ -3682,7 +3660,7 @@ function Pg.FillResults(v, r, o)
         end
         return y
     end
-    local avail = H.Hgt() - BODY_Y - 10
+    local avail = H.BodyH(v.layout)
     local cw = w
     local h = layout(cw)
     if h > avail then
@@ -6176,8 +6154,8 @@ local function ReviewTip(self, tt)
 end
 
 -- 1.4: the tab is a Board page (UI:CreateLayout): its toolbar holds the views as tabs, Examples and the main action
--- New event at the far right; the views sit under the toolbar as before. An event's page hides the toolbar (its
--- banner has the way back).
+-- New event at the far right; each view under it is a layout of its own (Upcoming / Library / Season: boards, Review:
+-- a list + detail, an event's page: a detail page under the same toolbar).
 function EventsUI:CreatePanel(parent)
     if panel then return panel end
     local p = CreateFrame("Frame", "DisasterZoneEventsPanel", parent)
@@ -6236,12 +6214,12 @@ function EventsUI:Refresh()
     if state.view == "review" and not reviewer then state.view = "upcoming" end
     local onPage = state.occ ~= nil
     local bar = panel.toolbar
-    bar:SetShown(not onPage)
     for _, view in ipairs(VIEWS) do
         bar:SetTabShown(view, view ~= "review" or reviewer)
     end
+    -- (an event's page keeps the toolbar: the view it was opened from stays lit, its banner has the way back)
     bar:SelectTab(state.view)
-    if reviewer and not onPage then ReviewCount(bar, #Ev():GetReviewQueue()) end
+    if reviewer then ReviewCount(bar, #Ev():GetReviewQueue()) end
     panel.newBtn:SetShown(not onPage and (state.view == "upcoming" or state.view == "library"))
     panel.exBtn:SetShown(not onPage and state.view == "upcoming")
     panel.libExBtn:SetShown(not onPage and state.view == "library")

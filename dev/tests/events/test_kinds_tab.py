@@ -466,7 +466,7 @@ def a_live_derby_banner_says_my_place_and_its_time_left():
         local kinds = {}
         for _, m in ipairs(h.kinds or {}) do if m:IsShown() then kinds[#kinds + 1] = m.fs:GetText() end end
         return { title = h.title:GetText(), live = h.live:IsShown(), kick = h.kick:GetText(), btn = h.btn:GetText(),
-                 chip = h.chip:IsShown() and h.chip.fs:GetText() or nil, face = h.chip.face:IsShown() and h.chip.face.key,
+                 chip = h.chip:IsShown() and h.chip.fs:GetText() or nil, face = h.chip.cls:IsShown() and h.chip.key,
                  prog = h.prog:IsShown(), kinds = kinds }""")
     assert hero["title"] == "Fishing derby" and hero["live"] is True and hero["btn"] == "Watch", hero
     assert re.match(r"^FISHING · (30|29) MIN LEFT$", hero["kick"]), hero
