@@ -24,8 +24,6 @@ local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
 local GREY = { 0.72, 0.72, 0.75 }
 local EDGE = { 0.34, 0.34, 0.38, 0.55 }
 local PANEL = { 0.055, 0.055, 0.067, 0.93 }
-local ART_KEY = { Karazhan = "kara", GruulsLair = "gruul", MagtheridonsLair = "mag", SerpentshrineCavern = "ssc",
-                  TempestKeep = "tk", MountHyjal = "hyjal", BlackTemple = "bt", ZulAman = "za", SunwellPlateau = "swp" }
 
 local state = { view = "decided", item = nil }
 local panel
@@ -86,14 +84,14 @@ end
 
 local function Plural(n, one, many) return n == 1 and ("1 " .. one) or (n .. " " .. (many or (one .. "s"))) end
 
+-- (raidKey: the item data's raid key or the planner's, ItemDB:RaidArt; the crop stays under the game's logo)
 local function SetArt(tex, raidKey, w, h)
-    local PlanUI = ns.RaidPlanUI
-    if not (PlanUI and PlanUI.RaidArt) then
+    local ItemDB = ns.ItemDB
+    if not (ItemDB and ItemDB.RaidArt) then
         tex:SetColorTexture(0.1, 0.1, 0.12, 1)
         return
     end
-    local file, l, r, t, b = PlanUI:RaidArt(ART_KEY[raidKey] or raidKey or "other", w, h, 0.95)
-    if t < 0.29 then t, b = 0.29, b + 0.29 - t end
+    local file, l, r, t, b = ItemDB:RaidArt(raidKey or "other", w, h, 0.95, true)
     tex:SetTexture(file)
     tex:SetTexCoord(l, r, t, b)
 end

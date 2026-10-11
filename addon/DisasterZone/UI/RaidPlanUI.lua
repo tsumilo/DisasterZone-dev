@@ -440,13 +440,6 @@ end
 -- Dungeons tab's), GAP between cards and columns, 12 inside the banner; scroll bars sit in the right margin.
 ---------------------------------------------------------------------------
 
--- Loading screens (2048x2048 textures shown at 4:3) and the part a card shows: centre cx, cy as a share.
-local RAID_ART = {
-    kara = { 131849, 0.30, 0.45 }, gruul = { 131842, 0.30, 0.45 }, mag = { 131846, 0.50, 0.42 },
-    ssc = { 131832, 0.32, 0.46 }, tk = { 131875, 0.50, 0.40 }, hyjal = { 131847, 0.40, 0.45 },
-    bt = { 131826, 0.30, 0.56 }, za = { 131884, 0.30, 0.45 }, swp = { 131873, 0.55, 0.50 },
-    other = { 131860, 0.50, 0.45 },
-}
 local PAD, GAP = 10, 8
 local CARD_H = 92                    -- a raid on the board: a banner of its loading screen (the Teams board's height)
 local FILTER_ROW = 22
@@ -479,13 +472,9 @@ UP.BODY_Y = UP.TB_Y + UP.TB_H + 8                -- where a tab's content starts
 local function roleIcon(role, size) return UI():RoleIconText(role, size) end
 
 -- The loading screen and tex coords (l, r, t, b) that show raid `inst` in a w x h box; fw = share of its width.
-local function artCoords(inst, w, h, fw, cy)
-    local a = RAID_ART[inst] or RAID_ART.other
-    fw = fw or 0.5
-    local fh = fw * (4 / 3) * (h / w)
-    local l = min(max(a[2] - fw / 2, 0), 1 - fw)
-    local t = min(max((cy or a[3]) - fh / 2, 0.02), 0.98 - fh)
-    return a[1], l, l + fw, t, t + fh
+-- (The raids' loading screens live in Data/Raids.lua: ItemDB:RaidArt, either key form.)
+local function artCoords(inst, w, h, fw)
+    return ns.ItemDB:RaidArt(inst, w, h, fw)
 end
 
 local function textOf(parent, font, size, layer)

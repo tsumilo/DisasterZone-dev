@@ -34,7 +34,6 @@ local BODY_Y = TABS_Y + 26
 local RULE_X = 36                    -- a rule's words, after its icon
 local RIGHT_W = 120                  -- my standing at a rule's right end
 local EDIT_W = 120                   -- the Required / Priority switch and the bin, editing
-local ART_TOP = 0.29
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
 local BIS_TEX = MEDIA .. "Icons\\bis"
 local CHECK_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
@@ -43,10 +42,6 @@ local ORANGE = { 1, 0.5, 0 }
 local ORANGE_SOFT = { 1, 0.6, 0.18 }
 local EDGE = { 0.34, 0.34, 0.38, 0.7 }
 local WEEK = 7 * 86400
-
--- Items database raid keys -> the loading screen keys of RaidPlanUI:RaidArt.
-local ART = { Karazhan = "kara", GruulsLair = "gruul", MagtheridonsLair = "mag", SerpentshrineCavern = "ssc",
-              TempestKeep = "tk", MountHyjal = "hyjal", BlackTemple = "bt", ZulAman = "za", SunwellPlateau = "swp" }
 
 -- state.sel = the picked record id; state.tab = "rules" | "history"; state.draft = the rules being edited (nil = not
 -- editing); state.adding = the add form { search, picked = { ids }, tpl, copyFrom }.
@@ -110,16 +105,15 @@ local function ruleTex(tex, key, r, g, b)
     atlasTex(tex, name, r, g, b)
 end
 
--- A raid's loading screen on a texture, cropped for w x h (under the game's logo).
+-- A raid's loading screen on a texture, cropped for w x h (under the game's logo). raidKey: the items database's raid
+-- key (ItemDB:RaidArt; anything else gets the generic picture).
 local function setArt(tex, raidKey, w, h, fw)
-    local PlanUI = ns.RaidPlanUI
-    local inst = ART[raidKey] or "other"
-    if not (PlanUI and PlanUI.RaidArt) then
+    local ItemDB = ns.ItemDB
+    if not (ItemDB and ItemDB.RaidArt) then
         tex:Hide()
         return
     end
-    local file, l, r, t, b = PlanUI:RaidArt(inst, w, h, fw)
-    if t < ART_TOP then t, b = ART_TOP, b + ART_TOP - t end
+    local file, l, r, t, b = ItemDB:RaidArt(raidKey or "other", w, h, fw, true)
     tex:SetTexture(file)
     tex:SetTexCoord(l, r, t, b)
     tex:Show()
