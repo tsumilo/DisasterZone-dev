@@ -19,18 +19,16 @@ local addonName, ns = ...
 
 local PrizedUI = ns:NewModule("PrizedUI")
 
+local S = ns.Style
 local floor, max, min = math.floor, math.max, math.min
 local tsort, tconcat = table.sort, table.concat
 local format = string.format
 
-local PAD, GAP = 10, 8
+local GAP = S.GAP
 local LIST_W = 300
-local DETAIL_W = 770 - LIST_W - GAP
+local DETAIL_W = S.INNER_W - LIST_W - GAP
 local VIEW_H = 501
 local ITEM_H, RAID_H = 42, 30
-local BAN_H = 112
-local TABS_Y = BAN_H + 4
-local BODY_Y = TABS_Y + 26
 local RULE_X = 36                    -- a rule's words, after its icon
 local RIGHT_W = 120                  -- my standing at a rule's right end
 local EDIT_W = 120                   -- the Required / Priority switch and the bin, editing
@@ -40,7 +38,6 @@ local CHECK_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local CROSS_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local ORANGE = { 1, 0.5, 0 }
 local ORANGE_SOFT = { 1, 0.6, 0.18 }
-local EDGE = { 0.34, 0.34, 0.38, 0.7 }
 local WEEK = 7 * 86400
 
 -- state.sel = the picked record id; state.tab = "rules" | "history"; state.draft = the rules being edited (nil = not
@@ -53,23 +50,7 @@ local function P() return ns.Prized end
 local function Util() return ns.Util end
 local function Me() return ns.Util.PlayerKey() end
 local function hideTooltip() GameTooltip:Hide() end
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
-
-local function newText(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
-local function gradient(tex, orient, r, g, b, a1, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2)) end
-end
+local function short(key) return ns.Util.ShortName(key) or tostring(key) end
 
 -- An atlas icon (UI.ICON) on a texture; the prized-items icons (art pack 7) fall back to older ones without it.
 local FALLBACK = { prized = "trophy", person = "team", shield = "lock", pair = "infinity", ballot = "poll" }
@@ -167,10 +148,6 @@ end
 local function canEdit()
     local Pz = P()
     return Pz and Pz.CanEdit and Pz:CanEdit() or false
-end
-
-local function demoOn()
-    return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false
 end
 
 ---------------------------------------------------------------------------
@@ -296,24 +273,19 @@ local function initRow(row, d)
         row.bg = row:CreateTexture(nil, "BACKGROUND", nil, 0)
         row.bg:SetAllPoints()
         row.bg:SetColorTexture(0.07, 0.07, 0.085, 0.82)
-        row.line = row:CreateTexture(nil, "BORDER", nil, 1)
-        row.line:SetPoint("BOTTOMLEFT")
-        row.line:SetPoint("BOTTOMRIGHT")
-        row.line:SetHeight(1)
-        row.line:SetColorTexture(1, 1, 1, 0.05)
-        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(1, 1, 1, 0.04)
+        row.line = UI():Rule(row, { bottom = 0, alpha = 0.05, layer = "BORDER", sublevel = 1 })
+        UI():DecorateRow(row)
+        row.hl = row.dzHover
         -- the raid strip
         row.art = row:CreateTexture(nil, "BACKGROUND", nil, 2)
         row.art:SetPoint("TOPLEFT", 0, -4)
         row.art:SetPoint("BOTTOMRIGHT")
         row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 3)
         row.shade:SetAllPoints(row.art)
-        gradient(row.shade, "HORIZONTAL", 0.04, 0.04, 0.05, 0.9, 0.45)
-        row.raid = newText(row, "GameFontNormal", 12)
+        UI():Gradient(row.shade, "HORIZONTAL", { 0.04, 0.04, 0.05, 0.9 }, { 0.04, 0.04, 0.05, 0.45 })
+        row.raid = UI():Text(row, "emph", "GOLD")
         row.raid:SetPoint("LEFT", row.art, "LEFT", 10, 0)
-        row.count = newText(row, "GameFontHighlightSmall", 11)
+        row.count = UI():Text(row, "body", "TEXT")
         row.count:SetTextColor(0.8, 0.8, 0.82)
         row.count:SetPoint("RIGHT", row.art, "RIGHT", -10, 0)
         -- the item
@@ -322,8 +294,8 @@ local function initRow(row, d)
         row.iconHolder:SetSize(30, 30)
         row.iconHolder:SetPoint("LEFT", 9, 0)
         for _, f in ipairs(row.icons) do f:SetParent(row.iconHolder) end
-        row.name = newText(row, "GameFontHighlight", 12)
-        row.sub = newText(row, "GameFontHighlightSmall", 11)
+        row.name = UI():Text(row, "emph", "TEXT")
+        row.sub = UI():Text(row, "body", "TEXT")
         row.sub:SetTextColor(0.72, 0.72, 0.75)
         row.pill = UI():CreateTagPill(row, 16)
         row.marks = {}
@@ -391,113 +363,66 @@ local function rowHeight(d) return d.kind == "raid" and (d.first and RAID_H - 4 
 -- The banner
 ---------------------------------------------------------------------------
 
-local function createBanner(dc)
-    local b = CreateFrame("Frame", nil, dc)
-    b:SetPoint("TOPLEFT")
-    b:SetSize(DETAIL_W, BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.shadeB = b:CreateTexture(nil, "BACKGROUND", nil, 2)
-    b.shadeB:SetAllPoints(b.art)
-    gradient(b.shadeB, "VERTICAL", 0.035, 0.035, 0.043, 0.92, 0.2)
-    b.shadeL = b:CreateTexture(nil, "BACKGROUND", nil, 3)
-    b.shadeL:SetPoint("TOPLEFT", b.art)
-    b.shadeL:SetPoint("BOTTOMLEFT", b.art)
-    b.shadeL:SetWidth(360)
-    gradient(b.shadeL, "HORIZONTAL", 0.035, 0.035, 0.043, 0.88, 0)
-    b.glow = b:CreateTexture(nil, "BACKGROUND", nil, 4)
-    b.glow:SetPoint("TOPLEFT", b.art)
-    b.glow:SetPoint("BOTTOMLEFT", b.art)
-    b.glow:SetWidth(240)
-    gradient(b.glow, "HORIZONTAL", 1, 0.5, 0, 0.07, 0)
-    UI():AddEdges(b, "BORDER")
-
-    b.iconHolder = CreateFrame("Frame", nil, b)
-    b.iconHolder:SetSize(46, 46)
-    b.iconHolder:SetPoint("TOPLEFT", 12, -12)
-    b.icons = newItemIcons(b.iconHolder, 42, 2)
-    b.kickIcon = b:CreateTexture(nil, "ARTWORK")
-    b.kickIcon:SetSize(10, 10)
-    b.kicker = newText(b, "GameFontNormalSmall", 10)
-    b.kicker:SetTextColor(ORANGE_SOFT[1], ORANGE_SOFT[2], ORANGE_SOFT[3])
-    b.kicker:SetText("PRIZED ITEM")
-    if b.kicker.SetSpacing then b.kicker:SetSpacing(0) end
-    b.kicker:SetPoint("LEFT", b.kickIcon, "RIGHT", 4, 0)
-    atlasTex(b.kickIcon, "prized", ORANGE_SOFT[1], ORANGE_SOFT[2], ORANGE_SOFT[3])
-    b.name = newText(b, "GameFontHighlightLarge", 18)
-    b.name:SetPoint("TOPLEFT", b.kickIcon, "BOTTOMLEFT", 0, -4)
-    b.meta = newText(b, "GameFontHighlightSmall", 11)
-    b.meta:SetTextColor(0.78, 0.78, 0.8)
-    b.meta:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -4)
-    b.pill = UI():CreateTagPill(b, 20)
-    b.pill:SetPoint("BOTTOMLEFT", 12, 11)
-    b.pill:SetBase(0.06, 0.06, 0.07)
-
-    b.editBtn = UI():CreateSleekButton(b, "Edit", 64, 22, function() PrizedUI:StartEdit() end)
-    b.editBtn:SetPoint("BOTTOMRIGHT", -12, 11)
-    b.editBtn.glyph = b.editBtn:CreateTexture(nil, "ARTWORK")
-    b.editBtn.glyph:SetSize(11, 11)
-    atlasTex(b.editBtn.glyph, "pencil", 0.85, 0.85, 0.85)
-    local fs = b.editBtn:GetFontString()
-    fs:ClearAllPoints()
-    fs:SetPoint("CENTER", 7, 0)
-    b.editBtn.glyph:SetPoint("RIGHT", fs, "LEFT", -5, 0)
-    b.editBtn:SetWidth(floor((fs:GetStringWidth() or 24) + 11 + 5 + 24 + 0.5))
-    b.editBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Edit the rules")
-        GameTooltip:AddLine("Saving tells the guild what changed and adds it to the item's history.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    b.editBtn:HookScript("OnLeave", hideTooltip)
-    b.moreBtn = UI():CreateTipIconButton(b, 22, UI().ICON.more, "More", "Remove this item from the prized items.",
-        function(self)
-            UI():ContextMenu(self, function(root)
-                local e = root:CreateButton("Remove from prized items", function() PrizedUI:ConfirmRemove(state.sel) end)
-                e:SetTitleAndTextTooltip("Remove", "Its rules go; its history stays with the guild for a year.")
-            end)
-        end)
-    b.moreBtn:SetPoint("TOPRIGHT", -12, -12)
-    b.saveBtn = UI():CreateSleekButton(b, "Save", 64, 22, function() PrizedUI:SaveEdit() end, "primary")
-    b.saveBtn:SetPoint("BOTTOMRIGHT", -12, 11)
-    b.saveBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Save the rules")
-        GameTooltip:AddLine("The guild gets a notification of what changed; the item's history keeps it. The new "
-            .. "rules count at once, also on a drop panel that is open now.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    b.saveBtn:HookScript("OnLeave", hideTooltip)
-    b.cancelBtn = UI():CreateSleekButton(b, "Cancel", 64, 22, function() PrizedUI:CancelEdit() end)
-    b.cancelBtn:SetPoint("RIGHT", b.saveBtn, "LEFT", -6, 0)
+-- The picked item's banner is the layout's page banner (the raid's art, the item's icon in an orange ring, PRIZED
+-- ITEM, the name in its quality colour, slot / boss / raid); on it: my standing as a pill at the bottom left, a pair's
+-- second item beside the icon. Edit (or Save / Cancel while editing) are its actions, More (Remove) its tool.
+local function decorateBanner(b)
+    b.state = UI():CreatePill(b, 20)
+    b.state:SetPoint("BOTTOMLEFT", 12, 11)
+    b.state:SetBase(0.06, 0.06, 0.07)
+    -- a pair (the Warglaives): the second item as a smaller tile on the first one's corner.
+    -- TODO(refactor): move into UI:CreatePageBanner (two icons)
+    b.icon2 = UI():CreateIconTile(b, 22)
+    b.icon2:Hide()
+    UI():AttachTooltip(b.icon2, function(self) if self.itemID then UI():SetItemTooltip(self, self.itemID) end end)
+    b.editActions = { { text = "Edit", onClick = function() PrizedUI:StartEdit() end,
+        tip = { "Edit the rules", "Saving tells the guild what changed and adds it to the item's history." } } }
+    b.saveActions = {
+        { text = "Save", kind = "primary", onClick = function() PrizedUI:SaveEdit() end,
+          tip = { "Save the rules", "The guild gets a notification of what changed; the item's history keeps it. The "
+              .. "new rules count at once, also on a drop panel that is open now." } },
+        { text = "Cancel", onClick = function() PrizedUI:CancelEdit() end },
+    }
+    b.moreTools = { { icon = "more", title = "More", text = "Remove this item from the prized items.",
+        menu = function(root)
+            local e = root:CreateButton("Remove from prized items", function() PrizedUI:ConfirmRemove(state.sel) end)
+            e:SetTitleAndTextTooltip("Remove", "Its rules go; its history stays with the guild for a year.")
+        end } }
     return b
 end
 
 local function fillBanner(b, rec)
     local pl = P():Place(rec.ids[1])
-    setArt(b.art, pl.raidKey, DETAIL_W, BAN_H, 0.95)
-    setItemIcons(b.icons, rec, 14)
-    local iw = iconsWidth(b.icons, rec, 14)
-    b.iconHolder:SetWidth(iw)
-    b.kickIcon:ClearAllPoints()
-    b.kickIcon:SetPoint("TOPLEFT", b.iconHolder, "TOPRIGHT", 12, -2)
-    b.name:SetText(recName(rec))
-    b.name:SetTextColor(qualityColor(rec.ids[1]))
-    b.name:SetWidth(DETAIL_W - iw - 12 - 12 - 12 - 30)
-    b.meta:SetText(slotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. pl.raidName)
+    b:SetArt(pl.raidKey or "other")
+    b:SetIcon(ns.ItemDB:GetIcon(rec.ids[1]))
+    if not b.icon.cdlItemTip then
+        b.icon.cdlItemTip = true
+        UI():AttachTooltip(b.icon, function(self) if self.itemID then UI():SetItemTooltip(self, self.itemID) end end)
+    end
+    b.icon.itemID = rec.ids[1]
+    local id2 = rec.ids[2]
+    b.icon2:SetShown(id2 ~= nil)
+    if id2 then
+        b.icon2:Set(ns.ItemDB:GetIcon(id2))
+        b.icon2.itemID = id2
+        b.icon2:ClearAllPoints()
+        b.icon2:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 6, -6)
+        b.icon2:SetFrameLevel(b.icon:GetFrameLevel() + 2)
+    end
+    local r, g, bl = qualityColor(rec.ids[1])
+    b:SetTitle(("|cff%02x%02x%02x%s|r"):format(floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(bl * 255 + 0.5),
+        recName(rec)))
+    b:SetSub(slotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. pl.raidName)
     local editing = state.draft ~= nil
     local _, kind, long = standing(rec)
-    b.pill:SetShown(long ~= nil and not editing)
-    if long then b.pill:Set(long, kind) end
+    b.state:SetShown(long ~= nil and not editing)
+    if long then b.state:Set(long, kind) end
     if editing then
-        b.pill:Set("Editing the rules", "warn")
-        b.pill:Show()
+        b.state:Set("Editing the rules", "warn")
+        b.state:Show()
     end
-    b.editBtn:SetShown(canEdit() and not editing)
-    b.moreBtn:SetShown(canEdit() and editing)
-    b.saveBtn:SetShown(editing)
-    b.cancelBtn:SetShown(editing)
+    b:SetActions(editing and b.saveActions or (canEdit() and b.editActions) or nil)
+    b:SetTools((canEdit() and editing) and b.moreTools or nil)
 end
 
 ---------------------------------------------------------------------------
@@ -523,43 +448,40 @@ local function newRule(parent, width)
     -- the sentence: a button when editing (it opens the rule's values)
     r.textBtn = CreateFrame("Button", nil, r)
     r.textBtn:SetPoint("TOPLEFT", RULE_X, -6)
-    r.text = newText(r.textBtn, "GameFontHighlight", 12)
+    r.text = UI():Text(r.textBtn, "emph", "TEXT")
     r.text:SetPoint("TOPLEFT")
     r.text:SetWordWrap(true)
     r.chev = r.textBtn:CreateTexture(nil, "ARTWORK")
     r.chev:SetSize(9, 9)
-    atlasTex(r.chev, "chevron", 1, 0.82, 0)
+    atlasTex(r.chev, "chevron", S:Color("GOLD"))
     r.textBtn:SetScript("OnEnter", function(self)
-        if not self.editable then return end
-        r.text:SetTextColor(1, 0.82, 0)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Change")
-        GameTooltip:AddLine("Pick this rule's values.", 1, 1, 1, true)
-        GameTooltip:Show()
+        if self.editable then r.text:SetTextColor(S:Color("GOLD")) end
     end)
-    r.textBtn:SetScript("OnLeave", function(self)
-        r.text:SetTextColor(0.94, 0.94, 0.94)
-        hideTooltip()
-    end)
+    r.textBtn:SetScript("OnLeave", function() r.text:SetTextColor(0.94, 0.94, 0.94) end)
+    UI():AttachTooltip(r.textBtn, function(self, tt)
+        if not self.editable then return false end
+        tt:AddLine("Change", S:Color("GOLD"))
+        tt:AddLine("Pick this rule's values.", 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_TOP" })
     r.textBtn:SetScript("OnClick", function(self)
         if self.editable and r.ruleKey then PrizedUI:OpenValueMenu(self, r.ruleKey) end
     end)
     r.pill = UI():CreateTagPill(r, 15)
     r.pill:SetBase(0.08, 0.08, 0.095)
-    r.sub = newText(r, "GameFontHighlightSmall", 11)
+    r.sub = UI():Text(r, "body", "TEXT")
     r.sub:SetTextColor(0.72, 0.72, 0.75)
     r.sub:SetWordWrap(true)
     -- the queue's names
-    r.names = newText(r, "GameFontHighlightSmall", 11)
+    r.names = UI():Text(r, "body", "TEXT")
     r.names:SetWordWrap(true)
     -- my standing
-    r.val = newText(r, "GameFontHighlight", 12)
+    r.val = UI():Text(r, "emph", "TEXT")
     r.val:SetJustifyH("RIGHT")
     r.mark = r:CreateTexture(nil, "ARTWORK")
     r.mark:SetSize(13, 13)
     r.mark:SetPoint("TOPRIGHT", 0, -9)
     r.val:SetPoint("RIGHT", r.mark, "LEFT", -4, 0)
-    r.note = newText(r, "GameFontHighlightSmall", 11)
+    r.note = UI():Text(r, "body", "TEXT")
     r.note:SetTextColor(0.72, 0.72, 0.75)
     r.note:SetJustifyH("RIGHT")
     r.note:SetPoint("TOPRIGHT", r.mark, "BOTTOMRIGHT", 0, -6)
@@ -568,22 +490,13 @@ local function newRule(parent, width)
         if r.ruleKey then PrizedUI:ToggleMode(r.ruleKey) end
     end)
     r.modeBtn:SetPoint("TOPRIGHT", -26, -8)
-    r.modeBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Required or Priority")
-        GameTooltip:AddLine("Required: players who don't meet it can't get the item (the council can still give it "
-            .. "with a reason everyone sees). Priority: it doesn't keep anyone out; who meets it goes first.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    r.modeBtn:HookScript("OnLeave", hideTooltip)
+    UI():AttachTooltip(r.modeBtn, "Required or Priority", "Required: players who don't meet it can't get the item "
+        .. "(the council can still give it with a reason everyone sees). Priority: it doesn't keep anyone out; who meets "
+        .. "it goes first.", { anchor = "ANCHOR_TOP" })
     r.bin = UI():CreateRemoveButton(r, "Remove this rule")
     r.bin:SetPoint("TOPRIGHT", 0, -9)
     r.bin:SetScript("OnClick", function() if r.ruleKey then PrizedUI:RemoveRule(r.ruleKey) end end)
-    r.rule = r:CreateTexture(nil, "BORDER")
-    r.rule:SetPoint("BOTTOMLEFT")
-    r.rule:SetPoint("BOTTOMRIGHT")
-    r.rule:SetHeight(1)
-    r.rule:SetColorTexture(1, 1, 1, 0.06)
+    r.rule = UI():Rule(r, { bottom = 0, alpha = 0.06, layer = "BORDER" })
     return r
 end
 
@@ -687,16 +600,8 @@ end
 ---------------------------------------------------------------------------
 
 local function section(parent, text)
-    local s = CreateFrame("Frame", nil, parent)
-    s:SetSize(DETAIL_W - 16, 24)
-    s.title = newText(s, "GameFontHighlightSmall", 11)
-    s.title:SetTextColor(0.72, 0.72, 0.75)
-    s.title:SetPoint("LEFT", 0, 0)
-    s.title:SetText(text)
-    s.right = newText(s, "GameFontHighlightSmall", 11)
-    s.right:SetTextColor(0.72, 0.72, 0.75)
-    s.right:SetJustifyH("RIGHT")
-    s.right:SetPoint("RIGHT", 0, 0)
+    local s = UI():CreateSectionHeader(parent, text, { style = "caps" })
+    s:SetWidth(DETAIL_W - 16)
     return s
 end
 
@@ -714,21 +619,17 @@ local function newHistRow(parent, width)
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(15, 15)
     r.icon:SetPoint("CENTER", r.box)
-    r.title = newText(r, "GameFontHighlight", 12)
+    r.title = UI():Text(r, "emph", "TEXT")
     r.title:SetPoint("TOPLEFT", RULE_X, -7)
     r.title:SetWordWrap(true)
-    r.sub = newText(r, "GameFontHighlightSmall", 11)
+    r.sub = UI():Text(r, "body", "TEXT")
     r.sub:SetTextColor(0.72, 0.72, 0.75)
     r.sub:SetWordWrap(true)
-    r.when = newText(r, "GameFontHighlightSmall", 11)
+    r.when = UI():Text(r, "body", "TEXT")
     r.when:SetTextColor(0.72, 0.72, 0.75)
     r.when:SetJustifyH("RIGHT")
     r.when:SetPoint("TOPRIGHT", 0, -9)
-    r.rule = r:CreateTexture(nil, "BORDER")
-    r.rule:SetPoint("BOTTOMLEFT")
-    r.rule:SetPoint("BOTTOMRIGHT")
-    r.rule:SetHeight(1)
-    r.rule:SetColorTexture(1, 1, 1, 0.06)
+    r.rule = UI():Rule(r, { bottom = 0, alpha = 0.06, layer = "BORDER" })
     return r
 end
 
@@ -779,20 +680,19 @@ end
 -- The add form (in the right column).
 local function createAddForm(dc)
     local f = CreateFrame("Frame", nil, dc)
+    f:SetFrameLevel(dc:GetFrameLevel() + 10)     -- (over the banner and the tabs; its parts are made above it)
     f:SetPoint("TOPLEFT")
     f:SetSize(DETAIL_W, VIEW_H)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(0.065, 0.065, 0.078, 0.94)
+    f.bg = UI():Fill(f, { 0.065, 0.065, 0.078, 0.94 }, "BACKGROUND")
     UI():AddEdges(f, "BORDER")
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(16, 16)
     f.icon:SetPoint("TOPLEFT", 14, -14)
     atlasTex(f.icon, "prized", ORANGE_SOFT[1], ORANGE_SOFT[2], ORANGE_SOFT[3])
-    f.title = newText(f, "GameFontHighlightLarge", 16)
+    f.title = UI():Text(f, "page", "TEXT")
     f.title:SetPoint("LEFT", f.icon, "RIGHT", 8, 0)
     f.title:SetText("Add a prized item")
-    f.itemLabel = newText(f, "GameFontHighlightSmall", 11)
+    f.itemLabel = UI():Text(f, "body", "TEXT")
     f.itemLabel:SetTextColor(0.72, 0.72, 0.75)
     f.itemLabel:SetPoint("TOPLEFT", 14, -44)
     f.itemLabel:SetText("ITEM (UP TO TWO: THEY SHARE ONE SET OF RULES)")
@@ -806,9 +706,7 @@ local function createAddForm(dc)
         local b = CreateFrame("Button", nil, f)
         b:SetSize(DETAIL_W - 28, 28)
         b:SetPoint("TOPLEFT", 14, -86 - (i - 1) * 29)
-        b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(1, 1, 1, 0.05)
+        UI():DecorateRow(b)
         b.box = b:CreateTexture(nil, "ARTWORK")
         b.box:SetSize(14, 14)
         b.box:SetPoint("LEFT", 4, 0)
@@ -824,9 +722,9 @@ local function createAddForm(dc)
         b.icon:SetSize(22, 22)
         b.icon:SetPoint("LEFT", b.box, "RIGHT", 8, 0)
         b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        b.name = newText(b, "GameFontHighlight", 12)
+        b.name = UI():Text(b, "emph", "TEXT")
         b.name:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 8, 1)
-        b.sub = newText(b, "GameFontHighlightSmall", 11)
+        b.sub = UI():Text(b, "body", "TEXT")
         b.sub:SetTextColor(0.72, 0.72, 0.75)
         b.sub:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -1)
         b:SetScript("OnClick", function(self) if self.itemID then PrizedUI:TogglePick(self.itemID) end end)
@@ -834,10 +732,10 @@ local function createAddForm(dc)
         b:SetScript("OnLeave", hideTooltip)
         f.results[i] = b
     end
-    f.hint = newText(f, "GameFontHighlightSmall", 11)
+    f.hint = UI():Text(f, "body", "TEXT")
     f.hint:SetTextColor(0.72, 0.72, 0.75)
     f.hint:SetPoint("TOPLEFT", 14, -90)
-    f.tplLabel = newText(f, "GameFontHighlightSmall", 11)
+    f.tplLabel = UI():Text(f, "body", "TEXT")
     f.tplLabel:SetTextColor(0.72, 0.72, 0.75)
     f.tplLabel:SetPoint("TOPLEFT", 14, -292)
     f.tplLabel:SetText("START WITH")
@@ -850,15 +748,13 @@ local function createAddForm(dc)
         b.bg = b:CreateTexture(nil, "BACKGROUND")
         b.bg:SetAllPoints()
         UI():AddEdges(b, "BORDER")
-        b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(1, 1, 1, 0.04)
+        UI():DecorateRow(b)
         b.icon = b:CreateTexture(nil, "ARTWORK")
         b.icon:SetSize(13, 13)
         b.icon:SetPoint("TOPLEFT", 10, -9)
-        b.name = newText(b, "GameFontHighlight", 12)
+        b.name = UI():Text(b, "emph", "TEXT")
         b.name:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
-        b.desc = newText(b, "GameFontHighlightSmall", 11)
+        b.desc = UI():Text(b, "body", "TEXT")
         b.desc:SetTextColor(0.72, 0.72, 0.75)
         b.desc:SetWordWrap(true)
         b.desc:SetWidth(tw - 20)
@@ -885,11 +781,11 @@ local function createAddForm(dc)
         end)
         f.tiles[i] = b
     end
-    f.cancel = UI():CreateSleekButton(f, "Cancel", 70, 24, function() PrizedUI:CancelAdd() end)
-    f.add = UI():CreateSleekButton(f, "Add", 90, 24, function() PrizedUI:ConfirmAdd() end, "primary")
+    f.cancel = UI():CreateSleekButton(f, "Cancel", 70, S.BTN_H, function() PrizedUI:CancelAdd() end)
+    f.add = UI():CreateSleekButton(f, "Add", 90, S.BTN_H, function() PrizedUI:ConfirmAdd() end, "primary")
     f.add:SetPoint("BOTTOMRIGHT", -14, 14)
     f.cancel:SetPoint("RIGHT", f.add, "LEFT", -8, 0)
-    f.note = newText(f, "GameFontHighlightSmall", 11)
+    f.note = UI():Text(f, "body", "TEXT")
     f.note:SetTextColor(0.72, 0.72, 0.75)
     f.note:SetPoint("BOTTOMLEFT", 14, 20)
     f.note:SetText("You can change every rule after adding it.")
@@ -900,11 +796,18 @@ function PrizedUI:CreateView(parent)
     if view then return view end
     local v = CreateFrame("Frame", nil, parent)
     view = v
+    local L = UI():CreateLayout("listdetail", v, { toolbar = false, listWidth = LIST_W, bottom = 6,
+        banner = { size = "hero", kicker = "PRIZED ITEM", kickerColor = ORANGE_SOFT, iconRing = { 1, 0.5, 0, 0.9 },
+                   artFw = 0.95, artUnder = true },
+        tabs = { { key = "rules", text = "Rules" }, { key = "history", text = "History" } }, tabStyle = "underline",
+        onTab = function(key) PrizedUI:SetTab(key) end, noAnchor = true })
+    -- (the page's width from the view's left edge, as before: a host narrower than the page keeps the columns' widths)
+    L:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
+    L:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 0, 0)
+    L:SetWidth(S.PAGE_W)
+    v.layout = L
 
-    local lc = CreateFrame("Frame", nil, v)
-    lc:SetPoint("TOPLEFT", PAD, 0)
-    lc:SetPoint("BOTTOMLEFT", PAD, 6)
-    lc:SetWidth(LIST_W)
+    local lc = L.list
     v.left = lc
     v.list = UI():CreateScrollList(lc, ITEM_H, initRow, rowHeight)
     v.list.frame:SetPoint("TOPLEFT", 0, 0)
@@ -913,36 +816,19 @@ function PrizedUI:CreateView(parent)
     v.list.bar:ClearAllPoints()
     v.list.bar:SetPoint("TOPLEFT", v.list.box, "TOPRIGHT", 1, 0)
     v.list.bar:SetPoint("BOTTOMLEFT", v.list.box, "BOTTOMRIGHT", 1, 0)
-    v.list.emptyText:ClearAllPoints()
-    v.list.emptyText:SetPoint("TOPLEFT", v.list.frame, "TOPLEFT", 10, -8)
-    v.list.emptyText:SetWidth(LIST_W - 20)
-    v.list.emptyText:SetJustifyH("LEFT")
-    v.list.emptyText:SetWordWrap(true)
 
-    local dc = CreateFrame("Frame", nil, v)
-    dc:SetPoint("TOPLEFT", PAD + LIST_W + GAP, 0)
-    dc:SetPoint("BOTTOMLEFT", PAD + LIST_W + GAP, 6)
-    dc:SetWidth(DETAIL_W)
+    local dc = L.detail
     v.detail = dc
-    dc.bg = dc:CreateTexture(nil, "BACKGROUND")
-    dc.bg:SetAllPoints()
-    dc.bg:SetColorTexture(0.06, 0.06, 0.072, 0.9)
+    dc.bg = UI():Fill(dc, { 0.06, 0.06, 0.072, 0.9 }, "BACKGROUND")
     dc.edges = CreateFrame("Frame", nil, dc)
     dc.edges:SetAllPoints()
     UI():AddEdges(dc.edges, "BORDER")
-    v.banner = createBanner(dc)
-    v.rulesTab = UI():CreateUnderlineTab(dc, "Rules", function() PrizedUI:SetTab("rules") end, "small")
-    v.rulesTab:SetPoint("TOPLEFT", 8, -TABS_Y)
-    v.histTab = UI():CreateUnderlineTab(dc, "History", function() PrizedUI:SetTab("history") end, "small")
-    v.histTab:SetPoint("LEFT", v.rulesTab, "RIGHT", 2, 0)
-    v.tabRule = dc:CreateTexture(nil, "BORDER")
-    v.tabRule:SetPoint("TOPLEFT", 8, -(TABS_Y + 20))
-    v.tabRule:SetPoint("TOPRIGHT", -8, -(TABS_Y + 20))
-    v.tabRule:SetHeight(1)
-    v.tabRule:SetColorTexture(1, 1, 1, 0.08)
+    v.banner = decorateBanner(L.banner)
+    v.tabs = L.tabs
+    v.rulesTab, v.histTab = L.tabs:GetTab("rules"), L.tabs:GetTab("history")
 
-    local sf = UI():CreateScrollFrame(dc)
-    sf:SetPoint("TOPLEFT", 8, -BODY_Y)
+    local sf = UI():CreateScrollFrame(L.body)
+    sf:SetPoint("TOPLEFT", 8, 0)
     sf:SetPoint("BOTTOMRIGHT", -8, 6)
     sf.ScrollBar:ClearAllPoints()
     sf.ScrollBar:SetPoint("TOPLEFT", sf, "TOPRIGHT", 0, 0)
@@ -954,6 +840,7 @@ function PrizedUI:CreateView(parent)
     body.rulesHead = section(body, "RULES")
     body.qualHead = section(body, "QUALIFY TODAY")
     -- (class icons with the player's name on hover; the count lists every qualifier on hover)
+    -- (their own OnEnter: the tooltip is filled from the frame's lines each time)
     local function qualTip(self)
         if not self.lines then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -975,20 +862,20 @@ function PrizedUI:CreateView(parent)
     body.qualHit:EnableMouse(true)
     body.qualHit:SetScript("OnEnter", qualTip)
     body.qualHit:SetScript("OnLeave", hideTooltip)
-    body.qualText = newText(body, "GameFontHighlight", 12)
-    body.qualSub = newText(body, "GameFontHighlightSmall", 11)
+    body.qualText = UI():Text(body, "emph", "TEXT")
+    body.qualSub = UI():Text(body, "body", "TEXT")
     body.qualSub:SetTextColor(0.72, 0.72, 0.75)
-    body.foot = newText(body, "GameFontHighlightSmall", 11)
+    body.foot = UI():Text(body, "body", "TEXT")
     body.foot:SetTextColor(0.72, 0.72, 0.75)
     body.footIcon = body:CreateTexture(nil, "ARTWORK")
     body.footIcon:SetSize(11, 11)
     body.histLink = CreateFrame("Button", nil, body)
     body.histLink:SetSize(50, 14)
-    body.histLink.fs = newText(body.histLink, "GameFontNormalSmall", 10)
+    body.histLink.fs = UI():Text(body.histLink, "small", "GOLD")
     body.histLink.fs:SetPoint("RIGHT")
     body.histLink.fs:SetText("History")
     body.histLink:SetScript("OnClick", function() PrizedUI:SetTab("history") end)
-    body.addRule = UI():CreateSleekButton(body, "Add rule", 92, 22, function(self) PrizedUI:OpenAddRuleMenu(self) end)
+    body.addRule = UI():CreateSleekButton(body, "Add rule", 92, S.BTN_H, function(self) PrizedUI:OpenAddRuleMenu(self) end)
     body.addRule.glyph = body.addRule:CreateTexture(nil, "ARTWORK")
     body.addRule.glyph:SetSize(10, 10)
     atlasTex(body.addRule.glyph, "plus", 1, 1, 1)
@@ -996,23 +883,19 @@ function PrizedUI:CreateView(parent)
     afs:ClearAllPoints()
     afs:SetPoint("CENTER", 7, 0)
     body.addRule.glyph:SetPoint("RIGHT", afs, "LEFT", -5, 0)
-    body.save = UI():CreateSleekButton(body, "Save", 70, 22, function() PrizedUI:SaveEdit() end, "primary")
-    body.undo = UI():CreateSleekButton(body, "Cancel", 70, 22, function() PrizedUI:CancelEdit() end)
-    body.editNote = newText(body, "GameFontHighlightSmall", 11)
+    body.save = UI():CreateSleekButton(body, "Save", 70, S.BTN_H, function() PrizedUI:SaveEdit() end, "primary")
+    body.undo = UI():CreateSleekButton(body, "Cancel", 70, S.BTN_H, function() PrizedUI:CancelEdit() end)
+    body.editNote = UI():Text(body, "body", "TEXT", { wrap = true, width = DETAIL_W - 16 })
     body.editNote:SetTextColor(0.72, 0.72, 0.75)
-    body.editNote:SetWordWrap(true)
-    body.editNote:SetWidth(DETAIL_W - 16)
     body.editNote:SetText("Saving tells the guild what changed and adds it to the item's history. The new rules "
         .. "count at once.")
-    body.empty = newText(body, "GameFontDisable", 12)
-    body.empty:SetWordWrap(true)
-    body.empty:SetWidth(DETAIL_W - 40)
+    body.empty = UI():Text(body, "emph", "DIM", { wrap = true, width = DETAIL_W - 40 })
 
-    -- nothing picked / no items: one line in the right column
-    v.none = newText(dc, "GameFontDisable", 12)
-    v.none:SetPoint("TOPLEFT", 16, -16)
-    v.none:SetWidth(DETAIL_W - 32)
-    v.none:SetWordWrap(true)
+    -- nothing picked / no items: an illustrated empty state in the right column
+    v.none = UI():CreateEmptyState(dc, { compact = true, glyph = iconIndex("prized") })
+    v.none:SetPoint("TOP", dc, "TOP", 0, -60)
+    v.none:SetBoxWidth(DETAIL_W - 60)
+    v.none:Hide()
 
     v.add = createAddForm(dc)
     v:SetScript("OnShow", function() PrizedUI:Refresh() end)
@@ -1032,10 +915,9 @@ function PrizedUI:Mount(parent, opts)
     local list = opts.list ~= false
     state.noList = not list
     v.left:SetShown(list)
-    v.detail:ClearAllPoints()
-    local x = list and (PAD + LIST_W + GAP) or 0
-    v.detail:SetPoint("TOPLEFT", x, 0)
-    v.detail:SetPoint("BOTTOMLEFT", x, 6)
+    -- (no list: the detail takes the list's place)
+    v.layout.listW = list and LIST_W or -GAP
+    v.layout:Layout()
     v:Show()
     self:Refresh()
     return v
@@ -1082,8 +964,8 @@ local function fillRules(rec, body)
             if (v.m or "r") == "r" then req = req + 1 else pri = pri + 1 end
         end
     end
-    body.rulesHead.right:SetText(editing and "gold words open a menu" or
-        (req + pri > 0 and format("%d required · %d priority", req, pri) or ""))
+    body.rulesHead:SetRight(editing and "gold words open a menu" or
+        (req + pri > 0 and format("%d required · %d priority", req, pri) or nil))
     body.rulesHead:Show()
     y = y + 24
     local any = false
@@ -1154,7 +1036,7 @@ local function fillRules(rec, body)
             local cc = c and RAID_CLASS_COLORS and RAID_CLASS_COLORS[c]
             local r, g, b = 1, 1, 1
             if cc then r, g, b = cc.r, cc.g, cc.b end
-            return (ordered and (i .. ". ") or "") .. shortName(key), r, g, b, c
+            return (ordered and (i .. ". ") or "") .. short(key), r, g, b, c
         end
         local x = 0
         for i = 1, min(#ok, #body.stack) do
@@ -1172,7 +1054,7 @@ local function fillRules(rec, body)
         body.qualText:SetPoint("TOPLEFT", x + (x > 0 and 8 or 0), -y - 3)
         body.qualText:SetText(format("%d of %d raiders", #ok, n))
         local lines = { { #ok > 0 and (ordered and "Qualify, next in line first" or "Qualify today") or
-            "Nobody qualifies today", 1, 0.82, 0 } }
+            "Nobody qualifies today", S:Color("GOLD") } }
         for i = 1, #ok do
             local name, r, g, b = tipName(i)
             lines[#lines + 1] = { name, r, g, b }
@@ -1183,7 +1065,7 @@ local function fillRules(rec, body)
         body.qualHit:SetSize((body.qualText:GetStringWidth() or 80) + 4, 18)
         if showSub then
             local names = {}
-            for i = 1, min(#ok, 4) do names[#names + 1] = shortName(ok[i].key) end
+            for i = 1, min(#ok, 4) do names[#names + 1] = short(ok[i].key) end
             body.qualSub:ClearAllPoints()
             body.qualSub:SetPoint("TOPLEFT", 0, -y - 26)
             body.qualSub:SetWidth(DETAIL_W - 16)
@@ -1336,21 +1218,19 @@ function PrizedUI:Refresh()
     if adding then self:RefreshAdd() end
     local showRec = rec ~= nil and not adding
     view.banner:SetShown(showRec)
-    view.rulesTab:SetShown(showRec)
-    view.histTab:SetShown(showRec)
-    view.tabRule:SetShown(showRec)
+    view.tabs:SetShown(showRec)
     view.scroll:SetShown(showRec)
-    view.none:SetShown(not showRec and not adding)
-    view.none:SetText(#items == 0 and (canEdit() and
+    local noneText = #items == 0 and (canEdit() and
         "Prized items are the few drops that get stricter loot rules (Dragonspine Trophy, the Warglaives...). " ..
         "Add item picks one; every member then sees its rules and how they stand." or
-        "The Guild Master and the guild council haven't picked any prized items yet.") or "")
+        "The Guild Master and the guild council haven't picked any prized items yet.") or nil
+    view.none:SetShown(not showRec and not adding and noneText ~= nil)
+    if noneText then view.none:SetContent({ glyph = iconIndex("prized"), title = "No prized items yet", text = noneText }) end
     if not showRec then return end
     if state.draft and state.tab ~= "rules" then state.tab = "rules" end
     fillBanner(view.banner, rec)
-    view.rulesTab:SetActive(state.tab == "rules")
-    view.histTab:SetActive(state.tab == "history")
-    view.histTab:SetShown(state.draft == nil)
+    view.tabs:SetTabShown("history", state.draft == nil)
+    view.tabs:SelectTab(state.tab)
     local y
     if state.tab == "history" then
         y = fillHistory(rec, view.body)
@@ -1535,7 +1415,7 @@ function PrizedUI:OpenValueMenu(owner, key)
         elseif key == "queue" then
             v.n = v.n or {}
             for i, k in ipairs(v.n) do
-                local e = root:CreateButton(format("%d  %s", i, shortName(k)))
+                local e = root:CreateButton(format("%d  %s", i, short(k)))
                 if i > 1 then
                     e:CreateButton("Move up", function() v.n[i], v.n[i - 1] = v.n[i - 1], v.n[i] refresh() end)
                 end
@@ -1554,7 +1434,7 @@ function PrizedUI:OpenValueMenu(owner, key)
             for _, k in ipairs(G and G.GetMembers and G:GetMembers() or {}) do
                 if not inQueue[k] then members[#members + 1] = k end
             end
-            tsort(members, function(a, b) return shortName(a) < shortName(b) end)
+            tsort(members, function(a, b) return short(a) < short(b) end)
             if add.SetScrollMode then add:SetScrollMode(360) end
             for _, k in ipairs(members) do
                 add:CreateButton(coloredKey(k), function()
@@ -1569,7 +1449,15 @@ end
 function PrizedUI:ConfirmRemove(id)
     local rec = id and P():Get(id)
     if not rec or not ns.Popup then return end
-    ns.Popup:Show("DISASTERZONE_PRIZED_REMOVE", recName(rec), nil, { id = id })
+    ns.Popup:Confirm({ key = "PRIZED_REMOVE", title = "Remove a prized item", danger = true,
+        text = ("Take %s off the prized items?\n\nIts rules go; its history stays."):format(recName(rec)),
+        ok = "Remove", onAccept = function()
+            if P():Remove(id) then
+                if state.sel == id then state.sel = nil end
+                state.draft = nil
+                PrizedUI:Refresh()
+            end
+        end })
 end
 
 -- The add form (Add item at the top right of the Raids page).
@@ -1661,26 +1549,6 @@ function PrizedUI:OnInit()
     ns:On("DEMO_TOGGLED", function()
         state.draft, state.adding, state.sel = nil, nil, nil
     end)
-    if ns.Popup and ns.Popup.dialogs then
-        ns.Popup.dialogs["DISASTERZONE_PRIZED_REMOVE"] = {
-            title = "Remove a prized item",
-            text = "Take %s off the prized items?\n\nIts rules go; its history stays.",
-            button1 = "Remove",
-            button2 = CANCEL or "Cancel",
-            danger = true,
-            OnAccept = function(_, data)
-                if type(data) == "table" and data.id and P():Remove(data.id) then
-                    if state.sel == data.id then state.sel = nil end
-                    state.draft = nil
-                    PrizedUI:Refresh()
-                end
-            end,
-            timeout = 0,
-            whileDead = true,
-            hideOnEscape = true,
-            preferredIndex = 3,
-        }
-    end
 end
 
 -- (1.3.5, Raids > Loot rules for everyone, UI/LootRulesUI.lua: the same pieces at other widths)
