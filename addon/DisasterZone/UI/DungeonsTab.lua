@@ -172,6 +172,17 @@ end
 
 local function HideTip() GameTooltip:Hide() end
 
+-- A tooltip built by a function (a card's, a tile's) can say "Loading..." for an item not cached yet: once the
+-- page refreshes (item info arrived, or anything else), the tooltip still under the mouse is built again.
+local function RedrawHoveredTip()
+    if not (GameTooltip:IsShown() and GameTooltip.GetOwner) then return end
+    local owner = GameTooltip:GetOwner()
+    if not (owner and owner.liveTip and type(owner.tip) == "function") then return end
+    if not (owner:IsVisible() and owner.IsMouseOver and owner:IsMouseOver()) then return end
+    local onEnter = owner:GetScript("OnEnter")
+    if onEnter then onEnter(owner) end
+end
+
 -- A rounded pill (edge + fill) drawn from discs and a bar: f:SetPillColors(fill, edge).
 local function AddPill(f, h)
     local function part(layer, sub, inset)
@@ -373,6 +384,7 @@ local function NewCard(parent)
             "Share your run")
     end
     c.reqs, c.free = {}, {}
+    c.liveTip = true
     c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip()) end end)
     c:SetScript("OnLeave", HideTip)
     return c
@@ -1371,7 +1383,10 @@ end
 
 function DungeonsUI:RequestRefresh()
     if panel and panel:IsVisible() then
-        ns.Util.Debounce("dungeons-ui", 0.1, function() DungeonsUI:Refresh() end)
+        ns.Util.Debounce("dungeons-ui", 0.1, function()
+            DungeonsUI:Refresh()
+            RedrawHoveredTip()
+        end)
     end
     -- a ping or a request goes with its run (an invite, or the Group Finder's word on an ended run, doesn't)
     if toast and toast:IsShown() and toast.run and toast.mode == nil then
@@ -1657,6 +1672,7 @@ local function NewTile(parent)
     t.daily.text:SetTextColor(0.1, 0.08, 0)
     t.daily.text:SetText("DAILY")
     t.daily:SetWidth((t.daily.text:GetStringWidth() or 26) + 8)
+    t.liveTip = true
     t:SetScript("OnEnter", function(self)
         local lines = self.tip and self.tip()
         if lines then Tip(self, lines, "ANCHOR_TOP") end
