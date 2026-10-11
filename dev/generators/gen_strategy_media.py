@@ -557,6 +557,46 @@ def ic_stopwatch(d, k):
     d.ellipse(_pts(k, [(28, 32), (36, 40)]), fill=255)
 
 
+# (prized items, Raids > Loot rules, art pack 7: 60 a seal with a star (prized), 61 one person (mains only), 62 a shield
+# (guild only), 63 two links (pair), 64 a ballot box (council vote))
+def ic_prized(d, k):
+    # a seal: a ring with a five-point star inside
+    import math
+    d.ellipse(_pts(k, [(3, 3), (61, 61)]), outline=255, width=_w(k, 6))
+    pts = []
+    for i in range(10):
+        r = 21 if i % 2 == 0 else 9
+        a = -math.pi / 2 + i * math.pi / 5
+        pts.append((32 + r * math.cos(a), 33.5 + r * math.sin(a)))
+    d.polygon(_pts(k, pts), fill=255)
+
+
+def ic_person(d, k):
+    # one person (the team icon's middle one, alone)
+    _person(d, k, 32, 5, 11, 30, 21)
+    d.rectangle(_pts(k, [(0, 57), (64, 64)]), fill=0)
+
+
+def ic_shield(d, k):
+    # a shield with its right half cut out (a heraldic split)
+    d.polygon(_pts(k, [(32, 4), (57, 13), (54, 37), (32, 60), (10, 37), (7, 13)]), fill=255)
+    d.polygon(_pts(k, [(32, 15), (47, 20), (45, 35), (32, 49)]), fill=0)
+
+
+def ic_pair(d, k):
+    # two chain links side by side
+    d.rounded_rectangle(_pts(k, [(3, 19), (38, 45)]), radius=_w(k, 13), outline=255, width=_w(k, 6))
+    d.rounded_rectangle(_pts(k, [(26, 19), (61, 45)]), radius=_w(k, 13), outline=255, width=_w(k, 6))
+
+
+def ic_ballot(d, k):
+    # a ballot box: a card with a check going into the slot of a box
+    d.rounded_rectangle(_pts(k, [(17, 4), (47, 34)]), radius=_w(k, 3), outline=255, width=_w(k, 5))
+    d.line(_pts(k, [(23, 19), (30, 26), (41, 12)]), fill=255, width=_w(k, 5), joint="curve")
+    d.rounded_rectangle(_pts(k, [(6, 30), (58, 59)]), radius=_w(k, 4), fill=255)
+    d.rectangle(_pts(k, [(14, 30), (50, 35)]), fill=0)
+
+
 TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon, ic_text,
               ic_undo, ic_redo, ic_help, ic_trash, ic_gear, ic_chevron, ic_eye, ic_pencil,
               ic_copy, ic_share, ic_invite, ic_calloff, ic_dice, ic_disenchant, ic_bank, ic_more,
@@ -564,7 +604,8 @@ TOOL_ICONS = [ic_select, ic_pan, ic_circle, ic_rect, ic_arrow, ic_line, ic_icon,
               ic_export, ic_handle_turn, ic_handle_size, ic_walk, ic_target, ic_keys, ic_plus,
               ic_bag, ic_bag_add, ic_whisper, ic_finder_eye, ic_finder_iris, ic_calendar,
               ic_team, ic_play, ic_pause, ic_skip, ic_flag, ic_trophy, ic_lock, ic_infinity, ic_bracket,
-              ic_poll, ic_bell, ic_flask, ic_chart, ic_stopwatch]
+              ic_poll, ic_bell, ic_flask, ic_chart, ic_stopwatch,
+              ic_prized, ic_person, ic_shield, ic_pair, ic_ballot]
 TOOL_ROWS = 16   # power of two (the texture is 256 x 64*rows); UI/Widgets.lua UI.ICON_ROWS must match
 
 

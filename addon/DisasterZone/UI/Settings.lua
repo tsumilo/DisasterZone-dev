@@ -1798,6 +1798,24 @@ function SettingsUI:BuildAbout(sec)
     PlaceText(srow, 112)
     self:SwitchSetting(sec, "Debug messages in chat", "Extra lines in your chat for tracking down problems.",
         "debug", false)
+    -- the Performance page (Core/Perf.lua): per character, after a /reload (its hooks go in while the files load)
+    local P = ns.Perf
+    if P and P.IsWanted then
+        local _, row = self:Switch(sec, "Performance page",
+            "DisasterZone's memory, garbage and CPU on this character, for tracking down problems. After a /reload.",
+            function() return P:IsWanted() end,
+            function(a, b)
+                P:SetWanted(Bool(a, b))
+                if P:IsWanted() ~= P:IsOn() then
+                    ns:Print("The Performance page %s after a /reload.", P:IsWanted() and "comes" or "goes")
+                end
+            end,
+            "An icon at the right of the top strip: memory, garbage a minute, CPU, addon messages, and Measure 30 s "
+                .. "to find what makes garbage. It costs a little while it is on (a memory sample every 10 s), so leave "
+                .. "it off unless you are looking into something. Only on this character.")
+        self.perfRow = row
+        if P:IsDev() and row.control then row.control:SetEnabled(false) end
+    end
     self:EndSection(sec)
 end
 

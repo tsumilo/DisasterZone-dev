@@ -53,6 +53,7 @@ ns.CHANGELOG = {
               "Each player's attendance % has its own column: green from 90%, amber under 75%.",
               "Specs show the way raiders say them (Prot, Resto, MM); hover a player for the full name.",
               "A second roll shows as x2 after the first one, which counts. A bad range shows in red.",
+              "Small titles name the columns (Vote, Att, Since loot, Roll), with faint lines between.",
           } },
           { heading = "One look everywhere", lines = {
               "Questions and confirmations are the addon's own dialogs now, not the game's red ones.",
@@ -73,6 +74,7 @@ ns.CHANGELOG = {
           } },
           { heading = "Lighter on memory", lines = {
               "Every event and addon message makes less garbage, so DisasterZone's memory climbs slower.",
+              "Settings > About: a Performance page shows DisasterZone's memory and CPU (off by default).",
           } },
       } },
     { version = "1.3.4", date = "10 October 2026", title = "A new window frame, gear sim, meters and Azeromon",

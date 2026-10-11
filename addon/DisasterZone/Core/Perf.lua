@@ -1,6 +1,9 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Perf.lua", ...) then return end -- DisasterZone Core/Perf.lua
--- Performance: what DisasterZone costs this client, for the developer's Performance page (UI/PerfUI.lua). Only the
--- developer's character (DEV, Tsumil) runs any of it; for everybody else this file sets two names and stops.
+-- Performance: what DisasterZone costs this client, for the Performance page (UI/PerfUI.lua). It runs for the
+-- developer's character (DEV, Tsumil) and for a character whose player turned it on (Settings > About, "Performance
+-- page": saved per character in settings.perfPage, read here while the files load, so it applies after a /reload -
+-- the hooks below must be in place before the other files run). For everybody else this file sets a few names and
+-- stops: no hooks, no sampling.
 --
 --  * Memory: the addon's memory as the AddOn list shows it (garbage included), sampled every SAMPLE_S for the last
 --    hour; "in use" is what is left after a full cleanup (Perf:CleanUp); garbage per minute is the growth between
@@ -38,9 +41,33 @@ local gcount = function() return collectgarbage("count") end
 local clock = debugprofilestop or function() return 0 end
 local function now() return GetTime and GetTime() or 0 end   -- (looked up each time: a test clock may replace it)
 
+-- This character, as the switch saves it: name-realm (the realm without spaces; known while files load).
+local function CharKey()
+    local name = UnitName and UnitName("player") or "?"
+    local realm = (GetRealmName and GetRealmName() or ""):gsub("%s", "")
+    return name .. "-" .. realm
+end
+Perf.CharKey = CharKey
+
+-- The switch for this character, straight from the saved variables (DB.lua has not run yet at file time).
+local function SavedWanted()
+    local db = DisasterZoneDB
+    local s = type(db) == "table" and type(db.settings) == "table" and db.settings.perfPage
+    return type(s) == "table" and s[CharKey()] == true
+end
+
 local isDev = (UnitName and UnitName("player")) == DEV
+local isOn = isDev or SavedWanted()
 Perf.DEV = DEV
 function Perf:IsDev() return isDev end
+-- Running this session (the page, the hooks, the sampling).
+function Perf:IsOn() return isOn end
+-- The switch: what the next /reload runs (the developer always).
+function Perf:IsWanted() return isDev or SavedWanted() end
+function Perf:SetWanted(on)
+    if isDev or not (ns.DB and ns.DB.SetSetting) then return end
+    ns.DB:SetSetting("perfPage." .. CharKey(), on and true or nil)
+end
 
 ---------------------------------------------------------------------------
 -- Where a handler came from: the first DisasterZone file in the stack
@@ -254,7 +281,7 @@ local function LibFrames()
     return out
 end
 
-if isDev then
+if isOn then
     -- (set before the other files load: every handler they register and every script they set is noted)
     ns.PerfNote = function(fn)
         if noteOf[fn] == nil then noteOf[fn] = Where() or false end
@@ -277,7 +304,7 @@ Perf._AddOnUsage = AddOnUsage
 -- result = { seconds, grew (KB, the AddOn list's number from start to end), rows = { { key, what, calls, ms, kb,
 -- gc }, ... } (most garbage first), attributed (KB) }
 function Perf:Measure(seconds, onDone)
-    if run or not isDev then return false end
+    if run or not isOn then return false end
     if InCombatLockdown and InCombatLockdown() then return false end
     seconds = tonumber(seconds) or 30
     collectgarbage("collect")
@@ -681,7 +708,7 @@ end
 ---------------------------------------------------------------------------
 
 function Perf:Start()
-    if not isDev or Perf.ticker then return end
+    if not isOn or Perf.ticker then return end
     Perf:Sample()
     if C_Timer and C_Timer.NewTicker then
         Perf.ticker = C_Timer.NewTicker(SAMPLE_S, function() Perf:Sample() end)

@@ -236,5 +236,49 @@ def drop_panel_shows_the_meter_and_the_tooltip():
     assert ("Last item" in text and "Since then:" in text) or "No item on record" in text, text
 
 
+
+@case
+def drop_panel_roll_rows_columns():
+    """1.3.5 layout B: the council's roll rows carry the vote rail, the attendance %, a short spec, the dry streak and
+    the roll; the card has its column titles."""
+    w, c = world()
+    bob = c["Bob"]
+    bob.slash("/dz demo on")
+    w.tick(2)
+    bob.eval("ns.Loot:SimulateDrop()")
+    w.tick(1)
+    bob.eval("local b = ns.DropPanel.blocks[1]; ns.DropPanel:StartRoll(b.itemID)")
+    w.tick(12, 1)
+    bob.eval("ns.DropPanel:Render()")
+    rows = bob.eval_py("""
+        local out = {}
+        local b = ns.DropPanel.blocks[1]
+        for _, r in ipairs(b.rows or {}) do
+            if r:IsShown() and r.rollRow and r.data then
+                out[#out + 1] = { key = r.data.key, spec = r.spec:GetText() or "", att = r.att:GetText() or "",
+                    roll = r.roll:GetText() or "", rail = r.vBox:IsShown() or r.voteHint:IsShown(),
+                    data = { spec = r.data.spec, roll = r.data.roll, response = r.data.response } }
+            end
+        end
+        local titles = {}
+        for _, fs in ipairs(b.colHead and b.colHead.fs or {}) do
+            if fs:IsShown() then titles[#titles + 1] = fs:GetText() end
+        end
+        return { rows = out, titles = titles }""")
+    lst = lambda v: list(v.values()) if isinstance(v, dict) else list(v or [])
+    titles = lst(rows["titles"])
+    assert titles == ["VOTE", "ATT", "SINCE LOOT", "ROLL"], titles
+    rr = lst(rows["rows"])
+    assert rr, rows
+    for r in rr:
+        assert strip_codes(r["att"]).endswith("%"), r
+        spec = r["data"].get("spec") or ""
+        short = {"Protection": "Prot", "Restoration": "Resto", "Marksmanship": "MM", "Destruction": "Destro"}
+        if spec in short:
+            assert r["spec"] == short[spec], r
+        if r["data"].get("roll") is not None:
+            assert strip_codes(r["roll"]) == str(r["data"]["roll"]), r
+    assert any(r["rail"] for r in rr), rr        # (Bob is on the council: the squares he may vote in)
+
 if __name__ == "__main__":
     run_all(globals())

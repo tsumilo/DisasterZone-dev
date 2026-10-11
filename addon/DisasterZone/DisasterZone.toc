@@ -128,6 +128,7 @@ Core\Events.lua
 Core\EventLive.lua
 Core\EventSensors.lua
 Core\Polls.lua
+Core\Prized.lua
 Core\Loot.lua
 Core\Roll.lua
 Core\Loon.lua
@@ -189,6 +190,7 @@ UI\StrategyBoard.lua
 UI\StrategiesView.lua
 UI\StrategyReminder.lua
 UI\AttendanceUI.lua
+UI\PrizedUI.lua
 UI\RaidsTab.lua
 UI\DungeonsTab.lua
 UI\EventWidgets.lua

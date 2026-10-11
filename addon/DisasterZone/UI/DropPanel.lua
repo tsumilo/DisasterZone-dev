@@ -84,7 +84,7 @@ local FALLBACK_COLORS = {
 -- column (the dry streak bars, or a word: "won 1", "tie", "can't use"; BiS rows: "not in raid"), then on roll rows
 -- the roll and a small note ("x2" for a repeated roll, the range of a bad one). Tried and dropped (user): a ring of
 -- attendance dots around the class circle, and a roll meter (next to the dry streak bars it read as part of them).
-local COL = { rail = 16, cls = { 4, 22 }, name = 18, spec = { 124, 44 }, pill = 170, att = { 220, 28 },
+local COL = { rail = 16, cls = { 4, 22 }, name = 18, spec = { 124, 44 }, pill = 170, att = { 216, 28 },
               status = { 253, 111 }, loot = { 253, 80 }, roll = { 326, 30 }, note = { 358, 14 } }
 local VOTE_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t"
 
@@ -1781,18 +1781,15 @@ function Grid.Att(r, key)
     end
 end
 
--- Column titles over a card's rows (1.3.5): small grey caps over the columns that need a word, a hairline under them;
--- and / or faint dividers between the column groups. DropPanel.headStyle = "titles" | "dividers" | "both" (mockup).
+-- Column titles over a card's rows (1.3.5, the user picked titles + dividers): small grey caps over the columns that
+-- need a word, a hairline under them, and faint dividers where the column groups meet.
 Grid.HEAD_H = 13
-function Grid.HeadH()
-    return (DropPanel.headStyle == "dividers") and 0 or Grid.HEAD_H
-end
 Grid.TITLES = {
     roll = { { "VOTE", 0, COL.rail, "CENTER" }, { "ATT", COL.att[1], COL.att[2], "RIGHT" },
              { "SINCE LOOT", COL.loot[1], 70, "LEFT" }, { "ROLL", COL.roll[1], COL.roll[2], "RIGHT" } },
     list = { { "ATT", COL.att[1], COL.att[2], "RIGHT" }, { "SINCE LOOT", COL.loot[1], 70, "LEFT" } },
 }
-Grid.DIVIDERS = { roll = { COL.att[1] - 2, COL.loot[1] - 3, COL.roll[1] - 2 }, list = { COL.att[1] - 2, COL.loot[1] - 3 } }
+Grid.DIVIDERS = { roll = { COL.loot[1] - 4, COL.roll[1] - 2 }, list = { COL.loot[1] - 4 } }
 
 -- kind: "roll" / "list" / nil (hides them); top: the titles' y in the card; rowsH: the rows' height (dividers).
 function Grid.Head(b, kind, top, rowsH)
@@ -1808,9 +1805,8 @@ function Grid.Head(b, kind, top, rowsH)
     for _, d in ipairs(h.divs) do d:Hide() end
     h.line:Hide()
     if not kind then return end
-    local style = DropPanel.headStyle or "titles"
     local railX = Grid.HasRail(b.rollSession) and 0 or nil
-    if style ~= "dividers" then
+    do
         for i, t in ipairs(Grid.TITLES[kind]) do
             local fs = h.fs[i]
             if not fs then
@@ -1834,7 +1830,7 @@ function Grid.Head(b, kind, top, rowsH)
         h.line:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD + 4, -(top + Grid.HEAD_H - 3))
         h.line:Show()
     end
-    if style ~= "titles" and rowsH > 0 then
+    if rowsH > 0 then
         for i, x in ipairs(Grid.DIVIDERS[kind]) do
             local d = h.divs[i]
             if not d then
@@ -1844,7 +1840,7 @@ function Grid.Head(b, kind, top, rowsH)
             end
             d:SetColorTexture(1, 1, 1, 0.06)
             d:ClearAllPoints()
-            d:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X + x, -(top + Grid.HeadH() + 3))
+            d:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X + x, -(top + Grid.HEAD_H + 3))
             d:SetHeight(rowsH - 6)
             d:Show()
         end
@@ -2757,7 +2753,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         n = #results
         if n > 0 and not plain then
             headKind = "roll"
-            y = y + Grid.HeadH()
+            y = y + Grid.HEAD_H
         end
         b.sub:SetText(RollStateText(session, b.rollStats))
         -- "+N more" only when it hides at least two rows.
@@ -2784,7 +2780,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
             -- size): incoming rolls must not move End roll / Award (or the panel) under the cursor.
             local groupN = tonumber((_G.GetNumGroupMembers and _G.GetNumGroupMembers())) or 0
             local reserve = min(MAX_ROLL_ROWS + 1, max(1, groupN))
-            b.reservedY = ITEM_HEAD_H + (headKind and Grid.HeadH() or 0) + reserve * ROLL_ROW_H
+            b.reservedY = ITEM_HEAD_H + (headKind and Grid.HEAD_H or 0) + reserve * ROLL_ROW_H
         else
             b.reservedY = nil
         end
@@ -2800,7 +2796,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         n = #wanters
         if n > 0 and IsCouncil() then
             headKind = "list"
-            y = y + Grid.HeadH()
+            y = y + Grid.HEAD_H
         end
         if mode == "queued" then
             b.sub:SetText(RollStateText(nil, nil, queuePos or 1))
@@ -2829,7 +2825,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     -- "Show rolls" link on its second line opens them again.
     local folded = winnerKey ~= nil and n > 0 and not self:IsUnfolded(itemID, copy)
     if folded then headKind = nil end
-    Grid.Head(b, headKind, ITEM_HEAD_H, rowIdx > 0 and (y - ITEM_HEAD_H - Grid.HeadH()) or 0)
+    Grid.Head(b, headKind, ITEM_HEAD_H, rowIdx > 0 and (y - ITEM_HEAD_H - Grid.HEAD_H) or 0)
     if folded then
         rowIdx, headIdx, y = 0, 0, ITEM_HEAD_H
         b.reservedY = nil
@@ -3379,10 +3375,12 @@ function DropPanel:Award(itemID, key, bossKey, copy, drop, note, awardReason)
 
     if (IsResolvable(session) or IsLootMarked(session)) and HasRoll("MarkAwardedExternally") then
         local id = session.id
-        local done = CallRoll("MarkAwardedExternally", id, key, note, awardReason)
+        local done, refused = CallRoll("MarkAwardedExternally", id, key, note, awardReason)
         local now = CallRoll("Get", id)
         if type(now) ~= "table" then now = session end
         self:RequestRefresh(0.1)
+        -- 1.3.5: a prized item's rules or agree count held it (the roll printed why, or asks for an override reason)
+        if refused == "prized" then return false end
         local recorded = now.state == "awarded" and now.via ~= "loot"
         if done == true or (recorded and (now.winner == key or now.winner == NormalKey(key))) then
             ns:Print("Awarded %s to %s (roll closed).", ItemLink(itemID) or ItemName(itemID), ShortName(key))
@@ -3395,6 +3393,11 @@ function DropPanel:Award(itemID, key, bossKey, copy, drop, note, awardReason)
     end
 
     if not (ns.Ledger and ns.Ledger.Award) then return false, "The award log is not available." end
+    -- 1.3.5: a prized item goes to a player only through its roll (the council's votes and its loot rules)
+    local Prized = ns.Prized
+    if awardReason ~= "de" and awardReason ~= "bank" and Prized and Prized.IsPrized and Prized:IsPrized(itemID) then
+        return false, "Prized item: start its roll first, so the council can vote (Raids > Loot rules)."
+    end
     if not IsCouncil() then
         -- 1.3: a master looter outside the council gave the item to the disenchanter / guild bank character: the
         -- council clients record it with that reason (Loot LT), so it does not count as loot won.

@@ -1,5 +1,6 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PerfUI.lua", ...) then return end -- DisasterZone UI/PerfUI.lua
--- The Performance page (the developer's only: Core/Perf.lua; an icon at the right of the strip, /dz perf). Mockup B
+-- The Performance page (the developer's, and anyone's who turns it on in Settings > About: Core/Perf.lua; an icon at
+-- the right of the strip, /dz perf). Mockup B
 -- "Tabs" (dev/art/casc/perf_mockup, picked 2026-10-11): page tabs Overview / Garbage / Memory / Network / CPU with
 -- Clean up and Measure 30 s at their right; under them an art banner that every tab keeps (a ring of in use vs
 -- garbage, the headline number, the session line, chips for CPU, fps, garbage a minute and the 3D rooms); then the
@@ -1514,10 +1515,10 @@ end
 function PerfUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("perf", "Performance", 3.92, function(parent) return PerfUI:CreatePanel(parent) end,
-            function() return ns.Perf and ns.Perf:IsDev() end)
+            function() return ns.Perf and ns.Perf:IsOn() end)
     end
     ns:On("PERF_UPDATED", function() PerfUI:Refresh() end)
-    if ns.Perf and ns.Perf:IsDev() then          -- (/dz perf: the developer's only, like the page)
+    if ns.Perf and ns.Perf:IsOn() then           -- (/dz perf: only where the page is, like the page)
         ns:RegisterSlash("perf", function() if ns.MainFrame then ns.MainFrame:Open("perf") end end,
             "open the Performance page (memory, garbage, CPU)")
     end

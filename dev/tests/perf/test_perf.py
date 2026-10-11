@@ -40,6 +40,46 @@ def only_tsumil_gets_the_page_and_its_hooks():
 
 
 @case
+def anyone_can_turn_the_page_on_for_their_character_after_a_reload():
+    w, c = solo("Bob")
+    assert c.eval("return ns.Perf:IsWanted()") is False
+    c.slash("/dz settings")
+    w.tick(0.3)
+    c.eval("ns.SettingsUI:SelectSection('about')")
+    w.tick(0.2)
+    row = "ns.SettingsUI.perfRow"
+    assert c.eval("return %s ~= nil and %s.control:IsEnabled()" % (row, row)) is True
+    c.click(c.eval("return %s.control" % row))
+    assert c.eval("return ns.Perf:IsWanted()") is True
+    assert c.eval("return ns.Perf:IsOn()") is False                       # (after a /reload)
+    assert any("after a /reload" in strip_codes(str(x)) for x in c.chat_frame[-3:]), c.chat_frame[-3:]
+    assert c.eval("return ns.MainFrame:IsPageShown('perf')") is False
+    c.relog()
+    w.tick(2)
+    assert c.eval("return ns.Perf:IsOn()") is True
+    assert c.eval("return ns.MainFrame:IsPageShown('perf') and type(ns.PerfNote) == 'function'") is True
+    assert c.eval("return ns.Perf.ticker ~= nil")
+    c.slash("/dz perf")
+    w.tick(0.5)
+    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "perf"
+    # off again: gone after the next /reload; the switch is per character
+    c.eval("ns.Perf:SetWanted(false)")
+    assert c.eval("return ns.db.settings.perfPage == nil or next(ns.db.settings.perfPage) == nil")
+    c.relog()
+    w.tick(2)
+    assert c.eval("return ns.Perf:IsOn() or ns.PerfNote ~= nil") is False
+    # the developer's can't be turned off
+    w2, t = dev()
+    t.slash("/dz settings")
+    w2.tick(0.3)
+    t.eval("ns.SettingsUI:SelectSection('about')")
+    assert t.eval("return %s.control:IsEnabled()" % row) is False
+    assert t.eval("return ns.Perf:IsWanted()") is True
+    no_errors(w)
+    no_errors(w2)
+
+
+@case
 def samples_cleanups_and_the_garbage_rate():
     w, c = dev()
     n0 = c.eval("return #ns.Perf.samples")

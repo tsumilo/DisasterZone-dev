@@ -937,6 +937,18 @@ local function BuildResults(ses)
         out[#out + 1] = r
     end
 
+    -- 1.3.5: a prized item (Core/Prized.lua): each row says how the player stands against its loot rules (r.prz);
+    -- the players who meet them come first, in the rules' priority order.
+    local P = ns.Prized
+    local przRec = not plain and P and P.ForItem and P:ForItem(ses.i) or nil
+    if przRec then
+        local present = {}
+        for _, r in ipairs(out) do
+            if r.inRaid and r.response ~= "pass" then present[r.key] = true end
+        end
+        for _, r in ipairs(out) do r.prz = P:Check(przRec, r.key, { present = present, hint = r }) end
+    end
+
     -- Votes that count for the suggestion: for a player still in the group who did not pass.
     local function VoteRank(r)
         if r.votes > 0 and r.inRaid and r.response ~= "pass" then return r.votes end
@@ -946,6 +958,10 @@ local function BuildResults(ses)
         return (r.roll and not r.invalid) and r.roll or nil
     end
     tsort(out, function(a, b)
+        if przRec then
+            local first = P:Before(a.prz, b.prz)
+            if first ~= nil then return first end
+        end
         -- Voted players first (most votes; then BiS tier, a valid roll, the higher roll).
         local va, vb = VoteRank(a), VoteRank(b)
         if va ~= vb then return va > vb end
@@ -976,11 +992,26 @@ local function BuildResults(ses)
     -- another copy (they stay listed; the council can still award them by hand). If only such players
     -- rolled, there is no suggestion.
     local function Suggestible(r)
-        return not r.lockChanged and not r.cantUse and not r.wonCopy
+        return not r.lockChanged and not r.cantUse and not r.wonCopy and not (r.prz and r.prz.ok == false)
+    end
+    -- A prized item: the most-voted player who meets the rules; when the council decides (its vote rule), never a
+    -- roll (no votes yet: no suggestion).
+    if przRec then
+        local best
+        for _, r in ipairs(out) do
+            if VoteRank(r) > 0 and Suggestible(r) and (not best or VoteRank(r) > VoteRank(best)) then best = r end
+        end
+        if best then
+            best.suggested = true
+            best.suggestedBy = "votes"
+            return out
+        end
+        if P:CouncilDecides(przRec) then return out end
     end
     -- Addendum G: once a council member voted, the vote decides: the most-voted player still in the group who did
     -- not pass (the council chose them knowingly, so the roll rules above don't apply); ties as sorted above.
     local top = out[1]
+    if przRec then top = nil end
     if top and VoteRank(top) > 0 then
         top.suggested = true
         top.suggestedBy = "votes"
@@ -1399,6 +1430,42 @@ local function ShowPopup(which, ses, key, areason)
     return true
 end
 
+-- 1.3.5, prized items (Core/Prized.lua): may this award go ahead? A player who breaks a required loot rule needs a
+-- reason everyone sees (the override pop-up asks for it, then `retry(why)` awards again); the item's agree count
+-- (its vote rule, of the council members in the raid; an override: every one of them without a vote rule) must be
+-- reached by the council's votes for that player. Disenchant / guild bank hand-outs skip the rules. On success the
+-- award's facts wait on the session (ses.prized) until Finish records them.
+local function PrizedGate(ses, key, areason, why, retry)
+    ses.prized = nil
+    local P = ns.Prized
+    local rec = not ses.plain and P and P.ForItem and P:ForItem(ses.i) or nil
+    if not rec or areason == "de" or areason == "bank" then return true end
+    local row
+    for _, r in ipairs(BuildResults(ses)) do
+        if r.key == key then row = r break end
+    end
+    local check = (row and row.prz) or P:Check(rec, key, {})
+    local broken = check.ok == false
+    if broken and not why then
+        if ns.Popup and retry then
+            ses.przRetry = retry
+            ns.Popup:Show("DISASTERZONE_PRIZED_OVERRIDE", ItemText(ses), NameText(key) .. "?\n\nBreaks: " ..
+                tostring(check.fail or "a loot rule"), { id = ses.id, key = key })
+        end
+        return false
+    end
+    local present = P:PresentCouncil()
+    local need = P:NeededVotes(rec, #present, broken)
+    local votes = row and row.votes or 0
+    if need > 0 and votes < need then
+        ns:Print("%s: %s needs %d of the %d council members here to vote for them (%d so far).", ItemText(ses),
+            Util.ShortName(key), need, #present, votes)
+        return false
+    end
+    ses.prized = { ov = broken and P:Broken(check) or nil, why = broken and why or nil, ag = votes, of = #present }
+    return true
+end
+
 -- Resolved only by a loot message (Addendum C): the item was handed out, but nobody has recorded /
 -- announced the award yet. An explicit award (Roll:Award, MarkAwardedExternally, RW) still goes through.
 local function LootMarked(ses)
@@ -1545,6 +1612,10 @@ local function Finish(ses, key, given, extraNote, areason)
     end
     -- A plain roll's winner has no BiS tier: no reason unless the awarder picked one ("roll" in the chat line).
     local reason = ns.AWARD_REASON[areason] and areason or (not ses.plain and ns.ReasonForTier(tier) or nil)
+    -- A prized item given against a rule: the loot log's note starts with the reason (the item's history has it whole).
+    local przInfo = ses.prized
+    ses.prized = nil
+    if przInfo and przInfo.why and not extraNote then extraNote = "override: " .. przInfo.why end
     local rr = ses.rolls[key]
     local rollText, note
     if rr and rr.roll then
@@ -1591,6 +1662,12 @@ local function Finish(ses, key, given, extraNote, areason)
     elseif Ledger and Ledger.RecordRollAward and AmRealCouncil() then
         Ledger:RecordRollAward(ses.id, ses.i, key, ses.b, note, me, ses.awardTs, true, ses.party and true or false,
             reason)
+    end
+    -- 1.3.5: a prized item's hand-out goes to the whole guild (its cooldown, queue and pair rules and its history).
+    local P = ns.Prized
+    if not ses.plain and P and P.ForItem and P:ForItem(ses.i) and reason ~= "de" and reason ~= "bank" then
+        local info = przInfo or {}
+        P:RecordGiven(ses.i, key, { ov = info.ov, why = info.why, ag = info.ag or votes, of = info.of })
     end
     if not ses.demo then
         -- r (Addendum G, ignored by older clients): the award reason, so every council client logs the same one.
@@ -1680,7 +1757,8 @@ end
 -- first, then asks for confirmation: DISASTERZONE_GIVE_ITEM when I can master-loot it right now, else
 -- DISASTERZONE_CONFIRM_AWARD.
 -- areason (optional, Addendum G): the award reason (an ns.AWARD_REASONS key); nil = from the winner's BiS tier.
-function Roll:Award(id, key, areason)
+-- why (optional, 1.3.5): the reason for awarding a prized item against its loot rules (the override pop-up's).
+function Roll:Award(id, key, areason, why)
     local ses = self:Get(id)
     key = Util.NormalizeName(key)
     if not ses or not key then return false end
@@ -1693,6 +1771,8 @@ function Roll:Award(id, key, areason)
         return false
     end
     if ses.state ~= "open" and ses.state ~= "closed" and not LootMarked(ses) then return false end
+    if not ns.AWARD_REASON[areason] then areason = nil end
+    if not PrizedGate(ses, key, areason, why, function(w) Roll:Award(id, key, areason, w) end) then return false end
     if ses.state == "open" then
         CloseSession(ses)
         if not ses.demo then Send({ t = "RE", id = ses.id }) end
@@ -1736,6 +1816,11 @@ function Roll:MarkAwardedExternally(id, key, note, areason)
     if ses.state == "awarded" and not LootMarked(ses) then
         if ses.winner == key then return true end   -- already recorded (my click or someone's RW)
         return false, "awarded"
+    end
+    -- 1.3.5: a prized item's rules and agree count (an override asks why, then awards through Roll:Award)
+    if not ns.AWARD_REASON[areason] then areason = nil end
+    if not PrizedGate(ses, key, areason, nil, function(w) Roll:Award(id, key, areason, w) end) then
+        return false, "prized"
     end
     if ses.state == "open" then
         CloseSession(ses)
@@ -2499,6 +2584,49 @@ function Roll:OnInit()
             button1 = "Give",
             button2 = CANCEL or "Cancel",
             OnAccept = Guarded(function(_, data) Roll:ConfirmGive(data) end),
+            timeout = 0,
+            whileDead = true,
+            hideOnEscape = true,
+            preferredIndex = 3,
+        }
+        -- 1.3.5: awarding a prized item to a player who breaks one of its loot rules: why (everyone sees it)
+        local function OverrideAccept(text, data)
+            local why = type(text) == "string" and text or ""
+            why = why:gsub("[%c|]", " "):gsub("^%s+", ""):gsub("%s+$", "")
+            local ses = type(data) == "table" and Roll:Get(data.id)
+            if not ses then return end
+            if why == "" then
+                ns:Print("Write why first: the guild sees the reason with the award.")
+                Util.After(0.05, function()
+                    ns.Popup:Show("DISASTERZONE_PRIZED_OVERRIDE", ItemText(ses), NameText(data.key) .. "?", data)
+                end)
+                return
+            end
+            local retry = ses.przRetry
+            ses.przRetry = nil
+            if retry then retry(why) end
+        end
+        ns.Popup.dialogs["DISASTERZONE_PRIZED_OVERRIDE"] = {
+            title = "Award against the loot rules",
+            text = "Give %s to %s\n\nWhy? Everyone sees this reason in the item's history.",
+            button1 = "Award anyway",
+            button2 = CANCEL or "Cancel",
+            hasEditBox = 1,
+            maxLetters = 140,
+            OnAccept = Guarded(function(self, data)
+                local eb = self.GetEditBox and self:GetEditBox() or self.editBox
+                OverrideAccept(eb and eb:GetText(), data)
+            end),
+            EditBoxOnEnterPressed = function(eb)
+                local popup = eb:GetParent()
+                local data, text = popup and popup.data, eb:GetText()
+                if popup then popup:Hide() end
+                OverrideAccept(text, data)
+            end,
+            EditBoxOnEscapePressed = function(eb)
+                local popup = eb:GetParent()
+                if popup then popup:Hide() end
+            end,
             timeout = 0,
             whileDead = true,
             hideOnEscape = true,

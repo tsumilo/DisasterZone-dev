@@ -1359,6 +1359,9 @@ UI.ICON.poll = 55
 UI.ICON.flask, UI.ICON.chart = 57, 58
 -- (the Performance page, art pack 7: 59 a stopwatch (Measure 30 s); check ns:HasAssets(7) first, else UI.ICON.play)
 UI.ICON.stopwatch = 59
+-- (prized items, Raids > Loot rules, art pack 7: 60 a seal with a star, 61 one person, 62 a shield, 63 two links,
+-- 64 a ballot box; check ns:HasAssets(7) first)
+UI.ICON.prized, UI.ICON.person, UI.ICON.shield, UI.ICON.pair, UI.ICON.ballot = 60, 61, 62, 63, 64
 function UI:IconCoords(i)
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
     return { col / 4, (col + 1) / 4, row / UI.ICON_ROWS, (row + 1) / UI.ICON_ROWS }

@@ -544,6 +544,10 @@ local function recordAward(itemID, key, bossKey, reason)
         return
     end
     if not (ns.Ledger and ns.Ledger.Award) then return end
+    if ns.Prized and ns.Prized.IsPrized and ns.Prized:IsPrized(itemID) then
+        ns:Print("Prized item: award it from the drop panel, so the council can vote (Raids > Loot rules).")
+        return
+    end
     local entry = ns.Ledger:Award(itemID, key, bossKey or "", nil, nil, reason)
     if entry then
         ns:Print("Recorded award: %s to %s.", itemLink(itemID) or itemName(itemID) or ("item " .. itemID), shortName(key))

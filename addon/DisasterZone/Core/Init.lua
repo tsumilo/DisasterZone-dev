@@ -298,6 +298,8 @@ local KNOWN_MESSAGES = {
     -- the notification center (Core/Notify.lua): (none) the feed or its counts changed; (id) something new arrived
     NOTIFY_CHANGED = true, NOTIFY_NEW = true,
     POLLS_UPDATED = true, POLL_ANSWERED = true, POLL_ARRIVED = true, POLL_NUDGED = true,
+    -- Core/Prized.lua: prized items (Raids > Loot rules) changed; (recordId, text, by) someone else changed the rules
+    PRIZED_UPDATED = true, PRIZED_RULES_CHANGED = true,
     -- Group Finder + dungeon run invites
     GROUP_FINDER_UPDATED = true, GROUP_FINDER_PROMPT = true, GROUP_FINDER_LEFTOVER = true,
     DUNGEON_RUN_INVITE = true, DUNGEON_RUN_INVITE_GONE = true,

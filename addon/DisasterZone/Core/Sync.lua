@@ -447,6 +447,9 @@ function Sync:SendHello(force)
     -- 1.3.4: the hash of the guild's polls (Core/Polls.lua)
     local Polls = ns.Polls
     if Polls and Polls.GetDigestHash then msg.od = Polls:GetDigestHash() end
+    -- 1.3.5: the hash of the guild's prized items and their loot rules (Core/Prized.lua)
+    local Prized = ns.Prized
+    if Prized and Prized.GetDigestHash then msg.zd = Prized:GetDigestHash() end
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -774,6 +777,8 @@ local function OnHello(sender, msg, dist)
     if Events and Events.OnHelloDigest then Events:OnHelloDigest(sender, msg.ed) end
     local Polls = ns.Polls
     if Polls and Polls.OnHelloDigest then Polls:OnHelloDigest(sender, msg.od) end
+    local Prized = ns.Prized
+    if Prized and Prized.OnHelloDigest then Prized:OnHelloDigest(sender, msg.zd) end
     local G = ns.Guild
     if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
     if G and G.OnAccountsSeen then G:OnAccountsSeen(sender, msg.av) end
