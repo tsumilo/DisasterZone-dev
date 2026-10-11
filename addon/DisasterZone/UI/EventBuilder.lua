@@ -3221,6 +3221,8 @@ end
 ---------------------------------------------------------------------------
 
 -- onDone(name) gets the name cleaned (maxLen: default 24); check(name) -> why it can't be (shown), or nil.
+-- TODO(refactor): move onto ns.Popup:Prompt (it needs a handle the builder can hide with its window, and the field
+-- and error line the tests drive); until then it wears ns.Popup's panel and the shared buttons.
 function Builder:AskName(title, current, onDone, maxLen, check)
     local f = ui.ask
     if not f then
@@ -3235,9 +3237,9 @@ function Builder:AskName(title, current, onDone, maxLen, check)
         f.glint:Hide()
         f.field = UI():CreateSleekEditBox(f, 256, 24)
         f.field:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -32)
-        f.ok = UI():CreateSleekButton(f, "Done", 70, 22, function() f:Done() end, "primary")
+        f.ok = UI():CreateSleekButton(f, "Done", 70, St.BTN_H, function() f:Done() end, "primary")
         f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 10)
-        f.cancel = UI():CreateSleekButton(f, "Cancel", 70, 22, function() f:Hide() end)
+        f.cancel = UI():CreateSleekButton(f, "Cancel", 70, St.BTN_H, function() f:Hide() end)
         f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
         f.err = UI():Text(f, "small", "BAD")
         f.err:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 21)
