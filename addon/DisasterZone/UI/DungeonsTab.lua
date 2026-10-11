@@ -6,9 +6,12 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DungeonsTab.lua", ...) then ret
 -- preview that is exactly the card the guild will see. A small pop-up pings me when a run needs me while I'm up for
 -- one, and the leader when somebody asks to join; a run's party invite is a pop-up too. The eye on my run lists it
 -- in Blizzard's Group Finder (it looks around while listed) and the players from outside the guild show up under it.
--- 1.4: a Board page (UI:CreateLayout): the toolbar holds "I'm up for a run" and the main action List a run; section
--- headers, the shared empty state, the sheet on UI:CreateSheet (a cover over the page), the pop-up on UI:Toast, the
--- shared role icons, pills and text styles, colours from ns.Style.
+-- 1.4: a Board page (UI:CreateLayout): the toolbar holds "I'm up for a run" (the shared switch, the roles as sleek
+-- buttons) and the main action List a run (my own run in its place: a quiet line); the runs are shared cards
+-- (UI:CreateCard; my run wears the picked look) under section headers, the members up for a run are chips
+-- (UI:CreateChip), the shared empty state. The List a run sheet (UI:CreateSheet, a cover) has Normal / Heroic, When and
+-- my role as segments (UI:CreateSegments), the complexes as art rows (UI:CreateArtRow) with their dungeons' tiles, a
+-- caps header over the preview; the pop-up is UI:Toast. Shared role icons, pills, text styles, ns.Style colours.
 local addonName, ns = ...
 
 local DungeonsUI = ns:NewModule("DungeonsUI")
@@ -28,8 +31,8 @@ local GAP = 6
 local SECTION_H = 26
 local TOAST_KEY = "dz-dungeon-run"   -- the run pop-up's UI:Toast key (one at a time)
 local REQ_H = 30
-local ROW_H, ROW_GAP = 50, 6     -- the sheet's complex rows
-local TILE_W, TILE_H, TILE_GAP = 136, 34, 6
+local ROW_H, ROW_GAP = S.ROW.art, 6   -- the sheet's complex rows (UI:CreateArtRow)
+local TILE_W, TILE_H, TILE_GAP = 130, 34, 5
 local TOAST_W, TOAST_H, TOAST_ART = 440, 76, 112
 local TOAST_FOR = 25
 
@@ -41,10 +44,7 @@ local STAR = "|T" .. STAR_TEX .. ":11:11:0:0|t"
 local ROLE_NAME = { tank = "tank", healer = "healer", dps = "DPS" }
 
 local GOLD = S.C.GOLD
-local CARD_BG = S.C.CARD
-local MINE_BG = { 0.13, 0.12, 0.08, 0.94 }   -- my own run's card: a warm lift
-local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }
-local OFF_BG = { 0.055, 0.055, 0.067 }      -- a sheet tile's well
+local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }   -- the List a run sheet: a cover over the page
 
 local panel, toast
 local state = { sheet = nil, invited = {} }
@@ -55,23 +55,10 @@ local state = { sheet = nil, invited = {} }
 
 local function R() return ns.DungeonRuns end
 local function UI() return ns.UI end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
 local function Me() return ns.Util.PlayerKey() end
-local function grey(text) return S:Wrap("SUB", text) end
-local function gold(text) return S:Wrap("GOLD", text) end
-local function orange(text) return S:Wrap("WARN", text) end
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 -- The run pop-up on screen (UI:Toast under TOAST_KEY), or nil.
 local function RunToast() return UI():GetToast(TOAST_KEY) end
 
--- A text on the type scale (UI:Text: a style name, or a size that snaps to the scale).
-local function Text(parent, style, color, layer)
-    return UI():Text(parent, style or "emph", color, layer and { layer = layer } or nil)
-end
-
--- The role icons (tank / healer / DPS): the shared ones.
-local function SetRole(tex, role) UI():SetRoleIcon(tex, role) end
-local function RoleIconText(role, size) return UI():RoleIconText(role, size) end
 
 local function Disc(parent, layer, sub, size, c)
     local t = parent:CreateTexture(nil, layer, nil, sub)
@@ -81,14 +68,15 @@ local function Disc(parent, layer, sub, size, c)
     return t
 end
 
--- A text that fits: the full name, else the short one, else the short one a step smaller (sizes snap to the scale).
-local function FitText(fs, full, short, width, size)
-    UI():SetTextStyle(fs, size, "TEXT")
+-- A dungeon's name that fits: the full name, else the short one, else the short one a step down the type scale.
+local NEXT_STYLE = { title = "emph", emph = "body" }
+local function FitName(fs, full, short, width, style)
+    UI():SetTextStyle(fs, style, "TEXT")
     fs:SetText(full)
     if (fs:GetStringWidth() or 0) <= width or not short then return end
     fs:SetText(short)
     if (fs:GetStringWidth() or 0) <= width then return end
-    UI():SetTextStyle(fs, S:Size(size) - 1, "TEXT")
+    UI():SetTextStyle(fs, NEXT_STYLE[style] or style, "TEXT")
 end
 
 local function ItemLinkText(itemID)
@@ -97,14 +85,14 @@ local function ItemLinkText(itemID)
         local n, _, q = ns.ItemDB:GetInfo(itemID)
         name, quality = n, q
     end
-    if not name then return grey("Loading...") end
+    if not name then return S:Wrap("SUB", "Loading...") end
     local r, g, b = UI():QualityColor(quality)
     return ("|cff%02x%02x%02x[%s]|r"):format(floor(r * 255), floor(g * 255), floor(b * 255), name)
 end
 
 -- "starting now", "listed 25 min ago", "20:30, in 2 h", "Tomorrow 20:30", "Sat 20:30", "started 10 min ago".
 local function WhenText(run)
-    local now = Now()
+    local now = ns.Util.Now()
     local at = run.at or 0
     if at == 0 then
         local age = floor((now - (run.c or now)) / 60)
@@ -129,7 +117,7 @@ end
 
 -- The day label of a later run's section: "today", "Tomorrow", "Saturday 11 Oct".
 local function DayLabel(at)
-    local now = Now()
+    local now = ns.Util.Now()
     if date("%Y%m%d", now) == date("%Y%m%d", at) then return "today" end
     if date("%Y%m%d", now + 86400) == date("%Y%m%d", at) then return "Tomorrow" end
     return date("%A ", at) .. tonumber(date("%d", at)) .. date(" %b", at)
@@ -140,11 +128,8 @@ local function DungeonName(run)
     return d and d.name or tostring(run.d), d and d.short or nil
 end
 
-local function Tip(owner, lines, anchor)
-    UI():SetTextTooltip(owner, lines, anchor or "ANCHOR_RIGHT")
-end
-
-local function HideTip() GameTooltip:Hide() end
+-- (an OnLeave handler: the shared tooltip goes)
+local function HideTip() UI():HideTooltip() end
 
 -- A tooltip built by a function (a card's, a tile's) can say "Loading..." for an item not cached yet: once the
 -- page refreshes (item info arrived, or anything else), the tooltip still under the mouse is built again.
@@ -230,7 +215,7 @@ local function NewSlot(parent, size)
     s.badge:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", 3, -3)
     s.orbit = NewOrbit(s)
     s:EnableMouse(true)
-    s:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
+    s:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip, "ANCHOR_TOP") end end)
     s:SetScript("OnLeave", HideTip)
     s:SetScript("OnMouseUp", function(self) if self.onPick then self.onPick(self) end end)   -- (my run: the role)
     return s
@@ -244,7 +229,7 @@ local function FillSlot(s, d, wants, dim)
         s.class:Hide()
         s.badge:Hide()
         s.role:Show()
-        SetRole(s.role, d.role)
+        UI():SetRoleIcon(s.role, d.role)
         s.fill:SetVertexColor(0.07, 0.07, 0.08, 1)
         if wants then
             s.ring:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.75)
@@ -266,11 +251,11 @@ local function FillSlot(s, d, wants, dim)
         UI():ClassIcon(s.class, d.class)
         if not d.class then s.class:Hide() end
         s.badge:Show()
-        SetRole(s.badge, d.role)
+        UI():SetRoleIcon(s.badge, d.role)
         s.ring:SetVertexColor(d.you and GOLD[1] or 0, d.you and GOLD[2] or 0, d.you and GOLD[3] or 0, d.you and 0.9 or 1)
         local spec = R():GetSpecLabel(d.key)
         local line = R().ROLE_LABEL[d.role] .. (spec and (" · " .. spec) or "")
-        s.tip = { UI():ColoredName(d.key, d.class), line, d.owner and grey("Leads the run") or nil }
+        s.tip = { UI():ColoredName(d.key, d.class), line, d.owner and S:Wrap("SUB", "Leads the run") or nil }
     end
 end
 
@@ -282,10 +267,16 @@ local function NewButton(parent, text, w, h, kind, onClick)
     return UI():CreateSleekButton(parent, text, w, h, onClick, kind)
 end
 
-local function NewCard(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c.bg = UI():Fill(c, "CARD")
-    UI():AddEdges(c, "BORDER")
+-- A run's card: the shared card (UI:CreateCard) with the shared row looks (the hover; my own run wears the picked
+-- look, the gold wash and bar), the dungeon's art on its left fading into the card, the texts, the five places and
+-- the action.
+local function NewRunCard(parent)
+    local c = UI():CreateCard(parent, { tone = "card", pad = 0 })
+    c:EnableMouse(true)
+    c.liveTip = true
+    c:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip(), "ANCHOR_RIGHT") end end)
+    c:SetScript("OnLeave", UI().HideTooltip)
+    UI():DecorateRow(c, { selectable = true })
     c.art = c:CreateTexture(nil, "ARTWORK", nil, 0)
     c.art:SetPoint("TOPLEFT", 1, -1)
     c.fade = c:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -296,10 +287,10 @@ local function NewCard(parent)
     c.skull:SetTexture(HEROIC_TEX)
     c.skull:SetTexCoord(0, 0.5, 0, 0.625)
     c.skull:SetSize(11, 14)
-    c.heroic = Text(c, "small", "GOLD")
+    c.heroic = UI():Text(c, "small", "GOLD")
     c.heroic:SetText("Heroic")
     c.heroic:SetPoint("LEFT", c.skull, "RIGHT", 2, 0)
-    c.t1 = Text(c, 15, "TEXT")
+    c.t1 = UI():Text(c, "title", "TEXT")
     c.notes = CreateFrame("Frame", nil, c)
     c.notes:SetSize(14, 14)
     c.notes.icon = c.notes:CreateTexture(nil, "OVERLAY")
@@ -309,11 +300,11 @@ local function NewCard(parent)
     c.notes.icon:SetVertexColor(0.7, 0.7, 0.7, 0.8)
     c.notes:EnableMouse(true)
     c.notes:SetScript("OnEnter", function(self)
-        if self.note then Tip(self, { "Note", self.note }, "ANCHOR_TOP") end
+        if self.note then UI():SetTextTooltip(self, { "Note", self.note }, "ANCHOR_TOP") end
     end)
     c.notes:SetScript("OnLeave", HideTip)
-    c.t2 = Text(c, "body", "SUB")
-    c.t3 = Text(c, "body", "TEXT")
+    c.t2 = UI():Text(c, "body", "SUB")
+    c.t3 = UI():Text(c, "body", "TEXT")
     c.hint = CreateFrame("Frame", nil, c)            -- the BiS item's tooltip
     c.hint:SetPoint("TOPLEFT", c.t3, "TOPLEFT")
     c.hint:SetPoint("BOTTOMRIGHT", c.t3, "BOTTOMRIGHT")
@@ -332,9 +323,6 @@ local function NewCard(parent)
             "Share your run")
     end
     c.reqs, c.free = {}, {}
-    c.liveTip = true
-    c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip()) end end)
-    c:SetScript("OnLeave", HideTip)
     return c
 end
 
@@ -369,15 +357,15 @@ local function CardTip(run)
         lines[#lines + 1] = "Led by " .. UI():ColoredName(run.o) .. " · " .. WhenText(run)
         local who = {}
         for _, s in ipairs(R():GetSlots(run)) do
-            if not s.empty then who[#who + 1] = RoleIconText(s.role, 12) .. " " .. UI():ColoredName(s.key, s.class) end
+            if not s.empty then who[#who + 1] = UI():RoleIconText(s.role, 12) .. " " .. UI():ColoredName(s.key, s.class) end
         end
         if #who > 0 then lines[#lines + 1] = tconcat(who, "   ") end
-        if run.no then lines[#lines + 1] = grey("\"" .. run.no .. "\"") end
+        if run.no then lines[#lines + 1] = S:Wrap("SUB", "\"" .. run.no .. "\"") end
         local drops = R():GetMyBiSDrops(run.d, run.h)
         if #drops > 0 and run.o ~= Me() then
-            lines[#lines + 1] = gold("Drops your BiS:")
+            lines[#lines + 1] = S:Wrap("GOLD", "Drops your BiS:")
             for i, id in ipairs(drops) do
-                if i > 6 then lines[#lines + 1] = grey("+" .. (#drops - 6) .. " more") break end
+                if i > 6 then lines[#lines + 1] = S:Wrap("SUB", "+" .. (#drops - 6) .. " more") break end
                 lines[#lines + 1] = "  " .. ItemLinkText(id)
             end
         end
@@ -389,20 +377,20 @@ end
 local function HintFor(run)
     if run.o == Me() then return nil end
     local a = R():GetAsked(run.id)
-    if a and a.st == "declined" then return grey(shortName(run.o) .. " said not this time") end
+    if a and a.st == "declined" then return S:Wrap("SUB", ns.Util.ShortName(run.o) .. " said not this time") end
     local block = R():GetBlocker(run.d, run.h)
-    if block then return orange(UI():LockIcon(12) .. " " .. block) end
+    if block then return S:Wrap("WARN", UI():LockIcon(12) .. " " .. block) end
     if R():IsGrouped() and not R():IsInRun(run) and R():FitsMe(run) then
-        return grey("You're in a group: leave it to join")
+        return S:Wrap("SUB", "You're in a group: leave it to join")
     end
     local drops = R():GetMyBiSDrops(run.d, run.h)
     if #drops > 0 then
-        local more = #drops > 1 and grey(" +" .. (#drops - 1)) or ""
-        return gold(STAR .. " Drops your BiS ") .. ItemLinkText(drops[1]) .. more, drops[1], drops
+        local more = #drops > 1 and S:Wrap("SUB", " +" .. (#drops - 1)) or ""
+        return S:Wrap("GOLD", STAR .. " Drops your BiS ") .. ItemLinkText(drops[1]) .. more, drops[1], drops
     end
     local daily = R():GetMyDaily(run.d, run.h)
     if daily == "log" or daily == "today" then
-        return "|TInterface\\GossipFrame\\DailyQuestIcon:12:12:0:0|t " .. gold(run.h and "Your daily heroic"
+        return "|TInterface\\GossipFrame\\DailyQuestIcon:12:12:0:0|t " .. S:Wrap("GOLD", run.h and "Your daily heroic"
             or "Your daily dungeon")
     end
     return nil
@@ -422,9 +410,9 @@ local function NewReqRow(c)
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(22, 22)
     r.icon:SetPoint("LEFT", 0, 0)
-    r.name = Text(r, "emph", "TEXT")
+    r.name = UI():Text(r, "emph", "TEXT")
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
-    r.spec = Text(r, "body", "SUB")
+    r.spec = UI():Text(r, "body", "SUB")
     r.spec:SetPoint("LEFT", r.name, "RIGHT", 7, 0)
     r.tag = UI():CreatePill(r, "bis", STAR .. " BiS here")
     r.tag:SetPoint("LEFT", r.spec, "RIGHT", 9, 0)
@@ -437,51 +425,37 @@ local function NewReqRow(c)
     r.no.icon:SetPoint("BOTTOMRIGHT", -4, 4)
     r.no:SetPoint("RIGHT", 0, 0)
     r.no:SetScript("OnEnter", function(self)
-        Tip(self, { "Not this time", "Lets them know, kindly." }, "ANCHOR_TOP")
+        UI():SetTextTooltip(self, { "Not this time", "Lets them know, kindly." }, "ANCHOR_TOP")
     end)
     r.no:SetScript("OnLeave", HideTip)
     r.yes = NewButton(r, "Accept", 70, 22, "primary", function(self) if self.onClick then self.onClick() end end)
     r.yes:SetPoint("RIGHT", r.no, "LEFT", -5, 0)
-    r.state = Text(r, "body", "TEXT")
+    r.state = UI():Text(r, "body", "TEXT")
     r.state:SetPoint("RIGHT", r.no, "LEFT", -10, 0)
     return r
 end
 
--- A person chip: class circle, name in class colour, role icons. Width fits the content.
--- TODO(refactor): move into UI:CreateChip (a 24 px person chip with a trailing text after the name: the role icons)
-local function NewChip(parent)
-    local f = CreateFrame("Button", nil, parent)
-    f:SetHeight(24)
-    UI():AddPillShape(f, 24)
-    f:SetPillColors(S.C.CARD, S.C.EDGE_STRONG)
-    f.icon = f:CreateTexture(nil, "ARTWORK")
-    f.icon:SetSize(20, 20)
-    f.icon:SetPoint("LEFT", 2, 0)
-    f.name = Text(f, "emph", "TEXT")
-    f.name:SetPoint("LEFT", f.icon, "RIGHT", 6, 0)
-    f.roles = Text(f, "small", "TEXT")
-    f.roles:SetPoint("LEFT", f.name, "RIGHT", 4, 0)
-    f:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
-    f:SetScript("OnLeave", HideTip)
+-- A person chip (UI:CreateChip: the class circle, the name in class colour, the role icons after it; it fits its
+-- content). onClick: a click whispers them (the strip); none on my run's card (Invite sits beside it).
+local function NewPersonChip(parent, onClick)
+    local f = UI():CreateChip(parent, { kind = "track", onClick = onClick })
+    UI():AttachTooltip(f, nil, function(self) return self.tipLines end, { anchor = "ANCHOR_TOP" })
     return f
 end
 
 local function FillChip(f, e)
-    UI():ClassIcon(f.icon, e.class)
-    f.name:SetText(UI():ColoredName(e.key, e.class))
     local icons, words = {}, {}
     for _, role in ipairs(R().ROLES) do
         if e.roles[role] then
-            icons[#icons + 1] = RoleIconText(role, 13)
+            icons[#icons + 1] = UI():RoleIconText(role, 13)
             words[#words + 1] = R().ROLE_LABEL[role]
         end
     end
-    f.roles:SetText(tconcat(icons, ""))
-    f:SetWidth(floor(2 + 20 + 6 + (f.name:GetStringWidth() or 40) + 4 + (f.roles:GetStringWidth() or 0) + 9))
+    f:Set(UI():ColoredName(e.key, e.class) .. " " .. tconcat(icons, ""), nil, e.key)
     f.key = e.key
-    f.tip = { UI():ColoredName(e.key, e.class), "Up for a run: " .. tconcat(words, ", "),
-              e.grouped and orange("In a group right now: an invite can't reach them.") or grey("Click to whisper"),
-              e.grouped and grey("Click to whisper") or nil }
+    f.tipLines = { { UI():ColoredName(e.key, e.class) }, "Up for a run: " .. tconcat(words, ", "),
+        e.grouped and S:Wrap("WARN", "In a group right now: an invite can't reach them.") or S:Wrap("SUB", "Click to whisper"),
+        e.grouped and S:Wrap("SUB", "Click to whisper") or nil }
     f:SetAlpha(e.grouped and 0.55 or 1)
 end
 
@@ -501,7 +475,7 @@ local function GFm() return ns.GroupFinder end
 
 local function HookTip(b, lines)
     b.tipLines = lines
-    b:HookScript("OnEnter", function(self) if self.tipLines then Tip(self, self.tipLines, "ANCHOR_TOP") end end)
+    b:HookScript("OnEnter", function(self) if self.tipLines then UI():SetTextTooltip(self, self.tipLines, "ANCHOR_TOP") end end)
     b:HookScript("OnLeave", HideTip)
 end
 
@@ -565,21 +539,21 @@ local function FillEye(eye, run)
     local where = (d and d.name or run.d) .. (run.h and " (Heroic)" or "")
     eye:SetLooking(forRun)
     if forRun then
-        local mins = since and max(1, floor((Now() - since) / 60))
+        local mins = since and max(1, floor((ns.Util.Now() - since) / 60))
         local n = #GF:GetCandidates(run)
-        local lines = { "In the Group Finder" .. (mins and grey(" · " .. mins .. " min") or ""),
+        local lines = { "In the Group Finder" .. (mins and S:Wrap("SUB", " · " .. mins .. " min") or ""),
             "Listed as " .. where .. ". Players looking for it there, and anyone who whispers you, show up on your run." }
         -- (only PUG_ROWS fit under the run: setting some aside shows the next ones)
         if n > PUG_ROWS then
-            lines[#lines + 1] = gold(n .. " players found: the first " .. PUG_ROWS .. " show under your run. Set some "
+            lines[#lines + 1] = S:Wrap("GOLD", n .. " players found: the first " .. PUG_ROWS .. " show under your run. Set some "
                 .. "aside to see the others.")
         end
-        lines[#lines + 1] = grey("Click to take it out. It stays on the guild's board.")
+        lines[#lines + 1] = S:Wrap("SUB", "Click to take it out. It stays on the guild's board.")
         eye.tipLines = lines
     else
         eye.tipLines = { "Group Finder", "Lists your run in Blizzard's Group Finder as " .. where .. ". Players looking "
             .. "for it there, and anyone who whispers you, show up on your run.",
-            listed and grey("Your group is listed there for another dungeon: this switches it.") or nil }
+            listed and S:Wrap("SUB", "Your group is listed there for another dungeon: this switches it.") or nil }
     end
     eye.onClick = function()
         if select(2, GF:GetListing(run)) then
@@ -601,11 +575,11 @@ local function NewPugRow(c)
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(22, 22)
     r.icon:SetPoint("LEFT", 0, 0)
-    r.name = Text(r, "emph", "TEXT")
+    r.name = UI():Text(r, "emph", "TEXT")
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
-    r.info = Text(r, "body", "SUB")
+    r.info = UI():Text(r, "body", "SUB")
     r.info:SetPoint("LEFT", r.name, "RIGHT", 7, 0)
-    r.text = Text(r, "body", "TEXT")
+    r.text = UI():Text(r, "body", "TEXT")
     r.text:SetPoint("LEFT", r.info, "RIGHT", 8, 0)
     r.no = UI():CreateIconButton(r, 22, NO_TEX, nil, function(self) if self.onClick then self.onClick() end end)
     r.no.icon:ClearAllPoints()
@@ -618,9 +592,9 @@ local function NewPugRow(c)
     r.say:SetPoint("RIGHT", r.no, "LEFT", -4, 0)
     r.yes = NewButton(r, "Invite", 62, 22, "secondary", function(self) if self.onClick then self.onClick() end end)
     r.yes:SetPoint("RIGHT", r.say, "LEFT", -5, 0)
-    r.state = Text(r, "body", "TEXT")
+    r.state = UI():Text(r, "body", "TEXT")
     r.state:SetPoint("RIGHT", r.say, "LEFT", -10, 0)
-    r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
+    r:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip, "ANCHOR_TOP") end end)
     r:SetScript("OnLeave", HideTip)
     r:SetScript("OnClick", function(self) if self.key then GFm():Whisper(self.key) end end)
     return r
@@ -652,8 +626,8 @@ local function PugTip(e)
     if #bits > 0 then lines[#lines + 1] = tconcat(bits, " · ") end
     if #roles > 0 then lines[#lines + 1] = "Listed as " .. tconcat(roles, ", ") end
     if e.text then lines[#lines + 1] = (e.whispered and "Whispered you: " or "Their note: ") .. "\"" .. e.text .. "\"" end
-    if e.role and not e.invited then lines[#lines + 1] = grey("Invite takes them as " .. ROLE_NAME[e.role] .. ".") end
-    lines[#lines + 1] = grey("Click to whisper")
+    if e.role and not e.invited then lines[#lines + 1] = S:Wrap("SUB", "Invite takes them as " .. ROLE_NAME[e.role] .. ".") end
+    lines[#lines + 1] = S:Wrap("SUB", "Click to whisper")
     return lines
 end
 
@@ -678,7 +652,7 @@ local function FillFinder(c, run, x, y, w)
         r.name:SetText(UI():ColoredName(e.key, e.class))
         local icons = {}
         for _, role in ipairs(R().ROLES) do
-            if e.roles[role] then icons[#icons + 1] = RoleIconText(role, 12) end
+            if e.roles[role] then icons[#icons + 1] = UI():RoleIconText(role, 12) end
         end
         local info = tconcat(icons, "")
         if e.level then info = info .. (info ~= "" and " " or "") .. e.level end
@@ -687,7 +661,7 @@ local function FillFinder(c, run, x, y, w)
         local rightW = 22 + 4 + 22 + 5 + 62
         if e.invited then
             r.yes:Hide()
-            r.state:SetText(grey("Invited"))
+            r.state:SetText(S:Wrap("SUB", "Invited"))
             r.state:Show()
             rightW = 22 + 4 + 22 + 10 + (r.state:GetStringWidth() or 40)
         else
@@ -729,19 +703,13 @@ local function FillCard(c, run, opts)
     local slot = compact and 26 or SLOT
     local slotGap = compact and 4 or SLOT_GAP
     local actW = compact and 0 or ACT_W
-    local bg = mine and MINE_BG or CARD_BG
     c:SetWidth(w)
-    c.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4] or 1)
+    c:SetTone("card")
+    c:SetSelected(mine and not compact)
+    -- a run the page was opened on (a chat link, the calendar) lights up for a moment: the focus edge
     local focused = not compact and state.focus == run.id and GetTime() < (state.focusUntil or 0)
-    if focused then
-        UI():SetEdgeColor(c, 1, 0.9, 0.4, 1)
-        c.bg:SetColorTexture(bg[1] + 0.07, bg[2] + 0.06, bg[3] + 0.02, bg[4] or 1)
-    elseif mine then
-        UI():SetEdgeColor(c, GOLD[1], GOLD[2], GOLD[3], 0.75)
-    else
-        UI():SetEdgeColor(c, S:Color("EDGE"))
-    end
-    SetArt(c, run.d, artW, CARD_H - 2, bg)
+    if focused then UI():SetEdgeColor(c, S:Color("EDGE_FOCUS")) end
+    SetArt(c, run.d, artW, CARD_H - 2, S.C.CARD)
     c.skull:ClearAllPoints()
     c.skull:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT", 7, 7)
     c.skull:SetShown(run.h and true or false)
@@ -769,7 +737,7 @@ local function FillCard(c, run, opts)
             if mine and not compact and not d.empty then
                 local key = d.key
                 s.onPick = function(self) DungeonsUI:OpenRoleMenu(self, key) end
-                s.tip[#s.tip + 1] = grey("Click to change the role")
+                s.tip[#s.tip + 1] = S:Wrap("SUB", "Click to change the role")
             end
             s:Show()
         else
@@ -781,11 +749,11 @@ local function FillCard(c, run, opts)
     local textX = artW + 4
     local textW = slotsRight - slotsW - 12 - textX
     local full, short = DungeonName(run)
-    FitText(c.t1, full, short, textW - (run.no and 20 or 0), compact and "emph" or 15)
+    FitName(c.t1, full, short, textW - (run.no and 20 or 0), compact and "emph" or "title")
     c.t1:SetTextColor(dim and 0.55 or 1, dim and 0.55 or 1, dim and 0.55 or 1)
     -- no leader on my own card, nor in the sheet's narrow preview (it's me; "Tomorrow 21:00" needs the room)
-    local leader = run.o == Me() and "" or (UI():ColoredName(run.o) .. grey(" · "))
-    c.t2:SetText(leader .. grey(WhenText(run)))
+    local leader = run.o == Me() and "" or (UI():ColoredName(run.o) .. S:Wrap("SUB", " · "))
+    c.t2:SetText(leader .. S:Wrap("SUB", WhenText(run)))
     c.t2:SetAlpha(dim and 0.55 or 1)
     local hint, itemID, items
     if not compact then hint, itemID, items = HintFor(run) end
@@ -855,7 +823,7 @@ local function FillCard(c, run, opts)
             c.btn:SetTint(0.3, 0.9, 0.4)
             tinted = true
             c.btn.onClick = function() R():AnswerInvite(true) end
-            c.btn.tip = { UI():ColoredName(inv.from) .. grey(" invites you"), "Click to join the party. The cross on "
+            c.btn.tip = { UI():ColoredName(inv.from) .. S:Wrap("SUB", " invites you"), "Click to join the party. The cross on "
                 .. "the pop-up declines." }
             c.btn:Show()
         elseif a and a.st == "asked" then
@@ -880,14 +848,14 @@ local function FillCard(c, run, opts)
                 local ok, why = R():Join(run.id)
                 if not ok and why then ns:Print("%s", why) end
             end
-            c.btn.tip = { "Join", "Asks " .. shortName(run.o) .. " to take you as " .. ROLE_NAME[fits] .. ".",
-                R():GetMine() and orange("Your own run comes off the board when you join.") or nil }
+            c.btn.tip = { "Join", "Asks " .. ns.Util.ShortName(run.o) .. " to take you as " .. ROLE_NAME[fits] .. ".",
+                R():GetMine() and S:Wrap("WARN", "Your own run comes off the board when you join.") or nil }
             c.btn:Show()
         end
         if c.btn:IsShown() then
             if not tinted then c.btn:SetTint(nil) end
             c.btn:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
-            c.btn:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
+            c.btn:SetScript("OnEnter", function(self) if self.tip then UI():SetTextTooltip(self, self.tip, "ANCHOR_TOP") end end)
             c.btn:SetScript("OnLeave", HideTip)
         end
     end
@@ -909,13 +877,13 @@ local function FillCard(c, run, opts)
             UI():ClassIcon(r.icon, classFile)
             r.name:SetText(UI():ColoredName(q.key, classFile))
             local spec = R():GetSpecLabel(q.key)
-            r.spec:SetText(RoleIconText(q.r, 12) .. " " .. (spec or R().ROLE_LABEL[q.r]))
+            r.spec:SetText(UI():RoleIconText(q.r, 12) .. " " .. (spec or R().ROLE_LABEL[q.r]))
             r.tag:SetShown(q.b and true or false)
-            r.tag.who = shortName(q.key) .. "'s"
+            r.tag.who = ns.Util.ShortName(q.key) .. "'s"
             local key = q.key
             if q.st == "invited" then
                 r.yes:Hide()
-                r.state:SetText(grey("Invited"))
+                r.state:SetText(S:Wrap("SUB", "Invited"))
                 r.state:Show()
             else
                 r.state:Hide()
@@ -942,7 +910,7 @@ local function FillCard(c, run, opts)
                 r = CreateFrame("Frame", nil, c)
                 r:SetHeight(REQ_H)
                 r.line = UI():Rule(r, { layer = "BORDER" })
-                r.label = Text(r, "body", "SUB")
+                r.label = UI():Text(r, "body", "SUB")
                 r.label:SetPoint("LEFT", 0, 0)
                 r.label:SetText("Up for a run")
                 r.chips, r.invites, r.busy = {}, {}, {}
@@ -958,10 +926,10 @@ local function FillCard(c, run, opts)
                 local chip, inv, busy = r.chips[i], r.invites[i], r.busy[i]
                 if e then
                     if not chip then
-                        chip = NewChip(r)
+                        chip = NewPersonChip(r)
                         inv = NewButton(r, "Invite", 56, 22, "secondary")
-                        busy = Text(r, "body", "TEXT")
-                        busy:SetText(grey("In a group"))
+                        busy = UI():Text(r, "body", "TEXT")
+                        busy:SetText(S:Wrap("SUB", "In a group"))
                         r.chips[i], r.invites[i], r.busy[i] = chip, inv, busy
                     end
                     FillChip(chip, e)
@@ -991,7 +959,6 @@ local function FillCard(c, run, opts)
                             end)
                             inv:Show()
                         end
-                        chip:SetScript("OnClick", nil)
                         chip:Show()
                         cx = cx + need
                     else
@@ -1021,51 +988,41 @@ end
 -- The page
 ---------------------------------------------------------------------------
 
+-- A role I'm up for (the toolbar's tank / healer / DPS): the sleek button, "chosen" while on, its role icon greyed
+-- while off.
 local function NewRoleChip(parent, role, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(24, 24)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    UI():AddEdges(b)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
+    local b = UI():CreateSleekButton(parent, "", 24, 24, function(self) onClick(self) end)
+    b.icon = b:CreateTexture(nil, "ARTWORK", nil, 2)
     b.icon:SetSize(18, 18)
     b.icon:SetPoint("CENTER")
-    SetRole(b.icon, role)
+    UI():SetRoleIcon(b.icon, role)
     b.role = role
     function b:SetOn(on)
         self.on = on and true or false
-        UI():PaintSleek(self, self.on and "chosen" or "secondary", false)
+        self:SetKind(self.on and "chosen" or "secondary")
         self.icon:SetDesaturated(not self.on)
         self.icon:SetAlpha(self.on and 1 or 0.3)
     end
-    b:SetScript("OnClick", function(self) onClick(self) end)
-    b:SetScript("OnEnter", function(self)
-        Tip(self, { R().ROLE_LABEL[role], self.on and "You're up for this role. Click to drop it."
-            or "Click to add this role." }, "ANCHOR_TOP")
-    end)
-    b:SetScript("OnLeave", HideTip)
+    UI():AttachTooltip(b, R().ROLE_LABEL[role], function(self)
+        return { self.tipText or (self.on and "You're up for this role. Click to drop it." or "Click to add this role.") }
+    end, { anchor = "ANCHOR_TOP" })
     b:SetOn(false)
     return b
-end
-
--- The on / off switch (the shared, animated one): a click asks onClick, s:SetOn(on) shows the answer.
-local function NewSwitch(parent, onClick)
-    return UI():CreateSwitch(parent, nil, function() onClick() end)
 end
 
 local function UpTip(owner)
     local untilT = R():GetUpUntil()
     local lines = { "I'm up for a run" }
     if untilT then
-        local left = max(1, floor((untilT - Now()) / 60))
+        local left = max(1, floor((untilT - ns.Util.Now()) / 60))
         lines[#lines + 1] = "The guild sees you're free for another " .. (left >= 60 and (floor(left / 60) .. " h "
             .. (left % 60) .. " min") or (left .. " min")) .. ", and you get a ping when a run needs one of your roles."
-        lines[#lines + 1] = grey("It switches off in a full party or a dungeon.")
+        lines[#lines + 1] = S:Wrap("SUB", "It switches off in a full party or a dungeon.")
     else
         lines[#lines + 1] = "Switch it on to show the guild you're free for 2 hours, with the roles beside it. You get "
             .. "a ping when a run needs one of them."
     end
-    Tip(owner, lines, "ANCHOR_BOTTOMLEFT")
+    UI():SetTextTooltip(owner, lines, "ANCHOR_BOTTOMLEFT")
 end
 
 -- "I'm up for a run" (the switch, its words, my roles) on the toolbar's left; List a run is its main action.
@@ -1076,12 +1033,13 @@ local function CreateTop(p)
     top:SetPoint("RIGHT", bar, "TOPRIGHT", -PAD - 130, -UI().LAYOUT.ROW_MID)
     top:SetHeight(30)
     p.top = top
-    top.switch = NewSwitch(top, function() R():SetUp(not R():IsUp()) end)
+    -- (the shared on / off switch: a click asks, s:SetOn(on) shows the answer)
+    top.switch = UI():CreateSwitch(top, nil, function() R():SetUp(not R():IsUp()) end)
     top.switch:SetPoint("LEFT", 0, 0)
     top.switch:HookScript("OnEnter", UpTip)
     top.switch:HookScript("OnLeave", HideTip)
     top.label = CreateFrame("Button", nil, top)
-    top.label.text = Text(top.label, "title", "TEXT")
+    top.label.text = UI():Text(top.label, "title", "TEXT")
     top.label.text:SetPoint("LEFT")
     top.label.text:SetText("I'm up for a run")
     top.label:SetSize((top.label.text:GetStringWidth() or 100) + 4, 20)
@@ -1122,12 +1080,11 @@ local function UpdateStrip(p, width)
     for i, e in ipairs(list) do
         local chip = strip.chips[i]
         if not chip then
-            chip = NewChip(strip)
-            strip.chips[i] = chip
-            chip:SetScript("OnClick", function(self)
+            chip = NewPersonChip(strip, function(self)
                 local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
                 if self.key and open then open("/w " .. ((Ambiguate and Ambiguate(self.key, "none")) or self.key) .. " ") end
             end)
+            strip.chips[i] = chip
         end
         FillChip(chip, e)
         local w = chip:GetWidth()
@@ -1160,15 +1117,15 @@ local function CreateStrip(p)
     local strip = CreateFrame("Frame", nil, p.layout.body)
     strip:SetHeight(STRIP_H)
     p.strip = strip
-    strip.label = Text(strip, "body", "SUB")
+    strip.label = UI():Text(strip, "caps")
     strip.label:SetPoint("LEFT", 0, 0)
-    strip.label:SetText("Up for a run")
+    strip.label:SetText(UI():CapsText("Up for a run"))
     strip.more = CreateFrame("Frame", nil, strip)
     strip.more:SetHeight(20)
-    strip.more.text = Text(strip.more, "body", "SUB")
+    strip.more.text = UI():Text(strip.more, "body", "SUB")
     strip.more.text:SetPoint("LEFT", 4, 0)
     strip.more:EnableMouse(true)
-    strip.more:SetScript("OnEnter", function(self) Tip(self, self.tip or {}, "ANCHOR_TOP") end)
+    strip.more:SetScript("OnEnter", function(self) UI():SetTextTooltip(self, self.tip or {}, "ANCHOR_TOP") end)
     strip.more:SetScript("OnLeave", HideTip)
 end
 
@@ -1238,6 +1195,8 @@ function DungeonsUI:Refresh()
         p.layout.toolbar:SetPrimary(nil)
         p.strip:Hide()
     end
+    -- (my own run takes the toolbar's place for finding one: a quiet line says what joining another does)
+    p.layout.toolbar:SetText(mine and "Your run is on the board. Joining another run takes it off." or nil)
     p.scroll:ClearAllPoints()
     p.scroll:SetPoint("TOPLEFT", body, "TOPLEFT", 0, y - 2)
     p.scroll:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -16, 2)
@@ -1260,7 +1219,7 @@ function DungeonsUI:Refresh()
         ci = ci + 1
         local c = p.cards[ci]
         if not c then
-            c = NewCard(p.content)
+            c = NewRunCard(p.content)
             p.cards[ci] = c
         end
         opts.width = cw
@@ -1359,7 +1318,7 @@ function DungeonsUI:OpenRoleMenu(owner, key)
         if root.CreateTitle then root:CreateTitle(UI():ColoredName(key, classFile)) end
         for _, role in ipairs(R().ROLES) do
             if R():CanPlayRole(classFile, role) then
-                root:CreateRadio(RoleIconText(role, 14) .. "  " .. R().ROLE_LABEL[role],
+                root:CreateRadio(UI():RoleIconText(role, 14) .. "  " .. R().ROLE_LABEL[role],
                     function() return current == role end,
                     function() R():SetPartyRole(key, role) end)
             end
@@ -1446,11 +1405,12 @@ local WHEN = { { key = "now", text = "Now" }, { key = "30", text = "In 30 min" }
 local FORM_LABEL_W = 62
 local FORM_W = 286
 local DAYS_AHEAD = 6
+local HEROIC_ICON = "|T" .. HEROIC_TEX .. ":13:10:0:0:32:32:0:16:0:20|t"   -- (the skull of UI-LFG-ICON-HEROIC)
 local DAILY_ICON = "|TInterface\\GossipFrame\\DailyQuestIcon:12:12:0:0|t"
 
 -- Minutes after midnight of now (local clock).
 local function NowMinutes()
-    local t = date("*t", Now())
+    local t = date("*t", ns.Util.Now())
     return t.hour * 60 + t.min
 end
 
@@ -1461,15 +1421,15 @@ local function MinMinutes(day)
 end
 
 local function DayTime(day, mins)
-    local t = date("*t", Now())
+    local t = date("*t", ns.Util.Now())
     return time({ year = t.year, month = t.month, day = t.day + day, hour = floor(mins / 60), min = mins % 60,
                   sec = 0 })
 end
 
 local function SheetTime(s)
     if s.when == "now" then return 0 end
-    if s.when == "30" then return Now() + 1800 end
-    if s.when == "60" then return Now() + 3600 end
+    if s.when == "30" then return ns.Util.Now() + 1800 end
+    if s.when == "60" then return ns.Util.Now() + 3600 end
     return DayTime(s.day or 0, s.mins or 0)
 end
 
@@ -1497,103 +1457,72 @@ local function DayText(day)
     return date("%a ", t) .. tonumber(date("%d", t)) .. date(" %b", t)
 end
 
--- A flat stepper: a value between two chevrons; the chevrons and the mouse wheel step it.
-local function Chevron(parent, dir)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(22, 22)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.07)
-    b.lines = {}
-    for i = 1, 2 do
-        local l = b:CreateLine(nil, "ARTWORK")
-        l:SetThickness(2)
-        l:SetColorTexture(S:Color("GOLD"))
-        b.lines[i] = l
-    end
-    local x = dir < 0 and 3 or -3
-    b.lines[1]:SetStartPoint("CENTER", x, 5)
-    b.lines[1]:SetEndPoint("CENTER", -x, 0)
-    b.lines[2]:SetStartPoint("CENTER", -x, 0)
-    b.lines[2]:SetEndPoint("CENTER", x, -5)
-    function b:SetOn(on)
-        self:SetEnabled(on)
-        for _, l in ipairs(self.lines) do l:SetAlpha(on and 1 or 0.25) end
-    end
-    return b
-end
-
+-- A flat stepper: a value between two chevrons (UI:CreateArrowButton) on the sleek button's surface (UI:PaintSleek);
+-- the chevrons and the mouse wheel step it.
+-- TODO(refactor): move into Controls (UI:CreateStepper: the day / time pickers of the List a run sheet)
 local function NewStepper(parent, width, onStep, tip)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(width, 24)
-    f.bg = UI():Fill(f, "CARD")
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
     UI():AddEdges(f)
-    UI():SetEdgeColor(f, S:Color("EDGE_STRONG"))
-    f.text = Text(f, "emph", "TEXT")
+    UI():PaintSleek(f, "secondary", false)
+    f.text = UI():Text(f, "emph", "TEXT")
     f.text:SetPoint("CENTER", 0, 0)
     f.text:SetJustifyH("CENTER")
-    f.prev = Chevron(f, -1)
+    f.prev = UI():CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
     f.prev:SetPoint("LEFT", 1, 0)
-    f.prev:SetScript("OnClick", function() onStep(-1) end)
-    f.next = Chevron(f, 1)
+    f.next = UI():CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
     f.next:SetPoint("RIGHT", -1, 0)
-    f.next:SetScript("OnClick", function() onStep(1) end)
     f:EnableMouse(true)
     f:EnableMouseWheel(true)
     f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
     f:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, GOLD[1], GOLD[2], GOLD[3], 0.6)
-        Tip(self, tip, "ANCHOR_TOP")
+        UI():PaintSleek(self, "secondary", true)
+        UI():SetTextTooltip(self, tip, "ANCHOR_TOP")
     end)
     f:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, S:Color("EDGE_STRONG"))
+        UI():PaintSleek(self, "secondary", false)
         HideTip()
     end)
     function f:Set(text, canPrev, canNext)
         self.text:SetText(text)
-        self.prev:SetOn(canPrev)
-        self.next:SetOn(canNext)
+        self.prev:SetEnabled(canPrev and true or false)
+        self.next:SetEnabled(canNext and true or false)
     end
     return f
 end
 
--- A dungeon tile: the short name, then at most one badge (★ guildies with BiS there, or "Saved"), DAILY on its edge.
+-- A dungeon tile: the short name, then at most one badge (★ guildies with BiS there, or "Saved"), the DAILY pill on
+-- its edge; the sleek button's surface (UI:PaintSleek: "chosen" while picked, quiet while it can't be picked).
 local function NewTile(parent)
     local t = CreateFrame("Button", nil, parent)
     t:SetSize(TILE_W, TILE_H)
     t.bg = t:CreateTexture(nil, "BACKGROUND")
     t.bg:SetAllPoints()
     UI():AddEdges(t, "BORDER")
-    t.name = Text(t, "emph", "TEXT")
+    t.name = UI():Text(t, "emph", "TEXT")
     t.name:SetPoint("LEFT", 10, 0)
-    t.count = Text(t, "emph", "GOLD")
+    t.count = UI():Text(t, "emph", "GOLD")
     t.count:SetPoint("RIGHT", -9, 0)
     t.star = t:CreateTexture(nil, "OVERLAY")
     t.star:SetTexture(STAR_TEX)
     t.star:SetSize(11, 11)
     t.star:SetPoint("RIGHT", t.count, "LEFT", -2, 0)
-    t.saved = Text(t, "small", "SUB")
+    t.saved = UI():Text(t, "small", "SUB")
     t.saved:SetPoint("RIGHT", -8, 0)
     t.saved:SetText("Saved")
     t.lock = t:CreateTexture(nil, "OVERLAY")
     t.lock:SetTexture(UI().ICON_LOCK)
     t.lock:SetSize(12, 12)
     t.lock:SetPoint("RIGHT", t.saved, "LEFT", -2, 0)
-    t.daily = CreateFrame("Frame", nil, t)
-    t.daily:SetSize(34, 11)
-    t.daily:SetPoint("TOPRIGHT", t, "TOPRIGHT", -8, 6)
+    t.daily = UI():CreatePill(t, "bis", "DAILY")
+    t.daily:SetPoint("TOPRIGHT", t, "TOPRIGHT", -8, 7)
     t.daily:SetFrameLevel(t:GetFrameLevel() + 2)
-    t.daily.bg = t.daily:CreateTexture(nil, "BACKGROUND")
-    t.daily.bg:SetAllPoints()
-    t.daily.bg:SetColorTexture(S:Color("GOLD"))
-    t.daily.text = Text(t.daily, "caps", { 0.1, 0.08, 0 })
-    t.daily.text:SetPoint("CENTER", 0, 0)
-    t.daily.text:SetText("DAILY")
-    t.daily:SetWidth((t.daily.text:GetStringWidth() or 26) + 8)
     t.liveTip = true
     t:SetScript("OnEnter", function(self)
         local lines = self.tip and self.tip()
-        if lines then Tip(self, lines, "ANCHOR_TOP") end
+        if lines then UI():SetTextTooltip(self, lines, "ANCHOR_TOP") end
     end)
     t:SetScript("OnLeave", HideTip)
     return t
@@ -1611,14 +1540,14 @@ local function TileTip(info, heroic)
         local lines = { info.name .. (heroic and " (Heroic)" or "") }
         local block, kind = R():GetBlocker(info.key, heroic)
         if kind == "saved" then
-            lines[#lines + 1] = orange(block) .. grey(" (the daily reset)")
+            lines[#lines + 1] = S:Wrap("WARN", block) .. S:Wrap("SUB", " (the daily reset)")
         elseif block then
-            lines[#lines + 1] = orange(block)
+            lines[#lines + 1] = S:Wrap("WARN", block)
         end
         local daily = R():GetMyDaily(info.key, heroic)
         if daily then
-            lines[#lines + 1] = (daily == "done" and grey(DAILY_WORDS.done))
-                or (DAILY_ICON .. " " .. gold(DAILY_WORDS[daily]))
+            lines[#lines + 1] = (daily == "done" and S:Wrap("SUB", DAILY_WORDS.done))
+                or (DAILY_ICON .. " " .. S:Wrap("GOLD", DAILY_WORDS[daily]))
         end
         local n, who = R():GetNeeders(info.key, heroic)
         if n > 0 then
@@ -1632,9 +1561,9 @@ local function TileTip(info, heroic)
         end
         local drops = R():GetMyBiSDrops(info.key, heroic)
         if #drops > 0 then
-            lines[#lines + 1] = gold("Drops your BiS:")
+            lines[#lines + 1] = S:Wrap("GOLD", "Drops your BiS:")
             for i, id in ipairs(drops) do
-                if i > 6 then lines[#lines + 1] = grey("+" .. (#drops - 6) .. " more") break end
+                if i > 6 then lines[#lines + 1] = S:Wrap("SUB", "+" .. (#drops - 6) .. " more") break end
                 lines[#lines + 1] = "  " .. ItemLinkText(id)
             end
         end
@@ -1643,34 +1572,11 @@ local function TileTip(info, heroic)
     end
 end
 
+-- A dungeon complex in the sheet: the shared art row (UI:CreateArtRow: its picture, its icon, the name, what holds
+-- back the whole complex), its dungeons' tiles on the right.
 local function NewComplexRow(parent)
-    local r = CreateFrame("Frame", nil, parent)
-    r:SetHeight(ROW_H)
-    r.art = r:CreateTexture(nil, "BACKGROUND", nil, 0)
-    r.art:SetAllPoints()
-    r.shadeL = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-    r.shadeL:SetColorTexture(0.035, 0.035, 0.043, 0.94)
-    r.shadeL:SetPoint("TOPLEFT")
-    r.shadeL:SetPoint("BOTTOMLEFT")
-    r.shadeL:SetWidth(170)
-    r.shadeR = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-    r.shadeR:SetColorTexture(1, 1, 1, 1)
-    r.shadeR:SetPoint("TOPLEFT", r.shadeL, "TOPRIGHT")
-    r.shadeR:SetPoint("BOTTOMRIGHT")
-    UI():Gradient(r.shadeR, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.8 }, { 0.035, 0.035, 0.043, 0.4 })
-    UI():AddEdges(r, "BORDER")
-    UI():SetEdgeColor(r, S:Color("EDGE_QUIET"))
-    r.icon = r:CreateTexture(nil, "ARTWORK")
-    r.icon:SetSize(30, 30)
-    r.icon:SetPoint("LEFT", 9, 0)
-    r.name = Text(r, "emph", "GOLD")
-    r.why = Text(r, "small", "WARN")
-    r.whyHit = CreateFrame("Frame", nil, r)
-    r.whyHit:SetPoint("TOPLEFT", r.why, "TOPLEFT")
-    r.whyHit:SetPoint("BOTTOMRIGHT", r.why, "BOTTOMRIGHT")
-    r.whyHit:EnableMouse(true)
-    r.whyHit:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip, "ANCHOR_TOP") end end)
-    r.whyHit:SetScript("OnLeave", HideTip)
+    local r = UI():CreateArtRow(parent, { rule = false })
+    UI():AttachTooltip(r, nil, function(self) return self.whyTip end, { anchor = "ANCHOR_TOP" })
     r.tiles = {}
     return r
 end
@@ -1683,32 +1589,18 @@ local function SheetSelect(key)
     DungeonsUI:RefreshSheet()
 end
 
-local function FormLabel(parent, text)
-    local fs = Text(parent, "body", "SUB")
-    fs:SetText(text)
-    return fs
-end
-
 local function CreateSheet(p)
     -- the shared sheet as a cover over the page (its title, its close X; Escape closes it too)
     local sh = UI():CreateSheet(p, { cover = true, bg = SHEET_BG, rule = false, onClose = function()
         if state.sheet then DungeonsUI:CloseSheet() end
     end })
-    sh.normal = NewButton(sh, "Normal", 82, 24, "secondary", function()
-        state.sheet.h = false
+    -- Normal / Heroic: the shared segments, after the sheet's title
+    sh.mode = UI():CreateSegments(sh, { { key = "normal", label = "Normal" },
+        { key = "heroic", label = HEROIC_ICON .. " Heroic" } }, function(key)
+        state.sheet.h = key == "heroic"
         state.sheet.err = nil
         DungeonsUI:RefreshSheet()
-    end)
-    sh.heroic = NewButton(sh, "Heroic", 82, 24, "secondary", function()
-        state.sheet.h = true
-        state.sheet.err = nil
-        DungeonsUI:RefreshSheet()
-    end)
-    sh.heroic.skull = sh.heroic:CreateTexture(nil, "OVERLAY")
-    sh.heroic.skull:SetTexture(HEROIC_TEX)
-    sh.heroic.skull:SetTexCoord(0, 0.5, 0, 0.625)
-    sh.heroic.skull:SetSize(10, 13)
-    sh.heroic.skull:SetPoint("RIGHT", sh.heroic:GetFontString(), "LEFT", -3, 0)
+    end, { h = S.BTN_H, itemW = 82 })
     UI():AttachTooltip(sh.close, "Close", "Nothing is listed.", { anchor = "ANCHOR_LEFT" })
     sh.rows = {}
 
@@ -1716,28 +1608,24 @@ local function CreateSheet(p)
     local form = CreateFrame("Frame", nil, sh)
     form:SetSize(FORM_LABEL_W + FORM_W, 140)
     sh.form = form
-    sh.whenLabel = FormLabel(form, "When")
+    sh.whenLabel = UI():Text(form, "body", "SUB")
+    sh.whenLabel:SetText("When")
     sh.whenLabel:SetPoint("TOPLEFT", 0, -6)
-    sh.when = {}
-    local prev
-    for i, def in ipairs(WHEN) do
-        local key = def.key
-        local b = NewButton(form, def.text, nil, 24, "secondary", function()
-            local s = state.sheet
-            if s.when == key then return end
-            s.when = key
-            if key == "later" and not s.mins then DefaultLater(s) end
-            DungeonsUI:RefreshSheet()
-        end)
-        b.key = key
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", FORM_LABEL_W, 0) end
-        sh.when[i] = b
-        prev = b
-    end
+    local whenItems = {}
+    for i, def in ipairs(WHEN) do whenItems[i] = { key = def.key, label = def.text } end
+    sh.when = UI():CreateSegments(form, whenItems, function(key)
+        local s = state.sheet
+        if s.when == key then return end
+        s.when = key
+        if key == "later" and not s.mins then DefaultLater(s) end
+        DungeonsUI:RefreshSheet()
+    end, { h = S.BTN_H })
+    sh.when:SetPoint("TOPLEFT", FORM_LABEL_W, 0)
     sh.atRow = CreateFrame("Frame", nil, form)
     sh.atRow:SetSize(FORM_LABEL_W + FORM_W, 24)
     sh.atRow:SetPoint("TOPLEFT", 0, -33)
-    sh.atLabel = FormLabel(sh.atRow, "At")
+    sh.atLabel = UI():Text(sh.atRow, "body", "SUB")
+    sh.atLabel:SetText("At")
     sh.atLabel:SetPoint("LEFT", 0, 0)
     local stepTip = { "Pick the time", "Click the arrows or scroll. Your clock; everybody sees it in theirs." }
     sh.day = NewStepper(sh.atRow, 150, function(dir)
@@ -1756,7 +1644,8 @@ local function CreateSheet(p)
     sh.time:SetPoint("LEFT", sh.day, "RIGHT", 6, 0)
     sh.noteRow = CreateFrame("Frame", nil, form)
     sh.noteRow:SetSize(FORM_LABEL_W + FORM_W, 24)
-    sh.noteLabel = FormLabel(sh.noteRow, "Note")
+    sh.noteLabel = UI():Text(sh.noteRow, "body", "SUB")
+    sh.noteLabel:SetText("Note")
     sh.noteLabel:SetPoint("LEFT", 0, 0)
     sh.note = UI():CreateSleekEditBox(sh.noteRow, FORM_W, 24, "GameFontHighlightSmall")
     sh.note:SetPoint("LEFT", FORM_LABEL_W, 0)
@@ -1770,39 +1659,37 @@ local function CreateSheet(p)
     sh.roleRow = CreateFrame("Frame", nil, form)
     sh.roleRow:SetSize(FORM_LABEL_W + FORM_W, 24)
     sh.roleRow:SetPoint("TOPLEFT", sh.noteRow, "BOTTOMLEFT", 0, -9)
-    sh.roleLabel = FormLabel(sh.roleRow, "You go as")
+    sh.roleLabel = UI():Text(sh.roleRow, "body", "SUB")
+    sh.roleLabel:SetText("You go as")
     sh.roleLabel:SetPoint("LEFT", 0, 0)
-    sh.roles = {}
-    for _, role in ipairs(R().ROLES) do
-        sh.roles[role] = NewRoleChip(sh.roleRow, role, function()
-            state.sheet.role = role
-            DungeonsUI:RefreshSheet()
-        end)
-        sh.roles[role]:SetScript("OnEnter", function(self)
-            Tip(self, { R().ROLE_LABEL[role], "The role you play in this run." }, "ANCHOR_TOP")
-        end)
-    end
+    -- the role I play: one of the roles my class plays (the shared segments, their role icons)
+    sh.roles = UI():CreateSegments(sh.roleRow, {}, function(key)
+        state.sheet.role = key
+        DungeonsUI:RefreshSheet()
+    end, { h = S.BTN_H, itemW = 34 })
+    sh.roles:SetPoint("LEFT", FORM_LABEL_W, 0)
     -- the Group Finder too (a run for now: listed with the same click; for later: a pop-up when it starts)
     sh.gfRow = CreateFrame("Frame", nil, form)
     sh.gfRow:SetSize(FORM_LABEL_W + FORM_W, 24)
     sh.gfRow:SetPoint("TOPLEFT", sh.roleRow, "BOTTOMLEFT", 0, -9)
-    sh.gfLabel = FormLabel(sh.gfRow, "Pugs")
+    sh.gfLabel = UI():Text(sh.gfRow, "body", "SUB")
+    sh.gfLabel:SetText("Pugs")
     sh.gfLabel:SetPoint("LEFT", 0, 0)
     local function flip()
         state.sheet.gf = not state.sheet.gf
         DungeonsUI:RefreshSheet()
     end
     local function gfTip(self)
-        Tip(self, { "Group Finder", "Also puts your run in Blizzard's Group Finder, for players outside the guild. "
+        UI():SetTextTooltip(self, { "Group Finder", "Also puts your run in Blizzard's Group Finder, for players outside the guild. "
             .. "Whoever looks for this dungeon there, or whispers you, shows up on your run.",
-            grey("A run for later: you get a pop-up when it starts.") }, "ANCHOR_TOP")
+            S:Wrap("SUB", "A run for later: you get a pop-up when it starts.") }, "ANCHOR_TOP")
     end
-    sh.gf = NewSwitch(sh.gfRow, flip)
+    sh.gf = UI():CreateSwitch(sh.gfRow, nil, function() flip() end)
     sh.gf:SetPoint("LEFT", FORM_LABEL_W, 0)
     sh.gf:SetScript("OnEnter", gfTip)
     sh.gf:SetScript("OnLeave", HideTip)
     sh.gfText = CreateFrame("Button", nil, sh.gfRow)
-    sh.gfText.text = Text(sh.gfText, "emph", "TEXT")
+    sh.gfText.text = UI():Text(sh.gfText, "emph", "TEXT")
     sh.gfText.text:SetPoint("LEFT")
     sh.gfText:SetPoint("LEFT", sh.gf, "RIGHT", 8, 0)
     sh.gfText:SetScript("OnClick", flip)
@@ -1810,10 +1697,10 @@ local function CreateSheet(p)
     sh.gfText:SetScript("OnLeave", HideTip)
 
     -- the preview and the button
-    sh.previewLabel = FormLabel(sh, "Preview")
-    sh.preview = NewCard(sh)
+    sh.previewLabel = UI():CreateSectionHeader(sh, "Preview", { style = "caps" })
+    sh.preview = NewRunCard(sh)
     sh.preview:EnableMouse(false)
-    sh.pick = Text(sh, "emph", "SUB")
+    sh.pick = UI():Text(sh, "emph", "SUB")
     sh.pick:SetText("Pick a dungeon above.")
     sh.err:ClearAllPoints()
     sh.go = NewButton(sh, "List run", 130, 28, "primary", function() DungeonsUI:SubmitSheet() end)
@@ -1835,16 +1722,17 @@ function DungeonsUI:RefreshSheetPreview()
         if not ns.Util.IsMe(key) then party[#party + 1] = { k = key, r = R():GetRoleOf(key) } end
     end
     local mine = R():GetMine()
-    local run = { id = "preview", o = Me(), d = s.d, h = s.h or nil, at = SheetTime(s), c = mine and mine.c or Now(),
+    local run = { id = "preview", o = Me(), d = s.d, h = s.h or nil, at = SheetTime(s), c = mine and mine.c or ns.Util.Now(),
                   no = (s.no and ns.Util.Trim(s.no) ~= "") and ns.Util.Trim(s.no) or nil, s = party }
-    if run.at > 0 and run.at <= Now() + 60 then run.at = 0 end
+    if run.at > 0 and run.at <= ns.Util.Now() + 60 then run.at = 0 end
     FillCard(sh.preview, run, { width = sh.previewW or 390, compact = true })
 end
 
--- Lays out the complex rows; returns the y under them.
+-- Lays out the complex rows (art rows, their tiles in one grid on the right); returns the y under them.
 local function SheetRows(sh, s, width)
     local y = -44
     local rowW = width - 2 * PAD
+    local tilesW = 4 * (TILE_W + TILE_GAP)
     local ri = 0
     for _, c in ipairs(R():GetComplexes()) do
         ri = ri + 1
@@ -1853,60 +1741,40 @@ local function SheetRows(sh, s, width)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD, y)
         r:SetWidth(rowW)
-        local file, l, rr, t, b = R():GetComplexArt(c.key, rowW, ROW_H)
-        if file then
-            r.art:SetTexture(file)
-            r.art:SetTexCoord(l, rr, t, b)
-        end
-        r.icon:SetTexture(c.icon)
-        r.name:SetText(c.name)
         -- the heroic key or the level holds back the whole complex: said once, on the row
         local whyAll, whyTip
         if s.h then
             local text, kind = R():GetBlocker(c.dungeons[1].key, true)
             if kind == "rep" or kind == "level" then
                 whyAll = kind == "rep" and "Needs Revered" or text
-                whyTip = { c.name, text .. (kind == "rep" and " for the heroic key." or ".") }
+                whyTip = { { c.name, S:Color("GOLD") }, text .. (kind == "rep" and " for the heroic key." or ".") }
             end
         end
-        r.name:ClearAllPoints()
-        if whyAll then
-            r.name:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 9, 1)
-            r.why:SetText(whyAll)
-            r.why:ClearAllPoints()
-            r.why:SetPoint("TOPLEFT", r.icon, "RIGHT", 9, -1)
-            r.why:Show()
-            r.whyHit.tip = whyTip
-            r.whyHit:Show()
-        else
-            r.name:SetPoint("LEFT", r.icon, "RIGHT", 9, 0)
-            r.why:Hide()
-            r.whyHit:Hide()
-        end
+        -- (the complex's loading screen, cropped round its first dungeon: clear of the logo band)
+        local first = c.dungeons[1] and c.dungeons[1].key
+        r:SetData({ art = function(tex, w, h)
+                local file, l, rr, t, b = R():GetArt(first, w, h)
+                tex:SetTexture(file)
+                if file then tex:SetTexCoord(l, rr, t, b) end
+            end, icon = c.icon, title = c.name, sub = whyAll and S:Wrap("WARN", whyAll) or nil })
+        r.title:SetTextColor(S:Color("GOLD"))
+        r.whyTip = whyTip
+        r:SetRightWidth(tilesW)
         for i, info in ipairs(c.dungeons) do
-            local tile = r.tiles[i] or NewTile(r)
+            local tile = r.tiles[i] or NewTile(r.right)
             r.tiles[i] = tile
             tile:ClearAllPoints()
-            tile:SetPoint("LEFT", r, "LEFT", 178 + (i - 1) * (TILE_W + TILE_GAP), 0)
+            tile:SetPoint("LEFT", r.right, "RIGHT", -tilesW + (i - 1) * (TILE_W + TILE_GAP), 0)
             tile.name:SetText(info.short)
             local block, kind = R():GetBlocker(info.key, s.h)
             local daily = R():GetMyDaily(info.key, s.h)
             local n = R():GetNeeders(info.key, s.h)
             local sel = s.d == info.key
             local off = block ~= nil
-            if off then
-                tile.bg:SetColorTexture(OFF_BG[1], OFF_BG[2], OFF_BG[3], 0.7)
-                UI():SetEdgeColor(tile, S:Color("EDGE_QUIET"))
-                tile.name:SetTextColor(S:Color("DIM"))
-            elseif sel then
-                tile.bg:SetColorTexture(0.27, 0.23, 0.09, 0.92)
-                UI():SetEdgeColor(tile, GOLD[1], GOLD[2], GOLD[3], 0.9)
-                tile.name:SetTextColor(1, 1, 1)
-            else
-                tile.bg:SetColorTexture(OFF_BG[1], OFF_BG[2], OFF_BG[3], 0.86)
-                UI():SetEdgeColor(tile, S:Color("EDGE_STRONG"))
-                tile.name:SetTextColor(1, 1, 1)
-            end
+            -- picked: the gold of a pick (the segments' thumb); one I can't go to: the quiet surface, its name dimmed
+            UI():PaintSleek(tile, sel and not off and "primary" or "secondary", false, off and 0.3 or nil)
+            tile.bg:SetAlpha(off and 0.6 or 1)
+            tile.name:SetTextColor(S:Color(off and "DIM" or "TEXT"))
             local saved = kind == "saved"
             tile.saved:SetShown(saved)
             tile.lock:SetShown(saved)
@@ -1916,8 +1784,8 @@ local function SheetRows(sh, s, width)
             tile.count:SetText(n)
             tile.daily:SetShown((daily == "log" or daily == "today") and not off)
             tile.tip = TileTip(info, s.h)
-            local key = info.key
-            tile:SetScript("OnClick", function() if not off then SheetSelect(key) end end)
+            local dkey = info.key
+            tile:SetScript("OnClick", function() if not off then SheetSelect(dkey) end end)
             tile:Show()
         end
         for i = #c.dungeons + 1, #r.tiles do r.tiles[i]:Hide() end
@@ -1935,13 +1803,9 @@ function DungeonsUI:RefreshSheet()
     local width = panel:GetWidth()
     if not width or width < 300 then width = 780 end
     sh.title:SetText(s.edit and "Edit your run" or "List a run")
-    sh.normal:ClearAllPoints()
-    sh.normal:SetPoint("LEFT", sh.title, "RIGHT", 18, 0)
-    sh.heroic:ClearAllPoints()
-    sh.heroic:SetPoint("LEFT", sh.normal, "RIGHT", -1, 0)
-    sh.normal:SetKind(s.h and "secondary" or "chosen")
-    sh.heroic:SetKind(s.h and "chosen" or "secondary")
-    sh.heroic.skull:SetAlpha(s.h and 1 or 0.45)
+    sh.mode:ClearAllPoints()
+    sh.mode:SetPoint("LEFT", sh.title, "RIGHT", 18, 0)
+    sh.mode:Select(s.h and "heroic" or "normal")
 
     local y = SheetRows(sh, s, width)
     -- a picked dungeon the switch to heroic made impossible is dropped
@@ -1951,7 +1815,7 @@ function DungeonsUI:RefreshSheet()
     y = y - 8
     sh.form:ClearAllPoints()
     sh.form:SetPoint("TOPLEFT", sh, "TOPLEFT", PAD, y)
-    for _, b in ipairs(sh.when) do b:SetKind(s.when == b.key and "chosen" or "secondary") end
+    sh.when:Select(s.when)
     local later = s.when == "later"
     sh.atRow:SetShown(later)
     if later then
@@ -1963,16 +1827,13 @@ function DungeonsUI:RefreshSheet()
     end
     sh.noteRow:ClearAllPoints()
     sh.noteRow:SetPoint("TOPLEFT", sh.form, "TOPLEFT", 0, later and -66 or -33)
-    local x = FORM_LABEL_W
-    for _, role in ipairs(R().ROLES) do sh.roles[role]:Hide() end
-    for _, role in ipairs(R():GetPlayableRoles()) do
-        local b = sh.roles[role]
-        b:ClearAllPoints()
-        b:SetPoint("LEFT", sh.roleRow, "LEFT", x, 0)
-        b:SetOn(s.role == role)
-        b:Show()
-        x = x + 28
+    local roles = {}
+    for i, role in ipairs(R():GetPlayableRoles()) do
+        roles[i] = { key = role, label = UI():RoleIconText(role, 16), tip = R().ROLE_LABEL[role] .. ": the role you play "
+            .. "in this run." }
     end
+    sh.roles:SetItems(roles)
+    sh.roles:Select(s.role)
     local GF = ns.GroupFinder
     sh.gfRow:SetShown(GF ~= nil and GF:IsAvailable())
     sh.gf:SetOn(s.gf)
@@ -1983,7 +1844,8 @@ function DungeonsUI:RefreshSheet()
     local px = PAD + FORM_LABEL_W + FORM_W + 24
     sh.previewW = width - PAD - px
     sh.previewLabel:ClearAllPoints()
-    sh.previewLabel:SetPoint("TOPLEFT", sh, "TOPLEFT", px, y - 2)
+    sh.previewLabel:SetPoint("TOPLEFT", sh, "TOPLEFT", px, y + 2)
+    sh.previewLabel:SetWidth(sh.previewW)
     sh.preview:ClearAllPoints()
     sh.preview:SetPoint("TOPLEFT", sh, "TOPLEFT", px, y - 18)
     sh.pick:ClearAllPoints()
@@ -2009,8 +1871,8 @@ function DungeonsUI:OpenSheet(edit)
     local s = { h = level >= 70, when = "now", role = R():GetGoAs(), edit = edit and mine ~= nil or nil }
     if s.edit then
         s.d, s.h, s.no, s.gf = mine.d, mine.h and true or false, mine.no, mine.gf
-        if (mine.at or 0) > Now() then
-            local t, n = date("*t", mine.at), date("*t", Now())
+        if (mine.at or 0) > ns.Util.Now() then
+            local t, n = date("*t", mine.at), date("*t", ns.Util.Now())
             s.when = "later"
             s.day = floor((time({ year = t.year, month = t.month, day = t.day, hour = 12 })
                 - time({ year = n.year, month = n.month, day = n.day, hour = 12 })) / 86400 + 0.5)
@@ -2036,6 +1898,8 @@ function DungeonsUI:OpenSheet(edit)
     local sh = panel.sheet or CreateSheet(panel)
     sh.note:SetText(s.no or "")
     sh:Open()
+    -- (the sheet covers the page: the toolbar under it goes, so nothing under the cover takes a click)
+    panel.layout.toolbar:Hide()
     self:RefreshSheet()
 end
 
@@ -2044,6 +1908,7 @@ function DungeonsUI:CloseSheet()
     if panel and panel.sheet then
         panel.sheet.note:ClearFocus()
         panel.sheet:Close()
+        panel.layout.toolbar:Show()
     end
     self:Refresh()
 end
@@ -2089,7 +1954,7 @@ local function ToastHeroic(t, heroic)
         slot.dzRunSkull:SetTexCoord(0, 0.5, 0, 0.625)
         slot.dzRunSkull:SetSize(11, 14)
         slot.dzRunSkull:SetPoint("BOTTOMLEFT", t, "BOTTOMLEFT", 8, 8)
-        slot.dzRunHeroic = Text(slot, "small", "GOLD")
+        slot.dzRunHeroic = UI():Text(slot, "small", "GOLD")
         slot.dzRunHeroic:SetText("Heroic")
         slot.dzRunHeroic:SetPoint("LEFT", slot.dzRunSkull, "RIGHT", 2, 0)
     end
@@ -2152,7 +2017,7 @@ function DungeonsUI:OnPing(id)
     local role = R():FitsMe(run)
     if not role then return end
     local hint = HintFor(run)
-    ShowToast(run, UI():ColoredName(run.o) .. grey(" needs a " .. ROLE_NAME[role]), hint, "Join", function()
+    ShowToast(run, UI():ColoredName(run.o) .. S:Wrap("SUB", " needs a " .. ROLE_NAME[role]), hint, "Join", function()
         local ok, why = R():Join(id)
         if not ok and why then ns:Print("%s", why) end
     end)
@@ -2171,9 +2036,9 @@ function DungeonsUI:OnRequest(id, key)
     end
     if not req then return end
     local spec = R():GetSpecLabel(key)
-    local l3 = RoleIconText(req.r, 12) .. " " .. grey((spec and (spec .. " ") or "") .. R().ROLE_LABEL[req.r])
-    if req.b then l3 = l3 .. "   " .. gold(STAR .. " BiS here") end
-    ShowToast(run, UI():ColoredName(key) .. grey(" wants to join"), l3, "Accept", function() R():Accept(id, key) end)
+    local l3 = UI():RoleIconText(req.r, 12) .. " " .. S:Wrap("SUB", (spec and (spec .. " ") or "") .. R().ROLE_LABEL[req.r])
+    if req.b then l3 = l3 .. "   " .. S:Wrap("GOLD", STAR .. " BiS here") end
+    ShowToast(run, UI():ColoredName(key) .. S:Wrap("SUB", " wants to join"), l3, "Accept", function() R():Accept(id, key) end)
 end
 
 -- A run's leader invites me (Blizzard's pop-up closed by Core): this pop-up is the invite, even over the board.
@@ -2182,8 +2047,8 @@ function DungeonsUI:OnInvite(id, from)
     if not run then return end
     local a = R():GetAsked(id)
     local role = (a and a.r) or R():FitsMe(run)
-    local l3 = role and (RoleIconText(role, 12) .. " " .. grey("as " .. R().ROLE_LABEL[role])) or nil
-    ShowToast(run, UI():ColoredName(from) .. grey(" invites you"), l3, "Accept", function() R():AnswerInvite(true) end,
+    local l3 = role and (UI():RoleIconText(role, 12) .. " " .. S:Wrap("SUB", "as " .. R().ROLE_LABEL[role])) or nil
+    ShowToast(run, UI():ColoredName(from) .. S:Wrap("SUB", " invites you"), l3, "Accept", function() R():AnswerInvite(true) end,
         "invite")
     if panel and panel:IsVisible() then self:RequestRefresh() end
 end
@@ -2206,8 +2071,8 @@ function DungeonsUI:OnFinderPrompt(id)
         local n = open[role]
         if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. R().ROLE_LABEL[role] end
     end
-    ShowToast(run, tconcat(parts, ", ") .. grey(" open in your run"),
-        grey("List it in the Group Finder for pugs?"), "List", function()
+    ShowToast(run, tconcat(parts, ", ") .. S:Wrap("SUB", " open in your run"),
+        S:Wrap("SUB", "List it in the Group Finder for pugs?"), "List", function()
             local ok, why = GF:List(run)
             if not ok and why then ns:Print("%s", why) end
         end)
@@ -2218,7 +2083,7 @@ end
 function DungeonsUI:OnFinderLeftover(old)
     local GF = ns.GroupFinder
     if not GF or not old or not R():GetDungeon(old.d) then return end
-    ShowToast(old, grey("Your run is over, but it's"), grey("still in the Group Finder."), "Remove",
+    ShowToast(old, S:Wrap("SUB", "Your run is over, but it's"), S:Wrap("SUB", "still in the Group Finder."), "Remove",
         function() GF:RemoveLeftover(old) end, "finder")
 end
 
