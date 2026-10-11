@@ -6,6 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterPanels.lua", ...) then ret
 --   Header (24 px): the view's icon and name with a chevron (a menu of views and fights), or the panel's tabs; a dim
 --   note (an older fight's name, "no target", "nobody died"); the total on the right; + (a new panel) and x (close
 --   the tab or panel). Right-click: the panel menu.
+--   Fight line (meter views, 18 px): "<  Al'ar  5:12 · 5 of 6  >": the arrows (or the wheel over it) step to an
+--   older / newer fight, the name opens the fight list. The fight belongs to the panel: every tab shows it.
 --   Body: as tall as its rows, up to the panel's own row limit (the stack's corner sets it, and the width): no empty
 --   boxes; a panel with nothing to show is just its header.
 -- Docking (unlocked, meters.locked false): drag the top header to move a stack; drag a lower header (or the top one
@@ -30,6 +32,8 @@ local strformat = string.format
 local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 
 local HEAD_H, ROW_H, ROW_GAP, PAD = 24, 19, 1, 3
+local FL_H = 18                   -- a meter panel's fight line, under its header (the user's pick A, 2026-10-11)
+local BOSS_C = { 1, 0.71, 0.27 }
 local DEFAULT_W, MIN_W, MAX_W = 300, 170, 640
 local DEFAULT_ROWS, MAX_ROWS = 8, 40
 local NEAR, SIDE_Y = 40, 60      -- docking: how far past an edge a drop still joins; how far apart tops may be beside
@@ -335,6 +339,61 @@ local function NewPanel()
     pf.totV:SetPoint("RIGHT", pf.tot, "LEFT", -4, 0)
     pf.totV:SetJustifyH("RIGHT")
 
+    -- the fight line
+    local fl = CreateFrame("Frame", nil, pf)
+    fl:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
+    fl:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
+    fl:SetHeight(FL_H)
+    fl.bg = K.Tex(fl, "BACKGROUND", K.WHITE, 0, 0, 0, 0.28)
+    fl.bg:SetAllPoints()
+    fl.top = K.Tex(fl, "ARTWORK", K.WHITE, 1, 1, 1, 0.05)
+    fl.top:SetPoint("TOPLEFT")
+    fl.top:SetPoint("TOPRIGHT")
+    fl.top:SetHeight(1)
+    fl:EnableMouseWheel(true)
+    fl:SetScript("OnMouseWheel", function(_, delta) MP:StepFight(pf, delta > 0 and 1 or -1) end)
+    local function Arrow(glyph, dir, tipText)
+        local a = CreateFrame("Button", nil, fl)
+        a:SetSize(22, FL_H)
+        a.text = K.Font(a, K.NARROW, 15, K.DIM)
+        a.text:SetPoint("CENTER", 0, 1)
+        a.text:SetText(glyph)
+        a:SetScript("OnClick", function() MP:StepFight(pf, dir) end)
+        a:SetScript("OnEnter", function(self)
+            self.text:SetTextColor(1, 1, 1)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(tipText)
+            GameTooltip:Show()
+        end)
+        a:SetScript("OnLeave", function(self)
+            self.text:SetTextColor(K.DIM[1], K.DIM[2], K.DIM[3])
+            GameTooltip:Hide()
+        end)
+        return a
+    end
+    fl.prev = Arrow("\226\128\185", -1, "Older fight")      -- (single angle quotes)
+    fl.prev:SetPoint("LEFT")
+    fl.next = Arrow("\226\128\186", 1, "Newer fight")
+    fl.next:SetPoint("RIGHT")
+    fl.lab = CreateFrame("Button", nil, fl)
+    fl.lab:SetPoint("TOPLEFT", fl.prev, "TOPRIGHT")
+    fl.lab:SetPoint("BOTTOMRIGHT", fl.next, "BOTTOMLEFT")
+    fl.lab:RegisterForDrag("LeftButton")
+    fl.lab:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    fl.lab.hl = K.Tex(fl.lab, "HIGHLIGHT", K.WHITE, 1, 1, 1, 0.05)
+    fl.lab.hl:SetAllPoints()
+    fl.name = K.Font(fl.lab, K.FRIZ, 11.5, K.INK)
+    fl.meta = K.Font(fl.lab, K.NARROW, 12, K.DIM)
+    fl.name:SetPoint("LEFT", fl.lab, "LEFT", 0, 0)
+    fl.meta:SetPoint("LEFT", fl.name, "RIGHT", 0, 0)
+    fl.lab:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then MP:PanelMenu(pf, self) else MP:FightMenu(pf, self) end
+    end)
+    fl.lab:SetScript("OnDragStart", function() HeadDragStart(pf) end)
+    fl.lab:SetScript("OnDragStop", function() MP:EndDrag() end)
+    fl:Hide()
+    pf.fl = fl
+
     local rows = CreateFrame("Frame", nil, pf)
     rows:SetPoint("TOPLEFT", head, "BOTTOMLEFT", PAD, -PAD)
     rows:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT", -PAD, -PAD)
@@ -380,6 +439,35 @@ function MP:TabOf(pf)
     local p = pf.layout
     local i = p and ShownTab(p)
     return i and p.tabs[i] or { view = "damage", seg = "cur" }, i
+end
+
+-- A panel's fight, for all its tabs (the user switches tabs to compare views of one fight).
+function MP:SetFight(pf, sel)
+    local p = pf.layout
+    if not p then return end
+    for _, t in ipairs(p.tabs) do if not IsThreat(t.view) then t.seg = sel end end
+    self:Draw()
+end
+
+-- Fights in order, oldest first, then the whole raid; where the panel's fight is among them.
+local function FightOrder(sel)
+    local fights, all = Meter:GetFights()                -- (newest first)
+    local order = {}
+    for i = #fights, 1, -1 do order[#order + 1] = (i == 1) and "cur" or fights[i].id end
+    if all then order[#order + 1] = "all" end
+    local at
+    for i, k in ipairs(order) do if k == (sel or "cur") then at = i break end end
+    return order, at or (#fights > 0 and #fights or nil), #fights
+end
+
+-- The arrows and the wheel: an older (-1) or newer (+1) fight; past the newest is the whole raid.
+function MP:StepFight(pf, dir)
+    local tab = self:TabOf(pf)
+    if IsThreat(tab.view) then return end
+    local order, at = FightOrder(tab.seg)
+    if not at then return end
+    local to = order[min(#order, max(1, at + dir))]
+    if to and to ~= (tab.seg or "cur") then self:SetFight(pf, to) end
 end
 
 ---------------------------------------------------------------------------
@@ -979,8 +1067,7 @@ local function DrawMeter(pf, tab)
     -- the note: an older fight, or why the panel is empty
     local note = ""
     if not seg then note = "no fights yet"
-    elseif #rows == 0 then note = EMPTY_NOTE[mode] or "nothing yet"
-    elseif tab.seg and tab.seg ~= "cur" then note = Meter:SegName(seg) end   -- (its length: the fight menu)
+    elseif #rows == 0 then note = EMPTY_NOTE[mode] or "nothing yet" end      -- (the fight: the fight line)
     pf.noteText = note
     if seg and #rows > 0 then
         local v, s = TotalText(mode, rows, total, dur, seg)
@@ -1282,6 +1369,43 @@ local function DrawHead(pf, tab)
     end
 end
 
+-- The fight line: the fight's name and, as room allows, its length and place ("5 of 6"); a name too long for the line
+-- gives way to "Fight 5", never to a cut-off name. The live fight's name is gold, a boss's amber. Returns its height.
+local function DrawFightLine(pf, tab)
+    local fl = pf.fl
+    local seg = not IsThreat(tab.view) and Meter:GetSegment(tab.seg or "cur")
+    if not seg then fl:Hide() return 0 end
+    local order, at, nFights = FightOrder(tab.seg)
+    if not at then fl:Hide() return 0 end
+    local isAll = seg.kind == "all"
+    local name = Meter:SegName(seg)
+    local where = isAll and "all fights" or strformat("%d of %d", at, nFights)
+    local length = K.Clock(Meter:Duration(seg))
+    if seg.live then length = length .. " \194\183 live" end
+    local room = PanelWidth(pf) - 44 - 8
+    local tries = { { name, "  " .. length .. " \194\183 " .. where }, { name, "  " .. length }, { name, "" },
+                    { isAll and "All fights" or ("Fight " .. at), "" } }
+    local pick = tries[#tries]
+    for _, t in ipairs(tries) do
+        fl.name:SetText(t[1])
+        fl.meta:SetText(t[2])
+        if (fl.name:GetStringWidth() or 0) + (fl.meta:GetStringWidth() or 0) <= room then pick = t break end
+    end
+    fl.name:SetText(pick[1])
+    fl.meta:SetText(pick[2])
+    local c = ((tab.seg or "cur") == "cur") and K.GOLD or (seg.kind == "boss" and BOSS_C) or K.INK
+    fl.name:SetTextColor(c[1], c[2], c[3])
+    local w = (fl.name:GetStringWidth() or 0) + (fl.meta:GetStringWidth() or 0)
+    fl.name:ClearAllPoints()
+    fl.name:SetPoint("LEFT", fl.lab, "LEFT", max(0, floor((room + 8 - w) / 2)), 0)
+    fl.prev:SetEnabled(at > 1)
+    fl.prev:SetAlpha(at > 1 and 1 or 0.25)
+    fl.next:SetEnabled(at < #order)
+    fl.next:SetAlpha(at < #order and 1 or 0.25)
+    fl:Show()
+    return FL_H
+end
+
 function MP:Draw()
     if not holder or not holder:IsShown() then dirty = true return end
     dirty = false
@@ -1304,6 +1428,14 @@ function MP:Draw()
                 pf.sep:SetShown(i > 1)
                 local n
                 if IsThreat(tab.view) then n = DrawThreat(pf) else n = DrawMeter(pf, tab) end
+                local flH = DrawFightLine(pf, tab)
+                if pf.flShown ~= (flH > 0) then
+                    pf.flShown = flH > 0
+                    local above = pf.flShown and pf.fl or pf.head
+                    pf.rows:ClearAllPoints()
+                    pf.rows:SetPoint("TOPLEFT", above, "BOTTOMLEFT", PAD, -PAD)
+                    pf.rows:SetPoint("TOPRIGHT", above, "BOTTOMRIGHT", -PAD, -PAD)
+                end
                 if fight then
                     n = max(n, pf.peak or 0)
                     pf.peak = n
@@ -1314,7 +1446,7 @@ function MP:Draw()
                 local body = n > 0 and (PAD * 2 + n * ROW_H + (n - 1) * ROW_GAP) or 0
                 pf.rows:SetHeight(max(1, body - PAD * 2))
                 pf.rows:SetShown(n > 0)
-                local h = HEAD_H + body
+                local h = HEAD_H + flH + body
                 pf:SetHeight(h)
                 y = y + h
                 if pf.hot then hot = true end
@@ -1744,14 +1876,14 @@ local function FightEntries(root, pf)
         local e = root:CreateRadio(key .. (seg.live and "Current fight" or Meter:SegName(seg)), function()
             if (tab.seg or "cur") == "cur" then return i == 1 end
             return tab.seg == seg.id
-        end, function() tab.seg = (i == 1) and "cur" or seg.id; MP:Draw() end, seg.id)
+        end, function() MP:SetFight(pf, (i == 1) and "cur" or seg.id) end, seg.id)
         e:SetSubtext(MP.FightSub(seg))
         if seg.live then e:SetBadge("Live", { 1, 0.42, 0.33 }) end
     end
     if all then
         root:CreateDivider()
         local e = root:CreateRadio(Meter:SegName(all), function() return tab.seg == "all" end,
-            function() tab.seg = "all"; MP:Draw() end, "all")
+            function() MP:SetFight(pf, "all") end, "all")
         local since = all.at and date and (" · since " .. date("%H:%M", all.at)) or ""
         e:SetSubtext((all.zone or "") .. since .. " · " .. K.Clock(Meter:Duration(all)))
     end

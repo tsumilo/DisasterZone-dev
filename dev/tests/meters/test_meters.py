@@ -420,7 +420,7 @@ def the_panel_shows_bars_in_order_and_keeps_mine_in_view():
     assert rank.startswith("Gina") and rank.endswith("15th|r") and pinned is True and you is True, info   # no list numbers;
     assert top_y == 0 and top_rank == "P13", info                                                       # my place named
     assert n == 8 and my_y == -7 * 20, info                 # 8 rows by default, mine on the last
-    assert h == 24 + 3 * 2 + 8 * 19 + 7, info                # as tall as its rows
+    assert h == 24 + 18 + 3 * 2 + 8 * 19 + 7, info           # header, fight line, then as tall as its rows
     assert tot and tot != "", info
 
 
@@ -459,8 +459,8 @@ def the_view_menu_switches_the_mode_and_the_fight():
     assert len(fights) == 3, [c["text"] for c in fights]     # current, the earlier fight, Whole raid
     r.cl.menu_select(fights[1]["text"])
     r.cl.eval("ns.MeterPanels:Draw()")
-    note = r.cl.eval("return ns.MeterPanels._Panel('dps').note.text:GetText()")
-    assert note.startswith("Void Reaver"), note               # an older fight is named in the header
+    name = r.cl.eval("return ns.MeterPanels._Panel('dps').fl.name:GetText()")
+    assert name.startswith("Void Reaver"), name               # an older fight is named in the fight line
     # a new fight brings the panel back to it
     r.end_fight()
     r.combat(True, "Victhar")
@@ -1064,6 +1064,49 @@ def a_tab_switch_grows_the_bars_in_place():
     # a plain redraw (same view) starts nothing
     r.cl.eval("ns.MeterPanels:Draw()")
     assert r.cl.eval("for _, row in pairs(ns.MeterPanels._Panel('dps').rowsByKey) do if row.anim then return true end end return false") is False
+
+
+@case
+def the_fight_line_steps_through_fights_for_the_whole_panel():
+    """Asked 2026-10-11 (the user's pick A of the fight picker mockup): a line under the header names the panel's
+    fight; the arrows and the wheel step to older / newer fights (past the newest: the whole raid), the name opens the
+    list. The fight belongs to the panel: all its tabs show it. Threat panels have no line."""
+    r = Raid(thr=True)
+    r.combat(True, "Victhar")
+    r.hit("Gina", 500, dst_name="Void Reaver")
+    r.end_fight()
+    r.combat(True, "Victhar")
+    r.hit("Gina", 300, dst=r.add, dst_name="Crystalcore Devastator")
+    r.end_fight()
+    r.tick(1)
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        local p = MP.Layout().stacks[1].panels[2]
+        p.tabs[2] = { view = "healing", seg = "cur" }
+        MP:Rebuild()
+    """)
+    line = lambda: r.cl.eval_py("""
+        local pf = ns.MeterPanels._Panel('damage')
+        local tabs = {}
+        for i, t in ipairs(pf.layout.tabs) do tabs[i] = t.seg end
+        return { pf.fl:IsShown(), pf.fl.name:GetText(), pf.fl.meta:GetText(), pf.fl.prev:IsEnabled(), pf.fl.next:IsEnabled(),
+                 table.concat(tabs, ",") }""")
+    shown, name, meta, older, newer, segs = line()
+    assert shown and name.startswith("Crystalcore") and "2 of 2" in meta and older and newer and segs == "cur,cur", line()
+    r.cl.eval("local pf = ns.MeterPanels._Panel('damage'); pf.fl.prev:Click()")
+    shown, name, meta, older, newer, segs = line()
+    assert name == "Void Reaver" and "1 of 2" in meta and not older and newer, line()
+    assert segs.split(",")[0] == segs.split(",")[1] != "cur", segs            # both tabs on that fight
+    # the wheel: up = newer, twice = past the newest, the whole raid (the end of the line)
+    r.cl.eval("local fl = ns.MeterPanels._Panel('damage').fl; fl:GetScript('OnMouseWheel')(fl, 1); fl:GetScript('OnMouseWheel')(fl, 1)")
+    shown, name, meta, older, newer, segs = line()
+    assert segs == "all,all" and "all fights" in meta and older and not newer, line()
+    # threat: no line
+    assert r.cl.eval("return ns.MeterPanels._Panel('threat').fl:IsShown()") is False
+    # a narrow panel: the name gives way to "Fight n", never cut off
+    r.cl.eval("local fl = ns.MeterPanels._Panel('damage').fl; fl.prev:Click()")
+    r.cl.eval("local L = ns.MeterPanels.Layout(); L.stacks[1].w = 170; ns.MeterPanels:Rebuild()")
+    assert r.cl.eval("return ns.MeterPanels._Panel('damage').fl.name:GetText()") in ("Fight 2", "Crystalcore Devastator")
 
 
 if __name__ == "__main__":
