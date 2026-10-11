@@ -575,5 +575,33 @@ def the_guest_book_shows_a_combined_run_as_one_night():
     assert e["noShows"] == 1 and not e.get("next"), e
 
 
+@case
+def the_raid_log_shows_a_combined_run_as_one_card():
+    """In-game report 2026-10-11: a Mag + Gruul run linked to one planned raid showed as two cards."""
+    w, c = world()
+    bob = c["Bob"]
+    occ = create(bob, i="gruul", ix=["mag"], t=now(bob) - 3000, ti="Spark run")
+    w.tick(2)
+    base = now(bob) - 3000
+    inject(bob, base, [{"id": "m1", "pl": occ, "stop": 50, "zone": "Magtheridon's Lair", "ex": {"Tank": "l"}, "att": {"Tank": {"s": [0, 50]}}},
+                       {"id": "g1", "pl": occ, "start": 60, "ef": 0, "stop": 110, "zone": "Gruul's Lair", "ex": {"Tank": "l"},
+                        "att": {"Tank": {"s": [60, 110]}}}])
+    bob.slash("/dz raids")
+    w.tick(0.3)
+    bob.eval("ns.RaidsUI:Select('m1')")
+    w.tick(0.5)
+    rows = lst(bob.eval_py("local out = {}; for _, d in ipairs(ns.RaidsUI:GetPanel().raidList.data) do "
+                           "out[#out + 1] = { id = d.rec.id, zone = d.rec.zone, n = d.rec.ids and #d.rec.ids or 1 } end; return out"))
+    mine = [r for r in rows if r["n"] == 2]
+    assert len(mine) == 1 and "Spark run" in mine[0]["zone"], rows
+    assert bob.eval("return ns.RaidsUI:GetPanel().banner.title:GetText()").startswith("Spark run")
+    t = result(bob, occ, "Tank")
+    assert t["credit"] >= 0.99 and t["away"] <= 600, t                    # the 10 minutes between the two: a gap
+    # the session button stays off the Attendance page (its filters need the row)
+    bob.eval("ns.RaidsUI:SetMode('players')")
+    w.tick(0.3)
+    assert not bob.eval("return ns.RaidsUI:GetPanel().sessionBtn:IsShown()")
+
+
 if __name__ == "__main__":
     run_all(globals())

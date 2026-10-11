@@ -179,6 +179,11 @@ def end_raid_keeps_signups_marks_bench_and_counts_no_shows():
     # (the link is a picker under the raid's banner; how the sign-ups turned out sits beside it)
     link = strip_codes(bob.eval("return ns.RaidsUI:GetPanel().linkBtn:GetText()"))
     assert link == "Linked to  Karazhan", link
+    # (1.3.5: on the Attendance tab the line says how the night went; the other tabs keep the sign-ups' line)
+    check = strip_codes(bob.eval("local l = ns.RaidsUI:GetPanel().signupLine; return l:IsShown() and l.fs:GetText()"))
+    assert "on time" in check and "1 no-show" in check, check
+    bob.eval("ns.RaidsUI:SetLogTab('boss')")
+    w.tick(0.3)
     check = strip_codes(bob.eval("local l = ns.RaidsUI:GetPanel().signupLine; return l:IsShown() and l.fs:GetText()"))
     assert "came" in check and "no-show Lock" in check, check
     # the council member's recording agrees (same link time, same bench mark)

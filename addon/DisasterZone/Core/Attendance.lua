@@ -474,6 +474,8 @@ local function NightFacts(n, rules)
     local E = F
     local med = arrivals[floor((#arrivals + 1) / 2)]
     if med and med > F + rules.onTime then E = min(med, F + FORM_MAX, T) end
+    -- (a raid that ended before its planned start, started early: no planned time to measure; who came is there)
+    if T - F < 60 then n.loose = true end
     n.facts = { ver = ver, F = F, T = T, E = E, trouble = trouble }
     return n.facts
 end
@@ -514,6 +516,15 @@ function Att:Result(n, key, rules)
     present = min(present, span)
     r.present, r.first, r.last = present, first, last
     r.noShow = present <= 0
+    if n.loose then
+        -- (no planned time: there at all during the session is there)
+        local from, to = (n.start or F) - 3600, n.stop or Now()
+        local seen = false
+        for i = 1, #s - 1, 2 do
+            if s[i + 1] > from and s[i] < to then seen = true break end
+        end
+        r.noShow = not seen
+    end
     r.late = first and max(0, first - E) or 0
     r.left = last and max(0, T - last) or 0
     r.away = max(0, span - present - r.late - r.left)
