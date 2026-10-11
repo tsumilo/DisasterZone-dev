@@ -10,6 +10,10 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Popup.lua", ...) then return en
 -- title, danger (the first button red). Popup:Show(which, text1, text2, data) / Hide / Visible / FindVisible /
 -- HideAll / Click(dialog, index) / EscapePressed. Escape closes the top dialog (it goes no further); a click on a
 -- button runs its callback, then the dialog closes unless the callback returned true.
+-- 1.4: a def may also take width (wider than 380), multiline (+ multiHeight, hint: a box of several lines instead of
+-- the field; Enter is a new line, Ctrl+Enter is OK) and EditBoxOnTextChanged(eb, data); Popup:SetError(dialog, text)
+-- shows a line in the warning colour under the field. And the two dialogs everybody needs, without a Register:
+-- Popup:Confirm(opts) and Popup:Prompt(opts) (further down).
 local addonName, ns = ...
 
 local Popup = ns:NewModule("Popup")
@@ -151,6 +155,16 @@ local function New(i)
             Popup:Dismiss(f)
         end
     end)
+    f.editBox:HookScript("OnTextChanged", function(eb)
+        local def = f.which and defs[f.which]
+        if def and def.EditBoxOnTextChanged and f:IsShown() then
+            safe(f.which .. " EditBoxOnTextChanged", def.EditBoxOnTextChanged, eb, f.data)
+        end
+    end)
+    -- the error line under the field (Popup:SetError)
+    f.err = text(f, "GameFontHighlightSmall", 11, 1, 0.55, 0.2)
+    f.err:SetWordWrap(true)
+    f.err:Hide()
 
     f.rule = f:CreateTexture(nil, "ARTWORK")
     f.rule:SetHeight(1)
@@ -183,6 +197,7 @@ local function New(i)
         if not InCombatLockdown() then self:EnableKeyboard(false) end
         self.dim:Hide()
         self.editBox:ClearFocus()
+        if self.multi then self.multi:ClearFocus() end
         self.expires = nil
         local which = self.which
         local def = which and defs[which]
@@ -201,9 +216,54 @@ end
 
 local function Frame(i) return frames[i] or New(i) end
 
+-- The box of several lines (a def with multiline), made the first time one is needed: a dark well with a scroll
+-- frame; the view follows the cursor, a click anywhere in the well types there, Ctrl+Enter is OK.
+local function Multi(f)
+    if f.multi then return f.multi end
+    local sf = UI():CreateScrollFrame(f)
+    f.multiScroll = sf
+    sf.scrollBarHideable = true
+    if sf.ScrollBar then sf.ScrollBar:Hide() end
+    local eb = CreateFrame("EditBox", nil, sf)
+    eb:SetMultiLine(true)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject("ChatFontNormal")
+    eb:SetWidth(W - 2 * PAD - 22)
+    sf:SetScrollChild(eb)
+    sf:EnableMouse(true)
+    sf:SetScript("OnMouseDown", function() eb:SetFocus() end)
+    eb:SetScript("OnCursorChanged", function(_, _, y, _, h)
+        local top, view = sf:GetVerticalScroll() or 0, sf:GetHeight() or 0
+        y, h = -(y or 0), h or 0
+        if y < top then
+            sf:SetVerticalScroll(y)
+        elseif y + h > top + view then
+            sf:SetVerticalScroll(y + h - view)
+        end
+    end)
+    eb:SetScript("OnEscapePressed", function() Popup:Dismiss(f) end)
+    eb:SetScript("OnEnterPressed", function(self)
+        if IsControlKeyDown() then Popup:Click(f, 1) else self:Insert("\n") end
+    end)
+    eb:SetScript("OnTextChanged", function(self)
+        local def = f.which and defs[f.which]
+        if def and def.EditBoxOnTextChanged and f:IsShown() then
+            safe(f.which .. " EditBoxOnTextChanged", def.EditBoxOnTextChanged, self, f.data)
+        end
+    end)
+    f.multiBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    f.multiBg:SetColorTexture(0, 0, 0, 0.6)
+    f.multiHint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.multiHint:SetJustifyH("LEFT")
+    f.multi = eb
+    return eb
+end
+
 -- Lays the dialog out for its definition and text: title (or none), the alert icon, the text, the field, the
 -- buttons right to left (the first on the right).
 local function Layout(f, def)
+    local w = def.width or W
+    f:SetWidth(w)
     local y = PAD
     local hasTitle = def.title ~= nil
     f.title:SetShown(hasTitle)
@@ -226,18 +286,58 @@ local function Layout(f, def)
         f.alert:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -(y - 3))
         tx = PAD + 22 + 10
     end
-    f.text:ClearAllPoints()
-    f.text:SetPoint("TOPLEFT", f, "TOPLEFT", tx, -y)
-    f.text:SetWidth(W - tx - PAD)
-    local th = f.text:GetStringHeight() or 16
-    if th < 1 then th = 16 end
-    y = y + max(th, def.showAlert and 18 or 0) + 14
+    -- (a dialog without words, a bare prompt, goes straight to its field)
+    local words = f.text:GetText()
+    local hasText = words ~= nil and words ~= ""
+    f.text:SetShown(hasText)
+    if hasText then
+        f.text:ClearAllPoints()
+        f.text:SetPoint("TOPLEFT", f, "TOPLEFT", tx, -y)
+        f.text:SetWidth(w - tx - PAD)
+        local th = f.text:GetStringHeight() or 16
+        if th < 1 then th = 16 end
+        y = y + max(th, def.showAlert and 18 or 0) + 14
+    elseif def.showAlert then
+        y = y + 18 + 14
+    end
     f.editBox:SetShown(def.hasEditBox and true or false)
     if def.hasEditBox then
         f.editBox:ClearAllPoints()
         f.editBox:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
+        f.editBox:SetWidth(w - 2 * PAD)
         f.editBox:SetMaxLetters(def.maxLetters or 0)
         y = y + 26 + 14
+    end
+    local multi = def.multiline and Multi(f) or f.multi
+    if multi then
+        local on = def.multiline and true or false
+        f.multiScroll:SetShown(on)
+        f.multiBg:SetShown(on)
+        f.multiHint:SetShown(on and def.hint ~= false)
+        if not on and f.multiScroll.ScrollBar then f.multiScroll.ScrollBar:Hide() end
+        if on then
+            local mh = def.multiHeight or 120
+            f.multiScroll:ClearAllPoints()
+            f.multiScroll:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + 4, -(y + 4))
+            f.multiScroll:SetSize(w - 2 * PAD - 22, mh - 8)
+            f.multiBg:ClearAllPoints()
+            f.multiBg:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
+            f.multiBg:SetSize(w - 2 * PAD, mh)
+            multi:SetWidth(w - 2 * PAD - 22)
+            multi:SetMaxLetters(def.maxLetters or 0)
+            f.multiHint:SetText(type(def.hint) == "string" and def.hint or "Ctrl+Enter: OK")
+            y = y + mh + 14
+        end
+    end
+    f.err:SetShown(f.errText ~= nil)
+    if f.errText then
+        f.err:SetText(f.errText)
+        f.err:ClearAllPoints()
+        f.err:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -(y - 8))
+        f.err:SetWidth(w - 2 * PAD)
+        local eh = f.err:GetStringHeight() or 12
+        if eh < 1 then eh = 12 end
+        y = y + eh + 6
     end
     f.rule:ClearAllPoints()
     f.rule:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -y)
@@ -258,6 +358,10 @@ local function Layout(f, def)
             else btn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -(y + 11)) end
             prev = btn
         end
+    end
+    if f.multiHint and f.multiHint:IsShown() then
+        f.multiHint:ClearAllPoints()
+        f.multiHint:SetPoint("LEFT", f, "TOPLEFT", PAD, -(y + 11 + 13))
     end
     f:SetHeight(y + 11 + 26 + 12)
 end
@@ -315,6 +419,9 @@ function Popup:Show(which, text1, text2, data)
     local ok, s = pcall(string.format, t, text1 or "", text2 or "")
     f.text:SetText(ok and s or t)
     f.editBox:SetText("")
+    if f.multi then f.multi:SetText("") end
+    f.errText = nil
+    for b = 1, 3 do f["button" .. b]:Enable() end
     Layout(f, def)
     local index = 1
     for i = 1, NUM do if frames[i] == f then index = i end end
@@ -324,6 +431,7 @@ function Popup:Show(which, text1, text2, data)
     f:Raise()
     if def.OnShow then safe(which .. " OnShow", def.OnShow, f, data) end
     if def.hasEditBox and not f.editBox:HasFocus() then f.editBox:SetFocus() end
+    if def.multiline and f.multi and not f.multi:HasFocus() then f.multi:SetFocus() end
     return f
 end
 
@@ -407,4 +515,158 @@ function Popup:IsShown()
         if frames[i] and frames[i]:IsShown() then return true end
     end
     return false
+end
+
+---------------------------------------------------------------------------
+-- Errors and values
+---------------------------------------------------------------------------
+
+-- Shows text (in the warning colour) under the dialog's field; nil takes it away. The dialog grows to fit.
+function Popup:SetError(f, text)
+    if not (f and f.which and defs[f.which]) then return end
+    if text ~= nil then text = tostring(text) end
+    if f.errText == text then return end
+    f.errText = text
+    Layout(f, defs[f.which])
+end
+
+-- What was typed in the dialog's field (or its box of several lines).
+function Popup:GetValue(f)
+    if not f then return nil end
+    local def = f.which and defs[f.which]
+    if def and def.multiline and f.multi then return f.multi:GetText() or "" end
+    return f.editBox:GetText() or ""
+end
+
+---------------------------------------------------------------------------
+-- Confirm / Prompt: the dialogs everybody asks, without a Register
+---------------------------------------------------------------------------
+
+-- The def of a ready-made dialog, made the first time and filled anew each time it is asked.
+local function ReadyDef(prefix, key)
+    local which = prefix .. (key ~= nil and ("_" .. tostring(key)) or "")
+    local def = defs[which]
+    if not def then
+        def = {}
+        defs[which] = def
+    end
+    for k in pairs(def) do def[k] = nil end
+    return which, def
+end
+
+-- Popup:Confirm(opts) -> dialog: a question with a yes and a no.
+-- opts: { title, text (shown as is), ok (OKAY), cancel (CANCEL; false: none), danger (the ok red), alert (the
+--   warning icon), alt + onAlt (a third button), width, timeout, key (a second Confirm with the same key replaces
+--   the shown one: its onCancel gets "override"),
+--   onAccept(dialog) (return true to keep the dialog open), onCancel(dialog, reason) (Cancel / Escape / its X:
+--   "clicked", "timeout", "override") }
+function Popup:Confirm(o)
+    o = o or {}
+    local which, def = ReadyDef("DISASTERZONE_CONFIRM", o.key)
+    def.title = o.title
+    def.text = "%s"
+    def.button1 = o.ok or _G.OKAY or "OK"
+    if o.cancel ~= false then def.button2 = o.cancel or _G.CANCEL or "Cancel" end
+    def.button3 = o.alt
+    def.danger = o.danger and true or nil
+    def.showAlert = o.alert and true or nil
+    def.width = o.width
+    def.timeout = o.timeout or 0
+    def.whileDead = true
+    def.hideOnEscape = true
+    def.OnAccept = function(dlg, data)
+        if type(data) == "table" and data.onAccept then return data.onAccept(dlg) end
+    end
+    def.OnCancel = function(dlg, data, reason)
+        if type(data) == "table" and data.onCancel then data.onCancel(dlg, reason) end
+    end
+    def.OnAlt = function(dlg, data)
+        if type(data) == "table" and data.onAlt then data.onAlt(dlg) end
+    end
+    return self:Show(which, o.text ~= nil and tostring(o.text) or "", nil, o)
+end
+
+-- Checks a prompt's value: true, or false and the reason (nil: no words, the OK just stays grey).
+local function CheckPrompt(o, v)
+    if type(o) ~= "table" or not o.validate then return true end
+    local ok, r = pcall(o.validate, v)
+    if not ok then return false, nil end
+    if r == nil or r == true then return true end
+    return false, type(r) == "string" and r or nil
+end
+
+local function PromptValue(o, f)
+    local v = Popup:GetValue(f)
+    if type(o) == "table" and o.trim and ns.Util and ns.Util.Trim then v = ns.Util.Trim(v) or "" end
+    return v
+end
+
+-- Popup:Prompt(opts) -> dialog: asks for a text.
+-- opts: { title, text (over the field), default, ok (OKAY), cancel (CANCEL), maxLetters, width, trim (spaces off
+--   both ends), multiline (a box of several lines: multiHeight, hint; Ctrl+Enter is OK), key (as Confirm's),
+--   validate(value) -> true / nil (fine) | false (the OK stays grey) | "why not" (and that shows under the field),
+--   onAccept(value, dialog) (return true to keep it open), onCancel(dialog, reason) }
+-- Enter is OK; a value validate turns down keeps the dialog open with its reason.
+function Popup:Prompt(o)
+    o = o or {}
+    local which, def = ReadyDef("DISASTERZONE_PROMPT", o.key)
+    def.title = o.title
+    def.text = "%s"
+    def.button1 = o.ok or _G.OKAY or "OK"
+    def.button2 = o.cancel or _G.CANCEL or "Cancel"
+    def.hasEditBox = not o.multiline or nil
+    def.multiline = o.multiline and true or nil
+    def.multiHeight = o.multiHeight
+    def.hint = o.hint
+    def.maxLetters = o.maxLetters
+    def.width = o.width or (o.multiline and 520 or nil)
+    def.timeout = 0
+    def.whileDead = true
+    def.hideOnEscape = true
+    def.OnShow = function(dlg, data)
+        local box = (def.multiline and dlg.multi) or dlg.editBox
+        local d = type(data) == "table" and data.default
+        box:SetText(d ~= nil and tostring(d) or "")
+        if def.multiline then
+            if dlg.multiScroll then dlg.multiScroll:SetVerticalScroll(0) end
+            box:SetCursorPosition(#(box:GetText() or ""))
+        else
+            box:HighlightText()
+        end
+        Popup:CheckPromptButton(dlg)
+    end
+    def.EditBoxOnTextChanged = function(eb)
+        local dlg = eb:GetParent()
+        if dlg and dlg.which == which then
+            Popup:CheckPromptButton(dlg)
+        elseif frames then
+            for i = 1, NUM do
+                local x = frames[i]
+                if x and x.which == which and x:IsShown() then Popup:CheckPromptButton(x) end
+            end
+        end
+    end
+    def.OnAccept = function(dlg, data)
+        local v = PromptValue(data, dlg)
+        local ok, why = CheckPrompt(data, v)
+        if not ok then
+            Popup:SetError(dlg, why)
+            return true
+        end
+        if type(data) == "table" and data.onAccept then return data.onAccept(v, dlg) end
+    end
+    def.OnCancel = function(dlg, data, reason)
+        if type(data) == "table" and data.onCancel then data.onCancel(dlg, reason) end
+    end
+    return self:Show(which, o.text ~= nil and tostring(o.text) or "", nil, o)
+end
+
+-- The prompt's OK follows its validate (grey while the value is turned down; the reason once something is typed).
+function Popup:CheckPromptButton(f)
+    if not (f and f.data and f:IsShown()) then return end
+    local v = PromptValue(f.data, f)
+    local ok, why = CheckPrompt(f.data, v)
+    f.button1:SetEnabled(ok)
+    if f.button1.cdlPaint then f.button1:cdlPaint(true) end
+    self:SetError(f, (not ok and v ~= "") and why or nil)
 end
