@@ -18,10 +18,15 @@ local floor, max, min, abs, sqrt = math.floor, math.max, math.min, math.abs, mat
 local tinsert, tremove, tsort = table.insert, table.remove, table.sort
 
 local WIN_NAME = "DisasterZoneEventBuilder"
-local WIN_W, WIN_H = 1040, 660
-local TOP_H = 44                -- the top bar: the tool window's banner (UI:CreateLayout "tool")
-local BODY_H = WIN_H - 31 - TOP_H     -- the palette and canvas under it
+-- The window is a tool window (UI:CreateLayout "tool"): the banner (the event), the tool row (its stages, the actions,
+-- the one main action at the right), then the body: the palette and the canvas side by side, S.GAP apart. The window
+-- is as big as it takes for the canvas to keep its 764 x 584 (a stage opens at the zoom it always did).
+local WIN_W, WIN_H = 1068, 762
+local CHROME_H = ns.Style.PAD + ns.Style.BANNER.tool + ns.Style.GAP + 26 + ns.Style.GAP   -- (26: the tool row)
+local BODY_W = WIN_W - 10 - 2 * ns.Style.PAD                                -- (the window's content: 5 in a side)
+local BODY_H = WIN_H - (ns.UI.WIN_HEAD + 1) - 5 - CHROME_H - ns.Style.PAD   -- the palette and canvas
 local PAL_W, CAT_W = 266, 60
+local CV_W = BODY_W - PAL_W - ns.Style.GAP                                  -- the canvas
 local LOG_H = 118
 local SNAP = 22                 -- content units a dragged piece snaps from
 local UNDO_MAX = 60
@@ -51,10 +56,14 @@ local C = {
     cross = { 0.66, 0.66, 0.68 },                 -- a close cross / an x at rest (white under the mouse)
     tipTop = { anchor = "ANCHOR_TOP" },           -- (UI:AttachTooltip's opts: the builder's tips sit above)
     binRed = { 1, 0.55, 0.5 },                    -- a menu's delete line: its bin and its words
-    cardLo = { 0.102, 0.102, 0.122, 1 }, cardHi = { 0.145, 0.145, 0.172, 1 }, cardLoClear = { 0.102, 0.102, 0.122, 0 },
+    cardLo = { St.C.CARD[1], St.C.CARD[2], St.C.CARD[3], 1 }, cardHi = { 0.145, 0.145, 0.172, 1 },   -- (a card's slate,
+    cardLoClear = { St.C.CARD[1], St.C.CARD[2], St.C.CARD[3], 0 },                                 -- lit at its top)
     sheetLo = { 0.078, 0.078, 0.094, 1 }, sheetHi = { 0.11, 0.11, 0.129, 1 },     -- the sheets' slate (UI:CreateSheet's)
     panelEdge = { 0.47, 0.47, 0.51, 0.75 },                                       -- and their edge
     practiceTint = { 0.05, 0.33, 0.29, 0.35 }, practiceClear = { 0.05, 0.33, 0.29, 0 },
+    trash = { 0.6, 0.12, 0.1, 0.18 },                                             -- the palette as a bin
+    goldWash = { St.C.GOLD[1], St.C.GOLD[2], St.C.GOLD[3], 0.05 },               -- the overview's view
+    liveFill = { 0.05, 0.33, 0.29, 0.12 }, liveEdge = { 0.31, 0.84, 0.73, 0.55 },   -- a match being played
 }
 
 -- A menu's delete line ("Delete", "Delete the question"): the bin and the words in the menus' red.
@@ -86,6 +95,7 @@ end
 
 -- Typed words as the library keeps them (Core/Events.lua cleans the same way when it saves): no "|" (the game reads
 -- it as a code) or control characters, at most maxLen bytes (not in the middle of a letter).
+local function Plural(n, one, many) return n .. " " .. (n == 1 and one or many) end
 local MAX_TEXT, MAX_NAME = 200, 24
 local CONFIRM = "DISASTERZONE_CONFIRM_eventBuilder"     -- (ns.Popup:Confirm's dialog for key "eventBuilder")
 local function Clean(text, maxLen)
@@ -331,13 +341,6 @@ local function FitScale()
     return min(1, (sw - 20) / WIN_W, (sh - 20) / WIN_H)
 end
 
-local function Divider(parent, vertical)
-    local t = parent:CreateTexture(nil, "BORDER")
-    t:SetColorTexture(Col("HAIRLINE", 0.12))
-    if vertical then t:SetWidth(1) else t:SetHeight(1) end
-    return t
-end
-
 local CreateTop, CreatePalette, CreateCanvas, CreatePractice
 
 local function CreateWindow()
@@ -345,15 +348,11 @@ local function CreateWindow()
     win:SetFrameStrata("HIGH")
     local c = win.content
     c:SetClipsChildren(true)
-    -- the tool window's layout: its banner is the top bar (the event, the stages, the actions; the main action far
-    -- right); the palette and the canvas fill its body, flush under the bar (an editor: the canvas keeps every pixel
-    -- of its height, so a stage opens at the zoom it always did)
-    ui.layout = UI():CreateLayout("tool", c, { width = WIN_W - 12, pad = 0, bottom = 0, banner = { size = TOP_H } })
-    ui.body = CreateFrame("Frame", nil, ui.layout.body)
-    ui.body:SetPoint("TOPLEFT", ui.layout.banner, "BOTTOMLEFT", 0, 0)
-    ui.body:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 0)
-    ui.body:SetSize(WIN_W - 12, BODY_H)
-    CreateTop(ui.layout.banner)
+    -- the tool window's layout: the banner is the event (its art, icon, name, what it holds), the tool row its stages
+    -- on the left and the actions on the right (the main action far right), the body the palette and the canvas
+    ui.layout = UI():CreateLayout("tool", c, { width = WIN_W - 10, toolbar = true, banner = { size = "tool" } })
+    ui.body = ui.layout.body
+    CreateTop(ui.layout)
     CreatePalette(ui.body)
     CreateCanvas(ui.body)
     CreatePractice(ui.body)
@@ -403,40 +402,52 @@ local function CreateWindow()
 end
 
 ---------------------------------------------------------------------------
--- The top bar: the event's name, the stage strip, the actions
+-- The banner (the event: art, icon, name, what it holds) and the tool row (the stages, the actions)
 ---------------------------------------------------------------------------
 
-local function IconButton(parent, icon, title, text, onClick, size)
-    local b = UI():CreateTipIconButton(parent, size or 26, icon, title, text, onClick)
-    return b
+local function IconButton(parent, icon, title, text, onClick)
+    return UI():CreateTipIconButton(parent, St.BTN_H, icon, title, text, onClick)
 end
 
--- The top bar is the layout's banner (a plain one: the event's own controls sit on it).
-CreateTop = function(banner)
-    local top = banner
-    ui.top = top
-    -- the practice tint (over the banner's plain card and its shade)
-    top.tint = top:CreateTexture(nil, "BORDER", nil, 4)
+-- A filter of the tool row that groups the buttons around it: a 1 px hairline (the row's gap on each side).
+local function RowSeparator(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(1, 18)
+    UI():Rule(f, { vertical = true, alpha = 0.12 })
+    return f
+end
+
+-- ui.top is the tool row (the layout's toolbar): the stage strip on its left, the controls on its right, and it
+-- holds the banner's parts too (top.banner, top.icon, top.name: the rename field, top.rename) for Refresh and the tests.
+CreateTop = function(layout)
+    local bn, top = layout.banner, layout.toolbar
+    ui.top, ui.banner = top, bn
+    top.banner = bn
+    -- the practice tint (over the banner's art and its shade)
+    top.tint = bn:CreateTexture(nil, "BORDER", nil, 4)
     top.tint:SetAllPoints()
     UI():Gradient(top.tint, "HORIZONTAL", C.practiceTint, C.practiceClear)
     top.tint:Hide()
-    -- the event: icon, name (a field that reads as text), pencil
-    local icon = CreateFrame("Button", nil, top)
-    icon:SetSize(24, 24)
-    icon:SetPoint("LEFT", top, "LEFT", 10, 0)
-    icon.tex = icon:CreateTexture(nil, "ARTWORK")
-    icon.tex:SetAllPoints()
-    icon.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    EUI():Edge(icon, 0, 0, 0, 1)
-    icon:SetScript("OnClick", function(self) Builder:IconMenu(self) end)
-    UI():AttachTooltip(icon, "Event icon", "Click to pick another one.", C.tipTop)
+    -- the event's icon: the banner's tile (a click picks another one)
+    bn:SetIcon("Interface\\Icons\\INV_Misc_QuestionMark")
+    local icon = CreateFrame("Button", nil, bn)
+    icon:SetAllPoints(bn.icon)
+    icon:SetFrameLevel(bn:GetFrameLevel() + 4)
+    icon:SetScript("OnClick", function(self) if CanEdit() and not S.inside then Builder:IconMenu(self) end end)
+    UI():AttachTooltip(icon, function(self, tt)
+        if not (CanEdit() and not S.inside) then return false end
+        tt:AddLine("Event icon")
+        tt:AddLine("Click to pick another one.", 1, 1, 1, true)
+    end, nil, C.tipTop)
     top.icon = icon
-    local name = CreateFrame("EditBox", nil, top)
+    -- the name: the banner's title (with a pencil while it can be changed); a click on it opens a field in its place
+    local name = CreateFrame("EditBox", nil, bn)
     name:SetAutoFocus(false)
     name:SetFontObject("GameFontHighlight")
-    Resize(name, 13)
-    name:SetSize(170, 24)
-    name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+    UI():SetTextStyle(name, "hero", "GOLD")
+    name:SetSize(170, 26)
+    name:SetPoint("LEFT", bn.title, "LEFT", 0, 0)
+    name:SetFrameLevel(bn:GetFrameLevel() + 4)
     name:SetMaxLetters(40)
     name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     name:SetScript("OnEscapePressed", function(self)
@@ -453,119 +464,80 @@ CreateTop = function(banner)
         elseif d then
             self:SetText(d.name or "")
         end
+        self:Hide()
+        bn.title:SetAlpha(1)
     end)
-    UI():AttachRestLabel(name)
+    name:Hide()
     top.name = name
-    top.pencil = top:CreateTexture(nil, "ARTWORK")
-    top.pencil:SetSize(12, 12)
-    EUI():Glyph(top.pencil, 16, 0.62, 0.62, 0.66)
-    top.sep1 = Divider(top, true)
-    top.sep1:SetHeight(20)
-    -- the stage strip (pills made in RenderTop)
+    local rename = CreateFrame("Button", nil, bn)
+    rename:SetAllPoints(bn.title)
+    rename:SetFrameLevel(bn:GetFrameLevel() + 3)
+    rename:SetScript("OnClick", function() Builder:EditName() end)
+    UI():AttachTooltip(rename, function(self, tt)
+        if not (CanEdit() and not S.inside) then return false end
+        tt:AddLine("Event name")
+        tt:AddLine("Click to rename it.", 1, 1, 1, true)
+    end, nil, C.tipTop)
+    top.rename = rename
+    -- the tool row's left: the stage strip (pills made in RenderTop); the practice run's strip in its place
     top.strip = CreateFrame("Frame", nil, top)
     top.strip:SetSize(10, 24)
+    top.strip:SetPoint("LEFT", top, "LEFT", 0, 0)
     top.pills = {}
-    -- the crumb (inside a smart block) and the practice controls share the strip's place
-    top.crumb = CreateFrame("Frame", nil, top)
-    top.crumb:SetSize(300, 24)
-    top.crumb.back = UI():Text(top.crumb, "emph", { 0.74, 0.74, 0.74 })
-    top.crumb.back:SetPoint("LEFT", top.crumb, "LEFT", 0, 0)
-    top.crumb.chev = top.crumb:CreateTexture(nil, "ARTWORK")
-    top.crumb.chev:SetSize(10, 10)
-    UI():SetChevron(top.crumb.chev, true)
-    top.crumb.chev:SetVertexColor(Col("DIM"))
-    top.crumb.icon = top.crumb:CreateTexture(nil, "ARTWORK")
-    top.crumb.icon:SetSize(18, 18)
-    top.crumb.name = UI():Text(top.crumb, "emph", "GOLD")
-    top.crumb.pill = UI():CreatePill(top.crumb, 16)
-    local backBtn = CreateFrame("Button", nil, top.crumb)
-    backBtn:SetAllPoints(top.crumb.back)
-    backBtn:SetScript("OnClick", function() Builder:CloseInside() end)
-    top.crumb:Hide()
-    -- right side: undo, redo | practice, share, more, primary
-    top.primary = UI():CreateSleekButton(top, "Save", 70, 24, function() Builder:Primary() end, "primary")
-    top.primary:SetPoint("RIGHT", top, "RIGHT", -10, 0)
-    top.more = IconButton(top, UI().ICON.more, "More", "Art, icon, badges, variables, review, copy, delete.",
-        function(self) Builder:MoreMenu(self) end, 24)
-    top.more:SetPoint("RIGHT", top.primary, "LEFT", -6, 0)
-    top.share = IconButton(top, 18, "Share", "Post a link to this event in chat.", function(self) Builder:ShareEvent(self) end, 24)
-    top.share:SetPoint("RIGHT", top.more, "LEFT", -6, 0)
-    top.practiceBtn = UI():CreateSleekButton(top, "Practice", 84, 24, function() Builder:StartPractice() end)
-    local pi = top.practiceBtn:CreateTexture(nil, "ARTWORK")
-    pi:SetSize(10, 10)
-    EUI():Glyph(pi, UI().ICON.play or 47, 0.92, 0.92, 0.92)
-    pi:SetPoint("LEFT", top.practiceBtn, "LEFT", 10, 0)
-    top.practiceBtn:GetFontString():ClearAllPoints()
-    top.practiceBtn:GetFontString():SetPoint("LEFT", pi, "RIGHT", 6, 0)
-    top.practiceBtn:SetPoint("RIGHT", top.share, "LEFT", -6, 0)
-    top.sep2 = Divider(top, true)
-    top.sep2:SetHeight(20)
-    top.sep2:SetPoint("RIGHT", top.practiceBtn, "LEFT", -8, 0)
-    top.redo = IconButton(top, 10, "Redo", "Ctrl-Y", function()
-        if #S.redo == 0 then ns:Print("%s", "nothing to redo: redo brings back what undo took away.") end
-        Builder:Redo()
-    end, 24)
-    top.redo:SetPoint("RIGHT", top.sep2, "LEFT", -8, 0)
+    local pr = CreateFrame("Frame", nil, top)
+    pr:SetSize(10, 24)
+    pr:SetPoint("LEFT", top, "LEFT", 0, 0)
+    top.prac = pr
+    pr.strip = CreateFrame("Frame", nil, pr)
+    pr.strip:SetSize(10, 24)
+    pr.strip:SetPoint("LEFT", pr, "LEFT", 0, 0)
+    pr.pills = {}
+    pr:Hide()
+    -- the tool row's right: undo, redo | practice, share, the more menu and the main action (Save / Host / Make a
+    -- copy); while practising: pause, skip, speed, start again, the board and End practice
     top.undo = IconButton(top, 9, "Undo", "Ctrl-Z", function()
         if #S.undo == 0 then ns:Print("%s", "nothing to undo yet.") end
         Builder:Undo()
-    end, 24)
-    top.undo:SetPoint("RIGHT", top.redo, "LEFT", -6, 0)
-    -- practice controls (shown instead of the strip while practising)
-    local pr = CreateFrame("Frame", nil, top)
-    pr:SetSize(400, 24)
-    top.prac = pr
-    pr.tag = CreateFrame("Frame", nil, pr)
-    pr.tag:SetSize(112, 24)
-    pr.tag:SetPoint("LEFT", pr, "LEFT", 0, 0)
-    UI():AddPillShape(pr.tag, 24)
-    pr.tag:SetPillColors({ 0.05, 0.33, 0.29, 0.85 }, { 0.31, 0.84, 0.73, 0.95 })
-    pr.tag.dot = pr.tag:CreateTexture(nil, "OVERLAY")
-    pr.tag.dot:SetTexture(EUI().MASK)
-    pr.tag.dot:SetSize(7, 7)
-    pr.tag.dot:SetVertexColor(0.31, 0.84, 0.73)
-    pr.tag.dot:SetPoint("LEFT", pr.tag, "LEFT", 10, 0)
-    pr.tag.fs = UI():Text(pr.tag, "emph", { 0.92, 1, 0.97 })
-    pr.tag.fs:SetPoint("LEFT", pr.tag.dot, "RIGHT", 7, 0)
-    pr.tag.fs:SetText("Practice run")
-    pr.pause = IconButton(pr, UI().ICON.pause or 48, "Pause", "Stops the practice clock (timers wait).", function()
+    end)
+    top.redo = IconButton(top, 10, "Redo", "Ctrl-Y", function()
+        if #S.redo == 0 then ns:Print("%s", "nothing to redo: redo brings back what undo took away.") end
+        Builder:Redo()
+    end)
+    top.sep2 = RowSeparator(top)
+    top.practiceBtn = UI():CreateSleekButton(top, UI():AtlasIconText(UI().ICON.play or 47, 10) .. "  Practice", 92,
+        St.BTN_H, function() Builder:StartPractice() end)
+    top.share = IconButton(top, 18, "Share", "Post a link to this event in chat.", function(self) Builder:ShareEvent(self) end)
+    pr.pause = IconButton(top, UI().ICON.pause or 48, "Pause", "Stops the practice clock (timers wait).", function()
         local _, p = L():GetPractice()
         L():SetPracticePaused(not (p and p.paused))
-    end, 24)
-    pr.pause:SetPoint("LEFT", pr.tag, "RIGHT", 8, 0)
-    pr.skip = IconButton(pr, UI().ICON.skip or 49, "Skip ahead", "Jumps to the next timer or wait (a 5 minute no-show takes a click).",
-        function() L():PracticeSkip() end, 24)
-    pr.skip:SetPoint("LEFT", pr.pause, "RIGHT", -1, 0)
-    pr.speed = UI():CreateSleekMenuButton(pr, "1x", 50, function(root)
+    end)
+    pr.skip = IconButton(top, UI().ICON.skip or 49, "Skip ahead",
+        "Jumps to the next timer or wait (a 5 minute no-show takes a click).", function() L():PracticeSkip() end)
+    pr.speed = UI():CreateSleekMenuButton(top, "1x", 52, function(root)
         for _, x in ipairs({ 1, 2, 5, 10 }) do
             root:CreateRadio(x .. "x", function() local _, p = L():GetPractice(); return p and p.speed == x end,
                 function() L():SetPracticeSpeed(x) end)
         end
-    end, 24)
-    pr.speed:SetPoint("LEFT", pr.skip, "RIGHT", -1, 0)
-    pr.restart = IconButton(pr, 34, "Start again", "The practice run starts over with fresh dummies.", function()
+    end, St.BTN_H)
+    pr.restart = IconButton(top, 34, "Start again", "The practice run starts over with fresh dummies.", function()
         Builder:StartPractice(true)
-    end, 24)
-    pr.restart:SetPoint("LEFT", pr.speed, "RIGHT", -1, 0)
-    pr.sep = Divider(pr, true)
-    pr.sep:SetHeight(20)
-    pr.sep:SetPoint("LEFT", pr.restart, "RIGHT", 10, 0)
-    pr.strip = CreateFrame("Frame", nil, pr)
-    pr.strip:SetSize(10, 24)
-    pr.strip:SetPoint("LEFT", pr.sep, "RIGHT", 10, 0)
-    pr.pills = {}
-    pr:Hide()
-    top.board = UI():CreateSleekButton(top, "See the board", 112, 24, function()
+    end)
+    pr.sep = RowSeparator(top)
+    top.board = UI():CreateSleekButton(top, "See the board", 112, St.BTN_H, function()
         if ns.EventBoard and ns.EventBoard.Open then ns.EventBoard:Open("practice") end
     end)
-    top.ended = UI():CreateSleekButton(top, "End practice", 100, 24, function() Builder:StopPractice() end)
-    top.ended:SetPoint("RIGHT", top, "RIGHT", -10, 0)
-    top.board:SetPoint("RIGHT", top.ended, "LEFT", -6, 0)
-    top.board:Hide()
-    top.ended:Hide()
+    top.editing = { top.undo, top.redo, top.sep2, top.practiceBtn, top.share }
+    top.running = { pr.pause, pr.skip, pr.speed, pr.restart, pr.sep, top.board }
+    top:SetFilters({ top.undo, top.redo, top.sep2, top.practiceBtn, top.share, pr.pause, pr.skip, pr.speed, pr.restart,
+        pr.sep, top.board })
+    top.moreFn0 = function(root) Builder:MoreMenuItems(root) end
+    top:SetMore(top.moreFn0, "Art, icon, badges, variables, review, copy, delete.")
+    top.primary = top:SetPrimary({ text = "Save", width = 90, onClick = function() Builder:Primary() end })
 end
 
 -- A stage pill: number disc + name (+ a warning dot); states on | live | done | (plain).
+-- TODO(refactor): move into UI:CreateSegments (a stepper look: numbered steps with arrows, done / live states, a step
+-- shown by its number when the names don't fit); the tool row's left holds it where a page's tabs go.
 local function Pill(list, parent, i)
     local p = list[i]
     if p then return p end
@@ -776,7 +748,7 @@ local function LayoutStrip(strip, pills, practice, room)
             PaintPill(alw, on and "on" or "")
             local aw = sign and 33 or (9 + 15 + 5 + UI():TextWidth(alw.fs) + 10)
             alw:SetWidth(aw)
-            alw.sep = alw.sep or Divider(strip, true)
+            alw.sep = alw.sep or UI():Rule(strip, { vertical = true, alpha = 0.12 })
             alw.sep:SetHeight(20)
             alw.sep:ClearAllPoints()
             alw.sep:SetPoint("LEFT", strip, "LEFT", x + 6, 0)
@@ -826,110 +798,126 @@ local function LayoutStrip(strip, pills, practice, room)
     return x
 end
 
+-- How many pieces a list of scripts holds (the banner's sub line).
+local function PiecesIn(scripts)
+    local n = 0
+    for _, s in ipairs(scripts or {}) do n = n + B():Count(s.top) end
+    return n
+end
+
+-- The banner's title: the event's name in the title's size (a smaller one for a long name: never cut), a pencil after
+-- it when it can be renamed; the rename field takes the title's size and place.
+local function FitName(bn, name, text, pencil)
+    local room = (bn:GetWidth() > 1 and bn:GetWidth() or (WIN_W - 30)) - 160
+    local style = "hero"
+    if UI():TextWidth(text, "hero") > room then style = "page" end
+    UI():SetTextStyle(bn.title, style, "GOLD")
+    UI():SetTextStyle(name, style, "GOLD")
+    bn:SetTitle(pencil and (text .. "  " .. UI():AtlasIconText(16, 12, St.C.SUB)) or text)
+    name:SetWidth(min(room, max(60, UI():TextWidth(text, style) + 30)))
+end
+
+-- Opens the name's field in the banner title's place (my event, not inside a smart block, not practising).
+function Builder:EditName()
+    local name, bn = ui.top and ui.top.name, ui.banner
+    if not (name and Def() and CanEdit() and not S.inside) then return end
+    name:SetText(Def().name or "")
+    name:Show()
+    bn.title:SetAlpha(0)
+    name:SetFocus()
+    name:HighlightText()
+end
+
 local function RenderTop()
-    local top, d = ui.top, Def()
-    top.icon.tex:SetTexture(d.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-    if not top.name:HasFocus() then top.name:SetText(d.name or "") end
-    -- a field sized to its text (a long name in a smaller font, and wider when it must: the field shows all of it;
-    -- the stage strip makes room)
-    local probe = top.probe or UI():Text(top, "title", C.white)
-    top.probe = probe
-    probe:SetText(d.name or "")
-    probe:Hide()
-    local size = 13
-    Resize(probe, size)
-    while size > 10 and UI():TextWidth(probe) + 6 > 220 do
-        size = size - 1
-        Resize(probe, size)
-    end
-    Resize(top.name, size)
-    local nw = min(300, max(40, UI():TextWidth(probe) + 6))
-    top.name:SetWidth(nw)
-    top.pencil:ClearAllPoints()
-    top.pencil:SetPoint("LEFT", top.name, "RIGHT", 2, 0)
-    top.pencil:SetShown(CanEdit() and not S.inside)
-    top.sep1:ClearAllPoints()
-    top.sep1:SetPoint("LEFT", top.pencil, "RIGHT", 10, 0)
-    local practice = S.practice
+    local top, bn, d = ui.top, ui.banner, Def()
+    local practice, inside = S.practice, S.inside
+    local blk = inside and d.blocks[inside]
+    -- the banner: the event's art; its icon, name, what it holds and where it stands (inside a smart block: the way
+    -- back to the event, the block's icon and name, built in or my copy)
+    local bw = bn:GetWidth() > 1 and bn:GetWidth() or (WIN_W - 30)
+    bn:SetArt({ EUI():ArtCoords(d.art, bw - 2, St.BANNER.tool - 2, 0.55, 0.62, 0.98) })
     top.tint:SetShown(practice)
-    top.strip:SetShown(not practice and not S.inside)
-    top.crumb:SetShown(S.inside ~= nil and not practice)
-    top.prac:SetShown(practice)
-    for _, b in ipairs({ top.undo, top.redo, top.practiceBtn, top.share, top.more, top.primary, top.sep2 }) do
-        b:SetShown(not practice)
-    end
-    top.board:SetShown(practice)
-    top.ended:SetShown(practice)
-    top.icon:SetShown(not practice)
-    top.name:SetShown(not practice)
-    top.sep1:SetShown(not practice)
-    -- the primary: Save while there are changes, then Host; "Make a copy" for someone else's event
-    local primary = top.primary
-    if S.readOnly then
-        primary:SetText("Make a copy")
-    elseif S.dirty or not Ev():GetDef(d.id) then
-        primary:SetText("Save")
+    if blk and not practice then
+        bn:SetBack(d.name or "Event", function() Builder:CloseInside() end)
+        bn:SetIcon(B().SMART[blk.kind].icon)
+        bn:SetKicker(nil)
+        UI():SetTextStyle(bn.title, "hero", "GOLD")
+        bn:SetTitle(B():BlockLabel(d, inside))
+        bn:SetPill(blk.inner and "alt" or "mute", blk.inner and "your copy" or "built in")
+        bn:SetSub(Plural(PiecesIn(Scripts()), "piece", "pieces") .. " · runs in "
+            .. (blk.stage == "*" and "every stage" or B():StageName(d, blk.stage)))
+        if top.name:HasFocus() then top.name:ClearFocus() end
     else
-        primary:SetText("Host")
+        bn:SetBack(nil)
+        bn:SetIcon(d.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        bn:SetKicker(practice and "Practice run" or (S.readOnly and ("By " .. EUI():Plain(d.by))) or nil)
+        local pieces = PiecesIn(d.scripts)
+        for _, b in pairs(d.blocks or {}) do pieces = pieces + 1 + PiecesIn(b.inner) end
+        local sub = Plural(#d.stages, "stage", "stages") .. " · " .. Plural(pieces, "piece", "pieces")
+        if practice then
+            sub = sub .. " · nothing is sent or saved"
+        elseif S.dirty and not S.readOnly then
+            sub = sub .. " · " .. (Ev():GetDef(d.id) and "unsaved changes" or "not saved yet")
+        end
+        bn:SetSub(sub)
+        local pText, pKind
+        if practice then
+            pText, pKind = "Practice", "live"
+        elseif Ev():GetDef(d.id) then
+            pText, pKind = EUI():ReviewPill(Ev():ReviewState(Ev():GetDef(d.id)))
+        end
+        bn:SetPill(pKind, pText)
+        -- (a pencil after the name while it can be changed: a click on the name renames it)
+        FitName(bn, top.name, d.name or "", CanEdit() and not practice)
     end
-    primary:SetWidth((primary:GetFontString():GetStringWidth() or 40) + 26)
-    -- (one gold button a view: inside a built-in smart block it is the ribbon's "Make my own copy")
-    local blk = S.inside and d.blocks[S.inside]
-    primary:SetKind((blk and not blk.inner and not S.readOnly) and "secondary" or "primary")
-    -- the room the strip has: from where it starts to the buttons on the right (their widths add up; 12 between)
-    local tw = top:GetWidth() or 0
-    if tw < 200 then tw = WIN_W - 12 end
+    -- the tool row: the stages (or the practice run's), then the controls of the mode on the right
+    top.strip:SetShown(not practice and not inside)
+    top.prac:SetShown(practice)
+    for _, f in ipairs(top.editing) do f:SetShown(not practice) end
+    for _, f in ipairs(top.running) do f:SetShown(practice) end
+    top:SetText((blk and not practice) and ("Inside " .. B():BlockLabel(d, inside) .. ": its own pieces") or nil)
     if practice then
-        top.pencil:Hide()
-        top.prac:ClearAllPoints()
-        top.prac:SetPoint("LEFT", top, "LEFT", 10, 0)
-        local pr = top.prac
-        local x0 = 10 + pr.tag:GetWidth() + 8 + pr.pause:GetWidth() - 1 + pr.skip:GetWidth() - 1 + pr.speed:GetWidth() - 1
-            + pr.restart:GetWidth() + 10 + 1 + 10
-        local right = 10 + top.ended:GetWidth() + 6 + top.board:GetWidth()
-        LayoutStrip(pr.strip, pr.pills, true, tw - right - 12 - x0)
+        top:SetMore(nil)
+        top:SetPrimary({ text = "End practice", width = 110, onClick = function() Builder:StopPractice() end })
+    else
+        top:SetMore(top.moreFn0, "Art, icon, badges, variables, review, copy, delete.")
+        -- the primary: Save while there are changes, then Host; "Make a copy" for someone else's event (one gold
+        -- button a view: inside a built-in smart block it is the notice's "Make my own copy")
+        local text = S.readOnly and "Make a copy" or ((S.dirty or not Ev():GetDef(d.id)) and "Save" or "Host")
+        top:SetPrimary({ text = text, onClick = function() Builder:Primary() end,
+            kind = (blk and not blk.inner and not S.readOnly) and "secondary" or "primary" })
+    end
+    top.ended = practice and top.primary or nil
+    -- the room the strip has: the row's width less the controls on the right (UI.LAYOUT.CTRL_GAP between them)
+    local tw = top:GetWidth() or 0
+    if tw < 200 then tw = BODY_W end
+    local right, gap = 0, (UI().LAYOUT and UI().LAYOUT.CTRL_GAP) or 6
+    local list = { top.primary, top.more }
+    for _, f in ipairs(top.filters) do list[#list + 1] = f end
+    for _, f in ipairs(list) do
+        if f and f:IsShown() then right = right + (f:GetWidth() or 0) + gap end
+    end
+    if practice then
+        LayoutStrip(top.prac.strip, top.prac.pills, true, tw - right - 12)
         local _, p = L():GetPractice()
         top.prac.speed:SetText(((p and p.speed) or 1) .. "x")
         local c = UI():IconCoords((p and p.paused) and (UI().ICON.play or 47) or (UI().ICON.pause or 48))
         top.prac.pause.icon:SetTexCoord(c[1], c[2], c[3], c[4])
         top.prac.pause.tipTitle = (p and p.paused) and "Go on" or "Pause"
-    elseif S.inside then
-        local b = d.blocks[S.inside]
-        local cr = top.crumb
-        cr:ClearAllPoints()
-        cr:SetPoint("LEFT", top.sep1, "RIGHT", 10, 0)
-        cr.back:SetText(d.name or "Event")
-        cr.chev:ClearAllPoints()
-        cr.chev:SetPoint("LEFT", cr.back, "RIGHT", 6, 0)
-        cr.icon:SetTexture(B().SMART[b.kind].icon)
-        cr.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        cr.icon:ClearAllPoints()
-        cr.icon:SetPoint("LEFT", cr.chev, "RIGHT", 6, 0)
-        cr.name:SetText(B():BlockLabel(d, S.inside))
-        cr.name:ClearAllPoints()
-        cr.name:SetPoint("LEFT", cr.icon, "RIGHT", 6, 0)
-        cr.pill:SetKind(b.inner and "your copy" or "built in", b.inner and "alt" or "mute")
-        cr.pill:ClearAllPoints()
-        cr.pill:SetPoint("LEFT", cr.name, "RIGHT", 8, 0)
-        top.icon:Hide()
-        top.name:Hide()
-        top.pencil:Hide()
-        top.sep1:Hide()
-        cr:ClearAllPoints()
-        cr:SetPoint("LEFT", top, "LEFT", 10, 0)
-    else
-        top.strip:ClearAllPoints()
-        top.strip:SetPoint("LEFT", top.sep1, "RIGHT", 10, 0)
-        local x0 = 10 + top.icon:GetWidth() + 8 + nw + 2 + top.pencil:GetWidth() + 10 + 1 + 10
-        local right = 10 + primary:GetWidth() + 6 + top.more:GetWidth() + 6 + top.share:GetWidth() + 6
-            + top.practiceBtn:GetWidth() + 8 + 1 + 8 + top.redo:GetWidth() + 6 + top.undo:GetWidth()
-        LayoutStrip(top.strip, top.pills, false, tw - right - 12 - x0)
+    elseif not inside then
+        LayoutStrip(top.strip, top.pills, false, tw - right - 12)
     end
     -- undo / redo stay clickable (they say so when there is nothing to take back): dim then
     top.undo.icon:SetAlpha(#S.undo > 0 and 1 or 0.35)
     top.redo.icon:SetAlpha(#S.redo > 0 and 1 or 0.35)
     top.undo.tipText = #S.undo > 0 and "Ctrl-Z" or "Ctrl-Z · nothing to undo yet"
     top.redo.tipText = #S.redo > 0 and "Ctrl-Y" or "Ctrl-Y · nothing to redo"
+    -- someone else's event: said above the palette and the canvas (the controls stay; a click says why too)
+    if S.readOnly and not practice then
+        ui.layout:ShowNotice("readonly", "This is " .. EUI():Plain(d.by) .. "'s event: you can look and practise. Make a copy to change it.")
+    else
+        ui.layout:HideNotice()
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -938,36 +926,20 @@ end
 
 
 CreatePalette = function(body)
-    local pal = CreateFrame("Frame", nil, body)
+    -- the palette: an inset panel left of the canvas (the categories' column, then the search and the pieces)
+    local pal = UI():CreateCard(body, { tone = "inset", pad = 0 })
     pal:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
     pal:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
     pal:SetWidth(PAL_W)
-    local bg = pal:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.05, 0.05, 0.063, 0.98)
-    local line = Divider(pal, true)
-    line:SetPoint("TOPRIGHT")
-    line:SetPoint("BOTTOMRIGHT")
     ui.pal = pal
-    -- the categories: a coloured circle and the word under it
+    -- the categories (Scratch's): a coloured circle and the word under it, the open one in the rows' picked look
     pal.cats = {}
-    local catLine = pal:CreateTexture(nil, "BORDER")
-    catLine:SetColorTexture(Col("HAIRLINE", 0.06))
-    catLine:SetPoint("TOPLEFT", pal, "TOPLEFT", CAT_W, 0)
-    catLine:SetPoint("BOTTOMLEFT", pal, "BOTTOMLEFT", CAT_W, 0)
-    catLine:SetWidth(1)
+    UI():Rule(pal, { vertical = true, left = CAT_W })
     for i, c in ipairs(B().CATS) do
         local b = CreateFrame("Button", nil, pal)
-        b:SetSize(CAT_W, 47)
-        b:SetPoint("TOPLEFT", pal, "TOPLEFT", 0, -4 - (i - 1) * 47)
-        b.hl = b:CreateTexture(nil, "BACKGROUND")
-        b.hl:SetAllPoints()
-        b.hl:SetColorTexture(Col("HOVER"))
-        b.bar = b:CreateTexture(nil, "ARTWORK")
-        b.bar:SetColorTexture(Col("GOLD"))
-        b.bar:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -6)
-        b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 6)
-        b.bar:SetWidth(2)
+        b:SetSize(CAT_W - 1, 47)
+        b:SetPoint("TOPLEFT", pal, "TOPLEFT", 1, -4 - (i - 1) * 47)
+        UI():DecorateRow(b, { selectable = true })
         b.dot = b:CreateTexture(nil, "ARTWORK", nil, 1)
         b.dot:SetTexture(EUI().MASK)
         b.dot:SetSize(16, 16)
@@ -983,8 +955,7 @@ CreatePalette = function(body)
         b.ring:SetSize(17, 17)
         b.ring:SetPoint("CENTER", b.dot, "CENTER", 0, 0)
         b.ring:SetVertexColor(c.e[1], c.e[2], c.e[3])
-        b.fs = UI():Text(b, 9.5, C.white)
-        b.fs:SetJustifyH("CENTER")
+        b.fs = UI():Text(b, "small", "TEXT", { justify = "CENTER" })
         b.fs:SetPoint("TOP", b.dot, "BOTTOM", 0, -5)
         b.fs:SetText(c.label)
         b.cat = c.key
@@ -1020,9 +991,7 @@ CreatePalette = function(body)
     pal.items = {}
     pal.heads = {}
     -- dropping a piece on the palette takes it away: the palette shows it while one is dragged over it
-    pal.trash = pal:CreateTexture(nil, "OVERLAY")
-    pal.trash:SetAllPoints()
-    pal.trash:SetColorTexture(0.6, 0.12, 0.1, 0.18)
+    pal.trash = UI():Fill(pal, C.trash, "OVERLAY")
     pal.trash:Hide()
     pal.trashFs = UI():Text(pal, "emph", { 1, 0.85, 0.82 })
     pal.trashFs:SetPoint("CENTER", pal, "CENTER", 0, 0)
@@ -1174,21 +1143,10 @@ local PAL_LIST_W = PAL_W - CAT_W - 22      -- the palette's column (a piece wide
 -- A palette row's parts for a definition (made once per pooled row): swatch, name, its line, the pencil.
 local function DefRowParts(it)
     if it.nm then return end
-    it.sel = it:CreateTexture(nil, "BACKGROUND", nil, 1)
-    it.sel:SetAllPoints()
-    it.sel:SetColorTexture(Col("SELECT"))
-    it.bar = it:CreateTexture(nil, "ARTWORK")
-    it.bar:SetColorTexture(Col("GOLD"))
-    it.bar:SetPoint("TOPLEFT")
-    it.bar:SetPoint("BOTTOMLEFT")
-    it.bar:SetWidth(2)
-    it.hov = it:CreateTexture(nil, "HIGHLIGHT")
-    it.hov:SetAllPoints()
-    it.hov:SetColorTexture(Col("HAIRLINE", 0.04))
     it.sw = it:CreateTexture(nil, "ARTWORK", nil, 1)
     it.sw2 = it:CreateTexture(nil, "ARTWORK", nil, 2)
     it.sw3 = it:CreateTexture(nil, "ARTWORK", nil, 3)
-    it.nm = UI():Text(it, "body", C.white)
+    it.nm = UI():Text(it, "body", "TEXT")
     it.sb = UI():Text(it, "small", "SUB")
     it.pen = it:CreateTexture(nil, "ARTWORK")
     it.pen:SetSize(11, 11)
@@ -1202,7 +1160,7 @@ end
 
 local function HideDefParts(it)
     if not it.nm then return end
-    for _, k in ipairs({ "sel", "bar", "hov", "sw", "sw2", "sw3", "nm", "sb", "pen", "plus", "caret" }) do it[k]:Hide() end
+    for _, k in ipairs({ "sw", "sw2", "sw3", "nm", "sb", "pen", "plus", "caret" }) do it[k]:Hide() end
 end
 
 function Builder:RenderPalette()
@@ -1210,9 +1168,8 @@ function Builder:RenderPalette()
     if not pal then return end
     for _, b in ipairs(pal.cats) do
         local on = (S.search or "") == "" and b.cat == (S.cat or "ev")
-        b.hl:SetShown(on)
-        b.bar:SetShown(on)
-        b.fs:SetTextColor(on and 1 or 0.66, on and 1 or 0.66, on and 1 or 0.68)
+        b:SetSelected(on)
+        b.fs:SetTextColor(Col(on and "TEXT" or "SUB"))
     end
     local child = pal.child
     for _, it in ipairs(pal.items) do
@@ -1228,15 +1185,17 @@ function Builder:RenderPalette()
         nh = nh + 1
         local h = pal.heads[nh]
         if not h then
-            h = UI():Text(child, "body", "GOLD")
+            h = UI():CreateSectionHeader(child, g.title, { style = "caps", width = PAL_LIST_W })
+            function h:GetText() return self.label end      -- (the group's name, as it is written)
             pal.heads[nh] = h
         end
-        if gi > 1 then y = y + 6 end
-        h:SetText(g.title)
+        if gi > 1 then y = y + 8 end
+        h.label = g.title
+        h:SetTitle(g.title)
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
         h:Show()
-        y = y + 20
+        y = y + 24
         local lastWasHat
         for _, entry in ipairs(g.list) do
             n = n + 1
@@ -1253,6 +1212,8 @@ function Builder:RenderPalette()
                 UI():AddEdges(it)
                 it.bg = it:CreateTexture(nil, "BACKGROUND")
                 it.bg:SetAllPoints()
+                -- (the list's row looks: the mouse over it; a definition's row lit while its editor is open)
+                UI():DecorateRow(it, { selectable = true })
             end
             it:Show()
             it:ClearAllPoints()
@@ -1263,6 +1224,7 @@ function Builder:RenderPalette()
             it.desc:Hide()
             it.ic:Hide()
             HideDefParts(it)
+            it:SetSelected(false)
             UI():SetEdgeColor(it, 0, 0, 0, 0)
             it.bg:SetColorTexture(0, 0, 0, 0)
             it:SetScript("OnEnter", nil)
@@ -1347,17 +1309,16 @@ function Builder:RenderPalette()
             y = y + h + gap
         end
     end
-    -- a search that finds nothing says so (the list would be empty)
+    -- a search that finds nothing says so (the list would be empty): the list's compact empty state
     if not pal.none then
-        pal.none = UI():Text(child, "body", "SUB")
-        pal.none:SetWordWrap(true)
-        pal.none:SetWidth(PAL_W - CAT_W - 26)
-        pal.none:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -4)
+        pal.none = UI():CreateEmptyState(child, { compact = true, icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
+            title = "No piece has those words", text = "Try one word, like \"tell\" or \"winner\"." })
+        pal.none:SetBoxWidth(PAL_LIST_W)
+        pal.none:SetPoint("TOP", child, "TOP", 0, -24)
     end
     if nh == 0 then
-        pal.none:SetText("No piece has those words. Try one word, like \"tell\" or \"winner\".")
         pal.none:Show()
-        y = 40
+        y = 24 + pal.none:GetHeight() + 10
     else
         pal.none:Hide()
     end
@@ -1370,18 +1331,15 @@ end
 ---------------------------------------------------------------------------
 
 CreateCanvas = function(body)
-    local cv = CreateFrame("Frame", nil, body)
-    cv:SetPoint("TOPLEFT", body, "TOPLEFT", PAL_W, 0)
+    -- the canvas: an inset panel right of the palette (the dots over its well, moved with the view)
+    local cv = UI():CreateCard(body, { tone = "inset", pad = 0 })
+    cv:SetPoint("TOPLEFT", body, "TOPLEFT", PAL_W + St.GAP, 0)
     cv:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
-    cv:SetSize(WIN_W - 12 - PAL_W, BODY_H)
+    cv:SetSize(CV_W, BODY_H)
     cv:SetClipsChildren(true)
     cv:EnableMouse(true)
     cv:EnableMouseWheel(true)
-    local bg = cv:CreateTexture(nil, "BACKGROUND", nil, -2)
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.043, 0.043, 0.055, 1)
-    -- the dots (tiled), moved with the view
-    cv.grid = cv:CreateTexture(nil, "BACKGROUND", nil, -1)
+    cv.grid = cv:CreateTexture(nil, "BACKGROUND", nil, 1)
     cv.grid:SetAllPoints()
     cv.grid:SetTexture(GRID, "REPEAT", "REPEAT")   -- tiled by its tex coords (ApplyView)
     ui.cv = cv
@@ -1422,66 +1380,40 @@ CreateCanvas = function(body)
     UI():AddEdges(ui.slotHl, "OVERLAY")
     UI():SetEdgeColor(ui.slotHl, Col("GOLD", 0.95))
     ui.slotHl:Hide()
-    -- the ribbon (inside a smart block)
-    local rb = CreateFrame("Frame", nil, cv)
+    -- inside a smart block: the notice over the canvas (built in: locked, make my own copy; or my own copy), on a
+    -- card so the pieces under it don't show through
+    local rb = UI():CreateCard(cv, { tone = "card", pad = 0 })
     rb:SetPoint("TOPLEFT", cv, "TOPLEFT", 12, -12)
     rb:SetPoint("TOPRIGHT", cv, "TOPRIGHT", -12, -12)
     rb:SetHeight(44)
     rb:SetFrameLevel(cv:GetFrameLevel() + 900)
-    rb.bg = rb:CreateTexture(nil, "BACKGROUND")
-    rb.bg:SetAllPoints()
-    rb.bg:SetColorTexture(0.078, 0.07, 0.047, 0.96)
-    EUI():Edge(rb, 0.84, 0.68, 0.26, 0.6)
-    rb.icon = rb:CreateTexture(nil, "ARTWORK")
-    rb.icon:SetSize(26, 26)
-    rb.icon:SetPoint("LEFT", rb, "LEFT", 12, 0)
-    rb.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    rb.t1 = UI():Text(rb, "emph", C.white)
-    rb.t1:SetPoint("TOPLEFT", rb.icon, "TOPRIGHT", 10, 1)
-    rb.t2 = UI():Text(rb, "small", { 0.74, 0.71, 0.6 })
-    rb.t2:SetPoint("TOPLEFT", rb.t1, "BOTTOMLEFT", 0, -3)
-    rb.btn = UI():CreateSleekButton(rb, "Make my own copy", 150, 24, function() Builder:CopyInner() end, "primary")
-    rb.btn:SetPoint("RIGHT", rb, "RIGHT", -8, 0)
+    rb.notice = UI():CreateNotice(rb, "locked", "")
+    rb.notice:SetPoint("TOPLEFT", rb, "TOPLEFT", 0, 0)
+    rb.btn = UI():CreateSleekButton(rb, "Make my own copy", 150, St.BTN_H, function() Builder:CopyInner() end, "primary")
+    rb.btn:SetPoint("RIGHT", rb, "RIGHT", -10, 0)
+    rb.btn:SetFrameLevel(rb.notice:GetFrameLevel() + 2)
     rb:Hide()
     ui.ribbon = rb
-    -- the empty stage: a box where its first "when" piece goes (a faint one in it), and its words
-    local em = CreateFrame("Frame", nil, cv)
-    em:SetSize(292, 236)
-    em:SetPoint("CENTER", cv, "CENTER", 0, 10)
-    em.bg = em:CreateTexture(nil, "BACKGROUND")
-    em.bg:SetAllPoints()
-    em.bg:SetColorTexture(Col("HAIRLINE", 0.02))
-    EUI():Edge(em, 1, 1, 1, 0.14)
-    em.t = UI():Text(em, "title", C.white)
-    em.t:SetJustifyH("CENTER")
-    em.t:SetPoint("TOP", em, "TOP", 0, -108)
-    em.t2 = UI():Text(em, "body", "SUB")
-    em.t2:SetJustifyH("CENTER")
-    em.t2:SetWordWrap(true)
-    em.t2:SetWidth(270)
-    em.t2:SetPoint("TOP", em.t, "BOTTOM", 0, -6)
+    -- the empty stage: the empty state (what to do), a faint "when" piece under it where the first one goes
+    local em = UI():CreateEmptyState(cv, { glyph = UI().ICON.flag })
+    em:SetPoint("CENTER", cv, "CENTER", 0, 40)
+    em:SetBoxWidth(320)
     em:Hide()
     ui.empty = em
     -- bottom right: the overview of the canvas and the zoom
-    local zc = CreateFrame("Frame", nil, cv)
-    zc:SetSize(130, 24)
+    local zc = UI():CreateCard(cv, { tone = "card", pad = 0 })
+    zc:SetSize(130, St.BTN_H)
     zc:SetPoint("BOTTOMRIGHT", cv, "BOTTOMRIGHT", -10, 10)
     zc:SetFrameLevel(cv:GetFrameLevel() + 900)
-    zc.bg = zc:CreateTexture(nil, "BACKGROUND")
-    zc.bg:SetAllPoints()
-    zc.bg:SetColorTexture(0.055, 0.055, 0.067, 0.94)
-    EUI():Edge(zc, Col("EDGE_STRONG"))
     local function zb(icon, x, w, fn, tip)
         local b = CreateFrame("Button", nil, zc)
-        b:SetSize(w, 24)
+        b:SetSize(w, St.BTN_H)
         b:SetPoint("LEFT", zc, "LEFT", x, 0)
         b.t = b:CreateTexture(nil, "ARTWORK")
         b.t:SetSize(11, 11)
         b.t:SetPoint("CENTER")
-        if icon then EUI():Glyph(b.t, icon, 0.81, 0.81, 0.81) end
-        local hl = b:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetColorTexture(Col("HAIRLINE", 0.06))
+        if icon then EUI():Glyph(b.t, icon, Col("TEXT")) end
+        UI():DecorateRow(b)
         b:SetScript("OnClick", fn)
         if tip then UI():AttachTooltip(b, tip, nil, C.tipTop) end
         return b
@@ -1489,42 +1421,37 @@ CreateCanvas = function(body)
     zc.minus = zb(nil, 0, 26, function() Builder:Zoom(-1) end, "Zoom out")
     zc.minus.t:SetTexture(WHITE)
     zc.minus.t:SetSize(9, 2)
-    zc.minus.t:SetVertexColor(0.81, 0.81, 0.81)
+    zc.minus.t:SetVertexColor(Col("TEXT"))
     -- the percentage: a click goes back to 100%
     zc.reset = zb(nil, 26, 50, function() Builder:ZoomTo(1) end, "Back to 100%")
     zc.reset.t:Hide()
-    zc.pct = UI():Text(zc.reset, "emph", C.white)
-    zc.pct:SetJustifyH("CENTER")
+    zc.pct = UI():Text(zc.reset, "emph", "TEXT", { justify = "CENTER" })
     zc.pct:SetPoint("CENTER", zc.reset, "CENTER", 0, 0)
     zc.plus = zb(UI().ICON.plus or 39, 76, 26, function() Builder:Zoom(1) end, "Zoom in")
     zc.fit = zb(35, 102, 28, function() Builder:ZoomToFit() end, "Zoom to fit")
     ui.zoom = zc
-    local ov = CreateFrame("Button", nil, cv)
+    -- the overview (a click there shows that place): a card with the view as a gold frame on it
+    local ov = UI():CreateCard(cv, { tone = "card", pad = 0 })
     ov:SetSize(132, 82)
     ov:SetPoint("BOTTOMRIGHT", zc, "TOPRIGHT", 0, 6)
     ov:SetFrameLevel(cv:GetFrameLevel() + 900)
-    ov.bg = ov:CreateTexture(nil, "BACKGROUND")
-    ov.bg:SetAllPoints()
-    ov.bg:SetColorTexture(0.055, 0.055, 0.067, 0.92)
-    EUI():Edge(ov, Col("EDGE_QUIET"))
     ov:SetClipsChildren(true)
+    ov:EnableMouse(true)
     ov.boxes = {}
     ov.vp = CreateFrame("Frame", nil, ov)
-    EUI():Edge(ov.vp, Col("GOLD", 0.85))
-    ov.vp.bg = ov.vp:CreateTexture(nil, "BACKGROUND")
-    ov.vp.bg:SetAllPoints()
-    ov.vp.bg:SetColorTexture(Col("GOLD", 0.05))
-    ov:SetScript("OnClick", function(self) Builder:OverviewClick(self) end)
+    UI():AddEdges(ov.vp, "OVERLAY")
+    UI():SetEdgeColor(ov.vp, Col("GOLD", 0.85))
+    ov.vp.bg = UI():Fill(ov.vp, C.goldWash)
+    ov:SetScript("OnMouseUp", function(self, button) if button == "LeftButton" then Builder:OverviewClick(self) end end)
     ui.overview = ov
     -- bottom: the problems pill (or ready)
     local st = CreateFrame("Button", nil, cv)
-    st:SetHeight(24)
+    st:SetHeight(St.BTN_H)
     st:SetPoint("BOTTOMRIGHT", zc, "BOTTOMLEFT", -10, 0)
     st:SetFrameLevel(cv:GetFrameLevel() + 900)
-    st.bg = st:CreateTexture(nil, "BACKGROUND")
-    st.bg:SetAllPoints()
-    st.bg:SetColorTexture(0.055, 0.055, 0.067, 0.94)
+    st.bg = UI():Fill(st, "CARD")
     UI():AddEdges(st)
+    UI():DecorateRow(st)
     st.icon = st:CreateTexture(nil, "ARTWORK")
     st.icon:SetSize(13, 13)
     st.icon:SetPoint("LEFT", st, "LEFT", 8, 0)
@@ -1550,7 +1477,7 @@ end
 -- The canvas' size (its own units).
 local function CanvasSize()
     local w, h = ui.cv:GetWidth() or 0, ui.cv:GetHeight() or 0
-    if w <= 1 or h <= 1 then w, h = WIN_W - 12 - PAL_W, BODY_H end
+    if w <= 1 or h <= 1 then w, h = CV_W, BODY_H end
     return w, h
 end
 
@@ -1730,7 +1657,7 @@ local function DrawScriptFrame(s, problems)
     return f
 end
 
-local CreateCard, CreateNote
+local CreateBlockCard, CreateNote
 
 function Builder:RenderCanvas()
     if not ui.content then return end
@@ -1749,7 +1676,7 @@ function Builder:RenderCanvas()
             local b = d.blocks[bid]
             if b.stage == S.stage then
                 nBlocks = nBlocks + 1
-                local card = ui.cards[bid] or CreateCard(bid)
+                local card = ui.cards[bid] or CreateBlockCard(bid)
                 ui.cards[bid] = card
                 card:Fill(bid)
                 card:ClearAllPoints()
@@ -1775,19 +1702,29 @@ function Builder:RenderCanvas()
     local rb = ui.ribbon
     if S.inside then
         local b = d.blocks[S.inside]
-        rb.icon:SetTexture(B().SMART[b.kind].icon)
         if b.inner then
-            rb.t1:SetText("This " .. B():BlockLabel(d, S.inside) .. " runs your own copy of its pieces.")
-            rb.t2:SetText("Change them as you like. Going back to the built-in pieces drops your changes.")
             rb.btn:SetText("Back to built-in")
             rb.btn:SetKind("secondary")
         else
-            rb.t1:SetText(B():BlockLabel(d, S.inside) .. " is built in. These are the pieces it's made of.")
-            rb.t2:SetText("They're locked so updates can fix them. Make your own copy to change how matches are decided.")
             rb.btn:SetText("Make my own copy")
             rb.btn:SetKind(S.readOnly and "secondary" or "primary")
         end
         rb.btn:SetWidth((rb.btn:GetFontString():GetStringWidth() or 100) + 28)
+        -- (the notice's words clear of its button)
+        rb.notice:SetPoint("TOPRIGHT", rb, "TOPRIGHT", -(rb.btn:GetWidth() + 20), 0)
+        if b.inner then
+            rb.notice:SetNotice("info", "This " .. B():BlockLabel(d, S.inside) .. " runs your own copy of its pieces.\n"
+                .. St:Wrap("SUB", "Change them as you like. Going back to the built-in pieces drops your changes."))
+        else
+            rb.notice:SetNotice("locked", B():BlockLabel(d, S.inside) .. " is built in. These are the pieces it's made of.\n"
+                .. St:Wrap("SUB", "They're locked so updates can fix them. Make your own copy to change how matches are decided."))
+        end
+        -- (its words wrap to the room left of the button; the card as tall as they are)
+        local nw = (rb:GetWidth() > 1 and rb:GetWidth() or (CV_W - 24)) - rb.btn:GetWidth() - 20
+        rb.notice.text:SetWidth(nw - 38)
+        local nh = max(44, floor((rb.notice.text:GetStringHeight() or 30) + 18.5))
+        rb:SetHeight(nh)
+        rb.notice:SetHeight(nh)
         rb:Show()
     else
         rb:Hide()
@@ -1801,16 +1738,16 @@ function Builder:RenderCanvas()
     S.startFrom = startFrom
     if empty and not startFrom then
         local stName = B():StageName(d, S.stage)
-        em.t:SetText("Nothing runs in " .. stName .. " yet")
-        em.t2:SetText(S.stage == "*" and "Pieces here run in every stage: drag a \"when\" piece here."
-            or ("Drag a \"when\" piece here. Pieces in this stage run while the event is in " .. stName .. "."))
+        em:SetContent({ glyph = UI().ICON.flag, title = "Nothing runs in " .. stName .. " yet",
+            text = S.stage == "*" and "Pieces here run in every stage: drag a \"when\" piece here."
+                or ("Drag a \"when\" piece here. Pieces in this stage run while the event is in " .. stName .. ".") })
         if not em.ghost then
             -- (a faint "when" piece where the first one goes)
             em.ghost = EP():Draw(em, B():New("ev.start"), { static = true })
             em.ghost:SetAlpha(0.42)
         end
         em.ghost:ClearAllPoints()
-        em.ghost:SetPoint("TOP", em, "TOP", 0, -46)
+        em.ghost:SetPoint("TOP", em, "BOTTOM", 0, -18)
         em:Show()
     else
         em:Hide()
@@ -1842,8 +1779,8 @@ function Builder:RenderOverview()
         maxX, maxY = max(maxX, it.x + it.w), max(maxY, it.y + it.h)
     end
     local v = View()
-    local vw, vh = (ui.cv:GetWidth() or (WIN_W - 12 - PAL_W)) / v.z, (ui.cv:GetHeight() or BODY_H) / v.z
-    if vw <= 1 then vw, vh = (WIN_W - 12 - PAL_W) / v.z, BODY_H / v.z end
+    local vw, vh = (ui.cv:GetWidth() or (CV_W)) / v.z, (ui.cv:GetHeight() or BODY_H) / v.z
+    if vw <= 1 then vw, vh = (CV_W) / v.z, BODY_H / v.z end
     local vx, vy = -v.x / v.z, -v.y / v.z
     minX, minY = min(minX, vx), min(minY, vy)
     maxX, maxY = max(maxX, vx + vw), max(maxY, vy + vh)
@@ -1898,15 +1835,14 @@ function Builder:RenderStatus()
         local first = probs[1]
         if #probs == 1 and first.text and first.text:find("^Needs a player") then word = "1 piece needs a player" end
         st.fs:SetText(word)
-        st.fs:SetTextColor(1, 0.83, 0.64)
+        st.fs:SetTextColor(Col("WARN"))
         st.icon:SetTexture(UI().ICON_WARN)
         st.icon:SetTexCoord(0, 1, 0, 1)
-        UI():SetEdgeColor(st, 1, 0.55, 0.1, 0.6)
+        UI():SetEdgeColor(st, Col("WARN", 0.6))
     elseif S.readOnly then
-        st.fs:SetText("By " .. EUI():Plain(Def().by) .. ": make a copy to change it")
-        st.fs:SetTextColor(0.8, 0.8, 0.82)
-        EUI():Glyph(st.icon, UI().ICON.lock or 52, 0.91, 0.77, 0.35)
-        UI():SetEdgeColor(st, Col("EDGE_STRONG"))
+        -- (someone else's event: the read-only notice over the body says so)
+        st:Hide()
+        return
     else
         -- every piece is set: practise it first (a practice run to its end of exactly this event), then host it
         local d = Def()
@@ -1916,10 +1852,10 @@ function Builder:RenderStatus()
         local practiced = S.practicedHash == h or (p ~= nil and p.h == h)
         st.fs:SetText((state == "ranked" and not S.dirty and "Ranked · ready to host")
             or (practiced and "Ready to host") or "Ready to practice")
-        st.fs:SetTextColor(0.72, 0.94, 0.78)
+        st.fs:SetTextColor(Col("OK"))
         st.icon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
         st.icon:SetTexCoord(0, 1, 0, 1)
-        UI():SetEdgeColor(st, 0.35, 0.86, 0.47, 0.5)
+        UI():SetEdgeColor(st, Col("OK", 0.5))
     end
     st:SetWidth(8 + 13 + 7 + (st.fs:GetStringWidth() or 100) + 10)
 end
@@ -1960,36 +1896,30 @@ end
 local CARD_DD_W = { fmt = 168, seed = 168, closes = 196, bo = 52, fbo = 52, spots = 60, noshow = 84, atonce = 112,
     win = 120 }
 
-CreateCard = function(bid)
-    local card = CreateFrame("Frame", nil, ui.content)
+-- A smart block on the canvas: a card (its edge in the smart blocks' colour), its head (icon, name, Open), its
+-- settings as label + control rows, what it gives as chips in the pieces' colours.
+CreateBlockCard = function(bid)
+    local card = UI():CreateCard(ui.content, { tone = "card", pad = 0 })
     card:SetWidth(318)
     card:EnableMouse(true)
-    card.bg = card:CreateTexture(nil, "BACKGROUND")
-    card.bg:SetAllPoints()
-    UI():Gradient(card.bg, "VERTICAL", C.cardLo, C.cardHi)
-    EUI():Edge(card, 0.84, 0.68, 0.26, 0.72)
+    local sm = B().CAT.sm.e
+    UI():SetEdgeColor(card, sm[1], sm[2], sm[3], 0.72)
     card.icon = card:CreateTexture(nil, "ARTWORK")
     card.icon:SetSize(26, 26)
     card.icon:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -8)
     card.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     card.name = UI():Text(card, "title", "GOLD")
     card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 9, -1)
-    card.kind = UI():Text(card, "small", { 0.55, 0.55, 0.58 })
+    card.kind = UI():Text(card, "small", "SUB")
     card.kind:SetPoint("TOPLEFT", card.name, "BOTTOMLEFT", 0, -1)
     card.kind:SetText("smart block")
-    card.open = UI():CreateSleekButton(card, "Open", 52, 22, function(self) Builder:OpenInside(self:GetParent().bid) end)
+    card.open = UI():CreateSleekButton(card, "Open", 56, 22, function(self) Builder:OpenInside(self:GetParent().bid) end)
     card.open:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -10)
-    card.head = card:CreateTexture(nil, "BORDER")
-    card.head:SetColorTexture(Col("HAIRLINE"))
-    card.head:SetHeight(1)
-    card.head:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -42)
-    card.head:SetPoint("TOPRIGHT", card, "TOPRIGHT", -1, -42)
+    card.head = UI():Rule(card, { top = 42, left = 1, right = 1 })
     card.rows = {}
     card.chips = {}
-    card.foot = card:CreateTexture(nil, "BORDER")
-    card.foot:SetColorTexture(Col("HAIRLINE", 0.06))
-    card.foot:SetHeight(1)
-    card.givesLab = UI():Text(card, "small", { 0.55, 0.55, 0.58 })
+    card.foot = UI():Rule(card, { left = 1, right = 1, alpha = 0.06 })
+    card.givesLab = UI():Text(card, "small", "SUB")
     card.givesLab:SetText("Gives")
     -- dragged by its head; right-click for its menu
     card:SetScript("OnMouseDown", function(self, button)
@@ -2070,7 +2000,7 @@ CreateCard = function(bid)
                 row.lab = UI():Text(row, "body", "SUB")
                 row.lab:SetPoint("LEFT", row, "LEFT", 0, 0)
                 row.mid = UI():Text(row, "body", "SUB")
-                row.words = UI():Text(row, "body", { 0.85, 0.85, 0.85 })
+                row.words = UI():Text(row, "body", "TEXT")
                 self.rows[i] = row
             end
             row:ClearAllPoints()
@@ -2711,10 +2641,10 @@ local function CreatePicker()
     p:SetFrameStrata("DIALOG")
     p:SetSize(252, 300)
     p:EnableMouse(true)
-    p.bg = p:CreateTexture(nil, "BACKGROUND")
-    p.bg:SetAllPoints()
-    p.bg:SetColorTexture(0.047, 0.047, 0.059, 1)
-    EUI():Edge(p, unpack(C.panelEdge))
+    -- (the menus' surface: a drop-down list of what fits)
+    p.bg = UI():Fill(p, "SURFACE_WINDOW")
+    UI():AddEdges(p)
+    UI():SetEdgeColor(p, Col("DROP_EDGE"))
     p.title = UI():Text(p, "emph", "GOLD")
     p.title:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -10)
     p.sub = UI():Text(p, "small", "SUB")
@@ -2732,10 +2662,8 @@ local function CreatePicker()
     p.search:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -30)
     p.rows = {}
     p.heads = {}
-    p.foot = UI():Text(p, "small", { 0.55, 0.55, 0.58 })
-    p.foot:SetWordWrap(true)
-    p.foot:SetWidth(228)
-    p.clear = UI():CreateSleekButton(p, "Empty it", 70, 20, function() Builder:PickClear() end)
+    p.foot = UI():Text(p, "small", "SUB", { wrap = true, width = 228 })
+    p.clear = UI():CreateSleekButton(p, "Empty it", 70, 22, function() Builder:PickClear() end)
     p:Hide()
     ui.picker = p
     -- an item shift-clicked (a bag, a link in chat) while an item's blank is being typed goes in it
@@ -2933,36 +2861,26 @@ function Builder:FillPicker(query)
             if c.section ~= section then
                 section = c.section
                 nh = nh + 1
-                local h = p.heads[nh] or UI():Text(p, "small", C.white)
+                local h = p.heads[nh] or UI():CreateSectionHeader(p, section, { style = "caps", width = 228 })
                 p.heads[nh] = h
-                h:SetTextColor(0.55, 0.55, 0.58)
-                h:SetText(section)
+                h:SetTitle(section)
                 h:ClearAllPoints()
-                h:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 4))
+                h:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(y + 2))
                 h:Show()
-                y = y + 18
+                y = y + 22
             end
             n = n + 1
             local r = p.rows[n]
             if not r then
                 r = CreateFrame("Button", nil, p)
                 r:SetSize(240, 25)
-                r.hl = r:CreateTexture(nil, "BACKGROUND")
-                r.hl:SetAllPoints()
-                r.hl:SetColorTexture(Col("GOLD", 0.12))
-                r.hl:Hide()
-                r.on = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-                r.on:SetAllPoints()
-                r.on:SetColorTexture(Col("SELECT"))
-                r.desc = UI():Text(r, "small", "SUB")
-                r.desc:SetJustifyH("RIGHT")
+                UI():DecorateRow(r, { selectable = true })      -- (the mouse over it; the blank's current value picked)
+                r.desc = UI():Text(r, "small", "SUB", { justify = "RIGHT" })
                 r.desc:SetPoint("RIGHT", r, "RIGHT", -6, 0)
                 r.icon = r:CreateTexture(nil, "ARTWORK")
                 r.icon:SetSize(13, 13)
                 r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
-                r.label = UI():Text(r, "body", C.white)
-                r:SetScript("OnEnter", function(self) self.hl:Show() end)
-                r:SetScript("OnLeave", function(self) self.hl:Hide() end)
+                r.label = UI():Text(r, "body", "TEXT")
                 p.rows[n] = r
             end
             r:ClearAllPoints()
@@ -2970,7 +2888,7 @@ function Builder:FillPicker(query)
             r:Show()
             r.icon:Hide()
             r.label:Hide()
-            r.on:Hide()
+            r:SetSelected(false)
             r.choice, r.chip, r.fn = nil, nil, nil
             r.desc:SetText(c.desc or "")
             if c.piece then
@@ -2982,23 +2900,22 @@ function Builder:FillPicker(query)
             elseif c.chip then
                 r.draw = EP():DrawChip(r, c.chip[1], c.chip[2], { def = d, static = true })
                 r.draw:SetPoint("LEFT", r, "LEFT", 6, 0)
-                r.on:SetShown(cur == c.chip[2])
+                r:SetSelected(cur == c.chip[2])
                 r.chip = c.chip[2]
                 r:SetScript("OnClick", function(self) Builder:PickValue(self.chip) end)
             else
                 local icon = c.action[2]
                 local x = 8
                 if icon then
-                    EUI():Glyph(r.icon, icon, 0.86, 0.86, 0.86)
+                    EUI():Glyph(r.icon, icon, Col("TEXT"))
                     r.icon:Show()
                     x = 28
                 end
                 r.label:ClearAllPoints()
                 r.label:SetPoint("LEFT", r, "LEFT", x, 0)
                 r.label:SetText(c.action[1])
-                r.label:SetTextColor(0.91, 0.91, 0.91)
                 r.label:Show()
-                r.on:SetShown(cur ~= nil and cur == c.action[1])
+                r:SetSelected(cur ~= nil and cur == c.action[1])
                 r.fn = c.action[3]
                 r:SetScript("OnClick", function(self) if self.fn then self.fn() end end)
             end
@@ -3314,7 +3231,7 @@ function Builder:AskName(title, current, onDone, maxLen, check)
         f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 10)
         f.cancel = UI():CreateSleekButton(f, "Cancel", 70, 22, function() f:Hide() end)
         f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
-        f.err = UI():Text(f, "small", { 1, 0.54, 0.48 })
+        f.err = UI():Text(f, "small", "BAD")
         f.err:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 21)
         f.field:SetScript("OnEnterPressed", function() f:Done() end)
         f.field:SetScript("OnEscapePressed", function() f:Hide() end)
@@ -3782,17 +3699,12 @@ function Builder:RenderStartFrom(show)
         sf = CreateFrame("Frame", nil, ui.cv)
         sf:SetAllPoints(ui.cv)
         sf:SetFrameLevel(ui.cv:GetFrameLevel() + 800)
-        sf.box = CreateFrame("Frame", nil, sf)
-        sf.box.bg = sf.box:CreateTexture(nil, "BACKGROUND")
-        sf.box.bg:SetAllPoints()
-        sf.box.bg:SetColorTexture(Col("HAIRLINE", 0.02))
-        EUI():Edge(sf.box, 1, 1, 1, 0.14)
-        sf.t = UI():Text(sf, "title", C.white)
-        sf.t:SetJustifyH("CENTER")
-        sf.t:SetText("Start from an example")
-        sf.t2 = UI():Text(sf, "body", "SUB")
-        sf.t2:SetJustifyH("CENTER")
-        sf.t2:SetWordWrap(true)
+        -- a new event's empty canvas: a card with the empty state's words and the examples as tiles under them
+        sf.box = UI():CreateCard(sf, { tone = "card" })
+        sf.box:SetFrameLevel(sf:GetFrameLevel())
+        sf.head = UI():CreateEmptyState(sf, { compact = true, glyph = UI().ICON.games, title = "Start from an example",
+            text = "Each one shows a few blocks at work. Change anything after, or drag a \"when\" piece here to start "
+                .. "from nothing." })
         sf.cards = {}
         ui.start = sf
         -- (the examples' words and art, once: their events are made when one is picked)
@@ -3805,51 +3717,44 @@ function Builder:RenderStartFrom(show)
     local side = 44
     local gw = cw - 2 * side
     local cols = 4
-    local cardW = floor((gw - (cols - 1) * 8) / cols)
-    sf.t2:SetWidth(gw)
-    sf.t2:SetText("Each one shows a few blocks at work. Change anything after, or drag a \"when\" piece here to start from nothing.")
+    local cardW = floor((gw - (cols - 1) * St.GAP) / cols)
+    sf.head:SetBoxWidth(gw)
     -- every card as tall as the tallest one's words
     local cardH = 104
     for i, e in ipairs(Defs.examples) do
         local c = sf.cards[i]
         if not c then
+            -- a tile: a card with the example's art fading into it, its icon tile, name and words
             c = CreateFrame("Button", nil, sf)
-            c.bg = c:CreateTexture(nil, "BACKGROUND")
-            c.bg:SetAllPoints()
-            c.bg:SetColorTexture(0.102, 0.102, 0.122, 1)
-            c.art = c:CreateTexture(nil, "BORDER")
-            c.art:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
-            c.art:SetPoint("TOPRIGHT", c, "TOPRIGHT", -1, -1)
+            local k = UI():CreateCard(c, { tone = "card" })
+            k:SetAllPoints()
+            UI():DecorateRow(k)
+            k:EnableMouse(false)          -- (the tile takes the clicks: its card shows the hover)
+            c:SetScript("OnEnter", function(self) self.card:SetHover(true) end)
+            c:SetScript("OnLeave", function(self) self.card:SetHover(false) end)
+            c.card = k
+            c.art = k:CreateTexture(nil, "BORDER")
+            c.art:SetPoint("TOPLEFT", k, "TOPLEFT", 1, -1)
+            c.art:SetPoint("TOPRIGHT", k, "TOPRIGHT", -1, -1)
             c.art:SetHeight(44)
-            c.fade = c:CreateTexture(nil, "BORDER", nil, 1)
+            c.fade = k:CreateTexture(nil, "BORDER", nil, 1)
             c.fade:SetPoint("BOTTOMLEFT", c.art, "BOTTOMLEFT")
             c.fade:SetPoint("BOTTOMRIGHT", c.art, "BOTTOMRIGHT")
             c.fade:SetHeight(33)
             UI():Gradient(c.fade, "VERTICAL", C.cardLo, C.cardLoClear)
-            c.iconE = c:CreateTexture(nil, "ARTWORK", nil, 1)
-            c.iconE:SetColorTexture(0, 0, 0, 1)
-            c.iconE:SetSize(30, 30)
-            c.iconE:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -25)
-            c.icon = c:CreateTexture(nil, "ARTWORK", nil, 2)
-            c.icon:SetSize(28, 28)
-            c.icon:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -26)
-            c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            c.n = UI():Text(c, "emph", C.white)
-            c.n:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -58)
-            c.a = UI():Text(c, "small", "SUB")
-            c.a:SetWordWrap(true)
+            c.icon = UI():CreateIconTile(k, 28)
+            c.icon:SetPoint("TOPLEFT", k, "TOPLEFT", 10, -26)
+            c.n = UI():Text(k, "emph", "TEXT")
+            c.n:SetPoint("TOPLEFT", k, "TOPLEFT", 10, -58)
+            c.a = UI():Text(k, "small", "SUB", { wrap = true })
             c.a:SetPoint("TOPLEFT", c.n, "BOTTOMLEFT", 0, -2)
-            UI():AddEdges(c)
-            c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, Col("GOLD", 0.6)) end)
-            c:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, Col("EDGE")) end)
             c:SetScript("OnClick", function(self) Builder:UseExample(self.key) end)
             sf.cards[i] = c
         end
         c.key = e.key
         c:SetSize(cardW, cardH)
-        UI():SetEdgeColor(c, Col("EDGE"))
-        EUI():SetArt(c.art, e.art, cardW - 2, 44, nil, nil, 0.6)
-        c.icon:SetTexture(e.icon)
+        UI():SetArtTexture(c.art, e.art, cardW - 2, 44)
+        c.icon:Set(e.icon)
         -- a long name a little smaller, and on two lines if it must (never cut)
         Resize(c.n, 12)
         c.n:SetWordWrap(false)
@@ -3866,15 +3771,14 @@ function Builder:RenderStartFrom(show)
         cardH = max(cardH, 58 + nh + 2 + floor((c.a:GetStringHeight() or 26) + 0.5) + 9)
     end
     local rows = math.ceil(#Defs.examples / cols)
-    local t2h = max(14, floor((sf.t2:GetStringHeight() or 14) + 0.5))
-    local total = 18 + 5 + t2h + 24 + rows * cardH + (rows - 1) * 8
-    local top = max(40, floor((ch - 46 - total) / 2))
-    sf.t:ClearAllPoints()
-    sf.t:SetPoint("TOP", sf, "TOPLEFT", cw / 2, -top)
-    sf.t2:ClearAllPoints()
-    sf.t2:SetPoint("TOP", sf.t, "BOTTOM", 0, -5)
-    local gy = top + 18 + 5 + t2h + 24
-    -- (the box holds its words and cards, 24 around them: clear of the overview and the zoom bar under it)
+    local headH = floor(sf.head:GetHeight() + 0.5)
+    local total = headH + 24 + rows * cardH + (rows - 1) * St.GAP
+    -- (in the middle, but the card's foot clear of the overview and the zoom bar: 10 + 24 + 6 + 82 up)
+    local top = max(40, min(floor((ch - 46 - total) / 2), ch - 146 - total))
+    sf.head:ClearAllPoints()
+    sf.head:SetPoint("TOP", sf, "TOPLEFT", cw / 2, -top)
+    local gy = top + headH + 24
+    -- (the card holds its words and tiles, 24 around them: clear of the overview and the zoom bar under it)
     sf.box:ClearAllPoints()
     sf.box:SetPoint("TOPLEFT", sf, "TOPLEFT", side - 24, -(top - 24))
     sf.box:SetSize(gw + 48, total + 48)
@@ -3882,7 +3786,7 @@ function Builder:RenderStartFrom(show)
         local col, row = (i - 1) % cols, floor((i - 1) / cols)
         c:SetHeight(cardH)
         c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", sf, "TOPLEFT", side + col * (cardW + 8), -(gy + row * (cardH + 8)))
+        c:SetPoint("TOPLEFT", sf, "TOPLEFT", side + col * (cardW + St.GAP), -(gy + row * (cardH + St.GAP)))
         c:SetShown(i <= #Defs.examples)
     end
     sf:Show()
@@ -3954,8 +3858,13 @@ function Builder:IconMenu(owner)
 end
 
 function Builder:MoreMenu(owner)
+    UI():ContextMenu(owner, function(root) Builder:MoreMenuItems(root) end)
+end
+
+-- The more menu's lines (the tool row's "···").
+function Builder:MoreMenuItems(root)
     local d = Def()
-    UI():ContextMenu(owner, function(root)
+    do
         if CanEdit() then
             local art = root:CreateButton(UI():AtlasIconText(31, 12) .. " Art")
             for _, a in ipairs(B().ART) do
@@ -4000,7 +3909,7 @@ function Builder:MoreMenu(owner)
                 Builder:Delete()
             end)
         end
-    end)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -4238,16 +4147,10 @@ end
 
 CreatePractice = function(body)
     -- the dummies panel (in the palette's place)
-    local dp = CreateFrame("Frame", nil, body)
+    local dp = UI():CreateCard(body, { tone = "inset", pad = 0 })
     dp:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
     dp:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
     dp:SetWidth(PAL_W)
-    dp.bg = dp:CreateTexture(nil, "BACKGROUND")
-    dp.bg:SetAllPoints()
-    dp.bg:SetColorTexture(0.05, 0.05, 0.063, 0.98)
-    local line = Divider(dp, true)
-    line:SetPoint("TOPRIGHT")
-    line:SetPoint("BOTTOMRIGHT")
     dp:Hide()
     ui.dp = dp
     -- the panel's sections: UI:CreateSectionHeader (gold title, a grey text at the right, a hairline under it)
@@ -4258,16 +4161,12 @@ CreatePractice = function(body)
     PlaceHead(dp, dp.h1, 8)
     dp.matches = {}
     for i = 1, 4 do
-        local m = CreateFrame("Frame", nil, dp)
+        local m = UI():CreateCard(dp, { tone = "card", pad = 0 })
         m:SetSize(PAL_W - 20, 54)
-        m.bg = m:CreateTexture(nil, "BACKGROUND")
-        m.bg:SetAllPoints()
-        m.bg:SetColorTexture(Col("QUIET"))
-        UI():AddEdges(m)
         m.c1 = m:CreateTexture(nil, "ARTWORK")
         m.c1:SetSize(16, 16)
         m.c1:SetPoint("TOPLEFT", m, "TOPLEFT", 8, -7)
-        m.n1 = UI():Text(m, "body", C.white)
+        m.n1 = UI():Text(m, "body", "TEXT")
         m.n1:SetPoint("LEFT", m.c1, "RIGHT", 5, 0)
         m.vs = UI():Text(m, "small", "SUB")
         m.vs:SetText("vs")
@@ -4275,13 +4174,13 @@ CreatePractice = function(body)
         m.c2 = m:CreateTexture(nil, "ARTWORK")
         m.c2:SetSize(16, 16)
         m.c2:SetPoint("LEFT", m.vs, "RIGHT", 6, 0)
-        m.n2 = UI():Text(m, "body", C.white)
+        m.n2 = UI():Text(m, "body", "TEXT")
         m.n2:SetPoint("LEFT", m.c2, "RIGHT", 5, 0)
         m.sc = UI():Text(m, "small", "SUB")
         m.sc:SetPoint("TOPRIGHT", m, "TOPRIGHT", -8, -9)
-        m.b1 = UI():CreateSleekButton(m, "", 116, 20, function(self) local mm = self:GetParent(); L():PracticeDuel(mm.a, mm.b) end)
+        m.b1 = UI():CreateSleekButton(m, "", 116, 22, function(self) local mm = self:GetParent(); L():PracticeDuel(mm.a, mm.b) end)
         m.b1:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 6, 6)
-        m.b2 = UI():CreateSleekButton(m, "", 116, 20, function(self) local mm = self:GetParent(); L():PracticeDuel(mm.b, mm.a) end)
+        m.b2 = UI():CreateSleekButton(m, "", 116, 22, function(self) local mm = self:GetParent(); L():PracticeDuel(mm.b, mm.a) end)
         m.b2:SetPoint("BOTTOMRIGHT", m, "BOTTOMRIGHT", -6, 6)
         m:Hide()
         dp.matches[i] = m
@@ -4314,39 +4213,31 @@ CreatePractice = function(body)
     dp.doit = UI():CreateSleekButton(dp, "Do it", 54, 21, function() Builder:Happen() end)
     dp.h3 = head("Dummies", "click to take one offline")
     dp.dummies = {}
-    -- the log (over the canvas' bottom)
-    local lg = CreateFrame("Frame", nil, body)
-    lg:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", PAL_W, 0)
+    -- the log (a card over the canvas' bottom): its header, the latest lines (the newest ones lit for a moment)
+    local lg = UI():CreateCard(body, { tone = "card", pad = 0 })
+    lg:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", PAL_W + St.GAP, 0)
     lg:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     lg:SetHeight(LOG_H)
     lg:SetFrameLevel(body:GetFrameLevel() + 950)
-    lg.bg = lg:CreateTexture(nil, "BACKGROUND")
-    lg.bg:SetAllPoints()
-    lg.bg:SetColorTexture(0.039, 0.039, 0.051, 1)
-    local top = Divider(lg)
-    top:SetPoint("TOPLEFT")
-    top:SetPoint("TOPRIGHT")
-    lg.h = UI():Text(lg, "body", "GOLD")
-    lg.h:SetText("Practice log")
-    lg.h:SetPoint("TOPLEFT", lg, "TOPLEFT", 12, -7)
-    lg.r = UI():Text(lg, "small", "SUB")
-    lg.r:SetPoint("TOPRIGHT", lg, "TOPRIGHT", -12, -8)
+    lg.bg:SetColorTexture(Col("SURFACE_WINDOW"))
+    lg.head = UI():CreateSectionHeader(lg, "Practice log", { right = "" })
+    lg.head:SetPoint("TOPLEFT", lg, "TOPLEFT", 10, -2)
+    lg.head:SetPoint("TOPRIGHT", lg, "TOPRIGHT", -10, -2)
+    lg.h = lg.head.title
     lg.lines = {}
     for i = 1, 5 do
         local l = CreateFrame("Frame", nil, lg)
         l:SetHeight(18)
-        l:SetPoint("TOPLEFT", lg, "TOPLEFT", 0, -26 - (i - 1) * 18)
-        l:SetPoint("TOPRIGHT", lg, "TOPRIGHT", 0, -26 - (i - 1) * 18)
-        l.bg = l:CreateTexture(nil, "BACKGROUND")
-        l.bg:SetAllPoints()
-        l.bg:SetColorTexture(Col("GOLD", 0.07))
+        l:SetPoint("TOPLEFT", lg, "TOPLEFT", 1, -27 - (i - 1) * 18)
+        l:SetPoint("TOPRIGHT", lg, "TOPRIGHT", -1, -27 - (i - 1) * 18)
+        UI():DecorateRow(l, { hover = false, selectable = true })
         l.tm = UI():Text(l, "body", "DIM")
         l.tm:SetPoint("LEFT", l, "LEFT", 12, 0)
         l.dot = l:CreateTexture(nil, "ARTWORK")
         l.dot:SetTexture(EUI().MASK)
         l.dot:SetSize(7, 7)
         l.dot:SetPoint("LEFT", l, "LEFT", 74, 0)
-        l.fs = UI():Text(l, "body", { 0.82, 0.82, 0.82 })
+        l.fs = UI():Text(l, "body", "TEXT")
         l.fs:SetPoint("LEFT", l.dot, "RIGHT", 9, 0)
         lg.lines[i] = l
     end
@@ -4650,9 +4541,13 @@ function Builder:RenderPractice()
             box.sc:SetText(m.wa .. "-" .. m.wb)
             box.b1:SetText(EUI():Plain(m.a) .. " wins")
             box.b2:SetText(EUI():Plain(m.b) .. " wins")
-            local live = m.g > 0
-            UI():SetEdgeColor(box, live and 0.31 or 1, live and 0.84 or 1, live and 0.73 or 1, live and 0.55 or 0.08)
-            box.bg:SetColorTexture(live and 0.05 or 1, live and 0.33 or 1, live and 0.29 or 1, live and 0.12 or 0.03)
+            -- (a match with a game played: the practice run's teal)
+            if m.g > 0 then
+                box.bg:SetColorTexture(unpack(C.liveFill))
+                UI():SetEdgeColor(box, unpack(C.liveEdge))
+            else
+                box:SetTone("card")
+            end
             box:ClearAllPoints()
             box:SetPoint("TOPLEFT", dp, "TOPLEFT", 10, -y)
             box:Show()
@@ -4693,6 +4588,7 @@ function Builder:RenderPractice()
         if not b then
             b = CreateFrame("Button", nil, dp)
             b:SetSize((PAL_W - 28) / 2, 22)
+            UI():DecorateRow(b)
             b.c = b:CreateTexture(nil, "ARTWORK")
             b.c:SetSize(15, 15)
             b.c:SetPoint("LEFT", b, "LEFT", 0, 0)
@@ -4753,7 +4649,8 @@ function Builder:RenderPractice()
     -- the log: the latest five lines
     local lines = S.log or {}
     local n = #lines
-    lg.r:SetText(#st.entrants .. " dummies     " .. floor(((L():PracticeNow() or 0) - (st.t0 or 0)) / 60) .. " min in     nothing is sent or saved")
+    lg.head:SetRight(#st.entrants .. " dummies · " .. floor(((L():PracticeNow() or 0) - (st.t0 or 0)) / 60)
+        .. " min in · nothing is sent or saved")
     for i, l in ipairs(lg.lines) do
         local e = lines[n - i + 1]
         if e then
@@ -4769,7 +4666,7 @@ function Builder:RenderPractice()
                 text = text .. "  |cff7a7a80(not sent, practice)|r"
             end
             l.fs:SetText(text)
-            l.bg:SetShown(i <= (e.fresh and 4 or 0) and GetTime() - (e.t or 0) < 3)
+            l:SetSelected(i <= (e.fresh and 4 or 0) and GetTime() - (e.t or 0) < 3)
             l:Show()
         else
             l:Hide()
@@ -4791,7 +4688,6 @@ Defs.ICON = { num = "INV_Misc_PunchCards_Yellow", time = "INV_Misc_PocketWatch_0
     ask = "INV_Misc_Ticket_Darkmoon_01" }
 Defs.TEAL = { 0.34, 0.84, 0.94 }
 
-local function Plural(n, one, many) return n .. " " .. (n == 1 and one or many) end
 
 -- The builder's sheets (the map, the questions): UI:CreateSheet over the window, dimmed under it. The dim also takes
 -- the mouse wheel (the canvas under it must not zoom). TODO(refactor): move into UI:CreateSheet (its dim eats the wheel)
@@ -4901,10 +4797,8 @@ function Defs:PaletteRow(it, kind, e)
     DefRowParts(it)
     self:Swatch(it, kind, e)
     local on = self:IsOpen(kind, e.id)
-    it.sel:SetShown(on)
-    it.bar:SetShown(on)
+    it:SetSelected(on)
     it.pen:SetShown(on and not e.builtin)
-    it.hov:Show()
     local x = 30
     local avail = PAL_LIST_W - x - (on and not e.builtin and 25 or 6)
     -- (a long name or line takes two lines: nothing is cut)
@@ -5113,6 +5007,7 @@ end
 
 -- Chips with a cross each (an ask's choices, a question's answers, a list's texts) and a field to add one:
 -- box:Set(list) shows them, onChange(list) when one goes or comes. Wraps inside width; box.h its height.
+-- TODO(refactor): move into UI:CreateChip (a removable chip: a cross at its end, two lines in a taller one when long)
 local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
     local box = CreateFrame("Frame", nil, parent)
     box:SetSize(width, 22)
@@ -5210,6 +5105,7 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
     return box
 end
 
+-- TODO(refactor): move into UI:CreateSheet (a popover beside a row: the sheet's slate and header, a pointer at the row)
 local function CreatePop()
     local f = CreateFrame("Frame", "DisasterZoneEventDefEditor", win)
     f:SetFrameStrata("DIALOG")
@@ -5238,24 +5134,16 @@ local function CreatePop()
     f.kind:SetPoint("BOTTOMLEFT", f.title, "BOTTOMRIGHT", 8, 0)
     f.x = UI():CreateCloseButton(f, 20, function() Defs:Close() end)
     f.x:SetPoint("RIGHT", f, "TOPRIGHT", -8, -18)
-    f.hd = f:CreateTexture(nil, "BORDER")
-    f.hd:SetColorTexture(Col("HAIRLINE"))
-    f.hd:SetHeight(1)
-    f.hd:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -36)
-    f.hd:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -36)
-    f.fd = f:CreateTexture(nil, "BORDER")
-    f.fd:SetColorTexture(Col("HAIRLINE"))
-    f.fd:SetHeight(1)
-    f.fd:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 1, 40)
-    f.fd:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 40)
-    f.save = UI():CreateSleekButton(f, "Save", 52, 22, function() Defs:Save() end, "primary")
+    f.hd = UI():Rule(f, { top = 36, left = 1, right = 1 })
+    f.fd = UI():Rule(f, { bottom = 40, left = 1, right = 1 })
+    f.save = UI():CreateSleekButton(f, "Save", 60, St.BTN_H, function() Defs:Save() end, "primary")
     f.save:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 9)
-    f.bin = UI():CreateTipIconButton(f, 22, UI().ICON.trash, "Delete it", "Pieces that use it will each need another.",
+    f.bin = UI():CreateTipIconButton(f, St.BTN_H, UI().ICON.trash, "Delete it", "Pieces that use it will each need another.",
         function() if Defs.cur and Defs.cur.id then Defs:Delete(Defs.cur.kind, Defs.cur.id) end end)
     f.bin:SetPoint("RIGHT", f.save, "LEFT", -6, 0)
     f.foot = UI():Text(f, "small", "SUB")
     f.foot:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 20)
-    f.err = UI():Text(f, "small", { 1, 0.54, 0.48 })
+    f.err = UI():Text(f, "small", "BAD")
     f.err:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 20)
     f.forms = {}
     f:SetScript("OnHide", function() if Defs.cur and not Defs.cur.hold then Defs.cur = nil; Builder:RenderPalette() end end)
@@ -5408,20 +5296,14 @@ local function AskForm(f)
     form.kindRow = r
     form.kinds = {}
     for i, k in ipairs(B().ASK_KINDS) do
-        local b = CreateFrame("Button", nil, r)
-        b:SetHeight(22)
-        UI():AddPillShape(b, 22)
-        b.fs = UI():Text(b, "body", C.white)
-        b.fs:SetPoint("CENTER")
-        b.fs:SetText(k[2])
-        b:SetWidth(UI():TextWidth(b.fs) + 18)
-        b.key = k[1]
-        b:SetScript("OnClick", function(self)
+        -- (one picked: the chips' selected look)
+        local b = UI():CreateChip(r, { text = k[2], onClick = function(self)
             if not CanEditDefs() then Builder:SayReadOnly() return end
             w().kind = self.key
             form:Fill()
             Defs:Layout()
-        end)
+        end })
+        b.key = k[1]
         form.kinds[i] = b
     end
     r = FormRow(form, "Choices", 22)
@@ -5483,18 +5365,11 @@ local function AskForm(f)
         local cx, cy = 0, 0
         for _, b in ipairs(self.kinds) do
             local bw = b:GetWidth()
-            if cx > 0 and cx + bw > POP_CTL then cx, cy = 0, cy + 26 end
+            if cx > 0 and cx + bw > POP_CTL then cx, cy = 0, cy + 24 end
             b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", self.kindRow, "TOPLEFT", POP_X - 12 + cx, -cy - 1)
+            b:SetPoint("TOPLEFT", self.kindRow, "TOPLEFT", POP_X - 12 + cx, -cy - 3)
             cx = cx + bw + 4
-            local on = b.key == kind
-            if on then
-                b:SetPillColors({ 0.66, 0.28, 0.42, 0.55 }, { 1, 0.67, 0.77, 0.9 })
-                b.fs:SetTextColor(1, 1, 1)
-            else
-                b:SetPillColors({ 0.055, 0.055, 0.067, 0.9 }, St.C.EDGE_STRONG)
-                b.fs:SetTextColor(0.82, 0.82, 0.82)
-            end
+            b:SetSelected(b.key == kind)
         end
         self.kindRow:SetHeight(cy + 24)
         self.choiceRow:SetShown(kind == "choice")
@@ -6011,14 +5886,6 @@ function QSheet:Create()
     f.x = f.close                -- (its close cross: changes not kept)
     f.x:SetScript("OnClick", function() QSheet:Close() end)
     UI():AttachTooltip(f.x, "Close", "Changes not kept: Done keeps them.", C.tipTop)
-    local function rule(y)
-        local t = f:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(Col("HAIRLINE"))
-        t:SetHeight(1)
-        t:SetPoint("TOPLEFT", f, "TOPLEFT", 1, y)
-        t:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, y)
-        return t
-    end
     -- the column heads (under the sheet's header rule)
     local function head(text, x, right)
         local h = UI():Text(f, "small", "SUB")
@@ -6029,7 +5896,7 @@ function QSheet:Create()
     head("Question", QCOL.q)
     head("Right answers", QCOL.a)
     head("Points", 0, true)
-    rule(-64)
+    UI():Rule(f, { top = 64, left = 1, right = 1 })
     f.scroll = UI():CreateScrollFrame(f)
     f.scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -64)
     f.scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -4, 46)
@@ -6038,14 +5905,9 @@ function QSheet:Create()
     f.child:SetSize(QS_W - 6, 10)
     f.scroll:SetScrollChild(f.child)
     f.rows = {}
-    f.add = UI():CreateSleekButton(f, "Add question", 120, 26, function() QSheet:AddQuestion() end)
-    f.add.plus = f.add:CreateTexture(nil, "ARTWORK")
-    f.add.plus:SetSize(10, 10)
-    EUI():Glyph(f.add.plus, UI().ICON.plus or 39, 0.9, 0.9, 0.9)
-    f.add.plus:SetPoint("LEFT", f.add, "LEFT", 11, 0)
-    f.add:GetFontString():ClearAllPoints()
-    f.add:GetFontString():SetPoint("LEFT", f.add.plus, "RIGHT", 7, 0)
-    f.add:SetWidth(11 + 10 + 7 + UI():TextWidth(f.add:GetFontString()) + 12)
+    f.add = UI():CreateSleekButton(f, UI():AtlasIconText(UI().ICON.plus or 39, 10) .. "  Add question", 120, St.BTN_H,
+        function() QSheet:AddQuestion() end)
+    f.add:SetWidth(UI():TextWidth(f.add:GetFontString()) + 28)
     f.add:SetPoint("RIGHT", f.done, "LEFT", -6, 0)
     -- (the sheet's error line, left of Add question)
     f.err:ClearAllPoints()
@@ -6094,28 +5956,9 @@ function QSheet:Row(i)
     r = CreateFrame("Button", nil, f.child)
     r:SetSize(QS_W - 6, 30)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.sel = r:CreateTexture(nil, "BACKGROUND")
-    r.sel:SetAllPoints()
-    r.sel:SetColorTexture(Col("GOLD", 0.08))
-    r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetColorTexture(Col("GOLD"))
-    r.bar:SetWidth(2)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.rule = r:CreateTexture(nil, "BORDER")
-    r.rule:SetColorTexture(Col("HOVER"))
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("BOTTOMLEFT")
-    r.rule:SetPoint("BOTTOMRIGHT")
-    r.hov = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hov:SetAllPoints()
-    r.hov:SetColorTexture(Col("QUIET"))
-    r.n = UI():Text(r, "emph", C.white)
-    r.n:SetJustifyH("RIGHT")
-    r.n:SetWidth(18)
-    r.q = UI():Text(r, "body", C.white)
-    r.q:SetWordWrap(true)
-    r.q:SetWidth(QCOL.a - QCOL.q - 16)
+    UI():DecorateRow(r, { selectable = true, rule = true })   -- (the one being edited: picked)
+    r.n = UI():Text(r, "emph", "TEXT", { justify = "RIGHT", width = 18 })
+    r.q = UI():Text(r, "body", "TEXT", { wrap = true, width = QCOL.a - QCOL.q - 16 })
     r.qe = UI():CreateSleekEditBox(r, QCOL.a - QCOL.q - 14, 24)
     r.qe:SetMaxLetters(B().LIMITS.question or 120)
     r.qe:SetScript("OnTextChanged", function(self, user)
@@ -6124,8 +5967,7 @@ function QSheet:Row(i)
     r.qe:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     r.qe:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     r.chips = {}
-    r.p = UI():Text(r, "title", { 1, 0.88, 0.54 })
-    r.p:SetJustifyH("RIGHT")
+    r.p = UI():Text(r, "title", "GOLD", { justify = "RIGHT" })
     r.pts = UI():CreateSleekMenuButton(r, "1", 46, function(root)
         for n = 1, 5 do
             root:CreateRadio(tostring(n), function() return (QSheet.cur.items[r.index].pts or 1) == n end, function()
@@ -6134,7 +5976,7 @@ function QSheet:Row(i)
             end)
         end
     end, 22)
-    r.bin = UI():CreateTipIconButton(r, 20, UI().ICON.trash, "Delete the question", nil, function()
+    r.bin = UI():CreateTipIconButton(r, 22, UI().ICON.trash, "Delete the question", nil, function()
         if not CanEditDefs() then Builder:SayReadOnly() return end
         tremove(QSheet.cur.items, r.index)
         QSheet.cur.sel = nil
@@ -6172,16 +6014,11 @@ local function AnswerChips(r, list, width)
     for i, s in ipairs(list) do
         local c = r.chips[i]
         if not c then
-            c = CreateFrame("Frame", nil, r)
-            c:SetHeight(19)
-            UI():AddPillShape(c, 19)
-            c:SetPillColors({ Col("HAIRLINE", 0.04) }, { 1, 1, 1, 0.14 })
-            c.fs = UI():Text(c, "small", { 0.85, 0.85, 0.85 })
-            c.fs:SetPoint("LEFT", c, "LEFT", 8, 0)
+            c = UI():CreateChip(r)
             r.chips[i] = c
         end
-        c.fs:SetText(s)
-        local w = min(width, UI():TextWidth(c.fs) + 16)
+        c:Set(s)
+        local w = min(width, c:GetWidth())
         c:SetWidth(w)
         if x > 0 and x + w > width then x, y = 0, y + 23 end
         c:ClearAllPoints()
@@ -6201,8 +6038,7 @@ function QSheet:Render()
         local r = self:Row(i)
         r.index = i
         local on = cur.sel == i
-        r.sel:SetShown(on)
-        r.bar:SetShown(on)
+        r:SetSelected(on)
         r.n:SetText(i)
         r.n:SetTextColor(on and 1 or 0.44, on and 0.82 or 0.44, on and 0 or 0.46)
         r.q:SetShown(not on)
@@ -6657,41 +6493,32 @@ function MapSheet:Create()
     f.view:SetScript("OnMouseUp", function(v, button) MapSheet:MouseUp(button) end)
     f.view:SetScript("OnMouseWheel", function(v, delta) MapSheet:Zoom(delta > 0 and 1 or -1, true) end)
     f.view:SetScript("OnUpdate", function() MapSheet:OnUpdate() end)
-    local zc = CreateFrame("Frame", nil, f.view.ov)
-    zc:SetSize(24, 48)
+    -- the zoom (as the canvas' own: a card with its two buttons)
+    local zc = UI():CreateCard(f.view.ov, { tone = "card", pad = 0 })
+    zc:SetSize(St.BTN_H, 2 * St.BTN_H)
     zc:SetPoint("BOTTOMRIGHT", f.view, "BOTTOMRIGHT", -8, 8)
-    zc.bg = zc:CreateTexture(nil, "BACKGROUND")
-    zc.bg:SetAllPoints()
-    zc.bg:SetColorTexture(0.055, 0.055, 0.067, 0.94)
-    EUI():Edge(zc, Col("EDGE_STRONG"))
     local function zb(y, plus, fn, tip)
         local b = CreateFrame("Button", nil, zc)
-        b:SetSize(24, 24)
+        b:SetSize(St.BTN_H, St.BTN_H)
         b:SetPoint("TOPLEFT", zc, "TOPLEFT", 0, -y)
         b.t = b:CreateTexture(nil, "ARTWORK")
         b.t:SetPoint("CENTER")
         if plus then
             b.t:SetSize(11, 11)
-            EUI():Glyph(b.t, UI().ICON.plus or 39, 0.86, 0.86, 0.86)
+            EUI():Glyph(b.t, UI().ICON.plus or 39, Col("TEXT"))
         else
             b.t:SetTexture(WHITE)
             b.t:SetSize(9, 2)
-            b.t:SetVertexColor(0.86, 0.86, 0.86)
+            b.t:SetVertexColor(Col("TEXT"))
         end
-        local hl = b:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints()
-        hl:SetColorTexture(Col("HAIRLINE", 0.06))
+        UI():DecorateRow(b)
         b:SetScript("OnClick", fn)
         UI():AttachTooltip(b, tip, nil, C.tipTop)
         return b
     end
     zc.plus = zb(0, true, function() MapSheet:Zoom(1) end, "Zoom in")
-    zc.minus = zb(24, false, function() MapSheet:Zoom(-1) end, "Zoom out")
-    local zl = zc:CreateTexture(nil, "BORDER")
-    zl:SetColorTexture(Col("HAIRLINE", 0.08))
-    zl:SetHeight(1)
-    zl:SetPoint("LEFT", zc, "TOPLEFT", 1, -24)
-    zl:SetPoint("RIGHT", zc, "TOPRIGHT", -1, -24)
+    zc.minus = zb(St.BTN_H, false, function() MapSheet:Zoom(-1) end, "Zoom out")
+    UI():Rule(zc, { top = St.BTN_H, left = 1, right = 1 })
     f.zc = zc
     -- the side: name, size, where, set from where I stand
     local sx = 12 + MAP_W + 48
@@ -6713,8 +6540,9 @@ function MapSheet:Create()
     f.name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     f.name:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     lab("Size", 146)
-    f.size = UI():Text(f, "emph", C.white)
+    f.size = UI():Text(f, "emph", "TEXT")
     f.size:SetPoint("TOPRIGHT", f, "TOPLEFT", sx + sw, -145)
+    -- TODO(refactor): move into a shared slider (UI:CreateSlider: a track, its gold fill, a knob dragged along it)
     f.slider = CreateFrame("Frame", nil, f)
     f.slider:SetSize(sw, 16)
     f.slider:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -164)
@@ -6749,21 +6577,13 @@ function MapSheet:Create()
         MapSheet:SetSize(PosToSize((x - l) / s:GetWidth()))
     end)
     lab("Where", 176)
-    f.where = UI():Text(f, "emph", C.white)
-    f.where:SetWordWrap(true)
-    f.where:SetWidth(sw)
+    f.where = UI():Text(f, "emph", "TEXT", { wrap = true, width = sw })
     f.where:SetPoint("TOPLEFT", f, "TOPLEFT", sx, -192)
     f.coords = UI():Text(f, "small", "SUB")
     f.coords:SetPoint("TOPLEFT", f.where, "BOTTOMLEFT", 0, -2)
-    f.stand = UI():CreateSleekButton(f, "Set from where I stand", sw, 24, function() MapSheet:StandHere() end)
+    f.stand = UI():CreateSleekButton(f, UI():AtlasIconText(37, 12) .. "  Set from where I stand", sw, St.BTN_H,
+        function() MapSheet:StandHere() end)
     f.stand:SetPoint("TOPLEFT", f.coords, "BOTTOMLEFT", 0, -14)
-    f.stand.icon = f.stand:CreateTexture(nil, "ARTWORK")
-    f.stand.icon:SetSize(12, 12)
-    EUI():Glyph(f.stand.icon, 37, 0.9, 0.9, 0.9)
-    local sfs = f.stand:GetFontString()
-    sfs:ClearAllPoints()
-    sfs:SetPoint("CENTER", f.stand, "CENTER", 9, 0)
-    f.stand.icon:SetPoint("RIGHT", sfs, "LEFT", -7, 0)
     -- (why it can't be saved: under the place's controls, where the eye is; the sheet's own error line stays unused)
     f.err = UI():Text(f, "body", "WARN", { wrap = true, width = sw })
     f.err:SetPoint("TOPLEFT", f.stand, "BOTTOMLEFT", 0, -10)
@@ -6774,7 +6594,7 @@ function MapSheet:Create()
     f.pin:SetPoint("LEFT", f, "BOTTOMLEFT", 12, 23)
     f.note:ClearAllPoints()
     f.note:SetPoint("LEFT", f.pin, "RIGHT", 7, 0)
-    f.bin = UI():CreateTipIconButton(f, 26, UI().ICON.trash, "Delete the place", "Pieces that use it will each need another.",
+    f.bin = UI():CreateTipIconButton(f, St.BTN_H, UI().ICON.trash, "Delete the place", "Pieces that use it will each need another.",
         function() if MapSheet.cur and MapSheet.cur.pid then Defs:Delete("places", MapSheet.cur.pid) end end)
     f.bin:SetPoint("RIGHT", f.cancel, "LEFT", -6, 0)
     f:HookScript("OnHide", function()
@@ -7078,16 +6898,14 @@ function Defs:ShowCard(pid, anchor)
         c = CreateFrame("Frame", "DisasterZoneEventPlaceCard", win)
         c:SetFrameStrata("TOOLTIP")
         c:SetWidth(CARD_W)
-        c.bg = c:CreateTexture(nil, "BACKGROUND")
-        c.bg:SetAllPoints()
-        c.bg:SetColorTexture(0.047, 0.047, 0.059, 0.98)
-        EUI():Edge(c, unpack(C.panelEdge))
+        -- (the menus' and the picker's surface)
+        c.bg = UI():Fill(c, "SURFACE_WINDOW")
+        UI():AddEdges(c)
+        UI():SetEdgeColor(c, Col("DROP_EDGE"))
         c.view = MapSheet.NewView(c, CARD_W, CARD_MAP_H)
         c.view:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
         c.line = UI():Text(c, "body", "SUB")
-        c.m = UI():Text(c, "body", { 0.81, 0.81, 0.81 })
-        c.m:SetWordWrap(true)
-        c.m:SetWidth(CARD_W - 20)
+        c.m = UI():Text(c, "body", "TEXT", { wrap = true, width = CARD_W - 20 })
         ui.pcard = c
     end
     local v = c.view
