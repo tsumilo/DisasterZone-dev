@@ -37,6 +37,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdBQzYyNUVGQkRFOUM5NDgKUldSSXllbTk3eVhHZWxwbUVCb1l2MVcvZTlEZlpZMG9zNWxlNlFRWXErVDBRM0dxenRram5TZmgK",
+      "endpoints": [
+        "https://github.com/tsumilo/DisasterZone-releases/releases/download/launcher-latest/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
