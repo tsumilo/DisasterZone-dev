@@ -263,10 +263,6 @@ end
 -- Cards
 ---------------------------------------------------------------------------
 
-local function NewButton(parent, text, w, h, kind, onClick)
-    return UI():CreateSleekButton(parent, text, w, h, onClick, kind)
-end
-
 -- A run's card: the shared card (UI:CreateCard) with the shared row looks (the hover; my own run wears the picked
 -- look, the gold wash and bar), the dungeon's art on its left fading into the card, the texts, the five places and
 -- the action.
@@ -315,7 +311,7 @@ local function NewRunCard(parent)
     c.hint:SetScript("OnLeave", HideTip)
     c.slots = {}
     for i = 1, 5 do c.slots[i] = NewSlot(c, SLOT) end
-    c.btn = NewButton(c, "", 80, S.BTN_H, "primary")
+    c.btn = UI():CreateSleekButton(c, "", 80, S.BTN_H, nil, "primary")
     c.more = UI():CreateTipIconButton(c, 26, UI().ICON.more, "Your run", "Edit it, post it in the LookingForGroup "
         .. "channel, or take it off the board.")
     if ns.Share and ns.Share.CreateButton then
@@ -428,7 +424,7 @@ local function NewReqRow(c)
         UI():SetTextTooltip(self, { "Not this time", "Lets them know, kindly." }, "ANCHOR_TOP")
     end)
     r.no:SetScript("OnLeave", HideTip)
-    r.yes = NewButton(r, "Accept", 70, 22, "primary", function(self) if self.onClick then self.onClick() end end)
+    r.yes = UI():CreateSleekButton(r, "Accept", 70, 22, function(self) if self.onClick then self.onClick() end end, "primary")
     r.yes:SetPoint("RIGHT", r.no, "LEFT", -5, 0)
     r.state = UI():Text(r, "body", "TEXT")
     r.state:SetPoint("RIGHT", r.no, "LEFT", -10, 0)
@@ -590,7 +586,8 @@ local function NewPugRow(c)
     r.say = UI():CreateTipIconButton(r, 22, UI().ICON.whisper, "Whisper", "Starts a whisper to them in the chat box.",
         function(self) if self.onClick then self.onClick() end end)
     r.say:SetPoint("RIGHT", r.no, "LEFT", -4, 0)
-    r.yes = NewButton(r, "Invite", 62, 22, "secondary", function(self) if self.onClick then self.onClick() end end)
+    r.yes = UI():CreateSleekButton(r, "Invite", 62, 22, function(self) if self.onClick then self.onClick() end end,
+        "secondary")
     r.yes:SetPoint("RIGHT", r.say, "LEFT", -5, 0)
     r.state = UI():Text(r, "body", "TEXT")
     r.state:SetPoint("RIGHT", r.say, "LEFT", -10, 0)
@@ -927,7 +924,7 @@ local function FillCard(c, run, opts)
                 if e then
                     if not chip then
                         chip = NewPersonChip(r)
-                        inv = NewButton(r, "Invite", 56, 22, "secondary")
+                        inv = UI():CreateSleekButton(r, "Invite", 56, 22, nil, "secondary")
                         busy = UI():Text(r, "body", "TEXT")
                         busy:SetText(S:Wrap("SUB", "In a group"))
                         r.chips[i], r.invites[i], r.busy[i] = chip, inv, busy
@@ -1703,7 +1700,7 @@ local function CreateSheet(p)
     sh.pick = UI():Text(sh, "emph", "SUB")
     sh.pick:SetText("Pick a dungeon above.")
     sh.err:ClearAllPoints()
-    sh.go = NewButton(sh, "List run", 130, 28, "primary", function() DungeonsUI:SubmitSheet() end)
+    sh.go = UI():CreateSleekButton(sh, "List run", 130, S.BTN_H, function() DungeonsUI:SubmitSheet() end, "primary")
     sh:Hide()
     p.sheet = sh
     return sh
