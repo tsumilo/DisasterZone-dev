@@ -56,6 +56,20 @@ def own_lines_main_alt_obtained_phase_ranges():
     assert cdl_lines(show(c, head)) == ["Your BiS P1, P3 · Head"]
     c.eval("ns.DB:SetSetting('viewPhase', nil)")
     c.eval("ns.BiS:SetSlot(2, 1, 'main', ...)", head)
+    # BiS in P1 but only the alt pick in P2 and P3 (another item is BiS there): never "BiS P1–P3"
+    other_head = first_candidate(c, 1, 3, "return r.itemID ~= %d" % head)
+    for p in (2, 3):
+        c.eval("local p, a, b = ...; ns.BiS:SetSlot(p, 1, 'main', a); ns.BiS:SetSlot(p, 1, 'alt', b)", p, other_head, head)
+    lines = cdl_lines(show(c, head))
+    assert lines == ["Your BiS P1 · Head · alt P2, P3"], lines
+    # only ever the alt pick
+    c.eval("local a, b = ...; ns.BiS:SetSlot(1, 1, 'main', a); ns.BiS:SetSlot(1, 1, 'alt', b)", other_head, head)
+    lines = cdl_lines(show(c, head))
+    assert lines == ["Your alt P1–P3 · Head"], lines
+    for p in (1, 2, 3):
+        c.eval("local p, a = ...; ns.BiS:ClearSlot(p, 1); ns.BiS:SetSlot(p, 1, 'main', a)", p, head)
+    lines = cdl_lines(show(c, head))
+    assert lines == ["Your BiS P1–P3 · Head"], lines
     # obtained suffix once the item is in the bags (after the debounced scan)
     c.set_bags({(0, 1): head})
     w.tick(2)

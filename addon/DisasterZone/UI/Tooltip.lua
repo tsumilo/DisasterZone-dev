@@ -164,33 +164,45 @@ local function BuildOwn(itemID)
     if type(matches) ~= "table" or type(matches[1]) ~= "table" then return nil end
     local m = matches[1]
     local anyOS = false
-    local phases, seen = {}, {}
+    -- The phases it is my BiS (main pick) in and those it is only my alt pick in, kept apart: "BiS P1 · alt P2, P3"
+    -- (a phase where it is both counts as BiS). The slot is the BiS pick's.
+    local mainP, altP, which, firstMain = {}, {}, {}, nil
     for _, x in ipairs(matches) do
         if type(x) == "table" then
             if x.os then anyOS = true end
             local p = (x.os and true or false) == (m.os and true or false) and tonumber(x.phase)
-            if p and not seen[p] then
-                seen[p] = true
-                phases[#phases + 1] = p
+            if p and which[p] ~= "main" then
+                if x.which ~= "alt" then
+                    which[p] = "main"
+                    firstMain = firstMain or x
+                else
+                    which[p] = "alt"
+                end
             end
         end
     end
-    table.sort(phases)
-    local label, slot = PhaseList(phases), SlotLabel(m.sid)
+    for p, w in pairs(which) do
+        if w == "main" then mainP[#mainP + 1] = p else altP[#altP + 1] = p end
+    end
+    table.sort(mainP)
+    table.sort(altP)
+    local lead = firstMain or m
+    local slot = SlotLabel(lead.sid)
+    local altText = (#mainP > 0 and #altP > 0) and Paint(" · alt " .. PhaseList(altP), m.os and "offspec" or "alt") or ""
     local text
     if m.os then
         -- Only on my off-spec list (Addendum H; MatchItem lists main-spec matches first).
         local sp = ns.BiS.GetSpec and ns.BiS:GetSpec("os") or ""
-        text = Seal() .. Paint(format("Your off-spec %s %s%s · %s", m.which == "alt" and "alt" or "BiS", label,
-            sp ~= "" and (" (" .. sp .. ")") or "", slot), "offspec")
-    elseif m.which == "alt" then
-        text = Seal() .. Paint(format("Your alt %s · %s", label, slot), "alt")
+        text = Seal() .. Paint(format("Your off-spec %s %s%s · %s", #mainP > 0 and "BiS" or "alt",
+            PhaseList(#mainP > 0 and mainP or altP), sp ~= "" and (" (" .. sp .. ")") or "", slot), "offspec") .. altText
+    elseif #mainP == 0 then
+        text = Seal() .. Paint(format("Your alt %s · %s", PhaseList(altP), slot), "alt")
     else
-        text = Seal() .. STAR .. " " .. Paint(format("Your BiS %s · %s", label, slot), "main")
+        text = Seal() .. STAR .. " " .. Paint(format("Your BiS %s · %s", PhaseList(mainP), slot), "main") .. altText
     end
-    if m.via then
-        local via = VIA_TEXT[m.via] or "via token"
-        local wanted = tonumber(m.wanted)
+    if lead.via then
+        local via = VIA_TEXT[lead.via] or "via token"
+        local wanted = tonumber(lead.wanted)
         local wantedName = wanted and wanted ~= itemID and ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(wanted)
         if wantedName then via = via .. ": " .. wantedName end
         text = text .. Paint(" (" .. via .. ")", "muted")
