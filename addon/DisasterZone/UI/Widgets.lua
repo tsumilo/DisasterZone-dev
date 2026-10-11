@@ -2243,52 +2243,7 @@ function UI:CreateCountBadge(parent, h, kind)
     return b
 end
 
--- A small rounded tag in a row or a bar: "BiS", "Alt P2", "OS", "BiS locked". A tinted fill, a 1px edge and text in
--- the tag's colour. p:Set(text, kind, icon): kind = "bis" | "alt" | "os" | "ok" | "warn" | "mute" (default); icon
--- (optional) = a texture path in front of the text. It sizes itself to its text. The fill is mixed with the colour
--- it sits on (p:SetBase(r, g, b), default the flat card fill) so the edge never shows through it.
-UI.TAG_LOOK = {
-    bis  = { text = { 1, 0.82, 0 },       tint = { 1, 0.82, 0 },       edge = { 1, 0.82, 0, 0.5 } },
-    alt  = { text = { 0.56, 0.78, 1 },    tint = { 0.31, 0.63, 1 },    edge = { 0.43, 0.71, 1, 0.5 } },
-    os   = { text = { 0.79, 0.65, 1 },    tint = { 0.63, 0.43, 1 },    edge = { 0.67, 0.51, 1, 0.5 } },
-    ok   = { text = { 0.62, 0.94, 0.69 }, tint = { 0.24, 0.71, 0.35 }, edge = { 0.35, 0.86, 0.47, 0.5 } },
-    warn = { text = { 1, 0.69, 0.40 },    tint = { 1, 0.55, 0.10 },    edge = { 1, 0.55, 0.10, 0.55 } },
-    mute = { text = { 0.72, 0.72, 0.72 }, tint = { 1, 1, 1 },          edge = { 1, 1, 1, 0.2 } },
-}
-function UI:CreateTagPill(parent, h)
-    h = h or 16
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetSize(30, h)
-    UI:AddPillShape(p, h)
-    p.base = { 0.10, 0.10, 0.12 }
-    p.icon = p:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(h - 6, h - 6)
-    p.icon:SetPoint("LEFT", 6, 0)
-    p.icon:Hide()
-    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.fs:SetWordWrap(false)
-    function p:SetBase(r, g, b) self.base = { r, g, b } end
-    function p:Set(text, kind, icon)
-        local look = UI.TAG_LOOK[kind] or UI.TAG_LOOK.mute
-        local a, base, t = 0.12, self.base, look.tint
-        self:SetPillColors({ base[1] + (t[1] - base[1]) * a, base[2] + (t[2] - base[2]) * a,
-            base[3] + (t[3] - base[3]) * a, 1 }, look.edge)
-        self.fs:SetText(text or "")
-        self.fs:SetTextColor(look.text[1], look.text[2], look.text[3])
-        local x = 7
-        if icon then
-            self.icon:SetTexture(icon)
-            self.icon:Show()
-            x = 6 + (h - 6) + 3
-        else
-            self.icon:Hide()
-        end
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", x, 0)
-        self:SetWidth(floor(x + (self.fs:GetStringWidth() or 16) + 7 + 0.5))
-    end
-    return p
-end
+-- The tag pill (UI:CreateTagPill, UI.TAG_LOOK) is UI:CreatePill now: UI/Comp/Controls.lua.
 
 -- An on / off switch, the look of the Dungeons tab's "I'm up for a run": a 34x18 pill with a knob, green with the knob
 -- on the right while on. It is a CheckButton: a click flips it and calls setter(checked); s:Refresh() reads getter();
