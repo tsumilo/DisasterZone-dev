@@ -136,7 +136,9 @@ function Threat:Derive(st)
         local view = {}
         for _, r in ipairs(st.rows) do if not r.me then view[#view + 1] = r end end
         tsort(view, function(a, b)
-            if a.tank ~= b.tank then return b.tank end           -- the one tanking (another tank) last
+            -- the one holding aggro (when it isn't me) on top: the 100% the others are measured against (it was
+            -- last, found only by scrolling down; in-game report 2026-10-11)
+            if a.tank ~= b.tank then return a.tank end
             if a.scaled ~= b.scaled then return a.scaled > b.scaled end
             return (a.name or "") < (b.name or "")
         end)

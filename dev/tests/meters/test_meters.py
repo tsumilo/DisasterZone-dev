@@ -640,6 +640,19 @@ def the_threat_table_reads_the_game():
                    "Hunt": (False, 1, 80, 104, 208000)})
     assert s["tv"] is True and s["names"] == ["Hunt", "Victhar"], s
     assert r.cl.eval("return _G.DisasterZoneMeters:IsShown() and ns.MeterPanels._Panel('threat') ~= nil") is True
+    # someone else holding aggro while I'm in tank view: on top, the 100% the rest are measured against, not red
+    # (in-game report 2026-10-11: it was last, found only by scrolling)
+    r.cl.eval("ns.DB:SetSetting('meters.tankView', 'always')")
+    s = threat(r, {"Victhar": (True, 3, 100, 100, 200000), "Gina": (False, 2, 60, 66, 132000),
+                   "Hunt": (False, 1, 80, 104, 208000)})
+    assert s["tv"] is True and s["names"] == ["Victhar", "Hunt"], s
+    r.cl.eval("ns.MeterPanels:Draw()")
+    top = r.cl.eval_py("""
+        local pf = ns.MeterPanels._Panel('threat')
+        for _, row in pairs(pf.trowsByKey) do
+            if row.name:GetText() == 'Victhar' then local cr, cg, cb = row.fill:GetVertexColor(); return { row.ty, cr, cg } end
+        end""")
+    assert top[0] == 0 and not (top[1] == 1 and abs(top[2] - 0.35) < 0.01), top
 
 
 @case

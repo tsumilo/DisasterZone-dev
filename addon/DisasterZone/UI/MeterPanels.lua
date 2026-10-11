@@ -1236,7 +1236,8 @@ local function DrawThreat(pf)
         SetT(row.name, r.name or "?")
         if r.me then row.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else row.name:SetTextColor(cr, cg, cb) end
         local share = st.tankView and r.scaled or r.raw
-        local hot = (st.tankView and r.scaled >= warn) or (r.me and st.hot)
+        -- (in tank view the one holding aggro is the 100% reference, in their colour, not a warning)
+        local hot = (st.tankView and r.scaled >= warn and not r.tank) or (r.me and st.hot)
         if hot then row.fill:SetVertexColor(1, 0.35, 0.24, 0.9) else row.fill:SetVertexColor(cr, cg, cb, 0.8) end
         SetT(row.value, floor(share + 0.5) .. "%")
         if hot then row.value:SetTextColor(1, 0.54, 0.44) else row.value:SetTextColor(1, 1, 1) end
