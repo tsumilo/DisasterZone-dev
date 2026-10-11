@@ -32,11 +32,11 @@ local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tinsert, tsort, tconcat, tremove = table.insert, table.sort, table.concat, table.remove
 local type, pairs, ipairs, tostring, tonumber = type, pairs, ipairs, tostring, tonumber
 
+local S = ns.Style
 local DAY = 86400
-local PAD, GAP = 10, 8
-local PAGE_W, PAGE_H = 790, 548
-local NUM_FONT = "Fonts\\ARIALN.TTF"
-local WHITE = "Interface\\Buttons\\WHITE8X8"
+local PAD, GAP = S.PAD, S.GAP
+local PAGE_W, PAGE_H = S.PAGE_W, S.PAGE_H
+local NUM_FONT = S.FONT_NUM
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
 local READY = "Interface\\RAIDFRAME\\ReadyCheck-Ready"
@@ -45,15 +45,18 @@ local STAR = "Interface\\COMMON\\ReputationStar"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
+-- The colours: ns.Style tokens, plus this page's own shades (read-only: several are shared tables).
 local C = {
-    gold = { 1, 0.82, 0 }, white = { 1, 1, 1 }, text = { 0.88, 0.88, 0.88 }, grey = { 0.62, 0.62, 0.62 },
-    dim = { 0.44, 0.44, 0.46 }, meta = { 0.82, 0.82, 0.82 }, desc = { 0.74, 0.74, 0.74 }, soft = { 0.81, 0.81, 0.81 },
-    blue = { 0.4, 0.72, 1 }, pts = { 1, 0.88, 0.54 }, green = { 0.44, 0.88, 0.54 }, red = { 1, 0.54, 0.48 },
-    orange = { 1, 0.55, 0.1 }, open = { 0.34, 0.34, 0.36 }, kick = { 1, 0.82, 0 },
+    gold = S.C.GOLD, white = { 1, 1, 1 }, text = S.C.TEXT, grey = S.C.SUB,
+    dim = S.C.DIM, meta = { 0.82, 0.82, 0.82 }, desc = { 0.74, 0.74, 0.74 }, soft = { 0.81, 0.81, 0.81 },
+    blue = S.C.YOU, pts = { 1, 0.88, 0.54 }, green = { 0.44, 0.88, 0.54 }, red = { 1, 0.54, 0.48 },
+    orange = S.C.WARN, open = { 0.34, 0.34, 0.36 }, kick = S.C.GOLD,
+    label = { 0.85, 0.85, 0.85 }, chip = { 0.91, 0.91, 0.91 }, black = { 0, 0, 0, 1 },
+    youEdge = { 0.4, 0.72, 1, 0.75 }, youText = { 0.84, 0.92, 1 }, youWash = { 0.4, 0.72, 1, 0.08 },
+    youBar = { 0.4, 0.72, 1, 1 }, shade = { 0.035, 0.035, 0.043, 0.95 },
 }
-local CARD = { 0.10, 0.10, 0.12, 0.92 }
-local BOX = { 0.078, 0.078, 0.094, 0.92 }
-local PEDGE = { 0.34, 0.34, 0.38, 0.45 }
+local CARD = S.C.CARD
+local PEDGE = S.C.EDGE_QUIET
 
 local panel
 local state = { view = "upcoming", occ = nil, lib = "guild", q = "", hover = nil, review = nil, scroll = {} }
@@ -63,16 +66,16 @@ local function EUI() return ns.EventUI end
 local function Ev() return ns.Events end
 local function Live() return ns.EventLive end
 local function B() return ns.EventBlocks end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local function Now() return ns.Util.Now() end
 local function Me() return ns.Util.PlayerKey() end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+local function DemoOn() return ns.Util.DemoOn() end
 local function IsMe(key) return type(key) == "string" and ns.Util.IsMe(key) or false end
 
 local function Hex(c, s)
     return ("|cff%02x%02x%02x%s|r"):format(floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5), floor(c[3] * 255 + 0.5),
         tostring(s))
 end
-local function grey(s) return Hex(C.grey, s) end
+local function grey(s) return S:Wrap("SUB", s) end
 local function Tip(owner, lines, anchor)
     UI():SetTextTooltip(owner, lines, anchor or "ANCHOR_TOP")
 end
@@ -81,6 +84,10 @@ local function Name(key) return EUI():Name(key) end
 
 ---------------------------------------------------------------------------
 -- Small pieces: texts, fills, edges, gradients, glyphs, buttons, faces, chips
+-- (1.4: the page's old widget kit "H" is thin aliases on the shared UI now: UI:Text / UI:SetTextStyle on the type
+-- scale (sizes snap, D2), UI:Fill, UI:Gradient, UI:TextWidth, UI:HideFrom, UI:CreateSectionHeader, UI:CreateCard,
+-- UI:CreatePill, UI:CreateBackLink, ns.Style tokens. H stays as one local table of helpers because the file is near
+-- the client's 200-locals limit and has ~900 call sites; what the shared parts do not cover yet is marked TODO.)
 ---------------------------------------------------------------------------
 
 local H = {}
@@ -97,22 +104,17 @@ function H.Hgt()
     return floor(h)
 end
 
+-- A text's size changed, keeping its font face and colour: the size snaps to the type scale (S:Size, D2).
 local function Sized(fs, size, path)
     local p, _, flags = fs:GetFont()
-    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", size, flags or "")
+    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", S:Size(size or "emph"), flags or "")
     return fs
 end
 H.Sized = Sized
 
--- A one-line text (left, no wrap). num: the narrow number font.
+-- A one-line text (left, no wrap): UI:Text at a size of the scale. num: the narrow number font.
 local function Text(parent, size, color, num, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    Sized(fs, size or 12, num and NUM_FONT or nil)
-    local c = color or C.white
-    fs:SetTextColor(c[1], c[2], c[3], c[4] or 1)
-    return fs
+    return UI():Text(parent, size or "emph", color or C.white, { layer = layer, font = num and NUM_FONT or nil })
 end
 H.Text = Text
 
@@ -145,7 +147,7 @@ end
 H.TextW = TextW
 
 -- A text's whole width on one line, also when it was given a width (GetStringWidth stops there on this client).
-local function NatW(fs) return EUI():TextWidth(fs) end
+local function NatW(fs) return UI():TextWidth(fs) end
 
 -- A text that has to fit in w: at the first size that fits (sizes: a number or a list, largest first), else on two
 -- lines at the last one (wrap = false: nil then). Its width is set every time (a reused text may have wrapped before;
@@ -156,7 +158,8 @@ local function FitText(fs, text, w, sizes, wrap)
     fs:SetWordWrap(false)
     fs:SetJustifyV("MIDDLE")
     fs:SetWidth(w)
-    for _, s in ipairs(sizes) do
+    for _, size in ipairs(sizes) do
+        local s = S:Size(size)
         Sized(fs, s)
         fs:SetText(text or "")
         local tw = NatW(fs)
@@ -166,38 +169,27 @@ local function FitText(fs, text, w, sizes, wrap)
         end
     end
     if wrap == false then return nil end
-    local s = sizes[#sizes]
+    local s = S:Size(sizes[#sizes])
     Sized(fs, s)
     return w, Wrap(fs, text, w, s), 2
 end
 H.NatW, H.FitText = NatW, FitText
 
-local function Fill(f, c, layer, sub)
-    local t = f:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
-    t:SetAllPoints()
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-    return t
-end
+local function Fill(f, c, layer, sub) return UI():Fill(f, c, layer, sub) end
 
 local function Edges(f, c, layer)
     UI():AddEdges(f, layer or "BORDER")
-    UI():SetEdgeColor(f, c[1], c[2], c[3], c[4] or 1)
+    UI():SetEdgeColor(f, S:Color(c))
 end
 
 -- A two-colour gradient: a = left / bottom, b = right / top ({ r, g, b, a }).
-local function Grad(tex, orient, a, b)
-    tex:SetTexture(WHITE)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(a[1], a[2], a[3], a[4] or 1), CreateColor(b[1], b[2], b[3], b[4] or 1))
-    else
-        tex:SetColorTexture(b[1], b[2], b[3], b[4] or 1)
-    end
-end
+local function Grad(tex, orient, a, b) return UI():Gradient(tex, orient, a, b) end
 H.Grad = Grad
 
+-- A coloured texture the caller anchors (a hairline, a bar); UI:Rule when it runs along a whole edge.
 local function Line(parent, c, layer)
     local t = parent:CreateTexture(nil, layer or "ARTWORK")
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+    t:SetColorTexture(S:Color(c or "HAIRLINE"))
     return t
 end
 
@@ -212,7 +204,7 @@ end
 -- The rules' glyphs (EventBlocks:Describe): atlas icons, the reputation star for ranks.
 local GLYPH = { group = "team", clock = "calendar", swords = "bracket", trophy = "trophy", eyeo = "eye" }
 function H.Glyph(tex, g, c)
-    c = c or { 1, 1, 1 }
+    c = c or C.white
     if g == "rank" or g == "star" then
         tex:SetTexture(STAR)
         tex:SetTexCoord(0, 0.5, 0, 0.5)
@@ -228,7 +220,7 @@ end
 function H.Icon(parent, size, edge)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
-    f.outer = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND")
+    f.outer = Fill(f, C.black, "BACKGROUND")
     f.outer:ClearAllPoints()
     f.outer:SetPoint("TOPLEFT", -1, 1)
     f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -249,7 +241,7 @@ end
 function H.Face(parent, size)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
-    f.ring = Disc(f, size + 2, { 0, 0, 0, 1 }, "BACKGROUND", 1)
+    f.ring = Disc(f, size + 2, C.black, "BACKGROUND", 1)
     f.ring:SetPoint("CENTER")
     f.hole = Disc(f, size, CARD, "BACKGROUND", 2)
     f.hole:SetPoint("CENTER")
@@ -274,18 +266,14 @@ function H.Face(parent, size)
         self.hole:Show()
         self:Show()
     end
-    f:EnableMouse(true)
-    f:SetScript("OnEnter", function(self)
-        if not self.key or self.noTip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(EUI():Name(self.key, true))
+    UI():AttachTooltip(f, function(self, tt)
+        if not self.key or self.noTip then return false end
+        tt:AddLine(EUI():Name(self.key, true))
         local title = Ev():GetTitle(self.key)
-        if title then GameTooltip:AddLine(title, 1, 0.82, 0) end
+        if title then tt:AddLine(title, S:Color("GOLD")) end
         local rank = Ev():RankOf(self.key)
-        if rank then GameTooltip:AddLine("Season rank #" .. rank, 0.62, 0.62, 0.62) end
-        GameTooltip:Show()
-    end)
-    f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        if rank then tt:AddLine("Season rank #" .. rank, S:Color("SUB")) end
+    end, nil, { anchor = "ANCHOR_TOP" })
     return f
 end
 
@@ -332,12 +320,31 @@ function H.Fit(b, minW, pad)
     return b:GetWidth()
 end
 
+-- A frame whose tooltip is its .tip field at the time ({ title, line ... }; nil: none), above it.
+local function FieldTip(self, tt)
+    if not self.tip then return false end
+    for i, line in ipairs(self.tip) do
+        if type(line) == "table" then
+            tt:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, line.wrap)
+        elseif i == 1 then
+            tt:AddLine(line, S:Color("GOLD"))
+        else
+            tt:AddLine(line, 1, 1, 1, true)
+        end
+    end
+end
+function H.TipFromField(f)
+    UI():AttachTooltip(f, FieldTip, nil, { anchor = "ANCHOR_TOP" })
+    return f
+end
+
 -- The icon buttons at the right of a banner / a card.
 function H.IconButton(parent, size, icon, title, text, onClick)
     return UI():CreateTipIconButton(parent, size, UI().ICON[icon] or icon, title, text, onClick)
 end
 
 -- A rounded chip on a banner: an optional glyph / face, a text. c:Set(text, glyph, edge), c:SetFace(key).
+-- TODO(refactor): move into UI:CreateChip (a class face instead of the icon, a tinted glyph, an edge colour per call).
 function H.Chip(parent, h)
     h = h or 22
     local c = CreateFrame("Frame", nil, parent)
@@ -350,10 +357,9 @@ function H.Chip(parent, h)
     c.face = H.Face(c, 14)
     c.face:SetPoint("LEFT", 6, 0)
     c.face:Hide()
-    c.fs = Text(c, 11, { 0.91, 0.91, 0.91 })
+    c.fs = Text(c, 11, C.chip)
     c:EnableMouse(true)
-    c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    c:SetScript("OnLeave", HideTip)
+    H.TipFromField(c)
     -- (tint: the glyph's colour; a dot, DISC, is a tag's: smaller)
     function c:Set(text, glyph, edge, color, tint)
         self.face:Hide()
@@ -374,7 +380,7 @@ function H.Chip(parent, h)
             self.glyph:Hide()
         end
         self.fs:SetText(text or "")
-        Color(self.fs, color or { 0.91, 0.91, 0.91 })
+        Color(self.fs, color or C.chip)
         self.fs:ClearAllPoints()
         self.fs:SetPoint("LEFT", x, 0)
         self:SetPillColors({ 0.04, 0.04, 0.05, 0.78 }, edge or { 1, 1, 1, 0.2 })
@@ -392,79 +398,51 @@ function H.Chip(parent, h)
     return c
 end
 
--- A small rounded chip with an icon (a smart block on a library card).
+-- A small rounded chip with an icon (a smart block on a library card): UI:CreatePill (p:Set(text, look, icon)).
 function H.Mini(parent)
-    local p = UI():CreateTagPill(parent, 17)
+    local p = UI():CreatePill(parent, 17)
     p:SetBase(CARD[1], CARD[2], CARD[3])
     return p
 end
 
--- A pill (Live, Ranked, In review ...) over dark art.
+-- A pill (Live, Ranked, In review ...) over dark art: UI:CreatePill (p:SetKind(text, kind)).
 function H.Pill(parent, h)
-    local p = EUI():CreatePill(parent, h or 16)
+    local p = UI():CreatePill(parent, h or 16)
     if p.SetBase then p:SetBase(0.05, 0.05, 0.06) end
     return p
 end
 
--- A section header: gold title, an optional grey text at the right, a hairline under it.
+-- A section header (UI:CreateSectionHeader, "title": gold, a grey text at the right, a hairline under it).
+-- s:Set(title, right); s.t / s.r / s.line = its title, right text and rule.
+local function SectSet(self, t, r)
+    self:SetTitle(t or "")
+    self:SetRight(r)
+    self:Show()
+end
 function H.Sect(parent)
-    local s = CreateFrame("Frame", nil, parent)
-    s:SetSize(100, 24)
-    s.t = Text(s, 12, C.gold)
-    s.t:SetPoint("BOTTOMLEFT", 2, 7)
-    s.r = Text(s, 11, C.grey)
-    s.r:SetJustifyH("RIGHT")
-    s.r:SetPoint("BOTTOMRIGHT", -2, 7)
-    s.line = Line(s, { 1, 1, 1, 0.08 })
-    s.line:SetHeight(1)
-    s.line:SetPoint("BOTTOMLEFT")
-    s.line:SetPoint("BOTTOMRIGHT")
-    function s:Set(t, r)
-        self.t:SetText(t or "")
-        self.r:SetText(r or "")
-        self.r:SetShown(r ~= nil and r ~= "")
-        self:Show()
-    end
+    local s = UI():CreateSectionHeader(parent, "", { style = "title", width = 100 })
+    s.t, s.r, s.line = s.title, s.right, s.rule
+    s.Set = SectSet
     return s
 end
 
--- A link-like text button at the right of a header ("All >"): text and a right chevron.
-function H.Link(parent, text, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b.fs = Text(b, 11, C.grey)
-    b.fs:SetPoint("LEFT", 0, 0)
-    b.chev = b:CreateTexture(nil, "ARTWORK")
-    b.chev:SetSize(10, 10)
-    UI():SetChevron(b.chev, true)
-    b.chev:SetVertexColor(0.62, 0.62, 0.62)
-    function b:SetLabel(t)
-        self.fs:SetText(t or "")
-        self.chev:ClearAllPoints()
-        self.chev:SetPoint("LEFT", self.fs, "RIGHT", 3, 0)
-        self:SetSize(ceil(SW(self.fs) + 15), 16)
-    end
-    b:SetScript("OnEnter", function(self) Color(self.fs, C.white); self.chev:SetVertexColor(1, 1, 1) end)
-    b:SetScript("OnLeave", function(self) Color(self.fs, C.grey); self.chev:SetVertexColor(0.62, 0.62, 0.62) end)
-    b:SetScript("OnClick", onClick)
-    b:SetLabel(text)
-    return b
+-- A header's link at its right ("All >"): the section header's own action (grey, gold under the mouse).
+function H.Link(sect, text, onClick)
+    sect:SetAction({ text = text, onClick = onClick })
+    return sect.action
 end
 
--- A panel box (the Season card's): a dark fill and a soft edge; b.head = a 28 high header (gold title, right text).
+-- A panel box (the Season cards): UI:CreateCard; with head, a 28 high header (gold title, a right text, a rule):
+-- b.ht / b.hr / b.hline.
 function H.Box(parent, head)
-    local b = CreateFrame("Frame", nil, parent)
-    Fill(b, BOX)
-    Edges(b, PEDGE)
+    local b = UI():CreateCard(parent, { tone = "card" })
     if head then
-        b.ht = Text(b, 13, C.gold)
+        b.ht = Text(b, "title", C.gold)
         b.ht:SetPoint("TOPLEFT", 10, -8)
-        b.hr = Text(b, 11, { 0.74, 0.74, 0.74 })
+        b.hr = Text(b, 11, C.desc)
         b.hr:SetJustifyH("RIGHT")
         b.hr:SetPoint("TOPRIGHT", -10, -9)
-        b.hline = Line(b, { 1, 1, 1, 0.07 })
-        b.hline:SetHeight(1)
-        b.hline:SetPoint("TOPLEFT", 1, -28)
-        b.hline:SetPoint("TOPRIGHT", -1, -28)
+        b.hline = UI():Rule(b, { top = 28, left = 1, right = 1 })
     end
     return b
 end
@@ -483,9 +461,7 @@ local function Pool(list, i, make)
     end
     return f
 end
-local function HideFrom(list, i)
-    for j = i, #list do list[j]:Hide() end
-end
+local function HideFrom(list, i) UI():HideFrom(list, i) end
 H.Pool, H.HideFrom = Pool, HideFrom
 
 -- A More menu: entries { icon (UI.ICON key / index, or a texture path: an item icon), text, tip, fn, color, danger }.
@@ -507,7 +483,7 @@ function H.Menu(owner, entries, title)
                 local b = root:CreateButton(mark .. "  " .. e.text, e.fn)
                 if b and b.SetTooltip and e.tip then
                     b:SetTooltip(function(tt)
-                        tt:AddLine(e.text, 1, 0.82, 0)
+                        tt:AddLine(e.text, S:Color("GOLD"))
                         tt:AddLine(e.tip, 1, 1, 1, true)
                     end)
                 end
@@ -1172,12 +1148,9 @@ end
 function A.ExamplesButton(parent, h)
     local b = H.Button(parent, "Examples", nil, h, "secondary", function(self) A.ExamplesMenu(self) end, 22)
     H.Fit(b, 90, h >= 26 and 30 or 26)
-    b:HookScript("OnEnter", function(self)
-        Tip(self, { "Start from an example", "Eight ready events, each showing a few blocks at work: a duel cup, hide "
-            .. "and seek, a race, a fishing derby, a quiz... Pick one to open it in the builder as your own." },
-            "ANCHOR_BOTTOM")
-    end)
-    b:HookScript("OnLeave", HideTip)
+    UI():AttachTooltip(b, "Start from an example", "Eight ready events, each showing a few blocks at work: a duel cup, "
+        .. "hide and seek, a race, a fishing derby, a quiz... Pick one to open it in the builder as your own.",
+        { anchor = "ANCHOR_BOTTOM" })
     return b
 end
 
@@ -1305,6 +1278,8 @@ end
 -- The banner (Upcoming's hero, an event's page, its results)
 ---------------------------------------------------------------------------
 
+-- TODO(refactor): move into UI:CreatePageBanner (its stage line / entrants meter at the bottom left, the kind chips
+-- left of the tools, the chip and the three button slots of the bottom row, the Share results text tool).
 function H.NewBanner(parent, height)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(height)
@@ -1315,23 +1290,8 @@ function H.NewBanner(parent, height)
     EUI():AddShade(b)
     Edges(b, PEDGE, "ARTWORK")
     -- the top row: the back link / the Live pill and the kicker; share and More at the right
-    b.back = CreateFrame("Button", nil, b)
-    b.back:SetSize(70, 18)
-    b.back:SetPoint("TOPLEFT", 12, -9)
-    b.back.chev = b.back:CreateTexture(nil, "ARTWORK")
-    b.back.chev:SetSize(10, 10)
-    b.back.chev:SetPoint("LEFT", 0, 0)
-    UI():SetChevron(b.back.chev, false)
-    b.back.chev:SetVertexColor(0.85, 0.85, 0.85)
-    b.back.fs = Text(b.back, 12, { 0.85, 0.85, 0.85 })
-    b.back.fs:SetPoint("LEFT", 14, 0)
-    b.back.fs:SetText("Events")
-    b.back:SetScript("OnEnter", function(self) Color(self.fs, C.white); self.chev:SetVertexColor(1, 1, 1) end)
-    b.back:SetScript("OnLeave", function(self)
-        Color(self.fs, { 0.85, 0.85, 0.85 })
-        self.chev:SetVertexColor(0.85, 0.85, 0.85)
-    end)
-    b.back:SetScript("OnClick", function() EventsUI:Back() end)
+    b.back = UI():CreateBackLink(b, "Events", function() EventsUI:Back() end)
+    b.back:SetPoint("TOPLEFT", 12, -12)
     b.live = H.Pill(b, 16)
     b.live:SetPoint("TOPLEFT", 14, -12)
     b.live:SetKind("Live", "live")
@@ -1349,19 +1309,16 @@ function H.NewBanner(parent, height)
             ns.ShareWindow:Open(ref, self)
         end
     end, 18)
-    b.shareText:HookScript("OnEnter", function(self)
-        Tip(self, { "Share results", "Posts a link to these results in chat: the podium, the awards, the night.",
-            grey("Shift-click: into your chat box") })
-    end)
-    b.shareText:HookScript("OnLeave", HideTip)
+    UI():AttachTooltip(b.shareText, "Share results", { "Posts a link to these results in chat: the podium, the awards, "
+        .. "the night.", { "Shift-click: into your chat box", "SUB" } }, { anchor = "ANCHOR_TOP" })
     b.shareText:Hide()
     -- the middle: the icon, the title with its pills, the meta line
-    b.icon = H.Icon(b, 44, { 1, 0.82, 0, 0.55 })
+    b.icon = H.Icon(b, 44, { S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.55 })
     b.icon:SetPoint("TOPLEFT", 14, -40)
     b.title = Text(b, 22, C.white)
     b.title:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 12, -2)
     b.pills = { H.Pill(b, 16), H.Pill(b, 16) }
-    b.meta = Text(b, 11, { 0.82, 0.82, 0.82 })
+    b.meta = Text(b, 11, C.meta)
     b.meta:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", 12, 4)
     -- the bottom row: the stages (or the entrants' meter), a chip, the buttons
     b.prog = EUI():CreateProgress(b)
@@ -1370,7 +1327,7 @@ function H.NewBanner(parent, height)
     b.meter:SetSize(300, 22)
     b.meter:SetPoint("BOTTOMLEFT", 14, 14)
     b.meter.faces = {}
-    b.meter.fs = Text(b.meter, 11, { 0.85, 0.85, 0.85 })
+    b.meter.fs = Text(b.meter, 11, C.label)
     b.meter.track = b.meter:CreateTexture(nil, "ARTWORK")
     b.meter.track:SetColorTexture(1, 1, 1, 0.12)
     b.meter.track:SetSize(120, 4)
@@ -1389,8 +1346,7 @@ function H.NewBanner(parent, height)
     b.btn3 = H.Button(b, "", 70, 26, "secondary")
     b.btn3.glyph = b.btn3:CreateTexture(nil, "OVERLAY")
     b.btn3.glyph:SetSize(12, 12)
-    b.btn3:HookScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    b.btn3:HookScript("OnLeave", HideTip)
+    H.TipFromField(b.btn3)
     b.btn3:Hide()
     b.chip = H.Chip(b, 22)
     b.note = Text(b, 11, C.grey)
@@ -1532,8 +1488,7 @@ end
 function H.KindMini(parent)
     local m = H.Mini(parent)
     m:EnableMouse(true)
-    m:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    m:SetScript("OnLeave", HideTip)
+    H.TipFromField(m)
     return m
 end
 
@@ -1579,7 +1534,7 @@ function H.BannerKinds(b, def, w)
         return
     end
     local left = 14
-    if b.back:IsShown() then left = 12 + 70 end
+    if b.back:IsShown() then left = 12 + b.back:GetWidth() end
     if b.kick:IsShown() then left = (b.live:IsShown() and (14 + b.live:GetWidth() + 8) or 14) + NatW(b.kick) end
     local iconsW = b.iconsW or 0
     local room = w - left - 24 - 12 - iconsW - (iconsW > 0 and 8 or 0)
@@ -1675,13 +1630,8 @@ end
 function Up.NewRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetHeight(ROW_H)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.03)
-    r.line = Line(r, { 1, 1, 1, 0.045 })
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
+    UI():DecorateRow(r, { rule = true })
+    r.hl, r.line = r.dzHover, r.dzRule
     r.wd = Text(r, 10, C.gold)
     r.wd:SetJustifyH("CENTER")
     r.wd:SetPoint("TOP", r, "TOPLEFT", 23, -10)
@@ -1691,7 +1641,7 @@ function Up.NewRow(parent)
     r.art = CreateFrame("Frame", nil, r)
     r.art:SetSize(64, 38)
     r.art:SetPoint("LEFT", 56, 0)
-    r.art.outer = Fill(r.art, { 0, 0, 0, 1 }, "BACKGROUND")
+    r.art.outer = Fill(r.art, C.black, "BACKGROUND")
     r.art.outer:ClearAllPoints()
     r.art.outer:SetPoint("TOPLEFT", -1, 1)
     r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -1711,8 +1661,7 @@ function Up.NewRow(parent)
     r.btn.glyph = r.btn:CreateTexture(nil, "OVERLAY")
     r.btn.glyph:SetSize(12, 12)
     r.btn:SetPoint("RIGHT", -6, 0)
-    r.btn:HookScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    r.btn:HookScript("OnLeave", HideTip)
+    H.TipFromField(r.btn)
     r.when = Text(r, 11, C.grey)
     r.when:SetJustifyH("RIGHT")
     r.when:SetPoint("RIGHT", -8, 0)
@@ -1810,7 +1759,7 @@ function Up.FillResult(r, res)
     r.dn:SetText(date("%d", res.at))
     EUI():SetArt(r.art.tex, res.art, 64, 38, nil, nil, 0.6)
     r.icon:Set(res.icon)
-    Color(r.l1, { 0.81, 0.81, 0.81 })
+    Color(r.l1, C.soft)
     r.pill:Hide()
     local parts = {}
     local champ = W.Placings(res)
@@ -1936,13 +1885,13 @@ function Up.FillHero(v, w)
             local opp = (m.a == me) and m.b or m.a
             local words = m.st == "play" and "You're on now" or "You're up next"
             if opp then words = words .. ", vs " .. Name(opp) end
-            b.chip:Set(words, nil, { 0.4, 0.72, 1, 0.75 }, { 0.84, 0.92, 1 })
+            b.chip:Set(words, nil, C.youEdge, C.youText)
             if opp then b.chip:SetFace(opp) end
             b.chip:Show()
         else
             local words, tint, face = W.MyLiveChip(o.id)
             if words then
-                b.chip:Set(words, tint and DISC or nil, { 0.4, 0.72, 1, 0.75 }, { 0.84, 0.92, 1 }, tint)
+                b.chip:Set(words, tint and DISC or nil, C.youEdge, C.youText, tint)
                 if face then b.chip:SetFace(Me()) end
                 b.chip:Show()
             end
@@ -2085,21 +2034,20 @@ function Up.CreateSeason(v)
     s.fill = s:CreateTexture(nil, "ARTWORK", nil, 1)
     s.fill:SetPoint("TOPLEFT", s.track, "TOPLEFT")
     s.fill:SetHeight(4)
-    Grad(s.fill, "HORIZONTAL", { 0.72, 0.54, 0.06, 1 }, { 1, 0.82, 0, 1 })
+    Grad(s.fill, "HORIZONTAL", { 0.72, 0.54, 0.06, 1 }, S.C.GOLD)
     s.badges = {}
     s.bcount = Text(s, 11, C.grey)
     s.sect = H.Sect(s)
     s.sect:SetPoint("TOPLEFT", 10, -128)
     s.sect:SetPoint("TOPRIGHT", -10, -128)
     s.all = H.Link(s.sect, "All", function() EventsUI:SetView("season") end)
-    s.all:SetPoint("BOTTOMRIGHT", s.sect, "BOTTOMRIGHT", -2, 5)
     s.rows = {}
     for i = 1, 5 do
         local r = CreateFrame("Frame", nil, s)
         r:SetSize(SEASON_W - 12, 26)
         r:SetPoint("TOPLEFT", 6, -156 - (i - 1) * 26)
-        r.bg = Fill(r, { 0.4, 0.72, 1, 0.08 })
-        r.bar = Line(r, { 0.4, 0.72, 1, 1 })
+        r.bg = Fill(r, C.youWash)
+        r.bar = Line(r, C.youBar)
         r.bar:SetPoint("TOPLEFT")
         r.bar:SetPoint("BOTTOMLEFT")
         r.bar:SetWidth(2)
@@ -2110,7 +2058,7 @@ function Up.CreateSeason(v)
         r.face:SetPoint("LEFT", 30, 0)
         r.n = Text(r, 12, C.white)
         r.n:SetPoint("LEFT", r.face, "RIGHT", 8, 0)
-        r.v = Text(r, 13, { 0.91, 0.91, 0.91 }, true)
+        r.v = Text(r, 13, C.chip, true)
         r.v:SetJustifyH("RIGHT")
         r.v:SetPoint("RIGHT", -6, 0)
         s.rows[i] = r
@@ -2315,18 +2263,17 @@ function Pg.NewRule(parent)
     c.glyph = c:CreateTexture(nil, "ARTWORK")
     c.glyph:SetSize(11, 11)
     c.glyph:SetPoint("LEFT", 7, 0)
-    c.dot = Disc(c, 8, { 1, 1, 1 }, "ARTWORK")
+    c.dot = Disc(c, 8, C.white, "ARTWORK")
     c.dot:SetPoint("CENTER", c, "LEFT", 12, 0)
     c.box = CreateFrame("Frame", nil, c)
     c.box:SetSize(13, 9)
     c.box:SetPoint("LEFT", 6, 0)
     Fill(c.box, { 0.22, 0.22, 0.25, 1 })
     Edges(c.box, { 1, 1, 1, 0.5 })
-    c.fs = Text(c, 11, { 0.82, 0.82, 0.82 })
+    c.fs = Text(c, 11, C.meta)
     c.fs:SetPoint("LEFT", 23, 0)
     c:EnableMouse(true)
-    c:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    c:SetScript("OnLeave", HideTip)
+    H.TipFromField(c)
     function c:Set(g, t, look, tip)
         self.tip = tip
         self.glyph:Hide()
@@ -2416,7 +2363,7 @@ function Pg.NewStage(parent)
     r.ring:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
     r.hole = Disc(r, 21, { 0.07, 0.07, 0.08, 1 }, "BACKGROUND", 2)
     r.hole:SetPoint("CENTER", r.ring, "CENTER")
-    r.nb = Text(r, 12, { 0.91, 0.91, 0.91 })
+    r.nb = Text(r, 12, C.chip)
     r.nb:SetJustifyH("CENTER")
     r.nb:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
     r.check = r:CreateTexture(nil, "ARTWORK")
@@ -2431,7 +2378,7 @@ function Pg.NewStage(parent)
     r.when = Text(r, 11, C.grey)
     r.when:SetJustifyH("RIGHT")
     r.when:SetPoint("TOPRIGHT", 0, -11)
-    r.t2 = Text(r, 11, { 0.74, 0.74, 0.74 })
+    r.t2 = Text(r, 11, C.desc)
     r.t2:SetPoint("TOPLEFT", 35, -28)
     r.rules = {}
     return r
@@ -2453,7 +2400,7 @@ function Pg.FillStage(r, i, s, w, how, when, last)
     r.when:SetText(when or "")
     r.glow:SetShown(how == "now")
     if how == "now" then
-        r.ring:SetVertexColor(1, 0.82, 0, 1)
+        r.ring:SetVertexColor(S:Color("GOLD"))
         r.hole:Hide()
         r.nb:SetTextColor(0.16, 0.11, 0)
         r.nb:SetShadowColor(0, 0, 0, 0)
@@ -2975,7 +2922,7 @@ end
 ---------------------------------------------------------------------------
 
 local POD_H, AW_W, RECAP_Y = 196, 296, 208
-local PED = { { "p2", 44, 46, { 0.86, 0.89, 0.95 } }, { "p1", 58, 72, { 1, 0.82, 0 } }, { "p3", 40, 30, { 0.86, 0.56, 0.32 } } }
+local PED = { { "p2", 44, 46, { 0.86, 0.89, 0.95 } }, { "p1", 58, 72, C.gold }, { "p3", 40, 30, { 0.86, 0.56, 0.32 } } }
 local TROW_RH, TAG_RH = 22, 26     -- a score table's row, a tag's row
 local TABLE_MIN, MOM_MIN = 220, 250
 
@@ -3007,7 +2954,7 @@ function Pg.CreateResults(v)
         p.blk.top:SetHeight(1)
         p.blk.top:SetPoint("TOPLEFT")
         p.blk.top:SetPoint("TOPRIGHT")
-        p.blk.n = Text(p.blk, 22, i == 2 and { 1, 0.88, 0.54 } or { 1, 1, 1, 0.85 }, true)
+        p.blk.n = Text(p.blk, 22, i == 2 and C.pts or { 1, 1, 1, 0.85 }, true)
         p.blk.n:SetJustifyH("CENTER")
         p.blk.n:SetPoint("TOP", 0, -8)
         p.blk.n:SetText(i == 2 and "1" or (i == 1 and "2" or "3"))
@@ -3052,7 +2999,6 @@ function Pg.CreateResults(v)
     f.l4Sect:SetPoint("TOPLEFT")
     f.l4Sect:SetPoint("TOPRIGHT")
     f.l4.full = H.Link(f.l4Sect, "Full bracket", function() if state.occ then A.Watch(state.occ) end end)
-    f.l4.full:SetPoint("BOTTOMRIGHT", f.l4Sect, "BOTTOMRIGHT", -2, 5)
     f.l4.box = CreateFrame("Frame", nil, f.l4)
     f.l4.box:SetPoint("TOPLEFT", 0, -34)
     f.l4.box:SetSize(300, 124)
@@ -3082,10 +3028,7 @@ end
 function Pg.NewAward(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(AW_W, 44)
-    r.line = Line(r, { 1, 1, 1, 0.05 })
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
+    r.line = UI():Rule(r, { bottom = 0, alpha = 0.05 })
     r.badge = H.Badge(r, 30)
     r.badge:SetPoint("LEFT", -1, 0)
     r.face = H.Face(r, 30)
@@ -3107,7 +3050,7 @@ function Pg.NewMoment(parent)
     m.icon:SetSize(16, 16)
     m.icon:SetPoint("TOPLEFT", 0, 0)
     m.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    m.fs = Text(m, 11, { 0.82, 0.82, 0.82 })
+    m.fs = Text(m, 11, C.meta)
     m.fs:SetPoint("TOPLEFT", 24, 0)
     m.t2 = Text(m, 10, C.dim)
     return m
@@ -3191,16 +3134,13 @@ end
 function Pg.NewTableRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(240, TROW_RH)
-    r.bg = Fill(r, { 0.4, 0.72, 1, 0.08 })
-    r.bar = Line(r, { 0.4, 0.72, 1, 1 })
+    r.bg = Fill(r, C.youWash)
+    r.bar = Line(r, C.youBar)
     r.bar:SetPoint("TOPLEFT")
     r.bar:SetPoint("BOTTOMLEFT")
     r.bar:SetWidth(2)
-    r.line = Line(r, { 1, 1, 1, 0.035 })
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
-    r.rk = Text(r, 12, { 0.62, 0.62, 0.62 }, true)
+    r.line = UI():Rule(r, { bottom = 0, alpha = 0.035 })
+    r.rk = Text(r, 12, C.grey, true)
     r.rk:SetJustifyH("RIGHT")
     r.rk:SetPoint("RIGHT", r, "LEFT", 22, 0)
     r.face = H.Face(r, 16)
@@ -3230,7 +3170,7 @@ function Pg.FillTable(t, s, w)
             r.bg:SetShown(mine)
             r.bar:SetShown(mine)
             r.rk:SetText(x.place)
-            Color(r.rk, x.place <= 3 and C.gold or { 0.62, 0.62, 0.62 })
+            Color(r.rk, x.place <= 3 and C.gold or C.grey)
             r.face:Set(x.key)
             r.v:SetText(W.ScoreText(s, x.n))
             -- (a long name: a point smaller between the face and the number; never cut)
@@ -3253,7 +3193,7 @@ end
 function Pg.NewTagRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(300, TAG_RH)
-    r.dot = Disc(r, 9, { 1, 1, 1 }, "ARTWORK")
+    r.dot = Disc(r, 9, C.white, "ARTWORK")
     r.dot:SetPoint("CENTER", r, "LEFT", 6, 0)
     r.n = Text(r, 12, C.white)
     r.n:SetPoint("LEFT", 18, 0)
@@ -3638,7 +3578,7 @@ function Pg.FillResults(v, r, o)
                 local row = Pool(f.nums, i, function()
                     local x = CreateFrame("Frame", nil, f.num)
                     x:SetSize(150, 22)
-                    x.l = Text(x, 11, { 0.85, 0.85, 0.85 })
+                    x.l = Text(x, 11, C.label)
                     x.l:SetPoint("LEFT", 0, 0)
                     x.v = Text(x, 13, C.white, true)
                     x.v:SetJustifyH("RIGHT")
@@ -3784,17 +3724,8 @@ function Lib.Create(p)
         v.filters[key] = t
         prev = t
     end
-    v.new = H.Button(v, "New event", nil, 26, "primary", A.NewEvent, "plus")
-    H.Fit(v.new, 100, 30)
-    v.new:SetPoint("TOPRIGHT", -PAD, -LIB_BAR_Y)
-    v.new:HookScript("OnEnter", function(self)
-        Tip(self, { "New event", "Opens the builder on an empty event: drag pieces in, practice it, save it." },
-            "ANCHOR_BOTTOM")
-    end)
-    v.new:HookScript("OnLeave", HideTip)
-    -- (beside it: start from one of the examples instead)
-    v.examples = A.ExamplesButton(v, 26)
-    v.examples:SetPoint("RIGHT", v.new, "LEFT", -6, 0)
+    -- (New event and, beside it, Examples: the page's toolbar's, shown on the Library)
+    v.new, v.examples = p.newBtn, p.libExBtn
     v.scroll = UI():CreateScrollFrame(v)
     v.scroll:SetPoint("TOPLEFT", PAD, -GRID_Y)
     v.scroll:SetPoint("BOTTOMLEFT", PAD, 10)
@@ -3802,9 +3733,9 @@ function Lib.Create(p)
     v.content:SetSize(700, 10)
     v.scroll:SetScrollChild(v.content)
     v.cards = {}
-    v.empty = Text(v, 13, C.grey)
-    v.empty:SetPoint("TOP", v, "TOP", 0, -150)
-    v.empty:SetJustifyH("CENTER")
+    v.empty = UI():CreateEmptyState(v, { glyph = UI().ICON.calendar })
+    v.empty:SetPoint("TOP", v, "TOP", 0, -130)
+    v.empty:Hide()
     return v
 end
 
@@ -3825,7 +3756,7 @@ function Lib.NewCard(parent)
     local c = CreateFrame("Button", nil, parent)
     c:SetSize(250, CARD_H)
     Fill(c, CARD)
-    Edges(c, { 0.34, 0.34, 0.38, 0.55 })
+    Edges(c, S.C.EDGE)
     c.artF = CreateFrame("Frame", nil, c)
     c.artF:SetPoint("TOPLEFT", 1, -1)
     c.artF:SetPoint("TOPRIGHT", -1, -1)
@@ -3977,10 +3908,13 @@ function Lib.Fill(v)
     v.content:SetHeight(max(1, need))
     v.empty:SetShown(#list == 0)
     if #list == 0 then
-        v.empty:SetText((state.q or "") ~= "" and "No event matches that." or (state.lib == "mine"
-            and "You haven't built an event yet: Examples or New event start one." or (state.lib == "ranked"
-            and "No event is ranked yet." or "The guild has no events yet: Examples or New event start one.")))
-
+        local searching = (state.q or "") ~= ""
+        v.empty:SetContent({ glyph = UI().ICON.calendar,
+            title = searching and "Nothing found" or (state.lib == "mine" and "No events of yours yet"
+                or (state.lib == "ranked" and "No ranked events" or "No events yet")),
+            text = searching and "No event matches that." or (state.lib == "mine"
+                and "You haven't built an event yet: Examples or New event start one." or (state.lib == "ranked"
+                and "No event is ranked yet." or "The guild has no events yet: Examples or New event start one.")) })
     end
 end
 
@@ -4014,11 +3948,11 @@ function Sea.Create(p)
     hd.art:SetPoint("BOTTOMRIGHT", -1, 1)
     hd.shade = hd:CreateTexture(nil, "BORDER")
     hd.shade:SetAllPoints()
-    Grad(hd.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.95 }, { 0.035, 0.035, 0.043, 0.3 })
+    Grad(hd.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.3 })
     Edges(hd, PEDGE, "ARTWORK")
     hd.t = Text(hd, 19, C.white)
     hd.t:SetPoint("BOTTOMLEFT", hd, "LEFT", 14, 2)
-    hd.t2 = Text(hd, 11, { 0.81, 0.81, 0.81 })
+    hd.t2 = Text(hd, 11, C.soft)
     hd.t2:SetPoint("TOPLEFT", hd, "LEFT", 14, -5)
     hd.stats = {}
     for i = 1, 3 do
@@ -4041,10 +3975,7 @@ function Sea.Create(p)
     v.th = CreateFrame("Frame", nil, v.main)
     v.th:SetPoint("TOPLEFT", 0, -(SHEAD_H + 8))
     v.th:SetSize(TABLE_W, 24)
-    v.th.line = Line(v.th, { 1, 1, 1, 0.09 })
-    v.th.line:SetHeight(1)
-    v.th.line:SetPoint("BOTTOMLEFT")
-    v.th.line:SetPoint("BOTTOMRIGHT")
+    v.th.line = UI():Rule(v.th, { bottom = 0, alpha = 0.09 })
     v.th.cols = {}
     for key, label in pairs({ rk = "#", pl = "Player", ev = "Events", wins = "Wins", bd = "Badges", pts = "Points" }) do
         local fs = Text(v.th, 11, C.grey)
@@ -4081,7 +4012,7 @@ function Sea.Create(p)
     v.you.title = CreateFrame("Button", nil, v.you)
     v.you.title:SetHeight(18)
     v.you.title:SetPoint("TOPRIGHT", -8, -5)
-    v.you.title.fs = Text(v.you.title, 11, { 0.74, 0.74, 0.74 })
+    v.you.title.fs = Text(v.you.title, 11, C.desc)
     v.you.title.fs:SetJustifyH("RIGHT")
     v.you.title.fs:SetPoint("RIGHT", -14, 0)
     v.you.title.chev = v.you.title:CreateTexture(nil, "ARTWORK")
@@ -4089,12 +4020,10 @@ function Sea.Create(p)
     v.you.title.chev:SetPoint("RIGHT", 0, 0)
     v.you.title.chev:SetTexture(UI().ICON_ATLAS)
     UI():SetChevronUp(v.you.title.chev, false)
-    v.you.title.chev:SetVertexColor(1, 0.82, 0)
+    v.you.title.chev:SetVertexColor(S:Color("GOLD"))
     v.you.title:SetScript("OnClick", function(self) Sea.TitleMenu(self) end)
-    v.you.title:SetScript("OnEnter", function(self)
-        Tip(self, { "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges gave you these." })
-    end)
-    v.you.title:SetScript("OnLeave", HideTip)
+    UI():AttachTooltip(v.you.title, "Your title", "Shown after your name on tooltips and in DisasterZone. Your badges "
+        .. "gave you these.", { anchor = "ANCHOR_TOP" })
     v.you.rk = Text(v.you, 30, C.white, true)
     v.you.rk:SetPoint("TOPLEFT", 24, -42)
     v.you.hash = Text(v.you, 16, C.grey, true)
@@ -4119,16 +4048,13 @@ end
 function Sea.NewRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(522, TROW_H)
-    r.bg = Fill(r, { 0.4, 0.72, 1, 0.08 })
-    r.bar = Line(r, { 0.4, 0.72, 1, 1 })
+    r.bg = Fill(r, C.youWash)
+    r.bar = Line(r, C.youBar)
     r.bar:SetPoint("TOPLEFT")
     r.bar:SetPoint("BOTTOMLEFT")
     r.bar:SetWidth(2)
-    r.line = Line(r, { 1, 1, 1, 0.035 })
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
-    r.rk = Text(r, 14, { 0.85, 0.85, 0.85 }, true)
+    r.line = UI():Rule(r, { bottom = 0, alpha = 0.035 })
+    r.rk = Text(r, 14, C.label, true)
     r.rk:SetPoint("LEFT", COL.rk[1], 0)
     r.face = H.Face(r, 20)
     r.face:SetPoint("LEFT", COL.pl[1], 0)
@@ -4142,8 +4068,8 @@ function Sea.NewRow(parent)
         fs:SetPoint("RIGHT", r, "RIGHT", FromRight(key), 0)
         return fs
     end
-    r.ev = num("ev", 13, { 0.85, 0.85, 0.85 })
-    r.wins = num("wins", 13, { 0.85, 0.85, 0.85 })
+    r.ev = num("ev", 13, C.label)
+    r.wins = num("wins", 13, C.label)
     r.pts = num("pts", 14, C.white)
     r.badges = {}
     for i = 1, 3 do
@@ -4246,7 +4172,7 @@ function Sea.Fill(v)
         r.bg:SetShown(isMe)
         r.bar:SetShown(isMe)
         r.rk:SetText(x2.rank)
-        Color(r.rk, x2.rank <= 3 and C.gold or { 0.85, 0.85, 0.85 })
+        Color(r.rk, x2.rank <= 3 and C.gold or C.label)
         r.face:Set(x2.key)
         r.n:SetText(Name(x2.key))
         local ti = Ev():GetTitle(x2.key)
@@ -4342,13 +4268,12 @@ end
 function Sea.NewEventRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(SIDE_W - 2, 44)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    UI():DecorateRow(r)
+    r.hl = r.dzHover
     r.art = CreateFrame("Frame", nil, r)
     r.art:SetSize(46, 30)
     r.art:SetPoint("LEFT", 9, 0)
-    r.art.outer = Fill(r.art, { 0, 0, 0, 1 }, "BACKGROUND")
+    r.art.outer = Fill(r.art, C.black, "BACKGROUND")
     r.art.outer:ClearAllPoints()
     r.art.outer:SetPoint("TOPLEFT", -1, 1)
     r.art.outer:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -4396,7 +4321,7 @@ end
 
 local Rv = {}
 local QL_W, QROW_H, RVCOL_W, DIFF_MAX = 240, 46, 250, 4
-local DIFF_LOOK = { add = { 0.35, 0.86, 0.47 }, del = { 0.89, 0.36, 0.31 }, chg = { 1, 0.82, 0 } }
+local DIFF_LOOK = { add = { 0.35, 0.86, 0.47 }, del = { 0.89, 0.36, 0.31 }, chg = C.gold }
 
 -- A piece in words, its blanks filled ("best of 3 ...", "give badge Giant slayer to Biggest upset").
 function W.PieceText(p, def, depth)
@@ -4471,7 +4396,7 @@ function Rv.Create(p)
     hd.art:SetPoint("BOTTOMRIGHT", -1, 1)
     hd.shade = hd:CreateTexture(nil, "BORDER")
     hd.shade:SetAllPoints()
-    Grad(hd.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.95 }, { 0.035, 0.035, 0.043, 0.35 })
+    Grad(hd.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.35 })
     Edges(hd, PEDGE, "ARTWORK")
     hd.icon = H.Icon(hd, 38)
     hd.icon:SetPoint("LEFT", 12, 0)
@@ -4479,7 +4404,7 @@ function Rv.Create(p)
     hd.t:SetPoint("BOTTOMLEFT", hd.icon, "RIGHT", 11, 1)
     hd.pill = H.Pill(hd, 16)
     hd.pill:SetPoint("LEFT", hd.t, "RIGHT", 8, 0)
-    hd.t2 = Text(hd, 11, { 0.81, 0.81, 0.81 })
+    hd.t2 = Text(hd, 11, C.soft)
     hd.t2:SetPoint("TOPLEFT", hd.icon, "RIGHT", 11, -4)
     hd.rank = H.Button(hd, "Mark ranked", nil, 26, "primary", function() Rv.Decide(v, true) end)
     H.Fit(hd.rank, 90, 30)
@@ -4534,33 +4459,32 @@ function Rv.Create(p)
     v.checks.icon = v.checks:CreateTexture(nil, "ARTWORK")
     v.checks.icon:SetSize(13, 13)
     v.checks.icon:SetPoint("LEFT", 2, 0)
-    v.checks.fs = Text(v.checks, 12, { 0.85, 0.85, 0.85 })
+    v.checks.fs = Text(v.checks, 12, C.label)
     v.checks.fs:SetPoint("LEFT", 22, 0)
     v.checks.r = Text(v.checks, 11, C.grey)
     v.checks.r:SetJustifyH("RIGHT")
     v.checks.r:SetPoint("RIGHT", 0, 0)
     v.lsect = H.Sect(v.right)
-    v.last = Text(v.right, 11, { 0.85, 0.85, 0.85 })
+    v.last = Text(v.right, 11, C.label)
     v.lastR = Text(v.right, 11, C.grey)
     v.lastR:SetJustifyH("RIGHT")
     v.lastNote = Text(v.right, 11, C.grey)
-    v.empty = Text(v.qd, 13, C.grey)
-    v.empty:SetPoint("TOP", v.qd, "TOP", 0, -120)
-    v.empty:SetJustifyH("CENTER")
+    v.empty = UI():CreateEmptyState(v.qd, { glyph = UI().ICON.trophy, title = "Nothing to review",
+        text = "Events sent in for review show up here." })
+    v.empty:SetPoint("TOP", v.qd, "TOP", 0, -90)
     return v
 end
 
 function Rv.NewQRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(QL_W, QROW_H)
-    r.sel = Fill(r, { 1, 0.82, 0, 0.10 })
-    r.bar = Line(r, { 1, 0.82, 0, 1 })
+    r.sel = Fill(r, S.C.SELECT)
+    r.bar = Line(r, S.C.SELECT_BAR)
     r.bar:SetPoint("TOPLEFT")
     r.bar:SetPoint("BOTTOMLEFT")
     r.bar:SetWidth(3)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.03)
+    UI():DecorateRow(r)
+    r.hl = r.dzHover
     r.icon = H.Icon(r, 28)
     r.icon:SetPoint("LEFT", 10, 0)
     r.l1 = Text(r, 12, C.white)
@@ -4621,11 +4545,10 @@ function Rv.NewDiff(parent)
     r.stage:SetPoint("LEFT", 9, 0)
     r.fs = Text(r, 11, C.white)
     r.fs:SetPoint("LEFT", 62, 0)
-    r.dot = Disc(r, 8, { 1, 1, 1 }, "ARTWORK")
+    r.dot = Disc(r, 8, C.white, "ARTWORK")
     r.dot:Hide()
     r:EnableMouse(true)
-    r:SetScript("OnEnter", function(self) if self.tip then Tip(self, self.tip) end end)
-    r:SetScript("OnLeave", HideTip)
+    H.TipFromField(r)
     return r
 end
 
@@ -5060,7 +4983,6 @@ function Rv.Fill(v)
     local showDetail = d ~= nil
     for _, f in ipairs({ v.head, v.csect, v.dscroll, v.left, v.right }) do f:SetShown(showDetail) end
     v.empty:SetShown(not showDetail)
-    v.empty:SetText("Nothing to review.\nEvents sent in for review show up here.")
     -- (the diff list's scroll bar and its "nothing changed" are the view's: they go with it)
     if v.nochange then v.nochange:SetShown(false) end
     v.dscroll.ScrollBar:Hide()
@@ -5268,9 +5190,6 @@ end
 
 local Sh = {}
 local sheets = {}
-local STRATA_RANK = { BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5, FULLSCREEN = 6, FULLSCREEN_DIALOG = 7,
-    TOOLTIP = 8 }
-
 -- The window a sheet opens over: the builder when it is open, else the main window (nil: the screen).
 function Sh.Owner()
     local EB = ns.EventBuilder
@@ -5283,131 +5202,17 @@ function Sh.Owner()
     return nil
 end
 
-local function CloseX(parent, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(20, 20)
-    b.lines = {}
-    for i = 1, 2 do
-        local l = b:CreateLine(nil, "ARTWORK")
-        l:SetThickness(1.5)
-        l:SetColorTexture(0.66, 0.66, 0.68, 1)
-        b.lines[i] = l
-    end
-    b.lines[1]:SetStartPoint("CENTER", -5, 5)
-    b.lines[1]:SetEndPoint("CENTER", 5, -5)
-    b.lines[2]:SetStartPoint("CENTER", -5, -5)
-    b.lines[2]:SetEndPoint("CENTER", 5, 5)
-    b:SetScript("OnEnter", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(1, 1, 1, 1) end end)
-    b:SetScript("OnLeave", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(0.66, 0.66, 0.68, 1) end end)
-    b:SetScript("OnClick", onClick)
-    return b
-end
-
+-- A sheet (UI:CreateSheet: over the window it belongs to, dimmed under it; Escape closes it) with the page's foot:
+-- Save / Cancel, an error left of them, a grey line (f.foot, f.footIcon) at the left. f.tpill: a pill after the title;
+-- f.x: its close button. The caller places its fields on f and sets f.ok's click.
 function Sh.New(key, name, w, h)
-    local dim = CreateFrame("Frame", nil, UIParent)
-    dim:SetFrameStrata("DIALOG")
-    dim:SetFrameLevel(3000)
-    dim:EnableMouse(true)
-    dim.bg = Fill(dim, { 0, 0, 0, 0.6 })
-    dim:Hide()
-    local f = CreateFrame("Frame", name, UIParent)
-    f:SetSize(w, h)
-    f:SetFrameStrata("DIALOG")
-    -- (high in its strata from the start, so everything made in it is too: the builder's pieces climb high)
-    f:SetFrameLevel(3010)
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:EnableMouse(true)
-    f.key, f.dim, f.sw, f.sh = key, dim, w, h
-    f.shadow = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND", -8)
-    f.shadow:ClearAllPoints()
-    f.shadow:SetPoint("TOPLEFT", -1, 1)
-    f.shadow:SetPoint("BOTTOMRIGHT", 1, -1)
-    f.bg = f:CreateTexture(nil, "BACKGROUND", nil, -7)
-    f.bg:SetAllPoints()
-    Grad(f.bg, "VERTICAL", { 0.078, 0.078, 0.094, 1 }, { 0.11, 0.11, 0.13, 1 })
-    Edges(f, { 0.47, 0.47, 0.51, 0.75 })
-    f.title = Text(f, 14, C.gold)
-    f.title:SetPoint("TOPLEFT", 12, -13)
+    local f = UI():CreateSheet(UIParent, { name = name, width = w, height = h, owner = Sh.Owner,
+        ok = { text = "Save", width = 110 }, cancel = "Cancel", foot = "" })
+    f.key, f.sw, f.sh = key, w, h
+    f.x = f.close
     f.tpill = H.Pill(f, 16)
     f.tpill:SetPoint("LEFT", f.title, "RIGHT", 9, 0)
     f.tpill:Hide()
-    f.x = CloseX(f, function() f:Close() end)
-    f.x:SetPoint("TOPRIGHT", -9, -10)
-    f.hline = Line(f, { 1, 1, 1, 0.07 })
-    f.hline:SetHeight(1)
-    f.hline:SetPoint("TOPLEFT", 1, -40)
-    f.hline:SetPoint("TOPRIGHT", -1, -40)
-    f.fline = Line(f, { 1, 1, 1, 0.07 })
-    f.fline:SetHeight(1)
-    f.fline:SetPoint("BOTTOMLEFT", 1, 46)
-    f.fline:SetPoint("BOTTOMRIGHT", -1, 46)
-    f.foot = Text(f, 11, C.grey)
-    f.foot:SetPoint("BOTTOMLEFT", 12, 17)
-    f.footIcon = f:CreateTexture(nil, "ARTWORK")
-    f.footIcon:SetSize(14, 14)
-    f.footIcon:SetPoint("BOTTOMLEFT", 12, 16)
-    f.footIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    f.footIcon:Hide()
-    f.ok = H.Button(f, "Save", 110, 26, "primary")
-    f.ok:SetPoint("BOTTOMRIGHT", -12, 10)
-    f.cancel = H.Button(f, "Cancel", 80, 26, "secondary", function() f:Close() end)
-    f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
-    f.err = Text(f, 11, C.orange)
-    f.err:SetJustifyH("RIGHT")
-    f.err:SetPoint("RIGHT", f.cancel, "LEFT", -10, 0)
-    f.err:Hide()
-    f:Hide()
-    -- Escape closes the sheet (the key goes no further); other keys go on to the game
-    f:SetScript("OnKeyDown", function(self, k)
-        if k == "ESCAPE" then
-            if not InCombatLockdown() then self:SetPropagateKeyboardInput(false) end
-            self:Close()
-        elseif not InCombatLockdown() then
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
-    f:SetScript("OnShow", function(self)
-        if not InCombatLockdown() then
-            self:EnableKeyboard(true)
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
-    f:SetScript("OnHide", function(self)
-        if not InCombatLockdown() then self:EnableKeyboard(false) end
-        self.dim:Hide()
-        for _, eb in ipairs(self.fields or {}) do eb:ClearFocus() end
-        if self.onClose then self.onClose() end
-    end)
-    function f:Close() self:Hide() end
-    function f:Error(text)
-        self.err:SetText(text or "")
-        self.err:SetShown(text ~= nil)
-    end
-    -- shows it over the window it belongs to (dimmed under it)
-    function f:Open()
-        local owner = Sh.Owner()
-        -- over a window above the dialogs (none of ours is): its strata
-        local strata = "DIALOG"
-        if owner and (STRATA_RANK[owner:GetFrameStrata()] or 0) > STRATA_RANK.DIALOG then strata = owner:GetFrameStrata() end
-        if self:GetFrameStrata() ~= strata then
-            self.dim:SetFrameStrata(strata)
-            self:SetFrameStrata(strata)
-        end
-        self:ClearAllPoints()
-        if owner then
-            self:SetPoint("CENTER", owner, "CENTER", 0, 0)
-            self.dim:ClearAllPoints()
-            self.dim:SetAllPoints(owner)
-            self.dim:Show()
-        else
-            self:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
-            self.dim:Hide()
-        end
-        self:Error(nil)
-        self:Show()
-        self:Raise()
-    end
     sheets[key] = f
     return f
 end
@@ -5441,7 +5246,7 @@ local function Chevron(parent, dir)
     for i = 1, 2 do
         local l = b:CreateLine(nil, "ARTWORK")
         l:SetThickness(2)
-        l:SetColorTexture(1, 0.82, 0, 1)
+        l:SetColorTexture(S:Color("GOLD"))
         b.lines[i] = l
     end
     local x = dir < 0 and 3 or -3
@@ -5459,8 +5264,8 @@ end
 function H.Stepper(parent, width, onStep, tip)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(width, 26)
-    Fill(f, { 0.10, 0.10, 0.12, 0.92 })
-    Edges(f, { 0.34, 0.34, 0.38, 0.9 })
+    Fill(f, CARD)
+    Edges(f, S.C.EDGE_STRONG)
     f.text = Text(f, 12, C.white)
     f.text:SetJustifyH("CENTER")
     f.text:SetPoint("CENTER", 0, 0)
@@ -5474,11 +5279,11 @@ function H.Stepper(parent, width, onStep, tip)
     f:EnableMouseWheel(true)
     f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
     f:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, 1, 0.82, 0, 0.6)
+        UI():SetEdgeColor(self, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.6)
         if tip then Tip(self, tip) end
     end)
     f:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9)
+        UI():SetEdgeColor(self, S:Color("EDGE_STRONG"))
         HideTip()
     end)
     function f:Set(text, canPrev, canNext)
@@ -5531,7 +5336,7 @@ local function SheetStrip(f, y, w)
     s.art:SetPoint("BOTTOMRIGHT", -1, 1)
     s.shade = s:CreateTexture(nil, "BORDER")
     s.shade:SetAllPoints()
-    Grad(s.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.95 }, { 0.035, 0.035, 0.043, 0.35 })
+    Grad(s.shade, "HORIZONTAL", C.shade, { 0.035, 0.035, 0.043, 0.35 })
     Edges(s, PEDGE, "ARTWORK")
     s.icon = H.Icon(s, 32)
     s.icon:SetPoint("LEFT", 12, 0)
@@ -5595,11 +5400,8 @@ function Sh.Schedule()
         end)
     f.meet:SetHeight(26)
     f.meet:SetPoint("TOPLEFT", FX, -155)
-    f.meet:HookScript("OnEnter", function(self)
-        Tip(self, { "Meet at", "Where everyone gathers before it starts: their tracker points them there from 30 "
-            .. "minutes before, and the event's page shows the way." })
-    end)
-    f.meet:HookScript("OnLeave", HideTip)
+    UI():AttachTooltip(f.meet, "Meet at", "Where everyone gathers before it starts: their tracker points them there "
+        .. "from 30 minutes before, and the event's page shows the way.", { anchor = "ANCHOR_TOP" })
     f.meet:Hide()
     FormLabel(f, "Note", LX, -196)
     f.note = Field(f, 372, 26, 200, "Optional, e.g. \"bring a flask\"")
@@ -5795,7 +5597,7 @@ function Sh.Submit()
         r.icon = r:CreateTexture(nil, "ARTWORK")
         r.icon:SetSize(13, 13)
         r.icon:SetPoint("LEFT", 2, 0)
-        r.fs = Text(r, 12, { 0.85, 0.85, 0.85 })
+        r.fs = Text(r, 12, C.label)
         r.fs:SetPoint("LEFT", 24, 0)
         r.r = Text(r, 11, C.grey)
         r.r:SetJustifyH("RIGHT")
@@ -5887,7 +5689,7 @@ function EventsUI:OpenSubmit(defId)
         local x = rows[i]
         r.icon:SetTexture(x[1] and READY or WARN)
         r.fs:SetText(x[2])
-        Color(r.fs, x[1] and { 0.85, 0.85, 0.85 } or { 1, 0.78, 0.55 })
+        Color(r.fs, x[1] and C.label or { 1, 0.78, 0.55 })
         r.r:SetText(x[3] or "")
     end
     f.note:SetText(d.review and d.review.note or "")
@@ -6017,8 +5819,7 @@ function Sh.Badge()
             if f.s then f.s.f = key end
             Sh.RefreshBadge()
         end)
-        sw:SetScript("OnEnter", function(self) Tip(self, { fr[2] .. " frame" }) end)
-        sw:SetScript("OnLeave", HideTip)
+        UI():AttachTooltip(sw, fr[2] .. " frame", nil, { anchor = "ANCHOR_TOP" })
         sw.key = key
         f.swatches[i] = sw
     end
@@ -6115,11 +5916,11 @@ function Sh.RefreshBadge()
         local c = Pool(f.cells, i, function()
             local b = CreateFrame("Button", nil, f)
             b:SetSize(ICON_SIZE, ICON_SIZE)
-            b.sel = Fill(b, { 1, 0.82, 0, 1 }, "BACKGROUND")
+            b.sel = Fill(b, S.C.GOLD, "BACKGROUND")
             b.sel:ClearAllPoints()
             b.sel:SetPoint("TOPLEFT", -2, 2)
             b.sel:SetPoint("BOTTOMRIGHT", 2, -2)
-            b.edge = Fill(b, { 0, 0, 0, 1 }, "BACKGROUND", 1)
+            b.edge = Fill(b, C.black, "BACKGROUND", 1)
             b.edge:ClearAllPoints()
             b.edge:SetPoint("TOPLEFT", -1, 1)
             b.edge:SetPoint("BOTTOMRIGHT", 1, -1)
@@ -6299,7 +6100,7 @@ end
 function Sh.Confirm()
     if sheets.confirm then return sheets.confirm end
     local f = Sh.New("confirm", "DisasterZoneEventConfirm", 420, 200)
-    f.text = Text(f, 12, { 0.88, 0.88, 0.88 })
+    f.text = Text(f, 12, C.text)
     f.text:SetPoint("TOPLEFT", 14, -56)
     f.reasonLabel = FormLabel(f, "Why", 14, -112)
     f.reason = Field(f, 344, 26, 80, "Not enough players")
@@ -6361,42 +6162,45 @@ local VIEW_LABEL = { upcoming = "Upcoming", library = "Library", season = "Seaso
 local MAKE = { upcoming = Up.Create, library = Lib.Create, season = Sea.Create, review = Rv.Create, event = Pg.Create }
 local FILL = { upcoming = Up.Fill, library = Lib.Fill, season = Sea.Fill, review = Rv.Fill }
 
--- The Review tab's count of events waiting: a small raised pill after its word (UI:SetTabCount).
-local function ReviewCount(t, n)
-    UI():SetTabCount(t, n)
+-- The Review tab's count of events waiting: a small raised pill after its word (the toolbar's SetTabCount).
+local function ReviewCount(bar, n)
+    bar:SetTabCount("review", n)
 end
 
+-- The Review tab's tooltip: how many wait.
+local function ReviewTip(self, tt)
+    local n = #Ev():GetReviewQueue()
+    tt:AddLine("Review", S:Color("GOLD"))
+    tt:AddLine(n > 0 and (n .. (n == 1 and " event waits" or " events wait") .. " for a decision: ranked or sent back.")
+        or "Events members send in for review show up here.", 1, 1, 1, true)
+end
+
+-- 1.4: the tab is a Board page (UI:CreateLayout): its toolbar holds the views as tabs, Examples and the main action
+-- New event at the far right; the views sit under the toolbar as before. An event's page hides the toolbar (its
+-- banner has the way back).
 function EventsUI:CreatePanel(parent)
     if panel then return panel end
     local p = CreateFrame("Frame", "DisasterZoneEventsPanel", parent)
     p:SetAllPoints(parent)
     panel = p
-    p.tabs, p.views = {}, {}
-    local prev
-    for _, view in ipairs(VIEWS) do
-        local t = UI():CreateUnderlineTab(p, VIEW_LABEL[view], function() EventsUI:SetView(view) end)
-        if prev then t:SetPoint("LEFT", prev, "RIGHT", 4, 0) else t:SetPoint("TOPLEFT", 6, -6) end
-        p.tabs[view] = t
-        prev = t
-    end
-    local rt = p.tabs.review
-    UI():SetTabCount(rt, 0)
-    rt:HookScript("OnEnter", function(self)
-        local n = #Ev():GetReviewQueue()
-        Tip(self, { "Review", n > 0 and (n .. (n == 1 and " event waits" or " events wait") .. " for a decision: ranked "
-            .. "or sent back.") or "Events members send in for review show up here." }, "ANCHOR_BOTTOM")
-    end)
-    rt:HookScript("OnLeave", HideTip)
-    p.newBtn = H.Button(p, "New event", nil, 22, "secondary", A.NewEvent, "plus")
-    H.Fit(p.newBtn, 90, 26)
-    p.newBtn:SetPoint("TOPRIGHT", -PAD, -8)
-    p.newBtn:HookScript("OnEnter", function(self)
-        Tip(self, { "New event", "Opens the builder on an empty event: drag pieces in, practice it, save it." },
-            "ANCHOR_BOTTOM")
-    end)
-    p.newBtn:HookScript("OnLeave", HideTip)
-    p.exBtn = A.ExamplesButton(p, 22)
-    p.exBtn:SetPoint("RIGHT", p.newBtn, "LEFT", -6, 0)
+    p.views = {}
+    p.layout = UI():CreateLayout("board", p)
+    local bar = p.layout.toolbar
+    p.toolbar = bar
+    local items = {}
+    for _, view in ipairs(VIEWS) do items[#items + 1] = { key = view, text = VIEW_LABEL[view] } end
+    bar:SetTabs(items, function(key) EventsUI:SetView(key) end)
+    p.tabs = {}
+    for _, view in ipairs(VIEWS) do p.tabs[view] = bar:GetTab(view) end
+    bar:SetTabCount("review", 0)
+    UI():AttachTooltip(p.tabs.review, ReviewTip, nil, { anchor = "ANCHOR_BOTTOM" })
+    p.newBtn = bar:SetPrimary({ text = "New event", icon = UI().ICON.plus, onClick = A.NewEvent,
+        tip = "Opens the builder on an empty event: drag pieces in, practice it, save it." })
+    -- Examples beside it: Upcoming's (p.exBtn) and the Library's (its view's .examples)
+    p.exBtn = A.ExamplesButton(bar, S.BTN_H)
+    p.libExBtn = A.ExamplesButton(bar, S.BTN_H)
+    p.libExBtn:Hide()
+    bar:SetFilters({ p.exBtn, p.libExBtn })
     p:SetScript("OnShow", function() EventsUI:Refresh() end)
     p.OnPanelShown = function() EventsUI:Refresh() end
     p.elapsed = 0
@@ -6425,13 +6229,17 @@ function EventsUI:Refresh()
     local reviewer = Ev():AmIReviewer()
     if state.view == "review" and not reviewer then state.view = "upcoming" end
     local onPage = state.occ ~= nil
-    for view, t in pairs(panel.tabs) do
-        t:SetShown(not onPage and (view ~= "review" or reviewer))
-        t:SetActive(state.view == view)
+    local bar = panel.toolbar
+    bar:SetShown(not onPage)
+    for _, view in ipairs(VIEWS) do
+        bar:SetTabShown(view, view ~= "review" or reviewer)
     end
-    if reviewer and not onPage then ReviewCount(panel.tabs.review, #Ev():GetReviewQueue()) end
-    panel.newBtn:SetShown(not onPage and state.view == "upcoming")
+    bar:SelectTab(state.view)
+    if reviewer and not onPage then ReviewCount(bar, #Ev():GetReviewQueue()) end
+    panel.newBtn:SetShown(not onPage and (state.view == "upcoming" or state.view == "library"))
     panel.exBtn:SetShown(not onPage and state.view == "upcoming")
+    panel.libExBtn:SetShown(not onPage and state.view == "library")
+    bar:LayoutRight()
 
     local key = onPage and "event" or state.view
     for k, v in pairs(panel.views) do
@@ -6549,7 +6357,7 @@ function EventsUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("events", "Events", 3.57,
             function(parent) return EventsUI:CreatePanel(parent) end,
-            function() return (IsInGuild() or (ns.Demo and ns.Demo:IsEnabled())) and true or false end)
+            function() return (IsInGuild() or DemoOn()) and true or false end, { layout = "board" })
     end
     local function refresh() EventsUI:RequestRefresh() end
     for _, msg in ipairs({ "EVENTS_UPDATED", "DEMO_TOGGLED", "CONFIG_UPDATED", "ROSTER_UPDATED" }) do
