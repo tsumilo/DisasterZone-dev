@@ -15,18 +15,22 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyBiS.lua", ...) then return en
 -- The first phase tab is the Pre-raid list (phase 0: dungeons, reputation, crafting, badges; only its owner sees it).
 -- My BiS reopens there when it was the last phase picked, else on the guild's phase.
 -- One spacing grid (the Raids and Dungeons tabs' too): PAD at the page's sides, GAP between blocks, every tile 48 high.
+-- 1.4: a Board page (UI:CreateLayout "board"): its toolbar holds the phases (or the page's title) and the spec tabs on
+-- the left, the lock pill / Suggest and More on the right; the doll (or the kit) is the body.
 local addonName, ns = ...
 
 local MyBiS = {}
 ns.MyBiS = MyBiS
 
+local S = ns.Style
+local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pages share)
+
 local floor, min, max = math.floor, math.min, math.max
 
 local NUM_SLOTS = 17
 
-local PAD, GAP = 10, 8
-local TOP_Y, BAR_H = -8, 24              -- the top bar
-local DOLL_Y = TOP_Y - BAR_H - GAP       -- the doll: 770 x 496 from here (UI/PaperDoll.lua "page" layout)
+local PAD = S.PAD
+local BAR_H = S.BTN_H                    -- the toolbar's controls (the doll: 770 x 496 under it, UI/PaperDoll.lua)
 local SEG_W, SEG_STAR_W = 34, 46         -- a phase button (with the guild phase's star)
 local SUGGEST_W = 84
 local ROW_H, MAX_ROWS = 18, 4             -- the centre's still-to-get rows
@@ -34,10 +38,8 @@ local LIST_COL_W = 172                    -- their width
 local BAR_W = 140
 local PLATFORM_W, PLATFORM_Y = 180, 14    -- the pedestal under the model (texture centre above the model place's bottom)
 
-local GOLD = { 1, 0.82, 0 }
+local GOLD = S.C.GOLD
 local RED = { 0.92, 0.38, 0.32 }
-local CELL_BG = { 0.08, 0.08, 0.095, 0.9 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
 
 -- Icons (file IDs from the installed client; Interface\Icons and Interface\LFGFrame).
 local ICON = {
@@ -50,18 +52,12 @@ local ICON = {
     other = 134400,     -- INV_Misc_QuestionMark
     copy = 17,          -- (UI.ICON_ATLAS index: two sheets)
 }
+-- TODO(refactor): move into Data/Raids.lua (ns.Data.RaidMeta[key].icon: the raid's LFG icon)
 local RAID_ICON = {
     Karazhan = 136343, GruulsLair = 136337, MagtheridonsLair = 136340, SerpentshrineCavern = 136356,
     TempestKeep = 136362, HyjalSummit = 136341, BlackTemple = 136328, ZulAman = 136367, SunwellPlateau = 136361,
 }
--- the raid as a slot's line names it (else its own name), and as a count in the centre says it
-local RAID_NAME = { MagtheridonsLair = "Magtheridon", SerpentshrineCavern = "Serpentshrine", HyjalSummit = "Hyjal",
-                    SunwellPlateau = "Sunwell", WorldBosses = "World boss" }
-local RAID_SHORT = { Karazhan = "Kara", GruulsLair = "Gruul", MagtheridonsLair = "Mag", SerpentshrineCavern = "SSC",
-                     TempestKeep = "TK", HyjalSummit = "Hyjal", BlackTemple = "BT", ZulAman = "ZA",
-                     SunwellPlateau = "Sunwell", WorldBosses = "World" }
 local BADGE_ITEM = 29434                 -- Badge of Justice
-local STANDINGS = { "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted" }
 
 -- What is still to get, by source (the centre's counts), after the raids (by phase).
 local KIND_GROUP = {
@@ -73,7 +69,7 @@ local KIND_GROUP = {
     other = { key = "other", label = "other", name = "Other sources", order = 105, icon = ICON.other },
 }
 
-local panel, bar, doll, card
+local panel, layout, bar, doll, card
 local phaseButtons = {}
 local suggestBtn, moreBtn, lockChip, simCard, kitView, pageTitle
 -- the pages on this panel: page key <-> view
@@ -100,10 +96,7 @@ local function ClampPhase(p)
 end
 
 -- "Pre-raid" / "P2".
-local function PL(p)
-    if ns.PhaseLabel then return ns.PhaseLabel(p) end
-    return "P" .. tostring(p)
-end
+local PL = GearUI.PL
 
 -- The list's phases, Pre-raid first.
 local function ListPhases()
@@ -128,11 +121,8 @@ local function PhaseName(p)
 end
 
 local function GuildPhase()
-    if ns.Guild and ns.Guild.GetGuildPhase then
-        local p = ns.Guild:GetGuildPhase()
-        if tonumber(p) then return ClampPhase(p) end
-    end
-    return nil
+    local p = GearUI.GuildPhase()
+    return p and ClampPhase(p) or nil
 end
 
 -- The Pre-raid list was the last phase this character picked (db.mybisPreRaid[charKey], never synced): My BiS reopens
@@ -179,9 +169,7 @@ local function IsOffSpecView()
     return selectedList == "os"
 end
 
-local function HasOffSpec()
-    return ns.BiS and ns.BiS.HasOffSpec and ns.BiS:HasOffSpec() or false
-end
+local HasOffSpec = GearUI.HasOffSpec
 
 local function MyClass()
     local data = ns.BiS and ns.BiS.GetData and ns.BiS:GetData()
@@ -190,10 +178,7 @@ local function MyClass()
     return classFile
 end
 
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or ("Slot " .. tostring(sid))
-end
+local SlotLabel = ns.SlotLabel
 
 local function PhaseItems(p)
     if not (ns.BiS and ns.BiS.GetPhaseItems) then return {} end
@@ -207,9 +192,8 @@ local function PhaseSlots(data, phase)
     return type(t) == "table" and t or nil
 end
 
-local function Grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
-local function Soft(text) return "|cffa8a8a8" .. tostring(text) .. "|r" end
-local function Green(text) return "|cff4fd36b" .. tostring(text) .. "|r" end
+local function Soft(text) return S:Wrap("SUB", text) end
+local function Green(text) return S:Wrap("OK", text) end
 
 -- "Prince Malchezaar" -> "Malchezaar", "The Curator" -> "Curator", "High King Maulgar" -> "Maulgar".
 local TITLE_WORDS = {
@@ -232,45 +216,12 @@ local function Debounce(key, sec, fn)
     end
 end
 
-local function Sized(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path and size then fs:SetFont(path, size, flags) end
-    return fs
-end
-
-local function Text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
-    return fs
-end
-
-local function Flat(f, bg, edge)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    bg = bg or CELL_BG
-    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-    ns.UI:AddEdges(f, "BORDER")
-    edge = edge or EDGE
-    ns.UI:SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4])
-end
-
--- An icon inside text (the borders of the game's icons trimmed).
-local function IconText(tex, size)
-    size = size or 12
-    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(tex), size, size)
-end
-
 -- §38: my list is locked by the group's raid leader (BiS:IsLocked). locked, { by, at } | nil.
-local function ListLocked()
-    if ns.UI and ns.UI.IsMyListLocked then return ns.UI:IsMyListLocked() end
-    return false, nil
-end
+local ListLocked = GearUI.ListLocked
 
 local function LockLine()
     local _, info = ListLocked()
-    return ns.UI:LockIcon(12) .. " |cffff9a4dLocked by " .. ns.UI:LockByText(info) .. "|r"
+    return ns.UI:LockIcon(12) .. " " .. S:Wrap("WARN", "Locked by " .. ns.UI:LockByText(info))
 end
 
 -- §36: the slot is disabled in that phase (BiS:IsSlotDisabled; else the own record's dx).
@@ -342,16 +293,13 @@ local function BadgeCount()
 end
 
 local function StandingIndex(text)
-    for i, s in ipairs(STANDINGS) do
+    for i, s in ipairs(GearUI.STANDINGS) do
         if s == text then return i end
     end
     return nil
 end
 
-local function StandingName(i)
-    local label = i and _G["FACTION_STANDING_LABEL" .. i]
-    return (type(label) == "string" and label ~= "") and label or (i and STANDINGS[i]) or "?"
-end
+local StandingName = GearUI.StandingName
 
 -- My standing with a faction (1 hated .. 8 exalted), or nil when the client doesn't know it.
 local function MyStanding(factionID)
@@ -410,7 +358,13 @@ end
 
 local function RaidLabel(ref)
     local raid = ref.raid or {}
-    return RAID_NAME[raid.key] or raid.name or raid.key or "?"
+    return raid.name or raid.key or "?"
+end
+
+-- the raid as a slot's line and a count in the centre say it ("Kara", ..., "SWP"; ItemDB's short names)
+local function RaidShort(ref)
+    local raid = ref.raid or {}
+    return ns.ItemDB:RaidShort(raid.key) or RaidLabel(ref)
 end
 
 -- d = { kind, icon, text (the slot's line), short (when text is too wide), group = KIND_GROUP-like table,
@@ -424,7 +378,7 @@ local function Describe(itemID)
         local raid = ref.raid or {}
         local boss = ref.boss or {}
         -- "Shade of Aran · Kara" (the raid by its short name), else "Aran · Kara" when that doesn't fit
-        local short = RAID_SHORT[raid.key] or RaidLabel(ref)
+        local short = RaidShort(ref)
         local prefix = (src.via == "token" or src.via == "arena") and "Token · " or (src.via == "upgrade" and "Sunmote · ") or ""
         local zone = (boss.isTrash or raid.key == "WorldBosses") and "" or (" · " .. short)
         d.icon = RAID_ICON[raid.key] or ICON.raid
@@ -436,7 +390,7 @@ local function Describe(itemID)
             d.short = prefix .. ShortBossName(boss.name or "?") .. zone
         end
         d.where = prefix .. (boss.isTrash and "trash" or ShortBossName(boss.name))
-        d.group = { key = "raid:" .. tostring(raid.key), label = RAID_SHORT[raid.key] or RaidLabel(ref),
+        d.group = { key = "raid:" .. tostring(raid.key), label = short,
                     name = raid.name or RaidLabel(ref), order = (tonumber(raid.phase) or 9) * 10, icon = d.icon }
     elseif kind == "dungeon" then
         local name, icon = DungeonInfo(src.ref)
@@ -825,7 +779,7 @@ end
 -- that is neither list dimmed. Click a spec with a list to show it; right-click (or click an unused spec) for its
 -- menu: make it the main spec (the off spec trades places with it, picks and all), make it the off spec, remove.
 local SPEC_ICON, SPEC_TAB_GAP, SPEC_NAME_GAP = 18, 8, 6
-local MS_COLOR = { 1, 0.82, 0 }
+local MS_COLOR = S.C.GOLD
 local OS_COLOR = { 0.74, 0.77, 0.82 }
 
 local specRow, specTabs = nil, {}
@@ -931,9 +885,9 @@ local function CreateSpecTab(parent)
     t.icon:SetSize(SPEC_ICON, SPEC_ICON)
     t.icon:SetPoint("LEFT", 2, 1)
     t.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    t.name = Text(t, "GameFontHighlight")
+    t.name = ns.UI:Text(t, "emph", "TEXT")
     t.name:SetPoint("LEFT", t.icon, "RIGHT", SPEC_NAME_GAP, 0)
-    t.tag = Text(t, "GameFontNormalSmall", 10)
+    t.tag = ns.UI:Text(t, "small", "GOLD")
     t.tag:SetPoint("LEFT", t.name, "RIGHT", 5, 0)
     t.line = t:CreateTexture(nil, "OVERLAY")
     t.line:SetHeight(2)
@@ -952,23 +906,20 @@ local function CreateSpecTab(parent)
             ns.UI:ContextMenu(self, BuildSpecMenu(self.spec))
         end
     end)
-    t:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    ns.UI:AttachTooltip(t, function(self, tt)
         local main, off = MainLabel(), OffLabel()
         local isM, isO = self.spec == main, self.spec == off
-        GameTooltip:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), 1, 0.82, 0)
+        tt:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), S:Color("GOLD"))
         if isM then
-            GameTooltip:AddLine("The council ranks these picks first.", 1, 1, 1, true)
+            tt:AddLine("The council ranks these picks first.", 1, 1, 1, true)
         elseif isO then
-            GameTooltip:AddLine("Seen after everyone's main-spec wants; such an award counts as Offspec.", 1, 1, 1, true)
+            tt:AddLine("Seen after everyone's main-spec wants; such an award counts as Offspec.", 1, 1, 1, true)
         else
-            GameTooltip:AddLine("Not one of your lists.", 0.7, 0.7, 0.7)
+            tt:AddLine("Not one of your lists.", 0.7, 0.7, 0.7)
         end
-        GameTooltip:AddLine((isM or isO) and "Click: show the list  ·  Right-click: options" or "Click: options",
+        tt:AddLine((isM or isO) and "Click: show the list  ·  Right-click: options" or "Click: options",
             0.55, 0.55, 0.55)
-        GameTooltip:Show()
-    end)
-    t:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
     -- the width eases to its target (the shown spec opens, the one before closes)
     function t:Grow(target)
         self.target = target
@@ -1028,10 +979,10 @@ end
 local function CreateSpecRow(p)
     specRow = CreateFrame("Frame", nil, p)
     specRow:SetSize(260, BAR_H)
-    specRow.sep = specRow:CreateTexture(nil, "ARTWORK")
+    specRow.sep = ns.UI:Rule(specRow, { vertical = true, alpha = 0.14 })
+    specRow.sep:ClearAllPoints()
     specRow.sep:SetSize(1, 14)
     specRow.sep:SetPoint("RIGHT", specRow, "LEFT", -10, 0)
-    specRow.sep:SetColorTexture(1, 1, 1, 0.14)
     RefreshSpecTabs()
     return specRow
 end
@@ -1138,7 +1089,7 @@ local function BuildSuggestMenu(root)
                     end)
                 if radio and radio.SetTooltip then
                     radio:SetTooltip(function(tt)
-                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", 1, 0.82, 0)
+                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:Color("GOLD"))
                         tt:AddLine(q == 4 and "The best gems for your spec." or ("The strongest " .. ns.Gems.QUALITY_WORDS[q]:lower()
                             .. " gems for your spec, for when the best ones cost too much. The meta gem still gets "
                             .. "its colours."), 1, 1, 1, true)
@@ -1152,7 +1103,7 @@ local function BuildSuggestMenu(root)
         end)
         if b and b.SetTooltip then
             b:SetTooltip(function(tt)
-                tt:AddLine("Gems and enchants", 1, 0.82, 0)
+                tt:AddLine("Gems and enchants", S:Color("GOLD"))
                 tt:AddLine(("Puts the %s guide's gems and enchants on every pick of %s that has an empty socket or "
                     .. "no enchant. What you chose stays."):format(spec, PL(phase)), 1, 1, 1, true)
             end)
@@ -1175,7 +1126,7 @@ local function BuildMoreMenu(root)
         local b = root:CreateButton(UI:AtlasIconText(icon, 14, color) .. "  " .. text, fn)
         if b and b.SetTooltip then
             b:SetTooltip(function(tooltip)
-                tooltip:AddLine(text, 1, 0.82, 0)
+                tooltip:AddLine(text, S:Color("GOLD"))
                 tooltip:AddLine(tip, 1, 1, 1, true)
             end)
         end
@@ -1294,20 +1245,22 @@ end
 
 -- The art behind the model: the phase's raids' loading screens (dungeon zones for Pre-raid), crossfading every
 -- ART_HOLD seconds inside a soft circle that fades into the window's backdrop.
--- (by FileDataID: the client doesn't resolve these loading screens by path)
-local LS = {
-    HellfireCitadel = 131844, CoilFang = 131832, Auchindoun = 131821, TempestKeep = 131875, Karazhan = 131849,
-    GruulsLair = 131842, HellfireCitadelRaid = 131846, Hyjal = 131847, BlackTemple = 131826, ZulAman = 131884,
-    Sunwell = 131873,
-}
+-- (by FileDataID: the client doesn't resolve these loading screens by path) The raids' are ItemDB:RaidArt's (Coilfang =
+-- Serpentshrine's, Hellfire Citadel's raid = Magtheridon's); the two dungeon zones' own are here.
+local DUNGEON_LS = { HellfireCitadel = 131844, Auchindoun = 131821 }
 local PHASE_ART = {
-    [0] = { "HellfireCitadel", "CoilFang", "Auchindoun", "TempestKeep" },
-    [1] = { "Karazhan", "GruulsLair", "HellfireCitadelRaid" },
-    [2] = { "CoilFang", "TempestKeep" },
-    [3] = { "Hyjal", "BlackTemple" },
+    [0] = { "HellfireCitadel", "SerpentshrineCavern", "Auchindoun", "TempestKeep" },
+    [1] = { "Karazhan", "GruulsLair", "MagtheridonsLair" },
+    [2] = { "SerpentshrineCavern", "TempestKeep" },
+    [3] = { "HyjalSummit", "BlackTemple" },
     [4] = { "ZulAman" },
-    [5] = { "Sunwell" },
+    [5] = { "SunwellPlateau" },
 }
+local function ArtFile(key)
+    if DUNGEON_LS[key] then return DUNGEON_LS[key] end
+    local file = ns.ItemDB and ns.ItemDB:RaidArt(key)
+    return file
+end
 local ART_SIZE, ART_ALPHA, ART_HOLD, ART_FADE = 620, 0.55, 8, 1.5
 local RADIAL = "Interface\\AddOns\\" .. addonName .. "\\Media\\MyBiS\\Radial"
 
@@ -1337,7 +1290,7 @@ local function CreateArt(c, anchor)
         local list = PHASE_ART[phase] or PHASE_ART[1]
         if self.list == list then return end
         self.list, self.idx, self.clock = list, 1, 0
-        self.tex[self.cur]:SetTexture(LS[list[1]])
+        self.tex[self.cur]:SetTexture(ArtFile(list[1]))
         self.tex[self.cur]:SetAlpha(ART_ALPHA)
         self.tex[3 - self.cur]:SetAlpha(0)
         self.fading = nil
@@ -1354,73 +1307,63 @@ local function CreateArt(c, anchor)
         elseif self.clock >= ART_HOLD then
             self.idx = self.idx % #list + 1
             self.cur = 3 - self.cur
-            self.tex[self.cur]:SetTexture(LS[list[self.idx]])
+            self.tex[self.cur]:SetTexture(ArtFile(list[self.idx]))
             self.fading, self.clock = true, 0
         end
     end)
     return f
 end
 
-local function RowTooltip(row)
+local function RowTooltip(row, tt)
     local g = row.group
-    if not g then return end
-    GameTooltip:SetOwner(row, "ANCHOR_TOP")
+    if not g then return false end
     if g.rest then
-        GameTooltip:AddLine("Also still to get", 1, 0.82, 0)
+        tt:AddLine("Also still to get", S:Color("GOLD"))
         for _, x in ipairs(g.rest) do
-            GameTooltip:AddDoubleLine(x.name, tostring(x.count), 1, 1, 1, 0.7, 0.7, 0.7)
+            tt:AddDoubleLine(x.name, tostring(x.count), 1, 1, 1, 0.7, 0.7, 0.7)
         end
-        GameTooltip:Show()
         return
     end
-    GameTooltip:AddLine(g.name, 1, 0.82, 0)
+    tt:AddLine(g.name, S:Color("GOLD"))
     for _, it in ipairs(g.items) do
         local text = ns.UI:ItemText(it.itemID)
-        GameTooltip:AddDoubleLine(text, it.where or "", 1, 1, 1, 0.7, 0.7, 0.7)
+        tt:AddDoubleLine(text, it.where or "", 1, 1, 1, 0.7, 0.7, 0.7)
     end
-    GameTooltip:Show()
 end
 
 -- One row of what is still to get: the source's icon and name, the count on the right (its items on hover).
 local function CreateRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(LIST_COL_W, ROW_H)
-    r.hl = r:CreateTexture(nil, "HIGHLIGHT")
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.05)
+    ns.UI:DecorateRow(r, { hover = true })
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(14, 14)
     r.icon:SetPoint("LEFT", 4, 0)
     r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    r.name = Text(r, "GameFontHighlightSmall", 11)
-    r.name:SetTextColor(0.78, 0.78, 0.78)
+    r.name = ns.UI:Text(r, "body", { 0.78, 0.78, 0.78 })
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 7, 0)
-    r.count = Text(r, "GameFontHighlight", 12)
-    r.count:SetJustifyH("RIGHT")
+    r.count = ns.UI:Text(r, "emph", "TEXT", { justify = "RIGHT" })
     r.count:SetPoint("RIGHT", -4, 0)
-    r:SetScript("OnEnter", RowTooltip)
-    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    ns.UI:AttachTooltip(r, RowTooltip, nil, { anchor = "ANCHOR_TOP" })
     return r
 end
 
 -- The progress line's tooltip: what the count leaves out.
-local function ProgressTooltip(owner)
+local function ProgressTooltip(owner, tt)
     local info = owner.info
-    if not info then return end
+    if not info then return false end
     local name = PhaseName(owner.phase)
-    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine((IsOffSpecView() and "Off spec  ·  " or "") .. name, 1, 0.82, 0)
-    GameTooltip:AddLine(("%d of %d slots obtained"):format(info.obtained, info.total), 1, 1, 1)
+    tt:AddLine((IsOffSpecView() and "Off spec  ·  " or "") .. name, S:Color("GOLD"))
+    tt:AddLine(("%d of %d slots obtained"):format(info.obtained, info.total), 1, 1, 1)
     if info.empty > 0 then
-        GameTooltip:AddLine(info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet"),
+        tt:AddLine(info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet"),
             0.7, 0.7, 0.7)
     end
     if info.disabled > 0 then
-        GameTooltip:AddLine(info.disabled == 1 and "1 slot not needed" or (info.disabled .. " slots not needed"),
+        tt:AddLine(info.disabled == 1 and "1 slot not needed" or (info.disabled .. " slots not needed"),
             0.7, 0.7, 0.7)
     end
-    if info.twoHand then GameTooltip:AddLine("Off hand not counted: a two-hander is picked", 0.7, 0.7, 0.7, true) end
-    GameTooltip:Show()
+    if info.twoHand then tt:AddLine("Off hand not counted: a two-hander is picked", 0.7, 0.7, 0.7, true) end
 end
 
 -- The centre (w x h, between the columns, above the ranged slot): how much is obtained and a slim bar; the character
@@ -1431,46 +1374,36 @@ local function CreateCard(parent, w, h)
     c:SetAllPoints(parent)
     c.w, c.h = w, h
 
-    c.count = Text(c, "GameFontHighlight", 12)
-    c.count:SetJustifyH("CENTER")
+    c.count = UI:Text(c, "emph", "TEXT", { justify = "CENTER" })
     c.count:SetPoint("TOP", c, "TOP", 0, -4)
     c.title = c.count                       -- (older callers)
     c.track = c:CreateTexture(nil, "ARTWORK")
     c.track:SetSize(BAR_W, 3)
     c.track:SetPoint("TOP", c.count, "BOTTOM", 0, -7)
-    c.track:SetColorTexture(1, 1, 1, 0.08)
+    c.track:SetColorTexture(S:Color("HAIRLINE"))
     c.fill = c:CreateTexture(nil, "ARTWORK", nil, 1)
     c.fill:SetHeight(3)
     c.fill:SetPoint("LEFT", c.track, "LEFT", 0, 0)
-    c.fill:SetColorTexture(1, 0.82, 0, 0.95)
+    local gr, gg, gb = S:Color("GOLD")
+    c.fill:SetColorTexture(gr, gg, gb, 0.95)
     c.progress = CreateFrame("Frame", nil, c)
     c.progress:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
     c.progress:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
     c.progress:SetHeight(26)
-    c.progress:EnableMouse(true)
-    c.progress:SetScript("OnEnter", ProgressTooltip)
-    c.progress:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI:AttachTooltip(c.progress, ProgressTooltip, nil, { anchor = "ANCHOR_BOTTOM" })
 
     -- what is still to get, at the bottom: a few rows on one width, centred
     local listH = 16 + (MAX_ROWS + 1) * ROW_H
     c.listTop = h - listH
-    c.listHead = Text(c, "GameFontHighlightSmall", 10)
-    c.listHead:SetTextColor(0.55, 0.55, 0.55)
-    c.listHead:SetJustifyH("CENTER")
-    c.listHead:SetText("STILL TO GET")
+    c.listHead = UI:Text(c, "caps", "SUB", { justify = "CENTER", text = "Still to get" })
     c.rows = {}
     for i = 1, MAX_ROWS + 1 do
         c.rows[i] = CreateRow(c)
         c.rows[i]:Hide()
     end
     -- instead of the rows: nothing picked yet / everything obtained
-    c.note1 = Text(c, "GameFontHighlight", 12)
-    c.note1:SetJustifyH("CENTER")
-    c.note1:SetWidth(w)
-    c.note2 = Text(c, "GameFontDisableSmall", 10)
-    c.note2:SetJustifyH("CENTER")
-    c.note2:SetWidth(w - 16)
-    c.note2:SetWordWrap(true)
+    c.note1 = UI:Text(c, "emph", "TEXT", { justify = "CENTER", width = w })
+    c.note2 = UI:Text(c, "small", "DIM", { justify = "CENTER", width = w - 16, wrap = true })
     if c.note2.SetMaxLines then c.note2:SetMaxLines(2) end
     c.note2:SetPoint("TOP", c.note1, "BOTTOM", 0, -4)
 
@@ -1507,12 +1440,9 @@ local function CreateCard(parent, w, h)
     fin:SetFrameLevel(m:GetFrameLevel() + 2)
     fin:SetSize(w, 14)
     fin:SetPoint("TOP", c.track, "BOTTOM", 0, -6)
-    fin:EnableMouse(true)
-    fin.text = Text(fin, "GameFontHighlightSmall", 10)
-    fin.text:SetJustifyH("CENTER")
+    fin.text = UI:Text(fin, "small", "SUB", { justify = "CENTER" })
     fin.text:SetPoint("CENTER", fin, "CENTER", 0, 0)
-    fin:SetScript("OnEnter", function(self) MyBiS:FinishTooltip(self) end)
-    fin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI:AttachTooltip(fin, function(self, tt) MyBiS:FillFinishTooltip(self, tt) end, nil, { anchor = "ANCHOR_BOTTOM" })
     c.finish = fin
 
     -- The model wears the phase's picks. A slot that is empty, disabled or holds something that can't be worn (a tier
@@ -1589,9 +1519,10 @@ local function UpdateCard(phase)
     if not card then return end
     local info = ComputeProgress(phase)
     -- (the phase and the list are the top bar's: the centre only says how far along)
+    local sub = S:Hex("SUB")
     card.count:SetText((IsOffSpecView() and (ns.UI:Colorize("Off spec", ns.COLORS and ns.COLORS.offspec)
-        .. "|cff9e9e9e  ·  |r") or "")
-        .. ("|cffffffff%d|r |cff9e9e9eof|r |cffffffff%d|r |cff9e9e9eobtained|r"):format(info.obtained, info.total))
+        .. sub .. "  ·  |r") or "")
+        .. ("|cffffffff%d|r " .. sub .. "of|r |cffffffff%d|r " .. sub .. "obtained|r"):format(info.obtained, info.total))
     -- nothing picked: no count (the note under the model says what to do)
     card.count:SetShown(info.filled > 0)
     card.track:SetShown(info.filled > 0)
@@ -1633,19 +1564,18 @@ end
 -- Top bar
 ---------------------------------------------------------------------------
 
-local function PhaseButtonTooltip(button)
+local function PhaseButtonTooltip(button, tt)
     local p = button.phase
     local pinfo = ns.PHASE_INFO and ns.PHASE_INFO[p]
-    GameTooltip:SetOwner(button, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine(pinfo and pinfo.name or ("Phase " .. p), 1, 0.82, 0)
-    if pinfo and pinfo.raids then GameTooltip:AddLine(pinfo.raids, 1, 1, 1, true) end
+    tt:AddLine(pinfo and pinfo.name or ("Phase " .. p), S:Color("GOLD"))
+    if pinfo and pinfo.raids then tt:AddLine(pinfo.raids, 1, 1, 1, true) end
     local main, alt = 0, 0
     for _, e in ipairs(PhaseItems(p)) do
         if e.which == "alt" then alt = alt + 1 else main = main + 1 end
     end
-    GameTooltip:AddLine(("%d main  ·  %d alt picks"):format(main, alt), 0.7, 0.7, 0.7)
+    tt:AddLine(("%d main  ·  %d alt picks"):format(main, alt), 0.7, 0.7, 0.7)
     if p == PRE_RAID then
-        GameTooltip:AddLine("Just for you: the council doesn't see this list and it raises no drop alerts.",
+        tt:AddLine("Just for you: the council doesn't see this list and it raises no drop alerts.",
             0.7, 0.7, 0.7, true)
     end
     if GuildPhase() == p then
@@ -1664,9 +1594,8 @@ local function PhaseButtonTooltip(button)
                 text = "Your group's current phase"
             end
         end
-        GameTooltip:AddLine(text, ns.UI:Color("main"))
+        tt:AddLine(text, ns.UI:Color("main"))
     end
-    GameTooltip:Show()
 end
 
 -- A label offset inside a sleek button (the phase buttons make room for the guild phase's star); the pressed look
@@ -1693,44 +1622,33 @@ local function UpdatePhaseButtons()
     end
 end
 
+-- §38: the lock pill in Suggest's place ("Locked by Lee"; why, in its tooltip). chip.title = its text (tests).
 local function CreateLockChip(p)
     local UI = ns.UI
-    local chip = CreateFrame("Frame", nil, p)
-    chip:SetHeight(BAR_H)
-    Flat(chip, { 0.24, 0.10, 0.03, 0.9 }, { 1, 0.55, 0.2, 0.85 })
-    chip.icon = chip:CreateTexture(nil, "ARTWORK")
-    chip.icon:SetSize(14, 14)
-    chip.icon:SetPoint("LEFT", 7, 0)
-    chip.icon:SetTexture(UI.ICON_LOCK or "Interface\\PetBattles\\PetBattle-LockIcon")
-    chip.title = Text(chip, "GameFontHighlight", 12)
-    chip.title:SetTextColor(1, 0.8, 0.62)
-    chip.title:SetPoint("LEFT", chip.icon, "RIGHT", 5, 0)
-    chip:EnableMouse(true)
+    local chip = UI:CreatePill(p, "warn", nil, BAR_H)
+    chip.title = chip.fs
+    local icon = UI.ICON_LOCK or "Interface\\PetBattles\\PetBattle-LockIcon"
     function chip:SetLock(info)
-        self.title:SetText("Locked by " .. UI:LockByText(info))
-        self:SetWidth(floor(7 + 14 + 5 + (tonumber(self.title:GetStringWidth()) or 60) + 10 + 0.5))
+        self:Set("Locked by " .. UI:LockByText(info), "warn", icon)
     end
-    chip:SetScript("OnEnter", function(self)
+    UI:AttachTooltip(chip, function(_, tt)
         local _, info = ListLocked()
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("BiS lists are locked", 1, 0.82, 0)
-        GameTooltip:AddLine(("%s locked every BiS list in the group for the raid. You can't change picks, "
+        tt:AddLine("BiS lists are locked", S:Color("GOLD"))
+        tt:AddLine(("%s locked every BiS list in the group for the raid. You can't change picks, "
             .. "spec or disabled slots until they unlock the lists or the group disbands. Items you get "
             .. "(and \"Mark obtained\" in a slot's right-click menu) still update."):format(UI:LockByText(info, true)),
             1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
     chip:Hide()
     return chip
 end
 
-local function CreateTopBar(p)
+-- The page's toolbar (the layout's): the phases (or the page's title) and the spec tabs on its row on the left, the
+-- lock pill / Suggest (its filters) and More on the right.
+local function CreateTopBar(p, toolbar)
     local UI = ns.UI
-    bar = CreateFrame("Frame", nil, p)
-    bar:SetPoint("TOPLEFT", p, "TOPLEFT", PAD, TOP_Y)
-    bar:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, TOP_Y)
-    bar:SetHeight(BAR_H)
+    bar = toolbar
+    local rowY = -(UI.LAYOUT.ROW_MID + BAR_H / 2)       -- the bottom of the row's controls
 
     -- the phases (from PhaseEntries: a Pre-raid entry would come first)
     for i, e in ipairs(PhaseEntries()) do
@@ -1742,50 +1660,40 @@ local function CreateTopBar(p)
         b.marker:SetSize(10, 10)
         b.marker:SetPoint("LEFT", b:GetFontString(), "RIGHT", 3, 0)
         b.marker:Hide()
-        if i == 1 then b:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", -4, 0)
+        if i == 1 then b:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", PAD - 4, rowY)
         else b:SetPoint("LEFT", phaseButtons[i - 1], "RIGHT", 2, 0) end
-        b:HookScript("OnEnter", PhaseButtonTooltip)
-        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        UI:AttachTooltip(b, PhaseButtonTooltip, nil, { anchor = "ANCHOR_BOTTOM" })
         phaseButtons[i] = b
     end
 
     -- Addendum H: the spec tabs (which list the tab shows, both specs, a menu to change them); LayoutBar moves them
     CreateSpecRow(bar):SetPoint("LEFT", phaseButtons[#phaseButtons], "RIGHT", 22, 0)
 
-    moreBtn = UI:CreateTipIconButton(bar, BAR_H, UI.ICON.more, "More", "Import a BiS list from another site, export "
-        .. "yours to WoWSims or Wowhead, copy another phase or list, or clear this phase's picks.", function(self)
-        UI:ContextMenu(self, BuildMoreMenu)
-    end)
-    moreBtn:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    -- More: the toolbar's "···" (its tip follows the page: LayoutBar)
+    moreBtn = bar:SetMore(BuildMoreMenu, "Import a BiS list from another site, export yours to WoWSims or Wowhead, "
+        .. "copy another phase or list, or clear this phase's picks.")
     p.moreBtn = moreBtn
     p.phaseButtons = phaseButtons
 
     suggestBtn = UI:CreateSleekMenuButton(bar, "Suggest", SUGGEST_W, BuildSuggestMenu, BAR_H)
-    suggestBtn:GetFontString():SetFontObject("GameFontHighlight")
-    suggestBtn:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
-    suggestBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("Suggest", 1, 0.82, 0)
-        GameTooltip:AddLine("Fill this phase from your spec's best-in-slot guide (shipped with DisasterZone).",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    suggestBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    UI:SetTextStyle(suggestBtn:GetFontString(), "emph", "TEXT")
+    UI:AttachTooltip(suggestBtn, "Suggest",
+        "Fill this phase from your spec's best-in-slot guide (shipped with DisasterZone).", { anchor = "ANCHOR_BOTTOM" })
 
     -- §38: while my list is locked the chip takes Suggest's place
     lockChip = CreateLockChip(bar)
-    lockChip:SetPoint("RIGHT", moreBtn, "LEFT", -6, 0)
+    bar:SetFilters({ lockChip, suggestBtn })
 
     -- the Gear sim / Consumables pages' title in the phases' place (the nav strip says only "Gear")
     pageTitle = CreateFrame("Frame", nil, bar)
     pageTitle:SetSize(120, BAR_H)
-    pageTitle:SetPoint("LEFT", bar, "LEFT", 0, 0)
+    pageTitle:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", PAD, rowY)
     pageTitle.icon = pageTitle:CreateTexture(nil, "ARTWORK")
     pageTitle.icon:SetSize(16, 16)
     pageTitle.icon:SetPoint("LEFT", 2, 0)
     pageTitle.icon:SetTexture(UI.ICON_ATLAS)
     pageTitle.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
-    pageTitle.text = Text(pageTitle, "GameFontHighlight")
+    pageTitle.text = UI:Text(pageTitle, "emph", "TEXT")
     pageTitle.text:SetPoint("LEFT", pageTitle.icon, "RIGHT", 7, 0)
     pageTitle:Hide()
     p.pageTitle = pageTitle
@@ -1821,6 +1729,7 @@ local function LayoutBar(view)
         moreBtn.tipText = "Import a BiS list from another site, export yours to WoWSims or Wowhead, copy another "
             .. "phase or list, or clear this phase's picks."
     end
+    bar:LayoutRight()
 end
 
 -- The view shown: "list" (My BiS), "sim" (Gear sim) or "kit" (Consumables).
@@ -1854,11 +1763,12 @@ function MyBiS:CreatePanel(parent)
     panel = CreateFrame("Frame", nil, parent)
     panel:SetAllPoints(parent)
 
-    CreateTopBar(panel)
+    -- (a Board page: the toolbar, then the doll / the kit as the body)
+    layout = ns.UI:CreateLayout("board", panel)
+    panel.layout = layout
+    CreateTopBar(panel, layout.toolbar)
 
-    local body = CreateFrame("Frame", nil, panel)
-    body:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, DOLL_Y)
-    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, 0)
+    local body = layout.body
 
     doll = ns.PaperDoll:Create(body, {
         readOnly = false,
@@ -1999,7 +1909,7 @@ function MyBiS:UpdateFinish(phase, anyPick)
     local g, e = sockets - gems, enchantable - enchants
     if g > 0 then parts[#parts + 1] = g == 1 and "1 gem" or (g .. " gems") end
     if e > 0 then parts[#parts + 1] = e == 1 and "1 enchant" or (e .. " enchants") end
-    fin.text:SetText(#parts > 0 and ("|cff8a8a8e" .. table.concat(parts, ", ") .. " to choose|r") or "")
+    fin.text:SetText(#parts > 0 and S:Wrap("SUB", table.concat(parts, ", ") .. " to choose") or "")
     fin:SetShown(anyPick and #parts > 0)
 end
 
@@ -2013,11 +1923,16 @@ end
 
 -- What the phase's picks still lack (the line's tooltip).
 function MyBiS:FinishTooltip(owner)
+    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
+    self:FillFinishTooltip(owner, GameTooltip)
+    GameTooltip:Show()
+end
+
+function MyBiS:FillFinishTooltip(owner, tt)
     local G, BiS = ns.Gems, ns.BiS
     local phase = owner.phase or CurrentPhase()
     local view = BiS:GetListView(ListArg())
-    GameTooltip:SetOwner(owner, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Gems and enchants - " .. PL(phase), 1, 0.82, 0)
+    tt:AddLine("Gems and enchants - " .. PL(phase), S:Color("GOLD"))
     local any = false
     local picks = G:CountedPicks(view, phase, function(sid) return SlotDisabled(phase, sid) end)
     for sid = 1, NUM_SLOTS do
@@ -2033,15 +1948,14 @@ function MyBiS:FinishTooltip(owner)
             if #missing > 0 then
                 any = true
                 local name = ns.UI:ItemText(itemID)
-                GameTooltip:AddDoubleLine(name, table.concat(missing, ", "), 1, 1, 1, 0.65, 0.65, 0.68)
+                tt:AddDoubleLine(name, table.concat(missing, ", "), 1, 1, 1, 0.65, 0.65, 0.68)
             end
         end
     end
     if not any then
-        GameTooltip:AddLine("Every pick has its gems and enchant.", 0.3, 0.9, 0.3)
+        tt:AddLine("Every pick has its gems and enchant.", S:Color("OK"))
     end
-    GameTooltip:AddLine("Suggest fills them; ... puts them on the shopping list.", 0.5, 0.5, 0.5, true)
-    GameTooltip:Show()
+    tt:AddLine("Suggest fills them; ... puts them on the shopping list.", 0.5, 0.5, 0.5, true)
 end
 
 -- DisasterZone extension (§36): the progress numbers of a phase as the centre shows them (for tests / tooltips).
@@ -2073,10 +1987,12 @@ end
 ---------------------------------------------------------------------------
 
 if ns.MainFrame and ns.MainFrame.RegisterTab then
-    ns.MainFrame:RegisterTab("mybis", "My BiS", 1, function(parent) return MyBiS:CreatePanel(parent) end)
+    local opts = { layout = "board" }
+    ns.MainFrame:RegisterTab("mybis", "My BiS", 1, function(parent) return MyBiS:CreatePanel(parent) end, nil, opts)
     -- the same panel in the Gear sim and Consumables views (their own pages in the Gear menu)
-    ns.MainFrame:RegisterTab("gearsim", "Gear sim", 1.1, function(parent) return MyBiS:CreatePanel(parent) end)
-    ns.MainFrame:RegisterTab("consumables", "Consumables", 1.2, function(parent) return MyBiS:CreatePanel(parent) end)
+    ns.MainFrame:RegisterTab("gearsim", "Gear sim", 1.1, function(parent) return MyBiS:CreatePanel(parent) end, nil, opts)
+    ns.MainFrame:RegisterTab("consumables", "Consumables", 1.2, function(parent) return MyBiS:CreatePanel(parent) end,
+        nil, opts)
 end
 
 ns:On("MYLIST_CHANGED", RequestRefresh)

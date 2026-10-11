@@ -15,7 +15,48 @@ local addonName, ns = ...
 local PaperDoll = {}
 ns.PaperDoll = PaperDoll
 
+local S = ns.Style
 local floor = math.floor
+
+---------------------------------------------------------------------------
+-- ns.GearUI: the small helpers the Gear pages shared as copies (My BiS, the Atlas, the picker, Import / Export).
+-- (Their home is here: this file loads first of the Gear pages.)
+---------------------------------------------------------------------------
+
+local GearUI = {}
+ns.GearUI = GearUI
+
+-- The reputation standings by index (1 Hated .. 8 Exalted), in English (the client's own: GearUI.StandingName).
+GearUI.STANDINGS = { "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted" }
+
+-- A standing's name in the client's language (FACTION_STANDING_LABELn), else the English one; "?" for none.
+function GearUI.StandingName(i)
+    local label = i and _G["FACTION_STANDING_LABEL" .. i]
+    return (type(label) == "string" and label ~= "") and label or (i and GearUI.STANDINGS[i]) or "?"
+end
+
+-- "Pre-raid" / "P2".
+function GearUI.PL(p)
+    if ns.PhaseLabel then return ns.PhaseLabel(p) end
+    return "P" .. tostring(p)
+end
+
+-- The guild's (or the group's) phase as a number (whole), or nil when unknown.
+function GearUI.GuildPhase()
+    local p = ns.Guild and ns.Guild.GetGuildPhase and tonumber(ns.Guild:GetGuildPhase())
+    return p and floor(p) or nil
+end
+
+-- §38: my list is locked by the group's raid leader (UI:IsMyListLocked). locked, { by, at } | nil.
+function GearUI.ListLocked()
+    if ns.UI and ns.UI.IsMyListLocked then return ns.UI:IsMyListLocked() end
+    return false, nil
+end
+
+-- Addendum H: I have an off-spec list.
+function GearUI.HasOffSpec()
+    return ns.BiS and ns.BiS.HasOffSpec and ns.BiS:HasOffSpec() or false
+end
 
 -- Layouts (opts.layout):
 --   default  the Council member view (fits a ~774 x 430 area, its own summary in the centre): 260 x 42 tiles on a
@@ -27,18 +68,18 @@ local floor = math.floor
 local LAYOUTS = {
     default = { width = nil, tileW = 260, tileH = 42, gap = 4, colX = 8, top = -4, bottom = "center", bottomW = 246,
                 bottomGapX = 10, bottomGap = 8, centerGap = 10, centerBottom = 8, icon = 32, alt = 15, wear = 13,
-                pad = 7, textGap = 8, nameFont = "GameFontHighlightSmall", srcFont = "GameFontDisableSmall",
+                pad = 7, textGap = 8, nameStyle = "small", nameColor = "TEXT", srcStyle = "small", srcColor = "SUB",
                 wrap = false, lineGap = 2, chip = 11 },
     page    = { width = 770, tileW = 262, tileH = 56, gap = 6, colX = 0, top = 0, bottom = "centre", bottomGap = 0,
                 centerGap = 8, centerBottom = 8, icon = 40, alt = 17, wear = 15, pad = 8, textGap = 10,
-                nameFont = "GameFontHighlight", srcFont = "GameFontHighlightSmall", wrap = true, lineGap = 4,
+                nameStyle = "emph", nameColor = "TEXT", srcStyle = "small", srcColor = "TEXT", wrap = true, lineGap = 4,
                 quiet = true, chip = 13, left = { 1, 2, 3, 4, 5, 6, 15, 16 }, right = { 7, 8, 9, 10, 11, 12, 13, 14 },
                 bottomSlots = { 17 } },
 }
 
 local TILE_BG = { 0.08, 0.08, 0.095, 0.9 }
 local TILE_BG_HOVER = { 0.13, 0.13, 0.155, 0.95 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
+local EDGE = S.C.EDGE
 local EDGE_HOVER = { 0.72, 0.72, 0.76, 0.75 }
 local ALT_EDGE = { 0.56, 0.78, 1, 0.75 }
 local WEAR_EDGE = { 0.62, 0.62, 0.66, 0.8 }
@@ -53,10 +94,7 @@ local liveDolls = setmetatable({}, { __mode = "k" })
 
 local Doll = {}
 
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or ("Slot " .. tostring(sid))
-end
+local SlotLabel = ns.SlotLabel
 
 local function ValidID(v)
     v = tonumber(v)
@@ -70,9 +108,9 @@ local function SlotEntry(ph, sid)
     return ValidID(e[1]), ValidID(e[2])
 end
 
-local function Grey(text) return "|cff808080" .. text .. "|r" end
-local function Soft(text) return "|cffa8a8a8" .. text .. "|r" end
-local function Dim(text) return "|cff6a6a6a" .. text .. "|r" end
+local function Grey(text) return S:Wrap("DIM", text) end
+local function Soft(text) return S:Wrap("SUB", text) end
+local Dim = Grey
 
 local function ColorKey(key, text)
     return ns.UI:Colorize(text, ns.COLORS and ns.COLORS[key])
@@ -99,9 +137,9 @@ local DISABLED_TEXT = "Disabled \226\128\148 not needed"
 
 -- §36: the player disabled this slot for the phase (Store:IsSlotDisabled, else ListData dx directly).
 local function SlotDisabled(record, phase, sid)
-    local S = ns.Store
-    if type(S) == "table" and type(S.IsSlotDisabled) == "function" then
-        return S:IsSlotDisabled(record, phase, sid) and true or false
+    local Store = ns.Store
+    if type(Store) == "table" and type(Store.IsSlotDisabled) == "function" then
+        return Store:IsSlotDisabled(record, phase, sid) and true or false
     end
     local data = type(record) == "table" and type(record.data) == "table" and record.data or nil
     local dx
@@ -248,13 +286,7 @@ local function Paint(f, c) f:SetColorTexture(c[1], c[2], c[3], c[4]) end
 local function PaintQuiet(tile, hov)
     local a = (hov and 0.16) or (tile.filled and 0.11) or 0
     local fade = tile.side == "R" and { 0.25, 1 } or (tile.side == "C" and { 1, 1 } or { 1, 0.25 })
-    local bg = tile.bg
-    bg:SetColorTexture(1, 1, 1, 1)
-    if bg.SetGradient and CreateColor then
-        bg:SetGradient("HORIZONTAL", CreateColor(0.55, 0.55, 0.62, a * fade[1]), CreateColor(0.55, 0.55, 0.62, a * fade[2]))
-    else
-        bg:SetColorTexture(0.55, 0.55, 0.62, a * 0.6)
-    end
+    ns.UI:Gradient(tile.bg, "HORIZONTAL", { 0.55, 0.55, 0.62, a * fade[1] }, { 0.55, 0.55, 0.62, a * fade[2] })
     ns.UI:SetEdgeColor(tile, EDGE_HOVER[1], EDGE_HOVER[2], EDGE_HOVER[3], hov and 0.45 or 0)
 end
 
@@ -301,16 +333,12 @@ end
 local function CreateChip(strip, size)
     local c = CreateFrame("Frame", nil, strip)
     c:SetSize(size, size)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
-    c.bg:SetAllPoints()
-    c.bg:SetColorTexture(0.06, 0.06, 0.07, 1)
+    c.bg = ns.UI:Fill(c, "INSET")
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetPoint("TOPLEFT", 1, -1)
     c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.plus = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    c.plus = ns.UI:Text(c, "small", { 0.6, 0.6, 0.64 }, { text = "+" })
     c.plus:SetPoint("CENTER", 0, 0)
-    c.plus:SetText("+")
-    c.plus:SetTextColor(0.6, 0.6, 0.64)
     ns.UI:AddEdges(c, "OVERLAY")
     return c
 end
@@ -380,16 +408,9 @@ local function CreateStrip(doll, tile)
         local cb = doll.opts.onGemsClick
         if cb then cb(tile.sid, tile, mouseButton) end
     end)
-    strip:SetScript("OnEnter", function(self)
-        SetHovered(tile, true)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GemTooltip(doll, tile, GameTooltip)
-        GameTooltip:Show()
-    end)
-    strip:SetScript("OnLeave", function()
-        SetHovered(tile, false)
-        GameTooltip:Hide()
-    end)
+    strip:SetScript("OnEnter", function() SetHovered(tile, true) end)
+    strip:SetScript("OnLeave", function() SetHovered(tile, false) end)
+    ns.UI:AttachTooltip(strip, function(_, tt) GemTooltip(doll, tile, tt) end)
     strip:Hide()
     return strip
 end
@@ -472,7 +493,8 @@ local function CreateTile(doll, sid, side, width)
     tile.editBorder:SetAllPoints(tile)
     tile.editBorder:SetFrameLevel(tile:GetFrameLevel() + 4)
     UI:AddEdges(tile.editBorder, "OVERLAY")
-    UI:SetEdgeColor(tile.editBorder, 1, 0.82, 0, 0.95)
+    local gr, gg, gb = S:Color("GOLD")
+    UI:SetEdgeColor(tile.editBorder, gr, gg, gb, 0.95)
     tile.editBorder:Hide()
 
     local right = side == "R"          -- ("C": a centre tile, laid out like the left column)
@@ -499,8 +521,8 @@ local function CreateTile(doll, sid, side, width)
     tile.wear:SetAlpha(0.9)
     tile.wear:Hide()
 
-    tile.line1 = tile:CreateFontString(nil, "OVERLAY", L.nameFont)
-    tile.line2 = tile:CreateFontString(nil, "OVERLAY", L.srcFont)
+    tile.line1 = UI:Text(tile, L.nameStyle, L.nameColor)
+    tile.line2 = UI:Text(tile, L.srcStyle, L.srcColor)
     tile.line1:SetWidth(tile.textW)
     tile.line2:SetWidth(tile.textW)
     if L.wrap then
