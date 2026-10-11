@@ -1,12 +1,14 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/CouncilRules.lua", ...) then return end -- DisasterZone: UI/CouncilRules.lua
--- Council > Rules (1.3.5, the user's pick 2026-10-11): every loot rule of the guild in one place. A list on the left
--- ("Picking the winner", then the prized items) and the picked entry on the right:
---   Picking the winner: the GM's loot rules (Guild:GetLootRules) as four lines of choices, and a "Try it" card - the
---   drop panel's own roll rows (DropPanel:NewPreviewRow) on an example roll, ranked by Roll:RankRows with the rules as
---   they are being edited. Rows that move show it and the header says what changed against the saved rules; the line
---   under the rows says why the suggestion is who it is. The GM saves (shared with the guild on RLL); everyone else on
---   the council sees the rules read-only.
---   A prized item: the loot rules session's own view (PrizedUI:Mount, detail only) in the right-hand column.
+-- Council > Rules (1.3.5, the user's pick 2026-10-11): every loot rule of the guild, on two pages with small tabs at the
+-- top (the user asked to split them for room, 2026-10-11):
+--   Picking the winner: the GM's loot rules (Guild:GetLootRules) as a column of choices on the left (it scrolls: more
+--   options can join), and on the right a "Try it" card - the drop panel's own roll rows (DropPanel:NewPreviewRow) on an
+--   example roll, ranked by Roll:RankRows with the rules as they are being edited. Rows that move show it and the line
+--   above the card says what changed against the saved rules; the line under the rows says why the suggestion is who it
+--   is. The GM saves (Save & share, top right; shared with the guild on RLL); the rest of the council sees them
+--   read-only.
+--   Prized items: the loot rules session's view (PrizedUI:Mount, its list and the picked item) over the whole width,
+--   Add item top right.
 -- CouncilUI hosts it as its view "rules".
 local addonName, ns = ...
 
@@ -17,11 +19,13 @@ local format, tconcat = string.format, table.concat
 
 -- (readability pass after the user's in-game shot, "barely readable": the picked choice gold, sub-lines 11 px light
 -- grey, the choices in one right-hand column of equal buttons, the example's scenarios on their own row, 5 rows)
-local K = { W = 770, LIST_W = 300, GAP = 8, ROW = 30, STRIP = 22, STEP_H = 34, SEG_H = 20, CARD_PAD = 12,
-            PREVIEW_ROWS = 5, ITEM = 30687,   -- (Ravager's Bracers: the example roll's item)
-            CHOICE_W = 220 }                   -- the choices' column (right-aligned, equal buttons per line)
-K.DETAIL_X = K.LIST_W + K.GAP
-K.DETAIL_W = K.W - K.DETAIL_X                    -- 462 (PrizedUI's detail column is as wide)
+-- (two pages, 2026-10-11: the choices stacked in a left column - title, the line under it, the buttons across the
+-- column - and the example over the right column's whole height)
+local K = { W = 770, GAP = 8, TABS_H = 28, LEFT_W = 304, STEP_H = 68, SEG_H = 22, CARD_PAD = 12,
+            PREVIEW_ROWS = 10, ITEM = 30687 }   -- (Ravager's Bracers: the example roll's item)
+K.CHOICE_W = K.LEFT_W - 32                      -- the buttons, across the column (inside its padding and scroll bar)
+K.RIGHT_X = K.LEFT_W + K.GAP
+K.RIGHT_W = K.W - K.RIGHT_X                     -- 458: the drop panel's rows fit
 local GOLD, GREY, DIM = { 1, 0.82, 0 }, { 0.72, 0.72, 0.75 }, { 0.50, 0.50, 0.53 }
 local CARD_BG, EDGE = { 0.10, 0.10, 0.12, 0.92 }, { 0.34, 0.34, 0.38, 0.5 }
 
@@ -31,7 +35,8 @@ local STEPS = {
       opts = { { 0, "Off" }, { 50, "50%" }, { 60, "60%" }, { 75, "75%" } },
       tip = "Players whose attendance (Raid log, the last 8 raids that expected them) is under it are still listed "
           .. "with a warning, but never the suggested winner, and their votes don't decide. The council can still "
-          .. "award them by hand." },
+          .. "award them by hand. (Never suggested either way: a pass, a player who left, a class that can't use "
+          .. "it.)" },
     { key = "s", title = "When votes split", sub = "votes decide; who rolled comes first",
       opts = { { "r", "Highest roll" }, { "p", "Council picks" } },
       tip = "Several players with the most votes: the highest roll among them is suggested (whoever didn't roll "
@@ -41,21 +46,26 @@ local STEPS = {
       tip = "Lists first: BiS mains, then BiS alts, then off-spec lists, then everyone else. Roll only: the lists "
           .. "don't matter, the highest roll wins." },
     { key = "w", title = "Then, among them", sub = "who wins inside a list",
-      opts = { { "r", "Roll" }, { "d", "Driest" }, { "o", "Longest use" } },
-      tip = "Roll: the highest roll wins. Driest: the player with the most raids since their last item. Longest use: "
-          .. "the player who keeps it on their BiS list for the most phases (counted up to the phase you pick). "
-          .. "The roll breaks a tie." },
+      opts = { { "r", "Highest roll" }, { "d", "Driest first" } },
+      tip = "The highest roll wins, or the player with the most raids since their last item (the roll breaks a tie). "
+          .. "With Longest use on, it comes first: then this." },
+    { key = "o", title = "Longest use", sub = "phases they keep it on their list, counted up to",
+      opts = { { 0, "Off" }, { 3, "P3" }, { 4, "P4" }, { 5, "P5" } },
+      tip = "Inside a list, the player who keeps the item on their BiS list for more phases goes first (then the "
+          .. "line above, then the roll). Counted from the guild's phase up to the one you pick: with P4, a pick kept "
+          .. "P2-P4 and replaced in P5 counts the same as one kept in P5 too. Off: phases don't matter." },
     { key = "y", title = "Since loot counts", sub = "raids since their last item",
       opts = { { "n", "Nights there" }, { "a", "Any night" } },
       tip = "The SINCE LOOT column (the dry streak): only nights they were really there for (a boss kill or half "
           .. "the night), or any night they showed up. Offspec, disenchant and guild bank items never end a streak." },
 }
 
--- 1.3.5 longevity: how far ahead Longest use counts (only shown while it is picked; Guild.LOOT_RULES h)
-STEPS[#STEPS + 1] = { key = "h", only = { "w", "o" }, title = "Longest use counts", sub = "phases on their list, up to",
-    opts = { { 3, "P3" }, { 4, "P4" }, { 5, "P5" } },
-    tip = "How many phases a player keeps the item on their BiS list, from the guild's phase up to this one. With P4, "
-        .. "a pick kept P2-P4 and replaced in P5 counts the same as one kept in P5 too." }
+-- 1.3.5: a prized item rolled out, for players who don't meet its rules
+STEPS[#STEPS + 1] = { key = "q", title = "Prized: not qualified", sub = "players who can't get a rolled one",
+    opts = { { "h", "A notice" }, { "s", "Roll window" } },
+    tip = "When a prized item is rolled out, players who don't meet its rules can only pass. A notice: no roll "
+        .. "window for them, a short notice says why (it fades, and stays in the bell). Roll window: they get it "
+        .. "anyway, with Roll greyed out. Players whose client can't tell get the roll window either way." }
 
 -- The example roll: name, class, spec, tier (1 BiS, 2 Alt, 3 OS, 4 not on a list), attendance %, raids since loot
 -- (really there / came at all), roll (nil = no roll), times rolled, bad range, passed.
@@ -79,7 +89,7 @@ local SCENES = {
 }
 
 local view                    -- the frame (CouncilRulesUI:Create)
-local state = { sel = "winner", scene = "split", draft = nil }
+local state = { page = "winner", sel = nil, scene = "split", draft = nil }
 
 local function UI() return ns.UI end
 
@@ -128,7 +138,7 @@ end
 
 local function Rules()
     local G = ns.Guild
-    return G and G.GetLootRules and G:GetLootRules() or { f = 0, s = "r", l = "l", w = "r", y = "n" }
+    return G and G.GetLootRules and G:GetLootRules() or { f = 0, s = "r", l = "l", w = "r", y = "n", o = 0, q = "h" }
 end
 
 local function CanEdit()
@@ -170,7 +180,8 @@ local function ExampleRows(rules)
     for i, p in ipairs(EXAMPLE) do
         local name, cls, spec, tier, att, dryN, dryA, roll, count, bad, pass, keepTo = unpack(p, 1, 12)
         local dryCount = (rules.y == "a") and dryA or dryN
-        local longevity = keepTo and math.max(0, math.min(keepTo, tonumber(rules.h) or 4) - 2 + 1) or 0
+        local upTo = tonumber(rules.o) or 0
+        local longevity = (keepTo and upTo > 0) and math.max(0, math.min(keepTo, upTo) - 2 + 1) or 0
         local key = name .. "-" .. realm
         rows[i] = { key = key, name = name, classFile = cls, spec = spec, tier = tier, os = tier == 3 or nil,
                     which = (tier == 2 and "alt") or (tier <= 3 and "main") or nil, roll = roll,
@@ -223,7 +234,7 @@ local function WhyText(rows, rules)
             bits[#bits + 1] = ({ "BiS list", "BiS alt list", "off-spec list" })[s.tier] .. ", before players not on a list"
         end
         if rules.w == "d" and (s.dry or 0) > 0 then bits[#bits + 1] = format("%d raids without loot", s.dry) end
-        if rules.w == "o" and (s.longevity or 0) > 0 then
+        if (tonumber(rules.o) or 0) > 0 and (s.longevity or 0) > 0 then
             bits[#bits + 1] = format("on their list to P%d", 1 + s.longevity)
         end
         bits[#bits + 1] = "rolled " .. tostring(s.roll)
@@ -296,184 +307,130 @@ local function Pick(key, value)
     CouncilRulesUI:Refresh()
 end
 
-local function NewStrip(parent, text, right)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetHeight(K.STRIP)
-    local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, 1)
-    if bg.SetGradient and CreateColor then
-        bg:SetGradient("HORIZONTAL", CreateColor(0.16, 0.14, 0.07, 0.95), CreateColor(0.07, 0.07, 0.08, 0.9))
-    else
-        bg:SetColorTexture(0.13, 0.12, 0.07, 0.95)
-    end
-    f.text = Text(f, "GameFontNormal", 12)
-    f.text:SetPoint("LEFT", f, "LEFT", 8, 0)
-    f.text:SetText(text)
-    if right then
-        f.right = Text(f, "GameFontHighlightSmall", 10, GREY[1], GREY[2], GREY[3])
-        f.right:SetPoint("RIGHT", f, "RIGHT", -8, 0)
-        f.right:SetText(right)
-    end
-    return f
-end
-
-local function NewListRow(parent, onClick)
-    local r = CreateFrame("Button", nil, parent)
-    r:SetHeight(K.ROW)
-    r.bg = Fill(r, { 0.07, 0.07, 0.085, 0.85 })
-    r.sel = r:CreateTexture(nil, "BORDER")
-    r.sel:SetAllPoints()
-    r.sel:SetColorTexture(0.18, 0.16, 0.10, 0.9)
-    r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.bar:SetWidth(2)
-    r.bar:SetColorTexture(1, 0.82, 0, 1)
-    local hl = r:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
-    r.icon = r:CreateTexture(nil, "ARTWORK")
-    r.icon:SetSize(22, 22)
-    r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
-    r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    r.name = Text(r, "GameFontHighlight", 12)
-    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", 38, -3)
-    r.name:SetPoint("RIGHT", r, "RIGHT", -6, 0)
-    r.sub = Text(r, "GameFontDisableSmall", 10)
-    r.sub:SetPoint("TOPLEFT", r.name, "BOTTOMLEFT", 0, -1)
-    r.sub:SetPoint("RIGHT", r, "RIGHT", -6, 0)
-    r:SetScript("OnClick", onClick)
-    return r
-end
-
-local function BuildList(v)
-    local l = CreateFrame("Frame", nil, v)
-    l:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
-    l:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 0, 0)
-    l:SetWidth(K.LIST_W)
-    v.list = l
-    l.strip1 = NewStrip(l, "Guild loot rules", "set by the Guild Master")
-    l.strip1:SetPoint("TOPLEFT", l, "TOPLEFT", 0, 0)
-    l.strip1:SetPoint("TOPRIGHT", l, "TOPRIGHT", 0, 0)
-    l.winner = NewListRow(l, function() CouncilRulesUI:Select("winner") end)
-    l.winner:SetPoint("TOPLEFT", l.strip1, "BOTTOMLEFT", 0, -2)
-    l.winner:SetPoint("TOPRIGHT", l.strip1, "BOTTOMRIGHT", 0, -2)
-    l.winner.icon:SetTexture("Interface\\Icons\\INV_Misc_Note_02")
-    l.winner.name:SetText("Picking the winner")
-    l.winner.sub:SetText("votes, rolls, lists, attendance")
-    l.strip2 = NewStrip(l, "Prized items", "their own stricter rules")
-    l.strip2:SetPoint("TOPLEFT", l.winner, "BOTTOMLEFT", 0, -K.GAP)
-    l.strip2:SetPoint("TOPRIGHT", l.winner, "BOTTOMRIGHT", 0, -K.GAP)
-    l.rows = {}
-    l.empty = Text(l, "GameFontDisableSmall", 11)
-    l.empty:SetText("No prized items yet.")
-    l.add = UI():CreateSleekButton(l, "Add item", 90, 22, function()
-        state.sel = "prized"
-        CouncilRulesUI:Refresh()
-        if ns.PrizedUI and ns.PrizedUI.StartAdd then ns.PrizedUI:StartAdd() end
-    end, "secondary")
-    Tip(l.add, "Add a prized item", "A drop with stricter loot rules (attendance, rank, a queue...). Raiders see them.")
-end
-
-local function BuildWinner(v)
-    local d = CreateFrame("Frame", nil, v)
-    d:SetPoint("TOPLEFT", v, "TOPLEFT", K.DETAIL_X, 0)
-    d:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
-    v.winner = d
-    Fill(d, { 0.06, 0.06, 0.07, 0.9 })
-    Edge(d, EDGE)
-    local W = K.DETAIL_W - 24
-    d.title = Text(d, "GameFontNormalLarge", 15)
-    d.title:SetPoint("TOPLEFT", d, "TOPLEFT", 12, -10)
-    d.title:SetText("Picking the winner")
-    d.who = Text(d, "GameFontDisableSmall", 10)
-    d.who:SetPoint("TOPRIGHT", d, "TOPRIGHT", -12, -14)
-    d.steps = {}
-    local y = -34
-    for i, st in ipairs(STEPS) do
-        local f = CreateFrame("Frame", nil, d)
-        f:SetPoint("TOPLEFT", d, "TOPLEFT", 12, y)
-        f:SetSize(W, K.STEP_H)
-        local line = f:CreateTexture(nil, "BORDER")
-        line:SetColorTexture(1, 1, 1, 0.06)
-        line:SetHeight(1)
-        line:SetPoint("BOTTOMLEFT")
-        line:SetPoint("BOTTOMRIGHT")
-        f.title = Text(f, "GameFontHighlight", 12)
-        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -3)
-        f.title:SetText(st.title)
-        f.sub = Text(f, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-        f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -2)
-        f.sub:SetWidth(W - K.CHOICE_W - 10)
-        f.sub:SetText(st.sub)
-        local hit = CreateFrame("Frame", nil, f)
-        hit:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-        hit:SetSize(W - K.CHOICE_W - 10, K.STEP_H)
-        Tip(hit, st.title, st.tip)
-        f.seg = Seg(f, st.key, st.opts, Pick)
-        f.seg:SetPoint("RIGHT", f, "RIGHT", 0, 0)
-        f.def = st
-        d.steps[i] = f
-        if not st.only then y = y - K.STEP_H end
-    end
-    -- (the line under the steps: everything below hangs from it, and it moves down while an "only" step shows)
-    d.afterY = y
-    d.after = CreateFrame("Frame", nil, d)
-    d.after:SetHeight(1)
-    d.after:SetPoint("TOPLEFT", d, "TOPLEFT", 0, y)
-    d.after:SetPoint("TOPRIGHT", d, "TOPRIGHT", 0, y)
-    local y0 = y
-    d.always = Text(d, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    d.always:SetPoint("TOPLEFT", d.after, "TOPLEFT", 12, y - 6 - y0)
-    d.always:SetWidth(W)
-    d.always:SetText("Never suggested: a pass, a player who left, a class that can't use it.")
-    y = y - 24
-    -- what the draft changes, Undo / Save & share (the GM, when the draft differs)
-    d.save = UI():CreateSleekButton(d, "Save & share", 96, 20, function() CouncilRulesUI:Save() end, "primary")
-    d.undo = UI():CreateSleekButton(d, "Undo", 56, 20, function()
+-- The two pages' tabs (small, at the top left) and the top right: Save & share / Undo (the GM's draft), Add item.
+local function BuildTop(v)
+    local UIx = UI()
+    v.tabWinner = UIx:CreateUnderlineTab(v, "Picking the winner", function() CouncilRulesUI:SetPage("winner") end, "small")
+    v.tabWinner:SetPoint("TOPLEFT", v, "TOPLEFT", -4, 0)
+    v.tabPrized = UIx:CreateUnderlineTab(v, "Prized items", function() CouncilRulesUI:SetPage("prized") end, "small")
+    v.tabPrized:SetPoint("LEFT", v.tabWinner, "RIGHT", 6, 0)
+    v.tabLine = v:CreateTexture(nil, "BORDER")
+    v.tabLine:SetColorTexture(1, 1, 1, 0.08)
+    v.tabLine:SetHeight(1)
+    v.tabLine:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -(K.TABS_H - 6))
+    v.tabLine:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, -(K.TABS_H - 6))
+    v.who = Text(v, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+    v.who:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, -4)
+    v.save = UIx:CreateSleekButton(v, "Save & share", 100, 20, function() CouncilRulesUI:Save() end, "primary")
+    v.save:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, 0)
+    v.undo = UIx:CreateSleekButton(v, "Undo", 56, 20, function()
         state.draft = nil
         CouncilRulesUI:Refresh()
     end, "secondary")
-    d.save:SetPoint("TOPRIGHT", d.after, "TOPRIGHT", -12, y - 2 - y0)
-    d.undo:SetPoint("RIGHT", d.save, "LEFT", -6, 0)
-    d.change = Text(d, "GameFontHighlightSmall", 11)
-    d.change:SetPoint("TOPLEFT", d.after, "TOPLEFT", 12, y - 6 - y0)
-    y = y - 26
-    -- Try it: the label and the example's scenarios on their own row
-    d.tryLabel = Text(d, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    d.tryLabel:SetPoint("TOPLEFT", d.after, "TOPLEFT", 12, y - 4 - y0)
-    d.tryLabel:SetText("TRY IT")
-    d.scenes = Seg(d, "scene", (function()
+    v.undo:SetPoint("RIGHT", v.save, "LEFT", -6, 0)
+    v.add = UIx:CreateSleekButton(v, "Add item", 84, 20, function()
+        if ns.PrizedUI and ns.PrizedUI.StartAdd then ns.PrizedUI:StartAdd() end
+    end, "primary")
+    v.add:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, 0)
+    Tip(v.add, "Add a prized item", "A drop with stricter loot rules (attendance, rank, a queue...). Raiders see them.")
+end
+
+-- Picking the winner: the choices (left, scrolling) and the example (right).
+local function BuildWinner(v)
+    local page = CreateFrame("Frame", nil, v)
+    page:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -K.TABS_H)
+    page:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+    v.winner = page
+    -- the choices
+    local left = CreateFrame("Frame", nil, page)
+    left:SetPoint("TOPLEFT", page, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 0, 0)
+    left:SetWidth(K.LEFT_W)
+    Fill(left, { 0.06, 0.06, 0.07, 0.9 })
+    Edge(left, EDGE)
+    page.left = left
+    local sf = UI():CreateScrollFrame(left)
+    sf:SetPoint("TOPLEFT", left, "TOPLEFT", 12, -8)
+    sf:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -20, 8)
+    local body = CreateFrame("Frame", nil, sf)
+    body:SetSize(K.CHOICE_W, 10)
+    sf:SetScrollChild(body)
+    page.scroll, page.body = sf, body
+    page.steps = {}
+    local y = 0
+    for i, st in ipairs(STEPS) do
+        local f = CreateFrame("Frame", nil, body)
+        f:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+        f:SetSize(K.CHOICE_W, K.STEP_H)
+        if i < #STEPS then
+            local line = f:CreateTexture(nil, "BORDER")
+            line:SetColorTexture(1, 1, 1, 0.07)
+            line:SetHeight(1)
+            line:SetPoint("BOTTOMLEFT")
+            line:SetPoint("BOTTOMRIGHT")
+        end
+        f.title = Text(f, "GameFontHighlight", 13)
+        f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -4)
+        f.title:SetText(st.title)
+        f.sub = Text(f, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+        f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -3)
+        f.sub:SetWidth(K.CHOICE_W)
+        f.sub:SetText(st.sub)
+        local hit = CreateFrame("Frame", nil, f)
+        hit:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        hit:SetSize(K.CHOICE_W, 36)
+        Tip(hit, st.title, st.tip)
+        f.seg = Seg(f, st.key, st.opts, Pick)
+        f.seg:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -39)
+        f.def = st
+        page.steps[i] = f
+        y = y + K.STEP_H
+    end
+    body:SetHeight(y + 4)
+    -- the example
+    local right = CreateFrame("Frame", nil, page)
+    right:SetPoint("TOPLEFT", page, "TOPLEFT", K.RIGHT_X, 0)
+    right:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+    page.right = right
+    right.tryLabel = Text(right, "GameFontNormal", 13)
+    right.tryLabel:SetPoint("TOPLEFT", right, "TOPLEFT", 2, -4)
+    right.tryLabel:SetText("Try it")
+    right.scenes = Seg(right, "scene", (function()
         local o = {}
         for i, sc in ipairs(SCENES) do o[i] = { sc.key, sc.label } end
         return o
     end)(), function(_, value)
         state.scene = value
         CouncilRulesUI:Refresh()
-    end, 246)
-    d.scenes:SetPoint("TOPRIGHT", d.after, "TOPRIGHT", -12, y - y0)
-    y = y - 26
-    local c = CreateFrame("Frame", nil, d)
-    c:SetPoint("TOPLEFT", d.after, "TOPLEFT", 6, y - y0)
-    c:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -6, 6)
+    end, 270)
+    right.scenes:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, 0)
+    right.change = Text(right, "GameFontHighlightSmall", 11)
+    right.change:SetPoint("TOPLEFT", right, "TOPLEFT", 2, -30)
+    right.change:SetWidth(K.RIGHT_W - 4)
+    local c = CreateFrame("Frame", nil, right)
+    c:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -48)
+    c:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
     Fill(c, CARD_BG)
     Edge(c, EDGE)
-    d.card = c
+    page.card = c
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(26, 26)
     c.icon:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD, -8)
     c.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     c.name = Text(c, "GameFontNormal", 12)
     c.name:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 8, 0)
-    c.sub = Text(c, "GameFontHighlightSmall", 10)
+    c.sub = Text(c, "GameFontHighlightSmall", 11)
     c.sub:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -3)
     c.rows = {}
-    c.more = Text(c, "GameFontDisableSmall", 10)
+    c.more = Text(c, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
     c.why = Text(c, "GameFontHighlight", 12)
     c.why:SetWordWrap(true)
-    c.why:SetWidth(K.DETAIL_W - 12 - 2 * K.CARD_PAD)
+    c.why:SetWidth(K.RIGHT_W - 2 * K.CARD_PAD)
     c.why:SetTextColor(0.91, 0.85, 0.66)
+    c.never = Text(c, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+    c.never:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", K.CARD_PAD, 10)
+    c.never:SetWidth(K.RIGHT_W - 2 * K.CARD_PAD)
+    c.never:SetText("Never suggested: a pass, a player who left, a class that can't use it.")
 end
 
 function CouncilRulesUI:Create(parent)
@@ -485,10 +442,10 @@ function CouncilRulesUI:Create(parent)
     v:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -36)
     v:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 10)
     view = v
-    BuildList(v)
+    BuildTop(v)
     BuildWinner(v)
     v.prized = CreateFrame("Frame", nil, v)
-    v.prized:SetPoint("TOPLEFT", v, "TOPLEFT", K.DETAIL_X, 0)
+    v.prized:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -K.TABS_H)
     v.prized:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
     for _, m in ipairs({ "LOOT_RULES_CHANGED", "PRIZED_UPDATED", "RAIDLOG_CHANGED", "DEMO_TOGGLED" }) do
         ns:On(m, function() CouncilRulesUI:RequestRefresh() end)
@@ -506,59 +463,6 @@ local function ItemIcon(itemID)
     return db and db.GetIcon and db:GetIcon(itemID) or 134400
 end
 
-local function FillList(v)
-    local l = v.list
-    local P = ns.Prized
-    local items = P and P.GetItems and P:GetItems() or {}
-    local winnerOn = state.sel == "winner"
-    l.winner.sel:SetShown(winnerOn)
-    l.winner.bar:SetShown(winnerOn)
-    local prev = l.strip2
-    local shown = 0
-    local room = floor(((l:GetHeight() or 0) > 0 and l:GetHeight() or 500) - 2 * K.STRIP - K.ROW - 40) / (K.ROW + 2)
-    for i, rec in ipairs(items) do
-        local r = l.rows[i]
-        if not r then
-            r = NewListRow(l, function(self) CouncilRulesUI:Select(self.recId) end)
-            l.rows[i] = r
-        end
-        if i <= room then
-            r.recId = rec.id
-            r.icon:SetTexture(ItemIcon(rec.ids[1]))
-            local name = P:Name(rec)
-            local q = ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1])
-            local col = (q == 5 and "|cffff8000") or "|cffa335ee"
-            r.name:SetText(col .. name .. "|r")
-            local place = P:Place(rec.ids[1])
-            r.sub:SetText((place.bossName and (place.bossName .. " · ") or "") .. (place.raidName or ""))
-            local on = state.sel == rec.id
-            r.sel:SetShown(on)
-            r.bar:SetShown(on)
-            r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -2)
-            r:SetPoint("TOPRIGHT", prev, "BOTTOMRIGHT", 0, -2)
-            r:Show()
-            prev = r
-            shown = shown + 1
-        else
-            r:Hide()
-        end
-    end
-    for i = #items + 1, #l.rows do l.rows[i]:Hide() end
-    l.empty:ClearAllPoints()
-    l.empty:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 8, -8)
-    l.empty:SetShown(#items == 0)
-    if #items > shown then
-        l.empty:SetText(format("+%d more", #items - shown))
-        l.empty:Show()
-    elseif #items == 0 then
-        l.empty:SetText("No prized items yet.")
-    end
-    l.add:ClearAllPoints()
-    l.add:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, (l.empty:IsShown() and -28) or -8)
-    l.add:SetShown(P and P.CanEdit and P:CanEdit() or false)
-end
-
 local function MoveMark(r)
     if not r.move then
         r.move = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -568,42 +472,25 @@ local function MoveMark(r)
 end
 
 local function FillWinner(v)
-    local d = v.winner
+    local page = v.winner
     local saved, draft = Rules(), Draft()
     local edit = CanEdit()
     local G = ns.Guild
     local by = G and G.GetLootRulesBy and G:GetLootRulesBy()
-    d.who:SetText(edit and "you set these for the guild" or ("set by " .. (by and ns.Util.ShortName(by) or "the Guild Master")))
-    local extra = 0
-    for _, f in ipairs(d.steps) do
-        f.seg:Paint(draft[f.def.key], edit)
-        local only = f.def.only
-        if only then
-            local on = draft[only[1]] == only[2]
-            f:SetShown(on)
-            if on then
-                f:ClearAllPoints()
-                f:SetPoint("TOPLEFT", d, "TOPLEFT", 12, d.afterY - extra)
-                extra = extra + K.STEP_H
-            end
-        end
-    end
-    -- (with an extra step the "Never suggested" line makes room for it)
-    d.always:SetShown(extra == 0)
-    local shift = extra > 0 and (extra - 24) or 0
-    d.after:ClearAllPoints()
-    d.after:SetPoint("TOPLEFT", d, "TOPLEFT", 0, d.afterY - shift)
-    d.after:SetPoint("TOPRIGHT", d, "TOPRIGHT", 0, d.afterY - shift)
-    d.scenes:Paint(state.scene, true)
+    for _, f in ipairs(page.steps) do f.seg:Paint(draft[f.def.key], edit) end
+    local right = page.right
+    right.scenes:Paint(state.scene, true)
     local dirty = edit and not Same(saved, draft)
-    d.save:SetShown(dirty)
-    d.undo:SetShown(dirty)
+    v.save:SetShown(dirty)
+    v.undo:SetShown(dirty)
+    v.who:SetShown(not dirty)
+    v.who:SetText(edit and "you set these for the guild" or ("set by " .. (by and ns.Util.ShortName(by) or "the Guild Master")))
     -- the example roll, with the draft and with the saved rules (what moved)
     local rows = ExampleRows(draft)
     local base = ExampleRows(saved)
     local basePos = {}
     for i, r in ipairs(base) do basePos[r.key] = i end
-    local c = d.card
+    local c = page.card
     c.icon:SetTexture(ItemIcon(K.ITEM))
     c.name:SetText((ns.UI and ns.UI.ItemText and ns.UI:ItemText(K.ITEM)) or "Ravager's Bracers")
     local split = 0
@@ -648,19 +535,19 @@ local function FillWinner(v)
     for i = #rows + 1, #c.rows do c.rows[i]:Hide() end
     local y = top + headH + n * rowH
     c.more:ClearAllPoints()
-    c.more:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD + 22, -(y + 2))
+    c.more:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD + 22, -(y + 4))
     c.more:SetText(#rows > n and format("+%d more", #rows - n) or "")
     c.why:ClearAllPoints()
-    c.why:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD, -(y + 18))
+    c.why:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD, -(y + 24))
     c.why:SetText(WhyText(rows, draft))
     -- what the draft changes against the saved rules
     if dirty then
         local was, now = Suggested(base), Suggested(rows)
         local w, nn = was and was.name or "nobody", now and now.name or "nobody"
         local head = (w == nn) and (nn .. " stays on top") or (w .. " -> " .. nn)
-        d.change:SetText(format("|cffb7f5c3Your change: %s · %d moved|r", head, moved))
+        right.change:SetText(format("|cffb7f5c3Your change: %s · %d moved|r", head, moved))
     else
-        d.change:SetText(edit and "|cffb8b8bcClick a choice: the example below re-ranks.|r"
+        right.change:SetText(edit and "|cffb8b8bcClick a choice on the left: the example re-ranks.|r"
             or "|cffb8b8bcThe Guild Master sets these; the example uses them.|r")
     end
 end
@@ -668,17 +555,24 @@ end
 function CouncilRulesUI:Refresh()
     local v = view
     if not v or not v:IsVisible() then return end
-    FillList(v)
-    local winner = state.sel == "winner"
+    local winner = state.page ~= "prized"
+    v.tabWinner:SetActive(winner)
+    v.tabPrized:SetActive(not winner)
     v.winner:SetShown(winner)
     v.prized:SetShown(not winner)
     if winner then
+        v.add:Hide()
         FillWinner(v)
     else
+        v.save:Hide()
+        v.undo:Hide()
+        v.who:Hide()
+        local P = ns.Prized
+        v.add:SetShown(P and P.CanEdit and P:CanEdit() or false)
         local PU = ns.PrizedUI
         if PU and PU.Mount then
-            PU:Mount(v.prized, { list = false })
-            if state.sel ~= "prized" and PU.Select then PU:Select(state.sel) end
+            PU:Mount(v.prized, { x = -10 })
+            if state.sel and PU.Select and PU.GetSelected and PU:GetSelected() ~= state.sel then PU:Select(state.sel) end
         end
     end
 end
@@ -691,13 +585,30 @@ function CouncilRulesUI:RequestRefresh()
     end
 end
 
--- "winner" or a prized record id.
+-- "winner" (Picking the winner) or a prized record id (Prized items, that item).
 function CouncilRulesUI:Select(id)
-    state.sel = id or "winner"
+    if id == nil or id == "winner" then
+        state.page = "winner"
+    else
+        state.page, state.sel = "prized", id
+    end
     self:Refresh()
 end
 
-function CouncilRulesUI:GetSelected() return state.sel end
+-- "winner", or the prized item shown on the Prized items page.
+function CouncilRulesUI:GetSelected()
+    if state.page ~= "prized" then return "winner" end
+    local PU = ns.PrizedUI
+    return (PU and PU.GetSelected and PU:GetSelected()) or state.sel
+end
+
+-- "winner" | "prized": the page.
+function CouncilRulesUI:SetPage(page)
+    state.page = page == "prized" and "prized" or "winner"
+    self:Refresh()
+end
+
+function CouncilRulesUI:GetPage() return state.page == "prized" and "prized" or "winner" end
 
 -- The draft of the loot rules (a copy) and whether it differs from the saved ones.
 function CouncilRulesUI:GetDraft()

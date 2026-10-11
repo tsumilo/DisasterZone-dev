@@ -945,7 +945,7 @@ local function BuildResults(ses)
         local RL, Att, Store, G = ns.RaidLog, ns.Attendance, ns.Store, ns.Guild
         -- longevity (Longest use): phases each player keeps it on their list, up to the GM's last phase counted
         local LR = G and G.GetLootRules and G:GetLootRules()
-        local lastPhase = LR and LR.w == "o" and Store and Store.Longevity and (tonumber(LR.h) or 4) or nil
+        local lastPhase = LR and (tonumber(LR.o) or 0) > 0 and Store and Store.Longevity and tonumber(LR.o) or nil
         for _, r in ipairs(out) do
             r.att = RL and RL.GetAttendance and (RL:GetAttendance(r.key)) or nil
             local d = Att and Att.GetDryStreak and Att:GetDryStreak(r.key)
@@ -1022,16 +1022,16 @@ function Roll:RankRows(out, ctx)
             local la, lb = a.left or MAT_NONE, b.left or MAT_NONE
             if la ~= lb then return la < lb end
         end
-        -- (the guild's loot rules: lists first or the roll only, then the highest roll or the driest first)
+        -- (the guild's loot rules: lists first or the roll only; then, each when it is on: the longest use (who keeps
+        -- it on their list for more phases, Store:Longevity), the driest first; then the highest roll)
         if R.l ~= "r" and a.tier ~= b.tier then return a.tier < b.tier end
+        if (tonumber(R.o) or 0) > 0 and ga == 1 then
+            local oa, ob = tonumber(a.longevity) or 0, tonumber(b.longevity) or 0
+            if oa ~= ob then return oa > ob end
+        end
         if R.w == "d" and ga == 1 then
             local da, db = tonumber(a.dry) or 0, tonumber(b.dry) or 0
             if da ~= db then return da > db end
-        end
-        -- (longest use: who keeps it on their list for more phases, Store:Longevity, then the roll)
-        if R.w == "o" and ga == 1 then
-            local oa, ob = tonumber(a.longevity) or 0, tonumber(b.longevity) or 0
-            if oa ~= ob then return oa > ob end
         end
         if ga == 1 and a.roll ~= b.roll then return a.roll > b.roll end
         if ga == 2 then

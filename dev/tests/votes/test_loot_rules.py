@@ -31,7 +31,7 @@ for i, r in ipairs(rows) do
 end
 return out
 """
-RULES = {"f": 0, "s": "r", "l": "l", "w": "r", "y": "n", "h": 4}
+RULES = {"f": 0, "s": "r", "l": "l", "w": "r", "y": "n", "o": 0, "q": "h"}
 
 
 def rank(cl, spec, **over):
@@ -113,21 +113,22 @@ def only_the_gm_sets_the_rules_and_they_reach_the_guild():
                        "return { ok = ok, e = e }")
     assert res["ok"] is True, res
     w.tick(5)
-    want = {"f": 60, "s": "p", "l": "r", "w": "d", "y": "a", "h": 4}
+    want = {"f": 60, "s": "p", "l": "r", "w": "d", "y": "a", "o": 0, "q": "h"}
     for x in (bob, tank):
         assert x.eval_py("return ns.Guild:GetLootRules()") == want, x.name
     # junk is refused
     res = gina.eval_py("local ok, e = ns.Guild:SetLootRules({ f = 300, s = 'x' }); return { ok = ok }")
     assert res["ok"] is False
-    # longevity: Longest use, counted up to P5; a "count up to" outside P3-P5 is junk
-    res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'o', y = 'n', h = 5 }); "
+    # longevity: its own criterion beside the dry streak (driest first + longest use counted up to P5); a "count
+    # up to" outside P3-P5 is junk
+    res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'd', y = 'n', o = 5 }); "
                        "return { ok = ok }")
     assert res["ok"] is True, res
     w.tick(5)
     for x in (bob, tank):
         got = x.eval_py("return ns.Guild:GetLootRules()")
-        assert got["w"] == "o" and got["h"] == 5, (x.name, got)
-    res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'o', y = 'n', h = 9 }); "
+        assert got["w"] == "d" and got["o"] == 5, (x.name, got)
+    res = gina.eval_py("local ok = ns.Guild:SetLootRules({ f = 0, s = 'r', l = 'l', w = 'r', y = 'n', o = 9 }); "
                        "return { ok = ok }")
     assert res["ok"] is False
 
@@ -154,9 +155,18 @@ def longest_use_first_within_a_list():
     spec = [["Ana", 0, 90, 1, 100, 0, None, 1], ["Bo", 0, 20, 1, 100, 0, None, 3], ["Cy", 0, 95, 4, 100, 0, None, 4]]
     order, sug, _ = rank(c["Bob"], spec)
     assert sug == "Ana", (order, sug)                     # the roll (default)
-    order, sug, _ = rank(c["Bob"], spec, w="o")
+    order, sug, _ = rank(c["Bob"], spec, o=4)
     assert sug == "Bo" and order[:2] == ["Bo", "Ana"], (order, sug)   # longest use inside the BiS list
     assert order[2] == "Cy"                              # lists first still comes before it
+    # with the dry streak on too, longest use goes first, then the driest, then the roll
+    spec2 = [["Ana", 0, 90, 1, 100, 6, None, 2], ["Bo", 0, 20, 1, 100, 1, None, 3], ["Di", 0, 50, 1, 100, 3, None, 2]]
+    order, sug, _ = rank(c["Bob"], spec2, o=4, w="d")
+    assert order == ["Bo", "Ana", "Di"], order
+    order, sug, _ = rank(c["Bob"], spec2, w="d")
+    assert order == ["Ana", "Di", "Bo"], order                       # longest use off: the driest first
+    # rules saved while longest use was a "then" choice (w = "o", h = 4) read as o = 4, w = "r"
+    got = c["Bob"].eval_py("return ns.Guild:CleanLootRules({ f = 0, s = 'r', l = 'l', w = 'o', y = 'n', h = 4 })")
+    assert got["o"] == 4 and got["w"] == "r", got
 
 
 # Store:Longevity: phases a pick stays on the list, from the guild's phase up to the last phase counted

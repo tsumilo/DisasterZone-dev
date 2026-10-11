@@ -1513,24 +1513,35 @@ end
 -- s = when votes split ("r" the highest roll among them, "p" the council picks), l = before any vote ("l" lists first,
 -- "r" the roll only), w = then ("r" the highest roll, "d" the driest first), y = what a dry streak counts ("n" nights
 -- they were really there, "a" any night they came) }.
--- (w "o", 1.3.5 longevity: "Longest use" orders by how many phases the player keeps the item on their list, Store:Longevity;
--- h = the last phase counted, 3-5: with 4, a P2-P4 pick replaced in P5 weighs the same as one kept in P5.)
-Guild.LOOT_RULES = { f = 0, s = "r", l = "l", w = "r", y = "n", h = 4 }
-local LOOT_CHOICES = { s = { r = true, p = true }, l = { l = true, r = true }, w = { r = true, d = true, o = true },
+-- (o, 1.3.5 longevity, its own criterion beside the dry streak: 0 = off, else "Longest use" orders by how many phases
+-- the player keeps the item on their list (Store:Longevity), counted up to phase o (3-5): with 4, a P2-P4 pick replaced
+-- in P5 weighs the same as one kept in P5. Inside a list: longest use, then driest (w "d"), then the roll.)
+Guild.LOOT_RULES = { f = 0, s = "r", l = "l", w = "r", y = "n", o = 0, q = "h" }
+local LOOT_CHOICES = { s = { r = true, p = true }, l = { l = true, r = true }, w = { r = true, d = true },
                        y = { n = true, a = true } }
 local function CleanLootRules(lr)
     if type(lr) ~= "table" then return nil end
     local f = tonumber(lr.f)
     if not IsInt(f, 0, 100) then return nil end
     local out = { f = f }
+    -- (rules saved while longest use was a "then" choice, w "o" + h: the same as o = h now)
+    local o = lr.o
+    if lr.w == "o" then
+        lr = Util.CopyTable and Util.CopyTable(lr) or lr
+        o, lr.w = tonumber(lr.h) or 4, "r"
+    end
     for k, set in pairs(LOOT_CHOICES) do
         if not set[lr[k]] then return nil end
         out[k] = lr[k]
     end
-    -- (rules saved before h existed count up to P4)
-    local h = lr.h == nil and 4 or tonumber(lr.h)
-    if not IsInt(h, 3, 5) then return nil end
-    out.h = h
+    o = o == nil and 0 or tonumber(o)
+    if not (o == 0 or IsInt(o, 3, 5)) then return nil end
+    out.o = o
+    -- (1.3.5, q: a prized item rolled out - players who don't meet its rules get a notice, "h", or the roll window
+    -- anyway, "s"; rules saved before q existed: the notice)
+    local q = lr.q == nil and "h" or lr.q
+    if q ~= "h" and q ~= "s" then return nil end
+    out.q = q
     return out
 end
 Guild.CleanLootRules = function(_, lr) return CleanLootRules(lr) end
