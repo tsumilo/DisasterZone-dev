@@ -13,6 +13,7 @@ local addonName, ns = ...
 
 local NavMenu = ns:NewModule("NavMenu")
 local UI = ns.UI
+local S = ns.Style
 
 local floor, min, max, sin, pi = math.floor, math.min, math.max, math.sin, math.pi
 
@@ -23,15 +24,11 @@ local FACT_H, CHIP_H, CHIP_GAP = 46, 18, 4
 local TIE_W = 44
 local SWAP_TIME = 0.22          -- the spotlight's crossfade
 local DRIFT_TIME = 9            -- seconds: the art's slow zoom one way (then back)
-local GOLD = { 1, 0.82, 0 }
-local WHITE8 = "Interface\\Buttons\\WHITE8X8"
 local MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
 local RADIAL = MEDIA .. "MyBiS\\Radial"
-local RING = MEDIA .. "Events\\ring"
-local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local LS = "Interface\\Glues\\LoadingScreens\\LoadScreen"
 
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now = ns.Util.Now
 
 -- Calls fn(...) safely: nil when it fails.
 local function Try(fn, ...)
@@ -51,21 +48,21 @@ local function Count(n) return tostring(floor(tonumber(n) or 0)) end
 -- Raid loading screens by FileDataID (the client doesn't resolve them by path), the others by path; cx = where the
 -- painting's subject stands across it.
 local INFO = {
-    raids   = { art = 131826, cx = 0.40, icon = "calendar", accent = { 1, 0.82, 0 } },
+    raids   = { art = 131826, cx = 0.40, icon = "calendar", accent = S.C.GOLD },
     council = { art = 131849, cx = 0.22, icon = "crown", accent = { 0.77, 0.55, 1 } },
-    lootrules = { art = 131826, cx = 0.40, icon = "ballot", accent = { 1, 0.82, 0 } },
+    lootrules = { art = 131826, cx = 0.40, icon = "ballot", accent = S.C.GOLD },
     mylog   = { art = 131842, cx = 0.42, icon = "practice", accent = { 0.37, 0.82, 1 } },
-    mybis   = { art = 131846, cx = 0.50, icon = "bag", accent = { 1, 0.82, 0 } },
+    mybis   = { art = 131846, cx = 0.50, icon = "bag", accent = S.C.GOLD },
     gearsim = { art = 131873, cx = 0.55, icon = "chart", accent = { 1, 0.55, 0.25 } },
     consumables = { art = 131847, cx = 0.45, icon = "flask", accent = { 0.53, 0.85, 0.42 } },
     atlas   = { art = LS .. "Outland", cx = 0.50, icon = "eye", accent = { 0.53, 0.85, 0.42 } },
-    members = { art = LS .. "EasternKingdom", cx = 0.50, icon = "team", accent = { 1, 0.82, 0 } },
+    members = { art = LS .. "EasternKingdom", cx = 0.50, icon = "team", accent = S.C.GOLD },
     map     = { art = LS .. "Kalimdor", cx = 0.55, icon = "flag", accent = { 0.37, 0.82, 1 } },
     events  = { art = LS .. "NagrandArenaBattlegrounds", cx = 0.50, icon = "trophy", accent = { 0.73, 0.55, 1 } },
-    polls   = { art = LS .. "WarsongGulch", cx = 0.50, icon = "poll", accent = { 1, 0.82, 0 } },
+    polls   = { art = LS .. "WarsongGulch", cx = 0.50, icon = "poll", accent = S.C.GOLD },
     games   = { art = 131849, cx = 0.70, icon = "games", accent = { 0.31, 0.83, 0.88 } },
 }
-local DEFAULT_INFO = { art = LS .. "Outland", cx = 0.5, icon = "notes", accent = GOLD }
+local DEFAULT_INFO = { art = LS .. "Outland", cx = 0.5, icon = "notes", accent = S.C.GOLD }
 NavMenu.INFO = INFO
 
 local function IconIndex(name)
@@ -349,71 +346,13 @@ end
 -- Drawing helpers
 ---------------------------------------------------------------------------
 
-local gradA = CreateColor and CreateColor(0, 0, 0, 0)
-local gradB = CreateColor and CreateColor(0, 0, 0, 0)
-local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    tex:SetTexture(WHITE8)
-    if gradA and tex.SetGradient then
-        gradA:SetRGBA(r1, g1, b1, a1)
-        gradB:SetRGBA(r2, g2, b2, a2)
-        tex:SetGradient(orient, gradA, gradB)
-    else
-        tex:SetVertexColor((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
-    end
-end
-
-local function Font(fs, size)
-    local path, _, flags = fs:GetFont()
-    fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, flags or "")
-end
-
+-- An atlas glyph (UI.ICON index) on tex, tinted c (a Style token name or { r, g, b }).
 local function Glyph(tex, index, c, a)
     tex:SetTexture(UI.ICON_ATLAS)
     local co = UI:IconCoords(index)
     tex:SetTexCoord(co[1], co[2], co[3], co[4])
-    tex:SetVertexColor(c[1], c[2], c[3], a or 1)
-end
-
--- A soft shadow round frame f: a 9-slice of the radial texture's falloff (as the Games hub's posters).
-local SH_IN, SH_OUT = 0.5 - 0.125, 0.5 - 0.406
-local function SoftShadow(f, r, alpha, dy, inset)
-    local function piece(l, rr, t, b)
-        local tex = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-        tex:SetTexture(RADIAL)
-        tex:SetVertexColor(0, 0, 0, alpha)
-        tex:SetTexCoord(l, rr, t, b)
-        return tex
-    end
-    local m1, m2 = 0.499, 0.501
-    local a, b, c, d = SH_OUT, SH_IN, 1 - SH_IN, 1 - SH_OUT
-    local L, R, T, B = inset, -inset, -inset - dy, inset - dy
-    local tl = piece(a, b, a, b)
-    tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", L, T)
-    tl:SetSize(r, r)
-    local tr = piece(c, d, a, b)
-    tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", R, T)
-    tr:SetSize(r, r)
-    local bl = piece(a, b, c, d)
-    bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT", L, B)
-    bl:SetSize(r, r)
-    local br = piece(c, d, c, d)
-    br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT", R, B)
-    br:SetSize(r, r)
-    local top = piece(m1, m2, a, b)
-    top:SetPoint("BOTTOMLEFT", tl, "BOTTOMRIGHT")
-    top:SetPoint("TOPRIGHT", tr, "TOPLEFT")
-    local bottom = piece(m1, m2, c, d)
-    bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT")
-    bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
-    local left = piece(a, b, m1, m2)
-    left:SetPoint("TOPRIGHT", tl, "BOTTOMRIGHT")
-    left:SetPoint("BOTTOMLEFT", bl, "TOPLEFT")
-    local right = piece(c, d, m1, m2)
-    right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT")
-    right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
-    local mid = piece(m1, m2, m1, m2)
-    mid:SetPoint("TOPLEFT", tl, "BOTTOMRIGHT")
-    mid:SetPoint("BOTTOMRIGHT", br, "TOPLEFT")
+    local r, g, b = S:Color(c)
+    tex:SetVertexColor(r, g, b, a or 1)
 end
 
 -- The loading screen's painting sits between 25% and 78.5% of the stored square, shown at 4:3: crop it to w x h
@@ -428,8 +367,12 @@ local function CropArt(tex, w, h, cx, z, dx)
     tex:SetTexCoord(l, l + fw, t, t + fh)
 end
 
+-- A badge's pill kind ({ text, kind } from MainFrame's NAV_BADGES; "mute" without one).
+local function BadgeKind(badge) return badge and badge.kind or "mute" end
+
 ---------------------------------------------------------------------------
--- The panel
+-- The panel: the pages' list on the left (rows with the shared picked / hover look), the spotlight on the right (a
+-- page banner over the facts as inset cards and the views as chips)
 ---------------------------------------------------------------------------
 
 local f              -- the panel
@@ -440,128 +383,53 @@ local function NewRow(parent, i)
     local r = CreateFrame("Button", nil, parent)
     r:SetSize(RAIL_W, ROW_H)
     r:RegisterForClicks("LeftButtonUp")
-    r.wash = r:CreateTexture(nil, "BACKGROUND")
-    r.wash:SetAllPoints()
-    Gradient(r.wash, "HORIZONTAL", 1, 0.82, 0, 0.16, 1, 0.82, 0, 0.02)
-    r.hl = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-    r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.04)
-    r.hl:Hide()
-    r.bar = r:CreateTexture(nil, "ARTWORK")
-    r.bar:SetPoint("TOPLEFT", 0, -4)
-    r.bar:SetPoint("BOTTOMLEFT", 0, 4)
-    r.bar:SetWidth(2)
-    r.bar:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-    r.glow = r:CreateTexture(nil, "ARTWORK", nil, -1)
-    r.glow:SetTexture(RADIAL)
-    r.glow:SetBlendMode("ADD")
-    r.glow:SetVertexColor(1, 0.82, 0, 0.35)
-    r.glow:SetPoint("CENTER", r.bar, "CENTER", 0, 0)
-    r.glow:SetSize(14, ROW_H)
+    UI:DecorateRow(r, { selectable = true })      -- (the spotlit one: the gold wash and the 2 px bar)
+    r.bar = r.dzSelBar
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(16, 16)
     r.icon:SetPoint("LEFT", 10, 0)
     r.icon:SetPoint("TOP", r, "TOP", 0, -8)
-    r.fs = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    Font(r.fs, 13)
+    r.fs = UI:Text(r, "title", "TEXT", { shadow = true })
     r.fs:SetPoint("BOTTOMLEFT", r, "LEFT", 34, 0)
-    r.fs:SetJustifyH("LEFT")
-    r.fs:SetWordWrap(false)
-    r.fs:SetShadowOffset(1, -1)
     -- (the page's first live fact, at a glance without hovering it)
-    r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(r.sub, 9.5)
+    r.sub = UI:Text(r, "caps", "DIM")
     r.sub:SetPoint("TOPLEFT", r, "LEFT", 34, -3)
     r.sub:SetPoint("RIGHT", r, "RIGHT", -6, 0)
-    r.sub:SetJustifyH("LEFT")
-    r.sub:SetWordWrap(false)
     r.count = UI:CreateCountBadge(r, 14)
     r.count:SetPoint("LEFT", r.fs, "RIGHT", 6, 0)
-    r.pill = CreateFrame("Frame", nil, r)
-    r.pill:SetHeight(11)
-    if UI.AddPillShape then UI:AddPillShape(r.pill, 11) end
-    r.pill.fs = r.pill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(r.pill.fs, 7.5)
-    r.pill.fs:SetPoint("CENTER", 0.5, 0)
+    r.pill = UI:CreatePill(r, nil, nil, 12)
     r.pill:SetPoint("LEFT", r.fs, "RIGHT", 6, 0)
     r.pill:Hide()
     r:SetScript("OnEnter", function(self)
-        self.hl:Show()
         if open and self.page then NavMenu:Focus(self.page.key) end
     end)
-    r:SetScript("OnLeave", function(self) self.hl:Hide() end)
     r:SetScript("OnClick", function(self)
         if open and self.page then NavMenu:Pick(self.page.key) end
     end)
     return r
 end
 
-local function SetPill(r, badge)
-    local p = r.pill
+local function SetPill(p, badge)
     if not badge then p:Hide() return end
-    local c = badge.color or GOLD
-    if p.SetPillColors then
-        p:SetPillColors({ 0.1 + (c[1] - 0.1) * 0.16, 0.1 + (c[2] - 0.1) * 0.16, 0.12 + (c[3] - 0.12) * 0.16, 1 },
-            { c[1], c[2], c[3], 0.5 })
-    end
-    p.fs:SetText(badge.text or "")
-    p.fs:SetTextColor(c[1], c[2], c[3])
-    p:SetWidth(floor((p.fs:GetStringWidth() or 18) + 8 + 0.5))
+    p:SetPill(BadgeKind(badge), badge.text or "")
     p:Show()
 end
 
-local function NewChip(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(CHIP_H)
-    UI:AddPillShape(c, CHIP_H)
-    c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(c.fs, 10)
-    c.fs:SetPoint("CENTER", -3, 0)
-    c.arrow = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(c.arrow, 10)
-    c.arrow:SetText("\226\128\186")     -- ›
-    c.arrow:SetPoint("LEFT", c.fs, "RIGHT", 3, 0)
-    function c:Paint()
-        local on, hot = self.view and self.view.on, self.hot
-        if on then
-            self:SetPillColors({ 0.2, 0.17, 0.06, 1 }, { 1, 0.82, 0, hot and 0.9 or 0.6 })
-            self.fs:SetTextColor(1, 0.82, 0)
-        else
-            self:SetPillColors(hot and { 0.17, 0.17, 0.19, 1 } or { 0.12, 0.12, 0.135, 1 },
-                hot and { 1, 0.82, 0, 0.55 } or { 1, 1, 1, 0.16 })
-            if hot then self.fs:SetTextColor(1, 1, 1) else self.fs:SetTextColor(0.81, 0.81, 0.83) end
-        end
-        self.arrow:SetTextColor(0.47, 0.47, 0.49)
-    end
-    c:SetScript("OnEnter", function(self) self.hot = true self:Paint() end)
-    c:SetScript("OnLeave", function(self) self.hot = false self:Paint() end)
-    c:SetScript("OnClick", function(self)
-        if open and self.key then NavMenu:Pick(self.key, self.view and self.view.key) end
-    end)
-    return c
+-- A click on a view's chip: open the page on that view.
+local function PickView(c)
+    if open and c.key then NavMenu:Pick(c.key, c.view and c.view.key) end
 end
 
+-- A live fact: an inset card with the value big in the page's accent and its label under it.
 local function NewFact(parent)
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetHeight(FACT_H)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.bg:SetColorTexture(0.114, 0.114, 0.13, 1)
-    UI:AddEdges(b, "BORDER")
-    UI:SetEdgeColor(b, 1, 1, 1, 0.07)
-    b.value = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    Font(b.value, 15)
+    local b = UI:CreateCard(parent, { tone = "inset", pad = 0, height = FACT_H })
+    b.body:Hide()
+    b.value = UI:Text(b, "title")
     b.value:SetPoint("TOPLEFT", 9, -8)
     b.value:SetPoint("RIGHT", -8, 0)
-    b.value:SetJustifyH("LEFT")
-    b.value:SetWordWrap(false)
-    b.label = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(b.label, 9.5)
-    b.label:SetPoint("TOPLEFT", b.value, "BOTTOMLEFT", 0, -5)
+    b.label = UI:Text(b, "caps", "SUB")
+    b.label:SetPoint("TOPLEFT", b.value, "BOTTOMLEFT", 0, -6)
     b.label:SetPoint("RIGHT", -8, 0)
-    b.label:SetJustifyH("LEFT")
-    b.label:SetWordWrap(false)
-    b.label:SetTextColor(0.56, 0.56, 0.59)
     return b
 end
 
@@ -572,117 +440,52 @@ local function Build(parent)
     p:EnableMouse(true)
     p:SetClampedToScreen(true)
     p:Hide()
-    SoftShadow(p, 40, 0.5, 12, 8)
-    SoftShadow(p, 10, 0.35, 2, 2)
-    p.bg = p:CreateTexture(nil, "BACKGROUND")
-    p.bg:SetAllPoints()
-    Gradient(p.bg, "VERTICAL", 0.07, 0.07, 0.08, 0.985, 0.106, 0.106, 0.122, 0.985)
+    -- a dropdown's surface (UI.DROP_BG / DROP_EDGE, the menus' own) with the windows' soft shadow
+    UI:SoftShadow(p, 40, 0.5, 12, 8)
+    UI:SoftShadow(p, 10, 0.35, 2, 2)
+    p.bg = UI:Fill(p, "DROP_BG")
     UI:AddEdges(p, "BORDER")
-    UI:SetEdgeColor(p, 0.23, 0.23, 0.25, 1)
+    UI:SetEdgeColor(p, S:Color("DROP_EDGE"))
     -- the tie: a gold piece on the top edge under the tab, fading out to both sides
+    local gold, goldA, gold0 = S.C.GOLD, { S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.55 },
+        { S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0 }
     p.tie = p:CreateTexture(nil, "OVERLAY", nil, 2)
     p.tie:SetSize(TIE_W, 2)
-    p.tie:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+    p.tie:SetColorTexture(gold[1], gold[2], gold[3], 1)
     p.tieGlow = p:CreateTexture(nil, "OVERLAY", nil, 1)
     p.tieGlow:SetTexture(RADIAL)
     p.tieGlow:SetBlendMode("ADD")
-    p.tieGlow:SetVertexColor(1, 0.82, 0, 0.45)
+    p.tieGlow:SetVertexColor(gold[1], gold[2], gold[3], 0.45)
     p.tieGlow:SetSize(TIE_W + 24, 14)
     p.tieGlow:SetPoint("CENTER", p.tie, "CENTER")
     p.tieL = p:CreateTexture(nil, "OVERLAY", nil, 1)
     p.tieL:SetSize(110, 1)
     p.tieL:SetPoint("RIGHT", p.tie, "LEFT", 0, 0.5)
-    Gradient(p.tieL, "HORIZONTAL", 1, 0.82, 0, 0, 1, 0.82, 0, 0.55)
+    UI:Gradient(p.tieL, "HORIZONTAL", gold0, goldA)
     p.tieR = p:CreateTexture(nil, "OVERLAY", nil, 1)
     p.tieR:SetSize(110, 1)
     p.tieR:SetPoint("LEFT", p.tie, "RIGHT", 0, 0.5)
-    Gradient(p.tieR, "HORIZONTAL", 1, 0.82, 0, 0.55, 1, 0.82, 0, 0)
+    UI:Gradient(p.tieR, "HORIZONTAL", goldA, gold0)
 
     p.rows = {}
-    -- the spotlight
-    local s = CreateFrame("Frame", nil, p)
+    -- the spotlight: an inset card; its banner, facts and views fade together on a swap (the card stays)
+    local s = UI:CreateCard(p, { tone = "inset", pad = 0 })
     s:SetWidth(SPOT_W)
     s:SetPoint("TOPLEFT", PAD + RAIL_W + GAP, -PAD)
-    s.bg = s:CreateTexture(nil, "BACKGROUND")
-    s.bg:SetAllPoints()
-    s.bg:SetColorTexture(0.086, 0.086, 0.098, 1)
-    UI:AddEdges(s, "OVERLAY")
-    UI:SetEdgeColor(s, 1, 1, 1, 0.09)
-    -- (the words and art fade together on a swap; the frame and its edges stay)
-    s.body = CreateFrame("Frame", nil, s)
-    s.body:SetAllPoints()
-    local artBtn = CreateFrame("Button", nil, s.body)
-    artBtn:SetPoint("TOPLEFT", 1, -1)
-    artBtn:SetPoint("TOPRIGHT", -1, -1)
-    artBtn:SetHeight(ART_H)
-    artBtn:SetScript("OnClick", function() if open and open.focus then NavMenu:Pick(open.focus) end end)
-    s.artBtn = artBtn
-    s.art = artBtn:CreateTexture(nil, "BACKGROUND")
-    s.art:SetAllPoints()
-    s.shadeB = artBtn:CreateTexture(nil, "BORDER")
-    s.shadeB:SetPoint("BOTTOMLEFT")
-    s.shadeB:SetPoint("BOTTOMRIGHT")
-    s.shadeB:SetHeight(ART_H * 0.8)
-    Gradient(s.shadeB, "VERTICAL", 0.055, 0.055, 0.063, 0.94, 0.055, 0.055, 0.063, 0)
-    s.shadeL = artBtn:CreateTexture(nil, "BORDER", nil, 1)
-    s.shadeL:SetPoint("TOPLEFT")
-    s.shadeL:SetPoint("BOTTOMLEFT")
-    s.shadeL:SetWidth(SPOT_W * 0.6)
-    Gradient(s.shadeL, "HORIZONTAL", 0, 0, 0, 0.35, 0, 0, 0, 0)
-    -- the icon in its ring (a dark disc, the events' metal ring tinted gold, a soft gold glow behind)
-    local ring = CreateFrame("Frame", nil, artBtn)
-    ring:SetSize(38, 38)
-    ring:SetPoint("BOTTOMLEFT", 12, 10)
-    ring.glow = ring:CreateTexture(nil, "BACKGROUND")
-    ring.glow:SetTexture(RADIAL)
-    ring.glow:SetBlendMode("ADD")
-    ring.glow:SetSize(70, 70)
-    ring.glow:SetPoint("CENTER")
-    ring.disc = ring:CreateTexture(nil, "ARTWORK")
-    ring.disc:SetTexture(WHITE8)
-    ring.disc:SetVertexColor(0.07, 0.07, 0.08, 1)
-    ring.disc:SetPoint("CENTER")
-    ring.disc:SetSize(34, 34)
-    if ring.CreateMaskTexture then
-        ring.mask = ring:CreateMaskTexture()
-        ring.mask:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        ring.mask:SetAllPoints(ring.disc)
-        ring.disc:AddMaskTexture(ring.mask)
-    end
-    ring.ring = ring:CreateTexture(nil, "OVERLAY")
-    ring.ring:SetTexture(RING)
-    ring.ring:SetAllPoints()
-    ring.icon = ring:CreateTexture(nil, "OVERLAY", nil, 1)
-    ring.icon:SetSize(20, 20)
-    ring.icon:SetPoint("CENTER")
-    s.ring = ring
-    s.name = artBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    Font(s.name, 19)
-    s.name:SetPoint("BOTTOMLEFT", 0, 0)   -- (placed over the line, FillSpot)
-    s.name:SetJustifyH("LEFT")
-    s.name:SetWordWrap(false)
-    s.name:SetShadowOffset(1, -1)
-    s.count = UI:CreateCountBadge(artBtn, 14)
-    s.count:SetPoint("LEFT", s.name, "RIGHT", 7, 0)
-    s.pill = CreateFrame("Frame", nil, artBtn)
-    s.pill:SetHeight(12)
-    if UI.AddPillShape then UI:AddPillShape(s.pill, 12) end
-    s.pill.fs = s.pill:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(s.pill.fs, 8)
-    s.pill.fs:SetPoint("CENTER", 0.5, 0)
-    s.pill:SetPoint("LEFT", s.name, "RIGHT", 7, 0)
-    s.line = artBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Font(s.line, 10)
-    s.line:SetPoint("BOTTOMLEFT", ring, "BOTTOMRIGHT", 10, 3)
-    s.line:SetWidth(SPOT_W - 2 - 12 - 38 - 10 - 12)
-    s.line:SetJustifyH("LEFT")
-    s.line:SetJustifyV("BOTTOM")
-    s.line:SetWordWrap(true)
-    if s.line.SetMaxLines then s.line:SetMaxLines(2) end
-    s.name:ClearAllPoints()
-    s.name:SetPoint("BOTTOMLEFT", s.line, "TOPLEFT", 0, 3)
-    s.line:SetTextColor(0.79, 0.79, 0.8)
-    s.line:SetShadowOffset(1, -1)
+    -- the page as a banner (UI:CreatePageBanner): its loading screen drifting slowly, its icon in the gold ring,
+    -- its name (and count or badge) and its line; a click on it opens the page
+    local b = UI:CreatePageBanner(s.body, { size = ART_H, width = SPOT_W, icon = UI.ICON.notes, title = "", artFw = 1 })
+    b:SetPoint("TOPLEFT", 0, 0)
+    b:SetPoint("TOPRIGHT", 0, 0)
+    b:EnableMouse(true)
+    b:SetScript("OnMouseUp", function() if open and open.focus then NavMenu:Pick(open.focus) end end)
+    b.sub:SetWordWrap(true)
+    if b.sub.SetMaxLines then b.sub:SetMaxLines(2) end
+    s.banner, s.artBtn, s.art = b, b, b.art
+    s.name, s.line, s.pill = b.title, b.sub, b.pill
+    s.ring = b.icon
+    s.count = UI:CreateCountBadge(b, 14)
+    s.count:SetPoint("LEFT", b.title, "RIGHT", 7, 0)
     s.facts = { NewFact(s.body), NewFact(s.body) }
     s.chips = {}
     p.spot = s
@@ -701,7 +504,7 @@ local function Build(parent)
         end
         local k = 0.5 - 0.5 * math.cos(self.t * pi / DRIFT_TIME)     -- 0 .. 1 .. 0, eased at both ends
         if self.artInfo then
-            CropArt(s.art, SPOT_W - 2, ART_H, self.artInfo.cx, 1.03 + 0.10 * k, -0.05 * k)
+            CropArt(s.art, SPOT_W - 2, ART_H - 2, self.artInfo.cx, 1.03 + 0.10 * k, -0.05 * k)
         end
         -- the owner hiding closes it
         local o = open and open.owner
@@ -736,22 +539,18 @@ local function Build(parent)
     return p
 end
 
--- The rows' look: the spotlit one gold-washed with its bar, the page shown now in gold.
+-- The rows' look: the spotlit one picked (gold wash, its bar), the page shown now in gold.
 PaintRows = function()
     for _, r in ipairs(f.rows) do
         local pg = r.page
         if pg then
             local lit = pg.key == open.focus
             local cur = pg.key == open.spec.current
-            r.wash:SetShown(lit)
-            r.bar:SetShown(lit)
-            r.glow:SetShown(lit)
+            r:SetSelected(lit)
             local info = INFO[pg.key] or DEFAULT_INFO
-            Glyph(r.icon, IconIndex(info.icon), lit and GOLD or (cur and GOLD) or { 0.78, 0.78, 0.8 })
-            if lit then r.sub:SetTextColor(0.72, 0.72, 0.75) else r.sub:SetTextColor(0.5, 0.5, 0.53) end
-            if cur then r.fs:SetTextColor(1, 0.82, 0)
-            elseif lit then r.fs:SetTextColor(1, 1, 1)
-            else r.fs:SetTextColor(0.77, 0.77, 0.78) end
+            Glyph(r.icon, IconIndex(info.icon), (lit or cur) and "GOLD" or "SUB")
+            r.sub:SetTextColor(S:Color(lit and "SUB" or "DIM"))
+            r.fs:SetTextColor(S:Color(cur and "GOLD" or "TEXT"))
         end
     end
 end
@@ -759,82 +558,74 @@ end
 -- The spotlight's words and art for page pg; returns its height.
 FillSpot = function(pg)
     local s = f.spot
+    local b = s.banner
     local info = INFO[pg.key] or DEFAULT_INFO
     f.artInfo = info
-    s.art:SetTexture(info.art)
-    CropArt(s.art, SPOT_W - 2, ART_H, info.cx, 1.03, 0)
-    local a = info.accent or GOLD
-    s.ring.glow:SetVertexColor(a[1], a[2], a[3], 0.32)
-    s.ring.ring:SetVertexColor(1, 0.84, 0.36)
-    Glyph(s.ring.icon, IconIndex(info.icon), GOLD)
-    s.name:SetText(pg.label or pg.key)
-    s.name:SetTextColor(1, 1, 1)
-    s.line:SetText(pg.line or "")
+    b:SetIcon(IconIndex(info.icon))
+    -- (a glyph, not a picture: smaller, gold, on the tile's dark ground)
+    b.icon.tex:ClearAllPoints()
+    b.icon.tex:SetPoint("CENTER")
+    b.icon.tex:SetSize(26, 26)
+    b.icon.tex:SetVertexColor(S:Color("GOLD"))
+    b:SetTitle(pg.label or pg.key)
+    b:SetSub(pg.line or "")
     if (tonumber(pg.count) or 0) > 0 then
+        b:SetPill(nil)
         s.count:SetCount(pg.count)
-        s.pill:Hide()
     else
         s.count:Hide()
-        local b = pg.badge
-        if b then
-            local c = b.color or GOLD
-            if s.pill.SetPillColors then
-                s.pill:SetPillColors({ 0.1 + (c[1] - 0.1) * 0.2, 0.1 + (c[2] - 0.1) * 0.2, 0.12 + (c[3] - 0.12) * 0.2, 1 },
-                    { c[1], c[2], c[3], 0.6 })
-            end
-            s.pill.fs:SetText(b.text or "")
-            s.pill.fs:SetTextColor(c[1], c[2], c[3])
-            s.pill:SetWidth(floor((s.pill.fs:GetStringWidth() or 18) + 9 + 0.5))
-            s.pill:Show()
-        else
-            s.pill:Hide()
-        end
+        local badge = pg.badge
+        b:SetPill(badge and BadgeKind(badge) or nil, badge and badge.text or nil)
     end
-    local y = ART_H + 1
+    -- (the art last: SetArt lays the banner out, the drift crops it from here on)
+    b:SetArt({ info.art, 0, 1, 0, 1 })
+    CropArt(b.art, SPOT_W - 2, ART_H - 2, info.cx, 1.03, 0)
+    local a = info.accent or S.C.GOLD
+    local y = ART_H
     -- facts
     local facts = open.facts[pg.key] or NavMenu:Facts(pg.key)
     open.facts[pg.key] = facts
     local n = min(2, #facts)
-    local fw = n > 0 and floor((SPOT_W - 24 - (n - 1) * 6) / n) or 0
-    for i, b in ipairs(s.facts) do
+    local fw = n > 0 and floor((SPOT_W - 2 * S.PAD - (n - 1) * 6) / n) or 0
+    for i, box in ipairs(s.facts) do
         local fact = facts[i]
         if i <= n and fact then
-            b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", s, "TOPLEFT", 12 + (i - 1) * (fw + 6), -(y + 10))
-            b:SetWidth(fw)
-            b.value:SetText(tostring(fact[1] or ""))
-            b.value:SetTextColor(a[1], a[2], a[3])
-            b.label:SetText(tostring(fact[2] or ""))
-            b:Show()
+            box:ClearAllPoints()
+            box:SetPoint("TOPLEFT", s, "TOPLEFT", S.PAD + (i - 1) * (fw + 6), -(y + S.PAD))
+            box:SetWidth(fw)
+            box.value:SetText(tostring(fact[1] or ""))
+            box.value:SetTextColor(a[1], a[2], a[3])
+            box.label:SetText(UI:CapsText(tostring(fact[2] or "")))
+            box:Show()
         else
-            b:Hide()
+            box:Hide()
         end
     end
-    if n > 0 then y = y + 10 + FACT_H end
+    if n > 0 then y = y + S.PAD + FACT_H end
     -- jumps into the page's views, wrapped onto as many rows as they need
     local views = Try(VIEWS[pg.key]) or {}
-    local x, rowsUsed = 12, 0
-    local maxX = SPOT_W - 12
+    local x, rowsUsed = S.PAD, 0
+    local maxX = SPOT_W - S.PAD
     for i, v in ipairs(views) do
-        local c = s.chips[i] or NewChip(s.body)
+        -- (a jump into one of the page's views: a chip, gold while it is the view shown now)
+        local c = s.chips[i] or UI:CreateChip(s.body, { kind = "track", onClick = PickView })
         s.chips[i] = c
-        c.key, c.view, c.hot = pg.key, v, false
-        c.fs:SetText(v.label or v.key)
-        local w = floor((c.fs:GetStringWidth() or 30) + 26 + 0.5)
-        c:SetWidth(w)
+        c.key, c.view = pg.key, v
+        c:Set(v.label or v.key)
+        c:SetSelected(v.on and true or false)
+        local w = c:GetWidth()
         if rowsUsed == 0 or x + w > maxX then
             rowsUsed = rowsUsed + 1
-            x = 12
+            x = S.PAD
         end
         c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", s, "TOPLEFT", x, -(y + 10 + (rowsUsed - 1) * (CHIP_H + CHIP_GAP)))
+        c:SetPoint("TOPLEFT", s, "TOPLEFT", x, -(y + S.PAD + (rowsUsed - 1) * (CHIP_H + CHIP_GAP)))
         x = x + w + CHIP_GAP
-        c:Paint()
         c:Show()
     end
-    for i = #views + 1, #s.chips do s.chips[i]:Hide() end
-    if rowsUsed > 0 then y = y + 10 + rowsUsed * CHIP_H + (rowsUsed - 1) * CHIP_GAP end
-    return y + 12
+    UI:HideFrom(s.chips, #views + 1)
+    if rowsUsed > 0 then y = y + S.PAD + rowsUsed * CHIP_H + (rowsUsed - 1) * CHIP_GAP end
+    return y + S.PAD + 2
 end
 
 -- Lays the panel out for open.spec: the rows, the spotlight, the size, the tie under the owner.
@@ -850,13 +641,13 @@ Paint = function()
         local facts = NavMenu:Facts(pg.key)
         open.facts[pg.key] = facts
         local first = facts[1]
-        r.sub:SetText(first and ("|cffd2d2d6%s|r  %s"):format(tostring(first[1]), tostring(first[2] or "")) or "")
+        r.sub:SetText(first and (S:Wrap("TEXT", tostring(first[1])) .. "  " .. tostring(first[2] or "")) or "")
         if (tonumber(pg.count) or 0) > 0 then
             r.count:SetCount(pg.count)
             r.pill:Hide()
         else
             r.count:Hide()
-            SetPill(r, pg.badge)
+            SetPill(r.pill, pg.badge)
         end
         r:Show()
     end

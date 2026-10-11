@@ -28,7 +28,7 @@ local NAV_ICONS = {
 }
 -- Text tabs with a small pill after their label (UI:CreateNavStrip's badge): pages still being tried out.
 local NAV_BADGES = {
-    events = { text = "BETA", color = { 0.73, 0.55, 1 },
+    events = { text = "BETA", color = { 0.73, 0.55, 1 }, kind = "os",
                tip = { "Events (beta)", "New and still being tested: pages and pieces may change from one version "
                    .. "to the next, and a few things may not work yet." } },
 }
