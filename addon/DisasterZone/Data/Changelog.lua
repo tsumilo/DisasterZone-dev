@@ -153,6 +153,7 @@ ns.CHANGELOG = {
               "The ruler under the ring shows where each Seal of Blood landed against the window.",
               "Up to 3 stars per lesson, scored against a perfect run on the same swings.",
               "A star opens the next lesson. Free play runs the full rotation as long as you like.",
+              "Alliance paladins see Seal of the Martyr everywhere, not Seal of Blood.",
               "The ring's colors now meet in flat edges, and the fill ends in a flat line.",
           } },
           { heading = "My BiS: Epic, Rare or Uncommon gems", lines = {

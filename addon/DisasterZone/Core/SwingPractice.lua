@@ -47,7 +47,7 @@ local LESSONS = {
       intro = "Slow swings. Seal of Command goes back on for you after every swing." },
     { key = "command", title = "Command back on", spell = "soc", swings = 10, keys = { soc = true, sob = true },
       goal = "After each swing put Seal of Command back on, then twist.",
-      intro = "Your weapon's speed now. Command first, Blood in the orange." },
+      intro = "Your weapon's speed now. Command first, then Seal of Blood in the orange." },
     { key = "strike", title = "Crusader Strike", spell = "cs", swings = 10, keys = { soc = true, sob = true, cs = true },
       goal = "Fit Crusader Strike between the twists.",
       intro = "Strike when it is ready, but never let it cover the orange." },
@@ -122,7 +122,7 @@ end
 local function SpellKeyOf(name)
     if not name then return nil end
     for _, k in ipairs(SPELLS) do
-        if ST.NameOf(k) == name then return k end
+        if ST.NameOf(k) == name or (GetSpellInfo and GetSpellInfo(SPELL_IDS[k]) == name) then return k end
     end
     -- Seal of Blood's Alliance twin, by its own name too
     if GetSpellInfo and name == GetSpellInfo(348700) then return "sob" end
@@ -414,6 +414,28 @@ local function Ms(sec) return strformat("%d ms", floor(abs(sec) * 1000 + 0.5)) e
 
 local SPELL_LABEL = { soc = "Seal of Command", sob = "Seal of Blood", cs = "Crusader Strike", judge = "Judgement" }
 
+-- A spell's name as the player's client has it: Seal of the Martyr for the Alliance (SwingTimer's NameOf).
+function SP:Label(spell)
+    return (ST and ST.NameOf(spell)) or SPELL_LABEL[spell] or spell
+end
+
+-- The one word on a key chip.
+function SP:ShortLabel(spell)
+    if spell == "sob" then
+        local martyr = GetSpellInfo and GetSpellInfo(348700)
+        if martyr and ST and ST.NameOf("sob") == martyr then return "Martyr" end
+        return "Blood"
+    end
+    return ({ soc = "Command", cs = "Strike", judge = "Judge" })[spell] or spell
+end
+
+-- Text written with "Seal of Blood", in the player's own seal.
+function SP:Say(text)
+    if type(text) ~= "string" then return text end
+    local sob = self:Label("sob")
+    return (text:gsub("Seal of Blood", function() return sob end))
+end
+
 -- A swing is over (a late Blood had its chance): what happened to the twist.
 local function Classify(s, p)
     local kind, sub
@@ -446,7 +468,7 @@ local function Classify(s, p)
         end
         if by and by ~= "sob" then
             kind = "clip"
-            sub = (SPELL_LABEL[by] or "A spell") .. "'s global cooldown"
+            sub = SP:Label(by) .. "'s global cooldown"
             s.counts.clip = s.counts.clip + 1
         else
             kind = "miss"
@@ -771,6 +793,10 @@ end
 -- One thing to work on, from what went wrong most.
 function SP:Tip(res)
     if not res then return "" end
+    return self:Say(self:TipText(res))
+end
+
+function SP:TipText(res)
     local c = res.counts
     local worst, wn = nil, 0
     for _, k in ipairs({ "early", "late", "miss", "clip", "nocmd" }) do

@@ -53,7 +53,11 @@ local names = {}                 -- key -> localized spell name
 local function NameOf(key)
     if not names[key] and GetSpellInfo then
         local id = IDS[key]
-        if key == "sob" and IsSpellKnown and IsSpellKnown(MARTYR) then id = MARTYR end
+        -- (the Alliance's is Seal of the Martyr: by faction, so it is named right before it is trained too)
+        if key == "sob" and ((IsSpellKnown and IsSpellKnown(MARTYR))
+            or (UnitFactionGroup and UnitFactionGroup("player") == "Alliance")) and GetSpellInfo(MARTYR) then
+            id = MARTYR
+        end
         names[key] = GetSpellInfo(id)
     end
     return names[key]
@@ -62,6 +66,7 @@ SwingTimer.NameOf = NameOf
 SwingTimer.ICONS = setmetatable({}, { __index = function(_, key)
     local n = IDS[key] and NameOf(key)
     local tex = n and GetSpellTexture and GetSpellTexture(n)
+    if not tex and key == "sob" and n and n == GetSpellInfo(MARTYR) and GetSpellTexture then tex = GetSpellTexture(MARTYR) end
     return tex or ICONS[key]
 end })
 

@@ -588,7 +588,7 @@ if ns.ClassKit then ns.ClassKit:Extend("swing", { iconPath = "Interface\\Icons\\
     local manas = {}
     for _, n in ipairs({ 0, 20, 30, 40, 50, 60, 80 }) do manas[#manas + 1] = { value = n, text = n .. "%" } end
     S:DropdownSetting(sec, "Consecration above", "Only suggest it with at least this much mana.", "swing.consMana", 40, manas)
-    S:SwitchSetting(sec, "Sound in the twist zone", "A click when it is time to press Seal of Blood.", "swing.sound", false)
+    S:SwitchSetting(sec, "Sound in the twist zone", "A click when it is time to twist.", "swing.sound", false)
     local row = S:Row(sec, "Last fight", "")
     row.hasDesc = true
     S.PlaceText(row, 0)

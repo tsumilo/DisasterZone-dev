@@ -37,7 +37,9 @@ local KIND_RGB = {
     perfect = { 1, 0.82, 0.25 }, twist = { 0.38, 0.86, 0.46 }, early = { 1, 0.56, 0.22 }, late = { 1, 0.56, 0.22 },
     miss = { 0.95, 0.34, 0.30 }, clip = { 0.95, 0.34, 0.30 }, nocmd = { 0.95, 0.34, 0.30 },
 }
-local SPELL_LABEL = { soc = "Seal of Command", sob = "Seal of Blood", cs = "Crusader Strike", judge = "Judgement" }
+-- (names come from the client: Seal of the Martyr for the Alliance)
+local function Label(spell) return ns.SwingPractice:Label(spell) end
+local function Say(text) return ns.SwingPractice:Say(text) end
 -- the ruler: Seal of Blood from 0.9 s before the swing to 0.45 s after
 local DMIN, DMAX = -0.9, 0.45
 
@@ -287,7 +289,7 @@ local function NewRow(c, i)
         if self.locked then
             Tip(self, self.L.title, { strformat("Get a star in lesson %d first.", self.L.n - 1) })
         elseif self.L then
-            local lines = { self.L.intro }
+            local lines = { Say(self.L.intro) }
             local b = SP():Best(self.L.key)
             if b then lines[#lines + 1] = { strformat("Best: %d %% of a perfect run", floor((b.grade or 0) * 100 + 0.5)),
                 0.6, 0.6, 0.62 } end
@@ -374,7 +376,7 @@ local function NewChip(parent, spell)
             lines[#lines + 1] = { "Not found on your action bars: set it here. Mouse buttons can't be caught: pick a key.",
                 0.6, 0.6, 0.62 }
         end
-        Tip(self, SPELL_LABEL[self.spell], lines)
+        Tip(self, Label(self.spell), lines)
     end)
     chip:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
@@ -470,7 +472,6 @@ local function BuildResult(c)
     end
     r.rulerCap = Text(r, 9.5, GREY)
     r.rulerCap:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -218)
-    r.rulerCap:SetText("WHERE YOUR SEAL OF BLOOD LANDED")
     r.ruler = NewRuler(r, W - 10 - 2 * PAD - 32, 20, true)
     r.ruler:SetPoint("TOPLEFT", r, "TOPLEFT", 16, -234)
     r.tipCap = Text(r, 9.5, GOLD)
@@ -544,6 +545,7 @@ function PUI:ShowResult(res)
     end
     r.ruler:SetMarks(res.offsets or {})
     r.tip:SetText(SP():Tip(res))
+    r.rulerCap:SetText("WHERE YOUR " .. Label("sob"):upper() .. " LANDED")
     -- the next lesson
     local nextL = not res.free and SP().LESSONS[res.n + 1] or nil
     r.nextKey = nextL and SP():IsUnlocked(nextL) and nextL.key or nil
@@ -650,7 +652,7 @@ function PUI:Refresh()
         row.num:SetShown(L.key ~= "free")
         row.numText:SetText(i)
         row.title:SetText(L.title)
-        row.goal:SetText(row.locked and strformat("Get a star in lesson %d to open it.", i - 1) or L.goal)
+        row.goal:SetText(row.locked and strformat("Get a star in lesson %d to open it.", i - 1) or Say(L.goal))
         row:SetAlpha(row.locked and 0.6 or 1)
         local b = sp:Best(L.key)
         for s, st in ipairs(row.stars) do
@@ -687,16 +689,15 @@ function PUI:Refresh()
         else
             chip.key:SetText(KeyText(k))
             Edge(chip.cap, k and 0.36 or 0.7, k and 0.36 or 0.3, k and 0.4 or 0.26, 1)
-            local short = { soc = "Command", sob = "Blood", cs = "Strike", judge = "Judge" }
-            chip.what:SetText(short[chip.spell])
+            chip.what:SetText(SP():ShortLabel(chip.spell))
             chip.what:SetTextColor(DIM[1], DIM[2], DIM[3])
         end
         local w = chip.key:GetStringWidth() or 0
         chip.cap:SetWidth(max(24, min(52, w + 12)))
         if inL and not k and not missing then missing = chip.spell end
     end
-    frame.keys.cap:SetText(assigning and ("PRESS THE KEY YOU USE FOR " .. SPELL_LABEL[assigning]:upper() .. " · ESC CANCELS")
-        or missing and ("SET A KEY FOR " .. SPELL_LABEL[missing]:upper() .. ": CLICK IT")
+    frame.keys.cap:SetText(assigning and ("PRESS THE KEY YOU USE FOR " .. Label(assigning):upper() .. " · ESC CANCELS")
+        or missing and ("SET A KEY FOR " .. Label(missing):upper() .. ": CLICK IT")
         or "YOUR KEYS · CLICK ONE TO CHANGE IT")
     if assigning then frame.keys.cap:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     elseif missing then frame.keys.cap:SetTextColor(1, 0.5, 0.42)
@@ -855,7 +856,7 @@ local function BuildOverlay(ring)
         chip.note:SetJustifyH("CENTER")
         chip:SetScript("OnClick", function(self) SP():Press(self.spell) end)
         chip:SetScript("OnEnter", function(self)
-            Tip(self, SPELL_LABEL[self.spell], { "Press " .. SP():Short(SP().run and SP().run.keyOf[self.spell] or "") ..
+            Tip(self, Label(self.spell), { "Press " .. SP():Short(SP().run and SP().run.keyOf[self.spell] or "") ..
                 " (or click here)." })
         end)
         chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -936,14 +937,14 @@ local function CoachLine(run, now)
     local kt = k and ("|cffffd27a" .. SP():Short(k) .. "|r  ") or ""
     local dt = first.at - now
     if dt <= 0.05 then
-        return "Now: " .. kt .. SPELL_LABEL[first.key], { 1, 0.86, 0.45 }
+        return "Now: " .. kt .. Label(first.key), { 1, 0.86, 0.45 }
     end
     if first.key == "sob" and first.twist then
-        return "Next: " .. kt .. "Seal of Blood when the ring turns orange", { 0.9, 0.9, 0.92 }
+        return "Next: " .. kt .. Label("sob") .. " when the ring turns orange", { 0.9, 0.9, 0.92 }
     end
     if first.key == "soc" then return "Next: " .. kt .. "Seal of Command, after the swing", { 0.9, 0.9, 0.92 } end
     if first.key == "judge" then return "Next: " .. kt .. "Judgement, right after the swing", { 0.9, 0.9, 0.92 } end
-    return "Next: " .. kt .. SPELL_LABEL[first.key], { 0.9, 0.9, 0.92 }
+    return "Next: " .. kt .. Label(first.key), { 0.9, 0.9, 0.92 }
 end
 
 function PUI:UpdateOverlay(o)

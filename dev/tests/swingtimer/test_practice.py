@@ -35,6 +35,18 @@ assert k["sob"] == "E" and "judge" not in k, k
 c.eval("ns.SwingPractice:SetKey('sob', nil); ns.SwingPractice:SetKey('judge', 'E')")
 assert c.eval_py("return (ns.SwingPractice:Keys())") == {"soc": "2", "sob": "3", "cs": "SHIFT-1", "judge": "E"}
 
+# Alliance (the mock's default): Seal of the Martyr by name in the lessons, the coach, the chip and the tips;
+# a bar holding Seal of Blood's id still counts as that key
+r = c.eval_py("""
+    local SP = ns.SwingPractice
+    local martyr = GetSpellInfo(348700)
+    return { label = SP:Label('sob') == martyr, short = SP:ShortLabel('sob'),
+        goal = SP:Say(SP.LESSONS[1].goal), tip = SP:Tip({ counts = { early = 2 }, ideal = 0 }) }
+""")
+assert r["label"] is True and r["short"] == "Martyr", r
+assert r["goal"] == "Press Spell 348700 while the ring is in the orange.", r
+assert "Seal of Blood" not in r["tip"] and "Spell 348700" in r["tip"], r
+
 # the window: six rows, only the first lesson and free play open, the first one picked
 c.slash("/dz swing practice")
 w.tick(0.2)
