@@ -33,30 +33,11 @@ local function Util() return ns.Util end
 -- Pills
 ---------------------------------------------------------------------------
 
-do
-    local look = ns.UI and ns.UI.TAG_LOOK
-    if look then
-        look.live = { text = { 1, 0.77, 0.72 }, tint = { 0.9, 0.2, 0.15 }, edge = { 1, 0.38, 0.29, 0.8 } }
-        look.rank = { text = { 1, 0.88, 0.54 }, tint = { 1, 0.82, 0 }, edge = { 1, 0.82, 0, 0.55 } }
-    end
-end
-
--- kind: live | rank | review | back | changed | draft | ended | mute | ok | warn | alt
-local PILL = {
-    live = { "live", nil }, rank = { "rank", "Interface\\COMMON\\ReputationStar" }, review = { "warn", nil },
-    back = { "warn", nil }, changed = { "warn", nil }, draft = { "mute", nil }, ended = { "mute", nil },
-    mute = { "mute", nil }, ok = { "ok", nil }, warn = { "warn", nil }, alt = { "alt", nil },
-}
-
+-- The pills are UI:CreatePill (UI/Comp/Controls.lua): its looks have the events' live / rank, its kinds review /
+-- back / changed / draft / ended. EUI:CreatePill(parent, h) is the old name: p:SetKind(text, kind) with kind =
+-- live | rank | review | back | changed | draft | ended | mute | ok | warn | alt.
 function EUI:CreatePill(parent, h)
-    local p = UI():CreateTagPill(parent, h or 16)
-    local set = p.Set
-    function p:SetKind(text, kind)
-        local d = PILL[kind] or PILL.mute
-        set(self, text, d[1], d[2])
-        if d[2] and self.icon then self.icon:SetTexCoord(0, 0.5, 0, 0.5) end
-    end
-    return p
+    return UI():CreatePill(parent, h or 16)
 end
 
 -- The pill an event's review state shows (nil: none).
@@ -1059,137 +1040,17 @@ function EUI:ShowTheWay(occ, pid, def)
     return ok and true or false
 end
 
--- A tag as a chip: a dot in its colour and its name. chip:Set(text, rgb [, kind]): kind "track" (the tracker's,
+-- A tag as a chip (UI:CreateChip, UI/Comp/Controls.lua): chip:Set(text, rgb [, key]); kind "track" (the tracker's,
 -- 18 high), "you" (the board's header: a blue edge, 22 high).
 function EUI:CreateChip(parent, kind)
-    local h = kind == "you" and 22 or 18
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetSize(40, h)
-    UI():AddPillShape(p, h)
-    p.kind = kind
-    if kind == "you" then
-        p:SetPillColors({ 0.055, 0.055, 0.066, 1 }, { 0.4, 0.72, 1, 0.75 })
-    else
-        p:SetPillColors({ 0.039, 0.039, 0.051, 0.7 }, { 1, 1, 1, 0.25 })
-    end
-    p.dot = Disc(p, "ARTWORK", 2)
-    p.dot:SetSize(8, 8)
-    p.dotEdge = Disc(p, "ARTWORK", 1)
-    p.dotEdge:SetSize(10, 10)
-    p.dotEdge:SetVertexColor(0, 0, 0, 1)
-    p.cls = p:CreateTexture(nil, "ARTWORK", nil, 2)
-    p.cls:SetSize(14, 14)
-    p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.fs:SetWordWrap(false)
-    local path, _, flags = p.fs:GetFont()
-    if path then p.fs:SetFont(path, 11, flags) end
-    p.fs:SetShadowOffset(1, -1)
-    p.fs:SetShadowColor(0, 0, 0, 1)
-    -- rgb: the dot's colour; or key: a player's class circle instead of the dot
-    function p:Set(text, rgb, key)
-        local x = (self.kind == "you") and 7 or 6
-        self.dot:ClearAllPoints()
-        self.dotEdge:ClearAllPoints()
-        self.cls:ClearAllPoints()
-        if key then
-            self.dot:Hide()
-            self.dotEdge:Hide()
-            EUI:SetClass(self.cls, key)
-            self.cls:SetPoint("LEFT", x, 0)
-            self.cls:Show()
-            x = x + 14 + 6
-        elseif rgb then
-            self.cls:Hide()
-            self.dot:SetPoint("LEFT", x + 1, 0)
-            self.dotEdge:SetPoint("CENTER", self.dot)
-            self.dot:SetVertexColor(rgb[1], rgb[2], rgb[3], 1)
-            self.dot:Show()
-            self.dotEdge:Show()
-            x = x + 8 + 6
-        else
-            self.dot:Hide()
-            self.dotEdge:Hide()
-            self.cls:Hide()
-            x = x + 3
-        end
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", x - 1, 0)
-        self.fs:SetText(text or "")
-        if self.kind == "you" then self.fs:SetTextColor(0.84, 0.93, 1) else self.fs:SetTextColor(0.94, 0.94, 0.94) end
-        self:SetWidth(floor(x + EUI:TextWidth(self.fs) + ((self.kind == "you") and 10 or 8) + 0.5))
-    end
-    return p
+    return UI():CreateChip(parent, kind)
 end
 
--- A list walked in steps (a route): one segment a step, the done ones filled, the next one outlined.
--- s:Set(n, done [, finished]); look "board" (the board's rows) | "track" (the tracker: brighter empties, a dark edge).
+-- A list walked in steps (a route): one segment a step, the done ones filled, the next one outlined (the steps bar
+-- of UI:CreateSegments, UI/Comp/Controls.lua). s:Set(n, done [, finished]); look "board" (the board's rows) |
+-- "track" (the tracker: brighter empties, a dark edge).
 function EUI:CreateSegments(parent, w, h, look)
-    local s = CreateFrame("Frame", nil, parent)
-    s:SetSize(w, h)
-    s.look = look or "board"
-    s.segs = {}
-    function s:Set(n, done, finished)
-        n = max(0, min(40, tonumber(n) or 0))
-        done = max(0, min(n, tonumber(done) or 0))
-        local gap = n > 16 and 1 or 2
-        local W = self:GetWidth()
-        local sw = n > 0 and (W - gap * (n - 1)) / n or 0
-        for i = 1, n do
-            local g = self.segs[i]
-            if not g then
-                g = { bg = self:CreateTexture(nil, "ARTWORK", nil, 1) }
-                g.edge = {}
-                for k = 1, 4 do g.edge[k] = self:CreateTexture(nil, "ARTWORK", nil, 2) end
-                g.shade = self:CreateTexture(nil, "ARTWORK", nil, 0)
-                self.segs[i] = g
-            end
-            local x = (i - 1) * (sw + gap)
-            g.bg:ClearAllPoints()
-            g.bg:SetPoint("TOPLEFT", self, "TOPLEFT", x, 0)
-            g.bg:SetSize(max(1, sw), self:GetHeight())
-            local state = (finished or i <= done) and "d" or (i == done + 1 and "n" or "e")
-            local T, D = EUI.TEAL, EUI.TEAL_DONE
-            if state == "d" then
-                local c = finished and T or D
-                g.bg:SetColorTexture(c[1], c[2], c[3], 1)
-            elseif state == "n" then
-                g.bg:SetColorTexture(T[1], T[2], T[3], self.look == "track" and 0.3 or 0.25)
-            else
-                g.bg:SetColorTexture(1, 1, 1, self.look == "track" and 0.18 or 0.1)
-            end
-            g.bg:Show()
-            -- the next one: a 1px outline; the tracker's empties: a dark edge to read on the world
-            for k, e in ipairs(g.edge) do
-                e:ClearAllPoints()
-                if state == "n" then
-                    e:SetColorTexture(T[1], T[2], T[3], 0.9)
-                    if k == 1 then e:SetPoint("TOPLEFT", g.bg); e:SetPoint("TOPRIGHT", g.bg); e:SetHeight(1)
-                    elseif k == 2 then e:SetPoint("BOTTOMLEFT", g.bg); e:SetPoint("BOTTOMRIGHT", g.bg); e:SetHeight(1)
-                    elseif k == 3 then e:SetPoint("TOPLEFT", g.bg); e:SetPoint("BOTTOMLEFT", g.bg); e:SetWidth(1)
-                    else e:SetPoint("TOPRIGHT", g.bg); e:SetPoint("BOTTOMRIGHT", g.bg); e:SetWidth(1) end
-                    e:Show()
-                else
-                    e:Hide()
-                end
-            end
-            if self.look == "track" then
-                g.shade:ClearAllPoints()
-                g.shade:SetPoint("TOPLEFT", g.bg, "TOPLEFT", -1, 1)
-                g.shade:SetPoint("BOTTOMRIGHT", g.bg, "BOTTOMRIGHT", 1, -1)
-                g.shade:SetColorTexture(0, 0, 0, 0.5)
-                g.shade:Show()
-            else
-                g.shade:Hide()
-            end
-        end
-        for i = n + 1, #self.segs do
-            local g = self.segs[i]
-            g.bg:Hide()
-            g.shade:Hide()
-            for _, e in ipairs(g.edge) do e:Hide() end
-        end
-    end
-    return s
+    return UI():CreateSegments(parent, w, h, look)
 end
 
 -- "Time left": the big clock, "of 20 min", a gold bar, what ends when and what comes then. t:Set(left, total, l, r).
