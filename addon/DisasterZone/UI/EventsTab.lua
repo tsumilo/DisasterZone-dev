@@ -1156,21 +1156,21 @@ end
 
 -- The share reference of a calendar event / a library event, when the share links know events.
 function A.OccRef(occId)
-    local S = ns.Share
-    local ref = S and S.EventRef and occId and S:EventRef(occId)
-    return ref and S:Describe(ref) and ref or nil
+    local Share = ns.Share
+    local ref = Share and Share.EventRef and occId and Share:EventRef(occId)
+    return ref and Share:Describe(ref) and ref or nil
 end
 function A.DefRef(defId)
-    local S = ns.Share
-    local ref = S and S.EventDefRef and defId and S:EventDefRef(defId)
-    return ref and S:Describe(ref) and ref or nil
+    local Share = ns.Share
+    local ref = Share and Share.EventDefRef and defId and Share:EventDefRef(defId)
+    return ref and Share:Describe(ref) and ref or nil
 end
 
 -- A share icon button (nil when the share links can't carry events).
 function A.ShareButton(parent, size, getRef, title)
-    local S = ns.Share
-    if not (S and S.CreateButton and (S.EventRef or S.EventDefRef)) then return nil end
-    return S:CreateButton(parent, size, getRef, title)
+    local Share = ns.Share
+    if not (Share and Share.CreateButton and (Share.EventRef or Share.EventDefRef)) then return nil end
+    return Share:CreateButton(parent, size, getRef, title)
 end
 
 -- May I remove anyone's events, calendar events, results and review rows (the GM, officers, the guild council)?
@@ -3340,7 +3340,7 @@ function Pg.LayMoments(f, r, moments, x, y, w, n)
             m.icon:SetTexture(x2.i or r.icon or "Interface\\Icons\\INV_Misc_Note_01")
             local text = x2.text or ""
             if H2 and H2.ColorNames then
-                text = H2.ColorNames(text, keys):gsub("%f[%w]you%f[^%w]", "|cff66b8ffyou|r")
+                text = H2.ColorNames(text, keys):gsub("%f[%w]you%f[^%w]", S:Wrap("YOU", "you"))
             end
             local th = Wrap(m.fs, text, w - 24, 11)
             m.t2:ClearAllPoints()
@@ -6194,8 +6194,14 @@ function EventsUI:CreatePanel(parent)
     for _, view in ipairs(VIEWS) do p.tabs[view] = bar:GetTab(view) end
     bar:SetTabCount("review", 0)
     UI():AttachTooltip(p.tabs.review, ReviewTip, nil, { anchor = "ANCHOR_BOTTOM" })
-    p.newBtn = bar:SetPrimary({ text = "New event", icon = UI().ICON.plus, onClick = A.NewEvent,
+    p.newBtn = bar:SetPrimary({ text = "New event", onClick = A.NewEvent,
         tip = "Opens the builder on an empty event: drag pieces in, practice it, save it." })
+    -- (its plus as a glyph beside the words, so the button's text stays "New event")
+    -- TODO(refactor): move into the layout toolbar (SetPrimary's icon puts the glyph into the button's text)
+    p.newBtn.glyph = p.newBtn:CreateTexture(nil, "OVERLAY")
+    p.newBtn.glyph:SetSize(12, 12)
+    H.SetButtonGlyph(p.newBtn, "plus")
+    H.Fit(p.newBtn, 90, 30)
     -- Examples beside it: Upcoming's (p.exBtn) and the Library's (its view's .examples)
     p.exBtn = A.ExamplesButton(bar, S.BTN_H)
     p.libExBtn = A.ExamplesButton(bar, S.BTN_H)
