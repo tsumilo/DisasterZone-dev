@@ -444,12 +444,9 @@ def the_members_tab_shows_the_note_to_officers_only():
     w.tick(0.2)
     assert gina.find_text("Officer note for Sam")
     gina.eval("""
-      local f
-      for _, child in ipairs({ UIParent:GetChildren() }) do
-        if child.multi and child.ok and child:IsShown() then f = child end
-      end
+      local f = ns.StrategyBoard:GetPrompt()
       f.multi:SetText("Bring flasks and food.")
-      f.ok:Click()""")
+      f.button1:Click()""")
     w.tick(1)
     assert note(gina, "Sam") == "Bring flasks and food."
     assert gina.find_text("Bring flasks and food.")

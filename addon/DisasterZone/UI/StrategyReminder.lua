@@ -10,6 +10,14 @@ local addonName, ns = ...
 
 local Reminder = ns:NewModule("StrategyReminder")
 
+local Style = ns.Style
+-- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
+local function tone(name, a)
+    local c = Style.C[name]
+    if a then return c[1], c[2], c[3], a end
+    return c[1], c[2], c[3]
+end
+
 local floor, max, min, abs, sin = math.floor, math.max, math.min, math.abs, math.sin
 local tconcat = table.concat
 
@@ -26,11 +34,10 @@ local WAIT = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:14|t"
 local function Live() return ns.StrategyLive end
 local function S() return ns.Strategy end
 local function MapUI() return ns.StrategyMapUI end
-local function grey(t) return "|cff8c8c8c" .. tostring(t) .. "|r" end
-local function green(t) return "|cff40ff70" .. tostring(t) .. "|r" end
-local function red(t) return "|cffff4a40" .. tostring(t) .. "|r" end
-local function gold(t) return "|cffffd100" .. tostring(t) .. "|r" end
-local function orange(t) return "|cffff9933" .. tostring(t) .. "|r" end
+local function green(t) return Style:Wrap("OK", t) end
+local function red(t) return Style:Wrap("BAD", t) end
+local function gold(t) return Style:Wrap("GOLD", t) end
+local function orange(t) return Style:Wrap("WARN", t) end
 
 -- The icon of a tracked table without one of its own: its spell.
 local KIND_ICON = {
@@ -50,7 +57,7 @@ local function ClassName(key)
 end
 
 local function Name(key)
-    if not key then return grey("nobody") end
+    if not key then return Style:Wrap("SUB", "nobody") end
     if key == Me() then return green("You") end
     return ClassName(key)
 end
@@ -92,19 +99,19 @@ local function RowStatus(c, tr, r)
         end
         if not c.engaged then return gold("on pull") end
         if GetTime() - (c.pullAt or 0) < L.PULL_WINDOW then return gold("now") end
-        return grey("not cast")
+        return Style:Wrap("SUB", "not cast")
     elseif tr.kind == "bl" then
         if r.done then return green("done ") .. OK end
         local at = L:PlannedAt(r)
         if c.engaged and at then
             local left = at - (GetTime() - c.pullAt)
-            if left > 0 then return grey("in " .. Clock(left)) end
+            if left > 0 then return Style:Wrap("SUB", "in " .. Clock(left)) end
             return gold("NOW")
         end
         return WAIT
     elseif tr.kind == "pi" or tr.kind == "iv" then
         local cd = L:Cooldown(r)
-        if cd > 0 then return grey(Clock(cd)) end
+        if cd > 0 then return Style:Wrap("SUB", Clock(cd)) end
         return green("ready")
     elseif tr.kind == "curse" then
         if r.up then return OK end
@@ -160,7 +167,7 @@ local function Chips(tr, pick)
     for _, list in ipairs({ tr.order, tr.backups or {} }) do
         for _, r in ipairs(list) do
             local text = r.player == Me() and green("You") or ClassName(r.player)
-            if r.dead then text = grey(ns.Util.ShortName(r.player)) end
+            if r.dead then text = Style:Wrap("SUB", ns.Util.ShortName(r.player)) end
             out[#out + 1] = { text = text, current = r == pick, me = r.player == Me(), dead = r.dead,
                               backup = r.backup, cd = Live().CdLeft(r, now) }
         end
@@ -251,13 +258,13 @@ function Reminder:Items()
                 elseif myTurn then
                     status = how == "backup" and gold("backup: you're next") or green("your turn")
                 elseif Live().School(mineRow) and Live():Immunities(tr.npc)[Live().School(mineRow)] then
-                    status = grey("immune to yours")
+                    status = Style:Wrap("SUB", "immune to yours")
                 elseif mineRow.cond and not Live():CondHolds(mineRow, tr) then
-                    status = grey("only when " .. Live():CondShort(mineRow.cond))
+                    status = Style:Wrap("SUB", "only when " .. Live():CondShort(mineRow.cond))
                 elseif Live().CdLeft(mineRow) > 0 then
-                    status = grey("ready in " .. Clock(Live().CdLeft(mineRow)))
+                    status = Style:Wrap("SUB", "ready in " .. Clock(Live().CdLeft(mineRow)))
                 elseif pick then
-                    status = grey(ns.Util.ShortName(pick.player) .. "'s turn" .. (how == "backup" and " (backup)" or ""))
+                    status = Style:Wrap("SUB", ns.Util.ShortName(pick.player) .. "'s turn" .. (how == "backup" and " (backup)" or ""))
                 end
                 items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                       status = status, alert = alert, chips = Chips(tr, pick), tr = tr, myTurn = myTurn,
@@ -271,12 +278,12 @@ function Reminder:Items()
                 local active = Live():DispelActive(tr)
                 local status, alert
                 if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then
-                    status = grey("you're dead")
+                    status = Style:Wrap("SUB", "you're dead")
                 elseif #active > 0 then
                     status, alert = red("NOW: " .. DispelTargets(active)), true
                     flash = flash or (text .. (tr.enemy and " on " or " from ") .. DispelTargets(active))
                 else
-                    status = c.engaged and grey("clear") or gold("watch for it")
+                    status = c.engaged and Style:Wrap("SUB", "clear") or gold("watch for it")
                 end
                 items[#items + 1] = { kind = "row", icon = icon, text = text, status = status, alert = alert, tr = tr }
             end
@@ -312,7 +319,7 @@ function Reminder:Items()
                     local status = pick and (ns.Util.ShortName(pick.player) .. "'s turn") or ""
                     if how == "cond" then status = gold(status .. " (" .. Live():CondShort(pick.cond) .. ")")
                     elseif how == "backup" then status = gold(status .. " (backup)") elseif how == "late" then
-                        status = red(status .. " (not ready)") else status = grey(status) end
+                        status = red(status .. " (not ready)") else status = Style:Wrap("SUB", status) end
                     items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                           status = status, chips = Chips(tr, pick), tr = tr, overview = true }
                 elseif tr.kind == "dsp" then
@@ -321,7 +328,7 @@ function Reminder:Items()
                     local active = Live():DispelActive(tr)
                     local _, icon = DispelText(tr)
                     items[#items + 1] = { kind = "row", icon = icon, text = tr.name,
-                                          status = #active > 0 and orange("on " .. DispelTargets(active)) or grey("clear"),
+                                          status = #active > 0 and orange("on " .. DispelTargets(active)) or Style:Wrap("SUB", "clear"),
                                           detail = (#names > 0 and tconcat(names, ", ") or "everyone who can") .. "  ",
                                           tr = tr, overview = true }
                 else
@@ -334,7 +341,7 @@ function Reminder:Items()
                         end
                     end
                     items[#items + 1] = { kind = "row", icon = tr.icon or KIND_ICON[tr.kind], text = tr.name,
-                                          status = #parts == 0 and grey("nobody") or "", detail = tconcat(parts, "  "),
+                                          status = #parts == 0 and Style:Wrap("SUB", "nobody") or "", detail = tconcat(parts, "  "),
                                           tr = tr, overview = true, alert = alert }
                 end
             end
@@ -392,13 +399,6 @@ end
 
 local frame
 
-local function SavePos(f)
-    local point, _, relPoint, x, y = f:GetPoint(1)
-    if not point or not (ns.db and ns.db.settings) then return end
-    ns.db.settings.windows = ns.db.settings.windows or {}
-    ns.db.settings.windows[NAME] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
-end
-
 local STATE_COLOR = {
     next = { 0.55, 0.55, 0.55 }, engaged = { 0.25, 0.85, 0.35 }, killed = { 0.25, 0.85, 0.35 },
     wipe = { 0.85, 0.3, 0.25 }, practice = { 1, 0.6, 0.15 },
@@ -414,13 +414,13 @@ local function NewRow(f)
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(16, 16)
     r.icon:SetPoint("TOPLEFT", 0, -2)
-    r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    r.text = ns.UI:Text(r, "emph", "TEXT")
     r.text:SetJustifyH("LEFT")
     r.text:SetWordWrap(false)
-    r.status = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.status = ns.UI:Text(r, "small", "TEXT")
     r.status:SetPoint("TOPRIGHT", -2, -4)
     r.status:SetJustifyH("RIGHT")
-    r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.sub = ns.UI:Text(r, "small", "DIM")
     r.sub:SetJustifyH("LEFT")
     r.sub:SetWordWrap(false)
     r.chips = {}
@@ -434,21 +434,17 @@ local function Chip(row, i)
     ch:SetHeight(CHIP_H)
     ch.bg = ch:CreateTexture(nil, "BACKGROUND")
     ch.bg:SetAllPoints()
-    ch.fs = ch:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ch.fs = ns.UI:Text(ch, "small", "TEXT")
     ch.fs:SetPoint("CENTER")
     row.chips[i] = ch
     return ch
 end
 
 local function Create()
-    local f = CreateFrame("Frame", NAME, UIParent, "BackdropTemplate")
+    -- the slim HUD look of the raid session bar; its place saved under NAME (settings.windows), dragged by the header
+    local f = ns.UI:CreateHudFrame(NAME, { width = WIDTH, height = 60, position = NAME,
+        default = { "TOP", UIParent, "TOP", 0, -140 } })
     f.cdlName = NAME
-    f:SetSize(WIDTH, 60)
-    f:SetFrameStrata("MEDIUM")
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(false)            -- click-through body
-    ns.UI:StyleHud(f)          -- the same slim style as the raid session bar
     -- header: portrait, boss name, a state tag; drag to move, click to open the board
     local h = CreateFrame("Button", nil, f)
     h:SetPoint("TOPLEFT", PAD, -PAD + 2)
@@ -459,7 +455,7 @@ local function Create()
     h.portrait = h:CreateTexture(nil, "ARTWORK")
     h.portrait:SetSize(22, 22)
     h.portrait:SetPoint("LEFT", -2, 0)
-    h.fs = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    h.fs = ns.UI:Text(h, "emph", "GOLD")
     h.fs:SetPoint("LEFT", h.portrait, "RIGHT", 6, 0)
     h.fs:SetJustifyH("LEFT")
     h.fs:SetWordWrap(false)
@@ -468,14 +464,11 @@ local function Create()
     h.tag:SetPoint("RIGHT", 0, 0)
     h.tag.bg = h.tag:CreateTexture(nil, "BACKGROUND")
     h.tag.bg:SetAllPoints()
-    h.tag.fs = h.tag:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    h.tag.fs = ns.UI:Text(h.tag, "small", "TEXT")
     h.tag.fs:SetPoint("CENTER")
     h.fs:SetPoint("RIGHT", h.tag, "LEFT", -8, 0)
-    h:SetScript("OnDragStart", function() f:StartMoving() end)
-    h:SetScript("OnDragStop", function()
-        f:StopMovingOrSizing()
-        SavePos(f)
-    end)
+    f:SetDragHandle(h)
+    f:EnableMouse(false)            -- click-through body
     h:SetScript("OnClick", function()
         local d = f.data
         if not d then return end
@@ -514,12 +507,6 @@ local function Create()
     f.sep:SetPoint("TOPRIGHT", -PAD, -PAD - 26)
     f.sep:SetColorTexture(1, 1, 1, 0.12)
     f.rows = {}
-    ns.UI:RestorePosition(f)
-    local pos = ns.db and ns.db.settings and ns.db.settings.windows and ns.db.settings.windows[NAME]
-    if not pos then
-        f:ClearAllPoints()
-        f:SetPoint("TOP", UIParent, "TOP", 0, -140)
-    end
     local acc = 0
     f:SetScript("OnUpdate", function(self, elapsed)
         acc = acc + elapsed
@@ -532,9 +519,9 @@ local function Create()
             end
             return
         end
-        if self.alert and self.SetBackdropBorderColor then
+        if self.alert then
             local p = 0.5 + 0.5 * abs(sin(GetTime() * 6))
-            self:SetBackdropBorderColor(1, 0.25 + 0.2 * p, 0.2, 0.6 + 0.4 * p)
+            ns.UI:SetEdgeColor(self, 1, 0.25 + 0.2 * p, 0.2, 0.6 + 0.4 * p)
         end
         if acc >= 0.25 then
             acc = 0
@@ -572,7 +559,7 @@ local function Layout(f, d)
             r.text:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
             r.text:SetText(it.text)
             r.status:SetText("")
-            r.hl:SetColorTexture(1, 1, 1, 0.08)
+            r.hl:SetColorTexture(tone("HAIRLINE", 0.08))
             r.hl:ClearAllPoints()
             r.hl:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 1)
             r.hl:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 1)
@@ -631,7 +618,7 @@ local function Layout(f, d)
                 for i, c in ipairs(it.chips) do
                     local ch = Chip(r, i)
                     local label = c.text
-                    if c.cd and c.cd > 0 and not c.dead then label = label .. grey(" " .. floor(c.cd + 0.5)) end
+                    if c.cd and c.cd > 0 and not c.dead then label = label .. Style:Wrap("SUB", " " .. floor(c.cd + 0.5)) end
                     if c.backup and i > 1 and not it.chips[i - 1].backup then x = x + 6 end
                     ch.fs:SetText(label)
                     local w = (ch.fs:GetStringWidth() or 30) + 12
@@ -640,11 +627,11 @@ local function Layout(f, d)
                     ch:ClearAllPoints()
                     ch:SetPoint("TOPLEFT", r, "TOPLEFT", x, -(ROW_H + 1))
                     if c.current then
-                        ch.bg:SetColorTexture(1, 0.82, 0, it.alert and 0.55 or 0.3)
+                        ch.bg:SetColorTexture(tone("GOLD", it.alert and 0.55 or 0.3))
                     elseif c.backup then
                         ch.bg:SetColorTexture(0.6, 0.45, 1, 0.14)
                     else
-                        ch.bg:SetColorTexture(1, 1, 1, 0.06)
+                        ch.bg:SetColorTexture(tone("HAIRLINE", 0.06))
                     end
                     ch:Show()
                     x = x + w + 4
@@ -693,7 +680,7 @@ function Reminder:Refresh()
     end
     if alert and not f.alert and PlaySound and SOUNDKIT and SOUNDKIT.RAID_WARNING then PlaySound(SOUNDKIT.RAID_WARNING) end
     f.alert = alert
-    if not alert and f.SetBackdropBorderColor then f:SetBackdropBorderColor(unpack(ns.UI.HUD_BORDER)) end
+    if not alert then ns.UI:SetEdgeColor(f, Style:Color("HUD_EDGE")) end
     f:Show()
 end
 

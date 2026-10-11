@@ -158,7 +158,7 @@ local function StepDefs(R)
     return steps
 end
 
-local function BuildBanner(parent)
+local function DecidedBanner(parent)
     local b = UI:CreatePageBanner(parent, { size = "tool", art = "BlackTemple", width = K.W, icon = IconName("ballot"),
         kicker = "Loot rules", title = "How the winner is picked", titleColor = "TEXT",
         sub = "The loot council decides. These rules make the drop panel's suggestion, the same for everyone." })
@@ -783,7 +783,7 @@ function LootRulesUI:CreatePanel(parent)
     local d = CreateFrame("Frame", nil, body)
     d:SetAllPoints()
     p.decided = d
-    d.banner = BuildBanner(d)
+    d.banner = DecidedBanner(d)
     d.banner:SetPoint("TOPLEFT", d, "TOPLEFT", 0, 0)
     d.banner:SetPoint("TOPRIGHT", d, "TOPRIGHT", 0, 0)
     d.path = BuildPath(d)

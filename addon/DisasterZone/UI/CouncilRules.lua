@@ -320,7 +320,7 @@ local function BannerActions(b, dirty)
 end
 
 -- Picking the winner: the banner, the choices (left, scrolling) and the example (right).
-local function BuildBanner(page)
+local function RulesBanner(page)
     local b = UI:CreatePageBanner(page, { size = K.BAN_H, art = "kara", artUnder = true, width = K.W,
         icon = IconName("ballot"), kicker = "Guild loot rules", title = "Picking the winner", titleColor = "TEXT",
         sub = "How the drop panel suggests who gets an item" })
@@ -334,7 +334,7 @@ local function BuildWinner(v, host)
     local page = CreateFrame("Frame", nil, host)
     page:SetAllPoints(host)
     v.winner = page
-    BuildBanner(page)
+    RulesBanner(page)
     local top = K.BAN_H + K.GAP
     -- the choices
     local left = UI:CreateCard(page, { tone = "inset" })

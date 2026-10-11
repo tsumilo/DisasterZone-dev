@@ -17,6 +17,14 @@ local addonName, ns = ...
 
 local Board = ns:NewModule("StrategyBoard")
 
+local Style = ns.Style
+-- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
+local function tone(name, a)
+    local c = Style.C[name]
+    if a then return c[1], c[2], c[3], a end
+    return c[1], c[2], c[3]
+end
+
 local floor, max, min = math.floor, math.max, math.min
 local tinsert, tremove, tsort, tconcat = table.insert, table.remove, table.sort, table.concat
 
@@ -39,15 +47,13 @@ local PANEL_W = PAD + HDR_W - PANEL_X                 -- 462: to the header's ri
 local PANEL_H = DOCK_Y + DOCK_H - MAP_Y               -- 593
 local ART_W = 760                                     -- the raid's loading screen on the header's right
 local HDR_BG = { 0.08, 0.08, 0.095, 0.9 }
-local HDR_EDGE = { 0.34, 0.34, 0.38, 0.5 }
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local HDR_EDGE = { tone("EDGE", 0.5) }
+local CARD_BG = { tone("CARD", 0.92) }
 
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
 local function MapUI() return ns.StrategyMapUI end
 local function Collab() return ns.StrategyCollab end
-local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
 -- The toolbar icons (the atlas and its order: UI/Widgets.lua, UI.ICON_ATLAS).
 local TOOL_ATLAS = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools"
@@ -73,18 +79,6 @@ local SHORTCUTS = {
     { "3D", { { "Right-drag", "turn and tilt" }, { "Middle-drag", "move the view" }, { "Q|E", "turn 45 degrees" },
               { "Home", "the whole room" }, { "Double-click", "look there" } } },
 }
-
--- A text in the game's font at a size (the header's 13 / 16, the panel's 11).
-local function newText(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
 
 -- The flat panel look (the raid page's): a fill and 1px edges.
 local function panelLook(f, bg, edge)
@@ -130,114 +124,47 @@ local st = {
 -- Prompt (single- or multi-line text)
 ---------------------------------------------------------------------------
 
-local prompt
+local prompt                -- the shown prompt (ns.Popup:Prompt's dialog)
 local PROMPT_LEN = 64       -- letters a prompt takes unless the caller asks for more
 
-local function ensurePrompt()
-    if prompt then return prompt end
-    local f = CreateFrame("Frame", "DisasterZoneStrategyPrompt", UIParent)
-    f:SetSize(360, 142)
-    -- above the board and everything drawn on its map
-    f:SetFrameStrata("FULLSCREEN_DIALOG")
-    f:SetToplevel(true)
-    f:SetPoint("CENTER", 0, 120)
-    f:EnableMouse(true)
-    -- the addon's dialog look (UI/Popup.lua): slate, soft shadow, gold title over a gold glint
-    ns.Popup:SkinPanel(f)
-    f.title:SetPoint("TOPLEFT", 16, -14)
-    f.title:SetPoint("RIGHT", -16, 0)
-    f.glint:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -40)
-    f.glint:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -40)
-    f.edit = UI():CreateSleekEditBox(f)
-    f.edit:SetAutoFocus(false)
-    f.edit:SetHeight(26)
-    f.edit:SetPoint("TOPLEFT", 16, -54)
-    f.edit:SetPoint("RIGHT", -16, 0)
-    f.edit:SetMaxLetters(PROMPT_LEN)
-    f.scroll = UI():CreateScrollFrame(f)
-    f.scroll:SetPoint("TOPLEFT", 20, -56)
-    f.scroll:SetPoint("BOTTOMRIGHT", -34, 54)
-    f.multi = CreateFrame("EditBox", nil, f.scroll)
-    f.multi:SetMultiLine(true)
-    f.multi:SetAutoFocus(false)
-    f.multi:SetFontObject("ChatFontNormal")
-    f.multi:SetWidth(300)
-    f.multi:SetMaxLetters(S().MAX_NOTES)
-    f.scroll:SetScrollChild(f.multi)
-    -- the scroll bar only when the text is longer than the box
-    f.scroll.scrollBarHideable = true
-    if f.scroll.ScrollBar then f.scroll.ScrollBar:Hide() end
-    -- the edit box is only as tall as its text: a click anywhere in the box types there
-    f.scroll:EnableMouse(true)
-    f.scroll:SetScript("OnMouseDown", function() f.multi:SetFocus() end)
-    -- the view follows the cursor
-    f.multi:SetScript("OnCursorChanged", function(_, _, y, _, h)
-        local top, view = f.scroll:GetVerticalScroll() or 0, f.scroll:GetHeight() or 0
-        y, h = -(y or 0), h or 0
-        if y < top then
-            f.scroll:SetVerticalScroll(y)
-        elseif y + h > top + view then
-            f.scroll:SetVerticalScroll(y + h - view)
-        end
-    end)
-    f.multiBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.multiBg:SetPoint("TOPLEFT", f.scroll, "TOPLEFT", -4, 4)
-    f.multiBg:SetPoint("BOTTOMRIGHT", f.scroll, "BOTTOMRIGHT", 4, -4)
-    f.multiBg:SetColorTexture(0, 0, 0, 0.6)
-    local function accept()
-        local text = f.isMulti and f.multi:GetText() or f.edit:GetText()
-        local cb = f.cb
-        f.cb = nil
-        f:Hide()
-        if cb then cb(text) end
-    end
-    f.ok = UI():CreateSleekButton(f, _G.OKAY or "OK", 84, 26, accept, "primary")
-    f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 12)
-    f.cancel = UI():CreateSleekButton(f, _G.CANCEL or "Cancel", 84, 26, function() f.cb = nil; f:Hide() end)
-    f.cancel:SetPoint("RIGHT", f.ok, "LEFT", -6, 0)
-    f.edit:SetScript("OnEnterPressed", accept)
-    f.edit:SetScript("OnEscapePressed", function() f.cb = nil; f:Hide() end)
-    f.multi:SetScript("OnEscapePressed", function() f.cb = nil; f:Hide() end)
-    -- several lines: Enter is a new line, Ctrl+Enter is OK
-    f.multi:SetScript("OnEnterPressed", function(self)
-        if IsControlKeyDown() then accept() else self:Insert("\n") end
-    end)
-    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.hint:SetPoint("BOTTOMLEFT", 16, 20)
-    f.hint:SetText("Ctrl+Enter: OK")
-    f:Hide()
-    prompt = f
-    return f
+-- Asks for a text: cb(text) on OK. multiline: a box of several lines (texts, notes; Ctrl+Enter is OK); maxLen: the
+-- letters it takes. The addon's prompt (UI/Popup.lua), above the board and everything drawn on its map.
+function Board:Prompt(title, default, cb, multiline, maxLen)
+    local notes = maxLen or S().MAX_NOTES
+    prompt = ns.Popup:Prompt({
+        key = "STRAT", title = title or "", default = default or "",
+        multiline = multiline and true or nil,
+        -- (a short text gets a smaller box than the page notes)
+        multiHeight = multiline and (notes > S().MAX_TEXT and 180 or 110) or nil,
+        maxLetters = multiline and notes or (maxLen or PROMPT_LEN),
+        onAccept = function(text, dlg)
+            -- (closed before cb runs: cb may ask the next question in the same dialog)
+            dlg:Hide()
+            if cb then cb(text) end
+            return true
+        end,
+    })
+    return prompt
 end
 
--- Asks for a text: cb(text) on OK. multiline: a box of several lines (texts, notes); maxLen: the letters it takes.
-function Board:Prompt(title, default, cb, multiline, maxLen)
-    local f = ensurePrompt()
-    f.title:SetText(title or "")
-    f.cb = cb
-    f.isMulti = multiline and true or false
-    -- a short text gets a smaller box than the page notes
-    f:SetSize(multiline and 520 or 360, multiline and ((maxLen or S().MAX_NOTES) > S().MAX_TEXT and 280 or 200) or 132)
-    f.edit:SetMaxLetters(multiline and PROMPT_LEN or maxLen or PROMPT_LEN)
-    f.multi:SetMaxLetters(maxLen or S().MAX_NOTES)
-    f.multi:SetWidth(460)
-    f.hint:SetShown(multiline and true or false)
-    f.edit:SetShown(not multiline)
-    f.scroll:SetShown(multiline and true or false)
-    f.multiBg:SetShown(multiline and true or false)
-    f:Show()
-    f:Raise()
-    -- the keyboard goes to the box right away (an edit box takes the focus only once it is shown)
-    if multiline then
-        f.multi:SetText(default or "")
-        f.scroll:SetVerticalScroll(0)
-        f.multi:SetFocus()
-        f.multi:SetCursorPosition(#(default or ""))
-    else
-        f.edit:SetText(default or "")
-        f.edit:SetFocus()
-        f.edit:HighlightText()
-    end
+-- The prompt while it is shown (tests, the tutorial), else nil.
+function Board:GetPrompt()
+    return prompt and prompt:IsShown() and prompt or nil
+end
+
+-- The board's questions (ns.Popup:Confirm, one key each: asking again replaces the shown one); fn runs on the first
+-- button.
+local ASK = {
+    DISCARD = { ok = "Discard", cancel = "Keep editing", title = "Discard changes", danger = true },
+    DELETE_PAGE = { ok = DELETE or "Delete", title = "Delete page", danger = true },
+    NEWER = { ok = "Save mine", title = "Saved by someone else" },
+    SWITCH = { ok = "Use it" },
+    MAP3D = { ok = "Use it" },
+}
+local function ask(kind, text, fn)
+    local d = ASK[kind]
+    return ns.Popup:Confirm({ key = "STRAT_" .. kind, title = d.title, text = text, ok = d.ok, cancel = d.cancel,
+        danger = d.danger, onAccept = function() fn() end })
 end
 
 local function promptFn(title, default, cb, multiline, maxLen)
@@ -337,13 +264,7 @@ end
 ---------------------------------------------------------------------------
 
 local function tipButton(b, title, text)
-    b:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(title)
-        if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(b, title, text and { { text, 1, 1, 1, wrap = true } } or nil, { anchor = "ANCHOR_TOP" })
 end
 
 -- What follows the mouse while something is dragged onto the tables or the map: a player (a chip with the class
@@ -354,11 +275,11 @@ local function ensureGhost()
     ghost = CreateFrame("Frame", nil, UIParent)
     ghost:SetSize(120, 20)
     ghost:SetFrameStrata("TOOLTIP")
-    panelLook(ghost, { 0.14, 0.14, 0.16, 0.97 }, { 1, 0.82, 0, 0.85 })
+    panelLook(ghost, { 0.14, 0.14, 0.16, 0.97 }, { tone("GOLD", 0.85) })
     ghost.icon = ghost:CreateTexture(nil, "ARTWORK")
     ghost.icon:SetSize(13, 13)
     ghost.icon:SetPoint("LEFT", 5, 0)
-    ghost.fs = newText(ghost, "GameFontHighlight", 11)
+    ghost.fs = UI():Text(ghost, "body", "TEXT")
     ghost:SetScript("OnUpdate", function(self)
         local x, y = GetCursorPosition()
         local s = UIParent:GetEffectiveScale()
@@ -400,19 +321,19 @@ local function createPoolChip(parent)
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(13, 13)
     c.icon:SetPoint("LEFT", 2, 0)
-    c.fs = newText(c, "GameFontHighlight", 11)
+    c.fs = UI():Text(c, "body", "TEXT")
     c.fs:SetPoint("LEFT", c.icon, "RIGHT", 5, 0)
-    c.count = newText(c, "GameFontHighlight", 9)
+    c.count = UI():Text(c, 9, "TEXT")
     c.count:SetShadowOffset(1, -1)
     c.count:SetPoint("BOTTOMRIGHT", c.icon, "BOTTOMRIGHT", 3, -2)
     c.picked = c:CreateTexture(nil, "BACKGROUND")
     c.picked:SetAllPoints()
-    c.picked:SetColorTexture(1, 0.82, 0, 0.14)
+    c.picked:SetColorTexture(tone("GOLD", 0.14))
     UI():AddEdges(c, "BORDER")
-    UI():SetEdgeColor(c, 1, 0.82, 0, 0)
+    UI():SetEdgeColor(c, tone("GOLD", 0))
     local hl = c:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
+    hl:SetColorTexture(tone("HAIRLINE", 0.06))
     c:RegisterForDrag("LeftButton")
     c:RegisterForClicks("LeftButtonUp")
     c:SetScript("OnClick", function(self)
@@ -439,8 +360,8 @@ local function createPoolChip(parent)
         if m then
             local label = ns.RaidComp and ns.RaidComp:SpecLabel(m.c, m.sp)
             GameTooltip:AddLine((label and (label .. " ") or "") .. (ns.CLASS_NAMES[m.c] or ""), 1, 1, 1)
-            if m.st == "T" then GameTooltip:AddLine("Tentative", 1, 0.82, 0)
-            elseif m.st == "B" then GameTooltip:AddLine("Bench", 1, 0.82, 0)
+            if m.st == "T" then GameTooltip:AddLine("Tentative", tone("GOLD"))
+            elseif m.st == "B" then GameTooltip:AddLine("Bench", tone("GOLD"))
             elseif m.inRaid then GameTooltip:AddLine("In your raid, no sign-up", 0.7, 0.7, 0.7) end
         end
         for _, s in ipairs(S():GetPlayerSlots(st.strat, st.assign, self.key)) do
@@ -453,16 +374,9 @@ local function createPoolChip(parent)
     return c
 end
 
-local function gradient(tex, c, a1, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient("HORIZONTAL", CreateColor(c[1], c[2], c[3], a1), CreateColor(c[1], c[2], c[3], a2))
-    end
-end
-
 -- A label in the dock's left end ("YOUR JOBS", "IN RAIDS"): small gold capitals.
 local function dockLabel(parent, text)
-    local fs = newText(parent, "GameFontNormal", 10)
+    local fs = UI():Text(parent, "small", "GOLD")
     fs:SetText(text)
     fs:SetPoint("LEFT", parent, "LEFT", 0, 0)
     return fs
@@ -474,17 +388,16 @@ local function dockChip(parent, gold)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(DOCK_H)
     if gold then
-        panelLook(b, { 1, 0.82, 0, 0.08 }, { 1, 0.82, 0, 0.35 })
+        panelLook(b, { tone("GOLD", 0.08) }, { tone("GOLD", 0.35) })
     else
-        panelLook(b, { 1, 1, 1, 0.04 }, { 0.34, 0.34, 0.38, 0.6 })
+        panelLook(b, { tone("HAIRLINE", 0.04) }, { tone("EDGE", 0.6) })
     end
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetSize(16, 16)
     b.icon:SetPoint("LEFT", 6, 0)
-    b.pre = newText(b, "GameFontNormal", 10)                  -- (a raid's day, in gold)
-    b.fs = newText(b, "GameFontHighlight", 11.5)
-    b.note = newText(b, "GameFontHighlight", 10.5)
-    b.note:SetTextColor(0.62, 0.62, 0.62)
+    b.pre = UI():Text(b, "small", "GOLD")                  -- (a raid's day, in gold)
+    b.fs = UI():Text(b, "body", "TEXT")
+    b.note = UI():Text(b, "small", "SUB")
     b.chev = b:CreateTexture(nil, "ARTWORK")
     b.chev:SetSize(9, 9)
     b.chev:SetTexture(TOOL_ATLAS)
@@ -494,7 +407,7 @@ local function dockChip(parent, gold)
     b.chev:SetVertexColor(0.8, 0.8, 0.8, 0.7)
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
+    hl:SetColorTexture(tone("HAIRLINE", 0.06))
     b:RegisterForClicks("LeftButtonUp")
     -- icon (texture key or nil), pre (gold small text or nil), text, note (grey or nil), chevron: lays it out
     function b:Set(iconKey, pre, text, note, chevron)
@@ -541,7 +454,7 @@ end
 local function inlineEdit(parent, height, size, maxLen)
     local eb = UI():CreateSleekEditBox(parent, 120, height)
     local path, _, flags = eb:GetFont()
-    if path and size then eb:SetFont(path, size, flags) end
+    if path and size then eb:SetFont(path, Style:Size(size), flags) end
     eb:SetMaxLetters(maxLen)
     eb:SetFrameLevel(parent:GetFrameLevel() + 20)
     eb:Hide()
@@ -590,20 +503,21 @@ local function createWindow()
     hdr.art:SetPoint("TOPRIGHT", -1, -1)
     hdr.art:SetPoint("BOTTOMRIGHT", -1, 1)
     hdr.art:SetWidth(ART_W)
-    hdr.art:SetVertexColor(0.62, 0.62, 0.62)
+    hdr.art:SetVertexColor(tone("SUB"))
     local fadeW = floor(ART_W * 0.45)
     hdr.fade = hdr:CreateTexture(nil, "BACKGROUND", nil, 3)
     hdr.fade:SetPoint("TOPLEFT", hdr.art, "TOPLEFT")
     hdr.fade:SetPoint("BOTTOMLEFT", hdr.art, "BOTTOMLEFT")
     hdr.fade:SetWidth(fadeW)
-    gradient(hdr.fade, HDR_BG, 1, 0.15)
+    local hb = HDR_BG
+    UI():Gradient(hdr.fade, "HORIZONTAL", { hb[1], hb[2], hb[3], 1 }, { hb[1], hb[2], hb[3], 0.15 })
     hdr.fade2 = hdr:CreateTexture(nil, "BACKGROUND", nil, 3)
     hdr.fade2:SetPoint("TOPLEFT", hdr.fade, "TOPRIGHT")
     hdr.fade2:SetPoint("BOTTOMRIGHT", hdr.art, "BOTTOMRIGHT")
-    gradient(hdr.fade2, HDR_BG, 0.15, 0)
+    UI():Gradient(hdr.fade2, "HORIZONTAL", { hb[1], hb[2], hb[3], 0.15 }, { hb[1], hb[2], hb[3], 0 })
 
-    f.bossFs = newText(hdr, "GameFontNormal", 13)
-    f.title = newText(hdr, "GameFontHighlight", 16)
+    f.bossFs = UI():Text(hdr, "title", "GOLD")
+    f.title = UI():Text(hdr, "page", "TEXT")
     -- editing: the name is the rename control (a click types in place); a faint pencil says so
     f.pencil = hdr:CreateTexture(nil, "ARTWORK")
     f.pencil:SetSize(12, 12)
@@ -615,7 +529,7 @@ local function createWindow()
     f.titleBtn:SetPoint("BOTTOMRIGHT", f.pencil, "BOTTOMRIGHT", 4, -4)
     f.titleBtn:SetScript("OnClick", function() Board:RenameStrategy() end)
     f.titleBtn:SetScript("OnEnter", function(self)
-        f.pencil:SetVertexColor(1, 0.82, 0, 1)
+        f.pencil:SetVertexColor(tone("GOLD", 1))
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
         GameTooltip:AddLine("Rename")
         GameTooltip:Show()
@@ -627,8 +541,7 @@ local function createWindow()
     f.titleEdit = inlineEdit(hdr, 24, 16, S().MAX_NAME_LEN)
     -- a raid's board, for who picks its strategies: the name switches the raid to another strategy of the boss
     f.stratDD = UI():CreateLinkDropdown(hdr, { size = 16, height = 24, build = function(root) Board:StrategyMenu(root) end })
-    f.meta = newText(hdr, "GameFontHighlight", 11)
-    f.meta:SetTextColor(0.62, 0.62, 0.62)
+    f.meta = UI():Text(hdr, "body", "SUB")
     -- (hover: who made it, who builds it with them, when it was saved)
     f.metaBtn = CreateFrame("Frame", nil, hdr)
     f.metaBtn:SetPoint("TOPLEFT", f.meta, "TOPLEFT", -2, 4)
@@ -668,7 +581,7 @@ local function createWindow()
     live.dot:SetTexture(MapUI().TEX.disc)
     live.dot:SetVertexColor(0.35, 0.86, 0.47, 1)
     live.dot:SetPoint("LEFT", 0, 0)
-    live.fs = newText(live, "GameFontHighlight", 11)
+    live.fs = UI():Text(live, "body", "TEXT")
     live.fs:SetTextColor(0.62, 0.94, 0.69)
     live.fs:SetText("Live")
     live.fs:SetPoint("LEFT", live.dot, "RIGHT", 6, 0)
@@ -685,7 +598,7 @@ local function createWindow()
     do
         local fs = f.addPage:GetFontString()
         local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, 15, flags) end
+        if path then fs:SetFont(path, Style:Size(15), flags) end
         f.addPage:SetSize(24, TABS_H)
     end
     tipButton(f.addPage, "Add a page", "For another phase of the fight. It starts with the same map.")
@@ -703,13 +616,12 @@ local function createWindow()
     f.countBtn:SetHeight(TABS_H)
     f.countBtn:SetPoint("RIGHT", f.mapBtn, "LEFT", -14, 0)
     f.countBtn:EnableMouse(true)
-    f.countFs = newText(f.countBtn, "GameFontHighlight", 11)
+    f.countFs = UI():Text(f.countBtn, "body", "TEXT")
     f.countFs:SetPoint("RIGHT", 0, 0)
     f.countBtn:SetScript("OnEnter", function(self) Board:CountTooltip(self) end)
     f.countBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- assigning: how many slots have a name, at the row's right end
-    f.slotsFs = newText(c, "GameFontHighlight", 11.5)
-    f.slotsFs:SetTextColor(0.62, 0.62, 0.62)
+    f.slotsFs = UI():Text(c, "body", "SUB")
     f.slotsFs:SetJustifyH("RIGHT")
     f.slotsFs:SetPoint("RIGHT", c, "TOPLEFT", PAD + HDR_W, -(TABS_Y + TABS_H / 2))
 
@@ -751,7 +663,7 @@ local function createWindow()
     border:SetPoint("TOPLEFT", f.canvas.frame, "TOPLEFT", -1, 1)
     border:SetPoint("BOTTOMRIGHT", f.canvas.frame, "BOTTOMRIGHT", 1, -1)
     UI():AddEdges(border, "OVERLAY")
-    UI():SetEdgeColor(border, 0.34, 0.34, 0.38, 0.65)
+    UI():SetEdgeColor(border, tone("EDGE", 0.65))
     border:SetFrameLevel(f.canvas.frame:GetFrameLevel() + 1100)
     border:EnableMouse(false)
 
@@ -760,9 +672,9 @@ local function createWindow()
     local pool = CreateFrame("Frame", nil, c)
     pool:SetPoint("TOPLEFT", c, "TOPLEFT", PANEL_X, -MAP_Y)
     pool:SetSize(PANEL_W, 60)
-    panelLook(pool, CARD_BG, { 0.34, 0.34, 0.38, 0.35 })
+    panelLook(pool, CARD_BG, { tone("EDGE", 0.35) })
     pool.chips, pool.heads = {}, {}
-    pool.empty = newText(pool, "GameFontHighlight", 11.5)
+    pool.empty = UI():Text(pool, "body", "TEXT")
     pool.empty:SetTextColor(0.54, 0.54, 0.54)
     pool.empty:SetPoint("TOPLEFT", 12, -10)
     pool.empty:SetPoint("RIGHT", pool, "RIGHT", -12, 0)
@@ -862,7 +774,7 @@ local function createWindow()
             t:SetPoint(a[1], sw, a[1], a[2], a[3])
             t:SetPoint(a[4], sw, a[4], a[5], a[6])
             if a[7] == "h" then t:SetHeight(2) else t:SetWidth(2) end
-            t:SetColorTexture(1, 0.82, 0, 0.95)
+            t:SetColorTexture(tone("GOLD", 0.95))
             sw.ring[k] = t
         end
         tipButton(sw, MapUI().COLORS[i][4] or "Colour", "For new drawings, and the selected one.")
@@ -1165,7 +1077,7 @@ end
 
 local function presenceName(key)
     local r, g, b = Collab():ColorOf(key)
-    return "|cff" .. hexOf(r, g, b) .. shortName(key) .. "|r"
+    return "|cff" .. hexOf(r, g, b) .. ns.Util.ShortName(key) .. "|r"
 end
 
 -- The same in a line ("live with A, B (P3)  ·  C is editing  ·  D is looking"), or nil: the Live tooltip's words.
@@ -1619,7 +1531,7 @@ function Board:Discard()
     else
         text = ("Discard %s?\n|cff9e9e9eIt was never saved: it is gone for good.|r"):format(name)
     end
-    ns.Popup:Show("DISASTERZONE_STRAT_DISCARD", text, nil, { fn = function() Board:CancelChanges() end })
+    ask("DISCARD", text, function() Board:CancelChanges() end)
 end
 
 function Board:CancelChanges()
@@ -1649,10 +1561,10 @@ function Board:Save(force)
     if st.mode == "edit" then
         local newer = not force and savedSince()
         if newer then
-            ns.Popup:Show("DISASTERZONE_STRAT_NEWER",
+            ask("NEWER",
                 ("%s saved a newer version of |cffffd100%s|r at %s, after you started.\n|cff9e9e9eSaving puts yours in its place.|r")
-                    :format(presenceName(newer.by), st.strat.n, date("%H:%M", newer.rev)), nil,
-                { fn = function() Board:Save(true) end })
+                    :format(presenceName(newer.by), st.strat.n, date("%H:%M", newer.rev)),
+                function() Board:Save(true) end)
             return false
         end
         local ok, res = S():SaveStrategy(st.strat)
@@ -1727,10 +1639,10 @@ function Board:UseStrategy(id, force)
     end
     if lost > 0 and not force then
         local v = raidView()
-        ns.Popup:Show("DISASTERZONE_STRAT_SWITCH",
+        ask("SWITCH",
             ("Use |cffffd100%s|r for %s?\n|cff9e9e9e%s no slot there and %s cleared.|r"):format(s.n,
                 v and raidWhen(v.t) or "this raid", lost == 1 and "1 of your names has" or (lost .. " of your names have"),
-                lost == 1 and "is" or "are"), nil, { fn = function() Board:UseStrategy(id, true) end })
+                lost == 1 and "is" or "are"), function() Board:UseStrategy(id, true) end)
         return
     end
     st.strat = s
@@ -1748,8 +1660,8 @@ function Board:StrategyMenu(root)
     root:CreateTitle(S():GetBossName(st.boss))
     local last = st.occ and S():GetLastPick(st.boss, st.occ)
     for _, s in ipairs(S():GetStrategies(st.boss)) do
-        local note = s.id == last and "used last time" or shortName(s.ow or s.by)
-        root:CreateRadio(s.n .. "  " .. grey(note), function() return st.strat and st.strat.id == s.id end,
+        local note = s.id == last and "used last time" or ns.Util.ShortName(s.ow or s.by)
+        root:CreateRadio(s.n .. "  " .. Style:Wrap("DIM", note), function() return st.strat and st.strat.id == s.id end,
             function() Board:UseStrategy(s.id) end)
     end
     if canBuild() then
@@ -1837,7 +1749,7 @@ function Board:PageMenu(owner, i)
             end)
             if dup and dup.SetTooltip then
                 dup:SetTooltip(function(tt)
-                    tt:AddLine("Duplicate", 1, 0.82, 0)
+                    tt:AddLine("Duplicate", tone("GOLD"))
                     tt:AddLine("A new page with the same map and drawings. The tables stay on this one: the drawings "
                         .. "keep showing their names.", 1, 1, 1, true)
                 end)
@@ -1872,13 +1784,13 @@ function Board:DeletePage(i, force)
     local what, many = pageContents(p)
     if not force and what then
         local id = p.id
-        ns.Popup:Show("DISASTERZONE_STRAT_DELETE_PAGE",
+        ask("DELETE_PAGE",
             ("Delete the page |cffffd100%s|r?\n|cff9e9e9eIts %s %s with it. Ctrl+Z brings %s back.|r"):format(p.n,
-                what, many and "go" or "goes", many and "them" or "it"), nil, { fn = function()
+                what, many and "go" or "goes", many and "them" or "it"), function()
                 for j, x in ipairs(st.strat and st.strat.p or {}) do
                     if x.id == id then return Board:DeletePage(j, true) end
                 end
-            end })
+            end)
         return
     end
     tremove(pages, i)
@@ -1907,7 +1819,7 @@ function Board:SlotTokenText(ref)
     local key = st.assign[ref]
     if key and st.mode ~= "edit" then
         local name = coloredName(key)
-        if st.occ and not memberSet[key] then name = "|cffff5050" .. shortName(key) .. "|r" end
+        if st.occ and not memberSet[key] then name = "|cffff5050" .. ns.Util.ShortName(key) .. "|r" end
         return name
     end
     local label = slotLabels[ref]
@@ -1950,7 +1862,7 @@ function Board:LinkText(ref)
         local key = st.assign[sl.ref]
         if key then
             local name = coloredName(key)
-            if st.occ and not memberSet[key] then name = "|cffff5050" .. shortName(key) .. "|r" end
+            if st.occ and not memberSet[key] then name = "|cffff5050" .. ns.Util.ShortName(key) .. "|r" end
             names[#names + 1] = name
         end
     end
@@ -1958,19 +1870,19 @@ function Board:LinkText(ref)
     if #names > 6 then
         local n = #names
         for i = n, 6, -1 do names[i] = nil end
-        names[#names + 1] = grey("+" .. (n - 5))
+        names[#names + 1] = Style:Wrap("DIM", "+" .. (n - 5))
     end
     return tconcat(names, ", ")
 end
 
 function Board:LinkTooltip(ref, tt)
-    tt:AddLine(self:LinkLabel(ref), 1, 0.82, 0)
+    tt:AddLine(self:LinkLabel(ref), tone("GOLD"))
     local any = false
     for _, sl in ipairs(slotsOf(ref)) do
         local key = st.assign[sl.ref]
         if key then
             any = true
-            tt:AddLine(coloredName(key) .. (sl.ref ~= ref and grey("  " .. sl.label) or ""))
+            tt:AddLine(coloredName(key) .. (sl.ref ~= ref and Style:Wrap("DIM", "  " .. sl.label) or ""))
         end
     end
     if not any and st.mode ~= "edit" then tt:AddLine("Not assigned", 0.6, 0.6, 0.6) end
@@ -2109,10 +2021,10 @@ function Board:Click3D()
         return
     end
     local bossRef = st.strat and st.strat.b or st.boss
-    ns.Popup:Show("DISASTERZONE_STRAT_MAP3D",
+    ask("MAP3D",
         ("This page is drawn on |cffffd100%s|r; %s's room is on |cffffd100%s|r.\n|cff9e9e9eUse that map for this page "
             .. "and open the room?|r"):format(MapUI():MapShortName(p.m, bossRef), S():GetBossName(bossRef),
-            MapUI():MapShortName(m.id, bossRef)), nil, { fn = function() Board:UseRoomMap() end })
+            MapUI():MapShortName(m.id, bossRef)), function() Board:UseRoomMap() end)
 end
 
 function Board:UseRoomMap()
@@ -2186,7 +2098,7 @@ function Board:RefreshCount()
         fs:SetTextColor(1, 0.42, 0.42)
     else
         fs:SetText(("%d of %d drawings"):format(n, limit))
-        if n >= floor(limit * 0.9) then fs:SetTextColor(1, 0.6, 0.2) else fs:SetTextColor(0.62, 0.62, 0.62) end
+        if n >= floor(limit * 0.9) then fs:SetTextColor(1, 0.6, 0.2) else fs:SetTextColor(tone("SUB")) end
     end
     win.countBtn:SetWidth(floor((fs:GetStringWidth() or 100) + 0.5))
 end
@@ -2248,7 +2160,7 @@ function Board:RefreshPool()
         tinsert(cols[at[role or CLASS_ROLE[m.c] or "ranged"] or 4], m)
     end
     for _, list in ipairs(cols) do
-        tsort(list, function(a, b) return shortName(a.key) < shortName(b.key) end)
+        tsort(list, function(a, b) return ns.Util.ShortName(a.key) < ns.Util.ShortName(b.key) end)
     end
     local rows = 0
     for i, c in ipairs(ROLE_COLS) do
@@ -2266,14 +2178,14 @@ function Board:RefreshPool()
                 h.icon:SetTexture(UI().ROLE_TEX)
                 h.icon:SetTexCoord(UI():RoleCoords(c[1] == "melee" and "damager" or c[1]))
             end
-            h.fs = newText(h, "GameFontNormal", 11.5)
+            h.fs = UI():Text(h, "body", "GOLD")
             h.fs:SetPoint("LEFT", h.icon, "RIGHT", 5, 0)
             h.fs:SetText(c[2])
             h.line = h:CreateTexture(nil, "ARTWORK")
             h.line:SetPoint("BOTTOMLEFT")
             h.line:SetPoint("BOTTOMRIGHT")
             h.line:SetHeight(1)
-            h.line:SetColorTexture(1, 1, 1, 0.08)
+            h.line:SetColorTexture(tone("HAIRLINE", 0.08))
             h:SetPoint("TOPLEFT", pool, "TOPLEFT", 10 + (i - 1) * (ROSTER_COL_W + GAP), -6)
             pool.heads[i] = h
         end
@@ -2300,13 +2212,13 @@ function Board:RefreshPool()
             chip.fs:SetText(name)
             -- never cut: a long name takes a size smaller
             local path, _, flags = chip.fs:GetFont()
-            if path then chip.fs:SetFont(path, 11, flags) end
-            if (chip.fs:GetStringWidth() or 0) > ROSTER_COL_W - 22 and path then chip.fs:SetFont(path, 9.5, flags) end
+            if path then chip.fs:SetFont(path, Style:Size("body"), flags) end
+            if (chip.fs:GetStringWidth() or 0) > ROSTER_COL_W - 22 and path then chip.fs:SetFont(path, Style:Size("caps"), flags) end
             local jobs = countOf(m.key)
             chip.count:SetText(jobs > 1 and tostring(jobs) or "")
             local picked = st.picked == m.key
             chip.picked:SetShown(picked)
-            UI():SetEdgeColor(chip, 1, 0.82, 0, picked and 0.7 or 0)
+            UI():SetEdgeColor(chip, tone("GOLD", picked and 0.7 or 0))
             chip:SetAlpha(st.dragging == m.key and 0 or ((jobs > 0 and not picked) and 0.5 or 1))
             chip:Show()
         end
@@ -2345,7 +2257,7 @@ local function createTab(i)
     b.chev:SetSize(9, 9)
     b.chev:SetTexture(TOOL_ATLAS)
     b.chev:SetTexCoord(unpack(atlasCoords(UI().ICON.chevron)))
-    b.chev:SetVertexColor(1, 0.82, 0)
+    b.chev:SetVertexColor(tone("GOLD"))
     b.chev:SetPoint("LEFT", b:GetFontString(), "RIGHT", 4, -1)
     b.dots = {}
     b:SetScript("OnClick", function(self, button)
@@ -2476,11 +2388,11 @@ end
 local function stateOf(pr)
     if st.sandbox then return "alt", "Practice \194\183 nothing is saved or shared", "practice" end
     if pr.joining then
-        local from = pr.live[1] and shortName(pr.live[1].key)
+        local from = pr.live[1] and ns.Util.ShortName(pr.live[1].key)
         return "bis", (from and ("Joining " .. from .. "'s board") or "Joining the live board")
             .. (" \194\183 %d%%"):format(pr.joining * 100), "joining"
     end
-    if st.mode == "edit" and st.stale then return "warn", "Newer version by " .. shortName(st.stale), "stale" end
+    if st.mode == "edit" and st.stale then return "warn", "Newer version by " .. ns.Util.ShortName(st.stale), "stale" end
     if st.dirty and (st.mode == "edit" or st.mode == "fill") then return "warn", "Unsaved", "unsaved" end
     return nil
 end
@@ -2499,9 +2411,9 @@ function Board:StateTooltip(owner)
             .. "show at once on both.", 1, 1, 1, true)
     elseif why == "stale" then
         local cur = st.strat and st.strat.id and S():GetStrategy(st.strat.id)
-        GameTooltip:AddLine("Newer version by " .. shortName(st.stale))
+        GameTooltip:AddLine("Newer version by " .. ns.Util.ShortName(st.stale))
         GameTooltip:AddLine(("%s saved this strategy%s, after you started. Save puts your version in its place; "
-            .. "Discard keeps theirs."):format(shortName(st.stale), cur and cur.rev and (" at " .. date("%H:%M", cur.rev))
+            .. "Discard keeps theirs."):format(ns.Util.ShortName(st.stale), cur and cur.rev and (" at " .. date("%H:%M", cur.rev))
             or ""), 1, 1, 1, true)
     elseif st.mode == "fill" then
         GameTooltip:AddLine("Unsaved")
@@ -2817,8 +2729,8 @@ function Board:RefreshDock()
         jobs.label:SetText(#mine > 0 and "YOUR JOBS" or (any and "No job for you on this board" or
             "No names for this raid yet"))
         local path, _, flags = jobs.label:GetFont()
-        if path then jobs.label:SetFont(path, #mine > 0 and 10 or 11.5, flags) end
-        if #mine > 0 then jobs.label:SetTextColor(1, 0.82, 0) else jobs.label:SetTextColor(0.54, 0.54, 0.54) end
+        if path then jobs.label:SetFont(path, Style:Size(#mine > 0 and "small" or 11.5), flags) end
+        if #mine > 0 then jobs.label:SetTextColor(tone("GOLD")) else jobs.label:SetTextColor(0.54, 0.54, 0.54) end
         local x = floor((jobs.label:GetStringWidth() or 60) + 0.5) + 10
         local chips = dockChips(jobs, #mine, true)
         local shown = 0
@@ -2852,7 +2764,7 @@ function Board:RefreshDock()
                 GameTooltip:SetOwner(self, "ANCHOR_TOP")
                 if self.rest then
                     for _, sl in ipairs(self.rest) do
-                        GameTooltip:AddLine(sl.label .. (#s.p > 1 and grey("  " .. sl.pageName) or ""), 1, 1, 1)
+                        GameTooltip:AddLine(sl.label .. (#s.p > 1 and Style:Wrap("DIM", "  " .. sl.pageName) or ""), 1, 1, 1)
                     end
                 else
                     GameTooltip:AddLine(slotLabels[self.ref] or "")
@@ -2936,7 +2848,7 @@ local function menuButton(root, icon, word, tip, fn, red)
     local b = root:CreateButton(menuEntry(icon, word, red), fn)
     if tip and b and b.SetTooltip then
         b:SetTooltip(function(tt)
-            tt:AddLine(word, 1, 0.82, 0)
+            tt:AddLine(word, unpack(Style.C.GOLD))
             tt:AddLine(tip, 1, 1, 1, true)
         end)
     end
@@ -2964,7 +2876,7 @@ function Board:MoreMenu(root)
         end)
         if am and am.SetTooltip then
             am:SetTooltip(function(tt)
-                tt:AddLine("Auto-mark", 1, 0.82, 0)
+                tt:AddLine("Auto-mark", tone("GOLD"))
                 tt:AddLine("In the raid, the raid leader's DisasterZone puts the raid marks shown on the boss portraits "
                     .. "on the mobs as their nameplates appear.", 1, 1, 1, true)
             end)
@@ -3022,7 +2934,7 @@ local KEY_ROW, KEY_COL = 21, 118
 local function keycap(parent, text)
     local k = CreateFrame("Frame", nil, parent)
     panelLook(k, { 0.15, 0.15, 0.17, 1 }, { 1, 1, 1, 0.22 })
-    k.fs = newText(k, "GameFontHighlight", 10)
+    k.fs = UI():Text(k, "small", "TEXT")
     k.fs:SetPoint("CENTER", 0, 0)
     k.fs:SetText(text)
     k:SetSize(floor((k.fs:GetStringWidth() or 20) + 10 + 0.5), 16)
@@ -3036,7 +2948,7 @@ local function createKeys()
     k:SetToplevel(true)
     k:EnableMouse(true)
     panelLook(k, { 0.06, 0.06, 0.07, 1 }, { 0.45, 0.45, 0.5, 1 })
-    k.title = newText(k, "GameFontHighlight", 13)
+    k.title = UI():Text(k, "title", "TEXT")
     k.title:SetPoint("TOPLEFT", 14, -13)
     k.title:SetText("Keyboard and mouse")
     k.close = CreateFrame("Button", nil, k)
@@ -3060,7 +2972,7 @@ local function createKeys()
     local function column(groups, x)
         local y = 13 + 16 + 4
         for _, g in ipairs(groups) do
-            local h = newText(k, "GameFontNormal", 10)
+            local h = UI():Text(k, "small", "GOLD")
             h:SetPoint("TOPLEFT", x, -(y + 8))
             h:SetText(g[1]:upper())
             y = y + 8 + 13 + 3
@@ -3071,7 +2983,7 @@ local function createKeys()
                     cap:SetPoint("LEFT", k, "TOPLEFT", x + kx, -(y + KEY_ROW / 2))
                     kx = kx + (cap:GetWidth() or 30) + 3
                 end
-                local d = newText(k, "GameFontHighlight", 11)
+                local d = UI():Text(k, "body", "TEXT")
                 d:SetTextColor(0.84, 0.84, 0.84)
                 d:SetPoint("LEFT", k, "TOPLEFT", x + KEY_COL + 8, -(y + KEY_ROW / 2))
                 d:SetText(row[2])
@@ -3167,32 +3079,7 @@ function Board:OnLogin()
     end
 end
 
--- The board's questions (the game's confirm boxes): data.fn runs on the first button.
-local function confirmDialog(button1, button2, title, danger)
-    return {
-        title = title,
-        danger = danger,
-        text = "%s",
-        button1 = button1,
-        button2 = button2,
-        OnAccept = function(_, data)
-            if type(data) == "table" and data.fn then data.fn() end
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
-end
-
 function Board:OnInit()
-    if ns.Popup.dialogs then
-        ns.Popup.dialogs["DISASTERZONE_STRAT_DISCARD"] = confirmDialog("Discard", "Keep editing", "Discard changes", true)
-        ns.Popup.dialogs["DISASTERZONE_STRAT_DELETE_PAGE"] = confirmDialog(DELETE or "Delete", CANCEL or "Cancel", "Delete page", true)
-        ns.Popup.dialogs["DISASTERZONE_STRAT_NEWER"] = confirmDialog("Save mine", CANCEL or "Cancel", "Saved by someone else")
-        ns.Popup.dialogs["DISASTERZONE_STRAT_SWITCH"] = confirmDialog("Use it", CANCEL or "Cancel")
-        ns.Popup.dialogs["DISASTERZONE_STRAT_MAP3D"] = confirmDialog("Use it", CANCEL or "Cancel")
-    end
     local function refresh()
         if not (win and win:IsShown()) then return end
         -- a newer saved copy of what I'm looking at replaces it (never my unsaved draft)

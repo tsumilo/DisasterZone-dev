@@ -12,6 +12,14 @@ local addonName, ns = ...
 
 local MapUI = ns:NewModule("StrategyMapUI")
 
+local Style = ns.Style
+-- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
+local function tone(name, a)
+    local c = Style.C[name]
+    if a then return c[1], c[2], c[3], a end
+    return c[1], c[2], c[3]
+end
+
 local floor, max, min, abs, sqrt = math.floor, math.max, math.min, math.abs, math.sqrt
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 local tinsert, tremove, tsort = table.insert, table.remove, table.sort
@@ -347,31 +355,13 @@ end
 
 local mapCache
 
--- The names the client may give a raid's map, per ItemDB raid key.
-local MAP_NAMES = {
-    Karazhan = { "karazhan" },
-    GruulsLair = { "gruul" },
-    MagtheridonsLair = { "magtheridon" },
-    SerpentshrineCavern = { "serpentshrine" },
-    TempestKeep = { "tempest keep", "the eye" },
-    HyjalSummit = { "hyjal" },
-    BlackTemple = { "black temple" },
-    ZulAman = { "zul'aman", "zul aman" },
-    SunwellPlateau = { "sunwell" },
-}
-
--- The raids' uiMapIDs as the TBC clients number them (a fallback when the names don't match).
-local MAP_IDS = {
-    Karazhan = { 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366 },
-    GruulsLair = { 330 },
-    MagtheridonsLair = { 331 },
-    SerpentshrineCavern = { 332 },
-    TempestKeep = { 334 },
-    HyjalSummit = { 329 },
-    BlackTemple = { 339, 340, 341, 342, 343, 344, 345, 346 },
-    ZulAman = { 333 },
-    SunwellPlateau = { 335, 336 },
-}
+-- The names the client may give a raid's map and the raids' uiMapIDs as the TBC clients number them (a fallback when
+-- the names don't match), per ItemDB raid key: Data/Raids.lua (ns.Data.RaidMeta mapNames / mapIDs).
+local MAP_NAMES, MAP_IDS = {}, {}
+for key, m in pairs((ns.Data and ns.Data.RaidMeta) or {}) do
+    if m.mapNames then MAP_NAMES[key] = m.mapNames end
+    if m.mapIDs then MAP_IDS[key] = m.mapIDs end
+end
 
 -- DisasterZone's own raid maps (Data/RaidMaps.lua: Blizzard's floor maps, see NOTICE.md; the client has no raid map art).
 -- Each is two textures, Media/Maps/<file>_a (1024 x 512) and _b (1024 x 256, 171 rows used), of a 1024 x 683 map.
@@ -710,7 +700,7 @@ function MapUI:CreateCanvas(parent, width, opts)
     self.marq = self.top:CreateTexture(nil, "OVERLAY", nil, 5)
     self.marq:SetColorTexture(1, 0.85, 0.1, 0.15)
     self.marq:Hide()
-    self.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    self.hint = UI():Text(f, "small", "DIM", { wrap = true })
     self.hint:SetPoint("BOTTOMLEFT", 6, 4)
     self.hint:SetPoint("RIGHT", -6, 0)
     self.hint:SetJustifyH("LEFT")
@@ -938,7 +928,7 @@ function Canvas:RenderBackground()
                 self.grid[n] = t
             end
             t:ClearAllPoints()
-            t:SetColorTexture(1, 1, 1, 0.06)
+            t:SetColorTexture(tone("HAIRLINE", 0.06))
             if horizontal then
                 t:SetPoint("TOPLEFT", self.art, "TOPLEFT", 0, -pos * self.s)
                 t:SetSize(self.w, 1)
@@ -2002,7 +1992,7 @@ local function linkGhost()
     ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
     ghost.bg:SetAllPoints()
     ghost.bg:SetColorTexture(0, 0, 0, 0.8)
-    ghost.fs = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    ghost.fs = UI():Text(ghost, "small", "TEXT")
     ghost.fs:SetPoint("LEFT", 4, 0)
     ghost:SetScript("OnUpdate", function(self)
         local x, y = GetCursorPosition()

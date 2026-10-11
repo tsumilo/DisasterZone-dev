@@ -17,6 +17,14 @@ local addonName, ns = ...
 
 local View = ns:NewModule("StrategiesUI")
 
+local Style = ns.Style
+-- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
+local function tone(name, a)
+    local c = Style.C[name]
+    if a then return c[1], c[2], c[3], a end
+    return c[1], c[2], c[3]
+end
+
 local tsort, tconcat = table.sort, table.concat
 local min, max, ceil, floor = math.min, math.max, math.ceil, math.floor
 
@@ -30,14 +38,9 @@ local STRIP_GAP = 4                  -- under a raid's strip
 local CARD_H, CARD_GAP = 46, 6       -- a strategy: its card and the gap under it
 local THUMB_W = 64                   -- its raid's art
 local ACT = 24                       -- a card's icon buttons
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
+local CARD_BG = { tone("CARD", 0.92) }
 local DRAFT_BG = { 0.16, 0.115, 0.06, 0.94 }
-local MENU_GOLD, MENU_RED = { 1, 0.82, 0 }, { 1, 0.4, 0.35 }
-local PILL = {                       -- fill, edge (mixed with the card's fill), text
-    warn = { { 0.28, 0.18, 0.07, 1 }, { 0.58, 0.34, 0.09, 1 }, "ffb066" },
-    ok = { { 0.12, 0.18, 0.15, 1 }, { 0.23, 0.48, 0.3, 1 }, "9ff0b0" },
-}
-local ART_TOP = 0.29                 -- a loading screen's picture starts under the game's logo
+local MENU_GOLD, MENU_RED = { tone("GOLD") }, { 1, 0.4, 0.35 }
 -- A planned raid's Assignments tab.
 local RAID_TILE_H = 62               -- a raid's boss tile (two a row)
 local RAID_TEXT_X = 104              -- its texts start right of the boss's picture
@@ -47,8 +50,6 @@ local RAID_TOP = 34                  -- the tab's tool row above the tiles
 local function S() return ns.Strategy end
 local function UI() return ns.UI end
 local function Board() return ns.StrategyBoard end
-local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
 
 -- The library's filter: raid (an ItemDB raid key) or boss (a boss ref) picked on the left (neither: all raids),
 -- text = the free search, by = nil (anyone) | "@me" | "@co" (shared with me) | a member's key.
@@ -57,22 +58,6 @@ local lib, assign, shareWin
 
 local function raidOf(ref)
     return type(ref) == "string" and ref:match("^(%w+):") or nil
-end
-
-local function newText(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
-local function gradient(tex, orient, r, g, b, a1, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2)) end
 end
 
 -- The first of the texts that fits in `room` (the last one when none does): never cut off with "...".
@@ -86,49 +71,21 @@ local function fitText(fs, variants, room)
     end
 end
 
--- A small rounded tag after a name ("Draft", "shared with you"): p:Set(text, kind).
+-- A small rounded tag after a name ("Draft", "shared with you"): p:Set(text, kind) (UI:CreatePill).
 local function newPill(parent)
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetHeight(16)
-    UI():AddPillShape(p, 16)
-    p.fs = newText(p, "GameFontHighlightSmall", 10)
-    p.fs:SetPoint("CENTER", 0, 0)
-    function p:Set(text, kind)
-        local c = PILL[kind] or PILL.ok
-        self:SetPillColors(c[1], c[2])
-        self.fs:SetText("|cff" .. c[3] .. text .. "|r")
-        self:SetWidth(floor((self.fs:GetStringWidth() or 40) + 14 + 0.5))
-    end
+    local p = UI():CreatePill(parent, 16)
+    p:SetBase(tone("CARD"))
     return p
 end
 
--- A raid's loading screen (UI/RaidPlanUI.lua has the crops): the raid plan's instance key of an ItemDB raid key.
-local INST_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
-                     za = "ZA", swp = "Sunwell" }
-local instCache = {}
-local function instOf(raidKey)
-    if not raidKey then return "other" end
-    if instCache[raidKey] then return instCache[raidKey] end
-    local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(raidKey)
-    local id, out = raid and raid.instanceID, "other"
-    local RP = ns.RaidPlan
-    for _, inst in ipairs((id and RP and RP.GetInstances) and RP:GetInstances() or {}) do
-        if inst.instID == id then out = inst.key end
-    end
-    instCache[raidKey] = out
-    return out
-end
-
+-- A raid's loading screen (ns.ItemDB:RaidArt, either raid key form); small: the crop stays under the game's logo.
 local function setArt(tex, raidKey, w, h, fw, small)
-    local PlanUI = ns.RaidPlanUI
-    if not (PlanUI and PlanUI.RaidArt) then
+    local ItemDB = ns.ItemDB
+    if not (ItemDB and ItemDB.RaidArt) then
         tex:Hide()
         return
     end
-    local inst = instOf(raidKey)
-    local file, l, r, t, b = PlanUI:RaidArt(inst, w, h, fw)
-    -- (a small crop stays under the game's logo at the top of the screen)
-    if small and t < ART_TOP then t, b = ART_TOP, b + ART_TOP - t end
+    local file, l, r, t, b = ItemDB:RaidArt(raidKey or "other", w, h, fw, small and true or nil)
     tex:SetTexture(file)
     tex:SetTexCoord(l, r, t, b)
     tex:Show()
@@ -206,15 +163,13 @@ local function treeClick(self)
     else View:SelectRaid(nil) end
 end
 
--- (what the orange count means)
-local function treeTip(self)
+-- (what the orange count means; UI:AttachTooltip's title function: false = no tooltip)
+local function treeTip(self, tt)
     local d = self.__cdlData
-    if not (d and (d.drafts or 0) > 0) then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(d.name)
-    if d.count > 0 then GameTooltip:AddLine(d.count == 1 and "1 strategy" or (d.count .. " strategies"), 1, 1, 1) end
-    GameTooltip:AddLine(("%d unsaved %s of yours"):format(d.drafts, d.drafts == 1 and "draft" or "drafts"), 1, 0.6, 0.2)
-    GameTooltip:Show()
+    if not (d and (d.drafts or 0) > 0) then return false end
+    tt:AddLine(d.name, unpack(Style.C.GOLD))
+    if d.count > 0 then tt:AddLine(d.count == 1 and "1 strategy" or (d.count .. " strategies"), 1, 1, 1) end
+    tt:AddLine(("%d unsaved %s of yours"):format(d.drafts, d.drafts == 1 and "draft" or "drafts"), 1, 0.6, 0.2)
 end
 
 -- One row of the left column: All raids, a raid (a strip of its loading screen) or a boss of the open raid.
@@ -229,27 +184,26 @@ local function initTreeRow(row, d)
         row.art:SetAllPoints()
         row.shade = box:CreateTexture(nil, "BACKGROUND", nil, 1)
         row.shade:SetAllPoints()
-        gradient(row.shade, "HORIZONTAL", 0.035, 0.035, 0.043, 0.9, 0.4)
+        UI():Gradient(row.shade, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.9 }, { 0.035, 0.035, 0.043, 0.4 })
         -- the picked one: a soft gold fill and a gold mark on its left (a raid: a gold edge)
         row.fill = box:CreateTexture(nil, "BACKGROUND", nil, 2)
         row.fill:SetAllPoints()
-        row.fill:SetColorTexture(1, 0.82, 0, 0.1)
+        row.fill:SetColorTexture(tone("GOLD", 0.1))
         row.bar = box:CreateTexture(nil, "ARTWORK")
         row.bar:SetPoint("TOPLEFT")
         row.bar:SetPoint("BOTTOMLEFT")
         row.bar:SetWidth(2)
-        row.bar:SetColorTexture(1, 0.82, 0, 0.9)
+        row.bar:SetColorTexture(tone("GOLD", 0.9))
         UI():AddEdges(box, "ARTWORK")
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
         row.hl:SetAllPoints(box)
-        row.hl:SetColorTexture(1, 1, 1, 0.05)
-        row.fs = newText(box, "GameFontHighlight", 12)
-        row.n = newText(box, "GameFontHighlightSmall", 11)
+        row.hl:SetColorTexture(tone("HAIRLINE", 0.05))
+        row.fs = UI():Text(box, "emph", "TEXT")
+        row.n = UI():Text(box, "body", "TEXT")
         row.n:SetJustifyH("RIGHT")
         row.n:SetPoint("RIGHT", -10, 0)
         row:SetScript("OnClick", treeClick)
-        row:SetScript("OnEnter", treeTip)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(row, treeTip)
     end
     local kind = d.ref and "boss" or (d.raid and "raid" or "all")
     row.box:SetHeight(kind == "raid" and STRIP_H or (kind == "all" and ALL_H or BOSS_H))
@@ -265,12 +219,12 @@ local function initTreeRow(row, d)
         row.art:SetAlpha(lit and 1 or 0.4)
         row.shade:Show()
         row.fs:SetPoint("LEFT", 10, 0)
-        if lit then row.fs:SetTextColor(1, 0.82, 0) else row.fs:SetTextColor(0.6, 0.6, 0.6) end
+        if lit then row.fs:SetTextColor(tone("GOLD")) else row.fs:SetTextColor(0.6, 0.6, 0.6) end
         fitText(row.fs, { d.name, d.short or d.name }, room)
         row.fs:SetAlpha(lit and 1 or 0.75)
         -- the picked raid: a gold edge; the open one (a boss of it picked): a faint one
         local edge = (state.boss == nil and state.raid == d.raid) and 0.85 or (raidOf(state.boss) == d.raid and 0.3) or 0
-        UI():SetEdgeColor(row.box, 1, 0.82, 0, edge)
+        UI():SetEdgeColor(row.box, tone("GOLD", edge))
     else
         row.art:Hide()
         row.shade:Hide()
@@ -306,7 +260,7 @@ end
 local function editingText(id)
     local Collab = ns.StrategyCollab
     local names = {}
-    for _, key in ipairs(Collab and Collab:GetEditors(id) or {}) do names[#names + 1] = shortName(key) end
+    for _, key in ipairs(Collab and Collab:GetEditors(id) or {}) do names[#names + 1] = ns.Util.ShortName(key) end
     if #names == 0 then return nil end
     return "|cff33ff99" .. tconcat(names, ", ") .. " editing|r"
 end
@@ -322,7 +276,7 @@ end
 
 local function deleteStrategy(s)
     local owner = S():GetOwner(s.id)
-    local whose = (owner and not ns.Util.IsMe(owner)) and (" by " .. shortName(owner)) or ""
+    local whose = (owner and not ns.Util.IsMe(owner)) and (" by " .. ns.Util.ShortName(owner)) or ""
     ns.RaidPlanUI:Confirm(("Delete the strategy \"%s\"%s for everyone?"):format(s.n, whose), function()
         local ok, err = S():DeleteStrategy(s.id)
         if not ok then ns:Print("Could not delete it: %s", tostring(err)) end
@@ -388,7 +342,7 @@ local function openMore(btn)
             local b = root:CreateButton(UI():AtlasIconText(e[1], 14, e[5] and MENU_RED or MENU_GOLD) .. "  " .. text, e[4])
             if b and b.SetTooltip then
                 b:SetTooltip(function(tt)
-                    tt:AddLine(e[2], 1, 0.82, 0)
+                    tt:AddLine(e[2], unpack(Style.C.GOLD))
                     tt:AddLine(e[3], 1, 1, 1, true)
                 end)
             end
@@ -398,7 +352,7 @@ end
 
 -- The card's edge lights while the mouse is on it (or on one of its buttons).
 local function lightCard(row, on)
-    if on then UI():SetEdgeColor(row.card, 1, 0.82, 0, 0.5) else UI():SetEdgeColor(row.card, 0, 0, 0, 0) end
+    if on then UI():SetEdgeColor(row.card, tone("GOLD", 0.5)) else UI():SetEdgeColor(row.card, 0, 0, 0, 0) end
 end
 
 -- A card's icon button stays quiet (a grey icon, no box) until the mouse is on it.
@@ -432,12 +386,11 @@ local function initStratRow(row, d)
         row.fade:SetPoint("TOPRIGHT", row.art, "TOPRIGHT")
         row.fade:SetPoint("BOTTOMRIGHT", row.art, "BOTTOMRIGHT")
         row.fade:SetWidth(22)
-        row.l1 = newText(card, "GameFontHighlight", 13)
+        row.l1 = UI():Text(card, "title", "TEXT")
         row.l1:SetPoint("TOPLEFT", THUMB_W + 12, -8)
         row.pill = newPill(card)
         row.pill:SetPoint("LEFT", row.l1, "RIGHT", 8, 0)
-        row.l2 = newText(card, "GameFontHighlightSmall", 11)
-        row.l2:SetTextColor(0.62, 0.62, 0.62)
+        row.l2 = UI():Text(card, "body", "SUB")
         row.l2:SetPoint("TOPLEFT", THUMB_W + 12, -27)
         row.more = UI():CreateTipIconButton(card, ACT, UI().ICON.more, "More", "", openMore)
         row.more:SetPoint("RIGHT", card, "RIGHT", -11, 0)
@@ -465,7 +418,7 @@ local function initStratRow(row, d)
     local item = draft or s
     local bg = draft and DRAFT_BG or CARD_BG
     row.card.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-    gradient(row.fade, "HORIZONTAL", bg[1], bg[2], bg[3], 0, 1)
+    UI():Gradient(row.fade, "HORIZONTAL", { bg[1], bg[2], bg[3], 0 }, { bg[1], bg[2], bg[3], 1 })
     setArt(row.art, raidOf(item.b), THUMB_W, CARD_H, 0.36, true)
 
     -- what I can do: Edit (a draft: Continue) on the card, the rest in its More menu
@@ -522,16 +475,16 @@ local function byOptions()
         { value = "@co", text = "Shared with me" },
     }
     local authors = S():GetAuthors()
-    tsort(authors, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)
+    tsort(authors, function(a, b) return ns.Util.ShortName(a.key):lower() < ns.Util.ShortName(b.key):lower() end)
     if #authors > 0 then out[#out + 1] = { isTitle = true, text = "Guild members" } end
     for _, a in ipairs(authors) do
-        out[#out + 1] = { value = a.key, text = shortName(a.key) .. "  (" .. a.n .. ")" }
+        out[#out + 1] = { value = a.key, text = ns.Util.ShortName(a.key) .. "  (" .. a.n .. ")" }
     end
     -- a member picked earlier who has no strategy any more stays pickable (and so visible)
     if state.by and state.by:sub(1, 1) ~= "@" then
         local found = false
         for _, a in ipairs(authors) do found = found or a.key == state.by end
-        if not found then out[#out + 1] = { value = state.by, text = shortName(state.by) .. "  (0)" } end
+        if not found then out[#out + 1] = { value = state.by, text = ns.Util.ShortName(state.by) .. "  (0)" } end
     end
     return out
 end
@@ -626,8 +579,9 @@ function View:CreateLibrary(parent)
     end)
     d.tourBtn:HookScript("OnEnter", function()
         if not S():CanBuild() then return end
+        local sub = Style.C.SUB
         GameTooltip:AddLine("Click for the tutorial: a guided tour on a practice board (building a strategy, the "
-            .. "room in 3D, assigning a raid). Nothing you do there is saved or shared.", 0.62, 0.62, 0.62, true)
+            .. "room in 3D, assigning a raid). Nothing you do there is saved or shared.", sub[1], sub[2], sub[3], true)
         GameTooltip:Show()
     end)
     -- who is editing what right now: ask once the list is looked at
@@ -681,7 +635,7 @@ function View:RefreshLibrary()
     local open = state.raid or raidOf(state.boss)
     local rows = { { name = "All raids", count = total, drafts = totalDrafts } }
     for _, raid in ipairs(tree) do
-        local head = { raid = raid.key, name = raid.name, short = INST_SHORT[instOf(raid.key)], count = 0, drafts = 0 }
+        local head = { raid = raid.key, name = raid.name, short = ns.ItemDB:RaidShort(raid.key), count = 0, drafts = 0 }
         rows[#rows + 1] = head
         local last
         for _, b in ipairs(raid.bosses) do
@@ -711,14 +665,20 @@ function View:RefreshLibrary()
         if draftShown(dr, true) then list[#list + 1] = { draft = dr } end
     end
     for _, s in ipairs(S():Find(findFilter(true))) do list[#list + 1] = { s = s } end
+    -- (the illustrated empty state: what is missing, and the way on - Clear filters, or New strategy for who builds)
+    local build = S():CanBuild()
+    local newAction = build and { text = "New strategy", onClick = function(b) newStrategy(b) end } or nil
     if filtered() then
-        d.list:SetEmptyText("No strategy matches the filters.")
+        d.list:SetEmptyState({ glyph = UI().ICON.notes, title = "No strategy matches the filters.",
+            action = { text = "Clear filters", kind = "secondary", onClick = function() View:SetFilter({}) end } })
     elseif state.boss then
-        d.list:SetEmptyText("No strategy for this boss yet.")
+        d.list:SetEmptyState({ glyph = UI().ICON.notes, title = "No strategy for this boss yet.",
+            text = build and "Draw one: a map with zones and arrows, and tables of jobs." or nil, action = newAction })
     elseif state.raid then
-        d.list:SetEmptyText("No strategy for this raid yet.")
+        d.list:SetEmptyState({ glyph = UI().ICON.notes, title = "No strategy for this raid yet.",
+            text = build and "Draw one for any of its bosses." or nil, action = newAction })
     else
-        d.list:SetEmptyText("No strategies yet.")
+        d.list:SetEmptyState({ glyph = UI().ICON.notes, title = "No strategies yet.", text = HELP, action = newAction })
     end
     d.list:SetData(list)
 end
@@ -773,13 +733,13 @@ local function shareItems()
     local set = shareSet()
     for _, key in ipairs(g and g.GetMembers and g:GetMembers() or {}) do
         if not ns.Util.IsMe(key) then
-            out[#out + 1] = { key = key, text = shortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
+            out[#out + 1] = { key = key, text = ns.Util.ShortName(key), classFile = g:GetClass(key), note = g:GetRankName(key),
                               dim = not g:IsOnline(key) }
             set[key] = nil
         end
     end
     -- a collaborator who left the guild can still be taken off
-    for key in pairs(set) do out[#out + 1] = { key = key, text = shortName(key), note = "not in the guild", dim = true } end
+    for key in pairs(set) do out[#out + 1] = { key = key, text = ns.Util.ShortName(key), note = "not in the guild", dim = true } end
     tsort(out, function(a, b) return a.text:lower() < b.text:lower() end)
     return out
 end
@@ -790,14 +750,13 @@ local function initShareRow(row, d)
         row.cdlInit = true
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
         row.hl:SetAllPoints()
-        row.hl:SetColorTexture(1, 1, 1, 0.05)
+        row.hl:SetColorTexture(tone("HAIRLINE", 0.05))
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(16, 16)
         row.icon:SetPoint("LEFT", 0, 0)
-        row.fs = newText(row, "GameFontHighlight", 12)
+        row.fs = UI():Text(row, "emph", "TEXT")
         row.fs:SetPoint("LEFT", 22, 0)
-        row.note = newText(row, "GameFontHighlightSmall", 11)
-        row.note:SetTextColor(0.62, 0.62, 0.62)
+        row.note = UI():Text(row, "body", "SUB")
         row.note:SetPoint("LEFT", 170, 0)
         row.remove = UI():CreateRemoveButton(row, "No longer a collaborator")
         row.remove:SetPoint("RIGHT", 0, 0)
@@ -821,13 +780,11 @@ local function createShare()
     shareWin = w
     local c = w.content
     -- the strategy and its boss; what collaborators may do
-    w.name = newText(c, "GameFontHighlight", 14)
+    w.name = UI():Text(c, "title", "TEXT")
     w.name:SetPoint("TOPLEFT", PAD, -10)
-    w.boss = newText(c, "GameFontHighlightSmall", 11)
-    w.boss:SetTextColor(0.62, 0.62, 0.62)
+    w.boss = UI():Text(c, "body", "SUB")
     w.boss:SetPoint("BOTTOMLEFT", w.name, "BOTTOMRIGHT", 8, 1)
-    w.info = newText(c, "GameFontHighlightSmall", 11)
-    w.info:SetTextColor(0.62, 0.62, 0.62)
+    w.info = UI():Text(c, "body", "SUB")
     w.info:SetPoint("TOPLEFT", PAD, -32)
     w.info:SetWidth(SHARE_W)
     w.info:SetWordWrap(true)
@@ -844,12 +801,12 @@ local function createShare()
     w.picker.frame:SetPoint("TOPLEFT", PAD, -y)
     -- the collaborators: how many of the most, then the list
     y = y + 22 + 16
-    w.status = newText(c, "GameFontNormalSmall", 11)
+    w.status = UI():Text(c, "body", "GOLD")
     w.status:SetPoint("TOPLEFT", PAD, -y)
     w.line = c:CreateTexture(nil, "BORDER")
     w.line:SetPoint("TOPLEFT", PAD, -(y + 18))
     w.line:SetSize(SHARE_W, 1)
-    w.line:SetColorTexture(1, 1, 1, 0.08)
+    w.line:SetColorTexture(tone("HAIRLINE", 0.08))
     w.list = UI():CreateScrollList(c, 24, initShareRow)
     w.list.frame:SetPoint("TOPLEFT", PAD, -(y + 22))
     w.list.frame:SetPoint("BOTTOMLEFT", PAD, PAD)
@@ -898,7 +855,7 @@ function View:RefreshShare()
     fitText(shareWin.boss, bossVariants(S():GetBossName(s.b)), SHARE_W - (shareWin.name:GetStringWidth() or 0) - 8)
     local rows = {}
     for _, key in ipairs(s.co or {}) do rows[#rows + 1] = { key = key } end
-    tsort(rows, function(a, b) return shortName(a.key):lower() < shortName(b.key):lower() end)
+    tsort(rows, function(a, b) return ns.Util.ShortName(a.key):lower() < ns.Util.ShortName(b.key):lower() end)
     shareWin.status:SetText(#rows .. " / " .. S().MAX_COLLAB .. " collaborators")
     shareWin.list:SetData(rows)
     if shareWin.picker.IsOpen and shareWin.picker:IsOpen() then shareWin.picker:RefreshRows() end
@@ -917,14 +874,14 @@ local function pickMenu(row, root)
     local last = S():GetLastPick(d.ref, d.occ)
     for _, s in ipairs(S():GetStrategies(d.ref)) do
         local owner = s.ow or s.by
-        local extra = ("%s · %d slots%s"):format(shortName(owner), #S():GetSlots(s), pagesText(#s.p))
+        local extra = ("%s · %d slots%s"):format(ns.Util.ShortName(owner), #S():GetSlots(s), pagesText(#s.p))
         if s.id == last then extra = extra .. " · used last time" end
-        local radio = root:CreateRadio(s.n .. "  " .. grey(extra), function() return d.s and d.s.id == s.id end,
+        local radio = root:CreateRadio(s.n .. "  " .. Style:Wrap("DIM", extra), function() return d.s and d.s.id == s.id end,
             function() View:PickStrategy(d.occ, d.ref, s.id) end)
         if radio and radio.SetTooltip then
             radio:SetTooltip(function(tooltip)
-                tooltip:AddLine(s.n, 1, 0.82, 0)
-                tooltip:AddLine(("By %s, saved %s"):format(shortName(owner), shortDate(s.rev)), 1, 1, 1)
+                tooltip:AddLine(s.n, unpack(Style.C.GOLD))
+                tooltip:AddLine(("By %s, saved %s"):format(ns.Util.ShortName(owner), shortDate(s.rev)), 1, 1, 1)
                 tooltip:AddLine(("%d player slots%s"):format(#S():GetSlots(s), pagesText(#s.p)), 1, 1, 1)
                 if s.id == last then tooltip:AddLine("The guild used it for this boss last time.", 0.2, 1, 0.6, true) end
             end)
@@ -936,7 +893,7 @@ local function pickMenu(row, root)
         function() View:PickStrategy(d.occ, d.ref, nil) end)
     if radio and radio.SetTooltip then
         radio:SetTooltip(function(tooltip)
-            tooltip:AddLine("No strategy", 1, 0.82, 0)
+            tooltip:AddLine("No strategy", tone("GOLD"))
             tooltip:AddLine("This raid goes without one for this boss: nothing is assigned, no raid marks. The names "
                 .. "already in its slots stay for a later pick.", 1, 1, 1, true)
         end)
@@ -953,7 +910,7 @@ end
 local function newPickLink(row)
     local b = CreateFrame("Button", nil, row)
     b:SetHeight(16)
-    local fs = newText(b, "GameFontHighlightSmall", 11)
+    local fs = UI():Text(b, "body", "TEXT")
     fs:SetPoint("LEFT", 0, 0)
     fs:SetTextColor(0.9, 0.85, 0.66)
     b:SetFontString(fs)
@@ -962,7 +919,7 @@ local function newPickLink(row)
     b.chev:SetSize(9, 9)
     b.chev:SetTexture(UI().ICON_ATLAS)
     b.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
-    b.chev:SetVertexColor(1, 0.82, 0)
+    b.chev:SetVertexColor(tone("GOLD"))
     b.chev:SetPoint("LEFT", fs, "RIGHT", 4, -1)
     -- (b.warn: "not picked yet" / "unsaved names" turns it orange)
     function b:Paint()
@@ -974,7 +931,7 @@ local function newPickLink(row)
     function b:OpenMenu() UI():ContextMenu(self, function(root) pickMenu(row, root) end) end
     b:SetScript("OnClick", function(self) self:OpenMenu() end)
     b:SetScript("OnEnter", function(self)
-        self.fs:SetTextColor(1, 0.82, 0)
+        self.fs:SetTextColor(tone("GOLD"))
         local data = row.__cdlData
         if data and data.how == "none" then
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -1017,26 +974,26 @@ local function newBossTile(parent)
     row.base:SetAllPoints()
     row.tint = row:CreateTexture(nil, "BACKGROUND", nil, -1)
     row.tint:SetAllPoints()
-    gradient(row.tint, "HORIZONTAL", 1, 1, 1, 0.035, 0.012)
+    UI():Gradient(row.tint, "HORIZONTAL", { 1, 1, 1, 0.035 }, { 1, 1, 1, 0.012 })
     row.top = row:CreateTexture(nil, "BORDER")
     row.top:SetPoint("TOPLEFT", 0, 0)
     row.top:SetPoint("TOPRIGHT", 0, 0)
     row.top:SetHeight(1)
-    row.top:SetColorTexture(1, 1, 1, 0.06)
+    row.top:SetColorTexture(tone("HAIRLINE", 0.06))
     row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 0)
     row.shade:SetPoint("TOPLEFT", 0, 0)
     row.shade:SetPoint("TOPRIGHT", 0, 0)
     row.shade:SetHeight(4)
-    gradient(row.shade, "VERTICAL", 0, 0, 0, 0, 0.85)
+    UI():Gradient(row.shade, "VERTICAL", { 0, 0, 0, 0 }, { 0, 0, 0, 0.85 })
     row.hl = row:CreateTexture(nil, "HIGHLIGHT")
     row.hl:SetAllPoints()
-    row.hl:SetColorTexture(1, 1, 1, 0.04)
+    row.hl:SetColorTexture(tone("HAIRLINE", 0.04))
     -- the slots' bar along the bottom
     row.track = row:CreateTexture(nil, "BORDER")
     row.track:SetPoint("BOTTOMLEFT", 0, 0)
     row.track:SetPoint("BOTTOMRIGHT", 0, 0)
     row.track:SetHeight(2)
-    row.track:SetColorTexture(1, 1, 1, 0.05)
+    row.track:SetColorTexture(tone("HAIRLINE", 0.05))
     row.bar = row:CreateTexture(nil, "ARTWORK", nil, 1)
     row.bar:SetPoint("BOTTOMLEFT", 0, 0)
     row.bar:SetHeight(2)
@@ -1047,14 +1004,14 @@ local function newBossTile(parent)
     row.face = row:CreateTexture(nil, "ARTWORK")
     row.face:SetSize(34, 34)
     row.face:SetPoint("LEFT", 22, 0)
-    row.l1 = newText(row, "GameFontHighlight", 13)
+    row.l1 = UI():Text(row, "title", "TEXT")
     row.l1:SetPoint("TOPLEFT", RAID_TEXT_X, -15)
-    row.stat = newText(row, "GameFontHighlightSmall", 11)
+    row.stat = UI():Text(row, "body", "TEXT")
     row.stat:SetJustifyH("RIGHT")
     row.pick = newPickLink(row)
     row.pick:SetPoint("TOPLEFT", RAID_TEXT_X, -34)
-    row.l2 = newText(row, "GameFontHighlightSmall", 11)
-    row.jobs = newText(row, "GameFontHighlightSmall", 10)
+    row.l2 = UI():Text(row, "body", "TEXT")
+    row.jobs = UI():Text(row, "small", "TEXT")
     row.jobs:SetJustifyH("RIGHT")
     row.jobs:SetTextColor(0.56, 0.89, 0.62)
     row.assign = UI():CreateSleekButton(row, "Assign", 62, 20, function(self)
@@ -1071,17 +1028,14 @@ local function newBossTile(parent)
         local data = self.__cdlData
         if data and data.s then Board():OpenRaid(data.occ, data.ref) end
     end)
-    row:SetScript("OnEnter", function(self)
+    UI():AttachTooltip(row, function(self, tt)
         local data = self.__cdlData
-        if not data then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(data.name)
-        GameTooltip:AddLine(data.s and "Click to open its board: who does what."
+        if not data then return false end
+        tt:AddLine(data.name, unpack(Style.C.GOLD))
+        tt:AddLine(data.s and "Click to open its board: who does what."
             or (data.how == "none" and "This raid goes without a strategy for this boss.")
             or "No strategy for this boss yet.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, nil, { anchor = "ANCHOR_TOP" })
     return row
 end
 
@@ -1142,13 +1096,13 @@ local function fillBossTile(row, d)
     local filled, total, mine = 0, 0, 0
     if s then filled, total, mine = slotCounts(s, fill) end
     local full = total > 0 and filled >= total
-    row.stat:SetText(s and ((full and "|cff8fe39d" .. filled .. "|r" or filled) .. grey("/" .. total)) or "")
+    row.stat:SetText(s and ((full and "|cff8fe39d" .. filled .. "|r" or filled) .. Style:Wrap("DIM", "/" .. total)) or "")
     row.jobs:SetText(mine > 0 and (mine .. (mine == 1 and " job" or " jobs") .. " for you") or "")
     local share = total > 0 and min(1, filled / total) or 0
     row.track:SetShown(not none)
     row.bar:SetShown(share > 0)
     row.bar:SetWidth(max(1, floor((row:GetWidth() or 0) * share + 0.5)))
-    if full then row.bar:SetColorTexture(0.56, 0.89, 0.62, 0.9) else row.bar:SetColorTexture(1, 0.82, 0, 0.7) end
+    if full then row.bar:SetColorTexture(0.56, 0.89, 0.62, 0.9) else row.bar:SetColorTexture(tone("GOLD", 0.7)) end
     -- line 2: the strategy (who arranges: its dropdown, then whether it still has to be picked; else the name)
     row.pick:SetShown(arranger and (s ~= nil or off))
     row.l2:ClearAllPoints()
@@ -1181,7 +1135,7 @@ local function fillBossTile(row, d)
     else
         row.l2:SetPoint("TOPLEFT", RAID_TEXT_X, -36)
         row.l2:SetText(s and ("|cffe6d9a8" .. s.n .. "|r")
-            or grey(off and "No strategy for this raid" or "No strategy for this boss yet"))
+            or Style:Wrap("DIM", off and "No strategy for this raid" or "No strategy for this boss yet"))
     end
     row.assign:SetShown(arranger and s ~= nil)
     row.create:SetShown(none and not off and S():CanBuild())
@@ -1211,7 +1165,7 @@ end
 function View:CreateRaidAssignments(parent)
     local f = CreateFrame("Frame", nil, parent)
     assign = f
-    f.hint = newText(f, "GameFontHighlightSmall", 11)
+    f.hint = UI():Text(f, "body", "TEXT")
     f.hint:SetTextColor(0.55, 0.55, 0.55)
     f.hint:SetPoint("LEFT", f, "TOPLEFT", 0, -13)
     f.scroll = UI():CreateScrollFrame(f)
@@ -1221,7 +1175,7 @@ function View:CreateRaidAssignments(parent)
     f.content:SetSize(INNER_W, 10)
     f.scroll:SetScrollChild(f.content)
     f.tiles = {}
-    f.empty = newText(f, "GameFontDisable", 12)
+    f.empty = UI():Text(f, "emph", "DIM")
     f.empty:SetJustifyH("CENTER")
     f.empty:SetPoint("TOP", f, "TOP", 0, -RAID_TOP - 30)
     f.list = {

@@ -97,11 +97,11 @@ def discard_asks_done_while_clean_and_saved_just_now():
     assert strip_codes(bob.eval("return %s.stateTag.fs:GetText()" % W)) == "Unsaved"
     bob.click(bob.eval("return %s.cancelBtn" % W))
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
-    assert pop["which"] == "DISASTERZONE_STRAT_DISCARD" and "never saved" in pop["text"], pop
-    bob.cancel_popup("DISASTERZONE_STRAT_DISCARD")
+    assert pop["which"] == "DISASTERZONE_CONFIRM_STRAT_DISCARD" and "never saved" in pop["text"], pop
+    bob.cancel_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert st(bob)["n"] == "Fresh" and shown(bob, W)
     bob.click(bob.eval("return %s.cancelBtn" % W))
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert not shown(bob, W)
     # a saved one: editing with nothing changed shows Done (no Save, no Discard, no tag), and goes back to reading
     sid = save_council(bob)
@@ -117,7 +117,7 @@ def discard_asks_done_while_clean_and_saved_just_now():
     bob.click(bob.eval("return %s.cancelBtn" % W))
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
     assert "saved version stays" in pop["text"], pop
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert st(bob)["n"] == "25 farm" and st(bob)["mode"] == "view"
     # Save: back to reading it, "Saved just now" beside the name
     bob.click(bob.eval("return %s.editBtn" % W))
@@ -163,10 +163,10 @@ def page_tabs_menu_rename_in_place_and_delete_asks():
     bob.eval(B + ":PageMenu(UIParent, 2)")
     bob.eval("T_pick('Delete')")
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
-    assert pop["which"] == "DISASTERZONE_STRAT_DELETE_PAGE" and "Collapse" in pop["text"], pop
+    assert pop["which"] == "DISASTERZONE_CONFIRM_STRAT_DELETE_PAGE" and "Collapse" in pop["text"], pop
     assert "notes go with it" in strip_codes(pop["text"]) and "Ctrl+Z" in pop["text"], pop
     assert st(bob)["pages"] == 2
-    bob.accept_popup("DISASTERZONE_STRAT_DELETE_PAGE")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DELETE_PAGE")
     assert st(bob)["pages"] == 1
     bob.eval(B + ":Undo()")
     assert st(bob)["pages"] == 2
@@ -391,9 +391,9 @@ def switching_a_raids_strategy_asks_when_names_drop():
     assert shown(bob, W + ".stratDD")
     bob.eval(B + ":UseStrategy(...)", b)
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
-    assert pop["which"] == "DISASTERZONE_STRAT_SWITCH" and "1 of your names has no slot there" in pop["text"], pop
+    assert pop["which"] == "DISASTERZONE_CONFIRM_STRAT_SWITCH" and "1 of your names has no slot there" in pop["text"], pop
     assert bob.eval("return %s.strat.id" % ST) == a
-    bob.accept_popup("DISASTERZONE_STRAT_SWITCH")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_SWITCH")
     assert bob.eval("return %s.strat.id" % ST) == b
     assert bob.eval_py("return %s.assign" % ST) == {"tk.1.1": K("Lee")}
     # nothing to lose: no question

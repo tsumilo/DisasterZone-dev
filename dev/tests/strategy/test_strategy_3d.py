@@ -186,17 +186,17 @@ def the_switch_is_there_for_a_boss_with_a_room():
     assert bob.eval("return %s.mode3d:IsShown() and %s.mode3d:IsEnabled()" % (W, W)) is True
     assert "Teron Gorefiend's room" in bob.eval("return %s.mode3d.tip" % W)
     bob.click(bob.eval("return %s.mode3d" % W))
-    assert "DISASTERZONE_STRAT_MAP3D" in bob.popups() and bob.eval("return T3.cv():Is3D()") is False
-    bob.cancel_popup("DISASTERZONE_STRAT_MAP3D")
+    assert "DISASTERZONE_CONFIRM_STRAT_MAP3D" in bob.popups() and bob.eval("return T3.cv():Is3D()") is False
+    bob.cancel_popup("DISASTERZONE_CONFIRM_STRAT_MAP3D")
     assert bob.eval("return T3.page().m") == 0
     bob.click(bob.eval("return %s.mode3d" % W))
-    bob.accept_popup("DISASTERZONE_STRAT_MAP3D")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_MAP3D")
     assert bob.eval("return T3.page().m") != 0 and bob.eval("return T3.cv():Is3D()") is True
     bob.eval("T3.cv():Set3D(false, false)")
     # reading, the click does nothing but say why
     bob.eval("T3.page().m = 0 local st = ns.StrategyBoard:GetState() st.mode = 'view' ns.StrategyBoard:Refresh()")
     bob.click(bob.eval("return %s.mode3d" % W))
-    assert "DISASTERZONE_STRAT_MAP3D" not in bob.popups() and bob.eval("return T3.cv():Is3D()") is False
+    assert "DISASTERZONE_CONFIRM_STRAT_MAP3D" not in bob.popups() and bob.eval("return T3.cv():Is3D()") is False
     no_errors(w)
 
 

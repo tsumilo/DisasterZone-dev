@@ -8,6 +8,14 @@ local addonName, ns = ...
 
 local BlocksUI = ns:NewModule("StrategyBlocksUI")
 
+local Style = ns.Style
+-- A design token's r, g, b (UI/Style.lua), and an alpha when one is given.
+local function tone(name, a)
+    local c = Style.C[name]
+    if a then return c[1], c[2], c[3], a end
+    return c[1], c[2], c[3]
+end
+
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tinsert, tremove = table.insert, table.remove
 
@@ -19,33 +27,22 @@ local INSET = 10                      -- the table inside its card
 local STRIP_H = 22                    -- a dispel table's line under the title
 local COL_WEIGHT = { p = 2, g = 2, x = 3 }
 local ORDER_W = 22
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
-local CARD_EDGE = { 0.34, 0.34, 0.38, 0.35 }
-local ADD_BG, ADD_EDGE = { 0.10, 0.10, 0.12, 0.6 }, { 0.34, 0.34, 0.38, 0.45 }
-local ADD_BG_HOT, ADD_EDGE_HOT = { 0.18, 0.18, 0.21, 0.85 }, { 1, 0.82, 0, 0.8 }
+local CARD_BG = { tone("CARD", 0.92) }
+local CARD_EDGE = { tone("EDGE", 0.35) }
+local ADD_BG, ADD_EDGE = { tone("CARD", 0.6) }, { tone("EDGE", 0.45) }
+local ADD_BG_HOT, ADD_EDGE_HOT = { 0.18, 0.18, 0.21, 0.85 }, { tone("GOLD", 0.8) }
 local SUG_H, TPL_H = 38, 28           -- Add a block: a suggestion from the map, a template
 
 local function S() return ns.Strategy end
 local function MapUI() return ns.StrategyMapUI end
 local function UI() return ns.UI end
 
-local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
 
--- A text in the game's font at a size.
-local function newText(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
+-- A text's size on the type scale (ns.Style snaps it), its font and colour kept.
+-- TODO(refactor): move into Widgets (UI:SetTextSize(fs, size): UI:SetTextStyle resets the colour)
 local function setSize(fs, size)
     local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
+    if path then fs:SetFont(path, Style:Size(size), flags) end
 end
 
 -- A fill and 1px edges (f.bg, f.edges).
@@ -115,11 +112,11 @@ function BlocksUI:Create(parent, opts)
     sf:SetScrollChild(child)
     self.child = child
     -- an empty page: one quiet line (editing: what goes here; reading: that nothing does)
-    self.empty = newText(child, "GameFontHighlight", 11.5)
+    self.empty = UI():Text(child, "body", "TEXT")
     self.empty:SetWordWrap(true)
     self.empty:SetJustifyV("TOP")
     -- Add a block, under the tables while editing: the map's suggestions, then the templates and the page's notes
-    self.addHead = newText(child, "GameFontNormal", 10)
+    self.addHead = UI():Text(child, "small", "GOLD")
     self.addHead:SetText("ADD A BLOCK")
     self.cards = {}
     self.sugCards, self.tplCards = {}, {}
@@ -135,11 +132,10 @@ local function newAddCard(parent, big)
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(big and 24 or 14, big and 24 or 14)
     c.icon:SetPoint("LEFT", 10, 0)
-    c.title = newText(c, "GameFontHighlight", big and 12 or 11.5)
+    c.title = UI():Text(c, big and 12 or 11.5, "TEXT")
     if big then
         c.title:SetPoint("TOPLEFT", 43, -6)
-        c.sub = newText(c, "GameFontHighlight", 10.5)
-        c.sub:SetTextColor(0.62, 0.62, 0.62)
+        c.sub = UI():Text(c, "small", "SUB")
         c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -3)
     else
         c.title:SetPoint("LEFT", 32, 0)
@@ -153,18 +149,17 @@ local function newAddCard(parent, big)
     c:SetScript("OnEnter", function(self)
         self.hovered = true
         paint(self)
-        if self.tip then
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            GameTooltip:AddLine(self.tipTitle or "")
-            GameTooltip:AddLine(self.tip, 1, 1, 1, true)
-            GameTooltip:Show()
-        end
     end)
     c:SetScript("OnLeave", function(self)
         self.hovered = false
         paint(self)
-        GameTooltip:Hide()
     end)
+    -- (the card's tip, set by its filler: c.tipTitle, c.tip)
+    UI():AttachTooltip(c, function(self, tt)
+        if not self.tip then return false end
+        tt:AddLine(self.tipTitle or "", unpack(Style.C.GOLD))
+        tt:AddLine(self.tip, 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_LEFT" })
     c:RegisterForClicks("LeftButtonUp")
     c:SetScript("OnClick", function(self) if self.onPick then self.onPick() end end)
     return c
@@ -347,10 +342,10 @@ createNotes = function(parent, panel)
     n.icon:SetTexture(UI().ICON_ATLAS)
     n.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.notes)))
     n.icon:SetAlpha(0.7)
-    n.title = newText(n, "GameFontHighlight", 12.5)
+    n.title = UI():Text(n, "emph", "TEXT")
     n.title:SetPoint("LEFT", n.icon, "RIGHT", 7, 0)
     n.title:SetText("Notes")
-    n.text = newText(n, "GameFontHighlight", 12)
+    n.text = UI():Text(n, "emph", "TEXT")
     n.text:SetTextColor(0.86, 0.86, 0.86)
     n.text:SetWordWrap(true)
     n.text:SetJustifyV("TOP")
@@ -361,19 +356,13 @@ createNotes = function(parent, panel)
     n.hit:SetPoint("TOPLEFT", 0, -NOTES_TOP + 4)
     n.hit:SetPoint("BOTTOMRIGHT")
     n.hit:SetScript("OnClick", function() panel:OpenNotes() end)
-    n.hit:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Notes")
-        GameTooltip:AddLine("Click to type. Enter starts a new line; a click elsewhere keeps it, Esc goes back.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    n.hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(n.hit, "Notes",
+        "Click to type. Enter starts a new line; a click elsewhere keeps it, Esc goes back.", { anchor = "ANCHOR_LEFT" })
     -- the field: a dark well with a gold edge while typing
     n.well = CreateFrame("Frame", nil, n)
     n.well:SetPoint("TOPLEFT", 8, -NOTES_TOP + 6)
     n.well:SetPoint("BOTTOMRIGHT", -8, 8)
-    cardLook(n.well, { 0.04, 0.04, 0.05, 0.7 }, { 1, 0.82, 0, 0.75 })
+    cardLook(n.well, { 0.04, 0.04, 0.05, 0.7 }, { tone("GOLD", 0.75) })
     n.well:Hide()
     n.edit = CreateFrame("EditBox", nil, n)
     n.edit:SetMultiLine(true)
@@ -386,7 +375,7 @@ createNotes = function(parent, panel)
     n.edit:SetFrameLevel(n:GetFrameLevel() + 5)
     n.edit:Hide()
     -- (measures the text as it will wrap, so the card grows while typing)
-    n.measure = newText(n, "GameFontHighlight", 12)
+    n.measure = UI():Text(n, "emph", "TEXT")
     n.measure:SetWordWrap(true)
     n.measure:SetSpacing(3)
     n.measure:SetAlpha(0)
@@ -424,7 +413,7 @@ createNotes = function(parent, panel)
         end
     end)
     n.edit:SetScript("OnEditFocusGained", function()
-        UI():SetEdgeColor(n.well, 1, 0.82, 0, 0.75)
+        UI():SetEdgeColor(n.well, tone("GOLD", 0.75))
     end)
     return n
 end
@@ -761,7 +750,7 @@ function Panel:DispelMenu(root, k)
     end
     local function label(id, t)
         return MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id))
-            .. (t and grey("  " .. S().DISPEL_NAME[t]) or "")
+            .. (t and Style:Wrap("DIM", "  " .. S().DISPEL_NAME[t]) or "")
     end
     local em = root:CreateButton(menuEntry(nil, "Effects to remove", k.ds and tostring(#k.ds) or nil))
     local listed = {}
@@ -770,7 +759,7 @@ function Panel:DispelMenu(root, k)
         for _, e in ipairs(known) do
             if e.t == t then
                 listed[e.id] = true
-                em:CreateCheckbox(label(e.id, e.t) .. (e.en and grey(" (on the enemy)") or ""),
+                em:CreateCheckbox(label(e.id, e.t) .. (e.en and Style:Wrap("DIM", " (on the enemy)") or ""),
                     function() return chosen[e.id] == true end, function() toggle(e.id, e.t, e.en) end)
             end
         end
@@ -780,7 +769,7 @@ function Panel:DispelMenu(root, k)
             em:CreateCheckbox(label(id), function() return chosen[id] == true end, function() toggle(id) end)
         end
     end
-    if #known == 0 then em:CreateTitle(grey("No removable effects listed for this boss")) end
+    if #known == 0 then em:CreateTitle(Style:Wrap("DIM", "No removable effects listed for this boss")) end
     em:CreateButton("By spell ID", function()
         self.opts.prompt("Spell ID of the effect to remove (e.g. 43095 for Creeping Paralysis)", "", function(text)
             local id = tonumber(text)
@@ -845,7 +834,7 @@ function Panel:BlockMenu(owner, page, k, index)
                 local radio = trm:CreateRadio(TRACK_TAG[kind] or Live.KIND_NAME[kind],
                     function() return S().TrackKind(k) == kind end, function() k.tr = kind; self:Changed() end)
                 if radio and radio.SetTooltip then
-                    radio:SetTooltip(function(tt) tt:AddLine(Live.KIND_NAME[kind], 1, 0.82, 0) end)
+                    radio:SetTooltip(function(tt) tt:AddLine(Live.KIND_NAME[kind], unpack(Style.C.GOLD)) end)
                 end
             end
             if eff == "dsp" then self:DispelMenu(root, k) end
@@ -1025,7 +1014,7 @@ function Panel:CellMenu(owner, k, row, ci)
             for _, c in ipairs(known and known.c or {}) do
                 listed[c.id] = true
                 local name = GetSpellInfo(c.id) or ("Spell " .. c.id)
-                local extra = (c.int and " |cff33ff99(interrupt)|r" or "") .. (c.cd and grey("  ~" .. c.cd .. " s") or "")
+                local extra = (c.int and " |cff33ff99(interrupt)|r" or "") .. (c.cd and Style:Wrap("DIM", "  ~" .. c.cd .. " s") or "")
                 ab:CreateCheckbox(MapUI():IconString("sp:" .. c.id, 14) .. " " .. name .. extra,
                     function() return chosen[c.id] == true end,
                     function()
@@ -1044,7 +1033,7 @@ function Panel:CellMenu(owner, k, row, ci)
                         end)
                 end
             end
-            if not known then ab:CreateTitle(grey("No ability list for this boss")) end
+            if not known then ab:CreateTitle(Style:Wrap("DIM", "No ability list for this boss")) end
             ab:CreateButton("By spell ID", function()
                 self.opts.prompt("Spell ID of the ability (e.g. 41472 for Divine Wrath)", "", function(text)
                     local id = tonumber(text)
@@ -1065,7 +1054,7 @@ function Panel:CellMenu(owner, k, row, ci)
                 auras:CreateRadio(MapUI():IconString("sp:" .. id, 14) .. " " .. (GetSpellInfo(id) or ("Spell " .. id)),
                     function() return cur.w == ("a:" .. id) end, function() put({ w = "a:" .. id }) end)
             end
-            if not any then auras:CreateTitle(grey("No buffs listed for this boss")) end
+            if not any then auras:CreateTitle(Style:Wrap("DIM", "No buffs listed for this boss")) end
             auras:CreateButton("By spell ID", function()
                 self.opts.prompt("Spell ID of the buff on the boss (e.g. 41450 Blessing of Protection)", "", function(text)
                     local id = tonumber(text)
@@ -1130,11 +1119,11 @@ function Panel:SlotMenu(owner, ref, filter)
         local function add(parent, m)
             local label = UI():ColoredName(m.key, m.c)
             local n = self.opts.countOf and self.opts.countOf(m.key) or 0
-            if n > 0 then label = label .. grey("  (" .. n .. ")") end
+            if n > 0 then label = label .. Style:Wrap("DIM", "  (" .. n .. ")") end
             parent:CreateRadio(label, function() return cur == m.key end, function() self.opts.onAssign(ref, m.key) end)
         end
         for _, m in ipairs(fits) do add(root, m) end
-        if #fits == 0 then root:CreateTitle(grey("Nobody in this raid fits")) end
+        if #fits == 0 then root:CreateTitle(Style:Wrap("DIM", "Nobody in this raid fits")) end
         if #others > 0 then
             local sub = root:CreateButton("Others")
             for _, m in ipairs(others) do add(sub, m) end
@@ -1216,32 +1205,32 @@ local function newCell(parent, panel)
     c.well = c:CreateTexture(nil, "BACKGROUND", nil, 2)
     c.well:SetPoint("TOPLEFT", 0, -3)
     c.well:SetPoint("BOTTOMRIGHT", -4, 3)
-    c.well:SetColorTexture(1, 1, 1, 0.035)
+    c.well:SetColorTexture(tone("HAIRLINE", 0.035))
     c.lit = c:CreateTexture(nil, "BORDER")
     c.lit:SetAllPoints()
-    c.lit:SetColorTexture(1, 0.82, 0, 0.16)
+    c.lit:SetColorTexture(tone("GOLD", 0.16))
     c.lit:Hide()
     UI():AddEdges(c, "OVERLAY")
-    UI():SetEdgeColor(c, 1, 0.82, 0, 0)
+    UI():SetEdgeColor(c, tone("GOLD", 0))
     -- my row: a gold bar on the card's left edge
     c.bar = c:CreateTexture(nil, "ARTWORK")
     c.bar:SetSize(2, ROW_H - 6)
     c.bar:SetPoint("LEFT", c, "LEFT", -INSET, 0)
-    c.bar:SetColorTexture(1, 0.82, 0, 1)
+    c.bar:SetColorTexture(tone("GOLD", 1))
     c.bar:Hide()
     -- the hairline under the row
     c.line = c:CreateTexture(nil, "BORDER")
     c.line:SetPoint("BOTTOMLEFT")
     c.line:SetPoint("BOTTOMRIGHT")
     c.line:SetHeight(1)
-    c.line:SetColorTexture(1, 1, 1, 0.045)
+    c.line:SetColorTexture(tone("HAIRLINE", 0.045))
     local hl = c:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
+    hl:SetColorTexture(tone("HAIRLINE", 0.06))
     c.icon = c:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(14, 14)
     c.icon:SetPoint("LEFT", 2, 0)
-    c.fs = newText(c, "GameFontHighlight", 12)
+    c.fs = UI():Text(c, "emph", "TEXT")
     -- a target cell's link to a slot: a pill at the right end, never cut off (the label gives way instead)
     c.pill = UI():CreateTagPill(c, 15)
     c.pill:SetBase(CARD_BG[1], CARD_BG[2], CARD_BG[3])
@@ -1287,7 +1276,7 @@ end
 local function footLink(parent, text, chevron, onClick)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(FOOT_H)
-    b.fs = newText(b, "GameFontHighlight", 11)
+    b.fs = UI():Text(b, "body", "TEXT")
     b.fs:SetPoint("LEFT", 0, 0)
     b.fs:SetText("|cffffd100+|r " .. text)
     b.fs:SetTextColor(0.56, 0.56, 0.56)
@@ -1323,11 +1312,11 @@ local function newBlock(parent, panel)
     b.title.accent:SetWidth(3)
     local hl = b.title:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.03)
+    hl:SetColorTexture(tone("HAIRLINE", 0.03))
     b.title.icon = b.title:CreateTexture(nil, "ARTWORK")
     b.title.icon:SetSize(16, 16)
     b.title.icon:SetPoint("LEFT", 12, 0)
-    b.title.fs = newText(b.title, "GameFontHighlight", 12.5)
+    b.title.fs = UI():Text(b.title, "emph", "TEXT")
     b.tag = UI():CreateTagPill(b.title, 15)
     b.tag:SetBase(CARD_BG[1], CARD_BG[2], CARD_BG[3])
     b.tag:SetPoint("LEFT", b.title.fs, "RIGHT", 7, 0)
@@ -1338,7 +1327,7 @@ local function newBlock(parent, panel)
     b.gear:SetPoint("RIGHT", -6, 0)
     b.gear.hl = b.gear:CreateTexture(nil, "BACKGROUND")
     b.gear.hl:SetAllPoints()
-    b.gear.hl:SetColorTexture(1, 1, 1, 0.08)
+    b.gear.hl:SetColorTexture(tone("HAIRLINE", 0.08))
     b.gear.hl:Hide()
     b.gear.tex = b.gear:CreateTexture(nil, "ARTWORK")
     b.gear.tex:SetPoint("TOPLEFT", 2, -2)
@@ -1526,7 +1515,7 @@ function Panel:Render()
             c.well:Hide()
             c.bar:Hide()
             c.line:Show()
-            c.line:SetColorTexture(1, 1, 1, 0.045)
+            c.line:SetColorTexture(tone("HAIRLINE", 0.045))
             c.icon:Hide()
             c.fs:ClearAllPoints()
             c.fs:SetPoint("LEFT", 2, 0)
@@ -1536,7 +1525,7 @@ function Panel:Render()
             setSize(c.fs, 12)
             c.fs:SetTextColor(1, 1, 1)
             c.lit:Hide()
-            UI():SetEdgeColor(c, 1, 0.82, 0, 0)
+            UI():SetEdgeColor(c, tone("GOLD", 0))
             c:SetPill(nil)
             c.slotRef, c.hoverRef, c.tip, c.onClick, c.rowMenu, c.headRef, c.blockId = nil, nil, nil, nil, nil, nil, nil
             c.targetInfo = nil
@@ -1557,8 +1546,8 @@ function Panel:Render()
             end
             local first = k.ds and k.ds[1]
             local text = first and (icons .. (GetSpellInfo(first) or ("Spell " .. first))
-                .. (#k.ds > 1 and (" +" .. (#k.ds - 1)) or "") .. grey("  " .. DispelWhere(k)))
-                or grey(editing and "click to pick the effect to remove" or ("any " .. DispelWhere(k)))
+                .. (#k.ds > 1 and (" +" .. (#k.ds - 1)) or "") .. Style:Wrap("DIM", "  " .. DispelWhere(k)))
+                or Style:Wrap("DIM", editing and "click to pick the effect to remove" or ("any " .. DispelWhere(k)))
             c.fs:SetText(text)
             local who = {}
             for _, cl in ipairs(S().DispelClasses(k.dy or "m", S().DispelSide(k.dy or "m", k.en))) do
@@ -1583,12 +1572,12 @@ function Panel:Render()
             for ci, col in ipairs(k.c) do
                 local c = cell(x, by, widths[ci])
                 c:SetHeight(HEAD_H)
-                c.line:SetColorTexture(1, 1, 1, 0.08)
+                c.line:SetColorTexture(tone("HAIRLINE", 0.08))
                 setSize(c.fs, 10.5)
                 -- the order column is only ORDER_W wide: "#" (its name stays in the tooltip and menu)
-                local label = col.t == "o" and grey("#") or col.n or (editing and grey(COL_TYPE_NAME[col.t]) or "")
+                local label = col.t == "o" and Style:Wrap("DIM", "#") or col.n or (editing and Style:Wrap("DIM", COL_TYPE_NAME[col.t]) or "")
                 c.fs:SetText(label)
-                c.fs:SetTextColor(1, 0.82, 0, 0.9)
+                c.fs:SetTextColor(tone("GOLD", 0.9))
                 if col.t == "o" then c.fs:SetJustifyH("CENTER") end
                 c.hoverRef = k.id .. "." .. ci
                 c.headRef = c.hoverRef
@@ -1634,7 +1623,7 @@ function Panel:Render()
                     c.fs:SetWordWrap(true)
                     setSize(c.fs, 11.5)
                     c.fs:SetTextColor(0.9, 0.9, 0.9)
-                    c.fs:SetText(v or (editing and grey("click to type") or ""))
+                    c.fs:SetText(v or (editing and Style:Wrap("DIM", "click to type") or ""))
                     rowH = max(rowH, ceil(c.fs:GetStringHeight() or 0) + 8)
                     if editing then c.onClick = function(btn) self:CellMenu(btn, k, row, ci) end end
                 elseif col.t == "g" then
@@ -1748,7 +1737,7 @@ function Panel:Render()
                 if row == k.r then c.line:Hide() end
                 -- my row (a raid's board): the gold tint and a bar on the card's edge
                 if mine then
-                    c.bg:SetColorTexture(1, 0.82, 0, 0.12)
+                    c.bg:SetColorTexture(tone("GOLD", 0.12))
                     if i == rowFirst then c.bar:Show() end
                 end
             end
@@ -1816,7 +1805,7 @@ function Panel:ApplyHighlight()
     for _, b in ipairs(self.blocks) do
         for _, c in ipairs(b.cells) do
             c.lit:Hide()
-            UI():SetEdgeColor(c, 1, 0.82, 0, 0)
+            UI():SetEdgeColor(c, tone("GOLD", 0))
         end
     end
     if not self.cellByRef then return end
@@ -1825,7 +1814,7 @@ function Panel:ApplyHighlight()
         local drop = self.drop ~= nil and self.drop == ref
         for _, c in ipairs(cells) do
             c.lit:SetShown((lit or drop) and true or false)
-            if drop then UI():SetEdgeColor(c, 1, 0.82, 0, 0.85) end
+            if drop then UI():SetEdgeColor(c, tone("GOLD", 0.85)) end
         end
     end
 end

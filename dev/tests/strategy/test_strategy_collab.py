@@ -338,10 +338,10 @@ def saving_over_someone_elses_version_asks_first():
     w.tick(3)
     assert tag(rita) == "Newer version by Sam", tag(rita)
     rita.click(rita.eval("return %s.saveBtn" % W))
-    assert "DISASTERZONE_STRAT_NEWER" in rita.popups()
+    assert "DISASTERZONE_CONFIRM_STRAT_NEWER" in rita.popups()
     assert rita.eval_py("return ns.Strategy:GetStrategy(...)", sid)["by"] == K("Sam")
     assert state(rita)["mode"] == "edit"
-    rita.accept_popup("DISASTERZONE_STRAT_NEWER")
+    rita.accept_popup("DISASTERZONE_CONFIRM_STRAT_NEWER")
     w.tick(2)
     saved = sam.eval_py("return ns.Strategy:GetStrategy(...)", sid)
     assert saved["by"] == K("Rita") and any(e["x"] == 640 for e in saved["p"][0]["e"]), saved["by"]

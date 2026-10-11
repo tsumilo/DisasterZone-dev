@@ -83,8 +83,8 @@ def open_strategies(w, cl):
 
 
 def prompt_answer(w, cl, text):
-    assert shown(cl, "_G.DisasterZoneStrategyPrompt")
-    cl.type_text(cl.eval("return _G.DisasterZoneStrategyPrompt.edit"), text, enter=True)
+    assert shown(cl, "ns.StrategyBoard:GetPrompt()")
+    cl.type_text(cl.eval("return ns.StrategyBoard:GetPrompt().editBox"), text, enter=True)
     w.tick(0.3)
 
 
@@ -262,7 +262,7 @@ def unsaved_changes_are_guarded():
     # Discard drops it, once asked
     bob.click(bob.eval("return %s.cancelBtn" % W))
     assert board(bob)["dirty"] is True
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     st = board(bob)
     assert st["name"] == "25 farm" and not st["dirty"] and st["mode"] == "view", st
     w.assert_no_errors()

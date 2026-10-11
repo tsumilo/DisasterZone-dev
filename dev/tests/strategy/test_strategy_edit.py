@@ -122,7 +122,7 @@ def keyboard_delete_undo_redo_copy_paste():
     # view mode: no keyboard (Discard asks first)
     bob.click(bob.eval("return %s.cancelBtn" % W))
     assert bob.eval("return %s:IsKeyboardEnabled()" % W) is True
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert bob.eval("return %s:IsKeyboardEnabled()" % W) is False
     w.assert_no_errors()
 
