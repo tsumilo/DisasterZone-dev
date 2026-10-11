@@ -1031,5 +1031,40 @@ def tabs_stay_put_between_draws():
     assert r.cl.eval_py("local pf = ns.MeterPanels._Panel('damage'); return { pf.tabs[1]:IsShown(), pf.mode:IsShown() }") == [False, True]
 
 
+@case
+def a_tab_switch_grows_the_bars_in_place():
+    """Asked 2026-10-11: the tab switch animation could be more elegant. Players in both views slid between places
+    and the rest flew in from below. Now every row starts in its place, empty and clear, and grows in (row after
+    row), and live updates keep their glide."""
+    r = Raid()
+    r.hit("Gina", 900)
+    r.tick(0.5)
+    r.cl.eval("""
+        local MP = ns.MeterPanels
+        local p = MP.Layout().stacks[1].panels[1]
+        p.tabs[2] = { view = "healing", seg = "cur" }
+        p.tabs[3] = { view = "dps", seg = "cur" }
+        MP:Rebuild()
+    """)
+    r.tick(1)
+    r.cl.eval("local MP = ns.MeterPanels; MP.Layout().stacks[1].panels[1].active = 3; MP:Draw()")
+    st = r.cl.eval_py("""
+        local pf = ns.MeterPanels._Panel('dps')
+        local o = {}
+        for _, row in pairs(pf.rowsByKey) do o[#o + 1] = { row.anim ~= nil, row:GetAlpha(), row.w, row.y == row.ty } end
+        return o""")
+    assert st and all(s[0] and s[1] == 0 and s[2] == 0 and s[3] for s in st), st
+    r.tick(1)
+    st = r.cl.eval_py("""
+        local pf = ns.MeterPanels._Panel('dps')
+        local o = {}
+        for _, row in pairs(pf.rowsByKey) do o[#o + 1] = { row.anim ~= nil, row:GetAlpha(), math.abs(row.w - row.tw) < 0.01 } end
+        return o""")
+    assert all((not s[0]) and s[1] == 1 and s[2] for s in st), st
+    # a plain redraw (same view) starts nothing
+    r.cl.eval("ns.MeterPanels:Draw()")
+    assert r.cl.eval("for _, row in pairs(ns.MeterPanels._Panel('dps').rowsByKey) do if row.anim then return true end end return false") is False
+
+
 if __name__ == "__main__":
     run_all()

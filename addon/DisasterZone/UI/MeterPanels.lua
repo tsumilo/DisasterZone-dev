@@ -35,6 +35,7 @@ local DEFAULT_ROWS, MAX_ROWS = 8, 40
 local NEAR, SIDE_Y = 40, 60      -- docking: how far past an edge a drop still joins; how far apart tops may be beside
 local FADED, FADE_AFTER = 0.38, 3
 local EASE = 0.09
+local ENTER_DUR, ENTER_STAGGER = 0.36, 0.024   -- a view switch: each bar grows in this long, one row after another
 local SCALES = { small = 0.9, normal = 1, large = 1.15 }
 local THREAT_SCALE = 135          -- threat bars run from 0 to 135% of the tank's threat
 local T_NAME_W, T_VALUE_W = 96, 34
@@ -864,6 +865,15 @@ end
 
 local EMPTY_NOTE = { deaths = "nobody died", kicks = "no interrupts", dispels = "no dispels" }
 
+-- A view switch (another tab, view or fight): every row starts in its place, empty and clear, and its bar grows in
+-- (ease-out) while it fades in, row after row from the top. (Before, the players in both views slid from their old
+-- places and the rest flew in from below: a shuffle, not a change of view.)
+local function Enter(row, i)
+    row.y, row.w, row.ew = row.ty, 0, 0
+    row.anim = { t = 0, delay = (i - 1) * ENTER_STAGGER }
+    row:SetAlpha(0)
+end
+
 -- The rows a panel shows: V of them from its scroll offset (the mouse wheel moves it); my own row, when it is out of
 -- that window, takes the last slot (pinned, with its real place).
 local function Window(pf, list, V, isMe)
@@ -974,7 +984,10 @@ local function DrawMeter(pf, tab)
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
         row.tw = max(1, (mode == "deaths") and rowW or (r.v / topV * rowW))
         row.tew = (r.ext and r.ext > 0) and (r.ext / topV * rowW) or 0
-        if fresh or not row.y or pf.jump then
+        if fresh then row.anim = nil; row:SetAlpha(1) end
+        if pf.switched then
+            Enter(row, i)
+        elseif fresh or not row.y or pf.jump then
             if pf.drawn and mode ~= "deaths" and not pf.jump then
                 row.y, row.w, row.ew = -(V * (ROW_H + ROW_GAP)), 0, 0   -- a new player comes in from below
             else
@@ -1082,7 +1095,9 @@ local function DrawThreat(pf)
         local frac = st.tankView and min(1, share / 100) or min(1, share / THREAT_SCALE)
         row.tw = max(1, frac * trackW)
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
-        if fresh or not row.y or pf.jump then row.y, row.w = row.ty, row.tw end
+        if fresh then row.anim = nil; row:SetAlpha(1) end
+        if pf.switched then Enter(row, i)
+        elseif fresh or not row.y or pf.jump then row.y, row.w = row.ty, row.tw end
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", pf.rows, "TOPLEFT", 0, row.y)
         row:SetPoint("RIGHT", pf.rows, "RIGHT", 0, 0)
@@ -1217,7 +1232,11 @@ function MP:Draw()
             local y = 0
             local hot = false
             for i, pf in ipairs(f.panels) do
-                local tab = self:TabOf(pf)
+                local tab, ti = self:TabOf(pf)
+                local viewKey = tostring(tab.view) .. "|" .. tostring(tab.seg) .. "|" .. tostring(ti)
+                pf.switched = pf.drawn and pf.viewKey ~= nil and pf.viewKey ~= viewKey or false
+                if pf.switched then pf.peak, pf.offset = nil, 0 end   -- (the new view's own height, from its top)
+                pf.viewKey = viewKey
                 pf:ClearAllPoints()
                 pf:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -y)
                 pf:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -y)
@@ -1261,12 +1280,42 @@ function MP:Draw()
 end
 
 -- Bars glide (exponential ease) toward their places.
+-- A row entering after a view switch: its bar grows (ease-out cubic) and it fades in, after its turn in the cascade.
+local function StepEnter(pf, row, elapsed)
+    local an = row.anim
+    an.t = an.t + elapsed
+    local q = (an.t - an.delay) / ENTER_DUR
+    local e
+    if q >= 1 then
+        row.anim = nil
+        e = 1
+        row:SetAlpha(1)
+    elseif q > 0 then
+        e = 1 - (1 - q) ^ 3
+        row:SetAlpha(min(1, q * 1.7))
+    else
+        return
+    end
+    row.w = (row.tw or 0) * e
+    row.ew = (row.tew or 0) * e
+    row.y = row.ty or row.y
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", pf.rows, "TOPLEFT", 0, row.y)
+    row:SetPoint("RIGHT", pf.rows, "RIGHT", 0, 0)
+    row.fill:SetWidth(max(1, row.w))
+    if row.ext then
+        row.ext:SetWidth(max(0.01, row.ew))
+        row.ext:SetShown(row.ew > 0.5)
+    end
+end
+
 local function Animate(elapsed)
     local k = 1 - exp(-elapsed / EASE)
     for _, pf in ipairs(allPanels) do
         if pf:IsShown() then
             for _, row in pairs(pf.rowsByKey) do
-                if row.ty and (abs(row.ty - row.y) > 0.3 or abs(row.tw - row.w) > 0.3 or abs((row.tew or 0) - (row.ew or 0)) > 0.3) then
+                if row.anim then StepEnter(pf, row, elapsed)
+                elseif row.ty and (abs(row.ty - row.y) > 0.3 or abs(row.tw - row.w) > 0.3 or abs((row.tew or 0) - (row.ew or 0)) > 0.3) then
                     row.y = row.y + (row.ty - row.y) * k
                     row.w = row.w + (row.tw - row.w) * k
                     row.ew = (row.ew or 0) + ((row.tew or 0) - (row.ew or 0)) * k
@@ -1279,7 +1328,8 @@ local function Animate(elapsed)
                 end
             end
             for _, row in pairs(pf.trowsByKey) do
-                if row.ty and (abs(row.ty - row.y) > 0.3 or abs(row.tw - row.w) > 0.3) then
+                if row.anim then StepEnter(pf, row, elapsed)
+                elseif row.ty and (abs(row.ty - row.y) > 0.3 or abs(row.tw - row.w) > 0.3) then
                     row.y = row.y + (row.ty - row.y) * k
                     row.w = row.w + (row.tw - row.w) * k
                     row:ClearAllPoints()
