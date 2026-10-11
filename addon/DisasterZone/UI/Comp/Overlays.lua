@@ -125,6 +125,7 @@ function H.NewToast(i)
     local t = CreateFrame("Button", "DisasterZoneToast" .. i, UIParent)
     t:SetSize(T.W, 76)
     t:SetFrameStrata("DIALOG")
+    t:SetFrameLevel(3200)      -- over a sheet and its dim (UI:CreateSheet: 3000 / 3010): a pop-up is never dimmed
     t:SetToplevel(true)
     t:SetClampedToScreen(true)
     t:EnableMouse(true)
@@ -194,7 +195,7 @@ function H.ToastButton(t, i, spec)
     end
     b:SetText(spec.text or "")
     if isLink then
-        b:SetWidth(spec.width or max(30, floor(UI:TextWidth(spec.text or "", "small") + 4)))
+        b:SetWidth(spec.width or max(30, floor(UI:TextWidth(spec.text or "", "small") + 12)))
     else
         b:SetKind(spec.kind or (i == 1 and "primary" or "secondary"))
         local fs = b:GetFontString()

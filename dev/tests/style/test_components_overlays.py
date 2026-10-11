@@ -413,7 +413,7 @@ def a_multiline_prompt_takes_several_lines_and_ctrl_enter_is_ok():
         return { multi = d.multi:IsShown() and d.multiScroll:IsShown(), field = d.editBox:IsShown(), w = d:GetWidth(),
           text = d.multi:GetText(), hint = d.multiHint:GetText(), textShown = d.text:IsShown() }""")
     assert out["multi"] and not out["field"] and out["w"] == 520 and out["text"] == "line 1", out
-    assert out["hint"] == "Ctrl+Enter: OK" and not out["textShown"], out
+    assert out["hint"].startswith("Ctrl+Enter: ") and not out["textShown"], out   # (+ the OK button's text)
     mb = c.eval("return ns.__ovd.multi")
     c.type_text(mb, "line 1")
     c.press_enter(mb)

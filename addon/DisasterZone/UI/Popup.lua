@@ -228,6 +228,7 @@ local function Multi(f)
     eb:SetMultiLine(true)
     eb:SetAutoFocus(false)
     eb:SetFontObject("ChatFontNormal")
+    eb:SetTextColor(0.92, 0.92, 0.92)          -- (as the field)
     eb:SetWidth(W - 2 * PAD - 22)
     sf:SetScrollChild(eb)
     sf:EnableMouse(true)
@@ -325,7 +326,7 @@ local function Layout(f, def)
             f.multiBg:SetSize(w - 2 * PAD, mh)
             multi:SetWidth(w - 2 * PAD - 22)
             multi:SetMaxLetters(def.maxLetters or 0)
-            f.multiHint:SetText(type(def.hint) == "string" and def.hint or "Ctrl+Enter: OK")
+            f.multiHint:SetText(type(def.hint) == "string" and def.hint or ("Ctrl+Enter: " .. tostring(def.button1 or "OK")))
             y = y + mh + 14
         end
     end
