@@ -73,17 +73,27 @@ local function initRow(row, d)
     row.remove:SetShown(canEdit())
 end
 
--- The window's content on the tool layout: a strip banner (who the raid leaders are, how many), the explanation, the
--- picker (officers and the GM), the list, then Save & share / Revert; a read-only notice for everyone else.
+-- The window's content on the tool layout: a strip banner (who the raid leaders are, how many), the tool row (Revert
+-- and Save & share, the main action, for officers and the GM), then the explanation, the picker and the list; a
+-- read-only notice for everyone else.
 local function create()
     local UI = ns.UI
     local w = UI:CreateWindow("DisasterZoneRaidLeaders", "Raid leaders", 380, 400)
     win = w
     local c = w.content
-    local L = UI:CreateLayout("tool", c, { width = 370, banner = { size = "strip", icon = "crown",
+    local L = UI:CreateLayout("tool", c, { width = 370, toolbar = true, banner = { size = "strip", icon = "crown",
         title = "Who plans and leads raids" } })
     w.layout = L
     local body = L.body
+    w.status = L.banner.sub
+    -- the tool row: Revert, then Save & share at the far right
+    w.revert = UI:CreateSleekButton(L.toolbar, "Revert", 70, S.BTN_H, function()
+        draft = nil
+        LeadersUI:Refresh()
+    end)
+    L.toolbar:SetFilters({ w.revert })
+    w.save = L.toolbar:SetPrimary({ text = "Save & share", onClick = function() LeadersUI:Save() end,
+        tip = "Every officer and raid leader gets the new list." })
     w.info = UI:Text(body, "small", "SUB", { wrap = true })
     w.info:SetPoint("TOPLEFT", 0, 0)
     w.info:SetPoint("RIGHT", 0, 0)
@@ -98,17 +108,9 @@ local function create()
         onToggle = function(key) LeadersUI:Toggle(key) end,
     })
     w.picker.frame:SetPoint("TOPLEFT", -4, -62)
-    w.status = w.layout.banner.sub
     w.list = UI:CreateScrollList(body, S.ROW.compact, initRow)
     w.list.frame:SetPoint("TOPLEFT", -6, -92)
-    w.list.frame:SetPoint("BOTTOMRIGHT", 6, 32)
-    w.save = UI:CreateSleekButton(body, "Save & share", 110, S.BTN_H, function() LeadersUI:Save() end, "primary")
-    w.save:SetPoint("BOTTOMRIGHT", 0, 0)
-    w.revert = UI:CreateSleekButton(body, "Revert", 70, S.BTN_H, function()
-        draft = nil
-        LeadersUI:Refresh()
-    end)
-    w.revert:SetPoint("RIGHT", w.save, "LEFT", -6, 0)
+    w.list.frame:SetPoint("BOTTOMRIGHT", 6, 0)
     w:Hide()
     return w
 end
@@ -161,6 +163,7 @@ function LeadersUI:Refresh()
     win.picker.frame:SetShown(edit)
     win.save:SetShown(edit)
     win.revert:SetShown(edit)
+    win.layout.toolbar:LayoutRight()
     -- (everyone looks; only officers and the Guild Master change it: a read-only notice says so)
     if edit then
         win.layout:HideNotice()
