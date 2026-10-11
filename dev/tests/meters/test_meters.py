@@ -1165,12 +1165,17 @@ def the_fight_list_is_short_bosses_as_rows_trash_as_squares():
         local f = ns.MeterPanels._FightList()
         local o = {}
         for _, row in ipairs(f.rows) do
-            if row:IsShown() then o[#o + 1] = (row.name:GetText() or "") .. "|" .. (row.status:GetText() or "") .. "|" .. (row.small:GetText() or "") end
+            if row:IsShown() then
+                local icon = row.stIcon:IsShown() and tostring(row.stIcon:GetTexture()) or ""
+                o[#o + 1] = (row.name:GetText() or "") .. "|" .. icon .. "|" .. (row.small:GetText() or "")
+            end
         end
         return o""")
     shown = len(lines)
     assert shown <= 8, lines                                  # 7 fights + whole raid in 7 lines (+ separator)
-    assert any(l.startswith("Void Reaver|Kill") for l in lines) and any(l.startswith("Void Reaver|Wipe") for l in lines), lines
+    # results as icons (asked 2026-10-11): a kill the ready-check tick, a wipe the skull
+    assert any(l.startswith("Void Reaver|") and "ReadyCheck-Ready" in l for l in lines), lines
+    assert any(l.startswith("Void Reaver|") and "UI-TargetingFrame-Skull" in l for l in lines), lines
     # a square: that pull, and the list closes
     r.cl.eval(PICK_OLDER)
     assert r.cl.eval("return ns.MeterPanels._FightList():IsShown()") is False

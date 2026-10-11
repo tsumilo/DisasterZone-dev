@@ -1933,6 +1933,10 @@ local FLIST_PAD, FLIST_ROW, FLIST_ZONE, FLIST_DOT, FLIST_GAP = 4, 24, 18, 12, 3
 local FLIST_MIN_W, FLIST_MAX_W, FLIST_MAX_H = 240, 380, 440
 local FLIST_IX, FLIST_TX = 6, 42           -- the picture column, then the text
 local WHOLE_C = { 0.61, 0.76, 1 }
+-- a boss fight's result as an icon (asked 2026-10-11): a kill the ready-check tick, a wipe the skull the meters use
+-- for deaths (with the boss's health left); trash runs take the crossed swords of combat, not the skull
+local KILL_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
+local SWORDS_TEX, SWORDS_TC = "Interface\\CharacterFrame\\UI-StateIcon", { 0.5, 1, 0, 0.49 }
 local flist
 
 local function BossArt(seg)
@@ -1963,7 +1967,24 @@ local function NewListRow(f)
     r.len = K.Font(r, K.NARROW, 12, K.DIM)
     r.len:SetJustifyH("RIGHT")
     r.status = K.Font(r, K.NARROW, 11.5, K.DIM)
+    r.stIcon = K.Tex(r, "ARTWORK", K.WHITE)
+    r.stIcon:SetSize(14, 14)
     r.line = K.Tex(r, "ARTWORK", K.WHITE, 1, 1, 1, 0.08)
+    -- a boss row says in words what its icon means
+    r:SetScript("OnEnter", function(self)
+        local seg = self.seg
+        if not seg or seg.kind ~= "boss" then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(Meter:SegName(seg), 1, 0.82, 0)
+        local what
+        if seg.live then what = "|cffff7d6eLive|r"
+        elseif seg.kill then what = "|cff7bd88fKill|r"
+        else what = "|cffff7d6eWipe" .. (seg.pct and strformat(" at %d%%", floor(seg.pct + 0.5)) or "") .. "|r" end
+        local t = ListTime(seg)
+        GameTooltip:AddLine(what .. "  \194\183  " .. K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""), 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r.dots = {}
     r:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
     return r
@@ -2121,17 +2142,19 @@ local function FillList(f, pf)
     f.measureN = narrow
     narrow:Hide()
     local function W(fs, t) fs:SetText(t or ""); return fs:GetStringWidth() or 0 end
+    -- (text, its colour, icon): Live in words, a kill the tick, a wipe the skull and the boss's health left
     local function status(seg)
         if seg.live then return "Live", { 1, 0.49, 0.43 } end
         if seg.kind ~= "boss" then return nil end
-        if seg.kill then return "Kill", { 0.48, 0.85, 0.56 } end
-        return seg.pct and strformat("Wipe %d%%", floor(seg.pct + 0.5)) or "Wipe", { 1, 0.49, 0.43 }
+        if seg.kill then return nil, nil, "kill" end
+        return seg.pct and strformat("%d%%", floor(seg.pct + 0.5)) or nil, { 1, 0.49, 0.43 }, "wipe"
     end
     local need = FLIST_MIN_W
     for _, ln in ipairs(lines) do
         if ln.kind == "whole" or ln.kind == "boss" then
-            local st = status(ln.seg)
-            local w = FLIST_TX + W(measure, Meter:SegName(ln.seg)) + 10 + (st and (W(narrow, st) + 8) or 0) + 34 + 8
+            local st, _, icon = status(ln.seg)
+            local w = FLIST_TX + W(measure, Meter:SegName(ln.seg)) + 10 + (st and (W(narrow, st) + 8) or 0)
+                + (icon and 17 or 0) + 34 + 8
             need = max(need, w)
         end
     end
@@ -2153,12 +2176,15 @@ local function FillList(f, pf)
         for _, t in ipairs(r.bars) do t:Hide() end
         for _, d in ipairs(r.dots) do d:Hide() end
         r.name:SetText(""); r.small:SetText(""); r.len:SetText(""); r.status:SetText("")
+        r.stIcon:Hide()
+        r.seg = nil
         r.name:SetTextColor(K.INK[1], K.INK[2], K.INK[3])
         r.line:Hide()
         r:Show()
         return r
     end
-    local function Right(r, seg, st, stc)
+    -- the right side: [icon] [text] length
+    local function Right(r, seg, st, stc, icon)
         r.len:ClearAllPoints()
         r.len:SetPoint("RIGHT", r, "RIGHT", -8, 0)
         r.len:SetText(K.Clock(Meter:Duration(seg)))
@@ -2166,6 +2192,21 @@ local function FillList(f, pf)
         r.status:SetPoint("RIGHT", r.len, "LEFT", -8, 0)
         r.status:SetText(st or "")
         if stc then r.status:SetTextColor(stc[1], stc[2], stc[3]) end
+        if icon then
+            r.stIcon:ClearAllPoints()
+            if st then r.stIcon:SetPoint("RIGHT", r.status, "LEFT", -3, 0)
+            else r.stIcon:SetPoint("RIGHT", r.len, "LEFT", -8, 0) end
+            if icon == "kill" then
+                r.stIcon:SetTexture(KILL_TEX)
+                r.stIcon:SetTexCoord(0, 1, 0, 1)
+                r.stIcon:SetVertexColor(1, 1, 1, 1)
+            else
+                r.stIcon:SetTexture(K.SKULL)
+                r.stIcon:SetTexCoord(0, 1, 0, 1)
+                r.stIcon:SetVertexColor(1, 1, 1, 1)
+            end
+            r.stIcon:Show()
+        end
     end
     for _, ln in ipairs(lines) do
         if ln.kind == "sep" then
@@ -2227,14 +2268,14 @@ local function FillList(f, pf)
                     r.pic:SetSize(28, 14)
                     r.pic:SetVertexColor(1, 1, 1, 1)
                 else
-                    r.pic:SetTexture(K.SKULL)
-                    r.pic:SetTexCoord(0, 1, 0, 1)
-                    r.pic:SetSize(14, 14)
+                    r.pic:SetTexture(SWORDS_TEX)
+                    r.pic:SetTexCoord(SWORDS_TC[1], SWORDS_TC[2], SWORDS_TC[3], SWORDS_TC[4])
+                    r.pic:SetSize(16, 16)
                     r.pic:SetVertexColor(1, 0.71, 0.27, 0.9)
                 end
                 r.pic:Show()
-                local st, stc = status(seg)
-                Right(r, seg, st, stc)
+                r.seg = seg
+                Right(r, seg, status(seg))
             end
             y = y + FLIST_ROW
         elseif ln.kind == "trash" then
@@ -2248,10 +2289,10 @@ local function FillList(f, pf)
             r:SetHeight(h)
             r.pic:ClearAllPoints()
             r.pic:SetPoint("TOPLEFT", r, "TOPLEFT", FLIST_IX + 7, -floor((FLIST_ROW - 14) / 2))
-            r.pic:SetTexture(K.SKULL)
-            r.pic:SetTexCoord(0, 1, 0, 1)
-            r.pic:SetSize(14, 14)
-            r.pic:SetVertexColor(1, 1, 1, 0.45)
+            r.pic:SetTexture(SWORDS_TEX)
+            r.pic:SetTexCoord(SWORDS_TC[1], SWORDS_TC[2], SWORDS_TC[3], SWORDS_TC[4])
+            r.pic:SetSize(16, 16)
+            r.pic:SetVertexColor(1, 1, 1, 0.5)
             r.pic:Show()
             local total = 0
             for i, pull in ipairs(ln.pulls) do
