@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.3.5", date = "10 October 2026", title = "Raid nights for teams",
+    { version = "1.3.5", date = "11 October 2026", title = "Raid nights, loot rules for everyone and a Welcome tour",
       sections = {
           { heading = "Raids: raid nights", area = "raids", kind = "new", hi = true, open = "teams", art = "kara",
             lead = "See a team's raid nights before you join it.", lines = {
@@ -77,7 +77,7 @@ ns.CHANGELOG = {
               { "Giving it against a rule asks why; the reason shows in the loot log and the History.", ["for"] = "council" },
               "Your roll pop-up says if you meet the rules; if not, why and when you can again.",
               "Item tooltips say in one line if you qualify for a prized item, or which rule you miss.",
-              "Qualify today: hover the icons or the count for names; Next in line only with priority rules.",
+              "Qualify today: hover the icons or the count for names. Next in line: priority rules only.",
           } },
           { heading = "What's new, easier to read", area = "look", kind = "changed", hi = true, art = "tk",
             lead = "Highlights first, one line per section, Show me.", lines = {

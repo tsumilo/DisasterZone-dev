@@ -221,8 +221,14 @@ def the_changelog_names_who_asked_and_marks_mine():
     w, c = standard()
     settle(w)
     a = c["Alfa"]
+    # (the installed version's own credits are taken off first: the footer then counts only this one)
     a.eval("""local e
       for _, x in ipairs(ns.CHANGELOG) do if x.version == ns.version then e = x end end
+      for _, s in ipairs(e.sections) do
+        for i, l in ipairs(s.lines) do
+          if type(l) == 'table' and (l.fb or l.by) then s.lines[i] = l[1] end
+        end
+      end
       table.insert(e.sections[1].lines, 1, { 'The roll popup waits until you leave combat.', fb = { 12 },
         by = { 'Alfa', 'Bert' }, mt = 3, k = 'bug' })
       ns.ChangelogUI.ResetIndex()""")
