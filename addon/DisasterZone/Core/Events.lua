@@ -677,7 +677,9 @@ local function Commit(kind, rec)
         Changed()
         return true
     end
-    rec.rev = NextRev(Root(true) and Root(true)[kind][rec.id])
+    local root = Root(true)
+    if not root then return false end      -- (the guild key is not known yet: GetGuildInfo lags after a login)
+    rec.rev = NextRev(root[kind][rec.id])
     -- a review asked for "this revision": the one this commit makes
     if kind == "D" and type(rec.review) == "table" and rec.review.rev == true then rec.review.rev = rec.rev end
     local clean = CleanRecord(kind, rec)
@@ -687,7 +689,7 @@ local function Commit(kind, rec)
         ns:Print("this event is too big to share with the guild: take some pieces out.")
         return false
     end
-    if not Merge(Root(true), kind, clean, true) then return false end
+    if not Merge(root, kind, clean, true) then return false end
     Send({ t = "EVU", k = kind, r = clean }, "GUILD", nil, "data")
     Changed()
     return true

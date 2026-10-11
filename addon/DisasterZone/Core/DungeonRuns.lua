@@ -245,24 +245,70 @@ local invite                       -- (me) the party invite the addon answers it
 local handoff                      -- (old owner) my run waiting for the new leader to take it: { id, to = key, n }
 local demo                         -- demo mode's state (built on first use, never saved)
 
+-- A guild member's runs before the guild key is known (GetGuildInfo answers nil for a few seconds after a login):
+-- kept for this session only, and merged into the guild's bucket once the key arrives, so nothing learned in that
+-- window lands in the no-guild bucket (or is lost there).
+local early
+
+local function Shape(b)
+    b.list = type(b.list) == "table" and b.list or {}
+    b.gone = type(b.gone) == "table" and b.gone or {}
+    b.daily = type(b.daily) == "table" and b.daily or {}
+    return b
+end
+
+-- The early bucket p into the guild's bucket b: runs by revision (a run gone in either stays gone), the newer daily
+-- sighting, the members known to run DisasterZone.
+local function MergeEarly(b, p)
+    for id, x in pairs(p.gone) do
+        if (tonumber(x) or 0) > (tonumber(b.gone[id]) or 0) then b.gone[id] = x end
+    end
+    for id, run in pairs(p.list) do
+        local cur = b.list[id]
+        if not ((tonumber(b.gone[id]) or 0) > Now()) and (not cur or (cur.rv or 0) < (run.rv or 0)) then
+            b.list[id] = run
+        end
+    end
+    for id in pairs(b.gone) do
+        if p.gone[id] then b.list[id] = nil end
+    end
+    local d, e = b.daily, p.daily
+    if (tonumber(e.x) or 0) > (tonumber(d.x) or 0)
+        or ((tonumber(e.x) or 0) == (tonumber(d.x) or 0) and (tonumber(e.at) or 0) > (tonumber(d.at) or 0)) then
+        b.daily = e
+    end
+    if type(p.known) == "table" then
+        b.known = type(b.known) == "table" and b.known or {}
+        for k, t in pairs(p.known) do
+            if (tonumber(t) or 0) > (tonumber(b.known[k]) or 0) then b.known[k] = t end
+        end
+    end
+end
+
 local function Bucket(create)
     local db = ns.db
     if not db then return nil end
+    local g = G()
+    local gk = g and g.GetGuildKey and g:GetGuildKey()
+    if not gk and IsInGuild() then
+        if not early and create then early = Shape({}) end
+        return early
+    end
+    gk = gk or NO_GUILD
     if not db.runs then
-        if not create then return nil end
+        if not create and not early then return nil end
         db.runs = {}
     end
-    local g = G()
-    local gk = (g and g.GetGuildKey and g:GetGuildKey()) or NO_GUILD
     local b = db.runs[gk]
-    if not b and create then
+    if not b and (create or early) then
         b = { list = {}, gone = {}, daily = {} }
         db.runs[gk] = b
     end
-    if b then
-        b.list = type(b.list) == "table" and b.list or {}
-        b.gone = type(b.gone) == "table" and b.gone or {}
-        b.daily = type(b.daily) == "table" and b.daily or {}
+    if b then Shape(b) end
+    if early and b then
+        local p = early
+        early = nil
+        MergeEarly(b, p)
     end
     return b
 end
