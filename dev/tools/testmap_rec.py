@@ -24,6 +24,8 @@ _ADDON = os.environ.get("DISASTERZONE_ADDON_DIR") or r"C:\World of Warcraft\_ann
 ADDON = os.path.normcase(os.path.realpath(_ADDON))
 # under dev/: run output, caches and the Python environment are not inputs
 _SKIP = tuple(os.path.join(DEV, d) + os.sep for d in ("tf_e", ".luacache", ".testmap", "luaenv", "__pycache__"))
+# the recorder itself is instrumentation, not an input: changing it must not rerun every suite
+INSTRUMENTATION = ("dev:tools/testmap_rec.py", "dev:tools/covsite/sitecustomize.py")
 
 _files = set()
 _dirs = set()
@@ -38,7 +40,8 @@ def key_of(path):
     if p.startswith(DEV + os.sep):
         if p.startswith(_SKIP) or "__pycache__" in p:
             return None
-        return "dev:" + p[len(DEV) + 1:].replace("\\", "/")
+        k = "dev:" + p[len(DEV) + 1:].replace("\\", "/")
+        return None if k in INSTRUMENTATION else k
     if p.startswith(ADDON + os.sep) or p == ADDON:
         return "addon:" + p[len(ADDON) + 1:].replace("\\", "/")
     real = os.path.normcase(os.path.realpath(p))  # dev/../addon/DisasterZone is a junction to the addon folder
