@@ -558,11 +558,11 @@ def gm_and_guild_council_delete_a_logged_raid_for_everyone():
     btn = bob.eval("return ns.RaidsUI:GetPanel().deleteLogBtn")
     assert bob.eval("return ns.RaidsUI:GetPanel().deleteLogBtn:IsShown()") is True
     bob.click(btn)
-    bob.cancel_popup("DISASTERZONE_PLAN_CONFIRM")
+    bob.cancel_popup("DISASTERZONE_CONFIRM")
     w.tick(1)
     assert rec(bob, rid)
     bob.click(btn)
-    bob.accept_popup("DISASTERZONE_PLAN_CONFIRM")
+    bob.accept_popup("DISASTERZONE_CONFIRM")
     w.tick(40)
     for x in (bob, gina):
         assert rec(x, rid) is None, "gone"

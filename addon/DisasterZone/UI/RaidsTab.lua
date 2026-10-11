@@ -782,15 +782,16 @@ function H.ConfirmDelete(p)
     local rec = p.selView
     if not rec then return end
     local ids = rec.ids or { rec.id }
-    ns.RaidPlanUI:Confirm(("Delete the logged raid %s (%s)?\n\nIts boss kills and attendance are removed for "
-        .. "everyone. Awards stay in the Loot Log. This can't be undone."):format(rec.zone or "Raid",
-        H.Time(rec.start, "%a %d %b")) .. (#ids > 1 and ("\n\nIt was logged as " .. #ids .. " raids: all are deleted.") or ""),
-        function()
+    ns.Popup:Confirm({ title = "Delete a logged raid", ok = "Delete", danger = true,
+        text = ("Delete the logged raid %s (%s)?\n\nIts boss kills and attendance are removed for everyone. Awards "
+            .. "stay in the Loot Log. This can't be undone."):format(rec.zone or "Raid", H.Time(rec.start, "%a %d %b"))
+            .. (#ids > 1 and ("\n\nIt was logged as " .. #ids .. " raids: all are deleted.") or ""),
+        onAccept = function()
             for _, id in ipairs(ids) do
                 local ok, err = RL():Delete(id)
                 if not ok then ns:Print("%s", err or "Could not delete the raid.") end
             end
-        end)
+        end })
 end
 
 -- The Attendance view of the Raid log (1.3.5, UI/AttendanceUI.lua): every member, or one member's page.

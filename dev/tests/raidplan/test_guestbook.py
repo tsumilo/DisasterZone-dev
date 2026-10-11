@@ -460,7 +460,7 @@ def removing_a_player_from_the_book():
     assert bob.eval("return ns.GuestBookUI:OpenGuest(...)", K("Pug")) is True
     bob.eval("ns.GuestBookUI:OpenEntryMenu(UIParent, ns.GuestBook:GetEntry(...))", K("Pug"))
     menu_pick(bob, "Remove")
-    bob.accept_popup("DISASTERZONE_PLAN_CONFIRM")
+    bob.accept_popup("DISASTERZONE_CONFIRM")
     w.tick(3)
     assert entry(bob, K("Pug")) is None and entry(olaf, K("Pug")) is None
     keys = "local o = {}; for _, d in ipairs(ns.GuestBookUI:GetWindow().list:GetData()) do o[#o + 1] = d.key end; return o"
