@@ -205,6 +205,12 @@ def banner_options():
         res.shade = b.shadeR:IsShown() and b.shadeR:GetWidth()
         b:SetArt({ 134400, 0, 1, 0, 1 }, nil, { 134400, 0, 1, 0, 1 })
         res.art2 = b.art2 ~= nil and b.art2:IsShown()
+        -- the text set before the tools (the Council member page's first open) shows once they come
+        b:SetTools(nil)
+        b:SetToolsText("1 / 19")
+        res.ttNoTools = b.toolsText:IsShown()
+        b:SetTools({ { icon = "chevron", chevron = "right", title = "Next" }, { icon = "chevron", chevron = "left", title = "Prev" } })
+        res.ttLate = { b.toolsText:GetText(), b.toolsText:IsShown() }
         return res""")
     assert out["pill"][0] == "BiS" and near(out["pill"][1], [1, 0.82, 0]), out           # (bis no longer reads mute)
     assert out["stepped"] < 19, out
@@ -212,6 +218,7 @@ def banner_options():
     assert out["second"] == [True, 1234] and out["secondGone"] is False, out
     assert out["tt"] == ["3 / 19", True] and out["kick"] is True and out["shade"] == 120, out
     assert out["art2"] is True, out
+    assert out["ttNoTools"] is False and out["ttLate"] == ["1 / 19", True], out
     no_errors(w)
 
 

@@ -548,7 +548,9 @@ end
 function Banner:SetToolsText(text)
     if not self.toolsText then self.toolsText = UI:Text(self, "small", "SUB", { justify = "RIGHT" }) end
     self.toolsText:SetText(text == nil and "" or tostring(text))
-    self.toolsText:SetShown(text ~= nil and text ~= "")
+    -- (wanted, kept apart from shown: set before the tools, it shows once they come)
+    self.toolsTextOn = text ~= nil and text ~= ""
+    self.toolsText:SetShown(self.toolsTextOn)
     self:Relayout()
 end
 
@@ -629,7 +631,7 @@ function Banner:Layout()
     end
     -- a text beside the tools (Banner:SetToolsText: "3 / 19" left of a pager's chevrons)
     local tt = self.toolsText
-    if tt and Shown(tt) and firstTool and #self.tools > 0 then
+    if tt and self.toolsTextOn and firstTool and #self.tools > 0 then
         tt:ClearAllPoints()
         tt:SetPoint("RIGHT", firstTool, "LEFT", -8, 0)
         tt:Show()

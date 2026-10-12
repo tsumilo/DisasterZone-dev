@@ -482,6 +482,9 @@ def a_click_opens_the_breakdown_and_the_recap():
     assert r.cl.eval("return _G.DisasterZoneMeterDetail:IsShown()") is True
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.banner.name:GetText()") == "Gina"
     assert r.cl.eval("return _G.DisasterZoneMeterDetail.cards[1].num:GetText()") == "1,400"
+    # the window (and what is drawn in it) sits above the HIGH main window, as in 1.3.5
+    assert r.cl.eval("return _G.DisasterZoneMeterDetail:GetFrameStrata()") == "DIALOG"
+    assert r.cl.eval("return _G.DisasterZoneMeterDetail.rows[1]:GetFrameStrata()") == "DIALOG"
     n = r.cl.eval("local n = 0; for _, x in ipairs(_G.DisasterZoneMeterDetail.rows) do if x:IsShown() then n = n + 1 end end; return n")
     assert n == 2
     r.cl.eval("_G.DisasterZoneMeterDetail:Hide(); ns.MeterPanels.Layout().stacks[1].panels[1].tabs[1].view = 'deaths'; ns.MeterPanels:Draw()")

@@ -251,6 +251,8 @@ def boss_detail_compares_two_kills():
     pull = c.eval_py("local p, q = ns.MyLogDetail:GetCurrent(); return { p.boss, p.kill, q and q.kill, q and q.at < p.at, p.spec == q.spec }")
     assert pull == ["Leotheras the Blind", True, True, True, True], pull
     assert c.eval("return %s.runsView:IsShown()" % P) is False
+    # the made-up pulls are marked on the boss page too (the DEMO pill beside the view switch, as in 1.3.5)
+    assert c.eval("local b = ns.MyLogDetail:GetViews(); return b.demoTag:IsVisible()") is True
     rows_ = c.eval_py("""local out = {}
       local p = ns.MyLogDetail:GetCurrent()
       local t = 0
