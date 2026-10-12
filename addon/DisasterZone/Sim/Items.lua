@@ -320,9 +320,7 @@ IE[24121] = function(p) p:AddStat(ST.SpellCritPercent, 2) end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Crafted and dungeon set bonuses (common/tbc/items_sets.go). Stat bonuses are part of the gear (build phase).
 -- ---------------------------------------------------------------------------------------------------------------
-S.SET_BONUSES = S.SET_BONUSES or {}
 do
-  local SB = S.SET_BONUSES
   local function stats(t, profession)
     return function(p)
       if profession and p.professions[1] ~= profession and p.professions[2] ~= profession then return end
@@ -335,38 +333,38 @@ do
     S.AttachProcTrigger(a, p, { name = "Heroic Resolution", callback = "hit", procChance = 0.02,
       handler = function(sim) buff:Activate(sim) end })
   end
-  SB["Doomplate Battlegear"] = { [2] = stats({ MeleeHitRating = 35 }), [4] = heroicResolution }
-  SB["Wastewalker Armor"] = { [2] = stats({ MeleeHitRating = 35 }), [4] = heroicResolution }
-  SB["Mana-Etched Regalia"] = { [2] = stats({ SpellHitRating = 35 }), [4] = function(p, a)
+  S.SetBonus("Doomplate Battlegear", { [2] = stats({ MeleeHitRating = 35 }), [4] = heroicResolution })
+  S.SetBonus("Wastewalker Armor", { [2] = stats({ MeleeHitRating = 35 }), [4] = heroicResolution })
+  S.SetBonus("Mana-Etched Regalia", { [2] = stats({ SpellHitRating = 35 }), [4] = function(p, a)
     local buff = p:NewTemporaryStatsAura("Spell Power Bonus", { [ST.SpellDamage] = 110, [ST.HealingPower] = 110 }, 15)
     S.AttachProcTrigger(a, p, { name = "Mana Etched Regalia 4pc", callback = "hit", procChance = 0.02,
       procMask = PM.SpellDamage, handler = function(sim) buff:Activate(sim) end })
-  end }
-  SB["Burning Rage"] = { [2] = stats({ MeleeHitRating = 20 }, "Blacksmithing") }
-  SB["Khorium Ward"] = { [3] = stats({ HealingPower = 55, SpellDamage = 19 }, "Blacksmithing") }
-  SB["Netherstrike Armor"] = { [3] = stats({ SpellDamage = 23, HealingPower = 23 }) }
-  SB["Netherscale Armor"] = { [3] = stats({ MeleeHitRating = 20 }) }
-  SB["Windhawk Armor"] = { [3] = stats({ MP5 = 8 }) }
-  SB["Primal Intent"] = { [3] = stats({ AttackPower = 40 }) }
-  SB["Felscale Armor"] = { [2] = stats({ MeleeCritRating = 15 }), [4] = stats({ Stamina = 20 }) }
-  SB["Thick Draenic Armor"] = { [2] = stats({ MeleeHitRating = 15 }), [4] = stats({ MeleeCritRating = 15 }) }
-  SB["Fel Skin"] = { [3] = stats({ DodgeRating = 20 }, "Leatherworking") }
-  SB["Strength of the Clefthoof"] = { [3] = stats({ Strength = 20 }, "Leatherworking") }
-  SB["Spellstrike Infusion"] = { [2] = function(p, a)
+  end })
+  S.SetBonus("Burning Rage", { [2] = stats({ MeleeHitRating = 20 }, "Blacksmithing") })
+  S.SetBonus("Khorium Ward", { [3] = stats({ HealingPower = 55, SpellDamage = 19 }, "Blacksmithing") })
+  S.SetBonus("Netherstrike Armor", { [3] = stats({ SpellDamage = 23, HealingPower = 23 }) })
+  S.SetBonus("Netherscale Armor", { [3] = stats({ MeleeHitRating = 20 }) })
+  S.SetBonus("Windhawk Armor", { [3] = stats({ MP5 = 8 }) })
+  S.SetBonus("Primal Intent", { [3] = stats({ AttackPower = 40 }) })
+  S.SetBonus("Felscale Armor", { [2] = stats({ MeleeCritRating = 15 }), [4] = stats({ Stamina = 20 }) })
+  S.SetBonus("Thick Draenic Armor", { [2] = stats({ MeleeHitRating = 15 }), [4] = stats({ MeleeCritRating = 15 }) })
+  S.SetBonus("Fel Skin", { [3] = stats({ DodgeRating = 20 }, "Leatherworking") })
+  S.SetBonus("Strength of the Clefthoof", { [3] = stats({ Strength = 20 }, "Leatherworking") })
+  S.SetBonus("Spellstrike Infusion", { [2] = function(p, a)
     if p.professions[1] ~= "Tailoring" and p.professions[2] ~= "Tailoring" then return end
     local buff = p:NewTemporaryStatsAura("Lesser Spell Blasting", { [ST.SpellDamage] = 92 }, 10)
     S.AttachProcTrigger(a, p, { name = "Spellstrike Infusion 2pc", callback = "hit", procChance = 0.05,
       procMask = PM.SpellDamage, canProcFromProcs = true, classSpellsOnly = true,
       handler = function(sim) buff:Activate(sim) end })
-  end }
-  SB["Wrath of Spellfire"] = { [3] = function(p) p:AddStatDependency(ST.Intellect, ST.SpellDamage, 0.07) end }
-  SB["Soulcloth Embrace"] = { [3] = stats({ SpellHitRating = 16 }) }
-  SB["Imbued Netherweave"] = { [3] = stats({ SpellCritRating = 28 }) }
-  SB["Netherweave Vestments"] = { [2] = stats({ SpellDamage = 23, HealingPower = 23 }), [4] = stats({ SpellCritRating = 14 }) }
-  SB["Arcanoweave Vestments"] = { [3] = stats({ SpellHitRating = 16 }) }
+  end })
+  S.SetBonus("Wrath of Spellfire", { [3] = function(p) p:AddStatDependency(ST.Intellect, ST.SpellDamage, 0.07) end })
+  S.SetBonus("Soulcloth Embrace", { [3] = stats({ SpellHitRating = 16 }) })
+  S.SetBonus("Imbued Netherweave", { [3] = stats({ SpellCritRating = 28 }) })
+  S.SetBonus("Netherweave Vestments", { [2] = stats({ SpellDamage = 23, HealingPower = 23 }), [4] = stats({ SpellCritRating = 14 }) })
+  S.SetBonus("Arcanoweave Vestments", { [3] = stats({ SpellHitRating = 16 }) })
   -- Warglaives of Azzinoth (items_weapons.go), Rogues and Warriors: 450 haste rating for 10 s (1 PPM on the sword
   -- hands, 45 s cooldown) and +200 attack power against demons.
-  SB["The Twin Blades of Azzinoth"] = { [2] = function(p, a)
+  S.SetBonus("The Twin Blades of Azzinoth", { [2] = function(p, a)
     if p.class ~= "Rogue" and p.class ~= "Warrior" then return end
     local buff = p:NewTemporaryStatsAura("The Twin Blades of Azzinoth", { [ST.MeleeHasteRating] = 450 }, 10)
     S.AttachProcTrigger(a, p, { name = "The Twin Blades of Azzinoth - Trigger", dpm = S.NewPPM(p, 1, S.ProcMaskForTypes(p, 9)),
@@ -379,7 +377,7 @@ do
     local og, oe = a.onGain, a.onExpire
     a.onGain = function(aura, sim) if og then og(aura, sim) end demons(200) end
     a.onExpire = function(aura, sim) if oe then oe(aura, sim) end demons(-200) end
-  end }
+  end })
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -391,9 +389,9 @@ IE[28785] = function(p)
   local bolt = p:RegisterSpell({ id = 37661, school = SCHOOL.Nature, defenseType = S.DEF_MAGIC, procMask = PM.Empty,
     flags = F.PassiveSpell + F.IgnoreAttackerModifiers, damageMultiplier = 1,
     applyEffects = function(sim, target, spell)
-      sim:Add({ at = sim.now + p.distance / 20, prio = 0, fn = function(s)
+      S.Travel(p, sim, 20, function(s)
         spell:CalcAndDealDamage(s, target, s:Roll(694, 806), OUT.MagicHitAndCrit)
-      end })
+      end)
     end })
   local icd = p:NewTimer()
   local charge = p:RegisterAura({ label = "Electrical Charge", actionId = { spellId = 37658 }, maxStacks = 3 })

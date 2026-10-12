@@ -31,14 +31,14 @@ local TALENTS = {
 S.PRIEST_TALENTS = TALENTS
 
 -- Class spell masks (priest.go)
-local M = {}
+local M
 do
-  local names = { "DevouringPlague", "DevouringPlagueDoT", "DevouringPlagueHeal", "HolyNova", "HolyFire", "MindBlast",
+  local nextBit
+  M, nextBit = S.SpellMasks({
+    "DevouringPlague", "DevouringPlagueDoT", "DevouringPlagueHeal", "HolyNova", "HolyFire", "MindBlast",
     "MindFlay", "PowerInfusion", "Starshards", "Shadowform", "ShadowWordDeath", "ShadowWordPain", "ShadowFiend",
-    "VampiricEmbrace", "VampiricTouch", "Fade", "Smite" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
-  M.All = bit - 1 - 1 -- every bit from 2 up
+    "VampiricEmbrace", "VampiricTouch", "Fade", "Smite" })
+  M.All = nextBit - 1 - 1 -- every bit from 2 up
   M.Instant = M.DevouringPlague + M.Fade + M.HolyNova + M.PowerInfusion + M.ShadowWordDeath + M.ShadowWordPain
     + M.VampiricEmbrace + M.ShadowFiend + M.Starshards + M.Shadowform
   M.Shadow = M.DevouringPlague + M.ShadowWordDeath + M.Shadowform + M.ShadowWordPain + M.MindFlay + M.MindBlast
@@ -234,18 +234,10 @@ local function ShadowSpell(cfg)
   return cfg
 end
 
-local function TickDot(label, ticks, length, tick, coef, extra)
-  local d = { label = label, numberOfTicks = ticks, tickLength = length, bonusCoefficient = coef,
-    onSnapshot = function(sim, target, dot) dot:Snapshot(target, tick) end,
-    onTick = function(sim, target, dot) dot:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end }
-  for k, v in pairs(extra or {}) do d[k] = v end
-  return d
-end
-
 -- mind_flay.go (rank 7): a 3 s channel of three ticks, shortened by haste (ticks keep their number)
 function S.PriestMindFlay(p)
   p:RegisterSpell(ShadowSpell({ id = 25387, flags = F.Channeled, classMask = M.MindFlay, manaCost = { flat = 230 },
-    dot = TickDot("MindFlay-7", 3, 1, 176, C190, { affectedByCastSpeed = true, hasteReducesDuration = true }),
+    dot = S.TickDot("MindFlay-7", 3, 1, 176, C190, { affectedByCastSpeed = true, hasteReducesDuration = true }),
     applyEffects = function(sim, target, spell)
       local r = spell:CalcAndDealOutcome(sim, target, OUT.MagicHitNoHitCounter)
       if S.Landed(r) then spell:Dot(target):Apply(sim) end
@@ -256,7 +248,7 @@ end
 -- spells do there comes back as mana
 function S.PriestVampiricTouch(p)
   local vt = p:RegisterSpell(ShadowSpell({ id = 34917, classMask = M.VampiricTouch, manaCost = { flat = 425 },
-    castTime = 1.5, dot = TickDot("VampiricTouch-3", 5, 3, 130, C200),
+    castTime = 1.5, dot = S.TickDot("VampiricTouch-3", 5, 3, 130, C200),
     applyEffects = function(sim, target, spell)
       local r = spell:CalcAndDealOutcome(sim, target, OUT.MagicHit)
       if S.Landed(r) then spell:Dot(target):Apply(sim) end
@@ -280,7 +272,7 @@ function S.PriestInitialize(p)
       applyEffects = function(sim, target, spell) spell:CalcAndDealDamage(sim, target, sim:Roll(lo, hi), OUT.MagicHitAndCrit) end }))
   end
   p:RegisterSpell(ShadowSpell({ id = 25368, classMask = M.ShadowWordPain, manaCost = { flat = 575 },
-    dot = TickDot("ShadowWordPain-10", 6, 3, 206, C183),
+    dot = S.TickDot("ShadowWordPain-10", 6, 3, 206, C183),
     applyEffects = function(sim, target, spell)
       local r = spell:CalcOutcome(sim, target, OUT.MagicHitNoHitCounter)
       if S.Landed(r) then spell:Dot(target):Apply(sim) end
@@ -303,7 +295,7 @@ function S.PriestInitialize(p)
   if p.race == "NightElf" then
     -- starshards.go (rank 8): arcane, 5 ticks over 15 s
     p:RegisterSpell(ShadowSpell({ id = 25446, school = SCHOOL.Arcane, classMask = M.Starshards, cd = 30,
-      manaCost = { flat = 0 }, dot = TickDot("Starshards-8", 5, 3, 157, C167),
+      manaCost = { flat = 0 }, dot = S.TickDot("Starshards-8", 5, 3, 157, C167),
       applyEffects = function(sim, target, spell)
         local r = spell:CalcOutcome(sim, target, OUT.MagicHitNoHitCounter)
         if S.Landed(r) then spell:Dot(target):Apply(sim) end
@@ -313,7 +305,7 @@ function S.PriestInitialize(p)
   if p.race == "Undead" then
     -- devouring_plague.go (rank 7): 8 ticks over 24 s, the first right away
     p:RegisterSpell(ShadowSpell({ id = 25467, classMask = M.DevouringPlague, cd = 180, manaCost = { flat = 1145 },
-      dot = TickDot("DevouringPlague-7", 8, 3, 152, C100),
+      dot = S.TickDot("DevouringPlague-7", 8, 3, 152, C100),
       applyEffects = function(sim, target, spell)
         local r = spell:CalcOutcome(sim, target, OUT.MagicHit)
         if S.Landed(r) then
@@ -332,10 +324,6 @@ end
 -- Items (items.go): tier sets 4-6 and the Ashtongue Talisman of Acumen
 -- ---------------------------------------------------------------------------------------------------------------
 function S.PriestItems(p)
-  local function equipped(id)
-    for _, v in pairs(p.gearIds) do if v == id then return true end end
-    return false
-  end
   -- Incarnate Regalia 2: Shadowfiend lasts 3 s longer (its stamina doesn't matter here); 4: Mind Flay / Smite +5%
   if p:CouldHaveSetBonus("Incarnate Regalia", 2) then
     p:AddStaticMod({ kind = "BuffDuration_Flat", value = 3, classMask = M.ShadowFiend })
@@ -367,9 +355,18 @@ function S.PriestItems(p)
     p:AddStaticMod({ kind = "DamageDone_Flat", value = 0.10, classMask = M.MindBlast })
   end
   -- Ashtongue Talisman of Acumen: 10% on a Shadow Word: Pain tick, 220 spell damage for 10 s
-  if equipped(32490) then
+  if p:IsEquipped(32490) then
     local a = p:NewTemporaryStatsAura("Ashtongue Talisman of Acumen - Proc", { [ST.SpellDamage] = 220 }, 10)
     p:MakeProcTriggerAura({ name = "Ashtongue Talisman of Acumen - Trigger", procChance = 0.1,
       classMask = M.ShadowWordPain, outcome = O.Landed, callback = "periodic", handler = function(sim) a:Activate(sim) end })
   end
 end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
+-- ---------------------------------------------------------------------------------------------------------------
+S.RegisterClass("Priest", {
+  setup = function(p, talents, opts) S.SetupPriest(p, talents, opts) end,
+  applyTalents = function(p) S.PriestApplyTalents(p) end,
+  initialize = function(p) S.PriestInitialize(p) end,
+})

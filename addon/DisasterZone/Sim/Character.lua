@@ -239,6 +239,20 @@ function Unit:CouldHaveSetBonus(setName, n)
   return (self.setCounts and (self.setCounts[setName] or 0) >= n) or false
 end
 
+-- Whether any gear slot holds item `id` (the class files' trinkets, idols, totems and librams).
+function Unit:IsEquipped(id)
+  for _, v in pairs(self.gearIds or {}) do if v == id then return true end end
+  return false
+end
+
+-- Set bonuses applied with the item effects (S.ApplyItemEffects, below): bonuses = { [pieces] = function(p, aura) },
+-- each run once the player wears that many pieces, on a permanent aura named "<set> <pieces>pc". Bonuses that need
+-- the class spells (a class's ...Items function, after its spells exist) check p:CouldHaveSetBonus(set, pieces).
+S.SET_BONUSES = S.SET_BONUSES or {}
+function S.SetBonus(setName, bonuses)
+  S.SET_BONUSES[setName] = bonuses
+end
+
 -- Spell category timers (shared trinket / potion cooldowns), one per category id.
 function Unit:CategoryTimer(id)
   self.categoryTimers = self.categoryTimers or {}

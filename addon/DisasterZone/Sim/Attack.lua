@@ -153,7 +153,7 @@ function AA:EnableRanged(weapon, opts)
     applyEffects = function(sim, target, spell)
       local base = S.WeaponDamage(wa, sim, spell:RangedAttackPower(target))
       local r = spell:CalcDamage(sim, target, base, OUT.RangedHitAndCrit)
-      sim:Add({ at = sim.now + (u.distance or 0) / 40, prio = 0, fn = function(s) spell:DealDamage(s, r) end })
+      S.Travel(u, sim, 40, function(s) spell:DealDamage(s, r) end)
       -- attack.go: react once more (movement actions)
       if u.rotation then u:ReactToEvent(sim, false, true) end
     end,

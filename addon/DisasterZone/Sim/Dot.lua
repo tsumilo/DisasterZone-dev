@@ -19,6 +19,16 @@ local Dot = {}
 Dot.__index = Dot
 S.DotMT = Dot
 
+-- A plain periodic DoT config: `ticks` ticks `length` s apart, each snapshotting `tick` base damage plus `coef` of
+-- the caster's spell damage when applied; `extra` adds or overrides fields (affectedByCastSpeed, ...).
+function S.TickDot(label, ticks, length, tick, coef, extra)
+  local d = { label = label, numberOfTicks = ticks, tickLength = length, bonusCoefficient = coef,
+    onSnapshot = function(sim, target, dot) dot:Snapshot(target, tick) end,
+    onTick = function(sim, target, dot) dot:CalcAndDealPeriodicSnapshotDamage(sim, target, S.OUT.Tick) end }
+  for k, v in pairs(extra or {}) do d[k] = v end
+  return d
+end
+
 -- Go math.RoundToEven
 local function RoundToEven(x)
   local f = floor(x)

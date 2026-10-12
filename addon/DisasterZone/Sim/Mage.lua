@@ -33,16 +33,16 @@ local TALENTS = {
 S.MAGE_TALENTS = TALENTS
 
 -- Class spell masks (mage.go)
-local M = {}
+local M
 do
-  local names = { "ArcaneBlast", "ArcaneExplosion", "ArcanePower", "ArcaneMissilesCast", "ArcaneMissilesTick",
+  local nextBit
+  M, nextBit = S.SpellMasks({
+    "ArcaneBlast", "ArcaneExplosion", "ArcanePower", "ArcaneMissilesCast", "ArcaneMissilesTick",
     "BlastWave", "Blizzard", "ColdSnap", "ConeOfCold", "DragonsBreath", "Evocation", "FireBlast", "Fireball",
     "Flamestrike", "FlamestrikeDot", "FrostArmor", "Frostbolt", "FrostNova", "IceBarrier", "IceBlock", "IceLance",
     "IcyVeins", "Ignite", "MageArmor", "ManaGems", "MoltenArmor", "PresenceOfMind", "Pyroblast", "PyroblastDot",
-    "Scorch", "Slow", "ManaGem", "Combustion", "WaterBolt" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
-  M.All = bit * 2 - 1
+    "Scorch", "Slow", "ManaGem", "Combustion", "WaterBolt" })
+  M.All = nextBit * 2 - 1
   M.Frost = M.Frostbolt + M.Blizzard + M.FrostNova + M.ConeOfCold + M.IceLance
   M.Fire = M.DragonsBreath + M.Fireball + M.Combustion + M.FireBlast + M.Flamestrike + M.Ignite + M.Pyroblast + M.Scorch
   M.AllDamaging = M.ArcaneBlast + M.ArcaneExplosion + M.ArcaneMissilesTick + M.Blizzard + M.DragonsBreath + M.FireBlast
@@ -291,12 +291,6 @@ local function ArcaneCharges(p)
   return a
 end
 
--- Travel time to the target at `speed` yards a second (spell.go WaitTravelTime).
-local function Travel(p, sim, speed, fn)
-  if not speed or speed == 0 then return fn(sim) end
-  sim:Add({ at = sim.now + p.distance / speed, prio = 0, fn = fn })
-end
-
 function S.MageInitialize(p)
   local mg, T = p.mage, p.talents
   local target = p.currentTarget
@@ -321,7 +315,7 @@ function S.MageInitialize(p)
     bonusCoefficient = 0.28600001335,
     applyEffects = function(sim, t, spell)
       local r = spell:CalcDamage(sim, t, 265, OUT.TickMagicHitAndCrit)
-      Travel(p, sim, 20, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 20, function(s) spell:DealDamage(s, r) end)
     end })
   p:RegisterSpell(MageSpell({ id = 38699, school = SCHOOL.Arcane, flags = F.Channeled, classMask = M.ArcaneMissilesCast,
     damageMultiplier = 0, manaCost = { flat = 740 },
@@ -336,7 +330,7 @@ function S.MageInitialize(p)
     manaCost = { flat = 330 }, castTime = 3, bonusCoefficient = C_FROSTBOLT,
     applyEffects = function(sim, t, spell)
       local r = spell:CalcDamage(sim, t, sim:Roll(600, 647), OUT.MagicHitAndCrit)
-      Travel(p, sim, 28, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 28, function(s) spell:DealDamage(s, r) end)
     end }))
   -- Fireball (rank 13): travels at 24 yards a second, leaves a small DoT
   p:RegisterSpell(MageSpell({ id = 27070, school = SCHOOL.Fire, classMask = M.Fireball, manaCost = { flat = 425 },
@@ -346,7 +340,7 @@ function S.MageInitialize(p)
       onTick = function(sim, t, d) d:CalcAndDealPeriodicSnapshotDamage(sim, t, OUT.Tick) end },
     applyEffects = function(sim, t, spell)
       local r = spell:CalcDamage(sim, t, sim:Roll(649, 821), OUT.MagicHitAndCrit)
-      Travel(p, sim, 24, function(s)
+      S.Travel(p, sim, 24, function(s)
         spell:DealDamage(s, r)
         if S.Landed(r) then spell:Dot(t):Apply(s) end
       end)
@@ -379,7 +373,7 @@ function S.MageInitialize(p)
     manaCost = { flat = 500 }, castTime = 6, bonusCoefficient = C_PYRO,
     applyEffects = function(sim, t, spell)
       local r = spell:CalcDamage(sim, t, sim:Roll(939, 1191), OUT.MagicHitAndCrit)
-      Travel(p, sim, 24, function(s)
+      S.Travel(p, sim, 24, function(s)
         spell:DealDamage(s, r)
         if S.Landed(r) then pyroDot:Cast(s, t) end
       end)
@@ -545,10 +539,6 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 function S.MageItems(p)
   local mg = p.mage
-  local function equipped(id)
-    for _, v in pairs(p.gearIds) do if v == id then return true end end
-    return false
-  end
   -- Tirisfal Regalia 2: Arcane Blast +20% damage and +20% cost; 4: a spell crit gives 70 spell damage for 6 s
   if p:CouldHaveSetBonus("Tirisfal Regalia", 2) then
     p:AddStaticMod({ kind = "DamageDone_Flat", value = 0.2, classMask = M.ArcaneBlast })
@@ -567,16 +557,25 @@ function S.MageItems(p)
     p:AddStaticMod({ kind = "DamageDone_Flat", value = 0.05, classMask = M.Fireball + M.Frostbolt + M.ArcaneMissilesTick })
   end
   -- Serpent-Coil Braid: mana gems give 25% more and 225 spell damage for 15 s
-  if equipped(30720) then
+  if p:IsEquipped(30720) then
     mg.braidActive = true
     local a = p:NewTemporaryStatsAura("Mana Surge", { [ST.SpellDamage] = 225 }, 15)
     p:MakeProcTriggerAura({ name = "Serpent-Coil Braid", classMask = M.ManaGem, callback = "cast",
       handler = function(sim) a:Activate(sim) end })
   end
   -- Ashtongue Talisman of Insight: 50% on a class spell crit, 145 spell haste rating for 5 s
-  if equipped(32488) then
+  if p:IsEquipped(32488) then
     local a = p:NewTemporaryStatsAura("Ashtongue Talisman of Insight - Proc", { [ST.SpellHasteRating] = 145 }, 5)
     p:MakeProcTriggerAura({ name = "Ashtongue Talisman of Insight - Trigger", procChance = 0.5, classSpellsOnly = true,
       outcome = O.Crit, callback = "hit", handler = function(sim) a:Activate(sim) end })
   end
 end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
+-- ---------------------------------------------------------------------------------------------------------------
+S.RegisterClass("Mage", {
+  setup = function(p, talents, opts) S.SetupMage(p, talents, opts) end,
+  applyTalents = function(p) S.MageApplyTalents(p) end,
+  initialize = function(p) S.MageInitialize(p) end,
+})

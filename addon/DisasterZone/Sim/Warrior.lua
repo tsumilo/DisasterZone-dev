@@ -49,16 +49,15 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Class spell masks (warrior.go)
 -- ---------------------------------------------------------------------------------------------------------------
-local M = {}
+local M
 do
-  local names = { "BattleShout", "CommandingShout", "BerserkerRage", "Recklessness", "DeathWish", "Retaliation",
+  M = S.SpellMasks({
+    "BattleShout", "CommandingShout", "BerserkerRage", "Recklessness", "DeathWish", "Retaliation",
     "RetaliationHit", "Rampage", "ShieldWall", "LastStand", "Charge", "Intercept", "DemoralizingShout",
     "BattleStance", "BerserkerStance", "DefensiveStance", "Rend", "DeepWounds", "SweepingStrikes",
     "SweepingStrikesHit", "SweepingStrikesNormalizedHit", "HeroicStrike", "Cleave", "Devastate", "Execute",
     "Overpower", "Revenge", "Slam", "SunderArmor", "ThunderClap", "Whirlwind", "WhirlwindOh", "ShieldSlam",
-    "ConcussionBlow", "ShieldBash", "Bloodthirst", "MortalStrike", "ShieldBlock", "Hamstring", "Pummel" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
+    "ConcussionBlow", "ShieldBash", "Bloodthirst", "MortalStrike", "ShieldBlock", "Hamstring", "Pummel" })
   M.Shouts = M.CommandingShout + M.BattleShout + M.DemoralizingShout
   M.DirectDamage = M.SweepingStrikesHit + M.SweepingStrikesNormalizedHit + M.Cleave + M.Execute + M.HeroicStrike +
     M.Overpower + M.Revenge + M.Slam + M.ShieldBash + M.SunderArmor + M.ThunderClap + M.Whirlwind + M.WhirlwindOh +
@@ -739,15 +738,14 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Set bonuses and items (items.go)
 -- ---------------------------------------------------------------------------------------------------------------
-local SB = S.SET_BONUSES
-SB["Warbringer Battlegear"] = {
+S.SetBonus("Warbringer Battlegear", {
   [2] = function(p, a) a:AttachSpellMod({ classMask = M.Whirlwind, kind = "PowerCost_Flat", value = -5 }) end,
   [4] = function(p, a)
     S.AttachProcTrigger(a, p, { name = "Warbringer Battlegear - 4PC", triggerImmediately = true, callback = "hit",
       outcome = O.Parry + O.Dodge, handler = function(sim) p:AddRage(sim, 2, "warbringer") end })
   end,
-}
-SB["Destroyer Battlegear"] = {
+})
+S.SetBonus("Destroyer Battlegear", {
   [2] = function(p, a)
     local buff = p:NewTemporaryStatsAura("Overpower", { [ST.AttackPower] = 100 }, 5)
     S.AttachProcTrigger(buff, p, { name = "Destroyer Battlegear - 2PC - Consume", procMask = PM.MeleeSpecial,
@@ -756,14 +754,14 @@ SB["Destroyer Battlegear"] = {
       handler = function(sim) buff:Activate(sim) end })
   end,
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.MortalStrike + M.Bloodthirst, kind = "PowerCost_Flat", value = -5 }) end,
-}
-SB["Onslaught Battlegear"] = {
+})
+S.SetBonus("Onslaught Battlegear", {
   [2] = function(p, a) a:AttachSpellMod({ classMask = M.Execute, kind = "PowerCost_Flat", value = -3 }) end,
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.MortalStrike + M.Bloodthirst, kind = "DamageDone_Flat", value = 0.05 }) end,
-}
-SB["Gladiator's Battlegear"] = {
+})
+S.SetBonus("Gladiator's Battlegear", {
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.Intercept, kind = "Cooldown_Flat", value = -5 }) end,
-}
+})
 
 -- Ashtongue Talisman of Valor: 25% on landed Bloodthirst / Mortal Strike, +55 Strength for 12 s.
 S.ITEM_EFFECTS[32485] = function(p)
@@ -772,3 +770,12 @@ S.ITEM_EFFECTS[32485] = function(p)
     classMask = M.Bloodthirst + M.MortalStrike + M.ShieldSlam, outcome = O.Landed, callback = "hit",
     handler = function(sim) buff:Activate(sim) end })
 end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
+-- ---------------------------------------------------------------------------------------------------------------
+S.RegisterClass("Warrior", {
+  setup = function(p, talents, opts) S.SetupWarrior(p, talents, opts) end,
+  applyTalents = function(p) S.WarriorApplyTalents(p) end,
+  initialize = function(p) S.WarriorInitialize(p) end,
+})

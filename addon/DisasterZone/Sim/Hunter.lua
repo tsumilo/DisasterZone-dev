@@ -33,13 +33,12 @@ local TALENTS = {
 S.HUNTER_TALENTS = TALENTS
 
 -- Class spell masks (hunter.go)
-local M = {}
+local M
 do
-  local names = { "SpellRanged", "AutoShot", "AimedShot", "ArcaneShot", "AspectOfTheHawk", "AspectOfTheViper",
+  M = S.SpellMasks({
+    "SpellRanged", "AutoShot", "AimedShot", "ArcaneShot", "AspectOfTheHawk", "AspectOfTheViper",
     "BestialWrath", "KillCommand", "KillCommandPet", "MultiShot", "RapidFire", "RaptorStrike", "RaptorStrikeQueue",
-    "Readiness", "ScorpidSting", "SerpentSting", "SteadyShot", "Volley", "PetDamage" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
+    "Readiness", "ScorpidSting", "SerpentSting", "SteadyShot", "Volley", "PetDamage" })
   M.All = M.AimedShot + M.ArcaneShot + M.BestialWrath + M.KillCommand + M.MultiShot + M.RapidFire + M.RaptorStrike
     + M.ScorpidSting + M.SerpentSting + M.SteadyShot + M.Volley
   M.ShotsAndStings = M.AimedShot + M.ArcaneShot + M.MultiShot + M.ScorpidSting + M.SerpentSting + M.SteadyShot + M.Volley
@@ -64,12 +63,6 @@ local PET_CONFIGS = {
   Dragonhawk = { mult = 1.0, primary = "Bite", secondary = "FireBreath" },
 }
 S.HUNTER_PETS = PET_CONFIGS
-
--- Travel time to the target at `speed` yards a second (spell.go WaitTravelTime).
-local function Travel(u, sim, speed, fn)
-  if not speed or speed == 0 then return fn(sim) end
-  sim:Add({ at = sim.now + (u.distance or 0) / speed, prio = 0, fn = fn })
-end
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Constructor (hunter.go NewHunter)
@@ -221,9 +214,7 @@ local function PetAbility(pet, kind)
     return pet:RegisterSpell({ id = 35323, school = SCHOOL.Fire, defenseType = S.DEF_MAGIC, procMask = PM.SpellDamage,
       focusCost = { cost = 50 }, gcd = 1.5, ignoreHaste = true, cd = 10, damageMultiplier = 1,
       damageMultiplierAdditive = 1, threatMultiplier = 1, bonusCoefficient = 0.05, extraCastCondition = enabled,
-      dot = { label = "Fire Breath", numberOfTicks = 2, tickLength = 1, bonusCoefficient = 0.05, selfOnly = true,
-        onSnapshot = function(sim, target, dot) dot:Snapshot(target, 43.5) end,
-        onTick = function(sim, target, dot) dot:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end },
+      dot = S.TickDot("Fire Breath", 2, 1, 43.5, 0.05, { selfOnly = true }),
       applyEffects = function(sim, target, spell)
         local d = spell.aoeDot
         d:Apply(sim)
@@ -375,7 +366,7 @@ function S.HunterApplyTalents(p)
     applyEffects = function(sim, t, spell)
       local base = 0.2 * spell:RangedAttackPower(t) + S.WeaponBaseDamage(p.autoAttacks.ranged, sim) + S.HunterTalonBonus(p) + 870
       local r = spell:CalcDamage(sim, t, base, OUT.RangedHitAndCrit)
-      Travel(p, sim, 40, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 40, function(s) spell:DealDamage(s, r) end)
     end })
   if T.RapidKilling > 0 then
     p:AddStaticMod({ kind = "Cooldown_Flat", value = -60 * T.RapidKilling, classMask = M.RapidFire })
@@ -486,7 +477,7 @@ function S.HunterInitialize(p)
     applyEffects = function(sim, t, spell)
       local base = spell:RangedAttackPower(t) * 0.15 + S.HunterTalonBonus(p) + 273
       local r = spell:CalcDamage(sim, t, base, OUT.RangedHitAndCrit)
-      Travel(p, sim, 40, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 40, function(s) spell:DealDamage(s, r) end)
     end })
 
   -- aspects.go: Hawk (+155 ranged attack power) or Viper (mana each tick); one at a time
@@ -543,7 +534,7 @@ function S.HunterInitialize(p)
     applyEffects = function(sim, t, spell)
       local base = spell:RangedAttackPower(t) * 0.2 + S.WeaponBaseDamage(aa.ranged, sim) + S.HunterTalonBonus(p) + 205
       local r = spell:CalcDamage(sim, t, base, OUT.RangedHitAndCrit)
-      Travel(p, sim, 30, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 30, function(s) spell:DealDamage(s, r) end)
     end })
 
   -- raptor_strike.go (melee range only)
@@ -573,7 +564,7 @@ function S.HunterInitialize(p)
       onTick = function(sim, t, dot) dot:CalcAndDealPeriodicSnapshotDamage(sim, t, OUT.Tick) end },
     applyEffects = function(sim, t, spell)
       local r = spell:CalcOutcome(sim, t, OUT.RangedHit)
-      Travel(p, sim, 40, function(s)
+      S.Travel(p, sim, 40, function(s)
         if S.Landed(r) then spell:Dot(t):Apply(s) end
         spell:DealDamage(s, r)
       end)
@@ -595,7 +586,7 @@ function S.HunterInitialize(p)
       local wd = S.WeaponBaseDamage(aa.ranged, sim) - hu.ammoDamageBonus - scope - stone
       local base = 0.2 * spell:RangedAttackPower(t) + wd * 2.8 / aa.ranged.swingSpeed + S.HunterTalonBonus(p) + 150
       local r = spell:CalcDamage(sim, t, base, OUT.RangedHitAndCrit)
-      Travel(p, sim, 40, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 40, function(s) spell:DealDamage(s, r) end)
     end })
 
   -- talents.go Readiness
@@ -625,10 +616,6 @@ end
 function S.HunterItems(p)
   local hu = p.hunter
   local pet = hu.pet
-  local function equipped(id)
-    for _, v in pairs(p.gearIds) do if v == id then return true end end
-    return false
-  end
   -- Cryptstalker Armor 2: Rapid Fire +4 s; 4: +50 attack power for hunter and pet; 6: ranged crits give 50 mana;
   -- 8: Multi-Shot / Aimed Shot cost 20 less
   if p:CouldHaveSetBonus("Cryptstalker Armor", 2) then
@@ -681,23 +668,23 @@ function S.HunterItems(p)
     S.MakePermanent(a)
   end
   -- Beast-tamer's Shoulders: the pet +3% damage, +3% crit
-  if equipped(30892) and pet then
+  if p:IsEquipped(30892) and pet then
     pet.ps.DamageDealtMultiplier = pet.ps.DamageDealtMultiplier * 1.03
     pet:AddStat(ST.PhysicalCritPercent, 3)
   end
   -- Black Bow of the Betrayer: 8 mana a ranged hit
-  if equipped(32336) then
+  if p:IsEquipped(32336) then
     p:MakeProcTriggerAura({ name = "Black Bow of the Betrayer", callback = "hit", outcome = O.Landed, procMask = PM.Ranged,
       spellFlagsExclude = F.SuppressWeaponProcs, handler = function(sim) p:AddMana(sim, 8, "black_bow") end })
   end
   -- Ashtongue Talisman of Swiftness: 15% on a Steady Shot, +275 attack power for 8 s
-  if equipped(32487) then
+  if p:IsEquipped(32487) then
     local a = p:NewTemporaryStatsAura("Deadly Aim", { [ST.AttackPower] = 275, [ST.RangedAttackPower] = 275 }, 8)
     p:MakeProcTriggerAura({ name = "Ashtongue Talisman of Swiftness", callback = "hit", classMask = M.SteadyShot,
       outcome = O.Landed, procChance = 0.15, handler = function(sim) a:Activate(sim) end })
   end
   -- Talon of Al'ar: an Arcane Shot makes the next shots +40 damage for 6 s
-  if equipped(30448) then
+  if p:IsEquipped(30448) then
     local a = p:RegisterAura({ label = "Shot Power", actionId = { spellId = 37508 }, duration = 6 + 1e-9 })
     hu.talonAura = a
     p:MakeProcTriggerAura({ name = "Improved Shots", callback = "hit", classMask = M.ArcaneShot, outcome = O.Landed,
@@ -721,3 +708,15 @@ for id, dmg in pairs({ [2722] = 10, [2723] = 12 }) do
     if r then r.baseMin, r.baseMax = r.baseMin + dmg, r.baseMax + dmg end
   end
 end
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
+-- ---------------------------------------------------------------------------------------------------------------
+S.RegisterClass("Hunter", {
+  setup = function(p, talents, opts, consumables, buffs)
+    S.SetupHunter(p, talents, opts)
+    return S.HunterRaidBuffs(p, buffs)
+  end,
+  applyTalents = function(p) S.HunterApplyTalents(p) end,
+  initialize = function(p) S.HunterInitialize(p) end,
+})
