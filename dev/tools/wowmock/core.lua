@@ -342,6 +342,36 @@ TableUtil = {
   Transform = function(t, fn) local r = {} for k, v in pairs(t) do r[k] = fn(v) end return r end,
 }
 
+-- math.random / math.randomseed exactly as Lua 5.1 on Windows (C rand(), harness._crt_rand): the same numbers under
+-- WSL, whose C library's rand() is another generator.
+do
+  local rand, srand, mfloor, mceil = PY.rand, PY.srand, math.floor, math.ceil
+  local function int(x, i, fname)
+    local n = tonumber(x)
+    if not n then
+      error(sformat("bad argument #%d to '%s' (number expected, got %s)", i, fname, x == nil and "no value" or type(x)), 3)
+    end
+    return n >= 0 and mfloor(n) or mceil(n)
+  end
+  function math.random(...)
+    local r = (rand() % 32767) / 32767
+    local n = select("#", ...)
+    if n == 0 then return r end
+    if n == 1 then
+      local u = int((...), 1, "random")
+      if u < 1 then error("bad argument #1 to 'random' (interval is empty)", 2) end
+      return mfloor(r * u) + 1
+    elseif n == 2 then
+      local l, u = ...
+      l, u = int(l, 1, "random"), int(u, 2, "random")
+      if l > u then error("bad argument #2 to 'random' (interval is empty)", 2) end
+      return mfloor(r * (u - l + 1)) + l
+    end
+    error("wrong number of arguments", 2)
+  end
+  function math.randomseed(x) srand(int(x, 1, "randomseed")) end
+end
+
 -- math: WoW globals, trig in DEGREES like the real client
 local m = math
 floor, ceil, abs, min, max, sqrt, exp, log, log10, frexp, ldexp, random =

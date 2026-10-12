@@ -35,8 +35,9 @@ from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 # ---------------------------------------------------------------------------------------------------------------
 # Fonts
 # ---------------------------------------------------------------------------------------------------------------
-PROXY = "C:/Windows/Fonts/segoeui.ttf"
-PROXY_BOLD = "C:/Windows/Fonts/segoeuib.ttf"
+_FONTS = "C:/Windows/Fonts" if os.name == "nt" else "/mnt/c/Windows/Fonts"  # (the same files under WSL)
+PROXY = _FONTS + "/segoeui.ttf"
+PROXY_BOLD = _FONTS + "/segoeuib.ttf"
 # Friz Quadrata advance width = Segoe UI advance x K_FRIZ, from text measured in an in-game screenshot at UI scale
 # 2.24 px per unit (window 800 units wide): (text, size, px).
 CALIBRATION = [("Attumen the Huntsman", 12, 306), ("Karazhan", 12, 113), ("Solo tanking", 12, 163),

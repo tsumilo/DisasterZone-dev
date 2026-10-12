@@ -72,15 +72,20 @@ class Runner:
         print("== %s ==" % self.title)
         picked = [(n, f) for n, f in self.results if not only or only in n]
         picked = [nf for i, nf in enumerate(picked) if in_shard(i)]
-        for name, fn in picked:
+
+        def one(name, fn):
             try:
                 fn()
-                print("PASS %s" % name)
             except Exception as e:  # noqa: BLE001 - report everything
-                failed += 1
                 print("FAIL %s: %s" % (name, _short(e)))
                 tb = traceback.format_exc()
                 print("     " + "\n     ".join(tb.strip().splitlines()[-25:]))
+                return False
+            print("PASS %s" % name)
+            return True
+
+        import forkrun
+        failed = sum(1 for _, ok in forkrun.run_cases(picked, one) if not ok)
         total = len(picked)
         print("-- %s: %d case(s), %d passed, %d failed" % (self.title, total, total - failed, failed))
         return 1 if failed else 0

@@ -25,7 +25,7 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _SITE = os.path.join(os.path.dirname(HERE), "luaenv", "Lib", "site-packages")
-if os.path.isdir(_SITE) and _SITE not in sys.path:
+if os.name == "nt" and os.path.isdir(_SITE) and _SITE not in sys.path:  # (the Windows venv; WSL has its own)
     sys.path.insert(0, _SITE)
 from lupa import lua51  # noqa: E402
 
@@ -71,7 +71,7 @@ def rooms_dir_for(addon_dir):
     if os.environ.get("DISASTERZONE_ROOMS_DIR"):
         return ROOMS_DIR
     sib = os.path.join(os.path.dirname(os.path.normpath(addon_dir)), ROOMS_NAME)
-    return sib if os.path.isdir(sib) else ROOMS_DIR
+    return sib if _exists(sib) else ROOMS_DIR
 
 
 MOCK_DIR = os.path.join(HERE, "wowmock")
@@ -170,9 +170,50 @@ def _new_boot():
     _BOOT += 1
 
 
+# Under WSL (tools/wsl/) the addon folder is a 9P mount: a stat costs ~0.6 ms there, and a listing does not carry the
+# times. A file's time is read once per process instead, and forgotten when this process writes, renames, removes or
+# touches it (audit hook below), so a test that edits a file and boots again sees its edit. Someone else's edit while
+# the suite runs shows in its next run (tools/testmap_rec.py records what the suite read).
+_STAMP_ONCE = os.name != "nt"
+_STAMPS = {}  # abspath -> (mtime_ns, size) or None
+
+
+def _forget_stamp(path):
+    if isinstance(path, bytes):
+        path = os.fsdecode(path)
+    if isinstance(path, str) and _STAMPS:
+        _STAMPS.pop(os.path.abspath(path), None)
+
+
+def _stamp_audit(event, args):
+    if event == "open":
+        mode, flags = args[1], args[2]
+        if (isinstance(mode, str) and any(c in mode for c in "wax+")) or (mode is None and isinstance(flags, int)
+                                                                          and flags & (os.O_WRONLY | os.O_RDWR)):
+            _forget_stamp(args[0])
+    elif event in ("os.rename", "shutil.copyfile", "os.link", "os.symlink"):
+        _forget_stamp(args[0])
+        _forget_stamp(args[1])
+    elif event in ("os.remove", "os.utime", "os.truncate", "os.rmdir"):
+        _forget_stamp(args[0])
+
+
+if _STAMP_ONCE:
+    sys.addaudithook(_stamp_audit)
+
+
 def _stamp(path):
     """(mtime_ns, size) of a file as this boot sees it, or None when it does not exist."""
     global _LISTING
+    if _STAMP_ONCE:
+        key = os.path.abspath(path)
+        if key not in _STAMPS:
+            try:
+                st = os.stat(path)
+                _STAMPS[key] = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                _STAMPS[key] = None
+        return _STAMPS[key]
     folder, name = os.path.split(path)
     fkey = os.path.normcase(folder)
     hit = _LISTINGS.get(fkey)
@@ -203,6 +244,41 @@ def _stamp(path):
     return (st.st_mtime_ns, st.st_size)
 
 
+# Under WSL a boot's other reads of the addon folder (TOCs, XML includes, its listing, "is it there") cost a 9P
+# round trip each, and eight suites booting at once queued up behind them (a load of 100+): once per process too,
+# by the same file times as the chunks.
+_TEXTS = {}     # path -> (stamp, open() keywords, text)
+_LISTS = {}     # folder -> names
+
+
+def _text(path, **kw):
+    if not _STAMP_ONCE:
+        with open(path, **kw) as fh:
+            return fh.read()
+    st = _stamp(path)
+    if st is None:
+        raise FileNotFoundError(path)
+    hit = _TEXTS.get(path)
+    if hit and hit[0] == st and hit[1] == kw:
+        return hit[2]
+    with open(path, **kw) as fh:
+        data = fh.read()
+    _TEXTS[path] = (st, kw, data)
+    return data
+
+
+def _exists(path):
+    return _stamp(path) is not None if _STAMP_ONCE else os.path.exists(path)
+
+
+def _listdir(folder):
+    if not _STAMP_ONCE:
+        return os.listdir(folder)
+    if folder not in _LISTS:
+        _LISTS[folder] = os.listdir(folder)
+    return _LISTS[folder]
+
+
 def _chunk(path, chunkname, strip_bom=True):
     """What M.load_file gets for an addon file: cached bytecode, or the source (cache off / syntax error).
     None when the file does not exist."""
@@ -213,6 +289,12 @@ def _chunk(path, chunkname, strip_bom=True):
     hit = _CHUNKS.get(key)
     if hit and hit[0] == stamp:
         return hit[1]
+    cover = bool(COVER_FILE and chunkname.startswith(COVER_PREFIX))
+    native = _native_path(path, chunkname, strip_bom, stamp, cover)
+    out = native and _native_get(native, chunkname, cover)
+    if out is not None:
+        _CHUNKS[key] = (stamp, out)
+        return out
     global _READING_CHUNK
     _READING_CHUNK = chunkname.startswith(COVER_PREFIX)  # tools/testmap_rec.py: counted per function, not per file
     try:
@@ -222,11 +304,57 @@ def _chunk(path, chunkname, strip_bom=True):
         _READING_CHUNK = False
     if strip_bom and src.startswith(b"\xef\xbb\xbf"):
         src = src[3:]
-    if COVER_FILE and chunkname.startswith(COVER_PREFIX):
+    h = hashlib.sha1(src).hexdigest()
+    if cover:
         src = _cover_source(chunkname, src)
     out = (BC_CACHE_ON and _compile(src, chunkname)) or src
     _CHUNKS[key] = (stamp, out)
+    if native:
+        _native_put(native, h, out)
     return out
+
+
+# Under WSL, _chunk's result is also kept on the Linux disk (NATIVE_DIR), by file path, chunk name, time, size and
+# coverage on/off: reading the addon's source and bytecode over 9P (~37 MB) took ~3 s per suite, a stat per file is
+# what is left. The entry starts with the source's sha1 (testmap's record of what the suite ran, in coverage mode).
+NATIVE_DIR = os.environ.get("DZ_NATIVE_CACHE") or ("/var/cache/dz-bc" if _STAMP_ONCE else None)
+
+
+def _native_path(path, chunkname, strip_bom, stamp, cover):
+    if not NATIVE_DIR or not BC_CACHE_ON:
+        return None
+    h = hashlib.sha1(repr((os.path.abspath(path), chunkname, strip_bom, stamp, cover)).encode("utf-8")).hexdigest()
+    return os.path.join(NATIVE_DIR, h[:2], h)
+
+
+def _native_get(native, chunkname, cover):
+    try:
+        with open(native, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    h, _, out = data.partition(b"\n")
+    if len(h) != 40 or not out:
+        return None
+    if cover:
+        h = h.decode("ascii")
+        if COVER_SRC and not os.path.exists(os.path.join(COVER_SRC, h + ".lua")):
+            return None                     # (testmap pruned the copy: the slow path writes it again)
+        rel = chunkname[len(COVER_PREFIX):]
+        _COVER_FILES[rel] = h
+        _COVER_TAGS[hashlib.sha1(rel.encode("utf-8")).hexdigest()[:10]] = rel
+    return out
+
+
+def _native_put(native, h, out):
+    try:
+        os.makedirs(os.path.dirname(native), exist_ok=True)
+        tmp = "%s.%d.tmp" % (native, os.getpid())
+        with open(tmp, "wb") as fh:
+            fh.write(h.encode("ascii") + b"\n" + out)
+        os.replace(tmp, native)
+    except OSError:
+        pass
 
 
 # Coverage for tf_e/run_all.py's change-based selection (tools/testmap.py). With DZ_COVER set, each addon function
@@ -346,16 +474,15 @@ def parse_toc(addon_dir, addon_name=ADDON_NAME):
     """Return (headers {lowercase key: value}, [relative file paths in load order])."""
     path = os.path.join(addon_dir, addon_name + ".toc")
     headers, files = {}, []
-    with open(path, encoding="utf-8-sig") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if line.startswith("##"):
-                k, _, v = line[2:].partition(":")
-                headers[k.strip().lower()] = v.strip()
-            elif not line or line.startswith("#"):
-                continue
-            else:
-                files.append(line.replace("\\", "/"))
+    for raw in _text(path, encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if line.startswith("##"):
+            k, _, v = line[2:].partition(":")
+            headers[k.strip().lower()] = v.strip()
+        elif not line or line.startswith("#"):
+            continue
+        else:
+            files.append(line.replace("\\", "/"))
     return headers, files
 
 
@@ -365,7 +492,7 @@ def _xml_scripts(addon_dir, rel):
     path = os.path.join(addon_dir, rel)
     base = os.path.dirname(rel)
     try:
-        text = open(path, encoding="utf-8", errors="replace").read()
+        text = _text(path, encoding="utf-8", errors="replace")
     except OSError:
         return out
     for m in re.finditer(r'<(Script|Include)\s+file\s*=\s*"([^"]+)"', text):
@@ -375,6 +502,38 @@ def _xml_scripts(addon_dir, rel):
         else:
             out.append(f)
     return out
+
+
+# C rand() as the Windows C runtime has it (MSVCRT / UCRT: 15-bit, one state for the whole process), for the mock's
+# math.random (wowmock/core.lua): Lua 5.1's math.random is the C library's rand(), which differs on Linux (WSL), and
+# the per-client seeds then gave other ids, orders and outcomes there. Checked against lupa's own on Windows.
+_RAND = [1]
+
+
+def _crt_rand():
+    s = (_RAND[0] * 214013 + 2531011) & 0xFFFFFFFF
+    _RAND[0] = s
+    return (s >> 16) & 0x7FFF
+
+
+def _crt_srand(seed):
+    _RAND[0] = int(seed) & 0xFFFFFFFF
+
+
+def warm(addon_dir=None, addon_name=ADDON_NAME):
+    """Fill this process's file caches (the addon's bytecode, the mock's) without running anything, so processes
+    forked from it (tools/forkrun.py) start with them: under WSL a cold boot reads ~540 files over 9P (~2 s)."""
+    addon_dir = addon_dir or ADDON_DIR
+    for m in MODULES + ("mock.lua", "items.lua"):
+        _mock_chunk(m)
+    _known_events()
+    try:
+        _, files = parse_toc(addon_dir, addon_name)
+    except OSError:
+        return
+    for rel in files:
+        for lua in (_xml_scripts(addon_dir, rel) if rel.lower().endswith(".xml") else [rel]):
+            _chunk(os.path.join(addon_dir, lua), "@Interface/AddOns/%s/%s" % (addon_name, lua.replace("\\", "/")))
 
 
 def to_lua(rt, obj):
@@ -1418,6 +1577,7 @@ class Client:
             "set_raid_subgroup": lambda i, g: self.world.set_raid_subgroup(self, i, g),
             "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),
             "load_lod": self._py_load_lod,
+            "rand": _crt_rand, "srand": _crt_srand,
         })
         self._lua_gc = rt.globals().collectgarbage
         sources = rt.table_from(_mock_sources())
@@ -1513,7 +1673,7 @@ class Client:
         """The addon this client runs: the name of the folder's .toc (an old-version fixture is still "CDLoot")."""
         name = self._addon_name
         if name is None:
-            tocs = [f[:-4] for f in os.listdir(self.addon_dir) if f.lower().endswith(".toc")]
+            tocs = [f[:-4] for f in _listdir(self.addon_dir) if f.lower().endswith(".toc")]
             name = self._addon_name = ADDON_NAME if (ADDON_NAME in tocs or not tocs) else sorted(tocs)[0]
         return name
 
@@ -1546,7 +1706,7 @@ class Client:
         self._load_rooms = LOAD_ROOMS                # (LOAD_ROOMS as it was when this client logged in)
         if self.addon_name == ADDON_NAME:
             for name, folder in self.lod_addons.items():        # (installed: GetAddOnInfo knows it, not loaded)
-                if os.path.exists(os.path.join(folder, name + ".toc")):
+                if _exists(os.path.join(folder, name + ".toc")):
                     self.M.set_toc_meta(name, to_lua(self.runtime, parse_toc(folder, name)[0]))
         sv_first = self.sv_before_files
         if sv_first is None:
@@ -1561,7 +1721,7 @@ class Client:
         missing = []
         for rel in files:
             if rel.lower().endswith(".xml"):
-                if not os.path.exists(os.path.join(self.addon_dir, rel)):
+                if not _exists(os.path.join(self.addon_dir, rel)):
                     missing.append(rel)
                     continue
                 for lua in _xml_scripts(self.addon_dir, rel):
@@ -1631,7 +1791,7 @@ class Client:
         """The mock's LoadAddOn for an addon not loaded yet: (true) after its files ran with a namespace of their own
         and ADDON_LOADED fired, or (false, reason). DisasterZone_Rooms leaves out the board's rooms unless LOAD_ROOMS."""
         folder = self.lod_addons.get(name)
-        if not folder or not os.path.exists(os.path.join(folder, name + ".toc")):
+        if not folder or not _exists(os.path.join(folder, name + ".toc")):
             return False, "MISSING"
         _new_boot()
         headers, files = parse_toc(folder, name)
