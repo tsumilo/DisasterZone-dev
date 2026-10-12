@@ -14,6 +14,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/TotemBar.lua", ...) then return
 -- Clicks: a totem casts the planned one (twisting: Windfury and its partner in turn); right-click casts the second.
 -- Every cast is a secure button set out of combat (WoW forbids changing them in a fight): in combat the bar keeps
 -- its spells, and catches up when the fight ends. Hover a totem with someone out of range for who.
+-- The frame, its chrome and places, the header cells, the popout's frame and the Settings card's common rows are the
+-- class bar's (UI/ClassBar.lua).
 local addonName, ns = ...
 
 local Bar = ns:NewModule("TotemBar")
@@ -21,50 +23,24 @@ local Bar = ns:NewModule("TotemBar")
 local floor, max, min = math.floor, math.max, math.min
 local strformat = string.format
 
-local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-local WHITE8 = "Interface\\Buttons\\WHITE8X8"
-local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
-local GLASS = { 0.047, 0.047, 0.059, 0.78 }
-
 local POP_W, POP_ROW = 186, 21
 local KINDS = { "el1", "el2", "el3", "el4", "es", "mh", "oh" }
 
 local function T() return ns.Totems end
 local function UI() return ns.UI end
 local function Face() return ns.BarFace end
+local CB = ns.ClassBar
+local Text = CB.Text
+
+-- the bar (its own places, clear of the Blessings bar's: the rail left of it, the strip above it)
+local cb = CB:New({ name = "DisasterZoneTotemBar", setting = "totems", railPos = { "RIGHT", -420, 40 },
+    stripPos = { "BOTTOM", 0, 240 } })
 
 local frame, pop
 local rows = {}                             -- by kind (KINDS)
 
-local function Text(parent, size, color, font)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    local path, _, flags = fs:GetFont()
-    if path and size then fs:SetFont(path, size, flags) end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if color then fs:SetTextColor(color[1], color[2], color[3]) end
-    fs:SetShadowOffset(1, -1)
-    fs:SetShadowColor(0, 0, 0, 1)
-    return fs
-end
-
-local function Fill(tex, r, g, b, a)
-    tex:SetTexture(WHITE8)
-    tex:SetVertexColor(r, g, b, a or 1)
-    return tex
-end
-
-local function Edge(f, r, g, b, a)
-    if not f.edges then UI():AddEdges(f) end
-    UI():SetEdgeColor(f, r, g, b, a)
-end
-
 -- (presses and releases: the client's "cast on key down" makes the secure template act on the press)
-local function Secure(parent, name)
-    local b = CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
-    b:RegisterForClicks("AnyUp", "AnyDown")
-    return b
-end
+local function Secure(parent, name) return cb:Secure(parent, name) end
 
 local function Seconds(left)
     if not left then return "" end
@@ -72,9 +48,7 @@ local function Seconds(left)
     return strformat("%ds", floor(left + 0.5))
 end
 
-local function Layout()
-    return T().Setting("layout", "vertical") == "horizontal" and "horizontal" or "vertical"
-end
+local function Layout() return cb:Layout() end
 Bar.Layout = Layout
 
 -- Is the bar for me now: a shaman (the class tool), in a group the setting allows, with totems planned?
@@ -97,30 +71,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Building
 -- ---------------------------------------------------------------------------------------------------------------
-local function SavePos()
-    local point, _, rel, x, y = frame:GetPoint(1)
-    if not point then return end
-    local pos = T().Setting("pos")
-    pos = type(pos) == "table" and pos or {}
-    local copy = {}
-    for k, v in pairs(pos) do copy[k] = v end
-    copy[Layout()] = { point, rel, floor(x + 0.5), floor(y + 0.5) }
-    ns.DB:SetSetting("totems.pos", copy)
-end
-
--- (its own places, clear of the Blessings bar's: the rail left of it, the strip above it)
-local function RestorePos()
-    frame:ClearAllPoints()
-    local pos = T().Setting("pos")
-    local p = type(pos) == "table" and pos[Layout()]
-    if type(p) == "table" and p[1] then
-        frame:SetPoint(p[1], UIParent, p[2] or p[1], p[3] or 0, p[4] or 0)
-    elseif Layout() == "horizontal" then
-        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 240)
-    else
-        frame:SetPoint("RIGHT", UIParent, "RIGHT", -420, 40)
-    end
-end
+local function RestorePos() cb:RestorePos() end
 
 -- One totem (or Earth Shield, an imbue): a secure button; its looks sit on a face (UI/BarFace.lua).
 local function NewRow(kind)
@@ -135,38 +86,10 @@ local function NewRow(kind)
 end
 
 -- A header cell (Heroism, Mana Tide): secure, the same face as the totems.
-local function HeaderIcon(name)
-    local b = Secure(frame, name)
-    b:SetSize(34, 34)
-    b.face = Face():New(b)
-    b:HookScript("OnEnter", function(self) Face():Hover(self.face, true) end)
-    b:HookScript("OnLeave", function(self) Face():Hover(self.face, false) end)
-    b:SetAttribute("type", "spell")
-    return b
-end
+local function HeaderIcon(name) return cb:HeaderIcon(name) end
 
 local function Build()
-    frame = CreateFrame("Frame", "DisasterZoneTotemBar", UIParent)
-    frame:SetSize(50, 100)
-    frame:SetFrameStrata("MEDIUM")
-    frame:SetClampedToScreen(true)
-    frame.bg = Fill(frame:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], GLASS[4])
-    frame.bg:SetAllPoints()
-    Edge(frame, 1, 1, 1, 0.08)
-    frame.shadow = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    frame.shadow:SetTexture(SOFT)
-    frame.shadow:SetVertexColor(0, 0, 0, 0.55)
-    frame.shadow:SetPoint("TOPLEFT", -14, 10)
-    frame.shadow:SetPoint("BOTTOMRIGHT", 14, -18)
-    frame:SetMovable(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self)
-        if not T().Setting("locked", true) and not InCombatLockdown() then self:StartMoving() end
-    end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        SavePos()
-    end)
+    frame = cb:Build()
 
     -- the planner (the bar's first cell)
     frame.plan = Face():PlannerCell(frame, "Totem planner", function()
@@ -182,17 +105,7 @@ local function Build()
     frame.tide = tide
     for _, kind in ipairs(KINDS) do NewRow(kind) end
 
-    pop = CreateFrame("Frame", "DisasterZoneTotemRange", UIParent)
-    pop:SetSize(POP_W, 40)
-    pop:SetFrameStrata("DIALOG")
-    pop.bg = Fill(pop:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], 0.94)
-    pop.bg:SetAllPoints()
-    Edge(pop, 1, 1, 1, 0.09)
-    pop.title = Text(pop, 8.5, { 0.6, 0.6, 0.65 })
-    pop.title:SetPoint("TOPLEFT", pop, "TOPLEFT", 12, -9)
-    pop.rows = {}
-    pop.hint = Text(pop, 8.5, { 0.47, 0.47, 0.51 })
-    pop:Hide()
+    pop = cb:NewPop("DisasterZoneTotemRange", POP_W)
 
     local acc, live = 0, 0
     frame:SetScript("OnUpdate", function(_, elapsed)
@@ -358,22 +271,12 @@ end
 -- The cells in order: the planner, the header that is shown (Heroism, Mana Tide), then the totems.
 local function Place(list, axis, theme)
     local cells = {}
-    for _, b in ipairs({ frame.plan, frame.hero, frame.tide }) do
-        if b:IsShown() then cells[#cells + 1] = b end
-    end
-    local nHead = #cells
     for _, p in ipairs(list) do cells[#cells + 1] = rows[p.kind] end
-    Face():Place(frame, cells, nHead, axis, theme)
+    cb:Place({ frame.plan, frame.hero, frame.tide }, cells, axis, theme)
 end
 
--- No panel: icons and text float on the world. While unlocked a faint panel shows what to drag.
-local function ApplyChrome()
-    local unlocked = not T().Setting("locked", true)
-    frame.bg:SetShown(unlocked)
-    frame.shadow:SetShown(unlocked)
-    for _, e in ipairs(frame.edges or {}) do e:SetShown(unlocked) end
-    frame:EnableMouse(unlocked)
-end
+-- No panel: icons and text float on the world (ClassBar: a faint panel while unlocked).
+local function ApplyChrome() cb:ApplyChrome() end
 
 function Bar:Update()
     if not frame then
@@ -565,9 +468,7 @@ function Bar:FillPop(b)
             r.state:SetJustifyH("RIGHT")
             pop.rows[i] = r
         end
-        local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[m.class]
-        r.cls:SetTexture(CIRCLES)
-        if c then r.cls:SetTexCoord(c[1], c[2], c[3], c[4]) end
+        UI():ClassIcon(r.cls, m.class)
         local cr, cg, cb = UI():ClassColor(m.class)
         r.name:SetText(m.name)
         r.name:SetTextColor(cr, cg, cb)
@@ -662,12 +563,7 @@ function Bar:OnLogin()
     ns:RegisterEvent("UNIT_INVENTORY_CHANGED", function(_, unit)
         if unit == "player" then Bar:UpdateLooks() end
     end)
-    ns:On("SETTINGS_CHANGED", function(path)
-        if type(path) == "string" and (path:find("^totems") or path == "classbar.theme") and path ~= "totems.pos" then
-            if frame and path == "totems.locked" and not InCombatLockdown() then RestorePos() end
-            Bar:Update()
-        end
-    end)
+    cb:OnSettings(function() Bar:Update() end)
     self:Update()
 end
 
@@ -678,19 +574,14 @@ function Bar:Button(kind)
     return rows[kind]
 end
 
-Bar.LAYOUTS = { { value = "vertical", text = "Rail (vertical)" }, { value = "horizontal", text = "Strip (horizontal)" } }
+Bar.LAYOUTS = CB.LAYOUTS
 
 -- The kit's Settings card (Settings > Class tools; every shaman spec).
 if ns.ClassKit then ns.ClassKit:Extend("totems", {
     iconPath = "Interface\\Icons\\Spell_Nature_Windfury",
     action = { label = "Open planner", run = function() if ns.TotemsUI then ns.TotemsUI:Open() end end },
     settings = function(S, sec)
-    S:DropdownSetting(sec, "Totem bar", "Your planned totems: click to drop, right-click for the second one.",
-        "totems.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
-            { value = "always", text = "Always" }, { value = "off", text = "Off" } })
-    S:DropdownSetting(sec, "Bar layout", "A column at the side or a row over your action bars: the same cells.",
-        "totems.layout", "vertical", Bar.LAYOUTS)
-    if ns.BarFace then ns.BarFace:SettingsRow(S, sec) end
+    CB.SettingsHead(S, sec, "totems", "Totem bar", "Your planned totems: click to drop, right-click for the second one.")
     local D = ns.ClassData.SHAMAN
     S:DropdownSetting(sec, "Twist Windfury with", "Enhancement: the totem dropped between Windfury drops.",
         "totems.twistWith", 2, { { value = 2, text = D.TOTEMS[4][2].short }, { value = 3, text = D.TOTEMS[4][3].short },
@@ -712,9 +603,5 @@ if ns.ClassKit then ns.ClassKit:Extend("totems", {
     for _, i in ipairs(D.IMBUES) do oh[#oh + 1] = { value = i.key, text = i.short } end
     S:DropdownSetting(sec, "Off hand imbue", "", "totems.imbueOH", "auto", oh)
     S:SwitchSetting(sec, "Anyone may assign me", "Not only the leader and assistants.", "totems.free", false)
-    S:SwitchSetting(sec, "Locked", "Unlock to drag the bar where you want it.", "totems.locked", true)
-    local scales = {}
-    for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3 }) do scales[#scales + 1] = { value = n, text = floor(n * 100) .. "%" } end
-    S:DropdownSetting(sec, "Size", "", "totems.scale", 1, scales)
-    S:EndSection(sec)
+    CB.SettingsTail(S, sec, "totems")
 end }) end

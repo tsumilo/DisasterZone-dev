@@ -18,6 +18,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/BlessingsBar.lua", ...) then re
 -- instead.
 -- Every cast is a secure button whose target is chosen out of combat (WoW forbids changing them in combat): in a
 -- fight the bar dims and keeps its targets, and catches up when the fight ends. Key binding: "Bless next".
+-- The frame, its chrome and places, the header cells, the popout's frame and the Settings card's common rows are the
+-- class bar's (UI/ClassBar.lua).
 local addonName, ns = ...
 
 local Bar = ns:NewModule("BlessingsBar")
@@ -25,51 +27,25 @@ local Bar = ns:NewModule("BlessingsBar")
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local strformat = string.format
 
-local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-local WHITE8 = "Interface\\Buttons\\WHITE8X8"
 local CALM = { 0.91, 0.89, 0.82, 0.75 }
-local GLASS = { 0.047, 0.047, 0.059, 0.78 }
 
 local POP_W, POP_ROW = 172, 22
 
 local function B() return ns.Blessings end
 local function UI() return ns.UI end
 local function Face() return ns.BarFace end
+local CB = ns.ClassBar
+local Text = CB.Text
+
+-- the bar (a place per layout: the rail sits right of centre, the strip over the action bars)
+local cb = CB:New({ name = "DisasterZoneBlessBar", setting = "bless", railPos = { "RIGHT", -220, 40 },
+    stripPos = { "BOTTOM", 0, 150 } })
 
 local frame, rows, pop, nextBtn
 local dirty = false
 local stale = true      -- something the every-second look can't see changed (a pet, a name, a level): update in full
 
-local function Text(parent, size, color, font)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    local path, _, flags = fs:GetFont()
-    if path and size then fs:SetFont(path, size, flags) end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if color then fs:SetTextColor(color[1], color[2], color[3]) end
-    fs:SetShadowOffset(1, -1)
-    fs:SetShadowColor(0, 0, 0, 1)
-    return fs
-end
-
-local function Fill(tex, r, g, b, a)
-    tex:SetTexture(WHITE8)
-    tex:SetVertexColor(r, g, b, a or 1)
-    return tex
-end
-
-local function Edge(f, r, g, b, a)
-    if not f.edges then UI():AddEdges(f) end
-    UI():SetEdgeColor(f, r, g, b, a)
-end
-
--- A secure button that casts on a click. It takes the press and the release: with "cast on key down" on (the
--- client's default) the secure template acts on the press only and ignores a button that hears only releases.
-local function Secure(parent, name)
-    local b = CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
-    b:RegisterForClicks("AnyUp", "AnyDown")
-    return b
-end
+local function Secure(parent, name) return cb:Secure(parent, name) end
 
 -- (our own click handling runs once: on the release)
 local function Released(down) return not down end
@@ -85,9 +61,7 @@ local function Plural(cls)
     return n:sub(-1) == "f" and n or (n .. "s")
 end
 
-local function Layout()
-    return B().Setting("layout", "vertical") == "horizontal" and "horizontal" or "vertical"
-end
+local function Layout() return cb:Layout() end
 Bar.Layout = Layout
 
 -- Is the bar for me now: a paladin (the class tool), in a group the setting allows, with an aura or a blessing to give?
@@ -110,30 +84,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Building
 -- ---------------------------------------------------------------------------------------------------------------
--- (a place per layout: the rail sits right of centre, the strip over the action bars)
-local function SavePos()
-    local point, _, rel, x, y = frame:GetPoint(1)
-    if not point then return end
-    local pos = B().Setting("pos")
-    pos = (type(pos) == "table" and not pos[1]) and pos or {}
-    local copy = {}
-    for k, v in pairs(pos) do copy[k] = v end
-    copy[Layout()] = { point, rel, floor(x + 0.5), floor(y + 0.5) }
-    ns.DB:SetSetting("bless.pos", copy)
-end
-
-local function RestorePos()
-    frame:ClearAllPoints()
-    local pos = B().Setting("pos")
-    local p = type(pos) == "table" and pos[Layout()]
-    if type(p) == "table" and p[1] then
-        frame:SetPoint(p[1], UIParent, p[2] or p[1], p[3] or 0, p[4] or 0)
-    elseif Layout() == "horizontal" then
-        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 150)
-    else
-        frame:SetPoint("RIGHT", UIParent, "RIGHT", -220, 40)
-    end
-end
+local function RestorePos() cb:RestorePos() end
 
 -- One class: a secure button; its looks sit on a face (BarFace: it moves for the lift without touching the button).
 local function NewRow(i)
@@ -160,9 +111,7 @@ local function NewPopRow(i)
     local p = Secure(pop, "DisasterZoneBlessPop" .. i)
     p:SetSize(POP_W - 16, POP_ROW)
     p:SetPoint("TOPLEFT", pop, "TOPLEFT", 8, -(24 + (i - 1) * POP_ROW))
-    p.hl = p:CreateTexture(nil, "HIGHLIGHT")
-    p.hl:SetAllPoints()
-    Fill(p.hl, 1, 0.82, 0, 0.07)
+    p.hl = UI():Fill(p, { 1, 0.82, 0, 0.07 }, "HIGHLIGHT")
     -- the icon in a frame of its own: a gold edge while the player has a single blessing of mine
     p.iconBox = CreateFrame("Frame", nil, p)
     p.iconBox:SetSize(15, 15)
@@ -175,11 +124,13 @@ local function NewPopRow(i)
     p.state = Text(p, 10, { 0.6, 0.6, 0.64 })
     p.state:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -3)
     p.state:SetJustifyH("RIGHT")
-    p.bar = Fill(p:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.08)
+    p.bar = UI():Fill(p, { 1, 1, 1, 0.08 }, "ARTWORK")
+    p.bar:ClearAllPoints()
     p.bar:SetPoint("TOPLEFT", p, "TOPLEFT", 26, -17)
     p.bar:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -17)
     p.bar:SetHeight(2)
-    p.barFill = Fill(p:CreateTexture(nil, "OVERLAY"), CALM[1], CALM[2], CALM[3], 0.55)
+    p.barFill = UI():Fill(p, { CALM[1], CALM[2], CALM[3], 0.55 }, "OVERLAY")
+    p.barFill:ClearAllPoints()
     p.barFill:SetPoint("TOPLEFT", p.bar, "TOPLEFT")
     p.barFill:SetHeight(2)
     p:SetAttribute("type1", "spell")
@@ -195,39 +146,10 @@ local function NewPopRow(i)
 end
 
 -- A header cell (aura, Righteous Fury): secure, the same face as the classes.
-local function HeaderIcon(name)
-    local b = Secure(frame, name)
-    b:SetSize(34, 34)
-    b.face = Face():New(b)
-    b:HookScript("OnEnter", function(self) Face():Hover(self.face, true) end)
-    b:HookScript("OnLeave", function(self) Face():Hover(self.face, false) end)
-    b:SetAttribute("type", "spell")
-    b:SetAttribute("unit", "player")
-    return b
-end
+local function HeaderIcon(name) return cb:HeaderIcon(name, "player") end
 
 local function Build()
-    frame = CreateFrame("Frame", "DisasterZoneBlessBar", UIParent)
-    frame:SetSize(50, 100)
-    frame:SetFrameStrata("MEDIUM")
-    frame:SetClampedToScreen(true)
-    frame.bg = Fill(frame:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], GLASS[4])
-    frame.bg:SetAllPoints()
-    Edge(frame, 1, 1, 1, 0.08)
-    frame.shadow = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    frame.shadow:SetTexture(SOFT)
-    frame.shadow:SetVertexColor(0, 0, 0, 0.55)
-    frame.shadow:SetPoint("TOPLEFT", -14, 10)
-    frame.shadow:SetPoint("BOTTOMRIGHT", 14, -18)
-    frame:SetMovable(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self)
-        if not B().Setting("locked", true) and not InCombatLockdown() then self:StartMoving() end
-    end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        SavePos()
-    end)
+    frame = cb:Build()
 
     local aura = HeaderIcon("DisasterZoneBlessAura")
     aura:HookScript("OnEnter", function(self)
@@ -297,18 +219,8 @@ local function Build()
     end)
 
     rows = {}
-    pop = CreateFrame("Frame", "DisasterZoneBlessPopout", UIParent)
-    pop:SetSize(POP_W, 40)
-    pop:SetFrameStrata("DIALOG")
-    pop.bg = Fill(pop:CreateTexture(nil, "BACKGROUND"), GLASS[1], GLASS[2], GLASS[3], 0.94)
-    pop.bg:SetAllPoints()
-    Edge(pop, 1, 1, 1, 0.09)
-    pop.title = Text(pop, 8.5, { 0.6, 0.6, 0.65 })
-    pop.title:SetPoint("TOPLEFT", pop, "TOPLEFT", 12, -9)
-    pop.hint = Text(pop, 8.5, { 0.47, 0.47, 0.51 })
+    pop = cb:NewPop("DisasterZoneBlessPopout", POP_W)
     pop.hint:SetText("wheel: a single blessing instead")
-    pop.rows = {}
-    pop:Hide()
     -- (it goes a second after the mouse leaves both it and its class; a right-click on the class closes it too)
     local away = 0
     pop:SetScript("OnUpdate", function(self, elapsed)
@@ -499,24 +411,14 @@ function Bar:Hover(row, on)
     Face():Hover(row.face, on)
 end
 
--- No panel: the circles, tiles and text float on the world. While unlocked a faint panel shows what to drag.
-local function ApplyChrome()
-    local unlocked = not B().Setting("locked", true)
-    frame.bg:SetShown(unlocked)
-    frame.shadow:SetShown(unlocked)
-    for _, e in ipairs(frame.edges or {}) do e:SetShown(unlocked) end
-    frame:EnableMouse(unlocked)
-end
+-- No panel: the circles, tiles and text float on the world (ClassBar: a faint panel while unlocked).
+local function ApplyChrome() cb:ApplyChrome() end
 
 -- The cells in order: the planner, the header that is shown (aura, Righteous Fury, Symbols), then the classes.
 local function Place(list, axis, theme)
     local cells = {}
-    for _, b in ipairs({ frame.plan, frame.aura, frame.rf, frame.sym }) do
-        if b:IsShown() then cells[#cells + 1] = b end
-    end
-    local nHead = #cells
-    for i = 1, #list do cells[#cells + 1] = rows[i] end
-    Face():Place(frame, cells, nHead, axis, theme)
+    for i = 1, #list do cells[i] = rows[i] end
+    cb:Place({ frame.plan, frame.aura, frame.rf, frame.sym }, cells, axis, theme)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -767,7 +669,8 @@ function Bar:FillPop(row)
         local sbi = Bl:GetSingle(me, r.ci, m.name)
         local bi = sbi or r.bi
         p.member, p.ci, p.greater = m, r.ci, r.bi
-        if sbi then Edge(p.iconBox, 1, 0.82, 0, 1) else Edge(p.iconBox, 0, 0, 0, 0.9) end
+        if not p.iconBox.edges then UI():AddEdges(p.iconBox) end
+        if sbi then UI():SetEdgeColor(p.iconBox, 1, 0.82, 0, 1) else UI():SetEdgeColor(p.iconBox, 0, 0, 0, 0.9) end
         if not combat then
             local real = not m.demo
             p:SetAttribute("unit1", real and m.unit or nil)
@@ -908,31 +811,21 @@ function Bar:OnLogin()
         end
         if frame then frame:SetAlpha(0.75) end
     end)
-    ns:On("SETTINGS_CHANGED", function(path)
-        if type(path) == "string" and (path:find("^bless") or path == "classbar.theme") and path ~= "bless.pos" then
-            if frame and path == "bless.locked" and not InCombatLockdown() then RestorePos() end
-            Bar:Update()
-        end
-    end)
+    cb:OnSettings(function() Bar:Update() end)
     self:Update()
 end
 
 function Bar:GetFrame() return frame end
 function Bar:GetPopout() return pop end
 
-Bar.LAYOUTS = { { value = "vertical", text = "Rail (vertical)" }, { value = "horizontal", text = "Strip (horizontal)" } }
+Bar.LAYOUTS = CB.LAYOUTS
 
 -- The kit's Settings card (Settings > Class tools; every paladin spec).
 if ns.ClassKit then ns.ClassKit:Extend("bless", {
     iconPath = "Interface\\Icons\\Spell_Magic_GreaterBlessingofKings",
     action = { label = "Open planner", run = function() if ns.BlessingsUI then ns.BlessingsUI:Open() end end },
     settings = function(S, sec)
-    S:DropdownSetting(sec, "Buff bar", "Your blessings per class: click to cast, right-click for the players.",
-        "bless.bar", "group", { { value = "group", text = "Party and raid" }, { value = "raid", text = "Raids only" },
-            { value = "always", text = "Always" }, { value = "off", text = "Off" } })
-    S:DropdownSetting(sec, "Bar layout", "A column at the side or a row over your action bars: the same cells.",
-        "bless.layout", "vertical", Bar.LAYOUTS)
-    if ns.BarFace then ns.BarFace:SettingsRow(S, sec) end
+    CB.SettingsHead(S, sec, "bless", "Buff bar", "Your blessings per class: click to cast, right-click for the players.")
     local mins = {}
     for _, n in ipairs({ 2, 3, 5, 8, 10 }) do mins[#mins + 1] = { value = n, text = n .. " minutes" } end
     S:DropdownSetting(sec, "Running out", "The bar and the planner warn this long before a blessing ends.",
@@ -943,11 +836,7 @@ if ns.ClassKit then ns.ClassKit:Extend("bless", {
     for _, n in ipairs({ 0, 10, 20, 40, 60, 100 }) do syms[#syms + 1] = { value = n, text = n == 0 and "Never" or tostring(n) } end
     S:DropdownSetting(sec, "Symbols of Kings", "Warn when you carry fewer than this.", "bless.symbols", 20, syms)
     S:SwitchSetting(sec, "Pets", "Hunter and warlock pets count in their class.", "bless.pets", true)
-    S:SwitchSetting(sec, "Locked", "Unlock to drag the bar where you want it.", "bless.locked", true)
-    local scales = {}
-    for _, n in ipairs({ 0.8, 0.9, 1, 1.15, 1.3 }) do scales[#scales + 1] = { value = n, text = floor(n * 100) .. "%" } end
-    S:DropdownSetting(sec, "Size", "", "bless.scale", 1, scales)
-    S:EndSection(sec)
+    CB.SettingsTail(S, sec, "bless")
 end }) end
 
 -- Key Bindings > AddOns: "Bless next" (Bindings.xml clicks DisasterZoneBlessNext)
