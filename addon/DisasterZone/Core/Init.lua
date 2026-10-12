@@ -276,6 +276,7 @@ local KNOWN_MESSAGES = {
     GAMES_UPDATED = true, GAMES_COMBAT = true, CHESS_UPDATED = true,
     PATCH_UPDATED = true,   -- in-game updates (Core/Patch.lua): download progress / an update is ready / status
     BINGO_UPDATED = true,   -- Council Bingo (Games/Bingo): game started / square marked / game ended
+    BINGO_MOMENT = true,    -- (squareId, who, onMyCard) a square went off this moment (the toasts, the legendary takeover)
     OFFICER_NOTES_UPDATED = true,   -- (key | nil) an officer note, or my access to them, changed
     PROFESSIONS_UPDATED = true,   -- the guild's professions / recipes changed (Core/Professions.lua)
     SHOP_UPDATED = true,          -- my Atlas shopping list changed (Core/ShoppingList.lua)

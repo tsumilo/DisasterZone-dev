@@ -6,6 +6,33 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.1", date = "13 October 2026", title = "Council Bingo, made epic",
+      sections = {
+          { heading = "Council Bingo: a new card set", area = "games", kind = "new", hi = true, art = "ssc", open = "games",
+            lead = "Every square is a named raid moment now.", lines = {
+              "Every square is a named moment with its spell's icon: Bubble Hearth, Leeroy, Mrglglgl.",
+              "Five qualities like items: common, uncommon, rare, epic and legendary.",
+              "Every card is dealt the same mix: 1 legendary, 2 epic, 4 rare, 7 uncommon, 10 common.",
+              "Each raid has its own pool of 10+ squares; up to 6 of yours come from it in there.",
+              "Piranha Snack, Wolf Pack, Nova Party, Rock Bottom, What Goes Up: every raid has its own.",
+              "The /roll filler is gone: one roll square is left (Critical Fail).",
+          } },
+          { heading = "Council Bingo: rarity that means something", area = "games", kind = "new", hi = true,
+            open = "games", lead = "The rarer the square, the louder it lands.", lines = {
+              "Points by quality (1, 2, 3, 5, 10) plus 10 a line; the season ladder counts points.",
+              "Rare squares on your card pop a toast; epic ones toast the whole raid.",
+              "A legendary takes over the card for everyone, with the legendary loot toast.",
+              "Fated: when your legendary goes off it also daubs your best gap. It can win you the night.",
+              "A line one square short gets a gold thread, and 1 AWAY on the square you need.",
+              "The header says which line is one away; the race shows everyone's card as a dot map.",
+          } },
+          { heading = "Council Bingo: the Codex", area = "games", kind = "new", open = "games", lines = {
+              "A Codex tab beside the card: every square, a silhouette until you've seen it happen.",
+              "Point at one for who set it off first, where, and how often you've seen it.",
+              "The season ladder and the legendaries you've witnessed sit beside it.",
+              "Demo mode shows a made-up game, with a button to try how each quality arrives.",
+          } },
+      } },
     { version = "1.4.0", date = "12 October 2026", title = "One look across every page",
       sections = {
           { heading = "One look across every page", area = "look", kind = "changed", hi = true, art = "kara",

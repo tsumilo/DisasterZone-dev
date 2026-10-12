@@ -287,6 +287,44 @@ CHESS_LADDER = ("local res = C.Data().results local names = { 'Victhar', 'Fazerb
                 "  at = time() - 100000 + i * 1000, n = 40 + i } end end C.ratings = nil ")
 
 
+# Council Bingo audit states: a live game in the SSC deck (row 3 complete, column O 4 of 5), a legendary hit with
+# Fated, and a season / Codex to show (T_BINGO.leg = my legendary's id).
+BINGO_LIVE = ("local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
+              "d.current = { id = 'cardlive', host = me, started = now - 3600, hits = {}, who = {}, raid = 'ssc' } "
+              "d.view = { g = 'cardlive', hits = {}, lines = 1 } "
+              "local card = ns.Bingo:GetMyCard() "
+              "local who = { 'Victhar', 'Fazerblue', 'Lady Vashj', 'Saltykim', 'Dyrma', 'Lidevna' } "
+              "T_BINGO = { leg = ns.Bingo:GetLegendary(me) } "
+              "local n = 0 "
+              "for _, i in ipairs({ 11, 12, 14, 15, 5, 10, 20, 1, 7, 22, 18 }) do "
+              "  local id = card[i] "
+              "  if id ~= T_BINGO.leg then n = n + 1 "
+              "    d.current.hits[id] = now - 900 + n * 60 d.view.hits[id] = true "
+              "    d.current.who[id] = who[(n % #who) + 1] end end ")
+BINGO_LEGENDARY = ("local g, me, now = ns.Bingo:GetGame(), ns.Util.PlayerKey(), time() "
+                   "g.hits[T_BINGO.leg] = now g.who[T_BINGO.leg] = 'Lainatukka' "
+                   "local card = ns.Bingo:GetMyCard() "
+                   "local marks = ns.BingoCard.Marks(card, g.hits) "
+                   "g.fated = { [me] = ns.BingoCard.BestGap(marks) } ns.Games:GetData('bingo').view.lines = 9 ")
+BINGO_CODEX = ("local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
+               "local realm = me:match('%-(.+)$') or 'Thunderstrike' "
+               "d.games = 31 d.codex = {} "
+               "for i, sq in ipairs(ns.BingoSquares.list) do "
+               "  local keep = (sq.q == 'c' and i % 5 ~= 0) or (sq.q == 'u' and i % 3 ~= 0) or (sq.q == 'r' and i % 2 == 0) "
+               "    or (sq.q == 'e' and i % 3 == 0) "
+               "  if keep then d.codex[sq.id] = { n = 1 + (i * 7) % 20, t = now - i * 86400, who = 'Dyrma' } end end "
+               "d.codex.bubble_hearth = { n = 1, t = now - 3 * 86400, who = 'Lainatukka', raid = 'ssc' } "
+               "d.codex.blizzard = { n = 1, t = now - 17 * 86400, raid = 'tk' } "
+               "d.codex.beat_clock = { n = 1, t = now - 38 * 86400, who = 'Prince Malchezaar', raid = 'kara' } "
+               "d.season = {} "
+               "for i, r in ipairs({ { 'Gina', 412, 9, 2 }, { 'Saltykim', 377, 7, 1 }, { 'Tsumil', 351, 6, 1 }, "
+               "  { 'Dyrma', 322, 6, 0 }, { 'Fazerblue', 298, 5, 1 }, { 'Lidevna', 270, 4, 0 }, { 'Victhar', 256, 4, 0 }, "
+               "  { 'Xiavor', 231, 3, 0 }, { 'Valshares', 120, 1, 0 } }) do "
+               "  local key = r[1] == me:match('^[^-]+') and me or (r[1] .. '-' .. realm) "
+               "  d.season[key] = { points = r[2], bingos = r[3], legendaries = r[4], firsts = r[3] > 5 and 2 or 0, blackouts = 0 } "
+               "end ")
+
+
 def opened(key, lua=None):
     """A state: Gina's main window on tab `key`, then optional Lua (... = occ, strategy id, team id, ssc occ)."""
     def fn(w, c):
@@ -1506,17 +1544,22 @@ STATES = [
                                                          "ns.MembersUI:SetCard('chars')")),
     ("Games", opened("games")),
     ("Games - Bingo", opened("games", "ns.GamesUI:Select('bingo')")),
-    # the Bingo card mid-game: a complete row (with the slam settled), a diagonal one square away, who set squares
-    # off, the race and the feed
-    ("Games - Bingo card live", opened("games", "local d, me, now = ns.Games:GetData('bingo'), ns.Util.PlayerKey(), time() "
-                                                "d.current = { id = 'cardlive', host = me, started = now - 3600, hits = {}, who = {} } "
-                                                "d.view = { g = 'cardlive', hits = {}, lines = 1 } "
-                                                "local card = ns.Bingo:GetMyCard() "
-                                                "local who = { 'Victhar', 'Fazerblue', 'Lady Vashj', 'Saltykim', 'Dyrma' } "
-                                                "for n, i in ipairs({ 11, 12, 14, 15, 1, 7, 19, 3, 22 }) do "
-                                                "  d.current.hits[card[i]] = now - 600 + n * 30 d.view.hits[card[i]] = true "
-                                                "  d.current.who[card[i]] = who[(n % #who) + 1] end "
-                                                "ns.GamesUI:Select('bingo')")),
+    # the Bingo card mid-game in the Serpentshrine deck: a complete row (the slam settled), column O one square away,
+    # who set squares off, the race and the moments
+    ("Games - Bingo card live", opened("games", BINGO_LIVE + "ns.GamesUI:Select('bingo')")),
+    # a legendary goes off: the takeover over the card (Fated lights the square it daubed)
+    ("Games - Bingo legendary", opened("games", BINGO_LIVE + BINGO_LEGENDARY + "ns.GamesUI:Select('bingo') "
+                                       "ns.BingoUI:ShowTakeover(T_BINGO.leg, 'Lainatukka') ns.UI:StopTween('bingoTakeover') "
+                                       "W_TO = ns.BingoUI:GetWidgets().takeover W_TO:SetAlpha(1)")),
+    # an epic moment's toast on screen (the window closed)
+    ("Games - Bingo epic toast", opened("games", BINGO_LIVE + "ns.MainFrame:Close() "
+                                        "ns.BingoUI:ToastMoment('ankh', 'Saltykim')")),
+    # demo mode with no game of your own: the made-up game in the SSC deck and the "Try a moment" action
+    ("Games - Bingo demo", opened("games", "ns.Games:GetData('bingo').current = nil ns.Demo:SetEnabled(true) "
+                                  "ns.GamesUI:Select('bingo')")),
+    # the Codex: the season ladder, the legendaries witnessed, the set with what this character has seen
+    ("Games - Bingo codex", opened("games", BINGO_LIVE + BINGO_CODEX + "ns.GamesUI:Select('bingo') "
+                                   "ns.BingoUI:SetView('codex')")),
     ("Games - Raid Trainer", opened("games", "ns.GamesUI:Select('trainer')")),
     ("Games - Azeromon", opened("games", "ns.GamesUI:Select('azeromon')")),
     # Karazhan Chess (Games/Chess): the lobby with games in every state; a game against Medivh mid-way with his fire
