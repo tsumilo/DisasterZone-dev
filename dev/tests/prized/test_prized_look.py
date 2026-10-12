@@ -266,5 +266,27 @@ def qualify_today_names_a_line_only_when_there_is_an_order():
     assert lines and lines[0] == "Qualify today" and not lines[1].startswith("1. "), lines
 
 
+@case
+def the_prized_banner_says_my_standing_in_words():
+    # (fix 1.4: the banner's pill is standing()'s long text, as in 1.3.5 and on the Loot rules page; the list's row
+    # keeps the short words)
+    w, c = solo("Alice", guild_rank=0, tick=4)
+    demo(c, w)
+    c.eval("ns.MainFrame:Open('council'); ns.CouncilUI:SetView('rules'); ns.CouncilRulesUI:Select(...)",
+           c.eval("return ns.Prized:ForItem(...).id", DST))
+    w.tick(1)
+    st = c.eval_py("local s, k, l = ns.PrizedUI:Standing(ns.Prized:ForItem(...)); return { s, k, l }", DST)
+    assert st and st[2] and st[0] != st[2], st
+    assert visible_texts(c, st[2]), st
+    # editing the rules: the pill says so instead
+    c.eval("ns.PrizedUI:StartEdit()")
+    w.tick(0.5)
+    assert visible_texts(c, "Editing the rules") and not visible_texts(c, st[2]), st
+    c.eval("ns.PrizedUI:CancelEdit()")
+    w.tick(0.5)
+    assert visible_texts(c, st[2]), st
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all(globals())

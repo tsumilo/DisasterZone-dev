@@ -2871,14 +2871,20 @@ local function createKeys()
             y = y + 8 + 13 + 3
             for _, row in ipairs(g[2]) do
                 local kx = 0
+                local caps = {}
                 for part in row[1]:gmatch("[^|]+") do
                     local cap = UI():CreatePill(k, "mute", part)
                     cap:SetPoint("LEFT", k, "TOPLEFT", x + kx, -(y + KEY_ROW / 2))
                     kx = kx + (cap:GetWidth() or 30) + 3
+                    caps[#caps + 1] = cap
                 end
+                -- the description column; a row whose pills run past it (Ctrl+G | Ctrl+Shift+G) pushes its words right
                 local d = UI():Text(k.card, "body", "TEXT")
-                d:SetPoint("LEFT", k, "TOPLEFT", x + KEY_COL + 8, -(y + KEY_ROW / 2))
+                local dx = max(KEY_COL, kx - 3) + 8
+                d:SetPoint("LEFT", k, "TOPLEFT", x + dx, -(y + KEY_ROW / 2))
                 d:SetText(row[2])
+                k.rows = k.rows or {}
+                k.rows[#k.rows + 1] = { x = x, caps = caps, desc = d, descX = x + dx }
                 y = y + KEY_ROW
             end
         end

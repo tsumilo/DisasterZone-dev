@@ -348,13 +348,14 @@ local function fillBanner(b, rec)
     b:SetTitle(("|cff%02x%02x%02x%s|r"):format(floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(bl * 255 + 0.5),
         recName(rec)))
     b:SetSub(slotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. pl.raidName)
-    -- my standing (the list's words), or that the rules are being edited
+    -- my standing in words (the long text: the rule I fail, my place in the queue, when a cooldown frees up; the Loot
+    -- rules page's banner says the same), or that the rules are being edited
     local editing = state.draft ~= nil
-    local text, kind = standing(rec)
+    local _, kind, long = standing(rec)
     if editing then
         b:SetPill("warn", "Editing the rules")
     else
-        b:SetPill(text and kind or nil, text)
+        b:SetPill(long and kind or nil, long)
     end
     b:SetActions(editing and b.saveActions or (canEdit() and b.editActions) or nil)
     b:SetTools((canEdit() and editing) and b.moreTools or nil)

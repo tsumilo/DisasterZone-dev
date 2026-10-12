@@ -496,12 +496,18 @@ function H.Art(inst, grey)
     end
 end
 
--- An art row's icon tile: a class circle (cls), an icon (a texture), or none.
-function H.Tile(row, icon, cls)
+-- An art row's icon tile: a class circle (cls), an atlas glyph drawn gold on the tile's dark ground (glyph: a UI.ICON
+-- name or index; the "Add <name>" row's +), an icon (a texture), or none.
+function H.Tile(row, icon, cls, glyph)
     local tile = row.icon
+    tile.tex:SetVertexColor(1, 1, 1, 1)         -- (rows are reused: no gold left over from a + row)
+    tile.tex:Show()                             -- (nor a texture ClassIcon hid for a class it doesn't know)
     if cls then
         tile:Set(CLASS_TILE)
         UI():ClassIcon(tile.tex, cls)
+    elseif glyph then
+        tile:Set(UI().ICON_ATLAS)
+        UI():SetGlyph(tile.tex, glyph, "GOLD")
     elseif icon then
         tile:Set(icon)
         tile.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -556,7 +562,12 @@ local function initRow(row, d)
     local room = LIST_W - TEXT_X - 8 - n * 17
     row.ar:SetData({ art = H.Art(not add and artInst(d.e) or nil, d.bl ~= nil and state.filter ~= "black"),
         title = title, sub = H.PickVariant(rowLine(d), room, "sub"), right = marks, selected = isPicked(d) })
-    H.Tile(row.ar, add == "black" and BLOCK_TEX or nil, c)
+    -- the tile: the class; a gold + (Add); the block sign (Blacklist); a ? while the class is unknown (1.3.5's marks)
+    if add == "add" then
+        H.Tile(row.ar, nil, nil, "plus")
+    else
+        H.Tile(row.ar, add == "black" and BLOCK_TEX or (not c and CLASS_TILE) or nil, c)
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -648,6 +659,14 @@ local function fillBanner(kind, key, e, bl)
     local inst = (kind == "guest" or kind == "black") and artInst(e) or nil
     b:SetArt(inst, black)
     if not inst and black then b.glow:Hide() end
+    -- a blacklisted player: the art greyed under a red veil (over the banner's shade, under its words) and a red edge
+    if black and not b.redWash then
+        b.redWash = b:CreateTexture(nil, "BORDER", nil, 4)
+        b.redWash:SetPoint("TOPLEFT", 1, -1)
+        b.redWash:SetPoint("BOTTOMRIGHT", -1, 1)
+        UI():GradientRGBA(b.redWash, "HORIZONTAL", 0.42, 0.05, 0.03, 0.18, 0.42, 0.05, 0.03, 0.42)
+    end
+    if b.redWash then b.redWash:SetShown(black) end
     if black then
         local r, g, bb = S:Color("BAD")
         UI():SetEdgeColor(b, r, g, bb, 0.6)
@@ -656,8 +675,9 @@ local function fillBanner(kind, key, e, bl)
     end
     local c, sp
     if kind == "fresh" then c, sp = state.draft.c, state.draft.sp else c, sp = bookClass(key, e) end
-    -- the class circle in the icon tile (no tile while the class is unknown)
-    b:SetIcon(c and CLASS_TILE or nil)
+    -- the class circle in the icon tile (a ? while the class is unknown, as the list's rows)
+    b:SetIcon(CLASS_TILE)
+    b.icon.tex:Show()
     if c then UI():ClassIcon(b.icon.tex, c) end
     b:SetTitle(UI():ColoredName(key, c))
     if kind == "black" then b:SetPill("live", "Blacklisted") else b:SetPill(nil, nil) end
