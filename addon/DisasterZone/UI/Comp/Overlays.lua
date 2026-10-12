@@ -294,7 +294,7 @@ function H.FillToast(t, o)
     t.kick:SetShown(o.kicker ~= nil)
     if o.kicker then
         t.kick:SetTextColor(r, g, b)
-        t.kick:SetText(tostring(o.kicker):upper())
+        t.kick:SetText(UI:CapsText(o.kicker))   -- (a colour escape in it keeps its case)
         t.kick:ClearAllPoints()
         t.kick:SetPoint("TOPLEFT", x, -y)
         t.kick:SetWidth(textW)

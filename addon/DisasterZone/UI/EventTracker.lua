@@ -86,7 +86,8 @@ end
 
 local function Contains(list, v) return H().Contains(list, v) end
 
-local function Short(key) return ns.Util.ShortName(key, true) end
+-- (strips my own realm only: a whisper to a player from another realm needs Name-Realm)
+local function Short(key) return ns.Util.ShortName(key) end
 
 local function Whisper(key)
     if type(key) ~= "string" then return end
