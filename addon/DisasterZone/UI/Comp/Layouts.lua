@@ -357,6 +357,8 @@ function Tabs:LayoutTabs()
             prev = b
         end
     end
+    -- (a separator no longer used, e.g. before a group of small tabs now hidden, goes)
+    for i = sepN + 1, #self.tabSeps do self.tabSeps[i]:Hide() end
     self.lastTab = prev
     -- (rawget: the hook is copied onto the frame by NewToolbar; plain tab rows have none)
     local onLaidOut = rawget(self, "OnTabsLaidOut")
@@ -625,7 +627,7 @@ function Place.listdetail(L, shift)
         H.Top(L.banner, L.detail, 0, 0, 0)
         y = H.Height(L.banner)
     end
-    if L.tabs then
+    if L.tabs and L.tabs:IsShown() then          -- (a hidden strip gives its room back: Layout:SetTabsShown)
         H.Top(L.tabs, L.detail, 0, y, 0)
         y = y + G.TABS_H
     end
@@ -729,6 +731,16 @@ function Layout:Layout()
         n:SetPoint("TOPLEFT", self, "TOPLEFT", self.noticeX, -self.noticeY)
         n:SetPoint("TOPRIGHT", self, "TOPRIGHT", -self.pad, -self.noticeY)
     end
+end
+
+-- Shows or hides the detail's tabs strip (listdetail: a profile without tabs, an add form); a hidden strip gives its
+-- room back to the body.
+function Layout:SetTabsShown(on)
+    if not self.tabs then return end
+    on = on and true or false
+    if self.tabs:IsShown() == on then return end
+    self.tabs:SetShown(on)
+    self:Layout()
 end
 
 -- A read-only / locked / loading / info strip above the content (it only SHOWS what the page decided).

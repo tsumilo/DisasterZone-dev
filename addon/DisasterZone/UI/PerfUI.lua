@@ -117,24 +117,6 @@ local function Link(b, text, onClick)
     return b.head.action
 end
 
--- A thin bar: a track and a coloured fill; bar:Set(frac, color).
--- TODO(refactor): move into Controls (a progress bar: the gear pages', My Log's and these share the look)
-local function Bar(parent, w, h)
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetSize(w, h or 2)
-    b.track = UI:Fill(b, "HAIRLINE", "ARTWORK")
-    b.fill = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.fill:SetPoint("TOPLEFT")
-    b.fill:SetPoint("BOTTOMLEFT")
-    function b:Set(frac, c)
-        frac = max(0, min(1, tonumber(frac) or 0))
-        self.fill:SetWidth(max(1, frac * w))
-        self.fill:SetColorTexture(S:Color(c))
-        self.fill:SetShown(frac > 0)
-    end
-    return b
-end
-
 -- A list row: the shared row looks (a hairline on top; picked: the gold wash and bar; mine: the "you" look).
 local function NewRow(parent, w, h, selectable)
     local r = CreateFrame(selectable and "Button" or "Frame", nil, parent)
@@ -283,7 +265,7 @@ local function HandlerRow(parent, w, h, cols)
     r.sub = UI:Text(r, "small", "DIM")
     r.sub:SetPoint("TOPLEFT", 44, -(floor(h / 2) + 1))
     r.sub:SetWidth(nameW)
-    r.bar = Bar(r, nameW, 2)
+    r.bar = UI:CreateProgressBar(r, { width = nameW, height = 2 })
     r.bar:SetPoint("BOTTOMLEFT", 44, 3)
     r.loop = UI:CreatePill(r, nil, nil, 16)
     r.loop:Hide()
@@ -505,7 +487,7 @@ local function CreateOverview(p)
         r.name:SetWidth(RIGHT_W - 54 - 124)
         r.kb = Cell(r, RIGHT_W - 60, -7, 70, "emph", "TEXT")
         r.cpu = Cell(r, RIGHT_W - 12, -7, 40, "emph", "SUB")
-        r.bar = Bar(r, RIGHT_W - 54 - 120, 2)
+        r.bar = UI:CreateProgressBar(r, { width = RIGHT_W - 54 - 120, height = 2 })
         r.bar:SetPoint("BOTTOMLEFT", 54, 3)
         s.rows[i] = r
     end
@@ -514,7 +496,7 @@ local function CreateOverview(p)
     s.shareText = UI:Text(s, "body", "SUB")
     s.shareText:SetPoint("BOTTOMLEFT", s.share, "BOTTOMRIGHT", 6, 3)
     s.shareText:SetWidth(RIGHT_W - 70)
-    s.shareBar = Bar(s, RIGHT_W - 24, 4)
+    s.shareBar = UI:CreateProgressBar(s, { width = RIGHT_W - 24, height = 4 })
     s.shareBar:SetPoint("TOPLEFT", 12, -362)
     s.rankText = UI:Text(s, "small", "DIM")
     s.rankText:SetPoint("TOPLEFT", 12, -372)
@@ -877,7 +859,7 @@ local function SimpleRow(parent, w, h, cols)
     r.name2:SetPoint("LEFT", r.name, "RIGHT", 7, -1)
     r.cells = {}
     for i, x in ipairs(cols) do r.cells[i] = Cell(r, x, -7, 70, "emph", i == 1 and "TEXT" or "SUB") end
-    r.bar = Bar(r, cols[1] - 90, 2)
+    r.bar = UI:CreateProgressBar(r, { width = cols[1] - 90, height = 2 })
     r.bar:SetPoint("BOTTOMLEFT", 12, 4)
     return r
 end
@@ -1058,7 +1040,7 @@ local function CreateNetwork(p)
         r.name:SetWidth(RIGHT_W - 34 - 112)
         r.n = Cell(r, RIGHT_W - 60, -7, 70, "emph", "TEXT")
         r.kb = Cell(r, RIGHT_W - 12, -7, 40, "emph", "SUB")
-        r.bar = Bar(r, RIGHT_W - 34 - 120, 2)
+        r.bar = UI:CreateProgressBar(r, { width = RIGHT_W - 34 - 120, height = 2 })
         r.bar:SetPoint("BOTTOMLEFT", 34, 4)
         s.rows[i] = r
     end
@@ -1158,7 +1140,7 @@ local function CreateCPU(p)
         local y = -56 - (i - 1) * 32
         local ms = UI:Text(s, "emph", "TEXT", { font = NUM })
         ms:SetPoint("TOPLEFT", 12, y - 2)
-        local bar = Bar(s, 150, 6)
+        local bar = UI:CreateProgressBar(s, { width = 150, height = 6 })
         bar:SetPoint("TOPLEFT", 62, y - 6)
         local n = Cell(s, RIGHT_W - 12, y - 2, 60, "emph", C.white)
         s.rows[i] = { ms = ms, bar = bar, n = n }

@@ -7,6 +7,7 @@ local addonName, ns = ...
 --   UI:CreateChip(parent, opts)                        a tag as a chip: a dot / class circle / icon and its name
 --   UI:CreateSegments(parent, items, onChange, opts)   a row of choices, one picked (and the old route-steps bar)
 --   UI:CreateRailNav(parent, items, onSelect, opts)    the side menu of a rail page (Settings, Notifications)
+--   UI:CreateProgressBar(parent, opts)                 a thin track and its fill (a share, a progress)
 
 local UI = ns.UI
 local S = ns.Style
@@ -305,6 +306,58 @@ function UI:CreateChip(parent, opts)
     p:Paint()
     if opts.text or opts.rgb or opts.key or opts.icon then p:Set(opts.text, opts.rgb, opts.key) end
     return p
+end
+
+---------------------------------------------------------------------------
+-- Progress bar: a thin track and its fill
+---------------------------------------------------------------------------
+
+local Bar = {}
+
+-- (the fill's width from the bar's own width and the share)
+function Bar:Apply()
+    local f = self.frac or 0
+    self.fill:SetWidth(max(1, floor((self:GetWidth() or 0) * f + 0.5)))
+    self.fill:SetShown(f > 0)
+end
+
+-- bar:Set(frac [, color]): the share filled (0..1; nothing shows at 0); color: the fill's (a token name or a table).
+function Bar:Set(frac, color)
+    self.frac = max(0, min(1, tonumber(frac) or 0))
+    if color then self.fill:SetColorTexture(S:Color(color)) end
+    self:Apply()
+end
+
+-- UI:CreateProgressBar(parent, opts) -> bar: a thin bar (a share, a progress: My BiS's obtained, the Loot rules' BiS
+-- track, a boss tile's slots, the Performance page's). opts: { width (100), height (2), track (the track's colour,
+-- "HAIRLINE"), trackHeight (the track's height when thinner than the fill, along the bar's bottom), color (the fill's,
+-- "GOLD"), gradient = { c1, c2 } (the fill as a left-to-right gradient instead) }. The fill follows the bar's width
+-- (anchor both sides or SetWidth). bar:Set(frac [, color]); bar.track, bar.fill.
+function UI:CreateProgressBar(parent, opts)
+    opts = opts or {}
+    local b = CreateFrame("Frame", nil, parent)
+    b:SetSize(opts.width or 100, opts.height or 2)
+    b.track = b:CreateTexture(nil, "ARTWORK", nil, 0)
+    if opts.trackHeight then
+        b.track:SetPoint("BOTTOMLEFT")
+        b.track:SetPoint("BOTTOMRIGHT")
+        b.track:SetHeight(opts.trackHeight)
+    else
+        b.track:SetAllPoints()
+    end
+    b.track:SetColorTexture(S:Color(opts.track or "HAIRLINE"))
+    b.fill = b:CreateTexture(nil, "ARTWORK", nil, 1)
+    b.fill:SetPoint("TOPLEFT")
+    b.fill:SetPoint("BOTTOMLEFT")
+    if opts.gradient then
+        UI:Gradient(b.fill, "HORIZONTAL", opts.gradient[1], opts.gradient[2])
+    else
+        b.fill:SetColorTexture(S:Color(opts.color or "GOLD"))
+    end
+    for k, fn in pairs(Bar) do b[k] = fn end
+    b:HookScript("OnSizeChanged", function(self) self:Apply() end)
+    b:Set(0)
+    return b
 end
 
 ---------------------------------------------------------------------------

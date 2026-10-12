@@ -36,7 +36,7 @@ def the_pill_looks_are_one_table_with_the_event_looks_in_it():
         return { same = UI.TAG_LOOK == L, names = names, live = L.live.text, rank = L.rank.text,
                  bis = L.bis.text, gold = ns.Style.C.GOLD }""")
     assert out["same"] is True, out
-    assert out["names"] == ["alt", "bis", "live", "mute", "ok", "os", "rank", "warn"], out
+    assert out["names"] == ["alt", "bad", "bis", "live", "mute", "ok", "os", "rank", "warn"], out   # (1.4 cleanup: "bad" for a worse number)
     assert near(out["live"], [1, 0.77, 0.72]) and near(out["rank"], [1, 0.88, 0.54]), out
     assert near(out["bis"], out["gold"][:3]), out
     no_errors(w)

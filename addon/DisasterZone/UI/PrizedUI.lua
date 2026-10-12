@@ -705,14 +705,9 @@ local function createAddForm(dc)
     return f
 end
 
--- (the add form and a fresh view have no tabs: the strip gives its room back. TODO(refactor): move into
--- UI:CreateLayout (a hidden tabs strip that gives its room back))
+-- (the add form and a fresh view have no tabs: the strip gives its room back)
 function H.SetTabsShown(on)
-    local L = view.layout
-    if (L.tabs ~= nil) == on then return end
-    L.tabs = on and view.tabs or nil
-    view.tabs:SetShown(on)
-    L:Layout()
+    view.layout:SetTabsShown(on)
 end
 
 function PrizedUI:CreateView(parent)

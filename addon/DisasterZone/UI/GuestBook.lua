@@ -841,14 +841,9 @@ local function createHistory(body)
     return h
 end
 
--- (a fresh profile has no tabs: the strip gives its room back. TODO(refactor): move into UI:CreateLayout (a hidden
--- tabs strip that gives its room back))
+-- (a fresh profile has no tabs: the strip gives its room back)
 function H.SetTabsShown(on)
-    local L = view.layout
-    if (L.tabs ~= nil) == on then return end
-    L.tabs = on and view.tabStrip or nil
-    view.tabStrip:SetShown(on)
-    L:Layout()
+    view.layout:SetTabsShown(on)
 end
 
 -- Their raids (the next one first) or the items they received (the loot council), the open tab's list.

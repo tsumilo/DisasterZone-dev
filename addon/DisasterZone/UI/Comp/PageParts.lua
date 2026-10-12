@@ -237,11 +237,14 @@ end
 -- UI:CreatePageBanner(parent, opts) -> banner. opts:
 --   size     "hero" (128) | "tool" (84) | "strip" (46) | a height
 --   art      a raid key (either form or an instance id: ns.ItemDB:RaidArt, cropped to the banner) | { path, l, r, t, b }
---            | nil (the plain dark card with a gold glow). artFw (0.95: the share of the picture's width a raid's crop
+--            | nil (the plain dark card with a gold glow); banner:SetArt(art, desaturate, art2): two pictures side by
+--            side (a raid of two instances: banner.art2, banner.artSeam). artFw (0.95: the share of the picture's width a raid's crop
 --            takes), artUnder (keep the crop under the logo band), artTint (1: the art's brightness), desaturate
 --   icon     a texture / file id / { path, l, r, t, b } / a UI.ICON name: a ringed tile left of the text. iconRing
 --   kicker   small gold capitals over the title (kickerColor; kickerCaps = false keeps the case)
---   title    the 19 px title (titleColor: white; a tool banner's is gold; a strip's is 13 px), cut with "..." to fit
+--   title    the 19 px title (titleColor: white; a tool banner's is gold; a strip's is 13 px), cut with "..." to fit;
+--            titleSteps = { "hero", "page", ... }: smaller styles tried first; rightW = px (or function(banner)) kept
+--            free at the right of the text for the page's own blocks (banner:SetTitleFit(steps, rightW))
 --   sub      the line under it (subColor)
 --   pill     { kind, text } after the title (the EUI pill kinds: live, rank, review, changed, draft, ended, ok ...)
 --   back     { text, onClick }: the back link at the top left (a strip: at the left, before the text)
@@ -326,6 +329,14 @@ function Banner:SetTitle(text)
     self:Relayout()
 end
 
+-- How the title fits (also opts.titleSteps / opts.rightW): steps = the styles it steps down through before it is cut
+-- ({ "hero", "page", "title" }; nil: its size only); rightW = px kept free at the right of the text (a number or
+-- function(banner): the page's own blocks there).
+function Banner:SetTitleFit(steps, rightW)
+    self.opts.titleSteps, self.opts.rightW = steps, rightW
+    self:Relayout()
+end
+
 function Banner:SetSub(text)
     self.sub:SetText(text or "")
     self.sub:SetShown(text ~= nil and text ~= "")
@@ -341,8 +352,8 @@ end
 
 -- art: a raid key (either form, or an instance id) | { path, l, r, t, b } | nil (the plain card). desaturate: grey it
 -- (kept until set again).
-function Banner:SetArt(art, desaturate)
-    self.artKey = art
+function Banner:SetArt(art, desaturate, art2)
+    self.artKey, self.art2Key = art, art2
     if desaturate ~= nil then self.desaturate = desaturate and true or false end
     local has = art ~= nil and art ~= false
     self.art:SetShown(has)
@@ -354,6 +365,10 @@ function Banner:SetArt(art, desaturate)
         self.art:SetDesaturated((self.desaturate or self.opts.desaturate) and true or false)
     end
     self:Relayout()
+    if self.art2 then
+        self.art2:SetVertexColor(self.art:GetVertexColor())
+        self.art2:SetDesaturated((self.desaturate or self.opts.desaturate) and true or false)
+    end
 end
 
 -- icon: see SetIconTexture (nil: none, the text starts at the left margin).
@@ -489,17 +504,24 @@ function Banner:Layout()
     local footH = opts.footH or 0
     local X, EX = P.X, P.EDGE_X
 
-    -- the art, cropped to the banner
-    local art = self.artKey
+    -- the art, cropped to the banner (two side by side with an art2: UI:SetArtPair)
+    local art, art2 = self.artKey, self.art2Key
     if art ~= nil and art ~= false then
-        local path, l, r, t, bt
-        if type(art) == "table" then
-            path, l, r, t, bt = art[1], art[2], art[3], art[4], art[5]
-        elseif ns.ItemDB and ns.ItemDB.RaidArt then
-            path, l, r, t, bt = ns.ItemDB:RaidArt(art, max(1, W - 2), max(1, H - 2), opts.artFw or 0.95, opts.artUnder)
+        local function crop(a)
+            if type(a) ~= "string" and type(a) ~= "number" then return a end
+            return function(tex, w, h)
+                local path, l, r, t, bt
+                if ns.ItemDB and ns.ItemDB.RaidArt then
+                    path, l, r, t, bt = ns.ItemDB:RaidArt(a, max(1, w), max(1, h), opts.artFw or 0.95, opts.artUnder)
+                end
+                tex:SetTexture(path)
+                tex:SetTexCoord(l or 0, r or 1, t or 0, bt or 1)
+            end
         end
-        self.art:SetTexture(path)
-        self.art:SetTexCoord(l or 0, r or 1, t or 0, bt or 1)
+        UI:SetArtPair(self, self.art, crop(art), art2 and crop(art2) or nil, max(1, W - 2), max(1, H - 2), 1)
+    elseif self.art2 then
+        self.art2:Hide()
+        self.artSeam:Hide()
     end
     self.fade:SetShown(footH > 0)
 
@@ -540,12 +562,24 @@ function Banner:Layout()
         textX = textX + icon:GetWidth() + 12
     end
 
-    -- the title (cut to the room the tools and its pill leave), the kicker and sub line
+    -- the title (cut to the room the tools, the caller's own blocks (opts.rightW) and its pill leave; down the
+    -- opts.titleSteps sizes first), the kicker and sub line
+    local keep = opts.rightW
+    if type(keep) == "function" then keep = keep(self) end
     local pillW = self.pill:IsShown() and (self.pill:GetWidth() + 10) or 0
-    local room = max(20, W - textX - rightW)
+    local room = max(20, W - textX - max(rightW, tonumber(keep) or 0))
     local titleRoom = max(20, room - pillW)
     local text = self.titleText
     self.title:SetShown(text ~= nil and text ~= "")
+    local steps = opts.titleSteps
+    if steps and text and text ~= "" then
+        local r, g, b = self.title:GetTextColor()
+        for _, st in ipairs(steps) do
+            UI:SetTextStyle(self.title, st, { r, g, b })
+            self.title:SetText(text)
+            if UI:TextWidth(self.title) <= titleRoom then break end
+        end
+    end
     UI:FitText(self.title, text or "", titleRoom)
     self.title:SetWidth(floor(min(UI:TextWidth(self.title), titleRoom) + 1))
     self.kicker:SetWidth(room)

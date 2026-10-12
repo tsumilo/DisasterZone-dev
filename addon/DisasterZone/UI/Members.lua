@@ -1286,22 +1286,6 @@ local function updateSpecs(right, member)
     end
 end
 
--- The banner's title: down the type scale (hero, page, title) until it fits its room, then cut with "...".
--- TODO(refactor): move into UI:CreatePageBanner (step the title down the scale before cutting it)
-local TITLE_STEPS = { "hero", "page", "title" }
-local function fitBannerTitle(b)
-    local t, room = b.titleText, b.titleRoom
-    if not (t and t ~= "" and room) then return end
-    local r, g, bl = b.title:GetTextColor()
-    for _, st in ipairs(TITLE_STEPS) do
-        ns.UI:SetTextStyle(b.title, st, { r, g, bl })
-        b.title:SetText(t)
-        if ns.UI:TextWidth(b.title) <= room then break end
-    end
-    ns.UI:FitText(b.title, t, room)
-    b.title:SetWidth(math.floor(math.min(ns.UI:TextWidth(b.title), room) + 1))
-end
-
 -- One line from parts in priority order (" · " between them): the lowest ones are dropped until it fits `room`
 -- (never "..."; the header's tooltip has them all). Measured on fs (the line's own font string).
 local function fitParts(fs, parts, room)
@@ -1415,15 +1399,10 @@ local function updateBannerButtons(right, member, recipe, whisperTo)
 end
 
 -- The card's tabs on the banner's foot (a member's card only): Characters / Professions / Equipment / Attendance with
--- counts. TODO(refactor): UI:CreateLayout's listdetail should leave out a hidden tabs strip; until then the strip
--- leaves the layout while a recipe is open.
+-- counts. While a recipe is open the strip is hidden and gives its room back (Layout:SetTabsShown).
 local function updateTabs(p, member)
-    local L, tabs = p.layout, p.cardTabs
-    if (L.tabs ~= nil) ~= (member ~= nil) then
-        L.tabs = member and tabs or nil
-        tabs:SetShown(member ~= nil)
-        L:Layout()
-    end
+    local tabs = p.cardTabs
+    p.layout:SetTabsShown(member ~= nil)
     if not member then return end
     tabs:SetTabShown("att", canSeeAttendance(member))
     local others = #P():GetOtherCharacters(member)
@@ -1512,9 +1491,6 @@ local function updateDetail(p)
     if has then
         -- the name up to the tools; the meta line under them has the banner's whole width
         local textX = b.textX or HEAD_TEXT_X
-        local toolsW = 0
-        for _, f in ipairs(b.tools) do toolsW = toolsW + f:GetWidth() + 4 end
-        b.titleRoom = cardWidth() - textX - BAN_X - 8 - toolsW
         b:SetTitle(title)
         if member then b:SetSub(fitParts(b.sub, right.metaParts, cardWidth() - textX - 16)) end
         -- the hover area stops short of the buttons, pinned to the card's right edge so it follows resizes
@@ -1582,11 +1558,8 @@ local function createCard(p, L)
     b.dotRing:SetPoint("CENTER", b.icon, "BOTTOMRIGHT", -2, 2)
     b.dot = disc(b.icon, "OVERLAY", 2, 9)
     b.dot:SetPoint("CENTER", b.dotRing, "CENTER")
-    local baseLayout = b.Layout
-    function b:Layout()
-        baseLayout(self)
-        fitBannerTitle(self)
-    end
+    -- the title: down the type scale (hero, page, title) until it fits left of the tools, then cut with "..."
+    b:SetTitleFit({ "hero", "page", "title" })
     -- hovering the icon and name: the recipe's tooltip, or everything about the member (the meta line may have
     -- dropped parts to fit)
     right.headHit = CreateFrame("Frame", nil, b)

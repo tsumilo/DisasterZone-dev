@@ -762,16 +762,9 @@ function UP.fillShare(m, have, of)
 end
 
 -- A banner whose right side holds the page's own blocks: its title keeps clear of them (rightW(banner) px from the
--- right edge), a size smaller before it is cut.
--- TODO(refactor): move into UI:CreatePageBanner (opts.rightW: room kept free at the right of the text; a title that
--- steps down a size before it is cut)
+-- right edge), a size smaller before it is cut (Banner:SetTitleFit).
 function UP.reserveRight(b, rightW)
-    local layout = b.Layout
-    function b:Layout()
-        layout(self)
-        local room = (self:GetWidth() > 1 and self:GetWidth() or UP.W) - (self.textX or 14) - rightW(self)
-        if self.titleText and self.title:IsShown() then UP.fitTitle(self.title, self.titleText, room) end
-    end
+    b:SetTitleFit({ "hero", "page" }, rightW)
 end
 
 -- The board's hero: the next raid as the page banner (UI:CreatePageBanner): its loading screen (a raid of two
@@ -788,12 +781,6 @@ function UP.makeHero(c)
     c.isHero = true
     c.more = c.tools[1]
     c.t1, c.t2, c.kick = c.title, c.sub, c.kicker
-    -- TODO(refactor): move into UI:CreatePageBanner (opts.art2: a second picture beside the first, for a raid of two
-    -- instances)
-    c.art2 = c:CreateTexture(nil, "BACKGROUND", nil, 2)
-    c.art2:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 0, 0)
-    c.art2:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
-    c.art2:Hide()
     c.meter = UP.newMeter(c, 130, 110)
     c.meter:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 14, 17)
     c:EnableMouse(true)
@@ -839,25 +826,13 @@ function UP.fillCard(c, v, width, preview)
         local two = #list > 1
         local aw = two and floor((width - 2) / 2) or (width - 2)
         if two then
-            c:SetArt({ ns.ItemDB:RaidArt(list[1], aw, CARD_H - 2, 0.5) }, dim)
-            local f2, l2, r2, t2, b2 = ns.ItemDB:RaidArt(list[2], width - 2 - aw, CARD_H - 2, 0.5)
-            c.art2:SetTexture(f2)
-            c.art2:SetTexCoord(l2, r2, t2, b2)
-            c.art2:SetDesaturated(dim)
+            c:SetArt({ ns.ItemDB:RaidArt(list[1], aw, CARD_H - 2, 0.5) }, dim,
+                { ns.ItemDB:RaidArt(list[2], width - 2 - aw, CARD_H - 2, 0.5) })
         else
             c:SetArt(list[1] or v.i, dim)
         end
-        c.art:ClearAllPoints()
-        c.art:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
-        if two then
-            c.art:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
-            c.art:SetWidth(aw)
-        else
-            c.art:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
-        end
-        c.art2:SetShown(two)
         c.art:SetAlpha(dim and 0.6 or 1)
-        c.art2:SetAlpha(dim and 0.6 or 1)
+        if c.art2 then c.art2:SetAlpha(dim and 0.6 or 1) end
         c:SetKicker(UP.kicker(v))
         c:SetTitle(RP():GetRaidName(v))
         c:SetSub(UP.whereLine(v, c.sub, width - 40))
@@ -2185,22 +2160,6 @@ local function layoutPage(d)
     d.assign:ClearAllPoints()
     d.assign:SetPoint("TOPLEFT", L.toolbar, "TOPLEFT", 0, 0)
     d.assign:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
-end
-
--- The banner's title in the room left of the answers: the banner's size, else a size smaller, else cut with "...".
-function UP.fitTitle(fs, text, room)
-    for _, size in ipairs({ S.FONT.hero, S.FONT.page }) do
-        UI():SetTextStyle(fs, size, { fs:GetTextColor() })
-        fs:SetWidth(0)
-        fs:SetText(text)
-        local w = UI():TextWidth(fs)
-        if w <= room then
-            fs:SetWidth(floor(w + 1))
-            return
-        end
-    end
-    fs:SetWidth(max(20, room))
-    UI():FitText(fs, text, room)
 end
 
 -- My answer on the banner: the answers I can give (mine lit), my spec / character / note, or why I can't answer.

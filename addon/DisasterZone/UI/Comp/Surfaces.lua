@@ -351,6 +351,44 @@ function UI:SetArtTexture(tex, art, w, h)
     tex:SetTexCoord(0, 1, 0, 1)
 end
 
+-- One picture over a w x h box of host, or two side by side (a raid night of two instances: art1 on the left half,
+-- art2 on the right, a dark 2 px seam between them). tex is host's picture texture; it is anchored here (inset px in
+-- from host's edges); the second one and the seam are made on first use (host.art2 / host.artSeam, on tex's layer).
+-- art1 / art2: what UI:SetArtTexture takes (a raid key, { path, l, r, t, b }, a function(tex, w, h) ...), each cropped
+-- for its half. Returns the left picture's width.
+function UI:SetArtPair(host, tex, art1, art2, w, h, inset)
+    inset = inset or 0
+    local two = art2 ~= nil and art2 ~= false
+    local aw = two and floor(w / 2) or w
+    tex:ClearAllPoints()
+    tex:SetPoint("TOPLEFT", host, "TOPLEFT", inset, -inset)
+    if two then
+        tex:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", inset, inset)
+        tex:SetWidth(aw)
+    else
+        tex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
+    end
+    UI:SetArtTexture(tex, art1, aw, h)
+    if two and not host.art2 then
+        local layer, sub = tex:GetDrawLayer()
+        sub = sub or 0
+        host.art2 = host:CreateTexture(nil, layer, nil, sub)
+        host.art2:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        host.art2:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
+        host.artSeam = host:CreateTexture(nil, layer, nil, math.min(7, sub + 1))
+        host.artSeam:SetColorTexture(0, 0, 0, 0.6)
+        host.artSeam:SetWidth(2)
+        host.artSeam:SetPoint("TOPLEFT", host.art2, "TOPLEFT", -1, 0)
+        host.artSeam:SetPoint("BOTTOMLEFT", host.art2, "BOTTOMLEFT", -1, 0)
+    end
+    if host.art2 then
+        host.art2:SetShown(two)
+        host.artSeam:SetShown(two)
+        if two then UI:SetArtTexture(host.art2, art2, w - aw, h) end
+    end
+    return aw
+end
+
 -- An icon tile: the icon with its border cut off and a 1 px black edge. tile:Set(icon) (a path / file id; nil hides).
 local function IconTile(parent, size)
     local f = CreateFrame("Frame", nil, parent)
@@ -399,11 +437,11 @@ function ArtRow:FitTitle()
     end
 end
 
--- The row's content: { art (see UI:SetArtTexture), icon (the tile; nil: none), title, sub (a second line; nil: the
+-- The row's content: { art (see UI:SetArtTexture), art2 (a second picture: the two side by side), icon (the tile; nil: none), title, sub (a second line; nil: the
 -- title alone, centred), right (a text on the right), pill = { kind, text } (after the title), selected }.
 function ArtRow:SetData(d)
     d = d or {}
-    UI:SetArtTexture(self.art.tex, d.art, ART_W, ART_H)
+    UI:SetArtPair(self.art, self.art.tex, d.art, d.art2, ART_W, ART_H)
     self.icon:Set(d.icon)
     self.titleText = d.title == nil and "" or tostring(d.title)
     self.subText = d.sub ~= nil and tostring(d.sub) or nil
