@@ -24,35 +24,38 @@ local function E() return ns.EventEngine end
 local function B() return ns.EventBlocks end
 local function Ev() return ns.Events end
 local function Me() return ns.Util.PlayerKey() end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
-local function ServerNow() return (GetServerTime and GetServerTime()) or time() end
+local function ServerNow() return ns.Util.Now() end
+local S = ns.Style
 
-local WIN_W, WIN_H = 800, 608
-local CW, CH = 790, 576            -- the window's inside (UI:CreateWindow's content: 5 in, 27 under the top)
-local HDR_H, HOST_H = 98, 34
-local BR_X, BR_Y, BR_W = 12, 106, 560
-local RAIL_W = 196
+-- The window is a tool window (UI:CreateLayout "tool"): the event's banner (S.BANNER.tool), the tool row (the stage
+-- progress, my chip; the host's Pause and More), the host's notice, then the body: the bracket (or the views) on the
+-- left, the rail on the right. Everything below is drawn in the body's coordinates (0, 0 = its top left).
+local WIN_W, WIN_H = 800, 640
+local CW, CH = WIN_W - 10, WIN_H - 32  -- the window's inside (UI:CreateWindow's content: 5 in, 27 under the top)
+local BODY_W = CW - 2 * S.PAD          -- the body inside the layout's margins
+local BR_W = 560                       -- the bracket / the views' main column
+local RAIL_W = 196                     -- the rail, at the body's right edge
 local DISP_W = 296
 local CARD_W, ROW_H = 122, 19
 local COL_GAP_MIN = 14
-local BOTTOM = 10
 
-local WHITE = "Interface\\Buttons\\WHITE8X8"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local RING = "Interface\\AddOns\\DisasterZone\\Media\\Events\\ring"
 local WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
-local BG = { 0.043, 0.043, 0.051 }               -- the board's floor
-local CARD_BG = { 0.086, 0.086, 0.106, 0.96 }
-local CARD_EDGE = { 0.34, 0.34, 0.38, 0.6 }
-local LIVE_EDGE = { 1, 0.38, 0.29, 0.85 }
-local NEXT_EDGE = { 0.4, 0.72, 1, 0.75 }
-local RED = { 1, 0.35, 0.27 }
-local GOLD = { 1, 0.82, 0 }
-local GREY = { 0.62, 0.62, 0.62 }
-local DIM = { 0.44, 0.44, 0.46 }
-local YOU_ROW = { 0.62, 0.82, 1 }
-local TBD = { 0.40, 0.40, 0.43 }
+-- (ns.Style tokens: shared tables, read-only; Tok makes a copy with its own alpha)
+local function Tok(name, a)
+    local c = S.C[name]
+    return { c[1], c[2], c[3], a or c[4] or 1 }
+end
+local RED = S.C.LIVE
+local GOLD = S.C.GOLD
+local GREY = S.C.SUB
+local DIM = S.C.DIM
+local YOU = S.C.YOU
+local FLOOR = S.C.SURFACE_WINDOW                 -- the window's slate (what a disc's hole shows)
+local LIVE_EDGE = Tok("LIVE", 0.85)              -- a match being played
+local NEXT_EDGE = Tok("YOU", 0.75)               -- my next match
 
 local win
 local state = { occ = nil }
@@ -64,34 +67,48 @@ local state = { occ = nil }
 local H = {}
 Board.H = H
 
+-- The text keeps its face and flags at a size of the type scale (ns.Style: S:Size snaps 10.5 -> 10 ...).
 function H.Sized(fs, size)
     local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
+    if path then fs:SetFont(path, S:Size(size), flags) end
     return fs
 end
 
--- A one-line text in a game font (shadowed like the game's), sized and coloured.
+-- (the colour a 1.3 game font gave a text when the caller named none)
+local FONT_COLOR = { GameFontNormal = S.C.GOLD, GameFontNormalLarge = S.C.GOLD, GameFontNormalHuge = S.C.GOLD,
+    default = { 1, 1, 1 } }
+
+-- A one-line text (UI:Text: the game font's face and shadow), sized on the type scale and coloured. font: the game
+-- font it used to be made from (only its colour still counts when r is nil).
 function H.Text(parent, font, size, r, g, b, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then H.Sized(fs, size) end
-    if r then fs:SetTextColor(r, g, b) end
-    return fs
+    return UI():Text(parent, size or "emph", r and { r, g, b } or FONT_COLOR[font or "default"] or FONT_COLOR.default,
+        { layer = layer })
 end
 
--- A text's whole width on one line (GetStringWidth stops at a width the string was given).
+-- A text's whole width on one line (UI:TextWidth).
 function H.Width(fs)
-    if fs.GetUnboundedStringWidth then return fs:GetUnboundedStringWidth() or 0 end
-    return fs:GetStringWidth() or 0
+    return UI():TextWidth(fs)
 end
 
 -- Sets the text, a size smaller each time it does not fit width (down to minSize). True when it fits.
+-- (The sizes are the type scale's; a minSize under the scale's smallest step is still tried as it is, last: a dense
+-- bracket's names shrink to the room rather than being cut.)
 function H.Fit(fs, text, width, size, minSize)
     fs:SetText(text or "")
     size = size or 12
-    for s = size, minSize or size, -1 do
-        H.Sized(fs, s)
+    minSize = minSize or size
+    local last
+    for s = size, minSize, -1 do
+        local snapped = S:Size(s)
+        if snapped ~= last then
+            last = snapped
+            H.Sized(fs, s)
+            if H.Width(fs) <= width then return true end
+        end
+    end
+    if minSize < S:Size(minSize) then
+        local path, _, flags = fs:GetFont()
+        if path then fs:SetFont(path, minSize, flags) end
         if H.Width(fs) <= width then return true end
     end
     return false
@@ -126,7 +143,7 @@ function H.FitAny(fs, list, width, size, minSize, shrink)
 end
 
 function H.Hex(c) return ("|cff%02x%02x%02x"):format(floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5), floor(c[3] * 255 + 0.5)) end
-function H.Grey(text) return "|cff9e9e9e" .. tostring(text) .. "|r" end
+function H.Grey(text) return S:Wrap("SUB", tostring(text)) end
 
 function H.Disc(parent, layer, sub, size, r, g, b, a)
     local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub or 0)
@@ -134,15 +151,6 @@ function H.Disc(parent, layer, sub, size, r, g, b, a)
     t:SetSize(size, size)
     t:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
     return t
-end
-
--- A fill and a 1px edge (soft corners) on a frame.
-function H.Panel(f, fill, edge, layer)
-    f.bg = f.bg or f:CreateTexture(nil, layer or "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(fill[1], fill[2], fill[3], fill[4] or 1)
-    if not f.edges then UI():AddEdges(f, "BORDER", true) end
-    UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4] or 1)
 end
 
 function H.Contains(list, v)
@@ -305,11 +313,11 @@ function H.ColorNames(text, keys)
         local n = EUI():Plain(k)
         if type(n) == "string" and #n >= 3 and not done[n] and not n:find("[%%%[%]%^%$%(%)%.%*%+%-%?]") then
             done[n] = true
-            local colored = ns.Util.IsMe(k) and "|cff66b8ff" .. n .. "|r" or EUI():Name(k, true)
+            local colored = ns.Util.IsMe(k) and S:Wrap("YOU", n) or EUI():Name(k, true)
             text = text:gsub("%f[%w]" .. n .. "%f[^%w]", colored)
         end
     end
-    text = text:gsub("^You%f[^%w]", "|cff66b8ffYou|r")
+    text = text:gsub("^You%f[^%w]", S:Wrap("YOU", "You"))
     return text
 end
 
@@ -323,7 +331,7 @@ function H.NewPips(parent, size, gap, alpha)
         for i = 1, n do
             local d = self.dots[i]
             if not d then
-                d = { ring = self:CreateTexture(nil, "ARTWORK", nil, 1), fill = H.Disc(self, "ARTWORK", 2, size, 1, 0.82, 0, 1) }
+                d = { ring = self:CreateTexture(nil, "ARTWORK", nil, 1), fill = H.Disc(self, "ARTWORK", 2, size, GOLD[1], GOLD[2], GOLD[3], 1) }
                 d.ring:SetTexture(RING)
                 d.ring:SetSize(size + 1, size + 1)
                 d.ring:SetVertexColor(1, 1, 1, alpha or 0.32)
@@ -363,7 +371,7 @@ function H.NewRing(parent, size)
     local dot = max(2.4, size * 0.094)
     for i = 1, n do
         local a = (i - 0.5) / n * 2 * math.pi
-        local t = H.Disc(f, "ARTWORK", 1, dot, 1, 0.82, 0, 1)
+        local t = H.Disc(f, "ARTWORK", 1, dot, GOLD[1], GOLD[2], GOLD[3], 1)
         t:SetPoint("CENTER", f, "CENTER", math.sin(a) * rad, math.cos(a) * rad)
         f.arc[i] = t
     end
@@ -383,44 +391,6 @@ function H.NewRing(parent, size)
         self.fs:SetText(H.Clock(left))
     end
     return f
-end
-
--- A rounded pill: Live (a red dot), Practice (teal), Paused, Ended, Now.
-local PILL = {
-    live = { text = { 1, 0.77, 0.72 }, tint = { 0.9, 0.16, 0.1 }, a = 0.22, edge = { 1, 0.38, 0.29, 0.8 }, dot = true },
-    practice = { text = { 0.62, 0.95, 0.86 }, tint = { 0.24, 0.82, 0.68 }, a = 0.14, edge = { 0.37, 0.88, 0.76, 0.6 } },
-    paused = { text = { 1, 0.72, 0.45 }, tint = { 1, 0.55, 0.1 }, a = 0.13, edge = { 1, 0.55, 0.1, 0.65 } },
-    ended = { text = { 0.74, 0.74, 0.74 }, tint = { 1, 1, 1 }, a = 0.05, edge = { 1, 1, 1, 0.22 } },
-}
-function H.NewPill(parent, h, base)
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetSize(30, h)
-    UI():AddPillShape(p, h)
-    p.base = base or BG
-    p.glow = H.Disc(p, "ARTWORK", 0, 12, 1, 0.35, 0.27, 0.3)
-    p.dot = H.Disc(p, "ARTWORK", 1, 6, 1, 0.35, 0.27, 1)
-    p.fs = H.Text(p, "GameFontHighlightSmall", 10)
-    function p:SetKind(text, kind)
-        local d = PILL[kind] or PILL.ended
-        local b, t = self.base, d.tint
-        self:SetPillColors({ b[1] + (t[1] - b[1]) * d.a, b[2] + (t[2] - b[2]) * d.a, b[3] + (t[3] - b[3]) * d.a, 1 }, d.edge)
-        self.fs:SetText(text or "")
-        self.fs:SetTextColor(d.text[1], d.text[2], d.text[3])
-        local x = 7
-        self.dot:SetShown(d.dot and true or false)
-        self.glow:SetShown(d.dot and true or false)
-        if d.dot then
-            self.dot:ClearAllPoints()
-            self.dot:SetPoint("CENTER", self, "LEFT", 9, 0)
-            self.glow:ClearAllPoints()
-            self.glow:SetPoint("CENTER", self.dot)
-            x = 15
-        end
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", x, 0)
-        self:SetWidth(floor(x + (self.fs:GetStringWidth() or 16) + 7 + 0.5))
-    end
-    return p
 end
 
 -- An atlas glyph in front of a menu entry.
@@ -493,7 +463,7 @@ end
 -- I run this event while it's on (the host's controls); never in demo mode or for the practice run.
 function Board:IsHost()
     local occ = state.occ
-    if not occ or occ == "practice" or DemoOn() or not L():IsHostOf(occ) then return false end
+    if not occ or occ == "practice" or ns.Util.DemoOn() or not L():IsHostOf(occ) then return false end
     local st = L():GetState(occ)
     return (st and st.phase == "live") and true or false
 end
@@ -530,21 +500,39 @@ Board.Disputes = function(_, st) return Disputes(st) end
 
 local NewCard
 
-local function HeaderLayout()
-    local hdr = win.hdr
-    -- right to left: More, Share, "N watching"
-    local x = -12
-    hdr.more:ClearAllPoints()
-    hdr.more:SetPoint("RIGHT", hdr, "TOPRIGHT", x, -23)
-    local anchor = hdr.more
-    if hdr.share and hdr.share:IsShown() then
-        hdr.share:ClearAllPoints()
-        hdr.share:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
-        anchor = hdr.share
+-- The host's controls are the layout's: its notice ("You're hosting · 2 matches playing") and the tool row's Pause
+-- (the main action) and More. win.hostbar names them as 1.3 did (.sub, .more, .pause, :IsShown()) for the callers.
+local function HostBar(lay)
+    local tb = lay.toolbar
+    local hb = { notice = lay.notice, sub = lay.notice.text, more = tb.more, pause = tb.primary }
+    function hb:IsShown() return self.notice:IsShown() end
+    function hb:Hide()
+        lay:HideNotice()
+        tb:SetMore(nil)
+        tb:SetPrimary(nil)
     end
-    hdr.watch:ClearAllPoints()
-    hdr.watch:SetPoint("RIGHT", anchor, "LEFT", -12, 0)
+    return hb
 end
+
+-- The body's height under the banner, the tool row and the host's notice (when shown).
+local function BodyHeight()
+    local lay = win.layout
+    local y = lay.noticeY or 0
+    local n = lay.notice
+    if n and n:IsShown() then y = y + floor((n:GetHeight() or 0) + 0.5) + S.GAP end
+    return CH - y - lay.bottom
+end
+
+-- The banner's tools: More (the event page, the host, leaving) and, when the event can be shared, Share.
+local MORE_TOOL = { icon = "more", title = "More", text = "The event page, the host, leaving the event.",
+    onClick = function(b) Board:HeaderMenu(b) end }
+local SHARE_TOOL = { icon = 18, title = "Share the event",
+    text = "Post a link in chat that opens it in DisasterZone. Shift-click: into your chat box.",
+    onClick = function(b)
+        local ref = Board:ShareRef()
+        if not (ref and ns.Share) then return end
+        if IsShiftKeyDown() then ns.Share:PutInChat(ref) elseif ns.ShareWindow then ns.ShareWindow:Open(ref, b) end
+    end }
 
 local function CreateWindow()
     local f = UI():CreateWindow("DisasterZoneEventBoard", "Event", WIN_W, WIN_H)
@@ -554,242 +542,117 @@ local function CreateWindow()
     root:SetPoint("TOPLEFT")
     root:SetPoint("BOTTOMRIGHT")
     f.root = root
-    root.bg = root:CreateTexture(nil, "BACKGROUND", nil, -8)
-    root.bg:SetAllPoints()
-    root.bg:SetColorTexture(BG[1], BG[2], BG[3], 1)
 
-    ------------------------------------------------------------------ header
-    local hdr = CreateFrame("Frame", nil, root)
-    hdr:SetPoint("TOPLEFT")
-    hdr:SetPoint("TOPRIGHT")
-    hdr:SetHeight(HDR_H)
+    ------------------------------------------------------------------ the tool window's layout
+    -- banner: the event's art and icon, its name and state pill, where it is and who watches; tool row: the stage
+    -- progress at the left, my chip ("You're up next"), the host's More and Pause at the right; body: the board.
+    local lay = UI():CreateLayout("tool", root, { width = CW, toolbar = true, banner = { size = "tool", artFw = 0.98 } })
+    f.layout = lay
+    f.body = lay.body
+    local tb = lay.toolbar
+    local hdr = { banner = lay.banner, title = lay.banner.title, pill = lay.banner.pill }
     f.hdr = hdr
-    hdr.art = hdr:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hdr.art:SetAllPoints()
-    EUI():AddShade(hdr)
-    -- the bottom melts into the board
-    hdr.melt = hdr:CreateTexture(nil, "BORDER", nil, 3)
-    hdr.melt:SetPoint("BOTTOMLEFT")
-    hdr.melt:SetPoint("BOTTOMRIGHT")
-    hdr.melt:SetHeight(26)
-    hdr.melt:SetTexture(WHITE)
-    EUI():Gradient(hdr.melt, "VERTICAL", BG[1], BG[2], BG[3], 1, 0)
-
-    hdr.pill = H.NewPill(hdr, 16, { 0.05, 0.05, 0.06 })
-    hdr.pill:SetPoint("LEFT", hdr, "TOPLEFT", 14, -23)
-    hdr.title = H.Text(hdr, "GameFontHighlightLarge", 18, 1, 1, 1)
-    hdr.title:SetPoint("LEFT", hdr.pill, "RIGHT", 9, 0)
-    hdr.more = UI():CreateTipIconButton(hdr, 22, UI().ICON.more, "More", "The event page, the host, leaving the event.",
-        function(b) Board:HeaderMenu(b) end)
-    if ns.Share and ns.Share.CreateButton then
-        hdr.share = ns.Share:CreateButton(hdr, 22, function() return Board:ShareRef() end, "Share the event")
-    end
-    hdr.watch = H.Text(hdr, "GameFontHighlightSmall", 11, 0.74, 0.74, 0.74)
-    hdr.eye = hdr:CreateTexture(nil, "ARTWORK")
-    hdr.eye:SetSize(13, 13)
-    EUI():Glyph(hdr.eye, UI().ICON.eye, 1, 1, 1, 0.7)
-    hdr.eye:SetPoint("RIGHT", hdr.watch, "LEFT", -5, 0)
-    HeaderLayout()
-
-    hdr.prog = EUI():CreateProgress(hdr)
-    hdr.prog:SetPoint("LEFT", hdr, "BOTTOMLEFT", 14, 23)
-    -- "You're up next": a blue chip with the opponent's class
-    local chip = CreateFrame("Frame", nil, hdr)
-    chip:SetSize(100, 22)
-    UI():AddPillShape(chip, 22)
-    chip:SetPillColors({ 0.055, 0.055, 0.066, 1 }, { 0.4, 0.72, 1, 0.75 })
-    chip.cls = chip:CreateTexture(nil, "ARTWORK")
-    chip.cls:SetSize(15, 15)
-    chip.cls:SetPoint("LEFT", 6, 0)
-    chip.fs = H.Text(chip, "GameFontHighlightSmall", 11, 0.84, 0.93, 1)
-    chip.fs:SetPoint("LEFT", chip.cls, "RIGHT", 6, 0)
-    -- (part 2: my tag's colour)
-    chip.dotEdge = H.Disc(chip, "ARTWORK", 1, 10, 0, 0, 0, 1)
-    chip.dotEdge:SetPoint("CENTER", chip, "LEFT", 12, 0)
-    chip.dot = H.Disc(chip, "ARTWORK", 2, 8, 1, 1, 1, 1)
-    chip.dot:SetPoint("CENTER", chip.dotEdge)
-    chip:SetPoint("RIGHT", hdr, "BOTTOMRIGHT", -12, 23)
-    chip:EnableMouse(true)
-    chip:SetScript("OnEnter", function(self)
-        if not self.tip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:AddLine(self.tip[1])
-        if self.tip[2] then GameTooltip:AddLine(self.tip[2], 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    chip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    hdr.prog = EUI():CreateProgress(tb)
+    hdr.prog:SetPoint("LEFT", tb, "LEFT", 0, 0)
+    -- my chip: "You're up next" with the opponent's class, "You're 3rd", "You: Hiders" with my tag's colour
+    local chip = UI():CreateChip(tb, { kind = "you" })
+    UI():AttachTooltip(chip, function(self, tip)
+        if not self.tip then return false end
+        tip:AddLine(self.tip[1])
+        if self.tip[2] then tip:AddLine(self.tip[2], 1, 1, 1, true) end
+    end, nil, { anchor = "ANCHOR_BOTTOMLEFT" })
+    chip:Hide()
     hdr.chip = chip
+    tb:SetFilters({ chip })
 
-    ------------------------------------------------------------------ host bar
-    local hb = CreateFrame("Frame", nil, root)
-    hb:SetPoint("TOPLEFT", 0, -HDR_H)
-    hb:SetPoint("TOPRIGHT", 0, -HDR_H)
-    hb:SetHeight(HOST_H)
-    hb:SetFrameLevel(root:GetFrameLevel() + 5)
-    hb.bg = hb:CreateTexture(nil, "BACKGROUND")
-    hb.bg:SetAllPoints()
-    hb.bg:SetColorTexture(0.42, 0.30, 0.04, 0.2)
-    for i, p in ipairs({ "TOP", "BOTTOM" }) do
-        local t = hb:CreateTexture(nil, "BORDER")
-        t:SetPoint(p .. "LEFT")
-        t:SetPoint(p .. "RIGHT")
-        t:SetHeight(1)
-        t:SetColorTexture(1, 0.82, 0, 0.3)
-        hb["line" .. i] = t
-    end
-    hb.crown = hb:CreateTexture(nil, "ARTWORK")
-    hb.crown:SetSize(14, 14)
-    EUI():Glyph(hb.crown, UI().ICON.crown, 1, 0.82, 0)
-    hb.crown:SetPoint("LEFT", 12, 0)
-    hb.t = H.Text(hb, "GameFontHighlight", 11.5, 1, 0.95, 0.8)
-    hb.t:SetPoint("LEFT", hb.crown, "RIGHT", 6, 0)
-    hb.t:SetText("You're hosting")
-    hb.sub = H.Text(hb, "GameFontHighlightSmall", 10.5, 0.74, 0.71, 0.6)
-    hb.sub:SetPoint("LEFT", hb.t, "RIGHT", 8, 0)
-    hb.more = UI():CreateSleekMenuButton(hb, "More", 76, function(rootDesc) Board:HostMenu(rootDesc) end, 22)
-    hb.more:SetPoint("RIGHT", -12, 0)
-    hb.pause = UI():CreateSleekButton(hb, "Pause", 80, 22, function() Board:TogglePause() end)
-    hb.pause:SetPoint("RIGHT", hb.more, "LEFT", -6, 0)
-    local pfs = hb.pause:GetFontString()
-    H.Sized(pfs, 11)
-    pfs:ClearAllPoints()
-    pfs:SetPoint("CENTER", 8, 0)
-    hb.pause.icon = hb.pause:CreateTexture(nil, "ARTWORK")
-    hb.pause.icon:SetSize(12, 12)
-    hb.pause.icon:SetPoint("RIGHT", pfs, "LEFT", -6, 0)
-    hb.pause:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        local paused = L():IsPaused(state.occ)
-        GameTooltip:AddLine(paused and "Resume" or "Pause")
-        GameTooltip:AddLine(paused and "The clocks and timers go on from where they stopped."
-            or "Stops the event's clocks and timers (no-shows too) until you resume. Duels still count.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    hb.pause:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    hb:Hide()
-    f.hostbar = hb
+    ------------------------------------------------------------------ the host's controls
+    lay:ShowNotice("info", "You're hosting")
+    lay:HideNotice()
+    tb:SetMore(function(rootDesc) Board:HostMenu(rootDesc) end, "Change a result, add or remove a player, hand over hosting, end the event.")
+    tb:SetPrimary({ text = "Pause", icon = UI().ICON.pause, onClick = function() Board:TogglePause() end })
+    f.hostbar = HostBar(lay)
+    f.hostbar:Hide()
 
     ------------------------------------------------------------------ the bracket and the rail
-    local br = CreateFrame("Frame", nil, root)
-    br:SetPoint("TOPLEFT", BR_X, -BR_Y)
-    br:SetSize(BR_W, CH - BR_Y - BOTTOM)
+    local body = lay.body
+    local br = CreateFrame("Frame", nil, body)
+    br:SetPoint("TOPLEFT", 0, 0)
+    br:SetSize(BR_W, BodyHeight())
     br.cards, br.lines, br.heads, br.rows = {}, {}, {}, {}
     f.br = br
     -- the champion's slot over the final
     local ch = CreateFrame("Frame", nil, br)
     ch:SetSize(112, 96)
-    ch.halo = H.Disc(ch, "BACKGROUND", 0, 60, 1, 0.82, 0, 0.05)
+    ch.halo = H.Disc(ch, "BACKGROUND", 0, 60, GOLD[1], GOLD[2], GOLD[3], 0.05)
     ch.halo:SetPoint("TOP", 0, 4)
-    ch.outer = H.Disc(ch, "BACKGROUND", 1, 52, 1, 0.82, 0, 0.4)
+    ch.outer = H.Disc(ch, "BACKGROUND", 1, 52, GOLD[1], GOLD[2], GOLD[3], 0.4)
     ch.outer:SetPoint("TOP", 0, 0)
-    ch.inner = H.Disc(ch, "BACKGROUND", 2, 50, BG[1], BG[2], BG[3], 1)
+    ch.inner = H.Disc(ch, "BACKGROUND", 2, 50, FLOOR[1], FLOOR[2], FLOOR[3], 1)
     ch.inner:SetPoint("CENTER", ch.outer)
     ch.cup = ch:CreateTexture(nil, "ARTWORK")
     ch.cup:SetSize(26, 26)
     ch.cup:SetPoint("CENTER", ch.outer)
-    ch.t = H.Text(ch, "GameFontHighlightSmall", 10, GREY[1], GREY[2], GREY[3])
-    ch.t:SetJustifyH("CENTER")
+    ch.t = UI():Text(ch, "caps", "SUB", { justify = "CENTER" })
     ch.t:SetPoint("TOP", ch.outer, "BOTTOM", 0, -6)
-    ch.n = H.Text(ch, "GameFontHighlightSmall", 11, 0.37, 0.37, 0.4)
-    ch.n:SetJustifyH("CENTER")
+    ch.n = UI():Text(ch, "body", "DIM", { justify = "CENTER" })
     ch.n:SetPoint("TOP", ch.t, "BOTTOM", 0, -2)
     br.champ = ch
-    -- a line under the empty board ("Waiting for the host's board")
-    br.note = H.Text(br, "GameFontHighlight", 12, GREY[1], GREY[2], GREY[3])
-    br.note:SetJustifyH("CENTER")
-    br.note:SetWordWrap(true)
-    br.note:SetWidth(BR_W - 80)
-    br.note:SetPoint("CENTER", 0, 20)
+    -- a line under the players' grid ("The bracket is drawn when sign-up closes.")
+    br.note = UI():Text(br, "body", "SUB", { justify = "CENTER", wrap = true, width = BR_W - 80 })
+    br.note:SetPoint("BOTTOM", 0, 8)
 
-    local rail = CreateFrame("Frame", nil, root)
-    rail:SetPoint("TOPRIGHT", -12, -BR_Y)
-    rail:SetSize(RAIL_W, CH - BR_Y - BOTTOM)
+    local rail = CreateFrame("Frame", nil, body)
+    rail:SetPoint("TOPRIGHT", 0, 0)
+    rail:SetSize(RAIL_W, BodyHeight())
     rail.nows, rail.moms, rail.heads = {}, {}, {}
     f.rail = rail
 
     ------------------------------------------------------------------ the dispute card (the host's)
-    local d = CreateFrame("Frame", nil, root)
+    local d = UI():CreateCard(body, { tone = "card" })
     d:SetSize(DISP_W, 170)
-    d:SetFrameLevel(root:GetFrameLevel() + 20)
-    d.bg = d:CreateTexture(nil, "BACKGROUND")
-    d.bg:SetAllPoints()
-    d.bg:SetTexture(WHITE)
-    EUI():Gradient(d.bg, "VERTICAL", 0.09, 0.078, 0.055, 1, 1)
-    if d.bg.SetGradient and CreateColor then
-        d.bg:SetGradient("VERTICAL", CreateColor(0.09, 0.078, 0.055, 1), CreateColor(0.122, 0.102, 0.071, 1))
-    end
-    UI():AddEdges(d, "BORDER", true)
-    UI():SetEdgeColor(d, 1, 0.55, 0.1, 0.7)
-    -- a soft shadow: what lies close around the card dims
-    d.shadow = d:CreateTexture(nil, "BACKGROUND", nil, -1)
-    d.shadow:SetPoint("TOPLEFT", -6, 4)
-    d.shadow:SetPoint("BOTTOMRIGHT", 6, -10)
-    d.shadow:SetColorTexture(0, 0, 0, 0.45)
-    d.shadow2 = d:CreateTexture(nil, "BACKGROUND", nil, -2)
-    d.shadow2:SetPoint("TOPLEFT", -16, 12)
-    d.shadow2:SetPoint("BOTTOMRIGHT", 16, -20)
-    d.shadow2:SetColorTexture(0, 0, 0, 0.3)
+    d:SetFrameLevel(body:GetFrameLevel() + 20)
+    d:EnableMouse(true)
+    local we = Tok("WARN", 0.7)
+    UI():SetEdgeColor(d, we[1], we[2], we[3], we[4])
     d.icon = d:CreateTexture(nil, "ARTWORK")
     d.icon:SetSize(15, 15)
     d.icon:SetTexture(WARN)
     d.icon:SetPoint("TOPLEFT", 12, -10)
-    d.h1 = H.Text(d, "GameFontHighlight", 12.5, 1, 0.81, 0.6)
+    d.h1 = UI():Text(d, "emph", "WARN")
     d.h1:SetPoint("LEFT", d.icon, "RIGHT", 7, 0)
-    d.p = H.Text(d, "GameFontHighlightSmall", 11, 0.81, 0.81, 0.81)
-    d.p:SetWordWrap(true)
+    d.p = UI():Text(d, "body", "TEXT", { wrap = true, width = DISP_W - 24 })
     d.p:SetSpacing(2)
-    d.p:SetWidth(DISP_W - 24)
     d.p:SetPoint("TOPLEFT", 12, -32)
     d.cl = {}
     for i = 1, 2 do
         local r = {}
         r.cls = d:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(16, 16)
-        r.name = H.Text(d, "GameFontHighlight", 11.5)
+        r.name = UI():Text(d, "body", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 7, 0)
-        r.says = H.Text(d, "GameFontHighlightSmall", 10.5, GREY[1], GREY[2], GREY[3])
-        r.says:SetJustifyH("RIGHT")
+        r.says = UI():Text(d, "small", "SUB", { justify = "RIGHT" })
         d.cl[i] = r
     end
     d.btns = {}
     for i = 1, 3 do
-        local b = UI():CreateSleekButton(d, "", 80, 22, function(self) Board:AnswerDispute(self.answer, self.replay) end)
-        H.Sized(b:GetFontString(), 11)
+        local b = UI():CreateSleekButton(d, "", 80, S.BTN_H, function(self) Board:AnswerDispute(self.answer, self.replay) end)
         d.btns[i] = b
     end
     d:Hide()
     f.dispute = d
 
     ------------------------------------------------------------------ a confirm sheet over the board
-    local dim = CreateFrame("Frame", nil, root)
-    dim:SetAllPoints()
-    dim:SetFrameLevel(root:GetFrameLevel() + 40)
-    dim:EnableMouse(true)
-    dim.bg = dim:CreateTexture(nil, "BACKGROUND")
-    dim.bg:SetAllPoints()
-    dim.bg:SetColorTexture(0, 0, 0, 0.6)
-    local sh = CreateFrame("Frame", nil, dim)
-    sh:SetSize(320, 130)
-    sh:SetPoint("CENTER", 0, 30)
-    H.Panel(sh, { 0.09, 0.09, 0.106, 1 }, { 0.47, 0.47, 0.51, 0.75 })
-    sh.t = H.Text(sh, "GameFontNormal", 14)
-    sh.t:SetPoint("TOPLEFT", 14, -14)
-    sh.p = H.Text(sh, "GameFontHighlightSmall", 11, 0.81, 0.81, 0.81)
-    sh.p:SetWordWrap(true)
+    local sh = UI():CreateSheet(f, { width = 340, height = 150, cancel = "Keep going",
+        ok = { text = "OK", kind = "danger", width = 90, onClick = function(self)
+            local fn = self.fn
+            self.fn = nil
+            self:Close()
+            if fn then fn() end
+        end } })
+    sh.p = UI():Text(sh.body, "body", "TEXT", { wrap = true, width = 340 - 2 * UI().SHEET.PAD })
     sh.p:SetSpacing(2)
-    sh.p:SetWidth(292)
-    sh.p:SetPoint("TOPLEFT", sh.t, "BOTTOMLEFT", 0, -8)
-    sh.no = UI():CreateSleekButton(sh, "Keep going", nil, 24, function() dim:Hide() end)
-    sh.no:SetPoint("BOTTOMRIGHT", -12, 12)
-    sh.yes = UI():CreateSleekButton(sh, "OK", nil, 24, function()
-        dim:Hide()
-        if dim.fn then dim.fn() end
-    end, "danger")
-    sh.yes:SetPoint("RIGHT", sh.no, "LEFT", -6, 0)
-    dim.sheet = sh
-    dim:SetScript("OnMouseDown", function(self) self:Hide() end)
-    dim:Hide()
-    f.confirm = dim
+    sh.p:SetPoint("TOPLEFT", 0, 0)
+    f.confirm = sh
 
     -- the clocks tick once a second (the rest redraws on a change)
     f.tick = 0
@@ -801,7 +664,7 @@ local function CreateWindow()
     end)
     f:HookScript("OnHide", function()
         if L() and L().Unwatch then L():Unwatch() end
-        if f.confirm then f.confirm:Hide() end
+        if f.confirm then f.confirm:Close() end
         if UI().CloseMenus then UI():CloseMenus() end
     end)
     f:Hide()
@@ -814,42 +677,45 @@ end
 
 function Board:ShareRef()
     local occ = state.occ
-    if not occ or occ == "practice" or DemoOn() or not ns.Share then return nil end
+    if not occ or occ == "practice" or ns.Util.DemoOn() or not ns.Share then return nil end
     local ref = "event:" .. occ
     if ns.Share:Describe(ref) then return ref end
     if ns.Share:Describe("events") then return "events" end
     return nil
 end
 
+-- The chip's looks: "you" (blue: my next match, my place, my tag) and the live one (my match is on).
+-- TODO(refactor): move into UI.CHIP_LOOK (UI/Comp/Controls.lua): a "live" chip look (red edge, warm text).
+local CHIP_LIVE = { fill = { 0.075, 0.045, 0.045, 1 }, edge = Tok("LIVE", 0.8), text = { 1, 0.85, 0.8 } }
+
 local function RefreshHeader(occ, st, def, bk)
     local hdr = win.hdr
-    EUI():SetArt(hdr.art, def and def.art, CW, HDR_H, 0.5, 0.6, 0.98)
+    local banner = hdr.banner
     local name = def and def.name or "Event"
     win:SetWindowTitle(name)
+    banner:SetArt({ EUI():ArtCoords(def and def.art, BODY_W, S.BANNER.tool, 0.5, 0.6, 0.98) })
+    banner:SetIcon(def and def.icon or nil)
+    banner:SetTitle(name)
     -- the pill: Practice, Ended, Paused, Live
     if occ == "practice" then
-        hdr.pill:SetKind("Practice", "practice")
+        banner:SetPill("ok", "Practice")
     elseif st and (st.phase == "done" or st.phase == "cancelled") then
-        hdr.pill:SetKind(st.phase == "cancelled" and "Cancelled" or "Ended", "ended")
+        banner:SetPill("ended", st.phase == "cancelled" and "Cancelled" or "Ended")
     elseif st and st.paused then
-        hdr.pill:SetKind("Paused", "paused")
+        banner:SetPill("warn", "Paused")
     elseif st and st.phase == "live" then
-        hdr.pill:SetKind("Live", "live")
+        banner:SetPill("live", "Live")
     else
-        hdr.pill:SetKind("Not started", "ended")
+        banner:SetPill("ended", "Not started")
     end
-    -- the right side: watching, share, more
-    local share = hdr.share
-    if share then share:SetShown(Board:ShareRef() ~= nil) end
-    HeaderLayout()
+    -- the sub line: where it is, how many watch
     local n = st and tonumber(st.watch) or 0
-    hdr.watch:SetText(n > 0 and (n .. " watching") or "")
-    hdr.watch:SetShown(n > 0)
-    hdr.eye:SetShown(n > 0)
-    local rightW = 12 + 22 + ((share and share:IsShown()) and 28 or 0) + (n > 0 and (12 + (hdr.watch:GetStringWidth() or 0) + 18) or 0)
-    local titleW = CW - 14 - hdr.pill:GetWidth() - 9 - rightW - 16
-    H.Fit(hdr.title, name, titleW, 18, 13)
-    hdr.title:SetWidth(titleW)
+    local parts = {}
+    if H.Where(occ) then parts[#parts + 1] = H.Where(occ) end
+    if n > 0 then parts[#parts + 1] = UI():AtlasIconText(UI().ICON.eye, 13) .. " " .. n .. " watching" end
+    banner:SetSub(#parts > 0 and tconcat(parts, "  ·  ") or nil)
+    -- the tools: More, Share
+    banner:SetTools(Board:ShareRef() and { MORE_TOOL, SHARE_TOOL } or { MORE_TOOL })
     -- the stage progress; the chip
     local sub = st and def and EUI():StageSub(def, st) or nil
     hdr.prog:Set(def, st, sub)
@@ -858,60 +724,39 @@ local function RefreshHeader(occ, st, def, bk)
     local me = Me()
     local m = bk and H.MyNext(bk, me)
     local live = st and st.phase == "live"
+    local text, rgb, key, look
     if live and m and m.st == "play" then
-        chip:SetPillColors({ 0.075, 0.045, 0.045, 1 }, { 1, 0.38, 0.29, 0.8 })
-        chip.fs:SetTextColor(1, 0.85, 0.8)
-        chip.fs:SetText("Your match is on")
+        text, key, look = "Your match is on", H.Opp(m, me), CHIP_LIVE
         chip.tip = { "Your match is on", "Duel " .. H.Plain(H.Opp(m, me)) .. (H.Place(occ) and (" at " .. H.Place(occ)) or "")
             .. ". Each duel counts by itself." }
     elseif live and m and m.st == "wait" and m.a and m.b and bk.r == m.r then
-        chip:SetPillColors({ 0.055, 0.055, 0.066, 1 }, { 0.4, 0.72, 1, 0.75 })
-        chip.fs:SetTextColor(0.84, 0.93, 1)
-        chip.fs:SetText("You're up next")
+        text, key = "You're up next", H.Opp(m, me)
         chip.tip = { "You're up next", "vs " .. H.Plain(H.Opp(m, me)) .. " · best of " .. H.BoOf(bk, m) }
-    else
-        m = nil
-    end
-    -- an event without Matches: my place by its board's score ("You're 3rd") or my tag ("You: Hiders")
-    local p2
-    if not m and st and def and not bk and (st.phase == "live" or st.phase == "done") then p2 = Board:MyChip(occ, st, def) end
-    chip.dot:Hide()
-    chip.dotEdge:Hide()
-    if m then
-        H.SetClass(chip.cls, H.Opp(m, me))
-        chip.cls:Show()
-        chip:SetWidth(floor(6 + 15 + 6 + H.Width(chip.fs) + 10 + 0.5))
-        chip:Show()
-    elseif p2 then
-        chip:SetPillColors({ 0.055, 0.055, 0.066, 1 }, { 0.4, 0.72, 1, 0.75 })
-        chip.fs:SetTextColor(0.84, 0.93, 1)
-        chip.fs:SetText(p2.text)
-        chip.fs:ClearAllPoints()
-        if p2.rgb then
-            chip.cls:Hide()
-            chip.dot:SetVertexColor(p2.rgb[1], p2.rgb[2], p2.rgb[3], 1)
-            chip.dot:Show()
-            chip.dotEdge:Show()
-            chip.fs:SetPoint("LEFT", chip.dot, "RIGHT", 6, 0)
-            chip:SetWidth(floor(8 + 8 + 6 + H.Width(chip.fs) + 10 + 0.5))
-        else
-            H.SetClass(chip.cls, me)
-            chip.cls:Show()
-            chip.fs:SetPoint("LEFT", chip.cls, "RIGHT", 6, 0)
-            chip:SetWidth(floor(6 + 15 + 6 + H.Width(chip.fs) + 10 + 0.5))
+    elseif st and def and not bk and (st.phase == "live" or st.phase == "done") then
+        -- an event without Matches: my place by its board's score ("You're 3rd") or my tag ("You: Hiders")
+        local p2 = Board:MyChip(occ, st, def)
+        if p2 then
+            text, rgb, key = p2.text, p2.rgb, (not p2.rgb) and me or nil
+            chip.tip = p2.tip
         end
-        chip.tip = p2.tip
+    end
+    if text then
+        chip:Set(text, rgb, key)
+        if look then
+            chip:SetPillColors(look.fill, look.edge)
+            chip.fs:SetTextColor(look.text[1], look.text[2], look.text[3])
+        end
         chip:Show()
     else
         chip:Hide()
     end
-    if not p2 then
-        chip.fs:ClearAllPoints()
-        chip.fs:SetPoint("LEFT", chip.cls, "RIGHT", 6, 0)
-    end
     -- the progress line and the chip share the row: no sub text when they would touch (then only the current
     -- stage's name)
-    local room = CW - 14 - 12 - (chip:IsShown() and (chip:GetWidth() + 16) or 0)
+    local room = BODY_W - (chip:IsShown() and (chip:GetWidth() + 16) or 0)
+    if Board:IsHost() and st ~= nil then
+        local tb = win.layout.toolbar
+        room = room - (tb.primary and tb.primary:GetWidth() or 90) - S.BTN_H - 2 * UI().LAYOUT.CTRL_GAP
+    end
     hdr.prog:SetMaxWidth(room)
     if (hdr.prog:GetWidth() or 0) > room then hdr.prog:Set(def, st, sub) end
 end
@@ -922,78 +767,71 @@ end
 
 local function NewRow(c)
     local r = {}
-    r.seed = H.Text(c, "GameFontHighlightSmall", 9, 0.37, 0.37, 0.4)
-    r.seed:SetJustifyH("RIGHT")
+    r.seed = UI():Text(c, "caps", "DIM", { justify = "RIGHT" })
     r.cls = c:CreateTexture(nil, "ARTWORK")
-    r.name = H.Text(c, "GameFontHighlight", 11)
-    r.score = H.Text(c, "GameFontHighlight", 12)
-    r.score:SetJustifyH("RIGHT")
+    r.name = UI():Text(c, "body", "TEXT")
+    r.score = UI():Text(c, "emph", "TEXT", { justify = "RIGHT" })
     return r
 end
 
-local function CardTip(self)
+-- (the tooltips below are UI:AttachTooltip fillers: it owns and shows the tooltip; false = none this time)
+local function CardTip(self, tip)
     local m, bk = self.m, self.bk
-    if not m or not bk then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    if not m or not bk then return false end
     local bo = H.BoOf(bk, m)
     local title = (bk.fmt == "robin") and ("Round " .. m.r) or H.MatchLabel(bk, m)
     if m.final then title = "The final" end
-    GameTooltip:AddLine(title .. "  |cff9e9e9e· best of " .. bo .. "|r")
+    tip:AddLine(title .. "  " .. S:Wrap("SUB", "· best of " .. bo))
     for _, side in ipairs({ "a", "b" }) do
         local k = m[side]
         if type(k) == "string" then
-            GameTooltip:AddDoubleLine(H.Name(k), (m.st == "play" or m.st == "done") and tostring(side == "a" and m.wa or m.wb) or "",
+            tip:AddDoubleLine(H.Name(k), (m.st == "play" or m.st == "done") and tostring(side == "a" and m.wa or m.wb) or "",
                 1, 1, 1, 1, 1, 1)
         end
     end
     local occ = state.occ
     if m.st == "play" then
-        GameTooltip:AddLine("Playing for " .. H.Clock(H.Now(occ) - (m.t or H.Now(occ))) .. ", game " .. ((m.g or 0) + 1),
+        tip:AddLine("Playing for " .. H.Clock(H.Now(occ) - (m.t or H.Now(occ))) .. ", game " .. ((m.g or 0) + 1),
             1, 0.55, 0.5)
     elseif m.st == "done" then
         local loser = H.Opp(m, m.win)
         local how = m.wo and " (walkover)" or ""
         if m.te and m.t then how = how .. " in " .. H.Clock(m.te - m.t) end
-        GameTooltip:AddLine(H.Plain(m.win) .. " won" .. (loser and (" against " .. H.Plain(loser)) or "") .. how, 0.62, 0.62, 0.62, true)
+        tip:AddLine(H.Plain(m.win) .. " won" .. (loser and (" against " .. H.Plain(loser)) or "") .. how,
+            GREY[1], GREY[2], GREY[3], true)
     elseif m.st == "bye" then
-        GameTooltip:AddLine("A bye: " .. H.Plain(m.win) .. " goes through.", 0.62, 0.62, 0.62)
+        tip:AddLine("A bye: " .. H.Plain(m.win) .. " goes through.", GREY[1], GREY[2], GREY[3])
     else
-        GameTooltip:AddLine("Not started yet", 0.62, 0.62, 0.62)
+        tip:AddLine("Not started yet", GREY[1], GREY[2], GREY[3])
     end
     if Board:IsHost() and (m.st == "play" or m.st == "wait") and m.a and m.b then
-        GameTooltip:AddLine("Click: decide this match", 1, 0.82, 0)
+        tip:AddLine("Click: decide this match", GOLD[1], GOLD[2], GOLD[3])
     end
-    GameTooltip:Show()
 end
 
+-- A match card: a card (UI:CreateCard) of two rows, a hairline between them; a match being played has the live
+-- edge, a soft red glow around it and a red dot on its corner, my next match the blue edge.
 function NewCard(parent)
-    local c = CreateFrame("Frame", nil, parent)
+    local c = UI():CreateCard(parent, { tone = "card" })
     c:EnableMouse(true)
     c:SetSize(CARD_W, 39)
     c.glow2 = c:CreateTexture(nil, "BACKGROUND", nil, -3)
     c.glow2:SetPoint("TOPLEFT", -4, 4)
     c.glow2:SetPoint("BOTTOMRIGHT", 4, -4)
-    c.glow2:SetColorTexture(1, 0.35, 0.27, 0.06)
+    c.glow2:SetColorTexture(RED[1], RED[2], RED[3], 0.06)
     c.glow = c:CreateTexture(nil, "BACKGROUND", nil, -2)
     c.glow:SetPoint("TOPLEFT", -2, 2)
     c.glow:SetPoint("BOTTOMRIGHT", 2, -2)
-    c.glow:SetColorTexture(1, 0.35, 0.27, 0.12)
-    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 0)
-    c.bg:SetAllPoints()
-    c.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-    UI():AddEdges(c, "BORDER", true)
-    c.div = c:CreateTexture(nil, "BORDER", nil, 1)
-    c.div:SetHeight(1)
-    c.div:SetColorTexture(1, 1, 1, 0.06)
+    c.glow:SetColorTexture(RED[1], RED[2], RED[3], 0.12)
+    c.div = UI():Rule(c, { layer = "BORDER" })
     c.rows = { NewRow(c), NewRow(c) }
-    c.dotGlow = H.Disc(c, "OVERLAY", 0, 16, 1, 0.35, 0.27, 0.3)
+    c.dotGlow = H.Disc(c, "OVERLAY", 0, 16, RED[1], RED[2], RED[3], 0.3)
     c.dotGlow:SetPoint("CENTER", c, "TOPRIGHT", 0, 0)
-    c.dotRing = H.Disc(c, "OVERLAY", 1, 11, BG[1], BG[2], BG[3], 1)
+    c.dotRing = H.Disc(c, "OVERLAY", 1, 11, FLOOR[1], FLOOR[2], FLOOR[3], 1)
     c.dotRing:SetPoint("CENTER", c, "TOPRIGHT", 0, 0)
     c.dot = H.Disc(c, "OVERLAY", 2, 8, RED[1], RED[2], RED[3], 1)
     c.dot:SetPoint("CENTER", c, "TOPRIGHT", 0, 0)
-    c:SetScript("OnEnter", CardTip)
-    c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(c, CardTip)
     c:SetScript("OnMouseUp", function(self, button)
         if button ~= "LeftButton" then return end
         local m = self.m
@@ -1048,9 +886,9 @@ local function FillRow(c, r, bk, key, look, score, tbd)
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 5, 0)
         H.Fit(r.name, H.Plain(key), nameW, lay.fsize, max(8, lay.fsize - 3))
         r.name:SetWidth(nameW)
-        local col = ns.Util.IsMe(key) and YOU_ROW or (look == "w" and { 1, 1, 1 } or GREY)
+        local col = ns.Util.IsMe(key) and YOU or (look == "w" and { 1, 1, 1 } or GREY)
         r.name:SetTextColor(col[1], col[2], col[3])
-        if look == "w" then r.score:SetTextColor(1, 1, 1) else r.score:SetTextColor(0.47, 0.47, 0.49) end
+        if look == "w" then r.score:SetTextColor(1, 1, 1) else r.score:SetTextColor(DIM[1], DIM[2], DIM[3]) end
         r.name:Show()
         r.seed:SetShown(lay.seedW > 0)
     else
@@ -1061,10 +899,10 @@ local function FillRow(c, r, bk, key, look, score, tbd)
         r.name:SetPoint("LEFT", c, "TOPLEFT", r.tbdX, select(5, r.cls:GetPoint(1)) or 0)
         H.FitAny(r.name, tbd or { "" }, w, lay.fsize, max(8, lay.fsize - 3), true)
         r.name:SetWidth(w)
-        r.name:SetTextColor(TBD[1], TBD[2], TBD[3])
+        r.name:SetTextColor(DIM[1], DIM[2], DIM[3])
         r.name:Show()
     end
-    if key == me then r.name:SetTextColor(YOU_ROW[1], YOU_ROW[2], YOU_ROW[3]) end
+    if key == me then r.name:SetTextColor(YOU[1], YOU[2], YOU[3]) end
 end
 
 -- Fills a card from a match. look: "live" | "next" | "plain".
@@ -1086,7 +924,7 @@ local function FillCard(c, bk, m, look)
             FillRow(c, r, bk, nil, "tbd", nil, m.st == "bye" and { "bye" } or H.SlotText(bk, m, side))
         end
     end
-    local e = look == "live" and LIVE_EDGE or (look == "next" and NEXT_EDGE or CARD_EDGE)
+    local e = look == "live" and LIVE_EDGE or (look == "next" and NEXT_EDGE or S.C.EDGE)
     UI():SetEdgeColor(c, e[1], e[2], e[3], e[4])
     local live = look == "live"
     c.glow:SetShown(live)
@@ -1121,15 +959,13 @@ local function Head(i)
     local br = win.br
     local fs = br.heads[i]
     if not fs then
-        fs = H.Text(br, "GameFontHighlightSmall", 10)
+        fs = UI():Text(br, "caps", "SUB")
         br.heads[i] = fs
     end
     return fs
 end
 
-local function HideFrom(list, n)
-    for i = n, #list do list[i]:Hide() end
-end
+local function HideFrom(list, n) UI():HideFrom(list, n) end
 
 -- When the champion should be known: "about 22:00" (the matches left at the pace so far).
 local function Eta(bk, now)
@@ -1272,16 +1108,16 @@ function Board:DrawTree(bk, st, height)
     champ:SetPoint("TOP", br, "TOPLEFT", X(R) + cw / 2, -max(16, floor(fy - chh / 2 - 100 + 0.5)))
     local won = bk.done and bk.champ
     if won then
-        EUI():Glyph(champ.cup, UI().ICON.trophy, 1, 0.82, 0, 1)
-        champ.outer:SetVertexColor(1, 0.82, 0, 0.85)
-        champ.halo:SetVertexColor(1, 0.82, 0, 0.12)
+        EUI():Glyph(champ.cup, UI().ICON.trophy, GOLD[1], GOLD[2], GOLD[3], 1)
+        champ.outer:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.85)
+        champ.halo:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.12)
         champ.t:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
         champ.t:SetText("CHAMPION")
         H.Fit(champ.n, H.Name(bk.champ), 150, 12, 10)
     else
         EUI():Glyph(champ.cup, UI().ICON.trophy, 0.75, 0.75, 0.75, 0.45)
-        champ.outer:SetVertexColor(1, 0.82, 0, 0.4)
-        champ.halo:SetVertexColor(1, 0.82, 0, 0.05)
+        champ.outer:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.4)
+        champ.halo:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.05)
         champ.t:SetTextColor(GREY[1], GREY[2], GREY[3])
         champ.t:SetText("CHAMPION")
         local eta = st.phase == "live" and Eta(bk, H.Now(state.occ))
@@ -1339,31 +1175,23 @@ local function RobinRow(i)
     if not r then
         r = CreateFrame("Frame", nil, br)
         r:SetSize(272, 22)
-        r.band = r:CreateTexture(nil, "BACKGROUND")
-        r.band:SetAllPoints()
-        r.rank = H.Text(r, "GameFontHighlightSmall", 10, GREY[1], GREY[2], GREY[3])
-        r.rank:SetJustifyH("RIGHT")
+        UI():DecorateRow(r, { stripe = true, hover = false })
+        r.rank = UI():Text(r, "small", "SUB", { justify = "RIGHT" })
         r.rank:SetPoint("RIGHT", r, "LEFT", 18, 0)
         r.cls = r:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(14, 14)
         r.cls:SetPoint("LEFT", 26, 0)
-        r.name = H.Text(r, "GameFontHighlight", 11)
+        r.name = UI():Text(r, "body", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 6, 0)
-        r.w = H.Text(r, "GameFontHighlight", 11)
-        r.w:SetJustifyH("RIGHT")
+        r.w = UI():Text(r, "body", "TEXT", { justify = "RIGHT" })
         r.w:SetPoint("RIGHT", r, "RIGHT", -64, 0)
-        r.d = H.Text(r, "GameFontHighlight", 11)
-        r.d:SetJustifyH("RIGHT")
+        r.d = UI():Text(r, "body", "TEXT", { justify = "RIGHT" })
         r.d:SetPoint("RIGHT", r, "RIGHT", -8, 0)
         -- ("+12 more": who they are)
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", function(self)
-            if not self.rest then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            for _, k in ipairs(self.rest) do GameTooltip:AddLine(H.Name(k)) end
-            GameTooltip:Show()
+        UI():AttachTooltip(r, function(self, tip)
+            if not self.rest then return false end
+            for _, k in ipairs(self.rest) do tip:AddLine(H.Name(k)) end
         end)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
         br.rows[i] = r
     end
     r.rest = nil
@@ -1431,7 +1259,7 @@ function Board:DrawRobin(bk, st, height)
         r:SetSize(272, rowH)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", br, "TOPLEFT", 0, -(20 + (i - 1) * rowH))
-        r.band:SetColorTexture(1, 1, 1, (i % 2 == 0) and 0.025 or 0)
+        r:SetStripe(i)
         r.rank:SetText(tostring(e.rank))
         if e.rank == 1 and row.w > 0 then r.rank:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else r.rank:SetTextColor(GREY[1], GREY[2], GREY[3]) end
         H.SetClass(r.cls, row.k)
@@ -1439,8 +1267,8 @@ function Board:DrawRobin(bk, st, height)
         r.name:SetWidth(272 - 46 - 100)
         r.w:SetText(tostring(row.w))
         r.d:SetText((row.d > 0 and "+" or "") .. row.d)
-        if row.d > 0 then r.d:SetTextColor(0.62, 0.94, 0.69) elseif row.d < 0 then r.d:SetTextColor(GREY[1], GREY[2], GREY[3])
-        else r.d:SetTextColor(0.8, 0.8, 0.8) end
+        if row.d > 0 then r.d:SetTextColor(S:Color("OK")) elseif row.d < 0 then r.d:SetTextColor(GREY[1], GREY[2], GREY[3])
+        else r.d:SetTextColor(S:Color("TEXT")) end
         r:Show()
     end
     if rest then
@@ -1448,7 +1276,7 @@ function Board:DrawRobin(bk, st, height)
         r:SetSize(272, rowH)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", br, "TOPLEFT", 0, -(20 + #list * rowH))
-        r.band:SetColorTexture(0, 0, 0, 0)
+        r:SetStripe(false)
         MoreRow(r, rest)
         r:Show()
     end
@@ -1503,7 +1331,7 @@ function Board:DrawPlayers(st, def, height, note)
     local fs = Head(1)
     fs:ClearAllPoints()
     fs:SetPoint("TOPLEFT", br, "TOPLEFT", 2, 0)
-    fs:SetText((open and "SIGNED UP" or "PLAYERS") .. "  |cff9e9e9e" .. #list .. "|r")
+    fs:SetText((open and "SIGNED UP" or "PLAYERS") .. "  " .. S:Wrap("SUB", #list))
     H.Sized(fs, 10)
     fs:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     fs:Show()
@@ -1528,7 +1356,7 @@ function Board:DrawPlayers(st, def, height, note)
         r:SetSize(colW - 6, rowH)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", br, "TOPLEFT", col * colW - 20, -(20 + row * rowH))
-        r.band:SetColorTexture(0, 0, 0, 0)
+        r:SetStripe(false)
         return r
     end
     for i, k in ipairs(list) do
@@ -1564,15 +1392,13 @@ end
 -- The rail: now, up next, moments
 ---------------------------------------------------------------------------
 
+-- The rail's sections: caps headers (UI:CreateSectionHeader) over cards and rows.
+local RAIL_HEAD = 18 + 5
 local function RailHead(i)
     local rail = win.rail
     local h = rail.heads[i]
     if not h then
-        h = CreateFrame("Frame", nil, rail)
-        h:SetSize(RAIL_W, 16)
-        h.pill = H.NewPill(h, 16)
-        h.pill:SetPoint("LEFT")
-        h.fs = H.Text(h, "GameFontHighlightSmall", 10, GREY[1], GREY[2], GREY[3])
+        h = UI():CreateSectionHeader(rail, "", { style = "caps", width = RAIL_W })
         rail.heads[i] = h
     end
     return h
@@ -1582,29 +1408,28 @@ local function NowCard(i)
     local rail = win.rail
     local c = rail.nows[i]
     if not c then
-        c = CreateFrame("Frame", nil, rail)
+        c = UI():CreateCard(rail, { tone = "card" })
         c:EnableMouse(true)
         c:SetSize(RAIL_W, 81)
-        H.Panel(c, CARD_BG, { 1, 0.38, 0.29, 0.7 })
+        UI():SetEdgeColor(c, LIVE_EDGE[1], LIVE_EDGE[2], LIVE_EDGE[3], 0.7)
         c.rows = {}
         for k = 1, 2 do
             local r = {}
             r.cls = c:CreateTexture(nil, "ARTWORK")
             r.cls:SetSize(18, 18)
             r.cls:SetPoint("LEFT", c, "TOPLEFT", 10, -(9 + 11 + (k - 1) * 22))
-            r.name = H.Text(c, "GameFontHighlight", 12)
+            r.name = UI():Text(c, "emph", "TEXT")
             r.name:SetPoint("LEFT", r.cls, "RIGHT", 7, 0)
             r.pips = H.NewPips(c, 8, 3)
             r.pips:SetPoint("RIGHT", c, "TOPRIGHT", -10, -(9 + 11 + (k - 1) * 22))
             c.rows[k] = r
         end
-        c.where = H.Text(c, "GameFontHighlightSmall", 10.5, GREY[1], GREY[2], GREY[3])
+        c.where = UI():Text(c, "small", "SUB")
         c.where:SetPoint("BOTTOMLEFT", 10, 9)
-        c.clock = H.Text(c, "GameFontHighlightSmall", 10.5, 1, 0.71, 0.66)
+        c.clock = UI():Text(c, "small", { 1, 0.71, 0.66 })
         c.clock:SetJustifyH("RIGHT")
         c.clock:SetPoint("BOTTOMRIGHT", -10, 9)
-        c:SetScript("OnEnter", CardTip)
-        c:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(c, CardTip)
         rail.nows[i] = c
     end
     return c
@@ -1620,12 +1445,10 @@ local function MomentRow(i)
         r.icon:SetSize(16, 16)
         r.icon:SetPoint("TOPLEFT", 0, -1)
         r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        r.fs = H.Text(r, "GameFontHighlightSmall", 11, 0.82, 0.82, 0.82)
-        r.fs:SetWordWrap(true)
+        r.fs = UI():Text(r, "body", "TEXT", { wrap = true, width = RAIL_W - 24 })
         r.fs:SetSpacing(2)
-        r.fs:SetWidth(RAIL_W - 24)
         r.fs:SetPoint("TOPLEFT", 24, 0)
-        r.t = H.Text(r, "GameFontHighlightSmall", 10, 0.44, 0.44, 0.46)
+        r.t = UI():Text(r, "small", "DIM")
         r.t:SetPoint("TOPLEFT", r.fs, "BOTTOMLEFT", 0, -2)
         rail.moms[i] = r
     end
@@ -1636,25 +1459,22 @@ local function NextCard()
     local rail = win.rail
     local c = rail.next
     if not c then
-        c = CreateFrame("Frame", nil, rail)
+        c = UI():CreateCard(rail, { tone = "card" })
         c:SetSize(RAIL_W, 56)
-        c.bg = c:CreateTexture(nil, "BACKGROUND")
-        c.bg:SetAllPoints()
-        UI():AddEdges(c, "BORDER", true)
         c.c1 = c:CreateTexture(nil, "ARTWORK")
         c.c1:SetSize(18, 18)
         c.c1:SetPoint("LEFT", c, "TOPLEFT", 10, -19)
-        c.n1 = H.Text(c, "GameFontHighlight", 12)
+        c.n1 = UI():Text(c, "emph", "TEXT")
         c.n1:SetPoint("LEFT", c.c1, "RIGHT", 7, 0)
-        c.vs = H.Text(c, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+        c.vs = UI():Text(c, "body", "SUB")
         c.vs:SetText("vs")
         c.vs:SetPoint("LEFT", c.n1, "RIGHT", 7, 0)
         c.c2 = c:CreateTexture(nil, "ARTWORK")
         c.c2:SetSize(18, 18)
         c.c2:SetPoint("LEFT", c.vs, "RIGHT", 7, 0)
-        c.n2 = H.Text(c, "GameFontHighlight", 12)
+        c.n2 = UI():Text(c, "emph", "TEXT")
         c.n2:SetPoint("LEFT", c.c2, "RIGHT", 7, 0)
-        c.sub = H.Text(c, "GameFontHighlightSmall", 10.5, GREY[1], GREY[2], GREY[3])
+        c.sub = UI():Text(c, "small", "SUB")
         c.sub:SetPoint("TOPLEFT", 10, -35)
         rail.next = c
     end
@@ -1669,20 +1489,19 @@ local function PodiumRow(i)
     if not r then
         r = CreateFrame("Frame", nil, rail)
         r:SetSize(RAIL_W, 24)
-        r.place = H.Text(r, "GameFontNormal", 12)
-        r.place:SetJustifyH("CENTER")
+        r.place = UI():Text(r, "emph", "GOLD", { justify = "CENTER" })
         r.place:SetPoint("CENTER", r, "LEFT", 8, 0)
         r.cls = r:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(18, 18)
         r.cls:SetPoint("LEFT", 22, 0)
-        r.name = H.Text(r, "GameFontHighlight", 12)
+        r.name = UI():Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 7, 0)
         rail.pods[i] = r
     end
     return r
 end
 
-local PLACE_COLOR = { { 1, 0.82, 0 }, { 0.86, 0.89, 0.95 }, { 0.86, 0.56, 0.32 } }
+local PLACE_COLOR = { { GOLD[1], GOLD[2], GOLD[3] }, { 0.86, 0.89, 0.95 }, { 0.86, 0.56, 0.32 } }
 
 local function ElapsedOf(st, m, occ)
     local now = H.Now(occ)
@@ -1695,30 +1514,25 @@ function Board:DrawRail(occ, st, def, bk, height)
     local me = Me()
     local y = 0
     local nhead, nnow = 0, 0
-    local function head(text, pill, kind)
+    -- title, count (the now section's "2 matches"), right ("paused")
+    local function head(title, count, right)
         nhead = nhead + 1
         local h = RailHead(nhead)
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -y)
-        h.fs:ClearAllPoints()
-        if pill then
-            h.pill:SetKind(pill, kind)
-            h.pill:Show()
-            h.fs:SetPoint("LEFT", h.pill, "RIGHT", 6, 0)
-        else
-            h.pill:Hide()
-            h.fs:SetPoint("LEFT", 0, 0)
-        end
-        h.fs:SetText(text or "")
+        h:SetTitle(title)
+        h:SetCount(count)
+        h:SetRight(right)
         h:Show()
-        y = y + 16 + 5
+        y = y + RAIL_HEAD
     end
     local live = st.phase == "live"
     ------------------------------------------------ now
     local playing = (bk and live) and H.Playing(bk) or {}
     if #playing > 0 then
         local first = playing[1]
-        head(#playing == 1 and ("game " .. ((first.g or 0) + 1)) or (#playing .. " matches"), "Now", st.paused and "paused" or "live")
+        head("Now", #playing == 1 and ("game " .. ((first.g or 0) + 1)) or (#playing .. " matches"),
+            st.paused and S:Wrap("WARN", "paused") or nil)
         local place = H.Place(occ)
         for k = 1, min(2, #playing) do
             local m = playing[k]
@@ -1748,7 +1562,7 @@ function Board:DrawRail(occ, st, def, bk, height)
         end
         y = y + 4
     end
-    for i = nnow + 1, #rail.nows do rail.nows[i]:Hide() end
+    UI():HideFrom(rail.nows, nnow + 1)
     ------------------------------------------------ the result (the bracket is done)
     local npod = 0
     if bk and bk.done and bk.champ then
@@ -1784,12 +1598,11 @@ function Board:DrawRail(occ, st, def, bk, height)
         local c = NextCard()
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -y)
+        c:SetTone("card")
         if mine then
-            c.bg:SetColorTexture(0.4, 0.72, 1, 0.06)
-            UI():SetEdgeColor(c, 0.4, 0.72, 1, 0.45)
-        else
-            c.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-            UI():SetEdgeColor(c, CARD_EDGE[1], CARD_EDGE[2], CARD_EDGE[3], CARD_EDGE[4])
+            -- (mine: the card in the "you" blue)
+            c.bg:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.06)
+            UI():SetEdgeColor(c, YOU[1], YOU[2], YOU[3], 0.45)
         end
         local a, b = nextM.a, nextM.b
         if mine and b == me then a, b = b, a end
@@ -1805,7 +1618,7 @@ function Board:DrawRail(occ, st, def, bk, height)
             tex:Hide()
             fs:SetPoint("LEFT", tex, "LEFT", 0, 0)
             local ok = H.FitAny(fs, H.SlotText(bk, nextM, slot), w + 25, size - 1, size - 1, true)
-            fs:SetTextColor(TBD[1] + 0.15, TBD[2] + 0.15, TBD[3] + 0.15)
+            fs:SetTextColor(S:Color("SUB"))
             return ok
         end
         local sa, sb = (a == nextM.a) and "a" or "b", (b == nextM.b) and "b" or "a"
@@ -1866,7 +1679,7 @@ function Board:DrawRail(occ, st, def, bk, height)
         for _, m in ipairs(moms) do
             local r = MomentRow(nm + 1)
             r.icon:SetTexture(m.i or (def and def.icon) or "Interface\\Icons\\INV_Misc_QuestionMark")
-            r.fs:SetTextColor(0.82, 0.82, 0.82)
+            r.fs:SetTextColor(S:Color("TEXT"))
             r.fs:SetText(H.ColorNames(m.text, keys))
             r.t:SetText(m.at and date("%H:%M", m.at) or "")
             local hgt = (r.fs:GetStringHeight() or 15) + 2 + 12
@@ -1883,7 +1696,7 @@ function Board:DrawRail(occ, st, def, bk, height)
             nm = 1
             r.icon:SetTexture(def and def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             r.fs:SetText("Upsets, fast duels and comebacks show up here as they happen.")
-            r.fs:SetTextColor(0.55, 0.55, 0.57)
+            r.fs:SetTextColor(S:Color("DIM"))
             r.t:SetText("")
             r:SetHeight((r.fs:GetStringHeight() or 30) + 4)
             r:ClearAllPoints()
@@ -1891,8 +1704,8 @@ function Board:DrawRail(occ, st, def, bk, height)
             r:Show()
         end
     end
-    for i = nm + 1, #rail.moms do rail.moms[i]:Hide() end
-    for i = nhead + 1, #rail.heads do rail.heads[i]:Hide() end
+    UI():HideFrom(rail.moms, nm + 1)
+    UI():HideFrom(rail.heads, nhead + 1)
 end
 
 -- The clocks of the matches being played (once a second).
@@ -1925,7 +1738,7 @@ local MAP_H, MAP_MIN = 250, 150
 local COL_ROW, LB_ROW, RACE_ROW = 26, 42, 37
 local SECRET = "Where players are stays secret"
 local TEAL = { 0.337, 0.839, 0.941 }
-local MEDAL_TEXT = { { 1, 0.82, 0 }, { 0.875, 0.894, 0.925 }, { 0.91, 0.64, 0.416 } }
+local MEDAL_TEXT = { { GOLD[1], GOLD[2], GOLD[3] }, { 0.875, 0.894, 0.925 }, { 0.91, 0.64, 0.416 } }
 
 local function EachPiece(def, fn)
     B():EachScript(def, function(s) B():Walk(s.top, fn) end)
@@ -2145,76 +1958,48 @@ end
 
 local function ScoreText(def, sid, n) return n ~= nil and B():FormatScore(def, sid, n) or "" end
 
--- (the "you" row: a blue tint and a blue bar on its left)
-local function YouBand(r, on)
-    r.band:SetColorTexture(0.4, 0.72, 1, 0.08)
-    r.band:SetShown(on)
-    r.bar:SetShown(on)
+-- The rows of the views are UI:DecorateRow rows (a hairline under each); "you" is the selected look in the "you"
+-- blue (a tint and a 2 px bar on the left).
+-- TODO(refactor): move into UI:DecorateRow (UI/Comp/Surfaces.lua): a "you" selected look (YOU wash + YOU bar).
+local function YouBand(r, on) r:SetSelected(on) end
+
+local function NewBand(r, rule)
+    UI():DecorateRow(r, { selectable = true, hover = false, rule = rule })
+    r.dzSelFill:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.08)
+    r.dzSelBar:SetColorTexture(YOU[1], YOU[2], YOU[3], 1)
+    r.band, r.bar = r.dzSelFill, r.dzSelBar
 end
 
-local function NewBand(r)
-    r.band = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-    r.band:SetAllPoints()
-    r.bar = r:CreateTexture(nil, "BACKGROUND", nil, 2)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.bar:SetWidth(2)
-    r.bar:SetColorTexture(0.4, 0.72, 1, 1)
-end
-
-local function NameTip(self)
-    if not self.key then return end
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(H.Name(self.key))
-    for _, l in ipairs(self.tip or {}) do GameTooltip:AddLine(l, 0.85, 0.85, 0.85, true) end
-    GameTooltip:Show()
+local function NameTip(self, tip)
+    if not self.key then return false end
+    tip:AddLine(H.Name(self.key))
+    for _, l in ipairs(self.tip or {}) do tip:AddLine(l, 0.85, 0.85, 0.85, true) end
 end
 
 ---------------------------------------------------------------------------
 
 local function KV()
     if win.kv then return win.kv end
-    local kv = CreateFrame("Frame", nil, win.root)
+    local kv = CreateFrame("Frame", nil, win.body)
     kv:SetAllPoints()
-    kv:SetFrameLevel(win.root:GetFrameLevel() + 2)
+    kv:SetFrameLevel(win.body:GetFrameLevel() + 2)
     kv.map = EUI():CreateZoneMap(kv, MAIN_W, MAP_H)
-    -- "Where players are stays secret"
-    local sc = CreateFrame("Frame", nil, kv.map.top)
-    sc:SetSize(100, 22)
-    UI():AddPillShape(sc, 22)
-    sc:SetPillColors({ 0.055, 0.055, 0.066, 0.78 }, { 0.43, 0.43, 0.47, 0.6 })
-    sc.eye = sc:CreateTexture(nil, "ARTWORK")
-    sc.eye:SetSize(12, 12)
-    sc.eye:SetPoint("LEFT", 8, 0)
-    EUI():Glyph(sc.eye, UI().ICON.eye, 0.62, 0.62, 0.66, 1)
-    sc.fs = H.Text(sc, "GameFontHighlightSmall", 11, 0.91, 0.91, 0.91)
-    sc.fs:SetPoint("LEFT", sc.eye, "RIGHT", 6, 0)
-    sc.fs:SetText(SECRET)
-    sc:SetWidth(floor(8 + 12 + 6 + H.Width(sc.fs) + 10 + 0.5))
+    -- "Where players are stays secret" (a chip on the map)
+    local sc = UI():CreateChip(kv.map.top, { kind = "track", text = UI():AtlasIconText(UI().ICON.eye, 12) .. " " .. SECRET })
     sc:SetPoint("TOPLEFT", kv.map, "TOPLEFT", 10, -9)
-    sc:EnableMouse(true)
-    sc:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-        GameTooltip:AddLine(SECRET)
-        GameTooltip:AddLine("The map shows the event's places. Where the players are isn't sent to anyone; only the host's "
-            .. "addon uses it, for the pieces that need it.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    sc:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(sc, SECRET, { "The map shows the event's places. Where the players are isn't sent to anyone; "
+        .. "only the host's addon uses it, for the pieces that need it." }, { anchor = "ANCHOR_BOTTOMRIGHT" })
     kv.secret = sc
     kv.route = { lines = {}, cps = {}, dots = {} }
     kv.cols, kv.lbRows, kv.raceRows, kv.tabs = {}, {}, {}, {}
     -- the leaderboard's and the race's header rows
+    -- (a table's column names over a hairline)
     local function header(n)
         local h = CreateFrame("Frame", nil, kv)
         h:SetHeight(24)
-        h.line = h:CreateTexture(nil, "BORDER")
-        h.line:SetPoint("BOTTOMLEFT")
-        h.line:SetPoint("BOTTOMRIGHT")
-        h.line:SetHeight(1)
-        h.line:SetColorTexture(1, 1, 1, 0.09)
+        h.line = UI():Rule(h, { bottom = 0, layer = "BORDER" })
         h.fs = {}
-        for i = 1, n do h.fs[i] = H.Text(h, "GameFontHighlightSmall", 10.5, GREY[1], GREY[2], GREY[3]) end
+        for i = 1, n do h.fs[i] = UI():Text(h, "small", "SUB") end
         return h
     end
     kv.lbHead = header(4)
@@ -2222,19 +2007,9 @@ local function KV()
     -- my splits under my row of the race
     local sp = CreateFrame("Frame", nil, kv)
     sp:SetHeight(50)
-    sp.bg = sp:CreateTexture(nil, "BACKGROUND")
-    sp.bg:SetAllPoints()
-    sp.bg:SetColorTexture(0.4, 0.72, 1, 0.05)
-    sp.bar = sp:CreateTexture(nil, "BACKGROUND", nil, 1)
-    sp.bar:SetPoint("TOPLEFT")
-    sp.bar:SetPoint("BOTTOMLEFT")
-    sp.bar:SetWidth(2)
-    sp.bar:SetColorTexture(0.4, 0.72, 1, 1)
-    sp.line = sp:CreateTexture(nil, "BORDER")
-    sp.line:SetPoint("BOTTOMLEFT")
-    sp.line:SetPoint("BOTTOMRIGHT")
-    sp.line:SetHeight(1)
-    sp.line:SetColorTexture(1, 1, 1, 0.035)
+    NewBand(sp, true)
+    sp.band:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.05)
+    sp:SetSelected(true)
     sp.cells = {}
     kv.splits = sp
     -- the rail of these views
@@ -2242,10 +2017,9 @@ local function KV()
     rail:SetSize(RAIL_W, 100)
     rail.heads, rail.times, rail.prizes, rail.moms = {}, {}, {}, {}
     kv.rail = rail
-    -- a note in the middle of an empty view
-    kv.note = H.Text(kv, "GameFontHighlight", 12, GREY[1], GREY[2], GREY[3])
-    kv.note:SetJustifyH("CENTER")
-    kv.note:SetWordWrap(true)
+    -- an empty view says so (UI:CreateEmptyState, compact)
+    kv.note = UI():CreateEmptyState(kv, { compact = true, glyph = UI().ICON.eye })
+    kv.note:Hide()
     win.kv = kv
     return kv
 end
@@ -2277,7 +2051,7 @@ local function DrawPlacesMap(occ, def, st, v, x, y, w, h)
     local kv = win.kv
     local m = kv.map
     m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -y)
+    m:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -y)
     m:SetSize2(w, h)
     local map = MapOfPlaces(v.places)
     m:SetMap(map)
@@ -2341,9 +2115,7 @@ local function Checkpoint(i)
         c.edge:SetPoint("CENTER")
         c.disc = H.Disc(c, "ARTWORK", 2, 17, TEAL[1], TEAL[2], TEAL[3], 1)
         c.disc:SetPoint("CENTER")
-        c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        EUI():Narrow(c.fs, 10)
-        c.fs:SetShadowOffset(0, 0)
+        c.fs = UI():Text(c, 10, { 1, 1, 1 }, { font = EUI().NARROW_FONT, shadow = false })
         c.fs:SetPoint("CENTER", 0.5, 0)
         c.flag = c:CreateTexture(nil, "OVERLAY")
         c.flag:SetSize(11, 11)
@@ -2388,9 +2160,7 @@ local function RouteDot(i)
         d.edge:SetPoint("CENTER")
         d.disc = H.Disc(d, "ARTWORK", 3, 9, 1, 1, 1, 1)
         d.disc:SetPoint("CENTER")
-        d:EnableMouse(true)
-        d:SetScript("OnEnter", NameTip)
-        d:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(d, NameTip)
         r.dots[i] = d
     end
     return d
@@ -2405,20 +2175,20 @@ local function Column(i)
     local c = kv.cols[i]
     if not c then
         c = CreateFrame("Frame", nil, kv)
-        c.dotEdge = H.Disc(c, "ARTWORK", 1, 11, 0, 0, 0, 1)
-        c.dot = H.Disc(c, "ARTWORK", 2, 9, 1, 1, 1, 1)
+        -- the column's head: a section header (the tag's name in gold, the score's at the right, a hairline under
+        -- them) with the tag's colour dot before the name
+        c.head = UI():CreateSectionHeader(c, "", { style = "title" })
+        c.head:SetPoint("TOPLEFT", 0, 0)
+        c.head:SetPoint("TOPRIGHT", 0, 0)
+        c.title, c.right, c.line = c.head.title, c.head.right, c.head.rule
+        c.dotEdge = H.Disc(c.head, "ARTWORK", 1, 11, 0, 0, 0, 1)
+        c.dot = H.Disc(c.head, "ARTWORK", 2, 9, 1, 1, 1, 1)
         c.dot:SetPoint("CENTER", c, "TOPLEFT", 6.5, -12)
         c.dotEdge:SetPoint("CENTER", c.dot)
-        c.title = H.Text(c, "GameFontNormal", 12, GOLD[1], GOLD[2], GOLD[3])
+        c.title:ClearAllPoints()
         c.title:SetPoint("LEFT", c, "TOPLEFT", 18, -12)
-        c.right = H.Text(c, "GameFontHighlightSmall", 10.5, GREY[1], GREY[2], GREY[3])
-        c.right:SetJustifyH("RIGHT")
+        c.right:ClearAllPoints()
         c.right:SetPoint("RIGHT", c, "TOPRIGHT", -2, -12)
-        c.line = c:CreateTexture(nil, "BORDER")
-        c.line:SetPoint("TOPLEFT", 0, -24)
-        c.line:SetPoint("TOPRIGHT", 0, -24)
-        c.line:SetHeight(1)
-        c.line:SetColorTexture(1, 1, 1, 0.08)
         c.rows = {}
         kv.cols[i] = c
     end
@@ -2434,26 +2204,17 @@ local function ColRow(c, i)
         r.cls = r:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(18, 18)
         r.cls:SetPoint("LEFT", 6, 0)
-        r.name = H.Text(r, "GameFontHighlight", 12)
+        r.name = UI():Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 8, 0)
-        r.val = H.Text(r, "GameFontHighlight", 13)
-        EUI():Narrow(r.val, 13)
-        r.val:SetJustifyH("RIGHT")
+        r.val = UI():Text(r, "title", "TEXT", { justify = "RIGHT", font = S.FONT_NUM })
         r.val:SetPoint("RIGHT", -6, 0)
-        r.more = H.Text(r, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+        r.more = UI():Text(r, "body", "SUB")
         r.more:SetPoint("LEFT", 8, 0)
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", function(self)
-            if self.rest then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine(self.restTitle or "More")
-                for _, k in ipairs(self.rest) do GameTooltip:AddLine(H.Name(k)) end
-                GameTooltip:Show()
-            else
-                NameTip(self)
-            end
+        UI():AttachTooltip(r, function(self, tip)
+            if not self.rest then return NameTip(self, tip) end
+            tip:AddLine(self.restTitle or "More")
+            for _, k in ipairs(self.rest) do tip:AddLine(H.Name(k)) end
         end)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
         c.rows[i] = r
     end
     return r
@@ -2500,7 +2261,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         c:ClearAllPoints()
         local cx = x + (i - 1) * (cw + gap)
         local width = (i == n) and (x + w - cx) or cw
-        c:SetPoint("TOPLEFT", win.root, "TOPLEFT", cx, -y)
+        c:SetPoint("TOPLEFT", win.body, "TOPLEFT", cx, -y)
         c:SetSize(width, h)
         if col.rgb then
             c.dot:SetVertexColor(col.rgb[1], col.rgb[2], col.rgb[3], 1)
@@ -2546,12 +2307,12 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
                 r.cls:SetTexture(EUI().MASK)
                 r.cls:SetTexCoord(0, 1, 0, 1)
                 r.cls:SetDesaturated(false)
-                local c3 = t.rgb or { 0.8, 0.8, 0.8 }
+                local c3 = t.rgb or S.C.TEXT
                 r.cls:SetVertexColor(c3[1], c3[2], c3[3], 1)
                 r.cls:SetSize(10, 10)
                 r.cls:Show()
                 r.val:SetText(tostring(#t.keys))
-                r.val:SetTextColor(0.91, 0.91, 0.91)
+                r.val:SetTextColor(S:Color("TEXT"))
                 -- (the name starts after the dot: 6 + 10 + 8; the count at the right)
                 H.Fit2(r.name, t.title, width - 6 - 10 - 8 - 6 - (H.Width(r.val) + 8), 12, 10)
                 r.name:SetTextColor(1, 1, 1)
@@ -2607,7 +2368,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             end
             r.val:SetText(text)
             local dim = val == nil or tonumber(val) == 0
-            if dim then r.val:SetTextColor(0.44, 0.44, 0.46) else r.val:SetTextColor(0.91, 0.91, 0.91) end
+            r.val:SetTextColor(S:Color(dim and "DIM" or "TEXT"))
             local vw = text ~= "" and (H.Width(r.val) + 8) or 0
             H.Fit2(r.name, H.Name(k), width - 6 - 18 - 8 - 6 - vw, 12, 10)
             r.name:Show()
@@ -2636,7 +2397,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         c:Show()
         end
     end
-    for i = n + 1, #win.kv.cols do win.kv.cols[i]:Hide() end
+    UI():HideFrom(win.kv.cols, n + 1)
 end
 
 ---------------------------------------------------------------------------
@@ -2649,51 +2410,34 @@ local function LbRow(i)
     if not r then
         r = CreateFrame("Frame", nil, kv)
         r:SetHeight(LB_ROW)
-        NewBand(r)
-        r.top = r:CreateTexture(nil, "BACKGROUND", nil, 0)
-        r.top:SetAllPoints()
-        r.top:SetColorTexture(1, 0.82, 0, 0.035)
-        r.line = r:CreateTexture(nil, "BORDER")
-        r.line:SetPoint("BOTTOMLEFT")
-        r.line:SetPoint("BOTTOMRIGHT")
-        r.line:SetHeight(1)
-        r.line:SetColorTexture(1, 1, 1, 0.04)
+        NewBand(r, true)
+        -- (the top three: a faint gold wash)
+        r.top = UI():Fill(r, Tok("GOLD", 0.035), "BACKGROUND", 0)
+        r.line = r.dzRule
         r.medal = EUI():CreateMedal(r, 24)
         r.medal:SetPoint("CENTER", r, "LEFT", 8 + 12, 0)
-        r.rank = H.Text(r, "GameFontHighlight", 15, 0.78, 0.78, 0.78)
-        EUI():Narrow(r.rank, 15)
-        r.rank:SetJustifyH("CENTER")
+        r.rank = UI():Text(r, "title", "TEXT", { justify = "CENTER", font = S.FONT_NUM })
         r.rank:SetPoint("CENTER", r, "LEFT", 8 + 12, 0)
         r.cls = r:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(22, 22)
         r.cls:SetPoint("LEFT", 8 + 24 + 10, 0)
-        r.name = H.Text(r, "GameFontHighlight", 12.5)
+        r.name = UI():Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 10, 0)
-        r.score = H.Text(r, "GameFontHighlight", 18, 1, 1, 1)
-        EUI():Narrow(r.score, 18)
-        r.score:SetJustifyH("RIGHT")
+        r.score = UI():Text(r, "page", { 1, 1, 1 }, { justify = "RIGHT", font = S.FONT_NUM })
         r.icon = r:CreateTexture(nil, "ARTWORK")
         r.icon:SetSize(18, 18)
         r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        r.last = H.Text(r, "GameFontHighlightSmall", 11, 0.81, 0.81, 0.81)
-        r.ago = H.Text(r, "GameFontHighlightSmall", 10.5, 0.44, 0.44, 0.46)
-        r.ago:SetJustifyH("RIGHT")
+        r.last = UI():Text(r, "body", "TEXT")
+        r.ago = UI():Text(r, "small", "DIM", { justify = "RIGHT" })
         r.ago:SetPoint("RIGHT", -10, 0)
-        r.track = r:CreateTexture(nil, "ARTWORK")
+        r.track = UI():Fill(r, "HAIRLINE", "ARTWORK")
+        r.track:ClearAllPoints()
         r.track:SetHeight(4)
-        r.track:SetColorTexture(1, 1, 1, 0.07)
         r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
         r.fill:SetHeight(4)
-        r.fill:SetTexture(WHITE)
-        if r.fill.SetGradient and CreateColor then
-            r.fill:SetGradient("HORIZONTAL", CreateColor(0.18, 0.5, 0.66, 1), CreateColor(0.42, 0.78, 0.94, 1))
-        else
-            r.fill:SetColorTexture(0.42, 0.78, 0.94, 1)
-        end
+        UI():Gradient(r.fill, "HORIZONTAL", { 0.18, 0.5, 0.66, 1 }, { 0.42, 0.78, 0.94, 1 })
         r.chip = EUI():CreateChip(r, "track")
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", NameTip)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(r, NameTip)
         kv.lbRows[i] = r
     end
     return r
@@ -2772,7 +2516,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
             n = n + 1
             t.sid = s.id
             t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", win.root, "TOPLEFT", tx, -y)
+            t:SetPoint("TOPLEFT", win.body, "TOPLEFT", tx, -y)
             t:SetActive(s.id == sc.id)
             t:Show()
             tx = tx + tw + 4
@@ -2786,7 +2530,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
         tx = x
         for _, t in ipairs(shownTabs) do
             t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", win.root, "TOPLEFT", tx, -y)
+            t:SetPoint("TOPLEFT", win.body, "TOPLEFT", tx, -y)
             tx = tx + t:GetWidth() + 4
         end
         if #rest > 0 then
@@ -2795,11 +2539,11 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
             t.sid, t.rest = nil, rest
             t:SetLabel("+" .. #rest .. " more")
             t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", win.root, "TOPLEFT", tx, -y)
+            t:SetPoint("TOPLEFT", win.body, "TOPLEFT", tx, -y)
             t:SetActive(false)
             t:Show()
         end
-        for i = n + 1, #kv.tabs do kv.tabs[i]:Hide() end
+        UI():HideFrom(kv.tabs, n + 1)
         y, h = y + 24, h - 24
     else
         for _, t in ipairs(kv.tabs) do t:Hide() end
@@ -2808,7 +2552,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
     -- the header
     local hd = kv.lbHead
     hd:ClearAllPoints()
-    hd:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -y)
+    hd:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -y)
     hd:SetWidth(w)
     local f = hd.fs
     local nameX, scoreR = 8 + 24 + 10 + 22 + 10, 8 + 24 + 10 + 22 + 10 + 132 + 10 + 48
@@ -2837,7 +2581,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
         local e = list[idx]
         local r = LbRow(j)
         r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
+        r:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -ry)
         r:SetWidth(w)
         r.key, r.tip = e.key, nil
         local isMe = ns.Util.IsMe(e.key)
@@ -2857,8 +2601,8 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
         r.score:ClearAllPoints()
         r.score:SetPoint("RIGHT", r, "LEFT", scoreR, 0)
         local text = e.n ~= nil and ScoreText(def, sc.id, e.n) or ((sc.high ~= false and (sc.fmt or "num") == "num") and "0" or "")
-        H.Fit(r.score, text, 48 + 10, 18, 12)
-        if e.n == nil then r.score:SetTextColor(0.44, 0.44, 0.46) else r.score:SetTextColor(1, 1, 1) end
+        H.Fit(r.score, text, 48 + 10, 17, 12)
+        if e.n == nil then r.score:SetTextColor(DIM[1], DIM[2], DIM[3]) else r.score:SetTextColor(1, 1, 1) end
         -- the last catch (its item, its name, how long ago); else a bar of the score against the leader's, and the
         -- player's tags
         local lx = scoreR + 10
@@ -2916,10 +2660,11 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
     for i = #pick + 1, #kv.lbRows do kv.lbRows[i]:Hide() end
     kv.note:Hide()
     if #pick == 0 then
+        kv.note:SetContent({ glyph = UI().ICON.eye, title = "Nobody is in the event yet.",
+            text = "The board fills in as the players join." })
+        kv.note:SetBoxWidth(w - 80)
         kv.note:ClearAllPoints()
-        kv.note:SetWidth(w - 80)
-        kv.note:SetPoint("TOP", win.root, "TOPLEFT", x + w / 2, -(y + 80))
-        kv.note:SetText("Nobody is in the event yet.")
+        kv.note:SetPoint("TOP", win.body, "TOPLEFT", x + w / 2, -(y + 60))
         kv.note:Show()
     end
 end
@@ -2962,38 +2707,33 @@ local function RaceRow(i)
     if not r then
         r = CreateFrame("Frame", nil, kv)
         r:SetHeight(RACE_ROW)
-        NewBand(r)
-        r.line = r:CreateTexture(nil, "BORDER")
-        r.line:SetPoint("BOTTOMLEFT")
-        r.line:SetPoint("BOTTOMRIGHT")
-        r.line:SetHeight(1)
-        r.line:SetColorTexture(1, 1, 1, 0.035)
-        r.rank = H.Text(r, "GameFontHighlight", 14, 0.85, 0.85, 0.85)
-        EUI():Narrow(r.rank, 14)
+        NewBand(r, true)
+        r.line = r.dzRule
+        r.rank = UI():Text(r, "title", "TEXT", { font = S.FONT_NUM })
         r.rank:SetPoint("LEFT", 8, 0)
         r.cls = r:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(20, 20)
         r.cls:SetPoint("LEFT", 34, 0)
-        r.name = H.Text(r, "GameFontHighlight", 12)
+        r.name = UI():Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 8, 0)
         r.segs = EUI():CreateSegments(r, 128, 6, "board")
         r.flag = r:CreateTexture(nil, "ARTWORK")
         r.flag:SetSize(12, 12)
         r.flag:SetPoint("LEFT", r.segs, "RIGHT", 4, 0)
-        EUI():Glyph(r.flag, UI().ICON.flag, 1, 0.82, 0)
-        r.time = H.Text(r, "GameFontHighlight", 13, 1, 1, 1)
-        EUI():Narrow(r.time, 13)
-        r.time:SetJustifyH("RIGHT")
-        r.gap = H.Text(r, "GameFontHighlight", 12, 0.69, 0.69, 0.71)
-        EUI():Narrow(r.gap, 12)
-        r.gap:SetJustifyH("RIGHT")
+        EUI():Glyph(r.flag, UI().ICON.flag, GOLD[1], GOLD[2], GOLD[3])
+        r.time = UI():Text(r, "title", { 1, 1, 1 }, { justify = "RIGHT", font = S.FONT_NUM })
+        r.gap = UI():Text(r, "emph", "SUB", { justify = "RIGHT", font = S.FONT_NUM })
         r.gap:SetPoint("RIGHT", -8, 0)
-        r.outfs = H.Text(r, "GameFontHighlightSmall", 10.5, 1, 0.54, 0.48)
-        r.outfs:SetJustifyH("RIGHT")
+        r.outfs = UI():Text(r, "small", "BAD", { justify = "RIGHT" })
         r.outfs:SetPoint("RIGHT", -8, 0)
-        r:EnableMouse(true)
-        r:SetScript("OnEnter", NameTip)
-        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(r, function(self, tip)
+            local rest = self.rest
+            if not rest then return NameTip(self, tip) end
+            for j, k in ipairs(rest) do
+                if j > 30 then tip:AddLine("and " .. (#rest - 30) .. " more", GREY[1], GREY[2], GREY[3]) break end
+                tip:AddLine(H.Name(k))
+            end
+        end)
         kv.raceRows[i] = r
     end
     return r
@@ -3077,7 +2817,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
     local routeX = timeR - 64 - 16 - 128
     local hd = kv.raceHead
     hd:ClearAllPoints()
-    hd:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -y)
+    hd:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -y)
     hd:SetWidth(w)
     local f = hd.fs
     f[1]:ClearAllPoints(); f[1]:SetPoint("LEFT", hd, "LEFT", 8, 0); f[1]:SetText("#")
@@ -3114,10 +2854,9 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         local r = RaceRow(j)
         r:SetHeight(rowH)
         r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
+        r:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -ry)
         r:SetWidth(w)
-        r.key = e.key
-        r:SetScript("OnEnter", NameTip)
+        r.key, r.rest = e.key, nil
         r.cls:Show()
         r.name:SetTextColor(1, 1, 1)
         r.tip = { e.fin and ("Finished" .. (e.score and (" in " .. ScoreText(def, sc and sc.id, e.score)) or ""))
@@ -3127,7 +2866,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         local rank = (e.out or (e.done == 0 and not e.fin)) and "–" or tostring(idx)
         r.rank:SetText(rank)
         local mc = MEDAL_TEXT[idx]
-        if mc and rank ~= "–" then r.rank:SetTextColor(mc[1], mc[2], mc[3]) else r.rank:SetTextColor(0.85, 0.85, 0.85) end
+        if mc and rank ~= "–" then r.rank:SetTextColor(mc[1], mc[2], mc[3]) else r.rank:SetTextColor(S:Color("TEXT")) end
         H.SetClass(r.cls, e.key, e.out)
         H.Fit(r.name, H.Name(e.key), routeX - 34 - 20 - 8 - 8, 12, 10)
         r.segs:ClearAllPoints()
@@ -3147,7 +2886,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
             end
         elseif e.last then
             r.time:SetText(H.Clock(e.last - base))
-            r.time:SetTextColor(0.55, 0.55, 0.58)
+            r.time:SetTextColor(S:Color("SUB"))
             local lt = lead[e.done]
             if lt and e.last > lt then r.gap:SetText("+" .. H.Clock(e.last - lt)) end
         else
@@ -3164,7 +2903,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         if isMe and showSplits then
             local sp = kv.splits
             sp:ClearAllPoints()
-            sp:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
+            sp:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -ry)
             sp:SetWidth(w)
             local first = max(1, min(n - 9, e.done - 7))
             local last = min(n, first + 9)
@@ -3184,11 +2923,9 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
                 local cell = sp.cells[c]
                 if c <= cells and not cell then
                     cell = {}
-                    cell.a = H.Text(sp, "GameFontHighlightSmall", 9.5, 0.47, 0.47, 0.49)
-                    cell.b = H.Text(sp, "GameFontHighlight", 12, 0.91, 0.91, 0.91)
-                    EUI():Narrow(cell.b, 12)
-                    cell.c = H.Text(sp, "GameFontHighlight", 11, 0.62, 0.62, 0.62)
-                    EUI():Narrow(cell.c, 11)
+                    cell.a = UI():Text(sp, "caps", "DIM")
+                    cell.b = UI():Text(sp, "emph", "TEXT", { font = S.FONT_NUM })
+                    cell.c = UI():Text(sp, "num", "SUB")
                     for _, t in ipairs({ cell.a, cell.b, cell.c }) do t:SetJustifyH("CENTER") end
                     sp.cells[c] = cell
                 end
@@ -3204,14 +2941,12 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
                         cell.a:SetText(tostring(j))
                         local t = tonumber(e.times[j])
                         if j <= e.done and t then
-                            cell.a:SetTextColor(0.47, 0.47, 0.49)
+                            cell.a:SetTextColor(DIM[1], DIM[2], DIM[3])
                             cell.b:SetText(H.Clock(t - base))
-                            cell.b:SetTextColor(0.91, 0.91, 0.91)
+                            cell.b:SetTextColor(S:Color("TEXT"))
                             local d = lead[j] and floor(t - lead[j] + 0.5) or 0
                             cell.c:SetText(Signed(d))
-                            if d > 0 then cell.c:SetTextColor(1, 0.54, 0.48)
-                            elseif d < 0 then cell.c:SetTextColor(0.44, 0.88, 0.54)
-                            else cell.c:SetTextColor(0.62, 0.62, 0.62) end
+                            cell.c:SetTextColor(S:Color(d > 0 and "BAD" or (d < 0 and "OK" or "SUB")))
                         elseif j == e.done + 1 and not e.fin then
                             cell.a:SetTextColor(EUI().TEAL_LT[1], EUI().TEAL_LT[2], EUI().TEAL_LT[3])
                             cell.b:SetText("next")
@@ -3219,7 +2954,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
                             cell.c:SetText(yards and (floor(yards + 0.5) .. " yd") or "")
                             cell.c:SetTextColor(EUI().TEAL_LT[1], EUI().TEAL_LT[2], EUI().TEAL_LT[3])
                         else
-                            cell.a:SetTextColor(0.35, 0.35, 0.37)
+                            cell.a:SetTextColor(DIM[1], DIM[2], DIM[3])
                             cell.b:SetText("")
                             cell.c:SetText("")
                         end
@@ -3241,7 +2976,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         local r = RaceRow(used)
         r:SetHeight(rowH)
         r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -ry)
+        r:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -ry)
         r:SetWidth(w)
         YouBand(r, false)
         r.key, r.tip = nil, nil
@@ -3256,17 +2991,10 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r.time:SetText("")
         r.gap:SetText("")
         r.outfs:SetText("")
-        r:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            for i, k in ipairs(rest) do
-                if i > 30 then GameTooltip:AddLine("and " .. (#rest - 30) .. " more", 0.62, 0.62, 0.62) break end
-                GameTooltip:AddLine(H.Name(k))
-            end
-            GameTooltip:Show()
-        end)
+        r.rest = rest
         r:Show()
     end
-    for i = used + 1, #kv.raceRows do kv.raceRows[i]:Hide() end
+    UI():HideFrom(kv.raceRows, used + 1)
     return racers, lead
 end
 
@@ -3276,7 +3004,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
     local kv = win.kv
     local m = kv.map
     m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -y)
+    m:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -y)
     m:SetSize2(w, h)
     local items = v.list and v.list.items or {}
     local start = StartPlace(def)
@@ -3332,7 +3060,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             s = s + 10
         end
     end
-    for i = nl + 1, #kv.route.lines do kv.route.lines[i]:Hide() end
+    UI():HideFrom(kv.route.lines, nl + 1)
     -- the places: the start's flag (also the finish of a loop), numbers for the rest; my next one glows
     local me = Me()
     local myNext
@@ -3366,7 +3094,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             if flag then
                 c.disc:SetSize(19, 19)
                 c.edge:SetSize(22, 22)
-                c.disc:SetVertexColor(1, 0.82, 0, 1)
+                c.disc:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
                 c.fs:SetText("")
                 c.flag:Show()
             else
@@ -3390,7 +3118,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             c:Show()
         end
     end
-    for i = nc + 1, #kv.route.cps do kv.route.cps[i]:Hide() end
+    UI():HideFrom(kv.route.cps, nc + 1)
     -- the racers on their leg: how far along by the time since their last place against the leader's for that leg
     local now = RunNow(occ, st) - (st.t0 or 0)
     local nd = 0
@@ -3444,7 +3172,7 @@ function Board:DrawRouteMap(occ, st, def, v, racers, lead, x, y, w, h)
             end
         end
     end
-    for i = nd + 1, #kv.route.dots do kv.route.dots[i]:Hide() end
+    UI():HideFrom(kv.route.dots, nd + 1)
     m:Show()
 end
 
@@ -3452,15 +3180,15 @@ end
 -- The rail of these views: asking now, time left, prizes, the last ask's result, moments
 ---------------------------------------------------------------------------
 
-local function RailText(rail, i, size, r, g, b)
+-- A text of the rail: style (a S.STYLE name), color (a token name or { r, g, b }).
+local function RailText(rail, i, style, color)
     rail.texts = rail.texts or {}
     local fs = rail.texts[i]
     if not fs then
-        fs = H.Text(rail, "GameFontHighlightSmall", size or 10, r or GREY[1], g or GREY[2], b or GREY[3])
+        fs = UI():Text(rail, style, color)
         rail.texts[i] = fs
     end
-    H.Sized(fs, size or 10)
-    fs:SetTextColor(r or GREY[1], g or GREY[2], b or GREY[3])
+    UI():SetTextStyle(fs, style, color)
     fs:SetWordWrap(false)
     fs:SetJustifyH("LEFT")
     fs:ClearAllPoints()
@@ -3475,10 +3203,9 @@ local function PrizeRow(rail, i)
         r:SetHeight(26)
         r.badge = EUI():CreateBadge(r, 20)
         r.badge:SetPoint("LEFT", -1, 0)
-        r.name = H.Text(r, "GameFontHighlight", 11.5, 0.88, 0.88, 0.88)
+        r.name = UI():Text(r, "body", "TEXT")
         r.name:SetPoint("LEFT", r.badge, "RIGHT", 6, 0)
-        r.how = H.Text(r, "GameFontHighlightSmall", 10.5, GREY[1], GREY[2], GREY[3])
-        r.how:SetJustifyH("RIGHT")
+        r.how = UI():Text(r, "small", "SUB", { justify = "RIGHT" })
         r.how:SetPoint("RIGHT", 0, 0)
         rail.prizes[i] = r
     end
@@ -3494,11 +3221,10 @@ local function KMoment(rail, i)
         r.icon:SetSize(16, 16)
         r.icon:SetPoint("TOPLEFT", 0, -1)
         r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        r.fs = H.Text(r, "GameFontHighlightSmall", 11, 0.82, 0.82, 0.82)
-        r.fs:SetWordWrap(true)
+        r.fs = UI():Text(r, "body", "TEXT", { wrap = true })
         r.fs:SetSpacing(2)
         r.fs:SetPoint("TOPLEFT", 24, 0)
-        r.t = H.Text(r, "GameFontHighlightSmall", 10, 0.44, 0.44, 0.46)
+        r.t = UI():Text(r, "small", "DIM")
         r.t:SetPoint("TOPLEFT", r.fs, "BOTTOMLEFT", 0, -2)
         rail.moms[i] = r
     end
@@ -3534,18 +3260,28 @@ end
 function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
     local rail = win.kv.rail
     rail:ClearAllPoints()
-    rail:SetPoint("TOPLEFT", win.root, "TOPLEFT", x, -y)
+    rail:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -y)
     rail:SetSize(w, h)
-    local nt, ntime, nprize, nmom = 0, 0, 0, 0
+    local nt, nh, ntime, nprize, nmom = 0, 0, 0, 0, 0
     for _, fs in ipairs(rail.texts or {}) do fs:Hide() end
+    for _, hd in ipairs(rail.heads) do hd:Hide() end
     rail.askHead, rail.askEnds = nil, nil
     local cy = 0
+    -- a section of the rail: a caps header (UI:CreateSectionHeader)
     local function head(text)
-        nt = nt + 1
-        local fs = RailText(rail, nt, 10, GREY[1], GREY[2], GREY[3])
-        fs:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
-        H.Fit(fs, text, w, 10, 9)
-        cy = cy + 16 + 5
+        nh = nh + 1
+        local hd = rail.heads[nh]
+        if not hd then
+            hd = UI():CreateSectionHeader(rail, "", { style = "caps", width = w })
+            rail.heads[nh] = hd
+        end
+        hd:ClearAllPoints()
+        hd:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
+        hd:SetPoint("TOPRIGHT", rail, "TOPRIGHT", 0, -cy)
+        hd:SetTitle(text)
+        hd:Show()
+        cy = cy + RAIL_HEAD
+        return hd
     end
     local now = H.Now(occ)
     -- asking now (the newest open ask): its question, how many answered
@@ -3564,17 +3300,17 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         local item = type(open.item) == "table" and open.item
         local l = item and type(def.lists) == "table" and def.lists[item.ql]
         if l and type(l.items) == "table" then prefix = "QUESTION " .. (item.qi or 1) .. " OF " .. #l.items .. " · " end
-        head(prefix .. H.Clock(left))
-        rail.askHead, rail.askEnds, rail.askPrefix = rail.texts[nt], tonumber(open.ends), prefix
+        rail.askHead = head(prefix .. H.Clock(left)).title
+        rail.askEnds, rail.askPrefix = tonumber(open.ends), prefix
         nt = nt + 1
-        local q = RailText(rail, nt, 12, 1, 1, 1)
+        local q = RailText(rail, nt, "emph", { 1, 1, 1 })
         q:SetWordWrap(true)
         q:SetWidth(w)
         q:SetText(tostring(open.q or (ad and ad.q) or (ad and ad.n) or ""))
         q:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
         cy = cy + (q:GetStringHeight() or 15) + 3
         nt = nt + 1
-        local s = RailText(rail, nt, 10.5, GREY[1], GREY[2], GREY[3])
+        local s = RailText(rail, nt, "small", "SUB")
         s:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
         s:SetText(ans .. " of " .. who .. " answered" .. ((ad and ad.secret) and " · counts stay hidden" or ""))
         cy = cy + 14 + 10
@@ -3598,7 +3334,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         c:Show()
         cy = cy + c:GetHeight() + 10
     end
-    for i = ntime + 1, #rail.times do rail.times[i]:Hide() end
+    UI():HideFrom(rail.times, ntime + 1)
     -- the prizes (when there is room for them and two moments)
     local prizes = PrizeHow(def)
     local moms = {}
@@ -3629,7 +3365,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
             end
             local how, place = e.how, e.place
             if #who > 0 then
-                how = H.Name(who[1]) .. (#who > 1 and ("|cff9e9e9e +" .. (#who - 1) .. "|r") or "")
+                how = H.Name(who[1]) .. (#who > 1 and S:Wrap("SUB", " +" .. (#who - 1)) or "")
                 place = false
             end
             r.how:SetText(how or "")
@@ -3637,8 +3373,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
                 EUI():Narrow(r.how, 13)
                 r.how:SetTextColor(1, 0.88, 0.54)
             else
-                r.how:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10.5, "")
-                r.how:SetTextColor(GREY[1], GREY[2], GREY[3])
+                UI():SetTextStyle(r.how, "small", "SUB")
             end
             -- name and how on one line; on two when they don't both fit
             local hw = how and (H.Width(r.how) + 8) or 0
@@ -3688,19 +3423,19 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         local total = 0
         for _, t in ipairs(tally) do total = total + t.n end
         nt = nt + 1
-        local top = RailText(rail, nt, 11.5, 1, 1, 1)
+        local top = RailText(rail, nt, "body", { 1, 1, 1 })
         top:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
         if tally[1] then
-            H.Fit(top, label(tally[1].v) .. "|cff9e9e9e · " .. tally[1].n .. " of " .. total .. "|r", w, 11.5, 9.5)
+            H.Fit(top, label(tally[1].v) .. S:Wrap("SUB", " · " .. tally[1].n .. " of " .. total), w, 11.5, 9.5)
         else
-            top:SetText("|cff9e9e9eNobody answered|r")
+            top:SetText(S:Wrap("SUB", "Nobody answered"))
         end
         cy = cy + 18
         for i = 2, min(4, #tally) do
             nt = nt + 1
-            local fs = RailText(rail, nt, 10.5, 0.82, 0.82, 0.82)
+            local fs = RailText(rail, nt, "small", "TEXT")
             fs:SetPoint("TOPLEFT", rail, "TOPLEFT", 0, -cy)
-            H.Fit(fs, label(tally[i].v) .. "|cff9e9e9e · " .. tally[i].n .. "|r", w, 10.5, 9)
+            H.Fit(fs, label(tally[i].v) .. S:Wrap("SUB", " · " .. tally[i].n), w, 10.5, 9)
             cy = cy + 18
         end
         cy = cy + 10
@@ -3716,7 +3451,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
             r:SetWidth(w)
             r.fs:SetWidth(w - 24)
             r.icon:SetTexture(m.i or (def and def.icon) or "Interface\\Icons\\INV_Misc_QuestionMark")
-            r.fs:SetTextColor(0.82, 0.82, 0.82)
+            r.fs:SetTextColor(S:Color("TEXT"))
             r.fs:SetText(H.ColorNames(m.text, keys))
             r.t:SetText(m.at and date("%H:%M", m.at) or "")
             local hgt = (r.fs:GetStringHeight() or 15) + 2 + 12
@@ -3735,7 +3470,7 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
             r.fs:SetWidth(w - 24)
             r.icon:SetTexture(def and def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             r.fs:SetText("Its moments show up here as they happen.")
-            r.fs:SetTextColor(0.55, 0.55, 0.57)
+            r.fs:SetTextColor(S:Color("DIM"))
             r.t:SetText("")
             r:SetHeight((r.fs:GetStringHeight() or 30) + 4)
             r:ClearAllPoints()
@@ -3756,8 +3491,9 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
         drawResult()
         drawMoments(h)
     end
-    for i = nprize + 1, #rail.prizes do rail.prizes[i]:Hide() end
-    for i = nmom + 1, #rail.moms do rail.moms[i]:Hide() end
+    UI():HideFrom(rail.prizes, nprize + 1)
+    UI():HideFrom(rail.moms, nmom + 1)
+    UI():HideFrom(rail.heads, nh + 1)
     rail:Show()
 end
 
@@ -3790,8 +3526,8 @@ function Board:DrawKinds(occ, st, def, v, top, height)
     kv.splits:Hide()
     kv.note:Hide()
     kv.map:Hide()
-    local x = BR_X
-    local railX = CW - 12 - RAIL_W
+    local x = 0
+    local railX = BODY_W - RAIL_W
     local br = win.br
     br:Hide()
     if v.layout == "race" then
@@ -3800,7 +3536,7 @@ function Board:DrawKinds(occ, st, def, v, top, height)
         local racers, lead = self:DrawRace(occ, st, def, v, x, top, tw, height)
         if withMap then
             local mx = x + tw + EUI().GAP
-            local mw = CW - 12 - mx
+            local mw = BODY_W - mx
             local mh = 228
             self:DrawRouteMap(occ, st, def, v, racers, lead, mx, top, mw, mh)
             self:DrawKindsRail(occ, st, def, v, mx, top + mh + EUI().GAP, mw, height - mh - EUI().GAP)
@@ -3841,7 +3577,7 @@ function Board:DrawKinds(occ, st, def, v, top, height)
     else
         -- who signed up (part 1's grid), in the room under the map
         br:ClearAllPoints()
-        br:SetPoint("TOPLEFT", win.root, "TOPLEFT", BR_X, -y)
+        br:SetPoint("TOPLEFT", win.body, "TOPLEFT", 0, -y)
         br:SetHeight(h)
         br:Show()
         self:DrawPlayers(st, def, h, v.signup and "It starts when the sign-up closes." or nil)
@@ -4027,7 +3763,7 @@ local function BuildDemo(e)
 end
 
 DemoKinds = function(occ)
-    if type(occ) ~= "string" or not occ:find("^kdemo%-") or not DemoOn() then return nil end
+    if type(occ) ~= "string" or not occ:find("^kdemo%-") or not ns.Util.DemoOn() then return nil end
     local d = demoRuns[occ]
     if d and d.st and GetTime() - (d.at or 0) < 900 then return d end
     for _, e in ipairs(Board.DEMO) do
@@ -4045,7 +3781,7 @@ Board.DemoKinds = function(_, occ) return DemoKinds(occ) end
 
 -- Demo mode: one of the part 2 boards (Board.DEMO's keys).
 function Board:OpenDemo(key)
-    if not DemoOn() then return false end
+    if not ns.Util.DemoOn() then return false end
     return self:Open(key)
 end
 
@@ -4054,10 +3790,11 @@ end
 ---------------------------------------------------------------------------
 
 local function RefreshHostBar(occ, st, bk, disputes)
-    local hb = win.hostbar
+    local lay = win.layout
+    local tb = lay.toolbar
     local playing = bk and #H.Playing(bk) or 0
-    local parts = {}
-    if st.paused then parts[#parts + 1] = "|cffffb066paused|r" end
+    local parts = { "You're hosting" }
+    if st.paused then parts[#parts + 1] = S:Wrap("WARN", "paused") end
     if bk then
         parts[#parts + 1] = playing == 1 and "1 match playing" or (playing .. " matches playing")
     elseif EUI():StageSub(L():GetDef(occ), st) == "signing up" then
@@ -4070,14 +3807,15 @@ local function RefreshHostBar(occ, st, bk, disputes)
         for _, q in pairs(type(st.qa) == "table" and st.qa or {}) do if type(q) == "table" and q.open then open = open + 1 end end
         if open > 0 then parts[#parts + 1] = open == 1 and "1 ask open" or (open .. " asks open") end
     end
-    if #disputes > 0 then parts[#parts + 1] = "|cffffcf99" .. #disputes .. (#disputes == 1 and " dispute" or " disputes") .. "|r" end
-    hb.sub:SetText(tconcat(parts, " · "))
+    if #disputes > 0 then parts[#parts + 1] = S:Wrap("WARN", #disputes .. (#disputes == 1 and " dispute" or " disputes")) end
+    lay:ShowNotice("info", tconcat(parts, "  ·  "))
     local paused = st.paused and true or false
-    local b = hb.pause
-    b:SetText(paused and "Resume" or "Pause")
-    EUI():Glyph(b.icon, paused and UI().ICON.play or UI().ICON.pause, 1, 1, 1, 0.85)
-    b:SetWidth(floor(10 + 12 + 6 + (b:GetFontString():GetStringWidth() or 40) + 12 + 0.5))
-    hb:Show()
+    tb:SetMore(function(rootDesc) Board:HostMenu(rootDesc) end,
+        "Change a result, add or remove a player, go to a stage, hand over hosting, end the event.")
+    tb:SetPrimary({ text = paused and "Resume" or "Pause", icon = paused and UI().ICON.play or UI().ICON.pause,
+        onClick = function() Board:TogglePause() end, tipTitle = paused and "Resume" or "Pause",
+        tip = paused and "The clocks and timers go on from where they stopped."
+            or "Stops the event's clocks and timers (no-shows too) until you resume. Duels still count." })
 end
 
 function Board:TogglePause()
@@ -4216,7 +3954,7 @@ local function RefreshDispute(occ, st, bk, disputes)
         rects[#rects + 1] = { (chx or 0) - 56, -(chy or 0), 112, 96 }
     end
     local bh = br:GetHeight()
-    if bh <= 0 then bh = CH - BR_Y - BOTTOM end
+    if bh <= 0 then bh = BodyHeight() end
     local maxL = BR_W - DISP_W + 40
     local function cost(l, t)
         local sum = 0
@@ -4247,18 +3985,16 @@ end
 
 -- hostOnly: a host's action (the sheet goes when I stop hosting: the action would do nothing then).
 local function Confirm(title, text, yes, fn, hostOnly)
-    local dim = win.confirm
-    local sh = dim.sheet
-    dim.hostOnly = hostOnly and true or nil
-    sh.t:SetText(title)
+    local sh = win.confirm
+    sh.hostOnly = hostOnly and true or nil
+    sh:SetTitle(title)
     sh.p:SetText(text)
-    sh.yes:SetText(yes)
-    sh.yes:SetWidth(floor((sh.yes:GetFontString():GetStringWidth() or 50) + 28))
-    sh.no:SetWidth(floor((sh.no:GetFontString():GetStringWidth() or 60) + 28))
-    sh:SetHeight(floor(14 + 16 + 8 + (sh.p:GetStringHeight() or 30) + 16 + 24 + 12 + 0.5))
-    dim.fn = fn
-    dim:Show()
-    dim:Raise()
+    sh.ok:SetText(yes)
+    sh.ok:SetWidth(max(90, floor(UI():TextWidth(yes or "", "body") + 32 + 0.5)))
+    local SH = UI().SHEET
+    sh:SetHeight(floor(SH.HEAD_H + SH.PAD + (sh.p:GetStringHeight() or 30) + SH.PAD + SH.FOOT_H + 0.5))
+    sh.fn = fn
+    sh:Open()
 end
 Board.Confirm = function(_, ...) return Confirm(...) end
 
@@ -4433,7 +4169,7 @@ function Board:HeaderMenu(owner)
             end)
         end
         -- demo mode: the other kinds of board (made up here, nothing is sent)
-        if DemoOn() then
+        if ns.Util.DemoOn() then
             local sub = rootDesc:CreateButton(Glyph(UI().ICON.eye) .. "Other boards")
             sub:SetTitleAndTextTooltip("Other boards", "Demo mode: how the board looks for other kinds of events.")
             sub:CreateRadio("Friday duel cup", function() return state.occ == "odemo1" end, function() Board:Open("odemo1") end)
@@ -4454,42 +4190,44 @@ end
 function Board:Refresh()
     if not (win and win:IsShown()) then return end
     local occ, st, def, bk = Data()
-    RefreshHeader(occ, st, def, bk)
     local host = self:IsHost() and st ~= nil
-    if not host and win.confirm:IsShown() and win.confirm.hostOnly then win.confirm:Hide() end
-    local off = host and HOST_H or 0
+    local disputes = st and (host or occ == "practice") and Disputes(st) or {}
+    -- (the host's notice first: it moves the body down)
+    if host then RefreshHostBar(occ, st, bk, disputes) else win.hostbar:Hide() end
+    RefreshHeader(occ, st, def, bk)
+    if not host and win.confirm:IsShown() and win.confirm.hostOnly then win.confirm:Close() end
+    local lay = win.layout
+    local height = BodyHeight()
     local br, rail = win.br, win.rail
-    local height = CH - BR_Y - off - BOTTOM
     br:ClearAllPoints()
-    br:SetPoint("TOPLEFT", win.root, "TOPLEFT", BR_X, -(BR_Y + off))
+    br:SetPoint("TOPLEFT", win.body, "TOPLEFT", 0, 0)
     br:SetHeight(height)
     rail:ClearAllPoints()
-    rail:SetPoint("TOPRIGHT", win.root, "TOPRIGHT", -12, -(BR_Y + off))
+    rail:SetPoint("TOPRIGHT", win.body, "TOPRIGHT", 0, 0)
     rail:SetHeight(height)
     if not st then
-        win.hostbar:Hide()
         win.dispute:Hide()
         HideKV()
-        br:Show()
         HideFrom(br.cards, 1)
         HideFrom(br.lines, 1)
         HideFrom(br.heads, 1)
         HideFrom(br.rows, 1)
         br.champ:Hide()
-        br.note:ClearAllPoints()
-        br.note:SetPoint("CENTER", br, "CENTER", 0, 20)
-        br.note:SetText(L():IsLive(occ) and "Waiting for the host's board..." or "This event isn't running.")
-        br.note:Show()
+        br.note:Hide()
         for _, c in ipairs(rail.nows) do c:Hide() end
         for _, c in ipairs(rail.moms) do c:Hide() end
         for _, c in ipairs(rail.heads) do c:Hide() end
         for _, c in ipairs(rail.pods or {}) do c:Hide() end
         if rail.next then rail.next:Hide() end
+        -- (nothing to draw: the layout's empty state says why)
+        local waiting = L():IsLive(occ)
+        lay:ShowEmpty({ icon = def and def.icon or nil, title = waiting and "Waiting for the host's board..."
+            or "This event isn't running.", text = waiting and "It shows here as soon as the host's addon sends it."
+            or nil })
         return
     end
+    lay:HideEmpty()
     br.note:Hide()
-    local disputes = (host or occ == "practice") and Disputes(st) or {}
-    if host then RefreshHostBar(occ, st, bk, disputes) else win.hostbar:Hide() end
     -- an event without Matches: the views from what it has
     local v = self:Views(def, st)
     state.views = v
@@ -4502,7 +4240,7 @@ function Board:Refresh()
         HideFrom(br.cards, 1)
         HideFrom(br.lines, 1)
         br.champ:Hide()
-        self:DrawKinds(occ, st, def, v, BR_Y + off, height)
+        self:DrawKinds(occ, st, def, v, 0, height)
         RefreshDispute(occ, st, bk, disputes)
         return
     end
@@ -4535,13 +4273,13 @@ function Board:Open(occId)
     if type(occId) ~= "string" then return false end
     if not win then CreateWindow() end
     if state.occ ~= occId and win:IsShown() then
-        if win.confirm then win.confirm:Hide() end
+        if win.confirm then win.confirm:Close() end
     end
     state.occ = occId
     if L() and L().Watch then L():Watch(occId) end
     -- (demo mode: the tracker shows the demo cup once its board was looked at)
     local T = ns.EventTracker
-    if DemoOn() and T and (occId == "odemo1" or DemoKinds(occId)) and (not T.demoSeen or T.demoOcc ~= occId) then
+    if ns.Util.DemoOn() and T and (occId == "odemo1" or DemoKinds(occId)) and (not T.demoSeen or T.demoOcc ~= occId) then
         T.demoSeen, T.demoOcc = true, occId
         if T.Later then T:Later() end
     end

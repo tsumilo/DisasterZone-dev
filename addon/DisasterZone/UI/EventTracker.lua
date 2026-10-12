@@ -22,6 +22,7 @@ local function Ev() return ns.Events end
 local function Board() return ns.EventBoard end
 local function Me() return ns.Util.PlayerKey() end
 local function H() return ns.EventBoard.H end
+local S = ns.Style
 
 local TRK_W, TRK_IN = 232, 23
 local CARD_W = 360
@@ -31,11 +32,14 @@ local RING = "Interface\\AddOns\\DisasterZone\\Media\\Events\\ring"
 local WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
 local CROSS = "Interface\\RaidFrame\\ReadyCheck-NotReady"
-local GOLD = { 1, 0.82, 0 }
+local GOLD = S.C.GOLD                  -- (ns.Style tokens: shared tables, read-only)
+local GREY = S.C.SUB
 local ORANGE = { 1, 0.55, 0.1 }
-local CARD_TOP, CARD_BOT = { 0.114, 0.114, 0.133 }, { 0.078, 0.078, 0.094 }
+-- (the pop-up cards are UI:CreateHudFrame's "card" look: an art strip fades into its fill)
+local function CardFill() return UI().TOAST.BG end
+local GAME_TOAST = "dz-event-game"
 
-local trk, card, toast, ask, waitc, cdown, rwarn
+local trk, card, ask, waitc, cdown, rwarn
 local cur = { occ = nil }
 local follow = {}          -- [occ] = { mid, st, wa, wb } the match of mine I follow
 local cardShown = {}       -- [occ .. ":" .. mid] = true: the match card came up once
@@ -48,43 +52,41 @@ local function Snd(key)
     if kit and kit[key] and PlaySound then pcall(PlaySound, kit[key]) end
 end
 
-local function Gradient(tex, top, bottom)
-    tex:SetTexture(WHITE)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], bottom[4] or 1),
-            CreateColor(top[1], top[2], top[3], top[4] or 1))
-    else
-        tex:SetColorTexture(top[1], top[2], top[3], top[4] or 1)
-    end
+
+-- The pop-up card: UI:CreateHudFrame's "card" look (the pop-ups' dark card with a gold edge; edge: another edge
+-- colour), in the dialogs' strata. Not dragged and no place kept: the cards stack in the middle of the screen (Stack).
+-- (The other screen pieces below are HUD frames too, through Hud: no drag, no saved place, no look of their own, and
+-- see-through for the mouse unless mouse = true; clamp: kept on the screen.)
+local function Hud(name, w, h, strata, clamp, mouse)
+    local f = UI():CreateHudFrame(name, { width = w, height = h, strata = strata, look = "none", movable = false,
+        position = false, clamp = clamp and true or false })
+    f:EnableMouse(mouse and true or false)
+    return f
 end
 
--- The flat HUD card: a dark gradient, a 1px edge, a soft shadow under it.
 local function HudCard(name, w, h, edge)
-    local f = CreateFrame("Frame", name, UIParent)
-    f:SetSize(w, h)
-    f:SetFrameStrata("DIALOG")
-    f:SetClampedToScreen(true)
-    f.shadow = f:CreateTexture(nil, "BACKGROUND", nil, -2)
-    f.shadow:SetPoint("TOPLEFT", -8, 6)
-    f.shadow:SetPoint("BOTTOMRIGHT", 8, -14)
-    f.shadow:SetColorTexture(0, 0, 0, 0.4)
-    f.bg = f:CreateTexture(nil, "BACKGROUND", nil, 0)
-    f.bg:SetAllPoints()
-    Gradient(f.bg, CARD_TOP, CARD_BOT)
-    UI():AddEdges(f, "BORDER", true)
-    local e = edge or { 0.47, 0.47, 0.51, 0.75 }
-    UI():SetEdgeColor(f, e[1], e[2], e[3], e[4])
-    f:EnableMouse(true)
+    local f = UI():CreateHudFrame(name, { width = w, height = h, strata = "DIALOG", look = "card", movable = false,
+        position = false })
+    if edge then UI():SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4]) end
     f:Hide()
     return f
 end
 
-local function Contains(list, v)
-    for i = 1, #(list or {}) do if list[i] == v then return i end end
-    return nil
+-- An art strip along the top of a card, fading into the card's fill (h: its height).
+local function ArtStrip(f, h)
+    f.art = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    f.art:SetPoint("TOPLEFT", 1, -1)
+    f.art:SetPoint("TOPRIGHT", -1, -1)
+    f.art:SetHeight(h)
+    f.fade = f:CreateTexture(nil, "BACKGROUND", nil, 2)
+    f.fade:SetAllPoints(f.art)
+    local c = CardFill()
+    UI():Gradient(f.fade, "VERTICAL", { c[1], c[2], c[3], 1 }, { c[1], c[2], c[3], 0.15 })
 end
 
-local function Short(key) return (Ambiguate and type(key) == "string" and Ambiguate(key, "none")) or ns.Util.ShortName(key) end
+local function Contains(list, v) return H().Contains(list, v) end
+
+local function Short(key) return ns.Util.ShortName(key, true) end
 
 local function Whisper(key)
     if type(key) ~= "string" then return end
@@ -101,7 +103,6 @@ local function Bracket(occ, st)
     return def and st and E():BracketOf(def, st) or nil, def
 end
 
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
 
 -- A run's state and def (the board's reader: live runs, practice, demo mode's boards).
 local function StateOf(occ)
@@ -129,7 +130,7 @@ function T:MyEvent()
     local me = Me()
     -- demo mode's live cup (or the board last looked at): only once its board was opened (switching demo mode on puts
     -- nothing in the world)
-    if DemoOn() then
+    if ns.Util.DemoOn() then
         if not self.demoSeen then return nil end
         local occ = self.demoOcc or "odemo1"
         local st, def = StateOf(occ)
@@ -198,29 +199,20 @@ local function Anchor()
     end
 end
 
-local function Line(parent, size, r, g, b)
-    local fs = H().Text(parent, "GameFontHighlight", size, r, g, b)
-    fs:SetWordWrap(true)
+-- A line of the tracker: wraps to its width.
+local function Line(parent, style, color)
+    local fs = UI():Text(parent, style, color, { wrap = true, width = TRK_W - TRK_IN })
     fs:SetSpacing(2)
-    fs:SetWidth(TRK_W - TRK_IN)
     return fs
 end
 
 local function CreateTracker()
-    local f = CreateFrame("Frame", "DisasterZoneEventTracker", UIParent)
-    f:SetSize(TRK_W, 80)
-    f:SetFrameStrata("LOW")
-    f:SetClampedToScreen(true)
+    local f = Hud("DisasterZoneEventTracker", TRK_W, 80, "LOW", true)
     -- a soft shade behind the text (the world can be bright), no box: it reads like the quest tracker
     f.shade = f:CreateTexture(nil, "BACKGROUND")
     f.shade:SetPoint("TOPLEFT", -14, 8)
     f.shade:SetPoint("BOTTOMRIGHT", 10, -8)
-    f.shade:SetTexture(WHITE)
-    if f.shade.SetGradient and CreateColor then
-        f.shade:SetGradient("HORIZONTAL", CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.42))
-    else
-        f.shade:SetColorTexture(0, 0, 0, 0.25)
-    end
+    UI():Gradient(f.shade, "HORIZONTAL", { 0, 0, 0, 0 }, { 0, 0, 0, 0.42 })
     local head = CreateFrame("Button", nil, f)
     head:SetPoint("TOPLEFT")
     head:SetPoint("TOPRIGHT")
@@ -235,45 +227,33 @@ local function CreateTracker()
         end
         Board():Toggle(cur.occ)
     end)
-    head:SetScript("OnEnter", function(self)
-        f.name:SetTextColor(1, 0.92, 0.5)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine(f.name:GetText() or "Event")
-        GameTooltip:AddLine(cur.planned and "Click: the event's page" or "Click: the live board", 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    head:SetScript("OnLeave", function()
-        f.name:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-        GameTooltip:Hide()
-    end)
+    head:SetScript("OnEnter", function() f.name:SetTextColor(1, 0.92, 0.5) end)
+    head:SetScript("OnLeave", function() f.name:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) end)
+    UI():AttachTooltip(head, function(_, tip)
+        tip:AddLine(f.name:GetText() or "Event")
+        tip:AddLine(cur.planned and "Click: the event's page" or "Click: the live board", 1, 1, 1)
+    end, nil, { anchor = "ANCHOR_LEFT" })
     f.head = head
     f.icon = head:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(16, 16)
     f.icon:SetPoint("LEFT", 0, 0)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    f.name = H().Text(head, "GameFontNormal", 12.5, GOLD[1], GOLD[2], GOLD[3])
+    f.name = UI():Text(head, "emph", "GOLD")
     f.name:SetPoint("LEFT", f.icon, "RIGHT", 7, 0)
-    f.clock = H().Text(head, "GameFontHighlight", 12, 0.91, 0.91, 0.91)
-    EUI():Narrow(f.clock, 12.5)
-    f.clock:SetJustifyH("RIGHT")
+    f.clock = UI():Text(head, "emph", "TEXT", { justify = "RIGHT", font = S.FONT_NUM })
     f.clock:SetPoint("RIGHT", 0, 0)
-    f.l1 = Line(f, 11.5, 0.94, 0.94, 0.94)
-    f.l2 = Line(f, 11, 0.78, 0.78, 0.78)
-    f.l3 = Line(f, 11, 0.78, 0.78, 0.78)
+    f.l1 = Line(f, "body", { 0.94, 0.94, 0.94 })
+    f.l2 = Line(f, "body", "TEXT")
+    f.l3 = Line(f, "body", "TEXT")
     f.pips = H().NewPips(f, 9, 4, 0.5)
-    f.pipText = H().Text(f, "GameFontHighlightSmall", 10.5, 0.78, 0.78, 0.78)
+    f.pipText = UI():Text(f, "small", "TEXT")
     f.pipText:SetPoint("LEFT", f.pips, "RIGHT", 6, 0)
     f.ready = UI():CreateSleekButton(f, "Ready", 72, 22, function() T:Ready() end, "primary")
-    f.ready:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Ready")
-        GameTooltip:AddLine("Tells the host you're there. A duel with your opponent counts as ready too.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.ready:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(f.ready, "Ready", { "Tells the host you're there. A duel with your opponent counts as ready too." },
+        { anchor = "ANCHOR_LEFT" })
     f.board = UI():CreateSleekButton(f, "Settle it", 80, 22, function() if cur.occ then Board():Open(cur.occ) end end)
     -- part 2: the stage line, my tags, the arrow to a place, a walked list's progress, my scores, my buttons, the feed
-    f.stage = Line(f, 11, 0.78, 0.78, 0.78)
+    f.stage = Line(f, "body", "TEXT")
     f.chips, f.scores, f.btns, f.feed = {}, {}, {}, {}
     local arr = CreateFrame("Frame", nil, f)
     arr:SetSize(TRK_W - TRK_IN, 38)
@@ -298,19 +278,14 @@ local function CreateTracker()
     arr.pin:SetSize(16, 16)
     arr.pin:SetPoint("CENTER", arr.bg)
     EUI():Glyph(arr.pin, UI().ICON.pin or 7, 0.337, 0.839, 0.941, 1)
-    arr.name = H().Text(arr, "GameFontHighlight", 12.5, 1, 1, 1)
+    arr.name = UI():Text(arr, "emph", { 1, 1, 1 })
     arr.name:SetPoint("BOTTOMLEFT", arr.bg, "RIGHT", 10, 0)
-    arr.yd = H().Text(arr, "GameFontHighlight", 13, 0.612, 0.937, 1)
-    EUI():Narrow(arr.yd, 13)
+    arr.yd = UI():Text(arr, "title", EUI().TEAL_LT, { font = S.FONT_NUM })
     arr.yd:SetPoint("TOPLEFT", arr.bg, "RIGHT", 10, -1)
-    arr:EnableMouse(true)
-    arr:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine(self.tipTitle or "Where to go")
-        GameTooltip:AddLine(self.tipText or "The event points you here. Its ring is on your minimap.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    arr:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(arr, function(self, tip)
+        tip:AddLine(self.tipTitle or "Where to go")
+        tip:AddLine(self.tipText or "The event points you here. Its ring is on your minimap.", 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_LEFT" })
     arr:Hide()
     f.arr = arr
     f.segs = EUI():CreateSegments(f, TRK_W - TRK_IN, 5, "track")
@@ -435,7 +410,7 @@ end
 ---------------------------------------------------------------------------
 
 local function B() return ns.EventBlocks end
-local function ServerNow() return (GetServerTime and GetServerTime()) or time() end
+local function ServerNow() return ns.Util.Now() end
 
 -- What a run gives me: tags (shown to me), scores, buttons, the place I'm pointed to (pid, yards, bearing), the feed.
 -- Demo mode's boards: made up with them (nothing is sent).
@@ -486,10 +461,10 @@ local function ScoreLine(f, i)
     if not s then
         s = CreateFrame("Frame", nil, f)
         s:SetSize(TRK_W - TRK_IN, 26)
-        s.big = H().Text(s, "GameFontHighlight", 24, 1, 1, 1)
+        s.big = UI():Text(s, 24, { 1, 1, 1 })
         EUI():Narrow(s.big, 24)
         s.big:SetPoint("BOTTOMLEFT", 0, 0)
-        s.sub = H().Text(s, "GameFontHighlight", 11.5, 0.91, 0.91, 0.91)
+        s.sub = UI():Text(s, "body", "TEXT")
         s.sub:SetPoint("BOTTOMLEFT", s.big, "BOTTOMRIGHT", 8, 3)
         f.scores[i] = s
     end
@@ -501,13 +476,10 @@ local function Button(f, i)
     if not b then
         b = UI():CreateSleekButton(f, "", 60, 22, function(self) T:Press(self.occ, self.label) end)
         H().Sized(b:GetFontString(), 11.5)
-        b:HookScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-            GameTooltip:AddLine(self.label or "")
-            GameTooltip:AddLine("The event gave you this button: pressing it tells the host's addon.", 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(b, function(self, tip)
+            tip:AddLine(self.label or "")
+            tip:AddLine("The event gave you this button: pressing it tells the host's addon.", 1, 1, 1, true)
+        end, nil, { anchor = "ANCHOR_LEFT" })
         f.btns[i] = b
     end
     return b
@@ -522,7 +494,7 @@ local function FeedLine(f, i)
         r.icon:SetSize(10, 10)
         r.icon:SetPoint("TOPLEFT", 0, -3)
         EUI():Glyph(r.icon, UI().ICON.whisper, 1, 1, 1, 0.8)
-        r.fs = H().Text(r, "GameFontHighlight", 11.5, 0.957, 0.957, 0.957)
+        r.fs = UI():Text(r, "body", { 0.957, 0.957, 0.957 })
         r.fs:SetWordWrap(true)
         r.fs:SetSpacing(1)
         r.fs:SetWidth(TRK_W - TRK_IN - 16)
@@ -575,7 +547,7 @@ function T:FillPart2(f, occ, st, def, bk)
         c:Set(t.n, B():TagColor(t.c))
         c:Show()
     end
-    for i = n + 1, #f.chips do f.chips[i]:Hide() end
+    UI():HideFrom(f.chips, n + 1)
     -- the arrow to the place I'm pointed to; while the sign-up runs (nobody pointed yet), to where everyone meets
     local place = mine.pid and type(def.places) == "table" and def.places[mine.pid]
     local arr = f.arr
@@ -610,7 +582,7 @@ function T:FillPart2(f, occ, st, def, bk)
             line:Show()
         end
     end
-    for i = n + 1, #f.scores do f.scores[i]:Hide() end
+    UI():HideFrom(f.scores, n + 1)
     -- my buttons
     n = 0
     for _, label in ipairs(mine.buttons) do
@@ -623,7 +595,7 @@ function T:FillPart2(f, occ, st, def, bk)
             b:Show()
         end
     end
-    for i = n + 1, #f.btns do f.btns[i]:Hide() end
+    UI():HideFrom(f.btns, n + 1)
     -- the last lines the event told me, newest first (the older ones grey)
     n = 0
     local now = ServerNow()
@@ -639,7 +611,7 @@ function T:FillPart2(f, occ, st, def, bk)
             r:Show()
         end
     end
-    for i = n + 1, #f.feed do f.feed[i]:Hide() end
+    UI():HideFrom(f.feed, n + 1)
     self:RefreshMinimapRing(occ, st, def, mine)
 end
 
@@ -753,7 +725,7 @@ local MEET_BEFORE, MEET_AFTER = 30 * 60, 60 * 60
 -- The planned event the tracker shows: one I'm in (or host) starting within 30 min (an hour late at most) with a
 -- place to meet, else one I asked the way to (Show the way). occ, o.
 function T:Upcoming()
-    if DemoOn() then return nil end
+    if ns.Util.DemoOn() then return nil end
     local ev, me = Ev(), Me()
     if not (ev and ev.GetOccurrences) then return nil end
     local now = ServerNow()
@@ -806,7 +778,7 @@ function T:ArrowTo(f, place, yards, bearing, meet)
     else
         local xy = EUI():Coords(place, 0)
         arr.yd:SetText(zone or (xy and ("at " .. xy)) or "outside instances")
-        arr.yd:SetTextColor(0.62, 0.62, 0.62)
+        arr.yd:SetTextColor(GREY[1], GREY[2], GREY[3])
         arr.tipText = ((zone and xy) and (zone .. " " .. xy .. ". ") or "")
             .. "The arrow shows the way once you're in the open world on the same continent."
     end
@@ -955,7 +927,7 @@ function T:FillTracker(occ, st, def, bk)
             f.l2:SetText(bk.done and "The bracket is done" or (h.RoundPlural(bk, bk.r) .. " · "
                 .. (n == 1 and "1 match playing" or (n .. " matches playing"))))
         elseif bk.done then
-            f.l1:SetText(bk.champ == me and "|cffffd100You won the bracket!|r" or "The bracket is done")
+            f.l1:SetText(bk.champ == me and S:Wrap("GOLD", "You won the bracket!") or "The bracket is done")
         else
             f.l1:SetText("Through to the next round")
             f.l2:SetText("Your next match is drawn when this round is done")
@@ -1049,7 +1021,7 @@ local banners = {}      -- the "show" banners at the top of the screen (T:Show),
 -- that far); when they don't fit, in two columns side by side (they never overlap).
 local function Stack()
     local list = {}
-    for _, f in ipairs({ card, ask, waitc, toast }) do if f and f:IsShown() then list[#list + 1] = f end end
+    for _, f in ipairs({ card, ask, waitc }) do if f and f:IsShown() then list[#list + 1] = f end end
     for _, f in ipairs(p2.order) do if f:IsShown() then list[#list + 1] = f end end
     local top = 175
     local sh = (UIParent and UIParent:GetHeight()) or 768
@@ -1103,62 +1075,36 @@ local function PlayerFace(parent, size, layer)
     p.cls = parent:CreateTexture(nil, layer or "ARTWORK", nil, 2)
     p.cls:SetSize(size, size)
     p.halo:SetPoint("CENTER", p.cls)
-    p.name = H().Text(parent, "GameFontHighlight", 12.5)
-    p.name:SetJustifyH("CENTER")
+    p.name = UI():Text(parent, "emph", "TEXT", { justify = "CENTER" })
     p.name:SetPoint("TOP", p.cls, "BOTTOM", 0, -6)
     return p
 end
 
 local function CreateMatchCard()
-    local f = HudCard("DisasterZoneEventMatchCard", CARD_W, 230, { 1, 0.82, 0, 0.55 })
-    f.art = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.art:SetPoint("TOPLEFT", 1, -1)
-    f.art:SetPoint("TOPRIGHT", -1, -1)
-    f.art:SetHeight(64)
-    f.fade = f:CreateTexture(nil, "BACKGROUND", nil, 2)
-    f.fade:SetAllPoints(f.art)
-    Gradient(f.fade, { CARD_TOP[1], CARD_TOP[2], CARD_TOP[3], 0.15 }, { CARD_TOP[1], CARD_TOP[2], CARD_TOP[3], 1 })
+    local f = HudCard("DisasterZoneEventMatchCard", CARD_W, 230)
+    ArtStrip(f, 64)
     f.ring = H().NewRing(f, 34)
     f.ring:SetPoint("TOPRIGHT", -12, -10)
-    f.ring:EnableMouse(true)
-    f.ring:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("No-show timer")
-        GameTooltip:AddLine("When it runs out, a player who isn't there loses the match.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.ring:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(f.ring, "No-show timer", { "When it runs out, a player who isn't there loses the match." })
     f.me = PlayerFace(f, 46)
     f.me.cls:SetPoint("TOP", f, "TOP", -69, -30)
     f.opp = PlayerFace(f, 46)
     f.opp.cls:SetPoint("TOP", f, "TOP", 69, -30)
-    f.vs = H().Text(f, "GameFontNormal", 13, GOLD[1], GOLD[2], GOLD[3])
-    f.vs:SetJustifyH("CENTER")
-    f.vs:SetText("vs")
+    f.vs = UI():Text(f, "title", "GOLD", { justify = "CENTER", text = "vs" })
     f.vs:SetPoint("CENTER", f, "TOP", 0, -48)
-    f.kick = H().Text(f, "GameFontNormal", 10.5, GOLD[1], GOLD[2], GOLD[3])
-    f.kick:SetJustifyH("CENTER")
+    f.kick = UI():Text(f, "caps", "GOLD", { justify = "CENTER", text = "Your match is ready" })
     f.kick:SetPoint("TOP", f, "TOP", 0, -122)
-    f.kick:SetText("YOUR MATCH IS READY")
-    f.text = H().Text(f, "GameFontHighlight", 12, 0.85, 0.85, 0.85)
-    f.text:SetJustifyH("CENTER")
-    f.text:SetWordWrap(true)
+    f.text = UI():Text(f, "emph", "TEXT", { justify = "CENTER", wrap = true, width = CARD_W - 32 })
     f.text:SetSpacing(4)
-    f.text:SetWidth(CARD_W - 32)
     f.text:SetPoint("TOP", f.kick, "BOTTOM", 0, -6)
-    f.go = UI():CreateSleekButton(f, "Ready", 78, 26, function() T:Ready() end, "primary")
-    f.later = UI():CreateSleekButton(f, "Need a minute", nil, 26, function()
+    f.go = UI():CreateSleekButton(f, "Ready", 78, S.BTN_H, function() T:Ready() end, "primary")
+    f.later = UI():CreateSleekButton(f, "Need a minute", nil, S.BTN_H, function()
         if f.key then cardOff[f.key] = true end
         f:Hide()
         Stack()
     end)
-    f.later:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine("Need a minute")
-        GameTooltip:AddLine("Closes this card. Ready is on the tracker under the minimap when you're there.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.later:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(f.later, "Need a minute",
+        { "Closes this card. Ready is on the tracker under the minimap when you're there." }, { anchor = "ANCHOR_BOTTOM" })
     card = f
     return f
 end
@@ -1172,7 +1118,7 @@ function T:ShowMatchCard(occ, st, def, bk, m)
     EUI():SetArt(f.art, def and def.art, CARD_W - 2, 64, 0.5, 0.58, 0.7)
     h.SetClass(f.me.cls, me)
     f.me.halo:SetVertexColor(0.4, 0.72, 1, 0.95)
-    f.me.name:SetText("|cff66b8ffYou|r")
+    f.me.name:SetText(S:Wrap("YOU", "You"))
     h.SetClass(f.opp.cls, opp)
     f.opp.halo:SetVertexColor(1, 1, 1, 0.22)
     h.Fit(f.opp.name, h.Name(opp), 120, 12.5, 10)
@@ -1191,7 +1137,7 @@ function T:ShowMatchCard(occ, st, def, bk, m)
     f.go:SetPoint("TOPLEFT", f, "TOP", -gw / 2, -by)
     f.later:ClearAllPoints()
     f.later:SetPoint("LEFT", f.go, "RIGHT", 6, 0)
-    f:SetHeight(floor(by + 26 + 14 + 0.5))
+    f:SetHeight(floor(by + S.BTN_H + 14 + 0.5))
     f.ring:Set(NoShow(bk) - Elapsed(occ, st, m), NoShow(bk))
     local was = f:IsShown()
     f:Show()
@@ -1201,45 +1147,17 @@ end
 
 ---------------------------------------------------------------------------
 
-local function CreateToast()
-    local f = HudCard("DisasterZoneEventToast", 260, 78)
-    f.icon = f:CreateTexture(nil, "ARTWORK")
-    f.icon:SetSize(22, 22)
-    f.icon:SetPoint("TOPLEFT", 14, -13)
-    f.t = H().Text(f, "GameFontHighlight", 13, 1, 1, 1)
-    f.t:SetPoint("TOPLEFT", 46, -12)
-    f.s = H().Text(f, "GameFontHighlightSmall", 11, 0.62, 0.62, 0.62)
-    f.s:SetPoint("TOPLEFT", f.t, "BOTTOMLEFT", 0, -3)
-    f.pips = H().NewPips(f, 9, 4, 0.5)
-    f.pips:SetPoint("RIGHT", f, "TOPRIGHT", -14, -24)
-    f.l = H().Text(f, "GameFontHighlightSmall", 11, 0.81, 0.81, 0.81)
-    f.l:SetPoint("TOPLEFT", 14, -52)
-    f:SetScript("OnUpdate", function(self, dt)
-        self.left = (self.left or 0) - dt
-        if self.left <= 0 and not self:IsMouseOver() then
-            self:Hide()
-            Stack()
-        end
-    end)
-    toast = f
-    return f
-end
-
--- A game of my match counted: won (true / false), m (after the game), how ("players" | "host" | nil).
+-- A game of my match counted: won (true / false), m (after the game), how ("players" | "host" | nil). It is a
+-- UI:Toast (the one pop-up at the top of the screen): the result as its title, how it was decided and the score as
+-- its text, the match's game pips at its foot.
 function T:ShowGameToast(occ, bk, m, won, how)
-    local f = toast or CreateToast()
     local h = H()
     local me = Me()
     local opp = h.Opp(m, me)
     local mine = (m.a == me) and m.wa or m.wb
     local theirs = (m.a == me) and m.wb or m.wa
     local game = (m.wa or 0) + (m.wb or 0)
-    f.icon:SetTexture(won and CHECK or CROSS)
-    if won then f.icon:SetVertexColor(1, 1, 1, 1) else f.icon:SetVertexColor(0.85, 0.85, 0.85, 0.9) end
-    f.t:SetText("Game " .. game .. " · you " .. (won and "won" or "lost"))
-    f.s:SetText(how == "host" and "The host decided it" or (how == "players" and "You two agreed on it" or "Both games saw the duel"))
     local need = h.Need(h.BoOf(bk, m))
-    f.pips:Set(need, mine)
     local tail
     if mine >= need then tail = "you take the match"
     elseif theirs >= need then tail = h.Plain(opp) .. " takes the match"
@@ -1247,11 +1165,20 @@ function T:ShowGameToast(occ, bk, m, won, how)
     elseif mine == need - 1 then tail = "one more win takes the match"
     elseif theirs == need - 1 then tail = h.Plain(opp) .. " needs one more"
     else tail = "first to " .. need end
-    h.Fit(f.l, mine .. "-" .. theirs .. " · " .. tail, 260 - 28, 11, 9)
-    h.Fit(f.t, f.t:GetText(), 260 - 46 - 14 - (f.pips:GetWidth() or 22) - 8, 13, 11)
-    f.left = 7
-    f:Show()
-    Stack()
+    local said = how == "host" and "The host decided it" or (how == "players" and "You two agreed on it" or "Both games saw the duel")
+    local t = UI():Toast({ key = GAME_TOAST, kind = won and "ok" or "bad", icon = won and CHECK or CROSS,
+        iconSize = 22, iconCoords = { 0, 1, 0, 1 }, title = "Game " .. game .. " · you " .. (won and "won" or "lost"),
+        text = said .. "\n" .. mine .. "-" .. theirs .. " · " .. tail, lines = 2, duration = 7, width = 300,
+        minHeight = 78 })
+    if t then
+        -- (the match's games: the won ones gold, in the toast's own slot)
+        local slot = t.slot
+        slot.dzPips = slot.dzPips or H().NewPips(slot, 9, 4, 0.5)
+        slot.dzPips:ClearAllPoints()
+        slot.dzPips:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", -UI().TOAST.PAD, UI().TOAST.PAD)
+        slot.dzPips:Set(need, mine)
+        slot.dzPips:Show()
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -1262,12 +1189,10 @@ local function CreateAsk()
     f.icon:SetSize(14, 14)
     f.icon:SetTexture(WARN)
     f.icon:SetPoint("TOPLEFT", 14, -12)
-    f.t = H().Text(f, "GameFontHighlight", 13, 1, 0.81, 0.6)
+    f.t = UI():Text(f, "title", "WARN")
     f.t:SetPoint("LEFT", f.icon, "RIGHT", 7, 0)
-    f.p = H().Text(f, "GameFontHighlightSmall", 11, 0.81, 0.81, 0.81)
-    f.p:SetWordWrap(true)
+    f.p = UI():Text(f, "body", "TEXT", { wrap = true, width = ASK_W - 28 })
     f.p:SetSpacing(2)
-    f.p:SetWidth(ASK_W - 28)
     f.p:SetPoint("TOPLEFT", 14, -31)
     f.b = {}
     for i = 1, 2 do
@@ -1312,7 +1237,7 @@ function T:ShowAsk(occ, st, bk, a)
         h.SetClass(b.cls, k)
         local fs = b:GetFontString()
         if i == 1 then
-            b:SetText("|cff66b8ffI won|r")
+            b:SetText(S:Wrap("YOU", "I won"))
             h.Sized(fs, 12)
         else
             local tw = (ASK_W - 36) / 2 - 24 - 8 - 20
@@ -1346,24 +1271,16 @@ local function CreateWait()
     f.cls = f:CreateTexture(nil, "ARTWORK")
     f.cls:SetSize(30, 30)
     f.cls:SetPoint("TOPLEFT", 14, -12)
-    f.t = H().Text(f, "GameFontHighlight", 13, 1, 1, 1)
+    f.t = UI():Text(f, "title", { 1, 1, 1 })
     f.t:SetPoint("TOPLEFT", 54, -12)
-    f.s = H().Text(f, "GameFontHighlightSmall", 11, 0.62, 0.62, 0.62)
-    f.s:SetWordWrap(true)
-    f.s:SetWidth(150)
+    f.s = UI():Text(f, "body", "SUB", { wrap = true, width = 150 })
     f.s:SetPoint("TOPLEFT", f.t, "BOTTOMLEFT", 0, -3)
     f.ring = H().NewRing(f, 34)
     f.ring:SetPoint("TOPRIGHT", -14, -10)
-    f.wh = UI():CreateSleekButton(f, "Whisper", nil, 22, function() Whisper(f.opp) end)
-    local fs = f.wh:GetFontString()
-    H().Sized(fs, 11)
-    fs:ClearAllPoints()
-    fs:SetPoint("CENTER", 8, 0)
-    f.wh.icon = f.wh:CreateTexture(nil, "ARTWORK")
-    f.wh.icon:SetSize(12, 12)
-    EUI():Glyph(f.wh.icon, UI().ICON.whisper, 1, 1, 1, 0.85)
-    f.wh.icon:SetPoint("RIGHT", fs, "LEFT", -6, 0)
-    f.wh:SetWidth(floor(10 + 12 + 6 + (fs:GetStringWidth() or 44) + 12))
+    -- (the whisper button: an atlas icon before its word, as the toolbars' buttons)
+    f.wh = UI():CreateSleekButton(f, UI():AtlasIconText(UI().ICON.whisper, 12) .. "  Whisper", nil, S.BTN_H,
+        function() Whisper(f.opp) end)
+    f.wh:SetWidth(floor(UI():TextWidth(f.wh:GetFontString()) + 24 + 0.5))
     waitc = f
     return f
 end
@@ -1380,7 +1297,7 @@ function T:ShowWait(occ, st, bk, m)
     local by = max(12 + 34, 12 + 16 + 3 + sh) + 12
     f.wh:ClearAllPoints()
     f.wh:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -by)
-    f:SetHeight(floor(by + 22 + 12 + 0.5))
+    f:SetHeight(floor(by + S.BTN_H + 12 + 0.5))
     f.ring:Set(NoShow(bk) - Elapsed(occ, st, m), NoShow(bk), ORANGE)
     f:Show()
     Stack()
@@ -1452,51 +1369,36 @@ function T:Inspect(key)
     return false
 end
 
-local function Kicker(parent)
-    local fs = H().Text(parent, "GameFontNormal", 10.5, GOLD[1], GOLD[2], GOLD[3])
-    return fs
-end
+-- (a card's kicker: small gold capitals over its title; the callers give it upper-cased text)
+local function Kicker(parent) return UI():Text(parent, "small", "GOLD") end
 
 -- The card of an ask: the art strip, the ring, the kicker and the question. kind: player | choice | text | number |
 -- yesno.
 local function NewAskCard(kind)
     local w = ASK_W[kind] or 320
     p2.made = (p2.made or 0) + 1
-    local f = HudCard("DisasterZoneEventPrompt" .. p2.made, w, 200, { 1, 0.82, 0, 0.55 })
+    local f = HudCard("DisasterZoneEventPrompt" .. p2.made, w, 200)
     f.kind = kind
     f.withArt = kind == "player" or kind == "text" or kind == "number"
-    f.art = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.art:SetPoint("TOPLEFT", 1, -1)
-    f.art:SetPoint("TOPRIGHT", -1, -1)
-    f.art:SetHeight(56)
-    f.fade = f:CreateTexture(nil, "BACKGROUND", nil, 2)
-    f.fade:SetAllPoints(f.art)
-    Gradient(f.fade, { CARD_TOP[1], CARD_TOP[2], CARD_TOP[3], 0 }, { CARD_TOP[1], CARD_TOP[2], CARD_TOP[3], 1 })
+    ArtStrip(f, 56)
     f.art:SetShown(f.withArt)
     f.fade:SetShown(f.withArt)
     f.ring = H().NewRing(f, 34)
     f.ring:SetPoint("TOPRIGHT", -12, -10)
     f.ring:SetFrameLevel(f:GetFrameLevel() + 3)
-    f.ring:EnableMouse(true)
-    f.ring:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Time to answer")
-        GameTooltip:AddLine("The card closes by itself when it runs out, or when everyone asked has answered.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.ring:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(f.ring, "Time to answer",
+        { "The card closes by itself when it runs out, or when everyone asked has answered." })
     f.kick = Kicker(f)
-    f.q = H().Text(f, "GameFontHighlight", 15, 1, 1, 1)
-    f.q:SetWordWrap(true)
+    f.q = UI():Text(f, "title", { 1, 1, 1 }, { wrap = true })
     f.q:SetSpacing(3)
-    f.foot = H().Text(f, "GameFontHighlightSmall", 11, 0.62, 0.62, 0.62)
+    f.foot = UI():Text(f, "body", "SUB")
     f.tiles, f.nums, f.opts = {}, {}, {}
     if kind == "player" then
         f.pips = H().NewPips(f, 9, 4, 0.45)
         f.send = UI():CreateSleekButton(f, "Send votes", nil, 26, function() T:SendPicks(f) end, "primary")
         f.prev = UI():CreateArrowButton(f, false, 20, 20, function() f.page = max(1, (f.page or 1) - 1); T:LayAsk(f) end)
         f.next = UI():CreateArrowButton(f, true, 20, 20, function() f.page = (f.page or 1) + 1; T:LayAsk(f) end)
-        f.pageFs = H().Text(f, "GameFontHighlightSmall", 10.5, 0.62, 0.62, 0.62)
+        f.pageFs = UI():Text(f, "small", "SUB")
     elseif kind == "text" then
         f.eb = UI():CreateSleekEditBox(f, w - 32 - 6 - 84, 30, "GameFontHighlight")
         f.eb:SetMaxLetters(120)
@@ -1508,10 +1410,9 @@ local function NewAskCard(kind)
         f.cand = {}
         f.cand.cls = f:CreateTexture(nil, "ARTWORK")
         f.cand.cls:SetSize(34, 34)
-        f.cand.name = H().Text(f, "GameFontHighlight", 13)
-        f.cand.sub = H().Text(f, "GameFontHighlightSmall", 11, 0.62, 0.62, 0.62)
+        f.cand.name = UI():Text(f, "title", "TEXT")
+        f.cand.sub = UI():Text(f, "body", "SUB")
         f.cand.ins = UI():CreateSleekButton(f, "Inspect", nil, 22, function() T:Inspect(f.cand.key) end)
-        H().Sized(f.cand.ins:GetFontString(), 11)
         f.cand.ins:SetWidth(floor(H().Width(f.cand.ins:GetFontString()) + 22))
         for i = 1, 10 do
             local b = UI():CreateSleekButton(f, tostring(i), 26, 28, function(self)
@@ -1538,23 +1439,23 @@ end
 local function Tile(f, i)
     local t = f.tiles[i]
     if not t then
+        -- a player's tile: a quiet lift with an edge; picked, the shared selected look (UI:DecorateRow) and a gold edge
         t = CreateFrame("Button", nil, f)
         t:SetSize(116, 96)
-        t.bg = t:CreateTexture(nil, "BACKGROUND")
-        t.bg:SetAllPoints()
+        t.bg = UI():Fill(t, "QUIET")
         UI():AddEdges(t, "BORDER", true)
+        UI():DecorateRow(t, { selectable = true })
         t.halo = t:CreateTexture(nil, "ARTWORK", nil, 1)
         t.halo:SetTexture(RING)
         t.halo:SetSize(38, 38)
         t.halo:SetPoint("TOP", 0, -6)
-        t.halo:SetVertexColor(1, 0.82, 0, 0.9)
+        t.halo:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
         t.cls = t:CreateTexture(nil, "ARTWORK", nil, 2)
         t.cls:SetSize(32, 32)
         t.cls:SetPoint("TOP", 0, -9)
-        t.name = H().Text(t, "GameFontHighlight", 12)
-        t.name:SetJustifyH("CENTER")
+        t.name = UI():Text(t, "emph", "TEXT", { justify = "CENTER" })
         t.name:SetPoint("TOP", t.cls, "BOTTOM", 0, -6)
-        t.chk = H().Disc(t, "OVERLAY", 1, 15, 1, 0.82, 0, 1)
+        t.chk = H().Disc(t, "OVERLAY", 1, 15, GOLD[1], GOLD[2], GOLD[3], 1)
         t.chk:SetPoint("TOPRIGHT", -6, -6)
         t.chkMark = t:CreateTexture(nil, "OVERLAY", nil, 2)
         t.chkMark:SetTexture(CHECK)
@@ -1562,11 +1463,9 @@ local function Tile(f, i)
         t.chkMark:SetPoint("CENTER", t.chk)
         t.chkMark:SetVertexColor(0.16, 0.11, 0, 1)
         t.ins = UI():CreateSleekButton(t, "Inspect", nil, 22, function(self) T:Inspect(self:GetParent().key) end)
-        H().Sized(t.ins:GetFontString(), 11)
         t.ins:SetWidth(floor(H().Width(t.ins:GetFontString()) + 22))
         t.ins:SetPoint("BOTTOM", 0, 8)
-        t.you = H().Text(t, "GameFontHighlightSmall", 11, 0.62, 0.62, 0.62)
-        t.you:SetJustifyH("CENTER")
+        t.you = UI():Text(t, "body", "SUB", { justify = "CENTER" })
         t.you:SetPoint("BOTTOM", 0, 12)
         t.you:SetText("that's you")
         t:SetScript("OnClick", function(self) T:TogglePick(f, self.key) end)
@@ -1575,10 +1474,7 @@ local function Tile(f, i)
     return t
 end
 
-local function Has(list, v)
-    for i = 1, #(list or {}) do if list[i] == v then return i end end
-    return nil
-end
+local function Has(list, v) return H().Contains(list, v) end
 
 -- The player "on the stage" of a 1 to 10 ask: one of the event's players named in its question (a player variable's
 -- value first).
@@ -1665,16 +1561,12 @@ function T:LayAsk(f)
             t.ins:SetShown(not mine)
             t.you:SetShown(mine)
             t:SetAlpha(mine and 0.7 or 1)
-            if on then
-                t.bg:SetColorTexture(1, 0.82, 0, 0.07)
-                UI():SetEdgeColor(t, 1, 0.82, 0, 0.75)
-            else
-                t.bg:SetColorTexture(1, 1, 1, 0.03)
-                UI():SetEdgeColor(t, 1, 1, 1, 0.09)
-            end
+            t:SetSelected(on)
+            local e = on and S.C.EDGE_FOCUS or S.C.HAIRLINE
+            UI():SetEdgeColor(t, e[1], e[2], e[3], e[4])
             t:Show()
         end
-        for i = n + 1, #f.tiles do f.tiles[i]:Hide() end
+        UI():HideFrom(f.tiles, n + 1)
         y = y + ceil(max(1, n) / 3) * 102 - 6
         -- pages of nine
         if pages > 1 then
@@ -1774,7 +1666,7 @@ function T:LayAsk(f)
         -- (long choices: one a row; longer still, on two lines in a taller button: never cut)
         local wrap = false
         if kind ~= "yesno" then
-            f.measure = f.measure or H().Text(f, "GameFontHighlight", 10)
+            f.measure = f.measure or UI():Text(f, "small")
             local widest = 0
             for _, c in ipairs(choices) do
                 f.measure:SetText(tostring(c))
@@ -1923,7 +1815,7 @@ function T:OpenAsks()
             if not a.answered then out[#out + 1] = { occ = occ, st = st, def = def, a = a } end
         end
     end
-    if not DemoOn() then
+    if not ns.Util.DemoOn() then
         for _, occ in ipairs(L():GetLiveList() or {}) do add(occ) end
     end
     if L().GetPractice and L():GetPractice() then add("practice") end
@@ -1997,7 +1889,7 @@ end
 
 local function NewResult()
     p2.madeR = (p2.madeR or 0) + 1
-    local f = HudCard("DisasterZoneEventResult" .. p2.madeR, RESULT_W, 200, { 0.47, 0.47, 0.51, 0.75 })
+    local f = HudCard("DisasterZoneEventResult" .. p2.madeR, RESULT_W, 200, S.C.EDGE_STRONG)
     f.isResult = true
     f.kick = Kicker(f)
     f.kick:SetPoint("TOPLEFT", 14, -12)
@@ -2011,42 +1903,25 @@ local function NewResult()
     f.clsRing:SetTexture(EUI().RING)
     f.clsRing:SetSize(36, 36)
     f.clsRing:SetPoint("CENTER", f.cls)
-    f.clsRing:SetVertexColor(1, 0.82, 0, 0.9)
-    f.head = H().Text(f, "GameFontHighlight", 13, 1, 1, 1)
+    f.clsRing:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
+    f.head = UI():Text(f, "title", { 1, 1, 1 })
     f.head:SetPoint("TOPLEFT", f, "TOPLEFT", 58, -36)
-    f.sub = H().Text(f, "GameFontHighlightSmall", 10.5, 0.62, 0.62, 0.62)
+    f.sub = UI():Text(f, "small", "SUB")
     f.sub:SetPoint("TOPLEFT", f.head, "BOTTOMLEFT", 0, -3)
     f.rows = {}
-    f.mine = CreateFrame("Frame", nil, f)
+    -- what I said: a card in the "you" blue
+    f.mine = UI():CreateCard(f, { tone = "card" })
     f.mine:SetHeight(30)
-    f.mine.bg = f.mine:CreateTexture(nil, "BACKGROUND")
-    f.mine.bg:SetAllPoints()
-    f.mine.bg:SetColorTexture(0.4, 0.72, 1, 0.07)
-    UI():AddEdges(f.mine, "BORDER", true)
-    UI():SetEdgeColor(f.mine, 0.4, 0.72, 1, 0.4)
-    f.mine.fs = H().Text(f.mine, "GameFontHighlight", 11.5, 0.88, 0.88, 0.88)
+    f.mine.bg:SetColorTexture(S.C.YOU[1], S.C.YOU[2], S.C.YOU[3], 0.07)
+    UI():SetEdgeColor(f.mine, S.C.YOU[1], S.C.YOU[2], S.C.YOU[3], 0.4)
+    f.mine.fs = UI():Text(f.mine, "body", "TEXT")
     f.mine.fs:SetPoint("LEFT", 10, 0)
-    f.close = CreateFrame("Button", nil, f)
-    f.close:SetSize(18, 18)
-    f.close:SetPoint("TOPRIGHT", -8, -8)
-    f.close.lines = {}
-    for i = 1, 2 do
-        local l = f.close:CreateLine(nil, "ARTWORK")
-        l:SetThickness(1.5)
-        l:SetColorTexture(0.66, 0.66, 0.68, 1)
-        f.close.lines[i] = l
-    end
-    f.close.lines[1]:SetStartPoint("CENTER", f.close, -4, 4)
-    f.close.lines[1]:SetEndPoint("CENTER", f.close, 4, -4)
-    f.close.lines[2]:SetStartPoint("CENTER", f.close, -4, -4)
-    f.close.lines[2]:SetEndPoint("CENTER", f.close, 4, 4)
-    f.close:SetScript("OnEnter", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(1, 1, 1, 1) end end)
-    f.close:SetScript("OnLeave", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(0.66, 0.66, 0.68, 1) end end)
-    f.close:SetScript("OnClick", function()
+    f.close = UI():CreateCloseButton(f, 18, function()
         f:Hide()
         T:RefreshResults()
         Stack()
     end)
+    f.close:SetPoint("TOPRIGHT", -8, -8)
     f:SetScript("OnUpdate", function(self, dt)
         self.left = (self.left or RESULT_FOR) - dt
         if self.left <= 0 and not self:IsMouseOver() then
@@ -2063,22 +1938,18 @@ local function ResultRow(f, i)
     if not r then
         r = CreateFrame("Frame", nil, f)
         r:SetHeight(28)
-        r.rank = H().Text(r, "GameFontHighlight", 12, 0.62, 0.62, 0.62)
-        EUI():Narrow(r.rank, 12)
+        r.rank = UI():Text(r, "emph", "SUB", { font = S.FONT_NUM })
         r.rank:SetPoint("LEFT", 0, 0)
         r.cls = r:CreateTexture(nil, "ARTWORK")
         r.cls:SetSize(20, 20)
         r.cls:SetPoint("LEFT", 16, 0)
-        r.name = H().Text(r, "GameFontHighlight", 12)
-        r.track = r:CreateTexture(nil, "ARTWORK")
+        r.name = UI():Text(r, "emph", "TEXT")
+        r.track = UI():Fill(r, "HAIRLINE", "ARTWORK")
+        r.track:ClearAllPoints()
         r.track:SetHeight(8)
-        r.track:SetColorTexture(1, 1, 1, 0.06)
         r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
         r.fill:SetHeight(8)
-        r.fill:SetTexture(WHITE)
-        r.n = H().Text(r, "GameFontHighlight", 13, 1, 1, 1)
-        EUI():Narrow(r.n, 13)
-        r.n:SetJustifyH("RIGHT")
+        r.n = UI():Text(r, "title", { 1, 1, 1 }, { justify = "RIGHT", font = S.FONT_NUM })
         r.n:SetPoint("RIGHT", 0, 0)
         f.rows[i] = r
     end
@@ -2204,22 +2075,20 @@ function T:FillResult(f, occ, st, def, aid, q)
         row.fill:ClearAllPoints()
         row.fill:SetPoint("LEFT", row.track, "LEFT")
         row.fill:SetWidth(max(1, tw * t.n / max(1, best)))
-        if i <= 3 and row.fill.SetGradient and CreateColor then
-            row.fill:SetGradient("HORIZONTAL", CreateColor(1, 0.82, 0, 0.35), CreateColor(1, 0.82, 0, 0.85))
-        elseif i <= 3 then
-            row.fill:SetColorTexture(1, 0.82, 0, 0.7)
+        if i <= 3 then
+            UI():Gradient(row.fill, "HORIZONTAL", { GOLD[1], GOLD[2], GOLD[3], 0.35 }, { GOLD[1], GOLD[2], GOLD[3], 0.85 })
         else
-            row.fill:SetColorTexture(1, 1, 1, 0.22)
+            UI():Gradient(row.fill, "HORIZONTAL", { 1, 1, 1, 0.22 }, { 1, 1, 1, 0.22 })
         end
         row.n:SetText(tostring(t.n))
         row:Show()
         y = y + 30
     end
-    for i = n + 1, #f.rows do f.rows[i]:Hide() end
+    UI():HideFrom(f.rows, n + 1)
     -- what I said
     local text
     if mine == nil then
-        text = (q.who and q.who[me]) and "|cff9e9e9eYou didn't answer|r" or nil
+        text = (q.who and q.who[me]) and S:Wrap("SUB", "You didn't answer") or nil
     elseif kind == "player" then
         local list = type(mine) == "table" and mine or { mine }
         text = "You picked " .. NameList(list)
@@ -2290,25 +2159,14 @@ end
 local BANNER_W, BANNER_FOR = 520, 6
 
 local function NewBanner()
-    local f = CreateFrame("Frame", "DisasterZoneEventBanner" .. (#banners + 1), UIParent)
-    f:SetSize(BANNER_W, 64)
-    f:SetFrameStrata("HIGH")
-    f.shadow = f:CreateTexture(nil, "BACKGROUND", nil, -2)
-    f.shadow:SetPoint("TOPLEFT", -10, 8)
-    f.shadow:SetPoint("BOTTOMRIGHT", 10, -14)
-    f.shadow:SetColorTexture(0, 0, 0, 0.35)
-    f.art = f:CreateTexture(nil, "BACKGROUND", nil, 0)
-    f.art:SetAllPoints()
-    f.shade = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.shade:SetAllPoints()
-    f.shade:SetTexture(WHITE)
-    if f.shade.SetGradient and CreateColor then
-        f.shade:SetGradient("HORIZONTAL", CreateColor(0.035, 0.035, 0.043, 0.92), CreateColor(0.035, 0.035, 0.043, 0.55))
-    else
-        f.shade:SetColorTexture(0.035, 0.035, 0.043, 0.75)
-    end
-    UI():AddEdges(f, "BORDER", true)
-    UI():SetEdgeColor(f, 1, 0.82, 0, 0.55)
+    -- the pop-ups' card (UI:CreateHudFrame "card": a gold edge) with the event's art under the banners' shade
+    local f = UI():CreateHudFrame("DisasterZoneEventBanner" .. (#banners + 1), { width = BANNER_W, height = 64,
+        strata = "HIGH", look = "card", movable = false, position = false })
+    f:EnableMouse(false)
+    f.art = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    f.art:SetPoint("TOPLEFT", 1, -1)
+    f.art:SetPoint("BOTTOMRIGHT", -1, 1)
+    EUI():AddShade(f)
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(30, 30)
     -- (from the top, as the words: a banner of three lines grows down, the icon beside its first two)
@@ -2316,10 +2174,8 @@ local function NewBanner()
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     f.kick = Kicker(f)
     f.kick:SetPoint("TOPLEFT", f, "TOPLEFT", 14 + 30 + 12, -15)
-    f.t = H().Text(f, "GameFontHighlightLarge", 17, 1, 1, 1)
-    f.t:SetWordWrap(true)
+    f.t = UI():Text(f, "page", { 1, 1, 1 }, { wrap = true, width = BANNER_W - 14 - 30 - 12 - 16 })
     f.t:SetSpacing(2)
-    f.t:SetWidth(BANNER_W - 14 - 30 - 12 - 16)
     f.t:SetPoint("TOPLEFT", f.kick, "BOTTOMLEFT", 0, -4)
     f:SetScript("OnUpdate", function(self, dt)
         self.left = (self.left or 0) - dt
@@ -2387,11 +2243,10 @@ end
 ---------------------------------------------------------------------------
 
 local function CreateWarn()
-    local f = CreateFrame("Frame", "DisasterZoneEventWarning", UIParent)
-    f:SetSize(900, 32)
-    f:SetFrameStrata("HIGH")
+    local f = Hud("DisasterZoneEventWarning", 900, 32, "HIGH")
+    f:ClearAllPoints()
     f:SetPoint("TOP", UIParent, "TOP", 0, -200)
-    f.t = H().Text(f, "GameFontNormalHuge", 24, GOLD[1], GOLD[2], GOLD[3])
+    f.t = UI():Text(f, 24, "GOLD")
     f.t:SetJustifyH("CENTER")
     f.t:SetPoint("TOP")
     f.t:SetShadowOffset(2, -2)
@@ -2422,11 +2277,10 @@ function T:Announce(text)
 end
 
 local function CreateCountdown()
-    local f = CreateFrame("Frame", "DisasterZoneEventCountdown", UIParent)
-    f:SetSize(200, 90)
-    f:SetFrameStrata("HIGH")
+    local f = Hud("DisasterZoneEventCountdown", 200, 90, "HIGH")
+    f:ClearAllPoints()
     f:SetPoint("CENTER", UIParent, "CENTER", 0, -120)
-    f.t = H().Text(f, "GameFontNormalHuge", 60, GOLD[1], GOLD[2], GOLD[3])
+    f.t = UI():Text(f, 60, "GOLD")
     f.t:SetJustifyH("CENTER")
     f.t:SetPoint("CENTER")
     f.t:SetShadowOffset(2, -2)
@@ -2564,7 +2418,8 @@ end
 
 -- Hides the tracker and the cards (they come back with the next change).
 function T:Hide()
-    for _, f in ipairs({ trk, card, ask, waitc, toast, cdown, rwarn, mmRing }) do if f then f:Hide() end end
+    for _, f in ipairs({ trk, card, ask, waitc, cdown, rwarn, mmRing }) do if f then f:Hide() end end
+    UI():HideToast(GAME_TOAST)
     for _, f in pairs(p2.cards) do f:Hide() end
     for _, f in ipairs(p2.results) do f:Hide() end
     for _, f in ipairs(banners) do f:Hide() end
@@ -2575,7 +2430,7 @@ function T:GetFrames()
     for _, f in ipairs(p2.order) do if f:IsShown() and not f.isResult then asks[#asks + 1] = f end end
     local results = {}
     for _, f in ipairs(p2.order) do if f:IsShown() and f.isResult then results[#results + 1] = f end end
-    return { tracker = trk, card = card, toast = toast, ask = ask, wait = waitc, countdown = cdown, warning = rwarn,
+    return { tracker = trk, card = card, toast = UI():GetToast(GAME_TOAST), ask = ask, wait = waitc, countdown = cdown, warning = rwarn,
         asks = asks, results = results, banners = banners, minimap = mmRing }
 end
 

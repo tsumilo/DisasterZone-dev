@@ -131,8 +131,9 @@ TRACKER = """
     o.cardText = fr.card and fr.card.text:GetText() or nil
     o.ask = fr.ask and fr.ask:IsShown() or false
     o.wait = fr.wait and fr.wait:IsShown() or false
-    o.toast = fr.toast and fr.toast:IsShown() and fr.toast.t:GetText() or false
-    o.toastLine = fr.toast and fr.toast:IsShown() and fr.toast.l:GetText() or false
+    -- (the game toast is a UI:Toast: its title, and the score line under how it was decided in its text)
+    o.toast = fr.toast and fr.toast:IsShown() and fr.toast.title:GetText() or false
+    o.toastLine = fr.toast and fr.toast:IsShown() and (fr.toast.text:GetText() or ""):match(string.char(10) .. "(.*)$") or false
     return o"""
 
 
@@ -243,7 +244,7 @@ def the_tracker_shows_for_an_entrant_and_goes_when_the_event_ends():
         assert lab in labels, (lab, labels)
     menu_pick(host, "End the event")
     assert host.eval("return ns.EventBoard:GetWindow().confirm:IsShown()")
-    host.eval("ns.EventBoard:GetWindow().confirm.sheet.yes:Click()")
+    host.eval("ns.EventBoard:GetWindow().confirm.ok:Click()")   # (the confirm is a UI:CreateSheet: its OK)
     w.tick(5)
     assert host.eval("return ns.EventLive:GetState(...).phase", occ) == "done"
     for n in ("Bert", "Cora", "Gina"):
