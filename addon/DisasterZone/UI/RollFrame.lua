@@ -3,6 +3,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/RollFrame.lua", ...) then retur
 -- 5-man party with dungeon mode, ADDENDUM B §22.2) gets a small group-loot style frame with the item,
 -- their own BiS status and gear, a countdown and Roll / Pass. Once the item is awarded or looted it
 -- shows the winner and fades (ADDENDUM C §23.3).
+-- 1.4: a HUD frame (UI:CreateHudFrame: the pop-ups' card, the one position store under its old key, the flat X),
+-- the type scale and colour tokens of ns.Style, the shared text / item / tooltip helpers.
 local addonName, ns = ...
 
 local RollFrame = ns:NewModule("RollFrame")
@@ -17,18 +19,19 @@ local ipairs, pairs, type, tonumber, tostring, pcall = ipairs, pairs, type, tonu
 ---------------------------------------------------------------------------
 -- Constants
 ---------------------------------------------------------------------------
+local UI, S = ns.UI, ns.Style
 local FRAME_NAME = "DisasterZoneRollFrame"
 local FRAME_W, FRAME_H = 400, 82
 local DEFAULT_POINT, DEFAULT_Y = "TOP", -228   -- (under the BiS toast)
-local PAD = 14
+local PAD = UI.TOAST.PAD                       -- the pop-ups' inner margin (the toasts')
 local ICON_SIZE, WEAR_SIZE = 40, 16
-local TEXT_X = PAD + ICON_SIZE + 12
-local ROLL_W, PASS_W, BTN_H = 60, 52, 24
+local TEXT_X = PAD + ICON_SIZE + S.PAD
+local ROLL_W, PASS_W, BTN_H = 60, 52, S.BTN_H
 local MID_Y = 46                          -- the buttons' (and my answer's) middle, from the top: beside lines 2-3
 local STATUS_W = 126
 local NAME_W = FRAME_W - TEXT_X - 26       -- the item's name runs to the X
 local TEXT_W = FRAME_W - TEXT_X - PAD - ROLL_W - 6 - PASS_W - 12
-local BG = { 0.043, 0.043, 0.051 }
+local BG = UI.TOAST.BG                     -- (the card's slate: the pills sit on it)
 local PIP_MAX, PIP_SIZE = 5, 7    -- a crafting material: the holdings squares
 local TICK = 0.1                 -- countdown bar refresh while a roll is open
 local FADE_AFTER_AWARD = 5       -- seconds the result stays before fading out
@@ -45,27 +48,12 @@ local SLOT_GROUP_FALLBACK = {
     [11] = { 11, 12 }, [12] = { 11, 12 }, [13] = { 13, 14 }, [14] = { 13, 14 }, [15] = { 15, 16 }, [16] = { 15, 16 },
 }
 
-local FALLBACK_COLORS = {
-    main     = { 0.98, 0.78, 0.22 },
-    alt      = { 0.41, 0.80, 0.94 },
-    obtained = { 0.30, 0.90, 0.40 },
-    muted    = { 0.55, 0.55, 0.55 },
-    warn     = { 1.00, 0.55, 0.20 },
-    bad      = { 1.00, 0.30, 0.30 },
-}
-
 ---------------------------------------------------------------------------
 -- Helpers (nil-safe: other modules may be missing or not ready)
 ---------------------------------------------------------------------------
-local function Color(key)
-    local c = ns.COLORS and ns.COLORS[key]
-    return c or FALLBACK_COLORS[key] or FALLBACK_COLORS.muted
-end
-
+-- text in a ns.COLORS colour (main / alt / obtained / muted / warn / bad).
 local function Paint(text, key)
-    local c = Color(key)
-    return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
-        floor(c[3] * 255 + 0.5), text)
+    return UI:Colorize(text, ns.COLORS[key] or ns.COLORS.muted)
 end
 
 local function Setting(path, default)
@@ -74,10 +62,6 @@ local function Setting(path, default)
         if v ~= nil then return v end
     end
     return default
-end
-
-local function DemoEnabled()
-    return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false
 end
 
 -- Dungeon mode (ADDENDUM B §22.1): a 5-man party that shares drops and rolls. Guarded: older cores
@@ -91,7 +75,7 @@ end
 
 -- The popup shows in a raid, in a dungeon-mode party and in demo mode.
 local function InRaidOrDemo()
-    return (_G.IsInRaid and _G.IsInRaid()) or DemoEnabled() or DungeonModeActive()
+    return (_G.IsInRaid and _G.IsInRaid()) or ns.Util.DemoOn() or DungeonModeActive()
 end
 
 local function PlayerKey()
@@ -102,34 +86,15 @@ local function IsMe(key)
     return ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) or false
 end
 
-local function ShortName(key)
-    if type(key) ~= "string" then return "?" end
-    if ns.Util and ns.Util.ShortName then return ns.Util.ShortName(key) or key end
-    return key
-end
-
 local function ColoredName(key)
     if type(key) ~= "string" then return "?" end
-    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key) .. ns.UI:GuestTag(key) end
-    return ShortName(key)
+    return UI:ColoredName(key) .. UI:GuestTag(key)
 end
 
+-- (one value: UI:ItemText's second return says the name is still loading)
 local function ItemText(itemID)
-    if ns.UI and ns.UI.ItemText then
-        local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
-        return text
-    end
-    return (ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(itemID)) or ("item " .. tostring(itemID))
-end
-
-local function ItemIcon(itemID)
-    if ns.ItemDB and ns.ItemDB.GetIcon then return ns.ItemDB:GetIcon(itemID) end
-    return 134400
-end
-
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or "?"
+    local text = UI:ItemText(itemID)
+    return text
 end
 
 local function SlotGroup(sid)
@@ -140,28 +105,12 @@ local function SlotGroup(sid)
     return SLOT_GROUP_FALLBACK[sid] or { sid }
 end
 
-local function HideTooltip()
-    _G.GameTooltip:Hide()
-end
-
-local function Sized(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
-    return fs
-end
-
-local function Text(parent, font, size)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font)
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
-    return fs
-end
-
--- The item's name: 13 px, smaller when a long name would not fit.
+-- The item's name: the title style, a step smaller (emph, body) when a long name would not fit. (The colour comes
+-- from the item link.)
+local NAME_STEPS = { "title", "emph", "body" }
 local function FitName(fs, text, width)
-    for _, size in ipairs({ 13, 12, 11 }) do
-        Sized(fs, size)
+    for _, style in ipairs(NAME_STEPS) do
+        UI:SetTextStyle(fs, style, "GOLD")
         fs:SetText(text)
         if (fs:GetStringWidth() or 0) <= width then return end
     end
@@ -208,7 +157,7 @@ end
 -- What the item is to me: the pill's text and kind (nil: not on my lists) and the line after it ("Head · P1").
 local function OwnStatus(m)
     if not m then return nil, nil, "Not on your BiS list" end
-    local parts = { SlotLabel(m.sid), "P" .. tostring(tonumber(m.phase) or 0) }
+    local parts = { ns.SlotLabel(m.sid), "P" .. tostring(tonumber(m.phase) or 0) }
     local text, kind
     if m.os then
         -- Addendum H: only on my off-spec list.
@@ -232,29 +181,6 @@ local function ItemSlotGroup(itemID, m)
     local sids = ns.ItemDB and ns.ItemDB.GetSlotsForItem and ns.ItemDB:GetSlotsForItem(itemID)
     if type(sids) == "table" and sids[1] then return SlotGroup(sids[1]) end
     return nil
-end
-
----------------------------------------------------------------------------
--- Position (saved like ns.UI windows: settings.windows[name] = { point, relPoint, x, y })
----------------------------------------------------------------------------
-local function SavePosition(f)
-    if not (ns.db and ns.db.settings) then return end
-    local point, _, relPoint, x, y = f:GetPoint(1)
-    if not point then return end
-    if type(ns.db.settings.windows) ~= "table" then ns.db.settings.windows = {} end
-    ns.db.settings.windows[FRAME_NAME] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
-end
-
-local function RestorePosition(f)
-    f:ClearAllPoints()
-    local windows = ns.db and ns.db.settings and ns.db.settings.windows
-    local pos = type(windows) == "table" and windows[FRAME_NAME]
-    if type(pos) == "table" and type(pos[1]) == "string" then
-        local ok = pcall(f.SetPoint, f, pos[1], _G.UIParent, pos[2] or pos[1], tonumber(pos[3]) or 0, tonumber(pos[4]) or 0)
-        if ok then return end
-        f:ClearAllPoints()
-    end
-    f:SetPoint(DEFAULT_POINT, _G.UIParent, DEFAULT_POINT, 0, DEFAULT_Y)
 end
 
 ---------------------------------------------------------------------------
@@ -288,17 +214,15 @@ end
 ---------------------------------------------------------------------------
 -- Frame
 ---------------------------------------------------------------------------
-local function WearOnEnter(self)
-    if not self.itemID then return end
-    local tt = _G.GameTooltip
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+-- (the worn item's own tooltip, from the inventory slot: UI:AttachTooltip's title function)
+local function WearTooltip(self, tt)
+    if not self.itemID then return false end
     local shown = false
     if self.invSlot and tt.SetInventoryItem then
         shown = tt:SetInventoryItem("player", self.invSlot) and true or false
     end
     if not shown then tt:SetItemByID(self.itemID) end
-    tt:AddLine("Currently wearing (" .. tostring(self.label or "?") .. ")", 0.6, 0.6, 0.6)
-    tt:Show()
+    tt:AddLine("Currently wearing (" .. tostring(self.label or "?") .. ")", S:Color("SUB"))
 end
 
 local function WearOnClick(self)
@@ -313,79 +237,51 @@ local function NewWearButton(parent)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetAllPoints()
     b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    b:SetScript("OnEnter", WearOnEnter)
-    b:SetScript("OnLeave", HideTooltip)
     b:SetScript("OnClick", WearOnClick)
+    UI:AttachTooltip(b, WearTooltip)
     b:Hide()
     return b
 end
 
 -- text: a string, or a function returning one (read when the tooltip opens).
 local function ButtonTooltip(btn, text)
-    btn:HookScript("OnEnter", function(self)
-        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:AddLine(type(text) == "function" and text() or text, 1, 1, 1, true)
-        _G.GameTooltip:Show()
-    end)
-    btn:HookScript("OnLeave", HideTooltip)
+    UI:AttachTooltip(btn, nil, function() return { type(text) == "function" and text() or text } end,
+        { anchor = "ANCHOR_TOP" })
 end
 
 function RollFrame:GetFrame()
     if self.frame then return self.frame end
-    local UI = ns.UI
-    -- The look of the Dungeons tab's ping: a dark card with a gold edge. The item and what it is to me on the left,
-    -- Roll / Pass on the right (my result once I answered), the time left as a thin bar along the bottom.
-    local f = CreateFrame("Frame", FRAME_NAME, _G.UIParent)
-    f:SetSize(FRAME_W, FRAME_H)
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(frame) frame:StartMoving() end)
-    f:SetScript("OnDragStop", function(frame)
-        frame:StopMovingOrSizing()
-        SavePosition(frame)
-    end)
+    -- A HUD frame in the pop-ups' card look (a dark card with a gold edge, like the toasts). The item and what it is to
+    -- me on the left, Roll / Pass on the right (my result once I answered), the time left as a thin bar along the
+    -- bottom; the flat X dismisses it (the roll goes on). Its place is kept under its frame name.
+    local f = UI:CreateHudFrame(FRAME_NAME, {
+        width = FRAME_W, height = FRAME_H, position = FRAME_NAME, look = "card", strata = "DIALOG", toplevel = true,
+        default = { DEFAULT_POINT, _G.UIParent, DEFAULT_POINT, 0, DEFAULT_Y },
+        close = function() RollFrame:Dismiss() end,
+    })
     f:Hide()
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(BG[1], BG[2], BG[3], 0.95)
-    UI:AddEdges(f, "BORDER")
-    UI:SetEdgeColor(f, 1, 0.82, 0, 0.55)
     self.frame = f
-    RestorePosition(f)
 
     f.item = UI:CreateItemButton(f, ICON_SIZE)
-    f.item:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -14)
+    f.item:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD - 2)
 
-    -- (1.3.5: the windows' own flat close X, red under the mouse - the same as the boss drop window's)
-    f.close = UI:CreateCloseButton(f, 18, function() RollFrame:Dismiss() end)
-    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -3, -3)
-
-    f.name = Text(f, "GameFontNormal", 13)
-    f.name:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -13)
+    f.name = UI:Text(f, "title", "GOLD")
+    f.name:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -PAD - 1)
     f.name:SetWidth(NAME_W)
 
     -- what the item is to me: a BiS / Alt / OS pill and where it goes ("Head · P1"), or "Not on your BiS list"
-    f.bisPill = UI:CreateTagPill(f, 16)
+    f.bisPill = UI:CreatePill(f, 16)
     f.bisPill:SetBase(BG[1], BG[2], BG[3])
     f.bisPill:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -30)
     f.bisPill:Hide()
-    f.bis = Text(f, "GameFontHighlightSmall", 11)
-    f.bis:SetTextColor(0.62, 0.62, 0.62)
+    f.bis = UI:Text(f, "sub")
 
     -- a crafting material: "for Belt of Blasting" is a button when more than one craft on my lists uses it (pick the
     -- one I want it for), and the wearing line becomes my holdings: squares + "You have 1 of 2 · completes it"
     f.forBtn = CreateFrame("Button", nil, f)
     f.forBtn:SetScript("OnClick", function(self) RollFrame:OpenCraftMenu(self) end)
-    f.forBtn:SetScript("OnEnter", function(self)
-        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:AddLine("Click: pick the craft you want it for (the council sees your pick)", 1, 1, 1, true)
-        _G.GameTooltip:Show()
-    end)
-    f.forBtn:SetScript("OnLeave", HideTooltip)
+    UI:AttachTooltip(f.forBtn, nil, { "Click: pick the craft you want it for (the council sees your pick)" },
+        { anchor = "ANCHOR_TOP" })
     f.forBtn:Hide()
     f.pips = {}
     for i = 1, PIP_MAX do
@@ -396,15 +292,14 @@ function RollFrame:GetFrame()
         f.pips[i] = t
     end
 
-    f.wearLabel = Text(f, "GameFontHighlightSmall", 11)
-    f.wearLabel:SetTextColor(0.62, 0.62, 0.62)
+    f.wearLabel = UI:Text(f, "sub")
     f.wearLabel:SetPoint("TOPLEFT", f, "TOPLEFT", TEXT_X, -54)
     f.wearLabel:SetText("Wearing:")
     f.wear = { NewWearButton(f), NewWearButton(f) }
     f.wear[1]:SetPoint("LEFT", f.wearLabel, "RIGHT", 5, 0)
     f.wear[2]:SetPoint("LEFT", f.wear[1], "RIGHT", 3, 0)
 
-    f.pass = UI:CreateButton(f, _G.PASS or "Pass", PASS_W, BTN_H, function() RollFrame:DoPass() end)
+    f.pass = UI:CreateSleekButton(f, _G.PASS or "Pass", PASS_W, BTN_H, function() RollFrame:DoPass() end)
     f.pass:SetPoint("RIGHT", f, "TOPRIGHT", -PAD, -MID_Y)
     ButtonTooltip(f.pass, "Pass on this item.")
     f.roll = UI:CreateSleekButton(f, "Roll", ROLL_W, BTN_H, function() RollFrame:DoRoll() end, "primary")
@@ -421,7 +316,7 @@ function RollFrame:GetFrame()
     end)
 
     -- my answer, where the buttons were (two lines at most)
-    f.status = Text(f, "GameFontNormal", 12)
+    f.status = UI:Text(f, "emph", "GOLD")
     f.status:SetPoint("RIGHT", f, "TOPRIGHT", -PAD, -MID_Y)
     f.status:SetWidth(STATUS_W)
     f.status:SetJustifyH("RIGHT")
@@ -434,16 +329,12 @@ function RollFrame:GetFrame()
     bar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
     bar:SetHeight(3)
     bar:SetStatusBarTexture(BAR_TEXTURE)
-    bar:SetStatusBarColor(1, 0.82, 0)
+    bar:SetStatusBarColor(S:Color("GOLD"))
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(1)
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints(bar)
-    bar.bg:SetColorTexture(1, 1, 1, 0.06)
+    bar.bg = UI:Fill(bar, "HAIRLINE", "BACKGROUND")
     f.bar = bar
-    f.timeText = Text(f, "GameFontHighlightSmall", 11)
-    f.timeText:SetTextColor(0.62, 0.62, 0.62)
-    f.timeText:SetJustifyH("RIGHT")
+    f.timeText = UI:Text(f, "sub", nil, { justify = "RIGHT" })
     f.timeText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -(MID_Y + BTN_H / 2 + 5))
 
     local ag = f:CreateAnimationGroup()
@@ -473,10 +364,11 @@ function RollFrame:GetFrame()
 end
 
 function RollFrame:ResetPosition()
-    if ns.db and ns.db.settings and type(ns.db.settings.windows) == "table" then
+    if self.frame then
+        self.frame:ResetPlace()
+    elseif ns.db and ns.db.settings and type(ns.db.settings.windows) == "table" then
         ns.db.settings.windows[FRAME_NAME] = nil
     end
-    if self.frame then RestorePosition(self.frame) end
 end
 
 ---------------------------------------------------------------------------
@@ -703,7 +595,7 @@ function RollFrame:SetPrizedLook(on, fresh)
     local f = self.frame
     if not f then return end
     local DP, TT = ns.DropPanel, ns.Tooltip
-    if DP and DP.PrzGlow and (on or f.przGlow) then DP.PrzGlow(f, on, FRAME_W, { 1, 0.82, 0, 0.55 }) end
+    if DP and DP.PrzGlow and (on or f.przGlow) then DP.PrzGlow(f, on, FRAME_W, { S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.55 }) end   -- (off: the card look's edge)
     if on and TT and TT.Ribbon and not f.dzPrized then TT.Ribbon.Build(f) end
     if f.dzPrized then f.dzPrized:SetShown(on and true or false) end
     if not f.przFx then
@@ -915,8 +807,8 @@ function RollFrame:RefreshItem()
             if id and id > 0 and shown < 2 then
                 shown = shown + 1
                 local b = f.wear[shown]
-                b.itemID, b.invSlot, b.label = id, slot.invSlot, SlotLabel(sid)
-                b.icon:SetTexture(ItemIcon(id))
+                b.itemID, b.invSlot, b.label = id, slot.invSlot, ns.SlotLabel(sid)
+                b.icon:SetTexture(UI:ItemIcon(id))
                 b:Show()
             end
         end
@@ -948,12 +840,13 @@ function RollFrame:ShowHoldings(w)
         if i > n then
             t:Hide()
         else
+            local r, g, b = S:Color("GOLD_DEEP")
             if i <= held then
-                t:SetColorTexture(0.84, 0.66, 0.14, 1)
+                t:SetColorTexture(r, g, b, 1)
             elseif i == held + 1 then
-                t:SetColorTexture(0.84, 0.66, 0.14, 0.4)
+                t:SetColorTexture(r, g, b, 0.4)
             else
-                t:SetColorTexture(0.30, 0.30, 0.33, 1)
+                t:SetColorTexture(S:Color("EDGE_STRONG"))
             end
             t:Show()
         end
@@ -1004,7 +897,7 @@ end
 -- Opening the window on a roll already made shows it settled, without the show.
 ---------------------------------------------------------------------------
 local DICE = { TEX = "Interface\\Buttons\\UI-GroupLoot-Dice-Up", SIZE = 24, OUT = 0.18, IN = 0.22, MIN = 0.75,
-               SLOW = 0.4, POP = 0.32, GLOW = 0.6, SPIN = 13, FLICK = 0.055 }
+               SLOW = 0.4, POP = 0.32, GLOW = 0.6, SPIN = 13, FLICK = 0.055, NUM = 22 }
 local SOFT_GLOW = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
 
 local function EaseOut(k) return 1 - (1 - k) * (1 - k) end
@@ -1029,8 +922,7 @@ function RollFrame:GetDice()
     d.num:SetSize(44, 30)
     d.num:SetPoint("RIGHT", d, "RIGHT", 0, 0)
     d.text = d.num:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
-    local path, _, flags = d.text:GetFont()
-    if path then d.text:SetFont(path, 22, flags) end
+    UI:SetTextStyle(d.text, DICE.NUM)            -- (a display numeral: above the type scale, kept as is)
     d.text:SetPoint("RIGHT", d.num, "RIGHT", 0, 0)
     d.text:SetJustifyH("RIGHT")
     d.glow:SetPoint("CENTER", d.text, "CENTER", 0, 0)
@@ -1038,12 +930,8 @@ function RollFrame:GetDice()
     d.die:SetTexture(DICE.TEX)
     d.die:SetSize(DICE.SIZE, DICE.SIZE)
     d.die:SetPoint("RIGHT", d.num, "LEFT", -4, 0)
-    d.caption = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    local cp, _, cf = d.caption:GetFont()
-    if cp then d.caption:SetFont(cp, 11, cf) end
+    d.caption = UI:Text(d, "sub", nil, { justify = "RIGHT" })
     d.caption:SetPoint("RIGHT", d.die, "LEFT", -6, 0)
-    d.caption:SetJustifyH("RIGHT")
-    d.caption:SetTextColor(0.62, 0.62, 0.62)
     d:Hide()
     d:SetScript("OnUpdate", function(_, dt) RollFrame:StepDice(dt or 0) end)
     f.dice = d
@@ -1247,16 +1135,9 @@ function RollFrame:UpdateTimer()
     local left = (tonumber(s.endsAt) or 0) - GetTime()
     f.bar:SetMinMaxValues(0, duration)
     f.bar:SetValue(max(0, min(duration, left)))
-    if left <= 5 then
-        f.bar:SetStatusBarColor(1, 0.3, 0.3)
-        f.timeText:SetTextColor(1, 0.4, 0.4)
-    elseif left <= 10 then
-        f.bar:SetStatusBarColor(1, 0.55, 0.2)
-        f.timeText:SetTextColor(1, 0.6, 0.3)
-    else
-        f.bar:SetStatusBarColor(1, 0.82, 0)
-        f.timeText:SetTextColor(0.62, 0.62, 0.62)
-    end
+    local tone = (left <= 5 and "BAD") or (left <= 10 and "WARN") or nil
+    f.bar:SetStatusBarColor(S:Color(tone or "GOLD"))
+    f.timeText:SetTextColor(S:Color(tone or "SUB"))
     f.timeText:SetText(left > 0 and (FormatLeft(left) .. " left") or "")
 end
 
