@@ -433,6 +433,7 @@ def demo_member_view_arrows_readonly_doll():
     mv = "DisasterZoneCouncilPanel.memberView"
     assert strip_codes(c.eval("return %s.name:GetText()" % mv)) == rows[0][0].split("-")[0]
     assert c.eval("return %s.pos:GetText()" % mv) == "1 / 19"
+    assert c.eval("return %s.pos:IsShown()" % mv) is True      # (beside the chevrons on the first open too)
     info = strip_codes(c.eval("return %s.info:GetText()" % mv))
     assert "In your raid" in info and "updated" in info, info
     # the toolbar row 2 and the footer are hidden in the member view
