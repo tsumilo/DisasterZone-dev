@@ -862,7 +862,9 @@ def interrupts_dispels_and_active_time_have_their_own_breakdown_and_short_lists_
     assert r.cl.eval("return %s.cards[1].num:GetText()" % f) == "14"
     names = r.cl.eval_py("local o = {}; for _, x in ipairs(%s.rows) do if x:IsShown() then o[#o + 1] = x.name:GetText() end end; return o" % f)
     assert names[0] == "Spells they used" and "What they interrupted" in names, names
-    assert r.cl.eval("return %s.tabs:IsShown()" % f) is False
+    # (the tabs sit in the tool window's tool row now, beside the pager: no tab is shown)
+    assert r.cl.eval("local t = %s.tabs; return t:GetTab('abilities'):IsShown() or t:GetTab('targets'):IsShown() "
+                     "or t:GetTab('time'):IsShown()" % f) is False
     r.cl.eval(find % "Brightmend" + "ns.MeterDetail:Open('all', g, 'dispels')")
     assert r.cl.eval("return %s.cards[1].lab:GetText()" % f) == "Dispels"
     r.cl.eval(find.replace("'all'", "'cur'") % "Gina" + "ns.MeterDetail:Open('cur', g, 'active')")

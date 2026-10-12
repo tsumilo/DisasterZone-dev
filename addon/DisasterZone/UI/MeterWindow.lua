@@ -1,18 +1,21 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterWindow.lua", ...) then return end -- DisasterZone: meter drawing helpers.
--- Shared drawing helpers of the meters (MeterWindow.K): fonts, the HUD panel, gradients, numbers, class colours,
--- spec icons, ability names and icons (melee = the player's main hand), glyphs, places and sizes. The panels
--- themselves (dockable stacks of meter and threat views) are UI/MeterPanels.lua, the breakdown UI/MeterDetail.lua.
--- MeterWindow also keeps the facade other code calls: Toggle, OpenSettings, IsMe.
+-- What the meters share (MeterWindow.K): textures and fonts by name, the design tokens they paint with (ns.Style),
+-- numbers, class colours, spec icons, ability names and icons (melee = the player's main hand), glyphs and where the
+-- panels sit. No look builders live here: text is UI:Text on the type scale, fills / rules / gradients the UI
+-- primitives, rows and cards the shared components, the panels' faces the themes (UI/MeterTheme.lua, ns.Themes
+-- "meters"). The panels themselves (dockable stacks of meter and threat views) are UI/MeterPanels.lua, the breakdown
+-- UI/MeterDetail.lua. MeterWindow also keeps the facade other code calls: Toggle, OpenSettings, IsMe.
 local addonName, ns = ...
 
 local MW = ns:NewModule("MeterWindow")
+local S = ns.Style
 
-local floor, max, min, abs, exp = math.floor, math.max, math.min, math.abs, math.exp
-local pairs, ipairs, type, tonumber, tostring = pairs, ipairs, type, tonumber, tostring
+local floor, abs = math.floor, math.abs
+local type, tonumber, tostring = type, tonumber, tostring
 local strformat = string.format
 
 ---------------------------------------------------------------------------
--- Shared drawing helpers (K)
+-- Shared values and helpers (K)
 ---------------------------------------------------------------------------
 
 local K = {}
@@ -22,61 +25,13 @@ K.BAR = "Interface\\TargetingFrame\\UI-StatusBar"
 K.DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 K.SKULL = "Interface\\TargetingFrame\\UI-TargetingFrame-Skull"
 K.FRIZ = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-K.NARROW = "Fonts\\ARIALN.TTF"
-K.GOLD = { 1, 0.82, 0 }
-K.INK = { 0.93, 0.91, 0.85 }
-K.DIM = { 0.64, 0.62, 0.56 }
-K.GREEN = { 0.27, 0.83, 0.45 }
-K.RED = { 1, 0.36, 0.30 }
-
-function K.Tex(parent, layer, path, r, g, b, a, sub)
-    local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub)
-    t:SetTexture(path or K.WHITE)
-    if r then t:SetVertexColor(r, g, b, a or 1) end
-    return t
-end
-
-function K.Font(parent, font, size, c, layer)
-    local f = parent:CreateFontString(nil, layer or "OVERLAY")
-    f:SetFont(font or K.FRIZ, size or 12, "")
-    c = c or K.INK
-    f:SetTextColor(c[1], c[2], c[3], c[4] or 1)
-    f:SetShadowColor(0, 0, 0, 1)
-    f:SetShadowOffset(1, -1)
-    f:SetWordWrap(false)
-    return f
-end
-
--- A two-colour gradient (bottom, top) where the client has one; the mean colour otherwise.
-function K.Gradient(t, orient, c1, c2)
-    t:SetTexture(K.WHITE)
-    t:SetVertexColor((c1[1] + c2[1]) / 2, (c1[2] + c2[2]) / 2, (c1[3] + c2[3]) / 2, ((c1[4] or 1) + (c2[4] or 1)) / 2)
-    if t.SetGradient and CreateColor then
-        t:SetVertexColor(1, 1, 1, 1)
-        pcall(t.SetGradient, t, orient or "VERTICAL", CreateColor(c1[1], c1[2], c1[3], c1[4] or 1),
-            CreateColor(c2[1], c2[2], c2[3], c2[4] or 1))
-    elseif t.SetGradientAlpha then
-        pcall(t.SetGradientAlpha, t, orient or "VERTICAL", c1[1], c1[2], c1[3], c1[4] or 1, c2[1], c2[2], c2[3], c2[4] or 1)
-    end
-end
-
--- The HUD panel: a translucent dark fill, a black outer pixel and a faint light inner edge (f:SetEdge(r, g, b, a)).
-function K.Panel(f, alpha)
-    f.outer = K.Tex(f, "BACKGROUND", K.WHITE, 0, 0, 0, 0.9, -8)
-    f.outer:SetPoint("TOPLEFT", -1, 1)
-    f.outer:SetPoint("BOTTOMRIGHT", 1, -1)
-    f.fill = K.Tex(f, "BACKGROUND", K.WHITE, 0.051, 0.051, 0.063, alpha or 0.9, -7)
-    f.fill:SetAllPoints()
-    f.edges = {}
-    for i, pts in ipairs({ { "TOPLEFT", "TOPRIGHT", "h" }, { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
-                           { "TOPLEFT", "BOTTOMLEFT", "v" }, { "TOPRIGHT", "BOTTOMRIGHT", "v" } }) do
-        local e = K.Tex(f, "BORDER", K.WHITE, 1, 1, 1, 0.07, -8)
-        e:SetPoint(pts[1]); e:SetPoint(pts[2])
-        if pts[3] == "h" then e:SetHeight(1) else e:SetWidth(1) end
-        f.edges[i] = e
-    end
-    function f:SetEdge(r, g, b, a) for _, e in ipairs(self.edges) do e:SetVertexColor(r, g, b, a) end end
-end
+K.NARROW = S.FONT_NUM                     -- the narrow digits of the meters, tables and badges
+-- (the meters' colours are the design tokens: the same tables, read-only)
+K.GOLD = S.C.GOLD
+K.INK = S.C.TEXT
+K.DIM = S.C.SUB
+K.GREEN = S.C.OK
+K.RED = S.C.BAD
 
 -- Numbers: 1.24M, 824.1k, 9,845
 function K.Int(v)
@@ -104,38 +59,29 @@ function K.Ordinal(n)
     return n .. s
 end
 
+-- A class's colour (a player's addon colours first); grey for an unknown class. (UI:ClassColor reads only the game's
+-- table and gives white for none: the meters' bars of an unknown player stay grey.)
+local UNKNOWN = S.C.SUB
 function K.ClassColor(cls)
     local c = cls and ((CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[cls]) or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[cls]))
     if c then return c.r, c.g, c.b end
-    return 0.6, 0.6, 0.6
+    return UNKNOWN[1], UNKNOWN[2], UNKNOWN[3]
 end
 function K.ClassHex(cls)
     local r, g, b = K.ClassColor(cls)
     return strformat("|cff%02x%02x%02x", floor(r * 255), floor(g * 255), floor(b * 255))
 end
 
--- Spec icons by class and spec label (Core/Meter.lua's labels; RaidComp's set, which is keyed by spec index)
-local SPEC_ICONS = {
-    WARRIOR = { Arms = "Ability_Warrior_SavageBlow", Fury = "Ability_Warrior_InnerRage",
-                Protection = "Ability_Warrior_DefensiveStance" },
-    PALADIN = { Holy = "Spell_Holy_HolyBolt", Protection = "Spell_Holy_DevotionAura",
-                Retribution = "Spell_Holy_AuraOfLight" },
-    HUNTER = { ["Beast Mastery"] = "Ability_Hunter_BeastTaming", Marksmanship = "Ability_Marksmanship",
-               Survival = "Ability_Hunter_SwiftStrike" },
-    ROGUE = { Assassination = "Ability_Rogue_Eviscerate", Combat = "Ability_BackStab", Subtlety = "Ability_Stealth" },
-    PRIEST = { Discipline = "Spell_Holy_WordFortitude", Holy = "Spell_Holy_HolyBolt",
-               Shadow = "Spell_Shadow_ShadowWordPain" },
-    SHAMAN = { Elemental = "Spell_Nature_Lightning", Enhancement = "Spell_Nature_LightningShield",
-               Restoration = "Spell_Nature_MagicImmunity" },
-    MAGE = { Arcane = "Spell_Holy_MagicalSentry", Fire = "Spell_Fire_FireBolt02", Frost = "Spell_Frost_FrostBolt02" },
-    WARLOCK = { Affliction = "Spell_Shadow_DeathCoil", Demonology = "Spell_Shadow_Metamorphosis",
-                Destruction = "Spell_Shadow_RainOfFire" },
-    DRUID = { Balance = "Spell_Nature_StarFall", ["Feral (Cat)"] = "Ability_Druid_CatForm",
-              ["Feral (Bear)"] = "Ability_Racial_BearForm", Restoration = "Spell_Nature_HealingTouch" },
-}
+-- A spec's icon by class and spec label (Core/Meter.lua's labels: the specs' own icons, ns.SPECS).
 function K.SpecIcon(cls, spec)
-    local name = cls and spec and SPEC_ICONS[cls] and SPEC_ICONS[cls][spec]
-    return name and ("Interface\\Icons\\" .. name) or nil
+    return ns.SpecIcon and ns.SpecIcon(cls, spec) or nil
+end
+
+-- "Retribution Paladin" ("Guardian" for a bear, the cat's "(Cat)" dropped); the class alone without a spec.
+function K.SpecText(a)
+    local cls = a and a.c and ns.ClassName(a.c, true) or ""
+    local spec = a and a.s and (a.s == "Feral (Bear)" and "Guardian" or (a.s:gsub(" %(.*%)", ""))) or nil
+    return spec and (spec .. " " .. cls) or cls
 end
 
 -- A player's icon: their spec's, else their class's (UI:ClassIcon's texture coords).
@@ -199,7 +145,7 @@ function K.Glyph(tex, name)
     tex:SetTexCoord(c[1], c[2], c[3], c[4])
 end
 
--- Window place and size in meters.<posKey> / meters.<sizeKey>.
+-- Window place and size in meters.<posKey> / meters.<sizeKey> (the meters' own saved places, kept where they are).
 function K.SavePlace(f, posKey, sizeKey)
     local p, _, rp, x, y = f:GetPoint()
     if p then ns.DB:SetSetting("meters." .. posKey, { p, rp, floor(x + 0.5), floor(y + 0.5) }) end
@@ -222,32 +168,6 @@ function K.SetResizeBounds(f, minW, minH, maxW, maxH)
     end
 end
 
--- A small header button (text and/or icon, hover wash). b:SetLit(on) while its menu is open.
-function K.HeadButton(parent)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(22)
-    b.wash = K.Tex(b, "BACKGROUND", K.WHITE, 1, 1, 1, 0)
-    b.wash:SetAllPoints()
-    b:SetScript("OnEnter", function(self) self.wash:SetVertexColor(1, 1, 1, 0.07) end)
-    b:SetScript("OnLeave", function(self) if not self.lit then self.wash:SetVertexColor(1, 1, 1, 0) end end)
-    function b:SetLit(on)
-        self.lit = on
-        self.wash:SetVertexColor(1, 1, 1, on and 0.09 or 0)
-    end
-    function b:OnMenuShown(on) self:SetLit(on) end
-    return b
-end
-
--- A chevron (the atlas one points down).
-function K.Chevron(parent, size, c)
-    local t = parent:CreateTexture(nil, "OVERLAY")
-    K.Glyph(t, "chevron")
-    t:SetSize(size or 10, size or 10)
-    c = c or K.GOLD
-    t:SetVertexColor(c[1], c[2], c[3], 0.85)
-    return t
-end
-
 ---------------------------------------------------------------------------
 -- Facade
 ---------------------------------------------------------------------------
@@ -262,8 +182,8 @@ end
 function MW.OpenSettings()
     if not ns.MainFrame then return end
     ns.MainFrame:Open("settings")
-    local S = ns.SettingsUI
-    if S and S.SelectSection then S:SelectSection("meters") end
+    local SU = ns.SettingsUI
+    if SU and SU.SelectSection then SU:SelectSection("meters") end
 end
 
 function MW:Toggle() if ns.MeterPanels then ns.MeterPanels:Toggle() end end
