@@ -164,6 +164,8 @@ def close_all(cl):
                               'DisasterZoneGalleryComponents', 'DisasterZoneGalleryLayouts' }) do
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
+      -- (the shared pop-ups of UI:Toast, which replaced some of the named ones above)
+      if ns.UI and ns.UI.ShownToasts then for _, t in ipairs(ns.UI:ShownToasts()) do t:Hide() end end
       if ns.StrategyBoard and ns.StrategyBoard.Close then pcall(ns.StrategyBoard.Close, ns.StrategyBoard) end
       if ns.SwingPractice and ns.SwingPractice.run then pcall(ns.SwingPractice.Stop, ns.SwingPractice, 'closed') end
       if DisasterZoneSwingPractice then DisasterZoneSwingPractice:Hide() end
