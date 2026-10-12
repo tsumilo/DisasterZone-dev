@@ -1644,7 +1644,8 @@ function ChangelogUI:RenderList()
         local holdsView = false
         for _, ne in ipairs(grp.items) do
             if hitsBy[ne.version] then hits = hits + 1 end
-            if ne.version == st.view then holdsView = true end
+            -- (a group that holds an unread release starts open too, so its New badge shows after a minor bump)
+            if ne.version == st.view or IsNew(ne) then holdsView = true end
         end
         local collapsed = st.collapsed[grp.key]
         if collapsed == nil then collapsed = grp.key == "older" or grp.key == "earlier" end
