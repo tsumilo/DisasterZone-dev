@@ -857,7 +857,8 @@ function Polls:Prune(now)
     end
     local seen = ns.DB:GuildBucket("pollSeen")
     for id in pairs(seen or {}) do
-        if not root.P[id] then seen[id] = nil end
+        local p = root.P[id]
+        if not p or sync:IsGrave("P", p, now) then seen[id] = nil end
     end
     if changed then Changed() end
 end
