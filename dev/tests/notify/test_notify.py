@@ -227,6 +227,58 @@ def a_pop_up_waiting_behind_other_toasts_keeps_its_icon_and_count_and_can_be_wit
 
 
 @case
+def a_pop_up_waiting_behind_other_toasts_still_waits_out_the_fight():
+    """1.3.5: a notification never popped up while quiet (in a fight, during a boss). Queued behind three other
+    features' toasts in the shared stack, it must not come mid-fight when one of them goes; it comes after."""
+    for how in ("combat", "encounter"):
+        w, c = solo("Alice")
+        setup(c)
+        for k in ("x1", "x2", "x3"):
+            c.eval("ns.UI:Toast({ key = ..., title = 'Other', duration = 0 })", k)
+        put(c, "a", "Queued before the pull")
+        assert toast(c) is None, how
+        if how == "combat":
+            c.set_combat(True)
+        else:
+            c.fire("ENCOUNTER_START", 652, "Attumen the Huntsman", 3, 10)
+        w.tick(0.2)
+        c.eval("ns.UI:HideToast('x1')")
+        w.tick(1)
+        assert toast(c) is None, "no pop-up mid-fight (%s)" % how
+        if how == "combat":
+            c.set_combat(False)
+        else:
+            c.fire("ENCOUNTER_END", 652, "Attumen the Huntsman", 3, 10, 1)
+        w.tick(4)
+        t = toast(c)
+        assert t and t["title"] == "Queued before the pull", (how, t)
+        no_errors(w)
+
+
+@case
+def a_long_title_shows_whole_on_the_pop_up():
+    """1.3.5: the pop-up's title wrapped (a poll's question, up to 140 characters, is the title and Yes / No vote
+    from the pop-up): all of it shows over a few lines and the pop-up grows, not cut with dots."""
+    w, c = solo("Alice")
+    setup(c)
+    put(c, "a", "Short")
+    short_h = c.eval("return ns.NotifyUI:GetToast():GetHeight()")
+    q = ("Should we move Thursday's Karazhan run to Wednesday 20:00 so the new healers can join before their "
+         "exams start?")
+    put(c, "b", q)
+    c.click(c.eval("return ns.NotifyUI:GetToast().later"))
+    w.tick(0.5)
+    t = toast(c)
+    assert t and t["title"] == q, t
+    long_h = c.eval("return ns.NotifyUI:GetToast():GetHeight()")
+    assert long_h > short_h, (short_h, long_h)
+    # other features' one-line titles keep their cut
+    c.eval("ns.UI:Toast({ key = 'one', title = ..., duration = 0 })", q)
+    assert c.eval("return ns.UI:GetToast('one').title:GetText()") != q
+    no_errors(w)
+
+
+@case
 def a_growing_stack_is_news_again():
     w, c = solo("Alice")
     setup(c)

@@ -83,6 +83,37 @@ def the_tab_shows_in_a_guild_and_not_without_one():
 
 
 @case
+def a_rows_second_line_keeps_the_bins_room_only_while_it_shows():
+    """1.3.5: the bin (who may take an event or its results off) shows on hover only and the second line used the
+    row's room. The 1.4 rows fit that line to the room: away from the mouse it may use the bin's room; on hover the
+    bin shows and the line makes room for it (the whole line in the tooltip)."""
+    w = World()
+    g = Client(w, "Gina", guild_rank=0, class_file="PALADIN")
+    g.load_addon()
+    w.tick(3)
+    g.slash("/dz demo on")
+    w.tick(1)
+    assert g.eval_py("return ns.EventsUI:Open('upcoming')") is True
+    w.tick(0.3)
+    got = g.eval_py("""
+        local v = ns.EventsUI:GetViewFrame('upcoming')
+        for _, r in ipairs(v.rows) do
+          if r:IsShown() and r.remove and r.btn:IsShown() then
+            local out = { away = r.rightW, bin = r.del:IsShown() }
+            r:GetScript("OnEnter")(r)
+            out.hover, out.binOn = r.rightW, r.del:IsShown()
+            r:GetScript("OnLeave")(r)
+            out.back, out.binOff = r.rightW, r.del:IsShown()
+            return out
+          end
+        end""")
+    assert got, "a row I may take off, with its action"
+    assert got["bin"] is False and got["binOn"] is True and got["binOff"] is False, got
+    assert got["hover"] == got["away"] + 24 and got["back"] == got["away"], got
+    w.assert_no_errors()
+
+
+@case
 def every_view_and_sheet_renders_in_demo_mode():
     w = World()
     g = Client(w, "Gina", guild_rank=0, class_file="PALADIN")

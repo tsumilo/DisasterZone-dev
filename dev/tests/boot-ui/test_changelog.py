@@ -394,6 +394,31 @@ def the_whats_new_popup_goes_and_comes_back_with_the_window():
 
 
 @case
+def a_popup_hidden_with_the_window_stays_shut_when_the_tour_starts():
+    """1.3.5: starting the welcome tour closed the What's new pop-up for good. Hidden with the window first (its X),
+    it must not come back over the tour when the tour opens the window again."""
+    w, c = solo("Rai", guild_rank=3, tick=3)
+    c.slash("/dz")
+    w.tick(0.5)
+    version = c.eval("return ns.version")
+    c.click(home_chip(c, "What's new in " + version))
+    w.tick(0.3)
+    assert c.eval("return ns.ChangelogPopup:IsVisible()") is True
+    c.eval("ns.MainFrame:Close()")
+    w.tick(0.3)
+    c.eval("ns.WelcomeTour:Start()")
+    w.tick(1)
+    assert c.eval("return ns.MainFrame:IsShown()") is True
+    assert c.eval("return ns.ChangelogPopup:IsShown()") is False, "the pop-up came back over the tour"
+    c.eval("ns.Tour:Stop()")
+    c.eval("ns.MainFrame:Close()")
+    c.eval("ns.MainFrame:Open()")
+    w.tick(0.3)
+    assert c.eval("return ns.ChangelogPopup:IsShown()") is False
+    no_errors(w)
+
+
+@case
 def the_chip_counts_unread_versions():
     w, c = solo("Rai", guild_rank=3, tick=3)
     versions = released(c)

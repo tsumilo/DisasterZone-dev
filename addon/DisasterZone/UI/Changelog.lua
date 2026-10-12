@@ -430,7 +430,7 @@ function ChangelogUI:ShowMe(sec)
     end
     if type(sec) ~= "table" or not sec.open then return false end
     local fromView = st.view or sec.version
-    if ns.ChangelogPopup then ns.ChangelogPopup:Hide() end
+    if ns.ChangelogPopup then ns.ChangelogPopup:Close() end      -- (Close: it stays shut when the window comes back)
     if not Route(sec.open) then
         ns:Print("That page isn't open to you.")
         return false

@@ -1563,9 +1563,10 @@ function Up.NewRow(parent)
     r.del = UI():CreateRemoveButton(r, "Remove")
     r.del:Hide()
     r.del:SetScript("OnClick", function() if r.remove then r.remove() end end)
-    r.del:HookScript("OnLeave", function() if not r:IsMouseOver() then r.del:Hide() end end)
-    r:SetScript("OnEnter", function(self) if self.remove then self.del:Show() end end)
-    r:SetScript("OnLeave", function(self) if not self:IsMouseOver() then self.del:Hide() end end)
+    -- (the line makes room for the bin only while it shows: as before 1.4, the whole line when there is room)
+    r.del:HookScript("OnLeave", function() if not r:IsMouseOver() then Up.ShowBin(r, false) end end)
+    r:SetScript("OnEnter", function(self) if self.remove then Up.ShowBin(self, true) end end)
+    r:SetScript("OnLeave", function(self) if not self:IsMouseOver() then Up.ShowBin(self, false) end end)
     -- (a second line cut short for the row's width: the whole of it under the mouse)
     UI():AttachTooltip(r, function(self, tt)
         local full = self.subText
@@ -1596,7 +1597,13 @@ function Up.RowRight(r)
     r.del:ClearAllPoints()
     r.del:SetPoint("RIGHT", r, "RIGHT", -(8 + right + 6), 0)
     if not r.remove then r.del:Hide() end
-    r:SetRightWidth(8 + right + (r.remove and (6 + 18) or 0) + 6)
+    r:SetRightWidth(8 + right + ((r.remove and r.del:IsShown()) and (6 + 18) or 0) + 6)
+end
+
+-- The bin shown (on hover, for who may take it off) or hidden, the second line fitted to the room it leaves.
+function Up.ShowBin(r, shown)
+    r.del:SetShown(shown and r.remove and true or false)
+    Up.RowRight(r)
 end
 
 -- A calendar event's row: the art, its name, when / what it is / how full / who hosts, one action.
