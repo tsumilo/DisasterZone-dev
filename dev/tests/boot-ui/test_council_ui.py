@@ -671,8 +671,9 @@ def request_sync_button_real_council():
     w, c, members = real_council_world(n_members=2)
     w.tick(60)        # the automatic login HELLO (8-20 s after the roster) and its 30 s rate limit are over
     auto = [e for e in w.addon_log if e["sender"] == c.full_name and e["chat_type"] == "GUILD"
-            and not e["prefix"].startswith("CDLp") and e["prefix"] != "CDLr"]
-    # (CDLp*: the in-game update channel; CDLr: the dungeon board's own hello)
+            and not e["prefix"].startswith("CDLp") and e["prefix"] not in ("CDLr", "CDLg")]
+    # (CDLp*: the in-game update channel; CDLr: the dungeon board's own hello; CDLg: the games' own, chess asking for
+    # games with me 8-14 s after login)
     assert len(auto) == 1, "expected exactly one automatic HELLO, got %d" % len(auto)
     c.slash("/dz council")
     w.tick(0.5)
