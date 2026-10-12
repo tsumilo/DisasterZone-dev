@@ -91,6 +91,7 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 | Test suites (only what your change can affect) | `luaenv\Scripts\python.exe tf_e\run_all.py` |
 | What that would run, and why | `luaenv\Scripts\python.exe tf_e\run_all.py --dry-run` |
 | Every suite, no skipping | `luaenv\Scripts\python.exe tf_e\run_all.py --all` |
+| Fail fast while fixing (last failures first, nothing new starts after a failure) | `luaenv\Scripts\python.exe tf_e\run_all.py -x` |
 | One suite | `luaenv\Scripts\python.exe tests\loot-roll\test_rolls.py` (add `-k name` to run cases matching `name`) |
 | Harness self-test | `luaenv\Scripts\python.exe tools\test_harness_selftest.py` |
 | Multi-return hazard scan | `luaenv\Scripts\python.exe find_multiret.py` |
@@ -114,11 +115,17 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
   simply runs again next time (its record is kept).
   Use `--all` before a release, or when something outside the repo changed (date-dependent code, the Python
   install). `tools\test_testmap.py` checks the selection itself.
-- **Bytecode cache.** The harness compiles each addon file once (`dev\.luacache\`). Clients after that load the
-  bytecode, which makes a client boot about 5x faster. `DISASTERZONE_NO_BCCACHE=1` turns it off.
+- **Bytecode cache.** The harness compiles each addon file once (`dev\.luacache\`), the mock's own files too.
+  Clients after that load the bytecode, which makes a client boot about 5x faster. `DISASTERZONE_NO_BCCACHE=1`
+  turns it off.
+- **Cheap boots.** The Lua collector is paused while a client boots and runs one full cycle after the login events
+  (collecting while the heap grew was a quarter of a boot), and file times come from one folder listing per boot
+  instead of a stat per file. A client boot is ~0.1 s, a 7-client raid set-up ~1 s.
+- **Mock timers** remember the earliest due time, so a step with nothing due skips the scan of every C_Timer.
 - **Scheduling.** Longest suites first (`tf_e\timings.json`), the longest ones split into shards (`SHARDS` in
   `run_all.py`, `DZ_SHARD=i/n`), and one shared set of worker slots for every `run_all` on the machine
-  (`DZ_TEST_SLOTS`, default 12), so parallel agents share the CPU instead of each starting a full set.
+  (`DZ_TEST_SLOTS`, default 8: more workers only slow each suite down), so parallel agents share the CPU instead
+  of each starting a full set.
 - **Patch suites** hard-link their copies of the addon tree, because a fresh copy costs a virus scan on every
   first read. Never write *into* a file of such a copy: use `_patchkit.write()` / `release._put()`, which replace
   the file.

@@ -1551,6 +1551,7 @@ function M.CreateAnimationGroup(parent, name, template)
 end
 
 function M.step_animations(dt)
+  if next(M.playing_anims) == nil then return end
   local list = {}
   for g in pairs(M.playing_anims) do list[#list + 1] = g end
   tsort(list, function(a, b) return OBJ[a].seq < OBJ[b].seq end)
@@ -1575,7 +1576,8 @@ function M.step_animations(dt)
 end
 
 function M.run_onupdates(dt)
-  for _, a in ipairs(M.mock_actors or {}) do a:Tick() end   -- ModelScene actors load on their own, like the client
+  local actors = M.mock_actors
+  if actors then for _, a in ipairs(actors) do a:Tick() end end   -- ModelScene actors load on their own, like the client
   local list = M.onupdate_frames
   local n = #list
   for i = 1, n do

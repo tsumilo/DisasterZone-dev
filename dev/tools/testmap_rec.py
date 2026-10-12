@@ -101,6 +101,9 @@ def _audit(event, args):
     elif event in ("os.listdir", "os.scandir"):
         path = args[0]
         if isinstance(path, (str, bytes)):
+            h = sys.modules.get("harness")
+            if h is not None and getattr(h, "_LISTING", False):  # harness._stamp: file times, not a dependency
+                return
             # the import system lists every sys.path folder: not a dependency (a new file there changes nothing)
             f = sys._getframe(1)
             for _ in range(4):

@@ -1,7 +1,7 @@
 """Runs every tests/*/test_*.py suite in parallel, writes each output to tf_e/<out>/<suite>.txt and prints a summary
 line per suite as it finishes. Usage:
 
-    run_all.py [out] [substring filters...] [-j N] [--all] [--dry-run]
+    run_all.py [out] [substring filters...] [-j N] [--all] [--dry-run] [-x]
 
 - Only what changed: a suite runs when something it depended on changed since its last run (tools/testmap.py: its
   test files and helpers, the harness and mock, and the addon functions it called), or when it has no record yet.
@@ -15,6 +15,9 @@ line per suite as it finishes. Usage:
   agents running suites at once share the CPU instead of each starting a full set of workers. -j N caps this
   run's own workers (default: all slots).
 - A suite is not started while less than MIN_FREE_MB of memory is free (unless nothing of this run is running).
+- -x (fail fast): suites that failed last time start first, and after the first failure no new suite starts (the
+  ones already running finish). The edit loop: fix, rerun with -x, and hear about a break in a minute, not at the
+  end. What did not run stays due for the next run.
 """
 import ctypes
 import glob
@@ -39,7 +42,9 @@ PY = os.path.join(SCRATCH, "luaenv", "Scripts", "python.exe")
 TF_E = os.path.join(SCRATCH, "tf_e")
 TIMINGS = os.path.join(TF_E, "timings.json")
 SLOT_DIR = os.path.join(TF_E, ".slots")
-SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(12, (os.cpu_count() or 8) - 6)))
+# 8 on this machine (12 cores, 20 threads): measured 2026-10-12 on 46 suites, 8 workers finished in 113 s, 12 in 119 s
+# (each suite ran 1.6x slower: the Lua heaps fight over memory and caches) and 6 in 126 s.
+SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(8, (os.cpu_count() or 8) - 6)))
 MIN_FREE_MB = 1500
 TIMEOUT = 1500
 
@@ -49,7 +54,8 @@ RELEASE_ONLY = testmap.RELEASE_ONLY      # suites only --all runs (or a filter n
 args = sys.argv[1:]
 RUN_ALL = "--all" in args
 DRY = "--dry-run" in args
-args = [a for a in args if a not in ("--all", "--dry-run")]
+FAIL_FAST = "-x" in args or "--fail-fast" in args
+args = [a for a in args if a not in ("--all", "--dry-run", "-x", "--fail-fast")]
 jobs = SLOTS
 if "-j" in args:
     i = args.index("-j")
@@ -109,6 +115,8 @@ if DRY:
 timings = load_timings()
 # unknown suites first (they may be long), then longest first
 tasks.sort(key=lambda t: -timings.get(task_name(t), 1e9))
+if FAIL_FAST:  # what failed last time is most likely what is being fixed: hear about it first
+    tasks.sort(key=lambda t: (testmap.cached_result(task_name(t)) or (0,))[0] == 0)
 
 
 # -- machine-wide slots ----------------------------------------------------------------------------------------------
@@ -187,14 +195,22 @@ def release_slot(fh):
 
 
 # -- running ---------------------------------------------------------------------------------------------------------
+_failed = threading.Event()  # -x: set by the first failure
+
+
 def run(task):
     f, i, n = task
     name = task_name(task)
+    if FAIL_FAST and _failed.is_set():
+        return name, None, [], [], 0.0
+    slot = acquire_slot()
+    if FAIL_FAST and _failed.is_set():
+        release_slot(slot)
+        return name, None, [], [], 0.0
     env = dict(os.environ)
     env.update(testmap.env_for(name))
     if n > 1:
         env["DZ_SHARD"] = "%d/%d" % (i, n)
-    slot = acquire_slot()
     t0 = time.time()
     try:
         p = subprocess.run([PY, f], cwd=SCRATCH, capture_output=True, text=True, timeout=TIMEOUT, env=env,
@@ -216,6 +232,8 @@ def run(task):
     summary = summary[-1:] if summary else ["(no summary) rc=%s" % rc]
     fails = [l for l in out.splitlines() if l.startswith("FAIL")]
     testmap.finish(name, rc, t0, summary[0], fails, out_path)
+    if rc != 0:
+        _failed.set()
     return name, rc, summary, fails, dt
 
 
@@ -225,9 +243,13 @@ def line(name, rc, summary, dt):
 
 t_start = time.time()
 results = []
+not_run = []  # -x: never started after the first failure
 with ThreadPoolExecutor(max_workers=jobs) as ex:
     for fut in as_completed([ex.submit(run, t) for t in tasks]):
         name, rc, summary, fails, dt = fut.result()
+        if rc is None:
+            not_run.append(name)
+            continue
         results.append((name, rc, summary, fails, dt))
         print(line(name, rc, summary, dt))
         for l in fails:
@@ -263,6 +285,9 @@ for name, (rc, summary, fails, out) in sorted(stale_fails):
     print("   FAILED (last run, unchanged since) %-30s %s  %s" % (name, summary, out))
     for l in fails:
         print("      " + l)
+if not_run:
+    print("   -x: %d suite run(s) not started after the first failure (still due): %s" % (
+        len(not_run), ", ".join(sorted(not_run))))
 if held:
     print("   release-only, not run (changed since their last run; --all runs them before a release): %s" % (
         ", ".join(sorted({suite_key(t[0]) for t in held}))))

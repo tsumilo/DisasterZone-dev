@@ -103,7 +103,16 @@ def _read(path, binary=False):
 
 
 def _mock_sources():
-    return {m: _read(os.path.join(MOCK_DIR, m)) for m in MODULES}
+    return {m: _mock_chunk(m) for m in MODULES}
+
+
+def _mock_chunk(name):
+    """A wowmock file as bytecode (compiled once, like the addon's files below), or its source if it does not compile."""
+    key = ("mockbc", name)
+    if key not in _CACHE:
+        src = _read(os.path.join(MOCK_DIR, name), binary=True)
+        _CACHE[key] = (BC_CACHE_ON and _compile(src, "@wowmock/" + name)) or src
+    return _CACHE[key]
 
 
 # Addon files as Lua 5.1 bytecode. Compiling the addon (~17 MB of source) was two thirds of every client boot, and a
@@ -148,14 +157,58 @@ def _compile(src, chunkname):
     return bc
 
 
-def _chunk(path, chunkname, strip_bom=True):
-    """What M.load_file gets for an addon file: cached bytecode, or the source (cache off / syntax error).
-    None when the file does not exist."""
-    try:
+# Each boot re-checks every file it loads (agents edit while tests run), but a stat per file opens it on Windows
+# (~0.1 ms, a tenth of a boot for ~270 files): a folder is listed once per boot instead, and its entries' times and
+# sizes are what _chunk compares. Client.load_addon / load_files / LoadAddOn start a new boot (_BOOT += 1).
+_BOOT = 0
+_LISTINGS = {}  # normcase(folder) -> (boot, {normcase(name): (mtime_ns, size)} or None)
+_LISTING = False  # tools/testmap_rec.py: these listings are not dependencies (the files' coverage is)
+
+
+def _new_boot():
+    global _BOOT
+    _BOOT += 1
+
+
+def _stamp(path):
+    """(mtime_ns, size) of a file as this boot sees it, or None when it does not exist."""
+    global _LISTING
+    folder, name = os.path.split(path)
+    fkey = os.path.normcase(folder)
+    hit = _LISTINGS.get(fkey)
+    if hit is None or hit[0] != _BOOT:
+        entries = {}
+        _LISTING = True
+        try:
+            with os.scandir(folder) as it:
+                for e in it:
+                    try:
+                        if e.is_file():
+                            st = e.stat()
+                            entries[os.path.normcase(e.name)] = (st.st_mtime_ns, st.st_size)
+                    except OSError:
+                        pass
+        except OSError:
+            entries = None
+        finally:
+            _LISTING = False
+        hit = _LISTINGS[fkey] = (_BOOT, entries)
+    found = hit[1] and hit[1].get(os.path.normcase(name))
+    if found:
+        return found
+    try:  # not in the listing: gone, or a name the listing spells differently
         st = os.stat(path)
     except OSError:
         return None
-    stamp = (st.st_mtime_ns, st.st_size)
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _chunk(path, chunkname, strip_bom=True):
+    """What M.load_file gets for an addon file: cached bytecode, or the source (cache off / syntax error).
+    None when the file does not exist."""
+    stamp = _stamp(path)
+    if stamp is None:
+        return None
     key = (path, chunkname, strip_bom)
     hit = _CHUNKS.get(key)
     if hit and hit[0] == stamp:
@@ -1366,14 +1419,15 @@ class Client:
             "swap_raid_subgroup": lambda a, b: self.world.swap_raid_subgroup(self, a, b),
             "load_lod": self._py_load_lod,
         })
+        self._lua_gc = rt.globals().collectgarbage
         sources = rt.table_from(_mock_sources())
-        res = rt.globals().loadstring(_read(os.path.join(MOCK_DIR, "mock.lua")), "@wowmock/mock.lua")
+        res = rt.globals().loadstring(_mock_chunk("mock.lua"), "@wowmock/mock.lua")
         fn = res[0] if isinstance(res, tuple) else res
         if fn is None:
             raise RuntimeError("wowmock/mock.lua failed to compile: %s" % (res[1],))
         self.M = fn(cfg, py, sources)
         self._cover_table = _cover_tables(rt) if COVER_FILE else None
-        self.M.load_items(_read(os.path.join(MOCK_DIR, "items.lua")))
+        self.M.load_items(_mock_chunk("items.lua"))
         for iid in self.world.custom_items:
             self._define_item(iid)
         self._push_state()
@@ -1472,6 +1526,20 @@ class Client:
         (or (false, true) when reload=True)."""
         if self.runtime is None:
             raise RuntimeError("%s is offline; call login()" % self.full_name)
+        _new_boot()
+        # A boot allocates ~55 MB (the files' bytecode, data tables) and keeps ~30: the collector running while the
+        # heap grows was a quarter of the boot. One full collection after the login events (~17 ms) instead; only
+        # restarting would leave the garbage in place (an idle client allocates too little to finish a cycle), and 60
+        # clients a process each holding 25 MB more slowed the whole machine.
+        gc = self._lua_gc
+        gc("stop")
+        try:
+            return self._load_addon(reload)
+        finally:
+            gc("restart")
+            gc("collect")
+
+    def _load_addon(self, reload):
         headers, files = self.toc()
         self._set_time()
         self.M.set_toc_meta(self.addon_name, to_lua(self.runtime, headers))
@@ -1565,6 +1633,7 @@ class Client:
         folder = self.lod_addons.get(name)
         if not folder or not os.path.exists(os.path.join(folder, name + ".toc")):
             return False, "MISSING"
+        _new_boot()
         headers, files = parse_toc(folder, name)
         if name == ROOMS_NAME and not (LOAD_ROOMS if self._load_rooms is None else self._load_rooms):
             files = [f for f in files if not is_board_room(f)]
@@ -1580,6 +1649,7 @@ class Client:
     def load_files(self, files, fire_login=False, addon_name=ADDON_NAME):
         """Load specific files (relative to the addon folder, or absolute) with (addon_name, ns). With
         fire_login=True also fire ADDON_LOADED + login events afterwards."""
+        _new_boot()
         missing = []
         if PATCH_SV_FILE and addon_name == ADDON_NAME and not self.eval("return DisasterZonePatchDB ~= nil"):
             # patched run: the stored update must be there before the first file, as load_addon() arranges

@@ -451,6 +451,7 @@ function debuglocals() return "" end
 ---------------------------------------------------------------------------------------------------
 M.timers = {}
 M.timer_seq = 0
+M.timer_due = math.huge   -- earliest .at in M.timers (or earlier): run_timers skips the scan until then
 
 local TimerMethods = {}
 TimerMethods.__index = TimerMethods
@@ -463,6 +464,7 @@ local function add_timer(delay, fn, handle, interval, iterations)
   local t = { at = M.now + delay, seq = M.timer_seq, fn = fn, handle = handle, interval = interval,
               iterations = iterations, where = "C_Timer" }
   M.timers[#M.timers + 1] = t
+  if t.at < M.timer_due then M.timer_due = t.at end
   return t
 end
 
@@ -492,8 +494,8 @@ function C_Timer.NewTicker(seconds, fn, iterations)
 end
 
 function M.run_timers()
-  if #M.timers == 0 then return end
-  local due, keep = {}, {}
+  if #M.timers == 0 or M.now + 1e-9 < M.timer_due then return end
+  local due, keep, nxt = {}, {}, math.huge
   for _, t in ipairs(M.timers) do
     if t.handle and t.handle._cancelled then
       -- drop
@@ -501,9 +503,11 @@ function M.run_timers()
       due[#due + 1] = t
     else
       keep[#keep + 1] = t
+      if t.at < nxt then nxt = t.at end
     end
   end
   M.timers = keep
+  M.timer_due = nxt
   tsort(due, function(a, b) if a.at == b.at then return a.seq < b.seq end return a.at < b.at end)
   for _, t in ipairs(due) do
     if not (t.handle and t.handle._cancelled) then
@@ -520,6 +524,7 @@ function M.run_timers()
           M.timer_seq = M.timer_seq + 1
           t.seq = M.timer_seq
           M.timers[#M.timers + 1] = t
+          if t.at < M.timer_due then M.timer_due = t.at end
         end
       end
     end
