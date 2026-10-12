@@ -181,6 +181,11 @@ def an_art_row_shows_its_picture_icon_title_sub_pill_and_right_text():
         res.icon3 = r.icon:IsShown()
         r:SetData({ art = "Interface\\\\Glues\\\\whole", title = "Whole" })
         res.tex3 = { __MOCK.S(r.art.tex).texture, __MOCK.S(r.art.tex).texcoord }
+        -- a pill kind that is an alias (the Upcoming rows' "Asked to join": "review") reads as the banners show it
+        r:SetData({ art = "kara", title = "Asked", pill = { "review", "Asked to join" } })
+        res.review = { r.pill.fs:GetTextColor() }
+        res.warn = UI.PILL_LOOK.warn.text
+        res.mute = UI.PILL_LOOK.mute.text
         -- a long title is cut to the room the right side leaves
         r:SetData({ art = "kara", title = string.rep("Long name ", 12), sub = "x", right = "right side" })
         res.cut = r.title:GetText()
@@ -205,6 +210,7 @@ def an_art_row_shows_its_picture_icon_title_sub_pill_and_right_text():
     assert out["alone"][0] == "LEFT" and out["alone"][2:] == ["RIGHT", 14, 0], out
     assert out["sub2"] is False and out["pill2"] is False and out["right2"] is False and out["icon3"] is False, out
     assert out["tex3"] == ["Interface\\Glues\\whole", [0, 1, 0, 1]], out
+    assert near(out["review"][:3], out["warn"][:3], 1e-4) and not near(out["warn"][:3], out["mute"][:3], 1e-4), out
     assert out["cut"].endswith("...") and len(out["cut"]) < 120, out["cut"]
     assert out["cut2"].endswith("...") and len(out["cut2"]) < len(out["cut"]), (out["cut"], out["cut2"])
     assert out["sel"] == [True, True], out

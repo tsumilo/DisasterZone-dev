@@ -374,6 +374,15 @@ def the_guests_view():
                        "return o" % V)
     assert rows == [[K("Newbie"), "add"]], rows
     assert bob.find_text("Add Newbie", True, True)
+    # (the Add row's tile: a gold + on the dark tile, 1.3.5's add mark)
+    TILES = ("local o = {}; %s.list.box:ForEachFrame(function(r) if r.cdlData and r:IsShown() and r.ar then "
+             "local t = r.ar.icon; local cr, cg, cb = t.tex:GetVertexColor(); o[#o + 1] = { r.cdlData.key, "
+             "r.cdlData.add or '', t:IsShown(), tostring(t.tex:GetTexture()), cr, cg, cb } end end); return o" % V)
+    tiles = bob.eval_py(TILES)
+    atlas = bob.eval("return ns.UI.ICON_ATLAS")
+    plus = [t for t in tiles if t[1] == "add"]
+    assert plus and plus[0][2] is True and plus[0][3] == atlas, tiles
+    assert abs(plus[0][4] - 1) < 0.01 and abs(plus[0][5] - 0.82) < 0.02 and plus[0][6] < 0.1, tiles
     bob.eval("ns.GuestBookUI:Select(..., 'add', true)", K("Newbie"))
     form = "%s.form" % V
     assert bob.eval("return %s.noteBox:HasFocus()" % form) is True
@@ -411,6 +420,25 @@ def the_guests_view():
     w.tick(0.3)
     assert bob.eval("return ns.GuestBookUI:GetFilter()") == "black"
     assert bob.find_text("Nobody is blacklisted.", True, True)
+    # a blacklisted player: their profile banner under a red veil (and a ? in the tiles: the class is unknown); a
+    # guest's banner has none
+    assert call(bob, "SetBlacklisted", "Grimbold", "ninja looted Gruul")["ok"] is True
+    w.tick(1)
+    bob.eval("ns.GuestBookUI:Select(...)", K("Grimbold"))
+    assert bob.eval("return (ns.GuestBookUI:GetSelected())") == K("Grimbold")
+    ban = "%s.banner" % V
+    assert bob.eval("return %s.redWash ~= nil and %s.redWash:IsShown()" % (ban, ban)) is True
+    assert bob.eval("return %s.icon:IsShown() and %s.icon.tex:GetTexture()" % (ban, ban)) == atlas
+    sub = bob.eval_py("return { ns.Style:Color('SUB') }")
+    tiles = bob.eval_py(TILES)
+    grim = [t for t in tiles if t[0] == K("Grimbold")]
+    assert grim and grim[0][2] is True and grim[0][3] == atlas, tiles
+    assert all(abs(grim[0][4 + i] - sub[i]) < 0.01 for i in range(3)), (tiles, sub)
+    bob.click(bob.eval("return %s.bookTab" % V))
+    w.tick(0.3)
+    bob.eval("ns.GuestBookUI:Select(...)", K("Pug"))
+    assert bob.eval("return (ns.GuestBookUI:GetSelected())") == K("Pug")
+    assert bob.eval("return %s.redWash:IsShown()" % ban) is False
     assert occ
     w.assert_no_errors()
 

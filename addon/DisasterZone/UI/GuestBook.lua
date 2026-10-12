@@ -496,12 +496,28 @@ function H.Art(inst, grey)
     end
 end
 
--- An art row's icon tile: a class circle (cls), an icon (a texture), or none.
-function H.Tile(row, icon, cls)
+-- An art row's icon tile: a class circle (cls), an atlas glyph on the tile's dark ground (glyph: a UI.ICON name or
+-- index, drawn glyphColor, gold by default: the "Add <name>" row's +, a grey ? while the class is unknown), an icon (a
+-- texture), or none.
+H.HELP = 11                                     -- (the icon atlas's ?: a player whose class is unknown)
+function H.Tile(row, icon, cls, glyph, glyphColor)
     local tile = row.icon
+    local tex = tile.tex
+    -- (rows are reused: no tint, inset or hidden texture left over from a glyph or a class ClassIcon didn't know)
+    tex:SetVertexColor(1, 1, 1, 1)
+    tex:ClearAllPoints()
+    tex:SetAllPoints()
+    tex:Show()
     if cls then
         tile:Set(CLASS_TILE)
-        UI():ClassIcon(tile.tex, cls)
+        UI():ClassIcon(tex, cls)
+    elseif glyph then
+        tile:Set(UI().ICON_ATLAS)
+        UI():SetGlyph(tex, glyph, glyphColor or "GOLD")
+        local size = floor((tile:GetWidth() or 20) * 0.7 + 0.5)
+        tex:ClearAllPoints()
+        tex:SetPoint("CENTER")
+        tex:SetSize(size, size)
     elseif icon then
         tile:Set(icon)
         tile.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -556,7 +572,16 @@ local function initRow(row, d)
     local room = LIST_W - TEXT_X - 8 - n * 17
     row.ar:SetData({ art = H.Art(not add and artInst(d.e) or nil, d.bl ~= nil and state.filter ~= "black"),
         title = title, sub = H.PickVariant(rowLine(d), room, "sub"), right = marks, selected = isPicked(d) })
-    H.Tile(row.ar, add == "black" and BLOCK_TEX or nil, c)
+    -- the tile: the class; a gold + (Add); the block sign (Blacklist); a ? while the class is unknown (1.3.5's marks)
+    if add == "add" then
+        H.Tile(row.ar, nil, nil, "plus")
+    elseif add == "black" then
+        H.Tile(row.ar, BLOCK_TEX)
+    elseif c then
+        H.Tile(row.ar, nil, c)
+    else
+        H.Tile(row.ar, nil, nil, H.HELP, "SUB")
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -648,6 +673,14 @@ local function fillBanner(kind, key, e, bl)
     local inst = (kind == "guest" or kind == "black") and artInst(e) or nil
     b:SetArt(inst, black)
     if not inst and black then b.glow:Hide() end
+    -- a blacklisted player: the art greyed under a red veil (over the banner's shade, under its words) and a red edge
+    if black and not b.redWash then
+        b.redWash = b:CreateTexture(nil, "BORDER", nil, 4)
+        b.redWash:SetPoint("TOPLEFT", 1, -1)
+        b.redWash:SetPoint("BOTTOMRIGHT", -1, 1)
+        UI():GradientRGBA(b.redWash, "HORIZONTAL", 0.42, 0.05, 0.03, 0.18, 0.42, 0.05, 0.03, 0.42)
+    end
+    if b.redWash then b.redWash:SetShown(black) end
     if black then
         local r, g, bb = S:Color("BAD")
         UI():SetEdgeColor(b, r, g, bb, 0.6)
@@ -656,9 +689,15 @@ local function fillBanner(kind, key, e, bl)
     end
     local c, sp
     if kind == "fresh" then c, sp = state.draft.c, state.draft.sp else c, sp = bookClass(key, e) end
-    -- the class circle in the icon tile (no tile while the class is unknown)
-    b:SetIcon(c and CLASS_TILE or nil)
-    if c then UI():ClassIcon(b.icon.tex, c) end
+    -- the class circle in the icon tile (a grey ? while the class is unknown, as the list's rows)
+    if c then
+        b:SetIcon(CLASS_TILE)
+        b.icon.tex:Show()
+        UI():ClassIcon(b.icon.tex, c)
+    else
+        b:SetIcon(H.HELP, { glyph = "SUB" })
+        b.icon.tex:Show()
+    end
     b:SetTitle(UI():ColoredName(key, c))
     if kind == "black" then b:SetPill("live", "Blacklisted") else b:SetPill(nil, nil) end
     b:SetKicker((kind == "guest" or kind == "black") and H.StatsText(e) or nil)

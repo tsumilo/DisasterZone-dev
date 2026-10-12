@@ -374,6 +374,19 @@ def presence_circles_page_dots_and_the_keys_card():
     bob.eval(B + ":ShowKeys()")
     bob.eval("local k = _G.DisasterZoneStrategyKeys; k:GetScript('OnKeyDown')(k, 'ESCAPE')")
     assert not shown(bob, "_G.DisasterZoneStrategyKeys") and shown(bob, W)
+    # every row's words start clear of its last key pill (the wide Ctrl+G | Ctrl+Shift+G row pushes its words right)
+    gaps = bob.eval_py("local out = {}; for _, r in ipairs(_G.DisasterZoneStrategyKeys.rows) do "
+                       "local right = r.x; for _, cap in ipairs(r.caps) do right = right + cap:GetWidth() + 3 end; "
+                       "out[#out + 1] = { r.desc:GetText(), r.descX - (right - 3), #r.caps } end; return out")
+    assert len(gaps) > 10, gaps
+    assert all(g[1] >= 5 for g in gaps), [g for g in gaps if g[1] < 5]
+    assert any(g[2] > 1 and "group" in (g[0] or "") for g in gaps), gaps
+    # (and every side keeps one column of words)
+    cols = bob.eval_py("local out = {}; for _, r in ipairs(_G.DisasterZoneStrategyKeys.rows) do "
+                       "out[tostring(r.x)] = out[tostring(r.x)] or {}; out[tostring(r.x)][tostring(r.descX)] = true end; "
+                       "local n = {}; for x, s in pairs(out) do local c = 0; for _ in pairs(s) do c = c + 1 end; "
+                       "n[#n + 1] = c end; return n")
+    assert len(cols) == 2 and all(n == 1 for n in cols), cols
     w.assert_no_errors()
 
 

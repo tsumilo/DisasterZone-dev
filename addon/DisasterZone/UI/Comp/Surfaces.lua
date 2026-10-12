@@ -563,7 +563,8 @@ function ArtRow:SetData(d)
     local pill = d.pill
     if type(pill) == "table" and (pill[2] or pill.text) then
         if not self.pill then self.pill = UI:CreatePill(self, 16) end
-        self.pill:Set(pill[2] or pill.text, pill[1] or pill.kind)
+        -- (the kind's look through UI:PillKind, as the banners' pills: "review" reads amber here too, not mute)
+        self.pill:Set(pill[2] or pill.text, (UI:PillKind(pill[1] or pill.kind)))
         self.pill:ClearAllPoints()
         self.pill:SetPoint("LEFT", self.title, "RIGHT", 7, 0)
         self.pill:Show()
