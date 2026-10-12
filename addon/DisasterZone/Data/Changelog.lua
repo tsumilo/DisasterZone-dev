@@ -6,6 +6,54 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.0", date = "11 October 2026", title = "One look across every page",
+      sections = {
+          { heading = "One look across every page", area = "look", kind = "changed", hi = true, art = "kara",
+            lead = "Every page now shares the same banners, headings, lists and buttons.", lines = {
+              "Every page is built from the same parts now, so the whole addon looks and works alike.",
+              "Banners: a picked raid, guest, team, item or player opens under a picture banner.",
+              "Section headings, lists, chips and pills look the same wherever you meet them.",
+              "Rows light up the same way when you point at them or pick them, on every page.",
+              "Toolbars sit in one place: tabs on the left, filters, and the main button on the right.",
+              "Text sizes and colours follow one scale, so a title or a note reads alike everywhere.",
+              "An empty page says what goes there, with a small picture, instead of a bare line.",
+              "Can't change something? A short notice says it's read only, locked or still loading.",
+              "Questions, pop-ups and small notices are the same everywhere, over the window they fit.",
+              "Blessings and Totem planners, twist practice and the meter breakdown open as tool windows.",
+          } },
+          { heading = "Members: a card with a banner", area = "guild", kind = "changed", hi = true, open = "members",
+            art = "ssc", lead = "A player's card opens under a banner, like a raid or a guest.", lines = {
+              "A player's card opens under a banner: their class, name, online status and specs.",
+              "Whisper and Link in chat sit on the banner, with share, map and note beside them.",
+              "The card's tabs sit at the foot of its banner, like the other pages.",
+          } },
+          { heading = "Settings and Notifications: a side menu", area = "look", kind = "changed", open = "settings",
+            lines = {
+              "Settings and Notifications have a side menu: pick a section on the left.",
+              "Sections only the Guild Master or the council can change say so: read only for you.",
+              "An empty Notifications section says so, with a small picture.",
+          } },
+          { heading = "Windows remember where you put them", area = "look", kind = "changed", lines = {
+              "Windows and small bars you drag keep their place, also after a /reload.",
+              "The meter breakdown now remembers its place too.",
+              "The roll window, the raid bar and the Bingo counter keep theirs, as before.",
+          } },
+          { heading = "My Log counts overkill like the meters", area = "gear", kind = "changed", open = "mylog", lines = {
+              "My Log's damage done now counts the whole last hit (overkill), like the meters do.",
+              "So My Log and the damage meter show the same numbers for the same pull.",
+          } },
+          { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              "Blessings: some Pally Power messages no longer throw a Lua error.",
+              "Busy guilds: teams and raid series no longer go missing when raid plans sync.",
+              "Loot rules and prized items show Hyjal's own picture, not the generic one.",
+              "Bingo's messages travel with the other games, off the loot council's line.",
+              "The DZ seal at the top of the window now has its soft gold glow (it never showed).",
+              "Events no longer throw a Lua error in the first moments after you log in.",
+              "Dungeon runs from just after login now land in your guild's list.",
+              "My Log reads your talent points like the class tools (some clients saved 0/0/0).",
+              "Chess and the 3D strategy board size and centre models right on every client.",
+          } },
+      } },
     { version = "1.3.5", date = "11 October 2026", title = "Raid nights, loot rules for everyone and a Welcome tour",
       sections = {
           { heading = "Raids: raid nights", area = "raids", kind = "new", hi = true, open = "teams", art = "kara",
