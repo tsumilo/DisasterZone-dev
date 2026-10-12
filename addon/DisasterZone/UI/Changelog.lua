@@ -1958,7 +1958,7 @@ local function BuildPopup()
             local list = PopupItems()
             ChangelogUI:Open(#list >= 2 and "since" or (list[1] and list[1].version))
         end },
-        cancel = "Later", child = true })      -- (hides and comes back with the window, like before)
+        cancel = "Later", withWindow = true })      -- (hides and comes back with the window, like before)
     sh.box = sh
     sh.read, sh.later = sh.ok, sh.cancel
     -- (a click on the dimmed window closes it, as Later)
@@ -2025,7 +2025,7 @@ function ChangelogUI:OpenPopup()
 end
 
 function ChangelogUI:ClosePopup()
-    if ns.ChangelogPopup then ns.ChangelogPopup:Hide() end
+    if ns.ChangelogPopup then ns.ChangelogPopup:Close() end
 end
 
 function ChangelogUI:OnLogin()

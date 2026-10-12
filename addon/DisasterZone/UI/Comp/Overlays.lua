@@ -495,8 +495,8 @@ end
 --     window when it is shown), centred on it with the window dimmed under it; on the screen when there is none.
 --     In the dialogs' strata (higher when its window is higher).
 --   opts.cover = true: inside `parent`, covering it (a panel's own sheet, like the Dungeons tab's).
---   opts.child = true: floating, but a child of `parent`: closing that window hides it unanswered (no onClose) and
---     opening the window again shows it again (an offer that waits for the window).
+--   opts.withWindow = true (floating): it goes with its window like a child would: hidden with it (no onClose: not
+--     closed, not answered) and shown again when the window comes back (an offer that waits for the window).
 -- opts: { title, width (460), height (330), onClose(sheet), name (a global name), pill = { kind, text },
 --   ok = text | { text, kind, width, onClick(sheet) } | false, cancel = text | false ("Cancel" with an ok; closes),
 --   foot = text (grey, left of the foot), bg (the cover's fill), rule = false (no hairline under the header) }
@@ -554,15 +554,13 @@ end
 
 -- The floating sheet's frame: the dim, the panel (a 1 px black ring, the slate's gradient, a light edge).
 function H.FloatingSheet(parent, opts)
-    -- opts.child: made inside `parent` (still floating, dimming it), so it hides and comes back with that window
-    local home = (opts.child and parent and parent ~= UIParent) and parent or UIParent
-    local dim = CreateFrame("Frame", nil, home)
+    local dim = CreateFrame("Frame", nil, UIParent)
     dim:SetFrameStrata("DIALOG")
     dim:SetFrameLevel(3000)
     dim:EnableMouse(true)
     dim.bg = UI:Fill(dim, { 0, 0, 0, 0.6 }, "BACKGROUND")
     dim:Hide()
-    local sh = CreateFrame("Frame", opts.name, home)
+    local sh = CreateFrame("Frame", opts.name, UIParent)
     sh:SetSize(opts.width or SH.W, opts.height or SH.H)
     sh:SetFrameStrata("DIALOG")
     sh:SetFrameLevel(3010)      -- high in its strata, so what is made in it climbs from there
@@ -585,7 +583,38 @@ end
 
 local SheetMethods = {}
 
-function SheetMethods:Close() self:Hide() end
+-- A withWindow sheet follows its window (once per window): hidden with it, back with it.
+function H.FollowOwner(sh, owner)
+    local list = owner.dzSheets
+    if not list then
+        list = {}
+        owner.dzSheets = list
+        owner:HookScript("OnHide", function()
+            for _, s in ipairs(list) do
+                if s:IsShown() and s.openOwner == owner then
+                    s.suspended = true
+                    s:Hide()
+                end
+            end
+        end)
+        owner:HookScript("OnShow", function()
+            for _, s in ipairs(list) do
+                if s.suspended then
+                    s.suspended = nil
+                    if s.openOwner == owner then s:Open() end
+                end
+            end
+        end)
+    end
+    for _, s in ipairs(list) do if s == sh then return end end
+    list[#list + 1] = sh
+end
+
+-- (also one waiting for its window to come back: it stays closed)
+function SheetMethods:Close()
+    self.suspended = nil
+    self:Hide()
+end
 function SheetMethods:IsOpen() return self:IsShown() end
 function SheetMethods:SetTitle(text)
     self.title:SetText(text or "")
@@ -639,6 +668,8 @@ function SheetMethods:Open()
             self:SetFrameStrata(strata)
         end
         self:ClearAllPoints()
+        self.openOwner, self.suspended = owner, nil
+        if owner and self.withWindow then H.FollowOwner(self, owner) end
         if owner then
             self:SetPoint("CENTER", owner, "CENTER", 0, 0)
             self.dim:ClearAllPoints()
@@ -690,12 +721,12 @@ function UI:CreateSheet(parent, opts)
     sh.onClose = opts.onClose
     sh:Hide()
     H.EscapeCloses(sh, function(self) self:Close() end)
-    sh.child = (not cover and opts.child and parent and parent ~= UIParent) and true or nil
+    sh.withWindow = (not cover and opts.withWindow) and true or nil
     sh:HookScript("OnHide", function(self)
         for _, eb in ipairs(self.fields or {}) do if eb.ClearFocus then eb:ClearFocus() end end
-        -- a child sheet hidden only with its window is not closed: it (and its dim) come back with the window
-        if self.child and self:IsShown() then return end
         if self.dim then self.dim:Hide() end
+        -- a withWindow sheet hidden with its window (or with the whole UI) is not closed: it comes back
+        if self.withWindow and (self.suspended or self:IsShown()) then return end
         if self.onClose then H.Safe("Sheet onClose", self.onClose, self) end
     end)
     if opts.pill then sh:SetPill(opts.pill[1] or opts.pill.kind, opts.pill[2] or opts.pill.text) end

@@ -277,6 +277,11 @@ def closing_the_window_leaves_the_offer_unanswered():
     assert not progress(c).get("seen")
     open_window(c)
     assert c.eval("return %s:IsVisible() and %s.dim:IsVisible()" % (o, o)) is True
+    # the whole UI hidden (Alt+Z, a cinematic) is no answer either: it comes back with the UI
+    c.eval("UIParent:Hide()")
+    assert not progress(c).get("seen")
+    c.eval("UIParent:Show()")
+    assert c.eval("return %s:IsVisible() and %s.dim:IsVisible()" % (o, o)) is True
     # a plain Hide (the audit harness's) is no answer either
     c.eval("%s:Hide()" % o)
     assert not progress(c).get("seen")

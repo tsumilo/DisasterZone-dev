@@ -122,6 +122,7 @@ end
 -- Starts the tour: only = { [part] = true } (nil: every part for my roles), peek = another role's part on demo data.
 function W:Start(only, peek)
     if ns.ChangelogPopup then ns.ChangelogPopup:Hide() end
+    if W.offerFrame then W.offerFrame.suspended = nil end
     if W.offerFrame and W.offerFrame:IsShown() then
         W.answering = true          -- (closing it here is no answer of its own: the tour starting is)
         W.offerFrame:Hide()
@@ -198,9 +199,9 @@ local function BuildOffer()
     local sh = UI():CreateSheet(host, { name = "DisasterZoneWelcomeOffer", title = "Welcome tour", width = POP_W,
         height = 400, foot = "Asked once. It stays in Settings > Tutorials.",
         ok = { text = "Start the tour", width = 120, onClick = function() W:AnswerOffer(true) end },
-        cancel = "Not now", child = true })
-    -- Not now, its X and Escape answer it (all go through Close). Closing the window only hides it unanswered (a
-    -- child sheet): it is offered again the next time the window opens.
+        cancel = "Not now", withWindow = true })
+    -- Not now, its X and Escape answer it (all go through Close). Closing the window only hides it unanswered (it
+    -- goes with the window): it is offered again the next time the window opens.
     sh.Close = function() W:AnswerOffer(false) end
     sh.box = sh
     sh.start, sh.later = sh.ok, sh.cancel
@@ -298,6 +299,7 @@ end
 function W:AnswerOffer(start)
     local o = W.offerFrame
     local only
+    if o then o.suspended = nil end      -- (answered while it waited for the window: it does not come back)
     if o and o:IsShown() then
         only = {}
         for _, r in ipairs(o.box.rows) do

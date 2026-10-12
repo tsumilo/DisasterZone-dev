@@ -368,6 +368,32 @@ def home_chip_opens_the_whats_new_popup():
 
 
 @case
+def the_whats_new_popup_goes_and_comes_back_with_the_window():
+    """1.3.5: the pop-up was a child of the main window: closing the window hid it (and its dim) and opening the
+    window showed it again; Later closes it for good."""
+    w, c = solo("Rai", guild_rank=3, tick=3)
+    c.slash("/dz")
+    w.tick(0.5)
+    version = c.eval("return ns.version")
+    c.click(home_chip(c, "What's new in " + version))
+    w.tick(0.3)
+    vis = "return ns.ChangelogPopup:IsVisible(), ns.ChangelogPopup.dim:IsVisible()"
+    assert c.eval_py("return { %s }" % vis[7:]) == [True, True]
+    c.eval("ns.MainFrame:Close()")
+    w.tick(0.3)
+    assert c.eval_py("return { %s }" % vis[7:]) in ([False, False], [], None), "nothing left over the screen"
+    c.eval("ns.MainFrame:Open()")
+    w.tick(0.3)
+    assert c.eval_py("return { %s }" % vis[7:]) == [True, True]
+    c.click(c.eval("return ns.ChangelogPopup.later"))
+    c.eval("ns.MainFrame:Close()")
+    c.eval("ns.MainFrame:Open()")
+    w.tick(0.3)
+    assert c.eval("return ns.ChangelogPopup:IsShown()") is False
+    no_errors(w)
+
+
+@case
 def the_chip_counts_unread_versions():
     w, c = solo("Rai", guild_rank=3, tick=3)
     versions = released(c)
