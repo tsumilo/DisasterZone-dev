@@ -235,18 +235,27 @@ def minimap_toggle_hides_and_shows_the_button():
     w.tick(0.2)
     assert c.eval("return DisasterZoneDB.settings.minimap.hide") is False
     assert c.eval("return LibDBIcon10_DisasterZone:IsShown()") is True
-    # launcher: left click toggles, right click opens settings, tooltip lines
+    # launcher (the minimap arc, 1.3.2): right click opens / closes the window, left click fans out the pinned
+    # sections, tooltip lines
     obj = "LibStub('LibDataBroker-1.1'):GetDataObjectByName('DisasterZone')"
     c.slash("/dz")
     w.tick(0.1)
     assert c.eval("return ns.MainFrame:IsShown()") is False
-    c.eval("%s.OnClick(nil, 'RightButton')" % obj)
-    assert c.eval("return ns.MainFrame:GetSelectedTab()") == "settings"
-    c.eval("%s.OnClick(nil, 'LeftButton')" % obj)
+    c.eval("%s.OnClick(LibDBIcon10_DisasterZone, 'RightButton')" % obj)
+    w.tick(0.1)
+    assert c.eval("return ns.MainFrame:IsShown()") is True
+    c.eval("%s.OnClick(LibDBIcon10_DisasterZone, 'RightButton')" % obj)
+    w.tick(0.1)
     assert c.eval("return ns.MainFrame:IsShown()") is False
+    c.eval("%s.OnClick(LibDBIcon10_DisasterZone, 'LeftButton')" % obj)
+    w.tick(0.1)
+    assert c.eval("return ns.MinimapArc:IsOpen()") is True
+    assert c.eval("return ns.MainFrame:IsShown()") is False
+    c.eval("ns.MinimapArc:Close(true)")
     c.eval("GameTooltip:SetOwner(UIParent, 'ANCHOR_NONE'); %s.OnTooltipShow(GameTooltip)" % obj)
     lines = [strip_codes(l[0]) for l in tt_lines(c)]
-    assert lines[0] == "DisasterZone" and lines[1] == "Raider" and "Right-click: settings" in lines[-2], lines
+    assert lines[0] == "DisasterZone" and lines[1] == "Raider", lines
+    assert "Left-click: your pinned sections" in lines[-2] and "Right-click: open" in lines[-2], lines
     assert lines[-1] == "Shift-click: boss drops", lines
     no_errors(w)
 
