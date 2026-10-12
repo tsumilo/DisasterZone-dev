@@ -49,10 +49,11 @@ local sin, cos, atan2, pi = math.sin, math.cos, math.atan2, math.pi
 -- backwards (4.5 yd/s at the normal run speed of 7), and standing on the room (arena.ground): the client's gravity
 -- and fastest fall (TrinityCore's Movement::gravity and terminalVelocity), the highest ledge walked up without a jump
 -- (the 1.12 client's 1.0, as reverse-engineered by the benilla project; not checked against 2.5), the steepest ground
--- walked, 50 degrees, as rise per yard.
-local W = ns.Render3D.WALK
+-- walked, 50 degrees, as rise per yard. (All nil without the Render3D files - the client not restarted since an update
+-- that brought them: then there is no 3D view and no ground, and the flat minimap game reads none of them.)
+local W = ns.Render3D and ns.Render3D.WALK or {}
 T.TURN_RATE = W.turn
-T.BACKPEDAL = W.back / W.run
+T.BACKPEDAL = W.back and W.back / W.run
 T.GRAVITY = W.gravity
 T.TERMINAL = W.terminal
 T.STEP_UP = W.stepUp
