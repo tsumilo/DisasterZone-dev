@@ -1858,7 +1858,8 @@ function S.Build(v)
         tt:AddLine(tconcat(names, ", "), 1, 1, 1, true)
     end, nil, { anchor = "ANCHOR_TOP" })
     v.pvSect = Sect(R0)
-    v.pvBan = UI():CreatePageBanner(R0, { size = 66, width = rw, artUnder = true })
+    -- (the question on up to two lines, as voters see it)
+    v.pvBan = UI():CreatePageBanner(R0, { size = 66, width = rw, artUnder = true, titleLines = 2 })
     v.preview = CreateFrame("Frame", nil, R0)
     v.preview:SetHeight(10)
     v.preview.items = {}
@@ -2464,9 +2465,12 @@ function PollsUI:ShowToast(p, nudge)
             { text = "Later", kind = "link" } }
     end
     asking = p.id
+    -- the asker's name in their class colour (UI:Toast capitalises around the colour escape)
+    local cr, cg, cb = UI():ClassColor(EUI():ClassOf(p.by))
+    local who = ("|cff%02x%02x%02x"):format(floor((cr or 1) * 255 + 0.5), floor((cg or 1) * 255 + 0.5),
+        floor((cb or 1) * 255 + 0.5)) .. (ns.Util.ShortName(p.by) or p.by) .. "|r"
     UI():Toast({ key = TOAST_KEY, kind = "info", icon = KIND_ICON[p.k] or KIND_ICON.one,
-        kicker = (nudge and "Reminder · from " or "New poll · from ")
-            .. (ns.Util.ShortName(p.by) or p.by),
+        kicker = (nudge and "Reminder · from " or "New poll · from ") .. who,
         title = p.q, text = tconcat(meta, " · "), buttons = buttons, buttonRow = true, duration = 0, combat = false,
         sound = SOUNDKIT and SOUNDKIT.IG_CHAT_EMOTE_BUTTON, onClose = function() ToastGone() end })
 end

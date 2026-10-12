@@ -245,7 +245,8 @@ end
 --            { title, lines }: a tooltip on it (banner:SetKickerTip)
 --   title    the 19 px title (titleColor: white; a tool banner's is gold; a strip's is 13 px), cut with "..." to fit;
 --            titleSteps = { "hero", "page", ... }: smaller styles tried first; rightW = px (or function(banner)) kept
---            free at the right of the text for the page's own blocks (banner:SetTitleFit(steps, rightW))
+--            free at the right of the text for the page's own blocks (banner:SetTitleFit(steps, rightW));
+--            titleLines = n: it wraps onto n lines at most instead (cut with "..." on the last)
 --   sub      the line under it (subColor)
 --   pill     { kind, text } after the title (the EUI pill kinds: live, rank, review, changed, draft, ended, ok ...)
 --   back     { text, onClick }: the back link at the top left (a strip: at the left, before the text)
@@ -687,15 +688,33 @@ function Banner:Layout()
             if UI:TextWidth(self.title) <= titleRoom then break end
         end
     end
-    UI:FitText(self.title, text or "", titleRoom)
-    self.title:SetWidth(floor(min(UI:TextWidth(self.title), titleRoom) + 1))
+    local titleH = S:Size(m.title)
+    local wrapTo = tonumber(opts.titleLines) or 1
+    if wrapTo > 1 and text and text ~= "" then
+        -- (opts.titleLines: the title wraps onto that many lines at most, cut with "..." on the last; a word wrap
+        -- leaves some room at each line's end, hence the margin)
+        UI:FitText(self.title, text, wrapTo * titleRoom - (wrapTo - 1) * floor(titleRoom * 0.2))
+        local n = min(wrapTo, max(1, math.ceil(UI:TextWidth(self.title) / titleRoom)))
+        self.title:SetWordWrap(true)
+        if self.title.SetMaxLines then self.title:SetMaxLines(wrapTo) end
+        self.title:SetJustifyV("TOP")
+        self.title:SetWidth(titleRoom)
+        local real = self.title:GetStringHeight() or 0
+        local per = S:Size(m.title) + 2
+        if real > n * per - 1 then n = min(wrapTo, max(n, math.ceil((real - 1) / per))) end
+        titleH = n * per
+        self.title:SetHeight(titleH)
+    else
+        UI:FitText(self.title, text or "", titleRoom)
+        self.title:SetWidth(floor(min(UI:TextWidth(self.title), titleRoom) + 1))
+    end
     self.kicker:SetWidth(room)
     self.sub:SetWidth(max(20, W - textX - (m.tall and 16 or rightW)))
 
     -- the stack: the shown lines, each { text, height, gap before it }
     local lines = {}
     if Shown(self.kicker) then lines[#lines + 1] = { self.kicker, S:Size("small"), 0 } end
-    if self.title:IsShown() then lines[#lines + 1] = { self.title, S:Size(m.title), #lines > 0 and m.gapK or 0 } end
+    if self.title:IsShown() then lines[#lines + 1] = { self.title, titleH, #lines > 0 and m.gapK or 0 } end
     if Shown(self.sub) then lines[#lines + 1] = { self.sub, S:Size("body"), #lines > 0 and m.gapS or 0 } end
     local total = 0
     for _, ln in ipairs(lines) do total = total + ln[2] + ln[3] end
