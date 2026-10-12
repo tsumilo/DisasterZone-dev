@@ -9,18 +9,24 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/FeedbackSheet.lua", ...) then r
 --   News, through the notification center (its bell, pop-ups and Settings > Notifications): DisasterZone hit a Lua
 --   error (Tell Tsumil, the error attached); your feedback is in a release you have; somebody answered your feedback.
 --   Without the notification center they are this file's own pop-ups (one at a time, never in combat).
+-- 1.4: the form is a tool window (UI:CreateLayout "tool": its banner over the body), its pop-ups are UI:Toast; the
+-- kinds and the words on the shared surfaces (sleek tiles, icon tiles, inset cards), the chips are pills;
+-- text on the type scale (UI:Text), colours from ns.Style.
 local addonName, ns = ...
 
 local Sheet = ns:NewModule("FeedbackSheet")
+local S = ns.Style
 
 local floor, max, min = math.floor, math.max, math.min
 local tconcat = table.concat
 
-local SHEET_W, SHEET_H = 470, 478
+local BAN_H = S.BANNER.tool      -- the form's banner (the tool layout's)
+local SHEET_W, SHEET_H = 470, 478 + BAN_H + S.GAP - 19
 local CW = SHEET_W - 30          -- the content's width inside the window
 local TILE_H = 72
 local BOX_H = 92
-local GOLD = { 1, 0.82, 0 }
+local GOLD = S.C.GOLD
+local TOAST_KEY = "dz-feedback"  -- this file's pop-up (UI:Toast): one at a time
 
 local PLACEHOLDER = {
     bug = "What happened, and what did you expect instead?",
@@ -34,15 +40,7 @@ local draft = { kind = nil, about = nil, ref = nil }
 
 local function UI() return ns.UI end
 local function FB() return ns.Feedback end
-local function grey(text) return "|cff808080" .. tostring(text) .. "|r" end
-
-local function newText(parent, font, wrap)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetJustifyV("TOP")
-    fs:SetWordWrap(wrap and true or false)
-    return fs
-end
+local WRAP = { wrap = true }   -- (a wrapped text)
 
 ---------------------------------------------------------------------------
 -- What a frame is: "Raids › Award to" (the page or window, then the button / text under the mouse)
@@ -52,6 +50,7 @@ end
 local WINDOW_NAMES = {
     DisasterZoneRollFrame = "Roll popup", DisasterZoneDropPanel = "Drop panel", DisasterZoneSessionBar = "Session bar",
     DisasterZoneSwingTimer = "Swing timer", DisasterZoneRunToast = "Dungeon pop-up",
+    DisasterZoneToast1 = "Pop-up", DisasterZoneToast2 = "Pop-up", DisasterZoneToast3 = "Pop-up",
     DisasterZoneStrategyReminder = "Strategy reminder", DisasterZoneEventTracker = "Event tracker",
 }
 
@@ -185,21 +184,19 @@ local function BuildPointer()
     p.box:SetFrameStrata("FULLSCREEN_DIALOG")
     p.box:EnableMouse(false)
     UI():AddEdges(p.box, "OVERLAY")
-    UI():SetEdgeColor(p.box, 1, 0.82, 0, 1)
-    p.box.fill = p.box:CreateTexture(nil, "ARTWORK")
-    p.box.fill:SetAllPoints()
-    p.box.fill:SetColorTexture(1, 0.82, 0, 0.12)
+    UI():SetEdgeColor(p.box, GOLD[1], GOLD[2], GOLD[3], 1)
+    p.box.fill = UI():Fill(p.box, { GOLD[1], GOLD[2], GOLD[3], 0.12 }, "ARTWORK")
     p.box:Hide()
     p.tip = CreateFrame("Frame", nil, p, "BackdropTemplate")
     p.tip:EnableMouse(false)
     UI():StyleHud(p.tip)
     p.tip:SetSize(250, 40)
-    p.tip.a = newText(p.tip, "GameFontNormal")
+    p.tip.a = UI():Text(p.tip, "emph", "GOLD")
     p.tip.a:SetPoint("TOPLEFT", 10, -7)
     p.tip.a:SetWidth(230)
-    p.tip.b = newText(p.tip, "GameFontHighlightSmall")
+    p.tip.b = UI():Text(p.tip, "small", "TEXT")
     p.tip.b:SetPoint("TOPLEFT", 10, -23)
-    p.tip.b:SetText(grey("Right-click: pick it"))
+    p.tip.b:SetText(S:Wrap("DIM", "Right-click: pick it"))
 
     -- the bar at the top: what to do, and Cancel (it takes the mouse and Escape)
     local bar = CreateFrame("Frame", "DisasterZoneFeedbackPointerBar", UIParent, "BackdropTemplate")
@@ -213,14 +210,14 @@ local function BuildPointer()
     bar.icon:SetPoint("LEFT", 12, 0)
     bar.icon:SetTexture(UI().ICON_ATLAS)
     bar.icon:SetTexCoord(unpack(UI():IconCoords(UI().ICON.practice)))
-    bar.icon:SetVertexColor(1, 0.82, 0)
-    bar.a = newText(bar, "GameFontNormal")
+    bar.icon:SetVertexColor(S:Color("GOLD"))
+    bar.a = UI():Text(bar, "emph", "GOLD")
     bar.a:SetPoint("TOPLEFT", 38, -7)
     bar.a:SetText("Point at it")
-    bar.b = newText(bar, "GameFontHighlightSmall")
+    bar.b = UI():Text(bar, "small", "TEXT")
     bar.b:SetPoint("TOPLEFT", 38, -23)
     bar.b:SetText("Go to what you mean as usual, then right-click it.")
-    bar.cancel = UI():CreateSleekButton(bar, "Cancel", 72, 22, function() StopPointing(nil) end)
+    bar.cancel = UI():CreateSleekButton(bar, "Cancel", 72, S.BTN_H, function() StopPointing(nil) end)
     bar.cancel:SetPoint("RIGHT", -9, 0)
     bar:EnableKeyboard(true)
     bar:SetScript("OnKeyDown", function(self, key)
@@ -288,6 +285,8 @@ Sheet.PickUnderMouse = PickUnderMouse
 -- The sheet
 ---------------------------------------------------------------------------
 
+-- A kind to pick: the kind's icon (the shared icon tile) and its words on the sleek surface (UI:PaintSleek); its
+-- edge and words in the kind's colour while picked or under the mouse (the Feedback page's tiles).
 local function NewTile(parent, kind, onClick)
     local info = FB().KIND_INFO[kind]
     local c = info.color
@@ -296,17 +295,12 @@ local function NewTile(parent, kind, onClick)
     t.bg = t:CreateTexture(nil, "BACKGROUND")
     t.bg:SetAllPoints()
     UI():AddEdges(t, "BORDER")
-    t.black = t:CreateTexture(nil, "ARTWORK", nil, 0)
-    t.black:SetSize(32, 32)
-    t.black:SetPoint("TOP", 0, -8)
-    t.black:SetColorTexture(0, 0, 0, 1)
-    t.icon = t:CreateTexture(nil, "ARTWORK", nil, 1)
-    t.icon:SetSize(30, 30)
-    t.icon:SetPoint("CENTER", t.black)
-    t.icon:SetTexture(info.icon)
-    t.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    t.label = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    t.label:SetPoint("TOP", t.black, "BOTTOM", 0, -5)
+    t.tile = UI():CreateIconTile(t, 30)
+    t.tile:SetPoint("TOP", 0, -9)
+    t.tile:Set(info.icon)
+    t.icon = t.tile.tex
+    t.label = UI():Text(t, "small", "TEXT", { justify = "CENTER" })
+    t.label:SetPoint("TOP", t.tile, "BOTTOM", 0, -6)
     t.label:SetWidth(t:GetWidth() - 8)
     t.label:SetText(({ bug = "Something\nbroke", idea = "I have\nan idea", change = "Change\nsomething",
         love = "I love\nthis" })[kind])
@@ -314,23 +308,18 @@ local function NewTile(parent, kind, onClick)
     function t:Paint()
         local on = draft.kind == kind
         local dim = draft.kind ~= nil and not on and not self.hovered
-        self.bg:SetColorTexture(c[1], c[2], c[3], on and 0.16 or (self.hovered and 0.09 or 0.03))
+        UI():PaintSleek(self, "secondary", self.hovered or on)
         UI():SetEdgeColor(self, c[1], c[2], c[3], on and 0.95 or (self.hovered and 0.6 or 0.22))
         self.icon:SetDesaturated(dim)
         self.icon:SetVertexColor(dim and 0.65 or 1, dim and 0.65 or 1, dim and 0.65 or 1)
         if on then self.label:SetTextColor(c[1], c[2], c[3])
-        elseif dim then self.label:SetTextColor(0.62, 0.62, 0.62)
-        else self.label:SetTextColor(0.9, 0.9, 0.9) end
+        elseif dim then self.label:SetTextColor(S:Color("SUB"))
+        else self.label:SetTextColor(S:Color("TEXT")) end
     end
     t:SetScript("OnEnter", function(self) self.hovered = true; self:Paint() end)
     t:SetScript("OnLeave", function(self) self.hovered = false; self:Paint() end)
     t:SetScript("OnClick", function() onClick(kind) end)
     return t
-end
-
-local function ClassName(cl)
-    if not cl then return nil end
-    return (ns.CLASS_NAMES and ns.CLASS_NAMES[cl]) or (cl:sub(1, 1) .. cl:sub(2):lower())
 end
 
 -- What goes with the words: { text, kind } chips, the context, the error (a bug only).
@@ -339,7 +328,7 @@ local function AttachedParts()
     local c = F:Context()
     local chips = { { c.v } }
     if c.z then chips[#chips + 1] = { c.z } end
-    local who = ns.Util.Trim((c.sp or "") .. " " .. (ClassName(c.cl) or ""))
+    local who = ns.Util.Trim((c.sp or "") .. " " .. (ns.ClassName(c.cl) or ""))
     if who ~= "" then chips[#chips + 1] = { who } end
     local err = draft.kind == "bug" and F:RecentError() or nil
     if err then
@@ -349,28 +338,23 @@ local function AttachedParts()
     return c, chips, err
 end
 
+-- One of the guild's items that sound the same: its kind's icon (the shared icon tile), its words, Me too.
 local function SimilarRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(CW - 20, 30)
-    r.black = r:CreateTexture(nil, "ARTWORK", nil, 0)
-    r.black:SetSize(20, 20)
-    r.black:SetPoint("LEFT", 0, 0)
-    r.black:SetColorTexture(0, 0, 0, 1)
-    r.icon = r:CreateTexture(nil, "ARTWORK", nil, 1)
-    r.icon:SetSize(18, 18)
-    r.icon:SetPoint("CENTER", r.black)
-    r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    r.text = newText(r, "GameFontHighlightSmall", true)
+    r.tile = UI():CreateIconTile(r, 18)
+    r.tile:SetPoint("LEFT", 1, 0)
+    r.icon = r.tile.tex
+    r.text = UI():Text(r, "small", "TEXT", WRAP)
     r.text:SetPoint("LEFT", 29, 0)
     r.text:SetWidth(CW - 20 - 29 - 86)
     if r.text.SetMaxLines then r.text:SetMaxLines(2) end
-    r.btn = UI():CreateSleekButton(r, "Me too", 72, 22, function()
+    r.btn = UI():CreateSleekButton(r, "Me too", 72, S.BTN_H, function()
         local item = r.item
         if not item then return end
         FB():Vote(item.id, not item.voted)
         Sheet:Layout()
     end)
-    r.btn:GetFontString():SetFontObject("GameFontHighlightSmall")
     r.btn:SetPoint("RIGHT", 0, 0)
     return r
 end
@@ -379,15 +363,16 @@ local function Build()
     local f = UI():CreateWindow("DisasterZoneFeedbackSheet", "Send feedback", SHEET_W, SHEET_H)
     f:SetFrameStrata("DIALOG")
     f:Hide()
-    local c = CreateFrame("Frame", nil, f)
-    c:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -36)
-    c:SetSize(CW, SHEET_H - 48)
+    -- a tool window: the strip banner asks what it is, the body holds the form (or, after Send, where it goes)
+    local L = UI():CreateLayout("tool", f, { width = SHEET_W, pad = 15, top = 21, bottom = 12,
+        banner = { size = "tool", icon = "notes", title = "What is it?" } })
+    f.layout = L
+    local c = L.body
+    c:SetSize(CW, SHEET_H - 48 - BAN_H - S.GAP + 19)
     f.body = c
+    f.q = L.banner.title
     local FUI = ns.FeedbackUI
 
-    f.q = newText(c, "GameFontNormal")
-    f.q:SetPoint("TOPLEFT", 0, 0)
-    f.q:SetText("What is it?")
     -- the four kinds
     f.tiles = {}
     for i, kind in ipairs(FB().KINDS) do
@@ -396,21 +381,17 @@ local function Build()
             Sheet:Layout()
             f.edit:SetFocus()
         end)
-        t:SetPoint("TOPLEFT", c, "TOPLEFT", (i - 1) * (t:GetWidth() + 8), -19)
+        t:SetPoint("TOPLEFT", c, "TOPLEFT", (i - 1) * (t:GetWidth() + 8), 0)
         f.tiles[i] = t
     end
 
     -- the words
-    local y = -(19 + TILE_H + 10)
-    f.boxBg = c:CreateTexture(nil, "BACKGROUND")
-    f.boxBg:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
-    f.boxBg:SetSize(CW, BOX_H)
-    f.boxBg:SetColorTexture(0.055, 0.055, 0.067, 0.92)
-    f.boxEdge = CreateFrame("Frame", nil, c)
+    local y = -(TILE_H + 10)
+    -- (an inset card, its edge strong, gold while typing: the fields' look)
+    f.boxEdge = UI():CreateCard(c, { tone = "inset", pad = 0 })
     f.boxEdge:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y)
     f.boxEdge:SetSize(CW, BOX_H)
-    UI():AddEdges(f.boxEdge)
-    UI():SetEdgeColor(f.boxEdge, 0.34, 0.34, 0.38, 0.9)
+    UI():SetEdgeColor(f.boxEdge, S:Color("EDGE_STRONG"))
     f.scroll = CreateFrame("ScrollFrame", nil, c)
     f.scroll:SetPoint("TOPLEFT", c, "TOPLEFT", 8, y - 7)
     f.scroll:SetSize(CW - 16, BOX_H - 24)
@@ -430,12 +411,12 @@ local function Build()
             f.scroll:SetVerticalScroll(cy + ch - view) end
     end)
     f.edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    f.edit:SetScript("OnEditFocusGained", function() UI():SetEdgeColor(f.boxEdge, 1, 0.82, 0, 0.75) end)
-    f.edit:SetScript("OnEditFocusLost", function() UI():SetEdgeColor(f.boxEdge, 0.34, 0.34, 0.38, 0.9) end)
-    f.hint = newText(c, "GameFontDisable", true)
+    f.edit:SetScript("OnEditFocusGained", function() UI():SetEdgeColor(f.boxEdge, S:Color("EDGE_FOCUS")) end)
+    f.edit:SetScript("OnEditFocusLost", function() UI():SetEdgeColor(f.boxEdge, S:Color("EDGE_STRONG")) end)
+    f.hint = UI():Text(c, "emph", "DIM", WRAP)
     f.hint:SetPoint("TOPLEFT", c, "TOPLEFT", 9, y - 8)
     f.hint:SetWidth(CW - 18)
-    f.count = newText(c, "GameFontDisableSmall")
+    f.count = UI():Text(c, "small", "DIM")
     f.count:SetPoint("BOTTOMRIGHT", f.boxEdge, "BOTTOMRIGHT", -8, 6)
     f.count:SetJustifyH("RIGHT")
     f.edit:SetScript("OnTextChanged", function(self)
@@ -448,10 +429,10 @@ local function Build()
     y = y - BOX_H - 9
 
     -- about: a field (typed, or filled by Point at it)
-    f.aboutLabel = newText(c, "GameFontNormalSmall")
+    f.aboutLabel = UI():Text(c, "small", "GOLD")
     f.aboutLabel:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y - 5)
     f.aboutLabel:SetText("About")
-    f.about = UI():CreateSleekEditBox(c, CW - 54 - 96, 22, "GameFontHighlightSmall")
+    f.about = UI():CreateSleekEditBox(c, CW - 54 - 96, S.BTN_H, "GameFontHighlightSmall")
     f.about:SetPoint("TOPLEFT", c, "TOPLEFT", 54, y)
     f.about:SetMaxLetters(60)
     f.about:SetTextColor(1, 1, 1)
@@ -464,8 +445,7 @@ local function Build()
     end)
     f.about:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     UI():SetEditPlaceholder(f.about, "A page, a button, a window... or point at it")
-    f.point = UI():CreateSleekButton(c, "Point at it", 88, 22, function() Sheet:StartPointing() end)
-    f.point:GetFontString():SetFontObject("GameFontHighlightSmall")
+    f.point = UI():CreateSleekButton(c, "Point at it", 88, S.BTN_H, function() Sheet:StartPointing() end)
     f.point:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, y)
     f.point:HookScript("OnEnter", function(self)
         UI():SetTextTooltip(self, { "Point at it", "The form steps aside: go to the page, button or window you mean "
@@ -476,7 +456,7 @@ local function Build()
     y = y - 30
 
     -- what goes with it
-    f.sentLabel = newText(c, "GameFontNormalSmall")
+    f.sentLabel = UI():Text(c, "small", "GOLD")
     f.sentLabel:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y - 5)
     f.sentLabel:SetText("With it")
     f.withY = y
@@ -484,21 +464,15 @@ local function Build()
     y = y - 30
 
     -- the guild's items that sound the same
-    f.simBox = CreateFrame("Frame", nil, c)
+    f.simBox = UI():CreateCard(c, { tone = "inset", pad = 0 })
     f.simBox:SetPoint("TOPLEFT", c, "TOPLEFT", 0, y - 2)
     f.simBox:SetSize(CW, 50)
-    f.simBox.bg = f.simBox:CreateTexture(nil, "BACKGROUND")
-    f.simBox.bg:SetAllPoints()
-    f.simBox.bg:SetColorTexture(1, 1, 1, 0.03)
-    UI():AddEdges(f.simBox, "BORDER")
-    UI():SetEdgeColor(f.simBox, 1, 1, 1, 0.1)
-    f.simTitle = newText(f.simBox, "GameFontNormalSmall")
+    f.simTitle = UI():Text(f.simBox, "caps", "GOLD")
     f.simTitle:SetPoint("TOPLEFT", 10, -8)
     f.sim = { SimilarRow(f.simBox), SimilarRow(f.simBox) }
 
     -- bottom: credit, buttons, and where it goes
-    f.err = newText(c, "GameFontNormalSmall")
-    f.err:SetTextColor(1, 0.35, 0.3)
+    f.err = UI():Text(c, "small", "BAD")
     f.err:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 0, 58)
     f.credit = UI():CreateCheckbox(c, "Name me in the changelog", function()
         local s = ns.db and ns.db.settings
@@ -513,11 +487,11 @@ local function Build()
             .. "changelog says it came from you." }, "ANCHOR_TOP")
     end)
     f.credit:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    f.send = UI():CreateSleekButton(c, "Send", 84, 26, function() Sheet:Send() end, "primary")
+    f.send = UI():CreateSleekButton(c, "Send", 84, S.BTN_H, function() Sheet:Send() end, "primary")
     f.send:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 26)
-    f.cancel = UI():CreateSleekButton(c, "Cancel", 84, 26, function() f:Hide() end)
+    f.cancel = UI():CreateSleekButton(c, "Cancel", 84, S.BTN_H, function() f:Hide() end)
     f.cancel:SetPoint("RIGHT", f.send, "LEFT", -8, 0)
-    f.foot = newText(c, "GameFontDisableSmall", true)
+    f.foot = UI():Text(c, "small", "DIM", WRAP)
     f.foot:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 0, 0)
     f.foot:SetWidth(CW)
     f.foot:SetText("Everyone in the guild can see it. It reaches the developer even while offline: whoever is "
@@ -525,40 +499,49 @@ local function Build()
 
     -- after Send
     f.done = CreateFrame("Frame", nil, f)
-    f.done:SetAllPoints(c)
+    f.done:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -36)
+    f.done:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -15, 12)
     f.done.check = f.done:CreateTexture(nil, "ARTWORK")
     f.done.check:SetSize(46, 46)
     f.done.check:SetPoint("TOP", 0, -50)
     f.done.check:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
-    f.done.title = f.done:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.done.title = UI():Text(f.done, "page", "GOLD", { justify = "CENTER" })
     f.done.title:SetPoint("TOP", f.done.check, "BOTTOM", 0, -12)
     f.done.title:SetText("Sent")
-    f.done.text = f.done:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.done.text = UI():Text(f.done, "emph", "TEXT", { justify = "CENTER", wrap = true })
     f.done.text:SetPoint("TOP", f.done.title, "BOTTOM", 0, -10)
     f.done.text:SetWidth(CW - 80)
     f.done.text:SetSpacing(3)
     f.done.steps = FUI.NewSteps(f.done)
     f.done.steps:SetPoint("TOP", f.done.text, "BOTTOM", 0, -26)
     f.done.steps:SetWidth(380)
-    f.done.see = UI():CreateSleekButton(f.done, "See it", 90, 26, function()
+    f.done.see = UI():CreateSleekButton(f.done, "See it", 90, S.BTN_H, function()
         f:Hide()
         if ns.FeedbackUI then ns.FeedbackUI:Open("mine", f.sentId) end
     end, "primary")
     f.done.see:SetPoint("BOTTOM", f.done, "BOTTOM", -50, 50)
-    f.done.close = UI():CreateSleekButton(f.done, "Close", 90, 26, function() f:Hide() end)
+    f.done.close = UI():CreateSleekButton(f.done, "Close", 90, S.BTN_H, function() f:Hide() end)
     f.done.close:SetPoint("LEFT", f.done.see, "RIGHT", 10, 0)
     f.done:Hide()
 
     f:HookScript("OnHide", function()
         if pointer and pointer:IsShown() then return end
         if f.done:IsShown() then
-            f.done:Hide()
-            f.body:Show()
+            Sheet:ShowForm(true)
             f.edit:SetText("")
             draft.kind, draft.about, draft.ref = nil, nil, nil
         end
     end)
     return f
+end
+
+-- The form (with its banner) or, after Send, where it went (the whole window).
+function Sheet:ShowForm(on)
+    local f = sheet
+    if not f then return end
+    f.done:SetShown(not on)
+    f.body:SetShown(on)
+    f.layout.banner:SetShown(on)
 end
 
 function Sheet:LayoutSimilar()
@@ -567,7 +550,7 @@ function Sheet:LayoutSimilar()
     local text = f.edit:GetText() or ""
     local items = #text >= 8 and FB():Similar(text, draft.about, 2) or {}
     f.simBox:SetShown(#items > 0)
-    f.simTitle:SetText(#items == 1 and "Sounds like this one" or "Sounds like these")
+    f.simTitle:SetText(UI():CapsText(#items == 1 and "Sounds like this one" or "Sounds like these"))
     for i, r in ipairs(f.sim) do
         local item = items[i]
         r.item = item
@@ -577,7 +560,7 @@ function Sheet:LayoutSimilar()
             r:SetPoint("TOPLEFT", f.simBox, "TOPLEFT", 10, -22 - (i - 1) * 32)
             local info = FB().KIND_INFO[item.kind]
             r.icon:SetTexture(info.icon)
-            r.text:SetText(UI():SafeText(item.text) .. grey("  · " .. ns.Util.ShortName(item.author)
+            r.text:SetText(UI():SafeText(item.text) .. S:Wrap("DIM", "  · " .. ns.Util.ShortName(item.author)
                 .. (item.voteCount > 0 and (" +" .. item.voteCount) or "")))
             r.btn:SetText(item.voted and "You too" or "Me too")
             r.btn:SetKind(item.voted and "chosen" or "secondary")
@@ -602,13 +585,12 @@ function Sheet:Layout()
     for i, cdef in ipairs(chips) do
         local ch = f.withChips[i]
         if not ch then
-            ch = ns.FeedbackUI.NewChip(f.body)
-            ch:SetHeight(20)
+            ch = ns.FeedbackUI.NewContextPill(f.body)
             ch:EnableMouse(true)
             ch:SetScript("OnEnter", function(self)
                 local ctx, _, err = AttachedParts()
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine("Sent with your words", 1, 0.82, 0)
+                GameTooltip:AddLine("Sent with your words", S:Color("GOLD"))
                 GameTooltip:AddLine("So the developer knows where and on what it happened. Nothing else about you is sent.",
                     1, 1, 1, true)
                 GameTooltip:AddDoubleLine("Version", ctx.v, 0.7, 0.7, 0.7, 1, 1, 1)
@@ -640,8 +622,7 @@ function Sheet:Open(opts)
     opts = opts or {}
     sheet = sheet or Build()
     if sheet.done:IsShown() then
-        sheet.done:Hide()
-        sheet.body:Show()
+        self:ShowForm(true)
         sheet.edit:SetText("")
     end
     if opts.kind then draft.kind = opts.kind end
@@ -676,8 +657,7 @@ function Sheet:Send()
     end
     if ns.FeedbackUI then ns.FeedbackUI:MarkSeen(F:Get(id)) end
     f.sentId = id
-    f.body:Hide()
-    f.done:Show()
+    self:ShowForm(false)
     local online = ns.Guild and ns.Guild.GetOnlineMembers and #ns.Guild:GetOnlineMembers() or 1
     f.done.text:SetText((online > 1 or F.DemoOn()) and "Thanks! It's on its way to the developer through the guild. Follow it "
         .. "under Feedback > Yours." or "Thanks! It's saved, and goes out as soon as guildmates come online. Follow "
@@ -694,60 +674,18 @@ end
 
 local queue = {}
 
-local function BuildToast()
-    local t = CreateFrame("Button", "DisasterZoneFeedbackToast", UIParent)
-    t:SetSize(372, 74)
-    t:SetPoint("TOP", UIParent, "TOP", 0, -150)
-    t:SetFrameStrata("DIALOG")
-    t:SetClampedToScreen(true)
-    t.bg = t:CreateTexture(nil, "BACKGROUND")
-    t.bg:SetAllPoints()
-    t.bg:SetColorTexture(0.043, 0.043, 0.051, 0.95)
-    UI():AddEdges(t, "BORDER")
-    t.icon = t:CreateTexture(nil, "ARTWORK")
-    t.icon:SetSize(34, 34)
-    t.icon:SetPoint("LEFT", 12, 0)
-    t.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    t.t1 = newText(t, "GameFontNormal")
-    t.t1:SetPoint("TOPLEFT", 56, -12)
-    t.t1:SetWidth(204)
-    t.t2 = newText(t, "GameFontHighlightSmall", true)
-    t.t2:SetPoint("TOPLEFT", t.t1, "BOTTOMLEFT", 0, -4)
-    t.t2:SetWidth(204)
-    if t.t2.SetMaxLines then t.t2:SetMaxLines(3) end
-    t.btn = UI():CreateSleekButton(t, "", 92, 24, function()
-        local fn = t.fn
-        t:Hide()
-        if fn then fn() end
-    end, "primary")
-    t.btn:SetPoint("RIGHT", -12, 0)
-    t.x = UI():CreateIconButton(t, 16, "Interface\\Buttons\\UI-StopButton", nil, function() t:Hide() end)
-    t.x:SetPoint("TOPRIGHT", -3, -3)
-    t:SetScript("OnUpdate", function(self, dt)
-        if self:IsMouseOver() then return end
-        self.left = (self.left or 12) - (dt or 0)
-        if self.left <= 0 then self:Hide() end
-    end)
-    t:SetScript("OnHide", function() C_Timer.After(0.5, function() Sheet:NextToast() end) end)
-    t:Hide()
-    return t
-end
-
 local function InCombat() return InCombatLockdown and InCombatLockdown() end
 
+-- The next waiting pop-up (UI:Toast, one of this file's at a time; never in combat): icon, title, text, its button.
 function Sheet:NextToast()
-    if (toast and toast:IsShown()) or #queue == 0 or InCombat() then return end
+    if UI():GetToast(TOAST_KEY) or #queue == 0 or InCombat() then return end
     local q = table.remove(queue, 1)
-    toast = toast or BuildToast()
-    toast.icon:SetTexture(q.icon)
-    UI():SetEdgeColor(toast, q.color[1], q.color[2], q.color[3], 0.6)
-    toast.t1:SetText(q.title)
-    toast.t2:SetText(q.text)
-    toast.btn:SetText(q.button)
-    toast.fn = q.fn
-    toast.left = q.seconds or 12
-    toast:Show()
-    if PlaySound and SOUNDKIT and SOUNDKIT.TELL_MESSAGE then PlaySound(SOUNDKIT.TELL_MESSAGE) end
+    toast = UI():Toast({
+        key = TOAST_KEY, kind = q.color, icon = q.icon, title = q.title, text = q.text, lines = 3,
+        duration = q.seconds or 12, sound = "TELL_MESSAGE", width = 372,
+        buttons = { { text = q.button, kind = "primary", onClick = function() if q.fn then q.fn() end end } },
+        onClose = function() C_Timer.After(0.5, function() Sheet:NextToast() end) end,
+    }) or toast
 end
 
 function Sheet:Toast(q)
@@ -756,7 +694,7 @@ function Sheet:Toast(q)
     self:NextToast()
 end
 
-function Sheet:GetToast() return toast end
+function Sheet:GetToast() return UI():GetToast(TOAST_KEY) or toast end
 function Sheet:GetQueue() return queue end
 
 -- The notification center (Core/Notify.lua) carries feedback's news: its bell, pop-ups (queued, never in combat) and
@@ -800,7 +738,7 @@ local function RegisterKinds()
     if not (Nf and Nf.RegisterKind) or Sheet.kindsRegistered then return end
     Sheet.kindsRegistered = true
     local F = FB()
-    local gold = { 1, 0.82, 0 }
+    local gold = S.C.GOLD
     Nf:RegisterKind("feedbackAnswer", {
         section = "Feedback", page = "feedback", icon = 42, color = gold,
         label = "Answers to your feedback", desc = "The developer or an officer answered your feedback, or set where it stands.",

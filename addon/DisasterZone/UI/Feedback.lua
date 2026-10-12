@@ -13,32 +13,38 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Feedback.lua", ...) then return
 --           with the faces of who wants it too, the answers as bubbles (staff in gold); at the bottom the answer box
 --           (author and staff) and for staff Plan it / Already in the addon / Not planned / Same as...
 --   A guild where nobody sent anything yet: the three steps of how it works.
+-- 1.4: the page banner on UI:CreatePageBanner (the tiles on the sleek surface, the numbers), the rest a list + detail
+-- layout (UI:CreateLayout): the tabs in its toolbar with the sort, the kinds (UI:CreateSegments) and the search as its
+-- filters; the list's rows with the shared looks and section headers; the item opens with the layout's banner (D3:
+-- the kind's icon, kind and number, author, the status pill; Status as its tool, Withdraw as its action, asking first
+-- with ns.Popup:Confirm); chips are pills, answers inset cards (staff ones in the picked look), the shared empty
+-- states and text styles, colours from ns.Style.
 local addonName, ns = ...
 
 local FeedbackUI = ns:NewModule("FeedbackUI")
+local S = ns.Style
 
 local floor, max, min = math.floor, math.max, math.min
 local tconcat = table.concat
 
-local W_FALLBACK = 768         -- the page's inner width (the mock's anchored frames have no size)
-local PAD, GAP = 10, 8
+local W_FALLBACK = S.INNER_W  -- the page's inner width (the mock's anchored frames have no size)
+local PAD, GAP = S.PAD, S.GAP
 local BAN_H = 100
-local TABS_Y = 114             -- the tabs row (from the page's top)
-local BODY_Y = 146             -- the list and the item
-local BODY_H = 393
+local TABS_Y = 114             -- the tabs row (from the page's top): the layout starts here
+local BODY_H = S.PAGE_H - TABS_Y - 36 - PAD   -- the list and the item (under the layout's toolbar)
 local LIST_W = 336
+local LIST_LANE = 20           -- a scroll list's bar lane (UI:CreateScrollList)
 local ROW_H, GROUP_H = 56, 24
-local HEAD_H = 66              -- the item's coloured band
-local IN = 14                  -- inside the item
+local IN = 0                   -- the item's body from the detail column's edges (the layout keeps the margins)
+local SCROLL_LANE = 12         -- the item's scroll bar
 local TILE_W, TILE_H = 84, 76
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local CHECK = "Interface\\RAIDFRAME\\ReadyCheck-Ready"
 local BANNER_ART = 131832      -- Serpentshrine Cavern's loading screen
 
-local GOLD = { 1, 0.82, 0 }
+local GOLD = S.C.GOLD
 local GREEN = { 0.56, 0.89, 0.62 }
 local GREY = { 0.47, 0.47, 0.49 }
-local EDGE = { 0.34, 0.34, 0.38, 0.45 }
 
 local state = { tab = "all", kind = nil, sort = nil, search = "", sel = nil }
 local panel
@@ -48,43 +54,7 @@ local function FB() return ns.Feedback end
 local function Short(key) return ns.Util.ShortName(key) end
 local function KindInfo(kind) return FB().KIND_INFO[kind] or FB().KIND_INFO.idea end
 
-local function newText(parent, font, size, wrap)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetJustifyV("TOP")
-    fs:SetWordWrap(wrap and true or false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
-local function hex(c) return ("%02x%02x%02x"):format(floor(c[1] * 255), floor(c[2] * 255), floor(c[3] * 255)) end
-local function paint(text, c) return "|cff" .. hex(c) .. tostring(text) .. "|r" end
-local function grey(text) return "|cff8d8d93" .. tostring(text) .. "|r" end
-
-local function gradient(tex, orient, c1, c2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(c1[1], c1[2], c1[3], c1[4]), CreateColor(c2[1], c2[2], c2[3], c2[4]))
-    else
-        tex:SetColorTexture(c1[1], c1[2], c1[3], (c1[4] + c2[4]) / 2)
-    end
-end
-
--- A flat box: dark fill, 1px edge (the mockup's panels).
-local function Box(parent)
-    local b = CreateFrame("Frame", nil, parent)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.bg:SetColorTexture(0.08, 0.08, 0.094, 0.92)
-    UI():AddEdges(b, "BORDER")
-    UI():SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
-    return b
-end
-
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local WRAP = { wrap = true }   -- (a wrapped text: a row's two lines, an answer)
 
 -- A round class portrait (UI-Classes-Circles) for key on tex; a grey disc when the class is unknown.
 local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
@@ -103,9 +73,18 @@ local function Face(tex, key)
     tex:Show()
 end
 
+-- The same portrait inside a line of text ("|T...|t"), 14 px.
+local function FaceText(key)
+    local cls = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)
+    local c = cls and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[cls]
+    if not c then return "" end
+    return ("|T%s:14:14:0:0:256:256:%d:%d:%d:%d|t"):format(CIRCLES, floor(c[1] * 256), floor(c[2] * 256),
+        floor(c[3] * 256), floor(c[4] * 256))
+end
+
 -- "just now", "12 min", "3 hours", "2 days", "3 weeks" (ago is added by the caller where it reads better).
 local function Age(ts)
-    local d = Now() - (tonumber(ts) or 0)
+    local d = ns.Util.Now() - (tonumber(ts) or 0)
     if d < 90 then return "just now" end
     if d < 3600 then return floor(d / 60) .. " min" end
     if d < 86400 then local h = floor(d / 3600) return h == 1 and "1 hour" or (h .. " hours") end
@@ -191,22 +170,15 @@ end
 
 local function Refresh() if panel then FeedbackUI:Refresh() end end
 
+-- A kind's icon: the shared icon tile (UI:CreateIconTile) in a ring of the kind's colour.
 local function KindIcon(parent, size, ring)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.ring = f:CreateTexture(nil, "BACKGROUND")
+    local f = UI():CreateIconTile(parent, size)
+    f.ring = f:CreateTexture(nil, "BACKGROUND", nil, -1)
     f.ring:SetPoint("TOPLEFT", -2, 2)
     f.ring:SetPoint("BOTTOMRIGHT", 2, -2)
-    f.black = f:CreateTexture(nil, "BORDER")
-    f.black:SetPoint("TOPLEFT", -1, 1)
-    f.black:SetPoint("BOTTOMRIGHT", 1, -1)
-    f.black:SetColorTexture(0, 0, 0, 1)
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    f.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    function f:Set(kind, dim)
+    function f:SetKind(kind, dim)
         local info = KindInfo(kind)
-        self.tex:SetTexture(info.icon)
+        self:Set(info.icon)
         self.tex:SetDesaturated(dim and true or false)
         self.tex:SetVertexColor(dim and 0.8 or 1, dim and 0.8 or 1, dim and 0.8 or 1)
         self.ring:SetColorTexture(info.color[1], info.color[2], info.color[3], ring or 0.3)
@@ -220,9 +192,9 @@ local function VoteTip(owner, item)
     table.sort(names)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
     if item.mine then
-        GameTooltip:AddLine(item.voteCount == 0 and "Nobody said me too yet" or "They want it too", 1, 0.82, 0)
+        GameTooltip:AddLine(item.voteCount == 0 and "Nobody said me too yet" or "They want it too", S:Color("GOLD"))
     else
-        GameTooltip:AddLine(item.voted and "You said me too" or "Me too", 1, 0.82, 0)
+        GameTooltip:AddLine(item.voted and "You said me too" or "Me too", S:Color("GOLD"))
         GameTooltip:AddLine(item.voted and "Click to take it back." or "Click if you want this too: the developer sees how "
             .. "many asked for it.", 1, 1, 1, true)
     end
@@ -230,39 +202,34 @@ local function VoteTip(owner, item)
     GameTooltip:Show()
 end
 
--- The me-too counter of a row: a chevron up and the count (gold: I said it).
+-- The me-too counter of a row: the sleek button ("chosen" when I said it, the chevron and count gold then), a chevron
+-- up and the count.
 local function NewCounter(parent)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(32, 36)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    UI():AddEdges(b, "BORDER")
-    b.chev = b:CreateTexture(nil, "ARTWORK")
+    local b = UI():CreateSleekButton(parent, "", 32, 36, function(self)
+        local item = self.item
+        if item and not item.mine then FB():Vote(item.id, not item.voted) end
+    end)
+    b.chev = b:CreateTexture(nil, "OVERLAY")
     b.chev:SetSize(12, 12)
     b.chev:SetPoint("TOP", 0, -5)
     b.chev:SetTexture(UI().ICON_ATLAS)
     b.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
     UI():SetChevronUp(b.chev, true)
-    b.n = newText(b, "GameFontHighlightSmall", 11)
+    b.n = UI():Text(b, "body", "TEXT")
     b.n:SetJustifyH("CENTER")
     b.n:SetPoint("BOTTOM", 0, 5)
     function b:Set(item)
         self.item = item
         self.n:SetText(item.voteCount)
         local on = item.voted
-        local c = on and GOLD or { 0.74, 0.74, 0.74 }
-        self.chev:SetVertexColor(c[1], c[2], c[3])
-        self.n:SetTextColor(c[1], c[2], c[3])
-        UI():SetEdgeColor(self, c[1], c[2], c[3], on and 0.6 or 0.14)
-        self.bg:SetColorTexture(c[1], c[2], c[3], on and 0.11 or 0.035)
+        self:SetKind(on and "chosen" or "secondary")
+        local r, g, bl = S:Color(on and "GOLD" or "SUB")
+        self.chev:SetVertexColor(r, g, bl)
+        self.n:SetTextColor(r, g, bl)
         self:SetAlpha(item.mine and 0.55 or 1)
     end
-    b:SetScript("OnClick", function(self)
-        local item = self.item
-        if item and not item.mine then FB():Vote(item.id, not item.voted) end
-    end)
-    b:SetScript("OnEnter", function(self) if self.item then VoteTip(self, self.item) end end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:HookScript("OnEnter", function(self) if self.item then VoteTip(self, self.item) end end)
+    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
     return b
 end
 
@@ -275,6 +242,7 @@ local TILE_LABEL = { bug = "Something\nbroke", idea = "I have\nan idea", change 
 local function NewTile(parent, kind)
     local info = KindInfo(kind)
     local c = info.color
+    -- the sleek button's surface (UI:PaintSleek), its edge and label in the kind's colour under the mouse
     local t = CreateFrame("Button", nil, parent)
     t:SetSize(TILE_W, TILE_H)
     t.bg = t:CreateTexture(nil, "BACKGROUND")
@@ -282,18 +250,17 @@ local function NewTile(parent, kind)
     UI():AddEdges(t, "BORDER")
     t.icon = KindIcon(t, 30, 0.35)
     t.icon:SetPoint("TOP", 0, -9)
-    t.icon:Set(kind)
-    t.label = newText(t, "GameFontHighlightSmall", 10.5, true)
+    t.icon:SetKind(kind)
+    t.label = UI():Text(t, "small", "TEXT", WRAP)
     t.label:SetJustifyH("CENTER")
     t.label:SetPoint("TOP", t.icon, "BOTTOM", 0, -7)
     t.label:SetWidth(TILE_W - 6)
     t.label:SetText(TILE_LABEL[kind])
     local function look(self)
         local hot = self:IsMouseOver()
-        self.bg:SetColorTexture(hot and c[1] * 0.13 + 0.055 or 0.055, hot and c[2] * 0.13 + 0.055 or 0.055,
-            hot and c[3] * 0.13 + 0.067 or 0.067, 0.85)
+        UI():PaintSleek(self, "secondary", hot)
         UI():SetEdgeColor(self, c[1], c[2], c[3], hot and 0.85 or 0.32)
-        if hot then self.label:SetTextColor(c[1], c[2], c[3]) else self.label:SetTextColor(0.9, 0.9, 0.9) end
+        if hot then self.label:SetTextColor(c[1], c[2], c[3]) else self.label:SetTextColor(S:Color("TEXT")) end
     end
     t:SetScript("OnEnter", function(self)
         look(self)
@@ -308,44 +275,27 @@ local function NewTile(parent, kind)
     return t
 end
 
-local function BuildBanner(p)
-    local b = CreateFrame("Frame", nil, p)
+-- The page banner (UI:CreatePageBanner): Serpentshrine's loading screen behind "Feedback", how it works, the numbers;
+-- the four tiles at its right.
+local function BannerArt(w)
+    w = (w and w > 100) and w or W_FALLBACK
+    local fw = 0.98
+    local fh = fw * (4 / 3) * (BAN_H / w)
+    return { BANNER_ART, 0.01, 0.99, 0.52 - fh / 2, 0.52 + fh / 2 }
+end
+
+local function CreateTopBanner(p)
+    local b = UI():CreatePageBanner(p, { size = BAN_H, art = BannerArt(W_FALLBACK), artTint = 0.85, title = "Feedback",
+        width = W_FALLBACK })
     b:SetPoint("TOPLEFT", p, "TOPLEFT", PAD, -8)
     b:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -8)
-    b:SetHeight(BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
-    b.art:SetAllPoints()
-    b.art:SetTexture(BANNER_ART)
-    b.art:SetVertexColor(0.85, 0.85, 0.85)
-    local function crop(w)
-        w = (w and w > 100) and w or W_FALLBACK
-        local fw = 0.98
-        local fh = fw * (4 / 3) * (BAN_H / w)
-        b.art:SetTexCoord(0.01, 0.99, 0.52 - fh / 2, 0.52 + fh / 2)
-    end
-    crop(b:GetWidth())
-    b:SetScript("OnSizeChanged", function(_, w) crop(w) end)
-    b.shadeH = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.shadeH:SetAllPoints()
-    gradient(b.shadeH, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.94 }, { 0.035, 0.035, 0.043, 0.42 })
-    b.shadeV = b:CreateTexture(nil, "BACKGROUND", nil, 2)
-    b.shadeV:SetPoint("BOTTOMLEFT")
-    b.shadeV:SetPoint("BOTTOMRIGHT")
-    b.shadeV:SetHeight(BAN_H * 0.6)
-    gradient(b.shadeV, "VERTICAL", { 0.035, 0.035, 0.043, 0.75 }, { 0.035, 0.035, 0.043, 0 })
-    UI():AddEdges(b, "BORDER")
-    UI():SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
-
-    b.title = newText(b, "GameFontHighlightLarge", 19)
-    b.title:SetPoint("TOPLEFT", 14, -12)
-    b.title:SetText("Feedback")
-    b.desc = newText(b, "GameFontHighlightSmall", 11, true)
+    b:HookScript("OnSizeChanged", function(self, w) if w and w > 100 then self:SetArt(BannerArt(w)) end end)
+    b.desc = UI():Text(b, "body", "TEXT", WRAP)
     b.desc:SetPoint("TOPLEFT", 14, -40)
     b.desc:SetWidth(380)
-    b.desc:SetTextColor(0.81, 0.81, 0.81)
     b.desc:SetText("Bugs, ideas and changes reach the addon's developer, even while the developer is offline. What "
         .. "ships carries your name.")
-    b.stats = newText(b, "GameFontHighlight", 12)
+    b.stats = UI():Text(b, "emph", "TEXT")
     b.stats:SetPoint("BOTTOMLEFT", 14, 10)
     b.tiles = {}
     local kinds = FB().KINDS
@@ -360,7 +310,7 @@ end
 
 local function StatsText()
     local c = FB():Counts()
-    local function stat(n, word, col) return paint(n, col or { 1, 1, 1 }) .. " " .. grey(word) end
+    local function stat(n, word, col) return UI():Colorize(tostring(n), col or { 1, 1, 1 }) .. " " .. S:Wrap("SUB", word) end
     return stat(c.open, "open") .. "     " .. stat(c.planned, "planned") .. "     "
         .. stat(c.shipped, "shipped", GREEN) .. "     " .. stat(c.total, "from the guild")
 end
@@ -372,32 +322,20 @@ end
 local function InitRow(row, data)
     if not row.built then
         row.built = true
-        row.sel = row:CreateTexture(nil, "BACKGROUND")
-        row.sel:SetAllPoints()
-        row.sel:SetColorTexture(1, 0.82, 0, 0.09)
-        row.bar = row:CreateTexture(nil, "ARTWORK")
-        row.bar:SetPoint("TOPLEFT")
-        row.bar:SetPoint("BOTTOMLEFT")
-        row.bar:SetWidth(3)
-        row.bar:SetColorTexture(1, 0.82, 0, 1)
-        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(1, 1, 1, 0.04)
-        row.rule = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-        row.rule:SetPoint("BOTTOMLEFT")
-        row.rule:SetPoint("BOTTOMRIGHT")
-        row.rule:SetHeight(1)
-        row.rule:SetColorTexture(1, 1, 1, 0.045)
+        UI():DecorateRow(row, { selectable = true, rule = true })
+        row.hl, row.rule = row.dzHover, row.dzRule
         row.icon = KindIcon(row, 28)
         row.icon:SetPoint("TOPLEFT", 10, -8)
-        row.text = newText(row, "GameFontHighlight", 11.5, true)
+        row.text = UI():Text(row, "body", "TEXT", WRAP)
         row.text:SetPoint("TOPLEFT", 48, -8)
-        row.text:SetWidth(LIST_W - 22 - 48 - 46)
+        row.text:SetWidth(LIST_W - LIST_LANE - 48 - 48)
         if row.text.SetMaxLines then row.text:SetMaxLines(2) end
-        row.meta = newText(row, "GameFontHighlightSmall", 10)
+        row.text:SetHeight(2 * (S.FONT.body + 2))   -- (two lines at most: the meta line sits under them)
+        row.text:SetJustifyV("TOP")
+        row.meta = UI():Text(row, "small", "TEXT")
         row.meta:SetPoint("BOTTOMLEFT", 48, 7)
-        row.pill = UI():CreateTagPill(row, 14)
-        row.pill:SetBase(0.08, 0.08, 0.094)
+        row.pill = UI():CreatePill(row, nil, nil, 14)
+        row.pill:SetBase(S.C.CARD[1], S.C.CARD[2], S.C.CARD[3])
         row.pill:SetPoint("LEFT", row.meta, "RIGHT", 5, 0)
         row.news = row:CreateTexture(nil, "OVERLAY")
         row.news:SetSize(8, 8)
@@ -405,8 +343,10 @@ local function InitRow(row, data)
         row.news:SetTexture("Interface\\COMMON\\Indicator-Yellow")
         row.vote = NewCounter(row)
         row.vote:SetPoint("RIGHT", -8, 0)
-        row.head = newText(row, "GameFontNormalSmall", 11)
-        row.head:SetPoint("BOTTOMLEFT", 10, 4)
+        -- a group's heading ("Open 5", "Done lately 4"): the shared section header
+        row.head = UI():CreateSectionHeader(row, "", { style = "title", rule = false })
+        row.head:SetPoint("BOTTOMLEFT", 4, 0)
+        row.head:SetPoint("BOTTOMRIGHT", -4, 0)
         row:SetScript("OnClick", function(self)
             local d = self.__cdlData
             if d and d.item then FeedbackUI:Select(d.item.id) end
@@ -416,27 +356,27 @@ local function InitRow(row, data)
     local isHead = data.header ~= nil
     row.head:SetShown(isHead)
     row:EnableMouse(not isHead)
-    for _, r in ipairs({ row.sel, row.bar, row.rule, row.icon, row.text, row.meta, row.pill, row.news, row.vote }) do
+    for _, r in ipairs({ row.rule, row.icon, row.text, row.meta, row.pill, row.news, row.vote }) do
         r:SetShown(not isHead)
     end
     if row.hl then row.hl:SetShown(not isHead) end
     if isHead then
-        row.head:SetText(data.header .. "  " .. grey(data.count))
+        row:SetSelected(false)
+        row.head:SetTitle(data.header)
+        row.head:SetCount(data.count)
         return
     end
-    local on = item.id == state.sel
-    row.sel:SetShown(on)
-    row.bar:SetShown(on)
+    row:SetSelected(item.id == state.sel)
     local done = item.closed
-    row.icon:Set(item.kind, done and item.state ~= "done")
+    row.icon:SetKind(item.kind, done and item.state ~= "done")
     row.text:SetText(UI():SafeText(item.text or ""))
     local tc = done and 0.66 or 0.94
     row.text:SetTextColor(tc, tc, tc)
     local parts = {}
-    if item.no then parts[#parts + 1] = grey("#" .. item.no) end
+    if item.no then parts[#parts + 1] = S:Wrap("SUB", "#" .. item.no) end
     parts[#parts + 1] = UI():ColoredName(item.author)
-    parts[#parts + 1] = grey(Age(item.at))
-    row.meta:SetText(tconcat(parts, grey(" · ")))
+    parts[#parts + 1] = S:Wrap("SUB", Age(item.at))
+    row.meta:SetText(tconcat(parts, S:Wrap("SUB", " · ")))
     row.pill:Set(Pill(item))
     row.news:SetShown(FeedbackUI:HasNews(item))
     row.vote:Set(item)
@@ -467,12 +407,11 @@ local function NewSteps(parent)
         n.glow = s:CreateTexture(nil, "ARTWORK", nil, 0)
         n.glow:SetTexture(DISC)
         n.glow:SetSize(22, 22)
-        n.glow:SetVertexColor(1, 0.82, 0, 0.25)
-        n.label = newText(s, "GameFontHighlightSmall", 11)
+        n.glow:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.25)
+        n.label = UI():Text(s, "body", "TEXT")
         n.label:SetJustifyH("CENTER")
-        n.date = newText(s, "GameFontHighlightSmall", 9.5)
+        n.date = UI():Text(s, S.FONT.caps, "DIM")
         n.date:SetJustifyH("CENTER")
-        n.date:SetTextColor(0.44, 0.44, 0.46)
         s.nodes[i] = n
         if i > 1 then
             local b = s:CreateTexture(nil, "ARTWORK", nil, 0)
@@ -509,9 +448,9 @@ local function NewSteps(parent)
                     n.fill:SetVertexColor(0.18, 0.68, 0.30)
                     n.label:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
                 elseif st.st == "now" then
-                    n.ring:SetVertexColor(1, 0.82, 0)
+                    n.ring:SetVertexColor(S:Color("GOLD"))
                     n.fill:SetVertexColor(0.24, 0.21, 0.07)
-                    n.label:SetTextColor(1, 0.82, 0)
+                    n.label:SetTextColor(S:Color("GOLD"))
                 elseif st.st == "closed" then
                     n.ring:SetVertexColor(0.62, 0.62, 0.65)
                     n.fill:SetVertexColor(0.30, 0.30, 0.33)
@@ -532,9 +471,9 @@ local function NewSteps(parent)
                 b:SetPoint("RIGHT", self, "TOPLEFT", z - 9, -7)
                 local st = steps[i + 1].st
                 if st == "done" or st == "closed" then
-                    gradient(b, "HORIZONTAL", { 0.24, 0.81, 0.36, 1 }, { 0.44, 0.86, 0.53, 1 })
+                    UI():Gradient(b, "HORIZONTAL", { 0.24, 0.81, 0.36, 1 }, { 0.44, 0.86, 0.53, 1 })
                 elseif st == "now" then
-                    gradient(b, "HORIZONTAL", { 0.44, 0.86, 0.53, 1 }, { 1, 0.82, 0, 0.85 })
+                    UI():Gradient(b, "HORIZONTAL", { 0.44, 0.86, 0.53, 1 }, { GOLD[1], GOLD[2], GOLD[3], 0.85 })
                 else
                     b:SetColorTexture(0.23, 0.23, 0.25, 1)
                 end
@@ -564,54 +503,19 @@ local function Steps(item)
     return steps
 end
 
--- A chip: a small framed label (kind "about" gold with a ring, "err" red, else grey).
-local function NewChip(parent)
-    local c = CreateFrame("Frame", nil, parent)
-    c:SetHeight(18)
-    c.bg = c:CreateTexture(nil, "BACKGROUND")
-    c.bg:SetAllPoints()
-    UI():AddEdges(c, "BORDER")
-    c.ring = c:CreateTexture(nil, "ARTWORK")
-    c.ring:SetTexture(DISC)
-    c.ring:SetSize(9, 9)
-    c.ring:SetPoint("LEFT", 7, 0)
-    c.dot = c:CreateTexture(nil, "ARTWORK", nil, 1)
-    c.dot:SetTexture(DISC)
-    c.dot:SetSize(6, 6)
-    c.dot:SetPoint("CENTER", c.ring, "CENTER")
-    c.dot:SetVertexColor(0.13, 0.12, 0.06)
-    c.fs = newText(c, "GameFontHighlightSmall", 10)
-    function c:Set(text, kind)
-        local x = 7
-        local col, fill, edge
-        if kind == "about" then
-            col, fill, edge = GOLD, { 1, 0.82, 0, 0.07 }, { 1, 0.82, 0, 0.45 }
-            x = 21
-        elseif kind == "err" then
-            col, fill, edge = { 1, 0.6, 0.54 }, { 0.89, 0.36, 0.31, 0.09 }, { 0.89, 0.36, 0.31, 0.55 }
-        else
-            col, fill, edge = { 0.72, 0.72, 0.75 }, { 1, 1, 1, 0.045 }, { 1, 1, 1, 0.12 }
-        end
-        self.ring:SetShown(kind == "about")
-        self.dot:SetShown(kind == "about")
-        self.ring:SetVertexColor(1, 0.82, 0)
-        self.bg:SetColorTexture(fill[1], fill[2], fill[3], fill[4])
-        UI():SetEdgeColor(self, edge[1], edge[2], edge[3], edge[4])
-        self.fs:SetText(text)
-        self.fs:SetTextColor(col[1], col[2], col[3])
-        self.fs:ClearAllPoints()
-        self.fs:SetPoint("LEFT", x, 0)
-        self:SetWidth(floor(x + (self.fs:GetStringWidth() or 30) + 7 + 0.5))
+-- A chip of what came with an item: the shared pill (UI:CreatePill), its look from the chip's kind ("about" gold, a
+-- Lua error red, the rest quiet); chip:Set(text, kind) (the form's chips too, UI/FeedbackSheet.lua).
+local CHIP_LOOK = { about = "bis", err = "live" }
+local function NewContextPill(parent)
+    local c = UI():CreatePill(parent, nil, nil, 18)
+    local set = c.Set
+    function c:Set(text, kind, icon)
+        set(self, text, CHIP_LOOK[kind] or (UI().PILL_LOOK[kind] and kind) or "mute", icon)
     end
     return c
 end
 
-FeedbackUI.NewChip, FeedbackUI.NewSteps = NewChip, NewSteps
-
-local function ClassName(cl)
-    if not cl then return nil end
-    return (ns.CLASS_NAMES and ns.CLASS_NAMES[cl]) or (cl:sub(1, 1) .. cl:sub(2):lower())
-end
+FeedbackUI.NewContextPill, FeedbackUI.NewSteps = NewContextPill, NewSteps
 
 local function ErrorTip(owner, item)
     local e = item.err
@@ -627,55 +531,50 @@ end
 local function ContextTip(owner, item)
     local c = item.ctx or {}
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Sent with it", 1, 0.82, 0)
+    GameTooltip:AddLine("Sent with it", S:Color("GOLD"))
     local function row(label, value)
         if value and value ~= "" then GameTooltip:AddDoubleLine(label, value, 0.7, 0.7, 0.7, 1, 1, 1) end
     end
     row("Version", c.v)
     row("Build", c.b)
     row("Where", c.z)
-    row("Class", ClassName(c.cl))
+    row("Class", ns.ClassName(c.cl))
     row("Spec", c.sp)
     row("Page open", c.p)
     row("Language", c.lo)
     GameTooltip:Show()
 end
 
--- An answer: the class circle, a bubble (gold bar and tint for staff) with the name, a tag and when, and the text.
+-- An answer: the class circle, then a card (UI:CreateCard, inset) with the name, a tag and when, and the text; a
+-- staff answer wears the picked look (the gold wash and bar).
 local function NewBubble(parent)
     local b = CreateFrame("Frame", nil, parent)
     b.face = b:CreateTexture(nil, "ARTWORK")
     b.face:SetSize(20, 20)
     b.face:SetPoint("TOPLEFT", 0, -1)
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetPoint("TOPLEFT", 29, 0)
-    b.bg:SetPoint("BOTTOMRIGHT")
-    b.bar = b:CreateTexture(nil, "BORDER")
-    b.bar:SetPoint("TOPLEFT", 29, 0)
-    b.bar:SetPoint("BOTTOMLEFT", 29, 0)
-    b.bar:SetWidth(2)
-    b.name = newText(b, "GameFontHighlightSmall", 11)
-    b.name:SetPoint("TOPLEFT", 39, -6)
-    b.tag = UI():CreateTagPill(b, 13)
+    b.card = UI():CreateCard(b, { tone = "inset", pad = 0 })
+    b.card:SetPoint("TOPLEFT", 29, 0)
+    b.card:SetPoint("BOTTOMRIGHT")
+    UI():DecorateRow(b.card, { hover = false, selectable = true })
+    b.name = UI():Text(b.card, "body", "TEXT")
+    b.name:SetPoint("TOPLEFT", 10, -6)
+    b.tag = UI():CreatePill(b.card, nil, nil, 13)
     b.tag:SetPoint("LEFT", b.name, "RIGHT", 6, 0)
-    b.when = newText(b, "GameFontHighlightSmall", 10)
+    b.when = UI():Text(b.card, "small", "DIM")
     b.when:SetPoint("TOPRIGHT", -8, -7)
     b.when:SetJustifyH("RIGHT")
-    b.when:SetTextColor(0.47, 0.47, 0.49)
-    b.text = newText(b, "GameFontHighlight", 11.5, true)
-    b.text:SetPoint("TOPLEFT", 39, -21)
-    b.text:SetTextColor(0.91, 0.91, 0.91)
+    b.text = UI():Text(b.card, "body", "TEXT", WRAP)
+    b.text:SetPoint("TOPLEFT", 10, -21)
     function b:Set(rep, width)
         Face(self.face, rep.author)
         self.name:SetText(UI():ColoredName(rep.author))
         local staff = rep.staff
         self.tag:SetShown(staff and true or false)
         if staff then
-            self.tag:SetBase(0.11, 0.105, 0.08)
+            self.tag:SetBase(S:Color("INSET"))
             self.tag:Set(FB():IsDev(rep.author) and "Developer" or "Officer", "bis")
         end
-        self.bg:SetColorTexture(staff and 1 or 1, staff and 0.82 or 1, staff and 0 or 1, staff and 0.055 or 0.035)
-        if staff then self.bar:SetColorTexture(1, 0.82, 0, 0.75) else self.bar:SetColorTexture(1, 1, 1, 0.22) end
+        self.card:SetSelected(staff and true or false)
         self.when:SetText(Day(rep.at))
         self.text:SetWidth(width - 39 - 10)
         self.text:SetText(UI():SafeText(rep.text))
@@ -700,7 +599,7 @@ local function FullStatusMenu(root, item)
     local function entry(s, label, tip)
         local b = root:CreateRadio(label, function() return item.state == s end, set(s))
         if b and b.SetTooltip and tip then
-            b:SetTooltip(function(tt) tt:AddLine(label, 1, 0.82, 0); tt:AddLine(tip, 1, 1, 1, true) end)
+            b:SetTooltip(function(tt) tt:AddLine(label, S:Color("GOLD")); tt:AddLine(tip, 1, 1, 1, true) end)
         end
     end
     entry("planned", "Planned", "It will be done.")
@@ -747,7 +646,7 @@ StatusMenu = function(root, item, only)
     local rm = root:CreateButton("|cffe06b60Remove|r", set("removed"))
     if rm and rm.SetTooltip then
         rm:SetTooltip(function(tt)
-            tt:AddLine("Remove", 1, 0.82, 0)
+            tt:AddLine("Remove", S:Color("GOLD"))
             tt:AddLine("Hides it from the guild's lists (spam, or something that doesn't belong here). Staff still see "
                 .. "it in the Inbox.", 1, 1, 1, true)
         end)
@@ -757,14 +656,13 @@ end
 -- Three steps for a guild where nobody sent anything yet.
 local function BuildHow(parent)
     local f = CreateFrame("Frame", nil, parent)
-    f.title = newText(f, "GameFontNormal", 13)
+    f.title = UI():Text(f, "title", "GOLD")
     f.title:SetJustifyH("CENTER")
     f.title:SetPoint("TOP", 0, -60)
     f.title:SetText("Nothing sent yet")
-    f.sub = newText(f, "GameFontHighlightSmall", 11)
+    f.sub = UI():Text(f, "body", "SUB")
     f.sub:SetJustifyH("CENTER")
     f.sub:SetPoint("TOP", f.title, "BOTTOM", 0, -5)
-    f.sub:SetTextColor(0.55, 0.55, 0.58)
     f.sub:SetText("Pick a tile above: it takes a minute.")
     local steps = {
         { "You send it", "A bug, an idea, a change, or what you love." },
@@ -779,24 +677,23 @@ local function BuildHow(parent)
         c.ring:SetTexture(DISC)
         c.ring:SetSize(26, 26)
         c.ring:SetPoint("TOP")
-        c.ring:SetVertexColor(1, 0.82, 0, 0.6)
+        c.ring:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.6)
         c.in_ = c:CreateTexture(nil, "ARTWORK", nil, 1)
         c.in_:SetTexture(DISC)
         c.in_:SetSize(24, 24)
         c.in_:SetPoint("CENTER", c.ring)
         c.in_:SetVertexColor(0.13, 0.12, 0.07)
-        c.n = newText(c, "GameFontNormal", 13)
+        c.n = UI():Text(c, "title", "GOLD")
         c.n:SetPoint("CENTER", c.ring, "CENTER", 0, 0)
         c.n:SetText(i)
-        c.t = newText(c, "GameFontHighlight", 11.5)
+        c.t = UI():Text(c, "body", "TEXT")
         c.t:SetJustifyH("CENTER")
         c.t:SetPoint("TOP", c.ring, "BOTTOM", 0, -8)
         c.t:SetText(s[1])
-        c.d = newText(c, "GameFontHighlightSmall", 10.5, true)
+        c.d = UI():Text(c, "small", "SUB", WRAP)
         c.d:SetJustifyH("CENTER")
         c.d:SetPoint("TOP", c.t, "BOTTOM", 0, -3)
         c.d:SetWidth(110)
-        c.d:SetTextColor(0.55, 0.55, 0.58)
         c.d:SetText(s[2])
         f.cols[i] = c
     end
@@ -819,76 +716,56 @@ local function DetailWidth()
     return pw - 2 * PAD - LIST_W - GAP
 end
 
-local function BuildDetail(box)
-    local d = { chips = {}, bubbles = {}, faces = {} }
-    -- the band
-    d.head = CreateFrame("Frame", nil, box)
-    d.head:SetPoint("TOPLEFT", 1, -1)
-    d.head:SetPoint("TOPRIGHT", -1, -1)
-    d.head:SetHeight(HEAD_H)
-    d.head.bg = d.head:CreateTexture(nil, "BACKGROUND")
-    d.head.bg:SetAllPoints()
-    d.head.line = d.head:CreateTexture(nil, "BORDER")
-    d.head.line:SetPoint("BOTTOMLEFT")
-    d.head.line:SetPoint("BOTTOMRIGHT")
-    d.head.line:SetHeight(1)
-    d.icon = KindIcon(d.head, 38, 0.55)
-    d.icon:SetPoint("LEFT", IN, 0)
-    d.h1 = newText(d.head, "GameFontNormal", 14)
-    d.h1:SetPoint("TOPLEFT", d.icon, "TOPRIGHT", 12, -1)
-    d.face = d.head:CreateTexture(nil, "ARTWORK")
-    d.face:SetSize(14, 14)
-    d.face:SetPoint("TOPLEFT", d.h1, "BOTTOMLEFT", 0, -5)
-    d.h2 = newText(d.head, "GameFontHighlightSmall", 11)
-    d.h2:SetPoint("LEFT", d.face, "RIGHT", 6, 0)
-    d.pill = UI():CreateTagPill(d.head, 16)
-    d.pill:SetPoint("RIGHT", -IN, 8)
-    d.withdraw = UI():CreateSleekButton(d.head, "Withdraw", 74, 18, function(self)
-        if not d.item then return end
-        if self.armed and GetTime() - self.armed < 4 then
-            self.armed = nil
-            local ok, err = FB():Withdraw(d.item.id)
+-- The item card's height (the layout's detail column; the mock's anchored frames have none).
+local function DetailHeight()
+    local h = panel and panel.detailBox and panel.detailBox:GetHeight()
+    if h and h > 100 then return h end
+    return BODY_H
+end
+
+-- The item's Status menu (staff, outside the Inbox): every status, Open again, Remove.
+local function ItemStatusMenu(root, item)
+    FullStatusMenu(root, item)
+    root:CreateDivider()
+    if item.state and item.state ~= "open" then
+        root:CreateButton("Open again", function() FB():SetState(item.id, nil) end)
+    end
+    root:CreateButton(S:Wrap("BAD", "Remove"), function() FB():SetState(item.id, "removed") end)
+end
+
+-- Withdraw (my own open item): asks first (ns.Popup:Confirm), then takes it back.
+local function ConfirmWithdraw(item)
+    ns.Popup:Confirm({ title = "Withdraw", text = "Take your feedback back? It leaves everyone's lists.", ok = "Withdraw",
+        danger = true, key = "dz-feedback-withdraw", onAccept = function()
+            local ok, err = FB():Withdraw(item.id)
             if not ok and err then ns:Print(err) end
-            state.sel = nil
+            if state.sel == item.id then state.sel = nil end
             Refresh()
-        else
-            self.armed = GetTime()
-            self:SetText("Sure?")
-            C_Timer.After(4, function() if self.armed then self.armed = nil; self:SetText("Withdraw") end end)
-        end
-    end)
-    d.withdraw:GetFontString():SetFontObject("GameFontHighlightSmall")
-    d.withdraw:SetPoint("TOPRIGHT", d.pill, "BOTTOMRIGHT", 0, -5)
-    d.withdraw:HookScript("OnEnter", function(self)
-        UI():SetTextTooltip(self, { "Withdraw", "Takes your feedback back: it leaves everyone's lists. Click twice." },
-            "ANCHOR_LEFT")
-    end)
-    d.withdraw:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    d.status = UI():CreateSleekMenuButton(d.head, "Status", 74, function(root)
-        if not d.item then return end
-        FullStatusMenu(root, d.item)
-        root:CreateDivider()
-        if d.item.state and d.item.state ~= "open" then
-            root:CreateButton("Open again", function() FB():SetState(d.item.id, nil) end)
-        end
-        root:CreateButton("|cffe06b60Remove|r", function() FB():SetState(d.item.id, "removed") end)
-    end, 18)
+        end })
+end
+
+-- The item: the layout's detail banner (D3: the kind's icon in a ring of its colour, the kind and number, the author
+-- and when, the status pill; Status as its tool for staff, Withdraw as its action for the author), under it the body.
+local function BuildDetail(box, banner)
+    local d = { chips = {}, bubbles = {}, faces = {}, banner = banner }
+    -- (stands in for a banner button that is not shown: d.status / d.withdraw)
+    d.none = CreateFrame("Button", nil, banner)
+    d.none:Hide()
+    d.status, d.withdraw = d.none, d.none
 
     -- the body scrolls; the answer box and the staff buttons stay at the bottom
     d.scroll = UI():CreateScrollFrame(box, "DisasterZoneFeedbackDetailScroll")
-    d.scroll:SetPoint("TOPLEFT", box, "TOPLEFT", IN, -(HEAD_H + 12))
+    d.scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
     d.child = CreateFrame("Frame", nil, d.scroll)
     d.child:SetSize(300, 10)
     d.scroll:SetScrollChild(d.child)
     local c = d.child
-    d.text = newText(c, "GameFontHighlight", 13, true)
+    d.text = UI():Text(c, "title", "TEXT", WRAP)
     d.text:SetSpacing(3)
-    d.text:SetTextColor(0.96, 0.96, 0.96)
     d.steps = NewSteps(c)
-    d.vote = UI():CreateSleekButton(c, "Me too", 76, 22, function()
+    d.vote = UI():CreateSleekButton(c, "Me too", 76, S.BTN_H, function()
         if d.item and not d.item.mine then FB():Vote(d.item.id, not d.item.voted) end
     end)
-    d.vote:GetFontString():SetFontObject("GameFontHighlightSmall")
     d.vote.up = d.vote:CreateTexture(nil, "OVERLAY")
     d.vote.up:SetSize(10, 10)
     d.vote.up:SetTexture(UI().ICON_ATLAS)
@@ -899,21 +776,13 @@ local function BuildDetail(box)
     d.vote:GetFontString():SetPoint("LEFT", 22, 0)
     d.vote:HookScript("OnEnter", function(self) if d.item then VoteTip(self, d.item) end end)
     d.vote:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    d.votes = newText(c, "GameFontHighlightSmall", 11)
-    d.votes:SetTextColor(0.74, 0.74, 0.74)
+    d.votes = UI():Text(c, "body", "SUB")
     d.votesHover = CreateFrame("Frame", nil, c)
     d.votesHover:SetScript("OnEnter", function(self) if d.item then VoteTip(self, d.item) end end)
     d.votesHover:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    d.ansHead = newText(c, "GameFontNormal", 12)
-    d.ansHead:SetText("Answers")
-    d.ansCount = newText(c, "GameFontHighlightSmall", 10.5)
-    d.ansCount:SetJustifyH("RIGHT")
-    d.ansCount:SetTextColor(0.62, 0.62, 0.62)
-    d.ansRule = c:CreateTexture(nil, "ARTWORK")
-    d.ansRule:SetHeight(1)
-    d.ansRule:SetColorTexture(1, 1, 1, 0.08)
-    d.noAns = newText(c, "GameFontHighlightSmall", 11, true)
-    d.noAns:SetTextColor(0.47, 0.47, 0.49)
+    -- the answers' heading: the shared section header (the count at its right)
+    d.ansHead = UI():CreateSectionHeader(c, "Answers", { style = "title" })
+    d.noAns = UI():Text(c, "body", "DIM", WRAP)
 
     -- bottom: answer box, staff buttons
     d.reply = UI():CreateSleekEditBox(box, 200, 24, "GameFontHighlightSmall")
@@ -930,10 +799,9 @@ local function BuildDetail(box)
         end
     end
     d.reply:SetScript("OnEnterPressed", sendReply)
-    d.answer = UI():CreateSleekButton(box, "Answer", 68, 24, sendReply)
-    d.answer:GetFontString():SetFontObject("GameFontHighlightSmall")
+    d.answer = UI():CreateSleekButton(box, "Answer", 68, S.BTN_H, sendReply)
     local function staffButton(text, w, s, kind)
-        local b = UI():CreateSleekButton(box, text, w, 22, function()
+        local b = UI():CreateSleekButton(box, text, w, S.BTN_H, function()
             if not d.item then return end
             local opts = {}
             local txt = d.reply:GetText() or ""
@@ -941,7 +809,6 @@ local function BuildDetail(box)
             local ok, err = FB():SetState(d.item.id, s, opts)
             if ok then d.reply:SetText("") elseif err then ns:Print(err) end
         end, kind)
-        b:GetFontString():SetFontObject("GameFontHighlightSmall")
         return b
     end
     d.plan = staffButton("Plan it", 64, "planned", "primary")
@@ -950,21 +817,20 @@ local function BuildDetail(box)
     d.same = UI():CreateSleekMenuButton(box, "Same as", 82, function(root)
         if d.item then StatusMenu(root, d.item) end
     end)
-    d.staffNote = newText(box, "GameFontHighlightSmall", 10)
-    d.staffNote:SetTextColor(0.47, 0.47, 0.49)
+    d.staffNote = UI():Text(box, "small", "DIM")
 
     d.how = BuildHow(box)
     d.how:SetAllPoints(box)
-    d.empty = newText(box, "GameFontDisable", 12, true)
-    d.empty:SetJustifyH("CENTER")
-    d.empty:SetPoint("TOP", 0, -80)
+    d.empty = UI():CreateEmptyState(box, { glyph = UI().ICON.notes, title = "Nothing here." })
+    d.empty:SetPoint("TOP", 0, -60)
+    d.empty:Hide()
     return d
 end
 
 local function ChipPool(d, i)
     local ch = d.chips[i]
     if not ch then
-        ch = NewChip(d.child)
+        ch = NewContextPill(d.child)
         ch:EnableMouse(true)
         ch:SetScript("OnEnter", function(self)
             if not d.item then return end
@@ -992,47 +858,60 @@ local function RenderDetail()
     local item = state.sel and F:Get(state.sel)
     d.item = item
     local width = DetailWidth()
-    local inner = width - 2 * IN - 12
+    local inner = width - 2 * IN - SCROLL_LANE
     local hasAny = F:Counts().total > 0
     local shown = item ~= nil
-    for _, r in ipairs({ d.head, d.scroll, d.reply, d.answer, d.plan, d.exists, d.notnow, d.same, d.staffNote }) do
+    for _, r in ipairs({ d.scroll, d.reply, d.answer, d.plan, d.exists, d.notnow, d.same, d.staffNote }) do
         r:SetShown(shown)
+    end
+    if d.banner:IsShown() ~= shown then
+        d.banner:SetShown(shown)
+        panel.layout:Layout()
     end
     d.how:SetShown(not shown and not hasAny and state.tab ~= "inbox")
     d.empty:SetShown(not shown and not d.how:IsShown())
     if not shown then
         d.how:Layout(width)
-        d.empty:SetWidth(width - 48)
-        d.empty:SetText(state.tab == "inbox" and "All caught up.\n\nNew feedback lands here until somebody answers or "
-            .. "plans it." or "Nothing here.")
+        d.empty:SetBoxWidth(width - 48)
+        if state.tab == "inbox" then
+            d.empty:SetContent({ glyph = UI().ICON.notes, title = "All caught up.",
+                text = "New feedback lands here until somebody answers or plans it." })
+        else
+            d.empty:SetContent({ glyph = UI().ICON.notes, title = "Nothing here." })
+        end
         return
     end
     FeedbackUI:MarkSeen(item)
     local info = KindInfo(item.kind)
     local kc = info.color
 
-    -- the band
-    gradient(d.head.bg, "HORIZONTAL", { kc[1], kc[2], kc[3], 0.22 }, { kc[1], kc[2], kc[3], 0 })
-    d.head.line:SetColorTexture(kc[1], kc[2], kc[3], 0.35)
-    d.icon:Set(item.kind)
+    -- the banner
+    local b = d.banner
+    b:SetIcon(info.icon)
+    b.icon.ring:SetColorTexture(kc[1], kc[2], kc[3], 0.55)
     local label = item.kind == "bug" and "Something broke" or info.short
-    d.h1:SetText(paint(label, kc) .. (item.no and ("  |cff8d8d93#" .. item.no .. "|r") or ""))
-    Face(d.face, item.author)
-    d.h2:SetText(UI():ColoredName(item.author) .. grey("  ·  " .. Ago(item.at)))
-    d.pill:SetBase(0.08, 0.08, 0.094)
-    d.pill:Set(Pill(item))
+    b:SetTitle(UI():Colorize(label, kc) .. (item.no and ("  " .. S:Wrap("SUB", "#" .. item.no)) or ""))
+    b:SetSub(FaceText(item.author) .. " " .. UI():ColoredName(item.author) .. S:Wrap("SUB", "  ·  " .. Ago(item.at)))
+    local pillText, pillKind = Pill(item)
+    b:SetPill(pillKind, pillText)
+    -- TODO(refactor): Banner:SetPill should take every UI.PILL_LOOK kind (it goes through the event pill's SetKind,
+    -- which reads "bis" as mute): the pill's own SetPill gives it its look
+    b.pill:SetPill(pillKind, pillText)
     local inbox = state.tab == "inbox"
     local staff = F:AmIStaff()
-    d.withdraw:SetShown(item.mine and not item.closed)
-    d.withdraw.armed = nil
-    d.withdraw:SetText("Withdraw")
-    d.status:SetShown(staff and not inbox)
-    d.status:ClearAllPoints()
-    if d.withdraw:IsShown() then
-        d.status:SetPoint("RIGHT", d.withdraw, "LEFT", -6, 0)
-    else
-        d.status:SetPoint("TOPRIGHT", d.pill, "BOTTOMRIGHT", 0, -5)
+    local tools, actions = {}, {}
+    if staff and not inbox then
+        tools[1] = { icon = "more", title = "Status", text = "Planned, already in the addon, not planned, same as another, "
+            .. "open again or remove.", menu = function(root) if d.item then ItemStatusMenu(root, d.item) end end }
     end
+    if item.mine and not item.closed then
+        actions[1] = { text = "Withdraw", tip = { "Withdraw", "Takes your feedback back: it leaves everyone's lists." },
+            onClick = function() if d.item then ConfirmWithdraw(d.item) end end }
+    end
+    b:SetTools(tools)
+    b:SetActions(actions)
+    d.status = b.tools[1] or d.none
+    d.withdraw = b.actions[1] or d.none
 
     -- the body
     d.child:SetWidth(inner)
@@ -1049,7 +928,7 @@ local function RenderDetail()
     local cx = item.ctx or {}
     if cx.v then chips[#chips + 1] = { cx.v } end
     if cx.z then chips[#chips + 1] = { cx.z } end
-    local who = ns.Util.Trim(((cx.sp or "") .. " " .. (ClassName(cx.cl) or "")))
+    local who = ns.Util.Trim(((cx.sp or "") .. " " .. (ns.ClassName(cx.cl) or "")))
     if who ~= "" then chips[#chips + 1] = { who } end
     if item.err then
         chips[#chips + 1] = { "Lua error" .. ((item.err.n or 1) > 1 and (" ×" .. item.err.n) or ""), "err" }
@@ -1136,14 +1015,9 @@ local function RenderDetail()
     -- answers
     d.ansHead:ClearAllPoints()
     d.ansHead:SetPoint("TOPLEFT", d.child, "TOPLEFT", 0, y)
-    d.ansCount:ClearAllPoints()
-    d.ansCount:SetPoint("TOPRIGHT", d.child, "TOPRIGHT", 0, y - 2)
-    d.ansCount:SetText(#item.replies > 0 and #item.replies or "")
-    y = y - 18
-    d.ansRule:ClearAllPoints()
-    d.ansRule:SetPoint("TOPLEFT", d.child, "TOPLEFT", 0, y)
-    d.ansRule:SetWidth(inner)
-    y = y - 9
+    d.ansHead:SetWidth(inner)
+    d.ansHead:SetRight(#item.replies > 0 and #item.replies or nil)
+    y = y - 24 - 3
     for _, b in ipairs(d.bubbles) do b:Hide() end
     d.noAns:SetShown(#item.replies == 0)
     if #item.replies == 0 then
@@ -1193,7 +1067,7 @@ local function RenderDetail()
                 bx = bx + b:GetWidth() + 6
             end
         end
-        bottom = bottom + 22 + 8
+        bottom = bottom + S.BTN_H + S.GAP
     end
     d.reply:SetShown(canReply)
     d.answer:SetShown(canReply)
@@ -1206,7 +1080,7 @@ local function RenderDetail()
         UI():SetEditPlaceholder(d.reply, item.mine and "Add something" or ("Answer " .. Short(item.author)))
         bottom = bottom + 24 + 10
     end
-    d.scroll:SetSize(width - 2 * IN - 12, max(40, BODY_H - HEAD_H - 12 - bottom))
+    d.scroll:SetSize(width - 2 * IN - SCROLL_LANE, max(40, DetailHeight() - bottom))
 end
 
 ---------------------------------------------------------------------------
@@ -1256,29 +1130,24 @@ function FeedbackUI:Refresh()
     local staff = F:AmIStaff()
     if state.tab == "inbox" and not staff then state.tab = "all" end
     panel.banner.stats:SetText(StatsText())
-    -- tabs
-    local x = PAD - 4
+    -- tabs (the layout's toolbar)
+    local bar = panel.layout.toolbar
     for _, t in ipairs(TABS) do
-        local tab = panel.tabs[t.key]
         local on = not t.staff or staff
-        tab:SetShown(on)
+        bar:SetTabShown(t.key, on)
         if on then
             local label = t.label
             if t.key == "inbox" then
                 local n = F:InboxCount()
-                if n > 0 then label = label .. "  |cffffd100" .. n .. "|r" end
+                if n > 0 then label = label .. "  " .. S:Wrap("GOLD", n) end
             elseif t.key == "mine" and self:NewsCount() > 0 then
                 label = label .. " |TInterface\\COMMON\\Indicator-Yellow:12:12:0:0|t"
             end
-            tab:SetLabel(label)
-            tab:ClearAllPoints()
-            tab:SetPoint("BOTTOMLEFT", panel, "TOPLEFT", x, -TABS_Y - 26)
-            tab:SetActive(state.tab == t.key)
-            x = x + (tab:GetWidth() or 80) + 4
+            bar:SetTabLabel(t.key, label)
         end
     end
-    for k, b in pairs(panel.kindButtons) do b:SetKind(((k == "all" and state.kind == nil) or k == state.kind)
-        and "chosen" or "secondary") end
+    bar:SelectTab(state.tab)
+    panel.kindBar:Select(state.kind or "all")
     panel.sortLink:Refresh()
     -- list
     local rows, items = Rows()
@@ -1287,15 +1156,16 @@ function FeedbackUI:Refresh()
         if item.id == state.sel then found = true end
     end
     if not found then state.sel = items[1] and items[1].id or nil end
+    local empty
     if state.tab == "inbox" then
-        panel.list:SetEmptyText("All caught up: nothing waits for an answer.")
+        empty = { title = "All caught up", text = "All caught up: nothing waits for an answer." }
     elseif state.tab == "mine" then
-        panel.list:SetEmptyText("What you send, and what you say me too to, shows here.")
+        empty = { title = "Nothing yet", text = "What you send, and what you say me too to, shows here." }
     elseif state.search ~= "" or state.kind then
-        panel.list:SetEmptyText("Nothing matches.")
-    else
-        panel.list:SetEmptyText("")
+        empty = { title = "No match", text = "Nothing matches." }
     end
+    if empty then empty.glyph = UI().ICON.notes end
+    panel.list:SetEmptyState(empty)
     panel.list:SetData(rows)
     RenderDetail()
 end
@@ -1305,10 +1175,8 @@ function FeedbackUI:Select(id)
     if not panel then return end
     panel.list:Refresh()
     RenderDetail()
-    local tab = panel.tabs.mine
-    if tab then
-        tab:SetLabel(self:NewsCount() > 0 and "Yours |TInterface\\COMMON\\Indicator-Yellow:12:12:0:0|t" or "Yours")
-    end
+    panel.layout.toolbar:SetTabLabel("mine",
+        self:NewsCount() > 0 and "Yours |TInterface\\COMMON\\Indicator-Yellow:12:12:0:0|t" or "Yours")
 end
 
 -- Opens the page on a tab ("all" | "mine" | "inbox"), an item picked when given.
@@ -1331,54 +1199,48 @@ function FeedbackUI:CreatePanel(parent)
     p:SetAllPoints(parent)
     panel = p
 
-    p.banner = BuildBanner(p)
+    p.banner = CreateTopBanner(p)
 
+    -- a list + detail page under the banner: the toolbar (the tabs; the sort, the kinds and the search as its
+    -- filters), the list and the item (its band is the item's banner)
+    local L = UI():CreateLayout("listdetail", p, { top = TABS_Y, listWidth = LIST_W, bottom = PAD,
+        banner = { size = "tool", icon = "notes" } })
+    L.banner:Hide()
+    p.layout = L
+    local bar = L.toolbar
+    local tabs = {}
+    for _, t in ipairs(TABS) do tabs[#tabs + 1] = { key = t.key, text = t.label } end
+    tabs.selected = state.tab
+    bar:SetTabs(tabs, function(key)
+        state.tab = key
+        state.sel = nil
+        FeedbackUI:Refresh()
+    end)
     p.tabs = {}
-    for _, t in ipairs(TABS) do
-        p.tabs[t.key] = UI():CreateUnderlineTab(p, t.label, function()
-            state.tab = t.key
-            state.sel = nil
-            FeedbackUI:Refresh()
-        end, "page")
-    end
+    for _, t in ipairs(TABS) do p.tabs[t.key] = bar:GetTab(t.key) end
 
     -- right of the tabs: sort, kinds, search
-    p.search = UI():CreateSearchBox(p, 130, function(text)
+    p.search = UI():CreateSearchBox(bar, 130, function(text)
         state.search = text or ""
         FeedbackUI:Refresh()
     end, "Search")
-    p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -(TABS_Y + 2))
-    p.kindButtons = {}
-    local kx = -(PAD + 130 + 10)
-    local order = { "love", "change", "idea", "bug" }
-    for _, k in ipairs(order) do
-        local b = UI():CreateSleekButton(p, "", 28, 22, function()
-            state.kind = (state.kind == k) and nil or k
-            FeedbackUI:Refresh()
-        end)
-        b.k = b:CreateTexture(nil, "OVERLAY")
-        b.k:SetSize(14, 14)
-        b.k:SetPoint("CENTER")
-        b.k:SetTexture(FB().KIND_INFO[k].icon)
-        b.k:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        b:SetPoint("TOPRIGHT", p, "TOPRIGHT", kx, -(TABS_Y + 3))
-        b:HookScript("OnEnter", function(self)
-            local info = FB().KIND_INFO[k]
-            UI():SetTextTooltip(self, { info.short == "Love" and "Love" or (info.short .. "s"), "Only these. Click "
-                .. "again for every kind." }, "ANCHOR_TOP")
-        end)
-        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-        p.kindButtons[k] = b
-        kx = kx - 27
+    -- the kinds: All and the four icons (the shared segments); a click on the picked kind goes back to All
+    local kindItems = { { key = "all", label = "All", tip = "Every kind." } }
+    for _, k in ipairs({ "bug", "idea", "change", "love" }) do
+        local info = FB().KIND_INFO[k]
+        kindItems[#kindItems + 1] = { key = k, label = "|T" .. info.icon .. ":14:14:0:0:64:64:5:59:5:59|t",
+            tip = (info.short == "Love" and "Love" or (info.short .. "s")) .. ": only these. Click again for every kind." }
     end
-    local all = UI():CreateSleekButton(p, "All", 32, 22, function()
-        state.kind = nil
+    local kinds = UI():CreateSegments(bar, kindItems, function(key)
+        if key ~= "all" and state.kind == key then
+            state.kind = nil
+        else
+            state.kind = key ~= "all" and key or nil
+        end
         FeedbackUI:Refresh()
-    end)
-    all:GetFontString():SetFontObject("GameFontHighlightSmall")
-    all:SetPoint("TOPRIGHT", p, "TOPRIGHT", kx - 4, -(TABS_Y + 3))
-    p.kindButtons.all = all
-    p.sortLink = UI():CreateLinkDropdown(p, {
+    end, { h = 22, itemW = 28, selected = "all" })
+    p.kindBar = kinds
+    p.sortLink = UI():CreateLinkDropdown(bar, {
         font = "GameFontHighlightSmall", size = 11, color = { 0.81, 0.81, 0.81 },
         options = function() return { { value = "asked", text = "Most asked" }, { value = "new", text = "Newest" } } end,
         selected = CurrentSort,
@@ -1387,27 +1249,14 @@ function FeedbackUI:CreatePanel(parent)
             FeedbackUI:Refresh()
         end,
     })
-    p.sortLink:SetPoint("RIGHT", all, "LEFT", -12, 0)
+    bar:SetFilters({ p.sortLink, kinds, p.search })
 
-    -- body
-    local left = Box(p)
-    left:SetPoint("TOPLEFT", p, "TOPLEFT", PAD, -BODY_Y)
-    left:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", PAD, PAD)
-    left:SetWidth(LIST_W)
-    left:SetHeight(BODY_H)
-    p.left = left
-    p.list = UI():CreateScrollList(left, ROW_H, InitRow, RowHeight)
-    p.list.frame:SetPoint("TOPLEFT", left, "TOPLEFT", 1, -1)
-    p.list.frame:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", 4, 1)
-    p.list.frame:SetSize(LIST_W + 2, BODY_H - 2)
-
-    local right = Box(p)
-    right:SetPoint("TOPLEFT", left, "TOPRIGHT", GAP, 0)
-    right:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -PAD, PAD)
-    right:SetHeight(BODY_H)
-    p.detailBox = right
-    p.detail = BuildDetail(right)
-    right:SetScript("OnSizeChanged", function() if p:IsVisible() then RenderDetail() end end)
+    -- the list in the list column (the shared rows), the item in the detail: its banner, its body
+    p.list = UI():CreateScrollList(L.list, ROW_H, InitRow, RowHeight)
+    p.list.frame:SetAllPoints(L.list)
+    p.detailBox = L.body
+    p.detail = BuildDetail(L.body, L.banner)
+    L.body:SetScript("OnSizeChanged", function() if p:IsVisible() then RenderDetail() end end)
 
     function p:OnPanelShown()
         FeedbackUI:Refresh()
@@ -1417,7 +1266,8 @@ end
 
 function FeedbackUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("feedback", "Feedback", 3.85, function(parent) return FeedbackUI:CreatePanel(parent) end)
+        ns.MainFrame:RegisterTab("feedback", "Feedback", 3.85, function(parent) return FeedbackUI:CreatePanel(parent) end,
+            nil, { layout = "listdetail" })
     end
     local function soon()
         if panel and panel:IsVisible() then

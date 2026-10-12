@@ -6,50 +6,56 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Members.lua", ...) then return 
 --             Professions (the recipes fold out under their profession) / Equipment
 --   Recipes - every recipe somebody knows, searchable; a recipe's card lists who can make it, online first
 -- The profession dropdown (top right) filters both views.
--- Layout: the Raids / Atlas grid (PAD at the page's sides, GAP between blocks), flat: whitespace and type; the only
--- box is the officer note.
+-- 1.4: a list + detail page (UI:CreateLayout "listdetail", like the Guest book): the toolbar holds Roster / Recipes,
+-- the search and the profession filter; the card opens with the page banner (D3: the class tile or the recipe's icon,
+-- the name, the meta line, the spec chips (UI:CreateChip), the share / map / note tools at its top right and Whisper /
+-- Link in chat as its action), the card's tabs (block tabs on the banner's foot, with counts), then the officer note
+-- (UI:CreateCard with a section header) and the list. Headings in the list are section headers, explanations are
+-- notices (UI:CreateNotice); recipes still arriving show as a loading notice over the page. Text on the type scale
+-- (UI:Text), colours from ns.Style, the shared row looks (UI:DecorateRow), pills and empty states.
 local addonName, ns = ...
 
 local MembersUI = ns:NewModule("MembersUI")
 
-local PAD, GAP = 10, 8
-local CTRL_H = 22                       -- the tabs / search / profession row
--- the roster / recipe list: its rows, then its scroll bar BAR_GAP right of them and as far again from the card, so the
--- bar sits in a margin like the page's own (PAD)
-local ROWS_W = 356
-local BAR_GAP, BAR_W = PAD, 6
-local LIST_W = ROWS_W + BAR_GAP + BAR_W
-local CARD_X = PAD + LIST_W + BAR_GAP   -- the card on the right, to PAD from the page's right edge
-local CARD_W = 790 - PAD - CARD_X       -- (its width in an 800 wide window: for measuring before it is laid out)
+local S = ns.Style
+local PAD, GAP = S.PAD, S.GAP
+-- the roster / recipe list: its rows, then the scroll list's bar lane
+local ROWS_W = 354
+local LIST_LANE = 20                            -- a scroll list's bar lane (UI:CreateScrollList)
+local LIST_W = ROWS_W + LIST_LANE               -- the layout's list column
+local CARD_W = S.INNER_W - LIST_W - GAP         -- (the card's width: for measuring before it is laid out)
 local PROF_DD_W = 180
-local TOP = 6 + CTRL_H + GAP + 2        -- the lists and the card
 local BOTTOM = 8
-local ROW_H, SEP_H, RECIPE_H = 30, 26, 24
+local ROW_H, SEP_H, RECIPE_H = S.ROW.list, S.ROW.list, S.ROW.list
 local MAX_LEVEL = 70
--- the card: header (class circle or recipe icon), spec chips, the officer note, Characters / Professions / Equipment
-local HEAD_H = 44
-local HEAD_BTN_Y = 2                    -- the header's buttons: on the name's row (22 high), above the meta line
-local SPECS_Y = HEAD_H + 10
-local SPEC_H = 22
-local CARDTABS_H = 26
+-- the card: the banner (class tile or recipe icon, name, meta line, the spec chips; tools and the action at its
+-- right), the card's tabs on its foot, the officer note, the list
+local HEAD_TEXT_H = 70                  -- the banner's icon and text: the hover area for the tooltip
+local HEAD_TEXT_X = 70                  -- where the banner's text starts (after its icon tile)
+local BAN_X = 12                        -- the banner's tools / actions from its right edge (the page banner's)
+local BAN_IN = 14                       -- the banner's inner left margin (the page banner's)
+local SPEC_Y = 12                       -- the spec chips' row under the meta line
+local NOTE_HEAD_H = 26                  -- the officer note's header (UI:CreateSectionHeader) and the gap under it
+local SHARE_ICON, UI_ICON_EDIT = 18, 16 -- atlas icons: share (UI/Share.lua's), the pencil
 -- a person's row: the class circle, the name; on the right two professions (icon, the rank while below max)
 local NAME_DX = 28
 local NUM_W = 22                        -- a skill rank, right-aligned in its column
 local SLOT_W, SLOT_GAP = 16 + 4 + NUM_W, 12
+local ROW_BTN_W, ROW_BTN_H = 72, 20     -- a row's own button (Whisper, Change)
 local GEAR_X = 82                       -- an equipment row: the slot's name, then the item from here
 local NOTE_LINE = 13
 local NOTE_MAX_LINES = 8
 
-local NUM_FONT = "Fonts\\ARIALN.TTF"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local TEAM_ICON = "Interface\\Icons\\INV_Shirt_GuildTabard_01"
+local CLASS_TILE = "Interface\\Icons\\INV_Misc_QuestionMark"  -- (the banner's icon tile; ClassIcon paints the class)
 -- the dot on a class circle: online green, away yellow, busy orange; offline has none
 local STATUS_COLOR = { online = { 0.24, 0.81, 0.36 }, afk = { 0.91, 0.77, 0.23 }, dnd = { 1, 0.5, 0.1 } }
 local STATUS_TEXT = { online = "|cff33ff33Online|r", afk = "|cffffcc1aAway|r", dnd = "|cffff801aDo not disturb|r",
-                      offline = "|cff808080Offline|r" }
+                      offline = S:Wrap("DIM", "Offline") }
 local STATUS_WORD = { online = "Online", afk = "Away", dnd = "Do not disturb", offline = "Offline" }
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
+local RANK_GREY = { 0.72, 0.72, 0.74 }  -- a skill rank in a row
+local PAGE_DOT = { 0.045, 0.045, 0.05, 1 }  -- the ring round a status dot (the page's colour)
 
 local state = { mode = "roster", prof = nil, search = "", member = nil, recipe = nil, open = {}, card = "profs" }
 local panel
@@ -62,34 +68,8 @@ local function P() return ns.Professions end
 local function G() return ns.Guild end
 local function N() return ns.OfficerNotes end
 
-local function grey(text) return "|cff808080" .. tostring(text) .. "|r" end
-local function gold(text) return "|cffffd100" .. tostring(text) .. "|r" end
-
-local function shortName(key) return ns.Util.ShortName(key) or tostring(key) end
-
-local function sized(fs, size, flags)
-    local path, _, f = fs:GetFont()
-    if path then fs:SetFont(path, size, flags or f) end
-    return fs
-end
-
-local function text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then sized(fs, size) end
-    return fs
-end
-
--- Numbers (skill ranks) in the game's narrow number font.
-local function numText(parent, size)
-    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    fs:SetFont(NUM_FONT, size or 12, "")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    return fs
-end
-
+-- (the few textures the rows draw themselves: an item / spell / profession icon with its border cut off, and the
+-- round status dot on a class circle)
 local function icon(parent, size, layer)
     local t = parent:CreateTexture(nil, layer or "ARTWORK")
     t:SetSize(size, size)
@@ -105,23 +85,13 @@ local function disc(parent, layer, sub, size, c)
     return t
 end
 
-local function flatCard(f)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-    ns.UI:AddEdges(f, "BORDER")
-    ns.UI:SetEdgeColor(f, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
-end
-
--- The atlas chevron (it points down), or turned a quarter to the left to point right.
+-- The atlas chevron: pointing down, or right.
 local function setChevron(tex, right)
-    local c = ns.UI:IconCoords(ns.UI.ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
-    tex:SetTexture(ns.UI.ICON_ATLAS)
     if right then
-        tex:SetTexCoord(r, t, l, t, r, b, l, b)
+        ns.UI:SetChevron(tex, true)
     else
-        tex:SetTexCoord(l, r, t, b)
+        tex:SetTexture(ns.UI.ICON_ATLAS)
+        ns.UI:SetChevronUp(tex, false)
     end
 end
 
@@ -146,7 +116,8 @@ local function statusOf(key)
     return s == 1 and "afk" or (s == 2 and "dnd" or "online")
 end
 
-local function classOf(key)
+-- (the guild's class, and my own while the roster has not listed me yet: ns.Guild alone has no fallback for me)
+local function classFileOf(key)
     local g = G()
     local classFile = g and g:GetClass(key)
     if not classFile and ns.Util.IsMe(key) and UnitClass then classFile = select(2, UnitClass("player")) end
@@ -183,7 +154,7 @@ end
 -- "Combat 0/42/19" (the points when a talent set of theirs is in that tab)
 local function specText(classFile, spec)
     local label = specInfo(classFile, spec)
-    return spec.points and ("%s %s"):format(label, grey(table.concat(spec.points, "/"))) or label
+    return spec.points and ("%s %s"):format(label, S:Wrap("DIM", table.concat(spec.points, "/"))) or label
 end
 
 local function specName(spell)
@@ -210,8 +181,8 @@ end
 local function recipeCountText(e)
     local def = P():GetProfession(e.id)
     if not (def and def.crafts) then return "" end
-    if e.total == 0 then return grey("recipes not shared yet") end
-    if not e.synced then return grey(("%d / %d recipes arriving"):format(e.recipes, e.total)) end
+    if e.total == 0 then return S:Wrap("DIM", "recipes not shared yet") end
+    if not e.synced then return S:Wrap("DIM", ("%d / %d recipes arriving"):format(e.recipes, e.total)) end
     return e.recipes .. (e.recipes == 1 and " recipe" or " recipes")
 end
 
@@ -225,7 +196,7 @@ local function onlineCharacter(key)
 end
 
 local function whisper(key, recipe)
-    local name = (Ambiguate and Ambiguate(key, "none")) or shortName(key)
+    local name = (Ambiguate and Ambiguate(key, "none")) or ns.Util.ShortName(key)
     local open = (ChatFrameUtil and ChatFrameUtil.OpenChat) or ChatFrame_OpenChat
     if not open then return end
     open("/w " .. name .. " " .. (recipe and (P():GetRecipeLink(recipe) .. " ") or ""))
@@ -252,7 +223,7 @@ local function sortedCrafters(recipe)
         if a.online ~= b.online then return a.online end
         if (a.via == nil) ~= (b.via == nil) then return a.via == nil end
         if a.rank ~= b.rank then return a.rank > b.rank end
-        return shortName(a.key):lower() < shortName(b.key):lower()
+        return ns.Util.ShortName(a.key):lower() < ns.Util.ShortName(b.key):lower()
     end)
     return out
 end
@@ -296,17 +267,17 @@ local function showRecipeTooltip(owner, recipe)
         GameTooltip:SetItemByID(recipe.item)
         if T then T.skipCrafters, T.noMats = nil, nil end
     elseif not setRecipeSpell(GameTooltip, recipe.spell) then
-        GameTooltip:AddLine(recipe.name, 1, 0.82, 0)
+        GameTooltip:AddLine(recipe.name, S:Color("GOLD"))
     end
     local names, online = {}, 0
     for i, c in ipairs(sortedCrafters(recipe)) do
         if c.online then online = online + 1 end
-        if i <= 6 then names[#names + 1] = c.online and ns.UI:ColoredName(c.key) or grey(shortName(c.key)) end
+        if i <= 6 then names[#names + 1] = c.online and ns.UI:ColoredName(c.key) or S:Wrap("DIM", ns.Util.ShortName(c.key)) end
     end
     local more = #recipe.crafters - #names
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), 1, 0.82, 0)
-    GameTooltip:AddLine(table.concat(names, ", ") .. (more > 0 and grey(" +" .. more) or ""), 1, 1, 1, true)
+    GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), S:Color("GOLD"))
+    GameTooltip:AddLine(table.concat(names, ", ") .. (more > 0 and S:Wrap("DIM", " +" .. more) or ""), 1, 1, 1, true)
     -- Shift: the materials (Shift + mouse wheel: how many, Shift + clicks: break down), in place of the recipe's
     -- tooltip at the side
     local matsHint = addMaterials(GameTooltip, -recipe.spell)
@@ -333,43 +304,6 @@ local function hideRecipeTooltip()
     if reagentTip then reagentTip:Hide() end
 end
 
--- A row's hover tint (and, for a pickable row, the picked look: a gold tint with a gold bar on its left).
-local function rowLooks(row, pickable)
-    row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-    row.hl:SetAllPoints()
-    row.hl:SetColorTexture(1, 1, 1, 0.05)
-    if not pickable then return end
-    row.sel = row:CreateTexture(nil, "BACKGROUND")
-    row.sel:SetAllPoints()
-    row.sel:SetColorTexture(1, 0.82, 0, 0.08)
-    row.selBar = row:CreateTexture(nil, "BORDER")
-    row.selBar:SetPoint("TOPLEFT")
-    row.selBar:SetPoint("BOTTOMLEFT")
-    row.selBar:SetWidth(2)
-    row.selBar:SetColorTexture(1, 0.82, 0, 0.9)
-end
-
-local function setPicked(row, on)
-    row.sel:SetShown(on and true or false)
-    row.selBar:SetShown(on and true or false)
-end
-
--- A small rounded tag ("only crafter", "Main"): f:Set(text) sizes it.
-local function goldTag(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetHeight(16)
-    ns.UI:AddPillShape(f, 16)
-    f:SetPillColors({ 1, 0.82, 0, 0.09 }, { 1, 0.82, 0, 0.45 })
-    f.fs = text(f, "GameFontHighlightSmall", 10)
-    f.fs:SetPoint("CENTER", 0, 0)
-    f.fs:SetTextColor(1, 0.82, 0)
-    function f:Set(t)
-        self.fs:SetText(t or "")
-        self:SetWidth(math.floor((self.fs:GetStringWidth() or 40) + 14.5))
-    end
-    return f
-end
-
 ----------------------------------------------------------------------------
 -- A person's row: class circle (with a dot while online), name (the level below max), two professions on the right
 -- (the roster, a member's other characters, a recipe's crafters)
@@ -380,24 +314,24 @@ local function personWidgets(row)
     c.icon = row:CreateTexture(nil, "ARTWORK")
     c.icon:SetSize(20, 20)
     -- the dot sits on the circle's lower right, in a ring of the page's colour
-    c.ring = disc(row, "OVERLAY", 1, 11, { 0.045, 0.045, 0.05, 1 })
+    c.ring = disc(row, "OVERLAY", 1, 11, PAGE_DOT)
     c.ring:SetPoint("CENTER", c.icon, "BOTTOMRIGHT", -2, 2)
     c.dot = disc(row, "OVERLAY", 2, 8)
     c.dot:SetPoint("CENTER", c.ring, "CENTER")
     row.circle = c
-    row.name = text(row, "GameFontHighlight")
-    row.level = text(row, "GameFontDisableSmall")
+    row.name = ns.UI:Text(row, "emph", "TEXT")
+    row.level = ns.UI:Text(row, "small", "DIM")
     row.level:SetPoint("LEFT", row.name, "RIGHT", 5, -1)
-    row.tag = goldTag(row)
+    row.tag = ns.UI:CreatePill(row, "bis", "")
     row.slots = {}
     for i = 1, 2 do
         -- the icon, then the rank right-aligned in its own column (every row reads icon + number, icon + number)
         local s = { icon = icon(row, 16) }
-        s.rank = numText(row, 12)
+        s.rank = ns.UI:Text(row, "emph", "TEXT", { font = S.FONT_NUM })
         s.rank:SetWidth(NUM_W)
         s.rank:SetJustifyH("RIGHT")
         s.rank:SetPoint("RIGHT", s.icon, "RIGHT", 4 + NUM_W, 0)
-        s.rank:SetTextColor(0.72, 0.72, 0.74)
+        s.rank:SetTextColor(RANK_GREY[1], RANK_GREY[2], RANK_GREY[3])
         row.slots[i] = s
     end
 end
@@ -444,7 +378,7 @@ local function fillPerson(row, x, width, d, noProfs)
     row.level:Show()
     row.tag:SetShown(d.tag ~= nil)
     if d.tag then
-        row.tag:Set(d.tag)
+        row.tag:SetPill("bis", d.tag)
         row.tag:ClearAllPoints()
         row.tag:SetPoint("LEFT", row.level:GetText() ~= "" and row.level or row.name, "RIGHT", 6, 0)
     end
@@ -497,12 +431,12 @@ end
 local function versionLines(key, lines)
     local st, v, seen = versionOf(key)
     if st == "none" then
-        lines[#lines + 1] = { "DisasterZone not seen", 1, 0.82, 0 }
+        lines[#lines + 1] = { "DisasterZone not seen", S:Color("GOLD") }
         lines[#lines + 1] = { "This character has not been online with the addon since you installed it (or does "
             .. "not have it).", 0.7, 0.7, 0.7, wrap = true }
         return lines
     end
-    lines[#lines + 1] = { "DisasterZone " .. tostring(v), 1, 0.82, 0 }
+    lines[#lines + 1] = { "DisasterZone " .. tostring(v), S:Color("GOLD") }
     if st == "same" then
         lines[#lines + 1] = { "The same version as yours.", 0.2, 1, 0.2 }
     elseif st == "older" then
@@ -546,7 +480,7 @@ end
 local function memberTooltip(owner, d)
     if not d or not d.key then return end
     local level = levelOf(d.key)
-    local lines = { ns.UI:ColoredName(d.key, d.classFile) .. (level and grey("  " .. level) or "") }
+    local lines = { ns.UI:ColoredName(d.key, d.classFile) .. (level and S:Wrap("DIM", "  " .. level) or "") }
     local m = G() and G():GetMember(d.key)
     lines[#lines + 1] = { (m and m.rankName and (m.rankName .. "  ·  ") or "") .. (STATUS_TEXT[d.status] or ""), 1, 1, 1 }
     local main = P():GetMain(d.key)
@@ -559,7 +493,7 @@ local function memberTooltip(owner, d)
     if #teams > 0 then
         local names = {}
         for _, t in ipairs(teams) do names[#names + 1] = t.name end
-        lines[#lines + 1] = { "Team: " .. table.concat(names, ", "), 1, 0.82, 0, wrap = true }
+        lines[#lines + 1] = { "Team: " .. table.concat(names, ", "), wrap = true, S:Color("GOLD") }
     end
     for i, spec in ipairs(d.specs or {}) do
         lines[#lines + 1] = { (i == 1 and "Main spec: " or "Off spec: ") .. specText(d.classFile, spec), 1, 1, 1 }
@@ -579,7 +513,7 @@ local function memberTooltip(owner, d)
     local note = N() and N():Get(d.key)
     if note then
         lines[#lines + 1] = { " " }
-        lines[#lines + 1] = { "Officer note", 1, 0.82, 0 }
+        lines[#lines + 1] = { "Officer note", S:Color("GOLD") }
         lines[#lines + 1] = { note.text, 1, 1, 1, wrap = true }
     end
     ns.UI:SetTextTooltip(owner, lines)
@@ -590,10 +524,10 @@ local function rosterTooltip(row) memberTooltip(row, row.__cdlData) end
 local function initRosterRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        rowLooks(row, true)
+        ns.UI:DecorateRow(row, { selectable = true })
+        row.hl = row.dzHover
         personWidgets(row)
-        row.sepText = text(row, "GameFontHighlightSmall", 10)
-        row.sepText:SetTextColor(0.55, 0.55, 0.57)
+        row.sepText = ns.UI:Text(row, "small", "SUB")
         row.sepText:SetPoint("BOTTOMLEFT", 6, 5)
         row:SetScript("OnClick", function(self)
             local data = self.__cdlData
@@ -605,7 +539,7 @@ local function initRosterRow(row, d)
     local isSep = d.kind == "sep"
     row.sepText:SetText(isSep and d.text or "")
     row.hl:SetAlpha(isSep and 0 or 1)
-    setPicked(row, not isSep and d.key == state.member)
+    row:SetSelected(not isSep and d.key == state.member)
     if isSep then
         hidePerson(row)
         row:SetAlpha(1)
@@ -617,7 +551,7 @@ end
 
 local function memberRow(key)
     return { kind = "member", key = key, profs = P():GetMember(key), specs = P():GetSpecs(key), status = statusOf(key),
-             classFile = classOf(key), level = levelOf(key), lower = shortName(key):lower() }
+             classFile = classFileOf(key), level = levelOf(key), lower = ns.Util.ShortName(key):lower() }
 end
 
 local function rosterRows()
@@ -631,7 +565,7 @@ local function rosterRows()
     if me and not seen[me] then keys[#keys + 1] = me end
     local flat = needle ~= "" or state.prof ~= nil
     for _, key in ipairs(keys) do
-        if needle == "" or shortName(key):lower():find(needle, 1, true) then
+        if needle == "" or ns.Util.ShortName(key):lower():find(needle, 1, true) then
             local d = memberRow(key)
             if not d.profs then
                 if not state.prof then without[#without + 1] = d end
@@ -669,7 +603,7 @@ local function rosterRows()
             local main = prof:GetMain(d.key)
             local grp = byMain[main]
             if not grp then
-                grp = { alts = {}, lower = shortName(main):lower(), rank = 3, level = 0 }
+                grp = { alts = {}, lower = ns.Util.ShortName(main):lower(), rank = 3, level = 0 }
                 byMain[main] = grp
                 groups[#groups + 1] = grp
             end
@@ -707,12 +641,13 @@ end
 local function initRecipeRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        rowLooks(row, true)
+        ns.UI:DecorateRow(row, { selectable = true })
+        row.hl = row.dzHover
         row.icon = icon(row, 18)
         row.icon:SetPoint("LEFT", 6, 0)
-        row.name = text(row, "GameFontHighlight")
+        row.name = ns.UI:Text(row, "emph", "TEXT")
         row.name:SetPoint("LEFT", 32, 0)
-        row.count = text(row, "GameFontHighlightSmall", 10)
+        row.count = ns.UI:Text(row, "small", "SUB")
         row.count:SetPoint("RIGHT", -8, 0)
         row.count:SetJustifyH("RIGHT")
         row:SetScript("OnClick", function(self)
@@ -761,17 +696,17 @@ local function initRecipeRow(row, d)
     row.icon:SetTexture(P():GetRecipeIcon(r))
     local n = #r.crafters
     -- a recipe only one member knows is worth noticing
-    row.count:SetText(n == 1 and gold("1 crafter") or ("|cff8a8a8e%d crafters|r"):format(n))
+    row.count:SetText(n == 1 and S:Wrap("GOLD", "1 crafter") or S:Wrap("DIM", ("%d crafters"):format(n)))
     if not row:IsMouseOver() then
         row.shop:Hide()
         row.count:Show()
     end
     row.name:SetText(r.name)
     local room = ROWS_W - 32 - 16 - (row.count:GetStringWidth() or 50)
-    sized(row.name, 12)
-    if (row.name:GetStringWidth() or 0) > room then sized(row.name, 11) end
+    ns.UI:SetTextStyle(row.name, "emph")
+    if (row.name:GetStringWidth() or 0) > room then ns.UI:SetTextStyle(row.name, "body") end
     row.name:SetWidth(room)
-    setPicked(row, r.spell == state.recipe)
+    row:SetSelected(r.spell == state.recipe)
 end
 
 local function recipeRows()
@@ -806,17 +741,25 @@ local function canSeeAttendance(key)
 end
 
 local function cardWidth()
+    -- (the layout's detail region is sized by its anchors; before it is laid out it is 1 px wide)
     local w = panel and panel.right and panel.right:GetWidth() or 0
-    return w > 0 and w or CARD_W
+    return w > 2 and w or CARD_W
 end
 
 local measure   -- a hidden FontString that measures wrapped notes
+local NOTE_GAP, NOTICE_TEXT_INSET = 6, 38   -- (UI:CreateNotice: its text starts 28 in and keeps 10 from the edge)
 local function detailExtent(d)
     if d.kind == "note" then
+        -- (an info notice: its text wraps to the card less the notice's icon lane; NOTE_GAP above it)
         if not (measure and d.text) then return 40 end
-        measure:SetWidth(cardWidth() - 4)
+        local w = cardWidth() - LIST_LANE - NOTICE_TEXT_INSET
+        measure:SetWidth(w)
         measure:SetText(d.text)
-        return math.max(28, math.ceil(measure:GetStringHeight() or 12) + 14)
+        -- (the wrapped height, or the lines from the text's width where a wrap measure is not laid out yet)
+        local wide = measure.GetUnboundedStringWidth and measure:GetUnboundedStringWidth() or measure:GetStringWidth()
+        local lines = math.max(1, math.ceil((wide or 0) * 1.12 / w))
+        local th = math.max(measure:GetStringHeight() or 12, lines * NOTE_LINE)
+        return NOTE_GAP + math.max(26, math.ceil(th) + 14)
     end
     return ROW_EXTENT[d.kind] or 20
 end
@@ -831,96 +774,84 @@ local function mainMenu(owner)
             if P():GetMain(key) ~= key then current = P():GetMain(key) end
         end
         for _, key in ipairs(own) do
-            root:CreateRadio(shortName(key), function() return current == key end, function() P():SetMain(key) end)
+            root:CreateRadio(ns.Util.ShortName(key), function() return current == key end, function() P():SetMain(key) end)
         end
         root:CreateRadio("None: they are separate characters", function() return current == nil end,
             function() P():SetMain(nil) end)
     end)
 end
 
-local function smallButton(row, label, onClick)
-    local b = ns.UI:CreateSleekButton(row, label, 64, 20, onClick)
-    b:GetFontString():SetFontObject("GameFontHighlightSmall")
-    b:SetWidth(math.floor((b:GetFontString():GetStringWidth() or 40) + 20.5))
-    b:SetPoint("RIGHT", 0, 0)
-    return b
-end
-
 local function detailWidgets(row)
     row.cdlInit = true
     row.cardRow = true
-    rowLooks(row, false)
+    ns.UI:DecorateRow(row, {})
+    row.hl = row.dzHover
     row.w = {}
     local w = row.w
 
     -- a profession: icon, name and specialisation, the skill bar, the recipes it folds out
     w.profIcon = icon(row, 30)
     w.profIcon:SetPoint("LEFT", 0, 0)
-    w.profName = text(row, "GameFontNormal", 13)
+    w.profName = ns.UI:Text(row, "title", "GOLD")
     w.profName:SetPoint("TOPLEFT", 40, -8)
-    w.profSpec = text(row, "GameFontHighlightSmall", 10)
-    w.profSpec:SetTextColor(0.62, 0.62, 0.62)
+    w.profSpec = ns.UI:Text(row, "small", "SUB")
     w.profSpec:SetPoint("BOTTOMLEFT", w.profName, "BOTTOMRIGHT", 6, 1)
     w.track = row:CreateTexture(nil, "ARTWORK")
     w.track:SetSize(150, 6)
     w.track:SetPoint("TOPLEFT", 40, -29)
-    w.track:SetColorTexture(1, 1, 1, 0.08)
+    w.track:SetColorTexture(S:Color("QUIET"))
     w.fill = row:CreateTexture(nil, "ARTWORK", nil, 1)
     w.fill:SetHeight(6)
     w.fill:SetPoint("LEFT", w.track, "LEFT", 0, 0)
-    w.barText = numText(row, 12)
+    w.barText = ns.UI:Text(row, "emph", "TEXT", { font = S.FONT_NUM })
     w.barText:SetPoint("LEFT", w.track, "RIGHT", 8, 0)
     w.barText:SetTextColor(0.84, 0.84, 0.84)
     w.chevron = row:CreateTexture(nil, "ARTWORK")
     w.chevron:SetSize(10, 10)
     w.chevron:SetPoint("RIGHT", 0, 0)
     w.chevron:SetVertexColor(0.75, 0.75, 0.75)
-    w.right = text(row, "GameFontHighlightSmall", 11)
+    w.right = ns.UI:Text(row, "body", "TEXT")
     w.right:SetJustifyH("RIGHT")
 
     -- a recipe line, a recipe group, a heading, a note, my main
     w.icon = icon(row, 14)
     w.icon:SetPoint("LEFT", 40, 0)
-    w.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    w.text:SetJustifyH("LEFT")
+    w.text = ns.UI:Text(row, "body", "TEXT")
     w.text:SetJustifyV("MIDDLE")
-    w.value = text(row, "GameFontHighlight", 12)
+    w.value = ns.UI:Text(row, "emph", "TEXT")
     w.value:SetPoint("LEFT", 120, 0)
-    w.tag = goldTag(row)
+    w.tag = ns.UI:CreatePill(row, "bis", "")
     w.tag:SetPoint("RIGHT", 0, 0)
-    w.rule = row:CreateTexture(nil, "BORDER")
-    w.rule:SetPoint("BOTTOMLEFT", 0, 0)
-    w.rule:SetPoint("BOTTOMRIGHT", 0, 0)
-    w.rule:SetHeight(1)
-    w.rule:SetColorTexture(1, 1, 1, 0.1)
+    -- a heading ("Crafters", "Raid team"): the section header; an explanation: an info notice
+    w.head = ns.UI:CreateSectionHeader(row, "", { style = "title" })
+    w.head:SetPoint("BOTTOMLEFT", 0, 2)
+    w.head:SetPoint("BOTTOMRIGHT", 0, 2)
+    w.notice = ns.UI:CreateNotice(row, "info", "")
+    w.notice:SetPoint("TOPLEFT", 0, -NOTE_GAP)
+    w.notice:SetPoint("TOPRIGHT", 0, -NOTE_GAP)
 
     -- a person (a crafter, another character of this player); a raid team in the same columns
     personWidgets(row)
-    w.info = text(row, "GameFontHighlightSmall", 11)
-    w.info:SetTextColor(0.62, 0.62, 0.62)
+    w.info = ns.UI:Text(row, "body", "SUB")
     w.teamIcon = icon(row, 20)
     w.teamIcon:SetPoint("LEFT", 0, 0)
     w.teamIcon:SetTexture(TEAM_ICON)
-    w.whisper = smallButton(row, "Whisper", function(self)
+    -- (a row's own buttons: the sleek button at the row's size, at its right end)
+    w.whisper = ns.UI:CreateSleekButton(row, "Whisper", ROW_BTN_W, ROW_BTN_H, function(self)
         local d = self:GetParent().__cdlData
         if d and d.key then whisper(d.via or d.key, d.recipe) end
     end)
-    w.whisper:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Whisper")
-        GameTooltip:AddLine("Opens a message with the recipe linked.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    w.whisper:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    w.mainBtn = smallButton(row, "Change", function(self) mainMenu(self) end)
+    w.whisper:SetPoint("RIGHT", 0, 0)
+    ns.UI:AttachTooltip(w.whisper, "Whisper", "Opens a message with the recipe linked.", { anchor = "ANCHOR_TOP" })
+    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self) mainMenu(self) end)
+    w.mainBtn:SetPoint("RIGHT", 0, 0)
 
     -- an equipment slot: slot name, item icon, item name (quality colour)
-    w.slot = text(row, "GameFontHighlightSmall", 10)
-    w.slot:SetTextColor(0.55, 0.55, 0.57)
+    w.slot = ns.UI:Text(row, "small", "SUB")
     w.slot:SetPoint("LEFT", 0, 0)
     w.itemIcon = icon(row, 16)
     w.itemIcon:SetPoint("LEFT", GEAR_X, 0)
-    w.item = text(row, "GameFontHighlightSmall", 11)
+    w.item = ns.UI:Text(row, "body", "TEXT")
 
     row:SetScript("OnClick", function(self)
         local d = self.__cdlData
@@ -976,12 +907,10 @@ local function recipeLabel(r)
     return (rest and rest ~= "") and rest or r.name
 end
 
--- One line of text in the row: font size, left inset, right inset; foot: on the row's foot (a heading).
-local function placeText(w, size, left, right, foot)
+-- One line of text in the row: its style (S.STYLE), left inset, right inset; foot: on the row's foot (a heading).
+local function placeText(w, style, left, right, foot)
     w.text:ClearAllPoints()
-    w.text:SetFontObject("GameFontHighlightSmall")
-    sized(w.text, size)
-    w.text:SetTextColor(1, 1, 1)
+    ns.UI:SetTextStyle(w.text, style, "TEXT")
     if foot then
         w.text:SetPoint("BOTTOMLEFT", left, 7)
         w.text:SetPoint("BOTTOMRIGHT", -right, 7)
@@ -1003,7 +932,8 @@ local function initDetailRow(row, d)
     w.right:SetShown(isProf)
     w.icon:SetShown(kind == "recipe")
     w.tag:Hide()
-    w.rule:SetShown(kind == "head")
+    w.head:SetShown(kind == "head")
+    w.notice:SetShown(kind == "note")
     w.value:SetShown(kind == "main")
     if not isPerson then hidePerson(row) end
     w.info:SetShown(isPerson or kind == "team")
@@ -1013,11 +943,11 @@ local function initDetailRow(row, d)
     w.slot:SetShown(isGear)
     w.itemIcon:SetShown(isGear and d.item ~= nil)
     w.item:SetShown(isGear)
-    w.text:SetShown(not isProf and not isPerson and not isGear)
+    w.text:SetShown(not isProf and not isPerson and not isGear and kind ~= "head" and kind ~= "note")
     local clickable = kind == "recipe" or kind == "team" or isPerson or (isProf and d.canOpen) or (isGear and d.item)
     row.hl:SetAlpha(clickable and 1 or 0)
     row:SetAlpha(1)
-    local width = cardWidth()
+    local width = cardWidth() - LIST_LANE
 
     if isProf then
         local def = P():GetProfession(d.id)
@@ -1030,12 +960,7 @@ local function initDetailRow(row, d)
         w.fill:SetShown(e.rank > 0)
         if e.rank >= e.max and e.max > 0 then
             -- (maxed: a soft gold; the skill still climbing: a quiet blue)
-            w.fill:SetColorTexture(1, 1, 1, 1)
-            if w.fill.SetGradient and CreateColor then
-                w.fill:SetGradient("HORIZONTAL", CreateColor(0.45, 0.35, 0.06, 1), CreateColor(0.8, 0.64, 0.1, 1))
-            else
-                w.fill:SetColorTexture(0.7, 0.56, 0.08, 1)
-            end
+            ns.UI:Gradient(w.fill, "HORIZONTAL", { 0.45, 0.35, 0.06, 1 }, { 0.8, 0.64, 0.1, 1 })
         else
             w.fill:SetColorTexture(0.42, 0.5, 0.69, 1)
         end
@@ -1060,7 +985,7 @@ local function initDetailRow(row, d)
             local spec = d.e and shortSpecName(d.e) or specName(d.spec)
             if spec then parts[#parts + 1] = spec end
             if d.via then
-                parts[#parts + 1] = "|cff3ccf5con " .. shortName(d.via) .. " now|r"
+                parts[#parts + 1] = "|cff3ccf5con " .. ns.Util.ShortName(d.via) .. " now|r"
             elseif d.status ~= "online" then
                 parts[#parts + 1] = STATUS_WORD[d.status]
             end
@@ -1077,36 +1002,32 @@ local function initDetailRow(row, d)
         w.item:ClearAllPoints()
         w.item:SetPoint("RIGHT", 0, 0)
         if d.item then
-            w.itemIcon:SetTexture((C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(d.item))
-                or (GetItemIcon and GetItemIcon(d.item)) or 134400)
+            w.itemIcon:SetTexture(ns.UI:ItemIcon(d.item))
             w.item:SetText(ns.UI:ItemText(d.item))
             w.item:SetPoint("LEFT", GEAR_X + 22, 0)
         else
-            w.item:SetText("|cff5a5a5e-|r")
+            w.item:SetText(S:Wrap("DIM", "-"))
             w.item:SetPoint("LEFT", GEAR_X, 0)
         end
     elseif kind == "recipe" then
         w.icon:SetTexture(P():GetRecipeIcon(d.r))
         local only = #d.r.crafters == 1
         w.tag:SetShown(only)
-        if only then w.tag:Set("only crafter") end
-        placeText(w, 11, 61, only and (w.tag:GetWidth() + 8) or 0)
-        w.text:SetTextColor(0.9, 0.9, 0.9)
+        if only then w.tag:SetPill("bis", "only crafter") end
+        placeText(w, "body", 61, only and (w.tag:GetWidth() + 8) or 0)
         w.text:SetText(recipeLabel(d.r))
     elseif kind == "group" then
-        placeText(w, 10, 40, 0, true)
-        w.text:SetTextColor(0.55, 0.55, 0.57)
+        placeText(w, "small", 40, 0, true)
+        w.text:SetTextColor(S:Color("SUB"))
         w.text:SetText(d.text)
     elseif kind == "head" then
-        placeText(w, 11, 0, 0, true)
-        w.text:SetTextColor(1, 0.82, 0)
-        w.text:SetText(d.text)
+        w.head:SetTitle(d.text)
     elseif kind == "source" then
-        placeText(w, 10, 0, 0)
-        w.text:SetTextColor(0.55, 0.55, 0.57)
+        placeText(w, "small", 0, 0)
+        w.text:SetTextColor(S:Color("SUB"))
         w.text:SetText(d.text)
     elseif kind == "team" then
-        placeText(w, 12, NAME_DX, 90)
+        placeText(w, "emph", NAME_DX, 90)
         w.text:SetText(d.name)
         w.info:SetText(("%d members"):format(d.size))
         w.info:ClearAllPoints()
@@ -1117,20 +1038,15 @@ local function initDetailRow(row, d)
         w.chevron:SetPoint("RIGHT", 0, 0)
     elseif kind == "main" then
         -- my main: a label, the character, Change
-        placeText(w, 11, 0, 0)
-        w.text:SetTextColor(0.62, 0.62, 0.62)
+        placeText(w, "body", 0, 0)
+        w.text:SetTextColor(S:Color("SUB"))
         w.text:SetText("Main character")
-        w.value:SetText(d.main and ns.UI:ColoredName(d.main) or "|cff8a8a8enot picked|r")
+        w.value:SetText(d.main and ns.UI:ColoredName(d.main) or S:Wrap("DIM", "not picked"))
     else
-        w.text:ClearAllPoints()
-        w.text:SetFontObject("GameFontHighlightSmall")
-        sized(w.text, 10)
-        w.text:SetTextColor(0.55, 0.55, 0.57)
-        w.text:SetPoint("TOPLEFT", 0, -7)
-        w.text:SetPoint("BOTTOMRIGHT", -4, 7)
-        w.text:SetWordWrap(true)
-        w.text:SetJustifyV("TOP")
-        w.text:SetText(d.text)
+        w.notice:SetNotice("info", d.text)
+        -- (wrapped to the row's width now: a row from the pool may not have been laid out at this width yet)
+        w.notice.text:SetWidth(width - NOTICE_TEXT_INSET)
+        w.notice:SetHeight(math.max(26, math.floor((w.notice.text:GetStringHeight() or 12) + 14.5)))
     end
 end
 
@@ -1149,10 +1065,10 @@ local function characterRows(key)
     local main = P():GetMain(key)
     table.sort(others, function(a, b)
         if (a == main) ~= (b == main) then return a == main end
-        return shortName(a):lower() < shortName(b):lower()
+        return ns.Util.ShortName(a):lower() < ns.Util.ShortName(b):lower()
     end)
     for _, c in ipairs(others) do
-        rows[#rows + 1] = { kind = "char", key = c, isMain = c == main, status = statusOf(c), classFile = classOf(c),
+        rows[#rows + 1] = { kind = "char", key = c, isMain = c == main, status = statusOf(c), classFile = classFileOf(c),
                             level = levelOf(c), specs = P():GetSpecs(c), profs = P():GetMember(c) }
     end
     if isOwn(key) then
@@ -1160,13 +1076,13 @@ local function characterRows(key)
         if #own > 1 then
             local linked = main ~= key or #others > 0
             rows[#rows + 1] = { kind = "main", canChange = true, main = linked and main or nil,
-                                text = linked and ("your main: " .. shortName(main)) or "your main: not picked" }
+                                text = linked and ("your main: " .. ns.Util.ShortName(main)) or "your main: not picked" }
         elseif ns.Util.IsMe(key) then
             rows[#rows + 1] = { kind = "note", text = "Alts: log in once on each of your other characters in the guild, "
                 .. "then pick your main here. The guild then sees them as one player." }
         end
     elseif #others == 0 then
-        rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has no other characters linked to this one." }
+        rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has no other characters linked to this one." }
     end
     -- the player's raid teams (any of their characters): click one to open it in the Raids tab
     local teams = teamsOf(key)
@@ -1183,12 +1099,12 @@ local function professionRows(key)
     local rows = {}
     local profs = P():GetMember(key)
     if not profs then
-        rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has not shared anything yet. Professions and specs "
+        rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has not shared anything yet. Professions and specs "
             .. "appear here once this character logs in with DisasterZone " .. tostring(ns.version) .. " or newer." }
         return rows
     end
     if #profs == 0 then
-        rows[#rows + 1] = { kind = "note", text = shortName(key) .. " has no professions." }
+        rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has no professions." }
         return rows
     end
     local mine = ns.Util.IsMe(key)
@@ -1240,11 +1156,11 @@ local function gearRows(key)
     else
         gear, at = P():GetGear(key)
         if not gear then
-            rows[1] = { kind = "note", text = shortName(key) .. " has not shared their gear yet. It appears once they "
+            rows[1] = { kind = "note", text = ns.Util.ShortName(key) .. " has not shared their gear yet. It appears once they "
                 .. "log in with DisasterZone 1.3 or newer." }
             return rows
         end
-        rows[1] = { kind = "source", text = "Worn when " .. shortName(key) .. " last shared it, "
+        rows[1] = { kind = "source", text = "Worn when " .. ns.Util.ShortName(key) .. " last shared it, "
             .. (ns.Util.FormatAgo and ns.Util.FormatAgo(at) or date("%d %b", at)) .. "." }
     end
     if not next(gear) then
@@ -1277,7 +1193,7 @@ local function recipeDetailRows(recipe)
     for _, c in ipairs(crafters) do
         local target = c.via or c.key
         rows[#rows + 1] = { kind = "crafter", key = c.key, via = c.via, status = statusOf(c.key), rank = c.rank,
-                            spec = c.spec, e = c.e, recipe = recipe, classFile = classOf(c.key), level = levelOf(c.key),
+                            spec = c.spec, e = c.e, recipe = recipe, classFile = classFileOf(c.key), level = levelOf(c.key),
                             canWhisper = c.online and not ns.Util.IsMe(target) }
     end
     if online == 0 then
@@ -1294,29 +1210,28 @@ local function editNote(key)
     local notes, board = N(), ns.StrategyBoard
     if not (notes and notes:CanUse() and board and board.Prompt) then return end
     local cur = notes:Get(key)
-    board:Prompt("Officer note for " .. shortName(key) .. " (officers only; empty removes it)", cur and cur.text or "",
+    board:Prompt("Officer note for " .. ns.Util.ShortName(key) .. " (officers only; empty removes it)", cur and cur.text or "",
         function(text)
             local ok, err = notes:Set(key, text or "")
             if not ok then ns:Print("The officer note was not saved: %s", tostring(err)) end
         end, true, notes.MAX_LEN)
 end
 
--- The officer note (officers only, when there is one): a quiet flat card sized to its text, under the specs. The
--- header's note icon adds one. Returns the card's height (0: none).
+-- The officer note (officers only, when there is one): a card sized to its text at the top of the card's body. The
+-- banner's note tool adds one. Returns the card's height (0: none).
 local function updateNote(right, member)
     local notes = N()
     local note = right.note
     local officer = member ~= nil and notes ~= nil and notes:CanUse()
     local rec = officer and notes:Get(member) or nil
     note:SetShown(rec ~= nil)
-    right.addNote:SetShown(officer and rec == nil)
-    right.addNote.key = member
+    right.canAddNote = officer and rec == nil
     if not rec then return 0 end
     note.key = member
     local day = (date("%d %b", rec.rev):gsub("^0", ""))
-    note.meta:SetText(notes:IsLocalOnly() and "|cffff9933debug role: test notes, kept on this PC only|r"
-        or ("%s · %s"):format(rec.by and shortName(rec.by) or "?", day))
-    local tw = cardWidth() - 24
+    note.head:SetCount(notes:IsLocalOnly() and S:Wrap("WARN", "debug role: test notes, kept on this PC only")
+        or ("%s · %s"):format(rec.by and ns.Util.ShortName(rec.by) or "?", day))
+    local tw = cardWidth() - 2 * S.IN - 4
     note.text:SetWidth(tw)
     note.text:SetText(rec.text)
     -- its lines from the text's width (a wrap measure needs a laid out frame, which a first show may not have yet)
@@ -1324,212 +1239,288 @@ local function updateNote(right, member)
     local _, breaks = rec.text:gsub("\n", "")
     local lines = math.max(1, math.min(NOTE_MAX_LINES, math.ceil((wide or 0) * 1.12 / tw) + breaks))
     note.text:SetHeight(lines * NOTE_LINE)
-    local h = 26 + lines * NOTE_LINE + 9
+    local h = 2 * S.IN + NOTE_HEAD_H + lines * NOTE_LINE
     note:SetHeight(h)
     return h
 end
 
--- The spec chips under a member's header: main (its talent points), then the off spec. Returns how many.
+-- The spec chips (UI:CreateChip) on a row under the banner's meta line: main (its talent points), then the off spec. When both
+-- do not fit the banner, the off spec's "off spec" goes first, then the talent points (the tooltip has them).
 local function updateSpecs(right, member)
-    local classFile = member and classOf(member)
+    local classFile = member and classFileOf(member)
     local specs = member and P():GetSpecs(member) or {}
-    local x, n = 0, 0
+    local texts, total = {}, 0
     for i, chip in ipairs(right.specChips) do
         local spec = specs[i]
         chip:SetShown(spec ~= nil)
         if spec then
-            n = n + 1
             local label, path = specInfo(classFile, spec)
-            chip.icon:SetTexture(path or 134400)
-            chip.label:SetText(label)
-            local emText = i == 1 and (spec.points and table.concat(spec.points, "/") or "") or "off spec"
-            chip.em:SetText(emText)
-            local w = 25 + (chip.label:GetStringWidth() or 60)
-            local em = emText ~= "" and ((chip.em:GetStringWidth() or 30) + 5) or 0
-            chip:SetWidth(math.floor(w + em + 9.5))
-            chip:ClearAllPoints()
-            chip:SetPoint("TOPLEFT", x, -SPECS_Y)
-            x = x + chip:GetWidth() + 6
+            local em = i == 1 and (spec.points and table.concat(spec.points, "/") or "") or "off spec"
+            texts[i] = { label, em ~= "" and (label .. "  " .. S:Wrap("SUB", em)) or label }
+            chip:SetIcon(path or 134400)
+            chip:Set(texts[i][2])
+            total = total + chip:GetWidth() + (i > 1 and 6 or 0)
         end
     end
-    return n
+    local room = cardWidth() - 2 * BAN_IN
+    for i = #texts, 1, -1 do
+        if total <= room then break end
+        local chip = right.specChips[i]
+        local w = chip:GetWidth()
+        chip:Set(texts[i][1])
+        total = total - w + chip:GetWidth()
+    end
+    local prev
+    for i, chip in ipairs(right.specChips) do
+        if specs[i] then
+            chip:ClearAllPoints()
+            if prev then
+                chip:SetPoint("LEFT", prev, "RIGHT", 6, 0)
+            else
+                -- (from the banner's left margin, under the icon tile: the row has the banner's whole width)
+                chip:SetPoint("TOPLEFT", right.banner.sub, "BOTTOMLEFT", BAN_IN - (right.banner.textX or HEAD_TEXT_X),
+                    -SPEC_Y)
+            end
+            prev = chip
+        end
+    end
 end
 
-local function fitTitle(fs, t, room)
-    fs:SetText(t)
-    for _, size in ipairs({ 18, 16, 14 }) do
-        sized(fs, size)
-        if (fs:GetStringWidth() or 0) <= room then return end
+-- The banner's title: down the type scale (hero, page, title) until it fits its room, then cut with "...".
+-- TODO(refactor): move into UI:CreatePageBanner (step the title down the scale before cutting it)
+local TITLE_STEPS = { "hero", "page", "title" }
+local function fitBannerTitle(b)
+    local t, room = b.titleText, b.titleRoom
+    if not (t and t ~= "" and room) then return end
+    local r, g, bl = b.title:GetTextColor()
+    for _, st in ipairs(TITLE_STEPS) do
+        ns.UI:SetTextStyle(b.title, st, { r, g, bl })
+        b.title:SetText(t)
+        if ns.UI:TextWidth(b.title) <= room then break end
     end
+    ns.UI:FitText(b.title, t, room)
+    b.title:SetWidth(math.floor(math.min(ns.UI:TextWidth(b.title), room) + 1))
 end
 
 -- One line from parts in priority order (" · " between them): the lowest ones are dropped until it fits `room`
--- (never "..."; the header's tooltip has them all).
+-- (never "..."; the header's tooltip has them all). Measured on fs (the line's own font string).
 local function fitParts(fs, parts, room)
     local n = #parts
     while true do
-        fs:SetText(table.concat(parts, " · ", 1, n))
-        local w = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
-        if n <= 1 or (w or 0) <= room then return end
+        local line = table.concat(parts, " · ", 1, n)
+        fs:SetText(line)
+        if n <= 1 or ns.UI:TextWidth(fs) <= room then return line end
         n = n - 1
     end
 end
 
--- The header's icon buttons (right to left after Whisper / Link in chat): share, add an officer note; all on the
--- name's row, top-aligned with the avatar, so the meta line under the name has the card's whole width. Returns the
--- width they take.
-local function placeHeaderButtons(right, btn)
-    local prev = btn
-    for _, b in ipairs({ right.onMap, right.share, right.addNote }) do
-        b:ClearAllPoints()
-        if b:IsShown() then
-            if prev then b:SetPoint("RIGHT", prev, "LEFT", -6, 0) else b:SetPoint("TOPRIGHT", 0, -HEAD_BTN_Y) end
-            prev = b
+-- The meta line of a member's banner, most important first: rank (or whose alt), level, presence, where they are,
+-- their DisasterZone when it is not the one I run. Also sets right.onMapKey (they share where they are, live).
+local function memberParts(right, member, status)
+    local g = G()
+    local m = g and g:GetMember(member)
+    local parts = {}
+    local main = P():GetMain(member)
+    if main ~= member then
+        parts[#parts + 1] = "Alt of " .. ns.UI:ColoredName(main)
+    elseif m and m.rankName then
+        parts[#parts + 1] = m.rankName
+    end
+    local level = levelOf(member)
+    if level then parts[#parts + 1] = "Level " .. level end
+    parts[#parts + 1] = STATUS_WORD[status]
+    -- where they are (Guild > Map, while we both share): "In Halaa, Nagrand", else "Last seen in Nagrand, 2h ago"
+    local where = ns.GuildMap and ns.GuildMap:GetWhere(member)
+    if where and not ns.Util.IsMe(member) then
+        local place = where.inst or (where.sub and where.zone and (where.sub .. ", " .. where.zone)) or where.zone
+        if place and where.live then
+            parts[#parts + 1] = "In " .. place
+        elseif place then
+            parts[#parts + 1] = "Last seen in " .. place .. ", " .. ns.Util.FormatAgo(where.t)
         end
     end
-    -- (btn first only when there is one: a nil first entry would end ipairs at once, on my own card or an offline
-    -- member's, and the name's hover area then covered the icons)
-    local used = btn and btn:IsShown() and (btn:GetWidth() + 6) or 0
-    for _, b in ipairs({ right.onMap, right.share, right.addNote }) do
-        if b:IsShown() then used = used + b:GetWidth() + 6 end
+    right.onMapKey = (where and where.live and not ns.Util.IsMe(member)) and member or nil
+    local vst, v = versionOf(member)
+    if vst == "older" or vst == "newer" then parts[#parts + 1] = S:Wrap("DIM", "DisasterZone") .. " " .. tostring(v) end
+    return parts
+end
+
+-- The share tool: a link to this member's card or this recipe's crafters for the chat (UI/Share.lua).
+local function shareRef()
+    if state.mode == "recipes" then return state.recipe and ns.Share:RecipeRef(state.recipe) or nil end
+    return state.member and ns.Share:MemberRef(state.member) or nil
+end
+
+-- (the click of ns.Share:CreateButton, for the banner's tool: the share window, Shift: straight into the chat box)
+-- TODO(refactor): move into UI/Share.lua (a banner tool for Share: ns.Share:Tool(getRef) -> { icon, onClick, tip })
+local function shareClick(btn)
+    local ref = shareRef()
+    if not (ref and ns.Share:Describe(ref)) then return end
+    if IsShiftKeyDown() then
+        ns.Share:PutInChat(ref)
+    elseif ns.ShareWindow then
+        ns.ShareWindow:Open(ref, btn)
+    end
+end
+
+-- The banner's tools at its top right (share; show on the map while they share with me; add an officer note) and its
+-- action at the bottom right (Whisper / Link in chat). Keeps right.share / onMap / addNote / whisper / link on the
+-- shown buttons (right.none, a hidden button, for the ones not shown). Returns the width the tools and the action
+-- take at the right.
+local function updateBannerButtons(right, member, recipe, whisperTo)
+    local b = right.banner
+    local tools, keys = {}, {}
+    if member and right.onMapKey then
+        tools[#tools + 1] = { icon = 7, title = "Show on the map", text = "Guild > Map, zoomed into where they are.",
+            onClick = function() if right.onMapKey and ns.GuildMapUI then ns.GuildMapUI:ShowPerson(right.onMapKey) end end }
+        keys[#tools] = "onMap"
+    end
+    if member or recipe then
+        local d = ns.Share:Describe(shareRef() or "")
+        tools[#tools + 1] = { icon = SHARE_ICON, title = "Share", onClick = shareClick,
+            text = "Post a link in chat that opens " .. (d and d.label and S:Wrap("WARN", d.label) or "this")
+                .. " in DisasterZone.\n" .. S:Wrap("SUB", "Shift-click: into your chat box") }
+        keys[#tools] = "share"
+    end
+    if member and right.canAddNote then
+        tools[#tools + 1] = { icon = ns.UI.ICON.notes, title = "Add an officer note",
+            text = "Only officers and the Guild Master see it.", onClick = function() editNote(member) end }
+        keys[#tools] = "addNote"
+    end
+    local actions = {}
+    if recipe then
+        actions[1] = { text = "Link in chat", onClick = function() linkRecipe(recipe) end }
+    elseif whisperTo then
+        actions[1] = { text = whisperTo ~= member and ("Whisper " .. ns.Util.ShortName(whisperTo)) or "Whisper",
+            kind = "primary", onClick = function() whisper(whisperTo) end }
+    end
+    b:SetTools(tools)
+    b:SetActions(actions)
+    right.share, right.onMap, right.addNote = right.none, right.none, right.none
+    local used = 0
+    local level = right.headHit:GetFrameLevel() + 2
+    for i, f in ipairs(b.tools) do
+        right[keys[i]] = f
+        used = used + f:GetWidth() + 6
+        f:SetFrameLevel(level)
+    end
+    local act = b.actions[1]
+    right.whisper = (act and whisperTo and not recipe) and act or right.none
+    right.link = (act and recipe) and act or right.none
+    if act then
+        act:SetFrameLevel(level)
+        used = used + act:GetWidth() + 6
     end
     return used
 end
 
-local function updateDetail(p)
-    local right = p.right
-    local recipe = state.mode == "recipes" and state.recipe and P():GetRecipe(state.recipe) or nil
-    local member = state.mode == "roster" and state.member or nil
-    right.whisper:Hide()
-    right.link:Hide()
-    right.ring:SetShown(member ~= nil)
-    right.ringIn:SetShown(member ~= nil)
-    right.iconEdge:SetShown(recipe ~= nil)
-    right.dot:Hide()
-    -- a member: header, the specs, the note, the card's tabs, the list (each step only when it has something); a
-    -- recipe: header, the list
-    local y = (updateSpecs(right, member) > 0) and (SPECS_Y + SPEC_H + 8) or SPECS_Y
-    right.note:ClearAllPoints()
-    right.note:SetPoint("TOPLEFT", 0, -y)
-    right.note:SetPoint("TOPRIGHT", 0, -y)
-    local noteH = updateNote(right, member)
-    if noteH > 0 then y = y + noteH + 8 end
-    if state.card == "att" and not canSeeAttendance(member) then state.card = "profs" end
-    for key, b in pairs(right.cards) do
-        b:SetShown(member ~= nil and (key ~= "att" or canSeeAttendance(member)))
-        b:SetActive(key == state.card)
+-- The card's tabs on the banner's foot (a member's card only): Characters / Professions / Equipment / Attendance with
+-- counts. TODO(refactor): UI:CreateLayout's listdetail should leave out a hidden tabs strip; until then the strip
+-- leaves the layout while a recipe is open.
+local function updateTabs(p, member)
+    local L, tabs = p.layout, p.cardTabs
+    if (L.tabs ~= nil) ~= (member ~= nil) then
+        L.tabs = member and tabs or nil
+        tabs:SetShown(member ~= nil)
+        L:Layout()
     end
-    right.cards.chars:ClearAllPoints()
-    right.cards.chars:SetPoint("BOTTOMLEFT", right, "TOPLEFT", -4, -(y + CARDTABS_H))
-    right.tabLine:SetShown(member ~= nil)
-    right.tabLine:ClearAllPoints()
-    right.tabLine:SetPoint("TOPLEFT", 0, -(y + CARDTABS_H))
-    right.tabLine:SetPoint("TOPRIGHT", 0, -(y + CARDTABS_H))
-    local listTop = member and (y + CARDTABS_H + 4) or (HEAD_H + 10)
+    if not member then return end
+    tabs:SetTabShown("att", canSeeAttendance(member))
+    local others = #P():GetOtherCharacters(member)
+    tabs:SetTabCount("chars", others > 0 and others or nil)
+    local profs = P():GetMember(member)
+    tabs:SetTabCount("profs", profs and #profs > 0 and #profs or nil)
+    tabs:SelectTab(state.card)
+end
+
+-- The body under the tabs: the officer note, then the list or the Attendance card.
+local function updateBody(right, member)
+    local body = right.body
+    local noteH = updateNote(right, member)
+    local listTop = noteH > 0 and (noteH + GAP) or 0
     right.list.frame:ClearAllPoints()
-    right.list.frame:SetPoint("TOPLEFT", 0, -listTop)
-    right.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
+    right.list.frame:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -listTop)
+    right.list.frame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     right.list:SetEmptyText("")
     -- 1.3.5: the Attendance card draws its own list
     local att = member ~= nil and state.card == "att" and ns.AttendanceUI ~= nil
-    if att and not right.att then right.att = ns.AttendanceUI:CreateMemberAttendance(right, cardWidth()) end
+    if att and not right.att then right.att = ns.AttendanceUI:CreateMemberAttendance(body, cardWidth()) end
     if right.att then
         right.att:ClearAllPoints()
-        right.att:SetPoint("TOPLEFT", 0, -listTop)
-        right.att:SetPoint("BOTTOMRIGHT", 0, 0)
+        right.att:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -listTop)
+        right.att:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
         right.att:SetShown(att)
         if att then right.att:SetPlayer(member) end
     end
     right.list.frame:SetShown(not att)
-    local btn
-    local metaX = 56
+end
+
+local function updateDetail(p)
+    local right = p.right
+    local b = right.banner
+    local recipe = state.mode == "recipes" and state.recipe and P():GetRecipe(state.recipe) or nil
+    local member = state.mode == "roster" and state.member or nil
+    local has = recipe ~= nil or member ~= nil
+    if b:IsShown() ~= has then
+        b:SetShown(has)
+        p.layout:Layout()
+    end
+    if state.card == "att" and not (member and canSeeAttendance(member)) then state.card = "profs" end
+    updateTabs(p, member)
+    b.dot:Hide()
+    b.dotRing:Hide()
+    -- a member: the banner (with the spec chips), the tabs, the note, the list (each step only when it has
+    -- something); a recipe: the banner, the list
+    local title, whisperTo
     if recipe then
-        right.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        right.icon:SetVertexColor(1, 1, 1)
-        right.icon:SetTexture(P():GetRecipeIcon(recipe))
-        right.icon:Show()
-        right.title:SetTextColor(1, 0.82, 0)
+        b:SetIcon(P():GetRecipeIcon(recipe))
+        b.icon.ring:SetColorTexture(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.55)
+        local c = S.C.GOLD
         if recipe.item > 0 and ns.ItemDB and ns.ItemDB.GetInfo then
             local _, _, q = ns.ItemDB:GetInfo(recipe.item)
-            if q then right.title:SetTextColor(ns.UI:QualityColor(q)) end
+            if q then c = { ns.UI:QualityColor(q) } end
         end
-        right.sub:SetText(P():GetName(recipe.prof) .. " · " .. P():GetRecipeGroup(recipe))
-        right.link:Show()
-        btn = right.link
-        right.list:SetData(recipeDetailRows(recipe))
+        b.title:SetTextColor(c[1], c[2], c[3])
+        title = recipe.name
+        b:SetSub(P():GetName(recipe.prof) .. " · " .. P():GetRecipeGroup(recipe))
+        right.metaParts = nil
+        right.onMapKey = nil
     elseif member then
-        local g = G()
-        local m = g and g:GetMember(member)
-        local classFile = classOf(member)
-        right.icon:SetVertexColor(1, 1, 1)
-        ns.UI:ClassIcon(right.icon, classFile)
-        local cr, cg, cb = ns.UI:ClassColor(classFile)
-        right.ring:SetVertexColor(cr, cg, cb, 0.55)
-        right.title:SetTextColor(cr, cg, cb)
+        local classFile = classFileOf(member)
+        b:SetIcon(CLASS_TILE)
+        ns.UI:ClassIcon(b.icon.tex, classFile)
+        local r, g, bl = ns.UI:ClassColor(classFile)
+        b.icon.ring:SetColorTexture(r, g, bl, 0.55)
+        b.title:SetTextColor(1, 1, 1)
+        title = ns.UI:ColoredName(member, classFile)
         local status = statusOf(member)
         local col = STATUS_COLOR[status]
         if col then
-            right.dot:SetVertexColor(col[1], col[2], col[3], 1)
-            right.dot:Show()
-            metaX = 69
+            b.dot:SetVertexColor(col[1], col[2], col[3], 1)
+            b.dot:Show()
+            b.dotRing:Show()
         end
-        -- the meta line, most important first: rank (or whose alt), level, presence, their DisasterZone when it is
-        -- not the one I run
-        local parts = {}
-        local main = P():GetMain(member)
-        if main ~= member then
-            parts[#parts + 1] = "Alt of " .. ns.UI:ColoredName(main)
-        elseif m and m.rankName then
-            parts[#parts + 1] = m.rankName
-        end
-        local level = levelOf(member)
-        if level then parts[#parts + 1] = "Level " .. level end
-        parts[#parts + 1] = STATUS_WORD[status]
-        -- where they are (Guild > Map, while we both share): "In Halaa, Nagrand", else "Last seen in Nagrand, 2h ago"
-        local where = ns.GuildMap and ns.GuildMap:GetWhere(member)
-        if where and not ns.Util.IsMe(member) then
-            local place = where.inst or (where.sub and where.zone and (where.sub .. ", " .. where.zone)) or where.zone
-            if place and where.live then
-                parts[#parts + 1] = "In " .. place
-            elseif place then
-                parts[#parts + 1] = "Last seen in " .. place .. ", " .. ns.Util.FormatAgo(where.t)
-            end
-        end
-        right.onMap.key = (where and where.live and not ns.Util.IsMe(member)) and member or nil
-        local vst, v = versionOf(member)
-        if vst == "older" or vst == "newer" then parts[#parts + 1] = "|cff8a8a8eDisasterZone|r " .. tostring(v) end
-        right.metaParts = parts
+        right.metaParts = memberParts(right, member, status)
         local on = onlineCharacter(member)
-        right.whisperTarget = on
-        right.whisper:SetText(on and on ~= member and ("Whisper " .. shortName(on)) or "Whisper")
-        right.whisper:SetWidth(math.floor((right.whisper:GetFontString():GetStringWidth() or 50) + 28.5))
-        right.whisper:SetShown(on ~= nil and not ns.Util.IsMe(on))
-        if right.whisper:IsShown() then btn = right.whisper end
-        right.list:SetData(memberDetailRows(member))
-    else
-        right.icon:Hide()
-        right.title:SetText("")
-        right.sub:SetText("")
-        right.list:SetData({})
+        if on and not ns.Util.IsMe(on) then whisperTo = on end
     end
-    right.sub:ClearAllPoints()
-    right.sub:SetPoint("TOPLEFT", metaX, -28)
-    right.share:SetShown(recipe ~= nil or member ~= nil)
-    right.onMap:SetShown(member ~= nil and right.onMap.key ~= nil)
-    local used = placeHeaderButtons(right, btn)
-    right.headHit:SetShown(recipe ~= nil or member ~= nil)
-    if recipe or member then
-        -- the name up to the buttons; the meta line under them has the card's whole width
-        local room = cardWidth() - 56 - 8 - used
-        local name = recipe and recipe.name or ns.UI:ColoredName(member, classOf(member))
-        fitTitle(right.title, name, room)
-        right.title:SetWidth(room)
-        right.sub:SetWidth(cardWidth() - metaX)
-        if member then fitParts(right.sub, right.metaParts, cardWidth() - metaX) end
+    updateSpecs(right, member)
+    updateBody(right, member)
+    local used = updateBannerButtons(right, member, recipe, whisperTo)
+    right.list:SetData(recipe and recipeDetailRows(recipe) or (member and memberDetailRows(member)) or {})
+    right.headHit:SetShown(has)
+    if has then
+        -- the name up to the tools; the meta line under them has the banner's whole width
+        local textX = b.textX or HEAD_TEXT_X
+        local toolsW = 0
+        for _, f in ipairs(b.tools) do toolsW = toolsW + f:GetWidth() + 4 end
+        b.titleRoom = cardWidth() - textX - BAN_X - 8 - toolsW
+        b:SetTitle(title)
+        if member then b:SetSub(fitParts(b.sub, right.metaParts, cardWidth() - textX - 16)) end
         -- the hover area stops short of the buttons, pinned to the card's right edge so it follows resizes
         right.headHit:ClearAllPoints()
-        right.headHit:SetPoint("TOPLEFT", 0, 0)
-        right.headHit:SetPoint("TOPRIGHT", -(used + 2), 0)
+        right.headHit:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+        right.headHit:SetPoint("TOPRIGHT", right, "TOPRIGHT", -(used + BAN_X + 2), 0)
     end
 end
 
@@ -1550,59 +1541,57 @@ local function professionOptions()
 end
 
 local function updateToolbar(p)
-    p.rosterBtn:SetActive(state.mode == "roster")
-    p.recipesBtn:SetActive(state.mode == "recipes")
+    p.layout.toolbar:SelectTab(state.mode)
     if p.search.Instructions then
         p.search.Instructions:SetText(state.mode == "recipes" and "Search recipes" or "Search members")
     end
     p.profDD:Refresh()
-    -- (no counts of members or recipes: the lists show them; only a sync still running is worth a word)
-    p.status:SetText(P():GetStats().missing > 0 and "Receiving recipes" or "")
+    -- (no counts of members or recipes: the lists show them; only a sync still running is worth a word: a loading
+    -- notice over the page)
+    local receiving = P():GetStats().missing > 0
+    if receiving ~= p.receiving then
+        p.receiving = receiving
+        if receiving then
+            p.layout:ShowNotice("loading", "Receiving recipes: the lists fill in as they arrive.")
+        else
+            p.layout:HideNotice()
+        end
+    end
 end
 
 ----------------------------------------------------------------------------
 -- Panel
 ----------------------------------------------------------------------------
 
--- A scroll list: its rows run the frame's width less `reserve` (the bar's lane), the bar barX right of the rows.
-local function scrollList(parent, rowHeight, initRow, extentFn, barX, reserve)
-    local list = ns.UI:CreateScrollList(parent, rowHeight, initRow, extentFn)
-    list.box:ClearAllPoints()
-    list.box:SetPoint("TOPLEFT", list.frame, "TOPLEFT", 0, 0)
-    list.box:SetPoint("BOTTOMRIGHT", list.frame, "BOTTOMRIGHT", -(reserve or 0), 0)
-    list.bar:ClearAllPoints()
-    list.bar:SetPoint("TOPLEFT", list.box, "TOPRIGHT", barX or 1, 0)
-    list.bar:SetPoint("BOTTOMLEFT", list.box, "BOTTOMRIGHT", barX or 1, 0)
-    list.emptyText:ClearAllPoints()
-    list.emptyText:SetPoint("TOPLEFT", list.frame, "TOPLEFT", 8, -24)
-    list.emptyText:SetPoint("TOPRIGHT", list.frame, "TOPRIGHT", -8, -24)
-    return list
-end
-
-local function createCard(p)
+-- The card on the right: the layout's detail (its banner, the tabs on its foot, its body) with the banner's chips,
+-- the officer note and the list.
+local function createCard(p, L)
     local UI = ns.UI
-    local right = CreateFrame("Frame", nil, p)
-    right:SetPoint("TOPLEFT", CARD_X, -TOP)
-    right:SetPoint("BOTTOMRIGHT", -PAD, BOTTOM)
+    local right = L.detail
     p.right = right
+    right.body = L.body
+    local body = L.body
+    p.cardTabs = L.tabs
 
-    -- the header: the class circle in a ring of the class colour (or the recipe's icon), the name, a meta line
-    right.ring = disc(right, "BACKGROUND", 1, 48)
-    right.ring:SetPoint("TOPLEFT", -2, 2)
-    right.ringIn = disc(right, "BACKGROUND", 2, 46, { 0, 0, 0, 1 })
-    right.ringIn:SetPoint("TOPLEFT", -1, 1)
-    right.iconEdge = right:CreateTexture(nil, "BACKGROUND", nil, 2)
-    right.iconEdge:SetColorTexture(0, 0, 0, 1)
-    right.iconEdge:SetSize(HEAD_H + 2, HEAD_H + 2)
-    right.iconEdge:SetPoint("TOPLEFT", -1, 1)
-    right.icon = right:CreateTexture(nil, "ARTWORK")
-    right.icon:SetSize(HEAD_H, HEAD_H)
-    right.icon:SetPoint("TOPLEFT", 0, 0)
+    -- the banner (D3): the class circle in a tile ringed in the class colour (or the recipe's icon), the name, the
+    -- meta line; a status dot on the tile's corner
+    local b = L.banner
+    right.banner = b
+    b:SetIcon(CLASS_TILE)
+    b.dotRing = disc(b.icon, "OVERLAY", 1, 13, PAGE_DOT)
+    b.dotRing:SetPoint("CENTER", b.icon, "BOTTOMRIGHT", -2, 2)
+    b.dot = disc(b.icon, "OVERLAY", 2, 9)
+    b.dot:SetPoint("CENTER", b.dotRing, "CENTER")
+    local baseLayout = b.Layout
+    function b:Layout()
+        baseLayout(self)
+        fitBannerTitle(self)
+    end
     -- hovering the icon and name: the recipe's tooltip, or everything about the member (the meta line may have
     -- dropped parts to fit)
-    right.headHit = CreateFrame("Frame", nil, right)
-    right.headHit:SetPoint("TOPLEFT", 0, 0)
-    right.headHit:SetSize(HEAD_H, HEAD_H)
+    right.headHit = CreateFrame("Frame", nil, b)
+    right.headHit:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+    right.headHit:SetHeight(HEAD_TEXT_H)
     right.headHit:EnableMouse(true)
     right.headHit:SetScript("OnEnter", function(self)
         if state.mode == "recipes" then
@@ -1618,138 +1607,49 @@ local function createCard(p)
             if state.mode == "recipes" then self:GetScript("OnEnter")(self) end
         end)
     end
-    right.title = text(right, "GameFontNormalLarge", 18)
-    right.title:SetPoint("TOPLEFT", 56, -5)
-    right.dot = disc(right, "ARTWORK", 0, 7)
-    right.dot:SetPoint("TOPLEFT", 56, -30)
-    right.sub = text(right, "GameFontHighlightSmall", 11)
-    right.sub:SetTextColor(0.75, 0.75, 0.77)
-    right.whisper = UI:CreateSleekButton(right, "Whisper", 84, 22, function()
-        if right.whisperTarget then whisper(right.whisperTarget) end
-    end, "primary")
-    right.whisper:SetPoint("TOPRIGHT", 0, -HEAD_BTN_Y)
-    right.link = UI:CreateSleekButton(right, "Link in chat", 96, 22, function()
-        local r = state.recipe and P():GetRecipe(state.recipe)
-        if r then linkRecipe(r) end
-    end)
-    right.link:SetPoint("TOPRIGHT", 0, -HEAD_BTN_Y)
-    -- a link to this member's card or this recipe's crafters for the chat (UI/Share.lua)
-    right.share = ns.Share:CreateButton(right, 22, function()
-        if state.mode == "recipes" then return state.recipe and ns.Share:RecipeRef(state.recipe) or nil end
-        return state.member and ns.Share:MemberRef(state.member) or nil
-    end)
-    -- officers: add an officer note (one there: the note's own pencil edits it)
-    right.addNote = UI:CreateTipIconButton(right, 22, UI.ICON.notes, "Add an officer note",
-        "Only officers and the Guild Master see it.", function(self)
-            if self.key then editNote(self.key) end
-        end)
-    right.addNote:Hide()
-    -- where they stand now, on Guild > Map (shown while they share with me)
-    right.onMap = UI:CreateTipIconButton(right, 22, 7, "Show on the map", "Guild > Map, zoomed into where they are.",
-        function(self)
-            if self.key and ns.GuildMapUI then ns.GuildMapUI:ShowPerson(self.key) end
-        end)
-    right.onMap:Hide()
-    -- above the header's hover area (the member / recipe tooltip), so they take the mouse
-    for _, hb in ipairs({ right.whisper, right.link, right.share, right.addNote, right.onMap }) do
-        hb:SetFrameLevel(right.headHit:GetFrameLevel() + 2)
-    end
+    -- (stands in for a banner button that is not shown: right.share / onMap / addNote / whisper / link)
+    right.none = CreateFrame("Button", nil, b)
+    right.none:Hide()
 
-    -- the specs as chips: a round icon, the name, the talent points (main) or "off spec"
+    -- the specs as chips under the meta line: the spec's icon, the name, the talent points (main) or "off spec"
     right.specChips = {}
     for i = 1, 2 do
-        local chip = CreateFrame("Frame", nil, right)
-        chip:SetHeight(SPEC_H)
-        UI:AddPillShape(chip, SPEC_H)
-        chip:SetPillColors({ 0.10, 0.10, 0.12, 0.92 }, { 0.34, 0.34, 0.38, 0.6 })
-        chip.icon = chip:CreateTexture(nil, "ARTWORK")
-        chip.icon:SetSize(16, 16)
-        chip.icon:SetPoint("LEFT", 3, 0)
-        if chip.CreateMaskTexture and chip.icon.AddMaskTexture then
-            local mask = chip:CreateMaskTexture()
-            mask:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-            mask:SetAllPoints(chip.icon)
-            chip.icon:AddMaskTexture(mask)
-        end
-        chip.label = text(chip, "GameFontHighlightSmall", 11)
-        chip.label:SetPoint("LEFT", 25, 0)
-        chip.label:SetTextColor(0.88, 0.88, 0.88)
-        chip.em = text(chip, "GameFontHighlightSmall", 10)
-        chip.em:SetPoint("LEFT", chip.label, "RIGHT", 5, 0)
-        chip.em:SetTextColor(0.62, 0.62, 0.62)
+        local chip = UI:CreateChip(b, { kind = "track" })
+        chip.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         chip:Hide()
         right.specChips[i] = chip
     end
 
-    -- the officer note: a quiet flat card, sized to its text
-    local note = CreateFrame("Frame", nil, right)
+    -- the officer note: a card sized to its text (its header: the title, who wrote it and when, the edit pencil)
+    local note = UI:CreateCard(body, { tone = "card" })
+    note:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    note:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
     note:SetHeight(48)
     note:EnableMouse(true)
-    flatCard(note)
     right.note = note
-    note.label = text(note, "GameFontNormalSmall", 11)
-    note.label:SetPoint("TOPLEFT", 12, -9)
-    note.label:SetText("Officer note")
-    note.meta = text(note, "GameFontHighlightSmall", 10)
-    note.meta:SetPoint("LEFT", note.label, "RIGHT", 8, 0)
-    note.meta:SetTextColor(0.55, 0.55, 0.57)
-    -- edit: a bare pencil (grey, white under the mouse), not a boxed button inside the card
-    note.edit = CreateFrame("Button", nil, note)
-    note.edit:SetSize(18, 18)
-    note.edit:SetPoint("TOPRIGHT", -6, -6)
-    note.edit.icon = note.edit:CreateTexture(nil, "ARTWORK")
-    note.edit.icon:SetSize(12, 12)
-    note.edit.icon:SetPoint("CENTER")
-    note.edit.icon:SetTexture(UI.ICON_ATLAS)
-    note.edit.icon:SetTexCoord(unpack(UI:IconCoords(16)))
-    note.edit.icon:SetVertexColor(0.62, 0.62, 0.62)
-    note.edit:RegisterForClicks("LeftButtonUp")
-    note.edit:SetScript("OnClick", function() if note.key then editNote(note.key) end end)
-    note.edit:SetScript("OnEnter", function(self)
-        self.icon:SetVertexColor(1, 1, 1)
-        UI:SetTextTooltip(self, { "Edit the officer note", "Only officers and the Guild Master see it." }, "ANCHOR_TOP")
-    end)
-    note.edit:SetScript("OnLeave", function(self)
-        self.icon:SetVertexColor(0.62, 0.62, 0.62)
-        UI:HideTooltip()
-    end)
-    note.text = note:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sized(note.text, 11)
-    note.text:SetTextColor(0.88, 0.88, 0.88)
-    note.text:SetPoint("TOPLEFT", 12, -27)
-    note.text:SetJustifyH("LEFT")
+    note.head = UI:CreateSectionHeader(note.body, "Officer note", { rule = false,
+        action = { icon = UI_ICON_EDIT, tip = { "Edit the officer note", "Only officers and the Guild Master see it." },
+                   onClick = function() if note.key then editNote(note.key) end end } })
+    note.head:SetPoint("TOPLEFT", note.body, "TOPLEFT", 0, 0)
+    note.head:SetPoint("TOPRIGHT", note.body, "TOPRIGHT", 0, 0)
+    note.edit = note.head.action
+    note.text = UI:Text(note.body, "body", "TEXT", { wrap = true })
+    note.text:SetPoint("TOPLEFT", note.body, "TOPLEFT", 2, -NOTE_HEAD_H)
     note.text:SetJustifyV("TOP")
-    note.text:SetWordWrap(true)
     if note.text.SetMaxLines then note.text:SetMaxLines(NOTE_MAX_LINES) end
     -- a long note shows whole in the tooltip
     note:SetScript("OnEnter", function(self)
         local rec = self.key and N() and N():Get(self.key)
         if rec then
-            UI:SetTextTooltip(self, { "Officer note: " .. shortName(self.key), { rec.text, 1, 1, 1, wrap = true },
-                { "Only officers and the Guild Master see this.", 0.6, 0.6, 0.6 } }, "ANCHOR_TOPLEFT")
+            UI:SetTextTooltip(self, { "Officer note: " .. ns.Util.ShortName(self.key), { rec.text, 1, 1, 1, wrap = true },
+                { "Only officers and the Guild Master see this.", S:Color("SUB") } }, "ANCHOR_TOPLEFT")
         end
     end)
     note:SetScript("OnLeave", function() UI:HideTooltip() end)
     note:Hide()
 
-    -- a member's card: small text tabs over the list, on a hairline (placed under the note by updateDetail)
-    right.cards = {}
-    local prevCard
-    for _, c in ipairs(CARDS) do
-        local key = c.key
-        local b = UI:CreateUnderlineTab(right, c.label, function() MembersUI:SetCard(key) end, "small")
-        if prevCard then b:SetPoint("LEFT", prevCard, "RIGHT", 4, 0) end
-        right.cards[key] = b
-        prevCard = b
-    end
-    right.tabLine = right:CreateTexture(nil, "BORDER")
-    right.tabLine:SetColorTexture(1, 1, 1, 0.1)
-    right.tabLine:SetHeight(1)
-
-    right.list = scrollList(right, 20, initDetailRow, detailExtent, 3)
-    measure = right:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sized(measure, 10)
-    measure:SetWordWrap(true)
+    right.list = UI:CreateScrollList(body, 20, initDetailRow, detailExtent)
+    measure = UI:Text(right, "body", nil, { wrap = true })
     measure:Hide()
     return right
 end
@@ -1761,41 +1661,38 @@ function MembersUI:CreatePanel(parent)
     p:SetAllPoints(parent)
     panel = p
 
-    -- Roster / Recipes and the search box over the list; the profession filter over the card's right end
-    p.rosterBtn = UI:CreateUnderlineTab(p, "Roster", function() MembersUI:SetMode("roster") end)
-    p.rosterBtn:SetPoint("TOPLEFT", PAD - 4, -6)
-    p.recipesBtn = UI:CreateUnderlineTab(p, "Recipes", function() MembersUI:SetMode("recipes") end)
-    p.recipesBtn:SetPoint("LEFT", p.rosterBtn, "RIGHT", 4, 0)
-    p.search = UI:CreateSearchBox(p, 190, function(text)
+    -- a list + detail page: the toolbar (Roster / Recipes, the search over the list, the profession filter at the
+    -- right), the list column, the card: its banner, the card's tabs on its foot, its body
+    local cards = { selected = state.card }
+    for _, c in ipairs(CARDS) do cards[#cards + 1] = { key = c.key, text = c.label } end
+    local L = UI:CreateLayout("listdetail", p, { listWidth = LIST_W, bottom = BOTTOM, width = S.PAGE_W,
+        banner = { size = "hero" }, tabs = cards, tabStyle = "underline", onTab = function(key) MembersUI:SetCard(key) end })
+    p.layout = L
+    local bar = L.toolbar
+    bar:SetTabs({ { key = "roster", text = "Roster" }, { key = "recipes", text = "Recipes" }, selected = state.mode },
+        function(key) MembersUI:SetMode(key) end)
+    p.rosterBtn, p.recipesBtn = bar:GetTab("roster"), bar:GetTab("recipes")
+    p.search = UI:CreateSearchBox(bar, 190, function(text)
         text = ns.Util.Trim(text or "")
         if text == state.search then return end
         state.search = text
         MembersUI:Refresh(true)
     end, "Search members")
     p.search:SetPoint("LEFT", p.recipesBtn, "RIGHT", 12, 0)
-    p.search:SetPoint("RIGHT", p, "TOPLEFT", PAD + ROWS_W, -(6 + CTRL_H / 2))
-    p.profDD = UI:CreateSleekDropdown(p, PROF_DD_W, professionOptions, function() return state.prof end, function(v)
+    p.search:SetPoint("RIGHT", bar, "TOPLEFT", PAD + ROWS_W, -UI.LAYOUT.ROW_MID)
+    p.profDD = UI:CreateSleekDropdown(bar, PROF_DD_W, professionOptions, function() return state.prof end, function(v)
         MembersUI:SetProfession(v)
     end)
-    p.profDD:SetHeight(CTRL_H)
-    p.profDD:SetPoint("TOPRIGHT", -PAD, -6)
-    p.status = text(p, "GameFontNormalSmall", 11)
-    p.status:SetPoint("RIGHT", p.profDD, "LEFT", -12, 0)
-    p.status:SetJustifyH("RIGHT")
+    p.profDD:SetHeight(S.BTN_H)
+    bar:SetFilters({ p.profDD })
 
-    -- the lists: rows ROWS_W wide, their bar in the lane after them (BAR_GAP from the rows and from the card)
-    p.roster = scrollList(p, ROW_H, initRosterRow, function(d) return d.kind == "sep" and SEP_H or ROW_H end,
-        BAR_GAP, BAR_GAP + BAR_W)
-    p.roster.frame:SetPoint("TOPLEFT", PAD, -TOP)
-    p.roster.frame:SetPoint("BOTTOMLEFT", PAD, BOTTOM)
-    p.roster.frame:SetWidth(LIST_W)
+    -- the lists fill the list column (their bar in the shared lane at their right)
+    p.roster = UI:CreateScrollList(L.list, ROW_H, initRosterRow, function(d) return d.kind == "sep" and SEP_H or ROW_H end)
+    p.roster.frame:SetAllPoints(L.list)
+    p.recipes = UI:CreateScrollList(L.list, RECIPE_H, initRecipeRow)
+    p.recipes.frame:SetAllPoints(L.list)
 
-    p.recipes = scrollList(p, RECIPE_H, initRecipeRow, nil, BAR_GAP, BAR_GAP + BAR_W)
-    p.recipes.frame:SetPoint("TOPLEFT", PAD, -TOP)
-    p.recipes.frame:SetPoint("BOTTOMLEFT", PAD, BOTTOM)
-    p.recipes.frame:SetWidth(LIST_W)
-
-    createCard(p)
+    createCard(p, L)
 
     -- (a page switch shows the panel, then calls OnPanelShown: one refresh per frame is enough)
     p:SetScript("OnShow", function(self)
@@ -1831,8 +1728,15 @@ function MembersUI:Refresh(resetScroll)
             end
             if not state.member and rows[1] and rows[1].key then state.member = rows[1].key end
         end
-        p.roster:SetEmptyText(state.search ~= "" and "No member matches your search."
-            or (state.prof and "Nobody has shared this profession yet." or "The guild roster has not loaded yet."))
+        if state.search ~= "" then
+            p.roster:SetEmptyState({ glyph = ns.UI.ICON.team, title = "No match", text = "No member matches your search." })
+        elseif state.prof then
+            p.roster:SetEmptyState({ glyph = ns.UI.ICON.team, title = "Nobody yet",
+                text = "Nobody has shared this profession yet." })
+        else
+            p.roster:SetEmptyState({ glyph = ns.UI.ICON.team, title = "Loading the roster",
+                text = "The guild roster has not loaded yet." })
+        end
         p.roster:SetData(rows, resetScroll)
     else
         local rows = recipeRows()
@@ -1842,8 +1746,12 @@ function MembersUI:Refresh(resetScroll)
             if d.r.spell == state.recipe then found = true end
         end
         if not found then state.recipe = rows[1] and rows[1].r.spell or nil end
-        p.recipes:SetEmptyText((state.search ~= "" or state.prof) and "No recipe matches."
-            or "No recipes shared yet. Open your profession windows once to share yours.")
+        if state.search ~= "" or state.prof then
+            p.recipes:SetEmptyState({ glyph = ns.UI.ICON.bag, title = "No match", text = "No recipe matches." })
+        else
+            p.recipes:SetEmptyState({ glyph = ns.UI.ICON.bag, title = "No recipes yet",
+                text = "No recipes shared yet. Open your profession windows once to share yours." })
+        end
         p.recipes:SetData(rows, resetScroll)
     end
     updateToolbar(p)
@@ -1923,7 +1831,8 @@ function MembersUI:GetState() return state end
 
 function MembersUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("members", "Members", 3.6, function(parent) return MembersUI:CreatePanel(parent) end)
+        ns.MainFrame:RegisterTab("members", "Members", 3.6, function(parent) return MembersUI:CreatePanel(parent) end,
+            nil, { layout = "listdetail" })
     end
     local function refresh() MembersUI:RequestRefresh() end
     for _, msg in ipairs({ "PROFESSIONS_UPDATED", "ROSTER_UPDATED", "DEMO_TOGGLED", "OFFICER_NOTES_UPDATED",
