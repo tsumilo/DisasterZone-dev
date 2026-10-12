@@ -7,6 +7,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DatePicker.lua", ...) then retu
 local addonName, ns = ...
 
 local UI = ns.UI
+local S = ns.Style
 
 local floor = math.floor
 
@@ -15,7 +16,7 @@ local PAD = 10
 local HEAD_H, WEEK_H = 32, 16
 local WEEKDAYS = { "MO", "TU", "WE", "TH", "FR", "SA", "SU" }
 local PICKED_BG = { 0.17, 0.14, 0.05, 0.95 }
-local GOLD = { 0.91, 0.73, 0.14 }
+local GOLD = S.C.GOLD_DEEP
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
 local function EventValid(event)
@@ -87,20 +88,11 @@ function UI:CreateDatePicker(parent, opts)
     p.next:SetPoint("TOPRIGHT", -4, -4)
 
     for i, label in ipairs(WEEKDAYS) do
-        local fs = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, 9, flags) end
+        local fs = UI:Text(p, "caps", i >= 6 and "DIM" or "SUB", { justify = "CENTER", width = CELL_W })
         fs:SetPoint("TOPLEFT", PAD + (i - 1) * CELL_W, -HEAD_H)
-        fs:SetWidth(CELL_W)
-        fs:SetJustifyH("CENTER")
         fs:SetText(label)
-        if i >= 6 then fs:SetTextColor(0.42, 0.42, 0.45) else fs:SetTextColor(0.56, 0.56, 0.58) end
     end
-    p.rule = p:CreateTexture(nil, "BORDER")
-    p.rule:SetHeight(1)
-    p.rule:SetPoint("TOPLEFT", PAD, -(HEAD_H + WEEK_H - 3))
-    p.rule:SetPoint("TOPRIGHT", -PAD, -(HEAD_H + WEEK_H - 3))
-    p.rule:SetColorTexture(1, 1, 1, 0.06)
+    p.rule = UI:Rule(p, { left = PAD, right = PAD, top = HEAD_H + WEEK_H - 3, layer = "BORDER" })
 
     p.cells = {}
     for i = 1, 42 do
@@ -113,11 +105,11 @@ function UI:CreateDatePicker(parent, opts)
         c.sel:SetColorTexture(PICKED_BG[1], PICKED_BG[2], PICKED_BG[3], PICKED_BG[4])
         c.today = c:CreateTexture(nil, "BACKGROUND", nil, -1)
         c.today:SetAllPoints()
-        c.today:SetColorTexture(1, 1, 1, 0.05)
+        c.today:SetColorTexture(S:Color("HOVER"))
         UI:AddEdges(c, "BORDER")
         local hl = c:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0.07)
+        hl:SetColorTexture(S:Color("HAIRLINE"))
         c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         c.fs:SetPoint("CENTER", 0, 1)
         c.dot = c:CreateTexture(nil, "OVERLAY")

@@ -2055,6 +2055,8 @@ local ATT_MAX = 60
 local STEP_W = 110
 
 -- A value between two chevrons in a flat box; the mouse wheel steps it too.
+-- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua): the event builder and the team page
+-- have their own copies.
 local function NewStepper(parent, onStep)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(STEP_W, 24)

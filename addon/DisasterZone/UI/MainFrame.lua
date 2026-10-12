@@ -4,6 +4,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MainFrame.lua", ...) then retur
 local addonName, ns = ...
 
 local MainFrame = ns:NewModule("MainFrame")
+local S = ns.Style
 
 local FRAME_NAME = "DisasterZoneMainFrame"
 local NAV_H = 28                          -- the navigation strip, along the foot of the header
@@ -345,7 +346,7 @@ local function UpdateTitle()
         facts[#facts + 1] = (v.t > GetServerTime() and "next raid " or "raid ") .. D:Countdown(v.t)
     end
     local line = (guild and guild ~= "") and guild:upper() or "DISASTERZONE"
-    if #facts > 0 then line = line .. "  |cffa7a7ad\194\183 " .. table.concat(facts, " \194\183 ") .. "|r" end
+    if #facts > 0 then line = line .. "  " .. S:Wrap("SUB", "\194\183 " .. table.concat(facts, " \194\183 ")) end
     kicker:SetText(line)
 end
 
@@ -355,7 +356,7 @@ end
 -- rest in orange when nobody can receive it.
 local MARK_TEX = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\"
 local MARK = 16
-local C_SYNC, C_OK, C_WARN = { 0.42, 0.74, 1 }, { 0.33, 0.86, 0.42 }, { 1, 0.55, 0.1 }
+local C_SYNC, C_OK, C_WARN = S.C.YOU, S.C.OK, S.C.WARN
 local TURN = 1.1          -- seconds the arrows take for a turn
 local MIN_TURN = 0.9      -- a share shows at least this long (no flicker)
 local FADE = 0.18         -- the arrows fade in / out
@@ -507,8 +508,8 @@ local function UpdateStatus(instant)
     if ns.Sync and ns.Sync.GetStatus then kind, text = ns.Sync:GetStatus() end
     local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
     local words = {}
-    if demo then words[#words + 1] = "|cffff8000Demo mode|r" end
-    if kind == "warn" then words[#words + 1] = "|cffff8000Not shared yet|r" end
+    if demo then words[#words + 1] = S:Wrap("WARN", "Demo mode") end
+    if kind == "warn" then words[#words + 1] = S:Wrap("WARN", "Not shared yet") end
     status.text:SetText(table.concat(words, "  ·  "))
     local marked = kind == "ok" or kind == "busy" or kind == "warn"
     status.mark:SetShown(marked)
@@ -525,23 +526,17 @@ local function CreateStatus()
     s:SetHeight(18)
     s.mark = CreateMark(s)
     s.mark:SetPoint("RIGHT", 0, 1)
-    s.text = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    s.text = ns.UI:Text(s, "small", "TEXT", { justify = "RIGHT" })
     s.text:SetPoint("RIGHT", s.mark, "LEFT", -8, 0)
-    s.text:SetJustifyH("RIGHT")
-    s.text:SetWordWrap(false)
-    s:EnableMouse(true)
-    s:SetScript("OnEnter", function(self)
+    ns.UI:AttachTooltip(s, function(self, tt)
         UpdateStatus()   -- "1m ago" stays current
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
-        GameTooltip:AddLine("Your BiS lists")
-        if self.tip and self.tip ~= "" then GameTooltip:AddLine(self.tip, 1, 1, 1, true) end
+        tt:AddLine("Your BiS lists", S:Color("GOLD"))
+        if self.tip and self.tip ~= "" then tt:AddLine(self.tip, 1, 1, 1, true) end
         if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then
-            GameTooltip:AddLine("Demo mode: made-up members, lists and a raid to try the council views; never saved.",
-                1, 0.5, 0, true)
+            local r, g, b = S:Color("WARN")
+            tt:AddLine("Demo mode: made-up members, lists and a raid to try the council views; never saved.", r, g, b, true)
         end
-        GameTooltip:Show()
-    end)
-    s:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, nil, { anchor = "ANCHOR_BOTTOMLEFT" })
     return s
 end
 
@@ -705,7 +700,7 @@ local function EnsureFrame()
     local RADIAL = "Interface\\AddOns\\DisasterZone\\Media\\MyBiS\\Radial"
     local halo = frame:CreateTexture(nil, "BORDER")
     halo:SetTexture(RADIAL)
-    halo:SetVertexColor(1, 0.82, 0, 0.2)
+    halo:SetVertexColor(S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.2)
     halo:SetSize(84, 84)
     halo:SetPoint("CENTER", frame.seal)
     local under = frame:CreateTexture(nil, "BORDER", nil, 1)
@@ -713,12 +708,9 @@ local function EnsureFrame()
     under:SetVertexColor(0, 0, 0, 0.75)
     under:SetSize(60, 60)
     under:SetPoint("CENTER", frame.seal, "CENTER", 0, -2)
-    kicker = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    kicker = UI:Text(frame, "small", "GOLD")
     kicker:SetPoint("TOPLEFT", frame, "TOPLEFT", 70, -11)
     kicker:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -34, -11)
-    kicker:SetJustifyH("LEFT")
-    kicker:SetWordWrap(false)
-    kicker:SetTextColor(0.85, 0.70, 0.29)
     frame.content:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -(HEAD_H + 1))
     -- (the countdown in the line moves on while the window is open)
     local since = 0
@@ -897,11 +889,11 @@ local function LauncherTooltip(tt)
     tt:AddLine("DisasterZone", 1, 0.5, 0)
     local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
     if council then
-        tt:AddLine("Loot Council member", 1, 0.82, 0)
+        tt:AddLine("Loot Council member", S:Color("GOLD"))
     elseif IsInGuild() then
-        tt:AddLine("Raider", 0.8, 0.8, 0.8)
+        tt:AddLine("Raider", S:Color("TEXT"))
     else
-        tt:AddLine("Not in a guild", 0.6, 0.6, 0.6)
+        tt:AddLine("Not in a guild", S:Color("SUB"))
     end
     local status = ns.Sync and ns.Sync.GetStatusText and ns.Sync:GetStatusText()
     if status and status ~= "" then
@@ -909,8 +901,8 @@ local function LauncherTooltip(tt)
     end
     if ns.NotifyUI and ns.NotifyUI.AddTooltipLines then ns.NotifyUI:AddTooltipLines(tt) end
     tt:AddLine(" ")
-    tt:AddLine("Left-click: your pinned sections  ·  Right-click: open", 0.6, 0.6, 0.6)
-    tt:AddLine("Shift-click: boss drops", 0.6, 0.6, 0.6)
+    tt:AddLine("Left-click: your pinned sections  ·  Right-click: open", S:Color("SUB"))
+    tt:AddLine("Shift-click: boss drops", S:Color("SUB"))
 end
 
 local function SetupLauncher()
