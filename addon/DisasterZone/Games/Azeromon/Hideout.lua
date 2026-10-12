@@ -143,8 +143,6 @@ function H.FormatDate(ts)
     return f("%d %b %Y", ts)
 end
 
-local function ShortName(key) return (tostring(key):match("^[^-]+")) or tostring(key) end
-
 -- The plaque under a trophy: what the panel shows.
 function H.Lines(enc)
     local boss = H.Boss(enc)
@@ -168,7 +166,7 @@ function H.Lines(enc)
         local names = {}
         for i, key in ipairs(t.first.roster) do
             if i > 12 then names[#names + 1] = string.format("and %d more", #t.first.roster - 12) break end
-            names[#names + 1] = ShortName(key)
+            names[#names + 1] = ns.Util.ShortName(tostring(key), true)
         end
         lines[#lines + 1] = "There for the first: " .. table.concat(names, ", ")
     end

@@ -61,17 +61,6 @@ local W, H = FALLBACK_W, FALLBACK_H
 local function Chess() return ns.Chess end
 local function Prefs() return ns.Chess:Prefs() end
 
-local function Label(parent, size, font, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
 local function Hex(c) return string.format("|cff%02x%02x%02x", floor(c[1] * 255), floor(c[2] * 255), floor(c[3] * 255)) end
 
 local function Portrait(tex, display)
@@ -143,7 +132,7 @@ function Flat.New(parent, onSquare)
         pcall(b.face.SetMask, b.face, CIRCLE)
         b.ring = b:CreateTexture(nil, "ARTWORK", nil, -1)
         b.ring:SetTexture(CIRCLE)
-        b.letter = Label(b, 10, "GameFontHighlightSmall", "OVERLAY")
+        b.letter = ns.UI:Text(b, "small", "TEXT")
         b.letter:SetPoint("BOTTOMRIGHT", -2, 2)
         b.dot = b:CreateTexture(nil, "OVERLAY")
         b.dot:SetTexture(CIRCLE)
@@ -156,8 +145,8 @@ function Flat.New(parent, onSquare)
     end
     self.files, self.ranks = {}, {}
     for i = 1, 8 do
-        self.files[i] = Label(f, 10, "GameFontNormalSmall")
-        self.ranks[i] = Label(f, 10, "GameFontNormalSmall")
+        self.files[i] = ns.UI:Text(f, "small", "GOLD")
+        self.ranks[i] = ns.UI:Text(f, "small", "GOLD")
     end
     return self
 end
@@ -417,7 +406,7 @@ function UI:AskPromotion(base)
         bg:SetColorTexture(0.06, 0.05, 0.09, 0.96)
         ns.UI:AddEdges(promo)
         ns.UI:SetEdgeColor(promo, VIOLET[1], VIOLET[2], VIOLET[3], 0.8)
-        promo.title = Label(promo, 12, "GameFontNormal")
+        promo.title = ns.UI:Text(promo, "emph", "GOLD")
         promo.title:SetPoint("TOP", 0, -8)
         promo.title:SetText("Promote to")
         promo.buttons = {}
@@ -432,7 +421,7 @@ function UI:AskPromotion(base)
             b.hl:SetAllPoints()
             b.hl:SetTexture(CIRCLE)
             b.hl:SetVertexColor(1, 1, 1, 0.25)
-            b.name = Label(b, 10, "GameFontHighlightSmall")
+            b.name = ns.UI:Text(b, "small", "TEXT")
             b.name:SetPoint("TOP", b, "BOTTOM", 0, -1)
             b.name:SetText(PIECE_NAME[p]:gsub("^%l", string.upper))
             b.p = p
@@ -450,9 +439,8 @@ end
 ---------------------------------------------------------------------------
 
 local function Section(parent, text)
-    local fs = Label(parent, 11, "GameFontNormalSmall")
+    local fs = ns.UI:Text(parent, "body", VIOLET)
     fs:SetText(text:upper())
-    fs:SetTextColor(VIOLET[1], VIOLET[2], VIOLET[3])
     return fs
 end
 
@@ -515,11 +503,11 @@ local function MakeRow(parent)
     r.hl = r:CreateTexture(nil, "HIGHLIGHT")
     r.hl:SetAllPoints()
     r.hl:SetColorTexture(VIOLET[1], VIOLET[2], VIOLET[3], 0.12)
-    r.name = Label(r, 12)
+    r.name = ns.UI:Text(r, "emph")
     r.name:SetPoint("TOPLEFT", 8, -7)
-    r.sub = Label(r, 10, "GameFontDisableSmall")
+    r.sub = ns.UI:Text(r, "small")
     r.sub:SetPoint("BOTTOMLEFT", 8, 7)
-    r.right = Label(r, 11)
+    r.right = ns.UI:Text(r, "body")
     r.right:SetJustifyH("RIGHT")
     r.right:SetPoint("TOPRIGHT", -8, -7)          -- (on the name's line: the line under it runs the whole row)
     r.name:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
@@ -532,7 +520,7 @@ local function BuildLobby()
     f:SetAllPoints()
     lobby.frame = f
     local inner = SIDE_W - 2 * PAD
-    lobby.title = Label(f, 18, "GameFontNormalLarge")
+    lobby.title = ns.UI:Text(f, "page")
     lobby.title:SetPoint("TOPLEFT", PAD, -PAD)
     lobby.title:SetText("Karazhan Chess")
     lobby.title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
@@ -600,7 +588,7 @@ local function BuildLobby()
         UI:RefreshSide()
     end)
     lobby.rows = {}
-    lobby.empty = Label(lobby.list, 11, "GameFontDisableSmall")
+    lobby.empty = ns.UI:Text(lobby.list, "body", "DIM")
     lobby.empty:SetPoint("TOPLEFT", 4, -6)
     lobby.empty:SetWidth(inner - 8)
     lobby.empty:SetWordWrap(true)
@@ -700,26 +688,6 @@ end
 local LINE_H = 17
 local SUB_TIME = 7             -- s Medivh's words stay before they fade
 local HINT_TIME = 7            -- s the controls hint shows after a game opens
-
-local gradA = CreateColor and CreateColor(0, 0, 0, 0)
-local gradB = CreateColor and CreateColor(0, 0, 0, 0)
--- A gradient (orient "VERTICAL": colour 1 at the bottom) or, without SetGradient, its midpoint.
-local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if gradA and tex.SetGradient then
-        gradA:SetRGBA(r1, g1, b1, a1)
-        gradB:SetRGBA(r2, g2, b2, a2)
-        tex:SetGradient(orient, gradA, gradB)
-    else
-        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
-    end
-end
-
-local function Shadowed(fs)
-    fs:SetShadowOffset(1, -1)
-    fs:SetShadowColor(0, 0, 0, 1)
-    return fs
-end
 
 -- The spells' own icons (Fury of Medivh 39345, Hand of Medivh 39339, the Cleric's Healing 37455)
 local CHEAT_ICON = { fire = 135819, hand = 136130, heal = 135915 }
@@ -821,7 +789,7 @@ local function TakenRow(parent, anchor, x, dir)
         t:Hide()
         row.icons[i] = t
     end
-    row.diff = Shadowed(Label(parent, 11, "GameFontHighlightSmall"))
+    row.diff = ns.UI:Text(parent, "body", "TEXT", { shadow = true })
     row.dir, row.anchor = dir, anchor
     return row
 end
@@ -836,19 +804,19 @@ local function BuildHud()
     top:SetPoint("TOPLEFT")
     top:SetPoint("TOPRIGHT")
     top:SetHeight(70)
-    Gradient(top, "VERTICAL", 0, 0, 0, 0, 0, 0, 0, 0.6)
+    ns.UI:Gradient(top, "VERTICAL", { 0, 0, 0, 0 }, { 0, 0, 0, 0.6 })
     local bottom = f:CreateTexture(nil, "BACKGROUND")
     bottom:SetPoint("BOTTOMLEFT")
     bottom:SetPoint("BOTTOMRIGHT")
     bottom:SetHeight(80)
-    Gradient(bottom, "VERTICAL", 0, 0, 0, 0.62, 0, 0, 0, 0)
+    ns.UI:Gradient(bottom, "VERTICAL", { 0, 0, 0, 0.62 }, { 0, 0, 0, 0 })
 
     -- top left: back to the games, who, whose move
     hud.back = ns.UI:CreateSleekButton(f, "\226\128\185 Games", 66, 22, function() UI:OpenLobby() end)
     hud.back:SetPoint("TOPLEFT", 12, -12)
-    hud.vs = Shadowed(Label(f, 15, "GameFontNormalLarge"))
+    hud.vs = ns.UI:Text(f, "title", "GOLD", { shadow = true })
     hud.vs:SetPoint("TOPLEFT", hud.back, "TOPRIGHT", 10, 1)
-    hud.status = Shadowed(Label(f, 11))
+    hud.status = ns.UI:Text(f, "body", "TEXT", { shadow = true })
     hud.status:SetPoint("TOPLEFT", hud.vs, "BOTTOMLEFT", 0, -3)
 
     -- top right: the moves, the board turned, 3D or flat, the rest
@@ -893,12 +861,12 @@ local function BuildHud()
     hud.drawer = d
 
     -- the bottom: Medivh's words (fading), what a cheat does (until the next move), the hint at first
-    hud.sub = Shadowed(Label(f, 14))
+    hud.sub = ns.UI:Text(f, "title", "TEXT", { shadow = true })
     hud.sub:SetPoint("BOTTOM", f, "BOTTOM", 0, 34)
     hud.sub:SetJustifyH("CENTER")
     hud.sub:SetWidth(540)
     hud.sub:SetWordWrap(true)
-    hud.note = Shadowed(Label(f, 11, "GameFontHighlightSmall"))
+    hud.note = ns.UI:Text(f, "body", "TEXT", { shadow = true })
     hud.note:SetPoint("BOTTOM", f, "BOTTOM", 0, 14)
     hud.note:SetJustifyH("CENTER")
     hud.note:SetWidth(520)
@@ -918,10 +886,10 @@ local function BuildHud()
     cbg:SetColorTexture(0.045, 0.035, 0.07, 0.94)
     ns.UI:AddEdges(card)
     ns.UI:SetEdgeColor(card, VIOLET[1], VIOLET[2], VIOLET[3], 0.6)
-    card.title = Label(card, 17, "GameFontNormalLarge")
+    card.title = ns.UI:Text(card, "page")
     card.title:SetPoint("TOP", 0, -16)
     card.title:SetJustifyH("CENTER")
-    card.text = Label(card, 11, "GameFontHighlightSmall")
+    card.text = ns.UI:Text(card, "body")
     card.text:SetPoint("TOP", card.title, "BOTTOM", 0, -8)
     card.text:SetWidth(290)
     card.text:SetWordWrap(true)
@@ -1040,7 +1008,7 @@ local function RefreshGame()
         for i = 1, max(rows, #d.lines) do
             local fs = d.lines[i]
             if not fs and i <= rows then
-                fs = Label(d, 11)
+                fs = ns.UI:Text(d, "body")
                 fs:SetPoint("TOPLEFT", 10, -6 - (i - 1) * LINE_H)
                 fs:SetWidth(DRAWER_W - 20)
                 d.lines[i] = fs
@@ -1248,7 +1216,7 @@ function UI:CreatePanel(parent)
     end)
     UI.modeButton:SetPoint("TOPRIGHT", -8, -8)
     UI.modeButton:SetFrameLevel(boardArea:GetFrameLevel() + 460)
-    UI.hint = Label(boardArea, 10, "GameFontDisableSmall")
+    UI.hint = ns.UI:Text(boardArea, "small", "DIM")
     UI.hint:SetPoint("BOTTOMLEFT", 10, 8)
     -- (a hint line over the 3D view's frames)
     local hintHost = CreateFrame("Frame", nil, boardArea)

@@ -83,15 +83,11 @@ local function Analyze(cardIds, hits)
     return lines, marked, onLine, full, away
 end
 
-local function ShortName(key)
-    return (type(key) == "string" and key:match("^([^%-]+)")) or tostring(key)
-end
-
 -- A name coloured by class when it's someone in the group (bosses and pets stay gold).
 local function WhoText(who)
     if type(who) ~= "string" then return "" end
     for key, info in pairs(Util.group or {}) do
-        if ShortName(key) == who and info.classFile then
+        if Util.ShortName(key, true) == who and info.classFile then
             return "|c" .. Util.ClassColorHex(info.classFile) .. who .. "|r"
         end
     end
@@ -106,7 +102,7 @@ end
 
 local function KeyText(key)
     local cls = ClassOf(key)
-    local name = ShortName(key)
+    local name = Util.ShortName(key, true)
     if cls then return "|c" .. Util.ClassColorHex(cls) .. name .. "|r" end
     return name
 end
@@ -118,34 +114,17 @@ local function ClassRGB(key)
     return 0.6, 0.6, 0.6
 end
 
-local function Label(parent, size, font, layer, flags)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, f = fs:GetFont()
-        if path then fs:SetFont(path, size, flags or f) end
-    end
-    return fs
+-- Two colours reused by the gradients drawn while painting and animating (UI:Gradient reads the numbers).
+local gradLo, gradHi = {}, {}
+local function RGBA(t, r, g, b, a)
+    t[1], t[2], t[3], t[4] = r, g, b, a
+    return t
 end
 
-local gradA = CreateColor and CreateColor(0, 0, 0, 0)
-local gradB = CreateColor and CreateColor(0, 0, 0, 0)
--- A gradient (orient "VERTICAL": colour 1 at the bottom) or, without SetGradient, its midpoint.
-local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if gradA and tex.SetGradient then
-        gradA:SetRGBA(r1, g1, b1, a1)
-        gradB:SetRGBA(r2, g2, b2, a2)
-        tex:SetGradient(orient, gradA, gradB)
-    else
-        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
-    end
-end
-
--- A cell's fill, top colour then bottom colour.
+-- A cell's fill, top colour then bottom colour (alpha 0.95 unless given).
 local function Fill(c, top, bottom)
-    Gradient(c.bg, "VERTICAL", bottom[1], bottom[2], bottom[3], bottom[4] or 0.95, top[1], top[2], top[3], top[4] or 0.95)
+    ns.UI:Gradient(c.bg, "VERTICAL", RGBA(gradLo, bottom[1], bottom[2], bottom[3], bottom[4] or 0.95),
+        RGBA(gradHi, top[1], top[2], top[3], top[4] or 0.95))
 end
 
 local function SetScaleAnim(a, from, to)
@@ -158,10 +137,7 @@ local function SetScaleAnim(a, from, to)
 end
 
 local function Kicker(parent, text)
-    local fs = Label(parent, 9.5)
-    fs:SetTextColor(0.62, 0.62, 0.62)
-    fs:SetText(text)
-    return fs
+    return ns.UI:Text(parent, "caps", nil, { text = text })
 end
 
 ---------------------------------------------------------------------------
@@ -249,16 +225,14 @@ local function CreateCell(parent, i)
         t:Hide()
     end
 
-    b.text = Label(b.top, 10, "GameFontHighlightSmall")
-    b.text:SetWordWrap(true)
-    b.text:SetJustifyH("CENTER")
+    b.text = ns.UI:Text(b.top, "small", "TEXT", { wrap = true, justify = "CENTER" })
     b.text:SetJustifyV("TOP")
     b.text:SetPoint("TOP", b.icon, "BOTTOM", 0, -5)
     b.text:SetPoint("LEFT", 5, 0)
     b.text:SetPoint("RIGHT", -5, 0)
     b.text:SetPoint("BOTTOM", 0, 3)
     -- (who set it off: kept for the tooltip and the tests, not drawn on the square)
-    b.who = Label(b.top, 10, "GameFontHighlightSmall")
+    b.who = ns.UI:Text(b.top, "small", "TEXT")
     b.who:Hide()
     b.ribbon = b.who
 
@@ -328,8 +302,8 @@ local function PlaceSheen(c, e)
             tex:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", l, 1)
             tex:SetWidth(r - l)
             local span = x1 - x0
-            Gradient(tex, "HORIZONTAL", 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span,
-                1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span)
+            ns.UI:Gradient(tex, "HORIZONTAL", RGBA(gradLo, 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span),
+                RGBA(gradHi, 1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span))
             tex:SetBlendMode("ADD")
             tex:Show()
         end
@@ -396,11 +370,11 @@ local function CreateSlam(parent)
     f.bandL = f:CreateTexture(nil, "BACKGROUND")
     f.bandL:SetPoint("TOPLEFT", f.band, "TOPLEFT")
     f.bandL:SetPoint("BOTTOMRIGHT", f.band, "BOTTOM")
-    Gradient(f.bandL, "HORIZONTAL", 0, 0, 0, 0, 0, 0, 0, 0.82)
+    ns.UI:Gradient(f.bandL, "HORIZONTAL", { 0, 0, 0, 0 }, { 0, 0, 0, 0.82 })
     f.bandR = f:CreateTexture(nil, "BACKGROUND")
     f.bandR:SetPoint("TOPLEFT", f.band, "TOP")
     f.bandR:SetPoint("BOTTOMRIGHT", f.band, "BOTTOMRIGHT")
-    Gradient(f.bandR, "HORIZONTAL", 0, 0, 0, 0.82, 0, 0, 0, 0)
+    ns.UI:Gradient(f.bandR, "HORIZONTAL", { 0, 0, 0, 0.82 }, { 0, 0, 0, 0 })
     f.edgeT = f:CreateTexture(nil, "BORDER")
     f.edgeT:SetPoint("BOTTOMLEFT", f.band, "TOPLEFT", 40, 0)
     f.edgeT:SetPoint("BOTTOMRIGHT", f.band, "TOPRIGHT", -40, 0)
@@ -419,8 +393,7 @@ local function CreateSlam(parent)
     f.text:SetShadowOffset(2, -2)
     f.text:SetShadowColor(0, 0, 0, 1)
     f.text:SetPoint("CENTER", 0, 6)
-    f.sub = Label(f, 11)
-    f.sub:SetJustifyH("CENTER")
+    f.sub = ns.UI:Text(f, "body", nil, { justify = "CENTER" })
     f.sub:SetPoint("TOP", f.text, "BOTTOM", 0, -3)
     f.anim = f:CreateAnimationGroup()
     local fadeIn = f.anim:CreateAnimation("Alpha")
@@ -483,10 +456,9 @@ local function CreateRow(parent, height, withIcon)
         r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         x = 26
     end
-    r.left = Label(r, 11, "GameFontHighlightSmall")
+    r.left = ns.UI:Text(r, "body")
     r.left:SetPoint("LEFT", x, 0)
-    r.right = Label(r, 11, "GameFontHighlightSmall")
-    r.right:SetJustifyH("RIGHT")
+    r.right = ns.UI:Text(r, "body", nil, { justify = "RIGHT" })
     r.right:SetPoint("RIGHT", -8, 0)
     r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
     r:EnableMouse(true)
@@ -526,7 +498,7 @@ local function RefreshSeason()
             row.right:SetText("|cffffffff" .. r.b .. "|r |cff8a8a8a" .. (r.b == 1 and "bingo" or "bingos") .. "|r")
             row.bar:SetWidth(max(1, (row:GetWidth() > 0 and row:GetWidth() or SIDE_W) * r.b / top))
             row.bar:SetColorTexture(1, 0.82, 0, i == 1 and 0.7 or 0.35)
-            local tip = { ShortName(r.key), string.format("%d bingo%s this season", r.b, r.b == 1 and "" or "s") }
+            local tip = { Util.ShortName(r.key, true), string.format("%d bingo%s this season", r.b, r.b == 1 and "" or "s") }
             if r.f > 0 then tip[#tip + 1] = { r.f .. " first of the game", 0.2, 1, 0.6 } end
             if r.x > 0 then tip[#tip + 1] = { r.x .. " blackout" .. (r.x == 1 and "" or "s"), 1, 0.5, 0 } end
             row.tip = tip
@@ -568,7 +540,7 @@ local function RefreshRace(g)
             row.bar:SetWidth(max(1, w * r.marked / 25))
             row.mark:SetShown(r.key == me)
             row.mark:SetColorTexture(1, 0.82, 0, 1)
-            local tip = { ShortName(r.key), string.format("%d/25 marked, %d line%s", r.marked, r.lines,
+            local tip = { Util.ShortName(r.key, true), string.format("%d/25 marked, %d line%s", r.marked, r.lines,
                 r.lines == 1 and "" or "s") }
             if winnerAt[r.key] then
                 tip[#tip + 1] = { winnerAt[r.key] == 1 and "First BINGO of the game!" or
@@ -718,7 +690,7 @@ local function RefreshHero(g, active, marked, lines, awayCount)
     if not g then
         statusText:SetText("No game yet. The raid leader starts one with |cffffd100/dz bingo start|r.")
     else
-        local parts = { "host " .. ShortName(g.host or "?") }
+        local parts = { "host " .. Util.ShortName(g.host or "?", true) }
         if g.started then parts[#parts + 1] = "started " .. date("%H:%M", g.started) end
         if active and awayCount > 0 then
             parts[#parts + 1] = string.format("|cffffd100%d one away!|r", awayCount)
@@ -845,8 +817,8 @@ function BingoUI:Refresh()
                 c.ring:Show()
                 if not hit then
                     c.wash:SetHeight(max(1, (c:GetHeight() > 0 and c:GetHeight() or 70) * 0.62))
-                    Gradient(c.wash, "VERTICAL", col[1], col[2], col[3], 0, col[1], col[2], col[3],
-                        sq.rarity == "l" and 0.2 or 0.14)
+                    ns.UI:Gradient(c.wash, "VERTICAL", RGBA(gradLo, col[1], col[2], col[3], 0),
+                        RGBA(gradHi, col[1], col[2], col[3], sq.rarity == "l" and 0.2 or 0.14))
                     c.wash:Show()
                     c.legendary = sq.rarity == "l" or nil
                 end
@@ -947,11 +919,11 @@ local function CreateHero(parent)
     f.fade:SetPoint("TOPLEFT")
     f.fade:SetPoint("BOTTOMLEFT")
     f.fade:SetPoint("RIGHT", f, "CENTER", 60, 0)
-    Gradient(f.fade, "HORIZONTAL", 0.078, 0.078, 0.09, 0.97, 0.078, 0.078, 0.09, 0.35)
+    ns.UI:Gradient(f.fade, "HORIZONTAL", { 0.078, 0.078, 0.09, 0.97 }, { 0.078, 0.078, 0.09, 0.35 })
     f.fadeR = f:CreateTexture(nil, "BACKGROUND", nil, -6)
     f.fadeR:SetPoint("TOPLEFT", f.fade, "TOPRIGHT")
     f.fadeR:SetPoint("BOTTOMRIGHT")
-    Gradient(f.fadeR, "HORIZONTAL", 0.078, 0.078, 0.09, 0.35, 0.078, 0.078, 0.09, 0.9)
+    ns.UI:Gradient(f.fadeR, "HORIZONTAL", { 0.078, 0.078, 0.09, 0.35 }, { 0.078, 0.078, 0.09, 0.9 })
     f.line = f:CreateTexture(nil, "BORDER")
     f.line:SetPoint("BOTTOMLEFT")
     f.line:SetPoint("BOTTOMRIGHT")
@@ -961,7 +933,7 @@ local function CreateHero(parent)
     f.edge:SetPoint("TOPLEFT")
     f.edge:SetPoint("TOPRIGHT")
     f.edge:SetHeight(2)
-    Gradient(f.edge, "HORIZONTAL", 1, 0.29, 0.24, 1, 1, 0.82, 0, 1)
+    ns.UI:Gradient(f.edge, "HORIZONTAL", { 1, 0.29, 0.24, 1 }, { 1, 0.82, 0, 1 })
     f.edge:Hide()
 
     f.dot = f:CreateTexture(nil, "OVERLAY")
@@ -975,8 +947,8 @@ local function CreateHero(parent)
     f.dotGlow:SetVertexColor(1, 0.29, 0.24, 0.6)
     f.dotGlow:SetSize(22, 22)
     f.dotGlow:SetPoint("CENTER", f.dot, "CENTER")
-    f.kicker = Label(f, 9.5)
-    f.title = Label(f, 22, "GameFontHighlightLarge")
+    f.kicker = ns.UI:Text(f, "caps")
+    f.title = ns.UI:Text(f, 22, "TEXT")
     f.title:SetText("Council Bingo")
     f.title:SetPoint("TOPLEFT", 16, -30)
     f.title:SetShadowOffset(1, -1)
@@ -986,12 +958,9 @@ end
 local function CreateStat(parent)
     local s = CreateFrame("Frame", nil, parent)
     s:SetSize(64, 40)
-    s.value = Label(s, 20, "GameFontHighlightLarge")
-    s.value:SetJustifyH("RIGHT")
+    s.value = ns.UI:Text(s, "hero", nil, { justify = "RIGHT" })
     s.value:SetPoint("TOPRIGHT", 0, -2)
-    s.label = Label(s, 9)
-    s.label:SetJustifyH("RIGHT")
-    s.label:SetTextColor(0.55, 0.55, 0.55)
+    s.label = ns.UI:Text(s, "caps", nil, { justify = "RIGHT" })
     s.label:SetPoint("TOPRIGHT", s.value, "BOTTOMRIGHT", 0, -3)
     s:Hide()
     return s
@@ -1001,7 +970,7 @@ local function CreateCard(parent)
     local f = CreateFrame("Frame", nil, parent)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
-    Gradient(f.bg, "VERTICAL", 0.05, 0.05, 0.06, 0.92, 0.085, 0.085, 0.1, 0.92)
+    ns.UI:Gradient(f.bg, "VERTICAL", { 0.05, 0.05, 0.06, 0.92 }, { 0.085, 0.085, 0.1, 0.92 })
     ns.UI:AddEdges(f, "BORDER")
     ns.UI:SetEdgeColor(f, 1, 1, 1, 0.07)
 
@@ -1103,7 +1072,7 @@ local function Section(y, title, n, h, withIcon, emptyText)
         r:SetPoint("RIGHT", side, "RIGHT", 0, 0)
         rows[i] = r
     end
-    local empty = Label(side, 11, "GameFontHighlightSmall")
+    local empty = ns.UI:Text(side, "body")
     empty:SetText("|cff6f6f6f" .. emptyText .. "|r")
     empty:SetPoint("TOPLEFT", side, "TOPLEFT", 2, y - 20)
     return rows, empty, y - 16 - n * (h + 2)
@@ -1113,8 +1082,7 @@ function BingoUI:CreatePanel(parent)
     panel = CreateFrame("Frame", nil, parent)
 
     hero = CreateHero(panel)
-    statusText = Label(hero, 11, "GameFontHighlightSmall")
-    statusText:SetTextColor(0.72, 0.72, 0.72)
+    statusText = ns.UI:Text(hero, "body", { 0.72, 0.72, 0.72 })
     statusText:SetPoint("TOPLEFT", hero.title, "BOTTOMLEFT", 0, -6)
     startBtn = ns.UI:CreateSleekButton(hero, "Start game", 104, 24, function() ns.Bingo:Start() end, "primary")
     stopBtn = ns.UI:CreateSleekButton(hero, "End game", 90, 24, function() ns.Bingo:Stop() end)
@@ -1156,13 +1124,14 @@ end
 -- Mini counter
 ---------------------------------------------------------------------------
 
+local MINI_POS = "bingoMini"    -- its place on the screen (UI:SavePosition)
+
 local function CreateMini()
     local f = CreateFrame("Button", "DisasterZoneBingoMini", UIParent)
     f:SetSize(170, 26)
-    f:SetPoint("TOP", 0, -120)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
-    Gradient(f.bg, "VERTICAL", 0.05, 0.05, 0.06, 0.9, 0.12, 0.12, 0.14, 0.9)
+    ns.UI:Gradient(f.bg, "VERTICAL", { 0.05, 0.05, 0.06, 0.9 }, { 0.12, 0.12, 0.14, 0.9 })
     ns.UI:AddEdges(f, "BORDER", true)
     ns.UI:SetEdgeColor(f, 1, 1, 1, 0.12)
     f.accent = f:CreateTexture(nil, "BORDER", nil, 1)
@@ -1179,8 +1148,7 @@ local function CreateMini()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        local point, _, relPoint, x, y = self:GetPoint(1)
-        if point then ns.Games:GetData("bingo").miniPos = { point, relPoint, x, y } end
+        ns.UI:SavePosition(self, MINI_POS)
     end)
     f:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
@@ -1198,16 +1166,20 @@ local function CreateMini()
         ns.UI:SetEdgeColor(self, 1, 1, 1, 0.12)
         ns.UI:HideTooltip()
     end)
-    f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.text = ns.UI:Text(f, "small", "TEXT")
     f.text:SetPoint("LEFT", f.icon, "RIGHT", 7, 0)
     f.text:SetPoint("RIGHT", -8, 0)
-    f.text:SetJustifyH("LEFT")
-    f.text:SetWordWrap(false)
-    local pos = ns.Games:GetData("bingo").miniPos
-    if type(pos) == "table" and type(pos[1]) == "string" then
-        f:ClearAllPoints()
-        f:SetPoint(pos[1], UIParent, pos[2] or pos[1], tonumber(pos[3]) or 0, tonumber(pos[4]) or 0)
+    -- (1.3.x kept the place in the game's saved data: it moves to the one window-position store)
+    local old = ns.Games:PeekData("bingo").miniPos
+    if old ~= nil then
+        local moved = ns.UI:SavedPosition(MINI_POS) ~= nil or type(old) ~= "table" or type(old[1]) ~= "string"
+        if not moved and pcall(f.SetPoint, f, old[1], UIParent, old[2] or old[1], tonumber(old[3]) or 0,
+                tonumber(old[4]) or 0) then
+            moved = ns.UI:SavePosition(f, MINI_POS)
+        end
+        if moved then ns.Games:GetData("bingo").miniPos = nil end
     end
+    ns.UI:RestorePosition(f, MINI_POS, "TOP", UIParent, "TOP", 0, -120)
     -- Follows the main window (hidden while it is open) without forcing it to be created.
     local elapsed = 0
     f.driver = CreateFrame("Frame")

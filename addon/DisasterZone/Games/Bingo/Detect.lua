@@ -69,8 +69,9 @@ function Detect:Reset()
 end
 Detect:Reset()
 
+-- A name without any realm (Util.ShortName), nil for no name (the square then shows nobody).
 local function ShortName(name)
-    return type(name) == "string" and (name:match("^([^%-]+)") or name) or nil
+    return type(name) == "string" and Util.ShortName(name, true) or nil
 end
 
 -- who: the raider (or pet, or boss) that set the square off, shown on the card. Optional.

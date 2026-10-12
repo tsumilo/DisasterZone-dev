@@ -65,6 +65,37 @@ function Games:GetData(id)
     return t
 end
 
+-- A game's saved table, read only: nothing is created (the hub's posters and the login checks look without writing).
+-- Without saved data: a shared empty table (never write into it).
+local EMPTY = {}
+function Games:PeekData(id)
+    local db = ns.db
+    local t = db and type(db.games) == "table" and db.games[id]
+    return type(t) == "table" and t or EMPTY
+end
+
+---------------------------------------------------------------------------
+-- The wire: every game message goes on the "game" class
+---------------------------------------------------------------------------
+
+local wireVersion = {}   -- id -> the version stamped on every message of that id (msg.v)
+
+-- From now on every Games:Send(id, ...) stamps msg.v = v (nil: messages keep their own v, if any).
+function Games:SetWireVersion(id, v) wireVersion[id] = v end
+
+-- Sends msg (a table with t) on the games' class: dist "WHISPER" (to = the player's key), "GUILD", "RAID", "PARTY".
+-- id: the game (or a part of one) whose wire version is stamped on msg. Returns what ns.Comm:Send returns (false
+-- when it cannot go: no Comm, a whisper without a target, guild talk out of a guild).
+function Games:Send(id, msg, dist, to)
+    local comm = ns.Comm
+    if not comm or type(msg) ~= "table" then return false end
+    if dist == "WHISPER" and not to then return false end
+    if dist == "GUILD" and not (IsInGuild and IsInGuild()) then return false end
+    local v = wireVersion[id]
+    if v ~= nil then msg.v = v end
+    return comm:Send(msg, dist, to, "game")
+end
+
 -- Records a score; returns true when it is a new personal best.
 function Games:SubmitScore(id, score)
     score = tonumber(score)

@@ -138,10 +138,6 @@ local function SeasonRow(key)
     return row
 end
 
-local function ShortName(key)
-    return (type(key) == "string" and key:match("^([^%-]+)")) or tostring(key)
-end
-
 local function Evaluate()
     local g = Bingo:GetGame()
     if not g then return end
@@ -163,16 +159,16 @@ local function Evaluate()
             row.bingos = row.bingos + 1
             if #g.winners == 1 then
                 row.firsts = row.firsts + 1
-                Announce(ShortName(key) .. " got the first BINGO!")
+                Announce(Util.ShortName(key, true) .. " got the first BINGO!")
             else
-                Announce(ShortName(key) .. " got BINGO! (#" .. #g.winners .. ")")
+                Announce(Util.ShortName(key, true) .. " got BINGO! (#" .. #g.winners .. ")")
             end
             if key == me then PlaySound(SOUNDKIT and SOUNDKIT.READY_CHECK or 8960) end
         end
         if marked >= ns.BingoCard.CELLS and not aw.black then
             aw.black = true
             SeasonRow(key).blackouts = SeasonRow(key).blackouts + 1
-            Announce(ShortName(key) .. " filled the whole card. BLACKOUT!")
+            Announce(Util.ShortName(key, true) .. " filled the whole card. BLACKOUT!")
         end
         g.awarded[key] = aw
     end
@@ -202,7 +198,7 @@ local function Broadcast()
     local ch = GroupChannel()
     if not g or not ch or not ns.Comm then return end
     local who = type(g.who) == "table" and next(g.who) and g.who or nil
-    ns.Comm:Send({ t = "BG", g = g.id, s = g.started, h = HitList(g), w = who, e = g.ended or nil }, ch, nil, "game")
+    ns.Games:Send(GAME_ID, { t = "BG", g = g.id, s = g.started, h = HitList(g), w = who, e = g.ended or nil }, ch)
 end
 
 local function Changed()
@@ -234,7 +230,7 @@ local function OnBG(sender, msg)
         if not rank or rank < 1 or msg.e then return end
         g = { id = msg.g, host = sender, started = tonumber(msg.s) or time(), hits = {} }
         d.current = g
-        ns:Print("%s started Council Bingo! Type |cffffd100/dz bingo|r to see your card.", ShortName(sender))
+        ns:Print("%s started Council Bingo! Type |cffffd100/dz bingo|r to see your card.", Util.ShortName(sender, true))
     elseif g.host ~= sender then
         return
     end
@@ -280,7 +276,7 @@ function Bingo:Start()
         return false
     end
     local me = Util.PlayerKey()
-    local id = string.format("%s-%d-%d", ShortName(me), time(), math.random(1000, 9999))
+    local id = string.format("%s-%d-%d", Util.ShortName(me, true), time(), math.random(1000, 9999))
     Data().current = { id = id, host = me, started = time(), hits = {} }
     Announce("Council Bingo has started! Type /dz bingo to see your card.")
     Broadcast()
@@ -307,7 +303,7 @@ function Bingo:Stop()
     local g = self:GetGame()
     if not g or g.ended then return end
     if not self:IsHost() then
-        ns:Print("only %s can end this game.", ShortName(g.host))
+        ns:Print("only %s can end this game.", Util.ShortName(g.host, true))
         return
     end
     g.ended = true
@@ -332,7 +328,7 @@ function Bingo:GetAnnounce() return Data().announce end
 function Bingo:RequestState()
     if not IsInGroup() or not ns.Comm then return end
     if not ns.Comm:RateLimit("bingo.query", 10) then return end
-    ns.Comm:Send({ t = "BGQ" }, GroupChannel(), nil, "game")
+    ns.Games:Send(GAME_ID, { t = "BGQ" }, GroupChannel())
 end
 
 ---------------------------------------------------------------------------

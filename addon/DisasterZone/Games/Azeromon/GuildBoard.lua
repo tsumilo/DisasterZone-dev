@@ -40,7 +40,6 @@ local replyAt = nil
 
 local function Now() return GetTime() end
 local function Clock() return (GetServerTime and GetServerTime()) or (time and time()) or 0 end
-local function ShortName(key) return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key) end
 
 ---------------------------------------------------------------------------
 -- My own summary
@@ -155,7 +154,7 @@ local function Send()
     if not (ns.Comm and IsInGuild and IsInGuild()) or not HasPlayed() then return false end
     local msg = GB:MySummary()
     msg.t = "AZS"
-    local ok = ns.Comm:Send(msg, "GUILD", nil, "game")
+    local ok = ns.Games:Send(G.GAME_ID, msg, "GUILD")
     if ok then dirty, lastSent = false, Now() end
     return ok
 end
@@ -230,7 +229,7 @@ local function OnSummary(sender, msg)
         return
     end
     store[sender] = {
-        name = ShortName(sender), n = n, caught = caught, id = id,
+        name = ns.Util.ShortName(sender, true), n = n, caught = caught, id = id,
         b = Num("b", 0, 99, 0), w = Num("w", 0, 1e6, 0), l = Num("l", 0, 1e6, 0), d = Num("d", 0, 1e6, 0),
         ap = Num("ap", 0, 1e6, 0), done = done, sh = Num("sh", 0, 1e6, 0),
         wk = Num("wk", 0, 1e7, nil), wn = Num("wn", 0, 1e7, 0), ar = Num("ar", 0, 1e4, 0),
@@ -272,7 +271,7 @@ function GB:Query()
     if not (ns.Comm and IsInGuild and IsInGuild()) then return false end
     if Now() - lastQuery < GB.QUERY_EVERY then return false end
     lastQuery = Now()
-    return ns.Comm:Send({ t = "AZQ", v = GB.VERSION }, "GUILD", nil, "game")
+    return ns.Games:Send(G.GAME_ID, { t = "AZQ", v = GB.VERSION }, "GUILD")
 end
 
 ---------------------------------------------------------------------------
@@ -313,7 +312,7 @@ function GB:Entries()
         local s = StoredSave()
         local caught = {}
         for id in pairs(s and type(s.caught) == "table" and s.caught or {}) do if D.species[id] then caught[id] = true end end
-        out[#out + 1] = { key = mine, name = ShortName(mine), me = true, n = m.n, caught = caught, b = m.b,
+        out[#out + 1] = { key = mine, name = ns.Util.ShortName(mine, true), me = true, n = m.n, caught = caught, b = m.b,
                           w = m.w, l = m.l, d = m.d, ap = m.ap, done = m.done, sh = m.sh, wk = m.wk, wn = m.wn,
                           ar = m.ar, id = m.id }
     end
@@ -421,7 +420,7 @@ local NEWS = {
 
 function GB:Announce(kind, sp)
     if not (NEWS[kind] and D.species[sp] and ns.Comm and IsInGuild and IsInGuild()) then return false end
-    return ns.Comm:Send({ t = "AZN", v = GB.VERSION, k = kind, sp = sp }, "GUILD", nil, "game")
+    return ns.Games:Send(G.GAME_ID, { t = "AZN", v = GB.VERSION, k = kind, sp = sp }, "GUILD")
 end
 
 local function OnNews(sender, msg)
@@ -429,7 +428,7 @@ local function OnNews(sender, msg)
     if sender == MyKey() then return end
     local fmt, sp = NEWS[msg.k], D.species[msg.sp]
     if not (fmt and sp) then return end
-    local text = string.format(fmt, ShortName(sender), sp.name)
+    local text = string.format(fmt, ns.Util.ShortName(sender, true), sp.name)
     GB.lastNews = text
     ns:Print("|cffffd200Azeromon:|r %s", text)
     if G.started then G.banner = { text = text, t = 4, total = 4 } end
