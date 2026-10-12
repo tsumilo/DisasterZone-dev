@@ -123,6 +123,9 @@ end
 local function Build()
     Kit = ns.MyLogKit
     frame = UI:CreateWindow("DisasterZoneMeterDetail", "Breakdown", W, H)
+    -- above the main window (CreateWindow makes HIGH windows): the Breakdown / Death recap sits on top, as in 1.3.5
+    frame:SetFrameStrata("DIALOG")
+    frame.content:SetFrameStrata("DIALOG")   -- (what is made in it climbs from there, in the game and the renders)
     local L = UI:CreateLayout("tool", frame.content, { width = W - 10, toolbar = true,
         banner = { size = "tool", art = { "Interface\\Glues\\LoadingScreens\\LoadScreenOutland", 0, 1, 0.3, 0.42 },
                    icon = 134400, title = "?", kicker = "" } })
