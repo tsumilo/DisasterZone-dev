@@ -255,6 +255,7 @@ end
 --   tools    { { icon, title, text, onClick, menu, enabled } ... } 22 px icon buttons at the top right (the "···")
 --   footH    reserve a foot of that height (tabs on the banner's foot): the actions sit above it, the art fades out
 --   width    the width to lay out at while the banner has none (default: S.INNER_W)
+--   subRight a tall banner: px kept free right of the sub line (default 16; under the tools it has the row to itself)
 -- banner:SetTitle / SetSub / SetKicker / SetArt(art, desaturate) / SetIcon / SetPill(kind, text) / SetActions(list) /
 -- SetBack(text, fn) / SetTools(list); banner:Layout() re-lays it out (every setter and a resize do).
 -- Fields: banner.art, .plain, .glow, .shade, .fade, .back (the back link), .kicker, .title, .sub, .pill, .icon (the
@@ -391,6 +392,7 @@ function Banner:SetIcon(icon, opts)
             self.iconStyled = nil
         end
         SetIconTexture(tex, icon, true)
+        tex:Show()                              -- (a caller may have hidden it: UI:ClassIcon of an unknown class)
         if opts then
             self.iconStyled = true
             if opts.display and SetPortraitTextureFromCreatureDisplayID then
@@ -709,7 +711,7 @@ function Banner:Layout()
         self.title:SetWidth(floor(min(UI:TextWidth(self.title), titleRoom) + 1))
     end
     self.kicker:SetWidth(room)
-    self.sub:SetWidth(max(20, W - textX - (m.tall and 16 or rightW)))
+    self.sub:SetWidth(max(20, W - textX - (m.tall and (opts.subRight or 16) or rightW)))
 
     -- the stack: the shown lines, each { text, height, gap before it }
     local lines = {}

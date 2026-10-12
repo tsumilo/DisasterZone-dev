@@ -34,6 +34,7 @@ local HEAD_TEXT_H = 70                  -- the banner's icon and text: the hover
 local HEAD_TEXT_X = 70                  -- where the banner's text starts (after its icon tile)
 local BAN_X = 12                        -- the banner's tools / actions from its right edge (the page banner's)
 local BAN_IN = 14                       -- the banner's inner left margin (the page banner's)
+local META_RIGHT = 4                    -- the meta line runs to the banner's edge (1.3.5: to the card's; its last part is the DZ version)
 local SPEC_Y = 12                       -- the spec chips' row under the meta line
 -- a member's banner fits what it holds: the spec chips and the Whisper button (hero), one of them, or neither (the
 -- icon tile and its two lines); a recipe's keeps the hero height
@@ -1489,7 +1490,7 @@ local function updateDetail(p)
         -- the name up to the tools; the meta line under them has the banner's whole width
         local textX = b.textX or HEAD_TEXT_X
         b:SetTitle(title)
-        if member then b:SetSub(fitParts(b.sub, right.metaParts, cardWidth() - textX - 16)) end
+        if member then b:SetSub(fitParts(b.sub, right.metaParts, cardWidth() - textX - META_RIGHT)) end
         -- the hover area stops short of the buttons, pinned to the card's right edge so it follows resizes
         right.headHit:ClearAllPoints()
         right.headHit:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
@@ -1636,7 +1637,7 @@ function MembersUI:CreatePanel(parent)
     local cards = { selected = state.card }
     for _, c in ipairs(CARDS) do cards[#cards + 1] = { key = c.key, text = c.label } end
     local L = UI:CreateLayout("listdetail", p, { listWidth = LIST_W, bottom = BOTTOM, width = S.PAGE_W,
-        banner = { size = "hero" }, tabs = cards, tabStyle = "underline", onTab = function(key) MembersUI:SetCard(key) end })
+        banner = { size = "hero", subRight = META_RIGHT }, tabs = cards, tabStyle = "underline", onTab = function(key) MembersUI:SetCard(key) end })
     p.layout = L
     local bar = L.toolbar
     bar:SetTabs({ { key = "roster", text = "Roster" }, { key = "recipes", text = "Recipes" }, selected = state.mode },
