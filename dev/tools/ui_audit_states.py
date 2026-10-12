@@ -176,7 +176,15 @@ def close_all(cl):
       end
       __tourRects = nil
       if DisasterZoneWelcomeOffer then DisasterZoneWelcomeOffer:Hide() end
-      if ns.WelcomeTour then ns.WelcomeTour.Progress().seen = true end
+      if ns.WelcomeTour then
+        -- (answered as the game answers it: seen, and my roles known, so no "New role" offers for roles I hold)
+        local p = ns.WelcomeTour.Progress()
+        p.seen = true
+        local ok, roles = pcall(ns.WelcomeTour.Roles, ns.WelcomeTour)
+        if ok and type(roles) == 'table' and type(p.known) == 'table' then
+          for k in pairs(roles) do p.known[k] = true end
+        end
+      end
       if ns.EventBuilder and ns.EventBuilder.StopPractice then pcall(ns.EventBuilder.StopPractice, ns.EventBuilder) end
       if ns.EventLive and ns.EventLive.StopPractice then pcall(ns.EventLive.StopPractice, ns.EventLive) end
       if ns.EventTracker and ns.EventTracker.Hide then pcall(ns.EventTracker.Hide, ns.EventTracker) end

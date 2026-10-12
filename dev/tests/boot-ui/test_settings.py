@@ -438,6 +438,65 @@ def blizzard_settings_entry_opens_the_tab():
 
 
 @case
+def a_page_cards_tooltip_follows_a_right_click_pin():
+    """Blizzard Options > DisasterZone: right-clicking a page card pins / unpins it, and the open tooltip's line says
+    so at once (1.3.5 rebuilt it; it used to keep the old line until the mouse came back)."""
+    w, c = solo("Alice", guild_rank=3, tick=3)
+    install_helpers(c)
+    c.eval("DisasterZoneBlizzardOptions:Hide(); DisasterZoneBlizzardOptions:Show()")
+    w.tick(0.3)
+    card = c.eval("""local found
+      local function walk(f)
+        for _, ch in ipairs({ f:GetChildren() }) do
+          if not found and ch.key == 'atlas' and ch.pill and ch.Layout then found = ch end
+          if not found then walk(ch) end
+        end
+      end
+      walk(DisasterZoneBlizzardOptions)
+      return found""")
+    assert card is not None
+    was = c.eval("return ns.MinimapArc:IsPinned('atlas')") is True
+    c.hover(card)
+
+    def pin_line():
+        return [strip_codes(l[0]) for l in tt_lines(c) if "minimap" in strip_codes(l[0])]
+
+    assert pin_line() == ["Right-click: unpin from the minimap" if was else "Right-click: pin to the minimap"],         pin_line()
+    c.eval("local f = ...; f:GetScript('OnMouseUp')(f, 'RightButton')", card)
+    assert (c.eval("return ns.MinimapArc:IsPinned('atlas')") is True) == (not was)
+    assert pin_line() == ["Right-click: pin to the minimap" if was else "Right-click: unpin from the minimap"],         pin_line()
+    no_errors(w)
+
+
+@case
+def a_council_member_outside_the_guild_roster_keeps_their_class_icon():
+    """Settings > Loot Council: a listed member the guild roster does not know (a raid leader from no guild, a
+    council pick who left) takes their class from my group, as in 1.3.5 (not the unknown player's dark disc)."""
+    w, gm, rai, ann = gm_world()
+    gm_pick(w, gm, ["Bob"])
+    open_settings(gm)
+    res = gm.eval_py("""
+      local key = 'Bob-Thunderstrike'
+      local get = ns.Guild.GetClass
+      ns.Guild.GetClass = function(self, k) if k == key then return nil end return get(self, k) end
+      ns.Util.group = ns.Util.group or {}
+      ns.Util.group[key] = { classFile = 'MAGE' }
+      ns.SettingsUI:Refresh()
+      local out
+      for _, e in ipairs(ns.SettingsUI.cs.members) do
+        if e:IsShown() and e.key == key then
+          local l, t = e.cls:GetTexCoord()
+          local m = CLASS_ICON_TCOORDS.MAGE
+          out = { shown = e.cls:IsShown(), mage = math.abs(l - m[1]) < 1e-6 and math.abs(t - m[3]) < 1e-6 }
+        end
+      end
+      ns.Guild.GetClass = get
+      return out""")
+    assert res == {"shown": True, "mage": True}, res
+    no_errors(w)
+
+
+@case
 def settings_request_sync_when_not_in_guild_does_not_claim_success():
     # Settings > About > "Request sync" is shown to guildless players too; SendHello() refuses (not in a guild)
     # but the button still prints "Sync requested." (/dz sync says "You are not in a guild").

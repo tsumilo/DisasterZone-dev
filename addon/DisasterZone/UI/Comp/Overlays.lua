@@ -84,8 +84,9 @@ end
 --   onClick    a click on the toast itself (same rule)
 --   onClose(toast, reason)  when it goes: "timeout" | "close" (its X) | "click" | "button" | "hide" (UI:HideToast /
 --              :Hide()) - not when it is filled again by its key
---   onShow(toast)  each time it is filled to be shown (at once, later from the queue, or again by its key): a
---              caller's own fields and pieces (toast.slot); the X's tooltip is cleared before (set it here)
+--   onShow(toast)  each time it is filled and on screen (at once, later from the queue, or again by its key): a
+--              caller's own fields and touches (toast.slot pieces, an icon tint); the X's tooltip is cleared
+--              before (set it here)
 --   duration   seconds on screen (12; 0 or false: until it is answered); the time stands still under the mouse
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
@@ -353,7 +354,6 @@ function H.FillToast(t, o)
     UI:AttachTooltip(t.close, nil, nil)
     if o.onFill then H.Safe("Toast onFill", o.onFill, t) end
     t:SetAlpha(1)
-    if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
 end
 
 -- The time on screen and the foot bar (progress or the time left).
@@ -408,6 +408,7 @@ function H.Present(o)
     t:Show()
     t:Raise()
     H.Play(o.sound)
+    if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
     return t
 end
 
@@ -433,6 +434,7 @@ function UI:Toast(o)
         if t then
             H.FillToast(t, o)
             H.Restack()
+            if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
             return t
         end
         for i, q in ipairs(toastQueue) do
@@ -497,6 +499,8 @@ end
 --     window when it is shown), centred on it with the window dimmed under it; on the screen when there is none.
 --     In the dialogs' strata (higher when its window is higher).
 --   opts.cover = true: inside `parent`, covering it (a panel's own sheet, like the Dungeons tab's).
+--   opts.withWindow = true (floating): it goes with its window like a child would: hidden with it (no onClose: not
+--     closed, not answered) and shown again when the window comes back (an offer that waits for the window).
 -- opts: { title, width (460), height (330), onClose(sheet), name (a global name), pill = { kind, text },
 --   ok = text | { text, kind, width, onClick(sheet) } | false, cancel = text | false ("Cancel" with an ok; closes),
 --   foot = text (grey, left of the foot), bg (the cover's fill), rule = false (no hairline under the header) }
@@ -583,7 +587,38 @@ end
 
 local SheetMethods = {}
 
-function SheetMethods:Close() self:Hide() end
+-- A withWindow sheet follows its window (once per window): hidden with it, back with it.
+function H.FollowOwner(sh, owner)
+    local list = owner.dzSheets
+    if not list then
+        list = {}
+        owner.dzSheets = list
+        owner:HookScript("OnHide", function()
+            for _, s in ipairs(list) do
+                if s:IsShown() and s.openOwner == owner then
+                    s.suspended = true
+                    s:Hide()
+                end
+            end
+        end)
+        owner:HookScript("OnShow", function()
+            for _, s in ipairs(list) do
+                if s.suspended then
+                    s.suspended = nil
+                    if s.openOwner == owner then s:Open() end
+                end
+            end
+        end)
+    end
+    for _, s in ipairs(list) do if s == sh then return end end
+    list[#list + 1] = sh
+end
+
+-- (also one waiting for its window to come back: it stays closed)
+function SheetMethods:Close()
+    self.suspended = nil
+    self:Hide()
+end
 function SheetMethods:IsOpen() return self:IsShown() end
 function SheetMethods:SetTitle(text)
     self.title:SetText(text or "")
@@ -637,6 +672,8 @@ function SheetMethods:Open()
             self:SetFrameStrata(strata)
         end
         self:ClearAllPoints()
+        self.openOwner, self.suspended = owner, nil
+        if owner and self.withWindow then H.FollowOwner(self, owner) end
         if owner then
             self:SetPoint("CENTER", owner, "CENTER", 0, 0)
             self.dim:ClearAllPoints()
@@ -688,9 +725,12 @@ function UI:CreateSheet(parent, opts)
     sh.onClose = opts.onClose
     sh:Hide()
     H.EscapeCloses(sh, function(self) self:Close() end)
+    sh.withWindow = (not cover and opts.withWindow) and true or nil
     sh:HookScript("OnHide", function(self)
-        if self.dim then self.dim:Hide() end
         for _, eb in ipairs(self.fields or {}) do if eb.ClearFocus then eb:ClearFocus() end end
+        if self.dim then self.dim:Hide() end
+        -- a withWindow sheet hidden with its window (or with the whole UI) is not closed: it comes back
+        if self.withWindow and (self.suspended or self:IsShown()) then return end
         if self.onClose then H.Safe("Sheet onClose", self.onClose, self) end
     end)
     if opts.pill then sh:SetPill(opts.pill[1] or opts.pill.kind, opts.pill[2] or opts.pill.text) end

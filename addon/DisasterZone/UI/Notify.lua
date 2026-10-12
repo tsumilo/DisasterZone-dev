@@ -658,8 +658,6 @@ local function ShowToast(it)
     local id = it.id
     toastId = id
     N():MarkShown(id)
-    local waiting = 0
-    for _, q in ipairs(queue) do if Alive(q) then waiting = waiting + 1 end end
     local buttons = {}
     local acts = N():GetActions(id)
     if #acts == 0 and it.needsYou then
@@ -678,7 +676,17 @@ local function ShowToast(it)
         buttons[#buttons + 1] = later
     end
     local kicker = Kicker(def, it)
-    local t = UI():Toast({
+    -- (our touches once it is on screen, also when it first waited behind other features' toasts)
+    local function Decorate(t)
+        SetKindIcon(t.icon, def, it)
+        t.kick:SetText(kicker)                         -- (as it is: the sender's name keeps its colour and case)
+        local n = 0
+        for _, q in ipairs(queue) do if Alive(q) then n = n + 1 end end
+        SetWaiting(t, n)
+        -- (the fields the harness reads: the shared toast's own under the old names)
+        t.kicker, t.x, t.later = t.kick, t.close, later and t.links[1] or nil
+    end
+    UI():Toast({
         key = NotifyUI.TOAST_KEY,
         kind = it.needsYou and "info" or NEWS_KICK,
         icon = UI().ICON_ATLAS, iconSize = 14, iconCoords = UI():IconCoords(UI().ICON.notes),
@@ -689,25 +697,21 @@ local function ShowToast(it)
         -- a click on the card (not a button) opens the item
         onClick = function() N():Open(id) end,
         onClose = OnToastClose,
+        onShow = Decorate,
     })
-    if t then
-        SetKindIcon(t.icon, def, it)
-        t.kick:SetText(kicker)                         -- (as it is: the sender's name keeps its colour and case)
-        SetWaiting(t, waiting)
-        -- (the fields the harness reads: the shared toast's own under the old names)
-        t.kicker, t.x, t.later = t.kick, t.close, later and t.links[1] or nil
-    end
     if N():Wants(it.kind, "sound") then PlayFor(def, it) end
 end
 
 -- The next waiting pop-up (or none): the one shown leaves.
 function NotifyUI:NextToast()
     local t = Shown()
+    advancing = true
     if t then
-        advancing = true
         UI():HideToast(t, "next")
-        advancing = false
+    else
+        UI():HideToast(NotifyUI.TOAST_KEY, "next")     -- (one still waiting behind other toasts leaves the queue)
     end
+    advancing = false
     toastId = nil
     if Quiet() then return end
     while #queue > 0 do
@@ -808,7 +812,8 @@ local function OnChanged()
         NotifyUI:RefreshTray()
         NotifyUI:RefreshPage()
         -- a pop-up for something handled meanwhile goes away
-        if Shown() and toastId and not N():Get(toastId) then NotifyUI:NextToast() end
+        -- (also while it still waits behind other features' toasts)
+        if toastId and not N():Get(toastId) then NotifyUI:NextToast() end
     end)
 end
 

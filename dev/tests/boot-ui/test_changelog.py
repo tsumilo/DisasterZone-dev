@@ -136,6 +136,27 @@ def a_release_shows_highlights_then_one_line_per_section():
 
 
 @case
+def a_release_title_fits_the_banner_whole():
+    """1.3.5 showed every release title whole on one line; the tool banner steps its title down a size before it
+    would cut it with "..." (titleSteps)."""
+    w, c = solo("Rai", guild_rank=3, tick=3)
+    c.slash("/dz changelog")
+    w.tick(0.3)
+    cut = c.eval_py("""local out = {}
+      for _, e in ipairs(ns.CHANGELOG) do
+        ns.ChangelogUI:Select(e.version)
+        local fs = ns.MainFrame:GetPanel('changelog').banner.title
+        local want = ns.UI:SafeText(e.title or '')
+        if fs:GetText() ~= want then out[#out + 1] = { e.version, fs:GetText() } end
+      end
+      return out""")
+    assert not cut, cut
+    # (the mock measures text loosely: the renders (ui_audit --look) are where a cut shows; the steps must be there)
+    assert c.eval("return ns.MainFrame:GetPanel('changelog').banner.opts.titleSteps ~= nil") is True
+    no_errors(w)
+
+
+@case
 def every_line_of_an_old_release_reads_when_opened():
     w, c = solo("Rai", guild_rank=3, tick=3)
     c.slash("/dz changelog")
@@ -343,6 +364,32 @@ def home_chip_opens_the_whats_new_popup():
     c.slash("/dz home")
     w.tick(0.5)
     assert home_chip(c, "What's new") is None, "the chip goes away once read"
+    no_errors(w)
+
+
+@case
+def the_whats_new_popup_goes_and_comes_back_with_the_window():
+    """1.3.5: the pop-up was a child of the main window: closing the window hid it (and its dim) and opening the
+    window showed it again; Later closes it for good."""
+    w, c = solo("Rai", guild_rank=3, tick=3)
+    c.slash("/dz")
+    w.tick(0.5)
+    version = c.eval("return ns.version")
+    c.click(home_chip(c, "What's new in " + version))
+    w.tick(0.3)
+    vis = "return ns.ChangelogPopup:IsVisible(), ns.ChangelogPopup.dim:IsVisible()"
+    assert c.eval_py("return { %s }" % vis[7:]) == [True, True]
+    c.eval("ns.MainFrame:Close()")
+    w.tick(0.3)
+    assert c.eval_py("return { %s }" % vis[7:]) in ([False, False], [], None), "nothing left over the screen"
+    c.eval("ns.MainFrame:Open()")
+    w.tick(0.3)
+    assert c.eval_py("return { %s }" % vis[7:]) == [True, True]
+    c.click(c.eval("return ns.ChangelogPopup.later"))
+    c.eval("ns.MainFrame:Close()")
+    c.eval("ns.MainFrame:Open()")
+    w.tick(0.3)
+    assert c.eval("return ns.ChangelogPopup:IsShown()") is False
     no_errors(w)
 
 

@@ -390,6 +390,13 @@ function UI:AttachTooltip(frame, title, lines, opts)
     return frame
 end
 
+-- Builds frame's tooltip (UI:AttachTooltip) again when it is showing for it (what it says changed under the mouse).
+function UI:RefreshTooltip(frame)
+    if frame and frame.cdlTip and GameTooltip:IsShown() and GameTooltip:GetOwner() == frame then
+        TipOnEnter(frame)
+    end
+end
+
 -- A pool of reused frames (rows, chips ...): create(parent, i) makes one when the pool runs short; reset(item)
 -- (optional) runs on each released item. pool:Acquire() -> item, i (shown); pool:ReleaseAll() hides every item;
 -- pool:Each(fn) calls fn(item, i) for the acquired ones; pool:Active() = how many are acquired; pool.items = all made.
