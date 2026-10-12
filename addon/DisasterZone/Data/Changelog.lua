@@ -6,6 +6,21 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.2", date = "13 October 2026", title = "A shot timer for Hunters",
+      sections = {
+          { heading = "Shot timer (Hunters)", area = "class", kind = "new", hi = true, ["for"] = "HUNTER",
+            open = "settings/classtools", lead = "The swing timer's ring, for Auto Shot and Steady Shot.", lines = {
+              "New shot timer for every Hunter spec: the swing timer's ring, timed to your Auto Shot.",
+              "The orange window is when Steady Shot still fits before the next Auto Shot.",
+              "The red end is the next shot's windup: stand still and cast nothing there.",
+              "What to press comes from WoWSims' Hunter rotation, the one the gear sim plays.",
+              "Steady Shot when it fits, else Multi-Shot, else Arcane Shot; Kill Command after a crit.",
+              "Haste is read live: quiver, Rapid Fire, Bloodlust and haste rating all move the window.",
+              "Aspect hints: Viper when you run dry, Hawk once you have mana again.",
+              "After a fight: Auto Shots on time, clipped (and the time lost) and held by moving.",
+              "Settings > Class tools > Shot timer; /dz shot. Demo mode plays the rotation by itself.",
+          } },
+      } },
     { version = "1.4.1", date = "12 October 2026", title = "Council Bingo, made epic",
       sections = {
           { heading = "Council Bingo: a new card set", area = "games", kind = "new", hi = true, art = "ssc", open = "games",

@@ -60,6 +60,13 @@ local DEFAULTS = {
         swing = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
                   use = { exo = false, cons = false }, consMana = 40,
                   sound = false, mobType = "Demon" },
+        -- Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): every Hunter. style / locked / idle / scale /
+        -- latencyMs / sound as the swing timer's; use.* = the shots the planner may suggest (all on, as in WoWSims'
+        -- rotation); aspects = Viper / Hawk hints, Viper below viperStart %, Hawk again from viperStop %; base =
+        -- the ranged weapon's own speed learned from Steady Shot casts [itemID]; reports / pos are kept here too
+        shot = { enabled = true, style = "bar", locked = true, idle = false, scale = 1, latencyMs = 0,
+                 use = { multi = true, arcane = true, kc = true }, aspects = true, viperStart = 5, viperStop = 25,
+                 sound = false },
         -- Blessings (Core/Blessings.lua, UI/BlessingsBar.lua): paladins. bar "group" (party and raid) | "raid" | "off";
         -- warnMin = a blessing counts as running out this many minutes before it ends; free = anyone may assign
         -- me (Pally Power's Free Assignment); symbols = warn under this many Symbols of Kings; pets = pets count

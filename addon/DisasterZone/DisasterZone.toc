@@ -111,6 +111,7 @@ Core\MeterDemo.lua
 Core\ClassKit.lua
 Core\SwingTimer.lua
 Core\SwingPractice.lua
+Core\ShotTimer.lua
 Core\ClassPlanner.lua
 Core\Blessings.lua
 Core\Totems.lua
@@ -244,6 +245,7 @@ UI\MeterPanels.lua
 UI\MeterDetail.lua
 UI\SwingTimerHUD.lua
 UI\SwingPracticeUI.lua
+UI\ShotTimerHUD.lua
 UI\PlannerWindow.lua
 UI\BlessingsUI.lua
 UI\BarFace.lua

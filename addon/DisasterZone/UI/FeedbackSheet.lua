@@ -50,7 +50,7 @@ local WRAP = { wrap = true }   -- (a wrapped text)
 -- Standalone DisasterZone windows by global name (others: their title, else their name without "DisasterZone").
 local WINDOW_NAMES = {
     DisasterZoneRollFrame = "Roll popup", DisasterZoneDropPanel = "Drop panel", DisasterZoneSessionBar = "Session bar",
-    DisasterZoneSwingTimer = "Swing timer", DisasterZoneRunToast = "Dungeon pop-up",
+    DisasterZoneSwingTimer = "Swing timer", DisasterZoneShotTimer = "Shot timer", DisasterZoneRunToast = "Dungeon pop-up",
     DisasterZoneToast1 = "Pop-up", DisasterZoneToast2 = "Pop-up", DisasterZoneToast3 = "Pop-up",
     DisasterZoneStrategyReminder = "Strategy reminder", DisasterZoneEventTracker = "Event tracker",
 }

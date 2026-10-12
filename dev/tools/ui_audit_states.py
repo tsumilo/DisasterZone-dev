@@ -1187,6 +1187,21 @@ SWING_HUD = ("__MOCK.real_geometry = true; __MOCK.swing_speed = 3.5; "
              "ST:Recent()[i] = { t = 0, kind = k } end; ns.SwingTimerHUD:Update()")
 
 
+# Shot timer (Core/ShotTimer.lua, UI/ShotTimerHUD.lua): Gina as a Hunter with a 3.0 bow at 2.2 s, Hawk up, nothing on
+# cooldown, the last Auto Shot %s s ago.
+SHOT_HUD = ("__MOCK.real_geometry = true; __MOCK.ranged_speed = 2.2; "
+            "local names = { [75] = 'Auto Shot', [34120] = 'Steady Shot', [27021] = 'Multi-Shot', [27019] = 'Arcane Shot', "
+            "[34026] = 'Kill Command', [27044] = 'Aspect of the Hawk', [34074] = 'Aspect of the Viper' }; "
+            "local old = GetSpellInfo; GetSpellInfo = function(x, ...) if names[x] then return names[x] end "
+            "for _, n in pairs(names) do if n == x then return n end end return old(x, ...) end; "
+            "__MOCK.spell_cd = __MOCK.spell_cd or {}; "
+            "for id, n in pairs(names) do __MOCK.known_spells[id] = true; __MOCK.spell_cd[n] = { 0, 0 } end; "
+            "__MOCK.fire('SPELLS_CHANGED'); GetSpellTexture = function() return nil end; "
+            "local ST = ns.ShotTimer; ST.IsMine = function() return true end; ST.Haste = function() return 3.0 / 2.2 end; "
+            "ns.DB:SetSetting('shot.idle', true); ns.DB:SetSetting('shot.style', 'STYLE'); ST:Refresh(); "
+            "ST.state.aspect = 'hawk'; ST.state.auto = true; ST.OnShot(GetTime() - %s); ns.ShotTimerHUD:Update()")
+
+
 # Twist practice: Gina as a Ret paladin with keys on her bars, some lessons done.
 PRACTICE = (SWING_HUD.replace("ST.state.seal = 'soc'; ST.state.last = GetTime() - %s; ST.state.sealExpires = GetTime() + 22; ", "")
             .replace("ns.SwingTimerHUD:Update()", "")
@@ -1719,6 +1734,11 @@ STATES = [
     ("Swing timer - both, in the zone", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "3.13").replace("STYLE", "both"))),
     ("Swing timer - bar, early swing", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "1.2").replace("STYLE", "bar"))),
     ("Swing timer - lane", opened("home", "ns.MainFrame:Close(); " + (SWING_HUD % "2.0").replace("STYLE", "lane"))),
+    ("Settings - Shot timer", demo("ns.SettingsUI:SelectSection('shot')", "settings")),
+    ("Shot timer - both, Steady now", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "0.25").replace("STYLE", "both"))),
+    ("Shot timer - bar, late in the shot", opened("home", "ns.MainFrame:Close(); " + (SHOT_HUD % "1.6").replace("STYLE", "bar"))),
+    ("Shot timer - demo beside the swing timer", demo("ns.MainFrame:Close(); ns.DB:SetSetting('swing.enabled', true); "
+                                                      "ns.DB:SetSetting('shot.style', 'bar')")),
     ("Swing practice - lessons", opened("home", PRACTICE + "__MOCK.fire('SPELLS_CHANGED'); ns.MainFrame:Close(); "
                                         "ns.SwingPracticeUI:Open()")),
     ("Swing practice - in play", practice_play),
