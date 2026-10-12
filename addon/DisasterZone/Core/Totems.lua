@@ -16,6 +16,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Totems.lua", ...) then return
 -- Saved (account wide): db.totems.assign / twist / es / hero / boss.
 local addonName, ns = ...
 
+-- The shared parts (store, send queue, permissions, roster scan, report, lifecycle, demo swap, /dz totems) are the
+-- class planner's (Core/ClassPlanner.lua); this file keeps the shaman's plan, ShamanPower's messages, the auto-assign,
+-- the raid groups and the bosses.
 local Totems = ns:NewModule("Totems")
 local Util = ns.Util
 local D = ns.ClassData.SHAMAN
@@ -28,10 +31,15 @@ local wipe = wipe or function(t) for k in pairs(t) do t[k] = nil end return t en
 
 local PREFIX = "SHPWR"
 local NEL = 4
-local SEND_DELAY = 0.8
 local BOSS_PER_MSG = 5
 
-Totems.PREFIX = PREFIX
+local P = ns.ClassPlanner:Define(Totems, {
+    class = "SHAMAN", isClass = "IsShaman", records = "shamans", prefix = PREFIX, setting = "totems",
+    event = "TOTEMS_CHANGED", tag = "dz-totem", ui = "TotemsUI", storeAtLogin = true, skipSpellsInDemo = true,
+    kit = { key = "totems", label = "Totems", class = "SHAMAN", order = 10, icon = 8512 },
+    slash = "totems", slashHelp = "Shaman totem planner (report | auto | unlock | lock)",
+    noneToAssign = "You can't assign any shaman here.",
+})
 Totems.D = D
 
 -- spell id -> { element, index }, for every totem
@@ -43,10 +51,9 @@ Totems.BY_ID = BY_ID
 
 Totems.shamans = {}              -- [wire name] = shaman record (see NewShaman)
 
-local demo                       -- demo mode's made-up raid (BuildDemo), in memory only
-
--- (created at login, so turning demo mode on and off leaves the saved data as it was)
-local function RealDB()
+-- the saved store (created at login, so turning demo mode on and off leaves the saved data as it was; demo mode's
+-- made-up raid, P.demo, keeps its own in memory: Totems.Store() picks)
+function P.realStore()
     local db = ns.db
     if not db then return nil end
     db.totems = db.totems or {}
@@ -59,60 +66,12 @@ local function RealDB()
     return t
 end
 
-local function DB()
-    if demo and Totems:IsDemo() then return demo.store end
-    return RealDB()
-end
-Totems.Store = DB
-
-local function Setting(path, default)
-    local v = ns.DB and ns.DB:GetSetting("totems." .. path)
-    if v == nil then return default end
-    return v
-end
-Totems.Setting = Setting
-
-local changedQueued = false
-local function Changed()
-    if changedQueued then return end
-    changedQueued = true
-    local function fire()
-        changedQueued = false
-        ns:Fire("TOTEMS_CHANGED")
-    end
-    if C_Timer and C_Timer.After then C_Timer.After(0, fire) else fire() end
-end
-Totems.Changed = Changed
+local DB, Setting, Changed = Totems.Store, Totems.Setting, Totems.Changed
+local Wire, Queue, MayEdit = Totems.Wire, Totems.Queue, Totems.MayEdit
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Names, spells
+-- Names, spells (Wire, Me, IsShaman, IsDemo, InGroup: the class planner's)
 -- ---------------------------------------------------------------------------------------------------------------
--- A player's name as ShamanPower sends it: Name on my realm, Name-Realm otherwise.
-local function Wire(nameOrKey)
-    local key = Util.NormalizeName(nameOrKey)
-    return key and Util.ShortName(key) or nil
-end
-Totems.Wire = Wire
-
-function Totems:Me()
-    local k = Util.PlayerKey()
-    return k and Util.ShortName(k) or nil
-end
-
-function Totems:IsDemo()
-    return ns.ClassKit and ns.ClassKit:IsDemo() or false
-end
-
-function Totems:IsShaman()
-    if self:IsDemo() then return true end
-    local _, cls = UnitClass("player")
-    return cls == "SHAMAN"
-end
-
-function Totems:InGroup()
-    return self:IsDemo() or IsInGroup()
-end
-
 function Totems:Totem(el, idx)
     local list = D.TOTEMS[el]
     return list and list[idx] or nil
@@ -214,6 +173,7 @@ local function PlanSpec(name, cls)
 end
 
 function Totems:SpecOf(name)
+    local demo = P.demo
     if self:IsDemo() and demo and demo.specs[name] then return demo.specs[name] end
     if name == self:Me() then
         local mine = ns.ClassKit and ns.ClassKit:MySpecs()
@@ -280,68 +240,8 @@ function Totems:Shamans(roster)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The group
+-- The group (IsLeader, AmLeader, LeaderName, CanEdit, CanEditAny: the class planner's)
 -- ---------------------------------------------------------------------------------------------------------------
-local function InInstanceGroup()
-    return LE_PARTY_CATEGORY_INSTANCE and IsInGroup and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance
-        and IsInInstance() and true or false
-end
-
-function Totems:IsLeader(name)
-    if self:IsDemo() then return name ~= nil and name == self:Me() end
-    if not name or InInstanceGroup() then return false end
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local n, rank = GetRaidRosterInfo(i)
-            if n and Wire(n) == name then return (rank or 0) > 0 end
-        end
-        return false
-    end
-    if name == self:Me() then return UnitIsGroupLeader("player") and true or false end
-    for i = 1, 4 do
-        local u = "party" .. i
-        if UnitExists(u) and Wire(GetUnitName(u, true)) == name then return UnitIsGroupLeader(u) and true or false end
-    end
-    return false
-end
-
-function Totems:AmLeader() return self:IsLeader(self:Me()) end
-
-function Totems:LeaderName()
-    if self:IsDemo() then return self:Me() end
-    if not IsInGroup() then return nil end
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local n, rank = GetRaidRosterInfo(i)
-            if n and rank == 2 then return Wire(n) end
-        end
-        return nil
-    end
-    if UnitIsGroupLeader("player") then return self:Me() end
-    for i = 1, 4 do
-        local u = "party" .. i
-        if UnitExists(u) and UnitIsGroupLeader(u) then return Wire(GetUnitName(u, true)) end
-    end
-    return nil
-end
-
-function Totems:CanEdit(name)
-    if not name then return false end
-    if self:IsDemo() then return true end
-    if name == self:Me() then return true end
-    local s = self.shamans[name]
-    if InInstanceGroup() then return s and s.free or false end
-    if Util.IsPlayerLeaderOrAssist() and IsInGroup() then return true end
-    return s and s.free or false
-end
-
-function Totems:CanEditAny()
-    for name in pairs(self.shamans) do
-        if self:CanEdit(name) then return true end
-    end
-    return false
-end
-
 -- May I move players between raid groups (leader or assistant, in a raid, out of combat)?
 function Totems:CanMove()
     if self:IsDemo() then return true end
@@ -355,6 +255,7 @@ local CLASS_ROLE = { WARRIOR = "melee", ROGUE = "melee", HUNTER = "ranged", MAGE
 local function RoleOf(m)
     if m.tank then return "tank" end
     local spec
+    local demo = P.demo
     if Totems:IsDemo() and demo then spec = demo.specs[m.name] end
     if not spec and m.class == "SHAMAN" then spec = Totems:SpecOf(m.name) end
     if not spec then spec = PlanSpec(m.name, m.class) end
@@ -365,31 +266,9 @@ Totems.RoleOf = RoleOf
 
 -- Group members (no pets): { unit, name, class, subgroup, level, tank, role, online, dead }, in roster order.
 function Totems:Roster()
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.roster end
-    local out = {}
-    local function add(unit, subgroup, rrole)
-        if not UnitExists(unit) then return end
-        local cls = UnitClassBase and UnitClassBase(unit) or select(2, UnitClass(unit))
-        local name = GetUnitName(unit, true)
-        if not (cls and name) then return end
-        local m = { unit = unit, name = Wire(name) or name, class = cls, subgroup = subgroup or 1,
-            level = UnitLevel(unit) or 70, tank = rrole == "MAINTANK" or nil,
-            online = UnitIsConnected(unit) and true or false, dead = UnitIsDeadOrGhost(unit) and true or false }
-        if not m.tank and UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) == "TANK" then m.tank = true end
-        out[#out + 1] = m
-    end
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local _, _, subgroup, _, _, _, _, _, _, rrole = GetRaidRosterInfo(i)
-            add("raid" .. i, subgroup, rrole)
-            if out[#out] and out[#out].unit == "raid" .. i then out[#out].raidIndex = i end
-        end
-    else
-        add("player", 1)
-        if IsInGroup() then
-            for i = 1, 4 do add("party" .. i, 1) end
-        end
-    end
+    local out = self:ScanRoster(false)
     for _, m in ipairs(out) do m.role = RoleOf(m) end
     return out
 end
@@ -591,30 +470,7 @@ local function SetBossRaw(bossKey, name, el, idx, alt)
     if not next(b) then s.boss[bossKey] = nil end
 end
 
--- Edits (permission checked, sent to the group a moment later)
-local pending, pendingOrder, flushQueued = {}, {}, false
-
-local function Flush()
-    flushQueued = false
-    local list = pendingOrder
-    pendingOrder = {}
-    for _, k in ipairs(list) do
-        local msg = pending[k]
-        pending[k] = nil
-        if msg then Totems:SendRaw(msg) end
-    end
-end
-Totems.Flush = Flush
-
-local function Queue(k, msg)
-    if not pending[k] then pendingOrder[#pendingOrder + 1] = k end
-    pending[k] = msg
-    if not flushQueued then
-        flushQueued = true
-        if C_Timer and C_Timer.After then C_Timer.After(SEND_DELAY, Flush) else Flush() end
-    end
-end
-
+-- Edits (permission checked, sent to the group a moment later: Queue)
 function Totems:SetAssign(name, el, idx)
     if not self:CanEdit(name) or not D.TOTEMS[el] then return false end
     idx = (idx and idx > 0 and D.TOTEMS[el][idx]) and idx or 0
@@ -675,7 +531,7 @@ function Totems:Apply(plan)
                 for el = 1, NEL do
                     SetAssignRaw(name, el, row[el])
                     chars[el] = (row[el] and row[el] > 0) and tostring(row[el]) or "n"
-                    pending["A" .. name .. el] = nil
+                    Totems.Unqueue("A" .. name .. el)
                 end
                 Queue("P" .. name, "PASSIGN " .. name .. "@" .. tconcat(chars))
             end
@@ -982,6 +838,7 @@ end
 
 -- Does unit carry the buff of totem (el, idx)?
 function Totems:HasTotemBuff(unit, el, idx)
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.hasBuff(unit, el, idx) end
     local want = AuraName(el, idx)
     if not (want and UnitAura) then return false end
@@ -1015,6 +872,7 @@ end
 
 -- Earth Shield on target: charges left (0 when missing), and who cast it.
 function Totems:ESCharges(target)
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.esCharges(target) end
     if not target then return 0 end
     local unit
@@ -1033,6 +891,7 @@ end
 
 -- My own totem in an element's slot: name, start, duration (nil when none is down).
 function Totems:MyTotem(el)
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.myTotem(el) end
     if not GetTotemInfo then return nil end
     local have, name, start, duration = GetTotemInfo(D.ELEMENTS[el].slot)
@@ -1043,6 +902,7 @@ end
 -- When I last dropped Windfury (the twist ring counts from it).
 Totems.wfAt = nil
 function Totems:WindfuryLeft()
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.wfLeft() end
     if not self.wfAt then return nil end
     local left = D.TWIST_WINDOW - (GetTime() - self.wfAt)
@@ -1091,45 +951,11 @@ function Totems:ReportLines()
     return lines
 end
 
-function Totems:Report()
-    if self:IsDemo() then
-        for _, line in ipairs(self:ReportLines()) do ns:Print("(demo) %s", line) end
-        return true
-    end
-    if not IsInGroup() then return false end
-    local chan = IsInRaid() and "RAID" or "PARTY"
-    if InInstanceGroup() then chan = "INSTANCE_CHAT" end
-    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    for _, line in ipairs(self:ReportLines()) do send(line, chan) end
-    return true
-end
+-- (Report: the class planner's, these lines to the raid or party chat)
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Wire (ShamanPower's protocol)
+-- Wire (ShamanPower's protocol; Channel, SendRaw, QueueSelf, MayEdit, OnMessage: the class planner's)
 -- ---------------------------------------------------------------------------------------------------------------
-function Totems:Channel()
-    if InInstanceGroup() then return "INSTANCE_CHAT" end
-    if IsInRaid() then return "RAID" end
-    if IsInGroup() then return "PARTY" end
-    return nil
-end
-
-function Totems:SendRaw(msg, target)
-    if self:IsDemo() then return false end
-    local chan = target and "WHISPER" or self:Channel()
-    if not chan then return false end
-    if #msg > 255 then msg = strsub(msg, 1, 255) end
-    local CTL = _G.ChatThrottleLib
-    if CTL and CTL.SendAddonMessage then
-        CTL:SendAddonMessage("NORMAL", PREFIX, msg, chan, target)
-    elseif C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        C_ChatInfo.SendAddonMessage(PREFIX, msg, chan, target)
-    else
-        return false
-    end
-    return true
-end
-
 -- "SELF <known earth>|<fire>|<water>|<air>|@<4 assignment chars>#<has ES 0/1>:<ES target>$<free 0/1>"
 function Totems:EncodeSelf()
     local me = self:Me()
@@ -1188,27 +1014,8 @@ function Totems:SendSelf(target)
     end
 end
 
-local selfQueued = false
-function Totems:QueueSelf()
-    if selfQueued then return end
-    selfQueued = true
-    local function go()
-        selfQueued = false
-        Totems:SendSelf()
-    end
-    if C_Timer and C_Timer.After then C_Timer.After(1 + math.random() * 2, go) else go() end
-end
-
-local function MayEdit(sender, name)
-    if not name or name == "" then return false end
-    if name == sender then return true end
-    if Totems:IsLeader(sender) then return true end
-    local s = Totems.shamans[name]
-    return s and s.free or false
-end
-Totems.MayEdit = MayEdit
-
 local HANDLERS = {}
+P.handlers = HANDLERS
 
 HANDLERS.SELF = function(sender, msg)
     local knownPart, rest = strmatch(msg, "^SELF ([^@]*)@(.*)$")
@@ -1324,22 +1131,6 @@ HANDLERS.DZBOSS = function(sender, msg)
     Changed()
 end
 
-function Totems:OnMessage(text, channel, senderFull)
-    if type(text) ~= "string" or type(senderFull) ~= "string" then return end
-    if channel ~= "RAID" and channel ~= "PARTY" and channel ~= "INSTANCE_CHAT" and channel ~= "WHISPER" then return end
-    local key = Util.NormalizeName(senderFull)
-    if not key or Util.IsMe(key) then return end
-    if not Util.IsInMyGroup(key) then return end
-    local sender = Util.ShortName(key)
-    local kind = strmatch(text, "^(%u+)")
-    if kind == "REQ" then
-        if Totems:IsShaman() or Totems:AmLeader() then Totems:QueueSelf() end
-        return
-    end
-    local fn = kind and HANDLERS[kind]
-    if fn then fn(sender, text) end
-end
-
 -- ---------------------------------------------------------------------------------------------------------------
 -- Demo mode: the mockup's 25-man Serpentshrine raid. Four shamans, me as the Enhancement one (leading, twisting),
 -- group 4 (hunters) has no shaman, Sunniva stands out of Mana Spring's range, Earth Shield on Caelith runs low,
@@ -1443,93 +1234,19 @@ local function BuildDemo()
     d.manaTide = function() return d.started - 120, 300 end
     return d
 end
-
-local realShamans
-function Totems:OnDemoToggled(on)
-    if on then
-        demo = BuildDemo()
-        realShamans = realShamans or self.shamans
-        self.shamans = demo.shamans
-    else
-        if realShamans then self.shamans = realShamans end
-        realShamans, demo = nil, nil
-    end
-    Changed()
-end
-
-function Totems:DemoState() return demo end
+P.buildDemo = BuildDemo
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Group changes
+-- Group changes and login (PruneRoster, Hello, OnGroupLeft, OnLogin, the class tool and /dz totems: the class
+-- planner's)
 -- ---------------------------------------------------------------------------------------------------------------
-function Totems:PruneRoster()
-    local here = {}
-    for _, m in ipairs(self:Roster()) do here[m.name] = true end
-    local me = self:Me()
-    local changed = false
-    for name in pairs(self.shamans) do
-        if name ~= me and not here[name] then
-            self.shamans[name] = nil
-            changed = true
-        end
-    end
-    if changed then Changed() end
+-- Leaving the group: rows of shamans who are not me or in my guild go.
+function P.forget(s, name)
+    s.assign[name], s.twist[name], s.es[name], s.hero[name] = nil, nil, nil, nil
 end
 
-local function Hello(force)
-    if Totems:IsDemo() or not IsInGroup() then return end
-    Totems:SendSelf()
-    local planner = ns.TotemsUI and ns.TotemsUI:IsShown()
-    if force or planner or Totems:IsShaman() or Util.IsPlayerLeaderOrAssist() then Totems:SendRaw("REQ") end
-end
-Totems.Hello = Hello
-
-function Totems:OnGroupLeft()
-    local me = self:Me()
-    local s = DB()
-    for name in pairs(self.shamans) do
-        if name ~= me then self.shamans[name] = nil end
-    end
-    -- (rows of shamans who are not me or in my guild go)
-    for name in pairs(s.assign) do
-        local key = Util.NormalizeName(name)
-        local guildie = key and ns.Guild and ns.Guild.IsInGuild and ns.Guild:IsInGuild(key)
-        if name ~= me and not guildie then
-            s.assign[name], s.twist[name], s.es[name], s.hero[name] = nil, nil, nil, nil
-        end
-    end
-    Changed()
-end
-
-function Totems:OnLogin()
-    RealDB()
-    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then C_ChatInfo.RegisterAddonMessagePrefix(PREFIX) end
-    ns:RegisterEvent("CHAT_MSG_ADDON", function(_, prefix, text, channel, sender)
-        if prefix == PREFIX then Totems:OnMessage(text, channel, sender) end
-    end)
-    if self:IsShaman() then self:ScanSelf() end
-    ns:On("DEMO_TOGGLED", function(on) Totems:OnDemoToggled(on) end)
-    if self:IsDemo() then self:OnDemoToggled(true) end
-    local wasInGroup = IsInGroup()
-    ns:RegisterEvent("GROUP_ROSTER_UPDATE", function()
-        local now = IsInGroup()
-        if now and not wasInGroup then
-            if C_Timer then C_Timer.After(2 + math.random() * 2, Hello) else Hello() end
-        elseif not now and wasInGroup then
-            Totems:OnGroupLeft()
-        end
-        wasInGroup = now
-        if now then Util.Debounce("dz-totem-prune", 0.5, function() Totems:PruneRoster() end) end
-        Changed()
-    end)
-    ns:RegisterEvent("SPELLS_CHANGED", function()
-        if not Totems:IsShaman() or Totems:IsDemo() then return end
-        Util.Debounce("dz-totem-spells", 1, function()
-            if Totems:ScanSelf() then Totems:SendSelf() end
-            Changed()
-        end)
-    end)
-    -- my Windfury drops (the twist clock)
+-- (after the shared events: my Windfury drops (the twist clock), the boss fight)
+function P.onLogin()
     ns:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellId)
         if unit ~= "player" then return end
         local t = spellId and BY_ID[spellId]
@@ -1546,35 +1263,4 @@ function Totems:OnLogin()
         end
     end)
     ns:RegisterEvent("ENCOUNTER_END", function() encounterBoss = nil end)
-    ns:On("SETTINGS_CHANGED", function(path)
-        if path == "totems.free" and Totems:IsShaman() then
-            Totems:ScanSelf()
-            local s = Totems.shamans[Totems:Me()]
-            if s then Totems:SendRaw("FREEASSIGN " .. (s.free and "YES" or "NO")) end
-            Changed()
-        elseif type(path) == "string" and path:find("^totems") then
-            Changed()
-        end
-    end)
-    if IsInGroup() then
-        if C_Timer then C_Timer.After(6 + math.random() * 6, Hello) else Hello() end
-    end
 end
-
--- ---------------------------------------------------------------------------------------------------------------
--- The class tool and /dz totems
--- ---------------------------------------------------------------------------------------------------------------
-ns.ClassKit:Register({ key = "totems", label = "Totems", class = "SHAMAN", order = 10, icon = 8512 })
-
-ns:RegisterSlash("totems", function(rest)
-    rest = (rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-    if rest == "report" then
-        if not Totems:Report() then ns:Print("Not in a group.") end
-    elseif rest == "auto" then
-        if not Totems:AutoAssign() then ns:Print("You can't assign any shaman here.") end
-    elseif rest == "unlock" or rest == "lock" then
-        ns.DB:SetSetting("totems.locked", rest == "lock")
-    elseif ns.TotemsUI then
-        ns.TotemsUI:Toggle()
-    end
-end, "Shaman totem planner (report | auto | unlock | lock)")

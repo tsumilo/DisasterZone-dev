@@ -16,21 +16,29 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Blessings.lua", ...) then ret
 -- Saved (account wide, as Pally Power): db.blessings.assign / single / aura, kept over a /reload, and the presets.
 local addonName, ns = ...
 
+-- The shared parts (store, send queue, permissions, roster scan, report, lifecycle, demo swap, /dz bless) are the
+-- class planner's (Core/ClassPlanner.lua); this file keeps the paladin's plan, Pally Power's messages and the
+-- auto-assign.
 local Blessings = ns:NewModule("Blessings")
 local Util = ns.Util
 local D = ns.ClassData.PALADIN
 
-local type, pairs, ipairs, tonumber, tostring, select, next = type, pairs, ipairs, tonumber, tostring, select, next
+local type, pairs, ipairs, tonumber, tostring, next = type, pairs, ipairs, tonumber, tostring, next
 local floor, max, min = math.floor, math.max, math.min
 local strformat, strsub, strmatch, strfind, gmatch = string.format, string.sub, string.match, string.find, string.gmatch
 local tinsert, tconcat, tsort, wipe = table.insert, table.concat, table.sort, wipe or function(t) for k in pairs(t) do t[k] = nil end return t end
 
 local PREFIX = "PLPWR"
 local NCLASS, NGREATER, NBLESS, NAURA = #D.CLASSES, D.GREATER_MAX, #D.BLESSINGS, #D.AURAS
-local SEND_DELAY = 0.8           -- edits go out this long after the last click on the same cell (Pally Power: 2 s)
 local NASSIGN_PER_MSG = 5
 
-Blessings.PREFIX = PREFIX
+local P = ns.ClassPlanner:Define(Blessings, {
+    class = "PALADIN", isClass = "IsPaladin", records = "pals", prefix = PREFIX, setting = "bless",
+    event = "BLESSINGS_CHANGED", tag = "dz-bless", ui = "BlessingsUI",
+    kit = { key = "bless", label = "Blessings", class = "PALADIN", order = 10, icon = 25898 },
+    slash = "bless", slashHelp = "Paladin blessings planner (report | auto | unlock | lock)",
+    noneToAssign = "You can't assign any paladin here.",
+})
 Blessings.D = D
 
 -- A blessing (n = NGREATER / NBLESS) or aura (NAURA) number as one: 1..n, else nil. Pally Power messages carry plain
@@ -58,10 +66,8 @@ Blessings.BLESS_BY_ID, Blessings.AURA_BY_ID = BLESS_BY_ID, AURA_BY_ID
 Blessings.pals = {}              -- [wire name] = paladin record (see NewPal)
 Blessings.ppLeader = false       -- a leader of the group announced Pally Power (PPLEADER)
 
-local demo                       -- demo mode's made-up raid (BuildDemo), in memory only
-
-local function DB()
-    if demo and Blessings:IsDemo() then return demo.store end
+-- the saved store (demo mode's made-up raid, P.demo, keeps its own in memory: Blessings.Store() picks)
+function P.realStore()
     local db = ns.db
     if not db then return nil end
     db.blessings = db.blessings or {}
@@ -72,59 +78,14 @@ local function DB()
     b.presets = b.presets or {}
     return b
 end
-Blessings.Store = DB
 
-local function Setting(path, default)
-    local v = ns.DB and ns.DB:GetSetting("bless." .. path)
-    if v == nil then return default end
-    return v
-end
-Blessings.Setting = Setting
-
-local changedQueued = false
-local function Changed()
-    if changedQueued then return end
-    changedQueued = true
-    local function fire()
-        changedQueued = false
-        ns:Fire("BLESSINGS_CHANGED")
-    end
-    if C_Timer and C_Timer.After then C_Timer.After(0, fire) else fire() end
-end
-Blessings.Changed = Changed
+local DB, Setting, Changed = Blessings.Store, Blessings.Setting, Blessings.Changed
+local Wire, Queue, MayEdit = Blessings.Wire, Blessings.Queue, Blessings.MayEdit
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Names, spells
+-- Names, spells (Wire, Me, IsPaladin, IsDemo, InGroup: the class planner's; demo mode is a made-up 25-man raid with
+-- four paladins, me one of them and leading)
 -- ---------------------------------------------------------------------------------------------------------------
--- A player's name as Pally Power sends it: Name on my realm, Name-Realm otherwise.
-local function Wire(nameOrKey)
-    local key = Util.NormalizeName(nameOrKey)
-    return key and Util.ShortName(key) or nil
-end
-Blessings.Wire = Wire
-
-function Blessings:Me()
-    local k = Util.PlayerKey()
-    return k and Util.ShortName(k) or nil
-end
-
-function Blessings:IsPaladin()
-    if self:IsDemo() then return true end
-    local _, cls = UnitClass("player")
-    return cls == "PALADIN"
-end
-
--- Demo mode (Core/Demo.lua): a made-up 25-man raid with four paladins, me one of them and leading. Edits stay in
--- memory; nothing is sent, scanned or cast.
-function Blessings:IsDemo()
-    return ns.ClassKit and ns.ClassKit:IsDemo() or false
-end
-
--- In a group (or the demo's raid)?
-function Blessings:InGroup()
-    return self:IsDemo() or IsInGroup()
-end
-
 local function SpellName(id)
     local n = GetSpellInfo and GetSpellInfo(id)
     return n
@@ -281,6 +242,7 @@ end
 -- The spec a paladin plays, best guess: mine from my talents, others from the raid plan, else from what their
 -- blessings say (Sanctuary = Protection, Improved Might 3+ = Retribution, else Holy).
 function Blessings:SpecOf(name)
+    local demo = P.demo
     if self:IsDemo() and demo and demo.specs[name] then return demo.specs[name] end
     if name == self:Me() then
         local mine = ns.ClassKit and ns.ClassKit:MySpecs()
@@ -300,111 +262,15 @@ function Blessings:SpecOf(name)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The group
+-- The group (IsLeader, AmLeader, LeaderName, CanEdit, CanEditAny: the class planner's)
 -- ---------------------------------------------------------------------------------------------------------------
-local function InInstanceGroup()
-    return LE_PARTY_CATEGORY_INSTANCE and IsInGroup and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance
-        and IsInInstance() and true or false
-end
-
--- Who leads, as Pally Power counts it: raid leader and assistants in a raid, the party leader in a party, nobody
--- in a battleground.
-function Blessings:IsLeader(name)
-    if self:IsDemo() then return name ~= nil and name == self:Me() end
-    if not name or InInstanceGroup() then return false end
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local n, rank = GetRaidRosterInfo(i)
-            if n and Wire(n) == name then return (rank or 0) > 0 end
-        end
-        return false
-    end
-    if name == self:Me() then return UnitIsGroupLeader("player") and true or false end
-    for i = 1, 4 do
-        local u = "party" .. i
-        if UnitExists(u) and Wire(GetUnitName(u, true)) == name then return UnitIsGroupLeader(u) and true or false end
-    end
-    return false
-end
-
-function Blessings:AmLeader() return self:IsLeader(self:Me()) end
-
--- The leader's name (raid leader or party leader), for "X assigns".
-function Blessings:LeaderName()
-    if self:IsDemo() then return self:Me() end
-    if not IsInGroup() then return nil end
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local n, rank = GetRaidRosterInfo(i)
-            if n and rank == 2 then return Wire(n) end
-        end
-        return nil
-    end
-    if UnitIsGroupLeader("player") then return self:Me() end
-    for i = 1, 4 do
-        local u = "party" .. i
-        if UnitExists(u) and UnitIsGroupLeader(u) then return Wire(GetUnitName(u, true)) end
-    end
-    return nil
-end
-
--- May I change this paladin's assignments?
-function Blessings:CanEdit(name)
-    if not name then return false end
-    if self:IsDemo() then return true end
-    if name == self:Me() then return true end
-    local p = self.pals[name]
-    if InInstanceGroup() then return p and p.free or false end
-    if Util.IsPlayerLeaderOrAssist() and IsInGroup() then return true end
-    return p and p.free or false
-end
-
-function Blessings:CanEditAny()
-    for name in pairs(self.pals) do
-        if self:CanEdit(name) then return true end
-    end
-    return false
-end
-
 -- Group members (and pets): { unit, name, class, ci, subgroup, level, pet, tank, online, dead }, in roster order.
+local function HasColumn(cls) return CLASS_INDEX[cls] ~= nil end
 function Blessings:Roster()
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.roster end
-    local out = {}
-    local pets = Setting("pets", true)
-    local function add(unit, subgroup, role, isPet)
-        if not UnitExists(unit) then return end
-        local cls = UnitClassBase and UnitClassBase(unit) or select(2, UnitClass(unit))
-        local ci = cls and CLASS_INDEX[cls]
-        if not ci then return end
-        local name = GetUnitName(unit, true)
-        if not name then return end
-        out[#out + 1] = { unit = unit, name = Wire(name) or name, class = cls, ci = ci, subgroup = subgroup or 1,
-            level = UnitLevel(unit) or 70, pet = isPet or nil, tank = role == "MAINTANK" or nil,
-            online = UnitIsConnected(unit) and true or false, dead = UnitIsDeadOrGhost(unit) and true or false }
-    end
-    if IsInRaid() then
-        for i = 1, GetNumGroupMembers() do
-            local _, _, subgroup, _, _, _, _, _, _, role = GetRaidRosterInfo(i)
-            add("raid" .. i, subgroup, role)
-            if pets then add("raidpet" .. i, subgroup, nil, true) end
-        end
-    else
-        add("player", 1)
-        if pets then add("pet", 1, nil, true) end
-        if IsInGroup() then
-            for i = 1, 4 do
-                add("party" .. i, 1)
-                if pets then add("partypet" .. i, 1, nil, true) end
-            end
-        end
-    end
-    -- tanks the raid plan or the group roles name too
-    for _, m in ipairs(out) do
-        if not m.tank and not m.pet then
-            local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned(m.unit)
-            if role == "TANK" then m.tank = true end
-        end
-    end
+    local out = self:ScanRoster(Setting("pets", true), HasColumn)
+    for _, m in ipairs(out) do m.ci = CLASS_INDEX[m.class] end
     return out
 end
 
@@ -490,32 +356,7 @@ local function SetAuraRaw(name, ai)
     DB().aura[name] = (ai and ai > 0) and ai or nil
 end
 
--- Edits (permission checked, sent to the group a moment later)
-local pending, pendingOrder, flushQueued = {}, {}, false
-
-local function Flush()
-    flushQueued = false
-    local list = pendingOrder
-    pendingOrder = {}
-    for _, k in ipairs(list) do
-        local msg = pending[k]
-        pending[k] = nil
-        if msg then Blessings:SendRaw(msg) end
-    end
-end
-
--- Queues msg under key k (a later edit of the same cell replaces it).
-local function Queue(k, msg, now)
-    if not pending[k] then pendingOrder[#pendingOrder + 1] = k end
-    pending[k] = msg
-    if now then Flush() return end
-    if not flushQueued then
-        flushQueued = true
-        if C_Timer and C_Timer.After then C_Timer.After(SEND_DELAY, Flush) else Flush() end
-    end
-end
-Blessings.Flush = Flush
-
+-- Edits (permission checked, sent to the group a moment later: Queue)
 function Blessings:SetAssign(name, ci, bi)
     if not self:CanEdit(name) or not D.CLASSES[ci] then return false end
     bi = (bi and bi > 0 and bi <= NGREATER) and bi or 0
@@ -531,7 +372,7 @@ function Blessings:SetRow(name, bi)
     bi = (bi and bi > 0 and bi <= NGREATER) and bi or 0
     for ci = 1, NCLASS do
         SetAssignRaw(name, ci, bi)
-        pending["A" .. name .. ci] = nil
+        Blessings.Unqueue("A" .. name .. ci)
     end
     Queue("M" .. name, strformat("MASSIGN %s %d", name, bi))
     Changed()
@@ -788,6 +629,7 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Seconds left of blessing bi on unit (normal or Greater, any caster), nil when it has none; isGreater.
 function Blessings:BuffLeft(unit, bi)
+    local demo = P.demo
     if self:IsDemo() and demo then return demo.buff(unit, bi) end
     if not UnitAura then return nil end
     for i = 1, 40 do
@@ -867,18 +709,7 @@ function Blessings:ReportLines()
     return lines
 end
 
-function Blessings:Report()
-    if self:IsDemo() then
-        for _, line in ipairs(self:ReportLines()) do ns:Print("(demo) %s", line) end
-        return true
-    end
-    if not IsInGroup() then return false end
-    local chan = IsInRaid() and "RAID" or "PARTY"
-    if InInstanceGroup() then chan = "INSTANCE_CHAT" end
-    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    for _, line in ipairs(self:ReportLines()) do send(line, chan) end
-    return true
-end
+-- (Report: the class planner's, these lines to the raid or party chat)
 
 function Blessings:Presets()
     local out = {}
@@ -927,31 +758,8 @@ function Blessings:PresetSuggestion()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Wire (Pally Power's protocol)
+-- Wire (Pally Power's protocol; Channel, SendRaw, QueueSelf, MayEdit, OnMessage: the class planner's)
 -- ---------------------------------------------------------------------------------------------------------------
-function Blessings:Channel()
-    if InInstanceGroup() then return "INSTANCE_CHAT" end
-    if IsInRaid() then return "RAID" end
-    if IsInGroup() then return "PARTY" end
-    return nil
-end
-
-function Blessings:SendRaw(msg, target)
-    if self:IsDemo() then return false end
-    local chan = target and "WHISPER" or self:Channel()
-    if not chan then return false end
-    if #msg > 255 then msg = strsub(msg, 1, 255) end
-    local CTL = _G.ChatThrottleLib     -- (comes with AceComm-3.0)
-    if CTL and CTL.SendAddonMessage then
-        CTL:SendAddonMessage("NORMAL", PREFIX, msg, chan, target)
-    elseif C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        C_ChatInfo.SendAddonMessage(PREFIX, msg, chan, target)
-    else
-        return false
-    end
-    return true
-end
-
 -- "SELF <6 x rank+talent hex>@<9 class chars>"
 function Blessings:EncodeSelf()
     local me = self:Me()
@@ -1009,32 +817,10 @@ function Blessings:SendSelf(target)
         p.symbols or 0), target)
 end
 
--- Sends SELF to the group once, 1-3 s from now (later calls in the meantime ride along).
-local selfQueued = false
-function Blessings:QueueSelf()
-    if selfQueued then return end
-    selfQueued = true
-    local function go()
-        selfQueued = false
-        Blessings:SendSelf()
-    end
-    if C_Timer and C_Timer.After then C_Timer.After(1 + math.random() * 2, go) else go() end
-end
-
--- Accepts an edit of paladin name from sender: their own, a leader's, or for a paladin who lets anyone assign.
-local function MayEdit(sender, name)
-    if not name or name == "" then return false end
-    if name == sender then return true end
-    if Blessings:IsLeader(sender) then return true end
-    local p = Blessings.pals[name]
-    return p and p.free or false
-end
-Blessings.MayEdit = MayEdit
-
 local HANDLERS = {}
+P.handlers = HANDLERS
 
--- REQ: answered in OnMessage (a whisper back to whoever asked, unless they lead or this is a battleground)
-HANDLERS.REQ = function() end
+-- (REQ: answered by the class planner's OnMessage, one broadcast a moment later)
 
 HANDLERS.PPLEADER = function(sender, msg)
     local name = strmatch(msg, "^PPLEADER (.+)$")
@@ -1150,24 +936,6 @@ end
 HANDLERS.FREEASSIGN = StatusLine
 HANDLERS.SYMCOUNT = StatusLine
 
-function Blessings:OnMessage(text, channel, senderFull)
-    if type(text) ~= "string" or type(senderFull) ~= "string" then return end
-    if channel ~= "RAID" and channel ~= "PARTY" and channel ~= "INSTANCE_CHAT" and channel ~= "WHISPER" then return end
-    local key = Util.NormalizeName(senderFull)
-    if not key or Util.IsMe(key) then return end
-    if not Util.IsInMyGroup(key) then return end        -- only group members (whispers too)
-    local sender = Util.ShortName(key)
-    local kind = strmatch(text, "^(%u+)")
-    local fn = kind and HANDLERS[kind]
-    if kind == "REQ" then
-        -- (Pally Power whispers every asker; one broadcast a moment later answers everyone who asked meanwhile,
-        -- Pally Power users included, without a whisper per paladin per asker)
-        if Blessings:IsPaladin() or Blessings:AmLeader() then Blessings:QueueSelf() end
-    elseif fn then
-        fn(sender, text)
-    end
-end
-
 -- ---------------------------------------------------------------------------------------------------------------
 -- Demo mode: a made-up 25-man Black Temple raid (the mockup's): four paladins with me as Gina's stand-in and the
 -- leader, tanks on Light instead of Salvation, a hunter missing Might, two mages missing Salvation, the priests'
@@ -1233,94 +1001,25 @@ local function BuildDemo()
     s.aura = { Caelith = 1, Sunniva = 7, [me] = 3, Lightbringer = 1 }
     return d
 end
-
-local realPals
-function Blessings:OnDemoToggled(on)
-    if on then
-        demo = BuildDemo()
-        realPals = realPals or self.pals
-        self.pals = demo.pals
-    else
-        if realPals then self.pals = realPals end
-        realPals, demo = nil, nil
-    end
-    Changed()
-end
+P.buildDemo = BuildDemo
 
 -- ---------------------------------------------------------------------------------------------------------------
--- Group changes
+-- Group changes and login (PruneRoster, Hello, OnGroupLeft, OnLogin, the class tool and /dz bless: the class
+-- planner's)
 -- ---------------------------------------------------------------------------------------------------------------
--- Drops paladins who left; keeps me.
-function Blessings:PruneRoster()
-    local here = {}
-    for _, m in ipairs(self:Roster()) do
-        if not m.pet then here[m.name] = true end
-    end
-    local me = self:Me()
-    local changed = false
-    for name in pairs(self.pals) do
-        if name ~= me and not here[name] then
-            self.pals[name] = nil
-            changed = true
-        end
-    end
-    if changed then Changed() end
-end
-
--- Says hello on joining a group: who I am, and (paladins, leaders, or with the planner open) asks the others. Every
--- paladin answers a REQ with a whisper, so the rest of the raid does not ask until it looks.
-local function Hello(force)
-    if Blessings:IsDemo() or not IsInGroup() then return end
-    Blessings:SendSelf()
-    local planner = ns.BlessingsUI and ns.BlessingsUI:IsShown()
-    if force or planner or Blessings:IsPaladin() or Util.IsPlayerLeaderOrAssist() then Blessings:SendRaw("REQ") end
-end
-Blessings.Hello = Hello
-
-function Blessings:OnGroupLeft()
-    local me = self:Me()
-    local s = DB()
-    for name in pairs(self.pals) do
-        if name ~= me then self.pals[name] = nil end
-    end
-    -- (as Pally Power: singles go; rows of paladins who are not me or in my guild go)
+-- Leaving the group (as Pally Power): singles go; rows of paladins who are not me or in my guild go.
+function P.groupLeft(s)
     wipe(s.single)
-    for name in pairs(s.assign) do
-        local key = Util.NormalizeName(name)
-        local guildie = key and ns.Guild and ns.Guild.IsInGuild and ns.Guild:IsInGuild(key)
-        if name ~= me and not guildie then s.assign[name] = nil; s.aura[name] = nil end
-    end
-    self.ppLeader = false
-    Changed()
+    Blessings.ppLeader = false
 end
 
-function Blessings:OnLogin()
-    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then C_ChatInfo.RegisterAddonMessagePrefix(PREFIX) end
-    ns:RegisterEvent("CHAT_MSG_ADDON", function(_, prefix, text, channel, sender)
-        if prefix == PREFIX then Blessings:OnMessage(text, channel, sender) end
-    end)
-    if self:IsPaladin() then self:ScanSelf() end
-    ns:On("DEMO_TOGGLED", function(on) Blessings:OnDemoToggled(on) end)
-    if self:IsDemo() then self:OnDemoToggled(true) end
-    local wasInGroup = IsInGroup()
-    ns:RegisterEvent("GROUP_ROSTER_UPDATE", function()
-        local now = IsInGroup()
-        if now and not wasInGroup then
-            if C_Timer then C_Timer.After(2 + math.random() * 2, Hello) else Hello() end
-        elseif not now and wasInGroup then
-            Blessings:OnGroupLeft()
-        end
-        wasInGroup = now
-        if now then Util.Debounce("dz-bless-prune", 0.5, function() Blessings:PruneRoster() end) end
-        Changed()
-    end)
-    ns:RegisterEvent("SPELLS_CHANGED", function()
-        if not Blessings:IsPaladin() then return end
-        Util.Debounce("dz-bless-spells", 1, function()
-            if Blessings:ScanSelf() then Blessings:SendSelf() end
-            Changed()
-        end)
-    end)
+function P.forget(s, name)
+    s.assign[name] = nil
+    s.aura[name] = nil
+end
+
+-- (after the shared events: the Symbols in my bags, buffs coming and going)
+function P.onLogin()
     ns:RegisterEvent("BAG_UPDATE", function()
         if not Blessings:IsPaladin() then return end
         Util.Debounce("dz-bless-bags", 2, function()
@@ -1337,36 +1036,4 @@ function Blessings:OnLogin()
     ns:RegisterEvent("UNIT_AURA", function()
         Util.Debounce("dz-bless-aura", 0.5, Changed)
     end)
-    ns:On("SETTINGS_CHANGED", function(path)
-        if path == "bless.free" and Blessings:IsPaladin() then
-            Blessings:ScanSelf()
-            local p = Blessings.pals[Blessings:Me()]
-            if p then Blessings:SendRaw("FREEASSIGN " .. (p.free and "YES" or "NO")) end
-            Changed()
-        elseif type(path) == "string" and path:find("^bless") then
-            Changed()
-        end
-    end)
-    if IsInGroup() then
-        -- (after a login or /reload in a group: after ChatThrottleLib's quiet first seconds, spread out)
-        if C_Timer then C_Timer.After(6 + math.random() * 6, Hello) else Hello() end
-    end
 end
-
--- ---------------------------------------------------------------------------------------------------------------
--- The class tool and /dz bless
--- ---------------------------------------------------------------------------------------------------------------
-ns.ClassKit:Register({ key = "bless", label = "Blessings", class = "PALADIN", order = 10, icon = 25898 })
-
-ns:RegisterSlash("bless", function(rest)
-    rest = (rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-    if rest == "report" then
-        if not Blessings:Report() then ns:Print("Not in a group.") end
-    elseif rest == "auto" then
-        if not Blessings:AutoAssign() then ns:Print("You can't assign any paladin here.") end
-    elseif rest == "unlock" or rest == "lock" then
-        ns.DB:SetSetting("bless.locked", rest == "lock")
-    elseif ns.BlessingsUI then
-        ns.BlessingsUI:Toggle()
-    end
-end, "Paladin blessings planner (report | auto | unlock | lock)")
