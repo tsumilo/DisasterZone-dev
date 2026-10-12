@@ -386,13 +386,16 @@ local function BuildBossView(parent)
     v.layout = L
     v.modeSeg = L.tabs
     v.modeSeg.buttons = L.tabs.tabButtons
-    -- the tool row: the view switch and the pull to compare with
+    -- the tool row: the DEMO pill (made-up pulls while demo mode is on), the view switch and the pull to compare with
+    v.demoTag = ui:CreatePill(L.toolbar, "warn", "DEMO")
+    ui:AttachTooltip(v.demoTag, "Demo data", "Made-up raid nights while demo mode is on. Your own log is untouched "
+        .. "and keeps recording.")
     local items = {}
     for i, it in ipairs(ns.MyLogUI.VIEWS) do items[i] = { key = it.key, label = it.label } end
     v.seg = ui:CreateSegments(L.toolbar, items, function(key) ns.MyLogUI:SetView(key) end, { itemW = 70 })
     v.cmp = NewComparePicker(L.toolbar)
     v.cmpDD = v.cmp.dd
-    L.toolbar:SetFilters({ v.seg, v.cmp })
+    L.toolbar:SetFilters({ v.demoTag, v.seg, v.cmp })
 
     v.chartCard = ui:CreateCard(v, { tone = "inset" })
     v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
@@ -630,6 +633,7 @@ local function RefreshBoss(state)
     local view = state.view or "damage"
     if not p then ns.MyLogUI:SetMode("runs"); return end
     FillBossBanner(v, state, p)
+    v.demoTag:SetShown(Log():IsDemo() and true or false)
     v.seg:Select(view)
     v.cmpDD:Refresh()
     FillBossChart(v, view, p, q)
