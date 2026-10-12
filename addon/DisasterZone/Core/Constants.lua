@@ -252,7 +252,7 @@ ns.SPECS = {
     },
 }
 
--- Spec icons (each spec's .icon, a full texture path), by class and spec label (the table RaidComp:SpecIcon uses).
+-- Spec icons (each spec's .icon, a full texture path), by class and spec label (RaidComp:SpecIcon reads them).
 do
     local SPEC_ICONS = {
         WARRIOR = { Arms = "Ability_Warrior_SavageBlow", Fury = "Ability_Warrior_InnerRage",
