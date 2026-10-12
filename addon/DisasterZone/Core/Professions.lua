@@ -375,6 +375,43 @@ local function AccountMain(b, me)
     return main
 end
 
+-- Every character of mine here an alt of `mainKey` (the main itself none). Returns whether a record changed.
+local function ApplyMain(b, mainKey)
+    local changed = false
+    for key, rec in pairs(b) do
+        if rec.own then
+            local want = key ~= mainKey and mainKey or nil
+            if rec.a ~= want then
+                rec.a = want
+                Bump(rec)
+                ownDirty[key] = true
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
+-- An account with two or more characters here and no main yet gets one: the highest level, then the first by name
+-- (the player can pick another outside raids). nil while there is nothing to pick or the roster isn't read.
+local function DefaultMain(b)
+    local Guild = ns.Guild
+    if not (Guild and Guild.IsReady and Guild:IsReady()) then return nil end
+    local best, bestLevel, n = nil, -1, 0
+    for key, rec in pairs(b or {}) do
+        if rec.own then
+            if rec.a ~= nil then return nil end   -- (a main is picked)
+            local m = Guild:GetMember(key, true)
+            if m or Util.IsMe(key) then
+                n = n + 1
+                local level = tonumber(m and m.level) or (Util.IsMe(key) and UnitLevel and tonumber(UnitLevel("player"))) or 0
+                if level > bestLevel or (level == bestLevel and key < best) then best, bestLevel = key, level end
+            end
+        end
+    end
+    return n >= 2 and best or nil
+end
+
 -- A record I pass on: of a character in my guild's roster.
 local function Shareable(key, rec)
     return rec.rev > 0 and InGuild(key)
@@ -560,6 +597,12 @@ local function UpdateOwn()
     if main then
         rec.a = main
         changed = true
+    elseif rec.a == nil then
+        local pick = DefaultMain(Bucket())
+        if pick and ApplyMain(Bucket(), pick) then
+            lastOwnSend = -1000
+            changed = true
+        end
     end
     if changed or rec.rev == 0 then
         Bump(rec)
@@ -1239,27 +1282,15 @@ local function OnUnlock(sender, msg, dist)
     Changed()
 end
 
--- Makes `mainKey` (one of my characters) the main of all my characters here; nil: no main (each on its own).
--- Returns ok, err.
+-- Makes `mainKey` (one of my characters) the main of all my characters here. An account always has one main and the
+-- rest are its alts: there is no "separate characters" any more (feedback #5). Returns ok, err.
 function Prof:SetMain(mainKey)
     local b = Bucket()
     if not b then return false, "your professions are not read yet" end
     local locked, why = self:IsMainLocked()
     if locked then return false, why end
-    if mainKey ~= nil and not (b[mainKey] and b[mainKey].own) then return false, "not one of your characters" end
-    local changed = false
-    for key, rec in pairs(b) do
-        if rec.own then
-            local want = (mainKey ~= nil and key ~= mainKey) and mainKey or nil
-            if rec.a ~= want then
-                rec.a = want
-                Bump(rec)
-                ownDirty[key] = true
-                changed = true
-            end
-        end
-    end
-    if changed then
+    if not (type(mainKey) == "string" and b[mainKey] and b[mainKey].own) then return false, "not one of your characters" end
+    if ApplyMain(b, mainKey) then
         Changed()
         lastOwnSend = -1000   -- (a deliberate change: not held back like skill-ups)
         Util.Debounce("prof-own-send", 2, SendOwn)

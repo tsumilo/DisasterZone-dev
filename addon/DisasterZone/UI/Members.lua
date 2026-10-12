@@ -768,7 +768,8 @@ local function detailExtent(d)
     return ROW_EXTENT[d.kind] or 20
 end
 
--- "Which of my characters is my main": every character of this account that DisasterZone has seen in the guild.
+-- "Which of my characters is my main": every character of this account that DisasterZone has seen in the guild. An
+-- account always has one main (picked for it at first: the highest level); the others are its alts.
 local function mainMenu(owner)
     ns.UI:ContextMenu(owner, function(root)
         root:CreateTitle("My main character")
@@ -784,10 +785,8 @@ local function mainMenu(owner)
                 function() P():SetMain(key) end)
             if locked then r:SetEnabled(false) end
         end
-        local none = root:CreateRadio("None: they are separate characters", function() return current == nil end,
-            function() P():SetMain(nil) end)
+        -- (no "separate characters": one main, the others its alts)
         if locked then
-            none:SetEnabled(false)
             root:CreateDivider()
             local note = root:CreateButton("Locked while the raid runs", function() end)
             note:SetEnabled(false)
@@ -1121,8 +1120,8 @@ local function characterRows(key)
             rows[#rows + 1] = { kind = "main", canChange = true, main = linked and main or nil,
                                 text = linked and ("your main: " .. ns.Util.ShortName(main)) or "your main: not picked" }
         elseif ns.Util.IsMe(key) then
-            rows[#rows + 1] = { kind = "note", text = "Alts: log in once on each of your other characters in the guild, "
-                .. "then pick your main here. The guild then sees them as one player." }
+            rows[#rows + 1] = { kind = "note", text = "Alts: log in once on each of your other characters in the guild. "
+                .. "They become one player: your highest level character is the main (pick another here), the rest alts." }
         end
     elseif #others == 0 then
         rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has no other characters linked to this one." }

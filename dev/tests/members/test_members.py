@@ -270,9 +270,11 @@ def alts_sit_under_their_main():
     a.eval("%s:SetCard('chars')" % UI)
     d = detail(a)
     assert any(x["kind"] == "main" and "your main" in x["text"] for x in d), d
-    assert a.eval("return %s:SetMain(nil)" % P) is True
+    # no "separate characters" (feedback #5): one main, the other an alt; switching which one is fine
+    assert a.eval_py("local ok, err = %s:SetMain(nil); return { ok = ok, err = err }" % P)["ok"] is False
+    assert a.eval("return %s:SetMain(...)" % P, K("Alto")) is True
     w.tick(30)
-    assert g.eval("return %s:GetMain(...)" % P, K("Alto")) == K("Alto")
+    assert g.eval("return %s:GetMain(...)" % P, K("Alfa")) == K("Alto")
     # only my own characters can be my main
     res = b.eval_py("local ok, err = %s:SetMain(...); return { ok = ok, err = err }" % P, K("Gina"))
     assert res["ok"] is False, res
@@ -633,7 +635,7 @@ def a_new_character_joins_the_main_and_mains_lock_while_a_raid_runs():
     w.tick(SYNC)
     assert o.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alto")) == K("Alfa")
     assert g.eval("return %s:GetMain(...)" % P, K("Alto")) == K("Alfa")
-    # the main itself, and an account that picked no main, link nothing
+    # the main itself stays the main
     a.eval("DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].own = true", K("Alto"))
     set_skills(a, [("Alchemy", 375, 375)])
     w.tick(10)
@@ -675,6 +677,32 @@ def a_new_character_joins_the_main_and_mains_lock_while_a_raid_runs():
     w.disband()
     w.tick(5)
     assert a.eval("return (%s:IsMainLocked())" % P) is False
+    w.assert_no_errors()
+
+
+@case
+def an_account_without_a_main_gets_its_highest_level_character():
+    """Feedback #5 (user, 2026-10-12): an account's characters are never separate; with two or more and none picked,
+    the highest level one becomes the main and the others its alts."""
+    w, c = guild([("Gina", "PALADIN"), ("Alfa", "MAGE"), ("Alto", "PRIEST")])
+    g, a, o = c["Gina"], c["Alfa"], c["Alto"]
+    a.level = 12
+    w._sync(roster_changed=True)
+    w.tick(SYNC)
+    assert a.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alfa")) is None
+    o.logout()                                  # (one account: only one of its characters is online)
+    w.tick(3)
+    a.eval("DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].own = true", K("Alto"))
+    set_skills(a, [("Alchemy", 375, 375)])
+    w.tick(SYNC)
+    assert a.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alfa")) == K("Alto")
+    assert a.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alto")) is None
+    assert g.eval("return %s:GetMain(...)" % P, K("Alfa")) == K("Alto")
+    # the player picks another main; it stays (no default over a pick)
+    assert a.eval("return %s:SetMain(...)" % P, K("Alfa")) is True
+    set_skills(a, [("Alchemy", 375, 375), ("Herbalism", 300, 375)])
+    w.tick(SYNC)
+    assert g.eval("return %s:GetMain(...)" % P, K("Alto")) == K("Alfa")
     w.assert_no_errors()
 
 

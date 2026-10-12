@@ -51,7 +51,8 @@ ns.CHANGELOG = {
               "So My Log and the damage meter show the same numbers for the same pull.",
           } },
           { heading = "Your main stays put during a raid", area = "guild", kind = "changed", open = "members", lines = {
-              { "Picked a main? Characters you log in on later join it by themselves.", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
+              { "Your characters are one player: one main, the rest its alts (no more \"separate\").", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
+              { "Your highest level character starts as the main; new characters join it by themselves.", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
               { "While a raid runs, nobody can change their main (it decides items for mains only).", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
               { "Council, officers and the GM can unlock it for a player on their Members card.", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
           } },
