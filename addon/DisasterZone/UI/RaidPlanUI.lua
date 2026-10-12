@@ -5103,33 +5103,9 @@ end
 -- Optional); the note; Done. It changes the draft: Save / Undo on the tool row.
 ---------------------------------------------------------------------------
 
--- A flat cell (the raid nights editor's, the New raid sheet's days and time): a fill and 1px edges; c:Paint(picked,
--- dim) gives it the picked look (a gold edge, a warm fill) or a fainter edge.
--- TODO(refactor): move into UI/Comp/Controls.lua (UI:CreateCell: a flat pickable cell, the day / time tiles of the New
--- raid sheet and the raid nights editor)
-PlanUI.CELL = { BG = { 0.08, 0.08, 0.09, 0.95 }, EDGE = { 0.20, 0.20, 0.23, 1 }, PICKED_BG = { 0.17, 0.14, 0.05, 0.95 } }
-
-function PlanUI:FlatCell(f)
-    local C = PlanUI.CELL
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    UI():AddEdges(f, "BORDER")
-    function f:Paint(picked, dim)
-        local bg = picked and C.PICKED_BG or C.BG
-        self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-        if picked then UI():SetEdgeColor(self, S:Color("GOLD_DEEP"))
-        else UI():SetEdgeColor(self, C.EDGE[1], C.EDGE[2], C.EDGE[3], dim and 0.6 or 1) end
-    end
-    f:Paint(false)
-    local hl = f:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(S:Color("HOVER"))
-    return f
-end
-
 -- A time stepper: the arrows (and the mouse wheel) move it a quarter of an hour; onStep(dir).
 function TV.newStepper(parent, w, onStep)
-    local s = PlanUI:FlatCell(CreateFrame("Frame", nil, parent))
+    local s = UI():CreateCell(parent)                -- (a flat cell: UI:CreateCell)
     s:SetSize(w, 26)
     s:EnableMouseWheel(true)
     s:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
@@ -5155,7 +5131,7 @@ function TV.createNightsPanel()
     local tw = floor((inner - 6 * 3) / 7)
     p.tiles = {}
     for i = 1, 7 do
-        local t = PlanUI:FlatCell(CreateFrame("Button", nil, p))
+        local t = UI():CreateCell(p, { button = true })
         t:SetSize(tw, N.TILE_H)
         t:SetPoint("TOPLEFT", p, "TOPLEFT", 14 + (i - 1) * (tw + 3), -36)
         t.fs = UI():Text(t, "emph", "TEXT", { justify = "CENTER" })

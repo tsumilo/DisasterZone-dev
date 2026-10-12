@@ -3144,6 +3144,63 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     return cb
 end
 
+-- A multi-line text field in the flat style (an export to copy, a list to paste): a card with a strong edge (gold
+-- while typing) around a scroll frame holding a multi-line edit box; a click anywhere in it takes the focus, the
+-- cursor stays in view. opts: { width (the edit box's first width; it follows the scroll frame), selectOnFocus (the
+-- whole text is selected when it takes the focus) }. Returns the holder; holder.eb = the edit box, holder.sf = its
+-- scroll frame.
+function UI:CreateTextArea(parent, height, opts)
+    opts = opts or {}
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetHeight(height)
+    holder.bg = UI:Fill(holder, "CARD")
+    UI:AddEdges(holder)
+    UI:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
+
+    local sf = UI:CreateScrollFrame(holder)
+    sf:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -5)
+    sf:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -18, 5)
+
+    local eb = CreateFrame("EditBox", nil, sf)
+    eb:SetMultiLine(true)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject("GameFontHighlightSmall")
+    eb:SetWidth(opts.width or 300)
+    eb:SetHeight(height - 10)
+    sf:SetScrollChild(eb)
+    sf:HookScript("OnSizeChanged", function(self, w)
+        if tonumber(w) and w > 0 then eb:SetWidth(w) end
+    end)
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    -- keep the cursor in view while typing or moving through the text
+    eb:SetScript("OnCursorChanged", function(_, _, y, _, h)
+        local top, view = sf:GetVerticalScroll() or 0, sf:GetHeight() or 0
+        local range = sf:GetVerticalScrollRange() or 0
+        y, h = -(tonumber(y) or 0), tonumber(h) or 0
+        local to
+        if y < top then
+            to = y
+        elseif view > 0 and y + h > top + view then
+            to = y + h - view
+        end
+        if to then sf:SetVerticalScroll(math.max(0, math.min(range, to))) end
+    end)
+    eb:SetScript("OnEditFocusGained", function(self)
+        UI:SetEdgeColor(holder, S:Color("EDGE_FOCUS"))
+        if opts.selectOnFocus then self:HighlightText() end
+    end)
+    eb:SetScript("OnEditFocusLost", function(self)
+        UI:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
+        if opts.selectOnFocus then self:HighlightText(0, 0) end
+    end)
+    holder:EnableMouse(true)
+    holder:SetScript("OnMouseDown", function() eb:SetFocus() end)
+    sf:EnableMouse(true)
+    sf:SetScript("OnMouseDown", function() eb:SetFocus() end)
+    holder.eb, holder.sf = eb, sf
+    return holder
+end
+
 local searchBoxCount = 0
 local SEARCH_ICON = "Interface\\Common\\UI-Searchbox-Icon"
 local CLEAR_ICON = "Interface\\FriendsFrame\\ClearBroadcastIcon"

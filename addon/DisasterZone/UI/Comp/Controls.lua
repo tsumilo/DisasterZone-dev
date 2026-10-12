@@ -10,6 +10,7 @@ local addonName, ns = ...
 --   UI:CreateProgressBar(parent, opts)                 a thin track and its fill (a share, a progress)
 --   UI:CreateStepper(parent, width, onStep, opts)      a value between two chevrons (the wheel steps it too)
 --   UI:CreateKeyCap(parent, w, h) / UI:CreateStar(parent, size)   a keyboard key; a rating star
+--   UI:CreateCell(parent, opts)                        a flat pickable tile (days, times)
 
 local UI = ns.UI
 local S = ns.Style
@@ -360,6 +361,42 @@ function UI:CreateProgressBar(parent, opts)
     b:HookScript("OnSizeChanged", function(self) self:Apply() end)
     b:Set(0)
     return b
+end
+
+---------------------------------------------------------------------------
+-- Cell: a flat pickable tile
+---------------------------------------------------------------------------
+
+UI.CELL_LOOK = { bg = { 0.08, 0.08, 0.09, 0.95 }, edge = { 0.20, 0.20, 0.23, 1 }, pickedBg = { 0.17, 0.14, 0.05, 0.95 } }
+
+local Cell = {}
+
+-- cell:Paint(picked, dim): the picked look (a gold edge, a warm fill) or the plain one (dim: a fainter edge).
+function Cell:Paint(picked, dim)
+    local L = UI.CELL_LOOK
+    local bg = picked and L.pickedBg or L.bg
+    self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    if picked then
+        UI:SetEdgeColor(self, S:Color("GOLD_DEEP"))
+    else
+        UI:SetEdgeColor(self, L.edge[1], L.edge[2], L.edge[3], dim and 0.6 or 1)
+    end
+end
+
+-- UI:CreateCell(parent, opts) -> cell: a flat pickable tile (the New raid sheet's days and time, the raid nights
+-- editor): a fill, 1 px edges and the hover light. opts: { button = true (a Button: it takes clicks) }.
+-- cell:Paint(picked, dim); cell.bg.
+function UI:CreateCell(parent, opts)
+    local f = CreateFrame((opts and opts.button) and "Button" or "Frame", nil, parent)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    UI:AddEdges(f, "BORDER")
+    for k, fn in pairs(Cell) do f[k] = fn end
+    f:Paint(false)
+    local hl = f:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(S:Color("HOVER"))
+    return f
 end
 
 ---------------------------------------------------------------------------

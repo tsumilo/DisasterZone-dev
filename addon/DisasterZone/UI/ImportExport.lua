@@ -76,57 +76,9 @@ local function Tint(text, c) return UI():Colorize(text, c) end
 -- Text boxes (a flat field with a scroll frame around a multi-line edit box)
 ---------------------------------------------------------------------------
 
--- TODO(refactor): move into a shared multi-line text area (UI:CreateSleekEditBox is one line).
+-- (UI:CreateTextArea: the flat multi-line field; the whole text is selected when it takes the focus)
 local function CreateTextBox(parent, height)
-    local ui = UI()
-    local holder = CreateFrame("Frame", nil, parent)
-    holder:SetHeight(height)
-    holder.bg = ui:Fill(holder, "CARD")
-    ui:AddEdges(holder)
-    ui:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
-
-    local sf = ui:CreateScrollFrame(holder)
-    sf:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -5)
-    sf:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -18, 5)
-
-    local eb = CreateFrame("EditBox", nil, sf)
-    eb:SetMultiLine(true)
-    eb:SetAutoFocus(false)
-    eb:SetFontObject("GameFontHighlightSmall")
-    eb:SetWidth(W - 60)
-    eb:SetHeight(height - 10)
-    sf:SetScrollChild(eb)
-    sf:HookScript("OnSizeChanged", function(self, w)
-        if tonumber(w) and w > 0 then eb:SetWidth(w) end
-    end)
-    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    -- keep the cursor in view while typing or moving through the text
-    eb:SetScript("OnCursorChanged", function(_, _, y, _, h)
-        local top, view = sf:GetVerticalScroll() or 0, sf:GetHeight() or 0
-        local range = sf:GetVerticalScrollRange() or 0
-        y, h = -(tonumber(y) or 0), tonumber(h) or 0
-        local to
-        if y < top then
-            to = y
-        elseif view > 0 and y + h > top + view then
-            to = y + h - view
-        end
-        if to then sf:SetVerticalScroll(math.max(0, math.min(range, to))) end
-    end)
-    eb:SetScript("OnEditFocusGained", function(self)
-        ui:SetEdgeColor(holder, S:Color("EDGE_FOCUS"))
-        self:HighlightText()
-    end)
-    eb:SetScript("OnEditFocusLost", function(self)
-        ui:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
-        self:HighlightText(0, 0)
-    end)
-    holder:EnableMouse(true)
-    holder:SetScript("OnMouseDown", function() eb:SetFocus() end)
-    sf:EnableMouse(true)
-    sf:SetScript("OnMouseDown", function() eb:SetFocus() end)
-    holder.eb, holder.sf = eb, sf
-    return holder
+    return UI():CreateTextArea(parent, height, { width = W - 60, selectOnFocus = true })
 end
 
 ---------------------------------------------------------------------------
