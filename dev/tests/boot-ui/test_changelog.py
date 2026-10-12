@@ -198,7 +198,7 @@ def since_your_last_visit_merges_the_unread_releases():
       return out""")
     assert "New" in strip_codes(badges[versions[0]]), badges
     assert strip_codes(badges[versions[1]]) == "New", badges
-    assert "New" not in strip_codes(badges[versions[2]] or ""), badges
+    assert "New" not in strip_codes(badges.get(versions[2]) or ""), badges   # (an older row may sit in a closed group)
     assert c.eval("return ns.db.settings.changelogSeen") == versions[0]
     c.eval("ns.ChangelogUI:Select(...)", versions[1])
     w.tick(0.1)

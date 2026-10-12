@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(TESTS, "boot-ui"))
 sys.path.insert(0, os.path.join(TESTS, "strategy"))
 sys.path.insert(0, os.path.join(TESTS, "loot-roll"))
 
-from _common import World, Client, case, run_all, gm_pick  # noqa: E402
+from _common import World, Client, case, run_all, gm_pick, toc_version  # noqa: E402
 import harness  # noqa: E402
 from st_common import COUNCIL, K  # noqa: E402
 import lr_common as lr  # noqa: E402
@@ -469,8 +469,10 @@ def the_hello_is_the_same_as_140s():
     for m, own in ((old, old_own), (new, new_own)):
         for f, v in own.items():
             assert m[f] == v, (f, m[f], v)
+    assert old["v"] == "1.4.0" and new["v"] == toc_version(), (old["v"], new["v"])
     for m in (old, new):
         m.pop("n")
+        m.pop("v")                                  # (each client says its own version)
         for f in DIGEST_FIELDS:
             m.pop(f)
     assert old == new, (old, new)
