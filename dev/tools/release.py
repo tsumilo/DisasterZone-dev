@@ -18,10 +18,11 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       you had are kept in dev\\releases\\undone\\). --keep-source leaves this
                                       copy alone, for when you want to fix the change and send it again.
   tools\\release.py status             base release, last update, what changed since the base
-  tools\\release.py selftest           an update that carries EVERY patchable file, addressed to no real build, to
+  tools\\release.py selftest [--part N] an update that carries every patchable file, addressed to no real build, to
                                       try the whole mechanism in the real client on the development copy. In game:
                                       /reload, /dz publish, /dzpatch try, /reload, /dzpatch (must say "running
-                                      an in-game update"), /reload to go back. Members ignore it.
+                                      an in-game update"), /reload to go back. Members ignore it. The addon no
+                                      longer fits one update (4 MB / 1.5 MB encoded): it comes in parts, run each.
   tools\\release.py launcher-keygen    once: the desktop launcher's signing key (dev\\keys\\launcher_key.json, never
                                       committed); its public half goes to launcher\\release_key.json
   tools\\release.py publish [--channel stable|beta] [--version V] [--repo owner/name]
@@ -719,10 +720,34 @@ def cmd_patch(args):
 SELFTEST_BUILD = "selftest"
 
 
-def make_selftest(addon_dir, key, seq):
-    """An update with every patchable file of `addon_dir`, addressed to a build id nobody has installed."""
-    entries = []
+def selftest_parts(addon_dir):
+    """The patchable files of `addon_dir` as the fewest runs (in order) that each fit one update's caps (patchlib's
+    and Core/Patch.lua's: 4 MB of source, 1.5 MB encoded): the whole addon outgrew one update in 1.4 (13.6 MB)."""
+    parts, cur, total, ztotal, mlen = [], [], 0, 0, 0
+    room = 0.95                                       # (the manifest and the signature take their share too)
     for rel in patchable_files(addon_dir):
+        src = patchlib.normalize_source(read(os.path.join(addon_dir, rel)))
+        z = len(patchlib.encode_for_print(patchlib.deflate_raw(src)))
+        line = len(rel) + 96
+        if cur and (total + len(src) > patchlib.MAX_TOTAL_LEN * room or ztotal + z > patchlib.MAX_TOTAL_ZLEN * room
+                    or mlen + line > patchlib.MAX_MANIFEST_LEN * room or len(cur) + 1 > patchlib.MAX_FILES):
+            parts.append(cur)
+            cur, total, ztotal, mlen = [], 0, 0, 0
+        cur.append(rel)
+        total, ztotal, mlen = total + len(src), ztotal + z, mlen + line
+    if cur:
+        parts.append(cur)
+    return parts
+
+
+def make_selftest(addon_dir, key, seq, part=1):
+    """An update with the patchable files of `addon_dir` in self-test part `part` (selftest_parts), addressed to a
+    build id nobody has installed. -> (bundle, number of parts)"""
+    parts = selftest_parts(addon_dir)
+    if not 1 <= part <= len(parts):
+        raise ReleaseError("there are %d self-test part(s)" % len(parts))
+    entries = []
+    for rel in parts[part - 1]:
         state = guard_state(addon_dir, rel)
         if state != "ok":
             raise ReleaseError("%s: guard on line 1 is %s (run 'release.py guards add')" % (rel, state))
@@ -731,7 +756,9 @@ def make_selftest(addon_dir, key, seq):
     if bad:
         raise ReleaseError("syntax errors:\n  " + "\n  ".join(bad))
     version = parse_toc(addon_dir)[0].get("version", "0") + "-selftest"
-    return patchlib.build_bundle(seq, version, SELFTEST_BUILD, asset_pack(addon_dir), entries, key)
+    if len(parts) > 1:
+        version += "-%dof%d" % (part, len(parts))
+    return patchlib.build_bundle(seq, version, SELFTEST_BUILD, asset_pack(addon_dir), entries, key), len(parts)
 
 
 def cmd_selftest(args):
@@ -742,7 +769,8 @@ def cmd_selftest(args):
     seq = max([key.get("next", 1)] + [p["seq"] + 1 for p in log])
     if seq >= (1 << key["height"]):
         raise ReleaseError("the signing key is used up")
-    bundle = make_selftest(ADDON_DIR, key, seq)
+    part = getattr(args, "part", None) or 1
+    bundle, nparts = make_selftest(ADDON_DIR, key, seq, part)
     key["next"] = seq + 1
     patchlib.save_key(KEY_PATH, key)
     log.append({"seq": seq, "version": bundle["version"], "base": SELFTEST_BUILD, "build": SELFTEST_BUILD,
@@ -752,14 +780,17 @@ def cmd_selftest(args):
     with open(os.path.join(RELEASES, "patches.json"), "w", encoding="utf-8") as fh:
         json.dump(log, fh, indent=1)
     _put(os.path.join(ADDON_DIR, "Core", "Outbox.lua"), patchlib.outbox_lua(bundle).encode("utf-8"))
-    print("self-test update #%d: %d files, %d KB of source, %d KB encoded" % (
-        seq, len(bundle["items"]), bundle["total"] // 1024, (bundle["ztotal"] + len(bundle["z0"])) // 1024))
+    print("self-test update #%d, part %d of %d: %d files, %d KB of source, %d KB encoded" % (
+        seq, part, nparts, len(bundle["items"]), bundle["total"] // 1024,
+        (bundle["ztotal"] + len(bundle["z0"])) // 1024))
     print("  in game, on this development copy:")
     print("    /reload            loads the outbox")
     print("    /dz publish       checks the signature and every file, stores it (members ignore it)")
     print("    /dzpatch try      run the stored update once")
     print("    /reload            then /dzpatch must say: running an in-game update: %s" % bundle["version"])
     print("    /reload            back to the files on disk")
+    if part < nparts:
+        print("  then the next part: release.py selftest --part %d" % (part + 1))
     print("  afterwards 'release.py patch' (or 'full') replaces the outbox.")
 
 
@@ -1071,6 +1102,7 @@ def main(argv=None):
     p.add_argument("--keep-source", action="store_true"); p.set_defaults(fn=cmd_patch)
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("selftest"); p.set_defaults(fn=cmd_selftest)
+    p.add_argument("--part", type=int, default=1, help="which part (the addon no longer fits one update)")
     p = sub.add_parser("launcher-keygen"); p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_launcher_keygen)
     p = sub.add_parser("publish"); p.add_argument("--channel", choices=launchlib.CHANNELS, default="stable")

@@ -250,7 +250,8 @@ def a3_dungeon_party_master_looter_hand_out():
     w.set_master_looter(A)
     w.tick(1)
     w.enter_instance("Black Morass", 269, "party", 5, 2)
-    w.tick(1)
+    w.tick(5)   # ChatThrottleLib sends at a tenth of its rate for 5 s after a loading screen (the blessings and
+                # totems broadcasts on zoning in use that up): a roll starts after the zone-in settled, as in game
     A.slash("/dz dungeon on")
     w.tick(1.5)
     assert A.eval("return ns.Util.IsPlayerMasterLooter()") is True
@@ -306,7 +307,8 @@ def a4_cdloot_give_in_a_dungeon_party_master_loot():
     w.set_master_looter(A)
     w.tick(1)
     w.enter_instance("Black Morass", 269, "party", 5, 2)
-    w.tick(1)
+    w.tick(5)   # ChatThrottleLib sends at a tenth of its rate for 5 s after a loading screen (the blessings and
+                # totems broadcasts on zoning in use that up): a roll starts after the zone-in settled, as in game
     A.slash("/dz dungeon on")
     w.tick(1.5)
     COWL = 28206

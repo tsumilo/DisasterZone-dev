@@ -75,7 +75,8 @@ def shipped(path=SHIPPED, key=KEY):
                  "return ns.RoomStandins end")
     rs = run(src, ns)
     rec = rs[key]
-    keys = sorted(k for k in rs.keys() if rs[k] == rec)
+    same = L.eval("rawequal")      # (two lupa wrappers of one Lua table are not == in Python)
+    keys = sorted(k for k in rs.keys() if same(rs[k], rec))
     room_ = dict(size=rec.room.size, verts=rec.room.verts, tris=rec.room.tris) if rec.room else None
     prims = {k: {f: rec.prims[k][f] for f in ("fid", "kind", "half", "w", "h", "cx", "cy", "cz")
                  if rec.prims[k][f] is not None} for k in rec.prims.keys()}
@@ -431,8 +432,11 @@ def test_shipped_file_has_the_contract_shape():
 
 
 def data_keys():
-    """The keys of the shipped data files (DisasterZone_Rooms/Standins/<Key>.lua)."""
-    return sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith("."))
+    """The keys of the shipped data files (DisasterZone_Rooms/Standins/<Key>.lua, one per room file Rooms/<Key>.lua; not
+    Gaps.lua and Modes.lua, which gen_standin_gaps.py and occlusion_check.py write next to them for every room)."""
+    rooms = os.path.join(os.path.dirname(G.OUT_DIR), "Rooms")
+    return sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith(".")
+                  and os.path.exists(os.path.join(rooms, f)))
 
 
 @case
@@ -453,7 +457,10 @@ def test_every_shipped_data_file_has_the_contract_shape_and_the_toc_loads_it():
     with open(G.TOC, "rb") as fh:
         lines = fh.read().decode("utf-8").splitlines()
     at = [k for k, s in enumerate(lines) if s.startswith("Standins\\")]
-    block = ["Standins\\%s.lua" % k for k in keys]
+    # (what gen_standins.write_toc writes: every file of the folder, the rooms' data files and Gaps.lua / Modes.lua)
+    files = sorted(f[:-4] for f in os.listdir(G.OUT_DIR) if f.endswith(".lua") and not f.startswith("."))
+    assert set(keys) <= set(files), (keys, files)
+    block = ["Standins\\%s.lua" % k for k in files]
     assert [lines[k] for k in at] == block, [lines[k] for k in at]
     assert at == list(range(at[0], at[0] + len(block))), at
     assert max(k for k, s in enumerate(lines) if s.startswith("Rooms\\")) < at[0]

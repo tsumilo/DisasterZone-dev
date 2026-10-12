@@ -303,7 +303,8 @@ def my_bis_switch_picker_and_remove():
     assert C.find_text("Off"), "the spec pill's tag"
     # the picker opened from the off-spec view writes the off-spec list
     C.eval("ns.Picker:Open(1, 15, 'main', nil, 'os')")
-    assert "Off spec" in (C.eval("return DisasterZonePicker.TitleText and DisasterZonePicker.TitleText:GetText() or ''") or "")
+    # (the window's title: UI:CreateWindow's titleText since the custom window frame, 1.3.5)
+    assert "Off spec" in (C.eval("return DisasterZonePicker.titleText:GetText()") or "")
     C.eval("ns.BiS:SetSlot(1, 15, 'main', ..., select(4, ns.Picker:GetState()))", MINDBLADE)
     assert C.eval("return (ns.BiS:GetSlot(1, 15, 'os'))") == MINDBLADE
     assert C.eval("return (ns.BiS:GetSlot(1, 15))") is None

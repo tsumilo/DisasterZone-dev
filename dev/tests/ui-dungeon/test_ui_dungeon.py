@@ -329,7 +329,8 @@ def party_roll_end_to_end_leader_awards_through_the_roll():
     w.make_party(members, leader=A)
     w.tick(1)
     w.enter_instance("The Black Morass", 269, "party", 5, 2)
-    w.tick(1)
+    w.tick(5)   # ChatThrottleLib sends at a tenth of its rate for 5 s after a loading screen (the blessings and
+                # totems broadcasts on zoning in use that up): a roll starts after the zone-in settled, as in game
     A.slash("/dz dungeon on")
     w.tick(2)
     A.open_loot([(COWL, 3)], source_guid=AEONUS_GUID)

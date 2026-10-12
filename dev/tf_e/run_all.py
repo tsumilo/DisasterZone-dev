@@ -1,7 +1,7 @@
 """Runs every tests/*/test_*.py suite in parallel, writes each output to tf_e/<out>/<suite>.txt and prints a summary
 line per suite as it finishes. Usage:
 
-    run_all.py [out] [substring filters...] [-j N] [--all] [--dry-run] [-x]
+    run_all.py [out] [substring filters...] [-j N] [--all] [--dry-run] [-x] [--windows]
 
 - Only what changed: a suite runs when something it depended on changed since its last run (tools/testmap.py: its
   test files and helpers, the harness and mock, and the addon functions it called), or when it has no record yet.
@@ -18,6 +18,9 @@ line per suite as it finishes. Usage:
 - -x (fail fast): suites that failed last time start first, and after the first failure no new suite starts (the
   ones already running finish). The edit loop: fix, rerun with -x, and hear about a break in a minute, not at the
   end. What did not run stays due for the next run.
+- WSL: when the distro of tools/wsl/ is set up, suites run in Linux, where tools/forkrun.py builds each shared
+  set-up once and forks a process per case (suites with a shared set-up 2-4x faster). WINDOWS_ONLY suites
+  (file-copy heavy, Windows-specific or memory-hungry) and everything with --windows (or DZ_WSL=0) run on Windows as before.
 """
 import ctypes
 import glob
@@ -48,6 +51,12 @@ SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(8, (os.cpu_count() or 
 MIN_FREE_MB = 1500
 TIMEOUT = 1500
 
+WSL_DISTRO = os.environ.get("DZ_WSL_DISTRO") or "Ubuntu-26.04"
+# Run on Windows even when WSL is there: staging whole addon trees over 9P is slow (patch), they drive Windows
+# programs / paths (launcher), or 60 clients a shard need more memory than the WSL VM has to spare (scale: ~3.4 GB a
+# shard there, Linux's allocator keeps what the Lua heaps freed).
+WINDOWS_ONLY = ("patch/", "launcher/", "scale/")
+
 SHARDS = testmap.SHARDS                  # suite -> shard count (tools/testmap.py)
 RELEASE_ONLY = testmap.RELEASE_ONLY      # suites only --all runs (or a filter naming them)
 
@@ -55,7 +64,8 @@ args = sys.argv[1:]
 RUN_ALL = "--all" in args
 DRY = "--dry-run" in args
 FAIL_FAST = "-x" in args or "--fail-fast" in args
-args = [a for a in args if a not in ("--all", "--dry-run", "-x", "--fail-fast")]
+FORCE_WINDOWS = "--windows" in args or os.environ.get("DZ_WSL") == "0"
+args = [a for a in args if a not in ("--all", "--dry-run", "-x", "--fail-fast", "--windows")]
 jobs = SLOTS
 if "-j" in args:
     i = args.index("-j")
@@ -194,6 +204,45 @@ def release_slot(fh):
         fh.close()
 
 
+# -- WSL -------------------------------------------------------------------------------------------------------------
+def to_wsl(path):
+    """A Windows path as WSL sees it (drive C: is /mnt/c)."""
+    path = os.path.abspath(path)
+    return "/mnt/%s%s" % (path[0].lower(), path[2:].replace("\\", "/"))
+
+
+def wsl_ready():
+    if FORCE_WINDOWS or os.name != "nt":
+        return False
+    try:
+        p = subprocess.run(["wsl.exe", "-d", WSL_DISTRO, "-e", "test", "-x", "/opt/dzenv/bin/python"],
+                           capture_output=True, timeout=60)
+        return p.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+USE_WSL = wsl_ready() if not DRY else False
+# the environment a suite gets, carried into WSL (/p: a path to translate, /l: a list of paths). Only the ones set:
+# WSL hands a listed but unset variable over as an empty string.
+WSLENV = ("DZ_COVER/p", "DZ_COVER_SRC/p", "PYTHONPATH/l", "DZ_SHARD", "DZ_FORK", "DZ_SCALE_N",
+          "DISASTERZONE_ADDON_DIR/p", "DISASTERZONE_ROOMS_DIR/p", "DISASTERZONE_PATCH_SV/p", "DISASTERZONE_ROOMS",
+          "DISASTERZONE_NO_BCCACHE")
+
+
+def on_wsl(f):
+    return USE_WSL and not suite_key(f).startswith(WINDOWS_ONLY)
+
+
+def command(f, env):
+    if not on_wsl(f):
+        return [PY, f]
+    names = [v for v in WSLENV if env.get(v.split("/")[0])]
+    env["WSLENV"] = ":".join(names + ([env["WSLENV"]] if env.get("WSLENV") else []))
+    return ["wsl.exe", "-d", WSL_DISTRO, "-e", "bash", to_wsl(os.path.join(SCRATCH, "tools", "wsl", "run.sh")),
+            to_wsl(f)]
+
+
 # -- running ---------------------------------------------------------------------------------------------------------
 _failed = threading.Event()  # -x: set by the first failure
 
@@ -213,7 +262,7 @@ def run(task):
         env["DZ_SHARD"] = "%d/%d" % (i, n)
     t0 = time.time()
     try:
-        p = subprocess.run([PY, f], cwd=SCRATCH, capture_output=True, text=True, timeout=TIMEOUT, env=env,
+        p = subprocess.run(command(f, env), cwd=SCRATCH, capture_output=True, text=True, timeout=TIMEOUT, env=env,
                            encoding="utf-8", errors="replace")
         out = p.stdout + "\n" + p.stderr
         rc = p.returncode

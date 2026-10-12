@@ -50,22 +50,28 @@ def run_all(argv=None):
     flt = None
     if "-k" in argv:
         flt = argv[argv.index("-k") + 1]
+    import forkrun
     failed, passed = [], 0
     t_all = time.time()
     picked = [fn for fn in _CASES if not flt or flt in fn.__name__]
-    for fn in [fn for i, fn in enumerate(picked) if in_shard(i)]:
-        name = fn.__name__
+
+    def one(name, fn):
         t0 = time.time()
         try:
             fn()
         except Exception as e:  # noqa: BLE001 - report every failure, keep going
-            failed.append(name)
             print("FAIL %s (%.2fs)" % (name, time.time() - t0))
             msg = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             print("    " + msg.replace("\n", "\n    ").rstrip())
-        else:
+            return False
+        print("PASS %s (%.2fs)" % (name, time.time() - t0))
+        return True
+
+    for name, ok in forkrun.run_cases([(fn.__name__, fn) for i, fn in enumerate(picked) if in_shard(i)], one):
+        if ok:
             passed += 1
-            print("PASS %s (%.2fs)" % (name, time.time() - t0))
+        else:
+            failed.append(name)
     total = passed + len(failed)
     print("-- %s: %d case(s), %d passed, %d failed (%.1fs)" % (
         os.path.basename(sys.argv[0]), total, passed, len(failed), time.time() - t_all))

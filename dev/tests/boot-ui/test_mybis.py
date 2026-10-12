@@ -715,42 +715,42 @@ def progress_card_model_wears_bis_picks():
 
 
 @case
-def spec_dropdown_and_auto_detect():
+def spec_tabs_and_detect_from_talents():
+    """The spec tabs (1.3.3, they replaced the spec dropdown): every class spec in order, the main spec taken from the
+    talents at login; Detect main spec from talents (a tab's menu) follows the tree with the most points. Making a
+    spec main / off and the picks that go with it: offspec/test_offspec.py spec_tabs_keep_picks_with_their_spec."""
+    def tabs(cl):
+        return cl.eval_py("local o = {} for _, t in ipairs(ns.MyBiS:GetSpecTabs()) do o[#o + 1] = { t.spec, t.main } end return o")
+
+    def detect(cl, from_tab):
+        cl.eval("ns.MyBiS:OpenSpecMenu(...)", from_tab)
+        cl.menu_select("Detect main spec from talents")
+        cl.world.tick(0.1)
+        if "DISASTERZONE_RELABEL_LIST" in (cl.popups() or []):     # (the main list has picks: it asks first)
+            cl.accept_popup("DISASTERZONE_RELABEL_LIST")
+            cl.world.tick(0.1)
+
     w, c = setup(talents=(41, 20, 0))
-    dd = c.eval("return T_dropdown(T_mybis(), 'Choose spec')")
-    menu = c.dropdown_menu(dd)
-    entries = menu_texts(menu)
-    assert [e[2] for e in entries] == ["Holy", "Protection", "Retribution", "Auto-detect"], entries
-    sel = [e for e in menu["children"] if e.get("selected")]
-    assert [e["text"] for e in sel] == ["Holy"], sel
-    c.menu_select("Retribution")
-    w.tick(0.1)
-    assert c.eval("return ns.BiS:GetSpec()") == "Retribution"
-    assert c.eval("local d = ...; return d:GetText()", dd) == "Retribution"
-    # auto-detect follows the talent tree with the most points
+    assert tabs(c) == [["Holy", True], ["Protection", False], ["Retribution", False]], tabs(c)
+    # detect follows the talent tree with the most points
     c.set_talents((0, 45, 16))
-    c.dropdown_menu(dd)
-    n0 = len(c.chat_frame)
-    c.menu_select("Auto-detect")
+    detect(c, "Holy")
     assert c.eval("return ns.BiS:GetSpec()") == "Protection"
-    assert any("Spec detected: Protection" in l for l in printed_since(c, n0))
+    assert tabs(c)[1] == ["Protection", True], tabs(c)
     # no talents: nothing changes, the player is told
     c.set_talents((0, 0, 0))
-    c.dropdown_menu(dd)
-    c.menu_select("Auto-detect")
+    n0 = len(c.chat_frame)
+    detect(c, "Protection")
     assert c.eval("return ns.BiS:GetSpec()") == "Protection"
     assert any("Couldn't detect a spec" in l for l in printed_since(c, n0))
     # druid feral maps to the first spec of the tab
     w2, d = setup(name="Dru", class_file="DRUID", talents=(0, 50, 11))
     assert d.eval("return ns.BiS:GetSpec()") == "Feral (Cat)"
-    menu = d.dropdown_menu(d.eval("return T_dropdown(T_mybis(), 'Choose spec')"))
-    assert [e[2] for e in menu_texts(menu)] == ["Balance", "Feral (Cat)", "Feral (Bear)", "Restoration", "Auto-detect"]
-    d.menu_select("Feral (Bear)")
-    assert d.eval("return ns.BiS:GetSpec()") == "Feral (Bear)"
-    # a character with no talents at login keeps an empty spec, dropdown shows its default text
+    assert [t[0] for t in tabs(d)] == ["Balance", "Feral (Cat)", "Feral (Bear)", "Restoration"], tabs(d)
+    # a character with no talents at login keeps an empty spec: no tab is its main
     w3, e = setup(name="Fresh", class_file="MAGE", talents=(0, 0, 0))
     assert e.eval("return ns.BiS:GetSpec()") == ""
-    assert e.eval("return T_dropdown(T_mybis(), 'Choose spec'):GetText()") == "Choose spec"
+    assert not any(t[1] for t in tabs(e)), tabs(e)
     no_errors(w)
     no_errors(w2)
     no_errors(w3)
@@ -806,7 +806,8 @@ def uncached_item_names_fill_in_after_load():
         if d.type == 'item' then o[#o + 1] = r.name:GetText() end
       end
       return o""")
-    assert all("Loading" in n for n in names()), names()
+    # (most are still loading; one another page asked for already can be in: the client's item cache is shared)
+    assert sum("Loading" in n for n in names()) >= len(names()) - 2, names()
     w.tick(1)
     assert not any("Loading" in n for n in names()), names()
     # the quality border of the tile button is applied late too

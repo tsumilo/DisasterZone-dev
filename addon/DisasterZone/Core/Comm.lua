@@ -390,9 +390,27 @@ local function ScheduleHoldCheck()
     end)
 end
 
+-- A login wave fills the buffer: the sync's own messages (HELLOs and their answers, list data) go first. When it is
+-- full, the oldest message of another kind (games, boards, events: they are sent or asked for again) makes room
+-- before any sync one does, and a new one of another kind is dropped while only sync messages are held. (Chess's
+-- login query from 39 members once pushed the HELLOs out, and a council member whose roster loaded late answered
+-- only 25 of them.)
+local HOLD_FIRST = { [PREFIX.ctrl] = true, [PREFIX.data] = true }
+
 Hold = function(prefix, text, distribution, senderKey)
     if #held >= HOLD_MAX then
-        table.remove(held, 1)
+        local drop
+        for i, h in ipairs(held) do
+            if not HOLD_FIRST[h.prefix] then drop = i break end
+        end
+        if not drop then
+            if not HOLD_FIRST[prefix] then
+                Comm.stats.dropped = Comm.stats.dropped + 1
+                return
+            end
+            drop = 1
+        end
+        table.remove(held, drop)
     end
     held[#held + 1] = { prefix = prefix, text = text, dist = distribution, key = senderKey, at = GetTime() }
     local Guild = ns.Guild

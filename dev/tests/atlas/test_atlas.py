@@ -126,11 +126,14 @@ def slot(c, phase, sid, lst=None):
 @case
 def tab_sits_after_my_bis_and_opens_on_the_guild_phase_raid():
     w, c = setup(phase=2)
+    # the top tabs are sections since the nav menus (1.3.3): Atlas is a Gear page, after My BiS
     order = c.eval_py("""local o = {}
       for i, b in ipairs(ns.MainFrame:GetFrame().Tabs or {}) do o[i] = b.key or (b.GetText and b:GetText()) end
       return o""")
     labels = [str(x) for x in order]
-    assert "atlas" in labels or "Atlas" in labels, labels
+    assert "Gear" in labels, labels
+    pages = [str(x) for x in c.eval_py("return ns.MainFrame:GetShownPages()")]
+    assert "atlas" in pages and pages.index("atlas") > pages.index("mybis"), pages
     st = state(c)
     first_p2 = c.eval("for _, r in ipairs(ns.Data.Raids) do if r.phase == 2 then return r.key end end")
     assert st[0] == "raids" and st[1] == first_p2, st

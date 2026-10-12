@@ -101,6 +101,11 @@ Run everything from `C:\Users\emilo\CDLoot-dev\dev`:
 `tools\README.md` documents the mock client (World / Client, the guild and raid simulation, loot, `/roll`, relog). Use it to write new scenarios.
 
 ### How run_all stays fast
+- **Fork per case in WSL.** Most suites run inside the WSL distro Ubuntu-26.04, where `tools\forkrun.py` runs a
+  set-up several cases share (`r = setup()`) once and forks a clean process per case from it: such suites run 2-4x
+  faster (a whole run ~20% at 8 workers, as many suites' time is in their cases), and cases can no longer leak into
+  each other. Patch, launcher and scale suites stay on Windows; `--windows` runs everything there. Set-up and details: `dev\tools\wsl\README.md`. When writing a test, put the shared
+  world-building first in the case and per-case tweaks after it.
 - **Only what changed.** Every suite records what it depended on (`dev\.testmap\`, git-ignored): the files it
   read (its test file, helpers, harness, mock, generators, the TOC) and the addon functions its clients called.
   `run_all.py` skips a suite when nothing of that changed since its last run. An edit inside a function reruns

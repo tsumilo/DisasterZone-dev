@@ -60,21 +60,25 @@ class Runner:
         passed, failed = [], []
         print("== %s ==" % self.title)
         picked = [fn for fn in self.cases if not flt or flt in fn.__name__]
-        for fn in [fn for i, fn in enumerate(picked) if in_shard(i)]:
+
+        def one(name, fn):
             t0 = time.time()
             try:
                 fn()
             except Exception as e:  # noqa: BLE001 - report every failure and keep going
-                failed.append(fn.__name__)
-                print("FAIL %s (%.1fs)" % (fn.__name__, time.time() - t0))
+                print("FAIL %s (%.1fs)" % (name, time.time() - t0))
                 tb = traceback.format_exc()
                 # keep the output readable: cap very long Lua traceback dumps
                 if len(tb) > 6000:
                     tb = tb[:6000] + "\n... (truncated)"
                 print("     " + tb.replace("\n", "\n     "))
-            else:
-                passed.append(fn.__name__)
-                print("PASS %s (%.1fs)" % (fn.__name__, time.time() - t0))
+                return False
+            print("PASS %s (%.1fs)" % (name, time.time() - t0))
+            return True
+
+        import forkrun
+        for name, ok in forkrun.run_cases([(fn.__name__, fn) for i, fn in enumerate(picked) if in_shard(i)], one):
+            (passed if ok else failed).append(name)
         print("-- %s: %d passed, %d failed%s" % (self.title, len(passed), len(failed),
                                                  (" (" + ", ".join(failed) + ")") if failed else ""))
         sys.exit(1 if failed else 0)

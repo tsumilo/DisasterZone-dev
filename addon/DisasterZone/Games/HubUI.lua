@@ -124,7 +124,8 @@ local function BingoState()
     local card = g and B:GetMyCard()
     local hits = g and g.hits or {}
     st.card = card
-    for i = 1, 25 do st.marked[i] = (i == 13) or (card ~= nil and Card.IsMarked(card[i], hits)) end
+    local marks = card and B:GetMarks(ns.Util.PlayerKey())      -- (the fated cell counts too)
+    for i = 1, 25 do st.marked[i] = (i == 13) or (marks ~= nil and marks[i] == true) end
     if not card then return st end
     local best = 99
     for _, line in ipairs(Card.LINES or {}) do
@@ -190,8 +191,10 @@ INFO.bingo = function()
     local season = B and B:GetSeason() or {}
     local row = season[ns.Util.PlayerKey()]
     local bingos = type(row) == "table" and tonumber(row.bingos) or 0
-    if bingos > 0 then
-        out.stat = string.format("Bingos this season |cffffffff%d|r", bingos)
+    local points = type(row) == "table" and tonumber(row.points) or 0
+    if bingos > 0 or points > 0 then
+        out.stat = string.format("Season |cffffffff%d|r points  \194\183  |cffffffff%d|r bingo%s", points, bingos,
+            bingos == 1 and "" or "s")
     elseif data.best then
         out.stat = string.format("Best card |cffffffff%d|r squares", data.best)
     else
@@ -1370,6 +1373,17 @@ local function StripFill(id)
     UI:Gradient(strip.accent, "HORIZONTAL", { a[1], a[2], a[3], 0.9 }, { a[1], a[2], a[3], 0 })
     local info = Info(id)
     strip.playing:SetText(info.foot and info.foot:find("playing") and info.foot or "")
+    -- a game's own control on the strip, after its name (panel.stripTool: Bingo's Card / Codex switch)
+    for gid, gp in pairs(panels) do
+        if gp.stripTool then gp.stripTool:SetShown(gid == id) end
+    end
+    local p = panels[id]
+    if p and p.stripTool then
+        p.stripTool:SetParent(strip)
+        p.stripTool:ClearAllPoints()
+        p.stripTool:SetPoint("LEFT", strip.name, "RIGHT", 18, 0)
+        p.stripTool:SetFrameLevel(strip:GetFrameLevel() + 2)
+    end
 end
 
 local function HideGamePanel()

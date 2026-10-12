@@ -658,7 +658,14 @@ def every_file_from_the_patch():
             write(shadow, rel, guard(rel) + "\nerror('the disk copy of %s ran')\n" % rel)
     base_dir, record = release_of(shadow)
     new_dir = source_copy("shadownew", version="9.9.9")
-    bundle = make(record, new_dir)
+    # (the whole addon is past one update's caps since 1.4, 13.6 MB: release.py selftest goes in parts. This case is
+    # about every file running from the store, so its bundle is built past them: stored directly here, never sent.)
+    caps = patchlib.MAX_TOTAL_LEN, patchlib.MAX_TOTAL_ZLEN
+    patchlib.MAX_TOTAL_LEN = patchlib.MAX_TOTAL_ZLEN = 64 * 1024 * 1024
+    try:
+        bundle = make(record, new_dir)
+    finally:
+        patchlib.MAX_TOTAL_LEN, patchlib.MAX_TOTAL_ZLEN = caps
     assert len(bundle["items"]) == len(files) - 1
     w = World(addon_dir=base_dir)
     a = member(w, "Alice", base_dir, sv=staged(bundle), guild_rank=1)

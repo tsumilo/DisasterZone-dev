@@ -307,7 +307,9 @@ def the_raid_leaders_window_is_for_officers_to_edit():
 def a_raid_leader_gets_no_loot_council_data():
     w, c = world()
     rhea, cora = c["Rhea"], c["Cora"]
-    assert tabs(rhea) == ["home", "mybis", "atlas", "raids", "mylog", "dungeons", "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(rhea)
+    # every page a member has (Gear sim / Consumables since 1.3.4, Loot rules for everyone since 1.3.5), no council page
+    assert tabs(rhea) == ["home", "mybis", "gearsim", "consumables", "atlas", "raids", "lootrules", "mylog", "dungeons",
+                          "events", "polls", "members", "map", "games", "feedback", "changelog", "settings"], tabs(rhea)
     ct = tabs(cora)
     assert "council" in ct, ct
     cora.eval("ns.Ledger:Award(28477, ..., 'Karazhan:Attumen', 'test')", K("Rita"))

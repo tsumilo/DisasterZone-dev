@@ -1540,7 +1540,7 @@ function SettingsUI:RefreshTutorials()
     end
     t.peek.desc:SetText(Grey("What the other roles see and do, on demo data. Nothing changes."))
     put(t.peek, others > 0)
-    local TR, p = ns.Tour, ns.Tour and ns.Tour:Progress("strategy")
+    local TR, p = ns.Tour, ns.Tour and ns.Tour:Peek("strategy")
     local def = TR and TR:Get("strategy")
     local total, done = def and #def.chapters or 0, 0
     for _ in pairs(p and p.done or {}) do done = done + 1 end
