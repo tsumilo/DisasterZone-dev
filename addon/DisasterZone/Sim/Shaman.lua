@@ -954,9 +954,7 @@ function S.ShamanFinalizePets(p)
   end
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Shaman", {
   setup = function(p, talents, opts) S.SetupShaman(p, talents, opts) end,
   applyTalents = function(p) S.ShamanApplyTalents(p) end,

@@ -571,9 +571,7 @@ function S.MageItems(p)
   end
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Mage", {
   setup = function(p, talents, opts) S.SetupMage(p, talents, opts) end,
   applyTalents = function(p) S.MageApplyTalents(p) end,

@@ -622,9 +622,7 @@ S.ITEM_EFFECTS[32492] = function(p)
     end })
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Rogue", {
   setup = function(p, talents, opts, consumables) S.SetupRogue(p, talents, opts, consumables) end,
   applyTalents = function(p) S.RogueApplyTalents(p) end,

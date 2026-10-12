@@ -709,9 +709,7 @@ for id, dmg in pairs({ [2722] = 10, [2723] = 12 }) do
   end
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Hunter", {
   setup = function(p, talents, opts, consumables, buffs)
     S.SetupHunter(p, talents, opts)

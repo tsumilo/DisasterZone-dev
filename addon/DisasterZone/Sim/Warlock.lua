@@ -694,9 +694,7 @@ function S.WarlockItems(p)
   end
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Warlock", {
   setup = function(p, talents, opts, consumables, buffs)
     S.SetupWarlock(p, talents, opts)

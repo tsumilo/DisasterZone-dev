@@ -771,9 +771,7 @@ S.ITEM_EFFECTS[32485] = function(p)
     handler = function(sim) buff:Activate(sim) end })
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Warrior", {
   setup = function(p, talents, opts) S.SetupWarrior(p, talents, opts) end,
   applyTalents = function(p) S.WarriorApplyTalents(p) end,

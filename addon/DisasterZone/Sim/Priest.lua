@@ -362,9 +362,7 @@ function S.PriestItems(p)
   end
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Priest", {
   setup = function(p, talents, opts) S.SetupPriest(p, talents, opts) end,
   applyTalents = function(p) S.PriestApplyTalents(p) end,

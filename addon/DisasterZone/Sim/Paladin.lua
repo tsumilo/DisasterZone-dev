@@ -612,9 +612,7 @@ function S.PaladinResolveAura(p, ref)
   return p.auraById[id .. ":" .. (rank or 0)] or p.auraById[id]
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Paladin", {
   order = "afterRacials", -- paladin.go: the constructor (and its talents) after the racials
   setup = function(p, talents) S.SetupPaladin(p, talents) end,

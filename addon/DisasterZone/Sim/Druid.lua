@@ -790,9 +790,7 @@ function S.DruidRegisterBalanceSpells(p)
   if T.ForceOfNature > 0 then ForceOfNature(p) end
 end
 
--- ---------------------------------------------------------------------------------------------------------------
--- Scenario hooks (Setup.lua S.NewScenario calls them in WoWSims' build order)
--- ---------------------------------------------------------------------------------------------------------------
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
 S.RegisterClass("Druid", {
   setup = function(p, talents, opts, consumables, buffs)
     S.SetupDruid(p, talents, opts)
