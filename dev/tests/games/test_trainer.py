@@ -776,6 +776,19 @@ def without_the_3d_files_the_fight_is_played_on_the_map():
         st = c.eval_py("return ns.TrainerUI._State()")
         assert st["is3D"] is False and st["state"] == "run", st
         assert c.eval_py("return ns.TrainerUI._Render()") is None and c.eval_py("return ns.TrainerUI._Order()") is None
+        # the flat game still turns and walks backwards with the client's numbers (no R3.WALK to read them from)
+        f0 = c.eval_py("return ns.TrainerUI._Sim().player.facing")
+        c.eval("ns.TrainerUI._Sim():SetControls(-1, 0, 1)")
+        for _ in range(4):
+            c.eval("ns.TrainerUI._Tick(0.05)")
+        st = c.eval_py("return ns.TrainerUI._State()")
+        assert st["state"] == "run", st
+        p = c.eval_py("local p = ns.TrainerUI._Sim().player return { p.facing, p.backward }")
+        assert abs(p[0] - f0 - math.pi * 0.2) < 1e-6 and p[1] is True, (f0, p)
+        c.eval("ns.TrainerUI._Sim():SetControls(0, 0, 0)")
+    assert c.eval_py("local T = ns.Trainer return { T.TURN_RATE, T.BACKPEDAL, T.GRAVITY, T.TERMINAL, T.STEP_UP, "
+                     "T.MAX_SLOPE }") == [math.pi, 4.5 / 7, 19.291103, 60.148003, 1.0,
+                                          c.eval_py("return math.tan(math.rad(50))")]
     no_errors(w)
 
 
