@@ -743,6 +743,18 @@ local function StatusText(g)
         .. (pending and "  \194\183  |cff8a8a8aon its way to them|r" or "")
 end
 
+-- Resign asks first (1.4.1): a stray click in the menu ended the game.
+function UI:ConfirmResign(g)
+    if not g or g.status ~= "active" then return end
+    local opp = g.mode == "ai" and "Medivh" or (ns.Util.ShortName(g.opp) or "your opponent")
+    if not (ns.Popup and ns.Popup.Confirm) then return end
+    ns.Popup:Confirm({ key = "DZ_CHESS_RESIGN", title = "Resign", danger = true, ok = "Resign", cancel = "Keep playing",
+        text = ("Resign this game against %s? It counts as a loss."):format(opp),
+        onAccept = function()
+            if g.status == "active" then Chess():Resign(g) end
+        end })
+end
+
 local function MoreMenu(owner)
     local g = state.game
     if not g then return end
@@ -756,7 +768,7 @@ local function MoreMenu(owner)
             end
         end
         if g.status == "active" then
-            m:CreateButton("|cffff6a5aResign|r", function() Chess():Resign(g) end)
+            m:CreateButton("|cffff6a5aResign|r", function() UI:ConfirmResign(g) end)
         elseif g.status == "asked" then
             m:CreateButton("Cancel the invite", function() Chess():Delete(g) UI:OpenLobby() end)
         elseif g.status == "over" then

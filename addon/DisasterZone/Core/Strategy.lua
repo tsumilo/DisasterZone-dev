@@ -235,9 +235,22 @@ local function Owner(rec)
     return rec.ow or rec.by
 end
 
+-- (1.4.1) One player: the same character, or two characters of one account (Guild:SameAccount). The owner and the
+-- collaborators act from any of their characters, as in RaidPlan / Prized / Attendance.
+local function SamePlayer(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    if a == b then return true end
+    local G = Guild()
+    return (G and G.SameAccount and G:SameAccount(a, b)) and true or false
+end
+
+local function IsOwnerKey(rec, key)
+    return SamePlayer(Owner(rec), key)
+end
+
 local function IsCollab(rec, key)
     for _, k in ipairs(rec.co or {}) do
-        if k == key then return true end
+        if SamePlayer(k, key) then return true end
     end
     return false
 end
@@ -254,15 +267,15 @@ end
 -- May the strategy `rec` replace the strategy `cur` (nil: it is new to me)? The owner stays the owner; the owner, the
 -- collaborators and the moderators change the board; only the owner changes the collaborators (and their version cr).
 local function Allowed(cur, rec)
-    if not cur then return rec.by == Owner(rec) or IsCollab(rec, rec.by) or CanModerate(rec.by) end
+    if not cur then return IsOwnerKey(rec, rec.by) or IsCollab(rec, rec.by) or CanModerate(rec.by) end
     if Owner(rec) ~= Owner(cur) then return false end
-    if rec.by == Owner(cur) then return true end
+    if IsOwnerKey(cur, rec.by) then return true end
     return (IsCollab(cur, rec.by) or CanModerate(rec.by)) and SameList(cur.co, rec.co) and rec.cr == cur.cr
 end
 
 -- Does the deletion `t` delete the strategy `rec`? Its owner's and a moderator's do; one from anyone else never counts.
 local function Deletes(t, rec)
-    return t.by == Owner(rec) or CanModerate(t.by)
+    return IsOwnerKey(rec, t.by) or CanModerate(t.by)
 end
 
 local REFUSED = "Only the Guild Master and the raid leaders pick a raid's strategies and assign its players."
@@ -965,7 +978,7 @@ end
 
 function Strategy:IsOwner(s, key)
     local owner = self:GetOwner(s)
-    return owner ~= nil and owner == (key or Util.PlayerKey())
+    return owner ~= nil and SamePlayer(owner, key or Util.PlayerKey())
 end
 
 -- May I (or that member) change this strategy (a record or its id)? Its owner, the collaborators the owner invited,
@@ -977,7 +990,7 @@ function Strategy:CanEditStrategy(s, key)
     end
     local me = key or Util.PlayerKey()
     if type(s) ~= "table" or s.del or not me then return false end
-    return Owner(s) == me or IsCollab(s, me) or CanModerate(me)
+    return IsOwnerKey(s, me) or IsCollab(s, me) or CanModerate(me)
 end
 
 -- Did the owner invite that member (default: me) to this strategy (a record or its id)?
@@ -1453,13 +1466,13 @@ function Strategy:SetCollaborators(id, keys)
     local cur = type(id) == "string" and root.B[id]
     if not cur or cur.del then return false, "unknown strategy" end
     local me = Util.PlayerKey()
-    if Owner(cur) ~= me then return false, "Only the owner of a strategy picks its collaborators." end
+    if not IsOwnerKey(cur, me) then return false, "Only the owner of a strategy picks its collaborators." end
     local G = Guild()
     local list, seen = {}, {}
     for k, v in pairs(type(keys) == "table" and keys or {}) do
         local key = type(k) == "string" and v and k or (type(v) == "string" and v) or nil
         key = key and WireKey(key)
-        if key and key ~= me and not seen[key] then
+        if key and key ~= me and key ~= Owner(cur) and not seen[key] then
             if G and G.IsInGuild and not G:IsInGuild(key, true) and not IsCollab(cur, key) then
                 return false, (Util.ShortName(key) or key) .. " is not in the guild"
             end
@@ -1470,7 +1483,7 @@ function Strategy:SetCollaborators(id, keys)
     if #list > MAX_COLLAB then return false, "A strategy has at most " .. MAX_COLLAB .. " collaborators." end
     tsort(list)
     local rec = Copy(cur)
-    rec.rev, rec.by, rec.ow = NextRev(cur), me, me
+    rec.rev, rec.by, rec.ow = NextRev(cur), me, Owner(cur)   -- (an alt of the owner keeps the owner the owner)
     rec.co = #list > 0 and list or nil
     -- a new list is a new version of it: an edit made on the old list, arriving later, loses to this (Newer)
     if not SameList(cur.co, rec.co) then rec.cr = rec.rev end

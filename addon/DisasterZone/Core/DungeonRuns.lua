@@ -207,8 +207,14 @@ local function Changed()
 end
 
 local function TrimNote(s)
-    s = Util.Trim(tostring(s or ""):gsub("|", ""))
-    if #s > NOTE_MAX then s = strsub(s, 1, NOTE_MAX) end
+    s = Util.Trim((tostring(s or ""):gsub("|", "")))
+    if #s > NOTE_MAX then
+        -- (1.4.1) cut between letters, never inside one (in UTF-8 the bytes 0x80-0xBF go on with the letter before);
+        -- the cap stays NOTE_MAX bytes: a note that fits is kept whole
+        local cut = NOTE_MAX
+        while cut > 0 and (s:byte(cut + 1) or 0) >= 0x80 and s:byte(cut + 1) < 0xC0 do cut = cut - 1 end
+        s = strsub(s, 1, cut)
+    end
     return s
 end
 

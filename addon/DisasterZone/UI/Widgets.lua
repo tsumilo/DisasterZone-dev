@@ -550,7 +550,7 @@ local function ClassHex(classFile)
 end
 
 -- A player's class file: known (a record's own) when given, else the guild roster's, else what the store learned
--- (someone outside the guild); nil when nobody knows.
+-- (someone outside the guild), else (1.4.1) my group's roster (a pug in my party or raid); nil when nobody knows.
 function UI:ClassOf(key, known)
     if known then return known end
     if type(key) ~= "string" then return nil end
@@ -560,13 +560,16 @@ function UI:ClassOf(key, known)
         local data = type(rec) == "table" and rec.data
         if type(data) == "table" and type(data.cl) == "string" then cl = data.cl end
     end
+    if not cl then
+        local g = type(ns.Util.group) == "table" and ns.Util.group[key]
+        if type(g) == "table" and type(g.classFile) == "string" then cl = g.classFile end
+    end
     return cl
 end
 
 function UI:ColoredName(key, classFile)
-    if not classFile and key and ns.Guild and ns.Guild.GetClass then
-        classFile = ns.Guild:GetClass(key)
-    end
+    -- (1.4.1: ClassOf, so a guest / pug the store knows is coloured too, not only guild members)
+    classFile = self:ClassOf(key, classFile)
     -- (a player from another realm: "Name*", the realm is long and the tooltips say it)
     local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or (ns.Util.ShortName(key) or key)
     return "|c" .. ClassHex(classFile) .. name .. "|r"

@@ -385,7 +385,7 @@ end
 local function NextRaid()
     local RP = ns.RaidPlan
     if not (RP and RP.GetRaids) then return nil end
-    local now, best = time(), nil
+    local now, best = ns.Util.Now(), nil      -- (raid times are server time)
     local ok, list = pcall(RP.GetRaids, RP, now - 4 * 3600, now + 14 * 86400)
     if not ok or type(list) ~= "table" then return nil end
     for _, v in ipairs(list) do
@@ -444,7 +444,7 @@ local function RefreshHero(p)
     local parts = {}
     if v then
         local name = ns.RaidPlan.GetRaidName and ns.RaidPlan:GetRaidName(v) or "Raid"
-        parts[1] = G("Next raid") .. "  " .. name .. "  ·  " .. date("%a %H:%M", v.t) .. "  ·  " .. Countdown(v.t - time())
+        parts[1] = G("Next raid") .. "  " .. name .. "  ·  " .. date("%a %H:%M", v.t) .. "  ·  " .. Countdown(v.t - ns.Util.Now())
         local inst = ns.RaidPlan.GetInstance and ns.RaidPlan:GetInstance(v.i)
         p.raidName:SetText(inst and inst.name or "")
     else
@@ -471,7 +471,7 @@ local function RefreshHero(p)
     p.facts:SetText(table.concat(parts, sep))
     if v and UI:TextWidth(p.facts) > room then
         local name = ns.RaidPlan.GetRaidName and ns.RaidPlan:GetRaidName(v) or "Raid"
-        parts[1] = G("Next raid") .. "  " .. name .. "  ·  " .. Countdown(v.t - time())
+        parts[1] = G("Next raid") .. "  " .. name .. "  ·  " .. Countdown(v.t - ns.Util.Now())
         p.facts:SetText(table.concat(parts, sep))
         if UI:TextWidth(p.facts) > room then
             parts[1] = G("Next raid") .. "  " .. name
@@ -1086,11 +1086,11 @@ function SettingsUI:BuildNotify(sec)
     self:Switch(sec, "Pause pop-ups for an hour", "Nothing pops up or plays a sound; the bell still collects.",
         function()
             local s = N and N.Settings()
-            return s and (tonumber(s.dndUntil) or 0) > time() or false
+            return s and (tonumber(s.dndUntil) or 0) > ns.Util.Now() or false   -- (UI/Notify reads it so)
         end,
         function(a, b)
             local s = N and N.Settings(true)
-            if s then s.dndUntil = Bool(a, b) and (time() + 3600) or nil end
+            if s then s.dndUntil = Bool(a, b) and (ns.Util.Now() + 3600) or nil end
         end)
     local kinds = N and N:GetKinds() or {}
     if #kinds == 0 then

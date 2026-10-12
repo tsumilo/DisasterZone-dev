@@ -1387,7 +1387,8 @@ function DungeonsUI:CreatePanel(parent)
     p.empty = UI():CreateEmptyState(p.layout.body, { glyph = UI().ICON.team, title = "No runs listed right now." })
     p.empty:SetFrameLevel(p.scroll:GetFrameLevel() + 5)
     p.empty:Hide()
-    p:SetScript("OnShow", function() DungeonsUI:Refresh() end)
+    -- (MainFrame calls this on every show of the page, the first one too; an OnShow as well painted it twice
+    -- per switch, 1.4.1)
     p.OnPanelShown = function() DungeonsUI:Refresh() end
     p.elapsed = 0
     p:SetScript("OnUpdate", function(self, dt)

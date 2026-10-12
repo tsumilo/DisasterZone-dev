@@ -5901,7 +5901,8 @@ function EventsUI:CreatePanel(parent)
     p.libExBtn = A.ExamplesButton(bar, S.BTN_H)
     p.libExBtn:Hide()
     bar:SetFilters({ p.exBtn, p.libExBtn })
-    p:SetScript("OnShow", function() EventsUI:Refresh() end)
+    -- (MainFrame calls this on every show of the page, the first one too; an OnShow as well painted it twice
+    -- per switch, 1.4.1)
     p.OnPanelShown = function() EventsUI:Refresh() end
     p.elapsed = 0
     p:SetScript("OnUpdate", function(self, dt)
