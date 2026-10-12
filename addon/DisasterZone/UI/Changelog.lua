@@ -877,8 +877,9 @@ local function NewHighlight(parent)
     c.go = UI():CreateSleekButton(c, "Show me", 76, S.BTN_H, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end,
         "primary")
     c.go:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 9, 8)
-    c.area = UI():Text(c, "small", "SUB")
-    c.area:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -8, 12)
+    -- the area at the top left, over the shaded art (the version pill takes the top right)
+    c.area = UI():Text(c.artF, "small", "TEXT", { shadow = true })
+    c.area:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -8)
     c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, S:Color("EDGE_FOCUS")) end)
     c:SetScript("OnLeave", PaintCardEdge)
     c:SetScript("OnMouseUp", function(self, button)
@@ -911,10 +912,7 @@ local function FillHighlight(c, sec, v, w, showVer)
     local ph = WrapH(c.pitch, tw, 12)
     c.need = 84 + th + 3 + ph + 10 + S.BTN_H + 8
     c.go:SetShown(sec.open ~= nil)
-    -- the area beside Show me: its glyph alone when the name doesn't fit
-    local glyph = AreaIcon(sec.area, 10, S.C.SUB)
-    c.area:SetText(glyph .. " " .. (AREAS[sec.area] or AREAS.other)[1])
-    if sec.open and UI():TextWidth(c.area) > w - 9 - c.go:GetWidth() - 16 then c.area:SetText(glyph) end
+    c.area:SetText(AreaIcon(sec.area, 10, S.C.TEXT) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
     PaintCardEdge(c)
     c:Show()
 end
