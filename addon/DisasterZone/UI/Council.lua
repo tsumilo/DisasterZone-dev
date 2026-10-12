@@ -4,37 +4,42 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Council.lua", ...) then return 
 -- ADDENDUM F: slots a player disabled show a dark "–" and are left out of the counts (§36); the raid leader
 -- locks / unlocks the BiS lists from the toolbar, and players who changed their list while locked carry a
 -- warning marker in the roster, the Items view and the member header (§38).
+-- 1.4 (the shared structure): the panel is a List + detail layout (UI:CreateLayout "listdetail"): the view tabs, the
+-- phase and the search in its toolbar, the filter strip under it; Roster fills the content, Items is the tree (the
+-- list column) and the boss's cards (the detail, under the boss's banner), the member page opens with a banner (back
+-- link, class, the member's line, previous / next as its tools), the Loot council view is two cards. The texts are
+-- the type scale, the colours ns.Style tokens, the empty lists illustrated empty states, the questions Popup:Confirm.
 local addonName, ns = ...
 
 local CouncilUI = ns:NewModule("CouncilUI")
+local UI, S = ns.UI, ns.Style
 
 local NUM_SLOTS = ns.NUM_SLOTS or 17
 -- The look (one table: this file is close to Lua's 200 locals per chunk). The page grid is the Raids tab's: 10 at
 -- the sides, 8 between blocks, 12 inside cards. Every view starts its first block at TOP_Y (under the view tabs);
 -- Roster / Items / Loot log put their lists under a filter row (CONTENT_Y).
 local K = {
-    PAD = 10, GAP = 8, IN = 12,
-    W = 770,                         -- the panel's inside width (790 - 2 PAD; GetWidth() is 0 in the mock)
-    TOP_Y = -36, CONTENT_Y = -68, FOOT_H = 22,
+    PAD = S.PAD, GAP = S.GAP, IN = S.PAD,
+    W = S.INNER_W,                   -- the panel's inside width (790 - 2 PAD; GetWidth() is 0 in the mock)
+    TOP_Y = -UI.LAYOUT.TOP,          -- the toolbar's foot: every view starts here (the Loot log / Rules too)
+    FILTER_H = 24,                   -- the filter strip under the toolbar (Roster, Items)
+    FOOT_H = S.ROW.compact,
     -- Roster
-    ROW_H = 26, HEAD_H = 24, CELL = 20, CELL_PITCH = 25, CELL_X0 = 288, GROUP_GAP = 8,
+    ROW_H = S.ROW.list, HEAD_H = 24, CELL = 20, CELL_PITCH = 25, CELL_X0 = 288, GROUP_GAP = 8,
     -- Items
-    TREE_W = 196, TREE_ROW_H = 18, STRIP_H = 30, STRIP_GAP = 4, TITLE_H = 34,
-    CHIP_H = 20, CHIP_GAP = 4, FOLD_H = 30, QUIET_H = 30,
-    CARD_BG = { 0.10, 0.10, 0.12, 0.92 }, PANEL_BG = { 0.08, 0.08, 0.095, 0.9 }, EDGE = { 0.34, 0.34, 0.38, 0.5 },
-    CHIP_BG = { 0.06, 0.06, 0.075, 0.95 }, CHIP_EDGE = { 0.34, 0.34, 0.38, 0.7 },
+    TREE_W = 196, TREE_ROW_H = 18, STRIP_H = 30, STRIP_GAP = 4,
+    CHIP_H = UI.CHIP_LOOK.track.h, CHIP_GAP = 4, FOLD_H = 30, QUIET_H = 30,
     DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
     SYNC_ICON = "Interface\\Buttons\\UI-RefreshButton",
     -- the role chips (the LFG icons): melee, casters and ranged share the damage chip
     ROLE_CHIPS = { { key = "tank", label = "Tanks" }, { key = "healer", label = "Healers" },
                    { key = "dps", label = "Damage dealers" } },
     ROLE_GROUP = { tank = "tank", healer = "healer", melee = "dps", caster = "dps", ranged = "dps" },
-    PRESENCE_COLOR = { raid = { 0.24, 0.81, 0.36 }, online = { 0.91, 0.77, 0.23 }, offline = { 0.42, 0.42, 0.45 } },
+    -- the presence dot: in the raid green, online gold, offline grey
+    PRESENCE_COLOR = { raid = "OK", online = "GOLD_DEEP", offline = "DIM" },
     VIEW_LABEL = { roster = "Roster", items = "Items", log = "Loot log", council = "Loot council", rules = "Rules" },
-    -- raid names that don't fit a tree strip
-    RAID_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
-                   za = "ZA", swp = "Sunwell" },
 }
+K.CONTENT_Y = K.TOP_Y - K.FILTER_H - S.GAP    -- the Roster / Items content under the filter strip
 K.LIST_BOTTOM = 6 + K.FOOT_H + K.GAP   -- the Roster / Items lists end above the footer
 local STALE_SECONDS = 7 * 86400
 local MAX_TOOLTIP_WANTERS = 20
@@ -50,17 +55,6 @@ local SLOT_GROUP_FALLBACK = {
     [11] = { 11, 12 }, [12] = { 11, 12 }, [13] = { 13, 14 }, [14] = { 13, 14 }, [15] = { 15, 16 }, [16] = { 15, 16 },
 }
 local CHECK_ICON = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t"
-local SLOT_BG = "Interface\\Buttons\\UI-Quickslot2"
-local FALLBACK_COLORS = {
-    main = { 0.98, 0.78, 0.22 },
-    alt = { 0.41, 0.80, 0.94 },
-    obtained = { 0.30, 0.90, 0.40 },
-    needed = { 1, 1, 1 },
-    muted = { 0.55, 0.55, 0.55 },
-    warn = { 1.00, 0.55, 0.20 },
-    bad = { 1.00, 0.30, 0.30 },
-    council = { 1.00, 0.50, 0.00 },
-}
 
 -- Session-only view state (not saved).
 local state = {
@@ -90,53 +84,25 @@ local prefetched = {}       -- [itemID] = true once item data was requested
 -- Small helpers
 ----------------------------------------------------------------------------
 
+-- The loot colours (ns.COLORS: main / alt / obtained / warn ...): r, g, b, and as a |cff code.
 local function color(name)
-    local c = ns.COLORS and ns.COLORS[name]
-    if type(c) ~= "table" then c = FALLBACK_COLORS[name] or FALLBACK_COLORS.needed end
+    local c = ns.COLORS[name] or ns.COLORS.needed
     return c[1], c[2], c[3]
 end
 
 local function colorCode(name)
-    local r, g, b = color(name)
-    return string.format("|cff%02x%02x%02x", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+    return "|c" .. UI:ColorHex(color(name))
 end
 
-local function grey(text)
-    return "|cff808080" .. tostring(text) .. "|r"
-end
-
-local function texPath(name, fallback)
-    local t = ns.TEX and ns.TEX[name]
-    return t or fallback
-end
-
-local function shortName(key)
-    if not key then return "?" end
-    if ns.Util and ns.Util.ShortName then
-        return ns.Util.ShortName(key) or key
-    end
-    return key
-end
+local shortName = ns.Util.ShortName
+local formatAgo = ns.Util.FormatAgo
 
 local function coloredName(key, classFile)
-    if ns.UI and ns.UI.ColoredName then
-        return ns.UI:ColoredName(key, classFile)
-    end
-    return shortName(key)
+    return UI:ColoredName(key, classFile)
 end
 
 local function className(classFile)
-    if type(classFile) ~= "string" or classFile == "" then return "" end
-    local loc = LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classFile]
-    if loc then return loc end
-    return classFile:sub(1, 1) .. classFile:sub(2):lower()
-end
-
-local function formatAgo(ts)
-    if ns.Util and ns.Util.FormatAgo then
-        return ns.Util.FormatAgo(ts)
-    end
-    return tostring(ts or "never")
+    return ns.ClassName(classFile, true) or ""
 end
 
 -- Compact age for the roster column: "5m", "3h", "2d"; "-" when unknown.
@@ -159,28 +125,19 @@ local function toSet(arr)
     return s
 end
 
+-- (one value: UI:ItemText's second return says the name is still loading)
 local function itemText(itemID)
     if not itemID then return "" end
-    if ns.UI and ns.UI.ItemText then
-        local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
-        return text
-    end
-    return "item " .. tostring(itemID)
+    local text = UI:ItemText(itemID)
+    return text
 end
 
 local function itemName(itemID)
-    return itemID and ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(itemID)
+    return itemID and UI:ItemName(itemID)
 end
 
 local function itemLink(itemID)
-    return itemID and ns.ItemDB and ns.ItemDB.GetLink and ns.ItemDB:GetLink(itemID)
-end
-
-local function itemIcon(itemID)
-    if itemID and ns.ItemDB and ns.ItemDB.GetIcon then
-        return ns.ItemDB:GetIcon(itemID)
-    end
-    return 134400
+    return itemID and UI:GetItemLink(itemID)
 end
 
 local function slotGroup(sid)
@@ -223,79 +180,21 @@ local function bossName(bossKey, withRaid)
     return ref.boss.name
 end
 
--- Puts an item link into chat (ns.UI:LinkInChat opens the chat box when none is active).
+-- Puts an item link into chat (UI:LinkInChat opens the chat box when none is active).
 local function linkInChat(itemID)
-    if not itemID then return end
-    if ns.UI and ns.UI.LinkInChat then
-        ns.UI:LinkInChat(itemID)
-        return
-    end
-    local link = itemLink(itemID)
-    if not link then return end
-    if ChatFrameUtil and ChatFrameUtil.InsertLink then
-        ChatFrameUtil.InsertLink(link)
-    elseif ChatEdit_InsertLink then
-        ChatEdit_InsertLink(link)
-    end
+    if itemID then UI:LinkInChat(itemID) end
 end
 
-local function hideTooltip()
-    GameTooltip:Hide()
-end
-
--- Look helpers (the flat style of the Raids / Dungeons tabs), in one table V.
+-- The page's small pieces, in one table V (this file is close to Lua's 200 locals per chunk).
 local V = {}
 
--- A one-line FontString in `font`, at `size` when given (the font's face and outline stay).
-function V.text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
+-- (an "ignore" pass for script handlers: the tooltip goes)
+V.hideTip = UI.HideTooltip
 
-function V.paint(tex, c)
-    tex:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-end
-
--- A flat panel / card: a fill and, unless edge == false, 1px edges.
-function V.panel(f, bg, edge)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    V.paint(f.bg, bg or K.PANEL_BG)
-    if edge ~= false then
-        ns.UI:AddEdges(f, "BORDER")
-        local e = edge or K.EDGE
-        ns.UI:SetEdgeColor(f, e[1], e[2], e[3], e[4])
-    end
-end
-
--- A list row's hover look: a soft light fill.
-function V.hover(row, alpha)
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, alpha or 0.05)
-    return hl
-end
-
--- The atlas chevron (it points down) turned to `dir`: "left" | "right" | "up" | "down".
-function V.chevron(tex, dir)
-    local c = ns.UI:IconCoords(ns.UI.ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
-    tex:SetTexture(ns.UI.ICON_ATLAS)
-    if dir == "left" then
-        tex:SetTexCoord(l, b, r, b, l, t, r, t)
-    elseif dir == "right" then
-        tex:SetTexCoord(r, t, l, t, r, b, l, b)
-    elseif dir == "up" then
-        tex:SetTexCoord(l, b, l, t, r, b, r, t)
-    else
-        tex:SetTexCoord(l, r, t, b)
-    end
+-- A title and lines as a frame's tooltip (UI:AttachTooltip; anchored on top like the toolbar's).
+function V.tip(frame, title, ...)
+    local lines = { ... }
+    UI:AttachTooltip(frame, title, lines, { anchor = "ANCHOR_TOP" })
 end
 
 function V.desaturate(tex, on)
@@ -304,6 +203,7 @@ end
 
 -- A class circle of `size` (a grey disc for an unknown class), with a presence dot of `dot` px on its lower right
 -- when dot is given: c:Set(classFile, presence) ("raid" | "online" | "offline" | nil = no dot).
+-- TODO(refactor): move into Controls (a class circle with a presence dot: the roster, the council lists)
 function V.classCircle(parent, size, dot)
     local c = CreateFrame("Frame", nil, parent)
     c:SetSize(size, size)
@@ -333,7 +233,10 @@ function V.classCircle(parent, size, dot)
             local pc = presence and K.PRESENCE_COLOR[presence]
             self.dot:SetShown(pc ~= nil)
             self.ring:SetShown(pc ~= nil)
-            if pc then self.dot:SetVertexColor(pc[1], pc[2], pc[3], 1) end
+            if pc then
+                local r, g, b = S:Color(pc)
+                self.dot:SetVertexColor(r, g, b, 1)
+            end
         end
     end
     return c
@@ -353,43 +256,6 @@ function V.barInMargin(list)
     return list
 end
 
--- A back link like the Raids tab's "< All raids": chevron + text, gold under the mouse. b:SetLabel(text).
-function V.backLink(parent, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(22)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetSize(11, 11)
-    b.icon:SetPoint("LEFT", 2, 0)
-    V.chevron(b.icon, "left")
-    b.text = V.text(b, "GameFontHighlight", 12)
-    b.text:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
-    local function tint(self, on)
-        local r, g, bl = 0.85, 0.85, 0.85
-        if on then r, g, bl = 1, 0.82, 0 end
-        self.text:SetTextColor(r, g, bl)
-        self.icon:SetVertexColor(r, g, bl)
-    end
-    function b:SetLabel(text)
-        self.text:SetText(text or "")
-        self:SetWidth(math.floor(2 + 11 + 5 + (self.text:GetStringWidth() or 60) + 6))
-    end
-    tint(b, false)
-    b:SetScript("OnEnter", function(self) tint(self, true) end)
-    b:SetScript("OnLeave", function(self) tint(self, false) end)
-    b:SetScript("OnClick", onClick)
-    return b
-end
-
--- A small tooltip: title, then grey lines.
-function V.tip(owner, title, ...)
-    GameTooltip:SetOwner(owner, "ANCHOR_TOP")
-    GameTooltip:AddLine(title)
-    for i = 1, select("#", ...) do
-        local line = select(i, ...)
-        if line then GameTooltip:AddLine(line, 1, 1, 1, true) end
-    end
-    GameTooltip:Show()
-end
 
 local function isInGroup(key)
     return ns.Util and ns.Util.IsInMyGroup and ns.Util.IsInMyGroup(key) or false
@@ -871,10 +737,10 @@ local function addWantersTooltip(tt, d)
         end
         local left = coloredName(e.key, e.classFile)
         if type(e.spec) == "string" and e.spec ~= "" then
-            left = left .. grey(" " .. e.spec)
+            left = left .. S:Wrap("DIM", " " .. e.spec)
         end
         if e.wanted and e.wanted ~= d.itemID then
-            left = left .. grey(" > " .. (itemName(e.wanted) or ("item " .. e.wanted)))
+            left = left .. S:Wrap("DIM", " > " .. (itemName(e.wanted) or ("item " .. e.wanted)))
         end
         local flags = {}
         if e.which == "alt" then
@@ -942,7 +808,7 @@ local function cellTooltip(cell, tt)
         -- §36: the player doesn't need this slot in this phase
         tt:AddLine(slotLabel)
         tt:AddLine("Disabled by player", 0.75, 0.75, 0.75)
-        tt:AddLine(coloredName(d.key, d.classFile) .. grey(string.format(" doesn't need this slot in P%d.", phase)))
+        tt:AddLine(coloredName(d.key, d.classFile) .. S:Wrap("DIM", string.format(" doesn't need this slot in P%d.", phase)))
         tt:AddLine("Click: member view", 0.5, 0.5, 0.5)
         return
     end
@@ -952,7 +818,7 @@ local function cellTooltip(cell, tt)
         tt:AddLine(string.format("Main (P%d)", phase), color("main"))
     else
         tt:AddLine(slotLabel)
-        tt:AddLine(coloredName(d.key, d.classFile) .. grey(string.format(" has no P%d pick here.", phase)))
+        tt:AddLine(coloredName(d.key, d.classFile) .. S:Wrap("DIM", string.format(" has no P%d pick here.", phase)))
     end
     if alt then
         tt:AddLine("Alt: " .. itemText(alt), color("alt"))
@@ -999,10 +865,8 @@ end
 -- §36: a disabled slot is a faint square with a "–" (quieter than an empty one).
 local function setCellDisabled(cell, disabled)
     if disabled and not cell.cdlDash then
-        cell.cdlDash = cell:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        cell.cdlDash = UI:Text(cell, "small", "DIM", { justify = "CENTER", text = "\226\128\147" })   -- "–" (U+2013)
         cell.cdlDash:SetPoint("CENTER", cell, "CENTER", 0, 0)
-        cell.cdlDash:SetText("\226\128\147")   -- "–" (U+2013 is in the game fonts)
-        cell.cdlDash:SetTextColor(0.42, 0.42, 0.45)
     end
     if cell.cdlDash then cell.cdlDash:SetShown(disabled) end
 end
@@ -1037,51 +901,48 @@ local function paintCell(cell, d, sid, phase)
         end
     else
         cell.icon:SetAlpha(0)
-        cell.bg:SetColorTexture(1, 1, 1, disabled and 0.025 or 0.055)
+        cell.bg:SetColorTexture(S:Color(disabled and "STRIPE" or "QUIET"))
     end
     setCellDisabled(cell, disabled)
 end
 
-local function rosterRowEnter(row)
+-- The row's tooltip (UI:AttachTooltip's title function).
+local function rosterTip(row, tt)
     local d = row.cdlData
-    if not d then return end
+    if not d then return false end
     local phase = currentPhase()
-    GameTooltip:SetOwner(row, "ANCHOR_TOPLEFT")
-    GameTooltip:AddLine(coloredName(d.key, d.classFile))
+    tt:AddLine(coloredName(d.key, d.classFile))
     local specClass = (d.spec ~= "" and (d.spec .. " ") or "") .. className(d.classFile)
-    if specClass ~= "" then GameTooltip:AddLine(specClass, 1, 1, 1) end
+    if specClass ~= "" then tt:AddLine(specClass, 1, 1, 1) end
     local rank = ns.Guild and ns.Guild.GetRankName and ns.Guild:GetRankName(d.key)
-    if rank then GameTooltip:AddLine(rank, 0.8, 0.8, 0.8) end
-    GameTooltip:AddLine(PRESENCE_TEXT[d.presence] or "", 0.8, 0.8, 0.8)
+    if rank then tt:AddLine(rank, 0.8, 0.8, 0.8) end
+    tt:AddLine(PRESENCE_TEXT[d.presence] or "", 0.8, 0.8, 0.8)
     local counts = string.format("P%d: %d picks · %d obtained · %d needed", phase, d.filled, d.filled - d.need, d.need)
     if (d.disabled or 0) > 0 then counts = counts .. string.format(" · %d disabled", d.disabled) end
-    GameTooltip:AddLine(counts, 1, 1, 1)
+    tt:AddLine(counts, 1, 1, 1)
     local updated = "List updated " .. formatAgo(d.ts)
     if d.rev > 0 then updated = updated .. string.format(" (rev %d)", d.rev) end
     if d.stale then
-        GameTooltip:AddLine(updated, color("warn"))
+        tt:AddLine(updated, color("warn"))
     else
-        GameTooltip:AddLine(updated, 0.8, 0.8, 0.8)
+        tt:AddLine(updated, 0.8, 0.8, 0.8)
     end
-    if d.lockChanged and ns.UI and ns.UI.AddLockChangedLine then
-        ns.UI:AddLockChangedLine(GameTooltip, d.lockChanged, "Not suggested as a roll winner; the council can still award.")
+    if d.lockChanged then
+        UI:AddLockChangedLine(tt, d.lockChanged, "Not suggested as a roll winner; the council can still award.")
     end
-    GameTooltip:AddLine("Click: open member view", 0.5, 0.5, 0.5)
-    GameTooltip:Show()
+    tt:AddLine("Click: open member view", 0.5, 0.5, 0.5)
 end
 
 local function setupRosterRow(row)
     row.cdlInit = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    row.stripe = row:CreateTexture(nil, "BACKGROUND")
-    row.stripe:SetAllPoints()
-    row.stripe:SetColorTexture(1, 1, 1, 0.025)
-    V.hover(row)
+    -- the shared list row: its stripe (every second row) and hover
+    UI:DecorateRow(row, { hover = true, stripe = true })
 
     row.circle = V.classCircle(row, 18, 7)
     row.circle:SetPoint("LEFT", 6, 0)
 
-    row.name = V.text(row, "GameFontHighlight")
+    row.name = UI:Text(row, "emph")
     row.name:SetPoint("LEFT", NAME_X, 0)
     row.name:SetWidth(NAME_W)
 
@@ -1091,15 +952,12 @@ local function setupRosterRow(row)
     row.lockWarn:SetTexture((ns.UI and ns.UI.ICON_WARN) or "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
     row.lockWarn:Hide()
 
-    row.spec = V.text(row, "GameFontHighlightSmall")
+    row.spec = UI:Text(row, "small", "SUB")
     row.spec:SetPoint("LEFT", SPEC_X, 0)
     row.spec:SetWidth(SPEC_W)
-    row.spec:SetTextColor(0.62, 0.62, 0.62)
 
-    row.need = V.text(row, "GameFontHighlight")
+    row.need = UI:Text(row, "emph", "TEXT", { justify = "RIGHT", width = 30 })
     row.need:SetPoint("RIGHT", row, "LEFT", NEED_R, 0)
-    row.need:SetWidth(30)
-    row.need:SetJustifyH("RIGHT")
 
     row.cells = {}
     for sid = 1, NUM_SLOTS do
@@ -1112,23 +970,20 @@ local function setupRosterRow(row)
         row.cells[sid] = cell
     end
 
-    row.age = V.text(row, "GameFontHighlightSmall")
+    row.age = UI:Text(row, "small", "TEXT", { justify = "RIGHT", width = 40 })
     row.age:SetPoint("RIGHT", row, "LEFT", AGE_R, 0)
-    row.age:SetWidth(40)
-    row.age:SetJustifyH("RIGHT")
 
     row:SetScript("OnClick", function(self)
         if self.cdlData then CouncilUI:ShowMember(self.cdlData.key) end
     end)
-    row:SetScript("OnEnter", rosterRowEnter)
-    row:SetScript("OnLeave", hideTooltip)
+    UI:AttachTooltip(row, rosterTip, nil, { anchor = "ANCHOR_TOPLEFT" })
 end
 
 local function initRosterRow(row, d)
     if not row.cdlInit then setupRosterRow(row) end
     row.cdlData = d
     local phase = currentPhase()
-    row.stripe:SetShown((d.rowIndex or 0) % 2 == 0)
+    row:SetStripe(d.rowIndex or 0)
     row.circle:Set(d.classFile, d.presence)
     row.name:SetText(coloredName(d.key, d.classFile))
     if d.lockChanged then
@@ -1143,7 +998,7 @@ local function initRosterRow(row, d)
     end
     row.spec:SetText(d.spec ~= "" and d.spec or "-")
     if d.filled == 0 then
-        row.need:SetText(grey("-"))
+        row.need:SetText(S:Wrap("DIM", "-"))
     elseif d.need == 0 then
         row.need:SetText(colorCode("obtained") .. "0|r")
     else
@@ -1153,11 +1008,7 @@ local function initRosterRow(row, d)
         paintCell(row.cells[sid], d, sid, phase)
     end
     row.age:SetText(shortAge(d.ts))
-    if d.stale then
-        row.age:SetTextColor(color("warn"))
-    else
-        row.age:SetTextColor(0.55, 0.55, 0.55)
-    end
+    row.age:SetTextColor(S:Color(d.stale and "WARN" or "SUB"))
 end
 
 local SORT_LABELS = { presence = "presence", name = "name", need = "most needed", age = "oldest list" }
@@ -1165,11 +1016,7 @@ local SORT_LABELS = { presence = "presence", name = "name", need = "most needed"
 local function createRosterHeader(parent)
     local h = ns.UI:CreateColumnHeader(parent, K.HEAD_H)
     h.sortButtons = {}
-    h.rule = h:CreateTexture(nil, "BORDER")
-    h.rule:SetPoint("BOTTOMLEFT", 0, 0)
-    h.rule:SetPoint("BOTTOMRIGHT", 0, 0)
-    h.rule:SetHeight(1)
-    h.rule:SetColorTexture(1, 1, 1, 0.08)
+    h.rule = UI:Rule(h, { bottom = 0, layer = "BORDER" })
 
     -- sortKeys: clicking cycles through them (Name: presence -> name).
     local function textHeader(text, x, width, sortKeys, justify)
@@ -1213,18 +1060,11 @@ local function createRosterHeader(parent)
         local t = f:CreateTexture(nil, "ARTWORK")
         t:SetAllPoints()
         local empty = ns.UI and ns.UI.EmptySlotTexture and ns.UI:EmptySlotTexture(sid)
-        t:SetTexture(empty or texPath("slotBg", SLOT_BG))
+        t:SetTexture(empty or ns.TEX.slotBg)
         t:SetTexCoord(0.12, 0.88, 0.12, 0.88)
         t:SetBlendMode("ADD")
         t:SetAlpha(1)
-        f:EnableMouse(true)
-        f:SetScript("OnEnter", function(self)
-            local slot = ns.SLOTS and ns.SLOTS[sid]
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(slot and slot.label or ("Slot " .. sid))
-            GameTooltip:Show()
-        end)
-        f:SetScript("OnLeave", hideTooltip)
+        V.tip(f, ns.SlotLabel(sid))
     end
 
     function h:UpdateSort()
@@ -1233,20 +1073,16 @@ local function createRosterHeader(parent)
             for _, k in ipairs(b.sortKeys) do
                 if k == state.sort then active = true end
             end
-            if active then
-                b.label:SetTextColor(1, 1, 1)
-            else
-                b.label:SetTextColor(1, 0.82, 0)
-            end
+            b.label:SetTextColor(S:Color(active and "TEXT" or "GOLD"))
         end
     end
     return h
 end
 
+-- The roster fills the layout's content (under the filter strip, above the footer).
 local function createRosterView(parent)
     local v = CreateFrame("Frame", nil, parent)
-    v:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, K.CONTENT_Y)
-    v:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -PAD, K.LIST_BOTTOM)
+    v:SetAllPoints(parent.layout.content)
     v.header = createRosterHeader(v)
     v.header:SetPoint("TOPLEFT", 0, 0)
     v.header:SetPoint("TOPRIGHT", 0, 0)
@@ -1254,9 +1090,6 @@ local function createRosterView(parent)
     v.list.frame:ClearAllPoints()
     v.list.frame:SetPoint("TOPLEFT", 0, -K.HEAD_H - 2)
     v.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
-    v.empty = v:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    v.empty:SetPoint("TOP", v.list.frame, "TOP", 0, -60)
-    v.empty:SetWidth(480)
     return v
 end
 
@@ -1264,17 +1097,16 @@ local function refreshRoster(rows, stats, resetScroll)
     local v = panel.rosterView
     v.header:UpdateSort()
     for i, r in ipairs(rows) do r.rowIndex = i end
-    setListData(v.list, rows, resetScroll)
-    if #rows > 0 then
-        v.empty:Hide()
+    -- nothing to list: the illustrated empty state (no lists yet, or the filters leave nobody)
+    if stats.total == 0 then
+        v.list:SetEmptyState({ icon = UI.ICON.notes, title = "No BiS lists received yet",
+            text = "Members share their lists automatically while a council member is online." })
     else
-        if stats.total == 0 then
-            v.empty:SetText("No BiS lists received yet.\nMembers share their lists automatically while a council member is online.")
-        else
-            v.empty:SetText("No members match the current filters.")
-        end
-        v.empty:Show()
+        v.list:SetEmptyState({ icon = UI.ICON.notes, title = "No members match the current filters",
+            text = "Pick other classes or roles, untick In my raid, or clear the search." })
     end
+    setListData(v.list, rows, resetScroll)
+    v.empty = v.list.emptyState
 end
 
 return { create = createRosterView, refresh = refreshRoster }
@@ -1288,27 +1120,14 @@ end)()
 local Items = (function()
 local PAD, GAP = K.PAD, K.GAP
 local TREE_W, STRIP_H, STRIP_GAP, TREE_ROW_H = K.TREE_W, K.STRIP_H, K.STRIP_GAP, K.TREE_ROW_H
-local COL_X = TREE_W + 12            -- the cards' column inside the view
-local COL_W = K.W - COL_X            -- 562
+local COL_W = K.W - TREE_W - GAP      -- the detail column (the layout's list + detail): 566
 local ICON = 32
-local TEXT_X = 10 + ICON + 10        -- name and chips start here inside a card
-local CHIPS_W = COL_W - TEXT_X - 10
-local CARD_TOP = 8                   -- name line top inside a card
+local CARD_PAD = S.PAD               -- a card's inside margin
+local TEXT_X = CARD_PAD + ICON + 10  -- name and chips start here inside a card
+local CHIPS_W = COL_W - TEXT_X - CARD_PAD - 4      -- (a little room before the card's edge)
+local CARD_TOP = S.IN                -- name line top inside a card
 local CHIPS_Y = 30                   -- first chip line top inside a card
 local MAX_CHIP_LINES = 2
-
--- The raid planner's key of a raid (its loading-screen crop), by the raid's instance ID.
-local planKeys
-local function planKey(instanceID)
-    if not planKeys then
-        planKeys = {}
-        local RP = ns.RaidPlan
-        for _, inst in ipairs((RP and RP.GetInstances and RP:GetInstances()) or {}) do
-            if inst.instID then planKeys[inst.instID] = inst.key end
-        end
-    end
-    return instanceID and planKeys[instanceID] or nil
-end
 
 -- A text that fits `width`: the full one, else each shorter form in turn.
 local function fitText(fs, width, full, ...)
@@ -1350,6 +1169,9 @@ local function treeRowClick(row)
     CouncilUI:Refresh(false, true)
 end
 
+-- (a raid strip's shade: the banners' slate, dark on the text side)
+local STRIP_SHADE = { 0.035, 0.035, 0.043 }
+
 local function setupTreeRow(row)
     row.cdlInit = true
     -- a raid (or "Other"): an art strip (its textures on the row, under the texts; the edges on a frame)
@@ -1362,30 +1184,18 @@ local function setupTreeRow(row)
     row.art:SetAllPoints(row.strip)
     row.shade = row:CreateTexture(nil, "BACKGROUND", nil, 2)
     row.shade:SetAllPoints(row.strip)
-    row.shade:SetColorTexture(1, 1, 1, 1)
-    if row.shade.SetGradient and CreateColor then
-        row.shade:SetGradient("HORIZONTAL", CreateColor(0.035, 0.035, 0.043, 0.92), CreateColor(0.035, 0.035, 0.043, 0.5))
-    else
-        row.shade:SetColorTexture(0.035, 0.035, 0.043, 0.75)
-    end
-    ns.UI:AddEdges(row.strip, "BORDER")
+    local c = STRIP_SHADE
+    UI:Gradient(row.shade, "HORIZONTAL", { c[1], c[2], c[3], 0.92 }, { c[1], c[2], c[3], 0.5 })
+    UI:AddEdges(row.strip, "BORDER")
     row.stripHl = row:CreateTexture(nil, "BORDER")
     row.stripHl:SetAllPoints(row.strip)
-    row.stripHl:SetColorTexture(1, 1, 1, 0.06)
+    row.stripHl:SetColorTexture(S:Color("HOVER"))
     row.stripHl:Hide()
-    -- a boss: the chosen one has a soft gold fill and a gold bar on its left
-    row.sel = row:CreateTexture(nil, "BACKGROUND")
-    row.sel:SetAllPoints()
-    row.sel:SetColorTexture(1, 0.82, 0, 0.1)
-    row.bar = row:CreateTexture(nil, "ARTWORK")
-    row.bar:SetPoint("TOPLEFT", 0, 0)
-    row.bar:SetPoint("BOTTOMLEFT", 0, 0)
-    row.bar:SetWidth(2)
-    row.bar:SetColorTexture(1, 0.82, 0, 0.9)
-    row.hl = V.hover(row)
-    row.count = V.text(row, "GameFontHighlightSmall", 11)
-    row.count:SetJustifyH("RIGHT")
-    row.text = V.text(row, "GameFontHighlightSmall", 11)
+    -- a boss: the shared row looks (the hover, the chosen one's gold wash and bar)
+    UI:DecorateRow(row, { hover = true, selectable = true })
+    row.sel = row.dzSelFill      -- (the chosen boss's fill, as the 1.3 field)
+    row.count = UI:Text(row, "body", "TEXT", { justify = "RIGHT" })
+    row.text = UI:Text(row, "body")
     row:SetScript("OnClick", treeRowClick)
     row:SetScript("OnEnter", function(self)
         if self.cdlData and self.cdlData.type ~= "boss" then self.stripHl:Show() end
@@ -1402,22 +1212,16 @@ local function initTreeRow(row, d)
     row.strip:SetShown(strip)
     row.shade:SetShown(strip)
     if not strip then row.art:Hide() end
-    row.sel:SetShown(not strip and chosen)
-    row.bar:SetShown(not strip and chosen)
-    row.hl:SetAlpha(strip and 0 or 1)
+    row:SetSelected(not strip and chosen)
+    row.dzHover:SetAlpha(strip and 0 or 1)
     row.count:ClearAllPoints()
     row.text:ClearAllPoints()
     if strip then
         row.count:SetPoint("RIGHT", row.strip, "RIGHT", -8, 0)
         row.text:SetPoint("LEFT", row.strip, "LEFT", 8, 0)
-        local file, l, r, t, b
-        local key = d.type == "raid" and planKey(d.instanceID) or nil
-        if d.type == "raid" and ns.RaidPlanUI and ns.RaidPlanUI.RaidArt then
-            file, l, r, t, b = ns.RaidPlanUI:RaidArt(key or "other", TREE_W, STRIP_H, 0.5)
-        end
-        if file then
-            row.art:SetTexture(file)
-            row.art:SetTexCoord(l, r, t, b)
+        -- the raid's loading screen (ItemDB:RaidArt, by the raid's item key); "Other" has none
+        if d.type == "raid" and d.raidKey then
+            UI:SetArtTexture(row.art, d.raidKey, TREE_W, STRIP_H)
             row.art:Show()
         else
             row.art:Hide()
@@ -1426,34 +1230,22 @@ local function initTreeRow(row, d)
         local idle = (d.count or 0) == 0 and not on
         V.desaturate(row.art, idle)
         row.art:SetAlpha(idle and 0.45 or 1)
-        if on then
-            ns.UI:SetEdgeColor(row.strip, 1, 0.82, 0, 0.8)
-        else
-            ns.UI:SetEdgeColor(row.strip, 0.34, 0.34, 0.38, 0.5)
-        end
-        row.text:SetFontObject("GameFontNormal")
-        local tag = (d.phase and d.phase ~= phase) and grey("  P" .. d.phase) or ""
+        UI:SetEdgeColor(row.strip, S:Color(on and "EDGE_FOCUS" or "EDGE"))
+        local tag = (d.phase and d.phase ~= phase) and S:Wrap("DIM", "  P" .. d.phase) or ""
         local room = TREE_W - 16 - 34
-        fitText(row.text, room, d.name .. tag, key and K.RAID_SHORT[key] and (K.RAID_SHORT[key] .. tag) or nil)
-        row.text:SetTextColor(idle and 0.6 or 1, idle and 0.6 or 0.82, idle and 0.6 or 0)
+        local short = d.type == "raid" and d.raidKey and ns.ItemDB:RaidShort(d.raidKey)
+        UI:SetTextStyle(row.text, "emph", idle and "SUB" or "GOLD")
+        fitText(row.text, room, d.name .. tag, short and (short .. tag) or nil)
         row.count:SetText(d.count > 0 and tostring(d.count) or "")
-        row.count:SetTextColor(0.82, 0.82, 0.82)
+        row.count:SetTextColor(S:Color("TEXT"))
     else
         row.count:SetPoint("RIGHT", row, "RIGHT", -8, 0)
         row.text:SetPoint("LEFT", row, "LEFT", 14, 0)
-        row.text:SetFontObject("GameFontHighlightSmall")
-        local path, _, flags = row.text:GetFont()
-        if path then row.text:SetFont(path, 11, flags) end
+        UI:SetTextStyle(row.text, "body", (chosen and "TEXT") or (d.count > 0 and "TEXT") or "DIM")
+        if chosen then row.text:SetTextColor(1, 1, 1) end
         fitText(row.text, TREE_W - 14 - 34, d.name, bossShort(d.name))
-        if chosen then
-            row.text:SetTextColor(1, 1, 1)
-        elseif d.count > 0 then
-            row.text:SetTextColor(0.84, 0.84, 0.84)
-        else
-            row.text:SetTextColor(0.45, 0.45, 0.47)
-        end
         row.count:SetText(d.count > 0 and tostring(d.count) or "")
-        row.count:SetTextColor(0.74, 0.74, 0.74)
+        row.count:SetTextColor(S:Color("SUB"))
     end
 end
 
@@ -1514,12 +1306,12 @@ local function openItemMenu(row, d)
             end
         end
         local live = liveRollFor(d.itemID)
-        local award = root:CreateButton(live and ("Record award to " .. grey("(closes the open roll)"))
+        local award = root:CreateButton(live and ("Record award to " .. S:Wrap("DIM", "(closes the open roll)"))
             or "Record award to")
         for _, e in ipairs(people) do
             local key = e.key
             local label = coloredName(key, e.classFile)
-            if e.which == "alt" then label = label .. grey(" (alt)") end
+            if e.which == "alt" then label = label .. S:Wrap("DIM", " (alt)") end
             local reason = e.os and "os" or ((e.which == "alt") and "alt" or "bis")
             award:CreateButton(label, function() recordAward(d.itemID, key, d.bossKey, reason) end)
         end
@@ -1553,7 +1345,7 @@ end
 local function itemRowEnter(row)
     local d = row.cdlData
     if not d then return end
-    if row.card then ns.UI:SetEdgeColor(row.card, 0.72, 0.72, 0.76, 0.6) end
+    if row.card then UI:SetEdgeColor(row.card, S:Color("EDGE_STRONG")) end
     if d.type == "fold" then
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         GameTooltip:AddLine(state.showUnwanted and "Fold these items away" or "Show these items")
@@ -1574,13 +1366,13 @@ local function itemRowEnter(row)
 end
 
 local function itemRowLeave(row)
-    hideTooltip()
+    V.hideTip()
     if row.cdlData and row.card then
         local f = row.cdlData.focus
         if f then
-            ns.UI:SetEdgeColor(row.card, 1, 0.82, 0, 0.7)
+            UI:SetEdgeColor(row.card, S:Color("EDGE_FOCUS"))
         else
-            ns.UI:SetEdgeColor(row.card, 0, 0, 0, 0)
+            UI:SetEdgeColor(row.card, 0, 0, 0, 0)
         end
     end
 end
@@ -1592,13 +1384,13 @@ local function chipEnter(chip)
     GameTooltip:SetOwner(chip, "ANCHOR_TOP")
     if chip.rest then
         for _, x in ipairs(chip.rest) do
-            GameTooltip:AddLine(coloredName(x.key, x.classFile) .. (x.which == "alt" and grey(" (alt)") or ""))
+            GameTooltip:AddLine(coloredName(x.key, x.classFile) .. (x.which == "alt" and S:Wrap("DIM", " (alt)") or ""))
         end
         GameTooltip:Show()
         return
     end
     local left = coloredName(e.key, e.classFile)
-    if type(e.spec) == "string" and e.spec ~= "" then left = left .. grey(" " .. e.spec) end
+    if type(e.spec) == "string" and e.spec ~= "" then left = left .. S:Wrap("DIM", " " .. e.spec) end
     GameTooltip:AddLine(left)
     local flags = { e.which == "alt" and (colorCode("alt") .. "Alt pick|r") or (colorCode("main") .. "BiS|r") }
     if e.obtained then flags[#flags + 1] = colorCode("obtained") .. "has it|r" end
@@ -1618,30 +1410,35 @@ local function chipEnter(chip)
     GameTooltip:Show()
 end
 
+-- A wanter as the shared chip (UI:CreateChip: the class circle, the name, "alt" / "has it" after it, the lock
+-- warning); a click shows the member.
 local function newChip(row)
-    local c = CreateFrame("Button", nil, row)
-    c:SetHeight(K.CHIP_H)
-    ns.UI:AddPillShape(c, K.CHIP_H)
-    c:SetPillColors(K.CHIP_BG, K.CHIP_EDGE)
-    c.circle = V.classCircle(c, 16)
-    c.circle:SetPoint("LEFT", 2, 0)
-    c.name = V.text(c, "GameFontHighlightSmall", 11)
-    c.name:SetPoint("LEFT", 23, 0)
-    c.tag = V.text(c, "GameFontHighlightSmall", 10)
-    c.tag:SetPoint("LEFT", c.name, "RIGHT", 5, 0)
-    c.warn = c:CreateTexture(nil, "OVERLAY")
-    c.warn:SetSize(12, 12)
-    c.warn:SetTexture((ns.UI and ns.UI.ICON_WARN) or "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
-    c:SetScript("OnEnter", chipEnter)
-    c:SetScript("OnLeave", hideTooltip)
-    c:SetScript("OnClick", function(self)
+    local c = UI:CreateChip(row, { onClick = function(self)
         if self.entry and not self.rest then CouncilUI:ShowMember(self.entry.key) end
-    end)
+    end })
+    c:HookScript("OnEnter", chipEnter)
+    c:HookScript("OnLeave", V.hideTip)
+    c.name = c.fs        -- (the chip's words: the name the 1.3 chip had as its own field)
     return c
 end
 
+-- A chip's words: the name, then "has it" / "alt", then the lock warning.
+local function chipText(e)
+    local t = coloredName(e.key, e.classFile)
+    if e.obtained then
+        t = t .. " " .. colorCode("obtained") .. "has it|r"
+    elseif e.which == "alt" then
+        t = t .. " " .. S:Wrap("DIM", "alt")
+    end
+    if e.lockChanged or lockChangedAt(e.key) then t = t .. " " .. UI:WarnIcon(12) end
+    return t
+end
+
+-- (a chip's width: UI:CreateChip's insets around the class circle and the words)
+local CHIP_IN = UI.CHIP_LOOK.track.x + 14 + 6 + UI.CHIP_LOOK.track.pad
+
 -- The chips of a card: the mains, then the alt picks (the owners dimmed), on at most two lines; what doesn't fit
--- becomes a "+N" chip. Measured with the panel's measuring strings; returns the number of lines.
+-- becomes a "+N" chip. Measured like the chip measures itself; returns the number of lines.
 local function layoutChips(v, d)
     local people = uniqueWanters(d.wanters)
     local mains, alts = {}, {}
@@ -1651,19 +1448,10 @@ local function layoutChips(v, d)
     for _, e in ipairs(alts) do mains[#mains + 1] = e end
     local chips, x, line = {}, 0, 1
     local function width(e)
-        v.measure:SetText(shortName(e.key))
-        local w = 23 + (v.measure:GetStringWidth() or 40) + 8
-        local tag = e.obtained and "has it" or (e.which == "alt" and "alt" or nil)
-        if tag then
-            v.measureTag:SetText(tag)
-            w = w + 5 + (v.measureTag:GetStringWidth() or 20)
-        end
-        if e.lockChanged or lockChangedAt(e.key) then w = w + 4 + 12 end
-        return math.floor(w + 0.5)
+        return math.floor(CHIP_IN + UI:TextWidth(chipText(e), "body") + 0.5)
     end
     local function moreWidth(n)
-        v.measure:SetText("+" .. n)
-        return math.floor(8 + (v.measure:GetStringWidth() or 12) + 8 + 0.5)
+        return math.floor(UI.CHIP_LOOK.track.x + 3 + UI:TextWidth("+" .. n, "body") + UI.CHIP_LOOK.track.pad + 0.5)
     end
     for i, e in ipairs(mains) do
         local w = width(e)
@@ -1700,14 +1488,15 @@ end
 local function setupItemRow(row)
     row.cdlInit = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    row.card = CreateFrame("Frame", nil, row)
+    -- the shared card (its edge shows under the mouse and on the item a jump came for)
+    row.card = UI:CreateCard(row, { tone = "card" })
     row.card:SetPoint("TOPLEFT", 0, 0)
     row.card:SetPoint("BOTTOMRIGHT", 0, GAP / 2)
     row.card:EnableMouse(false)
-    V.panel(row.card, K.CARD_BG, { 0, 0, 0, 0 })
+    UI:SetEdgeColor(row.card, 0, 0, 0, 0)
     row.tint = row.card:CreateTexture(nil, "BACKGROUND", nil, 1)
     row.tint:SetAllPoints()
-    row.tint:SetColorTexture(1, 0.82, 0, 0.06)
+    row.tint:SetColorTexture(S:Color("SELECT"))
 
     row.btn = ns.UI:CreateItemButton(row, ICON)
     row.btn.onTooltip = function(btn, tt)
@@ -1719,10 +1508,8 @@ local function setupItemRow(row)
     end
 
     -- the right side of the first line: the slot, "Token" with its classes, or where the item comes from
-    row.source = V.text(row.card, "GameFontHighlightSmall")
-    row.source:SetJustifyH("RIGHT")
-    row.source:SetTextColor(0.62, 0.62, 0.62)
-    row.name = V.text(row.card, "GameFontHighlight")
+    row.source = UI:Text(row.card, "small", "SUB", { justify = "RIGHT" })
+    row.name = UI:Text(row.card, "emph")
     row.chips = {}
 
     -- the fold: a stack of the hidden items' icons, one line, a chevron
@@ -1730,16 +1517,16 @@ local function setupItemRow(row)
     for i = 1, 5 do
         local t = row.card:CreateTexture(nil, "ARTWORK", nil, i)
         t:SetSize(16, 16)
-        t:SetPoint("LEFT", row, "LEFT", 10 + (i - 1) * 12, 1)
+        t:SetPoint("LEFT", row, "LEFT", CARD_PAD + (i - 1) * 12, 1)
         t:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         row.stack[i] = t
     end
-    row.foldText = V.text(row.card, "GameFontHighlightSmall", 11)
-    row.foldText:SetTextColor(0.62, 0.62, 0.62)
+    row.foldText = UI:Text(row.card, "sub")
     row.chev = row.card:CreateTexture(nil, "ARTWORK")
     row.chev:SetSize(10, 10)
-    row.chev:SetPoint("RIGHT", row, "RIGHT", -12, 1)
-    row.chev:SetVertexColor(0.62, 0.62, 0.62)
+    row.chev:SetPoint("RIGHT", row, "RIGHT", -CARD_PAD, 1)
+    row.chev:SetTexture(UI.ICON_ATLAS)
+    row.chev:SetVertexColor(S:Color("SUB"))
 
     row:SetScript("OnClick", itemRowClick)
     row:SetScript("OnEnter", itemRowEnter)
@@ -1751,7 +1538,7 @@ local function classIconText(classFile, size)
     local c = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
     if not c then return "" end
     local function px(v) return math.floor(v * 256 + 0.5) end
-    return ("|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t"):format(texPath("classIcons", "Interface\\TargetingFrame\\UI-Classes-Circles"),
+    return ("|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t"):format(ns.TEX.classIcons,
         size, size, px(c[1]), px(c[2]), px(c[3]), px(c[4]))
 end
 
@@ -1784,31 +1571,32 @@ local function initItemRow(row, d)
     for i, t in ipairs(row.stack) do t:SetShown(fold and d.items[i] ~= nil) end
     row.tint:SetShown(d.focus and true or false)
     if d.focus then
-        ns.UI:SetEdgeColor(row.card, 1, 0.82, 0, 0.7)
+        UI:SetEdgeColor(row.card, S:Color("EDGE_FOCUS"))
     else
-        ns.UI:SetEdgeColor(row.card, 0, 0, 0, 0)
+        UI:SetEdgeColor(row.card, 0, 0, 0, 0)
     end
     for _, c in ipairs(row.chips) do c:Hide() end
     row:SetAlpha(1)
 
     if fold then
-        row.card.bg:SetColorTexture(1, 1, 1, 0.025)
+        row.card.bg:SetColorTexture(S:Color("STRIPE"))
         for i, t in ipairs(row.stack) do
             if d.items[i] then
-                t:SetTexture(itemIcon(d.items[i].itemID))
+                t:SetTexture(UI:ItemIcon(d.items[i].itemID))
                 t:SetAlpha(0.55)
             end
         end
         local n = #d.items
         row.foldText:ClearAllPoints()
-        row.foldText:SetPoint("LEFT", row, "LEFT", 10 + (math.min(n, 5) - 1) * 12 + 16 + 10, 1)
+        row.foldText:SetPoint("LEFT", row, "LEFT", CARD_PAD + (math.min(n, 5) - 1) * 12 + 16 + 10, 1)
         row.foldText:SetText(string.format("%d %s nobody has on a P%d list", n, n == 1 and "item" or "items",
             d.phase or currentPhase()))
-        V.chevron(row.chev, state.showUnwanted and "up" or "down")
+        UI:SetChevronUp(row.chev, state.showUnwanted)
         return
     end
 
-    V.paint(row.card.bg, K.CARD_BG)
+    row.card:SetTone("card")
+    if not d.focus then UI:SetEdgeColor(row.card, 0, 0, 0, 0) end
     row.btn:SetItem(d.itemID)
     row.btn:SetState(nil)
     row.btn:SetBadge(nil)
@@ -1820,14 +1608,14 @@ local function initItemRow(row, d)
         -- an item nobody wants: one quiet line
         row:SetAlpha(0.55)
         row.btn:SetSize(20, 20)
-        row.btn:SetPoint("LEFT", row, "LEFT", 10, GAP / 4)
-        row.name:SetPoint("LEFT", row, "LEFT", 40, GAP / 4)
-        row.source:SetPoint("RIGHT", row, "RIGHT", -10, GAP / 4)
+        row.btn:SetPoint("LEFT", row, "LEFT", CARD_PAD, GAP / 4)
+        row.name:SetPoint("LEFT", row, "LEFT", CARD_PAD + 30, GAP / 4)
+        row.source:SetPoint("RIGHT", row, "RIGHT", -CARD_PAD, GAP / 4)
     else
         row.btn:SetSize(ICON, ICON)
-        row.btn:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -CARD_TOP)
+        row.btn:SetPoint("TOPLEFT", row, "TOPLEFT", CARD_PAD, -CARD_TOP)
         row.name:SetPoint("TOPLEFT", row, "TOPLEFT", TEXT_X, -CARD_TOP - 1)
-        row.source:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -CARD_TOP - 2)
+        row.source:SetPoint("TOPRIGHT", row, "TOPRIGHT", -CARD_PAD, -CARD_TOP - 2)
     end
     row.name:SetPoint("RIGHT", row.source, "LEFT", -10, 0)
     row.name:SetText(itemText(d.itemID))
@@ -1842,35 +1630,17 @@ local function initItemRow(row, d)
         c.itemID = d.itemID
         c.rest = spec.rest
         c.entry = spec.entry or (spec.rest and spec.rest[1])
-        c.warn:Hide()
         c:SetAlpha(1)
         if spec.more then
-            c.circle:Hide()
-            c.name:ClearAllPoints()
-            c.name:SetPoint("LEFT", 8, 0)
-            c.name:SetText(grey("+" .. spec.more))
-            c.tag:SetText("")
+            c:Set(S:Wrap("DIM", "+" .. spec.more))
         else
             local e = spec.entry
-            c.circle:Show()
-            c.circle:Set(e.classFile)
-            c.name:ClearAllPoints()
-            c.name:SetPoint("LEFT", 23, 0)
-            c.name:SetText(coloredName(e.key, e.classFile))
-            if e.obtained then
-                c.tag:SetText(colorCode("obtained") .. "has it|r")
-                c:SetAlpha(0.55)
-            elseif e.which == "alt" then
-                c.tag:SetText(grey("alt"))
-            else
-                c.tag:SetText("")
-            end
-            if e.lockChanged or lockChangedAt(e.key) then
-                c.warn:ClearAllPoints()
-                c.warn:SetPoint("RIGHT", c, "RIGHT", -7, 0)
-                c.warn:Show()
-            end
+            c:Set(chipText(e), nil, e.key)
+            -- (the class we know from the list, also for players the guild roster doesn't have)
+            if e.classFile then UI:ClassIcon(c.cls, e.classFile) end
+            if e.obtained then c:SetAlpha(0.55) end
         end
+        c:SetWidth(spec.w)
         c:Show()
     end
 end
@@ -1879,40 +1649,25 @@ local function itemExtent(d)
     return d.extent or 60
 end
 
+-- The List + detail of the layout: the tree in its list column; the chosen boss's banner (its raid's art) heads the
+-- detail, the cards fill the detail's body (CouncilUI:Refresh shows the list and the detail with the view).
 local function createItemsView(parent)
+    local L = parent.layout
     local v = CreateFrame("Frame", nil, parent)
-    v:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, K.CONTENT_Y)
-    v:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -PAD, K.LIST_BOTTOM)
+    v:SetAllPoints(L.content)
 
-    v.tree = V.barInMargin(ns.UI:CreateScrollList(v, TREE_ROW_H, initTreeRow, treeExtent))
+    v.tree = V.barInMargin(UI:CreateScrollList(L.list, TREE_ROW_H, initTreeRow, treeExtent))
     v.tree.frame:ClearAllPoints()
-    v.tree.frame:SetPoint("TOPLEFT", 0, 0)
-    v.tree.frame:SetPoint("BOTTOMLEFT", 0, 0)
-    v.tree.frame:SetWidth(TREE_W)
+    v.tree.frame:SetPoint("TOPLEFT", L.list, "TOPLEFT", 0, 0)
+    v.tree.frame:SetPoint("BOTTOMRIGHT", L.list, "BOTTOMRIGHT", 0, 0)
 
-    v.title = V.text(v, "GameFontHighlightLarge")
-    v.title:SetPoint("TOPLEFT", COL_X, -6)
-    v.title:SetPoint("TOPRIGHT", 0, -6)
-    v.rule = v:CreateTexture(nil, "BORDER")
-    v.rule:SetPoint("TOPLEFT", COL_X, -(K.TITLE_H - 8))
-    v.rule:SetPoint("TOPRIGHT", 0, -(K.TITLE_H - 8))
-    v.rule:SetHeight(1)
-    v.rule:SetColorTexture(1, 1, 1, 0.08)
+    v.banner = L.banner
+    v.title = L.banner.title
 
-    v.list = V.barInMargin(ns.UI:CreateScrollList(v, 60, initItemRow, itemExtent))
+    v.list = V.barInMargin(UI:CreateScrollList(L.body, 60, initItemRow, itemExtent))
     v.list.frame:ClearAllPoints()
-    v.list.frame:SetPoint("TOPLEFT", COL_X, -K.TITLE_H)
-    v.list.frame:SetPoint("BOTTOMRIGHT", 0, 0)
-
-    v.empty = v:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    v.empty:SetPoint("TOP", v.list.frame, "TOP", 0, -60)
-    v.empty:SetWidth(COL_W - 40)
-
-    -- hidden strings that measure the chips
-    v.measure = V.text(v, "GameFontHighlightSmall", 11)
-    v.measure:Hide()
-    v.measureTag = V.text(v, "GameFontHighlightSmall", 10)
-    v.measureTag:Hide()
+    v.list.frame:SetPoint("TOPLEFT", L.body, "TOPLEFT", 0, 0)
+    v.list.frame:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
     return v
 end
 
@@ -1988,24 +1743,34 @@ local function refreshItems(phase, members, resetScroll, keepTreeScroll)
     local rows = cardRows(v, buildItemRows(phase, state.selectedNode, other), phase)
     setListData(v.list, rows, resetScroll or keepTreeScroll)
 
+    -- the detail's banner: the boss on its raid's art, the raid and how many of its items someone wants
+    local ref = state.selectedNode ~= OTHER_NODE and ns.ItemDB.GetBossRef and ns.ItemDB:GetBossRef(state.selectedNode)
+    local wantedN = 0
+    for _, r in ipairs(rows) do
+        if (r.n or 0) > 0 then wantedN = wantedN + 1 end
+    end
+    local sub = string.format("%d %s wanted in P%d", wantedN, wantedN == 1 and "item" or "items", phase)
     if state.selectedNode == OTHER_NODE then
-        v.title:SetText("Other / no raid source")
+        v.banner:SetArt(nil)
+        v.banner:SetTitle("Other / no raid source")
     else
-        v.title:SetText(bossName(state.selectedNode) or "Select a boss")
+        v.banner:SetArt(ref and ref.raid and ref.raid.key or nil)
+        v.banner:SetTitle(bossName(state.selectedNode) or "Select a boss")
+        if ref and ref.raid and ref.raid.name then sub = ref.raid.name .. "  \194\183  " .. sub end
     end
+    v.banner:SetSub(sub)
 
-    if #rows > 0 then
-        v.empty:Hide()
+    -- nothing to list: the illustrated empty state
+    local emptyTitle
+    if #tree == 0 then
+        emptyTitle = "No raids or wanted items for this phase."
+    elseif state.search ~= "" then
+        emptyTitle = "No items match the search."
     else
-        if #tree == 0 then
-            v.empty:SetText("No raids or wanted items for this phase.")
-        elseif state.search ~= "" then
-            v.empty:SetText("No items match the search.")
-        else
-            v.empty:SetText("No items to show for this boss.")
-        end
-        v.empty:Show()
+        emptyTitle = "No items to show for this boss."
     end
+    v.list:SetEmptyState({ icon = UI.ICON.notes, title = emptyTitle })
+    v.empty = v.list.emptyState
 
     if state.scrollToFocus then
         state.scrollToFocus = false
@@ -2046,16 +1811,32 @@ local function stepMember(delta)
     CouncilUI:Refresh()
 end
 
--- A flat icon button with a chevron (the previous / next member).
-local function arrowButton(parent, dir, tooltip, onClick)
-    local b = ns.UI:CreateIconButton(parent, 22, ns.UI.ICON_ATLAS, nil, onClick)
-    V.chevron(b.icon, dir)
-    b.icon:ClearAllPoints()
-    b.icon:SetPoint("TOPLEFT", 6, -6)
-    b.icon:SetPoint("BOTTOMRIGHT", -6, 6)
-    b:HookScript("OnEnter", function(self) V.tip(self, tooltip) end)
-    b:HookScript("OnLeave", hideTooltip)
-    return b
+-- The banner's tools: the next / previous member of the list it came from (chevrons), "3 / 19" beside them.
+local function setPager(v, shown)
+    local ban = v.banner
+    if not shown then
+        ban:SetTools(nil)
+        v.prevBtn, v.nextBtn = nil, nil
+        v.pos:Hide()
+        return
+    end
+    ban:SetTools({ { icon = "chevron", title = "Next member", onClick = function() stepMember(1) end },
+                   { icon = "chevron", title = "Previous member", onClick = function() stepMember(-1) end } })
+    v.nextBtn, v.prevBtn = ban.tools[1], ban.tools[2]
+    UI:SetChevron(v.nextBtn.icon, true)
+    UI:SetChevron(v.prevBtn.icon, false)
+    v.pos:ClearAllPoints()
+    v.pos:SetPoint("RIGHT", v.prevBtn, "LEFT", -8, 0)
+    v.pos:Show()
+end
+
+-- The "changed during lock" pill's tooltip (the banner's pill, §38).
+local function lockTip(pill, tt)
+    local v = pill.view
+    if not (v and v.lockKey) then return false end
+    tt:AddLine(coloredName(v.lockKey))
+    UI:AddLockChangedLine(tt, v.lockTs, "Their picks differ from the snapshot taken when the "
+        .. "lists were locked. They are not suggested as a roll winner; the council can still award.")
 end
 
 -- The doll object may be a frame itself or a table holding one.
@@ -2066,58 +1847,33 @@ local function dollFrame(doll)
     return nil
 end
 
+-- The member page: the detail page's banner (the way back to the view it came from, the class, the name with the
+-- "changed during lock" pill, one line about them, the previous / next member as its tools), the read-only paper
+-- doll under it.
 local function createMemberView(parent)
     local v = CreateFrame("Frame", nil, parent)
-    v:SetPoint("TOPLEFT", 0, K.TOP_Y)
-    v:SetPoint("BOTTOMRIGHT", 0, 0)
+    v:SetAllPoints(parent.layout.content)
 
-    -- top row: the way back (to the view it came from); the previous / next member of that list
-    v.back = V.backLink(v, function() CouncilUI:SetView(state.backView or "roster") end)
-    v.back:SetPoint("TOPLEFT", PAD - 2, 0)
-    v.nextBtn = arrowButton(v, "right", "Next member", function() stepMember(1) end)
-    v.nextBtn:SetPoint("TOPRIGHT", -PAD, 0)
-    v.prevBtn = arrowButton(v, "left", "Previous member", function() stepMember(-1) end)
-    v.prevBtn:SetPoint("RIGHT", v.nextBtn, "LEFT", -4, 0)
-    v.pos = V.text(v, "GameFontHighlightSmall", 11)
-    v.pos:SetTextColor(0.62, 0.62, 0.62)
-    v.pos:SetPoint("RIGHT", v.prevBtn, "LEFT", -8, 0)
+    v.banner = UI:CreatePageBanner(v, { size = "tool", width = K.W,
+        back = { text = K.VIEW_LABEL.roster, onClick = function() CouncilUI:SetView(state.backView or "roster") end } })
+    v.banner:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
+    v.banner:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, 0)
+    v.back = v.banner.back
+    v.name = v.banner.title
+    v.info = v.banner.sub
+    v.pos = UI:Text(v.banner, "small", "SUB", { justify = "RIGHT" })
+    v.pos:Hide()
 
-    -- who: class circle (presence dot), name, one grey line about them
-    v.classIcon = V.classCircle(v, 34, 9)
-    v.classIcon:SetPoint("TOPLEFT", PAD, -32)
-    v.name = V.text(v, "GameFontNormalLarge")
-    v.name:SetPoint("TOPLEFT", v.classIcon, "TOPRIGHT", 10, 0)
+    -- §38: "changed during lock" as the title's pill (hover for details)
+    v.lockFlag = v.banner.pill
+    v.lockFlag.text = v.banner.pill.fs
+    v.lockFlag.view = v
+    UI:AttachTooltip(v.lockFlag, lockTip, nil, { anchor = "ANCHOR_BOTTOM" })
 
-    -- §38: "changed during lock" marker next to the name (hover for details)
-    v.lockFlag = CreateFrame("Frame", nil, v)
-    v.lockFlag:SetHeight(16)
-    v.lockFlag:SetPoint("LEFT", v.name, "RIGHT", 10, 0)
-    v.lockFlag.text = v.lockFlag:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    v.lockFlag.text:SetPoint("LEFT", 0, 0)
-    v.lockFlag.text:SetText(warnIcon(13) .. " " .. colorCode("warn") .. "changed during lock|r")
-    v.lockFlag:SetWidth(140)
-    v.lockFlag:EnableMouse(true)
-    v.lockFlag:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:AddLine(coloredName(self.key))
-        if ns.UI and ns.UI.AddLockChangedLine then
-            ns.UI:AddLockChangedLine(GameTooltip, self.ts, "Their picks differ from the snapshot taken when the "
-                .. "lists were locked. They are not suggested as a roll winner; the council can still award.")
-        end
-        GameTooltip:Show()
-    end)
-    v.lockFlag:SetScript("OnLeave", hideTooltip)
-    v.lockFlag:Hide()
-
-    v.info = V.text(v, "GameFontHighlightSmall", 11)
-    v.info:SetPoint("BOTTOMLEFT", v.classIcon, "BOTTOMRIGHT", 10, 1)
-    v.info:SetWidth(K.W - 54)
-    v.info:SetTextColor(0.62, 0.62, 0.62)
-
-    -- the doll's default layout puts its tiles 8 inside its frame: they line up with the page's 10
+    -- the doll's default layout puts its tiles 8 inside its frame: they line up with the page's margin
     v.dollHolder = CreateFrame("Frame", nil, v)
-    v.dollHolder:SetPoint("TOPLEFT", PAD - 8, -74)
-    v.dollHolder:SetPoint("BOTTOMRIGHT", -(PAD - 8), 0)
+    v.dollHolder:SetPoint("TOPLEFT", v.banner, "BOTTOMLEFT", -8, -(S.GAP - 4))   -- (the doll's tiles start 4 in)
+    v.dollHolder:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 8, 0)
 
     if ns.PaperDoll and ns.PaperDoll.Create then
         v.doll = ns.PaperDoll:Create(v.dollHolder, { readOnly = true })
@@ -2131,7 +1887,7 @@ local function createMemberView(parent)
     -- Member summary + recent awards live in the doll's centre area.
     local host = (v.doll and v.doll.center) or v.dollHolder
     local c = { host = host }
-    c.summary = host:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    c.summary = UI:Text(host, "emph", "TEXT", { justify = "CENTER", wrap = true })
     if host == v.dollHolder then
         c.summary:SetPoint("TOP", 0, -8)
         c.summary:SetWidth(260)
@@ -2139,8 +1895,6 @@ local function createMemberView(parent)
         c.summary:SetPoint("TOPLEFT", 4, -4)
         c.summary:SetPoint("TOPRIGHT", -4, -4)
     end
-    c.summary:SetJustifyH("CENTER")
-    c.summary:SetWordWrap(true)
 
     -- recent awards along the bottom (icon + item; under it, grey: why, when), the model between
     c.lines, c.metas, c.icons = {}, {}, {}
@@ -2150,42 +1904,40 @@ local function createMemberView(parent)
         icon:SetSize(18, 18)
         icon:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, y + 4)
         icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        local meta = V.text(host, "GameFontHighlightSmall")
-        meta:SetTextColor(0.55, 0.55, 0.55)
+        local meta = UI:Text(host, "small", "SUB")
         meta:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 24, y)
         meta:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, y)
-        local fs = V.text(host, "GameFontHighlightSmall")
+        local fs = UI:Text(host, "body")
         fs:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 24, y + 13)
         fs:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, y + 13)
         c.lines[i], c.metas[i], c.icons[i] = fs, meta, icon
         fs.y = y
     end
-    c.title = host:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    c.title = UI:Text(host, "caps", "SUB", { text = "Recent awards" })
     c.title:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, 4 + AWARDS * AWARD_PITCH + 4)
     c.title:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, 4 + AWARDS * AWARD_PITCH + 4)
-    c.title:SetJustifyH("LEFT")
-    c.title:SetText("Recent awards")
 
     if ns.UI and ns.UI.CreateBiSModel then
         c.model = ns.UI:CreateBiSModel(host)
         c.model:SetPoint("TOPLEFT", c.summary, "BOTTOMLEFT", 0, -4)
         c.model:SetPoint("BOTTOMRIGHT", c.title, "TOPRIGHT", 0, 4)
         c.model:SetScript("OnShow", function() if v.redress then v.redress() end end)
-        c.noModel = host:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        c.noModel = UI:Text(host, "small", "DIM", { justify = "CENTER", wrap = true })
         c.noModel:SetPoint("CENTER", c.model, "CENTER", 0, 0)
         c.noModel:SetPoint("LEFT", c.model, "LEFT", 10, 0)
         c.noModel:SetPoint("RIGHT", c.model, "RIGHT", -10, 0)
     end
     v.centerParts = c
 
-    v.empty = v:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    v.empty:SetPoint("TOP", 0, -120)
-    v.empty:SetWidth(420)
+    -- nobody picked: the illustrated empty state under the banner
+    v.empty = UI:CreateEmptyState(v, { icon = UI.ICON.notes, title = "No member selected",
+        text = "Pick someone in the Roster." })
+    v.empty:SetPoint("TOP", v.banner, "BOTTOM", 0, -60)
+    v.empty:Hide()
 
     if not v.doll then
-        v.noDoll = v.dollHolder:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+        v.noDoll = UI:Text(v.dollHolder, "body", "DIM", { text = "Paper doll unavailable." })
         v.noDoll:SetPoint("BOTTOM", 0, 20)
-        v.noDoll:SetText("Paper doll unavailable.")
     end
     return v
 end
@@ -2242,10 +1994,10 @@ local function refreshMemberCenter(v, key, data, phase, rec)
         else
             text = string.format("P%d: %d / %d obtained · %d needed", phase, filled - need, filled, need)
         end
-        if disabled > 0 then text = text .. grey(string.format(" · %d disabled", disabled)) end
+        if disabled > 0 then text = text .. S:Wrap("DIM", string.format(" · %d disabled", disabled)) end
         c.summary:SetText(text)
     else
-        c.summary:SetText(grey("No BiS list received yet."))
+        c.summary:SetText(S:Wrap("DIM", "No BiS list received yet."))
     end
 
     local entries = ns.Ledger and ns.Ledger.GetVisibleEntries and ns.Ledger:GetVisibleEntries({ player = key }) or {}
@@ -2254,7 +2006,7 @@ local function refreshMemberCenter(v, key, data, phase, rec)
         if shown >= AWARDS then break end
         if type(e) == "table" and tonumber(e.i) and not e.vd then
             shown = shown + 1
-            c.icons[shown]:SetTexture(itemIcon(e.i))
+            c.icons[shown]:SetTexture(UI:ItemIcon(e.i))
             c.icons[shown]:Show()
             c.lines[shown]:SetPoint("BOTTOMLEFT", c.host, "BOTTOMLEFT", 24, c.lines[shown].y + 13)
             c.lines[shown]:SetText(itemText(e.i))
@@ -2266,7 +2018,7 @@ local function refreshMemberCenter(v, key, data, phase, rec)
     end
     if shown == 0 then
         c.lines[1]:SetPoint("BOTTOMLEFT", c.host, "BOTTOMLEFT", 0, c.lines[1].y + 13)
-        c.lines[1]:SetText(grey("None yet"))
+        c.lines[1]:SetText(S:Wrap("DIM", "None yet"))
         c.lines[1]:Show()
         c.metas[1]:Hide()
         c.icons[1]:Hide()
@@ -2311,19 +2063,18 @@ local function refreshMember(phase)
     local key = state.memberKey
     local n = #order
     local idx = key and indexOf(order, key)
-    v.back:SetLabel(K.VIEW_LABEL[state.backView or "roster"] or "Roster")
+    local ban = v.banner
+    ban:SetBack(K.VIEW_LABEL[state.backView or "roster"] or "Roster",
+        function() CouncilUI:SetView(state.backView or "roster") end)
     v.pos:SetText(n > 0 and string.format("%s / %d", idx and tostring(idx) or "-", n) or "")
-    v.prevBtn:SetShown(n > 1)
-    v.nextBtn:SetShown(n > 1)
-    v.pos:SetShown(n > 1)
+    setPager(v, n > 1)
 
     if not key then
-        v.classIcon:Hide()
-        v.name:SetText("")
-        v.info:SetText("")
-        v.lockFlag:Hide()
+        ban:SetIcon(nil)
+        ban:SetTitle("")
+        ban:SetSub("")
+        ban:SetPill(nil, nil)
         v.dollHolder:Hide()
-        v.empty:SetText("No member selected. Pick someone in the Roster.")
         v.empty:Show()
         return
     end
@@ -2336,13 +2087,18 @@ local function refreshMember(phase)
     if not data then rec = nil end
     local classFile = memberClass(key, data)
 
-    v.classIcon:Show()
-    v.classIcon:Set(classFile, presenceOf(key))
-    v.name:SetText(coloredName(key, classFile))
-    v.info:SetText(memberHeaderInfo(key, rec, data, classFile))
+    -- the class as the banner's icon (a grey disc while it is unknown)
+    local tc = classFile and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
+    ban:SetIcon(tc and { ns.TEX.classIcons, tc[1], tc[2], tc[3], tc[4] } or { K.DISC, 0, 1, 0, 1 })
+    ban:SetTitle(coloredName(key, classFile))
+    ban:SetSub(memberHeaderInfo(key, rec, data, classFile))
     local changedAt = lockChangedAt(key)
-    v.lockFlag.key, v.lockFlag.ts = key, changedAt
-    v.lockFlag:SetShown(changedAt ~= nil)
+    v.lockKey, v.lockTs = key, changedAt
+    if changedAt ~= nil then
+        ban:SetPill("warn", UI:WarnIcon(12) .. " changed during lock")
+    else
+        ban:SetPill(nil, nil)
+    end
 
     if v.doll and v.doll.Update then
         local shownData = data or { cl = classFile, sp = "", ph = {}, ob = {}, eq = {} }
@@ -2460,7 +2216,7 @@ local function councilClass(key)
 end
 
 local function councilName(key)
-    if type(key) ~= "string" then return grey("?") end
+    if type(key) ~= "string" then return S:Wrap("DIM", "?") end
     return coloredName(key, councilClass(key))
 end
 
@@ -2662,24 +2418,6 @@ local function councilPhaseOptions()
     return opts
 end
 
-local function ensureClearPopup()
-    local dialogs = ns.Popup.dialogs
-    if type(dialogs) ~= "table" or dialogs.DISASTERZONE_CLEAR_COUNCIL then return end
-    dialogs.DISASTERZONE_CLEAR_COUNCIL = {
-        title = "Clear the council",
-        danger = true,
-        text = "%s",
-        button1 = "Clear",
-        button2 = CANCEL or "Cancel",
-        OnAccept = function(self, data)
-            CouncilUI:ClearCouncil(data or self.data)
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
-end
 
 -- The two cards (guild council, this raid's council) ---------------------------------------------------------------
 
@@ -2687,32 +2425,31 @@ local CouncilView = (function()
 local PAD, GAP, IN = K.PAD, K.GAP, K.IN
 local COL_W = (K.W - GAP) / 2         -- 381
 local INNER_W = COL_W - 2 * IN
-local ROW_H = 22
+local ROW_H = S.ROW.compact
 local LABEL_W = 92
 local CTRL_W = INNER_W - LABEL_W
 local SHORT_H = IN + 16 + 6 + 14 + IN   -- the card when there is nothing to show: title + one line
-local FULL_H = 548 + K.TOP_Y - PAD      -- the tallest a card gets (its list scrolls then)
+local FULL_H = S.PAGE_H + K.TOP_Y - PAD      -- the tallest a card gets (its list scrolls then)
 
-local function councilRowEnter(row)
+-- A council row's tooltip (UI:AttachTooltip's title function).
+local function councilRowTip(row, tt)
     local d = row.cdlData
-    if not d then return end
-    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(councilName(d.key))
+    if not d then return false end
+    tt:AddLine(councilName(d.key))
     local note = rankNote(d.key)
-    if note ~= "" then GameTooltip:AddLine(note, 0.8, 0.8, 0.8) end
-    GameTooltip:AddLine(councilOnline(d.key) and "Online" or "Offline", 0.6, 0.6, 0.6)
+    if note ~= "" then tt:AddLine(note, 0.8, 0.8, 0.8) end
+    tt:AddLine(councilOnline(d.key) and "Online" or "Offline", 0.6, 0.6, 0.6)
     if d.fixed then
-        GameTooltip:AddLine(d.fixed .. ": always on the council", 0.6, 0.6, 0.6, true)
+        tt:AddLine(d.fixed .. ": always on the council", 0.6, 0.6, 0.6, true)
     elseif d.isNew then
-        GameTooltip:AddLine("Added, not saved yet", color("warn"))
+        tt:AddLine("Added, not saved yet", color("warn"))
     end
-    GameTooltip:Show()
 end
 
 local function initCouncilRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        V.hover(row)
+        UI:DecorateRow(row, { hover = true })
         row.circle = V.classCircle(row, 16, 6)
         row.circle:SetPoint("LEFT", row, "LEFT", 2, 0)
         row.remove = ns.UI:CreateRemoveButton(row, "Remove from the list")
@@ -2722,14 +2459,11 @@ local function initCouncilRow(row, d)
             local data = btn:GetParent().cdlData
             if data and data.removable then CouncilUI:ToggleCouncilDraft(data.kind, data.key) end
         end)
-        row.note = V.text(row, "GameFontHighlightSmall")
-        row.note:SetJustifyH("RIGHT")
-        row.note:SetTextColor(0.55, 0.55, 0.55)
-        row.name = V.text(row, "GameFontHighlight")
+        row.note = UI:Text(row, "small", "SUB", { justify = "RIGHT" })
+        row.name = UI:Text(row, "emph")
         row.name:SetPoint("LEFT", row, "LEFT", 26, 0)
         row.name:SetPoint("RIGHT", row.note, "LEFT", -8, 0)
-        row:SetScript("OnEnter", councilRowEnter)
-        row:SetScript("OnLeave", hideTooltip)
+        UI:AttachTooltip(row, councilRowTip)
     end
     row.cdlData = d
     row.circle:Set(councilClass(d.key), councilOnline(d.key) and "raid" or "offline")
@@ -2747,35 +2481,30 @@ local function initCouncilRow(row, d)
 end
 
 local function label(s, text)
-    local fs = V.text(s, "GameFontHighlightSmall", 11)
-    fs:SetTextColor(0.62, 0.62, 0.62)
-    fs:SetText(text)
-    return fs
+    return UI:Text(s, "sub", nil, { text = text })
 end
 
+-- One council as the shared card: its title (what the list is in the title's tooltip), its state at the right, the
+-- picker and settings while editing, the list of names, one quiet line on why it is read-only.
 local function createCouncilSection(parent, kind)
-    local s = CreateFrame("Frame", nil, parent)
-    V.panel(s, K.PANEL_BG)
+    local s = UI:CreateCard(parent, { tone = "card", pad = IN, title = " " })
     s.kind = kind
     local isGuild = kind == "guild"
 
-    s.title = V.text(s, "GameFontNormal", 13)
+    s.title:ClearAllPoints()
     s.title:SetPoint("TOPLEFT", IN, -IN)
     -- what the list is: the title's tooltip
     s.titleTip = CreateFrame("Frame", nil, s)
     s.titleTip:SetPoint("TOPLEFT", s.title, "TOPLEFT", -2, 2)
     s.titleTip:SetPoint("BOTTOMRIGHT", s.title, "BOTTOMRIGHT", 2, -2)
-    s.titleTip:EnableMouse(true)
-    s.titleTip:SetScript("OnEnter", function(self) V.tip(self, s.title:GetText() or "", s.sub) end)
-    s.titleTip:SetScript("OnLeave", hideTooltip)
-    s.status = V.text(s, "GameFontHighlightSmall", 11)
-    s.status:SetJustifyH("RIGHT")
+    UI:AttachTooltip(s.titleTip, function(_, tt)
+        tt:AddLine(s.title:GetText() or "", S:Color("GOLD"))
+        if s.sub then tt:AddLine(s.sub, 1, 1, 1, true) end
+    end, nil, { anchor = "ANCHOR_TOP" })
+    s.status = UI:Text(s, "body", "TEXT", { justify = "RIGHT" })
     s.status:SetPoint("TOPRIGHT", -IN, -IN - 2)
     -- one quiet line: why it is read-only, or (the short card) the state
-    s.foot = V.text(s, "GameFontHighlightSmall", 11)
-    s.foot:SetTextColor(0.55, 0.55, 0.55)
-    s.foot:SetWordWrap(true)
-    s.foot:SetWidth(INNER_W)
+    s.foot = UI:Text(s, "sub", nil, { wrap = true, width = INNER_W })
 
     s.picker = ns.UI:CreateSearchDropdown(s, INNER_W, {
         placeholder = isGuild and "Add guild members..." or "Add raid or guild members...",
@@ -2800,20 +2529,16 @@ local function createCouncilSection(parent, kind)
 
     -- ADDENDUM G §41: the disenchanter / guild bank character (part of the draft; Save & share sends them).
     local function targetButton(field)
-        local b = ns.UI:CreateSleekMenuButton(s, "", CTRL_W, function() end)
+        local b = UI:CreateSleekMenuButton(s, "", CTRL_W, function() end)
         b:SetScript("OnClick", function(self) CouncilUI:OpenTargetMenu(kind, field, self) end)
-        b:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(field == "de" and "Disenchanter" or "Guild bank character")
-            GameTooltip:AddLine((field == "de" and "The drop panel's DE button gives items to this character, recorded as Disenchant."
+        UI:AttachTooltip(b, field == "de" and "Disenchanter" or "Guild bank character", {
+            (field == "de" and "The drop panel's DE button gives items to this character, recorded as Disenchant."
                 or "The drop panel's Bank button gives items to this character, recorded as Guild bank.")
-                .. " Such awards don't count as loot received.", 1, 1, 1, true)
-            GameTooltip:AddLine(isGuild and "Applies to every raid unless the raid leader picks one for their raid."
-                or "Replaces the guild's pick in the raids you lead.", 0.7, 0.7, 0.7, true)
-            GameTooltip:AddLine("Save & share to apply the change.", 0.7, 0.7, 0.7, true)
-            GameTooltip:Show()
-        end)
-        b:SetScript("OnLeave", hideTooltip)
+                .. " Such awards don't count as loot received.",
+            { isGuild and "Applies to every raid unless the raid leader picks one for their raid."
+                or "Replaces the guild's pick in the raids you lead.", 0.7, 0.7, 0.7, wrap = true },
+            { "Save & share to apply the change.", 0.7, 0.7, 0.7, wrap = true },
+        }, { anchor = "ANCHOR_TOP" })
         return b
     end
     s.deLabel = label(s, "Disenchanter")
@@ -2821,44 +2546,30 @@ local function createCouncilSection(parent, kind)
     s.bankLabel = label(s, "Guild bank")
     s.bankBtn = targetButton("bank")
     -- read-only: the two picks as one line
-    s.targets = V.text(s, "GameFontHighlightSmall", 11)
-    s.targets:SetWidth(INNER_W)
+    s.targets = UI:Text(s, "body", "TEXT", { width = INNER_W })
 
-    s.listLabel = V.text(s, "GameFontNormalSmall")
-    s.listLabel:SetText("On the council")
+    s.listLabel = UI:Text(s, "caps", "SUB", { text = "On the council" })
     -- Clear list: a quiet text link on the list's label row (the rows have the bins)
     s.clear = CreateFrame("Button", nil, s)
     s.clear:SetHeight(18)
-    s.clear.text = V.text(s.clear, "GameFontHighlightSmall", 11)
+    s.clear.text = UI:Text(s.clear, "body", "SUB", { text = "Clear list" })
     s.clear.text:SetPoint("RIGHT", 0, 0)
-    s.clear.text:SetText("Clear list")
-    s.clear.text:SetTextColor(0.62, 0.62, 0.62)
     s.clear:SetWidth(math.floor((s.clear.text:GetStringWidth() or 50) + 4))
     s.clear:SetScript("OnClick", function() CouncilUI:ConfirmClearCouncil(kind) end)
-    s.clear:SetScript("OnEnter", function(self)
-        self.text:SetTextColor(1, 0.82, 0)
-        V.tip(self, "Clear list", isGuild
-            and "Removes everyone from the guild council list (asks first). The Guild Master stays council."
-            or "Removes everyone from your raid council list (asks first). As raid leader you stay council.")
-    end)
-    s.clear:SetScript("OnLeave", function(self)
-        self.text:SetTextColor(0.62, 0.62, 0.62)
-        hideTooltip()
-    end)
-    s.list = V.barInMargin(ns.UI:CreateScrollList(s, ROW_H, initCouncilRow))
+    s.clear:SetScript("OnEnter", function(self) self.text:SetTextColor(S:Color("GOLD")) end)
+    s.clear:SetScript("OnLeave", function(self) self.text:SetTextColor(S:Color("SUB")) end)
+    V.tip(s.clear, "Clear list", isGuild
+        and "Removes everyone from the guild council list (asks first). The Guild Master stays council."
+        or "Removes everyone from your raid council list (asks first). As raid leader you stay council.")
+    s.list = V.barInMargin(UI:CreateScrollList(s, ROW_H, initCouncilRow))
 
-    s.save = ns.UI:CreateButton(s, "Save & share", 112, 22, function() CouncilUI:SaveCouncil(kind) end)
-    s.save:SetKind("primary")
-    s.save:SetScript("OnEnter", function(self)
-        V.tip(self, "Save & share", isGuild
-            and "Saves the guild council and sends it to every online guild member. Members who log in later get it too."
-            or "Saves your raid council list. It is sent to your raid now if you lead it, and again whenever you lead a raid.")
-    end)
-    s.save:SetScript("OnLeave", hideTooltip)
-    s.save:SetPoint("TOPRIGHT", s, "TOPRIGHT", -IN, -8)
-    s.revert = ns.UI:CreateButton(s, "Revert", 72, 22, function() CouncilUI:RevertCouncil(kind) end)
-    s.revert:SetScript("OnEnter", function(self) V.tip(self, "Revert", "Discard your unsaved changes.") end)
-    s.revert:SetScript("OnLeave", hideTooltip)
+    s.save = UI:CreateSleekButton(s, "Save & share", 112, S.BTN_H, function() CouncilUI:SaveCouncil(kind) end, "primary")
+    V.tip(s.save, "Save & share", isGuild
+        and "Saves the guild council and sends it to every online guild member. Members who log in later get it too."
+        or "Saves your raid council list. It is sent to your raid now if you lead it, and again whenever you lead a raid.")
+    s.save:SetPoint("TOPRIGHT", s, "TOPRIGHT", -IN, -S.IN)
+    s.revert = UI:CreateSleekButton(s, "Revert", 72, S.BTN_H, function() CouncilUI:RevertCouncil(kind) end)
+    V.tip(s.revert, "Revert", "Discard your unsaved changes.")
     s.revert:SetPoint("RIGHT", s.save, "LEFT", -6, 0)
     return s
 end
@@ -2966,21 +2677,21 @@ local function editorStatus(kind, saved)
         return colorCode("warn") .. "Unsaved changes|r"
     end
     if not saved then
-        return grey(kind == "guild" and "Not shared yet" or "Not saved yet")
+        return S:Wrap("DIM", kind == "guild" and "Not shared yet" or "Not saved yet")
     end
     local ago = formatAgo(saved.rev)
     if kind == "guild" then
-        return grey("Shared " .. ago)
+        return S:Wrap("DIM", "Shared " .. ago)
     end
     if amRaidLeader() then
-        return grey("Shared with this raid")
+        return S:Wrap("DIM", "Shared with this raid")
     end
-    return grey("Saved " .. ago)
+    return S:Wrap("DIM", "Saved " .. ago)
 end
 
 -- ADDENDUM G §41: the loot targets of a section (pickers while editing, one line otherwise).
 local function targetName(key)
-    return key and councilName(key) or grey("none")
+    return key and councilName(key) or S:Wrap("DIM", "none")
 end
 
 local function paintTargetButtons(s, d)
@@ -2990,14 +2701,14 @@ end
 
 local function targetsLine(t, emptyText)
     local de, bank = savedTarget(t, "de"), savedTarget(t, "bank")
-    if not de and not bank then return grey(emptyText) end
-    return grey("Disenchanter ") .. targetName(de) .. grey("   Guild bank ") .. targetName(bank)
+    if not de and not bank then return S:Wrap("DIM", emptyText) end
+    return S:Wrap("DIM", "Disenchanter ") .. targetName(de) .. S:Wrap("DIM", "   Guild bank ") .. targetName(bank)
 end
 
 local function refreshGuildSection(s)
     local inGuild = IsInGuild and IsInGuild()
     local editable = inGuild and canEditGuildCouncil() or false
-    s.title:SetText("Guild council")
+    s:SetTitle("Guild council")
     s.sub = "Everyone in the guild. Kept until the Guild Master changes it."
     local saved = savedList("guild")
     local gm = guildCall("GetGM")
@@ -3034,10 +2745,10 @@ local function refreshGuildSection(s)
         rows = sharedRows("guild", gm, "Guild Master", saved and saved.members)
         if saved then
             local by = type(saved.by) == "string" and saved.by or gm
-            s.status:SetText(grey("Set by ") .. councilName(by) .. grey(" " .. formatAgo(saved.rev) .. " · P"
+            s.status:SetText(S:Wrap("DIM", "Set by ") .. councilName(by) .. S:Wrap("DIM", " " .. formatAgo(saved.rev) .. " · P"
                 .. savedPhase(saved)))
         else
-            s.status:SetText(grey("Only the Guild Master so far"))
+            s.status:SetText(S:Wrap("DIM", "Only the Guild Master so far"))
         end
         s.foot:SetText("Only the Guild Master can change this list.")
         s.list:SetEmptyText(gm and "" or "Waiting for the guild roster...")
@@ -3065,11 +2776,11 @@ local function refreshRaidSection(s)
         local dirty = draftDirty("raid")
         local saved = savedList("raid")
         if leading then
-            s.title:SetText("This raid's council")
+            s:SetTitle("This raid's council")
             s.sub = "Guild members in your raid only. You lead it, so you are always council."
             addMasterLooterRow(rows)
         else
-            s.title:SetText("Your raid council")
+            s:SetTitle("Your raid council")
             s.sub = "Shared automatically whenever you lead a raid."
         end
         s.status:SetText(editorStatus("raid", saved))
@@ -3082,7 +2793,7 @@ local function refreshRaidSection(s)
         paintTargetButtons(s, d)
         s.list:SetEmptyText(#rows <= (fixedKey and 1 or 0) and "Nobody picked yet: use the search above." or "")
     else
-        s.title:SetText("This raid's council")
+        s:SetTitle("This raid's council")
         s.sub = "Guild members in your current raid only. The raid leader is always council."
         s.save:SetEnabled(false)
         s.revert:SetEnabled(false)
@@ -3097,7 +2808,7 @@ local function refreshRaidSection(s)
             top, bottom = layoutSection(s, "read")
             rows = addMasterLooterRow({})
             s.targets:SetText(targetsLine(nil, "Disenchanter and guild bank: the guild's picks."))
-            s.status:SetText(grey("Led by a guest"))
+            s.status:SetText(S:Wrap("DIM", "Led by a guest"))
             s.foot:SetText("Players outside your guild are never loot council.")
             s.list:SetEmptyText("")
         else
@@ -3109,11 +2820,11 @@ local function refreshRaidSection(s)
             rows = sharedRows("raid", leader, "Raid leader", rc and rc.members)
             addMasterLooterRow(rows)
             if rc then
-                s.status:SetText(grey("Set by ") .. councilName(rc.leader or leader))
+                s.status:SetText(S:Wrap("DIM", "Set by ") .. councilName(rc.leader or leader))
             elseif leader then
-                s.status:SetText(grey("None picked by the raid leader"))
+                s.status:SetText(S:Wrap("DIM", "None picked by the raid leader"))
             else
-                s.status:SetText(grey("Waiting for the raid roster..."))
+                s.status:SetText(S:Wrap("DIM", "Waiting for the raid roster..."))
             end
             s.foot:SetText("Only the raid leader can change this list.")
             s.list:SetEmptyText("")
@@ -3124,10 +2835,10 @@ local function refreshRaidSection(s)
     if s.picker:IsOpen() then s.picker:Refresh(true) end
 end
 
+-- The two cards side by side in the layout's content.
 local function createCouncilView(parent)
     local v = CreateFrame("Frame", nil, parent)
-    v:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, K.TOP_Y)
-    v:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -PAD, PAD)
+    v:SetAllPoints(parent.layout.content)
     v.guild = createCouncilSection(v, "guild")
     v.raid = createCouncilSection(v, "raid")
     return v
@@ -3159,6 +2870,16 @@ end)()
 local Chrome = (function()
 local PAD, GAP = K.PAD, K.GAP
 local CLASS_CHIP, CLASS_GAP, ROLE_CHIP, ROLE_GAP = 20, 3, 22, 3
+
+-- The view tabs of the toolbar. The member page has no tab: it is opened from a name and lights the tab it came from.
+local VIEWS = {
+    { key = "roster", text = K.VIEW_LABEL.roster }, { key = "items", text = K.VIEW_LABEL.items },
+    { key = "log", text = K.VIEW_LABEL.log, tip = "Every item handed out: search, void or restore, add an award." },
+    { key = "council", text = K.VIEW_LABEL.council,
+      tip = "Who is on the Loot Council. The Guild Master picks the guild council; a raid leader can add council members for their own raid." },
+    { key = "rules", text = K.VIEW_LABEL.rules,
+      tip = "How the winner is picked (the Guild Master's rules, with an example that re-ranks as you change them) and the prized items." },
+}
 
 local function phaseOptions()
     local opts = {}
@@ -3193,7 +2914,9 @@ local function toggleIn(set, key)
     CouncilUI:Refresh(true)
 end
 
--- A class chip: the class circle; the picked ones carry a gold ring, the others fade while any is picked.
+-- The filter toggles: a class circle (the picked ones carry a gold ring, the others fade while any is picked) and a
+-- role icon on a flat square ("chosen" look while picked). Icon-only, nine and three of them on one strip.
+-- TODO(refactor): move into UI:CreateChip (an icon-only toggle chip: a class circle / a role icon)
 local function classChip(parent, classFile)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(CLASS_CHIP, CLASS_CHIP)
@@ -3201,10 +2924,11 @@ local function classChip(parent, classFile)
     b.ring:SetTexture(K.DISC)
     b.ring:SetSize(CLASS_CHIP + 4, CLASS_CHIP + 4)
     b.ring:SetPoint("CENTER")
-    b.ring:SetVertexColor(1, 0.82, 0, 0.95)
+    local r, g, bl = S:Color("GOLD")
+    b.ring:SetVertexColor(r, g, bl, 0.95)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetAllPoints()
-    ns.UI:ClassIcon(b.icon, classFile)
+    UI:ClassIcon(b.icon, classFile)
     b.classFile = classFile
     function b:Paint()
         local any = next(state.classes) ~= nil
@@ -3218,35 +2942,32 @@ local function classChip(parent, classFile)
     b:SetScript("OnEnter", function(self)
         self.hovered = true
         self:Paint()
-        local cn = className(classFile)
-        if ns.Util and ns.Util.ClassColorHex then cn = "|c" .. ns.Util.ClassColorHex(classFile) .. cn .. "|r" end
-        V.tip(self, cn)
     end)
     b:SetScript("OnLeave", function(self)
         self.hovered = false
         self:Paint()
-        hideTooltip()
     end)
+    UI:AttachTooltip(b, "|c" .. (ns.Util.ClassColorHex and ns.Util.ClassColorHex(classFile) or "ffffffff")
+        .. className(classFile) .. "|r", nil, { anchor = "ANCHOR_TOP" })
     return b
 end
 
--- A role chip: the LFG role icon on a flat square ("chosen" look while picked).
 local function roleChip(parent, info)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(ROLE_CHIP, ROLE_CHIP)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
-    ns.UI:AddEdges(b)
+    UI:AddEdges(b)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetPoint("TOPLEFT", 3, -3)
     b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-    b.icon:SetTexture(ns.UI.ROLE_TEX)
-    b.icon:SetTexCoord(ns.UI:RoleCoords(info.key))
+    b.icon:SetTexture(UI.ROLE_TEX)
+    b.icon:SetTexCoord(UI:RoleCoords(info.key))
     b.role = info.key
     function b:Paint()
         local any = next(state.roles) ~= nil
         local on = state.roles[info.key] and true or false
-        ns.UI:PaintSleek(self, on and "chosen" or "secondary", self.hovered, not on and 0.6 or nil)
+        UI:PaintSleek(self, on and "chosen" or "secondary", self.hovered, not on and 0.6 or nil)
         local faded = any and not on and not self.hovered
         V.desaturate(self.icon, faded)
         self.icon:SetAlpha(faded and 0.4 or 1)
@@ -3255,67 +2976,49 @@ local function roleChip(parent, info)
     b:SetScript("OnEnter", function(self)
         self.hovered = true
         self:Paint()
-        V.tip(self, info.label)
     end)
     b:SetScript("OnLeave", function(self)
         self.hovered = false
         self:Paint()
-        hideTooltip()
     end)
+    V.tip(b, info.label)
     return b
 end
 
 local function separator(parent, x)
-    local t = parent:CreateTexture(nil, "ARTWORK")
-    t:SetSize(1, 16)
-    t:SetPoint("LEFT", parent, "LEFT", x, 0)
-    t:SetColorTexture(1, 1, 1, 0.15)
-    return t
+    return UI:Rule(parent, { vertical = true, left = x, top = 4, bottom = 4, alpha = 0.15 })
+end
+
+-- The lock state for everyone but the raid leader ("Locked by X"), its tooltip.
+local function lockStatusTip(_, tt)
+    local locked, info = UI:GetBiSLock()
+    if not locked then return false end
+    tt:AddLine("BiS lists are locked", S:Color("GOLD"))
+    tt:AddLine("Locked by " .. UI:LockByText(info, true) .. ". Raiders can't edit their lists; "
+        .. "anyone whose list still changes gets a warning marker and is not suggested in rolls.", 1, 1, 1, true)
 end
 
 local function createToolbar(p)
-    local UI = ns.UI
+    local L = p.layout
+    local bar = L.toolbar
 
-    -- Row 1: the views (text tabs) on the left; the phase, the drop panel and the search on the right. The member
-    -- page has no tab: it is opened from a name and lights the tab it came from.
-    p.viewButtons = {}
-    local views = {
-        { key = "roster", label = K.VIEW_LABEL.roster }, { key = "items", label = K.VIEW_LABEL.items },
-        { key = "log", label = K.VIEW_LABEL.log, tip = "Every item handed out: search, void or restore, add an award." },
-        { key = "council", label = K.VIEW_LABEL.council,
-          tip = "Who is on the Loot Council. The Guild Master picks the guild council; a raid leader can add council members for their own raid." },
-        { key = "rules", label = K.VIEW_LABEL.rules,
-          tip = "How the winner is picked (the Guild Master's rules, with an example that re-ranks as you change them) and the prized items." },
-    }
-    local prev
-    for _, info in ipairs(views) do
-        local key = info.key
-        local b = UI:CreateUnderlineTab(p, info.label, function() CouncilUI:SetView(key) end)
-        if info.tip then
-            b:HookScript("OnEnter", function(self) V.tip(self, info.label, info.tip) end)
-            b:HookScript("OnLeave", hideTooltip)
-        end
-        if prev then
-            b:SetPoint("LEFT", prev, "RIGHT", 4, 0)
-        else
-            b:SetPoint("TOPLEFT", p, "TOPLEFT", PAD - 4, -6)
-        end
-        p.viewButtons[key] = b
-        prev = b
-    end
+    -- The toolbar: the views as its tabs; the phase and the search as its controls on the right.
+    bar:SetTabs(VIEWS, function(key) CouncilUI:SetView(key) end)
+    p.viewButtons = bar.tabByKey
 
-    p.search = UI:CreateSearchBox(p, 150, function(text)
+    p.search = UI:CreateSearchBox(bar, 150, function(text)
         text = type(text) == "string" and text or ""
         text = text:gsub("^%s+", ""):gsub("%s+$", "")
         state.search = text:lower()
         CouncilUI:Refresh(true)
     end)
-    p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -6)
 
     -- (1.3.5: no Drops button here; /dz drops, Shift-click on the minimap button and the session bar open it)
 
-    -- the button shows "P1"; the menu says which phase is the guild's (or the group's)
-    p.phaseDD = UI:CreateDropdown(p, 60, phaseOptions, currentPhase, function(value)
+    -- the phase: "Phase [P1]"; the menu says which phase is the guild's (or the group's)
+    local box = CreateFrame("Frame", nil, bar)
+    box:SetSize(100, S.BTN_H)
+    p.phaseDD = UI:CreateDropdown(box, 60, phaseOptions, currentPhase, function(value)
         state.phase = tonumber(value) or state.phase
         -- A new phase starts on its own first boss (only ShowItem/ShowBoss jumps keep a sticky node).
         state.selectedNode = nil
@@ -3328,17 +3031,20 @@ local function createToolbar(p)
         self:SetText("P" .. currentPhase())
     end
     p.phaseDD:Refresh()
-    p.phaseDD:SetPoint("RIGHT", p.search, "LEFT", -GAP, 0)
-    p.phaseLabel = V.text(p, "GameFontHighlightSmall", 11)
-    p.phaseLabel:SetTextColor(0.62, 0.62, 0.62)
+    p.phaseDD:SetPoint("RIGHT", box, "RIGHT", 0, 0)
+    p.phaseLabel = UI:Text(box, "sub", nil, { text = "Phase", justify = "RIGHT" })
     p.phaseLabel:SetPoint("RIGHT", p.phaseDD, "LEFT", -6, 0)
-    p.phaseLabel:SetText("Phase")
+    box:SetWidth(math.floor(60 + 6 + UI:TextWidth(p.phaseLabel) + 0.5))
+    p.phaseBox = box
+    bar:SetFilters({ box, p.search })
 
-    -- Row 2 (Roster and Items): class circles | role icons | In my raid, Hide obtained, Off-spec lists | the lock.
+    -- The filter strip under the toolbar (Roster and Items): class circles | role icons | In my raid, Hide obtained,
+    -- Off-spec lists | the lock.
+    -- TODO(refactor): move into UI:CreateLayout (a filter strip under the toolbar that the content makes room for)
     local row2 = CreateFrame("Frame", nil, p)
     row2:SetPoint("TOPLEFT", PAD, K.TOP_Y)
     row2:SetPoint("TOPRIGHT", -PAD, K.TOP_Y)
-    row2:SetHeight(24)
+    row2:SetHeight(K.FILTER_H)
     p.row2 = row2
 
     p.classChips = {}
@@ -3379,28 +3085,15 @@ local function createToolbar(p)
     -- §38: "Lock lists" / "Unlock lists" for the raid leader (the group's loot authority); everyone else on the
     -- council sees "Locked by X" while the lists are locked.
     if UI.CreateBiSLockButton then
-        p.lockBtn = UI:CreateBiSLockButton(row2, 96, 22, { short = true })
+        p.lockBtn = UI:CreateBiSLockButton(row2, 96, S.ROW.compact, { short = true })
         p.lockBtn:SetPoint("RIGHT", row2, "RIGHT", 0, 0)
     end
     p.lockStatus = CreateFrame("Frame", nil, row2)
     p.lockStatus:SetSize(120, 20)
     p.lockStatus:SetPoint("RIGHT", row2, "RIGHT", 0, 0)
-    p.lockStatus.text = p.lockStatus:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.lockStatus.text = UI:Text(p.lockStatus, "body", "TEXT", { justify = "RIGHT" })
     p.lockStatus.text:SetPoint("RIGHT", 0, 0)
-    p.lockStatus.text:SetJustifyH("RIGHT")
-    p.lockStatus.text:SetWordWrap(false)
-    p.lockStatus:EnableMouse(true)
-    p.lockStatus:SetScript("OnEnter", function(self)
-        if not UI.GetBiSLock then return end
-        local locked, info = UI:GetBiSLock()
-        if not locked then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("BiS lists are locked", 1, 0.82, 0)
-        GameTooltip:AddLine("Locked by " .. UI:LockByText(info, true) .. ". Raiders can't edit their lists; "
-            .. "anyone whose list still changes gets a warning marker and is not suggested in rolls.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    p.lockStatus:SetScript("OnLeave", hideTooltip)
+    UI:AttachTooltip(p.lockStatus, lockStatusTip, nil, { anchor = "ANCHOR_TOP" })
     p.lockStatus:Hide()
 end
 
@@ -3408,17 +3101,17 @@ end
 local function updateLockControls()
     local p = panel
     if p.lockBtn and p.lockBtn.Refresh then p.lockBtn:Refresh() end
-    local locked, info
-    if ns.UI and ns.UI.GetBiSLock then locked, info = ns.UI:GetBiSLock() end
+    local locked, info = UI:GetBiSLock()
     local st = p.lockStatus
     if locked and not (p.lockBtn and p.lockBtn:IsShown()) then
-        st.text:SetText(ns.UI:LockIcon(12) .. " " .. colorCode("warn") .. "Locked by " .. ns.UI:LockByText(info) .. "|r")
+        st.text:SetText(UI:LockIcon(12) .. " " .. colorCode("warn") .. "Locked by " .. UI:LockByText(info) .. "|r")
         st:Show()
     else
         st:Hide()
     end
 end
 
+-- The footer: the lists' counts (quiet), Request sync as an icon at the right.
 local function createFooter(p)
     local f = CreateFrame("Frame", nil, p)
     f:SetPoint("BOTTOMLEFT", PAD, 6)
@@ -3426,11 +3119,10 @@ local function createFooter(p)
     f:SetHeight(K.FOOT_H)
     p.footer = f
 
-    f.text = V.text(f, "GameFontHighlightSmall", 11)
+    f.text = UI:Text(f, "sub")
     f.text:SetPoint("LEFT", 0, 0)
-    f.text:SetTextColor(0.62, 0.62, 0.62)
 
-    f.sync = ns.UI:CreateIconButton(f, 22, K.SYNC_ICON, nil, function(self)
+    f.sync = UI:CreateIconButton(f, K.FOOT_H, K.SYNC_ICON, nil, function(self)
         if not (ns.Sync and ns.Sync.RequestSync and ns.Sync:RequestSync()) then return end
         -- HELLO is rate-limited to once per 30s; mirror that on the button.
         local b = f.sync
@@ -3442,10 +3134,18 @@ local function createFooter(p)
     f.sync.icon:SetPoint("TOPLEFT", 4, -4)
     f.sync.icon:SetPoint("BOTTOMRIGHT", -4, 4)
     f.sync:SetPoint("RIGHT", 0, 0)
-    f.sync:HookScript("OnEnter", function(self)
-        V.tip(self, "Request sync", "Ask online guild members and council for newer lists and awards.")
-    end)
-    f.sync:HookScript("OnLeave", hideTooltip)
+    V.tip(f.sync, "Request sync", "Ask online guild members and council for newer lists and awards.")
+end
+
+-- The layout's room for the view: the filter strip and the footer take theirs on Roster / Items; the member page
+-- and the Loot council view start right under the toolbar.
+local function placeContent(view)
+    local L = panel.layout
+    local lists = view == "roster" or view == "items"
+    L.y0 = -K.TOP_Y + (lists and (K.FILTER_H + GAP) or 0)
+    -- (the member page's paper doll is tall: it runs to the panel's foot)
+    L.bottom = lists and K.LIST_BOTTOM or (view == "council" and PAD or 0)
+    L:Layout()
 end
 
 local function updateToolbar()
@@ -3459,7 +3159,8 @@ local function updateToolbar()
     updateLockControls()
     -- the current view lit (the member page lights the view it was opened from)
     local lit = state.view == "member" and (state.backView or "roster") or state.view
-    for key, b in pairs(p.viewButtons or {}) do b:SetActive(key == lit) end
+    p.layout.toolbar:SelectTab(lit)
+    placeContent(state.view)
 end
 
 local function updateFooter(stats)
@@ -3475,12 +3176,21 @@ return { createToolbar = createToolbar, createFooter = createFooter, update = up
          updateFooter = updateFooter }
 end)()
 
+-- The panel: a List + detail layout (UI:CreateLayout): the toolbar (views, phase, search), the content the views
+-- share (Roster, the member page and the Loot council fill it; Items uses its list column and its detail, with the
+-- boss's banner), the filter strip and the footer around it. The Loot log and the Rules views place themselves under
+-- the toolbar (UI/LootLog.lua, UI/CouncilRules.lua).
 function CouncilUI:CreatePanel(parent)
     if panel then return panel end
     local p = CreateFrame("Frame", "DisasterZoneCouncilPanel", parent)
     p:SetAllPoints(parent)
     panel = p
     p.dirty = true
+
+    p.layout = UI:CreateLayout("listdetail", p, { listWidth = K.TREE_W,
+        banner = { size = "strip", title = "Select a boss" } })
+    p.layout.list:Hide()
+    p.layout.detail:Hide()
 
     Chrome.createToolbar(p)
     Chrome.createFooter(p)
@@ -3528,9 +3238,11 @@ function CouncilUI:Refresh(resetScroll, keepTreeScroll)
     if panel.councilView then panel.councilView:SetShown(council) end
     if panel.logView then panel.logView:SetShown(log) end
     local own = council or log or rules
-    panel.phaseLabel:SetShown(not own)
-    panel.phaseDD:SetShown(not own)
+    panel.phaseBox:SetShown(not own)
     panel.search:SetShown(not own)
+    -- (the layout's list column and detail are the Items view's)
+    panel.layout.list:SetShown(not own and state.view == "items")
+    panel.layout.detail:SetShown(not own and state.view == "items")
     if own then
         panel.rosterView:Hide()
         if panel.itemsView then panel.itemsView:Hide() end
@@ -3841,7 +3553,6 @@ end
 -- "Clear list" asks first, then saves (and shares) an empty list.
 function CouncilUI:ConfirmClearCouncil(kind)
     if (kind ~= "guild" and kind ~= "raid") or not self:CanEditCouncil(kind) then return false end
-    ensureClearPopup()
     local text
     if kind == "guild" then
         text = "Remove everyone from the guild council and share the empty list with the guild?\n\n"
@@ -3849,7 +3560,10 @@ function CouncilUI:ConfirmClearCouncil(kind)
     else
         text = "Remove everyone from your raid council list?\n\nThe raid leader always stays on the council of their raid."
     end
-    if ns.Popup then ns.Popup:Show("DISASTERZONE_CLEAR_COUNCIL", text, nil, kind) end
+    if ns.Popup then
+        ns.Popup:Confirm({ key = "CLEAR_COUNCIL", title = "Clear the council", text = text, ok = "Clear",
+            danger = true, onAccept = function() CouncilUI:ClearCouncil(kind) end })
+    end
     return true
 end
 

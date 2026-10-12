@@ -370,9 +370,9 @@ def session_bar_shows_for_everyone_and_the_leader_ends_from_it():
     assert "1/11 bosses" in bar(rita)["text"], bar(rita)
     lee.click(lee.eval("return ns.SessionBar:GetFrame().button"))
     w.tick(0.2)
-    assert "DISASTERZONE_RAID_END" in lee.popups()
+    assert "DISASTERZONE_CONFIRM_RAID_END" in lee.popups()
     assert session(rita)["id"] == rid, "nothing ends before the confirmation"
-    lee.accept_popup("DISASTERZONE_RAID_END")
+    lee.accept_popup("DISASTERZONE_CONFIRM_RAID_END")
     w.tick(3)
     assert not bar(rita)["shown"] and rec(rita, rid)["endedBy"] == K("Lee")
     # the leader, still inside, sees the idle bar again; dismissing it hides it until the next instance

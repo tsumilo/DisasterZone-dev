@@ -8,29 +8,20 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SessionBar.lua", ...) then retu
 -- 1.2: Start raid opens a window asking what the session runs (loot distribution, rolls, the BiS lock); the
 -- authority changes that later with the bar's gear. 1.3: "loot distribution" is the loot council; loot is
 -- recorded whatever runs, and the lock needs the loot council.
+-- 1.4: the bar is a HUD frame (UI:CreateHudFrame, the pop-ups' card look, its place kept under its old key) and the
+-- Start raid window is a tool window (UI:CreateLayout "tool": the raid's banner with the one action, the switches
+-- under a caps header); the end confirmation is a Popup:Confirm.
 local addonName, ns = ...
 
 local SessionBar = ns:NewModule("SessionBar")
 
+local S = ns.Style
 local FRAME_NAME = "DisasterZoneSessionBar"
-local HEIGHT = 30
-local BAR_BG = { 0.043, 0.043, 0.051 }
 local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local floor = math.floor
 
-local function Sized(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
-    return fs
-end
-
-local function Text(parent, font, size)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font)
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
-    return fs
-end
+-- (the bar's sizes: a HUD row; the controls are the compact row height)
+local BAR = { H = 30, X = 11, GAP = 8, CTRL = S.ROW.compact, CTRL_GAP = 5, MIN_W = 180, W = 360 }
 
 local bar
 local idleDismissed = false
@@ -86,7 +77,11 @@ local FEATURES = {
       tip = "Nobody changes their BiS list while the raid runs (it unlocks when the raid ends). "
           .. "Needs the loot council." },
 }
-local START_PAD, START_ROW = 14, 44
+
+-- The window: a tool window of W (its content W - 10), the switches as rich rows under a caps header (18 high).
+local START = { W = 420, SWITCH_W = 34, HEAD_H = 18 }
+START.H = ns.UI.WIN_HEAD + 1 + S.PAD + S.BANNER.tool + S.GAP + START.HEAD_H + S.GAP
+    + #FEATURES * S.ROW.rich + (#FEATURES - 1) * S.GAP + S.GAP + 14 + S.PAD + 5
 
 local startWin
 
@@ -100,52 +95,66 @@ local function LastFeatures()
     return f
 end
 
--- Three switches, each with a one-line description under its name; the gold Start raid (Apply) at the bottom right and
--- one quiet line on what is always logged. The window's X cancels.
+-- The raid the window is about: the instance I stand in (its art on the banner) and its name; nil outside a raid
+-- instance.
+local function CurrentRaid()
+    if not (GetInstanceInfo and ns.ItemDB and ns.ItemDB.GetRaidByInstance) then return nil end
+    local name, _, _, _, _, _, _, instanceID = GetInstanceInfo()
+    local key = ns.ItemDB:GetRaidByInstance(tonumber(instanceID))
+    if not key then return nil end
+    return key, name
+end
+
+-- One switch row: the switch, its name (emph) and a one-line description under it (sub).
+local function NewSwitchRow(w, body, i, feat)
+    local UI = ns.UI
+    local key = feat.key
+    local y = START.HEAD_H + S.GAP + (i - 1) * (S.ROW.rich + S.GAP)
+    local row = CreateFrame("Frame", nil, body)
+    row:SetHeight(S.ROW.rich)
+    row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+    row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+    local get = function() return w.f[key] end
+    local set = function(on)
+        w.f[key] = on and true or false
+        if key == "loot" then SessionBar:SyncLockBox() end
+    end
+    local cb = UI.CreateSwitch and UI:CreateSwitch(row, get, set) or UI:CreateCheckbox(row, "", get, set)
+    cb:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+    local textX = START.SWITCH_W + 12
+    local label = UI:Text(row, "emph", "TEXT", { text = feat.label })
+    label:SetPoint("TOPLEFT", row, "TOPLEFT", textX, 0)
+    local desc = UI:Text(row, "sub", nil, { text = feat.desc })
+    desc:SetPoint("TOPLEFT", row, "TOPLEFT", textX, -17)
+    desc:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    cb.label = label
+    if cb.SetHitRectInsets then cb:SetHitRectInsets(-2, -((label:GetStringWidth() or 0) + 14), -3, -3) end
+    cb.tooltipText = feat.tip
+    -- (the checkbox fallback has its own tooltip from tooltipText)
+    if UI.CreateSwitch and cb.SetHover then UI:AttachTooltip(cb, feat.label, { feat.tip }) end
+    w.boxes[key], w.labels[key], w.descs[key], w.rows[key] = cb, label, desc, row
+end
+
+-- The tool window: the raid's banner (what the session is, the note, the one action: Start raid / Apply), then the
+-- three switches under "This raid runs". The window's X cancels.
 local function CreateStartWindow()
     local UI = ns.UI
-    local W = 380
-    local w = UI:CreateWindow("DisasterZoneRaidStart", "Start raid", W, 222, { noSavePosition = true })
-    local c = w.content
+    local w = UI:CreateWindow("DisasterZoneRaidStart", "Start raid", START.W, START.H, { noSavePosition = true })
     w.f = LastFeatures()
-    w.boxes, w.labels, w.descs = {}, {}, {}
-    local textX = START_PAD + 34 + 12
-    for i, feat in ipairs(FEATURES) do
-        local y = START_PAD + (i - 1) * START_ROW
-        local key = feat.key
-        local get = function() return w.f[key] end
-        local set = function(on)
-            w.f[key] = on and true or false
-            if key == "loot" then SessionBar:SyncLockBox() end
-        end
-        local cb = UI.CreateSwitch and UI:CreateSwitch(c, get, set) or UI:CreateCheckbox(c, "", get, set)
-        cb:SetPoint("TOPLEFT", c, "TOPLEFT", START_PAD, -(y + 2))
-        local label = Text(c, "GameFontHighlight", 12)
-        label:SetPoint("TOPLEFT", c, "TOPLEFT", textX, -y)
-        label:SetText(feat.label)
-        local desc = Text(c, "GameFontHighlightSmall", 11)
-        desc:SetPoint("TOPLEFT", c, "TOPLEFT", textX, -(y + 17))
-        desc:SetWidth(W - 12 - textX - START_PAD)
-        desc:SetTextColor(0.62, 0.62, 0.62)
-        desc:SetText(feat.desc)
-        cb.label = label
-        if cb.SetHitRectInsets then cb:SetHitRectInsets(-2, -((label:GetStringWidth() or 0) + 14), -3, -3) end
-        cb.tooltipText = feat.tip
-        cb:HookScript("OnEnter", function(self)
-            if not (UI.CreateSwitch and self.SetHover) then return end   -- (the checkbox has its own tooltip)
-            UI:SetTextTooltip(self, { feat.label, feat.tip })
-        end)
-        cb:HookScript("OnLeave", function() UI:HideTooltip() end)
-        w.boxes[key], w.labels[key], w.descs[key] = cb, label, desc
-    end
-    -- the bottom row: the quiet note (two lines at most) beside the gold button
-    w.startBtn = UI:CreateSleekButton(c, "Start raid", 110, 24, function() SessionBar:ConfirmStart() end, "primary")
-    w.startBtn:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -START_PAD, START_PAD)
-    w.note = Text(c, "GameFontDisableSmall", 11)
-    w.note:SetPoint("LEFT", c, "BOTTOMLEFT", START_PAD, START_PAD + 12)
-    w.note:SetWidth(W - 12 - 2 * START_PAD - 110 - 16)
-    w.note:SetWordWrap(true)
-    if w.note.SetMaxLines then w.note:SetMaxLines(2) end
+    w.boxes, w.labels, w.descs, w.rows = {}, {}, {}, {}
+    w.layout = UI:CreateLayout("tool", w.content, {
+        width = START.W - 10,
+        banner = { icon = UI.ICON.crown, kicker = "Raid session", title = "Start raid" },
+    })
+    local body = w.layout.body
+    w.head = UI:CreateSectionHeader(body, "This raid runs", { style = "caps" })
+    w.head:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    w.head:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
+    for i, feat in ipairs(FEATURES) do NewSwitchRow(w, body, i, feat) end
+    -- one quiet line under the switches: what is always logged / what Apply does / that the demo starts nothing
+    w.note = UI:Text(body, "small", "DIM")
+    w.note:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
+    w.note:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     w:Hide()
     startWin = w
     return w
@@ -159,9 +168,7 @@ function SessionBar:SyncLockBox()
     local on = w.f.loot and true or false
     if not on then w.f.lock = false end
     cb:SetEnabled(on)
-    if w.labels and w.labels.lock then
-        if on then w.labels.lock:SetTextColor(1, 1, 1) else w.labels.lock:SetTextColor(0.5, 0.5, 0.5) end
-    end
+    if w.labels and w.labels.lock then w.labels.lock:SetTextColor(S:Color(on and "TEXT" or "DIM")) end
     if w.descs and w.descs.lock then
         for _, feat in ipairs(FEATURES) do
             if feat.key == "lock" then w.descs.lock:SetText(on and feat.desc or feat.off) end
@@ -175,11 +182,19 @@ local function ShowStartWindow(mode, features)
     local w = startWin or CreateStartWindow()
     w.mode = mode
     w.f = features
-    w:SetWindowTitle(mode == "change" and "Raid options" or (mode == "demo" and "Start raid (demo)" or "Start raid"))
+    local title = mode == "change" and "Raid options" or (mode == "demo" and "Start raid (demo)" or "Start raid")
+    w:SetWindowTitle(title)
+    local banner = w.layout.banner
+    local raidKey, zone = CurrentRaid()
+    banner:SetArt(raidKey)
+    banner:SetTitle(title)
+    banner:SetSub(mode == "demo" and "Demo preview" or zone or "What this raid runs")
     w.note:SetText(mode == "demo" and "Demo: this only shows the window; nothing is started."
         or (mode == "change" and "Changes reach the raid at once." or
             "Attendance, boss kills and the loot handed out are always logged."))
-    w.startBtn:SetText(mode == "change" and "Apply" or "Start raid")
+    banner:SetActions({ { text = mode == "change" and "Apply" or "Start raid", kind = "primary", width = 110,
+                          onClick = function() SessionBar:ConfirmStart() end } })
+    w.startBtn = banner.actions[1]
     for _, cb in pairs(w.boxes) do
         if cb.Refresh then cb:Refresh() end
     end
@@ -196,9 +211,8 @@ end
 -- The Start raid button (the bar, the Raids tab): asks what the session runs, then starts it. true when the window
 -- opened.
 function SessionBar:OpenStart()
-    local demo = ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
     if not IsInRaid() then
-        if demo then
+        if ns.Util.DemoOn() then
             ShowStartWindow("demo", LastFeatures())
             return true
         end
@@ -268,33 +282,17 @@ function SessionBar:DescribeFeatures(f)
 end
 
 local function ConfirmEnd()
-    local dialogs = ns.Popup.dialogs
-    if not (dialogs and ns.Popup) then
+    if not (ns.Popup and ns.Popup.Confirm) then
         ns.RaidLog:End()
         return
     end
-    if not dialogs.DISASTERZONE_RAID_END then
-        dialogs.DISASTERZONE_RAID_END = {
-            title = "End the raid",
-            text = "%s\n\nThis finishes the raid log and unlocks the BiS lists.",
-            button1 = "End raid",
-            button2 = _G.CANCEL or "Cancel",
-            OnAccept = function() ns.RaidLog:End() end,
-            timeout = 0,
-            whileDead = true,
-            hideOnEscape = true,
-            preferredIndex = 3,
-        }
-    end
-    ns.Popup:Show("DISASTERZONE_RAID_END", SessionBar:GetText())
-end
-
-local function SavePosition(f)
-    if not (ns.db and ns.db.settings) then return end
-    local point, _, relPoint, x, y = f:GetPoint(1)
-    if not point then return end
-    ns.db.settings.windows = ns.db.settings.windows or {}
-    ns.db.settings.windows[FRAME_NAME] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
+    ns.Popup:Confirm({
+        key = "RAID_END",
+        title = "End the raid",
+        text = SessionBar:GetText() .. "\n\nThis finishes the raid log and unlocks the BiS lists.",
+        ok = "End raid",
+        onAccept = function() ns.RaidLog:End() end,
+    })
 end
 
 -- The zone and the details of the running session, apart (the bar shows the zone as its title).
@@ -310,58 +308,69 @@ function SessionBar:GetParts()
         ns.GroupRules:IsLocked()
 end
 
+-- The bar's tooltip lines (built when the mouse comes).
+local function BarTipLines()
+    local lines = {}
+    local s = Session()
+    if s then
+        lines[#lines + 1] = "Started by " .. (ns.Util.ShortName(s.by) or "?") .. " at " .. date("%H:%M", s.at)
+        lines[#lines + 1] = "Attendance and boss kills are being logged."
+        local feats = ns.GroupRules:GetSessionFeatures()
+        if feats then lines[#lines + 1] = "This raid: " .. SessionBar:DescribeFeatures(feats) .. "." end
+        if IsAuthority() then
+            lines[#lines + 1] = "The gear changes what the raid runs. End the raid when you are done."
+        end
+    else
+        lines[#lines + 1] = "The loot council and rolls stay off until you start the raid."
+        lines[#lines + 1] = "Start raid asks what to run: loot council, rolls, the BiS lock."
+    end
+    lines[#lines + 1] = { "Drag to move.", "DIM" }
+    return lines
+end
+
+-- A compact icon tool of the bar (the HUD's control height, the icon inset 3 px).
+local function BarTool(f, icon, title, text, onClick)
+    local b = ns.UI:CreateTipIconButton(f, BAR.CTRL, icon, title, text, onClick)
+    b.icon:ClearAllPoints()
+    b.icon:SetPoint("TOPLEFT", 3, -3)
+    b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    return b
+end
+
 local function Create()
     if bar then return bar end
     local UI = ns.UI
-    local f = CreateFrame("Frame", FRAME_NAME, UIParent)
+    -- (the place stays under the bar's frame name in settings.windows, as before 1.4)
+    local f = UI:CreateHudFrame(FRAME_NAME, {
+        width = BAR.W, height = BAR.H, position = FRAME_NAME, look = "card",
+        -- (its default spot sits just above the pop-ups' stack, UI.TOAST.TOP: a toast never covers it)
+        default = { "TOP", UIParent, "TOP", 0, ns.UI.TOAST.TOP + BAR.H + 6 },
+    })
     f.cdlName = FRAME_NAME
-    f:SetSize(360, HEIGHT)
-    f:SetFrameStrata("MEDIUM")
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        SavePosition(self)
-    end)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(BAR_BG[1], BAR_BG[2], BAR_BG[3], 0.93)
-    UI:AddEdges(f, "BORDER")
-    UI:SetEdgeColor(f, 1, 0.82, 0, 0.4)
 
-    -- the zone (gold), the facts (grey); on the right a BiS locked pill, the gear and one button
-    f.title = Text(f, "GameFontNormal", 13)
-    f.title:SetPoint("LEFT", f, "LEFT", 11, 0)
-    f.text = Text(f, "GameFontHighlightSmall", 11)
-    f.text:SetPoint("LEFT", f.title, "RIGHT", 8, 0)
-    f.text:SetTextColor(0.75, 0.75, 0.75)
+    -- the zone (gold), the facts (grey); on the right a BiS locked pill, the tools and one button
+    f.title = UI:Text(f, "title", "GOLD")
+    f.title:SetPoint("LEFT", f, "LEFT", BAR.X, 0)
+    f.text = UI:Text(f, "sub")
+    f.text:SetPoint("LEFT", f.title, "RIGHT", BAR.GAP, 0)
 
-    f.button = UI:CreateSleekButton(f, "End raid", 70, 20, function()
+    f.button = UI:CreateSleekButton(f, "End raid", 70, BAR.CTRL, function()
         if Session() then
             ConfirmEnd()
         else
             SessionBar:OpenStart()
         end
     end, "danger")
-    Sized(f.button:GetFontString(), 11)
-    f.button:SetPoint("RIGHT", f, "RIGHT", -5, 0)
-    f.options = UI:CreateTipIconButton(f, 20, UI.ICON.gear, "Raid options",
+    UI:SetTextStyle(f.button:GetFontString(), "body")
+    f.button:SetPoint("RIGHT", f, "RIGHT", -(BAR.H - BAR.CTRL) / 2, 0)
+    f.options = BarTool(f, UI.ICON.gear, "Raid options",
         "Change what the raid runs: the loot council, rolls and the BiS lock.", function() SessionBar:OpenOptions() end)
-    f.options.icon:ClearAllPoints()
-    f.options.icon:SetPoint("TOPLEFT", 3, -3)
-    f.options.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-    f.options:SetPoint("RIGHT", f.button, "LEFT", -5, 0)
+    f.options:SetPoint("RIGHT", f.button, "LEFT", -BAR.CTRL_GAP, 0)
     -- 1.3.5: the raid's attendance (UI/AttendanceUI.lua): who left, who is not here yet
-    f.att = UI:CreateTipIconButton(f, 20, UI.ICON.team or 46, "Attendance",
+    f.att = BarTool(f, UI.ICON.team or 46, "Attendance",
         "Who left the raid and who is not here yet: tick what they said, swap someone in or leave it to the officers.",
         function() if ns.AttendanceUI then ns.AttendanceUI:ShowLeaderPrompt() end end)
-    f.att.icon:ClearAllPoints()
-    f.att.icon:SetPoint("TOPLEFT", 3, -3)
-    f.att.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-    f.att:SetPoint("RIGHT", f.options, "LEFT", -4, 0)
+    f.att:SetPoint("RIGHT", f.options, "LEFT", -BAR.CTRL_GAP, 0)
 
     -- (the idle bar: hide it until the next instance)
     f.close = UI:CreateIconButton(f, 16, NO_TEX, nil, function()
@@ -370,10 +379,10 @@ local function Create()
     end)
     f.close.bg:SetAlpha(0)
     f.close.icon:SetDesaturated(true)
-    f.close:SetPoint("RIGHT", f.button, "LEFT", -5, 0)
+    f.close:SetPoint("RIGHT", f.button, "LEFT", -BAR.CTRL_GAP, 0)
 
-    f.pill = UI:CreateTagPill(f, 18)
-    f.pill:SetBase(BAR_BG[1], BAR_BG[2], BAR_BG[3])
+    f.pill = UI:CreatePill(f, 18)
+    f.pill:SetBase(S:Color("HUD_BG"))
 
     f:SetScript("OnUpdate", function(_, dt)
         elapsed = elapsed + dt
@@ -382,32 +391,8 @@ local function Create()
             SessionBar:Update()
         end
     end)
-    f:SetScript("OnEnter", function(self)
-        local lines = { "|cffff8000DisasterZone|r raid session" }
-        local s = Session()
-        if s then
-            lines[#lines + 1] = "Started by " .. (ns.Util.ShortName(s.by) or "?") .. " at " .. date("%H:%M", s.at)
-            lines[#lines + 1] = "Attendance and boss kills are being logged."
-            local feats = ns.GroupRules:GetSessionFeatures()
-            if feats then lines[#lines + 1] = "This raid: " .. SessionBar:DescribeFeatures(feats) .. "." end
-            if IsAuthority() then
-                lines[#lines + 1] = "The gear changes what the raid runs. End the raid when you are done."
-            end
-        else
-            lines[#lines + 1] = "The loot council and rolls stay off until you start the raid."
-            lines[#lines + 1] = "Start raid asks what to run: loot council, rolls, the BiS lock."
-        end
-        lines[#lines + 1] = "|cff808080Drag to move.|r"
-        UI:SetTextTooltip(self, lines)
-    end)
-    f:SetScript("OnLeave", function() UI:HideTooltip() end)
+    UI:AttachTooltip(f, S:Wrap("WARN", "DisasterZone") .. " raid session", BarTipLines)
 
-    UI:RestorePosition(f)
-    local windows = ns.db and ns.db.settings and ns.db.settings.windows
-    if not (type(windows) == "table" and windows[FRAME_NAME]) then
-        f:ClearAllPoints()
-        f:SetPoint("TOP", UIParent, "TOP", 0, -120)
-    end
     f:Hide()
     bar = f
     return f
@@ -433,7 +418,7 @@ function SessionBar:Update()
         local zone, dur, bosses
         zone, dur, bosses, locked = self:GetParts()
         f.title:SetText(zone)
-        f.title:SetTextColor(1, 0.82, 0)
+        f.title:SetTextColor(S:Color("GOLD"))
         local feats = ns.GroupRules:GetSessionFeatures()
         local off = feats and ((not feats.loot and not feats.rolls and "council and rolls off")
             or (not feats.loot and "council off") or (not feats.rolls and "rolls off")) or nil
@@ -447,7 +432,7 @@ function SessionBar:Update()
         f.close:Hide()
     else
         f.title:SetText("No raid session")
-        f.title:SetTextColor(1, 1, 1)
+        f.title:SetTextColor(S:Color("TEXT"))
         f.text:SetText("council and rolls are off until you start")
         f.button:SetText("Start raid")
         f.button:SetKind("primary")
@@ -457,7 +442,7 @@ function SessionBar:Update()
         f.att:Hide()
         f.close:Show()
     end
-    -- the right side, from the edge: [pill] [gear | x] [button]
+    -- the right side, from the edge: [pill] [att] [gear | x] [button]
     local anchor
     if f.button:IsShown() then anchor = f.button end
     if f.options:IsShown() then anchor = f.options end
@@ -466,20 +451,19 @@ function SessionBar:Update()
     f.pill:ClearAllPoints()
     if locked then
         f.pill:Set("BiS locked", "warn", ns.UI.ICON_LOCK)
-        if anchor then f.pill:SetPoint("RIGHT", anchor, "LEFT", -8, 0) else f.pill:SetPoint("RIGHT", f, "RIGHT", -8, 0) end
+        if anchor then f.pill:SetPoint("RIGHT", anchor, "LEFT", -BAR.GAP, 0) else f.pill:SetPoint("RIGHT", f, "RIGHT", -BAR.GAP, 0) end
         f.pill:Show()
     else
         f.pill:Hide()
     end
     local right = 0
-    if f.button:IsShown() then right = right + f.button:GetWidth() + 5 end
-    if f.options:IsShown() then right = right + f.options:GetWidth() + 5 end
-    if f.att:IsShown() then right = right + f.att:GetWidth() + 4 end
-    if f.close:IsShown() then right = right + f.close:GetWidth() + 5 end
-    if f.pill:IsShown() then right = right + f.pill:GetWidth() + 8 end
-    local left = 11 + (f.title:GetStringWidth() or 60) + 8 + (f.text:GetStringWidth() or 100)
-    -- (a raider's bar holds the facts alone: the same 11 px on both sides)
-    f:SetWidth(math.max(180, floor(left + (right > 0 and (16 + right) or 11))))
+    for _, c in ipairs({ f.button, f.options, f.att, f.close }) do
+        if c:IsShown() then right = right + c:GetWidth() + BAR.CTRL_GAP end
+    end
+    if f.pill:IsShown() then right = right + f.pill:GetWidth() + BAR.GAP end
+    local left = BAR.X + (f.title:GetStringWidth() or 60) + BAR.GAP + (f.text:GetStringWidth() or 100)
+    -- (a raider's bar holds the facts alone: the same margin on both sides)
+    f:SetWidth(math.max(BAR.MIN_W, floor(left + (right > 0 and (2 * BAR.GAP + right) or BAR.X))))
     f:Show()
 end
 

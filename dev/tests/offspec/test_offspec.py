@@ -217,7 +217,7 @@ def personal_alerts_for_off_spec_items():
     r.w.tick(2)
     st = toast_state(C)
     assert st["shown"] and st["item"] == MINDBLADE, st
-    assert strip_codes(st["title"]) == "On your off-spec list (Protection)", st
+    assert strip_codes(st["kicker"]).lower() == "on your off-spec list (protection)", st   # (1.4: the UI:Toast kicker)
     assert any("is on your off-spec list (Protection)" in strip_codes(l) for l in printed_lines(C))
     rows = C.show_tooltip_item(MINDBLADE)
     assert any("Your off-spec BiS P1 (Protection) · Main Hand" in strip_codes(l or "") for l, _ in rows), rows

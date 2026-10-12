@@ -653,12 +653,12 @@ def searchable_dropdown_filters_toggles_saves_reverts_and_clears():
     gm.click(gm.eval("return %s.revert" % sec))
     # Clear list asks first; cancel keeps, accept saves + shares an empty list (the phase stays)
     gm.click(gm.eval("return %s.clear" % sec))
-    assert "DISASTERZONE_CLEAR_COUNCIL" in gm.popups()
-    gm.cancel_popup("DISASTERZONE_CLEAR_COUNCIL")
+    assert "DISASTERZONE_CONFIRM_CLEAR_COUNCIL" in gm.popups()
+    gm.cancel_popup("DISASTERZONE_CONFIRM_CLEAR_COUNCIL")
     w.tick(1)
     assert len(guild_list(rai)["members"]) == 2
     gm.click(gm.eval("return %s.clear" % sec))
-    gm.accept_popup("DISASTERZONE_CLEAR_COUNCIL")
+    gm.accept_popup("DISASTERZONE_CONFIRM_CLEAR_COUNCIL")
     w.tick(1)
     assert guild_list(rai)["members"] == [] and guild_list(rai)["phase"] == 2
     assert council(rai) is False
