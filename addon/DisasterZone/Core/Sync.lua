@@ -413,6 +413,7 @@ end
 --   10 pd  raid plans (RaidPlan, Addendum J §56)    20 blr  the raid blacklist (RaidPlan)
 --   30 gnr the guest book's notes (GuestBook, 1.3)   40 sd   strategies + assignments (Strategy, Addendum K)
 --   50 ed  events (1.3.2)    60 od  polls (1.3.4)    70 zd   prized items (1.3.5)
+--   80 rlr the raid leaders list (Guild, Addendum J §62)   90 av  accounts (Guild, 1.2)
 -- (Older clients ignore a field they don't know.) Registering a field again replaces it.
 function Sync:RegisterHelloField(field, order, send, seen)
     if type(field) ~= "string" then return end
@@ -452,9 +453,7 @@ function Sync:SendHello(force)
         msg.rd = RaidDigest()
         msg.rd2 = RaidDigest2()
     end
-    if Guild.GetRaidLeadersRev then msg.rlr = Guild:GetRaidLeadersRev() end   -- Addendum J §62
-    if Guild.GetAccountsHash then msg.av = Guild:GetAccountsHash() end        -- accounts (Guild.lua)
-    -- the other modules' fields, in their order (RegisterHelloField: pd, blr, gnr, sd, ed, od, zd)
+    -- the modules' fields, in their order (RegisterHelloField: pd, blr, gnr, sd, ed, od, zd, rlr, av)
     for _, f in ipairs(helloFields) do
         if f.send then msg[f.field] = f.send() end
     end
@@ -777,9 +776,6 @@ local function OnHello(sender, msg, dist)
     for _, f in ipairs(helloFields) do
         if f.seen then f.seen(sender, msg[f.field]) end
     end
-    local G = ns.Guild
-    if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
-    if G and G.OnAccountsSeen then G:OnAccountsSeen(sender, msg.av) end
     if msg.c then
         councilHelloAt[sender] = GetTime()
         NoteCouncilRev(sender, msg.cg)

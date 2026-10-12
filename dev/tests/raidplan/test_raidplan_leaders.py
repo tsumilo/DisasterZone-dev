@@ -5,7 +5,8 @@ Rules (user, 2026-09-29): officers (guild rank 0-1) pick the raid leaders; the G
 raid log is for the GM, the council and the raid leaders, items only for the loot council.
 
 Covers: officers (not a council member of a lower rank, not members) saving the list and every member learning it
-(RLL; after a relog; from an officer who logs in later when no officer was online), forged / relayed-by-member lists
+(RLL; after a relog; from an officer who logs in later when no officer was online; RLQ from an officer or member whose
+list is older than an officer's HELLO says; 30 s rate limits; the HELLO fields' order), forged / relayed-by-member lists
 ignored; planning rights (GM only by default, then raid leaders; council refused); a raid leader taken off the list
 keeping their raids visible; raid leaders getting no loot council data; the Raid log view (council yes, raid leaders
 without items, a mere group leader no); the raid log synced to a raid leader who logs in later; the window.
@@ -133,6 +134,126 @@ def a_member_gets_the_list_from_an_officer_who_logs_in_later():
     c["Lee"].relog(reload=False)
     w.tick(40)
     assert c["Lee"].eval_py("return ns.Guild:GetRaidLeaders()") == [K("Rhea")]
+    w.assert_no_errors()
+
+
+OLDER = "local g = ns.Guild:GetGuildKey(); local rec = ns.db.raidLeaders[g]; rec.rev = rec.rev - 100; rec.m = {}"
+
+
+def sent(w, t, mark, frm, to):
+    """Whispers of type t from `frm` to `to` since that addon_log index."""
+    dec = next(x for x in w.clients if x.runtime is not None and x.loaded)
+    out = []
+    for e in w.addon_log[mark:]:
+        if (e["prefix"].startswith("CDL") and e["chat_type"] == "WHISPER" and e["sender"] == K(frm)
+                and str(e["target"]).split("-")[0] == to):
+            m = lr.decode_msg(dec, e["text"])
+            if m and m.get("t") == t:
+                out.append(m)
+    return out
+
+
+@case
+def an_officer_with_an_older_list_asks_for_the_newer_one():
+    """(1.4.1: the list rides on DigestSync.RevList) An officer whose list is older than the rlr in an officer's HELLO
+    asks that officer (RLQ) and takes the answer (RLL); a member does too. A member's HELLO never makes them ask."""
+    w, c = world()
+    otto, gina, sam = c["Otto"], c["Gina"], c["Sam"]
+    w.tick(60)                      # (the login HELLOs and their answers are over)
+    otto.eval(OLDER)
+    sam.eval(OLDER)
+    mark = len(w.addon_log)
+    gina.relog(reload=False)
+    w.tick(10)                      # (before Gina's own share after logging in, 20-40 s)
+    for n in ("Otto", "Sam"):
+        assert len(sent(w, "RLQ", mark, n, "Gina")) == 1, n
+        assert len(sent(w, "RLL", mark, "Gina", n)) == 1, n
+        assert c[n].eval_py("return ns.Guild:GetRaidLeaders()") == [K("Rhea")], n
+    w.tick(40)
+    otto.eval(OLDER)
+    mark = len(w.addon_log)
+    c["Lee"].relog(reload=False)    # a member's newer rev is no reason to ask: only an officer's
+    w.tick(10)
+    assert not sent(w, "RLQ", mark, "Otto", "Lee")
+    w.assert_no_errors()
+
+
+@case
+def raid_leader_answers_and_questions_are_rate_limited():
+    """30 s per member each way: an officer answers one older rev (RLL), asks once for a newer one (RLQ), and answers
+    one question (RLQ) per member in that time."""
+    w, c = world()
+    otto, gina, sam = c["Otto"], c["Gina"], c["Sam"]
+    w.tick(60)
+    seen = "ns.Guild:OnRaidLeadersRevSeen(...)"
+    rev = gina.eval("return ns.Guild:GetRaidLeadersRev()")
+    # answers to an older rev
+    mark = len(w.addon_log)
+    gina.eval(seen, K("Sam"), 0)
+    gina.eval(seen, K("Sam"), 0)
+    w.tick(5)
+    assert len(sent(w, "RLL", mark, "Gina", "Sam")) == 1
+    gina.eval(seen, K("Sam"), 0)
+    w.tick(26)
+    assert len(sent(w, "RLL", mark, "Gina", "Sam")) == 1
+    gina.eval(seen, K("Sam"), 0)
+    w.tick(5)
+    assert len(sent(w, "RLL", mark, "Gina", "Sam")) == 2
+    # questions to an officer with a newer one (a member's newer rev is ignored)
+    mark = len(w.addon_log)
+    otto.eval(seen, K("Gina"), rev + 1)
+    otto.eval(seen, K("Gina"), rev + 1)
+    otto.eval(seen, K("Sam"), rev + 1)
+    w.tick(2)
+    assert len(sent(w, "RLQ", mark, "Otto", "Gina")) == 1
+    assert not sent(w, "RLQ", mark, "Otto", "Sam")
+    w.tick(30)
+    otto.eval(seen, K("Gina"), rev + 1)
+    w.tick(2)
+    assert len(sent(w, "RLQ", mark, "Otto", "Gina")) == 2
+    # answers to a question: one per member and 30 s; a member doesn't answer
+    w.tick(31)
+    mark = len(w.addon_log)
+    for _ in range(3):
+        sam.eval("ns.Comm:Send({ t = 'RLQ' }, 'WHISPER', 'Gina-Thunderstrike', 'ctrl')")
+        sam.eval("ns.Comm:Send({ t = 'RLQ' }, 'WHISPER', 'Lee-Thunderstrike', 'ctrl')")
+        w.tick(1)
+    assert len(sent(w, "RLL", mark, "Gina", "Sam")) == 1
+    assert not sent(w, "RLL", mark, "Lee", "Sam")
+    w.tick(31)
+    sam.eval("ns.Comm:Send({ t = 'RLQ' }, 'WHISPER', 'Gina-Thunderstrike', 'ctrl')")
+    w.tick(2)
+    assert len(sent(w, "RLL", mark, "Gina", "Sam")) == 2
+    w.assert_no_errors()
+
+
+@case
+def the_hello_fields_keep_their_order():
+    """rlr and av are registered HELLO fields now (orders 80 and 90): a HELLO still reaches the other modules' fields
+    first (the last of them zd, prized items), then the raid leaders list, then the accounts."""
+    w, c = world()
+    sam = c["Sam"]
+    w.tick(60)
+    sam.eval("""
+        __order = {}
+        local P, G = ns.Prized, ns.Guild
+        local d, r, a = P.OnHelloDigest, G.GetRaidLeadersRev, G.OnAccountsSeen
+        P.OnHelloDigest = function(self, sender, ...)
+            if sender == 'Gina-Thunderstrike' then __in = true; __order[#__order + 1] = 'zd' end
+            return d(self, sender, ...)
+        end
+        G.GetRaidLeadersRev = function(self, ...)
+            if __in then __order[#__order + 1] = 'rlr' end
+            return r(self, ...)
+        end
+        G.OnAccountsSeen = function(self, sender, ...)
+            if sender == 'Gina-Thunderstrike' then __order[#__order + 1] = 'av'; __in = false end
+            return a(self, sender, ...)
+        end""")
+    c["Gina"].relog(reload=False)
+    w.tick(10)
+    order = sam.eval_py("return __order")
+    assert order == ["zd", "rlr", "av"], order
     w.assert_no_errors()
 
 

@@ -996,18 +996,14 @@ local RLL_LOGIN_MIN, RLL_LOGIN_MAX = 20, 40
 
 -- db.raidLeaders[guildKey] = { rev, m = { [key] = true }, by }
 local function LeadersRec(create)
-    local db = ns.db
     local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.raidLeaders) ~= "table" then
+    if not g then return nil end
+    local rec = ns.DB:GuildBucket("raidLeaders", create, g)
+    if not rec then return nil end
+    if type(rec.m) ~= "table" or not IsInt(rec.rev, 0, MAX_REV) then
         if not create then return nil end
-        db.raidLeaders = {}
-    end
-    local rec = db.raidLeaders[g]
-    if type(rec) ~= "table" or type(rec.m) ~= "table" or not IsInt(rec.rev, 0, MAX_REV) then
-        if not create then return nil end
-        rec = { rev = 0, m = {} }
-        db.raidLeaders[g] = rec
+        for k in pairs(rec) do rec[k] = nil end      -- (a broken one starts over, empty)
+        rec.rev, rec.m = 0, {}
     end
     return rec
 end
@@ -1650,25 +1646,24 @@ function Guild:SetLootRules(lr)
     return true
 end
 
-local function OnRaidLeadersQuery(sender, msg, dist)
-    if dist ~= "WHISPER" or not Guild:IsOfficer(Util.PlayerKey()) then return end
-    if not RateLimit("rlq:" .. sender, RLL_REPLY_LIMIT) then return end
-    SendRLL(sender)
+-- The list's rev rides in the HELLO (rlr): an officer who holds a newer list sends it, a member who holds an older one
+-- than an officer's asks them for it (RLQ). (Core/DigestSync.lua: RevList; made in OnInit, as DigestSync.lua loads
+-- after this file.)
+local leadersSync
+local function LeadersRevList()
+    return ns.DigestSync.RevList({
+        field = "rlr", order = 80, query = "RLQ", send = Send, limit = RLL_REPLY_LIMIT,
+        replyKey = "rll-reply:", askKey = "rlq-ask:", queryKey = "rlq:",
+        rev = function() return Guild:GetRaidLeadersRev() end,
+        serve = function() return Guild:IsOfficer(Util.PlayerKey()) end,
+        writer = function(key) return Guild:IsOfficer(key) end,
+        sendList = function(target) SendRLL(target) end,
+    })
 end
 
 -- Sync calls this for every HELLO (rlr = the sender's list rev; nil from clients before 0.7).
 function Guild:OnRaidLeadersRevSeen(sender, rlr)
-    if type(rlr) ~= "number" or type(sender) ~= "string" then return end
-    local mine = Guild:GetRaidLeadersRev()
-    if rlr < mine and Guild:IsOfficer(Util.PlayerKey()) then
-        if RateLimit("rll-reply:" .. sender, RLL_REPLY_LIMIT) then
-            Util.RandomDelay(0.5, 3, function() SendRLL(sender) end)
-        end
-    elseif rlr > mine and Guild:IsOfficer(sender) then
-        if RateLimit("rlq-ask:" .. sender, RLL_REPLY_LIMIT) then
-            Send({ t = "RLQ" }, "WHISPER", sender, "ctrl")
-        end
-    end
+    if leadersSync then leadersSync.Seen(sender, rlr) end
 end
 
 local function ShareRaidLeadersAfterLogin()
@@ -1736,8 +1731,15 @@ function Guild:OnInit()
     end
     if ns.Comm and ns.Comm.Register then
         ns.Comm:Register("RLL", OnRaidLeaders)          -- Addendum J §62
-        ns.Comm:Register("RLQ", OnRaidLeadersQuery)
         ns.Comm:Register("ACB", OnAccounts)             -- accounts: a player's characters share their roles
+    end
+    -- the HELLO's rlr (and RLQ), then its av: handled after every other module's field, as always
+    leadersSync = LeadersRevList()
+    leadersSync.Register()
+    local Sync = ns.Sync
+    if Sync and Sync.RegisterHelloField then
+        Sync:RegisterHelloField("av", 90, function() return Guild:GetAccountsHash() end,
+            function(sender, av) Guild:OnAccountsSeen(sender, av) end)
     end
 end
 
