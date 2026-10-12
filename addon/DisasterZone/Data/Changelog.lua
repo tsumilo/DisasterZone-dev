@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.1", date = "13 October 2026", title = "Council Bingo, made epic",
+    { version = "1.4.1", date = "12 October 2026", title = "Council Bingo, made epic",
       sections = {
           { heading = "Council Bingo: a new card set", area = "games", kind = "new", hi = true, art = "ssc", open = "games",
             lead = "Every square is a named raid moment now.", lines = {
