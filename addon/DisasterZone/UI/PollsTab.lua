@@ -150,17 +150,10 @@ local function Sect(parent)
     return s
 end
 
--- A class circle of a member.
+-- A class circle of a member (no ring, no tooltip).
 local function Face(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    function f:Set(key)
-        self.key = key
-        EUI():SetClass(self.tex, key)
-        self:Show()
-    end
+    local f = UI():CreateAvatar(parent, size, { tip = false })
+    f.ring:Hide()
     return f
 end
 
@@ -367,28 +360,9 @@ local function IconTile(parent, size)
     return f
 end
 
--- A class circle with its dark ring (the Duelists list's).
--- TODO(refactor): move into a shared avatar (a player's class circle; the Events pages have the same)
+-- A class circle with its dark ring (the Duelists list's): UI:CreateAvatar.
 local function RingFace(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.ring = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.ring:SetTexture(DISC)
-    f.ring:SetSize(size + 3, size + 3)
-    f.ring:SetPoint("CENTER")
-    f.ring:SetVertexColor(0, 0, 0, 1)
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    function f:Set(key)
-        self.key = key
-        EUI():SetClass(self.tex, key)
-        self:Show()
-    end
-    UI():AttachTooltip(f, function(self, tt)
-        if not self.key then return false end
-        tt:AddLine(EUI():Name(self.key, true))
-    end, nil, { anchor = "ANCHOR_TOP" })
-    return f
+    return UI():CreateAvatar(parent, size, { ring = 3 })
 end
 
 -- The answer bar (the raid page's Accept / Tentative): UI:CreateSegments in the green answer look.

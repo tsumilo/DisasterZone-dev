@@ -4164,7 +4164,7 @@ function TV.createWaitlist(d)
     d.wlBtn = b
 
     -- the dropdown (UP.popover): who waits, the raid nights, Join
-    local p = UP.popover(TV.WL.W, 120, "DIALOG")
+    local p = UI():CreatePopover(TV.WL.W, 120)
     p.head = UI():CreateSectionHeader(p, "Waitlist", { style = "caps" })
     p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -12)
     p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -12)
@@ -4210,48 +4210,6 @@ function TV.paintWaitlistIcon(dr, organizer)
     if TV.wlSeen[key] and n > TV.wlSeen[key] then TV.glowBadge() end
     TV.wlSeen[key] = n
     return true
-end
-
--- A dropdown panel of the Teams view (the waitlist, the raid nights editor, the comp's steppers): a top-level frame
--- (it takes the window's scale when it opens) on the dropdowns' surface with a soft shadow; a click anywhere else
--- closes it (passThrough: that click still reaches what it was on: the comp's steppers, opened from a band's +).
--- TODO(refactor): move into UI/Comp/Overlays.lua (UI:CreatePopover: a panel that drops from its owner and closes on a
--- click elsewhere; the Teams view's three dropdowns are its first users)
-function UP.popover(w, h, strata, passThrough)
-    local p = CreateFrame("Frame", nil, UIParent)
-    p:SetFrameStrata(strata or "DIALOG")
-    p:SetToplevel(true)
-    p:SetClampedToScreen(true)
-    p:EnableMouse(true)
-    p:SetSize(w, h)
-    UI():SoftShadow(p, 12, 0.45, -4, 2)
-    p.bg = UI():Fill(p, "DROP_BG")
-    UI():AddEdges(p, "BORDER")
-    UI():SetEdgeColor(p, S:Color("DROP_EDGE"))
-    p:Hide()
-    if passThrough then
-        p:SetScript("OnShow", function(self)
-            if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
-                self:RegisterEvent("GLOBAL_MOUSE_DOWN")
-            end
-        end)
-        p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
-        p:SetScript("OnEvent", function(self)
-            if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
-        end)
-        return p
-    end
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetAllPoints(UIParent)
-    catcher:SetFrameStrata(strata or "DIALOG")
-    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
-    catcher:RegisterForClicks("AnyUp")
-    catcher:SetScript("OnClick", function() p:Hide() end)
-    catcher:Hide()
-    p.catcher = catcher
-    p:SetScript("OnShow", function() catcher:Show() end)
-    p:SetScript("OnHide", function() catcher:Hide() end)
-    return p
 end
 
 function TV.notOnRoster(dr)
@@ -5187,7 +5145,7 @@ end
 
 function TV.createNightsPanel()
     local N = TV.N
-    local p = UP.popover(N.PANEL_W, 200, "DIALOG")
+    local p = UI():CreatePopover(N.PANEL_W, 200)
     p.head = UI():CreateSectionHeader(p, "Raid nights", { style = "caps", right = "Times in your clock", rule = false })
     p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -12)
     p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -14, -12)
@@ -5807,7 +5765,7 @@ function TV.benchMenu(chip)
 end
 
 function TV.createSteps(d)
-    local p = UP.popover(252, 100, "FULLSCREEN_DIALOG", true)
+    local p = UI():CreatePopover(252, 100, { strata = "FULLSCREEN_DIALOG", close = "through" })
     p.role = p:CreateTexture(nil, "ARTWORK")
     p.role:SetSize(14, 14)
     p.role:SetTexture(UI().ROLE_TEX)

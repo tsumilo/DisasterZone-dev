@@ -684,6 +684,53 @@ end
 --   clamp (true) }
 -- frame:SetDragHandle(region) drags it by another frame (a banner); frame:SetLocked(b), :IsLocked(), :SavePlace(),
 -- :RestorePlace(), :ResetPlace() (forgets the saved place and goes to the default).
+-- UI:CreatePopover(w, h, opts) -> panel: what drops from a control (a list, a small editor): the dropdowns' surface
+-- (DROP_BG, a 1 px DROP_EDGE, a soft shadow) on UIParent, clamped to the screen, hidden at first. The caller places
+-- it (and sets panel.owner) and shows it. opts: { strata ("DIALOG"), name (a global name), shadow (true),
+-- close = "catcher" (default: a click anywhere else closes it; a full-screen catcher under it takes that click) |
+-- "through" (a click elsewhere closes it and still reaches what it was on; a click on panel.owner does not close it) |
+-- false (the caller closes it) }. panel.catcher (with "catcher").
+function UI:CreatePopover(w, h, opts)
+    opts = opts or {}
+    local strata = opts.strata or "DIALOG"
+    local p = CreateFrame("Frame", opts.name, UIParent)
+    p:SetFrameStrata(strata)
+    p:SetToplevel(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:SetSize(w or 200, h or 100)
+    if opts.shadow ~= false and UI.SoftShadow then UI:SoftShadow(p, 12, 0.45, -4, 2) end
+    p.bg = UI:Fill(p, "DROP_BG")
+    UI:AddEdges(p, "BORDER")
+    UI:SetEdgeColor(p, S:Color("DROP_EDGE"))
+    p:Hide()
+    local close = opts.close
+    if close == nil then close = "catcher" end
+    if close == "through" then
+        p:SetScript("OnShow", function(self)
+            if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
+                self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+            end
+        end)
+        p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
+        p:SetScript("OnEvent", function(self)
+            if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
+        end)
+    elseif close == "catcher" then
+        local catcher = CreateFrame("Button", nil, UIParent)
+        catcher:SetAllPoints(UIParent)
+        catcher:SetFrameStrata(strata)
+        catcher:SetFrameLevel(math.max(0, p:GetFrameLevel() - 1))
+        catcher:RegisterForClicks("AnyUp")
+        catcher:SetScript("OnClick", function() p:Hide() end)
+        catcher:Hide()
+        p.catcher = catcher
+        p:SetScript("OnShow", function() catcher:Show() end)
+        p:SetScript("OnHide", function() catcher:Hide() end)
+    end
+    return p
+end
+
 UI.HUD = { CLOSE = 18 }
 
 function H.HudDragStart(f)

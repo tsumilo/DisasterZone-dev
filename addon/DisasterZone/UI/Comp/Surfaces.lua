@@ -7,6 +7,7 @@ local addonName, ns = ...
 --   UI:DecorateRow(row, opts)          the one hover, the one selected look (gold wash + 2 px bar), the "you" look
 --                                      (blue wash + 2 px bar), stripe, hairline
 --   UI:CreateFace(parent, size)        a glyph on a dark disc in a gold ring (or a round icon / a class in the ring)
+--   UI:CreateAvatar(parent, size)      a player's class circle in a dark ring (an open seat: SetEmpty)
 --   UI:CreateArtRow(parent, opts)      the 50 px row with a 64x38 picture and a 20 px icon tile (events, polls, ...)
 --   UI:CreateEmptyState(parent, opts)  an illustrated "nothing here" (My Log's): disc + icon, title, text, one action
 --   UI:CreateNotice(parent, kind, txt) a slim strip saying why something can't be done here (read-only / locked /
@@ -313,6 +314,72 @@ function UI:CreateFace(parent, size, opts)
     for k, fn in pairs(Face) do f[k] = fn end
     f:SetRing(opts.ring)
     if opts.glyph then f:SetGlyph(opts.glyph, opts.glyphColor) end
+    return f
+end
+
+---------------------------------------------------------------------------
+-- Avatar: a player's class circle
+---------------------------------------------------------------------------
+
+local Avatar = {}
+
+-- The player key's class circle (dim: greyed, a seat given up / a player away).
+function Avatar:Set(key, dim)
+    self.key = key
+    self.ring:SetVertexColor(0, 0, 0, 1)
+    self.ring:SetSize(self.size + self.ringW, self.size + self.ringW)
+    if self.hole then self.hole:Hide() end
+    if ns.EventUI then ns.EventUI:SetClass(self.tex, key) end
+    self.tex:SetDesaturated(dim and true or false)
+    self.tex:SetAlpha(dim and 0.55 or 1)
+    self.tex:Show()
+    self:Show()
+end
+
+-- An open seat: a faint ring around the card's colour.
+function Avatar:SetEmpty()
+    self.key = nil
+    self.tex:Hide()
+    self.ring:SetVertexColor(1, 1, 1, 0.16)
+    self.ring:SetSize(self.size, self.size)
+    if not self.hole then
+        self.hole = self:CreateTexture(nil, "BACKGROUND", nil, 2)
+        self.hole:SetTexture(DISC)
+        self.hole:SetPoint("CENTER")
+        self.hole:SetVertexColor(S:Color("CARD"))
+    end
+    self.hole:SetSize(self.size - 2, self.size - 2)
+    self.hole:Show()
+    self:Show()
+end
+
+local function AvatarTip(self, tt)
+    if not self.key or self.noTip then return false end
+    tt:AddLine(ns.EventUI and ns.EventUI:Name(self.key, true) or UI:ColoredName(self.key))
+    if self.tipMore then self.tipMore(self, tt) end
+end
+
+-- UI:CreateAvatar(parent, size, opts) -> avatar: a player's round class icon in a dark ring (the Events and Polls
+-- pages' players). avatar:Set(key, dim), avatar:SetEmpty() (an open seat). opts: { ring (px the ring shows around it,
+-- 2), tip = false (no tooltip) | function(avatar, tooltip) (lines after the name) }; avatar.noTip turns it off for a
+-- while. avatar.ring, .tex, .key.
+function UI:CreateAvatar(parent, size, opts)
+    opts = opts or {}
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.size, f.ringW = size, opts.ring or 2
+    f.ring = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    f.ring:SetTexture(DISC)
+    f.ring:SetPoint("CENTER")
+    f.ring:SetSize(size + f.ringW, size + f.ringW)
+    f.ring:SetVertexColor(0, 0, 0, 1)
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    f.tex:SetAllPoints()
+    for k, fn in pairs(Avatar) do f[k] = fn end
+    if opts.tip ~= false then
+        if type(opts.tip) == "function" then f.tipMore = opts.tip end
+        UI:AttachTooltip(f, AvatarTip, nil, { anchor = "ANCHOR_TOP" })
+    end
     return f
 end
 

@@ -194,21 +194,12 @@ local function EventValid(event)
     return true
 end
 
--- TODO(refactor): move into a popover component (the dropdowns' surface, hung beside an anchor, closed by a click
--- outside or Escape): UI:CreateSheet is a window-sized sheet.
+-- The editor: a popover (UI:CreatePopover: the dropdowns' surface) hung beside its anchor; a click outside or Escape
+-- closes it (below).
 local function Build()
     if frame then return frame end
     local U = UI()
-    local f = CreateFrame("Frame", "DisasterZoneGemEditor", UIParent)
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:EnableMouse(true)
-    f:SetWidth(W)
-    f:Hide()
-    f.bg = U:Fill(f, "DROP_BG")
-    U:AddEdges(f, "BORDER")
-    U:SetEdgeColor(f, S:Color("DROP_EDGE"))
+    local f = U:CreatePopover(W, 100, { name = "DisasterZoneGemEditor", close = false, shadow = false })
 
     -- the item
     f.item = U:CreateItemButton(f, 28)

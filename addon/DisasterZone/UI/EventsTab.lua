@@ -203,45 +203,16 @@ function H.Icon(parent, size)
     return f
 end
 
--- The events' class circle: the guild's round class icons (EventWidgets' art) in a dark ring; f:Set(key),
--- f:SetEmpty() (an open seat). TODO(refactor): move into a shared avatar (a player's class circle)
+-- The events' class circle (UI:CreateAvatar): f:Set(key, dim), f:SetEmpty() (an open seat); the tooltip adds the
+-- player's title and season rank.
+local function FaceTip(self, tt)
+    local title = Ev():GetTitle(self.key)
+    if title then tt:AddLine(title, S:RGB("GOLD")) end
+    local rank = Ev():RankOf(self.key)
+    if rank then tt:AddLine("Season rank #" .. rank, S:RGB("SUB")) end
+end
 function H.Face(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.ring = Disc(f, size + 2, C.black, "BACKGROUND", 1)
-    f.ring:SetPoint("CENTER")
-    f.hole = Disc(f, size, CARD, "BACKGROUND", 2)
-    f.hole:SetPoint("CENTER")
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    function f:Set(key, dim)
-        self.key = key
-        self.ring:SetVertexColor(0, 0, 0, 1)
-        self.ring:SetSize(size + 2, size + 2)
-        self.hole:Hide()
-        EUI():SetClass(self.tex, key)
-        self.tex:SetDesaturated(dim and true or false)
-        self.tex:SetAlpha(dim and 0.55 or 1)
-        self:Show()
-    end
-    function f:SetEmpty()
-        self.key = nil
-        self.tex:Hide()
-        self.ring:SetVertexColor(1, 1, 1, 0.16)
-        self.ring:SetSize(size, size)
-        self.hole:SetSize(size - 2, size - 2)
-        self.hole:Show()
-        self:Show()
-    end
-    UI():AttachTooltip(f, function(self, tt)
-        if not self.key or self.noTip then return false end
-        tt:AddLine(EUI():Name(self.key, true))
-        local title = Ev():GetTitle(self.key)
-        if title then tt:AddLine(title, S:RGB("GOLD")) end
-        local rank = Ev():RankOf(self.key)
-        if rank then tt:AddLine("Season rank #" .. rank, S:RGB("SUB")) end
-    end, nil, { anchor = "ANCHOR_TOP" })
-    return f
+    return UI():CreateAvatar(parent, size, { tip = FaceTip })
 end
 
 -- A flat button, optionally with an atlas glyph (UI.ICON key / index) or a texture before its text.
