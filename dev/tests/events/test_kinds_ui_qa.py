@@ -886,14 +886,14 @@ def more_than_four_tags_fold_into_an_other_tags_column():
         -- (a row: the dot 6..16, the name from 24, the count at the right, 6 in)
         local rows = {}
         for _, r in ipairs(QA.Shown(last.rows)) do
-          rows[#rows + 1] = { 24 + r.name:GetWidth() + 8 + ns.EventBoard.H.Width(r.val) + 6 <= last:GetWidth() + 0.5, r.name:GetText(), r.name:GetWidth(), last:GetWidth() }
+          rows[#rows + 1] = { 24 + r.name:GetWidth() + 8 + ns.UI:TextWidth(r.val) + 6 <= last:GetWidth() + 0.5, r.name:GetText(), r.name:GetWidth(), last:GetWidth() }
         end
         -- (a header: the title from 18, the score's name at the right)
         local heads = {}
         for _, c in ipairs(cols) do
-          local rw = (c.right:GetText() or '') ~= '' and (ns.EventBoard.H.Width(c.right) + 8) or 0
-          local tw = c.title:CanWordWrap() and c.title:GetWidth() or ns.EventBoard.H.Width(c.title)
-          heads[#heads + 1] = { 18 + tw + rw <= c:GetWidth() + 1, c.title:GetText(), ns.EventBoard.H.Width(c.title), rw, c:GetWidth() }
+          local rw = (c.right:GetText() or '') ~= '' and (ns.UI:TextWidth(c.right) + 8) or 0
+          local tw = c.title:CanWordWrap() and c.title:GetWidth() or ns.UI:TextWidth(c.title)
+          heads[#heads + 1] = { 18 + tw + rw <= c:GetWidth() + 1, c.title:GetText(), ns.UI:TextWidth(c.title), rw, c:GetWidth() }
         end
         return { n = #cols, title = last.title:GetText(), rows = rows, heads = heads }""")
     assert got["n"] == 4 and got["title"] == "Other tags" and len(got["rows"]) == 5, got
@@ -1032,7 +1032,7 @@ def a_long_event_name_takes_two_lines_on_the_tracker_and_keeps_the_clock_clear()
         if not (f and f:IsShown()) then return false end
         f.clock:SetText('14:20')
         -- (the name from 23, the clock at the right: 44 kept for it)
-        return { name = f.name:GetWidth(), wraps = f.name:CanWordWrap(), clock = ns.EventBoard.H.Width(f.clock), head = f.head:GetHeight() }""")
+        return { name = f.name:GetWidth(), wraps = f.name:CanWordWrap(), clock = ns.UI:TextWidth(f.clock), head = f.head:GetHeight() }""")
     assert got and got["head"] == 32 and got["wraps"] and 23 + got["name"] + 8 + got["clock"] <= 232, got
     w.assert_no_errors()
 
