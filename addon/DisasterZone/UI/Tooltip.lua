@@ -61,10 +61,9 @@ local function Color(key)
     return c or FALLBACK_COLORS[key] or FALLBACK_COLORS.muted
 end
 
+-- text in an ns.COLORS colour (the same codes UI:Colorize writes everywhere).
 local function Paint(text, key)
-    local c = Color(key)
-    return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
-        floor(c[3] * 255 + 0.5), text)
+    return ns.UI:Colorize(text, Color(key))
 end
 
 local function Seal()

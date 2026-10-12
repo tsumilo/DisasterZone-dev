@@ -19,16 +19,14 @@ end
 
 local function Build(tt)
     if tt.dzTip then return tt.dzTip end
-    local k = { edges = {} }
+    local k = {}
     k.bg = UI:Fill(tt, "DROP_BG", "BACKGROUND", -8)
-    for i, pts in ipairs({ { "TOPLEFT", "TOPRIGHT", "h" }, { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
-                           { "TOPLEFT", "BOTTOMLEFT", "v" }, { "TOPRIGHT", "BOTTOMRIGHT", "v" } }) do
-        local e = tt:CreateTexture(nil, "BACKGROUND", nil, 5)
-        e:SetColorTexture(S:Color("DROP_EDGE"))
-        e:SetPoint(pts[1]); e:SetPoint(pts[2])
-        if pts[3] == "h" then e:SetHeight(1) else e:SetWidth(1) end
-        k.edges[i] = e
-    end
+    -- the panel's 1 px edges (UI:AddEdges keeps them on tt.edges; moved to the skin so a Blizzard field stays free)
+    local keep = tt.edges
+    UI:AddEdges(tt, "BACKGROUND")
+    UI:SetEdgeColor(tt, S:Color("DROP_EDGE"))
+    k.edges, tt.edges = tt.edges, keep
+    for _, e in ipairs(k.edges) do e:SetDrawLayer("BACKGROUND", 5) end
     tt.dzTip = k
     return k
 end
