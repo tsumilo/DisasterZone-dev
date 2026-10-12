@@ -37,16 +37,15 @@ local TALENTS = {
 S.WARLOCK_TALENTS = TALENTS
 
 -- Class spell masks (warlock.go)
-local M = {}
+local M
 do
-  local names = { "Conflagrate", "ShadowBolt", "Immolate", "ImmolateDot", "Incinerate", "SoulFire", "ShadowBurn",
+  M = S.SpellMasks({
+    "Conflagrate", "ShadowBolt", "Immolate", "ImmolateDot", "Incinerate", "SoulFire", "ShadowBurn",
     "LifeTap", "Corruption", "UnstableAffliction", "CurseOfAgony", "CurseOfElements", "DrainLife", "SeedOfCorruption",
     "SeedOfCorruptionExplosion", "Hellfire", "ImmolationAura", "SearingPain", "SummonDoomguard", "DoomguardDoomBolt",
     "SummonFelguard", "SummonImp", "ImpFireBolt", "SummonFelhunter", "FelHunterShadowBite", "SummonSuccubus",
     "SuccubusLashOfPain", "VoidwalkerTorment", "SummonInfernal", "RainOfFire", "CurseOfDoom", "CurseOfRecklessness",
-    "CurseOfWeakness", "SiphonLife", "DrainSoul", "ShadowFury", "DeathCoil", "FelguardCleave" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
+    "CurseOfWeakness", "SiphonLife", "DrainSoul", "ShadowFury", "DeathCoil", "FelguardCleave" })
   M.ShadowDamage = M.Corruption + M.UnstableAffliction + M.DrainLife + M.CurseOfAgony + M.ShadowBolt
     + M.SeedOfCorruptionExplosion + M.SeedOfCorruption + M.ShadowBurn + M.SiphonLife + M.ShadowFury + M.DeathCoil
   M.FireDamage = M.Conflagrate + M.Immolate + M.Incinerate + M.SoulFire + M.SearingPain + M.ImmolateDot + M.ShadowBurn
@@ -69,12 +68,6 @@ local C = {
 
 OUT.MagicHitNoHitCounter = OUT.MagicHitNoHitCounter or OUT.MagicHit
 
--- Travel time to the target at `speed` yards a second (spell.go WaitTravelTime).
-local function Travel(p, sim, speed, fn)
-  if not speed or speed == 0 then return fn(sim) end
-  sim:Add({ at = sim.now + p.distance / speed, prio = 0, fn = fn })
-end
-
 local function WarlockSpell(cfg)
   cfg.defenseType = S.DEF_MAGIC
   cfg.procMask = cfg.procMask or PM.SpellDamage
@@ -85,14 +78,6 @@ local function WarlockSpell(cfg)
   cfg.damageMultiplier = cfg.damageMultiplier or 1
   cfg.damageMultiplierAdditive = cfg.damageMultiplierAdditive or 1
   return cfg
-end
-
-local function TickDot(label, ticks, length, tick, coef, extra)
-  local d = { label = label, numberOfTicks = ticks, tickLength = length, bonusCoefficient = coef,
-    onSnapshot = function(sim, target, dot) dot:Snapshot(target, tick) end,
-    onTick = function(sim, target, dot) dot:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end }
-  for k, v in pairs(extra or {}) do d[k] = v end
-  return d
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -197,7 +182,7 @@ function S.WarlockImp(p)
     damageMultiplier = 1, damageMultiplierAdditive = 1, threatMultiplier = 1, bonusCoefficient = 0.571,
     applyEffects = function(sim, target, spell)
       local r = spell:CalcDamage(sim, target, sim:Roll(112, 127), OUT.MagicHitAndCrit)
-      Travel(pet, sim, 16, function(s) spell:DealDamage(s, r) end)
+      S.Travel(pet, sim, 16, function(s) spell:DealDamage(s, r) end)
     end })
   pet.distance = p.distance
   return pet
@@ -482,7 +467,7 @@ end
 function S.WarlockUnstableAffliction(p)
   p:RegisterSpell(WarlockSpell({ id = 30405, school = SCHOOL.Shadow, classMask = M.UnstableAffliction,
     manaCost = { flat = 400 }, castTime = 1.5, damageMultiplier = 1, bonusCoefficient = C.UA,
-    dot = TickDot("Unstable Affliction", 6, 3, 175, C.UA),
+    dot = S.TickDot("Unstable Affliction", 6, 3, 175, C.UA),
     applyEffects = function(sim, t, spell)
       local r = spell:CalcAndDealOutcome(sim, t, OUT.MagicHit)
       if S.Landed(r) then spell:Dot(t):Apply(sim) end
@@ -563,7 +548,7 @@ function S.WarlockInitialize(p)
       local base = sim:Roll(444, 514)
       if wl.immolate:Dot(t):IsActive() then base = base + sim:Roll(111, 128) end
       local r = spell:CalcDamage(sim, t, base, OUT.MagicHitAndCrit)
-      Travel(p, sim, 24, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 24, function(s) spell:DealDamage(s, r) end)
     end }))
 
   -- lifetap.go: 582 health into mana (Improved Life Tap +10% a point) plus 80% of shadow spell damage; Mana Feed gives
@@ -585,7 +570,7 @@ function S.WarlockInitialize(p)
       local r = spell:CalcDamage(sim, t, sim:Roll(544, 607), OUT.MagicHitAndCrit)
       local isb = wl.isbAura
       local existing = isb and t:GetAura("ImprovedShadowBolt-5") or isb
-      Travel(p, sim, 20, function(s)
+      S.Travel(p, sim, 20, function(s)
         spell:DealDamage(s, r)
         if isb and (not existing or existing.duration ~= huge) and S.Landed(r) and has(r.outcome, O.Crit) then
           if not isb.active then isb:Activate(s) end
@@ -601,7 +586,7 @@ function S.WarlockInitialize(p)
 
   -- siphon_life.go: its cost is never paid (a base cost without a mana cost); 10 ticks of 63 over 30 s
   p:RegisterSpell(WarlockSpell({ id = 30911, school = SCHOOL.Shadow, classMask = M.SiphonLife, nonEmpty = true,
-    bonusCoefficient = C.SiphonLife, dot = TickDot("SiphonLife", 10, 3, 63, C.SiphonLife),
+    bonusCoefficient = C.SiphonLife, dot = S.TickDot("SiphonLife", 10, 3, 63, C.SiphonLife),
     applyEffects = function(sim, t, spell)
       local r = spell:CalcOutcome(sim, t, OUT.MagicHit)
       if S.Landed(r) then spell:Dot(t):Apply(sim) end
@@ -613,7 +598,7 @@ function S.WarlockInitialize(p)
     castTime = 6 - 400e-9 * T.Bane, cd = 60, bonusCoefficient = C.Soulfire, missileSpeed = 24,
     applyEffects = function(sim, t, spell)
       local r = spell:CalcDamage(sim, t, sim:Roll(1003, 1257), OUT.MagicHitAndCrit)
-      Travel(p, sim, 24, function(s) spell:DealDamage(s, r) end)
+      S.Travel(p, sim, 24, function(s) spell:DealDamage(s, r) end)
     end }))
 
   -- armors.go: Fel Armor +100 spell damage (Demonic Aegis +10% a point), for good
@@ -637,10 +622,6 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 function S.WarlockItems(p)
   local wl = p.warlock
-  local function equipped(id)
-    for _, v in pairs(p.gearIds) do if v == id then return true end end
-    return false
-  end
   -- Oblivion Raiment 2: the demon gets 45 mana per 5 s
   if p:CouldHaveSetBonus("Oblivion Raiment", 2) and wl.pet then wl.pet:AddStat(ST.MP5, 45) end
   -- Voidheart Raiment 2: 5% on a damaging spell hit, +135 to that school's spell damage for 15 s; 4: Corruption and
@@ -692,7 +673,7 @@ function S.WarlockItems(p)
     p:AddStaticMod({ kind = "DamageDone_Flat", value = 0.06, classMask = M.ShadowBolt + M.Incinerate })
   end
   -- The Black Book: the demon +200 spell damage, +325 attack power for 30 s
-  if equipped(19337) and wl.pet then
+  if p:IsEquipped(19337) and wl.pet then
     local pet = wl.pet
     local petAura = pet:NewTemporaryStatsAura("Blessing of The Black Book",
       { [ST.SpellDamage] = 200, [ST.AttackPower] = 325, [ST.Armor] = 1600 }, 30)
@@ -706,9 +687,19 @@ function S.WarlockItems(p)
     p:AddMajorCooldown({ spell = sp })
   end
   -- Ashtongue Talisman of Shadows: 20% on a Corruption tick, +220 spell damage for 5 s
-  if equipped(32493) then
+  if p:IsEquipped(32493) then
     local a = p:NewTemporaryStatsAura("Ashtongue Talisman of Shadows Proc", { [ST.SpellDamage] = 220 }, 5)
     p:MakeProcTriggerAura({ name = "Ashtongue Talisman of Shadows", classMask = M.Corruption, procChance = 0.2,
       callback = "periodic", handler = function(sim) a:Activate(sim) end })
   end
 end
+
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
+S.RegisterClass("Warlock", {
+  setup = function(p, talents, opts, consumables, buffs)
+    S.SetupWarlock(p, talents, opts)
+    return S.WarlockRaidBuffs(p, buffs)
+  end,
+  applyTalents = function(p) S.WarlockApplyTalents(p) end,
+  initialize = function(p) S.WarlockInitialize(p) end,
+})

@@ -7,6 +7,8 @@ local S = ns.GearSim
 -- sc: { race, class, spec, talents, gear (17 slots, WoWSims order), metaActive, buffs (preset name or table),
 --       consumables, professions, duration, durationVariation, seed, mobType, targetArmor, reactionTimeMs, distance }
 -- db: item data (see Character.lua); apl: the rotation table (WoWSims APL JSON as Lua tables)
+local NO_CLASS = {}
+
 function S.NewScenario(sc, db, apl)
   local sim = S.NewSim({ seed = sc.seed or 101, duration = sc.duration or 180, durationVariation = sc.durationVariation or 0,
     execute20 = sc.execute20 })
@@ -29,38 +31,17 @@ function S.NewScenario(sc, db, apl)
   p.attackTables[p] = S.NewPlayerDefenderTable(p, p)
   target.currentTarget = p
 
-  local cls = sc.class or "Paladin"
-  if cls == "Warrior" then S.SetupWarrior(p, sc.talents or "", sc.classOptions) end
-  if cls == "Shaman" then S.SetupShaman(p, sc.talents or "", sc.classOptions) end
-  if cls == "Rogue" then S.SetupRogue(p, sc.talents or "", sc.classOptions, cons) end
-  if cls == "Druid" then
-    S.SetupDruid(p, sc.talents or "", sc.classOptions)
-    if p.druid.cat then buffs = S.DruidCatPartyBuffs(p, buffs) end
-    if p.druid.moonkin then buffs = S.DruidMoonkinPartyBuffs(p, buffs) end
-  end
-  if cls == "Priest" then S.SetupPriest(p, sc.talents or "", sc.classOptions) end
-  if cls == "Mage" then S.SetupMage(p, sc.talents or "", sc.classOptions) end
-  if cls == "Warlock" then
-    S.SetupWarlock(p, sc.talents or "", sc.classOptions)
-    buffs = S.WarlockRaidBuffs(p, buffs)
-  end
-  if cls == "Hunter" then
-    S.SetupHunter(p, sc.talents or "", sc.classOptions)
-    buffs = S.HunterRaidBuffs(p, buffs)
-  end
+  -- the class (Sim/<Class>.lua S.RegisterClass): constructor before the racials unless order = "afterRacials"
+  local C = S.CLASSES[sc.class or "Paladin"] or NO_CLASS
+  local talents = sc.talents or ""
+  local function classSetup() buffs = C.setup(p, talents, sc.classOptions, cons, buffs) or buffs end
+  if C.setup and C.order ~= "afterRacials" then classSetup() end
   S.ApplyRacials(p)
-  if cls == "Paladin" then S.SetupPaladin(p, sc.talents or "") end
+  if C.setup and C.order == "afterRacials" then classSetup() end
   S.ApplyItemEffects(p, sc, db)
   -- stat weights (UI/SimNerd.lua): extra stats as if from gear, so buffs scale them like WoWSims' own
   if sc.bonusStats then p:AddStats(sc.bonusStats) end
-  if cls == "Warrior" then S.WarriorApplyTalents(p) end
-  if cls == "Shaman" then S.ShamanApplyTalents(p) end
-  if cls == "Rogue" then S.RogueApplyTalents(p) end
-  if cls == "Druid" then S.DruidApplyTalents(p) end
-  if cls == "Priest" then S.PriestApplyTalents(p) end
-  if cls == "Mage" then S.MageApplyTalents(p) end
-  if cls == "Warlock" then S.WarlockApplyTalents(p) end
-  if cls == "Hunter" then S.HunterApplyTalents(p) end
+  if C.applyTalents then C.applyTalents(p) end
   p.buffRecord = {}
   S.ApplyBuffs(p, buffs)
   p.buffRecordDone, p.buffRecord = p.buffRecord, nil
@@ -70,14 +51,7 @@ function S.NewScenario(sc, db, apl)
     pet.buffRecordDone, pet.buffRecord = pet.buffRecord, nil
   end
   S.ApplyConsumables(p, cons, buffs)
-  if cls == "Warrior" then S.WarriorInitialize(p) end
-  if cls == "Shaman" then S.ShamanInitialize(p) end
-  if cls == "Rogue" then S.RogueInitialize(p) end
-  if cls == "Druid" then S.DruidInitialize(p) end
-  if cls == "Priest" then S.PriestInitialize(p) end
-  if cls == "Mage" then S.MageInitialize(p) end
-  if cls == "Warlock" then S.WarlockInitialize(p) end
-  if cls == "Hunter" then S.HunterInitialize(p) end
+  if C.initialize then C.initialize(p) end
   S.ApplyDebuffs(p, target, buffs.debuffs or {})
 
   p:Finalize()
@@ -86,16 +60,10 @@ function S.NewScenario(sc, db, apl)
   for _, fn in ipairs(p.postFinalize) do fn() end
   p:UpdateCastSpeed()
 
-  local rot
-  if cls == "Paladin" then
-    rot = S.NewRotation(p, apl,
-      function(ref) return S.PaladinResolveSpell(p, ref) end,
-      function(ref) return S.PaladinResolveAura(p, ref) end)
-  else
-    rot = S.NewRotation(p, apl,
-      function(ref) return S.ResolveSpell(p, ref) end,
-      function(ref, unit) return S.ResolveAura(unit or p, ref) end)
-  end
+  local resolveSpell = C.resolveSpell or function(pl, ref) return S.ResolveSpell(pl, ref) end
+  local resolveAura = C.resolveAura and function(ref) return C.resolveAura(p, ref) end
+    or function(ref, unit) return S.ResolveAura(unit or p, ref) end
+  local rot = S.NewRotation(p, apl, function(ref) return resolveSpell(p, ref) end, resolveAura)
   rot:RegisterPrepull(sim)
   sim.units = { p }
   return sim, p, target

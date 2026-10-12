@@ -435,3 +435,33 @@ function S.TimerReady(t, sim) return t.readyAt <= sim.now end
 function S.TimerTimeToReady(t, sim) return max(0, t.readyAt - sim.now) end
 
 S.floor, S.min, S.max = floor, min, max
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Shared by the class files
+-- ---------------------------------------------------------------------------------------------------------------
+-- Class spell masks (WoWSims' 1 << iota from 1 << 1): each name gets the next bit, in order. Returns the masks and
+-- the bit after the last one (each class builds its own "All" from it, the way its Go source does).
+function S.SpellMasks(names)
+  local M = {}
+  local bit = 2
+  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
+  return M, bit
+end
+
+-- Travel time to the target at `speed` yards a second (spell.go WaitTravelTime); no speed lands at once.
+function S.Travel(u, sim, speed, fn)
+  if not speed or speed == 0 then return fn(sim) end
+  sim:Add({ at = sim.now + (u.distance or 0) / speed, prio = 0, fn = fn })
+end
+
+-- Classes (Setup.lua S.NewScenario builds a player through these, in WoWSims' order). def:
+--   setup(p, talentsStr, classOptions, consumables, buffs) -> buffs (the constructor; may add party / raid buffs)
+--   order          "afterRacials" runs setup after the racials (Paladin), default before them
+--   applyTalents(p)  after item effects; initialize(p)  after consumables (the class spells)
+--   resolveSpell(p, ref), resolveAura(p, ref)  the rotation's lookups (default S.ResolveSpell / S.ResolveAura)
+S.CLASSES = S.CLASSES or {}
+function S.RegisterClass(name, def)
+  def.name = name
+  S.CLASSES[name] = def
+  return def
+end

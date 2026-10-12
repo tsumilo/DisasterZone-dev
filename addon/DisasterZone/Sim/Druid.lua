@@ -32,16 +32,16 @@ S.DRUID_TALENTS = TALENTS
 -- ---------------------------------------------------------------------------------------------------------------
 -- Class spell masks (druid.go)
 -- ---------------------------------------------------------------------------------------------------------------
-local M = {}
+local M
 do
-  local names = { "EntanglingRoots", "DemoralizingRoar", "FaerieFire", "FaerieFireFeral", "ForceOfNature",
+  local nextBit
+  M, nextBit = S.SpellMasks({
+    "EntanglingRoots", "DemoralizingRoar", "FaerieFire", "FaerieFireFeral", "ForceOfNature",
     "Hurricane", "FerociousBite", "FrenziedRegeneration", "Innervate", "InsectSwarm", "Lacerate", "MangleBear",
     "MangleCat", "Maul", "MoonfireInitial", "MoonfireDoT", "Rake", "Ravage", "Rip", "Shred", "Starfire", "Swipe",
     "Thorns", "Wrath", "Enrage", "TigersFury", "CatForm", "BearForm", "HealingTouch", "Regrowth", "Lifebloom",
-    "Rejuvenation", "Tranquility", "MarkOfTheWild", "Swiftmend", "CenarionWard" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
-  M.All = bit * 2 - 2
+    "Rejuvenation", "Tranquility", "MarkOfTheWild", "Swiftmend", "CenarionWard" })
+  M.All = nextBit * 2 - 2
   M.Moonfire = M.MoonfireInitial + M.MoonfireDoT
   M.Mangle = M.MangleBear + M.MangleCat
   M.Builder = M.Mangle + M.Shred + M.Rake + M.Ravage
@@ -570,17 +570,16 @@ IE[27518] = function(p) p:AddStaticMod({ classMask = M.Starfire, kind = "BaseDam
 IE[23197] = function(p) p:AddStaticMod({ classMask = M.Moonfire, kind = "BaseDamage_Flat", value = 33 }) end
 IE[31025] = function(p) p:AddStaticMod({ classMask = M.Wrath, kind = "BaseDamage_Flat", value = 25 }) end
 
-local SB = S.SET_BONUSES
 -- Malorne Regalia 2: 5% on a damage spell cast, 120 mana (4: Innervate's cooldown, not used here)
-SB["Malorne Regalia"] = {
+S.SetBonus("Malorne Regalia", {
   [2] = function(p, a)
     S.AttachProcTrigger(a, p, { name = "Malorne Regalia 2pc", callback = "cast", procMask = PM.SpellDamage,
       procChance = 0.05, handler = function(sim) p:AddMana(sim, 120, "malorne_regalia") end })
   end,
-}
+})
 -- Nordrassil Regalia 4: Starfire +10% on a target with Moonfire or Insect Swarm (any of them fading ends it, as in
 -- WoWSims)
-SB["Nordrassil Regalia"] = {
+S.SetBonus("Nordrassil Regalia", {
   [4] = function(p, a)
     p.postFinalize[#p.postFinalize + 1] = function()
       local target = p.currentTarget
@@ -598,16 +597,16 @@ SB["Nordrassil Regalia"] = {
       end
     end
   end,
-}
+})
 -- Thunderheart Regalia 2: Moonfire one tick longer; 4: Starfire +5% crit
-SB["Thunderheart Regalia"] = {
+S.SetBonus("Thunderheart Regalia", {
   [2] = function(p, a) a:AttachSpellMod({ classMask = M.Moonfire, kind = "DotNumberOfTicks_Flat", value = 1 }) end,
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.Starfire, kind = "BonusCrit_Percent", value = 5 }) end,
-}
-SB["Moonglade Raiment"] = {
+})
+S.SetBonus("Moonglade Raiment", {
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.CatForm + M.BearForm, kind = "PowerCost_Pct_Add", value = -0.25 }) end,
-}
-SB["Malorne Harness"] = {
+})
+S.SetBonus("Malorne Harness", {
   [2] = function(p, a)
     S.AttachProcTrigger(a, p, { name = "Malorne Harness 2pc", callback = "hit", procMask = PM.Melee, outcome = O.Landed,
       procChance = 0.04,
@@ -616,11 +615,11 @@ SB["Malorne Harness"] = {
   [4] = function(p)
     if p.druid and p.druid.catFormAura then p.druid.catFormAura:AttachStatsBuff({ [ST.Strength] = 30 }) end
   end,
-}
-SB["Nordrassil Harness"] = {
+})
+S.SetBonus("Nordrassil Harness", {
   [4] = function(p) if p.druid then p.druid.shredFlatBonus = p.druid.shredFlatBonus + 75 end end,
-}
-SB["Thunderheart Harness"] = {
+})
+S.SetBonus("Thunderheart Harness", {
   [2] = function(p, a)
     a.actionId = { spellId = 38447 }
     p.aurasByKey = p.aurasByKey or {}
@@ -630,7 +629,7 @@ SB["Thunderheart Harness"] = {
   [4] = function(p, a)
     a:AttachSpellMod({ classMask = M.Rip + M.Swipe + M.FerociousBite, kind = "DamageDone_Flat", value = 0.15 })
   end,
-}
+})
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Balance (balance.go, forms.go Moonkin, starfire.go, wrath.go, moonfire.go, insect_swarm.go, faerie_fire.go,
@@ -749,15 +748,13 @@ function S.DruidRegisterBalanceSpells(p)
     castTime = 2, bonusCoefficient = 0.57099997997283936,
     applyEffects = function(sim, target, spell)
       local r = spell:CalcDamage(sim, target, sim:Roll(383, 432), OUT.MagicHitAndCrit)
-      sim:Add({ at = sim.now + p.distance / 20, prio = 0, fn = function(s) spell:DealDamage(s, r) end })
+      S.Travel(p, sim, 20, function(s) spell:DealDamage(s, r) end)
     end }))
   -- Moonfire (rank 12): the hit, then its DoT (its own spell, 4 ticks over 12 s)
   local dot = p:RegisterSpell({ id = 26988, tag = 1, school = SCHOOL.Arcane, defenseType = S.DEF_MAGIC,
     procMask = PM.SpellDamage, classMask = M.MoonfireDoT, flags = F.PassiveSpell, damageMultiplier = 1,
     threatMultiplier = 1,
-    dot = { label = "Moonfire", numberOfTicks = 4, tickLength = 3, bonusCoefficient = 0.12999999523162842,
-      onSnapshot = function(sim, target, d) d:Snapshot(target, 150) end,
-      onTick = function(sim, target, d) d:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end },
+    dot = S.TickDot("Moonfire", 4, 3, 150, 0.12999999523162842),
     applyEffects = function(sim, target, spell)
       local r = spell:CalcOutcome(sim, target, OUT.AlwaysHitNoHitCounter)
       spell:Dot(target):Apply(sim)
@@ -775,9 +772,7 @@ function S.DruidRegisterBalanceSpells(p)
   if T.InsectSwarm > 0 then
     FormSpell(p, SPELLS, BalanceSpell({ id = 27013, school = SCHOOL.Nature, classMask = M.InsectSwarm,
       flags = F.Binary, manaCost = { flat = 175 },
-      dot = { label = "Insect Swarm", numberOfTicks = 6, tickLength = 2, bonusCoefficient = 0.12700000405311584,
-        onSnapshot = function(sim, target, d) d:Snapshot(target, 132) end,
-        onTick = function(sim, target, d) d:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end },
+      dot = S.TickDot("Insect Swarm", 6, 2, 132, 0.12700000405311584),
       applyEffects = function(sim, target, spell)
         local r = spell:CalcOutcome(sim, target, OUT.MagicHit)
         if S.Landed(r) then spell:Dot(target):Apply(sim) end
@@ -794,3 +789,15 @@ function S.DruidRegisterBalanceSpells(p)
     end }))
   if T.ForceOfNature > 0 then ForceOfNature(p) end
 end
+
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
+S.RegisterClass("Druid", {
+  setup = function(p, talents, opts, consumables, buffs)
+    S.SetupDruid(p, talents, opts)
+    if p.druid.cat then buffs = S.DruidCatPartyBuffs(p, buffs) end
+    if p.druid.moonkin then buffs = S.DruidMoonkinPartyBuffs(p, buffs) end
+    return buffs
+  end,
+  applyTalents = function(p) S.DruidApplyTalents(p) end,
+  initialize = function(p) S.DruidInitialize(p) end,
+})

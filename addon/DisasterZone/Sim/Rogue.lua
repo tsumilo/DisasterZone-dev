@@ -33,15 +33,15 @@ S.ROGUE_TALENTS = TALENTS
 -- ---------------------------------------------------------------------------------------------------------------
 -- Class spell masks (rogue.go)
 -- ---------------------------------------------------------------------------------------------------------------
-local M = {}
+local M
 do
-  local names = { "Ambush", "Backstab", "Envenom", "Eviscerate", "ExposeArmor", "Feint", "Garrote", "Gouge", "Rupture",
+  local nextBit
+  M, nextBit = S.SpellMasks({
+    "Ambush", "Backstab", "Envenom", "Eviscerate", "ExposeArmor", "Feint", "Garrote", "Gouge", "Rupture",
     "Shiv", "SinisterStrike", "SliceAndDice", "Stealth", "Vanish", "Hemorrhage", "Premeditation", "Preparation",
     "Shadowstep", "AdrenalineRush", "BladeFlurry", "ColdBlood", "Mutilate", "MutilateHit", "GhostlyStrike",
-    "InstantPoison", "WoundPoison", "DeadlyPoison" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
-  M.All = bit * 2 - 1 - 1 -- RogueSpellLast<<1 - 1, without bit 0
+    "InstantPoison", "WoundPoison", "DeadlyPoison" })
+  M.All = nextBit * 2 - 1 - 1 -- RogueSpellLast<<1 - 1, without bit 0
   M.Actives = M.GhostlyStrike * 2 - 1 - 1
   M.Poisons = M.WoundPoison + M.DeadlyPoison + M.InstantPoison
   M.Lethality = M.SinisterStrike + M.Gouge + M.Backstab + M.GhostlyStrike + M.MutilateHit + M.Shiv + M.Hemorrhage
@@ -567,11 +567,10 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- Set bonuses and items (items.go)
 -- ---------------------------------------------------------------------------------------------------------------
-local SB = S.SET_BONUSES
-SB["Assassination Armor"] = {
+S.SetBonus("Assassination Armor", {
   [4] = function(p, a) a:AttachSpellMod({ classMask = M.Eviscerate + M.Envenom, kind = "PowerCost_Flat", value = -10 }) end,
-}
-SB["Netherblade"] = {
+})
+S.SetBonus("Netherblade", {
   [2] = function(p, a)
     local og, oe = a.onGain, a.onExpire
     a.onGain = function(aura, sim) if og then og(aura, sim) end p.rogue.sliceAndDiceBonusDuration = p.rogue.sliceAndDiceBonusDuration + 3 end
@@ -581,8 +580,8 @@ SB["Netherblade"] = {
     S.AttachProcTrigger(a, p, { name = "Netherblade Combo Point", procChance = 0.15, classMask = M.Finisher,
       callback = "apply", handler = function(sim) p:AddComboPoints(sim, 1, "netherblade") end })
   end,
-}
-SB["Deathmantle"] = {
+})
+S.SetBonus("Deathmantle", {
   [2] = function(p) p.rogue.deathmantleBonus = 40 end,
   [4] = function(p, a)
     local cdg = p:RegisterAura({ label = "Coup de Grace", actionId = { spellId = 37171 }, duration = 15 })
@@ -592,8 +591,8 @@ SB["Deathmantle"] = {
       outcome = O.Landed, callback = "hit", dpm = S.NewPPM(p, 0.5, PM.Melee),
       handler = function(sim) cdg:Activate(sim) end })
   end,
-}
-SB["Slayer's Armor"] = {
+})
+S.SetBonus("Slayer's Armor", {
   [2] = function(p, a)
     local og, oe = a.onGain, a.onExpire
     a.onGain = function(aura, sim) if og then og(aura, sim) end p.rogue.sliceAndDiceBonusFlat = p.rogue.sliceAndDiceBonusFlat + 0.05 end
@@ -603,7 +602,7 @@ SB["Slayer's Armor"] = {
     a:AttachSpellMod({ kind = "DamageDone_Flat", classMask = M.Backstab + M.SinisterStrike + M.Mutilate + M.Hemorrhage,
       value = 0.06 })
   end,
-}
+})
 
 -- Warp-Spring Coil: 25% on landed specials (30 s cooldown), 1000 armor penetration for 15 s.
 S.ITEM_EFFECTS[30450] = function(p)
@@ -622,3 +621,10 @@ S.ITEM_EFFECTS[32492] = function(p)
       if chance == 1 or sim:Proc(chance) then buff:Activate(sim) end
     end })
 end
+
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
+S.RegisterClass("Rogue", {
+  setup = function(p, talents, opts, consumables) S.SetupRogue(p, talents, opts, consumables) end,
+  applyTalents = function(p) S.RogueApplyTalents(p) end,
+  initialize = function(p) S.RogueInitialize(p) end,
+})

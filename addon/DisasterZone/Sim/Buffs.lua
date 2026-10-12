@@ -810,11 +810,7 @@ function S.Explosives(p, c)
           results[#results + 1] = sp:CalcDamage(sim, t, sim:Roll(lo, hi), OUT.MagicHitAndCrit)
         end
         local function deal(s) for _, r in ipairs(results) do sp:DealDamage(s, r) end end
-        if speed > 0 then
-          sim:Add({ at = sim.now + p.distance / speed, prio = 0, fn = deal })
-        else
-          deal(sim)
-        end
+        S.Travel(p, sim, speed, deal)
         if selfDamage then
           local r = sp:CalcDamage(sim, p, sim:Roll(lo, hi), OUT.MagicHitAndCrit)
           sp:DealDamage(sim, r)

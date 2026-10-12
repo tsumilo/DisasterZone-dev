@@ -20,8 +20,7 @@ local MASK_NAMES = {
   "BlessingOfSalvation", "BlessingOfSanctuary", "DivineFavor", "DivineIllumination", "HolyShock", "HolyShield",
   "HolyShieldProc", "AvengersShield", "CrusaderStrike", "Repentance", "RighteousFury",
 }
-local M = {}
-for i, n in ipairs(MASK_NAMES) do M[n] = 2 ^ i end
+local M = S.SpellMasks(MASK_NAMES)
 M.AllSeals = M.SealOfRighteousness + M.SealOfCommand + M.SealOfLight + M.SealOfWisdom + M.SealOfJustice +
   M.SealOfTheCrusader + M.SealOfBlood + M.SealOfVengeance
 M.AllJudgements = M.JudgementOfRighteousness + M.JudgementOfCommand + M.JudgementOfLight + M.JudgementOfWisdom +
@@ -339,8 +338,7 @@ function S.PaladinRegisterSpells(p, T)
       extraCastCondition = function(sim) return sim:IsExecute20() end,
       applyEffects = function(sim, target, spell)
         local res = spell:CalcDamage(sim, target, sim:Roll(r.min, r.max), OUT.RangedHitAndCrit)
-        local travel = p.distance / 35
-        sim:Add({ at = sim.now + travel, prio = 0, fn = function(s) spell:DealDamage(s, res) end })
+        S.Travel(p, sim, 35, function(s) spell:DealDamage(s, res) end)
       end,
     })
   end
@@ -575,31 +573,29 @@ IE[30447] = function(p)
     handler = function(sim) buff:Activate(sim) end })
 end
 
-S.SET_BONUSES = S.SET_BONUSES or {}
-local SB = S.SET_BONUSES
-SB["Justicar Battlegear"] = {
+S.SetBonus("Justicar Battlegear", {
   [2] = function() end, -- in the Judgement of the Crusader aura
   [4] = function(p, a) a:AttachSpellMod({ kind = "DamageDone_Flat", value = 0.10, classMask = M.JudgementOfCommand }) end,
-}
-SB["Crystalforge Battlegear"] = {
+})
+S.SetBonus("Crystalforge Battlegear", {
   [2] = function(p, a) a:AttachSpellMod({ kind = "PowerCost_Flat", classMask = M.Judgement, value = -35 }) end,
   [4] = function() end, -- a party heal
-}
-SB["Lightbringer Battlegear"] = {
+})
+S.SetBonus("Lightbringer Battlegear", {
   [2] = function(p, a)
     S.AttachProcTrigger(a, p, { name = "Mana Regen Proc", callback = "hit", procMask = PM.Melee, procChance = 0.20,
       handler = function(sim) p:AddMana(sim, 50, "t6") end })
   end,
   [4] = function(p, a) a:AttachSpellMod({ kind = "DamageDone_Flat", classMask = M.HammerOfWrath, value = 0.10 }) end,
-}
-SB["Justicar Armor"] = {
+})
+S.SetBonus("Justicar Armor", {
   [2] = function(p, a) a:AttachSpellMod({ kind = "DamageDone_Flat", value = 0.10,
     classMask = M.SealOfRighteousness + M.SealOfVengeance + M.SealOfBlood }) end,
-}
-SB["Lightbringer Armor"] = {
+})
+S.SetBonus("Lightbringer Armor", {
   [2] = function(p, a) p.paladin.t6ProtAura = a end,
   [4] = function(p, a) a:AttachSpellMod({ kind = "DamageDone_Flat", value = 0.10, classMask = M.Consecration }) end,
-}
+})
 
 -- APL lookups: castSpell / auraIsActive by { spellId, rank }.
 function S.PaladinResolveSpell(p, ref)
@@ -615,3 +611,11 @@ function S.PaladinResolveAura(p, ref)
   local id, rank = ref.spellId, ref.rank
   return p.auraById[id .. ":" .. (rank or 0)] or p.auraById[id]
 end
+
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
+S.RegisterClass("Paladin", {
+  order = "afterRacials", -- paladin.go: the constructor (and its talents) after the racials
+  setup = function(p, talents) S.SetupPaladin(p, talents) end,
+  resolveSpell = function(p, ref) return S.PaladinResolveSpell(p, ref) end,
+  resolveAura = function(p, ref) return S.PaladinResolveAura(p, ref) end,
+})

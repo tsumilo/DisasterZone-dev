@@ -31,16 +31,15 @@ local TALENTS = {
 S.SHAMAN_TALENTS = TALENTS
 
 -- Class spell masks (shaman.go)
-local M = {}
+local M
 do
-  local names = { "FireElementalTotem", "EarthElementalTotem", "FireElementalMelee", "FlameShockDirect",
+  M = S.SpellMasks({
+    "FireElementalTotem", "EarthElementalTotem", "FireElementalMelee", "FlameShockDirect",
     "FlameShockDot", "LightningBolt", "LightningBoltOverload", "ChainLightning", "ChainLightningOverload",
     "EarthShock", "LightningShield", "MagmaTotem", "SearingTotem", "FireNovaTotem", "FlametongueTotem",
     "StormstrikeCast", "StormstrikeDamage", "EarthShield", "FrostShock", "FlametongueWeapon", "WindfuryWeapon",
     "FrostbrandWeapon", "RockbiterWeapon", "ElementalMastery", "ShamanisticRage", "Bloodlust", "BasicTotem",
-    "ShieldSelfProc" }
-  local bit = 2
-  for _, n in ipairs(names) do M[n] = bit; bit = bit * 2 end
+    "ShieldSelfProc" })
   M.Stormstrike = M.StormstrikeCast + M.StormstrikeDamage
   M.FlameShock = M.FlameShockDirect + M.FlameShockDot
   M.Fire = M.FlameShock
@@ -497,8 +496,7 @@ function S.ShamanFireTotems(p)
       onTick = function(sim, target, dot)
         local sp = dot.spell
         local r = sp:CalcPeriodicDamage(sim, target, sim:Roll(50, 66), OUT.TickMagicHitAndCrit)
-        local delay = p.distance / 19
-        sim:Add({ at = sim.now + delay, prio = 0, fn = function(s) sp:DealPeriodicDamage(s, r) end })
+        S.Travel(p, sim, 19, function(s) sp:DealPeriodicDamage(s, r) end)
       end },
     applyEffects = function(sim, _, spell)
       CancelFireTotems(p, sim)
@@ -663,9 +661,7 @@ function S.ShamanShocks(p)
   local dotSpell = p:RegisterSpell({ id = 25457, tag = 1, school = SCHOOL.Fire, defenseType = S.DEF_MAGIC,
     procMask = PM.SpellDamage, flags = F_SHAMAN + F_SHOCK + F_INSTANT + F.PassiveSpell, classMask = M.FlameShockDot,
     damageMultiplier = 1, threatMultiplier = 1,
-    dot = { label = "Flame Shock", numberOfTicks = 4, tickLength = 3, bonusCoefficient = 0.10000000149011612,
-      onSnapshot = function(sim, target, dot) dot:Snapshot(target, 105) end,
-      onTick = function(sim, target, dot) dot:CalcAndDealPeriodicSnapshotDamage(sim, target, OUT.Tick) end },
+    dot = S.TickDot("Flame Shock", 4, 3, 105, 0.10000000149011612),
     applyEffects = function(sim, t, spell) spell:Dot(t):Apply(sim) end })
   local fs = shock(25457, SCHOOL.Fire, 500, 0.21400000154972076, M.FlameShockDirect)
   fs.applyEffects = function(sim, t, spell)
@@ -778,18 +774,14 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 function S.ShamanItems(p)
   local sh = p.shaman
-  local function equipped(id)
-    for _, gid in pairs(p.gearIds or {}) do if gid == id then return true end end
-    return false
-  end
   -- Totem of the Astral Winds: Windfury Weapon +80 attack power
-  if equipped(27815) then sh.windfuryAPBonus = sh.windfuryAPBonus + 80 end
+  if p:IsEquipped(27815) then sh.windfuryAPBonus = sh.windfuryAPBonus + 80 end
   -- Totem of Impact (A / H): shocks +46 base damage
-  if equipped(27984) or equipped(27947) then
+  if p:IsEquipped(27984) or p:IsEquipped(27947) then
     p:AddStaticMod({ classMask = M.Shock, kind = "BaseDamage_Flat", value = 46 })
   end
   -- Ashtongue Talisman of Vision: Stormstrike, 50% for 275 attack power (10 s)
-  if equipped(32491) then
+  if p:IsEquipped(32491) then
     local a = p:NewTemporaryStatsAura("Power Surge", { [ST.AttackPower] = 275 }, 10)
     p:MakeProcTriggerAura({ name = "Ashtongue Talisman of Vision - Trigger", classMask = M.StormstrikeCast + M.LightningBolt,
       callback = "hit", outcome = O.Landed, canProcFromProcs = true,
@@ -801,11 +793,11 @@ function S.ShamanItems(p)
   -- lightning totems (items.go): Lightning Bolt / Chain Lightning base damage, Lightning Bolt cost
   local lightning = M.LightningBolt + M.ChainLightning + M.Overload
   for id, v in pairs({ [186071] = 10, [32330] = 85, [23199] = 33, [28248] = 55 }) do
-    if equipped(id) then p:AddStaticMod({ classMask = lightning, kind = "BaseDamage_Flat", value = v }) end
+    if p:IsEquipped(id) then p:AddStaticMod({ classMask = lightning, kind = "BaseDamage_Flat", value = v }) end
   end
-  if equipped(28066) then p:AddStaticMod({ classMask = M.LightningBolt, kind = "PowerCost_Flat", value = -15 }) end
+  if p:IsEquipped(28066) then p:AddStaticMod({ classMask = M.LightningBolt, kind = "PowerCost_Flat", value = -15 }) end
   -- Skycall Totem: 15% on Lightning Bolt hits, 100 spell haste rating for 10 s
-  if equipped(33506) then
+  if p:IsEquipped(33506) then
     local a = p:NewTemporaryStatsAura("Energized", { [ST.SpellHasteRating] = 100 }, 10)
     p:MakeProcTriggerAura({ name = "Skycall Totem", callback = "hit", outcome = O.Landed, procChance = 0.15,
       classMask = M.LightningBolt + M.LightningBoltOverload, handler = function(sim) a:Activate(sim) end })
@@ -895,11 +887,10 @@ function S.ShamanElectricSpells(p)
       cost = 300, castTime = 2.5, coef = 0.7940000295639038 }, overload)
     cfg.applyEffects = function(sim, target, spell)
       local r = spell:CalcDamage(sim, target, sim:Roll(571, 652), OUT.MagicHitAndCrit)
-      local travel = p.distance / 20
-      sim:Add({ at = sim.now + travel, prio = 0, fn = function(s)
+      S.Travel(p, sim, 20, function(s)
         if not overload and S.Landed(r) and s:Proc(sh.overloadChance) then lbOverload:Cast(s, target) end
         spell:DealDamage(s, r)
-      end })
+      end)
     end
     return p:RegisterSpell(cfg)
   end
@@ -962,3 +953,10 @@ function S.ShamanFinalizePets(p)
     S.DonePets(p, sim)
   end
 end
+
+-- Scenario hooks: Setup.lua S.NewScenario runs them in WoWSims' build order
+S.RegisterClass("Shaman", {
+  setup = function(p, talents, opts) S.SetupShaman(p, talents, opts) end,
+  applyTalents = function(p) S.ShamanApplyTalents(p) end,
+  initialize = function(p) S.ShamanInitialize(p) end,
+})
