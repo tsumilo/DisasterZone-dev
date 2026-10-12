@@ -251,7 +251,14 @@ function Chip:Set(text, rgb, key)
     self.fs:SetPoint("LEFT", x - 1, 0)
     self.fs:SetText(text or "")
     self:Paint()
-    self:SetWidth(floor(x + UI:TextWidth(self.fs) + look.pad + 0.5))
+    local w = x + UI:TextWidth(self.fs) + look.pad
+    if self.chev then
+        -- a menu chip: the gold chevron after the text says a click opens a menu
+        self.chev:ClearAllPoints()
+        self.chev:SetPoint("LEFT", self.fs, "RIGHT", 4, 0)
+        w = w + 4 + 10
+    end
+    self:SetWidth(floor(w + 0.5))
 end
 
 -- chip:SetIcon(path [, coords, color, desaturate]): a texture in front of the text when no dot / class circle is given
@@ -278,7 +285,8 @@ function Chip:IsSelected() return self.selected end
 -- UI:CreateChip(parent, opts): a tag as a chip, a rounded capsule with a dot in the tag's colour (or a class circle, or
 -- an icon) and its name. opts { text, rgb, key (class circle), icon, kind = "track" (18 high, the default) | "you" (the
 -- board's header: a blue edge, 22 high) | "live" | "plain" | "warn" | "info" | "bad" (the "you" shape), selected (a gold edge, gold text), onClick (a Button then, with a hover:
--- onClick(chip, mouseButton)) }. chip:Set(text, rgb, key), chip:SetSelected(on), chip:SetIcon(path); chip.fs.
+-- onClick(chip, mouseButton)), menu = true (a gold chevron after the text: a click opens a menu; chip.chev, flipped
+-- up while the menu is open) }. chip:Set(text, rgb, key), chip:SetSelected(on), chip:SetIcon(path); chip.fs.
 -- The call shape UI:CreateChip(parent, kind) makes an empty one of that kind.
 function UI:CreateChip(parent, opts)
     if type(opts) ~= "table" then opts = { kind = opts } end
@@ -304,6 +312,15 @@ function UI:CreateChip(parent, opts)
     p.fs = H.Label(p, "GameFontHighlightSmall", S.FONT.body)
     p.fs:SetShadowOffset(1, -1)
     p.fs:SetShadowColor(0, 0, 0, 1)
+    if opts.menu then
+        p.chev = p:CreateTexture(nil, "ARTWORK", nil, 2)
+        p.chev:SetSize(10, 10)
+        p.chev:SetTexture(UI.ICON_ATLAS)
+        local co = UI:IconCoords(UI.ICON.chevron)
+        p.chev:SetTexCoord(co[1], co[2], co[3], co[4])
+        p.chev:SetVertexColor(S:Color("GOLD"))
+        function p:OnMenuShown(open) UI:SetChevronUp(self.chev, open) end
+    end
     for k, fn in pairs(Chip) do p[k] = fn end
     p.selected = opts.selected and true or false
     p.iconPath = opts.icon

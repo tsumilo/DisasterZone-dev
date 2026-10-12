@@ -222,7 +222,7 @@ local function WearTooltip(self, tt)
         shown = tt:SetInventoryItem("player", self.invSlot) and true or false
     end
     if not shown then tt:SetItemByID(self.itemID) end
-    tt:AddLine("Currently wearing (" .. tostring(self.label or "?") .. ")", S:Color("SUB"))
+    tt:AddLine("Currently wearing (" .. tostring(self.label or "?") .. ")", S:RGB("SUB"))
 end
 
 local function WearOnClick(self)

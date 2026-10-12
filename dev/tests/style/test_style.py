@@ -348,5 +348,22 @@ def the_old_widgets_and_aliases_are_gone_and_the_real_ones_work():
     no_errors(w)
 
 
+@case
+def tooltip_lines_never_get_an_alpha_in_the_wrap_slot():
+    """GameTooltip:AddLine(text, r, g, b, wrap): S:Color / S:Alpha return r, g, b, a, so as AddLine's last argument
+    the alpha lands in the wrap slot and the line wraps (1.4 regression gear-r1-1). Tooltip lines take S:RGB."""
+    import glob
+    import re
+    import harness
+    pat = re.compile(r"AddLine\(.*\bS:(Color|Alpha)\([^()]*\)\)\s*(end\b.*)?$")
+    bad = []
+    for path in glob.glob(os.path.join(harness.ADDON_DIR, "**", "*.lua"), recursive=True):
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for n, line in enumerate(fh, 1):
+                if pat.search(line.rstrip()):
+                    bad.append("%s:%d: %s" % (os.path.relpath(path, harness.ADDON_DIR), n, line.strip()))
+    assert not bad, "AddLine with S:Color / S:Alpha last (use S:RGB):\n" + "\n".join(bad)
+
+
 if __name__ == "__main__":
     run_all()

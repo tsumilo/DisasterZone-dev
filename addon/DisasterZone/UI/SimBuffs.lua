@@ -309,7 +309,7 @@ local function EnsureWindow()
         function() FollowTeam(l) end, l.key)
     end
   end
-  win.team = UI:CreateChip(row, { text = "Team", onClick = function(self) UI:ContextMenu(self, teamMenu) end })
+  win.team = UI:CreateChip(row, { text = "Team", menu = true, onClick = function(self) UI:ContextMenu(self, teamMenu) end })
   win.team:SetPoint("LEFT", prev, "RIGHT", 6, 0)
   UI:AttachTooltip(win.team, "Team", { "Follow a lineup of a team you're on: your group's party buffs, the raid's buffs "
     .. "and the boss debuffs come from the specs placed there, and change with it." }, { anchor = "ANCHOR_TOP" })

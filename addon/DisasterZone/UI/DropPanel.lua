@@ -1706,7 +1706,7 @@ end
 local function EquippedTooltip(self, tt)
     if not self.itemID then return false end
     tt:SetItemByID(self.itemID)
-    tt:AddLine(self.label and ("Currently wearing (" .. self.label .. ")") or "Currently wearing", S:Color("SUB"))
+    tt:AddLine(self.label and ("Currently wearing (" .. self.label .. ")") or "Currently wearing", S:RGB("SUB"))
 end
 
 local function EquippedOnClick(self)
@@ -2553,7 +2553,7 @@ function Mat.MatOthersOnEnter(self)
     if type(list) ~= "table" then return end
     local tt = _G.GameTooltip
     tt:SetOwner(self, "ANCHOR_RIGHT")
-    tt:AddLine(format("%d more crafts use %s", #list, ItemName(self.itemID)), S:Color("GOLD"))
+    tt:AddLine(format("%d more crafts use %s", #list, ItemName(self.itemID)), S:RGB("GOLD"))
     local M = ns.Materials
     for _, use in ipairs(list) do
         local key = M and M.PickCrafter and M:PickCrafter(use)

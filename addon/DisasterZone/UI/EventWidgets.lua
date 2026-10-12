@@ -191,7 +191,7 @@ function EUI:CreateBadge(parent, size)
         tip:AddLine(bd.n or "Badge", S:RGB("GOLD"))
         if bd.ti and bd.ti ~= "" then tip:AddLine("Title: " .. bd.ti, 1, 1, 1) end
         if bd.ev then
-            tip:AddLine(bd.ev .. (bd.at and (" · " .. date("%d %b", bd.at)) or ""), S:Color("SUB"))
+            tip:AddLine(bd.ev .. (bd.at and (" · " .. date("%d %b", bd.at)) or ""), S:RGB("SUB"))
         end
     end, nil, { anchor = "ANCHOR_TOP" })
     return f
