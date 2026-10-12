@@ -83,6 +83,13 @@ local function saved(id)
     return t
 end
 
+-- The same progress for reading only: nothing is stored for a tour nobody started (demo mode saves nothing).
+local function peek(id)
+    local t = ns.db and type(ns.db.tours) == "table" and ns.db.tours[id]
+    if type(t) ~= "table" then return { done = {}, at = {} } end
+    return { seen = t.seen, done = type(t.done) == "table" and t.done or {}, at = type(t.at) == "table" and t.at or {} }
+end
+
 function Tour:Register(id, def)
     if not tours[id] then order[#order + 1] = id end
     tours[id] = def
@@ -92,6 +99,8 @@ function Tour:Get(id) return tours[id] end
 
 -- { seen = was started or turned down, done = { [chapter key] = true }, at = { [chapter key] = step left on } }
 function Tour:Progress(id) return saved(id) end
+-- For reading only (seen, done, at): stores nothing for a tour not started.
+function Tour:Peek(id) return peek(id) end
 
 function Tour:IsRunning(id)
     return run ~= nil and (id == nil or run.id == id)
@@ -728,7 +737,7 @@ end
 -- Not now. Returns true when the box is shown.
 function Tour:Offer(id, anchor)
     local def = tours[id]
-    if not def or run or offer or offered[id] or saved(id).seen then return false end
+    if not def or run or offer or offered[id] or peek(id).seen then return false end
     if not unionRect(call(anchor)) then return false end
     offered[id] = true
     ensureFrames()
@@ -744,7 +753,7 @@ end
 function Tour:BuildMenu(root, id)
     local def = tours[id]
     if not def then return end
-    local done = saved(id).done
+    local done = peek(id).done
     -- the running tour's own chapters (its picks, a look around); else the ones for my roles
     local r = (run and run.id == id) and run or { def = def }
     local group, n = nil, 0
