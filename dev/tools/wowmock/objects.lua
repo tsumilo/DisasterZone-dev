@@ -132,6 +132,9 @@ local BACKDROP_METHODS = { SetBackdrop = true, SetBackdropColor = true, SetBackd
   SetupTextureCoordinates = true, ClearBackdrop = true, OnBackdropLoaded = true, OnBackdropSizeChanged = true,
   SetBorderBlendMode = true, HasBackdropInfo = true }
 M.BACKDROP_METHODS = BACKDROP_METHODS
+-- Methods a widget of that kind does not have in the client (Button / CheckButton / EditBox / Slider do): nil, not
+-- the NOOP stub, so `if f.SetEnabled then` feature checks see what the client shows them, and a call errors as there.
+local ABSENT = { Frame = { SetEnabled = true, Enable = true, Disable = true, IsEnabled = true } }
 
 local function caller_where(level)
   local info = debug.getinfo(level or 3, "Sl")
@@ -173,6 +176,8 @@ OBJ_MT.__index = function(t, k)
     note_unknown(M.unknown_methods, st, k .. " (needs BackdropTemplate)")
     return nil
   end
+  local absent = ABSENT[st.kind]
+  if absent and absent[k] then return nil end
   local first = smatch(k, "^(%u%l+)")
   if first and VERBS[first] then
     note_unknown(M.unknown_methods, st, k)
