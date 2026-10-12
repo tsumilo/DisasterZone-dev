@@ -84,6 +84,7 @@ end
 --   onClick    a click on the toast itself (same rule)
 --   onClose(toast, reason)  when it goes: "timeout" | "close" (its X) | "click" | "button" | "hide" (UI:HideToast /
 --              :Hide()) - not when it is filled again by its key
+--   onShow(toast)  when it appears (at once, or later when one that waited comes) - not when filled again by its key
 --   duration   seconds on screen (12; 0 or false: until it is answered); the time stands still under the mouse
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
@@ -402,6 +403,7 @@ function H.Present(o)
     t:Show()
     t:Raise()
     H.Play(o.sound)
+    if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
     return t
 end
 

@@ -3787,13 +3787,23 @@ function DropPanel:GetToast()
     return self.toast
 end
 
+-- Whether the current entry's toast is on screen or still waiting in the pop-ups' queue (behind UI.TOAST.MAX shown
+-- ones): either way the next entries wait behind it in this panel's own queue.
+function DropPanel:ToastBusy()
+    if not self.toastEntry then return false end
+    if UI:GetToast(TOAST_KEY) then return true end
+    for _, o in ipairs(UI:ToastQueue() or {}) do
+        if o.key == TOAST_KEY then return true end
+    end
+    return false
+end
+
 -- bossKey (optional): the drop's boss (drop.b).
 function DropPanel:QueueToast(itemID, match, test, bossKey)
     if #self.toastQueue >= TOAST_QUEUE_MAX then return end
     tinsert(self.toastQueue, { itemID = itemID, match = match, test = test, b = bossKey })
-    local t = self.toast
-    if t and t:IsShown() then
-        self:RefreshToastText()
+    if self:ToastBusy() then
+        self:RefreshToastText()            -- ("+N more" in its kicker, on screen or while it waits)
     else
         self:ShowNextToast()
     end
@@ -3819,6 +3829,11 @@ function DropPanel:RefreshToastText()
             return true                    -- (the toast stays)
         end,
         onClose = function(frame) DropPanel:FinishToast(frame) end,
+        -- (one that waited behind other pop-ups comes later: it is the panel's toast from then on)
+        onShow = function(frame)
+            DropPanel.toast = frame
+            frame.entry = e
+        end,
         itemID = e.itemID, tipLine = "Click: link in chat.", rightClose = true,   -- (hover: the item; right-click: away)
     })
     if not t then return end           -- (waiting behind other pop-ups: it comes when there is room)

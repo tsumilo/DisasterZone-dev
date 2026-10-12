@@ -437,5 +437,43 @@ def forged_drop_from_outside_group_ignored():
     w.assert_no_errors()
 
 
+@R.case
+def bis_toasts_wait_behind_full_popup_stack_and_none_is_lost():
+    # three other pop-ups on screen (UI.TOAST.MAX): Erin's two BiS toasts (alt ring + token) wait, then come one
+    # after another - the second never replaces the first while it waits in the pop-ups' queue
+    r = Raid()
+    w = r.w
+    E = r["Erin"]
+    E.eval("""for i = 1, 3 do ns.UI:Toast({ key = 'other' .. i, title = 'Other ' .. i, duration = 0 }) end""")
+    loot_prince(r)
+    w.tick(3)
+
+    def waiting():
+        return E.eval_py("""local o = {}
+          for _, q in ipairs(ns.UI:ToastQueue()) do if q.key == 'dz-bis-drop' then o[#o + 1] = q.title end end
+          return o""") or []
+    t = toast_state(E)
+    assert not t["shown"] and len(t["queue"]) == 1, t
+    assert len(waiting()) == 1, waiting()
+    assert len(own_bis_lines(E)) == 2, own_bis_lines(E)
+    seen = []
+    E.eval("ns.UI:HideToast('other1')")
+    w.tick(1)
+    t = toast_state(E)
+    assert t["shown"] and len(t["queue"]) == 1 and waiting() == [], t      # (the next one waits in the panel's queue)
+    assert "+1 more" in strip_codes(t["kicker"]).lower(), t
+    seen.append(t["item"])
+    E.eval("ns.DropPanel:DismissToast()")
+    w.tick(1)
+    t = toast_state(E)
+    assert t["shown"] and t["queue"] == [] and "more" not in strip_codes(t["kicker"]).lower(), t
+    seen.append(t["item"])
+    assert set(seen) == {THOUSAND_MARKS, HELM_CHAMPION}, seen
+    E.eval("ns.DropPanel:DismissToast()")
+    w.tick(1)
+    assert not toast_state(E)["shown"], toast_state(E)
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     main(R)
