@@ -21,18 +21,13 @@ local asking = nil             -- { to, at }                      waiting for AZ
 local session = nil            -- { id, from, battle, applied, early = { [n] = pair }, heard, said }
 
 local function Now() return GetTime() end
-local function ShortName(key) return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key) end
-
-local function Whisper(to, msg)
-    return ns.Comm and ns.Comm:Send(msg, "WHISPER", to, "game")
-end
 
 -- The spectator's copy of the match, caught up to the last resolved turn. nil when the message is unusable.
 function W.Build(msg)
     if type(msg.p1) ~= "string" or type(msg.p2) ~= "string" or type(msg.id) ~= "string" then return nil end
     local t1, t2 = P.UnpackTeam(msg.t1), P.UnpackTeam(msg.t2)
     if not t1 or not t2 then return nil end
-    local n1, n2 = ShortName(msg.p1), ShortName(msg.p2)
+    local n1, n2 = ns.Util.ShortName(msg.p1, true), ns.Util.ShortName(msg.p2, true)
     local b = ns.AzeroBattle.New({ party = t1, foes = t2, rng = P.NewRng(msg.seed),
                                    pvp = { host = true, name = n2, watch = { ally = n1, foe = n2 } } })
     local log = type(msg.log) == "table" and msg.log or {}
@@ -45,7 +40,7 @@ end
 
 function W:Watch(g, peer)
     asking = { to = peer.key, at = Now() }
-    if not Whisper(peer.key, { t = "AZW", op = "ask", v = P.VERSION, fp = P.Fingerprint() }) then
+    if not ns.Games:Send(G.GAME_ID, { t = "AZW", op = "ask", v = P.VERSION, fp = P.Fingerprint() }, "WHISPER", peer.key) then
         asking = nil
         g:Say(peer.name .. " can't be reached right now.")
         return
@@ -54,7 +49,7 @@ function W:Watch(g, peer)
     asking = nil
     if type(answer) ~= "table" or answer.op ~= "start" then
         if answer == "cancel" then
-            Whisper(peer.key, { t = "AZW", op = "leave" })      -- in case the yes crosses the cancel
+            ns.Games:Send(G.GAME_ID, { t = "AZW", op = "leave" }, "WHISPER", peer.key)  -- in case the yes crosses the cancel
         elseif answer == "timeout" then
             g:Say(peer.name .. " didn't answer.")
         elseif type(answer) == "table" and answer.why == "full" then
@@ -68,7 +63,7 @@ function W:Watch(g, peer)
     end
     local b, applied = W.Build(answer)
     if not b then
-        Whisper(peer.key, { t = "AZW", op = "leave" })
+        ns.Games:Send(G.GAME_ID, { t = "AZW", op = "leave" }, "WHISPER", peer.key)
         g:Say("Something went wrong with that battle. You can't watch it.")
         return
     end
@@ -79,7 +74,7 @@ function W:Watch(g, peer)
     g.battle = nil
     session = nil
     if result == "left" then
-        Whisper(peer.key, { t = "AZW", op = "leave" })
+        ns.Games:Send(G.GAME_ID, { t = "AZW", op = "leave" }, "WHISPER", peer.key)
     end
     g:Emit("watch", { result = result })
 end
@@ -119,7 +114,7 @@ local function OnReply(sender, msg)
         and G.pending and G.pending.kind == "netwait" then
         G:Advance(msg)
     elseif msg.op == "start" then
-        Whisper(sender, { t = "AZW", op = "leave" })    -- an answer I'm no longer waiting for
+        ns.Games:Send(G.GAME_ID, { t = "AZW", op = "leave" }, "WHISPER", sender)  -- an answer I'm no longer waiting for
     end
 end
 
@@ -131,7 +126,7 @@ function W:Update()
     end
     local s = session
     if s and s.battle.need ~= "done" then
-        local name = ShortName(s.from)
+        local name = ns.Util.ShortName(s.from, true)
         if ns.AzeroNet and ns.AzeroNet:HasLeft(s.from) then
             s.battle:EndWatch("lost", string.format("%s left, so the battle can't be followed any more.", name))
         elseif now - s.heard > W.SILENCE then
@@ -139,7 +134,7 @@ function W:Update()
                 name))
         elseif now - s.said > P.KEEPALIVE then
             s.said = now
-            Whisper(s.from, { t = "AZW", op = "here" })
+            ns.Games:Send(G.GAME_ID, { t = "AZW", op = "here" }, "WHISPER", s.from)
         end
     end
 end

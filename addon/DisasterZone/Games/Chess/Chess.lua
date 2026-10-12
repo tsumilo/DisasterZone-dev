@@ -27,7 +27,8 @@ local Util = ns.Util
 
 local GAME_ID = "chess"
 Chess.GAME_ID = GAME_ID
-Chess.VERSION = 1
+Chess.VERSION = 1             -- stamped on every message (Games:Send)
+ns.Games:SetWireVersion(GAME_ID, Chess.VERSION)
 Chess.MEDIVH = "Medivh"
 Chess.MAX_ACTIVE = 12          -- open games at once
 Chess.KEEP_OVER = 40           -- finished games kept
@@ -61,9 +62,7 @@ Chess.Data = Data
 -- The saved tables, read only: nothing is created (the hub's poster and the login checks look without writing).
 local EMPTY = {}
 local function Peek(key)
-    local db = ns.db
-    local d = db and type(db.games) == "table" and db.games[GAME_ID]
-    local t = type(d) == "table" and d[key]
+    local t = ns.Games:PeekData(GAME_ID)[key]
     return type(t) == "table" and t or EMPTY
 end
 
@@ -458,16 +457,9 @@ end
 -- Guild games: the wire
 ---------------------------------------------------------------------------
 
+-- (every chess message carries v = Chess.VERSION: Games:Send stamps it)
 function Chess:Whisper(to, msg)
-    if not ns.Comm or not to then return false end
-    msg.v = Chess.VERSION
-    return ns.Comm:Send(msg, "WHISPER", to, "game")
-end
-
-local function GuildSend(msg)
-    if not ns.Comm or not (IsInGuild and IsInGuild()) then return false end
-    msg.v = Chess.VERSION
-    return ns.Comm:Send(msg, "GUILD", nil, "game")
+    return ns.Games:Send(GAME_ID, msg, "WHISPER", to)
 end
 
 local function Online(key)
@@ -734,7 +726,7 @@ function Chess:Record(g)
     local r = { w = g.me == 1 and Me() or g.opp, b = g.me == 1 and g.opp or Me(), r = g.result, at = Now(),
                 n = #g.moves }
     if AddResult(g.id, r) then
-        GuildSend({ t = "CHL", id = g.id, w = r.w, b = r.b, r = r.r, at = r.at, n = r.n })
+        ns.Games:Send(GAME_ID, { t = "CHL", id = g.id, w = r.w, b = r.b, r = r.r, at = r.at, n = r.n }, "GUILD")
         Changed(nil, "ladder")
     end
 end
@@ -913,7 +905,7 @@ function Chess:OnLogin()
         Util.After(8 + math.random() * 6, function()
             Chess:SyncAll()
             local n, s = Chess:Digest()
-            GuildSend({ t = "CHQ", n = n, s = s })
+            ns.Games:Send(GAME_ID, { t = "CHQ", n = n, s = s }, "GUILD")
         end)
     end
     if C_Timer and C_Timer.NewTicker then

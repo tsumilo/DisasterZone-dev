@@ -76,8 +76,8 @@ local function SendPresence()
         class = c
     end
     local st, opp = Net.Status()
-    local ok = ns.Comm:Send({ t = "AZP", v = Net.VERSION, m = s.map, x = s.x, y = s.y, f = s.face,
-                              p = steps, c = class, s = st, o = opp }, "GUILD", nil, "game")
+    local ok = ns.Games:Send(G.GAME_ID, { t = "AZP", v = Net.VERSION, m = s.map, x = s.x, y = s.y, f = s.face,
+                                          p = steps, c = class, s = st, o = opp }, "GUILD")
     if ok then
         steps = ""
         sentAt = Now()
@@ -95,7 +95,7 @@ function Net:SetActive(on)
         -- closing the game mid-match leaves it (a forfeit the opponent hears at once)
         if ns.AzeroPvP and ns.AzeroPvP.Leave then ns.AzeroPvP:Leave() end
         if IsInGuild and IsInGuild() and ns.Comm and not InCombat() then
-            ns.Comm:Send({ t = "AZL", v = Net.VERSION }, "GUILD", nil, "game")
+            ns.Games:Send(G.GAME_ID, { t = "AZL", v = Net.VERSION }, "GUILD")
         end
         steps, lastSent, lastMap = "", nil, nil
     else
@@ -108,10 +108,6 @@ function Net:IsActive() return active end
 ---------------------------------------------------------------------------
 -- Receiving
 ---------------------------------------------------------------------------
-
-local function ShortName(key)
-    return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key)
-end
 
 local function Valid(msg)
     if type(msg.m) ~= "string" or type(msg.x) ~= "number" or type(msg.y) ~= "number" then return false end
@@ -127,7 +123,7 @@ local function OnPresence(senderKey, msg)
     if type(msg) ~= "table" or msg.v ~= Net.VERSION or not Valid(msg) then return end
     local p = peers[senderKey]
     if not p then
-        p = { key = senderKey, name = ShortName(senderKey), queue = {} }
+        p = { key = senderKey, name = ns.Util.ShortName(senderKey, true), queue = {} }
         peers[senderKey] = p
     end
     p.seen = Now()

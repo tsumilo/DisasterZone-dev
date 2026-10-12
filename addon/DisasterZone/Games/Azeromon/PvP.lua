@@ -50,11 +50,6 @@ local owed = nil           -- { id, opp, by }: a match I left by a /reload; the 
 
 local function Now() return GetTime() end
 local function Clock() return (time and time()) or 0 end
-local function ShortName(key) return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key) end
-
-local function Whisper(to, msg)
-    return ns.Comm and ns.Comm:Send(msg, "WHISPER", to, "game")
-end
 
 -- What another player already saw happen stays across a /reload (Game.lua rolls a script back otherwise).
 local function Checkpoint() if G.Checkpoint then G:Checkpoint() end end
@@ -243,7 +238,8 @@ function P:Challenge(g, peer, asked)
     local seed = math.random(1, 2147483646)
     local team = P.PackTeam(g.save.party)
     outgoing = { id = id, to = peer.key, at = Now(), seed = seed, team = team }
-    if not Whisper(peer.key, { t = "AZC", id = id, v = P.VERSION, fp = P.Fingerprint(), seed = seed, team = team }) then
+    local ask = { t = "AZC", id = id, v = P.VERSION, fp = P.Fingerprint(), seed = seed, team = team }
+    if not ns.Games:Send(G.GAME_ID, ask, "WHISPER", peer.key) then
         outgoing = nil
         g:Say(peer.name .. " can't be reached right now.")
         return
@@ -254,17 +250,17 @@ function P:Challenge(g, peer, asked)
     if type(answer) == "table" and answer.ok then
         local bad = (answer.fp ~= P.Fingerprint() and "version") or (not P.UnpackTeam(answer.team) and "team") or nil
         if bad then
-            Whisper(peer.key, { t = "AZF", id = out.id })          -- they wait for the go: tell them it's off
+            ns.Games:Send(G.GAME_ID, { t = "AZF", id = out.id }, "WHISPER", peer.key)  -- they wait for the go: tell them it's off
             g:Say(bad == "version" and (peer.name .. " has a different game version.")
                 or "Something went wrong with the other team. The battle was called off.")
             return
         end
-        Whisper(peer.key, { t = "AZG", id = out.id })
+        ns.Games:Send(G.GAME_ID, { t = "AZG", id = out.id }, "WHISPER", peer.key)
         P:Play(g, out.id, peer.key, true, out.seed, answer.team, out.team)
         return
     end
     if answer == "cancel" or answer == "timeout" then
-        Whisper(peer.key, { t = "AZF", id = out.id })              -- their prompt closes: a late yes starts nothing
+        ns.Games:Send(G.GAME_ID, { t = "AZF", id = out.id }, "WHISPER", peer.key)  -- their prompt closes: a late yes starts nothing
         g:Say(answer == "cancel" and "You withdrew the challenge." or (peer.name .. " didn't answer."))
     elseif type(answer) == "table" and answer.why == "busy" then
         g:Say(peer.name .. " is busy right now.")
@@ -278,17 +274,17 @@ end
 local function OnChallenge(sender, msg)
     if type(msg.id) ~= "string" then return end
     if msg.v ~= P.VERSION or msg.fp ~= P.Fingerprint() then
-        Whisper(sender, { t = "AZA", id = msg.id, ok = false, why = "version" })
+        ns.Games:Send(G.GAME_ID, { t = "AZA", id = msg.id, ok = false, why = "version" }, "WHISPER", sender)
         return
     end
     local busy = not G.started or not G:IsFree() or match ~= nil or outgoing ~= nil or P.incoming ~= nil
         or P.starting ~= nil or not (ns.AzeroNet and ns.AzeroNet:IsActive()) or not M.FirstUsable(G.save.party)
     local theirTeam = P.UnpackTeam(msg.team)
     if busy or not theirTeam then
-        Whisper(sender, { t = "AZA", id = msg.id, ok = false, why = "busy" })
+        ns.Games:Send(G.GAME_ID, { t = "AZA", id = msg.id, ok = false, why = "busy" }, "WHISPER", sender)
         return
     end
-    local name = ShortName(sender)
+    local name = ns.Util.ShortName(sender, true)
     local id, seed = msg.id, msg.seed
     P.incoming = { id = id, from = sender, at = Now() }
     G:Run(function(g)
@@ -305,11 +301,11 @@ local function OnChallenge(sender, msg)
             return
         end
         if not yes then
-            Whisper(sender, { t = "AZA", id = id, ok = false, why = "no" })
+            ns.Games:Send(G.GAME_ID, { t = "AZA", id = id, ok = false, why = "no" }, "WHISPER", sender)
             return
         end
         local team = P.PackTeam(g.save.party)
-        Whisper(sender, { t = "AZA", id = id, ok = true, fp = P.Fingerprint(), team = team })
+        ns.Games:Send(G.GAME_ID, { t = "AZA", id = id, ok = true, fp = P.Fingerprint(), team = team }, "WHISPER", sender)
         -- the battle starts only once the challenger confirms it is still there
         P.starting = { id = id, from = sender, at = Now() }
         local go = g:Wait({ kind = "netwait",
@@ -319,7 +315,7 @@ local function OnChallenge(sender, msg)
             P:Play(g, id, sender, false, seed, msg.team, team)
             return
         end
-        Whisper(sender, { t = "AZF", id = id })                    -- (a go crossing this: they call it off too)
+        ns.Games:Send(G.GAME_ID, { t = "AZF", id = id }, "WHISPER", sender)  -- (a go crossing this: they call it off too)
         if go == "cancel" then
             g:Say("You called off the battle.")
         elseif go == "withdrawn" then
@@ -334,7 +330,7 @@ local function OnAnswer(sender, msg)
     if outgoing and msg.id == outgoing.id and sender == outgoing.to then
         if G.pending and G.pending.kind == "netwait" then G:Advance(msg) end
     elseif msg.ok and type(msg.id) == "string" then
-        Whisper(sender, { t = "AZF", id = msg.id })                -- a yes I'm no longer waiting for: they back out
+        ns.Games:Send(G.GAME_ID, { t = "AZF", id = msg.id }, "WHISPER", sender)  -- a yes I'm no longer waiting for: they back out
     end
 end
 
@@ -362,7 +358,7 @@ local function FlushRelays(m)
     if #m.relays == 0 then return end
     for key in pairs(m.watchers) do
         for _, r in ipairs(m.relays) do
-            Whisper(key, { t = "AZV", op = "turn", id = m.id, n = r.n, a = r.a })
+            ns.Games:Send(G.GAME_ID, { t = "AZV", op = "turn", id = m.id, n = r.n, a = r.a }, "WHISPER", key)
         end
     end
     m.relays = {}
@@ -386,7 +382,7 @@ local function EndMatch(m, result, text)
         if m.host then QueueRelay(m, mine, theirs) else QueueRelay(m, theirs, mine) end
         FlushRelays(m)
     else
-        for key in pairs(m.watchers) do Whisper(key, { t = "AZV", op = "off", id = m.id }) end
+        for key in pairs(m.watchers) do ns.Games:Send(G.GAME_ID, { t = "AZV", op = "off", id = m.id }, "WHISPER", key) end
     end
     b:Say("%s", text)
     b:Finish(result)
@@ -399,11 +395,11 @@ function P:Play(g, id, opp, host, seed, theirTeamWire, myTeamWire)
     local foes = P.UnpackTeam(theirTeamWire)
     local mine = P.UnpackTeam(myTeamWire)
     if not foes or not mine then
-        Whisper(opp, { t = "AZF", id = id })                       -- they must not wait in a match alone
+        ns.Games:Send(G.GAME_ID, { t = "AZF", id = id }, "WHISPER", opp)  -- they must not wait in a match alone
         g:Say("Something went wrong with the other team. The battle was called off.")
         return
     end
-    local name = ShortName(opp)
+    local name = ns.Util.ShortName(opp, true)
     local m
     -- the seed is the challenger's; both sides use it, so every roll matches
     local b = ns.AzeroBattle.New({
@@ -411,7 +407,7 @@ function P:Play(g, id, opp, host, seed, theirTeamWire, myTeamWire)
         onSeen = function(sp) g.save.seen[sp] = true g:Emit("seen", { sp = sp }) end,
         pvp = { host = host, name = name, onAction = function(a)
             if not m then return end
-            Whisper(opp, { t = "AZM", id = id, turn = m.battle.turn + 1, a = a })
+            ns.Games:Send(G.GAME_ID, { t = "AZM", id = id, turn = m.battle.turn + 1, a = a }, "WHISPER", opp)
             -- my forfeit ends the match now, whatever they would have done this turn
             if a.kind == "forfeit" then m.battle:ReceivePvP({ kind = "move", idx = 1 }) end
         end, onResolve = function(a1, a2) if m then QueueRelay(m, a1, a2) end end },
@@ -474,12 +470,15 @@ end
 function P:Leave()
     local m = match
     if not m or m.battle.need == "done" then return end
-    Whisper(m.opp, { t = "AZF", id = m.id, quit = true })
+    ns.Games:Send(G.GAME_ID, { t = "AZF", id = m.id, quit = true }, "WHISPER", m.opp)
     EndMatch(m, "lose", "You left the match.")
 end
 
 local function PayOwed()
-    if owed and (Now() > owed.by or Whisper(owed.opp, { t = "AZF", id = owed.id, quit = true })) then owed = nil end
+    if owed and (Now() > owed.by
+                 or ns.Games:Send(G.GAME_ID, { t = "AZF", id = owed.id, quit = true }, "WHISPER", owed.opp)) then
+        owed = nil
+    end
 end
 
 -- Timeouts (called every frame by the UI, and by the tests).
@@ -501,7 +500,7 @@ function P:Update()
         b:Act({ kind = "forfeit" })                   -- I never chose: I forfeit (they see the same)
     elseif b.need == "wait" and now - m.turnAt > P.TURN_TIMEOUT + P.TURN_GRACE then
         b:ReceivePvP({ kind = "forfeit" })            -- they never answered: they forfeit, and are told so
-        Whisper(m.opp, { t = "AZF", id = m.id, timeout = true })
+        ns.Games:Send(G.GAME_ID, { t = "AZF", id = m.id, timeout = true }, "WHISPER", m.opp)
     end
     Settle(m)
     -- spectators: my action goes out before their turns; quiet ones are dropped; the rest hear we're still on
@@ -511,7 +510,7 @@ function P:Update()
     end
     if next(m.watchers) and now - m.relayAt > P.KEEPALIVE then
         m.relayAt = now
-        for key in pairs(m.watchers) do Whisper(key, { t = "AZV", op = "alive", id = m.id }) end
+        for key in pairs(m.watchers) do ns.Games:Send(G.GAME_ID, { t = "AZV", op = "alive", id = m.id }, "WHISPER", key) end
     end
 end
 
@@ -536,21 +535,21 @@ local function OnWatchRequest(sender, msg)
     end
     if msg.op ~= "ask" then return end
     if msg.v ~= P.VERSION or msg.fp ~= P.Fingerprint() then
-        Whisper(sender, { t = "AZV", op = "no", why = "version" })
+        ns.Games:Send(G.GAME_ID, { t = "AZV", op = "no", why = "version" }, "WHISPER", sender)
         return
     end
     if not m or m.battle.need == "done" or sender == m.opp then
-        Whisper(sender, { t = "AZV", op = "no", why = "over" })
+        ns.Games:Send(G.GAME_ID, { t = "AZV", op = "no", why = "over" }, "WHISPER", sender)
         return
     end
     if not m.watchers[sender] and P:WatcherCount() >= P.MAX_WATCHERS then
-        Whisper(sender, { t = "AZV", op = "no", why = "full" })
+        ns.Games:Send(G.GAME_ID, { t = "AZV", op = "no", why = "full" }, "WHISPER", sender)
         return
     end
     FlushRelays(m)                         -- (the log below has them; nobody gets a turn twice out of order)
     m.watchers[sender] = Now()
-    Whisper(sender, { t = "AZV", op = "start", id = m.id, v = P.VERSION, seed = m.seed, p1 = m.p1,
-                      p2 = m.p2, t1 = m.t1, t2 = m.t2, log = m.log })
+    ns.Games:Send(G.GAME_ID, { t = "AZV", op = "start", id = m.id, v = P.VERSION, seed = m.seed, p1 = m.p1,
+                               p2 = m.p2, t1 = m.t1, t2 = m.t2, log = m.log }, "WHISPER", sender)
 end
 
 function P:WatcherCount()
@@ -588,7 +587,7 @@ function P:OnLogin()
     end
     if ns.Print then
         ns:Print("|cffffd200Azeromon:|r you left the battle with %s, so it counts as a loss "
-            .. "(%d won, %d lost, %d drawn).", ShortName(open.opp), r.w, r.l, r.d)
+            .. "(%d won, %d lost, %d drawn).", ns.Util.ShortName(open.opp, true), r.w, r.l, r.d)
     end
 end
 

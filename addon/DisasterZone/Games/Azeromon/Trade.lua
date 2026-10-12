@@ -52,14 +52,8 @@ local tried = {}              -- [trade id] = when the host last sent its commit
 
 local function Now() return GetTime() end
 local function Clock() return (time and time()) or 0 end
-local function ShortName(key) return (Ambiguate and Ambiguate(key, "short")) or (key:match("^[^-]+") or key) end
 local function MyKey() return ns.Util.PlayerKey() end
 local function Checkpoint() if G.Checkpoint then G:Checkpoint() end end
-
-local function Whisper(to, msg)
-    msg.t = "AZT"
-    return ns.Comm and ns.Comm:Send(msg, "WHISPER", to, "game")
-end
 
 local function Print(fmt, ...)
     if ns.Print then ns:Print("|cffffd200Azeromon:|r " .. fmt, ...) end
@@ -208,12 +202,12 @@ function T:Ask(g, peer)
     local open = T:Unfinished()
     if open then
         g:Say(string.format("Your last trade with %s isn't finished yet. It completes when you're both online.",
-            open.name or ShortName(open.peer)))
+            open.name or ns.Util.ShortName(open.peer, true)))
         return
     end
     local id = string.format("%d%04d", math.floor(Now() * 10) % 1000000, math.random(0, 9999))
     ask = { id = id, to = peer.key, at = Now() }
-    if not Whisper(peer.key, { op = "ask", id = id, v = T.VERSION }) then
+    if not ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ask", id = id, v = T.VERSION }, "WHISPER", peer.key) then
         ask = nil
         g:Say(peer.name .. " can't be reached right now.")
         return
@@ -222,10 +216,11 @@ function T:Ask(g, peer)
     local a = ask
     ask = nil
     if type(answer) == "table" and answer.ok then
-        Whisper(peer.key, { op = "go", id = a.id })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "go", id = a.id }, "WHISPER", peer.key)
         T:Open(g, a.id, peer.key)
     elseif answer == "cancel" or answer == "timeout" then
-        Whisper(peer.key, { op = "cancel", id = a.id })           -- their prompt closes: a late yes opens nothing
+        -- their prompt closes: a late yes opens nothing
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "cancel", id = a.id }, "WHISPER", peer.key)
         g:Say(answer == "cancel" and "You called off the trade." or (peer.name .. " didn't answer."))
     elseif type(answer) == "table" and answer.why == "busy" then
         g:Say(peer.name .. " is busy right now.")
@@ -239,17 +234,17 @@ end
 local function OnAsk(sender, msg)
     if type(msg.id) ~= "string" then return end
     if msg.v ~= T.VERSION then
-        Whisper(sender, { op = "answer", id = msg.id, ok = false, why = "version" })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "answer", id = msg.id, ok = false, why = "version" }, "WHISPER", sender)
         return
     end
     local P = ns.AzeroPvP
     local busy = not G.started or not G:IsFree() or T:Busy() or (P and (P:InMatch() or P.incoming or P.starting))
         or not (ns.AzeroNet and ns.AzeroNet:IsActive()) or #G.save.party == 0 or T:Unfinished() ~= nil
     if busy then
-        Whisper(sender, { op = "answer", id = msg.id, ok = false, why = "busy" })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "answer", id = msg.id, ok = false, why = "busy" }, "WHISPER", sender)
         return
     end
-    local name, id = ShortName(sender), msg.id
+    local name, id = ns.Util.ShortName(sender, true), msg.id
     T.incoming = { id = id, from = sender, at = Now() }
     G:Run(function(g)
         g:Sfx("request")
@@ -265,10 +260,10 @@ local function OnAsk(sender, msg)
             return
         end
         if not yes then
-            Whisper(sender, { op = "answer", id = id, ok = false, why = "no" })
+            ns.Games:Send(G.GAME_ID, { t = "AZT", op = "answer", id = id, ok = false, why = "no" }, "WHISPER", sender)
             return
         end
-        Whisper(sender, { op = "answer", id = id, ok = true })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "answer", id = id, ok = true }, "WHISPER", sender)
         -- the trade opens only once the asker confirms it is still there
         T.starting = { id = id, from = sender, at = Now() }
         local go = g:Wait({ kind = "netwait",
@@ -278,7 +273,7 @@ local function OnAsk(sender, msg)
             T:Open(g, id, sender)
             return
         end
-        Whisper(sender, { op = "cancel", id = id })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "cancel", id = id }, "WHISPER", sender)
         if go == "cancel" then
             g:Say("You called off the trade.")
         elseif go == "withdrawn" then
@@ -293,7 +288,8 @@ local function OnAnswer(sender, msg)
     if ask and msg.id == ask.id and sender == ask.to then
         if G.pending and G.pending.kind == "netwait" then G:Advance({ ok = msg.ok == true, why = msg.why }) end
     elseif msg.ok == true and type(msg.id) == "string" then
-        Whisper(sender, { op = "cancel", id = msg.id })           -- a yes I'm no longer waiting for: they back out
+        -- a yes I'm no longer waiting for: they back out
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "cancel", id = msg.id }, "WHISPER", sender)
     end
 end
 
@@ -309,7 +305,7 @@ end
 ---------------------------------------------------------------------------
 
 function T:Open(g, id, peer)
-    local s = { id = id, peer = peer, name = ShortName(peer), host = MyKey() < peer, heard = Now(), state = "open",
+    local s = { id = id, peer = peer, name = ns.Util.ShortName(peer, true), host = MyKey() < peer, heard = Now(), state = "open",
                 myItems = {}, theirItems = {} }
     T.session = s
     local result = g:Wait({ kind = "trade", session = s })
@@ -346,7 +342,7 @@ end
 
 local function SendOffer(s)
     s.myOk, s.theirOk = nil, nil
-    Whisper(s.peer, { op = "offer", id = s.id, mon = s.mineWire, items = s.myItems })
+    ns.Games:Send(G.GAME_ID, { t = "AZT", op = "offer", id = s.id, mon = s.mineWire, items = s.myItems }, "WHISPER", s.peer)
     T:Changed()
 end
 
@@ -472,12 +468,12 @@ end
 -- (a lost ack, the host's /reload) is answered from the log and never swaps twice.
 local function Apply(s, h)
     if not Swap(s) then
-        Whisper(s.peer, { op = "ack", id = s.id, h = h, ok = false })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = s.id, h = h, ok = false }, "WHISPER", s.peer)
         return false
     end
     Log()[s.id] = { peer = s.peer, h = h, st = "done", at = Clock() }
     Checkpoint()
-    Whisper(s.peer, { op = "ack", id = s.id, h = h, ok = true })
+    ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = s.id, h = h, ok = true }, "WHISPER", s.peer)
     return true
 end
 
@@ -487,7 +483,7 @@ local function TryCommit(s)
     if not s.host or s.state ~= "open" or s.committing or not s.myOk or s.myOk ~= s.theirOk then return false end
     local ok, slot = Give(s)
     if not ok then
-        Whisper(s.peer, { op = "cancel", id = s.id })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "cancel", id = s.id }, "WHISPER", s.peer)
         Close(s, "cancel", "invalid")
         return false
     end
@@ -496,7 +492,7 @@ local function TryCommit(s)
     Checkpoint()
     s.committing, s.commitAt = true, Now()
     tried[s.id] = Now()
-    Whisper(s.peer, { op = "commit", id = s.id, h = s.myOk })
+    ns.Games:Send(G.GAME_ID, { t = "AZT", op = "commit", id = s.id, h = s.myOk }, "WHISPER", s.peer)
     T:Changed()
     return true
 end
@@ -521,7 +517,7 @@ local function Settle(id)
             Close(s, "done")
         else
             local what = got and M.Name(got) or T.ItemsText(rec.theirItems)
-            Print("the trade with %s went through: you received %s.", rec.name or ShortName(rec.peer),
+            Print("the trade with %s went through: you received %s.", rec.name or ns.Util.ShortName(rec.peer, true),
                 what ~= "" and what or "nothing")
         end
     else
@@ -530,7 +526,7 @@ local function Settle(id)
         if live then
             Close(s, "cancel", "invalid")
         else
-            Print("the trade with %s didn't go through%s. Your side is back with you.", rec.name or ShortName(rec.peer),
+            Print("the trade with %s didn't go through%s. Your side is back with you.", rec.name or ns.Util.ShortName(rec.peer, true),
                 rec.expired and " (no answer for days)" or "")
         end
     end
@@ -546,7 +542,7 @@ function T:Confirm()
     if not mine and not theirs then return false, "empty" end
     if s.mine and not s.theirsWire and #G.save.party <= 1 then return false, "last" end
     s.myOk = T.PairHash(s)
-    Whisper(s.peer, { op = "confirm", id = s.id, h = s.myOk })
+    ns.Games:Send(G.GAME_ID, { t = "AZT", op = "confirm", id = s.id, h = s.myOk }, "WHISPER", s.peer)
     TryCommit(s)
     T:Changed()
     return true
@@ -556,7 +552,7 @@ end
 function T:Cancel(why)
     local s = T.session
     if not s or s.state ~= "open" or s.committing then return false end
-    Whisper(s.peer, { op = "cancel", id = s.id })
+    ns.Games:Send(G.GAME_ID, { t = "AZT", op = "cancel", id = s.id }, "WHISPER", s.peer)
     Close(s, "cancel", why or "me")
     return true
 end
@@ -594,7 +590,7 @@ local function OnCommit(sender, msg)
     local rec = Log()[id]
     if type(rec) == "table" then
         if rec.st == "done" and rec.peer == sender then
-            Whisper(sender, { op = "ack", id = id, h = rec.h, ok = true })
+            ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = id, h = rec.h, ok = true }, "WHISPER", sender)
         end
         return                                     -- (or my own escrow as the host: never applied from a commit)
     end
@@ -603,7 +599,7 @@ local function OnCommit(sender, msg)
         if s.host then return end
         s.heard = Now()
         if not s.myOk or s.myOk ~= h then          -- not the pair I accepted (crossed with a new offer)
-            Whisper(sender, { op = "ack", id = id, h = h, ok = false })
+            ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = id, h = h, ok = false }, "WHISPER", sender)
             Close(s, "cancel", "invalid")
             return
         end
@@ -616,12 +612,12 @@ local function OnCommit(sender, msg)
         local ls = last.session
         if ls.myOk ~= h or (not last.deferred and Now() - last.at > T.LATE_COMMIT) then
             T.last = nil
-            Whisper(sender, { op = "ack", id = id, h = h, ok = false })
+            ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = id, h = h, ok = false }, "WHISPER", sender)
             return
         end
         if not G:IsFree() then
             last.deferred = last.deferred or Now()
-            Whisper(sender, { op = "ack", id = id, h = h, wait = true })
+            ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = id, h = h, wait = true }, "WHISPER", sender)
             return
         end
         T.last = nil
@@ -636,7 +632,7 @@ local function OnCommit(sender, msg)
         return
     end
     -- a trade I don't know (I reloaded before it was carried out): refuse, nothing changed hands on either side
-    Whisper(sender, { op = "ack", id = id, h = h, ok = false })
+    ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = id, h = h, ok = false }, "WHISPER", sender)
 end
 
 -- Host: the answer to my commit.
@@ -688,7 +684,7 @@ function T:Update()
     if st and now - st.at > T.START_TIMEOUT and G.pending and G.pending.kind == "netwait" then G:Advance("timeout") end
     local s = T.session
     if s and s.state == "open" and not s.committing and now - s.heard > T.IDLE_TIMEOUT then
-        Whisper(s.peer, { op = "cancel", id = s.id })
+        ns.Games:Send(G.GAME_ID, { t = "AZT", op = "cancel", id = s.id }, "WHISPER", s.peer)
         Close(s, "cancel", "timeout")
     end
     -- other side: a commit held while I was busy
@@ -697,7 +693,7 @@ function T:Update()
         local ls = last.session
         if now - last.deferred > T.DEFER_MAX then
             T.last = nil
-            Whisper(ls.peer, { op = "ack", id = ls.id, h = ls.myOk, ok = false })
+            ns.Games:Send(G.GAME_ID, { t = "AZT", op = "ack", id = ls.id, h = ls.myOk, ok = false }, "WHISPER", ls.peer)
             Print("the trade with %s was called off: you were busy for too long. Nothing changed hands.", ls.name)
         elseif G:IsFree() then
             OnCommit(ls.peer, { id = ls.id, h = ls.myOk })
@@ -718,7 +714,7 @@ function T:Update()
                 rec.st, rec.expired = "no", true
             elseif now - (tried[id] or -1e9) >= (live and T.RETRY_LIVE or T.RETRY) then
                 tried[id] = now
-                Whisper(rec.peer, { op = "commit", id = id, h = rec.h })
+                ns.Games:Send(G.GAME_ID, { t = "AZT", op = "commit", id = id, h = rec.h }, "WHISPER", rec.peer)
             end
         end
         if type(rec) == "table" and (rec.st == "ok" or rec.st == "no") then Settle(id) end
