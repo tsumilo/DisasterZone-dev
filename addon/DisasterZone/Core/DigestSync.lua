@@ -57,7 +57,6 @@ local Util = ns.Util
 
 local Now, DemoOn = Util.Now, Util.DemoOn
 
-
 local Engine = {}
 Engine.__index = Engine
 
