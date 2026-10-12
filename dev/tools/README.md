@@ -18,7 +18,10 @@ directory (`SCRATCH`). The venv originally had no `python.exe`; it was restored 
 | `check.py` | Syntax check + global read/write analysis via Lua 5.1 bytecode, plus the uniformity guardrail |
 | `uniformity.py` + `uniformity_baseline.json` | Uniformity guardrail used by check.py (section 6); `test_uniformity.py` is its self-test |
 | `look_diff.py` | Before/after comparison of `ui_audit.py --look` renders (section 7) |
-| `luabc.py` | Lua 5.1 compiler wrapper + bytecode parser (used by check.py) |
+| `luabc.py` | Lua 5.1 compiler wrapper + bytecode parser (used by check.py; also the locals / upvalues limits) |
+| `layers.py` + `layers.json` + `layers_allow.json` | Dependency map of the addon and the layer lint behind `check.py --layers` (section 8) |
+| `modules_doc.py` | Module contract headers -> `dev/docs/MODULES.md`, header lint behind `check.py --headers` (section 8) |
+| `test_layers.py` | Self-test of layers.py, modules_doc.py, the limits check and their check.py flags (fake addon trees) |
 | `known_globals.json` | Cache: globals/API fields/events read by 20 installed reference addons (`--rebuild-known`) |
 | `harness.py` | `World` / `Client` simulator (Python side). `python tools\harness.py` = smoke run on real DisasterZone |
 | `wowmock/mock.lua` + `core.lua objects.lua ui.lua game.lua` | The mocked client (Lua side, plain 5.1) |
@@ -43,6 +46,10 @@ luaenv\Scripts\python.exe tools\check.py --rebuild-known # re-harvest known_glob
 luaenv\Scripts\python.exe tools\check.py --uniformity    # per-file uniformity counts, worst first (section 6)
 luaenv\Scripts\python.exe tools\check.py --uniformity-strict  # uniformity counts above the baseline are errors
 luaenv\Scripts\python.exe tools\check.py --no-uniformity # skip the uniformity check
+luaenv\Scripts\python.exe tools\check.py --layers        # only the layer lint (section 8); --strict: new violations fail
+luaenv\Scripts\python.exe tools\check.py --prune         # drop allowlist entries that no longer occur (section 8)
+luaenv\Scripts\python.exe tools\check.py --headers       # also the module contract header warnings (section 8)
+luaenv\Scripts\python.exe tools\check.py --no-layers --no-limits   # skip the layer lint / the Lua 5.1 limits check
 ```
 
 Output, one problem per line (`file:line: ...`), then a summary line:
@@ -59,9 +66,14 @@ Output, one problem per line (`file:line: ...`), then a summary line:
 | `WARN UNKNOWN EVENT 'X'` | `RegisterEvent("X")` string no reference addon registers/compares |
 | `INFO OPTIONAL-DEP GLOBAL 'LBIS'` | global of an OptionalDeps addon (LoonBestInSlot): make sure it is nil-guarded |
 | `WARN UNIFORMITY <kind>: <n> ...; baseline <m> (lines ...)` | a file has more literal token colours / local helper copies / numeric `SetFont` sizes / raid tables than `uniformity_baseline.json` allows (section 6); `ERROR` with `--uniformity-strict` |
+| `WARN LIMIT locals: main chunk has <n> active locals here` | Lua 5.1 allows 200 active locals per function (main chunk included); warned from 170, `ERROR` at 200. The line is where the peak is reached; for a function the message names it (section 8) |
+| `WARN LIMIT upvalues: <function> (lines a-b) uses <n> upvalues` | Lua 5.1 allows 60 upvalues per closure; warned from 45, `ERROR` at 60 (section 8) |
+| `WARN LAYERS <kind> <from> -> <to>: <why> [symbols]` | a layer violation not in `layers_allow.json` (section 8); `ERROR` with `--strict` |
+| `WARN LAYERS-STALE allowlist entry ...` | an allowlisted violation (or some of its symbols) no longer occurs: `--prune` (whole-addon runs only) |
+| `WARN HEADER missing / layer / api / uses: ...` | module contract header problems, with `--headers` only (section 8) |
 
-Exit code: **1 if any syntax error or global write** (or any warning with `--strict`, or any uniformity count above
-the baseline with `--uniformity-strict`), else 0.
+Exit code: **1 if any syntax error, global write or other ERROR line** (or any warning with `--strict`, or any
+uniformity count above the baseline with `--uniformity-strict`), else 0.
 
 How it works: each file is compiled with `loadstring(src, "@rel/path")` inside lupa, `string.dump`ed, and the
 Lua 5.1 bytecode is parsed in Python (header sizes read from the dump: int 4, size_t 8, Instruction 4, number 8
@@ -372,3 +384,69 @@ For every view in both folders it measures the share of changed pixels and the m
 underscores in file names). It needs Pillow only (no lupa). Open the JPGs and judge: intended unification is fine;
 missing text, overlaps, clipped or empty areas, wrong layering or broken art are regressions. The refactor's
 baseline renders (all 445 views of release 1.3.5) are in `C:\Users\emilo\DZ-wt\baseline_look`.
+
+---------------------------------------------------------------------------------------------------------------
+
+## 8. Layer map, Lua 5.1 limits and module headers (`layers.py`, `modules_doc.py`; architecture phase P0)
+
+The rules come from `dev/docs/ARCHITECTURE_PLAN.md` (target layers, feature order, module contract header).
+
+**Dependency map** (`layers.py`): every file the TOC loads (Libs/ excluded) is parsed with comments and string
+contents blanked. A reference is `ns.X`, `ns.X.Y`, `ns:X` (a namespace function such as `ns:Fire`), or a member of a
+local alias: `local X = ns.Y`, `local X = ns.Y or {}`, `local A, B = ns.A, ns.B`, `local M = {} ... ns.X = M`,
+`local X = ns:NewModule("Y")`; function aliases (`local Now = ns.Util.Now`) count each bare use. A reference resolves
+to the file that defines the member (`function Alias:Method`, `Alias.Method = function`, a top-level
+`Alias.FIELD = value`, `ns.X.Y = value`): a definition in the module's own file wins, then the first
+`function X:Y` statement in TOC order, then the first assignment, so a module split across files (UI kit methods in
+`UI/Comp/*`) resolves to the right file and a hook installed elsewhere (Perf wrapping `Comm.Send`) does not steal
+the method. Members nobody defines fall back to the module's file. Alias declarations themselves are not uses.
+
+**Layers and features** (`layers.json`): `prefixes` gives the layer of each path prefix (longest wins) for today's
+folders and the target folders (`Logic/Context/`, `Logic/<Feature>/`, `Sync/`, `UI/Kit/`, ...); `files` overrides
+it per file for today's flat `Core/` (feature logic = 3, `Guild`/`GroupRules`/`ItemDB` = 2, `Comm`/`Sync`/
+`DigestSync` = 4); `features` tags each file (first regex wins; today's names, then the target folders);
+`feature_order` is the order inside the logic level, one list = siblings. **The P4 move only edits this file**:
+delete the `files` overrides of moved files (`layers.py --report` lists overrides that name missing files) and run
+`layers.py --rename dev/docs/arch/MOVES.json` to rewrite the allowlist paths.
+
+Violation kinds: `up` (a file calls a file in a higher layer), `kit` (a UI kit file calls a feature's logic or
+pages), `order` (at the logic level, L2-L3, a feature calls a later feature or a sibling).
+
+```
+luaenv\Scripts\python.exe tools\layers.py --report           # summary: upward edges by layer pair, kit, feature
+                                                             #   order, feature cycles, logic+wire files, Core -> UI
+luaenv\Scripts\python.exe tools\layers.py --file Core/Util.lua   # one file: aliases, calls (** = violation), callers
+luaenv\Scripts\python.exe tools\layers.py --check [--strict] # new violations + stale allowlist entries
+luaenv\Scripts\python.exe tools\layers.py --baseline         # rewrite layers_allow.json from today's code (on purpose only)
+luaenv\Scripts\python.exe tools\layers.py --prune            # = check.py --prune
+luaenv\Scripts\python.exe tools\layers.py --rename MOVES.json   # {old: new} or [[old, new], ...]
+luaenv\Scripts\python.exe tools\layers.py --json map.json    # the whole map
+luaenv\Scripts\python.exe tools\check.py --layers [--strict] [paths]   # the lint alone (~3 s)
+```
+
+`layers_allow.json` lists today's violations as file -> file pairs with their symbols (one entry per line). It
+only shrinks: a new pair, or a new symbol on an allowed pair, is reported as `WARN LAYERS` by every normal
+`check.py` run (only for the files checked; `ERROR` with `--strict`); an entry or symbol that no longer occurs is
+reported as `WARN LAYERS-STALE` on whole-addon runs, and `--prune` drops it (prune never adds). Fix a violation
+through a message (`ns:Fire`), a port or a registry, then prune.
+
+Today (12 Oct 2026, base 9c10f98): 261 files, 2,080 file edges; 113 violations = 82 `up` + 9 `kit` + 22 `order`.
+
+**Lua 5.1 limits** (`luabc.limits`, part of every `check.py` run): from the bytecode, the most locals active at
+once in each function (the debug info's local ranges; parameters and loop variables count) and each closure's
+upvalue count. One line per file and kind (the worst function): `WARN` from 170 locals / 45 upvalues, `ERROR` at
+the real limits 200 / 60. Verified against the compiler (a file at 186 takes exactly 14 more top-level locals).
+
+**Module contract headers** (`modules_doc.py`): the header after the line-1 guard (`-- Module <name> [(<part>)]
+Layer <n> · <folder>`, then `Owns`, `Uses`, `Fires`, `API` with `--   Mod:Func(args) -> ...` lines; continuation
+lines are indented). `check.py --headers` warns when a file has no header, when its Layer differs from
+`layers.json`, when an API line names a function no file defines, or when `Uses` omits a module the file calls
+(feature-qualified names such as `Context.Roster` count as `Roster`; parenthesised text is a remark). No file has a
+header yet, so the warning count (261) is the to-do list.
+
+```
+luaenv\Scripts\python.exe tools\modules_doc.py           # write dev/docs/MODULES.md (sections by layer; files
+                                                         #   without a header list the functions other files call)
+luaenv\Scripts\python.exe tools\modules_doc.py --check   # the header warnings alone
+luaenv\Scripts\python.exe tools\test_layers.py           # self-test of all of the above (~5 s)
+```

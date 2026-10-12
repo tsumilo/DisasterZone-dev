@@ -1,0 +1,165 @@
+{
+ "_doc": [
+  "Layer map of the addon for tools/layers.py and check.py --layers (dev/docs/ARCHITECTURE_PLAN.md, 'Target layers').",
+  "layers: the 7 layers in load order. A file may call its own layer and the ones below it.",
+  "prefixes: layer of each path prefix, longest prefix wins. Holds today's folders AND the target folders of P4, so the",
+  "  move only edits this file (drop the 'files' overrides of moved files), never the tool.",
+  "files: per-file layer overrides for today's flat Core/ (feature logic, context, sync all live there until P4).",
+  "features: [regex, feature] on the path, first match wins; the feature may use groups ('\\1'). Today's names first",
+  "  (ported from the proposal's domain tagging), then the target folders.",
+  "feature_order: the order inside the logic level (logic_layers); a feature may call earlier ones only. One list =",
+  "  siblings of the same rank, which may not call each other.",
+  "kit: files of this feature may not call files of the 'forbidden' features (at min_target_layer or above).",
+  "wire: modules (and method regex) that count as addon-message code for the logic+wire report."
+ ],
+ "layers": {"0": "Platform", "1": "Game data", "2": "Context", "3": "Feature logic", "4": "Sync", "5": "UI", "6": "Games"},
+ "prefixes": {
+  "Core/": 0,
+  "Data/": 1,
+  "Data/Tours/": 5,
+  "Logic/Context/": 2,
+  "Logic/Items/": 2,
+  "Logic/": 3,
+  "Sim/": 3,
+  "Sync/": 4,
+  "Render3D/": 5,
+  "UI/": 5,
+  "Games/": 6
+ },
+ "files": {
+  "Core/Guild.lua": 2,
+  "Core/GroupRules.lua": 2,
+  "Core/ItemDB.lua": 2,
+
+  "Core/Store.lua": 3,
+  "Core/BiS.lua": 3,
+  "Core/BiSImport.lua": 3,
+  "Core/BiSExport.lua": 3,
+  "Core/WornGems.lua": 3,
+  "Core/Gems.lua": 3,
+  "Core/Atlas.lua": 3,
+  "Core/Materials.lua": 3,
+  "Core/Currency.lua": 3,
+  "Core/ShoppingList.lua": 3,
+  "Core/Kit.lua": 3,
+
+  "Core/Professions.lua": 3,
+  "Core/GuildMap.lua": 3,
+  "Core/OfficerNotes.lua": 3,
+  "Core/Feedback.lua": 3,
+
+  "Core/RaidPlan.lua": 3,
+  "Core/RaidNights.lua": 3,
+  "Core/Attendance.lua": 3,
+  "Core/RaidComp.lua": 3,
+  "Core/RaidInvite.lua": 3,
+  "Core/RaidLink.lua": 3,
+  "Core/GuestBook.lua": 3,
+  "Core/RaidLog.lua": 3,
+  "Core/DungeonRuns.lua": 3,
+  "Core/GroupFinder.lua": 3,
+
+  "Core/Dungeon.lua": 3,
+  "Core/Loot.lua": 3,
+  "Core/Roll.lua": 3,
+  "Core/Loon.lua": 3,
+  "Core/Ledger.lua": 3,
+  "Core/Prized.lua": 3,
+
+  "Core/EventBlocks.lua": 3,
+  "Core/EventEngine.lua": 3,
+  "Core/Events.lua": 3,
+  "Core/EventLive.lua": 3,
+  "Core/EventSensors.lua": 3,
+  "Core/Polls.lua": 3,
+
+  "Core/Strategy.lua": 3,
+  "Core/StrategyObjects.lua": 3,
+  "Core/StrategyLive.lua": 3,
+  "Core/StrategyPractice.lua": 3,
+  "Core/StrategyCollab.lua": 3,
+
+  "Core/CombatLog.lua": 3,
+  "Core/Meter.lua": 3,
+  "Core/Threat.lua": 3,
+  "Core/MeterDemo.lua": 3,
+  "Core/MyLog.lua": 3,
+  "Core/MyLogDemo.lua": 3,
+
+  "Core/SwingTimer.lua": 3,
+  "Core/SwingPractice.lua": 3,
+  "Core/ClassPlanner.lua": 3,
+  "Core/Blessings.lua": 3,
+  "Core/Totems.lua": 3,
+
+  "Core/Comm.lua": 4,
+  "Core/Sync.lua": 4,
+  "Core/DigestSync.lua": 4
+ },
+ "features": [
+  ["^Core/(Comm|Sync|DigestSync)\\.lua$", "Sync"],
+  ["^Sync/", "Sync"],
+  ["^Core/(Guild|GroupRules)\\.lua$", "Context"],
+
+  ["^Data/(Items|Raids|Dungeons|Sources|ItemClasses|Gems|Consumables|Atlas)\\.lua$", "Items"],
+  ["^Core/(ItemDB|Gems|Currency|Materials|ShoppingList|Atlas|WornGems)\\.lua$", "Items"],
+  ["^UI/(Atlas|AtlasShop|Tooltip|GemEditor|Picker)\\.lua$", "Items"],
+
+  ["^Core/(Professions|GuildMap|OfficerNotes|Feedback)\\.lua$", "Guild"],
+  ["^UI/(Members|GuildMapUI|Feedback|FeedbackSheet)\\.lua$", "Guild"],
+
+  ["^Data/(BiSLists|SimItems|SimAPL)\\.lua$", "Gear"],
+  ["^Core/(BiS|BiSImport|BiSExport|Kit|Store)\\.lua$", "Gear"],
+  ["^UI/(MyBiS|PaperDoll|ImportExport|Sim\\w*|KitView)\\.lua$", "Gear"],
+  ["^Sim/", "Gear"],
+
+  ["^Core/(Loot|Roll|Loon|Ledger|Prized|Dungeon)\\.lua$", "Loot"],
+  ["^UI/(Council|LootLog|DropPanel|RollFrame|SessionBar|PrizedUI|LootRulesUI|CouncilRules)\\.lua$", "Loot"],
+
+  ["^Core/(RaidNights|RaidPlan|Attendance|RaidComp|RaidInvite|RaidLink|GuestBook|DungeonRuns|GroupFinder|RaidLog)\\.lua$", "Raids"],
+  ["^UI/(RaidGroups|RaidPlanUI|RaidSheet|GuestBook|RaidLeadersUI|AttendanceUI|RaidsTab|DungeonsTab)\\.lua$", "Raids"],
+
+  ["^Data/Tours/", "Tours"],
+  ["^Data/(BossPortraits|BossJournal|BossAbilities|RaidMaps|MapOverlays|StarterStrategies|ModelIndex|EncounterObjects|EncounterSpawns)\\.lua$", "Strategy"],
+  ["^Core/Strategy\\w*\\.lua$", "Strategy"],
+  ["^UI/Strateg\\w*\\.lua$", "Strategy"],
+
+  ["^Render3D/Probe\\.lua$", "Dev"],
+  ["^Render3D/", "Render3D"],
+
+  ["^Core/(Event\\w*|Polls)\\.lua$", "Events"],
+  ["^UI/(Event\\w*|PollsTab)\\.lua$", "Events"],
+
+  ["^Core/(CombatLog|MyLog|MyLogDemo|Meter|Threat|MeterDemo)\\.lua$", "Combat"],
+  ["^UI/(MyLog\\w*|Meter\\w*)\\.lua$", "Combat"],
+
+  ["^Data/Classes/", "ClassTools"],
+  ["^Core/(SwingTimer|SwingPractice|ClassPlanner|Blessings|Totems)\\.lua$", "ClassTools"],
+  ["^UI/(SwingTimerHUD|SwingPracticeUI|PlannerWindow|BlessingsUI|BarFace|ClassBar|BlessingsBar|TotemsUI|TotemBar)\\.lua$", "ClassTools"],
+
+  ["^UI/(Style|Widgets|Popup|Menu|TooltipSkin|DatePicker)\\.lua$", "Kit"],
+  ["^UI/Comp/", "Kit"],
+  ["^UI/(MainFrame|NavMenu|MinimapArc|Dashboard|Settings|Changelog|Notify|NotifySources|PerfUI|Share|ShareWindow|Tour|WelcomeTour|PatchUI)\\.lua$", "Shell"],
+  ["^Data/Changelog\\.lua$", "Shell"],
+
+  ["^Logic/(Context|Items|Gear|Guild|Raids|Loot|Events|Strategy|Combat|ClassTools)/", "\\1"],
+  ["^UI/Kit/", "Kit"],
+  ["^UI/(Shell|Tours|Dev)/", "\\1"],
+  ["^UI/(Gear|Guild|Raids|Loot|Events|Strategy|Combat|ClassTools)/", "\\1"],
+
+  ["^Core/", "Platform"],
+  ["^Games/", "Games"],
+  ["^Data/", "Data"]
+ ],
+ "feature_order": [["Context"], ["Items"], ["Gear"], ["Guild"], ["Raids"], ["Loot"], ["Events", "Strategy", "Combat", "ClassTools"]],
+ "logic_layers": [2, 3],
+ "kit": {
+  "feature": "Kit",
+  "forbidden": ["Gear", "Guild", "Raids", "Loot", "Events", "Strategy", "Combat", "ClassTools", "Shell", "Tours", "Dev", "Games"],
+  "min_target_layer": 2
+ },
+ "wire": {
+  "Comm": "^(Send|Register|RateLimit|Fits|AllowLarge|Backlog)",
+  "DigestSync": "."
+ }
+}
