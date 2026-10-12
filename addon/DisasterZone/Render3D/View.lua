@@ -414,7 +414,9 @@ end
 -- (R3.ORBIT_DRAG: radians per pixel), the wheel zooms by opts.zoom a notch (0.88), MoveTo eases it to a view
 -- (smoothstep; the distance linearly, or in its logarithm with opts.ease = "log" so a long zoom does not rush its
 -- near end). opts: orb (the table to keep: it stays the same table, Set copies into it), clamp(o) (keeps a view in
--- bounds), wheelGoal (the wheel zooms from where a move is going), snapDist(dist) -> dist (the wheel's last notch in).
+-- bounds), wheelGoal (the wheel zooms from where a move is going), snapDist(dist) -> dist (the wheel's last notch in),
+-- state (the table that holds the move under way, .anim = { from, to, t0, dur, after }, and the drag, .drag: the
+-- strategy board keeps them on its view, where its tour reads them; default the controller itself).
 -- Each view keeps its own feel (decision D6): the chess hall 0.88 linear, the strategy board 0.82 log.
 R3.ORBIT_DRAG = { x = 0.008, y = 0.006 }
 
@@ -423,9 +425,11 @@ Orbit.__index = Orbit
 
 function R3.NewOrbitController(view, opts)
     opts = opts or {}
-    return setmetatable({ view = view, orb = opts.orb or { heading = 0, pitch = 0.5, dist = 20 },
-                          zoom = opts.zoom or 0.88, ease = opts.ease or "linear", clamp = opts.clamp,
-                          centre = opts.centre, wheelGoal = opts.wheelGoal, snapDist = opts.snapDist }, Orbit)
+    local c = setmetatable({ view = view, orb = opts.orb or { heading = 0, pitch = 0.5, dist = 20 },
+                             zoom = opts.zoom or 0.88, ease = opts.ease or "linear", clamp = opts.clamp,
+                             centre = opts.centre, wheelGoal = opts.wheelGoal, snapDist = opts.snapDist }, Orbit)
+    c.s = opts.state or c
+    return c
 end
 
 -- A copy of a view (default the orbit now): x, y, heading, pitch, dist.
@@ -436,7 +440,7 @@ end
 
 -- Where the camera is going: the end of the move under way, else where it is.
 function Orbit:Goal()
-    return self.anim and self.anim.to or self.orb
+    return self.s.anim and self.s.anim.to or self.orb
 end
 
 -- Puts the orbit at view `o` at once (its fields copied: orb stays the same table). -> orb
@@ -463,7 +467,7 @@ end
 
 -- Stops a move and a drag under way.
 function Orbit:Stop()
-    self.anim, self.drag = nil, nil
+    self.s.anim, self.s.drag = nil, nil
 end
 
 -- Eases the camera to view `to` (kept in bounds) over `dur` seconds (0.35); after() once there. The heading goes the
@@ -475,15 +479,15 @@ function Orbit:MoveTo(to, dur, after, raw)
         local dh = (to.heading - from.heading + math.pi) % (2 * math.pi) - math.pi
         to.heading = from.heading + dh
     end
-    self.anim = { from = from, to = to, t0 = GetTime(), dur = dur or 0.35, after = after }
+    self.s.anim = { from = from, to = to, t0 = GetTime(), dur = dur or 0.35, after = after }
 end
 
 -- The wheel: one notch in (delta > 0) or out. Ends a move.
 function Orbit:Wheel(delta)
-    local base = (self.wheelGoal and self.anim) and self.anim.to.dist or self.orb.dist
+    local base = (self.wheelGoal and self.s.anim) and self.s.anim.to.dist or self.orb.dist
     local d = base * (delta > 0 and self.zoom or 1 / self.zoom)
     if self.snapDist then d = self.snapDist(d) end
-    self.anim = nil
+    self.s.anim = nil
     self.orb.dist = d
     self:Clamp()
 end
@@ -492,14 +496,14 @@ end
 function Orbit:BeginDrag(button)
     local cx, cy = GetCursorPosition()
     local o = self.orb
-    self.drag = { button = button, cx = cx, cy = cy, heading = o.heading, pitch = o.pitch }
+    self.s.drag = { button = button, cx = cx, cy = cy, heading = o.heading, pitch = o.pitch }
 end
 
 -- A button let go: -> "click" when it held a drag that never moved (4 px), true when it held a moved one, else nil.
 function Orbit:EndDrag(button)
-    local d = self.drag
+    local d = self.s.drag
     if not (d and d.button == button) then return nil end
-    self.drag = nil
+    self.s.drag = nil
     return d.moved and true or "click"
 end
 
@@ -508,13 +512,13 @@ local function Smooth(t) return t * t * (3 - 2 * t) end
 -- One frame: the move under way (its after() when it ends), then the drag. -> true when the camera moved
 function Orbit:Step()
     local moved = false
-    local a = self.anim
+    local a = self.s.anim
     if a then
         local t = (GetTime() - a.t0) / max(0.01, a.dur)
         local o, f, to = self.orb, a.from, a.to
         if t >= 1 then
             self:Set(to)
-            self.anim = nil
+            self.s.anim = nil
         else
             local k = Smooth(t)
             if f.x and to.x then o.x, o.y = f.x + (to.x - f.x) * k, f.y + (to.y - f.y) * k end
@@ -527,12 +531,12 @@ function Orbit:Step()
             end
         end
         moved = true
-        if not self.anim and a.after then a.after() end
+        if not self.s.anim and a.after then a.after() end
     end
-    local d = self.drag
+    local d = self.s.drag
     if d then
         if not IsMouseButtonDown(d.button) then
-            self.drag = nil
+            self.s.drag = nil
         else
             local cx, cy = GetCursorPosition()
             local dx, dy = cx - d.cx, cy - d.cy
@@ -541,7 +545,7 @@ function Orbit:Step()
                 local o = self.orb
                 o.heading = d.heading - dx * R3.ORBIT_DRAG.x
                 o.pitch = d.pitch - dy * R3.ORBIT_DRAG.y
-                self.anim = nil
+                self.s.anim = nil
                 self:Clamp(o)
                 moved = true
             end

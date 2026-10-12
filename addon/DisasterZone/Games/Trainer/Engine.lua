@@ -17,7 +17,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/Trainer/Engine.lua", ...) th
 --   displays = { [creature display ID] = { scale, chest, head, hand, name } }: each display's size (its
 --              CreatureModelScale: the view draws it, the client's ModelScene does not) and its model's attachment
 --              heights in model units (Chest, Head, SpellLeftHand, PlayerName), where effects (Fx attach) and
---              name plates go
+--              name plates go; an encounter merges them into the one R3.DISPLAYS (ns.Render3D.AddDisplays) and
+--              gives that table here
 --   player = { x, y, speed, facing },
 --   interactKey = "F",                  that key uses the nearest thing with an .interact in reach
 --   compass = true,                     the minimap shows N / E / S / W (arena y is north)

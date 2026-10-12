@@ -133,8 +133,9 @@ function M3:Create(canvas)
     self.actorPool[1] = self.view.probe
     -- the camera orbits a point on the floor (riding up to eye height all the way in); decision D6: the board keeps
     -- its own feel, a wheel notch 0.82 that zooms on from where a move is going, the distance easing in its logarithm
-    self.orbit = r3.NewOrbitController(self.view, { orb = self.orb, zoom = 0.82, ease = "log", wheelGoal = true,
-        clamp = function(o) self:ClampOrb(o) end,
+    -- (the move under way and the drag stay on the view, self.anim and self.drag: Data/Tours/Strategy.lua reads them)
+    self.orbit = r3.NewOrbitController(self.view, { orb = self.orb, state = self, zoom = 0.82, ease = "log",
+        wheelGoal = true, clamp = function(o) self:ClampOrb(o) end,
         centre = function(o) return self:OrbitCentre(o) end,
         snapDist = function(d) if d < DIST_MIN * 1.5 then return DIST_MIN end return d end })
     self.drawLines = function() self:DrawLines(self.remoteNow) end
@@ -1941,7 +1942,7 @@ function V:LookAtInset(ease)
     if ease then
         self:LookAt(x, y)
     else
-        self.orbit.anim = nil
+        self.anim = nil
         self.orb.x, self.orb.y = x, y
         self:ClampOrb(self.orb)
         self:Invalidate()
@@ -2108,7 +2109,7 @@ function V:OnUpdate(elapsed)
                 if x then
                     local o = self.orb
                     o.x, o.y = o.x + (d.x - x), o.y + (d.y - y)
-                    self.orbit.anim = nil
+                    self.anim = nil
                     self:ClampOrb(o)
                     moved = true
                 end
@@ -2634,7 +2635,7 @@ function V:MouseDown(button, editable, tool)
         local x, y = self:FloorAt(sx, sy, z)
         self.drag3 = { kind = "pan", button = button, cx = cx, cy = cy, x = x or o.x, y = y or o.y, z = z }
         if not x then self.drag3 = nil end
-        self.orbit.drag = nil
+        self.drag = nil
         return true
     end
     return false
@@ -2684,7 +2685,7 @@ function V:_State()
     local shown = 0
     for _, c in ipairs(self.chips) do if c:IsShown() then shown = shown + 1 end end
     return { on = self.on or false, room = self.room and self.room.key or false, orb = Copy(self.orb),
-             animating = self.orbit.anim ~= nil, plates = shown, models = nModels, hits = self.nHits or 0,
+             animating = self.anim ~= nil, plates = shown, models = nModels, hits = self.nHits or 0,
              handles = #self.handles, textures = R and R.ShownTextures() or 0, lines = R and R.ShownLines() or 0,
              measured = self.measured or false, inset = self.insetOn or false, hint = self.hint:GetText() or "",
              mySpots = #self:MySpots(), compass = self.compass:IsShown() }
