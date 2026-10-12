@@ -1047,15 +1047,16 @@ local library = {
     {
         title = "The strategies",
         anchor = function() return L().detail.list.frame end,
-        side = "left",
+        side = "right",
         text = "A click on a card opens the strategy to look at. The pencil changes yours and the ones shared with "
             .. "you. The ... menu has the rest: Copy makes any strategy yours, and Delete is for the owner, the Guild "
-            .. "Master and the guild council.\n\nYour drafts sit on top, tagged Draft: continue or discard them.",
+            .. "Master and the guild council.\n\nYour drafts sit on top of their raid, tagged Draft: continue or "
+            .. "discard them.",
     },
     {
         title = "Building together",
         anchor = function() return L().detail.list.frame end,
-        side = "left",
+        side = "right",
         text = "Collaborators, in the ... menu of a strategy you own, picks the guild members who build it with you: "
             .. "they change it like you do. Share puts a link to a strategy in the chat.\n\nWhen two of you edit at "
             .. "the same time the board goes live: you see each other's changes and selections as they happen. A "
@@ -1065,7 +1066,7 @@ local library = {
         title = "Your turn",
         anchor = function() return L().detail.newBtn end,
         side = "left",
-        text = "New strategy starts a real one for the boss picked on the left. It opens with the boss' map and its "
+        text = "New strategy starts a real one for the boss picked on the right. It opens with the boss' map and its "
             .. "creatures in place, like the practice board did.\n\nThis tutorial stays under the ? beside it, and "
             .. "under the board's ?, chapter by chapter.",
     },

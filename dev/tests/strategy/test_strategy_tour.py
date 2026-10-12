@@ -442,6 +442,47 @@ def a_later_chapter_started_on_its_own_brings_its_board():
 
 
 @case
+def the_library_chapter_points_where_the_layout_puts_things():
+    """1.4 put the raids and bosses in a side card on the RIGHT of the Strategies view (the board layout) and the
+    strategies in the left column: the library chapter must not send a member to pick a boss on the left."""
+    w, c, bob = setup()
+    start(w, bob, "library")
+    lay = bob.eval_py("""
+        local lib = ns.StrategiesUI:GetLibrary()
+        local L = lib.layout
+        local function inside(f, root)
+            while f do
+                if f == root then return true end
+                f = f:GetParent()
+            end
+            return false
+        end
+        local p = L.side and select(1, L.side:GetPoint(1))
+        return { side = L.side ~= nil, at = p, raids = inside(lib.list.frame or lib.list, L.side),
+                 strategies = inside(lib.detail.list.frame, L.side) }""")
+    assert lay == {"side": True, "at": "TOPRIGHT", "raids": True, "strategies": False}, lay
+    texts = bob.eval_py("""
+        local out = {}
+        for _, ch in ipairs(ns.Tour:Get('strategy').chapters) do
+            if ch.key == 'library' then
+                for _, st in ipairs(ch.steps) do
+                    local t = st.text
+                    if type(t) == 'function' then t = t() end
+                    out[#out + 1] = t
+                end
+            end
+        end
+        return out""")
+    assert texts, "no library steps"
+    for t in texts:
+        assert "on the left" not in t, t
+    assert any("picked on the right" in t for t in texts), texts
+    assert any("on top of their raid" in t for t in texts), texts
+    bob.eval("%s:Stop()" % T)
+    w.assert_no_errors()
+
+
+@case
 def the_link_step_brings_its_own_zone_when_everything_is_linked():
     w, c, bob = setup()
     start(w, bob, "jobs")
