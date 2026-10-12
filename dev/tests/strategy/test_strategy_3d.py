@@ -965,6 +965,9 @@ def the_room_data_loads_only_when_a_room_is_first_drawn():
     assert bob.eval("return ns.Render3D.DataLoaded()") is False
     assert bob.eval("return (C_AddOns.IsAddOnLoaded('DisasterZone_Rooms'))") is False
     assert bob.eval("return ns.RoomFloors == nil and ns.RoomStandins == nil")
+    # (the client calls an installed load-on-demand addon not loaded yet not loadable, "DEMAND_LOADED": no problem)
+    assert bob.eval("return (select(5, C_AddOns.GetAddOnInfo('DisasterZone_Rooms')))") == "DEMAND_LOADED"
+    assert bob.eval("return ns.Render3D.DataAvailable() == true and ns.Render3D.DataProblem() == nil")
     assert bob.eval("return %s.mode3d:IsShown()" % W) is True                 # (the switch, without the data)
     assert bob.eval("return ns.Render3D.DataLoaded()") is False
     go3d(w, bob)
@@ -1021,6 +1024,7 @@ def with_the_rooms_turned_off_the_addon_list_is_named():
     rooms = [s for s in said if "DisasterZone_Rooms" in s]
     assert len(rooms) == 1 and "AddOn list" in rooms[0], said
     assert bob.eval("return select(2, ns.Render3D.DataAvailable())") == "DISABLED"
+
 
 
 if __name__ == "__main__":

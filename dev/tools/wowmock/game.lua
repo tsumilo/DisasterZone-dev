@@ -2211,6 +2211,10 @@ C_AddOns = {
     if M.disabled_addons and M.disabled_addons[name] then
       return name, meta.title or name, meta.notes or "", false, "DISABLED", "INSECURE", false
     end
+    -- (a load-on-demand addon not loaded yet: loadable false, "DEMAND_LOADED", as the client says it)
+    if not M.loaded_addons[name] and (meta.loadondemand == "1" or meta.loadondemand == 1) then
+      return name, meta.title or name, meta.notes or "", false, "DEMAND_LOADED", "INSECURE", false
+    end
     return name, meta.title or name, meta.notes or "", true, nil, "INSECURE", false
   end,
   -- A load-on-demand addon the harness knows (tools/harness.py Client lod_addons: DisasterZone_Rooms) loads now, its

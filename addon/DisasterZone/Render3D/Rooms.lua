@@ -114,8 +114,9 @@ function R3.DataAvailable()
     if not info then return true end                   -- (cannot tell: LoadData will)
     local name, _, _, loadable, reason = info(R3.DATA_ADDON)
     if not name then return false, "MISSING" end
-    if loadable == false or reason == "DISABLED" or reason == "MISSING" then return false, reason or "DISABLED" end
-    return true
+    -- (the client calls a load-on-demand addon that is not loaded yet not loadable, reason "DEMAND_LOADED": it is)
+    if loadable or reason == nil or reason == "DEMAND_LOADED" then return true end
+    return false, reason
 end
 
 -- Loads the room data (once). -> true when it is in; false and why when it cannot be (as R3.DataAvailable).
