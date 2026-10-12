@@ -306,5 +306,53 @@ def the_nav_share_links_the_feedback_page_and_the_picked_item():
     w.assert_no_errors()
 
 
+@case
+def the_box_shows_its_count_and_placeholder_over_its_fill():
+    # (1.4 regression: the box became a card with its own fill, a child frame drawn over its parent's text)
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    open_page(a, w)
+    a.eval("ns.FeedbackUI:GetPanel().banner.tiles.idea:Click()")
+    w.tick(0.2)
+    f = "%s:GetFrame()" % SHEET
+    over = a.eval_py("""local f = %s
+      local function above(fs)
+        local p = fs:GetParent()
+        return p == f.boxEdge or (p:GetFrameLevel() > f.boxEdge:GetFrameLevel())
+      end
+      return { above(f.hint), above(f.count) }""" % f)
+    assert over == [True, True], over
+    assert a.eval("return %s.hint:IsShown()" % f) is True
+    a.eval("%s.edit:SetText('Let me pin pages to the minimap.')" % f)
+    assert a.eval("return %s.count:GetText()" % f) == "32 / 400"
+    assert a.eval("return %s.hint:IsShown()" % f) is False
+    w.assert_no_errors()
+
+
+@case
+def feedback_pop_ups_waiting_behind_a_full_stack_are_all_shown():
+    # (1.4 regression: a second pop-up replaced the first one while it waited in the shared queue)
+    w, c = standard()
+    settle(w)
+    a = c["Alfa"]
+    a.eval("for i = 1, ns.UI.TOAST.MAX do ns.UI:Toast({ key = 'fill' .. i, title = 'Other ' .. i, duration = 0 }) end")
+    a.eval("%s:Toast({ title = 'First', text = 'one', button = 'OK' })" % SHEET)
+    a.eval("%s:Toast({ title = 'Second', text = 'two', button = 'OK' })" % SHEET)
+    w.tick(0.2)
+    assert a.eval("return %s:GetToast() ~= nil and ns.UI:GetToast('dz-feedback') ~= nil" % SHEET) is False
+    a.eval("for i = 1, ns.UI.TOAST.MAX do ns.UI:HideToast('fill' .. i) end")
+    w.tick(1)
+    seen = []
+    for _ in range(4):
+        t = a.eval_py("local t = ns.UI:GetToast('dz-feedback'); return t and t.title:GetText() or false")
+        if t and t not in seen:
+            seen.append(t)
+            a.eval("ns.UI:HideToast('dz-feedback', 'close')")
+        w.tick(1)
+    assert seen == ["First", "Second"], seen
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

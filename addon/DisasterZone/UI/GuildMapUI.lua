@@ -695,6 +695,10 @@ function GuildMapUI:CreatePanel(parent)
     -- in a zone, the way up (continent › zone › here) as a chip at the top left: a click goes up one step
     p.crumb = UI():CreateChip(art, { kind = "track", onClick = function() GuildMapUI:ZoomOut() end })
     p.crumb:SetPoint("TOPLEFT", 10, -10)
+    -- (a left chevron in front: the back button's mark; the atlas chevron points down, turned as UI:SetChevron)
+    local cc = UI():IconCoords(UI().ICON.chevron)
+    p.crumb:SetIcon(UI().ICON_ATLAS, { cc[1], cc[4], cc[2], cc[4], cc[1], cc[3], cc[2], cc[3] }, "SUB")
+    p.crumb.icon:SetSize(10, 10)
     p.crumb:SetFrameLevel(art:GetFrameLevel() + 20)
     p.crumb.text = p.crumb.fs
     UI():AttachTooltip(p.crumb, "Up one step", "Right-click the map does the same.")

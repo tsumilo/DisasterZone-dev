@@ -828,5 +828,92 @@ def a_pugs_class_and_my_pick_of_roles_go_with_the_party():
     w.assert_no_errors()
 
 
+@case
+def the_list_a_run_sheet_keeps_its_draft_while_the_tab_or_the_window_is_away():
+    # (1.4 regression: the shared sheet's OnHide closed it, and lost the draft, whenever the page hid)
+    w, c = five()
+    g = c["Gina"]
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(1)
+    g.eval("ns.DungeonsUI:OpenSheet(); ns.DungeonsUI:SetSheet({ d = 'Mechanar', when = 'later', day = 1, "
+           "mins = 20 * 60, no = 'chill run' })")
+    w.tick(0.5)
+    draft = lambda: g.eval_py("local s = ns.DungeonsUI:GetSheetState(); return s and s.no or false")  # noqa: E731
+    g.eval("ns.MainFrame:Open('home')")
+    w.tick(0.5)
+    assert draft() == "chill run"
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    assert draft() == "chill run"
+    assert g.eval("return ns.DungeonsUI:GetPanel().sheet:IsVisible()") is True
+    g.eval("ns.MainFrame:Close()")
+    w.tick(0.5)
+    g.eval("ns.MainFrame:Open('dungeons')")
+    w.tick(0.5)
+    assert draft() == "chill run"
+    # its own X still closes it (nothing listed)
+    g.click(g.eval("return ns.DungeonsUI:GetPanel().sheet.close"))
+    w.tick(0.5)
+    assert draft() is False
+    assert g.eval("return ns.DungeonsUI:GetPanel().sheet:IsShown()") is False
+    assert g.eval("return ns.DungeonRuns:GetMine() == nil") is True
+    w.assert_no_errors()
+
+
+FILL = "for i = 1, ns.UI.TOAST.MAX do ns.UI:Toast({ key = 'fill' .. i, title = 'Other ' .. i, duration = 0 }) end"
+UNFILL = "for i = 1, ns.UI.TOAST.MAX do ns.UI:HideToast('fill' .. i) end"
+
+
+def queued_run(cl):
+    return cl.eval_py("for _, o in ipairs(ns.UI:ToastQueue()) do if o.key == 'dz-dungeon-run' then "
+                      "return { mode = o.dzMode or false, run = o.dzRun } end end return false")
+
+
+@case
+def a_run_invite_waiting_behind_other_pop_ups_is_still_the_invite():
+    # (1.4 regression: a run pop-up shown later from the shared queue had no mode / run, and kept another's tooltip)
+    w, c = five()
+    w.auto_accept_invites = False
+    g, b = c["Gina"], c["Bert"]
+    roles(b, "tank")
+    rid = list_run(g, "Botanica", True, "healer")
+    w.tick(3)
+    b.eval("ns.DungeonRuns:Join(...)", rid)
+    w.tick(2)
+    b.eval("ns.DungeonRuns:GetAsked(...).at = GetServerTime() - 11 * 60", rid)
+    b.eval(FILL)
+    g.eval("ns.DungeonRuns:Accept(...)", rid, K(b))
+    w.tick(1)
+    assert toast(b) is None
+    assert queued_run(b) == {"mode": "invite", "run": rid}, queued_run(b)
+    # another run pop-up does not push the waiting invite out of the queue
+    b.eval("ns.DungeonsUI:OnFinderLeftover({ id = 'x', d = 'Botanica', h = true })")
+    assert queued_run(b)["mode"] == "invite"
+    # room on screen: the invite comes with its fields and the X that declines
+    b.eval(UNFILL)
+    w.tick(1)
+    t = toast(b)
+    assert t and t["mode"] == "invite" and t["run"] == rid and t["btn"] == "Accept", t
+    assert b.eval("return ns.DungeonsUI:GetToast().x.cdlTip.title") == "Decline"
+    frame = b.eval("return ns.DungeonsUI:GetToast():GetName()")
+    b.click(b.eval("return ns.DungeonsUI:GetToast().x"))
+    w.tick(3)
+    assert w.invite_log[-1]["result"] == "declined"
+    # the next pop-up on that shared frame has a plain X
+    assert b.eval_py("local t = ns.UI:Toast({ key = 'next', title = 'Next' }); return { t:GetName(), "
+                     "t.close.cdlTip == nil }") == [frame, True]
+    b.eval("ns.UI:HideToast('next')")
+    # a waiting invite that goes away leaves the queue
+    b.eval(FILL)
+    b.eval("ns.DungeonsUI:OnInvite(...)", rid, K(g))
+    assert queued_run(b)["mode"] == "invite"
+    b.eval("ns.DungeonsUI:OnInviteGone()")
+    assert queued_run(b) is False
+    b.eval(UNFILL)
+    w.tick(1)
+    assert toast(b) is None
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

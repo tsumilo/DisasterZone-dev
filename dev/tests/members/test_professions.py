@@ -512,6 +512,29 @@ def item_tooltips_name_the_crafters():
 
 
 @case
+def the_made_by_header_of_a_recipe_tooltip_does_not_wrap():
+    # (1.4 regression: a colour helper's 4th value, the alpha, landed in AddLine's wrap slot)
+    w, g, a, b = ui_world()
+    b.eval("ns.MembersUI:SetMode('recipes')")
+    b.eval("""
+      T_adds = {}
+      local orig = GameTooltip.AddLine
+      GameTooltip.AddLine = function(self, text, r, g, bl, wrap)
+        T_adds[#T_adds + 1] = { tostring(text), wrap and true or false }
+        return orig(self, text, r, g, bl, wrap)
+      end
+      ns.MembersUI:GetPanel().recipes.box:ForEachFrame(function(row)
+        local d = row.__cdlData
+        if d and d.r.spell == 28587 then row:GetScript("OnEnter")(row) end
+      end)
+      GameTooltip.AddLine = orig""")
+    adds = b.eval_py("return T_adds")
+    made = [x for x in adds if "Made by" in x[0]]
+    assert len(made) == 1 and made[0][1] is False, adds
+    w.assert_no_errors()
+
+
+@case
 def a_recipe_shows_its_materials_with_shift_and_the_wheel_sets_the_amount():
     w, g, a, b = ui_world()
     b.eval("ns.MembersUI:SetMode('recipes')")
