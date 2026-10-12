@@ -2166,6 +2166,8 @@ local function Column(i)
         c.title:SetPoint("LEFT", c, "TOPLEFT", 18, -12)
         c.right:ClearAllPoints()
         c.right:SetPoint("RIGHT", c, "TOPRIGHT", -2, -12)
+        -- (the header starts with its right text hidden; here it is the score's name, empty when there is none)
+        c.right:Show()
         c.rows = {}
         kv.cols[i] = c
     end

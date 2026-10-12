@@ -295,6 +295,9 @@ def the_review_view_ranks_an_event_for_a_reviewer():
     w.tick(1)
     assert gina.eval_py("return ns.Events:ReviewState(ns.Events:GetDef(...))", def2) == "review"
     assert "say why first" in gina.eval_py("return ns.EventsUI:GetViewFrame('review').rsect.r:GetText()")
+    # (and it is drawn: shown and anchored at the header's right; 1.4 left it unanchored, so it never showed)
+    assert gina.eval_py("local r = ns.EventsUI:GetViewFrame('review').rsect.r; "
+                        "return r:IsVisible() and r:GetNumPoints() > 0") is True
     gina.eval("local v = ns.EventsUI:GetViewFrame('review'); v.reply:SetText('two cups on one night is too much'); "
               "v.head.back:Click()")
     w.tick(3)

@@ -552,5 +552,45 @@ def members_never_see_remove_on_others_events():
     w.assert_no_errors()
 
 
+@case
+def season_titles_past_dates_and_rows_answer_left_clicks_only():
+    # 1.4 regressions: the season table lost the player's title once it sat next to the side card, a past event's
+    # day was cut off the end of its row, and the art rows opened on a right click too
+    w, (g,) = guild(["Gina"], tick=3, metrics=True)
+    g.eval("ns.WelcomeTour.Progress().seen = true")
+    g.slash("/dz demo on")
+    w.tick(1)
+    g.eval("ns.EventsUI:Open('season')")
+    w.tick(0.3)
+    rows = g.eval_py("""local out = {}
+        for _, r in ipairs(ns.EventsUI:GetViewFrame('season').rows) do
+          if r:IsShown() then out[#out + 1] = { r.n:GetText(), r.ti:IsShown() and r.ti:GetText() or false } end
+        end
+        return out""")
+    assert rows[0][1] == "the Duelist", rows[:3]
+    g.eval("ns.EventsUI:Open('upcoming')")
+    w.tick(0.3)
+    past = g.eval_py("""local out = {}
+        for _, r in ipairs(ns.EventsUI:GetViewFrame('upcoming').rows) do
+          local res = r:IsShown() and r.occId and ns.Events:GetResult(r.occId)
+          if res then out[#out + 1] = { r.sub:GetText(), date("%a %d", res.at), r.occId } end
+        end
+        return out""")
+    assert past, past
+    for sub, day, _ in past:
+        assert sub.startswith(day), (sub, day)
+    # left clicks open the event; a right click does nothing
+    rid = past[0][2]
+    row = g.eval("for _, r in ipairs(ns.EventsUI:GetViewFrame('upcoming').rows) do "
+                 "if r:IsShown() and r.occId == ... then return r end end", rid)
+    g.eval("(...):Click('RightButton')", row)
+    w.tick(0.3)
+    assert g.eval_py("return ns.EventsUI:GetView()") == "upcoming"
+    g.eval("(...):Click('LeftButton')", row)
+    w.tick(0.3)
+    assert g.eval_py("return ns.EventsUI:GetView()") == "event"
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

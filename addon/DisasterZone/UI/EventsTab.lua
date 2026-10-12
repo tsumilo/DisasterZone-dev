@@ -1550,7 +1550,11 @@ end
 -- A row of the week: UI:CreateArtRow (the event's art and icon, its name with the Ranked pill, what it is / how
 -- full / when / who hosts), one action at the right (Join, Joined, Watch, Results) or why there is none.
 function Up.NewRow(parent)
-    local r = UI():CreateArtRow(parent, { onClick = function(self) if self.occId then EventsUI:OpenEvent(self.occId) end end })
+    -- (left clicks only, as before 1.4: the art row also takes right clicks for the boards' menus)
+    local r = UI():CreateArtRow(parent, { onClick = function(self, button)
+        if button == "RightButton" then return end
+        if self.occId then EventsUI:OpenEvent(self.occId) end
+    end })
     r.l1, r.l2, r.when = r.title, r.sub, r.rightText
     r.btn = H.Button(r.right, "Join", 60, S.BTN_H, "secondary")
     r.btn:SetPoint("RIGHT", r.right, "RIGHT", 0, 0)
@@ -1562,6 +1566,13 @@ function Up.NewRow(parent)
     r.del:HookScript("OnLeave", function() if not r:IsMouseOver() then r.del:Hide() end end)
     r:SetScript("OnEnter", function(self) if self.remove then self.del:Show() end end)
     r:SetScript("OnLeave", function(self) if not self:IsMouseOver() then self.del:Hide() end end)
+    -- (a second line cut short for the row's width: the whole of it under the mouse)
+    UI():AttachTooltip(r, function(self, tt)
+        local full = self.subText
+        if not full or full == "" or self.sub:GetText() == full then return false end
+        tt:AddLine(self.titleText or "", S:RGB("GOLD"))
+        tt:AddLine(full, 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_TOP" })
     return r
 end
 
@@ -1630,7 +1641,8 @@ end
 -- A past event's row: its winner, my place, how many took part; Results.
 function Up.FillResult(r, res)
     r.occId = res.id
-    local parts = {}
+    -- (its day first: before 1.4 it led the row in a column of its own; the rest may be cut, never the day)
+    local parts = { date("%a %d", res.at) }
     local champ = W.Placings(res)
     if res.cancel then
         parts[#parts + 1] = "Cancelled"
@@ -1640,7 +1652,6 @@ function Up.FillResult(r, res)
     local mine = W.MyPlace(res)
     if mine then parts[#parts + 1] = mine end
     if (res.n or 0) > 0 then parts[#parts + 1] = res.n .. " " .. W.Noun(W.DefOfResult(res), res.n) end
-    parts[#parts + 1] = date("%a %d", res.at)
     r.remove = W.CanRemove() and function() A.RemoveResult(res.id) end or nil
     r.del.tipText = "Removes its results for everyone, with the season points and badges they gave."
     Up.RowButton(r, "Results", "secondary", function() EventsUI:OpenEvent(res.id) end)
@@ -4009,8 +4020,11 @@ function Sea.Fill(v)
         r.n:SetText(Name(x2.key))
         local ti = Ev():GetTitle(x2.key)
         r.ti:SetText(ti or "")
-        r.ti:SetShown(ti ~= nil and TextW(r.n) + TextW(r.ti) + 36 <= COL.pl[2] - (TABLE_W - cw))
         r.ev:SetText(x2.events)
+        -- (the title runs up to the Events number: its column hangs from the right, so the player's room is what
+        -- the table's width leaves, not a fixed share of it)
+        local plRoom = cw + FromRight("ev") - TextW(r.ev) - 12 - COL.pl[1]
+        r.ti:SetShown(ti ~= nil and 18 + 8 + TextW(r.n) + 7 + TextW(r.ti) <= plRoom)
         r.wins:SetText(x2.wins)
         r.pts:SetText(x2.pts)
         for j, bd in ipairs(r.badges) do
@@ -4104,7 +4118,10 @@ end
 
 -- A ranked event that paid out: UI:CreateArtRow (its art, name, day and my place; my points at the right).
 function Sea.NewEventRow(parent)
-    local r = UI():CreateArtRow(parent, { onClick = function(self) if self.id then EventsUI:OpenEvent(self.id) end end })
+    local r = UI():CreateArtRow(parent, { onClick = function(self, button)
+        if button == "RightButton" then return end
+        if self.id then EventsUI:OpenEvent(self.id) end
+    end })
     r.n, r.l2, r.p = r.title, r.sub, r.rightText
     r.hl = r.dzHover
     return r
@@ -4232,7 +4249,7 @@ function Rv.Create(p)
     v.reply = UI():CreateSleekEditBox(v.left, 200, S.BTN_H + 2, "GameFontHighlightSmall")
     v.reply:SetMaxLetters(200)
     v.reply:SetScript("OnTextChanged", function(self)
-        if (self:GetText() or "") ~= "" and v.rsect.r:IsShown() then v.rsect.r:Hide() end
+        if (self:GetText() or "") ~= "" and v.rsect.r:IsShown() then v.rsect:SetRight(nil) end
     end)
     UI():SetEditPlaceholder(v.reply, "Say why if you send it back")
     v.right = CreateFrame("Frame", nil, v.qd)
@@ -4265,7 +4282,8 @@ end
 -- A row of Waiting / Decided: UI:CreateArtRow (the event's art and icon, its name, new or changed / who decided);
 -- its mark (ranked, sent back) at the right, the bin in its place on hover for who may clear it.
 function Rv.NewQRow(parent)
-    local r = UI():CreateArtRow(parent, { selectable = true, onClick = function(self)
+    local r = UI():CreateArtRow(parent, { selectable = true, onClick = function(self, button)
+        if button == "RightButton" then return end
         state.review = self.id
         EventsUI:Refresh()
     end })
@@ -4654,8 +4672,8 @@ function Rv.Decide(v, ok)
     if not d then return end
     local note = ns.Util.Trim(v.reply:GetText() or "")
     if not ok and note == "" then
-        v.rsect.r:SetText(S:Wrap("WARN", "say why first"))
-        v.rsect.r:Show()
+        -- (through the header: it anchors the right text while it is shown)
+        v.rsect:SetRight(S:Wrap("WARN", "say why first"))
         v.reply:SetFocus()
         return
     end
@@ -4876,7 +4894,6 @@ function Rv.Fill(v)
     v.rsect:SetPoint("TOPLEFT", v.left, "TOPLEFT", 0, -ry)
     v.rsect:SetWidth(lw)
     v.rsect:Set("Your reply")
-    v.rsect.r:Hide()
     v.reply:ClearAllPoints()
     v.reply:SetPoint("TOPLEFT", v.left, "TOPLEFT", 0, -(ry + 28))
     v.reply:SetWidth(lw)

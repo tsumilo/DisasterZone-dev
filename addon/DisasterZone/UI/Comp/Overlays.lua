@@ -89,6 +89,7 @@ end
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
 --   combat     false: waits until the fight is over
 --   itemID     the item's tooltip while hovered (tipLine: a grey line under it);  rightClose: a right-click dismisses it
+--   onFill(toast)  puts the caller's own pieces in toast.slot each time it is filled (also when it waited first)
 -- toast.slot is a frame over the toast for a caller's own pieces (emptied each time the toast is filled again).
 -- UI:HideToast(key | toast, reason), UI:GetToast(key), UI:ShownToasts(), UI:ToastQueue().
 UI.TOAST = { W = 380, TOP = -120, GAP = 8, MAX = 3, PAD = 12, ICON = 32, ART = 112, DURATION = 12, BTN_H = 22,
@@ -347,6 +348,7 @@ function H.FillToast(t, o)
     -- the caller's own pieces start again
     for _, child in ipairs({ t.slot:GetChildren() }) do child:Hide() end
     for _, region in ipairs({ t.slot:GetRegions() }) do region:Hide() end
+    if o.onFill then H.Safe("Toast onFill", o.onFill, t) end
     t:SetAlpha(1)
 end
 
