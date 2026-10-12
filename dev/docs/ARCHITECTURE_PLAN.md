@@ -93,3 +93,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("<path>", ...) then return end
 local addonName, ns = ...
 ```
 The line-1 guard keeps its place; the header follows it (old one-line descriptions after the guard become the header).
+
+## P4 notes (from P0)
+
+- `tools/move.py <mapping.json>` (+ `--dry-run`) moves files, rewrites the TOC, guards and exact path literals in
+  dev/; `dev/.testmap/moves.json` is git-ignored: after merging the move, run move.py once more in each checkout.
+- `layers.json`: delete the per-file overrides of moved files; `tools/layers.py --rename MOVES.json` rewrites the
+  allowlist; `--prune` afterwards.
+- Fix by hand (move.py reports them as "check by hand"): Core/Perf.lua SKIP_FILE and its "Core/Comm.lua ..." labels;
+  `os.path.join(..., "Core", "X.lua")` in tests (mylog, probe, standins_gen, release_tool, patch_boot, refactor_phase0
+  `UI/MainFrame.lua`); gearsim/run_lua.py SIM_FILES (Sim/ does not move).
+- Silent risk: tests/client-api/nonascii.py and tests/conformance/test_comm_types.py walk only Core, UI and Data:
+  extend them to Logic/ and Sync/ (and any new top folder) in the move commit.
