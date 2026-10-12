@@ -3756,23 +3756,6 @@ end
 -- chat, the X dismisses it, the mouse over it holds it.
 local TOAST_KEY = "dz-bis-drop"
 
--- The item's own tooltip over the toast while it shows a drop (hooked once on the shared toast frame; it only acts
--- for the frame showing this panel's entry).
-function Look.ToastEnter(t)
-    local e = t.entry
-    if not (e and DropPanel.toast == t) then return end
-    local tt = _G.GameTooltip
-    tt:SetOwner(t, "ANCHOR_BOTTOM")
-    tt:SetItemByID(e.itemID)
-    tt:AddLine(" ")
-    tt:AddLine("Click: link in chat.", S:RGB("SUB"))
-    tt:Show()
-end
-
-function Look.ToastLeave(t)
-    if t.entry and DropPanel.toast == t then UI:HideTooltip() end
-end
-
 -- What the toast of entry e says: kicker, kind (its colour), title, text.
 function DropPanel:ToastContent(e)
     local m = e.match or {}
@@ -3836,15 +3819,11 @@ function DropPanel:RefreshToastText()
             return true                    -- (the toast stays)
         end,
         onClose = function(frame) DropPanel:FinishToast(frame) end,
+        itemID = e.itemID, tipLine = "Click: link in chat.", rightClose = true,   -- (hover: the item; right-click: away)
     })
     if not t then return end           -- (waiting behind other pop-ups: it comes when there is room)
     self.toast = t
     t.entry = e
-    if not t.dzDropHooked then
-        t.dzDropHooked = true
-        t:HookScript("OnEnter", Look.ToastEnter)
-        t:HookScript("OnLeave", Look.ToastLeave)
-    end
 end
 
 -- The toast went (timed out, its X, dismissed): the next one of the queue.

@@ -88,6 +88,7 @@ end
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
 --   combat     false: waits until the fight is over
+--   itemID     the item's tooltip while hovered (tipLine: a grey line under it);  rightClose: a right-click dismisses it
 -- toast.slot is a frame over the toast for a caller's own pieces (emptied each time the toast is filled again).
 -- UI:HideToast(key | toast, reason), UI:GetToast(key), UI:ShownToasts(), UI:ToastQueue().
 UI.TOAST = { W = 380, TOP = -120, GAP = 8, MAX = 3, PAD = 12, ICON = 32, ART = 112, DURATION = 12, BTN_H = 22,
@@ -129,7 +130,7 @@ function H.NewToast(i)
     t:SetToplevel(true)
     t:SetClampedToScreen(true)
     t:EnableMouse(true)
-    t:RegisterForClicks("LeftButtonUp")
+    t:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     t.bg = UI:Fill(t, T.BG, "BACKGROUND")
     UI:AddEdges(t, "BORDER")
     t.art = t:CreateTexture(nil, "ARTWORK", nil, 0)
@@ -154,8 +155,12 @@ function H.NewToast(i)
     t.slot:SetAllPoints()
     t.slot:SetFrameLevel(t:GetFrameLevel() + 5)
     t.btns, t.links = {}, {}
-    t:SetScript("OnClick", function(self)
+    t:SetScript("OnClick", function(self, button)
         local o = self.opts
+        if button == "RightButton" then
+            if o and o.rightClose then UI:HideToast(self, "close") end
+            return
+        end
         if not (o and o.onClick) then return end
         local ok, keep = H.Safe("Toast onClick", o.onClick, self)
         if not (ok and keep) and self:IsShown() and self.opts == o then UI:HideToast(self, "click") end
@@ -171,6 +176,21 @@ function H.NewToast(i)
             self.bar:SetWidth(max(1, (self:GetWidth() - 2) * max(0, left) / self.total))
         end
         if left <= 0 then UI:HideToast(self, "timeout") end
+    end)
+    -- an item's tooltip while hovered (opts.itemID; opts.tipLine under it)
+    t:SetScript("OnEnter", function(self)
+        local o = self.opts
+        if not (o and o.itemID) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetItemByID(o.itemID)
+        if o.tipLine then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(o.tipLine, S:RGB("SUB"))
+        end
+        GameTooltip:Show()
+    end)
+    t:SetScript("OnLeave", function(self)
+        if self.opts and self.opts.itemID then GameTooltip:Hide() end
     end)
     -- (hidden with the whole UI, Alt+Z: it is still shown, keeps its place in the stack and its time waits)
     t:SetScript("OnHide", function(self)
