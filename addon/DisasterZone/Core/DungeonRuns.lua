@@ -290,15 +290,7 @@ local function Bucket(create)
         return early
     end
     gk = gk or NO_GUILD
-    if not db.runs then
-        if not create and not early then return nil end
-        db.runs = {}
-    end
-    local b = db.runs[gk]
-    if not b and (create or early) then
-        b = { list = {}, gone = {}, daily = {} }
-        db.runs[gk] = b
-    end
+    local b = ns.DB:GuildBucket("runs", (create or early) and true or false, gk)
     if b then Shape(b) end
     if early and b then
         local p = early

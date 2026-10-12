@@ -11,6 +11,16 @@ Ledger.lua, RaidLog.lua; Core/DigestSync.lua stays, unused by them). Cases:
                                  new clients are online (new XXD -> old)
   live_both_ways                 both online: each answers the other's poll, signs up for the other's raid and edits
                                  the other's data where allowed; everyone ends the same
+1.4.1 (an in-game update) against real 1.4.0 clients: every addon file that differs from release-1.4.0 put back (git
+show release-1.4.0:<file>, Core/Guild.lua and Core/DigestSync.lua included), so the old client is 1.4.0 as shipped:
+  raid_leaders_old_and_new       the raid leaders list (HELLO rlr, RLL, RLQ) both ways: an officer answers an older
+                                 rev in a login HELLO, and an officer holding an older list asks (RLQ) the one whose
+                                 HELLO shows a newer one; old -> new and new -> old
+  raid_leaders_with_the_135_sync  the same under the 1.3.5 harness (old Sync.lua, new Guild.lua): rlr reaches Guild
+                                 twice per HELLO, still one answer and one question
+  the_hello_is_the_same_as_140s  a login HELLO decodes to the same table as 1.4.0's (rlr and av now registered fields)
+  graves_against_an_old_client   a 1.4.0 member away 45 days comes back with a deleted event, poll and strategy: it
+                                 gets the deletions back and ends without them; once it pruned, logins send no digest
 Run: luaenv\\Scripts\\python.exe tests\\sync\\test_mixed_versions.py [-k name]   (from dev)"""
 import os
 import shutil
@@ -56,6 +66,39 @@ def old_addon():
         with open(os.path.join(OLD_DIR, rel), "wb") as fh:
             fh.write(data)
     return OLD_DIR
+
+
+OLD_140 = "release-1.4.0"
+OLD_140_DIR = os.path.join(os.path.dirname(TESTS), "tf_e", "_mixed_old_%d" % os.getpid(), "v140", "DisasterZone")
+
+
+def old_140_addon():
+    """This addon as release 1.4.0 shipped it: every file under addon/DisasterZone that differs from the tag (the
+    working tree included) put back. Built once per run."""
+    if os.path.exists(os.path.join(OLD_140_DIR, "DisasterZone.toc")):
+        return OLD_140_DIR
+    src = harness.ADDON_DIR
+    for root, _dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        for f in files:
+            if f.lower().endswith((".lua", ".toc", ".xml")):
+                dst = os.path.join(OLD_140_DIR, rel, f)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copyfile(os.path.join(root, f), dst)
+    out = subprocess.check_output(["git", "-C", REPO, "diff", "--name-only", OLD_140, "--", "addon/DisasterZone"])
+    for path in out.decode("utf-8").split():
+        dst = os.path.join(OLD_140_DIR, path[len("addon/DisasterZone/"):])
+        try:
+            data = subprocess.check_output(["git", "-C", REPO, "show", "%s:%s" % (OLD_140, path)],
+                                           stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            if os.path.exists(dst):
+                os.remove(dst)           # (a file 1.4.0 didn't have)
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst, "wb") as fh:
+            fh.write(data)
+    return OLD_140_DIR
 
 
 def cleanup():
@@ -264,6 +307,255 @@ def ledger_days_both_ways():
     bob.login()
     w.tick(60)
     assert ledger(gina) == ledger(bob) and len(ledger(bob)) == 2, (ledger(gina), ledger(bob))
+    w.assert_no_errors()
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# 1.4.1 against 1.4.0
+# ------------------------------------------------------------------------------------------------------------------
+
+def world_140(old=("Bob",)):
+    """Gina = GM, Bob = officer + guild council, Lee / Rita / Sam / Uma = members. `old` run release 1.4.0."""
+    w = World()
+    c = {}
+    for name, rank, cls in NAMES + (("Uma", 3, "HUNTER"),):
+        c[name] = Client(w, name, guild_rank=rank, class_file=cls, addon_dir=old_140_addon() if name in old else None)
+    for x in c.values():
+        x.load_addon()
+    w.tick(3)
+    gm_pick(w, c["Gina"], ["Bob"])
+    w.tick(60)
+    return w, c
+
+
+def leaders(cl):
+    return cl.eval_py("return ns.Guild:GetRaidLeaders()") or []
+
+
+def set_leaders(cl, names):
+    res = cl.eval_py("local ok, err = ns.Guild:SetRaidLeaders(...); return { ok = ok, err = err }", [K(n) for n in names])
+    assert res.get("ok") is True, (cl.name, res)
+
+
+def sent_to(w, t, mark, frm, to):
+    """The whispers of type t from `frm` to `to` since that addon_log index."""
+    dec = next(x for x in w.clients if x.runtime is not None and x.loaded)
+    out = []
+    for e in w.addon_log[mark:]:
+        if (e["prefix"].startswith("CDL") and e["chat_type"] == "WHISPER" and e["sender"] == K(frm)
+                and str(e["target"]).split("-")[0] == to):
+            m = lr.decode_msg(dec, e["text"])
+            if m and m.get("t") == t:
+                out.append(m)
+    return out
+
+
+OLDER = "local g = ns.Guild:GetGuildKey(); local rec = ns.db.raidLeaders[g]; rec.rev = rec.rev - 100; rec.m = {}"
+
+
+@case
+def raid_leaders_old_and_new():
+    w, c = world_140()
+    bob, gina, sam = c["Bob"], c["Gina"], c["Sam"]
+    # old officer -> new member who logs in later: Bob answers the older rlr in Sam's HELLO
+    sam.logout()
+    gina.logout()
+    w.tick(2)
+    set_leaders(bob, ["Rita"])
+    w.tick(3)
+    mark = len(w.addon_log)
+    sam.login()
+    w.tick(15)                     # (before anyone's share after logging in, 20-40 s)
+    assert sent_to(w, "RLL", mark, "Bob", "Sam"), "the old officer's answer"
+    assert leaders(sam) == [K("Rita")], leaders(sam)
+    # new officer -> old officer who logs in later: Gina answers
+    bob.logout()
+    w.tick(2)
+    gina.login()                   # (no officer online: she keeps her older list)
+    w.tick(45)
+    set_leaders(gina, ["Lee"])
+    w.tick(3)
+    mark = len(w.addon_log)
+    bob.login()
+    w.tick(15)
+    assert sent_to(w, "RLL", mark, "Gina", "Bob"), "the new officer's answer"
+    assert leaders(bob) == [K("Lee")], leaders(bob)
+    w.tick(45)
+    # a new officer holding an older list sees the old officer's HELLO: she asks him (RLQ), he answers
+    gina.eval(OLDER)
+    mark = len(w.addon_log)
+    bob.relog(reload=False)
+    w.tick(10)
+    assert sent_to(w, "RLQ", mark, "Gina", "Bob"), "the new officer asks the old one"
+    assert sent_to(w, "RLL", mark, "Bob", "Gina"), "the old officer answers"
+    assert leaders(gina) == [K("Lee")], leaders(gina)
+    w.tick(45)
+    # and the other way round: the old officer asks the new one
+    bob.eval(OLDER)
+    mark = len(w.addon_log)
+    gina.relog(reload=False)
+    w.tick(10)
+    assert sent_to(w, "RLQ", mark, "Bob", "Gina"), "the old officer asks the new one"
+    assert sent_to(w, "RLL", mark, "Gina", "Bob"), "the new officer answers"
+    assert leaders(bob) == [K("Lee")], leaders(bob)
+    w.tick(45)
+    for n, x in c.items():
+        if x.online:
+            assert leaders(x) == [K("Lee")], n
+    w.assert_no_errors()
+
+
+@case
+def raid_leaders_with_the_135_sync():
+    """The 1.3.5 harness keeps the new Core/Guild.lua under the old Core/Sync.lua: that Sync.lua passes rlr and av to
+    Guild by hand and Guild registers them as HELLO fields too, so each HELLO reaches the handlers twice. The second
+    call is rate-limited: one answer, one question."""
+    w, c = world()
+    bob, gina, sam = c["Bob"], c["Gina"], c["Sam"]
+    sam.logout()
+    gina.logout()
+    w.tick(2)
+    set_leaders(bob, ["Rita"])
+    w.tick(3)
+    mark = len(w.addon_log)
+    sam.login()
+    w.tick(15)
+    assert len(sent_to(w, "RLL", mark, "Bob", "Sam")) == 1, sent_to(w, "RLL", mark, "Bob", "Sam")
+    assert leaders(sam) == [K("Rita")], leaders(sam)
+    gina.login()
+    w.tick(45)
+    bob.eval(OLDER)
+    mark = len(w.addon_log)
+    gina.relog(reload=False)
+    w.tick(10)
+    assert len(sent_to(w, "RLQ", mark, "Bob", "Gina")) == 1, sent_to(w, "RLQ", mark, "Bob", "Gina")
+    assert leaders(bob) == [K("Rita")], leaders(bob)
+    w.assert_no_errors()
+
+
+def hello_of(gina_old):
+    """Gina's login HELLO, decoded, in a guild with a raid leaders list, accounts, a raid, an event, a poll, a prized
+    item and a strategy; Gina runs 1.4.0 when gina_old."""
+    w, c = world_140(old=("Gina",) if gina_old else ())
+    gina = c["Gina"]
+    set_leaders(c["Bob"], ["Rita"])
+    write_all(c["Bob"], "x", ["Lee", "Gina"])
+    w.tick(60)
+    mark = len(w.addon_log)
+    gina.relog(reload=False)
+    w.tick(30)
+    hs = [m for m in lr.msgs_of_type(w, "H", mark, whole=True) if m["_sender"] == K("Gina")]
+    assert len(hs) == 1, hs
+    m = hs[0]
+    for k in ("_sender", "_chat_type", "_time"):
+        m.pop(k)
+    own = gina.eval_py("return { pd = ns.RaidPlan:GetDigestHash(), sd = ns.Strategy:GetDigestHash(),"
+                       " ed = ns.Events:GetDigestHash(), od = ns.Polls:GetDigestHash(), zd = ns.Prized:GetDigestHash(),"
+                       " rlr = ns.Guild:GetRaidLeadersRev(), av = ns.Guild:GetAccountsHash() }")
+    return m, own
+
+
+DIGEST_FIELDS = ("pd", "sd", "ed", "od", "zd")
+
+
+@case
+def the_hello_is_the_same_as_140s():
+    """rlr and av moved from Sync.lua into registered HELLO fields: the HELLO Gina sends is the one 1.4.0 sent (the
+    same keys and values; n, the session nonce, aside)."""
+    (old, old_own), (new, new_own) = hello_of(True), hello_of(False)
+    assert set(old) == set(new), (sorted(old), sorted(new))
+    assert {"rlr", "av", "pd", "blr", "gnr", "sd", "ed", "od", "zd"} <= set(new), sorted(new)
+    # (the digest hashes are over records with ids made from each world's clock: each is its own client's hash)
+    for m, own in ((old, old_own), (new, new_own)):
+        for f, v in own.items():
+            assert m[f] == v, (f, m[f], v)
+    for m in (old, new):
+        m.pop("n")
+        for f in DIGEST_FIELDS:
+            m.pop(f)
+    assert old == new, (old, new)
+    assert new["rlr"] > 0, new
+
+
+GRAVE_IDS = """
+    local members, council = ...
+    local out = {}
+    local d = ns.Events:NewDef(true); d.name = 'Gone cup'
+    out.def = ns.Events:SaveDef(d) and d.id or false
+    local keep = ns.Events:NewDef(true); keep.name = 'Kept cup'
+    out.keep = ns.Events:SaveDef(keep) and keep.id or false
+    local targets = {}
+    for i, k in ipairs(members) do targets[i] = { 'p', k } end
+    out.poll = ns.Polls:Create({ q = 'Night?', k = 'one', o = { 'Wed', 'Thu' }, a = targets,
+                                 cl = GetServerTime() + 60 * 86400 - 60, rv = 'live', ch = true, mx = 0 }) or false
+    local s = (loadstring(council))(); s.n = 'Gone plan'
+    local ok, sid = ns.Strategy:SaveStrategy(s)
+    out.strat = ok and sid or false
+    return out"""
+
+GRAVE_HOLDS = """
+    local ids = ...
+    local g = ns.Guild:GetGuildKey()
+    local function get(bucket, kind, id)
+        local b = ns.db[bucket] and ns.db[bucket][g]
+        local r = b and b[kind] and b[kind][id]
+        if not r then return 'none' end
+        return r.del and 'del' or 'live'
+    end
+    return { D = get('events', 'D', ids.def), P = get('polls', 'P', ids.poll), B = get('strategy', 'B', ids.strat) }"""
+
+PRUNE = "ns.Events:Prune(); ns.Polls:Prune(); ns.Prized:Prune(); ns.Strategy:Prune()"
+GONE = {"D": "del", "P": "del", "B": "del"}
+
+
+def digest_hashes(cl):
+    return cl.eval_py("return { ev = ns.Events:GetDigestHash(), po = ns.Polls:GetDigestHash(),"
+                      " pz = ns.Prized:GetDigestHash(), sb = ns.Strategy:GetDigestHash() }")
+
+
+@case
+def graves_against_an_old_client():
+    w, c = world_140(old=("Uma",))
+    gina, uma, lee = c["Gina"], c["Uma"], c["Lee"]
+    ids = gina.eval_py(GRAVE_IDS, [K("Uma"), K("Lee")], COUNCIL)
+    assert all(v not in (False, None) for v in ids.values()), ids
+    w.tick(10)
+    assert uma.eval_py(GRAVE_HOLDS, ids) == {"D": "live", "P": "live", "B": "live"}
+    uma.logout()
+    w.tick(2)
+    res = gina.eval_py("local ids = ...; return { ns.Events:DeleteDef(ids.def) and true or false,"
+                       " ns.Polls:Delete(ids.poll) and true or false,"
+                       " (ns.Strategy:DeleteStrategy(ids.strat)) and true or false }", ids)
+    assert res == [True, True, True], res
+    w.tick(5)
+    w.server_time0 += 45 * DAY
+    for x in c.values():
+        if x.online:
+            x.eval(PRUNE)
+    uma.login()                    # 1.4.0, still holding the three
+    w.tick(90)
+    for n, x in c.items():
+        held = x.eval_py(GRAVE_HOLDS, ids)
+        if n == "Uma":     # the deletions came back to her; her prune 20-40 s after logging in may have dropped them
+            assert set(held.values()) <= {"del", "none"}, held
+        else:
+            assert held == GONE, (n, held)
+        assert x.eval("return ns.Events:GetDef(...) == nil", ids["def"]) is True, n
+    # her daily prune drops the deletions (1.4.0: 30 days after them); then every hash is the same
+    uma.eval(PRUNE)
+    assert uma.eval_py(GRAVE_HOLDS, ids) == {"D": "none", "P": "none", "B": "none"}
+    hs = {n: digest_hashes(x) for n, x in c.items() if x.online}
+    assert len({tuple(sorted(h.items())) for h in hs.values()}) == 1, hs
+    # steady state: logins (new and old) are answered with no digest
+    for who in ("Lee", "Uma"):
+        mark = len(w.addon_log)
+        c[who].relog(reload=False)
+        w.tick(60)
+        got = digests_to(w, K(who), mark)
+        assert not any(t in got for t in ("EVD", "PLD", "PZD", "SBD")), (who, got)
+    # the deletions are still graves on the new clients: Uma never brings the copies back
+    assert lee.eval_py(GRAVE_HOLDS, ids) == GONE
+    assert uma.eval_py(GRAVE_HOLDS, ids) == {"D": "none", "P": "none", "B": "none"}
     w.assert_no_errors()
 
 

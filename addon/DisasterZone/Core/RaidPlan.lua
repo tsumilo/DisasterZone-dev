@@ -1683,12 +1683,12 @@ function Merge.EntryRev(e)
 end
 
 local function BlacklistRec(create)
-    local rec, g = ns.DB:GuildBucket("raidBlacklist", create)
+    local rec = ns.DB:GuildBucket("raidBlacklist", create)
     if not rec then return nil end
     if type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
         if not create then return nil end
-        rec = { rev = 0, l = {} }
-        ns.db.raidBlacklist[g] = rec
+        for k in pairs(rec) do rec[k] = nil end      -- (a broken one starts over, empty)
+        rec.rev, rec.l = 0, {}
     end
     return rec
 end

@@ -28,7 +28,9 @@ local DAY = 86400
 local KINDS = { P = true, V = true }
 local POLL_KINDS = { one = true, many = true, yn = true, days = true }
 local SHOW = { live = true, vote = true, close = true }
-local TOMBSTONE_KEEP = 30 * DAY
+local TOMBSTONE_KEEP = 30 * DAY    -- a deletion is in the digest this long; then kept as a grave (DigestSync.lua)
+local GRAVE_KEEP = 365 * DAY
+local MAX_GRAVES = 200
 local CLOSED_KEEP = 60 * DAY         -- a closed poll (and its answers) is kept this long after it closed
 local MAX_OPEN = 60                  -- polls stored at once (not removed)
 local MAX_OWN = 20                   -- of one asker
@@ -72,11 +74,7 @@ local function Send(msg, dist, target, class)
     return (Comm and Comm.Send and Comm:Send(msg, dist, target, class)) and true or false
 end
 
-local function RateLimit(key, seconds)
-    local Comm = ns.Comm
-    if not (Comm and Comm.RateLimit) then return true end
-    return Comm:RateLimit(key, seconds)
-end
+local RateLimit = Util.RateLimit
 
 local function Changed()
     Util.Debounce("polls-changed", 0.15, function() ns:Fire("POLLS_UPDATED") end)
@@ -88,6 +86,7 @@ local SYNC = {
     module = Polls, bucket = "polls", kinds = { "P", "V" }, prefix = "PL",
     maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ITEM_LEN + 2, itemPattern = "^[PV]:", wireKey = WireKey,
     helloField = "od", helloOrder = 60, large = true, changed = Changed,
+    tombKeep = { P = TOMBSTONE_KEEP }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     tooBig = "this poll is too big to share with the guild: ask fewer people or give fewer answers.",
     delay = function() return Polls:AmIAsker() and DELAY_ASKER or DELAY_MEMBER end,
 }
@@ -494,6 +493,8 @@ local function Merge(root, kind, rec, live)
     local cur = t[rec.id]
     if kind == "P" then
         if cur and cur.del and not rec.del then return false end         -- a removal wins
+        -- (1.4.1) one Prune drops (CLOSED_KEEP after it closed) is not taken back from someone's store
+        if not live and not rec.del and (rec.cl or 0) < Now() - CLOSED_KEEP then return false end
         if rec.del then
             if cur and not cur.del and rec.by ~= cur.by and not Polls:CanManage(cur, rec.by) then return false end
         elseif cur then
@@ -543,7 +544,6 @@ SYNC.demoCheck = function(st, kind, clean)
     return (p and CleanChoice(p.k, clean.c, #p.o, p.mx)) and true or false
 end
 
-local function StoreRecord(kind, r, live) return sync:StoreRecord(kind, r, live) end
 
 -- My own change: stored (merged like anyone's), then sent to the guild. Returns ok, the clean record.
 local function Commit(kind, rec) return sync:Commit(kind, rec) end
@@ -811,7 +811,7 @@ local function OnUpdate(sender, msg, dist)
     if not KINDS[msg.k] then return end
     local root = Root(false)
     local had = root and root.P[msg.r.id] ~= nil
-    local ok, rec = StoreRecord(msg.k, msg.r, true)
+    local ok, rec = sync:StoreFrom(sender, msg.k, msg.r, true)
     if not ok then return end
     Changed()
     if msg.k == "P" and not had and not rec.del and not Util.IsMe(rec.by) and Polls:AsksMe(rec) and Polls:IsOpen(rec) then
@@ -822,7 +822,7 @@ end
 -- PLG { k, r }: one record, relayed by anyone in the guild.
 local function OnGive(sender, msg, dist)
     if dist ~= "WHISPER" or not KINDS[msg.k] or type(msg.r) ~= "table" then return end
-    if StoreRecord(msg.k, msg.r) then Changed() end
+    if sync:StoreFrom(sender, msg.k, msg.r) then Changed() end
 end
 
 -- PLN { p }: the asker reminds the people who haven't answered.
@@ -843,9 +843,10 @@ function Polls:Prune(now)
     local root = Root(false)
     if not root then return end
     now = now or Now()
-    local changed = false
+    -- deleted polls: graves after TOMBSTONE_KEEP, dropped after GRAVE_KEEP (DigestSync.lua)
+    local changed = sync:PruneGraves(root, now)
     for id, p in pairs(root.P) do
-        if (p.del and p.rev < now - TOMBSTONE_KEEP) or (not p.del and (p.cl or 0) < now - CLOSED_KEEP) then
+        if not p.del and (p.cl or 0) < now - CLOSED_KEEP then
             root.P[id] = nil
             changed = true
         end
@@ -856,7 +857,8 @@ function Polls:Prune(now)
     end
     local seen = ns.DB:GuildBucket("pollSeen")
     for id in pairs(seen or {}) do
-        if not root.P[id] then seen[id] = nil end
+        local p = root.P[id]
+        if not p or sync:IsGrave("P", p, now) then seen[id] = nil end
     end
     if changed then Changed() end
 end
