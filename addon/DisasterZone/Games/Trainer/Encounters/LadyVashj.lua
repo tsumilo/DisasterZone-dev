@@ -454,7 +454,7 @@ T:RegisterEncounter("vashj", {
     desc = "Phase 2: bring the Tainted Cores to the Shield Generators. You are one link of the chain.",
     icon = CORE_ICON,
     order = 20,
-    displays = DISPLAYS,
+    displays = ns.Render3D.AddDisplays(DISPLAYS),       -- (merged into the one R3.DISPLAYS, the board's too)
     arena = { w = SIZE, h = SIZE, minimap = MINIMAP,
               floor = "vashj", walkableFloor = true },     -- (height, mesh, ground, walkable: T.FillArena)
     difficulties = {

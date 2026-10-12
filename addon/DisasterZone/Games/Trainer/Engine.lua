@@ -44,15 +44,19 @@ T.STEP = 0.05
 local floor, sqrt, min, max = math.floor, math.sqrt, math.min, math.max
 local sin, cos, atan2, pi = math.sin, math.cos, math.atan2, math.pi
 
-T.TURN_RATE = pi            -- keyboard turning, radians per second (the client's default: 180 degrees)
-T.BACKPEDAL = 4.5 / 7       -- walking backwards: 4.5 yd/s at normal run speed
--- Standing on the room (arena.ground): the client's gravity and fastest fall (TrinityCore's Movement::gravity and
--- terminalVelocity); the highest ledge it walks up without a jump (the 1.12 client's 1.0, as reverse-engineered by
--- the benilla project; not checked against 2.5); the steepest ground it walks, 50 degrees, as rise per yard.
-T.GRAVITY = 19.291103
-T.TERMINAL = 60.148003
-T.STEP_UP = 1.0
-T.MAX_SLOPE = math.tan(math.rad(50))
+-- The client's movement numbers are Render3D/Rooms.lua's R3.WALK (the one copy, shared with walking on the strategy
+-- board); these are its names here: keyboard turning (radians per second, the client's 180 degrees), walking
+-- backwards (4.5 yd/s at the normal run speed of 7), and standing on the room (arena.ground): the client's gravity
+-- and fastest fall (TrinityCore's Movement::gravity and terminalVelocity), the highest ledge walked up without a jump
+-- (the 1.12 client's 1.0, as reverse-engineered by the benilla project; not checked against 2.5), the steepest ground
+-- walked, 50 degrees, as rise per yard.
+local W = ns.Render3D.WALK
+T.TURN_RATE = W.turn
+T.BACKPEDAL = W.back / W.run
+T.GRAVITY = W.gravity
+T.TERMINAL = W.terminal
+T.STEP_UP = W.stepUp
+T.MAX_SLOPE = W.maxSlope
 
 local encs = {}     -- id -> def
 local encList = {}  -- defs sorted by order
@@ -506,37 +510,15 @@ function Sim:FeetZ(u)
     return arena.ground(u.x, u.y, ref) or ref
 end
 
--- After a step's move: onto the ground where the unit now is, or on with its fall.
+-- After a step's move: onto the ground where the unit now is, or on with its fall (Render3D/Rooms.lua R3.SettleBody;
+-- only you slide down a slope too steep to stand on, and a script's push is no faster than a run).
 function Sim:Settle(u, dt)
     local ground = self.enc.arena.ground
     if not ground or u.z or Place(self, u) then return end
-    local x, y, gz = u.x, u.y, u.gz
-    local moved2 = (x - u.gzX) ^ 2 + (y - u.gzY) ^ 2
-    if not u.falling and moved2 == 0 then return end
-    local g, sx, sy = ground(x, y, gz, u.falling)
-    local slides = sx and u == self.player
-    if not u.falling and g and (slides or g < gz - sqrt(moved2) * T.MAX_SLOPE - 0.02) then
-        -- (the speed it moved at in this step; a script's push is not a run: no faster than a run)
-        local v = dt > 0 and sqrt(moved2) / dt or 0
-        local k = dt > 0 and min(1, max(u.speed or 0, 7) / max(v, 1e-9)) / dt or 0
-        u.falling, u.vz, u.fallVX, u.fallVY = true, 0, (x - u.gzX) * k, (y - u.gzY) * k
-    end
-    if u.falling then
-        local vz = max(-T.TERMINAL, u.vz - T.GRAVITY * dt)
-        local nz = gz + vz * dt
-        if g and nz > g then
-            u.gz, u.vz = nz, vz
-        elseif slides then
-            -- on the slope: held on it, and pushed off downhill as gravity pulls along it (g sin a cos a)
-            local push = T.GRAVITY / (1 + sx * sx + sy * sy) * dt
-            u.gz, u.vz = g, vz
-            u.fallVX, u.fallVY = (u.fallVX or 0) - sx * push, (u.fallVY or 0) - sy * push
-        else                                   -- landed (with nothing under it at all it stops where it is)
-            u.gz, u.vz, u.falling, u.fallVX, u.fallVY = g or gz, 0, nil, nil, nil
-        end
-    elseif g then
-        u.gz = g
-    end                                        -- (no ground: a scripted unit walked into a pillar; it keeps its height)
+    local x, y = u.x, u.y
+    if not u.falling and (x - u.gzX) ^ 2 + (y - u.gzY) ^ 2 == 0 then return end
+    u.gz, u.falling, u.vz, u.fallVX, u.fallVY = ns.Render3D.SettleBody(ground, x, y, u.gz, u.gzX, u.gzY, u.falling,
+        u.vz, u.fallVX, u.fallVY, dt, max(u.speed or 0, W.run), u == self.player)
     u.gzX, u.gzY = x, y
 end
 
