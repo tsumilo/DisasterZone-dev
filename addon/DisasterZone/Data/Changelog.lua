@@ -6,7 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
-    { version = "1.4.0", date = "11 October 2026", title = "One look across every page",
+    { version = "1.4.0", date = "12 October 2026", title = "One look across every page",
       sections = {
           { heading = "One look across every page", area = "look", kind = "changed", hi = true, art = "kara",
             lead = "Every page now shares the same banners, headings, lists and buttons.", lines = {
