@@ -89,6 +89,7 @@ end
 --              caller's own fields and touches (toast.slot pieces, an icon tint); the X's tooltip is cleared
 --              before (set it here)
 --   duration   seconds on screen (12; 0 or false: until it is answered); the time stands still under the mouse
+--              (keepTime = true: filled again by its key, it keeps the time it has left instead of starting again)
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
 --   combat     false: waits until the fight is over
@@ -455,7 +456,10 @@ function UI:Toast(o)
     if o.key ~= nil then
         local t = self:GetToast(o.key)
         if t then
+            -- (o.keepTime: a refill keeps the time it has left instead of starting its hold again)
+            local left = t.left
             H.FillToast(t, o)
+            if o.keepTime and left and t.total then t.left = min(left, t.total) end
             H.Restack()
             if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
             return t

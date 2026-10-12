@@ -108,7 +108,7 @@ UI:CreateRailNav(parent, items, onSelect, opts) -> rail; rail:Select(key), rail:
 ```
 Overlays.lua
 ```
-UI:Toast(opts)                         opts { key, title, text, icon, duration, onClick, kind }
+UI:Toast(opts)                         opts { key, title, text, icon, duration, keepTime, onClick, kind }
 UI:CreateSheet(parent, opts) -> sheet  opts { title, width, height, onClose }; sheet.body, :Open(), :Close()
 ns.Popup:Confirm(opts)                 opts { title, text, ok, cancel, danger, onAccept, onCancel }
 ns.Popup:Prompt(opts)                  opts { title, text, default, ok, validate, onAccept(value) }

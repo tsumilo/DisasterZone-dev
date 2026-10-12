@@ -284,6 +284,35 @@ def group_loot_start_loot_roll_gives_personal_toast_only():
 
 
 @R.case
+def bis_toast_hold_is_not_restarted_by_refills():
+    # 1.3.5: the 8 s hold starts once when the alert shows; a "+N more" refill or item info coming in later only
+    # changes its words (the shared toast stack would otherwise start the hold again on every refill)
+    r = Raid()
+    w = r.w
+    E = r["Erin"]
+    loot_prince(r)
+    w.tick(3)
+    t = toast_state(E)
+    assert t["shown"] and len(t["queue"]) == 1, t
+    first = t["item"]
+    left0 = E.eval_py("return ns.DropPanel.toast.left")
+    assert 0 < left0 < 8, left0
+    E.eval("ns:Fire('ITEMINFO_READY')")
+    w.tick(0.5)
+    E.eval("ns.DropPanel:QueueToast(%d, { sid = 1, phase = 1 }, true)" % RUBY_DRAPE)
+    w.tick(0.5)
+    t = toast_state(E)
+    assert t["item"] == first and "+2 more" in strip_codes(t["kicker"]).lower(), t
+    left1 = E.eval_py("return ns.DropPanel.toast.left")
+    assert left1 <= left0 - 0.9, (left0, left1)
+    w.tick(left1 + 0.3)
+    t = toast_state(E)
+    assert t["shown"] and t["item"] != first and len(t["queue"]) == 1, t
+    assert E.eval_py("return ns.DropPanel.toast.left") > 7, "the next alert gets its own full hold"
+    w.assert_no_errors()
+
+
+@R.case
 def corpse_drop_then_group_roll_alerts_once():
     r = Raid()
     w = r.w
