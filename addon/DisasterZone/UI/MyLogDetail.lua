@@ -482,9 +482,7 @@ local function FillBossBanner(v, state, p)
     b:SetBack(ns.MyLogUI:InstanceName(state.inst), function() ns.MyLogUI:SetMode("runs") end)
     local disp = Log().BossDisplayId and Log():BossDisplayId(p.boss)
     if disp and SetPortraitTextureFromCreatureDisplayID then
-        b:SetIcon(134400)
-        SetPortraitTextureFromCreatureDisplayID(b.icon.tex, disp)
-        if b.icon.tex.SetDesaturated then b.icon.tex:SetDesaturated(not p.kill) end
+        b:SetIcon(134400, { display = disp, desaturate = not p.kill })   -- (the boss's round portrait)
     else
         b:SetIcon(nil)
     end

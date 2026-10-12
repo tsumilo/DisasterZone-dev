@@ -241,7 +241,8 @@ end
 --            side (a raid of two instances: banner.art2, banner.artSeam). artFw (0.95: the share of the picture's width a raid's crop
 --            takes), artUnder (keep the crop under the logo band), artTint (1: the art's brightness), desaturate
 --   icon     a texture / file id / { path, l, r, t, b } / a UI.ICON name: a ringed tile left of the text. iconRing
---   kicker   small gold capitals over the title (kickerColor; kickerCaps = false keeps the case)
+--   kicker   small gold capitals over the title (kickerColor; kickerCaps = false keeps the case); kickerTip =
+--            { title, lines }: a tooltip on it (banner:SetKickerTip)
 --   title    the 19 px title (titleColor: white; a tool banner's is gold; a strip's is 13 px), cut with "..." to fit;
 --            titleSteps = { "hero", "page", ... }: smaller styles tried first; rightW = px (or function(banner)) kept
 --            free at the right of the text for the page's own blocks (banner:SetTitleFit(steps, rightW))
@@ -312,6 +313,8 @@ function UI:CreatePageBanner(parent, opts)
     b:SetSub(opts.sub)
     if opts.pill then b:SetPill(opts.pill[1] or opts.pill.kind, opts.pill[2] or opts.pill.text) end
     if opts.back then b:SetBack(opts.back[1] or opts.back.text, opts.back[2] or opts.back.onClick) end
+    if opts.shadeRight then b:SetShadeRight(opts.shadeRight) end
+    if opts.kickerTip then b:SetKickerTip(opts.kickerTip[1] or opts.kickerTip.title, opts.kickerTip[2] or opts.kickerTip.lines) end
     b:SetTools(opts.tools)
     b:SetActions(opts.actions)
     b.building = nil
@@ -372,13 +375,91 @@ function Banner:SetArt(art, desaturate, art2)
 end
 
 -- icon: see SetIconTexture (nil: none, the text starts at the left margin).
-function Banner:SetIcon(icon)
+-- opts (optional): { glyph = a colour (an atlas glyph: smaller, tinted, on the tile's dark ground; glyphSize px),
+-- display = a creature display id (a round portrait of it: a boss), desaturate }.
+function Banner:SetIcon(icon, opts)
     if icon ~= nil and icon ~= false then
         if not self.icon then self.icon = NewIconTile(self, self.m.icon, self.opts.iconRing) end
-        SetIconTexture(self.icon.tex, icon, true)
+        local tex = self.icon.tex
+        if self.iconStyled then                 -- (back to a plain picture after a glyph / portrait)
+            tex:ClearAllPoints()
+            tex:SetAllPoints()
+            tex:SetVertexColor(1, 1, 1, 1)
+            if tex.SetDesaturated then tex:SetDesaturated(false) end
+            self.iconStyled = nil
+        end
+        SetIconTexture(tex, icon, true)
+        if opts then
+            self.iconStyled = true
+            if opts.display and SetPortraitTextureFromCreatureDisplayID then
+                SetPortraitTextureFromCreatureDisplayID(tex, opts.display)
+            end
+            if opts.glyph then
+                local size = opts.glyphSize or floor(self.m.icon * 0.6)
+                tex:ClearAllPoints()
+                tex:SetPoint("CENTER")
+                tex:SetSize(size, size)
+                tex:SetVertexColor(S:Color(opts.glyph == true and "GOLD" or opts.glyph))
+            end
+            if opts.desaturate and tex.SetDesaturated then tex:SetDesaturated(true) end
+        end
         self.icon:Show()
     elseif self.icon then
         self.icon:Hide()
+    end
+    self:Relayout()
+end
+
+-- A shade along the right edge too, w px wide (the page's own content sits there on the art: the raid page's answer
+-- side); nil / 0: none. banner.shadeR.
+function Banner:SetShadeRight(w)
+    w = tonumber(w) or 0
+    if w <= 0 then
+        if self.shadeR then self.shadeR:Hide() end
+        return
+    end
+    if not self.shadeR then
+        self.shadeR = self:CreateTexture(nil, "BORDER", nil, 2)
+        self.shadeR:SetPoint("TOPRIGHT", -1, -1)
+        self.shadeR:SetPoint("BOTTOMRIGHT", -1, 1)
+        UI:Gradient(self.shadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0 }, { 0.055, 0.055, 0.067, 0.8 })
+    end
+    self.shadeR:SetWidth(w)
+    self.shadeR:Show()
+end
+
+-- A second icon (a pair: the Warglaives) as a smaller tile on the first one's lower right corner: icon (nil hides it),
+-- itemID (its tooltip). banner.icon2.
+function Banner:SetSecondIcon(icon, itemID)
+    if icon == nil or icon == false or not self.icon then
+        if self.icon2 then self.icon2:Hide() end
+        return
+    end
+    if not self.icon2 then
+        self.icon2 = UI:CreateIconTile(self, 22)
+        UI:AttachTooltip(self.icon2, function(f) if f.itemID then UI:SetItemTooltip(f, f.itemID) end end)
+    end
+    local t = self.icon2
+    t:Set(icon)
+    t.itemID = itemID
+    t:ClearAllPoints()
+    t:SetPoint("BOTTOMRIGHT", self.icon, "BOTTOMRIGHT", 6, -6)
+    t:SetFrameLevel(self.icon:GetFrameLevel() + 2)
+    t:Show()
+end
+
+-- A frame of the caller's in the icon's place (several icons side by side: a set's pieces); the text starts after its
+-- width. nil gives the place back to the icon tile.
+function Banner:SetIconFrame(f)
+    if f then
+        if not self.iconTile then self.iconTile = self.icon or false end
+        if self.iconTile then self.iconTile:Hide() end
+        self.icon = f
+        f:Show()
+    elseif self.iconTile ~= nil then
+        if self.icon then self.icon:Hide() end
+        self.icon = self.iconTile or nil
+        self.iconTile = nil
     end
     self:Relayout()
 end
@@ -444,6 +525,7 @@ function Banner:SetActions(list)
             ni = ni + 1
             f = PoolGet(self.iconPool, ni, function() return NewIconButton(self, S.BTN_H) end)
             SetIconTexture(f.icon, a.icon)
+            if a.chevron then UI:SetChevron(f.icon, a.chevron == "right") end
         else
             nb = nb + 1
             f = PoolGet(self.btnPool, nb, function() return NewActionButton(self) end)
@@ -461,13 +543,22 @@ function Banner:SetActions(list)
     self:Relayout()
 end
 
--- list: { { icon, title, text, onClick, menu, enabled } ... }, the first at the far right.
+-- A small grey text left of the tools ("3 / 19" beside a pager); nil / "": none. banner.toolsText.
+function Banner:SetToolsText(text)
+    if not self.toolsText then self.toolsText = UI:Text(self, "small", "SUB", { justify = "RIGHT" }) end
+    self.toolsText:SetText(text == nil and "" or tostring(text))
+    self.toolsText:SetShown(text ~= nil and text ~= "")
+    self:Relayout()
+end
+
+-- list: { { icon, title, text, onClick, menu, enabled, chevron = "left" | "right" } ... }, the first at the far right.
 function Banner:SetTools(list)
     for _, f in ipairs(self.toolPool) do f:Hide() end
     wipe(self.tools)
     for i, t in ipairs(list or {}) do
         local f = PoolGet(self.toolPool, i, function() return NewIconButton(self, P.TOOL) end)
         SetIconTexture(f.icon, t.icon or "more")
+        if t.chevron then UI:SetChevron(f.icon, t.chevron == "right") end   -- (a pager's < and >)
         f.ppAction = t
         SetTip(f, (t.title or t.text) and { t.title, t.text } or nil)
         if t.enabled == false then f:Disable() else f:Enable() end
@@ -526,15 +617,28 @@ function Banner:Layout()
     self.fade:SetShown(footH > 0)
 
     -- the right side: tools (top) and actions (bottom); a strip has them in one row on its middle
-    local toolsW, actsW, rightW
+    local toolsW, actsW, rightW, firstTool
     if m.tall then
-        toolsW = RowFromRight(self.tools, self, "TOPRIGHT", -EX, -P.TOOL_Y, P.TOOL_GAP)
+        toolsW, firstTool = RowFromRight(self.tools, self, "TOPRIGHT", -EX, -P.TOOL_Y, P.TOOL_GAP)
         actsW = RowFromRight(self.actions, self, "BOTTOMRIGHT", -EX, P.ACT_Y + footH, P.ACT_GAP)
-        rightW = toolsW > 0 and (toolsW + EX + 8) or 16
     else
         local last
         actsW, last = RowFromRight(self.actions, self, "RIGHT", -EX, footH / 2, P.ACT_GAP)
-        toolsW = RowFromRight(self.tools, self, "RIGHT", -EX, footH / 2, P.TOOL_GAP, last)
+        toolsW, firstTool = RowFromRight(self.tools, self, "RIGHT", -EX, footH / 2, P.TOOL_GAP, last)
+    end
+    -- a text beside the tools (Banner:SetToolsText: "3 / 19" left of a pager's chevrons)
+    local tt = self.toolsText
+    if tt and Shown(tt) and firstTool and #self.tools > 0 then
+        tt:ClearAllPoints()
+        tt:SetPoint("RIGHT", firstTool, "LEFT", -8, 0)
+        tt:Show()
+        toolsW = toolsW + 8 + UI:TextWidth(tt)
+    elseif tt then
+        tt:Hide()
+    end
+    if m.tall then
+        rightW = toolsW > 0 and (toolsW + EX + 8) or 16
+    else
         rightW = actsW + toolsW + EX + 12
     end
 
@@ -609,6 +713,33 @@ function Banner:Layout()
     self.pill:ClearAllPoints()
     self.pill:SetPoint("LEFT", self.title, "RIGHT", 10, 0)
     self.textX = textX
+    -- the kicker's tooltip area (Banner:SetKickerTip): over the kicker's words
+    local hit = self.kickerHit
+    if hit then
+        local on = self.kickerTip ~= nil and Shown(self.kicker)
+        hit:SetShown(on)
+        if on then
+            hit:ClearAllPoints()
+            hit:SetPoint("TOPLEFT", self.kicker, "TOPLEFT", -2, 2)
+            hit:SetSize(floor(UI:TextWidth(self.kicker) + 4.5), S:Size("small") + 4)
+        end
+    end
+end
+
+-- A tooltip on the kicker (what a number in it means): title, lines (as UI:AttachTooltip); nil: none.
+function Banner:SetKickerTip(title, lines)
+    if title == nil then
+        self.kickerTip = nil
+    else
+        if not self.kickerHit then
+            self.kickerHit = CreateFrame("Frame", nil, self)
+            self.kickerHit:SetFrameLevel(self:GetFrameLevel() + 4)
+            self.kickerHit:EnableMouse(true)
+        end
+        self.kickerTip = { title, lines }
+        UI:AttachTooltip(self.kickerHit, title, lines)
+    end
+    self:Relayout()
 end
 
 ---------------------------------------------------------------------------

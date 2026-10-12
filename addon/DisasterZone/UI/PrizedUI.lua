@@ -313,11 +313,6 @@ local function rowHeight(d) return d.kind == "raid" and (d.first and SECT_H or S
 -- ITEM, the name in its quality colour with my standing as its pill, slot / boss / raid); Edit (or Save / Cancel while
 -- editing) are its actions, More (Remove) its tool. The add form has it too (Add a prized item, Add / Cancel).
 local function decorateBanner(b)
-    -- a pair (the Warglaives): the second item as a smaller tile on the first one's corner.
-    -- TODO(refactor): move into UI:CreatePageBanner (two icons)
-    b.icon2 = UI():CreateIconTile(b, 22)
-    b.icon2:Hide()
-    UI():AttachTooltip(b.icon2, function(self) if self.itemID then UI():SetItemTooltip(self, self.itemID) end end)
     b.editActions = { { text = "Edit", onClick = function() PrizedUI:StartEdit() end,
         tip = { "Edit the rules", "Saving tells the guild what changed and adds it to the item's history." } } }
     b.saveActions = {
@@ -346,15 +341,9 @@ local function fillBanner(b, rec)
         UI():AttachTooltip(b.icon, function(self) if self.itemID then UI():SetItemTooltip(self, self.itemID) end end)
     end
     b.icon.itemID = rec.ids[1]
+    -- a pair (the Warglaives): the second item as a smaller tile on the first one's corner
     local id2 = rec.ids[2]
-    b.icon2:SetShown(id2 ~= nil)
-    if id2 then
-        b.icon2:Set(ns.ItemDB:GetIcon(id2))
-        b.icon2.itemID = id2
-        b.icon2:ClearAllPoints()
-        b.icon2:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 6, -6)
-        b.icon2:SetFrameLevel(b.icon:GetFrameLevel() + 2)
-    end
+    b:SetSecondIcon(id2 and ns.ItemDB:GetIcon(id2), id2)
     local r, g, bl = qualityColor(rec.ids[1])
     b:SetTitle(("|cff%02x%02x%02x%s|r"):format(floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(bl * 255 + 0.5),
         recName(rec)))
@@ -374,7 +363,7 @@ end
 -- The add form's banner: no art, the prized icon, Add a prized item; Add (its words follow the picks) and Cancel.
 local function fillAddBanner(b, n, enabled)
     b:SetArt(nil)
-    b.icon2:Hide()
+    b:SetSecondIcon(nil)
     b:SetKicker("PRIZED ITEM")
     b:SetIcon(iconIndex("prized"))
     if b.icon then b.icon.itemID = nil end

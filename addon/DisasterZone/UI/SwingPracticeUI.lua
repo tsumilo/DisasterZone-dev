@@ -483,14 +483,13 @@ function PUI:Build()
     local L = UI():CreateLayout("tool", frame.content, { width = LAYOUT_W, toolbar = true, banner = {
         size = "tool", art = "kara", icon = ST().ICONS.sob, title = "Twist practice",
         sub = "Learn the seal twist one step at a time.",
-        tools = { { icon = "eye", title = "Your latency", text = "Practice delays every press by it, the way the "
-            .. "server hears you, so the timing you learn here is the timing of a real fight. Settings > Class "
-            .. "tools > Swing timer > Latency." } } } })
+        kickerTip = { "Your latency", { "Practice delays every press by it, the way the server hears you, so the timing "
+            .. "you learn here is the timing of a real fight. Settings > Class tools > Swing timer > Latency." } } } })
     frame.layout = L
     -- (the note that keys are only caught: the layout's info notice)
     L:ShowNotice("info", "Nothing is cast: your keys are caught while you practice.")
     local bn = L.banner
-    -- stars earned (the banner's pill) and your latency (its kicker; its tool explains it)
+    -- stars earned (the banner's pill) and your latency (its kicker; its tooltip explains it)
     bn.starCount = { SetText = function(_, t) bn:SetPill("rank", t and (t .. " stars") or nil) end }
     bn.lat = { SetText = function(_, t) bn:SetKicker(t) end }
     frame.banner = bn

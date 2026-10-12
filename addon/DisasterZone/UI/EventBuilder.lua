@@ -396,15 +396,6 @@ local function IconButton(parent, icon, title, text, onClick)
     return UI():CreateTipIconButton(parent, St.BTN_H, icon, title, text, onClick)
 end
 
--- A filter of the tool row that groups the buttons around it: a 1 px hairline (the row's gap on each side).
--- TODO(refactor): move into the layout toolbar (Toolbar:SetFilters taking a separator item)
-local function RowSeparator(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(1, 18)
-    UI():Rule(f, { vertical = true, alpha = 0.12 })
-    return f
-end
-
 -- ui.top is the tool row (the layout's toolbar): the stage strip on its left, the controls on its right, and it
 -- holds the banner's parts too (top.banner, top.icon, top.name: the rename field, top.rename) for Refresh and the tests.
 CreateTop = function(layout)
@@ -491,7 +482,7 @@ CreateTop = function(layout)
         if #S.redo == 0 then ns:Print("%s", "nothing to redo: redo brings back what undo took away.") end
         Builder:Redo()
     end)
-    top.sep2 = RowSeparator(top)
+    top.sep2 = top:NewSeparator()
     top.practiceBtn = UI():CreateSleekButton(top, UI():AtlasIconText(UI().ICON.play or 47, 10) .. "  Practice", 92,
         St.BTN_H, function() Builder:StartPractice() end)
     top.share = IconButton(top, 18, "Share", "Post a link to this event in chat.", function(self) Builder:ShareEvent(self) end)
@@ -510,7 +501,7 @@ CreateTop = function(layout)
     pr.restart = IconButton(top, 34, "Start again", "The practice run starts over with fresh dummies.", function()
         Builder:StartPractice(true)
     end)
-    pr.sep = RowSeparator(top)
+    pr.sep = top:NewSeparator()
     top.board = UI():CreateSleekButton(top, "See the board", 112, St.BTN_H, function()
         if ns.EventBoard and ns.EventBoard.Open then ns.EventBoard:Open("practice") end
     end)

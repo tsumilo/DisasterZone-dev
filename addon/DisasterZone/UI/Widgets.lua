@@ -210,13 +210,22 @@ local function GradientRGBA(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
 end
 
 -- tex filled with a gradient from c1 to c2 (token names or { r, g, b [, a] }): "HORIZONTAL" runs left to right,
--- "VERTICAL" bottom to top. The texture is set white first (a gradient tints the texture under it).
-function UI:Gradient(tex, orient, c1, c2)
+-- "VERTICAL" bottom to top. The texture is set white first (a gradient tints the texture under it); keep = true leaves
+-- the texture as it is (a gradient over an atlas shape).
+function UI:Gradient(tex, orient, c1, c2, keep)
     if not tex then return end
-    tex:SetColorTexture(1, 1, 1, 1)
+    if not keep then tex:SetColorTexture(1, 1, 1, 1) end
     local r1, g1, b1, a1 = S:Color(c1)
     local r2, g2, b2, a2 = S:Color(c2)
     GradientRGBA(tex, orient or "VERTICAL", r1, g1, b1, a1, r2, g2, b2, a2)
+    return tex
+end
+
+-- UI:Gradient in numbers (no colour tables: a gradient eased every frame): r1, g1, b1, a1 -> r2, g2, b2, a2.
+function UI:GradientRGBA(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2, keep)
+    if not tex then return end
+    if not keep then tex:SetColorTexture(1, 1, 1, 1) end
+    GradientRGBA(tex, orient or "VERTICAL", r1, g1, b1, a1 or 1, r2, g2, b2, a2 or 1)
     return tex
 end
 

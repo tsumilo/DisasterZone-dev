@@ -2001,12 +2001,8 @@ function PlanUI:CreateUpcoming(parent)
     d.moreBtn = hero.tools[1]
     d.tabSignups, d.tabGroups, d.tabAssign = L.tabs:GetTab("signups"), L.tabs:GetTab("groups"), L.tabs:GetTab("assign")
     -- (the answer side: dark under my answer, as the left is under the facts)
-    -- TODO(refactor): move into UI:CreatePageBanner (opts.shadeRight: the shade on the right too, under page content)
-    hero.fadeR = hero:CreateTexture(nil, "BORDER", nil, 2)
-    hero.fadeR:SetPoint("TOPRIGHT", -1, -1)
-    hero.fadeR:SetPoint("BOTTOMRIGHT", -1, 1)
-    hero.fadeR:SetWidth(UP.ANS_W + 40)
-    UI():Gradient(hero.fadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0 }, { 0.055, 0.055, 0.067, 0.8 })
+    hero:SetShadeRight(UP.ANS_W + 40)
+    hero.fadeR = hero.shadeR
     -- the facts: the banner's kicker (when, the countdown in gold), title (the name) and sub line (where / by / for)
     -- in the room left of my answer, then the raid's note
     d.kick, d.title, d.sub2 = hero.kicker, hero.title, hero.sub

@@ -115,16 +115,11 @@ local function ClassRGB(key)
 end
 
 -- Two colours reused by the gradients drawn while painting and animating (UI:Gradient reads the numbers).
-local gradLo, gradHi = {}, {}
-local function RGBA(t, r, g, b, a)
-    t[1], t[2], t[3], t[4] = r, g, b, a
-    return t
-end
 
 -- A cell's fill, top colour then bottom colour (alpha 0.95 unless given).
 local function CellFill(c, top, bottom)
-    ns.UI:Gradient(c.bg, "VERTICAL", RGBA(gradLo, bottom[1], bottom[2], bottom[3], bottom[4] or 0.95),
-        RGBA(gradHi, top[1], top[2], top[3], top[4] or 0.95))
+    ns.UI:GradientRGBA(c.bg, "VERTICAL", bottom[1], bottom[2], bottom[3], bottom[4] or 0.95,
+        top[1], top[2], top[3], top[4] or 0.95)
 end
 
 local function SetScaleAnim(a, from, to)
@@ -302,8 +297,8 @@ local function PlaceSheen(c, e)
             tex:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", l, 1)
             tex:SetWidth(r - l)
             local span = x1 - x0
-            ns.UI:Gradient(tex, "HORIZONTAL", RGBA(gradLo, 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span),
-                RGBA(gradHi, 1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span))
+            ns.UI:GradientRGBA(tex, "HORIZONTAL", 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span,
+                1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span)
             tex:SetBlendMode("ADD")
             tex:Show()
         end
@@ -817,8 +812,8 @@ function BingoUI:Refresh()
                 c.ring:Show()
                 if not hit then
                     c.wash:SetHeight(max(1, (c:GetHeight() > 0 and c:GetHeight() or 70) * 0.62))
-                    ns.UI:Gradient(c.wash, "VERTICAL", RGBA(gradLo, col[1], col[2], col[3], 0),
-                        RGBA(gradHi, col[1], col[2], col[3], sq.rarity == "l" and 0.2 or 0.14))
+                    ns.UI:GradientRGBA(c.wash, "VERTICAL", col[1], col[2], col[3], 0,
+                        col[1], col[2], col[3], sq.rarity == "l" and 0.2 or 0.14)
                     c.wash:Show()
                     c.legendary = sq.rarity == "l" or nil
                 end

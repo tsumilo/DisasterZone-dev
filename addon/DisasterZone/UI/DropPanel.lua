@@ -881,14 +881,12 @@ end
 -- The pager (the banner's tools): older / newer drop, the chevrons turned left / right.
 function Look.SetPager(f, showPrev, showNext)
     local tools = {}
-    if showNext then tools[#tools + 1] = { icon = "chevron", title = "Newer drop", onClick = function() DropPanel:Page(1) end } end
-    if showPrev then tools[#tools + 1] = { icon = "chevron", title = "Older drop", onClick = function() DropPanel:Page(-1) end } end
+    if showNext then tools[#tools + 1] = { icon = "chevron", chevron = "right", title = "Newer drop", onClick = function() DropPanel:Page(1) end } end
+    if showPrev then tools[#tools + 1] = { icon = "chevron", chevron = "left", title = "Older drop", onClick = function() DropPanel:Page(-1) end } end
     local ban = f.layout.banner
     ban:SetTools(tools)
     for i, t in ipairs(tools) do
-        local b = ban.tools[i]
-        UI:SetChevron(b.icon, t.title == "Newer drop")
-        if t.title == "Newer drop" then DropPanel.nextBtn = b else DropPanel.prevBtn = b end
+        if t.title == "Newer drop" then DropPanel.nextBtn = ban.tools[i] else DropPanel.prevBtn = ban.tools[i] end
     end
 end
 

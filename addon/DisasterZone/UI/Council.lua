@@ -1817,17 +1817,11 @@ local function setPager(v, shown)
     if not shown then
         ban:SetTools(nil)
         v.prevBtn, v.nextBtn = nil, nil
-        v.pos:Hide()
         return
     end
-    ban:SetTools({ { icon = "chevron", title = "Next member", onClick = function() stepMember(1) end },
-                   { icon = "chevron", title = "Previous member", onClick = function() stepMember(-1) end } })
+    ban:SetTools({ { icon = "chevron", chevron = "right", title = "Next member", onClick = function() stepMember(1) end },
+                   { icon = "chevron", chevron = "left", title = "Previous member", onClick = function() stepMember(-1) end } })
     v.nextBtn, v.prevBtn = ban.tools[1], ban.tools[2]
-    UI:SetChevron(v.nextBtn.icon, true)
-    UI:SetChevron(v.prevBtn.icon, false)
-    v.pos:ClearAllPoints()
-    v.pos:SetPoint("RIGHT", v.prevBtn, "LEFT", -8, 0)
-    v.pos:Show()
 end
 
 -- The "changed during lock" pill's tooltip (the banner's pill, §38).
@@ -1861,8 +1855,8 @@ local function createMemberView(parent)
     v.back = v.banner.back
     v.name = v.banner.title
     v.info = v.banner.sub
-    v.pos = UI:Text(v.banner, "small", "SUB", { justify = "RIGHT" })
-    v.pos:Hide()
+    v.banner:SetToolsText(nil)
+    v.pos = v.banner.toolsText          -- ("3 / 19": the banner's text beside its tools)
 
     -- §38: "changed during lock" as the title's pill (hover for details)
     v.lockFlag = v.banner.pill
@@ -2066,7 +2060,7 @@ local function refreshMember(phase)
     local ban = v.banner
     ban:SetBack(K.VIEW_LABEL[state.backView or "roster"] or "Roster",
         function() CouncilUI:SetView(state.backView or "roster") end)
-    v.pos:SetText(n > 0 and string.format("%s / %d", idx and tostring(idx) or "-", n) or "")
+    v.banner:SetToolsText(n > 0 and string.format("%s / %d", idx and tostring(idx) or "-", n) or nil)
     setPager(v, n > 1)
 
     if not key then

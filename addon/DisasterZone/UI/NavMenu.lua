@@ -561,12 +561,8 @@ FillSpot = function(pg)
     local b = s.banner
     local info = INFO[pg.key] or DEFAULT_INFO
     f.artInfo = info
-    b:SetIcon(IconIndex(info.icon))
     -- (a glyph, not a picture: smaller, gold, on the tile's dark ground)
-    b.icon.tex:ClearAllPoints()
-    b.icon.tex:SetPoint("CENTER")
-    b.icon.tex:SetSize(26, 26)
-    b.icon.tex:SetVertexColor(S:Color("GOLD"))
+    b:SetIcon(IconIndex(info.icon), { glyph = "GOLD", glyphSize = 26 })
     b:SetTitle(pg.label or pg.key)
     b:SetSub(pg.line or "")
     if (tonumber(pg.count) or 0) > 0 then

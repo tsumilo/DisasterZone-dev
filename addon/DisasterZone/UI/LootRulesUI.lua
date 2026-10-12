@@ -541,12 +541,10 @@ local function BuildItem(L)
     local f = L.detail
     local b = L.banner
     -- the item's icons in the banner's icon place (one, or the pieces of a set side by side)
-    -- TODO(refactor): move into CreatePageBanner (an icon slot that takes several item icons)
     b.iconHolder = CreateFrame("Frame", nil, b)
     b.iconHolder:SetSize(52, 48)
     b.icons = ns.PrizedUI:NewItemIcons(b.iconHolder, 44, 2)
-    b.icon = b.iconHolder
-    b:Layout()
+    b:SetIconFrame(b.iconHolder)
     f.banner = b
     -- the rules and the history: one scrolling column each (the tabs show one)
     local function column(title)

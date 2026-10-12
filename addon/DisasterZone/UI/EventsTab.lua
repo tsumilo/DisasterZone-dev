@@ -5897,13 +5897,9 @@ function EventsUI:CreatePanel(parent)
     for _, view in ipairs(VIEWS) do p.tabs[view] = bar:GetTab(view) end
     bar:SetTabCount("review", 0)
     UI():AttachTooltip(p.tabs.review, ReviewTip, nil, { anchor = "ANCHOR_BOTTOM" })
-    p.newBtn = bar:SetPrimary({ text = "New event", onClick = A.NewEvent,
+    -- (its plus as a glyph beside the words: the button's text stays "New event")
+    p.newBtn = bar:SetPrimary({ text = "New event", icon = "plus", onClick = A.NewEvent,
         tip = "Opens the builder on an empty event: drag pieces in, practice it, save it." })
-    -- (its plus as a glyph beside the words, so the button's text stays "New event")
-    -- TODO(refactor): move into the layout toolbar (SetPrimary's icon puts the glyph into the button's text)
-    p.newBtn.glyph = p.newBtn:CreateTexture(nil, "OVERLAY")
-    p.newBtn.glyph:SetSize(12, 12)
-    H.SetButtonGlyph(p.newBtn, "plus")
     H.Fit(p.newBtn, 90, 30)
     -- Examples beside it: Upcoming's (p.exBtn) and the Library's (its view's .examples)
     p.exBtn = A.ExamplesButton(bar, S.BTN_H)
