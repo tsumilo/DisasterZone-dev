@@ -358,7 +358,9 @@ function Tabs:LayoutTabs()
         end
     end
     self.lastTab = prev
-    if self.OnTabsLaidOut then self:OnTabsLaidOut() end
+    -- (rawget: the hook is copied onto the frame by NewToolbar; plain tab rows have none)
+    local onLaidOut = rawget(self, "OnTabsLaidOut")
+    if onLaidOut then onLaidOut(self) end
 end
 
 ---------------------------------------------------------------------------
