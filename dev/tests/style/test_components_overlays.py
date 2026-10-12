@@ -208,6 +208,26 @@ def a_toast_times_out_but_waits_under_the_mouse():
 
 
 @case
+def a_keyed_refill_with_keep_time_keeps_the_time_it_has_left():
+    w, c = solo()
+    c.eval_py("""
+        ns.__ovk = ns.UI:Toast({ key = "kt", title = "Kept", duration = 2 })
+        ns.__ovr = ns.UI:Toast({ key = "rs", title = "Reset", duration = 2 })
+        return true""")
+    w.tick(1.5)
+    c.eval_py("""
+        ns.UI:Toast({ key = "kt", title = "Kept +1", duration = 2, keepTime = true })
+        ns.UI:Toast({ key = "rs", title = "Reset +1", duration = 2 })
+        return true""")
+    left = c.eval_py("return { ns.__ovk.left, ns.__ovr.left }")
+    assert left[0] < 0.7 and left[1] > 1.9, left
+    w.tick(0.8)
+    out = c.eval_py("return { k = ns.__ovk:IsShown(), r = ns.__ovr:IsShown(), title = ns.__ovr.title:GetText() }")
+    assert not out["k"] and out["r"] and out["title"] == "Reset +1", out
+    no_errors(w)
+
+
+@case
 def a_toast_held_for_the_fight_comes_when_it_ends():
     w, c = solo()
     c.set_combat(True)

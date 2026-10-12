@@ -3824,6 +3824,7 @@ function DropPanel:RefreshToastText()
     local t = UI:Toast({
         key = TOAST_KEY, kind = kind, kicker = kicker, title = title, text = line, lines = 2,
         icon = UI:ItemIcon(e.itemID), duration = TOAST_HOLD,
+        keepTime = true,                   -- (a "+N more" / item-info refill never starts the 8 s hold again)
         onClick = function()
             LinkToChat(e.itemID)
             return true                    -- (the toast stays)
