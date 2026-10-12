@@ -9,6 +9,7 @@ local addonName, ns = ...
 
 local MyLogTimeline = ns:NewModule("MyLogTimeline")
 
+local S = ns.Style
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local strformat = string.format
 
@@ -16,12 +17,15 @@ local LABEL_W = 166
 local LANE_H, LANE_GAP = 17, 3
 local AXIS_H = 16
 local MAX_LANES = 8
+-- (data colours: one a lane, the first the gold of "this pull")
 local PALETTE = {
-    { 1, 0.82, 0 }, { 0.35, 0.66, 1 }, { 0.36, 0.86, 0.62 }, { 1, 0.55, 0.30 }, { 0.80, 0.55, 1 },
+    S.C.GOLD, { 0.35, 0.66, 1 }, { 0.36, 0.86, 0.62 }, { 1, 0.55, 0.30 }, { 0.80, 0.55, 1 },
     { 0.45, 0.85, 0.90 }, { 1, 0.45, 0.60 }, { 0.75, 0.80, 0.45 },
 }
 
 local function K() return ns.MyLogKit end
+local function UI() return ns.UI end
+local LANE_RGB = S.C.HAIRLINE             -- (the grooves and grid: white at a low alpha)
 
 local function SpellName(p, key)
     local n = p and p.names and p.names[tostring(key)]
@@ -99,10 +103,9 @@ function MyLogTimeline:Create(parent)
     f.plot:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -4, AXIS_H)
     f.plot:EnableMouse(true)
     f.plot:EnableMouseWheel(true)
-    f.hint = k.Label(f, "Scroll to zoom · right-click to zoom out")
-    f.hint:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+    f.hint = UI():Text(f, "small", "DIM", { text = "Scroll to zoom · right-click to zoom out" })
     f.hint:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 2, 3)
-    f.more = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.more = UI():Text(f, "small", "SUB")
     f.scrub = f.plot:CreateTexture(nil, "OVERLAY", nil, 7)
     f.scrub:SetColorTexture(1, 1, 1, 0.35)
     f.scrub:SetWidth(1)
@@ -158,21 +161,16 @@ function MyLogTimeline:Create(parent)
         -- lane rows: a faint groove each; labels on the left
         for i = 1, nl do
             local y = laneY(i)
-            bar(0, w, y, LANE_H, { 1, 1, 1 }, i % 2 == 1 and 0.035 or 0.02, "BACKGROUND")
-            local lab = take("lab", function()
-                local fs = self:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                fs:SetJustifyH("LEFT")
-                fs:SetWordWrap(false)
-                fs:SetWidth(LABEL_W - 30)
-                return fs
-            end)
+            bar(0, w, y, LANE_H, LANE_RGB, i % 2 == 1 and 0.035 or 0.02, "BACKGROUND")
+            local lab = take("lab", function() return UI():Text(self, "small", "TEXT", { width = LABEL_W - 30 }) end)
             local icon = take("icon", function() return k.Icon(self, 14) end)
             icon:ClearAllPoints()
             icon:SetPoint("TOPLEFT", self, "TOPLEFT", 4, y - 1.5)
             lab:ClearAllPoints()
             lab:SetPoint("TOPLEFT", self, "TOPLEFT", 24, y - 3)
             if i == 1 then
-                lab:SetText(K().Paint(p.boss or "Boss", C.violet))
+                lab:SetText(p.boss or "Boss")
+                lab:SetTextColor(C.violet[1], C.violet[2], C.violet[3])
                 icon:Hide()
                 local por = take("por", function() return k.Portrait(self, 14) end)
                 por:ClearAllPoints()
@@ -181,7 +179,7 @@ function MyLogTimeline:Create(parent)
             else
                 local l = lanes[i - 1]
                 local col = PALETTE[(i - 2) % #PALETTE + 1]
-                lab:SetText(l.name .. K().Paint("  " .. l.n, C.dim))
+                lab:SetText(l.name .. S:Wrap("DIM", "  " .. l.n))
                 lab:SetTextColor(col[1] * 0.4 + 0.6, col[2] * 0.4 + 0.6, col[3] * 0.4 + 0.6)
                 icon:SetSpell(tostring(l.id))
             end
@@ -243,13 +241,9 @@ function MyLogTimeline:Create(parent)
         while t <= b + 0.001 do
             local x = self:X(t)
             if x then
-                local tk = bar(x, x + 1, 0, totalH - LANE_GAP, { 1, 1, 1 }, 0.05, "BACKGROUND")
+                local tk = bar(x, x + 1, 0, totalH - LANE_GAP, LANE_RGB, 0.05, "BACKGROUND")
                 tk:SetDrawLayer("BACKGROUND", 1)
-                local lab = take("axis", function()
-                    local fs = k.Text(self, "numXS")
-                    fs:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-                    return fs
-                end)
+                local lab = take("axis", function() return UI():Text(self, "small", "DIM") end)
                 lab:SetText(k.Clock(t))
                 lab:ClearAllPoints()
                 lab:SetPoint("TOP", self.plot, "TOPLEFT", x, -totalH - 2)
@@ -270,7 +264,8 @@ function MyLogTimeline:Create(parent)
         self:Draw()
     end
 
-    -- hover: what happened around the second under the mouse
+    -- hover: what happened around the second under the mouse (a live read-out that follows the mouse every frame,
+    -- so it fills GameTooltip itself instead of UI:AttachTooltip's once-per-enter tooltip)
     local function hover(self)
         local p = f.pull
         if not p or not GetCursorPosition then return end

@@ -1,108 +1,46 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyLogKit.lua", ...) then return end -- DisasterZone: drawing kit of the My Log page.
--- The pieces UI/MyLogUI.lua and UI/MyLogDetail.lua are built from (the look of the approved mockup):
---   fonts (Friz titles, Arial Narrow numbers; Morpheus was tried in game and read badly), vertical gradients, round dots, chips (up / down / best /
---   avoidable / mute pills), a segmented control, a breadcrumb, boss portraits with a gold ring, spell icons,
---   a sparkline and a chart (lines over x/y points, a soft gradient fill under the first series, bands, baseline
---   ticks, dots with labels, and a hover scrubber that reports the x under the mouse).
+-- The data drawings UI/MyLogUI.lua, UI/MyLogDetail.lua and UI/MyLogTimeline.lua share (the page itself is built from
+-- the shared layouts and components: UI:CreateLayout, UI:CreatePageBanner, UI:CreateCard, UI:CreatePill ...):
+--   colours (Kit.C: ns.Style tokens, plus the violet of the boss's mechanics), round dots, a boss's round portrait
+--   with a gold ring, spell icons, a sparkline, a chart (lines over x/y points, a soft gradient fill under the first
+--   series, bands, baseline ticks, dots with labels, and a hover scrubber that reports the x under the mouse), its
+--   legend, a row of stat cards (UI:CreateCard) and the number formats.
+-- Numbers are set in the text font (Friz), like My BiS, on purpose: the narrow digits (S.FONT_NUM, the "num" style)
+-- read as a generic web dashboard in game. So the kit uses the text styles ("page", "emph", "small") for numbers too.
 local addonName, ns = ...
 
 local Kit = ns:NewModule("MyLogKit")
 
+local UI, S = ns.UI, ns.Style
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local strformat = string.format
 
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local WHITE = "Interface\\Buttons\\WHITE8X8"
-Kit.TITLE_FONT = "Fonts\\MORPHEUS.TTF"
-Kit.TEXT_FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
--- numbers in Friz too, like My BiS: Arial Narrow (and labels in capitals) read as a generic web dashboard in game
-Kit.NUM_FONT = Kit.TEXT_FONT
 
--- Colours (r, g, b)
+-- Colours (r, g, b): the ns.Style tokens under the names the My Log code (and UI/MeterDetail.lua) reads.
 Kit.C = {
-    fg = { 0.93, 0.91, 0.87 }, mute = { 0.55, 0.57, 0.61 }, dim = { 0.36, 0.38, 0.42 },
-    gold = { 1, 0.82, 0 }, gold2 = { 0.91, 0.70, 0.29 }, up = { 0.31, 0.82, 0.55 }, down = { 1, 0.42, 0.36 },
-    blue = { 0.35, 0.66, 1 }, violet = { 0.66, 0.55, 1 }, avoid = { 1, 0.60, 0.24 },
-    card = { 0.078, 0.090, 0.114 }, card2 = { 0.102, 0.118, 0.149 }, well = { 0.039, 0.047, 0.063 },
+    fg = S.C.TEXT, mute = S.C.SUB, dim = S.C.DIM, gold = S.C.GOLD, gold2 = S.C.GOLD_DEEP,
+    up = S.C.OK, down = S.C.BAD, avoid = S.C.WARN, blue = S.C.YOU,
+    violet = { 0.66, 0.55, 1 },            -- (a data colour: the boss's mechanics on the charts; no token)
+    card = S.C.CARD, well = S.C.INSET,
 }
 local C = Kit.C
 
-function Kit.Hex(c) return strformat("|cff%02x%02x%02x", floor(c[1] * 255), floor(c[2] * 255), floor(c[3] * 255)) end
-function Kit.Paint(text, c) return Kit.Hex(c) .. tostring(text) .. "|r" end
+-- The pill kind (UI:CreatePill) of a change: better / worse / the same. TODO(refactor): move into UI:CreatePill (a
+-- "bad" look for a worse number; "live" is the nearest red today).
+Kit.PILL = { up = "ok", down = "live", mute = "mute", best = "rank", avoid = "warn" }
 
 ---------------------------------------------------------------------------
--- Text
+-- Small pieces
 ---------------------------------------------------------------------------
 
--- kind: "hero" (big number), "num" (card number), "numS", "numXS", "title", "titleS", "lab" (small grey caption)
-local FONTS = {
-    hero = { Kit.NUM_FONT, 34 }, num = { Kit.NUM_FONT, 17 }, numS = { Kit.NUM_FONT, 13 }, numXS = { Kit.NUM_FONT, 11 },
-    title = { Kit.TEXT_FONT, 19 }, titleS = { Kit.TEXT_FONT, 14 }, lab = { Kit.TEXT_FONT, 11 },
-}
-function Kit.Text(parent, kind, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", "GameFontHighlight")
-    local f = FONTS[kind or ""]
-    if f then fs:SetFont(f[1], f[2], "") end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if kind == "lab" then fs:SetTextColor(C.mute[1], C.mute[2], C.mute[3]) end
-    return fs
-end
-
--- A small grey caption, written as given (no capitals).
-function Kit.Label(parent, text)
-    local fs = Kit.Text(parent, "lab")
-    fs:SetText(text or "")
-    return fs
-end
-
--- A section heading: Friz, light, the size of the page's tabs.
-function Kit.Heading(parent, text)
-    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    fs:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
-    fs:SetText(text or "")
-    return fs
-end
-
----------------------------------------------------------------------------
--- Surfaces
----------------------------------------------------------------------------
-
-local colA, colB
-local function Colors()
-    if not colA and CreateColor then colA, colB = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0) end
-    return colA, colB
-end
-
--- A vertical gradient (bottom colour, top colour), or the mean colour where gradients are missing.
-function Kit.Gradient(tex, bottom, top, orient)
-    local a, b = Colors()
-    tex:SetTexture(WHITE)
-    if a and tex.SetGradient then
-        a:SetRGBA(bottom[1], bottom[2], bottom[3], bottom[4] or 1)
-        b:SetRGBA(top[1], top[2], top[3], top[4] or 1)
-        tex:SetGradient(orient or "VERTICAL", a, b)
-    else
-        tex:SetVertexColor((bottom[1] + top[1]) / 2, (bottom[2] + top[2]) / 2, (bottom[3] + top[3]) / 2,
-            ((bottom[4] or 1) + (top[4] or 1)) / 2)
-    end
-end
-
--- A flat card: fill + 1px edge. Returns the frame (f.bg, f:SetEdge(r, g, b, a)).
-function Kit.Card(parent, fill, edgeA)
-    local f = CreateFrame("Frame", nil, parent)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    fill = fill or C.card
-    f.bg:SetColorTexture(fill[1], fill[2], fill[3], fill[4] or 1)
-    if ns.UI and ns.UI.AddEdges then
-        ns.UI:AddEdges(f, "BORDER", true)
-        ns.UI:SetEdgeColor(f, 1, 1, 1, edgeA or 0.07)
-    end
-    function f:SetEdge(r, g, b, a) if ns.UI and ns.UI.SetEdgeColor then ns.UI:SetEdgeColor(self, r, g, b, a) end end
-    return f
+-- (the old card, kept for UI/MeterDetail.lua: a shared card, or an inset well for a darker fill)
+function Kit.Card(parent, fill)
+    local dark = fill and (fill[1] + fill[2] + fill[3]) < 0.27
+    local c = UI:CreateCard(parent, { tone = dark and "inset" or "card" })
+    function c:SetEdge(r, g, b, a) UI:SetEdgeColor(self, r, g, b, a) end
+    return c
 end
 
 -- A round dot of size px in colour c (alpha a).
@@ -114,94 +52,30 @@ function Kit.Dot(parent, size, c, a, layer)
     return t
 end
 
----------------------------------------------------------------------------
--- Chips: a rounded pill with tinted text. chip:Set(text, kind) kind = up | down | pb | av | mute
----------------------------------------------------------------------------
-
-local CHIP = {
-    up = { C.up, 0.13 }, down = { C.down, 0.13 }, pb = { C.gold, 0.15 }, av = { C.avoid, 0.14 },
-    mute = { C.mute, 0.10 }, violet = { C.violet, 0.14 },
-}
-function Kit.Chip(parent, h)
-    h = h or 16
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetHeight(h)
-    if ns.UI and ns.UI.AddPillShape then ns.UI:AddPillShape(f, h) end
-    f.fs = Kit.Text(f, "numXS")
-    f.fs:SetPoint("CENTER", f, "CENTER", 0, 0)
-    function f:Set(text, kind)
-        local k = CHIP[kind or "mute"] or CHIP.mute
-        local c = k[1]
-        self.fs:SetText(text or "")
-        self.fs:SetTextColor(c[1], c[2], c[3])
-        self:SetWidth(floor((self.fs:GetStringWidth() or 30) + 14))
-        if self.SetPillColors then
-            local base = C.card
-            local a = k[2]
-            self:SetPillColors({ base[1] + (c[1] - base[1]) * a, base[2] + (c[2] - base[2]) * a, base[3] + (c[3] - base[3]) * a, 1 },
-                { c[1], c[2], c[3], 0.22 })
-        end
-        self:SetShown(text ~= nil and text ~= "")
-    end
-    return f
-end
-
--- "▲ 6.1%" style change text: change in % (nil -> nil), higherIsBetter. Returns text, kind.
+-- "+6.1%" style change text: change in % (nil -> nil), higherIsBetter. Returns text, pill kind (Kit.PILL).
 function Kit.ChangeChip(change, higherIsBetter, suffix)
     if not change then return nil end
     if abs(change) < 0.05 then return "same" .. (suffix or ""), "mute" end
     local good = (change > 0) == (higherIsBetter ~= false)
-    return strformat("%s%.1f%%%s", change > 0 and "+" or "-", abs(change), suffix or ""), good and "up" or "down"
+    return strformat("%s%.1f%%%s", change > 0 and "+" or "-", abs(change), suffix or ""), good and "ok" or "live"
+end
+
+-- A pill (UI:CreatePill) that hides itself without text: pill:SetPill(kind, text) with text nil hides it.
+function Kit.Pill(parent)
+    local p = UI:CreatePill(parent)
+    local set = p.SetPill
+    function p:SetPill(kind, text)
+        if text == nil or text == "" then self:Hide() return end
+        set(self, kind, text)
+        self:Show()
+    end
+    p:Hide()
+    return p
 end
 
 ---------------------------------------------------------------------------
--- Segmented control: items = { { key, label } }, onPick(key). seg:SetSelected(key)
----------------------------------------------------------------------------
-
-function Kit.Segment(parent, items, onPick, w)
-    w = w or 70
-    local h = 20
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(#items * w + 4, h + 4)
-    if ns.UI and ns.UI.AddPillShape then
-        ns.UI:AddPillShape(f, h + 4)
-        f:SetPillColors({ C.well[1], C.well[2], C.well[3], 1 }, { 1, 1, 1, 0.08 })
-    end
-    f.buttons = {}
-    for i, it in ipairs(items) do
-        local b = CreateFrame("Button", nil, f)
-        b:SetSize(w, h)
-        b:SetPoint("LEFT", f, "LEFT", 2 + (i - 1) * w, 0)
-        if ns.UI and ns.UI.AddPillShape then ns.UI:AddPillShape(b, h) end
-        b.fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        b.fs:SetPoint("CENTER")
-        b.fs:SetText(it.label)
-        b.key = it.key
-        b:SetScript("OnClick", function(self) onPick(self.key) end)
-        b:SetScript("OnEnter", function(self) if not self.on then self.fs:SetTextColor(C.fg[1], C.fg[2], C.fg[3]) end end)
-        b:SetScript("OnLeave", function(self) if not self.on then self.fs:SetTextColor(C.mute[1], C.mute[2], C.mute[3]) end end)
-        f.buttons[i] = b
-    end
-    function f:SetSelected(key)
-        for _, b in ipairs(self.buttons) do
-            b.on = b.key == key
-            if b.SetPillColors then
-                if b.on then
-                    b:SetPillColors({ 0.17, 0.145, 0.07, 1 }, { 1, 0.82, 0, 0.4 })
-                else
-                    b:SetPillColors({ 0, 0, 0, 0 }, { 0, 0, 0, 0 })
-                end
-            end
-            local c = b.on and C.gold or C.mute
-            b.fs:SetTextColor(c[1], c[2], c[3])
-        end
-    end
-    return f
-end
-
----------------------------------------------------------------------------
--- Underline tabs (the addon's second-row tabs): items = { { key, label } }, onPick(key).
--- tabs:SetSelected(key), tabs:SetLabel(key, text); tabs.buttons[i]
+-- Underline tabs in a row, kept for UI/MeterDetail.lua (a page's tabs are its layout's): items = { { key, label } },
+-- onPick(key). tabs:SetSelected(key), tabs:SetLabel(key, text); tabs.buttons[i]
 ---------------------------------------------------------------------------
 
 function Kit.Tabs(parent, items, onPick)
@@ -218,7 +92,7 @@ function Kit.Tabs(parent, items, onPick)
         f:SetWidth(max(10, x - 4))
     end
     for i, it in ipairs(items) do
-        local b = ns.UI:CreateUnderlineTab(f, it.label, function(self) onPick(self.key) end, "page")
+        local b = UI:CreateUnderlineTab(f, it.label, function(self) onPick(self.key) end, "page")
         b.key = it.key
         f.buttons[i] = b
     end
@@ -236,79 +110,27 @@ function Kit.Tabs(parent, items, onPick)
 end
 
 ---------------------------------------------------------------------------
--- Breadcrumb: crumb:Set({ { text, onClick | nil }, ... }); the last part is white, the others grey links.
----------------------------------------------------------------------------
-
-function Kit.Crumb(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetHeight(20)
-    f.parts, f.chevs = {}, {}
-    function f:Set(parts)
-        for _, b in ipairs(self.parts) do b:Hide() end
-        for _, c in ipairs(self.chevs) do c:Hide() end
-        local x = 0
-        for i, p in ipairs(parts) do
-            local b = self.parts[i]
-            if not b then
-                b = CreateFrame("Button", nil, self)
-                b:SetHeight(20)
-                b.fs = b:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                b.fs:SetPoint("LEFT")
-                b:SetScript("OnEnter", function(s) if s.click then s.fs:SetTextColor(C.gold[1], C.gold[2], C.gold[3]) end end)
-                b:SetScript("OnLeave", function(s) s:Paint() end)
-                b:SetScript("OnClick", function(s) if s.click then s.click(s) end end)
-                function b:Paint()
-                    local c = self.last and C.fg or C.mute
-                    self.fs:SetTextColor(c[1], c[2], c[3])
-                end
-                self.parts[i] = b
-            end
-            b.fs:SetText(p[1])
-            b.click = p[2]
-            b.last = i == #parts
-            b:Paint()
-            b:SetWidth((b.fs:GetStringWidth() or 40) + 2)
-            b:ClearAllPoints()
-            b:SetPoint("LEFT", self, "LEFT", x, 0)
-            b:Show()
-            x = x + b:GetWidth()
-            if i < #parts then
-                local c = self.chevs[i]
-                if not c then
-                    c = self:CreateTexture(nil, "OVERLAY")
-                    c:SetSize(10, 10)
-                    if ns.UI and ns.UI.SetChevron then ns.UI:SetChevron(c, true) end
-                    c:SetVertexColor(C.dim[1], C.dim[2], C.dim[3])
-                    self.chevs[i] = c
-                end
-                c:ClearAllPoints()
-                c:SetPoint("LEFT", self, "LEFT", x + 5, 0)
-                c:Show()
-                x = x + 20
-            end
-        end
-        self:SetWidth(max(1, x))
-    end
-    return f
-end
-
----------------------------------------------------------------------------
 -- Portrait: a boss's round portrait (creature display id) with a gold ring; a tinted disc and the initial when
--- the boss has no display id. p:SetBoss(name)
+-- the boss has no display id. p:SetBoss(name); p:SetPortraitSize(px)
 ---------------------------------------------------------------------------
 
 function Kit.Portrait(parent, size)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
     f.ring = Kit.Dot(f, size + 6, C.gold, 0.35, "BACKGROUND")
     f.ring:SetPoint("CENTER")
-    f.gap = Kit.Dot(f, size + 3, { 0.055, 0.063, 0.078 }, 1, "BORDER")
+    f.gap = Kit.Dot(f, size + 3, S.C.INSET, 1, "BORDER")
     f.gap:SetPoint("CENTER")
     f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetSize(size, size)
     f.tex:SetPoint("CENTER")
-    f.initial = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    f.initial = UI:Text(f, "page", "TEXT", { justify = "CENTER" })
     f.initial:SetPoint("CENTER")
+    function f:SetPortraitSize(ps)
+        self:SetSize(ps, ps)
+        self.tex:SetSize(ps, ps)
+        self.ring:SetSize(ps + 6, ps + 6)
+        self.gap:SetSize(ps + 3, ps + 3)
+    end
+    f:SetPortraitSize(size)
     function f:SetBoss(name, desaturate)
         local disp = ns.MyLog and ns.MyLog.BossDisplayId and ns.MyLog:BossDisplayId(name)
         self.initial:SetText("")
@@ -318,7 +140,7 @@ function Kit.Portrait(parent, size)
             SetPortraitTextureFromCreatureDisplayID(self.tex, disp)
         else
             self.tex:SetTexture(DISC)
-            self.tex:SetVertexColor(0.22, 0.25, 0.32, 1)
+            self.tex:SetVertexColor(S:Color("EDGE_STRONG"))
             self.initial:SetText((name or "?"):sub(1, 1))
         end
         if self.tex.SetDesaturated then self.tex:SetDesaturated(desaturate and true or false) end
@@ -378,6 +200,40 @@ local function YAt(points, x)
 end
 Kit.YAt = YAt
 
+-- A "nice" step for about n grid lines up to hi: 1, 2, 2.5 or 5 times a power of ten.
+local function NiceStep(hi, n)
+    local raw = hi / n
+    local mag = 10 ^ floor(math.log10(max(raw, 1e-9)))
+    for _, m in ipairs({ 1, 2, 2.5, 5, 10 }) do
+        if m * mag >= raw then return m * mag end
+    end
+    return 10 * mag
+end
+Kit.NiceStep = NiceStep
+
+-- Catmull-Rom points between the given ones (steps per segment), clamped to >= 0: a calm curve through
+-- every value instead of a zigzag.
+local function Smooth(pts, steps)
+    local n = #pts
+    if n < 3 then return pts end
+    local out = {}
+    for i = 1, n - 1 do
+        local p0, p1, p2, p3 = pts[max(1, i - 1)], pts[i], pts[i + 1], pts[min(n, i + 2)]
+        for s = 0, steps - 1 do
+            local t = s / steps
+            local t2, t3 = t * t, t * t * t
+            local function cr(a, b, c2, d) return 0.5 * ((2 * b) + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d) * t2 + (-a + 3 * b - 3 * c2 + d) * t3) end
+            out[#out + 1] = { p1[1] + (p2[1] - p1[1]) * t, max(0, cr(p0[2], p1[2], p2[2], p3[2])) }
+        end
+    end
+    out[#out + 1] = { pts[n][1], pts[n][2] }
+    return out
+end
+Kit.Smooth = Smooth
+
+-- (a colour with its alpha)
+local function A(c, a) return { c[1], c[2], c[3], a } end
+
 function Kit.Chart(parent)
     local c = CreateFrame("Frame", nil, parent)
     c.pool = { line = {}, fill = {}, band = {}, tick = {}, dot = {}, lab = {} }
@@ -414,36 +270,6 @@ function Kit.Chart(parent)
         self.opts = opts
         self:Draw()
     end
-    -- A "nice" step for about n grid lines up to hi: 1, 2, 2.5 or 5 times a power of ten.
-    local function NiceStep(hi, n)
-        local raw = hi / n
-        local mag = 10 ^ floor(math.log10(max(raw, 1e-9)))
-        for _, m in ipairs({ 1, 2, 2.5, 5, 10 }) do
-            if m * mag >= raw then return m * mag end
-        end
-        return 10 * mag
-    end
-    Kit.NiceStep = NiceStep
-
-    -- Catmull-Rom points between the given ones (steps per segment), clamped to >= 0: a calm curve through
-    -- every value instead of a zigzag.
-    local function Smooth(pts, steps)
-        local n = #pts
-        if n < 3 then return pts end
-        local out = {}
-        for i = 1, n - 1 do
-            local p0, p1, p2, p3 = pts[max(1, i - 1)], pts[i], pts[i + 1], pts[min(n, i + 2)]
-            for s = 0, steps - 1 do
-                local t = s / steps
-                local t2, t3 = t * t, t * t * t
-                local function cr(a, b, c2, d) return 0.5 * ((2 * b) + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d) * t2 + (-a + 3 * b - 3 * c2 + d) * t3) end
-                out[#out + 1] = { p1[1] + (p2[1] - p1[1]) * t, max(0, cr(p0[2], p1[2], p2[2], p3[2])) }
-            end
-        end
-        out[#out + 1] = { pts[n][1], pts[n][2] }
-        return out
-    end
-    Kit.Smooth = Smooth
 
     function c:Draw()
         local o = self.opts
@@ -458,6 +284,7 @@ function Kit.Chart(parent)
         end
         local base = self.inset.b
         local top = h - self.inset.t
+        local hr, hg, hb = S:Color("HAIRLINE")
         -- grid: round values, labels left of the chart
         if o.grid then
             local step = NiceStep(o.y1 / 1.05, 4)
@@ -465,23 +292,18 @@ function Kit.Chart(parent)
             while v < o.y1 do
                 local _, y = self:Map(0, v)
                 local g = take("grid", function() return self:CreateTexture(nil, "BACKGROUND", nil, -1) end)
-                g:SetColorTexture(1, 1, 1, 0.045)
+                g:SetColorTexture(hr, hg, hb, 0.045)
                 g:ClearAllPoints()
                 g:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 0, y)
                 g:SetSize(w, 1)
-                local l = take("ylab", function()
-                    local fs = Kit.Text(self:GetParent(), "numXS")
-                    fs:SetJustifyH("RIGHT")
-                    return fs
-                end)
+                local l = take("ylab", function() return UI:Text(self:GetParent(), "small", "DIM", { justify = "RIGHT" }) end)
                 l:SetText((o.yFormat or Kit.Num)(v))
-                l:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
                 l:ClearAllPoints()
                 l:SetPoint("RIGHT", self, "BOTTOMLEFT", -8, y)
                 v = v + step
             end
             local b = take("grid", function() return self:CreateTexture(nil, "BACKGROUND", nil, -1) end)
-            b:SetColorTexture(1, 1, 1, 0.10)
+            b:SetColorTexture(hr, hg, hb, 0.10)
             b:ClearAllPoints()
             b:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 0, base)
             b:SetSize(w, 1)
@@ -496,14 +318,14 @@ function Kit.Chart(parent)
             t:ClearAllPoints()
             t:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x0, base)
             t:SetSize(max(2, x1 - x0), top - base)
-            Kit.Gradient(t, { col[1], col[2], col[3], 0.02 }, { col[1], col[2], col[3], band.alpha or 0.10 })
+            UI:Gradient(t, "VERTICAL", A(col, 0.02), A(col, band.alpha or 0.10))
             local cap = take("bandcap", function() return self:CreateTexture(nil, "BORDER") end)
             cap:SetColorTexture(col[1], col[2], col[3], 0.75)
             cap:ClearAllPoints()
             cap:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x0, top - 2)
             cap:SetSize(max(2, x1 - x0), 2)
             if band[4] and x0 - lastLabelX > 70 then
-                local l = take("lab", function() return Kit.Text(self, "lab") end)
+                local l = take("lab", function() return UI:Text(self, "small") end)
                 l:SetText(band[4])
                 l:SetTextColor(col[1], col[2], col[3], 0.95)
                 l:ClearAllPoints()
@@ -542,7 +364,7 @@ function Kit.Chart(parent)
                 -- so the alpha at any height is the same in every column and the wash reads as one smooth surface
                 local x = floor(x0)
                 local span = (w - self.inset.l - self.inset.r)
-                local A = s.fillAlpha or 0.22
+                local fa = s.fillAlpha or 0.22
                 while x < x1 do
                     local cw = min(FILL_STEP, floor(x1) - x)
                     if cw < 1 then break end
@@ -554,7 +376,7 @@ function Kit.Chart(parent)
                     t:ClearAllPoints()
                     t:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x, base)
                     t:SetSize(cw, hgt)
-                    Kit.Gradient(t, { col[1], col[2], col[3], 0 }, { col[1], col[2], col[3], A * hgt / max(1, top - base) })
+                    UI:Gradient(t, "VERTICAL", A(col, 0), A(col, fa * hgt / max(1, top - base)))
                     x = x + cw
                 end
             end
@@ -601,12 +423,13 @@ function Kit.Chart(parent)
             t:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", x, base - 1)
             t:SetSize(max(3, x2 - x), tk.h or 3)
         end
+        local ir, ig, ib = S:Color("INSET")
         for _, d in ipairs(o.dots or {}) do
             local col = d[3] or C.gold
             local x, y = self:Map(d[1], d[2])
             local size = d[4] or 8
             local ring = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
-            ring:SetVertexColor(0.055, 0.063, 0.078, 1)
+            ring:SetVertexColor(ir, ig, ib, 1)
             ring:SetSize(size + 4, size + 4)
             ring:ClearAllPoints()
             ring:SetPoint("CENTER", self, "BOTTOMLEFT", x, y)
@@ -616,7 +439,7 @@ function Kit.Chart(parent)
             t:ClearAllPoints()
             t:SetPoint("CENTER", self, "BOTTOMLEFT", x, y)
             if d[5] then
-                local l = take("lab", function() return Kit.Text(self, "lab") end)
+                local l = take("lab", function() return UI:Text(self, "small") end)
                 l:SetText(d[5])
                 l:SetTextColor(col[1], col[2], col[3])
                 l:ClearAllPoints()
@@ -626,18 +449,14 @@ function Kit.Chart(parent)
     end
     c:SetScript("OnSizeChanged", function(self) self:Draw() end)
 
-    -- hover: a scrub line, a dot per series and a small box with opts.hover(x)'s lines
+    -- hover: a scrub line, a dot per series and a small box (an inset card) with opts.hover(x)'s lines
     c.scrub = c:CreateTexture(nil, "OVERLAY")
     c.scrub:SetColorTexture(1, 1, 1, 0.3)
     c.scrub:SetWidth(1)
     c.scrub:Hide()
     c.hoverDots = {}
-    c.box = CreateFrame("Frame", nil, c)
+    c.box = UI:CreateCard(c, { tone = "inset" })
     c.box:SetFrameLevel(c:GetFrameLevel() + 5)
-    c.box.bg = c.box:CreateTexture(nil, "BACKGROUND")
-    c.box.bg:SetAllPoints()
-    c.box.bg:SetColorTexture(0.04, 0.047, 0.063, 0.95)
-    if ns.UI and ns.UI.AddEdges then ns.UI:AddEdges(c.box, "BORDER", true); ns.UI:SetEdgeColor(c.box, 1, 1, 1, 0.12) end
     c.box.lines = {}
     c.box:Hide()
     c:EnableMouse(true)
@@ -677,7 +496,7 @@ function Kit.Chart(parent)
         local wmax, hy = 0, 6
         for i, line in ipairs(lines) do
             local fs = box.lines[i]
-            if not fs then fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); box.lines[i] = fs end
+            if not fs then fs = UI:Text(box, "small", "TEXT"); box.lines[i] = fs end
             fs:SetText(type(line) == "table" and line[1] or line)
             local col = type(line) == "table" and line[2] or C.fg
             fs:SetTextColor(col[1], col[2], col[3])
@@ -687,7 +506,7 @@ function Kit.Chart(parent)
             wmax = max(wmax, fs:GetStringWidth() or 0)
             hy = hy + 14
         end
-        for i = #lines + 1, #box.lines do box.lines[i]:Hide() end
+        UI:HideFrom(box.lines, #lines + 1)
         box:SetSize(wmax + 16, hy + 4)
         box:ClearAllPoints()
         local right = sx + 12 + wmax + 16 < (self:GetWidth() or 0)
@@ -803,7 +622,7 @@ function Kit.Legend(parent)
                 it:SetHeight(14)
                 it.sw = it:CreateTexture(nil, "ARTWORK")
                 it.sw2 = it:CreateTexture(nil, "ARTWORK")
-                it.fs = it:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                it.fs = UI:Text(it, "small", "SUB")
                 it.fs:SetPoint("LEFT", it, "LEFT", 20, 0)
                 self.items[i] = it
             end
@@ -834,7 +653,6 @@ function Kit.Legend(parent)
                 it.sw:SetPoint("LEFT", it, "LEFT", 1, 0)
             end
             it.fs:SetText(e[2])
-            it.fs:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
             local w = 20 + (it.fs:GetStringWidth() or 40)
             it:SetWidth(w)
             it:ClearAllPoints()
@@ -848,52 +666,53 @@ function Kit.Legend(parent)
 end
 
 ---------------------------------------------------------------------------
--- Stat tiles: n cards in a row (the look of My BiS's item cards), each an icon, a value with its change beside it
--- and a grey caption under it:
--- st:SetCell(i, label, value, note, noteKind, icon) noteKind = "up" | "down" | "mute"; icon = texture or spell key
+-- Stat cards: n cards (UI:CreateCard) in a row, S.GAP apart, each an icon, a value with its change beside it and a
+-- grey caption under it:
+-- st:SetCell(i, label, value, note, noteKind, icon) noteKind = "up" | "down" | "mute"; icon = texture or spell key.
+-- st.cells[i]: .icon, .val, .note (= .delta), .lab
 ---------------------------------------------------------------------------
-
-local TILE_GAP = 8
 
 function Kit.StatStrip(parent, n, h)
     local f = CreateFrame("Frame", nil, parent)
-    h = h or 52
+    h = h or S.ROW.art
     f:SetHeight(h)
     f.cells = {}
+    local iconS = h - 22
     for i = 1, n do
-        local cell = Kit.Card(f, C.card, 0.05)
-        cell.icon = Kit.Icon(cell, h - 22)
-        cell.icon:SetPoint("LEFT", cell, "LEFT", 9, 0)
-        cell.val = Kit.Text(cell, "num")
-        cell.val:SetPoint("TOPLEFT", cell, "TOPLEFT", h - 6, -10)
-        cell.note = Kit.Text(cell, "numXS")
-        cell.note:SetPoint("BOTTOMLEFT", cell.val, "BOTTOMRIGHT", 7, 1)
-        cell.lab = Kit.Label(cell, "")
-        cell.lab:SetPoint("TOPLEFT", cell.val, "BOTTOMLEFT", 0, -4)
+        local cell = UI:CreateCard(f, { tone = "card" })
+        cell.icon = Kit.Icon(cell, iconS)
+        cell.icon:SetPoint("LEFT", cell, "LEFT", S.IN + 1, 0)
+        cell.val = UI:Text(cell, "page", "TEXT")
+        cell.val:SetPoint("BOTTOMLEFT", cell, "LEFT", S.IN + iconS + 10, -1)
+        cell.note = UI:Text(cell, "small", "SUB")
+        cell.note:SetPoint("BOTTOMLEFT", cell.val, "BOTTOMRIGHT", 6, 1)
+        cell.delta = cell.note
+        cell.lab = UI:Text(cell, "small", "SUB")
+        cell.lab:SetPoint("TOPLEFT", cell, "LEFT", S.IN + iconS + 10, -3)
         f.cells[i] = cell
     end
     local function place()
         local w = f:GetWidth() or 0
-        if w <= 0 then w = 760 end          -- (the page's inner width, before layout)
-        local cw = (w - (n - 1) * TILE_GAP) / n
+        if w <= 0 then w = S.INNER_W end          -- (the page's inner width, before layout)
+        local cw = (w - (n - 1) * S.GAP) / n
         for i, cell in ipairs(f.cells) do
             cell:ClearAllPoints()
-            cell:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * (cw + TILE_GAP), 0)
+            cell:SetPoint("TOPLEFT", f, "TOPLEFT", (i - 1) * (cw + S.GAP), 0)
             cell:SetSize(cw, h)
-            cell.lab:SetWidth(cw - h - 2)
+            cell.lab:SetWidth(max(10, cw - iconS - S.IN - 16))
         end
     end
     place()
     f:HookScript("OnSizeChanged", place)
     function f:SetCell(i, label, value, note, kind, icon)
         local cell = self.cells[i]
-        cell.lab:SetText(label or "")
+        if label == nil then cell:Hide() return end
+        cell:Show()
+        cell.lab:SetText(label)
         cell.val:SetText(value or "")
-        local c = kind == "up" and C.up or (kind == "down" and C.down or C.mute)
         cell.note:SetText(note or "")
-        cell.note:SetTextColor(c[1], c[2], c[3])
+        cell.note:SetTextColor(S:Color(kind == "up" and "OK" or (kind == "down" and "BAD" or "DIM")))
         if type(icon) == "string" and icon:find("\\", 1, true) then cell.icon:SetIcon(icon) else cell.icon:SetSpell(icon) end
-        cell:SetShown(label ~= nil)
     end
     return f
 end

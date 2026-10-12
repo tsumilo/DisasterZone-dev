@@ -1,26 +1,29 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyLogDetail.lua", ...) then return end -- DisasterZone: My Log boss and death screens.
--- Two screens of the My Log page (UI/MyLogUI.lua), drawn with UI/MyLogKit.lua under its breadcrumb:
---   boss:   portrait and title; one pull (the night's kill, or its best wipe) against another pull of the boss (my
---           previous kill by default, any pull that still has its detail can be picked). A big chart: the view's
---           number every 5 seconds for both (gold with a soft fill, the other grey), the boss's mechanics as violet
---           bands, my idle gaps as red ticks on the baseline; hover it to read both pulls at that moment. Chips: active
---           time, idle gaps, how fast I was back after the boss's mechanics. Then where my damage (healing, or the
---           damage I took) came from: spell icon, a gold bar for this pull and a grey one for the other, the amount,
---           its share and its change. Uptimes in a column on the right.
---   deaths: left, what kills me here (All deaths, then every cause, most deaths first, avoidable ones marked; it
---           scrolls when there are many; a click picks one); right, the picked death's
---           last 10 seconds as a health line with its hits and heals as dots and my casts as ticks; under it the same
---           seconds as a story, line by line, with my health after each. Arrows step through the deaths.
+-- Two screens of the My Log page (UI/MyLogUI.lua), on the shared layouts; the data drawings come from UI/MyLogKit.lua:
+--   boss:   a Detail page (UI:CreateLayout "detail"): a strip banner over the raid's art (back to the raid's nights,
+--           the boss's portrait, name and the pull's facts), tabs Breakdown | Cast timeline on its foot, a tool row
+--           with the view switch and the pull to compare with (my previous kill by default; any pull that still has
+--           its detail can be picked). Breakdown: a big chart (the view's number every 5 seconds for both pulls, gold
+--           with a soft fill and grey; the boss's mechanics as violet bands, my idle gaps as red ticks on the
+--           baseline; hover it to read both pulls at that moment), four stat cards (the number, active time, idle
+--           gaps, how fast I was back after the boss's mechanics), then where my damage (healing, or the damage I
+--           took) came from: spell icon, a gold bar for this pull and a grey one for the other, the amount, its share
+--           and its change; uptimes in a column on the right. Cast timeline: UI/MyLogTimeline.lua over the whole body.
+--   deaths: the Deaths tab, a List + detail (UI:CreateLayout "listdetail") in the board's body: left, what kills me
+--           here (All deaths, then every cause, most deaths first, avoidable ones marked; a click picks one); right,
+--           the picked death's banner (boss, when, which of how many, Next / Previous), its last 10 seconds as a
+--           health line with its hits and heals as dots and my casts as ticks, and the same seconds as a story, line
+--           by line, with my health after each.
 local addonName, ns = ...
 
 local MyLogDetail = ns:NewModule("MyLogDetail")
 
+local S = ns.Style
 local floor, abs, max, min = math.floor, math.abs, math.max, math.min
 local strformat, strsub = string.format, string.sub
 
-local PAD = 14
-local ROW_H = 38
-local STORY_H = 26
+local ROW_H = S.ROW.rich
+local STORY_H = S.ROW.list
 
 local panel, bossView, deathsView
 local cur = { pull = nil, cmp = nil }
@@ -30,6 +33,7 @@ local function UI() return ns.UI end
 local function Log() return ns.MyLog end
 local function K() return ns.MyLogKit end
 local function Views() return ns.MyLogUI.VIEW_BY_KEY end
+local function A(c, a) return { c[1], c[2], c[3], a } end
 
 local function SpellName(p, key)
     local n = p and p.names and p.names[key]
@@ -94,8 +98,8 @@ function MyLogDetail:ShowBoss(row)
 end
 
 function MyLogDetail:HideAll()
-    if bossView then bossView:Hide() end
-    if deathsView then deathsView:Hide() end
+    if bossView then bossView.layout:Hide() end
+    if deathsView then deathsView.layout:Hide() end
 end
 
 function MyLogDetail:GetCurrent() return cur.pull, cur.cmp end
@@ -160,78 +164,69 @@ end
 
 local BAR_X, BAR_W = 230, 150
 
+-- The tooltip lines of an ability row (under its name).
+local function AbilityTip(row)
+    local d = row.__cdlData
+    local r = d and d.r
+    if not r then return {} end
+    local k = K()
+    local lines = {}
+    if r.src then lines[#lines + 1] = "From " .. r.src end
+    lines[#lines + 1] = strformat("%s in %d hit%s, biggest %s", k.Num(r.amount), r.hits, r.hits == 1 and "" or "s", k.Num(r.max))
+    if r.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", "WARN" } end
+    if r.before then lines[#lines + 1] = { strformat("%s in the pull compared with.", k.Num(r.before)), "SUB" } end
+    return lines
+end
+
 local function InitAbility(row, data)
     local k = K()
     local C = k.C
+    local ui = UI()
     if not row.name then
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
-        row.bg:SetPoint("TOPLEFT", 0, -2)
-        row.bg:SetPoint("BOTTOMRIGHT", 0, 2)
-        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints(row.bg)
-        row.hl:SetColorTexture(1, 1, 1, 0.035)
-        row.rank = k.Text(row, "numXS")
+        ui:DecorateRow(row, { hover = true, stripe = true })
+        row.rank = ui:Text(row, "small", "DIM", { justify = "RIGHT", width = 16 })
         row.rank:SetPoint("LEFT", row, "LEFT", 6, 0)
-        row.rank:SetWidth(16)
-        row.rank:SetJustifyH("RIGHT")
-        row.rank:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
         row.icon = k.Icon(row, 28)
         row.icon:SetPoint("LEFT", row, "LEFT", 26, 0)
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 64, -5)
-        row.name:SetWidth(158)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
-        row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.name = ui:Text(row, "body", "TEXT", { width = 158 })
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 64, -6)
+        row.sub = ui:Text(row, "small", "SUB", { width = 158 })
         row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-        row.sub:SetWidth(158)
-        row.sub:SetJustifyH("LEFT")
-        row.sub:SetWordWrap(false)
         -- the track: a faint full-width groove, this pull's bar on it, the other pull's as a thin line under it
         row.track = row:CreateTexture(nil, "ARTWORK")
         row.track:SetPoint("LEFT", row, "LEFT", BAR_X, 2)
         row.track:SetSize(BAR_W, 6)
-        row.track:SetColorTexture(1, 1, 1, 0.04)
+        row.track:SetColorTexture(S:Color("QUIET"))
         row.barNow = row:CreateTexture(nil, "ARTWORK", nil, 2)
         row.barNow:SetPoint("LEFT", row.track, "LEFT", 0, 0)
         row.barNow:SetHeight(6)
         row.barThen = row:CreateTexture(nil, "ARTWORK", nil, 2)
         row.barThen:SetPoint("TOPLEFT", row.track, "BOTTOMLEFT", 0, -3)
         row.barThen:SetHeight(2)
-        row.barThen:SetColorTexture(0.55, 0.57, 0.61, 0.55)
-        row.amount = k.Text(row, "numS")
-        row.amount:SetFont(k.NUM_FONT, 14, "")
+        row.barThen:SetColorTexture(C.mute[1], C.mute[2], C.mute[3], 0.55)
+        row.amount = ui:Text(row, "title", "TEXT", { justify = "RIGHT" })
         row.amount:SetPoint("TOPRIGHT", row, "TOPRIGHT", -78, -5)
-        row.amount:SetJustifyH("RIGHT")
-        row.share = k.Text(row, "numXS")
+        row.share = ui:Text(row, "small", "SUB", { justify = "RIGHT" })
         row.share:SetPoint("TOPRIGHT", row.amount, "BOTTOMRIGHT", 0, -1)
-        row.share:SetJustifyH("RIGHT")
-        row.share:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
-        row.chip = k.Chip(row, 16)
+        row.chip = k.Pill(row)
         row.chip:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-        row.av = k.Chip(row, 14)
-        row:SetScript("OnEnter", function(self)
-            local r = self.__cdlData and self.__cdlData.r
-            if not r then return end
-            local lines = { r.name }
-            if r.src then lines[#lines + 1] = "From " .. r.src end
-            lines[#lines + 1] = strformat("%s in %d hit%s, biggest %s", k.Num(r.amount), r.hits, r.hits == 1 and "" or "s", k.Num(r.max))
-            if r.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", C.avoid[1], C.avoid[2], C.avoid[3] } end
-            if r.before then lines[#lines + 1] = { strformat("%s in the pull compared with.", k.Num(r.before)), C.mute[1], C.mute[2], C.mute[3] } end
-            UI():SetTextTooltip(self, lines)
-        end)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row.av = k.Pill(row)
+        ui:AttachTooltip(row, function(self, tip)
+            local d = self.__cdlData
+            if not (d and d.r) then return false end
+            tip:AddLine(d.r.name, S:Color("GOLD"))
+        end, AbilityTip)
     end
     local r, view, top = data.r, data.view, data.top
-    row.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], data.odd and 1 or 0.55)
+    row:SetStripe(data.rank)
     row.rank:SetText(data.rank)
     row.icon:SetSpell(r.key)
-    row.name:SetText(r.name .. (r.pet and k.Paint("  pet", C.dim) or ""))
+    row.name:SetText(r.name .. (r.pet and S:Wrap("DIM", "  pet") or ""))
     row.sub:SetText(AbilitySub(r, view))
     local scale = top > 0 and BAR_W / top or 0
     row.barNow:SetWidth(max(2, r.amount * scale))
     local col = view == "healing" and C.up or (view == "tanking" and (r.avoidable and C.avoid or C.down) or C.gold)
-    k.Gradient(row.barNow, { col[1] * 0.45, col[2] * 0.45, col[3] * 0.45, 1 }, { col[1], col[2], col[3], 1 }, "HORIZONTAL")
+    ui:Gradient(row.barNow, "HORIZONTAL", { col[1] * 0.45, col[2] * 0.45, col[3] * 0.45, 1 }, A(col, 1))
     if r.before then
         row.barThen:SetWidth(max(2, r.before * scale))
         row.barThen:Show()
@@ -242,18 +237,18 @@ local function InitAbility(row, data)
     row.share:SetText(strformat("%.1f%%", (r.share or 0) * 100))
     if r.before then
         local text, kind = k.ChangeChip(k.Change(r.amount, r.before), view ~= "tanking")
-        row.chip:Set(text, kind)
+        row.chip:SetPill(kind, text)
     elseif data.hasCmp then
-        row.chip:Set("new", "mute")
+        row.chip:SetPill("mute", "new")
     else
-        row.chip:Set(nil)
+        row.chip:SetPill(nil)
     end
     if r.avoidable then
-        row.av:Set("avoidable", "av")
+        row.av:SetPill(k.PILL.avoid, "avoidable")
         row.av:ClearAllPoints()
         row.av:SetPoint("LEFT", row.name, "LEFT", min(158, (row.name:GetStringWidth() or 60)) + 6, 0)
     else
-        row.av:Set(nil)
+        row.av:SetPill(nil)
     end
 end
 
@@ -310,33 +305,51 @@ local function Recovery(p)
     return n > 0 and total / n or nil, p.mech[1][2]
 end
 
-local CHART_Y, CHART_H = -92, 170
-local STATS_Y, STATS_H = CHART_Y - CHART_H - 8, 50
-local LIST_LAB_Y = STATS_Y - STATS_H - 12          -- the row of tabs (Breakdown / Cast timeline) and the Uptime heading
-local LIST_Y = LIST_LAB_Y - 30
+-- The breakdown's blocks, top down: the chart card, the stat cards, the two column heads, the list.
+local CHART_H = 150
+local STATS_Y = -(CHART_H + S.GAP)
+local HEAD_Y = STATS_Y - S.ROW.art - S.GAP
+local LIST_Y = HEAD_Y - 18 - 4
 -- the uptime column right of the abilities (the list's scroll bar sits in the gap)
-local UP_W, COL_GAP, UP_ROW_H = 214, 24, 34
+local UP_W, COL_GAP, UP_ROW_H = 214, 24, S.ROW.list
 local ICON_ACTIVE = "Interface\\Icons\\INV_Misc_PocketWatch_01"
 local ICON_IDLE = "Interface\\Icons\\Spell_Nature_Sleep"
 local ICON_AVOID = "Interface\\Icons\\Spell_Fire_Fire"
+local LIST_LABEL = { damage = "Damage by ability", healing = "Healing by ability", tanking = "What hit you" }
 
-local function BuildBossView(body)
-    local k = K()
-    local C = k.C
-    local v = CreateFrame("Frame", nil, body)
-    v:SetAllPoints(body)
-    v.port = k.Portrait(v, 44)
-    v.port:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 3, -38)
-    v.title = k.Text(v, "title")
-    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", PAD + 60, -42)
-    v.title:SetWidth(400)
-    v.title:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
-    v.sub = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    v.sub:SetPoint("TOPLEFT", v.title, "BOTTOMLEFT", 0, -5)
-    v.sub:SetWidth(400)
-    v.sub:SetJustifyH("LEFT")
-    v.sub:SetWordWrap(false)
-    v.cmpDD = UI():CreateSleekDropdown(v, 200,
+-- One uptime row: icon, name, time, a thin bar along its foot.
+local function NewUptime(v, i)
+    local ui = UI()
+    local u = CreateFrame("Frame", nil, v)
+    u:SetSize(UP_W, UP_ROW_H)
+    u:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, LIST_Y - (i - 1) * UP_ROW_H)
+    u.icon = K().Icon(u, 18)
+    u.icon:SetPoint("LEFT", u, "LEFT", 0, 1)
+    u.name = ui:Text(u, "body", "TEXT", { width = UP_W - 26 - 44 })
+    u.name:SetPoint("LEFT", u, "LEFT", 26, 1)
+    u.val = ui:Text(u, "body", "TEXT", { justify = "RIGHT" })
+    u.val:SetPoint("RIGHT", u, "RIGHT", 0, 1)
+    u.well = u:CreateTexture(nil, "ARTWORK")
+    u.well:SetColorTexture(S:Color("QUIET"))
+    u.well:SetHeight(2)
+    u.well:SetPoint("BOTTOMLEFT", u, "BOTTOMLEFT", 26, 2)
+    u.well:SetPoint("BOTTOMRIGHT", u, "BOTTOMRIGHT", 0, 2)
+    u.bar = u:CreateTexture(nil, "ARTWORK", nil, 1)
+    u.bar:SetHeight(2)
+    u.bar:SetPoint("LEFT", u.well, "LEFT")
+    ui:AttachTooltip(u, function(self, tip)
+        if not self.tipTitle then return false end
+        tip:AddLine(self.tipTitle, S:Color("GOLD"))
+    end, function(self) return self.tipLines end)
+    return u
+end
+
+-- The tool row's compare picker: "compare with" and the pulls of this boss that still have their detail.
+local function NewComparePicker(bar)
+    local ui = UI()
+    local f = CreateFrame("Frame", nil, bar)
+    f:SetSize(10, 22)
+    f.dd = ui:CreateSleekDropdown(f, 200,
         function()
             local out = {}
             if not cur.pull then return out end
@@ -350,34 +363,54 @@ local function BuildBossView(body)
             for _, q in ipairs(DetailPulls(BossKey(cur.pull))) do if q.id == id then cur.cmp = q end end
             ns.MyLogUI:Refresh()
         end)
-    v.cmpDD:SetDefaultText("nothing to compare")
-    v.cmpDD:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -46)
-    v.cmpLab = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    v.cmpLab:SetPoint("RIGHT", v.cmpDD, "LEFT", -8, 0)
-    v.cmpLab:SetText("compare with")
+    f.dd:SetDefaultText("nothing to compare")
+    f.dd:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+    f.lab = ui:Text(f, "small", "SUB", { text = "compare with", justify = "RIGHT" })
+    f.lab:SetPoint("RIGHT", f.dd, "LEFT", -8, 0)
+    f:SetWidth(floor(ui:TextWidth(f.lab) + 8 + 200 + 0.5))
+    return f
+end
 
-    v.chartCard = k.Card(v, { 0.059, 0.067, 0.086, 1 }, 0.06)
-    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, CHART_Y)
-    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, CHART_Y)
+local function BuildBossView(parent)
+    local k = K()
+    local C = k.C
+    local ui = UI()
+    local L = ui:CreateLayout("detail", parent, {
+        banner = { size = "strip" },
+        back = { "My Log", function() ns.MyLogUI:SetMode("runs") end },
+        tabs = { { key = "list", text = "Breakdown" }, { key = "timeline", text = "Cast timeline" } },
+        onTab = function(key) cur.mode = key; ns.MyLogUI:Refresh() end,
+    })
+    local v = CreateFrame("Frame", nil, L.body)
+    v:SetAllPoints(L.body)
+    v.layout = L
+    v.modeSeg = L.tabs
+    v.modeSeg.buttons = L.tabs.tabButtons
+    -- the tool row: the view switch and the pull to compare with
+    local items = {}
+    for i, it in ipairs(ns.MyLogUI.VIEWS) do items[i] = { key = it.key, label = it.label } end
+    v.seg = ui:CreateSegments(L.toolbar, items, function(key) ns.MyLogUI:SetView(key) end, { itemW = 70 })
+    v.cmp = NewComparePicker(L.toolbar)
+    v.cmpDD = v.cmp.dd
+    L.toolbar:SetFilters({ v.seg, v.cmp })
+
+    v.chartCard = ui:CreateCard(v, { tone = "inset" })
+    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
+    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, 0)
     v.chartCard:SetHeight(CHART_H)
-    k.Gradient(v.chartCard.bg, { 0.051, 0.059, 0.075, 1 }, { 0.071, 0.082, 0.106, 1 })
     v.legend = k.Legend(v.chartCard)
     v.legend:SetPoint("TOPRIGHT", v.chartCard, "TOPRIGHT", -12, -8)
     v.chart = k.Chart(v.chartCard)
     v.chart:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 48, -26)
     v.chart:SetPoint("BOTTOMRIGHT", v.chartCard, "BOTTOMRIGHT", -14, 22)
     v.chart.inset = { l = 0, r = 0, t = 14, b = 0 }
-    v.chart.fallback = { 710, 122 }
+    v.chart.fallback = { S.INNER_W - 62, CHART_H - 48 }
     v.xLabs = {}
-    for i = 1, 4 do
-        local lab = k.Text(v.chartCard, "numXS")
-        lab:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-        v.xLabs[i] = lab
-    end
+    for i = 1, 4 do v.xLabs[i] = ui:Text(v.chartCard, "small", "DIM") end
     -- the time labels at 0, 1/3, 2/3 and the end of the chart's width
     function v.PlaceX()
         local w = v.chart:GetWidth() or 0
-        if w <= 0 then w = 710 end
+        if w <= 0 then w = v.chart.fallback[1] end
         for i, lab in ipairs(v.xLabs) do
             lab:ClearAllPoints()
             lab:SetPoint(i == 4 and "TOPRIGHT" or (i == 1 and "TOPLEFT" or "TOP"), v.chart, "BOTTOMLEFT", w * (i - 1) / 3, -6)
@@ -385,26 +418,22 @@ local function BuildBossView(body)
     end
     v.chart:HookScript("OnSizeChanged", function() v.PlaceX() end)
 
-    v.stats = k.StatStrip(v, 4, STATS_H)
-    v.stats:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, STATS_Y)
-    v.stats:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, STATS_Y)
+    v.stats = k.StatStrip(v, 4)
+    v.stats:SetPoint("TOPLEFT", v, "TOPLEFT", 0, STATS_Y)
+    v.stats:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, STATS_Y)
 
-    -- the section's own tabs; the first one names what the list shows ("Damage by ability", ...)
-    v.modeSeg = k.Tabs(v, { { key = "list", label = "Damage by ability" }, { key = "timeline", label = "Cast timeline" } },
-        function(key) cur.mode = key; ns.MyLogUI:Refresh() end)
-    v.modeSeg:SetPoint("TOPLEFT", v, "TOPLEFT", PAD - 8, LIST_LAB_Y)
-    v.timeline = ns.MyLogTimeline:Create(v)
-    v.timeline:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y)
-    v.timeline:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD, 6)
-    v.timeline.fallback = { 772, 200 }
-    v.list = UI():CreateScrollList(v, ROW_H, InitAbility)
-    v.list.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, LIST_Y)
-    v.list.frame:SetPoint("TOPRIGHT", v, "TOPRIGHT", -(PAD + UP_W + COL_GAP) + 20, LIST_Y)
+    -- the two columns: the abilities (scrolling, whole rows) and the uptimes
+    v.listHead = ui:CreateSectionHeader(v, LIST_LABEL.damage, { style = "caps" })
+    v.listHead:SetPoint("TOPLEFT", v, "TOPLEFT", 0, HEAD_Y)
+    v.listHead:SetPoint("TOPRIGHT", v, "TOPRIGHT", -(UP_W + COL_GAP), HEAD_Y)
+    v.list = ui:CreateScrollList(v, ROW_H, InitAbility)
+    v.list.frame:SetPoint("TOPLEFT", v, "TOPLEFT", 0, LIST_Y)
+    v.list.frame:SetPoint("TOPRIGHT", v, "TOPRIGHT", -(UP_W + COL_GAP) + 20, LIST_Y)
     -- whole rows only: a half row peeking out at the bottom looks broken
     local function fitList()
         local h = v:GetHeight() or 0
-        if h <= 0 then h = 550 end          -- (the page's height in the 800 x 580 window, before layout)
-        local avail = h + LIST_Y - 8
+        if h <= -LIST_Y then h = 420 end    -- (the body's height under the strip banner, before layout)
+        local avail = h + LIST_Y
         v.list.frame:SetHeight(max(ROW_H, floor(avail / ROW_H) * ROW_H))
         v.upFit = max(1, floor(avail / UP_ROW_H))
     end
@@ -414,37 +443,17 @@ local function BuildBossView(body)
     v.list:SetEmptyText("The detail of this pull aged out: only the newest pulls of a boss keep it.")
 
     -- uptimes: a column of icon, name, time and a thin bar (like My BiS's "still to get" list)
-    v.upLab = k.Heading(v, "Uptime")
-    v.upLab:SetPoint("LEFT", v, "TOPRIGHT", -(PAD + UP_W), LIST_LAB_Y - 11)
+    v.upLab = ui:CreateSectionHeader(v, "Uptime", { style = "caps" })
+    v.upLab:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, HEAD_Y)
+    v.upLab:SetWidth(UP_W)
     v.ups = {}
-    for i = 1, 10 do
-        local u = CreateFrame("Frame", nil, v)
-        u:SetSize(UP_W, UP_ROW_H)
-        u:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, LIST_Y - (i - 1) * UP_ROW_H)
-        u.icon = k.Icon(u, 24)
-        u.icon:SetPoint("LEFT", u, "LEFT", 0, 0)
-        u.name = u:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        u.name:SetPoint("TOPLEFT", u, "TOPLEFT", 34, -6)
-        u.name:SetWidth(UP_W - 34 - 44)
-        u.name:SetJustifyH("LEFT")
-        u.name:SetWordWrap(false)
-        u.val = k.Text(u, "numS")
-        u.val:SetPoint("TOPRIGHT", u, "TOPRIGHT", 0, -5)
-        u.val:SetJustifyH("RIGHT")
-        u.well = u:CreateTexture(nil, "ARTWORK")
-        u.well:SetColorTexture(1, 1, 1, 0.06)
-        u.well:SetHeight(3)
-        u.well:SetPoint("BOTTOMLEFT", u, "BOTTOMLEFT", 34, 7)
-        u.well:SetPoint("BOTTOMRIGHT", u, "BOTTOMRIGHT", 0, 7)
-        u.bar = u:CreateTexture(nil, "ARTWORK", nil, 1)
-        u.bar:SetHeight(3)
-        u.bar:SetPoint("LEFT", u.well, "LEFT")
-        u:SetScript("OnEnter", function(self)
-            if self.tip then UI():SetTextTooltip(self, self.tip) end
-        end)
-        u:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        v.ups[i] = u
-    end
+    for i = 1, 12 do v.ups[i] = NewUptime(v, i) end
+    v.breakdown = { v.chartCard, v.stats, v.listHead, v.list.frame }
+
+    -- the cast timeline: the whole body
+    v.timeline = ns.MyLogTimeline:Create(v)
+    v.timeline:SetAllPoints(v)
+    v.timeline.fallback = { S.INNER_W, 420 }
     return v
 end
 
@@ -465,25 +474,32 @@ local function Uptimes(p)
     return out
 end
 
-local function RefreshBoss(state)
+-- The banner: back to the raid's nights, the boss's portrait (when the game knows its face), name and the facts.
+local function FillBossBanner(v, state, p)
     local k = K()
-    local C = k.C
-    local v = bossView
-    local p, q = cur.pull, cur.cmp
-    local view = state.view or "damage"
-    local V = Views()[view]
-    if not p then ns.MyLogUI:SetMode("runs"); return end
-    ns.MyLogUI:Crumb(p.boss)
-    v.port:SetBoss(p.boss, not p.kill)
-    v.title:SetText(p.boss or "?")
+    local b = v.layout.banner
+    b:SetArt(ns.MyLogUI:InstanceArt(state.inst))
+    b:SetBack(ns.MyLogUI:InstanceName(state.inst), function() ns.MyLogUI:SetMode("runs") end)
+    local disp = Log().BossDisplayId and Log():BossDisplayId(p.boss)
+    if disp and SetPortraitTextureFromCreatureDisplayID then
+        b:SetIcon(134400)
+        SetPortraitTextureFromCreatureDisplayID(b.icon.tex, disp)
+        if b.icon.tex.SetDesaturated then b.icon.tex:SetDesaturated(not p.kill) end
+    else
+        b:SetIcon(nil)
+    end
+    b:SetTitle(p.boss or "?")
     local bits = { p.kill and ("Kill in " .. k.Clock(p.dur)) or strformat("Wipe at %.1f%% after %s", p.pct or 0, k.Clock(p.dur)),
         k.Day(p.at) }
     if p.spec and p.spec ~= "" then bits[#bits + 1] = p.spec end
     if p.ilvl then bits[#bits + 1] = strformat("ilvl %.1f", p.ilvl) end
-    v.sub:SetText(table.concat(bits, "   ·   "))
-    v.cmpDD:Refresh()
+    b:SetSub(table.concat(bits, "  ·  "))
+end
 
-    -- chart
+local function FillBossChart(v, view, p, q)
+    local k = K()
+    local C = k.C
+    local V = Views()[view]
     local a = Points(p, view)
     local b = q and Points(q, view) or {}
     local x1 = max(p.dur or 5, q and q.dur or 0, 5)
@@ -507,7 +523,7 @@ local function RefreshBoss(state)
     local series = {}
     -- (damage taken is already averaged; a curve through sparse hits would wobble)
     local smooth = view ~= "tanking"
-    if q then series[#series + 1] = { points = b, color = { 0.62, 0.65, 0.70 }, width = 1.2, alpha = 0.55, smooth = smooth } end
+    if q then series[#series + 1] = { points = b, color = C.mute, width = 1.2, alpha = 0.55, smooth = smooth } end
     table.insert(series, 1, { points = a, color = C.gold, width = 1.8, fill = true, fillAlpha = 0.16, smooth = smooth, glow = true, endDot = true })
     v.chart:SetData({
         x0 = 0, x1 = x1, y1 = hi * 1.12, series = series, bands = bands, ticks = ticks, grid = true, marks = marks,
@@ -536,22 +552,25 @@ local function RefreshBoss(state)
             return lines
         end,
     })
-    local marks = { 0, x1 / 3, x1 * 2 / 3, x1 }
-    for i, lab in ipairs(v.xLabs) do lab:SetText(k.Clock(marks[i])) end
+    local at = { 0, x1 / 3, x1 * 2 / 3, x1 }
+    for i, lab in ipairs(v.xLabs) do lab:SetText(k.Clock(at[i])) end
     v.PlaceX()
     local legend = { { C.gold, k.ShortDay(p.at) } }
-    if q then legend[#legend + 1] = { { 0.62, 0.65, 0.70 }, k.ShortDay(q.at) } end
+    if q then legend[#legend + 1] = { C.mute, k.ShortDay(q.at) } end
     if #bands > 0 then legend[#legend + 1] = { C.violet, "boss ability", "box" } end
     if #marks > 0 then legend[#legend + 1] = { C.gold, "boss yell", "tick" } end
     legend[#legend + 1] = { C.down, "idle 2 s+", "tick" }
     v.legend:Set(legend)
+end
 
-    -- the stats strip
+local function FillBossStats(v, view, p, q, rows)
+    local k = K()
+    local V = Views()[view]
     local ps, qs = p.s or {}, q and q.s or {}
     local metricNow, metricThen = Log():Metric(p, view), q and Log():Metric(q, view)
     local text, kind = k.ChangeChip(k.Change(metricNow, metricThen), view ~= "tanking")
-    local rows = AbilityRows(p, view)
-    v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", kind, rows[1] and rows[1].key)
+    local noteKind = kind == "ok" and "up" or (kind == "live" and "down" or "mute")
+    v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", noteKind, rows[1] and rows[1].key)
     local actNote, actKind = "", "mute"
     if ps.act and qs.act then
         local d = (ps.act - qs.act) * 100
@@ -568,18 +587,63 @@ local function RefreshBoss(state)
         v.stats:SetCell(4, "Back after " .. SpellName(p, tostring(mechId)), strformat("%.1f s", rec),
             qrec and strformat("was %.1f", qrec) or "", qrec and (rec <= qrec and "up" or "down") or "mute", tostring(mechId))
     else
-        v.stats:SetCell(4, "Avoidable damage", k.Num(ps.av or 0),
-            q and (select(1, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "") or "",
-            q and (select(2, k.ChangeChip(k.Change(ps.av, qs.av), false)) or "mute") or "mute", ICON_AVOID)
+        local avText, avKind = k.ChangeChip(k.Change(ps.av, qs.av), false)
+        v.stats:SetCell(4, "Avoidable damage", k.Num(ps.av or 0), (q and avText) or "",
+            (q and avKind) and (avKind == "ok" and "up" or (avKind == "live" and "down" or "mute")) or "mute", ICON_AVOID)
     end
+end
+
+local function FillUptimes(v, p)
+    local k = K()
+    local C = k.C
+    local ups = Uptimes(p)
+    local barW = UP_W - 26
+    for i, u in ipairs(v.ups) do
+        local e = i <= (v.upFit or #v.ups) and ups[i]
+        if e then
+            local name = SpellName(p, tostring(e.id))
+            u.icon:SetSpell(tostring(e.id))
+            u.name:SetText(name)
+            local pct = min(1, e.pct)
+            local c = (e.out and (pct >= 0.9 and C.up or (pct >= 0.75 and C.gold or C.down))) or C.blue
+            if pct >= 0.995 or e.out or pct >= 0.5 then
+                u.val:SetText(strformat("%.0f%%", pct * 100))
+            else
+                u.val:SetText(strformat("%d s", floor(e.secs + 0.5)))
+            end
+            local tc = e.out and c or C.fg
+            u.val:SetTextColor(tc[1], tc[2], tc[3])
+            u.bar:SetWidth(max(1, barW * pct))
+            u.bar:SetColorTexture(c[1], c[2], c[3], 0.9)
+            u.tipTitle = name
+            u.tipLines = { { strformat("%s on %s: %d s of %s (%.0f%%)", e.out and "Your debuff" or "Buff",
+                e.out and "the boss" or "you", floor(e.secs + 0.5), k.Clock(p.dur or 0), pct * 100), "SUB" } }
+            u:Show()
+        else
+            u:Hide()
+        end
+    end
+    v.upLab:SetShown(#ups > 0)
+end
+
+local function RefreshBoss(state)
+    local v = bossView
+    local p, q = cur.pull, cur.cmp
+    local view = state.view or "damage"
+    if not p then ns.MyLogUI:SetMode("runs"); return end
+    FillBossBanner(v, state, p)
+    v.seg:Select(view)
+    v.cmpDD:Refresh()
+    FillBossChart(v, view, p, q)
+    local rows = AbilityRows(p, view)
+    FillBossStats(v, view, p, q, rows)
 
     -- breakdown or timeline
     v.FitList()
     local timeline = cur.mode == "timeline"
-    v.modeSeg:SetLabel("list", view == "healing" and "Healing by ability" or (view == "tanking" and "What hit you"
-        or "Damage by ability"))
-    v.modeSeg:SetSelected(timeline and "timeline" or "list")
-    v.list.frame:SetShown(not timeline)
+    v.layout.tabs:SelectTab(timeline and "timeline" or "list")
+    v.listHead:SetTitle(LIST_LABEL[view] or LIST_LABEL.damage)
+    for _, f in ipairs(v.breakdown) do f:SetShown(not timeline) end
     v.timeline:SetShown(timeline)
     for _, u in ipairs(v.ups) do u:SetShown(false) end
     v.upLab:SetShown(false)
@@ -595,36 +659,9 @@ local function RefreshBoss(state)
         top = max(top, r.amount, r.before or 0)
     end
     local data = {}
-    for i, r in ipairs(rows) do data[#data + 1] = { r = r, view = view, hasCmp = q ~= nil, top = top, rank = i, odd = i % 2 == 1 } end
+    for i, r in ipairs(rows) do data[#data + 1] = { r = r, view = view, hasCmp = q ~= nil, top = top, rank = i } end
     v.list:SetData(data, true)
-
-    -- uptimes
-    local ups = Uptimes(p)
-    local barW = UP_W - 34
-    for i, u in ipairs(v.ups) do
-        local e = i <= (v.upFit or #v.ups) and ups[i]
-        if e then
-            local name = SpellName(p, tostring(e.id))
-            u.icon:SetSpell(tostring(e.id))
-            u.name:SetText(name)
-            local pct = min(1, e.pct)
-            local c = (e.out and (pct >= 0.9 and C.up or (pct >= 0.75 and C.gold or C.down))) or C.blue
-            if pct >= 0.995 or e.out or pct >= 0.5 then
-                u.val:SetText(strformat("%.0f%%", pct * 100))
-            else
-                u.val:SetText(strformat("%d s", floor(e.secs + 0.5)))
-            end
-            u.val:SetTextColor((e.out and c or C.fg)[1], (e.out and c or C.fg)[2], (e.out and c or C.fg)[3])
-            u.bar:SetWidth(max(1, barW * pct))
-            u.bar:SetColorTexture(c[1], c[2], c[3], 0.9)
-            u.tip = { name, { strformat("%s on %s: %d s of %s (%.0f%%)", e.out and "Your debuff" or "Buff",
-                e.out and "the boss" or "you", floor(e.secs + 0.5), k.Clock(p.dur or 0), pct * 100), C.mute[1], C.mute[2], C.mute[3] } }
-            u:Show()
-        else
-            u:Hide()
-        end
-    end
-    v.upLab:SetShown(#ups > 0)
+    FillUptimes(v, p)
 end
 
 ---------------------------------------------------------------------------
@@ -657,9 +694,9 @@ function MyLogDetail:DeathGroups(instKey)
     return groups
 end
 
--- The cause rail: "All deaths" first, then every cause, most deaths first. A row: icon, name, the boss (and
--- "avoidable"), the count. Picked: a red wash from the left and a red edge.
-local RAIL_W, RAIL_GAP, CAUSE_H = 250, 24, 46
+-- The causes list: "All deaths" first, then every cause, most deaths first. A row: icon, name, the boss (and
+-- "avoidable"), the count; the picked one in the shared selected look.
+local RAIL_W = 270
 local ICON_ALL = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01"
 
 local function PickCause(key)
@@ -671,46 +708,34 @@ function MyLogDetail:PickCause(key) PickCause(key) end
 
 local function InitCause(row, data)
     local k = K()
-    local C = k.C
+    local ui = UI()
     if not row.name then
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
-        row.bg:SetPoint("TOPLEFT", 0, -2)
-        row.bg:SetPoint("BOTTOMRIGHT", 0, 2)
-        row.edge = CreateFrame("Frame", nil, row)
-        row.edge:SetAllPoints(row.bg)
-        UI():AddEdges(row.edge, "BORDER", true)
-        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints(row.bg)
-        row.hl:SetColorTexture(1, 1, 1, 0.035)
-        row.icon = k.Icon(row, 28)
-        row.icon:SetPoint("LEFT", row, "LEFT", 9, 0)
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 46, -8)
-        row.name:SetWidth(RAIL_W - 46 - 40)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
-        row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        ui:DecorateRow(row, { hover = true, selectable = true, rule = true })
+        row.icon = k.Icon(row, 26)
+        row.icon:SetPoint("LEFT", row, "LEFT", 8, 0)
+        row.name = ui:Text(row, "body", "TEXT", { width = RAIL_W - 20 - 42 - 40 })
+        row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 42, -6)
+        row.sub = ui:Text(row, "small", "SUB", { width = RAIL_W - 20 - 42 - 40 })
         row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-        row.sub:SetWidth(RAIL_W - 46 - 40)
-        row.sub:SetJustifyH("LEFT")
-        row.sub:SetWordWrap(false)
-        row.count = k.Text(row, "num")
-        row.count:SetPoint("RIGHT", row, "RIGHT", -12, 0)
-        row.count:SetJustifyH("RIGHT")
+        row.count = ui:Text(row, "page", "TEXT", { justify = "RIGHT" })
+        row.count:SetPoint("RIGHT", row, "RIGHT", -10, 0)
         row:SetScript("OnClick", function(self)
             local d = self.__cdlData
             if d then PickCause(d.key) end
         end)
-        row:SetScript("OnEnter", function(self)
+        ui:AttachTooltip(row, function(self, tip)
             local d = self.__cdlData
-            if not d or d.all then return end
-            local g = d.group
-            local lines = { g.name, { strformat("Killed you %d time%s here, last on %s by %s.", g.count, g.count == 1 and "" or "s",
-                k.Day(g.last), g.boss or "?"), C.mute[1], C.mute[2], C.mute[3] } }
-            if g.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", C.avoid[1], C.avoid[2], C.avoid[3] } end
-            UI():SetTextTooltip(self, lines)
+            if not d or d.all then return false end
+            tip:AddLine(d.group.name, S:Color("GOLD"))
+        end, function(self)
+            local d = self.__cdlData
+            local g = d and d.group
+            if not g then return {} end
+            local lines = { { strformat("Killed you %d time%s here, last on %s by %s.", g.count, g.count == 1 and "" or "s",
+                k.Day(g.last), g.boss or "?"), "SUB" } }
+            if g.avoidable then lines[#lines + 1] = { "Avoidable: you can stay out of this.", "WARN" } end
+            return lines
         end)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
     local picked = data.key == causeSel
     if data.all then
@@ -721,83 +746,68 @@ local function InitCause(row, data)
         local g = data.group
         row.icon:SetSpell(g.key)
         row.name:SetText(g.name)
-        row.sub:SetText(g.avoidable and (k.Paint("avoidable", C.avoid) .. k.Paint(" · " .. (g.boss or "?"), C.mute)) or (g.boss or "?"))
+        row.sub:SetText(g.avoidable and (S:Wrap("WARN", "avoidable") .. " · " .. (g.boss or "?")) or (g.boss or "?"))
     end
     row.count:SetText(tostring(data.count))
-    -- (the same gradient path for both looks: a plain colour set after a gradient drew black in game)
-    local base = C.card
-    if picked then
-        k.Gradient(row.bg, { C.down[1] * 0.2 + base[1] * 0.8, C.down[2] * 0.2 + base[2] * 0.8, C.down[3] * 0.2 + base[3] * 0.8, 1 },
-            { base[1], base[2], base[3], 1 }, "HORIZONTAL")
-        UI():SetEdgeColor(row.edge, C.down[1], C.down[2], C.down[3], 0.55)
-    else
-        k.Gradient(row.bg, { base[1], base[2], base[3], 1 }, { base[1], base[2], base[3], 1 }, "HORIZONTAL")
-        UI():SetEdgeColor(row.edge, 1, 1, 1, 0.05)
-    end
-    local cc = picked and C.down or C.fg
-    row.count:SetTextColor(cc[1], cc[2], cc[3])
+    row.count:SetTextColor(S:Color(picked and "GOLD" or "TEXT"))
+    row:SetSelected(picked)
 end
 
 local function InitStory(row, data)
     local k = K()
     local C = k.C
+    local ui = UI()
     if not row.t then
-        row.bg = row:CreateTexture(nil, "BACKGROUND")
-        row.bg:SetPoint("TOPLEFT", 0, -1)
-        row.bg:SetPoint("BOTTOMRIGHT", 0, 1)
-        UI():AddEdges(row, "BORDER", true)
-        row.t = k.Text(row, "numXS")
-        row.t:SetPoint("LEFT", row, "LEFT", 8, 0)
-        row.t:SetWidth(40)
-        row.t:SetJustifyH("RIGHT")
+        ui:DecorateRow(row, { hover = true, stripe = true })
+        row.bg = row:CreateTexture(nil, "BACKGROUND", nil, 2)
+        row.bg:SetAllPoints()
+        ui:AddEdges(row, "BORDER", true)
+        row.t = ui:Text(row, "small", "SUB", { justify = "RIGHT", width = 36 })
+        row.t:SetPoint("LEFT", row, "LEFT", 4, 0)
         row.icon = k.Icon(row, 16)
-        row.icon:SetPoint("LEFT", row, "LEFT", 56, 0)
-        row.what = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.what:SetPoint("LEFT", row, "LEFT", 80, 0)
-        row.what:SetPoint("RIGHT", row, "RIGHT", -164, 0)
-        row.what:SetJustifyH("LEFT")
-        row.what:SetWordWrap(false)
-        row.amount = k.Text(row, "numS")
-        row.amount:SetPoint("RIGHT", row, "RIGHT", -98, 0)
-        row.amount:SetJustifyH("RIGHT")
+        row.icon:SetPoint("LEFT", row, "LEFT", 46, 0)
+        row.what = ui:Text(row, "body", "TEXT")
+        row.what:SetPoint("LEFT", row, "LEFT", 68, 0)
+        row.what:SetPoint("RIGHT", row, "RIGHT", -150, 0)
+        row.amount = ui:Text(row, "emph", "TEXT", { justify = "RIGHT" })
+        row.amount:SetPoint("RIGHT", row, "RIGHT", -92, 0)
         row.hpWell = row:CreateTexture(nil, "ARTWORK")
-        row.hpWell:SetColorTexture(C.well[1], C.well[2], C.well[3], 1)
+        row.hpWell:SetColorTexture(S:Color("INSET"))
         row.hpWell:SetSize(40, 5)
-        row.hpWell:SetPoint("RIGHT", row, "RIGHT", -50, 0)
+        row.hpWell:SetPoint("RIGHT", row, "RIGHT", -46, 0)
         row.hpBar = row:CreateTexture(nil, "ARTWORK", nil, 1)
         row.hpBar:SetHeight(5)
         row.hpBar:SetPoint("LEFT", row.hpWell, "LEFT")
-        row.hp = k.Text(row, "numXS")
-        row.hp:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-        row.hp:SetJustifyH("RIGHT")
+        row.hp = ui:Text(row, "small", "TEXT", { justify = "RIGHT" })
+        row.hp:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     end
     local e, p, hpMax = data.e, data.pull, data.hpMax
     local kind, key, amount, hp, who, extra = e[2], e[3], e[4], e[5], e[6], e[7]
     local last = data.last
     local avoid = kind == "d" and Log():IsAvoidable(key)
-    local tc = last and C.down or C.mute
+    row:SetStripe(data.i)
     row.t:SetText(strformat("%.1fs", e[1]))
-    row.t:SetTextColor(tc[1], tc[2], tc[3])
+    row.t:SetTextColor(S:Color(last and "BAD" or "SUB"))
     row.icon:SetSpell(key)
     local name = SpellName(p, key)
     if kind == "d" then
-        local tail = who and k.Paint("  from " .. who, C.mute) or ""
-        if last then tail = k.Paint("  killing blow", C.mute) end
-        row.what:SetText(k.Paint(name, avoid and C.avoid or C.down) .. tail .. (avoid and k.Paint("  avoidable", C.avoid) or ""))
-        row.amount:SetText(k.Paint("-" .. k.Num(amount), C.down))
+        local tail = who and S:Wrap("SUB", "  from " .. who) or ""
+        if last then tail = S:Wrap("SUB", "  killing blow") end
+        row.what:SetText(S:Wrap(avoid and "WARN" or "BAD", name) .. tail .. (avoid and S:Wrap("WARN", "  avoidable") or ""))
+        row.amount:SetText(S:Wrap("BAD", "-" .. k.Num(amount)))
     elseif kind == "h" then
-        row.what:SetText(k.Paint(name, C.up) .. (who and k.Paint("  from " .. who, C.mute) or ""))
-        row.amount:SetText(k.Paint("+" .. k.Num(amount), C.up))
+        row.what:SetText(S:Wrap("OK", name) .. (who and S:Wrap("SUB", "  from " .. who) or ""))
+        row.amount:SetText(S:Wrap("OK", "+" .. k.Num(amount)))
     elseif kind == "m" then
-        row.what:SetText(k.Paint(name .. " (" .. tostring(extra or "miss"):lower() .. ")", C.mute))
-        row.amount:SetText(amount and k.Paint(k.Num(amount), C.mute) or "")
+        row.what:SetText(S:Wrap("SUB", name .. " (" .. tostring(extra or "miss"):lower() .. ")"))
+        row.amount:SetText(amount and S:Wrap("SUB", k.Num(amount)) or "")
     else
-        row.what:SetText(k.Paint("You cast ", C.mute) .. name)
+        row.what:SetText(S:Wrap("SUB", "You cast ") .. name)
         row.amount:SetText("")
     end
     local pct = (hpMax and hpMax > 0 and hp) and max(0, min(1, hp / hpMax)) or nil
     if last then
-        row.hp:SetText(k.Paint("dead", C.down))
+        row.hp:SetText(S:Wrap("BAD", "dead"))
         row.hpBar:Hide()
         row.hpWell:Hide()
     elseif pct then
@@ -812,83 +822,68 @@ local function InitStory(row, data)
         row.hpBar:Hide()
         row.hpWell:Hide()
     end
+    -- the killing blow on a red wash, an avoidable hit on an orange one with an edge
     if last then
         row.bg:SetColorTexture(C.down[1], C.down[2], C.down[3], 0.10)
-        UI():SetEdgeColor(row, 0, 0, 0, 0)
+        ui:SetEdgeColor(row, 0, 0, 0, 0)
     elseif avoid then
         row.bg:SetColorTexture(C.avoid[1], C.avoid[2], C.avoid[3], 0.06)
-        UI():SetEdgeColor(row, C.avoid[1], C.avoid[2], C.avoid[3], 0.45)
+        ui:SetEdgeColor(row, C.avoid[1], C.avoid[2], C.avoid[3], 0.45)
     else
-        row.bg:SetColorTexture(C.card[1], C.card[2], C.card[3], data.odd and 1 or 0)
-        UI():SetEdgeColor(row, 0, 0, 0, 0)
+        row.bg:SetColorTexture(0, 0, 0, 0)
+        ui:SetEdgeColor(row, 0, 0, 0, 0)
     end
 end
 
-local function BuildDeathsView(body)
+local function BuildDeathsView(parent)
     local k = K()
-    local C = k.C
-    local v = CreateFrame("Frame", nil, body)
-    v:SetAllPoints(body)
-    local X = PAD + RAIL_W + RAIL_GAP            -- the recap's left edge
-    -- left: what killed me, as a list that scrolls when there are many causes
-    v.causeLab = k.Heading(v, "What kills you here")
-    v.causeLab:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -40)
-    v.causes = UI():CreateScrollList(v, CAUSE_H, InitCause)
-    v.causes.frame:SetPoint("TOPLEFT", v, "TOPLEFT", PAD, -60)
-    v.causes.frame:SetWidth(RAIL_W + 20)
-    -- whole rows only (a cut row at the bottom looks broken; the list scrolls for the rest)
-    local function fitRail()
-        local h = v:GetHeight() or 0
-        if h <= 0 then h = 550 end
-        v.causes.frame:SetHeight(max(CAUSE_H, floor((h - 60 - 4) / CAUSE_H) * CAUSE_H))
-    end
-    fitRail()
-    v:HookScript("OnSizeChanged", fitRail)
-    v.none = k.Text(v, "titleS")
-    v.none:SetPoint("TOP", v, "TOP", 0, -140)
-    v.none:SetJustifyH("CENTER")
-    v.none:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
+    local ui = UI()
+    local L = ui:CreateLayout("listdetail", parent, {
+        toolbar = false, pad = 0, bottom = 0, width = S.INNER_W, listWidth = RAIL_W,
+        banner = { size = "hero" },
+    })
+    local v = { layout = L }
+    -- left: what kills me, as a list that scrolls when there are many causes
+    v.causeLab = ui:CreateSectionHeader(L.list, "What kills you here")
+    v.causeLab:SetPoint("TOPLEFT", L.list, "TOPLEFT", 0, 0)
+    v.causeLab:SetPoint("TOPRIGHT", L.list, "TOPRIGHT", 0, 0)
+    v.causes = ui:CreateScrollList(L.list, ROW_H, InitCause)
+    v.causes.frame:SetPoint("TOPLEFT", v.causeLab, "BOTTOMLEFT", 0, -4)
+    v.causes.frame:SetPoint("BOTTOMRIGHT", L.list, "BOTTOMRIGHT", 0, 0)
 
-    -- right: the picked death, its health line and the story of its last 10 seconds
-    v.title = k.Text(v, "titleS")
-    v.title:SetPoint("TOPLEFT", v, "TOPLEFT", X, -38)
-    v.title:SetPoint("RIGHT", v, "RIGHT", -PAD - 110, 0)
-    v.title:SetTextColor(C.fg[1], C.fg[2], C.fg[3])
-    v.titleSub = v:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    v.titleSub:SetPoint("TOPLEFT", v.title, "BOTTOMLEFT", 0, -4)
-    v.titleSub:SetPoint("RIGHT", v, "RIGHT", -PAD, 0)
-    v.titleSub:SetJustifyH("LEFT")
-    v.titleSub:SetWordWrap(false)
-    v.next = UI():CreateArrowButton(v, true, 22, 20, function() MyLogDetail:StepDeath(1) end)
-    v.next:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -36)
-    v.pos = k.Text(v, "numXS")
-    v.pos:SetPoint("RIGHT", v.next, "LEFT", -8, 0)
-    v.pos:SetTextColor(C.mute[1], C.mute[2], C.mute[3])
-    v.prev = UI():CreateArrowButton(v, false, 22, 20, function() MyLogDetail:StepDeath(-1) end)
-    v.prev:SetPoint("RIGHT", v.pos, "LEFT", -8, 0)
+    -- right: the picked death's banner (boss, when, which of how many, Next / Previous) ...
+    local b = L.banner
+    b:SetActions({ { text = "Next", onClick = function() MyLogDetail:StepDeath(1) end },
+        { text = "Previous", onClick = function() MyLogDetail:StepDeath(-1) end } })
+    v.banner = b
+    v.next, v.prev = b.actions[1], b.actions[2]
+    v.pos = b.pill.fs
 
-    v.chartCard = k.Card(v, { 0.067, 0.078, 0.102, 1 }, 0.07)
-    v.chartCard:SetPoint("TOPLEFT", v, "TOPLEFT", X, -82)
-    v.chartCard:SetPoint("TOPRIGHT", v, "TOPRIGHT", -PAD, -82)
+    -- ... its health line ...
+    local body = L.body
+    v.chartCard = ui:CreateCard(body, { tone = "inset" })
+    v.chartCard:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    v.chartCard:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, 0)
     v.chartCard:SetHeight(132)
     v.chart = k.Chart(v.chartCard)
     v.chart:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 44, -6)
     v.chart:SetPoint("BOTTOMRIGHT", v.chartCard, "BOTTOMRIGHT", -16, 22)
     v.chart.inset = { l = 0, r = 0, t = 20, b = 6 }
-    v.chart.fallback = { 440, 104 }
-    v.yTop = k.Label(v.chartCard, "100%")
-    v.yTop:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
+    v.chart.fallback = { L.detailW - 60, 104 }
+    v.yTop = ui:Text(v.chartCard, "small", "DIM", { text = "100%" })
     v.yTop:SetPoint("TOPLEFT", v.chartCard, "TOPLEFT", 10, -24)
     v.xLabs = {}
     for i, txt in ipairs({ "-10 s", "-5 s", "death" }) do
-        local lab = k.Label(v.chartCard, txt)
-        lab:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-        v.xLabs[i] = lab
+        v.xLabs[i] = ui:Text(v.chartCard, "small", "DIM", { text = txt })
     end
+    v.xLabs[1]:SetPoint("TOPLEFT", v.chart, "BOTTOMLEFT", 0, -4)
+    v.xLabs[2]:SetPoint("TOP", v.chart, "BOTTOM", -8, -4)
+    v.xLabs[3]:SetPoint("TOPRIGHT", v.chart, "BOTTOMRIGHT", 0, -4)
 
-    v.story = UI():CreateScrollList(v, STORY_H, InitStory)
-    v.story.frame:SetPoint("TOPLEFT", v, "TOPLEFT", X, -224)
-    v.story.frame:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -PAD + 20, 8)
+    -- ... and the story of its last 10 seconds
+    v.story = ui:CreateScrollList(body, STORY_H, InitStory)
+    v.story.frame:SetPoint("TOPLEFT", v.chartCard, "BOTTOMLEFT", 0, -S.GAP)
+    v.story.frame:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     return v
 end
 
@@ -918,51 +913,11 @@ function MyLogDetail:StepDeath(dir)
     ns.MyLogUI:Refresh()
 end
 
-local function RefreshDeaths(state)
+-- The health line of a death's last seconds: { series, dots, ticks, hover } for the chart.
+local function DeathChart(p, d, hpMax)
     local k = K()
     local C = k.C
-    local v = deathsView
-    ns.MyLogUI:Crumb("Deaths")
-    local groups = MyLogDetail:DeathGroups(state.inst)
-    local found = false
-    for _, g in ipairs(groups) do if g.key == causeSel then found = true end end
-    if not found then causeSel = nil end
-    -- the rail
-    local total = 0
-    for _, g in ipairs(groups) do total = total + g.count end
-    local rows = {}
-    if #groups > 0 then
-        rows[1] = { all = true, count = total, causes = #groups }
-        for _, g in ipairs(groups) do rows[#rows + 1] = { key = g.key, group = g, count = g.count } end
-    end
-    v.causes:SetData(rows, v.causesFor ~= state.inst)
-    v.causesFor = state.inst
-    local list = DeathList(groups)
-    local inList = false
-    for _, e in ipairs(list) do if deathSel and e.death == deathSel.death then inList = true end end
-    if not inList then deathSel = list[1] end
-    local has = deathSel ~= nil
-    v.none:SetShown(not has)
-    v.none:SetText(has and "" or "No deaths in your stored pulls here. Keep it up.")
-    for _, f in ipairs({ v.title, v.titleSub, v.next, v.prev, v.pos, v.chartCard, v.story.frame, v.causeLab, v.causes.frame }) do
-        f:SetShown(has)
-    end
-    if not has then return end
-    local p, d = deathSel.pull, deathSel.death
-    local pos = 1
-    for i, e in ipairs(list) do if e.death == d then pos = i end end
-    v.title:SetText(p.boss or "?")
-    local phase = p.kill and "the kill" or strformat("a wipe at %.0f%%", p.pct or 0)
-    v.titleSub:SetText(strformat("%s · %s · died at %s", k.Day(p.at), phase, k.Clock(d.t)))
-    v.pos:SetText(strformat("%d of %d", pos, #list))
-
-    -- the health line
     local ring = d.ring or {}
-    local hpMax = d.hpMax
-    if not hpMax or hpMax <= 0 then
-        hpMax = 1
-        for _, e in ipairs(ring) do hpMax = max(hpMax, e[5] or 0) end
-    end
     local pts = {}
     local first = ring[1]
     if first then
@@ -995,7 +950,7 @@ local function RefreshDeaths(state)
             ticks[#ticks + 1] = { e[1], C.mute, nil, h = 7 }
         end
     end
-    v.chart:SetData({
+    return {
         x0 = -10, x1 = 0.3, y1 = 118, series = series, dots = dots, ticks = ticks,
         hover = function(x)
             local best, bd
@@ -1009,18 +964,59 @@ local function RefreshDeaths(state)
             return { { strformat("%.1f s", best[1]), C.mute }, { line, best[2] == "h" and C.up or (best[2] == "d" and C.down or C.fg) },
                 { strformat("health %s", k.Num(best[5])), C.mute } }
         end,
-    })
-    v.xLabs[1]:ClearAllPoints()
-    v.xLabs[1]:SetPoint("TOPLEFT", v.chart, "BOTTOMLEFT", 0, -4)
-    v.xLabs[2]:ClearAllPoints()
-    v.xLabs[2]:SetPoint("TOP", v.chart, "BOTTOM", -8, -4)
-    v.xLabs[3]:ClearAllPoints()
-    v.xLabs[3]:SetPoint("TOPRIGHT", v.chart, "BOTTOMRIGHT", 0, -4)
+    }
+end
+
+local function RefreshDeaths(state)
+    local k = K()
+    local v = deathsView
+    local L = v.layout
+    local groups = MyLogDetail:DeathGroups(state.inst)
+    local found = false
+    for _, g in ipairs(groups) do if g.key == causeSel then found = true end end
+    if not found then causeSel = nil end
+    -- the causes
+    local total = 0
+    for _, g in ipairs(groups) do total = total + g.count end
+    local rows = {}
+    if #groups > 0 then
+        rows[1] = { all = true, count = total, causes = #groups }
+        for _, g in ipairs(groups) do rows[#rows + 1] = { key = g.key, group = g, count = g.count } end
+    end
+    v.causes:SetData(rows, v.causesFor ~= state.inst)
+    v.causesFor = state.inst
+    local list = DeathList(groups)
+    local inList = false
+    for _, e in ipairs(list) do if deathSel and e.death == deathSel.death then inList = true end end
+    if not inList then deathSel = list[1] end
+    if not deathSel then
+        L:ShowEmpty({ icon = ICON_ALL, title = "No deaths in your stored pulls here", text = "Keep it up." })
+        return
+    end
+    L:HideEmpty()
+    local p, d = deathSel.pull, deathSel.death
+    local pos = 1
+    for i, e in ipairs(list) do if e.death == d then pos = i end end
+    local b = v.banner
+    b:SetArt(ns.MyLogUI:InstanceArt(state.inst))
+    b:SetTitle(p.boss or "?")
+    local phase = p.kill and "the kill" or strformat("a wipe at %.0f%%", p.pct or 0)
+    b:SetSub(strformat("%s · %s · died at %s", k.Day(p.at), phase, k.Clock(d.t)))
+    b:SetPill("mute", strformat("%d of %d", pos, #list))
+
+    -- the health line
+    local ring = d.ring or {}
+    local hpMax = d.hpMax
+    if not hpMax or hpMax <= 0 then
+        hpMax = 1
+        for _, e in ipairs(ring) do hpMax = max(hpMax, e[5] or 0) end
+    end
+    v.chart:SetData(DeathChart(p, d, hpMax))
 
     -- the story
-    local rows = {}
-    for i, e in ipairs(ring) do rows[#rows + 1] = { e = e, pull = p, hpMax = hpMax, last = i == #ring, odd = i % 2 == 1 } end
-    v.story:SetData(rows, true)
+    local story = {}
+    for i, e in ipairs(ring) do story[#story + 1] = { e = e, pull = p, hpMax = hpMax, last = i == #ring, i = i } end
+    v.story:SetData(story, true)
 end
 
 ---------------------------------------------------------------------------
@@ -1030,11 +1026,17 @@ end
 function MyLogDetail:Refresh(state)
     panel = ns.MainFrame and ns.MainFrame:GetPanel("mylog")
     if not panel then return end
-    if not bossView then bossView = BuildBossView(panel.body) end
-    if not deathsView then deathsView = BuildDeathsView(panel.body) end
-    bossView:SetShown(state.mode == "boss")
-    deathsView:SetShown(state.mode == "deaths")
-    if state.mode == "boss" then RefreshBoss(state) else RefreshDeaths(state) end
+    if state.mode == "boss" then
+        if not bossView then bossView = BuildBossView(panel) end
+        if deathsView then deathsView.layout:Hide() end
+        bossView.layout:Show()
+        RefreshBoss(state)
+    else
+        if not deathsView then deathsView = BuildDeathsView(panel.board.body) end
+        if bossView then bossView.layout:Hide() end
+        deathsView.layout:Show()
+        RefreshDeaths(state)
+    end
 end
 
 function MyLogDetail:GetViews() return bossView, deathsView end

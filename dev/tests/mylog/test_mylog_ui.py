@@ -147,8 +147,8 @@ def page_shows_the_newest_run_against_the_one_before():
     assert "+10.4%" in hero[2], hero              # 1325 vs 1200
     assert "Item level=121.0 +1" in hero[3] and "Deaths=2 +2" in hero[3] and "Active=90.0%" in hero[3], hero
     assert hero[4] is True                          # the best night here
-    crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % p)
-    assert crumb == ["My Log", "Serpentshrine Cavern"], crumb
+    # the raid picker in the toolbar names the instance (the old breadcrumb's "My Log > Serpentshrine Cavern")
+    assert c.eval("return %s.instDD:GetText()" % p) == "Serpentshrine Cavern"
     # a card per boss, the wipe-only boss as progress
     cards = c.eval_py("local o = {}; for _, x in ipairs(%s.cards) do if x:IsShown() then o[#o + 1] = { x.name:GetText(), "
                       "x.num:IsShown() and x.num:GetText() or false, x.prog:IsShown() } end end; return o" % p)
@@ -174,8 +174,7 @@ def views_follow_the_role_until_picked():
     assert c.eval("return %s.hero.metric:GetText()" % p) == "Avg DPS on kills"
     c.eval("ns.MyLogUI:SetView('tanking')")
     assert c.eval("return %s.hero.metric:GetText()" % p) == "Avg damage taken per second"
-    on = c.eval_py("local o = {}; for _, b in ipairs(%s.seg.buttons) do if b.on then o[#o + 1] = b.key end end; return o" % p)
-    assert on == ["tanking"], on
+    assert c.eval("return (%s.seg:GetSelected())" % p) == "tanking"
 
 
 @case
@@ -269,8 +268,9 @@ def boss_detail_compares_two_kills():
     assert used[0] > 100 and used[1] == 3 and used[2] >= 3 and used[3] > 50, used
     cells = c.eval_py("local b = ns.MyLogDetail:GetViews(); local o = {}; for _, x in ipairs(b.stats.cells) do o[#o + 1] = x.lab:GetText() end; return o")
     assert cells[0] == "DPS" and cells[1] == "Active time" and cells[2].startswith("Idle gaps") and cells[3] == "Back after Whirlwind", cells
-    crumb = c.eval_py("local o = {}; for _, b in ipairs(%s.crumb.parts) do if b:IsShown() then o[#o + 1] = b.fs:GetText() end end; return o" % P)
-    assert crumb == ["My Log", "Serpentshrine Cavern", "Leotheras the Blind"], crumb
+    # the detail page's banner: back to the raid's nights, the boss as its title (the old breadcrumb's parts)
+    head = c.eval_py("local b = ns.MyLogDetail:GetViews().layout.banner; return { b.back:GetText(), b.title:GetText() }")
+    assert head == ["Serpentshrine Cavern", "Leotheras the Blind"], head
     c.eval("ns.MyLogUI:SetView('tanking')")
     assert c.eval("return ns.MyLogUI:GetState().mode") == "boss"
     # back
