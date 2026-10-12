@@ -146,6 +146,7 @@ Core\Kit.lua
 Core\Codec.lua
 Core\BiSImport.lua
 Core\BiSExport.lua
+Core\WornGems.lua
 Core\Demo.lua
 Core\DemoScenarios.lua
 

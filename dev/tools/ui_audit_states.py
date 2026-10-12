@@ -197,6 +197,9 @@ def close_all(cl):
         local f = _G[name]; if f and f.Hide then f:Hide() end
       end
       if ns.Picker and ns.Picker.Close then pcall(ns.Picker.Close, ns.Picker) end
+      -- (My BiS's Equipped views: back to the list, the mock's own links)
+      if __WORN_ORIG then GetInventoryItemLink = __WORN_ORIG; __WORN_ORIG = nil end
+      if ns.MyBiS and ns.MyBiS.SetWorn then pcall(ns.MyBiS.SetWorn, ns.MyBiS, false) end
       if ns.DungeonsUI and ns.DungeonsUI.GetSheetState and ns.DungeonsUI:GetSheetState() then ns.DungeonsUI:CloseSheet() end
       if ns.RaidPlanUI and ns.RaidPlanUI.CloseEditor then ns.RaidPlanUI:CloseEditor() end
       if ns.DungeonRuns and ns.Demo and ns.Demo:IsEnabled() then ns.DungeonRuns:Unlist(true) end
@@ -948,6 +951,47 @@ SIM_P1 = {1: 29073, 2: 28745, 3: 29075, 15: 24259, 5: 29071, 9: 28795, 10: 30644
           11: 28757, 12: 30834, 13: 29383, 14: 28830, 16: 28429, 18: 27484}
 
 
+# Socketed / enchanted in the worn links (by sid): the guide's best for these, nothing on the rest.
+WORN_SOCKETED = "{ [1] = true, [3] = true, [5] = true, [9] = true, [15] = true }"
+
+
+def worn_view(lua=None):
+    """My BiS's Equipped tab: Gina (Ret) in SIM_P1, the WORN_SOCKETED items' links carrying the guide's gems and
+    enchant (the mock's links have none), then optional Lua."""
+    def fn(w, c):
+        g = opened("mybis", "ns.BiS:SetSpec('Retribution'); ns.MyBiS:SetPhase(1, true)")(w, c)
+        g.equip(SIM_P1)
+        w.tick(0.3)
+        g.eval("""local W, G = ns.WornGems, ns.Gems
+            local eq = W:Equipped()
+            local sug = G:FillSetups(W:View(nil, true, eq), 1, nil, true) or {}
+            local on = """ + WORN_SOCKETED + """
+            local orig = __WORN_ORIG or GetInventoryItemLink
+            __WORN_ORIG = orig
+            local function n(v) return (v and v ~= 0) and tostring(v) or "" end
+            GetInventoryItemLink = function(unit, slot)
+              local l = orig(unit, slot)
+              for sid, s in ipairs(ns.SLOTS) do
+                local e = eq[sid]
+                local su = e and on[sid] and sug[e.id]
+                if s.invSlot == slot and su and l then
+                  local gm = su.gems or {}
+                  l = l:gsub("item:(%d+):[^|]*", function(id)
+                    return ("item:%s:%s:%s:%s:%s:%s:::70"):format(id, n(su.enchant), n(gm[1]), n(gm[2]), n(gm[3]),
+                      n(gm[4])) end, 1)
+                end
+              end
+              return l
+            end
+            ns.MyBiS:SetWorn(true)
+            ns.MyBiS:Refresh()""")
+        if lua:
+            w.tick(0.3)
+            g.eval(lua)
+        return g
+    return fn
+
+
 def sim_mode(run=True, stale=False, picker=False, meta_off=False, running=False, nerd=None, history=None):
     """My BiS in Sim mode (UI/SimPanel.lua): Gina in WoWSims' P1 Ret gear, Hourglass in the Working set's Trinket 1,
     a short run against My gear; stale = a slot changed after the run; picker = Trinket 1's picker after Best;
@@ -1204,6 +1248,16 @@ STATES = [
                                    "return f end for _, ch in ipairs({ f:GetChildren() }) do local r = find(ch) "
                                    "if r then return r end end end local t = find(UIParent); "
                                    "ns.GemEditor:Open(t, t.mainID, 1)")),
+    # Equipped (Core/WornGems.lua): Gina in P1 Ret gear, half of it socketed / enchanted with the guide's picks;
+    # then Suggest's plan for the rest (two items left unplanned), and the editor on the gloves' worn host
+    ("My BiS - equipped", worn_view()),
+    ("My BiS - equipped, to apply", worn_view("ns.WornGems:Fill(nil, 1, false); "
+        "local eq = ns.WornGems:Equipped(); ns.WornGems:ClearPlan(eq[10] and eq[10].id); "
+        "ns.WornGems:ClearPlan(eq[4] and eq[4].id); ns.MyBiS:Refresh()")),
+    ("My BiS - equipped, gem editor", worn_view("ns.WornGems:Fill(nil, 1, false); ns.MyBiS:Refresh(); "
+        "local function find(f) if f.strip and f.sid == 7 then return f end for _, ch in ipairs({ f:GetChildren() }) "
+        "do local r = find(ch) if r then return r end end end local t = find(UIParent); "
+        "t.strip:GetScript('OnClick')(t.strip, 'LeftButton')")),
     # gem quality (feedback #4): P3 filled with Uncommon gems, the editor on the head (the switch on Uncommon, the meta
     # still active); the Suggest menu with Epic / Rare / Uncommon
     ("My BiS - gem editor uncommon", opened("mybis", "ns.MyBiS:ApplySuggestion(3, true); ns.MyBiS:SetPhase(3, true); "

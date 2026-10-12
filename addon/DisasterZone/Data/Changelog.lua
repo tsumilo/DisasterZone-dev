@@ -21,6 +21,14 @@ ns.CHANGELOG = {
               "Questions, pop-ups and small notices are the same everywhere, over the window they fit.",
               "Blessings and Totem planners, twist practice and the meter breakdown open as tool windows.",
           } },
+          { heading = "My BiS: gems and enchants for the gear you wear", area = "gear", kind = "new", open = "mybis",
+            lines = {
+              "My BiS has an Equipped tab after the phases: your gear with the gems and enchants it has.",
+              "Suggest fills empty sockets and missing enchants from your spec's guide.",
+              "Click a slot's gems to plan your own; a gold dot marks what isn't on the item yet.",
+              "The centre counts what is socketed and enchanted and lists what is still to apply.",
+              "More > Shopping puts the gems and enchants still to apply on your shopping list.",
+          } },
           { heading = "Members: a card with a banner", area = "guild", kind = "changed", hi = true, open = "members",
             art = "ssc", lead = "A player's card opens under a banner, like a raid or a guest.", lines = {
               "A player's card opens under a banner: their class, name, online status and specs.",

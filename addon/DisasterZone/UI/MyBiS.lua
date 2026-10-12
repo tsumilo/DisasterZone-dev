@@ -17,6 +17,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MyBiS.lua", ...) then return en
 -- One spacing grid (the Raids and Dungeons tabs' too): PAD at the page's sides, GAP between blocks, every tile 48 high.
 -- 1.4: a Board page (UI:CreateLayout "board"): its toolbar holds the phases (or the page's title) and the spec tabs on
 -- the left, the lock pill / Suggest and More on the right; the doll (or the kit) is the body.
+-- Equipped (the tab after the phases): the doll shows the gear I wear with the gems and enchants it really has, and my
+-- plan for them (ns.WornGems: the gem editor, Suggest; a gold dot on what isn't on the item yet); the centre counts
+-- what is socketed and enchanted and lists what is still to apply; More puts that on the shopping list.
 local addonName, ns = ...
 
 local MyBiS = {}
@@ -70,6 +73,7 @@ local VIEW_OF = { mybis = "list", gearsim = "sim", consumables = "kit" }
 local PAGE_OF = { list = "mybis", sim = "gearsim", kit = "consumables" }
 local currentView = "list"
 local selectedPhase, userPickedPhase
+local wornOn = false        -- the Equipped tab is shown instead of a phase (session only)
 local selectedList = "ms"   -- Addendum H: "ms" | "os" (session only)
 
 ---------------------------------------------------------------------------
@@ -153,6 +157,11 @@ local function CurrentPhase()
     return selectedPhase
 end
 
+-- The phase the Equipped view suggests for: the guild's (the gems out now), else the phase picked last.
+local function WornPhase()
+    return GuildPhase() or CurrentPhase()
+end
+
 -- The list argument for BiS calls: "os" while the off-spec list is shown, else nil (the main spec).
 local function ListArg()
     return selectedList == "os" and "os" or nil
@@ -160,6 +169,13 @@ end
 
 local function IsOffSpecView()
     return selectedList == "os"
+end
+
+local function Worn() return ns.WornGems end
+
+-- The Equipped view is shown (the My BiS page, not Gear sim / Consumables).
+local function WornView()
+    return wornOn and currentView == "list" and Worn() ~= nil
 end
 
 local HasOffSpec = GearUI.HasOffSpec
@@ -680,9 +696,44 @@ local function ShowSlotMenu(sid, tile)
     end)
 end
 
+-- Equipped: the gem editor on a worn item, my plan for it (ns.WornGems).
+local function OpenWornGems(tile)
+    if not (tile and tile.mainID and ns.GemEditor and Worn()) then return end
+    if not (tile.strip and tile.strip:IsShown()) then return end
+    ns.GemEditor:Open(tile, tile.mainID, WornPhase(), ListArg(), Worn():GemHost(tile.mainID, ListArg()))
+end
+
+local function ShowWornMenu(sid, tile)
+    local W = Worn()
+    local itemID = tile.mainID
+    ns.UI:ContextMenu(tile, function(root)
+        root:CreateTitle(SlotLabel(sid) .. "  ·  Equipped")
+        if not itemID then
+            root:CreateTitle("Nothing equipped")
+            return
+        end
+        if tile.strip and tile.strip:IsShown() then
+            root:CreateButton("Gems and enchant...", function() OpenWornGems(tile) end)
+        end
+        local enchant, gems = W:GetPlan(itemID)
+        if enchant ~= 0 or next(gems) ~= nil then
+            root:CreateButton("Reset to what it has", function() W:ClearPlan(itemID) end)
+        end
+        root:CreateButton("Link in chat", function() ns.UI:LinkInChat(itemID) end)
+    end)
+end
+
 local function OnSlotClick(sid, which, mouseButton, tile)
     if ns.SimPanel and ns.SimPanel:IsActive() then
         ns.SimPanel:OnSlotClick(sid, which, mouseButton, tile, panel)
+        return
+    end
+    if WornView() then
+        if mouseButton == "RightButton" or not (tile.strip and tile.strip:IsShown()) then
+            ShowWornMenu(sid, tile)
+        else
+            OpenWornGems(tile)
+        end
         return
     end
     if mouseButton == "RightButton" or SlotDisabled(CurrentPhase(), sid) then
@@ -698,7 +749,7 @@ local function OnSlotReceiveItem(sid, itemID, which)
         ns.SimPanel:OnSlotReceiveItem(sid, itemID)
         return
     end
-    if not ns.BiS then return end
+    if not ns.BiS or WornView() then return end   -- (Equipped shows what I wear: nothing to drop there)
     local phase = CurrentPhase()
     if SlotDisabled(phase, sid) then
         ns:Print("%s is disabled in %s: enable the slot first (click it).", SlotLabel(sid), PL(phase))
@@ -713,6 +764,10 @@ function MyBiS:SetPhase(p, byUser)
         userPickedPhase = true
         RememberPhase(p)
     end
+    if wornOn then
+        wornOn = false
+        if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
+    end
     if p == selectedPhase and panel then
         self:Refresh()
         return
@@ -723,6 +778,18 @@ function MyBiS:SetPhase(p, byUser)
 end
 
 function MyBiS:GetPanel() return panel end
+
+-- The Equipped tab (on) or back to the phase picked last (off).
+function MyBiS:SetWorn(on)
+    on = (on and Worn()) and true or false
+    if on == wornOn then return end
+    wornOn = on
+    if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+    if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
+    self:Refresh()
+end
+
+function MyBiS:IsWorn() return WornView() end
 
 function MyBiS:GetPhase()
     return CurrentPhase()
@@ -1046,7 +1113,66 @@ local function BuildCopyMenu(root)
     end
 end
 
+-- The gems' quality (Epic = the best there is): the fills below it find the strongest gems of it.
+local function AddQualityRadios(root, phase, list)
+    for _, q in ipairs({ 4, 3, 2 }) do
+        if ns.Gems:QualityOut(q, phase) then
+            local r, g, bl = ns.UI:QualityColor(q)
+            local radio = root:CreateRadio(("|cff%02x%02x%02x%s gems|r"):format(floor(r * 255), floor(g * 255),
+                floor(bl * 255), ns.Gems.QUALITY_WORDS[q]),
+                function() return ns.Gems:GetQuality(list) == q end,
+                function()
+                    ns.Gems:SetQuality(q, list)
+                    return (MenuResponse and MenuResponse.Refresh) or 2    -- a setting: the menu stays open
+                end)
+            if radio and radio.SetTooltip then
+                radio:SetTooltip(function(tt)
+                    tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:RGB("GOLD"))
+                    tt:AddLine(q == 4 and "The best gems for your spec." or ("The strongest " .. ns.Gems.QUALITY_WORDS[q]:lower()
+                        .. " gems for your spec, for when the best ones cost too much. The meta gem still gets "
+                        .. "its colours."), 1, 1, 1, true)
+                end)
+            end
+        end
+    end
+end
+
+-- Equipped: gems and enchants for the gear I wear, from the shown list's spec guide (my plan: ns.WornGems).
+local function BuildWornSuggestMenu(root)
+    local W, list, phase = Worn(), ListArg(), WornPhase()
+    local spec = SelectedSpec() or ""
+    root:CreateTitle("Gems and enchants for your gear")
+    if not (ns.Gems and ns.Gems:GuideFor(W:View(list))) then
+        root:CreateTitle(spec == "" and "Choose your spec first" or ("No guide for " .. spec))
+        return
+    end
+    AddQualityRadios(root, phase, list)
+    if root.CreateDivider then root:CreateDivider() end
+    local b = root:CreateButton("Fill empty sockets and enchants", function()
+        if W:Fill(list, phase, false) == 0 then ns:Print("Every socket and enchant of your gear is already filled.") end
+    end)
+    if b and b.SetTooltip then
+        b:SetTooltip(function(tt)
+            tt:AddLine("Fill empty sockets and enchants", S:RGB("GOLD"))
+            tt:AddLine(("The %s guide's gems and enchants (%s) for every empty socket and missing enchant of the gear "
+                .. "you wear. They show with a gold dot until they are on the item."):format(spec, PL(phase)),
+                1, 1, 1, true)
+        end)
+    end
+    local best = root:CreateButton("Best gems and enchants for everything", function()
+        if W:Fill(list, phase, true) == 0 then ns:Print("Your gear already has the suggested gems and enchants.") end
+    end)
+    if best and best.SetTooltip then
+        best:SetTooltip(function(tt)
+            tt:AddLine("Best gems and enchants for everything", S:RGB("GOLD"))
+            tt:AddLine("Also suggests over the gems and enchants your gear has, where the guide has better ones.",
+                1, 1, 1, true)
+        end)
+    end
+end
+
 local function BuildSuggestMenu(root)
+    if WornView() then return BuildWornSuggestMenu(root) end
     local phase = CurrentPhase()
     local spec = SelectedSpec() or ""
     root:CreateTitle("Suggested BiS list")
@@ -1070,28 +1196,7 @@ local function BuildSuggestMenu(root)
     if ns.Gems and ns.Gems:GuideFor(ns.BiS:GetListView(ListArg())) then
         if root.CreateDivider then root:CreateDivider() end
         root:CreateTitle("Gems and enchants")
-        -- the gems' quality (Epic = the best there is): the fills below find the strongest gems of it
-        local list = ListArg()
-        for _, q in ipairs({ 4, 3, 2 }) do
-            if ns.Gems:QualityOut(q, phase) then
-                local r, g, bl = ns.UI:QualityColor(q)
-                local radio = root:CreateRadio(("|cff%02x%02x%02x%s gems|r"):format(floor(r * 255), floor(g * 255),
-                    floor(bl * 255), ns.Gems.QUALITY_WORDS[q]),
-                    function() return ns.Gems:GetQuality(list) == q end,
-                    function()
-                        ns.Gems:SetQuality(q, list)
-                        return (MenuResponse and MenuResponse.Refresh) or 2    -- a setting: the menu stays open
-                    end)
-                if radio and radio.SetTooltip then
-                    radio:SetTooltip(function(tt)
-                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:RGB("GOLD"))
-                        tt:AddLine(q == 4 and "The best gems for your spec." or ("The strongest " .. ns.Gems.QUALITY_WORDS[q]:lower()
-                            .. " gems for your spec, for when the best ones cost too much. The meta gem still gets "
-                            .. "its colours."), 1, 1, 1, true)
-                    end)
-                end
-            end
-        end
+        AddQualityRadios(root, phase, ListArg())
         local b = root:CreateButton(("Fill empty sockets and enchants (%s)"):format(PL(phase)), function()
             local n = ns.Gems:FillPhase(phase, ListArg(), false)
             if n == 0 then ns:Print("Every socket and enchant of %s is already chosen.", PL(phase)) end
@@ -1135,6 +1240,28 @@ local function BuildMoreMenu(root)
     if ns.SimPanel and ns.SimPanel:IsActive() then
         root:CreateTitle("Working set")
         ns.SimPanel:BuildMoreEntries(root, entry, GOLD)
+        return
+    end
+    -- Equipped: export what I wear, the plan's gems and enchants on the shopping list, forget the plan
+    if WornView() then
+        local W, list, wp = Worn(), ListArg(), WornPhase()
+        entry(UI.ICON.export, "Export", GOLD, "The gear you wear, for WoWSims (wowsims.com/tbc) or Wowhead's gear "
+            .. "planner.", function() openWindow("export") end)
+        if ns.Shop then
+            local needs = W:ShoppingNeeds(list, wp)
+            local b = entry(UI.ICON.bagAdd, "Shopping", GOLD, "Puts the gems and enchants still to apply on your "
+                .. "shopping list in the Atlas. It shows who in the guild makes them.", function()
+                local n, other = W:AddToShoppingList(list, wp)
+                ns:Print("Added %d crafts to your shopping list (Atlas).%s", n,
+                    other > 0 and (" %d gems or enchants come from drops, vendors or reputation."):format(other) or "")
+            end)
+            if next(needs) == nil and b and b.SetEnabled then b:SetEnabled(false) end
+        end
+        if #W:Pending() > 0 then
+            if root.CreateDivider then root:CreateDivider() end
+            entry(UI.ICON.trash, "Reset plan", RED, "Forgets the gems and enchants you planned for the gear you wear "
+                .. "(what the items have stays).", function() W:ClearAll() end)
+        end
         return
     end
     if locked then
@@ -1345,6 +1472,16 @@ end
 
 -- The progress line's tooltip: what the count leaves out.
 local function ProgressTooltip(owner, tt)
+    local w = owner.worn
+    if w then
+        tt:AddLine("Equipped", S:RGB("GOLD"))
+        if w.sockets > 0 then tt:AddLine(("%d of %d sockets hold a gem"):format(w.gems, w.sockets), 1, 1, 1) end
+        if w.enchantable > 0 then
+            tt:AddLine(("%d of %d items enchanted"):format(w.enchants, w.enchantable), 1, 1, 1)
+        end
+        tt:AddLine("What the items have now; your plan counts once it is on them.", 0.7, 0.7, 0.7, true)
+        return
+    end
     local info = owner.info
     if not info then return false end
     local name = PhaseName(owner.phase)
@@ -1445,6 +1582,7 @@ local function CreateCard(parent, w, h)
         local data = BiS and (BiS.GetListView and BiS:GetListView(ListArg()) or BiS:GetData())
         local ph = PhaseSlots(data, phase)
         local function pick(sid)
+            if WornView() then return nil end     -- (Equipped: the gear worn)
             local e = type(ph) == "table" and ph[sid]
             local itemID = type(e) == "table" and tonumber(e[1]) or nil
             if itemID and itemID > 0 and not SlotDisabled(phase, sid) then return itemID end
@@ -1507,6 +1645,8 @@ end
 
 local function UpdateCard(phase)
     if not card then return end
+    card.listHead:SetTitle("Still to get")
+    card.progress.worn = nil
     local info = ComputeProgress(phase)
     -- (the phase and the list are the top bar's: the centre only says how far along)
     local sub = S:Hex("SUB")
@@ -1549,6 +1689,193 @@ local function UpdateCard(phase)
         card.empty:Show()
     end
     card:Dress(phase)
+end
+
+---------------------------------------------------------------------------
+-- Equipped: the gear I wear, its gems and enchants and my plan for them (ns.WornGems)
+---------------------------------------------------------------------------
+
+local wornEq = {}           -- what I wear, as the last refresh read it ({ [sid] = { id, enchant, gems } })
+
+local function Cap(text) return text:sub(1, 1):upper() .. text:sub(2) end
+
+local function Fit(fs, width, full, short)
+    if short and fs and width and fs.GetStringWidth then
+        fs:SetText(full)
+        local tw = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
+        if (tonumber(tw) or 0) > width then return short end
+    end
+    return full
+end
+
+-- The line under a worn item: what is still to apply (gold), else what it still lacks with nothing planned ("to
+-- choose"), else that it is done ("" for an item that takes neither gems nor an enchant).
+local function WornLine(e, fs, width)
+    local W, G = Worn(), ns.Gems
+    if not (e and W and G) then return "" end
+    local p = W:PendingFor(e)
+    if p then
+        local parts = {}
+        if p.n > 0 then parts[#parts + 1] = p.n == 1 and "1 gem" or (p.n .. " gems") end
+        if p.enchant then parts[#parts + 1] = "enchant" end
+        return Fit(fs, width, S:Wrap("GOLD", Cap(table.concat(parts, ", ") .. " to apply")), S:Wrap("GOLD", "To apply"))
+    end
+    local enchant, gems = W:Merged(e)
+    local sockets = #G:Sockets(e.id)
+    local canEnchant = G:CanEnchant(e.id)
+    local empty = 0
+    for i = 1, sockets do if (gems[i] or 0) == 0 then empty = empty + 1 end end
+    local parts = {}
+    if empty > 0 then parts[#parts + 1] = empty == 1 and "1 gem" or (empty .. " gems") end
+    if canEnchant and enchant == 0 then parts[#parts + 1] = "enchant" end
+    if #parts > 0 then
+        -- (the centre's words: "to choose" = nothing planned yet, "to apply" = planned, not on the item)
+        return Fit(fs, width, Soft(Cap(table.concat(parts, ", ") .. " to choose")), Soft("To choose"))
+    end
+    if sockets == 0 and not canEnchant then return "" end
+    return Soft("Done")
+end
+
+-- A worn tile's own tooltip lines (under the item's): what is still to apply, what a click does.
+local function WornTip(tile, tt)
+    local label = SlotLabel(tile.sid)
+    if not tile.mainID then
+        tt:AddLine(label, 1, 1, 1)
+        tt:AddLine("Nothing equipped", 0.5, 0.5, 0.5)
+        return
+    end
+    local G = ns.Gems
+    tt:AddLine(" ")
+    tt:AddLine("DisasterZone: equipped - " .. label, ns.UI:Color("main"))
+    local p = Worn():PendingFor(wornEq[tile.sid])
+    if p then
+        local gr, gg, gb = S:RGB("GOLD")
+        for i = 1, 4 do
+            local g = p.gems[i] and G:Gem(p.gems[i])
+            if g then tt:AddLine("To apply: " .. g.name, gr, gg, gb) end
+        end
+        local e = p.enchant and G:Enchant(p.enchant)
+        if e then tt:AddLine("To apply: " .. e.short, gr, gg, gb) end
+    end
+    if tile.strip and tile.strip:IsShown() then
+        tt:AddLine("Click: gems and enchant  ·  Right-click: options", 0.5, 0.5, 0.5)
+    else
+        tt:AddLine("Right-click for options", 0.5, 0.5, 0.5)
+    end
+end
+
+local function WornCtx()
+    return {
+        gems = true,
+        noAlt = true,
+        isDisabled = function() return false end,
+        applied = function(sid) return wornEq[sid] end,
+        link = function(sid)
+            local slot = ns.SLOTS and ns.SLOTS[sid]
+            return slot and GetInventoryItemLink("player", slot.invSlot) or nil
+        end,
+        source = function(_, sid, fs, width) return WornLine(wornEq[sid], fs, width) end,
+        mainTip = WornTip,
+    }
+end
+
+-- The centre on Equipped: what the items have (the count and its bar), what is still to choose (the finish line, my
+-- plan included) and still to apply (the rows: gems, enchants; the items on hover).
+local function UpdateWornCard(view, phase)
+    local W, G = Worn(), ns.Gems
+    local asIs = W:View(ListArg(), true, wornEq)
+    local gems, sockets, enchants, enchantable = G:Progress(asIs, phase)
+    local anyWorn = next(wornEq) ~= nil
+    local sub = S:Hex("SUB")
+    local parts = {}
+    local function part(have, of, what)
+        parts[#parts + 1] = ("|cffffffff%d|r " .. sub .. "of|r |cffffffff%d|r " .. sub .. "%s|r"):format(have, of, what)
+    end
+    if sockets > 0 then part(gems, sockets, "gems") end
+    if enchantable > 0 then part(enchants, enchantable, "enchants") end
+    card.count:SetText(table.concat(parts, sub .. "  ·  |r"))
+    card.count:SetShown(#parts > 0)
+    card.bar:SetShown(#parts > 0)
+    local total = sockets + enchantable
+    card.bar:Set(total > 0 and min(1, (gems + enchants) / total) or 0)
+    card.progress.info, card.progress.phase = nil, phase
+    card.progress.worn = { gems = gems, sockets = sockets, enchants = enchants, enchantable = enchantable }
+    MyBiS:UpdateFinish(phase, anyWorn, view)
+
+    local gemRow = { key = "worn:gems", name = "Gems to socket", count = 0, items = {} }
+    local enchRow = { key = "worn:enchants", name = "Enchants to apply", count = 0, items = {} }
+    for _, p in ipairs(W:Pending(wornEq)) do
+        for i = 1, 4 do
+            if p.gems[i] then
+                local g = G:Gem(p.gems[i])
+                gemRow.count = gemRow.count + 1
+                gemRow.icon = gemRow.icon or (g and g.icon)
+                gemRow.items[#gemRow.items + 1] = { itemID = p.itemID, where = g and g.name or "?" }
+            end
+        end
+        if p.enchant then
+            local e = G:Enchant(p.enchant)
+            enchRow.count = enchRow.count + 1
+            enchRow.icon = enchRow.icon or (e and e.icon)
+            enchRow.items[#enchRow.items + 1] = { itemID = p.itemID, where = e and e.short or "?" }
+        end
+    end
+    local groups = {}
+    for _, g in ipairs({ gemRow, enchRow }) do
+        if g.count > 0 then
+            g.short, g.icon = g.name, g.icon or ICON.other
+            groups[#groups + 1] = g
+        end
+    end
+
+    card.listHead:SetTitle("To apply")
+    card.empty:Hide()
+    card.note1:SetText("")
+    card.note2:SetText("")
+    ShowRows(groups)
+    if #groups == 0 then
+        local placed, all, ench, enchAll = G:Progress(view, phase)
+        local es = {}
+        if not anyWorn then
+            es.glyph = ns.UI.ICON.notes
+            es.title = "Nothing equipped"
+        elseif placed < all or ench < enchAll then
+            es.glyph = ns.UI.ICON.notes
+            es.title = "Nothing to apply yet"
+            es.text = "Let Suggest pick gems and enchants for your gear, or click a slot's gems."
+        else
+            es.icon = ns.UI:Tex("check")
+            es.title = Green("Every gem and enchant is on")
+        end
+        card.empty:SetContent(es)
+        card.empty:Show()
+    end
+    card:Dress(phase)
+end
+
+-- The gem editor's host: nil (closed), "list" (the BiS list), "worn" (Equipped) or "sim" (the Working set); its state.
+local function EditorOn()
+    local GE = ns.GemEditor
+    if not (GE and GE:IsShown()) then return nil end
+    local _, st = GE:GetFrame()
+    return st.host and (st.host.kind or "sim") or "list", st
+end
+
+function MyBiS:RefreshWorn()
+    local W = Worn()
+    wornEq = W:Equipped()
+    local phase = WornPhase()
+    local view = W:View(ListArg(), false, wornEq)
+    if doll.SetLocked then doll:SetLocked(false) end
+    doll:Update({ data = view }, phase, WornCtx())
+    -- the gem editor stays on a worn item while that item is still worn there (else it closes)
+    local on, st = EditorOn()
+    if on and (on ~= "worn" or not (wornEq[st.sid] and wornEq[st.sid].id == st.itemID) or st.list ~= ListArg()) then
+        ns.GemEditor:Close()
+    elseif on == "worn" then
+        ns.GemEditor:Refresh()
+    end
+    UpdateWornCard(view, phase)
 end
 
 ---------------------------------------------------------------------------
@@ -1601,7 +1928,7 @@ local function UpdatePhaseButtons()
         fs:ClearAllPoints()
         fs:SetPoint("CENTER", marked and -6 or 0, 1)
     end
-    bar:SelectTab(phase)
+    bar:SelectTab(WornView() and "worn" or phase)
 end
 
 -- §38: the lock pill in Suggest's place ("Locked by Lee"; why, in its tooltip). chip.title = its text (tests).
@@ -1636,10 +1963,25 @@ local function CreateTopBar(p, toolbar)
     local entries = PhaseEntries()
     local items = {}
     for i, e in ipairs(entries) do items[i] = { key = e.phase, text = e.label } end
+    -- Equipped: the gear I wear (after a separator: not a phase)
+    if Worn() then items[#items + 1] = { key = "worn", text = "Equipped", sep = true } end
     items[#items + 1] = { key = "page", text = "" }
     bar:SetTabs(items, function(key)
-        if key ~= "page" then MyBiS:SetPhase(key, true) end
+        if key == "worn" then
+            MyBiS:SetWorn(true)
+        elseif key ~= "page" then
+            MyBiS:SetPhase(key, true)
+        end
     end)
+    local wornTab = bar:GetTab("worn")
+    if wornTab then
+        UI:AttachTooltip(wornTab, function(_, tt)
+            tt:AddLine("Equipped", S:RGB("GOLD"))
+            tt:AddLine("The gear you wear, with the gems and enchants it has. Suggest fills empty sockets and missing "
+                .. "enchants from your spec's guide; what you plan shows with a gold dot until it is on the item.",
+                1, 1, 1, true)
+        end, nil, { anchor = "ANCHOR_BOTTOM" })
+    end
     for i, e in ipairs(entries) do
         local b = bar:GetTab(e.phase)
         b.phase, b.label = e.phase, e.label
@@ -1669,8 +2011,11 @@ local function CreateTopBar(p, toolbar)
 
     suggestBtn = UI:CreateSleekMenuButton(bar, "Suggest", SUGGEST_W, BuildSuggestMenu, BAR_H)
     UI:SetTextStyle(suggestBtn:GetFontString(), "emph", "TEXT")
-    UI:AttachTooltip(suggestBtn, "Suggest",
-        "Fill this phase from your spec's best-in-slot guide (shipped with DisasterZone).", { anchor = "ANCHOR_BOTTOM" })
+    UI:AttachTooltip(suggestBtn, function(_, tt)
+        tt:AddLine("Suggest", S:RGB("GOLD"))
+        tt:AddLine(WornView() and "Gems and enchants for the gear you wear, from your spec's guide."
+            or "Fill this phase from your spec's best-in-slot guide (shipped with DisasterZone).", 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
 
     -- §38: while my list is locked the chip takes Suggest's place
     lockChip = CreateLockChip(bar)
@@ -1683,6 +2028,7 @@ local TITLES = { sim = "Gear sim", kit = "Consumables" }
 local function LayoutBar(view)
     local t = TITLES[view]
     for _, b in ipairs(phaseButtons) do bar:SetTabShown(b.phase, not t) end
+    bar:SetTabShown("worn", not t)
     bar:SetTabShown("page", t ~= nil)
     if t then
         bar:SetTabLabel("page", t)
@@ -1693,6 +2039,8 @@ local function LayoutBar(view)
     moreBtn:SetShown(view ~= "kit")
     if view == "sim" then
         moreBtn.tipText = "Start the Working set over from the gear you wear or a BiS phase, or export a set to WoWSims."
+    elseif WornView() then
+        moreBtn.tipText = "Export the gear you wear, or put the gems and enchants still to apply on your shopping list."
     else
         moreBtn.tipText = "Import a BiS list from another site, export yours to WoWSims or Wowhead, copy another "
             .. "phase or list, or clear this phase's picks."
@@ -1747,6 +2095,10 @@ function MyBiS:CreatePanel(parent)
             if not (tile.mainID and ns.GemEditor) then return end
             if ns.SimPanel and ns.SimPanel:IsActive() then
                 ns.SimPanel:OpenGems(sid, tile)
+                return
+            end
+            if WornView() then
+                OpenWornGems(tile)
                 return
             end
             ns.GemEditor:Open(tile, tile.mainID, CurrentPhase(), ListArg())
@@ -1831,7 +2183,7 @@ function MyBiS:Refresh()
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not Sim:IsPickerOpen() then ns.Picker:Close() end
         -- (the gem editor stays open on the Working set: its own changes repaint the page)
         local GE = ns.GemEditor
-        if GE and GE:IsShown() and not GE:HasHost() then GE:Close() end
+        if EditorOn() and EditorOn() ~= "sim" then GE:Close() end
         if doll.SetLocked then doll:SetLocked(false) end
         doll:Update(Sim:Record(), phase, Sim:Ctx(SlotSourceText))
         Sim:MarkDoll(doll)
@@ -1846,6 +2198,16 @@ function MyBiS:Refresh()
     end
     card:Show()
 
+    -- Equipped: the gear I wear (not locked: my plan is mine alone)
+    if WornView() then
+        suggestBtn:SetShown(loon and true or false)
+        if suggestBtn.SetKind then suggestBtn:SetKind("secondary") end
+        lockChip:Hide()
+        if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
+        self:RefreshWorn()
+        return
+    end
+
     if locked and ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() then ns.Picker:Close() end
 
     local record = ns.ListRecordView(BiS:GetRecord(), ListArg())
@@ -1859,23 +2221,21 @@ function MyBiS:Refresh()
         gems = true,
     })
     -- the gem editor follows the shown phase and list (else it closes)
-    local GE = ns.GemEditor
-    if GE and GE:IsShown() then
-        local _, st = GE:GetFrame()
-        if st.phase ~= phase or st.list ~= ListArg() or locked then GE:Close() end
-    end
+    local on, st = EditorOn()
+    if on and (on ~= "list" or st.phase ~= phase or st.list ~= ListArg() or locked) then ns.GemEditor:Close() end
     UpdateCard(phase)
 end
 
 -- The centre's gems and enchants line: "Gems 6 of 9  ·  Enchants 6 of 9" (green when complete); hidden while the phase
 -- has no pick that takes either.
-function MyBiS:UpdateFinish(phase, anyPick)
+function MyBiS:UpdateFinish(phase, anyPick, view)
     local fin = card and card.finish
     local G, BiS = ns.Gems, ns.BiS
     if not (fin and G and BiS) then return end
-    local view = BiS:GetListView(ListArg())
-    local gems, sockets, enchants, enchantable = G:Progress(view, phase, function(sid) return SlotDisabled(phase, sid) end)
-    fin.phase = phase
+    local isDisabled = function(sid) return SlotDisabled(phase, sid) end
+    if view then isDisabled = nil else view = BiS:GetListView(ListArg()) end
+    local gems, sockets, enchants, enchantable = G:Progress(view, phase, isDisabled)
+    fin.phase, fin.view = phase, view
     -- only what is still to choose (nothing once every socket and enchant is chosen)
     local parts = {}
     local g, e = sockets - gems, enchantable - enchants
@@ -1903,10 +2263,11 @@ end
 function MyBiS:FillFinishTooltip(owner, tt)
     local G, BiS = ns.Gems, ns.BiS
     local phase = owner.phase or CurrentPhase()
-    local view = BiS:GetListView(ListArg())
-    tt:AddLine("Gems and enchants - " .. PL(phase), S:RGB("GOLD"))
+    local worn = owner.view and owner.view.worn
+    local view = worn and owner.view or BiS:GetListView(ListArg())
+    tt:AddLine("Gems and enchants - " .. (worn and "Equipped" or PL(phase)), S:RGB("GOLD"))
     local any = false
-    local picks = G:CountedPicks(view, phase, function(sid) return SlotDisabled(phase, sid) end)
+    local picks = G:CountedPicks(view, phase, not worn and function(sid) return SlotDisabled(phase, sid) end or nil)
     for sid = 1, NUM_SLOTS do
         local itemID = picks[sid]
         if itemID then
@@ -1968,6 +2329,7 @@ if ns.MainFrame and ns.MainFrame.RegisterTab then
 end
 
 ns:On("MYLIST_CHANGED", RequestRefresh)
+ns:On("WORN_GEMS_CHANGED", RequestRefresh)    -- (my plan for the gear I wear: Equipped)
 ns:On("OWNED_UPDATED", RequestRefresh)
 ns:On("ITEMINFO_READY", RequestRefresh)
 ns:On("LISTS_RESET", RequestRefresh)

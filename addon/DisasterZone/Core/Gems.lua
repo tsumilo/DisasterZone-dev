@@ -822,11 +822,19 @@ end
 function FillPhaseNow(self, phase, list, overwrite)
     local BiS = ns.BiS
     if not BiS then return nil end
-    local view = BiS:GetListView(list)
+    local setups = self:FillSetups(BiS:GetListView(list), phase,
+        function(sid) return BiS:IsSlotDisabled(phase, sid, list) end, overwrite)
+    if not setups then return nil end
+    return BiS:SetGemSetups(setups, list)
+end
+
+-- The setups FillPhase stores, for any list view (the BiS list's, the gear I wear: ns.WornGems): { [itemID] =
+-- { enchant, gems } } of the phase's counted picks, or nil when the view has no guide. Runs at the quality in force
+-- (Gems:WithQuality).
+function Gems:FillSetups(view, phase, isDisabled, overwrite)
     local guide = self:GuideFor(view)
     if not guide then return nil end
     local profs = ProfessionSet()
-    local isDisabled = function(sid) return BiS:IsSlotDisabled(phase, sid, list) end
     local picks = CountedPicks(view, phase, isDisabled)
     -- uniques: what is kept counts first
     local used = {}
@@ -853,7 +861,7 @@ function FillPhaseNow(self, phase, list, overwrite)
     end
     -- then the set as a whole: enough gems of each colour for the meta gem
     self:MeetMetaRule(setups, free, self:GuideData(guide, phase), phase, profs)
-    return BiS:SetGemSetups(setups, list)
+    return setups
 end
 
 ---------------------------------------------------------------------------
@@ -977,10 +985,18 @@ end
 -- crafted spellthread / kit), leaving out what the item I wear already has (the same gem in that socket, the same
 -- enchant). Second result: how many chosen gems / enchants no craft makes (drops, reputation glyphs).
 function Gems:ShoppingNeeds(phase, list)
+    local BiS = ns.BiS
+    if not BiS then return {}, 0 end
+    return self:ShoppingNeedsOf(BiS:GetListView(list), phase,
+        function(sid) return BiS:IsSlotDisabled(phase, sid, list) end)
+end
+
+-- ShoppingNeeds for any list view; isDisabled(sid) optional; noItems: only the gems and enchants (the gear I wear:
+-- ns.WornGems).
+function Gems:ShoppingNeedsOf(view, phase, isDisabled, noItems)
     local BiS, Shop, Exp = ns.BiS, ns.Shop, ns.BiSExport
     local out, other = {}, 0
     if not (BiS and Shop) then return out, 0 end
-    local view = BiS:GetListView(list)
     local worn = Exp and Exp.EquippedSpecs and Exp:EquippedSpecs() or {}
     local wornById = {}
     for _, s in pairs(worn) do if s and s.id then wornById[s.id] = s end end
@@ -991,9 +1007,8 @@ function Gems:ShoppingNeeds(phase, list)
             other = other + 1
         end
     end
-    local isDisabled = function(sid) return BiS:IsSlotDisabled(phase, sid, list) end
     for _, itemID in pairs(CountedPicks(view, phase, isDisabled)) do
-        if Shop:CanAdd(itemID) and not (BiS.IsObtained and BiS:IsObtained(itemID)) then
+        if not noItems and Shop:CanAdd(itemID) and not (BiS.IsObtained and BiS:IsObtained(itemID)) then
             out[itemID] = (out[itemID] or 0) + 1
         end
         local enchant, gems = self:GetSetup(view, itemID)

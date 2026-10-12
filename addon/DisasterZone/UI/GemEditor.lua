@@ -8,7 +8,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/GemEditor.lua", ...) then retur
 -- every enchant that fits; a search box looks through all of them); the enchant row; Clear and Use suggested.
 -- A choice is stored at once (BiS:SetGemSetup) and the next empty socket is picked. Right-click a row: empty it.
 -- The Gear sim page opens it with a host (its Working set's slot: ns.SimPanel:GemHost): the setup is read from and
--- stored into that, and the host's view (the page's record) stands in for the list.
+-- stored into that, and the host's view (the page's record) stands in for the list. My BiS's Equipped view opens it
+-- on a worn item (ns.WornGems:GemHost): the choices are my plan for it, Reset goes back to what the item has.
 -- A click outside, Escape, the page hiding or another tile's strip closes / moves it.
 -- 1.4: a popover on the dropdowns' surface (no page layout: it hangs beside its tile); its rows have the shared row
 -- looks (UI:DecorateRow: hover, the picked row / the current choice selected), the socket chips are ns.GearUI's (the
@@ -38,7 +39,8 @@ local ENCHANT_NAME = { 0.12, 1, 0 }
 
 local frame
 local state = {}   -- sid, itemID, phase, list, target ("s1".."s4" or "e"), search, quality (2..4) + qFor (its row),
-                   -- host ({ view(), get() -> enchant, gems, set(enchant, gems) }; nil = the BiS list)
+                   -- host ({ view(), get() -> enchant, gems, set(enchant, gems), kind, sub() -> text,
+                   -- clearText }; nil = the BiS list)
 
 local function G() return ns.Gems end
 local function UI() return ns.UI end
@@ -487,7 +489,9 @@ function GemEditor:Refresh()
     f.item.itemLink = Gm:LinkFor(View(), state.itemID)
     local text = UI():ItemText(state.itemID)
     f.title:SetText(text)
-    f.sub:SetText(#sockets > 0 and (canEnchant and "Gems and enchant" or "Gems") or "Enchant")
+    f.sub:SetText(state.host and state.host.sub and state.host.sub()
+        or (#sockets > 0 and (canEnchant and "Gems and enchant" or "Gems") or "Enchant"))
+    f.clear:SetText(state.host and state.host.clearText or "Clear")
 
     local y = -(PAD + 28 + 8)
     f.line1:ClearAllPoints()

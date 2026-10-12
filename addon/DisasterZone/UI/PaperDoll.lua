@@ -10,6 +10,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PaperDoll.lua", ...) then retur
 -- Gems and enchants (ctx.gems): at the inner end of that line a strip of small chips, one per socket (the gem in a
 -- socket-coloured edge, or the empty socket), then the
 -- enchant (green edge; a quiet "+" when it can take one and has none). Clicking the strip calls opts.onGemsClick.
+-- ctx.applied(sid) (My BiS's Equipped view, with ctx.noAlt: no alt picks): what the worn item really has; a chip whose gem or enchant it lacks yet
+-- carries a gold "to apply" dot, and the strip's tooltip says what it replaces.
 local addonName, ns = ...
 
 local PaperDoll = {}
@@ -228,6 +230,10 @@ local function MainTooltip(doll, tile, tt)
         return
     end
     local ctx = doll.lastCtx or {}
+    if ctx.mainTip then
+        ctx.mainTip(tile, tt)
+        return
+    end
     if tile.mainID then
         tt:AddLine(" ")
         local r, g, b = ns.UI:Color("main")
@@ -371,10 +377,20 @@ local function IconText(tex, text)
     return tex and ("|T" .. tex .. ":13:13:0:0:64:64:5:59:5:59|t  " .. text) or text
 end
 
+local TODO = S.C.GOLD
+
+-- " · to apply" (gold) and what the item has there now, for a planned gem / enchant it lacks yet; "" otherwise.
+local function TodoWords(planned, has, name)
+    if not has or (planned or 0) == 0 or planned == (has or 0) then return "" end
+    local now = name and ("  |cff9a9aa0(now " .. name .. ")|r") or ""
+    return "  |cffffd100to apply|r" .. now
+end
+
 local function GemTooltip(doll, tile, tt)
     local G = ns.Gems
     local st = tile.gemState
     if not (G and st) then return end
+    local has = tile.applied
     local name, _, quality = nil, nil, nil
     if ns.ItemDB and ns.ItemDB.GetInfo then name, _, quality = ns.ItemDB:GetInfo(tile.mainID) end
     tt:AddLine(name or SlotLabel(tile.sid), ns.UI:QualityColor(quality or 4))
@@ -386,6 +402,10 @@ local function GemTooltip(doll, tile, tt)
             local label = g.name
             if g.color == "M" and not (G:MetaState(g.id, doll.metaCounts)) then
                 label = label .. "  |cffe6735ainactive|r"
+            end
+            if has then
+                local old = G:Gem(has.gems[i])
+                label = label .. TodoWords(g.id, has.gems[i] or 0, old and old.name)
             end
             tt:AddDoubleLine(IconText(g.icon, label), g.text or "", r, gg, b, SOFT[1], SOFT[2], SOFT[3])
         else
@@ -400,7 +420,12 @@ local function GemTooltip(doll, tile, tt)
     if st.enchantable then
         local e = G:Enchant(st.enchant)
         if e then
-            tt:AddDoubleLine(IconText(e.icon, e.short), e.text or "", 0.12, 1, 0, SOFT[1], SOFT[2], SOFT[3])
+            local todo = ""
+            if has then
+                local old = G:Enchant(has.enchant)
+                todo = TodoWords(e.id, has.enchant or 0, old and old.short)
+            end
+            tt:AddDoubleLine(IconText(e.icon, e.short .. todo), e.text or "", 0.12, 1, 0, SOFT[1], SOFT[2], SOFT[3])
         else
             tt:AddLine("No enchant", DIMMED[1], DIMMED[2], DIMMED[3])
         end
@@ -428,7 +453,7 @@ end
 local function PaintStrip(doll, tile, data, ctx)
     local G = ns.Gems
     local strip = tile.strip
-    tile.gemState = nil
+    tile.gemState, tile.applied = nil, nil
     if not (G and ctx.gems and tile.mainID and data) then
         strip:Hide()
         return 0
@@ -439,6 +464,8 @@ local function PaintStrip(doll, tile, data, ctx)
         return 0
     end
     tile.gemState = st
+    local has = ctx.applied and ctx.applied(tile.sid) or nil
+    tile.applied = has
     local sockets = G:Sockets(tile.mainID)
     local editable = not doll.readOnly and not doll.locked
     local size = tile.L.chip or 12
@@ -453,7 +480,19 @@ local function PaintStrip(doll, tile, data, ctx)
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", strip, "TOPLEFT", x, 0)
         x = x + size + CHIP_GAP
+        if c.todo then c.todo:Hide() end
         return c
+    end
+    -- a gold dot on the chip's corner: planned, not on the item yet
+    local function todo(c, planned, now)
+        if not has or (planned or 0) == 0 or planned == (now or 0) then return end
+        if not c.todo then
+            c.todo = c:CreateTexture(nil, "OVERLAY", nil, 7)
+            c.todo:SetSize(5, 5)
+            c.todo:SetPoint("CENTER", c, "TOPRIGHT", -1, -1)
+            c.todo:SetColorTexture(TODO[1], TODO[2], TODO[3], 1)
+        end
+        c.todo:Show()
     end
     for i, s in ipairs(sockets) do
         local c = chip()
@@ -461,6 +500,7 @@ local function PaintStrip(doll, tile, data, ctx)
         local col = GemColor(s)
         if g then
             SetChip(c, g.icon, { col[1], col[2], col[3], 1 }, true)
+            todo(c, g.id, has and has.gems[i])
         else
             SetChip(c, G.EMPTY_SOCKET[s], { col[1] * 0.75, col[2] * 0.75, col[3] * 0.75, 0.9 }, false)
         end
@@ -471,6 +511,7 @@ local function PaintStrip(doll, tile, data, ctx)
         local e = G:Enchant(st.enchant)
         if e then
             SetChip(c, e.icon, ENCHANT_EDGE, true)
+            todo(c, e.id, has and has.enchant)
         else
             SetChip(c, nil, EMPTY_EDGE)
             c.plus:SetShown(editable)
@@ -701,7 +742,11 @@ local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disab
     if main and not twoHandBlocked then stripW = PaintStrip(doll, tile, data, ctx) else tile.strip:Hide() end
     local lineW = stripW > 0 and (tile.textW - stripW - 8) or tile.textW
     tile.line2:SetWidth(lineW)
-    if main and ns.Gems and ctx.gems then
+    if main and ctx.link then
+        -- (the Equipped view: the worn item's own link, its real gems)
+        tile.mainLink = ctx.link(sid)
+        tile.main.itemLink = tile.mainLink
+    elseif main and ns.Gems and ctx.gems then
         tile.mainLink = ns.Gems:LinkFor(data, main)
         tile.main.itemLink = tile.mainLink
     end
@@ -763,7 +808,7 @@ local function PaintTile(doll, tile, main, alt, ctx, eqID, twoHandBlocked, disab
         ApplyButtonState(tile.alt, state, awarded)
         if tile.alt.overlay then tile.alt.overlay:Hide() end   -- (too small for a check: the tooltip says it)
         tile.alt:Show()
-    elseif editable and not locked then
+    elseif editable and not locked and not ctx.noAlt then
         tile.alt:SetItem(nil, UI:Tex("slotBg"))
         tile.alt:SetBadge("+", 0.85, 0.85, 0.85)
         tile.altPlaceholder = true
