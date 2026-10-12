@@ -123,6 +123,7 @@ local function NewRow(parent, w, h, selectable)
     r:SetSize(w, h)
     UI:DecorateRow(r, { hover = selectable and true or false, selectable = selectable, you = true, youAlpha = 0.12 })
     r.rule = UI:Rule(r, { top = 0, alpha = 0.045, layer = "BORDER" })
+    r.me, r.meBar = r.dzYouFill, r.dzYouBar      -- (the 1.3 fields)
     return r
 end
 
