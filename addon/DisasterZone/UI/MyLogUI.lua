@@ -408,14 +408,21 @@ end
 
 local function LayoutCards(rows)
     local p = panel
-    local area = p.cardsArea
-    local w = area:GetWidth() or 0
+    local area, scroll = p.cardsArea, p.cardsScroll
+    local w = scroll:GetWidth() or 0
     if w <= 0 then w = S.INNER_W end
-    local avail = area:GetHeight() or 0
+    local avail = scroll:GetHeight() or 0
     if avail <= 0 then avail = 230 end
+    avail = avail - 2                                      -- (the scroll clips: keep the last row's edge inside)
     local lines = max(1, math.ceil(#rows / 2))
     local h = floor((avail - (lines - 1) * S.GAP) / lines)
     h = max(46, min(86, h))
+    -- the cards shrink to fit; a raid with more bosses than fit at the smallest card scrolls instead of running
+    -- under the nights' bars (Karazhan: 11 bosses)
+    local need = lines * h + (lines - 1) * S.GAP
+    if need > avail + 0.5 then w = w - 14 end              -- (room for the scroll bar)
+    area:SetSize(w, max(need, 1))
+    if need <= avail + 0.5 then scroll:SetVerticalScroll(0) end
     local cw = (w - S.GAP) / 2
     for i, r in ipairs(rows) do
         local c = p.cards[i]
@@ -630,11 +637,15 @@ local function BuildRunsView(p)
     p.cardsHead:SetPoint("TOPRIGHT", p.stats, "BOTTOMRIGHT", 0, -S.GAP)
     p.cardsLabel = p.cardsHead
 
-    -- the cards fill the space between the heading and the foot (no scrolling: they shrink to fit)
-    p.cardsArea = CreateFrame("Frame", nil, rv)
-    p.cardsArea:SetPoint("TOPLEFT", p.cardsHead, "BOTTOMLEFT", 0, -S.GAP)
-    p.cardsArea:SetPoint("BOTTOMRIGHT", rv, "BOTTOMRIGHT", 0, FOOT_H + S.GAP)
-    p.cardsArea:SetScript("OnSizeChanged", function() if p:IsShown() and lastRows then LayoutCards(lastRows) end end)
+    -- the cards fill the space between the heading and the foot: they shrink to fit, and scroll when even the
+    -- smallest cards don't (the scroll bar only shows then)
+    p.cardsScroll = ui:CreateScrollFrame(rv)
+    p.cardsScroll:SetPoint("TOPLEFT", p.cardsHead, "BOTTOMLEFT", 0, -S.GAP)
+    p.cardsScroll:SetPoint("BOTTOMRIGHT", rv, "BOTTOMRIGHT", 0, FOOT_H + S.GAP)
+    p.cardsArea = CreateFrame("Frame", nil, p.cardsScroll)
+    p.cardsArea:SetSize(S.INNER_W, 1)
+    p.cardsScroll:SetScrollChild(p.cardsArea)
+    p.cardsScroll:HookScript("OnSizeChanged", function() if p:IsShown() and lastRows then LayoutCards(lastRows) end end)
 
     local foot = CreateFrame("Frame", nil, rv)
     foot:SetPoint("BOTTOMLEFT", rv, "BOTTOMLEFT", 0, 0)

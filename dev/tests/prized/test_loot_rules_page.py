@@ -113,7 +113,7 @@ def the_gallery_and_an_item():
     p = "DisasterZoneLootRulesPanel"
     assert carol.eval("return %s.gallery:IsVisible() and %s.gallery.cards[1]:IsShown()" % (p, p))
     # Carol (rank 3) breaks the rank rule: her row says so
-    pill = carol.eval("return %s.gallery.cards[1].pill.fs:GetText()" % p)
+    pill = carol.eval("return %s.gallery.cards[1].standing.fs:GetText()" % p)
     assert pill == "Not yet", pill
     # (1.4 list + detail: the first item is open beside the list; a click on a row opens that one)
     carol.eval("%s.gallery.cards[1]:Click()" % p)

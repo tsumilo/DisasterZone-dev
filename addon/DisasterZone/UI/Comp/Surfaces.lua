@@ -503,7 +503,9 @@ function ArtRow:FitTitle()
     local right = 0
     if self.rightText:IsShown() then right = UI:TextWidth(self.rightText) + RIGHT_X + 8 end
     if self.rightW then right = max(right, self.rightW) end
-    local pill = (self.pill and self.pill:IsShown()) and (self.pill:GetWidth() + 7) or 0
+    -- (only the pill SetData placed after the title: a caller's own frame stored as row.pill is left alone)
+    local own = self.pillFromData and self.pill and self.pill:IsShown()
+    local pill = own and (self.pill:GetWidth() + 7) or 0
     local room = w - self.textX - right - 8
     if room - pill > 20 then
         UI:FitText(self.title, self.titleText, room - pill)
@@ -519,7 +521,7 @@ function ArtRow:FitTitle()
             UI:FitText(self.sub, self.subText or "", room)
         end
     end
-    if self.pill and self.pill:IsShown() then
+    if own then
         self.pill:ClearAllPoints()
         self.pill:SetPoint("LEFT", self.title, "LEFT", UI:TextWidth(self.title) + 7, 0)
     end
@@ -568,8 +570,10 @@ function ArtRow:SetData(d)
         self.pill:ClearAllPoints()
         self.pill:SetPoint("LEFT", self.title, "RIGHT", 7, 0)
         self.pill:Show()
-    elseif self.pill then
+        self.pillFromData = true
+    elseif self.pill and self.pillFromData then
         self.pill:Hide()
+        self.pillFromData = false
     end
     if d.selected ~= nil then self:SetSelected(d.selected) end
     self:FitTitle()

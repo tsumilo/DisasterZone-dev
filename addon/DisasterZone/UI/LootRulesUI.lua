@@ -451,13 +451,14 @@ end
 ---------------------------------------------------------------------------
 
 -- A prized item's art row: the raid's art with the item in its icon tile, the name in its quality's colour, the boss,
--- my standing as a pill at the right of the second line. row.pill (the standing), row.recId.
+-- my standing as a pill at the right of the second line. row.standing (the standing pill: not row.pill, which is the
+-- art row's own pill after the title), row.recId.
 local function NewItemRow(parent)
     local r = UI:CreateArtRow(parent, { selectable = true, width = K.LIST_W,
         onClick = function(self) if self.recId then LootRulesUI:OpenItem(self.recId) end end })
-    r.pill = UI:CreatePill(r.right, 16)
-    r.pill:SetBase(S:Color("SURFACE_WINDOW"))
-    r.pill:SetPoint("BOTTOMRIGHT", r.right, "BOTTOMRIGHT", 0, 9)
+    r.standing = UI:CreatePill(r.right, 16)
+    r.standing:SetBase(S:Color("SURFACE_WINDOW"))
+    r.standing:SetPoint("BOTTOMRIGHT", r.right, "BOTTOMRIGHT", 0, 9)
     return r
 end
 
@@ -469,11 +470,11 @@ local function FillItemRow(r, rec, selected)
     r:SetData({ art = pl.raidKey or "other", icon = UI:ItemIcon(rec.ids[1]), title = PU:RecName(rec),
         sub = pl.bossName or pl.raidName or "", selected = selected })
     r.title:SetTextColor(UI:QualityColor(ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4))
-    r.pill:SetShown(text ~= nil)
+    r.standing:SetShown(text ~= nil)
     if text then
-        r.pill:Set(text, kind)
+        r.standing:Set(text, kind)
         -- (the boss' line makes room for the standing; the name has the whole row)
-        UI:FitText(r.sub, r.subText or "", (r:GetWidth() or K.LIST_W) - r.textX - r.pill:GetWidth() - 20)
+        UI:FitText(r.sub, r.subText or "", (r:GetWidth() or K.LIST_W) - r.textX - r.standing:GetWidth() - 20)
     end
 end
 
