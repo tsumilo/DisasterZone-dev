@@ -86,6 +86,12 @@ def boot(boss=TERON):
     return w, c, bob
 
 
+def box_mode(bob):
+    """The room's pieces hide the boss (copies, the backdrop) rather than stand-ins: since the auto depth modes
+    (Render3D/Standins/Modes.lua, 1.3.3) a room whose stand-ins measured better gets those unless this is pinned."""
+    bob.eval("ns.StrategyMap3D.standins.on = false")
+
+
 def go3d(w, bob, animate=False):
     assert bob.eval("return T3.cv():Set3D(true, %s)" % ("true" if animate else "false")) is True
     w.tick(0.1)
@@ -859,6 +865,7 @@ def a_model_turns_and_sizes_with_its_knobs_and_keeps_it():
 @case
 def kiljaeden_stands_in_the_backdrop_under_the_whole_room():
     w, c, bob = boot(KJ)
+    box_mode(bob)
     go3d(w, bob)
     tick(w, 1.0)
     # 130 yd of him leaning in over the edge: no plane through him sorts the room, so every piece covers him
@@ -874,6 +881,7 @@ def kiljaeden_stands_in_the_backdrop_under_the_whole_room():
 @case
 def a_big_model_is_hidden_part_by_part_and_you_swim_in_its_pool():
     w, c, bob = boot(LURKER)
+    box_mode(bob)
     go3d(w, bob)
     tick(w, 1.0)
     # the Lurker as he stands (30 yd across, his tail 40 yd down in the water): one occluder per part of him
