@@ -1803,10 +1803,8 @@ function MyBiS:Refresh()
     -- Consumables (UI/KitView.lua): the kit takes the page's body
     local kitOn = ns.KitView and ns.KitView:IsActive() and not simOn or false
     LayoutBar(simOn and "sim" or (kitOn and "kit" or "list"))
-    if kitView then
-        doll:SetShown(not kitOn)
-        ns.KitView:Show(kitOn)
-    end
+    doll:SetShown(not kitOn)
+    if kitView then ns.KitView:Show(kitOn) end
     if kitOn then
         if ns.Picker and ns.Picker.IsOpen and ns.Picker:IsOpen() and not ns.KitView:IsPickerOpen() then ns.Picker:Close() end
         if ns.GemEditor and ns.GemEditor:IsShown() then ns.GemEditor:Close() end
