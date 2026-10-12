@@ -130,6 +130,53 @@ ns.MainFrame:RegisterTab(key, label, order, createFn, isAvailableFn, opts)   opt
 ```
 Every page and window ends up on one of the five layouts. Main action: one height (S.BTN_H), far right of the toolbar.
 
+## Cleanup additions (12 Oct, q-cleanup: the TODO(refactor) needs moved into the components)
+The aliases are gone: call `UI:CreateSleekButton / CreateSleekDropdown / CreateSleekMenuButton` (not CreateButton /
+CreateDropdown / CreateMenuButton), `UI:CreatePill(parent, h)` (not CreateTagPill / EUI:CreatePill), `UI:CreateChip`,
+`UI:CreateSegments` (also the old `(parent, w, h, look)` route-steps shape), `UI:Gradient` / `UI:TextWidth` (not the
+EUI copies). New shared pieces:
+```
+ns.Style   S:Alpha(color, a) -> r, g, b, a      S:WithAlpha(color, a) -> { r, g, b, a } (a new table)
+           S:RGB(color) -> r, g, b (for GameTooltip:AddLine(text, r, g, b, wrap): S:Color's 4th value would be the wrap)
+           S:Hex(name | { r, g, b })
+Widgets    UI:SetTextSize(fs, size [, font])     a size step that keeps the face, flags and colour
+           UI:ClassOf(key [, known])             known, else the guild's, else the class the store learned
+           UI:Tween(key, dur, fn(e), instant) / UI:StopTween(key)   one eased (cubic out) driver
+           UI:SetGlyph(tex, icon, color)         an atlas glyph (UI.ICON index or name), tinted
+           UI:CreateDot(parent, size, color, { alpha, layer, sublevel, hidden })   the count badge's dot form
+           UI:Gradient(tex, orient, c1, c2, keep) / UI:GradientRGBA(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2, keep)
+           UI:SetEdges(f, r, g, b, a)            AddEdges once + SetEdgeColor
+           UI:IconText(path, size, crop)         crop = the trimmed |T...:64:64:5:59:5:59|t form
+Surfaces   UI:CreateFace(parent, size, { ring, glyph, glyphColor }) -> face:SetGlyph / SetPhoto / SetClassOf / SetRing
+           UI:DecorateRow(row, { you = true, youAlpha })  -> row:SetYou(on) (YOU wash + 2 px bar; dzYouFill / dzYouBar)
+           UI:CreateCard(parent, { onClick })    a clickable card (a Button with the rows' hover)
+           UI:SetArtPair(host, tex, art1, art2, w, h, inset); art rows take SetData{ art2 } (two pictures side by side)
+Controls   UI:CreateProgressBar(parent, { width, height, track, trackHeight, color, gradient }) -> bar:Set(frac, color)
+           UI:CreateStepper(parent, width, onStep, { height, tip }) -> stepper:Set(text, canPrev, canNext)
+           UI:CreateKeyCap(parent, w, h), UI:CreateStar(parent, size) (star:SetLit(on))
+           UI.PILL_LOOK.bad (a worse number); UI.CHIP_LOOK live / plain / warn / info / bad; chip:SetLook(kind);
+           chip:SetIcon(path, coords, color, desaturate) (kept over chip:Set)
+PageParts  UI:CreateTextLink(parent, text, onClick, { style, color, hover, chevron = "right"|"down", chevSize,
+           chevColor, gap, prefix, align, fixed, pad, height }) -> link:SetLabel / SetColors
+           UI:CreateBackLink(parent, text, onClick, { forward = true })   (words first, chevron pointing on)
+           Caps (UI:CapsText) upper-cases a-z only (UTF-8 letters stay whole)
+           banner:SetPill(kind, text) takes every pill kind; banner:SetTitleFit(steps, rightW) (opts.titleSteps /
+           opts.rightW: a title that steps down the scale before it is cut, room kept for the page's blocks);
+           banner:SetArt(art, desaturate, art2); banner:SetIcon(icon, { glyph, glyphSize, display, desaturate });
+           banner:SetSecondIcon(icon, itemID); banner:SetIconFrame(f); banner:SetToolsText(text); tools / icon actions
+           take chevron = "left"|"right"; banner:SetKickerTip(title, lines) (opts.kickerTip); banner:SetShadeRight(w)
+           (opts.shadeRight)
+Layouts    layout:SetTabsShown(on) (a hidden detail tabs strip gives its room back); toolbar:SetPrimary{ icon } puts a
+           glyph BESIDE the words (the button's text stays o.text); toolbar:NewSeparator() for SetFilters; a tab row's
+           unused separators hide on LayoutTabs
+Data       ns.Data.RaidMeta[key].icon + ItemDB:RaidIcon(key) (a raid's LFG icon)
+Helpers    Util.RateLimit(key, seconds), Util.GuildKey(), ItemDB:GetLabel(itemID) (link, else name, else "item N");
+           ns.CombatLog:Subscribe(key, fn) / Unsubscribe / SetSubscribed, CombatLog.Now(), NewRing / Push / ClearRing /
+           Recap (UI/.. users that still register CLEU themselves: EventSensors, RaidLog, StrategyLive, Bingo)
+```
+Uniformity: `check.py` reports uniformity as ERRORs by default now (`--uniformity-warn` for warnings); the baseline is
+empty and the justified exceptions are `uniformity.ALLOW` (each with its reason).
+
 ## Testing notes (added 11 Oct, applies to every agent)
 - The machine is shared: at most 3 agents run at once and `dz.sh` caps each test run at 3 suites (DZ_TEST_SLOTS).
   Don't raise it, and don't start several run_all.py at once.

@@ -384,6 +384,7 @@ function Banner:SetIcon(icon, opts)
         if self.iconStyled then                 -- (back to a plain picture after a glyph / portrait)
             tex:ClearAllPoints()
             tex:SetAllPoints()
+            tex:SetSize(self.m.icon, self.m.icon)
             tex:SetVertexColor(1, 1, 1, 1)
             if tex.SetDesaturated then tex:SetDesaturated(false) end
             self.iconStyled = nil
