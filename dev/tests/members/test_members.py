@@ -568,5 +568,55 @@ def the_member_banner_fits_its_spec_chips_and_whisper():
     w.assert_no_errors()
 
 
+@case
+def the_meta_line_keeps_an_older_version_that_fits_the_banner():
+    # (1.4 regression: the meta line was fitted to 16 px less than 1.3.5 gave it, so an out-of-date DisasterZone, its
+    # last part, was dropped although the line fitted the banner)
+    w = World(guild_ranks=["Guild Master", "Officer", "Raider", "Veterans"])
+    g = Client(w, "Gina", class_file="PALADIN", guild_rank=0)
+    o = Client(w, "Olaf", class_file="HUNTER", guild_rank=3)
+    for x in (g, o):
+        x.load_addon()
+        teach_names(x)
+        set_skills(x, [])
+    w.tick(SYNC)
+    g.slash("/dz members")
+    w.tick(1)
+    g.eval("ns.db.peers[...].v = '1.3.0'", K("Olaf"))
+    g.eval("%s:SelectMember(...)" % UI, K("Olaf"))
+    w.tick(0.2)
+    h = g.eval_py("""
+      local b = ns.MembersUI:GetPanel().right.banner
+      return { sub = b.sub:GetText(), w = ns.UI:TextWidth(b.sub), room = b.sub:GetWidth() }""")
+    assert h["sub"].startswith("Veterans") and h["sub"].endswith("1.3.0"), h
+    assert h["w"] <= h["room"], h                     # the sub line is not cut either
+    w.assert_no_errors()
+
+
+@case
+def a_recipe_banner_shows_its_icon_after_a_member_of_unknown_class():
+    # (1.4 regression: UI:ClassIcon hid the tile's texture for a class it does not know; the recipe banner after it
+    # had an empty tile)
+    w, g, a, b = trio()
+    set_skills(a, [("Alchemy", 375, 375)])
+    w.tick(5)
+    open_tradeskill(a, "Alchemy", ALCHEMY)
+    w.tick(SYNC)
+    b.slash("/dz members")
+    w.tick(1)
+    # a member whose class nobody knows (a synced character the roster cache has not got)
+    b.eval("local who, G = ..., ns.Guild local orig = G.GetClass "
+           "G.GetClass = function(self, k) if k == who then return nil end return orig(self, k) end", K("Gina"))
+    b.eval("%s:ShowMember(...)" % UI, K("Gina"))
+    w.tick(0.2)
+    assert b.eval("return ns.MembersUI:GetState().member") == K("Gina")
+    assert not b.eval("return ns.MembersUI:GetPanel().right.banner.icon.tex:IsShown()")
+    b.eval("%s:ShowRecipe(28587)" % UI)
+    w.tick(0.2)
+    tex = b.eval_py("local t = ns.MembersUI:GetPanel().right.banner.icon.tex; return { t:IsShown(), t:GetTexture() }")
+    assert tex[0] and tex[1], tex
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

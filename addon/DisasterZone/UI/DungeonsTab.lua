@@ -44,7 +44,7 @@ local STAR = "|T" .. STAR_TEX .. ":11:11:0:0|t"
 local ROLE_NAME = { tank = "tank", healer = "healer", dps = "DPS" }
 
 local GOLD = S.C.GOLD
-local SHEET_BG = { 0.035, 0.035, 0.043, 0.985 }   -- the List a run sheet: a cover over the page
+local SHEET_BG = { 0.035, 0.035, 0.043, 1 }       -- the List a run sheet: a cover over the page (opaque: nothing under it shows)
 
 local panel, toast
 local state = { sheet = nil, invited = {} }
