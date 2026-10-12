@@ -97,11 +97,11 @@ def discard_asks_done_while_clean_and_saved_just_now():
     assert strip_codes(bob.eval("return %s.stateTag.fs:GetText()" % W)) == "Unsaved"
     bob.click(bob.eval("return %s.cancelBtn" % W))
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
-    assert pop["which"] == "DISASTERZONE_STRAT_DISCARD" and "never saved" in pop["text"], pop
-    bob.cancel_popup("DISASTERZONE_STRAT_DISCARD")
+    assert pop["which"] == "DISASTERZONE_CONFIRM_STRAT_DISCARD" and "never saved" in pop["text"], pop
+    bob.cancel_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert st(bob)["n"] == "Fresh" and shown(bob, W)
     bob.click(bob.eval("return %s.cancelBtn" % W))
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert not shown(bob, W)
     # a saved one: editing with nothing changed shows Done (no Save, no Discard, no tag), and goes back to reading
     sid = save_council(bob)
@@ -117,7 +117,7 @@ def discard_asks_done_while_clean_and_saved_just_now():
     bob.click(bob.eval("return %s.cancelBtn" % W))
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
     assert "saved version stays" in pop["text"], pop
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert st(bob)["n"] == "25 farm" and st(bob)["mode"] == "view"
     # Save: back to reading it, "Saved just now" beside the name
     bob.click(bob.eval("return %s.editBtn" % W))
@@ -163,10 +163,10 @@ def page_tabs_menu_rename_in_place_and_delete_asks():
     bob.eval(B + ":PageMenu(UIParent, 2)")
     bob.eval("T_pick('Delete')")
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
-    assert pop["which"] == "DISASTERZONE_STRAT_DELETE_PAGE" and "Collapse" in pop["text"], pop
+    assert pop["which"] == "DISASTERZONE_CONFIRM_STRAT_DELETE_PAGE" and "Collapse" in pop["text"], pop
     assert "notes go with it" in strip_codes(pop["text"]) and "Ctrl+Z" in pop["text"], pop
     assert st(bob)["pages"] == 2
-    bob.accept_popup("DISASTERZONE_STRAT_DELETE_PAGE")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DELETE_PAGE")
     assert st(bob)["pages"] == 1
     bob.eval(B + ":Undo()")
     assert st(bob)["pages"] == 2
@@ -248,8 +248,9 @@ def undo_redo_and_the_drawings_count():
         return strip_codes(bob.eval("return %s:GetText()" % fs)), round(r, 2), round(g, 2)
     assert count(59) is None
     assert count(60) == ("60 of 80 drawings", 0.62, 0.62)
-    assert count(72) == ("72 of 80 drawings", 1.0, 0.6)
-    assert count(80) == ("P1 is full: 80 drawings", 1.0, 0.42)
+    # (1.4: the orange and the red are the WARN and BAD tokens)
+    assert count(72) == ("72 of 80 drawings", 1.0, 0.55)
+    assert count(80) == ("P1 is full: 80 drawings", 1.0, 0.3)
     # a drawing tool says why it does nothing; select still works
     bob.click(bob.eval("return %s.tools.btns[3]" % W))
     assert bob.eval("return %s.canvas.tool" % W) == "select"
@@ -309,7 +310,7 @@ def jobs_chips_in_raids_links_and_the_players_on_the_panel():
     assert sorted(names) == sorted([K("Hana"), K("Lee"), K("Gina"), K("Sam")]), names
     h = bob.eval("return %s.pool.h" % W)
     pt = bob.eval_py("local _, _, _, x, y = %s.blocks.scroll:GetPoint(1); return { x, y }" % W)
-    assert pt == [858, -(84 + h + 8)], (pt, h)
+    assert pt == [858, -(94 + h + 8)], (pt, h)     # (1.4: the map at y 94, under the tool layout's strip banner)
     # a drag onto a slot lands there; the chip fades once placed
     bob.eval("%s.blocks.SlotUnderCursor = function() return 'zn.1.1' end" % W)
     chip = bob.eval("for _, ch in ipairs(%s.pool.chips) do if ch.key == ... then return ch end end" % W, K("Hana"))
@@ -391,9 +392,9 @@ def switching_a_raids_strategy_asks_when_names_drop():
     assert shown(bob, W + ".stratDD")
     bob.eval(B + ":UseStrategy(...)", b)
     pop = bob.eval_py("return __MOCK.popup_log[#__MOCK.popup_log]")
-    assert pop["which"] == "DISASTERZONE_STRAT_SWITCH" and "1 of your names has no slot there" in pop["text"], pop
+    assert pop["which"] == "DISASTERZONE_CONFIRM_STRAT_SWITCH" and "1 of your names has no slot there" in pop["text"], pop
     assert bob.eval("return %s.strat.id" % ST) == a
-    bob.accept_popup("DISASTERZONE_STRAT_SWITCH")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_SWITCH")
     assert bob.eval("return %s.strat.id" % ST) == b
     assert bob.eval_py("return %s.assign" % ST) == {"tk.1.1": K("Lee")}
     # nothing to lose: no question

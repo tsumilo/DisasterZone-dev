@@ -83,8 +83,8 @@ def open_strategies(w, cl):
 
 
 def prompt_answer(w, cl, text):
-    assert shown(cl, "_G.DisasterZoneStrategyPrompt")
-    cl.type_text(cl.eval("return _G.DisasterZoneStrategyPrompt.edit"), text, enter=True)
+    assert shown(cl, "ns.StrategyBoard:GetPrompt()")
+    cl.type_text(cl.eval("return ns.StrategyBoard:GetPrompt().editBox"), text, enter=True)
     w.tick(0.3)
 
 
@@ -230,7 +230,8 @@ def raid_leader_fills_and_raiders_see_their_jobs():
     a = board(bob)["assign"]
     assert a == f["a"], a
     # nobody signed up for that raid: the carried names show as missing (red)
-    assert "ff5050" in bob.eval("return T_cell('zn.1.1').fs:GetText()")
+    # (red: 1.4's BAD token)
+    assert bob.eval("return ns.Style.HEX.BAD") in bob.eval("return T_cell('zn.1.1').fs:GetText()")
     w.assert_no_errors()
 
 
@@ -262,7 +263,7 @@ def unsaved_changes_are_guarded():
     # Discard drops it, once asked
     bob.click(bob.eval("return %s.cancelBtn" % W))
     assert board(bob)["dirty"] is True
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     st = board(bob)
     assert st["name"] == "25 farm" and not st["dirty"] and st["mode"] == "view", st
     w.assert_no_errors()

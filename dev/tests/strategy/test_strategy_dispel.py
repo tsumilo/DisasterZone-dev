@@ -262,7 +262,7 @@ def the_editor():
     # an effect by id that no list knows keeps the table's type; a known one of another type starts the table over
     bob.eval(K1 + "%s:BlockMenu(UIParent, p, k, #p.k)" % B)
     pick_in_menu(bob, "By spell ID")
-    bob.type_text(bob.eval("return _G.DisasterZoneStrategyPrompt.edit"), "99999", enter=True)
+    bob.type_text(bob.eval("return ns.StrategyBoard:GetPrompt().editBox"), "99999", enter=True)
     w.tick(0.3)
     k = bob.eval_py(K1 + "return { dy = k.dy, en = k.en, ds = k.ds }")
     ds = list(k["ds"].values()) if isinstance(k["ds"], dict) else k["ds"]
@@ -270,7 +270,7 @@ def the_editor():
     assert strip() == "Spell 43139 +1  Enrage, on the enemy", strip()
     bob.eval(K1 + "%s:BlockMenu(UIParent, p, k, #p.k)" % B)
     pick_in_menu(bob, "By spell ID")
-    bob.type_text(bob.eval("return _G.DisasterZoneStrategyPrompt.edit"), "31972", enter=True)     # Grip of the Legion
+    bob.type_text(bob.eval("return ns.StrategyBoard:GetPrompt().editBox"), "31972", enter=True)     # Grip of the Legion
     w.tick(0.3)
     k = bob.eval_py(K1 + "return { dy = k.dy, en = k.en, f = k.c[1].f, ds = k.ds }")
     ds = list(k["ds"].values()) if isinstance(k["ds"], dict) else k["ds"]

@@ -10,13 +10,15 @@ local addonName, ns = ...
 
 local Reminder = ns:NewModule("StrategyReminder")
 
+local Style = ns.Style
+
 local floor, max, min, abs, sin = math.floor, math.max, math.min, math.abs, math.sin
 local tconcat = table.concat
 
 local WIDTH = 270
 local ROW_H = 20
 local CHIP_H = 16
-local PAD = 8
+local PAD = Style.IN
 local NAME = "DisasterZoneStrategyReminder"
 
 local OK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t"
@@ -26,11 +28,10 @@ local WAIT = "|TInterface\\RaidFrame\\ReadyCheck-Waiting:14|t"
 local function Live() return ns.StrategyLive end
 local function S() return ns.Strategy end
 local function MapUI() return ns.StrategyMapUI end
-local function grey(t) return "|cff8c8c8c" .. tostring(t) .. "|r" end
-local function green(t) return "|cff40ff70" .. tostring(t) .. "|r" end
-local function red(t) return "|cffff4a40" .. tostring(t) .. "|r" end
-local function gold(t) return "|cffffd100" .. tostring(t) .. "|r" end
-local function orange(t) return "|cffff9933" .. tostring(t) .. "|r" end
+local function green(t) return Style:Wrap("OK", t) end
+local function red(t) return Style:Wrap("BAD", t) end
+local function gold(t) return Style:Wrap("GOLD", t) end
+local function orange(t) return Style:Wrap("WARN", t) end
 
 -- The icon of a tracked table without one of its own: its spell.
 local KIND_ICON = {
@@ -50,7 +51,7 @@ local function ClassName(key)
 end
 
 local function Name(key)
-    if not key then return grey("nobody") end
+    if not key then return Style:Wrap("SUB", "nobody") end
     if key == Me() then return green("You") end
     return ClassName(key)
 end
@@ -92,19 +93,19 @@ local function RowStatus(c, tr, r)
         end
         if not c.engaged then return gold("on pull") end
         if GetTime() - (c.pullAt or 0) < L.PULL_WINDOW then return gold("now") end
-        return grey("not cast")
+        return Style:Wrap("SUB", "not cast")
     elseif tr.kind == "bl" then
         if r.done then return green("done ") .. OK end
         local at = L:PlannedAt(r)
         if c.engaged and at then
             local left = at - (GetTime() - c.pullAt)
-            if left > 0 then return grey("in " .. Clock(left)) end
+            if left > 0 then return Style:Wrap("SUB", "in " .. Clock(left)) end
             return gold("NOW")
         end
         return WAIT
     elseif tr.kind == "pi" or tr.kind == "iv" then
         local cd = L:Cooldown(r)
-        if cd > 0 then return grey(Clock(cd)) end
+        if cd > 0 then return Style:Wrap("SUB", Clock(cd)) end
         return green("ready")
     elseif tr.kind == "curse" then
         if r.up then return OK end
@@ -160,7 +161,7 @@ local function Chips(tr, pick)
     for _, list in ipairs({ tr.order, tr.backups or {} }) do
         for _, r in ipairs(list) do
             local text = r.player == Me() and green("You") or ClassName(r.player)
-            if r.dead then text = grey(ns.Util.ShortName(r.player)) end
+            if r.dead then text = Style:Wrap("SUB", ns.Util.ShortName(r.player)) end
             out[#out + 1] = { text = text, current = r == pick, me = r.player == Me(), dead = r.dead,
                               backup = r.backup, cd = Live().CdLeft(r, now) }
         end
@@ -251,13 +252,13 @@ function Reminder:Items()
                 elseif myTurn then
                     status = how == "backup" and gold("backup: you're next") or green("your turn")
                 elseif Live().School(mineRow) and Live():Immunities(tr.npc)[Live().School(mineRow)] then
-                    status = grey("immune to yours")
+                    status = Style:Wrap("SUB", "immune to yours")
                 elseif mineRow.cond and not Live():CondHolds(mineRow, tr) then
-                    status = grey("only when " .. Live():CondShort(mineRow.cond))
+                    status = Style:Wrap("SUB", "only when " .. Live():CondShort(mineRow.cond))
                 elseif Live().CdLeft(mineRow) > 0 then
-                    status = grey("ready in " .. Clock(Live().CdLeft(mineRow)))
+                    status = Style:Wrap("SUB", "ready in " .. Clock(Live().CdLeft(mineRow)))
                 elseif pick then
-                    status = grey(ns.Util.ShortName(pick.player) .. "'s turn" .. (how == "backup" and " (backup)" or ""))
+                    status = Style:Wrap("SUB", ns.Util.ShortName(pick.player) .. "'s turn" .. (how == "backup" and " (backup)" or ""))
                 end
                 items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                       status = status, alert = alert, chips = Chips(tr, pick), tr = tr, myTurn = myTurn,
@@ -271,12 +272,12 @@ function Reminder:Items()
                 local active = Live():DispelActive(tr)
                 local status, alert
                 if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then
-                    status = grey("you're dead")
+                    status = Style:Wrap("SUB", "you're dead")
                 elseif #active > 0 then
                     status, alert = red("NOW: " .. DispelTargets(active)), true
                     flash = flash or (text .. (tr.enemy and " on " or " from ") .. DispelTargets(active))
                 else
-                    status = c.engaged and grey("clear") or gold("watch for it")
+                    status = c.engaged and Style:Wrap("SUB", "clear") or gold("watch for it")
                 end
                 items[#items + 1] = { kind = "row", icon = icon, text = text, status = status, alert = alert, tr = tr }
             end
@@ -312,7 +313,7 @@ function Reminder:Items()
                     local status = pick and (ns.Util.ShortName(pick.player) .. "'s turn") or ""
                     if how == "cond" then status = gold(status .. " (" .. Live():CondShort(pick.cond) .. ")")
                     elseif how == "backup" then status = gold(status .. " (backup)") elseif how == "late" then
-                        status = red(status .. " (not ready)") else status = grey(status) end
+                        status = red(status .. " (not ready)") else status = Style:Wrap("SUB", status) end
                     items[#items + 1] = { kind = "rot", icon = tr.icon or KIND_ICON.rot, text = tr.name,
                                           status = status, chips = Chips(tr, pick), tr = tr, overview = true }
                 elseif tr.kind == "dsp" then
@@ -321,7 +322,7 @@ function Reminder:Items()
                     local active = Live():DispelActive(tr)
                     local _, icon = DispelText(tr)
                     items[#items + 1] = { kind = "row", icon = icon, text = tr.name,
-                                          status = #active > 0 and orange("on " .. DispelTargets(active)) or grey("clear"),
+                                          status = #active > 0 and orange("on " .. DispelTargets(active)) or Style:Wrap("SUB", "clear"),
                                           detail = (#names > 0 and tconcat(names, ", ") or "everyone who can") .. "  ",
                                           tr = tr, overview = true }
                 else
@@ -334,7 +335,7 @@ function Reminder:Items()
                         end
                     end
                     items[#items + 1] = { kind = "row", icon = tr.icon or KIND_ICON[tr.kind], text = tr.name,
-                                          status = #parts == 0 and grey("nobody") or "", detail = tconcat(parts, "  "),
+                                          status = #parts == 0 and Style:Wrap("SUB", "nobody") or "", detail = tconcat(parts, "  "),
                                           tr = tr, overview = true, alert = alert }
                 end
             end
@@ -392,63 +393,53 @@ end
 
 local frame
 
-local function SavePos(f)
-    local point, _, relPoint, x, y = f:GetPoint(1)
-    if not point or not (ns.db and ns.db.settings) then return end
-    ns.db.settings.windows = ns.db.settings.windows or {}
-    ns.db.settings.windows[NAME] = { point, relPoint or point, floor((x or 0) + 0.5), floor((y or 0) + 0.5) }
-end
-
-local STATE_COLOR = {
-    next = { 0.55, 0.55, 0.55 }, engaged = { 0.25, 0.85, 0.35 }, killed = { 0.25, 0.85, 0.35 },
-    wipe = { 0.85, 0.3, 0.25 }, practice = { 1, 0.6, 0.15 },
-}
+-- The header's state as a pill (UI:CreatePill kinds).
+local STATE_PILL = { next = "mute", engaged = "ok", killed = "ok", wipe = "live", practice = "warn" }
 
 local function NewRow(f)
     local r = CreateFrame("Frame", nil, f)
     r:SetHeight(ROW_H)
     r:EnableMouse(false)
+    -- (a row's wash: my turn green, an alert red)
     r.hl = r:CreateTexture(nil, "BACKGROUND")
     r.hl:SetAllPoints()
     r.hl:Hide()
+    -- a raid section's caption (UI:CreateSectionHeader "caps")
+    r.head = ns.UI:CreateSectionHeader(r, "", { style = "caps" })
+    r.head:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+    r.head:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
+    r.head:Hide()
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(16, 16)
     r.icon:SetPoint("TOPLEFT", 0, -2)
-    r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    r.text = ns.UI:Text(r, "emph", "TEXT")
     r.text:SetJustifyH("LEFT")
     r.text:SetWordWrap(false)
-    r.status = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.status = ns.UI:Text(r, "small", "TEXT")
     r.status:SetPoint("TOPRIGHT", -2, -4)
     r.status:SetJustifyH("RIGHT")
-    r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    r.sub = ns.UI:Text(r, "small", "DIM")
     r.sub:SetJustifyH("LEFT")
     r.sub:SetWordWrap(false)
     r.chips = {}
     return r
 end
 
+-- A name in a rotation: a pill (whose turn: gold; a backup: purple; the rest quiet).
 local function Chip(row, i)
     local ch = row.chips[i]
     if ch then return ch end
-    ch = CreateFrame("Frame", nil, row)
-    ch:SetHeight(CHIP_H)
-    ch.bg = ch:CreateTexture(nil, "BACKGROUND")
-    ch.bg:SetAllPoints()
-    ch.fs = ch:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    ch.fs:SetPoint("CENTER")
+    ch = ns.UI:CreatePill(row, CHIP_H)
+    ch:SetBase(Style:Color("HUD_BG"))
     row.chips[i] = ch
     return ch
 end
 
 local function Create()
-    local f = CreateFrame("Frame", NAME, UIParent, "BackdropTemplate")
+    -- the slim HUD look of the raid session bar; its place saved under NAME (settings.windows), dragged by the header
+    local f = ns.UI:CreateHudFrame(NAME, { width = WIDTH, height = 60, position = NAME,
+        default = { "TOP", UIParent, "TOP", 0, -140 } })
     f.cdlName = NAME
-    f:SetSize(WIDTH, 60)
-    f:SetFrameStrata("MEDIUM")
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(false)            -- click-through body
-    ns.UI:StyleHud(f)          -- the same slim style as the raid session bar
     -- header: portrait, boss name, a state tag; drag to move, click to open the board
     local h = CreateFrame("Button", nil, f)
     h:SetPoint("TOPLEFT", PAD, -PAD + 2)
@@ -459,23 +450,16 @@ local function Create()
     h.portrait = h:CreateTexture(nil, "ARTWORK")
     h.portrait:SetSize(22, 22)
     h.portrait:SetPoint("LEFT", -2, 0)
-    h.fs = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    h.fs = ns.UI:Text(h, "emph", "GOLD")
     h.fs:SetPoint("LEFT", h.portrait, "RIGHT", 6, 0)
     h.fs:SetJustifyH("LEFT")
     h.fs:SetWordWrap(false)
-    h.tag = CreateFrame("Frame", nil, h)
-    h.tag:SetHeight(14)
+    h.tag = ns.UI:CreatePill(h, 16)
+    h.tag:SetBase(Style:Color("HUD_BG"))
     h.tag:SetPoint("RIGHT", 0, 0)
-    h.tag.bg = h.tag:CreateTexture(nil, "BACKGROUND")
-    h.tag.bg:SetAllPoints()
-    h.tag.fs = h.tag:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    h.tag.fs:SetPoint("CENTER")
     h.fs:SetPoint("RIGHT", h.tag, "LEFT", -8, 0)
-    h:SetScript("OnDragStart", function() f:StartMoving() end)
-    h:SetScript("OnDragStop", function()
-        f:StopMovingOrSizing()
-        SavePos(f)
-    end)
+    f:SetDragHandle(h)
+    f:EnableMouse(false)            -- click-through body
     h:SetScript("OnClick", function()
         local d = f.data
         if not d then return end
@@ -496,30 +480,22 @@ local function Create()
         if d and d.hint then
             GameTooltip:AddLine("Reminders and raid marks come from the planned raid's strategies, so there are none until "
                 .. "this raid is linked to its planned raid. Raid leaders and the guild council link it in the Raid log.",
-                1, 0.6, 0.2, true)
-            GameTooltip:AddLine("Drag to move.", 0.8, 0.8, 0.8, true)
+                Style.C.WARN[1], Style.C.WARN[2], Style.C.WARN[3], true)
+            GameTooltip:AddLine("Drag to move.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3], true)
         else
             if d and not d.linked and not d.practice then
-                GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.", 1, 0.6, 0.2, true)
+                GameTooltip:AddLine("No planned raid is linked to this raid session, so there are no names.",
+                    Style.C.WARN[1], Style.C.WARN[2], Style.C.WARN[3], true)
             end
-            GameTooltip:AddLine("Click to open the board; drag to move.", 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Click to open the board; drag to move.", Style.C.SUB[1], Style.C.SUB[2], Style.C.SUB[3],
+                true)
         end
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.header = h
-    f.sep = f:CreateTexture(nil, "ARTWORK")
-    f.sep:SetHeight(1)
-    f.sep:SetPoint("TOPLEFT", PAD, -PAD - 26)
-    f.sep:SetPoint("TOPRIGHT", -PAD, -PAD - 26)
-    f.sep:SetColorTexture(1, 1, 1, 0.12)
+    f.sep = ns.UI:Rule(f, { top = PAD + 26, left = PAD, right = PAD })
     f.rows = {}
-    ns.UI:RestorePosition(f)
-    local pos = ns.db and ns.db.settings and ns.db.settings.windows and ns.db.settings.windows[NAME]
-    if not pos then
-        f:ClearAllPoints()
-        f:SetPoint("TOP", UIParent, "TOP", 0, -140)
-    end
     local acc = 0
     f:SetScript("OnUpdate", function(self, elapsed)
         acc = acc + elapsed
@@ -532,9 +508,10 @@ local function Create()
             end
             return
         end
-        if self.alert and self.SetBackdropBorderColor then
+        if self.alert then
             local p = 0.5 + 0.5 * abs(sin(GetTime() * 6))
-            self:SetBackdropBorderColor(1, 0.25 + 0.2 * p, 0.2, 0.6 + 0.4 * p)
+            local br, bg, bb = Style:Color("BAD")
+            ns.UI:SetEdgeColor(self, br, bg + 0.2 * p, bb, 0.6 + 0.4 * p)
         end
         if acc >= 0.25 then
             acc = 0
@@ -561,24 +538,19 @@ local function Layout(f, d)
         r:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
         r:SetWidth(inner)
         r.hl:Hide()
+        r.head:Hide()
         r.sub:Hide()
         for _, ch in ipairs(r.chips) do ch:Hide() end
         r.text:ClearAllPoints()
         if it.kind == "header" then
-            -- the raid section: a small caption with a divider
-            r:SetHeight(16)
+            -- the raid section: a caps section header
+            r:SetHeight(18)
             r.icon:Hide()
-            r.text:SetFontObject("GameFontNormalSmall")
-            r.text:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
-            r.text:SetText(it.text)
+            r.text:SetText("")
             r.status:SetText("")
-            r.hl:SetColorTexture(1, 1, 1, 0.08)
-            r.hl:ClearAllPoints()
-            r.hl:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 1)
-            r.hl:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 1)
-            r.hl:SetHeight(1)
-            r.hl:Show()
-            y = y - 18
+            r.head:SetTitle(it.text)
+            r.head:Show()
+            y = y - 20
         else
             r:SetHeight(ROW_H)
             r.hl:ClearAllPoints()
@@ -591,18 +563,16 @@ local function Layout(f, d)
                 r.icon:Hide()
                 r.text:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
             end
-            r.text:SetFontObject(it.overview and "GameFontHighlightSmall" or "GameFontHighlight")
+            ns.UI:SetTextStyle(r.text, it.overview and "body" or "emph", "TEXT")
             r.text:SetPoint("RIGHT", r.status, "LEFT", -6, 0)
             r.text:SetWordWrap(false)
             r.text:SetText(it.text)
             r.status:SetText(it.status or "")
             local room = inner - (it.icon and 22 or 0) - (r.status:GetStringWidth() or 0) - 8
             local wraps = (r.text:GetStringWidth() or 0) > room
-            if it.alert then
-                r.hl:SetColorTexture(0.9, 0.15, 0.1, 0.25)
-                r.hl:Show()
-            elseif it.myTurn then
-                r.hl:SetColorTexture(0.2, 0.9, 0.3, 0.12)
+            if it.alert or it.myTurn then
+                local cr, cg, cb = Style:Color(it.alert and "BAD" or "OK")
+                r.hl:SetColorTexture(cr, cg, cb, it.alert and 0.25 or 0.12)
                 r.hl:Show()
             end
             local h = ROW_H
@@ -631,21 +601,13 @@ local function Layout(f, d)
                 for i, c in ipairs(it.chips) do
                     local ch = Chip(r, i)
                     local label = c.text
-                    if c.cd and c.cd > 0 and not c.dead then label = label .. grey(" " .. floor(c.cd + 0.5)) end
+                    if c.cd and c.cd > 0 and not c.dead then label = label .. Style:Wrap("SUB", " " .. floor(c.cd + 0.5)) end
                     if c.backup and i > 1 and not it.chips[i - 1].backup then x = x + 6 end
-                    ch.fs:SetText(label)
-                    local w = (ch.fs:GetStringWidth() or 30) + 12
+                    ch:Set(label, (c.current and (it.alert and "live" or "bis")) or (c.backup and "os") or "mute")
+                    local w = ch:GetWidth() or 30
                     if x + w > inner then break end
-                    ch:SetWidth(w)
                     ch:ClearAllPoints()
                     ch:SetPoint("TOPLEFT", r, "TOPLEFT", x, -(ROW_H + 1))
-                    if c.current then
-                        ch.bg:SetColorTexture(1, 0.82, 0, it.alert and 0.55 or 0.3)
-                    elseif c.backup then
-                        ch.bg:SetColorTexture(0.6, 0.45, 1, 0.14)
-                    else
-                        ch.bg:SetColorTexture(1, 1, 1, 0.06)
-                    end
                     ch:Show()
                     x = x + w + 4
                 end
@@ -682,10 +644,7 @@ function Reminder:Refresh()
     end
     h.fs:SetText(d.title)
     local tag = d.practice and "practice" or d.state
-    local col = STATE_COLOR[tag] or STATE_COLOR.next
-    h.tag.fs:SetText(tag:upper())
-    h.tag:SetWidth((h.tag.fs:GetStringWidth() or 40) + 10)
-    h.tag.bg:SetColorTexture(col[1], col[2], col[3], 0.35)
+    h.tag:SetPill(STATE_PILL[tag] or "mute", tag:upper())
     Layout(f, d)
     local alert = false
     for _, it in ipairs(d.items) do
@@ -693,7 +652,7 @@ function Reminder:Refresh()
     end
     if alert and not f.alert and PlaySound and SOUNDKIT and SOUNDKIT.RAID_WARNING then PlaySound(SOUNDKIT.RAID_WARNING) end
     f.alert = alert
-    if not alert and f.SetBackdropBorderColor then f:SetBackdropBorderColor(unpack(ns.UI.HUD_BORDER)) end
+    if not alert then ns.UI:SetEdgeColor(f, Style:Color("HUD_EDGE")) end
     f:Show()
 end
 

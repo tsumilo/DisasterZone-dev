@@ -278,13 +278,13 @@ def the_state_menu_switches_every_selected_generator():
 @case
 def icons_by_model_id_and_the_encounter_objects_menu():
     w, c, bob = boot()
-    prompt = "_G.DisasterZoneStrategyPrompt"
+    prompt = "ns.StrategyBoard:GetPrompt()"
 
     def add(entry, text):
         bob.eval("T.cv():BackgroundMenu(300, 200)")
         bob.eval("T.menu(...)", entry)
         assert bob.eval("return %s:IsShown()" % prompt) is True
-        bob.type_text(bob.eval("return %s.edit" % prompt), text, enter=True)
+        bob.type_text(bob.eval("return %s.editBox" % prompt), text, enter=True)
         w.tick(0.3)
         return bob.eval_py("return T.elems()[#T.elems()]")
 

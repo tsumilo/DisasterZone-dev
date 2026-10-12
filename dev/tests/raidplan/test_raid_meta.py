@@ -181,7 +181,8 @@ def hyjal_gets_its_picture_in_loot_rules_and_prized_items():
         with open(os.path.join(harness.ADDON_DIR, rel), "rb") as fh:
             src = fh.read().decode("utf-8")
         assert "MountHyjal" not in src, rel
-        assert "ItemDB:RaidArt(" in src, rel
+        # (1.4: the art comes through ItemDB:RaidArt itself, or the shared art row / page banner that call it)
+        assert "ItemDB:RaidArt(" in src or "CreateArtRow" in src or ":SetArt(" in src, rel
     w.assert_no_errors()
 
 

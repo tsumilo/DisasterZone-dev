@@ -1,138 +1,53 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LootRulesUI.lua", ...) then return end -- DisasterZone: UI/LootRulesUI.lua
 -- Raids > Loot rules (1.3.5, the user's pick "the path", mockup dev/art/casc/lootrules_mockup): the guild's loot rules
--- for every member, read-only (Council > Rules is where the Guild Master and the council set them). Two views:
+-- for every member, read-only (Council > Rules is where the Guild Master and the council set them). Two views, the
+-- toolbar's tabs:
 --   How it's decided: a banner, then the rules as numbered steps along a gold line, in plain words and built from the
 --     guild's rules as they are (Guild:GetLootRules): who can be suggested, the council's votes first, your list sets
 --     your group, then inside a group (longest use, driest, the roll: only those switched on). On the right, Where you
 --     stand: my own numbers against them (attendance and the floor, raids since my last item when this client knows
 --     it, my BiS list for the phase, how long my picks last when Longest use is on, the prized items I qualify for).
---   Prized items: a gallery of cards (the raid's art, the item in its orange ring, my standing, the rules' icons); a
---     card opens the item over the page: its rules with how I stand (left) and its history (right), "< All prized
---     items" back. The rule and history rows are UI/PrizedUI.lua's own.
+--   Prized items (1.4: the list + detail layout, as Council > Rules > Prized items): the items as art rows grouped by
+--     raid on the left (my standing on each), the picked one on the right - its banner (the item, my standing) with
+--     Rules / History on its foot: its rules with how I stand, its history. The rule and history rows are
+--     UI/PrizedUI.lua's own.
 local addonName, ns = ...
 
 local LootRulesUI = ns:NewModule("LootRulesUI")
 
+local UI = ns.UI
+local S = ns.Style
+
 local floor, max, min = math.floor, math.max, math.min
 local format, tconcat = string.format, table.concat
 
-local K = { W = 770, GAP = 8, TABS_H = 30, BAN_H = 84, LEFT_W = 480, NODE = 34, CARD_W = 251, CARD_H = 150,
-            ART_H = 74, ITEM_BAN_H = 100, FADE = 0.16 }
+local K = { W = S.INNER_W, GAP = S.GAP, LEFT_W = 480, NODE = 34, LIST_W = 300, INTRO_H = 44 }
 K.RIGHT_X = K.LEFT_W + K.GAP
 K.RIGHT_W = K.W - K.RIGHT_X
+K.DETAIL_W = K.W - K.LIST_W - K.GAP
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
-local GREY = { 0.72, 0.72, 0.75 }
-local EDGE = { 0.34, 0.34, 0.38, 0.55 }
-local PANEL = { 0.055, 0.055, 0.067, 0.93 }
+local CHECK = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
 local state = { view = "decided", item = nil }
 local panel
 
-local function UI() return ns.UI end
 local function Me() return ns.Util.PlayerKey() end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
 
-local function Text(parent, font, size, r, g, b)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if r then fs:SetTextColor(r, g, b) end
-    return fs
-end
-
-local function Fill(frame, c, layer)
-    local t = frame:CreateTexture(nil, layer or "BACKGROUND")
-    t:SetAllPoints()
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-    return t
-end
-
-local function Gradient(tex, orient, c1, c2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(c1[1], c1[2], c1[3], c1[4]), CreateColor(c2[1], c2[2], c2[3], c2[4]))
-    else
-        tex:SetColorTexture(c1[1], c1[2], c1[3], (c1[4] + c2[4]) / 2)
-    end
-end
-
-local function Panel(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    Fill(f, PANEL)
-    UI():AddEdges(f, "BORDER")
-    return f
-end
-
-local function AtlasIcon(tex, name, r, g, b)
-    local I = UI().ICON
-    if name == "bis" then
-        tex:SetTexture(MEDIA .. "Icons\\bis")
-        tex:SetTexCoord(0, 1, 0, 1)
-    else
-        if ({ ballot = true, prized = true, stopwatch = true })[name] and not (ns.HasAssets and ns:HasAssets(7)) then
-            name = ({ ballot = "poll", prized = "trophy", stopwatch = "calendar" })[name]
-        end
-        tex:SetTexture(UI().ICON_ATLAS)
-        tex:SetTexCoord(unpack(UI():IconCoords(I[name] or I.notes)))
-    end
-    tex:SetVertexColor(r or 1, g or 1, b or 1)
+-- (art pack 7's icons fall back without it)
+local ICON_FALLBACK = { ballot = "poll", prized = "trophy", stopwatch = "calendar" }
+local function IconName(name)
+    if ICON_FALLBACK[name] and not (ns.HasAssets and ns:HasAssets(7)) then return ICON_FALLBACK[name] end
+    return name
 end
 
 local function Plural(n, one, many) return n == 1 and ("1 " .. one) or (n .. " " .. (many or (one .. "s"))) end
 
--- (raidKey: the item data's raid key or the planner's, ItemDB:RaidArt; the crop stays under the game's logo)
-local function SetArt(tex, raidKey, w, h)
-    local ItemDB = ns.ItemDB
-    if not (ItemDB and ItemDB.RaidArt) then
-        tex:SetColorTexture(0.1, 0.1, 0.12, 1)
-        return
-    end
-    local file, l, r, t, b = ItemDB:RaidArt(raidKey or "other", w, h, 0.95, true)
-    tex:SetTexture(file)
-    tex:SetTexCoord(l, r, t, b)
-end
-
--- A face: a gold ring on a dark disc around an icon (the Events pages' look).
-local function Face(parent, size, icon)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
-    f.disc:SetTexture(MEDIA .. "Strategy\\disc")
-    f.disc:SetVertexColor(0.05, 0.05, 0.06, 0.95)
-    f.disc:SetAllPoints()
-    f.ring = f:CreateTexture(nil, "ARTWORK", nil, 1)
-    f.ring:SetTexture(MEDIA .. "Events\\ring")
-    f.ring:SetVertexColor(1, 0.82, 0)
-    f.ring:SetPoint("CENTER")
-    f.ring:SetSize(size + 4, size + 4)
-    f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
-    f.icon:SetSize(floor(size * 0.48), floor(size * 0.48))
-    f.icon:SetPoint("CENTER")
-    if icon then AtlasIcon(f.icon, icon, 1, 0.86, 0.4) end
-    return f
-end
-
--- A soft fade-in of a view when it shows (one shared driver).
-local fades = {}
-local driver
-local function FadeIn(f)
-    if not f:IsVisible() then return end
-    f:SetAlpha(0)
-    fades[f] = 0
-    driver = driver or CreateFrame("Frame")
-    driver:SetScript("OnUpdate", function(_, dt)
-        for frame, t in pairs(fades) do
-            t = t + (dt or 0)
-            local p = min(1, t / K.FADE)
-            frame:SetAlpha(1 - (1 - p) ^ 3)
-            fades[frame] = p < 1 and t or nil
-        end
-        if not next(fades) then driver:SetScript("OnUpdate", nil) end
-    end)
+-- A banner pill in any pill kind ("bis": the banner's own SetPill reads the event kinds only).
+-- TODO(refactor): move into CreatePageBanner (SetPill with every pill kind: "bis")
+local function BannerPill(b, kind, text)
+    b.pill:SetPill(kind, text)
+    b.pill:SetShown(text ~= nil and text ~= "")
+    b:Layout()
 end
 
 local function Rules()
@@ -145,27 +60,11 @@ end
 ---------------------------------------------------------------------------
 
 -- A pool of tag pills on a parent (reused on every fill).
-local function PillPool(parent)
-    local pool = { used = 0, list = {} }
-    function pool:Reset()
-        for _, p in ipairs(self.list) do p:Hide() end
-        self.used = 0
-    end
-    function pool:Get()
-        self.used = self.used + 1
-        local p = self.list[self.used]
-        if not p then
-            p = UI():CreateTagPill(parent, 20)
-            p:SetBase(0.055, 0.055, 0.067)
-            self.list[self.used] = p
-        end
-        p:Show()
-        return p
-    end
-    return pool
+local function NewStepPill(parent)
+    local p = UI:CreatePill(parent, 20)
+    p:SetBase(S:Color("INSET"))
+    return p
 end
-
-local CHECK = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
 -- The steps, as words, from the rules: { { title, chips = { { text, kind, icon } ... }, sep = "›" (chips in an order),
 -- text } }.
@@ -211,95 +110,70 @@ local function StepDefs(R)
     return steps
 end
 
-local function BuildBanner(parent)
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetHeight(K.BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    SetArt(b.art, "BlackTemple", K.W, K.BAN_H)
-    local v = b:CreateTexture(nil, "BACKGROUND", nil, 2)
-    v:SetAllPoints(b.art)
-    Gradient(v, "VERTICAL", { 0.035, 0.035, 0.043, 0.92 }, { 0.035, 0.035, 0.043, 0.3 })
-    local h = b:CreateTexture(nil, "BACKGROUND", nil, 3)
-    h:SetPoint("TOPLEFT", b.art)
-    h:SetPoint("BOTTOMLEFT", b.art)
-    h:SetWidth(480)
-    Gradient(h, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.9 }, { 0.035, 0.035, 0.043, 0 })
-    UI():AddEdges(b, "BORDER")
-    b.face = Face(b, 50, "ballot")
-    b.face:SetPoint("LEFT", b, "LEFT", 16, 0)
-    b.kicker = Text(b, "GameFontNormalSmall", 10, 1, 0.82, 0)
-    b.kicker:SetPoint("TOPLEFT", b.face, "TOPRIGHT", 14, 0)
-    b.kicker:SetText("LOOT RULES")
-    b.title = Text(b, "GameFontHighlightLarge", 18)
-    b.title:SetPoint("TOPLEFT", b.kicker, "BOTTOMLEFT", 0, -3)
-    b.title:SetText("How the winner is picked")
-    b.sub = Text(b, "GameFontHighlightSmall", 11, 0.80, 0.80, 0.83)
-    b.sub:SetPoint("TOPLEFT", b.title, "BOTTOMLEFT", 0, -3)
-    b.sub:SetText("The loot council decides. These rules make the drop panel's suggestion, the same for everyone.")
-    b.pill = UI():CreateTagPill(b, 20)
-    b.pill:SetBase(0.06, 0.06, 0.07)
-    b.pill:SetPoint("RIGHT", b, "RIGHT", -14, 0)
+local function DecidedBanner(parent)
+    local b = UI:CreatePageBanner(parent, { size = "tool", art = "BlackTemple", width = K.W, icon = IconName("ballot"),
+        kicker = "Loot rules", title = "How the winner is picked", titleColor = "TEXT",
+        sub = "The loot council decides. These rules make the drop panel's suggestion, the same for everyone." })
+    if b.icon then b.icon.tex:SetVertexColor(S:Color("GOLD")) end
     return b
 end
 
+-- The path: the steps as numbered nodes along a gold line, on an inset card. (A drawing of its own: the numbered
+-- nodes and the line between them are this page's figure, not a page structure.)
 local function BuildPath(parent)
-    local p = Panel(parent)
+    local p = UI:CreateCard(parent, { tone = "inset", title = "How the suggestion is made", titleStyle = "caps",
+        pad = S.PAD + 4 })
     p.line = p:CreateTexture(nil, "ARTWORK")
     p.line:SetWidth(2)
-    Gradient(p.line, "VERTICAL", { 0.9, 0.74, 0.01, 0.25 }, { 0.9, 0.74, 0.01, 1 })
+    local gd = S.C.GOLD_DEEP
+    UI:Gradient(p.line, "VERTICAL", { gd[1], gd[2], gd[3], 0.25 }, { gd[1], gd[2], gd[3], 1 })
     p.steps = {}
     for i = 1, 4 do
-        local s = CreateFrame("Frame", nil, p)
+        local s = CreateFrame("Frame", nil, p.body)
         s.node = CreateFrame("Frame", nil, s)
         s.node:SetSize(K.NODE, K.NODE)
         s.node:SetPoint("TOPLEFT", s, "TOPLEFT", 0, 0)
         s.node.disc = s.node:CreateTexture(nil, "ARTWORK", nil, 0)
         s.node.disc:SetTexture(MEDIA .. "Strategy\\disc")
-        s.node.disc:SetVertexColor(0.06, 0.06, 0.07, 1)
+        s.node.disc:SetVertexColor(S:Color("INSET"))
         s.node.disc:SetAllPoints()
         s.node.ring = s.node:CreateTexture(nil, "ARTWORK", nil, 1)
         s.node.ring:SetTexture(MEDIA .. "Events\\ring")
-        s.node.ring:SetVertexColor(0.82, 0.64, 0.03)
+        s.node.ring:SetVertexColor(S:Color("GOLD_DEEP"))
         s.node.ring:SetAllPoints()
-        s.node.n = Text(s.node, "GameFontNormal", 16, 1, 0.82, 0)
+        s.node.n = UI:Text(s.node, "page", "GOLD", { justify = "CENTER", text = tostring(i) })
         s.node.n:SetPoint("CENTER", 0, 0)
-        s.node.n:SetJustifyH("CENTER")
-        s.node.n:SetText(tostring(i))
-        s.title = Text(s, "GameFontHighlight", 13)
+        s.title = UI:Text(s, "title", "TEXT")
         s.title:SetPoint("TOPLEFT", s, "TOPLEFT", K.NODE + 14, -2)
-        s.pills = PillPool(s)
+        s.pills = UI:Pool(s, NewStepPill)
         s.seps = {}
-        s.text = Text(s, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-        s.text:SetWordWrap(true)
+        s.text = UI:Text(s, "sub", nil, { wrap = true })
         p.steps[i] = s
     end
-    p.foot = Text(p, "GameFontHighlightSmall", 11, 0.6, 0.6, 0.64)
-    p.foot:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 16, 12)
-    p.foot:SetText("The loot council decides in the end: this is only how its suggestion is made.")
+    p.foot = UI:Text(p, "sub", nil, { text = "The loot council decides in the end: this is only how its suggestion is made." })
+    p.foot:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", p.pad, p.pad)
     return p
 end
 
 local function FillPath(p, R)
     local defs = StepDefs(R)
-    local w = K.LEFT_W - 32
+    local w = K.LEFT_W - 2 * p.pad
     local textX = K.NODE + 14
-    local y = -16
+    local y = -4
     local firstY, lastY
     for i, s in ipairs(p.steps) do
         local d = defs[i]
         s:SetShown(d ~= nil)
         if d then
             s:ClearAllPoints()
-            s:SetPoint("TOPLEFT", p, "TOPLEFT", 16, y)
+            s:SetPoint("TOPLEFT", p.body, "TOPLEFT", 0, y)
             s:SetWidth(w)
             s.title:SetText(d.title)
-            s.pills:Reset()
+            s.pills:ReleaseAll()
             for _, t in ipairs(s.seps) do t:Hide() end
             local x, rowY = textX, -22
             for j, c in ipairs(d.chips) do
-                local pill = s.pills:Get()
+                local pill = s.pills:Acquire()
                 pill:Set(c[1], c[2], c[3])
                 if x + pill:GetWidth() > w and x > textX then
                     x, rowY = textX, rowY - 24
@@ -310,8 +184,7 @@ local function FillPath(p, R)
                 if d.sep and j < #d.chips then
                     local sep = s.seps[j]
                     if not sep then
-                        sep = Text(s, "GameFontHighlightSmall", 13, 0.55, 0.55, 0.58)
-                        sep:SetText("›")
+                        sep = UI:Text(s, "title", "DIM", { text = "›" })
                         s.seps[j] = sep
                     end
                     sep:ClearAllPoints()
@@ -334,95 +207,69 @@ local function FillPath(p, R)
         end
     end
     p.line:ClearAllPoints()
-    p.line:SetPoint("TOP", p, "TOPLEFT", 16 + K.NODE / 2, firstY or 0)
-    p.line:SetPoint("BOTTOM", p, "TOPLEFT", 16 + K.NODE / 2, lastY or 0)
+    p.line:SetPoint("TOP", p.body, "TOPLEFT", K.NODE / 2, firstY or 0)
+    p.line:SetPoint("BOTTOM", p.body, "TOPLEFT", K.NODE / 2, lastY or 0)
 end
 
--- Where you stand: the rows (built once, shown when they have something to say).
-local function WRow(parent, label)
+-- Where you stand: one section per number (a caps section header, the number, a line under it), built once, shown
+-- when it has something to say. r.head (the header: its action is the way on), r.big, r.after, r.note.
+local function WRow(parent, label, action)
     local r = CreateFrame("Frame", nil, parent)
-    r.label = Text(r, "GameFontHighlightSmall", 10, 0.55, 0.55, 0.58)
-    r.label:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -10)
-    r.label:SetText(label)
-    r.big = Text(r, "GameFontHighlightLarge", 18)
-    r.big:SetPoint("TOPLEFT", r.label, "BOTTOMLEFT", 0, -5)
-    r.after = Text(r, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+    r.head = UI:CreateSectionHeader(r, label, { style = "caps", action = action })
+    r.head:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+    r.head:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
+    r.label = r.head.title
+    r.big = UI:Text(r, "page", "TEXT")
+    r.big:SetPoint("TOPLEFT", r.head, "BOTTOMLEFT", 2, -4)
+    r.after = UI:Text(r, "sub")
     r.after:SetPoint("BOTTOMLEFT", r.big, "BOTTOMRIGHT", 8, 1)
-    r.note = Text(r, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    r.note:SetWordWrap(true)
-    r.line = r:CreateTexture(nil, "BORDER")
-    r.line:SetColorTexture(1, 1, 1, 0.06)
-    r.line:SetHeight(1)
-    r.line:SetPoint("BOTTOMLEFT")
-    r.line:SetPoint("BOTTOMRIGHT")
+    r.note = UI:Text(r, "sub", nil, { wrap = true })
     return r
 end
 
+local ROW_HEAD = 18 + 4      -- a section's header and the gap under it
+
 local function BuildYou(parent)
-    local p = Panel(parent)
-    p.cls = p:CreateTexture(nil, "ARTWORK")
+    local p = UI:CreateCard(parent, { tone = "inset", title = "Where you stand", titleStyle = "caps", pad = S.PAD + 4 })
+    local b = p.body
+    p.cls = b:CreateTexture(nil, "ARTWORK")
     p.cls:SetSize(30, 30)
-    p.cls:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -12)
-    p.name = Text(p, "GameFontHighlight", 14)
+    p.cls:SetPoint("TOPLEFT", b, "TOPLEFT", 0, -2)
+    p.name = UI:Text(b, "title", "TEXT")
     p.name:SetPoint("TOPLEFT", p.cls, "TOPRIGHT", 10, 0)
-    p.spec = Text(p, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
+    p.spec = UI:Text(b, "sub")
     p.spec:SetPoint("TOPLEFT", p.name, "BOTTOMLEFT", 0, -2)
-    p.kick = Text(p, "GameFontHighlightSmall", 10, 0.55, 0.55, 0.58)
-    p.kick:SetPoint("TOPRIGHT", p, "TOPRIGHT", -14, -16)
-    p.kick:SetText("WHERE YOU STAND")
-    p.head = p:CreateTexture(nil, "BORDER")
-    p.head:SetColorTexture(1, 1, 1, 0.06)
-    p.head:SetHeight(1)
-    p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -52)
-    p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", 0, -52)
-    p.att = WRow(p, "ATTENDANCE")
-    p.att.pill = UI():CreateTagPill(p.att, 18)
-    p.att.pill:SetBase(0.055, 0.055, 0.067)
-    p.att.pill:SetPoint("RIGHT", p.att, "TOPRIGHT", 0, -36)
-    p.dry = WRow(p, "SINCE YOUR LAST ITEM")
+    p.att = WRow(b, "Attendance")
+    p.att.pill = UI:CreatePill(p.att, 18)
+    p.att.pill:SetBase(S:Color("INSET"))
+    p.att.pill:SetPoint("RIGHT", p.att, "TOPRIGHT", 0, -(ROW_HEAD + 10))
+    p.dry = WRow(p.body, "Since your last item")
     p.dry.bars = {}
     for i = 1, 6 do
         local t = p.dry:CreateTexture(nil, "ARTWORK")
         t:SetSize(7, 16)
         p.dry.bars[i] = t
     end
-    p.bis = WRow(p, "YOUR BIS LIST")
+    p.bis = WRow(b, "Your BiS list", { text = "Open My BiS",
+        onClick = function() if ns.MainFrame then ns.MainFrame:Open("mybis") end end })
+    -- TODO(refactor): move into Surfaces (a shared thin progress bar: this track, the dry streak's bars, the
+    -- Assignments tiles' slot bar, the block tabs' have/of bar)
     p.bis.track = p.bis:CreateTexture(nil, "ARTWORK", nil, 0)
     p.bis.track:SetHeight(5)
-    p.bis.track:SetColorTexture(0.17, 0.17, 0.19, 1)
+    p.bis.track:SetColorTexture(S:Color("EDGE_QUIET"))
     p.bis.fill = p.bis:CreateTexture(nil, "ARTWORK", nil, 1)
     p.bis.fill:SetHeight(5)
-    Gradient(p.bis.fill, "HORIZONTAL", { 0.82, 0.64, 0.03, 1 }, { 1, 0.82, 0, 1 })
-    p.bis.open = CreateFrame("Button", nil, p.bis)
-    p.bis.open:SetSize(90, 16)
-    p.bis.open:SetPoint("TOPRIGHT", p.bis, "TOPRIGHT", 0, -8)
-    p.bis.open.fs = Text(p.bis.open, "GameFontNormalSmall", 11)
-    p.bis.open.fs:SetPoint("RIGHT")
-    p.bis.open.fs:SetText("Open My BiS ›")
-    p.bis.open:SetScript("OnClick", function() if ns.MainFrame then ns.MainFrame:Open("mybis") end end)
-    p.lng = WRow(p, "LONGEST USE")
-    p.prz = WRow(p, "PRIZED ITEMS")
+    UI:Gradient(p.bis.fill, "HORIZONTAL", "GOLD_DEEP", "GOLD")
+    p.bis.open = p.bis.head.action
+    p.lng = WRow(b, "Longest use")
+    p.prz = WRow(b, "Prized items", { text = "", onClick = function() LootRulesUI:SetView("prized") end })
+    p.prz.go = p.prz.head.action
     p.prz.icons = {}
     for i = 1, 6 do
-        local f = CreateFrame("Frame", nil, p.prz)
-        f:SetSize(26, 26)
-        f.ring = f:CreateTexture(nil, "BORDER")
-        f.ring:SetAllPoints()
-        f.ring:SetColorTexture(1, 0.5, 0, 1)
-        f.icon = f:CreateTexture(nil, "ARTWORK")
-        f.icon:SetPoint("TOPLEFT", 2, -2)
-        f.icon:SetPoint("BOTTOMRIGHT", -2, 2)
-        f.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        f:SetPoint("TOPLEFT", p.prz.label, "BOTTOMLEFT", (i - 1) * 32, -8)
+        local f = UI:CreateIconTile(p.prz, 24)
+        f:SetPoint("TOPLEFT", p.prz.head, "BOTTOMLEFT", 2 + (i - 1) * 30, -6)
         p.prz.icons[i] = f
     end
-    p.prz.go = CreateFrame("Button", nil, p.prz)
-    p.prz.go:SetSize(120, 16)
-    p.prz.go:SetPoint("TOPRIGHT", p.prz, "TOPRIGHT", 0, -8)
-    p.prz.go.fs = Text(p.prz.go, "GameFontNormalSmall", 11)
-    p.prz.go.fs:SetPoint("RIGHT")
-    p.prz.go:SetScript("OnClick", function() LootRulesUI:SetView("prized") end)
-    p.prz.line:Hide()
     return p
 end
 
@@ -437,21 +284,22 @@ local function MyAttendance()
     return mine and mine.p or nil
 end
 
+-- (each section as tall as its texts really are: the game's fonts run taller than they look)
+local function TextH(fs)
+    return fs and fs:IsShown() and fs:GetText() and fs:GetText() ~= "" and (fs:GetStringHeight() or 0) or 0
+end
+local function HeadH(r) return ROW_HEAD + max(TextH(r.big), 18) end
+
 local function FillYou(p, R)
     local me = Me()
     local G, Store = ns.Guild, ns.Store
     local rec = Store and Store.Get and me and Store:Get(me)
     local data = rec and rec.data
     local cls = (data and data.cl) or (G and G.GetClass and me and G:GetClass(me))
-    if cls then UI():ClassIcon(p.cls, cls) end
-    p.name:SetText(me and UI():ColoredName(me, cls) or "You")
-    local className = cls and ns.CLASS_NAMES and ns.CLASS_NAMES[cls] or ""
-    p.spec:SetText(((data and data.sp) and (data.sp .. " ") or "") .. className)
-    local w = K.RIGHT_W - 28
-    local y = -52
-    -- (each row as tall as its texts really are: the game's fonts run taller than they look)
-    local function sh(fs) return fs and fs:IsShown() and fs:GetText() and fs:GetText() ~= "" and (fs:GetStringHeight() or 0) or 0 end
-    local function head(r) return 10 + max(sh(r.label), 10) + 5 + max(sh(r.big), 18) end
+    if cls then UI:ClassIcon(p.cls, cls) end
+    p.name:SetText(me and UI:ColoredName(me, cls) or "You")
+    p.spec:SetText(((data and data.sp) and (data.sp .. " ") or "") .. (cls and ns.ClassName(cls) or ""))
+    local w = K.RIGHT_W - 2 * p.pad
     -- (rows are measured first, then laid out: under a tight panel the gaps shrink, then the prized row goes)
     local rows = {}
     local function place(r, h)
@@ -463,11 +311,11 @@ local function FillYou(p, R)
     local floorPct = tonumber(R.f) or 0
     if att then
         p.att.big:SetText(att .. "%")
-        if att >= 90 then p.att.big:SetTextColor(0.42, 0.86, 0.52) else p.att.big:SetTextColor(1, 1, 1) end
+        p.att.big:SetTextColor(S:Color(att >= 90 and "OK" or "TEXT"))
         p.att.after:SetText("last 8 raids")
     else
         p.att.big:SetText("–")
-        p.att.big:SetTextColor(0.6, 0.6, 0.63)
+        p.att.big:SetTextColor(S:Color("SUB"))
         p.att.after:SetText("asking a raid log reader")
     end
     p.att.pill:SetShown(floorPct > 0 and att ~= nil)
@@ -479,31 +327,30 @@ local function FillYou(p, R)
         end
     end
     p.att.note:Hide()
-    place(p.att, head(p.att))
+    place(p.att, HeadH(p.att))
     -- raids since my last item (only where this client keeps the loot log: the council)
     local Att = ns.Attendance
     local d = Att and Att.CanSeeDryStreaks and Att:CanSeeDryStreaks() and me and Att:GetDryStreak(me) or nil
     if d then
         local n = tonumber(d.nights) or 0
         p.dry.big:ClearAllPoints()
-        p.dry.big:SetPoint("TOPLEFT", p.dry.label, "BOTTOMLEFT", 6 * 9 + 6, -5)
+        p.dry.big:SetPoint("TOPLEFT", p.dry.head, "BOTTOMLEFT", 2 + 6 * 9 + 6, -4)
         for i, t in ipairs(p.dry.bars) do
             t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", p.dry.label, "BOTTOMLEFT", (i - 1) * 9, -7)
-            if i <= min(n, 6) then t:SetColorTexture(1, 0.6, 0.18, 1) else t:SetColorTexture(0.18, 0.18, 0.2, 1) end
+            t:SetPoint("TOPLEFT", p.dry.head, "BOTTOMLEFT", 2 + (i - 1) * 9, -6)
+            t:SetColorTexture(S:Color(i <= min(n, 6) and "WARN" or "EDGE_QUIET"))
         end
         p.dry.big:SetText(Plural(n, "raid"))
         p.dry.after:SetText("")
         local last = d.last
-        local ItemDB = ns.ItemDB
-        local nm = last and ItemDB and ItemDB.GetName and ItemDB:GetName(last.i)
+        local nm = last and UI:ItemName(last.i)
         p.dry.note:ClearAllPoints()
         p.dry.note:SetPoint("TOPLEFT", p.dry.big, "BOTTOMLEFT", -(6 * 9 + 6), -4)
         p.dry.note:SetWidth(w)
         p.dry.note:SetText(nm and ("Last: " .. nm .. ", " .. (ns.Util.FormatAgo and ns.Util.FormatAgo(last.ts) or "")) or
             "No item on record yet.")
         p.dry.note:Show()
-        place(p.dry, head(p.dry) + 4 + max(sh(p.dry.note), 11))
+        place(p.dry, HeadH(p.dry) + 4 + max(TextH(p.dry.note), 11))
     else
         p.dry:Hide()
     end
@@ -526,15 +373,15 @@ local function FillYou(p, R)
             end
         end
     end
-    p.bis.label:SetText("YOUR BIS LIST · P" .. phase)
-    p.bis.big:SetText(picked .. "|cff8c8c91 / " .. total .. " picked|r")
+    p.bis.head:SetTitle("Your BiS list · P" .. phase)
+    p.bis.big:SetText(picked .. S:Wrap("SUB", " / " .. total .. " picked"))
     p.bis.after:SetText("")
     p.bis.track:ClearAllPoints()
     p.bis.track:SetPoint("TOPLEFT", p.bis.big, "BOTTOMLEFT", 0, -6)
-    p.bis.track:SetWidth(w)
+    p.bis.track:SetWidth(w - 2)
     p.bis.fill:ClearAllPoints()
     p.bis.fill:SetPoint("TOPLEFT", p.bis.track)
-    p.bis.fill:SetWidth(max(1, w * (total > 0 and picked / total or 0)))
+    p.bis.fill:SetWidth(max(1, (w - 2) * (total > 0 and picked / total or 0)))
     p.bis.fill:SetShown(picked > 0)
     p.bis.note:ClearAllPoints()
     p.bis.note:SetPoint("TOPLEFT", p.bis.track, "BOTTOMLEFT", 0, -6)
@@ -547,12 +394,12 @@ local function FillYou(p, R)
         p.bis.note:SetText("Empty: " .. tconcat(list, ", ") .. (#empty > 3 and (" and " .. (#empty - 3) .. " more") or ""))
     end
     p.bis.note:Show()
-    place(p.bis, head(p.bis) + 6 + 5 + 6 + max(sh(p.bis.note), 11))
+    place(p.bis, HeadH(p.bis) + 6 + 5 + 6 + max(TextH(p.bis.note), 11))
     -- longest use: my picks kept to the last phase counted
     local upTo = tonumber(R.o) or 0
     if upTo > 0 and Store and Store.Longevity and type(ph) == "table" then
         local kept, n = 0, 0
-        for sid, e in pairs(ph) do
+        for _, e in pairs(ph) do
             local id = type(e) == "table" and tonumber(e[1])
             if id and id > 0 then
                 n = n + 1
@@ -560,11 +407,11 @@ local function FillYou(p, R)
                 if last and last >= upTo then kept = kept + 1 end
             end
         end
-        p.lng.label:SetText("LONGEST USE · COUNTED TO P" .. upTo)
+        p.lng.head:SetTitle("Longest use · counted to P" .. upTo)
         p.lng.big:SetText(Plural(kept, "pick"))
         p.lng.after:SetText(format("kept on your list to P%d, out of %d", upTo, n))
         p.lng.note:Hide()
-        place(p.lng, head(p.lng))
+        place(p.lng, HeadH(p.lng))
     else
         p.lng:Hide()
     end
@@ -578,21 +425,23 @@ local function FillYou(p, R)
             if c.ok == true then ok = ok + 1 end
             local f = p.prz.icons[i]
             if f then
-                f.icon:SetTexture(ns.ItemDB:GetIcon(it.ids[1]))
+                f:Set(UI:ItemIcon(it.ids[1]))
                 f:SetAlpha(c.ok == false and 0.4 or 1)
-                f:Show()
             end
         end
         for i = #items + 1, #p.prz.icons do p.prz.icons[i]:Hide() end
         p.prz.big:SetText("")
         p.prz.after:SetText("")
         p.prz.note:Hide()
-        p.prz.go.fs:SetText(format("%d of %d you qualify for ›", ok, #items))
-        place(p.prz, 10 + max(sh(p.prz.label), 10) + 8 + 26)
+        p.prz.head:SetAction({ text = format("%d of %d you qualify for", ok, #items),
+            onClick = function() LootRulesUI:SetView("prized") end })
+        p.prz.go = p.prz.head.action
+        place(p.prz, ROW_HEAD + 2 + 24)
     else
         p.prz:Hide()
     end
-    local room = (p:GetHeight() or 0) + y - 8
+    local top = 30 + S.GAP + 4       -- under who I am
+    local room = (p.body:GetHeight() or 0) - top
     local sum = 0
     for _, it in ipairs(rows) do sum = sum + it.h end
     local pad = 14
@@ -605,9 +454,10 @@ local function FillYou(p, R)
             pad = min(14, max(6, floor((room - sum) / #rows)))
         end
     end
+    local y = -top
     for _, it in ipairs(rows) do
         it.r:ClearAllPoints()
-        it.r:SetPoint("TOPLEFT", p, "TOPLEFT", 14, y)
+        it.r:SetPoint("TOPLEFT", p.body, "TOPLEFT", 0, y)
         it.r:SetHeight(it.h + pad)
         it.r:Show()
         y = y - it.h - pad
@@ -615,227 +465,143 @@ local function FillYou(p, R)
 end
 
 ---------------------------------------------------------------------------
--- Prized items: the gallery and an item
+-- Prized items: the list and the picked item
 ---------------------------------------------------------------------------
 
-local function NewCard(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetSize(K.CARD_W, K.CARD_H)
-    Fill(c, { 0.07, 0.07, 0.085, 0.95 })
-    c.art = c:CreateTexture(nil, "BACKGROUND", nil, 1)
-    c.art:SetPoint("TOPLEFT", 1, -1)
-    c.art:SetPoint("TOPRIGHT", -1, -1)
-    c.art:SetHeight(K.ART_H)
-    c.fade = c:CreateTexture(nil, "BACKGROUND", nil, 2)
-    c.fade:SetAllPoints(c.art)
-    Gradient(c.fade, "VERTICAL", { 0.07, 0.07, 0.085, 1 }, { 0.07, 0.07, 0.085, 0.1 })
-    UI():AddEdges(c, "BORDER")
-    -- the hover: an orange edge and a glow along the top (eased)
-    c.glow = c:CreateTexture(nil, "OVERLAY")
-    c.glow:SetPoint("TOPLEFT", 1, -1)
-    c.glow:SetPoint("TOPRIGHT", -1, -1)
-    c.glow:SetHeight(2)
-    Gradient(c.glow, "HORIZONTAL", { 1, 0.5, 0, 0.2 }, { 1, 0.62, 0.2, 0.9 })
-    c.glow:SetAlpha(0)
-    c.raid = Text(c, "GameFontNormalSmall", 10, 1, 0.82, 0)
-    c.raid:SetPoint("TOPLEFT", c, "TOPLEFT", 11, -9)
-    c.iconHolder = CreateFrame("Frame", nil, c)
-    c.iconHolder:SetSize(40, 40)
-    c.iconHolder:SetPoint("TOPLEFT", c, "TOPLEFT", 11, -38)
-    c.icons = ns.PrizedUI:NewItemIcons(c.iconHolder, 36, 2)
-    c.name = Text(c, "GameFontHighlight", 13)
-    c.name:SetPoint("TOPLEFT", c, "TOPLEFT", 11, -88)
-    c.name:SetWidth(K.CARD_W - 22)
-    c.boss = Text(c, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    c.boss:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -3)
-    c.pill = UI():CreateTagPill(c, 18)
-    c.pill:SetBase(0.07, 0.07, 0.085)
-    c.pill:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 11, 9)
-    c.marks = {}
-    for i = 1, 6 do
-        local t = c:CreateTexture(nil, "ARTWORK")
-        t:SetSize(11, 11)
-        t:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -11 - (i - 1) * 15, 13)
-        c.marks[i] = t
-    end
-    c:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, 1, 0.5, 0, 0.9)
-        self.glow:SetAlpha(1)
-    end)
-    c:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
-        self.glow:SetAlpha(0)
-    end)
-    c:SetScript("OnClick", function(self) if self.recId then LootRulesUI:OpenItem(self.recId) end end)
-    return c
+-- A prized item's art row: the raid's art with the item in its icon tile, the name in its quality's colour, the boss,
+-- my standing as a pill at the right of the second line. row.pill (the standing), row.recId.
+local function NewItemRow(parent)
+    local r = UI:CreateArtRow(parent, { selectable = true, width = K.LIST_W,
+        onClick = function(self) if self.recId then LootRulesUI:OpenItem(self.recId) end end })
+    r.pill = UI:CreatePill(r.right, 16)
+    r.pill:SetBase(S:Color("SURFACE_WINDOW"))
+    r.pill:SetPoint("BOTTOMRIGHT", r.right, "BOTTOMRIGHT", 0, 9)
+    return r
 end
 
-local function FillCard(c, rec)
+local function FillItemRow(r, rec, selected)
     local P, PU = ns.Prized, ns.PrizedUI
-    c.recId = rec.id
+    r.recId = rec.id
     local pl = P:Place(rec.ids[1])
-    SetArt(c.art, pl.raidKey, K.CARD_W, K.ART_H)
-    c.raid:SetText((pl.raidName or ""):upper())
-    PU:SetItemIcons(c.icons, rec, 10)
-    c.name:SetText(PU:RecName(rec))
-    local q = ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4
-    c.name:SetTextColor(UI():QualityColor(q))
-    c.boss:SetText(pl.bossName or pl.raidName or "")
     local text, kind = PU:Standing(rec)
-    c.pill:SetShown(text ~= nil)
-    if text then c.pill:Set(text, kind) end
-    local keys = {}
-    for _, d in ipairs(P.RULES) do
-        if rec.r[d.key] then keys[#keys + 1] = d.key end
-    end
-    for i, t in ipairs(c.marks) do
-        local k = keys[#keys - i + 1]
-        t:SetShown(k ~= nil and i <= 6)
-        if k then PU:RuleIcon(t, k, 0.58, 0.58, 0.62) end
+    r:SetData({ art = pl.raidKey or "other", icon = UI:ItemIcon(rec.ids[1]), title = PU:RecName(rec),
+        sub = pl.bossName or pl.raidName or "", selected = selected })
+    r.title:SetTextColor(UI:QualityColor(ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4))
+    r.pill:SetShown(text ~= nil)
+    if text then
+        r.pill:Set(text, kind)
+        -- (the boss' line makes room for the standing; the name has the whole row)
+        UI:FitText(r.sub, r.subText or "", (r:GetWidth() or K.LIST_W) - r.textX - r.pill:GetWidth() - 20)
     end
 end
 
-local function BuildGallery(parent)
+-- The list: an intro line, then the items under their raid's caps header (a scroll frame of pooled parts).
+local function BuildList(parent)
     local g = CreateFrame("Frame", nil, parent)
-    local sf = UI():CreateScrollFrame(g)
-    sf:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
-    sf:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", -2, 0)
+    g:SetAllPoints()
+    g.intro = UI:Text(g, "sub", nil, { wrap = true, width = K.LIST_W - 4,
+        text = "A few drops have stricter rules, set by the Guild Master and the guild council. Pick one to see each "
+            .. "rule and how you stand." })
+    g.intro:SetPoint("TOPLEFT", g, "TOPLEFT", 2, -2)
+    local sf = UI:CreateScrollFrame(g)
+    sf:SetPoint("TOPLEFT", g, "TOPLEFT", 0, -K.INTRO_H)
+    sf:SetPoint("BOTTOMRIGHT", g, "BOTTOMRIGHT", 0, 0)
     local body = CreateFrame("Frame", nil, sf)
-    body:SetSize(K.W, 10)
+    body:SetSize(K.LIST_W, 10)
     sf:SetScrollChild(body)
     g.scroll, g.body, g.cards = sf, body, {}
-    g.intro = CreateFrame("Frame", nil, body)
-    g.intro:SetSize(K.W, 40)
-    g.intro.icon = g.intro:CreateTexture(nil, "ARTWORK")
-    g.intro.icon:SetSize(16, 16)
-    g.intro.icon:SetPoint("TOPLEFT", 2, -2)
-    AtlasIcon(g.intro.icon, "prized", 1, 0.6, 0.18)
-    g.intro.text = Text(g.intro, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    g.intro.text:SetWordWrap(true)
-    g.intro.text:SetWidth(K.W - 30)
-    g.intro.text:SetPoint("TOPLEFT", g.intro.icon, "TOPRIGHT", 8, 0)
-    g.intro.text:SetText("A few drops have stricter rules, set by the Guild Master and the guild council. Click one "
-        .. "to see each rule and how you stand.")
-    g.empty = Text(g, "GameFontDisable", 12)
-    g.empty:SetPoint("TOPLEFT", g, "TOPLEFT", 4, -8)
-    g.empty:SetText("No prized items yet: every drop follows the guild's rules (How it's decided).")
+    g.rows = UI:Pool(body, NewItemRow)
+    g.heads = UI:Pool(body, function(p) return UI:CreateSectionHeader(p, "", { style = "caps", width = K.LIST_W }) end)
     return g
 end
 
-local function FillGallery(g)
+-- (true when the list has items; the page shows its empty state otherwise)
+local function FillList(g, selId)
     local P = ns.Prized
     local items = P and P.GetItems and P:GetItems() or {}
-    g.intro:ClearAllPoints()
-    g.intro:SetPoint("TOPLEFT", g.body, "TOPLEFT", 0, 0)
-    g.intro:SetShown(#items > 0)
-    local top = #items > 0 and (g.intro.text:GetStringHeight() or 26) + 12 or 0
-    local y = top
-    for i, rec in ipairs(items) do
-        local c = g.cards[i]
-        if not c then
-            c = NewCard(g.body)
-            g.cards[i] = c
-        end
-        local col = (i - 1) % 3
-        local row = floor((i - 1) / 3)
-        c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", g.body, "TOPLEFT", col * (K.CARD_W + 8), -(top + row * (K.CARD_H + 8)))
-        FillCard(c, rec)
-        c:Show()
-        y = top + (row + 1) * (K.CARD_H + 8)
+    g.rows:ReleaseAll()
+    g.heads:ReleaseAll()
+    wipe(g.cards)
+    -- (how many items each raid has: its header's count)
+    local per, lastRaid = {}, nil
+    for _, rec in ipairs(items) do
+        local k = P:Place(rec.ids[1]).raidKey or "other"
+        per[k] = (per[k] or 0) + 1
     end
-    for i = #items + 1, #g.cards do g.cards[i]:Hide() end
-    g.empty:SetShown(#items == 0)
-    g.body:SetHeight(y + 4)
+    local y = 0
+    for i, rec in ipairs(items) do
+        local pl = P:Place(rec.ids[1])
+        if pl.raidKey ~= lastRaid then
+            lastRaid = pl.raidKey
+            local h = g.heads:Acquire()
+            h:SetTitle(pl.raidName or "Other")
+            h:SetCount(per[pl.raidKey or "other"])
+            h:ClearAllPoints()
+            h:SetPoint("TOPLEFT", g.body, "TOPLEFT", 0, -(y + (i > 1 and S.GAP or 0)))
+            h:SetPoint("TOPRIGHT", g.body, "TOPRIGHT", 0, -(y + (i > 1 and S.GAP or 0)))
+            y = y + (i > 1 and S.GAP or 0) + 18 + 2
+        end
+        local r = g.rows:Acquire()
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", g.body, "TOPLEFT", 0, -y)
+        r:SetWidth(K.LIST_W)
+        FillItemRow(r, rec, rec.id == selId)
+        g.cards[i] = r
+        y = y + S.ROW.art
+    end
+    g.body:SetHeight(max(10, y + 4))
+    return #items > 0
 end
 
-local function BuildItem(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    -- the banner, with the way back
-    local b = CreateFrame("Frame", nil, f)
-    b:SetPoint("TOPLEFT")
-    b:SetPoint("TOPRIGHT")
-    b:SetHeight(K.ITEM_BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND", nil, 0)
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    local v = b:CreateTexture(nil, "BACKGROUND", nil, 2)
-    v:SetAllPoints(b.art)
-    Gradient(v, "VERTICAL", { 0.035, 0.035, 0.043, 0.92 }, { 0.035, 0.035, 0.043, 0.3 })
-    local h = b:CreateTexture(nil, "BACKGROUND", nil, 3)
-    h:SetPoint("TOPLEFT", b.art)
-    h:SetPoint("BOTTOMLEFT", b.art)
-    h:SetWidth(480)
-    Gradient(h, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.9 }, { 0.035, 0.035, 0.043, 0 })
-    UI():AddEdges(b, "BORDER")
-    b.back = CreateFrame("Button", nil, b)
-    b.back:SetSize(150, 16)
-    b.back:SetPoint("TOPLEFT", b, "TOPLEFT", 12, -8)
-    b.back.chev = b.back:CreateTexture(nil, "ARTWORK")
-    b.back.chev:SetSize(9, 9)
-    b.back.chev:SetPoint("LEFT", 0, 0)
-    UI():SetChevron(b.back.chev, false)
-    b.back.chev:SetVertexColor(0.6, 0.6, 0.62)
-    b.back.fs = Text(b.back, "GameFontHighlightSmall", 10, 0.6, 0.6, 0.62)
-    b.back.fs:SetPoint("LEFT", b.back.chev, "RIGHT", 4, 0)
-    b.back.fs:SetText("ALL PRIZED ITEMS")
-    b.back:SetScript("OnEnter", function(self) self.fs:SetTextColor(1, 0.82, 0) end)
-    b.back:SetScript("OnLeave", function(self) self.fs:SetTextColor(0.6, 0.6, 0.62) end)
-    b.back:SetScript("OnClick", function() LootRulesUI:OpenItem(nil) end)
+-- The picked item: the list + detail layout's detail - the banner (the item's icons, PRIZED ITEM, the name in its
+-- quality's colour, the slot, boss and raid, my standing) with Rules / History on its foot, then the open tab.
+local function BuildItem(L)
+    local f = L.detail
+    local b = L.banner
+    -- the item's icons in the banner's icon place (one, or the pieces of a set side by side)
+    -- TODO(refactor): move into CreatePageBanner (an icon slot that takes several item icons)
     b.iconHolder = CreateFrame("Frame", nil, b)
-    b.iconHolder:SetSize(52, 52)
-    b.iconHolder:SetPoint("TOPLEFT", b, "TOPLEFT", 12, -30)
-    b.icons = ns.PrizedUI:NewItemIcons(b.iconHolder, 48, 2)
-    b.kicker = Text(b, "GameFontNormalSmall", 10, 1, 0.6, 0.18)
-    b.kicker:SetText("PRIZED ITEM")
-    b.name = Text(b, "GameFontHighlightLarge", 18)
-    b.name:SetPoint("TOPLEFT", b.kicker, "BOTTOMLEFT", 0, -3)
-    b.meta = Text(b, "GameFontHighlightSmall", 11, 0.80, 0.80, 0.83)
-    b.meta:SetPoint("TOPLEFT", b.name, "BOTTOMLEFT", 0, -3)
-    b.pill = UI():CreateTagPill(b, 20)
-    b.pill:SetBase(0.06, 0.06, 0.07)
-    b.pill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -12, 10)
+    b.iconHolder:SetSize(52, 48)
+    b.icons = ns.PrizedUI:NewItemIcons(b.iconHolder, 44, 2)
+    b.icon = b.iconHolder
+    b:Layout()
     f.banner = b
-    -- the rules and the history
-    local function column(x, w, title)
-        local p = Panel(f)
-        p:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(K.ITEM_BAN_H + K.GAP))
-        p:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
-        p:SetWidth(w)
-        p.title = Text(p, "GameFontHighlightSmall", 10, 0.55, 0.55, 0.58)
-        p.title:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -10)
-        p.title:SetText(title)
-        p.right = Text(p, "GameFontHighlightSmall", 10, 0.55, 0.55, 0.58)
-        p.right:SetPoint("TOPRIGHT", p, "TOPRIGHT", -14, -10)
-        local sf = UI():CreateScrollFrame(p)
-        sf:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -26)
-        sf:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -16, 6)
+    -- the rules and the history: one scrolling column each (the tabs show one)
+    local function column(title)
+        local p = CreateFrame("Frame", nil, L.body)
+        p:SetAllPoints(L.body)
+        p.head = UI:CreateSectionHeader(p, title, { style = "caps" })
+        p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 0, 0)
+        p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", 0, 0)
+        local sf = UI:CreateScrollFrame(p)
+        sf:SetPoint("TOPLEFT", p, "TOPLEFT", 0, -(18 + 6))
+        sf:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 0)
         local body = CreateFrame("Frame", nil, sf)
-        body:SetSize(w - 30, 10)
+        body:SetSize(K.DETAIL_W - 16, 10)
         sf:SetScrollChild(body)
         p.scroll, p.body, p.rows = sf, body, {}
         return p
     end
-    f.rules = column(0, K.LEFT_W, "RULES")
-    f.hist = column(K.RIGHT_X, K.RIGHT_W, "HISTORY")
+    f.rules = column("Rules")
+    f.hist = column("History")
+    f.hist.empty = UI:Text(f.hist.body, "sub", nil, { text = "Nobody got it yet." })
+    f.hist.empty:SetPoint("TOPLEFT", f.hist.body, "TOPLEFT", 2, -4)
     return f
 end
 
-local function FillItem(f, rec)
+local function FillItem(L, rec)
     local P, PU = ns.Prized, ns.PrizedUI
+    local f = L.detail
     local b = f.banner
     local pl = P:Place(rec.ids[1])
-    SetArt(b.art, pl.raidKey, K.W, K.ITEM_BAN_H)
     PU:SetItemIcons(b.icons, rec, 14)
-    b.kicker:ClearAllPoints()
-    b.kicker:SetPoint("TOPLEFT", b.iconHolder, "TOPLEFT", (#rec.ids > 1 and 86 or 52) + 12, 0)
-    b.name:SetText(PU:RecName(rec))
-    local q = ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4
-    b.name:SetTextColor(UI():QualityColor(q))
-    b.meta:SetText(PU:SlotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. (pl.raidName or ""))
+    b.iconHolder:SetWidth(#rec.ids > 1 and 78 or 48)
+    b:SetArt(pl.raidKey or "other")
+    b:SetTitle(PU:RecName(rec))
+    b.title:SetTextColor(UI:QualityColor(ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4))
+    b:SetSub(PU:SlotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. (pl.raidName or ""))
     local _, kind, long = PU:Standing(rec)
-    b.pill:SetShown(long ~= nil)
-    if long then b.pill:Set(long, kind) end
+    BannerPill(b, kind, long)
     -- the rules, with how I stand
     local check = P:Check(rec, Me())
     local by = check.by or {}
@@ -848,7 +614,7 @@ local function FillItem(f, rec)
             n = n + 1
             local r = f.rules.rows[n]
             if not r then
-                r = PU:NewRuleRow(body, K.LEFT_W - 30)
+                r = PU:NewRuleRow(body, K.DETAIL_W - 16)
                 f.rules.rows[n] = r
             end
             r:ClearAllPoints()
@@ -861,15 +627,16 @@ local function FillItem(f, rec)
         end
     end
     body:SetHeight(max(10, y))
-    f.rules.right:SetText(format("%d required · %d priority", req, pri))
+    f.rules.head:SetRight(format("%d required · %d priority", req, pri))
     -- the history
     local hb = f.hist.body
     for _, r in ipairs(f.hist.rows) do r:Hide() end
     y = 0
-    for i, e in ipairs(P:GetHistory(rec.id)) do
+    local hist = P:GetHistory(rec.id)
+    for i, e in ipairs(hist) do
         local r = f.hist.rows[i]
         if not r then
-            r = PU:NewHistRow(hb, K.RIGHT_W - 30)
+            r = PU:NewHistRow(hb, K.DETAIL_W - 16)
             f.hist.rows[i] = r
         end
         r:ClearAllPoints()
@@ -877,7 +644,16 @@ local function FillItem(f, rec)
         y = y + PU:FillHistRow(r, e)
         r:Show()
     end
+    f.hist.empty:SetShown(#hist == 0)
     hb:SetHeight(max(10, y))
+    f.hist.head:SetCount(#hist > 0 and #hist or nil)
+    -- the tabs: the counts, the open one
+    L.tabs:SetTabCount("rules", n)
+    L.tabs:SetTabCount("history", #hist)
+    local tab = state.tab == "history" and "history" or "rules"
+    L.tabs:SelectTab(tab)
+    f.rules:SetShown(tab == "rules")
+    f.hist:SetShown(tab == "history")
 end
 
 ---------------------------------------------------------------------------
@@ -889,35 +665,35 @@ function LootRulesUI:CreatePanel(parent)
     local p = CreateFrame("Frame", "DisasterZoneLootRulesPanel", parent)
     p:SetAllPoints(parent)
     panel = p
-    p.decidedTab = UI():CreateUnderlineTab(p, "How it's decided", function() LootRulesUI:SetView("decided") end)
-    p.decidedTab:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -6)
-    p.prizedTab = UI():CreateUnderlineTab(p, "Prized items", function() LootRulesUI:SetView("prized") end)
-    p.prizedTab:SetPoint("LEFT", p.decidedTab, "RIGHT", 4, 0)
-    p.who = Text(p, "GameFontHighlightSmall", 11, GREY[1], GREY[2], GREY[3])
-    p.who:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -12)
-    local body = CreateFrame("Frame", nil, p)
-    body:SetPoint("TOPLEFT", p, "TOPLEFT", 10, -36)
-    body:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -10, 10)
+    -- the toolbar: the two views as its tabs, who set the rules after them; the view under it
+    local L = UI:CreateLayout("board", p)
+    p.layout = L
+    L.toolbar:SetTabs({ { key = "decided", text = "How it's decided" }, { key = "prized", text = "Prized items" },
+        selected = "decided" }, function(key) LootRulesUI:SetView(key) end)
+    local body = L.body
     p.body = body
-    -- How it's decided
+    -- How it's decided: the banner, the path (left) and where I stand (right)
     local d = CreateFrame("Frame", nil, body)
     d:SetAllPoints()
     p.decided = d
-    d.banner = BuildBanner(d)
+    d.banner = DecidedBanner(d)
     d.banner:SetPoint("TOPLEFT", d, "TOPLEFT", 0, 0)
     d.banner:SetPoint("TOPRIGHT", d, "TOPRIGHT", 0, 0)
     d.path = BuildPath(d)
-    d.path:SetPoint("TOPLEFT", d, "TOPLEFT", 0, -(K.BAN_H + K.GAP))
+    d.path:SetPoint("TOPLEFT", d.banner, "BOTTOMLEFT", 0, -K.GAP)
     d.path:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 0, 0)
     d.path:SetWidth(K.LEFT_W)
     d.you = BuildYou(d)
-    d.you:SetPoint("TOPLEFT", d, "TOPLEFT", K.RIGHT_X, -(K.BAN_H + K.GAP))
+    d.you:SetPoint("TOPLEFT", d.banner, "BOTTOMLEFT", K.RIGHT_X, -K.GAP)
     d.you:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", 0, 0)
-    -- Prized items
-    p.gallery = BuildGallery(body)
-    p.gallery:SetAllPoints()
-    p.item = BuildItem(body)
-    p.item:SetAllPoints()
+    -- Prized items: the list + detail layout under the toolbar
+    local PL = UI:CreateLayout("listdetail", body, { toolbar = false, pad = 0, bottom = 0, width = K.W,
+        listWidth = K.LIST_W, banner = { size = "hero", kicker = "Prized item", kickerColor = "WARN", title = " " },
+        tabs = { { key = "rules", text = "Rules" }, { key = "history", text = "History" }, selected = "rules" },
+        onTab = function(key) LootRulesUI:SetTab(key) end })
+    p.prized = PL
+    p.gallery = BuildList(PL.list)
+    p.item = BuildItem(PL)
     -- (MainFrame calls this on every show, the first one too: OnShow set here would miss that one)
     p.OnPanelShown = function() LootRulesUI:Refresh() end
     return p
@@ -928,27 +704,37 @@ function LootRulesUI:Refresh()
     if not p or not p:IsVisible() then return end
     local R = Rules()
     local G = ns.Guild
+    local L = p.layout
     local by = G and G.GetLootRulesBy and G:GetLootRulesBy()
-    p.who:SetText("Set by " .. (by and UI():ColoredName(by, G:GetClass(by)) or "the Guild Master") ..
+    L.toolbar:SetText("Set by " .. (by and UI:ColoredName(by, G:GetClass(by)) or "the Guild Master") ..
         " · the same for everyone")
     local decided = state.view ~= "prized"
-    p.decidedTab:SetActive(decided)
-    p.prizedTab:SetActive(not decided)
+    L.toolbar:SelectTab(decided and "decided" or "prized")
     p.decided:SetShown(decided)
-    local P = ns.Prized
-    local rec = not decided and state.item and P and P.Get and P:Get(state.item) or nil
-    if not decided and state.item and not rec then state.item = nil end
-    p.gallery:SetShown(not decided and rec == nil)
-    p.item:SetShown(rec ~= nil)
+    p.prized:SetShown(not decided)
+    local empty = false
     if decided then
         local d = p.decided
-        d.banner.pill:Set(R.l ~= "r" and "Lists first" or "The roll decides", "bis")
+        BannerPill(d.banner, "bis", R.l ~= "r" and "Lists first" or "The roll decides")
         FillPath(d.path, R)
         FillYou(d.you, R)
-    elseif rec then
-        FillItem(p.item, rec)
     else
-        FillGallery(p.gallery)
+        -- the picked item (none, or gone: the first one)
+        local P = ns.Prized
+        local items = P and P.GetItems and P:GetItems() or {}
+        local rec = state.item and P and P.Get and P:Get(state.item) or nil
+        if not rec then
+            rec = items[1]
+            state.item = rec and rec.id or nil
+        end
+        empty = not FillList(p.gallery, state.item)
+        if rec then FillItem(p.prized, rec) end
+    end
+    if empty then
+        L:ShowEmpty({ glyph = UI.ICON[IconName("prized")], title = "No prized items yet",
+            text = "Every drop follows the guild's rules (How it's decided)." })
+    elseif L:IsEmptyShown() then
+        L:HideEmpty()
     end
 end
 
@@ -958,33 +744,37 @@ end
 
 -- "decided" | "prized".
 function LootRulesUI:SetView(view)
-    local changed = state.view ~= view
     state.view = view == "prized" and "prized" or "decided"
     if state.view == "decided" then state.item = nil end
     self:Refresh()
-    if changed and panel then FadeIn(state.view == "prized" and panel.gallery or panel.decided) end
 end
 
 function LootRulesUI:GetView() return state.view end
 
--- Opens a prized item over the Prized items view (nil: back to the gallery).
+-- Opens a prized item on the Prized items view (nil: the first one).
 function LootRulesUI:OpenItem(id)
     state.view, state.item = "prized", id
     self:Refresh()
-    if panel then FadeIn(id and panel.item or panel.gallery) end
 end
 
+-- The prized item shown on the Prized items view (nil on How it's decided, or with no prized items).
 function LootRulesUI:GetItem() return state.item end
 
+-- The picked item's tab: "rules" | "history".
+function LootRulesUI:SetTab(tab)
+    state.tab = tab == "history" and "history" or "rules"
+    self:Refresh()
+end
+
 function LootRulesUI:IsAvailable()
-    return (IsInGuild() or DemoOn()) and true or false
+    return (IsInGuild() or ns.Util.DemoOn()) and true or false
 end
 
 function LootRulesUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("lootrules", "Loot rules", 3.51,
             function(parent) return LootRulesUI:CreatePanel(parent) end,
-            function() return LootRulesUI:IsAvailable() end)
+            function() return LootRulesUI:IsAvailable() end, { layout = "listdetail" })
     end
     for _, m in ipairs({ "LOOT_RULES_CHANGED", "PRIZED_UPDATED", "ATTENDANCE_MINE", "RAIDLOG_CHANGED", "LEDGER_UPDATED",
                          "MYLIST_COMMITTED", "MYLIST_CHANGED", "DEMO_TOGGLED", "ITEMINFO_READY", "ROSTER_UPDATED" }) do

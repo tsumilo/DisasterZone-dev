@@ -127,10 +127,10 @@ def cancel_and_dropping_the_changes_forget_the_draft():
     # Discard asks first; keeping on editing keeps the draft
     bob.click(bob.eval("return %s.cancelBtn" % W))
     assert ndrafts(bob) == 1
-    bob.cancel_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.cancel_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert ndrafts(bob) == 1
     bob.click(bob.eval("return %s.cancelBtn" % W))
-    bob.accept_popup("DISASTERZONE_STRAT_DISCARD")
+    bob.accept_popup("DISASTERZONE_CONFIRM_STRAT_DISCARD")
     assert ndrafts(bob) == 0
     bob.relog()
     w.tick(1)
@@ -242,7 +242,8 @@ def several_drafts_wait_in_the_list_of_their_boss():
     assert "unsaved changes" in rows[0]["l2"] and "not saved yet" in rows[1]["l2"], rows[:2]
     assert rows[3]["edit"] == "Edit" and "Delete" in rows[3]["more"] and rows[3]["draft"] is False, rows[3]
     # the boss in the list on the left says so too (its count, and the drafts as an orange "+3")
-    assert bob.find_text("1 |cffff9933+3|r"), "the boss row shows its drafts"
+    # (1.4: the orange is the WARN token)
+    assert bob.find_text("1 " + bob.eval("return ns.Style:Wrap('WARN', '+3')")), "the boss row shows its drafts"
     # Continue on a draft's row opens it
     cont = bob.eval(r"""
         local function walk(f)
@@ -314,19 +315,19 @@ def long_texts_fit_and_reach_the_guild():
     w, c, bob, sid = setup()
     assert len(LONG) > 64
     # a text cell (the Notes block): a box of several lines takes it, the cell wraps
-    P = "_G.DisasterZoneStrategyPrompt"
+    P = "ns.StrategyBoard:GetPrompt()"
     bob.eval("local p = %s.blocks; local page = p.opts.page(); p:CellMenu(nil, page.k[4], 1, 1)" % W)
     multi = bob.eval("return %s.multi" % P)
-    assert bob.eval("return %s.multi:IsVisible() and not %s.edit:IsShown()" % (P, P)) is True
+    assert bob.eval("return %s.multi:IsVisible() and not %s.editBox:IsShown()" % (P, P)) is True
     assert bob.eval("return %s.multi:GetMaxLetters()" % P) == 160
     # the keyboard is in the box right away, above the board; a click anywhere in the box goes to it too
     assert bob.eval("return %s.multi:HasFocus()" % P) is True
     assert bob.eval("return %s:GetFrameStrata()" % P) == "FULLSCREEN_DIALOG"
-    bob.eval("%s.multi:ClearFocus(); %s.scroll:GetScript('OnMouseDown')(%s.scroll, 'LeftButton')" % (P, P, P))
+    bob.eval("%s.multi:ClearFocus(); %s.multiScroll:GetScript('OnMouseDown')(%s.multiScroll, 'LeftButton')" % (P, P, P))
     assert bob.eval("return %s.multi:HasFocus()" % P) is True
     bob.eval("%s.multi:SetText('')" % P)
     bob.type_text(multi, LONG)
-    bob.click(bob.eval("return %s.ok" % P))
+    bob.click(bob.eval("return %s.button1" % P))
     assert bob.eval("return %s.strat.p[1].k[4].d[1][1]" % ST) == LONG
     wrap = bob.eval("for _, b in ipairs(%s.blocks.blocks) do for _, x in ipairs(b.cells) do "
                     "if x:IsShown() and x.fs:GetText() == ... then return x.fs:CanWordWrap() end end end" % W, LONG)
@@ -335,7 +336,7 @@ def long_texts_fit_and_reach_the_guild():
     bob.eval("%s.canvas:TextAt(400, 400)" % W)
     assert bob.eval("return %s.multi:IsVisible() and %s.multi:GetMaxLetters()" % (P, P)) == 160
     bob.type_text(multi, LONG)
-    bob.click(bob.eval("return %s.ok" % P))
+    bob.click(bob.eval("return %s.button1" % P))
     assert elems(bob)[-1]["l"] == LONG
     # Enter starts a new line, Ctrl+Enter is OK; odd characters and | are cleaned away
     bob.eval("%s.canvas:TextAt(300, 300)" % W)
@@ -346,7 +347,7 @@ def long_texts_fit_and_reach_the_guild():
     bob.set_modifiers(False, True, False)
     bob.press_enter(multi)
     bob.set_modifiers(False, False, False)
-    assert bob.eval("return %s:IsShown()" % P) is False
+    assert bob.eval("return %s == nil" % P) is True     # (GetPrompt: nil once it closed)
     assert elems(bob)[-1]["l"] == "Tanks left \nHealers right !", elems(bob)[-1]
     two = bob.eval("return T_last()._h") / bob.eval("local e = T_last(); e = %s.strat.p[1].e; return e[#e - 1]._h" % ST)
     assert abs(two - 2) < 0.01, two

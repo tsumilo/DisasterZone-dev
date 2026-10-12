@@ -24,7 +24,7 @@ local out = {}
 for i, s in ipairs(p.decided.path.steps) do
   if s:IsShown() then
     local chips = {}
-    for j = 1, s.pills.used do chips[j] = s.pills.list[j].fs:GetText() end
+    for j = 1, s.pills:Active() do chips[j] = s.pills.items[j].fs:GetText() end
     out[#out + 1] = { title = s.title:GetText(), text = s.text:GetText(), chips = chips }
   end
 end
@@ -111,17 +111,23 @@ def the_gallery_and_an_item():
     carol.eval("ns.MainFrame:Open('lootrules'); ns.LootRulesUI:SetView('prized')")
     w.tick(1)
     p = "DisasterZoneLootRulesPanel"
-    assert carol.eval("return %s.gallery:IsShown() and %s.gallery.cards[1]:IsShown()" % (p, p))
-    # Carol (rank 3) breaks the rank rule: her card says so
+    assert carol.eval("return %s.gallery:IsVisible() and %s.gallery.cards[1]:IsShown()" % (p, p))
+    # Carol (rank 3) breaks the rank rule: her row says so
     pill = carol.eval("return %s.gallery.cards[1].pill.fs:GetText()" % p)
     assert pill == "Not yet", pill
+    # (1.4 list + detail: the first item is open beside the list; a click on a row opens that one)
     carol.eval("%s.gallery.cards[1]:Click()" % p)
     w.tick(0.5)
     assert carol.eval("return ns.LootRulesUI:GetItem()") == str(DST)
-    assert carol.eval("return %s.item:IsShown() and %s.item.rules.rows[1]:IsShown()" % (p, p))
-    carol.eval("%s.item.banner.back:Click()" % p)
+    assert carol.eval("return %s.gallery.cards[1]:IsSelected()" % p)
+    assert carol.eval("return %s.item:IsVisible() and %s.item.rules.rows[1]:IsShown()" % (p, p))
+    # the History tab on the banner's foot, and back to the rules
+    carol.eval("ns.LootRulesUI:SetTab('history')")
+    assert carol.eval("return %s.item.hist:IsShown() and not %s.item.rules:IsShown()" % (p, p))
+    carol.eval("ns.LootRulesUI:SetTab('rules'); ns.LootRulesUI:OpenItem(nil)")
     w.tick(0.5)
-    assert carol.eval("return ns.LootRulesUI:GetItem() == nil and %s.gallery:IsShown()" % p)
+    assert carol.eval("return ns.LootRulesUI:GetItem()") == str(DST)
+    assert carol.eval("return %s.item.rules:IsShown()" % p)
     w.assert_no_errors()
 
 

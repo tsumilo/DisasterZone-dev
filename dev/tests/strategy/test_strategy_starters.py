@@ -125,7 +125,7 @@ def new_strategy(cl, boss, name):
     cl.slash("/dz raids")
     cl.eval("ns.RaidsUI:SetView('strategies'); ns.StrategiesUI:SelectBoss(...)", boss)
     cl.click(cl.eval("return %s.strategies.detail.newBtn" % P))
-    cl.type_text(cl.eval("return _G.DisasterZoneStrategyPrompt.edit"), name, enter=True)
+    cl.type_text(cl.eval("return ns.StrategyBoard:GetPrompt().editBox"), name, enter=True)
 
 
 @case

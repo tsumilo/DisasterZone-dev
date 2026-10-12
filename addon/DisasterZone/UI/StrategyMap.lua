@@ -12,6 +12,9 @@ local addonName, ns = ...
 
 local MapUI = ns:NewModule("StrategyMapUI")
 
+local Style = ns.Style
+local GOLD = Style.C.GOLD           -- the selection's handles, box and edges, a lit icon's glow
+
 local floor, max, min, abs, sqrt = math.floor, math.max, math.min, math.abs, math.sqrt
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 local tinsert, tremove, tsort = table.insert, table.remove, table.sort
@@ -347,31 +350,13 @@ end
 
 local mapCache
 
--- The names the client may give a raid's map, per ItemDB raid key.
-local MAP_NAMES = {
-    Karazhan = { "karazhan" },
-    GruulsLair = { "gruul" },
-    MagtheridonsLair = { "magtheridon" },
-    SerpentshrineCavern = { "serpentshrine" },
-    TempestKeep = { "tempest keep", "the eye" },
-    HyjalSummit = { "hyjal" },
-    BlackTemple = { "black temple" },
-    ZulAman = { "zul'aman", "zul aman" },
-    SunwellPlateau = { "sunwell" },
-}
-
--- The raids' uiMapIDs as the TBC clients number them (a fallback when the names don't match).
-local MAP_IDS = {
-    Karazhan = { 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362, 363, 364, 365, 366 },
-    GruulsLair = { 330 },
-    MagtheridonsLair = { 331 },
-    SerpentshrineCavern = { 332 },
-    TempestKeep = { 334 },
-    HyjalSummit = { 329 },
-    BlackTemple = { 339, 340, 341, 342, 343, 344, 345, 346 },
-    ZulAman = { 333 },
-    SunwellPlateau = { 335, 336 },
-}
+-- The names the client may give a raid's map and the raids' uiMapIDs as the TBC clients number them (a fallback when
+-- the names don't match), per ItemDB raid key: Data/Raids.lua (ns.Data.RaidMeta mapNames / mapIDs).
+local MAP_NAMES, MAP_IDS = {}, {}
+for key, m in pairs((ns.Data and ns.Data.RaidMeta) or {}) do
+    if m.mapNames then MAP_NAMES[key] = m.mapNames end
+    if m.mapIDs then MAP_IDS[key] = m.mapIDs end
+end
 
 -- DisasterZone's own raid maps (Data/RaidMaps.lua: Blizzard's floor maps, see NOTICE.md; the client has no raid map art).
 -- Each is two textures, Media/Maps/<file>_a (1024 x 512) and _b (1024 x 256, 171 rows used), of a 1024 x 683 map.
@@ -561,8 +546,8 @@ function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt, opts)
     local function entry(parent, m, short, many)
         local label = (m.shipped and short and raidKey) and self:MapShortName(m.id, raidKey .. ":x") or self:MapLabel(m)
         local who = many and floorBosses(SHIPPED_BY_ID[m.id])
-        local text = mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and ("|cffffd100" .. label .. "|r") or label)
-            .. (who and ("  |cff8a8a8a" .. who .. "|r") or "")
+        local text = mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and Style:Wrap("GOLD", label) or label)
+            .. (who and ("  " .. Style:Wrap("SUB", who)) or "")
         return parent:CreateButton(text, function() onPick(m.id) end)
     end
     local mine = self:MapsFor(bossRef)
@@ -591,8 +576,8 @@ function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt, opts)
             if #list == 1 then
                 any = true
                 local m = list[1]
-                other:CreateButton(mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and ("|cffffd100" .. self:MapLabel(m)
-                    .. "|r") or self:MapLabel(m)), function() onPick(m.id) end)
+                other:CreateButton(mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and Style:Wrap("GOLD", self:MapLabel(m))
+                    or self:MapLabel(m)), function() onPick(m.id) end)
             elseif #list > 1 then
                 any = true
                 local raid = ns.ItemDB and ns.ItemDB.GetRaid and ns.ItemDB:GetRaid(key)
@@ -600,8 +585,8 @@ function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt, opts)
                 for _, m in ipairs(list) do
                     local label = m.shipped and self:MapShortName(m.id, key .. ":x") or self:MapLabel(m)
                     local who = floorBosses(SHIPPED_BY_ID[m.id])
-                    sub:CreateButton(mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and ("|cffffd100" .. label .. "|r")
-                        or label) .. (who and ("  |cff8a8a8a" .. who .. "|r") or ""), function() onPick(m.id) end)
+                    sub:CreateButton(mapThumb(SHIPPED_BY_ID[m.id]) .. (current == m.id and Style:Wrap("GOLD", label)
+                        or label) .. (who and ("  " .. Style:Wrap("SUB", who)) or ""), function() onPick(m.id) end)
                 end
             end
         end
@@ -617,7 +602,7 @@ function MapUI:BuildMapMenu(root, bossRef, current, onPick, prompt, opts)
                 end)
         end)
     end
-    root:CreateButton((not current or current == 0) and "|cffffd100Blank (grid)|r" or "Blank (grid)",
+    root:CreateButton((not current or current == 0) and Style:Wrap("GOLD", "Blank (grid)") or "Blank (grid)",
         function() onPick(0) end)
     if opts.reset and ArtLayer(current) then
         root:CreateDivider()
@@ -685,7 +670,7 @@ function MapUI:CreateCanvas(parent, width, opts)
     f:EnableMouseWheel(true)
     self.bg = f:CreateTexture(nil, "BACKGROUND", nil, -8)
     self.bg:SetAllPoints()
-    self.bg:SetColorTexture(0.06, 0.06, 0.08, 1)
+    self.bg:SetColorTexture(Style:Color("INSET"))
     self.art = CreateFrame("Frame", nil, f)
     self.art:SetAllPoints()
     self.tiles = {}
@@ -701,16 +686,16 @@ function MapUI:CreateCanvas(parent, width, opts)
     self.handles = {}
     for i = 1, 2 do
         local h = self.top:CreateTexture(nil, "OVERLAY", nil, 7)
-        h:SetColorTexture(1, 0.85, 0.1, 1)
+        h:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
         h:SetSize(8, 8)
         h:Hide()
         self.handles[i] = h
     end
     -- the selection box being dragged
     self.marq = self.top:CreateTexture(nil, "OVERLAY", nil, 5)
-    self.marq:SetColorTexture(1, 0.85, 0.1, 0.15)
+    self.marq:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.15)
     self.marq:Hide()
-    self.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    self.hint = UI():Text(f, "small", "DIM", { wrap = true })
     self.hint:SetPoint("BOTTOMLEFT", 6, 4)
     self.hint:SetPoint("RIGHT", -6, 0)
     self.hint:SetJustifyH("LEFT")
@@ -938,7 +923,7 @@ function Canvas:RenderBackground()
                 self.grid[n] = t
             end
             t:ClearAllPoints()
-            t:SetColorTexture(1, 1, 1, 0.06)
+            t:SetColorTexture(Style:Color("HAIRLINE"))
             if horizontal then
                 t:SetPoint("TOPLEFT", self.art, "TOPLEFT", 0, -pos * self.s)
                 t:SetSize(self.w, 1)
@@ -1109,7 +1094,7 @@ function Canvas:RenderIcon(e)
     local o = acquire(self, "icon", function(L)
         local i = {}
         i.glow = L:CreateTexture(nil, "ARTWORK", nil, 2)
-        i.glow:SetColorTexture(1, 0.85, 0.1, 0.6)
+        i.glow:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.6)
         i.tex = L:CreateTexture(nil, "ARTWORK", nil, 3)
         i.fs = newFS(L)
         return i
@@ -1529,7 +1514,7 @@ function Canvas:SelBox(l, t, r, b, grouped, color, name)
         if color then
             E[i]:SetColorTexture(color[1], color[2], color[3], 0.9)
         else
-            E[i]:SetColorTexture(1, 0.85, 0.1, a)
+            E[i]:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], a)
         end
         E[i]:Show()
     end
@@ -1676,8 +1661,9 @@ function Canvas:SetHover(e)
             GameTooltip:Show()
         elseif self:Editable() and self.tool == "select" then
             GameTooltip:SetOwner(self.frame, "ANCHOR_CURSOR")
-            GameTooltip:AddLine("Not linked", 0.7, 0.7, 0.7)
-            GameTooltip:AddLine("Shift-drag it onto a table cell or column to link it.", 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine("Not linked", Style:Color("SUB"))
+            GameTooltip:AddLine("Shift-drag it onto a table cell or column to link it.", Style.C.SUB[1], Style.C.SUB[2],
+                Style.C.SUB[3], true)
             GameTooltip:Show()
         end
     end
@@ -1993,23 +1979,17 @@ local function snap(v)
     return floor(v / 10 + 0.5) * 10
 end
 
+-- What follows the mouse while a drawing is Shift-dragged onto the tables: the shared chip (gold-edged), its words.
 local ghost
 local function linkGhost()
     if ghost then return ghost end
-    ghost = CreateFrame("Frame", nil, UIParent)
-    ghost:SetSize(10, 18)
+    ghost = UI():CreateChip(UIParent, { kind = "you", selected = true })
     ghost:SetFrameStrata("TOOLTIP")
-    ghost.bg = ghost:CreateTexture(nil, "BACKGROUND")
-    ghost.bg:SetAllPoints()
-    ghost.bg:SetColorTexture(0, 0, 0, 0.8)
-    ghost.fs = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    ghost.fs:SetPoint("LEFT", 4, 0)
     ghost:SetScript("OnUpdate", function(self)
         local x, y = GetCursorPosition()
         local s = UIParent:GetEffectiveScale()
         self:ClearAllPoints()
         self:SetPoint("LEFT", UIParent, "BOTTOMLEFT", x / s + 12, y / s)
-        self:SetWidth((self.fs:GetStringWidth() or 60) + 8)
     end)
     ghost:Hide()
     return ghost
@@ -2160,7 +2140,7 @@ function Canvas:OnDragUpdate()
         if abs(x - d.sx) + abs(y - d.sy) > 6 then
             d.mode = "link"
             local g = linkGhost()
-            g.fs:SetText("Link " .. ((e.l and e.l:gsub("\n", " ")) or MapUI:IconName(e.i) or "drawing")
+            g:Set("Link " .. ((e.l and e.l:gsub("\n", " ")) or MapUI:IconName(e.i) or "drawing")
                 .. ": drop on a player, a target or a column")
             g:Show()
         end
@@ -2355,9 +2335,9 @@ end
 -- A menu entry: an atlas icon (or the room of one, so the words line up), the words, a key in grey; red: Delete.
 local MENU_SPACER = "|TInterface\\Common\\spacer:12:12|t"
 local function menuEntry(icon, text, key, red)
-    local i = icon and (type(icon) == "string" and icon or ns.UI:AtlasIconText(icon, 12, red and { 1, 0.55, 0.55 } or nil))
+    local i = icon and (type(icon) == "string" and icon or ns.UI:AtlasIconText(icon, 12, red and Style.C.BAD or nil))
         or MENU_SPACER
-    return i .. "  " .. (red and ("|cffff8a8a" .. text .. "|r") or text) .. (key and ("  |cff8a8a8a" .. key .. "|r") or "")
+    return i .. "  " .. (red and Style:Wrap("BAD", text) or text) .. (key and ("  " .. Style:Wrap("SUB", key)) or "")
 end
 MapUI.MenuEntry = menuEntry
 
@@ -2509,9 +2489,9 @@ function Canvas:BackgroundMenu(x, y)
             self:Place({ t = "z", s = "r", x = x, y = y, w = 140, h = 100, c = self.color })
         end)
         if MapUI.clipboard and #MapUI.clipboard > 0 then
-            root:CreateButton("Paste here  |cff808080Ctrl+V|r", function() self:Paste(x, y) end)
+            root:CreateButton("Paste here  " .. Style:Wrap("SUB", "Ctrl+V"), function() self:Paste(x, y) end)
         end
-        root:CreateButton("Select all  |cff808080Ctrl+A|r", function() self:SelectAll() end)
+        root:CreateButton("Select all  " .. Style:Wrap("SUB", "Ctrl+A"), function() self:SelectAll() end)
         if self:Is3D() then
             -- the camera: look at this spot, or stand on it
             local v3 = self.v3
