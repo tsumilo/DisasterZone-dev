@@ -209,9 +209,12 @@ def old_fills_and_tombstones_are_pruned():
     bob.eval("ns.Strategy:Prune(...)", later)
     root = "ns.db.strategy['%s']" % GUILD_KEY
     assert bob.eval("local n = 0; for _ in pairs(%s.F) do n = n + 1 end; return n" % root) == 0
-    assert bob.eval("return %s.B[...]" % root, sid2) is None
+    # 1.4.1: past its 30 days in the digest the deletion is a grave (kept, out of the digest) for a year
+    assert bob.eval("return %s.B[...].del" % root, sid2) is True
     # the last fill survives for carry over
     assert bob.eval_py("return (ns.Strategy:GetLastFill(...))", sid, "other") == {"tk.1.1": K("Lee")}
+    bob.eval("ns.Strategy:Prune(...)", now(bob) + 370 * DAY)
+    assert bob.eval("return %s.B[...]" % root, sid2) is None
     w.assert_no_errors()
 
 

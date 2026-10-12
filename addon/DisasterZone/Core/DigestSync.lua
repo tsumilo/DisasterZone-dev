@@ -33,6 +33,10 @@ local addonName, ns = ...
 --     large = true,                                  -- XXU / XXG / XXD may be as large as a council member's
 --     send = function(msg, dist, target, class) end, -- the module's own sending (default: nothing in demo mode)
 --     keepHash = true,                               -- round notes keep the digest's hash (RaidPlan, Strategy)
+--     -- deletions (1.4.1, "graves"; see Graves below):
+--     tombKeep = { D = 30 * DAY },                   -- per kind: how long a deletion is in the digest
+--     graveKeep = 365 * DAY, maxGraves = 200,        -- then kept this long (out of the digest), this many at most
+--     hidden = function(root, kind, id, rec, now) end, -- true: that item is left out of the digest too
 --     -- records (Commit / StoreRecord):
 --     clean = function(kind, r) end, merge = function(root, kind, rec, live) end, changed = function() end,
 --     state = function() end,                        -- demo mode's data (Commit in demo mode)
@@ -181,9 +185,11 @@ function Engine:GetDigest()
     if not root then return out end
     local items = self.cfg.items and self.cfg.items(root) or DefaultItems(self, root)
     local itemHash = self.cfg.itemHash or DefaultItemHash
+    local graves = self.cfg.tombKeep ~= nil
+    local now = graves and Now()
     local n = 0
     for _, item in ipairs(items) do
-        local h = itemHash(root, item)
+        local h = not (graves and self:Hidden(root, item, now)) and itemHash(root, item) or nil
         if h then
             n = n + 1
             if n > self.maxItems then break end
@@ -226,6 +232,109 @@ function Engine:CleanDigest(d)
 end
 
 ---------------------------------------------------------------------------
+-- Graves (1.4.1): deletions outlive their time in the digest
+---------------------------------------------------------------------------
+
+-- A deletion (a compact tombstone, del = true) is in the digest for cfg.tombKeep[kind] after it was made, as before
+-- 1.4.1 (clients before it prune it then, so the digest hashes stay equal). After that it stays in the same kind
+-- table as a grave, out of the digest, until cfg.graveKeep (cfg.maxGraves at most, the oldest dropped first): a live
+-- copy from a member who was away all that time is refused by the module's merge (a deletion wins), and the sender
+-- gets the deletion back (XXG, ReturnGrave); a digest that lists such a copy gets it too (OnDigest). Nothing new is
+-- saved or sent: the same records in the same tables, the same messages.
+
+-- How long a deletion of that kind is in the digest (nil: the kind keeps no graves).
+function Engine:TombKeep(kind)
+    local tk = self.cfg.tombKeep
+    if type(tk) == "table" then return tk[kind] end
+    return tk
+end
+
+-- Is rec (of that kind) a grave: a deletion past its time in the digest?
+function Engine:IsGrave(kind, rec, now)
+    local tk = self:TombKeep(kind)
+    return tk ~= nil and type(rec) == "table" and rec.del and (tonumber(rec.rev) or 0) < (now or Now()) - tk or false
+end
+
+-- Is that digest item left out of the digest? Returns hidden, grave (it is one of my graves).
+function Engine:Hidden(root, item, now)
+    local kind, id = item:match("^(%u):(.+)$")
+    if not kind then return false, false end
+    local rec = root[kind] and root[kind][id]
+    if self:IsGrave(kind, rec, now) then return true, true end
+    local hook = self.cfg.hidden
+    return (hook and hook(root, kind, id, rec, now or Now())) and true or false, false
+end
+
+-- Do I hold a grave? (A store of graves only hashes "0", yet still answers a HELLO: see OnHelloDigest.)
+function Engine:HasGraves()
+    if self.cfg.tombKeep == nil then return false end
+    local root = self:Root(false)
+    if not root then return false end
+    local now = Now()
+    for _, kind in ipairs(self.kinds) do
+        if self:TombKeep(kind) and type(root[kind]) == "table" then
+            for _, rec in pairs(root[kind]) do
+                if self:IsGrave(kind, rec, now) then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- Drops the graves past cfg.graveKeep (never before tombKeep), then the oldest past cfg.maxGraves. For the module's
+-- Prune; returns true when something was dropped.
+function Engine:PruneGraves(root, now)
+    now = now or Now()
+    local graves, changed = {}, false
+    for _, kind in ipairs(self.kinds) do
+        local tk = self:TombKeep(kind)
+        local t = tk and root[kind]
+        if t then
+            local keep = max(tk, self.cfg.graveKeep or 0)
+            for id, rec in pairs(t) do
+                if rec.del and (tonumber(rec.rev) or 0) < now - keep then
+                    t[id] = nil
+                    changed = true
+                elseif self:IsGrave(kind, rec, now) then
+                    graves[#graves + 1] = { kind = kind, id = id, rev = tonumber(rec.rev) or 0 }
+                end
+            end
+        end
+    end
+    local cap = self.cfg.maxGraves
+    if cap and #graves > cap then
+        tsort(graves, function(a, b)
+            if a.rev ~= b.rev then return a.rev < b.rev end
+            if a.kind ~= b.kind then return a.kind < b.kind end
+            return a.id < b.id
+        end)
+        for i = 1, #graves - cap do root[graves[i].kind][graves[i].id] = nil end
+        changed = true
+    end
+    return changed
+end
+
+-- A record from sender (r, as sent) was refused: when it is a live copy of one of my graves, the deletion goes back
+-- to them (XXG, a whisper), once a minute per member and record.
+function Engine:ReturnGrave(kind, r, sender)
+    if type(r) ~= "table" or r.del or type(r.id) ~= "string" or type(sender) ~= "string" or Util.IsMe(sender) then
+        return
+    end
+    local root = self:Root(false)
+    local rec = root and root[kind] and root[kind][r.id]
+    if not self:IsGrave(kind, rec) then return end
+    if not RateLimit(self.T.G .. "g:" .. sender .. ":" .. kind .. r.id, 60) then return end
+    self:Send({ t = self.T.G, k = kind, r = rec }, "WHISPER", sender, "data")
+end
+
+-- StoreRecord for a record sender sent me (XXU / XXG); a refused copy of a grave gets the deletion back.
+function Engine:StoreFrom(sender, kind, r, live)
+    local ok, rec = self:StoreRecord(kind, r, live)
+    if not ok then self:ReturnGrave(kind, r, sender) end
+    return ok, rec
+end
+
+---------------------------------------------------------------------------
 -- Handlers
 ---------------------------------------------------------------------------
 
@@ -263,8 +372,20 @@ function Engine:OnDigest(sender, msg, dist)
     if not root then return end
     local mine = self.module:GetDigest()
     local want, give = {}, {}
+    local graves = self.cfg.tombKeep ~= nil
+    local now = graves and Now()
+    local itemHash = self.cfg.itemHash or DefaultItemHash
     for item, h in pairs(theirs) do
-        if mine[item] ~= h then want[#want + 1] = item end
+        if mine[item] ~= h then
+            -- (1.4.1) a record I hold as a grave: they get the deletion, and I don't ask for their copy
+            local hidden, grave = false, false
+            if graves then hidden, grave = self:Hidden(root, item, now) end
+            if not hidden then
+                want[#want + 1] = item
+            elseif grave and itemHash(root, item) ~= h then
+                give[#give + 1] = item
+            end
+        end
     end
     for item, h in pairs(mine) do
         if theirs[item] ~= h then give[#give + 1] = item end
@@ -287,7 +408,9 @@ function Engine:OnHelloDigest(sender, hash)
     if type(hash) ~= "string" or #hash > HASH_MAX or type(sender) ~= "string" then return end
     local M = self.module
     local mine = M:GetDigestHash()
-    if mine == "0" or hash == mine then return end
+    -- (1.4.1: graves only, an empty digest still answers: a member back from a long break gives me its copies, and
+    -- gets the deletions back)
+    if hash == mine or (mine == "0" and not self:HasGraves()) then return end
     if not RateLimit(self.T.D .. "h:" .. sender, ROUND_WINDOW) then return end
     local delay = self.cfg.delay()
     -- With item data still waiting in my queue the digest (and what the newcomer then asks for) would wait behind
@@ -303,7 +426,7 @@ function Engine:OnHelloDigest(sender, hash)
         local seen = self.roundSeen[sender]
         -- Somebody answered this round already (whatever their hash): the newcomer syncs with the first answer only
         -- (answeredAt in OnDigest), so one more is noise.
-        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
+        if (h == "0" and not self:HasGraves()) or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
         self.roundSeen[sender] = self.keepHash and { h = h, at = GetTime() } or { at = GetTime() }
         -- The digest waits in the bulk queue behind item data; this short claim on the (mostly idle) live prefix tells
         -- the others right away that the round is answered (older clients have no handler for it and ignore it).

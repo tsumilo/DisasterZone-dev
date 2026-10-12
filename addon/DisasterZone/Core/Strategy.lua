@@ -31,7 +31,9 @@ local tsort, tconcat = table.sort, table.concat
 
 local DAY = 86400
 local FUTURE_SLACK = 300
-local TOMBSTONE_DAYS = 30 * DAY
+local TOMBSTONE_DAYS = 30 * DAY     -- a deletion is in the digest this long; then kept as a grave (DigestSync.lua)
+local GRAVE_KEEP = 365 * DAY
+local MAX_GRAVES = 150
 local FILL_KEEP = 45 * DAY           -- fills are kept this long after their raid
 local SBD_DELAY_COUNCIL = { 0.5, 2.5 }
 local SBD_DELAY_MEMBER = { 3, 8 }
@@ -44,8 +46,8 @@ local MAX_OWN = 20                   -- strategies per owner
 local MAX_COLLAB = 10                -- collaborators per strategy
 local MAX_FILLS = 120
 local MAX_DIGEST_ITEMS = 300
--- Strategy records stored, deletions (kept TOMBSTONE_DAYS) included: with every fill they fit one digest. When full,
--- a new strategy makes room by forgetting the oldest deletion.
+-- Strategy records stored, deletions (in the digest TOMBSTONE_DAYS) included, graves not: with every fill they fit
+-- one digest. When full, a new strategy makes room by forgetting the oldest deletion.
 local MAX_RECORDS = MAX_DIGEST_ITEMS - MAX_FILLS
 local SIZE_HEADROOM = 0.1            -- of the message caps, kept free when a strategy is saved (Comm:Fits)
 local MAX_PAGES = 6
@@ -290,6 +292,7 @@ local sync = ns.DigestSync.New({
     module = Strategy, bucket = "strategy", kinds = { "B", "F" }, root = Root, send = Send, prefix = "SB",
     maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ID_LEN + 4, itemPattern = "^[BF]:%w+$", wireKey = WireKey,
     helloField = "sd", helloOrder = 40, large = true, keepHash = true,
+    tombKeep = { B = TOMBSTONE_DAYS }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     delay = function() return CanWrite(Util.PlayerKey()) and SBD_DELAY_COUNCIL or SBD_DELAY_MEMBER end,
 })
 local NextRev = sync.NextRev
@@ -748,16 +751,21 @@ local function CountLive(root)
 end
 
 -- Room to store one more strategy record (MAX_RECORDS): a new strategy forgets the oldest deletion for it; a new
--- deletion of a strategy I never had is not kept then. The same on the sender (Commit) and the receivers.
+-- deletion of a strategy I never had is not kept then. The same on the sender (Commit) and the receivers. Graves
+-- (deletions out of the digest, 1.4.1) don't count, as clients before 1.4.1 no longer hold them; a strategy is never
+-- forgotten.
 local function Room(root, live)
-    if CountTable(root.B) < MAX_RECORDS then return true end
-    if not live then return false end
-    local oldest
+    local now = Now()
+    local n, oldest = 0, nil
     for id, rec in pairs(root.B) do
-        if rec.del and (not oldest or rec.rev < root.B[oldest].rev
-            or (rec.rev == root.B[oldest].rev and id < oldest)) then oldest = id end
+        if not sync:IsGrave("B", rec, now) then
+            n = n + 1
+            if rec.del and (not oldest or rec.rev < root.B[oldest].rev
+                or (rec.rev == root.B[oldest].rev and id < oldest)) then oldest = id end
+        end
     end
-    if not oldest then return false end
+    if n < MAX_RECORDS then return true end
+    if not live or not oldest then return false end
     root.B[oldest] = nil
     return true
 end
@@ -765,8 +773,9 @@ end
 -- Strategies (user rule 2026-10-04): a deletion wins. Its owner's or a moderator's deletion replaces the strategy
 -- whatever the revs (one that crossed a later edit still deletes it), and no edit brings a deleted strategy back
 -- (Copy makes a new one); a deletion from anyone else never counts, so the strategy replaces it. Otherwise the newer
--- record wins (Newer) if it may (Allowed). Every client ends up with the same, whatever the order things arrive in;
--- a copy that comes back after the deletion was pruned (TOMBSTONE_DAYS, Room) is a strategy again, for everyone.
+-- record wins (Newer) if it may (Allowed). Every client ends up with the same, whatever the order things arrive in.
+-- 1.4.1: a deletion stays a grave for a year (DigestSync.lua), so a copy from a member who was away that long is
+-- refused and they get the deletion back (it still comes back after a deletion Room forgot, or after that year).
 local function MergeStrategy(root, cur, rec)
     local live = cur and not cur.del and cur or nil
     if rec.del then
@@ -849,13 +858,13 @@ end
 local function OnUpdate(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.r) ~= "table" or WireKey(msg.r.by) ~= sender then return end
     if msg.k ~= "B" and msg.k ~= "F" then return end
-    if StoreRecord(msg.k, msg.r) then Changed() end
+    if StoreRecord(msg.k, msg.r) then Changed() else sync:ReturnGrave(msg.k, msg.r, sender) end
 end
 
 -- SBG { k, r }: one item, relayed by anyone in the guild.
 local function OnGive(sender, msg, dist)
     if dist ~= "WHISPER" or (msg.k ~= "B" and msg.k ~= "F") or type(msg.r) ~= "table" then return end
-    if StoreRecord(msg.k, msg.r) then Changed() end
+    if StoreRecord(msg.k, msg.r) then Changed() else sync:ReturnGrave(msg.k, msg.r, sender) end
 end
 
 ---------------------------------------------------------------------------
@@ -1723,10 +1732,8 @@ function Strategy:Prune(now)
     local root = Root(false)
     if not root then return end
     now = now or Now()
-    local changed = false
-    for id, rec in pairs(root.B) do
-        if rec.del and rec.rev < now - TOMBSTONE_DAYS then root.B[id] = nil; changed = true end
-    end
+    -- deleted strategies: graves after TOMBSTONE_DAYS, dropped after GRAVE_KEEP (DigestSync.lua)
+    local changed = sync:PruneGraves(root, now)
     for id, f in pairs(root.F) do
         if f.t < now - FILL_KEEP then root.F[id] = nil; changed = true end
     end

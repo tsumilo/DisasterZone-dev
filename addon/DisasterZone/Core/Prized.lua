@@ -43,7 +43,9 @@ local MAX_GIVEN = 600                 -- hand-outs kept
 local MAX_HIST = 400                  -- rule changes kept
 local GIVEN_KEEP = 400 * DAY
 local HIST_KEEP = 365 * DAY
-local TOMBSTONE_KEEP = 60 * DAY
+local TOMBSTONE_KEEP = 60 * DAY    -- a deletion is in the digest this long; then kept as a grave (DigestSync.lua)
+local GRAVE_KEEP = 365 * DAY
+local MAX_GRAVES = 100
 local MAX_WHY = 140
 local MAX_TEXT = 200
 local MAX_QUEUE = 12
@@ -88,6 +90,7 @@ local SYNC = {
     module = Prized, bucket = "prized", kinds = { "G", "H", "I" }, prefix = "PZ",
     maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ITEM_LEN + 2, itemPattern = "^[IGH]:", wireKey = WireKey,
     helloField = "zd", helloOrder = 70, large = true, changed = Changed,
+    tombKeep = { I = TOMBSTONE_KEEP }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     tooBig = "this change is too big to share with the guild.",
     delay = function() return Prized:CanEdit() and DELAY_WRITER or DELAY_MEMBER end,
 }
@@ -506,7 +509,6 @@ end
 SYNC.clean = function(kind, r) return CLEAN[kind](r) end
 SYNC.merge, SYNC.state = Merge, State
 
-local function StoreRecord(kind, r, live) return sync:StoreRecord(kind, r, live) end
 
 -- My own change: stored (merged like anyone's), then sent to the guild. Returns ok, the clean record.
 local function Commit(kind, rec) return sync:Commit(kind, rec) end
@@ -1166,7 +1168,7 @@ end
 local function OnUpdate(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.r) ~= "table" or WireKey(msg.r.by) ~= sender then return end
     if not KINDS[msg.k] then return end
-    local ok, rec = StoreRecord(msg.k, msg.r, true)
+    local ok, rec = sync:StoreFrom(sender, msg.k, msg.r, true)
     if not ok then return end
     Changed()
     if msg.k == "H" and not Util.IsMe(rec.by) then ns:Fire("PRIZED_RULES_CHANGED", rec.i, rec.t, rec.by) end
@@ -1175,7 +1177,7 @@ end
 -- PZG { k, r }: one record, relayed by anyone in the guild.
 local function OnGive(sender, msg, dist)
     if dist ~= "WHISPER" or not KINDS[msg.k] or type(msg.r) ~= "table" then return end
-    if StoreRecord(msg.k, msg.r) then Changed() end
+    if sync:StoreFrom(sender, msg.k, msg.r) then Changed() end
 end
 
 ---------------------------------------------------------------------------
@@ -1186,10 +1188,8 @@ function Prized:Prune(now)
     local root = Root(false)
     if not root then return end
     now = now or Now()
-    local changed = false
-    for id, r in pairs(root.I) do
-        if r.del and r.rev < now - TOMBSTONE_KEEP then root.I[id] = nil; changed = true end
-    end
+    -- removed items: graves after TOMBSTONE_KEEP, dropped after GRAVE_KEEP (DigestSync.lua)
+    local changed = sync:PruneGraves(root, now)
     for id, g in pairs(root.G) do
         if (g.at or 0) < now - GIVEN_KEEP then root.G[id] = nil; changed = true end
     end

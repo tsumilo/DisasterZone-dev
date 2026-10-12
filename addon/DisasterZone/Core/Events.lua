@@ -27,7 +27,9 @@ local strformat, strsub = string.format, string.sub
 
 local DAY = 86400
 local KINDS = { D = true, K = true, O = true, J = true, R = true, C = true, T = true }
-local TOMBSTONE_KEEP = 30 * DAY
+local TOMBSTONE_KEEP = 30 * DAY    -- a deletion is in the digest this long; then kept as a grave (DigestSync.lua)
+local GRAVE_KEEP = 365 * DAY
+local MAX_GRAVES = 300
 local OCC_KEEP = 60 * DAY          -- calendar events are kept this long after their day
 local SIGNUP_KEEP = 7 * DAY        -- and their sign-ups this long after the start (the run took them then)
 local RESULT_KEEP = 400 * DAY
@@ -93,11 +95,30 @@ local SYNC = {
     module = Events, bucket = "events", kinds = { "C", "D", "J", "K", "O", "R", "T" }, prefix = "EV",
     maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ITEM_LEN, itemPattern = "^%u:", wireKey = WireKey,
     helloField = "ed", helloOrder = 50, large = true, changed = Changed,
+    tombKeep = { D = TOMBSTONE_KEEP, O = TOMBSTONE_KEEP }, graveKeep = GRAVE_KEEP, maxGraves = MAX_GRAVES,
     tooBig = "this event is too big to share with the guild: take some pieces out.",
     delay = function() return Events:AmIReviewer() and DELAY_REVIEWER or DELAY_MEMBER end,
 }
 local sync = ns.DigestSync.New(SYNC)
 local Newer = sync.Newer
+
+-- A record that is gone, or a grave (a deletion past its time in the digest): nil, else the record.
+local function Kept(root, kind, id, now)
+    local r = id ~= nil and root[kind][id] or nil
+    if r == nil or sync:IsGrave(kind, r, now) then return nil end
+    return r
+end
+
+-- The reviews of a library event and the sign-ups of a calendar event that are graves are out of the digest too
+-- (clients before 1.4.1 prune them together).
+SYNC.hidden = function(root, kind, id, rec, now)
+    if kind == "K" then return root.D[id] ~= nil and Kept(root, "D", id, now) == nil end
+    if kind == "J" then
+        local o = rec and rec.o or id:match("^(.+)/[^/]+$")
+        return o ~= nil and root.O[o] ~= nil and Kept(root, "O", o, now) == nil
+    end
+    return false
+end
 
 local function Root(create) return sync:Root(create) end
 
@@ -563,6 +584,8 @@ local function Merge(root, kind, rec, live)
         if cur and not Newer(rec, cur) and not (rec.del and not cur.del) then return false end
     elseif kind == "K" then
         if not Events:CanReview(rec.by) then return false end
+        -- (1.4.1) never a review of an event deleted long ago (a grave)
+        if root.D[rec.id] and not Kept(root, "D", rec.id) then return false end
         if cur and not Newer(rec, cur) then return false end
     elseif kind == "O" then
         -- h is its host (who put it on the calendar), by its last writer: the host, or the GM / an officer / the guild
@@ -575,6 +598,8 @@ local function Merge(root, kind, rec, live)
             return false
         end
         if cur and cur.del and not rec.del then return false end
+        -- (1.4.1) one Prune drops (OCC_KEEP after its day) is not taken back from someone's store
+        if not live and not rec.del and (rec.at or 0) < Now() - OCC_KEEP then return false end
         if not cur and not rec.del and CountLive(t) >= MAX_OCC then return false end
         if cur and not Newer(rec, cur) and not (rec.del and not cur.del) then return false end
         -- ranked only by a review (an edit of one that was ranked keeps it, for the same revision)
@@ -583,7 +608,7 @@ local function Merge(root, kind, rec, live)
             return false
         end
     elseif kind == "R" then
-        local occ = root.O[rec.id]
+        local occ = Kept(root, "O", rec.id)
         local host = occ and (occ.h or occ.by)
         if rec.del then
             if not (Events:CanRemove(rec.by) or (cur and cur.by == rec.by)) then return false end
@@ -618,8 +643,6 @@ SYNC.clean, SYNC.merge, SYNC.state = CleanRecord, Merge, State
 SYNC.prepare = function(kind, rec)
     if kind == "D" and type(rec.review) == "table" and rec.review.rev == true then rec.review.rev = rec.rev end
 end
-
-local function StoreRecord(kind, r, live) return sync:StoreRecord(kind, r, live) end
 
 -- My own change: stored (merged like anyone's), then sent to the guild (demo mode: its own data changes, with a
 -- revision like a real one; nothing is stored or sent). Returns ok.
@@ -1301,7 +1324,7 @@ end
 local function OnUpdate(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.r) ~= "table" or WireKey(msg.r.by) ~= sender then return end
     if not KINDS[msg.k] then return end
-    local ok, rec = StoreRecord(msg.k, msg.r, true)
+    local ok, rec = sync:StoreFrom(sender, msg.k, msg.r, true)
     if ok then
         if msg.k == "K" then
             local d = Events:GetDef(msg.r.id)
@@ -1319,7 +1342,7 @@ end
 -- EVG { k, r }: one record, relayed by anyone in the guild.
 local function OnGive(sender, msg, dist)
     if dist ~= "WHISPER" or not KINDS[msg.k] or type(msg.r) ~= "table" then return end
-    if StoreRecord(msg.k, msg.r) then
+    if sync:StoreFrom(sender, msg.k, msg.r) then
         Events.rankCache = nil
         Changed()
     end
@@ -1333,25 +1356,26 @@ function Events:Prune(now)
     local root = Root(false)
     if not root then return end
     now = now or Now()
-    local changed = false
+    -- deleted library and calendar events: graves after TOMBSTONE_KEEP, dropped after GRAVE_KEEP (DigestSync.lua)
+    local changed = sync:PruneGraves(root, now)
     for kind in pairs(KINDS) do
         for id, r in pairs(root[kind]) do
             local drop = false
             -- (a deleted result is remembered as long as results are kept: a member back from a long break must not
             -- bring it back)
-            if r.del and r.rev < now - (kind == "R" and RESULT_KEEP or TOMBSTONE_KEEP) then drop = true end
+            if r.del and kind == "R" and r.rev < now - RESULT_KEEP then drop = true end
             if kind == "O" and not r.del and (r.at or 0) < now - OCC_KEEP then drop = true end
             if kind == "R" and not r.del and (r.at or 0) < now - RESULT_KEEP then drop = true end
             if drop then root[kind][id] = nil; changed = true end
         end
     end
     for id, j in pairs(root.J) do
-        local o = root.O[j.o]
+        local o = Kept(root, "O", j.o, now)
         if not o or (not o.del and (o.at or 0) < now - SIGNUP_KEEP) then root.J[id] = nil; changed = true end
     end
-    -- reviews of events gone from the library (and the ranked copies a reviewer kept of them)
+    -- reviews of events gone from the library or deleted long ago (and the ranked copies a reviewer kept of them)
     for id in pairs(root.K) do
-        if not root.D[id] then root.K[id] = nil; changed = true end
+        if not Kept(root, "D", id, now) then root.K[id] = nil; changed = true end
     end
     local snaps = ns.DB:GuildBucket("eventSnaps")
     for id in pairs(snaps or {}) do
