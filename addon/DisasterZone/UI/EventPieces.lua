@@ -50,17 +50,20 @@ EP.FOOT = 15        -- its foot
 EP.MID = 24         -- its "else" bar
 EP.FOOT_W = 78
 EP.TAB_X = 14
-EP.FONT_SIZE = 11
+EP.FONT_SIZE = ns.Style.FONT.body       -- 11
 EP.LINE_H = 19      -- a line of words and blanks when a piece takes more than one (the palette)
 EP.LINE_GAP = 4
 local spaceW        -- between two words of one sentence part drawn apart (a piece on two lines): a space's width
 
 local function B() return ns.EventBlocks end
 local function UI() return ns.UI end
+local St = ns.Style
 
+-- The pieces' own looks (a blank that needs a value, a dark well, a practice run's live value); the blank being
+-- edited is edged in the design gold.
 local NEED = { fill = { 1, 0.55, 0.10, 0.16 }, edge = { 1, 0.59, 0.16, 0.95 }, text = { 1, 0.83, 0.64 } }
 local WELL = { fill = { 0.03, 0.03, 0.04, 0.62 }, edge = { 1, 1, 1, 0.16 }, text = { 1, 1, 1 } }
-local HOT = { 1, 0.82, 0, 0.95 }
+local HOT = { St.C.GOLD[1], St.C.GOLD[2], St.C.GOLD[3], 0.95 }
 local LIVE = { fill = { 1, 0.94, 0.67, 0.16 }, edge = { 1, 0.9, 0.55, 0.85 }, text = { 1, 0.97, 0.84 } }
 
 ---------------------------------------------------------------------------
@@ -71,17 +74,8 @@ local holder = CreateFrame("Frame")
 holder:Hide()
 local pools = { piece = {}, blank = {}, script = {} }
 
-local function Sized(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
-    return fs
-end
-
--- A text's whole width on one line (GetStringWidth stops at a width the string was given on this client).
-local function SW(fs)
-    if fs.GetUnboundedStringWidth then return fs:GetUnboundedStringWidth() or 0 end
-    return fs:GetStringWidth() or 0
-end
+-- A text's whole width on one line (UI:TextWidth: GetStringWidth stops at a width the string was given).
+local function SW(fs) return UI():TextWidth(fs) end
 EP.TextWidth = SW
 
 -- The i-th extra texture / font string of a frame (made on first use, hidden when not used).
@@ -109,7 +103,7 @@ local function Font(f, i)
         fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         fs:SetWordWrap(false)
         fs:SetJustifyH("LEFT")
-        Sized(fs, EP.FONT_SIZE)
+        UI():SetTextStyle(fs, EP.FONT_SIZE, WELL.text)
         fs:SetShadowOffset(1, -1)
         fs:SetShadowColor(0, 0, 0, 0.85)
         f.fonts[i] = fs
@@ -216,7 +210,9 @@ local function Paint(t, c, a)
     t:SetVertexColor(c[1], c[2], c[3], a or c[4] or 1)
 end
 
-local function Grad(t, top, bottom)
+-- (a vertical gradient over a shape of the atlas: UI:Gradient would swap the shape for a flat texture)
+-- TODO(refactor): move into UI:Gradient (an option that keeps the texture under the gradient)
+local function ShapeGradient(t, top, bottom)
     if t.SetGradient and CreateColor then
         t:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], 1), CreateColor(top[1], top[2], top[3], 1))
     else
@@ -228,7 +224,7 @@ local function Mix(a, b, k) return { a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[
 
 -- The part of a top -> bottom fill between ya and yb of a shape h high.
 local function GradSpan(t, top, bottom, ya, yb, h)
-    Grad(t, Mix(top, bottom, ya / h), Mix(top, bottom, yb / h))
+    ShapeGradient(t, Mix(top, bottom, ya / h), Mix(top, bottom, yb / h))
 end
 
 -- A round shape over the whole w x h of f (a value, a well, a chip): its two ends and its middle, filled (top, bottom:
@@ -277,8 +273,8 @@ local function Round(k, f, w, h, top, bottom, edge, ea)
 end
 
 -- A hexagon (yes / no) over f's w x h: its pointed ends (stretched when taller) and its middle. Textures 1-7.
-local function Hex(k, f, w, h, top, bottom, edge, ea)
-    local function fill(t) if bottom then Grad(t, top, bottom) else Paint(t, top) end end
+local function Hexagon(k, f, w, h, top, bottom, edge, ea)
+    local function fill(t) if bottom then ShapeGradient(t, top, bottom) else Paint(t, top) end end
     local L, R = k.tex(1, "BACKGROUND", 1), k.tex(2, "BACKGROUND", 1)
     Shape(L, "hexL"); Shape(R, "hexR")
     L:SetSize(10, h); R:SetSize(10, h)
@@ -304,7 +300,7 @@ local function Body(k, f, n, x, y, w, h, f2, f1, e, opts)
     local body = k.tex(n, "BACKGROUND", 1)
     body:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
     body:SetSize(w, h)
-    Grad(body, f2, f1)
+    ShapeGradient(body, f2, f1)
     local hl = k.tex(n + 1, "BACKGROUND", 2)
     hl:SetPoint("TOPLEFT", f, "TOPLEFT", x + 1, -y - 1)
     hl:SetSize(max(1, w - 2), 1)
@@ -535,7 +531,8 @@ local function BlankMouse(ctx, f, piece, slot)
     if not f.hl then
         f.hl = f:CreateTexture(nil, "HIGHLIGHT")
         f.hl:SetTexture(WHITE)
-        f.hl:SetVertexColor(1, 1, 1, 0.06)
+        local r, g, b = St:Color("HAIRLINE")
+        f.hl:SetVertexColor(r, g, b, 0.06)
         f.hl:SetAllPoints()
     end
 end
@@ -679,7 +676,7 @@ local function BuildBlank(ctx, parent, piece, slot, a, v)
         local cat = pd and Bk.CAT[pd.cat]
         local pe = cat and cat.e
         local ec = hot and HOT or (required and NEED.edge) or { (pe or edge)[1], (pe or edge)[2], (pe or edge)[3], 0.75 }
-        Hex(k, f, w, h, fill, nil, ec)
+        Hexagon(k, f, w, h, fill, nil, ec)
     elseif box then
         local mid = k.tex(1, "BACKGROUND", 1)
         mid:SetAllPoints()
@@ -803,7 +800,7 @@ end
 local function Space()
     if spaceW then return spaceW end
     local fs = holder:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    Sized(fs, EP.FONT_SIZE)
+    UI():SetTextStyle(fs, EP.FONT_SIZE, WELL.text)
     fs:SetText("x x")
     local a = SW(fs)
     fs:SetText("xx")
@@ -969,7 +966,7 @@ local function BuildValue(ctx, parent, p, pd)
     f:SetSize(w, h)
     local ec = liveOn and LIVE.edge or c.e
     if hex then
-        Hex(k, f, w, h, c.f2, c.f, ec, 0.85)
+        Hexagon(k, f, w, h, c.f2, c.f, ec, 0.85)
     else
         Round(k, f, w, h, c.f2, c.f, ec, 0.85)
     end

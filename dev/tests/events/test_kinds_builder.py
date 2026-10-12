@@ -396,10 +396,10 @@ def a_definition_that_pieces_use_is_deleted_only_after_asking():
     conf = c.eval_py("return { T_UI().confirm:IsShown(), T_UI().confirm.title:GetText(), T_UI().confirm.text:GetText() }")
     assert conf[0] and conf[1] == "Delete Hiders?" and conf[2].startswith("%d pieces use it" % uses), conf
     assert c.eval("return T_D().tags.tg1 ~= nil")
-    c.eval("T_UI().confirm.cancel:Click()")
+    c.eval("T_UI().confirm.button2:Click()")
     assert c.eval("return T_D().tags.tg1 ~= nil")
     # the editor's bin: the same question; yes deletes it, the pieces that used it say so
-    c.eval("T_UI().pal.rowOf['tags:tg1']:Click(); T_UI().dpop.bin:Click(); T_UI().confirm.ok:Click()")
+    c.eval("T_UI().pal.rowOf['tags:tg1']:Click(); T_UI().dpop.bin:Click(); T_UI().confirm.button1:Click()")
     assert c.eval("return T_D().tags.tg1 == nil")
     probs = c.eval_py("local o = {}; for _, p in ipairs(ns.EventBlocks:Problems(T_D())) do o[#o + 1] = p.text end; return o")
     assert "That tag is gone." in probs, probs
@@ -413,7 +413,7 @@ def a_definition_that_pieces_use_is_deleted_only_after_asking():
     # a place leaves the lists of places too
     open_example(c, "race", "s2", "pc")
     n = c.eval("return #T_D().lists.ls1.items")
-    c.eval("T_B.MapSheet:Open({ pid = 'pc3' }); T_UI().msheet.bin:Click(); T_UI().confirm.ok:Click()")
+    c.eval("T_B.MapSheet:Open({ pid = 'pc3' }); T_UI().msheet.bin:Click(); T_UI().confirm.button1:Click()")
     assert c.eval("return T_D().places.pc3 == nil and #T_D().lists.ls1.items") == n - 1
     assert not c.eval("return T_UI().msheet:IsShown()")
     w.assert_no_errors()

@@ -293,7 +293,8 @@ def the_stage_strip_fits_between_the_name_and_the_buttons():
         for _, p in ipairs(S.practice and top.prac.pills or top.pills) do
           if p:IsShown() and p.stage and p.stage ~= '*' and not p.fs:IsShown() then num[#num + 1] = p.tipTitle or '?' end
         end
-        return { strip:GetRight(), right, num, top.name:GetRight() < strip:GetLeft() }"""
+        -- (the name is the banner's title: the strip has the tool row under it)
+        return { strip:GetRight(), right, num, top.banner:GetBottom() >= strip:GetTop() and strip:GetLeft() >= top:GetLeft() }"""
     # the starter plus a stage named "Bonus round" pushed Always under undo
     c.eval("local d = ns.Events:NewDef(true); table.insert(d.stages, { id = 's5', name = 'Bonus round' }); "
            "ns.Events:SaveDef(d); ns.EventBuilder:Open(ns.Events:GetDef(d.id), { stage = 's2' })")
