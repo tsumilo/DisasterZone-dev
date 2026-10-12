@@ -433,7 +433,11 @@ def selftest_runs_the_whole_addon_from_the_store_on_the_development_copy():
         sb.run("keygen", "--height", "3")
         set_version(sb.addon, "1.0.0")
         sb.run("selftest")
-        n_files = len(release.patchable_files(sb.addon))
+        # the addon no longer fits one update (1.4: 13.6 MB): parts that each fit, together every patchable file
+        parts = release.selftest_parts(sb.addon)
+        assert sorted(f for p in parts for f in p) == sorted(release.patchable_files(sb.addon)), parts
+        n_files = len(parts[0])
+        tag = "1.0.0-selftest" + ("-1of%d" % len(parts) if len(parts) > 1 else "")
         base_dir, record = release_of(sb.addon)
         w = World(addon_dir=sb.addon)
         bystander = member(w, "Member", base_dir)                 # a member on a real release
@@ -442,16 +446,16 @@ def selftest_runs_the_whole_addon_from_the_store_on_the_development_copy():
         dev.load_addon()
         w.tick(2)
         dev.slash("/dz publish")
-        w.run_until(lambda: any("published update 1.0.0-selftest" in l for l in dev.chat_frame), timeout=300)
+        w.run_until(lambda: any("published update " + tag in l for l in dev.chat_frame), timeout=300)
         assert boot_state(dev)["applied"] is None
         dev.slash("/dzpatch try")
         dev.relog()
         w.tick(3)
         s = boot_state(dev)
-        assert s["state"] == "applied" and s["applied"]["files"] == n_files and s["version"] == "1.0.0-selftest", s
+        assert s["state"] == "applied" and s["applied"]["files"] == n_files and s["version"] == tag, s
         assert s["init"] and s["loggedIn"] and s["errors"] == 0
         lines = dev.eval_py("return DisasterZoneBoot.StatusLines()")
-        assert any("running an in-game update: 1.0.0-selftest" in l for l in lines), lines
+        assert any("running an in-game update: " + tag in l for l in lines), lines
         dev.relog()
         w.tick(3)
         assert boot_state(dev)["state"] == "base" and boot_state(dev)["version"] == "1.0.0"
