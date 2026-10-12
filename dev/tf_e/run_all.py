@@ -11,8 +11,9 @@ line per suite as it finishes. Usage:
 - Longest first: each run records how long every suite took (tf_e/timings.json) and the next run starts the slowest
   ones first, so one long suite does not start last and hold up the end of the run.
 - Shards: the suites in SHARDS are split into n processes run side by side (DZ_SHARD="i/n", see harness.in_shard).
-- Machine-wide slots: every run_all on this machine shares SLOTS worker slots (lock files in tf_e/.slots/), so two
-  agents running suites at once share the CPU instead of each starting a full set of workers. -j N caps this
+- Machine-wide slots: every run_all on this machine, from any checkout or worktree, shares SLOTS worker slots (lock
+  files in %LOCALAPPDATA%\\DisasterZone\\test-slots), so agents running suites at once share the CPU instead of each
+  starting a full set of workers. -j N caps this
   run's own workers (default: all slots).
 - A suite is not started while less than MIN_FREE_MB of memory is free (unless nothing of this run is running).
 - -x (fail fast): suites that failed last time start first, and after the first failure no new suite starts (the
@@ -44,7 +45,10 @@ SCRATCH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = os.path.join(SCRATCH, "luaenv", "Scripts", "python.exe")
 TF_E = os.path.join(SCRATCH, "tf_e")
 TIMINGS = os.path.join(TF_E, "timings.json")
-SLOT_DIR = os.path.join(TF_E, ".slots")
+# One folder for the whole machine, not per checkout: with tf_e/.slots every worktree (C:\Users\emilo\DZ-wt\...) had
+# its own 8 slots, and three sessions testing at once ran 24 suites on 12 cores (2026-10-12: the PC crawled).
+SLOT_DIR = os.environ.get("DZ_SLOT_DIR") or os.path.join(
+    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "DisasterZone", "test-slots")
 # 8 on this machine (12 cores, 20 threads): measured 2026-10-12 on 46 suites, 8 workers finished in 113 s, 12 in 119 s
 # (each suite ran 1.6x slower: the Lua heaps fight over memory and caches) and 6 in 126 s.
 SLOTS = int(os.environ.get("DZ_TEST_SLOTS") or max(2, min(8, (os.cpu_count() or 8) - 6)))
