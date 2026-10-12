@@ -1,41 +1,43 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterDetail.lua", ...) then return end -- DisasterZone: meter breakdown + death recap.
--- The window a click on a meter bar opens (the approved mockup, My BiS / My Log look): a banner of the raid's loading
--- screen with the player's class in a gold ring, their spec and the fight; arrows through the players in the mode's
--- order; a chip to switch fights; four stat cards; underline tabs:
+-- The window a click on a meter bar opens: a tool window (UI:CreateWindow + the "tool" layout, its place saved like
+-- every window's). The tool banner shows the raid's loading screen, the player's spec in its icon tile, the meter as
+-- the kicker, the name in class colour and the spec and fight under it; the tool row has the tabs on the left (and
+-- what they hold), the arrows through the players in the mode's order and the fight switch on the right. The body:
+-- four stat cards, then the tab:
 --   Abilities  every ability with its share; picking one shows how it hit (hits, crits, glancing, misses with their
 --              averages, the biggest hit, the share of all) in a card on the right
---   Targets    damage by enemy (the boss's journal picture, a skull for the rest)       (damage modes only)
+--   Targets    damage by enemy (the boss's journal picture, a skull for the rest) as art rows (damage modes only)
 --   Over time  the player's damage (or healing) per 5 s against the raid's average     (not for Whole raid)
 -- In Deaths mode a click opens the death recap instead: health over the last 10 seconds and every hit and heal that
--- landed, newest first, the killing blow marked; arrows through the fight's deaths.
+-- landed, newest first, the killing blow marked; the arrows go through the fight's deaths.
+-- Built from the shared parts: cards UI:CreateCard, icons UI:CreateIconTile, rows UI:DecorateRow / UI:CreateArtRow,
+-- column titles UI:CreateColumnHeader, block headings UI:CreateSectionHeader, empty states UI:CreateEmptyState, text
+-- UI:Text on the type scale, colours ns.Style; the charts are My Log's (MyLogKit.Chart).
 local addonName, ns = ...
 
 local MD = ns:NewModule("MeterDetail")
+local UI = ns.UI
+local S = ns.Style
 
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
-local pairs, ipairs, type, tonumber, tostring = pairs, ipairs, type, tonumber, tostring
+local pairs, ipairs, tostring = pairs, ipairs, tostring
 local strformat = string.format
 local tsort = table.sort
 
-local W, H = 780, 586
-local BANNER_H = 112
-local PAD = 18
-local CARD_Y, CARD_H = -BANNER_H - 8, 58
-local TABS_Y = CARD_Y - CARD_H - 14
-local BODY_Y = TABS_Y - 30
-local ROW_H, TROW_H, EROW_H = 46, 52, 32
+local W, H = 780, 620                          -- the window; its content is W - 10 wide
+local INNER_W = W - 10 - 2 * S.PAD             -- the tool layout's body width (750)
+local BODY_H = H - (ns.UI.WIN_HEAD + 6) - S.PAD - S.BANNER.tool - S.GAP - (ns.UI.LAYOUT and ns.UI.LAYOUT.ROW_H or 26)
+    - S.GAP - S.PAD                           -- (the body's height before the first layout: the charts' fallback)
+local CARD_H = 58
+local LIST_Y = CARD_H + S.GAP                  -- the list / chart area under the cards
+local ROW_H, EROW_H = S.ROW.rich, 30
 local DETAIL_W = 300
-local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
+local LIST_W = INNER_W - DETAIL_W - S.GAP - 12
 
--- Raid instance ids -> the Raids page's art keys (RaidPlanUI:RaidArt)
-local ART_KEY = { [532] = "kara", [565] = "gruul", [544] = "mag", [548] = "ssc", [550] = "tk", [534] = "hyjal",
-                  [564] = "bt", [568] = "za", [580] = "swp" }
-
-local Meter, K, Kit
+local Meter, Kit
+local K = ns.MeterWindow.K
 local frame
-local S = { sel = "cur", guid = nil, mode = "damage", tab = "abilities", ab = nil, view = "player", death = nil }
-
-local function C3(c) return c[1], c[2], c[3] end
+local St = { sel = "cur", guid = nil, mode = "damage", tab = "abilities", ab = nil, view = "player", death = nil }
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -47,26 +49,14 @@ local function Count(n, word)
     return K.Int(n) .. " " .. word
 end
 
-local function Ordinal(n)
-    local s = (n % 10 == 1 and n % 100 ~= 11) and "st" or (n % 10 == 2 and n % 100 ~= 12) and "nd"
-        or (n % 10 == 3 and n % 100 ~= 13) and "rd" or "th"
-    return n .. s
-end
-
-local function SpecText(a)
-    local cls = a.c and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[a.c] or a.c) or ""
-    local spec = a.s and (a.s:gsub(" %((.-)%)", "")) or nil
-    if a.s == "Feral (Bear)" then spec = "Guardian" end
-    return spec and (spec .. " " .. cls) or cls
-end
-
 local function FightText(seg)
     if not seg then return "" end
     local parts = { Meter:SegName(seg) }
     if seg.kind == "boss" and not seg.live then
-        parts[#parts + 1] = seg.kill and "|cff45d474Kill|r" or ("|cffff7e6bWipe" .. (seg.pct and strformat(" %d%%", floor(seg.pct + 0.5)) or "") .. "|r")
+        parts[#parts + 1] = seg.kill and S:Wrap("OK", "Kill")
+            or S:Wrap("BAD", "Wipe" .. (seg.pct and strformat(" %d%%", floor(seg.pct + 0.5)) or ""))
     elseif seg.live then
-        parts[#parts + 1] = "|cffff6a55Live|r"
+        parts[#parts + 1] = S:Wrap("LIVE", "Live")
     end
     parts[#parts + 1] = K.Clock(Meter:Duration(seg))
     return table.concat(parts, " · ")
@@ -85,271 +75,255 @@ local function Ranked(seg, mode)
     return rows, m
 end
 
+-- The meter's name for the banner's kicker.
+local function ModeLabel(mode)
+    local info = Meter.MODE and Meter.MODE[mode]
+    return info and info.label or ""
+end
+
 ---------------------------------------------------------------------------
 -- The frame
 ---------------------------------------------------------------------------
 
-local function Text(parent, size, c, font)
-    local fs = K.Font(parent, font or K.FRIZ, size, c)
-    fs:SetJustifyH("LEFT")
-    return fs
-end
-
-local function NewCard(parent)
-    local c = Kit.Card(parent, { 0.102, 0.102, 0.122 }, 0.07)
-    c:SetHeight(CARD_H)
-    c.icon = Kit.Icon(c, 34)
+-- A stat card: the shared card with an icon tile, a big number (a note beside it: the rank), a caption.
+local function NewStatCard(parent)
+    local c = UI:CreateCard(parent, { tone = "card", height = CARD_H })
+    c.icon = UI:CreateIconTile(c, 34)
     c.icon:SetPoint("LEFT", c, "LEFT", 12, 0)
-    c.num = Text(c, 20, { 1, 1, 1 })
+    c.num = UI:Text(c, "hero", { 1, 1, 1 }, { shadow = true })
     c.num:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 11, 1)
-    c.extra = Text(c, 13, K.GREEN)
+    c.extra = UI:Text(c, "title", "OK", { shadow = true })
     c.extra:SetPoint("BOTTOMLEFT", c.num, "BOTTOMRIGHT", 6, 1)
-    c.lab = Text(c, 12.5, K.DIM)
+    c.lab = UI:Text(c, "body", "SUB")
     c.lab:SetPoint("BOTTOMLEFT", c.icon, "BOTTOMRIGHT", 11, 0)
     return c
 end
 
-local function Build()
-    K, Kit = ns.MeterWindow.K, ns.MyLogKit
-    frame = CreateFrame("Frame", "DisasterZoneMeterDetail", UIParent)
-    frame:SetSize(W, H)
-    frame:SetFrameStrata("DIALOG")
-    frame:SetToplevel(true)
-    frame:SetClampedToScreen(true)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
-    if UISpecialFrames then tinsert(UISpecialFrames, "DisasterZoneMeterDetail") end
-    K.Panel(frame, 0.98)
-    frame.fill:SetVertexColor(0.078, 0.078, 0.09, 0.98)
-    frame:SetEdge(0.24, 0.24, 0.27, 1)
+-- The tool row's right side: the arrows through the players (or deaths) with "10th of 19" between them, then the
+-- fight switch (the row's main control, at the right edge, S.BTN_H high).
+local function NewPager(bar)
+    local prev = UI:CreateArrowButton(bar, false, S.BTN_H, S.BTN_H, function() MD:Step(-1) end)
+    local step = CreateFrame("Frame", nil, bar)
+    step:SetSize(60, S.BTN_H)
+    step.text = UI:Text(step, "body", "TEXT", { justify = "CENTER" })
+    step.text:SetPoint("CENTER")
+    function step:SetText(t)
+        self.text:SetText(t or "")
+        self:SetWidth(max(20, floor(UI:TextWidth(self.text) + 8)))
+        if bar.LayoutRight then bar:LayoutRight() end
+    end
+    function step:GetText() return self.text:GetText() end
+    local nxt = UI:CreateArrowButton(bar, true, S.BTN_H, S.BTN_H, function() MD:Step(1) end)
+    UI:AttachTooltip(prev, "Previous", nil, { anchor = "ANCHOR_TOP" })
+    UI:AttachTooltip(nxt, "Next", nil, { anchor = "ANCHOR_TOP" })
+    local fight = UI:CreateSleekMenuButton(bar, "Void Reaver", 150, function(root) MD:FightMenu(root) end, S.BTN_H)
+    return prev, step, nxt, fight
+end
 
-    -- banner
-    local banner = CreateFrame("Button", nil, frame)
-    banner:SetPoint("TOPLEFT", 1, -1)
-    banner:SetPoint("TOPRIGHT", -1, -1)
-    banner:SetHeight(BANNER_H)
+local function Build()
+    Kit = ns.MyLogKit
+    frame = UI:CreateWindow("DisasterZoneMeterDetail", "Breakdown", W, H)
+    local L = UI:CreateLayout("tool", frame.content, { width = W - 10, toolbar = true,
+        banner = { size = "tool", art = { "Interface\\Glues\\LoadingScreens\\LoadScreenOutland", 0, 1, 0.3, 0.42 },
+                   icon = 134400, title = "?", kicker = "" } })
+    frame.layout = L
+
+    -- banner (the drag handle too: the window moves by it, its place saved)
+    local banner = L.banner
+    banner:EnableMouse(true)
     banner:RegisterForDrag("LeftButton")
     banner:SetScript("OnDragStart", function() frame:StartMoving() end)
-    banner:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
-    if banner.SetClipsChildren then banner:SetClipsChildren(true) end
-    banner.art = banner:CreateTexture(nil, "BACKGROUND", nil, -8)
-    banner.art:SetAllPoints()
-    banner.shade = banner:CreateTexture(nil, "BACKGROUND", nil, -6)
-    banner.shade:SetAllPoints()
-    K.Gradient(banner.shade, "HORIZONTAL", { 0.055, 0.055, 0.067, 0.96 }, { 0.055, 0.055, 0.067, 0.2 })
-    banner.fade = banner:CreateTexture(nil, "BACKGROUND", nil, -5)
-    banner.fade:SetPoint("BOTTOMLEFT")
-    banner.fade:SetPoint("BOTTOMRIGHT")
-    banner.fade:SetHeight(56)
-    K.Gradient(banner.fade, "VERTICAL", { 0.078, 0.078, 0.09, 1 }, { 0.078, 0.078, 0.09, 0 })
-    -- the class in a gold ring
-    banner.ringGold = K.Tex(banner, "ARTWORK", K.DISC, 0.72, 0.56, 0.17, 1, 1)
-    banner.ringGold:SetSize(66, 66)
-    banner.ringGold:SetPoint("LEFT", banner, "LEFT", 22, 4)
-    banner.ringGap = K.Tex(banner, "ARTWORK", K.DISC, 0, 0, 0, 1, 2)
-    banner.ringGap:SetSize(62, 62)
-    banner.ringGap:SetPoint("CENTER", banner.ringGold)
-    banner.cls = banner:CreateTexture(nil, "ARTWORK", nil, 3)
-    banner.cls:SetSize(58, 58)
-    banner.cls:SetPoint("CENTER", banner.ringGold)
-    banner.name = Text(banner, 24, { 1, 1, 1 })
-    banner.name:SetPoint("TOPLEFT", banner.ringGold, "TOPRIGHT", 14, -8)
-    banner.sub = Text(banner, 14, K.DIM)
-    banner.sub:SetPoint("TOPLEFT", banner.name, "BOTTOMLEFT", 0, -6)
-    banner.sub:SetWidth(W - 150)
-    banner.sub:SetWordWrap(true)
-    banner.sub:SetMaxLines(2)
-    -- right: arrows, the fight, close
-    local close = ns.UI:CreateCloseButton(banner, 22, function() frame:Hide() end)
-    close:SetPoint("TOPRIGHT", banner, "TOPRIGHT", -8, -8)
-    banner.fight = ns.UI:CreateSleekMenuButton(banner, "Void Reaver", 150, function(root) MD:FightMenu(root) end, 28)
-    banner.fight:SetPoint("TOPRIGHT", banner, "TOPRIGHT", -40, -16)
-    banner.next = ns.UI:CreateArrowButton(banner, true, 28, 28, function() MD:Step(1) end)
-    banner.next:SetPoint("RIGHT", banner.fight, "LEFT", -8, 0)
-    banner.step = Text(banner, 13, K.INK)
-    banner.step:SetPoint("RIGHT", banner.next, "LEFT", -8, 0)
-    banner.prev = ns.UI:CreateArrowButton(banner, false, 28, 28, function() MD:Step(-1) end)
-    banner.prev:SetPoint("RIGHT", banner.step, "LEFT", -8, 0)
+    banner:SetScript("OnDragStop", function()
+        frame:StopMovingOrSizing()
+        UI:SavePosition(frame)
+    end)
+    banner.name = banner.title
     frame.banner = banner
+
+    -- tool row: the tabs (what they hold after them), the pager and the fight switch
+    local bar = L.toolbar
+    bar:SetTabs({ { key = "abilities", text = "Abilities" }, { key = "targets", text = "Targets" },
+        { key = "time", text = "Over time" } }, function(key) St.tab = key; MD:Draw() end)
+    banner.prev, banner.step, banner.next, banner.fight = NewPager(bar)
+    bar:SetFilters({ banner.prev, banner.step, banner.next, banner.fight })
+    frame.tabs = bar
+
+    local body = L.body
+    frame.body = body
 
     -- stat cards
     frame.cards = {}
-    local cw = (W - PAD * 2 - 8 * 3) / 4
+    local cw = (INNER_W - S.GAP * 3) / 4
     for i = 1, 4 do
-        local c = NewCard(frame)
+        local c = NewStatCard(body)
         c:SetWidth(cw)
-        c:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + (i - 1) * (cw + 8), CARD_Y)
+        c:SetPoint("TOPLEFT", body, "TOPLEFT", (i - 1) * (cw + S.GAP), 0)
         frame.cards[i] = c
     end
 
-    -- tabs
-    frame.tabs = Kit.Tabs(frame, { { key = "abilities", label = "Abilities" }, { key = "targets", label = "Targets" },
-        { key = "time", label = "Over time" } }, function(key) S.tab = key; MD:Draw() end)
-    frame.tabs:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, TABS_Y)
-    frame.tabRule = K.Tex(frame, "BORDER", K.WHITE, 1, 1, 1, 0.07)
-    frame.tabRule:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, TABS_Y - 24)
-    frame.tabRule:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, TABS_Y - 24)
-    frame.tabRule:SetHeight(1)
-    frame.tabNote = Text(frame, 13, K.DIM)
-    frame.tabNote:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, TABS_Y - 4)
-    frame.tabNote:SetJustifyH("RIGHT")
-
-    -- body: list (scrolling), detail card, chart
-    local listW = W - PAD * 2 - DETAIL_W - 22
-    local sf = ns.UI:CreateScrollFrame(frame, nil)
-    sf:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, BODY_Y)
-    sf:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 14)
-    sf:SetWidth(listW)
+    -- the list (scrolling), the detail card, the chart
+    local sf = UI:CreateScrollFrame(body, nil)
+    sf:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -LIST_Y)
+    sf:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 0, 0)
+    sf:SetWidth(LIST_W)
     local child = CreateFrame("Frame", nil, sf)
-    child:SetSize(listW, 10)
+    child:SetSize(LIST_W, 10)
     sf:SetScrollChild(child)
-    frame.list, frame.listChild, frame.listW = sf, child, listW
-    frame.rows = {}
+    frame.list, frame.listChild, frame.listW = sf, child, LIST_W
+    frame.rows, frame.trows = {}, {}
 
-    local det = Kit.Card(frame, { 0.098, 0.098, 0.118 }, 0.07)
-    det:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, BODY_Y)
-    det:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, 14)
+    local det = UI:CreateCard(body, { tone = "card", pad = 16 })
+    det:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -LIST_Y)
+    det:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     det:SetWidth(DETAIL_W)
-    det.icon = Kit.Icon(det, 40)
+    det.icon = UI:CreateIconTile(det, 40)
     det.icon:SetPoint("TOPLEFT", det, "TOPLEFT", 16, -14)
-    det.name = Text(det, 16.5, { 1, 1, 1 })
+    det.name = UI:Text(det, "page", { 1, 1, 1 }, { width = DETAIL_W - 90 })
     det.name:SetPoint("TOPLEFT", det.icon, "TOPRIGHT", 11, -2)
-    det.name:SetWidth(DETAIL_W - 90)
-    det.sub = Text(det, 13, K.DIM)
+    det.sub = UI:Text(det, "body", "SUB")
     det.sub:SetPoint("TOPLEFT", det.name, "BOTTOMLEFT", 0, -4)
     det.dist = CreateFrame("Frame", nil, det)
     det.dist:SetPoint("TOPLEFT", det, "TOPLEFT", 16, -72)
     det.dist:SetPoint("TOPRIGHT", det, "TOPRIGHT", -16, -72)
     det.dist:SetHeight(10)
     det.parts = {}
-    det.head = {}
-    local cols = { { "How it hit", 34, "LEFT" }, { "Count", 150, "RIGHT" }, { "Average", 208, "RIGHT" }, { "Share", 268, "RIGHT" } }
-    for i, c in ipairs(cols) do
-        local fs = Text(det, 12, { 0.43, 0.42, 0.39 })
-        if c[3] == "LEFT" then fs:SetPoint("TOPLEFT", det, "TOPLEFT", c[2], -96)
-        else fs:SetPoint("TOPRIGHT", det, "TOPLEFT", c[2], -96); fs:SetJustifyH("RIGHT") end
-        fs:SetText(c[1])
-        det.head[i] = fs
-    end
+    det.cols = UI:CreateColumnHeader(det, 18)
+    det.cols:SetPoint("TOPLEFT", det, "TOPLEFT", 0, -92)
+    det.cols:SetPoint("TOPRIGHT", det, "TOPRIGHT", 0, -92)
+    det.head = {
+        det.cols:AddColumn("How it hit", 34, 60),
+        det.cols:AddColumn("Count", 100, 50, { justify = "RIGHT" }),
+        det.cols:AddColumn("Average", 150, 58, { justify = "RIGHT" }),
+        det.cols:AddColumn("Share", 210, 58, { justify = "RIGHT" }),
+    }
     det.lines = {}
     for i = 1, 5 do
         local y = -116 - (i - 1) * 21
-        local ln = { key = K.Tex(det, "ARTWORK", K.WHITE) }
+        local ln = { key = UI:Fill(det, "TEXT", "ARTWORK") }
+        ln.key:ClearAllPoints()
         ln.key:SetSize(9, 9)
         ln.key:SetPoint("TOPLEFT", det, "TOPLEFT", 18, y - 3)
-        ln.name = Text(det, 13, K.INK)
+        ln.name = UI:Text(det, "body", "TEXT")
         ln.name:SetPoint("TOPLEFT", det, "TOPLEFT", 34, y)
-        ln.n = Text(det, 13, K.INK)
+        ln.n = UI:Text(det, "body", "TEXT", { justify = "RIGHT" })
         ln.n:SetPoint("TOPRIGHT", det, "TOPLEFT", 150, y)
-        ln.avg = Text(det, 13, K.INK)
+        ln.avg = UI:Text(det, "body", "TEXT", { justify = "RIGHT" })
         ln.avg:SetPoint("TOPRIGHT", det, "TOPLEFT", 208, y)
-        ln.share = Text(det, 13, K.INK)
+        ln.share = UI:Text(det, "body", "TEXT", { justify = "RIGHT" })
         ln.share:SetPoint("TOPRIGHT", det, "TOPLEFT", 268, y)
-        for _, f in ipairs({ ln.n, ln.avg, ln.share }) do f:SetJustifyH("RIGHT") end
         det.lines[i] = ln
     end
     det.facts = {}
+    local fw = (DETAIL_W - 32 - S.GAP) / 2
     for i = 1, 4 do
-        local f = Kit.Card(det, { 0.078, 0.078, 0.094 }, 0.04)
-        f:SetSize((DETAIL_W - 32 - 8) / 2, 46)
+        local f = UI:CreateCard(det, { tone = "inset", width = fw, height = 46 })
         local col, rw = (i - 1) % 2, floor((i - 1) / 2)
-        f:SetPoint("BOTTOMLEFT", det, "BOTTOMLEFT", 16 + col * ((DETAIL_W - 32 - 8) / 2 + 8), 16 + (1 - rw) * 54)
-        f.num = Text(f, 16, { 1, 1, 1 })
+        f:SetPoint("BOTTOMLEFT", det, "BOTTOMLEFT", 16 + col * (fw + S.GAP), 16 + (1 - rw) * 54)
+        f.num = UI:Text(f, "page", { 1, 1, 1 })
         f.num:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -7)
-        f.lab = Text(f, 12, K.DIM)
+        f.lab = UI:Text(f, "small", "SUB")
         f.lab:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 10, 7)
         det.facts[i] = f
     end
     frame.det = det
 
-    local chart = Kit.Chart(frame)
-    chart:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 46, BODY_Y - 34)
-    chart:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, 40)
-    chart.fallback = { W - PAD * 2 - 46, H + BODY_Y - 34 - 40 }
+    local chart = Kit.Chart(body)
+    chart:SetPoint("TOPLEFT", body, "TOPLEFT", 46, -(LIST_Y + 34))
+    chart:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 26)
+    chart.fallback = { INNER_W - 46, BODY_H - LIST_Y - 34 - 26 }
     frame.chart = chart
-    frame.legend = Text(frame, 13, K.DIM)
-    frame.legend:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, BODY_Y - 6)
+    frame.legend = UI:Text(body, "body", "SUB")
+    frame.legend:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -(LIST_Y + 8))
     frame.yLabs, frame.xLabs = {}, {}
     for i = 1, 5 do
-        frame.yLabs[i] = Text(frame, 12, { 0.55, 0.54, 0.5 })
-        frame.yLabs[i]:SetJustifyH("RIGHT")
-        frame.xLabs[i] = Text(frame, 12, { 0.55, 0.54, 0.5 })
+        frame.yLabs[i] = UI:Text(body, "small", "SUB", { justify = "RIGHT" })
+        frame.xLabs[i] = UI:Text(body, "small", "SUB")
     end
 
-    -- death recap
-    frame.deathChart = Kit.Chart(frame)
-    frame.deathChart:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 36, -BANNER_H - 30)
-    frame.deathChart:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 4, -BANNER_H - 30)
+    -- death recap: the health chart, then every event
+    frame.deathChart = Kit.Chart(body)
+    frame.deathChart:SetPoint("TOPLEFT", body, "TOPLEFT", 36, -18)
+    frame.deathChart:SetPoint("TOPRIGHT", body, "TOPRIGHT", -4, -18)
     frame.deathChart:SetHeight(128)
-    frame.deathChart.fallback = { W - PAD * 2 - 40, 128 }
+    frame.deathChart.fallback = { INNER_W - 40, 128 }
     frame.deathLabs = {}
-    for i = 1, 6 do frame.deathLabs[i] = Text(frame, 12, { 0.55, 0.54, 0.5 }) end
-    frame.deathHp = Text(frame, 12, { 0.55, 0.54, 0.5 })
+    for i = 1, 6 do frame.deathLabs[i] = UI:Text(body, "small", "SUB") end
+    frame.deathHp = UI:Text(body, "small", "SUB", { justify = "RIGHT" })
     frame.deathHp:SetPoint("BOTTOMRIGHT", frame.deathChart, "TOPRIGHT", 0, 4)
-    frame.deathHp:SetJustifyH("RIGHT")
-    local esf = ns.UI:CreateScrollFrame(frame, nil)
-    esf:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -BANNER_H - 196)
-    esf:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD - 10, 14)
+    frame.evHead = UI:CreateSectionHeader(body, "Every hit and heal, newest first", { style = "caps" })
+    frame.evHead:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -172)
+    frame.evHead:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -172)
+    local esf = UI:CreateScrollFrame(body, nil)
+    esf:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -194)
+    esf:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -10, 0)
     local echild = CreateFrame("Frame", nil, esf)
-    echild:SetSize(W - PAD * 2 - 10, 10)
+    echild:SetSize(INNER_W - 10, 10)
     esf:SetScrollChild(echild)
     frame.events, frame.eventsChild, frame.evRows = esf, echild, {}
 
-    frame.empty = Text(frame, 14, K.DIM)
-    frame.empty:SetPoint("TOP", frame, "TOP", 0, BODY_Y - 60)
-    frame.empty:SetJustifyH("CENTER")
+    -- the empty state of the list area (the cards stay above it)
+    frame.empty = UI:CreateEmptyState(body, { compact = true })
+    frame.empty:SetPoint("TOP", body, "TOP", 0, -(LIST_Y + 40))
+    frame.empty:SetBoxWidth(420)
+    frame.empty:Hide()
     frame:Hide()
+end
+
+-- The empty state with a title (nil: hidden); the meter's icon in it.
+local function ShowEmpty(text)
+    if not text then frame.empty:Hide() return end
+    local info = Meter.MODE and Meter.MODE[St.mode]
+    frame.empty:SetContent({ icon = info and info.icon or 134939, title = text })
+    frame.empty:Show()
 end
 
 ---------------------------------------------------------------------------
 -- Rows
 ---------------------------------------------------------------------------
 
+-- An ability row (also a block's heading in Interrupts / Dispels): the shared row looks (hover, the picked one), an
+-- icon tile, name and line under it, a gold bar of its share, the amount and its share on the right.
 local function AbilityRow(i)
     local r = frame.rows[i]
     if r then return r end
     r = CreateFrame("Button", nil, frame.listChild)
     r:SetHeight(ROW_H)
-    r.bg = K.Tex(r, "BACKGROUND", K.WHITE, 1, 1, 1, 0)
-    r.bg:SetAllPoints()
-    r.bar = K.Tex(r, "ARTWORK", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.bar:SetWidth(2)
-    r.rank = Text(r, 13, { 0.43, 0.42, 0.39 })
-    r.rank:SetPoint("LEFT", r, "LEFT", 4, 0)
-    r.rank:SetWidth(14)
-    r.rank:SetJustifyH("RIGHT")
-    r.icon = Kit.Icon(r, 32)
+    UI:DecorateRow(r, { hover = true, selectable = true })
+    r.icon = UI:CreateIconTile(r, 28)
     r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
-    r.thumb = r:CreateTexture(nil, "ARTWORK")
-    r.thumb:SetSize(76, 40)
-    r.thumb:SetPoint("LEFT", r, "LEFT", 6, 0)
-    r.name = Text(r, 14.5, { 1, 1, 1 })
-    r.sub = Text(r, 12.5, K.DIM)
-    r.amount = Text(r, 16.5, { 1, 1, 1 })
-    r.amount:SetPoint("TOPRIGHT", r, "TOPRIGHT", -10, -7)
-    r.amount:SetJustifyH("RIGHT")
-    r.pct = Text(r, 12.5, K.DIM)
+    r.name = UI:Text(r, "emph", { 1, 1, 1 })
+    r.sub = UI:Text(r, "small", "SUB")
+    r.amount = UI:Text(r, "title", { 1, 1, 1 }, { justify = "RIGHT" })
+    r.amount:SetPoint("TOPRIGHT", r, "TOPRIGHT", -10, -5)
+    r.pct = UI:Text(r, "small", "SUB", { justify = "RIGHT" })
     r.pct:SetPoint("TOPRIGHT", r.amount, "BOTTOMRIGHT", 0, -2)
-    r.pct:SetJustifyH("RIGHT")
-    r.track = K.Tex(r, "ARTWORK", K.WHITE, 0.15, 0.15, 0.18, 1)
+    r.track = UI:Fill(r, "EDGE_QUIET", "ARTWORK")
+    r.track:ClearAllPoints()
     r.track:SetHeight(6)
     r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
     r.fill:SetHeight(6)
-    K.Gradient(r.fill, "HORIZONTAL", { 0.65, 0.48, 0.07, 1 }, { 1, 0.82, 0, 1 })
+    UI:Gradient(r.fill, "HORIZONTAL", "GOLD_DEEP", "GOLD")
     r.fill:SetPoint("LEFT", r.track, "LEFT")
-    r:SetScript("OnEnter", function(self) if not self.on then self.bg:SetVertexColor(1, 1, 1, 0.03) end end)
-    r:SetScript("OnLeave", function(self) if not self.on then self.bg:SetVertexColor(1, 1, 1, 0) end end)
-    r:SetScript("OnClick", function(self) if self.key ~= nil then S.ab = self.key; MD:Draw() end end)
+    r.head = UI:CreateSectionHeader(r, "", { style = "title" })
+    r.head:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 2)
+    r.head:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 2)
+    r.head:Hide()
+    r:SetScript("OnClick", function(self) if self.key ~= nil then St.ab = self.key; MD:Draw() end end)
     frame.rows[i] = r
     return r
 end
 
+-- A row back to an ability row (a heading row before: its texts and bar come back).
+local function AsAbility(r)
+    r.head:Hide()
+    r.name:Show(); r.sub:Show(); r.amount:Show(); r.pct:Show(); r.icon:Show(); r.track:Show(); r.fill:Show()
+    r:EnableMouse(true)
+    r:SetHeight(ROW_H)
+end
+
 local function PlaceRowText(r, x, w)
     r.name:ClearAllPoints()
-    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", x, -7)
+    r.name:SetPoint("TOPLEFT", r, "TOPLEFT", x, -6)
     r.name:SetWidth(w)
     r.sub:ClearAllPoints()
     r.sub:SetPoint("TOPLEFT", r.name, "BOTTOMLEFT", 0, -3)
@@ -359,38 +333,59 @@ local function PlaceRowText(r, x, w)
     r.track:SetPoint("RIGHT", r, "RIGHT", -96, 0)
 end
 
+-- A target: the shared art row (the boss's journal picture, a skull for the rest), its share as a bar.
+local SKULL_ART = function(tex)
+    tex:SetTexture(K.SKULL)
+    tex:SetTexCoord(-0.6, 1.6, -0.1, 1.1)
+    tex:SetVertexColor(0.55, 0.55, 0.58)
+end
+local function TargetRow(i)
+    local r = frame.trows[i]
+    if r then return r end
+    r = UI:CreateArtRow(frame.listChild, { rule = true })
+    r.track = UI:Fill(r, "EDGE_QUIET", "ARTWORK")
+    r.track:ClearAllPoints()
+    r.track:SetHeight(6)
+    r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
+    r.fill:SetHeight(6)
+    UI:Gradient(r.fill, "HORIZONTAL", "GOLD_DEEP", "GOLD")
+    r.fill:SetPoint("LEFT", r.track, "LEFT")
+    r.amount = UI:Text(r, "title", { 1, 1, 1 }, { justify = "RIGHT" })
+    r.amount:SetPoint("TOPRIGHT", r, "TOPRIGHT", -10, -9)
+    r.pct = UI:Text(r, "small", "SUB", { justify = "RIGHT" })
+    r.pct:SetPoint("TOPRIGHT", r.amount, "BOTTOMRIGHT", 0, -2)
+    frame.trows[i] = r
+    return r
+end
+
+-- A death recap line: the shared stripes, the killing blow in the bad colour with its bar.
 local function EventRow(i)
     local r = frame.evRows[i]
     if r then return r end
     r = CreateFrame("Frame", nil, frame.eventsChild)
     r:SetHeight(EROW_H)
-    r.bg = K.Tex(r, "BACKGROUND", K.WHITE, 1, 1, 1, 0)
-    r.bg:SetAllPoints()
-    r.mark = K.Tex(r, "ARTWORK", K.WHITE, 1, 0.35, 0.29, 1)
-    r.mark:SetPoint("TOPLEFT")
-    r.mark:SetPoint("BOTTOMLEFT")
-    r.mark:SetWidth(2)
-    r.t = Text(r, 13.5, K.DIM)
+    UI:DecorateRow(r, { hover = false, stripe = true })
+    local bad = S.C.BAD
+    r.kill = UI:Fill(r, { bad[1], bad[2], bad[3], 0.09 }, "BACKGROUND", 2)
+    r.mark = UI:Rule(r, { vertical = true, color = "BAD", size = 2, layer = "ARTWORK" })
+    r.t = UI:Text(r, "body", "SUB", { justify = "RIGHT", font = K.NARROW })
     r.t:SetPoint("RIGHT", r, "LEFT", 58, 0)
-    r.t:SetJustifyH("RIGHT")
-    r.icon = Kit.Icon(r, 20)
+    r.icon = UI:CreateIconTile(r, 20)
     r.icon:SetPoint("LEFT", r, "LEFT", 68, 0)
-    r.what = Text(r, 13.5, { 1, 1, 1 })
+    r.what = UI:Text(r, "body", { 1, 1, 1 }, { width = INNER_W - 10 - 68 - 30 - 220 })
     r.what:SetPoint("LEFT", r.icon, "RIGHT", 10, 0)
-    r.what:SetWidth(W - PAD * 2 - 10 - 68 - 30 - 220)
-    r.amount = Text(r, 14, K.RED)
+    r.amount = UI:Text(r, "emph", "BAD", { justify = "RIGHT" })
     r.amount:SetPoint("RIGHT", r, "RIGHT", -120, 0)
-    r.amount:SetJustifyH("RIGHT")
-    r.hpTrack = K.Tex(r, "ARTWORK", K.WHITE, 0.16, 0.16, 0.19, 1)
+    r.hpTrack = UI:Fill(r, "EDGE_QUIET", "ARTWORK")
+    r.hpTrack:ClearAllPoints()
     r.hpTrack:SetSize(64, 5)
     r.hpTrack:SetPoint("RIGHT", r, "RIGHT", -44, 0)
     r.hpFill = r:CreateTexture(nil, "ARTWORK", nil, 1)
     r.hpFill:SetTexture(K.WHITE)
     r.hpFill:SetHeight(5)
     r.hpFill:SetPoint("LEFT", r.hpTrack, "LEFT")
-    r.hp = Text(r, 12.5, K.DIM)
+    r.hp = UI:Text(r, "small", "SUB", { justify = "RIGHT" })
     r.hp:SetPoint("RIGHT", r, "RIGHT", -6, 0)
-    r.hp:SetJustifyH("RIGHT")
     frame.evRows[i] = r
     return r
 end
@@ -399,52 +394,45 @@ end
 -- Drawing a player
 ---------------------------------------------------------------------------
 
-local function SetBanner(seg, a)
+-- The banner: the raid's loading screen (the Outland one outside a raid), the player's spec, the name in class colour.
+local OUTLAND = { "Interface\\Glues\\LoadingScreens\\LoadScreenOutland", 0, 1, 0.3, 0.3 + S.BANNER.tool / W * 0.75 }
+local function SetBanner(seg, a, kicker)
     local b = frame.banner
-    local key = seg and seg.iid and ART_KEY[seg.iid]
-    if key and ns.RaidPlanUI and ns.RaidPlanUI.RaidArt then
-        local fid, l, r, t, bt = ns.RaidPlanUI:RaidArt(key, W, BANNER_H, 0.62)
-        b.art:SetTexture(fid)
-        b.art:SetTexCoord(l, r, t, bt)
-        b.art:Show()
-    else
-        b.art:SetTexture("Interface\\Glues\\LoadingScreens\\LoadScreenOutland")
-        b.art:SetTexCoord(0, 1, 0.3, 0.3 + BANNER_H / W * 0.75)
-    end
-    local coords = a and a.c and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[a.c]
-    if coords then
-        b.cls:SetTexture(CLASS_CIRCLES)
-        b.cls:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
-    else
-        b.cls:SetTexture(134400)
-    end
-    b.name:SetText(a and a.n or "?")
-    if a then b.name:SetTextColor(K.ClassColor(a.c)) end
+    local iid = seg and seg.iid
+    local raid = iid and ns.ItemDB and ns.ItemDB.GetRaidByInstance and ns.ItemDB:GetRaidByInstance(iid)
+    b:SetArt(raid and iid or OUTLAND)
+    local spec = a and K.SpecIcon(a.c, a.s)
+    local c = not spec and a and a.c and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[a.c]
+    if spec then b:SetIcon(spec)
+    elseif c then b:SetIcon({ "Interface\\WorldStateFrame\\Icons-Classes", c[1], c[2], c[3], c[4] })
+    else b:SetIcon(134400) end
+    b:SetKicker(kicker)
+    b:SetTitle(a and a.n or "?")
+    if a and a.c then b.title:SetTextColor(K.ClassColor(a.c)) else b.title:SetTextColor(1, 1, 1) end
 end
 
 -- A card's texts always fit inside it, whatever the class or the numbers: the room right of the icon, and a text
--- that is still too wide steps its font down (never past MIN_FONT) instead of running out of the card.
-local CARD_NUM, CARD_EXTRA, CARD_LAB, MIN_FONT = 20, 13, 12.5, 9
-local function Fit(fs, size, room)
-    local font = fs:GetFont() or K.FRIZ
-    fs:SetFont(font, size, "")
-    while size > MIN_FONT and (fs:GetStringWidth() or 0) > room do
-        size = size - 0.5
-        fs:SetFont(font, size, "")
+-- that is still too wide steps down the type scale instead of running out of the card.
+local NUM_STEPS = { "hero", "page", "title", "emph", "body" }
+local LAB_STEPS = { "body", "small", "caps" }
+local function Fit(fs, steps, room, color)
+    for i, st in ipairs(steps) do
+        UI:SetTextStyle(fs, st, color)
+        if UI:TextWidth(fs) <= room or i == #steps then return end
     end
 end
 
 local function SetCard(c, icon, num, extra, lab)
-    c.icon:SetIcon(icon)
+    c.icon:Set(icon)
     c.num:SetText(num)
     c.extra:SetText(extra or "")
     c.lab:SetText(lab)
     local w = c:GetWidth() or 0
-    if w <= 0 then w = (W - PAD * 2 - 8 * 3) / 4 end
+    if w <= 0 then w = (INNER_W - S.GAP * 3) / 4 end
     local room = w - 12 - 34 - 11 - 10                       -- the icon, its gaps and the card's right padding
-    local extraW = (extra and extra ~= "") and (c.extra:GetStringWidth() or 0) + 6 or 0
-    Fit(c.num, CARD_NUM, room - extraW)
-    Fit(c.lab, CARD_LAB, room)
+    local extraW = (extra and extra ~= "") and UI:TextWidth(c.extra) + 6 or 0
+    Fit(c.num, NUM_STEPS, room - extraW, { 1, 1, 1 })
+    Fit(c.lab, LAB_STEPS, room, "SUB")
 end
 
 -- The ability list of a mode: { key, a (amount), n, sub, s (the stat) }
@@ -480,7 +468,7 @@ local function Abilities(a, mode, dur)
     return list
 end
 
-local HIT_COLORS = { hit = { 0.85, 0.76, 0.48 }, crit = { 1, 0.82, 0 }, glance = { 0.56, 0.48, 0.27 },
+local HIT_COLORS = { hit = { 0.85, 0.76, 0.48 }, crit = S.C.GOLD, glance = { 0.56, 0.48, 0.27 },
                      miss = { 0.35, 0.35, 0.39 } }
 
 local function DrawDetail(e, total, mode, dur, a)
@@ -488,7 +476,7 @@ local function DrawDetail(e, total, mode, dur, a)
     if not e then det:Hide() return end
     det:Show()
     local s = e.s
-    det.icon:SetIcon(K.SpellIcon(e.key, a))
+    det.icon:Set(K.SpellIcon(e.key, a))
     det.name:SetText(K.SpellName(e.key, a.pn))
     local per = mode == "taken" and dur or MD.act or dur
     det.sub:SetText(strformat("%s · %s per second", K.Fmt(e.a), K.Int(e.a / per)))
@@ -514,12 +502,16 @@ local function DrawDetail(e, total, mode, dur, a)
     for _, p in ipairs(parts) do n = n + p[2] end
     if n <= 0 then n = 1 end
     -- the distribution bar
-    for _, t in ipairs(det.parts) do t:Hide() end
+    UI:HideFrom(det.parts, 1)
     local x = 0
     local bw = DETAIL_W - 32
     for i, p in ipairs(parts) do
         local t = det.parts[i]
-        if not t then t = K.Tex(det.dist, "ARTWORK", K.WHITE); det.parts[i] = t end
+        if not t then
+            t = det.dist:CreateTexture(nil, "ARTWORK")
+            t:SetTexture(K.WHITE)
+            det.parts[i] = t
+        end
         local w = max(1, bw * p[2] / n - (i < #parts and 1 or 0))
         t:ClearAllPoints()
         t:SetPoint("TOPLEFT", det.dist, "TOPLEFT", x, 0)
@@ -533,7 +525,7 @@ local function DrawDetail(e, total, mode, dur, a)
         local on = p ~= nil
         for _, f in ipairs({ ln.key, ln.name, ln.n, ln.avg, ln.share }) do f:SetShown(on) end
         if on then
-            ln.key:SetVertexColor(p[4][1], p[4][2], p[4][3], 1)
+            ln.key:SetColorTexture(p[4][1], p[4][2], p[4][3], 1)
             ln.name:SetText(p[1])
             ln.n:SetText(K.Int(p[2]))
             ln.avg:SetText(p[3] and K.Int(p[3]) or "–")
@@ -566,41 +558,37 @@ local function DrawAbilities(a, mode, dur)
     local total = 0
     for _, e in ipairs(list) do total = total + e.a end
     local sel
-    for _, e in ipairs(list) do if e.key == S.ab then sel = e end end
-    if not sel then sel = list[1]; S.ab = sel and sel.key end
+    for _, e in ipairs(list) do if e.key == St.ab then sel = e end end
+    if not sel then sel = list[1]; St.ab = sel and sel.key end
     local top = list[1] and list[1].a or 1
-    local textW = 196
+    local textW = 190
     for i, e in ipairs(list) do
         local r = AbilityRow(i)
+        AsAbility(r)
         r.key = e.key
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -(i - 1) * ROW_H)
         r:SetWidth(frame.listW)
-        r.thumb:Hide()
-        r.icon:Show()
-        r.icon:SetIcon(K.SpellIcon(e.key, a))
-        r.rank:Hide()
+        r.icon:Set(K.SpellIcon(e.key, a))
         r.name:SetText(K.SpellName(e.key, a.pn))
         r.sub:SetText(e.sub)
-        PlaceRowText(r, 52, textW)
+        PlaceRowText(r, 46, textW)
         r.amount:SetText(K.Fmt(e.a))
         r.pct:SetText(strformat("%.1f%%", total > 0 and e.a / total * 100 or 0))
-        local tw = max(10, frame.listW - 52 - textW - 12 - 96)
+        local tw = max(10, frame.listW - 46 - textW - 12 - 96)
         r.fill:SetWidth(max(1, tw * e.a / top))
-        r.on = e == sel
-        r.bg:SetVertexColor(1, 1, 1, r.on and 0.06 or 0)
-        r.bar:SetShown(r.on)
+        r:SetSelected(e == sel)
         r:Show()
     end
-    for i = #list + 1, #frame.rows do frame.rows[i]:Hide() end
+    UI:HideFrom(frame.rows, #list + 1)
+    UI:HideFrom(frame.trows, 1)
     frame.listChild:SetHeight(max(10, #list * ROW_H))
     DrawDetail(sel, total, mode, dur, a)
     local hits = 0
     for _, e in ipairs(list) do hits = hits + (e.s.n or 0) end
-    frame.tabNote:SetText(strformat("%d %s · %s %s", #list, #list == 1 and "ability" or "abilities", K.Int(hits),
+    frame.tabs:SetText(strformat("%d %s · %s %s", #list, #list == 1 and "ability" or "abilities", K.Int(hits),
         mode == "healing" and "heals" or "hits"))
-    frame.empty:SetShown(#list == 0)
-    frame.empty:SetText("Nothing to break down in this fight.")
+    ShowEmpty(#list == 0 and "Nothing to break down in this fight." or nil)
 end
 
 local function DrawTargets(a)
@@ -609,46 +597,31 @@ local function DrawTargets(a)
     for name, v in pairs(a.tg or {}) do list[#list + 1] = { name = name, a = v }; total = total + v end
     tsort(list, function(x, y) return x.a > y.a end)
     local top = list[1] and list[1].a or 1
+    local rw = INNER_W - 12
+    local textW = 230
     for i, e in ipairs(list) do
-        local r = AbilityRow(i)
-        r.key = nil
+        local r = TargetRow(i)
         r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -(i - 1) * TROW_H)
-        r:SetWidth(W - PAD * 2 - 12)
-        r:SetHeight(TROW_H)
-        r.icon:Hide()
-        r.rank:Hide()
+        r:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -(i - 1) * S.ROW.art)
+        r:SetWidth(rw)
         local fid = JournalArt(e.name)
-        if fid then
-            r.thumb:SetTexture(fid)
-            r.thumb:SetTexCoord(0, 1, 0, 1)
-            r.thumb:SetVertexColor(1, 1, 1)
-        else
-            r.thumb:SetTexture(K.SKULL)
-            r.thumb:SetTexCoord(-0.6, 1.6, -0.1, 1.1)
-            r.thumb:SetVertexColor(0.55, 0.55, 0.58)
-        end
-        r.thumb:Show()
-        r.name:SetText(e.name)
-        r.sub:SetText(fid and "boss" or "")
-        PlaceRowText(r, 96, 230)
+        r:SetData({ art = fid or SKULL_ART, title = e.name, sub = fid and "boss" or nil })
+        if fid then r.art.tex:SetVertexColor(1, 1, 1) end
+        r:SetRightWidth(rw - r.textX - textW)
         r.amount:SetText(K.Fmt(e.a))
         r.pct:SetText(strformat("%.1f%%", total > 0 and e.a / total * 100 or 0))
         r.track:ClearAllPoints()
-        r.track:SetPoint("LEFT", r, "LEFT", 96 + 230 + 12, 0)
+        r.track:SetPoint("LEFT", r, "LEFT", r.textX + textW + 12, 0)
         r.track:SetPoint("RIGHT", r, "RIGHT", -110, 0)
-        local tw = max(10, (W - PAD * 2 - 12) - 96 - 230 - 12 - 110)
+        local tw = max(10, rw - r.textX - textW - 12 - 110)
         r.fill:SetWidth(max(1, tw * e.a / top))
-        r.on = false
-        r.bg:SetVertexColor(1, 1, 1, 0)
-        r.bar:Hide()
         r:Show()
     end
-    for i = #list + 1, #frame.rows do frame.rows[i]:Hide() end
-    frame.listChild:SetHeight(max(10, #list * TROW_H))
-    frame.tabNote:SetText(strformat("%d %s", #list, #list == 1 and "target" or "targets"))
-    frame.empty:SetShown(#list == 0)
-    frame.empty:SetText("No targets in this fight.")
+    UI:HideFrom(frame.trows, #list + 1)
+    UI:HideFrom(frame.rows, 1)
+    frame.listChild:SetHeight(max(10, #list * S.ROW.art))
+    frame.tabs:SetText(strformat("%d %s", #list, #list == 1 and "target" or "targets"))
+    ShowEmpty(#list == 0 and "No targets in this fight." or nil)
 end
 
 -- Points sit at each 5 s step's middle; the line runs edge to edge (the first step's value from 0:00, the last one's to
@@ -660,13 +633,27 @@ local function EdgeToEdge(pts, dur)
     return pts
 end
 
--- The fight chip as wide as its name (within limits).
+-- The fight switch as wide as its name (within limits).
 local function SetFightChip(text)
     local f = frame.banner.fight
     f:SetText(text or "")
     local fs = f.GetFontString and f:GetFontString()
     local w = fs and fs:GetStringWidth() or 0
     f:SetWidth(min(260, max(120, w + 46)))
+    frame.tabs:LayoutRight()
+end
+
+-- The chart's time labels under it.
+local function TimeLabels(dur)
+    local ch = frame.chart
+    local chW = (ch:GetWidth() or 0) > 0 and ch:GetWidth() or ch.fallback[1]
+    for i = 1, 5 do
+        local xl = frame.xLabs[i]
+        xl:ClearAllPoints()
+        xl:SetPoint("TOP", ch, "BOTTOMLEFT", chW * (i - 1) / 4, -6)
+        xl:SetText(K.Clock(dur * (i - 1) / 4))
+        xl:Show()
+    end
 end
 
 local function DrawTime(seg, a, mode, dur)
@@ -699,7 +686,7 @@ local function DrawTime(seg, a, mode, dur)
         x0 = 0, x1 = dur, y1 = y1, grid = true,
         series = {
             { points = pts, color = Kit.C.gold, width = 1.8, fill = true, fillAlpha = 0.16, smooth = true, glow = true, endDot = true },
-            { points = avg, color = { 0.62, 0.6, 0.55 }, width = 1.2, alpha = 0.6, smooth = true },
+            { points = avg, color = S.C.SUB, width = 1.2, alpha = 0.6, smooth = true },
         },
         hover = function(x)
             local yp, ya = Kit.YAt(pts, x), Kit.YAt(avg, x)
@@ -708,18 +695,10 @@ local function DrawTime(seg, a, mode, dur)
         end,
     })
     local metric = mode == "healing" and "healing per second" or "damage per second"
-    frame.legend:SetText(strformat("|cffffd100—|r %s's %s     |cff9e998c—|r the raid's average", a.n or "?", metric))
-    local ch = frame.chart
-    local chH = (ch:GetHeight() or 0) > 0 and ch:GetHeight() or ch.fallback[2]
-    local chW = (ch:GetWidth() or 0) > 0 and ch:GetWidth() or ch.fallback[1]
-    for i = 1, 5 do
-        local xl = frame.xLabs[i]
-        xl:ClearAllPoints()
-        xl:SetPoint("TOP", ch, "BOTTOMLEFT", chW * (i - 1) / 4, -6)
-        xl:SetText(K.Clock(dur * (i - 1) / 4))
-        xl:Show()
-    end
-    frame.tabNote:SetText("5-second steps")
+    frame.legend:SetText(strformat("%s %s's %s     %s the raid's average", S:Wrap("GOLD", "—"), a.n or "?", metric,
+        S:Wrap("SUB", "—")))
+    TimeLabels(dur)
+    frame.tabs:SetText("5-second steps")
 end
 
 -- A list's scroll bar only when the list is taller than its room.
@@ -730,7 +709,7 @@ local function FitScroll(sf, contentH, fallbackH)
     if contentH <= h + 1 then sf:SetVerticalScroll(0) end
 end
 
--- Interrupts / Dispels: the spells they used, then what those cut or removed (a gold heading over each block).
+-- Interrupts / Dispels: the spells they used, then what those cut or removed (a section header over each block).
 local function DrawUses(a, mode)
     local by, cut = mode == "kicks" and a.ks or a.ds, mode == "kicks" and a.kx or a.dx
     local verb = mode == "kicks" and "interrupted" or "removed"
@@ -739,7 +718,7 @@ local function DrawUses(a, mode)
         { mode == "kicks" and "What they interrupted" or "What they removed", cut, verb },
     }
     local i, y = 0, 0
-    local listW = W - PAD * 2 - 12
+    local listW = INNER_W - 12
     local total = (mode == "kicks" and a.k or a.dp) or 0
     for _, blk in ipairs(blocks) do
         local list = {}
@@ -753,49 +732,43 @@ local function DrawUses(a, mode)
             hr:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -y)
             hr:SetWidth(listW)
             hr:SetHeight(30)
-            hr.icon:Hide(); hr.thumb:Hide(); hr.rank:Hide(); hr.track:Hide(); hr.fill:Hide(); hr.bar:Hide()
-            hr.amount:SetText(""); hr.pct:SetText(""); hr.sub:SetText("")
-            hr.name:ClearAllPoints()
-            hr.name:SetPoint("BOTTOMLEFT", hr, "BOTTOMLEFT", 6, 6)
-            hr.name:SetWidth(listW - 12)
-            hr.name:SetText(blk[1])
-            hr.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3])
-            hr.on = false
-            hr.bg:SetVertexColor(1, 1, 1, 0)
+            hr.icon:Hide(); hr.track:Hide(); hr.fill:Hide()
+            hr.amount:Hide(); hr.pct:Hide(); hr.sub:Hide(); hr.name:Hide()
+            hr.name:SetText(blk[1])                -- (what the heading says, for whoever reads the rows)
+            hr.head:SetTitle(blk[1])
+            hr.head:SetCount(#list)
+            hr.head:Show()
+            hr:SetSelected(false)
+            hr:EnableMouse(false)
             hr:Show()
             y = y + 30
             local top = list[1].n
             for _, e in ipairs(list) do
                 i = i + 1
                 local r = AbilityRow(i)
+                AsAbility(r)
                 r.key = nil
                 r:ClearAllPoints()
                 r:SetPoint("TOPLEFT", frame.listChild, "TOPLEFT", 0, -y)
                 r:SetWidth(listW)
-                r:SetHeight(ROW_H)
-                r.thumb:Hide(); r.rank:Hide(); r.bar:Hide()
-                r.icon:Show(); r.track:Show(); r.fill:Show()
-                r.icon:SetIcon(K.SpellIcon(e.key))
-                r.name:SetTextColor(1, 1, 1)
+                r.icon:Set(K.SpellIcon(e.key))
                 r.name:SetText(K.SpellName(e.key))
                 r.sub:SetText(strformat("%s %s", blk[3], e.n == 1 and "once" or (K.Int(e.n) .. " times")))
-                PlaceRowText(r, 52, 260)
+                PlaceRowText(r, 46, 260)
                 r.amount:SetText(K.Int(e.n))
                 r.pct:SetText(total > 0 and strformat("%.0f%%", e.n / total * 100) or "")
-                local tw = max(10, listW - 52 - 260 - 12 - 96)
+                local tw = max(10, listW - 46 - 260 - 12 - 96)
                 r.fill:SetWidth(max(1, tw * e.n / top))
-                r.on = false
-                r.bg:SetVertexColor(1, 1, 1, 0)
+                r:SetSelected(false)
                 r:Show()
                 y = y + ROW_H
             end
         end
     end
-    for j = i + 1, #frame.rows do frame.rows[j]:Hide() end
+    UI:HideFrom(frame.rows, i + 1)
+    UI:HideFrom(frame.trows, 1)
     frame.listChild:SetHeight(max(10, y))
-    frame.tabNote:SetText("")
-    frame.empty:SetShown(i == 0)
-    frame.empty:SetText(mode == "kicks" and "No interrupts in this fight." or "No dispels in this fight.")
+    ShowEmpty(i == 0 and (mode == "kicks" and "No interrupts in this fight." or "No dispels in this fight.") or nil)
     return y
 end
 
@@ -812,7 +785,7 @@ local function DrawActive(seg, a, dur)
         local v = (own[bk] or 0) / span
         pts[#pts + 1] = { min(dur, x0 + span / 2), v }
         hi = max(hi, v)
-        if (own[bk] or 0) <= 0 then bands[#bands + 1] = { x0, min(dur, x0 + span), K.RED, nil, alpha = 0.14 } end
+        if (own[bk] or 0) <= 0 then bands[#bands + 1] = { x0, min(dur, x0 + span), S.C.BAD, nil, alpha = 0.14 } end
     end
     EdgeToEdge(pts, dur)
     local step = Kit.NiceStep and Kit.NiceStep(hi * 1.1, 4) or hi / 4
@@ -827,57 +800,67 @@ local function DrawActive(seg, a, dur)
         end,
     })
     local metric = field == "hl" and "healing" or "damage"
-    frame.legend:SetText(strformat("|cffffd100—|r %s's %s per second     "
-        .. "|TInterface\\Buttons\\WHITE8X8:10:10:0:0:8:8:0:8:0:8:255:92:77|t 5-second steps with nothing done",
-        a.n or "?", metric))
-    local ch = frame.chart
-    local chW = (ch:GetWidth() or 0) > 0 and ch:GetWidth() or ch.fallback[1]
-    for i = 1, 5 do
-        local xl = frame.xLabs[i]
-        xl:ClearAllPoints()
-        xl:SetPoint("TOP", ch, "BOTTOMLEFT", chW * (i - 1) / 4, -6)
-        xl:SetText(K.Clock(dur * (i - 1) / 4))
-        xl:Show()
-    end
+    local bad = S.C.BAD
+    frame.legend:SetText(strformat("%s %s's %s per second     "
+        .. "|TInterface\\Buttons\\WHITE8X8:10:10:0:0:8:8:0:8:0:8:%d:%d:%d|t 5-second steps with nothing done",
+        S:Wrap("GOLD", "—"), a.n or "?", metric, floor(bad[1] * 255), floor(bad[2] * 255), floor(bad[3] * 255)))
+    TimeLabels(dur)
 end
 
-function MD:Draw()
-    if not frame or not frame:IsShown() then return end
-    if S.view == "death" then return self:DrawDeath() end
-    local seg = Meter:GetSegment(S.sel)
-    local a = seg and seg.actors[S.guid]
-    local mode = S.mode
-    if mode == "dps" or mode == "deaths" then mode = "damage" end
-    if mode == "damage" and a and (a.d or 0) == 0 and (a.h or 0) > 0 then mode = "healing" end
-    local dur = Meter:Duration(seg)
-    SetBanner(seg, a or { n = "?" })
-    local b = frame.banner
-    b.sub:SetText(a and ("|cffecdfc8" .. SpecText(a) .. "|r · " .. FightText(seg)) or FightText(seg))
-    SetFightChip(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "No fights")
-    local ranked = Ranked(seg, mode)
-    local idx
-    for i, r in ipairs(ranked) do if r.g == S.guid then idx = i end end
-    b.step:SetText(idx and (Ordinal(idx) .. " of " .. #ranked) or "")
-    b.prev:SetShown(#ranked > 1)
-    b.next:SetShown(#ranked > 1)
-    b.step:SetShown(true)
-    for _, c in ipairs(frame.cards) do c:Show() end
-    frame.tabs:Show()
-    frame.tabRule:Show()
-    frame.tabNote:Show()
+-- Shows the tabs that fit the mode; on = false: none (the tool row keeps the pager and the fight switch).
+local function ShowTabs(on, canTargets, canTime)
+    local bar = frame.tabs
+    bar:SetTabShown("abilities", on and true or false)
+    bar:SetTabShown("targets", (on and canTargets) and true or false)
+    bar:SetTabShown("time", (on and canTime) and true or false)
+end
+
+-- The player and death views share the body: everything off, each view shows its own parts.
+local function HideBody()
+    for _, c in ipairs(frame.cards) do c:Hide() end
+    frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide()
+    frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
+    for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
     frame.deathChart:Reset()                  -- (its labels sit on this window: Reset hides them too)
     frame.deathChart:Hide()
     frame.events:Hide()
     frame.events.ScrollBar:Hide()
+    frame.evHead:Hide()
     frame.deathHp:Hide()
     for _, l in ipairs(frame.deathLabs) do l:Hide() end
+    frame.empty:Hide()
+end
+
+function MD:Draw()
+    if not frame or not frame:IsShown() then return end
+    if St.view == "death" then return self:DrawDeath() end
+    local seg = Meter:GetSegment(St.sel)
+    local a = seg and seg.actors[St.guid]
+    local mode = St.mode
+    if mode == "dps" or mode == "deaths" then mode = "damage" end
+    if mode == "damage" and a and (a.d or 0) == 0 and (a.h or 0) > 0 then mode = "healing" end
+    local dur = Meter:Duration(seg)
+    frame:SetWindowTitle("Breakdown")
+    SetBanner(seg, a or { n = "?" }, ModeLabel(St.mode))
+    local b = frame.banner
+    b:SetSub(a and (S:Wrap("TEXT", K.SpecText(a)) .. " · " .. FightText(seg)) or FightText(seg))
+    SetFightChip(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "No fights")
+    local ranked = Ranked(seg, mode)
+    local idx
+    for i, r in ipairs(ranked) do if r.g == St.guid then idx = i end end
+    b.step:SetText(idx and (K.Ordinal(idx) .. " of " .. #ranked) or "")
+    b.prev:SetShown(#ranked > 1)
+    b.next:SetShown(#ranked > 1)
+    b.step:SetShown(true)
+    HideBody()
+    for _, c in ipairs(frame.cards) do c:Show() end
     if not a then
         for _, c in ipairs(frame.cards) do c:Hide() end
-        frame.tabs:Hide(); frame.tabRule:Hide(); frame.tabNote:Hide()
-        frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide(); frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
-        for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
-        frame.empty:SetText("They were not in this fight.")
-        frame.empty:Show()
+        ShowTabs(false)
+        frame.tabs:SetText("")
+        UI:HideFrom(frame.rows, 1)
+        UI:HideFrom(frame.trows, 1)
+        ShowEmpty("They were not in this fight.")
         return
     end
 
@@ -891,15 +874,15 @@ function MD:Draw()
         local crits, n = 0, 0
         for _, s in pairs(a.hs or {}) do if not s.sh and not s.nc then crits = crits + (s.c or 0); n = n + s.n end end
         SetCard(c[1], specIcon, K.Fmt(a.h), nil, "Healing done")
-        SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / act), idx and Ordinal(idx) or nil, "HPS in the raid")
+        SetCard(c[2], "Interface\\Icons\\Spell_Holy_FlashHeal", K.Int(a.h / act), idx and K.Ordinal(idx) or nil, "HPS in the raid")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_Renew", strformat("%d%%", tot > 0 and floor(a.oh / tot * 100 + 0.5) or 0), nil, "Overhealing")
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance")
     elseif mode == "taken" then
         local big = 0                                      -- the biggest single hit (older fights: the biggest average)
         for _, s in pairs(a.ts or {}) do big = max(big, s.mx or (s.a / max(1, s.n))) end
         SetCard(c[1], specIcon, K.Fmt(a.t), nil, "Damage taken")
-        SetCard(c[2], "Interface\\Icons\\Ability_Warrior_DefensiveStance", K.Int(a.t / dur), idx and Ordinal(idx) or nil, "Taken per second")
-        SetCard(c[3], "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", tostring(Meter.IsDead and Meter:IsDead(seg, S.guid) and 1 or 0), nil, "Deaths")
+        SetCard(c[2], "Interface\\Icons\\Ability_Warrior_DefensiveStance", K.Int(a.t / dur), idx and K.Ordinal(idx) or nil, "Taken per second")
+        SetCard(c[3], "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", tostring(Meter.IsDead and Meter:IsDead(seg, St.guid) and 1 or 0), nil, "Deaths")
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", K.Int(big), nil, "Biggest hit")
     elseif mode == "kicks" or mode == "dispels" then
         local by = mode == "kicks" and a.ks or a.ds
@@ -907,14 +890,14 @@ function MD:Draw()
         for k, n in pairs(by or {}) do spells = spells + 1; if n > bestN then best, bestN = k, n end end
         local count = (mode == "kicks" and a.k or a.dp) or 0
         local info = Meter.MODE[mode]
-        SetCard(c[1], info.icon, K.Int(count), idx and Ordinal(idx) or nil, mode == "kicks" and "Interrupts" or "Dispels")
+        SetCard(c[1], info.icon, K.Int(count), idx and K.Ordinal(idx) or nil, mode == "kicks" and "Interrupts" or "Dispels")
         SetCard(c[2], best and K.SpellIcon(best) or info.icon, K.Int(bestN), nil, best and K.SpellName(best) or "Most used")
         SetCard(c[3], "Interface\\Icons\\INV_Misc_Book_09", tostring(spells), nil, spells == 1 and "Spell used" or "Spells used")
         local per = dur > 0 and count / (dur / 60) or 0
         SetCard(c[4], "Interface\\Icons\\INV_Misc_PocketWatch_01", strformat("%.1f", per), nil, "Per minute")
     elseif mode == "active" then
         local on = min(dur, a.act or 0)
-        SetCard(c[1], Meter.MODE.active.icon, K.Pct(on / dur * 100), idx and Ordinal(idx) or nil, "Active time")
+        SetCard(c[1], Meter.MODE.active.icon, K.Pct(on / dur * 100), idx and K.Ordinal(idx) or nil, "Active time")
         SetCard(c[2], specIcon, K.Clock(on), nil, "Active")
         SetCard(c[3], "Interface\\Icons\\Spell_Nature_Sleep", K.Clock(max(0, dur - on)), nil, "Idle")
         SetCard(c[4], "Interface\\Icons\\INV_Misc_PocketWatch_01", K.Clock(dur), nil, "Fight length")
@@ -923,32 +906,27 @@ function MD:Draw()
         -- (only hits that can crit: periodic ticks, damage shields and Consecration would drag it down)
         for _, s in pairs(a.sp or {}) do if not s.nc then crits = crits + (s.c or 0); n = n + (s.n or 0) end end
         SetCard(c[1], specIcon, K.Fmt(a.d), nil, "Damage done")
-        SetCard(c[2], "Interface\\Icons\\Spell_Nature_BloodLust", K.Int(a.d / act), idx and Ordinal(idx) or nil, "DPS in the raid")
+        SetCard(c[2], "Interface\\Icons\\Spell_Nature_BloodLust", K.Int(a.d / act), idx and K.Ordinal(idx) or nil, "DPS in the raid")
         SetCard(c[3], "Interface\\Icons\\Spell_Holy_BlessingOfStrength", K.Pct(min(100, (a.act or 0) / dur * 100)), nil, "Active time")
         SetCard(c[4], "Interface\\Icons\\Spell_Holy_SealOfMight", strformat("%.1f%%", n > 0 and crits / n * 100 or 0), nil, "Crit chance")
     end
 
     -- Interrupts / Dispels: one list, no tabs; Active time: the chart, no tabs
     if mode == "kicks" or mode == "dispels" or mode == "active" then
-        frame.tabs:Hide(); frame.tabRule:Show(); frame.tabNote:Hide()
-        frame.det:Hide()
-        frame.empty:Hide()
+        ShowTabs(false)
+        frame.tabs:SetText(mode == "active" and "5-second steps" or "")
         local isList = mode ~= "active"
         frame.list:SetShown(isList)
-        for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
         if isList then
-            frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
-            frame.list:SetWidth(W - PAD * 2 - 12)
-            frame.listChild:SetWidth(W - PAD * 2 - 12)
+            frame.list:SetWidth(INNER_W - 12)
+            frame.listChild:SetWidth(INNER_W - 12)
             local h = DrawUses(a, mode)
-            FitScroll(frame.list, h, H + BODY_Y - 14)
+            FitScroll(frame.list, h, BODY_H - LIST_Y)
         else
-            frame.list.ScrollBar:Hide()
-            for _, r in ipairs(frame.rows) do r:Hide() end
+            UI:HideFrom(frame.rows, 1)
+            UI:HideFrom(frame.trows, 1)
             if seg.noTl then
-                frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
-                frame.empty:SetText("Whole raid keeps no timeline: pick one fight to see when they were busy.")
-                frame.empty:Show()
+                ShowEmpty("Whole raid keeps no timeline: pick one fight to see when they were busy.")
             else
                 frame.chart:Show(); frame.legend:Show()
                 DrawActive(seg, a, dur)
@@ -956,40 +934,31 @@ function MD:Draw()
         end
         return
     end
-    for _, r in ipairs(frame.rows) do r.name:SetTextColor(1, 1, 1); r.fill:Show(); r.track:Show() end
 
     -- tabs: Targets for damage only, Over time not for Whole raid
     local canTargets = mode == "damage"
     local canTime = not seg.noTl and mode ~= "taken"
-    frame.tabs.buttons[2]:SetShown(canTargets)
-    frame.tabs.buttons[3]:SetShown(canTime)
-    frame.tabs.buttons[3]:ClearAllPoints()
-    frame.tabs.buttons[3]:SetPoint("LEFT", canTargets and frame.tabs.buttons[2] or frame.tabs.buttons[1], "RIGHT", 4, 0)
-    if (S.tab == "targets" and not canTargets) or (S.tab == "time" and not canTime) then S.tab = "abilities" end
-    frame.tabs:SetSelected(S.tab)
+    ShowTabs(true, canTargets, canTime)
+    if (St.tab == "targets" and not canTargets) or (St.tab == "time" and not canTime) then St.tab = "abilities" end
+    frame.tabs:SelectTab(St.tab)
 
-    local isList = S.tab ~= "time"
+    local isList = St.tab ~= "time"
     frame.list:SetShown(isList)
-    frame.list.ScrollBar:Hide()
     frame.chart:SetShown(not isList)
     frame.legend:SetShown(not isList)
-    for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:SetShown(not isList) end
-    if isList then frame.chart:Reset() end
-    frame.empty:Hide()
-    if S.tab == "abilities" then
+    if St.tab == "abilities" then
         frame.list:SetWidth(frame.listW)
         frame.listChild:SetWidth(frame.listW)
-        for _, r in ipairs(frame.rows) do r:SetHeight(ROW_H) end
         DrawAbilities(a, mode, dur)
-        FitScroll(frame.list, frame.listChild:GetHeight() or 0, H + BODY_Y - 14)
-    elseif S.tab == "targets" then
-        frame.det:Hide()
-        frame.list:SetWidth(W - PAD * 2 - 12)
-        frame.listChild:SetWidth(W - PAD * 2 - 12)
+        FitScroll(frame.list, frame.listChild:GetHeight() or 0, BODY_H - LIST_Y)
+    elseif St.tab == "targets" then
+        frame.list:SetWidth(INNER_W - 12)
+        frame.listChild:SetWidth(INNER_W - 12)
         DrawTargets(a)
-        FitScroll(frame.list, frame.listChild:GetHeight() or 0, H + BODY_Y - 14)
+        FitScroll(frame.list, frame.listChild:GetHeight() or 0, BODY_H - LIST_Y)
     else
-        frame.det:Hide()
+        UI:HideFrom(frame.rows, 1)
+        UI:HideFrom(frame.trows, 1)
         DrawTime(seg, a, mode, dur)
     end
 end
@@ -1005,33 +974,35 @@ local function DeathsOf(seg)
 end
 
 function MD:DrawDeath()
-    local seg = Meter:GetSegment(S.sel)
-    local d = S.death
+    local seg = Meter:GetSegment(St.sel)
+    local d = St.death
     local deaths = DeathsOf(seg)
     local idx
     for i, x in ipairs(deaths) do if x == d then idx = i end end
     if not idx and d and seg then
-        for i, x in ipairs(deaths) do if x.g == d.g and x.t == d.t then idx = i; d = x; S.death = x end end
+        for i, x in ipairs(deaths) do if x.g == d.g and x.t == d.t then idx = i; d = x; St.death = x end end
     end
     if not d then frame:Hide() return end
     local a = (seg and seg.actors[d.g]) or { n = d.n, c = d.c }
-    SetBanner(seg, a)
+    frame:SetWindowTitle("Death recap")
+    SetBanner(seg, a, "Death recap")
     local b = frame.banner
     local took, healed = 0, 0
     for _, e in ipairs(d.ev or {}) do
         if e[2] == "d" then took = took + (e[4] or 0) else healed = healed + (e[4] or 0) end
     end
-    b.sub:SetText(strformat("Died at |cffecdfc8%s|r to |cffff8a70%s|r · in the last %d s took |cffecdfc8%s|r, healed |cffecdfc8%s|r",
-        K.Clock(d.t), d.by and K.SpellName(d.by) or "?", Meter.RECAP, K.Int(took), K.Int(healed)))
+    b:SetSub(strformat("Died at %s to %s · in the last %d s took %s, healed %s",
+        S:Wrap("TEXT", K.Clock(d.t)), S:Wrap("BAD", d.by and K.SpellName(d.by) or "?"), Meter.RECAP,
+        S:Wrap("TEXT", K.Int(took)), S:Wrap("TEXT", K.Int(healed))))
     SetFightChip(seg and (seg.live and "Current fight" or Meter:SegName(seg)) or "")
-    b.step:SetText(idx and (Ordinal(idx) .. " of " .. #deaths) or "")
+    b.step:SetText(idx and (K.Ordinal(idx) .. " of " .. #deaths) or "")
     b.prev:SetShown(#deaths > 1)
     b.next:SetShown(#deaths > 1)
-    for _, c in ipairs(frame.cards) do c:Hide() end
-    frame.tabs:Hide(); frame.tabRule:Hide(); frame.tabNote:Hide()
-    frame.list:Hide(); frame.list.ScrollBar:Hide(); frame.det:Hide(); frame.chart:Reset(); frame.chart:Hide(); frame.legend:Hide()
-    for i = 1, 5 do frame.yLabs[i]:Hide(); frame.xLabs[i]:Hide() end
-    frame.empty:Hide()
+    HideBody()
+    ShowTabs(false)
+    frame.tabs:SetText(strformat("The last %d seconds", Meter.RECAP))
+    UI:HideFrom(frame.rows, 1)
+    UI:HideFrom(frame.trows, 1)
 
     -- health over the last seconds (a step line; the start is worked back from the first event)
     local ev = d.ev or {}
@@ -1086,6 +1057,8 @@ function MD:DrawDeath()
     end
 
     -- every event, newest first
+    frame.evHead:SetCount(#ev)
+    frame.evHead:Show()
     frame.events:Show()
     local n = #ev
     for i = 1, n do
@@ -1093,28 +1066,30 @@ function MD:DrawDeath()
         local r = EventRow(i)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", frame.eventsChild, "TOPLEFT", 0, -(i - 1) * EROW_H)
-        r:SetWidth(W - PAD * 2 - 10)
+        r:SetWidth(INNER_W - 10)
         local killing = i == 1 and e[2] == "d"
-        r.bg:SetVertexColor(killing and 1 or 1, killing and 0.24 or 1, killing and 0.16 or 1, killing and 0.09 or (i % 2 == 1 and 0.02 or 0))
+        r:SetStripe(not killing and i % 2 == 1)
+        r.kill:SetShown(killing)
         r.mark:SetShown(killing)
         r.t:SetText(strformat("%.1f s", e[1]))
-        r.icon:SetIcon(K.SpellIcon(e[3]))
+        r.icon:Set(K.SpellIcon(e[3]))
         local extra = ""
         if e[2] == "d" and e[7] then extra = " · overkill " .. K.Int(e[7]) end
         if e[2] == "h" and e[7] then extra = " · " .. K.Int(e[7]) .. " over" end
-        r.what:SetText(strformat("%s |cffa29d90%s %s%s|r", K.SpellName(e[3]), e[2] == "d" and "from" or "by", e[5] or "?", extra))
+        r.what:SetText(strformat("%s %s", K.SpellName(e[3]),
+            S:Wrap("SUB", strformat("%s %s%s", e[2] == "d" and "from" or "by", e[5] or "?", extra))))
         r.amount:SetText((e[2] == "d" and "−" or "+") .. K.Int(e[4]))
-        if e[2] == "d" then r.amount:SetTextColor(C3(K.RED)) else r.amount:SetTextColor(C3(K.GREEN)) end
+        r.amount:SetTextColor(S:Color(e[2] == "d" and "BAD" or "OK"))
         local p = pct(e[6])
         r.hpFill:SetWidth(max(0.01, 64 * p / 100))
         r.hpFill:SetShown(p > 0)
-        if p < 30 then r.hpFill:SetVertexColor(1, 0.36, 0.3) else r.hpFill:SetVertexColor(0.27, 0.83, 0.45) end
+        r.hpFill:SetVertexColor(S:Color(p < 30 and "BAD" or "OK"))
         r.hp:SetText(floor(p + 0.5) .. "%")
         r:Show()
     end
-    for i = n + 1, #frame.evRows do frame.evRows[i]:Hide() end
+    UI:HideFrom(frame.evRows, n + 1)
     frame.eventsChild:SetHeight(max(10, n * EROW_H))
-    FitScroll(frame.events, n * EROW_H, H - BANNER_H - 196 - 14)
+    FitScroll(frame.events, n * EROW_H, BODY_H - 194)
 end
 
 ---------------------------------------------------------------------------
@@ -1123,9 +1098,9 @@ end
 
 function MD:Open(sel, guid, mode)
     if not frame then Build() end
-    S.view, S.sel, S.guid, S.mode = "player", sel or "cur", guid, mode or "damage"
-    S.ab = nil
-    if S.mode == "healing" or S.mode == "taken" then S.tab = "abilities" end
+    St.view, St.sel, St.guid, St.mode = "player", sel or "cur", guid, mode or "damage"
+    St.ab = nil
+    if St.mode == "healing" or St.mode == "taken" then St.tab = "abilities" end
     frame:Show()
     frame:Raise()
     self:Draw()
@@ -1133,29 +1108,29 @@ end
 
 function MD:OpenDeath(sel, death)
     if not frame then Build() end
-    S.view, S.sel, S.death = "death", sel or "cur", death
+    St.view, St.sel, St.death = "death", sel or "cur", death
     frame:Show()
     frame:Raise()
     self:Draw()
 end
 
 function MD:Step(dir)
-    local seg = Meter:GetSegment(S.sel)
-    if S.view == "death" then
+    local seg = Meter:GetSegment(St.sel)
+    if St.view == "death" then
         local list = DeathsOf(seg)
         if #list == 0 then return end
         local i = 1
-        for j, d in ipairs(list) do if d == S.death then i = j end end
-        S.death = list[(i - 1 + dir) % #list + 1]
+        for j, d in ipairs(list) do if d == St.death then i = j end end
+        St.death = list[(i - 1 + dir) % #list + 1]
     else
-        local mode = S.mode
+        local mode = St.mode
         if mode == "dps" or mode == "deaths" then mode = "damage" end
         local list = Ranked(seg, mode)
         if #list == 0 then return end
         local i = 1
-        for j, r in ipairs(list) do if r.g == S.guid then i = j end end
-        S.guid = list[(i - 1 + dir) % #list + 1].g
-        S.ab = nil
+        for j, r in ipairs(list) do if r.g == St.guid then i = j end end
+        St.guid = list[(i - 1 + dir) % #list + 1].g
+        St.ab = nil
     end
     self:Draw()
 end
@@ -1164,24 +1139,24 @@ function MD:FightMenu(root)
     local fights, all = Meter:GetFights()
     for i, seg in ipairs(fights) do
         local e = root:CreateRadio(seg.live and "Current fight" or Meter:SegName(seg), function()
-            local cur = Meter:GetSegment(S.sel)
+            local cur = Meter:GetSegment(St.sel)
             return cur == seg
         end, function()
-            S.sel = (i == 1) and "cur" or seg.id
+            St.sel = (i == 1) and "cur" or seg.id
             MD:Draw()
         end, seg.id)
         e:SetSubtext(FightText(seg):gsub("^[^·]+· ", ""))
     end
     if all then
         root:CreateDivider()
-        local e = root:CreateRadio(Meter:SegName(all), function() return S.sel == "all" end,
-            function() S.sel = "all"; MD:Draw() end, "all")
+        local e = root:CreateRadio(Meter:SegName(all), function() return St.sel == "all" end,
+            function() St.sel = "all"; MD:Draw() end, "all")
         e:SetSubtext(K.Clock(Meter:Duration(all)))
     end
 end
 
 function MD:GetFrame() return frame end
-function MD:GetState() return S end
+function MD:GetState() return St end
 
 function MD:OnLogin()
     Meter = ns.Meter

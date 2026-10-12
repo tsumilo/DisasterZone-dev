@@ -24,9 +24,16 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/MeterPanels.lua", ...) then ret
 -- real rank). Hover: top abilities; click: the breakdown (UI/MeterDetail.lua), in Deaths the death recap.
 -- Looks: UI/MeterTheme.lua (meters.theme and its overrides) sets the sizes below (ApplyMetrics) and skins the stacks,
 -- panels and rows; a row made under another look restyles when it is next drawn (row.styleKey).
+-- Built from the shared parts: texts are UI:Text on the type scale, fills / rules / gradients the UI primitives,
+-- hovers and the picked look UI:DecorateRow, tooltips UI:AttachTooltip, the close X UI:CreateCloseButton, the fight
+-- list's zones UI:CreateSectionHeader, the bar tooltip a card-look UI:CreateHudFrame, colours the ns.Style tokens.
+-- The faces (stack, header, bars) are the themes' (UI/MeterTheme.lua through ns.Themes). A meter panel is a HUD
+-- panel that docks, not a page: it sits on no page layout (its place is the meters.layout setting).
 local addonName, ns = ...
 
 local MP = ns:NewModule("MeterPanels")
+local UI = ns.UI
+local S = ns.Style
 
 local floor, max, min, abs, exp, sin = math.floor, math.max, math.min, math.abs, math.exp, math.sin
 local pairs, ipairs, type, tonumber, tostring, next = pairs, ipairs, type, tonumber, tostring, next
@@ -38,7 +45,8 @@ local HEAD_H, ROW_H, ROW_GAP, PAD = 24, 19, 1, 3
 local FL_H = 18                   -- a meter panel's fight line, under its header (the user's pick A, 2026-10-11)
 local BAR_L, BAR_RES, NAME_L, VAL_R = 20, 0, 25, 6   -- a bar's left edge, the room kept for its ends, text places
 local M                           -- the look in use (MeterTheme:Metrics)
-local BOSS_C = { 1, 0.71, 0.27 }
+local BOSS_C = { 1, 0.71, 0.27 }   -- (a boss fight's name: the meters' amber)
+local HOT_C = { 1, 0.35, 0.24 }    -- (threat: the warning stretch and a bar past it)
 local DEFAULT_W, MIN_W, MAX_W = 300, 170, 640
 local DEFAULT_ROWS, MAX_ROWS = 8, 40
 local NEAR, SIDE_Y = 40, 60      -- docking: how far past an edge a drop still joins; how far apart tops may be beside
@@ -71,7 +79,8 @@ local LOW_HEALTH = "Interface\\FullScreenTextures\\LowHealth"
 local VIEWS = { "damage", "dps", "healing", "taken", "deaths", "kicks", "dispels", "active", "threat" }
 local THREAT_VIEW = { key = "threat", label = "Threat", icon = "Interface\\Icons\\Ability_Warrior_DefensiveStance" }
 
-local Meter, Threat, K
+local Meter, Threat
+local K = ns.MeterWindow.K
 local holder, guide, outline, flash, driver
 local stackFrames = {}            -- [i] = the frame of layout.stacks[i]
 local frameOf = {}                -- [layout panel table] = its panel frame
@@ -176,9 +185,7 @@ local function NewStack()
     f:SetClampedToScreen(true)
     f:SetMovable(true)
     f:EnableMouse(true)
-    K.Panel(f, 0.66)
-    f.fill:SetVertexColor(0.039, 0.039, 0.051, 0.66)
-    f:SetEdge(1, 1, 1, 0)
+    ns.MeterTheme:NewStackFace(f)           -- (fill, outer pixel and edge: the theme colours them)
     f.panels = {}
     local grip = CreateFrame("Button", nil, f)
     grip:SetSize(12, 12)
@@ -190,12 +197,10 @@ local function NewStack()
     grip:SetScript("OnMouseDown", function() MP:StartResize(f) end)
     grip:SetScript("OnMouseUp", function() MP:EndResize() end)
     f.grip = grip
-    f.hint = K.Font(f, K.FRIZ, 12, K.GOLD)
     -- (as wide as the stack, wrapping: centred and one line it ran off the screen's edge)
+    f.hint = UI:Text(f, "emph", "GOLD", { wrap = true, shadow = true })
     f.hint:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 2, 4)
     f.hint:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -2, 4)
-    f.hint:SetJustifyH("LEFT")
-    f.hint:SetWordWrap(true)
     f.hint:SetText("Drag a header to move or dock · Shift to pull one out · the corner to resize")
     f.hint:Hide()
     f:SetScript("OnMouseUp", function(_, button) if button == "RightButton" and f.panels[1] then MP:PanelMenu(f.panels[1], f) end end)
@@ -222,34 +227,43 @@ local function HeadDragStart(pf, tabIndex)
     end
 end
 
+-- A flat header button (a text and / or a glyph): the shared hover (UI:DecorateRow), held lit while its menu is open.
+local function HeadButton(parent, w, h)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(w or 22, h or 22)
+    UI:DecorateRow(b, { hover = true })
+    function b:SetLit(on) self.lit = on; self:SetHover(on) end
+    function b:OnMenuShown(on) self:SetLit(on) end
+    return b
+end
+
+-- A tab in a panel's header: its view's icon and name (the name gives way to the icon alone when they don't fit), a
+-- gold underline on the open one. The theme sets the header's height and fonts.
+-- TODO(refactor): move into a compact HUD tab (UI:CreateUnderlineTab has no icon, drag-out or theme font).
 local function NewTab(pf)
     local b = CreateFrame("Button", nil, pf.head)
     b:SetHeight(HEAD_H)
     b:SetHitRectInsets(-6, -6, 0, 0)          -- (the 12 px between tabs is clickable too: an icon-only tab is 13 px)
     b:RegisterForDrag("LeftButton")
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    b.icon = K.Tex(b, "ARTWORK", 134400)
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetTexture(134400)
     b.icon:SetSize(13, 13)
     b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     b.icon:SetPoint("LEFT", b, "LEFT", 0, 0)
-    b.text = K.Font(b, K.FRIZ, 12, K.DIM)
+    b.text = UI:Text(b, "emph", "SUB", { shadow = true })
     b.text:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
-    b.line = K.Tex(b, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
-    b.line:SetPoint("BOTTOMLEFT")
-    b.line:SetPoint("BOTTOMRIGHT")
-    b.line:SetHeight(2)
+    b.line = UI:Rule(b, { color = "GOLD", size = 2, bottom = 0, layer = "OVERLAY" })
     b:SetScript("OnClick", function(self, button)
         if button == "RightButton" then MP:PanelMenu(pf, self) return end
         pf.layout.active = self.index
         MP:Draw()
     end)
-    b:SetScript("OnEnter", function(self)        -- (a tab shrunk to its icon still says what it is)
-        if (self.text:GetText() or "") ~= "" then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(self.label or "")
-        GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- (a tab shrunk to its icon still says what it is)
+    UI:AttachTooltip(b, function(self, tt)
+        if (self.text:GetText() or "") ~= "" then return false end
+        tt:AddLine(self.label or "")
+    end, nil, { anchor = "ANCHOR_TOP" })
     -- (a tab dragged out stays alive, invisible, until the drop: a hidden frame never gets its OnDragStop)
     b:SetScript("OnDragStart", function(self)
         self.dragging = true
@@ -263,19 +277,17 @@ local function NewTab(pf)
     return b
 end
 
-local function IconButton(parent, size)
-    local b = K.HeadButton(parent)
-    b:SetSize(size, size)
-    return b
+-- A texture the themes colour (a white texture: SetVertexColor gives it its colour).
+local function Tinted(parent, layer, sub)
+    local t = parent:CreateTexture(nil, layer, nil, sub)
+    t:SetTexture(K.WHITE)
+    return t
 end
 
 local function NewPanel()
     local pf = CreateFrame("Frame", nil, holder)
     pf:SetHeight(HEAD_H)
-    pf.sep = K.Tex(pf, "OVERLAY", K.WHITE, 1, 1, 1, 0.08)
-    pf.sep:SetPoint("TOPLEFT")
-    pf.sep:SetPoint("TOPRIGHT")
-    pf.sep:SetHeight(1)
+    pf.sep = UI:Rule(pf, { color = { 1, 1, 1, 1 }, layer = "OVERLAY" })    -- (the theme tints it: SkinPanel)
 
     local head = CreateFrame("Button", nil, pf)
     head:SetPoint("TOPLEFT")
@@ -283,11 +295,11 @@ local function NewPanel()
     head:SetHeight(HEAD_H)
     head:RegisterForDrag("LeftButton")
     head:RegisterForClicks("RightButtonUp")
-    head.bg = K.Tex(head, "BACKGROUND", K.WHITE, 1, 1, 1, 0.035)
+    head.bg = Tinted(head, "BACKGROUND")
     head.bg:SetAllPoints()
-    head.drop = K.Tex(head, "OVERLAY", K.WHITE, 1, 0.82, 0, 0.13)
-    head.drop:SetAllPoints()
-    head.dropText = K.Font(head, K.FRIZ, 11.5, K.GOLD)
+    -- (a dock target under the dragged stack: the shared picked wash)
+    head.drop = UI:Fill(head, "SELECT", "OVERLAY")
+    head.dropText = UI:Text(head, "body", "GOLD", { shadow = true })
     head.dropText:SetPoint("RIGHT", head, "RIGHT", -50, 0)
     head.dropText:SetText("Drop to add as a tab")
     head.drop:Hide()
@@ -297,16 +309,20 @@ local function NewPanel()
     head:SetScript("OnClick", function(self, button) if button == "RightButton" then MP:PanelMenu(pf, self) end end)
     pf.head = head
 
-    local mode = K.HeadButton(head)
+    local mode = HeadButton(head)
     mode:SetPoint("LEFT", head, "LEFT", 3, 0)
     mode:RegisterForDrag("LeftButton")
-    mode.icon = K.Tex(mode, "ARTWORK", 134400)
+    mode.icon = mode:CreateTexture(nil, "ARTWORK")
+    mode.icon:SetTexture(134400)
     mode.icon:SetSize(14, 14)
     mode.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     mode.icon:SetPoint("LEFT", mode, "LEFT", 4, 0)
-    mode.text = K.Font(mode, K.FRIZ, 12.5, K.GOLD)
+    mode.text = UI:Text(mode, "emph", "GOLD", { shadow = true })
     mode.text:SetPoint("LEFT", mode.icon, "RIGHT", 6, 0)
-    mode.chev = K.Chevron(mode, 9, K.GOLD)
+    mode.chev = mode:CreateTexture(nil, "OVERLAY")
+    K.Glyph(mode.chev, "chevron")
+    mode.chev:SetSize(9, 9)
+    mode.chev:SetVertexColor(S:Color("GOLD"))
     mode.chev:SetPoint("LEFT", mode.text, "RIGHT", 5, -1)
     mode:SetScript("OnClick", function(self) MP:ViewMenu(pf, self) end)
     mode:SetScript("OnDragStart", function() HeadDragStart(pf) end)
@@ -314,95 +330,62 @@ local function NewPanel()
     pf.mode = mode
     pf.tabs = {}
 
-    local note = K.HeadButton(head)
+    local note = HeadButton(head)
     note:RegisterForDrag("LeftButton")
-    note.text = K.Font(note, K.FRIZ, 11.5, K.DIM)
+    note.text = UI:Text(note, "body", "SUB", { shadow = true })
     note.text:SetPoint("LEFT", note, "LEFT", 3, 0)
-    note.text:SetJustifyH("LEFT")
     note:SetScript("OnClick", function(self) if not IsThreat(MP:TabOf(pf).view) then MP:FightMenu(pf, self) end end)
     note:SetScript("OnDragStart", function() HeadDragStart(pf) end)
     note:SetScript("OnDragStop", function() MP:EndDrag() end)
     pf.note = note
 
-    pf.close = IconButton(head, 20)
+    pf.close = UI:CreateCloseButton(head, 20, function() MP:Close(pf) end)
     pf.close:SetPoint("RIGHT", head, "RIGHT", -2, 0)
-    pf.close.x = K.Font(pf.close, K.NARROW, 16, { 0.58, 0.56, 0.52 })
-    pf.close.x:SetPoint("CENTER", 0, 1)
-    pf.close.x:SetText("×")
-    pf.close:SetScript("OnClick", function() MP:Close(pf) end)
-    pf.close:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(#AvailTabs(pf.layout or { tabs = {} }) > 1 and "Close this tab" or "Close this panel")
-        GameTooltip:Show()
-    end)
-    pf.close:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    pf.plus = IconButton(head, 20)
+    UI:AttachTooltip(pf.close, function(_, tt)
+        tt:AddLine(#AvailTabs(pf.layout or { tabs = {} }) > 1 and "Close this tab" or "Close this panel")
+    end, nil, { anchor = "ANCHOR_TOP" })
+    pf.plus = HeadButton(head, 20, 20)
     pf.plus:SetPoint("RIGHT", pf.close, "LEFT", 0, 0)
     pf.plus.icon = pf.plus:CreateTexture(nil, "ARTWORK")
     K.Glyph(pf.plus.icon, "plus")
     pf.plus.icon:SetSize(12, 12)
     pf.plus.icon:SetPoint("CENTER")
-    pf.plus.icon:SetVertexColor(0.58, 0.56, 0.52)
+    pf.plus.icon:SetVertexColor(S:Color("SUB"))
     pf.plus:SetScript("OnClick", function(self) MP:SpawnMenu(pf, self) end)
-    pf.plus:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("New panel")
-        GameTooltip:AddLine("Pick what it shows. Drag its header onto this one to dock it.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    pf.plus:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    pf.tot = K.Font(head, K.NARROW, 12, K.DIM)
+    UI:AttachTooltip(pf.plus, "New panel", { "Pick what it shows. Drag its header onto this one to dock it." },
+        { anchor = "ANCHOR_TOP" })
+    pf.tot = UI:Text(head, "emph", "SUB", { font = K.NARROW, justify = "RIGHT", shadow = true })
     pf.tot:SetPoint("RIGHT", pf.plus, "LEFT", -5, 0)
-    pf.tot:SetJustifyH("RIGHT")
-    pf.totV = K.Font(head, K.NARROW, 13, K.INK)
-    pf.totV:SetPoint("RIGHT", pf.tot, "LEFT", -4, 0)
-    pf.totV:SetJustifyH("RIGHT")
+    pf.totV = UI:Text(head, "title", "TEXT", { font = K.NARROW, justify = "RIGHT", shadow = true })
+    pf.totV:SetPoint("RIGHT", pf.tot, "LEFT", -6, 0)
 
     -- the fight line
     local fl = CreateFrame("Frame", nil, pf)
     fl:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
     fl:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
     fl:SetHeight(FL_H)
-    fl.bg = K.Tex(fl, "BACKGROUND", K.WHITE, 0, 0, 0, 0.28)
+    fl.bg = Tinted(fl, "BACKGROUND")
     fl.bg:SetAllPoints()
-    fl.top = K.Tex(fl, "ARTWORK", K.WHITE, 1, 1, 1, 0.05)
-    fl.top:SetPoint("TOPLEFT")
-    fl.top:SetPoint("TOPRIGHT")
-    fl.top:SetHeight(1)
+    fl.top = UI:Rule(fl, { color = "HOVER" })
     fl:EnableMouseWheel(true)
     fl:SetScript("OnMouseWheel", function(_, delta) MP:StepFight(pf, delta > 0 and 1 or -1) end)
-    local function Arrow(glyph, dir, tipText)
-        local a = CreateFrame("Button", nil, fl)
-        a:SetSize(22, FL_H)
-        a.text = K.Font(a, K.NARROW, 15, K.DIM)
-        a.text:SetPoint("CENTER", 0, 1)
-        a.text:SetText(glyph)
-        a:SetScript("OnClick", function() MP:StepFight(pf, dir) end)
-        a:SetScript("OnEnter", function(self)
-            self.text:SetTextColor(1, 1, 1)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(tipText)
-            GameTooltip:Show()
-        end)
-        a:SetScript("OnLeave", function(self)
-            self.text:SetTextColor(K.DIM[1], K.DIM[2], K.DIM[3])
-            GameTooltip:Hide()
-        end)
+    local function Arrow(right, dir, tipText)
+        local a = UI:CreateArrowButton(fl, right, 22, FL_H, function() MP:StepFight(pf, dir) end)
+        UI:AttachTooltip(a, tipText, nil, { anchor = "ANCHOR_TOP" })
         return a
     end
-    fl.prev = Arrow("\226\128\185", -1, "Older fight")      -- (single angle quotes)
+    fl.prev = Arrow(false, -1, "Older fight")
     fl.prev:SetPoint("LEFT")
-    fl.next = Arrow("\226\128\186", 1, "Newer fight")
+    fl.next = Arrow(true, 1, "Newer fight")
     fl.next:SetPoint("RIGHT")
     fl.lab = CreateFrame("Button", nil, fl)
     fl.lab:SetPoint("TOPLEFT", fl.prev, "TOPRIGHT")
     fl.lab:SetPoint("BOTTOMRIGHT", fl.next, "BOTTOMLEFT")
     fl.lab:RegisterForDrag("LeftButton")
     fl.lab:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    fl.lab.hl = K.Tex(fl.lab, "HIGHLIGHT", K.WHITE, 1, 1, 1, 0.05)
-    fl.lab.hl:SetAllPoints()
-    fl.name = K.Font(fl.lab, K.FRIZ, 11.5, K.INK)
-    fl.meta = K.Font(fl.lab, K.NARROW, 12, K.DIM)
+    UI:DecorateRow(fl.lab, { hover = true })
+    fl.name = UI:Text(fl.lab, "body", "TEXT", { shadow = true })
+    fl.meta = UI:Text(fl.lab, "emph", "SUB", { font = K.NARROW, shadow = true })
     fl.name:SetPoint("LEFT", fl.lab, "LEFT", 0, 0)
     fl.meta:SetPoint("LEFT", fl.name, "RIGHT", 0, 0)
     fl.lab:SetScript("OnClick", function(self, button)
@@ -423,15 +406,18 @@ local function NewPanel()
     local over = CreateFrame("Frame", nil, rows)
     over:SetAllPoints()
     over:SetFrameLevel(rows:GetFrameLevel() + 5)
-    pf.zone = K.Tex(over, "BACKGROUND", K.WHITE)
-    K.Gradient(pf.zone, "HORIZONTAL", { 1, 0.35, 0.24, 0 }, { 1, 0.35, 0.24, 0.16 })
-    pf.tankLine = K.Tex(over, "ARTWORK", K.WHITE, 1, 1, 1, 0.28)
+    pf.zone = over:CreateTexture(nil, "BACKGROUND")
+    UI:Gradient(pf.zone, "HORIZONTAL", { HOT_C[1], HOT_C[2], HOT_C[3], 0 }, { HOT_C[1], HOT_C[2], HOT_C[3], 0.16 })
+    pf.tankLine = UI:Fill(over, { 1, 1, 1, 0.28 }, "ARTWORK")
+    pf.tankLine:ClearAllPoints()
     pf.tankLine:SetWidth(1)
-    pf.pull = K.Tex(over, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
+    pf.pull = UI:Fill(over, "GOLD", "OVERLAY")
+    pf.pull:ClearAllPoints()
     pf.pull:SetWidth(2)
     pf.rowsByKey, pf.rowPool, pf.trowsByKey, pf.trowPool = {}, {}, {}, {}
     -- the mouse wheel scrolls past the panel's last row (rows don't take the wheel, so it reaches the panel)
-    pf.thumb = K.Tex(over, "OVERLAY", K.WHITE, 1, 1, 1, 0.3)
+    pf.thumb = UI:Fill(over, { 1, 1, 1, 0.3 }, "OVERLAY")
+    pf.thumb:ClearAllPoints()
     pf.thumb:SetWidth(2)
     pf.thumb:Hide()
     pf:EnableMouseWheel(true)
@@ -650,58 +636,39 @@ local function RowSeg(pf)
     return Meter:GetSegment(tab.seg or "cur"), tab.view, tab
 end
 
--- The bar's tooltip (the mockup's): the class in a gold ring with the name and spec, up to three big numbers with
--- small captions, the top abilities (icon, name, amount, share), a red line when they died, and a green hint. Our own
--- frame: GameTooltip cannot lay out columns.
+-- The bar's tooltip (the mockup's): the player's spec in an icon tile with the name and spec, up to three big numbers
+-- with small captions, a hairline, the top abilities (icon, name, amount, share), a red line when they died, and a
+-- green hint. A card-look HUD frame: GameTooltip cannot lay out columns.
 local TIP_W, TIP_PAD, TIP_LINE = 272, 11, 21
-local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
+local TIP_HEAD = 30
 local tip
 
 local function Tip()
     if tip then return tip end
-    tip = CreateFrame("Frame", "DisasterZoneMeterTip", UIParent)
-    tip:SetFrameStrata("TOOLTIP")
-    tip:SetClampedToScreen(true)
-    tip:SetWidth(TIP_W)
-    local bg, edge = ns.UI.DROP_BG or { 0.06, 0.06, 0.07, 0.98 }, ns.UI.DROP_EDGE or { 0.34, 0.34, 0.38, 1 }
-    tip.bg = K.Tex(tip, "BACKGROUND", K.WHITE, 0.035, 0.035, 0.047, 0.97)
-    tip.bg:SetAllPoints()
-    tip.outer = K.Tex(tip, "BACKGROUND", K.WHITE, 0, 0, 0, 0.9, -8)
-    tip.outer:SetPoint("TOPLEFT", -1, 1)
-    tip.outer:SetPoint("BOTTOMRIGHT", 1, -1)
-    for _, pts in ipairs({ { "TOPLEFT", "TOPRIGHT", "h" }, { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
-                           { "TOPLEFT", "BOTTOMLEFT", "v" }, { "TOPRIGHT", "BOTTOMRIGHT", "v" } }) do
-        local e = K.Tex(tip, "BORDER", K.WHITE, edge[1], edge[2], edge[3], 0.9)
-        e:SetPoint(pts[1]); e:SetPoint(pts[2])
-        if pts[3] == "h" then e:SetHeight(1) else e:SetWidth(1) end
-    end
-    -- header: the class in a gold ring, the name, the spec
-    tip.ring = K.Tex(tip, "ARTWORK", K.DISC, 0.72, 0.56, 0.17, 0.85)
-    tip.ring:SetSize(34, 34)
-    tip.ring:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD - 2, -TIP_PAD + 2)
-    tip.gap = tip:CreateTexture(nil, "ARTWORK", nil, 1)
-    tip.gap:SetTexture(K.DISC)
-    tip.gap:SetVertexColor(0, 0, 0, 1)
-    tip.gap:SetSize(32, 32)
-    tip.gap:SetPoint("CENTER", tip.ring)
-    tip.cls = tip:CreateTexture(nil, "ARTWORK", nil, 2)
-    tip.cls:SetSize(30, 30)
-    tip.cls:SetPoint("CENTER", tip.ring)
-    tip.name = K.Font(tip, K.FRIZ, 15, { 1, 1, 1 })
-    tip.name:SetPoint("TOPLEFT", tip.ring, "TOPRIGHT", 8, -1)
-    tip.spec = K.Font(tip, K.FRIZ, 12, K.DIM)
+    -- (the pop-ups' card: UI:CreateHudFrame's "card" look; it follows the bar, nothing to drag or save)
+    tip = UI:CreateHudFrame("DisasterZoneMeterTip", { width = TIP_W, height = 120, look = "card", movable = false,
+        position = false, strata = "TOOLTIP" })
+    tip:EnableMouse(false)
+    -- header: the class in the shared icon tile, the name, the spec
+    tip.ring = UI:CreateIconTile(tip, 30)
+    tip.ring:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, -TIP_PAD)
+    tip.cls = tip.ring.tex
+    tip.name = UI:Text(tip, "page", { 1, 1, 1 }, { shadow = true })
+    tip.name:SetPoint("TOPLEFT", tip.ring, "TOPRIGHT", 9, 1)
+    tip.spec = UI:Text(tip, "body", "SUB", { shadow = true })
     tip.spec:SetPoint("TOPLEFT", tip.name, "BOTTOMLEFT", 0, -3)
     -- the big numbers
     tip.stats = {}
     for i = 1, 3 do
         local s = {}
-        s.num = K.Font(tip, K.NARROW, 17, { 1, 1, 1 })
-        s.lab = K.Font(tip, K.FRIZ, 12, K.DIM)
+        s.num = UI:Text(tip, "page", { 1, 1, 1 }, { font = K.NARROW, shadow = true })
+        s.lab = UI:Text(tip, "small", "SUB", { shadow = true })
         s.lab:SetPoint("TOPLEFT", s.num, "BOTTOMLEFT", 0, -2)
         tip.stats[i] = s
     end
+    tip.rule = UI:Rule(tip, { left = TIP_PAD, right = TIP_PAD })
     tip.lines = {}
-    tip.foot = K.Font(tip, K.FRIZ, 12, { 0.2, 0.87, 0.2 })
+    tip.foot = UI:Text(tip, "body", "OK", { shadow = true })
     tip:Hide()
     return tip
 end
@@ -710,15 +677,11 @@ local function TipLine(i)
     local l = tip.lines[i]
     if l then return l end
     l = {}
-    l.icon = K.Tex(tip, "ARTWORK", 134400)
-    l.icon:SetSize(16, 16)
-    l.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    l.name = K.Font(tip, K.FRIZ, 12.5, { 1, 1, 1 })
-    l.name:SetJustifyH("LEFT")
-    l.amount = K.Font(tip, K.NARROW, 13.5, { 1, 1, 1 })
-    l.amount:SetJustifyH("RIGHT")
-    l.pct = K.Font(tip, K.NARROW, 12.5, K.DIM)
-    l.pct:SetJustifyH("RIGHT")
+    l.tile = UI:CreateIconTile(tip, 16)
+    l.icon = l.tile.tex
+    l.name = UI:Text(tip, "emph", { 1, 1, 1 }, { shadow = true })
+    l.amount = UI:Text(tip, "title", { 1, 1, 1 }, { font = K.NARROW, justify = "RIGHT", shadow = true })
+    l.pct = UI:Text(tip, "emph", "SUB", { font = K.NARROW, justify = "RIGHT", shadow = true })
     l.pct:SetWidth(38)
     tip.lines[i] = l
     return l
@@ -734,19 +697,10 @@ local function ShowRowTip(row)
     local act = Meter:RateTime(seg, a)
 
     -- header
-    local coords = a.c and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[a.c]
-    if coords then
-        tip.cls:SetTexture(CLASS_CIRCLES)
-        tip.cls:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
-    else
-        tip.cls:SetTexture(134400)
-        tip.cls:SetTexCoord(0, 1, 0, 1)
-    end
+    K.SetPlayerIcon(tip.cls, a.c, a.s)
     tip.name:SetText(a.n or "?")
     tip.name:SetTextColor(K.ClassColor(a.c))
-    local cls = a.c and (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[a.c] or a.c) or ""
-    local spec = a.s and (a.s == "Feral (Bear)" and "Guardian" or (a.s:gsub(" %(.*%)", ""))) or nil
-    tip.spec:SetText(spec and (spec .. " " .. cls) or cls)
+    tip.spec:SetText(K.SpecText(a))
 
     -- what each mode shows: the big numbers and the lines { key, name, amount text, share, colour }
     local stats, lines, red, hint = {}, {}, nil, "Click for the full breakdown"
@@ -765,7 +719,7 @@ local function ShowRowTip(row)
         red = { d.by, "Killed by " .. (d.by and K.SpellName(d.by) or "?") .. (d.src and (" · " .. d.src) or "") }
         for i = #(d.ev or {}), max(1, #(d.ev or {}) - 3), -1 do
             local e = d.ev[i]
-            lines[#lines + 1] = { e[3], K.SpellName(e[3]), (e[2] == "d" and "|cffff6b5c-" or "|cff45d474+") .. K.Int(e[4]) .. "|r",
+            lines[#lines + 1] = { e[3], K.SpellName(e[3]), (e[2] == "d" and S:Hex("BAD") .. "-" or S:Hex("OK") .. "+") .. K.Int(e[4]) .. "|r",
                                   strformat("%.1f s", e[1]) }
         end
         hint = "Click for the death recap"
@@ -798,7 +752,7 @@ local function ShowRowTip(row)
     end
 
     -- lay it out
-    local y = -TIP_PAD - 34 - 10
+    local y = -TIP_PAD - TIP_HEAD - 10
     local x = TIP_PAD
     for i, s in ipairs(tip.stats) do
         local st = stats[i]
@@ -813,12 +767,16 @@ local function ShowRowTip(row)
         end
     end
     y = y - (#stats > 0 and 40 or 0)
-    for _, l in pairs(tip.lines) do l.icon:Hide(); l.name:Hide(); l.amount:Hide(); l.pct:Hide() end
+    tip.rule:ClearAllPoints()
+    tip.rule:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, y + 4)
+    tip.rule:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -TIP_PAD, y + 4)
+    tip.rule:SetShown(#lines > 0 or red ~= nil)
+    for _, l in pairs(tip.lines) do l.tile:Hide(); l.name:Hide(); l.amount:Hide(); l.pct:Hide() end
     local function place(i, key, name, amount, pct, color)
         local l = TipLine(i)
         l.icon:SetTexture(K.SpellIcon(key, a))
-        l.icon:ClearAllPoints()
-        l.icon:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, y - 2)
+        l.tile:ClearAllPoints()
+        l.tile:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, y - 2)
         l.pct:SetText(pct or "")
         l.pct:ClearAllPoints()
         l.pct:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -TIP_PAD, y - 3)
@@ -827,14 +785,14 @@ local function ShowRowTip(row)
         l.amount:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -TIP_PAD - ((pct or "") ~= "" and 42 or 0), y - 3)
         l.name:SetText(name)
         l.name:ClearAllPoints()
-        l.name:SetPoint("TOPLEFT", l.icon, "TOPRIGHT", 7, -1)
+        l.name:SetPoint("TOPLEFT", l.tile, "TOPRIGHT", 7, -1)
         l.name:SetPoint("RIGHT", l.amount, "LEFT", -8, 0)
         if color then l.name:SetTextColor(color[1], color[2], color[3]) else l.name:SetTextColor(1, 1, 1) end
-        l.icon:Show(); l.name:Show(); l.amount:Show(); l.pct:Show()
+        l.tile:Show(); l.name:Show(); l.amount:Show(); l.pct:Show()
         y = y - TIP_LINE
     end
     for i, ln in ipairs(lines) do place(i, ln[1], ln[2], ln[3], ln[4]) end
-    if red then place(#lines + 1, red[1], red[2], "", "", { 1, 0.48, 0.42 }) end
+    if red then place(#lines + 1, red[1], red[2], "", "", S.C.BAD) end
     tip.foot:SetShown(hint ~= nil)
     if hint then
         tip.foot:SetText(hint)
@@ -898,13 +856,14 @@ end
 
 -- A row's icon (set by MeterTheme:SetIcon: spec, else the class's square icon, or the theme's round / framed one).
 local function RowIcon(row)
-    row.icon = K.Tex(row, "ARTWORK", 134400)
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetTexture(134400)
     row.icon:SetSize(ROW_H, ROW_H)
     row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-    row.iconLine = K.Tex(row, "ARTWORK", K.WHITE, 0, 0, 0, 0.85, 1)
+    row.iconLine = UI:Rule(row, { vertical = true, color = { 0, 0, 0, 0.85 }, sublevel = 1 })
+    row.iconLine:ClearAllPoints()
     row.iconLine:SetPoint("TOPLEFT", row.icon, "TOPRIGHT")
     row.iconLine:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT")
-    row.iconLine:SetWidth(1)
 end
 
 local function NewRow(pf)
@@ -912,46 +871,42 @@ local function NewRow(pf)
     row:SetHeight(ROW_H)
     row.pf = pf
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    row.bg = K.Tex(row, "BACKGROUND", K.WHITE, 1, 1, 1, 0.03)
+    row.bg = Tinted(row, "BACKGROUND")
     row.bg:SetAllPoints()
-    row.fill = K.Tex(row, "BORDER", K.WHITE)
+    row.fill = Tinted(row, "BORDER")
     row.fill:SetPoint("TOPLEFT", ICON_W, 0)
     row.fill:SetPoint("BOTTOMLEFT", ICON_W, 0)
-    row.foot = K.Tex(row, "BORDER", K.WHITE, 0, 0, 0, 0.35, 1)
+    row.foot = UI:Fill(row, { 0, 0, 0, 0.35 }, "BORDER", 1)
+    row.foot:ClearAllPoints()
     row.foot:SetPoint("BOTTOMLEFT", row.fill, "BOTTOMLEFT")
     row.foot:SetPoint("BOTTOMRIGHT", row.fill, "BOTTOMRIGHT")
     row.foot:SetHeight(1)
-    row.ext = K.Tex(row, "BORDER", K.WHITE)
+    row.ext = Tinted(row, "BORDER")
     row.ext:SetPoint("TOPLEFT", row.fill, "TOPRIGHT")
     row.ext:SetPoint("BOTTOMLEFT", row.fill, "BOTTOMRIGHT")
-    row.you = K.Tex(row, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
-    row.you:SetPoint("TOPLEFT")
-    row.you:SetPoint("BOTTOMLEFT")
-    row.you:SetWidth(2)
-    row.pinLine = K.Tex(row, "ARTWORK", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 0.5)
+    row.you = UI:Rule(row, { vertical = true, color = "SELECT_BAR", size = 2, layer = "OVERLAY" })   -- (mine: the picked bar)
+    row.pinLine = UI:Rule(row, { color = "GOLD", alpha = 0.5 })
+    row.pinLine:ClearAllPoints()
     row.pinLine:SetPoint("BOTTOMLEFT", row, "TOPLEFT", 0, 0)
     row.pinLine:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", 0, 0)
-    row.pinLine:SetHeight(1)
-    row.hover = K.Tex(row, "HIGHLIGHT", K.WHITE, 1, 1, 1, 0.08)
-    row.hover:SetAllPoints()
-    row.rank = K.Font(row, K.NARROW, 11, { 1, 1, 1, 0.7 })
+    UI:DecorateRow(row, { hover = true })
+    row.hover = row.dzHover
+    row.rank = UI:Text(row, "body", { 1, 1, 1, 0.7 }, { font = K.NARROW, justify = "RIGHT", shadow = true })
     row.rank:SetPoint("LEFT", row, "LEFT", 2, 0)
     row.rank:SetWidth(13)
-    row.rank:SetJustifyH("RIGHT")
     row.rank:Hide()                   -- (no list numbers: the bars' order says it; my pinned bar names its place)
     RowIcon(row)
-    row.value = K.Font(row, K.NARROW, 13.5, { 1, 1, 1 })
-    row.sub = K.Font(row, K.NARROW, 12, { 0.93, 0.91, 0.85, 0.72 })
-    row.sub:SetJustifyH("RIGHT")
-    row.kb = K.Tex(row, "ARTWORK", 134400)
+    row.value = UI:Text(row, "title", { 1, 1, 1 }, { font = K.NARROW, justify = "RIGHT", shadow = true })
+    row.sub = UI:Text(row, "emph", { 1, 1, 1, 0.72 }, { font = K.NARROW, justify = "RIGHT", shadow = true })
+    row.kb = row:CreateTexture(nil, "ARTWORK")
+    row.kb:SetTexture(134400)
     row.kb:SetSize(14, 14)
     row.kb:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    row.skull = K.Tex(row, "ARTWORK", K.SKULL)
+    row.skull = row:CreateTexture(nil, "ARTWORK")
+    row.skull:SetTexture(K.SKULL)
     row.skull:SetSize(11, 11)
-    row.name = K.Font(row, K.FRIZ, 12, { 1, 1, 1 })
-    row.name:SetJustifyH("LEFT")
+    row.name = UI:Text(row, "emph", { 1, 1, 1 }, { shadow = true })
     Halo(row.name, row)
-    row.value:SetJustifyH("RIGHT")
     Halo(row.value, row)
     Halo(row.sub, row)
     row:SetScript("OnEnter", ShowRowTip)
@@ -1135,7 +1090,7 @@ local function DrawMeter(pf, tab)
         ns.MeterTheme:SetIcon(row, a.c, a.s, M)
         if M.t.rank then row.rank:SetText(r.rank) end
         -- my bar pinned below the fold says where I really am ("10th"), the others need no number
-        SetT(row.name, (r.pinned and not M.t.rank) and strformat("%s  |cffa29d90%s|r", a.n or "?", K.Ordinal(r.rank)) or (a.n or "?"))
+        SetT(row.name, (r.pinned and not M.t.rank) and strformat("%s  %s", a.n or "?", S:Wrap("SUB", K.Ordinal(r.rank))) or (a.n or "?"))
         local v1, v2 = valueFn(r, dur, seg)
         if not M.t.rate and RATE_SUB[mode] then v2 = nil end
         SetT(row.value, v1)
@@ -1205,24 +1160,17 @@ local function NewThreatRow(pf)
     local row = CreateFrame("Frame", nil, pf.rows)
     row:SetHeight(ROW_H)
     RowIcon(row)
-    row.name = K.Font(row, K.FRIZ, 12, { 1, 1, 1 })
+    row.name = UI:Text(row, "emph", { 1, 1, 1 }, { width = T_NAME_W, shadow = true })
     row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-    row.name:SetWidth(T_NAME_W)
-    row.name:SetJustifyH("LEFT")
-    row.value = K.Font(row, K.NARROW, 13, { 1, 1, 1 })
+    row.value = UI:Text(row, "title", { 1, 1, 1 }, { font = K.NARROW, justify = "RIGHT", width = T_VALUE_W, shadow = true })
     row.value:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.value:SetWidth(T_VALUE_W)
-    row.value:SetJustifyH("RIGHT")
     Halo(row.name, row)
     Halo(row.value, row)
-    row.you = K.Tex(row, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
-    row.you:SetPoint("TOPLEFT")
-    row.you:SetPoint("BOTTOMLEFT")
-    row.you:SetWidth(2)
-    row.track = K.Tex(row, "BACKGROUND", K.WHITE, 1, 1, 1, 0.05)
+    row.you = UI:Rule(row, { vertical = true, color = "SELECT_BAR", size = 2, layer = "OVERLAY" })
+    row.track = Tinted(row, "BACKGROUND")
     row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, -4)
     row.track:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -T_TRACK_R, 4)
-    row.fill = K.Tex(row, "BORDER", K.WHITE)
+    row.fill = Tinted(row, "BORDER")
     row.fill:SetPoint("TOPLEFT", row.track, "TOPLEFT")
     row.fill:SetPoint("BOTTOMLEFT", row.track, "BOTTOMLEFT")
     StyleThreatRow(row)
@@ -1245,7 +1193,7 @@ local function DrawThreat(pf)
         pf.tot:SetText("")
     elseif #view > 0 and me then
         -- "You 68%  · pull at 110%": how much room I have (was "68% pull 110%")
-        pf.totV:SetText("You " .. (st.hot and "|cffff8a70" or "") .. floor(me.raw + 0.5) .. "%" .. (st.hot and "|r" or ""))
+        pf.totV:SetText("You " .. (st.hot and S:Hex("BAD") or "") .. floor(me.raw + 0.5) .. "%" .. (st.hot and "|r" or ""))
         pf.tot:SetText(strformat("\194\183 pull at %d%%", st.pull or 110))
     else
         pf.totV:SetText("")
@@ -1287,7 +1235,7 @@ local function DrawThreat(pf)
         if M.t.rank then row.rank:SetText(i + (pf.offset or 0)) end
         SetT(row.name, r.name or "?")
         local nr, ng, nb = K.ClassColor(r.cls)
-        if r.me then row.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else row.name:SetTextColor(nr, ng, nb) end
+        if r.me then row.name:SetTextColor(S:Color("GOLD")) else row.name:SetTextColor(nr, ng, nb) end
         row.you:SetShown(r.me and true or false)
         row.track:ClearAllPoints()                    -- (the track: 0-100%; the pull zone after it is drawn once)
         row.track:SetPoint("TOPLEFT", row, "TOPLEFT", T_TRACK_L, row.trackTop or -4)
@@ -1296,9 +1244,9 @@ local function DrawThreat(pf)
         local share = st.tankView and r.scaled or r.raw
         -- (in tank view the one holding aggro is the 100% reference, in their colour, not a warning)
         local hot = (st.tankView and r.scaled >= warn and not r.tank) or (r.me and st.hot)
-        if hot then row.fill:SetVertexColor(1, 0.35, 0.24, 0.9) else row.fill:SetVertexColor(cr, cg, cb, M.t.bar == "hair" and 1 or 0.8) end
+        if hot then row.fill:SetVertexColor(HOT_C[1], HOT_C[2], HOT_C[3], 0.9) else row.fill:SetVertexColor(cr, cg, cb, M.t.bar == "hair" and 1 or 0.8) end
         SetT(row.value, floor(share + 0.5) .. "%")
-        if hot then row.value:SetTextColor(1, 0.54, 0.44) else row.value:SetTextColor(1, 1, 1) end
+        if hot then row.value:SetTextColor(S:Color("BAD")) else row.value:SetTextColor(1, 1, 1) end
         row.tw = max(1, X(share))
         row.ty = -((i - 1) * (ROW_H + ROW_GAP))
         if fresh then row.anim = nil; row:SetAlpha(1) end
@@ -1348,7 +1296,7 @@ local function DrawHead(pf, tab)
     local W = PanelWidth(pf)
     -- the right side: the total, + and x
     local function rightW()
-        local tw = (pf.tot:GetText() or "") ~= "" and (pf.tot:GetStringWidth() or 0) + 4 or 0
+        local tw = (pf.tot:GetText() or "") ~= "" and (pf.tot:GetStringWidth() or 0) + 6 or 0
         local vw = (pf.totV:GetText() or "") ~= "" and (pf.totV:GetStringWidth() or 0) or 0
         return 2 + 20 + 20 + 5 + tw + vw + 8
     end
@@ -1367,13 +1315,10 @@ local function DrawHead(pf, tab)
         local full, compact = 8, 8
         for _, ti in ipairs(avail) do
             local info = ViewInfo(p.tabs[ti].view)
-            pf.measure = pf.measure or K.Font(pf.head, K.FRIZ, 12, K.DIM)
-            pf.measure:SetText(ns.MeterTheme:Label(info.label))
-            local lw = 13 + 5 + pf.measure:GetStringWidth()
+            local lw = 13 + 5 + UI:TextWidth(ns.MeterTheme:Label(info.label), "emph")
             full = full + lw + 12
             compact = compact + ((ti == shown) and lw or 13) + 12
         end
-        if pf.measure then pf.measure:SetText("") end
         local room = W - rightW()
         local iconsOnly = full > room
         if iconsOnly and compact > room then
@@ -1390,7 +1335,7 @@ local function DrawHead(pf, tab)
             b:SetHeight(HEAD_H)
             b.icon:SetTexture(info.icon)
             b.text:SetText((iconsOnly and not on) and "" or ns.MeterTheme:Label(info.label))
-            if on then b.text:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) else b.text:SetTextColor(K.DIM[1], K.DIM[2], K.DIM[3]) end
+            b.text:SetTextColor(S:Color(on and "GOLD" or "SUB"))
             b.line:SetShown(on)
             b.icon:SetAlpha(on and 1 or 0.75)
             b.label = info.label
@@ -1937,7 +1882,7 @@ local function FightEntries(root, pf)
             return tab.seg == seg.id
         end, function() MP:SetFight(pf, (i == 1) and "cur" or seg.id) end, seg.id)
         e:SetSubtext(MP.FightSub(seg))
-        if seg.live then e:SetBadge("Live", { 1, 0.42, 0.33 }) end
+        if seg.live then e:SetBadge("Live", S.C.LIVE) end
     end
     if all then
         root:CreateDivider()
@@ -1952,8 +1897,8 @@ function MP.FightSub(seg)
     local parts = {}
     if seg.kind == "boss" then
         if seg.live then parts[#parts + 1] = "Live"
-        elseif seg.kill then parts[#parts + 1] = "|cff45d474Kill|r"
-        else parts[#parts + 1] = "|cffff7e6bWipe" .. (seg.pct and strformat(" %d%%", floor(seg.pct + 0.5)) or "") .. "|r" end
+        elseif seg.kill then parts[#parts + 1] = S:Wrap("OK", "Kill")
+        else parts[#parts + 1] = S:Wrap("BAD", "Wipe" .. (seg.pct and strformat(" %d%%", floor(seg.pct + 0.5)) or "")) end
     elseif seg.kind == "trash" then
         parts[#parts + 1] = seg.live and "Live" or "Trash"
     end
@@ -2008,97 +1953,98 @@ local function ListTime(seg) return (seg.at and date) and date("%H:%M", seg.at) 
 local function NewListRow(f)
     local r = CreateFrame("Button", nil, f.canvas)
     r:RegisterForClicks("LeftButtonUp")
-    r.hl = K.Tex(r, "HIGHLIGHT", K.WHITE, 1, 1, 1, 0.06)
-    r.hl:SetAllPoints()
-    r.sel = K.Tex(r, "OVERLAY", K.WHITE, K.GOLD[1], K.GOLD[2], K.GOLD[3], 1)
+    -- the shared row looks: hover, and the picked fight's gold bar (the wash stays off: the dropdowns' look)
+    UI:DecorateRow(r, { hover = true, selectable = true })
+    r.hl = r.dzHover
+    r.sel = r.dzSelBar
+    r.dzSelFill:SetAlpha(0)
+    r.sel:ClearAllPoints()
     r.sel:SetPoint("TOPLEFT", 0, -5)
     r.sel:SetPoint("BOTTOMLEFT", 0, 5)
-    r.sel:SetWidth(2)
-    r.pic = K.Tex(r, "ARTWORK", K.WHITE)
+    r.pic = r:CreateTexture(nil, "ARTWORK")
     r.bars = {}
     for i, hgt in ipairs({ 6, 12, 9 }) do
-        local t = K.Tex(r, "ARTWORK", K.WHITE, WHOLE_C[1], WHOLE_C[2], WHOLE_C[3], 1)
+        local t = UI:Fill(r, WHOLE_C, "ARTWORK")
+        t:ClearAllPoints()
         t:SetSize(4, hgt)
         r.bars[i] = t
     end
-    r.name = K.Font(r, K.FRIZ, 12, K.INK)
-    r.small = K.Font(r, K.NARROW, 11.5, K.DIM)
-    r.len = K.Font(r, K.NARROW, 12, K.DIM)
-    r.len:SetJustifyH("RIGHT")
-    r.status = K.Font(r, K.NARROW, 11.5, K.DIM)
-    r.stIcon = K.Tex(r, "ARTWORK", K.WHITE)
+    r.name = UI:Text(r, "emph", "TEXT", { shadow = true })
+    r.small = UI:Text(r, "body", "SUB", { font = K.NARROW, shadow = true })
+    r.len = UI:Text(r, "emph", "SUB", { font = K.NARROW, justify = "RIGHT", shadow = true })
+    r.status = UI:Text(r, "body", "SUB", { font = K.NARROW, shadow = true })
+    r.stIcon = r:CreateTexture(nil, "ARTWORK")
     r.stIcon:SetSize(14, 14)
-    r.line = K.Tex(r, "ARTWORK", K.WHITE, 1, 1, 1, 0.08)
+    r.line = UI:Rule(r, { color = "HAIRLINE" })
+    r.line:ClearAllPoints()
+    -- a zone's heading: the shared caps section header (its fading rule runs to the row's end)
+    r.head = UI:CreateSectionHeader(r, "", { style = "caps" })
+    r.head:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 8, 0)
+    r.head:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -8, 0)
+    r.head:Hide()
     -- a boss row says in words what its icon means
-    r:SetScript("OnEnter", function(self)
+    UI:AttachTooltip(r, function(self, tt)
         local seg = self.seg
-        if not seg or seg.kind ~= "boss" then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(Meter:SegName(seg), 1, 0.82, 0)
+        if not seg or seg.kind ~= "boss" then return false end
+        tt:AddLine(Meter:SegName(seg), S:Color("GOLD"))
         local what
-        if seg.live then what = "|cffff7d6eLive|r"
-        elseif seg.kill then what = "|cff7bd88fKill|r"
-        else what = "|cffff7d6eWipe" .. (seg.pct and strformat(" at %d%%", floor(seg.pct + 0.5)) or "") .. "|r" end
+        if seg.live then what = S:Wrap("BAD", "Live")
+        elseif seg.kill then what = S:Wrap("OK", "Kill")
+        else what = S:Wrap("BAD", "Wipe" .. (seg.pct and strformat(" at %d%%", floor(seg.pct + 0.5)) or "")) end
         local t = ListTime(seg)
-        GameTooltip:AddLine(what .. "  \194\183  " .. K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""), 1, 1, 1)
-        GameTooltip:Show()
+        tt:AddLine(what .. "  \194\183  " .. K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""), 1, 1, 1)
     end)
-    r:SetScript("OnLeave", function() GameTooltip:Hide() end)
     r.dots = {}
     r:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
     return r
+end
+
+-- A trash pull's square: the quiet lift, brighter under the mouse, gold when it is the panel's fight.
+-- TODO(refactor): move into a shared "pip" control (no component draws a row of clickable squares).
+local function PaintDot(d, hot)
+    if d.on then d.fill:SetVertexColor(S:Color("GOLD")) else d.fill:SetVertexColor(1, 1, 1, hot and 0.45 or 0.16) end
 end
 
 local function NewDot(r)
     local d = CreateFrame("Button", nil, r)
     d:SetSize(FLIST_DOT, FLIST_DOT)
     d:RegisterForClicks("LeftButtonUp")
-    d.fill = K.Tex(d, "ARTWORK", K.WHITE, 1, 1, 1, 0.16)
+    d.fill = d:CreateTexture(nil, "ARTWORK")
+    d.fill:SetTexture(K.WHITE)
     d.fill:SetAllPoints()
-    d:SetScript("OnEnter", function(self)
-        if not self.on then self.fill:SetVertexColor(1, 1, 1, 0.45) end
+    d:SetScript("OnEnter", function(self) PaintDot(self, true) end)
+    d:SetScript("OnLeave", function(self) PaintDot(self, false) end)
+    UI:AttachTooltip(d, function(self, tt)
         local seg = self.seg
-        if not seg then return end
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -4)
+        if not seg then return false end
         local t = ListTime(seg)
-        GameTooltip:AddDoubleLine(Meter:SegName(seg), K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""),
-            1, 1, 1, 0.64, 0.62, 0.56)
-        if seg.live then GameTooltip:AddLine("Live", 1, 0.49, 0.43) end
-        GameTooltip:Show()
-    end)
-    d:SetScript("OnLeave", function(self)
-        if not self.on then self.fill:SetVertexColor(1, 1, 1, 0.16) end
-        GameTooltip:Hide()
-    end)
+        local sr, sg, sb = S:Color("SUB")
+        tt:AddDoubleLine(Meter:SegName(seg), K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""),
+            1, 1, 1, sr, sg, sb)
+        if seg.live then tt:AddLine("Live", S:Color("BAD")) end
+    end, nil, { anchor = "ANCHOR_BOTTOM" })
     d:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
     return d
 end
 
 local function ListFrame()
     if flist then return flist end
-    local UI = ns.UI
-    local f = CreateFrame("Frame", "DisasterZoneFightList", UIParent)
-    f:SetFrameStrata("FULLSCREEN_DIALOG")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:EnableMouse(true)
+    -- (the dropdowns' surface and edge: UI:CreateHudFrame with no look of its own, then the menu tokens)
+    local f = UI:CreateHudFrame("DisasterZoneFightList", { look = "none", movable = false, position = false,
+        strata = "FULLSCREEN_DIALOG", toplevel = true })
     f:EnableMouseWheel(true)
     f:Hide()
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    local bg, edge = UI.DROP_BG or { 0.08, 0.07, 0.09, 0.97 }, UI.DROP_EDGE or { 0.23, 0.2, 0.25, 1 }
-    f.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4] or 1)
-    if UI.AddEdges then
-        UI:AddEdges(f, "BORDER")
-        UI:SetEdgeColor(f, edge[1], edge[2], edge[3], edge[4] or 1)
-    end
+    f.bg = UI:Fill(f, "DROP_BG", "BACKGROUND")
+    UI:AddEdges(f, "BORDER")
+    UI:SetEdgeColor(f, S:Color("DROP_EDGE"))
     f.clip = CreateFrame("Frame", nil, f)
     f.clip:SetPoint("TOPLEFT", FLIST_PAD, -FLIST_PAD)
     f.clip:SetPoint("BOTTOMRIGHT", -FLIST_PAD, FLIST_PAD)
     if f.clip.SetClipsChildren then f.clip:SetClipsChildren(true) end
     f.canvas = CreateFrame("Frame", nil, f.clip)
     f.canvas:SetSize(1, 1)
-    f.thumb = K.Tex(f, "OVERLAY", K.WHITE, 1, 1, 1, 0.22)
+    f.thumb = UI:Fill(f, { 1, 1, 1, 0.22 }, "OVERLAY")
+    f.thumb:ClearAllPoints()
     f.thumb:SetWidth(2)
     f.thumb:Hide()
     f.rows, f.offset = {}, 0
@@ -2194,26 +2140,19 @@ local function FillList(f, pf)
     local lines = ListLines()
     for _, r in ipairs(f.rows) do r:Hide() end
     -- the width: the widest row's needs
-    local measure = f.measure or K.Font(f, K.FRIZ, 12, K.INK)
-    f.measure = measure
-    measure:Hide()
-    local narrow = f.measureN or K.Font(f, K.NARROW, 12, K.DIM)
-    f.measureN = narrow
-    narrow:Hide()
-    local function W(fs, t) fs:SetText(t or ""); return fs:GetStringWidth() or 0 end
     -- (text, its colour, icon): Live in words, a kill the tick, a wipe the skull and the boss's health left
     local function status(seg)
-        if seg.live then return "Live", { 1, 0.49, 0.43 } end
+        if seg.live then return "Live", S.C.BAD end
         if seg.kind ~= "boss" then return nil end
         if seg.kill then return nil, nil, "kill" end
-        return seg.pct and strformat("%d%%", floor(seg.pct + 0.5)) or nil, { 1, 0.49, 0.43 }, "wipe"
+        return seg.pct and strformat("%d%%", floor(seg.pct + 0.5)) or nil, S.C.BAD, "wipe"
     end
     local need = FLIST_MIN_W
     for _, ln in ipairs(lines) do
         if ln.kind == "whole" or ln.kind == "boss" then
             local st, _, icon = status(ln.seg)
-            local w = FLIST_TX + W(measure, Meter:SegName(ln.seg)) + 10 + (st and (W(narrow, st) + 8) or 0)
-                + (icon and 17 or 0) + 34 + 8
+            local w = FLIST_TX + UI:TextWidth(Meter:SegName(ln.seg), "emph") + 10
+                + (st and (UI:TextWidth(st, "body") + 8) or 0) + (icon and 17 or 0) + 34 + 8
             need = max(need, w)
         end
     end
@@ -2230,15 +2169,16 @@ local function FillList(f, pf)
         r.sel_key = nil
         r:EnableMouse(true)
         r.hl:SetShown(true)
-        r.sel:Hide()
+        r:SetSelected(false)
         r.pic:Hide()
         for _, t in ipairs(r.bars) do t:Hide() end
         for _, d in ipairs(r.dots) do d:Hide() end
         r.name:SetText(""); r.small:SetText(""); r.len:SetText(""); r.status:SetText("")
         r.stIcon:Hide()
         r.seg = nil
-        r.name:SetTextColor(K.INK[1], K.INK[2], K.INK[3])
+        r.name:SetTextColor(S:Color("TEXT"))
         r.line:Hide()
+        r.head:Hide()
         r:Show()
         return r
     end
@@ -2282,14 +2222,8 @@ local function FillList(f, pf)
             local r = Row()
             r:SetHeight(FLIST_ZONE)
             r:EnableMouse(false)
-            r.small:ClearAllPoints()
-            r.small:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 8, 3)
-            r.small:SetText(strupper and strupper(ln.text) or ln.text)
-            r.line:ClearAllPoints()
-            r.line:SetPoint("LEFT", r.small, "RIGHT", 8, 0)
-            r.line:SetPoint("RIGHT", r, "RIGHT", -8, 0)
-            r.line:SetHeight(1)
-            r.line:Show()
+            r.head:SetTitle(ln.text)
+            r.head:Show()
             y = y + FLIST_ZONE
         elseif ln.kind == "whole" or ln.kind == "boss" then
             local r = Row()
@@ -2298,11 +2232,11 @@ local function FillList(f, pf)
             local key = ln.kind == "whole" and "all" or ln.key
             r.sel_key = key
             local on = key == selKey
-            r.sel:SetShown(on)
+            r:SetSelected(on)
             r.name:ClearAllPoints()
             r.name:SetPoint("LEFT", r, "LEFT", FLIST_TX, 0)
             r.name:SetText(Meter:SegName(seg))
-            if on then r.name:SetTextColor(K.GOLD[1], K.GOLD[2], K.GOLD[3]) end
+            if on then r.name:SetTextColor(S:Color("GOLD")) end
             if ln.kind == "whole" then
                 for i, t in ipairs(r.bars) do
                     t:ClearAllPoints()
@@ -2362,7 +2296,7 @@ local function FillList(f, pf)
                 d:SetPoint("TOPLEFT", r, "TOPLEFT", FLIST_TX + col * (FLIST_DOT + FLIST_GAP), -5 - row * (FLIST_DOT + FLIST_GAP))
                 d.seg, d.sel_key = pull.seg, pull.key
                 d.on = pull.key == selKey
-                if d.on then d.fill:SetVertexColor(K.GOLD[1], K.GOLD[2], K.GOLD[3], 1) else d.fill:SetVertexColor(1, 1, 1, 0.16) end
+                PaintDot(d, false)
                 d:Show()
                 total = total + Meter:Duration(pull.seg)
             end
@@ -2459,8 +2393,8 @@ function MP:PanelMenu(pf, owner)
             new:CreateButton(ViewText(v), function() MP:Spawn(pf, v) end)
         end
         root:CreateButton(ns.UI:AtlasIconText(ns.UI.ICON.gear, 14) .. " Settings", ns.MeterWindow.OpenSettings)
-        local clear = root:CreateButton("|cffff7d6e" .. ns.UI:AtlasIconText(ns.UI.ICON.trash, 14, { 1, 0.49, 0.43 }) .. " Clear all fights|r")
-        clear:CreateButton("|cffff7d6eYes, clear every fight|r", function() Meter:ClearAll() end)
+        local clear = root:CreateButton(S:Hex("BAD") .. UI:AtlasIconText(UI.ICON.trash, 14, S.C.BAD) .. " Clear all fights|r")
+        clear:CreateButton(S:Wrap("BAD", "Yes, clear every fight"), function() Meter:ClearAll() end)
         local reset = root:CreateButton("Reset layout")
         reset:CreateButton("Yes, one stack again", function() MP:ResetLayout() end)
         root:CreateDivider()
@@ -2537,11 +2471,9 @@ local function OnUpdate(_, elapsed)
         if f:IsShown() then
             if f.warn then
                 anyHot = true
-                f:SetEdge(1, 0.36 + 0.07 * pulse, 0.3, 0.55 + 0.45 * pulse)
-            elseif locked then
-                f:SetEdge(1, 1, 1, 0)
-            else
-                f:SetEdge(1, 0.82, 0, 0.45)
+                f:SetEdge(HOT_C[1], 0.36 + 0.07 * pulse, 0.3, 0.55 + 0.45 * pulse)
+            elseif M then
+                ns.MeterTheme:StackEdge(f, M, locked)          -- (the theme's edge; gold while unlocked)
             end
             f.hint:SetShown(not locked and f:IsMouseOver() and not drag)
         end
@@ -2556,27 +2488,20 @@ end
 
 function MP:Build()
     if holder then return end
-    K = ns.MeterWindow.K
     holder = CreateFrame("Frame", "DisasterZoneMeters", UIParent)
     holder:SetAllPoints(UIParent)
     holder:SetFrameStrata("MEDIUM")
     holder:SetScale(SCALES[Setting("size", "normal")] or 1)
+    -- where a dragged stack would dock: a gold line, and the stack it joins in the picked look (wash + focus edge)
     guide = CreateFrame("Frame", nil, holder)
     guide:SetFrameLevel(holder:GetFrameLevel() + 100)
-    guide.tex = K.Tex(guide, "OVERLAY", K.WHITE, 1, 0.82, 0, 1)
-    guide.tex:SetAllPoints()
+    guide.tex = UI:Fill(guide, "GOLD", "OVERLAY")
     guide:Hide()
     outline = CreateFrame("Frame", nil, holder)
     outline:SetFrameLevel(holder:GetFrameLevel() + 99)
-    outline.fill = K.Tex(outline, "BACKGROUND", K.WHITE, 1, 0.82, 0, 0.07)
-    outline.fill:SetAllPoints()
-    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
-                         { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
-        local t = K.Tex(outline, "OVERLAY", K.WHITE, 1, 0.82, 0, 0.85)
-        t:SetPoint(e[1])
-        t:SetPoint(e[2])
-        if e[3] then t:SetHeight(1) else t:SetWidth(1) end
-    end
+    outline.fill = UI:Fill(outline, "SELECT", "BACKGROUND")
+    UI:AddEdges(outline, "OVERLAY")
+    UI:SetEdgeColor(outline, S:Color("EDGE_FOCUS"))
     outline:Hide()
     flash = CreateFrame("Frame", nil, UIParent)
     flash:SetAllPoints(UIParent)
@@ -2615,7 +2540,7 @@ function MP:Refresh()
 end
 
 function MP:OnLogin()
-    Meter, Threat, K = ns.Meter, ns.Threat, ns.MeterWindow.K
+    Meter, Threat = ns.Meter, ns.Threat
     self:EnsureViews()
     Meter:OnChange(function(what)
         if what == "start" then
