@@ -108,7 +108,7 @@ o.chip = f.hdr.chip:IsShown() and f.hdr.chip.fs:GetText() or false
 o.cols = {}
 for _, c in ipairs(kv and kv.cols or {}) do
   if vis(c) then
-    local col = { title = c.title:GetText(), right = c.right:GetText(), rows = {} }
+    local col = { title = c.title:GetText(), right = c.right:GetText(), rightShown = vis(c.right), rows = {} }
     for _, r in ipairs(c.rows) do
       if r:IsShown() then col.rows[#col.rows + 1] = { r.name:IsShown() and r.name:GetText() or r.more:GetText(), r.val:GetText() } end
     end
@@ -244,6 +244,8 @@ def a_live_hide_and_seek_board_has_tag_columns_the_map_and_time_left():
     b = board(wade)
     cols = {plain(c["title"]): c for c in b["cols"]}
     assert plain(cols["Seekers"]["right"]) == "Finds" and cols["Seekers"]["rows"][0][1] == "1", cols["Seekers"]
+    # (the score's name is drawn at the header's right, not only set)
+    assert cols["Seekers"]["rightShown"] and cols["Found"]["rightShown"], cols
     assert plain(cols["Found"]["right"]) == "Hidden" and [plain(r[0]) for r in cols["Found"]["rows"]] == [found], cols
     # the prizes and how they're won
     assert sorted(p[1] for p in b["prizes"]) == ["longest Hidden", "most Finds"], b["prizes"]

@@ -1166,12 +1166,9 @@ function T:ShowGameToast(occ, bk, m, won, how)
     elseif theirs == need - 1 then tail = h.Plain(opp) .. " needs one more"
     else tail = "first to " .. need end
     local said = how == "host" and "The host decided it" or (how == "players" and "You two agreed on it" or "Both games saw the duel")
-    local t = UI():Toast({ key = GAME_TOAST, kind = won and "ok" or "bad", icon = won and CHECK or CROSS,
-        iconSize = 22, iconCoords = { 0, 1, 0, 1 }, title = "Game " .. game .. " · you " .. (won and "won" or "lost"),
-        text = said .. "\n" .. mine .. "-" .. theirs .. " · " .. tail, lines = 2, duration = 7, width = 300,
-        minHeight = 78 })
-    if t then
-        -- (the match's games: the won ones gold, in the toast's own slot)
+    -- (the match's games: the won ones gold, in the toast's own slot; through onFill, so a toast that waited behind
+    -- others gets them too)
+    local function pips(t)
         local slot = t.slot
         slot.dzPips = slot.dzPips or H().NewPips(slot, 9, 4, 0.5)
         slot.dzPips:ClearAllPoints()
@@ -1179,6 +1176,10 @@ function T:ShowGameToast(occ, bk, m, won, how)
         slot.dzPips:Set(need, mine)
         slot.dzPips:Show()
     end
+    UI():Toast({ key = GAME_TOAST, kind = won and "ok" or "bad", icon = won and CHECK or CROSS,
+        iconSize = 22, iconCoords = { 0, 1, 0, 1 }, title = "Game " .. game .. " · you " .. (won and "won" or "lost"),
+        text = said .. "\n" .. mine .. "-" .. theirs .. " · " .. tail, lines = 2, duration = 7, width = 300,
+        minHeight = 78, onFill = pips })
 end
 
 ---------------------------------------------------------------------------

@@ -532,7 +532,11 @@ end
 -- who asked whom / when it closes), a gold dot on the art while it waits for me, at the right Yes / No, Answer, my
 -- poll's answered meter and ···, the leading answer, or when the results show.
 function L.NewRow(parent)
-    local r = UI():CreateArtRow(parent, { onClick = function(self) if self.pid then PollsUI:OpenPoll(self.pid) end end })
+    -- (left clicks only, as before 1.4)
+    local r = UI():CreateArtRow(parent, { onClick = function(self, button)
+        if button == "RightButton" then return end
+        if self.pid then PollsUI:OpenPoll(self.pid) end
+    end })
     r.hl, r.line, r.meta = r.dzHover, r.dzRule, r.sub
     UI():AttachTooltip(r, FieldTip, nil, { anchor = "ANCHOR_TOP" })
     r.dot = r.art:CreateTexture(nil, "OVERLAY")

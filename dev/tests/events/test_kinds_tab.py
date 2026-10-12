@@ -503,8 +503,10 @@ def demo_mode_shows_the_derby_the_trivia_night_and_hide_and_seek():
                      "if r:IsShown() then out[r.occId] = r.l2:GetText() end end; return out")
     assert rows["odemo4"].startswith("Scores") and rows["odemo5"].startswith("Asks"), rows
     assert rows["odemo2"].startswith("Matches"), rows
-    # (last derby: won by the first of its Fish table, my place in it)
-    assert rows["rdemo3"].startswith("Won by ") and "you placed " in rows["rdemo3"], rows
+    # (last derby: its day first, then won by the first of its Fish table, my place in it)
+    day, _, rest = rows["rdemo3"].partition("|cff9e9e9e · |r")
+    assert day == g.eval_py("return date('%a %d', ns.Events:GetResult('rdemo3').at)"), rows
+    assert rest.startswith("Won by ") and "you placed " in rest, rows
 
     # the derby's page and last derby's results: its Fish table, the podium from it
     g.eval("ns.EventsUI:OpenEvent('odemo4')")

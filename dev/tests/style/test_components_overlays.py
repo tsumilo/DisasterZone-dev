@@ -93,6 +93,34 @@ def toasts_beyond_the_max_wait_their_turn_and_a_waiting_key_is_replaced():
 
 
 @case
+def a_toast_that_waited_still_gets_its_callers_pieces_through_on_fill():
+    # (the duel game toast's best-of pips: a toast behind UI.TOAST.MAX came without them before onFill)
+    w, c = solo()
+    out = c.eval_py("""
+        local UI = ns.UI
+        for i = 1, 3 do UI:Toast({ key = "f" .. i, title = "T" .. i, duration = 0 }) end
+        local fills = 0
+        local function fill(t)
+          fills = fills + 1
+          t.slot.mark = t.slot.mark or t.slot:CreateTexture(nil, "ARTWORK")
+          t.slot.mark:Show()
+        end
+        ns.__ovfills = function() return fills end
+        local res = { waited = UI:Toast({ key = "pips", title = "Game 2", duration = 0, onFill = fill }) == nil,
+          fillsWhileWaiting = fills }
+        UI:HideToast("f1", "close")
+        return res""")
+    assert out["waited"] and out["fillsWhileWaiting"] == 0, out
+    w.tick(0.5)
+    out = c.eval_py("""
+        local t = ns.UI:GetToast("pips")
+        return { shown = t ~= nil and t:IsShown(), mark = t ~= nil and t.slot.mark ~= nil and t.slot.mark:IsShown(),
+          fills = ns.__ovfills() }""")
+    assert out == {"shown": True, "mark": True, "fills": 1}, out
+    no_errors(w)
+
+
+@case
 def toast_buttons_run_their_handler_and_close_unless_it_says_keep():
     w, c = solo()
     out = c.eval_py(PTS + """
