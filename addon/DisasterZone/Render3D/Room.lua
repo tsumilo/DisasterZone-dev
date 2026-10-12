@@ -42,6 +42,32 @@ local _, ns = ...
 
 ns.Render3D = ns.Render3D or {}
 
+-- Bent pictures (the room's pieces, the Raid Trainer's floor map, the hub's chess poster): a 1 x 1 texture whose four
+-- corners are moved onto where the camera sees them (Texture:SetVertexOffset). R3.NewBentTexture(parent, layer,
+-- sublevel, relTo, relPoint, x, y) makes one with its centre on relTo's relPoint (x, y over it) and pixel snapping off
+-- (a bent texture must not snap). R3.Bend(tx, ox, oy, ulx, uly, llx, lly, urx, ury, lrx, lry) puts its corners on the
+-- four points (UI units, in the same frame as the base's centre ox, oy): a corner's offset is its point less where the
+-- base has that corner, half a unit off the centre - the one half-pixel rule of every bent picture.
+local BUL, BLL = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2
+local BUR, BLR = UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
+local function Bend(tx, ox, oy, ulx, uly, llx, lly, urx, ury, lrx, lry)
+    tx:SetVertexOffset(BUL, ulx - ox + 0.5, uly - oy - 0.5)
+    tx:SetVertexOffset(BLL, llx - ox + 0.5, lly - oy + 0.5)
+    tx:SetVertexOffset(BUR, urx - ox - 0.5, ury - oy - 0.5)
+    tx:SetVertexOffset(BLR, lrx - ox - 0.5, lry - oy + 0.5)
+end
+ns.Render3D.Bend = Bend
+
+local function NewBentTexture(parent, layer, sublevel, relTo, relPoint, x, y)
+    local tx = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sublevel)
+    tx:SetSize(1, 1)
+    tx:SetPoint("CENTER", relTo or parent, relPoint or "CENTER", x or 0, y or 0)
+    if tx.SetSnapToPixelGrid then tx:SetSnapToPixelGrid(false) end
+    if tx.SetTexelSnappingBias then tx:SetTexelSnappingBias(0) end
+    return tx
+end
+ns.Render3D.NewBentTexture = NewBentTexture
+
 -- (The whole renderer is the body of NewRoom, written at the file's own indent: its locals are a function's locals,
 -- with the same limits a main chunk has - 200 locals, 60 upvalues per function.)
 function ns.Render3D.NewRoom(label)
@@ -102,8 +128,6 @@ local function Paint(tx, L)
     end
     tx.light = L
 end
-local VUL, VLL = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2
-local VUR, VLR = UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
 
 -- Room.opts (spec section 8, UI._RenderOpts; in game also /dz trainer render): tau (a number fixes the bound and
 -- turns the controllers off), adaptive (the count controller), adaptiveTime (the time controller), target (fixes the
@@ -777,11 +801,7 @@ local function Acquire(f, pool)
         return tx
     end
     stats.textures = stats.textures + 1
-    tx = fr:CreateTexture(nil, "BACKGROUND")
-    tx:SetSize(1, 1)
-    tx:SetPoint("CENTER", scene, "CENTER", 0, 0)      -- the 1 x 1 base sits mid-view: no cull / clip test fails on it
-    if tx.SetSnapToPixelGrid then tx:SetSnapToPixelGrid(false) end
-    if tx.SetTexelSnappingBias then tx:SetTexelSnappingBias(0) end
+    tx = NewBentTexture(fr, "BACKGROUND", nil, scene, "CENTER")   -- (mid-view: no cull / clip test fails on it)
     tx:SetTexture(floor(pool / 4), "REPEAT", "REPEAT")
     tx:SetBlendMode(BLENDS[pool % 4])
     tx.frame, tx.pool, tx.shown = f, pool, true
@@ -822,10 +842,7 @@ local function Emit(q, tx)
         tx.pos = pp
     end
     local x1, y1, x2, y2, x3, y3, x4, y4 = PX[c1], PY[c1], PX[c2], PY[c2], PX[c3], PY[c3], PX[c4], PY[c4]
-    tx:SetVertexOffset(VUL, x1 - ox + 0.5, y1 - oy - 0.5)
-    tx:SetVertexOffset(VLL, x2 - ox + 0.5, y2 - oy + 0.5)
-    tx:SetVertexOffset(VUR, x4 - ox - 0.5, y4 - oy - 0.5)
-    tx:SetVertexOffset(VLR, x3 - ox - 0.5, y3 - oy + 0.5)
+    Bend(tx, ox, oy, x1, y1, x2, y2, x4, y4, x3, y3)
     if not tx.shown then
         tx:Show()
         tx.shown = true
@@ -2508,11 +2525,7 @@ local function InstallCopies()
         fr.used[pool] = n
         local tx = list[n]
         if not tx then
-            tx = fr:CreateTexture(nil, "BACKGROUND")
-            tx:SetSize(1, 1)
-            tx:SetPoint("CENTER", scene, "CENTER", 0, 0)
-            if tx.SetSnapToPixelGrid then tx:SetSnapToPixelGrid(false) end
-            if tx.SetTexelSnappingBias then tx:SetTexelSnappingBias(0) end
+            tx = NewBentTexture(fr, "BACKGROUND", nil, scene, "CENTER")
             tx:SetTexture(floor(pool / 4), "REPEAT", "REPEAT")
             tx:SetBlendMode(BLENDS[pool % 4])
             tx.shown, tx.pool = true, pool
@@ -2532,24 +2545,25 @@ local function InstallCopies()
             tx:SetTexCoord(u1, v1, u2, v2, u3, v3, u4, v4)
             tx.u1, tx.v1, tx.u2, tx.v2, tx.u3, tx.v3, tx.u4, tx.v4 = u1, v1, u2, v2, u3, v3, u4, v4
         end
-        local x, y = IV[o + 1] - hx + 0.5, IV[o + 2] - hy - 0.5                 -- (spec 4.3)
+        -- (spec 4.3; R3.Bend's half-pixel rule, a corner at a time: only a corner that moved is sent)
+        local x, y = IV[o + 1] - hx + 0.5, IV[o + 2] - hy - 0.5
         if not tx.ox1 or abs(tx.ox1 - x) > 0.01 or abs(tx.oy1 - y) > 0.01 then
-            tx:SetVertexOffset(VUL, x, y)
+            tx:SetVertexOffset(BUL, x, y)
             tx.ox1, tx.oy1 = x, y
         end
         x, y = IV[o + 5] - hx + 0.5, IV[o + 6] - hy + 0.5
         if not tx.ox2 or abs(tx.ox2 - x) > 0.01 or abs(tx.oy2 - y) > 0.01 then
-            tx:SetVertexOffset(VLL, x, y)
+            tx:SetVertexOffset(BLL, x, y)
             tx.ox2, tx.oy2 = x, y
         end
         x, y = IV[o + 9] - hx - 0.5, IV[o + 10] - hy - 0.5
         if not tx.ox3 or abs(tx.ox3 - x) > 0.01 or abs(tx.oy3 - y) > 0.01 then
-            tx:SetVertexOffset(VUR, x, y)
+            tx:SetVertexOffset(BUR, x, y)
             tx.ox3, tx.oy3 = x, y
         end
         x, y = IV[o + 13] - hx - 0.5, IV[o + 14] - hy + 0.5
         if not tx.ox4 or abs(tx.ox4 - x) > 0.01 or abs(tx.oy4 - y) > 0.01 then
-            tx:SetVertexOffset(VLR, x, y)
+            tx:SetVertexOffset(BLR, x, y)
             tx.ox4, tx.oy4 = x, y
         end
         if not tx.shown then

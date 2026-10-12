@@ -18,25 +18,8 @@ ns.ChessBoard3D = B3
 
 local R = ns.ChessRules
 local floor, abs, min, max, sqrt = math.floor, math.abs, math.min, math.max, math.sqrt
-local sin, cos, pi = math.sin, math.cos, math.pi
+local pi = math.pi
 local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
-
--- An actor's box (GetActiveBoundingBox / GetMaxBoundingBox, fn) as pcall's answer with six numbers: the client gives six
--- numbers in practice, two vectors by the docs (min, max), read both ways (as Games/Trainer/UI.lua and
--- Render3D/Probe.lua do). Phase 4 of the 1.4 refactor moves this to one shared reader.
-local function BoxVec(v)
-    if v.GetXYZ then return v:GetXYZ() end
-    return v.x, v.y, v.z
-end
-local function ActorBox(a, fn)
-    local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
-    if ok and type(x0) == "table" and type(y0) == "table" then
-        local lo, hi = x0, y0
-        ok, x0, y0, z0 = pcall(BoxVec, lo)
-        if ok then ok, x1, y1, z1 = pcall(BoxVec, hi) end
-    end
-    return ok, x0, y0, z0, x1, y1, z1
-end
 
 local ROOM_REF = "Karazhan:Chess"
 local O = { x = 31.170034, y = 6.880391 }     -- a1's middle, room yards
@@ -73,8 +56,8 @@ B3.PIECES = {
 -- The Echo of Medivh (npc 16816): display 18720, scale 1.3, alpha 130 / 255; his spot (AzerothCore spawn).
 B3.MEDIVH = { display = 18720, scale = 1.3, alpha = 130 / 255, x = 11.82, y = 16.18 }
 
--- Animations (AnimationData): stand, death, walk, run, dead, attack (unarmed), spell cast (omni)
-local A = { stand = 0, death = 1, walk = 4, run = 5, dead = 6, attack = 16, cast = 52 }
+-- Animations (Render3D/View.lua R3.ANIM): stand, death, walk, run, dead, attack (unarmed), cast (spell cast omni)
+local A = ns.Render3D and ns.Render3D.ANIM or {}
 B3.ANIM = A
 local WALK, RUN = 3.2, 7                    -- yd/s: a piece walking one square, running further (and a knight)
 local MOVE_MAX = 2.2                        -- s: no move's walk or run takes longer (they speed up)
@@ -131,6 +114,7 @@ function B3.New(parent, opts)
     local self = setmetatable({ opts = opts or {}, cam = {}, actors = {}, pool = {}, fx = {}, fxPool = {},
                                 labels = {}, marks = {}, occ = {}, proj = {}, anims = {},
                                 orb = { heading = FWD_W, pitch = 0.78, dist = 52 } }, View)
+    self.drawMarks = function() self:DrawMarks() end
     local f = CreateFrame("Frame", nil, parent)
     f:SetAllPoints()
     f:SetClipsChildren(true)
@@ -145,6 +129,10 @@ function B3.New(parent, opts)
     end
     self.R = self.view.room
     self.pool[1] = self.view.probe
+    -- the camera orbits the board's middle a yard over the floor (decision D6: this hall's own feel, a wheel notch
+    -- 0.88 and a linear zoom ease)
+    self.orbit = r3.NewOrbitController(self.view, { orb = self.orb, zoom = 0.88, ease = "linear",
+        clamp = function(o) self:ClampOrb(o) end, centre = function() return MID.x, MID.y, self.midZ + 1 end })
     self.room = r3.RoomForBoss(ROOM_REF)
     local fl = r3.Floor(self.room)
     if not (fl and fl.mesh and self.R) then
@@ -197,10 +185,7 @@ function View:FaceSide(side, animate)
     local heading = side == -1 and (FWD_W + pi) or FWD_W
     local to = { heading = heading, pitch = 0.78, dist = 52 }
     if animate then
-        local from = { heading = self.orb.heading, pitch = self.orb.pitch, dist = self.orb.dist }
-        local dh = (to.heading - from.heading + pi) % (2 * pi) - pi
-        to.heading = from.heading + dh
-        self.camAnim = { from = from, to = to, t0 = GetTime(), dur = 0.6 }
+        self.orbit:MoveTo(to, 0.6)
     else
         self.orb.heading, self.orb.pitch, self.orb.dist = to.heading, to.pitch, to.dist
     end
@@ -210,22 +195,19 @@ end
 
 -- Turns the camera half way round the board (the other side's view).
 function View:Flip()
-    local o = self.camAnim and self.camAnim.to or self.orb
-    local from = { heading = self.orb.heading, pitch = self.orb.pitch, dist = self.orb.dist }
-    self.camAnim = { from = from, to = { heading = o.heading + pi, pitch = o.pitch, dist = o.dist }, t0 = GetTime(),
-                     dur = 0.7 }
+    local o = self.orbit:Goal()
+    self.orbit:MoveTo({ heading = o.heading + pi, pitch = o.pitch, dist = o.dist }, 0.7, nil, true)
     self.dirty = true
 end
 
 function View:Place()
-    local o = self.orb
-    self.view:Orbit(MID.x, MID.y, self.midZ + 1, o.heading, o.pitch, o.dist)
+    self.orbit:Place()
 end
 
 local function Clamp(v, lo, hi) return max(lo, min(hi, v)) end
 
-function View:ClampOrb()
-    local o = self.orb
+function View:ClampOrb(o)
+    o = o or self.orb
     o.pitch = Clamp(o.pitch, 0.25, 1.45)
     o.dist = Clamp(o.dist, 18, 80)
 end
@@ -601,7 +583,7 @@ function View:Occluders()
     local function add(a, id)
         if not a or not a.x then return end
         if not a.bb and a.loadedOnce and a.GetActiveBoundingBox then
-            local ok, x0, y0, z0, x1, y1, z1 = ActorBox(a, a.GetActiveBoundingBox)
+            local ok, x0, y0, z0, x1, y1, z1 = ns.Render3D.ActorBox(a, "active")
             if ok and type(z1) == "number" and z1 > (z0 or 0) then
                 a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z1 = z1 }
             end
@@ -622,28 +604,13 @@ function View:Occluders()
     return occ, n
 end
 
--- The depth mode the hall uses (the strategy board's choice per room: box, stand-ins or stand-ins with gaps).
+-- The depth mode the hall uses (the strategy board's choice per room: box, stand-ins or stand-ins with gaps;
+-- Render3D/View.lua View:SyncDepthMode).
 function View:SyncStandins()
     local M3 = ns.StrategyMap3D
-    local S = R3().Standins
     local key = self.room and self.room.key
     local mode = (M3 and M3.DepthMode and key) and M3.DepthMode(key) or "box"
-    local ctl = (mode ~= "box" and S and S.For) and (self.view.standinCtl or S.For(self.view)) or self.view.standinCtl
-    local use
-    if mode ~= "box" and ctl then
-        local ok = ctl:Use(key)
-        if ok then use = ctl end
-    elseif ctl and ctl.key then
-        ctl:Off()
-    end
-    if use and M3 and M3.standins then use:Configure(M3.standins) end
-    local gaps = use and mode == "gaps" and M3 and M3.GapSet and M3.GapSet(key) or nil
-    local R_ = self.R
-    if R_ and R_.opts then
-        local copies = use == nil or gaps ~= nil
-        if (R_.opts.copies ~= false) ~= copies then R_.SetOpts({ copies = copies }) end
-        if R_.opts.copyOnly ~= gaps then R_.SetOpts({ copyOnly = gaps or false }) end
-    end
+    local use, gaps = self.view:SyncDepthMode(key, mode, M3 and M3.standins, M3 and M3.GapSet)
     self.standins, self.standinGaps = use, gaps
     return use
 end
@@ -720,13 +687,10 @@ end
 
 function View:Draw()
     self.dirty = false
-    local R_ = self.R
     local si = self:SyncStandins()
     if not self.calibrated then
-        local z = self.midZ + 1
-        local o = self.orb
-        self.calibrated = self.view:Calibrate(function() self:Place() end, MID.x, MID.y, z,
-            MID.x - sin(o.heading) * 2, MID.y + cos(o.heading) * 2, z)
+        self.calibrated = self.view:CalibrateOrbit(function() self:Place() end, MID.x, MID.y, self.midZ + 1,
+            self.orb.heading)
         if not self.calibrated then
             self.dirty = true
             return
@@ -743,15 +707,7 @@ function View:Draw()
         end
     end
     local occ, n = self:Occluders()
-    if R_.BeginFrame(self.cam) then
-        if not si or self.standinGaps then R_.SetOccluders(occ, n) end
-        R_.DrawRoom()
-        R_.BeginLines()
-        self:DrawMarks()
-        R_.EndLines()
-        R_.DrawCopies()
-        if si then si:Update(occ, n, R_.Project) end
-    end
+    self.view:DrawFrame(occ, n, self.drawMarks, si, self.standinGaps)
     self:ProjectSquares()
 end
 
@@ -780,36 +736,8 @@ end
 
 function View:OnUpdate(elapsed)
     if self:Faded() then return end
-    local moved = false
-    local ca = self.camAnim
-    if ca then
-        local t = min(1, (GetTime() - ca.t0) / ca.dur)
-        local k = t * t * (3 - 2 * t)
-        local o = self.orb
-        o.heading = ca.from.heading + (ca.to.heading - ca.from.heading) * k
-        o.pitch = ca.from.pitch + (ca.to.pitch - ca.from.pitch) * k
-        o.dist = ca.from.dist + (ca.to.dist - ca.from.dist) * k
-        if t >= 1 then self.camAnim = nil end
-        moved = true
-    end
-    local d = self.drag
-    if d then
-        if not IsMouseButtonDown(d.button) then
-            self.drag = nil
-        else
-            local cx, cy = GetCursorPosition()
-            local dx, dy = cx - d.cx, cy - d.cy
-            if abs(dx) + abs(dy) > 4 then d.moved = true end
-            if d.moved then
-                local o = self.orb
-                o.heading = d.heading - dx * 0.008
-                o.pitch = d.pitch - dy * 0.006
-                self.camAnim = nil
-                self:ClampOrb()
-                moved = true
-            end
-        end
-    end
+    -- the camera: a turn under way, a right / middle drag
+    local moved = self.orbit:Step()
     if self:StepAnims() then moved = true end
     if self.medivhUntil and GetTime() > self.medivhUntil then
         self.medivhUntil = nil
@@ -825,7 +753,7 @@ function View:OnUpdate(elapsed)
         end
     end
     -- the square under the mouse
-    if self.frame:IsMouseOver() and not self.drag then
+    if self.frame:IsMouseOver() and not self.orbit.drag then
         local sq = self:SquareAtCursor()
         if sq ~= self.hover then
             self.hover = sq
@@ -849,8 +777,7 @@ end
 
 function View:MouseDown(button)
     if button == "RightButton" or button == "MiddleButton" then
-        local cx, cy = GetCursorPosition()
-        self.drag = { button = button, cx = cx, cy = cy, heading = self.orb.heading, pitch = self.orb.pitch }
+        self.orbit:BeginDrag(button)
     elseif button == "LeftButton" then
         self.downSq = self:SquareAtCursor()
     end
@@ -861,15 +788,13 @@ function View:MouseUp(button)
         local sq = self:SquareAtCursor()
         if sq and sq == self.downSq and self.opts.onSquare then self.opts.onSquare(sq, button) end
         self.downSq = nil
-    elseif button == "RightButton" and self.drag and not self.drag.moved then
+    elseif self.orbit:EndDrag(button) == "click" and button == "RightButton" then
+        -- (a right click that turned nothing)
         if self.opts.onSquare then self.opts.onSquare(nil, "RightButton") end
     end
 end
 
 function View:Wheel(delta)
-    local o = self.orb
-    o.dist = o.dist * (delta > 0 and 0.88 or 1 / 0.88)
-    self.camAnim = nil
-    self:ClampOrb()
+    self.orbit:Wheel(delta)
     self.dirty = true
 end

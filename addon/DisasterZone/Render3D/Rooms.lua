@@ -49,21 +49,28 @@ function R3.HeightFn(grid)
     end
 end
 
--- The creatures the strategy boards show as models: CreatureDisplayInfo.CreatureModelScale (wago.tools, build
--- 2.5.6.69795; the client draws a ModelScene actor at scale 1 whatever its display says) and, where known, the
--- model's PlayerName attachment height in model units (the M2 file; the label goes 0.4 yd over it) and its Chest
--- attachment's (where a beam or a spell effect meets it). Without one the view asks the model's own box.
--- Render3D/Rooms/Index.lua gives the scale of every portrait (DISPLAY_SCALE).
-R3.DISPLAYS = {
-    [21254] = { scale = 2.5, name = 2.45 },        -- Teron Gorefiend (model 51)
-    [21300] = { scale = 1.5, name = 3.39 },        -- Vengeful Spirit (model 9)
-    [21305] = { scale = 1.75, name = 2.29 },       -- Shadowy Construct (model 1771)
-    [20748] = { scale = 3.5, name = 2.77, chest = 1.74 },  -- Lady Vashj (model 2535; chest: the Raid Trainer's)
-    [11172] = { scale = 2, name = 3.19 },          -- Tainted Elemental (model 110)
-    [20076] = { scale = 2, name = 3.19 },          -- Enchanted Elemental (model 110)
-}
-for id, s in pairs(R3.DISPLAY_SCALE or {}) do
-    if not R3.DISPLAYS[id] then R3.DISPLAYS[id] = { scale = s } end
+-- The creatures the 3D views show as models, by display ID: CreatureDisplayInfo.CreatureModelScale (wago.tools,
+-- build 2.5.6.69795; the client draws a ModelScene actor at scale 1 whatever its display says) and, where known, the
+-- model's attachment heights in model units (the M2 file): name (PlayerName: a label goes 0.4 yd over it), chest
+-- (where a beam or a spell effect meets it), head, hand (SpellLeftHand). One table for the strategy board and the
+-- Raid Trainer: Render3D/Rooms/Index.lua gives the scale of every portrait (DISPLAY_SCALE), the trainer's encounters
+-- add their creatures' sizes and attachments (R3.AddDisplays). Without one the view asks the model's own box.
+R3.DISPLAYS = {}
+for id, s in pairs(R3.DISPLAY_SCALE or {}) do R3.DISPLAYS[id] = { scale = s } end
+
+-- Merges { [display] = { scale, name, chest, head, hand } } into R3.DISPLAYS (a field given again replaces the one
+-- there). -> R3.DISPLAYS
+function R3.AddDisplays(list)
+    local D = R3.DISPLAYS
+    for id, t in pairs(list or {}) do
+        local d = D[id]
+        if not d then
+            d = {}
+            D[id] = d
+        end
+        for k, v in pairs(t) do d[k] = v end
+    end
+    return D
 end
 
 -- The rooms, from the generated index: per encounter (keyed by its floor key) { key, name, floor, bosses, map (the
@@ -233,9 +240,46 @@ end
 
 -- The client's numbers: running, walking backwards and swimming (yd/s), keyboard turning (rad/s), gravity and the
 -- fastest fall (yd/s^2, yd/s: TrinityCore), a jump's upward speed (yd/s), the highest step walked up (yd), the steepest
--- slope walked (tan 50 degrees). (Games/Trainer/Engine.lua keeps its own copies of them.)
+-- slope walked (tan 50 degrees). The only copy: the Raid Trainer's T.GRAVITY, T.MAX_SLOPE ... are these.
 R3.WALK = { run = 7, back = 4.5, swim = 4.722222, turn = math.pi, gravity = 19.291103, terminal = 60.148003,
             jump = 7.95577, stepUp = 1.0, maxSlope = math.tan(math.rad(50)) }
+
+-- After a step's move, a body's feet onto the ground where it now is, or on with its fall (the Raid Trainer's units:
+-- Sim:Settle; someone walking here: Walker:Step). ground: a GroundFn; (x, y) where it stands now; z its feet's height,
+-- found at (gx, gy); falling, vz: in the air and its upward speed; fvx, fvy: its speed over the ground in the air;
+-- dt: the step (s); cap: the fastest it goes over an edge (yd/s: a script's push is not a run); slides: a slope too
+-- steep to stand on slides it down (else it walks it like any ground, as the trainer's scripted units do).
+-- A body whose ground drops away faster than it could walk down it (off a ledge) falls with the client's gravity,
+-- keeping the speed it went over the edge with, and lands on what is under it.
+-- -> z, falling, vz, fvx, fvy, and the ground's 4th answer (true: on water)
+function R3.SettleBody(ground, x, y, z, gx, gy, falling, vz, fvx, fvy, dt, cap, slides)
+    local W = R3.WALK
+    local moved2 = (x - gx) ^ 2 + (y - gy) ^ 2
+    local g, sx, sy, swim = ground(x, y, z, falling)
+    if not slides then sx, sy = nil, nil end
+    if not falling and g and (sx or g < z - math.sqrt(moved2) * W.maxSlope - 0.02) then
+        local v = dt > 0 and math.sqrt(moved2) / dt or 0
+        local k = dt > 0 and min(1, cap / max(v, 1e-9)) / dt or 0
+        falling, vz, fvx, fvy = true, 0, (x - gx) * k, (y - gy) * k
+    end
+    if falling then
+        local nvz = max(-W.terminal, vz - W.gravity * dt)
+        local nz = z + nvz * dt
+        if g and nz > g then
+            z, vz = nz, nvz
+        elseif sx then
+            -- on the slope: held on it, and pushed off downhill as gravity pulls along it (g sin a cos a)
+            local push = W.gravity / (1 + sx * sx + sy * sy) * dt
+            z, vz = g, nvz
+            fvx, fvy = (fvx or 0) - sx * push, (fvy or 0) - sy * push
+        else                                   -- landed (with nothing under it at all it stops where it is)
+            z, vz, falling, fvx, fvy = g or z, 0, nil, nil, nil
+        end
+    elseif g then
+        z = g
+    end                                        -- (no ground: walked into a pillar; it keeps its height)
+    return z, falling, vz, fvx, fvy, swim
+end
 
 -- The ground walking units stand on, from a floor's walk table: Blizzard's collision faces no steeper than 50 degrees
 -- (tris; on a staircase that is the invisible ramp over the steps, so feet glide up it as in the game), the steeper
@@ -386,30 +430,10 @@ function Walker:Step(dt, fwd, strafe, turn, jump)
             self.fvx, self.fvy = 0, 0
         end
     end
-    -- onto the ground where it now is, or on with its fall (the Raid Trainer's Sim:Settle)
-    local moved2 = (self.x - self.gx) ^ 2 + (self.y - self.gy) ^ 2
-    local g, sx, sy, swim = ground(self.x, self.y, z0, self.falling)
-    if not self.falling and g and (sx or g < z0 - sqrt(moved2) * C.maxSlope - 0.02) then
-        local v = dt > 0 and sqrt(moved2) / dt or 0
-        local kk = dt > 0 and min(1, max(speed, C.run) / max(v, 1e-9)) / dt or 0
-        self.falling, self.vz, self.fvx, self.fvy = true, 0, (self.x - self.gx) * kk, (self.y - self.gy) * kk
-    end
-    if self.falling then
-        local vz = max(-C.terminal, self.vz - C.gravity * dt)
-        local nz = z0 + vz * dt
-        if g and nz > g then
-            self.z, self.vz = nz, vz
-        elseif sx then
-            -- on the slope: held on it, and pushed off downhill as gravity pulls along it
-            local push = C.gravity / (1 + sx * sx + sy * sy) * dt
-            self.z, self.vz = g, vz
-            self.fvx, self.fvy = (self.fvx or 0) - sx * push, (self.fvy or 0) - sy * push
-        else                                                              -- landed
-            self.z, self.vz, self.falling, self.fvx, self.fvy = g or z0, 0, nil, nil, nil
-        end
-    elseif g then
-        self.z = g
-    end
+    -- onto the ground where it now is, or on with its fall (as the Raid Trainer's units: R3.SettleBody)
+    local swim
+    self.z, self.falling, self.vz, self.fvx, self.fvy, swim = R3.SettleBody(ground, self.x, self.y, z0, self.gx,
+        self.gy, self.falling, self.vz, self.fvx, self.fvy, dt, max(speed, C.run), true)
     self.swimming = (swim and not self.falling) and true or false
     self.gx, self.gy = self.x, self.y
     self.vx, self.vy = dt > 0 and (self.x - x0) / dt or 0, dt > 0 and (self.y - y0) / dt or 0      -- (how it went)

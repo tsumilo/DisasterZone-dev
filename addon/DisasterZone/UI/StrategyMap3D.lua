@@ -32,23 +32,6 @@ local function MapUI() return ns.StrategyMapUI end
 local function UI() return ns.UI end
 local function SO() return ns.StrategyObjects end
 
--- An actor's box (GetActiveBoundingBox / GetMaxBoundingBox, fn) as pcall's answer with six numbers: the client gives six
--- numbers in practice, two vectors by the docs (min, max), read both ways (as Games/Trainer/UI.lua and
--- Render3D/Probe.lua do). Phase 4 of the 1.4 refactor moves this to one shared reader.
-local function BoxVec(v)
-    if v.GetXYZ then return v:GetXYZ() end
-    return v.x, v.y, v.z
-end
-local function ActorBox(a, fn)
-    local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
-    if ok and type(x0) == "table" and type(y0) == "table" then
-        local lo, hi = x0, y0
-        ok, x0, y0, z0 = pcall(BoxVec, lo)
-        if ok then ok, x1, y1, z1 = pcall(BoxVec, hi) end
-    end
-    return ok, x0, y0, z0, x1, y1, z1
-end
-
 -- Frame levels above the 3D frame's own (Render3D/View.lua puts the room, the scene and the plate frame there): the
 -- room's cluster frames take room0 .. scene - 1 (more than the trainer's: Gorefiend's Vigil needs over 200), the
 -- copies over the models copy0 .. copy0 + 31, the plates plates + 1 .. plates + CHIP_LEVELS (the nearest highest);
@@ -79,7 +62,7 @@ local PEG_HINT = "Let go to walk from here."
 local PEG_BAD_HINT = "Nothing to stand on here: let go somewhere else."
 local WALK_KEYS = { W = "fwd", UP = "fwd", S = "back", DOWN = "back", A = "left", LEFT = "left", D = "right",
                     RIGHT = "right", Q = "strafeL", E = "strafeR", SPACE = "jump" }
-local WANIM = { stand = 0, run = 5, back = 13, fall = 40, swimIdle = 41, swim = 42 }
+local WANIM = ns.Render3D and ns.Render3D.ANIM or {}      -- (R3.ANIM: stand, run, back, fall, swimIdle, swim)
 local SWIM_SINK, WALK_EYE = 1.5, 2.2
 -- How a member walking in the room looks to the others outside their group (in it: their own character): the
 -- race's own model (CreatureDisplayInfo, checked against character/<race>/<sex>/<race><sex>.m2), male / female.
@@ -148,6 +131,14 @@ function M3:Create(canvas)
     end
     self.R = self.view.room
     self.actorPool[1] = self.view.probe
+    -- the camera orbits a point on the floor (riding up to eye height all the way in); decision D6: the board keeps
+    -- its own feel, a wheel notch 0.82 that zooms on from where a move is going, the distance easing in its logarithm
+    -- (the move under way and the drag stay on the view, self.anim and self.drag: Data/Tours/Strategy.lua reads them)
+    self.orbit = r3.NewOrbitController(self.view, { orb = self.orb, state = self, zoom = 0.82, ease = "log",
+        wheelGoal = true, clamp = function(o) self:ClampOrb(o) end,
+        centre = function(o) return self:OrbitCentre(o) end,
+        snapDist = function(d) if d < DIST_MIN * 1.5 then return DIST_MIN end return d end })
+    self.drawLines = function() self:DrawLines(self.remoteNow) end
     self:CreateHud()
     f:SetScript("OnUpdate", function(_, elapsed) self:OnUpdate(elapsed) end)
     f:Hide()
@@ -170,20 +161,17 @@ local function Lift(dist)
     return EYE * max(0, min(1, (5 - dist) / (5 - DIST_MIN)))
 end
 
+-- The point the orbit camera turns round: the floor under (o.x, o.y), lifted as Lift says.
+function V:OrbitCentre(o)
+    return o.x, o.y, self:Ground(o.x, o.y) + Lift(o.dist)
+end
+
 local function Clamp(v, lo, hi) return max(lo, min(hi, v)) end
 
--- A critically damped spring, stepped implicitly (stable for any dt): position x, speed v towards target (as the
--- Raid Trainer's camera, Games/Trainer/UI.lua).
-local function Spring(x, v, target, w, dt)
-    local f, hw2 = 1 + 2 * dt * w, dt * w * w
-    local det = 1 / (f + dt * hw2)
-    return (f * x + dt * v + dt * hw2 * target) * det, (v + hw2 * (target - x)) * det
-end
-local WALK_GRAVITY, WALK_SLOPE = 19.291103, math.tan(math.rad(50))
-
--- The camera as self.orb says, handed to the scene. Walking: behind and over your character, looking where it
--- faces (and wherever a left-drag swung it), pulled in where the room is in the way (Room.CameraDistance) and easing
--- back out at 6 yd a second; self.orb follows it (the compass, the small map).
+-- The camera as self.orb says, handed to the scene (self.orbit, Render3D/View.lua's orbit camera). Walking: behind
+-- and over your character, looking where it faces (and wherever a left-drag swung it), pulled in where the room is in
+-- the way (Room.CameraDistance) and easing back out at 6 yd a second (R3.NewFollowCam, as the Raid Trainer's);
+-- self.orb follows it (the compass, the small map).
 function V:Place()
     local wk = self.walk
     if wk then
@@ -191,33 +179,22 @@ function V:Place()
         local now = GetTime()
         local dt = wk.camT and min(0.25, now - wk.camT) or 0
         wk.camT = now
-        -- the point the camera turns round rides over your feet, but a jump of the feet that walking does not make
-        -- (a step, a bump of the floor) goes into hoff, which a spring takes back to 0: the view eases over a few
-        -- frames instead of jolting (the trainer's camera); a jump over 2 yd, a fall or a long move snaps
+        -- the point the camera turns round rides over your feet; a jump of the feet that walking does not make (a
+        -- step, a bump of the floor) eases out over a few frames instead of jolting; a jump over 2 yd, a fall or a
+        -- long move snaps
         local target = k.z + WALK_EYE - (k.swimming and SWIM_SINK or 0)
-        local moved2 = wk.camX and (k.x - wk.camX) ^ 2 + (k.y - wk.camY) ^ 2 or 0
-        local jump = wk.camTarget and target - wk.camTarget or 0
-        if dt <= 0 or not wk.camTarget or moved2 > 9 or (abs(jump) > 2 and not k.falling) then
-            wk.hoff, wk.hv = 0, 0
-        else
-            local walk = sqrt(moved2) * WALK_SLOPE + abs(k.vz or 0) * dt + WALK_GRAVITY * dt * dt + 0.02
-            if abs(jump) > walk then wk.hoff = (wk.hoff or 0) - jump end
-            wk.hoff, wk.hv = Spring(wk.hoff or 0, wk.hv or 0, 0, 12, dt)
-        end
-        wk.camTarget, wk.camX, wk.camY = target, k.x, k.y
-        local pz = target + (wk.hoff or 0)
+        local pz = wk.follow:Pivot(target, k.x, k.y, k.vz, k.falling, dt, dt <= 0)
         local heading = k.facing + wk.yawOff
         self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, wk.dist)
         local R = self.R
         local allowed = (R and R.CameraDistance) and R.CameraDistance(k.x, k.y, pz, self.cam, wk.dist) or wk.dist
-        if not wk.cur or allowed < wk.cur then wk.cur = allowed else wk.cur = min(allowed, wk.cur + 6 * dt) end
-        if wk.cur < wk.dist then self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, wk.cur) end
+        local cur = wk.follow:Reach(allowed, dt)
+        if cur < wk.dist then self.view:Orbit(k.x, k.y, pz, heading, wk.pitch, cur) end
         local o = self.orb
-        o.x, o.y, o.heading, o.pitch, o.dist = k.x, k.y, heading, wk.pitch, max(wk.cur, DIST_MIN)
+        o.x, o.y, o.heading, o.pitch, o.dist = k.x, k.y, heading, wk.pitch, max(cur, DIST_MIN)
         return
     end
-    local o = self.orb
-    self.view:Orbit(o.x, o.y, self:Ground(o.x, o.y) + Lift(o.dist), o.heading, o.pitch, o.dist)
+    self.orbit:Place()
 end
 
 -- The farthest the camera may stand, and the box the point looked at stays in (the room and 30 yd round it).
@@ -266,11 +243,7 @@ end
 
 -- Moves the camera to view `to` over `dur` seconds (eased; the heading the short way round); after() when there.
 function V:MoveTo(to, dur, after)
-    self:ClampOrb(to)
-    local from = Copy(self.orb)
-    local dh = (to.heading - from.heading + pi) % (2 * pi) - pi
-    to.heading = from.heading + dh
-    self.anim = { from = from, to = to, t0 = GetTime(), dur = dur or MOVE, after = after }
+    self.orbit:MoveTo(to, dur or MOVE, after)
     self:Invalidate()
 end
 
@@ -344,14 +317,14 @@ function V:ViewMySpot()
 end
 
 function V:Rotate(steps)
-    local o = Copy(self.anim and self.anim.to or self.orb)
+    local o = Copy(self.orbit:Goal())
     o.heading = o.heading + steps * pi / 4
     self:MoveTo(o)
 end
 
 -- Straight down (north up, as the map) and back to the usual tilt.
 function V:ToggleTop()
-    local o = Copy(self.anim and self.anim.to or self.orb)
+    local o = Copy(self.orbit:Goal())
     if o.pitch < PITCH_TOP - 0.05 then
         o.pitch, o.heading = PITCH_TOP, NORTH
         if o.dist < 12 then o.dist = 30 end
@@ -384,15 +357,16 @@ function V:Open(animate)
         self.hiZ, self.loZ = nil, nil
     end
     self.H = R3().Height(room)
-    self.on, self.anim, self.drag3 = true, nil, nil
+    self.on, self.drag3 = true, nil
+    self.orbit:Stop()
     self.frame:Show()
     self.R.SetMesh(fl.mesh)
     local goal = self:DefaultView()
     if animate then
-        self.orb = self:MapView()
+        self.orbit:Set(self:MapView())
         self:MoveTo(goal, TILT)
     else
-        self.orb = goal
+        self.orbit:Set(goal)
     end
     self.spotI = nil
     self:Invalidate()
@@ -403,7 +377,8 @@ end
 function V:Close(animate, done)
     if self.walk then self:StopWalk() end
     local function finish()
-        self.on, self.anim, self.drag3 = false, nil, nil
+        self.on, self.drag3 = false, nil
+        self.orbit:Stop()
         self.frame:Hide()
         if self.R then self.R.Clear() end
         for e, a in pairs(self.actors) do self:ReleaseActor(e, a) end
@@ -925,9 +900,9 @@ function V:DrawModels()
                 if not a.bb and a.loadedOnce then
                     -- (a creature without baked parts - one placed by its ID - goes by its standing box: the Max box
                     -- holds every animation and is far too big, Kil'jaeden's +-48 yd)
-                    local fn = (not g.parts and a.GetActiveBoundingBox) or a.GetMaxBoundingBox or a.GetActiveBoundingBox
-                    local ok, x0, y0, z0, x1, y1, z1 = false, nil, nil, nil, nil, nil, nil
-                    if fn then ok, x0, y0, z0, x1, y1, z1 = ActorBox(a, fn) end
+                    local kind = ((not g.parts and a.GetActiveBoundingBox) or not a.GetMaxBoundingBox) and "active"
+                        or "max"
+                    local ok, x0, y0, z0, x1, y1, z1 = R3().ActorBox(a, kind)
                     if ok and type(z1) == "number" and type(z0) == "number" and z1 > z0 and x1 > x0 then
                         a.bb = { r = max(abs(x0), abs(x1), abs(y0), abs(y1)), z0 = min(0, z0), z1 = z1,
                             x0 = x0, y0 = y0, x1 = x1, y1 = y1 }
@@ -1606,9 +1581,8 @@ function V:ModelCentre(a, display)
     if mode ~= "geo" and a and a.loadedOnce then
         if a.ctrMode ~= mode then
             local use = mode
-            local fn = (use == "max") and a.GetMaxBoundingBox or a.GetActiveBoundingBox
-            local ok, x0, y0, _, x1, y1 = false, nil, nil, nil, nil, nil
-            if fn then ok, x0, y0, _, x1, y1 = ActorBox(a, fn) end
+            local kind = (use == "max" and a.GetMaxBoundingBox) and "max" or "active"
+            local ok, x0, y0, _, x1, y1 = R3().ActorBox(a, kind)
             if ok and type(x1) == "number" and type(y1) == "number" and x1 > x0 then
                 a.ctr, a.ctrMode, a.ctrUsed = { (x0 + x1) / 2, (y0 + y1) / 2 }, mode, use
             end
@@ -1631,9 +1605,8 @@ function M3:Report()
     ns:Print("3D models (centring: %s):", M3.centre or "off")
     for e, a in pairs(v.actors) do
         local g = v:Geo(e)
-        local function box(fn)
-            if not fn then return "-" end
-            local ok, x0, y0, z0, x1, y1, z1 = ActorBox(a, fn)
+        local function box(kind)
+            local ok, x0, y0, z0, x1, y1, z1 = R3().ActorBox(a, kind)
             if not ok or type(x0) ~= "number" then return "-" end
             return string.format("%.2f %.2f %.2f / %.2f %.2f %.2f", x0, y0, z0, x1, y1, z1)
         end
@@ -1645,8 +1618,8 @@ function M3:Report()
             .. "centred x y z: %s %s %s", MapUI():PortraitName(g.display, cv.opts.bossRef and cv.opts.bossRef())
             or "?", tostring(g.display), g.scale or 0, math.floor(math.deg(g.curFace or 0) % 360 + 0.5), cx, cy,
             tostring(a.ctrUsed or "geo"),
-            geo and string.format("%.2f %.2f", geo[1], geo[2]) or "-", box(a.GetActiveBoundingBox),
-            box(a.GetMaxBoundingBox), tostring(okc and ux), tostring(okc and uy), tostring(okc and uz))
+            geo and string.format("%.2f %.2f", geo[1], geo[2]) or "-", box("active"),
+            box("max"), tostring(okc and ux), tostring(okc and uy), tostring(okc and uz))
     end
 end
 
@@ -2063,22 +2036,13 @@ end
 -- depth buffer). Where no stand-in covers a room triangle (its gaps: thin walls, pillars, railings) the box mode's
 -- occluders and copies stay, for those triangles only (Room.opts.copyOnly); a room without gap data gets no copies.
 -- Your walking character stays in the second scene: same clips, so the same depth. A room without stand-ins keeps
--- the box mode, said once. -> the view's stand-ins in use, or nil.
+-- the box mode, said once (Render3D/View.lua View:SyncDepthMode). -> the view's stand-ins in use, or nil.
 function V:SyncStandins()
     local cfg, S = M3.standins, R3().Standins
     local mode = self.room and M3.DepthMode(self.room.key) or "box"
     local key = mode ~= "box" and S and self.on and self.room and self.room.key or nil
-    local ctl = self.view.standinCtl or (key and S.For(self.view)) or nil
-    local use, why = nil, nil
-    if key and ctl then
-        local ok
-        ok, why = ctl:Use(key)
-        if ok then use = ctl end
-    elseif ctl and ctl.key then
-        ctl:Off()
-    end
+    local use, gaps, why = self.view:SyncDepthMode(key, mode, cfg, M3.GapSet)
     if use then
-        use:Configure(cfg)
         self.standinsNoted = nil
     elseif key and self.standinsNoted ~= key and cfg.on == true then
         self.standinsNoted = key
@@ -2086,15 +2050,7 @@ function V:SyncStandins()
     elseif not key then
         self.standinsNoted = nil
     end
-    self.standins = use
-    local gaps = use and mode == "gaps" and M3.GapSet(key) or nil
-    self.standinGaps = gaps
-    local R = self.R
-    if R and R.opts then
-        local copies = use == nil or gaps ~= nil
-        if (R.opts.copies ~= false) ~= copies then R.SetOpts({ copies = copies }) end
-        if R.opts.copyOnly ~= gaps then R.SetOpts({ copyOnly = gaps or false }) end
-    end
+    self.standins, self.standinGaps = use, gaps
     return use
 end
 
@@ -2107,55 +2063,27 @@ function V:Draw()
     local si = self:SyncStandins()
     if not self.calibrated then
         local o = self.orb
-        local z = self:Ground(o.x, o.y) + Lift(o.dist)
-        self.calibrated = self.view:Calibrate(function() self:Place() end, o.x, o.y, z,
-            o.x - sin(o.heading) * 2, o.y + cos(o.heading) * 2, z)
+        self.calibrated = self.view:CalibrateOrbit(function() self:Place() end, o.x, o.y,
+            self:Ground(o.x, o.y) + Lift(o.dist), o.heading)
     end
     self:Place()
     local occ, n = self:DrawModels()
     local remote = self:RemoteMarks()
-    self.measured = ok and R.BeginFrame(self.cam) or false
-    if self.measured then
-        if not si or self.standinGaps then R.SetOccluders(occ, n) end
-        R.DrawRoom()
-        R.BeginLines()
-        self:DrawLines(remote)
-        R.EndLines()
-        -- (stand-ins: the copies are made of the gaps only, or stay off - DrawCopies then only hides any left over
-        -- and stops the renderer's clock;
-        -- the models' records then pick which stand-ins can matter, outside that clock: their time is not the
-        -- room's, which lowers its detail when a redraw runs long)
-        R.DrawCopies()
-        if si then si:Update(occ, n, R.Project) end
-    end
+    -- (stand-ins: the copies are made of the gaps only, or stay off - DrawCopies then only hides any left over and
+    -- stops the renderer's clock; the models' records then pick which stand-ins can matter, outside that clock: their
+    -- time is not the room's, which lowers its detail when a redraw runs long)
+    self.remoteNow = remote
+    self.measured = ok and self.view:DrawFrame(occ, n, self.drawLines, si, self.standinGaps) or false
+    self.remoteNow = nil
     self:DrawPlates(remote)
     self:DrawHud()
 end
 
-local function Smooth(t) return t * t * (3 - 2 * t) end
-
 function V:OnUpdate(elapsed)
     if not self.on then return end
-    local moved = false
-    local a = self.anim
-    if a then
-        local t = (GetTime() - a.t0) / max(0.01, a.dur)
-        local o, f, to = self.orb, a.from, a.to
-        if t >= 1 then
-            o.x, o.y, o.heading, o.pitch, o.dist = to.x, to.y, to.heading, to.pitch, to.dist
-            self.anim = nil
-        else
-            local k = Smooth(t)
-            o.x, o.y = f.x + (to.x - f.x) * k, f.y + (to.y - f.y) * k
-            o.heading = f.heading + (to.heading - f.heading) * k
-            o.pitch = f.pitch + (to.pitch - f.pitch) * k
-            -- the distance eases in its logarithm, so a long zoom does not rush its near end
-            o.dist = math.exp(math.log(f.dist) + (math.log(to.dist) - math.log(f.dist)) * k)
-        end
-        moved = true
-        if not self.anim and a.after then a.after() end
-        if not self.on then return end
-    end
+    -- the camera: a move under way (its after() may leave the view), a right-drag turning and tilting it
+    local moved = self.orbit:Step()
+    if not self.on then return end
     local d = self.drag3
     if d then
         if not IsMouseButtonDown(d.button) then
@@ -2164,14 +2092,7 @@ function V:OnUpdate(elapsed)
             local cx, cy = GetCursorPosition()
             local dx, dy = cx - d.cx, cy - d.cy
             if abs(dx) + abs(dy) > 4 then d.moved = true end
-            if d.kind == "orbit" and d.moved then
-                local o = self.orb
-                o.heading = d.heading - dx * 0.008
-                o.pitch = d.pitch - dy * 0.006
-                self.anim = nil
-                self:ClampOrb(o)
-                moved = true
-            elseif (d.kind == "look" or d.kind == "swing") and self.walk then
+            if (d.kind == "look" or d.kind == "swing") and self.walk then
                 -- walking: the right button turns you (and the camera with you), the left one swings the camera
                 -- round you; both tilt it
                 -- (by how far the mouse went since the last frame, as the Raid Trainer turns you)
@@ -2274,7 +2195,9 @@ function V:StartWalk(atX, atY)
         pcall(a.SetShown, a, true)
     end
     self.walk = { k = k, actor = a, held = {}, dist = 7, pitch = 0.32, yawOff = 0 }
-    self.anim, self.drag3, self.canvas.drag = nil, nil, nil
+    self.walk.follow = r3.NewFollowCam(self.walk)          -- (its fields on the walk: hoff, cur ...)
+    self.drag3, self.canvas.drag = nil, nil
+    self.orbit:Stop()
     self.keys:EnableKeyboard(true)
     self:PlaceWalker()
     self:Invalidate()
@@ -2691,7 +2614,8 @@ function V:MouseDown(button, editable, tool)
         return true
     end
     if button == "RightButton" then
-        self.drag3 = { kind = "orbit", button = button, cx = cx, cy = cy, heading = o.heading, pitch = o.pitch }
+        self.drag3 = nil
+        self.orbit:BeginDrag(button)
         return true
     end
     local now = GetTime()
@@ -2711,6 +2635,7 @@ function V:MouseDown(button, editable, tool)
         local x, y = self:FloorAt(sx, sy, z)
         self.drag3 = { kind = "pan", button = button, cx = cx, cy = cy, x = x or o.x, y = y or o.y, z = z }
         if not x then self.drag3 = nil end
+        self.drag = nil
         return true
     end
     return false
@@ -2727,25 +2652,20 @@ function V:MouseUp(button)
             if d.kind == "look" and not d.moved then return "click" end
             return true
         end
-        if d.kind == "orbit" and not d.moved then return "click" end
         return true
     end
-    return nil
+    return self.orbit:EndDrag(button)
 end
 
 function V:Wheel(delta)
     local wk = self.walk
     if wk then
-        wk.dist = Clamp(wk.dist * (delta > 0 and 0.82 or 1 / 0.82), 1.5, 40)
+        local z = self.orbit.zoom
+        wk.dist = Clamp(wk.dist * (delta > 0 and z or 1 / z), 1.5, 40)
         self:Invalidate()
         return
     end
-    local o = Copy(self.anim and self.anim.to or self.orb)
-    o.dist = o.dist * (delta > 0 and 0.82 or 1 / 0.82)
-    if o.dist < DIST_MIN * 1.5 then o.dist = DIST_MIN end
-    self.anim = nil
-    self.orb.dist = o.dist
-    self:ClampOrb(self.orb)
+    self.orbit:Wheel(delta)
     self:Invalidate()
 end
 

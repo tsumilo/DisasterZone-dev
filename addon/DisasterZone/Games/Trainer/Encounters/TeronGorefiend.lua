@@ -305,7 +305,8 @@ T:RegisterEncounter("teron", {
     icon = "Interface\\Icons\\Spell_Shadow_DeathPact",
     order = 10,
     -- map: the piece of Media/Maps/BT04_a (the top 1024 x 512 of the 1024 x 683 map) that is this hall
-    displays = DISPLAYS,
+    -- (merged into the one R3.DISPLAYS, the strategy board's too; this table without the Render3D files)
+    displays = ns.Render3D and ns.Render3D.AddDisplays(DISPLAYS) or DISPLAYS,
     arena = { w = ARENA_W, h = ARENA_H, labels = { { x = ARENA_W / 2, y = 2.5, text = "Entrance" } },
               floor = "teron",           -- (height, mesh, ground: T.FillArena, when first played)
               -- the client's own minimap of the hall (world/minimaps/wmo/.../blacktemple_031_00_00: 2 pixels a

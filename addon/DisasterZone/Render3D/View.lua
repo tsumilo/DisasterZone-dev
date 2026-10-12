@@ -13,16 +13,26 @@ local _, ns = ...
 local R3 = ns.Render3D or {}
 ns.Render3D = R3
 
-local cos, sin, abs = math.cos, math.sin, math.abs
+local cos, sin, abs, min, max = math.cos, math.sin, math.abs, math.min, math.max
+local exp, log = math.exp, math.log
 
--- An actor's box (GetActiveBoundingBox / GetMaxBoundingBox, fn) as pcall's answer with six numbers: the client gives six
--- numbers in practice, two vectors by the docs (min, max), read both ways (as Games/Trainer/UI.lua and
--- Render3D/Probe.lua do). Phase 4 of the 1.4 refactor moves this to one shared reader.
+-- The animations the 3D views play (AnimationData IDs): the chess pieces, the trainer's units, your walking character
+-- on the strategy board and the hub's chess poster.
+R3.ANIM = { stand = 0, death = 1, walk = 4, run = 5, dead = 6, back = 13, stun = 14, attack = 16, attack1H = 17,
+            ready1H = 26, readyBow = 29, fall = 40, swimIdle = 41, swim = 42, readyCast = 51, cast = 52,
+            castDirected = 53 }
+
+-- An actor's box: kind "active" (GetActiveBoundingBox, its pose now; the default) or "max" (GetMaxBoundingBox, all its
+-- animations). The client gives six numbers in practice, two vectors (min, max) by the docs: both are read (a vector by
+-- GetXYZ, else its x, y, z). -> true, x0, y0, z0, x1, y1, z1 (model units), or false (no such box, or the client
+-- raised an error).
 local function BoxVec(v)
     if v.GetXYZ then return v:GetXYZ() end
     return v.x, v.y, v.z
 end
-local function ActorBox(a, fn)
+function R3.ActorBox(a, kind)
+    local fn = a and ((kind == "max") and a.GetMaxBoundingBox or a.GetActiveBoundingBox)
+    if not fn then return false end
     local ok, x0, y0, z0, x1, y1, z1 = pcall(fn, a)
     if ok and type(x0) == "table" and type(y0) == "table" then
         local lo, hi = x0, y0
@@ -245,6 +255,12 @@ function View:Calibrate(place, tx, ty, tz, lx, ly, lz)
     return true
 end
 
+-- Calibrate for a camera that looks at the room point (x, y, z) along the room heading `heading`: the point to its
+-- left is 2 yd that way. -> as Calibrate
+function View:CalibrateOrbit(place, x, y, z, heading)
+    return self:Calibrate(place, x, y, z, x - sin(heading) * 2, y + cos(heading) * 2, z)
+end
+
 -- A new model actor (nil when the client makes none). Its feet are its origin; an animation does not survive a model
 -- change, so a loaded model plays the actor's .anim again (else the view's default).
 function View:NewActor(top)
@@ -273,7 +289,7 @@ function View:CentreShift(a, scale, facing)
     if not (a and a.IsUsingCenterForOrigin) then return 0, 0 end
     local ok, ux, uy = pcall(a.IsUsingCenterForOrigin, a)
     if not ok or not (ux or uy) then return 0, 0 end
-    local okb, x0, y0, _, x1, y1 = ActorBox(a, a.GetActiveBoundingBox)
+    local okb, x0, y0, _, x1, y1 = R3.ActorBox(a, "active")
     if not okb or type(x1) ~= "number" or type(y1) ~= "number" then return 0, 0 end
     local cx, cy = ux and (x0 + x1) / 2 * scale or 0, uy and (y0 + y1) / 2 * scale or 0
     local c, s = cos(facing), sin(facing)                -- (the model keeps its handedness: a plain turn)
@@ -287,4 +303,253 @@ function View:Cursor()
     local es = sc:GetEffectiveScale() or 1
     if es <= 0 then es = 1 end
     return x / es - (sc:GetLeft() or 0), y / es - (sc:GetBottom() or 0)
+end
+
+-- The depth mode of a room drawn in this view (the strategy board's choice per room, which the chess hall follows):
+-- "box" (occluder boxes and the room's copies hide the models), "standins" (cubes behind the room's surfaces do it per
+-- pixel, Render3D/Standins.lua) or "gaps" (stand-ins, and the copies only for the triangles no stand-in covers).
+-- key: the room's key (nil: none, as "box"); cfg: the stand-ins' settings (Standins:Configure); gapSet(key): that
+-- room's gap triangles. Turns the stand-ins on or off and sets the room's copies to match.
+-- -> the stand-ins in use (nil: box mode), the gap set in use, and why a room has none (Standins:Use's answer)
+function View:SyncDepthMode(key, mode, cfg, gapSet)
+    local S = R3.Standins
+    if mode == "box" or not S then key = nil end
+    local ctl = self.standinCtl or (key and S.For and S.For(self)) or nil
+    local use, why
+    if key and ctl then
+        local ok
+        ok, why = ctl:Use(key)
+        if ok then use = ctl end
+    elseif ctl and ctl.key then
+        ctl:Off()
+    end
+    if use and cfg then use:Configure(cfg) end
+    local gaps = use and mode == "gaps" and gapSet and gapSet(key) or nil
+    local R = self.room
+    if R and R.opts then
+        local copies = use == nil or gaps ~= nil
+        if (R.opts.copies ~= false) ~= copies then R.SetOpts({ copies = copies }) end
+        if R.opts.copyOnly ~= gaps then R.SetOpts({ copyOnly = gaps or false }) end
+    end
+    return use, gaps, why
+end
+
+-- One frame of the room renderer, when the camera lets it draw (Room.BeginFrame): the occluders (occ, n; occ may be a
+-- function that returns them, asked only then), the room, lines() (the caller's floor marks, in the room's own order),
+-- the room's copies over the models and the stand-ins (si: in use, gaps: its gap set; with stand-ins and no gaps the
+-- room gets no occluders). -> true when the room was drawn
+function View:DrawFrame(occ, n, lines, si, gaps)
+    local R = self.room
+    if not (R and R.BeginFrame(self.cam)) then return false end
+    if type(occ) == "function" then occ, n = occ() end
+    if not si or gaps then R.SetOccluders(occ, n) end
+    R.DrawRoom()
+    R.BeginLines()
+    if lines then lines() end
+    R.EndLines()
+    R.DrawCopies()
+    if si then si:Update(occ, n, R.Project) end
+    return true
+end
+
+---------------------------------------------------------------------------
+-- Cameras: the orbit (chess hall, strategy board) and the follow camera (Raid Trainer, walking on the board)
+---------------------------------------------------------------------------
+
+-- A critically damped spring, stepped implicitly (stable for any dt): position x, speed v towards target, w its
+-- stiffness. -> the new x, v
+function R3.Spring(x, v, target, w, dt)
+    local f, hw2 = 1 + 2 * dt * w, dt * w * w
+    local det = 1 / (f + dt * hw2)
+    return (f * x + dt * v + dt * hw2 * target) * det, (v + hw2 * (target - x)) * det
+end
+local Spring = R3.Spring
+
+-- The camera behind someone walking. Its fields live on `state` (the Raid Trainer's camera table keeps them where
+-- its tests read them): hoff, hv (the pivot's spring), lastTarget, px, py (the last frame's pivot target and feet),
+-- cur (the distance in use).
+local Follow = {}
+Follow.__index = Follow
+
+function R3.NewFollowCam(state)
+    return setmetatable({ s = state or {} }, Follow)
+end
+
+-- The height the camera turns round: target (the eye height over the feet at x, y), plus an offset a spring takes
+-- back to 0. The pivot rides the feet up and down ramps and through a fall frame for frame; only a jump of the feet
+-- that walking (up to the steepest ground, R3.WALK.maxSlope) and falling (vz, gravity) cannot make in dt - a ledge
+-- stepped up - goes into the offset, so the view eases over a few frames instead of jolting. It snaps (offset 0) when
+-- asked to, without dt or a last frame, after a move of over 3 yd or a jump of over 2 yd while not falling.
+-- -> the pivot's height, and whether it snapped
+function Follow:Pivot(target, x, y, vz, falling, dt, snap)
+    local s, W = self.s, R3.WALK
+    local moved2 = s.px and (x - s.px) ^ 2 + (y - s.py) ^ 2 or 0
+    local jump = s.lastTarget and target - s.lastTarget or 0
+    snap = snap or not dt or not s.lastTarget or moved2 > 9 or (abs(jump) > 2 and not falling)
+    if snap then
+        s.hoff, s.hv = 0, 0
+    else
+        local walk = math.sqrt(moved2) * W.maxSlope + abs(vz or 0) * dt + W.gravity * dt * dt + 0.02
+        if abs(jump) > walk then s.hoff = (s.hoff or 0) - jump end
+        s.hoff, s.hv = Spring(s.hoff or 0, s.hv or 0, 0, 12, dt)
+    end
+    s.lastTarget, s.px, s.py = target, x, y
+    return target + s.hoff, snap and true or false
+end
+
+-- The distance the camera stands at: pulled in at once to `allowed` (where the room is in the way:
+-- Room.CameraDistance), eased back out at 6 yd a second; snap: straight to it. -> the distance
+function Follow:Reach(allowed, dt, snap)
+    local s = self.s
+    if snap or not s.cur or allowed < s.cur then
+        s.cur = allowed
+    else
+        s.cur = min(allowed, s.cur + 6 * dt)
+    end
+    return s.cur
+end
+
+-- The orbit camera: it circles a point (opts.centre(orb) -> x, y, z; default orb.x, orb.y, 0) at orb.heading (room
+-- radians, 0 = east), orb.pitch (positive looks down) and orb.dist (yd). A right / middle drag turns and tilts it
+-- (R3.ORBIT_DRAG: radians per pixel), the wheel zooms by opts.zoom a notch (0.88), MoveTo eases it to a view
+-- (smoothstep; the distance linearly, or in its logarithm with opts.ease = "log" so a long zoom does not rush its
+-- near end). opts: orb (the table to keep: it stays the same table, Set copies into it), clamp(o) (keeps a view in
+-- bounds), wheelGoal (the wheel zooms from where a move is going), snapDist(dist) -> dist (the wheel's last notch in),
+-- state (the table that holds the move under way, .anim = { from, to, t0, dur, after }, and the drag, .drag: the
+-- strategy board keeps them on its view, where its tour reads them; default the controller itself).
+-- Each view keeps its own feel (decision D6): the chess hall 0.88 linear, the strategy board 0.82 log.
+R3.ORBIT_DRAG = { x = 0.008, y = 0.006 }
+
+local Orbit = {}
+Orbit.__index = Orbit
+
+function R3.NewOrbitController(view, opts)
+    opts = opts or {}
+    local c = setmetatable({ view = view, orb = opts.orb or { heading = 0, pitch = 0.5, dist = 20 },
+                             zoom = opts.zoom or 0.88, ease = opts.ease or "linear", clamp = opts.clamp,
+                             centre = opts.centre, wheelGoal = opts.wheelGoal, snapDist = opts.snapDist }, Orbit)
+    c.s = opts.state or c
+    return c
+end
+
+-- A copy of a view (default the orbit now): x, y, heading, pitch, dist.
+function Orbit:Copy(o)
+    o = o or self.orb
+    return { x = o.x, y = o.y, heading = o.heading, pitch = o.pitch, dist = o.dist }
+end
+
+-- Where the camera is going: the end of the move under way, else where it is.
+function Orbit:Goal()
+    return self.s.anim and self.s.anim.to or self.orb
+end
+
+-- Puts the orbit at view `o` at once (its fields copied: orb stays the same table). -> orb
+function Orbit:Set(o)
+    local orb = self.orb
+    orb.x, orb.y, orb.heading, orb.pitch, orb.dist = o.x, o.y, o.heading, o.pitch, o.dist
+    return orb
+end
+
+-- Keeps a view (default the orbit) in bounds. -> it
+function Orbit:Clamp(o)
+    o = o or self.orb
+    if self.clamp then self.clamp(o) end
+    return o
+end
+
+-- The camera where the orbit says, handed to the view.
+function Orbit:Place()
+    local o = self.orb
+    local x, y, z
+    if self.centre then x, y, z = self.centre(o) else x, y, z = o.x or 0, o.y or 0, 0 end
+    self.view:Orbit(x, y, z, o.heading, o.pitch, o.dist)
+end
+
+-- Stops a move and a drag under way.
+function Orbit:Stop()
+    self.s.anim, self.s.drag = nil, nil
+end
+
+-- Eases the camera to view `to` (kept in bounds) over `dur` seconds (0.35); after() once there. The heading goes the
+-- short way round unless raw (a half turn that must go one way).
+function Orbit:MoveTo(to, dur, after, raw)
+    self:Clamp(to)
+    local from = self:Copy()
+    if not raw then
+        local dh = (to.heading - from.heading + math.pi) % (2 * math.pi) - math.pi
+        to.heading = from.heading + dh
+    end
+    self.s.anim = { from = from, to = to, t0 = GetTime(), dur = dur or 0.35, after = after }
+end
+
+-- The wheel: one notch in (delta > 0) or out. Ends a move.
+function Orbit:Wheel(delta)
+    local base = (self.wheelGoal and self.s.anim) and self.s.anim.to.dist or self.orb.dist
+    local d = base * (delta > 0 and self.zoom or 1 / self.zoom)
+    if self.snapDist then d = self.snapDist(d) end
+    self.s.anim = nil
+    self.orb.dist = d
+    self:Clamp()
+end
+
+-- A drag that turns and tilts the camera, from the cursor now (button: the one held).
+function Orbit:BeginDrag(button)
+    local cx, cy = GetCursorPosition()
+    local o = self.orb
+    self.s.drag = { button = button, cx = cx, cy = cy, heading = o.heading, pitch = o.pitch }
+end
+
+-- A button let go: -> "click" when it held a drag that never moved (4 px), true when it held a moved one, else nil.
+function Orbit:EndDrag(button)
+    local d = self.s.drag
+    if not (d and d.button == button) then return nil end
+    self.s.drag = nil
+    return d.moved and true or "click"
+end
+
+local function Smooth(t) return t * t * (3 - 2 * t) end
+
+-- One frame: the move under way (its after() when it ends), then the drag. -> true when the camera moved
+function Orbit:Step()
+    local moved = false
+    local a = self.s.anim
+    if a then
+        local t = (GetTime() - a.t0) / max(0.01, a.dur)
+        local o, f, to = self.orb, a.from, a.to
+        if t >= 1 then
+            self:Set(to)
+            self.s.anim = nil
+        else
+            local k = Smooth(t)
+            if f.x and to.x then o.x, o.y = f.x + (to.x - f.x) * k, f.y + (to.y - f.y) * k end
+            o.heading = f.heading + (to.heading - f.heading) * k
+            o.pitch = f.pitch + (to.pitch - f.pitch) * k
+            if self.ease == "log" then
+                o.dist = exp(log(f.dist) + (log(to.dist) - log(f.dist)) * k)
+            else
+                o.dist = f.dist + (to.dist - f.dist) * k
+            end
+        end
+        moved = true
+        if not self.s.anim and a.after then a.after() end
+    end
+    local d = self.s.drag
+    if d then
+        if not IsMouseButtonDown(d.button) then
+            self.s.drag = nil
+        else
+            local cx, cy = GetCursorPosition()
+            local dx, dy = cx - d.cx, cy - d.cy
+            if abs(dx) + abs(dy) > 4 then d.moved = true end
+            if d.moved then
+                local o = self.orb
+                o.heading = d.heading - dx * R3.ORBIT_DRAG.x
+                o.pitch = d.pitch - dy * R3.ORBIT_DRAG.y
+                self.s.anim = nil
+                self:Clamp(o)
+                moved = true
+            end
+        end
+    end
+    return moved
 end

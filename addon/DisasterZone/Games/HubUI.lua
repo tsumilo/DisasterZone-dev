@@ -10,6 +10,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Games/HubUI.lua", ...) then return
 local addonName, ns = ...
 
 local GamesUI = ns:NewModule("GamesUI")
+local UI = ns.UI                                    -- (texts: UI:Text; gradients: UI:Gradient)
 
 local floor, min, max, abs, sin, pi = math.floor, math.min, math.max, math.abs, math.sin, math.pi
 
@@ -19,6 +20,8 @@ local SIDE_DIM = 0.55                              -- the dark over a side poste
 local TURN_TIME, OPEN_TIME, BACK_TIME = 0.32, 0.58, 0.52
 local OPEN_DARK = 0.72                              -- how dark the painting gets as it becomes the game's backdrop
 local BASE = { 0.086, 0.086, 0.102 }               -- the posters' ground (#16161a)
+local BASE_A1, BASE_A0 = { BASE[1], BASE[2], BASE[3], 1 }, { BASE[1], BASE[2], BASE[3], 0 }
+local WHITE = { 1, 1, 1 }                           -- (titles and names over the art: the client's white)
 local FALLBACK_W, FALLBACK_H = 786, 548            -- the tab's size before the client has laid it out
 local MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
 local RADIAL = MEDIA .. "MyBiS\\Radial"
@@ -64,31 +67,6 @@ local function Size()
     local w, h = root and root:GetWidth() or 0, root and root:GetHeight() or 0
     if w < 100 or h < 100 then w, h = FALLBACK_W, FALLBACK_H end
     W, H = w, h
-end
-
-local function Label(parent, size, font, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
-local gradA = CreateColor and CreateColor(0, 0, 0, 0)
-local gradB = CreateColor and CreateColor(0, 0, 0, 0)
--- A gradient (orient "VERTICAL": colour 1 at the bottom) or, without SetGradient, its midpoint.
-local function Gradient(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    if gradA and tex.SetGradient then
-        gradA:SetRGBA(r1, g1, b1, a1)
-        gradB:SetRGBA(r2, g2, b2, a2)
-        tex:SetGradient(orient, gradA, gradB)
-    else
-        tex:SetColorTexture((r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2, (a1 + a2) / 2)
-    end
 end
 
 local function Ease(t) t = 1 - t return 1 - t * t * t end   -- ease-out cubic
@@ -405,18 +383,31 @@ end
 local CHESS_S = 5.6                         -- yd: one square (the event's)
 local CHESS_LV = { floor = 1, lines = 2, room0 = 3, scene = 4, copy0 = 5, plates = 6 }
 local CHESS_BOARD, CHESS_FLOOR = 127857, 127914
--- the pieces: display, size (CreatureDisplayInfo), square (file, rank), facing (towards a square), animation (17 a
--- one-handed blow, 16 an unarmed / beast one, 52 a cast, 6 lying dead, 0 standing). Framed for CHESS_CAM: checked by
--- projecting every square in the mock (the clash mid-poster, the far pieces under its top).
+-- the pieces: which of the event's pieces (side, piece: Games/Chess/Board3D.lua B3.PIECES gives its display and size),
+-- square (file, rank), facing (towards a square), animation (Render3D/View.lua R3.ANIM: a one-handed blow, an unarmed
+-- / beast one, a cast, lying dead, standing). Framed for CHESS_CAM: checked by projecting every square in the mock
+-- (the clash mid-poster, the far pieces under its top).
 local CHESS_CAST = {
-    { d = 16276, s = 1.5, f = 3, r = 3, at = { 4, 4 }, anim = 17 },     -- Human Footman (d4) on the grunt
-    { d = 16264, s = 1.5, f = 4, r = 4, at = { 3, 3 }, anim = 17 },     -- Orc Grunt (e5) striking back
-    { d = 19783, s = 1.75, f = 4, r = 2, at = { 5, 3 }, anim = 16 },    -- Human Charger (e3) on the wolf
-    { d = 2352, s = 2, f = 5, r = 3, at = { 4, 2 }, anim = 16 },        -- Orc Wolf (f4)
-    { d = 16263, s = 2.5, f = 4, r = 6, at = { 3, 3 }, anim = 52 },     -- Orc Warlock (e7) casting at the footman
-    { d = 16264, s = 1.5, f = 3, r = 4, at = { 0, 2 }, anim = 6 },      -- a grunt fallen on d5
-    { d = 16270, s = 3, f = 3, r = 7, at = { 4, 4 }, anim = 0 },        -- Warchief Blackhand (d8) looming
+    { side = 1, piece = 1, f = 3, r = 3, at = { 4, 4 }, anim = "attack1H" },   -- Human Footman (d4) on the grunt
+    { side = -1, piece = 1, f = 4, r = 4, at = { 3, 3 }, anim = "attack1H" },  -- Orc Grunt (e5) striking back
+    { side = 1, piece = 2, f = 4, r = 2, at = { 5, 3 }, anim = "attack" },     -- Human Charger (e3) on the wolf
+    { side = -1, piece = 2, f = 5, r = 3, at = { 4, 2 }, anim = "attack" },    -- Orc Wolf (f4)
+    { side = -1, piece = 5, f = 4, r = 6, at = { 3, 3 }, anim = "cast" },      -- Orc Warlock (e7) casting at the footman
+    { side = -1, piece = 1, f = 3, r = 4, at = { 0, 2 }, anim = "dead" },      -- a grunt fallen on d5
+    { side = -1, piece = 6, f = 3, r = 7, at = { 4, 4 }, anim = "stand" },     -- Warchief Blackhand (d8) looming
 }
+-- The cast with each piece's display (d), size (s) and animation ID, or nil without the chess pieces' table.
+local function ChessCast(R3)
+    local P = ns.ChessBoard3D and ns.ChessBoard3D.PIECES
+    if not (P and R3.ANIM) then return nil end
+    local out = {}
+    for i, c in ipairs(CHESS_CAST) do
+        local def = P[c.side] and P[c.side][c.piece]
+        if not def then return nil end
+        out[i] = { d = def.display, s = def.scale, f = c.f, r = c.r, at = c.at, anim = R3.ANIM[c.anim] or 0 }
+    end
+    return out
+end
 local CHESS_FIRE = { fdid = 165599, size = 6.6, f = 3, r = 2 }         -- Fury of Medivh's fire on d3, in front
 -- the camera: low behind the Alliance's side, looking up the board at the clash (squares, yd, radians)
 local CHESS_CAM = { x = 3.8, y = 3.4, z = 1.6, heading = math.pi / 2 - 0.38, pitch = 0.33, dist = 21 }
@@ -431,7 +422,7 @@ local function ChessMiniBoard(parent)
         cell.bg:SetAllPoints()
         cell.disc = cell:CreateTexture(nil, "ARTWORK")
         cell.disc:SetTexture(CIRCLE)
-        cell.letter = Label(cell, 9, "GameFontHighlightSmall")
+        cell.letter = UI:Text(cell, 9)
         cell.letter:SetJustifyH("CENTER")
         cell.letter:SetPoint("CENTER", 0, 0)
         c.cells[i] = cell
@@ -503,7 +494,8 @@ COVERS.chess = function(parent)
     local probe = parent:CreateTexture()
     local canBend = probe.SetVertexOffset ~= nil
     probe:Hide()
-    if not (R3 and R3.NewView and canBend) then return ChessMiniBoard(parent) end
+    local cast = R3 and R3.NewBentTexture and ChessCast(R3)
+    if not (R3 and R3.NewView and canBend and cast) then return ChessMiniBoard(parent) end
     local c = CreateFrame("Frame", nil, parent)
     c:SetSize(FRONT_W, 300)
     c:SetClipsChildren(true)
@@ -523,11 +515,7 @@ COVERS.chess = function(parent)
         for f = -3, 10 do
             local board = f >= 0 and f <= 7 and r >= 0 and r <= 7
             local ring = max(-f, -r, f - 7, r - 7, 0)
-            local t = v.floorFrame:CreateTexture(nil, "BACKGROUND", nil, board and 2 or 0)
-            t:SetSize(1, 1)
-            t:SetPoint("CENTER", v.floorFrame, "CENTER", 0, 0)
-            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end
-            if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
+            local t = R3.NewBentTexture(v.floorFrame, "BACKGROUND", board and 2 or 0, v.floorFrame, "CENTER")
             t:SetTexture(board and CHESS_BOARD or CHESS_FLOOR, "REPEAT", "REPEAT")
             -- (the picture's top left quarter is dark: a1's; u along the files, v along the ranks)
             local u0, v0 = (f % 2) * 0.5, (r % 2) * 0.5
@@ -554,11 +542,11 @@ COVERS.chess = function(parent)
     c.shade = shadeFrame:CreateTexture(nil, "ARTWORK")
     c.shade:SetPoint("BOTTOMLEFT", c.shadeSolid, "TOPLEFT")
     c.shade:SetPoint("BOTTOMRIGHT", c.shadeSolid, "TOPRIGHT")
-    Gradient(c.shade, "VERTICAL", BASE[1], BASE[2], BASE[3], 1, BASE[1], BASE[2], BASE[3], 0)
+    UI:Gradient(c.shade, "VERTICAL", BASE_A1, BASE_A0)
 
     -- the pieces and the fire
     c.actors = {}
-    for i, p in ipairs(CHESS_CAST) do
+    for i, p in ipairs(cast) do
         local a = (i == 1 and v.probe) or v:NewActor()
         if a then
             a.anim = p.anim
@@ -589,7 +577,7 @@ COVERS.chess = function(parent)
         local cx, cy = v:Project(CHESS_CAM.x * CHESS_S, CHESS_S * CHESS_CAM.y, CHESS_CAM.z)
         if not cx then return end
         local need = 0
-        for _, p in ipairs(CHESS_CAST) do
+        for _, p in ipairs(cast) do
             for _, z in ipairs({ 0, 2.2 * p.s }) do
                 local x, y = v:Project(p.f * CHESS_S, p.r * CHESS_S, z)
                 if not x then
@@ -617,9 +605,7 @@ COVERS.chess = function(parent)
         end
         if not self.calibrated then
             local cam = CHESS_CAM
-            local x, y = cam.x * CHESS_S, cam.y * CHESS_S
-            self.calibrated = v:Calibrate(Place, x, y, cam.z, x - math.sin(cam.heading) * 2,
-                y + math.cos(cam.heading) * 2, cam.z)
+            self.calibrated = v:CalibrateOrbit(Place, cam.x * CHESS_S, cam.y * CHESS_S, cam.z, cam.heading)
             if not self.calibrated then return false end
         end
         dist = CHESS_CAM.dist
@@ -642,10 +628,7 @@ COVERS.chess = function(parent)
             local dx, dy = v:Project(tl.x0 + S2, tl.y0 + S2, 0)
             local t = tl.tex
             if ax and bx and cx and dx then
-                t:SetVertexOffset(UPPER_LEFT_VERTEX or 1, ax - ox + 0.5, ay - oy - 0.5)
-                t:SetVertexOffset(LOWER_LEFT_VERTEX or 2, bx - ox + 0.5, by - oy + 0.5)
-                t:SetVertexOffset(UPPER_RIGHT_VERTEX or 3, dx - ox - 0.5, dy - oy - 0.5)
-                t:SetVertexOffset(LOWER_RIGHT_VERTEX or 4, cx - ox - 0.5, cy - oy + 0.5)
+                R3.Bend(t, ox, oy, ax, ay, bx, by, dx, dy, cx, cy)
                 t:Show()
                 shown = shown + 1
             else
@@ -712,9 +695,9 @@ COVERS.trainer = function(parent)
         ch.dot:SetTexture(CIRCLE)
         ch.dot:SetSize(6, 6)
         ch.dot:SetPoint("LEFT", 10, 0)
-        ch.name = Label(ch, 11.5)
+        ch.name = UI:Text(ch, 11.5, WHITE)
         ch.name:SetPoint("LEFT", ch.dot, "RIGHT", 8, 0)
-        ch.time = Label(ch, 11.5)
+        ch.time = UI:Text(ch, 11.5, WHITE)
         ch.time:SetJustifyH("RIGHT")
         ch.time:SetPoint("RIGHT", -10, 0)
         ch.name:SetPoint("RIGHT", ch.time, "LEFT", -8, 0)
@@ -938,6 +921,7 @@ local function SetSideLook(p, side)
 end
 
 -- The sheen: a light band crossing the poster once (two ADD gradient halves, cut at the poster's edges by hand).
+local SHEEN_L, SHEEN_R = { 1, 1, 1, 0 }, { 1, 1, 1, 0 }        -- (reused every frame: only the alphas change)
 local function PlaceSheen(p, e)
     local w = p:GetWidth() or 0
     local bw = 90
@@ -955,7 +939,8 @@ local function PlaceSheen(p, e)
             tex:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", l, 0)
             tex:SetWidth(r - l)
             local span = x1 - x0
-            Gradient(tex, "HORIZONTAL", 1, 1, 1, a0 + (a1 - a0) * (l - x0) / span, 1, 1, 1, a0 + (a1 - a0) * (r - x0) / span)
+            SHEEN_L[4], SHEEN_R[4] = a0 + (a1 - a0) * (l - x0) / span, a0 + (a1 - a0) * (r - x0) / span
+            UI:Gradient(tex, "HORIZONTAL", SHEEN_L, SHEEN_R)
             tex:Show()
         end
     end
@@ -966,11 +951,12 @@ local function Sheen(p)
     p.sheenT = 0
 end
 
+local LIVE_EDGE_A, LIVE_EDGE_B = { 1, 0.29, 0.24, 1 }, { 1, 0.82, 0, 1 }   -- (a live game's edge: red into gold)
 local function PaintEdge(p)
     local a = Accent(p.id)
     local hot = p.off == 0 and (p.hover or p.live)
     if p.live and p.off == 0 then
-        Gradient(p.edge, "HORIZONTAL", 1, 0.29, 0.24, 1, 1, 0.82, 0, 1)
+        UI:Gradient(p.edge, "HORIZONTAL", LIVE_EDGE_A, LIVE_EDGE_B)
         ns.UI:SetEdgeColor(p.top, 1, 0.29, 0.24, 0.5)
     elseif p.off == 0 then
         p.edge:SetColorTexture(a[1], a[2], a[3], 1)
@@ -1018,14 +1004,14 @@ local function CreatePoster(i, def)
     p.topShade = p.over:CreateTexture(nil, "BACKGROUND")
     p.topShade:SetPoint("TOPLEFT")
     p.topShade:SetPoint("TOPRIGHT")
-    Gradient(p.topShade, "VERTICAL", BASE[1], BASE[2], BASE[3], 0, BASE[1], BASE[2], BASE[3], 0.6)
+    UI:Gradient(p.topShade, "VERTICAL", BASE_A0, { BASE[1], BASE[2], BASE[3], 0.6 })
     p.lowShade = p.over:CreateTexture(nil, "BACKGROUND")
     -- (it reaches 2 px past the art's foot, solid there, so no line of art shows above the title mid-animation)
     p.lowShade:SetPoint("BOTTOMLEFT", p.artFrame, "BOTTOMLEFT", -1, -2)
     p.lowShade:SetPoint("BOTTOMRIGHT", p.artFrame, "BOTTOMRIGHT", 1, -2)
-    Gradient(p.lowShade, "VERTICAL", BASE[1], BASE[2], BASE[3], 1, BASE[1], BASE[2], BASE[3], 0)
+    UI:Gradient(p.lowShade, "VERTICAL", BASE_A1, BASE_A0)
 
-    p.kicker = Label(p.over, 9.5)
+    p.kicker = UI:Text(p.over, 9.5)
     p.kicker:SetPoint("TOPLEFT", 16, -15)
     p.kicker:SetTextColor(0.84, 0.84, 0.84)
     p.dot = p.over:CreateTexture(nil, "OVERLAY")
@@ -1064,35 +1050,35 @@ local function CreatePoster(i, def)
         f.tex = f:CreateTexture(nil, "ARTWORK")
         f.tex:SetTexture(CIRCLE)
         f.tex:SetAllPoints()
-        f.fs = Label(f, 9.5, "GameFontHighlightSmall")
+        f.fs = UI:Text(f, 9.5)
         f.fs:SetPoint("CENTER", 0, 0)
         f.fs:SetTextColor(0, 0, 0, 0.8)
         f.fs:SetShadowOffset(0, 0)
         f:Hide()
         p.faces[k] = f
     end
-    p.more = Label(p.foot, 10.5)
+    p.more = UI:Text(p.foot, 10.5)
     p.more:SetPoint("LEFT", p.faces[4], "RIGHT", 8, 0)
     p.more:SetTextColor(0.62, 0.62, 0.62)
-    p.footText = Label(p.foot, 11)
+    p.footText = UI:Text(p.foot, 11)
     p.footText:SetTextColor(0.81, 0.81, 0.81)
 
-    p.stat = Label(p.words, 12)
+    p.stat = UI:Text(p.words, 12)
     p.stat:SetTextColor(0.74, 0.74, 0.74)
     p.rule = p.words:CreateTexture(nil, "ARTWORK")
     p.rule:SetHeight(1)
     p.rule:SetPoint("BOTTOMLEFT", p.stat, "TOPLEFT", 0, 12)
     p.rule:SetPoint("BOTTOMRIGHT", p.stat, "TOPRIGHT", 0, 12)
     local a = Accent(def.id)
-    Gradient(p.rule, "HORIZONTAL", a[1], a[2], a[3], 0.6, a[1], a[2], a[3], 0)
-    p.desc = Label(p.words, 11)
+    UI:Gradient(p.rule, "HORIZONTAL", { a[1], a[2], a[3], 0.6 }, { a[1], a[2], a[3], 0 })
+    p.desc = UI:Text(p.words, 11)
     p.desc:SetWordWrap(true)
     p.desc:SetJustifyV("BOTTOM")
     p.desc:SetSpacing(3)
     p.desc:SetTextColor(0.65, 0.65, 0.65)
     p.desc:SetPoint("BOTTOMLEFT", p.rule, "TOPLEFT", 0, 13)
     p.desc:SetWidth(FRONT_W - 32)          -- (fixed: it never re-wraps while the poster grows)
-    p.title = Label(p.words, 26, "GameFontHighlightLarge")
+    p.title = UI:Text(p.words, 26, WHITE)          -- (26: a display size, left as it is)
     local font, _, flags = p.title:GetFont()
     p.titleFont, p.titleFlags = font, flags
 
@@ -1381,7 +1367,7 @@ local function StripFill(id)
     strip.icon:SetTexture(def.icon)
     strip.name:SetText(def.name)
     local a = Accent(id)
-    Gradient(strip.accent, "HORIZONTAL", a[1], a[2], a[3], 0.9, a[1], a[2], a[3], 0)
+    UI:Gradient(strip.accent, "HORIZONTAL", { a[1], a[2], a[3], 0.9 }, { a[1], a[2], a[3], 0 })
     local info = Info(id)
     strip.playing:SetText(info.foot and info.foot:find("playing") and info.foot or "")
 end
@@ -1716,7 +1702,7 @@ function GamesUI:CreatePanel(parent)
     root = CreateFrame("Frame", nil, parent)
     local bg = root:CreateTexture(nil, "BACKGROUND", nil, -8)
     bg:SetAllPoints()
-    Gradient(bg, "VERTICAL", 0.055, 0.055, 0.063, 1, 0.098, 0.098, 0.114, 1)
+    UI:Gradient(bg, "VERTICAL", { 0.055, 0.055, 0.063, 1 }, { 0.098, 0.098, 0.114, 1 })
 
     carousel = CreateFrame("Frame", nil, root)
     carousel:SetAllPoints()
@@ -1780,7 +1766,7 @@ function GamesUI:CreatePanel(parent)
     back.chev:SetPoint("LEFT", 12, 0)
     ns.UI:SetChevron(back.chev, false)
     back.chev:SetVertexColor(0.63, 0.63, 0.63)
-    back.fs = Label(back, 9.5)
+    back.fs = UI:Text(back, 9.5)
     back.fs:SetPoint("LEFT", back.chev, "RIGHT", 6, 0)
     back.fs:SetText("GAMES")
     back.fs:SetTextColor(0.63, 0.63, 0.63)
@@ -1801,12 +1787,12 @@ function GamesUI:CreatePanel(parent)
     strip.icon:SetSize(18, 18)
     strip.icon:SetPoint("LEFT", sep, "RIGHT", 12, 0)
     strip.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    strip.name = Label(strip, 13)
+    strip.name = UI:Text(strip, 13, WHITE)
     strip.name:SetPoint("LEFT", strip.icon, "RIGHT", 8, 0)
     strip.share = ns.Share:CreateNavButton(strip, function() return selected and ns.Share:GameRef(selected) end)
     strip.share.tipTitle = "Share this game"
     strip.share:SetPoint("RIGHT", -8, 0)
-    strip.playing = Label(strip, 11)
+    strip.playing = UI:Text(strip, 11)
     strip.playing:SetPoint("RIGHT", strip.share, "LEFT", -12, 0)
     strip.playing:SetTextColor(0.81, 0.81, 0.81)
     strip:Hide()
