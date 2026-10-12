@@ -427,13 +427,13 @@ def the_guests_view():
     bob.eval("ns.GuestBookUI:Select(...)", K("Grimbold"))
     assert bob.eval("return (ns.GuestBookUI:GetSelected())") == K("Grimbold")
     ban = "%s.banner" % V
-    qmark = r"Interface\Icons\INV_Misc_QuestionMark"
     assert bob.eval("return %s.redWash ~= nil and %s.redWash:IsShown()" % (ban, ban)) is True
-    assert bob.eval("return %s.icon:IsShown() and %s.icon.tex:GetTexture()" % (ban, ban)) == qmark
+    assert bob.eval("return %s.icon:IsShown() and %s.icon.tex:GetTexture()" % (ban, ban)) == atlas
+    sub = bob.eval_py("return { ns.Style:Color('SUB') }")
     tiles = bob.eval_py(TILES)
     grim = [t for t in tiles if t[0] == K("Grimbold")]
-    assert grim and grim[0][2] is True and grim[0][3] == qmark, tiles
-    assert abs(grim[0][4] - 1) < 0.01 and abs(grim[0][5] - 1) < 0.01, tiles
+    assert grim and grim[0][2] is True and grim[0][3] == atlas, tiles
+    assert all(abs(grim[0][4 + i] - sub[i]) < 0.01 for i in range(3)), (tiles, sub)
     bob.click(bob.eval("return %s.bookTab" % V))
     w.tick(0.3)
     bob.eval("ns.GuestBookUI:Select(...)", K("Pug"))

@@ -2865,6 +2865,7 @@ local function createKeys()
     local colW = floor((612 - 28 - 22) / 2)
     local function column(groups, x)
         local y = 13 + 16 + 4
+        local rows, widest = {}, KEY_COL
         for _, g in ipairs(groups) do
             local h = UI():CreateSectionHeader(k, g[1], { style = "caps", width = colW })
             h:SetPoint("TOPLEFT", x, -(y + 6))
@@ -2878,15 +2879,19 @@ local function createKeys()
                     kx = kx + (cap:GetWidth() or 30) + 3
                     caps[#caps + 1] = cap
                 end
-                -- the description column; a row whose pills run past it (Ctrl+G | Ctrl+Shift+G) pushes its words right
-                local d = UI():Text(k.card, "body", "TEXT")
-                local dx = max(KEY_COL, kx - 3) + 8
-                d:SetPoint("LEFT", k, "TOPLEFT", x + dx, -(y + KEY_ROW / 2))
-                d:SetText(row[2])
-                k.rows = k.rows or {}
-                k.rows[#k.rows + 1] = { x = x, caps = caps, desc = d, descX = x + dx }
+                widest = max(widest, kx - 3)
+                rows[#rows + 1] = { x = x, y = y, caps = caps, text = row[2] }
                 y = y + KEY_ROW
             end
+        end
+        -- the descriptions in one column per side, right of the widest row of pills (Ctrl+G | Ctrl+Shift+G)
+        k.rows = k.rows or {}
+        for _, r in ipairs(rows) do
+            local d = UI():Text(k.card, "body", "TEXT")
+            d:SetPoint("LEFT", k, "TOPLEFT", x + widest + 8, -(r.y + KEY_ROW / 2))
+            d:SetText(r.text)
+            r.desc, r.descX, r.text = d, x + widest + 8, nil
+            k.rows[#k.rows + 1] = r
         end
         return y
     end
