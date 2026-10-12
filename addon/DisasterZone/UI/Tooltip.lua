@@ -376,6 +376,7 @@ local function OnSetItem(tt)
     Tooltip:AddLines(tt, itemID)
 end
 
+-- (a documented exception to the shared parts: the ribbon is this tooltip's own look, drawn here)
 -- 1.3.5 (prized look mockup, the user picked "ribbon on top"): a prized item's tooltip, anywhere in the game, gets an
 -- orange PRIZED ITEM ribbon above it (the seal, the words) and an orange edge. Hidden when the tooltip clears or hides.
 Ribbon = { H = 18, EDGE = { 0.79, 0.42, 0.08, 1 },

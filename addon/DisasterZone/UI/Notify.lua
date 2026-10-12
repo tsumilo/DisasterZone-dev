@@ -71,6 +71,8 @@ local function CountPill(parent, h, kind)
 end
 NotifyUI.CountPill = CountPill
 
+-- An unseen mark: a small disc in a token colour (the bell's and a row tile's corner).
+-- TODO(refactor): move into Controls (the count badge's dot form)
 local function Dot(parent, size, color)
     local t = parent:CreateTexture(nil, "OVERLAY", nil, 2)
     t:SetSize(size, size)
