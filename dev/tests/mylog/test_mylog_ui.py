@@ -253,7 +253,7 @@ def boss_detail_compares_two_kills():
     assert c.eval("return %s.runsView:IsShown()" % P) is False
     # the made-up pulls are marked on the boss page too (the DEMO pill beside the view switch, as in 1.3.5)
     assert c.eval("local b = ns.MyLogDetail:GetViews(); return b.demoTag:IsVisible()") is True
-    rows_ =c.eval_py("""local out = {}
+    rows_ = c.eval_py("""local out = {}
       local p = ns.MyLogDetail:GetCurrent()
       local t = 0
       for _, r in ipairs(ns.MyLogDetail:AbilityRows(p, 'damage')) do t = t + r.share; out[#out + 1] = r.name end
