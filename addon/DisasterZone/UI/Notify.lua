@@ -16,12 +16,9 @@ local floor, max, min = math.floor, math.max, math.min
 local S = ns.Style
 local function UI() return ns.UI end
 local function N() return ns.Notify end
-local function Now() return ns.Util.Now() end
 
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local BELL = { 56, 42, 6 }            -- the bell (art pack 6), else the speech bubble
-local TILE_BG = { 0.09, 0.09, 0.11, 1 }
-local TILE_EDGE = { 0.2, 0.2, 0.23, 1 }
 local DONE_TEXT = { 0.7, 0.7, 0.7 }   -- a handled item's title
 local NEWS_KICK = { 0.74, 0.74, 0.74 } -- a news pop-up's kicker and edge
 NotifyUI.TRAY_W, NotifyUI.TRAY_MAX_H = 392, 452
@@ -109,23 +106,13 @@ end
 
 local TILE = 26
 
-local function PaintRowBg(r, hovered)
-    if hovered and not r.done then
-        r.bg:SetColorTexture(1, 1, 1, 0.04)
-    else
-        r.bg:SetColorTexture(1, 1, 1, r.fresh and 0.025 or 0)
-    end
-end
-
+-- A row: the shared row looks (the hover, a hairline under it; an unseen item lifted like a list's stripe), the
+-- kind's glyph in an inset tile, the kicker, when, title, text and up to two answers.
 local function MakeRow(parent)
     local r = CreateFrame("Button", nil, parent)
-    r.bg = UI():Fill(r, { 1, 1, 1, 0 })
-    r.tile = CreateFrame("Frame", nil, r)
-    r.tile:SetSize(TILE, TILE)
+    UI():DecorateRow(r, { stripe = true, rule = true })
+    r.tile = UI():CreateCard(r, { tone = "inset", width = TILE, height = TILE })
     r.tile:SetPoint("TOPLEFT", 10, -9)
-    r.tile.bg = UI():Fill(r.tile, TILE_BG)
-    UI():AddEdges(r.tile, "BORDER")
-    UI():SetEdgeColor(r.tile, TILE_EDGE[1], TILE_EDGE[2], TILE_EDGE[3], TILE_EDGE[4])
     r.icon = r.tile:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(15, 15)
     r.icon:SetPoint("CENTER")
@@ -139,9 +126,6 @@ local function MakeRow(parent)
     r.title = UI():Text(r, "emph", "TEXT", { wrap = true })
     r.text = UI():Text(r, "small", "SUB", { wrap = true })
     r.btns = {}
-    r.line = UI():Rule(r, { bottom = 0, alpha = 0.06, layer = "BORDER" })
-    r:SetScript("OnEnter", function(self) PaintRowBg(self, true) end)
-    r:SetScript("OnLeave", function(self) PaintRowBg(self, false) end)
     r:RegisterForClicks("LeftButtonUp")
     r:SetScript("OnClick", function(self)
         if self.done or not self.id then return end
@@ -151,14 +135,9 @@ local function MakeRow(parent)
     return r
 end
 
--- A header line between groups ("NEEDS YOU", "NEWS", "HANDLED").
+-- A header line between groups ("NEEDS YOU", "NEWS", "HANDLED"): the caps section header.
 local function MakeHead(parent)
-    local h = CreateFrame("Frame", nil, parent)
-    h.fs = UI():Text(h, "caps", "SUB")
-    h.fs:SetPoint("BOTTOMLEFT", 10, 4)
-    h.right = UI():Text(h, "caps", "SUB", { justify = "RIGHT" })
-    h.right:SetPoint("BOTTOMRIGHT", -10, 4)
-    return h
+    return UI():CreateSectionHeader(parent, "", { style = "caps" })
 end
 
 -- Fills a row for item it, width w; returns its height. opts: { done = true } (a handled item, dimmed),
@@ -172,7 +151,8 @@ local function FillRow(r, it, w, opts)
     r.icon:SetDesaturated(opts.done and true or false)
     r.dot:SetShown(opts.fresh and true or false)
     r.stack:SetCount((it.n or 0) > 1 and it.n or 0)
-    PaintRowBg(r, false)
+    r:SetStripe(opts.fresh and true or false)
+    if r.dzHover then r.dzHover:SetAlpha(opts.done and 0 or 1) end   -- (a handled item takes no click)
     local x, tw = 10 + TILE + 10, w - (10 + TILE + 10) - 12
     r.kicker:ClearAllPoints()
     r.kicker:SetPoint("TOPLEFT", x, -9)
@@ -203,11 +183,12 @@ local function FillRow(r, it, w, opts)
             local a = acts[i]
             local b = r.btns[i]
             if not b then
-                b = UI():CreateSleekButton(r, "", nil, 20)
+                b = UI():CreateSleekButton(r, "", nil, S.ROW.compact)
                 r.btns[i] = b
             end
             b:SetText(a.text or "")
             FitButton(b, 64, 24)
+            b:SetHeight(S.ROW.compact)
             b:SetKind(a.primary and "primary" or "secondary")
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", bx, y)
@@ -219,7 +200,7 @@ local function FillRow(r, it, w, opts)
             b:Show()
             bx = bx + b:GetWidth() + 6
         end
-        y = y - 20
+        y = y - S.ROW.compact
     end
     local h = max(TILE + 18, floor(-y + 10))
     r:SetHeight(h)
@@ -239,10 +220,10 @@ local function LayoutList(holder, entries, w, opts)
             local h = holder.heads[hi] or MakeHead(holder)
             holder.heads[hi] = h
             h:ClearAllPoints()
-            h:SetPoint("TOPLEFT", 0, -y)
-            h:SetSize(w, 24)
-            h.fs:SetText(e.head)
-            h.right:SetText(e.right or "")
+            h:SetPoint("TOPLEFT", 10, -y - 6)
+            h:SetWidth(w - 20)
+            h:SetTitle(e.head)
+            h:SetRight(e.right)
             h:Show()
             y = y + 24
         else
@@ -372,8 +353,7 @@ local FOOT_TEXT = { 0.8, 0.8, 0.8 }
 
 local function SetView(view)
     tray.view = view
-    tray.segNeeds:SetKind(view == "needs" and "chosen" or "secondary")
-    tray.segAll:SetKind(view == "all" and "chosen" or "secondary")
+    tray.seg:Select(view)
     NotifyUI:RefreshTray()
 end
 
@@ -398,10 +378,11 @@ local function CreateTray()
     t.title = UI():Text(t, "title", "GOLD")
     t.title:SetPoint("LEFT", t, "TOPLEFT", 12, -HEAD_H / 2)
     t.title:SetText("Notifications")
-    t.segNeeds = UI():CreateSleekButton(t, "Needs you", nil, 22, function() SetView("needs") end)
-    t.segNeeds:SetPoint("LEFT", t.title, "RIGHT", 12, 0)
-    t.segAll = UI():CreateSleekButton(t, "Everything", nil, 22, function() SetView("all") end)
-    t.segAll:SetPoint("LEFT", t.segNeeds, "RIGHT", -1, 0)
+    -- Needs you / Everything: the shared segments (seg.buttons: segNeeds, segAll)
+    t.seg = UI():CreateSegments(t, { { key = "needs", label = "Needs you" }, { key = "all", label = "Everything" } },
+        function(key) SetView(key) end, { selected = "needs" })
+    t.seg:SetPoint("LEFT", t.title, "RIGHT", 12, 0)
+    t.segNeeds, t.segAll = t.seg.buttons[1], t.seg.buttons[2]
     t.gear = UI():CreateTipIconButton(t, 22, UI().ICON.gear, "Notification settings",
         "Which kinds pop up, play a sound or write a chat line.", function()
             NotifyUI:CloseTray()
@@ -416,9 +397,12 @@ local function CreateTray()
     t.list = CreateFrame("Frame", nil, t.scroll)
     t.list:SetSize(NotifyUI.TRAY_W - 2, 10)
     t.scroll:SetScrollChild(t.list)
-    t.empty = UI():Text(t, "body", "SUB", { justify = "CENTER" })
-    t.empty:SetPoint("TOP", 0, -HEAD_H - 26)
+    t.empty = UI():CreateEmptyState(t, { compact = true, glyph = IconIndex(BELL), width = NotifyUI.TRAY_W - 60 })
+    t.empty:SetPoint("TOP", 0, -HEAD_H - 16)
+    t.empty:Hide()
 
+    -- the foot: All notifications, a quiet link with a chevron across the tray's width
+    -- TODO(refactor): move into PageParts (the section header's action link as UI:CreateTextLink)
     local foot = CreateFrame("Button", nil, t)
     foot:SetPoint("BOTTOMLEFT", 1, 1)
     foot:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -473,14 +457,17 @@ function NotifyUI:RefreshTray()
     if not (tray and tray:IsShown()) then return end
     local Nf = N()
     local n = Nf:Count()
-    tray.segNeeds:SetText(n > 0 and ("Needs you  " .. n) or "Needs you")
-    FitButton(tray.segNeeds, 0, 22)
-    FitButton(tray.segAll, 0, 22)
+    tray.seg:SetLabel("needs", n > 0 and ("Needs you  " .. n) or "Needs you")
     local entries = Entries(tray.view)
     local close = function() NotifyUI:CloseTray() end
     local h = LayoutList(tray.list, entries, NotifyUI.TRAY_W - 2, { onOpen = close })
-    tray.empty:SetText(#entries == 0 and (tray.view == "needs" and "Nothing waits for you." or "Nothing new.") or "")
-    local body = #entries == 0 and 64 or h
+    local none = #entries == 0
+    if none then
+        tray.empty:SetContent({ glyph = IconIndex(BELL),
+            title = tray.view == "needs" and "Nothing waits for you." or "Nothing new." })
+    end
+    tray.empty:SetShown(none)
+    local body = none and (tray.empty:GetHeight() + 32) or h
     tray:SetHeight(min(NotifyUI.TRAY_MAX_H, HEAD_H + 1 + body + FOOT_H))
 end
 
@@ -656,7 +643,7 @@ end
 
 local function Quiet()
     local s = N().Settings()
-    if s and (tonumber(s.dndUntil) or 0) > Now() then return "dnd" end
+    if s and (tonumber(s.dndUntil) or 0) > ns.Util.Now() then return "dnd" end
     if s and s.quietCombat ~= false and ((InCombatLockdown and InCombatLockdown()) or inEncounter) then return "combat" end
     return nil
 end
@@ -782,7 +769,7 @@ function NotifyUI:OnNew(id)
     end
     local s = Nf.Settings()
     local quietOpen = s and s.quietOpen and ns.MainFrame and ns.MainFrame:IsShown()
-    if Nf:Wants(it.kind, "popup") and not quietOpen and not (s and (tonumber(s.dndUntil) or 0) > Now()) then
+    if Nf:Wants(it.kind, "popup") and not quietOpen and not (s and (tonumber(s.dndUntil) or 0) > ns.Util.Now()) then
         Enqueue(id)
     else
         Nf:MarkShown(id)

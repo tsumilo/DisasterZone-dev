@@ -8,7 +8,6 @@ local NotifySources = ns:NewModule("NotifySources")
 
 local DAY = 86400
 local S = ns.Style
-local function Now() return ns.Util.Now() end
 local function UI() return ns.UI end
 local function Short(key) return ns.Util and ns.Util.ShortName and ns.Util.ShortName(key) or tostring(key) end
 local function Me() return ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() end
@@ -42,10 +41,10 @@ end
 
 local function closesText(t)
     if not t then return nil end
-    local d = t - Now()
+    local d = t - ns.Util.Now()
     if d <= 0 then return "closed" end
     if d < 3600 then return "closes in " .. math.max(1, math.floor(d / 60)) .. " min" end
-    if d < DAY and date("%d", t) == date("%d", Now()) then return "closes today " .. date("%H:%M", t) end
+    if d < DAY and date("%d", t) == date("%d", ns.Util.Now()) then return "closes today " .. date("%H:%M", t) end
     if d < 2 * DAY then return "closes tomorrow" end
     return "closes " .. date("%a %H:%M", t)
 end
@@ -219,7 +218,7 @@ local function register()
                 title = n == 1 and (who .. "'s attendance waits for a decision")
                     or (who .. " and " .. (n - 1) .. " more wait for a decision"),
                 text = ((ns.AttendanceUI and ns.AttendanceUI:NightName(e.night)) or e.night.zone or "Raid") .. " · "
-                    .. date("%a %d %b", e.night.start or Now()),
+                    .. date("%a %d %b", e.night.start or ns.Util.Now()),
                 short = n == 1 and ("Review " .. Short(e.keys[1])) or (n .. " attendance reviews"),
                 time = e.night.stop or e.night.start }
         end
@@ -408,7 +407,7 @@ local function register()
     N:RegisterSource("update", function()
         local Sync, U = ns.Sync, ns.Util
         if not (Sync and Sync.GetVersions and U and U.CompareVersions) then return {} end
-        local best, cutoff = nil, Now() - 14 * DAY
+        local best, cutoff = nil, ns.Util.Now() - 14 * DAY
         for _, e in ipairs(Sync:GetVersions()) do
             if type(e.v) == "string" and (e.lastSeen or 0) >= cutoff and U.CompareVersions(e.v, ns.version) > 0
                 and (not best or U.CompareVersions(e.v, best) > 0) then
