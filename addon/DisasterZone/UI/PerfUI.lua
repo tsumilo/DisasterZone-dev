@@ -1,10 +1,11 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PerfUI.lua", ...) then return end -- DisasterZone UI/PerfUI.lua
 -- The Performance page (the developer's, and anyone's who turns it on in Settings > About: Core/Perf.lua; an icon at
--- the right of the strip, /dz perf). Mockup B
--- "Tabs" (dev/art/casc/perf_mockup, picked 2026-10-11): page tabs Overview / Garbage / Memory / Network / CPU with
--- Clean up and Measure 30 s at their right; under them an art banner that every tab keeps (a ring of in use vs
--- garbage, the headline number, the session line, chips for CPU, fps, garbage a minute and the 3D rooms); then the
--- tab's cards:
+-- the right of the strip, /dz perf). A Board page (UI:CreateLayout "board"):
+--   toolbar   the tabs Overview / Garbage / Memory / Network / CPU; Clean up as its filter, Measure 30 s its main action
+--   banner    the board's banner (the tool size) that every tab keeps: the session line, the headline number with its
+--             share of frame time as the pill, what is in use, garbage and peak; a ring of in use vs garbage and chips
+--             for CPU, fps, garbage a minute and the 3D rooms at its right
+--   body      the tab's cards (UI:CreateCard, a section header each, its link as the header's action):
 --   Overview  the last hour (memory or CPU, the game's cleanups marked), next to the other addons, the three biggest
 --             garbage makers of the last Measure;
 --   Garbage   every handler of the last Measure (or per file) and, at the right, the one picked: who sent it, what I
@@ -12,39 +13,37 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/PerfUI.lua", ...) then return e
 --   Memory    pages built (widgets, build time), saved data by section, the 3D rooms addon;
 --   Network   addon messages in and out per prefix (the last minute), ChatThrottleLib, who sends the most;
 --   CPU       the last hour, now / this session / boss fights / slowest frame, slow frames, the costliest handlers.
--- The Events look: art under a shade, boxes with a gold title and a hairline, pills and chips, standings rows with
--- mine in blue, icons with a dark edge. Sizes are fixed (the window's page is 790 x 548).
+-- Rows wear the shared row looks (a hairline, the picked one's gold wash); mine in the "you" blue.
 local addonName, ns = ...
 
 local PerfUI = ns:NewModule("PerfUI")
+local UI = ns.UI
+local S = ns.Style
 
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local cos, sin, pi = math.cos, math.sin, math.pi
 local tostring, tonumber, ipairs, pairs, type = tostring, tonumber, ipairs, pairs, type
 local tsort = table.sort
 
-local PAD, GAP = 10, 8
-local PAGE_W = 790
-local W = PAGE_W - 2 * PAD
-local TAB_Y, BAN_Y, BAN_H = -6, -36, 96
-local BODY_Y = BAN_Y - BAN_H - GAP          -- -140
-local BODY_H = 548 - 140 - PAD              -- 398
+local GAP = S.GAP
+local W = S.INNER_W                          -- 770: the body's width
+local BODY_H = S.PAGE_H - UI.LAYOUT.TOP - S.BANNER.tool - S.GAP - UI.LAYOUT.BOTTOM   -- 416
 local LEFT_W, RIGHT_W = 486, W - 486 - GAP  -- 486 / 276
+local HEAD_Y = -28                           -- a card's content starts under its header
 local MEASURE_S = 30
-local NUM_FONT = "Fonts\\ARIALN.TTF"
 local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local RING = "Interface\\AddOns\\DisasterZone\\Media\\Events\\ring"
 local ART = "Interface\\Glues\\LoadingScreens\\LoadScreenTempestKeep"
 local ROOMS_ART = "Interface\\Glues\\LoadingScreens\\LoadScreenKarazhan"
 local function ICON(n) return "Interface\\Icons\\" .. n end
+local NUM = S.FONT_NUM
 
+-- The charts' and bars' series colours (data, not chrome): memory, CPU, garbage; a column title's.
 local C = {
-    gold = { 1, 0.82, 0 }, white = { 1, 1, 1 }, text = { 0.9, 0.9, 0.92 }, grey = { 0.62, 0.62, 0.64 },
-    dim = { 0.5, 0.5, 0.54 }, cap = { 0.79, 0.65, 0.27 }, blue = { 0.4, 0.72, 1 }, green = { 0.31, 0.83, 0.42 },
-    red = { 0.88, 0.38, 0.31 }, mem = { 0.89, 0.7, 0.24 }, cpu = { 0.35, 0.65, 1 }, garbage = { 0.42, 0.42, 0.45 },
+    white = { 1, 1, 1 }, mem = { 0.89, 0.7, 0.24 }, cpu = { 0.35, 0.65, 1 }, garbage = { 0.42, 0.42, 0.45 },
+    track = { 0.15, 0.15, 0.17 }, quiet = { 0.36, 0.36, 0.4 }, saved = { 0.56, 0.56, 0.6 }, peer = { 1, 0.6, 0.4 },
+    prefix = { 1, 0.75, 0.54 },
 }
-local BOX = { 0.067, 0.067, 0.078, 0.92 }
-local PEDGE = { 0.34, 0.34, 0.38, 0.45 }
 
 -- The kinds of handler a Measure finds: icon, colour, what the row's second line calls it.
 local KIND = {
@@ -64,59 +63,18 @@ local MSG = { BLL = "raid blacklist", RPD = "raid plan data", RLD = "raid log", 
 local panel
 local state = { tab = "overview", chart = "memory", byFile = false, picked = nil }
 
-local function UI() return ns.UI end
-local function EUI() return ns.EventUI end
 local function Perf() return ns.Perf end
 
 ---------------------------------------------------------------------------
--- Small pieces (the Events page's look)
+-- Small pieces
 ---------------------------------------------------------------------------
 
-local function Sized(fs, size, path)
-    local p, _, flags = fs:GetFont()
-    fs:SetFont(path or p or "Fonts\\FRIZQT__.TTF", size, flags or "")
-    return fs
-end
-
-local function Color(fs, c) fs:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
-
--- A one-line text (no wrap); num: the narrow number font.
-local function Text(parent, size, color, num, justify)
-    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetJustifyH(justify or "LEFT")
-    fs:SetWordWrap(false)
-    Sized(fs, size or 12, num and NUM_FONT or nil)
-    Color(fs, color or C.text)
-    return fs
-end
-
 -- A right-aligned number cell: its right edge at x (from the parent's left), w wide.
-local function Cell(parent, x, y, w, size, color)
-    local fs = Text(parent, size or 12, color or C.text, true, "RIGHT")
+local function Cell(parent, x, y, w, style, color)
+    local fs = UI:Text(parent, style or "emph", color or "TEXT", { font = NUM, justify = "RIGHT" })
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x - w, y)
     fs:SetWidth(w)
     return fs
-end
-
-local function Fill(f, c, layer, sub)
-    local t = f:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
-    t:SetAllPoints()
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-    return t
-end
-
-local function Rect(parent, c, layer, sub)
-    local t = parent:CreateTexture(nil, layer or "ARTWORK", nil, sub)
-    t:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-    return t
-end
-
-local function HLine(parent, y, inset)
-    local t = Rect(parent, { 1, 1, 1, 0.07 })
-    t:SetHeight(1)
-    t:SetPoint("TOPLEFT", inset or 12, y)
-    t:SetPoint("TOPRIGHT", -(inset or 12), y)
-    return t
 end
 
 local function Fmt(kb)
@@ -139,65 +97,47 @@ local function Span(s)
     return ("%d h %d min"):format(floor(s / 3600), floor(s % 3600 / 60))
 end
 
--- A box: dark fill, soft edge; title (gold), a grey note after it, a hairline under the title row.
+-- A card of the page: the shared card, its title as a section header (the note after the title is its count, its link
+-- the header's action), the content from HEAD_Y down. b.head, b.ht (the title), b.note (the count's text).
 local function Box(parent, x, y, w, h, title)
-    local b = CreateFrame("Frame", nil, parent)
+    local b = UI:CreateCard(parent, { tone = "card", pad = 0, width = w, height = h })
     b:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    b:SetSize(w, h)
-    Fill(b, BOX)
-    EUI():Edge(b, PEDGE[1], PEDGE[2], PEDGE[3], PEDGE[4])
     if title then
-        b.ht = Text(b, 13, C.gold)
-        b.ht:SetPoint("TOPLEFT", 10, -8)
-        b.ht:SetText(title)
-        b.note = Text(b, 10, C.dim)
-        b.note:SetPoint("LEFT", b.ht, "RIGHT", 12, -1)
-        b.line = Rect(b, { 1, 1, 1, 0.07 })
-        b.line:SetHeight(1)
-        b.line:SetPoint("TOPLEFT", 1, -28)
-        b.line:SetPoint("TOPRIGHT", -1, -28)
+        b.head = UI:CreateSectionHeader(b, title, { style = "title" })
+        b.head:SetPoint("TOPLEFT", b, "TOPLEFT", 10, -4)
+        b.head:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -4)
+        b.ht = b.head.title
+        b.note = b.head.count
     end
     return b
 end
 
--- A link at the right of a box's title ("Garbage >"): text and a chevron.
+-- The card's link ("Garbage >"): the header's action; returns its button.
 local function Link(b, text, onClick)
-    local l = CreateFrame("Button", nil, b)
-    l.fs = Text(l, 11, C.grey)
-    l.fs:SetPoint("LEFT", 0, 0)
-    l.chev = l:CreateTexture(nil, "ARTWORK")
-    l.chev:SetSize(10, 10)
-    UI():SetChevron(l.chev, true)
-    l.chev:SetVertexColor(0.62, 0.62, 0.62)
-    function l:SetLabel(t)
-        self.fs:SetText(t or "")
-        self.chev:ClearAllPoints()
-        self.chev:SetPoint("LEFT", self.fs, "RIGHT", 3, 0)
-        self:SetSize(ceil(EUI():TextWidth(self.fs) + 15), 16)
-    end
-    l:SetScript("OnEnter", function(self) Color(self.fs, C.white) self.chev:SetVertexColor(1, 1, 1) end)
-    l:SetScript("OnLeave", function(self) Color(self.fs, C.grey) self.chev:SetVertexColor(0.62, 0.62, 0.62) end)
-    l:SetScript("OnClick", onClick)
-    l:SetLabel(text)
-    l:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -7)
-    return l
+    b.head:SetAction({ text = text, onClick = onClick })
+    return b.head.action
 end
 
--- An icon with a 1px dark edge (an event's look).
-local function Icon(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    local edge = Fill(f, { 0, 0, 0, 1 }, "BACKGROUND")
-    edge:ClearAllPoints()
-    edge:SetPoint("TOPLEFT", -1, 1)
-    edge:SetPoint("BOTTOMRIGHT", 1, -1)
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    f.tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    return f
+-- A thin bar: a track and a coloured fill; bar:Set(frac, color).
+-- TODO(refactor): move into Controls (a progress bar: the gear pages', My Log's and these share the look)
+local function Bar(parent, w, h)
+    local b = CreateFrame("Frame", nil, parent)
+    b:SetSize(w, h or 2)
+    b.track = UI:Fill(b, "HAIRLINE", "ARTWORK")
+    b.fill = b:CreateTexture(nil, "ARTWORK", nil, 1)
+    b.fill:SetPoint("TOPLEFT")
+    b.fill:SetPoint("BOTTOMLEFT")
+    function b:Set(frac, c)
+        frac = max(0, min(1, tonumber(frac) or 0))
+        self.fill:SetWidth(max(1, frac * w))
+        self.fill:SetColorTexture(S:Color(c))
+        self.fill:SetShown(frac > 0)
+    end
+    return b
 end
 
 -- A round icon in a thin gold ring (an addon's, a player's class). f:SetIcon(path [, atlas]) / f:SetClassOf(key).
+-- TODO(refactor): move into Surfaces (UI:CreateFace: the ringed round icon of the Events pages, the Changelog, Welcome)
 local function RoundIcon(parent, size)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size + 4, size + 4)
@@ -213,7 +153,7 @@ local function RoundIcon(parent, size)
     f.ring = f:CreateTexture(nil, "OVERLAY")
     f.ring:SetTexture(RING)
     f.ring:SetAllPoints()
-    f.ring:SetVertexColor(0.72, 0.56, 0.18)
+    f.ring:SetVertexColor(S:Color("GOLD_DEEP"))
     function f:SetIcon(path, atlas)
         if atlas and self.tex.SetAtlas then
             self.tex:SetAtlas(atlas)
@@ -225,63 +165,34 @@ local function RoundIcon(parent, size)
     end
     function f:SetClassOf(key)
         self.tex:SetTexCoord(0, 1, 0, 1)
-        EUI():SetClass(self.tex, key)
+        if ns.EventUI then ns.EventUI:SetClass(self.tex, key) end
     end
     return f
 end
 
--- A thin bar: a grey track and a coloured fill; bar:Set(frac, color).
-local function Bar(parent, w, h)
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetSize(w, h or 2)
-    b.track = Fill(b, { 1, 1, 1, 0.08 }, "ARTWORK")
-    b.fill = Rect(b, C.gold, "ARTWORK", 1)
-    b.fill:SetPoint("TOPLEFT")
-    b.fill:SetPoint("BOTTOMLEFT")
-    function b:Set(frac, c)
-        frac = max(0, min(1, tonumber(frac) or 0))
-        self.fill:SetWidth(max(1, frac * w))
-        self.fill:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-        self.fill:SetShown(frac > 0)
-    end
-    return b
-end
-
--- A chip (the banner's): a round icon, a text, a pill shape. chip:Set(icon, text).
-local function Chip(parent)
-    local h = 22
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetSize(80, h)
-    UI():AddPillShape(p, h)
-    p:SetPillColors({ 0.03, 0.03, 0.04, 0.78 }, { 0.25, 0.25, 0.28, 1 })
-    p.icon = p:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(16, 16)
-    p.icon:SetPoint("LEFT", 3, 0)
-    if p.CreateMaskTexture then
-        local m = p:CreateMaskTexture()
-        m:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        m:SetAllPoints(p.icon)
-        p.icon:AddMaskTexture(m)
-    end
-    p.fs = Text(p, 11, C.text)
-    p.fs:SetPoint("LEFT", 25, 0)
-    function p:Set(icon, text)
-        self.icon:SetTexture(icon)
-        self.icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
-        self.fs:SetText(text or "")
-        self:SetWidth(ceil(25 + EUI():TextWidth(self.fs) + 10))
-    end
-    return p
-end
-
-local function Pill(parent)
-    local p = EUI():CreatePill(parent, 16)
-    if p.SetBase then p:SetBase(0.05, 0.05, 0.06) end
-    return p
+-- A list row: the shared row looks (a hairline on top; picked: the gold wash and bar); mine: the "you" blue wash.
+-- TODO(refactor): move into Surfaces (DecorateRow's "you" look: a mine row in the YOU colour)
+local function NewRow(parent, w, h, selectable)
+    local r = CreateFrame(selectable and "Button" or "Frame", nil, parent)
+    r:SetSize(w, h)
+    UI:DecorateRow(r, { hover = selectable and true or false, selectable = selectable })
+    r.rule = UI:Rule(r, { top = 0, alpha = 0.045, layer = "BORDER" })
+    local yr, yg, yb = S:Color("YOU")
+    r.me = r:CreateTexture(nil, "BACKGROUND", nil, 1)
+    r.me:SetAllPoints()
+    r.me:SetColorTexture(yr, yg, yb, 0.12)
+    r.me:Hide()
+    r.meBar = r:CreateTexture(nil, "ARTWORK", nil, 6)
+    r.meBar:SetPoint("TOPLEFT")
+    r.meBar:SetPoint("BOTTOMLEFT")
+    r.meBar:SetWidth(2)
+    r.meBar:SetColorTexture(yr, yg, yb, 1)
+    r.meBar:Hide()
+    return r
 end
 
 -- A ring gauge drawn with lines (parts from the top, clockwise). g:Set({ { frac, color }, ... }): what the parts
--- don't cover is the dark track.
+-- don't cover is the dark track. (A chart of the page: drawn here.)
 local SEGS = 90
 local OVERLAP = 0.012                    -- radians each segment reaches past its neighbours (square ends, no notches)
 local function Gauge(parent, r, width)
@@ -303,13 +214,13 @@ local function Gauge(parent, r, width)
                 if mid >= acc and mid < acc + p[1] then c = p[2] break end
                 acc = acc + p[1]
             end
-            c = c or { 0.15, 0.15, 0.17 }
+            c = c or C.track
             l:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
         end
     end
-    g.big = Text(g, 17, C.white, true, "CENTER")
+    g.big = UI:Text(g, "page", C.white, { font = NUM, justify = "CENTER" })
     g.big:SetPoint("CENTER", 0, 5)
-    g.unit = Text(g, 8, { 0.66, 0.66, 0.7 }, false, "CENTER")
+    g.unit = UI:Text(g, "caps", "SUB", { justify = "CENTER" })
     g.unit:SetPoint("CENTER", 0, -10)
     return g
 end
@@ -323,19 +234,11 @@ local function Chart(parent, x, y, w, h)
     c:SetSize(w, h)
     c.w, c.h = w, h
     c.cols, c.caps, c.rings, c.dash = {}, {}, {}, {}
-    for i = 1, 3 do
-        local gl = Rect(c, { 1, 1, 1, 0.05 }, "BORDER")
-        gl:SetHeight(1)
-        gl:SetPoint("TOPLEFT", 0, -floor(h * i / 4))
-        gl:SetPoint("TOPRIGHT", 0, -floor(h * i / 4))
-    end
-    local base = Rect(c, { 1, 1, 1, 0.14 }, "BORDER")
-    base:SetHeight(1)
-    base:SetPoint("BOTTOMLEFT")
-    base:SetPoint("BOTTOMRIGHT")
-    c.top = Text(c, 10, { 0.49, 0.49, 0.52 }, true)
+    for i = 1, 3 do UI:Rule(c, { top = floor(h * i / 4), alpha = 0.05, layer = "BORDER" }) end
+    UI:Rule(c, { bottom = 0, alpha = 0.14, layer = "BORDER" })
+    c.top = UI:Text(c, "small", "DIM", { font = NUM })
     c.top:SetPoint("BOTTOMLEFT", c, "TOPLEFT", 0, 3)
-    c.empty = Text(c, 11, C.dim, false, "CENTER")
+    c.empty = UI:Text(c, "body", "DIM", { justify = "CENTER" })
     c.empty:SetPoint("CENTER")
     function c:Set(values, o)
         o = o or {}
@@ -349,8 +252,8 @@ local function Chart(parent, x, y, w, h)
             local f, cap = self.cols[i], self.caps[i]
             if i <= n then
                 if not f then
-                    f = Rect(self, col, "ARTWORK")
-                    cap = Rect(self, col, "ARTWORK", 1)
+                    f = self:CreateTexture(nil, "ARTWORK")
+                    cap = self:CreateTexture(nil, "ARTWORK", nil, 1)
                     self.cols[i], self.caps[i] = f, cap
                 end
                 local hh = max(1, (values[i] or 0) / top * self.h)
@@ -380,7 +283,7 @@ local function Chart(parent, x, y, w, h)
                         r = self:CreateTexture(nil, "OVERLAY")
                         r:SetTexture(RING)
                         r:SetSize(7, 7)
-                        r:SetVertexColor(C.green[1], C.green[2], C.green[3])
+                        r:SetVertexColor(S:Color("OK"))
                         self.rings[ri] = r
                     end
                     r:ClearAllPoints()
@@ -395,7 +298,8 @@ local function Chart(parent, x, y, w, h)
             local d = self.dash[i]
             if fy and n > 0 then
                 if not d then
-                    d = Rect(self, C.green, "OVERLAY")
+                    d = self:CreateTexture(nil, "OVERLAY")
+                    d:SetColorTexture(S:Color("OK"))
                     self.dash[i] = d
                 end
                 d:ClearAllPoints()
@@ -416,46 +320,36 @@ end
 -- A row of a handler list: the kind's icon, the handler (in the kind's colour), where it comes from, a bar, and the
 -- numbers (their right edges at cols[i] from the row's left). row:Set(data).
 local function HandlerRow(parent, w, h, cols)
-    local r = CreateFrame("Button", nil, parent)
-    r:SetSize(w, h)
-    r.sel = Fill(r, { 1, 0.82, 0, 0.07 }, "BACKGROUND")
-    r.selBar = Rect(r, C.mem, "ARTWORK")
-    r.selBar:SetPoint("TOPLEFT")
-    r.selBar:SetPoint("BOTTOMLEFT")
-    r.selBar:SetWidth(2)
-    r.rule = Rect(r, { 1, 1, 1, 0.045 }, "BORDER")
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("TOPLEFT")
-    r.rule:SetPoint("TOPRIGHT")
-    r.icon = Icon(r, 24)
+    local r = NewRow(parent, w, h, true)
+    r.icon = UI:CreateIconTile(r, 24)
     r.icon:SetPoint("LEFT", 10, 0)
     local nameW = cols[1] - 62 - 44 - 8
-    r.name = Text(r, 12, C.text)
+    r.name = UI:Text(r, "emph", "TEXT")
     r.name:SetPoint("TOPLEFT", 44, -(floor(h / 2) - 13))
     r.name:SetWidth(nameW)
-    r.sub = Text(r, 10, { 0.5, 0.5, 0.54 })
+    r.sub = UI:Text(r, "small", "DIM")
     r.sub:SetPoint("TOPLEFT", 44, -(floor(h / 2) + 1))
     r.sub:SetWidth(nameW)
     r.bar = Bar(r, nameW, 2)
     r.bar:SetPoint("BOTTOMLEFT", 44, 3)
-    r.loop = Pill(r)
+    r.loop = UI:CreatePill(r, nil, nil, 16)
+    r.loop:Hide()
     r.cells = {}
-    for i, x in ipairs(cols) do r.cells[i] = Cell(r, x, -(floor(h / 2) - 7), 62, 12, i == 1 and C.white or { 0.66, 0.66, 0.7 }) end
+    for i, x in ipairs(cols) do r.cells[i] = Cell(r, x, -(floor(h / 2) - 7), 62, "emph", i == 1 and C.white or "SUB") end
     function r:Set(d)
         self.data = d
         local k = KIND[d.kind] or KIND.event
-        self.icon.tex:SetTexture(k[1])
+        self.icon:Set(k[1])
         self.name:SetText(d.name)
-        Color(self.name, k[2])
+        self.name:SetTextColor(k[2][1], k[2][2], k[2][3])
         self.sub:SetText(d.sub or "")
         self.bar:Set(d.frac, k[2])
         for i, fs in ipairs(self.cells) do fs:SetText(d.cells[i] or "") end
-        self.sel:SetShown(d.picked and true or false)
-        self.selBar:SetShown(d.picked and true or false)
+        self:SetSelected(d.picked and true or false)
         if d.loop then
             self.loop:SetKind("loop?", "live")
             self.loop:ClearAllPoints()
-            self.loop:SetPoint("LEFT", self.name, "LEFT", min(nameW - 44, EUI():TextWidth(self.name) + 8), 0)
+            self.loop:SetPoint("LEFT", self.name, "LEFT", min(nameW - 44, UI:TextWidth(self.name) + 8), 0)
             self.loop:Show()
         else
             self.loop:Hide()
@@ -465,7 +359,8 @@ local function HandlerRow(parent, w, h, cols)
     return r
 end
 
-local function Pool(list, i, make)
+-- The n-th row of a list, made on first use.
+local function RowAt(list, i, make)
     local f = list[i]
     if not f then
         f = make()
@@ -474,18 +369,14 @@ local function Pool(list, i, make)
     return f
 end
 
--- A column header line: the first title at x 44 (over the names), the others right-aligned at cols[i].
+-- The column titles over a list (UI:CreateColumnHeader): the first at x 44 (over the names), the others right-aligned
+-- at cols[i]. Returns { [0] = the first's text, [i] = the others' }.
 local function Heads(parent, y, first, titles, cols)
-    local out = {}
-    local f = Text(parent, 10, C.cap)
-    f:SetPoint("TOPLEFT", 44, y)
-    f:SetText(first or "")
-    out[0] = f
-    for i, t in ipairs(titles) do
-        local fs = Cell(parent, cols[i], y, 70, 10, C.cap)
-        fs:SetText(t)
-        out[i] = fs
-    end
+    local h = UI:CreateColumnHeader(parent, 14)
+    h:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y)
+    h:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, y)
+    local out = { [0] = h:AddColumn(first or "", 44, 120).label }
+    for i, t in ipairs(titles) do out[i] = h:AddColumn(t, cols[i] - 54, 54, { justify = "RIGHT" }).label end
     return out
 end
 
@@ -541,42 +432,31 @@ local function GarbageCells(x) return { Fmt(x.kbMin), ("%.2f"):format(x.msS), ("
 local function CpuCells(x) return { ("%.2f"):format(x.msS), ("%.1f"):format(x.callsS), ("%.1f"):format(x.worstMs) } end
 
 ---------------------------------------------------------------------------
--- The banner (every tab)
+-- The banner (every tab): the board's banner, the ring and the chips at its right
 ---------------------------------------------------------------------------
 
-local function CreateBanner(p)
-    local b = CreateFrame("Frame", nil, p)
-    b:SetPoint("TOPLEFT", p, "TOPLEFT", PAD, BAN_Y)
-    b:SetSize(W, BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND")
-    b.art:SetPoint("TOPLEFT", 1, -1)
-    b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.art:SetTexture(ART)
-    -- (a strip of the loading screen below its logo band)
-    b.art:SetTexCoord(0.04, 0.96, 0.36, 0.36 + 0.92 * (BAN_H / W) * (4 / 3))
-    EUI():AddShade(b)
-    EUI():Edge(b, PEDGE[1], PEDGE[2], PEDGE[3], PEDGE[4])
+local CHIPS_W = 156       -- the chips' column in the banner
+
+local function CreateBanner(p, b)
+    b.kick = b.kicker
     b.gauge = Gauge(b, 30, 7)
-    b.gauge:SetPoint("CENTER", b, "TOPLEFT", 52, -48)
-    b.kick = Text(b, 9, C.cap)
-    b.kick:SetPoint("TOPLEFT", 102, -14)
-    b.kick:SetWidth(446)
-    b.big = Text(b, 25, C.white, true)
-    b.big:SetPoint("TOPLEFT", 102, -28)
-    b.bigUnit = Text(b, 13, { 0.81, 0.81, 0.83 })
-    b.bigUnit:SetPoint("BOTTOMLEFT", b.big, "BOTTOMRIGHT", 4, 4)
-    b.pill = Pill(b)
-    b.pill:SetPoint("LEFT", b.bigUnit, "RIGHT", 12, 1)
-    b.sub = Text(b, 11, { 0.73, 0.73, 0.76 })
-    b.sub:SetPoint("TOPLEFT", 102, -64)
-    b.sub:SetWidth(446)
+    b.gauge:SetPoint("RIGHT", b, "RIGHT", -14, 0)
     b.chips = {}
-    for i = 1, 4 do b.chips[i] = Chip(b) end
-    b.chips[1]:SetPoint("TOPLEFT", b, "TOPLEFT", 560, -12)
-    b.chips[2]:SetPoint("LEFT", b.chips[1], "RIGHT", 6, 0)
-    b.chips[3]:SetPoint("TOPLEFT", b, "TOPLEFT", 560, -40)
-    b.chips[4]:SetPoint("TOPLEFT", b, "TOPLEFT", 560, -68)
+    for i = 1, 4 do
+        local chip = UI:CreateChip(b, { kind = "track" })
+        chip:SetFrameLevel(b:GetFrameLevel() + 4)
+        b.chips[i] = chip
+    end
+    -- (one column left of the ring, so the text lines keep the banner's width)
+    for i = 1, 4 do b.chips[i]:SetPoint("LEFT", b.gauge, "LEFT", -14 - CHIPS_W, 30 - (i - 1) * 20) end
     return b
+end
+
+-- chip: an icon (a texture) and its text.
+local function SetChip(chip, icon, text)
+    chip:SetIcon(icon)
+    chip:Set(text)
+    chip.icon:SetTexCoord(0.1, 0.9, 0.1, 0.9)
 end
 
 local function FillBanner(p)
@@ -587,16 +467,14 @@ local function FillBanner(p)
     local inUse = clean and clean.after
     local se = P:Session()
     local now = GetTime and GetTime() or 0
-    b.kick:SetText(("SESSION %s · %s · BUILD %s · %s"):format(Span(now - (se.started or now)):upper(), tostring(se.version),
+    b:SetKicker(("SESSION %s · %s · BUILD %s · %s"):format(Span(now - (se.started or now)):upper(), tostring(se.version),
         tostring(se.build):sub(1, 8):upper(), se.update and ("IN-GAME UPDATE " .. se.update):upper() or "NO IN-GAME UPDATE"))
-    b.big:SetText(("%.1f"):format((inUse or cur) / 1024))
-    b.bigUnit:SetText(inUse and "MB in use" or "MB now")
+    b:SetTitle(("%.1f %s"):format((inUse or cur) / 1024, inUse and "MB in use" or "MB now"))
     local cpu = P:CPU()
     if cpu and cpu.share then
-        b.pill:SetKind(("%.1f%% of frame time"):format(cpu.share * 100), "rank")
-        b.pill:Show()
+        b:SetPill("rank", ("%.1f%% of frame time"):format(cpu.share * 100))
     else
-        b.pill:Hide()
+        b:SetPill(nil, nil)
     end
     local parts = {}
     if inUse then
@@ -609,7 +487,7 @@ local function FillBanner(p)
     local n = P.stats.cleanups
     parts[#parts + 1] = n > 0 and ("%d cleanup%s, last %s"):format(n, n == 1 and "" or "s", Ago(P.stats.lastCleanAt))
         or "no cleanup yet"
-    b.sub:SetText(table.concat(parts, " · "))
+    b:SetSub(table.concat(parts, " · "))
     -- the ring: in use (gold) and garbage (grey) of now, on a scale a little over the peak
     local total = max(cur, 1)
     local scale = max(total, P.stats.peak or 0) * 1.05
@@ -621,13 +499,13 @@ local function FillBanner(p)
     b.gauge.big:SetText(tostring(floor(cur / 1024 + 0.5)))
     b.gauge.unit:SetText("MB")
     local fps = P:FPS()
-    b.chips[1]:Set(ICON("Spell_Nature_Lightning"), cpu and cpu.recent and ("CPU %.2f ms"):format(cpu.recent)
+    SetChip(b.chips[1], ICON("Spell_Nature_Lightning"), cpu and cpu.recent and ("CPU %.2f ms"):format(cpu.recent)
         or (cpu and cpu.off and "CPU profiler off" or "CPU n/a"))
-    b.chips[2]:Set(ICON("INV_Misc_EngGizmos_20"), fps and ("%d fps"):format(floor(fps + 0.5)) or "fps n/a")
+    SetChip(b.chips[2], ICON("INV_Misc_EngGizmos_20"), fps and ("%d fps"):format(floor(fps + 0.5)) or "fps n/a")
     local rate = P:GarbageRate()
-    b.chips[3]:Set(ICON("INV_Misc_Bag_10"), rate and (Fmt(rate) .. " garbage / min") or "garbage / min after 2 samples")
+    SetChip(b.chips[3], ICON("INV_Misc_Bag_10"), rate and (Fmt(rate) .. " garbage / min") or "garbage / min after 2 samples")
     local rooms = se.rooms
-    b.chips[4]:Set(ICON("INV_Misc_Map_01"), rooms.loaded and ("3D rooms loaded · %s"):format(Fmt(rooms.kb or 0))
+    SetChip(b.chips[4], ICON("INV_Misc_Map_01"), rooms.loaded and ("3D rooms loaded · %s"):format(Fmt(rooms.kb or 0))
         or "3D rooms not loaded")
 end
 
@@ -639,75 +517,64 @@ local function CreateOverview(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
     -- the last hour
-    local c = Box(v, PAD, BODY_Y, LEFT_W, 228, "The last hour")
+    local c = Box(v, 0, 0, LEFT_W, 228, "The last hour")
     v.hourBox = c
     c.tabs = {}
-    c.tabs.memory = UI():CreateUnderlineTab(c, "Memory", function() state.chart = "memory" PerfUI:Refresh() end, "small")
+    c.tabs.memory = UI:CreateUnderlineTab(c, "Memory", function() state.chart = "memory" PerfUI:Refresh() end, "small")
     c.tabs.memory:SetPoint("TOPLEFT", 196, -5)
-    c.tabs.cpu = UI():CreateUnderlineTab(c, "CPU", function() state.chart = "cpu" PerfUI:Refresh() end, "small")
+    c.tabs.cpu = UI:CreateUnderlineTab(c, "CPU", function() state.chart = "cpu" PerfUI:Refresh() end, "small")
     c.tabs.cpu:SetPoint("LEFT", c.tabs.memory, "RIGHT", 4, 0)
     Link(c, "Garbage", function() PerfUI:SetTab("garbage") end)
-    c.legend = Text(c, 10, C.dim)
+    c.legend = UI:Text(c, "small", "DIM")
     c.legend:SetPoint("TOPRIGHT", -14, -38)
     c.chart = Chart(c, 14, -60, LEFT_W - 28, 118)
     c.facts = {}
     for i = 1, 3 do
-        local f = Text(c, 11, C.text)
+        local f = UI:Text(c, "body", "TEXT")
         f:SetPoint("TOPLEFT", 14 + (i - 1) * 156, -198)
         f:SetWidth(150)
         c.facts[i] = f
     end
     -- next to the other addons
-    local s = Box(v, PAD + LEFT_W + GAP, BODY_Y, RIGHT_W, BODY_H, "Next to your other addons")
+    local s = Box(v, LEFT_W + GAP, 0, RIGHT_W, BODY_H, "Next to your other addons")
     v.addons = s
-    Cell(s, RIGHT_W - 60, -38, 70, 10, C.cap):SetText("memory")
-    Cell(s, RIGHT_W - 12, -38, 40, 10, C.cap):SetText("ms")
+    Cell(s, RIGHT_W - 60, -38, 70, "small", "GOLD_DEEP"):SetText("memory")
+    Cell(s, RIGHT_W - 12, -38, 40, "small", "GOLD_DEEP"):SetText("ms")
     s.rows = {}
     for i = 1, 10 do
-        local r = CreateFrame("Frame", nil, s)
-        r:SetSize(RIGHT_W - 2, 27)
+        local r = NewRow(s, RIGHT_W - 2, 27)
         r:SetPoint("TOPLEFT", 1, -52 - (i - 1) * 27)
-        r.me = Fill(r, { 0.4, 0.72, 1, 0.12 }, "BACKGROUND")
-        r.meBar = Rect(r, C.blue, "ARTWORK")
-        r.meBar:SetPoint("TOPLEFT")
-        r.meBar:SetPoint("BOTTOMLEFT")
-        r.meBar:SetWidth(2)
-        r.rule = Rect(r, { 1, 1, 1, 0.045 }, "BORDER")
-        r.rule:SetHeight(1)
-        r.rule:SetPoint("TOPLEFT")
-        r.rule:SetPoint("TOPRIGHT")
-        r.rank = Cell(r, 22, -7, 18, 11, C.dim)
+        r.rank = Cell(r, 22, -7, 18, "body", "DIM")
         r.icon = RoundIcon(r, 17)
         r.icon:SetPoint("LEFT", 27, 0)
-        r.name = Text(r, 12, C.text)
+        r.name = UI:Text(r, "emph", "TEXT")
         r.name:SetPoint("TOPLEFT", 54, -6)
         r.name:SetWidth(RIGHT_W - 54 - 124)
-        r.kb = Cell(r, RIGHT_W - 60, -7, 70, 12, C.text)
-        r.cpu = Cell(r, RIGHT_W - 12, -7, 40, 12, { 0.6, 0.6, 0.64 })
+        r.kb = Cell(r, RIGHT_W - 60, -7, 70, "emph", "TEXT")
+        r.cpu = Cell(r, RIGHT_W - 12, -7, 40, "emph", "SUB")
         r.bar = Bar(r, RIGHT_W - 54 - 120, 2)
         r.bar:SetPoint("BOTTOMLEFT", 54, 3)
         s.rows[i] = r
     end
-    s.share = Text(s, 21, C.blue, true)
+    s.share = UI:Text(s, "hero", "YOU", { font = NUM })
     s.share:SetPoint("TOPLEFT", 12, -330)
-    s.shareText = Text(s, 11, C.grey)
+    s.shareText = UI:Text(s, "body", "SUB")
     s.shareText:SetPoint("BOTTOMLEFT", s.share, "BOTTOMRIGHT", 6, 3)
     s.shareText:SetWidth(RIGHT_W - 70)
     s.shareBar = Bar(s, RIGHT_W - 24, 4)
     s.shareBar:SetPoint("TOPLEFT", 12, -362)
-    s.rankText = Text(s, 10, C.dim)
+    s.rankText = UI:Text(s, "small", "DIM")
     s.rankText:SetPoint("TOPLEFT", 12, -372)
     s.rankText:SetWidth(RIGHT_W - 24)
     -- the biggest three
-    local g = Box(v, PAD, BODY_Y - 228 - GAP, LEFT_W, BODY_H - 228 - GAP, "Biggest right now")
+    local g = Box(v, 0, -228 - GAP, LEFT_W, BODY_H - 228 - GAP, "Biggest right now")
     v.biggest = g
     Link(g, "Garbage", function() PerfUI:SetTab("garbage") end)
     g.cols = { LEFT_W - 136, LEFT_W - 70, LEFT_W - 12 }
-    g.heads = Heads(g, -37, "Handler", { "per min", "ms / s", "calls / s" }, g.cols)
+    g.heads = Heads(g, -34, "Handler", { "per min", "ms / s", "calls / s" }, g.cols)
     g.rows = {}
-    g.empty = Text(g, 11, C.dim, false, "CENTER")
-    g.empty:SetPoint("TOPLEFT", 10, -80)
-    g.empty:SetWidth(LEFT_W - 20)
+    g.empty = UI:CreateEmptyState(g, { compact = true, glyph = UI.ICON.chart, width = LEFT_W - 40 })
+    g.empty:SetPoint("TOP", g, "TOP", 0, -40)
     return v
 end
 
@@ -733,14 +600,14 @@ local function FillOverview(p)
         c.chart:Set(cpu and values or {}, { color = C.cpu, unit = "ms", min = 0.5,
             empty = cpu and "No samples yet: one comes every 10 s." or "This client has no addon profiler." })
     else
-        c.legend:SetText("|cff4fd36b- -|r in use after cleanup    |cff4fd36bo|r the game cleaned up")
+        c.legend:SetText(S:Wrap("OK", "- -") .. " in use after cleanup    " .. S:Wrap("OK", "o") .. " the game cleaned up")
         c.chart:Set(values, { color = C.mem, drops = drops, floor = P.clean and P.clean.after })
     end
     local addons, total = P:Addons()
     local n = P.stats.cleanups
-    local facts = { ("|cff9e9ea4Peak|r %s"):format(Fmt(P.stats.peak)),
-        ("|cff9e9ea4Cleanups|r %d%s"):format(n, n > 0 and (", last " .. Ago(P.stats.lastCleanAt)) or ""),
-        ("|cff9e9ea4All addons|r %s"):format(Fmt(total)) }
+    local facts = { S:Wrap("SUB", "Peak") .. " " .. Fmt(P.stats.peak),
+        S:Wrap("SUB", "Cleanups") .. (" %d%s"):format(n, n > 0 and (", last " .. Ago(P.stats.lastCleanAt)) or ""),
+        S:Wrap("SUB", "All addons") .. " " .. Fmt(total) }
     for i, f in ipairs(c.facts) do f:SetText(facts[i]) end
     -- next to the other addons: the top ten, me among them (in the last place when I'm further down)
     local s = v.addons
@@ -768,10 +635,10 @@ local function FillOverview(p)
             r.rank:SetText(e.rank)
             r.icon:SetIcon(a.icon, a.atlas)
             r.name:SetText(a.name)
-            Color(r.name, a.me and { 0.62, 0.82, 1 } or C.text)
+            r.name:SetTextColor(S:Color(a.me and "YOU" or "TEXT"))
             r.kb:SetText(Fmt(a.kb))
             r.cpu:SetText(a.cpu and ("%.2f"):format(a.cpu) or "")
-            r.bar:Set(a.kb / max(1, maxKb), a.me and C.blue or { 0.36, 0.36, 0.4 })
+            r.bar:Set(a.kb / max(1, maxKb), a.me and "YOU" or C.quiet)
             r:Show()
         else
             r:Hide()
@@ -782,23 +649,23 @@ local function FillOverview(p)
         local share = me.kb / total
         s.share:SetText(("%d%%"):format(floor(share * 100 + 0.5)))
         s.shareText:SetText("of all addons' memory")
-        s.shareBar:Set(share, C.blue)
+        s.shareBar:Set(share, "YOU")
         local cpuPart = (cpuTotal > 0 and myCpu) and ("%d%% of their CPU · "):format(floor(myCpu / cpuTotal * 100 + 0.5)) or ""
         s.rankText:SetText(("%s%s memory%s"):format(cpuPart, Nth(mine), myCpu and (", " .. Nth(cpuRank) .. " CPU") or ""))
     else
         s.share:SetText("")
         s.shareText:SetText("")
-        s.shareBar:Set(0, C.blue)
+        s.shareBar:Set(0, "YOU")
         s.rankText:SetText("")
     end
     -- the biggest three
     local g = v.biggest
     local rows, r = MeasuredRows(false)
-    g.note:SetText(r and ("measured %s, %d s"):format(Ago(r.at), r.seconds) or "")
+    g.head:SetCount(r and ("measured %s, %d s"):format(Ago(r.at), r.seconds) or nil)
     local maxKb2 = rows[1] and rows[1].kbMin or 1
     for i = 1, 3 do
         local x = rows[i]
-        local row = Pool(g.rows, i, function()
+        local row = RowAt(g.rows, i, function()
             local hr = HandlerRow(g, LEFT_W - 2, 36, g.cols)
             hr:SetPoint("TOPLEFT", 1, -51 - (i - 1) * 36)
             hr:SetScript("OnClick", function(self) state.picked = self.data and self.data.key PerfUI:SetTab("garbage") end)
@@ -813,8 +680,9 @@ local function FillOverview(p)
         end
     end
     for _, h in pairs(g.heads) do h:SetShown(#rows > 0) end
+    g.empty:SetContent({ glyph = UI.ICON.chart,
+        text = "Measure 30 s times every DisasterZone handler and weighs the garbage it makes." })
     g.empty:SetShown(#rows == 0)
-    g.empty:SetText("Measure 30 s times every DisasterZone handler and weighs the garbage it makes.")
 end
 
 ---------------------------------------------------------------------------
@@ -827,78 +695,67 @@ local ROW_H = 34
 local function CreateGarbage(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    local c = Box(v, PAD, BODY_Y, LIST_W, BODY_H, "Who makes garbage")
+    local c = Box(v, 0, 0, LIST_W, BODY_H, "Who makes garbage")
     v.list = c
     c.group = Link(c, "By file", function() state.byFile = not state.byFile PerfUI:Refresh() end)
     c.cols = { LIST_W - 196, LIST_W - 138, LIST_W - 84, LIST_W - 28 }
-    c.heads = Heads(c, -37, "Handler", { "per min", "ms / s", "calls / s", "worst call" }, c.cols)
-    c.scroll = UI():CreateScrollFrame(c)
+    c.heads = Heads(c, -34, "Handler", { "per min", "ms / s", "calls / s", "worst call" }, c.cols)
+    c.scroll = UI:CreateScrollFrame(c)
     c.scroll:SetPoint("TOPLEFT", 1, -51)
     c.scroll:SetSize(LIST_W - 18, BODY_H - 51 - 4)
     c.child = CreateFrame("Frame", nil, c.scroll)
     c.child:SetSize(LIST_W - 18, 10)
     c.scroll:SetScrollChild(c.child)
     c.rows = {}
-    c.empty = Text(c, 11, C.dim, false, "CENTER")
-    c.empty:SetPoint("TOPLEFT", 10, -110)
-    c.empty:SetWidth(LIST_W - 20)
+    c.empty = UI:CreateEmptyState(c, { compact = true, glyph = UI.ICON.chart, width = LIST_W - 60 })
+    c.empty:SetPoint("TOP", c, "TOP", 0, -90)
     -- the picked one
-    local s = Box(v, PAD + LIST_W + GAP, BODY_Y, SIDE_W, BODY_H, "")
+    local s = Box(v, LIST_W + GAP, 0, SIDE_W, BODY_H, "")
     v.side = s
-    s.ht:SetWidth(SIDE_W - 20)
-    s.where = Text(s, 10, C.dim)
+    s.where = UI:Text(s, "small", "DIM")
     s.where:SetPoint("TOPLEFT", 12, -36)
     s.where:SetWidth(SIDE_W - 24)
     s.stats = {}
     for i = 1, 3 do
-        local big = Text(s, 17, C.white, true)
+        local big = UI:Text(s, "page", C.white, { font = NUM })
         big:SetPoint("TOPLEFT", 12 + (i - 1) * 76, -54)
-        local cap = Text(s, 10, C.grey)
+        local cap = UI:Text(s, "small", "SUB")
         cap:SetPoint("TOPLEFT", big, "BOTTOMLEFT", 0, -2)
         s.stats[i] = { big, cap }
     end
-    s.rule = HLine(s, -98)
-    s.fromHead = Text(s, 10, C.cap)
+    s.rule = UI:Rule(s, { top = 98, left = 12, right = 12 })
+    s.fromHead = UI:Text(s, "small", "GOLD_DEEP")
     s.fromHead:SetPoint("TOPLEFT", 12, -106)
-    s.sentHead = Cell(s, SIDE_W - 52, -106, 40, 10, C.cap)
-    s.revHead = Cell(s, SIDE_W - 12, -106, 40, 10, C.cap)
+    s.sentHead = Cell(s, SIDE_W - 52, -106, 40, "small", "GOLD_DEEP")
+    s.revHead = Cell(s, SIDE_W - 12, -106, 40, "small", "GOLD_DEEP")
     s.who = {}
     for i = 1, 4 do
-        local r = CreateFrame("Frame", nil, s)
-        r:SetSize(SIDE_W - 2, 27)
+        local r = NewRow(s, SIDE_W - 2, 27)
         r:SetPoint("TOPLEFT", 1, -122 - (i - 1) * 27)
-        r.rule = Rect(r, { 1, 1, 1, 0.045 }, "BORDER")
-        r.rule:SetHeight(1)
-        r.rule:SetPoint("TOPLEFT")
-        r.rule:SetPoint("TOPRIGHT")
-        r.me = Fill(r, { 0.4, 0.72, 1, 0.12 }, "BACKGROUND")
         r.face = RoundIcon(r, 16)
         r.face:SetPoint("LEFT", 10, 0)
-        r.name = Text(r, 12, C.text)
+        r.name = UI:Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", 36, 0)
         r.name:SetWidth(SIDE_W - 36 - 100)
-        r.n = Cell(r, SIDE_W - 52, -7, 40, 12, C.text)
-        r.rev = Cell(r, SIDE_W - 12, -7, 40, 12, { 0.6, 0.6, 0.64 })
+        r.n = Cell(r, SIDE_W - 52, -7, 40, "emph", "TEXT")
+        r.rev = Cell(r, SIDE_W - 12, -7, 40, "emph", "SUB")
         s.who[i] = r
     end
-    s.loop = Pill(s)
+    s.loop = UI:CreatePill(s, nil, nil, 16)
     s.loop:SetPoint("TOPLEFT", 12, -238)
-    s.loopText = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Sized(s.loopText, 10)
-    Color(s.loopText, { 0.73, 0.73, 0.76 })
-    s.loopText:SetJustifyH("LEFT")
+    s.loop:Hide()
+    s.loopText = UI:Text(s, "small", "SUB", { wrap = true })
     s.loopText:SetJustifyV("TOP")
-    s.loopText:SetWordWrap(true)
     s.loopText:SetPoint("TOPLEFT", 12, -260)
     s.loopText:SetWidth(SIDE_W - 24)
     s.loopText:SetHeight(52)
-    s.rule2 = HLine(s, -318)
-    s.backHead = Text(s, 10, C.cap)
+    s.rule2 = UI:Rule(s, { top = 318, left = 12, right = 12 })
+    s.backHead = UI:Text(s, "small", "GOLD_DEEP")
     s.backHead:SetPoint("TOPLEFT", 12, -326)
-    s.back = Text(s, 11, { 0.73, 0.73, 0.76 })
+    s.back = UI:Text(s, "body", "SUB")
     s.back:SetPoint("TOPLEFT", 12, -344)
     s.back:SetWidth(SIDE_W - 24)
-    s.back2 = Text(s, 10, C.dim)
+    s.back2 = UI:Text(s, "small", "DIM")
     s.back2:SetPoint("TOPLEFT", 12, -364)
     s.back2:SetWidth(SIDE_W - 24)
     return v
@@ -906,7 +763,7 @@ end
 
 local function FillSide(s, x, rows, r)
     if not x then
-        s.ht:SetText(state.byFile and "Per file" or "Nothing picked")
+        s.head:SetTitle(state.byFile and "Per file" or "Nothing picked")
         s.where:SetText(state.byFile and "Back to By handler to pick one" or "Measure, then click a row")
         for _, st in ipairs(s.stats) do st[1]:SetText("") st[2]:SetText("") end
         for _, w in ipairs(s.who) do w:Hide() end
@@ -919,7 +776,7 @@ local function FillSide(s, x, rows, r)
         return
     end
     s.rule:Show()
-    s.ht:SetText(x.name)
+    s.head:SetTitle(x.name)
     s.where:SetText(x.sub)
     local stats = { { Fmt(x.kbMin), "per min" }, { ("%.1f"):format(x.callsS), "calls / s" }, { Fmt(x.worstKb), "worst call" } }
     for i, st in ipairs(s.stats) do st[1]:SetText(stats[i][1]) st[2]:SetText(stats[i][2]) end
@@ -994,10 +851,10 @@ local function FillGarbage(p)
     local v = p.views.garbage
     local c = v.list
     local rows, r = MeasuredRows(state.byFile)
-    c.group:SetLabel(state.byFile and "By handler" or "By file")
+    c.group = Link(c, state.byFile and "By handler" or "By file", function() state.byFile = not state.byFile PerfUI:Refresh() end)
     local found = r and r.grew > 0 and min(100, floor(r.attributed / r.grew * 100 + 0.5)) or nil
-    c.note:SetText(r and ("measured %s · %d s%s"):format(Ago(r.at), r.seconds,
-        found and (" · %d%% of the growth found"):format(found) or "") or "")
+    c.head:SetCount(r and ("measured %s · %d s%s"):format(Ago(r.at), r.seconds,
+        found and (" · %d%% of the growth found"):format(found) or "") or nil)
     c.heads[0]:SetText(state.byFile and "File" or "Handler")
     local maxKb = rows[1] and rows[1].kbMin or 1
     local picked
@@ -1009,7 +866,7 @@ local function FillGarbage(p)
         end
     end
     for i, x in ipairs(rows) do
-        local row = Pool(c.rows, i, function()
+        local row = RowAt(c.rows, i, function()
             local hr = HandlerRow(c.child, LIST_W - 18, ROW_H, c.cols)
             hr:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_H)
             hr:SetScript("OnClick", function(self)
@@ -1022,11 +879,12 @@ local function FillGarbage(p)
         row:Set({ kind = x.kind, name = x.name, sub = x.sub, frac = x.kbMin / max(1, maxKb), loop = x.loop, key = x.key,
                   picked = x == picked, cells = GarbageCells(x) })
     end
-    for i = #rows + 1, #c.rows do c.rows[i]:Hide() end
+    UI:HideFrom(c.rows, #rows + 1)
     c.child:SetHeight(max(10, #rows * ROW_H))
     for _, h in pairs(c.heads) do h:SetShown(#rows > 0) end
+    c.empty:SetContent({ glyph = UI.ICON.chart, text = Perf():IsMeasuring() and "Measuring..."
+        or "Press Measure 30 s: every DisasterZone handler is timed and weighed." })
     c.empty:SetShown(#rows == 0)
-    c.empty:SetText(Perf():IsMeasuring() and "Measuring..." or "Press Measure 30 s: every DisasterZone handler is timed and weighed.")
     FillSide(v.side, picked, rows, r)
 end
 
@@ -1035,19 +893,20 @@ end
 ---------------------------------------------------------------------------
 
 local PAGES_W, SAVED_W = 383, W - 383 - GAP
+local SAVED_H = 300
 
--- A box with a scrolled list of simple rows (a name, a grey second name, two numbers, a bar).
+-- A card with a scrolled list of simple rows (a name, a grey second name, two numbers, a bar).
 local function ListBox(v, x, w, h, title, note, heads, rowH, listH)
-    local c = Box(v, x, BODY_Y, w, h, title)
-    c.note:SetText(note)
+    local c = Box(v, x, 0, w, h, title)
+    c.head:SetCount(note)
     c.cols, c.rowH = { w - 92, w - 34 }, rowH
     c.heads = {}
     for i, t in ipairs(heads) do
-        local fs = Cell(c, c.cols[i], -37, 70, 10, C.cap)
+        local fs = Cell(c, c.cols[i], -34, 70, "small", "GOLD_DEEP")
         fs:SetText(t)
         c.heads[i] = fs
     end
-    c.scroll = UI():CreateScrollFrame(c)
+    c.scroll = UI:CreateScrollFrame(c)
     c.scroll:SetPoint("TOPLEFT", 1, -51)
     c.scroll:SetSize(w - 18, listH or (h - 51 - 4))
     c.child = CreateFrame("Frame", nil, c.scroll)
@@ -1059,18 +918,13 @@ local function ListBox(v, x, w, h, title, note, heads, rowH, listH)
 end
 
 local function SimpleRow(parent, w, h, cols)
-    local r = CreateFrame("Frame", nil, parent)
-    r:SetSize(w, h)
-    r.rule = Rect(r, { 1, 1, 1, 0.045 }, "BORDER")
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("TOPLEFT")
-    r.rule:SetPoint("TOPRIGHT")
-    r.name = Text(r, 12, C.text)
+    local r = NewRow(parent, w, h)
+    r.name = UI:Text(r, "emph", "TEXT")
     r.name:SetPoint("TOPLEFT", 12, -6)
-    r.name2 = Text(r, 10, C.dim)
+    r.name2 = UI:Text(r, "small", "DIM")
     r.name2:SetPoint("LEFT", r.name, "RIGHT", 7, -1)
     r.cells = {}
-    for i, x in ipairs(cols) do r.cells[i] = Cell(r, x, -7, 70, 12, i == 1 and C.text or { 0.6, 0.6, 0.64 }) end
+    for i, x in ipairs(cols) do r.cells[i] = Cell(r, x, -7, 70, "emph", i == 1 and "TEXT" or "SUB") end
     r.bar = Bar(r, cols[1] - 90, 2)
     r.bar:SetPoint("BOTTOMLEFT", 12, 4)
     return r
@@ -1079,7 +933,7 @@ end
 local function FillList(c, items, fill)
     local maxV = items[1] and items[1].v or 1
     for i, it in ipairs(items) do
-        local row = Pool(c.rows, i, function()
+        local row = RowAt(c.rows, i, function()
             local sr = SimpleRow(c.child, c.rowW, c.rowH, c.cols)
             sr:SetPoint("TOPLEFT", 0, -(i - 1) * c.rowH)
             return sr
@@ -1087,35 +941,35 @@ local function FillList(c, items, fill)
         fill(row, it, it.v / max(1, maxV))
         row:Show()
     end
-    for i = #items + 1, #c.rows do c.rows[i]:Hide() end
+    UI:HideFrom(c.rows, #items + 1)
     c.child:SetHeight(max(10, #items * c.rowH))
 end
 
 local function CreateMemory(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    v.pages = ListBox(v, PAD, PAGES_W, BODY_H, "Pages built", "kept until a /reload", { "widgets", "built in" }, 30,
+    v.pages = ListBox(v, 0, PAGES_W, BODY_H, "Pages built", "kept until a /reload", { "widgets", "built in" }, 30,
         BODY_H - 51 - 36)
-    v.pages.foot = Text(v.pages, 11, C.grey)
+    v.pages.foot = UI:Text(v.pages, "body", "SUB")
     v.pages.foot:SetPoint("BOTTOMLEFT", 12, 12)
     v.pages.foot:SetWidth(PAGES_W - 24)
-    v.saved = ListBox(v, PAD + PAGES_W + GAP, SAVED_W, 300, "Saved data", "written at logout", { "size", "entries" }, 29)
+    v.saved = ListBox(v, PAGES_W + GAP, SAVED_W, SAVED_H, "Saved data", "written at logout", { "size", "entries" }, 29)
     -- the 3D rooms
-    local r = Box(v, PAD + PAGES_W + GAP, BODY_Y - 300 - GAP, SAVED_W, BODY_H - 300 - GAP, nil)
+    local r = Box(v, PAGES_W + GAP, -SAVED_H - GAP, SAVED_W, BODY_H - SAVED_H - GAP, nil)
     v.rooms = r
-    r.art = Icon(r, 40)
+    r.art = UI:CreateIconTile(r, 40)
     r.art:SetPoint("TOPLEFT", 12, -14)
     r.art.tex:SetTexture(ROOMS_ART)
     r.art.tex:SetTexCoord(0.3, 0.7, 0.42, 0.82)
-    r.title = Text(r, 13, C.gold)
+    r.title = UI:Text(r, "title", "GOLD")
     r.title:SetPoint("TOPLEFT", 62, -13)
     r.title:SetText("3D rooms")
-    r.pill = Pill(r)
+    r.pill = UI:CreatePill(r, nil, nil, 16)
     r.pill:SetPoint("LEFT", r.title, "RIGHT", 10, 0)
-    r.line1 = Text(r, 11, { 0.73, 0.73, 0.76 })
+    r.line1 = UI:Text(r, "body", "SUB")
     r.line1:SetPoint("TOPLEFT", 62, -35)
     r.line1:SetWidth(SAVED_W - 74)
-    r.line2 = Text(r, 10, C.dim)
+    r.line2 = UI:Text(r, "small", "DIM")
     r.line2:SetPoint("TOPLEFT", 62, -53)
     r.line2:SetWidth(SAVED_W - 74)
     return v
@@ -1152,7 +1006,7 @@ local function FillMemory(p)
         row.name2:SetText(it.db)
         row.cells[1]:SetText(Fmt(it.v))
         row.cells[2]:SetText(tostring(it.entries))
-        row.bar:Set(frac, { 0.56, 0.56, 0.6 })
+        row.bar:Set(frac, C.saved)
     end)
     local se = P:Session()
     local r = v.rooms
@@ -1186,89 +1040,78 @@ end
 local function CreateNetwork(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    local c = Box(v, PAD, BODY_Y, LEFT_W, BODY_H, "Addon messages")
+    local c = Box(v, 0, 0, LEFT_W, BODY_H, "Addon messages")
     v.msgs = c
     c.big = {}
     for i, def in ipairs({ { "INV_Letter_15", "In" }, { "INV_Letter_02", "Out" } }) do
         local x = 12 + (i - 1) * 236
-        local ic = Icon(c, 32)
+        local ic = UI:CreateIconTile(c, 32)
         ic:SetPoint("TOPLEFT", x, -42)
-        ic.tex:SetTexture(ICON(def[1]))
-        local n = Text(c, 19, C.white, true)
+        ic:Set(ICON(def[1]))
+        local n = UI:Text(c, "hero", C.white, { font = NUM })
         n:SetPoint("TOPLEFT", x + 42, -40)
-        local sub = Text(c, 10, C.grey)
+        local sub = UI:Text(c, "small", "SUB")
         sub:SetPoint("TOPLEFT", x + 42, -64)
         c.big[i] = { n = n, sub = sub, label = def[2] }
     end
-    HLine(c, -92)
+    UI:Rule(c, { top = 92, left = 12, right = 12 })
     c.cols = { 256, 314, 394, 460 }
-    local hd = Text(c, 10, C.cap)
-    hd:SetPoint("TOPLEFT", 12, -100)
-    hd:SetText("Prefix")
-    for i, t in ipairs({ "in / min", "KB", "out / min", "KB" }) do Cell(c, c.cols[i], -100, 70, 10, C.cap):SetText(t) end
+    local hd = UI:CreateColumnHeader(c, 14)
+    hd:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -98)
+    hd:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -98)
+    hd:AddColumn("Prefix", 12, 120)
+    for i, t in ipairs({ "in / min", "KB", "out / min", "KB" }) do hd:AddColumn(t, c.cols[i] - 54, 54, { justify = "RIGHT" }) end
     c.rows = {}
     for i = 1, 5 do
-        local r = CreateFrame("Frame", nil, c)
-        r:SetSize(LEFT_W - 2, 32)
+        local r = NewRow(c, LEFT_W - 2, 32)
         r:SetPoint("TOPLEFT", 1, -116 - (i - 1) * 32)
-        r.rule = Rect(r, { 1, 1, 1, 0.045 }, "BORDER")
-        r.rule:SetHeight(1)
-        r.rule:SetPoint("TOPLEFT")
-        r.rule:SetPoint("TOPRIGHT")
-        r.p = Text(r, 12, { 1, 0.75, 0.54 }, true)
+        r.p = UI:Text(r, "emph", C.prefix, { font = NUM })
         r.p:SetPoint("TOPLEFT", 12, -3)
-        r.what = Text(r, 10, C.dim)
+        r.what = UI:Text(r, "small", "DIM")
         r.what:SetPoint("TOPLEFT", 12, -18)
         r.cells = {}
-        for j, x in ipairs(c.cols) do r.cells[j] = Cell(r, x - 1, -9, 70, 12, j % 2 == 1 and C.white or { 0.66, 0.66, 0.7 }) end
+        for j, x in ipairs(c.cols) do r.cells[j] = Cell(r, x - 1, -9, 70, "emph", j % 2 == 1 and C.white or "SUB") end
         c.rows[i] = r
     end
-    HLine(c, -288)
-    c.ctl = Text(c, 12, C.text)
+    UI:Rule(c, { top = 288, left = 12, right = 12 })
+    c.ctl = UI:Text(c, "emph", "TEXT")
     c.ctl:SetPoint("TOPLEFT", 12, -298)
     c.ctl:SetText("ChatThrottleLib")
-    c.ctlPill = Pill(c)
+    c.ctlPill = UI:CreatePill(c, nil, nil, 16)
     c.ctlPill:SetPoint("LEFT", c.ctl, "RIGHT", 10, 0)
-    c.ctl1 = Text(c, 10, C.grey)
+    c.ctl1 = UI:Text(c, "small", "SUB")
     c.ctl1:SetPoint("TOPLEFT", 12, -318)
     c.ctl1:SetWidth(LEFT_W - 24)
-    c.ctl2 = Text(c, 10, C.grey)
+    c.ctl2 = UI:Text(c, "small", "SUB")
     c.ctl2:SetPoint("TOPLEFT", 12, -334)
     c.ctl2:SetWidth(LEFT_W - 24)
-    c.ctl3 = Text(c, 10, C.dim)
+    c.ctl3 = UI:Text(c, "small", "DIM")
     c.ctl3:SetPoint("TOPLEFT", 12, -358)
     c.ctl3:SetWidth(LEFT_W - 24)
-    c.empty = Text(c, 11, C.dim, false, "CENTER")
-    c.empty:SetPoint("TOPLEFT", 10, -160)
-    c.empty:SetWidth(LEFT_W - 20)
+    c.empty = UI:CreateEmptyState(c, { compact = true, glyph = UI.ICON.whisper, width = LEFT_W - 60 })
+    c.empty:SetPoint("TOP", c, "TOP", 0, -130)
     -- who sends the most
-    local s = Box(v, PAD + LEFT_W + GAP, BODY_Y, RIGHT_W, BODY_H, "Who sends the most")
+    local s = Box(v, LEFT_W + GAP, 0, RIGHT_W, BODY_H, "Who sends the most")
     v.who = s
-    Cell(s, RIGHT_W - 60, -38, 80, 10, C.cap):SetText("msgs / min")
-    Cell(s, RIGHT_W - 12, -38, 40, 10, C.cap):SetText("KB")
+    Cell(s, RIGHT_W - 60, -38, 80, "small", "GOLD_DEEP"):SetText("msgs / min")
+    Cell(s, RIGHT_W - 12, -38, 40, "small", "GOLD_DEEP"):SetText("KB")
     s.rows = {}
     for i = 1, 11 do
-        local r = CreateFrame("Frame", nil, s)
-        r:SetSize(RIGHT_W - 2, 29)
+        local r = NewRow(s, RIGHT_W - 2, 29)
         r:SetPoint("TOPLEFT", 1, -52 - (i - 1) * 29)
-        r.rule = Rect(r, { 1, 1, 1, 0.045 }, "BORDER")
-        r.rule:SetHeight(1)
-        r.rule:SetPoint("TOPLEFT")
-        r.rule:SetPoint("TOPRIGHT")
         r.face = RoundIcon(r, 17)
         r.face:SetPoint("LEFT", 8, 1)
-        r.name = Text(r, 12, C.text)
+        r.name = UI:Text(r, "emph", "TEXT")
         r.name:SetPoint("TOPLEFT", 34, -6)
         r.name:SetWidth(RIGHT_W - 34 - 112)
-        r.n = Cell(r, RIGHT_W - 60, -7, 70, 12, C.text)
-        r.kb = Cell(r, RIGHT_W - 12, -7, 40, 12, { 0.6, 0.6, 0.64 })
+        r.n = Cell(r, RIGHT_W - 60, -7, 70, "emph", "TEXT")
+        r.kb = Cell(r, RIGHT_W - 12, -7, 40, "emph", "SUB")
         r.bar = Bar(r, RIGHT_W - 34 - 120, 2)
         r.bar:SetPoint("BOTTOMLEFT", 34, 4)
         s.rows[i] = r
     end
-    s.empty = Text(s, 11, C.dim, false, "CENTER")
-    s.empty:SetPoint("TOPLEFT", 10, -80)
-    s.empty:SetWidth(RIGHT_W - 20)
+    s.empty = UI:CreateEmptyState(s, { compact = true, glyph = UI.ICON.team, width = RIGHT_W - 40 })
+    s.empty:SetPoint("TOP", s, "TOP", 0, -60)
     return v
 end
 
@@ -1277,7 +1120,7 @@ local function FillNetwork(p)
     local n = P:Network()
     local mins = max(1, n.span) / 60
     local c = v.msgs
-    c.note:SetText(P.net.last and "the last minute" or ("the first %d s"):format(floor(n.span)))
+    c.head:SetCount(P.net.last and "the last minute" or ("the first %d s"):format(floor(n.span)))
     local inN, inB, outN, outB = 0, 0, 0, 0
     for _, x in ipairs(n.prefixes) do inN, inB, outN, outB = inN + x.inN, inB + x.inB, outN + x.outN, outB + x.outB end
     local big = { { inN, inB }, { outN, outB } }
@@ -1298,8 +1141,8 @@ local function FillNetwork(p)
             r:Hide()
         end
     end
+    c.empty:SetContent({ glyph = UI.ICON.whisper, text = "No addon messages yet." })
     c.empty:SetShown(#n.prefixes == 0)
-    c.empty:SetText("No addon messages yet.")
     local t = P:Throttle()
     if t.max then
         c.ctlPill:SetKind(t.queueing and "queueing" or "no queue", t.queueing and "warn" or "ok")
@@ -1324,14 +1167,14 @@ local function FillNetwork(p)
             r.name:SetText(x.who:match("^([^%-]+)") or x.who)
             r.n:SetText(("%.0f"):format(x.inN / mins))
             r.kb:SetText(("%.1f"):format(x.inB / 1024 / mins))
-            r.bar:Set(x.inN / max(1, maxN), { 1, 0.6, 0.4 })
+            r.bar:Set(x.inN / max(1, maxN), C.peer)
             r:Show()
         else
             r:Hide()
         end
     end
+    s.empty:SetContent({ glyph = UI.ICON.team, text = "Nobody has sent anything yet." })
     s.empty:SetShown(#n.senders == 0)
-    s.empty:SetText("Nobody has sent anything yet.")
 end
 
 ---------------------------------------------------------------------------
@@ -1341,46 +1184,44 @@ end
 local function CreateCPU(p)
     local v = CreateFrame("Frame", nil, p)
     v:SetAllPoints(p)
-    local c = Box(v, PAD, BODY_Y, LEFT_W, 228, "CPU over the last hour")
+    local c = Box(v, 0, 0, LEFT_W, 228, "CPU over the last hour")
     v.hour = c
     c.chart = Chart(c, 14, -54, LEFT_W - 28, 124)
     c.facts = {}
     for i, label in ipairs({ "Now", "This session", "Boss fights", "Slowest frame" }) do
-        local n = Text(c, 15, C.white, true)
+        local n = UI:Text(c, "title", C.white, { font = NUM })
         n:SetPoint("TOPLEFT", 14 + (i - 1) * 118, -188)
-        local cap = Text(c, 10, C.grey)
+        local cap = UI:Text(c, "small", "SUB")
         cap:SetPoint("TOPLEFT", n, "BOTTOMLEFT", 0, -1)
         cap:SetText(label)
         c.facts[i] = n
     end
-    local s = Box(v, PAD + LEFT_W + GAP, BODY_Y, RIGHT_W, 228, "Slow frames")
+    local s = Box(v, LEFT_W + GAP, 0, RIGHT_W, 228, "Slow frames")
     v.slow = s
-    s.sub = Text(s, 10, C.dim)
+    s.sub = UI:Text(s, "small", "DIM")
     s.sub:SetPoint("TOPLEFT", 12, -36)
     s.sub:SetText("frames DisasterZone took longer than")
     s.rows = {}
     for i = 1, 5 do
         local y = -56 - (i - 1) * 32
-        local ms = Text(s, 12, C.text, true)
+        local ms = UI:Text(s, "emph", "TEXT", { font = NUM })
         ms:SetPoint("TOPLEFT", 12, y - 2)
         local bar = Bar(s, 150, 6)
         bar:SetPoint("TOPLEFT", 62, y - 6)
-        local n = Cell(s, RIGHT_W - 12, y - 2, 60, 12, C.white)
+        local n = Cell(s, RIGHT_W - 12, y - 2, 60, "emph", C.white)
         s.rows[i] = { ms = ms, bar = bar, n = n }
     end
-    s.empty = Text(s, 11, C.dim, false, "CENTER")
-    s.empty:SetPoint("TOPLEFT", 10, -100)
-    s.empty:SetWidth(RIGHT_W - 20)
-    local g = Box(v, PAD, BODY_Y - 228 - GAP, W, BODY_H - 228 - GAP, "Most CPU right now")
+    s.empty = UI:CreateEmptyState(s, { compact = true, glyph = UI.ICON.stopwatch or UI.ICON.play, width = RIGHT_W - 40 })
+    s.empty:SetPoint("TOP", s, "TOP", 0, -50)
+    local g = Box(v, 0, -228 - GAP, W, BODY_H - 228 - GAP, "Most CPU right now")
     v.top = g
-    g.note:SetText("from the last Measure · milliseconds of each second")
+    g.head:SetCount("from the last Measure · milliseconds of each second")
     Link(g, "Garbage", function() PerfUI:SetTab("garbage") end)
     g.cols = { W - 136, W - 70, W - 12 }
-    g.heads = Heads(g, -37, "Handler", { "ms / s", "calls / s", "worst ms" }, g.cols)
+    g.heads = Heads(g, -34, "Handler", { "ms / s", "calls / s", "worst ms" }, g.cols)
     g.rows = {}
-    g.empty = Text(g, 11, C.dim, false, "CENTER")
-    g.empty:SetPoint("TOPLEFT", 10, -80)
-    g.empty:SetWidth(W - 20)
+    g.empty = UI:CreateEmptyState(g, { compact = true, glyph = UI.ICON.chart, width = W - 200 })
+    g.empty:SetPoint("TOP", g, "TOP", 0, -40)
     return v
 end
 
@@ -1393,7 +1234,7 @@ local function FillCPU(p)
     c.chart:Set((cpu and not cpu.off) and values or {}, { color = C.cpu, unit = "ms", min = 0.5,
         empty = cpu and (cpu.off and "The addon profiler is turned off." or "No samples yet: one comes every 10 s.")
             or "This client has no addon profiler." })
-    local function ms(x) return x and ("%.2f |cff8f8f95ms|r"):format(x) or "-" end
+    local function ms(x) return x and (("%.2f "):format(x) .. S:Wrap("DIM", "ms")) or "-" end
     local facts = { cpu and cpu.recent, cpu and cpu.session, cpu and cpu.boss, cpu and cpu.peak }
     for i, f in ipairs(c.facts) do f:SetText(ms(facts[i])) end
     local s = v.slow
@@ -1404,7 +1245,7 @@ local function FillCPU(p)
         local o = over[i]
         if o then
             r.ms:SetText(o.ms .. " ms")
-            r.bar:Set(o.n / mx, o.ms >= 50 and C.red or (o.ms >= 10 and C.mem or C.cpu))
+            r.bar:Set(o.n / mx, o.ms >= 50 and "BAD" or (o.ms >= 10 and C.mem or C.cpu))
             r.n:SetText(tostring(o.n))
             r.ms:Show() r.bar:Show() r.n:Show()
         else
@@ -1412,15 +1253,16 @@ local function FillCPU(p)
         end
     end
     s.sub:SetShown(#over > 0)
+    s.empty:SetContent({ glyph = UI.ICON.stopwatch or UI.ICON.play,
+        text = cpu and "The profiler gives no slow-frame counts here." or "This client has no addon profiler." })
     s.empty:SetShown(#over == 0)
-    s.empty:SetText(cpu and "The profiler gives no slow-frame counts here." or "This client has no addon profiler.")
     local g = v.top
     local rows = MeasuredRows(false)
     tsort(rows, function(a, b) return a.msS > b.msS end)
     local maxMs = rows[1] and rows[1].msS or 1
     for i = 1, 3 do
         local x = rows[i]
-        local row = Pool(g.rows, i, function()
+        local row = RowAt(g.rows, i, function()
             local hr = HandlerRow(g, W - 2, 36, g.cols)
             hr:SetPoint("TOPLEFT", 1, -51 - (i - 1) * 36)
             hr:SetScript("OnClick", function(self) state.picked = self.data and self.data.key PerfUI:SetTab("garbage") end)
@@ -1434,12 +1276,12 @@ local function FillCPU(p)
         end
     end
     for _, h in pairs(g.heads) do h:SetShown(#rows > 0) end
+    g.empty:SetContent({ glyph = UI.ICON.chart, text = "Measure 30 s to see which handlers take the most time." })
     g.empty:SetShown(#rows == 0)
-    g.empty:SetText("Measure 30 s to see which handlers take the most time.")
 end
 
 ---------------------------------------------------------------------------
--- The page
+-- The page: a Board (UI:CreateLayout "board"): the tabs, Clean up and Measure in its toolbar, the banner, the cards
 ---------------------------------------------------------------------------
 
 local TABS = { { "overview", "Overview" }, { "garbage", "Garbage" }, { "memory", "Memory" }, { "network", "Network" },
@@ -1455,7 +1297,7 @@ end
 function PerfUI:Refresh()
     local p = panel
     if not (p and p:IsVisible()) then return end
-    for k, t in pairs(p.tabs) do t:SetActive(k == state.tab) end
+    p.layout.toolbar:SelectTab(state.tab)
     for k, v in pairs(p.views) do v:SetShown(k == state.tab) end
     local on, elapsed, secs = Perf():IsMeasuring()
     if on then
@@ -1463,8 +1305,8 @@ function PerfUI:Refresh()
         p.measure:SetEnabled(false)
     else
         -- (the addon's own icons: a stopwatch from art pack 7, else play)
-        local icon = ns:HasAssets(7) and UI().ICON.stopwatch or UI().ICON.play
-        p.measure:SetText(UI():AtlasIconText(icon, 13) .. "  " .. ("Measure %d s"):format(MEASURE_S))
+        local icon = ns:HasAssets(7) and UI.ICON.stopwatch or UI.ICON.play
+        p.measure:SetText(UI:AtlasIconText(icon, 13) .. "  " .. ("Measure %d s"):format(MEASURE_S))
         p.measure:SetEnabled(not (InCombatLockdown and InCombatLockdown()))
     end
     FillBanner(p)
@@ -1476,35 +1318,35 @@ function PerfUI:CreatePanel(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
     panel = p
+    local art = { ART, 0.04, 0.96, 0.36, 0.36 + 0.92 * (S.BANNER.tool / W) * (4 / 3) }
+    local L = UI:CreateLayout("board", p, { hero = { size = "tool", art = art } })
+    p.layout = L
+    -- the toolbar: the tabs; Clean up (its filter) and Measure 30 s (the main action) at the right
+    local tabs = {}
+    for i, t in ipairs(TABS) do tabs[i] = { key = t[1], text = t[2] } end
+    tabs.selected = state.tab
+    L.toolbar:SetTabs(tabs, function(key) PerfUI:SetTab(key) end)
     p.tabs = {}
-    local prev
-    for _, t in ipairs(TABS) do
-        local key = t[1]
-        local tab = UI():CreateUnderlineTab(p, t[2], function() PerfUI:SetTab(key) end, "page")
-        if prev then tab:SetPoint("LEFT", prev, "RIGHT", 14, 0) else tab:SetPoint("TOPLEFT", PAD - 2, TAB_Y) end
-        p.tabs[key] = tab
-        prev = tab
-    end
-    p.measure = UI():CreateSleekButton(p, "Measure", 132, 24, function()
-        if not Perf():Measure(MEASURE_S, function() PerfUI:Refresh() end) then
-            ns:Print("Measure waits until you are out of combat, and runs one at a time.")
-        end
-        PerfUI:SetTab("garbage")
-    end, "primary")
-    p.measure:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, TAB_Y)
-    p.clean = UI():CreateSleekButton(p, UI():AtlasIconText(UI().ICON.disenchant, 13) .. "  Clean up", 104, 24, function()
+    for _, t in ipairs(TABS) do p.tabs[t[1]] = L.toolbar:GetTab(t[1]) end
+    p.measure = L.toolbar:SetPrimary({ text = ("Measure %d s"):format(MEASURE_S), width = 132,
+        icon = ns:HasAssets(7) and UI.ICON.stopwatch or UI.ICON.play, onClick = function()
+            if not Perf():Measure(MEASURE_S, function() PerfUI:Refresh() end) then
+                ns:Print("Measure waits until you are out of combat, and runs one at a time.")
+            end
+            PerfUI:SetTab("garbage")
+        end })
+    p.clean = UI:CreateSleekButton(L.toolbar, UI:AtlasIconText(UI.ICON.disenchant, 13) .. "  Clean up", 104, S.BTN_H,
+        function()
             Perf():CleanUp()
             PerfUI:Refresh()
         end)
-    p.clean:SetPoint("RIGHT", p.measure, "LEFT", -8, 0)
-    p.clean:HookScript("OnEnter", function(b)
-        UI():SetTextTooltip(b, { "Clean up now", "A full garbage collection (the game pauses a moment): what is left is "
-            .. "what DisasterZone really holds." }, "ANCHOR_BOTTOMLEFT")
-    end)
-    p.clean:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    p.banner = CreateBanner(p)
-    p.views = { overview = CreateOverview(p), garbage = CreateGarbage(p), memory = CreateMemory(p),
-                network = CreateNetwork(p), cpu = CreateCPU(p) }
+    UI:AttachTooltip(p.clean, "Clean up now", "A full garbage collection (the game pauses a moment): what is left is "
+        .. "what DisasterZone really holds.", { anchor = "ANCHOR_BOTTOMLEFT" })
+    L.toolbar:SetFilters({ p.clean })
+    p.banner = CreateBanner(p, L.banner)
+    local body = L.body
+    p.views = { overview = CreateOverview(body), garbage = CreateGarbage(body), memory = CreateMemory(body),
+                network = CreateNetwork(body), cpu = CreateCPU(body) }
     p:SetScript("OnShow", function()
         if p.ticker then p.ticker:Cancel() end
         p.ticker = C_Timer.NewTicker(2, function() PerfUI:Refresh() end)
@@ -1526,7 +1368,7 @@ end
 function PerfUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
         ns.MainFrame:RegisterTab("perf", "Performance", 3.92, function(parent) return PerfUI:CreatePanel(parent) end,
-            function() return ns.Perf and ns.Perf:IsOn() end)
+            function() return ns.Perf and ns.Perf:IsOn() end, { layout = "board" })
     end
     ns:On("PERF_UPDATED", function() PerfUI:Refresh() end)
     if ns.Perf and ns.Perf:IsOn() then           -- (/dz perf: only where the page is, like the page)
