@@ -22,9 +22,7 @@ RaidNights.DAYS = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Sat
 RaidNights.SHORT = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
 RaidNights.LETTERS = { "M", "T", "W", "T", "F", "S", "S" }
 
-local function IsInt(n, lo, hi)
-    return type(n) == "number" and n == floor(n) and n >= lo and n <= hi
-end
+local IsInt = ns.Util.IsInt
 
 -- The nights from the wire (nt): a clean list sorted by start, nil when none is given, false when invalid. An empty
 -- list (or false: "no nights", written by a client that knows them) is {}.
@@ -80,7 +78,7 @@ function RaidNights:Offset()
     if not GetGameTime then return 0 end
     local h, m = GetGameTime()
     if type(h) ~= "number" or type(m) ~= "number" then return 0 end
-    local t = date("*t", (GetServerTime and GetServerTime()) or time())
+    local t = date("*t", ns.Util.Now())
     local d = (t.hour * 60 + t.min) - (h * 60 + m)
     d = floor(d / self.STEP + 0.5) * self.STEP
     d = (d + 720) % 1440 - 720

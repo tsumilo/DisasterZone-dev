@@ -63,7 +63,7 @@ local hooked = false
 local function Me() return Util.PlayerKey() end
 local function Live() return ns.EventLive end
 local function B() return ns.EventBlocks end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+local DemoOn = Util.DemoOn
 
 local function Contains(list, v)
     if type(list) ~= "table" then return nil end

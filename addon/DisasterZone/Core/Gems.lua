@@ -48,9 +48,11 @@ local ITEM_TYPE = {
 }
 local WEAPON_CLASS = 2
 local STAFF, BOW, GUN, CROSSBOW = 10, 2, 3, 18
-local ENCHANTING = 333
-local PROFESSION_IDS = { Enchanting = 333, Engineering = 202, Jewelcrafting = 755, Leatherworking = 165,
-                         Tailoring = 197 }
+
+local PIDS = ns.PROFESSION_IDS   -- (the professions with enchants or gems of their own; ids from Constants)
+local PROFESSION_IDS = { Enchanting = PIDS.Enchanting, Engineering = PIDS.Engineering,
+                         Jewelcrafting = PIDS.Jewelcrafting, Leatherworking = PIDS.Leatherworking,
+                         Tailoring = PIDS.Tailoring }
 
 local function Data() return ns.Data or {} end
 

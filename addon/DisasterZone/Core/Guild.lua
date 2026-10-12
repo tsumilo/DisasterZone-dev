@@ -72,18 +72,7 @@ local function MaxPhase()
     return ns.MAX_PHASE or 5
 end
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
-
-local function IsInt(n, lo, hi)
-    return type(n) == "number" and n == floor(n) and n >= lo and n <= hi
-end
-
-local function DemoOn()
-    local Demo = ns.Demo
-    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
-end
+local Now, IsInt, DemoOn = Util.Now, Util.IsInt, Util.DemoOn
 
 local function DemoRoster()
     local Demo = ns.Demo
@@ -106,11 +95,7 @@ local function Send(msg, dist, target, class)
     return (Comm and Comm.Send and Comm:Send(msg, dist, target, class)) and true or false
 end
 
-local function RateLimit(key, seconds)
-    local Comm = ns.Comm
-    if not (Comm and Comm.RateLimit) then return true end
-    return Comm:RateLimit(key, seconds)
-end
+local RateLimit = Util.RateLimit
 
 ---------------------------------------------------------------------------
 -- Name lists
@@ -1067,18 +1052,10 @@ local function OwnJitter(lo, spread, salt)
 end
 
 local function AccountsDB(create)
-    local db, gk = ns.db, GuildKey()
-    if not db or not gk then return nil end
-    if type(db.accounts) ~= "table" then
-        if not create then return nil end
-        db.accounts = {}
-    end
-    local rec = db.accounts[gk]
-    if type(rec) ~= "table" then
-        if not create then return nil end
-        rec = {}
-        db.accounts[gk] = rec
-    end
+    local gk = GuildKey()
+    if not gk then return nil end
+    local rec = ns.DB:GuildBucket("accounts", create, gk)
+    if not rec then return nil end
     if type(rec.mine) ~= "table" then rec.mine = {} end
     if type(rec.v) ~= "table" then rec.v = {} end
     return rec

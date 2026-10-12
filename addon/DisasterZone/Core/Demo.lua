@@ -48,15 +48,15 @@ local ALT_CHANCE = 0.4
 ---------------------------------------------------------------------------
 
 local SEED = 20070116   -- TBC release date
-local rngState = SEED
+-- (Util.NewRng(SEED - 1) starts from the state SEED: the sequence the demo data was always drawn from)
+local listRng = ns.Util.NewRng(SEED - 1)
 
 local function Reseed()
-    rngState = SEED
+    listRng = ns.Util.NewRng(SEED - 1)
 end
 
 local function Rnd()
-    rngState = (rngState * 16807) % 2147483647
-    return rngState / 2147483647
+    return listRng.Next()
 end
 
 local function RndInt(n)
@@ -67,9 +67,7 @@ end
 -- Generation
 ---------------------------------------------------------------------------
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
+local Now = ns.Util.Now
 
 local function PickItem(list, exclude)
     local pool = {}
@@ -347,20 +345,9 @@ end
 
 local ROLL_FORMAT_FALLBACK = "%s rolls %d (%d-%d)"
 
--- Small independent Park-Miller generator, seeded per item so the same item always plays out the
+-- Small independent Park-Miller generator (Util.NewRng), seeded per item so the same item always plays out the
 -- same way (and the list generator's sequence is not disturbed).
-local function NewRng(seed)
-    local state = (floor(tonumber(seed) or 1) % 2147483646) + 1
-    local rng = {}
-    function rng.Next()
-        state = (state * 16807) % 2147483647
-        return state / 2147483647
-    end
-    function rng.Int(n)
-        return 1 + floor(rng.Next() * n)
-    end
-    return rng
-end
+local NewRng = ns.Util.NewRng
 
 local function Shuffle(list, rng)
     for i = #list, 2, -1 do

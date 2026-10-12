@@ -45,14 +45,7 @@ local WARN_ICON = "|TInterface\\DialogFrame\\UI-Dialog-Icon-AlertNew:0|t"   -- t
 local function MaxPhase() return ns.MAX_PHASE or 5 end
 local function NumSlots() return ns.NUM_SLOTS or 17 end
 
-local function IsInt(x, lo, hi)
-    return type(x) == "number" and x == floor(x) and x >= lo and x <= hi
-end
-
-local function DemoOn()
-    local Demo = ns.Demo
-    return Demo and Demo.IsEnabled and Demo:IsEnabled() and true or false
-end
+local IsInt, DemoOn = Util.IsInt, Util.DemoOn
 
 local function DemoRecords()
     local Demo = ns.Demo

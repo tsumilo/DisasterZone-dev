@@ -25,7 +25,7 @@ local active                 -- { occ, plan = { [key] = g }, name,
                              --   invited = { [key] = GetTime() }, failed = { [key] = "declined" | "offline" |
                              --   "grouped" }, at, session, wasInGroup, announced, waitCombat, offline = { key, ... } }
 
-local function Now() return GetServerTime() end
+local Now = Util.Now
 
 local function IsLeaderOrAssist()
     if not IsInGroup() then return false end

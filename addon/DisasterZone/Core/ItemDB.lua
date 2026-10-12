@@ -1298,6 +1298,12 @@ function ItemDB:GetQuality(itemID)
     return nil
 end
 
+-- What chat and messages name an item by: its link, else its name, else "item <id>" (still loading). The Core
+-- modules' one copy (the UI's is UI:ItemLabel, which gives nil while loading).
+function ItemDB:GetLabel(itemID)
+    return self:GetLink(itemID) or self:GetName(itemID) or ("item " .. tostring(itemID))
+end
+
 function ItemDB:GetIcon(itemID)
     itemID = tonumber(itemID)
     local icon = itemID and C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)

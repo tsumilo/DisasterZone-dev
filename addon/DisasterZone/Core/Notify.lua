@@ -39,7 +39,7 @@ local loaded = false
 local Revive               -- (below: saved posts back in the feed)
 local dirtyKinds, refreshQueued = {}, false
 
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now = ns.Util.Now
 local function Me() return ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() end
 local function IdOf(kind, key) return kind .. "\1" .. tostring(key) end
 
@@ -48,7 +48,7 @@ local function IdOf(kind, key) return kind .. "\1" .. tostring(key) end
 -- Demo mode (the fake guild): the feed lives in memory only, so no demo names or ids reach SavedVariables; switching
 -- demo on or off starts the feed afresh (DEMO_TOGGLED below).
 local demoStore
-local function IsDemo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false end
+local IsDemo = ns.Util.DemoOn
 
 local function Store()
     local db, me = ns.db, Me()

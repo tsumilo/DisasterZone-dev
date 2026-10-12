@@ -174,13 +174,9 @@ end
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now, IsInt, DemoOn = Util.Now, Util.IsInt, Util.DemoOn
 local function Me() return Util.PlayerKey() end
-local function IsInt(n, lo, hi)
-    return type(n) == "number" and n == floor(n) and (lo == nil or n >= lo) and (hi == nil or n <= hi)
-end
 local function G() return ns.Guild end
-local function DemoOn() local D = ns.Demo; return (D and D.IsEnabled and D:IsEnabled()) and true or false end
 
 local function Send(msg, dist, target)
     if DemoOn() then return false end
@@ -224,8 +220,7 @@ end
 -- A delay of lo..hi seconds spread by my name and `salt` (members answer at different moments). Not math.random: the
 -- rest of the addon draws its own jitters from it, and taking numbers out of turn would shift all of theirs.
 local function Jitter(lo, hi, salt, fn)
-    local h = Util.Adler32((Me() or "?") .. ":" .. tostring(salt or ""))
-    Util.After(lo + (h % 1000) / 1000 * (hi - lo), fn)
+    Util.After(lo + Util.Jitter(":" .. tostring(salt or ""), hi - lo), fn)
 end
 
 local function InCombat()

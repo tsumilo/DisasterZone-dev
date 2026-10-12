@@ -83,12 +83,12 @@ local answerSent = {}         -- [occId .. "/" .. aid .. "@" .. at] = GetTime() 
 local myPoint = {}            -- [occId] = pid: the place I asked to be shown the way to (PointMe; never sent)
 local ANSWER_AGAIN = 5        -- an answer the host's state doesn't show is sent again after this long (once a state)
 
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now = Util.Now
 local function Me() return Util.PlayerKey() end
 local function Events() return ns.Events end
 local function E() return ns.EventEngine end
 local function B() return ns.EventBlocks end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+local DemoOn = Util.DemoOn
 
 local function WireKey(s)
     if type(s) ~= "string" or s == "" or #s > 48 or s:find("[%c|]") then return nil end

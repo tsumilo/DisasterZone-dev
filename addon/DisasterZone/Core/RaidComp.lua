@@ -11,26 +11,6 @@ local tsort = table.sort
 
 local I = "Interface\\Icons\\"
 
--- Spec icons, by class and spec label (ns.SPECS).
-local SPEC_ICONS = {
-    WARRIOR = { Arms = "Ability_Warrior_SavageBlow", Fury = "Ability_Warrior_InnerRage",
-                Protection = "Ability_Warrior_DefensiveStance" },
-    PALADIN = { Holy = "Spell_Holy_HolyBolt", Protection = "Spell_Holy_DevotionAura",
-                Retribution = "Spell_Holy_AuraOfLight" },
-    HUNTER = { ["Beast Mastery"] = "Ability_Hunter_BeastTaming", Marksmanship = "Ability_Marksmanship",
-               Survival = "Ability_Hunter_SwiftStrike" },
-    ROGUE = { Assassination = "Ability_Rogue_Eviscerate", Combat = "Ability_BackStab", Subtlety = "Ability_Stealth" },
-    PRIEST = { Discipline = "Spell_Holy_WordFortitude", Holy = "Spell_Holy_HolyBolt",
-               Shadow = "Spell_Shadow_ShadowWordPain" },
-    SHAMAN = { Elemental = "Spell_Nature_Lightning", Enhancement = "Spell_Nature_LightningShield",
-               Restoration = "Spell_Nature_MagicImmunity" },
-    MAGE = { Arcane = "Spell_Holy_MagicalSentry", Fire = "Spell_Fire_FireBolt02", Frost = "Spell_Frost_FrostBolt02" },
-    WARLOCK = { Affliction = "Spell_Shadow_DeathCoil", Demonology = "Spell_Shadow_Metamorphosis",
-                Destruction = "Spell_Shadow_RainOfFire" },
-    DRUID = { Balance = "Spell_Nature_StarFall", ["Feral (Cat)"] = "Ability_Druid_CatForm",
-              ["Feral (Bear)"] = "Ability_Racial_BearForm", Restoration = "Spell_Nature_HealingTouch" },
-}
-
 -- p = { class, spec label | nil (any spec) }. scope "party" = only the caster's group; "raid" = everyone.
 local BUFFS = {
     -- Party-wide (these decide the group layout)
@@ -108,12 +88,10 @@ function RaidComp:SpecLabel(classFile, sp)
     return SpecLabel(classFile, sp)
 end
 
--- Icon path of a spec (nil when unknown).
+-- Icon path of a spec (nil when unknown): the spec's icon on ns.SPECS.
 function RaidComp:SpecIcon(classFile, sp)
-    local label = SpecLabel(classFile, sp)
-    local icons = classFile and SPEC_ICONS[classFile]
-    local name = icons and label and icons[label]
-    return name and (I .. name) or nil
+    if type(sp) ~= "number" then return nil end
+    return ns.SpecIcon(classFile, sp)
 end
 
 function RaidComp:BuffIcon(b)
@@ -463,8 +441,12 @@ local PRESETS = {
     } },
 }
 
-local RAID_SHORT = { kara = "Kara", gruul = "Gruul", mag = "Mag", ssc = "SSC", tk = "TK", hyjal = "Hyjal", bt = "BT",
-                     za = "ZA", swp = "SWP" }
+-- A raid planner instance key's short name ("Kara", ..., "SWP"; ItemDB's raid table), nil for "other" and any other
+-- key (the planner's keys only, as before).
+local function RaidShort(key)
+    local IDB = ns.ItemDB
+    return type(key) == "string" and IDB:PlanKeyOf(key) == key and IDB:RaidShort(key) or nil
+end
 
 RaidComp.COLUMNS = COLUMNS
 RaidComp.PRESETS = PRESETS
@@ -479,7 +461,7 @@ local function Role(classFile, sp)
 end
 
 local function ClassName(classFile)
-    return type(classFile) == "string" and (ns.CLASS_NAMES and ns.CLASS_NAMES[classFile] or classFile) or nil
+    return ns.ClassName(classFile)
 end
 
 -- "Holy Paladin", "Feral Druid (Bear)"; the class name alone without a known spec.
@@ -765,18 +747,18 @@ end
 function RaidComp:ShortRaidName(v)
     if type(v) ~= "table" then return nil end
     -- (1.3.2: a raid of several instances, "Gruul + Mag")
-    if type(v.ix) == "table" and v.ix[1] and RAID_SHORT[v.i] then
+    if type(v.ix) == "table" and v.ix[1] and RaidShort(v.i) then
         local list = { v.i }
         for _, key in ipairs(v.ix) do if key ~= v.i then list[#list + 1] = key end end
         return self:ShortInstanceNames(list)
     end
-    return RAID_SHORT[v.i] or v.ti or "Raid"
+    return RaidShort(v.i) or v.ti or "Raid"
 end
 
 -- Instance keys -> "Gruul + Mag" (an instance without a short name: "Other").
 function RaidComp:ShortInstanceNames(list)
     local names = {}
-    for i, key in ipairs(type(list) == "table" and list or {}) do names[i] = RAID_SHORT[key] or "Other" end
+    for i, key in ipairs(type(list) == "table" and list or {}) do names[i] = RaidShort(key) or "Other" end
     return tconcat(names, " + ")
 end
 

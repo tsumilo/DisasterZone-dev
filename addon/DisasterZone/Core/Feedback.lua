@@ -91,13 +91,7 @@ local ASK_LIMIT = 3000          -- ids one member may ask me for in a session
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
-
-local function IsInt(n, lo, hi)
-    return type(n) == "number" and n == floor(n) and n >= lo and n <= hi
-end
+local Now, IsInt = Util.Now, Util.IsInt
 
 local function G() return ns.Guild end
 
@@ -126,10 +120,7 @@ end
 local function Short(key) return Util.ShortName(key) end
 
 -- A short deterministic delay (0..span) for this character: no math.random (it would shift other modules' draws).
-local function Jitter(span, salt)
-    local h = Util.Adler32((Me() or "?") .. (salt or ""))
-    return (h % 1000) / 1000 * span
-end
+local function Jitter(span, salt) return Util.Jitter(salt, span) end
 
 ---------------------------------------------------------------------------
 -- Who is who
@@ -165,9 +156,7 @@ function Feedback:AmIDev()
     return false
 end
 
-local function DemoOn()
-    return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false
-end
+local DemoOn = Util.DemoOn
 Feedback.DemoOn = DemoOn
 
 -- The Guild Master and the officers by the real guild roster (never a debug role), and the developer. In demo mode the
@@ -200,9 +189,7 @@ end
 local cache = { dirty = true }   -- views built from the records (Rebuild)
 
 local function GuildKey()
-    local Guild = G()
-    local gk = IsInGuild() and Guild and Guild:GetGuildKey()
-    return type(gk) == "string" and gk or nil
+    return IsInGuild() and Util.GuildKey() or nil
 end
 
 local demoStore     -- demo mode's feedback (Feedback:DemoStore below): in memory only, never saved, never sent
@@ -211,19 +198,10 @@ local demoStore     -- demo mode's feedback (Feedback:DemoStore below): in memor
 -- on the real one, so the guild's feedback keeps flowing while I look at the demo).
 local function Store(create, real)
     if not real and DemoOn() then return Feedback:DemoStore() end
-    local db = ns.db
     local gk = GuildKey()
-    if not (db and gk) then return nil end
-    if type(db.feedback) ~= "table" then
-        if not create then return nil end
-        db.feedback = {}
-    end
-    local s = db.feedback[gk]
-    if type(s) ~= "table" then
-        if not create then return nil end
-        s = {}
-        db.feedback[gk] = s
-    end
+    if not gk then return nil end
+    local s = ns.DB:GuildBucket("feedback", create, gk)
+    if not s then return nil end
     if type(s.r) ~= "table" then s.r = {} end
     if type(s.seq) ~= "table" then s.seq = {} end
     return s

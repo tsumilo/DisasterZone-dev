@@ -451,6 +451,21 @@ function Util.Jitter(key, spread)
     return (h % 1000) / 1000 * (tonumber(spread) or 1)
 end
 
+-- Comm:RateLimit(key, seconds) (true = go ahead, and the time is noted; false = too soon), or true while Comm is not
+-- loaded yet: the guard every module's local RateLimit had.
+function Util.RateLimit(key, seconds)
+    local Comm = ns.Comm
+    if not (Comm and Comm.RateLimit) then return true end
+    return Comm:RateLimit(key, seconds)
+end
+
+-- "Guild Name-Realm" of my current guild (Guild:GetGuildKey), or nil (no guild, its name not known yet, or Guild not
+-- loaded).
+function Util.GuildKey()
+    local G = ns.Guild
+    return G and G.GetGuildKey and G:GetGuildKey() or nil
+end
+
 local RNG_MOD = 2147483647
 
 -- A small seeded generator (Park-Miller "minimal standard": every product stays under 2^46, so plain doubles keep
@@ -516,9 +531,7 @@ Util.group = {}   -- [key] = { classFile=, rank=, subgroup=, online=, isML= }
 local groupSignature = ""
 local retryPending = false
 
-local function DemoEnabled()
-    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()
-end
+local DemoEnabled = Util.DemoOn
 
 local function LootMethod()
     if C_PartyInfo and C_PartyInfo.GetLootMethod then
