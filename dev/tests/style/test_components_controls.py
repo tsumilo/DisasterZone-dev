@@ -168,6 +168,33 @@ def chips_keep_the_event_looks_and_take_options():
     no_errors(w)
 
 
+@case
+def a_menu_chip_shows_a_gold_chevron_after_its_text():
+    # (1.4 regression gear-v1-2: the gear sim buffs' "Team" chip opens a menu, the other "Start from" chips act at once)
+    w, c = solo("Rai", guild_rank=0, tick=2)
+    out = c.eval_py("""
+        local UI = ns.UI
+        local plain = UI:CreateChip(UIParent, { text = "Team", onClick = function() end })
+        local menu = UI:CreateChip(UIParent, { text = "Team", menu = true, onClick = function() end })
+        local res = { plainChev = plain.chev == nil, shown = menu.chev:IsShown(), col = { menu.chev:GetVertexColor() },
+                      wider = menu:GetWidth() - plain:GetWidth() }
+        local _, rel = menu.chev:GetPoint(1)
+        res.afterText = rel == menu.fs
+        res.coordsDown = { menu.chev:GetTexCoord() }
+        menu:OnMenuShown(true)
+        res.coordsUp = { menu.chev:GetTexCoord() }
+        menu:OnMenuShown(false)
+        res.coordsBack = { menu.chev:GetTexCoord() }
+        menu:Set("Team")
+        res.wider2 = menu:GetWidth() - plain:GetWidth()
+        return res""")
+    assert out["plainChev"] is True and out["shown"] is True and out["afterText"] is True, out
+    assert near(out["col"], [1, 0.82, 0]), out
+    assert out["wider"] == 14 and out["wider2"] == 14, out
+    assert out["coordsUp"] != out["coordsDown"] and out["coordsBack"] == out["coordsDown"], out
+    no_errors(w)
+
+
 # ------------------------------------------------------------------------------------------------------------------
 # Segments
 # ------------------------------------------------------------------------------------------------------------------

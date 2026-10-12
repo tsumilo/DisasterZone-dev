@@ -276,7 +276,7 @@ local function showRecipeTooltip(owner, recipe)
     end
     local more = #recipe.crafters - #names
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), S:Color("GOLD"))
+    GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), S:RGB("GOLD"))
     GameTooltip:AddLine(table.concat(names, ", ") .. (more > 0 and S:Wrap("DIM", " +" .. more) or ""), 1, 1, 1, true)
     -- Shift: the materials (Shift + mouse wheel: how many, Shift + clicks: break down), in place of the recipe's
     -- tooltip at the side

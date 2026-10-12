@@ -294,7 +294,7 @@ end
 local function ChipTooltip(chip, tt)
     local C, key = Cur(), chip.key
     if not (C and key) then return false end
-    tt:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), S:Color("GOLD"))
+    tt:AddLine((key == C.MONEY and "" or (C:IconMarkup(key, 14) .. " ")) .. C:Name(key), S:RGB("GOLD"))
     local total, bags = C:Have(key)
     tt:AddDoubleLine("You have", C:AmountText(key, total, 12), 0.8, 0.8, 0.8, 1, 1, 1)
     if total > bags then

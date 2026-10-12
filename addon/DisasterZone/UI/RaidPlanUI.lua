@@ -4590,7 +4590,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], S:Alpha("GOLD"))
+            GameTooltip:AddLine(grp[1], S:RGB("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = {}
@@ -6256,7 +6256,7 @@ function PlanUI:OpenSlotTooltip(row)
     if not cell then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(TV.specIconText(cell.c, cell.sp, 16) .. " " .. tostring(cell.name or "?"), 1, 1, 1)
-    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", S:Alpha("SUB"))
+    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", S:RGB("SUB"))
     local cf = RP():RaidCanFill(cell.occ, cell.c, cell.sp)
     local any = false
     for _, grp in ipairs({ { "Not answered yet", cf.unanswered, "on the team" }, { "In the guild", cf.guild } }) do
@@ -6264,7 +6264,7 @@ function PlanUI:OpenSlotTooltip(row)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], S:Alpha("GOLD"))
+            GameTooltip:AddLine(grp[1], S:RGB("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = grp[3] or (e.st == "B" and "on the bench") or ""

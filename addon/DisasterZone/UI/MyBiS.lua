@@ -1348,7 +1348,7 @@ local function ProgressTooltip(owner, tt)
     local info = owner.info
     if not info then return false end
     local name = PhaseName(owner.phase)
-    tt:AddLine((IsOffSpecView() and "Off spec  ·  " or "") .. name, S:Color("GOLD"))
+    tt:AddLine((IsOffSpecView() and "Off spec  ·  " or "") .. name, S:RGB("GOLD"))
     tt:AddLine(("%d of %d slots obtained"):format(info.obtained, info.total), 1, 1, 1)
     if info.empty > 0 then
         tt:AddLine(info.empty == 1 and "1 slot has no pick yet" or (info.empty .. " slots have no pick yet"),
