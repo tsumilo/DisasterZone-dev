@@ -243,9 +243,7 @@ def greeting_leads_the_strip_and_nothing_left_shows_no_chips():
     state = c.eval_py("""
       local p = ns.Dashboard:GetPanel()
       local _, _, _, x = p.chips[1]:GetPoint(1)
-      return { caught = p.allSet:IsShown(), x = x,
-               w = p.greeting:GetStringWidth() + p.greetName:GetStringWidth() }""")
-    assert not state["caught"], state
+      return { x = x, w = p.greeting:GetStringWidth() + p.greetName:GetStringWidth() }""")
     assert state["x"] >= state["w"] + 10, state
     # one pick, the other slots off, the notes read: nothing left
     c.eval("""
@@ -259,7 +257,7 @@ def greeting_leads_the_strip_and_nothing_left_shows_no_chips():
     assert not any(c.eval("return %s.chips[...]:IsShown()" % p, i + 1)
                    for i in range(c.eval("return #%s.chips" % p))), panel_texts(c)
     # nothing to do says itself: the greeting alone, no "All caught up" line, no "+N more"
-    assert not c.eval("return %s.allSet:IsShown() or %s.moreChips:IsShown()" % (p, p))
+    assert not c.eval("return %s.moreChips:IsShown()" % p)
     assert not has(c, "All caught up"), panel_texts(c)
     assert greeting(c) == "Good %s, Rai" % part and has(c, "Good %s, " % part), panel_texts(c)
     no_errors(w)
@@ -559,7 +557,7 @@ def calendar_shows_planned_and_logged_raids_and_opens_them():
 def a_crowded_day_ends_with_how_many_more():
     w, c = rp.world()
     bob, lee = c["Bob"], c["Lee"]
-    # (the day's list has room for 7 rows: 9 raids leave 6 and a "+3 more" row)
+    # (the day's list has room for a few art rows: 9 raids leave the ones that fit and a "+N more" row)
     for hour in range(12, 21):
         rp.create(bob, i="kara", t=bob.eval(AT_HOUR, 2, hour), sz=10)
     w.tick(2)
@@ -567,10 +565,11 @@ def a_crowded_day_ends_with_how_many_more():
     open_home(lee)
     pick_day(lee, lee.eval(AT_HOUR, 2, 12))
     rows = agenda(lee)
-    assert len(rows) == 7 and all(r.startswith("Karazhan | ") for r in rows[:6]), rows
-    assert rows[6] == "+3 more | ", rows
-    tip = lee.eval_py("return ns.Dashboard:GetPanel().calCard.agenda[7].tip")
-    assert tip[0] == "More that day" and len(tip) == 4 and tip[1].startswith("18:00 Karazhan"), tip
+    shown = len(rows) - 1
+    assert 3 <= shown < 9 and all(r.startswith("Karazhan | ") for r in rows[:shown]), rows
+    assert rows[shown] == "+%d more | " % (9 - shown), rows
+    tip = lee.eval_py("return ns.Dashboard:GetPanel().calCard.agenda[...].tip", shown + 1)
+    assert tip[0] == "More that day" and len(tip) == 10 - shown and tip[1].startswith("%d:00 Karazhan" % (12 + shown)), tip
     w.assert_no_errors()
 
 

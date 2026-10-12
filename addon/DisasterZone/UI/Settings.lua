@@ -14,23 +14,20 @@ local CreateFrame = CreateFrame
 local format = string.format
 local floor, max = math.floor, math.max
 local ipairs, type, tonumber, tostring = ipairs, type, tonumber, tostring
+local UI, S = ns.UI, ns.Style
 
--- The page is 790 x 548: PAD at its sides, the nav on the left, the open section in a scroll frame on the right
--- (its bar in the right margin).
-local PAD = 10
-local PAGE_W, PAGE_H = 790, 548
-local TOP_Y = 8
-local NAV_W, NAV_H = 150, 28
-local BODY_X = PAD + NAV_W + 18                -- 178
-local BODY_W = PAGE_W - PAD - BODY_X           -- 602
-local BODY_H = PAGE_H - TOP_Y - PAD            -- 530
+-- The page (S.PAGE_W x S.PAGE_H, 790 x 548) is a side menu layout (UI:CreateLayout "rail"): the nav on the left
+-- (UI:CreateRailNav), the open section in the layout's scroll frame on the right (its bar in the right margin).
+local LG = UI.LAYOUT
+local BODY_X = S.PAD + LG.RAIL_W + LG.RAIL_GAP            -- 178
+local BODY_W = S.PAGE_W - S.PAD - BODY_X                  -- 602
+local BODY_H = S.PAGE_H - LG.RAIL_TOP - S.PAD             -- 530
 local TITLE_H = 28                             -- a section's title (lines up with its nav item)
 local SUB_H = 18                               -- the line under a title (who sets the rules, my council seat)
 local ROW_H = 44
 local DD_W, SWITCH_W = 196, 34
 local TEXT_GAP = 16                            -- between a row's text and its control
-local MEMBER_COLS, MEMBER_ROW_H = 3, 20
-local GREY = { 0.62, 0.62, 0.62 }
+local MEMBER_COLS, MEMBER_ROW_H = 3, 24
 
 local SECTIONS = {
     { key = "alerts", label = "Alerts" },
@@ -53,12 +50,6 @@ local SECTIONS = {
     { key = "about", label = "About" },
 }
 
-local FALLBACK_COLORS = {
-    obtained = { 0.30, 0.90, 0.40 },
-    muted    = { 0.55, 0.55, 0.55 },
-    warn     = { 1.00, 0.55, 0.20 },
-}
-
 -- GetCouncilSource(me) -> text for the status line.
 local SOURCE_TEXT = {
     gm = "Guild Master",
@@ -73,20 +64,9 @@ local PHASE_RAIDS = { "Kara, Gruul, Mag", "SSC, TK", "Hyjal, BT", "ZA", "Sunwell
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
-local function Color(key)
-    local c = ns.COLORS and ns.COLORS[key]
-    return c or FALLBACK_COLORS[key] or FALLBACK_COLORS.muted
-end
-
-local function Paint(text, key)
-    local c = Color(key)
-    return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
-        floor(c[3] * 255 + 0.5), text)
-end
-
+-- an aside in the secondary grey (S.C.SUB)
 local function Grey(text)
-    return format("|cff%02x%02x%02x%s|r", floor(GREY[1] * 255 + 0.5), floor(GREY[2] * 255 + 0.5),
-        floor(GREY[3] * 255 + 0.5), text)
+    return S:Wrap("SUB", text)
 end
 
 local function Get(path, default)
@@ -132,10 +112,10 @@ local function IsCouncil()
     return (ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()) and true or false
 end
 
-local function ShortName(key)
+-- a player's name without the realm ("?" for none)
+local function NameOf(key)
     if type(key) ~= "string" then return "?" end
-    if ns.Util and ns.Util.ShortName then return ns.Util.ShortName(key) or key end
-    return key
+    return ns.Util.ShortName(key) or key
 end
 
 -- Class from the guild roster, else from my group (raid members from other guilds).
@@ -185,7 +165,7 @@ end
 
 local function ColoredName(key, classFile)
     if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key, classFile or ClassOf(key)) end
-    return ShortName(key)
+    return NameOf(key)
 end
 
 local function FormatAgo(ts)
@@ -196,14 +176,6 @@ end
 local function Put(region, parent, x, y)
     region:ClearAllPoints()
     region:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-end
-
-local function NewFS(parent, font, width, wrap)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font)
-    if width then fs:SetWidth(width) end
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(wrap and true or false)
-    return fs
 end
 
 local function TextHeight(fs)
@@ -257,17 +229,17 @@ local function SetMinimapShown(shown)
     end
 end
 
+-- A row's tooltip (its owner may be the row's control): the title in gold, the text in white.
 local function ShowTip(owner, title, text)
     local tt = _G.GameTooltip
     tt:SetOwner(owner, "ANCHOR_TOP")
-    tt:AddLine(title, 1, 0.82, 0)
+    tt:AddLine(title, S:Color("GOLD"))
     tt:AddLine(text, 1, 1, 1, true)
     tt:Show()
 end
 
 local function AddTooltip(frame, title, text)
-    frame:HookScript("OnEnter", function(self) ShowTip(self, title, text) end)
-    frame:HookScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    UI:AttachTooltip(frame, title, text, { anchor = "ANCHOR_TOP" })
 end
 
 ---------------------------------------------------------------------------
@@ -311,13 +283,13 @@ local function OpenFromBlizzard()
     if ns.MainFrame and ns.MainFrame.Open then ns.MainFrame:Open("settings") end
 end
 
--- The panel in Blizzard's Options > AddOns: a hero band (the seal in a soft glow, the name, the version, the guild),
--- the two ways in (open, settings), a card for every page of the window (click = open it there, right-click = pin it
--- to the minimap arc) and a footer with the sync status and the slash commands. Built the first time it is shown, so
--- every page has registered by then; the cards are laid out again on every show (the panel's width can change).
-local GOLD, CREAM = { 0.84, 0.69, 0.36 }, { 0.96, 0.9, 0.72 }
+-- The panel in Blizzard's Options > AddOns, built from the window's own parts: a page banner (the next raid's loading
+-- screen, the seal as its icon, the version, the name, the guild, a live line of facts; Open DisasterZone and
+-- Settings as its actions), a section header over a card for every page of the window (click = open it there,
+-- right-click = pin it to the minimap arc; a Pinned pill on the pinned ones) and an inset footer with the sync status
+-- and the slash commands as chips. Built the first time it is shown, so every page has registered by then; the cards
+-- are laid out again on every show (the panel's width can change).
 local DISC = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\disc"
-local RING = "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\ring"
 -- Cards: CARD_H with the title over a one-line tip, CARD_H_SMALL with the title alone (when the panel is too short
 -- for the tall ones); the page's full tip is always in the card's tooltip.
 local CARD_W, CARD_H, CARD_H_SMALL, GAP = 196, 44, 32, 6
@@ -335,149 +307,78 @@ local CARD_TIPS = {
     settings = "Alerts, minimap and more.", blessings = "Who blesses which class.",
     totems = "Each shaman's totems.",
 }
+local HERO_H = 150
 
-local function Fill(tex, r, g, b, a) tex:SetColorTexture(r, g, b, a) return tex end
-
--- A 1px frame around f (r, g, b, a); returns the four edges so a caller can recolour them.
-local function Edge(f, r, g, b, a)
-    local e = {}
-    for i, pts in ipairs({ { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMLEFT", "BOTTOMRIGHT" },
-                           { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
-        local t = f:CreateTexture(nil, "BORDER")
-        t:SetPoint(pts[1])
-        t:SetPoint(pts[2])
-        if i <= 2 then t:SetHeight(1) else t:SetWidth(1) end
-        e[i] = Fill(t, r, g, b, a)
+local function CloseBlizzardPanel()
+    local sp = _G.SettingsPanel
+    if sp and sp:IsShown() then
+        if _G.HideUIPanel then _G.HideUIPanel(sp) else sp:Hide() end
     end
-    function e:Color(r2, g2, b2, a2) for _, t in ipairs(self) do t:SetColorTexture(r2, g2, b2, a2) end end
-    return e
 end
 
-local function HeroFont(size)
-    local name = "DisasterZoneHeroFont" .. size
-    local font = _G[name] or CreateFont(name)
-    local path = GameFontNormal:GetFont()
-    font:SetFont(path, size, "")
-    return font
+-- (UI:AttachTooltip's builder for a page card: its name, its line, the clicks)
+local function CardTip(c, tt)
+    local Arc = ns.MinimapArc
+    tt:AddLine(ns.MainFrame:GetPageLabel(c.key) or c.key, S:Color("TEXT"))
+    local tip = ns.MainFrame:GetPageTip(c.key) or CARD_TIPS[c.key]
+    if type(tip) == "string" and tip ~= "" then tt:AddLine(tip, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], true) end
+    tt:AddLine("Click: open it", S:Color("SUB"))
+    if Arc then
+        tt:AddLine(Arc:IsPinned(c.key) and "Right-click: unpin from the minimap" or "Right-click: pin to the minimap",
+            S:Color("SUB"))
+    end
 end
 
-local function NewCard(parent, key)
-    local UI, Arc = ns.UI, ns.MinimapArc
-    local c = CreateFrame("Button", nil, parent)
-    c:SetSize(CARD_W, CARD_H)
-    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+-- A page's card (UI:CreateCard with the shared hover): its icon tile, name and one-line tip; Pinned while it is on
+-- the minimap arc.
+local function PageCard(parent, key)
+    local Arc = ns.MinimapArc
+    local c = UI:CreateCard(parent, { pad = 0, width = CARD_W, height = CARD_H })
+    c.body:Hide()
     c.key = key
-    c.bg = Fill(c:CreateTexture(nil, "BACKGROUND"), 0.06, 0.07, 0.09, 0.82)
-    c.bg:SetAllPoints()
-    c.glow = Fill(c:CreateTexture(nil, "BACKGROUND", nil, 1), GOLD[1], GOLD[2], GOLD[3], 0)
-    c.glow:SetAllPoints()
-    c.edge = Edge(c, 1, 1, 1, 0.07)
-    c.bar = Fill(c:CreateTexture(nil, "ARTWORK"), GOLD[1], GOLD[2], GOLD[3], 1)
-    c.bar:SetPoint("TOPLEFT")
-    c.bar:SetPoint("BOTTOMLEFT")
-    c.bar:SetWidth(2)
-    c.disc = c:CreateTexture(nil, "ARTWORK")
-    c.disc:SetTexture(DISC)
-    c.disc:SetPoint("LEFT", 10, 0)
-    c.disc:SetVertexColor(0.13, 0.11, 0.18)
-    c.ring = c:CreateTexture(nil, "ARTWORK", nil, 1)
-    c.ring:SetTexture(RING)
-    c.ring:SetAllPoints(c.disc)
-    c.icon = c:CreateTexture(nil, "OVERLAY")
-    c.icon:SetPoint("CENTER", c.disc)
-    local i = Arc and Arc.GetPageIcon and Arc:GetPageIcon(key) or UI.ICON.more
-    local tc = UI:IconCoords(i)
-    c.icon:SetTexture(UI.ICON_ATLAS)
-    c.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
-    c.title = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    c.title:SetJustifyH("LEFT")
-    c.title:SetWordWrap(false)
+    UI:DecorateRow(c)
+    c.tile = UI:CreateIconTile(c, 22)
+    local tc = UI:IconCoords(Arc and Arc.GetPageIcon and Arc:GetPageIcon(key) or UI.ICON.more)
+    c.tile.tex:SetTexture(UI.ICON_ATLAS)
+    c.tile.tex:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+    c.tile.tex:SetVertexColor(S:Color("GOLD"))
+    c.tile.outer:SetColorTexture(S:Color("INSET"))
+    c.title = UI:Text(c, "emph", "TEXT")
     c.title:SetText(ns.MainFrame:GetPageLabel(key) or key)
-    c.tip = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    c.tip:SetJustifyH("LEFT")
-    c.tip:SetWordWrap(false)
+    c.tip = UI:Text(c, "small", "SUB")
     c.tip:SetText(CARD_TIPS[key] or ns.MainFrame:GetPageTip(key) or "")
+    c.pill = UI:CreatePill(c, "bis", "Pinned")
+    c.pill:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -6)
     -- w x h: the tip shows under the title when the card is tall and the tip fits on one line, else the title sits
     -- alone in the middle
     function c:Layout(w, h)
         self:SetSize(w, h)
-        local d = h >= CARD_H and 30 or 22
-        self.disc:SetSize(d, d)
-        self.icon:SetSize(d >= 30 and 16 or 13, d >= 30 and 16 or 13)
-        local room = w - (10 + d + 10) - 14
-        local tw = (self.tip.GetUnboundedStringWidth or self.tip.GetStringWidth)(self.tip) or 0
-        local withTip = h >= CARD_H and tw > 0 and tw <= room
+        self.tile:ClearAllPoints()
+        self.tile:SetPoint("LEFT", self, "LEFT", 12, 0)
+        local pinned = Arc and Arc:IsPinned(self.key) or false
+        self.pill:SetShown(pinned)
+        local room = w - (12 + 22 + 10) - 10 - (pinned and (self.pill:GetWidth() + 6) or 0)
+        local tw = UI:TextWidth(self.tip)
+        local withTip = h >= CARD_H and tw > 0 and tw <= w - (12 + 22 + 10) - 10
         self.title:ClearAllPoints()
-        self.title:SetPoint(withTip and "BOTTOMLEFT" or "LEFT", self.disc, "RIGHT", 10, withTip and 1 or 0)
-        self.title:SetWidth(room)
+        self.title:SetPoint(withTip and "BOTTOMLEFT" or "LEFT", self.tile, "RIGHT", 10, withTip and 1 or 0)
+        self.title:SetWidth(max(20, room))
         self.tip:ClearAllPoints()
-        self.tip:SetPoint("TOPLEFT", self.disc, "RIGHT", 10, -2)
-        self.tip:SetWidth(room)
+        self.tip:SetPoint("TOPLEFT", self.tile, "RIGHT", 10, -3)
+        self.tip:SetWidth(w - (12 + 22 + 10) - 10)
         self.tip:SetShown(withTip)
     end
-    c.pin = c:CreateTexture(nil, "OVERLAY")         -- on the minimap arc
-    c.pin:SetTexture(DISC)
-    c.pin:SetSize(6, 6)
-    c.pin:SetPoint("TOPRIGHT", -7, -7)
-    c.pin:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
-    c.h = 0
-    c:SetScript("OnEnter", function(self)
-        self.over = true
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(ns.MainFrame:GetPageLabel(self.key) or self.key, 1, 1, 1)
-        local tip = ns.MainFrame:GetPageTip(self.key) or CARD_TIPS[self.key]
-        if type(tip) == "string" and tip ~= "" then GameTooltip:AddLine(tip, CREAM[1], CREAM[2], CREAM[3], true) end
-        GameTooltip:AddLine("Click: open it", 0.7, 0.7, 0.7)
-        if Arc then
-            GameTooltip:AddLine(Arc:IsPinned(self.key) and "Right-click: unpin from the minimap"
-                or "Right-click: pin to the minimap", 0.7, 0.7, 0.7)
-        end
-        GameTooltip:Show()
-    end)
-    c:SetScript("OnLeave", function(self) self.over = false GameTooltip:Hide() end)
-    c:SetScript("OnClick", function(self, button)
+    UI:AttachTooltip(c, CardTip, nil, { anchor = "ANCHOR_TOP" })
+    c:SetScript("OnMouseUp", function(self, button)
         if button == "RightButton" then
             if Arc then Arc:SetPinned(self.key, not Arc:IsPinned(self.key)) end
-            if self:GetScript("OnEnter") and self.over then self:GetScript("OnEnter")(self) end
+            self:Layout(self:GetWidth(), self:GetHeight())
             return
         end
-        local sp = _G.SettingsPanel
-        if sp and sp:IsShown() then
-            if _G.HideUIPanel then _G.HideUIPanel(sp) else sp:Hide() end
-        end
+        CloseBlizzardPanel()
         ns.MainFrame:Open(self.key)
     end)
-    -- hover eases in and out: the card lifts, the gold bar and ring light up
-    c:SetScript("OnUpdate", function(self, elapsed)
-        local goal = self.over and 1 or 0
-        if math.abs(self.h - goal) < 0.01 and self.settled then return end
-        self.h = self.h + (goal - self.h) * math.min(1, elapsed * 12)
-        self.settled = math.abs(self.h - goal) < 0.01
-        local h = self.h
-        self.glow:SetAlpha(0.07 * h)
-        self.edge:Color(GOLD[1], GOLD[2], GOLD[3], 0.07 + 0.38 * h)
-        self.bar:SetAlpha(0.25 + 0.75 * h)
-        local l = 0.45 + 0.55 * h
-        self.ring:SetVertexColor(GOLD[1] * l, GOLD[2] * l, GOLD[3] * l)
-        self.icon:SetVertexColor(CREAM[1], CREAM[2], CREAM[3], 0.75 + 0.25 * h)
-        self.pin:SetShown(Arc and Arc:IsPinned(self.key) or false)
-    end)
     return c
-end
-
--- The hero band, from the back: the raid's loading screen (the next raid's, else Outland), a dark fade from the left
--- so the text reads, embers drifting up, the seal in its glow with a sheen that sweeps its gold now and then, then
--- the name, the guild, a live line (next raid, members online, BiS) and the two buttons. p.intro() plays the opening:
--- the seal grows in, the text rises and fades in, the gold line draws across.
-local HERO_H = 176
-local EMBERS = 16
-
-local function Countdown(s)
-    if s <= 0 then return "now" end
-    local d, h, m = math.floor(s / 86400), math.floor(s % 86400 / 3600), math.floor(s % 3600 / 60)
-    if d > 0 then return ("in %dd %dh"):format(d, h) end
-    if h > 0 then return ("in %dh %dm"):format(h, m) end
-    return ("in %dm"):format(math.max(1, m))
 end
 
 local function NextRaid()
@@ -492,278 +393,61 @@ local function NextRaid()
     return best
 end
 
-local function EaseOutBack(t)
-    t = t - 1
-    return 1 + 2.4 * t * t * t + 1.4 * t * t
+local function Countdown(s)
+    if s <= 0 then return "now" end
+    local d, h, m = floor(s / 86400), floor(s % 86400 / 3600), floor(s % 3600 / 60)
+    if d > 0 then return ("in %dd %dh"):format(d, h) end
+    if h > 0 then return ("in %dh %dm"):format(h, m) end
+    return ("in %dm"):format(max(1, m))
 end
 
-local function Shade(parent, layer, dir, a1, a2, r, g, b)
-    local t = parent:CreateTexture(nil, "BACKGROUND", nil, layer)
-    t:SetColorTexture(1, 1, 1, 1)
-    if not (CreateColor and pcall(t.SetGradient, t, dir, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2))) then
-        t:SetColorTexture(r, g, b, (a1 + a2) / 2)
-    end
-    return t
-end
-
+-- The banner: the next raid's loading screen (else Outland's), the seal, the version, the name, the guild and a line
+-- of facts (the next raid, members online, my BiS progress); the two ways in as its actions.
 local function BuildHero(canvas, p)
-    local UI = ns.UI
-    local hero = CreateFrame("Frame", nil, canvas)
+    local applied = ns.Boot and ns.Boot.applied and (ns.Boot.applied.files or 0) > 0
+    local hero = UI:CreatePageBanner(canvas, {
+        size = HERO_H, art = "other", artFw = 1, kickerCaps = false,
+        icon = ns:HasAssets(4) and "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal"
+            or "Interface\\Icons\\INV_Misc_Bag_10_Blue",
+        kicker = "v" .. tostring(ns.version or "?") .. (applied and ("  ·  update on " .. tostring(ns.diskVersion)) or ""),
+        title = "DisasterZone",
+        actions = {
+            { text = "Open DisasterZone", kind = "primary", width = 150, onClick = function()
+                CloseBlizzardPanel()
+                ns.MainFrame:Open()
+            end },
+            { text = "Settings", width = 100, onClick = OpenFromBlizzard },
+        },
+    })
     hero:SetPoint("TOPLEFT", 12, -12)
     hero:SetPoint("TOPRIGHT", -12, -12)
-    hero:SetHeight(HERO_H)
-    hero:SetClipsChildren(true)
-    Fill(hero:CreateTexture(nil, "BACKGROUND"), 0.05, 0.04, 0.08, 1):SetAllPoints()
-
-    -- the painting and its shades
-    p.art = hero:CreateTexture(nil, "BACKGROUND", nil, 1)
-    p.art:SetAllPoints()
-    local left = Shade(hero, 2, "HORIZONTAL", 0.97, 0.15, 0.04, 0.03, 0.07)
-    left:SetPoint("TOPLEFT")
-    left:SetPoint("BOTTOMLEFT")
-    left:SetPoint("RIGHT", hero, "CENTER", 120, 0)
-    local rest = Fill(hero:CreateTexture(nil, "BACKGROUND", nil, 2), 0.04, 0.03, 0.07, 0.15)
-    rest:SetPoint("TOPLEFT", left, "TOPRIGHT")
-    rest:SetPoint("BOTTOMRIGHT")
-    local low = Shade(hero, 3, "VERTICAL", 0.75, 0, 0.03, 0.02, 0.05)   -- (vertical: the first colour is the bottom's)
-    low:SetPoint("BOTTOMLEFT")
-    low:SetPoint("BOTTOMRIGHT")
-    low:SetHeight(60)
-    Fill(hero:CreateTexture(nil, "BACKGROUND", nil, 4), 0.25, 0.12, 0.4, 0.12):SetAllPoints()   -- a purple cast
-    Edge(hero, GOLD[1], GOLD[2], GOLD[3], 0.18)
-    p.line = Fill(hero:CreateTexture(nil, "OVERLAY", nil, 7), GOLD[1], GOLD[2], GOLD[3], 0.9)
-    p.line:SetPoint("BOTTOMLEFT")
-    p.line:SetHeight(2)
-    p.line:SetWidth(1)
-    p.raidName = hero:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")   -- whose painting it is
-    p.raidName:SetPoint("BOTTOMRIGHT", -10, 8)
-    p.raidName:SetTextColor(0.75, 0.7, 0.62, 0.8)
-
-    -- embers
-    local embers = {}
-    for i = 1, EMBERS do
-        local e = hero:CreateTexture(nil, "ARTWORK", nil, 0)
-        e:SetTexture(DISC)
-        e:SetBlendMode("ADD")
-        embers[i] = e
-    end
-    local function Spawn(e, anywhere)
-        local w = hero:GetWidth() or 600
-        if w < 100 then w = 600 end
-        e.x = math.random() * w
-        e.y = -6
-        e.v = 9 + math.random() * 16
-        e.ph = math.random() * 6.28
-        e.span = (HERO_H + 12) / e.v
-        e.life = anywhere and math.random() * e.span or 0
-        local s = 2 + math.random() * 3
-        e:SetSize(s, s)
-        if math.random() < 0.6 then e:SetVertexColor(1, 0.62, 0.22) else e:SetVertexColor(0.95, 0.82, 0.45) end
-    end
-
-    -- the seal, in a frame of its own so the opening can scale it
-    local sealF = CreateFrame("Frame", nil, hero)
-    sealF:SetSize(150, 150)
-    local halo = sealF:CreateTexture(nil, "ARTWORK")
-    halo:SetTexture(DISC)
-    halo:SetAllPoints()
-    halo:SetVertexColor(0.45, 0.3, 0.65)
-    local orbit = sealF:CreateTexture(nil, "ARTWORK", nil, 1)
-    orbit:SetTexture(RING)
-    orbit:SetPoint("CENTER")
-    orbit:SetSize(124, 124)
-    orbit:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.35)
-    local seal = sealF:CreateTexture(nil, "OVERLAY")
-    seal:SetSize(108, 108)
-    seal:SetPoint("CENTER")
-    local hasSeal = ns:HasAssets(4)
-    seal:SetTexture(hasSeal and "Interface\\AddOns\\DisasterZone\\Media\\Launcher\\seal"
-        or "Interface\\Icons\\INV_Misc_Bag_10_Blue")
-    if not hasSeal then seal:SetSize(72, 72) end
-    -- the sheen: a slanted band of light, cut to the seal's disc
-    local mask = sealF:CreateMaskTexture()
-    mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    mask:SetAllPoints(seal)
-    local sheen = {}
-    for i = 1, 2 do
-        local s = sealF:CreateTexture(nil, "OVERLAY", nil, 2)
-        s:SetColorTexture(1, 1, 1, 1)
-        s:SetBlendMode("ADD")
-        s:SetSize(14, 160)
-        local c1 = CreateColor and CreateColor(1, 0.92, 0.7, 0)
-        local c2 = CreateColor and CreateColor(1, 0.92, 0.7, 0.55)
-        if not (c1 and pcall(s.SetGradient, s, "HORIZONTAL", i == 1 and c1 or c2, i == 1 and c2 or c1)) then
-            s:SetColorTexture(1, 0.92, 0.7, 0.2)
-        end
-        s:SetRotation(math.rad(-25))
-        s:AddMaskTexture(mask)
-        s:Hide()
-        sheen[i] = s
-    end
-
-    -- the text column
-    local col = CreateFrame("Frame", nil, hero)
-    col:SetPoint("TOPLEFT", 172, 0)
-    col:SetPoint("BOTTOMRIGHT")
-    local title = col:CreateFontString(nil, "OVERLAY")
-    title:SetFontObject(HeroFont(30))
-    title:SetPoint("TOPLEFT", 0, -26)
-    title:SetText("|cffff8000Disaster|r|cfff5e6b8Zone|r")
-    title:SetShadowOffset(1, -2)
-    title:SetShadowColor(0, 0, 0, 0.9)
-
-    local ver = CreateFrame("Frame", nil, col)
-    ver.text = ver:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    ver.text:SetPoint("CENTER")
-    ver.text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-    local applied = ns.Boot and ns.Boot.applied and (ns.Boot.applied.files or 0) > 0
-    ver.text:SetText("v" .. tostring(ns.version or "?")
-        .. (applied and ("  ·  update on " .. tostring(ns.diskVersion)) or ""))
-    ver:SetSize(ver.text:GetStringWidth() + 16, 18)
-    ver:SetPoint("LEFT", title, "RIGHT", 12, 0)
-    Fill(ver:CreateTexture(nil, "BACKGROUND"), 0.08, 0.06, 0.03, 0.75):SetAllPoints()
-    Edge(ver, GOLD[1], GOLD[2], GOLD[3], 0.5)
-
-    p.guild = col:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    p.guild:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -6)
-    p.guild:SetTextColor(0.85, 0.82, 0.9)
-    p.guild:SetShadowOffset(1, -1)
-
-    -- the live line: three small facts, each with a gold label, split by thin gold rules
-    local function fact(anchor, dx)
-        local f = col:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        if anchor then
-            f:SetPoint("LEFT", anchor, "RIGHT", dx, 0)
-        else
-            f:SetPoint("TOPLEFT", p.guild, "BOTTOMLEFT", 0, -10)
-        end
-        f:SetShadowOffset(1, -1)
-        return f
-    end
-    local function rule(anchor)
-        local r = Fill(col:CreateTexture(nil, "OVERLAY"), GOLD[1], GOLD[2], GOLD[3], 0.5)
-        r:SetSize(1, 10)
-        r:SetPoint("LEFT", anchor, "RIGHT", 10, 0)
-        return r
-    end
-    p.factRaid = fact()
-    p.factOnline = fact(rule(p.factRaid), 10)
-    p.factBis = fact(rule(p.factOnline), 10)
-    p.bisBar = CreateFrame("Frame", nil, col)
-    p.bisBar:SetSize(54, 4)
-    p.bisBar:SetPoint("LEFT", p.factBis, "RIGHT", 8, 0)
-    Fill(p.bisBar:CreateTexture(nil, "BACKGROUND"), 1, 1, 1, 0.12):SetAllPoints()
-    p.bisFill = Fill(p.bisBar:CreateTexture(nil, "ARTWORK"), GOLD[1], GOLD[2], GOLD[3], 1)
-    p.bisFill:SetPoint("TOPLEFT")
-    p.bisFill:SetPoint("BOTTOMLEFT")
-
-    local open = UI:CreateButton(col, "Open DisasterZone", 150, 26, function()
-        local sp = _G.SettingsPanel
-        if sp and sp:IsShown() then
-            if _G.HideUIPanel then _G.HideUIPanel(sp) else sp:Hide() end
-        end
-        ns.MainFrame:Open()
-    end)
-    if open.SetKind then open:SetKind("primary") end
-    open:SetPoint("TOPLEFT", p.factRaid, "BOTTOMLEFT", -1, -16)
-    local settings = UI:CreateButton(col, "Settings", 100, 26, OpenFromBlizzard)
-    settings:SetPoint("LEFT", open, "RIGHT", 8, 0)
-
-    -- motion: the glow breathes, embers rise, the sheen passes every few seconds, the opening plays on show
-    local t, intro, sheenAt = 0, nil, 1.2
-    local function placeSeal(scale)
-        scale = math.max(scale, 0.05)
-        sealF:SetScale(scale)
-        sealF:ClearAllPoints()
-        sealF:SetPoint("CENTER", hero, "TOPLEFT", 85 / scale, -HERO_H / 2 / scale)
-    end
-    placeSeal(1)
-    function p.intro()
-        intro = 0
-        sheenAt = t + 1.1
-        for _, e in ipairs(embers) do Spawn(e, true) end
-    end
-    hero:SetScript("OnUpdate", function(_, elapsed)
-        t = t + elapsed
-        local b = math.sin(t * 1.4)
-        halo:SetAlpha(0.3 + 0.12 * b)
-        orbit:SetSize(124 + 6 * b, 124 + 6 * b)
-        orbit:SetAlpha(0.7 + 0.3 * b)
-        -- embers (dimmer over the seal's side)
-        local w = hero:GetWidth() or 600
-        for _, e in ipairs(embers) do
-            if not e.span then Spawn(e, true) end
-            e.life = e.life + elapsed
-            if e.life >= e.span then Spawn(e) end
-            local x = e.x + math.sin(e.ph + e.life * 1.3) * 8
-            local k = e.life / e.span
-            e:SetAlpha(math.min(1, k * 5) * (1 - k) * 0.85 * (x < 170 and 0.45 or 1))
-            e:ClearAllPoints()
-            e:SetPoint("CENTER", hero, "BOTTOMLEFT", x, e.y + e.v * e.life)
-        end
-        -- the sheen: 0.8 s across the seal, then again 5 s later
-        local s = (t - sheenAt) / 0.8
-        if s >= 1 then
-            sheenAt = t + 5
-            s = -1
-        end
-        for i, tex in ipairs(sheen) do
-            tex:SetShown(s >= 0)
-            if s >= 0 then
-                tex:ClearAllPoints()
-                tex:SetPoint("CENTER", seal, "CENTER", -80 + 160 * s + (i == 1 and -7 or 7), 0)
-            end
-        end
-        -- the opening
-        if intro then
-            intro = intro + elapsed
-            placeSeal(0.55 + 0.45 * EaseOutBack(math.min(1, intro / 0.55)))
-            sealF:SetAlpha(math.min(1, intro / 0.25))
-            local c = math.min(1, math.max(0, (intro - 0.15) / 0.45))
-            local ce = 1 - (1 - c) ^ 3
-            col:SetAlpha(ce)
-            col:ClearAllPoints()
-            col:SetPoint("TOPLEFT", 172, -10 * (1 - ce))
-            col:SetPoint("BOTTOMRIGHT", 0, -10 * (1 - ce))
-            local l = math.min(1, math.max(0, (intro - 0.25) / 0.6))
-            p.line:SetWidth(math.max(1, w * (1 - (1 - l) ^ 3)))
-            if intro > 0.9 then
-                intro = nil
-                placeSeal(1)
-            end
-        else
-            p.line:SetWidth(w)
-        end
-    end)
+    p.guild = hero.sub
+    -- the facts, under the guild line
+    p.facts = UI:Text(hero, "body", "TEXT")
+    p.facts:SetPoint("TOPLEFT", hero.sub, "BOTTOMLEFT", 0, -8)
+    p.raidName = UI:Text(hero, "small", "SUB", { justify = "RIGHT" })     -- whose painting it is
+    p.raidName:SetPoint("TOPRIGHT", hero, "TOPRIGHT", -12, -12)
     p.hero = hero
     return hero
 end
 
 local function RefreshHero(p)
+    local hero = p.hero
     local guild = IsInGuild() and GetGuildInfo("player")
     local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
-    p.guild:SetText(guild and ("<" .. guild .. ">  ·  " .. (council and "Loot Council" or "Raider"))
+    hero:SetSub(guild and ("<" .. guild .. ">  ·  " .. (council and "Loot Council" or "Raider"))
         or "Your guild's raids, loot and pastimes in one place")
-
     local v = NextRaid()
-    local PUI = ns.RaidPlanUI
-    local w = math.max(p.hero:GetWidth() or 0, 600)
-    local file, l, r, t, b
-    if PUI and PUI.RaidArt then file, l, r, t, b = PUI:RaidArt(v and v.i or "other", w, HERO_H, 1) end
-    if not file then
-        file, l, r, t, b = "Interface\\Glues\\LoadingScreens\\LoadScreenOutland", 0, 1, 0.3, 0.3 + HERO_H / w
-    end
-    p.art:SetTexture(file)
-    p.art:SetTexCoord(l, r, t, b)
-    local G = "|cffd6b05c"
+    hero:SetArt(v and v.i or "other")
+    local G = function(t) return S:Wrap("GOLD", t) end
+    local parts = {}
     if v then
         local name = ns.RaidPlan.GetRaidName and ns.RaidPlan:GetRaidName(v) or "Raid"
-        p.factRaid:SetText(G .. "Next raid|r  " .. name .. "  ·  " .. date("%a %H:%M", v.t) .. "  ·  "
-            .. Countdown(v.t - time()))
+        parts[1] = G("Next raid") .. "  " .. name .. "  ·  " .. date("%a %H:%M", v.t) .. "  ·  " .. Countdown(v.t - time())
         local inst = ns.RaidPlan.GetInstance and ns.RaidPlan:GetInstance(v.i)
         p.raidName:SetText(inst and inst.name or "")
     else
-        p.factRaid:SetText(G .. "Next raid|r  none planned")
+        parts[1] = G("Next raid") .. "  none planned"
         p.raidName:SetText("")
     end
     local online = 0
@@ -771,88 +455,64 @@ local function RefreshHero(p)
         local _, on = GetNumGuildMembers()
         online = tonumber(on) or 0
     end
-    p.factOnline:SetText(G .. "Online|r  " .. online)
+    parts[2] = G("Online") .. "  " .. online
     local ok, prog = false, nil
     if ns.MyBiS and ns.MyBiS.GetProgress then ok, prog = pcall(ns.MyBiS.GetProgress, ns.MyBiS) end
     if ok and type(prog) == "table" and (prog.total or 0) > 0 then
-        p.factBis:SetText(G .. "BiS|r  " .. (prog.obtained or 0) .. "/" .. prog.total)
-        p.bisFill:SetWidth(math.max(1, 54 * math.min(1, (prog.obtained or 0) / prog.total)))
-        p.bisBar:Show()
+        parts[3] = G("BiS") .. "  " .. (prog.obtained or 0) .. "/" .. prog.total
     else
-        p.factBis:SetText(G .. "BiS|r  no list yet")
-        p.bisBar:Hide()
+        parts[3] = G("BiS") .. "  no list yet"
     end
-    -- the line stays inside the band: too long, it drops the raid's day and time, then the BiS bar, then the countdown
-    local hw = p.hero:GetWidth() or 0
-    if hw <= 0 then hw = (p.hero:GetParent():GetWidth() or 0) - 24 end
-    local room = hw - 172 - 14
-    local function lineW()
-        return p.factRaid:GetStringWidth() + 21 + p.factOnline:GetStringWidth() + 21 + p.factBis:GetStringWidth()
-            + (p.bisBar:IsShown() and 62 or 0)
-    end
-    if v and room > 0 and lineW() > room then
+    -- the line stays inside the banner: too long, the next raid drops its day and time, then its countdown
+    local room = (hero:GetWidth() or 0) - (hero.textX or 70) - 14
+    if room <= 0 then room = 520 end
+    local sep = S:Wrap("DIM", "   |   ")
+    p.facts:SetText(table.concat(parts, sep))
+    if v and UI:TextWidth(p.facts) > room then
         local name = ns.RaidPlan.GetRaidName and ns.RaidPlan:GetRaidName(v) or "Raid"
-        p.factRaid:SetText(G .. "Next raid|r  " .. name .. "  ·  " .. Countdown(v.t - time()))
-        if lineW() > room then p.bisBar:Hide() end
-        if lineW() > room then p.factRaid:SetText(G .. "Next raid|r  " .. name) end
+        parts[1] = G("Next raid") .. "  " .. name .. "  ·  " .. Countdown(v.t - time())
+        p.facts:SetText(table.concat(parts, sep))
+        if UI:TextWidth(p.facts) > room then
+            parts[1] = G("Next raid") .. "  " .. name
+            p.facts:SetText(table.concat(parts, sep))
+        end
     end
-    p.intro()
 end
 
 local function BuildBlizzardPanel(canvas)
-    local UI = ns.UI
     local p = {}
-
     local hero = BuildHero(canvas, p)
 
-    -- the cards
-    local head = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    head:SetPoint("TOPLEFT", hero, "BOTTOMLEFT", 2, -14)
-    head:SetText("Jump to")
-    head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-    local sub = canvas:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    sub:SetPoint("LEFT", head, "RIGHT", 10, 0)
-    sub:SetText("Right-click a card to pin it to the minimap button")
-    local rule = Fill(canvas:CreateTexture(nil, "ARTWORK"), 1, 1, 1, 0.08)
-    rule:SetPoint("LEFT", sub, "RIGHT", 10, 0)
-    rule:SetPoint("RIGHT", hero, "RIGHT", 0, 0)
-    rule:SetHeight(1)
+    -- the cards, under a section header
+    local head = UI:CreateSectionHeader(canvas, "Jump to", { right = "Right-click a card to pin it to the minimap button" })
+    head:SetPoint("TOPLEFT", hero, "BOTTOMLEFT", 0, -10)
+    head:SetPoint("TOPRIGHT", hero, "BOTTOMRIGHT", 0, -10)
     p.grid = CreateFrame("Frame", nil, canvas)
-    p.grid:SetPoint("TOPLEFT", head, "BOTTOMLEFT", -2, -8)
+    p.grid:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, -8)
     p.grid:SetPoint("RIGHT", hero, "RIGHT")
     p.grid:SetHeight(1)
     p.cards = {}
 
-    -- the footer
-    local foot = CreateFrame("Frame", nil, canvas)
+    -- the footer: an inset card with the sync status and the slash commands
+    local foot = UI:CreateCard(canvas, { tone = "inset", pad = 0 })
+    foot.body:Hide()
     foot:SetPoint("BOTTOMLEFT", 12, 12)
     foot:SetPoint("BOTTOMRIGHT", -12, 12)
     foot:SetHeight(34)
-    Fill(foot:CreateTexture(nil, "BACKGROUND"), 0.05, 0.06, 0.08, 0.8):SetAllPoints()
-    Edge(foot, 1, 1, 1, 0.06)
     local dot = foot:CreateTexture(nil, "ARTWORK")
     dot:SetTexture(DISC)
     dot:SetSize(7, 7)
     dot:SetPoint("LEFT", 12, 0)
-    dot:SetVertexColor(0.5, 0.82, 0.5)
-    p.status = foot:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    dot:SetVertexColor(S:Color("OK"))
+    p.status = UI:Text(foot, "small", "TEXT")
     p.status:SetPoint("LEFT", dot, "RIGHT", 8, 0)
-    p.status:SetJustifyH("LEFT")
     local last
-    for i, cmd in ipairs({ "/dz help", "/dz settings", "/dz" }) do
-        local chip = CreateFrame("Frame", nil, foot)
-        chip.text = chip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        chip.text:SetPoint("CENTER")
-        chip.text:SetText(cmd)
-        chip.text:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
-        chip:SetSize(chip.text:GetStringWidth() + 14, 20)
-        Fill(chip:CreateTexture(nil, "BACKGROUND"), 1, 1, 1, 0.05):SetAllPoints()
-        Edge(chip, 1, 1, 1, 0.1)
+    for _, cmd in ipairs({ "/dz help", "/dz settings", "/dz" }) do
+        local chip = UI:CreateChip(foot, { text = cmd })
         if last then chip:SetPoint("RIGHT", last, "LEFT", -6, 0) else chip:SetPoint("RIGHT", -8, 0) end
         last = chip
     end
     p.status:SetPoint("RIGHT", last, "LEFT", -12, 0)
-    p.status:SetWordWrap(false)
     return p
 end
 
@@ -863,15 +523,15 @@ local function RefreshBlizzardPanel(canvas, p)
 
     local keys = ns.MainFrame:GetShownPages()
     local gw = p.grid:GetWidth() or 0
-    if gw < CARD_W then gw = math.max((canvas:GetWidth() or 0) - 24, 3 * CARD_W + 2 * GAP) end
-    -- the room between the "Jump to" line and the footer (12 + 34, then a gap)
+    if gw < CARD_W then gw = max((canvas:GetWidth() or 0) - 24, 3 * CARD_W + 2 * GAP) end
+    -- the room between the "Jump to" header and the footer (12 + 34, then a gap)
     local ch, top, gridTop = canvas:GetHeight() or 0, canvas:GetTop(), p.grid:GetTop()
     local off = (top and gridTop) and (top - gridTop) or 0
-    if off <= 0 or off >= ch then off = 12 + HERO_H + 36 end
+    if off <= 0 or off >= ch then off = 12 + HERO_H + 42 end
     local avail = ch - off - 54
     -- the first layout that fits: tall cards, tall cards in one more column (if they stay wide enough), small
     -- cards, small cards in one more column; the last one when none does
-    local base = math.max(1, math.floor((gw + GAP) / (CARD_W + GAP)))
+    local base = max(1, floor((gw + GAP) / (CARD_W + GAP)))
     local cols, h
     for _, try in ipairs({ { base, CARD_H }, { base + 1, CARD_H }, { base, CARD_H_SMALL }, { base + 1, CARD_H_SMALL } }) do
         local n, th = try[1], try[2]
@@ -884,36 +544,19 @@ local function RefreshBlizzardPanel(canvas, p)
     local w = (gw - (cols - 1) * GAP) / cols
     for _, c in pairs(p.cards) do c:Hide() end
     for i, key in ipairs(keys) do
-        local c = p.cards[key] or NewCard(p.grid, key)
+        local c = p.cards[key] or PageCard(p.grid, key)
         p.cards[key] = c
-        local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+        local col, row = (i - 1) % cols, floor((i - 1) / cols)
         c:Layout(w, h)
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", p.grid, "TOPLEFT", col * (w + GAP), -row * (h + GAP))
-        c.settled = false
-        c:SetAlpha(0)
-        c.fade = 0.35 + (i - 1) * 0.03                    -- the cards appear one after another
         c:Show()
     end
-    -- the fade-in, run from the canvas so cards keep their own OnUpdate for hover
-    local t = 0
-    canvas:SetScript("OnUpdate", function(_, elapsed)
-        t = t + elapsed
-        local busy = false
-        for _, c in pairs(p.cards) do
-            if c:IsShown() and c.fade then
-                local a = math.min(1, math.max(0, (t - c.fade) / 0.25))
-                c:SetAlpha(a)
-                if a >= 1 then c.fade = nil else busy = true end
-            end
-        end
-        if not busy then canvas:SetScript("OnUpdate", nil) end
-    end)
 end
 
 function SettingsUI:RegisterBlizzardCategory()
-    local S = _G.Settings
-    if self.category or not (S and S.RegisterCanvasLayoutCategory and S.RegisterAddOnCategory) then return end
+    local BS = _G.Settings
+    if self.category or not (BS and BS.RegisterCanvasLayoutCategory and BS.RegisterAddOnCategory) then return end
     local canvas = CreateFrame("Frame", "DisasterZoneBlizzardOptions")
     local panel
     canvas:SetScript("OnShow", function(f)
@@ -923,53 +566,14 @@ function SettingsUI:RegisterBlizzardCategory()
         C_Timer.After(0, function() if f:IsShown() then RefreshBlizzardPanel(f, panel) end end)
     end)
 
-    local cat = S.RegisterCanvasLayoutCategory(canvas, "DisasterZone")
-    S.RegisterAddOnCategory(cat)
+    local cat = BS.RegisterCanvasLayoutCategory(canvas, "DisasterZone")
+    BS.RegisterAddOnCategory(cat)
     self.category = cat
 end
 
 ---------------------------------------------------------------------------
 -- Building blocks: the nav, a section, its rows
 ---------------------------------------------------------------------------
-
--- A nav item: grey text; the open section's is gold with a gold bar on its left and a soft gold fill.
-local function NewNavItem(parent, text, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(NAV_W, NAV_H)
-    b.fill = b:CreateTexture(nil, "BACKGROUND")
-    b.fill:SetAllPoints()
-    b.bar = b:CreateTexture(nil, "ARTWORK")
-    b.bar:SetPoint("TOPLEFT")
-    b.bar:SetPoint("BOTTOMLEFT")
-    b.bar:SetWidth(2)
-    b.bar:SetColorTexture(1, 0.82, 0, 0.9)
-    b.text = NewFS(b, "GameFontHighlight", NAV_W - 16, false)
-    b.text:SetPoint("LEFT", b, "LEFT", 12, 0)
-    b.text:SetText(text)
-    local function paint(self)
-        if self.active then
-            self.fill:SetColorTexture(1, 0.82, 0, 0.08)
-            self.text:SetTextColor(1, 0.82, 0)
-        elseif self.hovered then
-            self.fill:SetColorTexture(1, 1, 1, 0.04)
-            self.text:SetTextColor(1, 1, 1)
-        else
-            self.fill:SetColorTexture(0, 0, 0, 0)
-            self.text:SetTextColor(0.74, 0.74, 0.74)
-        end
-        self.bar:SetShown(self.active and true or false)
-    end
-    function b:SetActive(on)
-        self.active = on and true or false
-        paint(self)
-    end
-    b:SetScript("OnEnter", function(self) self.hovered = true; paint(self) end)
-    b:SetScript("OnLeave", function(self) self.hovered = false; paint(self) end)
-    b:RegisterForClicks("LeftButtonUp")
-    b:SetScript("OnClick", onClick)
-    paint(b)
-    return b
-end
 
 -- A section: its title (gold, as big as the nav item is tall), rows from sec.y down.
 function SettingsUI:NewSection(def)
@@ -979,7 +583,7 @@ function SettingsUI:NewSection(def)
     sec:SetHeight(BODY_H)
     sec.key = def.key
     sec.rows = {}
-    sec.title = NewFS(sec, "GameFontNormalLarge", nil, false)
+    sec.title = UI:Text(sec, "page")
     sec.title:SetPoint("LEFT", sec, "TOPLEFT", 0, -TITLE_H / 2)
     sec.title:SetText(def.label)
     sec.y = -TITLE_H
@@ -990,11 +594,22 @@ end
 
 -- The line under a section's title (who sets the rules, my council seat): white, its asides grey.
 function SettingsUI:Subtitle(sec)
-    local fs = NewFS(sec, "GameFontHighlightSmall", nil, false)
+    local fs = UI:Text(sec, "small", "TEXT")
     fs:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 1)
     fs:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 1)
     sec.y = sec.y - SUB_H
     return fs
+end
+
+-- A notice under a section's title (UI:CreateNotice): whose values these are, read-only while someone else sets them.
+-- It only shows what the section already decides. notice.text is its line.
+local NOTICE_SPACE = 26 + 8
+function SettingsUI:Notice(sec, kind)
+    local n = UI:CreateNotice(sec, kind or "info", "")
+    n:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 2)
+    n:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 2)
+    sec.y = sec.y - NOTICE_SPACE
+    return n
 end
 
 -- Ends a section: no rule under its last row; its height.
@@ -1040,17 +655,13 @@ function SettingsUI:Row(sec, title, desc, tip)
     row:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y)
     row:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y)
     row:SetHeight(ROW_H)
-    row.title = NewFS(row, "GameFontHighlight", nil, false)
+    row.title = UI:Text(row, "emph")
     row.title:SetText(title or "")
-    row.desc = NewFS(row, "GameFontHighlightSmall", nil, false)
-    row.desc:SetTextColor(GREY[1], GREY[2], GREY[3])
+    row.desc = UI:Text(row, "small")
     row.desc:SetText(desc or "")
     row.hasDesc = desc ~= nil
-    row.line = row:CreateTexture(nil, "BORDER")
-    row.line:SetColorTexture(1, 1, 1, 0.06)
-    row.line:SetHeight(1)
-    row.line:SetPoint("BOTTOMLEFT")
-    row.line:SetPoint("BOTTOMRIGHT")
+    UI:DecorateRow(row, { rule = true })     -- (the shared hover and the hairline under it)
+    row.line = row.dzRule
     row.tip = tip
     row:SetScript("OnEnter", RowEnter)
     row:SetScript("OnLeave", RowLeave)
@@ -1062,7 +673,7 @@ end
 
 -- The plain-text value shown instead of a control while the option is set by someone else.
 local function AddValueText(row)
-    row.value = NewFS(row, "GameFontHighlight", nil, false)
+    row.value = UI:Text(row, "emph")
     row.value:SetJustifyH("RIGHT")
     row.value:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.value:Hide()
@@ -1151,23 +762,20 @@ function SettingsUI:CreatePanel(parent)
     panel.dirty = true
     self.panel = panel
 
+    -- the side menu layout: the nav (UI:CreateRailNav) | a hairline | the open section in a scroll frame
+    local layout = UI:CreateLayout("rail", panel, {
+        width = S.PAGE_W, scroll = true, selected = self.section,
+        onSelect = function(key) SettingsUI:SelectSection(key) end,
+    })
+    self.layout, self.rail = layout, layout.rail
+    -- self.nav[key]: a section's nav row (a hidden stand-in while the section is not in the nav)
     self.nav = {}
-    for _, def in ipairs(SECTIONS) do
-        self.nav[def.key] = NewNavItem(panel, def.label, function() SettingsUI:SelectSection(def.key) end)
-    end
+    self.navHidden = CreateFrame("Frame", nil, panel)
+    self.navHidden:Hide()
     self:LayoutNav()
-    local rule = panel:CreateTexture(nil, "BORDER")
-    rule:SetColorTexture(1, 1, 1, 0.08)
-    rule:SetWidth(1)
-    rule:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD + NAV_W, -TOP_Y)
-    rule:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PAD + NAV_W, PAD)
 
-    local scroll = ns.UI:CreateScrollFrame(panel, "DisasterZoneSettingsScroll")
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", BODY_X, -TOP_Y)
-    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PAD, PAD)
-    local child = CreateFrame("Frame", nil, scroll)
+    local scroll, child = layout.scroll, layout.body
     child:SetSize(BODY_W, BODY_H)
-    scroll:SetScrollChild(child)
     self.scroll, self.child = scroll, child
     -- the column's right edge is the page's minus PAD, whatever the page's real width (GetWidth is 0 until laid out)
     scroll:HookScript("OnSizeChanged", function()
@@ -1220,50 +828,40 @@ local kitOpen = {}   -- key -> true while that card is open (this session only)
 
 local function KitOpen(key) return kitOpen[key] and true or false end
 
-local function KitFill(tex, r, g, b, a)
-    tex:SetTexture("Interface\\Buttons\\WHITE8X8")
-    tex:SetVertexColor(r, g, b, a or 1)
-    return tex
-end
-
 function SettingsUI:BuildClassTools(sec)
     sec.y = sec.y - 2
     sec.lead = self:Subtitle(sec)
-    sec.lead:SetTextColor(GREY[1], GREY[2], GREY[3])
+    sec.lead:SetTextColor(S:Color("SUB"))
     sec.top = -sec.y + 8
     sec.cards = {}
     for _, kit in ipairs(ns.ClassKit and ns.ClassKit:List() or {}) do
         local key = kit.key
-        local card = CreateFrame("Frame", nil, sec)
+        -- a card (UI:CreateCard) whose header is a row with the shared hover: the tool's icon tile, name, who it is
+        -- for, its action, its switch and a chevron
+        local card = UI:CreateCard(sec, { pad = 0 })
+        card.body:Hide()                -- (the kit's settings get a body of their own, under the header)
         card.kit = kit
-        card.bg = KitFill(card:CreateTexture(nil, "BACKGROUND"), 0.1, 0.1, 0.118, 1)
-        card.bg:SetAllPoints()
-        ns.UI:AddEdges(card)
-        ns.UI:SetEdgeColor(card, 0.17, 0.17, 0.19, 1)
         local head = CreateFrame("Button", nil, card)
         head:SetPoint("TOPLEFT")
         head:SetPoint("TOPRIGHT")
         head:SetHeight(KIT_HEAD_H)
-        head.hl = KitFill(head:CreateTexture(nil, "HIGHLIGHT"), 1, 1, 1, 0.03)
-        head.hl:SetAllPoints()
-        head.icon = head:CreateTexture(nil, "ARTWORK")
-        head.icon:SetSize(28, 28)
-        head.icon:SetPoint("LEFT", head, "LEFT", 10, 0)
-        head.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        UI:DecorateRow(head)
+        local tile = UI:CreateIconTile(head, 28)
+        tile:SetPoint("LEFT", head, "LEFT", 10, 0)
         local icon = kit.iconPath or kit.icon
         if type(icon) == "number" and GetSpellTexture then icon = GetSpellTexture(icon) end
-        head.icon:SetTexture(icon)
-        head.title = NewFS(head, "GameFontHighlightLarge", nil, false)
-        head.title:SetPoint("TOPLEFT", head, "TOPLEFT", 48, -8)
+        tile:Set(icon)
+        head.icon = tile.tex
+        head.title = UI:Text(head, "title", "TEXT")
+        head.title:SetPoint("TOPLEFT", head, "TOPLEFT", 48, -9)
         head.title:SetText(kit.label)
-        head.sub = NewFS(head, "GameFontHighlightSmall", nil, false)
-        head.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
+        head.sub = UI:Text(head, "small")
         head.sub:SetPoint("TOPLEFT", head, "TOPLEFT", 48, -27)
         head.chev = head:CreateTexture(nil, "ARTWORK")
         head.chev:SetSize(12, 12)
         head.chev:SetPoint("RIGHT", head, "RIGHT", -12, 0)
-        head.chev:SetTexture(ns.UI.ICON_ATLAS)
-        head.chev:SetVertexColor(0.75, 0.75, 0.78)
+        head.chev:SetTexture(UI.ICON_ATLAS)
+        head.chev:SetVertexColor(S:Color("SUB"))
         local sw = ns.UI:CreateSwitch(head, function() return ns.ClassKit:IsOn(key) end, function(a, b)
             ns.ClassKit:SetOn(key, Bool(a, b))
             SettingsUI:LayoutClassTools()
@@ -1307,7 +905,6 @@ function SettingsUI:LayoutClassTools()
     sec.lead:SetText(demo and "Demo mode: every class's tools, with made-up data. Nothing is cast or sent."
         or "Tools for your class and spec. Switch one off to hide it; open a card for its settings.")
     local y = sec.top
-    local chev = ns.UI:IconCoords(ns.UI.ICON.chevron)
     for _, card in ipairs(sec.cards) do
         local kit = card.kit
         if demo or kit.class == mine then
@@ -1321,14 +918,13 @@ function SettingsUI:LayoutClassTools()
             card.body:SetShown(open)
             card.head.sub:SetText(CK:ForWhom(kit.key) .. (forMe and "" or " · not your spec") .. (on and "" or " · off"))
             local lit = forMe and on
-            card.head.title:SetTextColor(lit and 1 or 0.62, lit and 1 or 0.62, lit and 1 or 0.64)
+            card.head.title:SetTextColor(S:Color(lit and "TEXT" or "SUB"))
             card.head.icon:SetDesaturated(not lit)
             card.head.icon:SetAlpha(lit and 1 or 0.7)
             card.head.switch:SetChecked(on)
             if card.head.action then card.head.action:SetShown(forMe) end
-            -- the atlas chevron points down; turned up while open
-            if open then card.head.chev:SetTexCoord(chev[1], chev[2], chev[4], chev[3])
-            else card.head.chev:SetTexCoord(chev[1], chev[2], chev[3], chev[4]) end
+            -- the chevron points up while open
+            UI:SetChevronUp(card.head.chev, open)
             card:Show()
             y = y + KIT_HEAD_H + bodyH + KIT_GAP
         else
@@ -1374,17 +970,18 @@ end
 
 function SettingsUI:LayoutNav()
     if not self.panel then return end
-    local i = 0
+    local items, sig = {}, ""
     for _, def in ipairs(SECTIONS) do
-        local b = self.nav[def.key]
-        local shown = SectionVisible(def.key)
-        b:SetShown(shown)
-        if shown then
-            b:ClearAllPoints()
-            b:SetPoint("TOPLEFT", self.panel, "TOPLEFT", PAD, -(TOP_Y + i * NAV_H))
-            i = i + 1
+        if SectionVisible(def.key) then
+            items[#items + 1] = { key = def.key, label = def.label }
+            sig = sig .. def.key .. ","
         end
     end
+    if sig ~= self.navSig then
+        self.navSig = sig
+        self.rail:SetItems(items)
+    end
+    for _, def in ipairs(SECTIONS) do self.nav[def.key] = self.rail.byKey[def.key] or self.navHidden end
     if self.section and not SectionVisible(self.section) then self:SelectSection("alerts") end
 end
 
@@ -1397,7 +994,7 @@ function SettingsUI:SelectSection(key)
     self.section = key
     if not self.sections then return end
     for k, sec in pairs(self.sections) do sec:SetShown(k == key) end
-    for k, b in pairs(self.nav or {}) do b:SetActive(k == key) end
+    if self.rail then self.rail:Select(key) end
     self:FitChild()
     if self.scroll then self.scroll:SetVerticalScroll(0) end
 end
@@ -1505,10 +1102,7 @@ function SettingsUI:BuildNotify(sec)
     head:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
     head:SetHeight(18)
     for i, col in ipairs(NOTIFY_COLS) do
-        local fs = NewFS(head, "GameFontHighlightSmall", nil, false)
-        fs:SetTextColor(GREY[1], GREY[2], GREY[3])
-        fs:SetJustifyH("CENTER")
-        fs:SetWidth(NOTIFY_COL_W)
+        local fs = UI:Text(head, "small", nil, { justify = "CENTER", width = NOTIFY_COL_W })
         fs:SetPoint("RIGHT", head, "RIGHT", -(#NOTIFY_COLS - i) * NOTIFY_COL_W + (NOTIFY_COL_W - SWITCH_W) / 2 - 2, 0)
         fs:SetText(col.label)
     end
@@ -1536,19 +1130,10 @@ local RULES_TIP = "The group's loot leader sets these for everyone in the group:
     .. "council member). Without one, your own values apply. /dz rules prints the rules in effect."
 
 function SettingsUI:BuildGroupRules(sec)
-    self.rulesLock = sec:CreateTexture(nil, "OVERLAY")
-    self.rulesLock:SetTexture(ns.UI.ICON_LOCK or "Interface\\PetBattles\\PetBattle-LockIcon")
-    self.rulesLock:SetSize(12, 12)
-    self.rulesLock:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 2)
-    self.rulesY = sec.y
-    self.rulesStatus = self:Subtitle(sec)
-    local hit = CreateFrame("Frame", nil, sec)
-    hit:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y + SUB_H)
-    hit:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y + SUB_H)
-    hit:SetHeight(SUB_H)
-    hit:EnableMouse(true)
-    hit:SetScript("OnEnter", function(f) ShowTip(f, "Group loot rules", RULES_TIP) end)
-    hit:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    -- whose values are in effect: read-only while they come from the group's loot leader
+    self.rulesNotice = self:Notice(sec, "info")
+    self.rulesStatus = self.rulesNotice.text
+    AddTooltip(self.rulesNotice, "Group loot rules", RULES_TIP)
 
     local durations = {}
     for _, s in ipairs({ 15, 20, 30, 45, 60 }) do durations[#durations + 1] = { value = s, text = s .. " seconds" } end
@@ -1614,8 +1199,7 @@ function SettingsUI:BuildRolls(sec)
     self:SwitchSetting(sec, "Roll / Pass popup", "Pops up when a roll starts, so you can roll or pass.",
         "roll.popup", true)
     self:EndSection(sec)
-    local note = NewFS(sec, "GameFontHighlightSmall", nil, true)
-    note:SetTextColor(GREY[1], GREY[2], GREY[3])
+    local note = UI:Text(sec, "small", nil, { wrap = true })
     note:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 14)
     note:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 14)
     note:SetText("Everyone in the raid may roll. BiS mains win first, then BiS alts, then everyone else; the "
@@ -1725,12 +1309,13 @@ end
 function SettingsUI:BuildMeters(sec)
     local sub = self:Subtitle(sec)
     sub:SetText("Damage and threat in panels that dock together. Your own combat log only; nothing is shared or posted.")
-    sub:SetTextColor(GREY[1], GREY[2], GREY[3])
+    sub:SetTextColor(S:Color("SUB"))
     local groups = { dmg = {}, thr = {}, both = {} }
+    -- a group of the section: a section header with the meter's icon
     local function Head(text, icon)
-        local fs = NewFS(sec, "GameFontHighlight", nil, false)
-        fs:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 16)
-        fs:SetText((icon and ("|T" .. icon .. ":18:18:0:0:64:64:5:59:5:59|t  ") or "") .. text)
+        local h = UI:CreateSectionHeader(sec, (icon and ("|T" .. icon .. ":16:16:0:0:64:64:5:59:5:59|t  ") or "") .. text)
+        h:SetPoint("TOPLEFT", sec, "TOPLEFT", 0, sec.y - 10)
+        h:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, sec.y - 10)
         sec.y = sec.y - 38
     end
     local function Track(g, ctrl, row) groups[g][#groups[g] + 1] = { ctrl = ctrl, row = row } end
@@ -1876,7 +1461,7 @@ function SettingsUI:BuildTutorials(sec)
     t.offers = offers
     -- the GM's checklist
     t.setupHead = self:Row(sec, "Set up your guild", " ")
-    t.setupHead.title:SetTextColor(1, 0.82, 0)
+    t.setupHead.title:SetTextColor(S:Color("GOLD"))
     local hide = ns.UI:CreateSwitch(t.setupHead,
         function() return not (ns.WelcomeTour and ns.WelcomeTour:IsSetupHidden()) end,
         function(a, b) if ns.WelcomeTour then ns.WelcomeTour:SetSetupHidden(not Bool(a, b)) end end)
@@ -1938,10 +1523,10 @@ function SettingsUI:RefreshTutorials()
         local row = t.parts[key]
         local state, n, steps = W:PartState(key)
         if state == "done" then
-            row.desc:SetText("|cff5fe07aDone|r" .. Grey(" · " .. steps .. " steps"))
+            row.desc:SetText(S:Wrap("OK", "Done") .. Grey(" · " .. steps .. " steps"))
             row.btn:SetText("Again")
         elseif state == "at" then
-            row.desc:SetText(format("|cffffd100Step %d of %d|r", n, steps) .. Grey(" · " .. W.PARTS[key].line))
+            row.desc:SetText(S:Wrap("GOLD", format("Step %d of %d", n, steps)) .. Grey(" · " .. W.PARTS[key].line))
             row.btn:SetText("Go on")
         else
             row.desc:SetText(Grey(W.PARTS[key].line))
@@ -1954,8 +1539,8 @@ function SettingsUI:RefreshTutorials()
     end
     t.peek.desc:SetText(Grey("What the other roles see and do, on demo data. Nothing changes."))
     put(t.peek, others > 0)
-    local S, p = ns.Tour, ns.Tour and ns.Tour:Progress("strategy")
-    local def = S and S:Get("strategy")
+    local TR, p = ns.Tour, ns.Tour and ns.Tour:Progress("strategy")
+    local def = TR and TR:Get("strategy")
     local total, done = def and #def.chapters or 0, 0
     for _ in pairs(p and p.done or {}) do done = done + 1 end
     t.strategy.desc:SetText(Grey(format("%d chapters on a practice board: drawing, the room in 3D, jobs, reading a plan"
@@ -1974,7 +1559,7 @@ function SettingsUI:RefreshTutorials()
         row.item = it
         if it then
             row.title:SetText((it.done and "|TInterface\\RAIDFRAME\\ReadyCheck-Ready:14|t " or "") .. it.label)
-            row.title:SetTextColor(it.done and 0.62 or 1, it.done and 0.62 or 1, it.done and 0.62 or 1)
+            row.title:SetTextColor(S:Color(it.done and "SUB" or "TEXT"))
             row.desc:SetText(Grey(it.sub or ""))
             row.btn:SetShown(not it.done)
             row.btn:SetText(it.where or "Open")
@@ -2114,7 +1699,7 @@ function SettingsUI:DungeonStatusText()
         local by = DungeonEnabledBy()
         local rulesStatus, rulesFrom = self:GroupRulesStatus()
         if rulesStatus == "remote" and Effective("dungeon.enabled", false) then
-            who = rulesFrom and ShortName(rulesFrom) or nil
+            who = rulesFrom and NameOf(rulesFrom) or nil
         elseif Get("dungeon.enabled", false) then
             who = "you"
             -- only my client uses it unless I may tell the party (leader / council) or someone did
@@ -2124,9 +1709,9 @@ function SettingsUI:DungeonStatusText()
                 if ok and not can then extra = Grey(" (only for you)") end
             end
         elseif by then
-            who = IsMe(by) and "you" or ShortName(by)
+            who = IsMe(by) and "you" or NameOf(by)
         end
-        return Grey("Status: ") .. Paint(who and ("Active — enabled by " .. who) or "Active", "obtained") .. extra
+        return Grey("Status: ") .. S:Wrap("OK", who and ("Active — enabled by " .. who) or "Active") .. extra
     end
     local reason
     if _G.IsInRaid and _G.IsInRaid() then
@@ -2189,7 +1774,7 @@ function SettingsUI:GroupRulesStatusText()
     if status == "remote" then
         return "Set by " .. (from and ColoredName(from) or "the group's loot leader") .. " for this group"
     elseif status == "mine" then
-        return Paint("You set these for your group", "obtained") .. Grey(" (changes are sent to everyone in it)")
+        return S:Wrap("OK", "You set these for your group") .. Grey(" (changes are sent to everyone in it)")
     end
     if InGroup() then
         return "Your own settings" .. Grey(" (no loot leader with DisasterZone in this group)")
@@ -2199,11 +1784,10 @@ end
 
 -- The state of the group's BiS lists (ADDENDUM F §38), under "BiS lists".
 function SettingsUI:LockStatusText()
-    local UI = ns.UI
     if not (UI and UI.GetBiSLock) then return "" end
     local locked, info = UI:GetBiSLock()
     if locked then
-        return Paint("Locked by " .. UI:LockByText(info, true), "warn")
+        return S:Wrap("WARN", "Locked by " .. UI:LockByText(info, true))
             .. Grey(": nobody can change their list until it is unlocked")
     end
     if not (_G.IsInRaid and _G.IsInRaid()) then return "Unlocked" .. Grey(" (the raid leader can lock them in a raid)") end
@@ -2226,13 +1810,8 @@ end
 function SettingsUI:RefreshGroupRules()
     local status = self:GroupRulesStatus()
     local remote = status == "remote"
-    if self.rulesStatus then
-        self.rulesStatus:SetText(self:GroupRulesStatusText())
-        local sec, y = self.sections.rules, (self.rulesY or -TITLE_H) - 1
-        self.rulesStatus:ClearAllPoints()
-        self.rulesStatus:SetPoint("TOPLEFT", sec, "TOPLEFT", remote and 17 or 0, y)
-        self.rulesStatus:SetPoint("TOPRIGHT", sec, "TOPRIGHT", 0, y)
-        self.rulesLock:SetShown(remote)
+    if self.rulesNotice then
+        self.rulesNotice:SetNotice(remote and "readonly" or "info", self:GroupRulesStatusText())
     end
     for _, row in ipairs(self.ruleRows or {}) do
         local c = row.control
@@ -2255,10 +1834,10 @@ end
 function SettingsUI:RefreshAbout()
     local fs = self.aboutText
     if not fs then return end
-    local S = ns.Sync
-    local peers = S and S.GetVersions and S:GetVersions()
-    local online = S and S.GetOnlineCouncilPeers and S:GetOnlineCouncilPeers()
-    local status = (S and S.GetStatusText and S:GetStatusText()) or ""
+    local SY = ns.Sync
+    local peers = SY and SY.GetVersions and SY:GetVersions()
+    local online = SY and SY.GetOnlineCouncilPeers and SY:GetOnlineCouncilPeers()
+    local status = (SY and SY.GetStatusText and SY:GetStatusText()) or ""
     status = tostring(status):gsub("\226\128\166$", ""):gsub("%.%.%.$", "")
     local nPeers = type(peers) == "table" and #peers or 0
     local nOnline = type(online) == "table" and #online or 0
@@ -2273,36 +1852,27 @@ end
 ---------------------------------------------------------------------------
 -- Loot Council section: read-only summary for everyone + "Edit council..." (ADDENDUM E §30)
 ---------------------------------------------------------------------------
-local function MemberOnEnter(self)
-    if not self.key then return end
-    local tt = _G.GameTooltip
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+-- (UI:AttachTooltip's builder: the name, rank, online and why they are on the council)
+local function MemberTip(self, tt)
+    if not self.key then return false end
     tt:AddLine(ColoredName(self.key))
     local G = ns.Guild
     local rank = G and G.GetRankName and G:GetRankName(self.key)
-    if rank then tt:AddLine(rank, 0.8, 0.8, 0.8) end
-    tt:AddLine(self.online and "Online" or "Offline", 0.6, 0.6, 0.6)
+    if rank then tt:AddLine(rank, S:Color("TEXT")) end
+    tt:AddLine(self.online and "Online" or "Offline", S:Color("SUB"))
     if self.fixed == "Master looter" then
-        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", 0.6, 0.6, 0.6, true)
+        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", S:Color("SUB"))
     elseif self.fixed then
-        tt:AddLine(self.fixed .. ": always on the council", 0.6, 0.6, 0.6, true)
+        tt:AddLine(self.fixed .. ": always on the council", S:Color("SUB"))
     end
-    tt:Show()
 end
 
--- A council member: class circle and class-coloured name; offline members are dimmed.
+-- A council member: a chip (UI:CreateChip) with the class circle and the class-coloured name; offline members are
+-- dimmed.
 local function NewMemberEntry(parent)
-    local e = CreateFrame("Frame", nil, parent)
-    e:SetHeight(MEMBER_ROW_H)
-    e.icon = e:CreateTexture(nil, "ARTWORK")
-    e.icon:SetSize(16, 16)
-    e.icon:SetPoint("LEFT", e, "LEFT", 0, 0)
-    e.text = NewFS(e, "GameFontHighlight", nil, false)
-    e.text:SetPoint("LEFT", e, "LEFT", 22, 0)
-    e.text:SetPoint("RIGHT", e, "RIGHT", 0, 0)
-    e:EnableMouse(true)
-    e:SetScript("OnEnter", MemberOnEnter)
-    e:SetScript("OnLeave", function() _G.GameTooltip:Hide() end)
+    local e = UI:CreateChip(parent, { kind = "track" })
+    e.text = e.fs
+    UI:AttachTooltip(e, MemberTip)
     return e
 end
 
@@ -2316,19 +1886,19 @@ local function LayoutMembers(cs, pool, list, y)
             pool[i] = e
         end
         e.key, e.online, e.fixed = m.key, m.online and true or false, m.fixed
-        e:SetWidth(colW - 8)
         Put(e, cs, ((i - 1) % MEMBER_COLS) * colW, y - floor((i - 1) / MEMBER_COLS) * MEMBER_ROW_H)
-        local cls = m.classFile or ClassOf(m.key)
-        if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(e.icon, cls) end
         local text = m.name or ColoredName(m.key)
         if m.fixed == "Guild Master" then
             text = text .. Grey(" (GM)")
         elseif m.fixed then
             text = text .. Grey(" (" .. m.fixed:lower() .. ")")
         end
-        e.text:SetText(text)
-        e.icon:SetAlpha(e.online and 1 or 0.4)
-        e.text:SetAlpha(e.online and 1 or 0.45)
+        e:Set(text, nil, m.key)
+        if e:GetWidth() > colW - 8 then
+            UI:FitText(e.fs, text, colW - 8 - 28)
+            e:SetWidth(colW - 8)
+        end
+        e:SetAlpha(e.online and 1 or 0.5)
         e:Show()
     end
     for i = #list + 1, #pool do pool[i]:Hide() end
@@ -2339,19 +1909,19 @@ end
 function SettingsUI:BuildCouncil(sec)
     local cs = sec
     self.cs = cs
-    cs.status = self:Subtitle(sec)
+    cs.notice = self:Notice(sec, "info")
+    cs.status = cs.notice.text
     cs.top = sec.y - 6
-    cs.summary = NewFS(cs, "GameFontHighlight", BODY_W, true)
+    cs.summary = UI:Text(cs, "emph", nil, { width = BODY_W, wrap = true })
     cs.members = {}
-    cs.raidSummary = NewFS(cs, "GameFontHighlight", BODY_W, true)
+    cs.raidSummary = UI:Text(cs, "emph", nil, { width = BODY_W, wrap = true })
     cs.raidMembers = {}
     cs.editBtn = ns.UI:CreateButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
     cs.editBtn:SetPoint("RIGHT", cs, "TOPRIGHT", 0, -TITLE_H / 2)
     AddTooltip(cs.editBtn, "Edit council",
         "Opens the Loot Council picker (Council tab). The Guild Master picks the guild council; "
         .. "the raid leader picks extra council members for their raid.")
-    cs.info = NewFS(cs, "GameFontHighlightSmall", BODY_W, true)
-    cs.info:SetTextColor(GREY[1], GREY[2], GREY[3])
+    cs.info = UI:Text(cs, "small", nil, { width = BODY_W, wrap = true })
     sec.height = BODY_H
 end
 
@@ -2394,13 +1964,15 @@ function SettingsUI:RefreshCouncil()
     local CU = ns.CouncilUI
     local sum = CU and CU.GetCouncilSummary and CU:GetCouncilSummary() or nil
     if demo and IsCouncil() then
-        cs.status:SetText(Paint("You are on the Loot Council.", "obtained") .. Grey(" (demo mode)"))
+        cs.status:SetText(S:Wrap("OK", "You are on the Loot Council.") .. Grey(" (demo mode)"))
     elseif IsCouncil() then
         local src = sum and SOURCE_TEXT[sum.mySource]
-        cs.status:SetText(Paint("You are on the Loot Council.", "obtained") .. (src and Grey(" · " .. src) or ""))
+        cs.status:SetText(S:Wrap("OK", "You are on the Loot Council.") .. (src and Grey(" · " .. src) or ""))
     else
         cs.status:SetText(Grey("You are not on the Loot Council."))
     end
+    -- (read-only for whoever can't change it: the Edit council button says who can)
+    cs.notice:SetNotice(self:CanEditCouncil() and "info" or "readonly", cs.status:GetText())
 
     -- Guild council
     local guildList = {}
@@ -2414,7 +1986,7 @@ function SettingsUI:RefreshCouncil()
         local g = sum.guild
         local text
         if g then
-            text = "Guild council" .. Grey(format(" · set by %s %s · phase P%d", ShortName(g.by or sum.gm or "?"),
+            text = "Guild council" .. Grey(format(" · set by %s %s · phase P%d", NameOf(g.by or sum.gm or "?"),
                 FormatAgo(g.rev), tonumber(g.phase) or 1))
         elseif sum.gm then
             text = "Guild council" .. Grey(" · only the Guild Master so far")
@@ -2434,11 +2006,11 @@ function SettingsUI:RefreshCouncil()
         local leader = sum.raidLeader
         if sum.raidLeaderOutside and leader then
             cs.raidSummary:SetText("This raid's council" .. Grey(format(": %s leads it but is not in your guild, so is "
-                .. "never loot council", ShortName(leader))))
+                .. "never loot council", NameOf(leader))))
         elseif sum.raidShared and leader then
-            cs.raidSummary:SetText("This raid's council" .. Grey(" · set by raid leader " .. ShortName(leader)))
+            cs.raidSummary:SetText("This raid's council" .. Grey(" · set by raid leader " .. NameOf(leader)))
         elseif leader then
-            cs.raidSummary:SetText("This raid's council" .. Grey(" · only the raid leader " .. ShortName(leader)))
+            cs.raidSummary:SetText("This raid's council" .. Grey(" · only the raid leader " .. NameOf(leader)))
         else
             cs.raidSummary:SetText("This raid's council" .. Grey(" · waiting for the raid roster"))
         end
@@ -2483,15 +2055,15 @@ local ATT_MAX = 60
 local STEP_W = 110
 
 -- A value between two chevrons in a flat box; the mouse wheel steps it too.
+-- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua): the event builder and the team page
+-- have their own copies.
 local function NewStepper(parent, onStep)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(STEP_W, 24)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    f.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
-    ns.UI:AddEdges(f)
-    ns.UI:SetEdgeColor(f, 0.34, 0.34, 0.38, 0.9)
-    f.text = NewFS(f, "GameFontHighlight", nil, false)
+    f.bg = UI:Fill(f, "CARD")
+    UI:AddEdges(f)
+    UI:SetEdgeColor(f, S:Color("EDGE_STRONG"))
+    f.text = UI:Text(f, "emph")
     f.text:SetPoint("CENTER")
     f.prev = ns.UI:CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
     f.prev:SetPoint("LEFT", 1, 0)
@@ -2500,8 +2072,8 @@ local function NewStepper(parent, onStep)
     f:EnableMouse(true)
     f:EnableMouseWheel(true)
     f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
-    f:SetScript("OnEnter", function(self) ns.UI:SetEdgeColor(self, 1, 0.82, 0, 0.6) end)
-    f:SetScript("OnLeave", function(self) ns.UI:SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9) end)
+    f:SetScript("OnEnter", function(self) UI:SetEdgeColor(self, S:Color("EDGE_FOCUS")) end)
+    f:SetScript("OnLeave", function(self) UI:SetEdgeColor(self, S:Color("EDGE_STRONG")) end)
     function f:Set(n)
         self.text:SetText(n .. " min")
         self.prev:SetEnabled(n > 0)
@@ -2517,8 +2089,8 @@ end
 
 function SettingsUI:BuildAttendance(sec)
     self.att = sec
-    sec.status = self:Subtitle(sec)
-    sec.y = sec.y - 6
+    sec.notice = self:Notice(sec, "info")
+    sec.status = sec.notice.text
     sec.steppers = {}
     for _, r in ipairs(ATT_ROWS) do
         local row = self:Row(sec, r.title, r.desc)
@@ -2564,6 +2136,7 @@ function SettingsUI:RefreshAttendance()
     else
         sec.status:SetText(Grey("Set by the Guild Master for the whole guild."))
     end
+    sec.notice:SetNotice(gm and "info" or "readonly", sec.status:GetText())
     for _, row in ipairs(sec.rows) do
         local n = tonumber(rules[row.field]) or 0
         row.control:Set(n)

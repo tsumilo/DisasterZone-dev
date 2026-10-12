@@ -18,7 +18,8 @@ local OPEN_TIME = 0.22       -- one pin's slide (s)
 local STAGGER = 0.035        -- between two pins starting
 local LINGER = 3             -- the arc closes this long after the mouse left it (s)
 
-local GOLD = { 0.84, 0.69, 0.36 }
+local S = ns.Style
+local GOLD = S.C.GOLD_DEEP              -- (D1: the deep gold of rings, tracks and edges)
 local CREAM = { 0.96, 0.9, 0.72 }
 local BODY = { 0.10, 0.12, 0.16 }
 
@@ -322,18 +323,15 @@ local function Build()
     -- the flat label pill
     label = CreateFrame("Frame", nil, holder)
     label:SetFrameLevel(holder:GetFrameLevel() + 20)
-    label.bg = label:CreateTexture(nil, "BACKGROUND")
-    label.bg:SetAllPoints()
-    label.bg:SetColorTexture(0.04, 0.05, 0.07, 0.94)
+    label.bg = UI():Fill(label, "DROP_BG")
     label.edge = label:CreateTexture(nil, "BORDER")
     label.edge:SetPoint("TOPLEFT")
     label.edge:SetPoint("BOTTOMLEFT")
     label.edge:SetWidth(2)
     label.edge:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
-    label.title = label:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label.title = UI():Text(label, "small", "TEXT")
     label.title:SetPoint("TOPLEFT", 10, -4)
-    label.title:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
-    label.hint = label:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    label.hint = UI():Text(label, "small", "DIM")
     label.hint:SetPoint("TOPLEFT", label.title, "BOTTOMLEFT", 0, -3)
     label:Hide()
     holder:SetScript("OnHide", function()

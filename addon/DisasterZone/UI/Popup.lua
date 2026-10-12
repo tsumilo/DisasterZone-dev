@@ -28,15 +28,7 @@ local frames = {}
 Popup.dialogs = defs                -- the definitions by name (as StaticPopupDialogs: callers may write it directly)
 
 local function UI() return ns.UI end
-
-local function text(parent, font, size, r, g, b)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font)
-    local path, _, flags = fs:GetFont()
-    if path and size then fs:SetFont(path, size, flags) end
-    if r then fs:SetTextColor(r, g, b) end
-    fs:SetJustifyH("LEFT")
-    return fs
-end
+local S = ns.Style
 
 local function safe(name, fn, ...)
     if type(fn) ~= "function" then return true, nil end
@@ -65,22 +57,14 @@ function Popup:SkinPanel(f)
     end
     f.bg = f:CreateTexture(nil, "BACKGROUND", nil, -7)
     f.bg:SetAllPoints()
-    f.bg:SetColorTexture(1, 1, 1, 1)
-    if f.bg.SetGradient and CreateColor then
-        f.bg:SetGradient("VERTICAL", CreateColor(0.075, 0.075, 0.088, 1), CreateColor(0.105, 0.105, 0.122, 1))
-    else
-        f.bg:SetColorTexture(0.09, 0.09, 0.105, 1)
-    end
+    UI():Gradient(f.bg, "VERTICAL", { 0.075, 0.075, 0.088, 1 }, { 0.105, 0.105, 0.122, 1 })
     UI():AddEdges(f, "BORDER")
     UI():SetEdgeColor(f, 0.30, 0.30, 0.33, 1)
     f.glint = f:CreateTexture(nil, "ARTWORK")
     f.glint:SetHeight(1)
-    f.glint:SetColorTexture(1, 1, 1, 1)
-    if f.glint.SetGradient and CreateColor then
-        f.glint:SetGradient("HORIZONTAL", CreateColor(0.79, 0.64, 0.15, 0.7), CreateColor(0.79, 0.64, 0.15, 0))
-    end
-    f.title = text(f, "GameFontNormal", 14, 1, 0.82, 0)
-    f.title:SetWordWrap(false)
+    local deep = S.C.GOLD_DEEP              -- (D1: the deep gold of lines and edges)
+    UI():Gradient(f.glint, "HORIZONTAL", { deep[1], deep[2], deep[3], 0.7 }, { deep[1], deep[2], deep[3], 0 })
+    f.title = UI():Text(f, "title", "GOLD")
 end
 
 local function New(i)
@@ -104,33 +88,13 @@ local function New(i)
     f.dim = dim
 
     Popup:SkinPanel(f)
-    f.close = CreateFrame("Button", nil, f)
-    f.close:SetSize(20, 20)
+    f.close = UI():CreateCloseButton(f, 20, function() Popup:Dismiss(f) end)
     f.close:SetPoint("TOPRIGHT", -8, -9)
-    f.close.lines = {}
-    for k = 1, 2 do
-        local l = f.close:CreateLine(nil, "ARTWORK")
-        l:SetThickness(1.5)
-        l:SetColorTexture(0.66, 0.66, 0.68, 1)
-        f.close.lines[k] = l
-    end
-    f.close.lines[1]:SetStartPoint("CENTER", -5, 5)
-    f.close.lines[1]:SetEndPoint("CENTER", 5, -5)
-    f.close.lines[2]:SetStartPoint("CENTER", -5, -5)
-    f.close.lines[2]:SetEndPoint("CENTER", 5, 5)
-    f.close:SetScript("OnEnter", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(1, 1, 1, 1) end end)
-    f.close:SetScript("OnLeave", function(self) for _, l in ipairs(self.lines) do l:SetColorTexture(0.66, 0.66, 0.68, 1) end end)
-    f.close:SetScript("OnClick", function() Popup:Dismiss(f) end)
 
     f.alert = f:CreateTexture(nil, "ARTWORK")
     f.alert:SetSize(22, 22)
     f.alert:SetTexture(UI().ICON_WARN or "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
-    f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    do
-        local path, _, flags = f.text:GetFont()
-        if path then f.text:SetFont(path, 13, flags) end
-    end
-    f.text:SetJustifyH("LEFT")
+    f.text = UI():Text(f, "title", "TEXT", { wrap = true })
     f.text:SetJustifyV("TOP")
     f.text:SetSpacing(3)
     f.text:SetWordWrap(true)
@@ -162,13 +126,11 @@ local function New(i)
         end
     end)
     -- the error line under the field (Popup:SetError)
-    f.err = text(f, "GameFontHighlightSmall", 11, 1, 0.55, 0.2)
+    f.err = UI():Text(f, "body", "WARN")
     f.err:SetWordWrap(true)
     f.err:Hide()
 
-    f.rule = f:CreateTexture(nil, "ARTWORK")
-    f.rule:SetHeight(1)
-    f.rule:SetColorTexture(1, 1, 1, 0.07)
+    f.rule = UI():Rule(f)
     for b = 1, 3 do
         local btn = UI():CreateSleekButton(f, "", 90, 26, function() Popup:Click(f, b) end, b == 1 and "primary" or nil)
         f["button" .. b] = btn

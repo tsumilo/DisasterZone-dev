@@ -40,7 +40,8 @@ local MIN_W = 110
 local SIDE_GAP = 2             -- between a menu and its submenu
 local CHECK = "Interface\\Buttons\\UI-CheckBox-Check"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local GOLD = { 1, 0.82, 0 }
+local S = ns.Style
+local GOLD = S.C.GOLD                -- (the accent of the picked entries and titles)
 
 ---------------------------------------------------------------------------
 -- The entries (what build(root) makes; the same fields the test mock's menus have)
@@ -196,7 +197,7 @@ local function PaintPage(r, d, en)
     for _, t in ipairs(r.marks) do t:Hide() end
     r.bar:SetShown(on)
     if on then r.hl:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], hot and 0.11 or 0.07)
-    else r.hl:SetColorTexture(1, 1, 1, 0.05) end
+    else r.hl:SetColorTexture(S:Color("HOVER")) end
     r.hl:SetShown((on or hot) and true or false)
     local a = en and 1 or 0.45
     if on or hot then r.fs:SetTextColor(1, 1, 1) else r.fs:SetTextColor(0.9, 0.9, 0.9) end
@@ -370,7 +371,7 @@ local function NewRow(f)
     r.line:SetHeight(1)
     r.line:SetPoint("LEFT", 2, 0)
     r.line:SetPoint("RIGHT", -2, 0)
-    r.line:SetColorTexture(1, 1, 1, 0.08)
+    r.line:SetColorTexture(S:Color("HAIRLINE"))
     -- a page list's: the line under the title, the picked page's bar
     r.sub = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.sub:SetJustifyH("LEFT")
@@ -452,26 +453,20 @@ local function PlacePill(r, badge, titleW)
         r.count:SetPoint("LEFT", r.fs, "LEFT", titleW + 6, 0)
         return r.count:GetWidth() + 6
     end
+    -- (THE pill, UI:CreatePill: badge.color is a pill kind, or an { r, g, b } its text takes on the gold look)
     local p = r.pill
     if not p then
-        p = CreateFrame("Frame", nil, r)
-        p:SetHeight(11)
-        if UI.AddPillShape then UI:AddPillShape(p, 11) end
-        p.fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        local path, _, flags = p.fs:GetFont()
-        p.fs:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 7.5, flags or "")
-        p.fs:SetPoint("CENTER", 0.5, 0)
+        p = UI:CreatePill(r, nil, nil, 12)
         r.pill = p
     end
-    local c = badge.color or GOLD
-    if p.SetPillColors then
-        p:SetPillColors({ 0.1 + (c[1] - 0.1) * 0.16, 0.1 + (c[2] - 0.1) * 0.16, 0.12 + (c[3] - 0.12) * 0.16, 1 },
-            { c[1], c[2], c[3], 0.5 })
+    local c = badge.color
+    if type(c) == "string" then
+        p:SetPill(c, badge.text or "")
+    else
+        p:SetPill("bis", badge.text or "")
+        if type(c) == "table" then p.fs:SetTextColor(c[1], c[2], c[3]) end
     end
-    p.fs:SetText(badge.text or "")
-    p.fs:SetTextColor(c[1], c[2], c[3])
-    local w = floor((p.fs:GetStringWidth() or 18) + 8 + 0.5)
-    p:SetWidth(w)
+    local w = p:GetWidth()
     p:ClearAllPoints()
     p:SetPoint("LEFT", r.fs, "LEFT", titleW + 6, 0)
     p:Show()
