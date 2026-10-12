@@ -257,5 +257,49 @@ def the_dots_stretch_and_take_the_colour_with_the_turn():
     no_errors(w)
 
 
+@case
+def games_send_uses_the_game_class_and_stamps_a_registered_version_peek_creates_nothing():
+    w, c = solo()
+    c.eval("_G.__gsent = {} local send = ns.Comm.Send "
+           "ns.Comm.Send = function(self, msg, dist, target, class) "
+           "table.insert(_G.__gsent, { t = msg.t, v = msg.v, dist = dist, to = target, class = class }) "
+           "return send(self, msg, dist, target, class) end")
+    c.eval("ns.Games:Send('nogame', { t = 'XX1' }, 'GUILD')")
+    c.eval("ns.Chess:Whisper('Bob', { t = 'CHX', id = 'g1' })")
+    assert c.eval("return ns.Games:Send('chess', { t = 'CHX' }, 'WHISPER', nil)") is False
+    sent = c.eval_py("return _G.__gsent")
+    assert sent[0] == {"t": "XX1", "dist": "GUILD", "class": "game"}, sent
+    assert sent[1] == {"t": "CHX", "v": c.eval("return ns.Chess.VERSION"), "dist": "WHISPER", "to": "Bob",
+                       "class": "game"}, sent
+    assert len(sent) == 2, sent
+    # PeekData looks without creating the game's table
+    c.eval("ns.db.games = ns.db.games or {} ns.db.games.peeked = nil")
+    assert c.eval("local t = ns.Games:PeekData('peeked') return next(t) == nil") is True
+    assert c.eval("return ns.db.games.peeked") is None
+    c.eval("ns.Games:GetData('peeked').x = 3")
+    assert c.eval("return ns.Games:PeekData('peeked').x") == 3
+    no_errors(w)
+
+
+@case
+def the_bingo_counter_keeps_its_1_3_place_and_then_uses_the_one_position_store():
+    w, c = solo()
+    c.eval("ns.Games:GetData('bingo').miniPos = { 'TOPLEFT', 'TOPLEFT', 120, -80 } "
+           "if ns.db.settings.windows then ns.db.settings.windows.bingoMini = nil end")
+    c.relog()
+    w.tick(2)
+    where = "local p, _, r, x, y = DisasterZoneBingoMini:GetPoint(1) return { p, r, x, y }"
+    assert c.eval_py(where) == ["TOPLEFT", "TOPLEFT", 120, -80]
+    assert c.eval("return ns.Games:GetData('bingo').miniPos") is None
+    assert c.eval_py("return ns.db.settings.windows.bingoMini") == ["TOPLEFT", "TOPLEFT", 120, -80]
+    # dragged: saved in the one store, and there after the next login
+    c.eval("local f = DisasterZoneBingoMini f:ClearAllPoints() f:SetPoint('CENTER', UIParent, 'CENTER', 40, 30) "
+           "f:GetScript('OnDragStop')(f)")
+    c.relog()
+    w.tick(2)
+    assert c.eval_py(where) == ["CENTER", "CENTER", 40, 30]
+    no_errors(w)
+
+
 if __name__ == "__main__":
     run_all("games / hub")
