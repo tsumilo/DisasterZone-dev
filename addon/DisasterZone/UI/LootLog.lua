@@ -1,19 +1,25 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/LootLog.lua", ...) then return end -- DisasterZone: the Council tab's "Loot Log" view (SPEC §12.7): the council's award ledger with search, void/restore and manual awards.
 -- The Council panel hosts it (CouncilUI, view "log"): its search sits where the Council's own search is, the filters
--- and Add award... on the row below the views.
+-- and Add award... (the page's main action, far right) on the row below the views. 1.4: a board layout
+-- (UI:CreateLayout): its toolbar row has the count at the left, the filters and Add award... at the right; the body the
+-- column titles and the rows (the shared row looks), an illustrated empty state. The award dialog is a tool window: the
+-- strip banner shows the item being awarded (icon, name, boss), the form under it.
 -- Dungeon-mode awards (entries with dg = true, ADDENDUM B §22.2) carry a grey "(dungeon)" tag and can be hidden.
 -- Also owns the "Record award" dialog that the Council view and the drop panel reuse (LootLogUI:OpenAwardDialog).
 local addonName, ns = ...
 
 local LootLogUI = ns:NewModule("LootLogUI")
 
+local S = ns.Style
+
 local ROW_HEIGHT = 26
 local MAX_NOTE = 60
 local MAX_ITEM_ID = 200000
 local MENU_CHUNK = 25
--- The Council page's grid (UI/Council.lua): 10 at the sides, the filter row under the view tabs, the column titles
--- and the list under it; the list's scroll bar in the right margin.
-local PAD, FILTER_Y, HEAD_Y, HEAD_H = 10, -48, -68, 24
+-- The Council page's grid (UI/Council.lua): its view tabs on the top row, the page's toolbar row under them (the
+-- layout's), then the column titles and the list; the list's scroll bar in the right margin.
+local PAD, TOP, HEAD_H = S.PAD, 36, 24
+local DLG_W, DLG_H, FIELD_X = 340, 300, 64     -- the award dialog; its fields after their labels
 
 -- Column x offsets / widths inside a row (and the header above the list); a row is 770 wide.
 local COL = {
@@ -37,24 +43,20 @@ local prefetched = {}       -- [itemID] = true once item data was requested
 -- Helpers
 ----------------------------------------------------------------------------
 
-local function grey(text)
-    return "|cff808080" .. tostring(text) .. "|r"
-end
+local function dim(text) return S:Wrap("DIM", text) end
 
 local function trim(text)
     if type(text) ~= "string" then return "" end
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-local function shortName(key)
+local function short(key)
     if not key then return "?" end
-    if ns.Util and ns.Util.ShortName then
-        return ns.Util.ShortName(key) or key
-    end
-    return key
+    return ns.Util.ShortName(key) or key
 end
 
-local function classOf(key)
+-- The class of a winner: the guild's, else what the store learned (an outsider). TODO(refactor): UI:ClassOf.
+local function classFor(key)
     if type(key) ~= "string" then return nil end
     local cl = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)
     if not cl and ns.Store and ns.Store.Get then
@@ -66,19 +68,13 @@ local function classOf(key)
 end
 
 local function coloredName(key, classFile)
-    if ns.UI and ns.UI.ColoredName then
-        return ns.UI:ColoredName(key, classFile or classOf(key)) .. ns.UI:GuestTag(key)
-    end
-    return shortName(key)
+    return ns.UI:ColoredName(key, classFile or classFor(key)) .. ns.UI:GuestTag(key)
 end
 
 local function itemText(itemID)
     if not itemID then return "" end
-    if ns.UI and ns.UI.ItemText then
-        local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
-        return text
-    end
-    return "item " .. tostring(itemID)
+    local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
+    return text
 end
 
 local function itemName(itemID)
@@ -128,10 +124,6 @@ local function linkInChat(itemID)
     end
 end
 
-local function hideTooltip()
-    GameTooltip:Hide()
-end
-
 local function isInGroup(key)
     return ns.Util and ns.Util.IsInMyGroup and ns.Util.IsInMyGroup(key) or false
 end
@@ -140,14 +132,10 @@ local function isOnline(key)
     return ns.Guild and ns.Guild.IsOnline and ns.Guild:IsOnline(key) or false
 end
 
-local function demoEnabled()
-    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false
-end
-
 local function sortByShortName(keys)
     local lower = {}
     for _, k in ipairs(keys) do
-        lower[k] = shortName(k):lower()
+        lower[k] = short(k):lower()
     end
     table.sort(keys, function(a, b)
         if lower[a] ~= lower[b] then return lower[a] < lower[b] end
@@ -185,7 +173,7 @@ local function reasonCounts(e)
     return not r or r.counts
 end
 
-local DUNGEON_TAG = grey("(dungeon)")
+local DUNGEON_TAG = dim("(dungeon)")
 
 ----------------------------------------------------------------------------
 -- Ledger list
@@ -197,8 +185,8 @@ local function entryMatches(e)
     local function has(text)
         return type(text) == "string" and text:lower():find(s, 1, true) ~= nil
     end
-    return has(shortName(e.w)) or has(itemName(e.i)) or has(bossName(e.b))
-        or has(e.by and shortName(e.by)) or has(e.n) or tostring(e.i) == s
+    return has(short(e.w)) or has(itemName(e.i)) or has(bossName(e.b))
+        or has(e.by and short(e.by)) or has(e.n) or tostring(e.i) == s
         or (isDungeonEntry(e) and has("dungeon")) or has(reasonLabel(e))
 end
 
@@ -216,7 +204,7 @@ local function buildRows()
                 pre[#pre + 1] = id
             end
             if (state.showDungeon or not isDungeonEntry(e)) and entryMatches(e) then
-                rows[#rows + 1] = { entry = e, itemID = id, classFile = classOf(e.w), index = #rows + 1 }
+                rows[#rows + 1] = { entry = e, itemID = id, classFile = classFor(e.w), index = #rows + 1 }
             end
         end
     end
@@ -229,29 +217,30 @@ end
 local function addEntryLines(tt, e)
     if not e then return end
     tt:AddLine(" ")
-    tt:AddLine("|cffff8000DisasterZone|r award")
-    tt:AddDoubleLine("Winner", coloredName(e.w), 0.8, 0.8, 0.8, 1, 1, 1)
+    tt:AddLine(S:Wrap("GOLD", "DisasterZone") .. " award")
+    local r, g, b = S:Color("SUB")
+    tt:AddDoubleLine("Winner", coloredName(e.w), r, g, b, 1, 1, 1)
     local label = reasonLabel(e)
     if label then
-        tt:AddDoubleLine("Reason", label .. (reasonCounts(e) and "" or grey(" (not counted as loot won)")),
-            0.8, 0.8, 0.8, 1, 1, 1)
+        tt:AddDoubleLine("Reason", label .. (reasonCounts(e) and "" or dim(" (not counted as loot won)")),
+            r, g, b, 1, 1, 1)
     end
     if reasonCounts(e) and not ns.AwardCounts(e) then
-        tt:AddLine(grey("Not gear: not counted as loot won"))
+        tt:AddLine(dim("Not gear: not counted as loot won"))
     end
     local where = bossName(e.b, true)
-    if where then tt:AddDoubleLine("Boss", where, 0.8, 0.8, 0.8, 1, 1, 1) end
-    if isDungeonEntry(e) then tt:AddLine("5-man dungeon loot (dungeon mode)", 0.6, 0.6, 0.6) end
-    tt:AddDoubleLine("Date", formatDate(e.ts, "%Y-%m-%d %H:%M"), 0.8, 0.8, 0.8, 1, 1, 1)
+    if where then tt:AddDoubleLine("Boss", where, r, g, b, 1, 1, 1) end
+    if isDungeonEntry(e) then tt:AddLine("5-man dungeon loot (dungeon mode)", r, g, b) end
+    tt:AddDoubleLine("Date", formatDate(e.ts, "%Y-%m-%d %H:%M"), r, g, b, 1, 1, 1)
     local kind = e.s == "m" and "Manual" or "Auto (loot message)"
-    tt:AddDoubleLine("Recorded", kind .. (e.by and (" by " .. shortName(e.by)) or ""), 0.8, 0.8, 0.8, 1, 1, 1)
+    tt:AddDoubleLine("Recorded", kind .. (e.by and (" by " .. short(e.by)) or ""), r, g, b, 1, 1, 1)
     if type(e.n) == "string" and e.n ~= "" then
         tt:AddLine("Note: " .. e.n, 1, 1, 1, true)
     end
     if e.vd then
-        tt:AddLine("Voided " .. formatAgo(e.vts), 1, 0.3, 0.3)
+        tt:AddLine("Voided " .. formatAgo(e.vts), S:Color("BAD"))
     end
-    tt:AddLine("Right-click: reason, void / restore, link, show member", 0.5, 0.5, 0.5)
+    tt:AddLine("Right-click: reason, void / restore, link, show member", S:Color("DIM"))
 end
 
 local function voidEntry(e, voided)
@@ -302,36 +291,26 @@ local function rowClick(row, mouseButton)
     end
 end
 
-local function rowEnter(row)
+local function rowTip(row, tt)
     local e = row.cdlEntry
-    if not e then return end
-    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(itemText(tonumber(e.i)))
-    addEntryLines(GameTooltip, e)
-    GameTooltip:Show()
+    if not e then return false end
+    tt:AddLine(itemText(tonumber(e.i)))
+    addEntryLines(tt, e)
 end
 
-local function newText(row, col, font, justify)
-    local fs = row:CreateFontString(nil, "OVERLAY", font)
+-- A cell of a row: a one-line text in its column (style, colour: UI:Text).
+local function cellText(row, col, style, color)
+    local fs = ns.UI:Text(row, style, color, { width = col.w })
     fs:SetPoint("LEFT", col.x, 0)
-    fs:SetWidth(col.w)
-    fs:SetJustifyH(justify or "LEFT")
-    fs:SetWordWrap(false)
     return fs
 end
 
 local function setupRow(row)
     row.cdlInit = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    row.stripe = row:CreateTexture(nil, "BACKGROUND")
-    row.stripe:SetAllPoints()
-    row.stripe:SetColorTexture(1, 1, 1, 0.025)
-    local hl = row:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
+    ns.UI:DecorateRow(row, { stripe = true })
 
-    row.date = newText(row, COL.date, "GameFontHighlightSmall")
-    row.date:SetTextColor(0.62, 0.62, 0.62)
+    row.date = cellText(row, COL.date, "body", "SUB")
     row.btn = ns.UI:CreateItemButton(row, 20)
     row.btn:SetPoint("LEFT", COL.icon.x, 0)
     row.btn.onTooltip = function(btn, tt)
@@ -340,46 +319,45 @@ local function setupRow(row)
     row.btn.onClick = function(btn, mouseButton)
         rowClick(btn:GetParent(), mouseButton)
     end
-    row.item = newText(row, COL.item, "GameFontHighlight")
-    row.winner = newText(row, COL.winner, "GameFontHighlight")
-    row.reason = newText(row, COL.reason, "GameFontHighlightSmall")
-    row.boss = newText(row, COL.boss, "GameFontHighlightSmall")
-    row.by = newText(row, COL.by, "GameFontDisableSmall")
+    row.item = cellText(row, COL.item, "emph", "TEXT")
+    row.winner = cellText(row, COL.winner, "emph", "TEXT")
+    row.reason = cellText(row, COL.reason, "body", "TEXT")
+    row.boss = cellText(row, COL.boss, "body", "TEXT")
+    row.by = cellText(row, COL.by, "body", "DIM")
 
     row:SetScript("OnClick", rowClick)
-    row:SetScript("OnEnter", rowEnter)
-    row:SetScript("OnLeave", hideTooltip)
+    ns.UI:AttachTooltip(row, rowTip)
 end
 
 local function initRow(row, d)
     if not row.cdlInit then setupRow(row) end
     local e = d.entry
     row.cdlEntry = e
-    row.stripe:SetShown((d.index or 0) % 2 == 0)
+    row:SetStripe(d.index or 0)
     row.date:SetText(formatDate(e.ts))
     row.btn:SetItem(d.itemID)
     row.btn:SetBadge(nil)
     row.btn:SetState(e.vd and "dim" or nil)
     if e.vd then
-        row.item:SetText(grey((itemName(d.itemID) or ("item " .. d.itemID)) .. " (void)"))
-        row.winner:SetText(grey(shortName(e.w)))
+        row.item:SetText(dim((itemName(d.itemID) or ("item " .. d.itemID)) .. " (void)"))
+        row.winner:SetText(dim(short(e.w)))
     else
         row.item:SetText(itemText(d.itemID))
         row.winner:SetText(coloredName(e.w, d.classFile))
     end
     local label = reasonLabel(e)
     if not label then
-        row.reason:SetText(grey("-"))
+        row.reason:SetText(dim("-"))
     elseif reasonCounts(e) and not e.vd then
         row.reason:SetText(label)
     else
-        row.reason:SetText(grey(label))   -- offspec / disenchant / bank: not counted as loot won
+        row.reason:SetText(dim(label))   -- offspec / disenchant / bank: not counted as loot won
     end
-    local boss = bossName(e.b) or grey("-")
+    local boss = bossName(e.b) or dim("-")
     if isDungeonEntry(e) then boss = boss .. " " .. DUNGEON_TAG end
     row.boss:SetText(boss)
     -- who typed a manual entry in; the rest came from loot messages (the tooltip has the details)
-    local by = e.s == "m" and (e.by and shortName(e.by) or "manual") or "auto"
+    local by = e.s == "m" and (e.by and short(e.by) or "manual") or "auto"
     if type(e.n) == "string" and e.n ~= "" then by = by .. " · note" end
     row.by:SetText(by)
     row:SetAlpha(e.vd and 0.6 or 1)
@@ -422,7 +400,8 @@ end
 local function updateBossText()
     local f = dialog
     local where = bossName(resolveBoss(), true)
-    f.bossText:SetText("Boss: " .. (where or grey("none")))
+    f.bossText:SetText("Boss: " .. (where or dim("none")))
+    if f.banner then f.banner:SetSub(where or "No boss") end
 end
 
 local function updateItemPreview()
@@ -431,10 +410,15 @@ local function updateItemPreview()
     local id = parseItem(f.itemBox:GetText())
     f.itemID = id
     f.itemBtn:SetItem(id)
+    -- the banner: the item being awarded
+    if f.banner then
+        f.banner:SetIcon(id and ns.UI:ItemIcon(id) or 134400)
+        f.banner:SetTitle(id and itemText(id) or "Record award")
+    end
     if id then
         f.itemHint:SetText(itemText(id))
     else
-        f.itemHint:SetText(grey(ITEM_HINT))
+        f.itemHint:SetText(dim(ITEM_HINT))
     end
     updateBossText()
 end
@@ -458,7 +442,7 @@ end
 local function setWinner(key)
     local f = dialog
     f.winnerKey = key
-    f.winBox:SetText(key and shortName(key) or "")
+    f.winBox:SetText(key and short(key) or "")
     f.winBox:SetCursorPosition(0)
 end
 
@@ -473,7 +457,7 @@ local function groupKeys()
     if ns.Util and ns.Util.GetGroupKeys then
         for _, k in ipairs(ns.Util.GetGroupKeys() or {}) do add(k) end
     end
-    if demoEnabled() and ns.Store and ns.Store.GetAllKeys then
+    if ns.Util.DemoOn() and ns.Store and ns.Store.GetAllKeys then
         for _, k in ipairs(ns.Store:GetAllKeys() or {}) do
             if isInGroup(k) then add(k) end
         end
@@ -493,7 +477,7 @@ local function guildKeys()
     if ns.Guild and ns.Guild.GetMembers then
         for _, k in ipairs(ns.Guild:GetMembers() or {}) do add(k) end
     end
-    if demoEnabled() and ns.Store and ns.Store.GetAllKeys then
+    if ns.Util.DemoOn() and ns.Store and ns.Store.GetAllKeys then
         for _, k in ipairs(ns.Store:GetAllKeys() or {}) do add(k) end
     end
     return sortByShortName(online), sortByShortName(all)
@@ -510,7 +494,7 @@ local function resolveWinner()
     local pools = { groupKeys(), all }
     for _, pool in ipairs(pools) do
         for _, key in ipairs(pool) do
-            if key:lower() == lower or shortName(key):lower() == lower then return key end
+            if key:lower() == lower or short(key):lower() == lower then return key end
         end
     end
     if not text:find("-", 1, true) then
@@ -536,7 +520,7 @@ local function fillWinnerMenu(sub, keys)
     else
         for i = 1, #keys, MENU_CHUNK do
             local last = math.min(i + MENU_CHUNK - 1, #keys)
-            local chunk = sub:CreateButton(shortName(keys[i]) .. " - " .. shortName(keys[last]))
+            local chunk = sub:CreateButton(short(keys[i]) .. " - " .. short(keys[last]))
             for j = i, last do addWinnerButton(chunk, keys[j]) end
         end
     end
@@ -603,7 +587,7 @@ local function saveAward()
         setStatus("Could not record the award (council members only).")
         return
     end
-    ns:Print("Recorded award: %s to %s.", itemLink(id) or itemName(id) or ("item " .. id), shortName(key))
+    ns:Print("Recorded award: %s to %s.", itemLink(id) or itemName(id) or ("item " .. id), short(key))
     f:Hide()
 end
 
@@ -635,45 +619,47 @@ local function createEditBox(parent, width, maxLetters)
     return eb
 end
 
+-- The "Record award" tool window: the strip banner shows the item being awarded (its icon, its name, the boss), the form
+-- under it (item, winner, note, reason), Cancel and Save at its foot.
 local function createDialog()
     local UI = ns.UI
     if not (UI and UI.CreateWindow) then return nil end
-    local f = UI:CreateWindow("DisasterZoneAwardDialog", "Record award", 320, 228)
+    local f = UI:CreateWindow("DisasterZoneAwardDialog", "Record award", DLG_W, DLG_H)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
     f:Hide()
     dialog = f
-    local c = f.content or f
+    local L = UI:CreateLayout("tool", f.content or f, { width = DLG_W - 10,
+        banner = { size = "strip", icon = 134400, title = "Record award" } })
+    f.layout, f.banner = L, L.banner
+    local c = L.body
 
     local function label(text, y)
-        local fs = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetPoint("TOPLEFT", 10, y)
+        local fs = UI:Text(c, "body", "GOLD")
+        fs:SetPoint("TOPLEFT", 0, y)
         fs:SetText(text)
         return fs
     end
 
     -- Item
-    label("Item", -12)
+    label("Item", -6)
     f.itemBtn = UI:CreateItemButton(c, 24)
-    f.itemBtn:SetPoint("TOPLEFT", 52, -6)
+    f.itemBtn:SetPoint("TOPLEFT", FIELD_X - 12, 0)
     f.itemBtn.onReceiveItem = function(_, itemID)
         setItemText(itemLink(itemID) or tostring(itemID))
     end
-    f.itemBox = createEditBox(c, 200, 255)
-    f.itemBox:SetPoint("TOPLEFT", 90, -8)
+    f.itemBox = createEditBox(c, DLG_W - 10 - 2 * PAD - FIELD_X - 20, 255)
+    f.itemBox:SetPoint("TOPLEFT", FIELD_X + 20, -1)
     f.itemBox:SetScript("OnTextChanged", function() updateItemPreview() end)
     f.itemBox:SetScript("OnReceiveDrag", receiveCursorItem)
     f.itemBox:SetScript("OnMouseUp", receiveCursorItem)
-    f.itemHint = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.itemHint:SetPoint("TOPLEFT", 86, -32)
-    f.itemHint:SetWidth(214)
-    f.itemHint:SetJustifyH("LEFT")
-    f.itemHint:SetWordWrap(false)
+    f.itemHint = UI:Text(c, "body", "TEXT", { width = DLG_W - 10 - 2 * PAD - FIELD_X })
+    f.itemHint:SetPoint("TOPLEFT", FIELD_X, -27)
 
     -- Winner
-    label("Winner", -58)
+    label("Winner", -52)
     f.winBox = createEditBox(c, 150, 48)
-    f.winBox:SetPoint("TOPLEFT", 64, -54)
+    f.winBox:SetPoint("TOPLEFT", FIELD_X, -48)
     f.winBox:SetScript("OnTextChanged", function(self, userInput)
         if userInput then f.winnerKey = nil end
     end)
@@ -681,12 +667,12 @@ local function createDialog()
     f.pickBtn:SetPoint("LEFT", f.winBox, "RIGHT", 8, 0)
 
     -- Note
-    label("Note", -88)
-    f.noteBox = createEditBox(c, 234, MAX_NOTE)
-    f.noteBox:SetPoint("TOPLEFT", 64, -84)
+    label("Note", -82)
+    f.noteBox = createEditBox(c, DLG_W - 10 - 2 * PAD - FIELD_X, MAX_NOTE)
+    f.noteBox:SetPoint("TOPLEFT", FIELD_X, -78)
 
     -- Reason (ADDENDUM G): offspec / disenchant / guild bank awards don't count as loot won.
-    label("Reason", -118)
+    label("Reason", -112)
     f.reasonDD = UI:CreateDropdown(c, 160, function()
         local opts = { { value = "", text = "None" } }
         for _, r in ipairs(ns.AWARD_REASONS or {}) do opts[#opts + 1] = { value = r.key, text = r.label } end
@@ -694,24 +680,18 @@ local function createDialog()
     end, function() return f.reasonKey or "" end, function(value)
         f.reasonKey = (type(value) == "string" and value ~= "") and value or nil
     end)
-    f.reasonDD:SetPoint("TOPLEFT", 64, -112)
+    f.reasonDD:SetPoint("TOPLEFT", FIELD_X, -106)
 
-    f.bossText = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.bossText:SetPoint("TOPLEFT", 10, -142)
-    f.bossText:SetWidth(290)
-    f.bossText:SetJustifyH("LEFT")
-    f.bossText:SetWordWrap(false)
+    f.bossText = UI:Text(c, "body", "SUB", { width = DLG_W - 10 - 2 * PAD })
+    f.bossText:SetPoint("TOPLEFT", 0, -138)
 
-    f.status = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.status:SetTextColor(1, 0.3, 0.3)
-    f.status:SetPoint("TOPLEFT", 10, -158)
-    f.status:SetWidth(290)
-    f.status:SetJustifyH("LEFT")
+    f.status = UI:Text(c, "body", "BAD", { width = DLG_W - 10 - 2 * PAD, wrap = true })
+    f.status:SetPoint("TOPLEFT", 0, -156)
 
-    f.cancelBtn = UI:CreateButton(c, "Cancel", 90, 22, function() f:Hide() end)
-    f.cancelBtn:SetPoint("BOTTOMRIGHT", -8, 6)
-    f.saveBtn = UI:CreateButton(c, "Save", 90, 22, saveAward)
-    f.saveBtn:SetPoint("RIGHT", f.cancelBtn, "LEFT", -6, 0)
+    f.saveBtn = UI:CreateSleekButton(c, "Save", 90, S.BTN_H, saveAward, "primary")
+    f.saveBtn:SetPoint("BOTTOMRIGHT", 0, 0)
+    f.cancelBtn = UI:CreateSleekButton(c, "Cancel", 90, S.BTN_H, function() f:Hide() end)
+    f.cancelBtn:SetPoint("RIGHT", f.saveBtn, "LEFT", -6, 0)
 
     -- Dropping an item anywhere on the dialog also sets it.
     f:HookScript("OnReceiveDrag", receiveCursorItem)
@@ -722,20 +702,15 @@ local function createDialog()
     end)
     return f
 end
-
 ----------------------------------------------------------------------------
 -- Panel
 ----------------------------------------------------------------------------
 
-local function createHeader(p)
-    local h = ns.UI:CreateColumnHeader(p, HEAD_H)
-    h:SetPoint("TOPLEFT", PAD, HEAD_Y)
-    h:SetPoint("TOPRIGHT", -PAD, HEAD_Y)
-    h.rule = h:CreateTexture(nil, "BORDER")
-    h.rule:SetPoint("BOTTOMLEFT", 0, 0)
-    h.rule:SetPoint("BOTTOMRIGHT", 0, 0)
-    h.rule:SetHeight(1)
-    h.rule:SetColorTexture(1, 1, 1, 0.08)
+local function createHeader(parent)
+    local h = ns.UI:CreateColumnHeader(parent, HEAD_H)
+    h:SetPoint("TOPLEFT", 0, 0)
+    h:SetPoint("TOPRIGHT", 0, 0)
+    h.rule = ns.UI:Rule(h, { bottom = 0, layer = "BORDER" })
     local titles = {
         { COL.date, "Date" }, { COL.item, "Item" }, { COL.winner, "Winner" }, { COL.reason, "Reason" },
         { COL.boss, "Boss" }, { COL.by, "Recorded" },
@@ -760,8 +735,19 @@ function LootLogUI:CreatePanel(parent)
     end)
     p.search:SetPoint("TOPRIGHT", p, "TOPRIGHT", -PAD, -6)
 
-    -- the row under it: filters on the left, the count and Add award... on the right
-    p.voidCB = UI:CreateCheckbox(p, "Show voided", function() return state.showVoid end, function(value)
+    -- the page: a board layout under the Council's view tabs. Its toolbar: the count at the left, the filters and
+    -- Add award... (the page's main action) at the right; the body: the column titles, then the rows.
+    local L = UI:CreateLayout("board", p, { top = TOP })
+    p.layout = L
+    local bar = L.toolbar
+    p.toolbar = bar
+    bar:SetText("0 awards")
+    p.count = bar.label
+
+    -- the filters: two checkboxes in one control (the labels are part of their click areas)
+    local filters = CreateFrame("Frame", nil, bar)
+    filters:SetHeight(24)
+    p.voidCB = UI:CreateCheckbox(filters, "Show voided", function() return state.showVoid end, function(value)
         if type(value) == "boolean" then
             state.showVoid = value
         else
@@ -769,10 +755,9 @@ function LootLogUI:CreatePanel(parent)
         end
         LootLogUI:Refresh(true)
     end)
-    p.voidCB:SetPoint("LEFT", p, "TOPLEFT", PAD - 4, FILTER_Y)
+    p.voidCB:SetPoint("LEFT", filters, "LEFT", -4, 0)
     p.voidCB.tooltipText = "Also list the entries the council voided (greyed, right-click to restore)."
-
-    p.dungeonCB = UI:CreateCheckbox(p, "Show dungeon loot", function() return state.showDungeon end, function(value)
+    p.dungeonCB = UI:CreateCheckbox(filters, "Show dungeon loot", function() return state.showDungeon end, function(value)
         if type(value) == "boolean" then
             state.showDungeon = value
         else
@@ -782,21 +767,17 @@ function LootLogUI:CreatePanel(parent)
     end)
     p.dungeonCB:SetPoint("LEFT", p.voidCB.label, "RIGHT", 10, 0)
     p.dungeonCB.tooltipText = "Awards recorded in 5-man dungeons while dungeon mode was on."
+    filters:SetWidth(math.floor(64 + UI:TextWidth("Show voided", "body") + 10 + UI:TextWidth("Show dungeon loot", "body") + 0.5))
+    p.filters = filters
+    bar:SetFilters({ filters })
+    p.addBtn = bar:SetPrimary({ text = "Add award...", onClick = function() LootLogUI:OpenAwardDialog() end })
 
-    p.addBtn = UI:CreateButton(p, "Add award...", 110, 22, function() LootLogUI:OpenAwardDialog() end)
-    p.addBtn:SetPoint("RIGHT", p, "TOPRIGHT", -PAD, FILTER_Y)
+    p.header = createHeader(L.body)
 
-    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.count:SetPoint("RIGHT", p.addBtn, "LEFT", -12, 0)
-    p.count:SetJustifyH("RIGHT")
-    p.count:SetTextColor(0.62, 0.62, 0.62)
-
-    p.header = createHeader(p)
-
-    p.list = UI:CreateScrollList(p, ROW_HEIGHT, initRow)
+    p.list = UI:CreateScrollList(L.body, ROW_HEIGHT, initRow)
     p.list.frame:ClearAllPoints()
-    p.list.frame:SetPoint("TOPLEFT", PAD, HEAD_Y - HEAD_H - 2)
-    p.list.frame:SetPoint("BOTTOMRIGHT", -PAD, PAD)
+    p.list.frame:SetPoint("TOPLEFT", 0, -(HEAD_H + 2))
+    p.list.frame:SetPoint("BOTTOMRIGHT", 0, PAD - 4)
     -- the rows take the whole width; the bar sits in the margin 4px right of them
     p.list.box:ClearAllPoints()
     p.list.box:SetPoint("TOPLEFT", p.list.frame, "TOPLEFT", 0, 0)
@@ -807,9 +788,18 @@ function LootLogUI:CreatePanel(parent)
         p.list.bar:SetPoint("BOTTOMLEFT", p.list.box, "BOTTOMRIGHT", 4, 0)
     end
 
-    p.empty = p:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    p.empty:SetPoint("TOP", p.list.frame, "TOP", 0, -60)
-    p.empty:SetWidth(480)
+    -- nothing to list: an illustrated empty state (p.empty:GetText() reads its words)
+    p.empty = UI:CreateEmptyState(L.body, { glyph = UI.ICON.notes })
+    p.empty:SetPoint("TOP", p.list.frame, "TOP", 0, -48)
+    p.empty:SetFrameLevel(p.list.box:GetFrameLevel() + 5)
+    p.empty:Hide()
+    function p.empty:SetText(title, text)
+        self:SetContent({ glyph = UI.ICON.notes, title = title, text = text })
+    end
+    function p.empty:GetText()
+        local t = self.content or {}
+        return (t.title or "") .. ((t.text and t.text ~= "") and ("\n" .. t.text) or "")
+    end
 
     p:SetScript("OnShow", function(self)
         if self.dirty then LootLogUI:Refresh() end
@@ -823,7 +813,6 @@ function LootLogUI:CreatePanel(parent)
     end)
     return p
 end
-
 function LootLogUI:Refresh(resetScroll)
     if not panel then return end
     if not panel:IsVisible() then
@@ -848,7 +837,7 @@ function LootLogUI:Refresh(resetScroll)
         panel.empty:Hide()
     else
         if total == 0 then
-            panel.empty:SetText("No awards recorded yet.\nThey are logged from loot messages while you raid.")
+            panel.empty:SetText("No awards recorded yet.", "They are logged from loot messages while you raid.")
         elseif state.search == "" and not state.showDungeon then
             panel.empty:SetText("No awards to show: dungeon loot is hidden.")
         else

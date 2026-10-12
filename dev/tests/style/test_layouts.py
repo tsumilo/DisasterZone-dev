@@ -393,7 +393,7 @@ def register_tab_keeps_a_layout_and_the_page_area_comes_from_the_main_window():
         return { lay = MF:GetTabLayout("zzlayout"), plain = MF:GetTabLayout("zzplain"), none = MF:GetTabLayout("nope"),
           raids = MF:GetTabLayout("raids"), W = S.PAGE_W, H = S.PAGE_H, IW = S.INNER_W,
           fw = f:GetWidth() - 10, built = ns.__zzL ~= nil, ch = f.content:GetHeight() }""")
-    assert out["lay"] == "board" and out.get("plain") is None and out.get("none") is None and out.get("raids") is None, out
+    assert out["lay"] == "board" and out.get("plain") is None and out.get("none") is None and out.get("raids") == "board", out
     assert out["W"] == 790 and out["H"] == 548 and out["IW"] == 770 and out["fw"] == 790 and out["built"], out
     no_errors(w)
 
