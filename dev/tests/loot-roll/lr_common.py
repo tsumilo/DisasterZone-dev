@@ -315,6 +315,7 @@ def toast_state(client):
         return { shown = (t and t:IsShown()) and true or false,
                  item = t and t.entry and t.entry.itemID or nil,
                  title = t and t.title and t.title:GetText() or nil,
+                 kicker = t and t.kick and t.kick:GetText() or nil,
                  text = t and t.text and t.text:GetText() or nil,
                  queue = q }""")
 

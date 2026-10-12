@@ -251,8 +251,8 @@ def tie_handling():
     r["Alice"].click(reroll)
     w.tick(0.2)
     # DisasterZone 0.5: a re-roll that discards rolls asks first
-    assert r["Alice"].popups() == ["DISASTERZONE_REROLL"], r["Alice"].popups()
-    r["Alice"].accept_popup("DISASTERZONE_REROLL")
+    assert r["Alice"].popups() == ["DISASTERZONE_CONFIRM_REROLL"], r["Alice"].popups()
+    r["Alice"].accept_popup("DISASTERZONE_CONFIRM_REROLL")
     w.tick(1)
     act = active_session(r["Alice"])
     assert act and act["i"] == HELM_CHAMPION and act["id"] != sid, act

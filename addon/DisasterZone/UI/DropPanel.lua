@@ -12,9 +12,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/DropPanel.lua", ...) then retur
 -- presence dot, BiS / Alt / OS pill), one action row (the roll button, then the one gold award: Award, or Award to
 -- the suggested roller) and a More menu for the occasional ones (Announce, Disenchant, Guild bank, award to someone
 -- else). The toast has the Dungeons tab's ping look.
+-- 1.4 (the shared structure): the window is a tool window (UI:CreateWindow + UI:CreateLayout "tool": the boss strip
+-- banner with the pager as its tools, the tool row with Announce all, the lock and the one main action Roll all, the
+-- cards in the body), the cards are UI:CreateCard, the rows UI:DecorateRow, the texts the type scale, the colours the
+-- ns.Style tokens, the personal "On your BiS list" pop-up a UI:Toast and the questions Popup:Confirm / Prompt.
 local addonName, ns = ...
 
 local DropPanel = ns:NewModule("DropPanel")
+local UI, S = ns.UI, ns.Style
 
 local _G = _G
 local CreateFrame = CreateFrame
@@ -28,33 +33,32 @@ local ipairs, pairs, type, tonumber, tostring, pcall = ipairs, pairs, type, tonu
 -- Constants
 ---------------------------------------------------------------------------
 local PANEL_NAME = "DisasterZoneDropPanel"
--- One grid (the makeover brief): PAD at the window's sides, GAP between blocks, CARD_PAD inside an item card. The
--- window's content area is PANEL_W - 12 wide (UI:CreateWindow's frame); the scroll bar sits in the right PAD.
+-- One grid (the shared spacing): S.PAD at the window's sides and inside an item card, S.GAP between blocks. The
+-- window's content area is PANEL_W - 10 wide (UI:CreateWindow's content frame); the tool layout puts the banner,
+-- the tool row and the body (the cards' scroll frame) in it.
 local PANEL_W, PANEL_MIN_H, PANEL_MAX_H = 460, 170, 560
--- (anchored to the window itself: the content area starts INSET_L / INSET_T in, as CreateWindow places it)
-local INSET_L, INSET_T, INSET_B = 6, 26, 6
-local CONTENT_W = PANEL_W - 2 * INSET_L
-local PAD, GAP, CARD_PAD = 10, 8, 12
+local CONTENT_W = PANEL_W - 10
+local PAD, GAP, CARD_PAD = S.PAD, S.GAP, S.PAD
 local CARD_W = CONTENT_W - 2 * PAD
-local BANNER_H = 46                         -- the boss banner (the raid's loading-screen art)
-local FOOTER_H = GAP + 22 + 8               -- Announce all / Roll all / the lock button
+local BANNER_H = S.BANNER.strip             -- the boss banner (the raid's loading-screen art)
+local TOOLROW_H = UI.LAYOUT.ROW_H           -- the tool row under it (Announce all, the lock, Roll all)
+-- the window's height around the cards: its head, the layout's margins, the banner and the tool row
+local CHROME_H = UI.WIN_HEAD + 1 + PAD + BANNER_H + GAP + TOOLROW_H + GAP + PAD + 5
 local ICON_SIZE = 32
 local TEXT_X = CARD_PAD + ICON_SIZE + 10    -- the item's name, its rows and its actions line up here
 local LIST_X = CARD_PAD                     -- 1.3.5: the rows (and the actions under them) run the card's full width
 local ROW_W = CARD_W - 2 * CARD_PAD
-local ITEM_HEAD_H = 10 + ICON_SIZE + 6      -- the rows start here
-local ROW_H, ACTION_H = 22, 22
+local ITEM_HEAD_H = CARD_PAD + ICON_SIZE + 6   -- the rows start here
+local ROW_H, ACTION_H = S.ROW.compact, S.BTN_H
 local ROLL_ROW_H = ROW_H
 local SLOT_W = 70                           -- the roll button's slot: Roll / End roll / Re-roll / Cancel
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local CARD_BG = { 0.10, 0.10, 0.12, 0.92 }
-local EDGE = { 0.34, 0.34, 0.38, 0.5 }
 local MAX_ROWS = 8
 local MAX_ROLL_ROWS = 10
 local ROLL_TICK = 0.5         -- countdown refresh while a roll of the shown drop is open
 local EQ_SIZE = 14
 local MAX_DROP_ITEMS = 16
-local TOAST_HOLD, TOAST_FADE, TOAST_LINGER = 8, 1, 3
+local TOAST_HOLD = 8          -- seconds the "On your BiS list" pop-up stays (the mouse over it holds it)
 local TOAST_QUEUE_MAX = 10
 local ALERT_DEDUPE = 90       -- seconds: the same item (corpse drop + group-loot roll) alerts only once
 local ANNOUNCE_COOLDOWN = 2
@@ -63,17 +67,6 @@ local AWARD_WINDOW = 120      -- ledger entries up to this long before the drop 
 -- Texture escapes instead of star / check glyphs: the default WoW fonts do not contain them.
 local STAR = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:0|t"
 local STAR_SMALL = "|TInterface\\AddOns\\DisasterZone\\Media\\Icons\\bis:10:10|t"
-
-local FALLBACK_COLORS = {
-    main     = { 0.98, 0.78, 0.22 },
-    alt      = { 0.41, 0.80, 0.94 },
-    obtained = { 0.30, 0.90, 0.40 },
-    muted    = { 0.55, 0.55, 0.55 },
-    warn     = { 1.00, 0.55, 0.20 },
-    bad      = { 1.00, 0.30, 0.30 },
-    council  = { 1.00, 0.50, 0.00 },
-    offspec  = { 0.72, 0.60, 0.92 },
-}
 
 -- Row columns {x, width} from the row's left edge (1.3.5, the roll rows makeover: layout B of the mockup, the user's
 -- pick 2026-10-11). Rows run the card's full width (LIST_X, ROW_W = 404 px; the two "currently wearing" icons take the
@@ -103,15 +96,13 @@ local GROUP_LABELS = { [11] = "Ring", [12] = "Ring", [13] = "Trinket", [14] = "T
 ---------------------------------------------------------------------------
 -- Small helpers (all nil-safe: other modules may not have data yet)
 ---------------------------------------------------------------------------
+-- The loot colours (ns.COLORS: main / alt / obtained / muted / warn / bad / offspec) and text painted in one.
 local function Color(key)
-    local c = ns.COLORS and ns.COLORS[key]
-    return c or FALLBACK_COLORS[key] or FALLBACK_COLORS.muted
+    return ns.COLORS[key] or ns.COLORS.muted
 end
 
 local function Paint(text, key)
-    local c = Color(key)
-    return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
-        floor(c[3] * 255 + 0.5), text)
+    return UI:Colorize(text, Color(key))
 end
 
 local function Setting(path, default)
@@ -152,11 +143,7 @@ local function ViewPhase()
     return tonumber(p) or 1
 end
 
-local function ShortName(key)
-    if type(key) ~= "string" then return "?" end
-    if ns.Util and ns.Util.ShortName then return ns.Util.ShortName(key) or key end
-    return key
-end
+local ShortName = ns.Util.ShortName
 
 local function IsMe(key)
     return ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) or false
@@ -170,45 +157,23 @@ end
 local function ColoredName(key, classFile)
     classFile = classFile or ClassOf(key)
     -- players outside the guild (pugs) are marked: they roll and can be awarded like everyone else
-    if ns.UI and ns.UI.ColoredName then
-        if Dry.preview and Dry.preview[key] then return ns.UI:ColoredName(key, classFile) end   -- (the example roll)
-        return ns.UI:ColoredName(key, classFile) .. ns.UI:GuestTag(key)
-    end
-    return ShortName(key)
+    if Dry.preview and Dry.preview[key] then return UI:ColoredName(key, classFile) end   -- (the example roll)
+    return UI:ColoredName(key, classFile) .. UI:GuestTag(key)
 end
 
+-- (one value: UI:ItemText's second return says the name is still loading)
 local function ItemText(itemID)
-    if ns.UI and ns.UI.ItemText then
-        local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
-        return text
-    end
-    return (ns.ItemDB and ns.ItemDB:GetName(itemID)) or ("item " .. tostring(itemID))
+    local text = UI:ItemText(itemID)
+    return text
 end
 
+-- The plain name for chat lines and menus; "item <id>" while it loads.
 local function ItemName(itemID)
-    return (ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(itemID)) or ("item " .. tostring(itemID))
+    return UI:ItemName(itemID) or ("item " .. tostring(itemID))
 end
 
 local function ItemLink(itemID)
-    if ns.ItemDB and ns.ItemDB.GetLink then return ns.ItemDB:GetLink(itemID) end
-    return nil
-end
-
-local function ItemIcon(itemID)
-    if ns.ItemDB and ns.ItemDB.GetIcon then return ns.ItemDB:GetIcon(itemID) end
-    return 134400
-end
-
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or "?"
-end
-
-local function ClassName(classFile)
-    local names = _G.LOCALIZED_CLASS_NAMES_MALE
-    if names and names[classFile] then return names[classFile] end
-    if type(classFile) ~= "string" then return "?" end
-    return classFile:sub(1, 1) .. classFile:sub(2):lower()
+    return UI:GetItemLink(itemID)
 end
 
 local function GroupKeys()
@@ -228,10 +193,6 @@ end
 
 local function Trim(s)
     return (s:gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
-local function HideTooltip()
-    _G.GameTooltip:Hide()
 end
 
 -- Drop payloads may come from the network: keep only sane item IDs (order and duplicates kept).
@@ -344,12 +305,12 @@ local function ItemSubtitle(itemID)
     if data and data.Tokens and data.Tokens[itemID] then
         local slot
         local sids = ns.ItemDB and ns.ItemDB.GetSlotsForItem and ns.ItemDB:GetSlotsForItem(itemID)
-        if type(sids) == "table" and sids[1] then slot = SlotLabel(sids[1]) end
+        if type(sids) == "table" and sids[1] then slot = ns.SlotLabel(sids[1]) end
         local text = slot and ("Token: " .. slot) or "Token / quest item"
         local classes = data.TokenClasses and data.TokenClasses[itemID]
         if type(classes) == "table" and #classes > 0 then
             local names = {}
-            for i, cf in ipairs(classes) do names[i] = ClassName(cf) end
+            for i, cf in ipairs(classes) do names[i] = ns.ClassName(cf, true) end
             text = text .. " (" .. tconcat(names, ", ") .. ")"
         end
         return text
@@ -407,10 +368,6 @@ local function FindInHistory(drop)
     return nil
 end
 
-local function PopupEditBox(popup)
-    return (popup.GetEditBox and popup:GetEditBox()) or popup.editBox
-end
-
 -- Resolve a typed character name: group members first, then the guild roster, else normalise it.
 local function ResolvePlayer(text)
     if type(text) ~= "string" then return nil end
@@ -442,9 +399,7 @@ local function ResolvePlayer(text)
     return full
 end
 
-local function DemoEnabled()
-    return (ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled()) and true or false
-end
+local DemoEnabled = ns.Util.DemoOn
 
 -- Simulated (/dz test) drops only get awards and rolls in demo mode, where both stay local
 -- (Roll is local-only and the Ledger uses its in-memory demo log there).
@@ -492,16 +447,16 @@ local function WornItems(key, sid, list)
             for _, g in ipairs(group) do
                 if not used[g] and tonumber(eq[g]) == id then
                     used[g] = true
-                    label = SlotLabel(g)
+                    label = ns.SlotLabel(g)
                     break
                 end
             end
         end
         if not label and group then
             if #ids == #group then
-                label = SlotLabel(group[i])
+                label = ns.SlotLabel(group[i])
             else
-                label = GROUP_LABELS[group[1]] or SlotLabel(group[1])
+                label = GROUP_LABELS[group[1]] or ns.SlotLabel(group[1])
             end
         end
         out[#out + 1] = { id = id, label = label or "?" }
@@ -895,110 +850,55 @@ function DropPanel:PrintOwnDrop(itemID, m, test, tries)
     if m.os then
         local sp = OffSpecLabel()
         ns:Print("%s is on your off-spec list%s: %s, P%d (%s)%s", link or ItemName(itemID),
-            sp and (" (" .. sp .. ")") or "", SlotLabel(m.sid), tonumber(m.phase) or 0, which, test and " [test]" or "")
+            sp and (" (" .. sp .. ")") or "", ns.SlotLabel(m.sid), tonumber(m.phase) or 0, which, test and " [test]" or "")
         return
     end
     ns:Print("%s %s is on your BiS list: %s, P%d (%s)%s", STAR, link or ItemName(itemID),
-        SlotLabel(m.sid), tonumber(m.phase) or 0, which, test and " [test]" or "")
+        ns.SlotLabel(m.sid), tonumber(m.phase) or 0, which, test and " [test]" or "")
 end
 
 ---------------------------------------------------------------------------
 -- Council panel
 ---------------------------------------------------------------------------
-local function Sized(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, size, flags) end
-    return fs
+-- (the panel's small pieces: one table, the file stays far from Lua's 200 locals)
+local Look = {}
+
+-- A tooltip from textFn(button) (nil: none), also over a disabled button.
+function Look.Tip(btn, textFn)
+    if btn.SetMotionScriptsWhileDisabled then btn:SetMotionScriptsWhileDisabled(true) end
+    UI:AttachTooltip(btn, nil, function(self) return { textFn(self) } end, { anchor = "ANCHOR_TOP" })
 end
 
-local function Text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
-    return fs
-end
-
-local function Gradient(tex, orient, r, g, b, a1, a2)
-    tex:SetColorTexture(1, 1, 1, 1)
-    local mk = _G.CreateColor
-    if tex.SetGradient and mk then tex:SetGradient(orient, mk(r, g, b, a1), mk(r, g, b, a2)) end
-end
-
--- The atlas' down chevron turned left or right (the pager).
-local function Chevron(tex, dir)
-    local UI = ns.UI
-    local c = UI:IconCoords(UI.ICON.chevron)
-    local l, r, t, b = c[1], c[2], c[3], c[4]
-    tex:SetTexture(UI.ICON_ATLAS)
-    if dir == "left" then tex:SetTexCoord(l, b, r, b, l, t, r, t) else tex:SetTexCoord(r, t, l, t, r, b, l, b) end
-end
-
-local function PageButton(parent, dir, tip, onClick)
-    local b = ns.UI:CreateIconButton(parent, 20, nil, nil, onClick)
-    b.icon:ClearAllPoints()
-    b.icon:SetPoint("CENTER")
-    b.icon:SetSize(10, 10)
-    Chevron(b.icon, dir)
-    b:HookScript("OnEnter", function(self)
-        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:AddLine(tip, 1, 1, 1)
-        _G.GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", HideTooltip)
-    return b
-end
-
--- RaidPlan's instance key ("kara", "ssc") of a raid's instance ID: the banner's loading-screen art.
-local raidInstKeys
-local function RaidInstKey(instanceID)
-    instanceID = tonumber(instanceID)
-    if not instanceID then return nil end
-    if not raidInstKeys then
-        raidInstKeys = {}
-        local RP = ns.RaidPlan
-        for _, inst in ipairs((RP and RP.GetInstances and RP:GetInstances()) or {}) do
-            if inst.instID then raidInstKeys[tonumber(inst.instID)] = inst.key end
-        end
-    end
-    return raidInstKeys[instanceID]
-end
-
--- The raid of a boss key (drop.b): its name, a dungeon flag and the art's instance key (nil for 5-mans / unknown).
+-- The raid of a boss key (drop.b): its name, a dungeon flag and the raid's instance id (nil for 5-mans / unknown).
 local function DropSource(bossKey)
     if type(bossKey) ~= "string" or bossKey == "" or not (ns.ItemDB and ns.ItemDB.GetBossRef) then return nil end
     return ns.ItemDB:GetBossRef(bossKey)
 end
 
-local function SetArt(tex, inst, w, h, fw)
-    local PlanUI = ns.RaidPlanUI
-    local file, l, r, t, b
-    if inst and PlanUI and PlanUI.RaidArt then file, l, r, t, b = PlanUI:RaidArt(inst, w, h, fw) end
-    if not file then
-        tex:Hide()
-        return false
-    end
-    tex:SetTexture(file)
-    tex:SetTexCoord(l, r, t, b)
-    tex:Show()
-    return true
+-- The raid's art key of a drop source: its instance id when the raid is a known one (its loading screen on the
+-- banner), nil for 5-mans and unknown sources (the banner's plain card).
+function Look.RaidOf(ref)
+    if not (ref and ref.dungeon ~= true and ref.raid) then return nil end
+    local id = tonumber(ref.raid.instanceID)
+    return id and ns.ItemDB.GetRaidByInstance and ns.ItemDB:GetRaidByInstance(id) and id or nil
 end
 
-local function AddButtonTooltip(btn, textFn)
-    if btn.SetMotionScriptsWhileDisabled then btn:SetMotionScriptsWhileDisabled(true) end
-    btn:HookScript("OnEnter", function(self)
-        local text = textFn(self)
-        if not text then return end
-        _G.GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        _G.GameTooltip:AddLine(text, 1, 1, 1, true)
-        _G.GameTooltip:Show()
-    end)
-    btn:HookScript("OnLeave", HideTooltip)
+-- The pager (the banner's tools): older / newer drop, the chevrons turned left / right.
+function Look.SetPager(f, showPrev, showNext)
+    local tools = {}
+    if showNext then tools[#tools + 1] = { icon = "chevron", title = "Newer drop", onClick = function() DropPanel:Page(1) end } end
+    if showPrev then tools[#tools + 1] = { icon = "chevron", title = "Older drop", onClick = function() DropPanel:Page(-1) end } end
+    local ban = f.layout.banner
+    ban:SetTools(tools)
+    for i, t in ipairs(tools) do
+        local b = ban.tools[i]
+        UI:SetChevron(b.icon, t.title == "Newer drop")
+        if t.title == "Newer drop" then DropPanel.nextBtn = b else DropPanel.prevBtn = b end
+    end
 end
 
 function DropPanel:GetFrame()
     if self.frame then return self.frame end
-    local UI = ns.UI
     local f = UI:CreateWindow(PANEL_NAME, "Boss drop", PANEL_W, 300)
     f:Hide()
     self.frame = f
@@ -1007,79 +907,47 @@ function DropPanel:GetFrame()
     -- A manual drag turns an attached panel into a floating one (CreateWindow saves the position).
     f:HookScript("OnDragStop", function() DropPanel.attached = false end)
 
-    -- The banner: the boss on its raid's loading-screen art (a flat panel for 5-mans), the history pager on the right.
-    local ban = CreateFrame("Frame", nil, c)
-    ban:SetPoint("TOPLEFT", f, "TOPLEFT", INSET_L + PAD, -(INSET_T + PAD))
-    ban:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(INSET_L + PAD), -(INSET_T + PAD))
-    ban:SetHeight(BANNER_H)
-    ban.bg = ban:CreateTexture(nil, "BACKGROUND", nil, 0)
-    ban.bg:SetAllPoints()
-    ban.bg:SetColorTexture(0.08, 0.08, 0.095, 0.9)
-    ban.art = ban:CreateTexture(nil, "BACKGROUND", nil, 1)
-    ban.art:SetPoint("TOPLEFT", 1, -1)
-    ban.art:SetPoint("BOTTOMRIGHT", -1, 1)
-    ban.art:Hide()
-    -- the text side stays dark enough to read, the far side shows the art
-    ban.shade = ban:CreateTexture(nil, "BACKGROUND", nil, 2)
-    ban.shade:SetPoint("TOPLEFT", 1, -1)
-    ban.shade:SetPoint("BOTTOMLEFT", 1, 1)
-    ban.shade:SetWidth(floor(CARD_W * 0.75))
-    Gradient(ban.shade, "HORIZONTAL", 0.035, 0.035, 0.043, 0.92, 0.25)
-    ban.shade:Hide()
-    UI:AddEdges(ban, "BORDER")
-    UI:SetEdgeColor(ban, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
+    -- The tool window: the boss on its raid's loading-screen art (a strip banner; the plain card for 5-mans) with the
+    -- pager as its tools and "2 / 13" as its pill; the tool row (Announce all, the lock, Roll all); the cards.
+    local L = UI:CreateLayout("tool", c, { width = CONTENT_W, toolbar = true,
+        banner = { size = "strip", title = "No drop selected" } })
+    f.layout = L
+    local ban = L.banner
     self.banner = ban
+    self.title, self.sub = ban.title, ban.sub
+    self.pageText = ban.pill.fs
+    self.pageText:Hide()
 
-    local nextBtn = PageButton(ban, "right", "Newer drop", function() DropPanel:Page(1) end)
-    nextBtn:SetPoint("RIGHT", ban, "RIGHT", -CARD_PAD, 0)
-    local pageText = Text(ban, "GameFontHighlightSmall", 11)
-    pageText:SetJustifyH("CENTER")
-    pageText:SetWidth(60)
-    pageText:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
-    local prevBtn = PageButton(ban, "left", "Older drop", function() DropPanel:Page(-1) end)
-    prevBtn:SetPoint("RIGHT", pageText, "LEFT", -4, 0)
-    self.nextBtn, self.prevBtn, self.pageText = nextBtn, prevBtn, pageText
-
-    local textW = CARD_W - CARD_PAD - (20 + 4 + 60 + 4 + 20) - CARD_PAD - 8
-    local title = Text(ban, "GameFontNormal", 15)
-    title:SetPoint("TOPLEFT", ban, "TOPLEFT", CARD_PAD, -8)
-    title:SetWidth(textW)
-    local sub = Text(ban, "GameFontHighlightSmall", 11)
-    sub:SetPoint("TOPLEFT", ban, "TOPLEFT", CARD_PAD, -27)
-    sub:SetWidth(textW)
-    sub:SetTextColor(0.75, 0.75, 0.75)
-    self.title, self.sub = title, sub
-
-    -- Scrollable item cards (the scroll bar sits in the right PAD).
-    local top = PAD + BANNER_H + GAP
-    local scroll = UI:CreateScrollFrame(c, PANEL_NAME .. "Scroll")
-    scroll:SetPoint("TOPLEFT", f, "TOPLEFT", INSET_L + PAD, -(INSET_T + top))
-    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -(INSET_L + PAD), INSET_B + FOOTER_H)
+    -- Scrollable item cards (the scroll bar sits in the body's right edge).
+    local scroll = UI:CreateScrollFrame(L.body, PANEL_NAME .. "Scroll")
+    scroll:SetAllPoints(L.body)
     scroll.scrollBarHideable = true
     local child = CreateFrame("Frame", nil, scroll)
     child:SetSize(CARD_W, 1)
     scroll:SetScrollChild(child)
     self.scroll, self.child = scroll, child
 
-    local empty = Text(child, "GameFontDisable", 12)
-    empty:SetPoint("TOP", child, "TOP", 0, -16)
-    empty:SetJustifyH("CENTER")
-    empty:SetText("No drop to show.")
-    self.emptyText = empty
-
-    -- Footer.
-    local announceAll = UI:CreateButton(c, "Announce all", 96, 22, function() DropPanel:AnnounceAll() end)
-    announceAll:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", INSET_L + PAD, INSET_B + PAD)
-    AddButtonTooltip(announceAll, function()
+    -- The tool row: Announce all and the lock (the raid leader's) as its controls, Roll all as its one main action.
+    local bar = L.toolbar
+    local announceAll = UI:CreateSleekButton(bar, "Announce all", 96, S.BTN_H, function() DropPanel:AnnounceAll() end)
+    Look.Tip(announceAll, function()
         if DropPanel.drop and DropPanel.drop.test then
             return "Simulated drop: the lines are only printed in your chat window."
         end
         if PlainMode(DropPanel.drop) then return "Link every item of this drop in raid chat." end
         return "Announce every item of this drop and who has it on their BiS list."
     end)
-    local rollAll = UI:CreateButton(c, "Roll all", 72, 22, function() DropPanel:RollAll() end)
-    rollAll:SetPoint("LEFT", announceAll, "RIGHT", 6, 0)
-    AddButtonTooltip(rollAll, function()
+    self.announceAllBtn = announceAll
+    local filters = { announceAll }
+    -- §38: small "Lock lists" / "Unlock lists" button for the raid leader (the group's loot authority).
+    if UI.CreateBiSLockButton then
+        local lock = UI:CreateBiSLockButton(bar, 92, S.BTN_H, { short = true })
+        self.lockBtn = lock
+        filters[#filters + 1] = lock
+    end
+    bar:SetFilters(filters)
+    local rollAll = bar:SetPrimary({ text = "Roll all", width = 80, onClick = function() DropPanel:RollAll() end })
+    Look.Tip(rollAll, function()
         local text = "Roll every item of this drop, one after another (awarded items are skipped). "
             .. "Everyone in the " .. GroupWord() .. " gets a Roll / Pass popup for each item."
         if DemoEnabled() then text = text .. "\n\nDemo mode: fake raiders roll; nothing is sent." end
@@ -1088,12 +956,6 @@ function DropPanel:GetFrame()
     rollAll:Hide()
     self.rollAllBtn = rollAll
     -- (no Close button: the window's own X closes it)
-    -- §38: small "Lock lists" / "Unlock lists" button for the raid leader (the group's loot authority).
-    if UI.CreateBiSLockButton then
-        local lock = UI:CreateBiSLockButton(c, 92, 22, { short = true })
-        lock:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -(INSET_L + PAD), INSET_B + PAD)
-        self.lockBtn = lock
-    end
 
     f:HookScript("OnHide", function() DropPanel:StopRollTicker() end)
     return f
@@ -1115,19 +977,8 @@ function DropPanel:Place()
         end
         self.attached = true
     elseif self.attached then
-        -- Back to the floating (saved) position; saved as { point, relPoint, x, y }.
-        if ns.UI and ns.UI.RestorePosition then
-            ns.UI:RestorePosition(f)
-        else
-            f:ClearAllPoints()
-            local windows = ns.db and ns.db.settings and ns.db.settings.windows
-            local pos = type(windows) == "table" and windows[PANEL_NAME]
-            if type(pos) == "table" and type(pos[1]) == "string" then
-                f:SetPoint(pos[1], _G.UIParent, pos[2] or pos[1], tonumber(pos[3]) or 0, tonumber(pos[4]) or 0)
-            else
-                f:SetPoint("CENTER", _G.UIParent, "CENTER", 0, 0)
-            end
-        end
+        -- Back to the floating (saved) position (the one window-position store).
+        UI:RestorePosition(f)
         self.attached = false
     end
 end
@@ -1219,7 +1070,7 @@ function DropPanel:TickRolls()
 end
 
 function DropPanel:RenderHeader(drop)
-    local title, sub, inst = "No drop selected", "", nil
+    local title, sub, art = "No drop selected", "", nil
     if type(drop) == "table" then
         local ref = DropSource(drop.b)
         local parts = {}
@@ -1227,7 +1078,7 @@ function DropPanel:RenderHeader(drop)
             title = ref.boss.name or "?"
             if ref.raid and ref.raid.name then
                 parts[#parts + 1] = ref.raid.name .. (ref.dungeon == true and " (5-man)" or "")
-                if ref.dungeon ~= true then inst = RaidInstKey(ref.raid.instanceID) end
+                art = Look.RaidOf(ref)
             end
         else
             title = "Unknown source"
@@ -1243,29 +1094,29 @@ function DropPanel:RenderHeader(drop)
         end
         sub = tconcat(parts, "  ·  ")
     end
-    self.title:SetText(title)
-    self.sub:SetText(sub)
     local ban = self.banner
-    local art = SetArt(ban.art, inst, CARD_W - 2, BANNER_H - 2, 0.98)
-    ban.shade:SetShown(art)
+    ban:SetArt(art)
+    ban:SetTitle(title)
+    ban:SetSub(sub)
 
-    -- The pager shows only when there is more than one drop; an arrow that leads nowhere is hidden (its place stays).
+    -- The pager shows only when there is more than one drop: "2 / 13" as the title's pill ("2 / 13 new" when newer
+    -- drops came in while this one was worked on), the arrows as the banner's tools (one that leads nowhere is not
+    -- there).
     local n = #History()
     local i = self.histIndex
     local paged = n > 1 or (n == 1 and i == nil)
-    self.pageText:SetShown(paged)
     if not paged then
+        ban:SetPill(nil, nil)
         self.pageText:SetText("")
-        self.prevBtn:Hide()
-        self.nextBtn:Hide()
+        self.pageText:Hide()
+        Look.SetPager(self.frame, false, false)
     else
         local page = format("%s / %d", i and tostring(i) or "-", n)
-        if (self.newDrops or 0) > 0 and i and i < n then
-            page = "|cffff8000" .. page .. " new|r"   -- newer drops arrived while this one was being worked on
-        end
-        self.pageText:SetText(page)
-        self.prevBtn:SetShown((i or (n + 1)) > 1)
-        self.nextBtn:SetShown(i ~= nil and i < n)
+        local fresh = (self.newDrops or 0) > 0 and i and i < n
+        if fresh then page = page .. " new" end
+        ban:SetPill(fresh and "warn" or "mute", page)
+        self.pageText:Show()
+        Look.SetPager(self.frame, (i or (n + 1)) > 1, i ~= nil and i < n)
     end
 end
 
@@ -1309,8 +1160,15 @@ function DropPanel:Render()
         b.rollSession = nil
         b:Hide()
     end
-    self.emptyText:SetShown(used == 0)
-    if used == 0 then y = 48 end
+    -- nothing to show: the layout's empty state in the body
+    local L = f.layout
+    if used == 0 then
+        L:ShowEmpty({ icon = UI.ICON.games, title = "No drop to show",
+            text = "Boss drops of the last 24 hours show here.", y = 12, compact = true })
+        y = 120
+    elseif L:IsEmptyShown() then
+        L:HideEmpty()
+    end
     self.child:SetHeight(max(y, 1))
     if self.rollAllBtn then self.rollAllBtn:SetShown(canRoll and used > 0 and HasRoll("StartAll")) end
     if self.lockBtn and self.lockBtn.Refresh then
@@ -1320,14 +1178,14 @@ function DropPanel:Render()
             self.lockBtn:Hide()
         end
     end
+    L.toolbar:LayoutRight()
     self:UpdateRollTicker(anyOpen)
 
-    local height = INSET_T + INSET_B + PAD + BANNER_H + GAP + y + FOOTER_H
-    local panelH = min(PANEL_MAX_H, max(PANEL_MIN_H, height))
+    local panelH = min(PANEL_MAX_H, max(PANEL_MIN_H, CHROME_H + y))
     f:SetHeight(panelH)
     -- everything fits: no scroll bar (its own hooks only run once the frame is laid out)
     local bar = self.scroll.ScrollBar
-    if bar and y <= panelH - (INSET_T + INSET_B + PAD + BANNER_H + GAP + FOOTER_H) + 0.5 then bar:Hide() end
+    if bar and y <= panelH - CHROME_H + 0.5 then bar:Hide() end
 end
 
 ---------------------------------------------------------------------------
@@ -1444,7 +1302,7 @@ function DropPanel.PrzGlow(b, on, w, offEdge)
             t:SetPoint(p1)
             t:SetPoint(p2)
             if w then t:SetWidth(w) else t:SetHeight(h) end
-            Gradient(t, orient, c[1], c[2], c[3], a1, a2)
+            UI:Gradient(t, orient, { c[1], c[2], c[3], a1 }, { c[1], c[2], c[3], a2 })
             return t
         end
         -- (VERTICAL: the first colour is the bottom; HORIZONTAL: the left)
@@ -1502,8 +1360,8 @@ function DropPanel.PrzGlow(b, on, w, offEdge)
     k.tint:SetShown(on)
     for _, t in ipairs(k.glow) do t:SetShown(on) end
     k.run:SetShown(on)
-    local e = on and G.EDGE or offEdge or EDGE
-    ns.UI:SetEdgeColor(b, e[1], e[2], e[3], e[4])
+    local e = on and G.EDGE or offEdge or S.C.EDGE
+    UI:SetEdgeColor(b, e[1], e[2], e[3], e[4])
 end
 
 function DropPanel.PrzName(itemID, text)
@@ -1612,10 +1470,8 @@ function Dry.New(r, x)
         t:SetPoint("LEFT", f, "LEFT", (i - 1) * (DRY.SEG_W + DRY.GAP), 0)
         f.segs[i] = t
     end
-    f.fs = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.fs = UI:Text(f, "small", "SUB")
     f.fs:SetPoint("LEFT", f, "LEFT", DRY.BARS_W + 5, 0)
-    f.fs:SetJustifyH("LEFT")
-    f.fs:SetWordWrap(false)
     f:Hide()
     r.dry = f
 end
@@ -1630,7 +1486,7 @@ function Dry.Set(r, key, compact)
     end
     local c = Dry.Color(d.nights)
     for i, t in ipairs(f.segs) do
-        if i <= d.nights then t:SetColorTexture(c[1], c[2], c[3], 0.95) else t:SetColorTexture(1, 1, 1, 0.1) end
+        if i <= d.nights then t:SetColorTexture(c[1], c[2], c[3], 0.95) else t:SetColorTexture(S:Color("HAIRLINE")) end
     end
     f.fs:SetText(compact and tostring(d.nights) or Dry.Raids(d.nights))
     f.fs:SetTextColor(c[1], c[2], c[3])
@@ -1685,7 +1541,7 @@ local function RollRowTooltip(self, tt, vp)
         tt:AddLine(lg > 0 and format("On their list to P%d (%d phase%s)", tonumber(row.longevityTo) or 0, lg,
             lg == 1 and "" or "s") or "Not on their list from this phase on", 0.8, 0.8, 0.8)
     end
-    local specLine =((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. ClassName(row.classFile)
+    local specLine = ((type(row.spec) == "string" and row.spec ~= "") and (row.spec .. " ") or "") .. (ns.ClassName(row.classFile, true) or "?")
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
     if not plain then
         local tier = tonumber(row.tier) or 4
@@ -1782,7 +1638,7 @@ local function RowOnEnter(self)
         return
     end
     if self.more then
-        tt:AddLine(format("%d more", #self.more), 1, 0.82, 0)
+        tt:AddLine(format("%d more", #self.more), S:Color("GOLD"))
         local plain = self.moreKind == "roll" and PlainMode(nil, self.session)
         for _, x in ipairs(self.more) do
             local warn = (not plain and LockChanged(x)) and (" " .. WarnIcon(10)) or ""
@@ -1804,7 +1660,7 @@ local function RowOnEnter(self)
     local w = self.data
     if type(w) ~= "table" then return end
     tt:AddLine(ColoredName(w.key, w.classFile))
-    local specLine = ((type(w.spec) == "string" and w.spec ~= "") and (w.spec .. " ") or "") .. ClassName(w.classFile)
+    local specLine = ((type(w.spec) == "string" and w.spec ~= "") and (w.spec .. " ") or "") .. (ns.ClassName(w.classFile, true) or "?")
     tt:AddLine(specLine, 0.8, 0.8, 0.8)
     local p = tonumber(w.phase) or 0
     if w.os then
@@ -1853,26 +1709,22 @@ local function RowOnClick(self)
     end
 end
 
-local function EquippedOnEnter(self)
-    if not self.itemID then return end
-    local tt = _G.GameTooltip
-    tt:SetOwner(self, "ANCHOR_RIGHT")
+-- (the worn item's tooltip: UI:AttachTooltip's title function)
+local function EquippedTooltip(self, tt)
+    if not self.itemID then return false end
     tt:SetItemByID(self.itemID)
-    tt:AddLine(self.label and ("Currently wearing (" .. self.label .. ")") or "Currently wearing", 0.6, 0.6, 0.6)
-    tt:Show()
+    tt:AddLine(self.label and ("Currently wearing (" .. self.label .. ")") or "Currently wearing", S:Color("SUB"))
 end
 
 local function EquippedOnClick(self)
     if self.itemID and ns.UI and ns.UI.HandleModifiedItemClick then ns.UI:HandleModifiedItemClick(self.itemID) end
 end
 
-local function NewFS(parent, font, col, size)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font)
+-- A text in one of the row grid's columns (col = { x, width }), in a style of the type scale.
+function Grid.Cell(parent, style, color, col, opts)
+    local fs = UI:Text(parent, style, color, opts)
     fs:SetPoint("LEFT", parent, "LEFT", col[1], 0)
     fs:SetWidth(col[2])
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then Sized(fs, size) end
     return fs
 end
 
@@ -1882,11 +1734,8 @@ function Mat.NewPips(r)
     local p = CreateFrame("Frame", nil, r)
     p:SetSize(MAT.PIPS_W, ROW_H)
     p:SetPoint("RIGHT", r, "RIGHT", 0, 0)
-    p.count = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    Sized(p.count, 10)
+    p.count = UI:Text(p, "small", "TEXT", { justify = "RIGHT", width = 20 })
     p.count:SetPoint("RIGHT", p, "RIGHT", 0, 0)
-    p.count:SetWidth(20)
-    p.count:SetJustifyH("RIGHT")
     p.sq = {}
     for i = 1, MAT.PIP_MAX do
         local t = p:CreateTexture(nil, "ARTWORK")
@@ -1913,18 +1762,19 @@ function Mat.SetPips(r, held, need, estimated, this)
         if slot < 1 then
             t:Hide()
         else
+            local r, g, b = S:Color("GOLD_DEEP")
             if slot <= held then
-                t:SetColorTexture(0.84, 0.66, 0.14, 1)
+                t:SetColorTexture(r, g, b, 1)
             elseif slot == held + 1 and this then
-                t:SetColorTexture(0.84, 0.66, 0.14, 0.4)
+                t:SetColorTexture(r, g, b, 0.4)
             else
-                t:SetColorTexture(0.30, 0.30, 0.33, 1)
+                t:SetColorTexture(S:Color("EDGE_STRONG"))
             end
             t:Show()
         end
     end
     p.count:SetText(format("%d/%d", min(held, need), need))
-    if estimated then p.count:SetTextColor(0.55, 0.55, 0.55) else p.count:SetTextColor(1, 1, 1) end
+    p.count:SetTextColor(S:Color(estimated and "SUB" or "TEXT"))
     p:Show()
 end
 
@@ -1934,9 +1784,8 @@ local function NewEquippedButton(r)
     e.icon = e:CreateTexture(nil, "ARTWORK")
     e.icon:SetAllPoints()
     e.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    e:SetScript("OnEnter", EquippedOnEnter)
-    e:SetScript("OnLeave", HideTooltip)
     e:SetScript("OnClick", EquippedOnClick)
+    UI:AttachTooltip(e, EquippedTooltip)
     e:Hide()
     return e
 end
@@ -1966,13 +1815,7 @@ function Grid.Att(r, key)
         return
     end
     r.att:SetText(format("%d%%", p))
-    if p >= 90 then
-        r.att:SetTextColor(0.42, 0.86, 0.52)
-    elseif p >= 75 then
-        r.att:SetTextColor(0.80, 0.80, 0.82)
-    else
-        r.att:SetTextColor(0.92, 0.62, 0.36)
-    end
+    r.att:SetTextColor(S:Color((p >= 90 and "OK") or (p >= 75 and "TEXT") or "WARN"))
 end
 
 -- Column titles over a card's rows (1.3.5, the user picked titles + dividers): small grey caps over the columns that
@@ -1991,7 +1834,7 @@ function Grid.Head(b, kind, top, rowsH)
     if not h then
         h = { fs = {}, divs = {} }
         h.line = b:CreateTexture(nil, "ARTWORK")
-        h.line:SetColorTexture(1, 1, 1, 0.07)
+        h.line:SetColorTexture(S:Color("HAIRLINE"))
         h.line:SetHeight(1)
         b.colHead = h
     end
@@ -2004,9 +1847,7 @@ function Grid.Head(b, kind, top, rowsH)
         for i, t in ipairs(Grid.TITLES[kind]) do
             local fs = h.fs[i]
             if not fs then
-                fs = b:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-                Sized(fs, 9)
-                fs:SetWordWrap(false)
+                fs = UI:Text(b, "caps", "SUB")
                 h.fs[i] = fs
             end
             if t[1] ~= "VOTE" or railX then
@@ -2015,7 +1856,6 @@ function Grid.Head(b, kind, top, rowsH)
                 fs:SetWidth(t[3] + (t[1] == "VOTE" and 12 or 0))
                 fs:SetJustifyH(t[4])
                 fs:SetText(t[1])
-                fs:SetTextColor(0.62, 0.62, 0.66)
                 fs:Show()
             end
         end
@@ -2032,7 +1872,7 @@ function Grid.Head(b, kind, top, rowsH)
                 d:SetWidth(1)
                 h.divs[i] = d
             end
-            d:SetColorTexture(1, 1, 1, 0.06)
+            d:SetColorTexture(S:Color("HAIRLINE"))
             d:ClearAllPoints()
             d:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X + x, -(top + Grid.HEAD_H + 3))
             d:SetHeight(rowsH - 6)
@@ -2062,7 +1902,7 @@ function Grid.AwardGate(btn, g)
             t:SetSize(5, 5)
             btn.przPips[i] = t
         end
-        btn.przWarn = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btn.przWarn = UI:Text(btn, "small")
     end
     for _, t in ipairs(btn.przPips) do t:Hide() end
     btn.przWarn:Hide()
@@ -2089,7 +1929,7 @@ function Grid.AwardGate(btn, g)
             local t = btn.przPips[i]
             t:ClearAllPoints()
             t:SetPoint("RIGHT", btn, "RIGHT", x, 0)
-            if i <= (g.votes or 0) then t:SetColorTexture(1, 0.82, 0, 1) else t:SetColorTexture(1, 1, 1, 0.22) end
+            if i <= (g.votes or 0) then t:SetColorTexture(S:Color("GOLD")) else t:SetColorTexture(1, 1, 1, 0.22) end
             t:Show()
             x = x - 8
         end
@@ -2169,25 +2009,12 @@ function Grid.RollNote(row, session, narrow)
 end
 
 function DropPanel:NewRow(b)
-    local UI = ns.UI
     local r = CreateFrame("Button", nil, b)
     r:SetHeight(ROW_H)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    -- the suggested roller (gold) / the winner (green): a soft fill with a 2 px bar on its left, a little wider than
-    -- the row
-    r.mark = r:CreateTexture(nil, "BACKGROUND")
-    r.mark:SetPoint("TOPLEFT", r, "TOPLEFT", -6, 0)
-    r.mark:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 4, 0)
-    r.mark:Hide()
-    r.markBar = r:CreateTexture(nil, "BORDER")
-    r.markBar:SetPoint("TOPLEFT", r.mark, "TOPLEFT", 0, 0)
-    r.markBar:SetPoint("BOTTOMLEFT", r.mark, "BOTTOMLEFT", 0, 0)
-    r.markBar:SetWidth(2)
-    r.markBar:Hide()
-    local hl = r:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetPoint("TOPLEFT", r, "TOPLEFT", -6, 0)
-    hl:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 4, 0)
-    hl:SetColorTexture(1, 1, 1, 0.05)
+    -- the shared row looks: the hover, and the selected look for the suggested roller (gold) / the winner (green): a
+    -- soft fill with a 2 px bar on its left (Grid.Mark)
+    UI:DecorateRow(r, { hover = true, selectable = true })
     -- the class circle with a presence dot on it (in the raid green, online yellow, offline grey)
     r.cls = r:CreateTexture(nil, "ARTWORK")
     r.cls:SetSize(15, 15)
@@ -2201,16 +2028,15 @@ function DropPanel:NewRow(b)
     r.dot:SetTexture(DISC)
     r.dot:SetSize(6, 6)
     r.dot:SetPoint("CENTER", r.ring, "CENTER", 0, 0)
-    r.name = NewFS(r, "GameFontHighlightSmall", { COL.cls[1] + COL.name, 90 }, 11)
-    r.spec = NewFS(r, "GameFontDisableSmall", COL.spec)
-    r.pill = UI:CreateTagPill(r, 16)
+    r.name = Grid.Cell(r, "body", "TEXT", { COL.cls[1] + COL.name, 90 })
+    r.spec = Grid.Cell(r, "small", "SUB", COL.spec)
+    r.pill = UI:CreatePill(r, 16)
     r.pill:SetPoint("LEFT", r, "LEFT", COL.pill, 0)
     r.pill:Hide()
     r.badge = r.pill.fs      -- the pill's text: "BiS", "Alt P2", "OS"
-    r.att = NewFS(r, "GameFontHighlightSmall", COL.att, 10)
-    r.att:SetJustifyH("RIGHT")
-    r.status = NewFS(r, "GameFontDisableSmall", COL.status)
-    r.tag = NewFS(r, "GameFontNormalSmall", COL.loot, 10)
+    r.att = Grid.Cell(r, "small", "TEXT", COL.att, { justify = "RIGHT" })
+    r.status = Grid.Cell(r, "small", "SUB", COL.status)
+    r.tag = Grid.Cell(r, "small", "GOLD", COL.loot)
     -- ADDENDUM G: the vote rail (a square at the row's start: the count, gold with my vote in it); clicking it votes
     -- for the row's player (or takes my vote back).
     r.vEdge = r:CreateTexture(nil, "BACKGROUND", nil, 2)
@@ -2222,17 +2048,14 @@ function DropPanel:NewRow(b)
     r.vBox:SetSize(COL.rail, COL.rail)
     r.vBox:SetPoint("CENTER", r.vEdge, "CENTER", 0, 0)
     r.vBox:Hide()
-    r.votes = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.votes = UI:Text(r, "small", "TEXT", { justify = "CENTER", width = COL.rail })
     r.votes:SetPoint("CENTER", r.vBox, "CENTER", 0, 0)
-    r.votes:SetWidth(COL.rail)
-    r.votes:SetJustifyH("CENTER")
-    r.votes:SetWordWrap(false)
     r.voteBtn = CreateFrame("Button", nil, r)
     r.voteBtn:SetPoint("CENTER", r.vBox, "CENTER", 0, 0)
     r.voteBtn:SetSize(COL.rail + 6, ROW_H)
     r.voteBtn:SetScript("OnClick", function(btn) DropPanel:ToggleVote(btn:GetParent()) end)
     r.voteBtn:SetScript("OnEnter", function(btn) RowOnEnter(btn:GetParent()) end)
-    r.voteBtn:SetScript("OnLeave", HideTooltip)
+    r.voteBtn:SetScript("OnLeave", UI.HideTooltip)
     r.voteBtn:Hide()
     -- a dim check where I may vote and nobody has yet (the click votes)
     r.voteHint = r:CreateTexture(nil, "ARTWORK")
@@ -2243,10 +2066,9 @@ function DropPanel:NewRow(b)
     r.voteHint:SetAlpha(0.35)
     r.voteHint:Hide()
     -- the roll, and a small note after it
-    r.roll = NewFS(r, "NumberFontNormal", COL.roll, 13)
-    r.roll:SetJustifyH("RIGHT")
-    r.note = NewFS(r, "GameFontDisableSmall", COL.note, 9)
-    r.moreText = NewFS(r, "GameFontDisableSmall", { COL.cls[1], 200 }, 11)
+    r.roll = Grid.Cell(r, "title", "TEXT", COL.roll, { justify = "RIGHT", font = S.FONT_NUM })
+    r.note = Grid.Cell(r, "caps", "SUB", COL.note)
+    r.moreText = Grid.Cell(r, "body", "SUB", { COL.cls[1], 200 })
     -- Two right-aligned "currently wearing" icons (paired slots show both, ADDENDUM A §18).
     r.eqs = { NewEquippedButton(r), NewEquippedButton(r) }
     r.eqs[2]:SetPoint("RIGHT", r, "RIGHT", 0, 0)
@@ -2255,7 +2077,7 @@ function DropPanel:NewRow(b)
     r.pips = Mat.NewPips(r)
     Dry.New(r, COL.loot[1])
     r:SetScript("OnEnter", RowOnEnter)
-    r:SetScript("OnLeave", HideTooltip)
+    r:SetScript("OnLeave", UI.HideTooltip)
     r:SetScript("OnClick", RowOnClick)
     return r
 end
@@ -2268,7 +2090,7 @@ local function SetEquipped(r, worn)
         local e = worn[i - (2 - n)]
         if e then
             btn.itemID, btn.label = e.id, e.label
-            btn.icon:SetTexture(ItemIcon(e.id))
+            btn.icon:SetTexture(UI:ItemIcon(e.id))
             btn:Show()
         else
             btn.itemID, btn.label = nil, nil
@@ -2277,10 +2099,11 @@ local function SetEquipped(r, worn)
     end
 end
 
-local PRESENCE = { raid = { 0.24, 0.81, 0.36 }, online = { 0.91, 0.77, 0.23 }, offline = { 0.42, 0.42, 0.45 } }
+-- the presence dot: in the raid green, online gold, offline grey
+local PRESENCE = { raid = "OK", online = "GOLD_DEEP", offline = "DIM" }
 local function SetPresence(r, state)
-    local c = PRESENCE[state] or PRESENCE.offline
-    r.dot:SetVertexColor(c[1], c[2], c[3], 1)
+    local r1, g1, b1 = S:Color(PRESENCE[state] or PRESENCE.offline)
+    r.dot:SetVertexColor(r1, g1, b1, 1)
 end
 
 local function SetPill(r, text, kind)
@@ -2347,17 +2170,22 @@ local function SetRowMode(r, mode)
     r.roll:SetShown(roll)
     r.moreText:SetShown(more)
     if more then SetEquipped(r, {}) end
-    r.mark:Hide()
-    r.markBar:Hide()
+    r:SetSelected(false)
     r.rollRow = roll
     r:SetHeight(ROW_H)
 end
 
-local function Mark(r, cr, cg, cb)
-    r.mark:SetColorTexture(cr, cg, cb, 0.09)
-    r.markBar:SetColorTexture(cr, cg, cb, 0.9)
-    r.mark:Show()
-    r.markBar:Show()
+-- The row's selected look in a tone: "SELECT" (the suggested roller: the shared gold) or "OK" (the winner: green).
+function Grid.Mark(r, tone)
+    if tone == "OK" then
+        local cr, cg, cb = S:Color("OK")
+        r.dzSelFill:SetColorTexture(cr, cg, cb, 0.09)
+        r.dzSelBar:SetColorTexture(cr, cg, cb, 0.9)
+    else
+        r.dzSelFill:SetColorTexture(S:Color("SELECT"))
+        r.dzSelBar:SetColorTexture(S:Color("SELECT_BAR"))
+    end
+    r:SetSelected(true)
 end
 
 local function FillRow(r, w, itemID, vp, itemSid)
@@ -2453,9 +2281,9 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
 
     local winner = type(session) == "table" and session.state == "awarded" and session.winner == row.key
     if winner then
-        Mark(r, 0.3, 0.9, 0.4)
+        Grid.Mark(r, "OK")
     elseif row.suggested then
-        Mark(r, 1, 0.82, 0)
+        Grid.Mark(r, "SELECT")
     end
     local alpha = 1
     if row.response == "pass" and not tonumber(row.roll) then
@@ -2483,14 +2311,15 @@ local function FillMoreRow(r, rest, kind, session)
 end
 
 -- A gold-text link ("Show rolls (3)" / "Hide"): white while hovered.
+-- TODO(refactor): move into a shared text link (PageParts / Controls have none outside the back link and the toast)
 local function NewLink(parent, onClick)
     local l = CreateFrame("Button", nil, parent)
     l:SetHeight(16)
-    l.label = Text(l, "GameFontNormalSmall", 11)
+    l.label = UI:Text(l, "body", "GOLD")
     l.label:SetPoint("RIGHT", l, "RIGHT", 0, 0)
     l:SetScript("OnClick", onClick)
-    l:SetScript("OnEnter", function(self) self.label:SetTextColor(1, 1, 1) end)
-    l:SetScript("OnLeave", function(self) self.label:SetTextColor(1, 0.82, 0) end)
+    l:SetScript("OnEnter", function(self) self.label:SetTextColor(S:Color("TEXT")) end)
+    l:SetScript("OnLeave", function(self) self.label:SetTextColor(S:Color("GOLD")) end)
     function l:SetLabel(text)
         self.label:SetText(text or "")
         self:SetWidth((self.label:GetStringWidth() or 60) + 4)
@@ -2502,49 +2331,43 @@ end
 -- rolls, and one row of actions: the roll button (Roll / End roll / Re-roll / Cancel) and the gold award (Award, or
 -- Award to the suggested roller). Occasional actions sit in the card's More menu (top right).
 function DropPanel:NewBlock(parent)
-    local UI = ns.UI
-    local b = CreateFrame("Frame", nil, parent)
+    -- the shared card (its fill and 1 px edge; a prized item's card glows: DropPanel.PrzGlow recolours the edge)
+    local b = UI:CreateCard(parent, { tone = "card", pad = CARD_PAD })
     b.rows = {}
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.bg:SetColorTexture(CARD_BG[1], CARD_BG[2], CARD_BG[3], CARD_BG[4])
-    UI:AddEdges(b, "BORDER")
-    UI:SetEdgeColor(b, EDGE[1], EDGE[2], EDGE[3], EDGE[4])
 
     b.button = UI:CreateItemButton(b, ICON_SIZE)
-    b.button:SetPoint("TOPLEFT", b, "TOPLEFT", CARD_PAD, -10)
+    b.button:SetPoint("TOPLEFT", b, "TOPLEFT", CARD_PAD, -CARD_PAD)
 
-    b.moreBtn = UI:CreateTipIconButton(b, 20, UI.ICON.more, "More", nil, function(self) DropPanel:OpenMoreMenu(b, self) end)
+    b.moreBtn = UI:CreateTipIconButton(b, S.ROW.compact, UI.ICON.more, "More", nil, function(self) DropPanel:OpenMoreMenu(b, self) end)
     b.moreBtn.icon:ClearAllPoints()
     b.moreBtn.icon:SetPoint("TOPLEFT", 3, -3)
     b.moreBtn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-    b.moreBtn:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -8)
+    b.moreBtn:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD + 2, -CARD_PAD + 2)
 
-    b.name = Text(b, "GameFontHighlight", 13)
-    b.name:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -10)
-    b.name:SetWidth(CARD_W - TEXT_X - 10 - 20 - 8)
+    b.name = UI:Text(b, "title", "TEXT")
+    b.name:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -CARD_PAD)
+    b.name:SetWidth(CARD_W - TEXT_X - CARD_PAD - 30)
 
     -- Second line: the item type, the roll's state, or who got it (b.awarded).
-    b.sub = Text(b, "GameFontHighlightSmall", 11)
-    b.sub:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -28)
-    b.sub:SetTextColor(0.62, 0.62, 0.62)
-    b.awarded = Text(b, "GameFontHighlightSmall", 11)
-    b.awarded:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -28)
+    b.sub = UI:Text(b, "sub")
+    b.sub:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -(CARD_PAD + 18))
+    b.awarded = UI:Text(b, "body")
+    b.awarded:SetPoint("TOPLEFT", b, "TOPLEFT", TEXT_X, -(CARD_PAD + 18))
     b.awarded:Hide()
 
-    b.none = Text(b, "GameFontDisableSmall", 11)
+    b.none = UI:Text(b, "sub")
     b.none:SetText("Nobody has this on their BiS list")
 
     -- Awarded items: show / hide the folded rolls (FillBlock), at the end of the second line.
     b.fold = NewLink(b, function() DropPanel:ToggleFold(b.itemID, b.copy) end)
-    b.fold:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -26)
+    b.fold:SetPoint("TOPRIGHT", b, "TOPRIGHT", -CARD_PAD, -(CARD_PAD + 16))
     b.fold:Hide()
 
     local function slotButton(text, onClick)
-        return UI:CreateButton(b, text, SLOT_W, ACTION_H, onClick)
+        return UI:CreateSleekButton(b, text, SLOT_W, ACTION_H, onClick)
     end
     b.rollBtn = slotButton("Roll", function() DropPanel:StartRoll(b.itemID, b.copy) end)
-    AddButtonTooltip(b.rollBtn, function()
+    Look.Tip(b.rollBtn, function()
         local text = "Start a roll: everyone in the " .. GroupWord() .. " gets a Roll / Pass popup (a normal /roll 1-100). "
             .. "DisasterZone suggests the winner: BiS main first, then BiS alt, then everyone else; "
             .. "the highest roll wins within each group. You confirm the award."
@@ -2557,20 +2380,20 @@ function DropPanel:NewBlock(parent)
         return text
     end)
     b.endRoll = slotButton("End roll", function() DropPanel:EndRoll(b.rollSession) end)
-    AddButtonTooltip(b.endRoll, function()
+    Look.Tip(b.endRoll, function()
         return "Close the roll now. Rolls that arrive afterwards are ignored."
     end)
     b.reroll = slotButton("Re-roll", function() DropPanel:ConfirmReroll(b) end)
-    AddButtonTooltip(b.reroll, function()
+    Look.Tip(b.reroll, function()
         return "Start a new roll for this item (for example after a tie or when nobody rolled). "
             .. "The rolls so far are discarded."
     end)
     b.unqueue = slotButton("Cancel", function() DropPanel:EndRoll(b.queuedSession) end)
-    AddButtonTooltip(b.unqueue, function()
+    Look.Tip(b.unqueue, function()
         return "Take this item out of the roll queue."
     end)
-    b.award = UI:CreateButton(b, "Award", SLOT_W, ACTION_H, function() DropPanel:OpenAwardMenu(b, b.award) end)
-    AddButtonTooltip(b.award, function()
+    b.award = UI:CreateSleekButton(b, "Award", SLOT_W, ACTION_H, function() DropPanel:OpenAwardMenu(b, b.award) end)
+    Look.Tip(b.award, function()
         if DropPanel.drop and DropPanel.drop.test then
             return "Demo mode: awards go to a temporary demo log that is never saved or sent."
         end
@@ -2582,11 +2405,11 @@ function DropPanel:NewBlock(parent)
         return "Pick who receives this item: its BiS candidates first, then the rest of the " .. GroupWord()
             .. ". The award goes in the loot log."
     end)
-    b.awardRoll = UI:CreateButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardSuggested(b) end)
-    AddButtonTooltip(b.awardRoll, function() return DropPanel:AwardSuggestedTooltip(b) end)
+    b.awardRoll = UI:CreateSleekButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardSuggested(b) end)
+    Look.Tip(b.awardRoll, function() return DropPanel:AwardSuggestedTooltip(b) end)
     -- a crafting material: award it straight to the best wanter (whoever it completes a craft for, then the closest)
-    b.awardMat = UI:CreateButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardMaterialBest(b) end)
-    AddButtonTooltip(b.awardMat, function()
+    b.awardMat = UI:CreateSleekButton(b, "Award", 110, ACTION_H, function() DropPanel:AwardMaterialBest(b) end)
+    Look.Tip(b.awardMat, function()
         local w = b.matBest
         if type(w) ~= "table" then return "" end
         local why = w.completes and "this one completes their craft"
@@ -2639,14 +2462,6 @@ local function SetAwardRollButton(btn, row)
     btn:SetWidth(min(220, max(96, w + 24)))
 end
 
--- The item name in the card: 13 px, smaller when a long name would not fit.
-local function FitName(fs, text, width)
-    for _, size in ipairs({ 13, 12, 11 }) do
-        Sized(fs, size)
-        fs:SetText(text)
-        if (fs:GetStringWidth() or 0) <= width then return end
-    end
-end
 
 ---------------------------------------------------------------------------
 -- Crafting materials (Materials): a craft's header line, the "+N more crafts" line and an awarded material's craft
@@ -2676,7 +2491,7 @@ function Mat.AddCraftersTooltip(tt, use)
         tt:AddLine("Only members who opened their profession window with DisasterZone are known.", 0.6, 0.6, 0.6, true)
         return
     end
-    tt:AddLine("Crafted by", 1, 0.82, 0)
+    tt:AddLine("Crafted by", S:Color("GOLD"))
     for _, key in ipairs(list) do
         tt:AddDoubleLine(ColoredName(key), Mat.PresenceOf(key), 1, 1, 1, 0.6, 0.6, 0.6)
     end
@@ -2704,28 +2519,23 @@ function DropPanel:GetMatHead(b, i)
     if h then return h end
     h = CreateFrame("Button", nil, b)
     h:SetHeight(ROW_H)
-    h.rule = h:CreateTexture(nil, "BACKGROUND")
-    h.rule:SetColorTexture(1, 1, 1, 0.06)
-    h.rule:SetHeight(1)
-    h.rule:SetPoint("TOPLEFT", h, "TOPLEFT", 0, 1)
-    h.rule:SetPoint("TOPRIGHT", h, "TOPRIGHT", 0, 1)
+    h.rule = UI:Rule(h, { top = -1, layer = "BACKGROUND" })
     h.icon = h:CreateTexture(nil, "ARTWORK")
     h.icon:SetSize(14, 14)
     h.icon:SetPoint("LEFT", h, "LEFT", 0, 0)
     h.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    h.name = Text(h, "GameFontHighlightSmall", 11)
+    h.name = UI:Text(h, "body")
     h.name:SetPoint("LEFT", h.icon, "RIGHT", 5, 0)
-    h.per = Text(h, "GameFontDisableSmall", 10)
+    h.per = UI:Text(h, "small", "SUB")
     h.per:SetPoint("LEFT", h.name, "RIGHT", 6, 0)
-    h.crafter = Text(h, "GameFontHighlightSmall", 10)
+    h.crafter = UI:Text(h, "small", "TEXT", { justify = "RIGHT" })
     h.crafter:SetPoint("RIGHT", h, "RIGHT", 0, 0)
-    h.crafter:SetJustifyH("RIGHT")
     h.prof = h:CreateTexture(nil, "ARTWORK")
     h.prof:SetSize(12, 12)
     h.prof:SetPoint("RIGHT", h.crafter, "LEFT", -4, 0)
     h.prof:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     h:SetScript("OnEnter", Mat.MatHeadOnEnter)
-    h:SetScript("OnLeave", HideTooltip)
+    h:SetScript("OnLeave", UI.HideTooltip)
     h:SetScript("OnClick", Mat.MatHeadOnClick)
     b.matHeads[i] = h
     return h
@@ -2736,7 +2546,7 @@ end
 function Mat.FillMatHead(h, use, itemID, forKey, first)
     h.use, h.itemID = use, itemID
     h.rule:SetShown(not first)
-    h.icon:SetTexture(ItemIcon(use.item))
+    h.icon:SetTexture(UI:ItemIcon(use.item))
     h.per:SetText(format("%d per craft", use.count))
     local M = ns.Materials
     local key = M and M.PickCrafter and M:PickCrafter(use, forKey)
@@ -2764,7 +2574,7 @@ function Mat.MatOthersOnEnter(self)
     if type(list) ~= "table" then return end
     local tt = _G.GameTooltip
     tt:SetOwner(self, "ANCHOR_RIGHT")
-    tt:AddLine(format("%d more crafts use %s", #list, ItemName(self.itemID)), 1, 0.82, 0)
+    tt:AddLine(format("%d more crafts use %s", #list, ItemName(self.itemID)), S:Color("GOLD"))
     local M = ns.Materials
     for _, use in ipairs(list) do
         local key = M and M.PickCrafter and M:PickCrafter(use)
@@ -2793,29 +2603,26 @@ function DropPanel:GetMade(b)
     if b.made then return b.made end
     local m = CreateFrame("Frame", nil, b)
     m:SetHeight(MAT.MADE_H)
-    m.bg = m:CreateTexture(nil, "BACKGROUND")
-    m.bg:SetAllPoints()
-    m.bg:SetColorTexture(1, 1, 1, 0.03)
+    m.bg = UI:Fill(m, "QUIET", "BACKGROUND")
     m.hit = CreateFrame("Button", nil, m)
     m.hit:SetPoint("TOPLEFT", m, "TOPLEFT", 0, 0)
     m.hit:SetPoint("BOTTOMLEFT", m, "BOTTOMLEFT", 0, 0)
     m.hit:SetScript("OnEnter", Mat.MadeOnEnter)
-    m.hit:SetScript("OnLeave", HideTooltip)
+    m.hit:SetScript("OnLeave", UI.HideTooltip)
     m.icon = m:CreateTexture(nil, "ARTWORK")
     m.icon:SetSize(14, 14)
     m.icon:SetPoint("LEFT", m, "LEFT", 6, 0)
     m.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    m.name = Text(m, "GameFontHighlightSmall", 11)
+    m.name = UI:Text(m, "body")
     m.name:SetPoint("LEFT", m.icon, "RIGHT", 5, 0)
-    m.prog = Text(m, "GameFontHighlightSmall", 10)
+    m.prog = UI:Text(m, "small", "TEXT")
     m.prog:SetPoint("LEFT", m.name, "RIGHT", 6, 0)
-    m.whisper = ns.UI:CreateButton(m, "Whisper", 58, 18, function() DropPanel:WhisperCrafter(b) end)
+    m.whisper = UI:CreateSleekButton(m, "Whisper", 58, 18, function() DropPanel:WhisperCrafter(b) end)
     m.whisper:SetPoint("RIGHT", m, "RIGHT", -2, 0)
-    AddButtonTooltip(m.whisper, function()
+    Look.Tip(m.whisper, function()
         return "Whisper the crafter how many the winner has now, and for which craft."
     end)
-    m.crafter = Text(m, "GameFontHighlightSmall", 10)
-    m.crafter:SetJustifyH("RIGHT")
+    m.crafter = UI:Text(m, "small", "TEXT", { justify = "RIGHT" })
     m.prof = m:CreateTexture(nil, "ARTWORK")
     m.prof:SetSize(12, 12)
     m.prof:SetTexCoord(0.07, 0.93, 0.07, 0.93)
@@ -2847,7 +2654,7 @@ function DropPanel:FillMade(b, itemID, winnerKey, award, vp, y)
     local M = ns.Materials
     local use = M:GetUse(itemID, w.craft)
     m.use, m.winner, m.have, m.itemID = use, winnerKey, have, itemID
-    m.icon:SetTexture(ItemIcon(w.craft))
+    m.icon:SetTexture(UI:ItemIcon(w.craft))
     m.name:SetWidth(1000)
     m.name:SetText(ItemText(w.craft))
     local ready = have >= w.need
@@ -2977,7 +2784,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.awardEntry = award
     b.button:SetItem(itemID)
     DropPanel.PrzGlow(b, DropPanel.PrzRec(itemID) ~= nil)
-    FitName(b.name, DropPanel.PrzName(itemID, ItemText(itemID)), CARD_W - TEXT_X - 10 - 20 - 8)
+    UI:FitText(b.name, DropPanel.PrzName(itemID, ItemText(itemID)), CARD_W - TEXT_X - CARD_PAD - 30)
 
     local session, mode, queuePos = RollStateFor(itemID, drop, copy)
     local rolling = mode == "roll" and session ~= nil
@@ -3194,7 +3001,7 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
         y = y + ACTION_H
     else
         LayoutActions(b, y, buttons)
-        if not anyRows then y = 10 + ICON_SIZE end
+        if not anyRows then y = CARD_PAD + ICON_SIZE end
     end
 
     -- The More menu: Announce; Disenchant / Guild bank (ADDENDUM G §41) while nobody is picked (no roll, or a roll
@@ -3255,11 +3062,11 @@ function DropPanel:FillBlock(b, itemID, award, drop, vp, canRoll, copy)
     b.sub:SetWidth(lineW)
     b.awarded:SetWidth(lineW)
     b:SetAlpha((n == 0 and not winnerKey and not rolling and not plain) and 0.8 or 1)
-    return y + 10
+    return y + CARD_PAD
 end
 
 -- The More menu of a card (its entries were worked out by FillBlock).
-local MENU_GOLD = { 1, 0.82, 0 }
+local MENU_GOLD = S.C.GOLD
 function DropPanel:MoreTooltip(b, key)
     if key == "announce" then
         if DropPanel.drop and DropPanel.drop.test then return "Simulated drop: the line is only printed in your chat window." end
@@ -3309,7 +3116,7 @@ function DropPanel:OpenMoreMenu(b, owner)
             if entry and entry.SetTooltip then
                 local key, label = e.key, e.label
                 entry:SetTooltip(function(tt)
-                    tt:AddLine(label, 1, 0.82, 0)
+                    tt:AddLine(label, S:Color("GOLD"))
                     tt:AddLine(DropPanel:MoreTooltip(b, key), 1, 1, 1, true)
                 end)
             end
@@ -3363,24 +3170,15 @@ function DropPanel:ConfirmReroll(b)
         self:StartRoll(b.itemID, b.copy)
         return
     end
-    local dialogs = ns.Popup.dialogs
-    if dialogs and not dialogs.DISASTERZONE_REROLL then
-        dialogs.DISASTERZONE_REROLL = {
-            title = "Re-roll",
-            text = "Start a new roll for %s?\n(%s so far are discarded)",
-            button1 = "Re-roll",
-            button2 = _G.CANCEL or "Cancel",
-            OnAccept = function(_, data)
-                if type(data) == "table" then DropPanel:StartRoll(data.itemID, data.copy) end
-            end,
-            timeout = 0,
-            whileDead = true,
-            hideOnEscape = true,
-            preferredIndex = 3,
-        }
-    end
-    ns.Popup:Show("DISASTERZONE_REROLL", ItemLink(b.itemID) or ItemName(b.itemID),
-        rolled == 1 and "1 roll" or (rolled .. " rolls"), { itemID = b.itemID, copy = b.copy })
+    local itemID, copy = b.itemID, b.copy
+    ns.Popup:Confirm({
+        key = "REROLL",
+        title = "Re-roll",
+        text = format("Start a new roll for %s?\n(%s so far are discarded)", ItemLink(itemID) or ItemName(itemID),
+            rolled == 1 and "1 roll" or (rolled .. " rolls")),
+        ok = "Re-roll",
+        onAccept = function() DropPanel:StartRoll(itemID, copy) end,
+    })
 end
 
 function DropPanel:EndRoll(session)
@@ -3726,43 +3524,6 @@ function DropPanel:AwardByName(data, text)
     self:Award(data.itemID, key, data.bossKey, data.copy, data.drop)
 end
 
-local function EnsureAwardPopup()
-    local dialogs = ns.Popup.dialogs
-    if not dialogs or dialogs.DISASTERZONE_AWARD_OTHER then return end
-    dialogs.DISASTERZONE_AWARD_OTHER = {
-        title = "Award to someone else",
-        text = "Record %s as awarded to (character name):",
-        button1 = "Award",
-        button2 = _G.CANCEL or "Cancel",
-        hasEditBox = 1,
-        maxLetters = 48,
-        OnShow = function(self)
-            local eb = PopupEditBox(self)
-            if eb then
-                eb:SetText("")
-                eb:SetFocus()
-            end
-        end,
-        OnAccept = function(self, data)
-            local eb = PopupEditBox(self)
-            DropPanel:AwardByName(data or self.data, eb and eb:GetText())
-        end,
-        EditBoxOnEnterPressed = function(editBox)
-            local popup = editBox:GetParent()
-            DropPanel:AwardByName(popup and popup.data, editBox:GetText())
-            if popup then popup:Hide() end
-        end,
-        EditBoxOnEscapePressed = function(editBox)
-            local popup = editBox:GetParent()
-            if popup then popup:Hide() end
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
-end
-
 -- copy / drop: the drop copy the award belongs to (see DropPanel:Award); both optional.
 function DropPanel:AwardSomeoneElse(itemID, bossKey, copy, drop)
     -- Prefer the Loot Log award dialog when that module offers one; its Save comes back here, so an
@@ -3780,10 +3541,16 @@ function DropPanel:AwardSomeoneElse(itemID, bossKey, copy, drop)
         })
         return
     end
-    EnsureAwardPopup()
     if ns.Popup then
-        ns.Popup:Show("DISASTERZONE_AWARD_OTHER", ItemLink(itemID) or ItemName(itemID), nil,
-            { itemID = itemID, bossKey = bossKey, copy = copy, drop = drop })
+        local data = { itemID = itemID, bossKey = bossKey, copy = copy, drop = drop }
+        ns.Popup:Prompt({
+            key = "AWARD_OTHER",
+            title = "Award to someone else",
+            text = format("Record %s as awarded to (character name):", ItemLink(itemID) or ItemName(itemID)),
+            ok = "Award",
+            maxLetters = 48,
+            onAccept = function(value) DropPanel:AwardByName(data, value) end,
+        })
     end
 end
 
@@ -3809,37 +3576,30 @@ end
 
 -- One step of the non-roll hand-out: master looter -> give with master loot after a confirmation, then record;
 -- anyone else -> record (council).
-local function EnsureTargetPopups()
-    local dialogs = ns.Popup.dialogs
-    if not dialogs or dialogs.DISASTERZONE_GIVE_TARGET then return end
-    dialogs.DISASTERZONE_GIVE_TARGET = {
+-- "Give <item> to <who>?" (the master looter hands it over) / "Award <item> to <who> anyway?" (handing it over
+-- failed: record it, hand it out by master loot or trade).
+function Look.ConfirmGive(data, who)
+    ns.Popup:Confirm({
+        key = "GIVE_TARGET",
         title = "Give item",
-        text = "Give %s to %s?",
-        button1 = "Give",
-        button2 = _G.CANCEL or "Cancel",
-        OnAccept = function(self, data) DropPanel:GiveToTarget(data or self.data) end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
-    dialogs.DISASTERZONE_RECORD_TARGET = {
+        text = format("Give %s to %s?", ItemLink(data.itemID) or ItemName(data.itemID), who),
+        ok = "Give",
+        onAccept = function() DropPanel:GiveToTarget(data) end,
+    })
+end
+
+function Look.ConfirmRecord(data)
+    ns.Popup:Confirm({
+        key = "RECORD_TARGET",
         title = "Award item",
-        text = "Award %s to %s anyway?\n(hand it out via master loot or trade)",
-        button1 = "Award",
-        button2 = _G.CANCEL or "Cancel",
-        OnAccept = function(self, data)
-            data = data or self.data
-            if type(data) == "table" then
-                local ok, why = DropPanel:Award(data.itemID, data.key, data.bossKey, data.copy, data.drop, nil, data.kind)
-                if not ok and why then ns:Print("%s", why) end
-            end
+        text = format("Award %s to %s anyway?\n(hand it out via master loot or trade)",
+            ItemLink(data.itemID) or ItemName(data.itemID), ColoredName(data.key)),
+        ok = "Award",
+        onAccept = function()
+            local ok, why = DropPanel:Award(data.itemID, data.key, data.bossKey, data.copy, data.drop, nil, data.kind)
+            if not ok and why then ns:Print("%s", why) end
         end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        preferredIndex = 3,
-    }
+    })
 end
 
 function DropPanel:GiveToTarget(data)
@@ -3848,11 +3608,7 @@ function DropPanel:GiveToTarget(data)
     local function fallback(why)
         ns:Print("Could not hand %s to %s: %s.", ItemLink(data.itemID) or ItemName(data.itemID), ShortName(data.key),
             tostring(why or "unknown error"))
-        EnsureTargetPopups()
-        if ns.Popup then
-            ns.Popup:Show("DISASTERZONE_RECORD_TARGET", ItemLink(data.itemID) or ItemName(data.itemID),
-                ColoredName(data.key), data)
-        end
+        if ns.Popup then Look.ConfirmRecord(data) end
     end
     if not (Loot and Loot.GiveItem) then return fallback("master loot is not available") end
     local ok, why = Loot:GiveItem(data.itemID, data.key, function(done, reason)
@@ -3889,11 +3645,9 @@ function DropPanel:AwardToTarget(b, kind)
     end
     -- Master looter with the item in the loot window: hand it over, then record.
     if not drop.test and CanMasterLoot(itemID) then
-        EnsureTargetPopups()
         if ns.Popup then
-            ns.Popup:Show("DISASTERZONE_GIVE_TARGET", ItemLink(itemID) or ItemName(itemID),
-                ColoredName(key) .. " (" .. TARGET_LABELS[kind] .. ")",
-                { itemID = itemID, key = key, kind = kind, bossKey = bossKey, copy = b.copy, drop = drop })
+            Look.ConfirmGive({ itemID = itemID, key = key, kind = kind, bossKey = bossKey, copy = b.copy, drop = drop },
+                ColoredName(key) .. " (" .. TARGET_LABELS[kind] .. ")")
         end
         return
     end
@@ -4017,122 +3771,61 @@ end
 ---------------------------------------------------------------------------
 -- Personal toast
 ---------------------------------------------------------------------------
--- The toast looks like the Dungeons tab's ping: a dark card with a gold edge, the drop's raid art on the left with
--- the item on it, three lines (what it is to me, the item, where it goes) and a small X.
-local TOAST_W, TOAST_H, TOAST_ART = 380, 64, 88
-local TOAST_BG = { 0.043, 0.043, 0.051 }
-local NO_TEX = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+-- The "On your BiS list" pop-up is a UI:Toast (the one pop-up look and stack): the item's icon, the list it is on as
+-- the kicker (the off-spec colour for an off-spec pick), the item as the title and where it goes as its line. The
+-- panel keeps its own queue (one drop's toasts one after another, "+N more" in the kicker); a click links the item in
+-- chat, the X dismisses it, the mouse over it holds it.
+local TOAST_KEY = "dz-bis-drop"
+
+-- The item's own tooltip over the toast while it shows a drop (hooked once on the shared toast frame; it only acts
+-- for the frame showing this panel's entry).
+function Look.ToastEnter(t)
+    local e = t.entry
+    if not (e and DropPanel.toast == t) then return end
+    local tt = _G.GameTooltip
+    tt:SetOwner(t, "ANCHOR_BOTTOM")
+    tt:SetItemByID(e.itemID)
+    tt:AddLine(" ")
+    tt:AddLine("Click: link in chat.", S:Color("SUB"))
+    tt:Show()
+end
+
+function Look.ToastLeave(t)
+    if t.entry and DropPanel.toast == t then UI:HideTooltip() end
+end
+
+-- What the toast of entry e says: kicker, kind (its colour), title, text.
+function DropPanel:ToastContent(e)
+    local m = e.match or {}
+    local kicker, kind = "On your BiS list", "info"
+    if m.os then
+        local sp = OffSpecLabel()
+        kicker, kind = "On your off-spec list" .. (sp and (" (" .. sp .. ")") or ""), Color("offspec")
+    end
+    if e.test then kicker = kicker .. " (test)" end
+    local queued = #self.toastQueue
+    if queued > 0 then kicker = kicker .. "  +" .. queued .. " more" end
+    -- where it goes: "Head · P1", "(alt)" for an alt pick; a token / Sunmote names the piece it becomes
+    local shown = (m.via and m.wanted) or e.itemID
+    local paren = {}
+    if m.which == "alt" then paren[#paren + 1] = "alt" end
+    if m.via then paren[#paren + 1] = (ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token" end
+    local line = format("%s · P%d", ns.SlotLabel(m.sid), tonumber(m.phase) or 0)
+    if m.via and shown ~= e.itemID then line = ItemText(shown) .. " · " .. line end
+    if #paren > 0 then line = line .. " (" .. tconcat(paren, ", ") .. ")" end
+    if m.via == "craft" then
+        -- a crafting material: the craft it is for and how many I have
+        line = "For " .. ItemText(shown) .. Paint(format(" · you have %d of %d", tonumber(m.held) or 0,
+            tonumber(m.need) or 0), "muted")
+    end
+    return kicker, kind, ItemText(e.itemID), line
+end
 
 function DropPanel:GetToast()
-    if self.toast then return self.toast end
-    local UI = ns.UI
-    local t = CreateFrame("Button", "DisasterZoneToast", _G.UIParent)
-    t:SetSize(TOAST_W, TOAST_H)
-    t:SetPoint("TOP", _G.UIParent, "TOP", 0, -156)     -- (between the session bar and the roll popup)
-    t:SetFrameStrata("DIALOG")
-    t:SetClampedToScreen(true)
-    t:Hide()
-    t.bg = t:CreateTexture(nil, "BACKGROUND")
-    t.bg:SetAllPoints()
-    t.bg:SetColorTexture(TOAST_BG[1], TOAST_BG[2], TOAST_BG[3], 0.95)
-    UI:AddEdges(t, "BORDER")
-    t.art = t:CreateTexture(nil, "ARTWORK", nil, 0)
-    t.art:SetPoint("TOPLEFT", 1, -1)
-    t.art:SetSize(TOAST_ART, TOAST_H - 2)
-    t.fade = t:CreateTexture(nil, "ARTWORK", nil, 1)
-    t.fade:SetPoint("TOPRIGHT", t.art, "TOPRIGHT", 0, 0)
-    t.fade:SetPoint("BOTTOMRIGHT", t.art, "BOTTOMRIGHT", 0, 0)
-    t.fade:SetWidth(floor(TOAST_ART * 0.5))
-    Gradient(t.fade, "HORIZONTAL", TOAST_BG[1], TOAST_BG[2], TOAST_BG[3], 0, 1)
-    t.dim = t:CreateTexture(nil, "ARTWORK", nil, 2)
-    t.dim:SetAllPoints(t.art)
-    t.dim:SetColorTexture(0, 0, 0, 0.3)
-
-    t.iconEdge = t:CreateTexture(nil, "ARTWORK", nil, 3)
-    t.iconEdge:SetSize(42, 42)
-    t.iconEdge:SetColorTexture(0, 0, 0, 1)
-    t.icon = t:CreateTexture(nil, "ARTWORK", nil, 4)
-    t.icon:SetSize(40, 40)
-    t.icon:SetPoint("CENTER", t.iconEdge, "CENTER", 0, 0)
-    t.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-
-    t.title = Text(t, "GameFontNormal", 13)
-    t.name = Text(t, "GameFontHighlight", 12)
-    t.text = Text(t, "GameFontHighlightSmall", 11)
-    t.text:SetTextColor(0.62, 0.62, 0.62)
-
-    t.x = UI:CreateIconButton(t, 16, NO_TEX, nil, function() DropPanel:DismissToast() end)
-    t.x.bg:SetAlpha(0)
-    t.x.icon:SetDesaturated(true)
-    t.x:SetPoint("TOPRIGHT", t, "TOPRIGHT", -4, -4)
-    t.more = Text(t, "GameFontDisableSmall", 11)
-    t.more:SetJustifyH("RIGHT")
-    t.more:SetPoint("RIGHT", t.x, "LEFT", -4, 0)
-
-    local ag = t:CreateAnimationGroup()
-    local fade = ag:CreateAnimation("Alpha")
-    fade:SetFromAlpha(1)
-    fade:SetToAlpha(0)
-    fade:SetDuration(TOAST_FADE)
-    ag:SetScript("OnFinished", function() DropPanel:FinishToast() end)
-    t.fadeAnim = ag
-
-    t:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    t:SetScript("OnClick", function(self, button)
-        if button == "RightButton" then
-            DropPanel:DismissToast()
-        elseif self.entry then
-            LinkToChat(self.entry.itemID)
-        end
-    end)
-    t:SetScript("OnEnter", function(self)
-        DropPanel.toastHovered = true
-        if self.fadeAnim:IsPlaying() then
-            self.fadeAnim:Stop()
-            DropPanel.toastWaiting = true
-        end
-        self:SetAlpha(1)
-        local e = self.entry
-        if e then
-            local tt = _G.GameTooltip
-            tt:SetOwner(self, "ANCHOR_BOTTOM")
-            tt:SetItemByID(e.itemID)
-            tt:AddLine(" ")
-            tt:AddLine("Click: link in chat. Right-click: dismiss.", 0.6, 0.6, 0.6)
-            tt:Show()
-        end
-    end)
-    t:SetScript("OnLeave", function()
-        DropPanel.toastHovered = false
-        HideTooltip()
-        if DropPanel.toastWaiting then
-            DropPanel.toastWaiting = false
-            DropPanel:StartToastTimer(TOAST_LINGER)
-        end
-    end)
-    self.toast = t
-    return t
+    return self.toast
 end
 
-function DropPanel:StartToastTimer(seconds)
-    if self.toastTimer then self.toastTimer:Cancel() end
-    self.toastTimer = C_Timer.NewTimer(seconds, function()
-        DropPanel.toastTimer = nil
-        DropPanel:ToastTimeout()
-    end)
-end
-
-function DropPanel:ToastTimeout()
-    local t = self.toast
-    if not t or not t:IsShown() then return end
-    if self.toastHovered then
-        self.toastWaiting = true      -- OnLeave restarts a short timer
-    else
-        t.fadeAnim:Play()
-    end
-end
-
--- bossKey (optional): the drop's boss (drop.b), for the raid art on the left.
+-- bossKey (optional): the drop's boss (drop.b).
 function DropPanel:QueueToast(itemID, match, test, bossKey)
     if #self.toastQueue >= TOAST_QUEUE_MAX then return end
     tinsert(self.toastQueue, { itemID = itemID, match = match, test = test, b = bossKey })
@@ -4147,100 +3840,47 @@ end
 function DropPanel:ShowNextToast()
     local entry = tremove(self.toastQueue, 1)
     if not entry then return end
-    local t = self:GetToast()
-    t.entry = entry
-    self.toastWaiting = false
+    self.toastEntry = entry
     self:RefreshToastText()
-    t.fadeAnim:Stop()
-    t:SetAlpha(1)
-    t:Show()
-    self:StartToastTimer(TOAST_HOLD)
 end
 
--- A line that fits `width`: 11 px, else 10.
-local function FitLine(fs, text, width, size)
-    Sized(fs, size)
-    fs:SetText(text)
-    if (fs:GetStringWidth() or 0) > width then Sized(fs, size - 1) end
-end
-
+-- Shows (or fills again in place) the toast of the current entry.
 function DropPanel:RefreshToastText()
-    local t = self.toast
-    local e = t and t.entry
+    local e = self.toastEntry
     if not e then return end
-    local m = e.match or {}
-    local UI = ns.UI
-    -- the drop's raid art on the left with the item on it (5-mans and unknown drops: the item alone)
-    local ref = DropSource(e.b)
-    local inst = ref and ref.dungeon ~= true and ref.raid and RaidInstKey(ref.raid.instanceID) or nil
-    local art = SetArt(t.art, inst, TOAST_ART, TOAST_H - 2, 0.3)
-    t.fade:SetShown(art)
-    t.dim:SetShown(art)
-    local textX = art and (TOAST_ART + 12) or (14 + 42 + 12)
-    t.iconEdge:ClearAllPoints()
-    if art then
-        t.iconEdge:SetPoint("CENTER", t.art, "CENTER", 0, 0)
-    else
-        t.iconEdge:SetPoint("LEFT", t, "LEFT", 14, 0)
+    local kicker, kind, title, line = self:ToastContent(e)
+    local t = UI:Toast({
+        key = TOAST_KEY, kind = kind, kicker = kicker, title = title, text = line, lines = 2,
+        icon = UI:ItemIcon(e.itemID), duration = TOAST_HOLD,
+        onClick = function()
+            LinkToChat(e.itemID)
+            return true                    -- (the toast stays)
+        end,
+        onClose = function(frame) DropPanel:FinishToast(frame) end,
+    })
+    if not t then return end           -- (waiting behind other pop-ups: it comes when there is room)
+    self.toast = t
+    t.entry = e
+    if not t.dzDropHooked then
+        t.dzDropHooked = true
+        t:HookScript("OnEnter", Look.ToastEnter)
+        t:HookScript("OnLeave", Look.ToastLeave)
     end
-    t.icon:SetTexture(ItemIcon(e.itemID))
-    local edge = m.os and Color("offspec") or { 1, 0.82, 0 }
-    UI:SetEdgeColor(t, edge[1], edge[2], edge[3], 0.55)
-
-    local title = STAR .. " On your BiS list!"
-    if m.os then
-        local sp = OffSpecLabel()
-        title = Paint("On your off-spec list" .. (sp and (" (" .. sp .. ")") or ""), "offspec")
-    end
-    if e.test then title = title .. Paint(" (test)", "muted") end
-    local queued = #self.toastQueue
-    t.more:SetText(queued > 0 and ("+" .. queued) or "")
-    local textW = TOAST_W - textX - 12 - (queued > 0 and 40 or 20)
-    for _, fs in ipairs({ t.title, t.name, t.text }) do fs:SetWidth(textW) end
-    t.title:ClearAllPoints()
-    t.title:SetPoint("TOPLEFT", t, "TOPLEFT", textX, -10)
-    t.name:ClearAllPoints()
-    t.name:SetPoint("TOPLEFT", t, "TOPLEFT", textX, -27)
-    t.text:ClearAllPoints()
-    t.text:SetPoint("TOPLEFT", t, "TOPLEFT", textX, -43)
-    t.title:SetText(title)
-    FitLine(t.name, ItemText(e.itemID), textW, 12)
-    -- where it goes: "Head · P1", "(alt)" for an alt pick; a token / Sunmote names the piece it becomes
-    local shown = (m.via and m.wanted) or e.itemID
-    local paren = {}
-    if m.which == "alt" then paren[#paren + 1] = "alt" end
-    if m.via then paren[#paren + 1] = (ns.VIA_TEXT and ns.VIA_TEXT[m.via]) or "via token" end
-    local line = format("%s · P%d", SlotLabel(m.sid), tonumber(m.phase) or 0)
-    if m.via and shown ~= e.itemID then line = ItemText(shown) .. " · " .. line end
-    if #paren > 0 then line = line .. " (" .. tconcat(paren, ", ") .. ")" end
-    if m.via == "craft" then
-        -- a crafting material: the craft it is for and how many I have
-        line = "For " .. ItemText(shown) .. Paint(format(" · you have %d of %d", tonumber(m.held) or 0,
-            tonumber(m.need) or 0), "muted")
-    end
-    FitLine(t.text, line, textW, 11)
 end
 
-function DropPanel:FinishToast()
-    local t = self.toast
-    if self.toastTimer then
-        self.toastTimer:Cancel()
-        self.toastTimer = nil
-    end
-    if t then
-        t:Hide()
-        t:SetAlpha(1)
-        t.entry = nil
-    end
-    self.toastWaiting = false
+-- The toast went (timed out, its X, dismissed): the next one of the queue.
+function DropPanel:FinishToast(frame)
+    local t = frame or self.toast
+    if t then t.entry = nil end
+    if self.toast == t then self.toast = nil end
+    self.toastEntry = nil
     self:ShowNextToast()
 end
 
 function DropPanel:DismissToast()
-    local t = self.toast
-    if t and t.fadeAnim:IsPlaying() then t.fadeAnim:Stop() end
-    HideTooltip()
-    self:FinishToast()
+    UI:HideTooltip()
+    -- (on screen: its onClose shows the next one; one still waiting in the pop-ups' queue just goes)
+    if not UI:HideToast(TOAST_KEY, "close") then self:FinishToast() end
 end
 
 ---------------------------------------------------------------------------

@@ -199,8 +199,9 @@ def demo_filters_class_role_raid_hide_obtained_search():
     c.type_text(sb, "nobody-like-this")
     w.tick(0.5)
     assert roster(c) == []
+    # (1.4: the illustrated empty state of the list: its title says why)
     assert c.eval("return DisasterZoneCouncilPanel.rosterView.empty:IsShown()") is True
-    assert "No members match" in c.eval("return DisasterZoneCouncilPanel.rosterView.empty:GetText()")
+    assert "No members match" in c.eval("return DisasterZoneCouncilPanel.rosterView.empty.title:GetText()")
     c.type_text(sb, "")
     w.tick(0.5)
     assert len(roster(c)) == 19
@@ -364,7 +365,7 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     w.tick(0.3)
     assert c.eval("return ns.CouncilUI:GetView()") == "member"
     assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.name:GetText()")) == chip_key.split("-")[0]
-    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.back.text:GetText()")) == "Items"
+    assert strip_codes(c.eval("return DisasterZoneCouncilPanel.memberView.back:GetText()")) == "Items"   # (1.4: the shared back link)
     c.click(c.eval("return DisasterZoneCouncilPanel.memberView.back"))
     w.tick(0.3)
     assert c.eval("return ns.CouncilUI:GetView()") == "items"
@@ -418,7 +419,7 @@ def demo_items_view_tree_rows_tooltip_and_menu():
     c.type_text(c.eval("return DisasterZoneCouncilPanel.search"), "zzz")
     w.tick(0.5)
     assert c.eval("return #T_data(DisasterZoneCouncilPanel.itemsView.list.box)") == 0
-    assert c.eval("return DisasterZoneCouncilPanel.itemsView.empty:GetText()") == "No items match the search."
+    assert c.eval("return DisasterZoneCouncilPanel.itemsView.empty.title:GetText()") == "No items match the search."
     no_errors(w)
 
 

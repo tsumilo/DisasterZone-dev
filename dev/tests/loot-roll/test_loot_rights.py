@@ -256,8 +256,8 @@ def non_council_master_looter_de_is_recorded_with_its_reason():
           if b:IsShown() and b.itemID == ... then ns.DropPanel:RunMoreAction(b, "de") return end
         end""", RUBY_DRAPE)
     w.tick(0.2)
-    assert C.popups() == ["DISASTERZONE_GIVE_TARGET"], C.popups()
-    C.accept_popup("DISASTERZONE_GIVE_TARGET")
+    assert C.popups() == ["DISASTERZONE_CONFIRM_GIVE_TARGET"], C.popups()
+    C.accept_popup("DISASTERZONE_CONFIRM_GIVE_TARGET")
     w.tick(3)
     lt = msgs_of_type(w, "LT", log0)
     assert len(lt) == 1 and lt[0]["_sender"] == key("Carol") and lt[0]["r"] == "de", lt
