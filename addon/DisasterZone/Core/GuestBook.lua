@@ -919,6 +919,12 @@ function GuestBook:OnInit()
         Comm:Register("GNL", OnNotes)
         Comm:Register("GNQ", OnNotesQuery)
     end
+    -- the notes' rev rides in the HELLO (gnr): a member behind asks a roster manager for them (GNQ)
+    local Sync = ns.Sync
+    if Sync and Sync.RegisterHelloField then
+        Sync:RegisterHelloField("gnr", 30, function() return GuestBook:GetNotesRev() end,
+            function(sender, gnr) GuestBook:OnNotesRevSeen(sender, gnr) end)
+    end
     for _, msg in ipairs({ "RAIDLOG_CHANGED", "LEDGER_UPDATED", "RAID_BLACKLIST_CHANGED", "ROSTER_UPDATED",
                            "DEMO_TOGGLED", "CONFIG_UPDATED", "ACCOUNTS_UPDATED" }) do
         ns:On(msg, Changed)

@@ -44,16 +44,12 @@ local MAX_DIGEST_ITEMS = 2000
 local MAX_ID_LEN = 40
 local MAX_KEY_LEN = 48
 local MAX_ITEM_LEN = MAX_ID_LEN + MAX_KEY_LEN + 3
-local ROUND_WINDOW = 20
 local DELAY_ASKER = { 0.5, 2.5 }
 local DELAY_MEMBER = { 3, 8 }
 local NUDGE_EVERY = 10 * 60          -- an asker nudges one poll at most this often
-local SIZE_HEADROOM = 0.1
 
 Polls.MAX_ANSWERS, Polls.MAX_DAYS, Polls.MAX_Q, Polls.MAX_A = MAX_ANSWERS, MAX_DAYS, MAX_Q, MAX_A
 
-local roundSeen, answeredAt = {}, -1000
-local idCounter = 0
 local demo
 
 local function Now() return (GetServerTime and GetServerTime()) or time() end
@@ -91,25 +87,19 @@ local function Changed()
     Util.Debounce("polls-changed", 0.15, function() ns:Fire("POLLS_UPDATED") end)
 end
 
-local function Root(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.polls) ~= "table" then
-        if not create then return nil end
-        db.polls = {}
-    end
-    local r = db.polls[g]
-    if type(r) ~= "table" then
-        if not create then return nil end
-        r = {}
-        db.polls[g] = r
-    end
-    for k in pairs(KINDS) do
-        if type(r[k]) ~= "table" then r[k] = {} end
-    end
-    return r
-end
+-- Stored in db.polls[guild key] and synced by Core/DigestSync.lua (PLU / PLD / PLK / PLW / PLG, the HELLO's od);
+-- the record checks (clean, merge) are set below, where they are.
+local SYNC = {
+    module = Polls, bucket = "polls", kinds = { "P", "V" }, prefix = "PL",
+    maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ITEM_LEN + 2, itemPattern = "^[PV]:", wireKey = WireKey,
+    helloField = "od", helloOrder = 60, large = true, changed = Changed,
+    tooBig = "this poll is too big to share with the guild: ask fewer people or give fewer answers.",
+    delay = function() return Polls:AmIAsker() and DELAY_ASKER or DELAY_MEMBER end,
+}
+local sync = ns.DigestSync.New(SYNC)
+local Newer = sync.Newer
+
+local function Root(create) return sync:Root(create) end
 
 -- What the UI reads: the saved root, or demo mode's own.
 local function State()
@@ -120,16 +110,7 @@ local function State()
     return Root(false)
 end
 
-local function NextRev(cur)
-    local prev = type(cur) == "table" and tonumber(cur.rev) or 0
-    return max(Now(), prev + 1)
-end
-
-local function NewId()
-    idCounter = idCounter + 1
-    local now = Now()
-    return "p" .. strformat("%x", now) .. Util.Hash({ Me() or "", now, idCounter, GetTime() }):sub(1, 4)
-end
+local function NewId() return sync:NewId("p") end
 
 ---------------------------------------------------------------------------
 -- Roles
@@ -496,12 +477,6 @@ end
 -- Merging (the same on every client, whatever order things arrive in)
 ---------------------------------------------------------------------------
 
-local function Newer(a, b)
-    if not b then return true end
-    if a.rev ~= b.rev then return a.rev > b.rev end
-    return Util.Hash(a) > Util.Hash(b)
-end
-
 local function CountLive(t, owner)
     local n = 0
     for _, r in pairs(t) do
@@ -565,46 +540,18 @@ local function Merge(root, kind, rec, live)
     return true
 end
 
-local function StoreRecord(kind, r, live)
-    if not KINDS[kind] then return false end
-    local root = Root(true)
-    if not root then return false end
-    local rec = CleanRecord(kind, r)
-    if not rec then return false end
-    return Merge(root, kind, rec, live), rec
+SYNC.clean, SYNC.merge, SYNC.state = CleanRecord, Merge, State
+-- demo mode: an answer must still fit its poll
+SYNC.demoCheck = function(st, kind, clean)
+    if kind ~= "V" then return true end
+    local p = st.P[clean.p]
+    return (p and CleanChoice(p.k, clean.c, #p.o, p.mx)) and true or false
 end
 
--- My own change: stored (merged like anyone's), then sent to the guild.
-local function Commit(kind, rec)
-    rec.by = rec.by or Me()
-    if DemoOn() then
-        local st = State()
-        rec.rev = NextRev(st[kind][rec.id])
-        local clean = CleanRecord(kind, rec)
-        if not clean then return false end
-        if kind == "V" then
-            local p = st.P[clean.p]
-            if not p or not CleanChoice(p.k, clean.c, #p.o, p.mx) then return false end
-        end
-        st[kind][rec.id] = clean
-        Changed()
-        return true, clean
-    end
-    local root = Root(true)
-    if not root then return false end
-    rec.rev = NextRev(root[kind][rec.id])
-    local clean = CleanRecord(kind, rec)
-    if not clean then return false end
-    local Comm = ns.Comm
-    if Comm and Comm.Fits and not Comm:Fits({ t = "PLU", k = kind, r = clean }, SIZE_HEADROOM) then
-        ns:Print("this poll is too big to share with the guild: ask fewer people or give fewer answers.")
-        return false
-    end
-    if not Merge(root, kind, clean, true) then return false end
-    Send({ t = "PLU", k = kind, r = clean }, "GUILD", nil, "data")
-    Changed()
-    return true, clean
-end
+local function StoreRecord(kind, r, live) return sync:StoreRecord(kind, r, live) end
+
+-- My own change: stored (merged like anyone's), then sent to the guild. Returns ok, the clean record.
+local function Commit(kind, rec) return sync:Commit(kind, rec) end
 
 ---------------------------------------------------------------------------
 -- Reading
@@ -863,38 +810,6 @@ end
 -- Sync
 ---------------------------------------------------------------------------
 
-function Polls:GetDigest()
-    local out = {}
-    local root = Root(false)
-    if not root then return out end
-    local items = {}
-    for kind in pairs(KINDS) do
-        for id in pairs(root[kind]) do items[#items + 1] = kind .. ":" .. id end
-    end
-    tsort(items)
-    for i = 1, min(#items, MAX_DIGEST_ITEMS) do
-        local kind, id = items[i]:match("^(%u):(.+)$")
-        out[items[i]] = Util.Hash(root[kind][id]):sub(1, 6)
-    end
-    return out
-end
-
-function Polls:GetDigestHash()
-    local d = self:GetDigest()
-    local list = {}
-    for item, h in pairs(d) do list[#list + 1] = item .. "=" .. h end
-    if #list == 0 then return "0" end
-    tsort(list)
-    return Util.Hash(list)
-end
-
-local function SendItem(root, item, target)
-    local kind, id = item:match("^(%u):(.+)$")
-    if kind and KINDS[kind] and root[kind][id] then
-        Send({ t = "PLG", k = kind, r = root[kind][id] }, "WHISPER", target, "data")
-    end
-end
-
 -- PLU { k, r }: a change; its writer is the sender.
 local function OnUpdate(sender, msg, dist)
     if dist ~= "GUILD" or type(msg.r) ~= "table" or WireKey(msg.r.by) ~= sender then return end
@@ -915,64 +830,6 @@ local function OnGive(sender, msg, dist)
     if StoreRecord(msg.k, msg.r) then Changed() end
 end
 
-local function OnWant(sender, msg, dist)
-    if dist ~= "WHISPER" or type(msg.w) ~= "table" or not RateLimit("PLW:" .. sender, 5) then return end
-    local root = Root(false)
-    if not root then return end
-    for i = 1, MAX_DIGEST_ITEMS do
-        local item = msg.w[i]
-        if item == nil then break end
-        if type(item) == "string" and #item <= MAX_ITEM_LEN + 2 then SendItem(root, item, sender) end
-    end
-end
-
-local function CleanDigest(d)
-    if type(d) ~= "table" then return nil end
-    local out, n = {}, 0
-    for item, h in pairs(d) do
-        n = n + 1
-        if n > MAX_DIGEST_ITEMS then return nil end
-        if type(item) ~= "string" or #item > MAX_ITEM_LEN + 2 or not item:find("^[PV]:") then return nil end
-        if type(h) ~= "string" or #h > 8 then return nil end
-        out[item] = h
-    end
-    return out
-end
-
-local function OnDigest(sender, msg, dist)
-    if dist ~= "GUILD" then return end
-    local to = WireKey(msg.to)
-    if not to then return end
-    if not Util.IsMe(to) then
-        roundSeen[to] = { at = GetTime() }
-        return
-    end
-    if GetTime() - answeredAt < ROUND_WINDOW then return end
-    local theirs = CleanDigest(msg.d)
-    if not theirs then return end
-    answeredAt = GetTime()
-    local root = Root(true)
-    if not root then return end
-    local mine = Polls:GetDigest()
-    local want, give = {}, {}
-    for item, h in pairs(theirs) do
-        if mine[item] ~= h then want[#want + 1] = item end
-    end
-    for item, h in pairs(mine) do
-        if theirs[item] ~= h then give[#give + 1] = item end
-    end
-    tsort(want)
-    tsort(give)
-    if #want > 0 then Send({ t = "PLW", w = want }, "WHISPER", sender, "ctrl") end
-    for _, item in ipairs(give) do SendItem(root, item, sender) end
-end
-
-local function OnClaim(sender, msg, dist)
-    if dist ~= "GUILD" then return end
-    local to = WireKey(msg.to)
-    if to and not Util.IsMe(to) then roundSeen[to] = { at = GetTime() } end
-end
-
 -- PLN { p }: the asker reminds the people who haven't answered.
 local function OnNudge(sender, msg, dist)
     if dist ~= "GUILD" or not IsId(msg.p) then return end
@@ -981,27 +838,6 @@ local function OnNudge(sender, msg, dist)
     if not Polls:AsksMe(p) or Polls:MyVote(p) then return end
     if not RateLimit("PLNr:" .. msg.p, 120) then return end
     ns:Fire("POLL_NUDGED", p.id, sender)
-end
-
--- Sync calls this for every HELLO on GUILD (od = the sender's polls hash; nil from older clients).
-function Polls:OnHelloDigest(sender, od)
-    if type(od) ~= "string" or #od > 8 or type(sender) ~= "string" then return end
-    local mine = self:GetDigestHash()
-    if mine == "0" or od == mine then return end
-    if not RateLimit("PLDh:" .. sender, ROUND_WINDOW) then return end
-    local delay = self:AmIAsker() and DELAY_ASKER or DELAY_MEMBER
-    local Comm = ns.Comm
-    local queued = Comm and Comm.Backlog and Comm:Backlog("data") or 0
-    local busy = queued > 0 and min(12, 6 + queued / 240) or 0
-    busy = max(busy, ROUND_WINDOW - (GetTime() - answeredAt))
-    Util.RandomDelay(delay[1] + busy, delay[2] + busy, function()
-        local h = Polls:GetDigestHash()
-        local seen = roundSeen[sender]
-        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
-        roundSeen[sender] = { at = GetTime() }
-        Send({ t = "PLK", to = sender }, "GUILD", nil, "live")
-        Send({ t = "PLD", to = sender, h = h, d = Polls:GetDigest() }, "GUILD", nil, "data")
-    end)
 end
 
 ---------------------------------------------------------------------------
@@ -1124,18 +960,9 @@ end
 ---------------------------------------------------------------------------
 
 function Polls:OnInit()
+    sync:Register(OnUpdate, OnGive)
     local Comm = ns.Comm
-    if Comm and Comm.Register then
-        Comm:Register("PLU", OnUpdate)
-        Comm:Register("PLD", OnDigest)
-        Comm:Register("PLK", OnClaim)
-        Comm:Register("PLW", OnWant)
-        Comm:Register("PLG", OnGive)
-        Comm:Register("PLN", OnNudge)
-        if Comm.AllowLarge then
-            for _, t in ipairs({ "PLU", "PLG", "PLD" }) do Comm:AllowLarge(t, "data") end
-        end
-    end
+    if Comm and Comm.Register then Comm:Register("PLN", OnNudge) end
     ns:On("DEMO_TOGGLED", function(on)
         if not on then demo = nil end
         Changed()
