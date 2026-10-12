@@ -1872,7 +1872,7 @@ local function createMemberView(parent)
 
     -- the doll's default layout puts its tiles 8 inside its frame: they line up with the page's margin
     v.dollHolder = CreateFrame("Frame", nil, v)
-    v.dollHolder:SetPoint("TOPLEFT", v.banner, "BOTTOMLEFT", -8, -S.GAP)
+    v.dollHolder:SetPoint("TOPLEFT", v.banner, "BOTTOMLEFT", -8, -(S.GAP - 4))   -- (the doll's tiles start 4 in)
     v.dollHolder:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 8, 0)
 
     if ns.PaperDoll and ns.PaperDoll.Create then
@@ -3143,7 +3143,8 @@ local function placeContent(view)
     local L = panel.layout
     local lists = view == "roster" or view == "items"
     L.y0 = -K.TOP_Y + (lists and (K.FILTER_H + GAP) or 0)
-    L.bottom = lists and K.LIST_BOTTOM or (view == "council" and PAD or UI.LAYOUT.BOTTOM)
+    -- (the member page's paper doll is tall: it runs to the panel's foot)
+    L.bottom = lists and K.LIST_BOTTOM or (view == "council" and PAD or 0)
     L:Layout()
 end
 
