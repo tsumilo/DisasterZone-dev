@@ -777,12 +777,40 @@ local function mainMenu(owner)
         for _, key in ipairs(own) do
             if P():GetMain(key) ~= key then current = P():GetMain(key) end
         end
+        -- (feedback #5: locked while a raid runs, unless a council member, an officer or the GM unlocked it)
+        local locked = P():IsMainLocked()
         for _, key in ipairs(own) do
-            root:CreateRadio(ns.Util.ShortName(key), function() return current == key end, function() P():SetMain(key) end)
+            local r = root:CreateRadio(ns.Util.ShortName(key), function() return current == key end,
+                function() P():SetMain(key) end)
+            if locked then r:SetEnabled(false) end
         end
-        root:CreateRadio("None: they are separate characters", function() return current == nil end,
+        local none = root:CreateRadio("None: they are separate characters", function() return current == nil end,
             function() P():SetMain(nil) end)
+        if locked then
+            none:SetEnabled(false)
+            root:CreateDivider()
+            local note = root:CreateButton("Locked while the raid runs", function() end)
+            note:SetEnabled(false)
+            note:SetTitleAndTextTooltip("Locked while the raid runs",
+                "Your main decides who can get items for mains only. A council member, an officer or the Guild "
+                .. "Master can let you change it.")
+        end
     end)
+end
+
+-- Staff (council, officers, the GM) let a player change their main while their raid runs.
+local function canUnlockMains()
+    local Guild, me = G(), ns.Util.PlayerKey()
+    return (Guild and me and (Guild:IsOfficer(me) or Guild:IsCouncil(me))) and true or false
+end
+
+local function unlockMain(d)
+    local ok, err = P():UnlockMain(d.target)
+    if ok then
+        ns:Print("%s can change their main character until their raid ends.", ns.Util.ShortName(d.target))
+    else
+        ns:Print("Could not unlock %s's main: %s.", ns.Util.ShortName(d.target), tostring(err))
+    end
 end
 
 local function detailWidgets(row)
@@ -847,8 +875,18 @@ local function detailWidgets(row)
     end)
     w.whisper:SetPoint("RIGHT", 0, 0)
     ns.UI:AttachTooltip(w.whisper, "Whisper", "Opens a message with the recipe linked.", { anchor = "ANCHOR_TOP" })
-    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self) mainMenu(self) end)
+    w.mainBtn = ns.UI:CreateSleekButton(row, "Change", ROW_BTN_W, ROW_BTN_H, function(self)
+        local d = self:GetParent().__cdlData
+        if d and d.canUnlock then unlockMain(d) else mainMenu(self) end
+    end)
     w.mainBtn:SetPoint("RIGHT", 0, 0)
+    ns.UI:AttachTooltip(w.mainBtn, function(self, tt)
+        local d = self:GetParent().__cdlData
+        if not (d and d.canUnlock) then return false end
+        tt:AddLine("Let them change their main", S:RGB("GOLD"))
+        tt:AddLine("Mains are locked while a raid runs. This lets " .. ns.Util.ShortName(d.target)
+            .. " pick another main until their raid ends.", 1, 1, 1, true)
+    end, nil, { anchor = "ANCHOR_TOP" })
 
     -- an equipment slot: slot name, item icon, item name (quality colour)
     w.slot = ns.UI:Text(row, "small", "SUB")
@@ -943,7 +981,8 @@ local function initDetailRow(row, d)
     w.info:SetShown(isPerson or kind == "team")
     w.teamIcon:SetShown(kind == "team")
     w.whisper:SetShown(kind == "crafter" and d.canWhisper and true or false)
-    w.mainBtn:SetShown(kind == "main" and d.canChange and true or false)
+    w.mainBtn:SetShown(kind == "main" and (d.canChange or d.canUnlock) and true or false)
+    if kind == "main" then w.mainBtn:SetText(d.canUnlock and "Unlock" or "Change") end
     w.slot:SetShown(isGear)
     w.itemIcon:SetShown(isGear and d.item ~= nil)
     w.item:SetShown(isGear)
@@ -1087,6 +1126,11 @@ local function characterRows(key)
         end
     elseif #others == 0 then
         rows[#rows + 1] = { kind = "note", text = ns.Util.ShortName(key) .. " has no other characters linked to this one." }
+    end
+    -- staff: let the player change their main while their raid runs (it is locked then), while they are online
+    local target = not isOwn(key) and canUnlockMains() and onlineCharacter(key)
+    if target then
+        rows[#rows + 1] = { kind = "main", canUnlock = true, target = target, main = #others > 0 and main or nil }
     end
     -- the player's raid teams (any of their characters): click one to open it in the Raids tab
     local teams = teamsOf(key)

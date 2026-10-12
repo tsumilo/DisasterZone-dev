@@ -618,5 +618,65 @@ def a_recipe_banner_shows_its_icon_after_a_member_of_unknown_class():
     w.assert_no_errors()
 
 
+@case
+def a_new_character_joins_the_main_and_mains_lock_while_a_raid_runs():
+    """Feedback #5: picking a main links every character of the account, also one that logs in for the first time
+    later; while a raid session runs nobody changes their main, unless a council member, an officer or the GM
+    unlocks it for them (until that raid ends)."""
+    w, c = guild([("Gina", "PALADIN"), ("Alfa", "MAGE"), ("Alto", "PRIEST"), ("Ann", "DRUID"), ("Bert", "ROGUE")])
+    g, a, o, n, b = c["Gina"], c["Alfa"], c["Alto"], c["Ann"], c["Bert"]
+    w.tick(SYNC)
+    # Alto's account already holds Alfa (the main) and Ann (linked to Alfa); Alto itself is new on it
+    o.eval("""local bk, main, ann = DisasterZoneDB.prof[ns.Guild:GetGuildKey()], ...
+      bk[main].own = true; bk[ann].own = true; bk[ann].a = main""", K("Alfa"), K("Ann"))
+    set_skills(o, [("Tailoring", 375, 375)])      # (Alto's record is read again)
+    w.tick(SYNC)
+    assert o.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alto")) == K("Alfa")
+    assert g.eval("return %s:GetMain(...)" % P, K("Alto")) == K("Alfa")
+    # the main itself, and an account that picked no main, link nothing
+    a.eval("DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].own = true", K("Alto"))
+    set_skills(a, [("Alchemy", 375, 375)])
+    w.tick(10)
+    assert a.eval("return DisasterZoneDB.prof[ns.Guild:GetGuildKey()][...].a", K("Alfa")) is None
+
+    # a raid session runs: my main is locked (the menu too), a plain member can't unlock it, the GM can
+    w.make_raid([a, b])
+    w.tick(5)
+    assert a.eval_py("local l, why = %s:IsMainLocked(); return { l, why }" % P) == [True, "locked while the raid runs"]
+    res = a.eval_py("local ok, err = %s:SetMain(...); return { ok = ok, err = err }" % P, K("Alto"))
+    assert res == {"ok": False, "err": "locked while the raid runs"}, res
+    a.slash("/dz members")
+    w.tick(1)
+    a.eval("%s:SelectMember(...)" % UI, K("Alfa"))
+    a.eval("%s:SetCard('chars')" % UI)
+    w.tick(0.2)
+    assert any(x["kind"] == "main" for x in detail(a))
+    b.eval('ns.Comm:Send({ t = "PMU" }, "WHISPER", ..., "member")', K("Alfa"))
+    w.tick(3)
+    assert a.eval("return (%s:IsMainLocked())" % P) is True
+    # the GM sees an Unlock line on Alfa's card (Alfa is online) and sends it
+    g.slash("/dz members")
+    w.tick(1)
+    g.eval("%s:SelectMember(...)" % UI, K("Alfa"))
+    g.eval("%s:SetCard('chars')" % UI)
+    w.tick(0.2)
+    rows = g.eval_py("""local out = {}
+      for _, d in ipairs(ns.MembersUI:GetPanel().right.list:GetData()) do
+        if d.kind == "main" then out[#out + 1] = { unlock = d.canUnlock or false, target = d.target } end
+      end
+      return out""") or []
+    assert rows == [{"unlock": True, "target": K("Alfa")}], rows
+    assert g.eval("return %s:UnlockMain(...)" % P, K("Alfa")) is True
+    w.tick(3)
+    assert a.eval("return (%s:IsMainLocked())" % P) is False
+    assert any("lets you change your main" in line for line in a.chat_frame), a.chat_frame[-3:]
+    assert a.eval("return %s:SetMain(...)" % P, K("Alto")) is True
+    # the raid ends: nothing locked
+    w.disband()
+    w.tick(5)
+    assert a.eval("return (%s:IsMainLocked())" % P) is False
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

@@ -42,7 +42,13 @@ ns.CHANGELOG = {
               "My Log's damage done now counts the whole last hit (overkill), like the meters do.",
               "So My Log and the damage meter show the same numbers for the same pull.",
           } },
+          { heading = "Your main stays put during a raid", area = "guild", kind = "changed", open = "members", lines = {
+              { "Picked a main? Characters you log in on later join it by themselves.", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
+              { "While a raid runs, nobody can change their main (it decides items for mains only).", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
+              { "Council, officers and the GM can unlock it for a player on their Members card.", fb = { 5 }, by = { "Vicnado" }, mt = 1, k = "change" },
+          } },
           { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              { "No BiS list yet? The window no longer spins on \"Sharing with council\" forever.", fb = { 6 }, by = { "Vicastrophe" }, k = "bug" },
               "Blessings: some Pally Power messages no longer throw a Lua error.",
               "Busy guilds: teams and raid series no longer go missing when raid plans sync.",
               "Loot rules and prized items show Hyjal's own picture, not the generic one.",

@@ -644,5 +644,21 @@ def j_guildless_then_guild_change_while_online():
     w.assert_no_errors()
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# Feedback #6: a character without any BiS list showed "Sharing with council..." forever (nothing is ever sent, so
+# no council member ever confirms it).
+# ------------------------------------------------------------------------------------------------------------------
+@r.case
+def no_list_yet_is_not_a_share_that_never_finishes():
+    w, R, C1, C2 = trio()
+    settle(w, 30)
+    assert online_council_peers(R) == [C1K], online_council_peers(R)
+    assert R.eval_py("local k, t = ns.Sync:GetStatus(); return { k, t }") == ["none", "No BiS list yet — nothing to share"]
+    edit(R, 0)
+    settle(w, 12)
+    assert "Shared with council" in status_text(R), status_text(R)
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     r.run()

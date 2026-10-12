@@ -360,6 +360,21 @@ local function Bump(rec)
     rec.rev = max(Now(), rec.rev + 1)
 end
 
+-- A character that logs in on this account for the first time joins the account's main: picking a main links every
+-- character, the later ones too. nil while the account has no main (or its characters disagree).
+local function AccountMain(b, me)
+    local main
+    for key, rec in pairs(b or {}) do
+        if key ~= me and rec.own and rec.a ~= nil then
+            if main ~= nil and main ~= rec.a then return nil end
+            main = rec.a
+        end
+    end
+    local mrec = main and b[main]
+    if main == me or (mrec and mrec.a ~= nil) then return nil end
+    return main
+end
+
 -- A record I pass on: of a character in my guild's roster.
 local function Shareable(key, rec)
     return rec.rev > 0 and InGuild(key)
@@ -539,6 +554,11 @@ local function UpdateOwn()
     local gear = ReadGear()
     if gear and not SameList(gear, rec.g) then
         rec.g = gear
+        changed = true
+    end
+    local main = rec.a == nil and AccountMain(Bucket(), Util.PlayerKey())
+    if main then
+        rec.a = main
         changed = true
     end
     if changed or rec.rev == 0 then
@@ -1177,11 +1197,55 @@ function Prof:GetOwnCharacters()
     return out
 end
 
+-- Feedback #5: who is a main decides "Main characters only" prized items, so nobody changes their main while a raid
+-- session runs. A council member, an officer or the GM can let one player change it until that raid ends (PMU).
+local mainUnlockedFor   -- the raid session (its id) a staff member unlocked my main for
+
+local function RaidSessionId()
+    local GR = ns.GroupRules
+    local s = GR and GR.GetSession and GR:GetSession()
+    return s and (s.id or s.at or true) or nil
+end
+
+-- Is my main locked: (locked, why).
+function Prof:IsMainLocked()
+    local sid = RaidSessionId()
+    if not sid or (mainUnlockedFor ~= nil and mainUnlockedFor == sid) then return false end
+    return true, "locked while the raid runs"
+end
+
+-- May `key` (staff: the GM, an officer or a council member) let a player change their main during a raid?
+function Prof:CanUnlockMain(key)
+    local Guild = ns.Guild
+    if not (Guild and type(key) == "string") then return false end
+    return (Guild:IsOfficer(key, true) or Guild:IsCouncil(key, true)) and true or false
+end
+
+-- Lets the player at `target` (an online character) change their main until their raid ends. Returns ok, err.
+function Prof:UnlockMain(target)
+    local me = Util.PlayerKey()
+    if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then return true end   -- (demo: nothing sent)
+    if not (me and self:CanUnlockMain(me)) then return false, "only council members, officers and the GM can" end
+    if type(target) ~= "string" or Util.IsMe(target) then return false, "not another player" end
+    return Send({ t = "PMU" }, "WHISPER", target), nil
+end
+
+local function OnUnlock(sender, msg, dist)
+    if dist ~= "WHISPER" or not Prof:CanUnlockMain(sender) then return end
+    local sid = RaidSessionId()
+    if not sid or mainUnlockedFor == sid then return end
+    mainUnlockedFor = sid
+    ns:Print("%s lets you change your main character until the raid ends (Guild > Members).", Util.ShortName(sender))
+    Changed()
+end
+
 -- Makes `mainKey` (one of my characters) the main of all my characters here; nil: no main (each on its own).
 -- Returns ok, err.
 function Prof:SetMain(mainKey)
     local b = Bucket()
     if not b then return false, "your professions are not read yet" end
+    local locked, why = self:IsMainLocked()
+    if locked then return false, why end
     if mainKey ~= nil and not (b[mainKey] and b[mainKey].own) then return false, "not one of your characters" end
     local changed = false
     for key, rec in pairs(b) do
@@ -1454,6 +1518,7 @@ function Prof:OnInit()
         Comm:Register("PFR", OnRecipes)
         Comm:Register("PFI", OnIndex)
         Comm:Register("PFW", OnWant)
+        Comm:Register("PMU", OnUnlock)
     end
     ns:RegisterSlash("professions", SlashProfessions, "how many professions and recipes the guild shares")
 end

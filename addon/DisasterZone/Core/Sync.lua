@@ -334,7 +334,7 @@ function Sync:GetPeer(key)
     return type(p) == "table" and p or nil
 end
 
--- kind: "none" (no guild), "busy" (waiting or sending), "ok" (shared), "warn" (not shared: no council online)
+-- kind: "none" (no guild, or no list to share), "busy" (waiting or sending), "ok" (shared), "warn" (not shared: no council online)
 local function Status()
     if not IsInGuild() then return "none", "Not in a guild" end
     local Guild = ns.Guild
@@ -342,7 +342,9 @@ local function Status()
     local BiS = ns.BiS
     if BiS and BiS.IsDirty and BiS:IsDirty() then return "busy", "Changes pending…" end
     local rev = OwnRev()
-    if rev > 0 and sharedRev == rev and lastSharedTs then
+    -- (a list never committed is never sent, so no council member would ever confirm it)
+    if rev == 0 then return "none", "No BiS list yet — nothing to share" end
+    if sharedRev == rev and lastSharedTs then
         return "ok", "Shared with council " .. CHECK .. " " .. Util.FormatAgo(lastSharedTs)
     end
     if #Sync:GetOnlineCouncilPeers() == 0 then
