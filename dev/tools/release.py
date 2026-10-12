@@ -8,6 +8,8 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       the line-1 guard every patchable file needs (see Core\\Boot.lua)
   tools\\release.py full               package the addon folder as dist\\DisasterZone-<version>.zip and make that
                                       release the base for in-game updates
+  tools\\release.py full --publish [--channel beta]
+                                      the same, then publish it for the desktop launcher in one go
   tools\\release.py patch              build + sign an in-game update with everything that changed since the
                                       base release and write it to Core\\Outbox.lua; then in game: /reload,
                                       /dz publish
@@ -374,6 +376,14 @@ def cmd_full(args):
         version, record["build"], record["assetPack"], len(record["files"]), len(record.get("rooms", {})), ROOMS_NAME))
     print("  %s (%.1f MB)" % (zip_path, os.path.getsize(zip_path) / 1048576.0))
     print("  this is now the base for in-game updates. Members install the zip once; after that 'release.py patch'.")
+    if getattr(args, "publish", False):
+        publish_after_full(version, args.channel)
+
+
+def publish_after_full(version, channel):
+    """'full --publish': the release just built goes straight to the launchers (same as 'publish --version V')."""
+    print("publishing %s to %s for the launcher..." % (version, channel))
+    cmd_publish(argparse.Namespace(version=version, channel=channel, repo=None, clone=None, out=None, force=False))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1053,7 +1063,10 @@ def main(argv=None):
     p = sub.add_parser("keygen"); p.add_argument("--height", type=int, default=10); p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_keygen)
     p = sub.add_parser("guards"); p.add_argument("action", choices=["add", "remove", "check"]); p.set_defaults(fn=cmd_guards)
-    p = sub.add_parser("full"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_full)
+    p = sub.add_parser("full"); p.add_argument("--force", action="store_true")
+    p.add_argument("--publish", action="store_true", help="then publish it for the launcher (see publish)")
+    p.add_argument("--channel", choices=launchlib.CHANNELS, default="stable", help="with --publish")
+    p.set_defaults(fn=cmd_full)
     p = sub.add_parser("patch"); p.add_argument("--revoke", action="store_true")
     p.add_argument("--keep-source", action="store_true"); p.set_defaults(fn=cmd_patch)
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status)

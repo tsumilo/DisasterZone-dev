@@ -239,6 +239,30 @@ def publish_refuses_what_it_should():
 
 
 @case
+def full_with_publish_hands_the_new_release_to_publish():
+    sandbox("fullpub")
+    seen = []
+    real = release.cmd_publish
+    release.cmd_publish = lambda a: seen.append((a.version, a.channel, a.out, a.force))
+    try:
+        release.publish_after_full("1.4.0", "beta")
+    finally:
+        release.cmd_publish = real
+    assert seen == [("1.4.0", "beta", None, False)], seen
+    # the command line: --publish and --channel reach cmd_full (which is not run here)
+    got = []
+    real_full = release.cmd_full
+    release.cmd_full = got.append
+    try:
+        release.main(["full", "--publish", "--channel", "beta"])
+        release.main(["full"])
+    finally:
+        release.cmd_full = real_full
+    assert (got[0].publish, got[0].channel) == (True, "beta"), got[0]
+    assert (got[1].publish, got[1].channel) == (False, "stable"), got[1]
+
+
+@case
 def objects_are_deterministic():
     assert launchlib.gz(b"same bytes" * 10) == launchlib.gz(b"same bytes" * 10)
 
