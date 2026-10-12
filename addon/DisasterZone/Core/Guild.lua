@@ -1434,9 +1434,10 @@ end
 
 -- 1.3.5: decides attendance reviews (Core/Attendance.lua): the GM, officers and the guild council (user decision
 -- 2026-10-11: "a guild management issue").
+-- (1.4.1) The debug role only ever counts for me: IsOfficer(key, not IsMe), as Events and Polls ask it.
 function Guild:IsAttendanceReviewer(key)
-    return type(key) == "string" and (Guild:IsGM(key) or Guild:IsOfficer(key) or Guild:IsGuildCouncil(key)) and true
-        or false
+    return type(key) == "string" and (Guild:IsGM(key) or Guild:IsOfficer(key, not Util.IsMe(key))
+        or Guild:IsGuildCouncil(key)) and true or false
 end
 
 -- 1.3.5: reads and shares the raid log: its members, and the attendance reviewers (officers who aren't on a list get
