@@ -6,6 +6,15 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.1", date = "13 October 2026", title = "Fixes and steadier sync",
+      sections = {
+          { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              "Deleted events and polls no longer come back when someone away for weeks logs in.",
+              "Removed prized items and deleted strategies stay gone after a long break too.",
+              "Calendar events and polls past their keep time no longer return from an old copy.",
+              "Reviews of an event deleted long ago no longer come back with it.",
+          } },
+      } },
     { version = "1.4.0", date = "12 October 2026", title = "One look across every page",
       sections = {
           { heading = "One look across every page", area = "look", kind = "changed", hi = true, art = "kara",
