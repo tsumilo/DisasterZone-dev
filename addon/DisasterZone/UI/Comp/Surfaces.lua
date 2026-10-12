@@ -440,7 +440,17 @@ function ArtRow:FitTitle()
     local room = w - self.textX - right - 8
     if room - pill > 20 then
         UI:FitText(self.title, self.titleText, room - pill)
-        UI:FitText(self.sub, self.subText or "", room)
+        if self.wrapSub then
+            -- (a second line too long for the row takes two lines instead of being cut)
+            self.sub:SetWordWrap(true)
+            if self.sub.SetMaxLines then self.sub:SetMaxLines(2) end
+            self.sub:SetWidth(max(20, room))
+            self.sub:SetText(self.subText or "")
+        else
+            self.sub:SetWordWrap(false)
+            if self.sub.SetMaxLines then self.sub:SetMaxLines(1) end
+            UI:FitText(self.sub, self.subText or "", room)
+        end
     end
     if self.pill and self.pill:IsShown() then
         self.pill:ClearAllPoints()
@@ -448,24 +458,32 @@ function ArtRow:FitTitle()
     end
 end
 
--- The row's content: { art (see UI:SetArtTexture), art2 (a second picture: the two side by side), icon (the tile; nil: none), title, sub (a second line; nil: the
+-- The row's content: { art (see UI:SetArtTexture), art2 (a second picture: the two side by side), textOnly (no
+-- picture: the text from the row's left), wrapSub (the second line may take two lines; the caller sizes the row), icon (the tile; nil: none), title, sub (a second line; nil: the
 -- title alone, centred), right (a text on the right), pill = { kind, text } (after the title), selected }.
 function ArtRow:SetData(d)
     d = d or {}
     UI:SetArtPair(self.art, self.art.tex, d.art, d.art2, ART_W, ART_H)
-    self.icon:Set(d.icon)
+    local textOnly = d.textOnly and true or false
+    self.art:SetShown(not textOnly)
+    self.textX = textOnly and ART_X or (ART_X + ART_W + TEXT_GAP)
+    self.wrapSub = d.wrapSub and true or false
+    self.icon:Set(not textOnly and d.icon or nil)
     self.titleText = d.title == nil and "" or tostring(d.title)
     self.subText = d.sub ~= nil and tostring(d.sub) or nil
     self.title:SetText(self.titleText)
     self.sub:SetText(self.subText or "")
     self.title:ClearAllPoints()
     self.sub:ClearAllPoints()
+    local at, ax = self.art, TEXT_GAP
+    if textOnly then at, ax = self, ART_X end
+    local ap = textOnly and "LEFT" or "RIGHT"
     if self.subText and self.subText ~= "" then
-        self.title:SetPoint("BOTTOMLEFT", self.art, "RIGHT", TEXT_GAP, 1)
-        self.sub:SetPoint("TOPLEFT", self.art, "RIGHT", TEXT_GAP, -3)
+        self.title:SetPoint("BOTTOMLEFT", at, ap, ax, 1)
+        self.sub:SetPoint("TOPLEFT", at, ap, ax, -3)
         self.sub:Show()
     else
-        self.title:SetPoint("LEFT", self.art, "RIGHT", TEXT_GAP, 0)
+        self.title:SetPoint("LEFT", at, ap, ax, 0)
         self.sub:Hide()
     end
     if d.right ~= nil and d.right ~= "" then

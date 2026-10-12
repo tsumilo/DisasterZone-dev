@@ -1335,18 +1335,6 @@ local function shareRef()
     return state.member and ns.Share:MemberRef(state.member) or nil
 end
 
--- (the click of ns.Share:CreateButton, for the banner's tool: the share window, Shift: straight into the chat box)
--- TODO(refactor): move into UI/Share.lua (a banner tool for Share: ns.Share:Tool(getRef) -> { icon, onClick, tip })
-local function shareClick(btn)
-    local ref = shareRef()
-    if not (ref and ns.Share:Describe(ref)) then return end
-    if IsShiftKeyDown() then
-        ns.Share:PutInChat(ref)
-    elseif ns.ShareWindow then
-        ns.ShareWindow:Open(ref, btn)
-    end
-end
-
 -- The banner's tools at its top right (share; show on the map while they share with me; add an officer note) and its
 -- action at the bottom right (Whisper / Link in chat). Keeps right.share / onMap / addNote / whisper / link on the
 -- shown buttons (right.none, a hidden button, for the ones not shown). Returns the width the tools and the action
@@ -1360,10 +1348,7 @@ local function updateBannerButtons(right, member, recipe, whisperTo)
         keys[#tools] = "onMap"
     end
     if member or recipe then
-        local d = ns.Share:Describe(shareRef() or "")
-        tools[#tools + 1] = { icon = SHARE_ICON, title = "Share", onClick = shareClick,
-            text = "Post a link in chat that opens " .. (d and d.label and S:Wrap("WARN", d.label) or "this")
-                .. " in DisasterZone.\n" .. S:Wrap("SUB", "Shift-click: into your chat box") }
+        tools[#tools + 1] = ns.Share:Tool(shareRef)
         keys[#tools] = "share"
     end
     if member and right.canAddNote then

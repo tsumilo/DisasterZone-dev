@@ -1698,18 +1698,6 @@ end
 local function newAgendaRow(card)
     local r = UI():CreateArtRow(card, { width = AGENDA_W })
     r.l1, r.l2, r.thumb = r.title, r.sub, r.art.tex
-    -- (a status too long for the narrow column takes a second line instead of being cut)
-    -- TODO(refactor): move into UI:CreateArtRow (opts.wrapSub: the second line wraps to two lines)
-    local fit = r.FitTitle
-    function r:FitTitle()
-        fit(self)
-        self.sub:SetWordWrap(self.wrapSub and true or false)
-        if self.sub.SetMaxLines then self.sub:SetMaxLines(self.wrapSub and 2 or 1) end
-        if self.wrapSub then
-            self.sub:SetWidth(max(20, (self:GetWidth() or 0) - self.textX - 8))
-            self.sub:SetText(self.subText or "")
-        end
-    end
     r:SetScript("OnClick", Row_OnClick)
     return attachTip(r, "ANCHOR_RIGHT")
 end
@@ -1718,7 +1706,8 @@ end
 local function fillAgendaRow(r, d, width)
     local ev = d.ev
     local textX = ev and (r.art:GetWidth() + 2 + 14) or 2
-    r.wrapSub = ev ~= nil and (d.l2 or "") ~= "" and UI():TextWidth(d.l2, "body") > width - textX - 8
+    -- (a status too long for the narrow column takes a second line instead of being cut: the row's wrapSub)
+    local wrap = ev ~= nil and (d.l2 or "") ~= "" and UI():TextWidth(d.l2, "body") > width - textX - 8
     r:SetWidth(width)
     r:SetData({ art = ev and function(tex, w, h)
                     local file, l, rr, t, b = eventArt(ev, w, h)
@@ -1729,18 +1718,12 @@ local function fillAgendaRow(r, d, width)
                         tex:SetColorTexture(S:Color("INSET"))
                     end
                 end or nil,
-                title = d.l1 or "", sub = (d.l2 or "") ~= "" and d.l2 or nil })
-    r.art:SetShown(ev ~= nil)
+                title = d.l1 or "", sub = (d.l2 or "") ~= "" and d.l2 or nil, wrapSub = wrap,
+                textOnly = ev == nil })                -- (a line alone starts at the row's left)
     r.art.tex:SetDesaturated(d.past and true or false)
     r.art:SetAlpha(d.past and 0.6 or 1)
-    local h = ev and (S.ROW.art + (r.wrapSub and 12 or 0)) or S.ROW.compact
+    local h = ev and (S.ROW.art + (wrap and 12 or 0)) or S.ROW.compact
     r:SetHeight(h)
-    r.textX = textX
-    if not ev then
-        -- (a line alone starts at the row's left)
-        r.title:ClearAllPoints()
-        r.title:SetPoint("LEFT", r, "LEFT", 2, 0)
-    end
     r:FitTitle()
     r.tip, r.onClick = d.tip, d.onClick
     r:EnableMouse((d.tip or d.onClick) and true or false)
