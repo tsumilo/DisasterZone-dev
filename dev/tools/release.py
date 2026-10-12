@@ -8,6 +8,8 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       the line-1 guard every patchable file needs (see Core\\Boot.lua)
   tools\\release.py full               package the addon folder as dist\\DisasterZone-<version>.zip and make that
                                       release the base for in-game updates
+  tools\\release.py full --publish [--channel beta]
+                                      the same, then publish it for the desktop launcher in one go
   tools\\release.py patch              build + sign an in-game update with everything that changed since the
                                       base release and write it to Core\\Outbox.lua; then in game: /reload,
                                       /dz publish
@@ -20,6 +22,14 @@ Run from C:\\Users\\emilo\\CDLoot-dev\\dev with luaenv\\Scripts\\python.exe:
                                       try the whole mechanism in the real client on the development copy. In game:
                                       /reload, /dz publish, /dzpatch try, /reload, /dzpatch (must say "running
                                       an in-game update"), /reload to go back. Members ignore it.
+  tools\\release.py launcher-keygen    once: the desktop launcher's signing key (dev\\keys\\launcher_key.json, never
+                                      committed); its public half goes to launcher\\release_key.json
+  tools\\release.py publish [--channel stable|beta] [--version V] [--repo owner/name]
+                                      put a full release (default: the base) where the desktop launcher finds it:
+                                      the public releases repository (commit, push, GitHub release with the zip).
+                                      --out DIR writes the same tree to a folder instead (no git). See launchlib.py.
+  tools\\release.py launcher-push      copy launcher\\ into the releases repository and push tag launcher-v<version>:
+                                      GitHub Actions builds the Windows / macOS / Linux installers
 
 What an in-game update can carry: changed, new and deleted Lua files that the TOC lists (except Libs\\ and the boot
 files). What it cannot: art, the TOC header, libraries, Core\\Boot.lua, the 3D room data (the load-on-demand addon
@@ -45,6 +55,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import patchlib  # noqa: E402
+import launchlib  # noqa: E402
 
 ADDON_NAME = "DisasterZone"
 ADDON_DIR = os.path.join(REPO, "addon", ADDON_NAME)
@@ -365,6 +376,14 @@ def cmd_full(args):
         version, record["build"], record["assetPack"], len(record["files"]), len(record.get("rooms", {})), ROOMS_NAME))
     print("  %s (%.1f MB)" % (zip_path, os.path.getsize(zip_path) / 1048576.0))
     print("  this is now the base for in-game updates. Members install the zip once; after that 'release.py patch'.")
+    if getattr(args, "publish", False):
+        publish_after_full(version, args.channel)
+
+
+def publish_after_full(version, channel):
+    """'full --publish': the release just built goes straight to the launchers (same as 'publish --version V')."""
+    print("publishing %s to %s for the launcher..." % (version, channel))
+    cmd_publish(argparse.Namespace(version=version, channel=channel, repo=None, clone=None, out=None, force=False))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -812,17 +831,253 @@ def cmd_guards(args):
         sys.exit(1)
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Desktop launcher: publish a full release (see launchlib.py)
+# ---------------------------------------------------------------------------------------------------------------
+
+LAUNCHER_KEY_PATH = os.path.join(DEV, "keys", "launcher_key.json")
+LAUNCHER_DIR = os.path.join(REPO, "launcher")
+LAUNCHER_PUBKEY = os.path.join(LAUNCHER_DIR, "release_key.json")     # built into the launcher
+PUBLISH_CONF = os.path.join(RELEASES, "publish.json")                # {"repo": "owner/name", "clone": path}
+PUBLISHED_LOG = os.path.join(RELEASES, "published.json")
+DEFAULT_CLONE = os.path.join(os.path.dirname(REPO), "DisasterZone-releases")
+CHANGELOG_ENTRIES = 5
+
+
+def cmd_launcher_keygen(args):
+    if os.path.exists(LAUNCHER_KEY_PATH) and not args.force:
+        raise ReleaseError("%s exists. A new key means every launcher must be rebuilt and reinstalled before it "
+                           "accepts a release again; use --force if that is what you want." % LAUNCHER_KEY_PATH)
+    os.makedirs(os.path.dirname(LAUNCHER_KEY_PATH), exist_ok=True)
+    key = launchlib.keygen()
+    launchlib.save_key(LAUNCHER_KEY_PATH, key)
+    os.makedirs(LAUNCHER_DIR, exist_ok=True)
+    _put(LAUNCHER_PUBKEY, (json.dumps({"id": key["id"], "public": key["public"]}, indent=1) + "\n").encode("ascii"))
+    print("private key: %s  (back this file up; never share or commit it)" % LAUNCHER_KEY_PATH)
+    print("public key %s written to %s (built into the launcher)" % (key["id"], LAUNCHER_PUBKEY))
+
+
+def _load_json(path, default):
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    return default
+
+
+def _lua_list(t):
+    return [t[i] for i in range(1, len(t) + 1)] if t is not None else []
+
+
+def changelog_notes(addon_files, count=CHANGELOG_ENTRIES):
+    """The newest `count` entries of Data/Changelog.lua as plain data for the launcher's changelog view:
+    [{version, date, title, sections: [{heading, kind, area, lead, lines: [text | {text, for}]}]}]."""
+    src = addon_files.get("Data/Changelog.lua")
+    if not src:
+        return []
+    try:
+        import lupa.lua51 as lua51
+    except ImportError:
+        sys.path.insert(0, os.path.join(DEV, "luaenv", "Lib", "site-packages"))
+        import lupa.lua51 as lua51
+    rt = lua51.LuaRuntime(encoding="utf-8")
+    fn = rt.globals().loadstring(patchlib.normalize_source(src).decode("utf-8"), "@Data/Changelog.lua")
+    if not callable(fn):
+        raise ReleaseError("Data/Changelog.lua does not compile")
+    ns = rt.table()
+    fn(ADDON_NAME, ns)
+    out = []
+    for e in _lua_list(ns.CHANGELOG)[:count]:
+        sections = []
+        for s in _lua_list(e.sections):
+            lines = []
+            for line in _lua_list(s.lines):
+                if isinstance(line, str):
+                    lines.append(line)
+                else:
+                    lines.append({"text": line[1], "for": line["for"] or ""})
+            sections.append({"heading": s.heading or "", "kind": s.kind or "", "area": s.area or "",
+                             "lead": s.lead or "", "lines": lines})
+        out.append({"version": e.version or "", "date": e.date or "", "title": e.title or "", "sections": sections})
+    return out
+
+
+def gh_exe():
+    exe = shutil.which("gh")
+    if exe:
+        return exe
+    for path in (r"C:\Program Files\GitHub CLI\gh.exe", "/opt/homebrew/bin/gh", "/usr/local/bin/gh"):
+        if os.path.exists(path):
+            return path
+    raise ReleaseError("the GitHub CLI (gh) is not installed")
+
+
+def _run(cmd, cwd=None, check=True):
+    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if check and res.returncode != 0:
+        raise ReleaseError("%s failed:\n  %s" % (" ".join(cmd[:3]), (res.stderr or res.stdout).strip()))
+    return res
+
+
+def cmd_publish(args):
+    """Put a full release (dist zip + record) where the launcher finds it: the releases repository (git commit +
+    push + a GitHub release carrying the zip), or with --out any folder (no git; for tests and a local try)."""
+    if not os.path.exists(LAUNCHER_KEY_PATH):
+        raise ReleaseError("no launcher key: run 'release.py launcher-keygen' first")
+    key = launchlib.load_key(LAUNCHER_KEY_PATH)
+    version = args.version or load_base()["version"]
+    record_path = os.path.join(RELEASES, "%s.json" % version)
+    zip_path = os.path.join(DIST, "%s-%s.zip" % (ADDON_NAME, version))
+    for path in (record_path, zip_path):
+        if not os.path.exists(path):
+            raise ReleaseError("%s is missing: publish works on a release made with 'release.py full'" % path)
+    record = _load_json(record_path, {})
+    tree = launchlib.read_zip_tree(zip_path, (ADDON_NAME, ROOMS_NAME))
+    stamped = tree.get(ADDON_NAME, {}).get("Core/BuildInfo.lua", b"")
+    if ('id = "%s"' % record["build"]).encode("ascii") not in stamped:
+        raise ReleaseError("%s does not carry build %s: it is not the zip of that release" % (zip_path, record["build"]))
+
+    conf = _load_json(PUBLISH_CONF, {})
+    repo = args.repo or conf.get("repo")
+    local = args.out is not None
+    if not local and not repo:
+        raise ReleaseError("which GitHub repository? pass --repo owner/name once (it is remembered)")
+    log = _load_json(PUBLISHED_LOG, [])
+    seq = max([0] + [p["seq"] for p in log]) + 1
+    on_channel = [p for p in log if p["channel"] == args.channel and not p.get("local")]
+    if on_channel and not args.force and patchlib_version_le(version, on_channel[-1]["version"]):
+        raise ReleaseError("%s already has %s; publishing %s takes everybody back to it (--force if you mean that)"
+                           % (args.channel, on_channel[-1]["version"], version))
+
+    zip_name = os.path.basename(zip_path)
+    zip_info = {"name": zip_name, "size": os.path.getsize(zip_path),
+                "sha256": hashlib.sha256(read(zip_path)).hexdigest()}
+    if repo:
+        zip_info["url"] = "https://github.com/%s/releases/download/release-%s/%s" % (repo, version, zip_name)
+    notes = {"changelog": changelog_notes(tree[ADDON_NAME])}
+    manifest, objects = launchlib.build_manifest(tree, args.channel, seq, record, zip_info=zip_info, notes=notes,
+                                                 published=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+
+    out = args.out if local else (args.clone or conf.get("clone") or DEFAULT_CLONE)
+    if not local and not os.path.isdir(os.path.join(out, ".git")):
+        if os.path.exists(out):
+            raise ReleaseError("%s exists but is not a clone of %s" % (out, repo))
+        print("cloning %s into %s" % (repo, out))
+        _run([gh_exe(), "repo", "clone", repo, out])
+    written, size = launchlib.write_tree(out, manifest, objects, key)
+    problems = launchlib.verify_tree(out, args.channel, key["public"])
+    if problems:
+        raise ReleaseError("the published tree does not check out:\n  " + "\n  ".join(problems[:10]))
+    total = sum(len(v) for v in objects.values())
+    print("%s %s -> %s (seq %d, build %s): %d files, %d new object(s), %.1f MB new of %.1f MB" % (
+        "wrote" if local else "publishing", version, args.channel, seq, record["build"],
+        sum(len(f) for f in manifest["folders"].values()), written, size / 1048576.0, total / 1048576.0))
+
+    if not local:
+        _run(["git", "add", "-A"], cwd=out)
+        if _run(["git", "diff", "--cached", "--quiet"], cwd=out, check=False).returncode != 0:
+            _run(["git", "commit", "-m", "DisasterZone %s (%s, seq %d)" % (version, args.channel, seq)], cwd=out)
+        _run(["git", "push"], cwd=out)
+        tag = "release-%s" % version
+        if _run([gh_exe(), "release", "view", tag, "--repo", repo], check=False).returncode != 0:
+            title = (notes["changelog"][0]["title"] if notes["changelog"] and
+                     notes["changelog"][0]["version"] == version else "")
+            cmd = [gh_exe(), "release", "create", tag, zip_path, "--repo", repo,
+                   "--title", "DisasterZone %s" % version, "--notes", title or "DisasterZone %s" % version]
+            if args.channel == "beta":
+                cmd.append("--prerelease")
+            # the repository's "latest release" stays the launcher (the README's download buttons point there)
+            cmd.append("--latest=false")
+            _run(cmd)
+            print("  GitHub release %s created with %s" % (tag, zip_name))
+        print("  pushed to %s: launchers on %s see it within a few minutes" % (repo, args.channel))
+        conf.update({"repo": repo, "clone": out})
+        os.makedirs(RELEASES, exist_ok=True)
+        with open(PUBLISH_CONF, "w", encoding="utf-8") as fh:
+            json.dump(conf, fh, indent=1)
+    log.append({"seq": seq, "channel": args.channel, "version": version, "build": record["build"],
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"), "local": local or None})
+    os.makedirs(RELEASES, exist_ok=True)
+    with open(PUBLISHED_LOG, "w", encoding="utf-8") as fh:
+        json.dump(log, fh, indent=1)
+
+
+LAUNCHER_SKIP = ("node_modules", "target", "gen")
+
+
+def launcher_version():
+    """The launcher's version; tauri.conf.json, Cargo.toml and package.json must agree."""
+    conf = _load_json(os.path.join(LAUNCHER_DIR, "src-tauri", "tauri.conf.json"), {})
+    pkg = _load_json(os.path.join(LAUNCHER_DIR, "package.json"), {})
+    cargo = read(os.path.join(LAUNCHER_DIR, "src-tauri", "Cargo.toml")).decode("utf-8")
+    m = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.M)
+    versions = {conf.get("version"), pkg.get("version"), m and m.group(1)}
+    if len(versions) != 1:
+        raise ReleaseError("launcher versions disagree (tauri.conf.json, package.json, Cargo.toml): %s"
+                           % ", ".join(sorted(str(v) for v in versions)))
+    return versions.pop()
+
+
+def cmd_launcher_push(args):
+    """Copy the launcher source + its CI workflow into the releases repository and push the tag launcher-v<version>:
+    GitHub Actions builds the installers for Windows, macOS and Linux and publishes them (launcher/ci/launcher.yml)."""
+    conf = _load_json(PUBLISH_CONF, {})
+    repo, clone = args.repo or conf.get("repo"), args.clone or conf.get("clone") or DEFAULT_CLONE
+    if not repo:
+        raise ReleaseError("which GitHub repository? pass --repo owner/name once (it is remembered)")
+    source = read(os.path.join(LAUNCHER_DIR, "source.txt")).decode("utf-8").strip()
+    if "/%s/" % repo not in source:
+        raise ReleaseError("launcher/source.txt (%s) does not point at %s" % (source, repo))
+    version = launcher_version()
+    tag = "launcher-v%s" % version
+    if not os.path.isdir(os.path.join(clone, ".git")):
+        _run([gh_exe(), "repo", "clone", repo, clone])
+    if _run(["git", "rev-parse", "-q", "--verify", "refs/tags/" + tag], cwd=clone, check=False).returncode == 0:
+        raise ReleaseError("%s was already pushed: raise the launcher version (tauri.conf.json, package.json, "
+                           "Cargo.toml) first" % tag)
+    dst = os.path.join(clone, "launcher")
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    for root, dirs, files in os.walk(LAUNCHER_DIR):
+        dirs[:] = [d for d in dirs if d not in LAUNCHER_SKIP]
+        for f in files:
+            src = os.path.join(root, f)
+            target = os.path.join(dst, os.path.relpath(src, LAUNCHER_DIR))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copyfile(src, target)
+    wf = os.path.join(clone, ".github", "workflows", "launcher.yml")
+    os.makedirs(os.path.dirname(wf), exist_ok=True)
+    shutil.copyfile(os.path.join(LAUNCHER_DIR, "ci", "launcher.yml"), wf)
+    _run(["git", "add", "-A"], cwd=clone)
+    if _run(["git", "diff", "--cached", "--quiet"], cwd=clone, check=False).returncode != 0:
+        _run(["git", "commit", "-m", "Launcher %s" % version], cwd=clone)
+    _run(["git", "tag", tag], cwd=clone)
+    _run(["git", "push"], cwd=clone)
+    _run(["git", "push", "origin", tag], cwd=clone)
+    print("launcher %s pushed to %s (tag %s): GitHub Actions now builds the installers" % (version, repo, tag))
+    print("  watch: https://github.com/%s/actions" % repo)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("keygen"); p.add_argument("--height", type=int, default=10); p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_keygen)
     p = sub.add_parser("guards"); p.add_argument("action", choices=["add", "remove", "check"]); p.set_defaults(fn=cmd_guards)
-    p = sub.add_parser("full"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_full)
+    p = sub.add_parser("full"); p.add_argument("--force", action="store_true")
+    p.add_argument("--publish", action="store_true", help="then publish it for the launcher (see publish)")
+    p.add_argument("--channel", choices=launchlib.CHANNELS, default="stable", help="with --publish")
+    p.set_defaults(fn=cmd_full)
     p = sub.add_parser("patch"); p.add_argument("--revoke", action="store_true")
     p.add_argument("--keep-source", action="store_true"); p.set_defaults(fn=cmd_patch)
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("selftest"); p.set_defaults(fn=cmd_selftest)
+    p = sub.add_parser("launcher-keygen"); p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_launcher_keygen)
+    p = sub.add_parser("publish"); p.add_argument("--channel", choices=launchlib.CHANNELS, default="stable")
+    p.add_argument("--version"); p.add_argument("--repo"); p.add_argument("--clone"); p.add_argument("--out")
+    p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_publish)
+    p = sub.add_parser("launcher-push"); p.add_argument("--repo"); p.add_argument("--clone")
+    p.set_defaults(fn=cmd_launcher_push)
     args = ap.parse_args(argv)
     try:
         args.fn(args)
