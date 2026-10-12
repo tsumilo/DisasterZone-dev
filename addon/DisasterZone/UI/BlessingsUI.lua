@@ -362,7 +362,7 @@ local function NewRow(c, i)
     return row
 end
 
-local function NewChip(c)
+local function NewExceptionChip(c)
     local chip = PW.NewSwapChip(c, CHIP_W, CHIP_H)
     chip:SetScript("OnClick", function(self, button)
         local e = self.ex
@@ -586,7 +586,7 @@ function BUI:Refresh()
     for i, e in ipairs(ex) do
         local chip = frame.chips[i]
         if not chip then
-            chip = NewChip(c)
+            chip = NewExceptionChip(c)
             frame.chips[i] = chip
         end
         local col, line = (i - 1) % CHIP_PER, floor((i - 1) / CHIP_PER)

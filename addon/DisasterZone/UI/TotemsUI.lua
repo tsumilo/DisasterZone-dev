@@ -469,7 +469,7 @@ local function NewRow(c)
 end
 
 -- A boss change, as the Blessings planner's exception chips: the boss and who, then the swap (UI/PlannerWindow.lua).
-local function NewChip(c)
+local function NewChangeChip(c)
     local chip = PW.NewSwapChip(c, CHIP_W, CHIP_H)
     chip:SetScript("OnClick", function(self, button)
         local e = self.change
@@ -993,7 +993,7 @@ function TUI:Refresh()
     for i, e in ipairs(changes) do
         local chip = frame.chips[i]
         if not chip then
-            chip = NewChip(c)
+            chip = NewChangeChip(c)
             frame.chips[i] = chip
         end
         local col, line = (i - 1) % CHIP_PER, floor((i - 1) / CHIP_PER)

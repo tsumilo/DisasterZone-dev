@@ -28,6 +28,7 @@ local floor, max, min, abs = math.floor, math.max, math.min, math.abs
 local strformat = string.format
 
 local CALM = { 0.91, 0.89, 0.82, 0.75 }
+local GOLD, LINE = ns.Style.C.GOLD, ns.Style.C.HAIRLINE
 
 local POP_W, POP_ROW = 172, 22
 
@@ -111,7 +112,7 @@ local function NewPopRow(i)
     local p = Secure(pop, "DisasterZoneBlessPop" .. i)
     p:SetSize(POP_W - 16, POP_ROW)
     p:SetPoint("TOPLEFT", pop, "TOPLEFT", 8, -(24 + (i - 1) * POP_ROW))
-    p.hl = UI():Fill(p, { 1, 0.82, 0, 0.07 }, "HIGHLIGHT")
+    p.hl = UI():Fill(p, { GOLD[1], GOLD[2], GOLD[3], 0.07 }, "HIGHLIGHT")
     -- the icon in a frame of its own: a gold edge while the player has a single blessing of mine
     p.iconBox = CreateFrame("Frame", nil, p)
     p.iconBox:SetSize(15, 15)
@@ -124,7 +125,7 @@ local function NewPopRow(i)
     p.state = Text(p, 10, { 0.6, 0.6, 0.64 })
     p.state:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -3)
     p.state:SetJustifyH("RIGHT")
-    p.bar = UI():Fill(p, { 1, 1, 1, 0.08 }, "ARTWORK")
+    p.bar = UI():Fill(p, { LINE[1], LINE[2], LINE[3], 0.08 }, "ARTWORK")
     p.bar:ClearAllPoints()
     p.bar:SetPoint("TOPLEFT", p, "TOPLEFT", 26, -17)
     p.bar:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -17)
@@ -670,7 +671,7 @@ function Bar:FillPop(row)
         local bi = sbi or r.bi
         p.member, p.ci, p.greater = m, r.ci, r.bi
         if not p.iconBox.edges then UI():AddEdges(p.iconBox) end
-        if sbi then UI():SetEdgeColor(p.iconBox, 1, 0.82, 0, 1) else UI():SetEdgeColor(p.iconBox, 0, 0, 0, 0.9) end
+        if sbi then UI():SetEdgeColor(p.iconBox, GOLD[1], GOLD[2], GOLD[3], 1) else UI():SetEdgeColor(p.iconBox, 0, 0, 0, 0.9) end
         if not combat then
             local real = not m.demo
             p:SetAttribute("unit1", real and m.unit or nil)
@@ -774,7 +775,7 @@ function Bar:PopTip(p)
     GameTooltip:SetOwner(p, Layout() == "horizontal" and "ANCHOR_TOP" or "ANCHOR_LEFT")
     GameTooltip:AddLine(m.name)
     if sbi then
-        GameTooltip:AddLine(strformat("Gets %s from you instead of the class's", Bl:BlessingName(sbi)), 1, 0.82, 0, true)
+        GameTooltip:AddLine(strformat("Gets %s from you instead of the class's", Bl:BlessingName(sbi)), GOLD[1], GOLD[2], GOLD[3], true)
     end
     if sbi then
         GameTooltip:AddLine("Click: " .. Bl:BlessingName(sbi), 0.85, 0.85, 0.85)
