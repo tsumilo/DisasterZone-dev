@@ -68,7 +68,7 @@ local ENTRANCES = {
     [531] = { 1451, 0.286, 0.924 },   -- Temple of Ahn'Qiraj
 }
 
-local live = {}            -- [key] = { m, x, y, s, i, n, a, z, at = GetTime(), ts = time() }
+local live = {}            -- [key] = { m, x, y, s, i, n, a, z, at = GetTime(), ts = Util.Now() (server time) }
 local viewers = {}         -- [key] = GetTime() of their last ask
 local viewing = false      -- my map is open
 local sent                 -- what I sent last: { m, x, y, s, i, a, z, h, at }
@@ -383,7 +383,7 @@ local function OnPosition(key, msg)
     end
     local e = { m = Num(msg.m, 1, 100000), i = Num(msg.i, 1, 100000), n = Str(msg.n), s = Str(msg.s),
                 r = msg.r and true or nil, a = msg.a and true or nil, z = msg.z and true or nil,
-                at = GetTime(), ts = time() }
+                at = GetTime(), ts = Util.Now() }
     local x, y = Num(msg.x, 0, SCALE), Num(msg.y, 0, SCALE)
     if x and y and not e.z then e.x, e.y = x / SCALE, y / SCALE end
     if not e.m and not e.i then return end
@@ -459,7 +459,7 @@ function GuildMap:GetDemoClass(key) return demoClass[key] end
 local function DemoEntries()
     if not Demoing() then return nil end
     local out = {}
-    local now, ts = GetTime(), time()
+    local now, ts = GetTime(), Util.Now()
     local function put(key, spot, k)
         local e = { m = spot[1], x = spot[2], y = spot[3], s = spot[4], z = spot.z, a = spot.a, i = spot.i,
                     at = now - (k % 7) * 3, ts = ts - (k % 7) * 3, demo = true }
@@ -526,7 +526,7 @@ function GuildMap:GetEntries()
     local me = Util.PlayerKey()
     local mine = me and self:GetMine()
     if mine and not mine.h then
-        mine.at, mine.ts, mine.me = now, time(), true
+        mine.at, mine.ts, mine.me = now, Util.Now(), true
         out[me] = mine
     end
     return out
