@@ -53,9 +53,10 @@ local DIM = 0.62
 local CHECK_EVERY = 0.15    -- seconds between two looks at done() and at where the control is
 local ADVANCE_AFTER = 0.9   -- a step that was done stays this long ("Done!") before the next one
 local GHOST_CYCLE = 2.6
-local BAR_H = 26            -- the tour bar (def.bar)
+local BAR_H = 32            -- the tour bar (def.bar)
 local CHECK = "|TInterface\\RAIDFRAME\\ReadyCheck-Ready:11|t "
 
+local S = ns.Style
 local function UI() return ns.UI end
 
 local tours, order = {}, {}
@@ -152,16 +153,6 @@ local function put(t, l, b, w, h)
     t:Show()
 end
 
-local function tip(b, title, text)
-    b:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(title)
-        if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
 local function ensureFrames()
     if ov then return end
     -- above the windows (HIGH), below their menus, prompts and tooltips; it never takes the mouse: the lit
@@ -175,54 +166,35 @@ local function ensureFrames()
         ov.dim[i] = ov:CreateTexture(nil, "BACKGROUND")
         ov.dim[i]:SetColorTexture(0, 0, 0, DIM)
         ov.edge[i] = ov:CreateTexture(nil, "ARTWORK")
-        ov.edge[i]:SetColorTexture(1, 0.82, 0, 1)
+        ov.edge[i]:SetColorTexture(S:Color("GOLD"))
     end
 
-    box = CreateFrame("Frame", "DisasterZoneTourBox", ov)
+    -- the box: the shared HUD frame (the pop-ups' card look, its X), dragged aside when in the way (it goes back to its
+    -- place at the next step); never saved anywhere
+    box = UI():CreateHudFrame("DisasterZoneTourBox", { width = BOX_W, height = 120, position = false, look = "card",
+        strata = "DIALOG", close = function() Tour:Stop() end })
+    box:SetParent(ov)
+    box:SetFrameStrata("DIALOG")
     box:SetFrameLevel(ov:GetFrameLevel() + 20)
-    box:SetWidth(BOX_W)
-    box:EnableMouse(true)
-    box:SetClampedToScreen(true)
-    -- in the way? drag it aside (it goes back to its place at the next step)
-    box:SetMovable(true)
-    box:RegisterForDrag("LeftButton")
-    box:SetScript("OnDragStart", function(self)
-        if run then run.moved = true end
-        self:StartMoving()
-    end)
-    box:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    box.bg = box:CreateTexture(nil, "BACKGROUND")
-    box.bg:SetAllPoints()
-    box.bg:SetColorTexture(0.05, 0.05, 0.06, 0.97)
-    UI():AddEdges(box)
-    UI():SetEdgeColor(box, 1, 0.82, 0, 0.9)
-    box.chapter = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    box.chapter:SetPoint("TOPLEFT", 12, -10)
+    box:HookScript("OnDragStart", function() if run then run.moved = true end end)
+    UI():AttachTooltip(box.close, "End the tutorial",
+        "The chapters you finished are remembered; the Tutorial button starts it again.", { anchor = "ANCHOR_TOP" })
+    box.chapter = UI():Text(box, "caps", "SUB")
+    box.chapter:SetPoint("TOPLEFT", S.PAD + 2, -S.PAD)
     box.chapter:SetPoint("RIGHT", -30, 0)
-    box.chapter:SetJustifyH("LEFT")
-    box.chapter:SetWordWrap(false)
-    box.title = box:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    box.title:SetPoint("TOPLEFT", 12, -26)
-    box.title:SetWidth(BOX_W - 24)
-    box.title:SetJustifyH("LEFT")
-    box.text = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    box.text:SetPoint("TOPLEFT", box.title, "BOTTOMLEFT", 0, -8)
-    box.text:SetWidth(BOX_W - 24)
-    box.text:SetJustifyH("LEFT")
+    box.title = UI():Text(box, "page", "GOLD", { wrap = true, width = BOX_W - 24 })
+    box.title:SetPoint("TOPLEFT", S.PAD + 2, -28)
+    box.text = UI():Text(box, "body", "TEXT", { wrap = true, width = BOX_W - 24 })
+    box.text:SetPoint("TOPLEFT", box.title, "BOTTOMLEFT", 0, -S.GAP)
     box.text:SetSpacing(2)
-    box.hint = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    box.hint:SetPoint("TOPLEFT", box.text, "BOTTOMLEFT", 0, -10)
-    box.hint:SetWidth(BOX_W - 24)
-    box.hint:SetJustifyH("LEFT")
-    box.count = box:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    box.count:SetPoint("BOTTOMLEFT", 12, 15)
-    box.next = UI():CreateSleekButton(box, "Next", 100, 22, function() Tour:Next() end, "primary")
-    box.next:SetPoint("BOTTOMRIGHT", -10, 10)
-    box.back = UI():CreateSleekButton(box, "Back", 70, 22, function() Tour:Back() end)
+    box.hint = UI():Text(box, "emph", "GOLD", { wrap = true, width = BOX_W - 24 })
+    box.hint:SetPoint("TOPLEFT", box.text, "BOTTOMLEFT", 0, -S.PAD)
+    box.count = UI():Text(box, "small", "SUB")
+    box.count:SetPoint("BOTTOMLEFT", S.PAD + 2, S.PAD + 6)
+    box.next = UI():CreateSleekButton(box, "Next", 100, S.BTN_H, function() Tour:Next() end, "primary")
+    box.next:SetPoint("BOTTOMRIGHT", -S.PAD, S.PAD)
+    box.back = UI():CreateSleekButton(box, "Back", 70, S.BTN_H, function() Tour:Back() end)
     box.back:SetPoint("RIGHT", box.next, "LEFT", -6, 0)
-    box.close = UI():CreateSleekButton(box, "x", 18, 18, function() Tour:Stop() end)
-    box.close:SetPoint("TOPRIGHT", -6, -6)
-    tip(box.close, "End the tutorial", "The chapters you finished are remembered; the Tutorial button starts it again.")
 
     -- the cursor that shows a gesture: its tip is the frame's top left
     cursor = CreateFrame("Frame", nil, ov)
@@ -234,8 +206,9 @@ local function ensureFrames()
     cursor.press = cursor:CreateTexture(nil, "ARTWORK")
     cursor.press:SetSize(12, 12)
     cursor.press:SetPoint("CENTER", cursor, "TOPLEFT", 2, -2)
-    cursor.press:SetColorTexture(1, 0.82, 0, 0.85)
-    cursor.label = cursor:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local gr, gg, gb = S:Color("GOLD")
+    cursor.press:SetColorTexture(gr, gg, gb, 0.85)
+    cursor.label = UI():Text(cursor, "small", "GOLD")
     cursor.label:SetPoint("LEFT", cursor, "RIGHT", -2, -8)
     cursor.labelBg = cursor:CreateTexture(nil, "BACKGROUND")
     cursor.labelBg:SetPoint("TOPLEFT", cursor.label, "TOPLEFT", -4, 3)
@@ -244,23 +217,20 @@ local function ensureFrames()
     cursor:Hide()
 
     -- the tour bar (def.bar): a chip per chapter of this run (done / where I am / to come; a click goes there),
-    -- the chapter menu and Exit, along the foot of the host
-    bar = CreateFrame("Frame", "DisasterZoneTourBar", ov)
+    -- the chapter menu and Exit, along the foot of the host; the same HUD card as the box
+    bar = UI():CreateHudFrame("DisasterZoneTourBar", { width = 400, height = BAR_H, position = false, look = "card",
+        strata = "DIALOG", movable = false })
+    bar:SetParent(ov)
+    bar:SetFrameStrata("DIALOG")
     bar:SetFrameLevel(ov:GetFrameLevel() + 20)
-    bar:SetHeight(BAR_H)
-    bar:EnableMouse(true)
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints()
-    bar.bg:SetColorTexture(0.07, 0.066, 0.06, 0.97)
-    UI():AddEdges(bar)
-    UI():SetEdgeColor(bar, 0.56, 0.45, 0.13, 1)
-    bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    bar.label:SetPoint("LEFT", 10, 0)
+    bar.label = UI():Text(bar, "caps", "GOLD")
+    bar.label:SetPoint("LEFT", S.PAD, 0)
     bar.chips = {}
-    bar.exit = UI():CreateSleekButton(bar, "Exit", 44, 18, function() Tour:Stop() end)
+    bar.exit = UI():CreateSleekButton(bar, "Exit", 50, S.BTN_H, function() Tour:Stop() end)
     bar.exit:SetPoint("RIGHT", -4, 0)
-    tip(bar.exit, "End the tour", "Where you stopped is remembered: Settings > Tutorials goes on from there.")
-    bar.parts = UI():CreateSleekButton(bar, "Parts", 50, 18, function(self) if run then Tour:Menu(self, run.id) end end)
+    UI():AttachTooltip(bar.exit, "End the tour", "Where you stopped is remembered: Settings > Tutorials goes on from there.",
+        { anchor = "ANCHOR_TOP" })
+    bar.parts = UI():CreateSleekButton(bar, "Parts", 56, S.BTN_H, function(self) if run then Tour:Menu(self, run.id) end end)
     bar.parts:SetPoint("RIGHT", bar.exit, "LEFT", -4, 0)
     bar:Hide()
 
@@ -416,7 +386,7 @@ local function paint()
         return
     end
     box.chapter:SetText(chapter or "")
-    if color then box.chapter:SetTextColor(color[1], color[2], color[3]) else box.chapter:SetTextColor(0.5, 0.5, 0.5) end
+    box.chapter:SetTextColor(S:Color(color or "SUB"))
     box.title:SetText(title or "")
     box.text:SetText(text or "")
     box.hint:SetText(hint or "")
@@ -427,9 +397,9 @@ local function paint()
     box.back:SetShown(backText ~= nil)
     box.back:SetText(backText or "")
     box.close:SetShown(offer == nil)
-    local height = 26 + (box.title:GetStringHeight() or 16) + 8 + (box.text:GetStringHeight() or 14)
-    if hint then height = height + 10 + (box.hint:GetStringHeight() or 14) end
-    box:SetHeight(height + 16 + 22 + 10)
+    local height = 28 + (box.title:GetStringHeight() or 16) + S.GAP + (box.text:GetStringHeight() or 14)
+    if hint then height = height + S.PAD + (box.hint:GetStringHeight() or 14) end
+    box:SetHeight(height + 16 + S.BTN_H + S.PAD)
     Tour:PaintBar()
     layout()
 end
@@ -612,44 +582,33 @@ function Tour:PaintBar()
         local ch = def.chapters[ci]
         local c = bar.chips[n]
         if not c then
-            c = CreateFrame("Button", nil, bar)
-            c:SetHeight(18)
-            c.bg = c:CreateTexture(nil, "BACKGROUND")
-            c.bg:SetAllPoints()
-            UI():AddEdges(c)
-            c.fs = c:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            c.fs:SetPoint("CENTER")
-            c:SetScript("OnClick", function(self) Tour:Jump(self.ci) end)
-            tip(c, "Go to this part", "From its first step.")
+            c = UI():CreateChip(bar, { onClick = function(self) Tour:Jump(self.ci) end })
+            UI():AttachTooltip(c, "Go to this part", "From its first step.", { anchor = "ANCHOR_TOP" })
             bar.chips[n] = c
         end
         c.ci = ci
-        local col = ch.color or { 1, 0.82, 0 }
+        local col = ch.color or S.C.GOLD
         local label = ch.title or ch.key
         if ci == run.ci then
-            c.fs:SetText(label .. "  |cffe6e6e6" .. run.si .. "/" .. #ch.steps .. "|r")
-            c.fs:SetTextColor(col[1], col[2], col[3])
-            c.bg:SetColorTexture(col[1] * 0.18, col[2] * 0.18, col[3] * 0.18, 1)
-            UI():SetEdgeColor(c, col[1], col[2], col[3], 0.9)
+            c:Set(label .. "  " .. S:Wrap("TEXT", run.si .. "/" .. #ch.steps), col)
+            c:SetSelected(true)
+            c:SetAlpha(1)
         elseif done[ch.key] and not run.peek then
-            c.fs:SetText(CHECK .. label)
-            c.fs:SetTextColor(0.72, 0.96, 0.76)
-            c.bg:SetColorTexture(0.086, 0.19, 0.11, 1)
-            UI():SetEdgeColor(c, 0.18, 0.42, 0.23, 1)
+            c:Set(CHECK .. label, S.C.OK)
+            c:SetSelected(false)
+            c:SetAlpha(1)
         else
-            c.fs:SetText(label)
-            c.fs:SetTextColor(0.55, 0.55, 0.57)
-            c.bg:SetColorTexture(0.09, 0.09, 0.1, 1)
-            UI():SetEdgeColor(c, 0.19, 0.19, 0.21, 1)
+            c:Set(label, col)
+            c:SetSelected(false)
+            c:SetAlpha(0.6)
         end
-        c:SetWidth(floor((c.fs:GetStringWidth() or 40) + 18))
         c:ClearAllPoints()
         c:SetPoint("LEFT", bar, "LEFT", x, 0)
         c:Show()
         x = x + c:GetWidth() + 5
     end
     for n = #list + 1, #bar.chips do bar.chips[n]:Hide() end
-    bar:SetWidth(x + 6 + 50 + 4 + 44 + 4)
+    bar:SetWidth(x + 6 + bar.parts:GetWidth() + 4 + bar.exit:GetWidth() + 4)
     bar:Show()
 end
 

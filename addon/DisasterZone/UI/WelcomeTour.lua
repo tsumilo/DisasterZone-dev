@@ -15,6 +15,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/WelcomeTour.lua", ...) then ret
 local addonName, ns = ...
 
 local W = ns:NewModule("WelcomeTour")
+local S = ns.Style
 
 local floor, max = math.floor, math.max
 
@@ -24,7 +25,6 @@ local DAY = 86400
 local function UI() return ns.UI end
 local function G() return ns.Guild end
 local function Me() return ns.Util and ns.Util.PlayerKey and ns.Util.PlayerKey() end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
 local function T() return ns.Tour end
 local function Demo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false end
 
@@ -39,7 +39,7 @@ W.PARTS = {
                 line = "Every raid, raid leaders, polls, guests, attendance." },
     council = { label = "Guild council", icon = 64, old = 25, color = { 1, 0.70, 0.28 }, min = 3,
                 line = "Who needs what, votes, the loot log, prized items." },
-    gm = { label = "Guild Master", icon = 26, old = 26, color = { 1, 0.82, 0 }, min = 2,
+    gm = { label = "Guild Master", icon = 26, old = 26, color = S.C.GOLD, min = 2,
            line = "Set up your guild: council, rules, attendance." },
 }
 -- The roles a new-role offer is about (Everyone is not a role one gets).
@@ -122,7 +122,11 @@ end
 -- Starts the tour: only = { [part] = true } (nil: every part for my roles), peek = another role's part on demo data.
 function W:Start(only, peek)
     if ns.ChangelogPopup then ns.ChangelogPopup:Hide() end
-    if W.offerFrame then W.offerFrame:Hide() end
+    if W.offerFrame and W.offerFrame:IsShown() then
+        W.answering = true          -- (closing it here is no answer of its own: the tour starting is)
+        W.offerFrame:Hide()
+        W.answering = nil
+    end
     Learn(self:Roles())
     local first
     for _, k in ipairs(W.ORDER) do
@@ -159,69 +163,25 @@ function W:PartState(key)
 end
 
 ---------------------------------------------------------------------------
--- The offer (once)
+-- The offer (once): a sheet over the main window (UI:CreateSheet): a tool banner, my roles as chips, a row per part
+-- (ticked: in the tour), Start the tour / Not now in its foot
 ---------------------------------------------------------------------------
 
-local POP_W, POP_TOP, ROW_H = 470, 118, 46
+local POP_W, ROW_H = 470, 46
 
-local function Text(parent, font, size)
-    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
-local function Tex(parent, layer, r, g, b, a)
-    local t = parent:CreateTexture(nil, layer or "BACKGROUND")
-    t:SetColorTexture(r or 1, g or 1, b or 1, a or 1)
-    return t
-end
-
-local function AtlasTex(tex, i, c)
-    tex:SetTexture(UI().ICON_ATLAS)
-    local co = UI():IconCoords(i)
-    tex:SetTexCoord(co[1], co[2], co[3], co[4])
-    tex:SetVertexColor(c[1], c[2], c[3])
-end
-
--- A role pill: its icon and name in the part's colour.
-local function NewRolePill(parent)
-    local p = CreateFrame("Frame", nil, parent)
-    p:SetHeight(18)
-    UI():AddPillShape(p, 18)
-    p.icon = p:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(11, 11)
-    p.icon:SetPoint("LEFT", 7, 0)
-    p.fs = Text(p, "GameFontHighlightSmall")
-    p.fs:SetPoint("LEFT", p.icon, "RIGHT", 4, 0)
-    function p:SetPart(key)
-        local d = W.PARTS[key]
-        local c = d.color
-        AtlasTex(self.icon, W:Icon(key), c)
-        self.fs:SetText(d.label)
-        self.fs:SetTextColor(c[1], c[2], c[3])
-        self:SetPillColors({ c[1] * 0.12, c[2] * 0.12, c[3] * 0.12, 0.95 }, { c[1], c[2], c[3], 0.45 })
-        self:SetWidth(floor(7 + 11 + 4 + (self.fs:GetStringWidth() or 40) + 9))
-    end
-    return p
-end
-
--- A face: the part's icon on a dark disc in a gold ring (the Events pages' look).
+-- A face: the part's glyph on a dark disc in a gold ring (the Events pages' look).
+-- TODO(refactor): move into Surfaces (UI:CreateFace, shared with the Changelog's cards and pop-up)
 local function NewFace(parent, size)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
     local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
     f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
     f.disc:SetTexture(MEDIA .. "Strategy\\disc")
-    f.disc:SetVertexColor(0.05, 0.05, 0.06, 0.95)
+    f.disc:SetVertexColor(S:Color("INSET"))
     f.disc:SetAllPoints()
     f.ring = f:CreateTexture(nil, "ARTWORK", nil, 1)
     f.ring:SetTexture(MEDIA .. "Events\\ring")
-    f.ring:SetVertexColor(1, 0.82, 0)
+    f.ring:SetVertexColor(S:Color("GOLD"))
     f.ring:SetPoint("CENTER")
     f.ring:SetSize(size + 4, size + 4)
     f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -230,29 +190,34 @@ local function NewFace(parent, size)
     return f
 end
 
+-- A part's glyph on a texture, in the part's colour.
+local function PartIcon(tex, key)
+    tex:SetTexture(UI().ICON_ATLAS)
+    local co = UI():IconCoords(W:Icon(key))
+    tex:SetTexCoord(co[1], co[2], co[3], co[4])
+    local c = W.PARTS[key].color
+    tex:SetVertexColor(c[1], c[2], c[3])
+end
+
 local function NewPartRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetHeight(ROW_H)
-    r.rule = Tex(r, "BORDER", 0.11, 0.11, 0.13, 1)
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("TOPLEFT")
-    r.rule:SetPoint("TOPRIGHT")
+    UI():DecorateRow(r, { rule = true })
     r.cb = UI():CreateCheckbox(r, "", function() return r.on end, function(on)
         r.on = on and true or false
         W:PaintOffer()
     end)
-    r.cb:SetPoint("LEFT", 9, 0)
+    r.cb:SetPoint("LEFT", 4, 0)
     r.face = NewFace(r, 30)
-    r.face:SetPoint("LEFT", 38, 0)
-    r.title = Text(r, "GameFontHighlight", 12)
-    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 78, -9)
-    r.note = Text(r, "GameFontDisableSmall")
+    r.face:SetPoint("LEFT", 34, 0)
+    r.title = UI():Text(r, "emph", "TEXT")
+    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 74, -9)
+    r.note = UI():Text(r, "small", "SUB")
     r.note:SetPoint("LEFT", r.title, "RIGHT", 6, 0)
-    r.line = Text(r, "GameFontDisableSmall")
+    r.line = UI():Text(r, "small", "SUB")
     r.line:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -4)
-    r.mins = Text(r, "GameFontDisableSmall")
-    r.mins:SetJustifyH("RIGHT")
-    r.mins:SetPoint("RIGHT", r, "RIGHT", -15, 0)
+    r.mins = UI():Text(r, "small", "SUB", { justify = "RIGHT" })
+    r.mins:SetPoint("RIGHT", r, "RIGHT", -4, 0)
     r:SetScript("OnClick", function() r.cb:Click() end)
     return r
 end
@@ -260,58 +225,21 @@ end
 local function BuildOffer()
     local host = ns.MainFrame and ns.MainFrame:GetFrame()
     if not host then return nil end
-    local o = CreateFrame("Button", "DisasterZoneWelcomeOffer", host)
-    o:SetAllPoints(host)
-    o:SetFrameStrata("DIALOG")
-    o:EnableMouse(true)
-    o.dim = Tex(o, "BACKGROUND", 0, 0, 0, 0.62)
-    o.dim:SetAllPoints()
-    local f = CreateFrame("Frame", nil, o)
-    f:SetWidth(POP_W)
-    f:SetPoint("TOP", o, "TOP", 0, -70)
-    f:EnableMouse(true)
-    f.bg = Tex(f, "BACKGROUND", 0.05, 0.05, 0.063, 1)
-    f.bg:SetAllPoints()
-    UI():AddEdges(f)
-    UI():SetEdgeColor(f, 0.56, 0.45, 0.13, 1)
-    o.box = f
-    local top = CreateFrame("Frame", nil, f)
-    top:SetPoint("TOPLEFT", 1, -1)
-    top:SetPoint("TOPRIGHT", -1, -1)
-    top:SetHeight(POP_TOP)
-    top.art = top:CreateTexture(nil, "BACKGROUND")
-    top.art:SetAllPoints()
-    if ns.EventUI and ns.EventUI.AddShade then ns.EventUI:AddShade(top) end
-    f.top = top
-    f.kicker = Text(top, "GameFontNormalSmall")
-    f.kicker:SetPoint("BOTTOMLEFT", top, "BOTTOMLEFT", 15, 66)
-    f.kicker:SetText("WELCOME TO DISASTERZONE")
-    f.title = Text(top, "GameFontHighlightLarge", 15)
-    f.title:SetPoint("TOPLEFT", f.kicker, "BOTTOMLEFT", 0, -4)
-    f.sub = Text(top, "GameFontHighlightSmall")
-    f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -4)
-    f.sub:SetText("It shows what you can do here, in a few minutes. You are:")
-    f.pills = {}
-    f.close = UI():CreateCloseButton(f, 18, function() W:AnswerOffer(false) end)
-    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
-    f.rows = {}
-    f.start = UI():CreateSleekButton(f, "Start the tour", 110, 22, function() W:AnswerOffer(true) end, "primary")
-    f.later = UI():CreateSleekButton(f, "Not now", 70, 22, function() W:AnswerOffer(false) end)
-    f.later:SetPoint("LEFT", f.start, "RIGHT", 7, 0)
-    f.note = Text(f, "GameFontDisableSmall")
-    f.note:SetJustifyH("RIGHT")
-    f.note:SetWordWrap(true)
-    f.note:SetText("Asked once. It stays in\n|cffe6e6e6Settings > Tutorials|r")
-    o:EnableKeyboard(true)
-    o:SetScript("OnKeyDown", function(self, key)
-        if key == "ESCAPE" then
-            if not InCombatLockdown() then self:SetPropagateKeyboardInput(false) end
-            W:AnswerOffer(false)
-        elseif not InCombatLockdown() then
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
-    return o
+    local sh = UI():CreateSheet(host, { name = "DisasterZoneWelcomeOffer", title = "Welcome tour", width = POP_W,
+        height = 400, foot = "Asked once. It stays in Settings > Tutorials.",
+        ok = { text = "Start the tour", width = 120, onClick = function() W:AnswerOffer(true) end },
+        cancel = "Not now",
+        -- Not now, its X and Escape all close it: every way out is an answer
+        onClose = function() if not W.answering then W:AnswerOffer(false) end end })
+    sh.box = sh
+    sh.start, sh.later = sh.ok, sh.cancel
+    sh.top = UI():CreatePageBanner(sh.body, { size = "tool", width = POP_W - 2 * UI().SHEET.PAD,
+        kicker = "Welcome to DisasterZone", sub = "It shows what you can do here, in a few minutes. You are:" })
+    sh.top:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, 0)
+    sh.top:SetPoint("TOPRIGHT", sh.body, "TOPRIGHT", 0, 0)
+    sh.pills = {}
+    sh.rows = {}
+    return sh
 end
 
 -- Fills the offer for my roles (the rows keep their ticks while it is open).
@@ -321,44 +249,38 @@ function W:PaintOffer()
     local f = o.box
     local roles = self:Roles()
     local name = UI().ColoredName and UI():ColoredName(Me()) or (ns.Util.ShortName(Me() or ""))
-    f.title:SetText("A short tour, made for you, " .. (name or ""))
-    -- the role pills (Everyone is not a role)
-    local x, n = 0, 0
+    f.top:SetTitle("A short tour, made for you, " .. (name or ""))
+    -- my roles as chips in the parts' colours (Everyone is not a role)
+    local x, n, list = 0, 0, {}
     for _, k in ipairs({ "gm", "council", "officer", "leader" }) do
-        if roles[k] then
-            n = n + 1
-            local p = f.pills[n] or NewRolePill(f.top)
-            f.pills[n] = p
-            p:SetPart(k)
-            p:ClearAllPoints()
-            p:SetPoint("TOPLEFT", f.sub, "BOTTOMLEFT", x, -8)
-            p:Show()
-            x = x + p:GetWidth() + 6
+        if roles[k] then list[#list + 1] = { k, W.PARTS[k].label } end
+    end
+    if #list == 0 then list[1] = { "all", "A raider" } end
+    for i, d in ipairs(list) do
+        n = i
+        local p = f.pills[i]
+        if not p then
+            p = UI():CreateChip(f.body)
+            f.pills[i] = p
         end
-    end
-    if n == 0 then
-        n = 1
-        local p = f.pills[1] or NewRolePill(f.top)
-        f.pills[1] = p
-        p:SetPart("all")
-        p.fs:SetText("A raider")
-        p:SetWidth(floor(7 + 11 + 4 + (p.fs:GetStringWidth() or 40) + 9))
+        p:Set(d[2], W.PARTS[d[1]].color)
         p:ClearAllPoints()
-        p:SetPoint("TOPLEFT", f.sub, "BOTTOMLEFT", 0, -8)
+        p:SetPoint("TOPLEFT", f.body, "TOPLEFT", x, -S.BANNER.tool - S.GAP)
         p:Show()
+        x = x + p:GetWidth() + 6
     end
-    for i = n + 1, #f.pills do f.pills[i]:Hide() end
-    local y, k, picked = -POP_TOP - 1, 0, 0
+    UI():HideFrom(f.pills, n + 1)
+    local y, k, picked = -S.BANNER.tool - S.GAP - 18 - S.GAP, 0, 0
     for _, key in ipairs(W.ORDER) do
         if roles[key] then
             k = k + 1
-            local r = f.rows[k] or NewPartRow(f)
+            local r = f.rows[k] or NewPartRow(f.body)
             f.rows[k] = r
             if r.key ~= key then
                 r.key, r.on = key, true
             end
             local d = W.PARTS[key]
-            AtlasTex(r.face.icon, W:Icon(key), d.color)
+            PartIcon(r.face.icon, key)
             r.title:SetText(d.label)
             r.note:SetText(key == "leader" and roles.gm and "as the GM you plan raids too" or "")
             r.line:SetText(d.line)
@@ -369,8 +291,8 @@ function W:PaintOffer()
             r.face:SetAlpha(r.on and 1 or 0.45)
             if r.on then picked = picked + 1 end
             r:ClearAllPoints()
-            r:SetPoint("TOPLEFT", f, "TOPLEFT", 1, y)
-            r:SetPoint("RIGHT", f, "RIGHT", -1, 0)
+            r:SetPoint("TOPLEFT", f.body, "TOPLEFT", 0, y)
+            r:SetPoint("RIGHT", f.body, "RIGHT", 0, 0)
             r:Show()
             y = y - ROW_H
         end
@@ -379,12 +301,9 @@ function W:PaintOffer()
         f.rows[i]:Hide()
         f.rows[i].key = nil
     end
-    f.start:ClearAllPoints()
-    f.start:SetPoint("TOPLEFT", f, "TOPLEFT", 15, y - 12)
     f.start:SetEnabled(picked > 0)
-    f.note:ClearAllPoints()
-    f.note:SetPoint("TOPRIGHT", f, "TOPRIGHT", -15, y - 9)
-    f:SetHeight(-y + 12 + 22 + 14)
+    local SH = UI().SHEET
+    f:SetHeight(floor(SH.HEAD_H + SH.PAD - y + SH.PAD + SH.FOOT_H + 0.5))
 end
 
 -- Opens the offer over the main window (opening it if needed). Returns true when shown.
@@ -395,16 +314,12 @@ function W:OpenOffer()
     W.offerFrame = o
     local E = ns.EventUI
     if E and E.ArtCoords then
-        local path, l, r, t, b = E:ArtCoords("outland", POP_W, POP_TOP, 0.5, 0.55, 0.95)
-        o.box.top.art:SetTexture(path)
-        o.box.top.art:SetTexCoord(l, r, t, b)
-    else
-        o.box.top.art:SetColorTexture(0.1, 0.1, 0.12, 1)
+        local path, l, r, t, b = E:ArtCoords("outland", POP_W, S.BANNER.tool, 0.5, 0.55, 0.95)
+        o.top:SetArt({ path, l, r, t, b })
     end
     for _, r in ipairs(o.box.rows) do r.key = nil end
     self:PaintOffer()
-    o:Show()
-    o:Raise()
+    o:Open()
     return true
 end
 
@@ -417,7 +332,9 @@ function W:AnswerOffer(start)
         for _, r in ipairs(o.box.rows) do
             if r:IsShown() and r.key and r.on then only[r.key] = true end
         end
+        W.answering = true
         o:Hide()
+        W.answering = nil
     end
     local p = Progress()
     p.seen = true
@@ -483,7 +400,7 @@ function W:Checklist()
         open = function() W:Go("settings/attendance") end }
     local raids = 0
     if RP and RP.GetRaids then
-        local ok, list = pcall(RP.GetRaids, RP, Now() - 30 * DAY, Now() + 30 * DAY, true)
+        local ok, list = pcall(RP.GetRaids, RP, ns.Util.Now() - 30 * DAY, ns.Util.Now() + 30 * DAY, true)
         raids = ok and type(list) == "table" and #list or 0
     end
     out[#out + 1] = { key = "raid", label = "A first raid night", where = "Raids",
@@ -551,7 +468,7 @@ local function RegisterKinds()
         for _, k in ipairs(W.ORDER) do
             local news = ROLE_NEWS[k]
             if news and roles[k] and not p.known[k] and not p.done[k] then
-                p.roleAt[k] = p.roleAt[k] or Now()
+                p.roleAt[k] = p.roleAt[k] or ns.Util.Now()
                 out[#out + 1] = { key = k, title = news.title,
                     text = news.text .. (" A short tour shows it: %d steps."):format(W:Steps(k)),
                     short = "Tour: " .. W.PARTS[k].label, time = p.roleAt[k] }
@@ -561,7 +478,7 @@ local function RegisterKinds()
     end, { "TOUR_CHANGED", "CONFIG_UPDATED", "ROSTER_UPDATED", "ACCOUNTS_UPDATED" })
 
     N:RegisterKind("guildSetup", {
-        section = "DisasterZone", icon = 26, color = { 1, 0.82, 0 },
+        section = "DisasterZone", icon = 26, color = S.C.GOLD,
         label = "Set up your guild", desc = "The Guild Master's checklist: what is left to set up.",
         needsYou = false, popup = false, sound = false, home = true,
         open = function() W:Go("settings/tutorials") end,

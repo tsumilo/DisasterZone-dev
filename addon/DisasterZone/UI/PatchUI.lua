@@ -14,6 +14,23 @@ local function Busy()
     return inEncounter or (InCombatLockdown and InCombatLockdown()) and true or false
 end
 
+-- The "update ready" dialog: a question with Reload (the main action) and Later.
+local function DialogDef()
+    return {
+        title = "Update ready",
+        text = "DisasterZone %s is ready.\n\nReload the interface now to use it?",
+        button1 = "Reload",
+        button2 = "Later",
+        OnAccept = function()
+            if ReloadUI then ReloadUI() end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+end
+
 local function Offer()
     local Patch = ns.Patch
     local ready = Patch and Patch.ready
@@ -24,27 +41,16 @@ local function Offer()
     end
     waiting = false
     offered[ready.seq] = true
-    -- (the addon's own dialog; the game's StaticPopup if that isn't there, so an update is never stuck unoffered)
+    -- (the addon's own dialog, ns.Popup; the game's StaticPopup if that isn't there, so an update is never stuck
+    -- unoffered)
     local P = ns.Popup
-    local dialogs = P and P.dialogs or StaticPopupDialogs
-    if not dialogs then return end
-    if not dialogs[POPUP] then
-        dialogs[POPUP] = {
-            title = "Update ready",
-            text = "DisasterZone %s is ready.\n\nReload the interface now to use it?",
-            button1 = "Reload",
-            button2 = "Later",
-            OnAccept = function()
-                if ReloadUI then ReloadUI() end
-            end,
-            timeout = 0,
-            whileDead = true,
-            hideOnEscape = true,
-            preferredIndex = 3,
-        }
+    if P then
+        if not P:Get(POPUP) then P:Register(POPUP, DialogDef()) end
+        P:Show(POPUP, tostring(ready.version))
+    elseif StaticPopupDialogs and StaticPopup_Show then
+        StaticPopupDialogs[POPUP] = StaticPopupDialogs[POPUP] or DialogDef()
+        StaticPopup_Show(POPUP, tostring(ready.version))
     end
-    if P then P:Show(POPUP, tostring(ready.version))
-    elseif StaticPopup_Show then StaticPopup_Show(POPUP, tostring(ready.version)) end
 end
 
 function PatchUI:OnInit()

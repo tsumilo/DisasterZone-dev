@@ -207,7 +207,7 @@ def the_page_has_a_banner_five_tabs_and_measures_from_its_button():
     w.tick(0.5)
     assert c.eval("return ns.MainFrame:GetSelectedTab()") == "perf"
     # the banner: now (no cleanup yet), the session line, the chips; the buttons carry the addon's own icons
-    assert c.eval("return %s.banner.bigUnit:GetText()" % P) == "MB now"
+    assert c.eval("return %s.banner.title:GetText()" % P).endswith(" MB now")      # (the banner's title)
     assert c.eval("return %s.banner.kick:GetText()" % P).startswith("SESSION ")
     assert "3D rooms not loaded" in c.eval("return %s.banner.chips[4].fs:GetText()" % P)
     assert "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools" in c.eval("return %s.measure:GetText()" % P)
@@ -218,7 +218,7 @@ def the_page_has_a_banner_five_tabs_and_measures_from_its_button():
     assert c.eval("local s = %s.views.overview.addons for _, r in ipairs(s.rows) do if r:IsShown() and "
                   "r.name:GetText() == 'DisasterZone' then return r.me:IsShown() end end" % P) is True
     c.click(c.eval("return %s.clean" % P))
-    assert c.eval("return %s.banner.bigUnit:GetText()" % P) == "MB in use"
+    assert c.eval("return %s.banner.title:GetText()" % P).endswith(" MB in use")
     # the Memory / CPU switch of the chart
     c.click(c.eval("return %s.views.overview.hourBox.tabs.cpu" % P))
     assert c.eval("return ns.PerfUI._state.chart") == "cpu"

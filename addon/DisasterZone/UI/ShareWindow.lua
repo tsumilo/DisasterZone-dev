@@ -4,14 +4,17 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/ShareWindow.lua", ...) then ret
 -- the chats to post it in (one click sends; the gold one is what Enter in the message sends to), the guild members
 -- online to whisper it to (the search narrows them; a name that isn't in the guild whispers that player), and Put in
 -- chat box to write more around it and pick the chat yourself. Escape closes it.
+-- A tool window (UI:CreateWindow + the "tool" layout): a strip banner naming what is shared, the tool row with Put in
+-- chat box, then the body's sections under caps headers.
 local addonName, ns = ...
 
 local Win = ns:NewModule("ShareWindow")
+local S = ns.Style
 
-local W, H = 340, 340
-local ROW_H = 20
+local W, H = 380, 446
+local ROW_H = S.ROW.compact
 local LIST_ROWS = 5
-local GAP = 3
+local GAP = 4
 
 local CHANNELS = {
     { key = "GUILD", label = "Guild" },
@@ -77,17 +80,12 @@ end
 local function InitRow(row, d)
     if not row.cdlInit then
         row.cdlInit = true
-        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(1, 1, 1, 0.08)
-        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        UI():DecorateRow(row, { rule = true })
+        row.note = UI():Text(row, "small", "SUB", { justify = "RIGHT" })
         row.note:SetPoint("RIGHT", -8, 0)
-        row.note:SetJustifyH("RIGHT")
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name = UI():Text(row, "body", "TEXT")
         row.name:SetPoint("LEFT", 8, 0)
         row.name:SetPoint("RIGHT", row.note, "LEFT", -8, 0)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
         row:RegisterForClicks("LeftButtonUp")
         row:SetScript("OnClick", function(self)
             local data = self.__cdlData
@@ -136,54 +134,53 @@ local function LayoutChannels()
         b:ClearAllPoints()
         b:SetWidth(each)
         if i == 1 then
-            b:SetPoint("TOPLEFT", win.sendRow, "TOPLEFT", 0, -18)
+            b:SetPoint("TOPLEFT", win.sendRow, "TOPLEFT", 0, -(18 + GAP))
         else
             b:SetPoint("LEFT", shown[i - 1], "RIGHT", GAP, 0)
         end
     end
 end
 
-local function PreviewTip(self)
+-- The preview's tooltip lines: how the link reads without DisasterZone.
+local function PreviewTip()
     local ref = state.ref
-    if not ref then return end
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("How it looks in chat")
-    GameTooltip:AddLine("Guild members with DisasterZone see this link; a click opens it. Without DisasterZone it reads:",
-        1, 1, 1, true)
-    GameTooltip:AddLine(Share():Text(ref, state.fallback) or "", 0.7, 0.7, 0.7, true)
-    GameTooltip:Show()
+    if not ref then return {} end
+    return { "Guild members with DisasterZone see this link; a click opens it. Without DisasterZone it reads:",
+        { Share():Text(ref, state.fallback) or "", "SUB", wrap = true } }
 end
 
 local function Create()
     local w = UI():CreateWindow("DisasterZoneShareWindow", "Share", W, H, { noSavePosition = true })
     w:SetFrameStrata("DIALOG")
+    w.content:SetFrameStrata("DIALOG")       -- (what is made in it climbs from there, in the game and the renders)
     win = w
-    local c = w.content
+    local L = UI():CreateLayout("tool", w.content, { width = W - 10, toolbar = true,
+        banner = { size = "strip", icon = 18, title = "Share", sub = "A link in chat that opens it in DisasterZone" } })
+    w.layout, w.banner = L, L.banner
+    local c = L.body
 
-    -- the link as it will look in chat
-    local pv = CreateFrame("Frame", nil, c)
-    pv:SetPoint("TOPLEFT", 0, -4)
-    pv:SetPoint("TOPRIGHT", 0, -4)
-    pv:SetHeight(28)
-    pv.bg = pv:CreateTexture(nil, "BACKGROUND")
-    pv.bg:SetAllPoints()
-    pv.bg:SetColorTexture(0.05, 0.05, 0.06, 0.9)
-    UI():AddEdges(pv)
-    UI():SetEdgeColor(pv, 0.3, 0.3, 0.34, 0.8)
-    pv.text = pv:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    -- the tool row: Put in chat box (write around the link, pick the chat yourself)
+    w.chatBtn = L.toolbar:SetPrimary({ text = "Put in chat box", kind = "secondary", onClick = function() Win:PutInChat() end,
+        tip = "Adds the link to your chat box: write more around it and post it in any chat." })
+    L.toolbar:SetText("Or post it in one click below")
+
+    -- the link as it will look in chat (an inset card; its tooltip: how it reads without DisasterZone)
+    w.previewHead = UI():CreateSectionHeader(c, "In chat", { style = "caps" })
+    w.previewHead:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+    w.previewHead:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
+    local pv = UI():CreateCard(c, { tone = "inset", height = 28 })
+    pv:SetPoint("TOPLEFT", w.previewHead, "BOTTOMLEFT", 0, -GAP)
+    pv:SetPoint("TOPRIGHT", w.previewHead, "BOTTOMRIGHT", 0, -GAP)
+    pv.text = UI():Text(pv, "body", "TEXT", { wrap = true })
     pv.text:SetPoint("TOPLEFT", 8, -7)
     pv.text:SetPoint("TOPRIGHT", -8, -7)
-    pv.text:SetJustifyH("LEFT")
-    pv.text:SetWordWrap(true)
-    pv:EnableMouse(true)
-    pv:SetScript("OnEnter", PreviewTip)
-    pv:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    UI():AttachTooltip(pv, "How it looks in chat", PreviewTip, { anchor = "ANCHOR_TOP" })
     w.preview = pv
 
     -- an optional message before the link
-    w.msg = UI():CreateSleekEditBox(c, 100, 24, "GameFontHighlightSmall")
-    w.msg:SetPoint("TOPLEFT", pv, "BOTTOMLEFT", 0, -8)
-    w.msg:SetPoint("TOPRIGHT", pv, "BOTTOMRIGHT", 0, -8)
+    w.msg = UI():CreateSleekEditBox(c, 100, S.BTN_H, "GameFontHighlightSmall")
+    w.msg:SetPoint("TOPLEFT", pv, "BOTTOMLEFT", 0, -S.GAP)
+    w.msg:SetPoint("TOPRIGHT", pv, "BOTTOMRIGHT", 0, -S.GAP)
     w.msg:SetScript("OnEnterPressed", function(self)
         self:ClearFocus()
         Win:Send(DefaultChannel())
@@ -192,40 +189,39 @@ local function Create()
 
     -- the chats: one click posts
     local sendRow = CreateFrame("Frame", nil, c)
-    sendRow:SetPoint("TOPLEFT", w.msg, "BOTTOMLEFT", 0, -10)
-    sendRow:SetPoint("TOPRIGHT", w.msg, "BOTTOMRIGHT", 0, -10)
-    sendRow:SetHeight(42)
+    sendRow:SetPoint("TOPLEFT", w.msg, "BOTTOMLEFT", 0, -S.PAD)
+    sendRow:SetPoint("TOPRIGHT", w.msg, "BOTTOMRIGHT", 0, -S.PAD)
+    sendRow:SetHeight(18 + GAP + S.BTN_H)
     w.sendRow = sendRow
-    w.sendLabel = sendRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    w.sendLabel:SetPoint("TOPLEFT", 0, 0)
-    w.sendLabel:SetText("Post in")
+    w.sendHead = UI():CreateSectionHeader(sendRow, "Post in", { style = "caps" })
+    w.sendHead:SetPoint("TOPLEFT", 0, 0)
+    w.sendHead:SetPoint("TOPRIGHT", 0, 0)
+    w.sendLabel = w.sendHead.title
     w.channels = {}
     for _, ch in ipairs(CHANNELS) do
         local key = ch.key
-        local b = UI():CreateSleekButton(sendRow, ch.label, 60, 24, function() Win:Send(key) end)
+        local b = UI():CreateSleekButton(sendRow, ch.label, 60, S.BTN_H, function() Win:Send(key) end)
         b:SetMotionScriptsWhileDisabled(true)
-        b:HookScript("OnEnter", function(self)
-            if not self.why then return end
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:AddLine(ch.label)
-            GameTooltip:AddLine(self.why, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        UI():AttachTooltip(b, function(self, tt)
+            if not self.why then return false end
+            tt:AddLine(ch.label, S:Color("GOLD"))
+            tt:AddLine(self.why, 1, 1, 1, true)
+        end, nil, { anchor = "ANCHOR_TOP" })
         w.channels[key] = b
     end
 
     -- whisper a guild member
     local whisperRow = CreateFrame("Frame", nil, c)
-    whisperRow:SetPoint("TOPLEFT", sendRow, "BOTTOMLEFT", 0, -10)
-    whisperRow:SetPoint("TOPRIGHT", sendRow, "BOTTOMRIGHT", 0, -10)
-    whisperRow:SetHeight(40)
-    w.whisperLabel = whisperRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    w.whisperLabel:SetPoint("TOPLEFT", 0, 0)
-    w.whisperLabel:SetText("Whisper")
+    whisperRow:SetPoint("TOPLEFT", sendRow, "BOTTOMLEFT", 0, -S.PAD)
+    whisperRow:SetPoint("TOPRIGHT", sendRow, "BOTTOMRIGHT", 0, -S.PAD)
+    whisperRow:SetHeight(18 + GAP + S.BTN_H)
+    w.whisperHead = UI():CreateSectionHeader(whisperRow, "Whisper", { style = "caps" })
+    w.whisperHead:SetPoint("TOPLEFT", 0, 0)
+    w.whisperHead:SetPoint("TOPRIGHT", 0, 0)
+    w.whisperLabel = w.whisperHead.title
     w.search = UI():CreateSearchBox(whisperRow, 100, nil, "Find a guild member online")
-    w.search:SetPoint("TOPLEFT", 0, -18)
-    w.search:SetPoint("TOPRIGHT", 0, -18)
+    w.search:SetPoint("TOPLEFT", 0, -(18 + GAP))
+    w.search:SetPoint("TOPRIGHT", 0, -(18 + GAP))
     w.search:HookScript("OnTextChanged", RefreshList)
     w.search:SetScript("OnEnterPressed", function(self)
         self:ClearFocus()
@@ -233,22 +229,10 @@ local function Create()
         if first then Win:Whisper(first.key) end
     end)
     w.list = UI():CreateScrollList(c, ROW_H, InitRow)
-    w.list.frame:SetPoint("TOPLEFT", whisperRow, "BOTTOMLEFT", 0, -4)
-    w.list.frame:SetPoint("TOPRIGHT", whisperRow, "BOTTOMRIGHT", 0, -4)
+    w.list.frame:SetPoint("TOPLEFT", whisperRow, "BOTTOMLEFT", 0, -GAP)
+    w.list.frame:SetPoint("TOPRIGHT", whisperRow, "BOTTOMRIGHT", 0, -GAP)
     w.list.frame:SetHeight(ROW_H * LIST_ROWS)
     w.list:SetEmptyText("No guild members online.")
-
-    -- or into the chat box, to write around it
-    w.chatBtn = UI():CreateSleekButton(c, "Put in chat box", 124, 22, function() Win:PutInChat() end)
-    w.chatBtn:SetPoint("BOTTOMLEFT", 0, 2)
-    w.chatBtn:HookScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Put in chat box")
-        GameTooltip:AddLine("Adds the link to your chat box: write more around it and post it in any chat.", 1, 1, 1,
-            true)
-        GameTooltip:Show()
-    end)
-    w.chatBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
     w:SetScript("OnHide", function()
         w.msg:SetText("")
@@ -282,6 +266,8 @@ end
 local function Render()
     local ref = state.ref
     local link = Share():ChatLink(ref, state.fallback) or ""
+    local d = Share():Describe(ref)
+    win.banner:SetTitle(d and d.label or "Share")
     win.preview.text:SetText(link)
     -- a long name takes a second line; everything under it moves down with it
     local extra = math.max(0, math.ceil((win.preview.text:GetStringHeight() or 14) - 16))

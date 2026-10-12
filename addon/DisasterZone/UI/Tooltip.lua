@@ -6,6 +6,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Tooltip.lua", ...) then return 
 local addonName, ns = ...
 
 local Tooltip = ns:NewModule("Tooltip")
+local S = ns.Style
 
 local _G = _G
 local GetTime = GetTime
@@ -60,10 +61,9 @@ local function Color(key)
     return c or FALLBACK_COLORS[key] or FALLBACK_COLORS.muted
 end
 
+-- text in an ns.COLORS colour (the same codes UI:Colorize writes everywhere).
 local function Paint(text, key)
-    local c = Color(key)
-    return format("|cff%02x%02x%02x%s|r", floor(c[1] * 255 + 0.5), floor(c[2] * 255 + 0.5),
-        floor(c[3] * 255 + 0.5), text)
+    return ns.UI:Colorize(text, Color(key))
 end
 
 local function Seal()
@@ -92,23 +92,13 @@ local function ViewPhase()
     return tonumber(p) or 1
 end
 
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or "?"
-end
+local SlotLabel = ns.SlotLabel
 
-local function ColoredName(key, classFile)
-    if ns.UI and ns.UI.ColoredName then return ns.UI:ColoredName(key, classFile) end
-    if ns.Util and ns.Util.ShortName then return ns.Util.ShortName(key) or key end
-    return key
-end
+local function ColoredName(key, classFile) return ns.UI:ColoredName(key, classFile) end
 
 local function ItemText(itemID)
-    if ns.UI and ns.UI.ItemText then
-        local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
-        return text
-    end
-    return (ns.ItemDB and ns.ItemDB.GetName and ns.ItemDB:GetName(itemID)) or ("item " .. tostring(itemID))
+    local text = ns.UI:ItemText(itemID)   -- drop the extra "loading" return value
+    return text
 end
 
 -- "wears A, B" for a wanter: both items of a ring / trinket / weapon pair (ADDENDUM A §18).
@@ -386,9 +376,12 @@ local function OnSetItem(tt)
     Tooltip:AddLines(tt, itemID)
 end
 
+-- (a documented exception to the shared parts: the ribbon is this tooltip's own look, drawn here)
 -- 1.3.5 (prized look mockup, the user picked "ribbon on top"): a prized item's tooltip, anywhere in the game, gets an
 -- orange PRIZED ITEM ribbon above it (the seal, the words) and an orange edge. Hidden when the tooltip clears or hides.
-Ribbon = { H = 18, EDGE = { 0.79, 0.42, 0.08, 1 } }
+Ribbon = { H = 18, EDGE = { 0.79, 0.42, 0.08, 1 },
+    DARK = { 0.52, 0.25, 0.04, 1 }, BRIGHT = { 1, 0.56, 0.14, 1 },     -- the ribbon's ends and middle
+    INK = { 0.12, 0.06, 0.01 } }                                       -- its words
 
 function Ribbon.Build(tt)
     local k = CreateFrame("Frame", nil, tt)
@@ -400,7 +393,6 @@ function Ribbon.Build(tt)
     band:SetPoint("BOTTOMLEFT", tt, "TOPLEFT", 0, 0)
     band:SetPoint("BOTTOMRIGHT", tt, "TOPRIGHT", 0, 0)
     band:SetHeight(Ribbon.H)
-    local mk = _G.CreateColor
     -- dark ends, bright in the middle (two halves), inside the outline
     local B = 2
     local function half(left)
@@ -412,20 +404,13 @@ function Ribbon.Build(tt)
             t:SetPoint("TOPLEFT", band, "TOP", 0, -B)
             t:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", -B, 0)
         end
-        t:SetColorTexture(1, 1, 1, 1)
-        local dark, bright = { 0.52, 0.25, 0.04, 1 }, { 1, 0.56, 0.14, 1 }
-        local a, b = dark, bright
-        if not left then a, b = bright, dark end
-        if t.SetGradient and mk then t:SetGradient("HORIZONTAL", mk(a[1], a[2], a[3], a[4]), mk(b[1], b[2], b[3], b[4]))
-        else t:SetColorTexture(0.85, 0.45, 0.10, 1) end
+        local a, b = Ribbon.DARK, Ribbon.BRIGHT
+        if not left then a, b = b, a end
+        ns.UI:Gradient(t, "HORIZONTAL", a, b)
         return t
     end
     band.l, band.r = half(true), half(false)
-    band.text = band:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    local path, _, flags = band.text:GetFont()
-    if path then band.text:SetFont(path, 10, flags) end
-    band.text:SetShadowOffset(0, 0)
-    band.text:SetTextColor(0.12, 0.06, 0.01)
+    band.text = ns.UI:Text(band, "small", Ribbon.INK, { justify = "CENTER", shadow = false })
     band.text:SetText("P R I Z E D   I T E M")
     band.text:SetPoint("CENTER", band, "CENTER", 8, -1)
     -- the prized icon (the addon's icon atlas: a white glyph, tinted dark brown on the ribbon)
@@ -647,7 +632,7 @@ function Tooltip:AddMaterials(tt, id)
     local head = n > 1 and ("Materials ×" .. n) or "Materials"
     if level > 0 then head = head .. " · " .. (BROKEN_DOWN[level] or ("broken down " .. level .. " times")) end
     tt:AddLine(" ")
-    tt:AddDoubleLine(head, craft.made > 1 and ("makes " .. craft.made * n) or "", 1, 0.82, 0, GREY, GREY, GREY)
+    tt:AddDoubleLine(head, craft.made > 1 and ("makes " .. craft.made * n) or "", S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], GREY, GREY, GREY)
     matsOn[tt] = tt:NumLines()
     for _, r in ipairs(list) do
         local need, have = r.count, HaveCount(r.id)
@@ -818,7 +803,7 @@ function Tooltip:AddEventLines(tt, key)
     local badges = #E:BadgesOf(key)
     local rank = E:RankOf(key)
     if not title and badges == 0 and not rank then return false end
-    if title then tt:AddLine(title, 1, 0.82, 0) end
+    if title then tt:AddLine(title, S:Color("GOLD")) end
     local parts = {}
     local season = E:GetSeason()
     if rank then parts[#parts + 1] = ("#%d in %s"):format(rank, season and season.n or "the season") end

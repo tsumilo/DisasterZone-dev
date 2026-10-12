@@ -84,13 +84,18 @@ Share.PAGES = PAGES
 local DETAIL_TABS = { groups = "Groups", assign = "Assignments" }
 
 local function RP() return ns.RaidPlan end
-local function S() return ns.Strategy end
+local function Strat() return ns.Strategy end
 local function G() return ns.Guild end
 local function P() return ns.Professions end
 local function Util() return ns.Util end
 
-local function grey(t) return "|cff808080" .. tostring(t) .. "|r" end
-local function green(t) return "|cff33ff99" .. tostring(t) .. "|r" end
+local S = ns.Style
+
+-- A tooltip line in a ns.Style colour.
+local function Line(tt, text, color, wrap)
+    local r, g, b = S:Color(color)
+    tt:AddLine(text, r, g, b, wrap)
+end
 
 -- The first n bytes of s, without a UTF-8 character cut in half at the end.
 local function CutUTF8(s, n)
@@ -184,7 +189,7 @@ local function ChangelogEntry(version)
 end
 
 local function BossName(ref)
-    return S() and S():GetBossName(ref) or tostring(ref)
+    return Strat() and Strat():GetBossName(ref) or tostring(ref)
 end
 
 ---------------------------------------------------------------------------
@@ -209,7 +214,7 @@ KINDS.team = function(arg)
 end
 
 KINDS.strat = function(arg)
-    local s = S() and S():GetStrategy(arg)
+    local s = Strat() and Strat():GetStrategy(arg)
     if not s then return { icon = TexIcon(ICON.board) } end
     return { label = BossName(s.b) .. ": " .. s.n, icon = TexIcon(ICON.board), known = true }
 end
@@ -435,7 +440,7 @@ OPEN.team = function(arg)
 end
 
 OPEN.strat = function(arg)
-    if S() and S():GetStrategy(arg) and ns.StrategyBoard then
+    if Strat() and Strat():GetStrategy(arg) and ns.StrategyBoard then
         ns.StrategyBoard:OpenStrategy(arg)
         return true
     end
@@ -565,9 +570,9 @@ local TIPS = {}
 TIPS.raid = function(tt, arg)
     local occ, tab = SplitRaid(arg)
     local v = RP():GetRaid(occ)
-    tt:AddLine(RP():GetRaidName(v) .. (v.sz and (" (" .. v.sz .. ")") or ""), 1, 0.82, 0)
+    Line(tt, RP():GetRaidName(v) .. (v.sz and (" (" .. v.sz .. ")") or ""), "GOLD")
     tt:AddLine(date("%A %d %B · %H:%M", v.t), 1, 1, 1)
-    if v.cancelled then tt:AddLine("Cancelled", 1, 0.33, 0.33) end
+    if v.cancelled then Line(tt, "Cancelled", "BAD") end
     local counts = { A = 0, T = 0, B = 0 }
     for _, s in pairs(RP():GetSignups(occ)) do
         if counts[s.st] then counts[s.st] = counts[s.st] + 1 end
@@ -575,43 +580,43 @@ TIPS.raid = function(tt, arg)
     local parts = { ("%d/%d accepted"):format(counts.A, v.sz or 0) }
     if counts.T > 0 then parts[#parts + 1] = counts.T .. " tentative" end
     if counts.B > 0 then parts[#parts + 1] = counts.B .. " bench" end
-    tt:AddLine(tconcat(parts, " · "), 0.8, 0.8, 0.8)
-    if v.rl then tt:AddLine("Led by " .. Util().ShortName(v.rl), 0.8, 0.8, 0.8) end
+    Line(tt, tconcat(parts, " · "), "TEXT")
+    if v.rl then Line(tt, "Led by " .. Util().ShortName(v.rl), "TEXT") end
     local mine = RP():GetMySignup(occ)
     local STATUS = { A = "Accepted", T = "Tentative", B = "Bench", X = "Absent" }
     if mine and STATUS[mine.st] then
-        tt:AddLine("You: " .. STATUS[mine.st], 0.2, 1, 0.6)
+        Line(tt, "You: " .. STATUS[mine.st], "OK")
     elseif not v.cancelled and v.t > GetServerTime() then
-        tt:AddLine("You haven't answered yet", 1, 0.6, 0.2)
+        Line(tt, "You haven't answered yet", "WARN")
     end
     if v.no and v.no ~= "" then tt:AddLine(v.no, 1, 1, 1, true) end
-    if tab then tt:AddLine("Opens its " .. DETAIL_TABS[tab] .. " tab.", 0.6, 0.6, 0.6) end
+    if tab then Line(tt, "Opens its " .. DETAIL_TABS[tab] .. " tab.", "SUB") end
 end
 
 TIPS.team = function(tt, arg)
     local t = RP():GetTeam(arg)
-    tt:AddLine(t.name, 1, 0.82, 0)
-    tt:AddLine(("Raid team · %d members"):format(#(t.members or {})), 0.8, 0.8, 0.8)
+    Line(tt, t.name, "GOLD")
+    Line(tt, ("Raid team · %d members"):format(#(t.members or {})), "TEXT")
 end
 
 TIPS.strat = function(tt, arg)
-    local s = S():GetStrategy(arg)
-    tt:AddLine(s.n, 1, 0.82, 0)
-    tt:AddLine(BossName(s.b) .. " · " .. (S():GetRaidName(s.b) or ""), 1, 1, 1)
+    local s = Strat():GetStrategy(arg)
+    Line(tt, s.n, "GOLD")
+    tt:AddLine(BossName(s.b) .. " · " .. (Strat():GetRaidName(s.b) or ""), 1, 1, 1)
     local owner = s.ow or s.by
     local pages = #(s.p or {})
-    tt:AddLine(("Strategy board by %s%s"):format(Util().ShortName(owner or "?"),
-        pages > 1 and (" · " .. pages .. " pages") or ""), 0.8, 0.8, 0.8)
+    Line(tt, ("Strategy board by %s%s"):format(Util().ShortName(owner or "?"),
+        pages > 1 and (" · " .. pages .. " pages") or ""), "TEXT")
 end
 
 TIPS.board = function(tt, arg)
     local occ, boss = arg:match("^([^:]+):(.+)$")
     local v = RP():GetRaid(occ)
-    tt:AddLine(BossName(boss), 1, 0.82, 0)
+    Line(tt, BossName(boss), "GOLD")
     tt:AddLine(RP():GetRaidName(v) .. " · " .. date("%A %d %B · %H:%M", v.t), 1, 1, 1)
-    local s = S() and S().GetRaidStrategy and S():GetRaidStrategy(occ, boss)
-    if s and s.n then tt:AddLine("Strategy: " .. s.n, 0.8, 0.8, 0.8) end
-    tt:AddLine("The raid's board for this boss: who does what.", 0.8, 0.8, 0.8, true)
+    local s = Strat() and Strat().GetRaidStrategy and Strat():GetRaidStrategy(occ, boss)
+    if s and s.n then Line(tt, "Strategy: " .. s.n, "TEXT") end
+    Line(tt, "The raid's board for this boss: who does what.", "TEXT", true)
 end
 
 TIPS.member = function(tt, arg)
@@ -626,29 +631,29 @@ TIPS.member = function(tt, arg)
     if className then parts[#parts + 1] = className end
     if m.rankName then parts[#parts + 1] = m.rankName end
     if #parts > 0 then tt:AddLine(tconcat(parts, " · "), 1, 1, 1) end
-    if g:IsOnline(key) then tt:AddLine("Online", 0.2, 1, 0.2) else tt:AddLine("Offline", 0.5, 0.5, 0.5) end
+    if g:IsOnline(key) then Line(tt, "Online", "OK") else Line(tt, "Offline", "DIM") end
     local profs = {}
     for _, e in ipairs(P() and P():GetMember(key) or {}) do
         profs[#profs + 1] = ("%s %d"):format(P():GetName(e.id) or "?", e.rank or 0)
     end
-    if #profs > 0 then tt:AddLine(tconcat(profs, " · "), 0.8, 0.8, 0.8, true) end
+    if #profs > 0 then Line(tt, tconcat(profs, " · "), "TEXT", true) end
 end
 
 TIPS.recipe = function(tt, arg)
     local r = Recipe(arg)
-    tt:AddLine(r.name, 1, 0.82, 0)
+    Line(tt, r.name, "GOLD")
     local n, online = 0, 0
     for _, key in ipairs(r.crafters or {}) do
         n = n + 1
         if G():IsOnline(key) then online = online + 1 end
     end
-    tt:AddLine(("%s · %d in the guild can make it, %d online"):format(P():GetName(r.prof) or "", n, online),
-        0.8, 0.8, 0.8, true)
+    Line(tt, ("%s · %d in the guild can make it, %d online"):format(P():GetName(r.prof) or "", n, online),
+        "TEXT", true)
 end
 
 TIPS.game = function(tt, arg)
     local def = ns.Games:Get(arg)
-    tt:AddLine(def.name, 1, 0.82, 0)
+    Line(tt, def.name, "GOLD")
     if def.desc and def.desc ~= "" then tt:AddLine(def.desc, 1, 1, 1, true) end
 end
 
@@ -656,7 +661,7 @@ TIPS.run = function(tt, arg)
     local R = Runs()
     local run = R:GetRun(arg)
     local name, when = RunParts(run)
-    tt:AddLine(name, 1, 0.82, 0)
+    Line(tt, name, "GOLD")
     tt:AddLine("Dungeon run led by " .. Util().ShortName(run.o) .. " · " .. when, 1, 1, 1)
     local open, parts = R:GetOpenRoles(run), {}
     for _, role in ipairs(R.ROLES) do
@@ -664,11 +669,11 @@ TIPS.run = function(tt, arg)
         if n then parts[#parts + 1] = (n > 1 and (n .. " ") or "") .. R.ROLE_LABEL[role] end
     end
     if #parts > 0 then
-        tt:AddLine("Looking for " .. tconcat(parts, ", "), 0.8, 0.8, 0.8)
+        Line(tt, "Looking for " .. tconcat(parts, ", "), "TEXT")
     else
-        tt:AddLine("The party is full", 0.8, 0.8, 0.8)
+        Line(tt, "The party is full", "TEXT")
     end
-    if R:IsInRun(run) then tt:AddLine("You're in", 0.2, 1, 0.6) end
+    if R:IsInRun(run) then Line(tt, "You're in", "OK") end
     if run.no then tt:AddLine(run.no, 1, 1, 1, true) end
 end
 
@@ -676,24 +681,24 @@ TIPS.event = function(tt, arg)
     local o, r = EventOf(arg)
     local E = Ev()
     local d = o and o.def
-    tt:AddLine((d and d.name) or r.name, 1, 0.82, 0)
-    if (o and o.ranked) or (r and r.ranked) then tt:AddLine("Ranked: counts for the season", 1, 0.82, 0.35) end
+    Line(tt, (d and d.name) or r.name, "GOLD")
+    if (o and o.ranked) or (r and r.ranked) then Line(tt, "Ranked: counts for the season", "GOLD") end
     if o then
         tt:AddLine(date("%A %d %B · %H:%M", o.at) .. (o.where and o.where ~= "" and (" · " .. o.where) or ""), 1, 1, 1)
-        tt:AddLine("Hosted by " .. Util().ShortName(E:HostOf(o) or "?"), 0.8, 0.8, 0.8)
+        Line(tt, "Hosted by " .. Util().ShortName(E:HostOf(o) or "?"), "TEXT")
     end
     local st = o and E:OccState(o)
     if r and not r.cancel then
-        if r.champ then tt:AddLine("Won by " .. Util().ShortName(r.champ), 0.2, 1, 0.6) end
-        tt:AddLine(("%d entrants"):format(r.n or 0), 0.8, 0.8, 0.8)
+        if r.champ then Line(tt, "Won by " .. Util().ShortName(r.champ), "OK") end
+        Line(tt, ("%d entrants"):format(r.n or 0), "TEXT")
     elseif st == "live" then
-        tt:AddLine("Live now", 0.2, 1, 0.6)
+        Line(tt, "Live now", "OK")
     elseif st == "cancelled" or (r and r.cancel) then
-        tt:AddLine("Cancelled", 1, 0.33, 0.33)
+        Line(tt, "Cancelled", "BAD")
     elseif o then
         local n = #E:GetSignups(o.id)
-        tt:AddLine(("%d signed up"):format(n), 0.8, 0.8, 0.8)
-        if E:IsSignedUp(o.id) then tt:AddLine("You're signed up", 0.2, 1, 0.6) end
+        Line(tt, ("%d signed up"):format(n), "TEXT")
+        if E:IsSignedUp(o.id) then Line(tt, "You're signed up", "OK") end
     end
     if o and o.note and o.note ~= "" then tt:AddLine(o.note, 1, 1, 1, true) end
 end
@@ -701,12 +706,12 @@ end
 TIPS.edef = function(tt, arg)
     local E = Ev()
     local d = E:GetDef(arg)
-    tt:AddLine(d.name, 1, 0.82, 0)
+    Line(tt, d.name, "GOLD")
     local runs = E:RunCount(d.id)
     local parts = { "Built by " .. Util().ShortName(d.by or "?") }
     if E:IsRanked(d) then parts[#parts + 1] = "ranked" end
     if (runs or 0) > 0 then parts[#parts + 1] = runs == 1 and "run once" or ("run " .. runs .. " times") end
-    tt:AddLine(tconcat(parts, " · "), 0.8, 0.8, 0.8)
+    Line(tt, tconcat(parts, " · "), "TEXT")
     tt:AddLine("Opens it in the event builder: see its pieces, practise it, host it.", 1, 1, 1, true)
 end
 
@@ -714,28 +719,28 @@ TIPS.fb = function(tt, arg)
     local F = FB()
     local item = F:Get(arg)
     local info = F.KIND_INFO[item.kind] or {}
-    local c = info.color or { 1, 0.82, 0 }
+    local c = info.color or S.C.GOLD
     tt:AddLine(info.label or "Feedback", c[1], c[2], c[3])
     tt:AddLine(item.text or "", 1, 1, 1, true)
     local parts = {}
     if not item.anon and item.author then parts[#parts + 1] = "From " .. Util().ShortName(item.author) end
     if (item.voteCount or 0) > 0 then parts[#parts + 1] = item.voteCount .. " me too" end
-    if #parts > 0 then tt:AddLine(tconcat(parts, " · "), 0.8, 0.8, 0.8) end
+    if #parts > 0 then Line(tt, tconcat(parts, " · "), "TEXT") end
     local shipped = F:ShippedText(item)
     if shipped then
-        tt:AddLine(shipped, 0.2, 1, 0.6)
+        Line(tt, shipped, "OK")
     elseif item.state == "planned" then
-        tt:AddLine("Planned", 1, 0.82, 0)
+        Line(tt, "Planned", "GOLD")
     elseif item.closed then
-        tt:AddLine("Closed", 0.6, 0.6, 0.6)
+        Line(tt, "Closed", "SUB")
     end
 end
 
 TIPS.ver = function(tt, arg)
     local e = ChangelogEntry(arg)
-    tt:AddLine("DisasterZone " .. arg, 1, 0.82, 0)
+    Line(tt, "DisasterZone " .. arg, "GOLD")
     if e.title then tt:AddLine(e.title, 1, 1, 1, true) end
-    if e.date then tt:AddLine(e.date, 0.6, 0.6, 0.6) end
+    if e.date then Line(tt, e.date, "SUB") end
 end
 
 -- Fills a tooltip for a reference: what the place is, then what a click does. sentLabel: the link's own text, for a
@@ -743,28 +748,28 @@ end
 function Share:FillTooltip(tt, ref, sentLabel)
     local d = self:Describe(ref)
     if not d then
-        tt:AddLine(Clean(sentLabel) or "DisasterZone link", 1, 0.82, 0)
+        Line(tt, Clean(sentLabel) or "DisasterZone link", "GOLD")
         tt:AddLine("This link is from a newer DisasterZone: update to open it.", 1, 1, 1, true)
         return
     end
     if not d.known then
-        tt:AddLine(Clean(sentLabel) or d.label or "DisasterZone link", 1, 0.82, 0)
-        tt:AddLine("Not here: it hasn't reached you yet, or it was deleted.", 1, 0.6, 0.2, true)
+        Line(tt, Clean(sentLabel) or d.label or "DisasterZone link", "GOLD")
+        Line(tt, "Not here: it hasn't reached you yet, or it was deleted.", "WARN", true)
         return
     end
     local page = d.arg == nil and PAGES[d.kind]
     local ok
     if page then
-        tt:AddLine("DisasterZone: " .. page.label, 1, 0.82, 0)
+        Line(tt, "DisasterZone: " .. page.label, "GOLD")
         tt:AddLine(page.desc, 1, 1, 1, true)
         ok = true
     elseif TIPS[d.kind] then
         ok = pcall(TIPS[d.kind], tt, d.arg)
     end
-    if not ok then tt:AddLine(d.label or ref, 1, 0.82, 0) end
+    if not ok then Line(tt, d.label or ref, "GOLD") end
     tt:AddLine(" ")
-    tt:AddLine(green("Click to open in DisasterZone"))
-    tt:AddLine(grey("Shift-click: into your chat box · Right-click: share"))
+    tt:AddLine(S:Wrap("OK", "Click to open in DisasterZone"))
+    tt:AddLine(S:Wrap("DIM", "Shift-click: into your chat box · Right-click: share"))
 end
 
 ---------------------------------------------------------------------------
@@ -877,15 +882,14 @@ local function OnShareClick(self)
     if ns.ShareWindow then ns.ShareWindow:Open(ref, self) end
 end
 
-local function ShareTip(self)
+-- The share icon's tooltip (UI:AttachTooltip's title function): what a click posts.
+local function ShareTip(self, tt)
     local ref = self.getRef and self.getRef(self)
     local d = ref and Share:Describe(ref)
-    GameTooltip:SetOwner(self, self.tipAnchor or "ANCHOR_TOP")
-    GameTooltip:AddLine(self.tipTitle or "Share")
-    GameTooltip:AddLine("Post a link in chat that opens " .. (d and d.label and ("|cffff8000" .. d.label .. "|r")
+    Line(tt, self.tipTitle or "Share", "GOLD")
+    tt:AddLine("Post a link in chat that opens " .. (d and d.label and ("|c" .. ORANGE .. d.label .. "|r")
         or "this") .. " in DisasterZone.", 1, 1, 1, true)
-    GameTooltip:AddLine(grey("Shift-click: into your chat box"))
-    GameTooltip:Show()
+    tt:AddLine(S:Wrap("DIM", "Shift-click: into your chat box"))
 end
 
 -- A share icon button (the flat icon look). getRef(button) -> the reference to share (nil: nothing to share).
@@ -893,8 +897,7 @@ function Share:CreateButton(parent, size, getRef, tipTitle)
     local UI = ns.UI
     local b = UI:CreateIconButton(parent, size or 22, UI.ICON_ATLAS, UI:IconCoords(SHARE_ICON), OnShareClick)
     b.getRef, b.tipTitle = getRef, tipTitle
-    b:HookScript("OnEnter", ShareTip)
-    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    UI:AttachTooltip(b, ShareTip, nil, { anchor = "ANCHOR_TOP" })
     return b
 end
 
@@ -908,16 +911,11 @@ function Share:CreateNavButton(parent, getRef)
     b.icon:SetPoint("CENTER", 0, 1)
     b.icon:SetTexture(UI.ICON_ATLAS)
     b.icon:SetTexCoord(unpack(UI:IconCoords(SHARE_ICON)))
-    b.icon:SetVertexColor(0.62, 0.62, 0.62)
-    b.getRef, b.tipTitle, b.tipAnchor = getRef, "Share this page", "ANCHOR_BOTTOM"
-    b:SetScript("OnEnter", function(self)
-        self.icon:SetVertexColor(1, 1, 1)
-        ShareTip(self)
-    end)
-    b:SetScript("OnLeave", function(self)
-        self.icon:SetVertexColor(0.62, 0.62, 0.62)
-        GameTooltip:Hide()
-    end)
+    b.icon:SetVertexColor(S:Color("SUB"))
+    b.getRef, b.tipTitle = getRef, "Share this page"
+    b:SetScript("OnEnter", function(self) self.icon:SetVertexColor(1, 1, 1) end)
+    b:SetScript("OnLeave", function(self) self.icon:SetVertexColor(S:Color("SUB")) end)
+    UI:AttachTooltip(b, ShareTip, nil, { anchor = "ANCHOR_BOTTOM" })
     b:RegisterForClicks("LeftButtonUp")
     b:SetScript("OnClick", OnShareClick)
     return b

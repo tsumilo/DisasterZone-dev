@@ -1,9 +1,12 @@
 if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Changelog.lua", ...) then return end -- DisasterZone: UI/Changelog.lua
 -- The Changelog tab (everyone), in three layers (2026-10-11, dev/art/casc/changelog_mockup): a release's highlights as
 -- cards, its other sections folded to one line each (open one for its lines), and the lines themselves.
---   Left: a search over every release, two pinned views (Since your last visit when two or more releases are unread,
+-- A list + detail page (UI:CreateLayout "listdetail"):
+--   Toolbar: the areas as tabs with their counts (the ones that don't fit in its ··· menu), "Just for me" as its filter.
+--   List: a search over every release, two pinned views (Since your last visit when two or more releases are unread,
 --   From your feedback when something I asked for shipped) and the releases grouped by series (older ones fold).
---   Right: a fixed banner and a filter row (area chips, "Just for me"), then what scrolls.
+--   Detail: the view's banner (the layout's tool banner), then what scrolls: caps section headers, highlight cards,
+--   section rows with the shared row looks, inset notes, the shared empty state.
 -- Data/Changelog.lua sections may carry (all optional; old releases show as they always did):
 --   area = "raids" | "loot" | "gear" | "guild" | "games" | "class" | "look" | "speed" | "fixes" (else: from the
 --   heading's prefix), kind = "new" | "changed" | "fixed", lead = one line (else the first line), hi = true (a
@@ -17,6 +20,7 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Changelog.lua", ...) then retur
 local addonName, ns = ...
 
 local ChangelogUI = ns:NewModule("ChangelogUI")
+local S = ns.Style
 
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 local tinsert, tconcat, sort = table.insert, table.concat, table.sort
@@ -25,11 +29,8 @@ local strlower, strfind, strmatch, strgsub = string.lower, string.find, string.m
 local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
 local OUTLAND = "Interface\\Glues\\LoadingScreens\\LoadScreenOutland"
 
--- sizes (one grid for the page)
-local L = {
-    PAD = 6, GAP = 8, LIST_W = 200, BAN_H = 75, TB_H = 22, CARD_H = 150, ROW_H = 37, LINE_GAP = 3, HEAD_H = 20,
-    GROUP_H = 22, VROW_PAD = 5, PIN_H = 40,
-}
+-- the page's own sizes (the rest are ns.Style's and the list + detail layout's)
+local L = { LIST_W = 230, CARD_H = 150, ART_H = 65, LINE_GAP = 3, GROUP_H = 22, VROW_PAD = 5, PIN_H = 40 }
 
 -- area key -> label, atlas icon, the art set that icon needs (else fallback icon), the raid painting of its cards
 local AREAS = {
@@ -99,12 +100,12 @@ local function Unread()
     return out
 end
 
--- "In testing" | "Your version" | "New" | nil, with its colour.
+-- "In testing" | "Your version" | "New" | nil, with its colour (a ns.Style token).
 local function Badge(e)
     local c = Compare(e.version, ns.version)
-    if c > 0 then return "In testing", "ff9933" end
-    if c == 0 then return IsNew(e) and "New · your version" or "Your version", "33ff33" end
-    if IsNew(e) then return "New", "33ff33" end
+    if c > 0 then return "In testing", "WARN" end
+    if c == 0 then return IsNew(e) and "New · your version" or "Your version", "OK" end
+    if IsNew(e) then return "New", "OK" end
     return nil
 end
 
@@ -382,34 +383,25 @@ local function HideBackBar()
     if backbar then backbar:Hide() end
 end
 
+-- The way back after Show me: a card along the foot of the main window with a back link to the notes, the section's
+-- name and an X. It goes when another page is picked.
 local function ShowBackBar(sec, view)
     local host = ns.MainFrame and ns.MainFrame:GetFrame()
     if not host then return end
     if not backbar then
-        local b = CreateFrame("Frame", nil, host)
-        b:SetHeight(24)
+        local b = UI():CreateCard(host, { tone = "card", height = S.ROW.list + 4 })
         b:SetFrameStrata("DIALOG")
-        b.bg = b:CreateTexture(nil, "BACKGROUND")
-        b.bg:SetAllPoints()
-        b.bg:SetColorTexture(0.08, 0.07, 0.06, 0.97)
-        UI():AddEdges(b)
-        UI():SetEdgeColor(b, 0.56, 0.45, 0.13, 1)
-        b.icon = b:CreateTexture(nil, "ARTWORK")
-        b.icon:SetSize(12, 12)
-        b.icon:SetPoint("LEFT", 9, 0)
-        b.icon:SetTexture(UI().ICON_ATLAS)
-        local c = UI():IconCoords(UI().ICON.notes)
-        b.icon:SetTexCoord(c[1], c[2], c[3], c[4])
-        b.icon:SetVertexColor(1, 0.82, 0)
-        b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        b.text:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
-        b.back = UI():CreateSleekButton(b, "Back", 50, 18, function()
+        b:EnableMouse(true)
+        UI():SetEdgeColor(b, S:Color("GOLD_DEEP"))
+        b.back = UI():CreateBackLink(b, "What's new", function()
             HideBackBar()
             ChangelogUI:Open(b.view)
         end)
-        b.back:SetPoint("LEFT", b.text, "RIGHT", 10, 0)
+        b.back:SetPoint("LEFT", b, "LEFT", S.PAD, 0)
+        b.text = UI():Text(b, "body", "TEXT")
+        b.text:SetPoint("LEFT", b.back, "RIGHT", S.GAP, 0)
         b.close = UI():CreateCloseButton(b, 16, HideBackBar)
-        b.close:SetPoint("LEFT", b.back, "RIGHT", 4, 0)
+        b.close:SetPoint("RIGHT", b, "RIGHT", -6, 0)
         b:SetScript("OnUpdate", function(self, dt)
             self.t = (self.t or 0) + dt
             if self.t < 0.3 then return end
@@ -420,10 +412,10 @@ local function ShowBackBar(sec, view)
         backbar = b
     end
     backbar.view = view
-    backbar.text:SetText("From What's new: |cffffffff" .. UI():SafeText(sec.title) .. "|r")
-    backbar:SetWidth(floor((backbar.text:GetStringWidth() or 120) + 9 + 12 + 6 + 10 + 50 + 4 + 16 + 10))
+    backbar.text:SetText(UI():SafeText(sec.title))
+    backbar:SetWidth(floor(S.PAD + backbar.back:GetWidth() + S.GAP + UI():TextWidth(backbar.text) + S.GAP + 22 + 0.5))
     backbar:ClearAllPoints()
-    backbar:SetPoint("BOTTOM", host, "BOTTOM", 0, 10)
+    backbar:SetPoint("BOTTOM", host, "BOTTOM", 0, S.PAD)
     backbar.tab = ns.MainFrame:GetSelectedTab()
     backbar.t = 0
     backbar:Show()
@@ -472,17 +464,6 @@ end
 -- Small parts
 ---------------------------------------------------------------------------
 
-local function Text(parent, font, size, layer)
-    local fs = parent:CreateFontString(nil, layer or "OVERLAY", font or "GameFontHighlight")
-    fs:SetJustifyH("LEFT")
-    fs:SetWordWrap(false)
-    if size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
-    end
-    return fs
-end
-
 -- The height of a wrapped string at width w (the mock doesn't wrap: count the lines from the width).
 local function WrapH(fs, w, lineH)
     lineH = lineH or 13
@@ -492,97 +473,69 @@ local function WrapH(fs, w, lineH)
     return max(lineH, h)
 end
 
-local function Tex(parent, layer, r, g, b, a, sub)
-    local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
-    t:SetColorTexture(r or 1, g or 1, b or 1, a or 1)
-    return t
-end
-
-local function AtlasTex(tex, i, r, g, b)
+-- An atlas glyph (UI.ICON) on a texture, in a token colour.
+-- TODO(refactor): move into Widgets (UI:SetGlyph(tex, icon, color): the banners' and the empty states' glyphs too)
+local function Glyph(tex, i, color)
     tex:SetTexture(UI().ICON_ATLAS)
     local c = UI():IconCoords(i)
     tex:SetTexCoord(c[1], c[2], c[3], c[4])
-    tex:SetVertexColor(r or 1, g or 1, b or 1)
+    tex:SetVertexColor(S:Color(color or "TEXT"))
 end
 
--- A face: a gold ring on a dark disc around an icon (the Events pages' look).
+-- A face: a glyph on a dark disc in a gold ring (the Events pages' look).
+-- TODO(refactor): move into Surfaces (UI:CreateFace: the ringed glyph the Events, Polls, Welcome offer and these
+-- cards share; the page banner's icon tile has the ring but not the disc)
 local function Face(parent, size)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(size, size)
     f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
     f.disc:SetTexture(MEDIA .. "Strategy\\disc")
-    f.disc:SetVertexColor(0.05, 0.05, 0.06, 0.95)
+    f.disc:SetVertexColor(S:Color("INSET"))
     f.disc:SetAllPoints()
     f.ring = f:CreateTexture(nil, "ARTWORK", nil, 1)
     f.ring:SetTexture(MEDIA .. "Events\\ring")
-    f.ring:SetVertexColor(1, 0.82, 0)
+    f.ring:SetVertexColor(S:Color("GOLD"))
     f.ring:SetPoint("CENTER")
     f.ring:SetSize(size + 4, size + 4)
     f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
     f.icon:SetSize(floor(size * 0.46), floor(size * 0.46))
     f.icon:SetPoint("CENTER")
-    function f:SetIcon(i) AtlasTex(self.icon, i, 1, 0.86, 0.4) end
+    function f:SetIcon(i) Glyph(self.icon, i, "GOLD") end
     return f
 end
 
--- A raid's painting (RaidPlanUI's crop, under the logo band) on a texture for a w x h box.
-local function PaintRaid(tex, key, w, h)
-    local PlanUI = ns.RaidPlanUI
-    if PlanUI and PlanUI.RaidArt then
-        local file, l, r, t, b = PlanUI:RaidArt(key or "other", w, h, 0.95)
-        if t < 0.29 then t, b = 0.29, b + 0.29 - t end
-        if b > 1 then t, b = t - (b - 1), 1 end
-        tex:SetTexture(file)
-        tex:SetTexCoord(l, r, t, b)
-    else
-        tex:SetColorTexture(0.1, 0.1, 0.12, 1)
-    end
-end
-
-local function PaintOutland(tex, w, h)
+-- The painting of an area / a section (a raid key; "other": Outland) as UI:SetArtTexture / a banner's art takes it.
+local function ArtOf(key, w, h)
+    local IDB = ns.ItemDB
+    if key and key ~= "other" and IDB and IDB.GetRaidMeta and IDB:GetRaidMeta(key) then return key end
     local E = ns.EventUI
     if E and E.ArtCoords then
         local path, l, r, t, b = E:ArtCoords("outland", w, h, 0.5, 0.55, 0.95)
-        tex:SetTexture(OUTLAND or path)
-        tex:SetTexCoord(l, r, t, b)
-    else
-        tex:SetColorTexture(0.1, 0.1, 0.12, 1)
+        return { OUTLAND or path, l, r, t, b }
     end
+    return nil
 end
 
-local function Shade(f)
-    if ns.EventUI and ns.EventUI.AddShade then return ns.EventUI:AddShade(f) end
-end
-
--- A gold "Show me" link with a chevron.
+-- A gold text link with a chevron ("Show me >").
+-- TODO(refactor): move into PageParts (the section header's action link, as UI:CreateTextLink(parent, text, fn, color))
 local function NewGoLink(parent, label)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(16)
-    b.fs = Text(b, "GameFontNormalSmall")
+    b.fs = UI():Text(b, "small", "GOLD")
     b.fs:SetPoint("LEFT", 0, 0)
-    b.fs:SetText(label or "Show me")
     b.chev = b:CreateTexture(nil, "ARTWORK")
     b.chev:SetSize(9, 9)
     b.chev:SetPoint("LEFT", b.fs, "RIGHT", 3, 0)
     UI():SetChevron(b.chev, true)
-    b.chev:SetVertexColor(1, 0.82, 0)
+    b.chev:SetVertexColor(S:Color("GOLD"))
     function b:SetLabel(t)
         self.fs:SetText(t)
-        self:SetWidth(floor((self.fs:GetStringWidth() or 40) + 14))
+        self:SetWidth(floor(UI():TextWidth(self.fs) + 14 + 0.5))
     end
     b:SetLabel(label or "Show me")
-    b:SetScript("OnEnter", function(self) self.fs:SetTextColor(1, 0.95, 0.6) end)
-    b:SetScript("OnLeave", function(self) self.fs:SetTextColor(1, 0.82, 0) end)
+    b:SetScript("OnEnter", function(self) self.fs:SetTextColor(S:Color("TEXT")) end)
+    b:SetScript("OnLeave", function(self) self.fs:SetTextColor(S:Color("GOLD")) end)
     return b
-end
-
-local function Pool(list, i, make)
-    local x = list[i]
-    if not x then
-        x = make()
-        list[i] = x
-    end
-    return x
 end
 
 ---------------------------------------------------------------------------
@@ -601,7 +554,7 @@ local function LineParts(entry)
         local icon = info and ("|T%d:12:12:0:-1:64:64:5:59:5:59|t "):format(info.icon) or ""
         local who = #names > 0 and tconcat(names, ", ") or "the guild"
         if (tonumber(entry.mt) or 0) > 0 then who = who .. " +" .. entry.mt end
-        credit = icon .. "|cffa8a8a8" .. who .. "|r"
+        credit = icon .. S:Wrap("SUB", who)
     end
     local mine = F and F.LineIsMine and F:LineIsMine(entry) or false
     return text, credit, mine
@@ -656,67 +609,70 @@ local function ThanksLine(entry)
 end
 ChangelogUI.ThanksLine = ThanksLine
 
-local function CreditTooltip(owner, data)
-    if type(data) ~= "table" then return end
-    GameTooltip:SetOwner(owner, "ANCHOR_TOPRIGHT")
+-- The tooltip of a credited line (UI:AttachTooltip's title function; the line's box carries the data).
+local function CreditTooltip(owner, tt)
+    local data = owner.data
+    if type(data) ~= "table" then return false end
     local F = ns.Feedback
     local names = {}
     for _, n in ipairs(data.by or {}) do names[#names + 1] = n end
-    GameTooltip:AddLine(#names > 0 and ("Asked for by " .. tconcat(names, ", ")) or "From the guild's feedback",
-        1, 0.82, 0, true)
+    local r, g, b = S:Color("GOLD")
+    tt:AddLine(#names > 0 and ("Asked for by " .. tconcat(names, ", ")) or "From the guild's feedback", r, g, b, true)
     if (tonumber(data.mt) or 0) > 0 then
-        GameTooltip:AddLine(data.mt == 1 and "and 1 more said me too" or ("and " .. data.mt .. " more said me too"),
-            0.8, 0.8, 0.8)
+        r, g, b = S:Color("TEXT")
+        tt:AddLine(data.mt == 1 and "and 1 more said me too" or ("and " .. data.mt .. " more said me too"), r, g, b)
     end
     for _, no in ipairs(data.fb or {}) do
         local item = F and F.GetByNumber and F:GetByNumber(no)
         if item then
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("#" .. no .. "  " .. Util().ShortName(item.author), 0.7, 0.7, 0.7)
-            GameTooltip:AddLine(item.text, 1, 1, 1, true)
+            tt:AddLine(" ")
+            r, g, b = S:Color("SUB")
+            tt:AddLine("#" .. no .. "  " .. Util().ShortName(item.author), r, g, b)
+            tt:AddLine(item.text, 1, 1, 1, true)
         end
     end
     if F and F.LineIsMine and F:LineIsMine(data) then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("You asked for this. Thank you!", 0.45, 0.85, 0.45)
+        tt:AddLine(" ")
+        r, g, b = S:Color("OK")
+        tt:AddLine("You asked for this. Thank you!", r, g, b)
     end
-    GameTooltip:Show()
 end
 
 ---------------------------------------------------------------------------
 -- Section rows: one line folded (title, kind, area, lead, count), the lines when open
 ---------------------------------------------------------------------------
 
+-- A line: a dot, its text, the credit; its box carries the picked look when I asked for it, and the credit tooltip.
 local function NewLine(parent)
     local line = {}
-    line.dot = Tex(parent, "ARTWORK", 1, 0.5, 0, 0.9)
+    line.box = CreateFrame("Frame", nil, parent)
+    UI():DecorateRow(line.box, { hover = false, selectable = true })
+    UI():AttachTooltip(line.box, CreditTooltip, nil, { anchor = "ANCHOR_TOPRIGHT" })
+    line.dot = parent:CreateTexture(nil, "ARTWORK")
+    line.dot:SetColorTexture(S:Color("WARN"))
     line.dot:SetSize(4, 4)
-    line.fs = Text(parent, "GameFontHighlight")
-    line.fs:SetWordWrap(true)
-    line.credit = Text(parent, "GameFontHighlightSmall")
-    line.credit:SetJustifyH("RIGHT")
-    line.bg = Tex(parent, "BACKGROUND", 1, 0.82, 0, 0.08, 1)
-    line.bar = Tex(parent, "ARTWORK", 1, 0.82, 0, 0.9)
-    line.bar:SetWidth(2)
-    line.hover = CreateFrame("Frame", nil, parent)
-    line.hover:SetScript("OnEnter", function(self) CreditTooltip(self, self.data) end)
-    line.hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    line.fs = UI():Text(parent, "body", "TEXT", { wrap = true })
+    line.credit = UI():Text(parent, "small", "SUB", { justify = "RIGHT" })
     return line
 end
 
 local function HideLine(l)
-    l.dot:Hide(); l.fs:Hide(); l.credit:Hide(); l.bg:Hide(); l.bar:Hide(); l.hover:Hide()
+    l.dot:Hide(); l.fs:Hide(); l.credit:Hide(); l.box:Hide()
 end
 
 -- Lays out lines from y (negative, from the frame's top) at x within width w; returns the new y.
 local function LayLines(f, list, lines, x, y, w, marks)
     for i, ln in ipairs(lines) do
-        local line = Pool(list, i, function() return NewLine(f) end)
+        local line = list[i]
+        if not line then
+            line = NewLine(f)
+            list[i] = line
+        end
         local text, credit, mine = LineParts(ln.raw)
         text = ln.text or text
         if marks then text = marks(text) end
         if mine then
-            local you = "|cffffd100you asked for this|r"
+            local you = S:Wrap("GOLD", "you asked for this")
             if credit then credit = credit .. "   " .. you else text = text .. "   " .. you end
         end
         local creditW = 0
@@ -749,73 +705,48 @@ local function LayLines(f, list, lines, x, y, w, marks)
         line.dot:SetPoint("TOPLEFT", f, "TOPLEFT", x + 1, y - 5)
         line.dot:Show()
         local hgt = WrapH(line.fs, tw, 13)
-        if type(ln.raw) == "table" and (ln.raw.by or ln.raw.fb or ln.raw.mt) then
-            line.hover.data = ln.raw
-            line.hover:ClearAllPoints()
-            line.hover:SetPoint("TOPLEFT", f, "TOPLEFT", x - 4, y + 2)
-            line.hover:SetSize(w + 4, hgt + 4)
-            line.hover:Show()
-        else
-            line.hover:Hide()
-        end
-        line.bg:SetShown(mine)
-        line.bar:SetShown(mine)
-        if mine then
-            line.bg:ClearAllPoints()
-            line.bg:SetPoint("TOPLEFT", f, "TOPLEFT", x - 4, y + 3)
-            line.bg:SetSize(w + 4, hgt + 5)
-            line.bar:ClearAllPoints()
-            line.bar:SetPoint("TOPLEFT", f, "TOPLEFT", x - 4, y + 3)
-            line.bar:SetHeight(hgt + 5)
-        end
+        local box = line.box
+        box.data = (type(ln.raw) == "table" and (ln.raw.by or ln.raw.fb or ln.raw.mt)) and ln.raw or nil
+        box:EnableMouse(box.data ~= nil)
+        box:ClearAllPoints()
+        box:SetPoint("TOPLEFT", f, "TOPLEFT", x - 4, y + 3)
+        box:SetSize(w + 4, hgt + 5)
+        box:SetSelected(mine)
+        box:Show()
         y = y - hgt - L.LINE_GAP - 2
     end
     for i = #lines + 1, #list do HideLine(list[i]) end
     return y
 end
 
+-- An area's glyph in a small inset tile (a row's, a search block's).
+local function NewTile(parent, size, iconSize)
+    local t = UI():CreateCard(parent, { tone = "inset", width = size, height = size })
+    t.icon = t:CreateTexture(nil, "ARTWORK")
+    t.icon:SetSize(iconSize, iconSize)
+    t.icon:SetPoint("CENTER")
+    return t
+end
+
 local function NewRow(parent)
     local r = CreateFrame("Button", nil, parent)
-    r.bg = Tex(r, "BACKGROUND", 0.07, 0.07, 0.085, 0.86)
-    r.bg:SetAllPoints()
-    r.hl = Tex(r, "HIGHLIGHT", 1, 1, 1, 0.03)
-    r.hl:SetPoint("TOPLEFT")
-    r.hl:SetPoint("TOPRIGHT")
-    r.hl:SetHeight(L.ROW_H)
-    r.rule = Tex(r, "BORDER", 0.12, 0.12, 0.14, 1)
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("BOTTOMLEFT")
-    r.rule:SetPoint("BOTTOMRIGHT")
-    r.bar = Tex(r, "ARTWORK", 1, 0.82, 0, 1)
-    r.bar:SetWidth(3)
-    r.bar:SetPoint("TOPLEFT")
-    r.bar:SetPoint("BOTTOMLEFT")
-    r.tile = CreateFrame("Frame", nil, r)
-    r.tile:SetSize(23, 23)
+    UI():DecorateRow(r, { selectable = true, rule = true })
+    r.tile = NewTile(r, 24, 13)
     r.tile:SetPoint("TOPLEFT", 8, -7)
-    r.tile.bg = Tex(r.tile, "BACKGROUND", 0.094, 0.094, 0.11, 1)
-    r.tile.bg:SetAllPoints()
-    UI():AddEdges(r.tile)
-    UI():SetEdgeColor(r.tile, 0.2, 0.2, 0.23, 1)
-    r.tile.icon = r.tile:CreateTexture(nil, "ARTWORK")
-    r.tile.icon:SetSize(13, 13)
-    r.tile.icon:SetPoint("CENTER")
-    r.title = Text(r, "GameFontHighlight")
-    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 40, -6)
-    r.kind = UI():CreateTagPill(r, 13)
-    r.tag = Text(r, "GameFontDisableSmall")
-    r.you = UI():CreateTagPill(r, 13)
-    r.lead = Text(r, "GameFontDisableSmall")
-    r.lead:SetWordWrap(true)
+    r.title = UI():Text(r, "body", "TEXT")
+    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 42, -7)
+    r.kind = UI():CreatePill(r, nil, nil, 14)
+    r.tag = UI():Text(r, "small", "SUB")
+    r.you = UI():CreatePill(r, nil, nil, 14)
+    r.lead = UI():Text(r, "small", "SUB", { wrap = true })
     r.lead:SetJustifyV("TOP")
-    r.lead:SetPoint("TOPLEFT", r, "TOPLEFT", 40, -22)
-    r.count = Text(r, "GameFontHighlight")
-    r.count:SetTextColor(0.74, 0.74, 0.76)
+    r.lead:SetPoint("TOPLEFT", r, "TOPLEFT", 42, -23)
+    r.count = UI():Text(r, "body", "SUB")
     r.chev = r:CreateTexture(nil, "ARTWORK")
     r.chev:SetSize(9, 9)
     r.chev:SetPoint("TOPRIGHT", r, "TOPRIGHT", -10, -14)
     r.count:SetPoint("RIGHT", r.chev, "LEFT", -4, 0)
-    r.more = Text(r, "GameFontDisableSmall")
+    r.more = UI():Text(r, "small", "DIM")
     r.go = NewGoLink(r)
     r.lines = {}
     r:SetScript("OnClick", function(self)
@@ -836,37 +767,36 @@ local function FillRow(r, sec, v, w, opts)
     r.sec = sec
     r:SetWidth(w)
     local open = opts.open
-    r.bar:SetShown(open)
-    r.bg:SetColorTexture(open and 0.1 or 0.07, open and 0.098 or 0.07, open and 0.086 or 0.085, open and 0.92 or 0.86)
-    AtlasTex(r.tile.icon, AreaAtlas(sec.area), 0.81, 0.81, 0.81)
+    r:SetSelected(open)
+    Glyph(r.tile.icon, AreaAtlas(sec.area), "TEXT")
     r.title:SetText(UI():SafeText(sec.title))
-    local x = 40 + (tonumber(r.title:GetStringWidth()) or 0) + 8
+    local x = 42 + UI():TextWidth(r.title) + 8
     local kinfo = sec.kind and KIND[sec.kind]
     if kinfo then
         r.kind:Set(kinfo[1], kinfo[2])
         r.kind:ClearAllPoints()
-        r.kind:SetPoint("LEFT", r, "TOPLEFT", x, -12)
+        r.kind:SetPoint("LEFT", r, "TOPLEFT", x, -13)
         r.kind:Show()
         x = x + (r.kind:GetWidth() or 40) + 7
     else
         r.kind:Hide()
     end
-    local tag = opts.version and ("|cff9e9e9e" .. sec.version .. "|r")
-        or (AreaIcon(sec.area, 10, { 0.55, 0.55, 0.57 }) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
+    local tag = opts.version and S:Wrap("SUB", sec.version)
+        or (AreaIcon(sec.area, 10, S.C.SUB) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
     r.tag:SetText(tag)
     r.tag:ClearAllPoints()
-    r.tag:SetPoint("LEFT", r, "TOPLEFT", x, -12)
+    r.tag:SetPoint("LEFT", r, "TOPLEFT", x, -13)
     r.tag:Show()
-    x = x + (tonumber(r.tag:GetStringWidth()) or 30) + 8
+    x = x + UI():TextWidth(r.tag) + 8
     -- the right side: count + chevron, Show me, what Just for me left out
     local right = 10 + 9 + 4
     r.count:SetText(tostring(#v.lines))
-    right = right + (tonumber(r.count:GetStringWidth()) or 8) + 10
+    right = right + UI():TextWidth(r.count) + 10
     UI():SetChevron(r.chev, not open)
     if open then
         r.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
     end
-    r.chev:SetVertexColor(0.74, 0.74, 0.76)
+    r.chev:SetVertexColor(S:Color("SUB"))
     if sec.open then
         r.go:ClearAllPoints()
         r.go:SetPoint("RIGHT", r, "TOPRIGHT", -right, -18)
@@ -883,7 +813,7 @@ local function FillRow(r, sec, v, w, opts)
         r.more:ClearAllPoints()
         r.more:SetPoint("RIGHT", r, "TOPRIGHT", -right, -18)
         r.more:Show()
-        right = right + (tonumber(r.more:GetStringWidth()) or 40) + 12
+        right = right + UI():TextWidth(r.more) + 12
     else
         r.more:Hide()
     end
@@ -893,18 +823,17 @@ local function FillRow(r, sec, v, w, opts)
         r.you:Set("You asked for this", "bis", info and info.icon or nil)
         if r.you.icon then r.you.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
         r.you:ClearAllPoints()
-        r.you:SetPoint("LEFT", r, "TOPLEFT", x, -12)
+        r.you:SetPoint("LEFT", r, "TOPLEFT", x, -13)
         r.you:Show()
     else
         r.you:Hide()
     end
-    local lw = max(60, w - 40 - right)
+    local lw = max(60, w - 42 - right)
     r.lead:SetWidth(lw)
     r.lead:SetText(UI():SafeText(v.lead))
     local showLead = not open or (sec.lead ~= nil and not (v.lines[1] and v.lines[1].text == sec.lead))
     r.lead:SetShown(showLead)
-    local head = showLead and (L.ROW_H + min(WrapH(r.lead, lw, 12), 24) - 12) or 26
-    r.hl:SetHeight(head)
+    local head = showLead and (S.ROW.rich + min(WrapH(r.lead, lw, 12), 24) - 12) or 28
     local h = head
     if open then
         local y = LayLines(r, r.lines, v.lines, 44, -head - 6, w - 44 - 14)
@@ -921,47 +850,50 @@ end
 -- Highlight cards
 ---------------------------------------------------------------------------
 
-local function NewCard(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(L.CARD_H)
-    c.bg = Tex(c, "BACKGROUND", 0.07, 0.07, 0.085, 1)
-    c.bg:SetAllPoints()
-    UI():AddEdges(c)
+-- The card's edge: the picked one (its lines open under the cards) in the deep gold, else the card's own.
+local function PaintCardEdge(c)
+    local on = c.sec and st.card == c.sec.id
+    UI():SetEdgeColor(c, S:Color(on and "GOLD_DEEP" or "EDGE"))
+end
+
+local function NewHighlight(parent)
+    local c = UI():CreateCard(parent, { tone = "card", height = L.CARD_H })
+    c:EnableMouse(true)
     c.artF = CreateFrame("Frame", nil, c)
     c.artF:SetPoint("TOPLEFT", 1, -1)
     c.artF:SetPoint("TOPRIGHT", -1, -1)
-    c.artF:SetHeight(65)
+    c.artF:SetHeight(L.ART_H)
     c.art = c.artF:CreateTexture(nil, "BACKGROUND")
     c.art:SetAllPoints()
     if ns.EventUI and ns.EventUI.AddShade then ns.EventUI:AddShade(c.artF, "card") end
     c.face = Face(c, 40)
     c.face:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -39)
-    c.ver = UI():CreateTagPill(c, 14)
+    c.ver = UI():CreatePill(c, nil, nil, 14)
     c.ver:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -6)
-    c.title = Text(c, "GameFontHighlight", 12)
-    c.title:SetWordWrap(true)
+    c.title = UI():Text(c, "emph", "TEXT", { wrap = true })
     c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -84)
-    c.pitch = Text(c, "GameFontDisableSmall")
-    c.pitch:SetWordWrap(true)
+    c.pitch = UI():Text(c, "small", "SUB", { wrap = true })
     c.pitch:SetJustifyV("TOP")
-    c.go = UI():CreateSleekButton(c, "Show me", 70, 18, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end,
+    c.go = UI():CreateSleekButton(c, "Show me", 76, S.BTN_H, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end,
         "primary")
     c.go:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 9, 8)
-    c.area = Text(c, "GameFontDisableSmall")
-    c.area:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -8, 12)
-    c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, 0.54, 0.45, 0.13, 1) end)
-    c:SetScript("OnLeave", function(self) UI():SetEdgeColor(self, 0.18, 0.18, 0.2, 1) end)
-    c:SetScript("OnClick", function(self)
+    -- the area at the top left, over the shaded art (the version pill takes the top right)
+    c.area = UI():Text(c.artF, "small", "TEXT", { shadow = true })
+    c.area:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -8)
+    c:SetScript("OnEnter", function(self) UI():SetEdgeColor(self, S:Color("EDGE_FOCUS")) end)
+    c:SetScript("OnLeave", PaintCardEdge)
+    c:SetScript("OnMouseUp", function(self, button)
+        if button ~= "LeftButton" or not self.sec then return end
         st.card = st.card ~= self.sec.id and self.sec.id or nil
         ChangelogUI:Render(true)
     end)
     return c
 end
 
-local function FillCard(c, sec, v, w, showVer)
+local function FillHighlight(c, sec, v, w, showVer)
     c.sec = sec
     c:SetWidth(w)
-    PaintRaid(c.art, sec.art or (AREAS[sec.area] or AREAS.other)[5], w, 65)
+    UI():SetArtTexture(c.art, ArtOf(sec.art or (AREAS[sec.area] or AREAS.other)[5], w, L.ART_H), w, L.ART_H)
     c.face:SetIcon(AreaAtlas(sec.area))
     if showVer then
         c.ver:Set(sec.version, "mute")
@@ -978,159 +910,92 @@ local function FillCard(c, sec, v, w, showVer)
     c.pitch:ClearAllPoints()
     c.pitch:SetPoint("TOPLEFT", c, "TOPLEFT", 9, -84 - th - 3)
     local ph = WrapH(c.pitch, tw, 12)
-    c.need = 84 + th + 3 + ph + 10 + 18 + 8
+    c.need = 84 + th + 3 + ph + 10 + S.BTN_H + 8
     c.go:SetShown(sec.open ~= nil)
-    c.area:SetText(AreaIcon(sec.area, 10, { 0.55, 0.55, 0.57 }) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
-    local on = st.card == sec.id
-    UI():SetEdgeColor(c, on and 0.54 or 0.18, on and 0.45 or 0.18, on and 0.13 or 0.2, 1)
+    c.area:SetText(AreaIcon(sec.area, 10, S.C.TEXT) .. " " .. (AREAS[sec.area] or AREAS.other)[1])
+    PaintCardEdge(c)
     c:Show()
 end
 
 ---------------------------------------------------------------------------
--- The scroll content: headers, cards, rows, the "for others" row, search results, feedback cards
+-- The scroll content: headers, cards, rows, the "for others" note, search results, feedback cards
 ---------------------------------------------------------------------------
 
-local function NewHeader(parent)
-    local h = CreateFrame("Frame", nil, parent)
-    h:SetHeight(L.HEAD_H)
-    h.icon = h:CreateTexture(nil, "ARTWORK")
-    h.icon:SetSize(10, 10)
-    h.icon:SetPoint("LEFT", 0, 0)
-    h.fs = Text(h, "GameFontDisableSmall")
-    h.right = Text(h, "GameFontDisableSmall")
-    h.right:SetPoint("RIGHT", 0, 0)
-    h.rule = Tex(h, "ARTWORK", 0.17, 0.17, 0.19, 1)
-    h.rule:SetHeight(1)
-    return h
-end
-
--- kind "grey" (HIGHLIGHTS ——— 3 of 13) | "area" (gold, an icon, a fading rule)
-local function FillHeader(h, text, right, kind, icon)
-    h.fs:ClearAllPoints()
-    if kind == "area" then
-        AtlasTex(h.icon, icon, 1, 0.82, 0)
-        h.icon:Show()
-        h.fs:SetPoint("LEFT", h.icon, "RIGHT", 6, 0)
-        h.fs:SetTextColor(1, 0.82, 0)
-        h.rule:SetColorTexture(0.35, 0.29, 0.1, 1)
-        if h.rule.SetGradient and CreateColor then
-            h.rule:SetGradient("HORIZONTAL", CreateColor(0.35, 0.29, 0.1, 1), CreateColor(0.35, 0.29, 0.1, 0))
-        end
-    else
-        h.icon:Hide()
-        h.fs:SetPoint("LEFT", 0, 0)
-        h.fs:SetTextColor(0.55, 0.55, 0.55)
-        h.rule:SetColorTexture(0.17, 0.17, 0.19, 1)
-    end
-    h.fs:SetText(text)
-    h.right:SetText(right or "")
-    h.rule:ClearAllPoints()
-    h.rule:SetPoint("LEFT", h.fs, "RIGHT", 8, 0)
-    h.rule:SetPoint("RIGHT", h.right, "LEFT", (right and right ~= "") and -8 or 0, 0)
-    h:Show()
-end
-
-local function NewNote(parent)   -- the dashed "for others" row, and "Still open" on the feedback view
-    local n = CreateFrame("Button", nil, parent)
-    n:SetHeight(32)
-    n.bg = Tex(n, "BACKGROUND", 0.063, 0.063, 0.075, 0.6)
-    n.bg:SetAllPoints()
-    UI():AddEdges(n)
-    UI():SetEdgeColor(n, 0.2, 0.2, 0.23, 1)
+-- the dashed "for others" note, and "Still open" on the feedback view: an inset card with a link
+local function NewNote(parent)
+    local n = UI():CreateCard(parent, { tone = "inset", height = 32 })
+    n:EnableMouse(true)
     n.icon = n:CreateTexture(nil, "ARTWORK")
     n.icon:SetSize(12, 12)
-    n.icon:SetPoint("LEFT", 9, 0)
-    n.fs = Text(n, "GameFontHighlightSmall")
+    n.icon:SetPoint("LEFT", 10, 0)
+    n.fs = UI():Text(n, "small", "SUB")
     n.fs:SetPoint("LEFT", n.icon, "RIGHT", 8, 0)
     n.go = NewGoLink(n, "Show them")
     n.go:SetPoint("RIGHT", n, "RIGHT", -10, 0)
     n.go:SetScript("OnClick", function(self) local p = self:GetParent(); if p.onClick then p.onClick() end end)
-    n:SetScript("OnClick", function(self) if self.onClick then self.onClick() end end)
+    n:SetScript("OnMouseUp", function(self, button) if button == "LeftButton" and self.onClick then self.onClick() end end)
     return n
 end
 
 local function FillNote(n, w, iconIndex, text, linkText, onClick)
     n:SetWidth(w)
-    AtlasTex(n.icon, iconIndex, 0.55, 0.55, 0.57)
+    Glyph(n.icon, iconIndex, "SUB")
     n.fs:SetText(text)
     n.go:SetLabel(linkText)
     n.onClick = onClick
     n:Show()
 end
 
--- a result group's head (a search): the release's painting as a strip
+-- a result group's head (a search): the release as a strip banner over its painting
 local function NewStrip(parent)
-    local s = CreateFrame("Button", nil, parent)
-    s:SetHeight(26)
-    s.art = s:CreateTexture(nil, "BACKGROUND")
-    s.art:SetAllPoints()
-    s.shade = Tex(s, "BORDER", 0.04, 0.04, 0.047, 0.78)
-    s.shade:SetAllPoints()
-    UI():AddEdges(s)
-    UI():SetEdgeColor(s, 0.17, 0.17, 0.2, 1)
-    s.v = Text(s, "GameFontNormal")
-    s.v:SetPoint("LEFT", 9, 0)
-    s.t = Text(s, "GameFontHighlight")
-    s.t:SetPoint("LEFT", s.v, "RIGHT", 7, 0)
-    s.r = Text(s, "GameFontDisableSmall")
-    s.r:SetPoint("RIGHT", -9, 0)
-    s:SetScript("OnClick", function(self) ChangelogUI:Select(self.version) end)
+    local s = UI():CreatePageBanner(parent, { size = "strip", width = 520 })
+    s:EnableMouse(true)
+    s:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" and self.version then ChangelogUI:Select(self.version) end
+    end)
+    s:SetActions({ { text = "Read", onClick = function() if s.version then ChangelogUI:Select(s.version) end end } })
     return s
 end
 
 -- a result block (a search): a section's title line and its matching lines
 local function NewBlock(parent)
     local b = CreateFrame("Frame", nil, parent)
-    b.bg = Tex(b, "BACKGROUND", 0.07, 0.07, 0.085, 0.86)
-    b.bg:SetAllPoints()
-    b.rule = Tex(b, "BORDER", 0.12, 0.12, 0.14, 1)
-    b.rule:SetHeight(1)
-    b.rule:SetPoint("BOTTOMLEFT")
-    b.rule:SetPoint("BOTTOMRIGHT")
+    UI():DecorateRow(b, { hover = false, rule = true })
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetSize(11, 11)
     b.icon:SetPoint("TOPLEFT", 9, -8)
-    b.title = Text(b, "GameFontHighlight")
+    b.title = UI():Text(b, "body", "TEXT")
     b.title:SetPoint("TOPLEFT", 25, -7)
-    b.kind = UI():CreateTagPill(b, 13)
-    b.tag = Text(b, "GameFontDisableSmall")
+    b.kind = UI():CreatePill(b, nil, nil, 14)
+    b.tag = UI():Text(b, "small", "SUB")
     b.go = NewGoLink(b)
     b.go:SetPoint("TOPRIGHT", b, "TOPRIGHT", -10, -6)
     b.go:SetScript("OnClick", function(self) ChangelogUI:ShowMe(self:GetParent().sec) end)
-    b.more = Text(b, "GameFontDisableSmall")
+    b.more = UI():Text(b, "small", "DIM")
     b.lines = {}
     return b
 end
 
--- a shipped item of mine (From your feedback): my words | the line that shipped it
+-- a shipped item of mine (From your feedback): my words | the line that shipped it (in the picked look)
 local function NewFeedbackCard(parent)
-    local c = CreateFrame("Frame", nil, parent)
-    c.bg = Tex(c, "BACKGROUND", 0.063, 0.063, 0.075, 0.92)
-    c.bg:SetAllPoints()
-    UI():AddEdges(c)
-    UI():SetEdgeColor(c, 0.17, 0.17, 0.2, 1)
-    c.div = Tex(c, "BORDER", 0.14, 0.14, 0.15, 1)
-    c.div:SetWidth(1)
+    local c = UI():CreateCard(parent, { tone = "card" })
+    c.div = UI():Rule(c, { vertical = true, layer = "BORDER" })
     c.kicon = c:CreateTexture(nil, "ARTWORK")
     c.kicon:SetSize(12, 12)
     c.kicon:SetPoint("TOPLEFT", 10, -10)
     c.kicon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    c.head = Text(c, "GameFontDisableSmall")
+    c.head = UI():Text(c, "small", "SUB")
     c.head:SetPoint("LEFT", c.kicon, "RIGHT", 6, 0)
-    c.quote = Text(c, "GameFontHighlight")
-    c.quote:SetWordWrap(true)
-    c.quote:SetTextColor(0.86, 0.86, 0.88)
+    c.quote = UI():Text(c, "body", "TEXT", { wrap = true })
     c.quote:SetPoint("TOPLEFT", 10, -30)
-    c.metoo = Text(c, "GameFontDisableSmall")
-    c.kick = Text(c, "GameFontNormalSmall")
-    c.kick:SetTextColor(0.37, 0.88, 0.48)
-    c.sec = Text(c, "GameFontHighlight", 12)
-    c.lineBg = Tex(c, "ARTWORK", 1, 0.82, 0, 0.09)
-    c.lineBar = Tex(c, "ARTWORK", 1, 0.82, 0, 0.9, 1)
-    c.lineBar:SetWidth(2)
-    c.line = Text(c, "GameFontHighlight")
-    c.line:SetWordWrap(true)
-    c.go = UI():CreateSleekButton(c, "Show me", 70, 18, function(self) ChangelogUI:ShowMe(self:GetParent().secRef) end,
+    c.metoo = UI():Text(c, "small", "SUB")
+    c.kick = UI():Text(c, "small", "OK")
+    c.secText = UI():Text(c, "emph", "TEXT")
+    c.lineBox = CreateFrame("Frame", nil, c)
+    UI():DecorateRow(c.lineBox, { hover = false, selectable = true })
+    c.lineBox:SetSelected(true)
+    c.line = UI():Text(c.lineBox, "body", "TEXT", { wrap = true })
+    c.go = UI():CreateSleekButton(c, "Show me", 76, S.BTN_H, function(self) ChangelogUI:ShowMe(self:GetParent().secRef) end,
         "primary")
     c.notes = NewGoLink(c, "Read the notes")
     c.notes:SetScript("OnClick", function(self)
@@ -1145,25 +1010,25 @@ end
 -- Building the views
 ---------------------------------------------------------------------------
 
-local pools          -- per kind: { list, used }
+-- What the scroll content is made of (UI:Pool each, on panel.child): kind -> function(parent) -> frame
+local MAKE = {
+    rows = NewRow, cards = NewHighlight, notes = NewNote, strips = NewStrip, blocks = NewBlock,
+    fcards = NewFeedbackCard,
+    heads = function(p) return UI():CreateSectionHeader(p, "", { style = "caps" }) end,
+    aheads = function(p) return UI():CreateSectionHeader(p, "", { style = "title" }) end,
+    texts = function(p) return UI():Text(p, "small", "GOLD", { wrap = true }) end,
+}
+local pools          -- kind -> UI:Pool
 
-local function Take(kind, make)
-    local p = pools[kind]
-    p.used = p.used + 1
-    local x = p.list[p.used]
-    if not x then
-        x = make(panel.child)
-        p.list[p.used] = x
-    end
+local function Take(kind)
+    local x = pools[kind]:Acquire()
     x:ClearAllPoints()
     return x
 end
 
 local function ResetPools()
-    for _, p in pairs(pools) do
-        for i = 1, #p.list do p.list[i]:Hide() end
-        p.used = 0
-    end
+    for _, p in pairs(pools) do p:ReleaseAll() end
+    if panel and panel.empty then panel.empty:Hide() end
 end
 
 -- The sections a view lists for me, after the area chip: highlights, the rest, those for others.
@@ -1206,54 +1071,80 @@ local function TagList(set)
 end
 
 local function PutRow(y, w, sec, v, opts)
-    local r = Take("rows", NewRow)
+    local r = Take("rows")
     r.isCard = opts.isCard
     r:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
     return y - FillRow(r, sec, v, w, opts)
 end
 
+-- A section header: "caps" (HIGHLIGHTS ... 4 of 21) or an area's (its glyph and name in gold, a count).
 local function PutHeader(y, w, text, right, kind, icon)
-    local h = Take("heads", NewHeader)
+    local area = kind == "area"
+    local h = Take(area and "aheads" or "heads")
     h:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
     h:SetWidth(w)
-    FillHeader(h, text, right, kind, icon)
-    return y - L.HEAD_H - 4
+    if area then
+        h:SetTitle(UI():AtlasIconText(icon, 12, S.C.GOLD) .. " " .. text)
+        h:SetCount(right)
+    else
+        h:SetTitle(text)
+        h:SetRight(right)
+    end
+    return y - floor(h:GetHeight() + 0.5) - 6
 end
 
 local function PutCards(y, w, items, showVer)
     local n = min(#items, 4)
     if n == 0 then return y end
-    local cw = floor((w - (n - 1) * 7) / n)
+    local cw = floor((w - (n - 1) * S.GAP) / n)
     local cards, ch = {}, L.CARD_H
     for i = 1, n do
-        local c = Take("cards", NewCard)
-        c:SetPoint("TOPLEFT", panel.child, "TOPLEFT", (i - 1) * (cw + 7), y)
-        FillCard(c, items[i].sec, items[i].v, cw, showVer)
+        local c = Take("cards")
+        c:SetPoint("TOPLEFT", panel.child, "TOPLEFT", (i - 1) * (cw + S.GAP), y)
+        FillHighlight(c, items[i].sec, items[i].v, cw, showVer)
         cards[i] = c
         ch = max(ch, c.need or 0)
     end
     for _, c in ipairs(cards) do c:SetHeight(ch) end
-    y = y - ch - 8
+    y = y - ch - S.GAP
     for i = 1, n do
         if st.card == items[i].sec.id then
-            y = PutRow(y, w, items[i].sec, items[i].v, { open = true, version = showVer, isCard = true }) - 8
+            y = PutRow(y, w, items[i].sec, items[i].v, { open = true, version = showVer, isCard = true }) - S.GAP
         end
     end
     return y
 end
 
+-- Just for me's "Show them": every section and line again.
+local function ShowEverything()
+    local s = Settings()
+    if s then s.changelogForMe = false end
+    if panel and panel.forMe then panel.forMe:SetChecked(false) end
+    ChangelogUI:Render()
+end
+
 local function PutOthers(y, w, g)
     if #g.others == 0 then return y end
-    local n = Take("notes", NewNote)
+    local n = Take("notes")
     n:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y - 6)
-    FillNote(n, w, UI().ICON.eye, ("|cffffffff%d section%s for others:|r for %s"):format(#g.others,
-        #g.others == 1 and "" or "s", WhoText(TagList(g.otherTags))), "Show them", function()
-        local s = Settings()
-        if s then s.changelogForMe = false end
-        if panel and panel.forMe then panel.forMe:SetChecked(false) end
-        ChangelogUI:Render()
-    end)
+    FillNote(n, w, UI().ICON.eye, ("%s for %s"):format(S:Wrap("TEXT", ("%d section%s for others:"):format(#g.others,
+        #g.others == 1 and "" or "s")), WhoText(TagList(g.otherTags))), "Show them", ShowEverything)
     return y - 32 - 12
+end
+
+-- Nothing to list: the illustrated empty state in the scroll content at y; returns the y under it.
+local function PutEmpty(y, w, title, text)
+    local e = panel.empty
+    if not e then
+        e = UI():CreateEmptyState(panel.child, { compact = true, glyph = UI().ICON.notes })
+        panel.empty = e
+    end
+    e:SetContent({ glyph = UI().ICON.notes, title = title, text = text })
+    e:SetBoxWidth(min(w, 360))
+    e:ClearAllPoints()
+    e:SetPoint("TOP", panel.child, "TOPLEFT", floor(w / 2), y - 30)
+    e:Show()
+    return y - 30 - e:GetHeight() - 10
 end
 
 local function ReleaseView(ne, w)
@@ -1277,21 +1168,14 @@ local function ReleaseView(ne, w)
     end
     local thanks = ThanksLine(ne.entry)
     if thanks then
-        local h = Take("texts", function(p) return Text(p, "GameFontHighlightSmall") end)
-        h:SetWordWrap(true)
+        local h = Take("texts")
         h:SetWidth(w)
-        h:SetTextColor(0.85, 0.75, 0.45)
         h:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y - 12)
         h:SetText(thanks)
-        h:Show()
         y = y - 12 - WrapH(h, w, 12)
     end
     if #g.hi + #g.rest + #g.fixes == 0 and #g.others == 0 then
-        local h = Take("texts", function(p) return Text(p, "GameFontDisable") end)
-        h:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y - 10)
-        h:SetText("Nothing in this area.")
-        h:Show()
-        y = y - 30
+        y = PutEmpty(y, w, "Nothing in this area.")
     end
     return y, g
 end
@@ -1316,8 +1200,7 @@ local function SinceView(list, w)
         for _, area in ipairs(AREA_ORDER) do
             local items = byArea[area]
             if items then
-                y = PutHeader(y - 2, w, strlower((AREAS[area] or AREAS.other)[1]):upper(), tostring(#items), "area",
-                    AreaAtlas(area))
+                y = PutHeader(y - 2, w, (AREAS[area] or AREAS.other)[1], tostring(#items), "area", AreaAtlas(area))
                 for _, it in ipairs(items) do
                     y = PutRow(y, w, it.sec, it.v, { open = st.open[it.sec.id] == true, version = true })
                 end
@@ -1386,28 +1269,27 @@ local function SearchView(w)
     local mark = Marker(strlower(st.query))
     local y = -2
     for _, grp in ipairs(res) do
-        local s = Take("strips", NewStrip)
+        local s = Take("strips")
         s:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
         s:SetWidth(w)
         s.version = grp.ne.version
         local key = "other"
         for _, it in ipairs(grp.secs) do key = it.sec.art or (AREAS[it.sec.area] or AREAS.other)[5]; break end
-        PaintRaid(s.art, key, w, 26)
-        s.v:SetText(grp.ne.version)
-        s.t:SetText(UI():SafeText(grp.ne.title or ""))
+        s:SetArt(ArtOf(key, w, S.BANNER.strip))
+        s:SetKicker(grp.ne.version)
+        s:SetTitle(UI():SafeText(grp.ne.title or ""))
         local n = 0
         for _, it in ipairs(grp.secs) do n = n + #it.lines end
-        s.r:SetText(ShortDate(grp.ne) .. " · " .. (n == 1 and "1 line" or (n .. " lines")))
-        s:Show()
-        y = y - 26
+        s:SetSub(ShortDate(grp.ne) .. " · " .. (n == 1 and "1 line" or (n .. " lines")))
+        y = y - S.BANNER.strip - 2
         for _, it in ipairs(grp.secs) do
-            local b = Take("blocks", NewBlock)
+            local b = Take("blocks")
             b:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
             b:SetWidth(w)
             b.sec = it.sec
-            AtlasTex(b.icon, AreaAtlas(it.sec.area), 0.81, 0.81, 0.81)
+            Glyph(b.icon, AreaAtlas(it.sec.area), "TEXT")
             b.title:SetText(mark(UI():SafeText(it.sec.title)))
-            local x = 25 + (tonumber(b.title:GetStringWidth()) or 0) + 8
+            local x = 25 + UI():TextWidth(b.title) + 8
             local kinfo = it.sec.kind and KIND[it.sec.kind]
             if kinfo then
                 b.kind:Set(kinfo[1], kinfo[2])
@@ -1418,13 +1300,13 @@ local function SearchView(w)
             else
                 b.kind:Hide()
             end
-            b.tag:SetText(AreaIcon(it.sec.area, 10, { 0.55, 0.55, 0.57 }) .. " " .. (AREAS[it.sec.area] or AREAS.other)[1])
+            b.tag:SetText(AreaIcon(it.sec.area, 10, S.C.SUB) .. " " .. (AREAS[it.sec.area] or AREAS.other)[1])
             b.tag:ClearAllPoints()
             b.tag:SetPoint("LEFT", b, "TOPLEFT", x, -13)
             b.go:SetShown(it.sec.open ~= nil)
             local shown = {}
             for i = 1, min(4, #it.lines) do shown[i] = it.lines[i] end
-            local by = LayLines(b, b.lines, shown, 14, -24, w - 28, mark)
+            local by = LayLines(b, b.lines, shown, 14, -26, w - 28, mark)
             if #it.lines > 4 then
                 b.more:SetText(("+ %d more lines in this section"):format(#it.lines - 4))
                 b.more:ClearAllPoints()
@@ -1438,26 +1320,17 @@ local function SearchView(w)
             b:Show()
             y = y + by - 6
         end
-        y = y - 10
+        y = y - S.GAP - 2
     end
     if hidden > 0 then
-        local n = Take("notes", NewNote)
+        local n = Take("notes")
         n:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
-        FillNote(n, w, UI().ICON.eye, ("|cffffffff%d more line%s|r for %s"):format(hidden, hidden == 1 and "" or "s",
-            WhoText(TagList(hiddenTags))), "Show them", function()
-            local s = Settings()
-            if s then s.changelogForMe = false end
-            if panel and panel.forMe then panel.forMe:SetChecked(false) end
-            ChangelogUI:Render()
-        end)
+        FillNote(n, w, UI().ICON.eye, ("%s for %s"):format(S:Wrap("TEXT", ("%d more line%s"):format(hidden,
+            hidden == 1 and "" or "s")), WhoText(TagList(hiddenTags))), "Show them", ShowEverything)
         y = y - 44
     end
     if #res == 0 then
-        local h = Take("texts", function(p) return Text(p, "GameFontDisable") end)
-        h:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y - 10)
-        h:SetText("Nothing in any version says that.")
-        h:Show()
-        y = y - 30
+        y = PutEmpty(y, w, "Nothing in any version says that.")
     end
     return y, total
 end
@@ -1491,7 +1364,7 @@ local function FeedbackView(w)
     local y = -2
     local F = ns.Feedback
     for _, it in ipairs(MyShipped()) do
-        local c = Take("fcards", NewFeedbackCard)
+        local c = Take("fcards")
         c:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
         c:SetWidth(w)
         c.secRef = it.sec
@@ -1500,13 +1373,14 @@ local function FeedbackView(w)
         local kind = (item and item.kind) or (type(raw) == "table" and raw.k) or "idea"
         local info = F.KIND_INFO and F.KIND_INFO[kind] or F.KIND_INFO.idea
         c.kicon:SetTexture(info.icon)
-        local head = (item and item.no) and ("|cffffffff#" .. item.no .. "|r · ") or ""
+        local head = (item and item.no) and (S:Wrap("TEXT", "#" .. item.no) .. " · ") or ""
         head = head .. info.short
         if item and item.at then head = head .. " · " .. date("%d %b", item.at) end
         c.head:SetText(head)
         local leftW = floor(w * 0.38)
         c.quote:SetWidth(leftW - 20)
-        c.quote:SetText(item and ("“" .. UI():SafeText(item.text or "") .. "”") or "|cff8c8c91Your words haven't reached this character yet.|r")
+        c.quote:SetText(item and ("“" .. UI():SafeText(item.text or "") .. "”")
+            or S:Wrap("DIM", "Your words haven't reached this character yet."))
         local qh = min(WrapH(c.quote, leftW - 20, 13), 13 * 5)
         local votes = item and tonumber(item.voteCount) or (type(raw) == "table" and tonumber(raw.mt)) or 0
         c.metoo:SetText(votes > 0 and (votes == 1 and "1 more said me too" or (votes .. " more said me too"))
@@ -1516,24 +1390,22 @@ local function FeedbackView(w)
         c.div:ClearAllPoints()
         c.div:SetPoint("TOPLEFT", c, "TOPLEFT", leftW, -1)
         c.div:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", leftW, 1)
+        c.div:SetWidth(1)
         local rx, rw = leftW + 12, w - leftW - 24
         c.kick:ClearAllPoints()
         c.kick:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -10)
         c.kick:SetText("|TInterface\\RaidFrame\\ReadyCheck-Ready:11:11|t SHIPPED IN " .. it.sec.version)
-        c.sec:ClearAllPoints()
-        c.sec:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -26)
-        c.sec:SetText(AreaIcon(it.sec.area, 11, { 0.81, 0.81, 0.81 }) .. " " .. UI():SafeText(it.sec.title))
+        c.secText:ClearAllPoints()
+        c.secText:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -26)
+        c.secText:SetText(AreaIcon(it.sec.area, 11, S.C.TEXT) .. " " .. UI():SafeText(it.sec.title))
         c.line:SetWidth(rw - 14)
         c.line:SetText(UI():SafeText(it.ln.text))
         local lh = WrapH(c.line, rw - 14, 13)
+        c.lineBox:ClearAllPoints()
+        c.lineBox:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -44)
+        c.lineBox:SetSize(rw, lh + 8)
         c.line:ClearAllPoints()
-        c.line:SetPoint("TOPLEFT", c, "TOPLEFT", rx + 8, -48)
-        c.lineBg:ClearAllPoints()
-        c.lineBg:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -44)
-        c.lineBg:SetSize(rw, lh + 8)
-        c.lineBar:ClearAllPoints()
-        c.lineBar:SetPoint("TOPLEFT", c, "TOPLEFT", rx, -44)
-        c.lineBar:SetHeight(lh + 8)
+        c.line:SetPoint("TOPLEFT", c.lineBox, "TOPLEFT", 8, -4)
         local by = -44 - lh - 8 - 8
         c.go:ClearAllPoints()
         c.go:SetPoint("TOPLEFT", c, "TOPLEFT", rx, by)
@@ -1544,20 +1416,21 @@ local function FeedbackView(w)
         else
             c.notes:SetPoint("TOPLEFT", c, "TOPLEFT", rx, by - 2)
         end
-        local h = max(-by + 18 + 10, 30 + qh + 6 + 14 + 10)
+        local h = max(-by + S.BTN_H + 10, 30 + qh + 6 + 14 + 10)
         c:SetHeight(h)
         c:Show()
-        y = y - h - 7
+        y = y - h - S.GAP
     end
     local open = MyOpen()
     if #open > 0 then
         local it = open[1]
-        local n = Take("notes", NewNote)
+        local n = Take("notes")
         n:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
         local words = UI():SafeText(tostring(it.text or ""))
         if #words > 60 then words = words:sub(1, 57) .. "..." end
-        FillNote(n, w, UI().ICON.notes, ("|cffffffffStill open:|r %s“%s”%s"):format(it.no and ("#" .. it.no .. " · ") or "",
-            words, #open > 1 and (" and " .. (#open - 1) .. " more") or ""), "Feedback", function()
+        FillNote(n, w, UI().ICON.notes, ("%s %s“%s”%s"):format(S:Wrap("TEXT", "Still open:"),
+            it.no and ("#" .. it.no .. " · ") or "", words, #open > 1 and (" and " .. (#open - 1) .. " more") or ""),
+            "Feedback", function()
             if ns.FeedbackUI and ns.FeedbackUI.Open then ns.FeedbackUI:Open("mine") else ns.MainFrame:Open("feedback") end
         end)
         y = y - 32 - 8
@@ -1566,119 +1439,79 @@ local function FeedbackView(w)
 end
 
 ---------------------------------------------------------------------------
--- The banner and the filter row
+-- The banner and the toolbar (the areas as its tabs, Just for me as its filter)
 ---------------------------------------------------------------------------
 
-local function SetBanner(kicker, title, sub, artFn, icon)
+local function SetBanner(kicker, title, sub, art, icon)
     local b = panel.banner
-    b.kicker:SetText(kicker)
-    b.title:SetText(UI():SafeText(title))
-    b.sub:SetText(sub)
-    artFn(b.art)
-    b.face:SetIcon(icon)
-    b:Show()
+    b:SetKicker(kicker)
+    b:SetTitle(UI():SafeText(title))
+    b:SetSub(sub)
+    b:SetArt(art)
+    b:SetIcon(icon)
 end
 
-local function NewChip(parent)
-    local c = CreateFrame("Button", nil, parent)
-    c:SetHeight(L.TB_H - 4)
-    UI():AddPillShape(c, L.TB_H - 4)
-    c.fs = Text(c, "GameFontHighlightSmall")
-    c.fs:SetPoint("LEFT", 9, 0)
-    c.n = Text(c, "GameFontDisableSmall")
-    c.n:SetPoint("LEFT", c.fs, "RIGHT", 4, 0)
-    c:SetScript("OnClick", function(self)
-        st.area = self.area
-        st.card = nil
-        ChangelogUI:Render()
-    end)
-    c:SetScript("OnEnter", function(self) if not self.on then self:SetPillColors({ 0.13, 0.13, 0.15, 1 }, { 0.35, 0.35, 0.4, 1 }) end end)
-    c:SetScript("OnLeave", function(self) self:Paint() end)
-    function c:Paint()
-        if self.on then
-            self:SetPillColors({ 0.18, 0.15, 0.09, 1 }, { 0.54, 0.45, 0.13, 1 })
-            self.fs:SetTextColor(0.95, 0.85, 0.54)
-        else
-            self:SetPillColors({ 0.1, 0.1, 0.115, 1 }, { 0.23, 0.23, 0.26, 1 })
-            self.fs:SetTextColor(0.86, 0.86, 0.86)
-        end
-    end
-    return c
+local function PickArea(area)
+    st.area = area
+    st.card = nil
+    ChangelogUI:Render()
 end
 
-local function FillChips(counts, total)
-    local list = { { nil, "All", total } }
+-- The areas as the toolbar's tabs (All first, each with its count); the ones that don't fit go into its ··· menu
+-- (a pick from there takes the last place in the row). panel.chips = the tab buttons (tab.area = its area, nil: All);
+-- panel.moreChip = the menu button (.over = the areas in it, .on = the pick came from it).
+local function FillAreas(counts, total)
+    local list = { { "all", "All", total } }
     for _, a in ipairs(AREA_ORDER) do
         if (counts[a] or 0) > 0 then list[#list + 1] = { a, AREAS[a][1], counts[a] } end
     end
     if st.area and not counts[st.area] then st.area = nil end
-    local tw = tonumber(panel.toolbar:GetWidth()) or 0
-    local maxX = (tw > 100 and tw or 560) - 150
-    local function fill(c, d)
-        c.fs:SetText(d[2])
-        c.n:SetText(tostring(d[3]))
-        local w = floor((c.fs:GetStringWidth() or 30) + 4 + (c.n:GetStringWidth() or 10) + 18)
-        c:SetWidth(w)
-        return w
-    end
-    -- the chips that fit; the rest go into a More chip's menu (the picked one shows on it)
-    local x, shown, over = 0, 0, {}
+    local bar = panel.toolbar
+    local tabs = { selected = st.area or "all" }
+    for i, d in ipairs(list) do tabs[i] = { key = d[1], text = d[2], count = d[3], kind = "muted" } end
+    bar:SetTabs(tabs)
+    -- what fits left of the filter and the menu
+    local bw = floor(bar:GetWidth() or 0)
+    local room = (bw > 200 and bw or S.PAGE_W) - UI().LAYOUT.TAB_X - (panel.filter:GetWidth() or 150) - S.BTN_H - 40
+    local x, fit, over = 0, {}, {}
     for i, d in ipairs(list) do
-        local c = Pool(panel.chips, i, function() return NewChip(panel.toolbar) end)
-        c.area = d[1]
-        c.on = st.area == d[1]
-        local w = fill(c, d)
-        local room = maxX - ((i < #list) and 64 or 0)
-        if i == 1 or (#over == 0 and x + w <= room) then
-            c:ClearAllPoints()
-            c:SetPoint("LEFT", panel.toolbar, "LEFT", x, 0)
-            c:Paint()
-            c:Show()
-            x = x + w + 5
-            shown = i
+        local b = bar:GetTab(d[1])
+        b.area = d[1] ~= "all" and d[1] or nil
+        local w = (b:GetWidth() or 60) + UI().LAYOUT.TAB_GAP
+        if i == 1 or (#over == 0 and x + w <= room - ((i < #list) and S.BTN_H or 0)) then
+            fit[#fit + 1] = d
+            x = x + w
         else
-            c:Hide()
             over[#over + 1] = d
         end
     end
-    for i = #list + 1, #panel.chips do panel.chips[i]:Hide() end
-    local more = panel.moreChip
+    -- the pick sits in the row even when it came from the menu (in the last place)
+    local pickAt
+    for i, d in ipairs(over) do
+        if d[1] == st.area then pickAt = i end
+    end
+    if pickAt then
+        local d = table.remove(over, pickAt)
+        if #fit > 1 then tinsert(over, 1, table.remove(fit)) end
+        fit[#fit + 1] = d
+    end
+    local inRow = {}
+    for _, d in ipairs(fit) do inRow[d[1]] = true end
+    for _, d in ipairs(list) do bar:SetTabShown(d[1], inRow[d[1]] == true) end
+    panel.chips = bar.tabButtons
     if #over == 0 then
-        if more then more:Hide() end
+        bar:SetMore(nil)
         return
     end
-    if not more then
-        more = NewChip(panel.toolbar)
-        more.chev = more:CreateTexture(nil, "ARTWORK")
-        more.chev:SetSize(8, 8)
-        more.chev:SetPoint("LEFT", more.n, "RIGHT", 4, 0)
-        UI():SetChevron(more.chev, false)
-        more.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
-        more:SetScript("OnClick", function(self)
-            UI():ContextMenu(self, function(root)
-                for _, d in ipairs(self.over or {}) do
-                    root:CreateRadio(d[2] .. "  |cff8c8c91" .. d[3] .. "|r", function() return st.area == d[1] end,
-                        function()
-                            st.area = d[1]
-                            st.card = nil
-                            ChangelogUI:Render()
-                        end)
-                end
-            end)
-        end)
-        panel.moreChip = more
-    end
+    local more = bar:SetMore(function(root)
+        for _, d in ipairs(panel.moreChip.over or {}) do
+            root:CreateRadio(d[2] .. "  " .. S:Wrap("DIM", d[3]), function() return st.area == d[1] end,
+                function() PickArea(d[1]) end)
+        end
+    end, "More areas")
     more.over = over
-    local pick
-    for _, d in ipairs(over) do if d[1] == st.area then pick = d end end
-    more.on = pick ~= nil
-    local w = fill(more, pick or { nil, "More", #over })
-    more:SetWidth(w + 12)
-    more:ClearAllPoints()
-    more:SetPoint("LEFT", panel.toolbar, "LEFT", x, 0)
-    more:Paint()
-    more.chev:SetVertexColor(0.7, 0.7, 0.72)
-    more:Show()
+    more.on = pickAt ~= nil
+    panel.moreChip = more
 end
 
 ---------------------------------------------------------------------------
@@ -1732,29 +1565,17 @@ local function HasMine(ne)
     return false
 end
 
+-- A pinned view (Since your last visit, From your feedback): an icon tile, two lines, a count.
 local function NewPin(parent)
     local p = CreateFrame("Button", nil, parent)
     p:SetHeight(L.PIN_H)
-    p.sel = Tex(p, "BACKGROUND", 1, 0.82, 0, 0.12)
-    p.sel:SetAllPoints()
-    p.bar = Tex(p, "ARTWORK", 1, 0.82, 0, 1)
-    p.bar:SetWidth(3)
-    p.bar:SetPoint("TOPLEFT", 0, -3)
-    p.bar:SetPoint("BOTTOMLEFT", 0, 3)
-    p.hl = Tex(p, "HIGHLIGHT", 1, 1, 1, 0.05)
-    p.hl:SetAllPoints()
-    p.tile = CreateFrame("Frame", nil, p)
-    p.tile:SetSize(25, 25)
+    UI():DecorateRow(p, { selectable = true })
+    p.tile = UI():CreateIconTile(p, 24)
     p.tile:SetPoint("LEFT", 8, 0)
-    p.tile.bg = Tex(p.tile, "BACKGROUND", 0.094, 0.094, 0.11, 1)
-    p.tile.bg:SetAllPoints()
-    UI():AddEdges(p.tile)
-    p.icon = p.tile:CreateTexture(nil, "ARTWORK")
-    p.icon:SetSize(14, 14)
-    p.icon:SetPoint("CENTER")
-    p.t = Text(p, "GameFontHighlight")
+    p.icon = p.tile.tex
+    p.t = UI():Text(p, "body", "TEXT")
     p.t:SetPoint("TOPLEFT", p.tile, "TOPRIGHT", 8, 0)
-    p.s = Text(p, "GameFontDisableSmall")
+    p.s = UI():Text(p, "small", "SUB")
     p.s:SetPoint("BOTTOMLEFT", p.tile, "BOTTOMRIGHT", 8, 0)
     p.badge = UI():CreateCountBadge(p, 15)
     p.badge:SetPoint("RIGHT", -8, 0)
@@ -1764,27 +1585,18 @@ end
 
 local function NewVRow(parent)
     local r = CreateFrame("Button", nil, parent)
-    r.sel = Tex(r, "BACKGROUND", 1, 0.82, 0, 0.12)
-    r.sel:SetAllPoints()
-    r.bar = Tex(r, "ARTWORK", 1, 0.82, 0, 1)
-    r.bar:SetWidth(3)
-    r.bar:SetPoint("TOPLEFT", 0, -3)
-    r.bar:SetPoint("BOTTOMLEFT", 0, 3)
-    r.hl = Tex(r, "HIGHLIGHT", 1, 1, 1, 0.05)
-    r.hl:SetAllPoints()
-    r.version = Text(r, "GameFontNormal")
+    UI():DecorateRow(r, { selectable = true })
+    r.version = UI():Text(r, "body", "GOLD")
     r.version:SetPoint("TOPLEFT", 10, -L.VROW_PAD)
     r.mine = r:CreateTexture(nil, "ARTWORK")
     r.mine:SetSize(10, 10)
     r.mine:SetPoint("LEFT", r.version, "RIGHT", 5, 0)
     r.mine:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    r.badge = Text(r, "GameFontHighlightSmall")
-    r.badge:SetJustifyH("RIGHT")
+    r.badge = UI():Text(r, "small", "SUB", { justify = "RIGHT" })
     r.badge:SetPoint("TOPRIGHT", -8, -L.VROW_PAD - 1)
     r.hits = UI():CreateCountBadge(r, 14)
     r.hits:SetPoint("TOPRIGHT", -8, -L.VROW_PAD)
-    r.title = Text(r, "GameFontDisableSmall")
-    r.title:SetWordWrap(true)
+    r.title = UI():Text(r, "small", "SUB", { wrap = true })
     r.title:SetJustifyV("TOP")
     r.title:SetPoint("TOPLEFT", 10, -L.VROW_PAD - 16)
     if r.title.SetMaxLines then r.title:SetMaxLines(3) end
@@ -1792,22 +1604,18 @@ local function NewVRow(parent)
     return r
 end
 
+-- A series of releases (1.3; 1.2 · 1.1 · 1.0; 0.1 - 0.12): a caps heading with how many, folded with a click.
 local function NewVGroup(parent)
     local g = CreateFrame("Button", nil, parent)
     g:SetHeight(L.GROUP_H)
-    g.rule = Tex(g, "ARTWORK", 0.14, 0.14, 0.15, 1)
-    g.rule:SetHeight(1)
-    g.rule:SetPoint("TOPLEFT")
-    g.rule:SetPoint("TOPRIGHT")
-    g.fs = Text(g, "GameFontDisableSmall")
-    g.fs:SetPoint("LEFT", 9, 0)
-    g.r = Text(g, "GameFontDisableSmall")
+    UI():DecorateRow(g, {})
+    g.rule = UI():Rule(g, { top = 0 })
+    g.head = UI():CreateSectionHeader(g, "", { style = "caps", rule = false })
+    g.head:SetPoint("LEFT", g, "LEFT", 6, 0)
+    g.head:SetPoint("RIGHT", g, "RIGHT", -18, 0)
     g.chev = g:CreateTexture(nil, "ARTWORK")
     g.chev:SetSize(8, 8)
     g.chev:SetPoint("RIGHT", -8, 0)
-    g.r:SetPoint("RIGHT", g.chev, "LEFT", -4, 0)
-    g.hl = Tex(g, "HIGHLIGHT", 1, 1, 1, 0.04)
-    g.hl:SetAllPoints()
     g:SetScript("OnClick", function(self)
         st.collapsed[self.key] = not self.collapsedNow
         ChangelogUI:RenderList()
@@ -1815,28 +1623,20 @@ local function NewVGroup(parent)
     return g
 end
 
-local vpools
+local VMAKE = { pins = NewPin, groups = NewVGroup, rows = NewVRow }
+local vpools         -- kind -> UI:Pool on panel.vchild
 
-local function VTake(kind, make)
-    local p = vpools[kind]
-    p.used = p.used + 1
-    local x = p.list[p.used]
-    if not x then
-        x = make(panel.vchild)
-        p.list[p.used] = x
-    end
+local function VTake(kind)
+    local x = vpools[kind]:Acquire()
     x:ClearAllPoints()
     return x
 end
 
 function ChangelogUI:RenderList()
     if not panel then return end
-    for _, p in pairs(vpools) do
-        for i = 1, #p.list do p.list[i]:Hide() end
-        p.used = 0
-    end
+    for _, p in pairs(vpools) do p:ReleaseAll() end
     local w = floor(tonumber(panel.vscroll:GetWidth()) or 0)
-    if w < 120 then w = L.LIST_W - 22 end
+    if w < 120 then w = L.LIST_W - 12 end
     panel.vchild:SetWidth(w)
     local y = 0
     local searching = st.query ~= ""
@@ -1856,41 +1656,33 @@ function ChangelogUI:RenderList()
         panel.searchCount:Hide()
         local unread = Unread()
         if #unread >= 2 then
-            local p = VTake("pins", NewPin)
+            local p = VTake("pins")
             p:SetPoint("TOPLEFT", panel.vchild, "TOPLEFT", 0, y)
             p:SetWidth(w)
             p.view = "since"
-            local on = st.view == "since"
-            p.sel:SetShown(on)
-            p.bar:SetShown(on)
-            AtlasTex(p.icon, UI().ICON.notes, 1, 0.82, 0)
-            UI():SetEdgeColor(p.tile, on and 0.54 or 0.23, on and 0.45 or 0.23, on and 0.13 or 0.26, 1)
+            p:SetSelected(st.view == "since")
+            Glyph(p.icon, UI().ICON.notes, "GOLD")
             p.t:SetText("Since your last visit")
             p.s:SetText(("%s to %s"):format(unread[#unread].version, unread[1].version))
             p.badge:SetKind("alert")
             p.badge:SetCount(#unread)
-            p:Show()
             y = y - L.PIN_H - 2
         end
         if #MyShipped() > 0 then
-            local p = VTake("pins", NewPin)
+            local p = VTake("pins")
             p:SetPoint("TOPLEFT", panel.vchild, "TOPLEFT", 0, y)
             p:SetWidth(w)
             p.view = "feedback"
-            local on = st.view == "feedback"
-            p.sel:SetShown(on)
-            p.bar:SetShown(on)
+            p:SetSelected(st.view == "feedback")
             local F = ns.Feedback
             p.icon:SetTexture(F.KIND_INFO.idea.icon)
             p.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             p.icon:SetVertexColor(1, 1, 1)
-            UI():SetEdgeColor(p.tile, on and 0.54 or 0.23, on and 0.45 or 0.23, on and 0.13 or 0.26, 1)
             p.t:SetText("From your feedback")
             local shipped, open = #MyShipped(), #MyOpen()
             p.s:SetText(shipped .. " shipped" .. (open > 0 and (" · " .. open .. " still open") or ""))
             p.badge:SetKind("muted")
             p.badge:SetCount(shipped)
-            p:Show()
             y = y - L.PIN_H - 2
         end
     end
@@ -1905,33 +1697,33 @@ function ChangelogUI:RenderList()
         if collapsed == nil then collapsed = grp.key == "older" or grp.key == "earlier" end
         if holdsView and st.collapsed[grp.key] == nil then collapsed = false end
         if searching then collapsed = hits == 0 end
-        local g = VTake("groups", NewVGroup)
+        local g = VTake("groups")
         g:SetPoint("TOPLEFT", panel.vchild, "TOPLEFT", 0, y - 3)
         g:SetWidth(w)
         g.key = grp.key
         g.collapsedNow = collapsed
-        g.fs:SetText(grp.label)
+        g.head:SetTitle(grp.label)
+        -- (the label as it is: upper-casing a byte of "–" breaks it; the series labels are digits anyway)
+        -- TODO(refactor): PageParts' Caps should leave bytes past 127 alone
+        g.head.title:SetText(grp.label)
         if searching and grp.key ~= Groups()[1].key then
-            g.r:SetText(("%d of %d match"):format(hits, n))
+            g.head:SetRight(("%d of %d match"):format(hits, n))
         else
-            g.r:SetText(n == 1 and "1 version" or (n .. " versions"))
+            g.head:SetRight(n == 1 and "1 version" or (n .. " versions"))
         end
         UI():SetChevron(g.chev, collapsed)
         if not collapsed then g.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron))) end
-        g.chev:SetVertexColor(0.55, 0.55, 0.57)
-        g:Show()
+        g.chev:SetVertexColor(S:Color("SUB"))
         y = y - L.GROUP_H - 5
         if not collapsed then
             for _, ne in ipairs(grp.items) do
                 local hide = searching and grp.key ~= Groups()[1].key and not hitsBy[ne.version]
                 if not hide then
-                    local r = VTake("rows", NewVRow)
+                    local r = VTake("rows")
                     r:SetPoint("TOPLEFT", panel.vchild, "TOPLEFT", 0, y)
                     r:SetWidth(w)
                     r.view = ne.version
-                    local on = st.view == ne.version and not searching
-                    r.sel:SetShown(on)
-                    r.bar:SetShown(on)
+                    r:SetSelected(st.view == ne.version and not searching)
                     r.version:SetText(ne.version)
                     local mine = not searching and HasMine(ne)
                     if mine then r.mine:SetTexture(ns.Feedback.KIND_INFO.idea.icon) end
@@ -1943,7 +1735,7 @@ function ChangelogUI:RenderList()
                     else
                         r.hits:SetCount(0)
                         local badge, color = Badge(ne)
-                        r.badge:SetText(badge and ("|cff" .. color .. badge .. "|r") or ("|cff808080" .. ShortDate(ne) .. "|r"))
+                        r.badge:SetText(badge and S:Wrap(color, badge) or S:Wrap("DIM", ShortDate(ne)))
                         r.badge:Show()
                         r:SetAlpha(1)
                     end
@@ -1952,7 +1744,6 @@ function ChangelogUI:RenderList()
                     local th = min(WrapH(r.title, w - 18, 12), 36)
                     local h = L.VROW_PAD + 16 + th + L.VROW_PAD + 2
                     r:SetHeight(h)
-                    r:Show()
                     y = y - h
                 end
             end
@@ -1965,52 +1756,33 @@ end
 -- Rendering the right side
 ---------------------------------------------------------------------------
 
-local function Layout(searching)
-    local b, tb, sf = panel.banner, panel.toolbar, panel.scroll
-    local top = -L.PAD
-    tb:ClearAllPoints()
-    sf:ClearAllPoints()
-    if searching then
-        b:Hide()
-        panel.shead:Show()
-        tb:SetPoint("TOPLEFT", panel.right, "TOPLEFT", 0, top - 26)
-    else
-        panel.shead:Hide()
-        tb:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -L.GAP)
-    end
-    tb:SetPoint("RIGHT", panel.right, "RIGHT", 0, 0)
-    sf:SetPoint("TOPLEFT", tb, "BOTTOMLEFT", 0, -L.GAP)
-    sf:SetPoint("BOTTOMRIGHT", panel.right, "BOTTOMRIGHT", -12, L.PAD)
-end
-
 function ChangelogUI:Render(keepScroll)
     if not panel then return end
     roles = nil
     local scrollY = keepScroll and panel.scroll:GetVerticalScroll() or 0
     ResetPools()
     local w = floor((panel.scroll:GetWidth() or 0))
-    if w < 100 then w = floor((panel.right:GetWidth() or 0) - 12) end
-    if w < 100 then w = 556 end
+    if w < 100 then w = floor((panel.layout.detailW or 532) - 12) end
     panel.child:SetWidth(w)
-    local searching = st.query ~= ""
-    Layout(searching)
+    local bw = panel.layout.detailW or 532
     local y, g = -2, nil
-    if searching then
+    if st.query ~= "" then
         local _, total, _, _, areas, versions = Search(st.query)
-        panel.shead:SetText(("|cffffffff%d line%s match|r |cffffd100%s|r   |cff9e9e9ein %d version%s, newest first|r")
-            :format(total, total == 1 and "" or "s", UI():SafeText(st.query), versions, versions == 1 and "" or "s"))
+        SetBanner("Search", ("%d line%s match %s"):format(total, total == 1 and "" or "s", S:Wrap("GOLD",
+            UI():SafeText(st.query))), ("in %d version%s, newest first"):format(versions, versions == 1 and "" or "s"),
+            ArtOf("other", bw, S.BANNER.tool), UI().ICON.notes)
         local all = 0
         for _, n in pairs(areas) do all = all + n end
-        FillChips(areas, all)
+        FillAreas(areas, all)
         y = SearchView(w)
     elseif st.view == "feedback" then
         local shipped = MyShipped()
         local me = Util().ShortName and Util().ShortName(Util().PlayerKey() or "") or ""
-        SetBanner("FROM YOUR FEEDBACK", (#shipped == 1 and "1 thing you asked for made it in")
+        SetBanner("From your feedback", (#shipped == 1 and "1 thing you asked for made it in")
             or (#shipped .. " things you asked for made it in"),
-            ("Thank you, %s. Each one says where it shipped."):format(me),
-            function(t) PaintRaid(t, "mag", 560, L.BAN_H) end, UI().ICON.trophy)
-        FillChips({}, #shipped)
+            ("Thank you, %s. Each one says where it shipped."):format(me), ArtOf("mag", bw, S.BANNER.tool),
+            UI().ICON.trophy)
+        FillAreas({}, #shipped)
         y = FeedbackView(w)
     elseif st.view == "since" then
         local list = {}
@@ -2025,10 +1797,10 @@ function ChangelogUI:Render(keepScroll)
             local d1, d2 = ShortDate(unread[#unread]), ShortDate(unread[1])
             dates = " · " .. (d1 == d2 and d1 or (d1 .. " to " .. d2))
         end
-        SetBanner("WHILE YOU WERE AWAY", ("%d new versions since you last looked"):format(#unread),
-            ("%s%s · %d sections for you"):format(vtext, dates, g.total),
-            function(t) PaintOutland(t, 560, L.BAN_H) end, UI().ICON.notes)
-        FillChips(g.counts, g.total)
+        SetBanner("While you were away", ("%d new versions since you last looked"):format(#unread),
+            ("%s%s · %d sections for you"):format(vtext, dates, g.total), ArtOf("other", bw, S.BANNER.tool),
+            UI().ICON.notes)
+        FillAreas(g.counts, g.total)
     else
         local ne = Norm().by[st.view or ""]
         if ne then
@@ -2037,17 +1809,20 @@ function ChangelogUI:Render(keepScroll)
             local kicker = ne.version .. (badge and (" · " .. badge:upper()) or "") .. " · " .. strlower(ne.date or ""):upper()
             local sub = ("%d sections for you"):format(g.total)
             if #g.others > 0 then sub = sub .. (" · %d more for %s"):format(#g.others, WhoText(TagList(g.otherTags))) end
-            if Compare(ne.version, ns.version) > 0 then sub = sub .. "   |cff808080(you have " .. tostring(ns.version) .. ")|r" end
+            if Compare(ne.version, ns.version) > 0 then
+                sub = sub .. "   " .. S:Wrap("DIM", "(you have " .. tostring(ns.version) .. ")")
+            end
             local art, icon = "other", UI().ICON.notes
             for _, s in ipairs(ne.sections) do
                 if s.hi then art = s.art or (AREAS[s.area] or AREAS.other)[5]; icon = AreaAtlas(s.area); break end
             end
-            SetBanner(kicker, ne.title or "", sub, function(t) PaintRaid(t, art, 560, L.BAN_H) end, icon)
-            FillChips(g.counts, g.total)
+            SetBanner(kicker, ne.title or "", sub, ArtOf(art, bw, S.BANNER.tool), icon)
+            FillAreas(g.counts, g.total)
         end
     end
     local hiddenN = g and #g.others or 0
     panel.hidden:SetText(ForMeOn() and hiddenN > 0 and (hiddenN .. " hidden") or "")
+    panel:FitFilter()
     panel.child:SetHeight(max(10, -y + 8))
     panel.scroll:SetVerticalScroll(min(scrollY, max(0, -y + 8 - (panel.scroll:GetHeight() or 0))))
 end
@@ -2091,7 +1866,7 @@ end
 function ChangelogUI:GetState() return st end
 
 ---------------------------------------------------------------------------
--- The panel
+-- The panel: a list + detail page (the releases in the list, the release under its banner in the detail)
 ---------------------------------------------------------------------------
 
 function ChangelogUI:CreatePanel(parent)
@@ -2099,86 +1874,67 @@ function ChangelogUI:CreatePanel(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
     panel = p
-    pools = { rows = { list = {}, used = 0 }, cards = { list = {}, used = 0 }, heads = { list = {}, used = 0 },
-              notes = { list = {}, used = 0 }, strips = { list = {}, used = 0 }, blocks = { list = {}, used = 0 },
-              fcards = { list = {}, used = 0 }, texts = { list = {}, used = 0 } }
-    vpools = { pins = { list = {}, used = 0 }, groups = { list = {}, used = 0 }, rows = { list = {}, used = 0 } }
-
-    -- left: search, pinned views, the releases
-    local left = UI():CreatePanel(p)
-    left:SetPoint("TOPLEFT", p, "TOPLEFT", L.PAD, -L.PAD)
-    left:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", L.PAD, L.PAD)
-    left:SetWidth(L.LIST_W)
-    p.list = left
-    p.search = UI():CreateSearchBox(left, L.LIST_W - 16, function(text) ChangelogUI:SetSearch(text) end,
-        "Search every version")
-    p.search:SetPoint("TOPLEFT", left, "TOPLEFT", 8, -8)
-    p.searchCount = Text(left, "GameFontDisableSmall")
-    p.searchCount:SetPoint("TOPLEFT", p.search, "BOTTOMLEFT", 2, -6)
-    p.vscroll = UI():CreateScrollFrame(left, "DisasterZoneChangelogList")
-    p.vscroll:SetPoint("TOPLEFT", p.search, "BOTTOMLEFT", -4, -6)
-    p.vscroll:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -14, 6)
-    p.vchild = CreateFrame("Frame", nil, p.vscroll)
-    p.vchild:SetSize(L.LIST_W - 22, 10)
-    p.vscroll:SetScrollChild(p.vchild)
-
-    -- right: the banner, the filter row, what scrolls
-    local right = CreateFrame("Frame", nil, p)
-    right:SetPoint("TOPLEFT", left, "TOPRIGHT", L.GAP, 0)
-    right:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -L.PAD, 0)
-    p.right = right
-    local b = CreateFrame("Frame", nil, right)
-    b:SetPoint("TOPLEFT", right, "TOPLEFT", 0, 0)
-    b:SetPoint("RIGHT", right, "RIGHT", 0, 0)
-    b:SetHeight(L.BAN_H)
-    b.art = b:CreateTexture(nil, "BACKGROUND")
-    b.art:SetAllPoints()
-    Shade(b)
-    UI():AddEdges(b)
-    UI():SetEdgeColor(b, 0.17, 0.17, 0.2, 1)
-    b.face = Face(b, 46)
-    b.face:SetPoint("RIGHT", b, "RIGHT", -14, 0)
-    b.kicker = Text(b, "GameFontNormalSmall")
-    b.kicker:SetPoint("TOPLEFT", b, "TOPLEFT", 13, -15)
-    b.title = Text(b, "GameFontHighlightLarge", 16)
-    b.title:SetPoint("TOPLEFT", b.kicker, "BOTTOMLEFT", 0, -4)
-    b.title:SetPoint("RIGHT", b.face, "LEFT", -10, 0)
-    b.sub = Text(b, "GameFontHighlightSmall")
-    b.sub:SetTextColor(0.78, 0.78, 0.8)
-    b.sub:SetPoint("TOPLEFT", b.title, "BOTTOMLEFT", 0, -4)
-    b.sub:SetPoint("RIGHT", b.face, "LEFT", -10, 0)
-    p.banner = b
-    p.shead = Text(right, "GameFontHighlightLarge", 14)
-    p.shead:SetPoint("TOPLEFT", right, "TOPLEFT", 0, -L.PAD - 2)
-    local tb = CreateFrame("Frame", nil, right)
-    tb:SetHeight(L.TB_H)
-    p.toolbar = tb
+    local lay = UI():CreateLayout("listdetail", p, { listWidth = L.LIST_W, banner = { size = "tool" } })
+    p.layout = lay
+    p.banner = lay.banner
+    p.toolbar = lay.toolbar
     p.chips = {}
-    p.forMe = UI():CreateSwitch(tb, ForMeOn, function(on)
+
+    -- the toolbar: the areas as tabs (FillAreas), Just for me as its filter
+    lay.toolbar:SetTabs({ { key = "all", text = "All" } }, function(key)
+        PickArea(key ~= "all" and key or nil)
+    end)
+    local f = CreateFrame("Frame", nil, lay.toolbar)
+    f:SetSize(150, S.BTN_H)
+    p.filter = f
+    p.forMe = UI():CreateSwitch(f, ForMeOn, function(on)
         local s = Settings()
         if s then s.changelogForMe = on and true or false end
         ChangelogUI:RenderList()
         ChangelogUI:Render()
     end)
-    p.forMe:SetPoint("RIGHT", tb, "RIGHT", 0, 0)
-    p.forMeLabel = Text(tb, "GameFontHighlightSmall")
-    p.forMeLabel:SetText("Just for me")
+    p.forMe:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+    UI():AttachTooltip(p.forMe, "Just for me",
+        "Folds away what is only for the loot council, officers, raid leaders or other classes.", { anchor = "ANCHOR_TOP" })
+    p.forMeLabel = UI():Text(f, "body", "TEXT", { text = "Just for me" })
     p.forMeLabel:SetPoint("RIGHT", p.forMe, "LEFT", -7, 0)
-    p.hidden = Text(tb, "GameFontDisableSmall")
-    p.hidden:SetPoint("RIGHT", p.forMeLabel, "LEFT", -7, 0)
-    p.forMe:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Just for me", 1, 0.82, 0)
-        GameTooltip:AddLine("Folds away what is only for the loot council, officers, raid leaders or other classes.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    p.forMe:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    p.scroll = UI():CreateScrollFrame(right, "DisasterZoneChangelogScroll")
+    p.hidden = UI():Text(f, "small", "DIM")
+    p.hidden:SetPoint("RIGHT", p.forMeLabel, "LEFT", -S.GAP, 0)
+    function p:FitFilter()
+        local hw = UI():TextWidth(self.hidden)
+        self.filter:SetWidth(floor((self.forMe:GetWidth() or 34) + 7 + UI():TextWidth(self.forMeLabel)
+            + (hw > 0 and (S.GAP + hw) or 0) + 0.5))
+    end
+    lay.toolbar:SetFilters({ f })
+
+    -- the list column: the search, the pinned views, the releases
+    local left = lay.list
+    p.list = left
+    p.search = UI():CreateSearchBox(left, L.LIST_W, function(text) ChangelogUI:SetSearch(text) end,
+        "Search every version")
+    p.search:SetPoint("TOPLEFT", left, "TOPLEFT", 0, 0)
+    p.search:SetPoint("TOPRIGHT", left, "TOPRIGHT", 0, 0)
+    p.searchCount = UI():Text(left, "small", "SUB")
+    p.searchCount:SetPoint("TOPLEFT", p.search, "BOTTOMLEFT", 2, -S.GAP)
+    p.vscroll = UI():CreateScrollFrame(left, "DisasterZoneChangelogList")
+    p.vscroll:SetPoint("TOPLEFT", p.search, "BOTTOMLEFT", 0, -S.GAP)
+    p.vscroll:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -12, 0)
+    p.vchild = CreateFrame("Frame", nil, p.vscroll)
+    p.vchild:SetSize(L.LIST_W - 12, 10)
+    p.vscroll:SetScrollChild(p.vchild)
+
+    -- the detail: the release's banner (the layout's), what scrolls under it
+    p.right = lay.detail
+    p.scroll = UI():CreateScrollFrame(lay.body, "DisasterZoneChangelogScroll")
+    p.scroll:SetPoint("TOPLEFT", lay.body, "TOPLEFT", 0, 0)
+    p.scroll:SetPoint("BOTTOMRIGHT", lay.body, "BOTTOMRIGHT", -12, 0)
     p.child = CreateFrame("Frame", nil, p.scroll)
-    p.child:SetSize(556, 10)
+    p.child:SetSize((lay.detailW or 532) - 12, 10)
     p.scroll:SetScrollChild(p.child)
-    Layout(false)
+
+    pools, vpools = {}, {}
+    for kind, make in pairs(MAKE) do pools[kind] = UI():Pool(p.child, make) end
+    for kind, make in pairs(VMAKE) do vpools[kind] = UI():Pool(p.vchild, make) end
     p.scroll:HookScript("OnSizeChanged", function() ChangelogUI:Render(true) end)
 
     function p:OnPanelShown()
@@ -2191,10 +1947,10 @@ function ChangelogUI:CreatePanel(parent)
 end
 
 ---------------------------------------------------------------------------
--- Home's What's new: a short pop-up of the highlights over the dimmed window
+-- Home's What's new: a short pop-up of the highlights, a sheet over the dimmed window
 ---------------------------------------------------------------------------
 
-local POP_W, POP_TOP, POP_ROW = 450, 95, 48
+local POP_W, POP_ROW = 470, 48
 
 -- What the pop-up shows: the unread releases (saved state; else the installed one) and up to four sections for me.
 local function PopupItems()
@@ -2227,81 +1983,44 @@ end
 local function NewPopRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetHeight(POP_ROW)
-    r.rule = Tex(r, "BORDER", 0.11, 0.11, 0.13, 1)
-    r.rule:SetHeight(1)
-    r.rule:SetPoint("TOPLEFT")
-    r.rule:SetPoint("TOPRIGHT")
+    UI():DecorateRow(r, { hover = false, rule = true })
     r.face = Face(r, 32)
-    r.face:SetPoint("LEFT", 15, 0)
-    r.title = Text(r, "GameFontHighlight", 12)
-    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 58, -10)
-    r.ver = Text(r, "GameFontDisableSmall")
+    r.face:SetPoint("LEFT", 4, 0)
+    r.title = UI():Text(r, "emph", "TEXT")
+    r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 48, -10)
+    r.ver = UI():Text(r, "small", "SUB")
     r.ver:SetPoint("LEFT", r.title, "RIGHT", 6, 0)
-    r.pitch = Text(r, "GameFontDisableSmall")
-    r.pitch:SetWordWrap(true)
+    r.pitch = UI():Text(r, "small", "SUB", { wrap = true })
     r.pitch:SetJustifyV("TOP")
     r.pitch:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -4)
-    r.go = UI():CreateSleekButton(r, "Show me", 70, 20, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end)
-    r.go:SetPoint("RIGHT", r, "RIGHT", -15, 0)
+    r.go = UI():CreateSleekButton(r, "Show me", 76, S.BTN_H, function(self) ChangelogUI:ShowMe(self:GetParent().sec) end)
+    r.go:SetPoint("RIGHT", r, "RIGHT", -2, 0)
     return r
 end
 
 local function BuildPopup()
     local host = ns.MainFrame and ns.MainFrame:GetFrame()
     if not host then return nil end
-    local o = CreateFrame("Button", nil, host)
-    o:SetAllPoints(host)
-    o:SetFrameStrata("DIALOG")
-    o:EnableMouse(true)
-    o.dim = Tex(o, "BACKGROUND", 0, 0, 0, 0.62)
-    o.dim:SetAllPoints()
-    local f = CreateFrame("Frame", nil, o)
-    f:SetWidth(POP_W)
-    f:SetPoint("TOP", o, "TOP", 0, -105)
-    f:EnableMouse(true)
-    f.bg = Tex(f, "BACKGROUND", 0.05, 0.05, 0.063, 1)
-    f.bg:SetAllPoints()
-    UI():AddEdges(f)
-    UI():SetEdgeColor(f, 0.56, 0.45, 0.13, 1)
-    o.box = f
-    local top = CreateFrame("Frame", nil, f)
-    top:SetPoint("TOPLEFT", 1, -1)
-    top:SetPoint("TOPRIGHT", -1, -1)
-    top:SetHeight(POP_TOP)
-    top.art = top:CreateTexture(nil, "BACKGROUND")
-    top.art:SetAllPoints()
-    Shade(top)
-    f.top = top
-    f.kicker = Text(top, "GameFontNormalSmall")
-    f.kicker:SetPoint("BOTTOMLEFT", top, "BOTTOMLEFT", 15, 44)
-    f.title = Text(top, "GameFontHighlightLarge", 15)
-    f.title:SetPoint("TOPLEFT", f.kicker, "BOTTOMLEFT", 0, -4)
-    f.sub = Text(top, "GameFontHighlightSmall")
-    f.sub:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -4)
-    f.close = UI():CreateCloseButton(f, 18, function() o:Hide() end)
-    f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
-    f.rows = {}
-    f.read = UI():CreateSleekButton(f, "Read everything", 120, 22, function()
-        o:Hide()
-        local list = PopupItems()
-        ChangelogUI:Open(#list >= 2 and "since" or (list[1] and list[1].version))
-    end, "primary")
-    f.later = UI():CreateSleekButton(f, "Later", 60, 22, function() o:Hide() end)
-    f.later:SetPoint("LEFT", f.read, "RIGHT", 7, 0)
-    f.auto = UI():CreateCheckbox(f, "Open by itself after an update",
+    local sh = UI():CreateSheet(host, { title = "What's new", width = POP_W, height = 360,
+        ok = { text = "Read everything", width = 130, onClick = function(self)
+            self:Close()
+            local list = PopupItems()
+            ChangelogUI:Open(#list >= 2 and "since" or (list[1] and list[1].version))
+        end },
+        cancel = "Later" })
+    sh.box = sh
+    sh.read, sh.later = sh.ok, sh.cancel
+    -- (a click on the dimmed window closes it, as Later)
+    if sh.dim then sh.dim:SetScript("OnMouseUp", function() sh:Close() end) end
+    sh.top = UI():CreatePageBanner(sh.body, { size = "tool", width = POP_W - 2 * UI().SHEET.PAD })
+    sh.top:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, 0)
+    sh.top:SetPoint("TOPRIGHT", sh.body, "TOPRIGHT", 0, 0)
+    sh.rows = {}
+    sh.auto = UI():CreateCheckbox(sh, "Open by itself after an update",
         function() local s = Settings(); return s and s.changelogPopup == true end,
         function(on) local s = Settings(); if s then s.changelogPopup = on and true or false end end)
-    o:EnableKeyboard(true)
-    o:SetScript("OnKeyDown", function(self, key)
-        if key == "ESCAPE" then
-            if not InCombatLockdown() then self:SetPropagateKeyboardInput(false) end
-            self:Hide()
-        elseif not InCombatLockdown() then
-            self:SetPropagateKeyboardInput(true)
-        end
-    end)
-    o:SetScript("OnClick", function(self) self:Hide() end)
-    return o
+    sh.auto:SetPoint("BOTTOMLEFT", sh, "BOTTOMLEFT", UI().SHEET.PAD, 13)
+    return sh
 end
 
 -- Opens the pop-up (over the main window, which it opens if needed). false when there is nothing to show: then the
@@ -2313,45 +2032,44 @@ function ChangelogUI:OpenPopup()
         return false
     end
     if ns.MainFrame and ns.MainFrame:GetSelectedTab() == nil then ns.MainFrame:Open() end
-    local o = ns.ChangelogPopup or BuildPopup()
-    if not o then return false end
-    ns.ChangelogPopup = o
-    local f = o.box
-    PaintOutland(f.top.art, POP_W, POP_TOP)
-    f.kicker:SetText(#list >= 2 and "WHAT'S NEW SINCE YOU LAST LOOKED"
+    local sh = ns.ChangelogPopup or BuildPopup()
+    if not sh then return false end
+    ns.ChangelogPopup = sh
+    local bw = POP_W - 2 * UI().SHEET.PAD
+    sh.top:SetArt(ArtOf("other", bw, S.BANNER.tool))
+    sh.top:SetKicker(#list >= 2 and "WHAT'S NEW SINCE YOU LAST LOOKED"
         or ("WHAT'S NEW IN " .. (list[1] and list[1].version or "")))
-    f.title:SetText(#list >= 2 and ("%d versions, %d changes for you"):format(#list, total)
+    sh.top:SetTitle(#list >= 2 and ("%d versions, %d changes for you"):format(#list, total)
         or UI():SafeText(list[1] and list[1].title or ""))
-    f.sub:SetText(#items == 1 and "The one you'll notice first:" or ("The %s you'll notice first:"):format(
+    sh.top:SetSub(#items == 1 and "The one you'll notice first:" or ("The %s you'll notice first:"):format(
         ({ "one", "two", "three", "four" })[#items] or tostring(#items)))
-    local y = -POP_TOP - 1
+    local y = -S.BANNER.tool - 4
     for i, it in ipairs(items) do
-        local r = Pool(f.rows, i, function() return NewPopRow(f) end)
+        local r = sh.rows[i]
+        if not r then
+            r = NewPopRow(sh.body)
+            sh.rows[i] = r
+        end
         r.sec = it.sec
         r:ClearAllPoints()
-        r:SetPoint("TOPLEFT", f, "TOPLEFT", 1, y)
-        r:SetPoint("RIGHT", f, "RIGHT", -1, 0)
+        r:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, y)
+        r:SetPoint("RIGHT", sh.body, "RIGHT", 0, 0)
         r.face:SetIcon(AreaAtlas(it.sec.area))
         r.title:SetText(UI():SafeText(it.sec.title))
         r.ver:SetText(#list >= 2 and it.sec.version or "")
-        r.pitch:SetWidth(POP_W - 58 - 100)
+        r.pitch:SetWidth(bw - 48 - 90)
         r.pitch:SetText(UI():SafeText(it.v.lead))
-        local rh = max(POP_ROW, 10 + 14 + 4 + min(WrapH(r.pitch, POP_W - 158, 12), 24) + 10)
+        local rh = max(POP_ROW, 10 + 14 + 4 + min(WrapH(r.pitch, bw - 138, 12), 24) + 10)
         r:SetHeight(rh)
         r.go:SetShown(it.sec.open ~= nil)
         r:Show()
         y = y - rh
     end
-    for i = #items + 1, #f.rows do f.rows[i]:Hide() end
-    f.read:ClearAllPoints()
-    f.read:SetPoint("TOPLEFT", f, "TOPLEFT", 15, y - 12)
-    f.auto:ClearAllPoints()
-    f.auto:SetPoint("TOPRIGHT", f, "TOPRIGHT", -175, y - 11)
+    UI():HideFrom(sh.rows, #items + 1)
     local s = Settings()
-    f.auto:SetChecked(s and s.changelogPopup == true)
-    f:SetHeight(-y + 12 + 22 + 14)
-    o:Show()
-    o:Raise()
+    sh.auto:SetChecked(s and s.changelogPopup == true)
+    sh:SetHeight(floor(UI().SHEET.HEAD_H + UI().SHEET.PAD - y + UI().SHEET.PAD + UI().SHEET.FOOT_H + 0.5))
+    sh:Open()
     return true
 end
 
@@ -2375,7 +2093,8 @@ end
 
 function ChangelogUI:OnInit()
     if ns.MainFrame and ns.MainFrame.RegisterTab then
-        ns.MainFrame:RegisterTab("changelog", "Changelog", 3.9, function(parent) return ChangelogUI:CreatePanel(parent) end)
+        ns.MainFrame:RegisterTab("changelog", "Changelog", 3.9, function(parent) return ChangelogUI:CreatePanel(parent) end,
+            nil, { layout = "listdetail" })
     end
     ns:RegisterSlash("changelog", function() ChangelogUI:Open() end, "open the Changelog: what's new in each version")
     ns:On("FEEDBACK_UPDATED", function() if panel and panel:IsVisible() then ChangelogUI:Refresh() end end)
