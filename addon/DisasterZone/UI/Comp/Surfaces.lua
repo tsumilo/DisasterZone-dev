@@ -105,11 +105,12 @@ end
 -- A card: a frame with the tone's fill and 1 px edge (none for "quiet"), an optional title at the top and card.body
 -- (the frame to put the content in, inset by pad and under the title).
 -- opts: { tone = "card" (default) | "inset" | "quiet", title, titleStyle ("title"; "caps" for a small heading),
--- pad (S.IN), fade (quiet only: "left" (default) | "right" | "none"), width, height }.
+-- pad (S.IN), fade (quiet only: "left" (default) | "right" | "none"), width, height, onClick (a clickable card: a
+-- Button with the rows' hover; onClick(card, mouseButton), left and right clicks) }.
 -- card:SetTone(tone), card:SetTitle(text [, style]), card:SetHovered(on) (quiet: a little stronger); card.bg, .title.
 function UI:CreateCard(parent, opts)
     opts = opts or {}
-    local card = CreateFrame("Frame", nil, parent)
+    local card = CreateFrame(opts.onClick and "Button" or "Frame", nil, parent)
     if opts.width or opts.height then card:SetSize(opts.width or 100, opts.height or 60) end
     card.pad = opts.pad or S.IN
     card.fade = opts.fade
@@ -121,6 +122,16 @@ function UI:CreateCard(parent, opts)
     for k, fn in pairs(Card) do card[k] = fn end
     card:SetTone(opts.tone)
     card:SetTitle(opts.title)
+    if opts.onClick then
+        local onClick = opts.onClick
+        card:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        card:SetScript("OnClick", function(self, button) onClick(self, button) end)
+        UI:DecorateRow(card, { hover = true })
+        if card.tone == "quiet" then
+            card:HookScript("OnEnter", function(self) self:SetHovered(true) end)
+            card:HookScript("OnLeave", function(self) self:SetHovered(false) end)
+        end
+    end
     return card
 end
 

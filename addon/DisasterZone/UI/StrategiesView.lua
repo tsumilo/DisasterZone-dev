@@ -902,19 +902,16 @@ local function newPickLink(row)
     return b
 end
 
--- (the tile is a card: it takes the clicks itself)
+-- (the tile is a clickable card: a left click opens its strategy)
 local function tileClick(self, button)
-    if button ~= "LeftButton" or not self:IsMouseOver() then return end
+    if button ~= "LeftButton" then return end
     local data = self.__cdlData
     if data and data.s then Board():OpenRaid(data.occ, data.ref) end
 end
 
 local function newBossTile(parent)
-    local row = UI():CreateCard(parent, { tone = "card" })
+    local row = UI():CreateCard(parent, { tone = "card", onClick = tileClick })
     row:SetHeight(RAID_TILE_H)
-    row:EnableMouse(true)
-    row:SetScript("OnMouseUp", tileClick)
-    UI():DecorateRow(row, { hover = true })
     -- the slots' bar along the bottom (a hairline track, the filled share over it)
     row.bar = UI():CreateProgressBar(row, { height = 2, trackHeight = 1 })
     row.bar:SetPoint("BOTTOMLEFT", 0, 0)
