@@ -95,7 +95,6 @@ local BLL_REPLY_LIMIT = 30
 
 local RPD_DELAY_COUNCIL = { 0.5, 2.5 }
 local RPD_DELAY_MEMBER = { 3, 8 }
-local ROUND_WINDOW = 20             -- seconds an RPD round for one client lasts (suppression / answer once)
 local MAX_PENDING = 20              -- newer versions refused for now, tried again when the guild's roles change
 local RESTAMP_AFTER_LOGIN = 90      -- the guild's lists and ranks settle first (plus a spread by name, below)
 local RESTAMP_WAIT = 20             -- after a change of roles
@@ -123,9 +122,6 @@ for _, inst in ipairs(INSTANCES) do INSTANCE_BY_KEY[inst.key] = inst end
 local SIZES = { [10] = true, [25] = true }
 local STATUSES = { A = true, T = true, B = true, X = true }   -- Accept, Tentative, Bench, Absent
 
-local roundSeen = {}                -- [key] = { h = hash, at = GetTime() }: an RPD to that client was seen
-local answeredAt = -1000            -- GetTime() I answered the first RPD of my login round
-local idCounter = 0
 local pending = {}                  -- ["kind:id"] = { kind, rec, via }: newer versions refused for now (MergeRecord)
 local asks = {}                     -- [digest item] = true: records to ask a raid planner for (AskPlanner)
 local asked = {}                    -- [digest item] = rev: the version a planner was asked about last
@@ -180,11 +176,6 @@ local function OccId(sid, k)
 end
 
 local function Guild() return ns.Guild end
-
-local function GuildKey()
-    local G = Guild()
-    return G and G.GetGuildKey and G:GetGuildKey() or nil
-end
 
 -- Who may do what (§55, §62, user rules 2026-09-29):
 --   raids  (create / edit / cancel / delete): the GM and the raid leaders list
@@ -346,19 +337,8 @@ end
 
 -- db.raidplan[guildKey] (created on demand), or nil while the guild is unknown.
 local function Root(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.raidplan) ~= "table" then
-        if not create then return nil end
-        db.raidplan = {}
-    end
-    local r = db.raidplan[g]
-    if type(r) ~= "table" then
-        if not create then return nil end
-        r = {}
-        db.raidplan[g] = r
-    end
+    local r = ns.DB:GuildBucket("raidplan", create)
+    if not r then return nil end
     -- (G, 1.3.3: deletions Prune dropped, Merge.Bury)
     for _, k in ipairs({ "T", "S", "E", "U", "W", "OK", "G" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
@@ -392,16 +372,21 @@ local function Changed()
     ns:Fire("RAIDPLAN_CHANGED")
 end
 
-local function NextRev(cur)
-    local prev = type(cur) == "table" and tonumber(cur.rev) or 0
-    return max(Now(), prev + 1)
-end
+-- Synced by Core/DigestSync.lua (§56): RPU / RPD / RPK / RPW / RPG, the HELLO's pd. Its own Root (above), digest
+-- items, item hashes and RPG (below); records are merged here (MergeRecord, MergeSignup).
+local SYNC = {
+    module = RaidPlan, bucket = "raidplan", kinds = { "T", "S", "O" }, root = Root, send = Send, prefix = "RP",
+    maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ID_LEN + 8, itemPattern = "^[TSO]:", wireKey = WireKey,
+    helloField = "pd", helloOrder = 10, keepHash = true,
+    delay = function()
+        local G = Guild()
+        return (G and G.IsGuildCouncil and G:IsGuildCouncil(Util.PlayerKey())) and RPD_DELAY_COUNCIL or RPD_DELAY_MEMBER
+    end,
+}
+local sync = ns.DigestSync.New(SYNC)
+local NextRev = sync.NextRev
 
-local function NewId()
-    idCounter = idCounter + 1
-    local now = Now()
-    return strformat("%x", now) .. Util.Hash({ Util.PlayerKey() or "", now, idCounter, GetTime() }):sub(1, 4)
-end
+local function NewId() return sync:NewId() end
 
 local function CountTable(t)
     local n = 0
@@ -883,11 +868,7 @@ end
 ---------------------------------------------------------------------------
 
 -- Higher rev wins; the same rev settles on the larger hash (every client picks the same one).
-local function Newer(a, b)
-    if not b then return true end
-    if a.rev ~= b.rev then return a.rev > b.rev end
-    return Util.Hash(a) > Util.Hash(b)
-end
+local Newer = sync.Newer
 
 local KIND_CAP = { T = MAX_TEAMS, S = MAX_SERIES, E = MAX_EVENTS }
 
@@ -1238,10 +1219,8 @@ end
 -- Over the cap, teams and series come first (a guild holds at most MAX_TEAMS + MAX_SERIES of them, tombstones aside),
 -- then the occurrences, the latest first (the oldest are the next to be pruned). The order depends only on the data,
 -- so two clients that hold the same records list the same items.
-function RaidPlan:GetDigest()
-    local out = {}
-    local root = Root(false)
-    if not root then return out end
+SYNC.itemHash = ItemHash
+SYNC.items = function(root)
     local items = {}
     for id in pairs(root.T) do items[#items + 1] = "T:" .. id end
     for id in pairs(root.S) do items[#items + 1] = "S:" .. id end
@@ -1261,26 +1240,7 @@ function RaidPlan:GetDigest()
         return a < b
     end)
     for _, id in ipairs(occs) do items[#items + 1] = "O:" .. id end
-    local n = 0
-    for _, item in ipairs(items) do
-        local h = ItemHash(root, item)
-        if h then
-            n = n + 1
-            if n > MAX_DIGEST_ITEMS then break end
-            out[item] = h
-        end
-    end
-    return out
-end
-
--- One hash over the digest ("0" = I hold nothing). Sent in the HELLO as pd.
-function RaidPlan:GetDigestHash()
-    local d = self:GetDigest()
-    local list = {}
-    for item, h in pairs(d) do list[#list + 1] = item .. "=" .. h end
-    if #list == 0 then return "0" end
-    tsort(list)
-    return Util.Hash(list)
+    return items
 end
 
 ---------------------------------------------------------------------------
@@ -1302,7 +1262,7 @@ local function BroadcastSignups(list, kind)
 end
 
 -- One digest item to `target` (RPG, whisper).
-local function SendItem(root, item, target)
+SYNC.sendItem = function(root, item, target)
     local kind, id = item:match("^(%u):(.+)$")
     local msg
     if kind == "T" and root.T[id] then
@@ -1412,31 +1372,6 @@ local function OnGive(sender, msg, dist)
     if changed then Changed() end
 end
 
--- RPW { w = { item, ... } }: the items a client wants from me.
-local function OnWant(sender, msg, dist)
-    if dist ~= "WHISPER" or type(msg.w) ~= "table" or not RateLimit("RPW:" .. sender, 5) then return end
-    local root = Root(false)
-    if not root then return end
-    for i = 1, MAX_DIGEST_ITEMS do
-        local item = msg.w[i]
-        if item == nil then break end
-        if type(item) == "string" and #item <= MAX_ID_LEN + 8 then SendItem(root, item, sender) end
-    end
-end
-
-local function CleanDigest(d)
-    if type(d) ~= "table" then return nil end
-    local out, n = {}, 0
-    for item, h in pairs(d) do
-        n = n + 1
-        if n > MAX_DIGEST_ITEMS then return nil end
-        if type(item) ~= "string" or #item > MAX_ID_LEN + 8 or not item:find("^[TSO]:") then return nil end
-        if type(h) ~= "string" or #h > 8 then return nil end
-        out[item] = h
-    end
-    return out
-end
-
 Merge.GIVE_RANK = { T = 1, S = 2, O = 3 }
 function Merge.GiveBefore(a, b)
     local ra, rb = Merge.GIVE_RANK[a:sub(1, 1)] or 4, Merge.GIVE_RANK[b:sub(1, 1)] or 4
@@ -1444,73 +1379,8 @@ function Merge.GiveBefore(a, b)
     return a < b
 end
 
--- RPD { to, h, d }: an answer to someone's HELLO. Mine: sync with the responder. Someone else's: remember it, so I
--- don't answer the same round with the same data.
-local function OnDigest(sender, msg, dist)
-    if dist ~= "GUILD" then return end
-    local to = WireKey(msg.to)
-    if not to then return end
-    if not Util.IsMe(to) then
-        if type(msg.h) == "string" then roundSeen[to] = { h = msg.h, at = GetTime() } end
-        return
-    end
-    if GetTime() - answeredAt < ROUND_WINDOW then return end
-    local theirs = CleanDigest(msg.d)
-    if not theirs then return end
-    answeredAt = GetTime()
-    local root = Root(true)
-    if not root then return end
-    local mine = RaidPlan:GetDigest()
-    local want, give = {}, {}
-    for item, h in pairs(theirs) do
-        if mine[item] ~= h then want[#want + 1] = item end
-    end
-    for item, h in pairs(mine) do
-        if theirs[item] ~= h then give[#give + 1] = item end
-    end
-    tsort(want)
-    -- (teams and series first: the items go one per message behind a throttle, and occurrences need their series)
-    tsort(give, Merge.GiveBefore)
-    if #want > 0 then Send({ t = "RPW", w = want }, "WHISPER", sender, "ctrl") end
-    for _, item in ipairs(give) do SendItem(root, item, sender) end
-end
-
--- RPK { to }: someone is about to answer that client's HELLO with a digest.
-local function OnClaim(sender, msg, dist)
-    if dist ~= "GUILD" then return end
-    local to = WireKey(msg.to)
-    if to and not Util.IsMe(to) then roundSeen[to] = { h = "", at = GetTime() } end
-end
-
--- Sync calls this for every HELLO on GUILD (pd = the sender's plan hash; nil from clients before 0.7).
-function RaidPlan:OnHelloDigest(sender, pd)
-    if type(pd) ~= "string" or #pd > 8 or type(sender) ~= "string" then return end
-    local mine = self:GetDigestHash()
-    if mine == "0" or pd == mine then return end
-    if not RateLimit("RPDh:" .. sender, ROUND_WINDOW) then return end
-    local G = Guild()
-    local delay = (G and G.IsGuildCouncil and G:IsGuildCouncil(Util.PlayerKey())) and RPD_DELAY_COUNCIL or RPD_DELAY_MEMBER
-    -- With item data still waiting in my queue the digest (and what the newcomer then asks for) would wait behind
-    -- it: answer after the members whose queue is empty had their turn (they serve the newcomer faster).
-    local Comm = ns.Comm
-    local queued = Comm and Comm.Backlog and Comm:Backlog("data") or 0
-    local busy = queued > 0 and min(12, 6 + queued / 240) or 0
-    -- Still catching up myself (my own round was answered moments ago): what I hold is incomplete, so I only answer
-    -- once that settled, if nobody else did.
-    busy = max(busy, ROUND_WINDOW - (GetTime() - answeredAt))
-    Util.RandomDelay(delay[1] + busy, delay[2] + busy, function()
-        local h = RaidPlan:GetDigestHash()
-        local seen = roundSeen[sender]
-        -- Somebody answered this round already (whatever their hash): the newcomer syncs with the first answer only
-        -- (answeredAt in OnDigest), so one more is noise.
-        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
-        roundSeen[sender] = { h = h, at = GetTime() }
-        -- The digest waits in the bulk queue behind item data; this short claim on the (mostly idle) live prefix tells the
-        -- others right away that the round is answered (older clients have no handler for it and ignore it).
-        Send({ t = "RPK", to = sender }, "GUILD", nil, "live")
-        Send({ t = "RPD", to = sender, h = h, d = RaidPlan:GetDigest() }, "GUILD", nil, "data")
-    end)
-end
+-- (teams and series first: the items go one per message behind a throttle, and occurrences need their series)
+SYNC.giveSort = Merge.GiveBefore
 
 ---------------------------------------------------------------------------
 -- Public API: reading
@@ -1815,18 +1685,12 @@ function Merge.EntryRev(e)
 end
 
 local function BlacklistRec(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.raidBlacklist) ~= "table" then
-        if not create then return nil end
-        db.raidBlacklist = {}
-    end
-    local rec = db.raidBlacklist[g]
-    if type(rec) ~= "table" or type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
+    local rec, g = ns.DB:GuildBucket("raidBlacklist", create)
+    if not rec then return nil end
+    if type(rec.l) ~= "table" or not IsInt(rec.rev, 0, MAX_STAMP) then
         if not create then return nil end
         rec = { rev = 0, l = {} }
-        db.raidBlacklist[g] = rec
+        ns.db.raidBlacklist[g] = rec
     end
     return rec
 end
@@ -1980,11 +1844,16 @@ local function OnBlacklist(sender, msg, dist)
     end
 end
 
-local function OnBlacklistQuery(sender, msg, dist)
-    if dist ~= "WHISPER" or not CanRoster(Util.PlayerKey()) then return end
-    if not RateLimit("blq:" .. sender, BLL_REPLY_LIMIT) then return end
-    SendBlacklist(sender)
-end
+-- The blacklist's rev rides in the HELLO (blr): a roster manager who holds a newer list sends it, a member who holds an
+-- older one than a roster manager's asks them for it (BLQ). (Core/DigestSync.lua: RevList.)
+local blacklistSync = ns.DigestSync.RevList({
+    field = "blr", order = 20, query = "BLQ", send = Send, limit = BLL_REPLY_LIMIT,
+    replyKey = "bll-reply:", askKey = "blq-ask:", queryKey = "blq:",
+    rev = function() return RaidPlan:GetBlacklistRev() end,
+    serve = function() return CanRoster(Util.PlayerKey()) end,
+    writer = function(key) return CanRoster(key) end,
+    sendList = function(target) SendBlacklist(target) end,
+})
 
 function RaidPlan:GetBlacklistRev()
     local rec = BlacklistRec(false)
@@ -1993,17 +1862,7 @@ end
 
 -- Sync calls this for every HELLO (blr = the sender's blacklist rev; nil from clients before 1.3).
 function RaidPlan:OnBlacklistRevSeen(sender, blr)
-    if type(blr) ~= "number" or type(sender) ~= "string" then return end
-    local mine = self:GetBlacklistRev()
-    if blr < mine and CanRoster(Util.PlayerKey()) then
-        if RateLimit("bll-reply:" .. sender, BLL_REPLY_LIMIT) then
-            Util.RandomDelay(0.5, 3, function() SendBlacklist(sender) end)
-        end
-    elseif blr > mine and CanRoster(sender) then
-        if RateLimit("blq-ask:" .. sender, BLL_REPLY_LIMIT) then
-            Send({ t = "BLQ" }, "WHISPER", sender, "ctrl")
-        end
-    end
+    blacklistSync.Seen(sender, blr)
 end
 
 -- May I keep the guest book and the blacklist? With a raid (a view or an id): may I (or that player) add its guests
@@ -4297,17 +4156,13 @@ end
 function RaidPlan:OnInit()
     local Comm = ns.Comm
     if Comm and Comm.Register then
-        Comm:Register("RPU", OnUpdate)
         Comm:Register("RPS", OnSignups)
         Comm:Register("RPA", OnAltSignups)
         Comm:Register("BLL", OnBlacklist)
-        Comm:Register("BLQ", OnBlacklistQuery)
-        Comm:Register("RPD", OnDigest)
-        Comm:Register("RPK", OnClaim)
-        Comm:Register("RPW", OnWant)
-        Comm:Register("RPG", OnGive)
         Comm:Register("RTW", Lineup.OnLive)
     end
+    sync:Register(OnUpdate, OnGive)
+    blacklistSync.Register()
     ns:RegisterSlash("plan", SlashPlan, "list the planned raids and your sign-ups")
     -- The council list decides what is shown: repaint when it changes.
     ns:On("CONFIG_UPDATED", Changed)

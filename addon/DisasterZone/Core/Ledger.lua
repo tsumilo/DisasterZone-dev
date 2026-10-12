@@ -973,11 +973,7 @@ function Ledger:GetDigest()
             end
         end
     end
-    for day, list in pairs(perDay) do
-        tsort(list)
-        out[day] = Checksum(tconcat(list, "\n"))
-    end
-    return out
+    return ns.DigestSync.BucketDigest(perDay, function(list) return Checksum(tconcat(list, "\n")) end)
 end
 
 -- Requests the days where X's digest differs from ours. Days X has no entries for are skipped:
@@ -988,22 +984,21 @@ function Ledger:SyncFromDigest(X, digest)
     local today = floor(GetServerTime() / DAY)
     local now = GetTime()
     local Guild = ns.Guild
-    local days, seen = {}, 0
-    for day, h in pairs(digest) do
-        seen = seen + 1
-        if seen > 400 then break end   -- untrusted table size guard
-        if IsInt(day, today - DIGEST_DAYS, today + 1) and IsStr(h, 16) and mine[day] ~= h then
-            -- Asked from another peer that is still sending (or was asked moments ago): not again from this one,
-            -- or a council member catching up gets the whole history once per online council peer.
+    local days = ns.DigestSync.DiffBuckets(digest, mine, {
+        maxSeen = 400,                 -- untrusted table size guard
+        lo = today - DIGEST_DAYS, hi = today + 1,
+        hashOk = function(h) return IsStr(h, 16) end,
+        -- Asked from another peer that is still sending (or was asked moments ago): not again from this one, or a
+        -- council member catching up gets the whole history once per online council peer.
+        accept = function(day)
             local r = ledgerReq[day]
             local busy = r and r.peer ~= X and now - r.at < LEDGER_REQ_STALE
                 and (not Guild or not Guild.IsOnline or Guild:IsOnline(r.peer, true))
-            if not busy then
-                ledgerReq[day] = { peer = X, at = now }
-                days[#days + 1] = day
-            end
-        end
-    end
+            if busy then return false end
+            ledgerReq[day] = { peer = X, at = now }
+            return true
+        end,
+    })
     if #days == 0 then return end
     tsort(days, function(a, b) return a > b end)
     for i = 1, #days, MAX_DAYS_PER_LW do

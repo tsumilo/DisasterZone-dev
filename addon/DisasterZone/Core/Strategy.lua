@@ -28,13 +28,11 @@ local Util = ns.Util
 local type, pairs, ipairs, tonumber, tostring, next = type, pairs, ipairs, tonumber, tostring, next
 local floor, max, min = math.floor, math.max, math.min
 local tsort, tconcat = table.sort, table.concat
-local strformat = string.format
 
 local DAY = 86400
 local FUTURE_SLACK = 300
 local TOMBSTONE_DAYS = 30 * DAY
 local FILL_KEEP = 45 * DAY           -- fills are kept this long after their raid
-local ROUND_WINDOW = 20
 local SBD_DELAY_COUNCIL = { 0.5, 2.5 }
 local SBD_DELAY_MEMBER = { 3, 8 }
 
@@ -99,10 +97,6 @@ Strategy.MAX_TEXT, Strategy.MAX_NOTES = MAX_TEXT, MAX_NOTES
 Strategy.TEXT_MIN, Strategy.TEXT_MAX, Strategy.TEXT_BOX_MIN = TEXT_MIN, TEXT_MAX, TEXT_BOX_MIN
 Strategy.ROLES = { "tank", "healer", "melee", "ranged" }
 Strategy.DISPEL_NAME, Strategy.DISPEL_ORDER, Strategy.MAX_DISPELS = DISPEL_NAME, { "m", "c", "p", "d", "e" }, MAX_DISPELS
-
-local roundSeen = {}
-local answeredAt = -1000
-local idCounter = 0
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -279,26 +273,9 @@ local function Send(msg, dist, target, class)
     return (Comm and Comm.Send and Comm:Send(msg, dist, target, class)) and true or false
 end
 
-local function RateLimit(key, seconds)
-    local Comm = ns.Comm
-    if not (Comm and Comm.RateLimit) then return true end
-    return Comm:RateLimit(key, seconds)
-end
-
 local function Root(create)
-    local db = ns.db
-    local g = GuildKey()
-    if not db or not g then return nil end
-    if type(db.strategy) ~= "table" then
-        if not create then return nil end
-        db.strategy = {}
-    end
-    local r = db.strategy[g]
-    if type(r) ~= "table" then
-        if not create then return nil end
-        r = {}
-        db.strategy[g] = r
-    end
+    local r = ns.DB:GuildBucket("strategy", create)
+    if not r then return nil end
     for _, k in ipairs({ "B", "F", "L" }) do
         if type(r[k]) ~= "table" then r[k] = {} end
     end
@@ -309,16 +286,17 @@ local function Changed()
     ns:Fire("STRATEGY_CHANGED")
 end
 
-local function NextRev(cur)
-    local prev = type(cur) == "table" and tonumber(cur.rev) or 0
-    return max(Now(), prev + 1)
-end
+-- Synced by Core/DigestSync.lua: SBU / SBD / SBK / SBW / SBG, the HELLO's sd (strategies B and fills F; L stays here).
+-- Its own Root, merge and commit (below); a member's strategy may be as large as a council member's message.
+local sync = ns.DigestSync.New({
+    module = Strategy, bucket = "strategy", kinds = { "B", "F" }, root = Root, send = Send, prefix = "SB",
+    maxItems = MAX_DIGEST_ITEMS, maxItemLen = MAX_ID_LEN + 4, itemPattern = "^[BF]:%w+$", wireKey = WireKey,
+    helloField = "sd", helloOrder = 40, large = true, keepHash = true,
+    delay = function() return CanWrite(Util.PlayerKey()) and SBD_DELAY_COUNCIL or SBD_DELAY_MEMBER end,
+})
+local NextRev = sync.NextRev
 
-local function NewId()
-    idCounter = idCounter + 1
-    local now = Now()
-    return strformat("%x", now) .. Util.Hash({ Util.PlayerKey() or "", now, idCounter, GetTime() }):sub(1, 4)
-end
+local function NewId() return sync:NewId() end
 
 local function CountTable(t)
     local n = 0
@@ -865,50 +843,8 @@ end
 -- Digest / sync
 ---------------------------------------------------------------------------
 
-local function ItemHash(root, item)
-    local kind, id = item:match("^(%u):(.+)$")
-    local rec = kind and root[kind] and root[kind][id]
-    return rec and Util.Hash(rec):sub(1, 6) or nil
-end
-
-function Strategy:GetDigest()
-    local out = {}
-    local root = Root(false)
-    if not root then return out end
-    local items = {}
-    for id in pairs(root.B) do items[#items + 1] = "B:" .. id end
-    for id in pairs(root.F) do items[#items + 1] = "F:" .. id end
-    tsort(items)
-    local n = 0
-    for _, item in ipairs(items) do
-        local h = ItemHash(root, item)
-        if h then
-            n = n + 1
-            if n > MAX_DIGEST_ITEMS then break end
-            out[item] = h
-        end
-    end
-    return out
-end
-
-function Strategy:GetDigestHash()
-    local d = self:GetDigest()
-    local list = {}
-    for item, h in pairs(d) do list[#list + 1] = item .. "=" .. h end
-    if #list == 0 then return "0" end
-    tsort(list)
-    return Util.Hash(list)
-end
-
 local function Broadcast(kind, rec)
     Send({ t = "SBU", k = kind, r = rec }, "GUILD", nil, "data")
-end
-
-local function SendItem(root, item, target)
-    local kind, id = item:match("^(%u):(.+)$")
-    if (kind == "B" or kind == "F") and root[kind][id] then
-        Send({ t = "SBG", k = kind, r = root[kind][id] }, "WHISPER", target, "data")
-    end
 end
 
 -- SBU { k, r }: a live edit (the editor must be the sender).
@@ -922,94 +858,6 @@ end
 local function OnGive(sender, msg, dist)
     if dist ~= "WHISPER" or (msg.k ~= "B" and msg.k ~= "F") or type(msg.r) ~= "table" then return end
     if StoreRecord(msg.k, msg.r) then Changed() end
-end
-
-local function OnWant(sender, msg, dist)
-    if dist ~= "WHISPER" or type(msg.w) ~= "table" or not RateLimit("SBW:" .. sender, 5) then return end
-    local root = Root(false)
-    if not root then return end
-    for i = 1, MAX_DIGEST_ITEMS do
-        local item = msg.w[i]
-        if item == nil then break end
-        if type(item) == "string" and #item <= MAX_ID_LEN + 4 then SendItem(root, item, sender) end
-    end
-end
-
-local function CleanDigest(d)
-    if type(d) ~= "table" then return nil end
-    local out, n = {}, 0
-    for item, h in pairs(d) do
-        n = n + 1
-        if n > MAX_DIGEST_ITEMS then return nil end
-        if type(item) ~= "string" or #item > MAX_ID_LEN + 4 or not item:find("^[BF]:%w+$") then return nil end
-        if type(h) ~= "string" or #h > 8 then return nil end
-        out[item] = h
-    end
-    return out
-end
-
-local function OnDigest(sender, msg, dist)
-    if dist ~= "GUILD" then return end
-    local to = WireKey(msg.to)
-    if not to then return end
-    if not Util.IsMe(to) then
-        if type(msg.h) == "string" then roundSeen[to] = { h = msg.h, at = GetTime() } end
-        return
-    end
-    if GetTime() - answeredAt < ROUND_WINDOW then return end
-    local theirs = CleanDigest(msg.d)
-    if not theirs then return end
-    answeredAt = GetTime()
-    local root = Root(true)
-    if not root then return end
-    local mine = Strategy:GetDigest()
-    local want, give = {}, {}
-    for item, h in pairs(theirs) do
-        if mine[item] ~= h then want[#want + 1] = item end
-    end
-    for item, h in pairs(mine) do
-        if theirs[item] ~= h then give[#give + 1] = item end
-    end
-    tsort(want)
-    tsort(give)
-    if #want > 0 then Send({ t = "SBW", w = want }, "WHISPER", sender, "ctrl") end
-    for _, item in ipairs(give) do SendItem(root, item, sender) end
-end
-
--- SBK { to }: someone is about to answer that client's HELLO with a digest.
-local function OnClaim(sender, msg, dist)
-    if dist ~= "GUILD" then return end
-    local to = WireKey(msg.to)
-    if to and not Util.IsMe(to) then roundSeen[to] = { h = "", at = GetTime() } end
-end
-
--- Sync calls this for every HELLO on GUILD (sd = the sender's strategy hash; nil from older clients).
-function Strategy:OnHelloDigest(sender, sd)
-    if type(sd) ~= "string" or #sd > 8 or type(sender) ~= "string" then return end
-    local mine = self:GetDigestHash()
-    if mine == "0" or sd == mine then return end
-    if not RateLimit("SBDh:" .. sender, ROUND_WINDOW) then return end
-    local delay = CanWrite(Util.PlayerKey()) and SBD_DELAY_COUNCIL or SBD_DELAY_MEMBER
-    -- With item data still waiting in my queue the digest (and what the newcomer then asks for) would wait behind
-    -- it: answer after the members whose queue is empty had their turn (they serve the newcomer faster).
-    local Comm = ns.Comm
-    local queued = Comm and Comm.Backlog and Comm:Backlog("data") or 0
-    local busy = queued > 0 and min(12, 6 + queued / 240) or 0
-    -- Still catching up myself (my own round was answered moments ago): what I hold is incomplete, so I only answer
-    -- once that settled, if nobody else did.
-    busy = max(busy, ROUND_WINDOW - (GetTime() - answeredAt))
-    Util.RandomDelay(delay[1] + busy, delay[2] + busy, function()
-        local h = Strategy:GetDigestHash()
-        local seen = roundSeen[sender]
-        -- Somebody answered this round already (whatever their hash): the newcomer syncs with the first answer only
-        -- (answeredAt in OnDigest), so one more is noise.
-        if h == "0" or (seen and GetTime() - seen.at < ROUND_WINDOW) then return end
-        roundSeen[sender] = { h = h, at = GetTime() }
-        -- The digest waits in the bulk queue behind item data; this short claim on the (mostly idle) live prefix tells the
-        -- others right away that the round is answered (older clients have no handler for it and ignore it).
-        Send({ t = "SBK", to = sender }, "GUILD", nil, "live")
-        Send({ t = "SBD", to = sender, h = h, d = Strategy:GetDigest() }, "GUILD", nil, "data")
-    end)
 end
 
 ---------------------------------------------------------------------------
@@ -1897,18 +1745,8 @@ end
 ---------------------------------------------------------------------------
 
 function Strategy:OnInit()
-    local Comm = ns.Comm
-    if Comm and Comm.Register then
-        Comm:Register("SBU", OnUpdate)
-        Comm:Register("SBD", OnDigest)
-        Comm:Register("SBK", OnClaim)
-        Comm:Register("SBW", OnWant)
-        Comm:Register("SBG", OnGive)
-        -- everyone builds strategies: a member's (and the digest of them) may be as large as a council member's
-        if Comm.AllowLarge then
-            for _, t in ipairs({ "SBU", "SBG", "SBD" }) do Comm:AllowLarge(t, "data") end
-        end
-    end
+    -- everyone builds strategies: a member's (and the digest of them) may be as large as a council member's
+    sync:Register(OnUpdate, OnGive)
     -- The raid leaders / council lists decide which fills are shown: repaint when they change.
     ns:On("CONFIG_UPDATED", Changed)
 end

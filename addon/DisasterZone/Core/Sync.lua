@@ -56,6 +56,7 @@ local wasCouncil
 local periodicTicker
 local councilHelloAt = {}          -- [key] = GetTime() of their last HELLO with c = true
 local raidShared = {}              -- [key] = raid session id: a raid-scope council member my list is for in that session
+local helloFields = {}             -- { { field, order, send, seen }, ... } other modules' HELLO fields (RegisterHelloField)
 local RAID_PUSH_MIN, RAID_PUSH_MAX = 10, 15   -- push to a newly picked raid-scope council member (unless
                                               -- their promotion HELLO arrived meanwhile)
 
@@ -404,6 +405,25 @@ end
 -- Sending
 ---------------------------------------------------------------------------
 
+-- A module's own HELLO field (a digest hash, a list's rev): send() gives its value for my HELLO, seen(sender, value)
+-- reads everyone's (value nil from clients without it). Fields go in `order`, the lowest first, both ways (a HELLO's
+-- fields and the answers they start keep the order they always had):
+--   10 pd  raid plans (RaidPlan, Addendum J §56)    20 blr  the raid blacklist (RaidPlan)
+--   30 gnr the guest book's notes (GuestBook, 1.3)   40 sd   strategies + assignments (Strategy, Addendum K)
+--   50 ed  events (1.3.2)    60 od  polls (1.3.4)    70 zd   prized items (1.3.5)
+-- (Older clients ignore a field they don't know.) Registering a field again replaces it.
+function Sync:RegisterHelloField(field, order, send, seen)
+    if type(field) ~= "string" then return end
+    for i = #helloFields, 1, -1 do
+        if helloFields[i].field == field then table.remove(helloFields, i) end
+    end
+    helloFields[#helloFields + 1] = { field = field, order = tonumber(order) or 100, send = send, seen = seen }
+    tsort(helloFields, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return a.field < b.field
+    end)
+end
+
 -- force: skip the HELLO rate limit (used once for the promotion HELLO, which must not be lost).
 function Sync:SendHello(force)
     if not ns.loggedIn or not IsInGuild() then return false end
@@ -432,24 +452,10 @@ function Sync:SendHello(force)
     end
     if Guild.GetRaidLeadersRev then msg.rlr = Guild:GetRaidLeadersRev() end   -- Addendum J §62
     if Guild.GetAccountsHash then msg.av = Guild:GetAccountsHash() end        -- accounts (Guild.lua)
-    -- Addendum J §56: everyone carries the hash of their raid plan data (0.6 clients ignore it).
-    local RaidPlan = ns.RaidPlan
-    if RaidPlan and RaidPlan.GetDigestHash then msg.pd = RaidPlan:GetDigestHash() end
-    if RaidPlan and RaidPlan.GetBlacklistRev then msg.blr = RaidPlan:GetBlacklistRev() end   -- the raid blacklist
-    local GuestBook = ns.GuestBook
-    if GuestBook and GuestBook.GetNotesRev then msg.gnr = GuestBook:GetNotesRev() end   -- the guest book's notes (1.3)
-    -- Addendum K: the hash of my strategy boards and raid assignments (older clients ignore it).
-    local Strategy = ns.Strategy
-    if Strategy and Strategy.GetDigestHash then msg.sd = Strategy:GetDigestHash() end
-    -- 1.3.2: the hash of the guild's events (library, calendar, results, season; Core/Events.lua)
-    local Events = ns.Events
-    if Events and Events.GetDigestHash then msg.ed = Events:GetDigestHash() end
-    -- 1.3.4: the hash of the guild's polls (Core/Polls.lua)
-    local Polls = ns.Polls
-    if Polls and Polls.GetDigestHash then msg.od = Polls:GetDigestHash() end
-    -- 1.3.5: the hash of the guild's prized items and their loot rules (Core/Prized.lua)
-    local Prized = ns.Prized
-    if Prized and Prized.GetDigestHash then msg.zd = Prized:GetDigestHash() end
+    -- the other modules' fields, in their order (RegisterHelloField: pd, blr, gnr, sd, ed, od, zd)
+    for _, f in ipairs(helloFields) do
+        if f.send then msg[f.field] = f.send() end
+    end
     return Send(msg, "GUILD", nil, "ctrl")
 end
 
@@ -766,19 +772,9 @@ end
 local function OnHello(sender, msg, dist)
     if dist ~= "GUILD" then return end
     MarkSeen(sender, msg.v, msg.c and true or false)
-    local RaidPlan = ns.RaidPlan
-    if RaidPlan and RaidPlan.OnHelloDigest then RaidPlan:OnHelloDigest(sender, msg.pd) end
-    if RaidPlan and RaidPlan.OnBlacklistRevSeen then RaidPlan:OnBlacklistRevSeen(sender, msg.blr) end
-    local GuestBook = ns.GuestBook
-    if GuestBook and GuestBook.OnNotesRevSeen then GuestBook:OnNotesRevSeen(sender, msg.gnr) end
-    local Strategy = ns.Strategy
-    if Strategy and Strategy.OnHelloDigest then Strategy:OnHelloDigest(sender, msg.sd) end
-    local Events = ns.Events
-    if Events and Events.OnHelloDigest then Events:OnHelloDigest(sender, msg.ed) end
-    local Polls = ns.Polls
-    if Polls and Polls.OnHelloDigest then Polls:OnHelloDigest(sender, msg.od) end
-    local Prized = ns.Prized
-    if Prized and Prized.OnHelloDigest then Prized:OnHelloDigest(sender, msg.zd) end
+    for _, f in ipairs(helloFields) do
+        if f.seen then f.seen(sender, msg[f.field]) end
+    end
     local G = ns.Guild
     if G and G.OnRaidLeadersRevSeen then G:OnRaidLeadersRevSeen(sender, msg.rlr) end
     if G and G.OnAccountsSeen then G:OnAccountsSeen(sender, msg.av) end
