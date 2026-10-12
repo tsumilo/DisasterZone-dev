@@ -50,13 +50,6 @@ local ICON = {
     other = 134400,     -- INV_Misc_QuestionMark
     copy = 17,          -- (UI.ICON_ATLAS index: two sheets)
 }
--- TODO(refactor): move into Data/Raids.lua (ns.Data.RaidMeta[key].icon: the raid's LFG icon)
--- uniformity: RaidMeta has no LFG icon field yet and Data/Raids.lua is not this page's to change; the one raid table
--- left here is these icons (names, art and short names come from ItemDB).
-local RAID_ICON = {
-    Karazhan = 136343, GruulsLair = 136337, MagtheridonsLair = 136340, SerpentshrineCavern = 136356,
-    TempestKeep = 136362, HyjalSummit = 136341, BlackTemple = 136328, ZulAman = 136367, SunwellPlateau = 136361,
-}
 local BADGE_ITEM = 29434                 -- Badge of Justice
 
 -- What is still to get, by source (the centre's counts), after the raids (by phase).
@@ -381,7 +374,7 @@ local function Describe(itemID)
         local short = RaidShort(ref)
         local prefix = (src.via == "token" or src.via == "arena") and "Token · " or (src.via == "upgrade" and "Sunmote · ") or ""
         local zone = (boss.isTrash or raid.key == "WorldBosses") and "" or (" · " .. short)
-        d.icon = RAID_ICON[raid.key] or ICON.raid
+        d.icon = ns.ItemDB:RaidIcon(raid.key) or ICON.raid
         if boss.isTrash then
             d.text = prefix .. short .. " trash"
             d.short = d.text

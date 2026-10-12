@@ -8,6 +8,8 @@ local addonName, ns = ...
 --   UI:CreateSegments(parent, items, onChange, opts)   a row of choices, one picked (and the old route-steps bar)
 --   UI:CreateRailNav(parent, items, onSelect, opts)    the side menu of a rail page (Settings, Notifications)
 --   UI:CreateProgressBar(parent, opts)                 a thin track and its fill (a share, a progress)
+--   UI:CreateStepper(parent, width, onStep, opts)      a value between two chevrons (the wheel steps it too)
+--   UI:CreateKeyCap(parent, w, h) / UI:CreateStar(parent, size)   a keyboard key; a rating star
 
 local UI = ns.UI
 local S = ns.Style
@@ -358,6 +360,89 @@ function UI:CreateProgressBar(parent, opts)
     b:HookScript("OnSizeChanged", function(self) self:Apply() end)
     b:Set(0)
     return b
+end
+
+---------------------------------------------------------------------------
+-- Key cap and rating star
+---------------------------------------------------------------------------
+
+-- UI:CreateKeyCap(parent, w, h) -> cap: a keyboard key ("2", "SHIFT-1"): the inset surface with a strong edge and a
+-- darker lip, the key's text in it (cap.key). UI:SetEdgeColor(cap, ...) recolours its edge (gold while a key is being
+-- caught, red when one is missing).
+function UI:CreateKeyCap(parent, w, h)
+    local cap = CreateFrame("Frame", nil, parent)
+    cap:SetSize(w, h)
+    cap.bg = UI:Fill(cap, "INSET", "BACKGROUND")
+    UI:AddEdges(cap, "BORDER")
+    UI:SetEdgeColor(cap, S:Color("EDGE_STRONG"))
+    cap.lip = UI:Fill(cap, { 0, 0, 0, 0.5 }, "BORDER")
+    cap.lip:ClearAllPoints()
+    cap.lip:SetPoint("BOTTOMLEFT")
+    cap.lip:SetPoint("BOTTOMRIGHT")
+    cap.lip:SetHeight(3)
+    cap.key = UI:Text(cap, "body", { 1, 1, 1 }, { justify = "CENTER" })
+    cap.key:SetPoint("CENTER", 0, 1)
+    return cap
+end
+
+-- UI:CreateStar(parent, size) -> texture: a rating star (the game's reputation star); star:SetLit(on): lit gold, or a
+-- grey one.
+function UI:CreateStar(parent, size)
+    local t = parent:CreateTexture(nil, "ARTWORK")
+    t:SetTexture(STAR)
+    t:SetTexCoord(0, 0.5, 0, 0.5)
+    t:SetSize(size, size)
+    function t:SetLit(on)
+        self:SetDesaturated(not on)
+        if on then self:SetVertexColor(1, 1, 1, 1) else self:SetVertexColor(0.35, 0.35, 0.38, 0.9) end
+    end
+    return t
+end
+
+---------------------------------------------------------------------------
+-- Stepper: a value between two chevrons
+---------------------------------------------------------------------------
+
+local Stepper = {}
+
+-- stepper:Set(text, canPrev, canNext): the value shown and which way it can still step.
+function Stepper:Set(text, canPrev, canNext)
+    self.text:SetText(text or "")
+    self.prev:SetEnabled(canPrev and true or false)
+    self.next:SetEnabled(canNext and true or false)
+end
+
+-- UI:CreateStepper(parent, width, onStep, opts) -> stepper: a value between two chevrons on the sleek button's surface
+-- (a day / a time / minutes); the chevrons and the mouse wheel call onStep(-1 | 1). opts: { height (24), tip (a text
+-- or { title, lines... }: its tooltip) }. stepper:Set(text, canPrev, canNext); stepper.text, .prev, .next.
+function UI:CreateStepper(parent, width, onStep, opts)
+    opts = opts or {}
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(width or 110, opts.height or 24)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    UI:AddEdges(f)
+    UI:PaintSleek(f, "secondary", false)
+    f.text = UI:Text(f, "emph", "TEXT", { justify = "CENTER" })
+    f.text:SetPoint("CENTER", 0, 0)
+    f.prev = UI:CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
+    f.prev:SetPoint("LEFT", 1, 0)
+    f.next = UI:CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
+    f.next:SetPoint("RIGHT", -1, 0)
+    for k, fn in pairs(Stepper) do f[k] = fn end
+    f:EnableMouse(true)
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
+    local tip = opts.tip
+    f:SetScript("OnEnter", function(self)
+        UI:PaintSleek(self, "secondary", true)
+        if tip then UI:SetTextTooltip(self, tip, "ANCHOR_TOP") end
+    end)
+    f:SetScript("OnLeave", function(self)
+        UI:PaintSleek(self, "secondary", false)
+        if tip then GameTooltip:Hide() end
+    end)
+    return f
 end
 
 ---------------------------------------------------------------------------

@@ -1656,9 +1656,6 @@ function ChangelogUI:RenderList()
         g.key = grp.key
         g.collapsedNow = collapsed
         g.head:SetTitle(grp.label)
-        -- (the label as it is: upper-casing a byte of "–" breaks it; the series labels are digits anyway)
-        -- TODO(refactor): PageParts' Caps should leave bytes past 127 alone
-        g.head.title:SetText(grp.label)
         if searching and grp.key ~= Groups()[1].key then
             g.head:SetRight(("%d of %d match"):format(hits, n))
         else

@@ -5016,67 +5016,6 @@ local function Field(f, w, h, maxLetters, hint)
     return eb
 end
 
--- A flat stepper (the Dungeons tab's "Later" picker): a value between two gold chevrons; they and the wheel step it.
--- (the day / time helpers below and this stepper are copied in UI/DungeonsTab.lua: kept local here for now)
--- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua) with the day / time helpers
-local function Chevron(parent, dir)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(22, 22)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(S:Color("HOVER"))
-    b.lines = {}
-    for i = 1, 2 do
-        local l = b:CreateLine(nil, "ARTWORK")
-        l:SetThickness(2)
-        l:SetColorTexture(S:Color("GOLD"))
-        b.lines[i] = l
-    end
-    local x = dir < 0 and 3 or -3
-    b.lines[1]:SetStartPoint("CENTER", x, 5)
-    b.lines[1]:SetEndPoint("CENTER", -x, 0)
-    b.lines[2]:SetStartPoint("CENTER", -x, 0)
-    b.lines[2]:SetEndPoint("CENTER", x, -5)
-    function b:SetOn(on)
-        self.on = on
-        for _, l in ipairs(self.lines) do l:SetAlpha(on and 1 or 0.25) end
-    end
-    return b
-end
-
-function H.Stepper(parent, width, onStep, tip)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(width, 26)
-    UI():Fill(f, CARD)
-    Edges(f, S.C.EDGE_STRONG)
-    f.text = UI():Text(f, "emph", C.white)
-    f.text:SetJustifyH("CENTER")
-    f.text:SetPoint("CENTER", 0, 0)
-    f.prev = Chevron(f, -1)
-    f.prev:SetPoint("LEFT", 2, 0)
-    f.prev:SetScript("OnClick", function(self) if self.on then onStep(-1) end end)
-    f.next = Chevron(f, 1)
-    f.next:SetPoint("RIGHT", -2, 0)
-    f.next:SetScript("OnClick", function(self) if self.on then onStep(1) end end)
-    f:EnableMouse(true)
-    f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
-    f:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.6)
-        if tip then Tip(self, tip) end
-    end)
-    f:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, S:Color("EDGE_STRONG"))
-        HideTip()
-    end)
-    function f:Set(text, canPrev, canNext)
-        self.text:SetText(text)
-        self.prev:SetOn(canPrev)
-        self.next:SetOn(canNext)
-    end
-    return f
-end
-
 -- Day / time (the local clock): day 0 = today.
 local DAYS_AHEAD = 13
 local function NowMinutes()
@@ -5147,19 +5086,19 @@ function Sh.Schedule()
     local LX, FX = 12, 76
     FormLabel(f, "When", LX, -128)
     local tip = { "Pick the time", "Click the arrows or scroll. Your clock: everybody sees it in theirs." }
-    f.day = H.Stepper(f, 160, function(dir)
+    f.day = UI():CreateStepper(f, 160, function(dir)
         local s = f.s
         s.day = (s.day or 0) + dir
         ClampWhen(s)
         Sh.RefreshSchedule()
-    end, tip)
+    end, { tip = tip })
     f.day:SetPoint("TOPLEFT", FX, -121)
-    f.time = H.Stepper(f, 96, function(dir)
+    f.time = UI():CreateStepper(f, 96, function(dir)
         local s = f.s
         s.mins = (s.mins or 0) + dir * 15
         ClampWhen(s)
         Sh.RefreshSchedule()
-    end, tip)
+    end, { tip = tip })
     f.time:SetPoint("LEFT", f.day, "RIGHT", 6, 0)
     f.whereLabel = FormLabel(f, "Where", LX, -162)
     f.where = Field(f, 372, 26, 48, "Ring of Trials, Nagrand")
@@ -5792,18 +5731,18 @@ function Sh.Season()
     f.name:SetPoint("TOPLEFT", FX, -55)
     local tip = { "Pick the day", "Click the arrows or scroll." }
     FormLabel(f, "From", LX, -100)
-    f.from = H.Stepper(f, 160, function(dir)
+    f.from = UI():CreateStepper(f, 160, function(dir)
         f.s.from = W.Noon(f.s.from + dir * DAY)
         if f.s.from > f.s.to - DAY then f.s.from = f.s.to - DAY end
         Sh.RefreshSeason()
-    end, tip)
+    end, { tip = tip })
     f.from:SetPoint("TOPLEFT", FX, -93)
     FormLabel(f, "To", LX, -134)
-    f.to = H.Stepper(f, 160, function(dir)
+    f.to = UI():CreateStepper(f, 160, function(dir)
         f.s.to = W.Noon(f.s.to + dir * DAY)
         if f.s.to < f.s.from + DAY then f.s.to = f.s.from + DAY end
         Sh.RefreshSeason()
-    end, tip)
+    end, { tip = tip })
     f.to:SetPoint("TOPLEFT", FX, -127)
     f.info = UI():Text(f, "body", C.grey)
     f.info:SetPoint("TOPLEFT", FX, -166)

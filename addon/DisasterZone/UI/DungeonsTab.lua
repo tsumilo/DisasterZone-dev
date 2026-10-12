@@ -1454,42 +1454,6 @@ local function DayText(day)
     return date("%a ", t) .. tonumber(date("%d", t)) .. date(" %b", t)
 end
 
--- A flat stepper: a value between two chevrons (UI:CreateArrowButton) on the sleek button's surface (UI:PaintSleek);
--- the chevrons and the mouse wheel step it.
--- TODO(refactor): move into Controls (UI:CreateStepper: the day / time pickers of the List a run sheet)
-local function NewStepper(parent, width, onStep, tip)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(width, 24)
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    UI():AddEdges(f)
-    UI():PaintSleek(f, "secondary", false)
-    f.text = UI():Text(f, "emph", "TEXT")
-    f.text:SetPoint("CENTER", 0, 0)
-    f.text:SetJustifyH("CENTER")
-    f.prev = UI():CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
-    f.prev:SetPoint("LEFT", 1, 0)
-    f.next = UI():CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
-    f.next:SetPoint("RIGHT", -1, 0)
-    f:EnableMouse(true)
-    f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
-    f:SetScript("OnEnter", function(self)
-        UI():PaintSleek(self, "secondary", true)
-        UI():SetTextTooltip(self, tip, "ANCHOR_TOP")
-    end)
-    f:SetScript("OnLeave", function(self)
-        UI():PaintSleek(self, "secondary", false)
-        HideTip()
-    end)
-    function f:Set(text, canPrev, canNext)
-        self.text:SetText(text)
-        self.prev:SetEnabled(canPrev and true or false)
-        self.next:SetEnabled(canNext and true or false)
-    end
-    return f
-end
-
 -- A dungeon tile: the short name, then at most one badge (★ guildies with BiS there, or "Saved"), the DAILY pill on
 -- its edge; the sleek button's surface (UI:PaintSleek: "chosen" while picked, quiet while it can't be picked).
 local function NewTile(parent)
@@ -1625,19 +1589,19 @@ local function CreateSheet(p)
     sh.atLabel:SetText("At")
     sh.atLabel:SetPoint("LEFT", 0, 0)
     local stepTip = { "Pick the time", "Click the arrows or scroll. Your clock; everybody sees it in theirs." }
-    sh.day = NewStepper(sh.atRow, 150, function(dir)
+    sh.day = UI():CreateStepper(sh.atRow, 150, function(dir)
         local s = state.sheet
         s.day = (s.day or 0) + dir
         ClampLater(s)
         DungeonsUI:RefreshSheet()
-    end, stepTip)
+    end, { tip = stepTip })
     sh.day:SetPoint("LEFT", FORM_LABEL_W, 0)
-    sh.time = NewStepper(sh.atRow, 96, function(dir)
+    sh.time = UI():CreateStepper(sh.atRow, 96, function(dir)
         local s = state.sheet
         s.mins = (s.mins or 0) + dir * 15
         ClampLater(s)
         DungeonsUI:RefreshSheet()
-    end, stepTip)
+    end, { tip = stepTip })
     sh.time:SetPoint("LEFT", sh.day, "RIGHT", 6, 0)
     sh.noteRow = CreateFrame("Frame", nil, form)
     sh.noteRow:SetSize(FORM_LABEL_W + FORM_W, 24)

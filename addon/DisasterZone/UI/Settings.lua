@@ -2054,34 +2054,6 @@ local ATT_ROWS = {
 local ATT_MAX = 60
 local STEP_W = 110
 
--- A value between two chevrons in a flat box; the mouse wheel steps it too.
--- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua): the event builder and the team page
--- have their own copies.
-local function NewStepper(parent, onStep)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(STEP_W, 24)
-    f.bg = UI:Fill(f, "CARD")
-    UI:AddEdges(f)
-    UI:SetEdgeColor(f, S:Color("EDGE_STRONG"))
-    f.text = UI:Text(f, "emph")
-    f.text:SetPoint("CENTER")
-    f.prev = ns.UI:CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
-    f.prev:SetPoint("LEFT", 1, 0)
-    f.next = ns.UI:CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
-    f.next:SetPoint("RIGHT", -1, 0)
-    f:EnableMouse(true)
-    f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
-    f:SetScript("OnEnter", function(self) UI:SetEdgeColor(self, S:Color("EDGE_FOCUS")) end)
-    f:SetScript("OnLeave", function(self) UI:SetEdgeColor(self, S:Color("EDGE_STRONG")) end)
-    function f:Set(n)
-        self.text:SetText(n .. " min")
-        self.prev:SetEnabled(n > 0)
-        self.next:SetEnabled(n < ATT_MAX)
-    end
-    return f
-end
-
 local function CanSetAttendance()
     local G = ns.Guild
     return G and G.IsGM and ns.Util and G:IsGM(ns.Util.PlayerKey()) and true or false
@@ -2094,7 +2066,7 @@ function SettingsUI:BuildAttendance(sec)
     sec.steppers = {}
     for _, r in ipairs(ATT_ROWS) do
         local row = self:Row(sec, r.title, r.desc)
-        local st = NewStepper(row, function(dir) SettingsUI:StepAttendance(r.field, dir) end)
+        local st = UI:CreateStepper(row, STEP_W, function(dir) SettingsUI:StepAttendance(r.field, dir) end)
         st:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         row.control = st
         AddValueText(row)
@@ -2139,7 +2111,7 @@ function SettingsUI:RefreshAttendance()
     sec.notice:SetNotice(gm and "info" or "readonly", sec.status:GetText())
     for _, row in ipairs(sec.rows) do
         local n = tonumber(rules[row.field]) or 0
-        row.control:Set(n)
+        row.control:Set(n .. " min", n > 0, n < ATT_MAX)
         SetReadOnly(row, not gm, n .. " min")
     end
 end

@@ -280,6 +280,12 @@ function ItemDB:RaidShort(key)
     return m and m.short or nil
 end
 
+-- A raid's LFG icon (a file id; either key form), or nil.
+function ItemDB:RaidIcon(key)
+    local m = self:GetRaidMeta(key)
+    return m and m.icon or nil
+end
+
 -- A raid's loading screen: file, l, r, t, b. Without w: the whole picture under the logo band. With w x h: the crop a
 -- box of that shape shows (fw = the share of the picture's width, 0.5 by default), centred on the raid's focus.
 -- under: keep the crop under the logo band (true), or only when h < under (a number). Unknown keys get a generic
