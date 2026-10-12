@@ -1186,8 +1186,9 @@ function Stage:Show(on)
     stage:Hide()
     self.mode = nil
     self.covered = nil
+    -- (the doll comes back at full alpha but is not shown here: My BiS's repaint shows it for the lists and keeps it
+    -- hidden for Consumables, which calls this after hiding it)
     if doll then
-      if self.dollCovered then doll:Show() end
       doll:SetAlpha(1)
       for _, tile in pairs(doll.tiles or {}) do tile:SetAlpha(1) end
     end
@@ -1288,5 +1289,6 @@ end
 
 -- (tests) the stage's mode, sweep and the frames.
 function Stage._frame() return stage end
+function Stage._doll() return doll end
 function Stage._tweens() return tweens end
 function Stage._sigil() return sigil end

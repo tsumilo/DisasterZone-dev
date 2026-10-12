@@ -990,5 +990,33 @@ def gems_and_enchant_of_the_working_set():
                   "return next(g) == nil", head) is True
     assert_no_lua_errors(w)
 
+@r.case
+def consumables_keeps_the_doll_hidden_after_an_overlay():
+    # Nerd stats / Recent runs hide the doll over a result; going to Consumables from under them must not bring the
+    # paper doll back over the kit (its slot clicks would open the picker there)
+    for overlay in ("ns.SimNerd:Open('stats')", "ns.SimHistoryUI:Open()"):
+        w, c = solo()
+        c.eval("ns.MyBiS:OpenView('sim')")
+        settle(w, 0.3)
+        sim(w, c)
+        settle(w, 3)          # (the doll shows once the result has moved in)
+        assert c.eval("return ns.SimStage._doll():IsShown()") is True
+        c.eval(overlay)
+        settle(w, 0.3)
+        assert c.eval("return ns.SimStage._doll():IsShown()") is False     # out of sight under the overlay
+        c.eval("ns.MyBiS:OpenView('kit')")
+        settle(w, 0.3)
+        assert c.eval("return ns.MyBiS:GetView()") == "kit"
+        assert c.eval("return ns.KitView:IsActive()") is True
+        assert c.eval("return ns.SimStage._doll():IsShown()") is False, overlay
+        assert c.eval("return ns.SimNerd:IsOpen() or ns.SimHistoryUI:IsOpen()") is False
+        # back to the lists: the doll is there, at full alpha
+        c.eval("ns.MyBiS:OpenView('list')")
+        settle(w, 0.3)
+        assert c.eval("return ns.SimStage._doll():IsShown()") is True
+        assert c.eval("return ns.SimStage._doll():GetAlpha()") == 1
+        assert_no_lua_errors(w)
+
+
 if __name__ == "__main__":
     r.run()
