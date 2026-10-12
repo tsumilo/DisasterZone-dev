@@ -27,21 +27,12 @@ Kit.C = {
 }
 local C = Kit.C
 
--- The pill kind (UI:CreatePill) of a change: better / worse / the same. TODO(refactor): move into UI:CreatePill (a
--- "bad" look for a worse number; "live" is the nearest red today).
-Kit.PILL = { up = "ok", down = "live", mute = "mute", best = "rank", avoid = "warn" }
+-- The pill kind (UI:CreatePill) of a change: better / worse / the same.
+Kit.PILL = { up = "ok", down = "bad", mute = "mute", best = "rank", avoid = "warn" }
 
 ---------------------------------------------------------------------------
 -- Small pieces
 ---------------------------------------------------------------------------
-
--- (the old card, kept for UI/MeterDetail.lua: a shared card, or an inset well for a darker fill)
-function Kit.Card(parent, fill)
-    local dark = fill and (fill[1] + fill[2] + fill[3]) < 0.27
-    local c = UI:CreateCard(parent, { tone = dark and "inset" or "card" })
-    function c:SetEdge(r, g, b, a) UI:SetEdgeColor(self, r, g, b, a) end
-    return c
-end
 
 -- A round dot of size px in colour c (alpha a).
 function Kit.Dot(parent, size, c, a, layer)
@@ -57,7 +48,7 @@ function Kit.ChangeChip(change, higherIsBetter, suffix)
     if not change then return nil end
     if abs(change) < 0.05 then return "same" .. (suffix or ""), "mute" end
     local good = (change > 0) == (higherIsBetter ~= false)
-    return strformat("%s%.1f%%%s", change > 0 and "+" or "-", abs(change), suffix or ""), good and "ok" or "live"
+    return strformat("%s%.1f%%%s", change > 0 and "+" or "-", abs(change), suffix or ""), good and Kit.PILL.up or Kit.PILL.down
 end
 
 -- A pill (UI:CreatePill) that hides itself without text: pill:SetPill(kind, text) with text nil hides it.
@@ -71,42 +62,6 @@ function Kit.Pill(parent)
     end
     p:Hide()
     return p
-end
-
----------------------------------------------------------------------------
--- Underline tabs in a row, kept for UI/MeterDetail.lua (a page's tabs are its layout's): items = { { key, label } },
--- onPick(key). tabs:SetSelected(key), tabs:SetLabel(key, text); tabs.buttons[i]
----------------------------------------------------------------------------
-
-function Kit.Tabs(parent, items, onPick)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(10, 22)
-    f.buttons = {}
-    local function place()
-        local x = 0
-        for _, b in ipairs(f.buttons) do
-            b:ClearAllPoints()
-            b:SetPoint("LEFT", f, "LEFT", x, 0)
-            x = x + (b:GetWidth() or 60) + 4
-        end
-        f:SetWidth(max(10, x - 4))
-    end
-    for i, it in ipairs(items) do
-        local b = UI:CreateUnderlineTab(f, it.label, function(self) onPick(self.key) end, "page")
-        b.key = it.key
-        f.buttons[i] = b
-    end
-    place()
-    function f:SetSelected(key)
-        for _, b in ipairs(self.buttons) do b:SetActive(b.key == key) end
-    end
-    function f:SetLabel(key, text)
-        for _, b in ipairs(self.buttons) do
-            if b.key == key and b:GetText() ~= text then b:SetLabel(text) end
-        end
-        place()
-    end
-    return f
 end
 
 ---------------------------------------------------------------------------

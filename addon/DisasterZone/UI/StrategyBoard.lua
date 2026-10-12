@@ -461,7 +461,7 @@ local function createWindow()
     f.metaBtn:SetScript("OnEnter", function(self) Board:MetaTooltip(self) end)
     f.metaBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- one state at a time: Unsaved, Joining ...'s board, Newer version by ..., Practice
-    f.stateTag = UI():CreateTagPill(hdr, 16)
+    f.stateTag = UI():CreatePill(hdr, 16)
     f.stateTag:SetBase(Style:Color("SURFACE_WINDOW"))
     f.stateTag:EnableMouse(true)
     f.stateTag:SetScript("OnEnter", function(self) Board:StateTooltip(self) end)

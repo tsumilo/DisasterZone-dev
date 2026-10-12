@@ -34,12 +34,6 @@ local function Util() return ns.Util end
 -- Pills
 ---------------------------------------------------------------------------
 
--- The pills are UI:CreatePill (UI/Comp/Controls.lua): its looks have the events' live / rank, its kinds review /
--- back / changed / draft / ended. EUI:CreatePill(parent, h) is the old name: p:SetKind(text, kind) with kind =
--- live | rank | review | back | changed | draft | ended | mute | ok | warn | alt.
-function EUI:CreatePill(parent, h)
-    return UI():CreatePill(parent, h or 16)
-end
 
 -- The pill an event's review state shows (nil: none).
 function EUI:ReviewPill(state)
@@ -78,11 +72,6 @@ function EUI:SetArt(tex, key, w, h, cx, cy, fw)
     tex:SetTexCoord(l, r, t, b)
 end
 
--- EUI:Gradient(tex, orient, r, g, b, a1, a2): one colour from alpha a1 to a2 (the old call shape of UI:Gradient).
-function EUI:Gradient(tex, orient, r, g, b, a1, a2)
-    return UI():Gradient(tex, orient, { r, g, b, a1 }, { r, g, b, a2 })
-end
-
 -- The banner's shade over its art (left to right, bottom to top), so white text reads on any art. kind "card": only
 -- the bottom (a library card's art fading into the card).
 function EUI:AddShade(f, kind)
@@ -93,11 +82,11 @@ function EUI:AddShade(f, kind)
     d:SetTexture(EUI.WHITE)
     d:SetAllPoints()
     if kind == "card" then
-        EUI:Gradient(t, "VERTICAL", SC.CARD[1], SC.CARD[2], SC.CARD[3], 1, 0)
+        UI():Gradient(t, "VERTICAL", { SC.CARD[1], SC.CARD[2], SC.CARD[3], 1 }, { SC.CARD[1], SC.CARD[2], SC.CARD[3], 0 })
         d:Hide()
     else
-        EUI:Gradient(t, "HORIZONTAL", 0.035, 0.035, 0.043, 0.92, 0.12)
-        EUI:Gradient(d, "VERTICAL", 0.035, 0.035, 0.043, 0.9, 0)
+        UI():Gradient(t, "HORIZONTAL", { 0.035, 0.035, 0.043, 0.92 }, { 0.035, 0.035, 0.043, 0.12 })
+        UI():Gradient(d, "VERTICAL", { 0.035, 0.035, 0.043, 0.9 }, { 0.035, 0.035, 0.043, 0 })
     end
     f.shade = { t, d }
     return t, d
@@ -302,7 +291,7 @@ function EUI:CreateProgress(parent)
             it.fs:SetPoint("LEFT", self, "LEFT", x + 18, 0)
             for _, t in ipairs({ it.dot, it.ring, it.fs }) do t:Show() end
             if named then
-                x = x + 18 + EUI:TextWidth(it.fs)
+                x = x + 18 + UI():TextWidth(it.fs)
             else
                 it.fs:Hide()
                 x = x + 12
@@ -571,12 +560,12 @@ function EUI:CreateZoneMap(parent, w, h)
             t:SetPoint(side .. "LEFT")
             t:SetPoint(side .. "RIGHT")
             t:SetHeight(26)
-            EUI:Gradient(t, "VERTICAL", 0, 0, 0, side == "TOP" and 0 or 0.32, side == "TOP" and 0.32 or 0)
+            UI():Gradient(t, "VERTICAL", { 0, 0, 0, side == "TOP" and 0 or 0.32 }, { 0, 0, 0, side == "TOP" and 0.32 or 0 })
         else
             t:SetPoint("TOP" .. side)
             t:SetPoint("BOTTOM" .. side)
             t:SetWidth(26)
-            EUI:Gradient(t, "HORIZONTAL", 0, 0, 0, side == "LEFT" and 0.32 or 0, side == "LEFT" and 0 or 0.32)
+            UI():Gradient(t, "HORIZONTAL", { 0, 0, 0, side == "LEFT" and 0.32 or 0 }, { 0, 0, 0, side == "LEFT" and 0 or 0.32 })
         end
         m.vig[i] = t
     end
@@ -755,7 +744,7 @@ function EUI:CreateZoneMap(parent, w, h)
             local c = self.rings[i]
             local fs = c and c.label
             if fs and fs:IsShown() and c.px then
-                local tw = EUI:TextWidth(fs)
+                local tw = UI():TextWidth(fs)
                 local x1, y1 = c.px - tw / 2 - 2, c.py + (c.r or 6) + 10 - 7
                 local x2, y2 = x1 + tw + 4, y1 + 14
                 -- (a name the map's edge would cut: its card on hover says it)
@@ -810,7 +799,7 @@ function EUI:CreateZoneMap(parent, w, h)
         local name = on and EUI:MapName(self.map)
         if not name then z:Hide() return end
         z.fs:SetText(name)
-        z:SetWidth(floor(EUI:TextWidth(z.fs) + 20 + 0.5))
+        z:SetWidth(floor(UI():TextWidth(z.fs) + 20 + 0.5))
         z:ClearAllPoints()
         z:SetPoint("TOPRIGHT", self, "TOPRIGHT", -10, -9)
         z:Show()
@@ -863,13 +852,13 @@ function EUI:CreateZoneMap(parent, w, h)
         local face = ns.EventSensors and ns.EventSensors.Facing and ns.EventSensors.Facing()
         if me.arrow.SetRotation then me.arrow:SetRotation(face or 0) end
         -- ("You" on the side with room, off the places' names; with room on neither side the arrow says it alone)
-        local tw = EUI:TextWidth(me.fs)
+        local tw = UI():TextWidth(me.fs)
         local function clear(x1)
             if x1 < 0 or x1 + tw > self.w then return false end
             for _, c in ipairs(self.rings) do
                 local fs = c:IsShown() and c.label
                 if fs and fs:IsShown() and c.px then
-                    local lw = EUI:TextWidth(fs)
+                    local lw = UI():TextWidth(fs)
                     local lx, ly = c.px - lw / 2, c.py + (c.r or 6) + 10
                     if x1 < lx + lw and lx < x1 + tw and py - 7 < ly + 7 and ly - 7 < py + 7 then return false end
                 end
@@ -896,12 +885,6 @@ end
 ---------------------------------------------------------------------------
 -- Where a place is (the event's places): its zone, coordinates, the way from me
 ---------------------------------------------------------------------------
-
--- A text's whole width on one line (unbounded: GetStringWidth stops at a width the string was given on this client).
--- (UI:TextWidth does the measuring; this one name stays for the events' callers)
-function EUI:TextWidth(fs)
-    return UI():TextWidth(fs)
-end
 
 function EUI:MapName(map)
     map = tonumber(map)
@@ -983,19 +966,6 @@ function EUI:ShowTheWay(occ, pid, def)
     return ok and true or false
 end
 
--- A tag as a chip (UI:CreateChip, UI/Comp/Controls.lua): chip:Set(text, rgb [, key]); kind "track" (the tracker's,
--- 18 high), "you" (the board's header: a blue edge, 22 high).
-function EUI:CreateChip(parent, kind)
-    return UI():CreateChip(parent, kind)
-end
-
--- A list walked in steps (a route): one segment a step, the done ones filled, the next one outlined (the steps bar
--- of UI:CreateSegments, UI/Comp/Controls.lua). s:Set(n, done [, finished]); look "board" (the board's rows) |
--- "track" (the tracker: brighter empties, a dark edge).
-function EUI:CreateSegments(parent, w, h, look)
-    return UI():CreateSegments(parent, w, h, look)
-end
-
 -- "Time left": the big clock, "of 20 min", a gold bar, what ends when and what comes then. t:Set(left, total, l, r).
 function EUI:CreateTimeLeft(parent, w)
     local t = CreateFrame("Frame", nil, parent)
@@ -1042,10 +1012,10 @@ function EUI:CreateTimeLeft(parent, w)
         self.bar:SetWidth(max(1, W * min(1, left / total)))
         self.bar:SetShown(left > 0)
         self.r:SetText(rtext or "")
-        local rw = (rtext and rtext ~= "") and (EUI:TextWidth(self.r) + 8) or 0
+        local rw = (rtext and rtext ~= "") and (UI():TextWidth(self.r) + 8) or 0
         self.l:SetText(ltext or "")
         -- (what doesn't fit goes: the right side's words first)
-        if EUI:TextWidth(self.l) + rw > W then
+        if UI():TextWidth(self.l) + rw > W then
             self.r:SetText("")
         end
     end

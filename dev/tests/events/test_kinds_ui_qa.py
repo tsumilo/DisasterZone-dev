@@ -938,7 +938,7 @@ def place_names_on_a_crowded_map_never_lie_on_each_other():
         local out = {}
         for _, r in ipairs(m.rings) do
           if r:IsShown() and r.label:IsShown() then
-            local tw = ns.EventUI:TextWidth(r.label)
+            local tw = ns.UI:TextWidth(r.label)
             out[#out + 1] = { r.px - tw / 2, r.py + r.r + 10 - 6, tw, 12 }
           end
         end
@@ -947,7 +947,7 @@ def place_names_on_a_crowded_map_never_lie_on_each_other():
         if me and me:IsShown() and me.fs:IsShown() then
           local _, _, _, mx, my = me:GetPoint(1)
           local p1, _, _, ox = me.fs:GetPoint(1)
-          local tw = ns.EventUI:TextWidth(me.fs)
+          local tw = ns.UI:TextWidth(me.fs)
           local x1 = (p1 == 'LEFT') and (mx + 15) or (mx - 15 - tw)
           out[#out + 1] = { x1, -my - 6, tw, 12 }
         end

@@ -54,7 +54,7 @@ local function Key(y, m, d) return y * 10000 + m * 100 + d end
 -- Returns the button; button.popup is the calendar; button:Refresh(), button:Open(), button:Close(),
 -- button:ShowMonth(y, m), button:PickDay(d) (in the shown month; for tests).
 function UI:CreateDatePicker(parent, opts)
-    local b = UI:CreateButton(parent, "", opts.width or 220, 22)
+    local b = UI:CreateSleekButton(parent, "", opts.width or 220, 22)
     b.opts = opts
 
     local p = CreateFrame("Frame", nil, b)

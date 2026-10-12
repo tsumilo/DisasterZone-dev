@@ -300,7 +300,7 @@ local function initStratRow(row, d)
         row.cdlInit = true
         row.a = UI():CreateArtRow(row, { onClick = function() openRow(row) end })
         row.a:SetAllPoints()
-        row.a.pill = UI():CreateTagPill(row.a, 16)      -- (made now: the row's tag is always there to ask)
+        row.a.pill = UI():CreatePill(row.a, 16)      -- (made now: the row's tag is always there to ask)
         row.a.pill:Hide()
         row.more = UI():CreateTipIconButton(row.a.right, ACT, UI().ICON.more, "More", "", openMore)
         row.more.row = row
@@ -467,7 +467,7 @@ function View:CreateLibrary(parent)
 
     -- the view's controls on the Raids tab's view row (its middle, 19 above the library): By, the tutorial behind a
     -- ? (what this view is in its tooltip), New strategy - the main action, at the far right
-    f.by = UI():CreateDropdown(f, BY_W, byOptions, function() return state.by end, function(value)
+    f.by = UI():CreateSleekDropdown(f, BY_W, byOptions, function() return state.by end, function(value)
         state.by = value
         View:RefreshLibrary()
     end)

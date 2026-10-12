@@ -78,18 +78,6 @@ end
 local FONT_COLOR = { GameFontNormal = S.C.GOLD, GameFontNormalLarge = S.C.GOLD, GameFontNormalHuge = S.C.GOLD,
     default = { 1, 1, 1 } }
 
--- A one-line text (UI:Text: the game font's face and shadow), sized on the type scale and coloured. font: the game
--- font it used to be made from (only its colour still counts when r is nil).
-function H.Text(parent, font, size, r, g, b, layer)
-    return UI():Text(parent, size or "emph", r and { r, g, b } or FONT_COLOR[font or "default"] or FONT_COLOR.default,
-        { layer = layer })
-end
-
--- A text's whole width on one line (UI:TextWidth).
-function H.Width(fs)
-    return UI():TextWidth(fs)
-end
-
 -- Sets the text, a size smaller each time it does not fit width (down to minSize). True when it fits.
 -- (The sizes are the type scale's; a minSize under the scale's smallest step is still tried as it is, last: a dense
 -- bracket's names shrink to the room rather than being cut.)
@@ -103,13 +91,13 @@ function H.Fit(fs, text, width, size, minSize)
         if snapped ~= last then
             last = snapped
             H.Sized(fs, s)
-            if H.Width(fs) <= width then return true end
+            if UI():TextWidth(fs) <= width then return true end
         end
     end
     if minSize < S:Size(minSize) then
         local path, _, flags = fs:GetFont()
         if path then fs:SetFont(path, minSize, flags) end
-        if H.Width(fs) <= width then return true end
+        if UI():TextWidth(fs) <= width then return true end
     end
     return false
 end
@@ -118,7 +106,7 @@ end
 function H.Fit2(fs, text, width, size, minSize)
     fs:SetWordWrap(false)
     if H.Fit(fs, text, width, size, minSize) then
-        fs:SetWidth(max(1, floor(H.Width(fs) + 4.5)))
+        fs:SetWidth(max(1, floor(UI():TextWidth(fs) + 4.5)))
         return true
     end
     fs:SetWordWrap(true)
@@ -136,7 +124,7 @@ function H.FitAny(fs, list, width, size, minSize, shrink)
         else
             H.Sized(fs, size)
             fs:SetText(list[i])
-            if H.Width(fs) <= width then return true end
+            if UI():TextWidth(fs) <= width then return true end
         end
     end
     return H.Fit(fs, list[#list], width, size, minSize)
@@ -375,7 +363,7 @@ function H.NewRing(parent, size)
         t:SetPoint("CENTER", f, "CENTER", math.sin(a) * rad, math.cos(a) * rad)
         f.arc[i] = t
     end
-    f.fs = H.Text(f, "GameFontHighlight", max(9, floor(size * 0.32)), 1, 1, 1)
+    f.fs = UI():Text(f, max(9, floor(size * 0.32)), { 1, 1, 1 })
     f.fs:SetJustifyH("CENTER")
     f.fs:SetPoint("CENTER", 0.5, 0)
     function f:Set(left, total, color)
@@ -1626,10 +1614,10 @@ function Board:DrawRail(occ, st, def, bk, height)
         local oneRow = false
         for _, size in ipairs({ 12, 11 }) do
             side(c.c1, c.n1, a, sa, inner, size)
-            local w1 = (c.c1:IsShown() and 25 or 0) + H.Width(c.n1)
+            local w1 = (c.c1:IsShown() and 25 or 0) + UI():TextWidth(c.n1)
             side(c.c2, c.n2, b, sb, inner, size)
-            local w2 = (c.c2:IsShown() and 25 or 0) + H.Width(c.n2)
-            if w1 + 7 + H.Width(c.vs) + 7 + w2 <= inner then
+            local w2 = (c.c2:IsShown() and 25 or 0) + UI():TextWidth(c.n2)
+            if w1 + 7 + UI():TextWidth(c.vs) + 7 + w2 <= inner then
                 oneRow = true
                 break
             end
@@ -2282,11 +2270,11 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         H.Sized(c.right, 10.5)
         H.Sized(c.title, 12)
         c.title:SetText(col.title)
-        if sc and H.Width(c.title) + 8 + H.Width(c.right) > room then
+        if sc and UI():TextWidth(c.title) + 8 + UI():TextWidth(c.right) > room then
             H.Fit(c.right, sc.n, max(40, floor(room * 0.45)), 10.5, 9)
-            if H.Width(c.right) > floor(room * 0.45) + 1 then c.right:SetText("") end
+            if UI():TextWidth(c.right) > floor(room * 0.45) + 1 then c.right:SetText("") end
         end
-        local rw = (c.right:GetText() or "") ~= "" and (H.Width(c.right) + 8) or 0
+        local rw = (c.right:GetText() or "") ~= "" and (UI():TextWidth(c.right) + 8) or 0
         c.title:SetWordWrap(false)
         if not H.Fit(c.title, col.title, room - rw, 12, 10) then
             -- (the tag's name first: the score's goes, its values stay next to the names; then smaller, then two lines)
@@ -2314,7 +2302,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
                 r.val:SetText(tostring(#t.keys))
                 r.val:SetTextColor(S:Color("TEXT"))
                 -- (the name starts after the dot: 6 + 10 + 8; the count at the right)
-                H.Fit2(r.name, t.title, width - 6 - 10 - 8 - 6 - (H.Width(r.val) + 8), 12, 10)
+                H.Fit2(r.name, t.title, width - 6 - 10 - 8 - 6 - (UI():TextWidth(r.val) + 8), 12, 10)
                 r.name:SetTextColor(1, 1, 1)
                 r.name:Show()
                 r.more:Hide()
@@ -2369,7 +2357,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r.val:SetText(text)
             local dim = val == nil or tonumber(val) == 0
             r.val:SetTextColor(S:Color(dim and "DIM" or "TEXT"))
-            local vw = text ~= "" and (H.Width(r.val) + 8) or 0
+            local vw = text ~= "" and (UI():TextWidth(r.val) + 8) or 0
             H.Fit2(r.name, H.Name(k), width - 6 - 18 - 8 - 6 - vw, 12, 10)
             r.name:Show()
             r.more:Hide()
@@ -2436,7 +2424,7 @@ local function LbRow(i)
         r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
         r.fill:SetHeight(4)
         UI():Gradient(r.fill, "HORIZONTAL", { 0.18, 0.5, 0.66, 1 }, { 0.42, 0.78, 0.94, 1 })
-        r.chip = EUI():CreateChip(r, "track")
+        r.chip = UI():CreateChip(r, "track")
         UI():AttachTooltip(r, NameTip)
         kv.lbRows[i] = r
     end
@@ -2561,7 +2549,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
     f[3]:ClearAllPoints(); f[3]:SetPoint("RIGHT", hd, "LEFT", scoreR, 0); f[3]:SetJustifyH("RIGHT")
     -- (a long score name: smaller, clear of the players' word)
     H.Sized(f[2], 10.5)
-    H.Fit2(f[3], sc and sc.n or "", max(40, scoreR - nameX - H.Width(f[2]) - 10), 10.5, 9)
+    H.Fit2(f[3], sc and sc.n or "", max(40, scoreR - nameX - UI():TextWidth(f[2]) - 10), 10.5, 9)
     f[4]:ClearAllPoints(); f[4]:SetPoint("LEFT", hd, "LEFT", scoreR + 10, 0)
     f[4]:SetText(lastKind and lastWord or "")
     for i = 1, 4 do f[i]:Show() end
@@ -2626,7 +2614,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
                     or (last.i and ("Item " .. last.i)) or ""
                 r.last:ClearAllPoints()
                 r.last:SetPoint("LEFT", r, "LEFT", tx, 0)
-                H.Fit(r.last, name, w - tx - 10 - H.Width(r.ago) - 10, 11, 9)
+                H.Fit(r.last, name, w - tx - 10 - UI():TextWidth(r.ago) - 10, 11, 9)
             end
         else
             -- (the bar fills the row, room left for a tag)
@@ -2716,7 +2704,7 @@ local function RaceRow(i)
         r.cls:SetPoint("LEFT", 34, 0)
         r.name = UI():Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 8, 0)
-        r.segs = EUI():CreateSegments(r, 128, 6, "board")
+        r.segs = UI():CreateSegments(r, 128, 6, "board")
         r.flag = r:CreateTexture(nil, "ARTWORK")
         r.flag:SetSize(12, 12)
         r.flag:SetPoint("LEFT", r.segs, "RIGHT", 4, 0)
@@ -3376,13 +3364,13 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
                 UI():SetTextStyle(r.how, "small", "SUB")
             end
             -- name and how on one line; on two when they don't both fit
-            local hw = how and (H.Width(r.how) + 8) or 0
+            local hw = how and (UI():TextWidth(r.how) + 8) or 0
             r.name:ClearAllPoints()
             r.how:ClearAllPoints()
             H.Sized(r.name, 11.5)
             r.name:SetText(e.b.n or "Badge")
             local rowH = 26
-            if H.Width(r.name) + hw <= w - 28 - 6 then
+            if UI():TextWidth(r.name) + hw <= w - 28 - 6 then
                 r.name:SetPoint("LEFT", r.badge, "RIGHT", 6, 0)
                 r.how:SetPoint("RIGHT", r, "RIGHT", 0, 0)
                 r.how:SetJustifyH("RIGHT")
@@ -3912,7 +3900,7 @@ local function RefreshDispute(occ, st, bk, disputes)
         if opts[i] then
             H.Sized(fs1, 11)
             fs1:SetText(H.Plain(opts[i]) .. " won")
-            if H.Width(fs1) > nameW - 14 then withWon = false end
+            if UI():TextWidth(fs1) > nameW - 14 then withWon = false end
         end
     end
     local x = 12

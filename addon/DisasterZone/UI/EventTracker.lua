@@ -288,7 +288,7 @@ local function CreateTracker()
     end, nil, { anchor = "ANCHOR_LEFT" })
     arr:Hide()
     f.arr = arr
-    f.segs = EUI():CreateSegments(f, TRK_W - TRK_IN, 5, "track")
+    f.segs = UI():CreateSegments(f, TRK_W - TRK_IN, 5, "track")
     f.segs:Hide()
     f.tick = 0
     f.fast = 0
@@ -450,7 +450,7 @@ end
 local function Chip(f, i)
     local c = f.chips[i]
     if not c then
-        c = EUI():CreateChip(f, "track")
+        c = UI():CreateChip(f, "track")
         f.chips[i] = c
     end
     return c

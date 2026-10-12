@@ -42,14 +42,6 @@ end
 
 local function Plural(n, one, many) return n == 1 and ("1 " .. one) or (n .. " " .. (many or (one .. "s"))) end
 
--- A banner pill in any pill kind ("bis": the banner's own SetPill reads the event kinds only).
--- TODO(refactor): move into CreatePageBanner (SetPill with every pill kind: "bis")
-local function BannerPill(b, kind, text)
-    b.pill:SetPill(kind, text)
-    b.pill:SetShown(text ~= nil and text ~= "")
-    b:Layout()
-end
-
 local function Rules()
     local G = ns.Guild
     return G and G.GetLootRules and G:GetLootRules() or { f = 0, s = "r", l = "l", w = "r", y = "n", o = 0, q = "h" }
@@ -601,7 +593,7 @@ local function FillItem(L, rec)
     b.title:SetTextColor(UI:QualityColor(ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4))
     b:SetSub(PU:SlotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. (pl.raidName or ""))
     local _, kind, long = PU:Standing(rec)
-    BannerPill(b, kind, long)
+    b:SetPill(kind, long)
     -- the rules, with how I stand
     local check = P:Check(rec, Me())
     local by = check.by or {}
@@ -715,7 +707,7 @@ function LootRulesUI:Refresh()
     local empty = false
     if decided then
         local d = p.decided
-        BannerPill(d.banner, "bis", R.l ~= "r" and "Lists first" or "The roll decides")
+        d.banner:SetPill("bis", R.l ~= "r" and "Lists first" or "The roll decides")
         FillPath(d.path, R)
         FillYou(d.you, R)
     else

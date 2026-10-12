@@ -894,9 +894,6 @@ local function RenderDetail()
     b:SetSub(FaceText(item.author) .. " " .. UI():ColoredName(item.author) .. S:Wrap("SUB", "  ·  " .. Ago(item.at)))
     local pillText, pillKind = Pill(item)
     b:SetPill(pillKind, pillText)
-    -- TODO(refactor): Banner:SetPill should take every UI.PILL_LOOK kind (it goes through the event pill's SetKind,
-    -- which reads "bis" as mute): the pill's own SetPill gives it its look
-    b.pill:SetPill(pillKind, pillText)
     local inbox = state.tab == "inbox"
     local staff = F:AmIStaff()
     local tools, actions = {}, {}

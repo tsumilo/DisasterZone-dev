@@ -2243,7 +2243,7 @@ function UI:CreateCountBadge(parent, h, kind)
     return b
 end
 
--- The tag pill (UI:CreateTagPill, UI.TAG_LOOK) is UI:CreatePill now: UI/Comp/Controls.lua.
+-- The pill (UI.PILL_LOOK) is UI:CreatePill: UI/Comp/Controls.lua.
 
 -- An on / off switch, the look of the Dungeons tab's "I'm up for a run": a 34x18 pill with a knob, green with the knob
 -- on the right while on. It is a CheckButton: a click flips it and calls setter(checked); s:Refresh() reads getter();
@@ -2977,12 +2977,6 @@ end
 -- Buttons, checkboxes, search box
 ---------------------------------------------------------------------------
 
--- A text button in the flat style (every text button of the addon; b:SetKind("primary") marks a view's main action,
--- "danger" a destructive one). Without a width it fits its label.
-function UI:CreateButton(parent, text, width, height, onClick)
-    return UI:CreateSleekButton(parent, text, width, height or 22, onClick)
-end
-
 -- A checkbox in the flat style: a dark 14px box with a 1px edge (gold while hovered) and a gold check; the label
 -- to its right is part of the click area. The frame keeps the old 24x24 size, so callers' anchors still fit.
 local CHECK_MARK = "Interface\\Buttons\\UI-CheckBox-Check"
@@ -3121,10 +3115,6 @@ end
 
 -- A dropdown in the flat style (every dropdown of the addon): the button shows the selected option, its menu picks
 -- one. getOptions() -> { { value =, text =, tooltip =, disabled = } | { isTitle = true, text = } }; nil values work.
-function UI:CreateDropdown(parent, width, getOptions, getSelected, onSelect)
-    return UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
-end
-
 function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
     local b
     local function IsSelected(data)
@@ -3168,12 +3158,6 @@ function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect
 end
 
 -- (UI:ContextMenu, the menu itself, is UI/Menu.lua: the addon draws its own menus)
-
--- DisasterZone extension: a dropdown-looking button whose menu holds actions (build(root) as in ContextMenu), in the
--- flat style. The menu is built when it opens, so it always reflects the current state.
-function UI:CreateMenuButton(parent, text, width, build)
-    return UI:CreateSleekMenuButton(parent, text, width, build)
-end
 
 ---------------------------------------------------------------------------
 -- Searchable dropdown (DisasterZone extension, ADDENDUM E §30)
@@ -4227,7 +4211,7 @@ end
 -- shown but disabled instead).
 function UI:CreateBiSLockButton(parent, width, height, opts)
     opts = opts or {}
-    local b = UI:CreateButton(parent, "", width or 120, height or 22, function()
+    local b = UI:CreateSleekButton(parent, "", width or 120, height or 22, function()
         local locked = UI:GetBiSLock()
         UI:SetBiSLock(not locked)
     end)

@@ -7,8 +7,6 @@ local addonName, ns = ...
 --   UI:CreateChip(parent, opts)                        a tag as a chip: a dot / class circle / icon and its name
 --   UI:CreateSegments(parent, items, onChange, opts)   a row of choices, one picked (and the old route-steps bar)
 --   UI:CreateRailNav(parent, items, onSelect, opts)    the side menu of a rail page (Settings, Notifications)
--- The old names stay as aliases: UI:CreateTagPill, EUI:CreatePill, EUI:CreateChip, EUI:CreateSegments (the last
--- three in UI/EventWidgets.lua, which loads later).
 
 local UI = ns.UI
 local S = ns.Style
@@ -67,6 +65,8 @@ local PILL_LOOK = {
     -- the events' (Live, Ranked)
     live = { text = { 1, 0.77, 0.72 },     tint = { 0.9, 0.2, 0.15 },   edge = { 1, 0.38, 0.29, 0.8 } },
     rank = { text = { 1, 0.88, 0.54 },     tint = C.GOLD,               edge = H.Alpha("GOLD", 0.55) },
+    -- a worse number (My Log's "-6.1%"): the BAD red, quieter than live
+    bad  = { text = { 1, 0.62, 0.58 },     tint = C.BAD,                edge = H.Alpha("BAD", 0.55) },
 }
 UI.PILL_LOOK = PILL_LOOK
 UI.TAG_LOOK = PILL_LOOK
@@ -131,7 +131,7 @@ end
 -- UI:CreatePill(parent, kind, text [, h]): a small rounded tag ("BiS", "Alt P2", "Live", "In review") that sizes
 -- itself to its text: a tinted fill, a 1 px edge, the text in its kind's colour. kind / text are optional (set them
 -- later with p:SetPill(kind, text), p:Set(text, look, icon) or p:SetKind(text, kind)). h: 16 by default (or opts
--- { h = n }). The old call shape UI:CreatePill(parent, h) (UI:CreateTagPill, EUI:CreatePill) makes an empty one.
+-- { h = n }). The call shape UI:CreatePill(parent, h) makes an empty one.
 -- p.fs = its text, p.icon = the icon in front, p.h = its height.
 function UI:CreatePill(parent, kind, text, h)
     if type(kind) == "number" then
@@ -153,11 +153,6 @@ function UI:CreatePill(parent, kind, text, h)
     for k, fn in pairs(Pill) do p[k] = fn end
     if kind then p:SetPill(kind, text) end
     return p
-end
-
--- (the old name: UI:CreateTagPill(parent, h))
-function UI:CreateTagPill(parent, h)
-    return UI:CreatePill(parent, h or 16)
 end
 
 ---------------------------------------------------------------------------
@@ -251,7 +246,7 @@ function Chip:IsSelected() return self.selected end
 -- an icon) and its name. opts { text, rgb, key (class circle), icon, kind = "track" (18 high, the default) | "you" (the
 -- board's header: a blue edge, 22 high), selected (a gold edge, gold text), onClick (a Button then, with a hover:
 -- onClick(chip, mouseButton)) }. chip:Set(text, rgb, key), chip:SetSelected(on), chip:SetIcon(path); chip.fs.
--- The old call shape UI:CreateChip(parent, kind) (EUI:CreateChip) makes an empty one of that kind.
+-- The call shape UI:CreateChip(parent, kind) makes an empty one of that kind.
 function UI:CreateChip(parent, opts)
     if type(opts) ~= "table" then opts = { kind = opts } end
     local look = UI.CHIP_LOOK[opts.kind or "default"] or UI.CHIP_LOOK.default
@@ -525,7 +520,7 @@ end
 Seg.SetSelected = Seg.Select
 function Seg:Set(value) self:Select(value) end
 
--- The route-steps bar (the old EUI:CreateSegments(parent, w, h, look)): one segment a step, the done ones filled, the
+-- The route-steps bar (UI:CreateSegments(parent, w, h, look)): one segment a step, the done ones filled, the
 -- next one outlined. s:Set(n, done [, finished]); look "board" | "track" (brighter empties and a dark edge).
 local STEP_NEXT = { 0.337, 0.839, 0.941 }    -- (EUI.TEAL)
 local STEP_DONE = { 0.247, 0.714, 0.812 }    -- (EUI.TEAL_DONE)
@@ -615,7 +610,7 @@ end
 --          of the type scale, "body"), selected (key), readOnly (no clicks: the read-only look of a page) }
 --   seg:Select(key|index [, fire]), seg:GetSelected() -> key, index, seg:SetItems(items), seg:SetEnabled(on),
 --   seg:SetItemEnabled(key, on), seg:SetItemColor(key, color), seg:SetLabel(key, text); seg.buttons[i] (.label).
--- The old call shape UI:CreateSegments(parent, w, h, look) (EUI:CreateSegments) is the route-steps bar.
+-- The call shape UI:CreateSegments(parent, w, h, look) is the route-steps bar.
 function UI:CreateSegments(parent, items, onChange, opts)
     if type(items) == "number" then return H.CreateSteps(parent, items, onChange, opts) end
     opts = type(opts) == "table" and opts or {}

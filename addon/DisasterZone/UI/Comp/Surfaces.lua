@@ -330,7 +330,7 @@ function ArtRow:SetData(d)
     end
     local pill = d.pill
     if type(pill) == "table" and (pill[2] or pill.text) then
-        if not self.pill then self.pill = UI:CreateTagPill(self, 16) end
+        if not self.pill then self.pill = UI:CreatePill(self, 16) end
         self.pill:Set(pill[2] or pill.text, pill[1] or pill.kind)
         self.pill:ClearAllPoints()
         self.pill:SetPoint("LEFT", self.title, "RIGHT", 7, 0)

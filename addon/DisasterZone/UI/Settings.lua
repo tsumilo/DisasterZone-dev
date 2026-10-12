@@ -718,7 +718,7 @@ end
 
 function SettingsUI:Dropdown(sec, title, desc, getOptions, getSelected, onSelect, tip)
     local row = self:Row(sec, title, desc, tip)
-    local dd = ns.UI:CreateDropdown(row, DD_W, getOptions, getSelected, onSelect)
+    local dd = ns.UI:CreateSleekDropdown(row, DD_W, getOptions, getSelected, onSelect)
     dd:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     dd.cdlLabel = row.title
     if tip then
@@ -1272,7 +1272,7 @@ function SettingsUI:BuildMyLog(sec)
         armed = nil
         del:SetText("Delete all my logs")
     end
-    del = ns.UI:CreateButton(row, "Delete all my logs", 150, 22, function()
+    del = ns.UI:CreateSleekButton(row, "Delete all my logs", 150, 22, function()
         if armed then
             disarm()
             if ns.MyLog then ns.MyLog:DeleteAll() end
@@ -1335,7 +1335,7 @@ function SettingsUI:BuildMeters(sec)
     local row = self:Row(sec, "Clear all fights", "Empties the fight list and Whole raid.")
     local armed, clr
     local function disarm() armed = nil; clr:SetText("Clear") end
-    clr = ns.UI:CreateButton(row, "Clear", 120, 22, function()
+    clr = ns.UI:CreateSleekButton(row, "Clear", 120, 22, function()
         if armed then
             disarm()
             if ns.Meter then ns.Meter:ClearAll() end
@@ -1398,7 +1398,7 @@ function SettingsUI:BuildMeters(sec)
     Track("both", self:SwitchSetting(sec, "Lock panels", "Unlock to move, dock and resize them.", "meters.locked", true,
         "Unlocked, drag a header next to another panel to dock it, or onto its header to make a tab. + on a header adds a panel."))
     local lrow = self:Row(sec, "Reset layout", "Back to one stack: Threat over Damage done.")
-    local lbtn = ns.UI:CreateButton(lrow, "Reset", 120, 22, function()
+    local lbtn = ns.UI:CreateSleekButton(lrow, "Reset", 120, 22, function()
         if ns.MeterPanels then ns.MeterPanels:ResetLayout() end
     end)
     lbtn:SetPoint("RIGHT", lrow, "RIGHT", 0, 0)
@@ -1438,7 +1438,7 @@ function SettingsUI:BuildTutorials(sec)
     self.tut = t
     local function rowWithButton(title, label, onClick)
         local row = self:Row(sec, title, " ")
-        local b = ns.UI:CreateButton(row, label, TUT_BTN_W, 22, onClick)
+        local b = ns.UI:CreateSleekButton(row, label, TUT_BTN_W, 22, onClick)
         b:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         row.btn = b
         PlaceText(row, TUT_BTN_W)
@@ -1578,18 +1578,18 @@ function SettingsUI:BuildDemo(sec)
         end)
     self:EndSection(sec)
     local y = sec.y - 16
-    local sim = ns.UI:CreateButton(sec, "Simulate a boss drop", nil, 22, function()
+    local sim = ns.UI:CreateSleekButton(sec, "Simulate a boss drop", nil, 22, function()
         if ns.Loot and ns.Loot.SimulateDrop then ns.Loot:SimulateDrop() end
     end)
     Put(sim, sec, 0, y)
     AddTooltip(sim, "Simulate a boss drop", "Opens the drop panel with a made-up boss drop. In demo mode, click Roll "
         .. "on any of its items to watch a roll.")
     local demoRoll
-    demoRoll = ns.UI:CreateButton(sec, "Demo a roll", nil, 22, function() SettingsUI:OpenDemoRollMenu(demoRoll) end)
+    demoRoll = ns.UI:CreateSleekButton(sec, "Demo a roll", nil, 22, function() SettingsUI:OpenDemoRollMenu(demoRoll) end)
     demoRoll:SetPoint("LEFT", sim, "RIGHT", 8, 0)
     AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode and starts a roll the demo raid answers: a random prized "
         .. "drop, or a scenario that shows one of the guild's loot rules (also /dz demo <name>). Nothing is sent.")
-    local recent = ns.UI:CreateButton(sec, "Recent drops", nil, 22, function()
+    local recent = ns.UI:CreateSleekButton(sec, "Recent drops", nil, 22, function()
         if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
     end)
     recent:SetPoint("LEFT", demoRoll, "RIGHT", 8, 0)
@@ -1604,7 +1604,7 @@ function SettingsUI:BuildAbout(sec)
     self.aboutPeers = vrow.desc
     local srow = self:Row(sec, "BiS list sharing", "")
     self.aboutSync = srow.desc
-    local syncBtn = ns.UI:CreateButton(srow, "Request sync", 112, 22, function()
+    local syncBtn = ns.UI:CreateSleekButton(srow, "Request sync", 112, 22, function()
         if ns.Sync and ns.Sync.RequestSync then ns.Sync:RequestSync() end
     end)
     syncBtn:SetPoint("RIGHT", srow, "RIGHT", 0, 0)
@@ -1916,7 +1916,7 @@ function SettingsUI:BuildCouncil(sec)
     cs.members = {}
     cs.raidSummary = UI:Text(cs, "emph", nil, { width = BODY_W, wrap = true })
     cs.raidMembers = {}
-    cs.editBtn = ns.UI:CreateButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
+    cs.editBtn = ns.UI:CreateSleekButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
     cs.editBtn:SetPoint("RIGHT", cs, "TOPRIGHT", 0, -TITLE_H / 2)
     AddTooltip(cs.editBtn, "Edit council",
         "Opens the Loot Council picker (Council tab). The Guild Master picks the guild council; "

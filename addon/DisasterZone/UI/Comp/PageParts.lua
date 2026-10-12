@@ -186,18 +186,10 @@ end
 
 local Banner = {}       -- the banner's methods (copied onto each banner)
 
--- A pill over dark art (the Events / Polls pills: EUI:CreatePill, set with SetKind(text, kind)); the tag pill when
--- EventWidgets is not loaded.
+-- A pill over dark art (UI:CreatePill on the banner's dark base; Banner:SetPill takes every pill kind).
 local function NewPill(parent)
-    local E = ns.EventUI
-    local p
-    if E and E.CreatePill then
-        p = E:CreatePill(parent, 16)
-    else
-        p = UI:CreateTagPill(parent, 16)
-        function p:SetKind(text, kind) self:Set(text, kind) end
-    end
-    if p.SetBase then p:SetBase(0.05, 0.05, 0.06) end
+    local p = UI:CreatePill(parent, 16)
+    p:SetBase(0.05, 0.05, 0.06)
     return p
 end
 
@@ -367,12 +359,12 @@ function Banner:SetIcon(icon)
     self:Relayout()
 end
 
--- kind, text (nil / "" text: no pill).
+-- kind, text (nil / "" text: no pill). kind: any pill kind (every UI.PILL_LOOK look and the event kinds).
 function Banner:SetPill(kind, text)
     if text == nil or text == "" then
         self.pill:Hide()
     else
-        self.pill:SetKind(text, kind)
+        self.pill:SetPill(kind, text)
         self.pill:Show()
     end
     self:Relayout()

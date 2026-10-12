@@ -319,11 +319,6 @@ function H.TipFromField(f)
     return f
 end
 
--- The icon buttons at the right of a banner / a card.
-function H.IconButton(parent, size, icon, title, text, onClick)
-    return UI():CreateTipIconButton(parent, size, UI().ICON[icon] or icon, title, text, onClick)
-end
-
 -- A small rounded chip with an icon (a smart block on a library card): UI:CreatePill (p:Set(text, look, icon)).
 function H.Mini(parent)
     local p = UI():CreatePill(parent, 17)
@@ -3668,16 +3663,16 @@ function Lib.NewCard(parent)
     c.acts:SetPoint("BOTTOMRIGHT", -S.IN, S.IN)
     c.acts:SetFrameLevel(c:GetFrameLevel() + 4)
     c.share = A.ShareButton(c.acts, 22, function() return c.def and A.DefRef(c.def.id) end, "Share this event")
-    c.edit = H.IconButton(c.acts, 22, 16, "Edit", "Opens it in the builder to change it.", function()
+    c.edit = UI():CreateTipIconButton(c.acts, 22, 16, "Edit", "Opens it in the builder to change it.", function()
         if c.def then A.Builder(c.def) end
     end)
-    c.copy = H.IconButton(c.acts, 22, 17, "Copy", "Makes your own copy of it to change.", function()
+    c.copy = UI():CreateTipIconButton(c.acts, 22, 17, "Copy", "Makes your own copy of it to change.", function()
         if c.def then A.Copy(c.def) end
     end)
     c.host = H.Button(c.acts, "Host", 50, 22, "secondary", function()
         if c.def then EventsUI:OpenSchedule(c.def.id) end
     end)
-    c.del = H.IconButton(c.acts, 22, "trash", "Remove", "Removes it from the guild's library for everyone. Calendar "
+    c.del = UI():CreateTipIconButton(c.acts, 22, UI().ICON.trash, "Remove", "Removes it from the guild's library for everyone. Calendar "
         .. "events made from it stay.", function() if c.def then A.RemoveDef(c.def) end end)
     for _, b in ipairs({ c.share, c.edit, c.copy, c.host, c.del }) do
         if b then b:HookScript("OnLeave", function() CardLeave(c) end) end

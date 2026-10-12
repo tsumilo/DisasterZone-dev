@@ -2522,7 +2522,7 @@ local function createCouncilSection(parent, kind)
 
     if isGuild then
         s.phaseLabel = label(s, "Guild phase")
-        s.phaseDD = ns.UI:CreateDropdown(s, CTRL_W, councilPhaseOptions,
+        s.phaseDD = ns.UI:CreateSleekDropdown(s, CTRL_W, councilPhaseOptions,
             function() return getDraft("guild").phase end,
             function(value) CouncilUI:SetCouncilDraftPhase(value) end)
     end
@@ -3018,7 +3018,7 @@ local function createToolbar(p)
     -- the phase: "Phase [P1]"; the menu says which phase is the guild's (or the group's)
     local box = CreateFrame("Frame", nil, bar)
     box:SetSize(100, S.BTN_H)
-    p.phaseDD = UI:CreateDropdown(box, 60, phaseOptions, currentPhase, function(value)
+    p.phaseDD = UI:CreateSleekDropdown(box, 60, phaseOptions, currentPhase, function(value)
         state.phase = tonumber(value) or state.phase
         -- A new phase starts on its own first boss (only ShowItem/ShowBoss jumps keep a sticky node).
         state.selectedNode = nil

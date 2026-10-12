@@ -139,7 +139,7 @@ local function AbilityRows(p, view)
         end
     else
         for _, tbl in ipairs({ p.dmg, p.pet }) do
-            for key, st in pairs(tbl) do add(key, st, (st.a or 0) - (st.o or 0) + (st.ab or 0)) end
+            for key, st in pairs(tbl) do add(key, st, (st.a or 0) + (st.ab or 0)) end   -- D5: overkill counts (as in s.d)
         end
     end
     table.sort(out, function(a, b) return a.amount > b.amount end)
@@ -569,7 +569,7 @@ local function FillBossStats(v, view, p, q, rows)
     local ps, qs = p.s or {}, q and q.s or {}
     local metricNow, metricThen = Log():Metric(p, view), q and Log():Metric(q, view)
     local text, kind = k.ChangeChip(k.Change(metricNow, metricThen), view ~= "tanking")
-    local noteKind = kind == "ok" and "up" or (kind == "live" and "down" or "mute")
+    local noteKind = kind == "ok" and "up" or (kind == "bad" and "down" or "mute")
     v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", noteKind, rows[1] and rows[1].key)
     local actNote, actKind = "", "mute"
     if ps.act and qs.act then
@@ -589,7 +589,7 @@ local function FillBossStats(v, view, p, q, rows)
     else
         local avText, avKind = k.ChangeChip(k.Change(ps.av, qs.av), false)
         v.stats:SetCell(4, "Avoidable damage", k.Num(ps.av or 0), (q and avText) or "",
-            (q and avKind) and (avKind == "ok" and "up" or (avKind == "live" and "down" or "mute")) or "mute", ICON_AVOID)
+            (q and avKind) and (avKind == "ok" and "up" or (avKind == "bad" and "down" or "mute")) or "mute", ICON_AVOID)
     end
 end
 

@@ -663,7 +663,7 @@ local function createDialog()
     f.winBox:SetScript("OnTextChanged", function(self, userInput)
         if userInput then f.winnerKey = nil end
     end)
-    f.pickBtn = UI:CreateButton(c, "Choose", 76, 22, function() openWinnerMenu(f.pickBtn) end)
+    f.pickBtn = UI:CreateSleekButton(c, "Choose", 76, 22, function() openWinnerMenu(f.pickBtn) end)
     f.pickBtn:SetPoint("LEFT", f.winBox, "RIGHT", 8, 0)
 
     -- Note
@@ -673,7 +673,7 @@ local function createDialog()
 
     -- Reason (ADDENDUM G): offspec / disenchant / guild bank awards don't count as loot won.
     label("Reason", -112)
-    f.reasonDD = UI:CreateDropdown(c, 160, function()
+    f.reasonDD = UI:CreateSleekDropdown(c, 160, function()
         local opts = { { value = "", text = "None" } }
         for _, r in ipairs(ns.AWARD_REASONS or {}) do opts[#opts + 1] = { value = r.key, text = r.label } end
         return opts
