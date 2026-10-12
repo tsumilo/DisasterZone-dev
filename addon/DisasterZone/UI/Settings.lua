@@ -233,7 +233,7 @@ end
 local function ShowTip(owner, title, text)
     local tt = _G.GameTooltip
     tt:SetOwner(owner, "ANCHOR_TOP")
-    tt:AddLine(title, S:Color("GOLD"))
+    tt:AddLine(title, S:RGB("GOLD"))
     tt:AddLine(text, 1, 1, 1, true)
     tt:Show()
 end
@@ -319,10 +319,10 @@ end
 -- (UI:AttachTooltip's builder for a page card: its name, its line, the clicks)
 local function CardTip(c, tt)
     local Arc = ns.MinimapArc
-    tt:AddLine(ns.MainFrame:GetPageLabel(c.key) or c.key, S:Color("TEXT"))
+    tt:AddLine(ns.MainFrame:GetPageLabel(c.key) or c.key, S:RGB("TEXT"))
     local tip = ns.MainFrame:GetPageTip(c.key) or CARD_TIPS[c.key]
     if type(tip) == "string" and tip ~= "" then tt:AddLine(tip, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], true) end
-    tt:AddLine("Click: open it", S:Color("SUB"))
+    tt:AddLine("Click: open it", S:RGB("SUB"))
     if Arc then
         tt:AddLine(Arc:IsPinned(c.key) and "Right-click: unpin from the minimap" or "Right-click: pin to the minimap",
             S:Color("SUB"))
@@ -1858,12 +1858,12 @@ local function MemberTip(self, tt)
     tt:AddLine(ColoredName(self.key))
     local G = ns.Guild
     local rank = G and G.GetRankName and G:GetRankName(self.key)
-    if rank then tt:AddLine(rank, S:Color("TEXT")) end
-    tt:AddLine(self.online and "Online" or "Offline", S:Color("SUB"))
+    if rank then tt:AddLine(rank, S:RGB("TEXT")) end
+    tt:AddLine(self.online and "Online" or "Offline", S:RGB("SUB"))
     if self.fixed == "Master looter" then
-        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", S:Color("SUB"))
+        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", S:RGB("SUB"))
     elseif self.fixed then
-        tt:AddLine(self.fixed .. ": always on the council", S:Color("SUB"))
+        tt:AddLine(self.fixed .. ": always on the council", S:RGB("SUB"))
     end
 end
 

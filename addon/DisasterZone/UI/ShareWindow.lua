@@ -204,7 +204,7 @@ local function Create()
         b:SetMotionScriptsWhileDisabled(true)
         UI():AttachTooltip(b, function(self, tt)
             if not self.why then return false end
-            tt:AddLine(ch.label, S:Color("GOLD"))
+            tt:AddLine(ch.label, S:RGB("GOLD"))
             tt:AddLine(self.why, 1, 1, 1, true)
         end, nil, { anchor = "ANCHOR_TOP" })
         w.channels[key] = b

@@ -60,27 +60,16 @@ local function Debounce(key, sec, fn)
     end)
 end
 
-local function ShortName(key)
-    if not key then return "?" end
-    if ns.Util and ns.Util.ShortName then
-        return ns.Util.ShortName(key) or key
-    end
-    return (key:gsub("%-.*$", ""))
-end
-
-local function Hex(r, g, b)
-    return format("ff%02x%02x%02x", floor((r or 1) * 255 + 0.5), floor((g or 1) * 255 + 0.5), floor((b or 1) * 255 + 0.5))
-end
-
+-- "ffrrggbb" of r, g, b (for |c codes).
 function UI:ColorHex(r, g, b)
-    return Hex(r, g, b)
+    return format("ff%02x%02x%02x", floor((r or 1) * 255 + 0.5), floor((g or 1) * 255 + 0.5), floor((b or 1) * 255 + 0.5))
 end
 
 -- Wraps text in a colour escape from an {r,g,b} table (ns.COLORS entries).
 function UI:Colorize(text, color)
     if not text then return "" end
     if type(color) ~= "table" then return text end
-    return "|c" .. Hex(color[1], color[2], color[3]) .. text .. "|r"
+    return "|c" .. UI:ColorHex(color[1], color[2], color[3]) .. text .. "|r"
 end
 
 function UI:Color(key)
@@ -346,7 +335,7 @@ local function TipOnEnter(self)
             return
         end
     elseif d.title ~= nil and d.title ~= "" then
-        GameTooltip:AddLine(d.title, S:Color("GOLD"))
+        GameTooltip:AddLine(d.title, S:RGB("GOLD"))
     end
     local lines = d.lines
     if type(lines) == "function" then lines = lines(self) end
@@ -541,7 +530,7 @@ local function ClassHex(classFile)
         local hex = ns.Util.ClassColorHex(classFile)
         if type(hex) == "string" and #hex == 8 then return hex end
     end
-    return Hex(UI:ClassColor(classFile))
+    return UI:ColorHex(UI:ClassColor(classFile))
 end
 
 -- A player's class file: known (a record's own) when given, else the guild roster's, else what the store learned
@@ -563,7 +552,7 @@ function UI:ColoredName(key, classFile)
         classFile = ns.Guild:GetClass(key)
     end
     -- (a player from another realm: "Name*", the realm is long and the tooltips say it)
-    local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or ShortName(key)
+    local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or (ns.Util.ShortName(key) or key)
     return "|c" .. ClassHex(classFile) .. name .. "|r"
 end
 
@@ -664,7 +653,7 @@ function UI:ItemText(itemID)
     if not name then
         return "|cff808080Loading...|r", true
     end
-    return "|c" .. Hex(self:QualityColor(quality)) .. name .. "|r", false
+    return "|c" .. UI:ColorHex(self:QualityColor(quality)) .. name .. "|r", false
 end
 
 -- An item's name (plain), or nil while it loads (the load is requested).
@@ -737,7 +726,7 @@ function UI:SetTextTooltip(owner, lines, anchor)
         if type(line) == "table" then
             GameTooltip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, line.wrap)
         elseif i == 1 then
-            GameTooltip:AddLine(line, 1, 0.82, 0)
+            GameTooltip:AddLine(line, S:RGB("GOLD"))
         else
             GameTooltip:AddLine(line, 1, 1, 1, true)
         end
@@ -1175,7 +1164,7 @@ local SLEEK = {
     secondary = { top = { 0.135, 0.135, 0.155, 0.94 }, bottom = { 0.08, 0.08, 0.095, 0.94 },
                   hoverTop = { 0.21, 0.21, 0.235, 0.96 }, hoverBottom = { 0.13, 0.13, 0.15, 0.96 },
                   edge = { 0.29, 0.29, 0.33, 0.85 }, hoverEdge = { 0.52, 0.52, 0.58, 0.95 },
-                  text = { 0.86, 0.86, 0.86 }, hoverText = { 1, 1, 1 }, shine = { 1, 1, 1, 0.07 }, sheen = 0.10 },
+                  text = { 0.86, 0.86, 0.86 }, hoverText = { 1, 1, 1 }, shine = S:WithAlpha("HAIRLINE", 0.07), sheen = 0.10 },
     danger    = { top = { 0.40, 0.085, 0.085, 0.95 }, bottom = { 0.23, 0.045, 0.045, 0.95 },
                   hoverTop = { 0.52, 0.115, 0.115, 0.97 }, hoverBottom = { 0.33, 0.065, 0.065, 0.97 },
                   edge = { 0.72, 0.24, 0.24, 0.85 }, hoverEdge = { 0.96, 0.38, 0.38, 0.95 },
@@ -1327,6 +1316,12 @@ function UI:AddEdges(f, layer, soft)
     edge("BOTTOMLEFT", o, 0, "BOTTOMRIGHT", -o, 0, true)
     edge("TOPLEFT", 0, -o, "BOTTOMLEFT", 0, o, false)
     edge("TOPRIGHT", 0, -o, "BOTTOMRIGHT", 0, o, false)
+end
+
+-- The 1 px border of UI:AddEdges, made on the first call, in r, g, b, a (one call for both).
+function UI:SetEdges(f, r, g, b, a)
+    if not f.edges then UI:AddEdges(f) end
+    UI:SetEdgeColor(f, r, g, b, a)
 end
 
 function UI:SetEdgeColor(f, r, g, b, a)
@@ -1657,7 +1652,7 @@ function UI:CreateIconButton(parent, size, texture, coords, onClick)
         SetLook(self, LookOf(s, hot or lit, enabled and self.pressed, not enabled, lit and LIT_EDGE or nil), s.shine,
             instant)
         if lit then
-            self.icon:SetVertexColor(1, 0.82, 0)
+            self.icon:SetVertexColor(S:Color("GOLD"))
         elseif self.active then
             self.icon:SetVertexColor(1, 1, 1)
         else
@@ -1764,7 +1759,7 @@ function UI:CreateArrowButton(parent, right, w, h, onClick)
     b.icon:SetVertexColor(0.75, 0.75, 0.78)
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
+    hl:SetColorTexture(S:Alpha("HAIRLINE", 0.06))
     b:SetScript("OnClick", onClick)
     b:SetScript("OnEnable", function(self) self.icon:SetAlpha(1) end)
     b:SetScript("OnDisable", function(self) self.icon:SetAlpha(0.25) end)
@@ -1817,7 +1812,7 @@ function UI:CreateSleekMenuButton(parent, text, width, build, height)
     b.chevron:SetPoint("RIGHT", -6, 0)
     b.chevron:SetTexture(UI.ICON_ATLAS)
     b.chevron:SetTexCoord(unpack(UI:IconCoords(14)))
-    b.chevron:SetVertexColor(1, 0.82, 0)
+    b.chevron:SetVertexColor(S:Color("GOLD"))
     b:SetText(text or "")
     function b:SetDefaultText(t) self:SetText(t or "") end
     function b:Refresh() end
@@ -1875,7 +1870,7 @@ function UI:CreateLinkDropdown(parent, opts)
             self.chev:SetVertexColor(1, 1, 1)
         else
             self.fs:SetTextColor(base[1], base[2], base[3])
-            self.chev:SetVertexColor(1, 0.82, 0)
+            self.chev:SetVertexColor(S:Color("GOLD"))
         end
     end
     -- while its menu is down: white, the chevron turned up
@@ -1940,10 +1935,10 @@ function UI:CreateSleekEditBox(parent, width, height, fontObject)
     eb:SetAutoFocus(false)
     eb.bg = eb:CreateTexture(nil, "BACKGROUND")
     eb.bg:SetAllPoints()
-    eb.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    eb.bg:SetColorTexture(S:Alpha("CARD", 0.92))
     UI:AddEdges(eb)
     local function paint(self)
-        if self:HasFocus() then UI:SetEdgeColor(self, 1, 0.82, 0, 0.75) else UI:SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9) end
+        if self:HasFocus() then UI:SetEdgeColor(self, S:Alpha("GOLD", 0.75)) else UI:SetEdgeColor(self, S:Alpha("EDGE", 0.9)) end
     end
     eb:SetScript("OnEditFocusGained", paint)
     eb:SetScript("OnEditFocusLost", paint)
@@ -2086,12 +2081,13 @@ end
 
 local function PaintTab(b, instant)
     local v = tabLook
+    local G, Sb = S.C.GOLD, S.C.SUB
     if b.active then
-        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 1, 1, 0.82, 0, 0.9, 1, 0.82, 0
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 1, G[1], G[2], G[3], 0.9, G[1], G[2], G[3]
     elseif b.hovered then
         v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0.4, 1, 1, 1, 0.28, 1, 1, 1
     else
-        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0, 1, 0.82, 0, 0, 0.62, 0.62, 0.62
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0, G[1], G[2], G[3], 0, Sb[1], Sb[2], Sb[3]
     end
     EaseTo(b, v, instant)
 end
@@ -2189,7 +2185,7 @@ end
 -- any short text. b:SetCutout(r, g, b) rings it 2px in the colour it sits on, for a badge laid over an icon's corner.
 -- b:SetKind(kind) recolours it. Sizes are whole pixels so the digits stay sharp.
 UI.COUNT_LOOK = {
-    alert = { fill = { 1, 0.82, 0 },          text = { 0.09, 0.07, 0.01 } },
+    alert = { fill = S.C.GOLD,          text = { 0.09, 0.07, 0.01 } },
     muted = { fill = { 0.30, 0.30, 0.33 },    text = { 0.93, 0.93, 0.93 } },
 }
 UI.COUNT_SURFACE = S.C.SURFACE_WINDOW   -- { 0.078, 0.078, 0.09 }: the main window's fill, the default cutout
@@ -2264,7 +2260,7 @@ function CountBadge:Pulse()
     if not self.glow then
         self.glow = CapsuleParts(self, "BACKGROUND", -1)
         for _, t in ipairs(self.glow) do
-            t:SetVertexColor(1, 0.82, 0, 1)
+            t:SetVertexColor(S:Alpha("GOLD", 1))
             t:SetAlpha(0)
         end
         self:Fit()
@@ -2343,7 +2339,7 @@ local SWITCH_DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SWITCH_LOOK = {
     on  = { fill = { 0.11, 0.47, 0.20, 0.95 }, edge = { 0.30, 0.71, 0.39, 1 }, hover = { 0.55, 1, 0.66, 1 },
             knob = { 0.92, 1, 0.94, 1 }, ring = { 0.35, 0.86, 0.47 } },
-    off = { fill = { 0.16, 0.16, 0.18, 0.95 }, edge = { 0.34, 0.34, 0.38, 0.9 }, hover = { 0.62, 0.62, 0.68, 1 },
+    off = { fill = { 0.16, 0.16, 0.18, 0.95 }, edge = S:WithAlpha("EDGE", 0.9), hover = { 0.62, 0.62, 0.68, 1 },
             knob = { 0.54, 0.54, 0.56, 1 } },
 }
 local SWITCH_W, SWITCH_H, KNOB, KNOB_IN = 34, 18, 12, 3
@@ -2820,7 +2816,7 @@ local function CreateFlatScrollBar(parent, a)
     bar:SetWidth(BAR_W)
     bar.track = bar:CreateTexture(nil, "BACKGROUND")
     bar.track:SetAllPoints()
-    bar.track:SetColorTexture(1, 1, 1, 0.06)
+    bar.track:SetColorTexture(S:Alpha("HAIRLINE", 0.06))
     local thumb = CreateFrame("Button", nil, bar)
     thumb:SetWidth(BAR_W)
     thumb:SetPoint("TOP")
@@ -2830,7 +2826,7 @@ local function CreateFlatScrollBar(parent, a)
     bar.thumb = thumb
     local function paint()
         if thumb.dragging then
-            thumb.tex:SetColorTexture(1, 0.82, 0, 0.85)
+            thumb.tex:SetColorTexture(S:Alpha("GOLD", 0.85))
         elseif thumb.hovered then
             thumb.tex:SetColorTexture(0.75, 0.75, 0.78, 0.9)
         else
@@ -3072,7 +3068,7 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     local box = cb:CreateTexture(nil, "BACKGROUND")
     box:SetSize(14, 14)
     box:SetPoint("LEFT", 4, 0)
-    box:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    box:SetColorTexture(S:Alpha("CARD", 0.92))
     box.edges = {}
     for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
                          { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
@@ -3104,7 +3100,7 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     local function paint(self)
         local enabled = self:IsEnabled()
         if enabled and self.hovered then
-            UI:SetEdgeColor(box, 1, 0.82, 0, 0.75)
+            UI:SetEdgeColor(box, S:Alpha("GOLD", 0.75))
         else
             UI:SetEdgeColor(box, 0.45, 0.45, 0.50, enabled and 0.95 or 0.4)
         end
@@ -3222,7 +3218,7 @@ function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect
                 if opt.disabled and radio and radio.SetEnabled then radio:SetEnabled(false) end
                 if opt.tooltip and radio and radio.SetTooltip then
                     radio:SetTooltip(function(tooltip)
-                        tooltip:AddLine(opt.text or "", 1, 0.82, 0)
+                        tooltip:AddLine(opt.text or "", S:RGB("GOLD"))
                         tooltip:AddLine(opt.tooltip, 1, 1, 1, true)
                     end)
                 end
@@ -3307,7 +3303,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
     holder:EnableMouse(true)
     holder.bg = holder:CreateTexture(nil, "BACKGROUND")
     holder.bg:SetAllPoints()
-    holder.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    holder.bg:SetColorTexture(S:Alpha("CARD", 0.92))
     UI:AddEdges(holder)
     UI:SetEdgeColor(holder, unpack(SD_EDGE))
     sd.frame = holder
@@ -3324,14 +3320,14 @@ function UI:CreateSearchDropdown(parent, width, opts)
     arrow:SetWidth(20)
     arrow.hl = arrow:CreateTexture(nil, "HIGHLIGHT")
     arrow.hl:SetAllPoints()
-    arrow.hl:SetColorTexture(1, 1, 1, 0.08)
+    arrow.hl:SetColorTexture(S:Alpha("HAIRLINE", 0.08))
     arrow.icon = arrow:CreateTexture(nil, "ARTWORK")
     arrow.icon:SetSize(12, 12)
     arrow.icon:SetPoint("CENTER")
     arrow.icon:SetTexture(UI.ICON_ATLAS)
     arrow.icon:SetTexCoord(unpack(UI:IconCoords(14)))
-    arrow.icon:SetVertexColor(1, 0.82, 0)
-    arrow:SetScript("OnEnable", function(self) self.icon:SetVertexColor(1, 0.82, 0) end)
+    arrow.icon:SetVertexColor(S:Color("GOLD"))
+    arrow:SetScript("OnEnable", function(self) self.icon:SetVertexColor(S:Color("GOLD")) end)
     arrow:SetScript("OnDisable", function(self) self.icon:SetVertexColor(0.4, 0.4, 0.4) end)
     sd.arrow = arrow
 
@@ -3425,7 +3421,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         if type(e.tip) == "table" then
             for i, line in ipairs(e.tip) do
-                if i == 1 then GameTooltip:AddLine(line, 1, 0.82, 0) else GameTooltip:AddLine(line, 1, 1, 1, true) end
+                if i == 1 then GameTooltip:AddLine(line, S:RGB("GOLD")) else GameTooltip:AddLine(line, 1, 1, 1, true) end
             end
         else
             GameTooltip:AddLine(UI:ColoredName(e.key, e.classFile))
@@ -3446,7 +3442,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
         row:RegisterForClicks("LeftButtonUp")
         row.activeTex = row:CreateTexture(nil, "BACKGROUND")
         row.activeTex:SetAllPoints()
-        row.activeTex:SetColorTexture(1, 0.82, 0, 0.14)
+        row.activeTex:SetColorTexture(S:Alpha("GOLD", 0.14))
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
         row.hl:SetAllPoints()
         row.hl:SetTexture(Tex("rowHilight"))
@@ -3560,7 +3556,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
             UI:ClassIcon(row.icon, e.classFile)
         end
         row.icon:SetAlpha(e.dim and 0.5 or 1)
-        local text = e.text or ShortName(e.key)
+        local text = e.text or ns.Util.ShortName(e.key) or e.key
         if e.dim then
             row.name:SetText("|cff808080" .. text .. "|r")
         else
@@ -3592,7 +3588,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
     footer.line:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 2)
     footer.line:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 2)
     footer.line:SetHeight(1)
-    footer.line:SetColorTexture(1, 1, 1, 0.08)
+    footer.line:SetColorTexture(S:Alpha("HAIRLINE", 0.08))
     footer.count = footer:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     footer.count:SetPoint("RIGHT", footer, "RIGHT", -2, 0)
     footer.count:SetJustifyH("RIGHT")
@@ -3649,7 +3645,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
                         shown[#shown + 1] = e
                     end
                 elseif e.key ~= nil then
-                    local hay = ((e.text or ShortName(e.key)) .. " " .. (e.search or "")):lower()
+                    local hay = ((e.text or ns.Util.ShortName(e.key) or e.key) .. " " .. (e.search or "")):lower()
                     if q == "" or hay:find(q, 1, true) then
                         if header then
                             shown[#shown + 1] = header
@@ -3860,7 +3856,7 @@ local BADGE_HANG = 4      -- px of the tab's right padding the pill takes (the s
 -- width (less what it hangs into the padding) and the label moves left by half of that, so the two stay centred.
 local function AddNavBadge(tab, badge)
     local c = badge.color or { 0.72, 0.72, 0.72 }
-    local base = { 0.10, 0.10, 0.12 }
+    local base = S:WithAlpha("CARD", 1)
     local p = CreateFrame("Frame", nil, tab)
     p:SetHeight(BADGE_H)
     UI:AddPillShape(p, BADGE_H)
@@ -3904,7 +3900,7 @@ local function AddNavChevron(tab)
     c:SetSize(NAV_CHEV, NAV_CHEV)
     c:SetTexture(UI.ICON_ATLAS)
     UI:SetChevronUp(c, false)
-    c:SetVertexColor(0.62, 0.62, 0.62)
+    c:SetVertexColor(S:Color("SUB"))
     local extra = NAV_CHEV + NAV_CHEV_GAP - 2
     tab.cdlExtraW = (tab.cdlExtraW or 0) + extra
     local label = tab:GetFontString()
@@ -4183,7 +4179,7 @@ function UI:CreateMultiDropdown(parent, width, getOptions, isChecked, onToggle, 
                 if opt.disabled and cb and cb.SetEnabled then cb:SetEnabled(false) end
                 if opt.tooltip and cb and cb.SetTooltip then
                     cb:SetTooltip(function(tooltip)
-                        tooltip:AddLine(opt.text or "", 1, 0.82, 0)
+                        tooltip:AddLine(opt.text or "", S:RGB("GOLD"))
                         tooltip:AddLine(opt.tooltip, 1, 1, 1, true)
                     end)
                 end
@@ -4205,8 +4201,11 @@ end
 UI.ICON_WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"   -- the game fonts have no U+26A0 glyph
 UI.ICON_LOCK = "Interface\\PetBattles\\PetBattle-LockIcon"
 
-function UI:IconText(path, size)
+-- An icon inside text: "|T...|t" at size px (0: the line's height). crop: trim an item / spell icon's border (the
+-- game's small icons' look: 5..59 of 64).
+function UI:IconText(path, size, crop)
     size = tonumber(size) or 0
+    if crop then return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(path), size, size) end
     return "|T" .. tostring(path) .. ":" .. size .. ":" .. size .. "|t"
 end
 
@@ -4266,7 +4265,7 @@ end
 -- "Lee" / "you" / "Lee (since 20:14)" for a lock info table (nil-safe).
 function UI:LockByText(info, withTime)
     local key = type(info) == "table" and type(info.by) == "string" and info.by or nil
-    local by = key and ShortName(key) or "the raid leader"
+    local by = key and (ns.Util.ShortName(key) or key) or "the raid leader"
     if key and ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) then by = "you" end
     local at = type(info) == "table" and tonumber(info.at)
     if withTime and at and at > 1000000000 and date then
@@ -4313,11 +4312,11 @@ function UI:CreateBiSLockButton(parent, width, height, opts)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         local locked, info = UI:GetBiSLock()
         if locked then
-            GameTooltip:AddLine("Unlock BiS lists", 1, 0.82, 0)
+            GameTooltip:AddLine("Unlock BiS lists", S:RGB("GOLD"))
             GameTooltip:AddLine("Locked by " .. UI:LockByText(info, true) .. ". Unlocking lets everyone in "
                 .. "the group edit their BiS list again.", 1, 1, 1, true)
         else
-            GameTooltip:AddLine("Lock BiS lists", 1, 0.82, 0)
+            GameTooltip:AddLine("Lock BiS lists", S:RGB("GOLD"))
             GameTooltip:AddLine("Stops everyone in the raid from editing their BiS list until you unlock it "
                 .. "or the raid ends. Obtained items still update. Council members see who changes "
                 .. "their list anyway.", 1, 1, 1, true)

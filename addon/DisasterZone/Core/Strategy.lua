@@ -102,9 +102,7 @@ Strategy.DISPEL_NAME, Strategy.DISPEL_ORDER, Strategy.MAX_DISPELS = DISPEL_NAME,
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
+local Now = Util.Now          -- (the server clock: ns.Util.Now)
 
 local function IsInt(n, lo, hi)
     return type(n) == "number" and n == floor(n) and n >= lo and n <= hi

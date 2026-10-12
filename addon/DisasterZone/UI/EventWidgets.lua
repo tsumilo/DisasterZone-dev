@@ -188,7 +188,7 @@ function EUI:CreateBadge(parent, size)
     UI():AttachTooltip(f, function(self, tip)
         local bd = self.badge
         if not bd or self.noTip then return false end
-        tip:AddLine(bd.n or "Badge", S:Color("GOLD"))
+        tip:AddLine(bd.n or "Badge", S:RGB("GOLD"))
         if bd.ti and bd.ti ~= "" then tip:AddLine("Title: " .. bd.ti, 1, 1, 1) end
         if bd.ev then
             tip:AddLine(bd.ev .. (bd.at and (" · " .. date("%d %b", bd.at)) or ""), S:Color("SUB"))

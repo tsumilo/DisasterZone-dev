@@ -237,9 +237,9 @@ function H.Face(parent, size)
         if not self.key or self.noTip then return false end
         tt:AddLine(EUI():Name(self.key, true))
         local title = Ev():GetTitle(self.key)
-        if title then tt:AddLine(title, S:Color("GOLD")) end
+        if title then tt:AddLine(title, S:RGB("GOLD")) end
         local rank = Ev():RankOf(self.key)
-        if rank then tt:AddLine("Season rank #" .. rank, S:Color("SUB")) end
+        if rank then tt:AddLine("Season rank #" .. rank, S:RGB("SUB")) end
     end, nil, { anchor = "ANCHOR_TOP" })
     return f
 end
@@ -294,7 +294,7 @@ local function FieldTip(self, tt)
         if type(line) == "table" then
             tt:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, line.wrap)
         elseif i == 1 then
-            tt:AddLine(line, S:Color("GOLD"))
+            tt:AddLine(line, S:RGB("GOLD"))
         else
             tt:AddLine(line, 1, 1, 1, true)
         end
@@ -390,7 +390,7 @@ function H.Menu(owner, entries, title)
                 local b = root:CreateButton(mark .. "  " .. e.text, e.fn)
                 if b and b.SetTooltip and e.tip then
                     b:SetTooltip(function(tt)
-                        tt:AddLine(e.text, S:Color("GOLD"))
+                        tt:AddLine(e.text, S:RGB("GOLD"))
                         tt:AddLine(e.tip, 1, 1, 1, true)
                     end)
                 end
@@ -5873,7 +5873,7 @@ end
 -- The Review tab's tooltip: how many wait.
 local function ReviewTip(self, tt)
     local n = #Ev():GetReviewQueue()
-    tt:AddLine("Review", S:Color("GOLD"))
+    tt:AddLine("Review", S:RGB("GOLD"))
     tt:AddLine(n > 0 and (n .. (n == 1 and " event waits" or " events wait") .. " for a decision: ranked or sent back.")
         or "Events members send in for review show up here.", 1, 1, 1, true)
 end

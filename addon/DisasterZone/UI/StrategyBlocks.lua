@@ -121,7 +121,7 @@ local function newAddCard(parent, big)
     -- (the card's tip, set by its filler: c.tipTitle, c.tip)
     UI():AttachTooltip(c, function(self, tt)
         if not self.tip then return false end
-        tt:AddLine(self.tipTitle or "", Style:Color("GOLD"))
+        tt:AddLine(self.tipTitle or "", Style:RGB("GOLD"))
         tt:AddLine(self.tip, 1, 1, 1, true)
     end, nil, { anchor = "ANCHOR_LEFT" })
     c:RegisterForClicks("LeftButtonUp")

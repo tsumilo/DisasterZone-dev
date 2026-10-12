@@ -147,7 +147,16 @@ def test_baseline_only_counts_going_up():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def test_check_py_warns_and_strict_errors():
+def test_allowlisted_pairs_are_never_reported():
+    hits = u.scan("local function Now() return GetTime() end\n", "Games/Azeromon/Net.lua")
+    assert u.over_baseline("Games/Azeromon/Net.lua", hits, {}) == []
+    hits = u.scan("local function Now() return GetTime() end\n", "UI/Other.lua")
+    assert [k for k, _, _, _ in u.over_baseline("UI/Other.lua", hits, {})] == ["helper"]
+    for (f, k), why in u.ALLOW.items():
+        assert k in u.KINDS and why, (f, k)
+
+
+def test_check_py_errors_by_default_and_warns_on_request():
     import check  # needs lupa (luaenv python)
     d = tempfile.mkdtemp(prefix="dz_uniformity_")
     try:
@@ -157,11 +166,15 @@ def test_check_py_warns_and_strict_errors():
                      "local t = { 1, 0.82, 0 }\nreturn Text, t\n")
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = check.main([f, "--no-events"])
+            rc = check.main([f, "--no-events", "--uniformity-warn"])
         text = out.getvalue()
         assert rc == 0, text
         assert "WARN UNIFORMITY colour: 1" in text and "WARN UNIFORMITY helper: 1" in text, text
         assert "uniformity=2" in text, text
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = check.main([f, "--no-events"])
+        assert rc == 1 and "ERROR UNIFORMITY colour" in out.getvalue(), out.getvalue()
         out = io.StringIO()
         with redirect_stdout(out):
             rc = check.main([f, "--no-events", "--uniformity-strict"])
@@ -172,11 +185,11 @@ def test_check_py_warns_and_strict_errors():
         assert rc == 0 and "UNIFORMITY" not in out.getvalue(), out.getvalue()
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = check.main([f, "--uniformity"])
+            rc = check.main([f, "--uniformity", "--uniformity-warn"])
         assert rc == 0 and "TOTAL" in out.getvalue() and "UP: colour,helper" in out.getvalue(), out.getvalue()
         out = io.StringIO()
         with redirect_stdout(out):
-            rc = check.main([f, "--uniformity", "--uniformity-strict"])
+            rc = check.main([f, "--uniformity"])
         assert rc == 1, out.getvalue()
     finally:
         shutil.rmtree(d, ignore_errors=True)

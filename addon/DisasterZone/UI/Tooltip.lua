@@ -803,7 +803,7 @@ function Tooltip:AddEventLines(tt, key)
     local badges = #E:BadgesOf(key)
     local rank = E:RankOf(key)
     if not title and badges == 0 and not rank then return false end
-    if title then tt:AddLine(title, S:Color("GOLD")) end
+    if title then tt:AddLine(title, S:RGB("GOLD")) end
     local parts = {}
     local season = E:GetSeason()
     if rank then parts[#parts + 1] = ("#%d in %s"):format(rank, season and season.n or "the season") end

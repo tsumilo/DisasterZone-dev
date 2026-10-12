@@ -1986,7 +1986,7 @@ local function NewListRow(f)
     UI:AttachTooltip(r, function(self, tt)
         local seg = self.seg
         if not seg or seg.kind ~= "boss" then return false end
-        tt:AddLine(Meter:SegName(seg), S:Color("GOLD"))
+        tt:AddLine(Meter:SegName(seg), S:RGB("GOLD"))
         local what
         if seg.live then what = S:Wrap("BAD", "Live")
         elseif seg.kill then what = S:Wrap("OK", "Kill")
@@ -2021,7 +2021,7 @@ local function NewDot(r)
         local sr, sg, sb = S:Color("SUB")
         tt:AddDoubleLine(Meter:SegName(seg), K.Clock(Meter:Duration(seg)) .. (t and ("  \194\183  " .. t) or ""),
             1, 1, 1, sr, sg, sb)
-        if seg.live then tt:AddLine("Live", S:Color("BAD")) end
+        if seg.live then tt:AddLine("Live", S:RGB("BAD")) end
     end, nil, { anchor = "ANCHOR_BOTTOM" })
     d:SetScript("OnClick", function(self) if self.sel_key then MP:PickFromList(self.sel_key) end end)
     return d

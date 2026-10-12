@@ -40,7 +40,6 @@ local function NpcGUID(npc)
     return "Creature-0-0-0-0-" .. tostring(npc or 0) .. "-00000PRACT"
 end
 
-local function ShortName(key) return Util.ShortName(key) or key end
 
 -- Names for a practice run: me in the first row of each tracked table (its first player column) and in the first
 -- plain slot; demo players everywhere else.
@@ -117,7 +116,7 @@ end
 
 -- A demo player's cast, through the combat log path.
 local function DemoCast(key, sub, spell, targetNpc, targetName, spellId)
-    Live():Handle(sub, DemoGUID(key), ShortName(key), targetNpc and NpcGUID(targetNpc) or nil, targetName, spell, spellId)
+    Live():Handle(sub, DemoGUID(key), Util.ShortName(key) or key, targetNpc and NpcGUID(targetNpc) or nil, targetName, spell, spellId)
 end
 
 local function Script(token)
@@ -203,7 +202,7 @@ local function Script(token)
             for n, at in ipairs(DISPEL_AT) do
                 local id = tr.effectIds[(n - 1) % #tr.effectIds + 1]
                 local victim = Util.NormalizeName(DEMO[(#DEMO - ti - n) % #DEMO + 1])
-                local guid, name = DemoGUID(victim), ShortName(victim)
+                local guid, name = DemoGUID(victim), Util.ShortName(victim) or victim
                 if tr.enemy then guid, name = NpcGUID(tr.npc or 0), "Practice target" end
                 At(token, t0 + at + ti, function()
                     Live():Handle("SPELL_AURA_APPLIED", NpcGUID(0), "Practice target", guid, name, Spell(id), id)

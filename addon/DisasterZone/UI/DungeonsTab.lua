@@ -759,7 +759,7 @@ local function FillCard(c, run, opts)
     c.hint.itemID = itemID
     c.hint.extra = items and #items > 1 and function(tt)
         tt:AddLine(" ")
-        tt:AddLine("Also drops your BiS:", S:Color("GOLD"))
+        tt:AddLine("Also drops your BiS:", S:RGB("GOLD"))
         for i = 2, #items do tt:AddLine(ItemLinkText(items[i])) end
     end or nil
     c.hint:SetShown(itemID ~= nil)
@@ -1331,7 +1331,7 @@ function DungeonsUI:OpenMineMenu(owner)
             local b = root:CreateButton(Ui:AtlasIconText(icon, 14, color or GOLD) .. "  " .. text, fn)
             if b and b.SetTooltip then
                 b:SetTooltip(function(tt)
-                    tt:AddLine(text, S:Color("GOLD"))
+                    tt:AddLine(text, S:RGB("GOLD"))
                     tt:AddLine(tip, 1, 1, 1, true)
                 end)
             end

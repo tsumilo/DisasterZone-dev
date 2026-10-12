@@ -19,7 +19,7 @@ local function pg()
     return s.strat and s.strat.p[s.page] or nil
 end
 local function canvas() return W().canvas end
-local function glyph(i) return ns.UI:AtlasIconText(i, 12, i == 14 and { 1, 0.82, 0 } or nil) end
+local function glyph(i) return ns.UI:AtlasIconText(i, 12, i == 14 and ns.Style.C.GOLD or nil) end
 local function tools() return W().tools end
 local function blocks() return W().blocks end
 

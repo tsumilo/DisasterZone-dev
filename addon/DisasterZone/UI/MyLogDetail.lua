@@ -214,7 +214,7 @@ local function InitAbility(row, data)
         ui:AttachTooltip(row, function(self, tip)
             local d = self.__cdlData
             if not (d and d.r) then return false end
-            tip:AddLine(d.r.name, S:Color("GOLD"))
+            tip:AddLine(d.r.name, S:RGB("GOLD"))
         end, AbilityTip)
     end
     local r, view, top = data.r, data.view, data.top
@@ -339,7 +339,7 @@ local function NewUptime(v, i)
     u.bar:SetPoint("LEFT", u.well, "LEFT")
     ui:AttachTooltip(u, function(self, tip)
         if not self.tipTitle then return false end
-        tip:AddLine(self.tipTitle, S:Color("GOLD"))
+        tip:AddLine(self.tipTitle, S:RGB("GOLD"))
     end, function(self) return self.tipLines end)
     return u
 end
@@ -726,7 +726,7 @@ local function InitCause(row, data)
         ui:AttachTooltip(row, function(self, tip)
             local d = self.__cdlData
             if not d or d.all then return false end
-            tip:AddLine(d.group.name, S:Color("GOLD"))
+            tip:AddLine(d.group.name, S:RGB("GOLD"))
         end, function(self)
             local d = self.__cdlData
             local g = d and d.group

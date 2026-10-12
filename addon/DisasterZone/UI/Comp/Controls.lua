@@ -41,7 +41,7 @@ function H.ItemTip(frame)
     UI:AttachTooltip(frame, function(f, tip)
         local it = f.item
         if not (it and it.tip) then return false end
-        tip:AddLine(it.label or "", S:Color("GOLD"))
+        tip:AddLine(it.label or "", S:RGB("GOLD"))
         tip:AddLine(it.tip, 1, 1, 1, true)
     end)
 end

@@ -2498,7 +2498,7 @@ local function createCouncilSection(parent, kind)
     s.titleTip:SetPoint("TOPLEFT", s.title, "TOPLEFT", -2, 2)
     s.titleTip:SetPoint("BOTTOMRIGHT", s.title, "BOTTOMRIGHT", 2, -2)
     UI:AttachTooltip(s.titleTip, function(_, tt)
-        tt:AddLine(s.title:GetText() or "", S:Color("GOLD"))
+        tt:AddLine(s.title:GetText() or "", S:RGB("GOLD"))
         if s.sub then tt:AddLine(s.sub, 1, 1, 1, true) end
     end, nil, { anchor = "ANCHOR_TOP" })
     s.status = UI:Text(s, "body", "TEXT", { justify = "RIGHT" })
@@ -2988,7 +2988,7 @@ end
 local function lockStatusTip(_, tt)
     local locked, info = UI:GetBiSLock()
     if not locked then return false end
-    tt:AddLine("BiS lists are locked", S:Color("GOLD"))
+    tt:AddLine("BiS lists are locked", S:RGB("GOLD"))
     tt:AddLine("Locked by " .. UI:LockByText(info, true) .. ". Raiders can't edit their lists; "
         .. "anyone whose list still changes gets a warning marker and is not suggested in rolls.", 1, 1, 1, true)
 end

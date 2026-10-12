@@ -21,7 +21,7 @@ local FALLBACK_W, FALLBACK_H = 786, 518     -- the stage before the client lays 
 local ROW_H = 42
 local CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local VIOLET = { 0.74, 0.58, 1 }
-local GOLD = { 1, 0.82, 0 }
+local GOLD = ns.Style.C.GOLD
 local SIDE_NAME = { [1] = "Alliance", [-1] = "Horde" }
 local SIDE_COLOR = { [1] = { 0.45, 0.66, 1 }, [-1] = { 1, 0.42, 0.32 } }
 local PIECE_NAME = { "pawn", "knight", "bishop", "rook", "queen", "king" }
@@ -61,7 +61,6 @@ local W, H = FALLBACK_W, FALLBACK_H
 local function Chess() return ns.Chess end
 local function Prefs() return ns.Chess:Prefs() end
 
-local function Hex(c) return string.format("|cff%02x%02x%02x", floor(c[1] * 255), floor(c[2] * 255), floor(c[3] * 255)) end
 
 local function Portrait(tex, display)
     if display and SetPortraitTextureFromCreatureDisplayID then
@@ -499,7 +498,7 @@ local function MakeRow(parent)
     r:RegisterForClicks("LeftButtonUp")
     r.bg = r:CreateTexture(nil, "BACKGROUND")
     r.bg:SetAllPoints()
-    r.bg:SetColorTexture(1, 1, 1, 0.035)
+    r.bg:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.035))
     r.hl = r:CreateTexture(nil, "HIGHLIGHT")
     r.hl:SetAllPoints()
     r.hl:SetColorTexture(VIOLET[1], VIOLET[2], VIOLET[3], 0.12)
@@ -983,8 +982,8 @@ local function RefreshGame()
     else
         bits[#bits + 1] = "guild game"
     end
-    hud.vs:SetText(string.format("%s%s|r  |cff8a8a8a%s|r", Hex(theirC), name, table.concat(bits, "  \194\183  ")))
-    hud.status:SetText(string.format("%sYou|r |cff8a8a8a(%s)|r  %s", Hex(SIDE_COLOR[g.me]), SIDE_NAME[g.me],
+    hud.vs:SetText(string.format("%s%s|r  |cff8a8a8a%s|r", ns.Style:Hex(theirC), name, table.concat(bits, "  \194\183  ")))
+    hud.status:SetText(string.format("%sYou|r |cff8a8a8a(%s)|r  %s", ns.Style:Hex(SIDE_COLOR[g.me]), SIDE_NAME[g.me],
         StatusText(g)))
     -- what a cheat does, else the hint for the first moments
     local note = state.note

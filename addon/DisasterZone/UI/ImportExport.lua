@@ -175,7 +175,7 @@ end
 local function UnplacedTooltip(owner, tt)
     local plan = owner.plan
     if not plan then return false end
-    tt:AddLine("Not placed", S:Color("GOLD"))
+    tt:AddLine("Not placed", S:RGB("GOLD"))
     tt:AddLine("Add these yourself if you want them (click a slot in My BiS).", 1, 1, 1, true)
     for _, u in ipairs(plan.unplaced) do
         local why = Imp().WHY[u.why] or u.why or "?"

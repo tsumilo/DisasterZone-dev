@@ -76,6 +76,12 @@ function S:Color(color)
     return c[1], c[2], c[3], c[4] or 1
 end
 
+-- r, g, b of a colour (no alpha: for GameTooltip:AddLine(text, r, g, b, wrap), whose 4th value is the wrap).
+function S:RGB(color)
+    local r, g, b = self:Color(color)
+    return r, g, b
+end
+
 -- r, g, b, a of a colour (a token name or a table) at alpha a; the colour's own alpha when a is nil.
 function S:Alpha(color, a)
     local r, g, b, ca = self:Color(color)
@@ -88,8 +94,9 @@ function S:WithAlpha(color, a)
     return { r, g, b, a or ca }
 end
 
--- "|cffffd100" (without the closing "|r"); unknown names give white.
+-- "|cffffd100" (without the closing "|r") of a token name or a { r, g, b } table; unknown names give white.
 function S:Hex(name)
+    if type(name) == "table" then return format("|cff%02x%02x%02x", Byte(name[1]), Byte(name[2]), Byte(name[3])) end
     return "|cff" .. (self.HEX[name] or "ffffff")
 end
 

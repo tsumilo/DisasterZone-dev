@@ -317,7 +317,7 @@ local function SetupRow(row)
             MatTooltip(self)
         elseif d.type == "cost" and d.unpriced > 0 then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine("Auctionator's last scan", Style:Color("GOLD"))
+            GameTooltip:AddLine("Auctionator's last scan", Style:RGB("GOLD"))
             GameTooltip:AddLine(("%d of the missing materials have no price there yet."):format(d.unpriced), 1, 1, 1, true)
             GameTooltip:Show()
         end
@@ -672,7 +672,7 @@ function ShopUI:AddTooltip(owner, id)
     local S = Shop()
     if not S then return end
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Add to shopping list", Style:Color("GOLD"))
+    GameTooltip:AddLine("Add to shopping list", Style:RGB("GOLD"))
     local who
     if S:CanMake(id) then
         who = "You can make it."

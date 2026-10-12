@@ -287,7 +287,7 @@ end
 -- The bell's tooltip (none while the tray is open).
 local function BellTip(_, tt)
     if tray and tray:IsShown() then return false end
-    tt:AddLine("Notifications", S:Color("GOLD"))
+    tt:AddLine("Notifications", S:RGB("GOLD"))
     local n = N() and N():Count() or 0
     if n > 0 then
         tt:AddLine(n == 1 and "1 thing waits for you." or (n .. " things wait for you."), 1, 1, 1, true)
@@ -787,7 +787,7 @@ function NotifyUI:AddTooltipLines(tt)
     local list = N():List({ needsYou = true })
     if #list == 0 then return end
     tt:AddLine(" ")
-    tt:AddLine(#list == 1 and "1 thing waits for you" or (#list .. " things wait for you"), S:Color("GOLD"))
+    tt:AddLine(#list == 1 and "1 thing waits for you" or (#list .. " things wait for you"), S:RGB("GOLD"))
     for i = 1, min(5, #list) do tt:AddLine(UI():SafeText(list[i].title or ""), 1, 1, 1, true) end
     if #list > 5 then tt:AddLine("and " .. (#list - 5) .. " more", 0.6, 0.6, 0.6) end
 end

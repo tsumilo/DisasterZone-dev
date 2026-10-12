@@ -550,7 +550,7 @@ local function FieldTip(self, tt)
     local lines = self.tip
     if not lines then return false end
     for i, line in ipairs(lines) do
-        if i == 1 then tt:AddLine(line, St:Color("GOLD")) else tt:AddLine(line, 1, 1, 1, true) end
+        if i == 1 then tt:AddLine(line, St:RGB("GOLD")) else tt:AddLine(line, 1, 1, 1, true) end
     end
 end
 
@@ -1039,7 +1039,7 @@ local function PersonRow(parent)
     UI():AttachTooltip(r, function(self, tt)
         if not self.tipText then return false end
         for i, line in ipairs(self.tipText) do
-            if i == 1 then tt:AddLine(line, St:Color("GOLD")) else tt:AddLine(line, 1, 1, 1, true) end
+            if i == 1 then tt:AddLine(line, St:RGB("GOLD")) else tt:AddLine(line, 1, 1, 1, true) end
         end
     end, nil, { anchor = "ANCHOR_TOP" })
     return r

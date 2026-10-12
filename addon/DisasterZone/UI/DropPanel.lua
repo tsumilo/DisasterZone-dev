@@ -1633,7 +1633,7 @@ local function RowOnEnter(self)
         return
     end
     if self.more then
-        tt:AddLine(format("%d more", #self.more), S:Color("GOLD"))
+        tt:AddLine(format("%d more", #self.more), S:RGB("GOLD"))
         local plain = self.moreKind == "roll" and PlainMode(nil, self.session)
         for _, x in ipairs(self.more) do
             local warn = (not plain and LockChanged(x)) and (" " .. WarnIcon(10)) or ""
@@ -2472,7 +2472,7 @@ function Mat.AddCraftersTooltip(tt, use)
         tt:AddLine("Only members who opened their profession window with DisasterZone are known.", 0.6, 0.6, 0.6, true)
         return
     end
-    tt:AddLine("Crafted by", S:Color("GOLD"))
+    tt:AddLine("Crafted by", S:RGB("GOLD"))
     for _, key in ipairs(list) do
         tt:AddDoubleLine(ColoredName(key), Mat.PresenceOf(key), 1, 1, 1, 0.6, 0.6, 0.6)
     end
@@ -3097,7 +3097,7 @@ function DropPanel:OpenMoreMenu(b, owner)
             if entry and entry.SetTooltip then
                 local key, label = e.key, e.label
                 entry:SetTooltip(function(tt)
-                    tt:AddLine(label, S:Color("GOLD"))
+                    tt:AddLine(label, S:RGB("GOLD"))
                     tt:AddLine(DropPanel:MoreTooltip(b, key), 1, 1, 1, true)
                 end)
             end
@@ -3767,7 +3767,7 @@ function Look.ToastEnter(t)
     tt:SetOwner(t, "ANCHOR_BOTTOM")
     tt:SetItemByID(e.itemID)
     tt:AddLine(" ")
-    tt:AddLine("Click: link in chat.", S:Color("SUB"))
+    tt:AddLine("Click: link in chat.", S:RGB("SUB"))
     tt:Show()
 end
 

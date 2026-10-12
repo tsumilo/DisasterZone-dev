@@ -318,12 +318,12 @@ local function createPoolChip(parent)
         if m then
             local label = ns.RaidComp and ns.RaidComp:SpecLabel(m.c, m.sp)
             GameTooltip:AddLine((label and (label .. " ") or "") .. (ns.CLASS_NAMES[m.c] or ""), 1, 1, 1)
-            if m.st == "T" then GameTooltip:AddLine("Tentative", Style:Color("GOLD"))
-            elseif m.st == "B" then GameTooltip:AddLine("Bench", Style:Color("GOLD"))
-            elseif m.inRaid then GameTooltip:AddLine("In your raid, no sign-up", Style:Color("SUB")) end
+            if m.st == "T" then GameTooltip:AddLine("Tentative", Style:RGB("GOLD"))
+            elseif m.st == "B" then GameTooltip:AddLine("Bench", Style:RGB("GOLD"))
+            elseif m.inRaid then GameTooltip:AddLine("In your raid, no sign-up", Style:RGB("SUB")) end
         end
         for _, s in ipairs(S():GetPlayerSlots(st.strat, st.assign, self.key)) do
-            GameTooltip:AddLine(s.label, Style:Color("TEXT"))
+            GameTooltip:AddLine(s.label, Style:RGB("TEXT"))
         end
         GameTooltip:AddLine("Drag onto a slot, or click and then click a slot.", Style.C.SUB[1], Style.C.SUB[2],
             Style.C.SUB[3], true)
@@ -1659,7 +1659,7 @@ function Board:PageMenu(owner, i)
             end)
             if dup and dup.SetTooltip then
                 dup:SetTooltip(function(tt)
-                    tt:AddLine("Duplicate", Style:Color("GOLD"))
+                    tt:AddLine("Duplicate", Style:RGB("GOLD"))
                     tt:AddLine("A new page with the same map and drawings. The tables stay on this one: the drawings "
                         .. "keep showing their names.", 1, 1, 1, true)
                 end)
@@ -1786,7 +1786,7 @@ function Board:LinkText(ref)
 end
 
 function Board:LinkTooltip(ref, tt)
-    tt:AddLine(self:LinkLabel(ref), Style:Color("GOLD"))
+    tt:AddLine(self:LinkLabel(ref), Style:RGB("GOLD"))
     local any = false
     for _, sl in ipairs(slotsOf(ref)) do
         local key = st.assign[sl.ref]
@@ -2793,7 +2793,7 @@ function Board:MoreMenu(root)
         end)
         if am and am.SetTooltip then
             am:SetTooltip(function(tt)
-                tt:AddLine("Auto-mark", Style:Color("GOLD"))
+                tt:AddLine("Auto-mark", Style:RGB("GOLD"))
                 tt:AddLine("In the raid, the raid leader's DisasterZone puts the raid marks shown on the boss portraits "
                     .. "on the mobs as their nameplates appear.", 1, 1, 1, true)
             end)

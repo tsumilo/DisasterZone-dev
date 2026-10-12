@@ -54,11 +54,11 @@ local RESULT_KEYS = 40               -- ... of this many players each (a Sign-up
 local demo                          -- demo mode's state (Events:BuildDemo)
 local KeepSnapshot                  -- (below: the def a reviewer ranked, for the differences later)
 
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now = Util.Now          -- (the server clock: ns.Util.Now)
 local function Guild() return ns.Guild end
 local function B() return ns.EventBlocks end
 local function Copy(v) return ns.EventBlocks.Copy(v) end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+local DemoOn = Util.DemoOn
 
 local function WireKey(s)
     if type(s) ~= "string" or s == "" or #s > MAX_KEY_LEN or s:find("[%c|]") then return nil end

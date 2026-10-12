@@ -4526,8 +4526,7 @@ end
 function TV.specIconText(c, sp, size)
     local icon = ns.RaidComp:SpecIcon(c, sp)
     if not icon then return "" end
-    size = size or 14
-    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(icon, size, size)
+    return UI():IconText(icon, size or 14, true)
 end
 
 -- The draft's comp, or nil when it has no slot.
@@ -4747,7 +4746,7 @@ function TV.meterTooltip(self, GameTooltip)
             local f = 0
             for _, sl in ipairs(col) do if sl.member then f = f + 1 end end
             local full = f == #col
-            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, S:Color(full and "OK" or "TEXT"))
+            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, S:RGB(full and "OK" or "TEXT"))
         end
     end
     GameTooltip:AddLine(("%d of %d slots filled"):format(m.filled, m.total), 0.6, 0.6, 0.6)

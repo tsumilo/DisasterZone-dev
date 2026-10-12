@@ -290,7 +290,7 @@ local PART = {
     leader  = { "Raid leader", { 0.50, 0.88, 0.56 } },
     officer = { "Officer", { 0.56, 0.71, 1 } },
     council = { "Guild council", { 1, 0.70, 0.28 } },
-    gm      = { "Guild Master", { 1, 0.82, 0 } },
+    gm      = { "Guild Master", ns.Style.C.GOLD },
 }
 
 local function who(role)

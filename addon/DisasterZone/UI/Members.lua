@@ -267,7 +267,7 @@ local function showRecipeTooltip(owner, recipe)
         GameTooltip:SetItemByID(recipe.item)
         if T then T.skipCrafters, T.noMats = nil, nil end
     elseif not setRecipeSpell(GameTooltip, recipe.spell) then
-        GameTooltip:AddLine(recipe.name, S:Color("GOLD"))
+        GameTooltip:AddLine(recipe.name, S:RGB("GOLD"))
     end
     local names, online = {}, 0
     for i, c in ipairs(sortedCrafters(recipe)) do

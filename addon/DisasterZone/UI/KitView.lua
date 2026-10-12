@@ -346,7 +346,7 @@ local function CreateCard(parent, side)
   c.bag:SetFrameLevel(c.icon:GetFrameLevel() + 3)
   c.bag:Hide()
   UI:AttachTooltip(c.bag, function(_, tt)
-    tt:AddLine("Shopping list", S:Color("GOLD"))
+    tt:AddLine("Shopping list", S:RGB("GOLD"))
     local Kt = K()
     for id, miss in pairs(Kt:Missing(c.ids or {})) do
       if Kt:CanList(id) then
@@ -520,7 +520,7 @@ function KitView:Create(parent, page)
     UI:AttachTooltip(b, function(self, tt)
       local Kt = K()
       local r = Kt:Results()
-      tt:AddLine(self == bar.prog and "Prog kit" or "Farm kit", S:Color("GOLD"))
+      tt:AddLine(self == bar.prog and "Prog kit" or "Farm kit", S:RGB("GOLD"))
       if r then
         tt:AddLine(("The whole kit against none, with the gear you wear: %d fights, ±%d."):format(
           Kt.ITERATIONS, floor(2 * ((self == bar.prog and r.progSE or r.farmSE) or 0) + 0.5)), 1, 1, 1, true)
@@ -560,7 +560,7 @@ function KitView:Create(parent, page)
   UI:AttachTooltip(hit, function(_, tt)
     local Kt = K()
     local sum = Kt:Summary(Kt:Get(), "best")
-    tt:AddLine("The prog kit in your bags", S:Color("GOLD"))
+    tt:AddLine("The prog kit in your bags", S:RGB("GOLD"))
     tt:AddLine("A pip per slot, green with a night's worth in your bags.", 1, 1, 1, true)
     if sum.listCount + sum.other > 0 then
       tt:AddLine(("%d to get%s."):format(sum.listCount + sum.other,
@@ -579,7 +579,7 @@ function KitView:Create(parent, page)
       local side = prog and "best" or "budget"
       local Kt = K()
       local sum = Kt:Summary(Kt:Get(), side)
-      tt:AddLine(prog and "Add the prog kit" or "Add the farm kit", S:Color("GOLD"))
+      tt:AddLine(prog and "Add the prog kit" or "Add the farm kit", S:RGB("GOLD"))
       if sum.listCount > 0 then
         tt:AddLine("Puts what your bags lack for a night on your shopping list (Atlas):", 1, 1, 1, true)
         for id, n in pairs(sum.toList) do tt:AddDoubleLine(Kt:Name(id), tostring(n), 1, 1, 1, 0.7, 0.7, 0.7) end

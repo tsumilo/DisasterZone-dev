@@ -1000,9 +1000,7 @@ local function IsKey(s)
     return type(s) == "string" and s ~= "" and #s <= MAX_KEY_LEN and not s:find("[%c|]")
 end
 
-local function DemoOn()
-    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false
-end
+local DemoOn = Util.DemoOn
 
 local function IsGuildCouncil(key)
     local Guild = ns.Guild

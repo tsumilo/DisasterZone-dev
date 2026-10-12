@@ -4,7 +4,7 @@
 Usage:
     luaenv\\Scripts\\python.exe tools\\check.py [paths...] [--libs] [--rebuild-known] [--strict]
                                                  [--quiet] [--json] [--no-events]
-                                                 [--uniformity | --uniformity-strict | --no-uniformity
+                                                 [--uniformity | --uniformity-warn | --no-uniformity
                                                   | --uniformity-update-baseline]
 
 Default target: every .lua file under the DisasterZone addon folder, excluding Libs/ unless --libs.
@@ -19,11 +19,13 @@ Output lines (grep-friendly):
     <file>:<line>: WARN DEPRECATED 'name' (<hint>)
     <file>:<line>: WARN NOT IN WOW 'name' (<hint>)
     <file>:<line>: WARN UNKNOWN EVENT 'NAME' (no reference addon uses it; verify it exists on 2.5.x)
-    <file>:<line>: WARN UNIFORMITY <kind>: <n> ...; baseline <m> (lines ...)   (ERROR with --uniformity-strict)
+    <file>:<line>: ERROR UNIFORMITY <kind>: <n> ...; baseline <m> (lines ...)   (WARN with --uniformity-warn)
 Uniformity (tools/uniformity.py): per-file counts of literal token colours, local copies of shared helpers, numeric
-SetFont sizes and re-declared raid tables; only a count above tools/uniformity_baseline.json is reported.
+SetFont sizes and re-declared raid tables; only a count above tools/uniformity_baseline.json is reported, and never one
+of the justified exceptions in uniformity.ALLOW. Since the 1.4 cleanup these are errors by default (exit code 1).
     --uniformity                   print the per-file counts (worst first) instead of checking
-    --uniformity-strict            report counts above the baseline as errors (exit code 1)
+    --uniformity-warn              report counts above the baseline as warnings only (the pre-1.4 default)
+    --uniformity-strict            (the default now; kept for old command lines)
     --uniformity-update-baseline   rewrite the baseline from the scanned files (no paths = the whole addon)
     --no-uniformity                skip the uniformity check
 Exit code: 1 if any syntax error or global write (or, with --strict, any warning); else 0.
@@ -468,7 +470,9 @@ def main(argv=None):
     ap.add_argument("--uniformity", action="store_true",
                     help="print the per-file uniformity counts (worst first) and exit")
     ap.add_argument("--uniformity-strict", action="store_true",
-                    help="uniformity counts above the baseline are errors (exit code 1)")
+                    help="(the default) uniformity counts above the baseline are errors (exit code 1)")
+    ap.add_argument("--uniformity-warn", action="store_true",
+                    help="uniformity counts above the baseline are warnings only")
     args = ap.parse_args(argv)
 
     if args.uniformity or args.uniformity_update_baseline:
@@ -484,10 +488,11 @@ def main(argv=None):
             print(json.dumps({"counts": counts, "baseline": baseline}, indent=1))
         else:
             print(uniformity.table(list(counts.items()), baseline))
-        up = [f for f, c in counts.items() if any(c[k] > baseline.get(f, {}).get(k, 0) for k in uniformity.KINDS)]
+        up = [f for f, c in counts.items() if any(c[k] > baseline.get(f, {}).get(k, 0) and not uniformity.allowed(f, k)
+                                                  for k in uniformity.KINDS)]
         if up and not args.json:
             print("-- %d file(s) above the baseline: %s" % (len(up), ", ".join(sorted(up))))
-        return 1 if (args.uniformity_strict and up) else 0
+        return 1 if (up and not args.uniformity_warn) else 0
 
     known = load_known(args.rebuild_known)
     files = collect_targets(args.paths, args.libs)
@@ -495,7 +500,7 @@ def main(argv=None):
     check_files(files, known, report, check_events=not args.no_events)
     ucounts = {}
     if not args.no_uniformity:
-        ucounts = check_uniformity(files, report, strict=args.uniformity_strict)
+        ucounts = check_uniformity(files, report, strict=not args.uniformity_warn)
     lines = sorted(report.lines, key=lambda x: (x[0], x[1], x[3], x[4]))
     n_syntax = report.count("syntax") + report.count("io")
     n_write = report.count("write")

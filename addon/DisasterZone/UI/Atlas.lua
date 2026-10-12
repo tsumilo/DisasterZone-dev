@@ -273,7 +273,7 @@ end
 local function AddCostLines(tt, parts, from)
     local C = Cur()
     tt:AddLine(" ")
-    tt:AddLine("Cost", S:Color("GOLD"))
+    tt:AddLine("Cost", S:RGB("GOLD"))
     for _, c in ipairs((C:Check(parts))) do
         local left = (c.key == C.MONEY and "" or (C:IconMarkup(c.key, 14) .. " ")) .. AmountName(C, c.key, c.n)
         local right
@@ -711,7 +711,7 @@ local function PageTooltip(row, tt)
     local d = row.__cdlData
     local n = d and d.type == "page" and PickCount(d.page) or 0
     if n <= 0 then return false end
-    tt:AddLine(d.page.name or "?", S:Color("GOLD"))
+    tt:AddLine(d.page.name or "?", S:RGB("GOLD"))
     tt:AddLine(n == 1 and "1 item here is on your BiS list" or (n .. " items here are on your BiS list"), 1, 1, 1)
 end
 
@@ -1237,7 +1237,7 @@ local function AddPhaseEntries(sub, targets, list)
         local later = sub:CreateButton(("Phase %d and later"):format(from))
         if later.SetTooltip then
             later:SetTooltip(function(tooltip)
-                tooltip:AddLine(("Phase %d and later"):format(from), S:Color("GOLD"))
+                tooltip:AddLine(("Phase %d and later"):format(from), S:RGB("GOLD"))
                 tooltip:AddLine(("Sets it in P%d, and in every later phase where that place is still empty."):format(from), 1, 1, 1, true)
             end)
         end

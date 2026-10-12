@@ -226,9 +226,9 @@ local function addEntryLines(tt, e)
         tt:AddLine("Note: " .. e.n, 1, 1, 1, true)
     end
     if e.vd then
-        tt:AddLine("Voided " .. formatAgo(e.vts), S:Color("BAD"))
+        tt:AddLine("Voided " .. formatAgo(e.vts), S:RGB("BAD"))
     end
-    tt:AddLine("Right-click: reason, void / restore, link, show member", S:Color("DIM"))
+    tt:AddLine("Right-click: reason, void / restore, link, show member", S:RGB("DIM"))
 end
 
 local function voidEntry(e, voided)

@@ -904,7 +904,7 @@ local function CreateSpecTab(parent)
     ns.UI:AttachTooltip(t, function(self, tt)
         local main, off = MainLabel(), OffLabel()
         local isM, isO = self.spec == main, self.spec == off
-        tt:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), S:Color("GOLD"))
+        tt:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), S:RGB("GOLD"))
         if isM then
             tt:AddLine("The council ranks these picks first.", 1, 1, 1, true)
         elseif isO then
@@ -1084,7 +1084,7 @@ local function BuildSuggestMenu(root)
                     end)
                 if radio and radio.SetTooltip then
                     radio:SetTooltip(function(tt)
-                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:Color("GOLD"))
+                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:RGB("GOLD"))
                         tt:AddLine(q == 4 and "The best gems for your spec." or ("The strongest " .. ns.Gems.QUALITY_WORDS[q]:lower()
                             .. " gems for your spec, for when the best ones cost too much. The meta gem still gets "
                             .. "its colours."), 1, 1, 1, true)
@@ -1098,7 +1098,7 @@ local function BuildSuggestMenu(root)
         end)
         if b and b.SetTooltip then
             b:SetTooltip(function(tt)
-                tt:AddLine("Gems and enchants", S:Color("GOLD"))
+                tt:AddLine("Gems and enchants", S:RGB("GOLD"))
                 tt:AddLine(("Puts the %s guide's gems and enchants on every pick of %s that has an empty socket or "
                     .. "no enchant. What you chose stays."):format(spec, PL(phase)), 1, 1, 1, true)
             end)
@@ -1121,7 +1121,7 @@ local function BuildMoreMenu(root)
         local b = root:CreateButton(UI:AtlasIconText(icon, 14, color) .. "  " .. text, fn)
         if b and b.SetTooltip then
             b:SetTooltip(function(tooltip)
-                tooltip:AddLine(text, S:Color("GOLD"))
+                tooltip:AddLine(text, S:RGB("GOLD"))
                 tooltip:AddLine(tip, 1, 1, 1, true)
             end)
         end
@@ -1313,13 +1313,13 @@ local function RowTooltip(row, tt)
     local g = row.group
     if not g then return false end
     if g.rest then
-        tt:AddLine("Also still to get", S:Color("GOLD"))
+        tt:AddLine("Also still to get", S:RGB("GOLD"))
         for _, x in ipairs(g.rest) do
             tt:AddDoubleLine(x.name, tostring(x.count), 1, 1, 1, 0.7, 0.7, 0.7)
         end
         return
     end
-    tt:AddLine(g.name, S:Color("GOLD"))
+    tt:AddLine(g.name, S:RGB("GOLD"))
     for _, it in ipairs(g.items) do
         local text = ns.UI:ItemText(it.itemID)
         tt:AddDoubleLine(text, it.where or "", 1, 1, 1, 0.7, 0.7, 0.7)
@@ -1558,7 +1558,7 @@ end
 local function PhaseButtonTooltip(button, tt)
     local p = button.phase
     local pinfo = ns.PHASE_INFO and ns.PHASE_INFO[p]
-    tt:AddLine(pinfo and pinfo.name or ("Phase " .. p), S:Color("GOLD"))
+    tt:AddLine(pinfo and pinfo.name or ("Phase " .. p), S:RGB("GOLD"))
     if pinfo and pinfo.raids then tt:AddLine(pinfo.raids, 1, 1, 1, true) end
     local main, alt = 0, 0
     for _, e in ipairs(PhaseItems(p)) do
@@ -1615,7 +1615,7 @@ local function CreateLockChip(p)
     end
     UI:AttachTooltip(chip, function(_, tt)
         local _, info = ListLocked()
-        tt:AddLine("BiS lists are locked", S:Color("GOLD"))
+        tt:AddLine("BiS lists are locked", S:RGB("GOLD"))
         tt:AddLine(("%s locked every BiS list in the group for the raid. You can't change picks, "
             .. "spec or disabled slots until they unlock the lists or the group disbands. Items you get "
             .. "(and \"Mark obtained\" in a slot's right-click menu) still update."):format(UI:LockByText(info, true)),
@@ -1906,7 +1906,7 @@ function MyBiS:FillFinishTooltip(owner, tt)
     local G, BiS = ns.Gems, ns.BiS
     local phase = owner.phase or CurrentPhase()
     local view = BiS:GetListView(ListArg())
-    tt:AddLine("Gems and enchants - " .. PL(phase), S:Color("GOLD"))
+    tt:AddLine("Gems and enchants - " .. PL(phase), S:RGB("GOLD"))
     local any = false
     local picks = G:CountedPicks(view, phase, function(sid) return SlotDisabled(phase, sid) end)
     for sid = 1, NUM_SLOTS do
@@ -1927,7 +1927,7 @@ function MyBiS:FillFinishTooltip(owner, tt)
         end
     end
     if not any then
-        tt:AddLine("Every pick has its gems and enchant.", S:Color("OK"))
+        tt:AddLine("Every pick has its gems and enchant.", S:RGB("OK"))
     end
     tt:AddLine("Suggest fills them; ... puts them on the shopping list.", 0.5, 0.5, 0.5, true)
 end

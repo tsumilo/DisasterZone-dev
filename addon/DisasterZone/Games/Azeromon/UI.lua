@@ -2325,7 +2325,7 @@ function Chips.Tooltip(self)
     local c = self.chip
     if not (c and GameTooltip) then return end
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:SetText(c.title or c.text, 1, 0.82, 0)
+    GameTooltip:SetText(c.title or c.text, ns.Style:Color("GOLD"))
     for _, line in ipairs(c.lines or {}) do GameTooltip:AddLine(line, 1, 1, 1, true) end
     GameTooltip:Show()
 end
@@ -4204,7 +4204,7 @@ function UI:CreatePanel(parent)
         local p = G:PerkInfo()
         if not (p and GameTooltip) then return end
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-        GameTooltip:SetText(p.name, 1, 0.82, 0)
+        GameTooltip:SetText(p.name, ns.Style:Color("GOLD"))
         GameTooltip:AddLine(p.text, 1, 1, 1, true)
         GameTooltip:AddLine("Your WoW class's perk. It never counts in battles between players.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()

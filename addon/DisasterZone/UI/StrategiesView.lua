@@ -139,9 +139,9 @@ end
 local function treeTip(self, tt)
     local d = self.__cdlData
     if not (d and (d.drafts or 0) > 0) then return false end
-    tt:AddLine(d.name, Style:Color("GOLD"))
-    if d.count > 0 then tt:AddLine(plural(d.count, "strategy", "strategies"), Style:Color("TEXT")) end
-    tt:AddLine(("%d unsaved %s of yours"):format(d.drafts, d.drafts == 1 and "draft" or "drafts"), Style:Color("WARN"))
+    tt:AddLine(d.name, Style:RGB("GOLD"))
+    if d.count > 0 then tt:AddLine(plural(d.count, "strategy", "strategies"), Style:RGB("TEXT")) end
+    tt:AddLine(("%d unsaved %s of yours"):format(d.drafts, d.drafts == 1 and "draft" or "drafts"), Style:RGB("WARN"))
 end
 
 -- One row of the raids list: All raids, a raid, or a boss of the open raid (indented) - the shared row looks
@@ -277,7 +277,7 @@ local function openMore(btn)
             local b = root:CreateButton(UI():AtlasIconText(e[1], 14, Style.C[e[5] and "BAD" or "GOLD"]) .. "  " .. text, e[4])
             if b and b.SetTooltip then
                 b:SetTooltip(function(tt)
-                    tt:AddLine(e[2], Style:Color("GOLD"))
+                    tt:AddLine(e[2], Style:RGB("GOLD"))
                     tt:AddLine(e[3], 1, 1, 1, true)
                 end)
             end
@@ -833,10 +833,10 @@ local function pickMenu(row, root)
             function() View:PickStrategy(d.occ, d.ref, s.id) end)
         if radio and radio.SetTooltip then
             radio:SetTooltip(function(tooltip)
-                tooltip:AddLine(s.n, Style:Color("GOLD"))
+                tooltip:AddLine(s.n, Style:RGB("GOLD"))
                 tooltip:AddLine(("By %s, saved %s"):format(ns.Util.ShortName(owner), shortDate(s.rev)), 1, 1, 1)
                 tooltip:AddLine(("%d player slots%s"):format(#S():GetSlots(s), pagesText(#s.p)), 1, 1, 1)
-                if s.id == last then tooltip:AddLine("The guild used it for this boss last time.", Style:Color("OK")) end
+                if s.id == last then tooltip:AddLine("The guild used it for this boss last time.", Style:RGB("OK")) end
             end)
         end
     end
@@ -846,7 +846,7 @@ local function pickMenu(row, root)
         function() View:PickStrategy(d.occ, d.ref, nil) end)
     if radio and radio.SetTooltip then
         radio:SetTooltip(function(tooltip)
-            tooltip:AddLine("No strategy", Style:Color("GOLD"))
+            tooltip:AddLine("No strategy", Style:RGB("GOLD"))
             tooltip:AddLine("This raid goes without one for this boss: nothing is assigned, no raid marks. The names "
                 .. "already in its slots stay for a later pick.", 1, 1, 1, true)
         end)
@@ -870,9 +870,9 @@ local function pickTip(row, tt)
     end
     if not (data and data.s) then return end
     tt:AddLine(data.s.n)
-    tt:AddLine("The strategy for " .. data.name, Style:Color("SUB"))
+    tt:AddLine("The strategy for " .. data.name, Style:RGB("SUB"))
     if row.pick.warn == "unsaved names" then
-        tt:AddLine("Names typed on its board are not saved yet: open the board to save them.", Style:Color("WARN"))
+        tt:AddLine("Names typed on its board are not saved yet: open the board to save them.", Style:RGB("WARN"))
     end
     if data.how == "picked" then
         tt:AddLine("Picked for this raid. Pick another to switch: names in the slots both strategies have stay.",
@@ -947,7 +947,7 @@ local function newBossTile(parent)
     UI():AttachTooltip(row, function(self, tt)
         local data = self.__cdlData
         if not data then return false end
-        tt:AddLine(data.name, Style:Color("GOLD"))
+        tt:AddLine(data.name, Style:RGB("GOLD"))
         tt:AddLine(data.s and "Click to open its board: who does what."
             or (data.how == "none" and "This raid goes without a strategy for this boss.")
             or "No strategy for this boss yet.", 1, 1, 1, true)

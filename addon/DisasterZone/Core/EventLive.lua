@@ -119,7 +119,7 @@ end
 Live.DisplayName = DisplayName
 
 -- Text a player reads: no escape codes or control characters, at most n bytes, cut between letters.
-local function Text(s, n)
+local function CleanText(s, n)
     if type(s) ~= "string" then return nil end
     s = s:gsub("%c", " "):gsub("|", "")
     n = n or TEXT_LEN
@@ -260,9 +260,9 @@ local function HostOut(occId)
             if unit and SetRaidTarget then pcall(SetRaidTarget, unit, n) end
         end,
         -- the addon tells the players itself (EVM): a banner, a tracker line, a sound, their friendly nameplates
-        show = function(keys, text) Live:Deliver(occId, "show", keys, Text(tostring(text or ""))) end,
-        tell = function(keys, text) Live:Deliver(occId, "tell", keys, Text(tostring(text or ""))) end,
-        sound = function(keys, sound) Live:Deliver(occId, "sound", keys, Text(tostring(sound or ""), 32)) end,
+        show = function(keys, text) Live:Deliver(occId, "show", keys, CleanText(tostring(text or ""))) end,
+        tell = function(keys, text) Live:Deliver(occId, "tell", keys, CleanText(tostring(text or ""))) end,
+        sound = function(keys, sound) Live:Deliver(occId, "sound", keys, CleanText(tostring(sound or ""), 32)) end,
         plates = function(keys, off) Live:Deliver(occId, "plates", keys, nil, off and true or false) end,
         guild = function(text) Live:GuildPost(occId, text) end,
         isOnline = IsOnline,
@@ -428,7 +428,7 @@ local function OnMessage(sender, msg, dist)
     end
     local at = tonumber(msg.at) or Now()
     if (msg.k == "show" or msg.k == "sound") and Now() - at > EVM_STALE then return end
-    Receive(occId, msg.k, Text(msg.text, msg.k == "sound" and 32 or TEXT_LEN), msg.off == true)
+    Receive(occId, msg.k, CleanText(msg.text, msg.k == "sound" and 32 or TEXT_LEN), msg.off == true)
 end
 
 -- The messages that came before the state naming their sender as host: heard again once it came (the rest stay
@@ -465,7 +465,7 @@ end
 
 function Live:GuildPost(occId, text)
     local h = hosting[occId]
-    text = Text(type(text) == "string" and text or tostring(text or ""))
+    text = CleanText(type(text) == "string" and text or tostring(text or ""))
     if not h or DemoOn() or not text or text == "" then return false end
     local g = type(h.run.st.gpost) == "table" and h.run.st.gpost or { n = 0 }
     h.guildQ = h.guildQ or {}
@@ -813,7 +813,7 @@ local function AnswerValue(v, inner)
         if v ~= v then return nil end
         return max(-1e9, min(1e9, v))
     end
-    if t == "string" then return Text(v, 120) end
+    if t == "string" then return CleanText(v, 120) end
     if t == "table" and not inner then
         local out = {}
         for i = 1, min(#v, 3) do
@@ -850,8 +850,8 @@ local function CleanPos(msg, s)
         end
     end
     if not s or s.pos or s.zone then
-        if msg.z ~= nil then pos.z = Text(msg.z, 48) or ""; any = true end
-        if msg.sz ~= nil then pos.sz = Text(msg.sz, 48) or ""; any = true end
+        if msg.z ~= nil then pos.z = CleanText(msg.z, 48) or ""; any = true end
+        if msg.sz ~= nil then pos.sz = CleanText(msg.sz, 48) or ""; any = true end
     end
     -- (flags: all of them for a def asking "is ..."; mounted / moving / dead also for one whose happenings keep them)
     local h = s and s.happen or {}
@@ -884,8 +884,8 @@ local function OnNewFact(h, sender, msg)
         local what = msg.what
         if not (type(what) == "string" and SENSED[what] and s.happen[what]) then return end
         local item = tonumber(msg.item)
-        local data = { other = WireKey(msg.other), item = item and Int(item, 1, 1e7) or Text(msg.item, 64),
-            name = Text(msg.name, 64), count = Int(msg.count, 1, 10000), creature = Text(msg.creature, 64),
+        local data = { other = WireKey(msg.other), item = item and Int(item, 1, 1e7) or CleanText(msg.item, 64),
+            name = CleanText(msg.name, 64), count = Int(msg.count, 1, 10000), creature = CleanText(msg.creature, 64),
             emote = Token(msg.emote) }
         if data.other == sender then data.other = nil end
         if run.Happen then run:Happen(sender, what, data) end
@@ -910,7 +910,7 @@ local function OnNewFact(h, sender, msg)
         local aid, v = IsId(msg.aid) and msg.aid, AnswerValue(msg.v)
         if s.asks and aid and v ~= nil and run.AskAnswer then run:AskAnswer(aid, sender, v) end
     elseif k == "press" then
-        local label = Text(msg.label, 32)
+        local label = CleanText(msg.label, 32)
         if s.buttons and label and label ~= "" and run.Press then run:Press(sender, label) end
     end
 end
@@ -1888,9 +1888,9 @@ function Live:StartPractice(def, count)
         ended = function() ns:Fire("EVENT_PRACTICE_UPDATED") end,
         isOnline = function(k) return not practice or not practice.off[k] end,
         -- the addon's messages: in the log, and mine on my screen (nothing reaches the world)
-        show = function(keys, text) PracticeSays("show", keys, Text(tostring(text or ""))) end,
-        tell = function(keys, text) PracticeSays("tell", keys, Text(tostring(text or ""))) end,
-        sound = function(keys, sound) PracticeSays("sound", keys, Text(tostring(sound or ""), 32)) end,
+        show = function(keys, text) PracticeSays("show", keys, CleanText(tostring(text or ""))) end,
+        tell = function(keys, text) PracticeSays("tell", keys, CleanText(tostring(text or ""))) end,
+        sound = function(keys, sound) PracticeSays("sound", keys, CleanText(tostring(sound or ""), 32)) end,
         plates = function(keys, off) PracticeSays("plates", keys, nil, off and true or false) end,
         guild = function() end,   -- (the run doesn't post in practice; it logs the line)
         -- dummies answer at once with what really happened; the host (me) answers on the board

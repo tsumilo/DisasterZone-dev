@@ -421,7 +421,7 @@ local function newRule(parent, width)
     r.textBtn:SetScript("OnLeave", function() r.text:SetTextColor(S:Color("TEXT")) end)
     UI():AttachTooltip(r.textBtn, function(self, tt)
         if not self.editable then return false end
-        tt:AddLine("Change", S:Color("GOLD"))
+        tt:AddLine("Change", S:RGB("GOLD"))
         tt:AddLine("Pick this rule's values.", 1, 1, 1, true)
     end, nil, { anchor = "ANCHOR_TOP" })
     r.textBtn:SetScript("OnClick", function(self)

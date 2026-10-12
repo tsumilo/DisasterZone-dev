@@ -30,20 +30,19 @@ local RAID_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 
 -- the games' colours (the front poster's edge, the room's glow, the rule under the text)
 local ACCENT = {
-    bingo = { 1, 0.82, 0 }, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
+    bingo = ns.Style.C.GOLD, trainer = { 0.31, 0.83, 0.88 }, azeromon = { 0.53, 0.85, 0.42 },
     chess = { 0.74, 0.58, 1 },
 }
-local DEFAULT_ACCENT = { 1, 0.82, 0 }
+local DEFAULT_ACCENT = ns.Style.C.GOLD
 
--- Raid loading screens by RaidPlan instance key (by FileDataID: the client doesn't resolve them by path), and where
--- the painting's subject stands across the image (the poster crop centres on it).
-local LOADSCREEN = {
-    kara = 131849, gruul = 131842, mag = 131846, ssc = 131832, tk = 131875, hyjal = 131847, bt = 131826,
-    za = 131884, swp = 131873,
-}
-local FOCUS = { kara = 0.2, ssc = 0.2, bt = 0.45 }
-local INST_BY_ID = { [532] = "kara", [565] = "gruul", [544] = "mag", [548] = "ssc", [550] = "tk", [534] = "hyjal",
-                     [564] = "bt", [568] = "za", [580] = "swp" }
+-- A raid's loading screen by RaidPlan instance key (a FileDataID: the client doesn't resolve them by path; the art of
+-- ns.Data.RaidMeta), nil for anything else; and where the painting's subject stands across the image (the posters'
+-- own crop focus).
+local function LoadScreen(key)
+    local m = key and ns.ItemDB:GetRaidMeta(key)
+    return m and m.art and m.art[1] or nil
+end
+local FOCUS = { kara = 0.2, ssc = 0.2, bt = 0.45 }   -- uniformity: the hub posters' art direction, not raid data
 
 local root, carousel, aura, strip, stage, dots, arrows
 local posters = {}      -- in game order
@@ -111,7 +110,8 @@ local function InstanceHere()
     if not GetInstanceInfo then return nil end
     local name, kind, _, _, _, _, _, id = GetInstanceInfo()
     if kind ~= "raid" then return nil end
-    return INST_BY_ID[id], name
+    local itemKey = ns.ItemDB:GetRaidByInstance(id)
+    return itemKey and ns.ItemDB:PlanKeyOf(itemKey) or nil, name
 end
 
 -- My Bingo card now: card (nil without a game), marked[cell], onLine[cell], near[cell] (on a line one square away),
@@ -182,7 +182,7 @@ INFO.bingo = function()
     local v = NextRaid()
     if v then
         local first = ns.RaidPlan:GetRaidInstances(v)[1]
-        if first and LOADSCREEN[first] then out.art = first end
+        if first and LoadScreen(first) then out.art = first end
         out.kicker = "NEXT RAID   \194\183   " .. (date("%a ", v.t) .. tonumber(date("%d", v.t))):upper()
     else
         out.kicker = "RAID NIGHT"
@@ -309,7 +309,7 @@ COVERS.bingo = function(parent)
         cell.glow = cell:CreateTexture(nil, "ARTWORK", nil, 1)
         cell.glow:SetTexture(RADIAL)
         cell.glow:SetBlendMode("ADD")
-        cell.glow:SetVertexColor(1, 0.82, 0)
+        cell.glow:SetVertexColor(ns.Style:Color("GOLD"))
         cell.glow:SetPoint("TOPLEFT", -10, 10)
         cell.glow:SetPoint("BOTTOMRIGHT", 10, -10)
         cell.glow:Hide()
@@ -359,14 +359,14 @@ COVERS.bingo = function(parent)
             else
                 cell.bg:SetColorTexture(0.08, 0.067, 0.04, 0.84)
             end
-            ns.UI:SetEdgeColor(cell, 1, 0.82, 0, (line and marked[i]) and 0.7 or 0.16)
+            ns.UI:SetEdgeColor(cell, ns.Style:Alpha("GOLD", (line and marked[i]) and 0.7 or 0.16))
             cell.glow:SetShown(i == self.fresh)
         end
     end
     function c:Tick(elapsed)
         self.clock = self.clock + elapsed
         local p = 0.45 + 0.4 * sin(self.clock * 3.2)
-        for i in pairs(self.need or {}) do ns.UI:SetEdgeColor(self.cells[i], 1, 0.82, 0, p) end
+        for i in pairs(self.need or {}) do ns.UI:SetEdgeColor(self.cells[i], ns.Style:Alpha("GOLD", p)) end
         if self.fresh then self.cells[self.fresh].glow:SetAlpha(0.35 + 0.3 * sin(self.clock * 4)) end
     end
     return c
@@ -909,11 +909,11 @@ local function SetSideLook(p, side)
     if side then
         p.title:SetPoint("BOTTOMLEFT", p.stat, "TOPLEFT", 0, 6)
         p.title:SetPoint("BOTTOMRIGHT", p.stat, "TOPRIGHT", 0, 6)
-        p.title:SetFont(p.titleFont, 17, p.titleFlags)
+        p.title:SetFont(p.titleFont, ns.Style.FONT.page, p.titleFlags)
     else
         p.title:SetPoint("BOTTOMLEFT", p.desc, "TOPLEFT", 0, 7)
         p.title:SetPoint("BOTTOMRIGHT", p.desc, "TOPRIGHT", 0, 7)
-        p.title:SetFont(p.titleFont, 26, p.titleFlags)
+        p.title:SetFont(p.titleFont, ns.Style:Size(26), p.titleFlags)   -- (a poster's display title)
     end
     p.desc:SetShown(not side)
     p.rule:SetShown(not side)
@@ -951,7 +951,7 @@ local function Sheen(p)
     p.sheenT = 0
 end
 
-local LIVE_EDGE_A, LIVE_EDGE_B = { 1, 0.29, 0.24, 1 }, { 1, 0.82, 0, 1 }   -- (a live game's edge: red into gold)
+local LIVE_EDGE_A, LIVE_EDGE_B = { 1, 0.29, 0.24, 1 }, ns.Style:WithAlpha("GOLD", 1)   -- (a live game's edge: red into gold)
 local function PaintEdge(p)
     local a = Accent(p.id)
     local hot = p.off == 0 and (p.hover or p.live)
@@ -1059,7 +1059,7 @@ local function CreatePoster(i, def)
     end
     p.more = UI:Text(p.foot, 10.5)
     p.more:SetPoint("LEFT", p.faces[4], "RIGHT", 8, 0)
-    p.more:SetTextColor(0.62, 0.62, 0.62)
+    p.more:SetTextColor(ns.Style:Color("SUB"))
     p.footText = UI:Text(p.foot, 11)
     p.footText:SetTextColor(0.81, 0.81, 0.81)
 
@@ -1160,7 +1160,7 @@ local function FillPoster(p)
     SetSideLook(p, p.side or false)
     if p.id ~= "azeromon" then
         local key = info.art or "kara"
-        p.art:SetTexture(LOADSCREEN[key] or LOADSCREEN.kara)
+        p.art:SetTexture(LoadScreen(key) or LoadScreen("kara"))
         p.art:SetVertexColor(0.78, 0.78, 0.8)
         p.artKey = key
         p.art:Show()
@@ -1755,7 +1755,7 @@ function GamesUI:CreatePanel(parent)
     line:SetPoint("BOTTOMLEFT")
     line:SetPoint("BOTTOMRIGHT")
     line:SetHeight(1)
-    line:SetColorTexture(1, 1, 1, 0.07)
+    line:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.07))
     strip.accent = strip:CreateTexture(nil, "ARTWORK")
     strip.accent:SetPoint("BOTTOMLEFT")
     strip.accent:SetSize(160, 1)
@@ -1865,8 +1865,8 @@ function GamesUI:GetSelected() return selected end
 -- Shared with the games' own panels (Bingo's header): a raid's loading screen (FileDataID) and where its subject
 -- stands across it, the crop of it to w x h, and the raid instance the player is in (key, name) or nil.
 function GamesUI:RaidArt(key)
-    key = LOADSCREEN[key] and key or "kara"
-    return LOADSCREEN[key], FOCUS[key]
+    key = LoadScreen(key) and key or "kara"
+    return LoadScreen(key), FOCUS[key]
 end
 GamesUI.CropArt = CropArt
 function GamesUI:InstanceHere() return InstanceHere() end

@@ -52,10 +52,10 @@ Polls.MAX_ANSWERS, Polls.MAX_DAYS, Polls.MAX_Q, Polls.MAX_A = MAX_ANSWERS, MAX_D
 
 local demo
 
-local function Now() return (GetServerTime and GetServerTime()) or time() end
+local Now = Util.Now          -- (the server clock: ns.Util.Now)
 local function Guild() return ns.Guild end
 local function Me() return Util.PlayerKey() end
-local function DemoOn() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() or false end
+local DemoOn = Util.DemoOn
 
 local function WireKey(s)
     if type(s) ~= "string" or s == "" or #s > MAX_KEY_LEN or s:find("[%c|,]") then return nil end
