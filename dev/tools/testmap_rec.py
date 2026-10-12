@@ -6,12 +6,17 @@ starts and any Python child process the suite starts (release.py, generators, ..
 
     files  {path: sha1}   every file under dev/ or the addon folder the process opened for reading, plus the dev/
                           Python modules it imported (the suite, its helpers, harness, generators it imports)
-    dirs   {path: sha1}   the listing of every such directory it listed (new or removed files change behaviour)
+    dirs   {path: sha1}   the listing of every such directory it listed (new or removed files change behaviour);
+                          "addon:|*.toc" for the harness's look at the addon folder (Client.addon_name: only which
+                          .toc files are there matters, not the folders a move adds)
     lua    {rel: sha1}    addon Lua files the harness loaded as chunks (only their called functions count, below)
     funcs  {rel: [line]}  addon functions (by the line they start on) some client called, from harness coverage
 
 Paths are relative to the repo's dev/ folder ("dev:...") or to the addon folder ("addon:...").
+A copy of every addon .toc the process read is kept next to the Lua sources (DZ_COVER_SRC/<sha1>.toc): tools/testmap.py
+compares the TOC by its header lines and file order, so it needs the version the suite read.
 """
+import fnmatch
 import atexit
 import hashlib
 import json
@@ -29,6 +34,7 @@ INSTRUMENTATION = ("dev:tools/testmap_rec.py", "dev:tools/covsite/sitecustomize.
 
 _files = set()
 _dirs = set()
+_dir_glob = {}     # path -> glob: listings that only looked for some names (the harness's .toc lookup)
 
 
 def key_of(path):
@@ -63,12 +69,36 @@ def sha1_file(path):
         return None
 
 
-def sha1_dir(path):
+def sha1_dir(path, pattern=None):
     try:
         names = sorted(os.listdir(path))
     except OSError:
         return None
+    if pattern:
+        names = [n for n in names if fnmatch.fnmatch(n.lower(), pattern.lower())]
     return hashlib.sha1("\n".join(names).encode("utf-8")).hexdigest()
+
+
+def _keep_toc(key, path, sha):
+    """Copy of an addon .toc the suite read (tools/testmap.py diffs the TOC by headers and file order)."""
+    out = os.environ.get("DZ_COVER_SRC")
+    if not out or not sha or not key.startswith("addon:") or not key.lower().endswith(".toc"):
+        return
+    dst = os.path.join(out, sha + ".toc")
+    if os.path.exists(dst):
+        return
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+        if hashlib.sha1(data).hexdigest() != sha:
+            return
+        os.makedirs(out, exist_ok=True)
+        tmp = "%s.%d.tmp" % (dst, os.getpid())
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, dst)
+    except OSError:
+        pass
 
 
 # Files and folder listings are hashed when they are READ (first time), so the record says what the process really
@@ -96,6 +126,7 @@ def _audit(event, args):
                 k = key_of(p)
                 if k and k not in _seen_files and os.path.isfile(p):
                     _seen_files[k] = sha1_file(p)
+                    _keep_toc(k, p, _seen_files[k])
             finally:
                 _busy = False
     elif event in ("os.listdir", "os.scandir"):
@@ -113,12 +144,26 @@ def _audit(event, args):
                     return
                 f = f.f_back
             p = path if isinstance(path, str) else os.fsdecode(path)
-            _dirs.add(p)
+            pat = None
+            f = sys._getframe(1)
+            for _ in range(3):
+                if f is None:
+                    break
+                if f.f_code.co_name == "addon_name" and os.path.basename(f.f_code.co_filename) == "harness.py":
+                    pat = "*.toc"   # Client.addon_name: which .toc files the folder has, nothing else
+                    break
+                f = f.f_back
+            if pat:
+                _dir_glob[p] = pat
+            else:
+                _dirs.add(p)
             _busy = True
             try:
                 k = key_of(p)
+                if k and pat:
+                    k = k + "|" + pat
                 if k and k not in _seen_dirs:
-                    _seen_dirs[k] = sha1_dir(p)
+                    _seen_dirs[k] = sha1_dir(p, pat)
             finally:
                 _busy = False
 
@@ -152,6 +197,10 @@ def _write():
         k = key_of(p)
         if k and k not in dirs:
             dirs[k] = sha1_dir(p)
+    for p, pat in _dir_glob.items():
+        k = key_of(p)
+        if k and k + "|" + pat not in dirs:
+            dirs[k + "|" + pat] = sha1_dir(p, pat)
     h = sys.modules.get("harness")
     lua = dict(getattr(h, "_COVER_FILES", {}) or {})
     funcs = {k: sorted(v) for k, v in (getattr(h, "_COVER_FUNCS", {}) or {}).items()}

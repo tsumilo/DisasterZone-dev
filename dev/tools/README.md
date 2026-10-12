@@ -30,6 +30,8 @@ directory (`SCRATCH`). The venv originally had no `python.exe`; it was restored 
 | `gen_items.py` | Regenerates the two item files + `items_report.json` |
 | `test_harness_selftest.py` | Proves the harness works using only DisasterZone's `Libs/` |
 | `example_scenario.py` | Copy-me template: 3 players, ML raid, boss kill, award, /reload on real DisasterZone |
+| `testmap.py` + `testmap_rec.py` + `testmap_lua.py` | Change-based test selection for `tf_e/run_all.py`, move-aware (section 8); `test_testmap.py` is its self-test |
+| `move.py` | Moves addon files and fixes the TOC, line-1 guards, path literals in dev/ and the selection's `moves.json` (section 8); `test_move.py` is its self-test |
 
 ---------------------------------------------------------------------------------------------------------------
 
@@ -450,3 +452,47 @@ luaenv\Scripts\python.exe tools\modules_doc.py           # write dev/docs/MODULE
 luaenv\Scripts\python.exe tools\modules_doc.py --check   # the header warnings alone
 luaenv\Scripts\python.exe tools\test_layers.py           # self-test of all of the above (~5 s)
 ```
+
+## 9. Test selection across moves and splits (`testmap*.py`, `move.py`)
+
+`tf_e/run_all.py` runs a suite only when something it depended on changed since its last run (`tools/testmap.py`
+docstring: the rules). Moving files (architecture run P4) and splitting giant files (P5) do not count as changes:
+
+- **Paths.** `dev/.testmap/moves.json` (`{old: new}`, written by `move.py`) maps a record's old file names to today's;
+  a file that is gone and not listed is found by content among today's TOC files.
+- **Guards.** The line-1 guard naming the file's own path is ignored, before and after.
+- **TOC.** A suite that ran addon Lua depends on the TOC's header lines and on the order of the files it ran, not on
+  its bytes (the recorder keeps a copy of the TOC it read; for older records the version is found in git). A suite
+  that read the TOC without running Lua (a tool test) still reruns on any TOC change. The harness's look at the addon
+  folder (`Client.addon_name`) is recorded as `addon:|*.toc` (only `.toc` names), so a move that adds a folder at the
+  top does not rerun everything.
+- **Program check** (`testmap_lua.py`, when files moved / split / were added or reordered, or top-level code changed):
+  functions are identified by qualified name (`F @2.RaidPlanUI:Create`, `L helper`, anonymous ones by the statement
+  they are written in) plus their own code and how the file locals they read are bound; load-time code must be the
+  same statements in the same order; data tables are compared by path; a local helper promoted to `Mod._.helper` /
+  `K.helper` with the same body is the same function. Body changed after a move, a shared table split into two
+  copies, load-time code moved or reordered, or a module used before the file that creates it: the suites that ran
+  that code rerun.
+
+What still reruns after a pure move: suites that read addon files as text or list addon folders (style / uniformity
+/ conformance checks, the patch and release-tool suites that copy the tree), the suites whose test files `move.py`
+rewrote, and records whose TOC version can be found neither in `.testmap/src` nor in git.
+
+```
+python tools\move.py MAPPING.json [--dry-run]    # MAPPING: [{"from": "UI/X.lua", "to": "UI/Raids/X.lua", "after": "..."}]
+```
+
+`move.py` (docstring: details) refuses mappings that touch the four boot files, `Libs/` or the 3D room data; then
+`git mv`, the TOC line replaced in place (or put after an `"after"` anchor), `release.py guards add` + `check`, exact
+quoted path literals rewritten in `dev/tests`, `dev/tools`, `dev/generators`, `dev/tf_e`, `dev/docs` (each rewrite
+listed; a file with the line `move.py: keep paths` is left alone), paths built from pieces or inside longer strings
+and path literals in the addon's own Lua listed as "check by hand", and `moves.json` updated. Re-running it on a tree
+that already has the moves changes nothing but `moves.json`: run it once in a checkout that got the move by a merge
+(`moves.json` is not committed). `--dry-run` prints everything and writes nothing.
+
+Path-keyed places `move.py` does not change (the addon's own code, or files describing a release): `Core/Perf.lua`
+`SKIP_FILE` and its `"Core/Comm.lua  ..."` measurement labels, `Core/Patch.lua` `PROTECTED` and `release.py`
+`PROTECTED` / `TOOL_MANAGED` (boot files only: never moved), `release.py` / `harness.py` room-data rules
+(`Render3D/Rooms/`, `Rooms/`: refused), `dev/releases/*.json` (the hashes of published builds, by path: an in-game
+update from a release before a move sees the moved files as removed + new, so a move ships as a full release), and
+`gearsim/run_lua.py` `SIM_FILES` (built as `Sim/<name>.lua`).

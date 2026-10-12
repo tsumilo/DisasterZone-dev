@@ -2,7 +2,11 @@
 
 Runs two quick suites once to record what they depend on, then edits the copy and checks what --dry-run would run:
 a function only suite A called -> A only; top-level code with a call -> both; a comment, or a function nobody calls yet -> none.
-Run: luaenv\\Scripts\\python.exe tools\\test_testmap.py   (~30s)
+Then a real move of one file of the copy (tools/move.py): nothing to run, until a moved body changes. And the
+move-aware rules (tools/testmap_lua.py) on synthetic records over a made-up addon (unit_moves): moves, splits, a
+promoted helper, TOC reorders and header changes, load-time code moved.
+Run: luaenv\\Scripts\\python.exe tools\\test_testmap.py   (~40s)
+move.py: keep paths   (the made-up addon paths below are not the real addon's)
 """
 import json
 import os
@@ -183,9 +187,253 @@ def unit_finish():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# -- moves, splits and TOC changes (architecture run P4/P5): reason() on synthetic records over a small fake addon ----
+def G(rel):
+    return (b'if DisasterZoneBoot and DisasterZoneBoot.Run("' + rel.encode() + b'", ...) then return end'
+            + b" -- DisasterZone: " + rel.encode() + b"\n")
+
+
+HEAD = b"local addonName, ns = ...\n"
+INIT = HEAD + b"""ns.Data = ns.Data or {}
+ns.Data.Sizes = { small = 1, big = 2 }
+function ns.Hello(x)
+  return x
+end
+"""
+UTIL = HEAD + b"""local Util = ns:NewModule("Util")
+local PAD = 4
+function Util.Pad(n)
+  return n + PAD
+end
+"""
+HELPERS = HEAD + b"""function ns.Helper1()
+  return 1
+end
+"""
+EXTRA = HEAD + b"""function ns.Extra()
+  return 2
+end
+"""
+BIG = HEAD + b"""local Big = ns:NewModule("Big")
+local Util = ns.Util
+local GAP = 8
+local cache = {}
+local function helper(x)
+  return x * GAP
+end
+function Big:Build(x)
+  cache[x] = helper(x)
+  return cache[x]
+end
+function Big:Show(x)
+  return Util.Pad(self:Build(x))
+end
+function Big:Hide()
+  return cache
+end
+ns:RegisterEvent("PLAYER_LOGIN", function() Big:Build(1) end)
+"""
+KIT = HEAD + b"""local Big = ns:NewModule("Big")
+local GAP = 8
+local cache = {}
+local function helper(x)
+  return x * GAP
+end
+function Big:Build(x)
+  cache[x] = helper(x)
+  return cache[x]
+end
+function Big:Hide()
+  return cache
+end
+"""
+VIEWS = HEAD + b"""local Big = ns.Big
+local Util = ns.Util
+function Big:Show(x)
+  return Util.Pad(self:Build(x))
+end
+ns:RegisterEvent("PLAYER_LOGIN", function() Big:Build(1) end)
+"""
+# the local helper promoted to a kit table field: called through a local alias / through the field
+KIT_PROMOTED = HEAD + b"""local Big = ns:NewModule("Big")
+Big._ = {}
+local GAP = 8
+local cache = {}
+function Big._.helper(x)
+  return x * GAP
+end
+function Big:Build(x)
+  cache[x] = Big._.helper(x)
+  return cache[x]
+end
+function Big:Hide()
+  return cache
+end
+"""
+OTHER = HEAD + b"""local Other = ns:NewModule("Other")
+function Other.Ping()
+  return "pong"
+end
+"""
+TOC_HEAD = b"## Interface: 20506\n## Title: Fake\n\n# Boot\n"
+
+
+def toc(files, head=TOC_HEAD):
+    return head + b"".join(f.replace("/", "\\").encode() + b"\n" for f in files)
+
+
+BASE = {"Core/Init.lua": INIT, "Core/Util.lua": UTIL, "Core/Helpers.lua": HELPERS, "UI/Extra.lua": EXTRA,
+        "UI/Big.lua": BIG, "UI/Other.lua": OTHER}
+ORDER = ["Core/Init.lua", "Core/Util.lua", "Core/Helpers.lua", "UI/Extra.lua", "UI/Big.lua", "UI/Other.lua"]
+
+
+def lines_of(src, *needles):
+    """Line numbers of the `function` keywords on the lines holding each needle."""
+    out = []
+    for i, l in enumerate(src.split(b"\n")):
+        if any(n in l for n in needles):
+            out.append(i + 2)  # (+1: 1-based, +1: the guard line written above the file)
+    return out
+
+
+def unit_moves():
+    """reason() for three recorded suites: A boots the addon and calls Big's functions + Util.Pad, B boots it and
+    calls Other.Ping only, C loads Init + Util by hand (load_files: no TOC) and calls Util.Pad."""
+    import hashlib
+    import testmap
+    import testmap_rec
+    tmp = tempfile.mkdtemp(prefix="dz_testmap_moves_")
+    addon, mp = os.path.join(tmp, "DisasterZone"), os.path.join(tmp, "map")
+    saved = (testmap_rec.ADDON, testmap.MAP_DIR, testmap.COV_DIR, testmap.SRC_DIR, testmap.PARSE_DIR, testmap.MOVES)
+    out = []
+
+    def sha(b):
+        return hashlib.sha1(b).hexdigest()
+
+    def write_tree(files, order, mv=None, toc_bytes=None):
+        shutil.rmtree(addon, ignore_errors=True)
+        for rel, body in files.items():
+            p = os.path.join(addon, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as fh:
+                fh.write(G(rel) + body)
+        with open(os.path.join(addon, "DisasterZone.toc"), "wb") as fh:
+            fh.write(toc_bytes if toc_bytes is not None else toc(order))
+        if os.path.exists(testmap.MOVES):
+            os.remove(testmap.MOVES)
+        if mv:
+            with open(testmap.MOVES, "w") as fh:
+                json.dump(mv, fh)
+        testmap.reset()
+
+    try:
+        testmap_rec.ADDON = addon
+        testmap.MAP_DIR = mp
+        testmap.COV_DIR, testmap.SRC_DIR = os.path.join(mp, "cov"), os.path.join(mp, "src")
+        testmap.PARSE_DIR, testmap.MOVES = os.path.join(mp, "parse"), os.path.join(mp, "moves.json")
+        for d in (testmap.COV_DIR, testmap.SRC_DIR):
+            os.makedirs(d)
+        # the run: records + the sources it ran (as the harness keeps them)
+        base_toc = toc(ORDER)
+        with open(os.path.join(testmap.SRC_DIR, sha(base_toc) + ".toc"), "wb") as fh:
+            fh.write(base_toc)
+        for rel, body in BASE.items():
+            with open(os.path.join(testmap.SRC_DIR, sha(G(rel) + body) + ".lua"), "wb") as fh:
+                fh.write(G(rel) + body)
+        lua_all = {rel: sha(G(rel) + body) for rel, body in BASE.items()}
+        recs = {
+            "a": {"files": {"addon:DisasterZone.toc": sha(base_toc)}, "dirs": {"addon:|*.toc": None}, "lua": lua_all,
+                  "funcs": {"UI/Big.lua": lines_of(BIG, b"function Big:Build", b"function Big:Show",
+                                                    b"local function helper", b"function() Big:Build"),
+                            "Core/Util.lua": lines_of(UTIL, b"function Util.Pad")}},
+            "b": {"files": {"addon:DisasterZone.toc": sha(base_toc)}, "dirs": {"addon:|*.toc": None}, "lua": lua_all,
+                  "funcs": {"UI/Other.lua": lines_of(OTHER, b"function Other.Ping")}},
+            "c": {"files": {}, "dirs": {}, "lua": {k: lua_all[k] for k in ("Core/Init.lua", "Core/Util.lua")},
+                  "funcs": {"Core/Util.lua": lines_of(UTIL, b"function Util.Pad")}},
+        }
+        write_tree(BASE, ORDER)
+        toc_listing = testmap.dir_sha("addon:|*.toc")
+        # d: b's record as the recorder wrote it before 2026-10-12: the harness's .toc lookup as a full listing of the
+        # addon folder, no "rec"
+        recs["d"] = dict(recs["b"], dirs={"addon:": testmap.dir_sha("addon:")})
+        for n, r in recs.items():
+            r.update(rc=0)
+            if n != "d":
+                r.update(rec=testmap.REC_VERSION)
+                r["dirs"] = {k: toc_listing for k in r["dirs"]}
+            with open(os.path.join(testmap.COV_DIR, "x__test_%s.json" % n), "w") as fh:
+                json.dump(r, fh)
+
+        def check(name, files, order, want, mv=None, toc_bytes=None):
+            write_tree(files, order, mv, toc_bytes)
+            got = {n: testmap.reason("x__test_" + n) for n in "abcd"}
+            want = want + ("d" if "b" in want else "")   # (d is b, recorded the old way)
+            ok = sorted(n for n, w in got.items() if w) == sorted(want)
+            out.append((name, ok, {n: w for n, w in got.items() if w} or "nothing"))
+
+        moved = dict(BASE)
+        moved["Logic/Raids/Big.lua"] = moved.pop("UI/Big.lua")
+        order_moved = [("Logic/Raids/Big.lua" if f == "UI/Big.lua" else f) for f in ORDER]
+        check("nothing changed", BASE, ORDER, "")
+        check("pure file move (moves.json)", moved, order_moved, "", {"UI/Big.lua": "Logic/Raids/Big.lua"})
+        check("pure file move (found by content)", moved, order_moved, "")
+        datamoved = dict(BASE)
+        sizes = b"ns.Data.Sizes = { small = 1, big = 2 }\n"
+        datamoved["Core/Init.lua"] = INIT.replace(sizes, b"")
+        datamoved["Core/Util.lua"] = UTIL + sizes
+        check("data table moved to another file", datamoved, ORDER, "")
+        datamoved["Core/Util.lua"] = UTIL + sizes.replace(b"big = 2", b"big = 3")
+        check("data table moved and changed (nobody reads it)", datamoved, ORDER, "")
+        changed = dict(moved)
+        changed["Logic/Raids/Big.lua"] = BIG.replace(b"Util.Pad(self:Build(x))", b"Util.Pad(self:Build(x)) + 1")
+        check("function body changed after a move", changed, order_moved, "a", {"UI/Big.lua": "Logic/Raids/Big.lua"})
+        split = dict(BASE)
+        del split["UI/Big.lua"]
+        split.update({"UI/Big/Kit.lua": KIT, "UI/Big/Views.lua": VIEWS})
+        order_split = ORDER[:4] + ["UI/Big/Kit.lua", "UI/Big/Views.lua"] + ORDER[5:]
+        check("file split into kit + views, identical bodies", split, order_split, "",
+              {"UI/Big.lua": "UI/Big/Kit.lua"})
+        check("split, the views file loaded before the kit", split,
+              ORDER[:4] + ["UI/Big/Views.lua", "UI/Big/Kit.lua"] + ORDER[5:], "ab", {"UI/Big.lua": "UI/Big/Kit.lua"})
+        const = dict(split)
+        const["UI/Big/Kit.lua"] = KIT.replace(b"local GAP = 8", b"local GAP = 9")
+        check("split, a moved function's constant differs in its new file", const, order_split, "a",
+              {"UI/Big.lua": "UI/Big/Kit.lua"})
+        state = dict(split)
+        state["UI/Big/Kit.lua"] = KIT.replace(b"function Big:Hide()\n  return cache\nend\n", b"")
+        state["UI/Big/Views.lua"] = VIEWS + b"local cache = {}\nfunction Big:Hide()\n  return cache\nend\n"
+        check("split that gives a shared table two copies", dict(state), order_split, "a",
+              {"UI/Big.lua": "UI/Big/Kit.lua"})
+        promoted = dict(split)
+        promoted["UI/Big/Kit.lua"] = KIT_PROMOTED
+        check("local helper promoted to a kit table field", promoted, order_split, "",
+              {"UI/Big.lua": "UI/Big/Kit.lua"})
+        promoted["UI/Big/Kit.lua"] = KIT_PROMOTED.replace(b"x * GAP", b"x * GAP + 1")
+        check("promoted helper whose body changed", promoted, order_split, "a", {"UI/Big.lua": "UI/Big/Kit.lua"})
+        swapped = ORDER[:2] + ["UI/Extra.lua", "Core/Helpers.lua"] + ORDER[4:]
+        check("TOC reorder of unrelated files", BASE, swapped, "")
+        check("TOC comments and blank lines", BASE, ORDER, "",
+              toc_bytes=TOC_HEAD + b"\n# Core\n" + toc(ORDER[:3], b"") + b"\n# UI\n" + toc(ORDER[3:], b""))
+        check("TOC header changed", BASE, ORDER, "ab", toc_bytes=toc(ORDER, TOC_HEAD.replace(b"Fake", b"Fake2")))
+        check("TOC reorder of files with load-time code", BASE,
+              ["Core/Init.lua", "Core/Helpers.lua", "UI/Extra.lua", "UI/Big.lua", "Core/Util.lua", "UI/Other.lua"],
+              "ab")
+        moved_code = dict(BASE)
+        reg = b'ns:RegisterEvent("PLAYER_LOGIN", function() Big:Build(1) end)\n'
+        moved_code["UI/Big.lua"] = BIG.replace(reg, b"")
+        moved_code["UI/Other.lua"] = OTHER + b"local Big = ns.Big\n" + reg
+        check("load-time code moved to another file (reruns only suites that load them)", moved_code, ORDER, "ab")
+        return out
+    finally:
+        (testmap_rec.ADDON, testmap.MAP_DIR, testmap.COV_DIR, testmap.SRC_DIR, testmap.PARSE_DIR,
+         testmap.MOVES) = saved
+        testmap.reset()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     failed = []
-    for name, ok, got in unit_changes() + unit_finish():
+    for name, ok, got in unit_changes() + unit_finish() + unit_moves():
         print("%s unit: %s: %s" % ("PASS" if ok else "FAIL", name, got))
         if not ok:
             failed.append(name)
@@ -258,6 +506,28 @@ def main():
         with open(path, "wb") as fh:
             fh.write(orig)
         check("edit undone", would_run(), [])
+
+        # a real move (tools/move.py on the copy: TOC line, guard, moves.json): nothing to rerun; then a body change
+        import move
+        import release
+        mrel = next(r for r, ls in sorted(rec[a]["funcs"].items()) if release.is_patchable(r) and r in rec[b]["lua"]
+                    and set(ls) - set(rec[b]["funcs"].get(r, [])))
+        mline = sorted(set(rec[a]["funcs"][mrel]) - set(rec[b]["funcs"].get(mrel, [])))[0]
+        to = "Zmoved/" + mrel
+        mapping = os.path.join(tmp, "mapping.json")
+        with open(mapping, "w") as fh:
+            json.dump([{"from": mrel, "to": to}], fh)
+        nodev = os.path.join(tmp, "nodev")
+        os.makedirs(nodev)
+        move.Mover(mapping, root=tmp, addon=addon, dev=nodev, map_dir=os.path.join(tmp, "map"), use_git=False,
+                   log=lambda *x: None).run()
+        check("%s moved to %s (tools/move.py)" % (mrel, to), would_run(), [])
+        mpath = os.path.join(addon, to)
+        morig = open(mpath, "rb").read()
+        ml = morig.split(b"\n")
+        with open(mpath, "wb") as fh:
+            fh.write(b"\n".join(ml[:mline] + [b"  local _dz_testmap_probe = 1"] + ml[mline:]))
+        check("then a body only %s calls changed" % a, would_run(), [a])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("-- test_testmap: %d failed" % len(failed))
