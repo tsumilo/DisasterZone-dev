@@ -25,14 +25,17 @@ local MOVE_KEYS = {
     A = "left", LEFT = "left", D = "right", RIGHT = "right", Q = "strafeL", E = "strafeR",
 }
 local MINI_W, MINI_H = 170, 170
-local ANIM_STAND, ANIM_DEATH, ANIM_RUN, ANIM_DEAD, ANIM_BACK, ANIM_STUN, ANIM_FALL = 0, 1, 5, 6, 13, 14, 40
+-- The animations (Render3D/View.lua R3.ANIM; none without the Render3D files, when there is no 3D view to play them)
+local A = R3 and R3.ANIM or {}
+local ANIM_STAND, ANIM_DEATH, ANIM_RUN, ANIM_DEAD, ANIM_BACK, ANIM_STUN, ANIM_FALL = A.stand, A.death, A.run, A.dead,
+    A.back, A.stun, A.fall
 local PLATE_HEIGHT = { construct = 3.2, boss = 7 }
 -- What a unit that stands and fights plays: { animation, seconds } in a loop (each unit starts somewhere else
--- in it). 17 Attack1H, 26 Ready1H, 29 ReadyBow, 51 ReadySpellDirected, 53 SpellCastDirected.
+-- in it): Ready1H and Attack1H; ReadySpellDirected, SpellCastDirected and a stand; ReadyBow and a stand.
 local ACTS = {
-    melee = { { 26, 0.9 }, { 17, 1.1 } },
-    caster = { { 51, 1.6 }, { 53, 0.9 }, { 0, 0.7 } },
-    bow = { { 29, 2.5 }, { 0, 0.6 } },
+    melee = { { A.ready1H, 0.9 }, { A.attack1H, 1.1 } },
+    caster = { { A.readyCast, 1.6 }, { A.castDirected, 0.9 }, { A.stand, 0.7 } },
+    bow = { { A.readyBow, 2.5 }, { A.stand, 0.6 } },
 }
 
 -- Frame levels above the view's own. The room's cluster frames take room0 .. room0 + 199 (Room.lua), all under
@@ -46,6 +49,7 @@ local v3                                 -- the shared 3D view (Render3D/View.lu
 local scene, floorFrame, plateFrame      -- its ModelScene and frames (scene == nil: the minimap is the game)
 local roomOn = false                     -- drawing the room with Room.lua this frame (marks go in its order)
 local cam = { dist = 14, pitch = 0.3, pitchSign = 1, mirror = 1, x = 0, y = 0, z = 0, fx = 1, fy = 0, fz = 0 }
+local follow                             -- R3.NewFollowCam(cam): the pivot's spring and the pull-in, on cam's fields
 local actors = {}            -- unit id -> actor
 local actorPool = {}
 local plates = {}
@@ -212,52 +216,29 @@ local function Project(x, y, z)
     return v3:Project(x, y, z)
 end
 
--- A critically damped spring, stepped implicitly (stable for any dt): position x, speed v towards target.
-local function Spring(x, v, target, w, dt)
-    local f, hw2 = 1 + 2 * dt * w, dt * w * w
-    local det = 1 / (f + dt * hw2)
-    return (f * x + dt * v + dt * hw2 * target) * det, (v + hw2 * (target - x)) * det
-end
-
--- The camera sits behind and above the character and looks where it faces (spec 5.2). The point it turns round
--- (the pivot, cam.hz) rides 2.2 yd over your feet as the client's does, up and down ramps and through a fall frame
--- for frame; only a jump of the feet no walking makes (a ledge stepped up) goes into cam.hoff, which a spring takes
--- back to 0, so it eases over a few frames instead of jolting the view. With the room (room = true) the camera is
--- pulled in where the room is in the way (Room.CameraDistance) and eases back out at 6 yd a second. cam.dist is the
--- distance wanted (the wheel), cam.cur the one used. dt: seconds since the last frame (Room.opts.camDt replaces
--- it: render_check's walks); nil, a jump of the player, a new distance or pitch, or a height far off snap everything
--- to where it belongs.
+-- The camera sits behind and above the character and looks where it faces (spec 5.2): R3.NewFollowCam, the strategy
+-- board's walking camera too. The point it turns round (the pivot, cam.hz) rides 2.2 yd over your feet as the
+-- client's does, up and down ramps and through a fall frame for frame; only a jump of the feet no walking makes (a
+-- ledge stepped up) goes into cam.hoff, which a spring takes back to 0, so it eases over a few frames instead of
+-- jolting the view. With the room (room = true) the camera is pulled in where the room is in the way
+-- (Room.CameraDistance) and eases back out at 6 yd a second. cam.dist is the distance wanted (the wheel), cam.cur the
+-- one used. dt: seconds since the last frame (Room.opts.camDt replaces it: render_check's walks); nil, a jump of the
+-- player, a new distance or pitch, or a height far off snap everything to where it belongs.
 local function PlaceCamera(dt, room)
     local p = sim.player
     local o = Room and Room.opts
     if dt and o and type(o.camDt) == "number" then dt = o.camDt end
     local yaw, pitch = cam.mirror * p.facing, cam.pitch
     cam.fx, cam.fy, cam.fz = cos(pitch) * cos(yaw), cos(pitch) * sin(yaw), -sin(pitch)
-    local target = FeetZ(p) + 2.2
-    local moved2 = cam.px and (p.x - cam.px) ^ 2 + (p.y - cam.py) ^ 2 or 0
-    local jump = cam.lastTarget and target - cam.lastTarget or 0
-    local snap = not dt or not cam.hz or moved2 > 9
-        or math.abs(cam.dist - cam.lastDist) > 0.15 or math.abs(pitch - cam.lastPitch) > 0.15
-        or (math.abs(jump) > 2 and not p.falling)
-    if snap then
-        cam.hoff, cam.hv = 0, 0
-    else
-        -- more than walking (up to the steepest ground) or the fall can move the feet in this frame: a step up
-        local walk = math.sqrt(moved2) * T.MAX_SLOPE + math.abs(p.vz or 0) * dt + T.GRAVITY * dt * dt + 0.02
-        if math.abs(jump) > walk then cam.hoff = (cam.hoff or 0) - jump end
-        cam.hoff, cam.hv = Spring(cam.hoff or 0, cam.hv or 0, 0, 12, dt)
-    end
-    cam.hz, cam.lastTarget = target + cam.hoff, target
-    cam.px, cam.py, cam.lastDist, cam.lastPitch = p.x, p.y, cam.dist, pitch
+    local turned = cam.lastDist ~= nil
+        and (math.abs(cam.dist - cam.lastDist) > 0.15 or math.abs(pitch - cam.lastPitch) > 0.15)
+    local snap
+    cam.hz, snap = follow:Pivot(FeetZ(p) + 2.2, p.x, p.y, p.vz, p.falling, dt, turned)
+    cam.lastDist, cam.lastPitch = cam.dist, pitch
     local allowed, hit = cam.dist, false
     if room and o.collision ~= false then allowed, hit = Room.CameraDistance(p.x, p.y, cam.hz, cam, cam.dist) end
     cam.collided = hit
-    if snap or not cam.cur or allowed < cam.cur then
-        cam.cur = allowed
-    else
-        cam.cur = min(allowed, cam.cur + 6 * dt)
-    end
-    local d = cam.cur
+    local d = follow:Reach(allowed, dt, snap)
     local tx, ty, tz = p.x, SY(p.y), cam.hz
     cam.x, cam.y, cam.z = tx - cam.fx * d, ty - cam.fy * d, tz - cam.fz * d
     v3:ApplyCamera(yaw, pitch)
@@ -268,8 +249,7 @@ end
 -- left of it.
 local function Calibrate()
     local p = sim.player
-    local eye = FeetZ(p) + 2.2
-    cam.calibrated = v3:Calibrate(PlaceCamera, p.x, p.y, eye, p.x - sin(p.facing) * 2, p.y + cos(p.facing) * 2, eye)
+    cam.calibrated = v3:CalibrateOrbit(PlaceCamera, p.x, p.y, FeetZ(p) + 2.2, p.facing)
 end
 
 local function NewActor()
@@ -446,16 +426,13 @@ local function DrawFloorMap()
             n = n + 1
             local t = floorTiles[n]
             if not t then
-                t = floorFrame:CreateTexture(nil, "BACKGROUND")
+                -- (a 1 x 1 base at the scene's corner, bent onto the floor: Render3D/Room.lua R3.Bend)
+                t = R3.NewBentTexture(floorFrame, "BACKGROUND", nil, scene, "BOTTOMLEFT", 0.5, 0.5)
                 if not t.SetVertexOffset then
                     t:Hide()
                     return false
                 end
-                t:SetSize(1, 1)
-                t:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 0, 0)
                 t:SetVertexColor(0.85, 0.85, 0.85)
-                if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end      -- a bent texture: no pixel snapping
-                if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
                 floorTiles[n] = t
             end
             if t.file ~= map.file then
@@ -473,10 +450,7 @@ local function DrawFloorMap()
                 local ua, ub = map.u0 + (map.u1 - map.u0) * x0 / w, map.u0 + (map.u1 - map.u0) * x1 / w
                 local vs, vn = map.v1 - (map.v1 - map.v0) * y0 / h, map.v1 - (map.v1 - map.v0) * y1 / h
                 t:SetTexCoord(ua, vn, ua, vs, ub, vn, ub, vs)            -- upper left, lower left, upper right, lower right
-                t:SetVertexOffset(1, nwx, nwy - 1)
-                t:SetVertexOffset(2, swx, swy)
-                t:SetVertexOffset(3, nex - 1, ney - 1)
-                t:SetVertexOffset(4, sex - 1, sey)
+                R3.Bend(t, 0.5, 0.5, nwx, nwy, swx, swy, nex, ney, sex, sey)
                 t:Show()
             else
                 t:Hide()                                              -- a corner is behind the camera
@@ -711,12 +685,7 @@ local function BuildOccluders()
                 bb[3] = min(bb[3], ub[3] * s)
             end
             if a.key and a.GetActiveBoundingBox then
-                local ok, x0, y0, z0, x1, y1, z1 = pcall(a.GetActiveBoundingBox, a)
-                if ok and type(x0) == "table" and type(y0) == "table" and x0.GetXYZ then   -- documented form: two vectors
-                    local bx, by, bz = x0:GetXYZ()
-                    local tx, ty, tz = y0:GetXYZ()
-                    x0, y0, z0, x1, y1, z1 = bx, by, bz, tx, ty, tz
-                end
+                local ok, x0, y0, z0, x1, y1, z1 = R3.ActorBox(a, "active")      -- (six numbers or two vectors)
                 if ok and type(z1) == "number" and type(x0) == "number" and type(y0) == "number"
                     and type(x1) == "number" and type(y1) == "number" then
                     local s = UnitScale(u)
@@ -765,7 +734,14 @@ local function BuildOccluders()
             end
         end
     end
-    Room.SetOccluders(occList, n)
+    return occList, n
+end
+
+-- The marks in the room's own draw order (View:DrawFrame's lines).
+local function DrawRoomLines()
+    roomOn = true
+    DrawEffects()
+    roomOn = false
 end
 
 -- An enemy name plate as this client draws it in its Classic style (Blizzard_NamePlates: NamePlateConstants and
@@ -960,16 +936,9 @@ local function Draw3D(elapsed)
     DrawActors()
     DrawFxActors()
     if room then
-        if Room.BeginFrame(cam) then
-            BuildOccluders()                                    -- (the models' planes and boxes, for the copies)
-            Room.DrawRoom()                                     -- (returns at once when the camera did not move)
-            roomOn = true
-            Room.BeginLines()
-            DrawEffects()
-            Room.EndLines()
-            roomOn = false
-            Room.DrawCopies()                                   -- (the room in front of the models, over them)
-        end
+        -- (when the room draws: the models' planes and boxes for the copies, the room - at once when the camera did
+        -- not move -, the marks in its order, the room in front of the models over them)
+        v3:DrawFrame(BuildOccluders, nil, DrawRoomLines)
     else
         DrawFloor()
         DrawEffects()
@@ -1022,6 +991,7 @@ local function CreateScene(parent)
                                                    fov = 1.1, far = 500, anim = ANIM_STAND })
     if not v3 then return end
     scene, floorFrame, plateFrame = v3.scene, v3.floorFrame, v3.plateFrame
+    follow = R3.NewFollowCam(cam)
     actorPool[1] = v3.probe
     local sc = scene
     sc:EnableMouse(true)
