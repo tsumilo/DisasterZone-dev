@@ -166,9 +166,9 @@ def the_raid_window_and_the_sign_up_strip():
     # a new raid: locked needs a team or an invite
     bob.eval("ns.RaidPlanUI:OpenEditor()")
     # (Sign-ups: Everyone | Teams + invited | Private)
-    assert bob.eval("return %s.f.lk" % ED) is False and bob.eval("return %s.access[1].kind" % ED) == "chosen"
+    assert bob.eval("return %s.f.lk" % ED) is False and bob.eval("return (%s.accessSeg:GetSelected())" % ED) == "open"
     bob.click(bob.eval("return %s.access[2]" % ED))
-    assert bob.eval("return %s.f.lk" % ED) is True and bob.eval("return %s.access[2].kind" % ED) == "chosen"
+    assert bob.eval("return %s.f.lk" % ED) is True and bob.eval("return (%s.accessSeg:GetSelected())" % ED) == "locked"
     bob.click(bob.eval("return %s.saveBtn" % ED))
     assert "needs a team" in bob.eval("return %s.err:GetText()" % ED)
     # the invite picker: team members are in already, others are ticked

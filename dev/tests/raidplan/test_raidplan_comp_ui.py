@@ -109,7 +109,7 @@ def organizers_draft_the_comp_and_save_it_with_the_team():
     # the lineup's tab follows the draft: its count, the open slots in its tooltip
     assert text_of(bob, D + ".lcards[1].count") == "4/5"
     tip = [strip_codes(t[0]) for t in (lambda r: r.values() if isinstance(r, dict) else r)(
-        bob.eval_py("return %s.lcards[1].tip" % D))]
+        bob.eval_py("return %s.lcards[1].tipLines" % D))]
     assert any(t.endswith("Restoration Druid") for t in tip), tip
     # Save: the comp goes with the team
     bob.click(bob.eval("return %s.saveBtn" % D))
@@ -167,7 +167,7 @@ def members_see_the_meter_needs_and_a_read_only_comp():
     # the Comp tab shows; the lineup's tab lists the open slots (comp order) in its tooltip
     assert shown(rita, D + ".tabComp") and text_of(rita, D + ".lcards[1].count") == "2/25"
     tip = [strip_codes(t[0]).strip() for t in (lambda r: r.values() if isinstance(r, dict) else r)(
-        rita.eval_py("return %s.lcards[1].tip" % D))]
+        rita.eval_py("return %s.lcards[1].tipLines" % D))]
     opened = tip[tip.index("Still open:") + 1:]
     assert opened[0].endswith("Protection Paladin") and opened[1].endswith("Feral Druid (Bear)"), opened
     # the Comp view: read-only, my row lit, the raid buffs in the toolbar, no Start from, no +
@@ -371,26 +371,26 @@ def a_group_title_dragged_onto_another_group_swaps_them():
 
 @case
 def switching_groups_and_comp_slides_the_thumb_and_fades_the_view_in():
+    # (1.4: Groups | Comp are the tool row's tabs; the view still fades in, the open tab is the selected one)
     w, c = world()
     bob = c["Bob"]
     tid = save_team(bob, "Main", ["Lee", "Rita", "Sam", "Bob"], size=25, comp=preset(bob, "std25"),
                     groups={"Lee": 1, "Rita": 1})
     w.tick(1)
     open_teams(w, bob, tid, "groups")
-    thumb = D + ".seg.thumb"
-    x0 = bob.eval("return %s.x" % thumb)
+    bar = D + ".views"
+    assert bob.eval("return %s:GetSelectedTab()" % bar) == "groups"
     bob.click(bob.eval("return %s.tabComp" % D))
-    # right after the click: on its way (the view still faint, the thumb not yet under Comp)
+    # right after the click: on its way (the view still faint), Comp the open tab
     assert bob.eval("return %s.compScroll:GetAlpha()" % D) < 0.5
-    assert bob.eval("local th = %s; return th.x < th.tx" % thumb) is True
+    assert bob.eval("return %s:GetSelectedTab()" % bar) == "comp"
     w.tick(0.5)
     assert bob.eval("return %s.compScroll:GetAlpha()" % D) == 1
-    assert bob.eval("local th = %s; return th.x == th.tx and th.x > ..." % thumb, x0) is True
-    # and back: the thumb returns, the groups fade in
+    # and back: the groups fade in
     bob.click(bob.eval("return %s.tabGroups" % D))
     assert bob.eval("return %s.scroll:GetAlpha()" % D) < 0.5
     w.tick(0.5)
-    assert bob.eval("return %s.scroll:GetAlpha()" % D) == 1 and bob.eval("return %s.x" % thumb) == x0
+    assert bob.eval("return %s.scroll:GetAlpha()" % D) == 1 and bob.eval("return %s:GetSelectedTab()" % bar) == "groups"
     w.assert_no_errors()
 
 
