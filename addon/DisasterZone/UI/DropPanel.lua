@@ -1833,9 +1833,7 @@ function Grid.Head(b, kind, top, rowsH)
     local h = b.colHead
     if not h then
         h = { fs = {}, divs = {} }
-        h.line = b:CreateTexture(nil, "ARTWORK")
-        h.line:SetColorTexture(S:Color("HAIRLINE"))
-        h.line:SetHeight(1)
+        h.line = UI:Rule(b)              -- (the shared hairline; placed under the titles below)
         b.colHead = h
     end
     for _, fs in ipairs(h.fs) do fs:Hide() end
@@ -1868,11 +1866,9 @@ function Grid.Head(b, kind, top, rowsH)
         for i, x in ipairs(Grid.DIVIDERS[kind]) do
             local d = h.divs[i]
             if not d then
-                d = b:CreateTexture(nil, "ARTWORK")
-                d:SetWidth(1)
+                d = UI:Rule(b, { vertical = true })   -- (placed between the column groups below)
                 h.divs[i] = d
             end
-            d:SetColorTexture(S:Color("HAIRLINE"))
             d:ClearAllPoints()
             d:SetPoint("TOPLEFT", b, "TOPLEFT", LIST_X + x, -(top + Grid.HEAD_H + 3))
             d:SetHeight(rowsH - 6)

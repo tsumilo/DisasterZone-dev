@@ -343,7 +343,8 @@ local function Create()
     -- (the place stays under the bar's frame name in settings.windows, as before 1.4)
     local f = UI:CreateHudFrame(FRAME_NAME, {
         width = BAR.W, height = BAR.H, position = FRAME_NAME, look = "card",
-        default = { "TOP", UIParent, "TOP", 0, -120 },
+        -- (its default spot sits just above the pop-ups' stack, UI.TOAST.TOP: a toast never covers it)
+        default = { "TOP", UIParent, "TOP", 0, ns.UI.TOAST.TOP + BAR.H + 6 },
     })
     f.cdlName = FRAME_NAME
 
