@@ -537,5 +537,36 @@ def a_debug_role_sees_the_notes_ui_without_touching_the_real_notes():
     w.assert_no_errors()
 
 
+@case
+def the_member_banner_fits_its_spec_chips_and_whisper():
+    # (1.4 regression: a fixed hero banner left its lower half empty without spec chips or the Whisper button)
+    w, g, a, b = trio()
+    dora = Client(w, "Dora", class_file="WARLOCK", guild_rank=3)     # in the guild, without DisasterZone
+    w.tick(SYNC)
+    a.slash("/dz members")
+    w.tick(1)
+
+    def banner(name):
+        a.eval("%s:SelectMember(...)" % UI, K(name))
+        w.tick(0.2)
+        return a.eval_py("local r = ns.MembersUI:GetPanel().right; return { math.floor(r.banner:GetHeight() + 0.5), "
+                         "r.specChips[1]:IsShown(), r.whisper:IsShown() }")
+
+    seen = set()
+    for name in ("Gina", "Alfa", "Dora"):
+        h, chips, whisper = banner(name)
+        want = 128 if (chips and whisper) else (98 if (chips or whisper) else 72)
+        assert h == want, (name, h, chips, whisper)
+        seen.add((chips, whisper))
+    assert (True, True) in seen, seen
+    b.logout()
+    dora.logout()
+    w.tick(3)
+    h, chips, whisper = banner("Bert")
+    assert not whisper and h == (98 if chips else 72), (h, chips, whisper)
+    assert banner("Dora") == [72, False, False]
+    w.assert_no_errors()
+
+
 if __name__ == "__main__":
     run_all()

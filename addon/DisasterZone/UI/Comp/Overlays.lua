@@ -84,6 +84,8 @@ end
 --   onClick    a click on the toast itself (same rule)
 --   onClose(toast, reason)  when it goes: "timeout" | "close" (its X) | "click" | "button" | "hide" (UI:HideToast /
 --              :Hide()) - not when it is filled again by its key
+--   onShow(toast)  each time it is filled to be shown (at once, later from the queue, or again by its key): a
+--              caller's own fields and pieces (toast.slot); the X's tooltip is cleared before (set it here)
 --   duration   seconds on screen (12; 0 or false: until it is answered); the time stands still under the mouse
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
@@ -348,8 +350,10 @@ function H.FillToast(t, o)
     -- the caller's own pieces start again
     for _, child in ipairs({ t.slot:GetChildren() }) do child:Hide() end
     for _, region in ipairs({ t.slot:GetRegions() }) do region:Hide() end
+    UI:AttachTooltip(t.close, nil, nil)
     if o.onFill then H.Safe("Toast onFill", o.onFill, t) end
     t:SetAlpha(1)
+    if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
 end
 
 -- The time on screen and the foot bar (progress or the time left).

@@ -35,6 +35,9 @@ local HEAD_TEXT_X = 70                  -- where the banner's text starts (after
 local BAN_X = 12                        -- the banner's tools / actions from its right edge (the page banner's)
 local BAN_IN = 14                       -- the banner's inner left margin (the page banner's)
 local SPEC_Y = 12                       -- the spec chips' row under the meta line
+-- a member's banner fits what it holds: the spec chips and the Whisper button (hero), one of them, or neither (the
+-- icon tile and its two lines); a recipe's keeps the hero height
+local BAN_HEIGHT = { both = S.BANNER.hero, one = 98, none = 72 }
 local NOTE_HEAD_H = 26                  -- the officer note's header (UI:CreateSectionHeader) and the gap under it
 local SHARE_ICON, UI_ICON_EDIT = 18, 16 -- atlas icons: share (UI/Share.lua's), the pencil
 -- a person's row: the class circle, the name; on the right two professions (icon, the rank while below max)
@@ -276,7 +279,7 @@ local function showRecipeTooltip(owner, recipe)
     end
     local more = #recipe.crafters - #names
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), S:Color("GOLD"))
+    GameTooltip:AddLine(("Made by %d in the guild (%d online)"):format(#recipe.crafters, online), S:RGB("GOLD"))
     GameTooltip:AddLine(table.concat(names, ", ") .. (more > 0 and S:Wrap("DIM", " +" .. more) or ""), 1, 1, 1, true)
     -- Shift: the materials (Shift + mouse wheel: how many, Shift + clicks: break down), in place of the recipe's
     -- tooltip at the side
@@ -1471,6 +1474,15 @@ local function updateDetail(p)
     updateSpecs(right, member)
     updateBody(right, member)
     local used = updateBannerButtons(right, member, recipe, whisperTo)
+    local bh = BAN_HEIGHT.both
+    if member then
+        local chips, act = right.specChips[1]:IsShown(), right.whisper ~= right.none
+        if not (chips and act) then bh = (chips or act) and BAN_HEIGHT.one or BAN_HEIGHT.none end
+    end
+    if math.floor(b:GetHeight() + 0.5) ~= bh then
+        b:SetHeight(bh)
+        p.layout:Layout()
+    end
     right.list:SetData(recipe and recipeDetailRows(recipe) or (member and memberDetailRows(member)) or {})
     right.headHit:SetShown(has)
     if has then

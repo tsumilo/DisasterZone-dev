@@ -59,6 +59,16 @@ local function Me() return ns.Util.PlayerKey() end
 -- The run pop-up on screen (UI:Toast under TOAST_KEY), or nil.
 local function RunToast() return UI():GetToast(TOAST_KEY) end
 
+-- The run pop-up's opts, on screen or still waiting in the shared queue (its dzMode / dzRun), or nil.
+local function RunToastOpts()
+    local t = RunToast()
+    if t and t.opts then return t.opts end
+    for _, o in ipairs(UI():ToastQueue()) do
+        if o.key == TOAST_KEY then return o end
+    end
+    return nil
+end
+
 
 local function Disc(parent, layer, sub, size, c)
     local t = parent:CreateTexture(nil, layer, nil, sub)
@@ -1270,11 +1280,8 @@ function DungeonsUI:RequestRefresh()
         end)
     end
     -- a ping or a request goes with its run (an invite, or the Group Finder's word on an ended run, doesn't)
-    local t = RunToast()
-    if t and t.run and t.mode == nil then
-        local run = R():GetRun(t.run)
-        if not run then UI():HideToast(t) end
-    end
+    local o = RunToastOpts()
+    if o and o.dzRun and o.dzMode == nil and not R():GetRun(o.dzRun) then UI():HideToast(TOAST_KEY) end
 end
 
 -- Opens the tab on a run (a chat link, the Home calendar): scrolls to it and lights it up for a moment. Returns false
@@ -1552,8 +1559,9 @@ end
 
 local function CreateSheet(p)
     -- the shared sheet as a cover over the page (its title, its close X; Escape closes it too)
+    -- (only the sheet's own close counts: hidden with the tab or the window, it stays open with its draft)
     local sh = UI():CreateSheet(p, { cover = true, bg = SHEET_BG, rule = false, onClose = function()
-        if state.sheet then DungeonsUI:CloseSheet() end
+        if state.sheet and p:IsVisible() then DungeonsUI:CloseSheet() end
     end })
     -- Normal / Heroic: the shared segments, after the sheet's title
     sh.mode = UI():CreateSegments(sh, { { key = "normal", label = "Normal" },
@@ -1923,26 +1931,28 @@ local function ToastHeroic(t, heroic)
     slot.dzRunHeroic:SetShown(heroic)
 end
 
--- The pop-up (UI:Toast): the dungeon's art, its name over the line l2 and the hint l3, one button.
+-- The pop-up (UI:Toast): the dungeon's art, its name over the line l2 (nil: none) and the hint l3, one button.
 -- mode: "invite" (a party invite: no countdown, the cross declines, no chime: Blizzard's invite sound already played)
 -- Fields kept for the callers and the harness: t.run, t.mode, t.btn (the button), t.x (the cross), t.t2 (l2's text).
 local function ShowToast(run, l2, l3, btnText, onClick, mode)
     -- a party invite waiting for its answer is never pushed out by a ping
-    local shown = RunToast()
-    if mode ~= "invite" and shown and shown.mode == "invite" then
+    -- (shown, or still waiting behind other pop-ups)
+    local pending = RunToastOpts()
+    if mode ~= "invite" and pending and pending.dzMode == "invite" then
         Chime()
         return
     end
     local file, l, r, tt, b = R():GetArt(run.d, TOAST_ART, TOAST_H - 2)
     local full, short = DungeonName(run)
-    local t = UI():Toast({
+    UI():Toast({
         key = TOAST_KEY,
+        dzMode = mode, dzRun = run.id,
         kind = "info",
         width = TOAST_W,
         art = file and { file, l, r, tt, b } or nil,
         artWidth = TOAST_ART,
         kicker = (UI():TextWidth(full, "caps") > TOAST_W - TOAST_ART - 130 and short) or full,
-        title = l2 or "",
+        title = l2,   -- (nil: the text alone under the dungeon's name, one paragraph)
         text = l3,
         lines = 2,
         duration = mode == "invite" and 0 or TOAST_FOR,
@@ -1956,15 +1966,19 @@ local function ShowToast(run, l2, l3, btnText, onClick, mode)
         onClose = function(_, reason)
             if reason == "close" and mode == "invite" then R():AnswerInvite(false) end
         end,
+        -- each time it is filled to be shown (at once, or later from the shared queue): its fields, the X's
+        -- tooltip, the heroic skull (the toast frames are shared: nothing of this stays on another's pop-up)
+        onShow = function(t)
+            toast = t
+            t.mode, t.run = mode, run.id
+            t.btn, t.x, t.t2 = t.btns[1], t.close, t.title
+            if mode == "invite" then
+                UI():AttachTooltip(t.close, "Decline", "Says no to the party invite.", { anchor = "ANCHOR_TOP" })
+            end
+            ToastHeroic(t, run.h and true or false)
+            if mode ~= "invite" then Chime() end
+        end,
     })
-    if not t then return end
-    toast = t
-    t.mode, t.run = mode, run.id
-    t.btn, t.x, t.t2 = t.btns[1], t.close, t.title
-    UI():AttachTooltip(t.close, mode == "invite" and "Decline" or nil,
-        mode == "invite" and "Says no to the party invite." or nil, { anchor = "ANCHOR_TOP" })
-    ToastHeroic(t, run.h and true or false)
-    if mode ~= "invite" then Chime() end
 end
 
 -- True while the Dungeons tab is on screen: the board itself shows what a pop-up would say.
@@ -2015,8 +2029,8 @@ function DungeonsUI:OnInvite(id, from)
 end
 
 function DungeonsUI:OnInviteGone()
-    local t = RunToast()
-    if t and t.mode == "invite" then UI():HideToast(t) end
+    local o = RunToastOpts()
+    if o and o.dzMode == "invite" then UI():HideToast(TOAST_KEY) end
     self:RequestRefresh()
 end
 
@@ -2044,7 +2058,7 @@ end
 function DungeonsUI:OnFinderLeftover(old)
     local GF = ns.GroupFinder
     if not GF or not old or not R():GetDungeon(old.d) then return end
-    ShowToast(old, S:Wrap("SUB", "Your run is over, but it's"), S:Wrap("SUB", "still in the Group Finder."), "Remove",
+    ShowToast(old, nil, S:Wrap("SUB", "Your run is over, but it's still in the Group Finder."), "Remove",
         function() GF:RemoveLeftover(old) end, "finder")
 end
 

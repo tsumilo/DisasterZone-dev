@@ -240,6 +240,9 @@ def regions_open_like_the_games_map():
     w.tick(0.3)
     crumb = g.eval_py("return ns.GuildMapUI:GetPanel().crumb.text:GetText()")
     assert "Outland" in crumb and "Terokkar Forest" in crumb and crumb.endswith("Shattrath City"), crumb
+    # the crumb is a back button: a left chevron in front of the words
+    assert g.eval_py("local c = ns.GuildMapUI:GetPanel().crumb; return { c.icon:IsShown(), "
+                     "c.icon:GetTexture() == ns.UI.ICON_ATLAS }") == [True, True]
     g.eval("ns.GuildMapUI:ZoomOut()")
     assert g.eval_py("return ns.GuildMapUI:GetState().zone") == TEROKKAR
     g.eval("ns.GuildMapUI:ZoomOut()")

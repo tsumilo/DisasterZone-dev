@@ -22,6 +22,7 @@ local tconcat = table.concat
 
 local BAN_H = S.BANNER.tool      -- the form's banner (the tool layout's)
 local SHEET_W, SHEET_H = 470, 478 + BAN_H + S.GAP - 19
+local DONE_H = 330                -- "Sent": the check down to the buttons (1.3.5's block, centred in the window)
 local CW = SHEET_W - 30          -- the content's width inside the window
 local TILE_H = 72
 local BOX_H = 92
@@ -413,10 +414,11 @@ local function Build()
     f.edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     f.edit:SetScript("OnEditFocusGained", function() UI():SetEdgeColor(f.boxEdge, S:Color("EDGE_FOCUS")) end)
     f.edit:SetScript("OnEditFocusLost", function() UI():SetEdgeColor(f.boxEdge, S:Color("EDGE_STRONG")) end)
-    f.hint = UI():Text(c, "emph", "DIM", WRAP)
+    -- (the placeholder and the count on the card: over its fill, under the words typed)
+    f.hint = UI():Text(f.boxEdge, "emph", "DIM", WRAP)
     f.hint:SetPoint("TOPLEFT", c, "TOPLEFT", 9, y - 8)
     f.hint:SetWidth(CW - 18)
-    f.count = UI():Text(c, "small", "DIM")
+    f.count = UI():Text(f.boxEdge, "small", "DIM")
     f.count:SetPoint("BOTTOMRIGHT", f.boxEdge, "BOTTOMRIGHT", -8, 6)
     f.count:SetJustifyH("RIGHT")
     f.edit:SetScript("OnTextChanged", function(self)
@@ -501,9 +503,14 @@ local function Build()
     f.done = CreateFrame("Frame", nil, f)
     f.done:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -36)
     f.done:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -15, 12)
+    -- (check, words, steps and buttons as one block in the middle: the window is taller than the block, for the
+    -- form's banner)
+    f.done.block = CreateFrame("Frame", nil, f.done)
+    f.done.block:SetSize(CW, DONE_H)
+    f.done.block:SetPoint("CENTER", f.done, "CENTER", 0, 0)
     f.done.check = f.done:CreateTexture(nil, "ARTWORK")
     f.done.check:SetSize(46, 46)
-    f.done.check:SetPoint("TOP", 0, -50)
+    f.done.check:SetPoint("TOP", f.done.block, "TOP", 0, 0)
     f.done.check:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
     f.done.title = UI():Text(f.done, "page", "GOLD", { justify = "CENTER" })
     f.done.title:SetPoint("TOP", f.done.check, "BOTTOM", 0, -12)
@@ -519,7 +526,7 @@ local function Build()
         f:Hide()
         if ns.FeedbackUI then ns.FeedbackUI:Open("mine", f.sentId) end
     end, "primary")
-    f.done.see:SetPoint("BOTTOM", f.done, "BOTTOM", -50, 50)
+    f.done.see:SetPoint("BOTTOM", f.done.block, "BOTTOM", -50, 0)
     f.done.close = UI():CreateSleekButton(f.done, "Close", 90, S.BTN_H, function() f:Hide() end)
     f.done.close:SetPoint("LEFT", f.done.see, "RIGHT", 10, 0)
     f.done:Hide()
@@ -679,6 +686,10 @@ local function InCombat() return InCombatLockdown and InCombatLockdown() end
 -- The next waiting pop-up (UI:Toast, one of this file's at a time; never in combat): icon, title, text, its button.
 function Sheet:NextToast()
     if UI():GetToast(TOAST_KEY) or #queue == 0 or InCombat() then return end
+    -- (one still waiting in the shared queue is busy too: a second under its key would replace it there)
+    for _, o in ipairs(UI():ToastQueue()) do
+        if o.key == TOAST_KEY then return end
+    end
     local q = table.remove(queue, 1)
     toast = UI():Toast({
         key = TOAST_KEY, kind = q.color, icon = q.icon, title = q.title, text = q.text, lines = 3,

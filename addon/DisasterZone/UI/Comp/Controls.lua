@@ -228,7 +228,13 @@ function Chip:Set(text, rgb, key)
         self.cls:Hide()
         self.icon:SetTexture(self.iconPath)
         local co = self.iconCoords
-        if co then self.icon:SetTexCoord(co[1], co[2], co[3], co[4]) else self.icon:SetTexCoord(0, 1, 0, 1) end
+        if co and co[8] then
+            self.icon:SetTexCoord(co[1], co[2], co[3], co[4], co[5], co[6], co[7], co[8])
+        elseif co then
+            self.icon:SetTexCoord(co[1], co[2], co[3], co[4])
+        else
+            self.icon:SetTexCoord(0, 1, 0, 1)
+        end
         local r, g, b, a = S:Color(self.iconColor or { 1, 1, 1, 1 })
         self.icon:SetVertexColor(r, g, b, a)
         self.icon:SetDesaturated(self.iconDesat and true or false)
@@ -249,7 +255,8 @@ function Chip:Set(text, rgb, key)
 end
 
 -- chip:SetIcon(path [, coords, color, desaturate]): a texture in front of the text when no dot / class circle is given
--- (nil: none); coords { l, r, t, b } (an atlas glyph: UI.ICON_ATLAS and UI:IconCoords(i)) and color (a token name or
+-- (nil: none); coords { l, r, t, b } (an atlas glyph: UI.ICON_ATLAS and UI:IconCoords(i); 8 values: a turned
+-- glyph, as UI:SetChevron's) and color (a token name or
 -- a table: a tint) are kept over every chip:Set. Takes effect on the next chip:Set.
 function Chip:SetIcon(path, coords, color, desaturate)
     self.iconPath, self.iconCoords, self.iconColor, self.iconDesat = path, coords, color, desaturate
