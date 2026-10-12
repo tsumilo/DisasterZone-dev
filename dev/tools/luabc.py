@@ -306,6 +306,47 @@ def count_empty_global_functions(proto):
     return cnt
 
 
+def max_active_locals(f):
+    """(count, startpc) of the most locals active at once in one function (its own registers only).
+    Lua 5.1 refuses to compile a function with more than 200 (LUAI_MAXVARS); the debug info lists every
+    local with the pc range it lives in, parameters and for-loop control variables included."""
+    best, at = 0, 0
+    last = len(f.code) - 1           # a local whose range ends at the final RETURN lives to the end of the function
+    ends = [e if e < last else 1 << 30 for _, _, e in f.locvars]
+    lv = f.locvars
+    for i, (_, start, _end) in enumerate(lv):
+        n = 1
+        for j in range(i):
+            # alive at i's declaration, or declared by the same statement (same range, e.g. `do local a, b end`)
+            if ends[j] > start or (lv[j][1] == start and ends[j] == ends[i]):
+                n += 1
+        if n > best:
+            best, at = n, start
+    return best, at
+
+
+def iter_protos(proto):
+    """Every function in a chunk, the main chunk first (depth first, in source order)."""
+    stack = [proto]
+    while stack:
+        f = stack.pop()
+        yield f
+        stack.extend(reversed(f.protos))
+
+
+def limits(proto):
+    """Lua 5.1 size limits of one compiled chunk. Returns a list of dicts, one per function:
+    {main, line (linedefined; 0 = main chunk), last, locals, locals_line, upvalues}. locals_line is the line where
+    the most locals are active (the declaration that reaches the peak)."""
+    out = []
+    for f in iter_protos(proto):
+        n, pc = max_active_locals(f)
+        li = f.lineinfo
+        out.append({"main": f is proto, "line": f.linedefined, "last": f.lastlinedefined, "locals": n,
+                    "locals_line": li[pc] if pc < len(li) else f.linedefined, "upvalues": f.nups})
+    return out
+
+
 def analyze_source(src, chunkname):
     """Compile + analyze. Returns (accesses, None) or (None, errmsg)."""
     bc, err = compile_chunk(src, chunkname)

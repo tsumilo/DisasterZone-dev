@@ -28,7 +28,17 @@ of the justified exceptions in uniformity.ALLOW. Since the 1.4 cleanup these are
     --uniformity-strict            (the default now; kept for old command lines)
     --uniformity-update-baseline   rewrite the baseline from the scanned files (no paths = the whole addon)
     --no-uniformity                skip the uniformity check
-Exit code: 1 if any syntax error or global write (or, with --strict, any warning); else 0.
+    <file>:<line>: WARN LIMIT locals|upvalues: ...   (Lua 5.1 limits from the bytecode; ERROR at 200 locals / 60 upvalues)
+    <file>:<line>: WARN LAYERS <kind> <from> -> <to>: ... (tools/layers.py; ERROR with --strict)
+    <file>:0: WARN LAYERS-STALE allowlist entry ... (whole-addon runs only)
+    <file>:<line>: WARN HEADER missing|layer|api|uses: ...   (with --headers; tools/modules_doc.py)
+Layers (dev/docs/ARCHITECTURE_PLAN.md): every normal run reports NEW layer violations of the target files (not in
+tools/layers_allow.json) as warnings.
+    --layers      only the layer lint (fast); with --strict new violations are errors (exit code 1)
+    --prune       drop allowlist entries / symbols that no longer occur (the list only shrinks)
+    --headers     module contract header warnings too
+    --no-layers / --no-limits   skip those checks
+Exit code: 1 if any syntax error, global write or ERROR line (or, with --strict, any warning); else 0.
 """
 import argparse
 import json
@@ -46,6 +56,8 @@ LIVE_ADDON_DIR = r"C:\World of Warcraft\_anniversary_\Interface\AddOns\DisasterZ
 ADDON_DIR = os.environ.get("DISASTERZONE_ADDON_DIR") or LIVE_ADDON_DIR  # (a worktree copy of the addon)
 ADDONS_ROOT = os.path.dirname(LIVE_ADDON_DIR)  # the reference addons live next to the real one
 KNOWN_PATH = os.path.join(HERE, "known_globals.json")
+LAYERS_CONFIG = os.path.join(HERE, "layers.json")         # layer map (tools/layers.py)
+LAYERS_ALLOW = os.path.join(HERE, "layers_allow.json")    # today's layer violations (only shrinks)
 
 # Reference addons that target this client; their global READS form the known-globals set.
 REFERENCE_ADDONS = [
@@ -319,7 +331,76 @@ class Report:
         return sum(1 for x in self.lines if x[3] == cat)
 
 
-def check_files(files, known, report, check_events=True):
+LIMIT_LOCALS, WARN_LOCALS = 200, 170        # Lua 5.1 LUAI_MAXVARS: active locals per function (main chunk included)
+LIMIT_UPVALUES, WARN_UPVALUES = 60, 45      # Lua 5.1 LUAI_MAXUPVALUES: upvalues per closure
+_FN_NAME_RES = (re.compile(r"function\s+([\w.:]+)\s*\("), re.compile(r"local\s+function\s+(\w+)"),
+                re.compile(r"([\w.\[\]\"']+)\s*=\s*function\b"))
+
+
+def _function_name(lines, line):
+    text = lines[line - 1] if 0 < line <= len(lines) else ""
+    for rx in _FN_NAME_RES:
+        m = rx.search(text)
+        if m:
+            return m.group(1)
+    return "function"
+
+
+def add_limits(r, src, proto, report):
+    """Lua 5.1 limits from the bytecode: the most active locals in one function and the most upvalues of one
+    closure. One line per file and kind (the worst function): WARN from 170 locals / 45 upvalues, ERROR at the
+    real limits (200 / 60; the compiler refuses one more)."""
+    rows = luabc.limits(proto)
+    if not rows:
+        return
+    lines = None
+    worst = max(rows, key=lambda x: (x["locals"], x["main"]))
+    if worst["locals"] >= WARN_LOCALS:
+        sev = "ERROR" if worst["locals"] >= LIMIT_LOCALS else "WARN"
+        if worst["main"]:
+            where = "main chunk"
+        else:
+            lines = src.decode("utf-8", "replace").split("\n")
+            where = "%s (line %d)" % (_function_name(lines, worst["line"]), worst["line"])
+        report.add(r, worst["locals_line"], sev, "limits", "locals",
+                   "%s LIMIT locals: %s has %d active locals here (Lua 5.1 max %d; warn at %d)" % (
+                       sev, where, worst["locals"], LIMIT_LOCALS, WARN_LOCALS))
+    worst = max(rows, key=lambda x: x["upvalues"])
+    if worst["upvalues"] >= WARN_UPVALUES:
+        sev = "ERROR" if worst["upvalues"] >= LIMIT_UPVALUES else "WARN"
+        lines = lines or src.decode("utf-8", "replace").split("\n")
+        report.add(r, worst["line"], sev, "limits", "upvalues",
+                   "%s LIMIT upvalues: %s (lines %d-%d) uses %d upvalues (Lua 5.1 max %d; warn at %d)" % (
+                       sev, _function_name(lines, worst["line"]), worst["line"], worst["last"], worst["upvalues"],
+                       LIMIT_UPVALUES, WARN_UPVALUES))
+
+
+def check_layers(files, report, strict=False, prune=False, headers=False, whole=True):
+    """Layer lint (tools/layers.py) and, with headers, the module header lint (tools/modules_doc.py) for the target
+    files the TOC loads. New layer violations: WARN (ERROR with strict); allowlist entries that no longer occur:
+    WARN, only when the whole addon is checked (whole). Returns (DepMap, violations, new, stale) or None."""
+    import layers  # noqa: E402
+    toc = set(layers.toc_files(ADDON_DIR))
+    targets = {rel(f) for f in files} & toc
+    if not targets:
+        return None
+    dm = layers.build(ADDON_DIR, layers.load_config(LAYERS_CONFIG))
+    allow = layers.load_allow(LAYERS_ALLOW)
+    rows, viols, new, stale = layers.lint(dm, allow, only=targets, strict=strict, stale_too=whole)
+    for row in rows:
+        report.add(*row)
+    if prune:
+        data, rp, rs = layers.prune(viols, allow, LAYERS_ALLOW)
+        print("layers: pruned %d allowlist entr(ies) and %d symbol(s); %d left -> %s" % (
+            rp, rs, len(data["entries"]), LAYERS_ALLOW), file=sys.stderr)
+    if headers:
+        import modules_doc  # noqa: E402
+        for f, ln, cat, nm, tx in modules_doc.check(dm, [f for f in dm.files if f in targets]):
+            report.add(f, ln, "WARN", "headers", cat + ":" + nm, tx)
+    return dm, viols, new, stale
+
+
+def check_files(files, known, report, check_events=True, check_limits=True):
     kglobals = known.get("globals", {})
     kfields = known.get("fields", {})
     kevents = known.get("events", {})
@@ -340,8 +421,11 @@ def check_files(files, known, report, check_events=True):
             msg = m.group(3) if m else err
             report.add(r, line, "ERROR", "syntax", "", "ERROR syntax: %s" % msg.strip())
             continue
-        acc = luabc.analyze(luabc.parse_bytecode(bc))
+        proto = luabc.parse_bytecode(bc)
+        acc = luabc.analyze(proto)
         parsed.append((r, src, acc))
+        if check_limits:
+            add_limits(r, src, proto, report)
         for a in acc:
             if a.kind in ("set", "set_G"):
                 own_defined.add(a.name)
@@ -473,7 +557,43 @@ def main(argv=None):
                     help="(the default) uniformity counts above the baseline are errors (exit code 1)")
     ap.add_argument("--uniformity-warn", action="store_true",
                     help="uniformity counts above the baseline are warnings only")
+    lg = ap.add_argument_group("layers, limits and module headers (tools/layers.py, tools/modules_doc.py)")
+    lg.add_argument("--layers", action="store_true",
+                    help="only the layer lint: new violations (ERROR with --strict) + stale allowlist entries")
+    lg.add_argument("--prune", action="store_true",
+                    help="drop allowlist entries / symbols that no longer occur from tools/layers_allow.json (implies "
+                         "--layers)")
+    lg.add_argument("--no-layers", action="store_true", help="skip the layer lint in a normal run")
+    lg.add_argument("--headers", action="store_true",
+                    help="also warn about missing / wrong module contract headers (the to-do list of P2-P7)")
+    lg.add_argument("--no-limits", action="store_true", help="skip the Lua 5.1 locals / upvalues check")
     args = ap.parse_args(argv)
+
+    if args.layers or args.prune:
+        files = collect_targets(args.paths, args.libs)
+        report = Report()
+        res = check_layers(files, report, strict=args.strict, prune=args.prune, headers=args.headers,
+                           whole=not args.paths)
+        lines = sorted(report.lines, key=lambda x: (x[0], x[1], x[3], x[4]))
+        if args.json:
+            print(json.dumps({"problems": [{"file": f, "line": ln, "severity": sev, "category": cat, "name": nm,
+                                            "text": tx} for f, ln, sev, cat, nm, tx in lines]}, indent=1))
+        else:
+            for f, ln, sev, cat, nm, tx in lines:
+                print("%s:%d: %s" % (f, ln, tx))
+        n_new = report.count("layers")
+        if res is None:
+            print("-- layers: none of the files is loaded by the TOC")
+        elif not args.json:
+            viols = res[1]
+            kinds = {}
+            for v in viols:
+                kinds[v.kind] = kinds.get(v.kind, 0) + 1
+            print("-- layers: %d violation(s) in the map (%s); %d new, %d stale allowlist entr(ies)%s" % (
+                len(viols), ", ".join("%s=%d" % kv for kv in sorted(kinds.items())),
+                n_new, report.count("layers-stale"),
+                (", %d header warning(s)" % report.count("headers")) if args.headers else ""))
+        return 1 if (args.strict and n_new) else 0
 
     if args.uniformity or args.uniformity_update_baseline:
         files = collect_targets(args.paths, args.libs)
@@ -497,14 +617,19 @@ def main(argv=None):
     known = load_known(args.rebuild_known)
     files = collect_targets(args.paths, args.libs)
     report = Report()
-    check_files(files, known, report, check_events=not args.no_events)
+    check_files(files, known, report, check_events=not args.no_events, check_limits=not args.no_limits)
     ucounts = {}
     if not args.no_uniformity:
         ucounts = check_uniformity(files, report, strict=not args.uniformity_warn)
+    if not args.no_layers or args.headers:
+        check_layers(files, report, strict=args.strict, headers=args.headers, whole=not args.paths)
+        if args.no_layers:
+            report.lines = [x for x in report.lines if x[3] not in ("layers", "layers-stale")]
     lines = sorted(report.lines, key=lambda x: (x[0], x[1], x[3], x[4]))
     n_syntax = report.count("syntax") + report.count("io")
     n_write = report.count("write")
     n_uerr = sum(1 for x in lines if x[3] == "uniformity" and x[2] == "ERROR")
+    n_lerr = sum(1 for x in lines if x[3] in ("layers", "limits") and x[2] == "ERROR")
     n_warn = sum(1 for x in lines if x[2] == "WARN")
     n_info = sum(1 for x in lines if x[2] == "INFO")
     if args.json:
@@ -512,17 +637,19 @@ def main(argv=None):
                           "problems": [{"file": f, "line": ln, "severity": sev, "category": cat, "name": nm, "text": tx}
                                        for f, ln, sev, cat, nm, tx in lines],
                           "syntax_errors": n_syntax, "global_writes": n_write, "warnings": n_warn,
-                          "uniformity_errors": n_uerr, "uniformity": ucounts}, indent=1))
+                          "uniformity_errors": n_uerr, "uniformity": ucounts, "layer_limit_errors": n_lerr}, indent=1))
     else:
         for f, ln, sev, cat, nm, tx in lines:
             if args.quiet and sev != "ERROR":
                 continue
             print("%s:%d: %s" % (f, ln, tx))
-        print("-- checked %d file(s): %d syntax error(s), %d global write(s), %s%d warning(s), %d info [%s]" % (
-            len(files), n_syntax, n_write, ("%d uniformity error(s), " % n_uerr) if n_uerr else "", n_warn, n_info,
+        print("-- checked %d file(s): %d syntax error(s), %d global write(s), %s%s%d warning(s), %d info [%s]" % (
+            len(files), n_syntax, n_write, ("%d uniformity error(s), " % n_uerr) if n_uerr else "",
+            ("%d layer/limit error(s), " % n_lerr) if n_lerr else "", n_warn, n_info,
             ", ".join("%s=%d" % (c, report.count(c)) for c in
-                      ("unknown", "field", "deprecated", "notwow", "gwrite", "event", "optdep", "uniformity") if report.count(c))))
-    bad = n_syntax > 0 or n_write > 0 or n_uerr > 0 or (args.strict and n_warn > 0)
+                      ("unknown", "field", "deprecated", "notwow", "gwrite", "event", "optdep", "uniformity",
+                       "limits", "layers", "layers-stale", "headers") if report.count(c))))
+    bad = n_syntax > 0 or n_write > 0 or n_uerr > 0 or n_lerr > 0 or (args.strict and n_warn > 0)
     return 1 if bad else 0
 
 
