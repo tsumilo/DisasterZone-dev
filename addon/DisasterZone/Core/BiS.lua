@@ -68,15 +68,11 @@ local function IsValidSid(sid)
     return type(sid) == "number" and sid == floor(sid) and sid >= 1 and sid <= NUM_SLOTS
 end
 
-local function SlotLabel(sid)
-    local slot = ns.SLOTS and ns.SLOTS[sid]
-    return slot and slot.label or ("slot " .. tostring(sid))
-end
+local SlotLabel = ns.SlotLabel
 
 local function ItemLabel(itemID)
     local db = ns.ItemDB
-    local text = db and (db:GetLink(itemID) or db:GetName(itemID))
-    return text or ("item " .. tostring(itemID))
+    return db and db:GetLabel(itemID) or ("item " .. tostring(itemID))
 end
 
 local function ItemFits(itemID, sid)

@@ -544,7 +544,7 @@ end
 ---------------------------------------------------------------------------
 
 local function NewK()
-    local now = (GetServerTime and GetServerTime()) or time()
+    local now = Util.Now()
     return strformat("%010d", now) .. Util.Hash({ Util.PlayerKey() or "", GetTime() }):sub(1, 4)
 end
 

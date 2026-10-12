@@ -34,14 +34,7 @@ local lastSent = {}  -- [materialID] = GetTime() of my last MH
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
-
-local function DemoOn()
-    local Demo = ns.Demo
-    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
-end
+local Now, DemoOn = Util.Now, Util.DemoOn
 
 local function IsMe(key)
     return Util.IsMe and Util.IsMe(key) or false

@@ -32,7 +32,7 @@ local WOWHEAD_RACES = { BloodElf = "blood-elf", NightElf = "night-elf", Scourge 
                         Tauren = "tauren", Troll = "troll" }
 
 -- Rings, trinkets and weapons: the other slot of the pair (a pick I wear in the other ring slot still has its gems).
-local PAIR = { [11] = 12, [12] = 11, [13] = 14, [14] = 13, [15] = 16, [16] = 15 }
+local PAIR = ns.SLOT_PAIR
 
 local function Codec() return ns.Codec end
 local function BiS() return ns.BiS end

@@ -196,13 +196,13 @@ function GuildMap:PlaceOn(e, to)
     return self:Translate(m, x, y, to)
 end
 
--- The raids among the instances (a sender older than the r field: their instance id says it).
-local RAIDS = { [532] = true, [565] = true, [544] = true, [548] = true, [550] = true, [564] = true, [534] = true,
-    [568] = true, [580] = true, [409] = true, [469] = true, [249] = true, [309] = true, [509] = true, [531] = true }
+-- The raids among the instances (a sender older than the r field: their instance id says it): the TBC raids
+-- (ns.Data.RaidMeta, through ItemDB) and the classic ones.
+local CLASSIC_RAIDS = { [409] = true, [469] = true, [249] = true, [309] = true, [509] = true, [531] = true }
 
 -- Is an entry inside a raid (rather than a dungeon)?
 function GuildMap:IsRaid(e)
-    return e and e.i and (e.r or RAIDS[e.i]) and true or false
+    return e and e.i and (e.r or CLASSIC_RAIDS[e.i] or ns.ItemDB:GetRaidByInstance(e.i)) and true or false
 end
 
 function GuildMap:GetEntrance(instanceID)
@@ -313,9 +313,7 @@ end
 
 -- (my own jitter: answers to one ask spread over a few seconds instead of all at once)
 local function Jitter(span)
-    local key = Util.PlayerKey() or ""
-    local h = Util.Adler32 and Util.Adler32(key .. tostring(floor(GetTime()))) or 0
-    return (h % 1000) / 1000 * span
+    return Util.Jitter(floor(GetTime()), span)
 end
 
 Ask = function()
@@ -350,13 +348,7 @@ function GuildMap:IsViewing() return viewing end
 ---------------------------------------------------------------------------
 
 local function SeenBucket(create)
-    local db = ns.db
-    local gk = ns.Guild and ns.Guild.GetGuildKey and ns.Guild:GetGuildKey()
-    if not db or not gk then return nil end
-    if not create then return type(db.mapSeen) == "table" and db.mapSeen[gk] or nil end
-    db.mapSeen = type(db.mapSeen) == "table" and db.mapSeen or {}
-    db.mapSeen[gk] = type(db.mapSeen[gk]) == "table" and db.mapSeen[gk] or {}
-    return db.mapSeen[gk]
+    return (ns.DB:GuildBucket("mapSeen", create))
 end
 
 local function Str(v, n)
@@ -446,15 +438,18 @@ local DEMO_GROUPS = {
 local DEMO_NAMES = { "Aeli", "Bram", "Cora", "Dusk", "Eldr", "Fenn", "Gael", "Hrot", "Isla", "Jarn", "Kael", "Lyra",
     "Mord", "Nyx", "Orin", "Pell", "Quor", "Rhea", "Syl", "Thal", "Ulda", "Vex", "Wynn", "Xan", "Yri", "Zul" }
 local DEMO_ENDS = { "and", "wyn", "ric", "a", "os", "ith", "ar", "elle" }
-local DEMO_CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
-local INSTANCE_NAMES = { [555] = "Shadow Labyrinth", [564] = "Black Temple", [532] = "Karazhan",
-    [548] = "Serpentshrine Cavern" }
+local DEMO_CLASSES = ns.CLASSES
+local DUNGEON_NAMES = { [555] = "Shadow Labyrinth" }   -- (the demo's raids are named by ItemDB)
 local demoClass = {}
 
-local function Demoing()
-    local Demo = ns.Demo
-    return Demo and Demo.IsEnabled and Demo:IsEnabled() and true or false
+-- A demo group's instance name: the dungeon's, or the raid's from the item data.
+local function InstanceName(i)
+    if DUNGEON_NAMES[i] then return DUNGEON_NAMES[i] end
+    local _, raid = ns.ItemDB:GetRaidByInstance(i)
+    return raid and raid.name or nil
 end
+
+local Demoing = Util.DemoOn
 
 function GuildMap:IsDemo() return Demoing() end
 
@@ -468,7 +463,7 @@ local function DemoEntries()
     local function put(key, spot, k)
         local e = { m = spot[1], x = spot[2], y = spot[3], s = spot[4], z = spot.z, a = spot.a, i = spot.i,
                     at = now - (k % 7) * 3, ts = ts - (k % 7) * 3, demo = true }
-        if e.i then e.n, e.m, e.x, e.y = INSTANCE_NAMES[e.i], nil, nil, nil end
+        if e.i then e.n, e.m, e.x, e.y = InstanceName(e.i), nil, nil, nil end
         -- walkers go round a small loop (a minute a lap)
         if spot.w and e.x then
             local a = now / 60 * 2 * math.pi + k

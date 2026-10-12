@@ -107,7 +107,7 @@ end
 
 -- Demo mode (Core/Demo.lua): every class tool is on for anyone, with made-up data, to try them out.
 function ClassKit:IsDemo()
-    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false
+    return ns.Util.DemoOn()
 end
 
 -- True when the kit is for this character: its class, and one of its specs (any spec when it names none); every
@@ -165,7 +165,7 @@ end
 function ClassKit:ForWhom(key)
     local k = kits[key]
     if not k then return "" end
-    local cls = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[k.class]) or k.class
+    local cls = ns.ClassName(k.class, true) or k.class
     if not k.specs then return "Every " .. cls .. " spec" end
     return table.concat(k.specs, " and ") .. " " .. cls .. "s"
 end

@@ -162,7 +162,7 @@ local function FirstBis(list, sid)
     return nil
 end
 
-local DUAL_WIELD_FALLBACK = { WARRIOR = true, ROGUE = true, HUNTER = true, SHAMAN = true }
+
 
 -- Dual-wield guides that list both weapons under "Main Hand" (e.g. Fury): the first two distinct
 -- BIS entries (topped up from Alt) fill 15 and 16, the next ones become their alts.
@@ -242,7 +242,7 @@ local function BuildTemplate(entries, classFile)
     end
     PickPair(bySlot["Ring"], 11, 12, tpl)
     PickPair(bySlot["Trinket"], 13, 14, tpl)
-    local dual = (ns.DUAL_WIELD or DUAL_WIELD_FALLBACK)[classFile] and true or false
+    local dual = ns.DUAL_WIELD[classFile] and true or false
     PickWeapons(bySlot["Main Hand"], bySlot["Two Hand"], bySlot["Off Hand"], tpl, dual)
     if next(tpl) == nil then return nil end
     return tpl

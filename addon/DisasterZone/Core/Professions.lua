@@ -120,24 +120,14 @@ local nameRequested = {}    -- [spell] = true: the client was asked to load the 
 local ownDirty = {}         -- [key] = true: records of my other characters to share (a new main)
 local sanitized = {}        -- [bucket key] = true
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
-
-local function IsInt(n, lo, hi)
-    return type(n) == "number" and n == floor(n) and n >= lo and n <= hi
-end
+local Now, IsInt = Util.Now, Util.IsInt
 
 local function Send(msg, dist, target)
     local Comm = ns.Comm
     return (Comm and Comm.Send and Comm:Send(msg, dist, target, "member")) and true or false
 end
 
-local function RateLimit(key, seconds)
-    local Comm = ns.Comm
-    if not (Comm and Comm.RateLimit) then return true end
-    return Comm:RateLimit(key, seconds)
-end
+local RateLimit = Util.RateLimit
 
 local function WireKey(s)
     if type(s) ~= "string" or s == "" or #s > MAX_KEY_LEN or s:find("[%c|]") then return nil end
@@ -324,12 +314,8 @@ local function Bucket(create)
         gk = ns.Guild and ns.Guild.GetGuildKey and ns.Guild:GetGuildKey()
         if type(gk) ~= "string" then return nil end
     end
-    local b = db.prof[gk]
-    if type(b) ~= "table" then
-        if not create then return nil, gk end
-        b = {}
-        db.prof[gk] = b
-    end
+    local b = ns.DB:GuildBucket("prof", create, gk)
+    if not b then return nil, gk end
     if not sanitized[gk] then
         sanitized[gk] = true
         for key, rec in pairs(b) do

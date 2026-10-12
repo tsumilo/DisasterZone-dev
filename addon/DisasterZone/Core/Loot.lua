@@ -86,10 +86,7 @@ local function AmRealCouncil()
     return ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil(true) or false
 end
 
-local function DemoOn()
-    local Demo = ns.Demo
-    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
-end
+local DemoOn = Util.DemoOn
 
 local function SafeBossBySourceGUID(guid)
     if not (ns.ItemDB and ns.ItemDB.GetBossBySourceGUID) or type(guid) ~= "string" then return nil end
@@ -100,7 +97,7 @@ end
 
 local function ItemText(id)
     local db = ns.ItemDB
-    return (db and (db:GetLink(id) or db:GetName(id))) or ("item " .. id)
+    return db and db:GetLabel(id) or ("item " .. id)
 end
 
 -- Addendum B §22: dungeon mode is active (5-man party) / and I am inside a 5-man instance.

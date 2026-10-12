@@ -30,13 +30,7 @@ Notes.MAX_LEN = MAX_LEN
 
 local indexSent = false
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
-
-local function IsInt(n, lo, hi)
-    return type(n) == "number" and n == floor(n) and n >= lo and n <= hi
-end
+local Now, IsInt = Util.Now, Util.IsInt
 
 local function Guild() return ns.Guild end
 
@@ -66,22 +60,10 @@ local function Pretending()
 end
 
 local function Store(create)
-    local db = ns.db
-    local G = Guild()
-    local gk = db and IsInGuild() and G and G:GetGuildKey()
+    local gk = ns.db and IsInGuild() and Util.GuildKey()
     if type(gk) ~= "string" then return nil end
     if Pretending() then gk = "debug " .. gk end
-    if type(db.officerNotes) ~= "table" then
-        if not create then return nil end
-        db.officerNotes = {}
-    end
-    local b = db.officerNotes[gk]
-    if type(b) ~= "table" then
-        if not create then return nil end
-        b = {}
-        db.officerNotes[gk] = b
-    end
-    return b
+    return (ns.DB:GuildBucket("officerNotes", create, gk))
 end
 
 local function Valid(rec)

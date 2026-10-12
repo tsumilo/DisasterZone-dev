@@ -30,8 +30,7 @@ local HEROIC_LEVEL = 70
 local ROLE_RANK = { tank = 1, healer = 2, dps = 3 }
 
 local function R() return ns.DungeonRuns end
-local function Now() return (GetServerTime and GetServerTime()) or time() end
-local function DemoOn() local D = ns.Demo; return (D and D.IsEnabled and D:IsEnabled()) and true or false end
+local Now, DemoOn = Util.Now, Util.DemoOn
 
 local function Changed()
     Util.Debounce("group-finder-changed", 0.15, function() ns:Fire("GROUP_FINDER_UPDATED") end)

@@ -306,13 +306,8 @@ end
 local WOWHEAD_CLASSES = { druid = "DRUID", hunter = "HUNTER", mage = "MAGE", paladin = "PALADIN", priest = "PRIEST",
                           rogue = "ROGUE", shaman = "SHAMAN", warlock = "WARLOCK", warrior = "WARRIOR" }
 
-local invToSid
 local function SidByInvSlot(inv)
-    if not invToSid then
-        invToSid = {}
-        for sid, s in ipairs(ns.SLOTS or {}) do invToSid[s.invSlot] = sid end
-    end
-    return invToSid[inv]
+    return ns.INVSLOT_TO_SID[inv]
 end
 
 local function ParseWowhead(text)

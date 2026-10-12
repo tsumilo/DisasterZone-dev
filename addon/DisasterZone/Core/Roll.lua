@@ -78,10 +78,7 @@ local rollPattern        -- built lazily from RANDOM_ROLL_RESULT (false = unusab
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function DemoOn()
-    local Demo = ns.Demo
-    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
-end
+local DemoOn = Util.DemoOn
 
 local function IsValidItemID(id)
     return type(id) == "number" and id == floor(id) and id >= 1 and id <= 200000

@@ -60,14 +60,12 @@ local chatPlayers = 0
 local pendingSwap = {}                  -- [invited key] = the player they replace (the leader's Swap in, until they join)
 local leaving                           -- { id, auth, readers } while I am in an expected raid (my own leave prompt)
 
-local function Now() return GetServerTime() end
+local Now = Util.Now
 local function RL() return ns.RaidLog end
 local function G() return ns.Guild end
 local function Me() return Util.PlayerKey() end
 
-local function DemoOn()
-    return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and true or false
-end
+local DemoOn = Util.DemoOn
 
 local function Bump()
     ver = ver + 1
@@ -1182,19 +1180,7 @@ end
 local demoAway = {}
 local function AwayList(create)
     if DemoOn() then return demoAway end
-    local db = ns.db
-    local Guild = G()
-    local g = Guild and Guild.GetGuildKey and Guild:GetGuildKey()
-    if not db or not g then return nil end
-    if type(db.attAway) ~= "table" then
-        if not create then return nil end
-        db.attAway = {}
-    end
-    if type(db.attAway[g]) ~= "table" then
-        if not create then return nil end
-        db.attAway[g] = {}
-    end
-    return db.attAway[g]
+    return (ns.DB:GuildBucket("attAway", create))
 end
 
 -- The away periods of a player (or everyone's), newest first: { k, f, t, n, by, at }.
@@ -1557,16 +1543,7 @@ end
 -- Reasons for raids not in my log yet: db.attHeld[guild][recId][key] = { c, n, at, held }, kept 7 days, put on the
 -- record when it arrives (the raid log sync, a later raid log digest).
 local function HeldStore(create)
-    local db = ns.db
-    local Guild = G()
-    local g = Guild and Guild.GetGuildKey and Guild:GetGuildKey()
-    if not db or not g then return nil end
-    if type(db.attHeld) ~= "table" then
-        if not create then return nil end
-        db.attHeld = {}
-    end
-    if create and type(db.attHeld[g]) ~= "table" then db.attHeld[g] = {} end
-    return db.attHeld[g]
+    return (ns.DB:GuildBucket("attHeld", create))
 end
 
 function Att:HoldReason(recId, key, rs)
@@ -1662,16 +1639,7 @@ end
 ---------------------------------------------------------------------------
 
 local function MineStore(create)
-    local db = ns.db
-    local Guild = G()
-    local g = Guild and Guild.GetGuildKey and Guild:GetGuildKey()
-    if not db or not g then return nil end
-    if type(db.attMine) ~= "table" then
-        if not create then return nil end
-        db.attMine = {}
-    end
-    if create and type(db.attMine[g]) ~= "table" then db.attMine[g] = {} end
-    return db.attMine[g]
+    return (ns.DB:GuildBucket("attMine", create))
 end
 
 -- A history compact enough for a message: { p = pct, n = counted, h = { { d, z, c, s, k }, ... } } (newest first).
