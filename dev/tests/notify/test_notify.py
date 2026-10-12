@@ -196,6 +196,37 @@ def pop_ups_wait_until_combat_ends():
 
 
 @case
+def a_pop_up_waiting_behind_other_toasts_keeps_its_icon_and_count_and_can_be_withdrawn():
+    """The shared toast stack shows 3 at most: a notification queued behind three other features' toasts must look
+    the same when it comes (its kind's icon, the +N count) and must leave the queue when it is handled meanwhile."""
+    w, c = solo("Alice")
+    setup(c)
+    for k in ("x1", "x2", "x3"):
+        c.eval("ns.UI:Toast({ key = ..., title = 'Other', duration = 0 })", k)
+    put(c, "gone", "Handled meanwhile")
+    assert toast(c) is None, "behind three toasts it waits"
+    drop(c, "gone")                                  # handled while it waits: it leaves the queue
+    w.tick(0.3)
+    assert c.eval("for _, o in ipairs(ns.UI:ToastQueue()) do if o.key == ns.NotifyUI.TOAST_KEY then return true end "
+                  "end return false") is False
+    put(c, "a", "First")
+    put(c, "b", "Second")
+    assert toast(c) is None
+    c.eval("ns.UI:HideToast('x1')")
+    w.tick(1)
+    t = toast(c)
+    assert t and t["title"] == "First", t
+    looks = c.eval_py("""
+      local t = ns.NotifyUI:GetToast()
+      local l, tp = t.icon:GetTexCoord()               -- (the upper-left corner)
+      local e = ns.UI:IconCoords(46)
+      return { kind = math.abs(l - e[1]) < 1e-6 and math.abs(tp - e[3]) < 1e-6,
+               more = t.dzNotifyOf and t.dzNotifyOf:IsShown() and t.dzNotifyOf:GetText() or false }""")
+    assert looks == {"kind": True, "more": "+1"}, looks
+    no_errors(w)
+
+
+@case
 def a_growing_stack_is_news_again():
     w, c = solo("Alice")
     setup(c)

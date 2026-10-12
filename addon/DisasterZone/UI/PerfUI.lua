@@ -1235,14 +1235,25 @@ function PerfUI:Refresh()
     p.layout.toolbar:SelectTab(state.tab)
     for k, v in pairs(p.views) do v:SetShown(k == state.tab) end
     local on, elapsed, secs = Perf():IsMeasuring()
+    -- (the icon is the toolbar's glyph beside the words: a stopwatch from art pack 7, else play; none while measuring)
+    local glyph = p.measure.glyph
+    local fs = p.measure:GetFontString()
     if on then
         p.measure:SetText(("Measuring %d s"):format(max(0, floor(secs - elapsed + 0.5))))
         p.measure:SetEnabled(false)
+        if glyph then glyph:Hide() end
+        if fs then
+            fs:ClearAllPoints()
+            fs:SetPoint("CENTER", 0, 0)
+        end
     else
-        -- (the addon's own icons: a stopwatch from art pack 7, else play)
-        local icon = ns:HasAssets(7) and UI.ICON.stopwatch or UI.ICON.play
-        p.measure:SetText(UI:AtlasIconText(icon, 13) .. "  " .. ("Measure %d s"):format(MEASURE_S))
+        p.measure:SetText(("Measure %d s"):format(MEASURE_S))
         p.measure:SetEnabled(not (InCombatLockdown and InCombatLockdown()))
+        if glyph then glyph:Show() end
+        if fs and glyph then
+            fs:ClearAllPoints()
+            fs:SetPoint("CENTER", 8, 0)
+        end
     end
     FillBanner(p)
     FILL[state.tab](p)

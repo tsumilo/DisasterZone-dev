@@ -373,6 +373,7 @@ local function PageCard(parent, key)
         if button == "RightButton" then
             if Arc then Arc:SetPinned(self.key, not Arc:IsPinned(self.key)) end
             self:Layout(self:GetWidth(), self:GetHeight())
+            UI:RefreshTooltip(self)        -- (its pin / unpin line follows at once)
             return
         end
         CloseBlizzardPanel()
@@ -1894,6 +1895,14 @@ local function LayoutMembers(cs, pool, list, y)
             text = text .. Grey(" (" .. m.fixed:lower() .. ")")
         end
         e:Set(text, nil, m.key)
+        -- (the chip's circle knows the guild roster only: a member from my group outside it keeps their class icon)
+        local EU = ns.EventUI
+        local cls = m.classFile or ClassOf(m.key)
+        if cls and e.cls and not (EU and EU.ClassOf and EU:ClassOf(m.key)) then
+            UI:ClassIcon(e.cls, cls)
+            e.cls:SetVertexColor(1, 1, 1, 1)
+            e.cls:SetDesaturated(false)
+        end
         if e:GetWidth() > colW - 8 then
             UI:FitText(e.fs, text, colW - 8 - 28)
             e:SetWidth(colW - 8)

@@ -89,6 +89,8 @@ end
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
 --   combat     false: waits until the fight is over
 --   itemID     the item's tooltip while hovered (tipLine: a grey line under it);  rightClose: a right-click dismisses it
+--   onShow(toast)  after it is filled and on screen (also when it waited in the queue first): the caller's own
+--              touches (its slot pieces, an icon tint)
 -- toast.slot is a frame over the toast for a caller's own pieces (emptied each time the toast is filled again).
 -- UI:HideToast(key | toast, reason), UI:GetToast(key), UI:ShownToasts(), UI:ToastQueue().
 UI.TOAST = { W = 380, TOP = -120, GAP = 8, MAX = 3, PAD = 12, ICON = 32, ART = 112, DURATION = 12, BTN_H = 22,
@@ -402,6 +404,7 @@ function H.Present(o)
     t:Show()
     t:Raise()
     H.Play(o.sound)
+    if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
     return t
 end
 
@@ -427,6 +430,7 @@ function UI:Toast(o)
         if t then
             H.FillToast(t, o)
             H.Restack()
+            if o.onShow then H.Safe("Toast onShow", o.onShow, t) end
             return t
         end
         for i, q in ipairs(toastQueue) do
@@ -491,6 +495,8 @@ end
 --     window when it is shown), centred on it with the window dimmed under it; on the screen when there is none.
 --     In the dialogs' strata (higher when its window is higher).
 --   opts.cover = true: inside `parent`, covering it (a panel's own sheet, like the Dungeons tab's).
+--   opts.child = true: floating, but a child of `parent`: closing that window hides it unanswered (no onClose) and
+--     opening the window again shows it again (an offer that waits for the window).
 -- opts: { title, width (460), height (330), onClose(sheet), name (a global name), pill = { kind, text },
 --   ok = text | { text, kind, width, onClick(sheet) } | false, cancel = text | false ("Cancel" with an ok; closes),
 --   foot = text (grey, left of the foot), bg (the cover's fill), rule = false (no hairline under the header) }
@@ -548,13 +554,15 @@ end
 
 -- The floating sheet's frame: the dim, the panel (a 1 px black ring, the slate's gradient, a light edge).
 function H.FloatingSheet(parent, opts)
-    local dim = CreateFrame("Frame", nil, UIParent)
+    -- opts.child: made inside `parent` (still floating, dimming it), so it hides and comes back with that window
+    local home = (opts.child and parent and parent ~= UIParent) and parent or UIParent
+    local dim = CreateFrame("Frame", nil, home)
     dim:SetFrameStrata("DIALOG")
     dim:SetFrameLevel(3000)
     dim:EnableMouse(true)
     dim.bg = UI:Fill(dim, { 0, 0, 0, 0.6 }, "BACKGROUND")
     dim:Hide()
-    local sh = CreateFrame("Frame", opts.name, UIParent)
+    local sh = CreateFrame("Frame", opts.name, home)
     sh:SetSize(opts.width or SH.W, opts.height or SH.H)
     sh:SetFrameStrata("DIALOG")
     sh:SetFrameLevel(3010)      -- high in its strata, so what is made in it climbs from there
@@ -682,9 +690,12 @@ function UI:CreateSheet(parent, opts)
     sh.onClose = opts.onClose
     sh:Hide()
     H.EscapeCloses(sh, function(self) self:Close() end)
+    sh.child = (not cover and opts.child and parent and parent ~= UIParent) and true or nil
     sh:HookScript("OnHide", function(self)
-        if self.dim then self.dim:Hide() end
         for _, eb in ipairs(self.fields or {}) do if eb.ClearFocus then eb:ClearFocus() end end
+        -- a child sheet hidden only with its window is not closed: it (and its dim) come back with the window
+        if self.child and self:IsShown() then return end
+        if self.dim then self.dim:Hide() end
         if self.onClose then H.Safe("Sheet onClose", self.onClose, self) end
     end)
     if opts.pill then sh:SetPill(opts.pill[1] or opts.pill.kind, opts.pill[2] or opts.pill.text) end

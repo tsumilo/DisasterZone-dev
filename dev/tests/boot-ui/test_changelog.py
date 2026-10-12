@@ -136,6 +136,27 @@ def a_release_shows_highlights_then_one_line_per_section():
 
 
 @case
+def a_release_title_fits_the_banner_whole():
+    """1.3.5 showed every release title whole on one line; the tool banner steps its title down a size before it
+    would cut it with "..." (titleSteps)."""
+    w, c = solo("Rai", guild_rank=3, tick=3)
+    c.slash("/dz changelog")
+    w.tick(0.3)
+    cut = c.eval_py("""local out = {}
+      for _, e in ipairs(ns.CHANGELOG) do
+        ns.ChangelogUI:Select(e.version)
+        local fs = ns.MainFrame:GetPanel('changelog').banner.title
+        local want = ns.UI:SafeText(e.title or '')
+        if fs:GetText() ~= want then out[#out + 1] = { e.version, fs:GetText() } end
+      end
+      return out""")
+    assert not cut, cut
+    # (the mock measures text loosely: the renders (ui_audit --look) are where a cut shows; the steps must be there)
+    assert c.eval("return ns.MainFrame:GetPanel('changelog').banner.opts.titleSteps ~= nil") is True
+    no_errors(w)
+
+
+@case
 def every_line_of_an_old_release_reads_when_opened():
     w, c = solo("Rai", guild_rank=3, tick=3)
     c.slash("/dz changelog")

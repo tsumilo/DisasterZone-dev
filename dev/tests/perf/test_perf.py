@@ -210,7 +210,9 @@ def the_page_has_a_banner_five_tabs_and_measures_from_its_button():
     assert c.eval("return %s.banner.title:GetText()" % P).endswith(" MB now")      # (the banner's title)
     assert c.eval("return %s.banner.kick:GetText()" % P).startswith("SESSION ")
     assert "3D rooms not loaded" in c.eval("return %s.banner.chips[4].fs:GetText()" % P)
-    assert "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools" in c.eval("return %s.measure:GetText()" % P)
+    # (Measure: one icon, the toolbar's glyph beside its words; none inside the words, like 1.3.5)
+    assert c.eval("return %s.measure:GetText()" % P) == "Measure 30 s"
+    assert c.eval("return %s.measure.glyph:IsShown()" % P) is True
     assert "Interface\\AddOns\\DisasterZone\\Media\\Strategy\\tools" in c.eval("return %s.clean:GetText()" % P)
     # Overview: the chart has columns, the addons card has my row (blue)
     assert c.eval("local n = 0 for _, b in ipairs(%s.views.overview.hourBox.chart.cols) do if b:IsShown() then "
@@ -228,9 +230,12 @@ def the_page_has_a_banner_five_tabs_and_measures_from_its_button():
     assert c.eval("return (ns.Perf:IsMeasuring())") is True
     assert c.eval("return ns.PerfUI._state.tab") == "garbage"
     assert "Measuring" in c.eval("return %s.measure:GetText()" % P)
+    assert c.eval("return %s.measure.glyph:IsShown()" % P) is False                # (no icon while it measures)
     c.fire("PLAYER_TARGET_CHANGED")
     w.tick(31)
     assert c.eval("return (ns.Perf:IsMeasuring())") is False
+    assert c.eval("return %s.measure:GetText()" % P) == "Measure 30 s"
+    assert c.eval("return %s.measure.glyph:IsShown()" % P) is True
     assert shown_rows(c, "views.garbage.list.rows") >= 1
     assert "measured" in c.eval("return %s.views.garbage.list.note:GetText()" % P)
     assert c.eval("return %s.views.garbage.side.ht:GetText()" % P) not in ("", "Nothing picked")

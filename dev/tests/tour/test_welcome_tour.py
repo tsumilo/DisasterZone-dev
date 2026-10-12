@@ -263,6 +263,48 @@ def settings_tutorials_for_a_raider():
 
 
 @case
+def closing_the_window_leaves_the_offer_unanswered():
+    """1.3.5: the offer was a child of the main window. Closing the window (or hiding it any other way) is no answer:
+    the offer and its dim go with the window and come back with it; only Not now, its X and Escape answer it."""
+    w, c = solo("Rai", guild_rank=3)
+    open_window(c)
+    assert offer_shown(c)
+    o = "%s.offerFrame" % W
+    assert c.eval("return %s:IsVisible() and %s.dim:IsVisible()" % (o, o)) is True
+    c.eval("ns.MainFrame:Close()")
+    w.tick(0.5)
+    assert c.eval("return %s:IsVisible() or %s.dim:IsVisible()" % (o, o)) is False   # nothing left on the screen
+    assert not progress(c).get("seen")
+    open_window(c)
+    assert c.eval("return %s:IsVisible() and %s.dim:IsVisible()" % (o, o)) is True
+    # a plain Hide (the audit harness's) is no answer either
+    c.eval("%s:Hide()" % o)
+    assert not progress(c).get("seen")
+    c.eval("%s:Open()" % o)
+    # its X answers it (Not now)
+    c.eval("%s.close:Click()" % o)
+    assert not offer_shown(c)
+    assert progress(c)["seen"] is True
+    no_errors(w)
+
+
+@case
+def escape_and_not_now_answer_the_offer():
+    for how in ("later", "escape"):
+        w, c = solo("Rai", guild_rank=3)
+        open_window(c)
+        assert offer_shown(c)
+        if how == "later":
+            c.eval("%s.offerFrame.later:Click()" % W)
+        else:
+            c.eval("local f = %s.offerFrame; f:GetScript('OnKeyDown')(f, 'ESCAPE')" % W)
+        assert not offer_shown(c), how
+        assert progress(c)["seen"] is True, how
+        assert state(c) is None, how
+        no_errors(w)
+
+
+@case
 def slash_tour_opens_the_offer_then_the_tour():
     w, c = solo("Rai", guild_rank=3)
     c.eval("%s:SlashTour()" % W)

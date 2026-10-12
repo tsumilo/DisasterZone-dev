@@ -198,9 +198,10 @@ local function BuildOffer()
     local sh = UI():CreateSheet(host, { name = "DisasterZoneWelcomeOffer", title = "Welcome tour", width = POP_W,
         height = 400, foot = "Asked once. It stays in Settings > Tutorials.",
         ok = { text = "Start the tour", width = 120, onClick = function() W:AnswerOffer(true) end },
-        cancel = "Not now",
-        -- Not now, its X and Escape all close it: every way out is an answer
-        onClose = function() if not W.answering then W:AnswerOffer(false) end end })
+        cancel = "Not now", child = true })
+    -- Not now, its X and Escape answer it (all go through Close). Closing the window only hides it unanswered (a
+    -- child sheet): it is offered again the next time the window opens.
+    sh.Close = function() W:AnswerOffer(false) end
     sh.box = sh
     sh.start, sh.later = sh.ok, sh.cancel
     sh.top = UI():CreatePageBanner(sh.body, { size = "tool", width = POP_W - 2 * UI().SHEET.PAD,
