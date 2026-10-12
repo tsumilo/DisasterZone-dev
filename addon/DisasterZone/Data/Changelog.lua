@@ -6,6 +6,21 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Data/Changelog.lua", ...) then ret
 local addonName, ns = ...
 
 ns.CHANGELOG = {
+    { version = "1.4.1", date = "13 October 2026", title = "Your alts and small fixes",
+      sections = {
+          { heading = "Your alts can change what you made", area = "guild", kind = "changed", lines = {
+              "Strategies, polls and events you made: edit or remove them from any of your characters.",
+              "(Members still on 1.4.0 see those changes once they update.)",
+          } },
+          { heading = "Fixes", area = "fixes", kind = "fixed", lines = {
+              "Chess: Resign asks first, so a stray click no longer ends your game.",
+              "The next raid's countdown and \"Pause pop-ups for an hour\" follow the server's clock.",
+              "Members: \"Last seen in\" times follow the server's clock too.",
+              "Dungeon run notes are no longer cut in the middle of an accented letter.",
+              "Guests and pugs show in their class colour in more places.",
+              "The Events and Dungeons pages draw once when you open them, not twice.",
+          } },
+      } },
     { version = "1.4.0", date = "12 October 2026", title = "One look across every page",
       sections = {
           { heading = "One look across every page", area = "look", kind = "changed", hi = true, art = "kara",
