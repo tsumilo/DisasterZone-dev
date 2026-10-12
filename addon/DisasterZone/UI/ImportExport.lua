@@ -9,14 +9,21 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/ImportExport.lua", ...) then re
 -- (Core/BiSExport.lua), in a box that is selected for Ctrl+C.
 -- Big pastes (a guild's That's My BiS export can be hundreds of KB): the box shows only the start (SetMaxBytes) and
 -- the whole text is collected from OnChar, as WeakAuras does, so the client doesn't stall on it.
+-- 1.4: a tool window (UI:CreateWindow + UI:CreateLayout "tool"): the banner says which tab is open and what it does,
+-- the tool row holds the Import / Export tabs; each tab's actions stay at its foot. Shared text styles, Style tokens,
+-- section headers, segments (Export: what and for), tooltips through UI:AttachTooltip and a "locked" notice on the
+-- Import tab while the lists are locked (Fill / Replace are disabled then, as before); ns.GearUI's helpers.
 local addonName, ns = ...
 
 local Win = ns:NewModule("ImportExport")
 
+local S = ns.Style
+local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pages share)
+
 local type, tostring, tonumber, ipairs, pairs = type, tostring, tonumber, ipairs, pairs
 local tconcat = table.concat
 
-local W, H = 640, 560
+local W, H = 640, 670
 local MAX_SHOWN = 16000
 local ROW_H, HEADER_ROW_H = 32, 20
 local NUM_SLOTS = 17
@@ -43,15 +50,11 @@ local function Exp() return ns.BiSExport end
 local function BiS() return ns.BiS end
 
 -- "Pre-raid" or "P<n>".
-local function PL(p) return ns.PhaseLabel and ns.PhaseLabel(p) or ("P" .. tostring(p)) end
-
-local function SlotLabel(sid)
-    local s = ns.SLOTS and ns.SLOTS[sid]
-    return s and s.label or ("Slot " .. tostring(sid))
-end
+local PL = GearUI.PL
+local SlotLabel = ns.SlotLabel
 
 local function ClassName(classFile)
-    return (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[classFile]) or classFile or "?"
+    return ns.ClassName(classFile, true) or "?"
 end
 
 local function MyClass()
@@ -59,36 +62,28 @@ local function MyClass()
     return classFile
 end
 
-local function ListLocked()
-    local ui = UI()
-    if ui and ui.IsMyListLocked then return ui:IsMyListLocked() end
-    return false
-end
-
-local function HasOffSpec()
-    return BiS() and BiS():HasOffSpec() or false
-end
+local ListLocked = GearUI.ListLocked
+local HasOffSpec = GearUI.HasOffSpec
 
 local function Plural(n, one, many)
     return n == 1 and ("1 " .. one) or (tostring(n) .. " " .. (many or (one .. "s")))
 end
 
-local GREEN, GREY, ORANGE, RED = { 0.3, 0.9, 0.3 }, { 0.6, 0.6, 0.6 }, { 1, 0.6, 0.2 }, { 1, 0.35, 0.3 }
+local GREEN, GREY, ORANGE, RED = S.C.OK, S.C.SUB, S.C.WARN, S.C.BAD
 local function Tint(text, c) return UI():Colorize(text, c) end
 
 ---------------------------------------------------------------------------
 -- Text boxes (a flat field with a scroll frame around a multi-line edit box)
 ---------------------------------------------------------------------------
 
+-- TODO(refactor): move into a shared multi-line text area (UI:CreateSleekEditBox is one line).
 local function CreateTextBox(parent, height)
     local ui = UI()
     local holder = CreateFrame("Frame", nil, parent)
     holder:SetHeight(height)
-    holder.bg = holder:CreateTexture(nil, "BACKGROUND")
-    holder.bg:SetAllPoints()
-    holder.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    holder.bg = ui:Fill(holder, "CARD")
     ui:AddEdges(holder)
-    ui:SetEdgeColor(holder, 0.34, 0.34, 0.38, 0.9)
+    ui:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
 
     local sf = ui:CreateScrollFrame(holder)
     sf:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -5)
@@ -119,11 +114,11 @@ local function CreateTextBox(parent, height)
         if to then sf:SetVerticalScroll(math.max(0, math.min(range, to))) end
     end)
     eb:SetScript("OnEditFocusGained", function(self)
-        ui:SetEdgeColor(holder, 1, 0.82, 0, 0.75)
+        ui:SetEdgeColor(holder, S:Color("EDGE_FOCUS"))
         self:HighlightText()
     end)
     eb:SetScript("OnEditFocusLost", function(self)
-        ui:SetEdgeColor(holder, 0.34, 0.34, 0.38, 0.9)
+        ui:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
         self:HighlightText(0, 0)
     end)
     holder:EnableMouse(true)
@@ -158,7 +153,7 @@ local function StatusText(plan)
     if state.err then return Tint(state.err, RED) end
     local p = state.parsed
     if not p then return "" end
-    local label = "|cffffd100" .. p.label .. "|r"
+    local label = S:Wrap("GOLD", p.label)
     if p.format == "tmb" then
         local text = label .. "  ·  " .. Plural(#p.characters, "character")
         local c = state.character and p.byChar[state.character]
@@ -177,16 +172,16 @@ local function StatusText(plan)
     return text
 end
 
-local function UnplacedTooltip(owner, plan)
-    GameTooltip:SetOwner(owner, "ANCHOR_TOP")
-    GameTooltip:AddLine("Not placed", 1, 0.82, 0)
-    GameTooltip:AddLine("Add these yourself if you want them (click a slot in My BiS).", 1, 1, 1, true)
+local function UnplacedTooltip(owner, tt)
+    local plan = owner.plan
+    if not plan then return false end
+    tt:AddLine("Not placed", S:Color("GOLD"))
+    tt:AddLine("Add these yourself if you want them (click a slot in My BiS).", 1, 1, 1, true)
     for _, u in ipairs(plan.unplaced) do
         local why = Imp().WHY[u.why] or u.why or "?"
         if u.why == "full" and u.sid then why = SlotLabel(u.sid) .. " already has a main and an alt pick" end
-        GameTooltip:AddDoubleLine(UI():ItemText(u.id), why, 1, 1, 1, 0.7, 0.7, 0.7)
+        tt:AddDoubleLine(UI():ItemText(u.id), why, 1, 1, 1, 0.7, 0.7, 0.7)
     end
-    GameTooltip:Show()
 end
 
 local function PreviewData(plan)
@@ -208,41 +203,24 @@ local function InitPreviewRow(row, d)
     local ui = UI()
     if not row.cdlInit then
         row.cdlInit = true
-        row.head = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        row.head = ui:Text(row, "emph", "GOLD")
         row.head:SetPoint("LEFT", row, "LEFT", 6, 0)
-        row.slot = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        row.slot = ui:Text(row, "small", "GOLD", { width = 76 })
         row.slot:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -4)
-        row.slot:SetWidth(76)
-        row.slot:SetJustifyH("LEFT")
-        row.slot:SetWordWrap(false)
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(22, 22)
         row.icon:SetPoint("LEFT", row, "LEFT", 84, 0)
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name = ui:Text(row, "small", "TEXT", { width = 246 })
         row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 112, -4)
-        row.name:SetWidth(246)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
-        row.alt = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.alt = ui:Text(row, "small", "DIM", { width = 246 })
         row.alt:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-        row.alt:SetWidth(246)
-        row.alt:SetJustifyH("LEFT")
-        row.alt:SetWordWrap(false)
-        row.now = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.now = ui:Text(row, "small", "TEXT")
         row.now:SetPoint("TOPLEFT", row, "TOPLEFT", 366, -4)
         row.now:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-        row.now:SetJustifyH("LEFT")
-        row.now:SetWordWrap(false)
-        row.note = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        row.note = ui:Text(row, "small", "DIM")
         row.note:SetPoint("TOPLEFT", row.now, "BOTTOMLEFT", 0, -3)
         row.note:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-        row.note:SetJustifyH("LEFT")
-        row.note:SetWordWrap(false)
-        row.line = row:CreateTexture(nil, "BACKGROUND")
-        row.line:SetPoint("BOTTOMLEFT", 4, 0)
-        row.line:SetPoint("BOTTOMRIGHT", -4, 0)
-        row.line:SetHeight(1)
-        row.line:SetColorTexture(1, 1, 1, 0.06)
+        row.line = ui:Rule(row, { bottom = 0, left = 4, right = 4, alpha = 0.06, layer = "BACKGROUND" })
         row:SetScript("OnEnter", function(self)
             local data = self.__cdlData
             if data and not data.header then
@@ -314,7 +292,7 @@ local function BuildCharacterMenu(root)
     root:CreateTitle("Whose wishlist?")
     for _, name in ipairs(p.characters) do
         local c = p.byChar[name]
-        local text = name .. "  |cff808080" .. #c.items .. "|r"
+        local text = name .. "  " .. S:Wrap("DIM", #c.items)
         root:CreateRadio(text, function(v) return state.character == v end, function(v)
             state.character = v
             state.done = nil
@@ -365,34 +343,27 @@ local function CreateImportPane(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
 
-    p.hint = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    p.hint:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -4)
-    p.hint:SetPoint("RIGHT", p, "RIGHT", -150, 0)
-    p.hint:SetJustifyH("LEFT")
-    p.hint:SetText("Paste a list from That's My BiS, Sixty Upgrades, WoWSims, a Wowhead gear planner link, or "
-        .. "item links. Nothing changes until you click Fill or Replace.")
-
-    p.where = CreateFrame("Button", nil, p)
-    p.where:SetPoint("TOPRIGHT", p, "TOPRIGHT", -8, -4)
-    p.where.fs = p.where:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    p.where.fs:SetPoint("RIGHT")
-    p.where.fs:SetText("Where do I copy it?")
-    p.where:SetSize((p.where.fs:GetStringWidth() or 110) + 4, 16)
-    p.where:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-        GameTooltip:AddLine("Where to copy it", 1, 0.82, 0)
-        for _, l in ipairs(WHERE_LINES) do
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(l[1], 1, 0.82, 0)
-            GameTooltip:AddLine(l[2], 1, 1, 1, true)
-        end
-        GameTooltip:Show()
-    end)
-    p.where:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- (what to paste is the banner's sub line; where to copy it, the header's link)
+    p.head = ui:CreateSectionHeader(p, "Paste a list", { style = "caps",
+        right = "Nothing changes until you click Fill or Replace.", action = {
+        text = "Where do I copy it?",
+        tip = { function(_, tt)
+            local gr, gg, gb = S:Color("GOLD")
+            tt:AddLine("Where to copy it", gr, gg, gb)
+            for _, l in ipairs(WHERE_LINES) do
+                tt:AddLine(" ")
+                tt:AddLine(l[1], gr, gg, gb)
+                tt:AddLine(l[2], 1, 1, 1, true)
+            end
+        end },
+    } })
+    p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 4, 0)
+    p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, 0)
+    p.where = p.head.action
 
     p.box = CreateTextBox(p, 90)
-    p.box:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -34)
-    p.box:SetPoint("TOPRIGHT", p, "TOPRIGHT", -6, -34)
+    p.box:SetPoint("TOPLEFT", p, "TOPLEFT", 6, -24)
+    p.box:SetPoint("TOPRIGHT", p, "TOPRIGHT", -6, -24)
     local eb = p.box.eb
     eb:SetMaxBytes(MAX_SHOWN)
     eb:SetScript("OnChar", function(_, c)
@@ -434,20 +405,18 @@ local function CreateImportPane(parent)
         Win:SetSource(text)
     end)
 
-    p.status = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.status = ui:Text(p, "small", "TEXT", { wrap = true })
     p.status:SetPoint("TOPLEFT", p.box, "BOTTOMLEFT", 2, -6)
     p.status:SetPoint("RIGHT", p, "RIGHT", -8, 0)
-    p.status:SetJustifyH("LEFT")
     p.status:SetHeight(26)
     p.status:SetJustifyV("TOP")
 
     -- where it goes: [character] Into [P1] [Main spec]
-    local rowY = -166
+    local rowY = -156
     p.rowY = rowY
     p.charBtn = ui:CreateSleekMenuButton(p, "", 170, BuildCharacterMenu)
     p.charBtn:SetPoint("TOPLEFT", p, "TOPLEFT", 6, rowY)
-    p.into = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    p.into:SetText("Into")
+    p.into = ui:Text(p, "small", "GOLD", { text = "Into" })
     p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.phase end, function(v)
         state.phase = tonumber(v) or 1
         state.done = nil
@@ -459,9 +428,8 @@ local function CreateImportPane(parent)
         Win:RefreshImport()
     end)
     p.listDD:SetPoint("LEFT", p.phaseDD, "RIGHT", 6, 0)
-    p.osNote = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    p.osNote = ui:Text(p, "small", "DIM", { text = "Off-spec items go to your off-spec list" })
     p.osNote:SetPoint("LEFT", p.phaseDD, "RIGHT", 10, 0)
-    p.osNote:SetText("Off-spec items go to your off-spec list")
 
     p.header = ui:CreateColumnHeader(p, 18)
     p.header:SetPoint("TOPLEFT", p, "TOPLEFT", 4, rowY - 30)
@@ -483,10 +451,9 @@ local function CreateImportPane(parent)
     p.unplaced = CreateFrame("Button", nil, p)
     p.unplaced:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -8, 40)
     p.unplaced:SetHeight(16)
-    p.unplaced.fs = p.unplaced:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.unplaced.fs = ui:Text(p.unplaced, "small", "TEXT")
     p.unplaced.fs:SetPoint("RIGHT")
-    p.unplaced:SetScript("OnEnter", function(self) if self.plan then UnplacedTooltip(self, self.plan) end end)
-    p.unplaced:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    ui:AttachTooltip(p.unplaced, UnplacedTooltip, nil, { anchor = "ANCHOR_TOP" })
 
     p.replace = ui:CreateButton(p, "Replace P1", 130, 24, function()
         local plan = ImportPlan()
@@ -503,23 +470,29 @@ local function CreateImportPane(parent)
     p.fill = ui:CreateButton(p, "Fill empty slots", 130, 24, function() Win:Apply(false) end)
     p.fill:SetPoint("RIGHT", p.replace, "LEFT", -6, 0)
     for _, b in ipairs({ p.fill, p.replace }) do
-        b:HookScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        ui:AttachTooltip(b, function(self, tt)
+            local gr, gg, gb = S:Color("GOLD")
             if self == p.fill then
-                GameTooltip:AddLine("Fill empty slots", 1, 0.82, 0)
-                GameTooltip:AddLine("Puts the import into the slots of " .. PL(state.phase) .. " that have no main pick. "
+                tt:AddLine("Fill empty slots", gr, gg, gb)
+                tt:AddLine("Puts the import into the slots of " .. PL(state.phase) .. " that have no main pick. "
                     .. "Your other picks stay.", 1, 1, 1, true)
             else
-                GameTooltip:AddLine("Replace " .. PL(state.phase), 1, 0.82, 0)
-                GameTooltip:AddLine("Makes " .. PL(state.phase) .. " exactly the imported list: slots it doesn't fill "
+                tt:AddLine("Replace " .. PL(state.phase), gr, gg, gb)
+                tt:AddLine("Makes " .. PL(state.phase) .. " exactly the imported list: slots it doesn't fill "
                     .. "are emptied (disabled slots stay as they are).", 1, 1, 1, true)
             end
-            if self.count then GameTooltip:AddLine(Plural(self.count, "slot") .. " change.", 0.7, 0.7, 0.7) end
-            if ListLocked() then GameTooltip:AddLine("BiS lists are locked during the raid.", 1, 0.35, 0.3, true) end
-            GameTooltip:Show()
-        end)
-        b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+            if self.count then tt:AddLine(Plural(self.count, "slot") .. " change.", 0.7, 0.7, 0.7) end
+            if ListLocked() then
+                local br, bg, bb = S:Color("BAD")
+                tt:AddLine("BiS lists are locked during the raid.", br, bg, bb, true)
+            end
+        end, nil, { anchor = "ANCHOR_TOP" })
     end
+    -- while the lists are locked: a notice where the buttons are (they are disabled; display only)
+    p.lockNote = ui:CreateNotice(p, "locked", "")
+    p.lockNote:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 6, 8)
+    p.lockNote:SetPoint("RIGHT", p.fill, "LEFT", -10, 0)
+    p.lockNote:Hide()
     return p
 end
 
@@ -578,6 +551,11 @@ function Win:RefreshImport()
     p.replace:SetText("Replace " .. PL(state.phase) .. (replace > 0 and (" (" .. replace .. ")") or ""))
     p.fill:SetEnabled(plan ~= nil and fill > 0 and not locked)
     p.replace:SetEnabled(plan ~= nil and replace > 0 and not locked)
+    if locked then
+        local _, info = ListLocked()
+        p.lockNote:SetNotice("locked", "Locked by " .. UI():LockByText(info) .. " during the raid")
+    end
+    p.lockNote:SetShown(locked and true or false)
 end
 
 -- The whole pasted text (also for tests): parses it and refreshes the preview.
@@ -654,20 +632,17 @@ local function CreateExportPane(parent)
     local p = CreateFrame("Frame", nil, parent)
     p:SetAllPoints(parent)
 
-    p.whatLabel = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    -- what: Current gear | BiS list (UI:CreateSegments), then the phase and list of a BiS list
+    p.whatLabel = ui:Text(p, "small", "GOLD", { width = 44, text = "Export" })
     p.whatLabel:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -10)
-    p.whatLabel:SetWidth(44)
-    p.whatLabel:SetJustifyH("LEFT")
-    p.whatLabel:SetText("Export")
-    p.gearBtn = ui:CreateButton(p, "Current gear", 104, 22, function() Win:SetExport("gear") end)
-    p.gearBtn:SetPoint("LEFT", p.whatLabel, "RIGHT", 4, 0)
-    p.bisBtn = ui:CreateButton(p, "BiS list", 80, 22, function() Win:SetExport("bis") end)
-    p.bisBtn:SetPoint("LEFT", p.gearBtn, "RIGHT", 4, 0)
+    p.what = ui:CreateSegments(p, { { key = "gear", label = "Current gear" }, { key = "bis", label = "BiS list" } },
+        function(key) Win:SetExport(key) end, { h = 22 })
+    p.what:SetPoint("LEFT", p.whatLabel, "RIGHT", 4, 0)
     p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.exPhase end, function(v)
         state.exPhase = tonumber(v) or 1
         Win:RefreshExport()
     end)
-    p.phaseDD:SetPoint("LEFT", p.bisBtn, "RIGHT", 10, 0)
+    p.phaseDD:SetPoint("LEFT", p.what, "RIGHT", 10, 0)
     p.listDD = ui:CreateDropdown(p, 110, function()
         return { { value = "ms", text = "Main spec" }, { value = "os", text = "Off spec" } }
     end, function() return state.exList end, function(v)
@@ -676,26 +651,18 @@ local function CreateExportPane(parent)
     end)
     p.listDD:SetPoint("LEFT", p.phaseDD, "RIGHT", 6, 0)
 
-    p.forLabel = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    -- for: WoWSims | WoWSims Bulk | Wowhead link (UI:CreateSegments)
+    p.forLabel = ui:Text(p, "small", "GOLD", { width = 44, text = "For" })
     p.forLabel:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -40)
-    p.forLabel:SetWidth(44)
-    p.forLabel:SetJustifyH("LEFT")
-    p.forLabel:SetText("For")
-    p.formatBtns = {}
-    local prev
-    for _, f in ipairs(FORMATS) do
-        local b = ui:CreateButton(p, f.label, nil, 22, function() Win:SetExport(nil, f.key) end)
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("LEFT", p.forLabel, "RIGHT", 4, 0) end
-        b.key = f.key
-        p.formatBtns[#p.formatBtns + 1] = b
-        prev = b
-    end
+    local formats = {}
+    for i, f in ipairs(FORMATS) do formats[i] = { key = f.key, label = f.label } end
+    p.format = ui:CreateSegments(p, formats, function(key) Win:SetExport(nil, key) end, { h = 22 })
+    p.format:SetPoint("LEFT", p.forLabel, "RIGHT", 4, 0)
 
-    p.help = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.help = ui:Text(p, "small", "TEXT", { wrap = true })
     p.help:SetPoint("TOPLEFT", p, "TOPLEFT", 8, -68)
     p.help:SetPoint("RIGHT", p, "RIGHT", -8, 0)
     p.help:SetHeight(40)
-    p.help:SetJustifyH("LEFT")
     p.help:SetJustifyV("TOP")
 
     p.box = CreateTextBox(p, 200)
@@ -710,9 +677,8 @@ local function CreateExportPane(parent)
         end
     end)
 
-    p.copy = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    p.copy = ui:Text(p, "small", "DIM", { text = "The text is selected: press Ctrl+C to copy it." })
     p.copy:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 8, 12)
-    p.copy:SetText("The text is selected: press Ctrl+C to copy it.")
     p.select = ui:CreateButton(p, "Select all", 90, 22, function()
         eb:SetFocus()
         eb:HighlightText()
@@ -738,14 +704,13 @@ function Win:RefreshExport()
     if not (win and win.export) then return end
     local p = win.export
     local bis = state.what == "bis"
-    p.gearBtn:SetKind(bis and "secondary" or "chosen")
-    p.bisBtn:SetKind(bis and "chosen" or "secondary")
+    p.what:Select(state.what)
     if state.exList == "os" and not HasOffSpec() then state.exList = "ms" end
     p.phaseDD:SetShown(bis)
     p.listDD:SetShown(bis and HasOffSpec())
     p.phaseDD:Refresh()
     p.listDD:Refresh()
-    for _, b in ipairs(p.formatBtns) do b:SetKind(b.key == state.format and "chosen" or "secondary") end
+    p.format:Select(state.format)
     local text, help = ExportText()
     p.text = text
     p.help:SetText(help or "")
@@ -767,22 +732,23 @@ end
 -- Window
 ---------------------------------------------------------------------------
 
+-- The banner of each tab: what it does.
+local PANE_INFO = {
+    import = { icon = "import", title = "Import", sub = "From That's My BiS, Sixty Upgrades, WoWSims, a Wowhead gear "
+        .. "planner link, or item links." },
+    export = { icon = "export", title = "Export", sub = "Your gear or a BiS phase for WoWSims or Wowhead." },
+}
+
 local function Create()
     local ui = UI()
     win = ui:CreateWindow("DisasterZoneImportExport", "Import / Export BiS list", W, H)
-    local c = win.content
-    win.tabs = {}
-    local prev
-    for _, t in ipairs({ { "import", "Import" }, { "export", "Export" } }) do
-        local b = ui:CreateUnderlineTab(c, t[2], function() Win:SetTab(t[1]) end)
-        if prev then b:SetPoint("LEFT", prev, "RIGHT", 4, 0) else b:SetPoint("TOPLEFT", c, "TOPLEFT", 6, -2) end
-        b.key = t[1]
-        win.tabs[#win.tabs + 1] = b
-        prev = b
-    end
-    local body = CreateFrame("Frame", nil, c)
-    body:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -28)
-    body:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 0)
+    -- (a tool window: the banner, the tabs on the tool row, the open tab's pane as the body)
+    local layout = ui:CreateLayout("tool", win.content, { width = W - 10, toolbar = true,
+                                                         banner = { icon = ui.ICON.import, kicker = "BiS list" } })
+    win.layout, win.banner = layout, layout.banner
+    win.tabs = layout.toolbar:SetTabs({ { key = "import", text = "Import" }, { key = "export", text = "Export" } },
+        function(key) Win:SetTab(key) end)
+    local body = layout.body
     win.body = body
     win.import = CreateImportPane(body)
     win.export = CreateExportPane(body)
@@ -796,7 +762,12 @@ end
 function Win:SetTab(tab)
     state.tab = (tab == "export") and "export" or "import"
     if not win then return end
-    for _, b in ipairs(win.tabs) do b:SetActive(b.key == state.tab) end
+    win.layout.toolbar:SelectTab(state.tab)
+    local bn, ui = win.banner, UI()
+    local info = PANE_INFO[state.tab]
+    bn:SetIcon(ui.ICON[info.icon])
+    bn:SetTitle(info.title)
+    bn:SetSub(info.sub)
     win.import:SetShown(state.tab == "import")
     win.export:SetShown(state.tab == "export")
     if state.tab == "import" then self:RefreshImport() else self:RefreshExport() end

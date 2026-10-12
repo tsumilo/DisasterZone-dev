@@ -4,47 +4,44 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/KitView.lua", ...) then return 
 -- line. A card is quiet: the name, what it does (or its DPS once the gear sim ran it) and a check when my bags hold a
 -- night's worth; the rest (counts, who makes it, what it costs) is in its tooltip, and the bag button for the
 -- shopping list shows under the mouse. The bar at the bottom adds up both kits and fills the shopping list.
+-- 1.4: the body of the My BiS panel's Board layout on the Consumables page: a caps section header over the two
+-- columns, the cards are UI:CreateCard's quiet tone, the kit's status (DPS, the bags) on a card along the body's foot,
+-- and the page's actions on the layout's toolbar (Add prog kit = its main action at the far right, Add farm kit
+-- beside it); shared text styles, Style tokens, tooltips through UI:AttachTooltip and the illustrated empty state.
 local _, ns = ...
 
 local KitView = {}
 ns.KitView = KitView
 
+local S = ns.Style
 local floor, max, abs = math.floor, math.max, math.abs
 
-local GOLD = { 0.89, 0.70, 0.24 }
-local GREEN = { 0.31, 0.83, 0.42 }
-local AMBER = { 0.95, 0.66, 0.26 }
-local GREY = { 0.56, 0.56, 0.59 }
+local GOLD = S.C.GOLD                 -- text
+local GOLD_EDGE = S.C.GOLD_DEEP       -- the best picks' edge, the bar's top, the progress
+local GREEN = S.C.OK
+local AMBER = S.C.WARN
+local GREY = S.C.SUB
 local SOFT = { 0.72, 0.72, 0.75 }
-local WHITE = { 0.95, 0.95, 0.95 }
-local BAR_BG = { 0.085, 0.085, 0.1, 0.96 }
+local WHITE = S.C.TEXT
 
 local TILE_W, TILE_H, GAP, MID_X, MID_W = 262, 56, 6, 270, 230
 local HEAD_H = 18
 local ROWS = 6
 local KITBAR_H = 58
-local BAR_X, PIPS_X = 10, 290   -- the bar spans the page: its contents start at the cards' edge (My BiS's PAD)
+local BAR_X, PIPS_X = 0, 290    -- (the status card's contents from its left edge)
 local READY_TEX = "Interface\\RaidFrame\\ReadyCheck-Ready"
 
 local state = { active = false }
 local view
 
 local function K() return ns.Kit end
-local FONT = (GameFontNormal and GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
 
-local function Text(parent, size, color, justify)
-  local fs = parent:CreateFontString(nil, "OVERLAY")
-  fs:SetFont(FONT, size, "")
-  fs:SetShadowOffset(1, -1)
-  fs:SetShadowColor(0, 0, 0, 0.8)
-  if color then fs:SetTextColor(color[1], color[2], color[3]) end
-  fs:SetJustifyH(justify or "LEFT")
-  fs:SetWordWrap(false)
-  return fs
+-- A text in a style of the type scale (with the game's drop shadow, as the cards always had).
+local function Label(parent, style, color, justify)
+  return ns.UI:Text(parent, style, color, { justify = justify, shadow = true })
 end
 
-local function Hex(c) return ("%02x%02x%02x"):format(floor(c[1] * 255), floor(c[2] * 255), floor(c[3] * 255)) end
-local function Col(text, c) return "|cff" .. Hex(c) .. text .. "|r" end
+local function Col(text, c) return ns.UI:Colorize(text, c) end
 
 -- 12g / 40s (a night's worth rounded the way people say it)
 local function Money(copper)
@@ -102,66 +99,65 @@ end
 -- what a night costs; for Same / Skip it why.
 local KIT_NAME = { best = "prog kit", budget = "farm kit" }
 
-local function CardTooltip(c)
+local function CardTooltip(c, tt)
   local Kt = K()
-  if not c.row then return end
+  if not c.row then return false end
   local row, s = c.row, c.row and c.row[c.sideKey]
-  if not s then return end
-  GameTooltip:SetOwner(c, c.side == "R" and "ANCHOR_LEFT" or "ANCHOR_RIGHT")
+  if not s then return false end
+  local gr, gg, gb = S:Color("GOLD")
   if c.off then
-    GameTooltip:AddLine(NameOf(Kt:SideIds(row, c.sideKey)), 0.7, 0.7, 0.72)
-    GameTooltip:AddLine("Left out of your " .. KIT_NAME[c.sideKey] .. ": not counted and not added to the shopping list.",
+    tt:AddLine(NameOf(Kt:SideIds(row, c.sideKey)), 0.7, 0.7, 0.72)
+    tt:AddLine("Left out of your " .. KIT_NAME[c.sideKey] .. ": not counted and not added to the shopping list.",
       1, 1, 1, true)
-    GameTooltip:AddLine("Click: put it back", 0.5, 0.5, 0.52)
-    GameTooltip:Show()
+    tt:AddLine("Click: put it back", 0.5, 0.5, 0.52)
     return
   end
   if s.kind == "skip" or s.kind == "same" then
-    GameTooltip:AddLine(s.kind == "skip" and "Skip it" or "Same as the best pick", 1, 0.82, 0)
-    if s.text and s.text ~= "" then GameTooltip:AddLine(s.text, 1, 1, 1, true) end
-    GameTooltip:AddLine("Click: choose your own  \194\183  Right-click: more", 0.5, 0.5, 0.52)
-    GameTooltip:Show()
+    tt:AddLine(s.kind == "skip" and "Skip it" or "Same as the best pick", gr, gg, gb)
+    if s.text and s.text ~= "" then tt:AddLine(s.text, 1, 1, 1, true) end
+    tt:AddLine("Click: choose your own  \194\183  Right-click: more", 0.5, 0.5, 0.52)
     return
   end
   local ids = c.ids or {}
-  if #ids == 1 and GameTooltip.SetItemByID then
-    GameTooltip:SetItemByID(ids[1])
-    GameTooltip:AddLine(" ")
+  if #ids == 1 and tt.SetItemByID then
+    tt:SetItemByID(ids[1])
+    tt:AddLine(" ")
   else
-    GameTooltip:AddLine(NameOf(ids), 1, 0.82, 0)
+    tt:AddLine(NameOf(ids), gr, gg, gb)
   end
-  if s.text and s.text ~= "" then GameTooltip:AddLine(s.text, 1, 1, 1, true) end
+  if s.text and s.text ~= "" then tt:AddLine(s.text, 1, 1, 1, true) end
   for _, id in ipairs(ids) do
     local have, need = Kt:Have(id), Kt:Need(id)
     local hc = have >= need and GREEN or AMBER
-    GameTooltip:AddDoubleLine((#ids > 1 and (Kt:Name(id) .. "  ") or "") .. Col(Kt:Effect(id), SOFT),
+    tt:AddDoubleLine((#ids > 1 and (Kt:Name(id) .. "  ") or "") .. Col(Kt:Effect(id), SOFT),
       Col(("%d of %d in bags"):format(have, need), hc), 1, 1, 1)
     local bank = Kt:InBank(id)
-    if bank > 0 then GameTooltip:AddLine(("%d more in your bank"):format(bank), 0.6, 0.6, 0.62) end
+    if bank > 0 then tt:AddLine(("%d more in your bank"):format(bank), 0.6, 0.6, 0.62) end
     local who = Kt:Crafter(id)
     if who == "me" then
-      GameTooltip:AddLine("You can make it", 0.6, 0.6, 0.62)
+      tt:AddLine("You can make it", 0.6, 0.6, 0.62)
     elseif who then
-      GameTooltip:AddLine("Made by " .. (ns.UI.ColoredName and ns.UI:ColoredName(who) or who), 0.6, 0.6, 0.62)
+      tt:AddLine("Made by " .. (ns.UI.ColoredName and ns.UI:ColoredName(who) or who), 0.6, 0.6, 0.62)
     elseif not Kt:CanList(id) then
-      GameTooltip:AddLine("No craft makes it: the auction house", 0.6, 0.6, 0.62)
+      tt:AddLine("No craft makes it: the auction house", 0.6, 0.6, 0.62)
     end
     local p = Kt:Price(id)
-    if p then GameTooltip:AddLine((Money(p * need) or "") .. " a night (Auctionator)", 0.6, 0.6, 0.62) end
+    if p then tt:AddLine((Money(p * need) or "") .. " a night (Auctionator)", 0.6, 0.6, 0.62) end
   end
   if s.custom then
     local def = s.default and #s.default > 0 and NameOf(s.default)
       or (s.defaultKind == "same" and "same as the prog kit") or "skip it"
-    GameTooltip:AddLine("Your own pick  \194\183  the guide's: " .. def, GOLD[1], GOLD[2], GOLD[3], true)
+    tt:AddLine("Your own pick  \194\183  the guide's: " .. def, gr, gg, gb, true)
   end
-  GameTooltip:AddLine("A night: a three hour raid.  Shift-click an icon to link it.", 0.5, 0.5, 0.52, true)
-  GameTooltip:AddLine("Click: choose another  \194\183  Right-click: more", 0.5, 0.5, 0.52)
-  GameTooltip:Show()
+  tt:AddLine("A night: a three hour raid.  Shift-click an icon to link it.", 0.5, 0.5, 0.52, true)
+  tt:AddLine("Click: choose another  \194\183  Right-click: more", 0.5, 0.5, 0.52)
 end
 
--- The bag button shows under the mouse (on the card or its icons) while the shopping list can take something.
+-- The bag button shows under the mouse (on the card or its icons) while the shopping list can take something; the
+-- quiet card lifts a little.
 local function ShowBag(c, on)
   c.bag:SetShown(on and c.canList and true or false)
+  if c.SetHovered then c:SetHovered(on) end
 end
 
 local function Hovered(c)
@@ -297,28 +293,18 @@ end
 
 local function CreateCard(parent, side)
   local UI = ns.UI
-  local c = CreateFrame("Frame", nil, parent)
-  c:SetSize(TILE_W, TILE_H)
+  local right = side == "R"
+  -- (UI:CreateCard's quiet tone: a lift fading toward the middle, like My BiS's doll)
+  local c = UI:CreateCard(parent, { tone = "quiet", fade = right and "right" or "left", width = TILE_W, height = TILE_H })
   c:EnableMouse(true)
   c.side = side
-  local right = side == "R"
-  c.bg = c:CreateTexture(nil, "BACKGROUND")
-  c.bg:SetAllPoints()
-  c.bg:SetColorTexture(1, 1, 1, 1)
-  local a = 0.11
-  if c.bg.SetGradient and CreateColor then
-    local far, near = CreateColor(0.55, 0.55, 0.62, a), CreateColor(0.55, 0.55, 0.62, a * 0.25)
-    if right then c.bg:SetGradient("HORIZONTAL", near, far) else c.bg:SetGradient("HORIZONTAL", far, near) end
-  else
-    c.bg:SetColorTexture(0.55, 0.55, 0.62, a * 0.6)
-  end
-  -- the best picks: a gold edge on the outer side
+  -- the best picks: a gold accent bar on the outer side (the selected rows' bar)
   c.edge = c:CreateTexture(nil, "BORDER")
   c.edge:SetWidth(2)
   c.edge:SetPoint("TOP", c, "TOP", 0, 0)
   c.edge:SetPoint("BOTTOM", c, "BOTTOM", 0, 0)
   c.edge:SetPoint(right and "RIGHT" or "LEFT", c, right and "RIGHT" or "LEFT", 0, 0)
-  c.edge:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+  c.edge:SetColorTexture(GOLD_EDGE[1], GOLD_EDGE[2], GOLD_EDGE[3], 0.9)
   c.edge:SetShown(not right)
 
   c.icon = UI:CreateItemButton(c, 40)
@@ -332,10 +318,10 @@ local function CreateCard(parent, side)
 
   local textX = 8 + 40 + 10
   local room = TILE_W - textX - 8
-  c.name = Text(c, 12, WHITE, right and "RIGHT" or "LEFT")
+  c.name = Label(c, "emph", WHITE, right and "RIGHT" or "LEFT")
   c.name:SetPoint(right and "TOPRIGHT" or "TOPLEFT", c, right and "TOPRIGHT" or "TOPLEFT", right and -textX or textX, -12)
   c.name:SetWidth(room)
-  c.line = Text(c, 10, SOFT, right and "RIGHT" or "LEFT")
+  c.line = Label(c, "small", SOFT, right and "RIGHT" or "LEFT")
   c.line:SetPoint(right and "TOPRIGHT" or "TOPLEFT", c, right and "TOPRIGHT" or "TOPLEFT", right and -textX or textX, -31)
   c.line:SetWidth(room - 24)
 
@@ -359,35 +345,37 @@ local function CreateCard(parent, side)
   c.bag:SetPoint(right and "LEFT" or "RIGHT", c, right and "LEFT" or "RIGHT", right and 8 or -8, 0)
   c.bag:SetFrameLevel(c.icon:GetFrameLevel() + 3)
   c.bag:Hide()
-  c.bag:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Shopping list", 1, 0.82, 0)
+  UI:AttachTooltip(c.bag, function(_, tt)
+    tt:AddLine("Shopping list", S:Color("GOLD"))
     local Kt = K()
     for id, miss in pairs(Kt:Missing(c.ids or {})) do
       if Kt:CanList(id) then
         local have = ns.Shop:GetAmount(id) or 0
-        GameTooltip:AddDoubleLine(Kt:Name(id), have >= miss and ("on your list (" .. have .. ")") or ("add " .. (miss - have)),
+        tt:AddDoubleLine(Kt:Name(id), have >= miss and ("on your list (" .. have .. ")") or ("add " .. (miss - have)),
           1, 1, 1, 0.65, 0.65, 0.68)
       end
     end
-    GameTooltip:AddLine("Puts what your bags lack for a night on your shopping list (Atlas).", 0.5, 0.5, 0.52, true)
-    GameTooltip:Show()
-  end)
+    tt:AddLine("Puts what your bags lack for a night on your shopping list (Atlas).", 0.5, 0.5, 0.52, true)
+  end, nil, { anchor = "ANCHOR_TOP" })
   c.bag:HookScript("OnLeave", function() if not Hovered(c) then ShowBag(c, false) end end)
 
   c:SetScript("OnMouseUp", function(self, button) if self:IsMouseOver() then CardClick(self, button) end end)
   c.icon.onClick = function(_, button) CardClick(c, button) end
   c.sub.onClick = function(_, button) CardClick(c, button) end
-  local function enter() ShowBag(c, true); CardTooltip(c) end
+  local function enter() ShowBag(c, true) end
   local function leave()
-    GameTooltip:Hide()
     if not Hovered(c) then ShowBag(c, false) end
   end
+  -- the card's tooltip, on the card and its icons alike (beside the card, away from the middle)
+  local tipOpts = { anchor = right and "ANCHOR_LEFT" or "ANCHOR_RIGHT", owner = c }
+  local function tip(_, tt) return CardTooltip(c, tt) end
   c:SetScript("OnEnter", enter)
   c:SetScript("OnLeave", leave)
+  UI:AttachTooltip(c, tip, nil, tipOpts)
   for _, b in ipairs({ c.icon, c.sub }) do
     b:SetScript("OnEnter", enter)
     b:SetScript("OnLeave", leave)
+    UI:AttachTooltip(b, tip, nil, tipOpts)
   end
   return c
 end
@@ -462,9 +450,9 @@ end
 local function CreateSpine(parent)
   local s = CreateFrame("Frame", nil, parent)
   s:SetSize(MID_W, TILE_H)
-  s.title = Text(s, 10, GOLD, "CENTER")
+  s.title = Label(s, "small", GOLD, "CENTER")
   s.title:SetPoint("TOP", s, "TOP", 0, -15)
-  s.why = Text(s, 10, GREY, "CENTER")
+  s.why = Label(s, "small", GREY, "CENTER")
   s.why:SetPoint("TOP", s.title, "BOTTOM", 0, -5)
   s.why:SetWidth(MID_W - 20)
   return s
@@ -473,10 +461,10 @@ end
 local function KitBlock(parent, caps, color)
   local b = CreateFrame("Button", nil, parent)
   b:SetSize(120, 40)
-  b.caps = Text(b, 9, color)
+  b.caps = Label(b, "caps", color)
   b.caps:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
   b.caps:SetText(caps)
-  b.big = Text(b, 18, GREEN)
+  b.big = Label(b, "page", GREEN)
   b.big:SetPoint("TOPLEFT", b.caps, "BOTTOMLEFT", -1, -3)
   return b
 end
@@ -490,12 +478,11 @@ function KitView:Create(parent, page)
   v:Hide()
   view = v
 
-  v.hBest = Text(v, 9, GOLD)
-  v.hBest:SetPoint("TOPLEFT", v, "TOPLEFT", 1, -2)
-  v.hBest:SetText("PROG NIGHTS")
-  v.hBudget = Text(v, 9, GREY, "RIGHT")
-  v.hBudget:SetPoint("TOPRIGHT", v, "TOPRIGHT", -1, -2)
-  v.hBudget:SetText("FARM NIGHTS")
+  -- the columns: prog nights on the left, farm nights on the right (one caps section header across)
+  v.head = UI:CreateSectionHeader(v, "Prog nights", { style = "caps", right = UI:CapsText("Farm nights") })
+  v.head:SetPoint("TOPLEFT", v, "TOPLEFT", -1, 0)
+  v.head:SetPoint("TOPRIGHT", v, "TOPRIGHT", 1, 0)
+  v.hBest, v.hBudget = v.head.title, v.head.right
 
   v.rows = {}
   for i = 1, ROWS do
@@ -510,24 +497,19 @@ function KitView:Create(parent, page)
     v.rows[i] = r
   end
 
-  v.empty = Text(v, 12, GREY, "CENTER")
-  v.empty:SetPoint("CENTER", v, "CENTER", 0, 30)
-  v.empty:SetWidth(460)
-  v.empty:SetWordWrap(true)
+  -- no list for the spec: the illustrated empty state (v.empty = its text, v.emptyState = the state)
+  v.emptyState = UI:CreateEmptyState(v, { glyph = ns:HasAssets(6) and UI.ICON.flask or UI.ICON.bag, width = 460 })
+  v.emptyState:SetPoint("TOP", v, "TOP", 0, -110)
+  v.emptyState:Hide()
+  v.empty = v.emptyState.text
 
-  -- the kit bar
-  local bar = CreateFrame("Frame", nil, v)
-  bar:SetPoint("BOTTOMLEFT", page or v, "BOTTOMLEFT", 0, 0)
-  bar:SetPoint("BOTTOMRIGHT", page or v, "BOTTOMRIGHT", 0, 0)
+  -- the kit's status along the body's foot: a card (UI:CreateCard); its actions are the toolbar's
+  local bar = UI:CreateCard(v, { tone = "card" })
+  bar:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 0, 0)
+  bar:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
   bar:SetHeight(KITBAR_H)
   v.bar = bar
-  local bg = bar:CreateTexture(nil, "BACKGROUND")
-  bg:SetAllPoints()
-  bg:SetColorTexture(BAR_BG[1], BAR_BG[2], BAR_BG[3], BAR_BG[4])
-  local top = bar:CreateTexture(nil, "ARTWORK")
-  top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT")
-  top:SetHeight(2)
-  top:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+  v.toolbar = page and page.layout and page.layout.toolbar
 
   bar.prog = KitBlock(bar, "PROG KIT", GOLD)
   bar.prog:SetPoint("LEFT", bar, "LEFT", BAR_X + 8, 0)
@@ -535,40 +517,32 @@ function KitView:Create(parent, page)
   bar.farm:SetPoint("LEFT", bar, "LEFT", BAR_X + 134, 0)
   for _, b in ipairs({ bar.prog, bar.farm }) do
     b:SetScript("OnClick", function() KitView:Run() end)
-    b:SetScript("OnEnter", function(self)
+    UI:AttachTooltip(b, function(self, tt)
       local Kt = K()
       local r = Kt:Results()
-      GameTooltip:SetOwner(self, "ANCHOR_TOP")
-      GameTooltip:AddLine(self == bar.prog and "Prog kit" or "Farm kit", 1, 0.82, 0)
+      tt:AddLine(self == bar.prog and "Prog kit" or "Farm kit", S:Color("GOLD"))
       if r then
-        GameTooltip:AddLine(("The whole kit against none, with the gear you wear: %d fights, ±%d."):format(
+        tt:AddLine(("The whole kit against none, with the gear you wear: %d fights, ±%d."):format(
           Kt.ITERATIONS, floor(2 * ((self == bar.prog and r.progSE or r.farmSE) or 0) + 0.5)), 1, 1, 1, true)
       end
       local cost = Kt:Summary(Kt:Get(), self == bar.prog and "best" or "budget").cost
-      if cost then GameTooltip:AddLine("About " .. Money(cost) .. " a night (Auctionator).", 1, 1, 1, true) end
-      GameTooltip:AddLine("Click: sim again", 0.5, 0.5, 0.52)
-      GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+      if cost then tt:AddLine("About " .. Money(cost) .. " a night (Auctionator).", 1, 1, 1, true) end
+      tt:AddLine("Click: sim again", 0.5, 0.5, 0.52)
+    end, nil, { anchor = "ANCHOR_TOP" })
   end
   -- before a run: the Sim button in the blocks' place
   bar.sim = UI:CreateSleekButton(bar, "Sim the kit", 110, 24, function() KitView:Run() end)
   bar.sim:SetPoint("LEFT", bar, "LEFT", BAR_X + 8, 0)
-  bar.sim:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Sim the kit", 1, 0.82, 0)
-    GameTooltip:AddLine(("The gear sim gives every pick its DPS: the kit with and without it, %d fights each, with "
-      .. "the gear you wear and the Sim card's buffs. Paused while you are in combat."):format(K().ITERATIONS),
-      1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  bar.sim:HookScript("OnLeave", function() GameTooltip:Hide() end)
-  bar.simNote = Text(bar, 10, GREY)
+  UI:AttachTooltip(bar.sim, "Sim the kit", function()
+    return { ("The gear sim gives every pick its DPS: the kit with and without it, %d fights each, with "
+      .. "the gear you wear and the Sim card's buffs. Paused while you are in combat."):format(K().ITERATIONS) }
+  end, { anchor = "ANCHOR_TOP" })
+  bar.simNote = Label(bar, "small", GREY)
   bar.simNote:SetPoint("LEFT", bar.sim, "RIGHT", 10, 0)
   bar.progress = bar:CreateTexture(nil, "OVERLAY")
   bar.progress:SetPoint("TOPLEFT", bar.sim, "BOTTOMLEFT", 0, -2)
   bar.progress:SetHeight(2)
-  bar.progress:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+  bar.progress:SetColorTexture(GOLD_EDGE[1], GOLD_EDGE[2], GOLD_EDGE[3], 1)
 
   -- the prog kit in my bags: a pip per slot and "3 of 6 in your bags"
   bar.pips = {}
@@ -578,59 +552,73 @@ function KitView:Create(parent, page)
     p:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + (i - 1) * 12, 0)
     bar.pips[i] = p
   end
-  bar.bags = Text(bar, 11, SOFT)
+  bar.bags = Label(bar, "body", SOFT)
   bar.bags:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + ROWS * 12 + 6, 0)
   local hit = CreateFrame("Frame", nil, bar)
   hit:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X - 6, 0)
   hit:SetSize(230, 30)
-  hit:SetScript("OnEnter", function(self)
+  UI:AttachTooltip(hit, function(_, tt)
     local Kt = K()
     local sum = Kt:Summary(Kt:Get(), "best")
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("The prog kit in your bags", 1, 0.82, 0)
-    GameTooltip:AddLine("A pip per slot, green with a night's worth in your bags.", 1, 1, 1, true)
+    tt:AddLine("The prog kit in your bags", S:Color("GOLD"))
+    tt:AddLine("A pip per slot, green with a night's worth in your bags.", 1, 1, 1, true)
     if sum.listCount + sum.other > 0 then
-      GameTooltip:AddLine(("%d to get%s."):format(sum.listCount + sum.other,
+      tt:AddLine(("%d to get%s."):format(sum.listCount + sum.other,
         sum.crafted > 0 and (", " .. sum.crafted .. " made by a guildie") or ""), 0.7, 0.7, 0.72, true)
     end
-    GameTooltip:Show()
-  end)
-  hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  end, nil, { anchor = "ANCHOR_TOP" })
 
-  bar.addProg = UI:CreateSleekButton(bar, "Add prog kit", 124, 26, function() KitView:AddKit("best") end, "primary")
-  bar.addProg:SetPoint("RIGHT", bar, "RIGHT", -BAR_X - 8, 0)
-  bar.addFarm = UI:CreateSleekButton(bar, "Add farm kit", 124, 26, function() KitView:AddKit("budget") end)
-  bar.addFarm:SetPoint("RIGHT", bar.addProg, "LEFT", -6, 0)
-  for _, b in ipairs({ bar.addProg, bar.addFarm }) do
-    b:HookScript("OnEnter", function(self)
-      local side = self == bar.addProg and "best" or "budget"
+  -- the page's actions on the toolbar: Add prog kit is its main action (UpdateBar: toolbar:SetPrimary), Add farm kit
+  -- one of its filters (My BiS hands it to the toolbar: KitView:GetToolbarButtons)
+  bar.addFarm = UI:CreateSleekButton(v.toolbar or bar, "Add farm kit", 124, S.BTN_H,
+    function() KitView:AddKit("budget") end)
+  bar.addFarm:Hide()
+  if not v.toolbar then bar.addFarm:SetPoint("RIGHT", bar, "RIGHT", -8, 0) end
+  local function kitTip(self, tt)
+      local prog = self ~= bar.addFarm
+      local side = prog and "best" or "budget"
       local Kt = K()
       local sum = Kt:Summary(Kt:Get(), side)
-      GameTooltip:SetOwner(self, "ANCHOR_TOP")
-      GameTooltip:AddLine(self == bar.addProg and "Add the prog kit" or "Add the farm kit", 1, 0.82, 0)
+      tt:AddLine(prog and "Add the prog kit" or "Add the farm kit", S:Color("GOLD"))
       if sum.listCount > 0 then
-        GameTooltip:AddLine("Puts what your bags lack for a night on your shopping list (Atlas):", 1, 1, 1, true)
-        for id, n in pairs(sum.toList) do GameTooltip:AddDoubleLine(Kt:Name(id), tostring(n), 1, 1, 1, 0.7, 0.7, 0.7) end
+        tt:AddLine("Puts what your bags lack for a night on your shopping list (Atlas):", 1, 1, 1, true)
+        for id, n in pairs(sum.toList) do tt:AddDoubleLine(Kt:Name(id), tostring(n), 1, 1, 1, 0.7, 0.7, 0.7) end
       else
-        GameTooltip:AddLine("Nothing to add: your bags or your list hold what a craft makes.", 1, 1, 1, true)
+        tt:AddLine("Nothing to add: your bags or your list hold what a craft makes.", 1, 1, 1, true)
       end
       if sum.other > 0 then
-        GameTooltip:AddLine("No craft makes the rest (scrolls, runes): the auction house.", 0.6, 0.6, 0.62, true)
+        tt:AddLine("No craft makes the rest (scrolls, runes): the auction house.", 0.6, 0.6, 0.62, true)
       end
-      if sum.cost then GameTooltip:AddLine("About " .. Money(sum.cost) .. " a night (Auctionator).", 0.6, 0.6, 0.62) end
-      GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+      if sum.cost then tt:AddLine("About " .. Money(sum.cost) .. " a night (Auctionator).", 0.6, 0.6, 0.62) end
   end
+  v.kitTip = kitTip
+  UI:AttachTooltip(bar.addFarm, kitTip, nil, { anchor = "ANCHOR_BOTTOM" })
 
   v:SetScript("OnShow", function() KitView:Update() end)
   return v
+end
+
+-- The toolbar's filters the Consumables page adds (My BiS puts them on its layout's toolbar).
+function KitView:GetToolbarButtons()
+  return view and { view.bar.addFarm } or {}
+end
+
+-- The page's toolbar actions: shown with the kit (on = true), else taken away.
+local function ToolbarActions(on)
+  local bar, tb = view.bar, view.toolbar
+  bar.addFarm:SetShown(on and true or false)
+  if not tb then return end
+  if not on then
+    if tb.primary and tb.primary:IsShown() and tb.primary.dzKit then tb:SetPrimary(nil) end
+    return
+  end
 end
 
 function KitView:Show(on)
   if not view then return end
   if not on then self:ClosePicker() end
   view:SetShown(on and true or false)
+  if not on then ToolbarActions(false) end
   if on then self:Update() end
 end
 
@@ -698,11 +686,19 @@ function KitView:UpdateBar()
   bar.bags:SetPoint("LEFT", bar, "LEFT", BAR_X + PIPS_X + n * 12 + (n > 0 and 6 or 0), 0)
   bar.bags:SetText(prog.ready == prog.slots and prog.slots > 0 and Col("Ready for tonight", GREEN)
     or ("%d of %d in your bags"):format(prog.ready, prog.slots))
-  bar.addProg:SetText(prog.listCount > 0 and ("Add prog kit \194\183 " .. prog.listCount) or "Add prog kit")
+  -- the toolbar: Add prog kit (the main action, gold while it has something to add), Add farm kit beside it
+  local progText = prog.listCount > 0 and ("Add prog kit \194\183 " .. prog.listCount) or "Add prog kit"
+  local tb = view.toolbar
+  if tb then
+    bar.addProg = tb:SetPrimary({ text = progText, kind = prog.listCount > 0 and "primary" or "secondary",
+                                  enabled = prog.listCount > 0, width = 124,
+                                  onClick = function() KitView:AddKit("best") end })
+    bar.addProg.dzKit = true
+    ns.UI:AttachTooltip(bar.addProg, view.kitTip, nil, { anchor = "ANCHOR_BOTTOM" })
+  end
+  ToolbarActions(true)
   bar.addFarm:SetText(farm.listCount > 0 and ("Add farm kit \194\183 " .. farm.listCount) or "Add farm kit")
-  bar.addProg:SetEnabled(prog.listCount > 0)
   bar.addFarm:SetEnabled(farm.listCount > 0)
-  if bar.addProg.SetKind then bar.addProg:SetKind(prog.listCount > 0 and "primary" or "secondary") end
 end
 
 function KitView:Update()
@@ -714,13 +710,18 @@ function KitView:Update()
   if not rows then
     for _, r in ipairs(view.rows) do r.best:Hide(); r.budget:Hide(); r.spine:Hide() end
     view.bar:Hide()
-    view.empty:Show()
-    view.empty:SetText(spec == "" and "Pick your spec in the spec tabs above to see its consumables."
-      or ("No consumables list for " .. spec .. " yet."))
+    view.head:Hide()
+    ToolbarActions(false)
+    view.emptyState:SetContent({ glyph = ns:HasAssets(6) and ns.UI.ICON.flask or ns.UI.ICON.bag,
+      title = spec == "" and "Pick your spec" or "No consumables list yet",
+      text = spec == "" and "Pick your spec in the spec tabs above to see its consumables."
+        or ("No consumables list for " .. spec .. " yet.") })
+    view.emptyState:Show()
     return
   end
-  view.empty:Hide()
+  view.emptyState:Hide()
   view.bar:Show()
+  view.head:Show()
   local res = Kt:Results(key)
   for i, r in ipairs(view.rows) do
     local row = rows[i]
@@ -742,7 +743,8 @@ end
 local function Plain(s) return ((s or ""):gsub("|T.-|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
 function KitView:Snapshot()
   if not view then return nil end
-  local out = { shown = view:IsShown(), rows = {}, empty = view.empty:IsShown() and Plain(view.empty:GetText()) or nil }
+  local out = { shown = view:IsShown(), rows = {},
+    empty = view.emptyState:IsShown() and Plain(view.empty:GetText()) or nil }
   for _, r in ipairs(view.rows) do
     if r.spine:IsShown() then
       out.rows[#out.rows + 1] = {
@@ -760,7 +762,7 @@ function KitView:Snapshot()
   local pips = 0
   for _, pip in ipairs(bar.pips) do if pip:IsShown() then pips = pips + 1 end end
   out.bar = { pips = pips, sim = bar.sim:IsShown(), progShown = bar.prog:IsShown(), prog = Plain(bar.prog.big:GetText()),
-    farm = Plain(bar.farm.big:GetText()), bags = Plain(bar.bags:GetText()), addProg = Plain(bar.addProg:GetText()),
+    farm = Plain(bar.farm.big:GetText()), bags = Plain(bar.bags:GetText()), addProg = bar.addProg and Plain(bar.addProg:GetText()) or nil,
     addFarm = Plain(bar.addFarm:GetText()) }
   return out
 end

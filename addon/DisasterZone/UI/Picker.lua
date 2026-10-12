@@ -7,13 +7,19 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/Picker.lua", ...) then return e
 -- A host (the gear sim's Working set, UI/SimPanel.lua) can borrow it: picks go to the host instead of the BiS list,
 -- the host adds sections at the top, numbers per row and a button at the bottom (Picker:Open(..., host)). A host
 -- with only = true (My BiS > Consumables, UI/KitView.lua) lists its own sections alone: no gear, no gear filters.
+-- 1.4: a flyout tool window (no banner: the current pick heads it on an inset card, the filters are its tool row); the
+-- list's sections under the shared section headers (a source: title style with its count; a boss: caps), item rows
+-- with the shared hover and picked looks (UI:DecorateRow); shared text styles, Style tokens, ns.GearUI's helpers.
 local addonName, ns = ...
 
 local Picker = {}
 ns.Picker = Picker
 
-local WIDTH, HEIGHT = 360, 560
-local ROW_ITEM, ROW_RAID, ROW_BOSS = 34, 20, 18
+local S = ns.Style
+local GearUI = ns.GearUI          -- (UI/PaperDoll.lua: the helpers the Gear pages share)
+
+local WIDTH, HEIGHT = 360, 568
+local ROW_ITEM, ROW_RAID, ROW_BOSS = 34, 24, 18
 local ARMOR_SLOTS = { [1] = true, [3] = true, [5] = true, [6] = true, [7] = true, [8] = true, [9] = true, [10] = true }
 local CLASS_WEAPON, CLASS_ARMOR = 2, 4   -- Enum.ItemClass
 local LOCK_MESSAGE_GAP = 3               -- seconds between two "lists are locked" prints
@@ -73,10 +79,7 @@ local function FilterPhase()
 end
 
 -- "Pre-raid" / "P2": the list being edited.
-local function PhaseText(p)
-    if ns.PhaseLabel then return ns.PhaseLabel(p) end
-    return "P" .. tostring(p)
-end
+local PhaseText = GearUI.PL
 
 local function MyClass()
     local data = ns.BiS and ns.BiS.GetData and ns.BiS:GetData()
@@ -89,10 +92,7 @@ local function SlotInfo(sid)
     return ns.SLOTS and ns.SLOTS[sid] or nil
 end
 
-local function SlotLabel(sid)
-    local s = SlotInfo(sid)
-    return s and s.label or ("Slot " .. tostring(sid))
-end
+local SlotLabel = ns.SlotLabel
 
 local function SlotShort(sid)
     local s = SlotInfo(sid)
@@ -151,10 +151,7 @@ local function LockedMessage(info)
     end
 end
 
-local function ListLocked()
-    if not (ns.UI and ns.UI.IsMyListLocked) then return false, nil end
-    return ns.UI:IsMyListLocked()
-end
+local ListLocked = GearUI.ListLocked
 
 ---------------------------------------------------------------------------
 -- Sources (session + settings.pickerSources)
@@ -479,50 +476,36 @@ local function SetupRow(row)
     row.cdl = true
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-    row.bg = row:CreateTexture(nil, "BACKGROUND")
-    row.bg:SetAllPoints()
-    row.bg:SetColorTexture(1, 0.82, 0, 0.08)
+    -- the shared row looks: hover, and the picked look for the slot's current item (row:SetSelected)
+    UI:DecorateRow(row, { selectable = true })
 
-    row.sel = row:CreateTexture(nil, "BACKGROUND", nil, 1)
-    row.sel:SetAllPoints()
-    row.sel:SetTexture(UI:Tex("rowHilight"))
-    row.sel:SetBlendMode("ADD")
-    row.sel:SetVertexColor(1, 0.82, 0, 0.6)
-
-    row:SetHighlightTexture(UI:Tex("rowHilight"), "ADD")
-
-    row.header = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.header:SetJustifyH("LEFT")
-    row.header:SetWordWrap(false)
-
-    row.count = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    row.count:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.count:SetJustifyH("RIGHT")
+    -- a section: a source (title style, its item count on the right) or a boss under it (caps)
+    row.head = UI:CreateSectionHeader(row, "", { style = "title" })
+    row.head:SetPoint("TOPLEFT", row, "TOPLEFT", 4, 0)
+    row.head:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 0)
+    row.boss = UI:CreateSectionHeader(row, "", { style = "caps" })
+    row.boss:SetPoint("TOPLEFT", row, "TOPLEFT", 12, 0)
+    row.boss:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 0)
+    row.header, row.count = row.head.title, row.head.right   -- (older callers / tests)
 
     row.icon = UI:CreateItemButton(row, 28)
     row.icon:SetPoint("LEFT", row, "LEFT", 16, 0)
     row.icon.onClick = function(btn) Pick(btn.itemID) end
     row.icon.onReceiveItem = OnDropItem
 
-    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.name = UI:Text(row, "small", "TEXT")
     row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -2)
     row.name:SetPoint("RIGHT", row, "RIGHT", -74, 0)
-    row.name:SetJustifyH("LEFT")
-    row.name:SetWordWrap(false)
 
-    row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    row.sub = UI:Text(row, "small", "DIM")
     row.sub:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 2)
     row.sub:SetPoint("RIGHT", row, "RIGHT", -74, 0)
-    row.sub:SetJustifyH("LEFT")
-    row.sub:SetWordWrap(false)
 
-    row.mark1 = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.mark1 = UI:Text(row, "small", "GOLD", { justify = "RIGHT" })
     row.mark1:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -5)
-    row.mark1:SetJustifyH("RIGHT")
 
-    row.mark2 = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.mark2 = UI:Text(row, "small", "TEXT", { justify = "RIGHT" })
     row.mark2:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -6, 5)
-    row.mark2:SetJustifyH("RIGHT")
 
     row:SetScript("OnClick", function(self)
         if self.__cdlDropTime and self.__cdlDropTime == GetTime() then return end
@@ -539,7 +522,6 @@ end
 local function InitRow(row, d)
     if not row.cdl then SetupRow(row) end
     local UI = ns.UI
-    local hl = row:GetHighlightTexture()
     row:SetAlpha(1)
 
     if d.type == "raid" or d.type == "boss" then
@@ -548,33 +530,24 @@ local function InitRow(row, d)
         row.sub:Hide()
         row.mark1:Hide()
         row.mark2:Hide()
-        row.sel:Hide()
-        if hl then hl:SetAlpha(0) end
-        row.header:Show()
-        row.header:ClearAllPoints()
-        if d.type == "raid" then
-            row.bg:Show()
-            row.header:SetFontObject("GameFontNormal")
-            row.header:SetPoint("LEFT", row, "LEFT", 6, 0)
-            row.header:SetText(d.name or "?")
-            row.count:SetText(d.count and (d.count .. (d.count == 1 and " item" or " items")) or "")
-            row.count:Show()
+        row:SetSelected(false)
+        row.dzHover:Hide()                -- (a section takes no hover)
+        local raid = d.type == "raid"
+        row.head:SetShown(raid)
+        row.boss:SetShown(not raid)
+        if raid then
+            row.head:SetTitle(d.name or "?")
+            row.head:SetRight(d.count and (d.count .. (d.count == 1 and " item" or " items")) or nil)
         else
-            row.bg:Hide()
-            row.header:SetFontObject("GameFontHighlightSmall")
-            row.header:SetPoint("LEFT", row, "LEFT", 14, 0)
-            row.header:SetText(d.name or "?")
-            row.count:Hide()
+            row.boss:SetTitle(d.name or "?")
         end
-        row.header:SetPoint("RIGHT", row, "RIGHT", -60, 0)
         return
     end
 
     -- item row
-    row.bg:Hide()
-    row.header:Hide()
-    row.count:Hide()
-    if hl then hl:SetAlpha(1) end
+    row.head:Hide()
+    row.boss:Hide()
+    row.dzHover:Show()
     local id = d.itemID
     row.icon:Show()
     row.icon:SetItem(id)
@@ -601,8 +574,7 @@ local function InitRow(row, d)
     local classes = ns.ItemDB and ns.ItemDB.GetItemClasses and ns.ItemDB:GetItemClasses(id)
     if classes then
         local names = {}
-        local loc = _G.LOCALIZED_CLASS_NAMES_MALE
-        for i, cf in ipairs(classes) do names[i] = (type(loc) == "table" and loc[cf]) or cf end
+        for i, cf in ipairs(classes) do names[i] = ns.ClassName(cf, true) or cf end
         local tag = table.concat(names, ", ")
         subText = (subText ~= "") and (subText .. "  ·  " .. tag) or tag
     end
@@ -614,12 +586,12 @@ local function InitRow(row, d)
     if hv then
         -- the host's numbers (the sim's change and DPS) take the marks' place
         row.mark1:SetText(hd or "")
-        if hcol then row.mark1:SetTextColor(hcol[1], hcol[2], hcol[3]) else row.mark1:SetTextColor(1, 0.82, 0) end
+        if hcol then row.mark1:SetTextColor(hcol[1], hcol[2], hcol[3]) else row.mark1:SetTextColor(S:Color("GOLD")) end
         row.mark1:Show()
     elseif mark then
         local text = mark.which == "alt" and "Alt" or "Main"
         if mark.sid and mark.sid ~= state.sid then text = text .. " (" .. SlotShort(mark.sid) .. ")" end
-        row.mark1:SetTextColor(1, 0.82, 0)
+        row.mark1:SetTextColor(S:Color("GOLD"))
         row.mark1:SetText(UI:Colorize(text, ns.COLORS and ns.COLORS[mark.which == "alt" and "alt" or "main"]))
         row.mark1:Show()
     else
@@ -634,7 +606,7 @@ local function InitRow(row, d)
     else
         row.mark2:Hide()
     end
-    row.sel:SetShown(currentPick ~= nil and id == currentPick)
+    row:SetSelected(currentPick ~= nil and id == currentPick)
 
     -- filters off: keep unusable items visible but dimmed
     if not state.usable and ns.ItemDB and ns.ItemDB.IsUsableBy then
@@ -803,7 +775,7 @@ local function UpdateCurrent()
         current.sub:SetText(src or "Other source")
         current.clear:Enable()
     else
-        current.name:SetText("|cff808080Nothing chosen yet|r")
+        current.name:SetText(S:Wrap("DIM", "Nothing chosen yet"))
         if state.host then
             current.sub:SetText(("%s is empty in the Working set"):format(SlotLabel(state.sid)))
         else
@@ -837,13 +809,13 @@ local function EnsureWindow()
     win:Hide()
     local c = win.content
 
-    -- current selection
-    current = CreateFrame("Frame", nil, c)
+    -- the current pick, on an inset card (UI:CreateCard)
+    current = UI:CreateCard(c, { tone = "inset" })
     current:SetPoint("TOPLEFT", c, "TOPLEFT", 4, -4)
     current:SetPoint("TOPRIGHT", c, "TOPRIGHT", -4, -4)
-    current:SetHeight(36)
+    current:SetHeight(44)
     current.btn = UI:CreateItemButton(current, 32)
-    current.btn:SetPoint("LEFT", current, "LEFT", 0, 0)
+    current.btn:SetPoint("LEFT", current, "LEFT", 6, 0)
     current.clear = UI:CreateButton(current, "Clear", 60, 22, function()
         if state.host then
             if state.host.clear then state.host.clear() end
@@ -853,17 +825,13 @@ local function EnsureWindow()
         UpdateCurrent()
         if list then list:Refresh() end
     end)
-    current.clear:SetPoint("RIGHT", current, "RIGHT", 0, 0)
-    current.name = current:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    current.clear:SetPoint("RIGHT", current, "RIGHT", -6, 0)
+    current.name = UI:Text(current, "emph", "TEXT")
     current.name:SetPoint("TOPLEFT", current.btn, "TOPRIGHT", 8, -1)
     current.name:SetPoint("RIGHT", current.clear, "LEFT", -6, 0)
-    current.name:SetJustifyH("LEFT")
-    current.name:SetWordWrap(false)
-    current.sub = current:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    current.sub = UI:Text(current, "small", "DIM")
     current.sub:SetPoint("BOTTOMLEFT", current.btn, "BOTTOMRIGHT", 8, 1)
     current.sub:SetPoint("RIGHT", current.clear, "LEFT", -6, 0)
-    current.sub:SetJustifyH("LEFT")
-    current.sub:SetWordWrap(false)
 
     -- filters
     searchBox = UI:CreateSearchBox(c, WIDTH - 40, function(text)
@@ -872,14 +840,14 @@ local function EnsureWindow()
         state.search = text
         Picker:Rebuild(true)
     end, SEARCH_HINT)
-    searchBox:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -48)
-    searchBox:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -48)
+    searchBox:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -56)
+    searchBox:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -56)
 
     phaseDD = UI:CreateDropdown(c, 124, PhaseOptions, function() return state.phaseMode end, function(value)
         state.phaseMode = PHASE_TEXT[value] and value or "upto"
         OnFilterChanged()
     end)
-    phaseDD:SetPoint("TOPLEFT", c, "TOPLEFT", 4, -74)
+    phaseDD:SetPoint("TOPLEFT", c, "TOPLEFT", 4, -82)
 
     sourcesDD = UI:CreateMultiDropdown(c, 196, SourceOptions,
         function(key) return Sources()[key] and true or false end,
@@ -894,26 +862,24 @@ local function EnsureWindow()
         state.usable = v
         OnFilterChanged()
     end)
-    cbUsable:SetPoint("TOPLEFT", c, "TOPLEFT", 2, -102)
+    cbUsable:SetPoint("TOPLEFT", c, "TOPLEFT", 2, -110)
 
     cbArmor = UI:CreateCheckbox(c, "My armor type only", function() return state.armorOnly end, function(v)
         state.armorOnly = v
         OnFilterChanged()
     end)
-    cbArmor:SetPoint("TOPLEFT", c, "TOPLEFT", 172, -102)
+    cbArmor:SetPoint("TOPLEFT", c, "TOPLEFT", 172, -110)
 
     -- list
     list = UI:CreateScrollList(c, ROW_ITEM, InitRow, RowExtent)
-    list.frame:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -130)
+    list.frame:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -138)
     list.frame:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, 38)
     list:SetEmptyText(EMPTY_TEXT)
     list.emptyText:SetWordWrap(true)
 
-    hint = c:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint = UI:Text(c, "small", "DIM", { wrap = true, text = HINT_TEXT })
     hint:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 6, 6)
     hint:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -6, 6)
-    hint:SetJustifyH("LEFT")
-    hint:SetText(HINT_TEXT)
 
     -- a host's button and status line (in the hint's place)
     hostBar = CreateFrame("Frame", nil, c)
@@ -925,19 +891,14 @@ local function EnsureWindow()
         UpdateHostBar()
     end)
     hostBar.btn:SetPoint("LEFT", hostBar, "LEFT", 0, 0)
-    hostBar.btn:HookScript("OnEnter", function(self)
+    UI:AttachTooltip(hostBar.btn, function(_, tt)
         local b = state.host and state.host.button
-        if not (b and b.tooltip) then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        b.tooltip(GameTooltip)
-        GameTooltip:Show()
-    end)
-    hostBar.btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
-    hostBar.status = hostBar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        if not (b and b.tooltip) then return false end
+        b.tooltip(tt)
+    end, nil, { anchor = "ANCHOR_TOP" })
+    hostBar.status = UI:Text(hostBar, "small", "DIM", { wrap = true })
     hostBar.status:SetPoint("LEFT", hostBar.btn, "RIGHT", 8, 0)
     hostBar.status:SetPoint("RIGHT", hostBar, "RIGHT", 0, 0)
-    hostBar.status:SetJustifyH("LEFT")
-    hostBar.status:SetWordWrap(true)
     hostBar.status:SetMaxLines(2)
     hostBar:Hide()
 
@@ -957,7 +918,7 @@ end
 
 -- The list starts under the filters, or under the search box for a host with only its own items.
 local function PlaceList(only)
-    list.frame:SetPoint("TOPLEFT", win.content, "TOPLEFT", 0, only and -76 or -130)
+    list.frame:SetPoint("TOPLEFT", win.content, "TOPLEFT", 0, only and -84 or -138)
 end
 
 local function Position(anchor)
