@@ -32,14 +32,6 @@ local function UI() return ns.UI end
 
 local Now = ns.Util.Now
 
--- A Style colour token at its own alpha, as r, g, b, a (for SetColorTexture / SetEdgeColor / SetVertexColor), or as a
--- table ({ tokenA(...) }) for UI:Gradient.
--- TODO(refactor): move into ns.Style (S:Alpha(name, a) -> r, g, b, a).
-local function tokenA(name, a)
-    local r, g, b = S:Color(name)
-    return r, g, b, a
-end
-
 -- A player's class: their sign-up's, else the guild roster's.
 local function signupClass(key, s)
     if s and s.c then return s.c end
@@ -1036,7 +1028,7 @@ function UP.fillCell(b, cell, organizer)
                       subShort = short, auto = spec == nil, dim = cell.out, edge = isMe(cell.key) and "me" or nil })
     local right = -6
     if cell.request then
-        UI():SetEdgeColor(b, tokenA("GOLD", 0.55))
+        UI():SetEdgeColor(b, S:Alpha("GOLD", 0.55))
         if organizer then
             b.yes:Show()
             b.no:Show()
@@ -1159,7 +1151,7 @@ function UP.newBand(parent, role)
     col.wash = col:CreateTexture(nil, "BACKGROUND")
     col.wash:SetPoint("TOPLEFT", 0, 6)
     col.wash:SetPoint("BOTTOMRIGHT", 0, -6)
-    UI():Gradient(col.wash, "HORIZONTAL", { tokenA("GOLD", 0.07) }, { tokenA("GOLD", 0) })
+    UI():Gradient(col.wash, "HORIZONTAL", { S:Alpha("GOLD", 0.07) }, { S:Alpha("GOLD", 0) })
     col.wash:Hide()
     col.none = UI():Text(col, "body", "DIM")
     col.none:SetPoint("LEFT", col, "TOPLEFT", UP.GUT + 2, -15)
@@ -2856,7 +2848,7 @@ function TV.raidsTooltip(self, tip)
     if not raids or #raids == 0 then return false end
     tip:AddLine("Invited to")
     for _, v in ipairs(raids) do
-        tip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, tokenA("SUB"))
+        tip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, S:Alpha("SUB"))
     end
     tip:AddLine(" ")
     tip:AddLine("Click a raid to open it.", 0.6, 0.6, 0.6)
@@ -4686,7 +4678,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], tokenA("GOLD"))
+            GameTooltip:AddLine(grp[1], S:Alpha("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = {}
@@ -4695,7 +4687,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
                 if e.team then right[#right + 1] = e.team end
                 if e.n then right[#right + 1] = "#" .. e.n .. " in line" end
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), tconcat(right, " · "),
-                    1, 1, 1, tokenA("SUB"))
+                    1, 1, 1, S:Alpha("SUB"))
             end
             if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
         end
@@ -4769,7 +4761,7 @@ function TV.fillMeter(f, m)
                         s.o:SetColorTexture(r, g, b, 1)
                         s.i:Hide()
                     else
-                        s.o:SetColorTexture(tokenA("GOLD", 0.9))
+                        s.o:SetColorTexture(S:Alpha("GOLD", 0.9))
                         s.i:Show()
                     end
                     s.o:Show()
@@ -4916,10 +4908,10 @@ function TV.layoutLineupTabs(dr, organizer, m)
         c.i, c.chosen, c.mine, c.lineupName = i, i == dr.li, f.mine and true or false, TV.lineupName(dr, i)
         -- the tooltip: its size, who is in its groups, everything still open
         local tip = { { TV.lineupName(dr, i) }, { l.sz .. "-player lineup · " .. f.inGroups .. " in its groups", 0.8, 0.8, 0.8 } }
-        if f.mine then tip[#tip + 1] = { "You're in its groups.", tokenA("GOLD") } end
-        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", tokenA("WARN") } end
+        if f.mine then tip[#tip + 1] = { "You're in its groups.", S:Alpha("GOLD") } end
+        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", S:Alpha("WARN") } end
         if f.open then
-            tip[#tip + 1] = { "Still open:", tokenA("GOLD") }
+            tip[#tip + 1] = { "Still open:", S:Alpha("GOLD") }
             for _, o in ipairs(f.open) do
                 tip[#tip + 1] = { TV.specIconText(o.c, o.sp, 14) .. " " .. o.name .. (o.n > 1 and (" ×" .. o.n) or "") }
             end
@@ -5089,13 +5081,13 @@ function TV.paintWeekStrip(f, list)
     for i, c in ipairs(f.cells) do
         local x = by[i]
         if x and not x.o then
-            c.bg:SetColorTexture(tokenA("GOLD", 0.22))
-            UI():SetEdgeColor(c, tokenA("GOLD", 0.9))
+            c.bg:SetColorTexture(S:Alpha("GOLD", 0.22))
+            UI():SetEdgeColor(c, S:Alpha("GOLD", 0.9))
             c.fs:SetTextColor(S:Color("GOLD"))
         elseif x then
-            c.bg:SetColorTexture(tokenA("GOLD", 0.03))
-            UI():SetEdgeColor(c, tokenA("GOLD", 0.42))
-            c.fs:SetTextColor(tokenA("GOLD", 0.75))
+            c.bg:SetColorTexture(S:Alpha("GOLD", 0.03))
+            UI():SetEdgeColor(c, S:Alpha("GOLD", 0.42))
+            c.fs:SetTextColor(S:Alpha("GOLD", 0.75))
         else
             c.bg:SetColorTexture(0, 0, 0, 0.32)
             UI():SetEdgeColor(c, S:Color("HAIRLINE"))
@@ -5741,7 +5733,7 @@ function TV.newSlotRow(col)
     ns.RaidGroupsUI:DecoratePlate(b)
     b.fs = b.pName
     -- (my own slot, for a member: kept for the shared checks; the plate's gold rim shows it)
-    b.me = UI():Fill(b, { tokenA("GOLD", 0) })
+    b.me = UI():Fill(b, { S:Alpha("GOLD", 0) })
     UI():DecorateRow(b)
     b.hl = b.dzHover
     UI():AttachTooltip(b, TV.slotTooltip)
@@ -6376,7 +6368,7 @@ function PlanUI:OpenSlotTooltip(row)
     if not cell then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(TV.specIconText(cell.c, cell.sp, 16) .. " " .. tostring(cell.name or "?"), 1, 1, 1)
-    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", tokenA("SUB"))
+    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", S:Alpha("SUB"))
     local cf = RP():RaidCanFill(cell.occ, cell.c, cell.sp)
     local any = false
     for _, grp in ipairs({ { "Not answered yet", cf.unanswered, "on the team" }, { "In the guild", cf.guild } }) do
@@ -6384,12 +6376,12 @@ function PlanUI:OpenSlotTooltip(row)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], tokenA("GOLD"))
+            GameTooltip:AddLine(grp[1], S:Alpha("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = grp[3] or (e.st == "B" and "on the bench") or ""
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), right,
-                    1, 1, 1, tokenA("SUB"))
+                    1, 1, 1, S:Alpha("SUB"))
             end
             if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
         end

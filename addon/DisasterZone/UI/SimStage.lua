@@ -613,20 +613,17 @@ local function CreateCmpBar(parent, labelColor, fill, w)
 end
 Kit.CmpBar = CreateCmpBar
 
--- The settings chip under the result (UI:CreateChip): the cog and the settings in a few words; a click drops the
--- settings menu.
--- TODO(refactor): move into UI:CreateChip (an icon from the icon atlas: its coords kept over chip:Set, an icon tint)
+-- The settings chip under the result (UI:CreateChip): the cog (an atlas glyph, tinted) and the settings in a few
+-- words; a click drops the settings menu.
 local function CreateChip(parent)
-  local b = UI:CreateChip(parent, { icon = UI.ICON_ATLAS, onClick = function(self)
+  local b = UI:CreateChip(parent, { onClick = function(self)
     GameTooltip:Hide()
     UI:ContextMenu(self, function(root) P():BuildSettingsMenu(root) end)
   end })
-  local cog = UI:IconCoords(UI.ICON.gear)
+  b:SetIcon(UI.ICON_ATLAS, UI:IconCoords(UI.ICON.gear), { C.sentence[1], C.sentence[2], C.sentence[3], 1 })
   function b:SetLabel(text, short)
     self:Set(text)
     if short and self:GetWidth() > 242 then self:Set(short) end
-    self.icon:SetTexCoord(cog[1], cog[2], cog[3], cog[4])
-    self.icon:SetVertexColor(C.sentence[1], C.sentence[2], C.sentence[3], 1)
     self.revealX = CX - floor(self:GetWidth() / 2 + 0.5)
   end
   UI:AttachTooltip(b, "Settings", { "Fights, fight length, boss, buffs and what the Working set is compared with." },
@@ -656,12 +653,8 @@ end
 -- "RECENT RUNS  4 >" under the sentence (before a run) or the chip (after one): opens UI/SimHistory.lua. The shared
 -- back link (UI:CreateBackLink: grey caps, gold under the mouse) with its chevron after the words, pointing on.
 local function CreateRecentLink(parent)
-  local b = UI:CreateBackLink(parent, "Recent runs", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
-  b.text:ClearAllPoints()
-  b.text:SetPoint("LEFT", b, "LEFT", 0, 0)
-  b.icon:ClearAllPoints()
-  b.icon:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
-  UI:SetChevron(b.icon, true)
+  local b = UI:CreateBackLink(parent, "Recent runs", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end,
+    { forward = true })
   function b:SetCount(n) self:SetText(("Recent runs   %d"):format(n)) end
   UI:AttachTooltip(b, "Recent runs", { "Your last runs on this character: open one again (nothing is simmed) or compare "
     .. "two." }, { anchor = "ANCHOR_BOTTOM" })

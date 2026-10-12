@@ -17,7 +17,6 @@ local S = ns.Style
 local function UI() return ns.UI end
 local function N() return ns.Notify end
 
-local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local BELL = { 56, 42, 6 }            -- the bell (art pack 6), else the speech bubble
 local DONE_TEXT = { 0.7, 0.7, 0.7 }   -- a handled item's title
 local NEWS_KICK = { 0.74, 0.74, 0.74 } -- a news pop-up's kicker and edge
@@ -71,17 +70,6 @@ local function CountPill(parent, h, kind)
 end
 NotifyUI.CountPill = CountPill
 
--- An unseen mark: a small disc in a token colour (the bell's and a row tile's corner).
--- TODO(refactor): move into Controls (the count badge's dot form)
-local function Dot(parent, size, color)
-    local t = parent:CreateTexture(nil, "OVERLAY", nil, 2)
-    t:SetSize(size, size)
-    t:SetTexture(DISC)
-    t:SetVertexColor(S:Color(color))
-    t:Hide()
-    return t
-end
-
 -- "SECTION · FROM NAME": the kicker over an item's title.
 local function Kicker(def, it)
     local s = (def.section or ""):upper()
@@ -118,7 +106,7 @@ local function MakeRow(parent)
     r.icon = r.tile:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(15, 15)
     r.icon:SetPoint("CENTER")
-    r.dot = Dot(r.tile, 7, "GOLD")
+    r.dot = UI():CreateDot(r.tile, 7, "GOLD", { sublevel = 2, hidden = true })   -- (an unseen mark)
     r.dot:SetPoint("CENTER", r.tile, "TOPRIGHT", 0, 0)
     r.stack = CountPill(r.tile, 12, "muted")
     r.stack:SetCutout(S:Color("DROP_BG"))
@@ -323,7 +311,7 @@ function NotifyUI:CreateBell(parent)
     b.count:SetCutout()
     b.count:SetPoint("LEFT", b.icon, "TOPRIGHT", -7, -2)
     b.count:SetFrameLevel(b:GetFrameLevel() + 2)
-    b.dot = Dot(b, 6, { 0.62, 0.62, 0.65 })
+    b.dot = UI():CreateDot(b, 6, { 0.62, 0.62, 0.65 }, { sublevel = 2, hidden = true })
     b.dot:SetPoint("CENTER", b.icon, "TOPRIGHT", -1, -1)
     b:SetScript("OnEnter", function(self)
         self.hovered = true
@@ -357,12 +345,6 @@ local function SetView(view)
     tray.view = view
     tray.seg:Select(view)
     NotifyUI:RefreshTray()
-end
-
-local function PaintFoot(foot, on)
-    local c = on and "GOLD" or FOOT_TEXT
-    foot.fs:SetTextColor(S:Color(c))
-    foot.chev:SetVertexColor(S:Color(c))
 end
 
 local function CreateTray()
@@ -403,28 +385,15 @@ local function CreateTray()
     t.empty:SetPoint("TOP", 0, -HEAD_H - 16)
     t.empty:Hide()
 
-    -- the foot: All notifications, a quiet link with a chevron across the tray's width
-    -- TODO(refactor): move into PageParts (the section header's action link as UI:CreateTextLink)
-    local foot = CreateFrame("Button", nil, t)
-    foot:SetPoint("BOTTOMLEFT", 1, 1)
-    foot:SetPoint("BOTTOMRIGHT", -1, 1)
-    foot:SetHeight(FOOT_H - 1)
-    UI():Rule(foot, { alpha = 0.08, layer = "BORDER" })
-    foot.fs = UI():Text(foot, "small", FOOT_TEXT)
-    foot.fs:SetPoint("CENTER", -6, 0)
-    foot.fs:SetText("All notifications")
-    foot.chev = foot:CreateTexture(nil, "ARTWORK")
-    foot.chev:SetSize(9, 9)
-    foot.chev:SetTexture(UI().ICON_ATLAS)
-    UI():SetChevron(foot.chev, true)
-    foot.chev:SetPoint("LEFT", foot.fs, "RIGHT", 4, 0)
-    PaintFoot(foot, false)
-    foot:SetScript("OnEnter", function(self) PaintFoot(self, true) end)
-    foot:SetScript("OnLeave", function(self) PaintFoot(self, false) end)
-    foot:SetScript("OnClick", function()
+    -- the foot: All notifications, a quiet link with a chevron across the tray's width (UI:CreateTextLink)
+    local foot = UI():CreateTextLink(t, "All notifications", function()
         NotifyUI:CloseTray()
         NotifyUI:OpenPage(tray.view == "needs" and "needs" or "all")
-    end)
+    end, { style = "small", color = FOOT_TEXT, hover = "GOLD", chevron = "right", chevSize = 9, gap = 4,
+        align = "CENTER", fixed = true, height = FOOT_H - 1 })
+    foot:SetPoint("BOTTOMLEFT", 1, 1)
+    foot:SetPoint("BOTTOMRIGHT", -1, 1)
+    UI():Rule(foot, { alpha = 0.08, layer = "BORDER" })
     t.foot = foot
 
     -- a click anywhere else closes it; Escape closes it (and only it)

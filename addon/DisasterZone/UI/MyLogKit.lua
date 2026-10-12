@@ -34,15 +34,6 @@ Kit.PILL = { up = "ok", down = "bad", mute = "mute", best = "rank", avoid = "war
 -- Small pieces
 ---------------------------------------------------------------------------
 
--- A round dot of size px in colour c (alpha a).
-function Kit.Dot(parent, size, c, a, layer)
-    local t = parent:CreateTexture(nil, layer or "OVERLAY")
-    t:SetTexture(DISC)
-    t:SetSize(size, size)
-    t:SetVertexColor(c[1], c[2], c[3], a or 1)
-    return t
-end
-
 -- "+6.1%" style change text: change in % (nil -> nil), higherIsBetter. Returns text, pill kind (Kit.PILL).
 function Kit.ChangeChip(change, higherIsBetter, suffix)
     if not change then return nil end
@@ -71,9 +62,9 @@ end
 
 function Kit.Portrait(parent, size)
     local f = CreateFrame("Frame", nil, parent)
-    f.ring = Kit.Dot(f, size + 6, C.gold, 0.35, "BACKGROUND")
+    f.ring = UI:CreateDot(f, size + 6, C.gold, { alpha = 0.35, layer = "BACKGROUND" })
     f.ring:SetPoint("CENTER")
-    f.gap = Kit.Dot(f, size + 3, S.C.INSET, 1, "BORDER")
+    f.gap = UI:CreateDot(f, size + 3, S.C.INSET, { alpha = 1, layer = "BORDER" })
     f.gap:SetPoint("CENTER")
     f.tex = f:CreateTexture(nil, "ARTWORK")
     f.tex:SetPoint("CENTER")
@@ -356,12 +347,12 @@ function Kit.Chart(parent)
             end
             if s.endDot and #pts > 0 then
                 local x, y = self:Map(pts[#pts][1], pts[#pts][2])
-                local halo = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+                local halo = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
                 halo:SetVertexColor(col[1], col[2], col[3], 0.22)
                 halo:SetSize(16, 16)
                 halo:ClearAllPoints()
                 halo:SetPoint("CENTER", self, "BOTTOMLEFT", x, y)
-                local d = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+                local d = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
                 d:SetVertexColor(col[1], col[2], col[3], 1)
                 d:SetSize(7, 7)
                 d:ClearAllPoints()
@@ -383,12 +374,12 @@ function Kit.Chart(parent)
             local col = d[3] or C.gold
             local x, y = self:Map(d[1], d[2])
             local size = d[4] or 8
-            local ring = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+            local ring = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
             ring:SetVertexColor(ir, ig, ib, 1)
             ring:SetSize(size + 4, size + 4)
             ring:ClearAllPoints()
             ring:SetPoint("CENTER", self, "BOTTOMLEFT", x, y)
-            local t = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+            local t = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
             t:SetVertexColor(col[1], col[2], col[3], 1)
             t:SetSize(size, size)
             t:ClearAllPoints()
@@ -434,7 +425,7 @@ function Kit.Chart(parent)
         self.scrub:Show()
         for i, s in ipairs(o.series or {}) do
             local d = self.hoverDots[i]
-            if not d then d = Kit.Dot(self, 8, C.gold, 1, "OVERLAY"); self.hoverDots[i] = d end
+            if not d then d = UI:CreateDot(self, 8, C.gold, { alpha = 1 }); self.hoverDots[i] = d end
             local y = YAt(s.points, x)
             if y then
                 local col = s.color or C.gold
@@ -486,7 +477,7 @@ function Kit.Spark(parent, w, h)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(w, h)
     f.lines = {}
-    f.dot = Kit.Dot(f, 5, C.gold)
+    f.dot = UI:CreateDot(f, 5, C.gold, { alpha = 1 })
     function f:SetValues(vals)
         for _, l in ipairs(self.lines) do l:Hide() end
         self.dot:Hide()

@@ -149,13 +149,8 @@ local function IsMe(key)
     return ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) or false
 end
 
-local function ClassOf(key)
-    if ns.Guild and ns.Guild.GetClass then return ns.Guild:GetClass(key) end
-    return nil
-end
-
 local function ColoredName(key, classFile)
-    classFile = classFile or ClassOf(key)
+    classFile = classFile or UI:ClassOf(key)
     -- players outside the guild (pugs) are marked: they roll and can be awarded like everyone else
     if Dry.preview and Dry.preview[key] then return UI:ColoredName(key, classFile) end   -- (the example roll)
     return UI:ColoredName(key, classFile) .. UI:GuestTag(key)
@@ -2232,7 +2227,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     local inRaid = row.inRaid
     if inRaid == nil then inRaid = IsInMyGroup(row.key) end
     SetPresence(r, inRaid and "raid" or "offline")
-    local classFile = row.classFile or ClassOf(row.key)
+    local classFile = row.classFile or UI:ClassOf(row.key)
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, classFile) end
     -- A plain roll (1.3): no BiS pill, no votes, no lock markers.
     local plain = PlainMode(nil, session)
@@ -2306,20 +2301,10 @@ local function FillMoreRow(r, rest, kind, session)
     return ROW_H
 end
 
--- A gold-text link ("Show rolls (3)" / "Hide"): white while hovered.
--- TODO(refactor): move into a shared text link (PageParts / Controls have none outside the back link and the toast)
+-- A gold-text link ("Show rolls (3)" / "Hide"): white while hovered (UI:CreateTextLink).
 local function NewLink(parent, onClick)
-    local l = CreateFrame("Button", nil, parent)
-    l:SetHeight(16)
-    l.label = UI:Text(l, "body", "GOLD")
-    l.label:SetPoint("RIGHT", l, "RIGHT", 0, 0)
-    l:SetScript("OnClick", onClick)
-    l:SetScript("OnEnter", function(self) self.label:SetTextColor(S:Color("TEXT")) end)
-    l:SetScript("OnLeave", function(self) self.label:SetTextColor(S:Color("GOLD")) end)
-    function l:SetLabel(text)
-        self.label:SetText(text or "")
-        self:SetWidth((self.label:GetStringWidth() or 60) + 4)
-    end
+    local l = UI:CreateTextLink(parent, "", onClick, { color = "GOLD", hover = "TEXT", align = "RIGHT", pad = 4 })
+    l.label = l.fs
     return l
 end
 

@@ -4,7 +4,9 @@ local addonName, ns = ...
 
 -- The surfaces every page is built on (REFACTOR_API.md "Surfaces.lua"), all on ns.UI and the values of ns.Style:
 --   UI:CreateCard(parent, opts)        a card / an inset well / the quiet fading lift, with an optional title; card.body
---   UI:DecorateRow(row, opts)          the one hover, the one selected look (gold wash + 2 px bar), stripe, hairline
+--   UI:DecorateRow(row, opts)          the one hover, the one selected look (gold wash + 2 px bar), the "you" look
+--                                      (blue wash + 2 px bar), stripe, hairline
+--   UI:CreateFace(parent, size)        a glyph on a dark disc in a gold ring (or a round icon / a class in the ring)
 --   UI:CreateArtRow(parent, opts)      the 50 px row with a 64x38 picture and a 20 px icon tile (events, polls, ...)
 --   UI:CreateEmptyState(parent, opts)  an illustrated "nothing here" (My Log's): disc + icon, title, text, one action
 --   UI:CreateNotice(parent, kind, txt) a slim strip saying why something can't be done here (read-only / locked /
@@ -142,6 +144,16 @@ function Row:IsSelected()
     return self.dzSelected and true or false
 end
 
+-- Mine or not (DecorateRow's you = true): a faint YOU wash and a 2 px YOU bar on the left.
+function Row:SetYou(on)
+    on = on and true or false
+    self.dzYou = on
+    if self.dzYouFill then
+        self.dzYouFill:SetShown(on)
+        self.dzYouBar:SetShown(on)
+    end
+end
+
 -- The stripe of the i-th row of a list: every second row (2, 4, ...) is a touch lighter (true: on; nil / false: off).
 function Row:SetStripe(i)
     if not self.dzStripe then return end
@@ -161,10 +173,11 @@ local function HoverOn(self) if self.dzHover then self.dzHover:Show() end end
 local function HoverOff(self) if self.dzHover then self.dzHover:Hide() end end
 
 -- Gives a row the shared looks. opts: { hover (true; false: none), selectable (the selected look; row:SetSelected),
--- stripe (row:SetStripe(i)), rule (a hairline along the bottom) }. A Button's hover is its HIGHLIGHT layer (it
+-- you (the "you" look of my own row: row:SetYou(on); youAlpha: its wash, 0.08), stripe (row:SetStripe(i)), rule (a
+-- hairline along the bottom) }. A Button's hover is its HIGHLIGHT layer (it
 -- survives a later SetScript); a plain frame's is hooked to OnEnter / OnLeave (hook it after setting those). Calling
 -- it again on the same row only adds what it did not have. Returns row.
--- The textures: row.dzHover, row.dzSelFill / row.dzSelBar, row.dzStripe, row.dzRule.
+-- The textures: row.dzHover, row.dzSelFill / row.dzSelBar, row.dzYouFill / row.dzYouBar, row.dzStripe, row.dzRule.
 function UI:DecorateRow(row, opts)
     if not row then return row end
     opts = opts or {}
@@ -186,6 +199,18 @@ function UI:DecorateRow(row, opts)
         row.dzSelBar:SetColorTexture(S:Color("SELECT_BAR"))
         row:SetSelected(row.dzSelected)
     end
+    if opts.you and not row.dzYouFill then
+        local r, g, b = S:Color("YOU")
+        row.dzYouFill = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+        row.dzYouFill:SetAllPoints()
+        row.dzYouFill:SetColorTexture(r, g, b, opts.youAlpha or 0.08)
+        row.dzYouBar = row:CreateTexture(nil, "ARTWORK", nil, 6)
+        row.dzYouBar:SetWidth(2)
+        row.dzYouBar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        row.dzYouBar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+        row.dzYouBar:SetColorTexture(r, g, b, 1)
+        row:SetYou(row.dzYou)
+    end
     if opts.hover ~= false and not row.dzHover then
         local kind = row.GetObjectType and row:GetObjectType()
         if kind == "Button" or kind == "CheckButton" then
@@ -205,6 +230,79 @@ function UI:DecorateRow(row, opts)
         row.dzRule = UI:Rule(row, { bottom = 0 })
     end
     return row
+end
+
+---------------------------------------------------------------------------
+-- Face
+---------------------------------------------------------------------------
+
+local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
+local Face = {}
+
+-- An atlas glyph (UI.ICON index or name) on the disc, in a colour ("GOLD" by default).
+function Face:SetGlyph(i, color)
+    if self.photo then self.photo:Hide() end
+    UI:SetGlyph(self.icon, i, color or "GOLD")
+    self.icon:Show()
+end
+
+-- A round icon filling the ring (a path / file id, or an atlas name with atlas = true): an addon's, a letter.
+function Face:SetPhoto(path, atlas)
+    if not self.photo then
+        self.photo = self:CreateTexture(nil, "ARTWORK", nil, 3)
+        self.photo:SetAllPoints()
+        if self.CreateMaskTexture then
+            local m = self:CreateMaskTexture()
+            m:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            m:SetAllPoints(self.photo)
+            self.photo:AddMaskTexture(m)
+        end
+    end
+    if atlas and self.photo.SetAtlas then
+        self.photo:SetAtlas(path)
+    else
+        self.photo:SetTexture(path or 134400)
+        self.photo:SetTexCoord(0.06, 0.94, 0.06, 0.94)
+    end
+    self.photo:SetVertexColor(1, 1, 1)
+    self.photo:Show()
+    self.icon:Hide()
+end
+
+-- A player's class circle filling the ring (EUI:SetClass).
+function Face:SetClassOf(key)
+    self:SetPhoto(nil)
+    self.photo:SetTexCoord(0, 1, 0, 1)
+    if ns.EventUI then ns.EventUI:SetClass(self.photo, key) end
+end
+
+-- The ring's colour (a token name or a table; "GOLD" at first).
+function Face:SetRing(color)
+    self.ring:SetVertexColor(S:Color(color or "GOLD"))
+end
+
+-- A face (the Events pages' look): a size x size dark disc in a gold ring 2 px outside it, with a glyph at its
+-- centre (face:SetGlyph(i, color)), or a round icon / a class filling it (face:SetPhoto(path [, atlas]),
+-- face:SetClassOf(key)). opts: { ring = colour ("GOLD"), glyph = i, glyphColor }. face.disc, .ring, .icon (.photo).
+function UI:CreateFace(parent, size, opts)
+    opts = opts or {}
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
+    f.disc:SetTexture(MEDIA .. "Strategy\\disc")
+    f.disc:SetVertexColor(S:Color("INSET"))
+    f.disc:SetAllPoints()
+    f.ring = f:CreateTexture(nil, "ARTWORK", nil, 4)
+    f.ring:SetTexture(MEDIA .. "Events\\ring")
+    f.ring:SetPoint("CENTER")
+    f.ring:SetSize(size + 4, size + 4)
+    f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
+    f.icon:SetSize(floor(size * 0.46), floor(size * 0.46))
+    f.icon:SetPoint("CENTER")
+    for k, fn in pairs(Face) do f[k] = fn end
+    f:SetRing(opts.ring)
+    if opts.glyph then f:SetGlyph(opts.glyph, opts.glyphColor) end
+    return f
 end
 
 ---------------------------------------------------------------------------

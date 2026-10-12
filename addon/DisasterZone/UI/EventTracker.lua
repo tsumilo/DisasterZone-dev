@@ -578,7 +578,7 @@ function T:FillPart2(f, occ, st, def, bk)
             n = n + 1
             local line = ScoreLine(f, n)
             line.big:SetText(B():FormatScore(def, s.sid, s.n))
-            h.Fit(line.sub, (s.name or "") .. " · " .. h.Ordinal(s.place), TRK_W - TRK_IN - h.Width(line.big) - 8, 11.5, 9.5)
+            h.Fit(line.sub, (s.name or "") .. " · " .. h.Ordinal(s.place), TRK_W - TRK_IN - UI():TextWidth(line.big) - 8, 11.5, 9.5)
             line:Show()
         end
     end
@@ -591,7 +591,7 @@ function T:FillPart2(f, occ, st, def, bk)
             local b = Button(f, n)
             b.occ, b.label = occ, label
             b:SetText(label)
-            b:SetWidth(floor(H().Width(b:GetFontString()) + 24 + 0.5))
+            b:SetWidth(floor(UI():TextWidth(b:GetFontString()) + 24 + 0.5))
             b:Show()
         end
     end
@@ -896,7 +896,7 @@ function T:FillTracker(occ, st, def, bk)
                 -- (" · best of 3" only when the line keeps it on one line: "first to 2" says it too)
                 local base = "Up after " .. h.Plain(p.a) .. " vs " .. h.Plain(p.b)
                 f.l2:SetText(base .. " · best of " .. bo)
-                if H().Width(f.l2) > TRK_W - TRK_IN then f.l2:SetText(base) end
+                if UI():TextWidth(f.l2) > TRK_W - TRK_IN then f.l2:SetText(base) end
                 f.clockMatch = p
             else
                 f.l2:SetText("Up next · best of " .. bo)
@@ -1413,7 +1413,7 @@ local function NewAskCard(kind)
         f.cand.name = UI():Text(f, "title", "TEXT")
         f.cand.sub = UI():Text(f, "body", "SUB")
         f.cand.ins = UI():CreateSleekButton(f, "Inspect", nil, 22, function() T:Inspect(f.cand.key) end)
-        f.cand.ins:SetWidth(floor(H().Width(f.cand.ins:GetFontString()) + 22))
+        f.cand.ins:SetWidth(floor(UI():TextWidth(f.cand.ins:GetFontString()) + 22))
         for i = 1, 10 do
             local b = UI():CreateSleekButton(f, tostring(i), 26, 28, function(self)
                 f.pick = self.n
@@ -1463,7 +1463,7 @@ local function Tile(f, i)
         t.chkMark:SetPoint("CENTER", t.chk)
         t.chkMark:SetVertexColor(0.16, 0.11, 0, 1)
         t.ins = UI():CreateSleekButton(t, "Inspect", nil, 22, function(self) T:Inspect(self:GetParent().key) end)
-        t.ins:SetWidth(floor(H().Width(t.ins:GetFontString()) + 22))
+        t.ins:SetWidth(floor(UI():TextWidth(t.ins:GetFontString()) + 22))
         t.ins:SetPoint("BOTTOM", 0, 8)
         t.you = UI():Text(t, "body", "SUB", { justify = "CENTER" })
         t.you:SetPoint("BOTTOM", 0, 12)
@@ -1597,7 +1597,7 @@ function T:LayAsk(f)
             f.pips:Hide()
         end
         f.send:SetText(votes > 1 and "Send votes" or "Send vote")
-        f.send:SetWidth(floor(H().Width(f.send:GetFontString()) + 28))
+        f.send:SetWidth(floor(UI():TextWidth(f.send:GetFontString()) + 28))
         f.send:ClearAllPoints()
         f.send:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -y)
         local foot = f.hint or ((votes > 1 and (picked .. " of " .. votes .. " picked") or (picked > 0 and ("Your pick: "
@@ -1649,7 +1649,7 @@ function T:LayAsk(f)
         end
         y = y + 28 + 12
         f.send:SetText(f.pick and ("Send " .. f.pick) or "Send")
-        f.send:SetWidth(floor(H().Width(f.send:GetFontString()) + 28))
+        f.send:SetWidth(floor(UI():TextWidth(f.send:GetFontString()) + 28))
         f.send:ClearAllPoints()
         f.send:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -y)
         f.foot:ClearAllPoints()
@@ -1670,7 +1670,7 @@ function T:LayAsk(f)
             local widest = 0
             for _, c in ipairs(choices) do
                 f.measure:SetText(tostring(c))
-                widest = max(widest, H().Width(f.measure))
+                widest = max(widest, UI():TextWidth(f.measure))
             end
             f.measure:SetText("")
             if widest > floor((w - 28 - 8) / 2) - 12 then cols = 1 end

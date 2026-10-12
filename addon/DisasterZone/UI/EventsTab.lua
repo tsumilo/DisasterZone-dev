@@ -104,20 +104,6 @@ function H.BodyH(L, bannerH)
     return floor(h)
 end
 
--- A text's size changed, keeping its font face and colour: the size snaps to the type scale (S:Size, D2).
--- TODO(refactor): move into UI:SetTextStyle (a size change that keeps the text's face and colour)
--- A token's colour at another alpha ({ r, g, b, a }: for a glow, a light, a ring).
-function H.Alpha(name, a)
-    local r, g, b = S:Color(name)
-    return { r, g, b, a }
-end
-
-function H.Resize(fs, size)
-    local p, _, flags = fs:GetFont()
-    fs:SetFont(p or S.FONT_NUM, S:Size(size or "emph"), flags or "")
-    return fs
-end
-
 -- A wrapped text w wide: sets it and returns its height (the client's own, at least what the text's width says).
 local function Wrap(fs, text, w, size)
     fs:SetWordWrap(true)
@@ -158,7 +144,7 @@ local function FitText(fs, text, w, sizes, wrap)
     fs:SetWidth(w)
     for _, size in ipairs(sizes) do
         local s = S:Size(size)
-        H.Resize(fs, s)
+        UI():SetTextSize(fs, s)
         fs:SetText(text or "")
         local tw = NatW(fs)
         if tw <= w + 0.5 then
@@ -168,7 +154,7 @@ local function FitText(fs, text, w, sizes, wrap)
     end
     if wrap == false then return nil end
     local s = S:Size(sizes[#sizes])
-    H.Resize(fs, s)
+    UI():SetTextSize(fs, s)
     return w, Wrap(fs, text, w, s), 2
 end
 H.NatW, H.FitText = NatW, FitText
@@ -262,7 +248,7 @@ end
 function H.Button(parent, text, w, h, kind, onClick, glyph)
     local b = UI():CreateSleekButton(parent, text, w, h, onClick, kind)
     local fs = b:GetFontString()
-    if (h or 22) <= 22 then H.Resize(fs, 11) end
+    if (h or 22) <= 22 then UI():SetTextSize(fs, 11) end
     if glyph then
         b.glyph = b:CreateTexture(nil, "OVERLAY")
         b.glyph:SetSize(12, 12)
@@ -2249,7 +2235,7 @@ end
 function Pg.NewStage(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(400, 60)
-    r.glow = Disc(r, 33, H.Alpha("GOLD", 0.18), "BACKGROUND", 0)
+    r.glow = Disc(r, 33, S:WithAlpha("GOLD", 0.18), "BACKGROUND", 0)
     r.glow:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
     r.ring = Disc(r, 23, { 0.44, 0.44, 0.46, 1 }, "BACKGROUND", 1)
     r.ring:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
@@ -2381,7 +2367,7 @@ function Pg.FillReward(c, rw, d, cellW, cols, labelH)
     ph = max(ph, labelH or 0)
     c.place:ClearAllPoints()
     c.place:SetPoint("TOP", badge, "BOTTOM", 0, -7)
-    H.Resize(c.n, four and 11 or 12)
+    UI():SetTextSize(c.n, four and 11 or 12)
     local nh = Wrap(c.n, rw.b.n or "Badge", cellW - 6, four and 11 or 12)
     c.n:ClearAllPoints()
     c.n:SetPoint("TOP", badge, "BOTTOM", 0, -(7 + ph + 3))
@@ -2853,11 +2839,11 @@ function Pg.CreateResults(v)
         if i == 2 then
             p.glows = {}
             for g = 1, 3 do
-                local t = Disc(p.face, def[2] + 6 + g * 7, H.Alpha("GOLD", 0.16 - g * 0.04), "BACKGROUND", -g)
+                local t = Disc(p.face, def[2] + 6 + g * 7, S:WithAlpha("GOLD", 0.16 - g * 0.04), "BACKGROUND", -g)
                 t:SetPoint("CENTER")
                 p.glows[g] = t
             end
-            p.gold = Disc(p.face, def[2] + 6, H.Alpha("GOLD", 0.92), "BACKGROUND", 0)
+            p.gold = Disc(p.face, def[2] + 6, S:WithAlpha("GOLD", 0.92), "BACKGROUND", 0)
             p.gold:SetPoint("CENTER")
         end
         f.peds[i] = p
@@ -5251,7 +5237,7 @@ function Sh.RefreshSchedule()
         text = "It has no sign-up: whoever is there when you start it plays."
     end
     if s.occ then text = "Everyone who signed up stays in. " .. text:gsub(" You're in it too.*$", "") end
-    H.Glyph(f.info.glyph, "clock", H.Alpha("SUB", 0.85))
+    H.Glyph(f.info.glyph, "clock", S:WithAlpha("SUB", 0.85))
     Wrap(f.info.fs, text, 354, 11)
 end
 
@@ -5519,10 +5505,10 @@ function Sh.Badge()
     pv.light:SetPoint("TOPLEFT")
     pv.light:SetPoint("TOPRIGHT")
     pv.light:SetHeight(260)
-    UI():Gradient(pv.light, "VERTICAL", H.Alpha("GOLD", 0), H.Alpha("GOLD", 0.05))
+    UI():Gradient(pv.light, "VERTICAL", S:WithAlpha("GOLD", 0), S:WithAlpha("GOLD", 0.05))
     pv.glows = {}
     for i, size in ipairs({ 140, 118, 100 }) do
-        local t = Disc(pv, size, H.Alpha("GOLD", 0.045), "BACKGROUND", i)
+        local t = Disc(pv, size, S:WithAlpha("GOLD", 0.045), "BACKGROUND", i)
         t:SetPoint("CENTER", pv, "TOP", 0, -70)
         pv.glows[i] = t
     end
@@ -5586,7 +5572,7 @@ function Sh.Badge()
         local sw = CreateFrame("Button", nil, f)
         sw:SetSize(31, 31)
         sw:SetPoint("TOPLEFT", FX + (i - 1) * 38, -341)
-        sw.sel = Disc(sw, 33, H.Alpha("GOLD_DEEP", 0.9), "BACKGROUND", 1)
+        sw.sel = Disc(sw, 33, S:WithAlpha("GOLD_DEEP", 0.9), "BACKGROUND", 1)
         sw.sel:SetPoint("CENTER")
         sw.hole = Disc(sw, 31, { 0.09, 0.09, 0.11, 1 }, "BACKGROUND", 2)
         sw.hole:SetPoint("CENTER")

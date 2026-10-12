@@ -672,10 +672,6 @@ function Board:ShareRef()
     return nil
 end
 
--- The chip's looks: "you" (blue: my next match, my place, my tag) and the live one (my match is on).
--- TODO(refactor): move into UI.CHIP_LOOK (UI/Comp/Controls.lua): a "live" chip look (red edge, warm text).
-local CHIP_LIVE = { fill = { 0.075, 0.045, 0.045, 1 }, edge = Tok("LIVE", 0.8), text = { 1, 0.85, 0.8 } }
-
 local function RefreshHeader(occ, st, def, bk)
     local hdr = win.hdr
     local banner = hdr.banner
@@ -714,7 +710,7 @@ local function RefreshHeader(occ, st, def, bk)
     local live = st and st.phase == "live"
     local text, rgb, key, look
     if live and m and m.st == "play" then
-        text, key, look = "Your match is on", H.Opp(m, me), CHIP_LIVE
+        text, key, look = "Your match is on", H.Opp(m, me), "live"
         chip.tip = { "Your match is on", "Duel " .. H.Plain(H.Opp(m, me)) .. (H.Place(occ) and (" at " .. H.Place(occ)) or "")
             .. ". Each duel counts by itself." }
     elseif live and m and m.st == "wait" and m.a and m.b and bk.r == m.r then
@@ -729,11 +725,9 @@ local function RefreshHeader(occ, st, def, bk)
         end
     end
     if text then
+        -- the chip's look: "you" (blue: my next match, my place, my tag) or "live" (my match is on)
+        chip.look = UI().CHIP_LOOK[look or "you"]
         chip:Set(text, rgb, key)
-        if look then
-            chip:SetPillColors(look.fill, look.edge)
-            chip.fs:SetTextColor(look.text[1], look.text[2], look.text[3])
-        end
         chip:Show()
     else
         chip:Hide()
@@ -1946,16 +1940,11 @@ end
 
 local function ScoreText(def, sid, n) return n ~= nil and B():FormatScore(def, sid, n) or "" end
 
--- The rows of the views are UI:DecorateRow rows (a hairline under each); "you" is the selected look in the "you"
--- blue (a tint and a 2 px bar on the left).
--- TODO(refactor): move into UI:DecorateRow (UI/Comp/Surfaces.lua): a "you" selected look (YOU wash + YOU bar).
-local function YouBand(r, on) r:SetSelected(on) end
-
+-- The rows of the views are UI:DecorateRow rows (a hairline under each) with the "you" look (a blue tint and a 2 px
+-- bar on the left: row:SetYou).
 local function NewBand(r, rule)
-    UI():DecorateRow(r, { selectable = true, hover = false, rule = rule })
-    r.dzSelFill:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.08)
-    r.dzSelBar:SetColorTexture(YOU[1], YOU[2], YOU[3], 1)
-    r.band, r.bar = r.dzSelFill, r.dzSelBar
+    UI():DecorateRow(r, { you = true, hover = false, rule = rule })
+    r.band, r.bar = r.dzYouFill, r.dzYouBar
 end
 
 local function NameTip(self, tip)
@@ -1997,7 +1986,7 @@ local function KV()
     sp:SetHeight(50)
     NewBand(sp, true)
     sp.band:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.05)
-    sp:SetSelected(true)
+    sp:SetYou(true)
     sp.cells = {}
     kv.splits = sp
     -- the rail of these views
@@ -2291,7 +2280,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
                 r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
                 r.key, r.tip = nil, nil
                 r.rest, r.restTitle = t.keys, t.title
-                YouBand(r, false)
+                r:SetYou(false)
                 r.cls:SetTexture(EUI().MASK)
                 r.cls:SetTexCoord(0, 1, 0, 1)
                 r.cls:SetDesaturated(false)
@@ -2344,7 +2333,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -ry)
             r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
             r.key, r.rest, r.tip = k, nil, nil
-            YouBand(r, ns.Util.IsMe(k))
+            r:SetYou(ns.Util.IsMe(k))
             r.cls:SetSize(18, 18)
             H.SetClass(r.cls, k)
             r.cls:Show()
@@ -2373,7 +2362,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
             r.key, r.rest, r.restTitle = nil, {}, col.title
             for j = shown + 1, #keys do r.rest[#r.rest + 1] = keys[j] end
-            YouBand(r, false)
+            r:SetYou(false)
             r.cls:Hide()
             r.name:Hide()
             r.val:SetText("")
@@ -2573,7 +2562,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
         r:SetWidth(w)
         r.key, r.tip = e.key, nil
         local isMe = ns.Util.IsMe(e.key)
-        YouBand(r, isMe)
+        r:SetYou(isMe)
         local place = e.n ~= nil and PlaceOf(def, st, sc.id, e.key) or nil
         r.top:SetShown(place ~= nil and place <= 3 and not isMe)
         if place and place <= 3 then
@@ -2850,7 +2839,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r.tip = { e.fin and ("Finished" .. (e.score and (" in " .. ScoreText(def, sc and sc.id, e.score)) or ""))
             or (e.out and ((e.outName or "Out") .. " of the race") or (e.done .. " of " .. n .. " done")) }
         local isMe = ns.Util.IsMe(e.key)
-        YouBand(r, isMe)
+        r:SetYou(isMe)
         local rank = (e.out or (e.done == 0 and not e.fin)) and "–" or tostring(idx)
         r.rank:SetText(rank)
         local mc = MEDAL_TEXT[idx]
@@ -2966,7 +2955,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -ry)
         r:SetWidth(w)
-        YouBand(r, false)
+        r:SetYou(false)
         r.key, r.tip = nil, nil
         r.rank:SetText("")
         r.cls:Hide()

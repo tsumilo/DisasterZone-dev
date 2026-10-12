@@ -697,21 +697,6 @@ end
 -- The toolbar: the greeting, then the action chips (UI:CreateChip)
 ---------------------------------------------------------------------------
 
--- A chip's look by the action's kind: the board header's chip ("you") with the kind's edge and text.
--- TODO(refactor): move into UI.CHIP_LOOK (UI/Comp/Controls.lua): kinds plain / warn / info / bad.
-local CHIP_LOOK = {}
-do
-    local you = UI().CHIP_LOOK.you
-    local function look(edge, a, text)
-        local r, g, b = S:Color(edge)
-        return { h = you.h, fill = you.fill, edge = { r, g, b, a }, text = text, x = you.x, pad = you.pad }
-    end
-    CHIP_LOOK.plain = look("EDGE_STRONG", 0.7, S.C.TEXT)
-    CHIP_LOOK.warn = look("WARN", 0.7, { 1, 0.82, 0.65 })
-    CHIP_LOOK.info = look("YOU", 0.55, { 0.81, 0.91, 1 })
-    CHIP_LOOK.bad = look("BAD", 0.85, { 1, 0.82, 0.78 })
-end
-
 local function newChip(parent)
     local c = UI():CreateChip(parent, { kind = "you", onClick = function(self) if self.onAction then self.onAction() end end })
     c.text = c.fs
@@ -720,15 +705,12 @@ end
 
 local function fillChip(c, a)
     c.kind, c.tip, c.onAction = a.kind or "plain", a.tip, a.onClick
-    c.look = CHIP_LOOK[c.kind] or CHIP_LOOK.plain
+    -- (a chip's look by the action's kind: UI.CHIP_LOOK plain / warn / info / bad, the "you" chip's shape)
+    local CL = UI().CHIP_LOOK
+    c.look = ({ plain = CL.plain, warn = CL.warn, info = CL.info, bad = CL.bad })[c.kind] or CL.plain
     local ic = a.icon
-    c:SetIcon(ic and ic.tex or nil)
+    c:SetIcon(ic and ic.tex or nil, ic and ic.coords or nil, nil, ic and ic.desat)
     c:Set(a.text)
-    if ic then
-        local tc = ic.coords
-        if tc then c.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) else c.icon:SetTexCoord(0, 1, 0, 1) end
-        c.icon:SetDesaturated(ic.desat and true or false)
-    end
 end
 
 -- The greeting leads the toolbar; the chips follow it while they fit (the rest behind "+N more").

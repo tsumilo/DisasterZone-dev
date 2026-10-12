@@ -31,7 +31,6 @@ local BODY_H = S.PAGE_H - UI.LAYOUT.TOP - S.BANNER.tool - S.GAP - UI.LAYOUT.BOTT
 local LEFT_W, RIGHT_W = 486, W - 486 - GAP  -- 486 / 276
 local HEAD_Y = -28                           -- a card's content starts under its header
 local MEASURE_S = 30
-local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local RING = "Interface\\AddOns\\DisasterZone\\Media\\Events\\ring"
 local ART = "Interface\\Glues\\LoadingScreens\\LoadScreenTempestKeep"
 local ROOMS_ART = "Interface\\Glues\\LoadingScreens\\LoadScreenKarazhan"
@@ -136,58 +135,12 @@ local function Bar(parent, w, h)
     return b
 end
 
--- A round icon in a thin gold ring (an addon's, a player's class). f:SetIcon(path [, atlas]) / f:SetClassOf(key).
--- TODO(refactor): move into Surfaces (UI:CreateFace: the ringed round icon of the Events pages, the Changelog, Welcome)
-local function RoundIcon(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size + 4, size + 4)
-    f.tex = f:CreateTexture(nil, "ARTWORK", nil, 1)
-    f.tex:SetPoint("CENTER")
-    f.tex:SetSize(size, size)
-    if f.CreateMaskTexture then
-        local m = f:CreateMaskTexture()
-        m:SetTexture(MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        m:SetAllPoints(f.tex)
-        f.tex:AddMaskTexture(m)
-    end
-    f.ring = f:CreateTexture(nil, "OVERLAY")
-    f.ring:SetTexture(RING)
-    f.ring:SetAllPoints()
-    f.ring:SetVertexColor(S:Color("GOLD_DEEP"))
-    function f:SetIcon(path, atlas)
-        if atlas and self.tex.SetAtlas then
-            self.tex:SetAtlas(atlas)
-        else
-            self.tex:SetTexture(path or ICON("INV_Misc_Gear_01"))
-            self.tex:SetTexCoord(0.06, 0.94, 0.06, 0.94)
-        end
-        self.tex:SetVertexColor(1, 1, 1)
-    end
-    function f:SetClassOf(key)
-        self.tex:SetTexCoord(0, 1, 0, 1)
-        if ns.EventUI then ns.EventUI:SetClass(self.tex, key) end
-    end
-    return f
-end
-
--- A list row: the shared row looks (a hairline on top; picked: the gold wash and bar); mine: the "you" blue wash.
--- TODO(refactor): move into Surfaces (DecorateRow's "you" look: a mine row in the YOU colour)
+-- A list row: the shared row looks (a hairline on top; picked: the gold wash and bar; mine: the "you" look).
 local function NewRow(parent, w, h, selectable)
     local r = CreateFrame(selectable and "Button" or "Frame", nil, parent)
     r:SetSize(w, h)
-    UI:DecorateRow(r, { hover = selectable and true or false, selectable = selectable })
+    UI:DecorateRow(r, { hover = selectable and true or false, selectable = selectable, you = true, youAlpha = 0.12 })
     r.rule = UI:Rule(r, { top = 0, alpha = 0.045, layer = "BORDER" })
-    local yr, yg, yb = S:Color("YOU")
-    r.me = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-    r.me:SetAllPoints()
-    r.me:SetColorTexture(yr, yg, yb, 0.12)
-    r.me:Hide()
-    r.meBar = r:CreateTexture(nil, "ARTWORK", nil, 6)
-    r.meBar:SetPoint("TOPLEFT")
-    r.meBar:SetPoint("BOTTOMLEFT")
-    r.meBar:SetWidth(2)
-    r.meBar:SetColorTexture(yr, yg, yb, 1)
-    r.meBar:Hide()
     return r
 end
 
@@ -545,8 +498,8 @@ local function CreateOverview(p)
         local r = NewRow(s, RIGHT_W - 2, 27)
         r:SetPoint("TOPLEFT", 1, -52 - (i - 1) * 27)
         r.rank = Cell(r, 22, -7, 18, "body", "DIM")
-        r.icon = RoundIcon(r, 17)
-        r.icon:SetPoint("LEFT", 27, 0)
+        r.icon = UI:CreateFace(r, 17, { ring = "GOLD_DEEP" })
+        r.icon:SetPoint("LEFT", 29, 0)
         r.name = UI:Text(r, "emph", "TEXT")
         r.name:SetPoint("TOPLEFT", 54, -6)
         r.name:SetWidth(RIGHT_W - 54 - 124)
@@ -630,10 +583,9 @@ local function FillOverview(p)
         local e = list[i]
         if e then
             local a = e.a
-            r.me:SetShown(a.me)
-            r.meBar:SetShown(a.me)
+            r:SetYou(a.me)
             r.rank:SetText(e.rank)
-            r.icon:SetIcon(a.icon, a.atlas)
+            r.icon:SetPhoto(a.icon or ICON("INV_Misc_Gear_01"), a.atlas)
             r.name:SetText(a.name)
             r.name:SetTextColor(S:Color(a.me and "YOU" or "TEXT"))
             r.kb:SetText(Fmt(a.kb))
@@ -732,8 +684,8 @@ local function CreateGarbage(p)
     for i = 1, 4 do
         local r = NewRow(s, SIDE_W - 2, 27)
         r:SetPoint("TOPLEFT", 1, -122 - (i - 1) * 27)
-        r.face = RoundIcon(r, 16)
-        r.face:SetPoint("LEFT", 10, 0)
+        r.face = UI:CreateFace(r, 16, { ring = "GOLD_DEEP" })
+        r.face:SetPoint("LEFT", 12, 0)
         r.name = UI:Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", 36, 0)
         r.name:SetWidth(SIDE_W - 36 - 100)
@@ -795,7 +747,7 @@ local function FillSide(s, x, rows, r)
             shown = i
             local isMe = ns.Util and ns.Util.IsMe and ns.Util.IsMe(e.who)
             row.me:SetShown(isMe and true or false)
-            if e.who:find("-", 1, true) then row.face:SetClassOf(e.who) else row.face:SetIcon(ICON("INV_Letter_02")) end
+            if e.who:find("-", 1, true) then row.face:SetClassOf(e.who) else row.face:SetPhoto(ICON("INV_Letter_02")) end
             row.name:SetText((e.who:match("^([^%-]+)") or e.who) .. (isMe and " (you)" or ""))
             row.n:SetText("x" .. e.n)
             row.rev:SetText(e.rev and ("..." .. tostring(e.rev):sub(-3)) or "")
@@ -1099,8 +1051,8 @@ local function CreateNetwork(p)
     for i = 1, 11 do
         local r = NewRow(s, RIGHT_W - 2, 29)
         r:SetPoint("TOPLEFT", 1, -52 - (i - 1) * 29)
-        r.face = RoundIcon(r, 17)
-        r.face:SetPoint("LEFT", 8, 1)
+        r.face = UI:CreateFace(r, 17, { ring = "GOLD_DEEP" })
+        r.face:SetPoint("LEFT", 10, 1)
         r.name = UI:Text(r, "emph", "TEXT")
         r.name:SetPoint("TOPLEFT", 34, -6)
         r.name:SetWidth(RIGHT_W - 34 - 112)

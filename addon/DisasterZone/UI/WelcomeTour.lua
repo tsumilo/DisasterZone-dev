@@ -169,36 +169,6 @@ end
 
 local POP_W, ROW_H = 470, 46
 
--- A face: the part's glyph on a dark disc in a gold ring (the Events pages' look).
--- TODO(refactor): move into Surfaces (UI:CreateFace, shared with the Changelog's cards and pop-up)
-local function NewFace(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
-    f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
-    f.disc:SetTexture(MEDIA .. "Strategy\\disc")
-    f.disc:SetVertexColor(S:Color("INSET"))
-    f.disc:SetAllPoints()
-    f.ring = f:CreateTexture(nil, "ARTWORK", nil, 1)
-    f.ring:SetTexture(MEDIA .. "Events\\ring")
-    f.ring:SetVertexColor(S:Color("GOLD"))
-    f.ring:SetPoint("CENTER")
-    f.ring:SetSize(size + 4, size + 4)
-    f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
-    f.icon:SetSize(floor(size * 0.46), floor(size * 0.46))
-    f.icon:SetPoint("CENTER")
-    return f
-end
-
--- A part's glyph on a texture, in the part's colour.
-local function PartIcon(tex, key)
-    tex:SetTexture(UI().ICON_ATLAS)
-    local co = UI():IconCoords(W:Icon(key))
-    tex:SetTexCoord(co[1], co[2], co[3], co[4])
-    local c = W.PARTS[key].color
-    tex:SetVertexColor(c[1], c[2], c[3])
-end
-
 local function NewPartRow(parent)
     local r = CreateFrame("Button", nil, parent)
     r:SetHeight(ROW_H)
@@ -208,7 +178,7 @@ local function NewPartRow(parent)
         W:PaintOffer()
     end)
     r.cb:SetPoint("LEFT", 4, 0)
-    r.face = NewFace(r, 30)
+    r.face = UI():CreateFace(r, 30)
     r.face:SetPoint("LEFT", 34, 0)
     r.title = UI():Text(r, "emph", "TEXT")
     r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 74, -9)
@@ -280,7 +250,7 @@ function W:PaintOffer()
                 r.key, r.on = key, true
             end
             local d = W.PARTS[key]
-            PartIcon(r.face.icon, key)
+            r.face:SetGlyph(W:Icon(key), W.PARTS[key].color)
             r.title:SetText(d.label)
             r.note:SetText(key == "leader" and roles.gm and "as the GM you plan raids too" or "")
             r.line:SetText(d.line)

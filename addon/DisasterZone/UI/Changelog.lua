@@ -473,37 +473,6 @@ local function WrapH(fs, w, lineH)
     return max(lineH, h)
 end
 
--- An atlas glyph (UI.ICON) on a texture, in a token colour.
--- TODO(refactor): move into Widgets (UI:SetGlyph(tex, icon, color): the banners' and the empty states' glyphs too)
-local function Glyph(tex, i, color)
-    tex:SetTexture(UI().ICON_ATLAS)
-    local c = UI():IconCoords(i)
-    tex:SetTexCoord(c[1], c[2], c[3], c[4])
-    tex:SetVertexColor(S:Color(color or "TEXT"))
-end
-
--- A face: a glyph on a dark disc in a gold ring (the Events pages' look).
--- TODO(refactor): move into Surfaces (UI:CreateFace: the ringed glyph the Events, Polls, Welcome offer and these
--- cards share; the page banner's icon tile has the ring but not the disc)
-local function Face(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
-    f.disc:SetTexture(MEDIA .. "Strategy\\disc")
-    f.disc:SetVertexColor(S:Color("INSET"))
-    f.disc:SetAllPoints()
-    f.ring = f:CreateTexture(nil, "ARTWORK", nil, 1)
-    f.ring:SetTexture(MEDIA .. "Events\\ring")
-    f.ring:SetVertexColor(S:Color("GOLD"))
-    f.ring:SetPoint("CENTER")
-    f.ring:SetSize(size + 4, size + 4)
-    f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
-    f.icon:SetSize(floor(size * 0.46), floor(size * 0.46))
-    f.icon:SetPoint("CENTER")
-    function f:SetIcon(i) Glyph(self.icon, i, "GOLD") end
-    return f
-end
-
 -- The painting of an area / a section (a raid key; "other": Outland) as UI:SetArtTexture / a banner's art takes it.
 local function ArtOf(key, w, h)
     local IDB = ns.ItemDB
@@ -516,26 +485,10 @@ local function ArtOf(key, w, h)
     return nil
 end
 
--- A gold text link with a chevron ("Show me >").
--- TODO(refactor): move into PageParts (the section header's action link, as UI:CreateTextLink(parent, text, fn, color))
+-- A gold text link with a chevron ("Show me >"): UI:CreateTextLink, white under the mouse (the chevron stays gold).
 local function NewGoLink(parent, label)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(16)
-    b.fs = UI():Text(b, "small", "GOLD")
-    b.fs:SetPoint("LEFT", 0, 0)
-    b.chev = b:CreateTexture(nil, "ARTWORK")
-    b.chev:SetSize(9, 9)
-    b.chev:SetPoint("LEFT", b.fs, "RIGHT", 3, 0)
-    UI():SetChevron(b.chev, true)
-    b.chev:SetVertexColor(S:Color("GOLD"))
-    function b:SetLabel(t)
-        self.fs:SetText(t)
-        self:SetWidth(floor(UI():TextWidth(self.fs) + 14 + 0.5))
-    end
-    b:SetLabel(label or "Show me")
-    b:SetScript("OnEnter", function(self) self.fs:SetTextColor(S:Color("TEXT")) end)
-    b:SetScript("OnLeave", function(self) self.fs:SetTextColor(S:Color("GOLD")) end)
-    return b
+    return UI():CreateTextLink(parent, label or "Show me", nil, { style = "small", color = "GOLD", hover = "TEXT",
+        chevron = "right", chevSize = 9, chevColor = "GOLD", pad = 2 })
 end
 
 ---------------------------------------------------------------------------
@@ -768,7 +721,7 @@ local function FillRow(r, sec, v, w, opts)
     r:SetWidth(w)
     local open = opts.open
     r:SetSelected(open)
-    Glyph(r.tile.icon, AreaAtlas(sec.area), "TEXT")
+    UI():SetGlyph(r.tile.icon, AreaAtlas(sec.area), "TEXT")
     r.title:SetText(UI():SafeText(sec.title))
     local x = 42 + UI():TextWidth(r.title) + 8
     local kinfo = sec.kind and KIND[sec.kind]
@@ -866,7 +819,7 @@ local function NewHighlight(parent)
     c.art = c.artF:CreateTexture(nil, "BACKGROUND")
     c.art:SetAllPoints()
     if ns.EventUI and ns.EventUI.AddShade then ns.EventUI:AddShade(c.artF, "card") end
-    c.face = Face(c, 40)
+    c.face = UI():CreateFace(c, 40)
     c.face:SetPoint("TOPLEFT", c, "TOPLEFT", 8, -39)
     c.ver = UI():CreatePill(c, nil, nil, 14)
     c.ver:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -6)
@@ -894,7 +847,7 @@ local function FillHighlight(c, sec, v, w, showVer)
     c.sec = sec
     c:SetWidth(w)
     UI():SetArtTexture(c.art, ArtOf(sec.art or (AREAS[sec.area] or AREAS.other)[5], w, L.ART_H), w, L.ART_H)
-    c.face:SetIcon(AreaAtlas(sec.area))
+    c.face:SetGlyph(AreaAtlas(sec.area))
     if showVer then
         c.ver:Set(sec.version, "mute")
         c.ver:Show()
@@ -939,7 +892,7 @@ end
 
 local function FillNote(n, w, iconIndex, text, linkText, onClick)
     n:SetWidth(w)
-    Glyph(n.icon, iconIndex, "SUB")
+    UI():SetGlyph(n.icon, iconIndex, "SUB")
     n.fs:SetText(text)
     n.go:SetLabel(linkText)
     n.onClick = onClick
@@ -1287,7 +1240,7 @@ local function SearchView(w)
             b:SetPoint("TOPLEFT", panel.child, "TOPLEFT", 0, y)
             b:SetWidth(w)
             b.sec = it.sec
-            Glyph(b.icon, AreaAtlas(it.sec.area), "TEXT")
+            UI():SetGlyph(b.icon, AreaAtlas(it.sec.area), "TEXT")
             b.title:SetText(mark(UI():SafeText(it.sec.title)))
             local x = 25 + UI():TextWidth(b.title) + 8
             local kinfo = it.sec.kind and KIND[it.sec.kind]
@@ -1661,7 +1614,7 @@ function ChangelogUI:RenderList()
             p:SetWidth(w)
             p.view = "since"
             p:SetSelected(st.view == "since")
-            Glyph(p.icon, UI().ICON.notes, "GOLD")
+            UI():SetGlyph(p.icon, UI().ICON.notes, "GOLD")
             p.t:SetText("Since your last visit")
             p.s:SetText(("%s to %s"):format(unread[#unread].version, unread[1].version))
             p.badge:SetKind("alert")
@@ -1984,7 +1937,7 @@ local function NewPopRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetHeight(POP_ROW)
     UI():DecorateRow(r, { hover = false, rule = true })
-    r.face = Face(r, 32)
+    r.face = UI():CreateFace(r, 32)
     r.face:SetPoint("LEFT", 4, 0)
     r.title = UI():Text(r, "emph", "TEXT")
     r.title:SetPoint("TOPLEFT", r, "TOPLEFT", 48, -10)
@@ -2054,7 +2007,7 @@ function ChangelogUI:OpenPopup()
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", sh.body, "TOPLEFT", 0, y)
         r:SetPoint("RIGHT", sh.body, "RIGHT", 0, 0)
-        r.face:SetIcon(AreaAtlas(it.sec.area))
+        r.face:SetGlyph(AreaAtlas(it.sec.area))
         r.title:SetText(UI():SafeText(it.sec.title))
         r.ver:SetText(#list >= 2 and it.sec.version or "")
         r.pitch:SetWidth(bw - 48 - 90)

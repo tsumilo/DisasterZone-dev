@@ -55,20 +55,8 @@ local function short(key)
     return ns.Util.ShortName(key) or key
 end
 
--- The class of a winner: the guild's, else what the store learned (an outsider). TODO(refactor): UI:ClassOf.
-local function classFor(key)
-    if type(key) ~= "string" then return nil end
-    local cl = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)
-    if not cl and ns.Store and ns.Store.Get then
-        local rec = ns.Store:Get(key)
-        local data = type(rec) == "table" and rec.data
-        if type(data) == "table" and type(data.cl) == "string" then cl = data.cl end
-    end
-    return cl
-end
-
 local function coloredName(key, classFile)
-    return ns.UI:ColoredName(key, classFile or classFor(key)) .. ns.UI:GuestTag(key)
+    return ns.UI:ColoredName(key, classFile or ns.UI:ClassOf(key)) .. ns.UI:GuestTag(key)
 end
 
 local function itemText(itemID)
@@ -204,7 +192,7 @@ local function buildRows()
                 pre[#pre + 1] = id
             end
             if (state.showDungeon or not isDungeonEntry(e)) and entryMatches(e) then
-                rows[#rows + 1] = { entry = e, itemID = id, classFile = classFor(e.w), index = #rows + 1 }
+                rows[#rows + 1] = { entry = e, itemID = id, classFile = ns.UI:ClassOf(e.w), index = #rows + 1 }
             end
         end
     end

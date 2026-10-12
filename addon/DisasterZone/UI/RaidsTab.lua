@@ -66,16 +66,10 @@ function H.Dim(text) return S:Wrap("DIM", text) end
 
 function H.Short(key) return ns.Util.ShortName(key) or tostring(key) end
 
--- The class the guild knows for a player, unless the record has it. TODO(refactor): move into UI:ClassOf (the API
--- names it; only EUI:ClassOf exists so far).
-function H.Class(key, classFile)
-    return classFile or (ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)) or nil
-end
-
 -- The name in its class colour. (Other lists mark a player from another realm "Name*"; the raid log's tables leave
 -- the mark out: the GUEST tag says they are outside the guild, the row's tooltip names the realm.)
 function H.Colored(key, classFile)
-    local text = ns.UI:ColoredName(key, H.Class(key, classFile))
+    local text = ns.UI:ColoredName(key, ns.UI:ClassOf(key, classFile))
     return (text:gsub("%*|r$", "|r"))
 end
 
@@ -503,7 +497,7 @@ function H.DetailRows(rec)
     local place = H.PlaceColumns("att", DETAIL_W, { [4] = anyLeft })
     for _, key in ipairs(keys) do
         local a = rec.att[key]
-        rows[#rows + 1] = { place = place, key = key, class = H.Class(key, a.c), guest = ns.UI:IsGuest(key),
+        rows[#rows + 1] = { place = place, key = key, class = ns.UI:ClassOf(key, a.c), guest = ns.UI:IsGuest(key),
             cols = { H.Colored(key, a.c), ("%d/%d"):format(tonumber(a.k) or 0, nBoss), a.j and H.Time(a.j) or DASH,
                      leftEarly(a) and H.Time(a.l) or DASH },
             pill = a.b and "bench" or nil,

@@ -21,15 +21,14 @@ local type, tostring, ipairs, pairs = type, tostring, ipairs, pairs
 
 -- (the values a banner over art uses; the rest are ns.Style tokens)
 local GOLD, LINE = S.C.GOLD, S.C.HAIRLINE
-local function Alpha(c, a) return { c[1], c[2], c[3], a } end
 local P = {
     WHITE = { 1, 1, 1 },                      -- the title over art (the raid page's GameFontHighlightLarge)
     ON_ART = { 0.82, 0.82, 0.82 },            -- the sub line over art (the guest profile's, the Events meta)
     PLAIN = { 0.105, 0.105, 0.125, 1 },       -- a banner without art: the guest profile's dark card ...
-    GLOW = Alpha(GOLD, 0.06),                 -- ... with a little gold light from the left
-    GLOW_END = Alpha(GOLD, 0),
+    GLOW = S:WithAlpha(GOLD, 0.06),                 -- ... with a little gold light from the left
+    GLOW_END = S:WithAlpha(GOLD, 0),
     GLOW_W = 300,
-    RING = Alpha(GOLD, 0.55),                 -- the icon's ring (the Events banner)
+    RING = S:WithAlpha(GOLD, 0.55),                 -- the icon's ring (the Events banner)
     BLACK = { 0, 0, 0, 1 },
     SHADE = { 0.035, 0.035, 0.043 },          -- EUI:AddShade's colour (used when EventWidgets is not there)
     X = 14,                                   -- the banner's inner left / right margin
@@ -40,7 +39,7 @@ local P = {
     ACT_Y = 12, ACT_GAP = 6, ACT_MIN = 56, ACT_PAD = 28,   -- the actions at the bottom right
     FOOT_H = 26,                              -- banner.foot's height (tabs on the banner's foot)
     FOOT_FADE = 44,                           -- with a reserved foot: the art fades into the page over this
-    RULE_HI = Alpha(LINE, 0.14), RULE_LO = Alpha(LINE, 0.04),   -- the caps header's fading rule
+    RULE_HI = S:WithAlpha(LINE, 0.14), RULE_LO = S:WithAlpha(LINE, 0.04),   -- the caps header's fading rule
     BACK = "SUB",                             -- the back link's rest colour (gold under the mouse)
 }
 
@@ -63,18 +62,21 @@ local function SizeOf(size)
     return SIZES[size] or SIZES.hero
 end
 
--- text upper-cased outside its escapes (a colour code, a texture, a link's head keep their case).
+local function Upper(s) return (s:gsub("[a-z]+", string.upper)) end
+
+-- text upper-cased outside its escapes (a colour code, a texture, a link's head keep their case). Only a-z change:
+-- the bytes of a UTF-8 letter (past 127) stay as they are.
 local function Caps(text)
     text = text == nil and "" or tostring(text)
-    if not text:find("|", 1, true) then return text:upper() end
+    if not text:find("|", 1, true) then return Upper(text) end
     local out, i, n = {}, 1, #text
     while i <= n do
         local j = text:find("|", i, true)
         if not j then
-            out[#out + 1] = text:sub(i):upper()
+            out[#out + 1] = Upper(text:sub(i))
             break
         end
-        out[#out + 1] = text:sub(i, j - 1):upper()
+        out[#out + 1] = Upper(text:sub(i, j - 1))
         local k = text:sub(j + 1, j + 1)
         local e
         if k == "c" then
@@ -154,15 +156,22 @@ end
 
 -- The way back to a list or board: a left chevron and a caps word ("ALL RAIDS"), grey, gold under the mouse.
 -- b.icon (the chevron), b.text (= b.fs); b:SetText(text) fits the width; b:SetOnClick(fn); fn(b, mouseButton).
-function UI:CreateBackLink(parent, text, onClick)
+-- opts: { forward = true: the way on ("RECENT RUNS  4 >"): the words first, the chevron after them pointing right }.
+function UI:CreateBackLink(parent, text, onClick, opts)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(80, 14)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetSize(10, 10)
-    b.icon:SetPoint("LEFT", 0, 0)
-    UI:SetChevron(b.icon, false)
     b.text = UI:Text(b, "small", P.BACK)
-    b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+    if opts and opts.forward then
+        b.text:SetPoint("LEFT", b, "LEFT", 0, 0)
+        b.icon:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
+        UI:SetChevron(b.icon, true)
+    else
+        b.icon:SetPoint("LEFT", 0, 0)
+        UI:SetChevron(b.icon, false)
+        b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+    end
     b.fs = b.text
     function b:SetText(t)
         self.label = t
@@ -582,25 +591,86 @@ local HEAD = {
               right = "small" },
 }
 
-local function PaintLink(self, on)
-    local c = on and "GOLD" or "SUB"
+---------------------------------------------------------------------------
+-- Text link
+---------------------------------------------------------------------------
+
+local Link = {}
+
+function Link:Paint()
+    local c = self.hovered and self.hoverColor or self.color
     Paint(self.fs, c)
-    Paint(self.chev, c)
+    if self.chev then Paint(self.chev, self.chevColor or c) end
 end
 
-local function NewHeaderLink(parent)
+-- The words (a prefix stays in front, in its own colours); the width follows them unless the frame was made fixed.
+function Link:SetLabel(text)
+    self.label = text
+    self.fs:SetText((self.prefix or "") .. (text == nil and "" or tostring(text)))
+    if not self.fixed then
+        local w = UI:TextWidth(self.fs) + (self.chev and (self.gap + self.chevSize) or 0) + self.pad
+        self:SetWidth(floor(w + 0.5))
+    end
+end
+function Link:GetLabel() return self.label end
+
+-- The rest and hover colours (token names or tables).
+function Link:SetColors(color, hover)
+    self.color, self.hoverColor = color or self.color, hover or self.hoverColor
+    self:Paint()
+end
+
+local function LinkEnter(self) self.hovered = true; self:Paint() end
+local function LinkLeave(self) self.hovered = false; self:Paint() end
+
+-- A quiet text link (a section header's action, "Show me >", "+ Row", "Show rolls (4)", "Clear list"): words in a
+-- colour that changes under the mouse, an optional chevron after them. opts: { style ("body"), color ("SUB"), hover
+-- ("GOLD"), chevron ("right" | "down" | nil), chevSize (10), chevColor (a fixed chevron colour; default: as the
+-- words), gap (3: words to chevron), prefix (text kept in front, e.g. a gold "+ "), align ("LEFT" | "RIGHT" |
+-- "CENTER": where the words sit), fixed (true: the caller sizes the frame), pad (0: extra width), height (16) }.
+-- link:SetLabel(text), :GetLabel(), :SetColors(color, hover); link.fs, link.chev. onClick(link, mouseButton); a
+-- caller may SetScript("OnClick") itself instead.
+function UI:CreateTextLink(parent, text, onClick, opts)
+    opts = opts or {}
     local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(16)
-    b.fs = UI:Text(b, "body", "SUB")
-    b.fs:SetPoint("LEFT", 0, 0)
-    b.chev = b:CreateTexture(nil, "ARTWORK")
-    b.chev:SetSize(10, 10)
-    b.chev:SetPoint("LEFT", b.fs, "RIGHT", 3, 0)
-    UI:SetChevron(b.chev, true)
-    b:SetScript("OnEnter", function(s) PaintLink(s, true) end)
-    b:SetScript("OnLeave", function(s) PaintLink(s, false) end)
-    b:SetScript("OnClick", ActionClick)
-    PaintLink(b, false)
+    b:SetHeight(opts.height or 16)
+    for k, fn in pairs(Link) do b[k] = fn end
+    b.color, b.hoverColor = opts.color or "SUB", opts.hover or "GOLD"
+    b.chevColor, b.prefix, b.fixed, b.pad = opts.chevColor, opts.prefix, opts.fixed, opts.pad or 0
+    b.gap, b.chevSize = opts.gap or 3, opts.chevSize or 10
+    b.fs = UI:Text(b, opts.style or "body", b.color)
+    local align = opts.align or "LEFT"
+    if opts.chevron then
+        b.chev = b:CreateTexture(nil, "ARTWORK")
+        b.chev:SetSize(b.chevSize, b.chevSize)
+        if opts.chevron == "down" then
+            local c = UI:IconCoords(UI.ICON.chevron)
+            b.chev:SetTexture(UI.ICON_ATLAS)
+            b.chev:SetTexCoord(c[1], c[2], c[3], c[4])
+        else
+            UI:SetChevron(b.chev, true)
+        end
+    end
+    local tail = b.chev and (b.gap + b.chevSize) or 0
+    if align == "RIGHT" then
+        b.fs:SetPoint("RIGHT", b, "RIGHT", -tail, 0)
+    elseif align == "CENTER" then
+        b.fs:SetPoint("CENTER", b, "CENTER", -floor(tail / 2), 0)
+    else
+        b.fs:SetPoint("LEFT", b, "LEFT", 0, 0)
+    end
+    if b.chev then b.chev:SetPoint("LEFT", b.fs, "RIGHT", b.gap, opts.chevron == "down" and -1 or 0) end
+    b:SetScript("OnEnter", LinkEnter)
+    b:SetScript("OnLeave", LinkLeave)
+    if onClick then b:SetScript("OnClick", onClick) end
+    b:SetLabel(text)
+    b:Paint()
+    return b
+end
+
+-- (the section header's action: a grey link with a chevron, gold under the mouse; ActionClick runs its action)
+local function NewHeaderLink(parent)
+    local b = UI:CreateTextLink(parent, "", ActionClick, { chevron = "right" })
     return b
 end
 
@@ -687,8 +757,7 @@ function Header:SetAction(a)
         else
             if not self.link then self.link = NewHeaderLink(self) end
             f = self.link
-            f.fs:SetText(a.text or a[1] or "")
-            f:SetWidth(floor(UI:TextWidth(f.fs) + 13 + 0.5))
+            f:SetLabel(a.text or a[1] or "")
         end
         f.ppAction = a
         SetTip(f, a.tip)

@@ -76,6 +76,18 @@ function S:Color(color)
     return c[1], c[2], c[3], c[4] or 1
 end
 
+-- r, g, b, a of a colour (a token name or a table) at alpha a; the colour's own alpha when a is nil.
+function S:Alpha(color, a)
+    local r, g, b, ca = self:Color(color)
+    return r, g, b, a or ca
+end
+
+-- A new { r, g, b, a } of a colour at alpha a (the colour's own when nil): a fill, an edge or a gradient's end.
+function S:WithAlpha(color, a)
+    local r, g, b, ca = self:Color(color)
+    return { r, g, b, a or ca }
+end
+
 -- "|cffffd100" (without the closing "|r"); unknown names give white.
 function S:Hex(name)
     return "|cff" .. (self.HEX[name] or "ffffff")

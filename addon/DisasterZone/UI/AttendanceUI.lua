@@ -46,15 +46,8 @@ local function dimText(s) return S:Wrap("DIM", s) end
 local function short(key) return Util().ShortName(key) or tostring(key) end
 
 local function name(key, cls)
-    local G = ns.Guild
-    local text = UI():ColoredName(key, cls or (G and G.GetClass and G:GetClass(key)))
+    local text = UI():ColoredName(key, UI():ClassOf(key, cls))
     return (text:gsub("%*|r$", "|r"))
-end
-
--- (the class of a player: the record's, else the guild's. TODO(refactor): UI:ClassOf)
-local function classFor(key, cls)
-    local G = ns.Guild
-    return cls or (G and G.GetClass and G:GetClass(key)) or nil
 end
 
 local function clock(t) return t and date("%H:%M", t) or "-" end
@@ -550,7 +543,7 @@ function AUI:CreateTimeline(parent, width)
             return
         end
         local r = d.r
-        UI():ClassIcon(row.icon, classFor(r.key, r.cls))
+        UI():ClassIcon(row.icon, UI():ClassOf(r.key, r.cls))
         row.name:SetText(name(r.key, r.cls))
         local p
         if r.pending then p = { "review", "warn" }
@@ -805,7 +798,7 @@ function AUI:CreateOverview(parent, width)
         local s = d.s
         row.cdlS = s
         row:SetStripe(d.i)
-        UI():ClassIcon(row.icon, classFor(s.key, s.cls))
+        UI():ClassIcon(row.icon, UI():ClassOf(s.key, s.cls))
         row.name:SetText(name(s.key, s.cls))
         local room = (v.noLineups and X.sq or X.lineups) - 22 - 10
         row.name:SetWidth(0)              -- (a reused row: measure the name unbounded, not at the last name's width)
@@ -1076,7 +1069,7 @@ function AUI:CreatePlayerPage(parent, width, opts)
     function v:SetPlayer(key, remote)
         self.key = key
         local A = Att()
-        local cls = classFor(key)
+        local cls = UI():ClassOf(key)
         b:SetIcon(CLASS_TILE)
         UI():ClassIcon(b.icon.tex, cls)
         b:SetTitle(name(key, cls))
@@ -1748,7 +1741,7 @@ function AUI:CreateReviews(parent, width)
             return
         end
         local r = d.r
-        local cls = classFor(r.key, r.cls)
+        local cls = UI():ClassOf(r.key, r.cls)
         if d.kind == "handled" then
             UI():ClassIcon(row.h.icon, cls)
             local word = AUI:ResultWord(r)
@@ -2106,7 +2099,7 @@ function AUI:LeaderRender()
     if left then
         local n = LiveNight()
         local r = n and A:Result(n, key)
-        UI():ClassIcon(f.icon, classFor(key))
+        UI():ClassIcon(f.icon, UI():ClassOf(key))
         local lastOut = r and r.last or Now()
         f.whoText = name(key) .. " left the raid" .. dimText("  " .. clock(lastOut))
         self:LeaderCount()

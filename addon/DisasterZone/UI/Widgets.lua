@@ -128,6 +128,15 @@ function UI:SetTextStyle(fs, style, color, flags, font)
     return fs
 end
 
+-- fs's size changed to a step of the type scale (S:Size: a name or a number, D2), keeping its font face, flags and
+-- colour (UI:SetTextStyle sets the style's colour). font: the face when fs has none yet.
+function UI:SetTextSize(fs, size, font)
+    if not fs then return end
+    local path, _, flags = fs:GetFont()
+    fs:SetFont(path or font or TextFont(), S:Size(size or "body"), flags or "")
+    return fs
+end
+
 -- A new FontString: one line, left-aligned, in `style` (see UI:SetTextStyle) and `color`.
 -- opts: { layer ("OVERLAY"), sublevel, justify ("LEFT"), wrap (false), width, shadow (true: the game's 1px drop,
 -- false: none, nil: the template's), flags, font, text (upper-cased for a caps style) }.
@@ -151,6 +160,42 @@ function UI:Text(parent, style, color, opts)
         fs:SetText((st and st.caps) and text:upper() or text)
     end
     return fs
+end
+
+-- UI:Tween(key, dur, fn, instant): fn(e) each frame for dur seconds, e eased out (cubic) from 0 to 1; one shared
+-- driver. A new tween on the same key (any value: a frame, a string) finishes the old one first (its fn(1)); instant
+-- jumps to the end (the first paint, a hidden page). UI:StopTween(key) finishes it now.
+local tweens, tweenDriver = {}, nil
+local function StepTweens(_, dt)
+    local snap = {}
+    for k, tw in pairs(tweens) do snap[k] = tw end
+    for k, tw in pairs(snap) do
+        if tweens[k] == tw then
+            tw.t = tw.t + (dt or 0)
+            local pr = math.min(1, tw.t / tw.dur)
+            tw.fn(1 - (1 - pr) ^ 3)
+            if pr >= 1 then tweens[k] = nil end
+        end
+    end
+    if not next(tweens) and tweenDriver then tweenDriver:SetScript("OnUpdate", nil) end
+end
+function UI:StopTween(key)
+    local old = tweens[key]
+    if old then
+        tweens[key] = nil
+        old.fn(1)
+    end
+end
+function UI:Tween(key, dur, fn, instant)
+    UI:StopTween(key)
+    if instant then
+        fn(1)
+        return
+    end
+    tweens[key] = { t = 0, dur = math.max(0.001, dur or 0), fn = fn }
+    fn(0)
+    tweenDriver = tweenDriver or CreateFrame("Frame")
+    tweenDriver:SetScript("OnUpdate", StepTweens)
 end
 
 -- A texture filling parent, in a colour (a token name or { r, g, b [, a] }; default the card's). layer: "BACKGROUND".
@@ -497,6 +542,20 @@ local function ClassHex(classFile)
         if type(hex) == "string" and #hex == 8 then return hex end
     end
     return Hex(UI:ClassColor(classFile))
+end
+
+-- A player's class file: known (a record's own) when given, else the guild roster's, else what the store learned
+-- (someone outside the guild); nil when nobody knows.
+function UI:ClassOf(key, known)
+    if known then return known end
+    if type(key) ~= "string" then return nil end
+    local cl = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)
+    if not cl and ns.Store and ns.Store.Get then
+        local rec = ns.Store:Get(key)
+        local data = type(rec) == "table" and rec.data
+        if type(data) == "table" and type(data.cl) == "string" then cl = data.cl end
+    end
+    return cl
 end
 
 function UI:ColoredName(key, classFile)
@@ -1664,6 +1723,18 @@ function UI:IconCoords(i)
 end
 
 -- An atlas icon inside text ("|T...|t"), e.g. in front of a menu entry. color: { r, g, b } 0..1 (default white).
+-- An atlas glyph (UI.ICON: an index or a name) on a texture, tinted in a colour (a token name or a table; "TEXT" by
+-- default): the faces', the banners' and the tiles' glyphs.
+function UI:SetGlyph(tex, i, color)
+    if not tex then return end
+    if type(i) == "string" then i = UI.ICON[i] or i end
+    tex:SetTexture(UI.ICON_ATLAS)
+    local c = UI:IconCoords(i)
+    tex:SetTexCoord(c[1], c[2], c[3], c[4])
+    tex:SetVertexColor(S:Color(color or "TEXT"))
+    return tex
+end
+
 function UI:AtlasIconText(i, size, color)
     size = tonumber(size) or 14
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
@@ -2224,6 +2295,20 @@ function CountBadge:SetCount(n)
         return
     end
     self:SetLabel(n > 99 and "99+" or tostring(floor(n)))
+end
+
+local DOT_DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+-- The count badge's dot form: a small disc (an unseen mark, a chart's point, a ring under a portrait) in a colour
+-- (a token name or a table). opts: { alpha, layer ("OVERLAY"), sublevel, hidden }. Returns the texture.
+function UI:CreateDot(parent, size, color, opts)
+    opts = opts or {}
+    local t = parent:CreateTexture(nil, opts.layer or "OVERLAY", nil, opts.sublevel)
+    t:SetTexture(DOT_DISC)
+    t:SetSize(size, size)
+    local r, g, b, a = S:Color(color or "GOLD")
+    t:SetVertexColor(r, g, b, opts.alpha or a)
+    if opts.hidden then t:Hide() end
+    return t
 end
 
 function UI:CreateCountBadge(parent, h, kind)

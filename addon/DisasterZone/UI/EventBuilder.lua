@@ -44,12 +44,6 @@ local function Util() return ns.Util end
 local function Copy(v) return ns.EventBlocks.Copy(v) end
 local function Me() return ns.Util.PlayerKey() end
 local St = ns.Style  -- (the design values: colours, the type scale; `S` is the builder's state here)
--- r, g, b, a of a ns.Style colour, with another alpha when given.
--- TODO(refactor): move into ns.Style (S:Color with an alpha override)
-local function Col(name, a)
-    local r, g, b, ta = St:Color(name)
-    return r, g, b, a or ta
-end
 -- The builder's own shades (not design tokens): read-only, some are passed to shared parts.
 local C = {
     white = { 1, 1, 1 },
@@ -77,14 +71,6 @@ local ui = {}        -- its parts
 -- (filled in below: the definitions' palette rows and editors, the map sheet, the questions sheet, the place card)
 local Defs, MapSheet, QSheet = {}, {}, {}
 Builder.Defs, Builder.MapSheet, Builder.QSheet = Defs, MapSheet, QSheet   -- (the tests and the audit drive them)
-
--- A text's size on the type scale (D2: half sizes snap), keeping its font face and colour (a field, a pill's name
--- that shrinks to fit). TODO(refactor): move into UI:SetTextStyle (a size change that keeps the colour)
-local function Resize(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, St:Size(size), flags or "") end
-    return fs
-end
 
 -- A tooltip shown from code (a click on a built-in definition says why it can't change; the definitions' rows).
 local function Tip(owner, title, text)
@@ -577,8 +563,8 @@ end
 
 local function PaintPill(p, kind)
     if kind == "on" then
-        p:SetPillColors({ 0.42, 0.30, 0.04, 0.6 }, { Col("GOLD", 0.85) })
-        p.disc:SetVertexColor(Col("GOLD"))
+        p:SetPillColors({ 0.42, 0.30, 0.04, 0.6 }, { St:Alpha("GOLD", 0.85) })
+        p.disc:SetVertexColor(St:Alpha("GOLD"))
         p.num:SetTextColor(0.16, 0.11, 0)
         p.fs:SetTextColor(1, 0.95, 0.8)
     elseif kind == "live" then
@@ -593,7 +579,7 @@ local function PaintPill(p, kind)
         p.fs:SetTextColor(0.6, 0.6, 0.63)
     else
         p:SetPillColors({ 0.06, 0.06, 0.07, 0.5 }, { 1, 1, 1, 0.14 })
-        p.disc:SetVertexColor(Col("HAIRLINE", 0.08))
+        p.disc:SetVertexColor(St:Alpha("HAIRLINE", 0.08))
         p.num:SetTextColor(0.87, 0.87, 0.87)
         p.fs:SetTextColor(0.74, 0.74, 0.74)
     end
@@ -643,7 +629,7 @@ local function LayoutStrip(strip, pills, practice, room)
             end
             local open = i == openIdx
             local num = small[i] and true or false
-            Resize(p.fs, open and size or 12)
+            UI():SetTextSize(p.fs, open and size or 12)
             p.fs:SetText(st.name)
             p.fs:ClearAllPoints()
             p.fs:SetPoint("LEFT", p.disc, "RIGHT", 6, 0)
@@ -742,7 +728,7 @@ local function LayoutStrip(strip, pills, practice, room)
             alw.icon:SetPoint("LEFT", alw, "LEFT", 9, 0)
             alw.icon:SetSize(15, 15)
             EUI():Glyph(alw.icon, UI().ICON.infinity or 53, 0.81, 0.81, 0.81)
-            Resize(alw.fs, on and size or 12)
+            UI():SetTextSize(alw.fs, on and size or 12)
             alw.fs:SetText("Always")
             alw.fs:ClearAllPoints()
             alw.fs:SetPoint("LEFT", alw.icon, "RIGHT", 5, 0)
@@ -1163,7 +1149,7 @@ function Builder:RenderPalette()
     for _, b in ipairs(pal.cats) do
         local on = (S.search or "") == "" and b.cat == (S.cat or "ev")
         b:SetSelected(on)
-        b.fs:SetTextColor(Col(on and "TEXT" or "SUB"))
+        b.fs:SetTextColor(St:Alpha(on and "TEXT" or "SUB"))
     end
     local child = pal.child
     for _, it in ipairs(pal.items) do
@@ -1257,8 +1243,8 @@ function Builder:RenderPalette()
                 end
                 it.fs:SetPoint("LEFT", it, "LEFT", x, 0)
                 it.fs:Show()
-                UI():SetEdgeColor(it, Col("EDGE_STRONG"))
-                it.bg:SetColorTexture(Col("CARD"))
+                UI():SetEdgeColor(it, St:Alpha("EDGE_STRONG"))
+                it.bg:SetColorTexture(St:Alpha("CARD"))
                 it:SetSize(min(PAL_LIST_W, x + UI():TextWidth(it.fs) + 12), 24)
                 h = 24
                 it:SetScript("OnClick", function(self, button)
@@ -1372,7 +1358,7 @@ CreateCanvas = function(body)
     -- a blank that would take the dragged value
     ui.slotHl = CreateFrame("Frame", nil, content)
     UI():AddEdges(ui.slotHl, "OVERLAY")
-    UI():SetEdgeColor(ui.slotHl, Col("GOLD", 0.95))
+    UI():SetEdgeColor(ui.slotHl, St:Alpha("GOLD", 0.95))
     ui.slotHl:Hide()
     -- inside a smart block: the notice over the canvas (built in: locked, make my own copy; or my own copy), on a
     -- card so the pieces under it don't show through
@@ -1407,7 +1393,7 @@ CreateCanvas = function(body)
         b.t = b:CreateTexture(nil, "ARTWORK")
         b.t:SetSize(11, 11)
         b.t:SetPoint("CENTER")
-        if icon then EUI():Glyph(b.t, icon, Col("TEXT")) end
+        if icon then EUI():Glyph(b.t, icon, St:Alpha("TEXT")) end
         UI():DecorateRow(b)
         b:SetScript("OnClick", fn)
         if tip then UI():AttachTooltip(b, tip, nil, C.tipTop) end
@@ -1416,7 +1402,7 @@ CreateCanvas = function(body)
     zc.minus = zb(nil, 0, 26, function() Builder:Zoom(-1) end, "Zoom out")
     zc.minus.t:SetTexture(WHITE)
     zc.minus.t:SetSize(9, 2)
-    zc.minus.t:SetVertexColor(Col("TEXT"))
+    zc.minus.t:SetVertexColor(St:Alpha("TEXT"))
     -- the percentage: a click goes back to 100%
     zc.reset = zb(nil, 26, 50, function() Builder:ZoomTo(1) end, "Back to 100%")
     zc.reset.t:Hide()
@@ -1435,7 +1421,7 @@ CreateCanvas = function(body)
     ov.boxes = {}
     ov.vp = CreateFrame("Frame", nil, ov)
     UI():AddEdges(ov.vp, "OVERLAY")
-    UI():SetEdgeColor(ov.vp, Col("GOLD", 0.85))
+    UI():SetEdgeColor(ov.vp, St:Alpha("GOLD", 0.85))
     ov.vp.bg = UI():Fill(ov.vp, C.goldWash)
     ov:SetScript("OnMouseUp", function(self, button) if button == "LeftButton" then Builder:OverviewClick(self) end end)
     ui.overview = ov
@@ -1838,7 +1824,7 @@ function Builder:RenderStatus()
         end
         st.ro:SetNotice("readonly", text)
         st.ro:SetAllPoints()
-        UI():SetEdgeColor(st, Col("YOU", 0.5))
+        UI():SetEdgeColor(st, St:Alpha("YOU", 0.5))
         st:SetWidth(28 + UI():TextWidth(st.ro.text) + 12)
         return
     end
@@ -1847,10 +1833,10 @@ function Builder:RenderStatus()
         local first = probs[1]
         if #probs == 1 and first.text and first.text:find("^Needs a player") then word = "1 piece needs a player" end
         st.fs:SetText(word)
-        st.fs:SetTextColor(Col("WARN"))
+        st.fs:SetTextColor(St:Alpha("WARN"))
         st.icon:SetTexture(UI().ICON_WARN)
         st.icon:SetTexCoord(0, 1, 0, 1)
-        UI():SetEdgeColor(st, Col("WARN", 0.6))
+        UI():SetEdgeColor(st, St:Alpha("WARN", 0.6))
     else
         -- every piece is set: practise it first (a practice run to its end of exactly this event), then host it
         local d = Def()
@@ -1860,10 +1846,10 @@ function Builder:RenderStatus()
         local practiced = S.practicedHash == h or (p ~= nil and p.h == h)
         st.fs:SetText((state == "ranked" and not S.dirty and "Ranked · ready to host")
             or (practiced and "Ready to host") or "Ready to practice")
-        st.fs:SetTextColor(Col("OK"))
+        st.fs:SetTextColor(St:Alpha("OK"))
         st.icon:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
         st.icon:SetTexCoord(0, 1, 0, 1)
-        UI():SetEdgeColor(st, Col("OK", 0.5))
+        UI():SetEdgeColor(st, St:Alpha("OK", 0.5))
     end
     st:SetWidth(8 + 13 + 7 + (st.fs:GetStringWidth() or 100) + 10)
 end
@@ -2086,7 +2072,7 @@ CreateBlockCard = function(bid)
         if b.kind == "bracket" and B():SmartSetting(b, "win") == "pieces" then
             self.note:SetWordWrap(true)
             self.note:SetWidth(318 - 80 - 12)
-            self.note:SetTextColor(Col("SUB"))
+            self.note:SetTextColor(St:Alpha("SUB"))
             self.note:SetText("Duels don't count. A match ends when a piece says "
                 .. St:Wrap("GOLD", "award the match to") .. ".")
             self.note:ClearAllPoints()
@@ -2652,7 +2638,7 @@ local function CreatePicker()
     -- (the menus' surface: a drop-down list of what fits)
     p.bg = UI():Fill(p, "SURFACE_WINDOW")
     UI():AddEdges(p)
-    UI():SetEdgeColor(p, Col("DROP_EDGE"))
+    UI():SetEdgeColor(p, St:Alpha("DROP_EDGE"))
     p.title = UI():Text(p, "emph", "GOLD")
     p.title:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -10)
     p.sub = UI():Text(p, "small", "SUB")
@@ -2915,7 +2901,7 @@ function Builder:FillPicker(query)
                 local icon = c.action[2]
                 local x = 8
                 if icon then
-                    EUI():Glyph(r.icon, icon, Col("TEXT"))
+                    EUI():Glyph(r.icon, icon, St:Alpha("TEXT"))
                     r.icon:Show()
                     x = 28
                 end
@@ -3766,12 +3752,12 @@ function Builder:RenderStartFrom(show)
         UI():SetArtTexture(c.art, e.art, cardW - 2, 44)
         c.icon:Set(e.icon)
         -- a long name a little smaller, and on two lines if it must (never cut)
-        Resize(c.n, 12)
+        UI():SetTextSize(c.n, 12)
         c.n:SetWordWrap(false)
         c.n:SetWidth(cardW - 20)
         c.n:SetText(e.name)
         if UI():TextWidth(c.n) > cardW - 20 then
-            Resize(c.n, 11)
+            UI():SetTextSize(c.n, 11)
             if UI():TextWidth(c.n) > cardW - 20 then c.n:SetWordWrap(true) end
             c.n:SetText(e.name)
         end
@@ -4096,7 +4082,7 @@ function Builder:GlowScript(f, at)
             return
         end
         UI():SetEdgeColor(self, 1, 0.92, 0.6, a)
-        UI():SetEdgeColor(self.soft, Col("GOLD", a * 0.35))
+        UI():SetEdgeColor(self.soft, St:Alpha("GOLD", a * 0.35))
     end)
 end
 
@@ -4229,7 +4215,7 @@ CreatePractice = function(body)
     lg:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", 0, 0)
     lg:SetHeight(LOG_H)
     lg:SetFrameLevel(body:GetFrameLevel() + 950)
-    lg.bg:SetColorTexture(Col("SURFACE_WINDOW"))
+    lg.bg:SetColorTexture(St:Alpha("SURFACE_WINDOW"))
     lg.head = UI():CreateSectionHeader(lg, "Practice log", { right = "" })
     lg.head:SetPoint("TOPLEFT", lg, "TOPLEFT", 10, -2)
     lg.head:SetPoint("TOPRIGHT", lg, "TOPRIGHT", -10, -2)
@@ -4869,8 +4855,8 @@ function Defs:AddRow(it, kind)
         it.caret:Show()
         w = w + 12
     end
-    UI():SetEdgeColor(it, Col("EDGE_STRONG"))
-    it.bg:SetColorTexture(Col("CARD"))
+    UI():SetEdgeColor(it, St:Alpha("EDGE_STRONG"))
+    it.bg:SetColorTexture(St:Alpha("CARD"))
     it:SetSize(floor(w + 0.5), 24)
     it.kind = kind
     it:SetScript("OnClick", function(self, button)
@@ -5069,11 +5055,11 @@ local function ChipBox(parent, width, maxN, maxLen, onChange, addWord)
             c.index = i
             c:SetPillColors({ 0.11, 0.11, 0.13, 1 }, { 1, 1, 1, 0.22 })
             c.fs:SetWordWrap(false)
-            Resize(c.fs, 11)
+            UI():SetTextSize(c.fs, 11)
             c.fs:SetText(s)
             -- (a long one: smaller, then on two lines in a taller chip; never past the box)
             local room = width - 8 - 6 - 9 - 7
-            if UI():TextWidth(c.fs) > room then Resize(c.fs, 10) end
+            if UI():TextWidth(c.fs) > room then UI():SetTextSize(c.fs, 10) end
             local tall = UI():TextWidth(c.fs) > room
             local ch = tall and 32 or 20
             if tall then
@@ -5498,7 +5484,7 @@ local function ListForm(f)
         local to = max(1, min(n + 1, floor(rel / 24 + 0.5) + 1))
         dr.to = to
         self.line = self.line or self.child:CreateTexture(nil, "OVERLAY")
-        self.line:SetColorTexture(Col("GOLD", 0.9))
+        self.line:SetColorTexture(St:Alpha("GOLD", 0.9))
         self.line:SetHeight(2)
         self.line:ClearAllPoints()
         self.line:SetPoint("TOPLEFT", self.child, "TOPLEFT", 0, -((to - 1) * 24) + 1)
@@ -5589,7 +5575,7 @@ local function ListForm(f)
                 local ends = n >= 2 and i == n
                 it.num:SetText(ends and "F" or i)
                 if ends then
-                    it.disc:SetVertexColor(Col("GOLD"))
+                    it.disc:SetVertexColor(St:Alpha("GOLD"))
                     it.num:SetTextColor(0.16, 0.11, 0)
                 else
                     it.disc:SetVertexColor(Defs.TEAL[1], Defs.TEAL[2], Defs.TEAL[3])
@@ -5882,7 +5868,7 @@ function QSheet:Create()
     f.name = CreateFrame("EditBox", nil, f)
     f.name:SetAutoFocus(false)
     f.name:SetFontObject("GameFontNormal")
-    Resize(f.name, 14)
+    UI():SetTextSize(f.name, 14)
     f.name:SetSize(200, 24)
     f.name:SetPoint("LEFT", f.icon, "RIGHT", 9, 0)
     f.name:SetMaxLetters(MAX_NAME)
@@ -6512,11 +6498,11 @@ function MapSheet:Create()
         b.t:SetPoint("CENTER")
         if plus then
             b.t:SetSize(11, 11)
-            EUI():Glyph(b.t, UI().ICON.plus or 39, Col("TEXT"))
+            EUI():Glyph(b.t, UI().ICON.plus or 39, St:Alpha("TEXT"))
         else
             b.t:SetTexture(WHITE)
             b.t:SetSize(9, 2)
-            b.t:SetVertexColor(Col("TEXT"))
+            b.t:SetVertexColor(St:Alpha("TEXT"))
         end
         UI():DecorateRow(b)
         b:SetScript("OnClick", fn)
@@ -6560,7 +6546,7 @@ function MapSheet:Create()
     f.slider.track:SetPoint("LEFT", f.slider, "LEFT", 0, 0)
     f.slider.track:SetPoint("RIGHT", f.slider, "RIGHT", 0, 0)
     f.slider.fill = f.slider:CreateTexture(nil, "ARTWORK")
-    f.slider.fill:SetColorTexture(Col("GOLD"))
+    f.slider.fill:SetColorTexture(St:Alpha("GOLD"))
     f.slider.fill:SetHeight(2)
     f.slider.fill:SetPoint("LEFT", f.slider, "LEFT", 0, 0)
     f.slider.knobE = f.slider:CreateTexture(nil, "OVERLAY", nil, 1)
@@ -6908,7 +6894,7 @@ function Defs:ShowCard(pid, anchor)
         -- (the menus' and the picker's surface)
         c.bg = UI():Fill(c, "SURFACE_WINDOW")
         UI():AddEdges(c)
-        UI():SetEdgeColor(c, Col("DROP_EDGE"))
+        UI():SetEdgeColor(c, St:Alpha("DROP_EDGE"))
         c.view = MapSheet.NewView(c, CARD_W, CARD_MAP_H)
         c.view:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
         c.line = UI():Text(c, "body", "SUB")

@@ -22,12 +22,6 @@ local STAR = "Interface\\COMMON\\ReputationStar"
 -- (the helpers in one table: the file stays far from Lua's local limits)
 local H = {}
 
--- c (a token name or { r, g, b [, a] }) with alpha a, as a new table.
-function H.Alpha(c, a)
-    local r, g, b = S:Color(c)
-    return { r, g, b, a }
-end
-
 -- A one-line FontString from a template, at size (optional; a size of the type scale) in the template's face.
 function H.Label(parent, template, size)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
@@ -56,7 +50,7 @@ end
 -- The looks: the text's colour, the tint mixed into the fill (12% over what the pill sits on) and the 1 px edge.
 -- UI.TAG_LOOK is the old name of the same table. Read-only: some colours are ns.Style's own tables.
 local PILL_LOOK = {
-    bis  = { text = C.GOLD,                tint = C.GOLD,               edge = H.Alpha("GOLD", 0.5) },
+    bis  = { text = C.GOLD,                tint = C.GOLD,               edge = S:WithAlpha("GOLD", 0.5) },
     alt  = { text = { 0.56, 0.78, 1 },     tint = { 0.31, 0.63, 1 },    edge = { 0.43, 0.71, 1, 0.5 } },
     os   = { text = { 0.79, 0.65, 1 },     tint = { 0.63, 0.43, 1 },    edge = { 0.67, 0.51, 1, 0.5 } },
     ok   = { text = { 0.62, 0.94, 0.69 },  tint = { 0.24, 0.71, 0.35 }, edge = { 0.35, 0.86, 0.47, 0.5 } },
@@ -64,9 +58,9 @@ local PILL_LOOK = {
     mute = { text = { 0.72, 0.72, 0.72 },  tint = { 1, 1, 1 },          edge = { 1, 1, 1, 0.2 } },
     -- the events' (Live, Ranked)
     live = { text = { 1, 0.77, 0.72 },     tint = { 0.9, 0.2, 0.15 },   edge = { 1, 0.38, 0.29, 0.8 } },
-    rank = { text = { 1, 0.88, 0.54 },     tint = C.GOLD,               edge = H.Alpha("GOLD", 0.55) },
+    rank = { text = { 1, 0.88, 0.54 },     tint = C.GOLD,               edge = S:WithAlpha("GOLD", 0.55) },
     -- a worse number (My Log's "-6.1%"): the BAD red, quieter than live
-    bad  = { text = { 1, 0.62, 0.58 },     tint = C.BAD,                edge = H.Alpha("BAD", 0.55) },
+    bad  = { text = { 1, 0.62, 0.58 },     tint = C.BAD,                edge = S:WithAlpha("BAD", 0.55) },
 }
 UI.PILL_LOOK = PILL_LOOK
 UI.TAG_LOOK = PILL_LOOK
@@ -167,7 +161,21 @@ UI.CHIP_LOOK = {
               x = 7, pad = 10 },
 }
 UI.CHIP_LOOK.default = UI.CHIP_LOOK.track
-local CHIP_SELECTED_EDGE = H.Alpha("GOLD", 0.75)
+-- the "you" chip's shape in other colours: "live" (my match is on: a red edge, warm text) and the action chips' kinds
+-- (Home's toolbar): "plain", "warn", "info" (blue), "bad"
+do
+    local you = UI.CHIP_LOOK.you
+    local function look(fill, edge, a, text)
+        local r, g, b = S:Color(edge)
+        return { h = you.h, fill = fill or you.fill, edge = { r, g, b, a }, text = text, x = you.x, pad = you.pad }
+    end
+    UI.CHIP_LOOK.live = look({ 0.075, 0.045, 0.045, 1 }, "LIVE", 0.8, { 1, 0.85, 0.8 })
+    UI.CHIP_LOOK.plain = look(nil, "EDGE_STRONG", 0.7, C.TEXT)
+    UI.CHIP_LOOK.warn = look(nil, "WARN", 0.7, { 1, 0.82, 0.65 })
+    UI.CHIP_LOOK.info = look(nil, "YOU", 0.55, { 0.81, 0.91, 1 })
+    UI.CHIP_LOOK.bad = look(nil, "BAD", 0.85, { 1, 0.82, 0.78 })
+end
+local CHIP_SELECTED_EDGE = S:WithAlpha("GOLD", 0.75)
 
 local Chip = {}
 
@@ -215,6 +223,11 @@ function Chip:Set(text, rgb, key)
         self.dotEdge:Hide()
         self.cls:Hide()
         self.icon:SetTexture(self.iconPath)
+        local co = self.iconCoords
+        if co then self.icon:SetTexCoord(co[1], co[2], co[3], co[4]) else self.icon:SetTexCoord(0, 1, 0, 1) end
+        local r, g, b, a = S:Color(self.iconColor or { 1, 1, 1, 1 })
+        self.icon:SetVertexColor(r, g, b, a)
+        self.icon:SetDesaturated(self.iconDesat and true or false)
         self.icon:SetPoint("LEFT", x, 0)
         self.icon:Show()
         x = x + 14 + 6
@@ -231,9 +244,18 @@ function Chip:Set(text, rgb, key)
     self:SetWidth(floor(x + UI:TextWidth(self.fs) + look.pad + 0.5))
 end
 
--- chip:SetIcon(path): a texture in front of the text when no dot / class circle is given (nil: none). Takes effect on
--- the next chip:Set.
-function Chip:SetIcon(path) self.iconPath = path end
+-- chip:SetIcon(path [, coords, color, desaturate]): a texture in front of the text when no dot / class circle is given
+-- (nil: none); coords { l, r, t, b } (an atlas glyph: UI.ICON_ATLAS and UI:IconCoords(i)) and color (a token name or
+-- a table: a tint) are kept over every chip:Set. Takes effect on the next chip:Set.
+function Chip:SetIcon(path, coords, color, desaturate)
+    self.iconPath, self.iconCoords, self.iconColor, self.iconDesat = path, coords, color, desaturate
+end
+
+-- chip:SetLook(kind): another look of UI.CHIP_LOOK (the shape keeps its height), repainted now.
+function Chip:SetLook(kind)
+    self.look = UI.CHIP_LOOK[kind] or UI.CHIP_LOOK.default
+    self:Paint()
+end
 
 function Chip:SetSelected(on)
     self.selected = on and true or false
@@ -244,7 +266,7 @@ function Chip:IsSelected() return self.selected end
 
 -- UI:CreateChip(parent, opts): a tag as a chip, a rounded capsule with a dot in the tag's colour (or a class circle, or
 -- an icon) and its name. opts { text, rgb, key (class circle), icon, kind = "track" (18 high, the default) | "you" (the
--- board's header: a blue edge, 22 high), selected (a gold edge, gold text), onClick (a Button then, with a hover:
+-- board's header: a blue edge, 22 high) | "live" | "plain" | "warn" | "info" | "bad" (the "you" shape), selected (a gold edge, gold text), onClick (a Button then, with a hover:
 -- onClick(chip, mouseButton)) }. chip:Set(text, rgb, key), chip:SetSelected(on), chip:SetIcon(path); chip.fs.
 -- The call shape UI:CreateChip(parent, kind) makes an empty one of that kind.
 function UI:CreateChip(parent, opts)
@@ -657,7 +679,7 @@ end
 
 local RAIL_TEXT = { 0.78, 0.78, 0.78 }      -- an item that is not open
 local RAIL_COUNT_HOT = { 1, 0.86, 0.62 }    -- a count that wants you (Needs you)
-local RAIL_OPEN = H.Alpha("GOLD", 0.08)     -- the open item's fill
+local RAIL_OPEN = S:WithAlpha("GOLD", 0.08)     -- the open item's fill
 
 -- An item's icon on tex: a UI.ICON name or atlas index, a texture path / file id (>= 1000), { path, l, r, t, b }, or
 -- function(tex, item, open) that draws it. Tinted item.iconColor, else gold while open (item.gold) or grey.

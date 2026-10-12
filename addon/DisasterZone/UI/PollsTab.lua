@@ -74,14 +74,6 @@ local function PollIcon() return ns:HasAssets(6) and UI().ICON.poll or UI().ICON
 -- ns.Util.Now; what stays here is page logic and thin aliases of shared parts)
 ---------------------------------------------------------------------------
 
--- A text's size changed, keeping its font face and colour: the size snaps to the type scale.
--- TODO(refactor): move into UI:SetTextStyle (a size change that keeps the text's face and colour)
-local function Resize(fs, size)
-    local p, _, flags = fs:GetFont()
-    fs:SetFont(p or NUM_FONT, St:Size(size or "emph"), flags or "")
-    return fs
-end
-
 local function Edges(f, c, layer)
     UI():AddEdges(f, layer or "BORDER")
     UI():SetEdgeColor(f, St:Color(c))
@@ -127,7 +119,7 @@ end
 local function Button(parent, text, w, h, kind, onClick, glyph)
     local b = UI():CreateSleekButton(parent, text, w, h, onClick, kind)
     local fs = b:GetFontString()
-    if (h or 22) <= 20 then Resize(fs, 10) elseif (h or 22) <= 22 then Resize(fs, 11) end
+    if (h or 22) <= 20 then UI():SetTextSize(fs, 10) elseif (h or 22) <= 22 then UI():SetTextSize(fs, 11) end
     if glyph then
         b.glyph = b:CreateTexture(nil, "OVERLAY")
         b.glyph:SetSize(11, 11)
@@ -656,7 +648,7 @@ function L.Fill(r, p, sec, w)
         r.more:SetScript("OnClick", function(self) ManageMenu(self, p) end)
         r.more:Show()
         r.mini.l:SetText("Answered")
-        Resize(r.mini.l, "small")
+        UI():SetTextSize(r.mini.l, "small")
         r.mini.r:SetText(res.answered .. "/" .. res.total)
         r.mini.bar.fill:SetColorTexture(C.green[1], C.green[2], C.green[3], 1)
         r.mini.bar:Set(res.total > 0 and res.answered / res.total or 0, 110)
@@ -670,7 +662,7 @@ function L.Fill(r, p, sec, w)
             r.mini.r:SetText(share .. "%")
             local room = 110 - TextW(r.mini.r) - 6
             for _, size in ipairs({ 10, 9.5 }) do
-                Resize(r.mini.l, size)
+                UI():SetTextSize(r.mini.l, size)
                 r.mini.l:SetText(lead)
                 if TextW(r.mini.l) <= room then break end
             end

@@ -2550,14 +2550,9 @@ local function createCouncilSection(parent, kind)
 
     s.listLabel = UI:Text(s, "caps", "SUB", { text = "On the council" })
     -- Clear list: a quiet text link on the list's label row (the rows have the bins)
-    s.clear = CreateFrame("Button", nil, s)
-    s.clear:SetHeight(18)
-    s.clear.text = UI:Text(s.clear, "body", "SUB", { text = "Clear list" })
-    s.clear.text:SetPoint("RIGHT", 0, 0)
-    s.clear:SetWidth(math.floor((s.clear.text:GetStringWidth() or 50) + 4))
-    s.clear:SetScript("OnClick", function() CouncilUI:ConfirmClearCouncil(kind) end)
-    s.clear:SetScript("OnEnter", function(self) self.text:SetTextColor(S:Color("GOLD")) end)
-    s.clear:SetScript("OnLeave", function(self) self.text:SetTextColor(S:Color("SUB")) end)
+    s.clear = UI:CreateTextLink(s, "Clear list", function() CouncilUI:ConfirmClearCouncil(kind) end,
+        { align = "RIGHT", pad = 4, height = 18 })
+    s.clear.text = s.clear.fs
     V.tip(s.clear, "Clear list", isGuild
         and "Removes everyone from the guild council list (asks first). The Guild Master stays council."
         or "Removes everyone from your raid council list (asks first). As raid leader you stay council.")
