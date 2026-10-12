@@ -78,18 +78,6 @@ end
 local FONT_COLOR = { GameFontNormal = S.C.GOLD, GameFontNormalLarge = S.C.GOLD, GameFontNormalHuge = S.C.GOLD,
     default = { 1, 1, 1 } }
 
--- A one-line text (UI:Text: the game font's face and shadow), sized on the type scale and coloured. font: the game
--- font it used to be made from (only its colour still counts when r is nil).
-function H.Text(parent, font, size, r, g, b, layer)
-    return UI():Text(parent, size or "emph", r and { r, g, b } or FONT_COLOR[font or "default"] or FONT_COLOR.default,
-        { layer = layer })
-end
-
--- A text's whole width on one line (UI:TextWidth).
-function H.Width(fs)
-    return UI():TextWidth(fs)
-end
-
 -- Sets the text, a size smaller each time it does not fit width (down to minSize). True when it fits.
 -- (The sizes are the type scale's; a minSize under the scale's smallest step is still tried as it is, last: a dense
 -- bracket's names shrink to the room rather than being cut.)
@@ -103,13 +91,13 @@ function H.Fit(fs, text, width, size, minSize)
         if snapped ~= last then
             last = snapped
             H.Sized(fs, s)
-            if H.Width(fs) <= width then return true end
+            if UI():TextWidth(fs) <= width then return true end
         end
     end
     if minSize < S:Size(minSize) then
         local path, _, flags = fs:GetFont()
         if path then fs:SetFont(path, minSize, flags) end
-        if H.Width(fs) <= width then return true end
+        if UI():TextWidth(fs) <= width then return true end
     end
     return false
 end
@@ -118,7 +106,7 @@ end
 function H.Fit2(fs, text, width, size, minSize)
     fs:SetWordWrap(false)
     if H.Fit(fs, text, width, size, minSize) then
-        fs:SetWidth(max(1, floor(H.Width(fs) + 4.5)))
+        fs:SetWidth(max(1, floor(UI():TextWidth(fs) + 4.5)))
         return true
     end
     fs:SetWordWrap(true)
@@ -136,7 +124,7 @@ function H.FitAny(fs, list, width, size, minSize, shrink)
         else
             H.Sized(fs, size)
             fs:SetText(list[i])
-            if H.Width(fs) <= width then return true end
+            if UI():TextWidth(fs) <= width then return true end
         end
     end
     return H.Fit(fs, list[#list], width, size, minSize)
@@ -375,7 +363,7 @@ function H.NewRing(parent, size)
         t:SetPoint("CENTER", f, "CENTER", math.sin(a) * rad, math.cos(a) * rad)
         f.arc[i] = t
     end
-    f.fs = H.Text(f, "GameFontHighlight", max(9, floor(size * 0.32)), 1, 1, 1)
+    f.fs = UI():Text(f, max(9, floor(size * 0.32)), { 1, 1, 1 })
     f.fs:SetJustifyH("CENTER")
     f.fs:SetPoint("CENTER", 0.5, 0)
     function f:Set(left, total, color)
@@ -684,10 +672,6 @@ function Board:ShareRef()
     return nil
 end
 
--- The chip's looks: "you" (blue: my next match, my place, my tag) and the live one (my match is on).
--- TODO(refactor): move into UI.CHIP_LOOK (UI/Comp/Controls.lua): a "live" chip look (red edge, warm text).
-local CHIP_LIVE = { fill = { 0.075, 0.045, 0.045, 1 }, edge = Tok("LIVE", 0.8), text = { 1, 0.85, 0.8 } }
-
 local function RefreshHeader(occ, st, def, bk)
     local hdr = win.hdr
     local banner = hdr.banner
@@ -726,7 +710,7 @@ local function RefreshHeader(occ, st, def, bk)
     local live = st and st.phase == "live"
     local text, rgb, key, look
     if live and m and m.st == "play" then
-        text, key, look = "Your match is on", H.Opp(m, me), CHIP_LIVE
+        text, key, look = "Your match is on", H.Opp(m, me), "live"
         chip.tip = { "Your match is on", "Duel " .. H.Plain(H.Opp(m, me)) .. (H.Place(occ) and (" at " .. H.Place(occ)) or "")
             .. ". Each duel counts by itself." }
     elseif live and m and m.st == "wait" and m.a and m.b and bk.r == m.r then
@@ -741,11 +725,9 @@ local function RefreshHeader(occ, st, def, bk)
         end
     end
     if text then
+        -- the chip's look: "you" (blue: my next match, my place, my tag) or "live" (my match is on)
+        chip.look = UI().CHIP_LOOK[look or "you"]
         chip:Set(text, rgb, key)
-        if look then
-            chip:SetPillColors(look.fill, look.edge)
-            chip.fs:SetTextColor(look.text[1], look.text[2], look.text[3])
-        end
         chip:Show()
     else
         chip:Hide()
@@ -1626,10 +1608,10 @@ function Board:DrawRail(occ, st, def, bk, height)
         local oneRow = false
         for _, size in ipairs({ 12, 11 }) do
             side(c.c1, c.n1, a, sa, inner, size)
-            local w1 = (c.c1:IsShown() and 25 or 0) + H.Width(c.n1)
+            local w1 = (c.c1:IsShown() and 25 or 0) + UI():TextWidth(c.n1)
             side(c.c2, c.n2, b, sb, inner, size)
-            local w2 = (c.c2:IsShown() and 25 or 0) + H.Width(c.n2)
-            if w1 + 7 + H.Width(c.vs) + 7 + w2 <= inner then
+            local w2 = (c.c2:IsShown() and 25 or 0) + UI():TextWidth(c.n2)
+            if w1 + 7 + UI():TextWidth(c.vs) + 7 + w2 <= inner then
                 oneRow = true
                 break
             end
@@ -1958,16 +1940,11 @@ end
 
 local function ScoreText(def, sid, n) return n ~= nil and B():FormatScore(def, sid, n) or "" end
 
--- The rows of the views are UI:DecorateRow rows (a hairline under each); "you" is the selected look in the "you"
--- blue (a tint and a 2 px bar on the left).
--- TODO(refactor): move into UI:DecorateRow (UI/Comp/Surfaces.lua): a "you" selected look (YOU wash + YOU bar).
-local function YouBand(r, on) r:SetSelected(on) end
-
+-- The rows of the views are UI:DecorateRow rows (a hairline under each) with the "you" look (a blue tint and a 2 px
+-- bar on the left: row:SetYou).
 local function NewBand(r, rule)
-    UI():DecorateRow(r, { selectable = true, hover = false, rule = rule })
-    r.dzSelFill:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.08)
-    r.dzSelBar:SetColorTexture(YOU[1], YOU[2], YOU[3], 1)
-    r.band, r.bar = r.dzSelFill, r.dzSelBar
+    UI():DecorateRow(r, { you = true, hover = false, rule = rule })
+    r.band, r.bar = r.dzYouFill, r.dzYouBar
 end
 
 local function NameTip(self, tip)
@@ -2009,7 +1986,7 @@ local function KV()
     sp:SetHeight(50)
     NewBand(sp, true)
     sp.band:SetColorTexture(YOU[1], YOU[2], YOU[3], 0.05)
-    sp:SetSelected(true)
+    sp:SetYou(true)
     sp.cells = {}
     kv.splits = sp
     -- the rail of these views
@@ -2282,11 +2259,11 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
         H.Sized(c.right, 10.5)
         H.Sized(c.title, 12)
         c.title:SetText(col.title)
-        if sc and H.Width(c.title) + 8 + H.Width(c.right) > room then
+        if sc and UI():TextWidth(c.title) + 8 + UI():TextWidth(c.right) > room then
             H.Fit(c.right, sc.n, max(40, floor(room * 0.45)), 10.5, 9)
-            if H.Width(c.right) > floor(room * 0.45) + 1 then c.right:SetText("") end
+            if UI():TextWidth(c.right) > floor(room * 0.45) + 1 then c.right:SetText("") end
         end
-        local rw = (c.right:GetText() or "") ~= "" and (H.Width(c.right) + 8) or 0
+        local rw = (c.right:GetText() or "") ~= "" and (UI():TextWidth(c.right) + 8) or 0
         c.title:SetWordWrap(false)
         if not H.Fit(c.title, col.title, room - rw, 12, 10) then
             -- (the tag's name first: the score's goes, its values stay next to the names; then smaller, then two lines)
@@ -2303,7 +2280,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
                 r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
                 r.key, r.tip = nil, nil
                 r.rest, r.restTitle = t.keys, t.title
-                YouBand(r, false)
+                r:SetYou(false)
                 r.cls:SetTexture(EUI().MASK)
                 r.cls:SetTexCoord(0, 1, 0, 1)
                 r.cls:SetDesaturated(false)
@@ -2314,7 +2291,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
                 r.val:SetText(tostring(#t.keys))
                 r.val:SetTextColor(S:Color("TEXT"))
                 -- (the name starts after the dot: 6 + 10 + 8; the count at the right)
-                H.Fit2(r.name, t.title, width - 6 - 10 - 8 - 6 - (H.Width(r.val) + 8), 12, 10)
+                H.Fit2(r.name, t.title, width - 6 - 10 - 8 - 6 - (UI():TextWidth(r.val) + 8), 12, 10)
                 r.name:SetTextColor(1, 1, 1)
                 r.name:Show()
                 r.more:Hide()
@@ -2356,7 +2333,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r:SetPoint("TOPLEFT", c, "TOPLEFT", 0, -ry)
             r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
             r.key, r.rest, r.tip = k, nil, nil
-            YouBand(r, ns.Util.IsMe(k))
+            r:SetYou(ns.Util.IsMe(k))
             r.cls:SetSize(18, 18)
             H.SetClass(r.cls, k)
             r.cls:Show()
@@ -2369,7 +2346,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r.val:SetText(text)
             local dim = val == nil or tonumber(val) == 0
             r.val:SetTextColor(S:Color(dim and "DIM" or "TEXT"))
-            local vw = text ~= "" and (H.Width(r.val) + 8) or 0
+            local vw = text ~= "" and (UI():TextWidth(r.val) + 8) or 0
             H.Fit2(r.name, H.Name(k), width - 6 - 18 - 8 - 6 - vw, 12, 10)
             r.name:Show()
             r.more:Hide()
@@ -2385,7 +2362,7 @@ function Board:DrawColumns(st, def, v, x, y, w, h)
             r:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, -ry)
             r.key, r.rest, r.restTitle = nil, {}, col.title
             for j = shown + 1, #keys do r.rest[#r.rest + 1] = keys[j] end
-            YouBand(r, false)
+            r:SetYou(false)
             r.cls:Hide()
             r.name:Hide()
             r.val:SetText("")
@@ -2436,7 +2413,7 @@ local function LbRow(i)
         r.fill = r:CreateTexture(nil, "ARTWORK", nil, 1)
         r.fill:SetHeight(4)
         UI():Gradient(r.fill, "HORIZONTAL", { 0.18, 0.5, 0.66, 1 }, { 0.42, 0.78, 0.94, 1 })
-        r.chip = EUI():CreateChip(r, "track")
+        r.chip = UI():CreateChip(r, "track")
         UI():AttachTooltip(r, NameTip)
         kv.lbRows[i] = r
     end
@@ -2561,7 +2538,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
     f[3]:ClearAllPoints(); f[3]:SetPoint("RIGHT", hd, "LEFT", scoreR, 0); f[3]:SetJustifyH("RIGHT")
     -- (a long score name: smaller, clear of the players' word)
     H.Sized(f[2], 10.5)
-    H.Fit2(f[3], sc and sc.n or "", max(40, scoreR - nameX - H.Width(f[2]) - 10), 10.5, 9)
+    H.Fit2(f[3], sc and sc.n or "", max(40, scoreR - nameX - UI():TextWidth(f[2]) - 10), 10.5, 9)
     f[4]:ClearAllPoints(); f[4]:SetPoint("LEFT", hd, "LEFT", scoreR + 10, 0)
     f[4]:SetText(lastKind and lastWord or "")
     for i = 1, 4 do f[i]:Show() end
@@ -2585,7 +2562,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
         r:SetWidth(w)
         r.key, r.tip = e.key, nil
         local isMe = ns.Util.IsMe(e.key)
-        YouBand(r, isMe)
+        r:SetYou(isMe)
         local place = e.n ~= nil and PlaceOf(def, st, sc.id, e.key) or nil
         r.top:SetShown(place ~= nil and place <= 3 and not isMe)
         if place and place <= 3 then
@@ -2626,7 +2603,7 @@ function Board:DrawScores(occ, st, def, v, x, y, w, h)
                     or (last.i and ("Item " .. last.i)) or ""
                 r.last:ClearAllPoints()
                 r.last:SetPoint("LEFT", r, "LEFT", tx, 0)
-                H.Fit(r.last, name, w - tx - 10 - H.Width(r.ago) - 10, 11, 9)
+                H.Fit(r.last, name, w - tx - 10 - UI():TextWidth(r.ago) - 10, 11, 9)
             end
         else
             -- (the bar fills the row, room left for a tag)
@@ -2716,7 +2693,7 @@ local function RaceRow(i)
         r.cls:SetPoint("LEFT", 34, 0)
         r.name = UI():Text(r, "emph", "TEXT")
         r.name:SetPoint("LEFT", r.cls, "RIGHT", 8, 0)
-        r.segs = EUI():CreateSegments(r, 128, 6, "board")
+        r.segs = UI():CreateSegments(r, 128, 6, "board")
         r.flag = r:CreateTexture(nil, "ARTWORK")
         r.flag:SetSize(12, 12)
         r.flag:SetPoint("LEFT", r.segs, "RIGHT", 4, 0)
@@ -2862,7 +2839,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r.tip = { e.fin and ("Finished" .. (e.score and (" in " .. ScoreText(def, sc and sc.id, e.score)) or ""))
             or (e.out and ((e.outName or "Out") .. " of the race") or (e.done .. " of " .. n .. " done")) }
         local isMe = ns.Util.IsMe(e.key)
-        YouBand(r, isMe)
+        r:SetYou(isMe)
         local rank = (e.out or (e.done == 0 and not e.fin)) and "–" or tostring(idx)
         r.rank:SetText(rank)
         local mc = MEDAL_TEXT[idx]
@@ -2978,7 +2955,7 @@ function Board:DrawRace(occ, st, def, v, x, y, w, h)
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", win.body, "TOPLEFT", x, -ry)
         r:SetWidth(w)
-        YouBand(r, false)
+        r:SetYou(false)
         r.key, r.tip = nil, nil
         r.rank:SetText("")
         r.cls:Hide()
@@ -3376,13 +3353,13 @@ function Board:DrawKindsRail(occ, st, def, v, x, y, w, h)
                 UI():SetTextStyle(r.how, "small", "SUB")
             end
             -- name and how on one line; on two when they don't both fit
-            local hw = how and (H.Width(r.how) + 8) or 0
+            local hw = how and (UI():TextWidth(r.how) + 8) or 0
             r.name:ClearAllPoints()
             r.how:ClearAllPoints()
             H.Sized(r.name, 11.5)
             r.name:SetText(e.b.n or "Badge")
             local rowH = 26
-            if H.Width(r.name) + hw <= w - 28 - 6 then
+            if UI():TextWidth(r.name) + hw <= w - 28 - 6 then
                 r.name:SetPoint("LEFT", r.badge, "RIGHT", 6, 0)
                 r.how:SetPoint("RIGHT", r, "RIGHT", 0, 0)
                 r.how:SetJustifyH("RIGHT")
@@ -3912,7 +3889,7 @@ local function RefreshDispute(occ, st, bk, disputes)
         if opts[i] then
             H.Sized(fs1, 11)
             fs1:SetText(H.Plain(opts[i]) .. " won")
-            if H.Width(fs1) > nameW - 14 then withWon = false end
+            if UI():TextWidth(fs1) > nameW - 14 then withWon = false end
         end
     end
     local x = 12

@@ -590,7 +590,7 @@ function Sheet:Layout()
             ch:SetScript("OnEnter", function(self)
                 local ctx, _, err = AttachedParts()
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:AddLine("Sent with your words", S:Color("GOLD"))
+                GameTooltip:AddLine("Sent with your words", S:RGB("GOLD"))
                 GameTooltip:AddLine("So the developer knows where and on what it happened. Nothing else about you is sent.",
                     1, 1, 1, true)
                 GameTooltip:AddDoubleLine("Version", ctx.v, 0.7, 0.7, 0.7, 1, 1, 1)

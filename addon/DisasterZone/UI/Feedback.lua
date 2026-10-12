@@ -192,9 +192,9 @@ local function VoteTip(owner, item)
     table.sort(names)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
     if item.mine then
-        GameTooltip:AddLine(item.voteCount == 0 and "Nobody said me too yet" or "They want it too", S:Color("GOLD"))
+        GameTooltip:AddLine(item.voteCount == 0 and "Nobody said me too yet" or "They want it too", S:RGB("GOLD"))
     else
-        GameTooltip:AddLine(item.voted and "You said me too" or "Me too", S:Color("GOLD"))
+        GameTooltip:AddLine(item.voted and "You said me too" or "Me too", S:RGB("GOLD"))
         GameTooltip:AddLine(item.voted and "Click to take it back." or "Click if you want this too: the developer sees how "
             .. "many asked for it.", 1, 1, 1, true)
     end
@@ -531,7 +531,7 @@ end
 local function ContextTip(owner, item)
     local c = item.ctx or {}
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Sent with it", S:Color("GOLD"))
+    GameTooltip:AddLine("Sent with it", S:RGB("GOLD"))
     local function row(label, value)
         if value and value ~= "" then GameTooltip:AddDoubleLine(label, value, 0.7, 0.7, 0.7, 1, 1, 1) end
     end
@@ -599,7 +599,7 @@ local function FullStatusMenu(root, item)
     local function entry(s, label, tip)
         local b = root:CreateRadio(label, function() return item.state == s end, set(s))
         if b and b.SetTooltip and tip then
-            b:SetTooltip(function(tt) tt:AddLine(label, S:Color("GOLD")); tt:AddLine(tip, 1, 1, 1, true) end)
+            b:SetTooltip(function(tt) tt:AddLine(label, S:RGB("GOLD")); tt:AddLine(tip, 1, 1, 1, true) end)
         end
     end
     entry("planned", "Planned", "It will be done.")
@@ -646,7 +646,7 @@ StatusMenu = function(root, item, only)
     local rm = root:CreateButton("|cffe06b60Remove|r", set("removed"))
     if rm and rm.SetTooltip then
         rm:SetTooltip(function(tt)
-            tt:AddLine("Remove", S:Color("GOLD"))
+            tt:AddLine("Remove", S:RGB("GOLD"))
             tt:AddLine("Hides it from the guild's lists (spam, or something that doesn't belong here). Staff still see "
                 .. "it in the Inbox.", 1, 1, 1, true)
         end)
@@ -894,9 +894,6 @@ local function RenderDetail()
     b:SetSub(FaceText(item.author) .. " " .. UI():ColoredName(item.author) .. S:Wrap("SUB", "  ·  " .. Ago(item.at)))
     local pillText, pillKind = Pill(item)
     b:SetPill(pillKind, pillText)
-    -- TODO(refactor): Banner:SetPill should take every UI.PILL_LOOK kind (it goes through the event pill's SetKind,
-    -- which reads "bis" as mute): the pill's own SetPill gives it its look
-    b.pill:SetPill(pillKind, pillText)
     local inbox = state.tab == "inbox"
     local staff = F:AmIStaff()
     local tools, actions = {}, {}

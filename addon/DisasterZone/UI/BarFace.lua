@@ -25,7 +25,7 @@ local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
 local WHITE8 = "Interface\\Buttons\\WHITE8X8"
 local CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-local GOLD = { 1, 0.82, 0, 1 }
+local GOLD = ns.Style:WithAlpha("GOLD", 1)
 local RED = { 0.91, 0.38, 0.3, 1 }
 local CALM = { 0.91, 0.89, 0.82, 0.75 }
 local DIM = { 0.6, 0.6, 0.62, 0.5 }
@@ -60,16 +60,12 @@ end
 
 local function UI() return ns.UI end
 
-local function Fill(tex, r, g, b, a)
+local function Tint(tex, r, g, b, a)
     tex:SetTexture(WHITE8)
     tex:SetVertexColor(r, g, b, a or 1)
     return tex
 end
 
-local function Edge(f, r, g, b, a)
-    if not f.edges then UI():AddEdges(f) end
-    UI():SetEdgeColor(f, r, g, b, a)
-end
 
 local function Mix(a, b, t) return a + (b - a) * t end
 
@@ -142,7 +138,7 @@ function Face:New(row)
     f.bloom:SetBlendMode("ADD")
     f.bloom:Hide()
     -- slate: the card
-    f.card = Fill(f:CreateTexture(nil, "BACKGROUND", nil, 2), GLASS[1], GLASS[2], GLASS[3], 0.82)
+    f.card = Tint(f:CreateTexture(nil, "BACKGROUND", nil, 2), GLASS[1], GLASS[2], GLASS[3], 0.82)
     f.cardEdge = CreateFrame("Frame", nil, f)
     -- round: the black disc (the edge), gilded's bezel and groove
     f.disc = f:CreateTexture(nil, "BORDER", nil, -2)
@@ -153,9 +149,9 @@ function Face:New(row)
     f.groove:SetTexture(DISC)
     f.groove:SetVertexColor(0.078, 0.055, 0.016, 1)
     -- square: black, the state's edge, black, the icon
-    f.sq1 = Fill(f:CreateTexture(nil, "BORDER", nil, -2), 0, 0, 0, 1)
-    f.sq2 = Fill(f:CreateTexture(nil, "BORDER", nil, -1), CALM[1], CALM[2], CALM[3], 0.32)
-    f.sq3 = Fill(f:CreateTexture(nil, "BORDER", nil, 0), 0, 0, 0, 1)
+    f.sq1 = Tint(f:CreateTexture(nil, "BORDER", nil, -2), 0, 0, 0, 1)
+    f.sq2 = Tint(f:CreateTexture(nil, "BORDER", nil, -1), CALM[1], CALM[2], CALM[3], 0.32)
+    f.sq3 = Tint(f:CreateTexture(nil, "BORDER", nil, 0), 0, 0, 0, 1)
     -- the ring's track and the draining ring (a cooldown swipe)
     f.track = f:CreateTexture(nil, "BORDER", nil, 1)
     f.track:SetTexture(RING)
@@ -175,8 +171,8 @@ function Face:New(row)
     f.top:SetFrameLevel(f:GetFrameLevel() + 4)
     f.bezelHot = f.top:CreateTexture(nil, "BACKGROUND")
     f.bezelHot:SetBlendMode("ADD")
-    f.barBg = Fill(f.top:CreateTexture(nil, "BORDER"), 1, 1, 1, 0.1)
-    f.barFill = Fill(f.top:CreateTexture(nil, "ARTWORK"), CALM[1], CALM[2], CALM[3], 1)
+    f.barBg = Tint(f.top:CreateTexture(nil, "BORDER"), 1, 1, 1, 0.1)
+    f.barFill = Tint(f.top:CreateTexture(nil, "ARTWORK"), CALM[1], CALM[2], CALM[3], 1)
     f.cornerBg = f.top:CreateTexture(nil, "OVERLAY", nil, -1)
     f.cornerBg:SetTexture(DISC)
     f.cornerBg:SetVertexColor(0, 0, 0, 1)
@@ -192,11 +188,11 @@ function Face:New(row)
     f.label = CreateFrame("Frame", nil, f)
     f.label:SetHeight(15)
     f.label:SetFrameLevel(f.top:GetFrameLevel() + 3)
-    f.label.bg = Fill(f.label:CreateTexture(nil, "BACKGROUND"), GOLD[1], GOLD[2], GOLD[3], 1)
+    f.label.bg = Tint(f.label:CreateTexture(nil, "BACKGROUND"), GOLD[1], GOLD[2], GOLD[3], 1)
     f.label.bg:SetAllPoints()
     f.label.text = f.label:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     local path, _, flags = f.label.text:GetFont()
-    if path then f.label.text:SetFont(path, 10, flags) end
+    if path then f.label.text:SetFont(path, ns.Style.FONT.small, flags) end
     f.label.text:SetPoint("CENTER", 0, 0)
     f.label:Hide()
     f.st = {}
@@ -266,7 +262,7 @@ function Face:Skin(f, t, axis)
     elseif key == "slate" then
         f.card:SetAllPoints(f)
         f.cardEdge:SetAllPoints(f)
-        Edge(f.cardEdge, 1, 1, 1, 0.09)
+        UI():SetEdges(f.cardEdge, ns.Style:Alpha("HAIRLINE", 0.09))
         Box(f.sq3, f, 3, 2, W - 6, H - 8)
         Box(f.barBg, f, 4, H - 5, W - 8, 2)
         f.barW = W - 8
@@ -322,15 +318,15 @@ function Face:Skin(f, t, axis)
     if key == "slate" then
         lb.bg:SetVertexColor(GLASS[1], GLASS[2], GLASS[3], 0.92)
         text:SetTextColor(1, 0.88, 0.54)
-        Edge(lb, GOLD[1], GOLD[2], GOLD[3], 0.6)
+        UI():SetEdges(lb, GOLD[1], GOLD[2], GOLD[3], 0.6)
     elseif key == "gilded" then
         lb.bg:SetVertexColor(0.16, 0.11, 0.03, 0.95)
         text:SetTextColor(1, 0.88, 0.54)
-        Edge(lb, 0.78, 0.6, 0.2, 1)
+        UI():SetEdges(lb, 0.78, 0.6, 0.2, 1)
     else
         lb.bg:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 1)
         text:SetTextColor(0.1, 0.08, 0.01)
-        Edge(lb, 0, 0, 0, 1)
+        UI():SetEdges(lb, 0, 0, 0, 1)
     end
     self:Set(f, f.st)
     Face.Apply(f)
@@ -536,7 +532,7 @@ function Face.Apply(f)
         else f.sq2:SetVertexColor(Col(base or { CALM[1], CALM[2], CALM[3], 0.32 })) end
     elseif key == "slate" then
         f.card:SetVertexColor(Mix(GLASS[1], 0.18, hot), Mix(GLASS[2], 0.14, hot), Mix(GLASS[3], 0.03, hot), Mix(0.82, 0.92, hot))
-        Edge(f.cardEdge, Mix(1, GOLD[1], hot), Mix(1, GOLD[2], hot), Mix(1, GOLD[3], hot), Mix(0.09 + 0.12 * hover, 0.85, hot))
+        UI():SetEdges(f.cardEdge, Mix(1, GOLD[1], hot), Mix(1, GOLD[2], hot), Mix(1, GOLD[3], hot), Mix(0.09 + 0.12 * hover, 0.85, hot))
     elseif key == "pips" then
         f.sq1:SetVertexColor(Mix(0, GOLD[1], hot), Mix(0, GOLD[2], hot), Mix(0, GOLD[3], hot), 1)
     end
@@ -656,7 +652,7 @@ end
 function Face:Place(frame, cells, nHead, axis, t)
     t = t or self:Theme()
     local W, H, G = t.W, t.H, t.GAP
-    if not frame.faceDiv then frame.faceDiv = Fill(frame:CreateTexture(nil, "ARTWORK"), CALM[1], CALM[2], CALM[3], 0.2) end
+    if not frame.faceDiv then frame.faceDiv = Tint(frame:CreateTexture(nil, "ARTWORK"), CALM[1], CALM[2], CALM[3], 0.2) end
     local div = frame.faceDiv
     local along = axis == "v" and H or W
     local cross = axis == "v" and W or H

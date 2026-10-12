@@ -36,7 +36,6 @@ local CHIP_ICON = 30
 local GOLD = S.C.GOLD
 local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SOFT = "Interface\\AddOns\\DisasterZone\\Media\\SoftGlow"
-local STAR = "Interface\\COMMON\\ReputationStar"
 local FREE_ICON = "Interface\\Icons\\Spell_Holy_AuraOfLight"
 local KIND_RGB = {
     perfect = { 1, 0.82, 0.25 }, twist = { 0.38, 0.86, 0.46 }, early = { 1, 0.56, 0.22 }, late = { 1, 0.56, 0.22 },
@@ -54,39 +53,6 @@ local function SP() return ns.SwingPractice end
 local function ST() return ns.SwingTimer end
 
 local frame, overlay
-
--- A rating star (the game's reputation star): lit gold, or a grey one. TODO(refactor): move into a shared rating
--- control (no component draws stars).
-local function Star(parent, size)
-    local t = parent:CreateTexture(nil, "ARTWORK")
-    t:SetTexture(STAR)
-    t:SetTexCoord(0, 0.5, 0, 0.5)
-    t:SetSize(size, size)
-    function t:SetLit(on)
-        self:SetDesaturated(not on)
-        if on then self:SetVertexColor(1, 1, 1, 1) else self:SetVertexColor(0.35, 0.35, 0.38, 0.9) end
-    end
-    return t
-end
-
--- A key cap ("2", "SHIFT-1"): the inset surface with a strong edge and a darker lip, the key in it. edge(r, g, b)
--- recolours its edge (gold while a key is being caught, red when one is missing).
--- TODO(refactor): move into a shared key cap (UI/Comp/Controls.lua has no keyboard key).
-local function KeyCap(parent, w, h)
-    local cap = CreateFrame("Frame", nil, parent)
-    cap:SetSize(w, h)
-    cap.bg = UI():Fill(cap, "INSET", "BACKGROUND")
-    UI():AddEdges(cap, "BORDER")
-    UI():SetEdgeColor(cap, S:Color("EDGE_STRONG"))
-    cap.lip = UI():Fill(cap, { 0, 0, 0, 0.5 }, "BORDER")
-    cap.lip:ClearAllPoints()
-    cap.lip:SetPoint("BOTTOMLEFT")
-    cap.lip:SetPoint("BOTTOMRIGHT")
-    cap.lip:SetHeight(3)
-    cap.key = UI():Text(cap, "body", { 1, 1, 1 }, { justify = "CENTER" })
-    cap.key:SetPoint("CENTER", 0, 1)
-    return cap
-end
 
 local function LessonIcon(L)
     if L.spell == "lust" then return SP().Lust().icon end
@@ -198,7 +164,7 @@ local function NewRow(body, i)
     row.goal:SetPoint("RIGHT", row, "RIGHT", -96, 0)
     row.stars = {}
     for s = 1, 3 do
-        local st = Star(row, 16)
+        local st = UI():CreateStar(row, 16)
         st:SetPoint("RIGHT", row, "RIGHT", -12 - (3 - s) * 19, 6)
         row.stars[s] = st
     end
@@ -206,7 +172,7 @@ local function NewRow(body, i)
     row.best:SetPoint("TOPRIGHT", row, "RIGHT", -12, -6)
     UI():AttachTooltip(row, function(self, tt)
         if not self.L then return false end
-        tt:AddLine(self.L.title, S:Color("GOLD"))
+        tt:AddLine(self.L.title, S:RGB("GOLD"))
         local sr, sg, sb = S:Color("SUB")
         if self.locked then
             tt:AddLine(strformat("Get a star in lesson %d first.", self.L.n - 1), 1, 1, 1, true)
@@ -248,7 +214,7 @@ local function NewKeyBind(parent, spell, w)   -- (not a tag chip: a key binding 
     chip.tile:SetPoint("LEFT", chip, "LEFT", 4, 0)
     chip.icon = chip.tile.tex
     -- the key cap, the spell's short name under it
-    chip.cap = KeyCap(chip, 34, 18)
+    chip.cap = UI():CreateKeyCap(chip, 34, 18)
     chip.cap:SetPoint("TOPLEFT", chip.tile, "TOPRIGHT", 7, 0)
     chip.key = chip.cap.key
     chip.what = UI():Text(chip, "caps", "DIM")
@@ -265,7 +231,7 @@ local function NewKeyBind(parent, spell, w)   -- (not a tag chip: a key binding 
         PUI:Refresh()
     end)
     UI():AttachTooltip(chip, function(self, tt)
-        tt:AddLine(Label(self.spell), S:Color("GOLD"))
+        tt:AddLine(Label(self.spell), S:RGB("GOLD"))
         tt:AddLine("Click, then press the key you use for it in fights.", 1, 1, 1, true)
         local keys, auto = SP():Keys()
         local sr, sg, sb = S:Color("SUB")
@@ -336,7 +302,7 @@ local function BuildResult(body)
     r.cap:SetPoint("TOP", r, "TOP", 0, -14)
     r.stars = {}
     for s = 1, 3 do
-        local st = Star(r, 44)
+        local st = UI():CreateStar(r, 44)
         st:SetPoint("CENTER", r, "TOP", (s - 2) * 54, -56 + (s == 2 and 6 or 0))
         r.stars[s] = st
     end
@@ -517,14 +483,13 @@ function PUI:Build()
     local L = UI():CreateLayout("tool", frame.content, { width = LAYOUT_W, toolbar = true, banner = {
         size = "tool", art = "kara", icon = ST().ICONS.sob, title = "Twist practice",
         sub = "Learn the seal twist one step at a time.",
-        tools = { { icon = "eye", title = "Your latency", text = "Practice delays every press by it, the way the "
-            .. "server hears you, so the timing you learn here is the timing of a real fight. Settings > Class "
-            .. "tools > Swing timer > Latency." } } } })
+        kickerTip = { "Your latency", { "Practice delays every press by it, the way the server hears you, so the timing "
+            .. "you learn here is the timing of a real fight. Settings > Class tools > Swing timer > Latency." } } } })
     frame.layout = L
     -- (the note that keys are only caught: the layout's info notice)
     L:ShowNotice("info", "Nothing is cast: your keys are caught while you practice.")
     local bn = L.banner
-    -- stars earned (the banner's pill) and your latency (its kicker; its tool explains it)
+    -- stars earned (the banner's pill) and your latency (its kicker; its tooltip explains it)
     bn.starCount = { SetText = function(_, t) bn:SetPill("rank", t and (t .. " stars") or nil) end }
     bn.lat = { SetText = function(_, t) bn:SetKicker(t) end }
     frame.banner = bn
@@ -759,7 +724,7 @@ local function BuildOverlay(ring)
         chip.cd:SetPoint("CENTER", 0, 2)
         chip.flash = UI():Fill(chip, { 1, 1, 1, 0 }, "OVERLAY")
         chip.flash:SetBlendMode("ADD")
-        chip.cap = KeyCap(chip, 24, 16)
+        chip.cap = UI():CreateKeyCap(chip, 24, 16)
         chip.cap:SetPoint("TOP", chip, "BOTTOM", 0, 6)
         chip.cap:SetFrameLevel(chip:GetFrameLevel() + 2)
         chip.key = chip.cap.key
@@ -767,7 +732,7 @@ local function BuildOverlay(ring)
         chip.note:SetPoint("BOTTOM", chip, "TOP", 0, 3)
         chip:SetScript("OnClick", function(self) SP():Press(self.spell) end)
         UI():AttachTooltip(chip, function(self, tt)
-            tt:AddLine(Label(self.spell), S:Color("GOLD"))
+            tt:AddLine(Label(self.spell), S:RGB("GOLD"))
             tt:AddLine("Press " .. SP():Short(SP().run and SP().run.keyOf[self.spell] or "") .. " (or click here).",
                 1, 1, 1, true)
         end)

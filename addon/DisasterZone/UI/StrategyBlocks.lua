@@ -28,13 +28,6 @@ local function MapUI() return ns.StrategyMapUI end
 local function UI() return ns.UI end
 
 
--- A text's size on the type scale (ns.Style snaps it), its font and colour kept.
--- TODO(refactor): move into Widgets (UI:SetTextSize(fs, size): UI:SetTextStyle resets the colour)
-local function setSize(fs, size)
-    local path, _, flags = fs:GetFont()
-    if path then fs:SetFont(path, Style:Size(size), flags) end
-end
-
 -- A menu entry: an atlas icon (or the room of one, so the words line up), the words, a value in grey; red: Delete.
 local MENU_SPACER = "|TInterface\\Common\\spacer:12:12|t"
 local function menuEntry(icon, text, value, red)
@@ -128,7 +121,7 @@ local function newAddCard(parent, big)
     -- (the card's tip, set by its filler: c.tipTitle, c.tip)
     UI():AttachTooltip(c, function(self, tt)
         if not self.tip then return false end
-        tt:AddLine(self.tipTitle or "", Style:Color("GOLD"))
+        tt:AddLine(self.tipTitle or "", Style:RGB("GOLD"))
         tt:AddLine(self.tip, 1, 1, 1, true)
     end, nil, { anchor = "ANCHOR_LEFT" })
     c:RegisterForClicks("LeftButtonUp")
@@ -338,7 +331,7 @@ createNotes = function(parent, panel)
     n.edit:SetMultiLine(true)
     n.edit:SetAutoFocus(false)
     n.edit:SetFontObject("GameFontHighlight")
-    setSize(n.edit, 12)
+    UI():SetTextSize(n.edit, 12)
     n.edit:SetSpacing(3)
     n.edit:SetMaxLetters(S().MAX_NOTES)
     n.edit:SetPoint("TOPLEFT", NOTES_PAD, -NOTES_TOP)
@@ -1197,7 +1190,7 @@ local function newCell(parent, panel)
     c.icon:SetPoint("LEFT", 2, 0)
     c.fs = UI():Text(c, "emph", "TEXT")
     -- a target cell's link to a slot: a pill at the right end, never cut off (the label gives way instead)
-    c.pill = UI():CreateTagPill(c, 15)
+    c.pill = UI():CreatePill(c, 15)
     c.pill:SetBase(Style:Color("CARD"))
     c.pill:SetPoint("RIGHT", -2, 0)
     c.pill:Hide()
@@ -1237,30 +1230,12 @@ local function newCell(parent, panel)
     return c
 end
 
--- A quiet text link in a card's foot: a gold "+" and grey words ("+ Row", "+ Column").
--- TODO(refactor): move into PageParts (a shared quiet text link: the section header's action link, on its own)
+-- A quiet text link in a card's foot: a gold "+" and grey words ("+ Row", "+ Column"): UI:CreateTextLink.
 local function footLink(parent, text, chevron, onClick)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(FOOT_H)
-    b.fs = UI():Text(b, "body", "TEXT")
-    b.fs:SetPoint("LEFT", 0, 0)
-    b.fs:SetText(Style:Wrap("GOLD", "+") .. " " .. text)
-    b.fs:SetTextColor(Style:Color("SUB"))
-    local w = (b.fs:GetStringWidth() or 40)
-    if chevron then
-        b.chev = b:CreateTexture(nil, "ARTWORK")
-        b.chev:SetSize(9, 9)
-        b.chev:SetTexture(UI().ICON_ATLAS)
-        b.chev:SetTexCoord(unpack(UI():IconCoords(UI().ICON.chevron)))
-        b.chev:SetVertexColor(Style:Color("SUB"))
-        b.chev:SetPoint("LEFT", b.fs, "RIGHT", 4, -1)
-        w = w + 4 + 9
-    end
-    b:SetWidth(floor(w + 0.5))
-    b:SetScript("OnEnter", function(self) self.fs:SetTextColor(Style:Color("TEXT")) end)
-    b:SetScript("OnLeave", function(self) self.fs:SetTextColor(Style:Color("SUB")) end)
+    local b = UI():CreateTextLink(parent, text, onClick, { color = "SUB", hover = "TEXT", height = FOOT_H,
+        prefix = Style:Wrap("GOLD", "+") .. " ", chevron = chevron and "down" or nil, chevSize = 9, gap = 4,
+        chevColor = "SUB" })
     b:RegisterForClicks("LeftButtonUp")
-    b:SetScript("OnClick", onClick)
     return b
 end
 
@@ -1280,7 +1255,7 @@ local function newBlock(parent, panel)
     b.title.icon:SetSize(16, 16)
     b.title.icon:SetPoint("LEFT", 12, 0)
     b.title.fs = UI():Text(b.title, "emph", "TEXT")
-    b.tag = UI():CreateTagPill(b.title, 15)
+    b.tag = UI():CreatePill(b.title, 15)
     b.tag:SetBase(Style:Color("CARD"))
     b.tag:SetPoint("LEFT", b.title.fs, "RIGHT", 7, 0)
     b.tag:Hide()
@@ -1469,7 +1444,7 @@ function Panel:Render()
             c.fs:SetPoint("RIGHT", -2, 0)
             c.fs:SetWordWrap(false)
             c.fs:SetJustifyH("LEFT")
-            setSize(c.fs, 12)
+            UI():SetTextSize(c.fs, 12)
             c.fs:SetTextColor(Style:Color("TEXT"))
             c.lit:Hide()
             UI():SetEdgeColor(c, 0, 0, 0, 0)
@@ -1485,7 +1460,7 @@ function Panel:Render()
             local c = cell(0, by, inner)
             c:SetHeight(STRIP_H)
             c.line:Hide()
-            setSize(c.fs, 11)
+            UI():SetTextSize(c.fs, 11)
             local icons, tip = "", { "Remove: " .. DispelWhere(k) }
             for _, id in ipairs(k.ds or {}) do
                 icons = icons .. MapUI():IconString("sp:" .. id, 14) .. " "
@@ -1520,7 +1495,7 @@ function Panel:Render()
                 local c = cell(x, by, widths[ci])
                 c:SetHeight(HEAD_H)
                 c.line:SetColorTexture(Style:Color("HAIRLINE"))
-                setSize(c.fs, 10.5)
+                UI():SetTextSize(c.fs, 10.5)
                 -- the order column is only ORDER_W wide: "#" (its name stays in the tooltip and menu)
                 local label = col.t == "o" and Style:Wrap("DIM", "#") or col.n or (editing and Style:Wrap("DIM", COL_TYPE_NAME[col.t]) or "")
                 c.fs:SetText(label)
@@ -1554,12 +1529,12 @@ function Panel:Render()
                 if col.t == "o" then
                     c.fs:SetJustifyH("CENTER")
                     if S().TrackKind(k) == "rot" and IsBackup(k, row) then
-                        setSize(c.fs, 10.5)
+                        UI():SetTextSize(c.fs, 10.5)
                         c.fs:SetText("|cffc7a6ffB|r")
                         c.tip = { "Backup kicker", "Kicks only when no designated kicker's interrupt will be ready for the "
                             .. "boss' next cast." .. (editing and " Right-click the row to change." or "") }
                     else
-                        setSize(c.fs, 11)
+                        UI():SetTextSize(c.fs, 11)
                         c.fs:SetText(Style:Wrap("SUB", row))
                     end
                 elseif col.t == "x" then
@@ -1568,7 +1543,7 @@ function Panel:Render()
                     c.fs:SetPoint("LEFT", 2, 0)
                     c.fs:SetWidth(max(10, widths[ci] - 6))
                     c.fs:SetWordWrap(true)
-                    setSize(c.fs, 11.5)
+                    UI():SetTextSize(c.fs, 11.5)
                     c.fs:SetTextColor(Style:Color("TEXT"))
                     c.fs:SetText(v or (editing and Style:Wrap("DIM", "click to type") or ""))
                     rowH = max(rowH, ceil(c.fs:GetStringHeight() or 0) + 8)
@@ -1618,7 +1593,7 @@ function Panel:Render()
                     if text == "" and not c.icon:IsShown() and not c.pill:IsShown() then
                         -- (editing: its tooltip says what goes here)
                         text = Style:Wrap("SUB", editing and "click to set" or "\226\128\148")
-                        if editing then setSize(c.fs, 11) end
+                        if editing then UI():SetTextSize(c.fs, 11) end
                         c.tip = c.tip or (editing and { "Target", "Click to type a label or pick an icon, or drop an "
                             .. "icon from the map here." } or nil)
                     end
@@ -1640,7 +1615,7 @@ function Panel:Render()
                         c.fs:SetPoint("LEFT", c.icon, "RIGHT", 6, 0)
                         c.fs:SetPoint("RIGHT", -2, 0)
                     elseif not info then
-                        setSize(c.fs, 11)
+                        UI():SetTextSize(c.fs, 11)
                     end
                     c.well:SetShown(well and true or false)
                     if well then

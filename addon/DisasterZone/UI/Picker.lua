@@ -816,7 +816,7 @@ local function EnsureWindow()
     current:SetHeight(44)
     current.btn = UI:CreateItemButton(current, 32)
     current.btn:SetPoint("LEFT", current, "LEFT", 6, 0)
-    current.clear = UI:CreateButton(current, "Clear", 60, 22, function()
+    current.clear = UI:CreateSleekButton(current, "Clear", 60, 22, function()
         if state.host then
             if state.host.clear then state.host.clear() end
         elseif ns.BiS then
@@ -843,7 +843,7 @@ local function EnsureWindow()
     searchBox:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -56)
     searchBox:SetPoint("TOPRIGHT", c, "TOPRIGHT", -6, -56)
 
-    phaseDD = UI:CreateDropdown(c, 124, PhaseOptions, function() return state.phaseMode end, function(value)
+    phaseDD = UI:CreateSleekDropdown(c, 124, PhaseOptions, function() return state.phaseMode end, function(value)
         state.phaseMode = PHASE_TEXT[value] and value or "upto"
         OnFilterChanged()
     end)

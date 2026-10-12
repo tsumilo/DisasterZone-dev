@@ -215,7 +215,7 @@ function MapUI:IconString(key, size)
     local asset = SO().Parse(key) and AssetIcon(key)
     if asset then path = asset end
     if not path then return "" end
-    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(path), size, size)
+    return ns.UI:IconText(path, size, true)
 end
 
 -- A short name of an icon key (tooltips, menus).
@@ -1661,7 +1661,7 @@ function Canvas:SetHover(e)
             GameTooltip:Show()
         elseif self:Editable() and self.tool == "select" then
             GameTooltip:SetOwner(self.frame, "ANCHOR_CURSOR")
-            GameTooltip:AddLine("Not linked", Style:Color("SUB"))
+            GameTooltip:AddLine("Not linked", Style:RGB("SUB"))
             GameTooltip:AddLine("Shift-drag it onto a table cell or column to link it.", Style.C.SUB[1], Style.C.SUB[2],
                 Style.C.SUB[3], true)
             GameTooltip:Show()

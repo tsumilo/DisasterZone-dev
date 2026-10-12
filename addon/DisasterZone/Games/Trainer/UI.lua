@@ -1351,7 +1351,7 @@ local function FloatText(hit)
     local fs = table.remove(hud.textPool)
     if not fs then
         fs = plateFrame:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 24, "OUTLINE")
+        fs:SetFont(DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", ns.Style:Size(24), "OUTLINE")   -- (display)
         fs:SetTextColor(1, 1, 0)
     end
     fs:SetText(hit.amount)

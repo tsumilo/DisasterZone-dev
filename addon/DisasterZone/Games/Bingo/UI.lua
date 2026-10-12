@@ -31,9 +31,9 @@ local RARITY = {
     r = { 0.35, 0.65, 1.0, name = "Rare", edge = 0.45 },
     l = { 1.0, 0.5, 0.0, name = "Legendary", edge = 0.7 },
 }
-local GOLD = { 1, 0.82, 0 }
+local GOLD = ns.Style.C.GOLD
 local LETTERS = {
-    { "B", 0.35, 0.65, 1 }, { "I", 1, 0.35, 0.35 }, { "N", 1, 1, 1 }, { "G", 0.35, 1, 0.35 }, { "O", 1, 0.82, 0 },
+    { "B", 0.35, 0.65, 1 }, { "I", 1, 0.35, 0.35 }, { "N", 1, 1, 1 }, { "G", 0.35, 1, 0.35 }, { "O", GOLD[1], GOLD[2], GOLD[3] },
 }
 local MARKER_NAMES = { "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull" }
 
@@ -115,16 +115,11 @@ local function ClassRGB(key)
 end
 
 -- Two colours reused by the gradients drawn while painting and animating (UI:Gradient reads the numbers).
-local gradLo, gradHi = {}, {}
-local function RGBA(t, r, g, b, a)
-    t[1], t[2], t[3], t[4] = r, g, b, a
-    return t
-end
 
 -- A cell's fill, top colour then bottom colour (alpha 0.95 unless given).
-local function Fill(c, top, bottom)
-    ns.UI:Gradient(c.bg, "VERTICAL", RGBA(gradLo, bottom[1], bottom[2], bottom[3], bottom[4] or 0.95),
-        RGBA(gradHi, top[1], top[2], top[3], top[4] or 0.95))
+local function CellFill(c, top, bottom)
+    ns.UI:GradientRGBA(c.bg, "VERTICAL", bottom[1], bottom[2], bottom[3], bottom[4] or 0.95,
+        top[1], top[2], top[3], top[4] or 0.95)
 end
 
 local function SetScaleAnim(a, from, to)
@@ -164,7 +159,7 @@ local function CreateCell(parent, i)
     b.rare:SetPoint("TOPLEFT", 1, 0)
     b.rare:SetPoint("TOPRIGHT", -1, 0)
     b.rare:SetHeight(2)
-    b.rare:SetColorTexture(1, 0.82, 0, 1)
+    b.rare:SetColorTexture(ns.Style:Alpha("GOLD", 1))
     b.rare:Hide()
 
     -- the ink blot (marked), behind everything else on the square
@@ -178,7 +173,7 @@ local function CreateCell(parent, i)
     b.pulse = b:CreateTexture(nil, "BACKGROUND", nil, 3)
     b.pulse:SetPoint("TOPLEFT", 1, -1)
     b.pulse:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.pulse:SetColorTexture(1, 0.82, 0, 1)
+    b.pulse:SetColorTexture(ns.Style:Alpha("GOLD", 1))
     b.pulse:SetBlendMode("ADD")
     b.pulse:SetAlpha(0)
     b.pulse:Hide()
@@ -277,7 +272,7 @@ local function CreateCell(parent, i)
     end)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.035)
+    b.hl:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.035))
     b.hl:Hide()
     return b
 end
@@ -302,8 +297,8 @@ local function PlaceSheen(c, e)
             tex:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", l, 1)
             tex:SetWidth(r - l)
             local span = x1 - x0
-            ns.UI:Gradient(tex, "HORIZONTAL", RGBA(gradLo, 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span),
-                RGBA(gradHi, 1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span))
+            ns.UI:GradientRGBA(tex, "HORIZONTAL", 1, 0.75, 0.4, a0 + (a1 - a0) * (l - x0) / span,
+                1, 0.75, 0.4, a0 + (a1 - a0) * (r - x0) / span)
             tex:SetBlendMode("ADD")
             tex:Show()
         end
@@ -389,7 +384,7 @@ local function CreateSlam(parent)
     f.burst:SetSize(340, 160)
     f.burst:SetPoint("CENTER", 0, 4)
     f.text = f:CreateFontString(nil, "OVERLAY")
-    f.text:SetFont(FONT, 44, "OUTLINE")
+    f.text:SetFont(FONT, ns.Style:Size(44), "OUTLINE")   -- (the slam's display letters)
     f.text:SetShadowOffset(2, -2)
     f.text:SetShadowColor(0, 0, 0, 1)
     f.text:SetPoint("CENTER", 0, 6)
@@ -438,7 +433,7 @@ local function CreateRow(parent, height, withIcon)
     r:SetHeight(height)
     r.plate = r:CreateTexture(nil, "BACKGROUND")
     r.plate:SetAllPoints()
-    r.plate:SetColorTexture(1, 1, 1, 0.025)
+    r.plate:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.025))
     r.mark = r:CreateTexture(nil, "BORDER")
     r.mark:SetPoint("TOPLEFT")
     r.mark:SetPoint("BOTTOMLEFT")
@@ -463,11 +458,11 @@ local function CreateRow(parent, height, withIcon)
     r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
     r:EnableMouse(true)
     r:SetScript("OnEnter", function(self)
-        self.plate:SetColorTexture(1, 1, 1, 0.06)
+        self.plate:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.06))
         if self.tip then ns.UI:SetTextTooltip(self, self.tip, "ANCHOR_LEFT") end
     end)
     r:SetScript("OnLeave", function(self)
-        self.plate:SetColorTexture(1, 1, 1, 0.025)
+        self.plate:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.025))
         ns.UI:HideTooltip()
     end)
     r:Hide()
@@ -497,7 +492,7 @@ local function RefreshSeason()
             row.left:SetText(medal .. i .. "|r   " .. KeyText(r.key))
             row.right:SetText("|cffffffff" .. r.b .. "|r |cff8a8a8a" .. (r.b == 1 and "bingo" or "bingos") .. "|r")
             row.bar:SetWidth(max(1, (row:GetWidth() > 0 and row:GetWidth() or SIDE_W) * r.b / top))
-            row.bar:SetColorTexture(1, 0.82, 0, i == 1 and 0.7 or 0.35)
+            row.bar:SetColorTexture(ns.Style:Alpha("GOLD", i == 1 and 0.7 or 0.35))
             local tip = { Util.ShortName(r.key, true), string.format("%d bingo%s this season", r.b, r.b == 1 and "" or "s") }
             if r.f > 0 then tip[#tip + 1] = { r.f .. " first of the game", 0.2, 1, 0.6 } end
             if r.x > 0 then tip[#tip + 1] = { r.x .. " blackout" .. (r.x == 1 and "" or "s"), 1, 0.5, 0 } end
@@ -531,7 +526,7 @@ local function RefreshRace(g)
             local w = row:GetWidth() > 0 and row:GetWidth() or SIDE_W
             if r.lines > 0 then
                 row.right:SetText("|cffffd100BINGO" .. (r.lines > 1 and (" x" .. r.lines) or "") .. "|r")
-                row.bar:SetColorTexture(1, 0.82, 0, 0.8)
+                row.bar:SetColorTexture(ns.Style:Alpha("GOLD", 0.8))
             else
                 row.right:SetText(r.marked .. "|cff8a8a8a/25|r")
                 local cr, cg, cb = ClassRGB(r.key)
@@ -539,12 +534,12 @@ local function RefreshRace(g)
             end
             row.bar:SetWidth(max(1, w * r.marked / 25))
             row.mark:SetShown(r.key == me)
-            row.mark:SetColorTexture(1, 0.82, 0, 1)
+            row.mark:SetColorTexture(ns.Style:Alpha("GOLD", 1))
             local tip = { Util.ShortName(r.key, true), string.format("%d/25 marked, %d line%s", r.marked, r.lines,
                 r.lines == 1 and "" or "s") }
             if winnerAt[r.key] then
                 tip[#tip + 1] = { winnerAt[r.key] == 1 and "First BINGO of the game!" or
-                    ("BINGO #" .. winnerAt[r.key]), 1, 0.82, 0 }
+                    ("BINGO #" .. winnerAt[r.key]), GOLD[1], GOLD[2], GOLD[3] }
             end
             row.tip = tip
             row:Show()
@@ -635,13 +630,13 @@ end
 local function CellTip(sq, hit, g, away)
     local col = RARITY[sq.rarity] or RARITY.c
     local tip = { { sq.text, col[1], col[2], col[3], wrap = true }, { col.name .. " square", 1, 1, 1 } }
-    if sq.hint then tip[#tip + 1] = { "\"" .. sq.hint .. "\"", 1, 0.82, 0, wrap = true } end
+    if sq.hint then tip[#tip + 1] = { "\"" .. sq.hint .. "\"", GOLD[1], GOLD[2], GOLD[3], wrap = true } end
     if hit then
         local who = ns.Bingo:GetWho(sq.id)
         tip[#tip + 1] = { "Marked at " .. date("%H:%M", g.hits[sq.id]) .. (who and (" by " .. who) or ""), 0.2, 1, 0.6 }
     else
         tip[#tip + 1] = { "Not yet...", 0.55, 0.55, 0.55 }
-        if away then tip[#tip + 1] = { "One away from a line!", 1, 0.82, 0 } end
+        if away then tip[#tip + 1] = { "One away from a line!", GOLD[1], GOLD[2], GOLD[3] } end
     end
     return tip
 end
@@ -676,10 +671,10 @@ local function RefreshHero(g, active, marked, lines, awayCount)
         hero.kicker:SetTextColor(1, 1, 1)
     elseif g then
         hero.kicker:SetText("FINISHED")
-        hero.kicker:SetTextColor(0.62, 0.62, 0.62)
+        hero.kicker:SetTextColor(ns.Style:Color("SUB"))
     else
         hero.kicker:SetText("RAID NIGHT")
-        hero.kicker:SetTextColor(0.62, 0.62, 0.62)
+        hero.kicker:SetTextColor(ns.Style:Color("SUB"))
     end
     hero.dot:SetShown(active and true or false)
     hero.dotGlow:SetShown(active and true or false)
@@ -768,8 +763,8 @@ function BingoUI:Refresh()
             c.tip = nil
             HideStamp(c)
             SetPulse(c, false)
-            Fill(c, { 0.09, 0.09, 0.105, 0.7 }, { 0.06, 0.06, 0.07, 0.7 })
-            ns.UI:SetEdgeColor(c, 1, 1, 1, 0.04)
+            CellFill(c, { 0.09, 0.09, 0.105, 0.7 }, { 0.06, 0.06, 0.07, 0.7 })
+            ns.UI:SetEdgeColor(c, ns.Style:Alpha("HAIRLINE", 0.04))
         elseif id == ns.BingoSquares.FREE then
             c.icon:SetTexture(SEAL)
             c.icon:SetTexCoord(0, 1, 0, 1)
@@ -784,12 +779,12 @@ function BingoUI:Refresh()
             c.who:SetText("FREE")
             SetPulse(c, false)
             if onLine[i] then
-                Fill(c, LINE_TOP, LINE_BOTTOM)
-                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.9)
+                CellFill(c, LINE_TOP, LINE_BOTTOM)
+                ns.UI:SetEdgeColor(c, ns.Style:Alpha("GOLD", 0.9))
                 c.rare:Show()
             else
-                Fill(c, { 0.16, 0.13, 0.06 }, { 0.09, 0.075, 0.035 })
-                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.3)
+                CellFill(c, { 0.16, 0.13, 0.06 }, { 0.09, 0.075, 0.035 })
+                ns.UI:SetEdgeColor(c, ns.Style:Alpha("GOLD", 0.3))
             end
         else
             local sq = ns.BingoSquares:Get(id)
@@ -817,8 +812,8 @@ function BingoUI:Refresh()
                 c.ring:Show()
                 if not hit then
                     c.wash:SetHeight(max(1, (c:GetHeight() > 0 and c:GetHeight() or 70) * 0.62))
-                    ns.UI:Gradient(c.wash, "VERTICAL", RGBA(gradLo, col[1], col[2], col[3], 0),
-                        RGBA(gradHi, col[1], col[2], col[3], sq.rarity == "l" and 0.2 or 0.14))
+                    ns.UI:GradientRGBA(c.wash, "VERTICAL", col[1], col[2], col[3], 0,
+                        col[1], col[2], col[3], sq.rarity == "l" and 0.2 or 0.14)
                     c.wash:Show()
                     c.legendary = sq.rarity == "l" or nil
                 end
@@ -837,21 +832,21 @@ function BingoUI:Refresh()
             SetPulse(c, away[i] and active)
             if away[i] then awayCount = awayCount + 1 end
             if onLine[i] then
-                Fill(c, LINE_TOP, LINE_BOTTOM)
-                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.9)
+                CellFill(c, LINE_TOP, LINE_BOTTOM)
+                ns.UI:SetEdgeColor(c, ns.Style:Alpha("GOLD", 0.9))
                 c.rare:Show()
             elseif hit then
-                Fill(c, { 0.13 + inkC[1] * 0.04, 0.13 + inkC[2] * 0.04, 0.14 + inkC[3] * 0.04 }, DARK_BOTTOM)
+                CellFill(c, { 0.13 + inkC[1] * 0.04, 0.13 + inkC[2] * 0.04, 0.14 + inkC[3] * 0.04 }, DARK_BOTTOM)
                 ns.UI:SetEdgeColor(c, inkC[1], inkC[2], inkC[3], 0.35)
             elseif away[i] and active then
-                Fill(c, DARK_TOP, DARK_BOTTOM)
-                ns.UI:SetEdgeColor(c, 1, 0.82, 0, 0.7)
+                CellFill(c, DARK_TOP, DARK_BOTTOM)
+                ns.UI:SetEdgeColor(c, ns.Style:Alpha("GOLD", 0.7))
             elseif rare then
-                Fill(c, DARK_TOP, DARK_BOTTOM)
+                CellFill(c, DARK_TOP, DARK_BOTTOM)
                 ns.UI:SetEdgeColor(c, col[1], col[2], col[3], sq.rarity == "l" and 0.3 or 0.2)
             else
-                Fill(c, DARK_TOP, DARK_BOTTOM)
-                ns.UI:SetEdgeColor(c, 1, 1, 1, 0.06)
+                CellFill(c, DARK_TOP, DARK_BOTTOM)
+                ns.UI:SetEdgeColor(c, ns.Style:Alpha("HAIRLINE", 0.06))
             end
         end
     end
@@ -928,12 +923,12 @@ local function CreateHero(parent)
     f.line:SetPoint("BOTTOMLEFT")
     f.line:SetPoint("BOTTOMRIGHT")
     f.line:SetHeight(1)
-    f.line:SetColorTexture(1, 1, 1, 0.07)
+    f.line:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.07))
     f.edge = f:CreateTexture(nil, "BORDER", nil, 1)
     f.edge:SetPoint("TOPLEFT")
     f.edge:SetPoint("TOPRIGHT")
     f.edge:SetHeight(2)
-    ns.UI:Gradient(f.edge, "HORIZONTAL", { 1, 0.29, 0.24, 1 }, { 1, 0.82, 0, 1 })
+    ns.UI:Gradient(f.edge, "HORIZONTAL", { 1, 0.29, 0.24, 1 }, ns.Style:WithAlpha("GOLD", 1))
     f.edge:Hide()
 
     f.dot = f:CreateTexture(nil, "OVERLAY")
@@ -972,7 +967,7 @@ local function CreateCard(parent)
     f.bg:SetAllPoints()
     ns.UI:Gradient(f.bg, "VERTICAL", { 0.05, 0.05, 0.06, 0.92 }, { 0.085, 0.085, 0.1, 0.92 })
     ns.UI:AddEdges(f, "BORDER")
-    ns.UI:SetEdgeColor(f, 1, 1, 1, 0.07)
+    ns.UI:SetEdgeColor(f, ns.Style:Alpha("HAIRLINE", 0.07))
 
     grid = CreateFrame("Frame", nil, f)
     f.letters = {}
@@ -999,7 +994,7 @@ local function CreateCard(parent)
         -- a completed line: a gold thread behind the squares, seen in the gaps between them
         local glow = grid:CreateLine(nil, "BACKGROUND")
         glow:SetThickness(10)
-        glow:SetColorTexture(1, 0.82, 0, 0.25)
+        glow:SetColorTexture(ns.Style:Alpha("GOLD", 0.25))
         glow:SetStartPoint("CENTER", a)
         glow:SetEndPoint("CENTER", b)
         glow:Hide()
@@ -1029,12 +1024,12 @@ local function CreateDauberBar(parent)
         b.sel = b:CreateTexture(nil, "BACKGROUND")
         b.sel:SetPoint("TOPLEFT", -2, 2)
         b.sel:SetPoint("BOTTOMRIGHT", 2, -2)
-        b.sel:SetColorTexture(1, 0.82, 0, 0.22)
+        b.sel:SetColorTexture(ns.Style:Alpha("GOLD", 0.22))
         b.selEdge = CreateFrame("Frame", nil, b)
         b.selEdge:SetPoint("TOPLEFT", -2, 2)
         b.selEdge:SetPoint("BOTTOMRIGHT", 2, -2)
         ns.UI:AddEdges(b.selEdge, "BORDER")
-        ns.UI:SetEdgeColor(b.selEdge, 1, 0.82, 0, 0.8)
+        ns.UI:SetEdgeColor(b.selEdge, ns.Style:Alpha("GOLD", 0.8))
         b.tex = b:CreateTexture(nil, "ARTWORK")
         b.tex:SetPoint("TOPLEFT", 2, -2)
         b.tex:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -1064,7 +1059,7 @@ local function Section(y, title, n, h, withIcon, emptyText)
     rule:SetHeight(1)
     rule:SetPoint("LEFT", head, "RIGHT", 8, 0)
     rule:SetPoint("RIGHT", side, "RIGHT", 0, 0)
-    rule:SetColorTexture(1, 1, 1, 0.06)
+    rule:SetColorTexture(ns.Style:Alpha("HAIRLINE", 0.06))
     local rows = {}
     for i = 1, n do
         local r = CreateRow(side, h, withIcon)
@@ -1138,7 +1133,7 @@ local function CreateMini()
     f.accent:SetPoint("TOPLEFT", 1, -1)
     f.accent:SetPoint("BOTTOMLEFT", 1, 1)
     f.accent:SetWidth(2)
-    f.accent:SetColorTexture(1, 0.82, 0, 1)
+    f.accent:SetColorTexture(ns.Style:Alpha("GOLD", 1))
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(16, 16)
     f.icon:SetPoint("LEFT", 9, 0)
@@ -1159,7 +1154,7 @@ local function CreateMini()
         end
     end)
     f:SetScript("OnEnter", function(self)
-        ns.UI:SetEdgeColor(self, 1, 0.82, 0, 0.5)
+        ns.UI:SetEdgeColor(self, ns.Style:Alpha("GOLD", 0.5))
         ns.UI:SetTextTooltip(self, { "Council Bingo", "Left-click: open your card", "Right-click: hide until the next game" })
     end)
     f:SetScript("OnLeave", function(self)

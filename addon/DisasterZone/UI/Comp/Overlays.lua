@@ -88,6 +88,7 @@ end
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
 --   combat     false: waits until the fight is over
+--   itemID     the item's tooltip while hovered (tipLine: a grey line under it);  rightClose: a right-click dismisses it
 -- toast.slot is a frame over the toast for a caller's own pieces (emptied each time the toast is filled again).
 -- UI:HideToast(key | toast, reason), UI:GetToast(key), UI:ShownToasts(), UI:ToastQueue().
 UI.TOAST = { W = 380, TOP = -120, GAP = 8, MAX = 3, PAD = 12, ICON = 32, ART = 112, DURATION = 12, BTN_H = 22,
@@ -129,7 +130,7 @@ function H.NewToast(i)
     t:SetToplevel(true)
     t:SetClampedToScreen(true)
     t:EnableMouse(true)
-    t:RegisterForClicks("LeftButtonUp")
+    t:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     t.bg = UI:Fill(t, T.BG, "BACKGROUND")
     UI:AddEdges(t, "BORDER")
     t.art = t:CreateTexture(nil, "ARTWORK", nil, 0)
@@ -154,8 +155,12 @@ function H.NewToast(i)
     t.slot:SetAllPoints()
     t.slot:SetFrameLevel(t:GetFrameLevel() + 5)
     t.btns, t.links = {}, {}
-    t:SetScript("OnClick", function(self)
+    t:SetScript("OnClick", function(self, button)
         local o = self.opts
+        if button == "RightButton" then
+            if o and o.rightClose then UI:HideToast(self, "close") end
+            return
+        end
         if not (o and o.onClick) then return end
         local ok, keep = H.Safe("Toast onClick", o.onClick, self)
         if not (ok and keep) and self:IsShown() and self.opts == o then UI:HideToast(self, "click") end
@@ -171,6 +176,21 @@ function H.NewToast(i)
             self.bar:SetWidth(max(1, (self:GetWidth() - 2) * max(0, left) / self.total))
         end
         if left <= 0 then UI:HideToast(self, "timeout") end
+    end)
+    -- an item's tooltip while hovered (opts.itemID; opts.tipLine under it)
+    t:SetScript("OnEnter", function(self)
+        local o = self.opts
+        if not (o and o.itemID) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetItemByID(o.itemID)
+        if o.tipLine then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(o.tipLine, S:RGB("SUB"))
+        end
+        GameTooltip:Show()
+    end)
+    t:SetScript("OnLeave", function(self)
+        if self.opts and self.opts.itemID then GameTooltip:Hide() end
     end)
     -- (hidden with the whole UI, Alt+Z: it is still shown, keeps its place in the stack and its time waits)
     t:SetScript("OnHide", function(self)
@@ -684,6 +704,53 @@ end
 --   clamp (true) }
 -- frame:SetDragHandle(region) drags it by another frame (a banner); frame:SetLocked(b), :IsLocked(), :SavePlace(),
 -- :RestorePlace(), :ResetPlace() (forgets the saved place and goes to the default).
+-- UI:CreatePopover(w, h, opts) -> panel: what drops from a control (a list, a small editor): the dropdowns' surface
+-- (DROP_BG, a 1 px DROP_EDGE, a soft shadow) on UIParent, clamped to the screen, hidden at first. The caller places
+-- it (and sets panel.owner) and shows it. opts: { strata ("DIALOG"), name (a global name), shadow (true),
+-- close = "catcher" (default: a click anywhere else closes it; a full-screen catcher under it takes that click) |
+-- "through" (a click elsewhere closes it and still reaches what it was on; a click on panel.owner does not close it) |
+-- false (the caller closes it) }. panel.catcher (with "catcher").
+function UI:CreatePopover(w, h, opts)
+    opts = opts or {}
+    local strata = opts.strata or "DIALOG"
+    local p = CreateFrame("Frame", opts.name, UIParent)
+    p:SetFrameStrata(strata)
+    p:SetToplevel(true)
+    p:SetClampedToScreen(true)
+    p:EnableMouse(true)
+    p:SetSize(w or 200, h or 100)
+    if opts.shadow ~= false and UI.SoftShadow then UI:SoftShadow(p, 12, 0.45, -4, 2) end
+    p.bg = UI:Fill(p, "DROP_BG")
+    UI:AddEdges(p, "BORDER")
+    UI:SetEdgeColor(p, S:Color("DROP_EDGE"))
+    p:Hide()
+    local close = opts.close
+    if close == nil then close = "catcher" end
+    if close == "through" then
+        p:SetScript("OnShow", function(self)
+            if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
+                self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+            end
+        end)
+        p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
+        p:SetScript("OnEvent", function(self)
+            if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
+        end)
+    elseif close == "catcher" then
+        local catcher = CreateFrame("Button", nil, UIParent)
+        catcher:SetAllPoints(UIParent)
+        catcher:SetFrameStrata(strata)
+        catcher:SetFrameLevel(math.max(0, p:GetFrameLevel() - 1))
+        catcher:RegisterForClicks("AnyUp")
+        catcher:SetScript("OnClick", function() p:Hide() end)
+        catcher:Hide()
+        p.catcher = catcher
+        p:SetScript("OnShow", function() catcher:Show() end)
+        p:SetScript("OnHide", function() catcher:Hide() end)
+    end
+    return p
+end
+
 UI.HUD = { CLOSE = 18 }
 
 function H.HudDragStart(f)

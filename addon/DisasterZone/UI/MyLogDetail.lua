@@ -139,7 +139,7 @@ local function AbilityRows(p, view)
         end
     else
         for _, tbl in ipairs({ p.dmg, p.pet }) do
-            for key, st in pairs(tbl) do add(key, st, (st.a or 0) - (st.o or 0) + (st.ab or 0)) end
+            for key, st in pairs(tbl) do add(key, st, (st.a or 0) + (st.ab or 0)) end   -- D5: overkill counts (as in s.d)
         end
     end
     table.sort(out, function(a, b) return a.amount > b.amount end)
@@ -214,7 +214,7 @@ local function InitAbility(row, data)
         ui:AttachTooltip(row, function(self, tip)
             local d = self.__cdlData
             if not (d and d.r) then return false end
-            tip:AddLine(d.r.name, S:Color("GOLD"))
+            tip:AddLine(d.r.name, S:RGB("GOLD"))
         end, AbilityTip)
     end
     local r, view, top = data.r, data.view, data.top
@@ -339,7 +339,7 @@ local function NewUptime(v, i)
     u.bar:SetPoint("LEFT", u.well, "LEFT")
     ui:AttachTooltip(u, function(self, tip)
         if not self.tipTitle then return false end
-        tip:AddLine(self.tipTitle, S:Color("GOLD"))
+        tip:AddLine(self.tipTitle, S:RGB("GOLD"))
     end, function(self) return self.tipLines end)
     return u
 end
@@ -482,9 +482,7 @@ local function FillBossBanner(v, state, p)
     b:SetBack(ns.MyLogUI:InstanceName(state.inst), function() ns.MyLogUI:SetMode("runs") end)
     local disp = Log().BossDisplayId and Log():BossDisplayId(p.boss)
     if disp and SetPortraitTextureFromCreatureDisplayID then
-        b:SetIcon(134400)
-        SetPortraitTextureFromCreatureDisplayID(b.icon.tex, disp)
-        if b.icon.tex.SetDesaturated then b.icon.tex:SetDesaturated(not p.kill) end
+        b:SetIcon(134400, { display = disp, desaturate = not p.kill })   -- (the boss's round portrait)
     else
         b:SetIcon(nil)
     end
@@ -569,7 +567,7 @@ local function FillBossStats(v, view, p, q, rows)
     local ps, qs = p.s or {}, q and q.s or {}
     local metricNow, metricThen = Log():Metric(p, view), q and Log():Metric(q, view)
     local text, kind = k.ChangeChip(k.Change(metricNow, metricThen), view ~= "tanking")
-    local noteKind = kind == "ok" and "up" or (kind == "live" and "down" or "mute")
+    local noteKind = kind == "ok" and "up" or (kind == "bad" and "down" or "mute")
     v.stats:SetCell(1, V.metric, k.Num(metricNow), text or "", noteKind, rows[1] and rows[1].key)
     local actNote, actKind = "", "mute"
     if ps.act and qs.act then
@@ -589,7 +587,7 @@ local function FillBossStats(v, view, p, q, rows)
     else
         local avText, avKind = k.ChangeChip(k.Change(ps.av, qs.av), false)
         v.stats:SetCell(4, "Avoidable damage", k.Num(ps.av or 0), (q and avText) or "",
-            (q and avKind) and (avKind == "ok" and "up" or (avKind == "live" and "down" or "mute")) or "mute", ICON_AVOID)
+            (q and avKind) and (avKind == "ok" and "up" or (avKind == "bad" and "down" or "mute")) or "mute", ICON_AVOID)
     end
 end
 
@@ -726,7 +724,7 @@ local function InitCause(row, data)
         ui:AttachTooltip(row, function(self, tip)
             local d = self.__cdlData
             if not d or d.all then return false end
-            tip:AddLine(d.group.name, S:Color("GOLD"))
+            tip:AddLine(d.group.name, S:RGB("GOLD"))
         end, function(self)
             local d = self.__cdlData
             local g = d and d.group

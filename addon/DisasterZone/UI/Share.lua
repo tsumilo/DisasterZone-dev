@@ -901,6 +901,26 @@ function Share:CreateButton(parent, size, getRef, tipTitle)
     return b
 end
 
+-- A banner tool for sharing (Banner:SetTools' entry): the share icon, its tooltip and the click (the share window;
+-- Shift: straight into the chat box). getRef() -> the reference to share (nil: nothing to share); the tooltip names
+-- what the reference opens now.
+function Share:Tool(getRef, title)
+    local ref = getRef and getRef()
+    local d = ref and self:Describe(ref)
+    return { icon = SHARE_ICON, title = title or "Share",
+        text = "Post a link in chat that opens " .. (d and d.label and S:Wrap("WARN", d.label) or "this")
+            .. " in DisasterZone.\n" .. S:Wrap("SUB", "Shift-click: into your chat box"),
+        onClick = function(btn)
+            local r = getRef and getRef()
+            if not (r and Share:Describe(r)) then return end
+            if IsShiftKeyDown() then
+                Share:PutInChat(r)
+            elseif ns.ShareWindow then
+                ns.ShareWindow:Open(r, btn)
+            end
+        end }
+end
+
 -- The bare icon of the navigation strip (grey, white on hover, like the icon tabs beside it).
 function Share:CreateNavButton(parent, getRef)
     local UI = ns.UI

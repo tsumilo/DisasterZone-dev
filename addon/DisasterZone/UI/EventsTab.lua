@@ -104,20 +104,6 @@ function H.BodyH(L, bannerH)
     return floor(h)
 end
 
--- A text's size changed, keeping its font face and colour: the size snaps to the type scale (S:Size, D2).
--- TODO(refactor): move into UI:SetTextStyle (a size change that keeps the text's face and colour)
--- A token's colour at another alpha ({ r, g, b, a }: for a glow, a light, a ring).
-function H.Alpha(name, a)
-    local r, g, b = S:Color(name)
-    return { r, g, b, a }
-end
-
-function H.Resize(fs, size)
-    local p, _, flags = fs:GetFont()
-    fs:SetFont(p or S.FONT_NUM, S:Size(size or "emph"), flags or "")
-    return fs
-end
-
 -- A wrapped text w wide: sets it and returns its height (the client's own, at least what the text's width says).
 local function Wrap(fs, text, w, size)
     fs:SetWordWrap(true)
@@ -158,7 +144,7 @@ local function FitText(fs, text, w, sizes, wrap)
     fs:SetWidth(w)
     for _, size in ipairs(sizes) do
         local s = S:Size(size)
-        H.Resize(fs, s)
+        UI():SetTextSize(fs, s)
         fs:SetText(text or "")
         local tw = NatW(fs)
         if tw <= w + 0.5 then
@@ -168,7 +154,7 @@ local function FitText(fs, text, w, sizes, wrap)
     end
     if wrap == false then return nil end
     local s = S:Size(sizes[#sizes])
-    H.Resize(fs, s)
+    UI():SetTextSize(fs, s)
     return w, Wrap(fs, text, w, s), 2
 end
 H.NatW, H.FitText = NatW, FitText
@@ -217,52 +203,23 @@ function H.Icon(parent, size)
     return f
 end
 
--- The events' class circle: the guild's round class icons (EventWidgets' art) in a dark ring; f:Set(key),
--- f:SetEmpty() (an open seat). TODO(refactor): move into a shared avatar (a player's class circle)
+-- The events' class circle (UI:CreateAvatar): f:Set(key, dim), f:SetEmpty() (an open seat); the tooltip adds the
+-- player's title and season rank.
+local function FaceTip(self, tt)
+    local title = Ev():GetTitle(self.key)
+    if title then tt:AddLine(title, S:RGB("GOLD")) end
+    local rank = Ev():RankOf(self.key)
+    if rank then tt:AddLine("Season rank #" .. rank, S:RGB("SUB")) end
+end
 function H.Face(parent, size)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(size, size)
-    f.ring = Disc(f, size + 2, C.black, "BACKGROUND", 1)
-    f.ring:SetPoint("CENTER")
-    f.hole = Disc(f, size, CARD, "BACKGROUND", 2)
-    f.hole:SetPoint("CENTER")
-    f.tex = f:CreateTexture(nil, "ARTWORK")
-    f.tex:SetAllPoints()
-    function f:Set(key, dim)
-        self.key = key
-        self.ring:SetVertexColor(0, 0, 0, 1)
-        self.ring:SetSize(size + 2, size + 2)
-        self.hole:Hide()
-        EUI():SetClass(self.tex, key)
-        self.tex:SetDesaturated(dim and true or false)
-        self.tex:SetAlpha(dim and 0.55 or 1)
-        self:Show()
-    end
-    function f:SetEmpty()
-        self.key = nil
-        self.tex:Hide()
-        self.ring:SetVertexColor(1, 1, 1, 0.16)
-        self.ring:SetSize(size, size)
-        self.hole:SetSize(size - 2, size - 2)
-        self.hole:Show()
-        self:Show()
-    end
-    UI():AttachTooltip(f, function(self, tt)
-        if not self.key or self.noTip then return false end
-        tt:AddLine(EUI():Name(self.key, true))
-        local title = Ev():GetTitle(self.key)
-        if title then tt:AddLine(title, S:Color("GOLD")) end
-        local rank = Ev():RankOf(self.key)
-        if rank then tt:AddLine("Season rank #" .. rank, S:Color("SUB")) end
-    end, nil, { anchor = "ANCHOR_TOP" })
-    return f
+    return UI():CreateAvatar(parent, size, { tip = FaceTip })
 end
 
 -- A flat button, optionally with an atlas glyph (UI.ICON key / index) or a texture before its text.
 function H.Button(parent, text, w, h, kind, onClick, glyph)
     local b = UI():CreateSleekButton(parent, text, w, h, onClick, kind)
     local fs = b:GetFontString()
-    if (h or 22) <= 22 then H.Resize(fs, 11) end
+    if (h or 22) <= 22 then UI():SetTextSize(fs, 11) end
     if glyph then
         b.glyph = b:CreateTexture(nil, "OVERLAY")
         b.glyph:SetSize(12, 12)
@@ -308,7 +265,7 @@ local function FieldTip(self, tt)
         if type(line) == "table" then
             tt:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, line.wrap)
         elseif i == 1 then
-            tt:AddLine(line, S:Color("GOLD"))
+            tt:AddLine(line, S:RGB("GOLD"))
         else
             tt:AddLine(line, 1, 1, 1, true)
         end
@@ -317,11 +274,6 @@ end
 function H.TipFromField(f)
     UI():AttachTooltip(f, FieldTip, nil, { anchor = "ANCHOR_TOP" })
     return f
-end
-
--- The icon buttons at the right of a banner / a card.
-function H.IconButton(parent, size, icon, title, text, onClick)
-    return UI():CreateTipIconButton(parent, size, UI().ICON[icon] or icon, title, text, onClick)
 end
 
 -- A small rounded chip with an icon (a smart block on a library card): UI:CreatePill (p:Set(text, look, icon)).
@@ -409,7 +361,7 @@ function H.Menu(owner, entries, title)
                 local b = root:CreateButton(mark .. "  " .. e.text, e.fn)
                 if b and b.SetTooltip and e.tip then
                     b:SetTooltip(function(tt)
-                        tt:AddLine(e.text, S:Color("GOLD"))
+                        tt:AddLine(e.text, S:RGB("GOLD"))
                         tt:AddLine(e.tip, 1, 1, 1, true)
                     end)
                 end
@@ -2254,7 +2206,7 @@ end
 function Pg.NewStage(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetSize(400, 60)
-    r.glow = Disc(r, 33, H.Alpha("GOLD", 0.18), "BACKGROUND", 0)
+    r.glow = Disc(r, 33, S:WithAlpha("GOLD", 0.18), "BACKGROUND", 0)
     r.glow:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
     r.ring = Disc(r, 23, { 0.44, 0.44, 0.46, 1 }, "BACKGROUND", 1)
     r.ring:SetPoint("CENTER", r, "TOPLEFT", 12, -19)
@@ -2386,7 +2338,7 @@ function Pg.FillReward(c, rw, d, cellW, cols, labelH)
     ph = max(ph, labelH or 0)
     c.place:ClearAllPoints()
     c.place:SetPoint("TOP", badge, "BOTTOM", 0, -7)
-    H.Resize(c.n, four and 11 or 12)
+    UI():SetTextSize(c.n, four and 11 or 12)
     local nh = Wrap(c.n, rw.b.n or "Badge", cellW - 6, four and 11 or 12)
     c.n:ClearAllPoints()
     c.n:SetPoint("TOP", badge, "BOTTOM", 0, -(7 + ph + 3))
@@ -2858,11 +2810,11 @@ function Pg.CreateResults(v)
         if i == 2 then
             p.glows = {}
             for g = 1, 3 do
-                local t = Disc(p.face, def[2] + 6 + g * 7, H.Alpha("GOLD", 0.16 - g * 0.04), "BACKGROUND", -g)
+                local t = Disc(p.face, def[2] + 6 + g * 7, S:WithAlpha("GOLD", 0.16 - g * 0.04), "BACKGROUND", -g)
                 t:SetPoint("CENTER")
                 p.glows[g] = t
             end
-            p.gold = Disc(p.face, def[2] + 6, H.Alpha("GOLD", 0.92), "BACKGROUND", 0)
+            p.gold = Disc(p.face, def[2] + 6, S:WithAlpha("GOLD", 0.92), "BACKGROUND", 0)
             p.gold:SetPoint("CENTER")
         end
         f.peds[i] = p
@@ -3668,16 +3620,16 @@ function Lib.NewCard(parent)
     c.acts:SetPoint("BOTTOMRIGHT", -S.IN, S.IN)
     c.acts:SetFrameLevel(c:GetFrameLevel() + 4)
     c.share = A.ShareButton(c.acts, 22, function() return c.def and A.DefRef(c.def.id) end, "Share this event")
-    c.edit = H.IconButton(c.acts, 22, 16, "Edit", "Opens it in the builder to change it.", function()
+    c.edit = UI():CreateTipIconButton(c.acts, 22, 16, "Edit", "Opens it in the builder to change it.", function()
         if c.def then A.Builder(c.def) end
     end)
-    c.copy = H.IconButton(c.acts, 22, 17, "Copy", "Makes your own copy of it to change.", function()
+    c.copy = UI():CreateTipIconButton(c.acts, 22, 17, "Copy", "Makes your own copy of it to change.", function()
         if c.def then A.Copy(c.def) end
     end)
     c.host = H.Button(c.acts, "Host", 50, 22, "secondary", function()
         if c.def then EventsUI:OpenSchedule(c.def.id) end
     end)
-    c.del = H.IconButton(c.acts, 22, "trash", "Remove", "Removes it from the guild's library for everyone. Calendar "
+    c.del = UI():CreateTipIconButton(c.acts, 22, UI().ICON.trash, "Remove", "Removes it from the guild's library for everyone. Calendar "
         .. "events made from it stay.", function() if c.def then A.RemoveDef(c.def) end end)
     for _, b in ipairs({ c.share, c.edit, c.copy, c.host, c.del }) do
         if b then b:HookScript("OnLeave", function() CardLeave(c) end) end
@@ -5035,67 +4987,6 @@ local function Field(f, w, h, maxLetters, hint)
     return eb
 end
 
--- A flat stepper (the Dungeons tab's "Later" picker): a value between two gold chevrons; they and the wheel step it.
--- (the day / time helpers below and this stepper are copied in UI/DungeonsTab.lua: kept local here for now)
--- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua) with the day / time helpers
-local function Chevron(parent, dir)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetSize(22, 22)
-    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
-    b.hl:SetAllPoints()
-    b.hl:SetColorTexture(S:Color("HOVER"))
-    b.lines = {}
-    for i = 1, 2 do
-        local l = b:CreateLine(nil, "ARTWORK")
-        l:SetThickness(2)
-        l:SetColorTexture(S:Color("GOLD"))
-        b.lines[i] = l
-    end
-    local x = dir < 0 and 3 or -3
-    b.lines[1]:SetStartPoint("CENTER", x, 5)
-    b.lines[1]:SetEndPoint("CENTER", -x, 0)
-    b.lines[2]:SetStartPoint("CENTER", -x, 0)
-    b.lines[2]:SetEndPoint("CENTER", x, -5)
-    function b:SetOn(on)
-        self.on = on
-        for _, l in ipairs(self.lines) do l:SetAlpha(on and 1 or 0.25) end
-    end
-    return b
-end
-
-function H.Stepper(parent, width, onStep, tip)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(width, 26)
-    UI():Fill(f, CARD)
-    Edges(f, S.C.EDGE_STRONG)
-    f.text = UI():Text(f, "emph", C.white)
-    f.text:SetJustifyH("CENTER")
-    f.text:SetPoint("CENTER", 0, 0)
-    f.prev = Chevron(f, -1)
-    f.prev:SetPoint("LEFT", 2, 0)
-    f.prev:SetScript("OnClick", function(self) if self.on then onStep(-1) end end)
-    f.next = Chevron(f, 1)
-    f.next:SetPoint("RIGHT", -2, 0)
-    f.next:SetScript("OnClick", function(self) if self.on then onStep(1) end end)
-    f:EnableMouse(true)
-    f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
-    f:SetScript("OnEnter", function(self)
-        UI():SetEdgeColor(self, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], 0.6)
-        if tip then Tip(self, tip) end
-    end)
-    f:SetScript("OnLeave", function(self)
-        UI():SetEdgeColor(self, S:Color("EDGE_STRONG"))
-        HideTip()
-    end)
-    function f:Set(text, canPrev, canNext)
-        self.text:SetText(text)
-        self.prev:SetOn(canPrev)
-        self.next:SetOn(canNext)
-    end
-    return f
-end
-
 -- Day / time (the local clock): day 0 = today.
 local DAYS_AHEAD = 13
 local function NowMinutes()
@@ -5166,19 +5057,19 @@ function Sh.Schedule()
     local LX, FX = 12, 76
     FormLabel(f, "When", LX, -128)
     local tip = { "Pick the time", "Click the arrows or scroll. Your clock: everybody sees it in theirs." }
-    f.day = H.Stepper(f, 160, function(dir)
+    f.day = UI():CreateStepper(f, 160, function(dir)
         local s = f.s
         s.day = (s.day or 0) + dir
         ClampWhen(s)
         Sh.RefreshSchedule()
-    end, tip)
+    end, { tip = tip })
     f.day:SetPoint("TOPLEFT", FX, -121)
-    f.time = H.Stepper(f, 96, function(dir)
+    f.time = UI():CreateStepper(f, 96, function(dir)
         local s = f.s
         s.mins = (s.mins or 0) + dir * 15
         ClampWhen(s)
         Sh.RefreshSchedule()
-    end, tip)
+    end, { tip = tip })
     f.time:SetPoint("LEFT", f.day, "RIGHT", 6, 0)
     f.whereLabel = FormLabel(f, "Where", LX, -162)
     f.where = Field(f, 372, 26, 48, "Ring of Trials, Nagrand")
@@ -5256,7 +5147,7 @@ function Sh.RefreshSchedule()
         text = "It has no sign-up: whoever is there when you start it plays."
     end
     if s.occ then text = "Everyone who signed up stays in. " .. text:gsub(" You're in it too.*$", "") end
-    H.Glyph(f.info.glyph, "clock", H.Alpha("SUB", 0.85))
+    H.Glyph(f.info.glyph, "clock", S:WithAlpha("SUB", 0.85))
     Wrap(f.info.fs, text, 354, 11)
 end
 
@@ -5524,10 +5415,10 @@ function Sh.Badge()
     pv.light:SetPoint("TOPLEFT")
     pv.light:SetPoint("TOPRIGHT")
     pv.light:SetHeight(260)
-    UI():Gradient(pv.light, "VERTICAL", H.Alpha("GOLD", 0), H.Alpha("GOLD", 0.05))
+    UI():Gradient(pv.light, "VERTICAL", S:WithAlpha("GOLD", 0), S:WithAlpha("GOLD", 0.05))
     pv.glows = {}
     for i, size in ipairs({ 140, 118, 100 }) do
-        local t = Disc(pv, size, H.Alpha("GOLD", 0.045), "BACKGROUND", i)
+        local t = Disc(pv, size, S:WithAlpha("GOLD", 0.045), "BACKGROUND", i)
         t:SetPoint("CENTER", pv, "TOP", 0, -70)
         pv.glows[i] = t
     end
@@ -5591,7 +5482,7 @@ function Sh.Badge()
         local sw = CreateFrame("Button", nil, f)
         sw:SetSize(31, 31)
         sw:SetPoint("TOPLEFT", FX + (i - 1) * 38, -341)
-        sw.sel = Disc(sw, 33, H.Alpha("GOLD_DEEP", 0.9), "BACKGROUND", 1)
+        sw.sel = Disc(sw, 33, S:WithAlpha("GOLD_DEEP", 0.9), "BACKGROUND", 1)
         sw.sel:SetPoint("CENTER")
         sw.hole = Disc(sw, 31, { 0.09, 0.09, 0.11, 1 }, "BACKGROUND", 2)
         sw.hole:SetPoint("CENTER")
@@ -5811,18 +5702,18 @@ function Sh.Season()
     f.name:SetPoint("TOPLEFT", FX, -55)
     local tip = { "Pick the day", "Click the arrows or scroll." }
     FormLabel(f, "From", LX, -100)
-    f.from = H.Stepper(f, 160, function(dir)
+    f.from = UI():CreateStepper(f, 160, function(dir)
         f.s.from = W.Noon(f.s.from + dir * DAY)
         if f.s.from > f.s.to - DAY then f.s.from = f.s.to - DAY end
         Sh.RefreshSeason()
-    end, tip)
+    end, { tip = tip })
     f.from:SetPoint("TOPLEFT", FX, -93)
     FormLabel(f, "To", LX, -134)
-    f.to = H.Stepper(f, 160, function(dir)
+    f.to = UI():CreateStepper(f, 160, function(dir)
         f.s.to = W.Noon(f.s.to + dir * DAY)
         if f.s.to < f.s.from + DAY then f.s.to = f.s.from + DAY end
         Sh.RefreshSeason()
-    end, tip)
+    end, { tip = tip })
     f.to:SetPoint("TOPLEFT", FX, -127)
     f.info = UI():Text(f, "body", C.grey)
     f.info:SetPoint("TOPLEFT", FX, -166)
@@ -5953,7 +5844,7 @@ end
 -- The Review tab's tooltip: how many wait.
 local function ReviewTip(self, tt)
     local n = #Ev():GetReviewQueue()
-    tt:AddLine("Review", S:Color("GOLD"))
+    tt:AddLine("Review", S:RGB("GOLD"))
     tt:AddLine(n > 0 and (n .. (n == 1 and " event waits" or " events wait") .. " for a decision: ranked or sent back.")
         or "Events members send in for review show up here.", 1, 1, 1, true)
 end
@@ -5977,13 +5868,9 @@ function EventsUI:CreatePanel(parent)
     for _, view in ipairs(VIEWS) do p.tabs[view] = bar:GetTab(view) end
     bar:SetTabCount("review", 0)
     UI():AttachTooltip(p.tabs.review, ReviewTip, nil, { anchor = "ANCHOR_BOTTOM" })
-    p.newBtn = bar:SetPrimary({ text = "New event", onClick = A.NewEvent,
+    -- (its plus as a glyph beside the words: the button's text stays "New event")
+    p.newBtn = bar:SetPrimary({ text = "New event", icon = "plus", onClick = A.NewEvent,
         tip = "Opens the builder on an empty event: drag pieces in, practice it, save it." })
-    -- (its plus as a glyph beside the words, so the button's text stays "New event")
-    -- TODO(refactor): move into the layout toolbar (SetPrimary's icon puts the glyph into the button's text)
-    p.newBtn.glyph = p.newBtn:CreateTexture(nil, "OVERLAY")
-    p.newBtn.glyph:SetSize(12, 12)
-    H.SetButtonGlyph(p.newBtn, "plus")
     H.Fit(p.newBtn, 90, 30)
     -- Examples beside it: Upcoming's (p.exBtn) and the Library's (its view's .examples)
     p.exBtn = A.ExamplesButton(bar, S.BTN_H)

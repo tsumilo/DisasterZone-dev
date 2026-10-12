@@ -4,7 +4,10 @@ local addonName, ns = ...
 
 -- The surfaces every page is built on (REFACTOR_API.md "Surfaces.lua"), all on ns.UI and the values of ns.Style:
 --   UI:CreateCard(parent, opts)        a card / an inset well / the quiet fading lift, with an optional title; card.body
---   UI:DecorateRow(row, opts)          the one hover, the one selected look (gold wash + 2 px bar), stripe, hairline
+--   UI:DecorateRow(row, opts)          the one hover, the one selected look (gold wash + 2 px bar), the "you" look
+--                                      (blue wash + 2 px bar), stripe, hairline
+--   UI:CreateFace(parent, size)        a glyph on a dark disc in a gold ring (or a round icon / a class in the ring)
+--   UI:CreateAvatar(parent, size)      a player's class circle in a dark ring (an open seat: SetEmpty)
 --   UI:CreateArtRow(parent, opts)      the 50 px row with a 64x38 picture and a 20 px icon tile (events, polls, ...)
 --   UI:CreateEmptyState(parent, opts)  an illustrated "nothing here" (My Log's): disc + icon, title, text, one action
 --   UI:CreateNotice(parent, kind, txt) a slim strip saying why something can't be done here (read-only / locked /
@@ -103,11 +106,12 @@ end
 -- A card: a frame with the tone's fill and 1 px edge (none for "quiet"), an optional title at the top and card.body
 -- (the frame to put the content in, inset by pad and under the title).
 -- opts: { tone = "card" (default) | "inset" | "quiet", title, titleStyle ("title"; "caps" for a small heading),
--- pad (S.IN), fade (quiet only: "left" (default) | "right" | "none"), width, height }.
+-- pad (S.IN), fade (quiet only: "left" (default) | "right" | "none"), width, height, onClick (a clickable card: a
+-- Button with the rows' hover; onClick(card, mouseButton), left and right clicks) }.
 -- card:SetTone(tone), card:SetTitle(text [, style]), card:SetHovered(on) (quiet: a little stronger); card.bg, .title.
 function UI:CreateCard(parent, opts)
     opts = opts or {}
-    local card = CreateFrame("Frame", nil, parent)
+    local card = CreateFrame(opts.onClick and "Button" or "Frame", nil, parent)
     if opts.width or opts.height then card:SetSize(opts.width or 100, opts.height or 60) end
     card.pad = opts.pad or S.IN
     card.fade = opts.fade
@@ -119,6 +123,16 @@ function UI:CreateCard(parent, opts)
     for k, fn in pairs(Card) do card[k] = fn end
     card:SetTone(opts.tone)
     card:SetTitle(opts.title)
+    if opts.onClick then
+        local onClick = opts.onClick
+        card:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        card:SetScript("OnClick", function(self, button) onClick(self, button) end)
+        UI:DecorateRow(card, { hover = true })
+        if card.tone == "quiet" then
+            card:HookScript("OnEnter", function(self) self:SetHovered(true) end)
+            card:HookScript("OnLeave", function(self) self:SetHovered(false) end)
+        end
+    end
     return card
 end
 
@@ -142,6 +156,16 @@ function Row:IsSelected()
     return self.dzSelected and true or false
 end
 
+-- Mine or not (DecorateRow's you = true): a faint YOU wash and a 2 px YOU bar on the left.
+function Row:SetYou(on)
+    on = on and true or false
+    self.dzYou = on
+    if self.dzYouFill then
+        self.dzYouFill:SetShown(on)
+        self.dzYouBar:SetShown(on)
+    end
+end
+
 -- The stripe of the i-th row of a list: every second row (2, 4, ...) is a touch lighter (true: on; nil / false: off).
 function Row:SetStripe(i)
     if not self.dzStripe then return end
@@ -161,10 +185,11 @@ local function HoverOn(self) if self.dzHover then self.dzHover:Show() end end
 local function HoverOff(self) if self.dzHover then self.dzHover:Hide() end end
 
 -- Gives a row the shared looks. opts: { hover (true; false: none), selectable (the selected look; row:SetSelected),
--- stripe (row:SetStripe(i)), rule (a hairline along the bottom) }. A Button's hover is its HIGHLIGHT layer (it
+-- you (the "you" look of my own row: row:SetYou(on); youAlpha: its wash, 0.08), stripe (row:SetStripe(i)), rule (a
+-- hairline along the bottom) }. A Button's hover is its HIGHLIGHT layer (it
 -- survives a later SetScript); a plain frame's is hooked to OnEnter / OnLeave (hook it after setting those). Calling
 -- it again on the same row only adds what it did not have. Returns row.
--- The textures: row.dzHover, row.dzSelFill / row.dzSelBar, row.dzStripe, row.dzRule.
+-- The textures: row.dzHover, row.dzSelFill / row.dzSelBar, row.dzYouFill / row.dzYouBar, row.dzStripe, row.dzRule.
 function UI:DecorateRow(row, opts)
     if not row then return row end
     opts = opts or {}
@@ -186,6 +211,18 @@ function UI:DecorateRow(row, opts)
         row.dzSelBar:SetColorTexture(S:Color("SELECT_BAR"))
         row:SetSelected(row.dzSelected)
     end
+    if opts.you and not row.dzYouFill then
+        local r, g, b = S:Color("YOU")
+        row.dzYouFill = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+        row.dzYouFill:SetAllPoints()
+        row.dzYouFill:SetColorTexture(r, g, b, opts.youAlpha or 0.08)
+        row.dzYouBar = row:CreateTexture(nil, "ARTWORK", nil, 6)
+        row.dzYouBar:SetWidth(2)
+        row.dzYouBar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        row.dzYouBar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+        row.dzYouBar:SetColorTexture(r, g, b, 1)
+        row:SetYou(row.dzYou)
+    end
     if opts.hover ~= false and not row.dzHover then
         local kind = row.GetObjectType and row:GetObjectType()
         if kind == "Button" or kind == "CheckButton" then
@@ -205,6 +242,145 @@ function UI:DecorateRow(row, opts)
         row.dzRule = UI:Rule(row, { bottom = 0 })
     end
     return row
+end
+
+---------------------------------------------------------------------------
+-- Face
+---------------------------------------------------------------------------
+
+local MEDIA = "Interface\\AddOns\\DisasterZone\\Media\\"
+local Face = {}
+
+-- An atlas glyph (UI.ICON index or name) on the disc, in a colour ("GOLD" by default).
+function Face:SetGlyph(i, color)
+    if self.photo then self.photo:Hide() end
+    UI:SetGlyph(self.icon, i, color or "GOLD")
+    self.icon:Show()
+end
+
+-- A round icon filling the ring (a path / file id, or an atlas name with atlas = true): an addon's, a letter.
+function Face:SetPhoto(path, atlas)
+    if not self.photo then
+        self.photo = self:CreateTexture(nil, "ARTWORK", nil, 3)
+        self.photo:SetAllPoints()
+        if self.CreateMaskTexture then
+            local m = self:CreateMaskTexture()
+            m:SetTexture(DISC, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            m:SetAllPoints(self.photo)
+            self.photo:AddMaskTexture(m)
+        end
+    end
+    if atlas and self.photo.SetAtlas then
+        self.photo:SetAtlas(path)
+    else
+        self.photo:SetTexture(path or 134400)
+        self.photo:SetTexCoord(0.06, 0.94, 0.06, 0.94)
+    end
+    self.photo:SetVertexColor(1, 1, 1)
+    self.photo:Show()
+    self.icon:Hide()
+end
+
+-- A player's class circle filling the ring (EUI:SetClass).
+function Face:SetClassOf(key)
+    self:SetPhoto(nil)
+    self.photo:SetTexCoord(0, 1, 0, 1)
+    if ns.EventUI then ns.EventUI:SetClass(self.photo, key) end
+end
+
+-- The ring's colour (a token name or a table; "GOLD" at first).
+function Face:SetRing(color)
+    self.ring:SetVertexColor(S:Color(color or "GOLD"))
+end
+
+-- A face (the Events pages' look): a size x size dark disc in a gold ring 2 px outside it, with a glyph at its
+-- centre (face:SetGlyph(i, color)), or a round icon / a class filling it (face:SetPhoto(path [, atlas]),
+-- face:SetClassOf(key)). opts: { ring = colour ("GOLD"), glyph = i, glyphColor }. face.disc, .ring, .icon (.photo).
+function UI:CreateFace(parent, size, opts)
+    opts = opts or {}
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.disc = f:CreateTexture(nil, "ARTWORK", nil, 0)
+    f.disc:SetTexture(MEDIA .. "Strategy\\disc")
+    f.disc:SetVertexColor(S:Color("INSET"))
+    f.disc:SetAllPoints()
+    f.ring = f:CreateTexture(nil, "ARTWORK", nil, 4)
+    f.ring:SetTexture(MEDIA .. "Events\\ring")
+    f.ring:SetPoint("CENTER")
+    f.ring:SetSize(size + 4, size + 4)
+    f.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
+    f.icon:SetSize(floor(size * 0.46), floor(size * 0.46))
+    f.icon:SetPoint("CENTER")
+    for k, fn in pairs(Face) do f[k] = fn end
+    f:SetRing(opts.ring)
+    if opts.glyph then f:SetGlyph(opts.glyph, opts.glyphColor) end
+    return f
+end
+
+---------------------------------------------------------------------------
+-- Avatar: a player's class circle
+---------------------------------------------------------------------------
+
+local Avatar = {}
+
+-- The player key's class circle (dim: greyed, a seat given up / a player away).
+function Avatar:Set(key, dim)
+    self.key = key
+    self.ring:SetVertexColor(0, 0, 0, 1)
+    self.ring:SetSize(self.size + self.ringW, self.size + self.ringW)
+    if self.hole then self.hole:Hide() end
+    if ns.EventUI then ns.EventUI:SetClass(self.tex, key) end
+    self.tex:SetDesaturated(dim and true or false)
+    self.tex:SetAlpha(dim and 0.55 or 1)
+    self.tex:Show()
+    self:Show()
+end
+
+-- An open seat: a faint ring around the card's colour.
+function Avatar:SetEmpty()
+    self.key = nil
+    self.tex:Hide()
+    self.ring:SetVertexColor(1, 1, 1, 0.16)
+    self.ring:SetSize(self.size, self.size)
+    if not self.hole then
+        self.hole = self:CreateTexture(nil, "BACKGROUND", nil, 2)
+        self.hole:SetTexture(DISC)
+        self.hole:SetPoint("CENTER")
+        self.hole:SetVertexColor(S:Color("CARD"))
+    end
+    self.hole:SetSize(self.size - 2, self.size - 2)
+    self.hole:Show()
+    self:Show()
+end
+
+local function AvatarTip(self, tt)
+    if not self.key or self.noTip then return false end
+    tt:AddLine(ns.EventUI and ns.EventUI:Name(self.key, true) or UI:ColoredName(self.key))
+    if self.tipMore then self.tipMore(self, tt) end
+end
+
+-- UI:CreateAvatar(parent, size, opts) -> avatar: a player's round class icon in a dark ring (the Events and Polls
+-- pages' players). avatar:Set(key, dim), avatar:SetEmpty() (an open seat). opts: { ring (px the ring shows around it,
+-- 2), tip = false (no tooltip) | function(avatar, tooltip) (lines after the name) }; avatar.noTip turns it off for a
+-- while. avatar.ring, .tex, .key.
+function UI:CreateAvatar(parent, size, opts)
+    opts = opts or {}
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.size, f.ringW = size, opts.ring or 2
+    f.ring = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    f.ring:SetTexture(DISC)
+    f.ring:SetPoint("CENTER")
+    f.ring:SetSize(size + f.ringW, size + f.ringW)
+    f.ring:SetVertexColor(0, 0, 0, 1)
+    f.tex = f:CreateTexture(nil, "ARTWORK")
+    f.tex:SetAllPoints()
+    for k, fn in pairs(Avatar) do f[k] = fn end
+    if opts.tip ~= false then
+        if type(opts.tip) == "function" then f.tipMore = opts.tip end
+        UI:AttachTooltip(f, AvatarTip, nil, { anchor = "ANCHOR_TOP" })
+    end
+    return f
 end
 
 ---------------------------------------------------------------------------
@@ -253,6 +429,44 @@ function UI:SetArtTexture(tex, art, w, h)
     tex:SetTexCoord(0, 1, 0, 1)
 end
 
+-- One picture over a w x h box of host, or two side by side (a raid night of two instances: art1 on the left half,
+-- art2 on the right, a dark 2 px seam between them). tex is host's picture texture; it is anchored here (inset px in
+-- from host's edges); the second one and the seam are made on first use (host.art2 / host.artSeam, on tex's layer).
+-- art1 / art2: what UI:SetArtTexture takes (a raid key, { path, l, r, t, b }, a function(tex, w, h) ...), each cropped
+-- for its half. Returns the left picture's width.
+function UI:SetArtPair(host, tex, art1, art2, w, h, inset)
+    inset = inset or 0
+    local two = art2 ~= nil and art2 ~= false
+    local aw = two and floor(w / 2) or w
+    tex:ClearAllPoints()
+    tex:SetPoint("TOPLEFT", host, "TOPLEFT", inset, -inset)
+    if two then
+        tex:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", inset, inset)
+        tex:SetWidth(aw)
+    else
+        tex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
+    end
+    UI:SetArtTexture(tex, art1, aw, h)
+    if two and not host.art2 then
+        local layer, sub = tex:GetDrawLayer()
+        sub = sub or 0
+        host.art2 = host:CreateTexture(nil, layer, nil, sub)
+        host.art2:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        host.art2:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
+        host.artSeam = host:CreateTexture(nil, layer, nil, math.min(7, sub + 1))
+        host.artSeam:SetColorTexture(0, 0, 0, 0.6)
+        host.artSeam:SetWidth(2)
+        host.artSeam:SetPoint("TOPLEFT", host.art2, "TOPLEFT", -1, 0)
+        host.artSeam:SetPoint("BOTTOMLEFT", host.art2, "BOTTOMLEFT", -1, 0)
+    end
+    if host.art2 then
+        host.art2:SetShown(two)
+        host.artSeam:SetShown(two)
+        if two then UI:SetArtTexture(host.art2, art2, w - aw, h) end
+    end
+    return aw
+end
+
 -- An icon tile: the icon with its border cut off and a 1 px black edge. tile:Set(icon) (a path / file id; nil hides).
 local function IconTile(parent, size)
     local f = CreateFrame("Frame", nil, parent)
@@ -293,7 +507,17 @@ function ArtRow:FitTitle()
     local room = w - self.textX - right - 8
     if room - pill > 20 then
         UI:FitText(self.title, self.titleText, room - pill)
-        UI:FitText(self.sub, self.subText or "", room)
+        if self.wrapSub then
+            -- (a second line too long for the row takes two lines instead of being cut)
+            self.sub:SetWordWrap(true)
+            if self.sub.SetMaxLines then self.sub:SetMaxLines(2) end
+            self.sub:SetWidth(max(20, room))
+            self.sub:SetText(self.subText or "")
+        else
+            self.sub:SetWordWrap(false)
+            if self.sub.SetMaxLines then self.sub:SetMaxLines(1) end
+            UI:FitText(self.sub, self.subText or "", room)
+        end
     end
     if self.pill and self.pill:IsShown() then
         self.pill:ClearAllPoints()
@@ -301,24 +525,32 @@ function ArtRow:FitTitle()
     end
 end
 
--- The row's content: { art (see UI:SetArtTexture), icon (the tile; nil: none), title, sub (a second line; nil: the
+-- The row's content: { art (see UI:SetArtTexture), art2 (a second picture: the two side by side), textOnly (no
+-- picture: the text from the row's left), wrapSub (the second line may take two lines; the caller sizes the row), icon (the tile; nil: none), title, sub (a second line; nil: the
 -- title alone, centred), right (a text on the right), pill = { kind, text } (after the title), selected }.
 function ArtRow:SetData(d)
     d = d or {}
-    UI:SetArtTexture(self.art.tex, d.art, ART_W, ART_H)
-    self.icon:Set(d.icon)
+    UI:SetArtPair(self.art, self.art.tex, d.art, d.art2, ART_W, ART_H)
+    local textOnly = d.textOnly and true or false
+    self.art:SetShown(not textOnly)
+    self.textX = textOnly and ART_X or (ART_X + ART_W + TEXT_GAP)
+    self.wrapSub = d.wrapSub and true or false
+    self.icon:Set(not textOnly and d.icon or nil)
     self.titleText = d.title == nil and "" or tostring(d.title)
     self.subText = d.sub ~= nil and tostring(d.sub) or nil
     self.title:SetText(self.titleText)
     self.sub:SetText(self.subText or "")
     self.title:ClearAllPoints()
     self.sub:ClearAllPoints()
+    local at, ax = self.art, TEXT_GAP
+    if textOnly then at, ax = self, ART_X end
+    local ap = textOnly and "LEFT" or "RIGHT"
     if self.subText and self.subText ~= "" then
-        self.title:SetPoint("BOTTOMLEFT", self.art, "RIGHT", TEXT_GAP, 1)
-        self.sub:SetPoint("TOPLEFT", self.art, "RIGHT", TEXT_GAP, -3)
+        self.title:SetPoint("BOTTOMLEFT", at, ap, ax, 1)
+        self.sub:SetPoint("TOPLEFT", at, ap, ax, -3)
         self.sub:Show()
     else
-        self.title:SetPoint("LEFT", self.art, "RIGHT", TEXT_GAP, 0)
+        self.title:SetPoint("LEFT", at, ap, ax, 0)
         self.sub:Hide()
     end
     if d.right ~= nil and d.right ~= "" then
@@ -330,7 +562,7 @@ function ArtRow:SetData(d)
     end
     local pill = d.pill
     if type(pill) == "table" and (pill[2] or pill.text) then
-        if not self.pill then self.pill = UI:CreateTagPill(self, 16) end
+        if not self.pill then self.pill = UI:CreatePill(self, 16) end
         self.pill:Set(pill[2] or pill.text, pill[1] or pill.kind)
         self.pill:ClearAllPoints()
         self.pill:SetPoint("LEFT", self.title, "RIGHT", 7, 0)

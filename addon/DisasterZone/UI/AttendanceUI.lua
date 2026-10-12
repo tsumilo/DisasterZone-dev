@@ -46,15 +46,8 @@ local function dimText(s) return S:Wrap("DIM", s) end
 local function short(key) return Util().ShortName(key) or tostring(key) end
 
 local function name(key, cls)
-    local G = ns.Guild
-    local text = UI():ColoredName(key, cls or (G and G.GetClass and G:GetClass(key)))
+    local text = UI():ColoredName(key, UI():ClassOf(key, cls))
     return (text:gsub("%*|r$", "|r"))
-end
-
--- (the class of a player: the record's, else the guild's. TODO(refactor): UI:ClassOf)
-local function classFor(key, cls)
-    local G = ns.Guild
-    return cls or (G and G.GetClass and G:GetClass(key)) or nil
 end
 
 local function clock(t) return t and date("%H:%M", t) or "-" end
@@ -434,7 +427,7 @@ function AUI:ResultTooltip(tt, r)
         tt:AddLine("Waiting for the GM, an officer or the guild council. Doesn't count until then.", C.pending[1],
             C.pending[2], C.pending[3], true)
     end
-    if r.credit then tt:AddLine("Credit " .. pctText(r), S:Color("GOLD")) end
+    if r.credit then tt:AddLine("Credit " .. pctText(r), S:RGB("GOLD")) end
 end
 
 -- The menu of a player's night (right-click): decisions and Pick from chat for reviewers.
@@ -550,7 +543,7 @@ function AUI:CreateTimeline(parent, width)
             return
         end
         local r = d.r
-        UI():ClassIcon(row.icon, classFor(r.key, r.cls))
+        UI():ClassIcon(row.icon, UI():ClassOf(r.key, r.cls))
         row.name:SetText(name(r.key, r.cls))
         local p
         if r.pending then p = { "review", "warn" }
@@ -786,17 +779,17 @@ function AUI:CreateOverview(parent, width)
                 local s = self.cdlS
                 if not s then return false end
                 tt:AddLine(name(s.key, s.cls))
-                if s.lineups then tt:AddLine("Lineups: " .. s.lineups, S:Color("SUB")) end
+                if s.lineups then tt:AddLine("Lineups: " .. s.lineups, S:RGB("SUB")) end
                 tt:AddLine(s.pct and (("%d%% over %d raids that expected them"):format(s.pct, s.counted))
                     or "No raid expected them yet.", 1, 1, 1)
                 if s.pending > 0 then tt:AddLine(s.pending .. " waiting for a review (not counted yet)", C.pending[1], C.pending[2], C.pending[3]) end
                 if s.excused > 0 then tt:AddLine(s.excused .. " excused (counted as there)", C.excused[1], C.excused[2], C.excused[3]) end
                 if s.fills > 0 then tt:AddLine(("Came to help %d times (%s)"):format(s.fills, dur(s.help)), C.fill[1], C.fill[2], C.fill[3]) end
-                if s.clashes > 0 then tt:AddLine(s.clashes .. " sign-up(s) clashed with their team raid", S:Color("SUB")) end
+                if s.clashes > 0 then tt:AddLine(s.clashes .. " sign-up(s) clashed with their team raid", S:RGB("SUB")) end
                 if (s.lateCancels or 0) > 0 then
-                    tt:AddLine(s.lateCancels .. " late cancel(s): Absent less than 2 hours before the start", S:Color("WARN"))
+                    tt:AddLine(s.lateCancels .. " late cancel(s): Absent less than 2 hours before the start", S:RGB("WARN"))
                 end
-                tt:AddLine("Click for their raids.", S:Color("DIM"))
+                tt:AddLine("Click for their raids.", S:RGB("DIM"))
             end)
             row:SetScript("OnClick", function(self)
                 if self.cdlS and v.onPick then v.onPick(self.cdlS.key) end
@@ -805,7 +798,7 @@ function AUI:CreateOverview(parent, width)
         local s = d.s
         row.cdlS = s
         row:SetStripe(d.i)
-        UI():ClassIcon(row.icon, classFor(s.key, s.cls))
+        UI():ClassIcon(row.icon, UI():ClassOf(s.key, s.cls))
         row.name:SetText(name(s.key, s.cls))
         local room = (v.noLineups and X.sq or X.lineups) - 22 - 10
         row.name:SetWidth(0)              -- (a reused row: measure the name unbounded, not at the last name's width)
@@ -984,7 +977,7 @@ function AUI:CreatePlayerPage(parent, width, opts)
         UI():AttachTooltip(col, function(self, tt)
             if not self.night then return false end
             tt:AddLine(nightTitle(self.night))
-            if self.r then AUI:ResultTooltip(tt, self.r) else tt:AddLine("Not expected", S:Color("SUB")) end
+            if self.r then AUI:ResultTooltip(tt, self.r) else tt:AddLine("Not expected", S:RGB("SUB")) end
         end, nil, { anchor = "ANCHOR_TOP" })
         ch.cols[i] = col
     end
@@ -1026,7 +1019,7 @@ function AUI:CreatePlayerPage(parent, width, opts)
             UI():AttachTooltip(row, function(self, tt)
                 if not self.cdlR then return false end
                 AUI:ResultTooltip(tt, self.cdlR)
-                if Att():CanReview() then tt:AddLine("Right-click to decide or pick from chat.", S:Color("DIM")) end
+                if Att():CanReview() then tt:AddLine("Right-click to decide or pick from chat.", S:RGB("DIM")) end
             end)
             row:SetScript("OnClick", function(self, button)
                 if button == "RightButton" and self.cdlR and Att():CanReview() then AUI:ResultMenu(self, self.cdlR) end
@@ -1076,7 +1069,7 @@ function AUI:CreatePlayerPage(parent, width, opts)
     function v:SetPlayer(key, remote)
         self.key = key
         local A = Att()
-        local cls = classFor(key)
+        local cls = UI():ClassOf(key)
         b:SetIcon(CLASS_TILE)
         UI():ClassIcon(b.icon.tex, cls)
         b:SetTitle(name(key, cls))
@@ -1748,7 +1741,7 @@ function AUI:CreateReviews(parent, width)
             return
         end
         local r = d.r
-        local cls = classFor(r.key, r.cls)
+        local cls = UI():ClassOf(r.key, r.cls)
         if d.kind == "handled" then
             UI():ClassIcon(row.h.icon, cls)
             local word = AUI:ResultWord(r)
@@ -2106,7 +2099,7 @@ function AUI:LeaderRender()
     if left then
         local n = LiveNight()
         local r = n and A:Result(n, key)
-        UI():ClassIcon(f.icon, classFor(key))
+        UI():ClassIcon(f.icon, UI():ClassOf(key))
         local lastOut = r and r.last or Now()
         f.whoText = name(key) .. " left the raid" .. dimText("  " .. clock(lastOut))
         self:LeaderCount()

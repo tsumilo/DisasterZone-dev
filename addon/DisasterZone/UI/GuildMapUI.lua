@@ -226,17 +226,17 @@ local function PinTooltip(pin)
     if d.kind == "crowd" or d.kind == "dungeon" then
         GameTooltip:AddLine(d.title or "")
         for _, key in ipairs(d.keys) do GameTooltip:AddLine(ColoredName(key)) end
-        if d.kind == "crowd" and d.zoom then GameTooltip:AddLine("Click to zoom in", S:Color("SUB")) end
+        if d.kind == "crowd" and d.zoom then GameTooltip:AddLine("Click to zoom in", S:RGB("SUB")) end
     else
         local e = d.e
         GameTooltip:AddLine(ns.Util.IsMe(d.key) and S:Wrap("GOLD", "You") or ColoredName(d.key))
-        GameTooltip:AddLine(WhoLine(d.key), S:Color("SUB"))
+        GameTooltip:AddLine(WhoLine(d.key), S:RGB("SUB"))
         GameTooltip:AddLine(PlaceText(e), 1, 1, 1)
         if e.a then GameTooltip:AddLine("Away", 1, 0.8, 0.1) end
         if not e.me then
-            GameTooltip:AddLine("Updated " .. Ago(e.at), S:Color("SUB"))
-            GameTooltip:AddLine("Click for their profile", S:Color("SUB"))
-            GameTooltip:AddLine("Right-click to whisper or invite", S:Color("SUB"))
+            GameTooltip:AddLine("Updated " .. Ago(e.at), S:RGB("SUB"))
+            GameTooltip:AddLine("Click for their profile", S:RGB("SUB"))
+            GameTooltip:AddLine("Right-click to whisper or invite", S:RGB("SUB"))
         end
     end
     GameTooltip:Show()

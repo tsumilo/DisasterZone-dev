@@ -61,9 +61,7 @@ local cache              -- GetEntries' index, rebuilt after any change of its s
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function Now()
-    return (GetServerTime and GetServerTime()) or time()
-end
+local Now = Util.Now          -- (the server clock: ns.Util.Now)
 
 local function IsInt(n, lo, hi)
     return type(n) == "number" and n == floor(n) and n >= lo and n <= hi
@@ -98,10 +96,7 @@ local function GuildReady()
     return (G and G.IsReady and G:IsReady()) and true or false
 end
 
-local function DemoOn()
-    local Demo = ns.Demo
-    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
-end
+local DemoOn = Util.DemoOn
 
 -- A player outside my guild (the demo guild counts as mine), never me. False while the roster is not known.
 local function IsOutsider(key)

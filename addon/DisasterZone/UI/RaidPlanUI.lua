@@ -32,14 +32,6 @@ local function UI() return ns.UI end
 
 local Now = ns.Util.Now
 
--- A Style colour token at its own alpha, as r, g, b, a (for SetColorTexture / SetEdgeColor / SetVertexColor), or as a
--- table ({ tokenA(...) }) for UI:Gradient.
--- TODO(refactor): move into ns.Style (S:Alpha(name, a) -> r, g, b, a).
-local function tokenA(name, a)
-    local r, g, b = S:Color(name)
-    return r, g, b, a
-end
-
 -- A player's class: their sign-up's, else the guild roster's.
 local function signupClass(key, s)
     if s and s.c then return s.c end
@@ -770,16 +762,9 @@ function UP.fillShare(m, have, of)
 end
 
 -- A banner whose right side holds the page's own blocks: its title keeps clear of them (rightW(banner) px from the
--- right edge), a size smaller before it is cut.
--- TODO(refactor): move into UI:CreatePageBanner (opts.rightW: room kept free at the right of the text; a title that
--- steps down a size before it is cut)
+-- right edge), a size smaller before it is cut (Banner:SetTitleFit).
 function UP.reserveRight(b, rightW)
-    local layout = b.Layout
-    function b:Layout()
-        layout(self)
-        local room = (self:GetWidth() > 1 and self:GetWidth() or UP.W) - (self.textX or 14) - rightW(self)
-        if self.titleText and self.title:IsShown() then UP.fitTitle(self.title, self.titleText, room) end
-    end
+    b:SetTitleFit({ "hero", "page" }, rightW)
 end
 
 -- The board's hero: the next raid as the page banner (UI:CreatePageBanner): its loading screen (a raid of two
@@ -796,12 +781,6 @@ function UP.makeHero(c)
     c.isHero = true
     c.more = c.tools[1]
     c.t1, c.t2, c.kick = c.title, c.sub, c.kicker
-    -- TODO(refactor): move into UI:CreatePageBanner (opts.art2: a second picture beside the first, for a raid of two
-    -- instances)
-    c.art2 = c:CreateTexture(nil, "BACKGROUND", nil, 2)
-    c.art2:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 0, 0)
-    c.art2:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
-    c.art2:Hide()
     c.meter = UP.newMeter(c, 130, 110)
     c.meter:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 14, 17)
     c:EnableMouse(true)
@@ -847,25 +826,13 @@ function UP.fillCard(c, v, width, preview)
         local two = #list > 1
         local aw = two and floor((width - 2) / 2) or (width - 2)
         if two then
-            c:SetArt({ ns.ItemDB:RaidArt(list[1], aw, CARD_H - 2, 0.5) }, dim)
-            local f2, l2, r2, t2, b2 = ns.ItemDB:RaidArt(list[2], width - 2 - aw, CARD_H - 2, 0.5)
-            c.art2:SetTexture(f2)
-            c.art2:SetTexCoord(l2, r2, t2, b2)
-            c.art2:SetDesaturated(dim)
+            c:SetArt({ ns.ItemDB:RaidArt(list[1], aw, CARD_H - 2, 0.5) }, dim,
+                { ns.ItemDB:RaidArt(list[2], width - 2 - aw, CARD_H - 2, 0.5) })
         else
             c:SetArt(list[1] or v.i, dim)
         end
-        c.art:ClearAllPoints()
-        c.art:SetPoint("TOPLEFT", c, "TOPLEFT", 1, -1)
-        if two then
-            c.art:SetPoint("BOTTOMLEFT", c, "BOTTOMLEFT", 1, 1)
-            c.art:SetWidth(aw)
-        else
-            c.art:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
-        end
-        c.art2:SetShown(two)
         c.art:SetAlpha(dim and 0.6 or 1)
-        c.art2:SetAlpha(dim and 0.6 or 1)
+        if c.art2 then c.art2:SetAlpha(dim and 0.6 or 1) end
         c:SetKicker(UP.kicker(v))
         c:SetTitle(RP():GetRaidName(v))
         c:SetSub(UP.whereLine(v, c.sub, width - 40))
@@ -1036,7 +1003,7 @@ function UP.fillCell(b, cell, organizer)
                       subShort = short, auto = spec == nil, dim = cell.out, edge = isMe(cell.key) and "me" or nil })
     local right = -6
     if cell.request then
-        UI():SetEdgeColor(b, tokenA("GOLD", 0.55))
+        UI():SetEdgeColor(b, S:Alpha("GOLD", 0.55))
         if organizer then
             b.yes:Show()
             b.no:Show()
@@ -1159,7 +1126,7 @@ function UP.newBand(parent, role)
     col.wash = col:CreateTexture(nil, "BACKGROUND")
     col.wash:SetPoint("TOPLEFT", 0, 6)
     col.wash:SetPoint("BOTTOMRIGHT", 0, -6)
-    UI():Gradient(col.wash, "HORIZONTAL", { tokenA("GOLD", 0.07) }, { tokenA("GOLD", 0) })
+    UI():Gradient(col.wash, "HORIZONTAL", { S:Alpha("GOLD", 0.07) }, { S:Alpha("GOLD", 0) })
     col.wash:Hide()
     col.none = UI():Text(col, "body", "DIM")
     col.none:SetPoint("LEFT", col, "TOPLEFT", UP.GUT + 2, -15)
@@ -2034,12 +2001,8 @@ function PlanUI:CreateUpcoming(parent)
     d.moreBtn = hero.tools[1]
     d.tabSignups, d.tabGroups, d.tabAssign = L.tabs:GetTab("signups"), L.tabs:GetTab("groups"), L.tabs:GetTab("assign")
     -- (the answer side: dark under my answer, as the left is under the facts)
-    -- TODO(refactor): move into UI:CreatePageBanner (opts.shadeRight: the shade on the right too, under page content)
-    hero.fadeR = hero:CreateTexture(nil, "BORDER", nil, 2)
-    hero.fadeR:SetPoint("TOPRIGHT", -1, -1)
-    hero.fadeR:SetPoint("BOTTOMRIGHT", -1, 1)
-    hero.fadeR:SetWidth(UP.ANS_W + 40)
-    UI():Gradient(hero.fadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0 }, { 0.055, 0.055, 0.067, 0.8 })
+    hero:SetShadeRight(UP.ANS_W + 40)
+    hero.fadeR = hero.shadeR
     -- the facts: the banner's kicker (when, the countdown in gold), title (the name) and sub line (where / by / for)
     -- in the room left of my answer, then the raid's note
     d.kick, d.title, d.sub2 = hero.kicker, hero.title, hero.sub
@@ -2193,22 +2156,6 @@ local function layoutPage(d)
     d.assign:ClearAllPoints()
     d.assign:SetPoint("TOPLEFT", L.toolbar, "TOPLEFT", 0, 0)
     d.assign:SetPoint("BOTTOMRIGHT", L.body, "BOTTOMRIGHT", 0, 0)
-end
-
--- The banner's title in the room left of the answers: the banner's size, else a size smaller, else cut with "...".
-function UP.fitTitle(fs, text, room)
-    for _, size in ipairs({ S.FONT.hero, S.FONT.page }) do
-        UI():SetTextStyle(fs, size, { fs:GetTextColor() })
-        fs:SetWidth(0)
-        fs:SetText(text)
-        local w = UI():TextWidth(fs)
-        if w <= room then
-            fs:SetWidth(floor(w + 1))
-            return
-        end
-    end
-    fs:SetWidth(max(20, room))
-    UI():FitText(fs, text, room)
 end
 
 -- My answer on the banner: the answers I can give (mine lit), my spec / character / note, or why I can't answer.
@@ -2856,7 +2803,7 @@ function TV.raidsTooltip(self, tip)
     if not raids or #raids == 0 then return false end
     tip:AddLine("Invited to")
     for _, v in ipairs(raids) do
-        tip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, tokenA("SUB"))
+        tip:AddDoubleLine(RP():GetRaidName(v), shortDay(v.t) .. "  " .. fmtTime(v.t), 1, 1, 1, S:Alpha("SUB"))
     end
     tip:AddLine(" ")
     tip:AddLine("Click a raid to open it.", 0.6, 0.6, 0.6)
@@ -4217,7 +4164,7 @@ function TV.createWaitlist(d)
     d.wlBtn = b
 
     -- the dropdown (UP.popover): who waits, the raid nights, Join
-    local p = UP.popover(TV.WL.W, 120, "DIALOG")
+    local p = UI():CreatePopover(TV.WL.W, 120)
     p.head = UI():CreateSectionHeader(p, "Waitlist", { style = "caps" })
     p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -12)
     p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -12)
@@ -4263,48 +4210,6 @@ function TV.paintWaitlistIcon(dr, organizer)
     if TV.wlSeen[key] and n > TV.wlSeen[key] then TV.glowBadge() end
     TV.wlSeen[key] = n
     return true
-end
-
--- A dropdown panel of the Teams view (the waitlist, the raid nights editor, the comp's steppers): a top-level frame
--- (it takes the window's scale when it opens) on the dropdowns' surface with a soft shadow; a click anywhere else
--- closes it (passThrough: that click still reaches what it was on: the comp's steppers, opened from a band's +).
--- TODO(refactor): move into UI/Comp/Overlays.lua (UI:CreatePopover: a panel that drops from its owner and closes on a
--- click elsewhere; the Teams view's three dropdowns are its first users)
-function UP.popover(w, h, strata, passThrough)
-    local p = CreateFrame("Frame", nil, UIParent)
-    p:SetFrameStrata(strata or "DIALOG")
-    p:SetToplevel(true)
-    p:SetClampedToScreen(true)
-    p:EnableMouse(true)
-    p:SetSize(w, h)
-    UI():SoftShadow(p, 12, 0.45, -4, 2)
-    p.bg = UI():Fill(p, "DROP_BG")
-    UI():AddEdges(p, "BORDER")
-    UI():SetEdgeColor(p, S:Color("DROP_EDGE"))
-    p:Hide()
-    if passThrough then
-        p:SetScript("OnShow", function(self)
-            if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("GLOBAL_MOUSE_DOWN") then
-                self:RegisterEvent("GLOBAL_MOUSE_DOWN")
-            end
-        end)
-        p:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
-        p:SetScript("OnEvent", function(self)
-            if not self:IsMouseOver() and not (self.owner and self.owner:IsMouseOver()) then self:Hide() end
-        end)
-        return p
-    end
-    local catcher = CreateFrame("Button", nil, UIParent)
-    catcher:SetAllPoints(UIParent)
-    catcher:SetFrameStrata(strata or "DIALOG")
-    catcher:SetFrameLevel(max(0, p:GetFrameLevel() - 1))
-    catcher:RegisterForClicks("AnyUp")
-    catcher:SetScript("OnClick", function() p:Hide() end)
-    catcher:Hide()
-    p.catcher = catcher
-    p:SetScript("OnShow", function() catcher:Show() end)
-    p:SetScript("OnHide", function() catcher:Hide() end)
-    return p
 end
 
 function TV.notOnRoster(dr)
@@ -4575,8 +4480,7 @@ end
 function TV.specIconText(c, sp, size)
     local icon = ns.RaidComp:SpecIcon(c, sp)
     if not icon then return "" end
-    size = size or 14
-    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(icon, size, size)
+    return UI():IconText(icon, size or 14, true)
 end
 
 -- The draft's comp, or nil when it has no slot.
@@ -4686,7 +4590,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], tokenA("GOLD"))
+            GameTooltip:AddLine(grp[1], S:Alpha("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = {}
@@ -4695,7 +4599,7 @@ function TV.canFillTooltip(owner, c, sp, anchor)
                 if e.team then right[#right + 1] = e.team end
                 if e.n then right[#right + 1] = "#" .. e.n .. " in line" end
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), tconcat(right, " · "),
-                    1, 1, 1, tokenA("SUB"))
+                    1, 1, 1, S:Alpha("SUB"))
             end
             if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
         end
@@ -4769,7 +4673,7 @@ function TV.fillMeter(f, m)
                         s.o:SetColorTexture(r, g, b, 1)
                         s.i:Hide()
                     else
-                        s.o:SetColorTexture(tokenA("GOLD", 0.9))
+                        s.o:SetColorTexture(S:Alpha("GOLD", 0.9))
                         s.i:Show()
                     end
                     s.o:Show()
@@ -4796,7 +4700,7 @@ function TV.meterTooltip(self, GameTooltip)
             local f = 0
             for _, sl in ipairs(col) do if sl.member then f = f + 1 end end
             local full = f == #col
-            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, S:Color(full and "OK" or "TEXT"))
+            GameTooltip:AddDoubleLine(TV.ROLE_LABEL[role], f .. "/" .. #col, 1, 1, 1, S:RGB(full and "OK" or "TEXT"))
         end
     end
     GameTooltip:AddLine(("%d of %d slots filled"):format(m.filled, m.total), 0.6, 0.6, 0.6)
@@ -4916,10 +4820,10 @@ function TV.layoutLineupTabs(dr, organizer, m)
         c.i, c.chosen, c.mine, c.lineupName = i, i == dr.li, f.mine and true or false, TV.lineupName(dr, i)
         -- the tooltip: its size, who is in its groups, everything still open
         local tip = { { TV.lineupName(dr, i) }, { l.sz .. "-player lineup · " .. f.inGroups .. " in its groups", 0.8, 0.8, 0.8 } }
-        if f.mine then tip[#tip + 1] = { "You're in its groups.", tokenA("GOLD") } end
-        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", tokenA("WARN") } end
+        if f.mine then tip[#tip + 1] = { "You're in its groups.", S:Alpha("GOLD") } end
+        if l.id == nil and dr.id ~= nil then tip[#tip + 1] = { "New: saved with the team.", S:Alpha("WARN") } end
         if f.open then
-            tip[#tip + 1] = { "Still open:", tokenA("GOLD") }
+            tip[#tip + 1] = { "Still open:", S:Alpha("GOLD") }
             for _, o in ipairs(f.open) do
                 tip[#tip + 1] = { TV.specIconText(o.c, o.sp, 14) .. " " .. o.name .. (o.n > 1 and (" ×" .. o.n) or "") }
             end
@@ -5089,13 +4993,13 @@ function TV.paintWeekStrip(f, list)
     for i, c in ipairs(f.cells) do
         local x = by[i]
         if x and not x.o then
-            c.bg:SetColorTexture(tokenA("GOLD", 0.22))
-            UI():SetEdgeColor(c, tokenA("GOLD", 0.9))
+            c.bg:SetColorTexture(S:Alpha("GOLD", 0.22))
+            UI():SetEdgeColor(c, S:Alpha("GOLD", 0.9))
             c.fs:SetTextColor(S:Color("GOLD"))
         elseif x then
-            c.bg:SetColorTexture(tokenA("GOLD", 0.03))
-            UI():SetEdgeColor(c, tokenA("GOLD", 0.42))
-            c.fs:SetTextColor(tokenA("GOLD", 0.75))
+            c.bg:SetColorTexture(S:Alpha("GOLD", 0.03))
+            UI():SetEdgeColor(c, S:Alpha("GOLD", 0.42))
+            c.fs:SetTextColor(S:Alpha("GOLD", 0.75))
         else
             c.bg:SetColorTexture(0, 0, 0, 0.32)
             UI():SetEdgeColor(c, S:Color("HAIRLINE"))
@@ -5199,33 +5103,9 @@ end
 -- Optional); the note; Done. It changes the draft: Save / Undo on the tool row.
 ---------------------------------------------------------------------------
 
--- A flat cell (the raid nights editor's, the New raid sheet's days and time): a fill and 1px edges; c:Paint(picked,
--- dim) gives it the picked look (a gold edge, a warm fill) or a fainter edge.
--- TODO(refactor): move into UI/Comp/Controls.lua (UI:CreateCell: a flat pickable cell, the day / time tiles of the New
--- raid sheet and the raid nights editor)
-PlanUI.CELL = { BG = { 0.08, 0.08, 0.09, 0.95 }, EDGE = { 0.20, 0.20, 0.23, 1 }, PICKED_BG = { 0.17, 0.14, 0.05, 0.95 } }
-
-function PlanUI:FlatCell(f)
-    local C = PlanUI.CELL
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetAllPoints()
-    UI():AddEdges(f, "BORDER")
-    function f:Paint(picked, dim)
-        local bg = picked and C.PICKED_BG or C.BG
-        self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
-        if picked then UI():SetEdgeColor(self, S:Color("GOLD_DEEP"))
-        else UI():SetEdgeColor(self, C.EDGE[1], C.EDGE[2], C.EDGE[3], dim and 0.6 or 1) end
-    end
-    f:Paint(false)
-    local hl = f:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(S:Color("HOVER"))
-    return f
-end
-
 -- A time stepper: the arrows (and the mouse wheel) move it a quarter of an hour; onStep(dir).
 function TV.newStepper(parent, w, onStep)
-    local s = PlanUI:FlatCell(CreateFrame("Frame", nil, parent))
+    local s = UI():CreateCell(parent)                -- (a flat cell: UI:CreateCell)
     s:SetSize(w, 26)
     s:EnableMouseWheel(true)
     s:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
@@ -5241,7 +5121,7 @@ end
 
 function TV.createNightsPanel()
     local N = TV.N
-    local p = UP.popover(N.PANEL_W, 200, "DIALOG")
+    local p = UI():CreatePopover(N.PANEL_W, 200)
     p.head = UI():CreateSectionHeader(p, "Raid nights", { style = "caps", right = "Times in your clock", rule = false })
     p.head:SetPoint("TOPLEFT", p, "TOPLEFT", 14, -12)
     p.head:SetPoint("TOPRIGHT", p, "TOPRIGHT", -14, -12)
@@ -5251,7 +5131,7 @@ function TV.createNightsPanel()
     local tw = floor((inner - 6 * 3) / 7)
     p.tiles = {}
     for i = 1, 7 do
-        local t = PlanUI:FlatCell(CreateFrame("Button", nil, p))
+        local t = UI():CreateCell(p, { button = true })
         t:SetSize(tw, N.TILE_H)
         t:SetPoint("TOPLEFT", p, "TOPLEFT", 14 + (i - 1) * (tw + 3), -36)
         t.fs = UI():Text(t, "emph", "TEXT", { justify = "CENTER" })
@@ -5741,7 +5621,7 @@ function TV.newSlotRow(col)
     ns.RaidGroupsUI:DecoratePlate(b)
     b.fs = b.pName
     -- (my own slot, for a member: kept for the shared checks; the plate's gold rim shows it)
-    b.me = UI():Fill(b, { tokenA("GOLD", 0) })
+    b.me = UI():Fill(b, { S:Alpha("GOLD", 0) })
     UI():DecorateRow(b)
     b.hl = b.dzHover
     UI():AttachTooltip(b, TV.slotTooltip)
@@ -5861,7 +5741,7 @@ function TV.benchMenu(chip)
 end
 
 function TV.createSteps(d)
-    local p = UP.popover(252, 100, "FULLSCREEN_DIALOG", true)
+    local p = UI():CreatePopover(252, 100, { strata = "FULLSCREEN_DIALOG", close = "through" })
     p.role = p:CreateTexture(nil, "ARTWORK")
     p.role:SetSize(14, 14)
     p.role:SetTexture(UI().ROLE_TEX)
@@ -6376,7 +6256,7 @@ function PlanUI:OpenSlotTooltip(row)
     if not cell then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(TV.specIconText(cell.c, cell.sp, 16) .. " " .. tostring(cell.name or "?"), 1, 1, 1)
-    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", tokenA("SUB"))
+    GameTooltip:AddLine("Open in " .. tostring(cell.team or "the team") .. "'s comp", S:Alpha("SUB"))
     local cf = RP():RaidCanFill(cell.occ, cell.c, cell.sp)
     local any = false
     for _, grp in ipairs({ { "Not answered yet", cf.unanswered, "on the team" }, { "In the guild", cf.guild } }) do
@@ -6384,12 +6264,12 @@ function PlanUI:OpenSlotTooltip(row)
         if #list > 0 then
             any = true
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine(grp[1], tokenA("GOLD"))
+            GameTooltip:AddLine(grp[1], S:Alpha("GOLD"))
             for i = 1, min(3, #list) do
                 local e = list[i]
                 local right = grp[3] or (e.st == "B" and "on the bench") or ""
                 GameTooltip:AddDoubleLine(TV.classIconText(e.c, 14) .. " " .. colored(e.key, e.c), right,
-                    1, 1, 1, tokenA("SUB"))
+                    1, 1, 1, S:Alpha("SUB"))
             end
             if #list > 3 then GameTooltip:AddLine(("+%d more"):format(#list - 3), 0.5, 0.5, 0.5) end
         end

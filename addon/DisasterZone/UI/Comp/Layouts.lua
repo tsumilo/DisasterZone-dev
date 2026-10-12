@@ -357,6 +357,8 @@ function Tabs:LayoutTabs()
             prev = b
         end
     end
+    -- (a separator no longer used, e.g. before a group of small tabs now hidden, goes)
+    for i = sepN + 1, #self.tabSeps do self.tabSeps[i]:Hide() end
     self.lastTab = prev
     -- (rawget: the hook is copied onto the frame by NewToolbar; plain tab rows have none)
     local onLaidOut = rawget(self, "OnTabsLaidOut")
@@ -409,7 +411,6 @@ function Toolbar:SetPrimary(o)
         return nil
     end
     local text = o.text or ""
-    if o.icon and UI.AtlasIconText then text = UI:AtlasIconText(o.icon, 13) .. "  " .. text end
     if not b then
         b = UI:CreateSleekButton(self, text, 90, S.BTN_H, function(btn, ...)
             if self.onPrimary then self.onPrimary(btn, ...) end
@@ -420,6 +421,26 @@ function Toolbar:SetPrimary(o)
         if b.SetKind then b:SetKind(o.kind or "primary") end
     end
     b:SetHeight(S.BTN_H)
+    -- the icon: an atlas glyph beside the words (the button's text stays o.text: the tour finds buttons by it)
+    local fs = b:GetFontString()
+    if o.icon then
+        if not b.glyph then b.glyph = b:CreateTexture(nil, "OVERLAY") end
+        b.glyph:SetSize(12, 12)
+        UI:SetGlyph(b.glyph, o.icon, o.iconColor or { 0.92, 0.92, 0.92, 0.9 })
+        b.glyph:Show()
+        if fs then
+            fs:ClearAllPoints()
+            fs:SetPoint("CENTER", 8, 0)
+            b.glyph:ClearAllPoints()
+            b.glyph:SetPoint("RIGHT", fs, "LEFT", -6, 0)
+        end
+    else
+        if b.glyph then b.glyph:Hide() end
+        if fs then
+            fs:ClearAllPoints()
+            fs:SetPoint("CENTER", 0, 0)
+        end
+    end
     b:SetWidth(o.width or max(90, floor(UI:TextWidth(o.text or "", "body") + (o.icon and 52 or 32) + 0.5)))
     self.onPrimary = o.onClick
     b:SetEnabled(o.enabled ~= false)
@@ -448,6 +469,15 @@ function Toolbar:SetMore(menuFn, tip)
 end
 
 function H.FilterShown(f) if f.dzLayoutBar then f.dzLayoutBar:LayoutRight() end end
+
+-- A separator for the filters: a 1 px hairline that groups the controls around it (put it in SetFilters' list; it
+-- shows and hides like any filter).
+function Toolbar:NewSeparator()
+    local f = CreateFrame("Frame", nil, self)
+    f:SetSize(1, 18)
+    UI:Rule(f, { vertical = true, alpha = 0.12 })
+    return f
+end
 
 function Toolbar:SetFilters(frames)
     for _, f in ipairs(self.filters) do
@@ -625,7 +655,7 @@ function Place.listdetail(L, shift)
         H.Top(L.banner, L.detail, 0, 0, 0)
         y = H.Height(L.banner)
     end
-    if L.tabs then
+    if L.tabs and L.tabs:IsShown() then          -- (a hidden strip gives its room back: Layout:SetTabsShown)
         H.Top(L.tabs, L.detail, 0, y, 0)
         y = y + G.TABS_H
     end
@@ -729,6 +759,16 @@ function Layout:Layout()
         n:SetPoint("TOPLEFT", self, "TOPLEFT", self.noticeX, -self.noticeY)
         n:SetPoint("TOPRIGHT", self, "TOPRIGHT", -self.pad, -self.noticeY)
     end
+end
+
+-- Shows or hides the detail's tabs strip (listdetail: a profile without tabs, an add form); a hidden strip gives its
+-- room back to the body.
+function Layout:SetTabsShown(on)
+    if not self.tabs then return end
+    on = on and true or false
+    if self.tabs:IsShown() == on then return end
+    self.tabs:SetShown(on)
+    self:Layout()
 end
 
 -- A read-only / locked / loading / info strip above the content (it only SHOWS what the page decided).

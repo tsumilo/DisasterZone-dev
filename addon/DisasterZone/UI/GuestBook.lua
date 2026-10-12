@@ -774,17 +774,17 @@ function H.HistTip(self, tt)
     end
     local z = d.zone
     tt:AddLine(z.title)
-    tt:AddLine(date("%A %d %B, %H:%M", z.at), S:Color("SUB"))
+    tt:AddLine(date("%A %d %B, %H:%M", z.at), S:RGB("SUB"))
     if z.next then
         tt:AddLine("A guest seat on this raid. Click to open it.", S.C.YOU[1], S.C.YOU[2], S.C.YOU[3], true)
     elseif z.noShow then
-        tt:AddLine("Signed up and didn't come.", S:Color("BAD"))
+        tt:AddLine("Signed up and didn't come.", S:RGB("BAD"))
     elseif z.bench then
-        tt:AddLine("On the bench.", S:Color("SUB"))
+        tt:AddLine("On the bench.", S:RGB("SUB"))
     elseif (z.bosses or 0) > 0 then
         tt:AddLine(("There for %d of the %d boss kills."):format(z.kills or 0, z.bosses), 1, 1, 1)
     end
-    if not z.next and seesRaidLog() then tt:AddLine("Click to open it in the Raid log.", S:Color("DIM")) end
+    if not z.next and seesRaidLog() then tt:AddLine("Click to open it in the Raid log.", S:RGB("DIM")) end
 end
 
 function H.HistClick(self)
@@ -841,14 +841,9 @@ local function createHistory(body)
     return h
 end
 
--- (a fresh profile has no tabs: the strip gives its room back. TODO(refactor): move into UI:CreateLayout (a hidden
--- tabs strip that gives its room back))
+-- (a fresh profile has no tabs: the strip gives its room back)
 function H.SetTabsShown(on)
-    local L = view.layout
-    if (L.tabs ~= nil) == on then return end
-    L.tabs = on and view.tabStrip or nil
-    view.tabStrip:SetShown(on)
-    L:Layout()
+    view.layout:SetTabsShown(on)
 end
 
 -- Their raids (the next one first) or the items they received (the loot council), the open tab's list.
@@ -1337,7 +1332,7 @@ function GuestUI:AddUnitLines(tt, key)
     local outsider = UI() and UI().IsGuest and UI():IsGuest(key)
     local e = R.GetBlacklistEntry and R:GetBlacklistEntry(key)
     if e and (outsider or manager) then
-        tt:AddLine("DisasterZone: on the raid blacklist", S:Color("BAD"))
+        tt:AddLine("DisasterZone: on the raid blacklist", S:RGB("BAD"))
         if manager then
             if e.reason then tt:AddLine(e.reason, 1, 0.65, 0.65, true) end
             if e.by then

@@ -569,7 +569,7 @@ end
 
 -- A day of the date strip: the weekday ("TODAY") over the day; a dot when a raid is planned that day.
 function H.newDay(parent)
-    local c = PlanUI:FlatCell(CreateFrame("Button", nil, parent))
+    local c = UI():CreateCell(parent, { button = true })
     c:SetSize(DAY_W, DAY_H)
     c.wd = UI():Text(c, "caps", "TEXT")
     c.wd:SetJustifyH("CENTER")
@@ -813,7 +813,7 @@ function H.create()
     H.tip(dp, { "Calendar", ("A day further out (up to %d days ahead); a dot marks the days with a raid."):format(
         EDITOR_DAYS) })
     -- the time: a stepper, 15 minutes a step (the mouse wheel too)
-    local tm = PlanUI:FlatCell(CreateFrame("Frame", nil, sh.whenRow))
+    local tm = UI():CreateCell(sh.whenRow)
     tm:SetSize(104, DAY_H)
     tm:SetPoint("LEFT", dp, "RIGHT", 12, 0)
     tm:EnableMouseWheel(true)

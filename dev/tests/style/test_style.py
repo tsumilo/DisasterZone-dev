@@ -175,7 +175,7 @@ def fit_text_cuts_with_dots_and_text_width_measures_one_line():
         out.utf = { UI:FitText(fs, "\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132\\195\\132", 42), fs:GetText() }
         out.w1 = UI:TextWidth("abcd")
         out.w2 = UI:TextWidth(fs)
-        out.w3 = ns.EventUI:TextWidth(fs)
+        out.w3 = ns.UI:TextWidth(fs)
         return out""")
     assert out["short"] == [False, "Short"], out
     assert out["long"] == [True, "A rathe..."], out           # 7 characters + "..." = 60 px
@@ -331,16 +331,17 @@ def save_and_restore_position_round_trip_through_settings_windows():
 
 
 @case
-def the_old_widgets_are_gone_and_the_kept_aliases_still_work():
+def the_old_widgets_and_aliases_are_gone_and_the_real_ones_work():
     w, c = solo("Rai", guild_rank=0, tick=2)
     out = c.eval_py("""
         local UI = ns.UI
         local f = CreateFrame("Frame", nil, UIParent)
-        local b = UI:CreateButton(f, "Go", nil, nil, function() end)
-        local dd = UI:CreateDropdown(f, 120, function() return {} end, function() return nil end, function() end)
-        local mb = UI:CreateMenuButton(f, "More", 80, function() end)
+        local b = UI:CreateSleekButton(f, "Go", nil, nil, function() end)
+        local dd = UI:CreateSleekDropdown(f, 120, function() return {} end, function() return nil end, function() end)
+        local mb = UI:CreateSleekMenuButton(f, "More", 80, function() end)
         local lbl = UI:CreateLabel(f, "label")
-        return { flat = UI.CreateFlatButton == nil,
+        return { flat = UI.CreateFlatButton == nil and UI.CreateButton == nil and UI.CreateDropdown == nil
+                     and UI.CreateMenuButton == nil and b:GetHeight() == 22,
                  kept = b ~= nil and dd ~= nil and mb ~= nil and lbl:GetText() == "label",
                  cam = type(UI.FitModelCamera) == "function" }""")
     assert out == {"flat": True, "kept": True, "cam": True}, out

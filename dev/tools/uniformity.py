@@ -13,9 +13,9 @@ Four counts per addon file (comments and string contents are ignored):
             (raid information lives in Data/Raids.lua + Core/ItemDB.lua)
 
 The counts are compared with dev/tools/uniformity_baseline.json (per file, per kind): only a count that went UP is
-reported, so existing code does not warn and the number can only fall. check.py prints those as WARN lines (ERROR with
---uniformity-strict); "check.py --uniformity" prints the table; "check.py --uniformity-update-baseline" rewrites the
-baseline after a cleanup.
+reported, so the number can only fall. Since the 1.4 cleanup check.py reports those as ERRORs (exit code 1; WARN lines
+with --uniformity-warn); "check.py --uniformity" prints the table; "check.py --uniformity-update-baseline" rewrites the
+baseline after a cleanup. ALLOW below lists the justified exceptions: a (file, kind) there is never reported.
 """
 import bisect
 import json
@@ -41,6 +41,33 @@ HOMES = {
     "raid": ("Data/Raids.lua", "Core/ItemDB.lua"),
     "helper": (),
 }
+
+# Justified exceptions: (file, kind) -> why the count there is right. Their counts are never reported (nor written to
+# the baseline). Add an entry only with its reason, and only for code that cannot sensibly use ns.Style / the toolkit.
+ALLOW = {
+    ("Core/Boot.lua", "colour"): "the boot loader's own window, drawn before UI/Style.lua is loaded",
+    ("Core/Util.lua", "helper"): "the home of Util.Now / Util.ShortName / Util.DemoOn",
+    ("Core/GuildMap.lua", "raid"): "instance entrance coordinates (dungeons and raids alike): map data, not raid meta",
+    ("Games/HubUI.lua", "raid"): "the hub posters' own crop focus per raid (art direction, not raid data)",
+    ("Games/Azeromon/UI.lua", "font"): "the game's pixel font, sized on its pixel grid (not the text scale)",
+    ("Games/Bingo/UI.lua", "font"): "the card's B-I-N-G-O header letters (15 px: the game's own look)",
+    ("Games/Bingo/Detect.lua", "helper"): "ShortName: a type check + any realm stripped (Util.ShortName(name, true))",
+    ("Games/Chess/Chess.lua", "helper"): "Now = the local clock time() (the game's move timers)",
+    # Now = the session clock GetTime() (or a game's test clock), not the server time of Util.Now
+    ("Games/Azeromon/Bounties.lua", "helper"): "Now: the game's test clock, else the server time",
+    ("Games/Azeromon/Crafting.lua", "helper"): "Now: the game's test clock, else the server time",
+    ("Games/Azeromon/Game.lua", "helper"): "Now: (time and time()) or 0 for the game's offline test runs",
+    ("Games/Azeromon/GuildBoard.lua", "helper"): "Now = GetTime() (the session clock)",
+    ("Games/Azeromon/Net.lua", "helper"): "Now = GetTime() (the session clock)",
+    ("Games/Azeromon/PvP.lua", "helper"): "Now = GetTime() (the session clock)",
+    ("Games/Azeromon/Trade.lua", "helper"): "Now = GetTime() (the session clock)",
+    ("Games/Azeromon/Watch.lua", "helper"): "Now = GetTime() (the session clock)",
+}
+
+
+def allowed(relpath, kind):
+    return (relpath.replace("\\", "/"), kind) in ALLOW
+
 
 HELPER_NAMES = ("Text", "newText", "Sized", "Gradient", "gradient", "Grad", "SlotLabel", "ShortName", "shortName",
                 "classOf", "Hex", "grey", "Edge", "Fill", "NewCard", "BuildBanner", "NewChip", "Now", "DemoOn")
@@ -272,14 +299,14 @@ def save_baseline(files_counts, path=BASELINE_PATH, merge=False):
     Written one file per line, so a cleanup's diff of the baseline reads like a list of what went down."""
     files = load_baseline(path) if merge else {}
     for f, c in files_counts.items():
-        nz = {k: c.get(k, 0) for k in KINDS if c.get(k, 0)}
+        nz = {k: c.get(k, 0) for k in KINDS if c.get(k, 0) and not allowed(f, k)}
         if nz:
             files[f] = nz
         else:
             files.pop(f, None)
     totals = {k: sum(v.get(k, 0) for v in files.values()) for k in KINDS}
-    about = ("Per-file uniformity counts (dev/tools/uniformity.py). check.py warns when a file's count goes above "
-             "these. Refresh with: check.py --uniformity-update-baseline")
+    about = ("Per-file uniformity counts (dev/tools/uniformity.py). check.py reports an error when a file's count goes above "
+             "these (the justified exceptions are uniformity.ALLOW). Refresh with: check.py --uniformity-update-baseline")
     lines = ["{", ' "_about": %s,' % json.dumps(about), ' "generated": %s,' % json.dumps(time.strftime("%Y-%m-%d")),
              ' "totals": %s,' % json.dumps(totals), ' "files": {']
     items = sorted(files.items())
@@ -296,6 +323,8 @@ def over_baseline(relpath, hits, baseline):
     base = baseline.get(relpath, {})
     out = []
     for k in KINDS:
+        if allowed(relpath, k):
+            continue
         n, b = len(hits[k]), base.get(k, 0)
         if n > b:
             out.append((k, n, b, hits[k]))
@@ -322,9 +351,11 @@ def table(rows, baseline):
         tot_base += bt
         for k in KINDS:
             tot[k] += c.get(k, 0)
-        ups = [k for k in KINDS if c.get(k, 0) > b.get(k, 0)]
+        ups = [k for k in KINDS if c.get(k, 0) > b.get(k, 0) and not allowed(f, k)]
+        allow = [k for k in KINDS if c.get(k, 0) and allowed(f, k)]
         delta = total - bt
-        mark = ("%+d" % delta if delta else "=") + ("  UP: " + ",".join(ups) if ups else "")
+        mark = ("%+d" % delta if delta else "=") + ("  UP: " + ",".join(ups) if ups else "") + \
+            ("  allowed: " + ",".join(allow) if allow else "")
         out.append("%-44s %6d %6d %6d %6d %6d  %s" % (f, total, c["colour"], c["helper"], c["font"], c["raid"], mark))
     total = sum(tot.values())
     out.append("%-44s %6d %6d %6d %6d %6d  %s" % ("TOTAL", total, tot["colour"], tot["helper"], tot["font"],

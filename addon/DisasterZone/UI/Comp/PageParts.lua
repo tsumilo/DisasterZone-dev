@@ -21,15 +21,14 @@ local type, tostring, ipairs, pairs = type, tostring, ipairs, pairs
 
 -- (the values a banner over art uses; the rest are ns.Style tokens)
 local GOLD, LINE = S.C.GOLD, S.C.HAIRLINE
-local function Alpha(c, a) return { c[1], c[2], c[3], a } end
 local P = {
     WHITE = { 1, 1, 1 },                      -- the title over art (the raid page's GameFontHighlightLarge)
     ON_ART = { 0.82, 0.82, 0.82 },            -- the sub line over art (the guest profile's, the Events meta)
     PLAIN = { 0.105, 0.105, 0.125, 1 },       -- a banner without art: the guest profile's dark card ...
-    GLOW = Alpha(GOLD, 0.06),                 -- ... with a little gold light from the left
-    GLOW_END = Alpha(GOLD, 0),
+    GLOW = S:WithAlpha(GOLD, 0.06),                 -- ... with a little gold light from the left
+    GLOW_END = S:WithAlpha(GOLD, 0),
     GLOW_W = 300,
-    RING = Alpha(GOLD, 0.55),                 -- the icon's ring (the Events banner)
+    RING = S:WithAlpha(GOLD, 0.55),                 -- the icon's ring (the Events banner)
     BLACK = { 0, 0, 0, 1 },
     SHADE = { 0.035, 0.035, 0.043 },          -- EUI:AddShade's colour (used when EventWidgets is not there)
     X = 14,                                   -- the banner's inner left / right margin
@@ -40,7 +39,7 @@ local P = {
     ACT_Y = 12, ACT_GAP = 6, ACT_MIN = 56, ACT_PAD = 28,   -- the actions at the bottom right
     FOOT_H = 26,                              -- banner.foot's height (tabs on the banner's foot)
     FOOT_FADE = 44,                           -- with a reserved foot: the art fades into the page over this
-    RULE_HI = Alpha(LINE, 0.14), RULE_LO = Alpha(LINE, 0.04),   -- the caps header's fading rule
+    RULE_HI = S:WithAlpha(LINE, 0.14), RULE_LO = S:WithAlpha(LINE, 0.04),   -- the caps header's fading rule
     BACK = "SUB",                             -- the back link's rest colour (gold under the mouse)
 }
 
@@ -63,18 +62,21 @@ local function SizeOf(size)
     return SIZES[size] or SIZES.hero
 end
 
--- text upper-cased outside its escapes (a colour code, a texture, a link's head keep their case).
+local function Upper(s) return (s:gsub("[a-z]+", string.upper)) end
+
+-- text upper-cased outside its escapes (a colour code, a texture, a link's head keep their case). Only a-z change:
+-- the bytes of a UTF-8 letter (past 127) stay as they are.
 local function Caps(text)
     text = text == nil and "" or tostring(text)
-    if not text:find("|", 1, true) then return text:upper() end
+    if not text:find("|", 1, true) then return Upper(text) end
     local out, i, n = {}, 1, #text
     while i <= n do
         local j = text:find("|", i, true)
         if not j then
-            out[#out + 1] = text:sub(i):upper()
+            out[#out + 1] = Upper(text:sub(i))
             break
         end
-        out[#out + 1] = text:sub(i, j - 1):upper()
+        out[#out + 1] = Upper(text:sub(i, j - 1))
         local k = text:sub(j + 1, j + 1)
         local e
         if k == "c" then
@@ -154,15 +156,22 @@ end
 
 -- The way back to a list or board: a left chevron and a caps word ("ALL RAIDS"), grey, gold under the mouse.
 -- b.icon (the chevron), b.text (= b.fs); b:SetText(text) fits the width; b:SetOnClick(fn); fn(b, mouseButton).
-function UI:CreateBackLink(parent, text, onClick)
+-- opts: { forward = true: the way on ("RECENT RUNS  4 >"): the words first, the chevron after them pointing right }.
+function UI:CreateBackLink(parent, text, onClick, opts)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(80, 14)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetSize(10, 10)
-    b.icon:SetPoint("LEFT", 0, 0)
-    UI:SetChevron(b.icon, false)
     b.text = UI:Text(b, "small", P.BACK)
-    b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+    if opts and opts.forward then
+        b.text:SetPoint("LEFT", b, "LEFT", 0, 0)
+        b.icon:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
+        UI:SetChevron(b.icon, true)
+    else
+        b.icon:SetPoint("LEFT", 0, 0)
+        UI:SetChevron(b.icon, false)
+        b.text:SetPoint("LEFT", b.icon, "RIGHT", 4, 0)
+    end
     b.fs = b.text
     function b:SetText(t)
         self.label = t
@@ -186,18 +195,10 @@ end
 
 local Banner = {}       -- the banner's methods (copied onto each banner)
 
--- A pill over dark art (the Events / Polls pills: EUI:CreatePill, set with SetKind(text, kind)); the tag pill when
--- EventWidgets is not loaded.
+-- A pill over dark art (UI:CreatePill on the banner's dark base; Banner:SetPill takes every pill kind).
 local function NewPill(parent)
-    local E = ns.EventUI
-    local p
-    if E and E.CreatePill then
-        p = E:CreatePill(parent, 16)
-    else
-        p = UI:CreateTagPill(parent, 16)
-        function p:SetKind(text, kind) self:Set(text, kind) end
-    end
-    if p.SetBase then p:SetBase(0.05, 0.05, 0.06) end
+    local p = UI:CreatePill(parent, 16)
+    p:SetBase(0.05, 0.05, 0.06)
     return p
 end
 
@@ -236,11 +237,15 @@ end
 -- UI:CreatePageBanner(parent, opts) -> banner. opts:
 --   size     "hero" (128) | "tool" (84) | "strip" (46) | a height
 --   art      a raid key (either form or an instance id: ns.ItemDB:RaidArt, cropped to the banner) | { path, l, r, t, b }
---            | nil (the plain dark card with a gold glow). artFw (0.95: the share of the picture's width a raid's crop
+--            | nil (the plain dark card with a gold glow); banner:SetArt(art, desaturate, art2): two pictures side by
+--            side (a raid of two instances: banner.art2, banner.artSeam). artFw (0.95: the share of the picture's width a raid's crop
 --            takes), artUnder (keep the crop under the logo band), artTint (1: the art's brightness), desaturate
 --   icon     a texture / file id / { path, l, r, t, b } / a UI.ICON name: a ringed tile left of the text. iconRing
---   kicker   small gold capitals over the title (kickerColor; kickerCaps = false keeps the case)
---   title    the 19 px title (titleColor: white; a tool banner's is gold; a strip's is 13 px), cut with "..." to fit
+--   kicker   small gold capitals over the title (kickerColor; kickerCaps = false keeps the case); kickerTip =
+--            { title, lines }: a tooltip on it (banner:SetKickerTip)
+--   title    the 19 px title (titleColor: white; a tool banner's is gold; a strip's is 13 px), cut with "..." to fit;
+--            titleSteps = { "hero", "page", ... }: smaller styles tried first; rightW = px (or function(banner)) kept
+--            free at the right of the text for the page's own blocks (banner:SetTitleFit(steps, rightW))
 --   sub      the line under it (subColor)
 --   pill     { kind, text } after the title (the EUI pill kinds: live, rank, review, changed, draft, ended, ok ...)
 --   back     { text, onClick }: the back link at the top left (a strip: at the left, before the text)
@@ -308,6 +313,8 @@ function UI:CreatePageBanner(parent, opts)
     b:SetSub(opts.sub)
     if opts.pill then b:SetPill(opts.pill[1] or opts.pill.kind, opts.pill[2] or opts.pill.text) end
     if opts.back then b:SetBack(opts.back[1] or opts.back.text, opts.back[2] or opts.back.onClick) end
+    if opts.shadeRight then b:SetShadeRight(opts.shadeRight) end
+    if opts.kickerTip then b:SetKickerTip(opts.kickerTip[1] or opts.kickerTip.title, opts.kickerTip[2] or opts.kickerTip.lines) end
     b:SetTools(opts.tools)
     b:SetActions(opts.actions)
     b.building = nil
@@ -322,6 +329,14 @@ end
 
 function Banner:SetTitle(text)
     self.titleText = text
+    self:Relayout()
+end
+
+-- How the title fits (also opts.titleSteps / opts.rightW): steps = the styles it steps down through before it is cut
+-- ({ "hero", "page", "title" }; nil: its size only); rightW = px kept free at the right of the text (a number or
+-- function(banner): the page's own blocks there).
+function Banner:SetTitleFit(steps, rightW)
+    self.opts.titleSteps, self.opts.rightW = steps, rightW
     self:Relayout()
 end
 
@@ -340,8 +355,8 @@ end
 
 -- art: a raid key (either form, or an instance id) | { path, l, r, t, b } | nil (the plain card). desaturate: grey it
 -- (kept until set again).
-function Banner:SetArt(art, desaturate)
-    self.artKey = art
+function Banner:SetArt(art, desaturate, art2)
+    self.artKey, self.art2Key = art, art2
     if desaturate ~= nil then self.desaturate = desaturate and true or false end
     local has = art ~= nil and art ~= false
     self.art:SetShown(has)
@@ -353,13 +368,42 @@ function Banner:SetArt(art, desaturate)
         self.art:SetDesaturated((self.desaturate or self.opts.desaturate) and true or false)
     end
     self:Relayout()
+    if self.art2 then
+        self.art2:SetVertexColor(self.art:GetVertexColor())
+        self.art2:SetDesaturated((self.desaturate or self.opts.desaturate) and true or false)
+    end
 end
 
 -- icon: see SetIconTexture (nil: none, the text starts at the left margin).
-function Banner:SetIcon(icon)
+-- opts (optional): { glyph = a colour (an atlas glyph: smaller, tinted, on the tile's dark ground; glyphSize px),
+-- display = a creature display id (a round portrait of it: a boss), desaturate }.
+function Banner:SetIcon(icon, opts)
     if icon ~= nil and icon ~= false then
         if not self.icon then self.icon = NewIconTile(self, self.m.icon, self.opts.iconRing) end
-        SetIconTexture(self.icon.tex, icon, true)
+        local tex = self.icon.tex
+        if self.iconStyled then                 -- (back to a plain picture after a glyph / portrait)
+            tex:ClearAllPoints()
+            tex:SetAllPoints()
+            tex:SetSize(self.m.icon, self.m.icon)
+            tex:SetVertexColor(1, 1, 1, 1)
+            if tex.SetDesaturated then tex:SetDesaturated(false) end
+            self.iconStyled = nil
+        end
+        SetIconTexture(tex, icon, true)
+        if opts then
+            self.iconStyled = true
+            if opts.display and SetPortraitTextureFromCreatureDisplayID then
+                SetPortraitTextureFromCreatureDisplayID(tex, opts.display)
+            end
+            if opts.glyph then
+                local size = opts.glyphSize or floor(self.m.icon * 0.6)
+                tex:ClearAllPoints()
+                tex:SetPoint("CENTER")
+                tex:SetSize(size, size)
+                tex:SetVertexColor(S:Color(opts.glyph == true and "GOLD" or opts.glyph))
+            end
+            if opts.desaturate and tex.SetDesaturated then tex:SetDesaturated(true) end
+        end
         self.icon:Show()
     elseif self.icon then
         self.icon:Hide()
@@ -367,12 +411,66 @@ function Banner:SetIcon(icon)
     self:Relayout()
 end
 
--- kind, text (nil / "" text: no pill).
+-- A shade along the right edge too, w px wide (the page's own content sits there on the art: the raid page's answer
+-- side); nil / 0: none. banner.shadeR.
+function Banner:SetShadeRight(w)
+    w = tonumber(w) or 0
+    if w <= 0 then
+        if self.shadeR then self.shadeR:Hide() end
+        return
+    end
+    if not self.shadeR then
+        self.shadeR = self:CreateTexture(nil, "BORDER", nil, 2)
+        self.shadeR:SetPoint("TOPRIGHT", -1, -1)
+        self.shadeR:SetPoint("BOTTOMRIGHT", -1, 1)
+        UI:Gradient(self.shadeR, "HORIZONTAL", { 0.055, 0.055, 0.067, 0 }, { 0.055, 0.055, 0.067, 0.8 })
+    end
+    self.shadeR:SetWidth(w)
+    self.shadeR:Show()
+end
+
+-- A second icon (a pair: the Warglaives) as a smaller tile on the first one's lower right corner: icon (nil hides it),
+-- itemID (its tooltip). banner.icon2.
+function Banner:SetSecondIcon(icon, itemID)
+    if icon == nil or icon == false or not self.icon then
+        if self.icon2 then self.icon2:Hide() end
+        return
+    end
+    if not self.icon2 then
+        self.icon2 = UI:CreateIconTile(self, 22)
+        UI:AttachTooltip(self.icon2, function(f) if f.itemID then UI:SetItemTooltip(f, f.itemID) end end)
+    end
+    local t = self.icon2
+    t:Set(icon)
+    t.itemID = itemID
+    t:ClearAllPoints()
+    t:SetPoint("BOTTOMRIGHT", self.icon, "BOTTOMRIGHT", 6, -6)
+    t:SetFrameLevel(self.icon:GetFrameLevel() + 2)
+    t:Show()
+end
+
+-- A frame of the caller's in the icon's place (several icons side by side: a set's pieces); the text starts after its
+-- width. nil gives the place back to the icon tile.
+function Banner:SetIconFrame(f)
+    if f then
+        if not self.iconTile then self.iconTile = self.icon or false end
+        if self.iconTile then self.iconTile:Hide() end
+        self.icon = f
+        f:Show()
+    elseif self.iconTile ~= nil then
+        if self.icon then self.icon:Hide() end
+        self.icon = self.iconTile or nil
+        self.iconTile = nil
+    end
+    self:Relayout()
+end
+
+-- kind, text (nil / "" text: no pill). kind: any pill kind (every UI.PILL_LOOK look and the event kinds).
 function Banner:SetPill(kind, text)
     if text == nil or text == "" then
         self.pill:Hide()
     else
-        self.pill:SetKind(text, kind)
+        self.pill:SetPill(kind, text)
         self.pill:Show()
     end
     self:Relayout()
@@ -428,6 +526,7 @@ function Banner:SetActions(list)
             ni = ni + 1
             f = PoolGet(self.iconPool, ni, function() return NewIconButton(self, S.BTN_H) end)
             SetIconTexture(f.icon, a.icon)
+            if a.chevron then UI:SetChevron(f.icon, a.chevron == "right") end
         else
             nb = nb + 1
             f = PoolGet(self.btnPool, nb, function() return NewActionButton(self) end)
@@ -445,13 +544,22 @@ function Banner:SetActions(list)
     self:Relayout()
 end
 
--- list: { { icon, title, text, onClick, menu, enabled } ... }, the first at the far right.
+-- A small grey text left of the tools ("3 / 19" beside a pager); nil / "": none. banner.toolsText.
+function Banner:SetToolsText(text)
+    if not self.toolsText then self.toolsText = UI:Text(self, "small", "SUB", { justify = "RIGHT" }) end
+    self.toolsText:SetText(text == nil and "" or tostring(text))
+    self.toolsText:SetShown(text ~= nil and text ~= "")
+    self:Relayout()
+end
+
+-- list: { { icon, title, text, onClick, menu, enabled, chevron = "left" | "right" } ... }, the first at the far right.
 function Banner:SetTools(list)
     for _, f in ipairs(self.toolPool) do f:Hide() end
     wipe(self.tools)
     for i, t in ipairs(list or {}) do
         local f = PoolGet(self.toolPool, i, function() return NewIconButton(self, P.TOOL) end)
         SetIconTexture(f.icon, t.icon or "more")
+        if t.chevron then UI:SetChevron(f.icon, t.chevron == "right") end   -- (a pager's < and >)
         f.ppAction = t
         SetTip(f, (t.title or t.text) and { t.title, t.text } or nil)
         if t.enabled == false then f:Disable() else f:Enable() end
@@ -488,30 +596,50 @@ function Banner:Layout()
     local footH = opts.footH or 0
     local X, EX = P.X, P.EDGE_X
 
-    -- the art, cropped to the banner
-    local art = self.artKey
+    -- the art, cropped to the banner (two side by side with an art2: UI:SetArtPair)
+    local art, art2 = self.artKey, self.art2Key
     if art ~= nil and art ~= false then
-        local path, l, r, t, bt
-        if type(art) == "table" then
-            path, l, r, t, bt = art[1], art[2], art[3], art[4], art[5]
-        elseif ns.ItemDB and ns.ItemDB.RaidArt then
-            path, l, r, t, bt = ns.ItemDB:RaidArt(art, max(1, W - 2), max(1, H - 2), opts.artFw or 0.95, opts.artUnder)
+        local function crop(a)
+            if type(a) ~= "string" and type(a) ~= "number" then return a end
+            return function(tex, w, h)
+                local path, l, r, t, bt
+                if ns.ItemDB and ns.ItemDB.RaidArt then
+                    path, l, r, t, bt = ns.ItemDB:RaidArt(a, max(1, w), max(1, h), opts.artFw or 0.95, opts.artUnder)
+                end
+                tex:SetTexture(path)
+                tex:SetTexCoord(l or 0, r or 1, t or 0, bt or 1)
+            end
         end
-        self.art:SetTexture(path)
-        self.art:SetTexCoord(l or 0, r or 1, t or 0, bt or 1)
+        UI:SetArtPair(self, self.art, crop(art), art2 and crop(art2) or nil, max(1, W - 2), max(1, H - 2), 1)
+    elseif self.art2 then
+        self.art2:Hide()
+        self.artSeam:Hide()
     end
     self.fade:SetShown(footH > 0)
 
     -- the right side: tools (top) and actions (bottom); a strip has them in one row on its middle
-    local toolsW, actsW, rightW
+    local toolsW, actsW, rightW, firstTool
     if m.tall then
-        toolsW = RowFromRight(self.tools, self, "TOPRIGHT", -EX, -P.TOOL_Y, P.TOOL_GAP)
+        toolsW, firstTool = RowFromRight(self.tools, self, "TOPRIGHT", -EX, -P.TOOL_Y, P.TOOL_GAP)
         actsW = RowFromRight(self.actions, self, "BOTTOMRIGHT", -EX, P.ACT_Y + footH, P.ACT_GAP)
-        rightW = toolsW > 0 and (toolsW + EX + 8) or 16
     else
         local last
         actsW, last = RowFromRight(self.actions, self, "RIGHT", -EX, footH / 2, P.ACT_GAP)
-        toolsW = RowFromRight(self.tools, self, "RIGHT", -EX, footH / 2, P.TOOL_GAP, last)
+        toolsW, firstTool = RowFromRight(self.tools, self, "RIGHT", -EX, footH / 2, P.TOOL_GAP, last)
+    end
+    -- a text beside the tools (Banner:SetToolsText: "3 / 19" left of a pager's chevrons)
+    local tt = self.toolsText
+    if tt and Shown(tt) and firstTool and #self.tools > 0 then
+        tt:ClearAllPoints()
+        tt:SetPoint("RIGHT", firstTool, "LEFT", -8, 0)
+        tt:Show()
+        toolsW = toolsW + 8 + UI:TextWidth(tt)
+    elseif tt then
+        tt:Hide()
+    end
+    if m.tall then
+        rightW = toolsW > 0 and (toolsW + EX + 8) or 16
+    else
         rightW = actsW + toolsW + EX + 12
     end
 
@@ -539,12 +667,24 @@ function Banner:Layout()
         textX = textX + icon:GetWidth() + 12
     end
 
-    -- the title (cut to the room the tools and its pill leave), the kicker and sub line
+    -- the title (cut to the room the tools, the caller's own blocks (opts.rightW) and its pill leave; down the
+    -- opts.titleSteps sizes first), the kicker and sub line
+    local keep = opts.rightW
+    if type(keep) == "function" then keep = keep(self) end
     local pillW = self.pill:IsShown() and (self.pill:GetWidth() + 10) or 0
-    local room = max(20, W - textX - rightW)
+    local room = max(20, W - textX - max(rightW, tonumber(keep) or 0))
     local titleRoom = max(20, room - pillW)
     local text = self.titleText
     self.title:SetShown(text ~= nil and text ~= "")
+    local steps = opts.titleSteps
+    if steps and text and text ~= "" then
+        local r, g, b = self.title:GetTextColor()
+        for _, st in ipairs(steps) do
+            UI:SetTextStyle(self.title, st, { r, g, b })
+            self.title:SetText(text)
+            if UI:TextWidth(self.title) <= titleRoom then break end
+        end
+    end
     UI:FitText(self.title, text or "", titleRoom)
     self.title:SetWidth(floor(min(UI:TextWidth(self.title), titleRoom) + 1))
     self.kicker:SetWidth(room)
@@ -574,6 +714,33 @@ function Banner:Layout()
     self.pill:ClearAllPoints()
     self.pill:SetPoint("LEFT", self.title, "RIGHT", 10, 0)
     self.textX = textX
+    -- the kicker's tooltip area (Banner:SetKickerTip): over the kicker's words
+    local hit = self.kickerHit
+    if hit then
+        local on = self.kickerTip ~= nil and Shown(self.kicker)
+        hit:SetShown(on)
+        if on then
+            hit:ClearAllPoints()
+            hit:SetPoint("TOPLEFT", self.kicker, "TOPLEFT", -2, 2)
+            hit:SetSize(floor(UI:TextWidth(self.kicker) + 4.5), S:Size("small") + 4)
+        end
+    end
+end
+
+-- A tooltip on the kicker (what a number in it means): title, lines (as UI:AttachTooltip); nil: none.
+function Banner:SetKickerTip(title, lines)
+    if title == nil then
+        self.kickerTip = nil
+    else
+        if not self.kickerHit then
+            self.kickerHit = CreateFrame("Frame", nil, self)
+            self.kickerHit:SetFrameLevel(self:GetFrameLevel() + 4)
+            self.kickerHit:EnableMouse(true)
+        end
+        self.kickerTip = { title, lines }
+        UI:AttachTooltip(self.kickerHit, title, lines)
+    end
+    self:Relayout()
 end
 
 ---------------------------------------------------------------------------
@@ -590,25 +757,86 @@ local HEAD = {
               right = "small" },
 }
 
-local function PaintLink(self, on)
-    local c = on and "GOLD" or "SUB"
+---------------------------------------------------------------------------
+-- Text link
+---------------------------------------------------------------------------
+
+local Link = {}
+
+function Link:Paint()
+    local c = self.hovered and self.hoverColor or self.color
     Paint(self.fs, c)
-    Paint(self.chev, c)
+    if self.chev then Paint(self.chev, self.chevColor or c) end
 end
 
-local function NewHeaderLink(parent)
+-- The words (a prefix stays in front, in its own colours); the width follows them unless the frame was made fixed.
+function Link:SetLabel(text)
+    self.label = text
+    self.fs:SetText((self.prefix or "") .. (text == nil and "" or tostring(text)))
+    if not self.fixed then
+        local w = UI:TextWidth(self.fs) + (self.chev and (self.gap + self.chevSize) or 0) + self.pad
+        self:SetWidth(floor(w + 0.5))
+    end
+end
+function Link:GetLabel() return self.label end
+
+-- The rest and hover colours (token names or tables).
+function Link:SetColors(color, hover)
+    self.color, self.hoverColor = color or self.color, hover or self.hoverColor
+    self:Paint()
+end
+
+local function LinkEnter(self) self.hovered = true; self:Paint() end
+local function LinkLeave(self) self.hovered = false; self:Paint() end
+
+-- A quiet text link (a section header's action, "Show me >", "+ Row", "Show rolls (4)", "Clear list"): words in a
+-- colour that changes under the mouse, an optional chevron after them. opts: { style ("body"), color ("SUB"), hover
+-- ("GOLD"), chevron ("right" | "down" | nil), chevSize (10), chevColor (a fixed chevron colour; default: as the
+-- words), gap (3: words to chevron), prefix (text kept in front, e.g. a gold "+ "), align ("LEFT" | "RIGHT" |
+-- "CENTER": where the words sit), fixed (true: the caller sizes the frame), pad (0: extra width), height (16) }.
+-- link:SetLabel(text), :GetLabel(), :SetColors(color, hover); link.fs, link.chev. onClick(link, mouseButton); a
+-- caller may SetScript("OnClick") itself instead.
+function UI:CreateTextLink(parent, text, onClick, opts)
+    opts = opts or {}
     local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(16)
-    b.fs = UI:Text(b, "body", "SUB")
-    b.fs:SetPoint("LEFT", 0, 0)
-    b.chev = b:CreateTexture(nil, "ARTWORK")
-    b.chev:SetSize(10, 10)
-    b.chev:SetPoint("LEFT", b.fs, "RIGHT", 3, 0)
-    UI:SetChevron(b.chev, true)
-    b:SetScript("OnEnter", function(s) PaintLink(s, true) end)
-    b:SetScript("OnLeave", function(s) PaintLink(s, false) end)
-    b:SetScript("OnClick", ActionClick)
-    PaintLink(b, false)
+    b:SetHeight(opts.height or 16)
+    for k, fn in pairs(Link) do b[k] = fn end
+    b.color, b.hoverColor = opts.color or "SUB", opts.hover or "GOLD"
+    b.chevColor, b.prefix, b.fixed, b.pad = opts.chevColor, opts.prefix, opts.fixed, opts.pad or 0
+    b.gap, b.chevSize = opts.gap or 3, opts.chevSize or 10
+    b.fs = UI:Text(b, opts.style or "body", b.color)
+    local align = opts.align or "LEFT"
+    if opts.chevron then
+        b.chev = b:CreateTexture(nil, "ARTWORK")
+        b.chev:SetSize(b.chevSize, b.chevSize)
+        if opts.chevron == "down" then
+            local c = UI:IconCoords(UI.ICON.chevron)
+            b.chev:SetTexture(UI.ICON_ATLAS)
+            b.chev:SetTexCoord(c[1], c[2], c[3], c[4])
+        else
+            UI:SetChevron(b.chev, true)
+        end
+    end
+    local tail = b.chev and (b.gap + b.chevSize) or 0
+    if align == "RIGHT" then
+        b.fs:SetPoint("RIGHT", b, "RIGHT", -tail, 0)
+    elseif align == "CENTER" then
+        b.fs:SetPoint("CENTER", b, "CENTER", -floor(tail / 2), 0)
+    else
+        b.fs:SetPoint("LEFT", b, "LEFT", 0, 0)
+    end
+    if b.chev then b.chev:SetPoint("LEFT", b.fs, "RIGHT", b.gap, opts.chevron == "down" and -1 or 0) end
+    b:SetScript("OnEnter", LinkEnter)
+    b:SetScript("OnLeave", LinkLeave)
+    if onClick then b:SetScript("OnClick", onClick) end
+    b:SetLabel(text)
+    b:Paint()
+    return b
+end
+
+-- (the section header's action: a grey link with a chevron, gold under the mouse; ActionClick runs its action)
+local function NewHeaderLink(parent)
+    local b = UI:CreateTextLink(parent, "", ActionClick, { chevron = "right" })
     return b
 end
 
@@ -695,8 +923,7 @@ function Header:SetAction(a)
         else
             if not self.link then self.link = NewHeaderLink(self) end
             f = self.link
-            f.fs:SetText(a.text or a[1] or "")
-            f:SetWidth(floor(UI:TextWidth(f.fs) + 13 + 0.5))
+            f:SetLabel(a.text or a[1] or "")
         end
         f.ppAction = a
         SetTip(f, a.tip)

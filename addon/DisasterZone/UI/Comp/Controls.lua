@@ -7,8 +7,10 @@ local addonName, ns = ...
 --   UI:CreateChip(parent, opts)                        a tag as a chip: a dot / class circle / icon and its name
 --   UI:CreateSegments(parent, items, onChange, opts)   a row of choices, one picked (and the old route-steps bar)
 --   UI:CreateRailNav(parent, items, onSelect, opts)    the side menu of a rail page (Settings, Notifications)
--- The old names stay as aliases: UI:CreateTagPill, EUI:CreatePill, EUI:CreateChip, EUI:CreateSegments (the last
--- three in UI/EventWidgets.lua, which loads later).
+--   UI:CreateProgressBar(parent, opts)                 a thin track and its fill (a share, a progress)
+--   UI:CreateStepper(parent, width, onStep, opts)      a value between two chevrons (the wheel steps it too)
+--   UI:CreateKeyCap(parent, w, h) / UI:CreateStar(parent, size)   a keyboard key; a rating star
+--   UI:CreateCell(parent, opts)                        a flat pickable tile (days, times)
 
 local UI = ns.UI
 local S = ns.Style
@@ -23,12 +25,6 @@ local STAR = "Interface\\COMMON\\ReputationStar"
 
 -- (the helpers in one table: the file stays far from Lua's local limits)
 local H = {}
-
--- c (a token name or { r, g, b [, a] }) with alpha a, as a new table.
-function H.Alpha(c, a)
-    local r, g, b = S:Color(c)
-    return { r, g, b, a }
-end
 
 -- A one-line FontString from a template, at size (optional; a size of the type scale) in the template's face.
 function H.Label(parent, template, size)
@@ -46,7 +42,7 @@ function H.ItemTip(frame)
     UI:AttachTooltip(frame, function(f, tip)
         local it = f.item
         if not (it and it.tip) then return false end
-        tip:AddLine(it.label or "", S:Color("GOLD"))
+        tip:AddLine(it.label or "", S:RGB("GOLD"))
         tip:AddLine(it.tip, 1, 1, 1, true)
     end)
 end
@@ -58,7 +54,7 @@ end
 -- The looks: the text's colour, the tint mixed into the fill (12% over what the pill sits on) and the 1 px edge.
 -- UI.TAG_LOOK is the old name of the same table. Read-only: some colours are ns.Style's own tables.
 local PILL_LOOK = {
-    bis  = { text = C.GOLD,                tint = C.GOLD,               edge = H.Alpha("GOLD", 0.5) },
+    bis  = { text = C.GOLD,                tint = C.GOLD,               edge = S:WithAlpha("GOLD", 0.5) },
     alt  = { text = { 0.56, 0.78, 1 },     tint = { 0.31, 0.63, 1 },    edge = { 0.43, 0.71, 1, 0.5 } },
     os   = { text = { 0.79, 0.65, 1 },     tint = { 0.63, 0.43, 1 },    edge = { 0.67, 0.51, 1, 0.5 } },
     ok   = { text = { 0.62, 0.94, 0.69 },  tint = { 0.24, 0.71, 0.35 }, edge = { 0.35, 0.86, 0.47, 0.5 } },
@@ -66,7 +62,9 @@ local PILL_LOOK = {
     mute = { text = { 0.72, 0.72, 0.72 },  tint = { 1, 1, 1 },          edge = { 1, 1, 1, 0.2 } },
     -- the events' (Live, Ranked)
     live = { text = { 1, 0.77, 0.72 },     tint = { 0.9, 0.2, 0.15 },   edge = { 1, 0.38, 0.29, 0.8 } },
-    rank = { text = { 1, 0.88, 0.54 },     tint = C.GOLD,               edge = H.Alpha("GOLD", 0.55) },
+    rank = { text = { 1, 0.88, 0.54 },     tint = C.GOLD,               edge = S:WithAlpha("GOLD", 0.55) },
+    -- a worse number (My Log's "-6.1%"): the BAD red, quieter than live
+    bad  = { text = { 1, 0.62, 0.58 },     tint = C.BAD,                edge = S:WithAlpha("BAD", 0.55) },
 }
 UI.PILL_LOOK = PILL_LOOK
 UI.TAG_LOOK = PILL_LOOK
@@ -131,7 +129,7 @@ end
 -- UI:CreatePill(parent, kind, text [, h]): a small rounded tag ("BiS", "Alt P2", "Live", "In review") that sizes
 -- itself to its text: a tinted fill, a 1 px edge, the text in its kind's colour. kind / text are optional (set them
 -- later with p:SetPill(kind, text), p:Set(text, look, icon) or p:SetKind(text, kind)). h: 16 by default (or opts
--- { h = n }). The old call shape UI:CreatePill(parent, h) (UI:CreateTagPill, EUI:CreatePill) makes an empty one.
+-- { h = n }). The call shape UI:CreatePill(parent, h) makes an empty one.
 -- p.fs = its text, p.icon = the icon in front, p.h = its height.
 function UI:CreatePill(parent, kind, text, h)
     if type(kind) == "number" then
@@ -155,11 +153,6 @@ function UI:CreatePill(parent, kind, text, h)
     return p
 end
 
--- (the old name: UI:CreateTagPill(parent, h))
-function UI:CreateTagPill(parent, h)
-    return UI:CreatePill(parent, h or 16)
-end
-
 ---------------------------------------------------------------------------
 -- Chips
 ---------------------------------------------------------------------------
@@ -172,7 +165,21 @@ UI.CHIP_LOOK = {
               x = 7, pad = 10 },
 }
 UI.CHIP_LOOK.default = UI.CHIP_LOOK.track
-local CHIP_SELECTED_EDGE = H.Alpha("GOLD", 0.75)
+-- the "you" chip's shape in other colours: "live" (my match is on: a red edge, warm text) and the action chips' kinds
+-- (Home's toolbar): "plain", "warn", "info" (blue), "bad"
+do
+    local you = UI.CHIP_LOOK.you
+    local function look(fill, edge, a, text)
+        local r, g, b = S:Color(edge)
+        return { h = you.h, fill = fill or you.fill, edge = { r, g, b, a }, text = text, x = you.x, pad = you.pad }
+    end
+    UI.CHIP_LOOK.live = look({ 0.075, 0.045, 0.045, 1 }, "LIVE", 0.8, { 1, 0.85, 0.8 })
+    UI.CHIP_LOOK.plain = look(nil, "EDGE_STRONG", 0.7, C.TEXT)
+    UI.CHIP_LOOK.warn = look(nil, "WARN", 0.7, { 1, 0.82, 0.65 })
+    UI.CHIP_LOOK.info = look(nil, "YOU", 0.55, { 0.81, 0.91, 1 })
+    UI.CHIP_LOOK.bad = look(nil, "BAD", 0.85, { 1, 0.82, 0.78 })
+end
+local CHIP_SELECTED_EDGE = S:WithAlpha("GOLD", 0.75)
 
 local Chip = {}
 
@@ -220,6 +227,11 @@ function Chip:Set(text, rgb, key)
         self.dotEdge:Hide()
         self.cls:Hide()
         self.icon:SetTexture(self.iconPath)
+        local co = self.iconCoords
+        if co then self.icon:SetTexCoord(co[1], co[2], co[3], co[4]) else self.icon:SetTexCoord(0, 1, 0, 1) end
+        local r, g, b, a = S:Color(self.iconColor or { 1, 1, 1, 1 })
+        self.icon:SetVertexColor(r, g, b, a)
+        self.icon:SetDesaturated(self.iconDesat and true or false)
         self.icon:SetPoint("LEFT", x, 0)
         self.icon:Show()
         x = x + 14 + 6
@@ -236,9 +248,18 @@ function Chip:Set(text, rgb, key)
     self:SetWidth(floor(x + UI:TextWidth(self.fs) + look.pad + 0.5))
 end
 
--- chip:SetIcon(path): a texture in front of the text when no dot / class circle is given (nil: none). Takes effect on
--- the next chip:Set.
-function Chip:SetIcon(path) self.iconPath = path end
+-- chip:SetIcon(path [, coords, color, desaturate]): a texture in front of the text when no dot / class circle is given
+-- (nil: none); coords { l, r, t, b } (an atlas glyph: UI.ICON_ATLAS and UI:IconCoords(i)) and color (a token name or
+-- a table: a tint) are kept over every chip:Set. Takes effect on the next chip:Set.
+function Chip:SetIcon(path, coords, color, desaturate)
+    self.iconPath, self.iconCoords, self.iconColor, self.iconDesat = path, coords, color, desaturate
+end
+
+-- chip:SetLook(kind): another look of UI.CHIP_LOOK (the shape keeps its height), repainted now.
+function Chip:SetLook(kind)
+    self.look = UI.CHIP_LOOK[kind] or UI.CHIP_LOOK.default
+    self:Paint()
+end
 
 function Chip:SetSelected(on)
     self.selected = on and true or false
@@ -249,9 +270,9 @@ function Chip:IsSelected() return self.selected end
 
 -- UI:CreateChip(parent, opts): a tag as a chip, a rounded capsule with a dot in the tag's colour (or a class circle, or
 -- an icon) and its name. opts { text, rgb, key (class circle), icon, kind = "track" (18 high, the default) | "you" (the
--- board's header: a blue edge, 22 high), selected (a gold edge, gold text), onClick (a Button then, with a hover:
+-- board's header: a blue edge, 22 high) | "live" | "plain" | "warn" | "info" | "bad" (the "you" shape), selected (a gold edge, gold text), onClick (a Button then, with a hover:
 -- onClick(chip, mouseButton)) }. chip:Set(text, rgb, key), chip:SetSelected(on), chip:SetIcon(path); chip.fs.
--- The old call shape UI:CreateChip(parent, kind) (EUI:CreateChip) makes an empty one of that kind.
+-- The call shape UI:CreateChip(parent, kind) makes an empty one of that kind.
 function UI:CreateChip(parent, opts)
     if type(opts) ~= "table" then opts = { kind = opts } end
     local look = UI.CHIP_LOOK[opts.kind or "default"] or UI.CHIP_LOOK.default
@@ -288,6 +309,177 @@ function UI:CreateChip(parent, opts)
     p:Paint()
     if opts.text or opts.rgb or opts.key or opts.icon then p:Set(opts.text, opts.rgb, opts.key) end
     return p
+end
+
+---------------------------------------------------------------------------
+-- Progress bar: a thin track and its fill
+---------------------------------------------------------------------------
+
+local Bar = {}
+
+-- (the fill's width from the bar's own width and the share)
+function Bar:Apply()
+    local f = self.frac or 0
+    self.fill:SetWidth(max(1, floor((self:GetWidth() or 0) * f + 0.5)))
+    self.fill:SetShown(f > 0)
+end
+
+-- bar:Set(frac [, color]): the share filled (0..1; nothing shows at 0); color: the fill's (a token name or a table).
+function Bar:Set(frac, color)
+    self.frac = max(0, min(1, tonumber(frac) or 0))
+    if color then self.fill:SetColorTexture(S:Color(color)) end
+    self:Apply()
+end
+
+-- UI:CreateProgressBar(parent, opts) -> bar: a thin bar (a share, a progress: My BiS's obtained, the Loot rules' BiS
+-- track, a boss tile's slots, the Performance page's). opts: { width (100), height (2), track (the track's colour,
+-- "HAIRLINE"), trackHeight (the track's height when thinner than the fill, along the bar's bottom), color (the fill's,
+-- "GOLD"), gradient = { c1, c2 } (the fill as a left-to-right gradient instead) }. The fill follows the bar's width
+-- (anchor both sides or SetWidth). bar:Set(frac [, color]); bar.track, bar.fill.
+function UI:CreateProgressBar(parent, opts)
+    opts = opts or {}
+    local b = CreateFrame("Frame", nil, parent)
+    b:SetSize(opts.width or 100, opts.height or 2)
+    b.track = b:CreateTexture(nil, "ARTWORK", nil, 0)
+    if opts.trackHeight then
+        b.track:SetPoint("BOTTOMLEFT")
+        b.track:SetPoint("BOTTOMRIGHT")
+        b.track:SetHeight(opts.trackHeight)
+    else
+        b.track:SetAllPoints()
+    end
+    b.track:SetColorTexture(S:Color(opts.track or "HAIRLINE"))
+    b.fill = b:CreateTexture(nil, "ARTWORK", nil, 1)
+    b.fill:SetPoint("TOPLEFT")
+    b.fill:SetPoint("BOTTOMLEFT")
+    if opts.gradient then
+        UI:Gradient(b.fill, "HORIZONTAL", opts.gradient[1], opts.gradient[2])
+    else
+        b.fill:SetColorTexture(S:Color(opts.color or "GOLD"))
+    end
+    for k, fn in pairs(Bar) do b[k] = fn end
+    b:HookScript("OnSizeChanged", function(self) self:Apply() end)
+    b:Set(0)
+    return b
+end
+
+---------------------------------------------------------------------------
+-- Cell: a flat pickable tile
+---------------------------------------------------------------------------
+
+UI.CELL_LOOK = { bg = { 0.08, 0.08, 0.09, 0.95 }, edge = { 0.20, 0.20, 0.23, 1 }, pickedBg = { 0.17, 0.14, 0.05, 0.95 } }
+
+local Cell = {}
+
+-- cell:Paint(picked, dim): the picked look (a gold edge, a warm fill) or the plain one (dim: a fainter edge).
+function Cell:Paint(picked, dim)
+    local L = UI.CELL_LOOK
+    local bg = picked and L.pickedBg or L.bg
+    self.bg:SetColorTexture(bg[1], bg[2], bg[3], bg[4])
+    if picked then
+        UI:SetEdgeColor(self, S:Color("GOLD_DEEP"))
+    else
+        UI:SetEdgeColor(self, L.edge[1], L.edge[2], L.edge[3], dim and 0.6 or 1)
+    end
+end
+
+-- UI:CreateCell(parent, opts) -> cell: a flat pickable tile (the New raid sheet's days and time, the raid nights
+-- editor): a fill, 1 px edges and the hover light. opts: { button = true (a Button: it takes clicks) }.
+-- cell:Paint(picked, dim); cell.bg.
+function UI:CreateCell(parent, opts)
+    local f = CreateFrame((opts and opts.button) and "Button" or "Frame", nil, parent)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    UI:AddEdges(f, "BORDER")
+    for k, fn in pairs(Cell) do f[k] = fn end
+    f:Paint(false)
+    local hl = f:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints()
+    hl:SetColorTexture(S:Color("HOVER"))
+    return f
+end
+
+---------------------------------------------------------------------------
+-- Key cap and rating star
+---------------------------------------------------------------------------
+
+-- UI:CreateKeyCap(parent, w, h) -> cap: a keyboard key ("2", "SHIFT-1"): the inset surface with a strong edge and a
+-- darker lip, the key's text in it (cap.key). UI:SetEdgeColor(cap, ...) recolours its edge (gold while a key is being
+-- caught, red when one is missing).
+function UI:CreateKeyCap(parent, w, h)
+    local cap = CreateFrame("Frame", nil, parent)
+    cap:SetSize(w, h)
+    cap.bg = UI:Fill(cap, "INSET", "BACKGROUND")
+    UI:AddEdges(cap, "BORDER")
+    UI:SetEdgeColor(cap, S:Color("EDGE_STRONG"))
+    cap.lip = UI:Fill(cap, { 0, 0, 0, 0.5 }, "BORDER")
+    cap.lip:ClearAllPoints()
+    cap.lip:SetPoint("BOTTOMLEFT")
+    cap.lip:SetPoint("BOTTOMRIGHT")
+    cap.lip:SetHeight(3)
+    cap.key = UI:Text(cap, "body", { 1, 1, 1 }, { justify = "CENTER" })
+    cap.key:SetPoint("CENTER", 0, 1)
+    return cap
+end
+
+-- UI:CreateStar(parent, size) -> texture: a rating star (the game's reputation star); star:SetLit(on): lit gold, or a
+-- grey one.
+function UI:CreateStar(parent, size)
+    local t = parent:CreateTexture(nil, "ARTWORK")
+    t:SetTexture(STAR)
+    t:SetTexCoord(0, 0.5, 0, 0.5)
+    t:SetSize(size, size)
+    function t:SetLit(on)
+        self:SetDesaturated(not on)
+        if on then self:SetVertexColor(1, 1, 1, 1) else self:SetVertexColor(0.35, 0.35, 0.38, 0.9) end
+    end
+    return t
+end
+
+---------------------------------------------------------------------------
+-- Stepper: a value between two chevrons
+---------------------------------------------------------------------------
+
+local Stepper = {}
+
+-- stepper:Set(text, canPrev, canNext): the value shown and which way it can still step.
+function Stepper:Set(text, canPrev, canNext)
+    self.text:SetText(text or "")
+    self.prev:SetEnabled(canPrev and true or false)
+    self.next:SetEnabled(canNext and true or false)
+end
+
+-- UI:CreateStepper(parent, width, onStep, opts) -> stepper: a value between two chevrons on the sleek button's surface
+-- (a day / a time / minutes); the chevrons and the mouse wheel call onStep(-1 | 1). opts: { height (24), tip (a text
+-- or { title, lines... }: its tooltip) }. stepper:Set(text, canPrev, canNext); stepper.text, .prev, .next.
+function UI:CreateStepper(parent, width, onStep, opts)
+    opts = opts or {}
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(width or 110, opts.height or 24)
+    f.bg = f:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints()
+    UI:AddEdges(f)
+    UI:PaintSleek(f, "secondary", false)
+    f.text = UI:Text(f, "emph", "TEXT", { justify = "CENTER" })
+    f.text:SetPoint("CENTER", 0, 0)
+    f.prev = UI:CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
+    f.prev:SetPoint("LEFT", 1, 0)
+    f.next = UI:CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
+    f.next:SetPoint("RIGHT", -1, 0)
+    for k, fn in pairs(Stepper) do f[k] = fn end
+    f:EnableMouse(true)
+    f:EnableMouseWheel(true)
+    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
+    local tip = opts.tip
+    f:SetScript("OnEnter", function(self)
+        UI:PaintSleek(self, "secondary", true)
+        if tip then UI:SetTextTooltip(self, tip, "ANCHOR_TOP") end
+    end)
+    f:SetScript("OnLeave", function(self)
+        UI:PaintSleek(self, "secondary", false)
+        if tip then GameTooltip:Hide() end
+    end)
+    return f
 end
 
 ---------------------------------------------------------------------------
@@ -525,7 +717,7 @@ end
 Seg.SetSelected = Seg.Select
 function Seg:Set(value) self:Select(value) end
 
--- The route-steps bar (the old EUI:CreateSegments(parent, w, h, look)): one segment a step, the done ones filled, the
+-- The route-steps bar (UI:CreateSegments(parent, w, h, look)): one segment a step, the done ones filled, the
 -- next one outlined. s:Set(n, done [, finished]); look "board" | "track" (brighter empties and a dark edge).
 local STEP_NEXT = { 0.337, 0.839, 0.941 }    -- (EUI.TEAL)
 local STEP_DONE = { 0.247, 0.714, 0.812 }    -- (EUI.TEAL_DONE)
@@ -615,7 +807,7 @@ end
 --          of the type scale, "body"), selected (key), readOnly (no clicks: the read-only look of a page) }
 --   seg:Select(key|index [, fire]), seg:GetSelected() -> key, index, seg:SetItems(items), seg:SetEnabled(on),
 --   seg:SetItemEnabled(key, on), seg:SetItemColor(key, color), seg:SetLabel(key, text); seg.buttons[i] (.label).
--- The old call shape UI:CreateSegments(parent, w, h, look) (EUI:CreateSegments) is the route-steps bar.
+-- The call shape UI:CreateSegments(parent, w, h, look) is the route-steps bar.
 function UI:CreateSegments(parent, items, onChange, opts)
     if type(items) == "number" then return H.CreateSteps(parent, items, onChange, opts) end
     opts = type(opts) == "table" and opts or {}
@@ -662,7 +854,7 @@ end
 
 local RAIL_TEXT = { 0.78, 0.78, 0.78 }      -- an item that is not open
 local RAIL_COUNT_HOT = { 1, 0.86, 0.62 }    -- a count that wants you (Needs you)
-local RAIL_OPEN = H.Alpha("GOLD", 0.08)     -- the open item's fill
+local RAIL_OPEN = S:WithAlpha("GOLD", 0.08)     -- the open item's fill
 
 -- An item's icon on tex: a UI.ICON name or atlas index, a texture path / file id (>= 1000), { path, l, r, t, b }, or
 -- function(tex, item, open) that draws it. Tinted item.iconColor, else gold while open (item.gold) or grey.

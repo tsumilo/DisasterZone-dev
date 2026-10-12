@@ -143,7 +143,7 @@ function MyLogTimeline:Create(parent)
         return t
     end
     local function dot(x, y, size, col)
-        local d = take("dot", function() return k.Dot(f.plot, 6, C.gold, 1, "OVERLAY") end)
+        local d = take("dot", function() return UI():CreateDot(f.plot, 6, C.gold, { alpha = 1 }) end)
         d:SetVertexColor(col[1], col[2], col[3], 1)
         d:SetSize(size, size)
         d:ClearAllPoints()

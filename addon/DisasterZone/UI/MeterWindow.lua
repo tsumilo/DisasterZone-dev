@@ -134,7 +134,7 @@ function K.SpellIcon(key, a)
     return tex or 134400
 end
 function K.IconText(key, size, a)
-    return strformat("|T%s:%d:%d:0:0:64:64:5:59:5:59|t", tostring(K.SpellIcon(key, a)), size or 14, size or 14)
+    return ns.UI:IconText(K.SpellIcon(key, a), size or 14, true)
 end
 
 -- The flat atlas glyph (UI.ICON) on a texture.

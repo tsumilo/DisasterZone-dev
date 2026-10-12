@@ -267,7 +267,7 @@ local function showRecipeTooltip(owner, recipe)
         GameTooltip:SetItemByID(recipe.item)
         if T then T.skipCrafters, T.noMats = nil, nil end
     elseif not setRecipeSpell(GameTooltip, recipe.spell) then
-        GameTooltip:AddLine(recipe.name, S:Color("GOLD"))
+        GameTooltip:AddLine(recipe.name, S:RGB("GOLD"))
     end
     local names, online = {}, 0
     for i, c in ipairs(sortedCrafters(recipe)) do
@@ -1286,22 +1286,6 @@ local function updateSpecs(right, member)
     end
 end
 
--- The banner's title: down the type scale (hero, page, title) until it fits its room, then cut with "...".
--- TODO(refactor): move into UI:CreatePageBanner (step the title down the scale before cutting it)
-local TITLE_STEPS = { "hero", "page", "title" }
-local function fitBannerTitle(b)
-    local t, room = b.titleText, b.titleRoom
-    if not (t and t ~= "" and room) then return end
-    local r, g, bl = b.title:GetTextColor()
-    for _, st in ipairs(TITLE_STEPS) do
-        ns.UI:SetTextStyle(b.title, st, { r, g, bl })
-        b.title:SetText(t)
-        if ns.UI:TextWidth(b.title) <= room then break end
-    end
-    ns.UI:FitText(b.title, t, room)
-    b.title:SetWidth(math.floor(math.min(ns.UI:TextWidth(b.title), room) + 1))
-end
-
 -- One line from parts in priority order (" · " between them): the lowest ones are dropped until it fits `room`
 -- (never "..."; the header's tooltip has them all). Measured on fs (the line's own font string).
 local function fitParts(fs, parts, room)
@@ -1351,18 +1335,6 @@ local function shareRef()
     return state.member and ns.Share:MemberRef(state.member) or nil
 end
 
--- (the click of ns.Share:CreateButton, for the banner's tool: the share window, Shift: straight into the chat box)
--- TODO(refactor): move into UI/Share.lua (a banner tool for Share: ns.Share:Tool(getRef) -> { icon, onClick, tip })
-local function shareClick(btn)
-    local ref = shareRef()
-    if not (ref and ns.Share:Describe(ref)) then return end
-    if IsShiftKeyDown() then
-        ns.Share:PutInChat(ref)
-    elseif ns.ShareWindow then
-        ns.ShareWindow:Open(ref, btn)
-    end
-end
-
 -- The banner's tools at its top right (share; show on the map while they share with me; add an officer note) and its
 -- action at the bottom right (Whisper / Link in chat). Keeps right.share / onMap / addNote / whisper / link on the
 -- shown buttons (right.none, a hidden button, for the ones not shown). Returns the width the tools and the action
@@ -1376,10 +1348,7 @@ local function updateBannerButtons(right, member, recipe, whisperTo)
         keys[#tools] = "onMap"
     end
     if member or recipe then
-        local d = ns.Share:Describe(shareRef() or "")
-        tools[#tools + 1] = { icon = SHARE_ICON, title = "Share", onClick = shareClick,
-            text = "Post a link in chat that opens " .. (d and d.label and S:Wrap("WARN", d.label) or "this")
-                .. " in DisasterZone.\n" .. S:Wrap("SUB", "Shift-click: into your chat box") }
+        tools[#tools + 1] = ns.Share:Tool(shareRef)
         keys[#tools] = "share"
     end
     if member and right.canAddNote then
@@ -1415,15 +1384,10 @@ local function updateBannerButtons(right, member, recipe, whisperTo)
 end
 
 -- The card's tabs on the banner's foot (a member's card only): Characters / Professions / Equipment / Attendance with
--- counts. TODO(refactor): UI:CreateLayout's listdetail should leave out a hidden tabs strip; until then the strip
--- leaves the layout while a recipe is open.
+-- counts. While a recipe is open the strip is hidden and gives its room back (Layout:SetTabsShown).
 local function updateTabs(p, member)
-    local L, tabs = p.layout, p.cardTabs
-    if (L.tabs ~= nil) ~= (member ~= nil) then
-        L.tabs = member and tabs or nil
-        tabs:SetShown(member ~= nil)
-        L:Layout()
-    end
+    local tabs = p.cardTabs
+    p.layout:SetTabsShown(member ~= nil)
     if not member then return end
     tabs:SetTabShown("att", canSeeAttendance(member))
     local others = #P():GetOtherCharacters(member)
@@ -1512,9 +1476,6 @@ local function updateDetail(p)
     if has then
         -- the name up to the tools; the meta line under them has the banner's whole width
         local textX = b.textX or HEAD_TEXT_X
-        local toolsW = 0
-        for _, f in ipairs(b.tools) do toolsW = toolsW + f:GetWidth() + 4 end
-        b.titleRoom = cardWidth() - textX - BAN_X - 8 - toolsW
         b:SetTitle(title)
         if member then b:SetSub(fitParts(b.sub, right.metaParts, cardWidth() - textX - 16)) end
         -- the hover area stops short of the buttons, pinned to the card's right edge so it follows resizes
@@ -1582,11 +1543,8 @@ local function createCard(p, L)
     b.dotRing:SetPoint("CENTER", b.icon, "BOTTOMRIGHT", -2, 2)
     b.dot = disc(b.icon, "OVERLAY", 2, 9)
     b.dot:SetPoint("CENTER", b.dotRing, "CENTER")
-    local baseLayout = b.Layout
-    function b:Layout()
-        baseLayout(self)
-        fitBannerTitle(self)
-    end
+    -- the title: down the type scale (hero, page, title) until it fits left of the tools, then cut with "..."
+    b:SetTitleFit({ "hero", "page", "title" })
     -- hovering the icon and name: the recipe's tooltip, or everything about the member (the meta line may have
     -- dropped parts to fit)
     right.headHit = CreateFrame("Frame", nil, b)

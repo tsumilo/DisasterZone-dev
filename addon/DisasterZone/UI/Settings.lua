@@ -233,7 +233,7 @@ end
 local function ShowTip(owner, title, text)
     local tt = _G.GameTooltip
     tt:SetOwner(owner, "ANCHOR_TOP")
-    tt:AddLine(title, S:Color("GOLD"))
+    tt:AddLine(title, S:RGB("GOLD"))
     tt:AddLine(text, 1, 1, 1, true)
     tt:Show()
 end
@@ -319,10 +319,10 @@ end
 -- (UI:AttachTooltip's builder for a page card: its name, its line, the clicks)
 local function CardTip(c, tt)
     local Arc = ns.MinimapArc
-    tt:AddLine(ns.MainFrame:GetPageLabel(c.key) or c.key, S:Color("TEXT"))
+    tt:AddLine(ns.MainFrame:GetPageLabel(c.key) or c.key, S:RGB("TEXT"))
     local tip = ns.MainFrame:GetPageTip(c.key) or CARD_TIPS[c.key]
     if type(tip) == "string" and tip ~= "" then tt:AddLine(tip, S.C.GOLD[1], S.C.GOLD[2], S.C.GOLD[3], true) end
-    tt:AddLine("Click: open it", S:Color("SUB"))
+    tt:AddLine("Click: open it", S:RGB("SUB"))
     if Arc then
         tt:AddLine(Arc:IsPinned(c.key) and "Right-click: unpin from the minimap" or "Right-click: pin to the minimap",
             S:Color("SUB"))
@@ -718,7 +718,7 @@ end
 
 function SettingsUI:Dropdown(sec, title, desc, getOptions, getSelected, onSelect, tip)
     local row = self:Row(sec, title, desc, tip)
-    local dd = ns.UI:CreateDropdown(row, DD_W, getOptions, getSelected, onSelect)
+    local dd = ns.UI:CreateSleekDropdown(row, DD_W, getOptions, getSelected, onSelect)
     dd:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     dd.cdlLabel = row.title
     if tip then
@@ -1272,7 +1272,7 @@ function SettingsUI:BuildMyLog(sec)
         armed = nil
         del:SetText("Delete all my logs")
     end
-    del = ns.UI:CreateButton(row, "Delete all my logs", 150, 22, function()
+    del = ns.UI:CreateSleekButton(row, "Delete all my logs", 150, 22, function()
         if armed then
             disarm()
             if ns.MyLog then ns.MyLog:DeleteAll() end
@@ -1335,7 +1335,7 @@ function SettingsUI:BuildMeters(sec)
     local row = self:Row(sec, "Clear all fights", "Empties the fight list and Whole raid.")
     local armed, clr
     local function disarm() armed = nil; clr:SetText("Clear") end
-    clr = ns.UI:CreateButton(row, "Clear", 120, 22, function()
+    clr = ns.UI:CreateSleekButton(row, "Clear", 120, 22, function()
         if armed then
             disarm()
             if ns.Meter then ns.Meter:ClearAll() end
@@ -1398,7 +1398,7 @@ function SettingsUI:BuildMeters(sec)
     Track("both", self:SwitchSetting(sec, "Lock panels", "Unlock to move, dock and resize them.", "meters.locked", true,
         "Unlocked, drag a header next to another panel to dock it, or onto its header to make a tab. + on a header adds a panel."))
     local lrow = self:Row(sec, "Reset layout", "Back to one stack: Threat over Damage done.")
-    local lbtn = ns.UI:CreateButton(lrow, "Reset", 120, 22, function()
+    local lbtn = ns.UI:CreateSleekButton(lrow, "Reset", 120, 22, function()
         if ns.MeterPanels then ns.MeterPanels:ResetLayout() end
     end)
     lbtn:SetPoint("RIGHT", lrow, "RIGHT", 0, 0)
@@ -1438,7 +1438,7 @@ function SettingsUI:BuildTutorials(sec)
     self.tut = t
     local function rowWithButton(title, label, onClick)
         local row = self:Row(sec, title, " ")
-        local b = ns.UI:CreateButton(row, label, TUT_BTN_W, 22, onClick)
+        local b = ns.UI:CreateSleekButton(row, label, TUT_BTN_W, 22, onClick)
         b:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         row.btn = b
         PlaceText(row, TUT_BTN_W)
@@ -1578,18 +1578,18 @@ function SettingsUI:BuildDemo(sec)
         end)
     self:EndSection(sec)
     local y = sec.y - 16
-    local sim = ns.UI:CreateButton(sec, "Simulate a boss drop", nil, 22, function()
+    local sim = ns.UI:CreateSleekButton(sec, "Simulate a boss drop", nil, 22, function()
         if ns.Loot and ns.Loot.SimulateDrop then ns.Loot:SimulateDrop() end
     end)
     Put(sim, sec, 0, y)
     AddTooltip(sim, "Simulate a boss drop", "Opens the drop panel with a made-up boss drop. In demo mode, click Roll "
         .. "on any of its items to watch a roll.")
     local demoRoll
-    demoRoll = ns.UI:CreateButton(sec, "Demo a roll", nil, 22, function() SettingsUI:OpenDemoRollMenu(demoRoll) end)
+    demoRoll = ns.UI:CreateSleekButton(sec, "Demo a roll", nil, 22, function() SettingsUI:OpenDemoRollMenu(demoRoll) end)
     demoRoll:SetPoint("LEFT", sim, "RIGHT", 8, 0)
     AddTooltip(demoRoll, "Demo a roll", "Turns on demo mode and starts a roll the demo raid answers: a random prized "
         .. "drop, or a scenario that shows one of the guild's loot rules (also /dz demo <name>). Nothing is sent.")
-    local recent = ns.UI:CreateButton(sec, "Recent drops", nil, 22, function()
+    local recent = ns.UI:CreateSleekButton(sec, "Recent drops", nil, 22, function()
         if ns.DropPanel and ns.DropPanel.ShowHistory then ns.DropPanel:ShowHistory() end
     end)
     recent:SetPoint("LEFT", demoRoll, "RIGHT", 8, 0)
@@ -1604,7 +1604,7 @@ function SettingsUI:BuildAbout(sec)
     self.aboutPeers = vrow.desc
     local srow = self:Row(sec, "BiS list sharing", "")
     self.aboutSync = srow.desc
-    local syncBtn = ns.UI:CreateButton(srow, "Request sync", 112, 22, function()
+    local syncBtn = ns.UI:CreateSleekButton(srow, "Request sync", 112, 22, function()
         if ns.Sync and ns.Sync.RequestSync then ns.Sync:RequestSync() end
     end)
     syncBtn:SetPoint("RIGHT", srow, "RIGHT", 0, 0)
@@ -1858,12 +1858,12 @@ local function MemberTip(self, tt)
     tt:AddLine(ColoredName(self.key))
     local G = ns.Guild
     local rank = G and G.GetRankName and G:GetRankName(self.key)
-    if rank then tt:AddLine(rank, S:Color("TEXT")) end
-    tt:AddLine(self.online and "Online" or "Offline", S:Color("SUB"))
+    if rank then tt:AddLine(rank, S:RGB("TEXT")) end
+    tt:AddLine(self.online and "Online" or "Offline", S:RGB("SUB"))
     if self.fixed == "Master looter" then
-        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", S:Color("SUB"))
+        tt:AddLine("Master looter: on this raid's council while the raid runs the loot council", S:RGB("SUB"))
     elseif self.fixed then
-        tt:AddLine(self.fixed .. ": always on the council", S:Color("SUB"))
+        tt:AddLine(self.fixed .. ": always on the council", S:RGB("SUB"))
     end
 end
 
@@ -1916,7 +1916,7 @@ function SettingsUI:BuildCouncil(sec)
     cs.members = {}
     cs.raidSummary = UI:Text(cs, "emph", nil, { width = BODY_W, wrap = true })
     cs.raidMembers = {}
-    cs.editBtn = ns.UI:CreateButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
+    cs.editBtn = ns.UI:CreateSleekButton(cs, "Edit council", 116, 22, function() SettingsUI:OpenCouncilEditor() end)
     cs.editBtn:SetPoint("RIGHT", cs, "TOPRIGHT", 0, -TITLE_H / 2)
     AddTooltip(cs.editBtn, "Edit council",
         "Opens the Loot Council picker (Council tab). The Guild Master picks the guild council; "
@@ -2054,34 +2054,6 @@ local ATT_ROWS = {
 local ATT_MAX = 60
 local STEP_W = 110
 
--- A value between two chevrons in a flat box; the mouse wheel steps it too.
--- TODO(refactor): move into a shared stepper control (UI/Comp/Controls.lua): the event builder and the team page
--- have their own copies.
-local function NewStepper(parent, onStep)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(STEP_W, 24)
-    f.bg = UI:Fill(f, "CARD")
-    UI:AddEdges(f)
-    UI:SetEdgeColor(f, S:Color("EDGE_STRONG"))
-    f.text = UI:Text(f, "emph")
-    f.text:SetPoint("CENTER")
-    f.prev = ns.UI:CreateArrowButton(f, false, 22, 22, function() onStep(-1) end)
-    f.prev:SetPoint("LEFT", 1, 0)
-    f.next = ns.UI:CreateArrowButton(f, true, 22, 22, function() onStep(1) end)
-    f.next:SetPoint("RIGHT", -1, 0)
-    f:EnableMouse(true)
-    f:EnableMouseWheel(true)
-    f:SetScript("OnMouseWheel", function(_, delta) onStep(delta > 0 and 1 or -1) end)
-    f:SetScript("OnEnter", function(self) UI:SetEdgeColor(self, S:Color("EDGE_FOCUS")) end)
-    f:SetScript("OnLeave", function(self) UI:SetEdgeColor(self, S:Color("EDGE_STRONG")) end)
-    function f:Set(n)
-        self.text:SetText(n .. " min")
-        self.prev:SetEnabled(n > 0)
-        self.next:SetEnabled(n < ATT_MAX)
-    end
-    return f
-end
-
 local function CanSetAttendance()
     local G = ns.Guild
     return G and G.IsGM and ns.Util and G:IsGM(ns.Util.PlayerKey()) and true or false
@@ -2094,7 +2066,7 @@ function SettingsUI:BuildAttendance(sec)
     sec.steppers = {}
     for _, r in ipairs(ATT_ROWS) do
         local row = self:Row(sec, r.title, r.desc)
-        local st = NewStepper(row, function(dir) SettingsUI:StepAttendance(r.field, dir) end)
+        local st = UI:CreateStepper(row, STEP_W, function(dir) SettingsUI:StepAttendance(r.field, dir) end)
         st:SetPoint("RIGHT", row, "RIGHT", 0, 0)
         row.control = st
         AddValueText(row)
@@ -2139,7 +2111,7 @@ function SettingsUI:RefreshAttendance()
     sec.notice:SetNotice(gm and "info" or "readonly", sec.status:GetText())
     for _, row in ipairs(sec.rows) do
         local n = tonumber(rules[row.field]) or 0
-        row.control:Set(n)
+        row.control:Set(n .. " min", n > 0, n < ATT_MAX)
         SetReadOnly(row, not gm, n .. " min")
     end
 end

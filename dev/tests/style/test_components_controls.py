@@ -1,9 +1,9 @@
 """Refactor 1.4, phase 2: the shared controls of UI/Comp/Controls.lua.
 
-UI:CreatePill (THE pill: every look of UI.PILL_LOOK = UI.TAG_LOOK plus the event kinds; UI:CreateTagPill and
-EUI:CreatePill are aliases with the old call shape), UI:CreateChip (EUI:CreateChip's look, plus opts / click /
-selected), UI:CreateSegments (a row of choices; the old (parent, w, h, look) shape is the route-steps bar of
-EUI:CreateSegments) and UI:CreateRailNav (the side menu of Settings / Notifications).
+UI:CreatePill (THE pill: every look of UI.PILL_LOOK = UI.TAG_LOOK plus the event kinds; the old aliases
+UI:CreateTagPill / EUI:CreatePill / EUI:CreateChip / EUI:CreateSegments are gone, their call shapes stay),
+UI:CreateChip (the events' chip looks, plus opts / click / selected), UI:CreateSegments (a row of choices; the
+(parent, w, h, look) shape is the route-steps bar) and UI:CreateRailNav (the side menu of Settings / Notifications).
 
 Run: luaenv\\Scripts\\python.exe tests\\style\\test_components_controls.py [-k name]
 """
@@ -36,7 +36,7 @@ def the_pill_looks_are_one_table_with_the_event_looks_in_it():
         return { same = UI.TAG_LOOK == L, names = names, live = L.live.text, rank = L.rank.text,
                  bis = L.bis.text, gold = ns.Style.C.GOLD }""")
     assert out["same"] is True, out
-    assert out["names"] == ["alt", "bis", "live", "mute", "ok", "os", "rank", "warn"], out
+    assert out["names"] == ["alt", "bad", "bis", "live", "mute", "ok", "os", "rank", "warn"], out   # (1.4 cleanup: "bad" for a worse number)
     assert near(out["live"], [1, 0.77, 0.72]) and near(out["rank"], [1, 0.88, 0.54]), out
     assert near(out["bis"], out["gold"][:3]), out
     no_errors(w)
@@ -83,20 +83,20 @@ def create_pill_takes_a_kind_and_text_and_sizes_itself():
 
 
 @case
-def the_old_pill_names_keep_their_call_shapes():
+def the_pill_keeps_the_old_call_shapes():
     w, c = solo("Rai", guild_rank=0, tick=2)
     out = c.eval_py("""
         local UI, EUI = ns.UI, ns.EventUI
-        -- UI:CreateTagPill(parent, h) + p:Set(text, look, icon) + p:SetBase(r, g, b)
-        local t = UI:CreateTagPill(UIParent, 13)
+        -- UI:CreatePill(parent, h) + p:Set(text, look, icon) + p:SetBase(r, g, b)
+        local t = UI:CreatePill(UIParent, 13)
         t:SetBase(0, 0, 0)
         t:Set("Alt P2", "alt")
         local res = { tagH = t:GetHeight(), tagText = t.fs:GetText(), tagCol = { t.fs:GetTextColor() } }
         t:Set("With icon", "os", "Interface\\\\Icons\\\\INV_Misc_QuestionMark")
         res.tagIcon = t.icon:IsShown()
-        res.tagDefault = UI:CreateTagPill(UIParent):GetHeight()
-        -- EUI:CreatePill(parent, h) + p:SetKind(text, kind)
-        local e = EUI:CreatePill(UIParent, 17)
+        res.tagDefault = UI:CreatePill(UIParent):GetHeight()
+        -- UI:CreatePill(parent, h) + p:SetKind(text, kind) (the events' call)
+        local e = UI:CreatePill(UIParent, 17)
         e:SetKind("Live", "live")
         res.eH = e:GetHeight()
         res.eText = e.fs:GetText()
@@ -108,7 +108,9 @@ def the_old_pill_names_keep_their_call_shapes():
         res.bisCol = { e.fs:GetTextColor() }
         e:SetKind("Ranked", "rank")
         res.rankIcon = e.icon:IsShown()
-        res.eDefault = EUI:CreatePill(UIParent):GetHeight()
+        res.eDefault = UI:CreatePill(UIParent):GetHeight()
+        res.aliasesGone = UI.CreateTagPill == nil and EUI.CreatePill == nil and EUI.CreateSegments == nil
+            and EUI.CreateChip == nil
         return res""")
     assert out["tagH"] == 13 and out["tagText"] == "Alt P2" and near(out["tagCol"], [0.56, 0.78, 1]), out
     assert out["tagIcon"] is True and out["tagDefault"] == 16, out
@@ -116,6 +118,7 @@ def the_old_pill_names_keep_their_call_shapes():
     assert near(out["backCol"], [1, 0.69, 0.40]), out
     assert near(out["bisCol"], [0.72, 0.72, 0.72]), out
     assert out["rankIcon"] is True and out["eDefault"] == 16, out
+    assert out["aliasesGone"] is True, out
     no_errors(w)
 
 
@@ -127,11 +130,11 @@ def chips_keep_the_event_looks_and_take_options():
     w, c = solo("Rai", guild_rank=0, tick=2)
     out = c.eval_py("""
         local UI, EUI = ns.UI, ns.EventUI
-        local tr = EUI:CreateChip(UIParent, "track")
+        local tr = UI:CreateChip(UIParent, "track")
         tr:Set("Hogger", { 1, 0, 0 })
         local res = { trH = tr:GetHeight(), trText = tr.fs:GetText(), dot = tr.dot:IsShown(), cls = tr.cls:IsShown(),
                       trCol = { tr.fs:GetTextColor() }, trW = tr:GetWidth() }
-        local you = EUI:CreateChip(UIParent, "you")
+        local you = UI:CreateChip(UIParent, "you")
         you:Set("Rai", nil, "PALADIN")
         res.youH = you:GetHeight()
         res.youCls = you.cls:IsShown()
@@ -237,7 +240,7 @@ def the_old_segments_shape_is_the_route_steps_bar():
     w, c = solo("Rai", guild_rank=0, tick=2)
     out = c.eval_py("""
         local UI, EUI = ns.UI, ns.EventUI
-        local s = EUI:CreateSegments(UIParent, 128, 6, "board")
+        local s = UI:CreateSegments(UIParent, 128, 6, "board")
         s:Set(5, 2)
         local res = { w = s:GetWidth(), h = s:GetHeight(), look = s.look, n = #s.segs }
         local shown = 0

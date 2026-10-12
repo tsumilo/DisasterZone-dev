@@ -210,14 +210,9 @@ local function Paint(t, c, a)
     t:SetVertexColor(c[1], c[2], c[3], a or c[4] or 1)
 end
 
--- (a vertical gradient over a shape of the atlas: UI:Gradient would swap the shape for a flat texture)
--- TODO(refactor): move into UI:Gradient (an option that keeps the texture under the gradient)
+-- (a vertical gradient over a shape of the atlas: UI:GradientRGBA keeping the shape under it)
 local function ShapeGradient(t, top, bottom)
-    if t.SetGradient and CreateColor then
-        t:SetGradient("VERTICAL", CreateColor(bottom[1], bottom[2], bottom[3], 1), CreateColor(top[1], top[2], top[3], 1))
-    else
-        t:SetVertexColor((top[1] + bottom[1]) / 2, (top[2] + bottom[2]) / 2, (top[3] + bottom[3]) / 2, 1)
-    end
+    ns.UI:GradientRGBA(t, "VERTICAL", bottom[1], bottom[2], bottom[3], 1, top[1], top[2], top[3], 1, true)
 end
 
 local function Mix(a, b, k) return { a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k, a[3] + (b[3] - a[3]) * k } end

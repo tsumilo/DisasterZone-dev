@@ -697,21 +697,6 @@ end
 -- The toolbar: the greeting, then the action chips (UI:CreateChip)
 ---------------------------------------------------------------------------
 
--- A chip's look by the action's kind: the board header's chip ("you") with the kind's edge and text.
--- TODO(refactor): move into UI.CHIP_LOOK (UI/Comp/Controls.lua): kinds plain / warn / info / bad.
-local CHIP_LOOK = {}
-do
-    local you = UI().CHIP_LOOK.you
-    local function look(edge, a, text)
-        local r, g, b = S:Color(edge)
-        return { h = you.h, fill = you.fill, edge = { r, g, b, a }, text = text, x = you.x, pad = you.pad }
-    end
-    CHIP_LOOK.plain = look("EDGE_STRONG", 0.7, S.C.TEXT)
-    CHIP_LOOK.warn = look("WARN", 0.7, { 1, 0.82, 0.65 })
-    CHIP_LOOK.info = look("YOU", 0.55, { 0.81, 0.91, 1 })
-    CHIP_LOOK.bad = look("BAD", 0.85, { 1, 0.82, 0.78 })
-end
-
 local function newChip(parent)
     local c = UI():CreateChip(parent, { kind = "you", onClick = function(self) if self.onAction then self.onAction() end end })
     c.text = c.fs
@@ -720,15 +705,12 @@ end
 
 local function fillChip(c, a)
     c.kind, c.tip, c.onAction = a.kind or "plain", a.tip, a.onClick
-    c.look = CHIP_LOOK[c.kind] or CHIP_LOOK.plain
+    -- (a chip's look by the action's kind: UI.CHIP_LOOK plain / warn / info / bad, the "you" chip's shape)
+    local CL = UI().CHIP_LOOK
+    c.look = ({ plain = CL.plain, warn = CL.warn, info = CL.info, bad = CL.bad })[c.kind] or CL.plain
     local ic = a.icon
-    c:SetIcon(ic and ic.tex or nil)
+    c:SetIcon(ic and ic.tex or nil, ic and ic.coords or nil, nil, ic and ic.desat)
     c:Set(a.text)
-    if ic then
-        local tc = ic.coords
-        if tc then c.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) else c.icon:SetTexCoord(0, 1, 0, 1) end
-        c.icon:SetDesaturated(ic.desat and true or false)
-    end
 end
 
 -- The greeting leads the toolbar; the chips follow it while they fit (the rest behind "+N more").
@@ -1716,18 +1698,6 @@ end
 local function newAgendaRow(card)
     local r = UI():CreateArtRow(card, { width = AGENDA_W })
     r.l1, r.l2, r.thumb = r.title, r.sub, r.art.tex
-    -- (a status too long for the narrow column takes a second line instead of being cut)
-    -- TODO(refactor): move into UI:CreateArtRow (opts.wrapSub: the second line wraps to two lines)
-    local fit = r.FitTitle
-    function r:FitTitle()
-        fit(self)
-        self.sub:SetWordWrap(self.wrapSub and true or false)
-        if self.sub.SetMaxLines then self.sub:SetMaxLines(self.wrapSub and 2 or 1) end
-        if self.wrapSub then
-            self.sub:SetWidth(max(20, (self:GetWidth() or 0) - self.textX - 8))
-            self.sub:SetText(self.subText or "")
-        end
-    end
     r:SetScript("OnClick", Row_OnClick)
     return attachTip(r, "ANCHOR_RIGHT")
 end
@@ -1736,7 +1706,8 @@ end
 local function fillAgendaRow(r, d, width)
     local ev = d.ev
     local textX = ev and (r.art:GetWidth() + 2 + 14) or 2
-    r.wrapSub = ev ~= nil and (d.l2 or "") ~= "" and UI():TextWidth(d.l2, "body") > width - textX - 8
+    -- (a status too long for the narrow column takes a second line instead of being cut: the row's wrapSub)
+    local wrap = ev ~= nil and (d.l2 or "") ~= "" and UI():TextWidth(d.l2, "body") > width - textX - 8
     r:SetWidth(width)
     r:SetData({ art = ev and function(tex, w, h)
                     local file, l, rr, t, b = eventArt(ev, w, h)
@@ -1747,18 +1718,12 @@ local function fillAgendaRow(r, d, width)
                         tex:SetColorTexture(S:Color("INSET"))
                     end
                 end or nil,
-                title = d.l1 or "", sub = (d.l2 or "") ~= "" and d.l2 or nil })
-    r.art:SetShown(ev ~= nil)
+                title = d.l1 or "", sub = (d.l2 or "") ~= "" and d.l2 or nil, wrapSub = wrap,
+                textOnly = ev == nil })                -- (a line alone starts at the row's left)
     r.art.tex:SetDesaturated(d.past and true or false)
     r.art:SetAlpha(d.past and 0.6 or 1)
-    local h = ev and (S.ROW.art + (r.wrapSub and 12 or 0)) or S.ROW.compact
+    local h = ev and (S.ROW.art + (wrap and 12 or 0)) or S.ROW.compact
     r:SetHeight(h)
-    r.textX = textX
-    if not ev then
-        -- (a line alone starts at the row's left)
-        r.title:ClearAllPoints()
-        r.title:SetPoint("LEFT", r, "LEFT", 2, 0)
-    end
     r:FitTitle()
     r.tip, r.onClick = d.tip, d.onClick
     r:EnableMouse((d.tip or d.onClick) and true or false)

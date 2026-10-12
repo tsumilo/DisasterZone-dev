@@ -76,10 +76,7 @@ local function LedgerDB()
     return db.ledger
 end
 
-local function DemoOn()
-    local Demo = ns.Demo
-    return (Demo and Demo.IsEnabled and Demo:IsEnabled()) and true or false
-end
+local DemoOn = Util.DemoOn
 
 -- Where reads and user-initiated writes go: the demo table while demo mode is on.
 local function ActiveDB()

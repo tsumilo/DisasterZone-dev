@@ -50,13 +50,6 @@ local ICON = {
     other = 134400,     -- INV_Misc_QuestionMark
     copy = 17,          -- (UI.ICON_ATLAS index: two sheets)
 }
--- TODO(refactor): move into Data/Raids.lua (ns.Data.RaidMeta[key].icon: the raid's LFG icon)
--- uniformity: RaidMeta has no LFG icon field yet and Data/Raids.lua is not this page's to change; the one raid table
--- left here is these icons (names, art and short names come from ItemDB).
-local RAID_ICON = {
-    Karazhan = 136343, GruulsLair = 136337, MagtheridonsLair = 136340, SerpentshrineCavern = 136356,
-    TempestKeep = 136362, HyjalSummit = 136341, BlackTemple = 136328, ZulAman = 136367, SunwellPlateau = 136361,
-}
 local BADGE_ITEM = 29434                 -- Badge of Justice
 
 -- What is still to get, by source (the centre's counts), after the raids (by phase).
@@ -381,7 +374,7 @@ local function Describe(itemID)
         local short = RaidShort(ref)
         local prefix = (src.via == "token" or src.via == "arena") and "Token · " or (src.via == "upgrade" and "Sunmote · ") or ""
         local zone = (boss.isTrash or raid.key == "WorldBosses") and "" or (" · " .. short)
-        d.icon = RAID_ICON[raid.key] or ICON.raid
+        d.icon = ns.ItemDB:RaidIcon(raid.key) or ICON.raid
         if boss.isTrash then
             d.text = prefix .. short .. " trash"
             d.short = d.text
@@ -911,7 +904,7 @@ local function CreateSpecTab(parent)
     ns.UI:AttachTooltip(t, function(self, tt)
         local main, off = MainLabel(), OffLabel()
         local isM, isO = self.spec == main, self.spec == off
-        tt:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), S:Color("GOLD"))
+        tt:AddLine(self.spec .. (isM and "  ·  main spec" or isO and "  ·  off spec" or ""), S:RGB("GOLD"))
         if isM then
             tt:AddLine("The council ranks these picks first.", 1, 1, 1, true)
         elseif isO then
@@ -1091,7 +1084,7 @@ local function BuildSuggestMenu(root)
                     end)
                 if radio and radio.SetTooltip then
                     radio:SetTooltip(function(tt)
-                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:Color("GOLD"))
+                        tt:AddLine(ns.Gems.QUALITY_WORDS[q] .. " gems", S:RGB("GOLD"))
                         tt:AddLine(q == 4 and "The best gems for your spec." or ("The strongest " .. ns.Gems.QUALITY_WORDS[q]:lower()
                             .. " gems for your spec, for when the best ones cost too much. The meta gem still gets "
                             .. "its colours."), 1, 1, 1, true)
@@ -1105,7 +1098,7 @@ local function BuildSuggestMenu(root)
         end)
         if b and b.SetTooltip then
             b:SetTooltip(function(tt)
-                tt:AddLine("Gems and enchants", S:Color("GOLD"))
+                tt:AddLine("Gems and enchants", S:RGB("GOLD"))
                 tt:AddLine(("Puts the %s guide's gems and enchants on every pick of %s that has an empty socket or "
                     .. "no enchant. What you chose stays."):format(spec, PL(phase)), 1, 1, 1, true)
             end)
@@ -1128,7 +1121,7 @@ local function BuildMoreMenu(root)
         local b = root:CreateButton(UI:AtlasIconText(icon, 14, color) .. "  " .. text, fn)
         if b and b.SetTooltip then
             b:SetTooltip(function(tooltip)
-                tooltip:AddLine(text, S:Color("GOLD"))
+                tooltip:AddLine(text, S:RGB("GOLD"))
                 tooltip:AddLine(tip, 1, 1, 1, true)
             end)
         end
@@ -1320,13 +1313,13 @@ local function RowTooltip(row, tt)
     local g = row.group
     if not g then return false end
     if g.rest then
-        tt:AddLine("Also still to get", S:Color("GOLD"))
+        tt:AddLine("Also still to get", S:RGB("GOLD"))
         for _, x in ipairs(g.rest) do
             tt:AddDoubleLine(x.name, tostring(x.count), 1, 1, 1, 0.7, 0.7, 0.7)
         end
         return
     end
-    tt:AddLine(g.name, S:Color("GOLD"))
+    tt:AddLine(g.name, S:RGB("GOLD"))
     for _, it in ipairs(g.items) do
         local text = ns.UI:ItemText(it.itemID)
         tt:AddDoubleLine(text, it.where or "", 1, 1, 1, 0.7, 0.7, 0.7)
@@ -1379,17 +1372,9 @@ local function CreateCard(parent, w, h)
     c.count = UI:Text(c, "emph", "TEXT", { justify = "CENTER" })
     c.count:SetPoint("TOP", c, "TOP", 0, -4)
     c.title = c.count                       -- (older callers)
-    -- TODO(refactor): move into a shared progress bar (a 3 px track and fill; the Shopping list's materials and
-    -- Consumables' run have the same bar)
-    c.track = c:CreateTexture(nil, "ARTWORK")
-    c.track:SetSize(BAR_W, 3)
-    c.track:SetPoint("TOP", c.count, "BOTTOM", 0, -7)
-    c.track:SetColorTexture(S:Color("HAIRLINE"))
-    c.fill = c:CreateTexture(nil, "ARTWORK", nil, 1)
-    c.fill:SetHeight(3)
-    c.fill:SetPoint("LEFT", c.track, "LEFT", 0, 0)
-    local gr, gg, gb = S:Color("GOLD")
-    c.fill:SetColorTexture(gr, gg, gb, 0.95)
+    c.bar = UI:CreateProgressBar(c, { width = BAR_W, height = 3, color = S:WithAlpha("GOLD", 0.95) })
+    c.bar:SetPoint("TOP", c.count, "BOTTOM", 0, -7)
+    c.track, c.fill = c.bar, c.bar.fill     -- (older names)
     c.progress = CreateFrame("Frame", nil, c)
     c.progress:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
     c.progress:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
@@ -1530,10 +1515,8 @@ local function UpdateCard(phase)
         .. ("|cffffffff%d|r " .. sub .. "of|r |cffffffff%d|r " .. sub .. "obtained|r"):format(info.obtained, info.total))
     -- nothing picked: no count (the note under the model says what to do)
     card.count:SetShown(info.filled > 0)
-    card.track:SetShown(info.filled > 0)
-    local share = info.total > 0 and min(1, info.obtained / info.total) or 0
-    card.fill:SetWidth(max(1, floor(BAR_W * share + 0.5)))
-    card.fill:SetShown(share > 0)
+    card.bar:SetShown(info.filled > 0)
+    card.bar:Set(info.total > 0 and min(1, info.obtained / info.total) or 0)
     card.progress.info, card.progress.phase = info, phase
     MyBiS:UpdateFinish(phase, info.filled > 0)
 
@@ -1575,7 +1558,7 @@ end
 local function PhaseButtonTooltip(button, tt)
     local p = button.phase
     local pinfo = ns.PHASE_INFO and ns.PHASE_INFO[p]
-    tt:AddLine(pinfo and pinfo.name or ("Phase " .. p), S:Color("GOLD"))
+    tt:AddLine(pinfo and pinfo.name or ("Phase " .. p), S:RGB("GOLD"))
     if pinfo and pinfo.raids then tt:AddLine(pinfo.raids, 1, 1, 1, true) end
     local main, alt = 0, 0
     for _, e in ipairs(PhaseItems(p)) do
@@ -1632,7 +1615,7 @@ local function CreateLockChip(p)
     end
     UI:AttachTooltip(chip, function(_, tt)
         local _, info = ListLocked()
-        tt:AddLine("BiS lists are locked", S:Color("GOLD"))
+        tt:AddLine("BiS lists are locked", S:RGB("GOLD"))
         tt:AddLine(("%s locked every BiS list in the group for the raid. You can't change picks, "
             .. "spec or disabled slots until they unlock the lists or the group disbands. Items you get "
             .. "(and \"Mark obtained\" in a slot's right-click menu) still update."):format(UI:LockByText(info, true)),
@@ -1923,7 +1906,7 @@ function MyBiS:FillFinishTooltip(owner, tt)
     local G, BiS = ns.Gems, ns.BiS
     local phase = owner.phase or CurrentPhase()
     local view = BiS:GetListView(ListArg())
-    tt:AddLine("Gems and enchants - " .. PL(phase), S:Color("GOLD"))
+    tt:AddLine("Gems and enchants - " .. PL(phase), S:RGB("GOLD"))
     local any = false
     local picks = G:CountedPicks(view, phase, function(sid) return SlotDisabled(phase, sid) end)
     for sid = 1, NUM_SLOTS do
@@ -1944,7 +1927,7 @@ function MyBiS:FillFinishTooltip(owner, tt)
         end
     end
     if not any then
-        tt:AddLine("Every pick has its gems and enchant.", S:Color("OK"))
+        tt:AddLine("Every pick has its gems and enchant.", S:RGB("OK"))
     end
     tt:AddLine("Suggest fills them; ... puts them on the shopping list.", 0.5, 0.5, 0.5, true)
 end

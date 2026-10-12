@@ -1817,17 +1817,11 @@ local function setPager(v, shown)
     if not shown then
         ban:SetTools(nil)
         v.prevBtn, v.nextBtn = nil, nil
-        v.pos:Hide()
         return
     end
-    ban:SetTools({ { icon = "chevron", title = "Next member", onClick = function() stepMember(1) end },
-                   { icon = "chevron", title = "Previous member", onClick = function() stepMember(-1) end } })
+    ban:SetTools({ { icon = "chevron", chevron = "right", title = "Next member", onClick = function() stepMember(1) end },
+                   { icon = "chevron", chevron = "left", title = "Previous member", onClick = function() stepMember(-1) end } })
     v.nextBtn, v.prevBtn = ban.tools[1], ban.tools[2]
-    UI:SetChevron(v.nextBtn.icon, true)
-    UI:SetChevron(v.prevBtn.icon, false)
-    v.pos:ClearAllPoints()
-    v.pos:SetPoint("RIGHT", v.prevBtn, "LEFT", -8, 0)
-    v.pos:Show()
 end
 
 -- The "changed during lock" pill's tooltip (the banner's pill, §38).
@@ -1861,8 +1855,8 @@ local function createMemberView(parent)
     v.back = v.banner.back
     v.name = v.banner.title
     v.info = v.banner.sub
-    v.pos = UI:Text(v.banner, "small", "SUB", { justify = "RIGHT" })
-    v.pos:Hide()
+    v.banner:SetToolsText(nil)
+    v.pos = v.banner.toolsText          -- ("3 / 19": the banner's text beside its tools)
 
     -- §38: "changed during lock" as the title's pill (hover for details)
     v.lockFlag = v.banner.pill
@@ -2066,7 +2060,7 @@ local function refreshMember(phase)
     local ban = v.banner
     ban:SetBack(K.VIEW_LABEL[state.backView or "roster"] or "Roster",
         function() CouncilUI:SetView(state.backView or "roster") end)
-    v.pos:SetText(n > 0 and string.format("%s / %d", idx and tostring(idx) or "-", n) or "")
+    v.banner:SetToolsText(n > 0 and string.format("%s / %d", idx and tostring(idx) or "-", n) or nil)
     setPager(v, n > 1)
 
     if not key then
@@ -2498,7 +2492,7 @@ local function createCouncilSection(parent, kind)
     s.titleTip:SetPoint("TOPLEFT", s.title, "TOPLEFT", -2, 2)
     s.titleTip:SetPoint("BOTTOMRIGHT", s.title, "BOTTOMRIGHT", 2, -2)
     UI:AttachTooltip(s.titleTip, function(_, tt)
-        tt:AddLine(s.title:GetText() or "", S:Color("GOLD"))
+        tt:AddLine(s.title:GetText() or "", S:RGB("GOLD"))
         if s.sub then tt:AddLine(s.sub, 1, 1, 1, true) end
     end, nil, { anchor = "ANCHOR_TOP" })
     s.status = UI:Text(s, "body", "TEXT", { justify = "RIGHT" })
@@ -2522,7 +2516,7 @@ local function createCouncilSection(parent, kind)
 
     if isGuild then
         s.phaseLabel = label(s, "Guild phase")
-        s.phaseDD = ns.UI:CreateDropdown(s, CTRL_W, councilPhaseOptions,
+        s.phaseDD = ns.UI:CreateSleekDropdown(s, CTRL_W, councilPhaseOptions,
             function() return getDraft("guild").phase end,
             function(value) CouncilUI:SetCouncilDraftPhase(value) end)
     end
@@ -2550,14 +2544,9 @@ local function createCouncilSection(parent, kind)
 
     s.listLabel = UI:Text(s, "caps", "SUB", { text = "On the council" })
     -- Clear list: a quiet text link on the list's label row (the rows have the bins)
-    s.clear = CreateFrame("Button", nil, s)
-    s.clear:SetHeight(18)
-    s.clear.text = UI:Text(s.clear, "body", "SUB", { text = "Clear list" })
-    s.clear.text:SetPoint("RIGHT", 0, 0)
-    s.clear:SetWidth(math.floor((s.clear.text:GetStringWidth() or 50) + 4))
-    s.clear:SetScript("OnClick", function() CouncilUI:ConfirmClearCouncil(kind) end)
-    s.clear:SetScript("OnEnter", function(self) self.text:SetTextColor(S:Color("GOLD")) end)
-    s.clear:SetScript("OnLeave", function(self) self.text:SetTextColor(S:Color("SUB")) end)
+    s.clear = UI:CreateTextLink(s, "Clear list", function() CouncilUI:ConfirmClearCouncil(kind) end,
+        { align = "RIGHT", pad = 4, height = 18 })
+    s.clear.text = s.clear.fs
     V.tip(s.clear, "Clear list", isGuild
         and "Removes everyone from the guild council list (asks first). The Guild Master stays council."
         or "Removes everyone from your raid council list (asks first). As raid leader you stay council.")
@@ -2993,7 +2982,7 @@ end
 local function lockStatusTip(_, tt)
     local locked, info = UI:GetBiSLock()
     if not locked then return false end
-    tt:AddLine("BiS lists are locked", S:Color("GOLD"))
+    tt:AddLine("BiS lists are locked", S:RGB("GOLD"))
     tt:AddLine("Locked by " .. UI:LockByText(info, true) .. ". Raiders can't edit their lists; "
         .. "anyone whose list still changes gets a warning marker and is not suggested in rolls.", 1, 1, 1, true)
 end
@@ -3018,7 +3007,7 @@ local function createToolbar(p)
     -- the phase: "Phase [P1]"; the menu says which phase is the guild's (or the group's)
     local box = CreateFrame("Frame", nil, bar)
     box:SetSize(100, S.BTN_H)
-    p.phaseDD = UI:CreateDropdown(box, 60, phaseOptions, currentPhase, function(value)
+    p.phaseDD = UI:CreateSleekDropdown(box, 60, phaseOptions, currentPhase, function(value)
         state.phase = tonumber(value) or state.phase
         -- A new phase starts on its own first boss (only ShowItem/ShowBoss jumps keep a sticky node).
         state.selectedNode = nil

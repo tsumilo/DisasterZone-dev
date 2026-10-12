@@ -2015,7 +2015,7 @@ function P.ApplySolo()
         if t.order then t.order:SetShown(on) end
         if UI and UI.SetEdgeColor and t.area.edges then
             if only and on then
-                UI:SetEdgeColor(t.area, 1, 0.82, 0, 1)
+                UI:SetEdgeColor(t.area, ns.Style:Alpha("GOLD", 1))
             else
                 UI:SetEdgeColor(t.area, 0.32, 0.32, 0.36, 1)
             end

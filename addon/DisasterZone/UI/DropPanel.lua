@@ -149,13 +149,8 @@ local function IsMe(key)
     return ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) or false
 end
 
-local function ClassOf(key)
-    if ns.Guild and ns.Guild.GetClass then return ns.Guild:GetClass(key) end
-    return nil
-end
-
 local function ColoredName(key, classFile)
-    classFile = classFile or ClassOf(key)
+    classFile = classFile or UI:ClassOf(key)
     -- players outside the guild (pugs) are marked: they roll and can be awarded like everyone else
     if Dry.preview and Dry.preview[key] then return UI:ColoredName(key, classFile) end   -- (the example roll)
     return UI:ColoredName(key, classFile) .. UI:GuestTag(key)
@@ -886,14 +881,12 @@ end
 -- The pager (the banner's tools): older / newer drop, the chevrons turned left / right.
 function Look.SetPager(f, showPrev, showNext)
     local tools = {}
-    if showNext then tools[#tools + 1] = { icon = "chevron", title = "Newer drop", onClick = function() DropPanel:Page(1) end } end
-    if showPrev then tools[#tools + 1] = { icon = "chevron", title = "Older drop", onClick = function() DropPanel:Page(-1) end } end
+    if showNext then tools[#tools + 1] = { icon = "chevron", chevron = "right", title = "Newer drop", onClick = function() DropPanel:Page(1) end } end
+    if showPrev then tools[#tools + 1] = { icon = "chevron", chevron = "left", title = "Older drop", onClick = function() DropPanel:Page(-1) end } end
     local ban = f.layout.banner
     ban:SetTools(tools)
     for i, t in ipairs(tools) do
-        local b = ban.tools[i]
-        UI:SetChevron(b.icon, t.title == "Newer drop")
-        if t.title == "Newer drop" then DropPanel.nextBtn = b else DropPanel.prevBtn = b end
+        if t.title == "Newer drop" then DropPanel.nextBtn = ban.tools[i] else DropPanel.prevBtn = ban.tools[i] end
     end
 end
 
@@ -1638,7 +1631,7 @@ local function RowOnEnter(self)
         return
     end
     if self.more then
-        tt:AddLine(format("%d more", #self.more), S:Color("GOLD"))
+        tt:AddLine(format("%d more", #self.more), S:RGB("GOLD"))
         local plain = self.moreKind == "roll" and PlainMode(nil, self.session)
         for _, x in ipairs(self.more) do
             local warn = (not plain and LockChanged(x)) and (" " .. WarnIcon(10)) or ""
@@ -2232,7 +2225,7 @@ local function FillRollRow(r, row, session, itemID, vp, itemSid)
     local inRaid = row.inRaid
     if inRaid == nil then inRaid = IsInMyGroup(row.key) end
     SetPresence(r, inRaid and "raid" or "offline")
-    local classFile = row.classFile or ClassOf(row.key)
+    local classFile = row.classFile or UI:ClassOf(row.key)
     if ns.UI and ns.UI.ClassIcon then ns.UI:ClassIcon(r.cls, classFile) end
     -- A plain roll (1.3): no BiS pill, no votes, no lock markers.
     local plain = PlainMode(nil, session)
@@ -2306,20 +2299,10 @@ local function FillMoreRow(r, rest, kind, session)
     return ROW_H
 end
 
--- A gold-text link ("Show rolls (3)" / "Hide"): white while hovered.
--- TODO(refactor): move into a shared text link (PageParts / Controls have none outside the back link and the toast)
+-- A gold-text link ("Show rolls (3)" / "Hide"): white while hovered (UI:CreateTextLink).
 local function NewLink(parent, onClick)
-    local l = CreateFrame("Button", nil, parent)
-    l:SetHeight(16)
-    l.label = UI:Text(l, "body", "GOLD")
-    l.label:SetPoint("RIGHT", l, "RIGHT", 0, 0)
-    l:SetScript("OnClick", onClick)
-    l:SetScript("OnEnter", function(self) self.label:SetTextColor(S:Color("TEXT")) end)
-    l:SetScript("OnLeave", function(self) self.label:SetTextColor(S:Color("GOLD")) end)
-    function l:SetLabel(text)
-        self.label:SetText(text or "")
-        self:SetWidth((self.label:GetStringWidth() or 60) + 4)
-    end
+    local l = UI:CreateTextLink(parent, "", onClick, { color = "GOLD", hover = "TEXT", align = "RIGHT", pad = 4 })
+    l.label = l.fs
     return l
 end
 
@@ -2487,7 +2470,7 @@ function Mat.AddCraftersTooltip(tt, use)
         tt:AddLine("Only members who opened their profession window with DisasterZone are known.", 0.6, 0.6, 0.6, true)
         return
     end
-    tt:AddLine("Crafted by", S:Color("GOLD"))
+    tt:AddLine("Crafted by", S:RGB("GOLD"))
     for _, key in ipairs(list) do
         tt:AddDoubleLine(ColoredName(key), Mat.PresenceOf(key), 1, 1, 1, 0.6, 0.6, 0.6)
     end
@@ -3112,7 +3095,7 @@ function DropPanel:OpenMoreMenu(b, owner)
             if entry and entry.SetTooltip then
                 local key, label = e.key, e.label
                 entry:SetTooltip(function(tt)
-                    tt:AddLine(label, S:Color("GOLD"))
+                    tt:AddLine(label, S:RGB("GOLD"))
                     tt:AddLine(DropPanel:MoreTooltip(b, key), 1, 1, 1, true)
                 end)
             end
@@ -3773,23 +3756,6 @@ end
 -- chat, the X dismisses it, the mouse over it holds it.
 local TOAST_KEY = "dz-bis-drop"
 
--- The item's own tooltip over the toast while it shows a drop (hooked once on the shared toast frame; it only acts
--- for the frame showing this panel's entry).
-function Look.ToastEnter(t)
-    local e = t.entry
-    if not (e and DropPanel.toast == t) then return end
-    local tt = _G.GameTooltip
-    tt:SetOwner(t, "ANCHOR_BOTTOM")
-    tt:SetItemByID(e.itemID)
-    tt:AddLine(" ")
-    tt:AddLine("Click: link in chat.", S:Color("SUB"))
-    tt:Show()
-end
-
-function Look.ToastLeave(t)
-    if t.entry and DropPanel.toast == t then UI:HideTooltip() end
-end
-
 -- What the toast of entry e says: kicker, kind (its colour), title, text.
 function DropPanel:ToastContent(e)
     local m = e.match or {}
@@ -3853,15 +3819,11 @@ function DropPanel:RefreshToastText()
             return true                    -- (the toast stays)
         end,
         onClose = function(frame) DropPanel:FinishToast(frame) end,
+        itemID = e.itemID, tipLine = "Click: link in chat.", rightClose = true,   -- (hover: the item; right-click: away)
     })
     if not t then return end           -- (waiting behind other pop-ups: it comes when there is room)
     self.toast = t
     t.entry = e
-    if not t.dzDropHooked then
-        t.dzDropHooked = true
-        t:HookScript("OnEnter", Look.ToastEnter)
-        t:HookScript("OnLeave", Look.ToastLeave)
-    end
 end
 
 -- The toast went (timed out, its X, dismissed): the next one of the queue.

@@ -80,7 +80,7 @@ function Gems:Gem(id)
 end
 
 -- The short name of an enchant ("Major Healing" for "Enchant Gloves - Major Healing").
-local function ShortName(name)
+local function EnchantShort(name)
     return name:match("^Enchant [^-]- %- (.+)$") or name
 end
 
@@ -95,7 +95,7 @@ function Gems:Enchant(id)
         if type(r) == "table" then
             local types = { [r[1]] = true }
             for t in tostring(r.x or ""):gmatch("%d+") do types[tonumber(t)] = true end
-            e = { id = id, types = types, name = r[2], short = ShortName(r[2]), text = r[3],
+            e = { id = id, types = types, name = r[2], short = EnchantShort(r[2]), text = r[3],
                   icon = r[4] ~= "" and (ICON_PATH .. r[4]) or nil, craft = r[5] ~= 0 and r[5] or nil,
                   item = r[6] ~= 0 and r[6] or nil, et = r.et, prof = r.prof }
         end

@@ -530,7 +530,7 @@ local function CreateStatus()
     s.text:SetPoint("RIGHT", s.mark, "LEFT", -8, 0)
     ns.UI:AttachTooltip(s, function(self, tt)
         UpdateStatus()   -- "1m ago" stays current
-        tt:AddLine("Your BiS lists", S:Color("GOLD"))
+        tt:AddLine("Your BiS lists", S:RGB("GOLD"))
         if self.tip and self.tip ~= "" then tt:AddLine(self.tip, 1, 1, 1, true) end
         if ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() then
             local r, g, b = S:Color("WARN")
@@ -889,11 +889,11 @@ local function LauncherTooltip(tt)
     tt:AddLine("DisasterZone", 1, 0.5, 0)
     local council = ns.Guild and ns.Guild.AmICouncil and ns.Guild:AmICouncil()
     if council then
-        tt:AddLine("Loot Council member", S:Color("GOLD"))
+        tt:AddLine("Loot Council member", S:RGB("GOLD"))
     elseif IsInGuild() then
-        tt:AddLine("Raider", S:Color("TEXT"))
+        tt:AddLine("Raider", S:RGB("TEXT"))
     else
-        tt:AddLine("Not in a guild", S:Color("SUB"))
+        tt:AddLine("Not in a guild", S:RGB("SUB"))
     end
     local status = ns.Sync and ns.Sync.GetStatusText and ns.Sync:GetStatusText()
     if status and status ~= "" then
@@ -901,8 +901,8 @@ local function LauncherTooltip(tt)
     end
     if ns.NotifyUI and ns.NotifyUI.AddTooltipLines then ns.NotifyUI:AddTooltipLines(tt) end
     tt:AddLine(" ")
-    tt:AddLine("Left-click: your pinned sections  ·  Right-click: open", S:Color("SUB"))
-    tt:AddLine("Shift-click: boss drops", S:Color("SUB"))
+    tt:AddLine("Left-click: your pinned sections  ·  Right-click: open", S:RGB("SUB"))
+    tt:AddLine("Shift-click: boss drops", S:RGB("SUB"))
 end
 
 local function SetupLauncher()

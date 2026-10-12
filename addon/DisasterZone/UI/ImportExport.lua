@@ -76,57 +76,9 @@ local function Tint(text, c) return UI():Colorize(text, c) end
 -- Text boxes (a flat field with a scroll frame around a multi-line edit box)
 ---------------------------------------------------------------------------
 
--- TODO(refactor): move into a shared multi-line text area (UI:CreateSleekEditBox is one line).
+-- (UI:CreateTextArea: the flat multi-line field; the whole text is selected when it takes the focus)
 local function CreateTextBox(parent, height)
-    local ui = UI()
-    local holder = CreateFrame("Frame", nil, parent)
-    holder:SetHeight(height)
-    holder.bg = ui:Fill(holder, "CARD")
-    ui:AddEdges(holder)
-    ui:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
-
-    local sf = ui:CreateScrollFrame(holder)
-    sf:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -5)
-    sf:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -18, 5)
-
-    local eb = CreateFrame("EditBox", nil, sf)
-    eb:SetMultiLine(true)
-    eb:SetAutoFocus(false)
-    eb:SetFontObject("GameFontHighlightSmall")
-    eb:SetWidth(W - 60)
-    eb:SetHeight(height - 10)
-    sf:SetScrollChild(eb)
-    sf:HookScript("OnSizeChanged", function(self, w)
-        if tonumber(w) and w > 0 then eb:SetWidth(w) end
-    end)
-    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    -- keep the cursor in view while typing or moving through the text
-    eb:SetScript("OnCursorChanged", function(_, _, y, _, h)
-        local top, view = sf:GetVerticalScroll() or 0, sf:GetHeight() or 0
-        local range = sf:GetVerticalScrollRange() or 0
-        y, h = -(tonumber(y) or 0), tonumber(h) or 0
-        local to
-        if y < top then
-            to = y
-        elseif view > 0 and y + h > top + view then
-            to = y + h - view
-        end
-        if to then sf:SetVerticalScroll(math.max(0, math.min(range, to))) end
-    end)
-    eb:SetScript("OnEditFocusGained", function(self)
-        ui:SetEdgeColor(holder, S:Color("EDGE_FOCUS"))
-        self:HighlightText()
-    end)
-    eb:SetScript("OnEditFocusLost", function(self)
-        ui:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
-        self:HighlightText(0, 0)
-    end)
-    holder:EnableMouse(true)
-    holder:SetScript("OnMouseDown", function() eb:SetFocus() end)
-    sf:EnableMouse(true)
-    sf:SetScript("OnMouseDown", function() eb:SetFocus() end)
-    holder.eb, holder.sf = eb, sf
-    return holder
+    return UI():CreateTextArea(parent, height, { width = W - 60, selectOnFocus = true })
 end
 
 ---------------------------------------------------------------------------
@@ -175,7 +127,7 @@ end
 local function UnplacedTooltip(owner, tt)
     local plan = owner.plan
     if not plan then return false end
-    tt:AddLine("Not placed", S:Color("GOLD"))
+    tt:AddLine("Not placed", S:RGB("GOLD"))
     tt:AddLine("Add these yourself if you want them (click a slot in My BiS).", 1, 1, 1, true)
     for _, u in ipairs(plan.unplaced) do
         local why = Imp().WHY[u.why] or u.why or "?"
@@ -417,12 +369,12 @@ local function CreateImportPane(parent)
     p.charBtn = ui:CreateSleekMenuButton(p, "", 170, BuildCharacterMenu)
     p.charBtn:SetPoint("TOPLEFT", p, "TOPLEFT", 6, rowY)
     p.into = ui:Text(p, "small", "GOLD", { text = "Into" })
-    p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.phase end, function(v)
+    p.phaseDD = ui:CreateSleekDropdown(p, 84, PhaseOptions, function() return state.phase end, function(v)
         state.phase = tonumber(v) or 1
         state.done = nil
         Win:RefreshImport()
     end)
-    p.listDD = ui:CreateDropdown(p, 120, ListOptions, function() return state.list end, function(v)
+    p.listDD = ui:CreateSleekDropdown(p, 120, ListOptions, function() return state.list end, function(v)
         state.list = (v == "os") and "os" or "ms"
         state.done = nil
         Win:RefreshImport()
@@ -455,7 +407,7 @@ local function CreateImportPane(parent)
     p.unplaced.fs:SetPoint("RIGHT")
     ui:AttachTooltip(p.unplaced, UnplacedTooltip, nil, { anchor = "ANCHOR_TOP" })
 
-    p.replace = ui:CreateButton(p, "Replace P1", 130, 24, function()
+    p.replace = ui:CreateSleekButton(p, "Replace P1", 130, 24, function()
         local plan = ImportPlan()
         if not plan then return end
         if PhaseHasPicks(plan) then
@@ -467,7 +419,7 @@ local function CreateImportPane(parent)
     end)
     p.replace:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -8, 8)
     if p.replace.SetKind then p.replace:SetKind("primary") end
-    p.fill = ui:CreateButton(p, "Fill empty slots", 130, 24, function() Win:Apply(false) end)
+    p.fill = ui:CreateSleekButton(p, "Fill empty slots", 130, 24, function() Win:Apply(false) end)
     p.fill:SetPoint("RIGHT", p.replace, "LEFT", -6, 0)
     for _, b in ipairs({ p.fill, p.replace }) do
         ui:AttachTooltip(b, function(self, tt)
@@ -638,12 +590,12 @@ local function CreateExportPane(parent)
     p.what = ui:CreateSegments(p, { { key = "gear", label = "Current gear" }, { key = "bis", label = "BiS list" } },
         function(key) Win:SetExport(key) end, { h = 22 })
     p.what:SetPoint("LEFT", p.whatLabel, "RIGHT", 4, 0)
-    p.phaseDD = ui:CreateDropdown(p, 84, PhaseOptions, function() return state.exPhase end, function(v)
+    p.phaseDD = ui:CreateSleekDropdown(p, 84, PhaseOptions, function() return state.exPhase end, function(v)
         state.exPhase = tonumber(v) or 1
         Win:RefreshExport()
     end)
     p.phaseDD:SetPoint("LEFT", p.what, "RIGHT", 10, 0)
-    p.listDD = ui:CreateDropdown(p, 110, function()
+    p.listDD = ui:CreateSleekDropdown(p, 110, function()
         return { { value = "ms", text = "Main spec" }, { value = "os", text = "Off spec" } }
     end, function() return state.exList end, function(v)
         state.exList = (v == "os") and "os" or "ms"
@@ -679,7 +631,7 @@ local function CreateExportPane(parent)
 
     p.copy = ui:Text(p, "small", "DIM", { text = "The text is selected: press Ctrl+C to copy it." })
     p.copy:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 8, 12)
-    p.select = ui:CreateButton(p, "Select all", 90, 22, function()
+    p.select = ui:CreateSleekButton(p, "Select all", 90, 22, function()
         eb:SetFocus()
         eb:HighlightText()
     end)

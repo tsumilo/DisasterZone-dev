@@ -60,27 +60,16 @@ local function Debounce(key, sec, fn)
     end)
 end
 
-local function ShortName(key)
-    if not key then return "?" end
-    if ns.Util and ns.Util.ShortName then
-        return ns.Util.ShortName(key) or key
-    end
-    return (key:gsub("%-.*$", ""))
-end
-
-local function Hex(r, g, b)
-    return format("ff%02x%02x%02x", floor((r or 1) * 255 + 0.5), floor((g or 1) * 255 + 0.5), floor((b or 1) * 255 + 0.5))
-end
-
+-- "ffrrggbb" of r, g, b (for |c codes).
 function UI:ColorHex(r, g, b)
-    return Hex(r, g, b)
+    return format("ff%02x%02x%02x", floor((r or 1) * 255 + 0.5), floor((g or 1) * 255 + 0.5), floor((b or 1) * 255 + 0.5))
 end
 
 -- Wraps text in a colour escape from an {r,g,b} table (ns.COLORS entries).
 function UI:Colorize(text, color)
     if not text then return "" end
     if type(color) ~= "table" then return text end
-    return "|c" .. Hex(color[1], color[2], color[3]) .. text .. "|r"
+    return "|c" .. UI:ColorHex(color[1], color[2], color[3]) .. text .. "|r"
 end
 
 function UI:Color(key)
@@ -128,6 +117,15 @@ function UI:SetTextStyle(fs, style, color, flags, font)
     return fs
 end
 
+-- fs's size changed to a step of the type scale (S:Size: a name or a number, D2), keeping its font face, flags and
+-- colour (UI:SetTextStyle sets the style's colour). font: the face when fs has none yet.
+function UI:SetTextSize(fs, size, font)
+    if not fs then return end
+    local path, _, flags = fs:GetFont()
+    fs:SetFont(path or font or TextFont(), S:Size(size or "body"), flags or "")
+    return fs
+end
+
 -- A new FontString: one line, left-aligned, in `style` (see UI:SetTextStyle) and `color`.
 -- opts: { layer ("OVERLAY"), sublevel, justify ("LEFT"), wrap (false), width, shadow (true: the game's 1px drop,
 -- false: none, nil: the template's), flags, font, text (upper-cased for a caps style) }.
@@ -153,6 +151,42 @@ function UI:Text(parent, style, color, opts)
     return fs
 end
 
+-- UI:Tween(key, dur, fn, instant): fn(e) each frame for dur seconds, e eased out (cubic) from 0 to 1; one shared
+-- driver. A new tween on the same key (any value: a frame, a string) finishes the old one first (its fn(1)); instant
+-- jumps to the end (the first paint, a hidden page). UI:StopTween(key) finishes it now.
+local tweens, tweenDriver = {}, nil
+local function StepTweens(_, dt)
+    local snap = {}
+    for k, tw in pairs(tweens) do snap[k] = tw end
+    for k, tw in pairs(snap) do
+        if tweens[k] == tw then
+            tw.t = tw.t + (dt or 0)
+            local pr = math.min(1, tw.t / tw.dur)
+            tw.fn(1 - (1 - pr) ^ 3)
+            if pr >= 1 then tweens[k] = nil end
+        end
+    end
+    if not next(tweens) and tweenDriver then tweenDriver:SetScript("OnUpdate", nil) end
+end
+function UI:StopTween(key)
+    local old = tweens[key]
+    if old then
+        tweens[key] = nil
+        old.fn(1)
+    end
+end
+function UI:Tween(key, dur, fn, instant)
+    UI:StopTween(key)
+    if instant then
+        fn(1)
+        return
+    end
+    tweens[key] = { t = 0, dur = math.max(0.001, dur or 0), fn = fn }
+    fn(0)
+    tweenDriver = tweenDriver or CreateFrame("Frame")
+    tweenDriver:SetScript("OnUpdate", StepTweens)
+end
+
 -- A texture filling parent, in a colour (a token name or { r, g, b [, a] }; default the card's). layer: "BACKGROUND".
 function UI:Fill(parent, color, layer, sublevel)
     local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sublevel)
@@ -176,13 +210,22 @@ local function GradientRGBA(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2)
 end
 
 -- tex filled with a gradient from c1 to c2 (token names or { r, g, b [, a] }): "HORIZONTAL" runs left to right,
--- "VERTICAL" bottom to top. The texture is set white first (a gradient tints the texture under it).
-function UI:Gradient(tex, orient, c1, c2)
+-- "VERTICAL" bottom to top. The texture is set white first (a gradient tints the texture under it); keep = true leaves
+-- the texture as it is (a gradient over an atlas shape).
+function UI:Gradient(tex, orient, c1, c2, keep)
     if not tex then return end
-    tex:SetColorTexture(1, 1, 1, 1)
+    if not keep then tex:SetColorTexture(1, 1, 1, 1) end
     local r1, g1, b1, a1 = S:Color(c1)
     local r2, g2, b2, a2 = S:Color(c2)
     GradientRGBA(tex, orient or "VERTICAL", r1, g1, b1, a1, r2, g2, b2, a2)
+    return tex
+end
+
+-- UI:Gradient in numbers (no colour tables: a gradient eased every frame): r1, g1, b1, a1 -> r2, g2, b2, a2.
+function UI:GradientRGBA(tex, orient, r1, g1, b1, a1, r2, g2, b2, a2, keep)
+    if not tex then return end
+    if not keep then tex:SetColorTexture(1, 1, 1, 1) end
+    GradientRGBA(tex, orient or "VERTICAL", r1, g1, b1, a1 or 1, r2, g2, b2, a2 or 1)
     return tex
 end
 
@@ -301,7 +344,7 @@ local function TipOnEnter(self)
             return
         end
     elseif d.title ~= nil and d.title ~= "" then
-        GameTooltip:AddLine(d.title, S:Color("GOLD"))
+        GameTooltip:AddLine(d.title, S:RGB("GOLD"))
     end
     local lines = d.lines
     if type(lines) == "function" then lines = lines(self) end
@@ -496,7 +539,21 @@ local function ClassHex(classFile)
         local hex = ns.Util.ClassColorHex(classFile)
         if type(hex) == "string" and #hex == 8 then return hex end
     end
-    return Hex(UI:ClassColor(classFile))
+    return UI:ColorHex(UI:ClassColor(classFile))
+end
+
+-- A player's class file: known (a record's own) when given, else the guild roster's, else what the store learned
+-- (someone outside the guild); nil when nobody knows.
+function UI:ClassOf(key, known)
+    if known then return known end
+    if type(key) ~= "string" then return nil end
+    local cl = ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)
+    if not cl and ns.Store and ns.Store.Get then
+        local rec = ns.Store:Get(key)
+        local data = type(rec) == "table" and rec.data
+        if type(data) == "table" and type(data.cl) == "string" then cl = data.cl end
+    end
+    return cl
 end
 
 function UI:ColoredName(key, classFile)
@@ -504,7 +561,7 @@ function UI:ColoredName(key, classFile)
         classFile = ns.Guild:GetClass(key)
     end
     -- (a player from another realm: "Name*", the realm is long and the tooltips say it)
-    local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or ShortName(key)
+    local name = (ns.Util and ns.Util.DisplayName) and ns.Util.DisplayName(key) or (ns.Util.ShortName(key) or key)
     return "|c" .. ClassHex(classFile) .. name .. "|r"
 end
 
@@ -605,7 +662,7 @@ function UI:ItemText(itemID)
     if not name then
         return "|cff808080Loading...|r", true
     end
-    return "|c" .. Hex(self:QualityColor(quality)) .. name .. "|r", false
+    return "|c" .. UI:ColorHex(self:QualityColor(quality)) .. name .. "|r", false
 end
 
 -- An item's name (plain), or nil while it loads (the load is requested).
@@ -678,7 +735,7 @@ function UI:SetTextTooltip(owner, lines, anchor)
         if type(line) == "table" then
             GameTooltip:AddLine(line[1], line[2] or 1, line[3] or 1, line[4] or 1, line.wrap)
         elseif i == 1 then
-            GameTooltip:AddLine(line, 1, 0.82, 0)
+            GameTooltip:AddLine(line, S:RGB("GOLD"))
         else
             GameTooltip:AddLine(line, 1, 1, 1, true)
         end
@@ -1116,7 +1173,7 @@ local SLEEK = {
     secondary = { top = { 0.135, 0.135, 0.155, 0.94 }, bottom = { 0.08, 0.08, 0.095, 0.94 },
                   hoverTop = { 0.21, 0.21, 0.235, 0.96 }, hoverBottom = { 0.13, 0.13, 0.15, 0.96 },
                   edge = { 0.29, 0.29, 0.33, 0.85 }, hoverEdge = { 0.52, 0.52, 0.58, 0.95 },
-                  text = { 0.86, 0.86, 0.86 }, hoverText = { 1, 1, 1 }, shine = { 1, 1, 1, 0.07 }, sheen = 0.10 },
+                  text = { 0.86, 0.86, 0.86 }, hoverText = { 1, 1, 1 }, shine = S:WithAlpha("HAIRLINE", 0.07), sheen = 0.10 },
     danger    = { top = { 0.40, 0.085, 0.085, 0.95 }, bottom = { 0.23, 0.045, 0.045, 0.95 },
                   hoverTop = { 0.52, 0.115, 0.115, 0.97 }, hoverBottom = { 0.33, 0.065, 0.065, 0.97 },
                   edge = { 0.72, 0.24, 0.24, 0.85 }, hoverEdge = { 0.96, 0.38, 0.38, 0.95 },
@@ -1268,6 +1325,12 @@ function UI:AddEdges(f, layer, soft)
     edge("BOTTOMLEFT", o, 0, "BOTTOMRIGHT", -o, 0, true)
     edge("TOPLEFT", 0, -o, "BOTTOMLEFT", 0, o, false)
     edge("TOPRIGHT", 0, -o, "BOTTOMRIGHT", 0, o, false)
+end
+
+-- The 1 px border of UI:AddEdges, made on the first call, in r, g, b, a (one call for both).
+function UI:SetEdges(f, r, g, b, a)
+    if not f.edges then UI:AddEdges(f) end
+    UI:SetEdgeColor(f, r, g, b, a)
 end
 
 function UI:SetEdgeColor(f, r, g, b, a)
@@ -1598,7 +1661,7 @@ function UI:CreateIconButton(parent, size, texture, coords, onClick)
         SetLook(self, LookOf(s, hot or lit, enabled and self.pressed, not enabled, lit and LIT_EDGE or nil), s.shine,
             instant)
         if lit then
-            self.icon:SetVertexColor(1, 0.82, 0)
+            self.icon:SetVertexColor(S:Color("GOLD"))
         elseif self.active then
             self.icon:SetVertexColor(1, 1, 1)
         else
@@ -1664,6 +1727,18 @@ function UI:IconCoords(i)
 end
 
 -- An atlas icon inside text ("|T...|t"), e.g. in front of a menu entry. color: { r, g, b } 0..1 (default white).
+-- An atlas glyph (UI.ICON: an index or a name) on a texture, tinted in a colour (a token name or a table; "TEXT" by
+-- default): the faces', the banners' and the tiles' glyphs.
+function UI:SetGlyph(tex, i, color)
+    if not tex then return end
+    if type(i) == "string" then i = UI.ICON[i] or i end
+    tex:SetTexture(UI.ICON_ATLAS)
+    local c = UI:IconCoords(i)
+    tex:SetTexCoord(c[1], c[2], c[3], c[4])
+    tex:SetVertexColor(S:Color(color or "TEXT"))
+    return tex
+end
+
 function UI:AtlasIconText(i, size, color)
     size = tonumber(size) or 14
     local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
@@ -1693,7 +1768,7 @@ function UI:CreateArrowButton(parent, right, w, h, onClick)
     b.icon:SetVertexColor(0.75, 0.75, 0.78)
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.06)
+    hl:SetColorTexture(S:Alpha("HAIRLINE", 0.06))
     b:SetScript("OnClick", onClick)
     b:SetScript("OnEnable", function(self) self.icon:SetAlpha(1) end)
     b:SetScript("OnDisable", function(self) self.icon:SetAlpha(0.25) end)
@@ -1746,7 +1821,7 @@ function UI:CreateSleekMenuButton(parent, text, width, build, height)
     b.chevron:SetPoint("RIGHT", -6, 0)
     b.chevron:SetTexture(UI.ICON_ATLAS)
     b.chevron:SetTexCoord(unpack(UI:IconCoords(14)))
-    b.chevron:SetVertexColor(1, 0.82, 0)
+    b.chevron:SetVertexColor(S:Color("GOLD"))
     b:SetText(text or "")
     function b:SetDefaultText(t) self:SetText(t or "") end
     function b:Refresh() end
@@ -1804,7 +1879,7 @@ function UI:CreateLinkDropdown(parent, opts)
             self.chev:SetVertexColor(1, 1, 1)
         else
             self.fs:SetTextColor(base[1], base[2], base[3])
-            self.chev:SetVertexColor(1, 0.82, 0)
+            self.chev:SetVertexColor(S:Color("GOLD"))
         end
     end
     -- while its menu is down: white, the chevron turned up
@@ -1869,10 +1944,10 @@ function UI:CreateSleekEditBox(parent, width, height, fontObject)
     eb:SetAutoFocus(false)
     eb.bg = eb:CreateTexture(nil, "BACKGROUND")
     eb.bg:SetAllPoints()
-    eb.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    eb.bg:SetColorTexture(S:Alpha("CARD", 0.92))
     UI:AddEdges(eb)
     local function paint(self)
-        if self:HasFocus() then UI:SetEdgeColor(self, 1, 0.82, 0, 0.75) else UI:SetEdgeColor(self, 0.34, 0.34, 0.38, 0.9) end
+        if self:HasFocus() then UI:SetEdgeColor(self, S:Alpha("GOLD", 0.75)) else UI:SetEdgeColor(self, S:Alpha("EDGE", 0.9)) end
     end
     eb:SetScript("OnEditFocusGained", paint)
     eb:SetScript("OnEditFocusLost", paint)
@@ -2015,12 +2090,13 @@ end
 
 local function PaintTab(b, instant)
     local v = tabLook
+    local G, Sb = S.C.GOLD, S.C.SUB
     if b.active then
-        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 1, 1, 0.82, 0, 0.9, 1, 0.82, 0
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 1, G[1], G[2], G[3], 0.9, G[1], G[2], G[3]
     elseif b.hovered then
         v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0.4, 1, 1, 1, 0.28, 1, 1, 1
     else
-        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0, 1, 0.82, 0, 0, 0.62, 0.62, 0.62
+        v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8] = 0, G[1], G[2], G[3], 0, Sb[1], Sb[2], Sb[3]
     end
     EaseTo(b, v, instant)
 end
@@ -2118,7 +2194,7 @@ end
 -- any short text. b:SetCutout(r, g, b) rings it 2px in the colour it sits on, for a badge laid over an icon's corner.
 -- b:SetKind(kind) recolours it. Sizes are whole pixels so the digits stay sharp.
 UI.COUNT_LOOK = {
-    alert = { fill = { 1, 0.82, 0 },          text = { 0.09, 0.07, 0.01 } },
+    alert = { fill = S.C.GOLD,          text = { 0.09, 0.07, 0.01 } },
     muted = { fill = { 0.30, 0.30, 0.33 },    text = { 0.93, 0.93, 0.93 } },
 }
 UI.COUNT_SURFACE = S.C.SURFACE_WINDOW   -- { 0.078, 0.078, 0.09 }: the main window's fill, the default cutout
@@ -2193,7 +2269,7 @@ function CountBadge:Pulse()
     if not self.glow then
         self.glow = CapsuleParts(self, "BACKGROUND", -1)
         for _, t in ipairs(self.glow) do
-            t:SetVertexColor(1, 0.82, 0, 1)
+            t:SetVertexColor(S:Alpha("GOLD", 1))
             t:SetAlpha(0)
         end
         self:Fit()
@@ -2226,6 +2302,20 @@ function CountBadge:SetCount(n)
     self:SetLabel(n > 99 and "99+" or tostring(floor(n)))
 end
 
+local DOT_DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+-- The count badge's dot form: a small disc (an unseen mark, a chart's point, a ring under a portrait) in a colour
+-- (a token name or a table). opts: { alpha, layer ("OVERLAY"), sublevel, hidden }. Returns the texture.
+function UI:CreateDot(parent, size, color, opts)
+    opts = opts or {}
+    local t = parent:CreateTexture(nil, opts.layer or "OVERLAY", nil, opts.sublevel)
+    t:SetTexture(DOT_DISC)
+    t:SetSize(size, size)
+    local r, g, b, a = S:Color(color or "GOLD")
+    t:SetVertexColor(r, g, b, opts.alpha or a)
+    if opts.hidden then t:Hide() end
+    return t
+end
+
 function UI:CreateCountBadge(parent, h, kind)
     h = h or 14
     local b = CreateFrame("Frame", nil, parent)
@@ -2243,7 +2333,7 @@ function UI:CreateCountBadge(parent, h, kind)
     return b
 end
 
--- The tag pill (UI:CreateTagPill, UI.TAG_LOOK) is UI:CreatePill now: UI/Comp/Controls.lua.
+-- The pill (UI.PILL_LOOK) is UI:CreatePill: UI/Comp/Controls.lua.
 
 -- An on / off switch, the look of the Dungeons tab's "I'm up for a run": a 34x18 pill with a knob, green with the knob
 -- on the right while on. It is a CheckButton: a click flips it and calls setter(checked); s:Refresh() reads getter();
@@ -2258,7 +2348,7 @@ local SWITCH_DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 local SWITCH_LOOK = {
     on  = { fill = { 0.11, 0.47, 0.20, 0.95 }, edge = { 0.30, 0.71, 0.39, 1 }, hover = { 0.55, 1, 0.66, 1 },
             knob = { 0.92, 1, 0.94, 1 }, ring = { 0.35, 0.86, 0.47 } },
-    off = { fill = { 0.16, 0.16, 0.18, 0.95 }, edge = { 0.34, 0.34, 0.38, 0.9 }, hover = { 0.62, 0.62, 0.68, 1 },
+    off = { fill = { 0.16, 0.16, 0.18, 0.95 }, edge = S:WithAlpha("EDGE", 0.9), hover = { 0.62, 0.62, 0.68, 1 },
             knob = { 0.54, 0.54, 0.56, 1 } },
 }
 local SWITCH_W, SWITCH_H, KNOB, KNOB_IN = 34, 18, 12, 3
@@ -2735,7 +2825,7 @@ local function CreateFlatScrollBar(parent, a)
     bar:SetWidth(BAR_W)
     bar.track = bar:CreateTexture(nil, "BACKGROUND")
     bar.track:SetAllPoints()
-    bar.track:SetColorTexture(1, 1, 1, 0.06)
+    bar.track:SetColorTexture(S:Alpha("HAIRLINE", 0.06))
     local thumb = CreateFrame("Button", nil, bar)
     thumb:SetWidth(BAR_W)
     thumb:SetPoint("TOP")
@@ -2745,7 +2835,7 @@ local function CreateFlatScrollBar(parent, a)
     bar.thumb = thumb
     local function paint()
         if thumb.dragging then
-            thumb.tex:SetColorTexture(1, 0.82, 0, 0.85)
+            thumb.tex:SetColorTexture(S:Alpha("GOLD", 0.85))
         elseif thumb.hovered then
             thumb.tex:SetColorTexture(0.75, 0.75, 0.78, 0.9)
         else
@@ -2977,12 +3067,6 @@ end
 -- Buttons, checkboxes, search box
 ---------------------------------------------------------------------------
 
--- A text button in the flat style (every text button of the addon; b:SetKind("primary") marks a view's main action,
--- "danger" a destructive one). Without a width it fits its label.
-function UI:CreateButton(parent, text, width, height, onClick)
-    return UI:CreateSleekButton(parent, text, width, height or 22, onClick)
-end
-
 -- A checkbox in the flat style: a dark 14px box with a 1px edge (gold while hovered) and a gold check; the label
 -- to its right is part of the click area. The frame keeps the old 24x24 size, so callers' anchors still fit.
 local CHECK_MARK = "Interface\\Buttons\\UI-CheckBox-Check"
@@ -2993,7 +3077,7 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     local box = cb:CreateTexture(nil, "BACKGROUND")
     box:SetSize(14, 14)
     box:SetPoint("LEFT", 4, 0)
-    box:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    box:SetColorTexture(S:Alpha("CARD", 0.92))
     box.edges = {}
     for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
                          { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
@@ -3025,7 +3109,7 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     local function paint(self)
         local enabled = self:IsEnabled()
         if enabled and self.hovered then
-            UI:SetEdgeColor(box, 1, 0.82, 0, 0.75)
+            UI:SetEdgeColor(box, S:Alpha("GOLD", 0.75))
         else
             UI:SetEdgeColor(box, 0.45, 0.45, 0.50, enabled and 0.95 or 0.4)
         end
@@ -3058,6 +3142,63 @@ function UI:CreateCheckbox(parent, label, getter, setter)
     cb:HookScript("OnLeave", function() GameTooltip:Hide() end)
     cb:Refresh()
     return cb
+end
+
+-- A multi-line text field in the flat style (an export to copy, a list to paste): a card with a strong edge (gold
+-- while typing) around a scroll frame holding a multi-line edit box; a click anywhere in it takes the focus, the
+-- cursor stays in view. opts: { width (the edit box's first width; it follows the scroll frame), selectOnFocus (the
+-- whole text is selected when it takes the focus) }. Returns the holder; holder.eb = the edit box, holder.sf = its
+-- scroll frame.
+function UI:CreateTextArea(parent, height, opts)
+    opts = opts or {}
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetHeight(height)
+    holder.bg = UI:Fill(holder, "CARD")
+    UI:AddEdges(holder)
+    UI:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
+
+    local sf = UI:CreateScrollFrame(holder)
+    sf:SetPoint("TOPLEFT", holder, "TOPLEFT", 6, -5)
+    sf:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", -18, 5)
+
+    local eb = CreateFrame("EditBox", nil, sf)
+    eb:SetMultiLine(true)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject("GameFontHighlightSmall")
+    eb:SetWidth(opts.width or 300)
+    eb:SetHeight(height - 10)
+    sf:SetScrollChild(eb)
+    sf:HookScript("OnSizeChanged", function(self, w)
+        if tonumber(w) and w > 0 then eb:SetWidth(w) end
+    end)
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    -- keep the cursor in view while typing or moving through the text
+    eb:SetScript("OnCursorChanged", function(_, _, y, _, h)
+        local top, view = sf:GetVerticalScroll() or 0, sf:GetHeight() or 0
+        local range = sf:GetVerticalScrollRange() or 0
+        y, h = -(tonumber(y) or 0), tonumber(h) or 0
+        local to
+        if y < top then
+            to = y
+        elseif view > 0 and y + h > top + view then
+            to = y + h - view
+        end
+        if to then sf:SetVerticalScroll(math.max(0, math.min(range, to))) end
+    end)
+    eb:SetScript("OnEditFocusGained", function(self)
+        UI:SetEdgeColor(holder, S:Color("EDGE_FOCUS"))
+        if opts.selectOnFocus then self:HighlightText() end
+    end)
+    eb:SetScript("OnEditFocusLost", function(self)
+        UI:SetEdgeColor(holder, S:Color("EDGE_STRONG"))
+        if opts.selectOnFocus then self:HighlightText(0, 0) end
+    end)
+    holder:EnableMouse(true)
+    holder:SetScript("OnMouseDown", function() eb:SetFocus() end)
+    sf:EnableMouse(true)
+    sf:SetScript("OnMouseDown", function() eb:SetFocus() end)
+    holder.eb, holder.sf = eb, sf
+    return holder
 end
 
 local searchBoxCount = 0
@@ -3121,10 +3262,6 @@ end
 
 -- A dropdown in the flat style (every dropdown of the addon): the button shows the selected option, its menu picks
 -- one. getOptions() -> { { value =, text =, tooltip =, disabled = } | { isTitle = true, text = } }; nil values work.
-function UI:CreateDropdown(parent, width, getOptions, getSelected, onSelect)
-    return UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
-end
-
 function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect)
     local b
     local function IsSelected(data)
@@ -3147,7 +3284,7 @@ function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect
                 if opt.disabled and radio and radio.SetEnabled then radio:SetEnabled(false) end
                 if opt.tooltip and radio and radio.SetTooltip then
                     radio:SetTooltip(function(tooltip)
-                        tooltip:AddLine(opt.text or "", 1, 0.82, 0)
+                        tooltip:AddLine(opt.text or "", S:RGB("GOLD"))
                         tooltip:AddLine(opt.tooltip, 1, 1, 1, true)
                     end)
                 end
@@ -3168,12 +3305,6 @@ function UI:CreateSleekDropdown(parent, width, getOptions, getSelected, onSelect
 end
 
 -- (UI:ContextMenu, the menu itself, is UI/Menu.lua: the addon draws its own menus)
-
--- DisasterZone extension: a dropdown-looking button whose menu holds actions (build(root) as in ContextMenu), in the
--- flat style. The menu is built when it opens, so it always reflects the current state.
-function UI:CreateMenuButton(parent, text, width, build)
-    return UI:CreateSleekMenuButton(parent, text, width, build)
-end
 
 ---------------------------------------------------------------------------
 -- Searchable dropdown (DisasterZone extension, ADDENDUM E §30)
@@ -3238,7 +3369,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
     holder:EnableMouse(true)
     holder.bg = holder:CreateTexture(nil, "BACKGROUND")
     holder.bg:SetAllPoints()
-    holder.bg:SetColorTexture(0.10, 0.10, 0.12, 0.92)
+    holder.bg:SetColorTexture(S:Alpha("CARD", 0.92))
     UI:AddEdges(holder)
     UI:SetEdgeColor(holder, unpack(SD_EDGE))
     sd.frame = holder
@@ -3255,14 +3386,14 @@ function UI:CreateSearchDropdown(parent, width, opts)
     arrow:SetWidth(20)
     arrow.hl = arrow:CreateTexture(nil, "HIGHLIGHT")
     arrow.hl:SetAllPoints()
-    arrow.hl:SetColorTexture(1, 1, 1, 0.08)
+    arrow.hl:SetColorTexture(S:Alpha("HAIRLINE", 0.08))
     arrow.icon = arrow:CreateTexture(nil, "ARTWORK")
     arrow.icon:SetSize(12, 12)
     arrow.icon:SetPoint("CENTER")
     arrow.icon:SetTexture(UI.ICON_ATLAS)
     arrow.icon:SetTexCoord(unpack(UI:IconCoords(14)))
-    arrow.icon:SetVertexColor(1, 0.82, 0)
-    arrow:SetScript("OnEnable", function(self) self.icon:SetVertexColor(1, 0.82, 0) end)
+    arrow.icon:SetVertexColor(S:Color("GOLD"))
+    arrow:SetScript("OnEnable", function(self) self.icon:SetVertexColor(S:Color("GOLD")) end)
     arrow:SetScript("OnDisable", function(self) self.icon:SetVertexColor(0.4, 0.4, 0.4) end)
     sd.arrow = arrow
 
@@ -3356,7 +3487,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         if type(e.tip) == "table" then
             for i, line in ipairs(e.tip) do
-                if i == 1 then GameTooltip:AddLine(line, 1, 0.82, 0) else GameTooltip:AddLine(line, 1, 1, 1, true) end
+                if i == 1 then GameTooltip:AddLine(line, S:RGB("GOLD")) else GameTooltip:AddLine(line, 1, 1, 1, true) end
             end
         else
             GameTooltip:AddLine(UI:ColoredName(e.key, e.classFile))
@@ -3377,7 +3508,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
         row:RegisterForClicks("LeftButtonUp")
         row.activeTex = row:CreateTexture(nil, "BACKGROUND")
         row.activeTex:SetAllPoints()
-        row.activeTex:SetColorTexture(1, 0.82, 0, 0.14)
+        row.activeTex:SetColorTexture(S:Alpha("GOLD", 0.14))
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
         row.hl:SetAllPoints()
         row.hl:SetTexture(Tex("rowHilight"))
@@ -3491,7 +3622,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
             UI:ClassIcon(row.icon, e.classFile)
         end
         row.icon:SetAlpha(e.dim and 0.5 or 1)
-        local text = e.text or ShortName(e.key)
+        local text = e.text or ns.Util.ShortName(e.key) or e.key
         if e.dim then
             row.name:SetText("|cff808080" .. text .. "|r")
         else
@@ -3523,7 +3654,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
     footer.line:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 2)
     footer.line:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 2)
     footer.line:SetHeight(1)
-    footer.line:SetColorTexture(1, 1, 1, 0.08)
+    footer.line:SetColorTexture(S:Alpha("HAIRLINE", 0.08))
     footer.count = footer:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     footer.count:SetPoint("RIGHT", footer, "RIGHT", -2, 0)
     footer.count:SetJustifyH("RIGHT")
@@ -3580,7 +3711,7 @@ function UI:CreateSearchDropdown(parent, width, opts)
                         shown[#shown + 1] = e
                     end
                 elseif e.key ~= nil then
-                    local hay = ((e.text or ShortName(e.key)) .. " " .. (e.search or "")):lower()
+                    local hay = ((e.text or ns.Util.ShortName(e.key) or e.key) .. " " .. (e.search or "")):lower()
                     if q == "" or hay:find(q, 1, true) then
                         if header then
                             shown[#shown + 1] = header
@@ -3791,7 +3922,7 @@ local BADGE_HANG = 4      -- px of the tab's right padding the pill takes (the s
 -- width (less what it hangs into the padding) and the label moves left by half of that, so the two stay centred.
 local function AddNavBadge(tab, badge)
     local c = badge.color or { 0.72, 0.72, 0.72 }
-    local base = { 0.10, 0.10, 0.12 }
+    local base = S:WithAlpha("CARD", 1)
     local p = CreateFrame("Frame", nil, tab)
     p:SetHeight(BADGE_H)
     UI:AddPillShape(p, BADGE_H)
@@ -3835,7 +3966,7 @@ local function AddNavChevron(tab)
     c:SetSize(NAV_CHEV, NAV_CHEV)
     c:SetTexture(UI.ICON_ATLAS)
     UI:SetChevronUp(c, false)
-    c:SetVertexColor(0.62, 0.62, 0.62)
+    c:SetVertexColor(S:Color("SUB"))
     local extra = NAV_CHEV + NAV_CHEV_GAP - 2
     tab.cdlExtraW = (tab.cdlExtraW or 0) + extra
     local label = tab:GetFontString()
@@ -4114,7 +4245,7 @@ function UI:CreateMultiDropdown(parent, width, getOptions, isChecked, onToggle, 
                 if opt.disabled and cb and cb.SetEnabled then cb:SetEnabled(false) end
                 if opt.tooltip and cb and cb.SetTooltip then
                     cb:SetTooltip(function(tooltip)
-                        tooltip:AddLine(opt.text or "", 1, 0.82, 0)
+                        tooltip:AddLine(opt.text or "", S:RGB("GOLD"))
                         tooltip:AddLine(opt.tooltip, 1, 1, 1, true)
                     end)
                 end
@@ -4136,8 +4267,11 @@ end
 UI.ICON_WARN = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"   -- the game fonts have no U+26A0 glyph
 UI.ICON_LOCK = "Interface\\PetBattles\\PetBattle-LockIcon"
 
-function UI:IconText(path, size)
+-- An icon inside text: "|T...|t" at size px (0: the line's height). crop: trim an item / spell icon's border (the
+-- game's small icons' look: 5..59 of 64).
+function UI:IconText(path, size, crop)
     size = tonumber(size) or 0
+    if crop then return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(path), size, size) end
     return "|T" .. tostring(path) .. ":" .. size .. ":" .. size .. "|t"
 end
 
@@ -4197,7 +4331,7 @@ end
 -- "Lee" / "you" / "Lee (since 20:14)" for a lock info table (nil-safe).
 function UI:LockByText(info, withTime)
     local key = type(info) == "table" and type(info.by) == "string" and info.by or nil
-    local by = key and ShortName(key) or "the raid leader"
+    local by = key and (ns.Util.ShortName(key) or key) or "the raid leader"
     if key and ns.Util and ns.Util.IsMe and ns.Util.IsMe(key) then by = "you" end
     local at = type(info) == "table" and tonumber(info.at)
     if withTime and at and at > 1000000000 and date then
@@ -4227,7 +4361,7 @@ end
 -- shown but disabled instead).
 function UI:CreateBiSLockButton(parent, width, height, opts)
     opts = opts or {}
-    local b = UI:CreateButton(parent, "", width or 120, height or 22, function()
+    local b = UI:CreateSleekButton(parent, "", width or 120, height or 22, function()
         local locked = UI:GetBiSLock()
         UI:SetBiSLock(not locked)
     end)
@@ -4244,11 +4378,11 @@ function UI:CreateBiSLockButton(parent, width, height, opts)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         local locked, info = UI:GetBiSLock()
         if locked then
-            GameTooltip:AddLine("Unlock BiS lists", 1, 0.82, 0)
+            GameTooltip:AddLine("Unlock BiS lists", S:RGB("GOLD"))
             GameTooltip:AddLine("Locked by " .. UI:LockByText(info, true) .. ". Unlocking lets everyone in "
                 .. "the group edit their BiS list again.", 1, 1, 1, true)
         else
-            GameTooltip:AddLine("Lock BiS lists", 1, 0.82, 0)
+            GameTooltip:AddLine("Lock BiS lists", S:RGB("GOLD"))
             GameTooltip:AddLine("Stops everyone in the raid from editing their BiS list until you unlock it "
                 .. "or the raid ends. Obtained items still update. Council members see who changes "
                 .. "their list anyway.", 1, 1, 1, true)

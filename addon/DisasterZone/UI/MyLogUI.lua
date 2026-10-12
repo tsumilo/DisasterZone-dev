@@ -275,7 +275,7 @@ local function NewBossCard(parent)
     hit:HookScript("OnLeave", function() c:SetTone(c.tone) end)
     ui:AttachTooltip(hit, function(_, tip)
         if not c.row then return false end
-        tip:AddLine(c.row.boss, S:Color("GOLD"))
+        tip:AddLine(c.row.boss, S:RGB("GOLD"))
     end, function() return CardLines(c) end)
     c.port = k.Portrait(hit, 40)
     c.name = ui:Text(hit, "emph", "TEXT")
@@ -457,7 +457,7 @@ local function NightBar(parent)
     UI():AttachTooltip(b, function(self, tip)
         local r = self.run
         if not r then return false end
-        tip:AddLine(k.Day(r.at), S:Color("GOLD"))
+        tip:AddLine(k.Day(r.at), S:RGB("GOLD"))
         tip:AddLine(strformat("%s %s · %d kill%s%s", k.Num(self.value), VIEW_BY_KEY[state.view].metric, r.kills,
             r.kills == 1 and "" or "s", r.wipes > 0 and strformat(", %d wipe%s", r.wipes, r.wipes == 1 and "" or "s") or ""),
             1, 1, 1)

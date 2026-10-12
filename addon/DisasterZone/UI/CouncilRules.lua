@@ -101,41 +101,6 @@ local SCENES = {
 local view                    -- the frame (CouncilRulesUI:Create)
 local state = { page = "winner", sel = nil, scene = "split", draft = nil }
 
--- The rows' slide when a choice re-ranks them: one shared driver of eased tweens.
--- TODO(refactor): move into Widgets (a shared UI:Tween(key, dur, fn, instant))
-local tweens = {}
-local driver
-local function EaseOut(t) return 1 - (1 - t) ^ 3 end
-local function StepTweens(_, dt)
-    local snap = {}
-    for k, tw in pairs(tweens) do snap[k] = tw end
-    for k, tw in pairs(snap) do
-        if tweens[k] == tw then
-            tw.t = tw.t + (dt or 0)
-            local pr = min(1, tw.t / tw.dur)
-            tw.fn(EaseOut(pr))
-            if pr >= 1 then tweens[k] = nil end
-        end
-    end
-    if not next(tweens) and driver then driver:SetScript("OnUpdate", nil) end
-end
--- instant: jump to the end (the first paint, a hidden page)
-local function Tween(key, dur, fn, instant)
-    local old = tweens[key]
-    if old then
-        tweens[key] = nil
-        old.fn(1)
-    end
-    if instant then
-        fn(1)
-        return
-    end
-    tweens[key] = { t = 0, dur = max(0.001, dur), fn = fn }
-    fn(0)
-    driver = driver or CreateFrame("Frame")
-    driver:SetScript("OnUpdate", StepTweens)
-end
-
 local function IconName(name)
     if ICON_FALLBACK[name] and not (ns.HasAssets and ns:HasAssets(7)) then return ICON_FALLBACK[name] end
     return name
@@ -511,7 +476,7 @@ local function FillWinner(v)
             local fresh = not r:IsShown()
             r.cdlY = toY
             r:Show()
-            Tween(r, K.SLIDE, function(e)
+            UI:Tween(r, K.SLIDE, function(e)
                 local yy = fromY + (toY - fromY) * e
                 r:ClearAllPoints()
                 r:SetPoint("TOPLEFT", c, "TOPLEFT", K.CARD_PAD, yy)

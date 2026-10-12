@@ -41,16 +41,12 @@ local function Crop(tex) tex:SetTexCoord(PW.CROP[1], PW.CROP[2], PW.CROP[3], PW.
 PW.Crop = Crop
 
 local function SetEdge(f, c, a)
-    if not f.edges then UI:AddEdges(f) end
-    UI:SetEdgeColor(f, c[1], c[2], c[3], a or c[4] or 1)
+    UI:SetEdges(f, c[1], c[2], c[3], a or c[4] or 1)
 end
 PW.SetEdge = SetEdge
 
--- An icon inside text, its border trimmed: "|T...|t".
-function PW.IconText(tex, size)
-    size = size or 16
-    return ("|T%s:%d:%d:0:0:64:64:5:59:5:59|t"):format(tostring(tex), size, size)
-end
+-- An icon inside text, its border trimmed: "|T...|t" (UI:IconText).
+function PW.IconText(tex, size) return UI:IconText(tex, size or 16, true) end
 
 -- "|cffrrggbb" of r, g, b.
 function PW.ColorCode(r, g, b) return "|c" .. UI:ColorHex(r, g, b) end

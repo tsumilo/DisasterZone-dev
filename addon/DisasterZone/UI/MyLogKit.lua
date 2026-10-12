@@ -27,37 +27,19 @@ Kit.C = {
 }
 local C = Kit.C
 
--- The pill kind (UI:CreatePill) of a change: better / worse / the same. TODO(refactor): move into UI:CreatePill (a
--- "bad" look for a worse number; "live" is the nearest red today).
-Kit.PILL = { up = "ok", down = "live", mute = "mute", best = "rank", avoid = "warn" }
+-- The pill kind (UI:CreatePill) of a change: better / worse / the same.
+Kit.PILL = { up = "ok", down = "bad", mute = "mute", best = "rank", avoid = "warn" }
 
 ---------------------------------------------------------------------------
 -- Small pieces
 ---------------------------------------------------------------------------
-
--- (the old card, kept for UI/MeterDetail.lua: a shared card, or an inset well for a darker fill)
-function Kit.Card(parent, fill)
-    local dark = fill and (fill[1] + fill[2] + fill[3]) < 0.27
-    local c = UI:CreateCard(parent, { tone = dark and "inset" or "card" })
-    function c:SetEdge(r, g, b, a) UI:SetEdgeColor(self, r, g, b, a) end
-    return c
-end
-
--- A round dot of size px in colour c (alpha a).
-function Kit.Dot(parent, size, c, a, layer)
-    local t = parent:CreateTexture(nil, layer or "OVERLAY")
-    t:SetTexture(DISC)
-    t:SetSize(size, size)
-    t:SetVertexColor(c[1], c[2], c[3], a or 1)
-    return t
-end
 
 -- "+6.1%" style change text: change in % (nil -> nil), higherIsBetter. Returns text, pill kind (Kit.PILL).
 function Kit.ChangeChip(change, higherIsBetter, suffix)
     if not change then return nil end
     if abs(change) < 0.05 then return "same" .. (suffix or ""), "mute" end
     local good = (change > 0) == (higherIsBetter ~= false)
-    return strformat("%s%.1f%%%s", change > 0 and "+" or "-", abs(change), suffix or ""), good and "ok" or "live"
+    return strformat("%s%.1f%%%s", change > 0 and "+" or "-", abs(change), suffix or ""), good and Kit.PILL.up or Kit.PILL.down
 end
 
 -- A pill (UI:CreatePill) that hides itself without text: pill:SetPill(kind, text) with text nil hides it.
@@ -74,51 +56,15 @@ function Kit.Pill(parent)
 end
 
 ---------------------------------------------------------------------------
--- Underline tabs in a row, kept for UI/MeterDetail.lua (a page's tabs are its layout's): items = { { key, label } },
--- onPick(key). tabs:SetSelected(key), tabs:SetLabel(key, text); tabs.buttons[i]
----------------------------------------------------------------------------
-
-function Kit.Tabs(parent, items, onPick)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(10, 22)
-    f.buttons = {}
-    local function place()
-        local x = 0
-        for _, b in ipairs(f.buttons) do
-            b:ClearAllPoints()
-            b:SetPoint("LEFT", f, "LEFT", x, 0)
-            x = x + (b:GetWidth() or 60) + 4
-        end
-        f:SetWidth(max(10, x - 4))
-    end
-    for i, it in ipairs(items) do
-        local b = UI:CreateUnderlineTab(f, it.label, function(self) onPick(self.key) end, "page")
-        b.key = it.key
-        f.buttons[i] = b
-    end
-    place()
-    function f:SetSelected(key)
-        for _, b in ipairs(self.buttons) do b:SetActive(b.key == key) end
-    end
-    function f:SetLabel(key, text)
-        for _, b in ipairs(self.buttons) do
-            if b.key == key and b:GetText() ~= text then b:SetLabel(text) end
-        end
-        place()
-    end
-    return f
-end
-
----------------------------------------------------------------------------
 -- Portrait: a boss's round portrait (creature display id) with a gold ring; a tinted disc and the initial when
 -- the boss has no display id. p:SetBoss(name); p:SetPortraitSize(px)
 ---------------------------------------------------------------------------
 
 function Kit.Portrait(parent, size)
     local f = CreateFrame("Frame", nil, parent)
-    f.ring = Kit.Dot(f, size + 6, C.gold, 0.35, "BACKGROUND")
+    f.ring = UI:CreateDot(f, size + 6, C.gold, { alpha = 0.35, layer = "BACKGROUND" })
     f.ring:SetPoint("CENTER")
-    f.gap = Kit.Dot(f, size + 3, S.C.INSET, 1, "BORDER")
+    f.gap = UI:CreateDot(f, size + 3, S.C.INSET, { alpha = 1, layer = "BORDER" })
     f.gap:SetPoint("CENTER")
     f.tex = f:CreateTexture(nil, "ARTWORK")
     f.tex:SetPoint("CENTER")
@@ -401,12 +347,12 @@ function Kit.Chart(parent)
             end
             if s.endDot and #pts > 0 then
                 local x, y = self:Map(pts[#pts][1], pts[#pts][2])
-                local halo = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+                local halo = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
                 halo:SetVertexColor(col[1], col[2], col[3], 0.22)
                 halo:SetSize(16, 16)
                 halo:ClearAllPoints()
                 halo:SetPoint("CENTER", self, "BOTTOMLEFT", x, y)
-                local d = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+                local d = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
                 d:SetVertexColor(col[1], col[2], col[3], 1)
                 d:SetSize(7, 7)
                 d:ClearAllPoints()
@@ -428,12 +374,12 @@ function Kit.Chart(parent)
             local col = d[3] or C.gold
             local x, y = self:Map(d[1], d[2])
             local size = d[4] or 8
-            local ring = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+            local ring = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
             ring:SetVertexColor(ir, ig, ib, 1)
             ring:SetSize(size + 4, size + 4)
             ring:ClearAllPoints()
             ring:SetPoint("CENTER", self, "BOTTOMLEFT", x, y)
-            local t = take("dot", function() return Kit.Dot(self, 8, C.gold) end)
+            local t = take("dot", function() return UI:CreateDot(self, 8, C.gold, { alpha = 1 }) end)
             t:SetVertexColor(col[1], col[2], col[3], 1)
             t:SetSize(size, size)
             t:ClearAllPoints()
@@ -479,7 +425,7 @@ function Kit.Chart(parent)
         self.scrub:Show()
         for i, s in ipairs(o.series or {}) do
             local d = self.hoverDots[i]
-            if not d then d = Kit.Dot(self, 8, C.gold, 1, "OVERLAY"); self.hoverDots[i] = d end
+            if not d then d = UI:CreateDot(self, 8, C.gold, { alpha = 1 }); self.hoverDots[i] = d end
             local y = YAt(s.points, x)
             if y then
                 local col = s.color or C.gold
@@ -531,7 +477,7 @@ function Kit.Spark(parent, w, h)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(w, h)
     f.lines = {}
-    f.dot = Kit.Dot(f, 5, C.gold)
+    f.dot = UI:CreateDot(f, 5, C.gold, { alpha = 1 })
     function f:SetValues(vals)
         for _, l in ipairs(self.lines) do l:Hide() end
         self.dot:Hide()

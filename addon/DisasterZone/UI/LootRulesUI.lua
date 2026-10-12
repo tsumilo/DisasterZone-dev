@@ -42,14 +42,6 @@ end
 
 local function Plural(n, one, many) return n == 1 and ("1 " .. one) or (n .. " " .. (many or (one .. "s"))) end
 
--- A banner pill in any pill kind ("bis": the banner's own SetPill reads the event kinds only).
--- TODO(refactor): move into CreatePageBanner (SetPill with every pill kind: "bis")
-local function BannerPill(b, kind, text)
-    b.pill:SetPill(kind, text)
-    b.pill:SetShown(text ~= nil and text ~= "")
-    b:Layout()
-end
-
 local function Rules()
     local G = ns.Guild
     return G and G.GetLootRules and G:GetLootRules() or { f = 0, s = "r", l = "l", w = "r", y = "n", o = 0, q = "h" }
@@ -252,14 +244,7 @@ local function BuildYou(parent)
     end
     p.bis = WRow(b, "Your BiS list", { text = "Open My BiS",
         onClick = function() if ns.MainFrame then ns.MainFrame:Open("mybis") end end })
-    -- TODO(refactor): move into Surfaces (a shared thin progress bar: this track, the dry streak's bars, the
-    -- Assignments tiles' slot bar, the block tabs' have/of bar)
-    p.bis.track = p.bis:CreateTexture(nil, "ARTWORK", nil, 0)
-    p.bis.track:SetHeight(5)
-    p.bis.track:SetColorTexture(S:Color("EDGE_QUIET"))
-    p.bis.fill = p.bis:CreateTexture(nil, "ARTWORK", nil, 1)
-    p.bis.fill:SetHeight(5)
-    UI:Gradient(p.bis.fill, "HORIZONTAL", "GOLD_DEEP", "GOLD")
+    p.bis.bar = UI:CreateProgressBar(p.bis, { height = 5, track = "EDGE_QUIET", gradient = { "GOLD_DEEP", "GOLD" } })
     p.bis.open = p.bis.head.action
     p.lng = WRow(b, "Longest use")
     p.prz = WRow(b, "Prized items", { text = "", onClick = function() LootRulesUI:SetView("prized") end })
@@ -376,15 +361,12 @@ local function FillYou(p, R)
     p.bis.head:SetTitle("Your BiS list · P" .. phase)
     p.bis.big:SetText(picked .. S:Wrap("SUB", " / " .. total .. " picked"))
     p.bis.after:SetText("")
-    p.bis.track:ClearAllPoints()
-    p.bis.track:SetPoint("TOPLEFT", p.bis.big, "BOTTOMLEFT", 0, -6)
-    p.bis.track:SetWidth(w - 2)
-    p.bis.fill:ClearAllPoints()
-    p.bis.fill:SetPoint("TOPLEFT", p.bis.track)
-    p.bis.fill:SetWidth(max(1, (w - 2) * (total > 0 and picked / total or 0)))
-    p.bis.fill:SetShown(picked > 0)
+    p.bis.bar:ClearAllPoints()
+    p.bis.bar:SetPoint("TOPLEFT", p.bis.big, "BOTTOMLEFT", 0, -6)
+    p.bis.bar:SetWidth(w - 2)
+    p.bis.bar:Set(total > 0 and picked / total or 0)
     p.bis.note:ClearAllPoints()
-    p.bis.note:SetPoint("TOPLEFT", p.bis.track, "BOTTOMLEFT", 0, -6)
+    p.bis.note:SetPoint("TOPLEFT", p.bis.bar, "BOTTOMLEFT", 0, -6)
     p.bis.note:SetWidth(w)
     if #empty == 0 then
         p.bis.note:SetText(R.l ~= "r" and "Every slot picked: lists come first." or "Every slot picked.")
@@ -559,12 +541,10 @@ local function BuildItem(L)
     local f = L.detail
     local b = L.banner
     -- the item's icons in the banner's icon place (one, or the pieces of a set side by side)
-    -- TODO(refactor): move into CreatePageBanner (an icon slot that takes several item icons)
     b.iconHolder = CreateFrame("Frame", nil, b)
     b.iconHolder:SetSize(52, 48)
     b.icons = ns.PrizedUI:NewItemIcons(b.iconHolder, 44, 2)
-    b.icon = b.iconHolder
-    b:Layout()
+    b:SetIconFrame(b.iconHolder)
     f.banner = b
     -- the rules and the history: one scrolling column each (the tabs show one)
     local function column(title)
@@ -601,7 +581,7 @@ local function FillItem(L, rec)
     b.title:SetTextColor(UI:QualityColor(ns.ItemDB and ns.ItemDB.GetQuality and ns.ItemDB:GetQuality(rec.ids[1]) or 4))
     b:SetSub(PU:SlotText(rec) .. " · " .. (pl.bossName and (pl.bossName .. " · ") or "") .. (pl.raidName or ""))
     local _, kind, long = PU:Standing(rec)
-    BannerPill(b, kind, long)
+    b:SetPill(kind, long)
     -- the rules, with how I stand
     local check = P:Check(rec, Me())
     local by = check.by or {}
@@ -715,7 +695,7 @@ function LootRulesUI:Refresh()
     local empty = false
     if decided then
         local d = p.decided
-        BannerPill(d.banner, "bis", R.l ~= "r" and "Lists first" or "The roll decides")
+        d.banner:SetPill("bis", R.l ~= "r" and "Lists first" or "The roll decides")
         FillPath(d.path, R)
         FillYou(d.you, R)
     else

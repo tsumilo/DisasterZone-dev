@@ -1114,9 +1114,9 @@ function V:Chip(n)
     c.glow:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.6)
     c.icon = c:CreateTexture(nil, "ARTWORK", nil, 2)
     c.fs = c:CreateFontString(nil, "OVERLAY")
-    c.fs:SetFont(fontPath(), 12, "OUTLINE")
+    c.fs:SetFont(fontPath(), ns.Style.FONT.emph, "OUTLINE")
     c.sub = c:CreateFontString(nil, "OVERLAY")
-    c.sub:SetFont(fontPath(), 11, "OUTLINE")
+    c.sub:SetFont(fontPath(), ns.Style.FONT.body, "OUTLINE")
     c.badge = c:CreateTexture(nil, "OVERLAY", nil, 3)
     c.sel = {}
     for i = 1, 4 do c.sel[i] = c:CreateTexture(nil, "OVERLAY", nil, 4) end
@@ -1331,7 +1331,7 @@ function V:DrawPlates(remote)
                 c.fs:SetPoint("BOTTOM", c, "BOTTOM", 0, 0)
                 c.fs:SetWidth(0)
                 c.fs:SetText(label)
-                if r.kind == "model" then c.fs:SetTextColor(1, 0.82, 0) else c.fs:SetTextColor(1, 1, 1) end
+                if r.kind == "model" then c.fs:SetTextColor(ns.Style:Color("GOLD")) else c.fs:SetTextColor(1, 1, 1) end
                 c.fs:Show()
                 top = c.fs
                 w, h = c.fs:GetStringWidth() or 40, c.fs:GetStringHeight() or 12
@@ -1841,7 +1841,7 @@ function V:CreateHud()
     self.hint = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     do
         local path, _, flags = self.hint:GetFont()
-        if path then self.hint:SetFont(path, 11, flags) end
+        if path then self.hint:SetFont(path, ns.Style.FONT.body, flags) end
     end
     self.hint:SetPoint("BOTTOMLEFT", 18, 14)
     self.hint:SetJustifyH("LEFT")

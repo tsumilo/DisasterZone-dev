@@ -66,16 +66,10 @@ function H.Dim(text) return S:Wrap("DIM", text) end
 
 function H.Short(key) return ns.Util.ShortName(key) or tostring(key) end
 
--- The class the guild knows for a player, unless the record has it. TODO(refactor): move into UI:ClassOf (the API
--- names it; only EUI:ClassOf exists so far).
-function H.Class(key, classFile)
-    return classFile or (ns.Guild and ns.Guild.GetClass and ns.Guild:GetClass(key)) or nil
-end
-
 -- The name in its class colour. (Other lists mark a player from another realm "Name*"; the raid log's tables leave
 -- the mark out: the GUEST tag says they are outside the guild, the row's tooltip names the realm.)
 function H.Colored(key, classFile)
-    local text = ns.UI:ColoredName(key, H.Class(key, classFile))
+    local text = ns.UI:ColoredName(key, ns.UI:ClassOf(key, classFile))
     return (text:gsub("%*|r$", "|r"))
 end
 
@@ -170,22 +164,6 @@ function H.PaintArt(tex, key, w, h, fw)
     tex:Show()
 end
 
--- A second picture beside a texture (a night of two instances: the Upcoming cards' look): the right half and the
--- dark line between them, made on first use. TODO(refactor): move into UI:CreateArtRow / UI:CreatePageBanner (a
--- two-picture art).
-function H.SecondArt(host, base, layer, sub)
-    if not host.dzArt2 then
-        host.dzArt2 = host:CreateTexture(nil, layer, nil, sub)
-        host.dzArt2:SetPoint("TOPLEFT", base, "TOPRIGHT")
-        host.dzArtLine = host:CreateTexture(nil, layer, nil, sub + 1)
-        host.dzArtLine:SetColorTexture(0, 0, 0, 0.6)       -- uniformity: the seam between two raids' pictures
-        host.dzArtLine:SetWidth(2)
-        host.dzArtLine:SetPoint("TOPLEFT", host.dzArt2, "TOPLEFT", -1, 0)
-        host.dzArtLine:SetPoint("BOTTOMLEFT", host.dzArt2, "BOTTOMLEFT", -1, 0)
-    end
-    return host.dzArt2, host.dzArtLine
-end
-
 function H.KillsText(rec)
     local kills = #(rec.bosses or {})
     local total = RL():GetRecordBossTotal(rec)
@@ -196,25 +174,15 @@ end
 -- Raid list (left): an art row per logged raid
 ----------------------------------------------------------------------------
 
--- The row's picture: the raid's loading screen; a night of two instances: the first two side by side.
+-- The row's pictures: the raid's loading screen; a night of two instances: the first two side by side (the art
+-- row's art2). Returns art, art2 for ArtRow:SetData.
 function H.RowArt(row, rec)
-    return function(tex, w, h)
-        local keys = H.InstsOf(rec)
-        local two = #keys > 1
-        local art2, line = H.SecondArt(row.ar.art, tex, "ARTWORK", 1)
-        tex:ClearAllPoints()
-        tex:SetPoint("TOPLEFT")
-        tex:SetPoint("BOTTOMLEFT")
-        local aw = two and floor(w / 2) or w
-        tex:SetWidth(aw)
-        H.PaintArt(tex, keys[1], aw, h, 0.36 * aw / w)
-        art2:SetShown(two)
-        line:SetShown(two)
-        if two then
-            art2:SetSize(w - aw, h)
-            H.PaintArt(art2, keys[2], w - aw, h, 0.36 * (w - aw) / w)
-        end
+    local keys = H.InstsOf(rec)
+    local full = row.ar.art:GetWidth() or 64
+    local function paint(key)
+        return function(tex, w, h) H.PaintArt(tex, key, w, h, 0.36 * w / max(1, full)) end
     end
+    return paint(keys[1]), keys[2] and paint(keys[2]) or nil
 end
 
 local function initRaidRow(row, d)
@@ -246,7 +214,8 @@ local function initRaidRow(row, d)
     local kills = H.KillsText(rec)
     local day = H.Time(rec.start, "%a ") .. tonumber(H.Time(rec.start, "%d")) .. H.Time(rec.start, " %b")
     local sub = H.PickVariant({ day .. " · " .. kills, ((day .. " · " .. kills):gsub(" bosses?$", "")) }, room, "sub")
-    row.ar:SetData({ art = H.RowArt(row, rec), title = title, sub = sub, right = right, pill = pill,
+    local art, art2 = H.RowArt(row, rec)
+    row.ar:SetData({ art = art, art2 = art2, title = title, sub = sub, right = right, pill = pill,
                      selected = rec.id == state.selected })
 end
 
@@ -503,7 +472,7 @@ function H.DetailRows(rec)
     local place = H.PlaceColumns("att", DETAIL_W, { [4] = anyLeft })
     for _, key in ipairs(keys) do
         local a = rec.att[key]
-        rows[#rows + 1] = { place = place, key = key, class = H.Class(key, a.c), guest = ns.UI:IsGuest(key),
+        rows[#rows + 1] = { place = place, key = key, class = ns.UI:ClassOf(key, a.c), guest = ns.UI:IsGuest(key),
             cols = { H.Colored(key, a.c), ("%d/%d"):format(tonumber(a.k) or 0, nBoss), a.j and H.Time(a.j) or DASH,
                      leftEarly(a) and H.Time(a.l) or DASH },
             pill = a.b and "bench" or nil,
@@ -521,22 +490,10 @@ end
 function H.BannerArt(b, rec)
     local keys = H.InstsOf(rec)
     local W, Hh = DETAIL_W - 2, b:GetHeight() - 2
-    local art2, line = H.SecondArt(b, b.art, "BACKGROUND", 2)
-    b.art:ClearAllPoints()
-    b.art:SetPoint("TOPLEFT", 1, -1)
     if #keys > 1 then
         local aw = floor(W / 2)
-        b.art:SetPoint("BOTTOMLEFT", 1, 1)
-        b.art:SetWidth(aw)
-        art2:SetPoint("BOTTOMRIGHT", -1, 1)
-        H.PaintArt(art2, keys[2], W - aw, Hh, 0.98 * (W - aw) / W)
-        art2:Show()
-        line:Show()
-        b:SetArt({ H.ArtCrop(keys[1], aw, Hh, 0.98 * aw / W) })
+        b:SetArt({ H.ArtCrop(keys[1], aw, Hh, 0.98 * aw / W) }, nil, { H.ArtCrop(keys[2], W - aw, Hh, 0.98 * (W - aw) / W) })
     else
-        b.art:SetPoint("BOTTOMRIGHT", -1, 1)
-        art2:Hide()
-        line:Hide()
         b:SetArt({ H.ArtCrop(keys[1], W, Hh, 0.98) })
     end
 end
@@ -653,10 +610,6 @@ function H.UpdateToolbar(p)
     bar:SetTabShown("guests", canRoster())
     bar:SetTabShown("log", isCouncil())
     for _, key in ipairs({ "raids", "players", "reviews" }) do bar:SetTabShown(key, log) end
-    -- TODO(refactor): move into the layout toolbar (LayoutTabs leaves the separator of a hidden small-tab group shown)
-    if not log then
-        for _, sep in ipairs(bar.tabSeps or {}) do sep:Hide() end
-    end
     -- the current view's tab is the lit one
     bar:SelectTab(state.view)
     bar:SelectTab(state.mode)
