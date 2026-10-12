@@ -528,7 +528,8 @@ function NotifyUI:CreatePage(parent)
     p.read:SetPoint("TOPRIGHT", body, "TOPRIGHT", -12, -2)
     -- the items run from the menu's hairline to the page's edge
     p.scroll = UI():CreateScrollFrame(body)
-    p.scroll:SetPoint("TOPLEFT", body, "TOPLEFT", 1 - RAIL_GAP, -50)
+    -- (56 down: the heading's two-line description keeps its gap above the first item, as in 1.3.5)
+    p.scroll:SetPoint("TOPLEFT", body, "TOPLEFT", 1 - RAIL_GAP, -56)
     p.scroll:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -12, 0)
     p.list = CreateFrame("Frame", nil, p.scroll)
     p.list:SetSize(560, 10)
@@ -676,8 +677,14 @@ local function ShowToast(it)
         buttons[#buttons + 1] = later
     end
     local kicker = Kicker(def, it)
+    local sounded = false
     -- (our touches once it is on screen, also when it first waited behind other features' toasts)
     local function Decorate(t)
+        -- (its sound when it appears, once: not while it still waits behind the others)
+        if not sounded then
+            sounded = true
+            if N():Wants(it.kind, "sound") then PlayFor(def, it) end
+        end
         SetKindIcon(t.icon, def, it)
         t.kick:SetText(kicker)                         -- (as it is: the sender's name keeps its colour and case)
         local n = 0
@@ -690,7 +697,8 @@ local function ShowToast(it)
         key = NotifyUI.TOAST_KEY,
         kind = it.needsYou and "info" or NEWS_KICK,
         icon = UI().ICON_ATLAS, iconSize = 14, iconCoords = UI():IconCoords(UI().ICON.notes),
-        kicker = kicker, title = it.title or "", text = (it.text or "") ~= "" and it.text or nil,
+        -- (the whole title over up to 4 lines, as before 1.4: a poll's question is read before Yes / No)
+        kicker = kicker, title = it.title or "", titleLines = 4, text = (it.text or "") ~= "" and it.text or nil,
         buttons = buttons, buttonRow = true,
         duration = it.needsYou and 0 or NotifyUI.INFO_SECONDS,
         timeBar = not it.needsYou,
@@ -698,8 +706,19 @@ local function ShowToast(it)
         onClick = function() N():Open(id) end,
         onClose = OnToastClose,
         onShow = Decorate,
+        -- (one waiting behind other features' toasts keeps the quiet rules: never in a fight or while busy)
+        canShow = function() return not Quiet() end,
     })
-    if N():Wants(it.kind, "sound") then PlayFor(def, it) end
+end
+
+-- Quiet time is over: the pop-up waiting in the shared queue (if any) may come, else the next of ours.
+local function Resume()
+    if Shown() then return end
+    if toastId then
+        UI():PumpToasts()
+    else
+        NotifyUI:NextToast()
+    end
 end
 
 -- The next waiting pop-up (or none): the one shown leaves.
@@ -730,7 +749,7 @@ function NotifyUI:GetQueue() return queue end
 local function Enqueue(id)
     for _, q in ipairs(queue) do if q == id then return end end
     queue[#queue + 1] = id
-    if not (Shown() or toastId) then NotifyUI:NextToast() end
+    Resume()
 end
 
 -- Something new in the feed: a chat line, a pop-up or a sound, as the player chose for its kind.
@@ -825,11 +844,11 @@ function NotifyUI:OnInit()
     ns:On("NOTIFY_CHANGED", OnChanged)
     ns:On("NOTIFY_NEW", function(id) NotifyUI:OnNew(id) end)
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function()
-        C_Timer.After(1, function() if not (Shown() or toastId) then NotifyUI:NextToast() end end)
+        C_Timer.After(1, Resume)
     end)
     ns:RegisterEvent("ENCOUNTER_START", function() inEncounter = true end)
     ns:RegisterEvent("ENCOUNTER_END", function()
         inEncounter = false
-        C_Timer.After(3, function() if not (Shown() or toastId) then NotifyUI:NextToast() end end)
+        C_Timer.After(3, Resume)
     end)
 end

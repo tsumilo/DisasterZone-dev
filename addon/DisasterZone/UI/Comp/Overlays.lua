@@ -74,7 +74,8 @@ end
 --              waiting is replaced in the queue
 --   kind       "info" (gold, default) | "ok" | "warn" | "bad" | "live" | "you" | a colour token / { r, g, b }:
 --              the edge and the kicker
---   kicker     a small capitals line over the title;  title;  text (grey, wraps, `lines` lines at most: 3)
+--   kicker     a small capitals line over the title;  title (one line, cut with "..."; titleLines = n: wraps, n
+--              lines at most);  text (grey, wraps, `lines` lines at most: 3)
 --   icon       a texture (path / file id) at the left, iconSize (32) and iconCoords ({ l, r, t, b }; trimmed
 --              by default); art = { file, l, r, t, b } a picture down the left side instead (artWidth 112)
 --   buttons    { { text, kind = "primary" | "secondary" | "danger" | "link", onClick(toast), width }, ... }: one
@@ -91,6 +92,7 @@ end
 --   progress   0..1: a thin bar along the foot (progressColor, default "OK"); timeBar = true: the time left instead
 --   sound      a SOUNDKIT name or id, played when it appears;  noClose: no X;  width (380);  minHeight
 --   combat     false: waits until the fight is over
+--   canShow(opts)  false: it waits in the queue (checked each time it could come: a caller's own quiet rule)
 --   itemID     the item's tooltip while hovered (tipLine: a grey line under it);  rightClose: a right-click dismisses it
 --   onFill(toast)  puts the caller's own pieces in toast.slot each time it is filled (also when it waited first)
 -- toast.slot is a frame over the toast for a caller's own pieces (emptied each time the toast is filled again).
@@ -303,8 +305,25 @@ function H.FillToast(t, o)
         t.title:ClearAllPoints()
         t.title:SetPoint("TOPLEFT", x, -y)
         t.title:SetWidth(textW)
-        UI:FitText(t.title, o.title, textW)
-        y = y + 14 + 4
+        local tl = tonumber(o.titleLines) or 1
+        if tl > 1 then
+            -- (a long title, a poll's question: all of it over a few lines, the toast grows to fit)
+            t.title:SetWordWrap(true)
+            if t.title.SetMaxLines then t.title:SetMaxLines(tl) end
+            t.title:SetText(o.title)
+            -- (its height; or by its width while the client has not wrapped it yet)
+            local th = tonumber(t.title:GetStringHeight()) or 0
+            local uw = tonumber(t.title.GetUnboundedStringWidth and t.title:GetUnboundedStringWidth()
+                or t.title:GetStringWidth()) or 0
+            if uw > textW and th <= 17 then th = math.ceil(uw / textW) * 16 end
+            if th < 14 then th = 14 end
+            y = y + min(th, tl * 16) + 4
+        else
+            t.title:SetWordWrap(false)
+            if t.title.SetMaxLines then t.title:SetMaxLines(1) end
+            UI:FitText(t.title, o.title, textW)
+            y = y + 14 + 4
+        end
     end
     t.text:SetShown(o.text ~= nil)
     if o.text then
@@ -397,6 +416,10 @@ end
 
 function H.CanShow(o)
     if o.combat == false and H.InCombat() then return false end
+    if o.canShow then
+        local ok, yes = H.Safe("Toast canShow", o.canShow, o)
+        if ok and not yes then return false end
+    end
     return #shownToasts < T.MAX
 end
 
@@ -486,6 +509,9 @@ function UI:ShownToasts()
 end
 
 function UI:ToastQueue() return toastQueue end
+
+-- Shows the waiting toasts that can come now (a caller whose canShow rule changed: its quiet time is over).
+function UI:PumpToasts() H.Pump() end
 
 if ns.RegisterEvent then
     ns:RegisterEvent("PLAYER_REGEN_ENABLED", function() H.Pump() end)

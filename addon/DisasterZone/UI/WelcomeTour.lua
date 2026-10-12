@@ -121,7 +121,8 @@ end
 
 -- Starts the tour: only = { [part] = true } (nil: every part for my roles), peek = another role's part on demo data.
 function W:Start(only, peek)
-    if ns.ChangelogPopup then ns.ChangelogPopup:Hide() end
+    -- (Close, not Hide: one hidden with the window would come back with it, over the tour)
+    if ns.ChangelogPopup then ns.ChangelogPopup:Close() end
     if W.offerFrame then W.offerFrame.suspended = nil end
     if W.offerFrame and W.offerFrame:IsShown() then
         W.answering = true          -- (closing it here is no answer of its own: the tour starting is)
