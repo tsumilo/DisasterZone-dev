@@ -10,10 +10,14 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/MyLog.lua", ...) then return 
 --   with every idle gap over 2 s, and death recaps (the last 10 s of events, health after each).
 --
 -- Counting (matches the client's combat log fields, COMBAT_LOG_EVENT_UNFILTERED, 2.5.x layout):
---   damage done   = amount - overkill + absorbed   (the hit as the target felt it, shields included)
+--   damage done   = amount + absorbed              (the whole hit, overkill and shields included: as Meters count
+--                                                     it, decision D5 of 1.4; pulls saved before 1.4 keep their s)
 --   healing done  = amount - overhealing           (effective), overhealing kept apart; shield absorbs kept apart
 --   damage taken  = amount (health lost) + absorbed (what shields took), overkill counted on my death blow only
 -- Mine = the source flags' AFFILIATION_MINE bit, so pets, guardians and totems need no bookkeeping.
+-- The combat log comes from Core/CombatLog.lua (one reader for Meters, My Log and the swing timer), and so does the
+-- death recap's ring. A saved recap entry is { dt, kind, key, amount, hp, who, extra } (its 1.3.5 order: hp before
+-- who, the shared ring's other way round, swapped in NoteDeath).
 -- The fight clock runs from ENCOUNTER_START to ENCOUNTER_END (GetTime). A /reload or logout mid-pull stores the pull
 -- as cut short (cut = true); comparisons leave it out.
 --
@@ -38,6 +42,7 @@ local addonName, ns = ...
 
 local MyLog = ns:NewModule("MyLog")
 local Util = ns.Util
+local CL = ns.CombatLog
 
 local type, pairs, ipairs, tonumber, tostring, select, next = type, pairs, ipairs, tonumber, tostring, select, next
 local floor, max, min = math.floor, math.max, math.min
@@ -61,7 +66,7 @@ local WEEK = 7 * 86400
 local cur                        -- the pull record being filled
 local t0                         -- GetTime() at ENCOUNTER_START
 local myGUID
-local ring, ringPos = {}, 0
+local ring = CL.NewRing(RING)
 local auraOn = { me = {}, out = {} }     -- [spellId] = { since, count } while up
 local busyUntil, covered, lastCastStart, castCover, castGcd   -- active time (see Cover)
 local ticker
@@ -161,7 +166,7 @@ end
 -- Small helpers
 ---------------------------------------------------------------------------
 
-local function Now() return GetTime() end
+local Now = CL.Now
 
 local function Round1(x) return floor(x * 10 + 0.5) / 10 end
 
@@ -225,9 +230,7 @@ local function AddMiss(s, missType, amountMissed)
 end
 
 local function PushRing(now, kind, key, amount, who, extra)
-    ringPos = ringPos % RING + 1
-    local hp = UnitHealth and UnitHealth("player") or 0
-    ring[ringPos] = { now - t0, kind, key, amount, hp, who, extra }
+    CL.Push(ring, now - t0, kind, key, amount, who, UnitHealth and UnitHealth("player") or 0, extra)
 end
 
 ---------------------------------------------------------------------------
@@ -407,7 +410,7 @@ local function DamageDone(now, srcGUID, srcName, dstGUID, dstName, key, isPet, a
     amount = amount or 0
     local tbl = isPet and cur.pet or cur.dmg
     AddHit(Stat(tbl, key), amount, overkill, resisted, blocked, absorbed, crit, glancing, crushing)
-    local useful = amount - max(overkill or 0, 0) + (absorbed or 0)
+    local useful = amount + (absorbed or 0)              -- overkill counts (D5)
     if useful < 0 then useful = 0 end
     AddTl("d", useful, now)
     local npc = NpcId(dstGUID)
@@ -444,10 +447,10 @@ local function SpellKey(spellId, name, prefix)
     return key
 end
 
-local function OnCombatLog()
+-- One combat-log event (a Core/CombatLog.lua subscriber while a pull records: the event name, then the payload).
+local function OnCombatLog(_, _, sub, _, srcGUID, srcName, srcFlags, _, dstGUID, dstName, _, _, a12, a13, a14, a15,
+                           a16, a17, a18, a19, a20, a21, a22, a23)
     if not cur then return end
-    local _, sub, _, srcGUID, srcName, srcFlags, _, dstGUID, dstName, _, _, a12, a13, a14, a15, a16, a17, a18, a19,
-          a20, a21, a22, a23 = CombatLogGetCurrentEventInfo()
     local fromMe = srcGUID == myGUID
     local mine = fromMe or (band and srcFlags and band(srcFlags, AFFIL_MINE) ~= 0 and srcGUID ~= myGUID
         and srcGUID ~= nil and strsub(srcGUID, 1, 7) ~= "Player-")
@@ -712,15 +715,10 @@ end
 function MyLog:NoteDeath(now)
     if not cur then return end
     local t = now - t0
-    local recap = {}
-    local by
-    for i = 1, RING do
-        local idx = (ringPos + i - 1) % RING + 1   -- oldest first
-        local e = ring[idx]
-        if e and e[1] >= t - RECAP and e[1] <= t + 0.001 then
-            recap[#recap + 1] = { floor((e[1] - t) * 100 + 0.5) / 100, e[2], e[3], e[4], e[5], e[6], e[7] }
-            if e[2] == "d" then by = e[3] end
-        end
+    local recap, by = CL.Recap(ring, t, RECAP, 100)      -- oldest first, times to the hundredth
+    for i = 1, #recap do
+        local e = recap[i]
+        e[5], e[6] = e[6], e[5]                           -- saved order: hp, then who (as 1.3.5 saved it)
     end
     if #cur.deaths < DEATHS_MAX then
         cur.deaths[#cur.deaths + 1] = { t = floor(t * 10 + 0.5) / 10, by = by, ring = recap,
@@ -731,7 +729,7 @@ function MyLog:NoteDeath(now)
         cur.dead = floor(t * 10 + 0.5) / 10
         if busyUntil < now then busyUntil = now end
     end
-    ring, ringPos = {}, 0
+    CL.ClearRing(ring)
 end
 
 -- Resurrected (battle res, Soulstone, Reincarnation) during the pull: alive time continues.
@@ -847,7 +845,7 @@ local function Listen(on)
     if on == listening then return end
     listening = on
     local fn = on and ns.RegisterEvent or ns.UnregisterEvent
-    fn(ns, "COMBAT_LOG_EVENT_UNFILTERED", OnCombatLog)
+    CL:SetSubscribed("mylog", OnCombatLog, on)
     fn(ns, "UNIT_SPELLCAST_START", OnCastStart)
     fn(ns, "UNIT_SPELLCAST_DELAYED", OnCastDelayed)
     fn(ns, "UNIT_SPELLCAST_CHANNEL_START", OnChannelStart)
@@ -883,7 +881,7 @@ function MyLog:Start(encounterID, encounterName, difficultyID, groupSize)
     bossNpcs, bossName, bevLast, bevOpen = MyLog:EncounterNpcs(encounterName), encounterName, {}, {}
     pendingCast, openChannel = nil, nil
     cur.role = ns.GetSpecRole and ns.GetSpecRole(cls, cur.spec) or nil
-    ring, ringPos = {}, 0
+    CL.ClearRing(ring)
     auraOn = { me = {}, out = {} }
     busyUntil, covered, lastCastStart, castCover, castGcd = now, 0, nil, nil, nil
     SeedMyAuras(now)
@@ -908,7 +906,7 @@ end
 function MyLog:Summarize(p)
     local d = 0
     for _, tbl in ipairs({ p.dmg, p.pet }) do
-        for _, s in pairs(tbl) do d = d + s.a - (s.o or 0) + (s.ab or 0) end
+        for _, s in pairs(tbl) do d = d + s.a + (s.ab or 0) end             -- overkill counts (D5)
     end
     local h, oh, sh = Sum(p.heal, "a"), Sum(p.heal, "oh"), Sum(p.shield, "a")
     local t = 0

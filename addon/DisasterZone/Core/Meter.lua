@@ -6,8 +6,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 --
 -- Counting (Details' rules, so the numbers match what raiders are used to; checked in game 2026-10-10):
 --   damage done   = amount + absorbed (the whole hit, overkill included, shields included); hits on other group
---                   members (Seal of Blood's self damage, ...) never count as damage done. (My Log leaves the
---                   killing blow's overkill out: its numbers are about the boss, these about the player.)
+--                   members (Seal of Blood's self damage, ...) never count as damage done. (My Log counts the same
+--                   way since 1.4: overkill counts in damage everywhere.)
 --   healing       = amount - overhealing (effective) + shield absorbs (SPELL_ABSORBED, credited to the caster);
 --                   overhealing kept apart
 --   damage taken  = amount + absorbed, and hits a shield took whole (MISSED ABSORB)
@@ -18,6 +18,9 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 -- gaps do not. Per second divides by the fight's length (meters.rate "fight", the default) or by it ("active").
 -- A fight's clock runs from its first hit to its last (a boss fight: ENCOUNTER_START to ENCOUNTER_END).
 -- Spec: guessed from signature spells (SIG: talents or spells only one spec casts), remembered by name.
+--
+-- The combat log comes from Core/CombatLog.lua (one reader for Meters, My Log and the swing timer), and so does the
+-- death recap's ring.
 --
 -- Fights: one starts when a group member hits or is hit by an enemy (or I enter combat) and ends when the whole group
 -- has been out of combat END_QUIET seconds. A boss fight runs from ENCOUNTER_START to ENCOUNTER_END (a trash fight
@@ -41,6 +44,8 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("Core/Meter.lua", ...) then return 
 local addonName, ns = ...
 
 local Meter = ns:NewModule("Meter")
+local CL = ns.CombatLog
+local Util = ns.Util
 
 local type, pairs, ipairs, tonumber, tostring, next, select = type, pairs, ipairs, tonumber, tostring, next, select
 local floor, max, min = math.floor, math.max, math.min
@@ -104,7 +109,7 @@ local sigByName                   -- [class] = { [localized name] = spec }, buil
 local roster = {}                 -- [guid] = { unit, name, cls }
 local owner = {}                  -- [pet / guardian guid] = owner guid
 local live                        -- the fight being recorded (also the newest of db.segs)
-local rings = {}                  -- [guid] = { pos = n, [i] = event } the death recap's ring
+local rings = {}                  -- [guid] = the death recap's ring (CL.NewRing)
 local quiet = 0
 local ticker
 local listening = false
@@ -122,7 +127,7 @@ end
 Meter.Setting = Setting
 
 function Meter:IsEnabled() return Setting("dmg", false) and true or false end
-function Meter:IsDemo() return ns.Demo and ns.Demo.IsEnabled and ns.Demo:IsEnabled() and ns.MeterDemo ~= nil or false end
+function Meter:IsDemo() return Util.DemoOn() and ns.MeterDemo ~= nil end
 
 local function Store()
     if type(DisasterZoneMeterDB) ~= "table" or DisasterZoneMeterDB.v ~= 1 then
@@ -150,8 +155,8 @@ Meter.Changed = Changed
 -- Fights
 ---------------------------------------------------------------------------
 
-local function Now() return GetTime() end
-local function ServerTime() return (GetServerTime and GetServerTime()) or time() end
+local Now = CL.Now
+local ServerTime = Util.Now
 
 local function NewSeg(kind)
     local db = Store()
@@ -541,10 +546,8 @@ local function Push(guid, now, kind, key, amount, srcName, extra)
     local r = roster[guid]
     if not r then return end
     local ring = rings[guid]
-    if not ring then ring = { pos = 0 }; rings[guid] = ring end
-    ring.pos = ring.pos % RING + 1
-    local hp = UnitHealth and UnitHealth(r.unit) or 0
-    ring[ring.pos] = { now, kind, key, amount, srcName, hp, extra }
+    if not ring then ring = CL.NewRing(RING); rings[guid] = ring end
+    CL.Push(ring, now, kind, key, amount, srcName, UnitHealth and UnitHealth(r.unit) or 0, extra)
 end
 
 local function NoteDeath(guid, now)
@@ -552,19 +555,12 @@ local function NoteDeath(guid, now)
     if not r or not live then return end
     if UnitIsFeignDeath and UnitIsFeignDeath(r.unit) then return end
     local ring = rings[guid]
-    local ev, by, byName, src = {}, nil, nil, nil
+    local ev, by, src
     if ring then
-        local list = {}
-        for i = 1, RING do
-            local e = ring[i]
-            if e and now - e[1] <= RECAP + 0.05 then list[#list + 1] = e end
-        end
-        tsort(list, function(a, b) return a[1] < b[1] end)
-        for _, e in ipairs(list) do
-            ev[#ev + 1] = { floor((e[1] - now) * 10 + 0.5) / 10, e[2], e[3], e[4], e[5], e[6], e[7] }
-            if e[2] == "d" then by, src = e[3], e[5] end
-        end
+        ev, by, src = CL.Recap(ring, now, RECAP + 0.05, 10)       -- oldest first, times to the tenth
         rings[guid] = nil
+    else
+        ev = {}
     end
     local hpMax = UnitHealthMax and UnitHealthMax(r.unit) or 0
     Each(function(seg)
@@ -604,9 +600,9 @@ local function IsHostileHit(sub)
     return sub == "SWING_DAMAGE" or SPELL_DAMAGE[sub] or sub == "SWING_MISSED" or SPELL_MISSED[sub]
 end
 
-function Meter:OnCombatLog()
-    local _, sub, _, srcGUID, srcName, srcFlags, _, dstGUID, dstName, dstFlags, _, a12, a13, a14, a15, a16, a17, a18,
-          a19, a20, a21, a22, a23 = CombatLogGetCurrentEventInfo()
+-- One combat-log event (a Core/CombatLog.lua subscriber: the event name, then the client's payload).
+local function OnCLEU(_, _, sub, _, srcGUID, srcName, srcFlags, _, dstGUID, dstName, dstFlags, _, a12, a13, a14, a15,
+                      a16, a17, a18, a19, a20, a21, a22, a23)
     local g, isPet = Who(srcGUID)
     local toMember = dstGUID ~= nil and roster[dstGUID] ~= nil
     if sub == "SPELL_SUMMON" then
@@ -696,6 +692,9 @@ function Meter:OnCombatLog()
         if toMember and dstFlags and band and band(dstFlags, TYPE_PLAYER) ~= 0 then NoteDeath(dstGUID, now) end
     end
 end
+
+-- The event the client is handing out now, counted (what the reader does for every event).
+function Meter:OnCombatLog() return OnCLEU(CL.EVENT, CombatLogGetCurrentEventInfo()) end
 
 ---------------------------------------------------------------------------
 -- Rows for the window
@@ -803,7 +802,6 @@ local function OnRegenDisabled()
     if listening and not live then Begin("trash") end
 end
 
-local function OnCLEU() Meter:OnCombatLog() end
 local function OnRoster() Meter:RebuildRoster() end
 local function OnPet(_, unit)
     local pg = unit and UnitGUID and UnitGUID(unit == "player" and "pet" or (unit:gsub("^(%a+)(%d+)$", "%1pet%2")))
@@ -819,7 +817,7 @@ local function Listen(on)
     if on == listening then return end
     listening = on
     local fn = on and ns.RegisterEvent or ns.UnregisterEvent
-    fn(ns, "COMBAT_LOG_EVENT_UNFILTERED", OnCLEU)
+    CL:SetSubscribed("meter", OnCLEU, on)
     fn(ns, "ENCOUNTER_START", OnEncounterStart)
     fn(ns, "ENCOUNTER_END", OnEncounterEnd)
     fn(ns, "PLAYER_REGEN_DISABLED", OnRegenDisabled)
