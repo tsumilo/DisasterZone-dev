@@ -4,33 +4,27 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SimHistory.lua", ...) then retu
 -- (the items it changed against what it was compared with), the Working set's DPS and the difference then. Click
 -- runs to pick them (two at most): the card on the right shows one run, or compares two: their DPS on the same rolls,
 -- the gear between them and any setting that differs. Open brings a run back on the page (nothing is simmed).
+-- A list + detail page (UI:CreateLayout "listdetail") under the page's strip banner; the detail opens with its own
+-- banner (D3).
 local addonName, ns = ...
 
 local HUI = {}
 ns.SimHistoryUI = HUI
 
-local floor, max, min, abs = math.floor, math.max, math.min, math.abs
+local UI, S = ns.UI, ns.Style
+local K = ns.SimStage.Kit        -- the stage's shared pieces (UI/SimStage.lua): palette, text, bars, verdicts
+local floor, max, min = math.floor, math.max, math.min
 
-local FONT = (GameFontNormal and GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
-local NUM = "Fonts\\ARIALN.TTF"
+local NUM = K.NUM
 local W, H = 770, 496
-local TOP = 56                -- the list and the card start here (under the title and the rule)
+local TOP = S.BANNER.strip + S.GAP  -- the list and the card start here (under the page's banner)
 local LIST_W = 466
-local ROW_H, ROW_GAP = 38, 4
-local CARD_X = LIST_W + 16
-local CARD_W = W - CARD_X
+local ROW_H = S.ROW.rich          -- the list's rows (the shared row look: hairline, hover, the picked one lit)
+local CARD_W = W - LIST_W - S.GAP
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
-local CHECK_OK, CHECK_NO = "Interface\\RaidFrame\\ReadyCheck-Ready", "Interface\\RaidFrame\\ReadyCheck-NotReady"
 
-local C = {
-  gold = { 1, 0.82, 0 }, gold2 = { 0.886, 0.702, 0.243 }, text = { 0.925, 0.925, 0.925 },
-  dim = { 0.561, 0.561, 0.584 }, label = { 0.659, 0.659, 0.682 }, green = { 0.31, 0.83, 0.42 },
-  red = { 0.88, 0.38, 0.31 }, grey = { 0.49, 0.49, 0.51 }, row = { 0.106, 0.106, 0.122 },
-  rowHover = { 0.133, 0.133, 0.153 }, rowPicked = { 0.149, 0.133, 0.098 }, box = { 0.094, 0.094, 0.11 },
-  edge = { 0.137, 0.137, 0.157 }, line = { 0.149, 0.149, 0.173 }, track = { 0.137, 0.137, 0.157 },
-  barRef = { 0.478, 0.478, 0.51 }, okText = { 0.659, 0.847, 0.69 }, noText = { 0.92, 0.62, 0.58 },
-  warn = { 1, 0.70, 0.35 }, ink = { 0.08, 0.07, 0.05 },
-}
+-- The page's palette: the stage's (ns.Style tokens for text and verdicts).
+local C = setmetatable({ label = K.C.sentence, warn = S.C.WARN }, { __index = K.C })
 
 local function R() return ns.SimRunner end
 local function P() return ns.SimPanel end
@@ -38,53 +32,23 @@ local function Hist() return ns.SimHistory end
 local function Fmt(v) return ns.SimPanel.Fmt(v) end
 local function Signed(v) return ns.SimPanel.Signed(v) end
 
-local function Text(parent, size, color, justify, font)
-  local fs = parent:CreateFontString(nil, "OVERLAY")
-  fs:SetFont(font or FONT, size, "")
-  fs:SetShadowOffset(1, -1)
-  fs:SetShadowColor(0, 0, 0, 0.7)
-  if color then fs:SetTextColor(color[1], color[2], color[3]) end
-  fs:SetJustifyH(justify or "LEFT")
-  fs:SetWordWrap(false)
-  return fs
-end
+-- UI:Text's options for the page's lines (S.STYLE names): left / centred, the numerals in the narrow number font;
+-- all with the shared drop shadow.
+local T_L = { justify = "LEFT", shadow = true }
+local T_C = { justify = "CENTER", shadow = true }
+local T_RN = { justify = "RIGHT", font = NUM, shadow = true }
 
-local function Tex(parent, layer, c, a)
-  local t = parent:CreateTexture(nil, layer or "ARTWORK")
-  t:SetColorTexture(c[1], c[2], c[3], a or 1)
-  return t
-end
+local Put, Verdict = K.Put, K.Verdict
 
-local function Put(region, parent, x, y, point)
-  region:ClearAllPoints()
-  region:SetPoint(point or "TOPLEFT", parent, "TOPLEFT", x, -y)
-  return region
-end
+local function ItemIcon(id) return id and UI:ItemIcon(id) or QUESTION end
 
-local function Cap(parent, text)
-  local fs = Text(parent, 8.5, C.dim)
-  fs:SetText(ns.SimStage.Spaced(text))
-  return fs
-end
-
-local function ItemIcon(id)
-  if not id then return nil end
-  if C_Item and C_Item.GetItemIconByID then return C_Item.GetItemIconByID(id) end
-  return GetItemIcon and GetItemIcon(id) or nil
-end
-
--- an item's name in its quality colour ("Empty" for nothing)
+-- an item's name in its quality colour ("Empty" for nothing, "Item 123" while it loads)
 local function ItemText(id)
-  if not id then return "|cff8f8f95Empty|r" end
-  local name, _, q
-  if ns.ItemDB then name, _, q = ns.ItemDB:GetInfo(id) end
-  if not name then return "|cff8f8f95Item " .. id .. "|r" end
-  local c = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[q or 1]
-  if c and c.hex then return c.hex .. name .. "|r" end
-  return name
+  if not id then return S:Wrap("SUB", "Empty") end
+  local text, loading = UI:ItemText(id)
+  if loading then return S:Wrap("SUB", "Item " .. id) end
+  return text
 end
-
-local function SlotLabel(sid) return ns.SLOTS and ns.SLOTS[sid] and ns.SLOTS[sid].label or ("Slot " .. sid) end
 
 local function Duration(d) d = tonumber(d) or 180 return ("%d:%02d"):format(floor(d / 60), d % 60) end
 
@@ -96,23 +60,10 @@ local function SettingsShort(s)
   return out
 end
 
--- green / red / grey for a difference and its error: the stage's rule (UI/SimStage.lua FillResults)
-local function Verdict(d, se)
-  if abs(d) < 0.5 then return C.grey, "none" end
-  if abs(d) < 2 * (se or 0) then return C.grey, "close" end
-  return d > 0 and C.green or C.red, d > 0 and "up" or "down"
-end
-
-local function Pct(d, base)
-  local pct = d / max(1, base) * 100
-  if abs(pct) < 0.05 then return "0.0%" end
-  return (pct >= 0 and "+" or "\226\136\146") .. ("%.1f%%"):format(abs(pct))
-end
-
 -- ---------------------------------------------------------------------------------------------------------------
 -- State
 -- ---------------------------------------------------------------------------------------------------------------
-local clip, root, list, card
+local clip, root, layout, list, card
 local rows = {}
 local picked = {}            -- run ids picked (two at most, in the order picked)
 
@@ -146,31 +97,6 @@ end
 -- ---------------------------------------------------------------------------------------------------------------
 -- The frame
 -- ---------------------------------------------------------------------------------------------------------------
-local function BackLink(parent)
-  local back = CreateFrame("Button", nil, parent)
-  back:SetSize(90, 14)
-  Put(back, parent, 0, 0)
-  back.icon = back:CreateTexture(nil, "ARTWORK")
-  back.icon:SetSize(10, 10)
-  back.icon:SetPoint("LEFT", 0, 0)
-  ns.UI:SetChevron(back.icon, false)
-  back.fs = back:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  back.fs:SetFont((back.fs:GetFont()), 10, "")
-  back.fs:SetJustifyH("LEFT")
-  back.fs:SetPoint("LEFT", back.icon, "RIGHT", 4, 0)
-  local function paint(self, on)
-    local r, g, bl = 0.65, 0.65, 0.65
-    if on then r, g, bl = 1, 0.82, 0 end
-    self.fs:SetTextColor(r, g, bl)
-    self.icon:SetVertexColor(r, g, bl)
-  end
-  paint(back, false)
-  back:SetScript("OnEnter", function(self) paint(self, true) end)
-  back:SetScript("OnLeave", function(self) paint(self, false) end)
-  back:SetScript("OnClick", function() HUI:Close() end)
-  return back
-end
-
 local Row, Card
 
 local function Create()
@@ -178,7 +104,7 @@ local function Create()
   local body = Body()
   if not body then return false end
   clip = CreateFrame("Frame", nil, ns.SimStage:OverlayParent() or body)
-  clip:SetFrameLevel(body:GetFrameLevel() + 30)
+  clip:SetFrameLevel(ns.SimStage:OverlayLevel(body))
   if clip.SetClipsChildren then clip:SetClipsChildren(true) end
   clip:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
   clip:SetPoint("BOTTOMRIGHT", body, "TOPLEFT", W, -H)
@@ -188,34 +114,21 @@ local function Create()
   root:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
   root:EnableMouse(true)
 
-  root.back = BackLink(root)
-  root.title = Put(Text(root, 17, C.gold), root, 0, 17)
-  root.title:SetText("Recent runs")
-  root.sub = Text(root, 10.5, C.dim)
-  root.sub:SetPoint("BOTTOMLEFT", root.title, "BOTTOMRIGHT", 14, 2)
-  root.sub:SetPoint("RIGHT", root, "RIGHT", 0, 0)
-  local rule = Tex(root, "ARTWORK", C.line)
-  rule:SetHeight(1)
-  rule:SetPoint("TOPLEFT", root, "TOPLEFT", 0, -44)
-  rule:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, -44)
+  -- the page's banner: the way back, the title and what the list keeps
+  root.banner = UI:CreatePageBanner(root, { size = "strip", width = W, title = "Recent runs", titleColor = "GOLD",
+    back = { text = "Results", onClick = function() HUI:Close() end } })
+  root.banner:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
+  root.banner:SetPoint("TOPRIGHT", root, "TOPRIGHT", 0, 0)
+  root.back = root.banner.back
+  root.sub = root.banner.sub
 
-  list = CreateFrame("Frame", nil, root)
-  list:SetSize(LIST_W, H - TOP)
-  Put(list, root, 0, TOP)
-  list.empty = Text(list, 11.5, C.dim, "CENTER")
-  list.empty:SetWidth(LIST_W - 40)
-  list.empty:SetWordWrap(true)
-  list.empty:SetPoint("TOP", list, "TOP", 0, -120)
-  list.empty:SetText("No runs yet. Every run of the Gear sim lands here: the last 10 on this character.")
-
-  card = CreateFrame("Frame", nil, root)
-  card:SetSize(CARD_W, H - TOP)
-  Put(card, root, CARD_X, TOP)
-  Tex(card, "BACKGROUND", C.box):SetAllPoints()
-  if ns.UI.AddEdges then
-    ns.UI:AddEdges(card, "BORDER")
-    ns.UI:SetEdgeColor(card, C.edge[1], C.edge[2], C.edge[3], 1)
-  end
+  -- the list and the card: a list + detail page; the card opens with its banner (one run, or the two compared)
+  layout = UI:CreateLayout("listdetail", root, { width = W, pad = 0, top = TOP, bottom = 0, toolbar = false,
+    listWidth = LIST_W, banner = { size = "strip", title = "Recent runs" } })
+  list = layout.list
+  card = UI:CreateCard(layout.body, { pad = 0 })
+  card:SetAllPoints(layout.body)
+  root.layout = layout
   HUI.root = root
   return true
 end
@@ -226,18 +139,15 @@ end
 local function PaintRow(r)
   local run = r.run
   local at = run and IsPicked(run.id)
-  local c = at and C.rowPicked or (r.hover and C.rowHover or C.row)
-  r.bg:SetColorTexture(c[1], c[2], c[3], 1)
-  r.edge:SetShown(at and true or false)
-  -- the pick box: A / B in gold when picked (A = the later of the two)
+  r:SetSelected(at and true or false)
+  -- the pick mark: the gold count badge with A / B when picked (A = the later of the two), else an empty box
   local letter
   if at then
     local pr = PickedRuns()
     letter = (#pr == 2 and pr[2].id == run.id) and "B" or "A"
   end
-  r.box:SetColorTexture(at and C.gold2[1] or 0.07, at and C.gold2[2] or 0.07, at and C.gold2[3] or 0.08, 1)
-  r.boxEdge:SetColorTexture(at and C.gold2[1] or 0.25, at and C.gold2[2] or 0.25, at and C.gold2[3] or 0.27, 1)
-  r.letter:SetText(letter or "")
+  r.badge:SetLabel(letter)
+  r.box:SetShown(not letter)
   r.bin:SetShown(r.hover and true or false)
 end
 
@@ -246,51 +156,45 @@ Row = function(i)
   if r then return r end
   r = CreateFrame("Button", nil, list)
   r:SetSize(LIST_W, ROW_H)
-  Put(r, list, 0, (i - 1) * (ROW_H + ROW_GAP))
+  Put(r, list, 0, (i - 1) * ROW_H)
   r:RegisterForClicks("LeftButtonUp")
-  r.bg = Tex(r, "BACKGROUND", C.row)
-  r.bg:SetAllPoints()
-  r.edge = Tex(r, "BORDER", C.gold2)
-  r.edge:SetPoint("TOPLEFT"); r.edge:SetPoint("BOTTOMLEFT"); r.edge:SetWidth(2)
-  -- pick box
-  r.boxEdge = Tex(r, "BORDER", { 0.25, 0.25, 0.27 })
-  r.boxEdge:SetSize(16, 16)
-  r.boxEdge:SetPoint("LEFT", r, "LEFT", 10, 0)
-  r.box = Tex(r, "ARTWORK", { 0.07, 0.07, 0.08 })
-  r.box:SetPoint("TOPLEFT", r.boxEdge, "TOPLEFT", 1, -1)
-  r.box:SetPoint("BOTTOMRIGHT", r.boxEdge, "BOTTOMRIGHT", -1, 1)
-  r.letter = Text(r, 10, C.ink, "CENTER")
-  r.letter:SetShadowOffset(0, 0)
-  r.letter:SetPoint("CENTER", r.boxEdge, "CENTER", 0, 0)
+  UI:DecorateRow(r, { selectable = true, rule = true })
+  -- the pick mark (PaintRow): an empty box on the shared edges, the count badge with the letter once picked
+  r.box = CreateFrame("Frame", nil, r)
+  r.box:SetSize(16, 16)
+  r.box:SetPoint("LEFT", r, "LEFT", 10, 0)
+  UI:Fill(r.box, "INSET")
+  UI:AddEdges(r.box, "BORDER")
+  UI:SetEdgeColor(r.box, S:Color("EDGE"))
+  r.badge = UI:CreateCountBadge(r, 16)
+  r.badge:SetPoint("CENTER", r.box, "CENTER", 0, 0)
   -- when
-  r.time = Text(r, 12, C.text)
+  r.time = UI:Text(r, "emph", C.text, T_L)
   r.time:SetPoint("TOPLEFT", r, "TOPLEFT", 36, -6)
-  r.day = Text(r, 9.5, C.dim)
+  r.day = UI:Text(r, "caps", C.dim, T_L)
   r.day:SetPoint("TOPLEFT", r, "TOPLEFT", 36, -22)
   -- the items it changed
   r.icons = {}
   for k = 1, 2 do
-    local t = r:CreateTexture(nil, "ARTWORK")
-    t:SetSize(24, 24)
+    local t = UI:CreateIconTile(r, 24)
     t:SetPoint("LEFT", r, "LEFT", 92 + (k - 1) * 27, 0)
-    t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     r.icons[k] = t
   end
-  r.more = Text(r, 9.5, C.label, "CENTER")
+  r.more = UI:Text(r, "caps", C.label, T_C)
   r.more:SetPoint("CENTER", r.icons[2], "CENTER", 0, 0)
   -- what and against what
-  r.what = Text(r, 11.5, C.text)
+  r.what = UI:Text(r, "body", C.text, T_L)
   r.what:SetPoint("TOPLEFT", r, "TOPLEFT", 150, -6)
   r.what:SetWidth(222)
-  r.vs = Text(r, 9.5, C.dim)
+  r.vs = UI:Text(r, "caps", C.dim, T_L)
   r.vs:SetPoint("TOPLEFT", r, "TOPLEFT", 150, -22)
   r.vs:SetWidth(222)
   -- numbers
-  r.dps = Text(r, 13, C.text, "RIGHT", NUM)
+  r.dps = UI:Text(r, "title", C.text, T_RN)
   r.dps:SetPoint("TOPRIGHT", r, "TOPRIGHT", -34, -5)
-  r.delta = Text(r, 10.5, C.grey, "RIGHT", NUM)
+  r.delta = UI:Text(r, "small", C.grey, T_RN)
   r.delta:SetPoint("TOPRIGHT", r, "TOPRIGHT", -34, -21)
-  r.bin = ns.UI:CreateRemoveButton(r, "Remove this run")
+  r.bin = UI:CreateRemoveButton(r, "Remove this run")
   r.bin:SetPoint("RIGHT", r, "RIGHT", -8, 0)
   r.bin:SetScript("OnClick", function()
     if r.run then HUI:Remove(r.run.id) end
@@ -300,18 +204,17 @@ Row = function(i)
   r:SetScript("OnEnter", function(self)
     self.hover = true
     PaintRow(self)
-    if self.run and not IsMine(self.run) then
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine(tostring(self.run.specName or "Another spec"), 1, 0.82, 0)
-      GameTooltip:AddLine("A run of another spec: pick that spec in the tabs above to open or compare it.", 1, 1, 1, true)
-      GameTooltip:Show()
-    end
   end)
   r:SetScript("OnLeave", function(self)
     if self.bin:IsMouseOver() then return end
     self.hover = false
     PaintRow(self)
-    GameTooltip:Hide()
+  end)
+  -- (a run of another spec says why it can't be picked)
+  UI:AttachTooltip(r, function(self, tt)
+    if not (self.run and not IsMine(self.run)) then return false end
+    K.TipTitle(tt, tostring(self.run.specName or "Another spec"))
+    tt:AddLine("A run of another spec: pick that spec in the tabs above to open or compare it.", 1, 1, 1, true)
   end)
   r:SetScript("OnClick", function(self)
     if self.run and IsMine(self.run) then HUI:Pick(self.run.id) end
@@ -342,12 +245,11 @@ local function FillRow(r, run)
     local c = ch[k]
     local icon = r.icons[k]
     if c and not (k == 2 and #ch > 2) then
-      icon:SetTexture(ItemIcon(c.id or c.was) or QUESTION)
-      icon:SetDesaturated(not c.id)
-      icon:SetVertexColor(1, 1, 1, 1)
+      icon.tex:SetTexture(ItemIcon(c.id or c.was))
+      icon.tex:SetDesaturated(not c.id)
       icon:Show()
     elseif k == 2 and #ch > 2 then
-      icon:SetColorTexture(0.16, 0.16, 0.18, 1)
+      icon.tex:SetColorTexture(S:Color("INSET"))      -- (the "+3" tile)
       icon:Show()
     else
       icon:Hide()
@@ -367,7 +269,7 @@ local function FillRow(r, run)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
--- The card on the right
+-- The card on the right (under its banner)
 -- ---------------------------------------------------------------------------------------------------------------
 local function FreshCard()
   if card.inner then card.inner:Hide(); card.inner:SetParent(nil) end
@@ -377,67 +279,46 @@ local function FreshCard()
   return f
 end
 
+-- one of the two bars (the stage's compare bar, UI/SimStage.lua)
 local function CmpBar(parent, y, letter, label, value, frac, gold)
-  local f = CreateFrame("Frame", nil, parent)
-  f:SetSize(CARD_W - 24, 30)
+  local f = K.CmpBar(parent, gold and C.word or C.label, gold and "gold" or "ref", CARD_W - 24)
   Put(f, parent, 12, y)
-  local l = Text(f, 10.5, gold and { 0.941, 0.902, 0.784 } or C.label)
-  l:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-  local prefix = letter and ("|cffe2b33e" .. letter .. "|r  ") or ""
+  local l = f.l
+  local prefix = letter and S:Wrap("GOLD", letter) .. "  " or ""
   if type(label) == "table" then
     l:SetText(prefix .. label[1])
-    if (tonumber(l:GetStringWidth()) or 0) > CARD_W - 24 - 64 then l:SetText(prefix .. label[2]) end
+    if UI:TextWidth(l) > CARD_W - 24 - 64 then l:SetText(prefix .. label[2]) end
   else
     l:SetText(prefix .. label)
   end
-  local v = Text(f, 11.5, C.text, "RIGHT", NUM)
-  v:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 1)
-  v:SetText(Fmt(value))
-  local track = Tex(f, "ARTWORK", C.track)
-  track:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -16)
-  track:SetSize(CARD_W - 24, 6)
-  local fill = f:CreateTexture(nil, "ARTWORK", nil, 1)
-  fill:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 0)
-  fill:SetSize(max(1, (CARD_W - 24) * max(0, min(1, frac))), 6)
-  if gold then
-    fill:SetColorTexture(1, 1, 1, 1)
-    if fill.SetGradient and CreateColor then
-      fill:SetGradient("HORIZONTAL", CreateColor(0.604, 0.455, 0.125, 1), CreateColor(1, 0.843, 0.353, 1))
-    else
-      fill:SetVertexColor(C.gold2[1], C.gold2[2], C.gold2[3], 1)
-    end
-  else
-    fill:SetColorTexture(C.barRef[1], C.barRef[2], C.barRef[3], 1)
-  end
+  f.v:SetText(Fmt(value))
+  f:SetFrac(frac)
   return f
+end
+
+-- a caps section header across the card (UI:CreateSectionHeader) at y
+local function Section(f, y, title)
+  local h = UI:CreateSectionHeader(f, title, { style = "caps" })
+  h:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -y)
+  h:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -y)
+  return h
 end
 
 -- the big signed difference + percentage, and the verdict under it
 local function DeltaBlock(f, y, d, se, base, better, worse)
   local col, kind = Verdict(d, se)
-  local a = Text(f, 17, col)
+  local a = UI:Text(f, "page", col, T_L)
   a:SetText(Signed(d) .. " DPS")
-  local b = Text(f, 13, col)
-  b:SetText(Pct(d, base))
-  local wa, wb = tonumber(a:GetStringWidth()) or 70, tonumber(b:GetStringWidth()) or 40
+  local b = UI:Text(f, "title", col, T_L)
+  b:SetText(K.PctText(d, base))
+  local wa, wb = UI:TextWidth(a), UI:TextWidth(b)
   local x0 = floor((CARD_W - (wa + 6 + wb)) / 2)
   Put(a, f, x0, y)
   b:SetPoint("BOTTOMLEFT", a, "BOTTOMRIGHT", 6, 1)
-  local v = Text(f, 10.5, C.dim, "CENTER")
+  local v = UI:Text(f, "small", C.dim, T_C)
   v:SetWidth(CARD_W - 20)
   Put(v, f, 10, y + 26)
-  local sure = ("\194\177%s"):format(Fmt(2 * (se or 0)))
-  if kind == "none" then
-    v:SetText("No difference")
-  elseif kind == "close" then
-    v:SetText("Too close to call  |cff8f8f95\194\183  " .. sure .. "|r")
-  elseif kind == "up" then
-    v:SetText(("|T%s:12:12:0:0|t %s  |cff8f8f95\194\183  %s|r"):format(CHECK_OK, better, sure))
-    v:SetTextColor(C.okText[1], C.okText[2], C.okText[3])
-  else
-    v:SetText(("|T%s:12:12:0:0|t %s  |cff8f8f95\194\183  %s|r"):format(CHECK_NO, worse, sure))
-    v:SetTextColor(C.noText[1], C.noText[2], C.noText[3])
-  end
+  K.VerdictLine(v, kind, se, better, worse)
 end
 
 -- gear lines: "[was] > [now] Item name", at most `room` lines (the last says how many more)
@@ -446,31 +327,27 @@ local function GearLines(f, y, changes, room)
   for i = 1, shown do
     local c = changes[i]
     local ly = y + (i - 1) * 22
-    local was = f:CreateTexture(nil, "ARTWORK")
-    was:SetSize(18, 18)
+    local was = UI:CreateIconTile(f, 18)
     Put(was, f, 12, ly)
-    was:SetTexture(ItemIcon(c.was) or QUESTION)
-    was:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    was:SetDesaturated(true)
+    was.tex:SetTexture(ItemIcon(c.was))
+    was.tex:SetDesaturated(true)
     was:SetAlpha(c.was and 0.8 or 0.25)
     local arrow = f:CreateTexture(nil, "ARTWORK")
     arrow:SetSize(8, 8)
     arrow:SetPoint("LEFT", was, "RIGHT", 4, 0)
-    ns.UI:SetChevron(arrow, true)
+    UI:SetChevron(arrow, true)
     arrow:SetVertexColor(C.dim[1], C.dim[2], C.dim[3])
-    local now = f:CreateTexture(nil, "ARTWORK")
-    now:SetSize(18, 18)
+    local now = UI:CreateIconTile(f, 18)
     now:SetPoint("LEFT", arrow, "RIGHT", 4, 0)
-    now:SetTexture(ItemIcon(c.id) or QUESTION)
-    now:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    now.tex:SetTexture(ItemIcon(c.id))
     now:SetAlpha(c.id and 1 or 0.25)
-    local name = Text(f, 10.5, C.text)
+    local name = UI:Text(f, "small", C.text, T_L)
     name:SetPoint("LEFT", now, "RIGHT", 7, 0)
     name:SetWidth(CARD_W - 86)
-    name:SetText(c.id and ItemText(c.id) or ("|cff8f8f95No " .. SlotLabel(c.sid):lower() .. "|r"))
+    name:SetText(c.id and ItemText(c.id) or S:Wrap("SUB", "No " .. ns.SlotLabel(c.sid):lower()))
   end
   if #changes > shown then
-    local more = Text(f, 10, C.dim)
+    local more = UI:Text(f, "small", C.dim, T_L)
     Put(more, f, 12, y + shown * 22 + 3)
     more:SetText(("and %d more"):format(#changes - shown))
   end
@@ -496,52 +373,43 @@ local function SettingDiffs(a, b)
   return out
 end
 
-local function OpenButton(f, label, run, x, w, kind)
-  local b = ns.UI:CreateSleekButton(f, label, w, 24, function()
-    HUI:OpenRun(run.id)
-  end, kind or "secondary")
-  Put(b, f, x, H - TOP - 36)
-  b:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Open this run", 1, 0.82, 0)
-    GameTooltip:AddLine("Brings it back on the Gear sim page: its Working set, what it was compared with and its "
-      .. "settings, with its result. Nothing is simmed.", 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  b:HookScript("OnLeave", function() GameTooltip:Hide() end)
-  if P()._state().running then b:Disable() end
-  return b
+-- the detail banner's actions: Open (one run) or Open A / Open B (the first at the far right; off while a run goes)
+local OPEN_TIP = { "Open this run", "Brings it back on the Gear sim page: its Working set, what it was compared with "
+  .. "and its settings, with its result. Nothing is simmed." }
+local function OpenActions(list)
+  local acts = {}
+  for _, it in ipairs(list) do
+    local run = it[2]
+    acts[#acts + 1] = { text = it[1], kind = it[3], tip = OPEN_TIP, enabled = not P()._state().running,
+      onClick = function() HUI:OpenRun(run.id) end }
+  end
+  layout.banner:SetActions(acts)
 end
 
 local function OneRun(f, run)
-  local cap = Put(Cap(f, "This run"), f, 12, 11)
-  local when = Text(f, 9.5, C.dim, "RIGHT")
-  when:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -10)
-  when:SetText(P().RunWhen(run.at, true))
+  layout.banner:SetTitle("This run")
+  layout.banner:SetSub(P().RunWhen(run.at, true))
   local a, b = run.dps or 0, run.refDps or 0
   local lo, hi = min(a, b) * 0.85, max(a, b) * 1.01
-  CmpBar(f, 34, nil, run.targetText or "My gear", b, (b - lo) / max(1, hi - lo), false)
-  CmpBar(f, 68, nil, "Working set", a, (a - lo) / max(1, hi - lo), true)
-  DeltaBlock(f, 108, run.diff or 0, run.se or 0, b, "A real upgrade", "A downgrade")
-  local y = 164
+  CmpBar(f, 12, nil, run.targetText or "My gear", b, (b - lo) / max(1, hi - lo), false)
+  CmpBar(f, 46, nil, "Working set", a, (a - lo) / max(1, hi - lo), true)
+  DeltaBlock(f, 86, run.diff or 0, run.se or 0, b, "A real upgrade", "A downgrade")
+  local y = 142
   local ch = P():RunChanges(run)
-  Put(Cap(f, #ch == 0 and "Same gear on both" or "What it tried"), f, 12, y)
-  y = GearLines(f, y + 18, ch, 6)
+  Section(f, y, #ch == 0 and "Same gear on both" or "What it tried")
+  y = GearLines(f, y + 22, ch, 6)
   y = y + 14
-  Put(Cap(f, "Settings"), f, 12, y)
-  local s = Text(f, 10.5, C.label)
+  Section(f, y, "Settings")
+  local s = UI:Text(f, "small", C.label, T_L)
   s:SetWidth(CARD_W - 24)
-  Put(s, f, 12, y + 18)
+  Put(s, f, 12, y + 22)
   s:SetText(SettingsShort(run.settings) .. "  \194\183  " .. tostring(run.buffsText or ""))
-  OpenButton(f, "Open", run, 12, CARD_W - 24, "primary")
-  return cap
+  OpenActions({ { "Open", run, "primary" } })
 end
 
 local function TwoRuns(f, A, B)
-  Put(Cap(f, "Compare"), f, 12, 11)
-  local hint = Text(f, 9.5, C.dim, "RIGHT")
-  hint:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -10)
-  hint:SetText("Working sets")
+  layout.banner:SetTitle("Compare")
+  layout.banner:SetSub("Working sets")
   local Aw = Hist():Summaries(A)
   local Bw = Hist():Summaries(B)
   local a, b = A.dps or 0, B.dps or 0
@@ -549,10 +417,10 @@ local function TwoRuns(f, A, B)
   if Aw and Bw then d, se = Hist().Diff(Aw, Bw, A.seed ~= nil and A.seed == B.seed) end
   local lo, hi = min(a, b) * 0.85, max(a, b) * 1.01
   local function name(run) return { P():RunChangeText(run), "My " .. P().RunWhen(run.at) .. " run" } end
-  CmpBar(f, 34, "B", name(B), b, (b - lo) / max(1, hi - lo), false)
-  CmpBar(f, 68, "A", name(A), a, (a - lo) / max(1, hi - lo), true)
-  DeltaBlock(f, 108, d, se, b, "A is better", "A is worse")
-  local y = 164
+  CmpBar(f, 12, "B", name(B), b, (b - lo) / max(1, hi - lo), false)
+  CmpBar(f, 46, "A", name(A), a, (a - lo) / max(1, hi - lo), true)
+  DeltaBlock(f, 86, d, se, b, "A is better", "A is worse")
+  local y = 142
   -- gear between B and A
   local ch = {}
   for sid = 1, 19 do
@@ -560,48 +428,56 @@ local function TwoRuns(f, A, B)
     if not R():SameEntry(x, w) then ch[#ch + 1] = { sid = sid, id = x and x.id, was = w and w.id } end
   end
   local diffs = SettingDiffs(A, B)
-  Put(Cap(f, #ch == 0 and "Same gear on both" or "From B to A"), f, 12, y)
-  y = GearLines(f, y + 18, ch, #diffs > 0 and 4 or 6)
+  Section(f, y, #ch == 0 and "Same gear on both" or "From B to A")
+  y = GearLines(f, y + 22, ch, #diffs > 0 and 4 or 6)
   if #diffs == 0 then
     y = y + 14
-    Put(Cap(f, "Settings, both"), f, 12, y)
-    local same = Text(f, 10.5, C.label)
+    Section(f, y, "Settings, both")
+    local same = UI:Text(f, "small", C.label, T_L)
     same:SetWidth(CARD_W - 24)
-    Put(same, f, 12, y + 18)
+    Put(same, f, 12, y + 22)
     same:SetText(SettingsShort(A.settings) .. "  \194\183  " .. tostring(A.buffsText or ""))
   else
     y = y + 8
-    local warn = Text(f, 10, C.warn)
+    local warn = UI:Text(f, "small", C.warn, T_L)
     warn:SetWidth(CARD_W - 24)
     Put(warn, f, 12, y)
     warn:SetText("Not the gear alone: settings differ")
     y = y + 16
     for i = 1, min(#diffs, 3) do
-      local l = Text(f, 10, C.label)
+      local l = UI:Text(f, "small", C.label, T_L)
       l:SetWidth(CARD_W - 24)
       Put(l, f, 12, y)
       l:SetText(diffs[i])
       y = y + 15
     end
   end
-  local half = floor((CARD_W - 24 - 8) / 2)
-  OpenButton(f, "Open A", A, 12, half)
-  OpenButton(f, "Open B", B, 12 + half + 8, half)
+  OpenActions({ { "Open A", A, "primary" }, { "Open B", B } })
 end
 
+-- The detail: one run, two compared, or (none picked) the empty state in its body; no runs: the list's empty state.
+local WATCH = "Interface\\Icons\\INV_Misc_PocketWatch_01"
 Card = function()
   local f = FreshCard()
   local pr = PickedRuns()
+  local runs = #Hist():Runs()
+  if runs == 0 then
+    layout:ShowEmpty({ region = "list", icon = WATCH, title = "No runs yet",
+      text = "Every run of the Gear sim lands here: the last 10 on this character." })
+  elseif #pr == 0 then
+    layout:ShowEmpty({ region = "body", icon = WATCH, title = "Pick a run",
+      text = "Click a run to see it, or two to compare them." })
+  else
+    layout:HideEmpty()
+  end
   if #pr == 2 then
     TwoRuns(f, pr[1], pr[2])
   elseif #pr == 1 then
     OneRun(f, pr[1])
   else
-    local t = Text(f, 11, C.dim, "CENTER")
-    t:SetWidth(CARD_W - 40)
-    t:SetWordWrap(true)
-    t:SetPoint("TOP", f, "TOP", 0, -150)
-    t:SetText(#Hist():Runs() > 0 and "Click a run to see it, or two to compare them." or "")
+    layout.banner:SetTitle(runs > 0 and "Pick a run" or "Recent runs")
+    layout.banner:SetSub(nil)
+    layout.banner:SetActions(nil)
   end
 end
 
@@ -612,16 +488,13 @@ function HUI:Paint()
   if not root then return end
   TidyPicks()
   local runs = Hist():Runs()
-  local mine = 0
-  for _, run in ipairs(runs) do if IsMine(run) then mine = mine + 1 end end
-  root.back.fs:SetText(P()._state().results and "RESULTS" or "GEAR SIM")
-  root.sub:SetText(("The last %d on this character  \194\183  sets simmed before are not simmed again")
+  root.banner:SetBack(P()._state().results and "Results" or "Gear sim", function() HUI:Close() end)
+  root.banner:SetSub(("The last %d on this character  \194\183  sets simmed before are not simmed again")
     :format(Hist().MAX_RUNS))
   for i = 1, max(#runs, #rows) do
     local run = runs[i]
     if run then FillRow(Row(i), run) elseif rows[i] then rows[i]:Hide() end
   end
-  list.empty:SetShown(#runs == 0)
   Card()
 end
 

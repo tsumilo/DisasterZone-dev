@@ -11,22 +11,27 @@ if DisasterZoneBoot and DisasterZoneBoot.Run("UI/SimStage.lua", ...) then return
 --     (UI/SimNerd.lua) and a chip with the settings. The dial stays the button: a click runs again.
 --   Changed: a slot changed since the run: the numbers fade back, the ticks grey, "Run again" in the dial.
 -- Every move eases (the mock's cubic-bezier(.22,.8,.24,1)); one OnUpdate on the stage drives them while it shows.
+-- Shared parts: UI:Text on the type scale, ns.Style tokens, UI:CreateChip (settings), UI:CreateBackLink (Recent
+-- runs), UI:CreateNotice (a spec the sim doesn't cover), UI:CreateSleekButton (Nerd stats). The stage fills the body
+-- of My BiS's Gear sim view (its toolbar is My BiS's). What stays drawn here is the page's own art, not page
+-- structure: the dial (ticks, disc, glow), the settings sentence's underlined words, the running-average line and the
+-- two compare bars (Kit.CmpBar, shared with Recent runs).
 local addonName, ns = ...
 
 local Stage = {}
 ns.SimStage = Stage
 
+local UI, S = ns.UI, ns.Style
 local floor, max, min, abs, sqrt, sin, cos, pi = math.floor, math.max, math.min, math.abs, math.sqrt, math.sin, math.cos, math.pi
 
 local MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
 local DISC, DASH = MEDIA .. "Sim\\disc", MEDIA .. "Sim\\dashring"
-local GLASSES, PILL, PILLEDGE = MEDIA .. "Sim\\glasses", MEDIA .. "Sim\\pill", MEDIA .. "Sim\\pilledge"
+local GLASSES = MEDIA .. "Sim\\glasses"
 local ICONRING = MEDIA .. "Sim\\iconring"
-local SOFT, RING, RADIAL = MEDIA .. "SoftGlow", MEDIA .. "Blessings\\ring", MEDIA .. "MyBiS\\Radial"
+local SOFT, RADIAL = MEDIA .. "SoftGlow", MEDIA .. "MyBiS\\Radial"
 local ART = "Interface\\Glues\\LoadingScreens\\LoadScreenTempestKeep"
 local CHECK_OK, CHECK_NO = "Interface\\RaidFrame\\ReadyCheck-Ready", "Interface\\RaidFrame\\ReadyCheck-NotReady"
-local FONT = (GameFontNormal and GameFontNormal:GetFont()) or "Fonts\\FRIZQT__.TTF"
-local NUMFONT = "Fonts\\ARIALN.TTF"
+local NUMFONT = S.FONT_NUM
 
 -- the page's grid (the mock's body: 770 wide, the doll's centre column x 270..500)
 local W, H = 770, 496
@@ -36,14 +41,17 @@ local SIG = 220                       -- the sigil's box
 local TICKS = 72
 local MIN_SWEEP = 1.2                 -- seconds the ticks take at the least for a whole run
 
+-- The sim pages' colours (the stage, Nerd stats, Recent runs: Stage.Kit.C): ns.Style tokens for text, accents and
+-- the verdicts; the sigil's own art tones (mockup B: the ticks, the head, the sentence's words) stay its own.
 local C = {
-  gold = { 1, 0.82, 0 }, gold2 = { 0.886, 0.702, 0.243 }, head = { 1, 0.945, 0.659 },
+  gold = S.C.GOLD, gold2 = S.C.GOLD_DEEP, head = { 1, 0.945, 0.659 },
   tick = { 0.227, 0.227, 0.259 }, tickGrey = { 0.42, 0.42, 0.45 },
-  text = { 0.957, 0.957, 0.957 }, dim = { 0.561, 0.561, 0.584 }, cap = { 0.749, 0.714, 0.604 },
+  text = S.C.TEXT, dim = S.C.SUB, cap = { 0.749, 0.714, 0.604 },
   word = { 0.941, 0.902, 0.784 }, under = { 0.541, 0.451, 0.188 }, sentence = { 0.663, 0.663, 0.69 },
-  green = { 0.31, 0.83, 0.42 }, red = { 0.88, 0.38, 0.31 }, grey = { 0.49, 0.49, 0.51 },
-  okText = { 0.659, 0.847, 0.69 }, noText = { 0.92, 0.62, 0.58 }, stale = { 1, 0.81, 0.353 },
+  green = S.C.OK, red = S.C.BAD, grey = S.C.SUB, warn = S.C.WARN,
+  okText = S.C.OK, noText = S.C.BAD, stale = S.C.GOLD,
   barRef = { 0.478, 0.478, 0.51 }, track = { 0.133, 0.133, 0.153 },
+  barLo = { 0.604, 0.455, 0.125, 1 }, barHi = { 1, 0.843, 0.353, 1 },   -- the gold bars' gradient
 }
 
 local function R() return ns.SimRunner end
@@ -61,19 +69,80 @@ local function Spaced(s)
 end
 Stage.Spaced = Spaced
 
-local function Text(parent, size, color, justify, font, layer)
-  local fs = parent:CreateFontString(nil, layer or "OVERLAY")
-  fs:SetFont(font or FONT, size, "")
-  fs:SetShadowOffset(1, -1)
-  fs:SetShadowColor(0, 0, 0, 0.75)
-  if color then fs:SetTextColor(color[1], color[2], color[3]) end
-  fs:SetJustifyH(justify or "CENTER")
-  fs:SetWordWrap(false)
-  return fs
-end
+-- UI:Text's options for the stage's lines (S.STYLE names; display numerals past S.FONT_DISPLAY keep their size):
+-- centred, left, right-aligned numerals; all with the shared drop shadow.
+local T_C = { justify = "CENTER", shadow = true }
+local T_L = { justify = "LEFT", shadow = true }
+local T_RN = { justify = "RIGHT", font = NUMFONT, shadow = true }
+
+-- A tooltip's gold title line.
+local function TipTitle(tt, text) tt:AddLine(text, C.gold[1], C.gold[2], C.gold[3]) end
 
 local function Color(t, c, a)
   if t.SetVertexColor then t:SetVertexColor(c[1], c[2], c[3], a or 1) end
+end
+
+-- A gold bar's fill (gold = the gradient) or a flat one in c.
+local function BarFill(tex, gold, c)
+  if gold then
+    UI:Gradient(tex, "HORIZONTAL", C.barLo, C.barHi)
+  else
+    tex:SetColorTexture(S:Color(c or C.barRef))
+  end
+end
+
+-- The verdict of a difference d with standard error se (green / red / grey): its colour and "none" | "close" | "up"
+-- | "down" (the stage's result, Recent runs' rows and cards).
+local function Verdict(d, se)
+  if abs(d) < 0.5 then return C.grey, "none" end
+  if abs(d) < 2 * (se or 0) then return C.grey, "close" end
+  return d > 0 and C.green or C.red, d > 0 and "up" or "down"
+end
+
+-- "+0.9%" / "-2.1%" (a real minus) / "0.0%": d against base.
+local function PctText(d, base)
+  local pct = d / max(1, base) * 100
+  if abs(pct) < 0.05 then return "0.0%" end
+  return (pct >= 0 and "+" or "\226\136\146") .. ("%.1f%%"):format(abs(pct))
+end
+
+-- The verdict's words under a difference (kind from Verdict): "No difference", "Too close to call  ·  ±31", or a
+-- check / cross with `better` / `worse`, in the verdict's colour (grey for the first two); the ± in grey.
+local function VerdictLine(fs, kind, se, better, worse)
+  local sure = S:Wrap("SUB", "\194\183  \194\177" .. Fmt(2 * (se or 0)))
+  local c = C.dim
+  if kind == "none" then
+    fs:SetText("No difference")
+  elseif kind == "close" then
+    fs:SetText("Too close to call  " .. sure)
+  elseif kind == "up" then
+    fs:SetText(("|T%s:12:12:0:0|t %s  %s"):format(CHECK_OK, better, sure))
+    c = C.okText
+  else
+    fs:SetText(("|T%s:12:12:0:0|t %s  %s"):format(CHECK_NO, worse, sure))
+    c = C.noText
+  end
+  fs:SetTextColor(c[1], c[2], c[3])
+end
+
+-- The pieces Nerd stats and Recent runs (UI/SimNerd.lua, UI/SimHistory.lua) draw with, as the stage does.
+local Kit = { C = C, TipTitle = TipTitle, BarFill = BarFill, Verdict = Verdict, PctText = PctText,
+  VerdictLine = VerdictLine, NUM = NUMFONT }
+Stage.Kit = Kit
+
+-- A plain texture in colour c (alpha a).
+function Kit.Tex(parent, layer, c, a)
+  local t = parent:CreateTexture(nil, layer or "ARTWORK")
+  local r, g, b = S:Color(c)
+  t:SetColorTexture(r, g, b, a or 1)
+  return t
+end
+
+-- region placed at x, y (down) from parent's top left.
+function Kit.Put(region, parent, x, y, point)
+  region:ClearAllPoints()
+  region:SetPoint(point or "TOPLEFT", parent, "TOPLEFT", x, -y)
+  return region
 end
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -220,43 +289,38 @@ local function CreateSigil(parent)
   s.spec:SetSize(48, 48)
   s.spec:SetPoint("CENTER", s.specRing)
 
-  s.runText = Text(s, 13.5, C.gold)
+  s.runText = UI:Text(s, "title", C.gold, T_C)
   s.runText:SetPoint("TOP", s, "TOP", 0, -112)
   s.runText:SetShadowColor(0, 0, 0, 1)
-  s.runSub = Text(s, 8.5, C.cap)
+  s.runSub = UI:Text(s, "caps", C.cap, T_C)
   s.runSub:SetPoint("TOP", s.runText, "BOTTOM", 0, -4)
 
   -- running and after: the caption, the number, the line under it
-  s.k = Text(s, 8.5, C.cap)
+  s.k = UI:Text(s, "caps", C.cap, T_C)
   s.k:SetPoint("TOP", s, "TOP", 0, -76)
-  s.n = Text(s, 34, C.text)
+  s.n = UI:Text(s, 34, C.text, T_C)
   s.n:SetPoint("TOP", s.k, "BOTTOM", 0, -2)
   s.n:SetShadowOffset(0, -2)
   s.n:SetShadowColor(0, 0, 0, 0.6)
-  s.pm = Text(s, 10.5, C.dim)
+  s.pm = UI:Text(s, "small", C.dim, T_C)
   s.pm:SetPoint("TOP", s.n, "BOTTOM", 0, -1)
-  s.again = Text(s, 11, C.gold)
+  s.again = UI:Text(s, "body", C.gold, T_C)
   s.again:SetPoint("TOP", s, "TOP", 0, -146)
   s.again:SetText("|TInterface\\Buttons\\UI-RefreshButton:12:12:0:0|t Run again")
 
-  s:SetScript("OnEnter", function(self)
-    Stage:SetHover(true)
+  s:SetScript("OnEnter", function() Stage:SetHover(true) end)
+  s:SetScript("OnLeave", function() Stage:SetHover(false) end)
+  UI:AttachTooltip(s, function(_, tt)
     local mode = Stage.mode
     if mode == "run" then
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine("Simulating", 1, 0.82, 0)
-      GameTooltip:AddLine("Click to stop. It pauses while you are in combat.", 1, 1, 1, true)
-      GameTooltip:Show()
+      TipTitle(tt, "Simulating")
+      tt:AddLine("Click to stop. It pauses while you are in combat.", 1, 1, 1, true)
     elseif mode == "done" or mode == "stale" then
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine("Run again", 1, 0.82, 0)
-      GameTooltip:AddLine("Sims the Working set and what it is compared with once more.", 1, 1, 1, true)
-      GameTooltip:Show()
+      TipTitle(tt, "Run again")
+      tt:AddLine("Sims the Working set and what it is compared with once more.", 1, 1, 1, true)
+    else
+      return false
     end
-  end)
-  s:SetScript("OnLeave", function()
-    Stage:SetHover(false)
-    GameTooltip:Hide()
   end)
   s:SetScript("OnClick", function()
     if Stage.mode == "unsupported" then return end
@@ -290,7 +354,7 @@ local function PaintTicks(lit, grey, flashing)
       local x0, y0, x1, y1 = TickPoints(idx, idx % 6 == 0)
       g:SetStartPoint("CENTER", s, x0, y0)
       g:SetEndPoint("CENTER", s, x1, y1)
-      g:SetVertexColor(1, 0.82, 0, (1 - (head - idx) / 8) * 0.9)
+      g:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], (1 - (head - idx) / 8) * 0.9)
       g:SetAlpha(1)
     else
       g:SetAlpha(0)
@@ -302,7 +366,7 @@ end
 -- The settings sentence: "Sim my [Working set] (1 change) against [My gear], [1,000 fights] of [3:00] on a
 -- [level 73 Mechanical] with [25-man buffs]." Every [word] opens its menu (ns.SimPanel:BuildSettingMenu).
 -- ---------------------------------------------------------------------------------------------------------------
-local SENT_SIZE, LINE_H = 14, 28
+local SENT_SIZE, LINE_H = "title", 28    -- (the sentence: 13 px on the type scale)
 
 local function CreateSentence(parent)
   local f = CreateFrame("Frame", nil, parent)
@@ -327,26 +391,24 @@ local function WordButton(f, i)
   if b then return b end
   b = CreateFrame("Button", nil, f)
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  b.fs = Text(b, SENT_SIZE, C.word, "LEFT")
+  b.fs = UI:Text(b, SENT_SIZE, C.word, T_L)
   b.fs:SetPoint("LEFT", b, "LEFT", 0, 0)
   b.dashes = {}
   b:SetScript("OnEnter", function(self)
     self.fs:SetTextColor(C.gold[1], C.gold[2], C.gold[3])
     for _, d in ipairs(self.dashes) do Color(d, C.gold) end
-    if self.tip then
-      GameTooltip:SetOwner(self, "ANCHOR_TOP")
-      self.tip(GameTooltip)
-      GameTooltip:Show()
-    end
   end)
   b:SetScript("OnLeave", function(self)
     self.fs:SetTextColor(C.word[1], C.word[2], C.word[3])
     for _, d in ipairs(self.dashes) do Color(d, C.under) end
-    GameTooltip:Hide()
   end)
+  UI:AttachTooltip(b, function(self, tt)
+    if not self.tip then return false end
+    self.tip(tt)
+  end, nil, { anchor = "ANCHOR_TOP" })
   b:SetScript("OnClick", function(self)
     GameTooltip:Hide()
-    if self.key then ns.UI:ContextMenu(self, function(root) P():BuildSettingMenu(root, self.key) end) end
+    if self.key then UI:ContextMenu(self, function(root) P():BuildSettingMenu(root, self.key) end) end
   end)
   f.words[i] = b
   return b
@@ -355,7 +417,7 @@ end
 local function PieceText(f, i)
   local fs = f.pieces[i]
   if not fs then
-    fs = Text(f, SENT_SIZE, C.sentence, "LEFT")
+    fs = UI:Text(f, SENT_SIZE, C.sentence, T_L)
     f.pieces[i] = fs
   end
   return fs
@@ -380,9 +442,7 @@ local function LayoutSentence(f, lines)
       else
         np = np + 1
         fs = PieceText(f, np)
-        fs:SetFont(FONT, part.small and 10.5 or SENT_SIZE, "")
-        local c = part.small and C.dim or C.sentence
-        fs:SetTextColor(c[1], c[2], c[3])
+        UI:SetTextStyle(fs, part.small and "small" or SENT_SIZE, part.small and C.dim or C.sentence)
         fs:SetText(part[1])
         items[#items + 1] = { fs = fs, small = part.small }
       end
@@ -440,23 +500,23 @@ local function CreateSpark(parent)
   f:SetSize(SPARK_W, 70)
   f.base = f:CreateLine(nil, "BORDER")
   f.base:SetThickness(1)
-  f.base:SetColorTexture(0.227, 0.227, 0.259, 1)
+  f.base:SetColorTexture(C.tick[1], C.tick[2], C.tick[3], 1)
   f.lines, f.band = {}, {}
   for i = 1, SPARK_PTS do
     local l = f:CreateLine(nil, "ARTWORK")
     l:SetThickness(1.6)
-    l:SetColorTexture(1, 0.843, 0.353, 1)
+    l:SetColorTexture(C.barHi[1], C.barHi[2], C.barHi[3], 1)
     l:Hide()
     f.lines[i] = l
     local b = f:CreateTexture(nil, "BACKGROUND")
-    b:SetColorTexture(1, 0.82, 0, 0.1)
+    b:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 0.1)
     b:Hide()
     f.band[i] = b
   end
-  f.cap = Text(f, 8.5, C.dim, "LEFT")
+  f.cap = UI:Text(f, "caps", C.dim, T_L)
   f.cap:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
   f.cap:SetText(Spaced("Running average"))
-  f.count = Text(f, 10, C.dim, "RIGHT", NUMFONT)
+  f.count = UI:Text(f, "small", C.dim, T_RN)
   f.count:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
   return f
 end
@@ -525,99 +585,57 @@ local function Reveal(f, y, x)
   return f
 end
 
-local function CreateCmpBar(parent, labelColor, fill)
+-- A comparison bar (the stage's two, Recent runs' card): the label on the left, the DPS on the right, a 6 px track
+-- with the fill under them (gold: the gradient). f:SetFrac(frac [, e]) sizes the fill (e: an eased share of it).
+local function CreateCmpBar(parent, labelColor, fill, w)
+  w = w or 206
   local f = CreateFrame("Frame", nil, parent)
-  f:SetSize(206, 30)
-  f.l = Text(f, 10.5, labelColor, "LEFT")
+  f:SetSize(w, 30)
+  f.w = w
+  f.l = UI:Text(f, "small", labelColor, T_L)
   f.l:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-  f.v = Text(f, 11.5, C.text, "RIGHT", NUMFONT)
+  f.v = UI:Text(f, "body", C.text, T_RN)
   f.v:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 1)
   f.t = f:CreateTexture(nil, "ARTWORK")
   f.t:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -16)
-  f.t:SetSize(206, 6)
+  f.t:SetSize(w, 6)
   f.t:SetColorTexture(C.track[1], C.track[2], C.track[3], 1)
   f.f = f:CreateTexture(nil, "ARTWORK", nil, 1)
   f.f:SetPoint("TOPLEFT", f.t, "TOPLEFT", 0, 0)
   f.f:SetSize(1, 6)
-  if fill == "gold" then
-    f.f:SetColorTexture(1, 1, 1, 1)
-    if f.f.SetGradient and CreateColor then
-      f.f:SetGradient("HORIZONTAL", CreateColor(0.604, 0.455, 0.125, 1), CreateColor(1, 0.843, 0.353, 1))
-    else
-      f.f:SetVertexColor(C.gold2[1], C.gold2[2], C.gold2[3], 1)
-    end
-  else
-    f.f:SetColorTexture(C.barRef[1], C.barRef[2], C.barRef[3], 1)
-  end
+  BarFill(f.f, fill == "gold")
   f.frac = 0
+  function f:SetFrac(frac, e)
+    if frac then self.frac = frac end
+    self.f:SetWidth(max(1, self.w * max(0, min(1, self.frac)) * (e or 1)))
+  end
   return f
 end
+Kit.CmpBar = CreateCmpBar
 
+-- The settings chip under the result (UI:CreateChip): the cog and the settings in a few words; a click drops the
+-- settings menu.
+-- TODO(refactor): move into UI:CreateChip (an icon from the icon atlas: its coords kept over chip:Set, an icon tint)
 local function CreateChip(parent)
-  local b = CreateFrame("Button", nil, parent)
-  b:SetSize(218, 24)
-  local function slices(path, layer, sub)
-    local t = {}
-    for i = 1, 3 do
-      t[i] = b:CreateTexture(nil, layer, nil, sub)
-      t[i]:SetTexture(path)
-    end
-    t[1]:SetPoint("TOPLEFT"); t[1]:SetPoint("BOTTOMLEFT"); t[1]:SetWidth(12); t[1]:SetTexCoord(0, 0.25, 0, 1)
-    t[3]:SetPoint("TOPRIGHT"); t[3]:SetPoint("BOTTOMRIGHT"); t[3]:SetWidth(12); t[3]:SetTexCoord(0.75, 1, 0, 1)
-    t[2]:SetPoint("TOPLEFT", t[1], "TOPRIGHT"); t[2]:SetPoint("BOTTOMRIGHT", t[3], "BOTTOMLEFT"); t[2]:SetTexCoord(0.25, 0.75, 0, 1)
-    return t
-  end
-  b.fill = slices(PILL, "BACKGROUND", 0)
-  b.edge = slices(PILLEDGE, "BORDER", 0)
-  for _, t in ipairs(b.fill) do t:SetVertexColor(0.094, 0.094, 0.11, 1) end
-  local function edgeColor(r, g, bl) for _, t in ipairs(b.edge) do t:SetVertexColor(r, g, bl, 1) end end
-  edgeColor(0.18, 0.18, 0.208)
-  b.cog = b:CreateTexture(nil, "ARTWORK")
-  b.cog:SetSize(11, 11)
-  b.cog:SetTexture(ns.UI.ICON_ATLAS)
-  local c = ns.UI:IconCoords(ns.UI.ICON.gear)
-  b.cog:SetTexCoord(c[1], c[2], c[3], c[4])
-  b.cog:SetVertexColor(C.sentence[1], C.sentence[2], C.sentence[3], 1)
-  b.fs = Text(b, 10, C.sentence, "LEFT")
+  local b = UI:CreateChip(parent, { icon = UI.ICON_ATLAS, onClick = function(self)
+    GameTooltip:Hide()
+    UI:ContextMenu(self, function(root) P():BuildSettingsMenu(root) end)
+  end })
+  local cog = UI:IconCoords(UI.ICON.gear)
   function b:SetLabel(text, short)
-    self.fs:SetText(text)
-    local tw = tonumber(self.fs:GetStringWidth()) or 150
-    if tw > 214 and short then
-      self.fs:SetText(short)
-      tw = tonumber(self.fs:GetStringWidth()) or 150
-    end
-    local w = tw + 11 + 6
-    self:SetWidth(floor(w + 28 + 0.5))
-    self.cog:ClearAllPoints()
-    self.cog:SetPoint("LEFT", self, "LEFT", 14, 0)
-    self.fs:ClearAllPoints()
-    self.fs:SetPoint("LEFT", self.cog, "RIGHT", 6, 0)
+    self:Set(text)
+    if short and self:GetWidth() > 242 then self:Set(short) end
+    self.icon:SetTexCoord(cog[1], cog[2], cog[3], cog[4])
+    self.icon:SetVertexColor(C.sentence[1], C.sentence[2], C.sentence[3], 1)
     self.revealX = CX - floor(self:GetWidth() / 2 + 0.5)
   end
-  b:SetScript("OnEnter", function(self)
-    edgeColor(0.353, 0.325, 0.251)
-    self.fs:SetTextColor(0.9, 0.9, 0.9)
-    self.cog:SetVertexColor(0.9, 0.9, 0.9, 1)
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Settings", 1, 0.82, 0)
-    GameTooltip:AddLine("Fights, fight length, boss, buffs and what the Working set is compared with.", 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  b:SetScript("OnLeave", function(self)
-    edgeColor(0.18, 0.18, 0.208)
-    self.fs:SetTextColor(C.sentence[1], C.sentence[2], C.sentence[3])
-    self.cog:SetVertexColor(C.sentence[1], C.sentence[2], C.sentence[3], 1)
-    GameTooltip:Hide()
-  end)
-  b:SetScript("OnClick", function(self)
-    GameTooltip:Hide()
-    ns.UI:ContextMenu(self, function(root) P():BuildSettingsMenu(root) end)
-  end)
+  UI:AttachTooltip(b, "Settings", { "Fights, fight length, boss, buffs and what the Working set is compared with." },
+    { anchor = "ANCHOR_BOTTOM" })
   return b
 end
 
 local function CreateNerdButton(parent)
-  local b = ns.UI:CreateSleekButton(parent, "Nerd stats", 210, 26, function()
+  local b = UI:CreateSleekButton(parent, "Nerd stats", 210, S.BTN_H, function()
     if ns.SimNerd then ns.SimNerd:Open() end
   end, "secondary")
   local fs = b:GetFontString()
@@ -630,50 +648,23 @@ local function CreateNerdButton(parent)
   b.glasses:SetSize(22, 11)
   b.glasses:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], 1)
   if fs then b.glasses:SetPoint("RIGHT", fs, "LEFT", -7, 0) else b.glasses:SetPoint("CENTER", b, "CENTER", -34, 0) end
-  b:HookScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Nerd stats", 1, 0.82, 0)
-    GameTooltip:AddLine("Everything about this run: DPS per fight, every ability, swing outcomes, procs and buffs, mana, "
-      .. "stats and the run itself.", 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+  UI:AttachTooltip(b, "Nerd stats", { "Everything about this run: DPS per fight, every ability, swing outcomes, procs and "
+    .. "buffs, mana, stats and the run itself." }, { anchor = "ANCHOR_BOTTOM" })
   return b
 end
 
--- "RECENT RUNS  4 >" under the sentence (before a run) or the chip (after one): opens UI/SimHistory.lua.
+-- "RECENT RUNS  4 >" under the sentence (before a run) or the chip (after one): opens UI/SimHistory.lua. The shared
+-- back link (UI:CreateBackLink: grey caps, gold under the mouse) with its chevron after the words, pointing on.
 local function CreateRecentLink(parent)
-  local b = CreateFrame("Button", nil, parent)
-  b:SetSize(160, 16)
-  b.fs = Text(b, 10, C.sentence)
-  b.fs:SetShadowOffset(0, 0)
-  b.icon = b:CreateTexture(nil, "ARTWORK")
-  b.icon:SetSize(9, 9)
-  ns.UI:SetChevron(b.icon, true)
-  local function paint(on)
-    local c = on and C.gold or { 0.65, 0.65, 0.65 }
-    b.fs:SetTextColor(c[1], c[2], c[3])
-    b.icon:SetVertexColor(c[1], c[2], c[3], 1)
-  end
-  paint(false)
-  function b:SetCount(n)
-    self.fs:SetText(Spaced("Recent runs") .. "   " .. tostring(n))
-    local w = (tonumber(self.fs:GetStringWidth()) or 120) + 13
-    self:SetWidth(floor(w + 0.5))
-    self.fs:ClearAllPoints()
-    self.fs:SetPoint("LEFT", self, "LEFT", 0, 0)
-    self.icon:ClearAllPoints()
-    self.icon:SetPoint("LEFT", self.fs, "RIGHT", 4, 0)
-  end
-  b:SetScript("OnEnter", function(self)
-    paint(true)
-    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-    GameTooltip:AddLine("Recent runs", 1, 0.82, 0)
-    GameTooltip:AddLine("Your last runs on this character: open one again (nothing is simmed) or compare two.", 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  b:SetScript("OnLeave", function() paint(false) GameTooltip:Hide() end)
-  b:SetScript("OnClick", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
+  local b = UI:CreateBackLink(parent, "Recent runs", function() if ns.SimHistoryUI then ns.SimHistoryUI:Open() end end)
+  b.text:ClearAllPoints()
+  b.text:SetPoint("LEFT", b, "LEFT", 0, 0)
+  b.icon:ClearAllPoints()
+  b.icon:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
+  UI:SetChevron(b.icon, true)
+  function b:SetCount(n) self:SetText(("Recent runs   %d"):format(n)) end
+  UI:AttachTooltip(b, "Recent runs", { "Your last runs on this character: open one again (nothing is simmed) or compare "
+    .. "two." }, { anchor = "ANCHOR_BOTTOM" })
   b:Hide()
   return b
 end
@@ -727,10 +718,12 @@ function Stage:Create(body, dollFrame)
 
   stage.sentence = CreateSentence(stage)
   At(stage.sentence, 40, 322)
-  stage.note = Text(stage, 12, C.sentence)
-  stage.note:SetWidth(560)
-  stage.note:SetWordWrap(true)
-  At(stage.note, 105, 326)
+  -- (a spec the sim doesn't cover: says so in the shared info notice; stage.note is its text)
+  stage.notice = UI:CreateNotice(stage, "info", "")
+  stage.notice:SetWidth(560)
+  At(stage.notice, 105, 326)
+  stage.notice:Hide()
+  stage.note = stage.notice.text
 
   stage.spark = CreateSpark(stage)
   At(stage.spark, 235, 314)
@@ -738,31 +731,31 @@ function Stage:Create(body, dollFrame)
 
   -- the result column (x 270..500)
   local res = {}
-  stage.cmpRef = Reveal(CreateCmpBar(stage, { 0.659, 0.659, 0.682 }, "ref"), 186, 282)
+  stage.cmpRef = Reveal(CreateCmpBar(stage, C.sentence, "ref"), 186, 282)
   stage.cmpWork = Reveal(CreateCmpBar(stage, C.word, "gold"), 220, 282)
   stage.cmpWork.l:SetText("Working set")
   for _, f in ipairs({ stage.cmpRef, stage.cmpWork }) do At(f, f.revealX, f.revealY); res[#res + 1] = f end
 
   stage.delta = Reveal(CreateFrame("Frame", nil, stage), 256, 270)
   stage.delta:SetSize(230, 22)
-  stage.delta.a = Text(stage.delta, 17, C.green, "LEFT")
-  stage.delta.b = Text(stage.delta, 13, C.green, "LEFT")
+  stage.delta.a = UI:Text(stage.delta, "page", C.green, T_L)
+  stage.delta.b = UI:Text(stage.delta, "title", C.green, T_L)
   At(stage.delta, 270, 256)
   res[#res + 1] = stage.delta
 
   stage.verdict = Reveal(CreateFrame("Frame", nil, stage), 280, 270)
   stage.verdict:SetSize(230, 16)
-  stage.verdict.fs = Text(stage.verdict, 10.5, C.okText)
+  stage.verdict.fs = UI:Text(stage.verdict, "small", C.okText, T_C)
   stage.verdict.fs:SetPoint("TOP", stage.verdict, "TOP", 0, 0)
   At(stage.verdict, 270, 280)
   res[#res + 1] = stage.verdict
 
-  stage.staleNote = Text(stage, 10, C.stale)
+  stage.staleNote = UI:Text(stage, "small", C.stale, T_C)
   stage.staleNote:SetPoint("TOP", stage, "TOPLEFT", CX, -280)
   stage.staleNote:SetText("Working set changed  \194\183  click the circle")
   stage.staleNote:Hide()
 
-  stage.meta = Text(stage, 9.5, { 1, 0.55, 0.2 })
+  stage.meta = UI:Text(stage, "caps", C.warn, T_C)
   stage.meta:SetPoint("TOP", stage, "TOPLEFT", CX, -298)
   stage.meta:SetWidth(230)
 
@@ -770,8 +763,8 @@ function Stage:Create(body, dollFrame)
   At(stage.nerd, 280, 318)
   res[#res + 1] = stage.nerd
 
-  stage.chip = Reveal(CreateChip(stage), 358, 276)
-  At(stage.chip, 276, 358)
+  stage.chip = Reveal(CreateChip(stage), 361, 276)
+  At(stage.chip, 276, 361)
   res[#res + 1] = stage.chip
   stage.res = res
   for _, f in ipairs(res) do f:SetAlpha(0); f:Hide() end
@@ -963,7 +956,7 @@ local function Inside(mode)
   sigil.k:SetShown(not before); sigil.n:SetShown(not before); sigil.pm:SetShown(not before)
   sigil.again:SetShown(mode == "stale")
   sigil:SetEnabled(mode ~= "unsupported")
-  sigil.n:SetFont(FONT, (mode == "done" or mode == "stale") and 42 or 34, "")
+  UI:SetTextStyle(sigil.n, (mode == "done" or mode == "stale") and 42 or 34, C.text)
   sigil.n:SetAlpha(mode == "stale" and 0.35 or 1)
   sigil.pm:SetAlpha(mode == "stale" and 0.35 or 1)
   if mode == "unsupported" then
@@ -1011,39 +1004,22 @@ local function FillResults()
   stage.cmpRef.frac = (a - lo) / (hi - lo)
   stage.cmpWork.frac = (b - lo) / (hi - lo)
   local d, se = res.diff, res.se
-  local none = abs(d) < 0.5                     -- the same gear (or as good as): nothing to call
-  local close = none or abs(d) < 2 * se
-  local col = close and C.grey or (d > 0 and C.green or C.red)
-  local pct = d / max(1, a) * 100
+  local col, kind = Verdict(d, se)              -- (none: the same gear, or as good as: nothing to call)
   local da, db = stage.delta.a, stage.delta.b
   da:SetText(ns.SimPanel.Signed(d) .. " DPS")
-  db:SetText(abs(pct) < 0.05 and "0.0%" or ((pct >= 0 and "+" or "\226\136\146") .. ("%.1f%%"):format(abs(pct))))
+  db:SetText(PctText(d, a))
   da:SetTextColor(col[1], col[2], col[3]); db:SetTextColor(col[1], col[2], col[3])
   local wa, wb = tonumber(da:GetStringWidth()) or 70, tonumber(db:GetStringWidth()) or 40
   local x0 = (230 - (wa + 6 + wb)) / 2
   da:ClearAllPoints(); da:SetPoint("BOTTOMLEFT", stage.delta, "BOTTOMLEFT", x0, 2)
   db:ClearAllPoints(); db:SetPoint("BOTTOMLEFT", da, "BOTTOMRIGHT", 6, 1)
-  local sure = ("\194\177%s"):format(Fmt(2 * se))
-  local v = stage.verdict.fs
-  if none then
-    v:SetText("No difference")
-    v:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-  elseif close then
-    v:SetText("Too close to call  |cff8f8f95\194\183  " .. sure .. "|r")
-    v:SetTextColor(C.dim[1], C.dim[2], C.dim[3])
-  elseif d > 0 then
-    v:SetText(("|T%s:12:12:0:0|t A real upgrade  |cff8f8f95\194\183  %s|r"):format(CHECK_OK, sure))
-    v:SetTextColor(C.okText[1], C.okText[2], C.okText[3])
-  else
-    v:SetText(("|T%s:12:12:0:0|t A downgrade  |cff8f8f95\194\183  %s|r"):format(CHECK_NO, sure))
-    v:SetTextColor(C.noText[1], C.noText[2], C.noText[3])
-  end
+  VerdictLine(stage.verdict.fs, kind, se, "A real upgrade", "A downgrade")
   stage.meta:SetText(Sim:MetaWarning() or "")
 end
 
 local function PaintBars(e)
   for _, f in ipairs({ stage.cmpRef, stage.cmpWork }) do
-    f.f:SetWidth(max(1, 206 * max(0, min(1, f.frac)) * (e or 1)))
+    f:SetFrac(nil, e)
   end
 end
 
@@ -1080,11 +1056,11 @@ function Stage:Apply(mode, animate)
     SigilTo("centre", animate and from ~= nil)
     ArtShown(0.55, animate)
     SentenceShown(mode == "idle", animate)
-    stage.note:SetShown(mode == "unsupported")
     if mode == "unsupported" then
-      stage.note:SetText(("The gear sim covers %s for now. Pick such a spec in the tabs above to sim it.")
+      stage.notice:SetNotice("info", ("The gear sim covers %s for now. Pick such a spec in the tabs above to sim it.")
         :format(R().COVERED))
     end
+    stage.notice:SetShown(mode == "unsupported")
     SparkShown(false, animate)
     StaleLook(false)
     stage.meta:Hide()
@@ -1092,7 +1068,7 @@ function Stage:Apply(mode, animate)
   elseif mode == "run" then
     if ns.SimNerd then ns.SimNerd:Close(true) end
     if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
-    stage.note:Hide()
+    stage.notice:Hide()
     sigil.k:SetText(Spaced("Simulating"))
     sigil.n:SetText("\226\128\148")
     sigil.pm:SetText("")
@@ -1106,7 +1082,7 @@ function Stage:Apply(mode, animate)
     stage.meta:Hide()
     PaintTicks(0)
   else -- done / stale
-    stage.note:Hide()
+    stage.notice:Hide()
     self:RefreshSettings()
     FillResults()
     local entering = from ~= "done" and from ~= "stale"
@@ -1216,14 +1192,18 @@ function Stage:Show(on)
     FinishTweens()
     stage:Hide()
     self.mode = nil
+    self.covered = nil
     if doll then
+      if self.dollCovered then doll:Show() end
       doll:SetAlpha(1)
       for _, tile in pairs(doll.tiles or {}) do tile:SetAlpha(1) end
     end
+    self.dollCovered = nil
     if ns.SimNerd then ns.SimNerd:Close(true) end
     if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
     return
   end
+  if self.covered then return end       -- (under Nerd stats / Recent runs: Cover(false) brings it back)
   local first = not stage:IsShown()
   stage:Show()
   self:Sync(not first)
@@ -1231,6 +1211,11 @@ end
 
 -- Brings the page to what SimPanel's state says (animated unless it just opened).
 function Stage:Sync(animate)
+  -- (a run starting under Nerd stats / Recent runs: they close and the page shows it)
+  if stage and self.covered and Wanted() == "run" then
+    if ns.SimNerd then ns.SimNerd:Close(true) end
+    if ns.SimHistoryUI then ns.SimHistoryUI:Close(true) end
+  end
   if not stage or not stage:IsShown() then return end
   local want = Wanted()
   if not want then return end
@@ -1260,14 +1245,45 @@ function Stage:Sync(animate)
 end
 
 -- Nerd stats / Recent runs open over the page (on) or closed at once (off): they have no fill of their own (the
--- window's background shows through), so the page's own pieces and the doll go out of sight under them. Their frames
--- sit beside the stage (Stage:OverlayParent), not in it.
+-- window's background shows through), so the page's own pieces and the doll go out of sight under them (hidden, at
+-- alpha 0 for the fade back) and come back as the page's state wants them. Their frames sit beside the stage
+-- (Stage:OverlayParent), not in it.
 function Stage:OverlayParent() return stage and stage:GetParent() end
+
+-- Their frame level: over the page's body, the stage (the dial is a button) and the doll's tiles, so nothing of the
+-- page under them takes the mouse.
+function Stage:OverlayLevel(body)
+  local l = body and body:GetFrameLevel() or 0
+  if stage then l = max(l, stage:GetFrameLevel() + 10) end
+  if doll then l = max(l, doll:GetFrameLevel() + 10) end
+  return l + 30
+end
 
 function Stage:Cover(on)
   if not stage then return end
   stage:SetAlpha(on and 0 or 1)
-  if doll and doll:IsShown() then doll:SetAlpha(on and 0 or 1) end
+  if on then
+    if not self.covered and stage:IsShown() then
+      self.covered = true
+      stage:Hide()
+      if doll and doll:IsShown() then
+        doll:SetAlpha(0)
+        doll:Hide()
+        self.dollCovered = true
+      end
+    end
+    return
+  end
+  local was, dollWas = self.covered, self.dollCovered
+  self.covered, self.dollCovered = nil, nil
+  if doll and (dollWas or doll:IsShown()) then doll:SetAlpha(1) end
+  if not was or not P():IsActive() then
+    if dollWas and doll then doll:Show() end
+    return
+  end
+  stage:Show()
+  if dollWas and doll and (self.mode == "done" or self.mode == "stale") then doll:Show() end
+  self:Sync(false)
 end
 
 -- Back from Nerd stats: the result page fades in like a page of the main window.
