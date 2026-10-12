@@ -3,7 +3,7 @@ modules both ways (events, polls, prized items, strategies + assignments, raid p
 (raid blacklist, guest book notes).
 
 The old client is this addon with the sync files of release 1.3.5 put back (git show 0f0b272:<file> for every file
-phase 5 changed: Core/Sync.lua, DB.lua, Events.lua, Polls.lua, Prized.lua, RaidPlan.lua, Strategy.lua, GuestBook.lua,
+phase 5 changed: Core/Sync.lua, Events.lua, Polls.lua, Prized.lua, RaidPlan.lua, Strategy.lua, GuestBook.lua,
 Ledger.lua, RaidLog.lua; Core/DigestSync.lua stays, unused by them). Cases:
   old_writes_new_catches_up      the old client writes everything; new clients take the live changes; a new client
                                  that was away catches up while only the old client is online (old XXD -> new)
@@ -29,7 +29,9 @@ from st_common import COUNCIL, K  # noqa: E402
 import lr_common as lr  # noqa: E402
 
 OLD_COMMIT = "0f0b272"          # release 1.3.5
-OLD_FILES = ["Core/Sync.lua", "Core/DB.lua", "Core/Events.lua", "Core/Polls.lua", "Core/Prized.lua",
+# Core/DB.lua is not swapped back: since 1.3.5 it only gained DB:GuildBucket (additive), which non-sync Core files
+# now call, so the old client keeps the current one (its sync behaviour is the same).
+OLD_FILES = ["Core/Sync.lua", "Core/Events.lua", "Core/Polls.lua", "Core/Prized.lua",
              "Core/RaidPlan.lua", "Core/Strategy.lua", "Core/GuestBook.lua", "Core/Ledger.lua", "Core/RaidLog.lua"]
 REPO = os.path.dirname(os.path.dirname(TESTS))
 OLD_DIR = os.path.join(os.path.dirname(TESTS), "tf_e", "_mixed_old_%d" % os.getpid(), "DisasterZone")
